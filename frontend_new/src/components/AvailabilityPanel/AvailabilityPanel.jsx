@@ -1,8 +1,9 @@
 /**
  * AvailabilityPanel — 月曆 + 時間選擇器版
  * Props:
- *   draft     { resource_type, cores, memory, disk_size?, rootfs_size?, gpu_required? }
- *   onChange  ({ start_at: string|null, end_at: string|null }) => void
+ *   draft         { resource_type, cores, memory, disk_size?, rootfs_size?, gpu_required? }
+ *   onChange      ({ start_at: string|null, end_at: string|null }) => void
+ *   onHintChange  (hint: string|null) => void  — contextual UX hint for the parent to display
  */
 import { useEffect, useMemo, useRef, useState } from "react";
 import { VmRequestAvailabilityService } from "../../services/vmRequestAvailability";
@@ -37,6 +38,10 @@ function TimeGroup({ label, date, hours, value, onChange }) {
 const MONTH_NAMES = ["一月","二月","三月","四月","五月","六月","七月","八月","九月","十月","十一月","十二月"];
 const DAY_HEADERS = ["日","一","二","三","四","五","六"];
 
+/* picking state: "extend" = waiting for user to pick end date; "idle" = can start fresh */
+const PICK_EXTEND = "extend";
+const PICK_IDLE   = "idle";
+
 function toDateStr(d) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
@@ -62,7 +67,7 @@ export default function AvailabilityPanel({ draft, onChange, onHintChange }) {
   const [startHour, setStartHour] = useState(null);
   const [endHour, setEndHour]     = useState(null);
   const [hoverDate, setHoverDate] = useState(null);
-  const [picking, setPicking]     = useState("start");
+  const [picking, setPicking]     = useState(PICK_IDLE);
 
   const onChangeRef = useRef(onChange);
   useEffect(() => { onChangeRef.current = onChange; }, [onChange]);
@@ -135,19 +140,17 @@ export default function AvailabilityPanel({ draft, onChange, onHintChange }) {
   /* ── Day click ── */
   function handleDayClick(dateStr, level) {
     if (!level || level === "none") return;
-    if (picking === "start" || !startDate) {
-      // First click always sets a single-day selection
+    if (picking === PICK_IDLE || !startDate) {
       setStartDate(dateStr); setEndDate(dateStr);
       setStartHour(null);   setEndHour(null);
-      setPicking("end");
+      setPicking(PICK_EXTEND);
     } else {
-      // picking === "end": extend range or reset to new single-day
       if (dateStr > startDate) {
         setEndDate(dateStr);
         setEndHour(null);
-        setPicking("start");
+        setPicking(PICK_IDLE);
       } else {
-        // Clicked same or earlier date: restart as single-day
+        // Same or earlier date: restart as single-day
         setStartDate(dateStr); setEndDate(dateStr);
         setStartHour(null);   setEndHour(null);
       }
@@ -168,15 +171,14 @@ export default function AvailabilityPanel({ draft, onChange, onHintChange }) {
     });
   }, [startDate, endDate, startHour, endHour, dayMap]);
 
-  const isComplete = startDate && endDate && startHour != null && endHour != null;
-
   useEffect(() => {
     let hint = null;
     if (!startDate) hint = "點選日期即可選取單日，或繼續點選其他日期延伸範圍";
-    else if (picking === "end" && startDate === endDate) hint = `已選單日 ${startDate}，可繼續點選其他日期延伸範圍`;
-    else if (picking === "start" && !isComplete) hint = "日期已選定，點選日期即可重新選擇";
+    else if (picking === PICK_EXTEND && startDate === endDate) hint = `已選單日 ${startDate}，可繼續點選其他日期延伸範圍`;
+    else if (picking === PICK_IDLE && !(startDate && endDate && startHour != null && endHour != null))
+      hint = "日期已選定，點選日期即可重新選擇";
     onHintChangeRef.current?.(hint);
-  }, [startDate, endDate, startHour, endHour, picking, isComplete]);
+  }, [startDate, endDate, startHour, endHour, picking]);
 
   /* ── Early returns ── */
   if (!draftReady) return (
@@ -197,9 +199,10 @@ export default function AvailabilityPanel({ draft, onChange, onHintChange }) {
     </div>
   );
 
-  const isHoverPreview = picking === "end" && Boolean(hoverDate) && hoverDate > startDate;
+  const isComplete     = startDate && endDate && startHour != null && endHour != null;
+  const isHoverPreview = picking === PICK_EXTEND && Boolean(hoverDate) && hoverDate > startDate;
   const effectiveEnd   = isHoverPreview ? hoverDate : endDate;
-  const hasRange       = picking === "start" && Boolean(startDate) && Boolean(endDate) && startDate !== endDate;
+  const hasRange       = picking === PICK_IDLE && Boolean(startDate) && Boolean(endDate) && startDate !== endDate;
   const startHours     = startDate ? getSelectableHours(startDate) : [];
   const endHours       = endDate   ? getSelectableHours(endDate)   : [];
 
@@ -255,7 +258,7 @@ export default function AvailabilityPanel({ draft, onChange, onHintChange }) {
                 disabled={disabled}
                 className={dayClass}
                 onClick={() => handleDayClick(dateStr, level)}
-                onMouseEnter={() => picking === "end" && setHoverDate(dateStr)}
+                onMouseEnter={() => picking === PICK_EXTEND && setHoverDate(dateStr)}
                 onMouseLeave={() => setHoverDate(null)}
               >
                 <span className={styles.dayInner}>{d.getDate()}</span>
