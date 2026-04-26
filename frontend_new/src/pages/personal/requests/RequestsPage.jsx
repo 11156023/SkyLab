@@ -68,7 +68,6 @@ function StatusBadge({ status }) {
   const s = STATUS_MAP[status] ?? { label: status, color: "muted", icon: "info" };
   return (
     <span className={`${styles.badge} ${styles[`badge_${s.color}`]}`}>
-      <MIcon name={s.icon} size={11} />
       {s.label}
     </span>
   );

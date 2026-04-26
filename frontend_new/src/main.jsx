@@ -2,6 +2,7 @@ import React from "react";
 import ReactDOM from "react-dom/client";
 import { Toaster } from "sonner";
 import "@material-design-icons/font/outlined.css";
+import "@material-design-icons/font/filled.css";
 import App from "./App";
 import { ThemeProvider } from "./contexts/ThemeContext";
 import { AuthProvider }  from "./contexts/AuthContext";

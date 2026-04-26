@@ -44,7 +44,6 @@ function StatusBadge({ status }) {
   const s = STATUS_MAP[status] ?? { label: status, color: "muted", icon: "help_outline" };
   return (
     <span className={`${styles.badge} ${styles[`badge_${s.color}`]}`}>
-      <MIcon name={s.icon} size={11} />
       {s.label}
     </span>
   );
@@ -197,7 +196,10 @@ function ResourceCard({ resource, onUpdated, onDeleted }) {
                 onClick={() => handleControl("start")}
                 title="啟動"
               >
-                <MIcon name={actionLoading === "start" ? "hourglass_empty" : "play_arrow"} size={16} />
+                {actionLoading === "start"
+                  ? <MIcon name="hourglass_empty" size={16} />
+                  : <span className="material-icons" style={{ fontSize: 16, lineHeight: 1 }}>play_arrow</span>
+                }
               </button>
             )}
             {isRunning && (

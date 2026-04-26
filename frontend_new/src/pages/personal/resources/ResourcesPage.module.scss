@@ -315,7 +315,6 @@
   align-items: center;
   gap: $spacing-8;
   padding-top: $spacing-16;
-  margin-top: $spacing-8;
   border-top: 1px solid var(--color-border);
 }
 
@@ -345,11 +344,13 @@
 }
 
 .powerBtnStart {
+  
+  background: color-mix(in srgb, #28a745 10%, transparent);
   color: #28a745;
   border-color: color-mix(in srgb, #28a745 30%, var(--color-border));
 
   &:hover:not(:disabled) {
-    background: color-mix(in srgb, #28a745 10%, transparent);
+    background: color-mix(in srgb, #28a745 10%, var(--color-border));
     color: #28a745;
     border-color: #28a745;
   }
@@ -366,23 +367,26 @@
   }
 }
 
-/* ── Delete button ── */
+/* ── Delete button（同申請頁撤銷鈕樣式）── */
 .deleteBtn {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
-  padding: 5px 10px;
+  gap: 5px;
+  padding: 5px 12px;
   border-radius: $radius-8;
   font-size: 13px;
   font-weight: $font-weight-500;
   cursor: pointer;
   white-space: nowrap;
   border: 1px solid var(--color-border);
-  background: color-mix(in srgb, #dc3545 6%, transparent);
-  color: #b94a55;
+  transition: background $transition-base, border-color $transition-base;
+  background: color-mix(in srgb, #dc3545 80%, var(--color-border));
+  color: var(--color-text-on-primary);
+  border-color: color-mix(in srgb, #dc3545 80%, var(--color-border));
 
   &:hover {
     background: color-mix(in srgb, #dc3545 12%, transparent);
+    color: color-mix(in srgb, #dc3545 80%, var(--color-border));
     border-color: color-mix(in srgb, #dc3545 40%, var(--color-border));
   }
 }
