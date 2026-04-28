@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import uuid
 from datetime import datetime
 from typing import Any
 
@@ -10,6 +11,7 @@ class ChatRequest(BaseModel):
     message: str | None = Field(
         default=None, description="使用者輸入的自然語言問題", max_length=2000
     )
+    group_id: uuid.UUID = Field(description="目前所在群組 ID")
     messages: list[dict] | None = Field(
         default=None, description="完整的對話歷史（用於中斷與接續對話）"
     )

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import uuid
 
 from fastapi import APIRouter, HTTPException, Query
 
@@ -22,6 +23,8 @@ from app.ai.pve_log.schemas import (
     SystemSnapshot,
 )
 from app.api.deps import InstructorUser, SessionDep
+from app.core.authorizers import require_group_access
+from app.repositories import group as group_repo
 
 logger = logging.getLogger(__name__)
 
@@ -34,6 +37,21 @@ async def _snapshot_or_500() -> SystemSnapshot:
     except Exception:
         logger.exception("收集 PVE 系統快照失敗")
         raise HTTPException(status_code=500, detail="收集 PVE 資料失敗，請稍後再試")
+
+
+def _resolve_group_vmids(
+    *,
+    session: SessionDep,
+    current_user: InstructorUser,
+    group_id: uuid.UUID,
+) -> set[int]:
+    db_group = group_repo.get_group_by_id(session=session, group_id=group_id)
+    if not db_group:
+        raise HTTPException(status_code=404, detail="Group not found")
+
+    require_group_access(current_user, db_group.owner_id)
+    member_vmids = group_repo.get_member_vmids(session=session, group_id=group_id)
+    return {vmid for vmid in member_vmids.values() if vmid is not None}
 
 
 @router.get("/system-snapshot", response_model=SystemSnapshot)
@@ -132,11 +150,17 @@ async def chat(
     _current_user: InstructorUser,
     session: SessionDep,
 ) -> ChatResponse:
+    allowed_vmids = _resolve_group_vmids(
+        session=session,
+        current_user=_current_user,
+        group_id=request.group_id,
+    )
     try:
         return await pve_chat(
             message=request.message,
             history=request.messages,
             session=session,
+            allowed_vmids=allowed_vmids,
         )
     except Exception:
         logger.exception("AI-PVE 對話失敗")

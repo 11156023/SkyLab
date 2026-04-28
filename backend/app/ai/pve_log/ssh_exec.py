@@ -50,21 +50,26 @@ _PENDING_TTL = 300  # 秒
 _pending_store: dict[str, dict[str, Any]] = {}  # token → {request, created_at}
 
 
-def _store_pending(req: SSHExecRequest) -> str:
+def _store_pending(
+    req: SSHExecRequest,
+    *,
+    allowed_vmids: set[int] | None = None,
+) -> str:
     """儲存待確認請求，回傳 token。"""
     token = str(uuid.uuid4())
-    _pending_store[token] = {"request": req, "created_at": time.monotonic()}
+    _pending_store[token] = {
+        "request": req,
+        "created_at": time.monotonic(),
+        "allowed_vmids": set(allowed_vmids) if allowed_vmids is not None else None,
+    }
     _cleanup_expired()
     return token
 
 
-def _pop_pending(token: str) -> SSHExecRequest | None:
+def _pop_pending(token: str) -> dict[str, Any] | None:
     """取出待確認請求（同時從 store 移除）。"""
     _cleanup_expired()
-    entry = _pending_store.pop(token, None)
-    if entry is None:
-        return None
-    return entry["request"]
+    return _pending_store.pop(token, None)
 
 
 def _cleanup_expired() -> None:
@@ -253,7 +258,12 @@ def _resolve_vm_info_from_db(session: Session, vmid: int) -> tuple[str, str]:
 # 主要公開函式
 # ---------------------------------------------------------------------------
 
-async def ssh_exec(req: SSHExecRequest, *, session: Session | None = None) -> SSHExecResult:
+async def ssh_exec(
+    req: SSHExecRequest,
+    *,
+    session: Session | None = None,
+    allowed_vmids: set[int] | None = None,
+) -> SSHExecResult:
     """SSH 執行主入口。
 
     呼叫端透過 SSHExecRequest.require_confirm 控制是否需要二次確認：
@@ -273,9 +283,19 @@ async def ssh_exec(req: SSHExecRequest, *, session: Session | None = None) -> SS
             block_reason=guard.reason,
         )
 
+    if allowed_vmids is not None and req.vmid not in allowed_vmids:
+        return SSHExecResult(
+            vmid=req.vmid,
+            host="",
+            ssh_user=req.ssh_user,
+            command=req.command,
+            blocked=True,
+            block_reason="目前只允許存取所在群組內的 VM/LXC",
+        )
+
     # ── 層二：執行前確認（AI 呼叫時） ────────────────────────────────────
     if req.require_confirm:
-        token = _store_pending(req)
+        token = _store_pending(req, allowed_vmids=allowed_vmids)
         logger.info("SSH 待確認 vmid=%d cmd=%r token=%s", req.vmid, req.command, token)
         return SSHExecResult(
             vmid=req.vmid,
@@ -286,10 +306,14 @@ async def ssh_exec(req: SSHExecRequest, *, session: Session | None = None) -> SS
             confirm_token=token,
         )
 
-    return await _do_exec(req, session=session)
+    return await _do_exec(req, session=session, allowed_vmids=allowed_vmids)
 
 
-async def confirm_exec(confirm_req: SSHConfirmRequest, *, session: Session | None = None) -> SSHExecResult:
+async def confirm_exec(
+    confirm_req: SSHConfirmRequest,
+    *,
+    session: Session | None = None,
+) -> SSHExecResult:
     """處理使用者確認（允許 or 拒絕）。"""
     token = confirm_req.token or confirm_req.confirm_token
     if not token:
@@ -300,8 +324,8 @@ async def confirm_exec(confirm_req: SSHConfirmRequest, *, session: Session | Non
             command="",
             error="缺少確認 token，請重新發起請求。",
         )
-    req = _pop_pending(token)
-    if req is None:
+    entry = _pop_pending(token)
+    if entry is None:
         return SSHExecResult(
             vmid=0,
             host="",
@@ -309,6 +333,8 @@ async def confirm_exec(confirm_req: SSHConfirmRequest, *, session: Session | Non
             command="",
             error="確認 token 無效或已過期（TTL 5 分鐘）。請重新發起請求。",
         )
+    req = entry["request"]
+    allowed_vmids = entry.get("allowed_vmids")
 
     if not confirm_req.approved:
         logger.info("使用者拒絕執行 vmid=%d cmd=%r", req.vmid, req.command)
@@ -340,10 +366,15 @@ async def confirm_exec(confirm_req: SSHConfirmRequest, *, session: Session | Non
             )
         req = req.model_copy(update={"command": override_command})
 
-    return await _do_exec(req, session=session)
+    return await _do_exec(req, session=session, allowed_vmids=allowed_vmids)
 
 
-async def _do_exec(req: SSHExecRequest, *, session: Session | None = None) -> SSHExecResult:
+async def _do_exec(
+    req: SSHExecRequest,
+    *,
+    session: Session | None = None,
+    allowed_vmids: set[int] | None = None,
+) -> SSHExecResult:
     """實際執行 SSH 指令（通過安全檢查後）。
 
     當 session 傳入時走內部 DB 查詢路徑（主後端內嵌模組用）；
@@ -353,6 +384,16 @@ async def _do_exec(req: SSHExecRequest, *, session: Session | None = None) -> SS
     host = ""
 
     try:
+        if allowed_vmids is not None and req.vmid not in allowed_vmids:
+            return SSHExecResult(
+                vmid=req.vmid,
+                host="",
+                ssh_user=req.ssh_user,
+                command=req.command,
+                blocked=True,
+                block_reason="目前只允許存取所在群組內的 VM/LXC",
+            )
+
         if session is not None:
             host, private_key = _resolve_vm_info_from_db(session, req.vmid)
         else:

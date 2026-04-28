@@ -35,6 +35,7 @@ export const AiPveLogService = {
   chat(data: {
     message?: string
     messages?: Record<string, unknown>[]
+    group_id: string
   }): CancelablePromise<ChatResponse> {
     return __request(OpenAPI, {
       method: "POST",

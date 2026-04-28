@@ -11,6 +11,7 @@
 設計重點：
   - 一次 chat 請求只收集一次 PVE 快照（lazy），多個 tool_calls 共用同一份快照。
   - ssh_exec 在 AI Tool 呼叫時直接執行（不走 pending 確認），黑名單仍有效。
+  - 若對話帶有群組範圍，工具輸出與 SSH 執行都只允許該群組可見的 VMID。
   - Gemma-4/Qwen3 的 <think> 與 tool call 標記會在第二次請求前清除，
     避免 message history 污染導致 LLM 無法正確總結。
 """
@@ -212,7 +213,13 @@ _TOOLS: list[dict] = [
 # ---------------------------------------------------------------------------
 
 
-def _execute_tool_sync(snapshot, name: str, args: dict) -> Any:
+def _execute_tool_sync(
+    snapshot,
+    name: str,
+    args: dict,
+    *,
+    allowed_vmids: set[int] | None = None,
+) -> Any:
     """使用已收集好的 snapshot 執行工具，同步版本（供 asyncio.to_thread 包裝）。"""
     if name == "get_nodes":
         return [n.model_dump(mode="json") for n in snapshot.nodes]
@@ -231,10 +238,14 @@ def _execute_tool_sync(snapshot, name: str, args: dict) -> Any:
             result = [r for r in result if r.resource_type == args["resource_type"]]
         if args.get("status"):
             result = [r for r in result if r.status == args["status"]]
+        if allowed_vmids is not None:
+            result = [r for r in result if r.vmid in allowed_vmids]
         return [r.model_dump(mode="json") for r in result]
 
     elif name == "get_resource_detail":
         vmid = int(args["vmid"])
+        if allowed_vmids is not None and vmid not in allowed_vmids:
+            return {"error": "目前只允許存取所在群組內的 VM/LXC"}
         summary = next((r for r in snapshot.resources if r.vmid == vmid), None)
         if summary is None:
             return {"error": f"找不到 vmid={vmid}"}
@@ -264,6 +275,7 @@ async def _execute_ssh_tool(
     args: dict,
     *,
     session: Session | None = None,
+    allowed_vmids: set[int] | None = None,
 ) -> dict:
     """執行 ssh_exec 工具（async，需要等待 SSH 連線）。
 
@@ -282,6 +294,17 @@ async def _execute_ssh_tool(
     except (KeyError, ValueError, TypeError) as e:
         return {"error": f"缺少或無效的必填參數: {e}", "pending": False}
 
+    if allowed_vmids is not None and vmid not in allowed_vmids:
+        return {
+            "vmid": vmid,
+            "host": "",
+            "ssh_user": str(args.get("ssh_user", "root")),
+            "command": command,
+            "blocked": True,
+            "block_reason": "目前只允許存取所在群組內的 VM/LXC",
+            "pending": False,
+        }
+
     req = _SSHExecRequest(
         vmid=vmid,
         command=command,
@@ -289,7 +312,7 @@ async def _execute_ssh_tool(
         ssh_port=int(args.get("ssh_port", 22)),
         require_confirm=True,  # 支援中斷與接續確認，改為 True
     )
-    result = await _ssh_exec(req, session=session)
+    result = await _ssh_exec(req, session=session, allowed_vmids=allowed_vmids)
     data = result.model_dump(mode="json")
     # 補充 reason 給前端顯示（AI 提供的說明）
     data["reason"] = str(args.get("reason", "未提供原因"))
@@ -306,6 +329,7 @@ async def chat(
     history: list[dict] | None = None,
     *,
     session: Session | None = None,
+    allowed_vmids: set[int] | None = None,
 ) -> ChatResponse:
     """單次 AI 對話，支援 Tool Calling 及其接續。
 
@@ -332,6 +356,16 @@ async def chat(
         messages = [
             {"role": "system", "content": _SYSTEM_PROMPT},
         ]
+        if allowed_vmids is not None:
+            messages.append(
+                {
+                    "role": "system",
+                    "content": (
+                        "本次對話僅可讀取目前群組可見的 VM/LXC 資源，"
+                        "不得查詢或操作範圍外的 VMID。"
+                    ),
+                }
+            )
         if message:
             messages.append({"role": "user", "content": message})
 
@@ -500,9 +534,18 @@ async def chat(
                 try:
                     # ssh_exec 是 async 操作（需要 HTTP + SSH 連線），走獨立路徑
                     if func_name == "ssh_exec":
-                        result = await _execute_ssh_tool(func_args, session=session)
+                        result = await _execute_ssh_tool(
+                            func_args,
+                            session=session,
+                            allowed_vmids=allowed_vmids,
+                        )
                     else:
-                        result = _execute_tool_sync(_snapshot, func_name, func_args)
+                        result = _execute_tool_sync(
+                            _snapshot,
+                            func_name,
+                            func_args,
+                            allowed_vmids=allowed_vmids,
+                        )
 
                     result_dict = result if isinstance(result, dict) else {}
                     if result_dict.get("pending"):
