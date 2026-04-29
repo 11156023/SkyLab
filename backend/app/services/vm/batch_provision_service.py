@@ -10,10 +10,12 @@ from datetime import date
 from sqlmodel import Session
 
 from app.core.db import engine
+from app.exceptions import BadRequestError
 from app.models.batch_provision import BatchProvisionJobStatus, BatchProvisionTask
 from app.repositories import batch_provision as bp_repo
 from app.repositories import group as group_repo
 from app.schemas import LXCCreateRequest, VMCreateRequest
+from app.services.network import ip_management_service
 from app.services.proxmox import provisioning_service
 
 logger = logging.getLogger(__name__)
@@ -22,7 +24,7 @@ logger = logging.getLogger(__name__)
 # ─── 公開 API ─────────────────────────────────────────────────────────────────
 
 
-def start_batch_job(
+def submit_batch_job(
     *,
     session: Session,
     group_id: uuid.UUID,
@@ -30,14 +32,18 @@ def start_batch_job(
     resource_type: str,
     hostname_prefix: str,
     params: dict,
+    recurrence_rule: str | None = None,
+    recurrence_duration_minutes: int | None = None,
+    schedule_timezone: str | None = None,
 ) -> uuid.UUID:
-    """
-    建立 BatchProvisionJob（含所有成員 Task），然後在背景執行緒逐一建立。
-    回傳 job_id 供前端輪詢。
-    """
-    from app.exceptions import BadRequestError
-    from app.services.network import ip_management_service
+    """Create a BatchProvisionJob in ``pending_review`` state.
 
+    The job (and its per-member tasks) are persisted but no provisioning is
+    started — an admin must call :func:`approve_batch_job` first.
+
+    Validates that the IP subnet is configured and that there is enough free
+    capacity for every group member before persisting anything.
+    """
     member_rows = group_repo.get_member_rows(session=session, group_id=group_id)
     if not member_rows:
         raise BadRequestError("群組沒有成員，無法執行批量建立")
@@ -55,6 +61,11 @@ def start_batch_job(
 
     member_user_ids = [row.user_id for row in member_rows]
 
+    if recurrence_rule and not recurrence_duration_minutes:
+        raise BadRequestError(
+            "排程必須同時指定 recurrence_rule 與 recurrence_duration_minutes"
+        )
+
     job = bp_repo.create_job(
         session=session,
         group_id=group_id,
@@ -63,21 +74,102 @@ def start_batch_job(
         hostname_prefix=hostname_prefix,
         template_params=json.dumps(params),
         member_user_ids=member_user_ids,
+        initial_status=BatchProvisionJobStatus.pending_review,
+        recurrence_rule=recurrence_rule,
+        recurrence_duration_minutes=recurrence_duration_minutes,
+        schedule_timezone=schedule_timezone,
+    )
+
+    logger.info(
+        "Batch provision job %s submitted (pending_review): %d members, type=%s prefix=%s",
+        job.id, len(member_user_ids), resource_type, hostname_prefix,
+    )
+    return job.id
+
+
+def approve_batch_job(
+    *,
+    session: Session,
+    job_id: uuid.UUID,
+    reviewer_id: uuid.UUID,
+    review_comment: str | None = None,
+) -> None:
+    """Approve a pending batch job and spawn the background worker."""
+    job = bp_repo.get_job(session=session, job_id=job_id)
+    if job is None:
+        raise BadRequestError("Batch job not found")
+    if job.status != BatchProvisionJobStatus.pending_review:
+        raise BadRequestError(
+            f"Batch job is not pending review (current status: {job.status})"
+        )
+
+    bp_repo.mark_reviewed(
+        session=session,
+        job_id=job_id,
+        reviewer_id=reviewer_id,
+        decision=BatchProvisionJobStatus.approved,
+        review_comment=review_comment,
     )
 
     t = threading.Thread(
         target=_run_queue,
-        args=(job.id,),
+        args=(job_id,),
         daemon=True,
-        name=f"batch-provision-{job.id}",
+        name=f"batch-provision-{job_id}",
     )
     t.start()
 
-    logger.info(
-        "Batch provision job %s started: %d members, type=%s prefix=%s",
-        job.id, len(member_user_ids), resource_type, hostname_prefix,
+    logger.info("Batch provision job %s approved by %s", job_id, reviewer_id)
+
+
+def reject_batch_job(
+    *,
+    session: Session,
+    job_id: uuid.UUID,
+    reviewer_id: uuid.UUID,
+    review_comment: str | None = None,
+) -> None:
+    """Reject a pending batch job; no provisioning takes place."""
+    job = bp_repo.get_job(session=session, job_id=job_id)
+    if job is None:
+        raise BadRequestError("Batch job not found")
+    if job.status != BatchProvisionJobStatus.pending_review:
+        raise BadRequestError(
+            f"Batch job is not pending review (current status: {job.status})"
+        )
+    bp_repo.mark_reviewed(
+        session=session,
+        job_id=job_id,
+        reviewer_id=reviewer_id,
+        decision=BatchProvisionJobStatus.rejected,
+        review_comment=review_comment,
     )
-    return job.id
+    logger.info("Batch provision job %s rejected by %s", job_id, reviewer_id)
+
+
+# Backwards-compat shim — older callers still pass through ``start_batch_job``.
+# The scheduling feature wraps batches in a review step; immediate provisioning
+# is no longer the default but can be opted into for non-recurring jobs that
+# bypass review (e.g. a future "instant batch" admin tool).
+def start_batch_job(
+    *,
+    session: Session,
+    group_id: uuid.UUID,
+    initiated_by_id: uuid.UUID,
+    resource_type: str,
+    hostname_prefix: str,
+    params: dict,
+    **schedule_kwargs,
+) -> uuid.UUID:
+    return submit_batch_job(
+        session=session,
+        group_id=group_id,
+        initiated_by_id=initiated_by_id,
+        resource_type=resource_type,
+        hostname_prefix=hostname_prefix,
+        params=params,
+        **schedule_kwargs,
+    )
 
 
 # ─── 背景排隊執行 ──────────────────────────────────────────────────────────────

@@ -23,7 +23,9 @@ function run(command, args, cwd = rootDir, options = {}) {
   const result = spawnSync(command, args, {
     cwd,
     stdio: "inherit",
-    shell: false,
+    // On Windows, `bun` is a `.cmd` shim; spawnSync needs shell:true to
+    // resolve it. Posix shells handle the bare name fine.
+    shell: process.platform === "win32",
     ...options,
   })
 

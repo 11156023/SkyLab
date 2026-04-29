@@ -102,6 +102,12 @@ def _to_public(config, *, is_configured: bool) -> ProxmoxConfigPublic:
         rebalance_resource_weight_cpu=config.rebalance_resource_weight_cpu,
         rebalance_resource_weight_memory=config.rebalance_resource_weight_memory,
         rebalance_resource_weight_disk=config.rebalance_resource_weight_disk,
+        scheduled_boot_batch_size=config.scheduled_boot_batch_size,
+        scheduled_boot_batch_interval_seconds=config.scheduled_boot_batch_interval_seconds,
+        scheduled_boot_lead_time_minutes=config.scheduled_boot_lead_time_minutes,
+        window_grace_period_minutes=config.window_grace_period_minutes,
+        practice_session_hours=config.practice_session_hours,
+        practice_warning_minutes=config.practice_warning_minutes,
         updated_at=config.updated_at,
         is_configured=is_configured,
         has_ca_cert=bool(config.ca_cert),
@@ -307,6 +313,12 @@ def update_proxmox_config(
         rebalance_resource_weight_cpu=config_in.rebalance_resource_weight_cpu,
         rebalance_resource_weight_memory=config_in.rebalance_resource_weight_memory,
         rebalance_resource_weight_disk=config_in.rebalance_resource_weight_disk,
+        scheduled_boot_batch_size=config_in.scheduled_boot_batch_size,
+        scheduled_boot_batch_interval_seconds=config_in.scheduled_boot_batch_interval_seconds,
+        scheduled_boot_lead_time_minutes=config_in.scheduled_boot_lead_time_minutes,
+        window_grace_period_minutes=config_in.window_grace_period_minutes,
+        practice_session_hours=config_in.practice_session_hours,
+        practice_warning_minutes=config_in.practice_warning_minutes,
     )
 
     invalidate_proxmox_client()

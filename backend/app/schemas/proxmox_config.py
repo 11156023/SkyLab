@@ -51,6 +51,12 @@ class ProxmoxConfigPublic(BaseModel):
     rebalance_resource_weight_cpu: float = 1.0
     rebalance_resource_weight_memory: float = 1.0
     rebalance_resource_weight_disk: float = 1.0
+    scheduled_boot_batch_size: int = 5
+    scheduled_boot_batch_interval_seconds: int = 10
+    scheduled_boot_lead_time_minutes: int = 5
+    window_grace_period_minutes: int = 30
+    practice_session_hours: int = 3
+    practice_warning_minutes: int = 30
     updated_at: datetime | None = None
     is_configured: bool
     has_ca_cert: bool
@@ -102,6 +108,12 @@ class ProxmoxConfigUpdate(BaseModel):
     rebalance_resource_weight_cpu: float = Field(default=1.0, ge=0.0, le=10.0)
     rebalance_resource_weight_memory: float = Field(default=1.0, ge=0.0, le=10.0)
     rebalance_resource_weight_disk: float = Field(default=1.0, ge=0.0, le=10.0)
+    scheduled_boot_batch_size: int = Field(default=5, ge=1, le=100)
+    scheduled_boot_batch_interval_seconds: int = Field(default=10, ge=0, le=600)
+    scheduled_boot_lead_time_minutes: int = Field(default=5, ge=0, le=120)
+    window_grace_period_minutes: int = Field(default=30, ge=0, le=240)
+    practice_session_hours: int = Field(default=3, ge=1, le=24)
+    practice_warning_minutes: int = Field(default=30, ge=1, le=120)
 
 
 class CertParseResult(BaseModel):

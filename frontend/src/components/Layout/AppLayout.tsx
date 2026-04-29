@@ -5,9 +5,11 @@ import { AlertTriangle } from "lucide-react"
 import { Footer } from "@/components/Common/Footer"
 import { ErrorBoundary } from "@/components/ErrorBoundary"
 import { JobsBanner } from "@/components/Jobs/JobsBanner"
+import { SessionWarningDialog } from "@/components/Resources/SessionWarningDialog"
 import AppSidebar from "@/components/Sidebar/AppSidebar"
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar"
 import useAuth from "@/hooks/useAuth"
+import { useSessionWarning } from "@/hooks/useSessionWarning"
 import { cn } from "@/lib/utils"
 import { IpManagementApiService } from "@/services/ipManagement"
 
@@ -22,9 +24,15 @@ export function AppLayout() {
     location.pathname === "/applications-create" ||
     location.pathname === "/resources-create"
   const isAdmin = user?.role === "admin" || user?.is_superuser
+  const { active: warning, dismiss } = useSessionWarning()
 
   return (
     <div className="app-layout min-h-svh w-full">
+      <SessionWarningDialog
+        status={warning}
+        open={Boolean(warning)}
+        onClose={dismiss}
+      />
       <SidebarProvider defaultOpen={false}>
         <AppSidebar />
         <SidebarInset className="min-w-0 overflow-x-hidden">

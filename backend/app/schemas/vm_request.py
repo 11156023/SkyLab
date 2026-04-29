@@ -120,6 +120,12 @@ class VMRequestPublic(BaseModel):
     rebalance_epoch: int = 0
     last_rebalanced_at: datetime | None = None
     last_migrated_at: datetime | None = None
+    recurrence_rule: str | None = None
+    recurrence_duration_minutes: int | None = None
+    schedule_timezone: str | None = None
+    next_window_start: datetime | None = None
+    next_window_end: datetime | None = None
+    batch_job_id: uuid.UUID | None = None
     created_at: datetime
 
 

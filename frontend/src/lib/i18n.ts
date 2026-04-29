@@ -8,6 +8,7 @@ import approvalsEN from "@/locales/en/approvals.json"
 import authEN from "@/locales/en/auth.json"
 // Import translations
 import commonEN from "@/locales/en/common.json"
+import consoleEN from "@/locales/en/console.json"
 import firewallEN from "@/locales/en/firewall.json"
 import groupsEN from "@/locales/en/groups.json"
 import messagesEN from "@/locales/en/messages.json"
@@ -24,6 +25,7 @@ import applicationsJA from "@/locales/ja/applications.json"
 import approvalsJA from "@/locales/ja/approvals.json"
 import authJA from "@/locales/ja/auth.json"
 import commonJA from "@/locales/ja/common.json"
+import consoleJA from "@/locales/ja/console.json"
 import firewallJA from "@/locales/ja/firewall.json"
 import groupsJA from "@/locales/ja/groups.json"
 import messagesJA from "@/locales/ja/messages.json"
@@ -40,6 +42,7 @@ import applicationsZH from "@/locales/zh-TW/applications.json"
 import approvalsZH from "@/locales/zh-TW/approvals.json"
 import authZH from "@/locales/zh-TW/auth.json"
 import commonZH from "@/locales/zh-TW/common.json"
+import consoleZH from "@/locales/zh-TW/console.json"
 import firewallZH from "@/locales/zh-TW/firewall.json"
 import groupsZH from "@/locales/zh-TW/groups.json"
 import messagesZH from "@/locales/zh-TW/messages.json"
@@ -55,6 +58,7 @@ const resources = {
   en: {
     common: commonEN,
     auth: authEN,
+    console: consoleEN,
     navigation: navigationEN,
     resources: resourcesEN,
     resourceDetail: resourceDetailEN,
@@ -73,6 +77,7 @@ const resources = {
   "zh-TW": {
     common: commonZH,
     auth: authZH,
+    console: consoleZH,
     navigation: navigationZH,
     resources: resourcesZH,
     resourceDetail: resourceDetailZH,
@@ -91,6 +96,7 @@ const resources = {
   ja: {
     common: commonJA,
     auth: authJA,
+    console: consoleJA,
     navigation: navigationJA,
     resources: resourcesJA,
     resourceDetail: resourceDetailJA,

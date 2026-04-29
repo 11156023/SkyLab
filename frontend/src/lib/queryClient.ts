@@ -2,6 +2,7 @@ import { MutationCache, QueryCache, QueryClient } from "@tanstack/react-query"
 import { toast } from "sonner"
 
 import { ApiError } from "@/client"
+import i18n from "@/lib/i18n"
 import { AuthSessionService } from "@/services/authSession"
 
 let unauthorizedRecoveryPromise: Promise<void> | null = null
@@ -19,7 +20,7 @@ async function recoverUnauthorizedSession() {
     }
 
     AuthSessionService.clearTokens()
-    toast.error("登入已失效，請重新登入")
+    toast.error(i18n.t("messages:error.sessionExpired"))
     window.location.href = "/login"
   })().finally(() => {
     unauthorizedRecoveryPromise = null
@@ -41,7 +42,7 @@ export const handleApiError = async (error: Error) => {
   if (error instanceof ApiError && error.status === 403) {
     const detail =
       (error.body as { detail?: string } | undefined)?.detail ??
-      "你沒有操作權限"
+      i18n.t("messages:error.noPermission")
     toast.error(detail)
   }
 }

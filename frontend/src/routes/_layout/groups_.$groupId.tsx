@@ -32,6 +32,10 @@ import {
   LxcService,
   VmService,
 } from "@/client"
+import {
+  RecurrenceSchedulePicker,
+  type RecurrenceValue,
+} from "@/components/Schedule/RecurrenceSchedulePicker"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
@@ -66,7 +70,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { AiJudgeContent } from "@/features/ai-judge/components/AiJudgeContent"
 import { AiPveMessageContent } from "@/features/ai-pve-log/components/AiPveMessageContent"
 import { requireGroupManagerUser } from "@/features/auth/guards"
-import { GroupFeatureService } from "@/features/groups/api"
+import { GroupFeatureService, type TaskStatus } from "@/features/groups/api"
 import { groupDetailQueryOptions } from "@/features/groups/queryOptions"
 import useAuth from "@/hooks/useAuth"
 import useCustomToast from "@/hooks/useCustomToast"
@@ -81,34 +85,9 @@ type CsvImportResult = {
   errors: string[]
 }
 
-type TaskStatus = "pending" | "running" | "completed" | "failed"
-
-type BatchTask = {
-  id: string
-  user_id: string
-  user_email: string | null
-  user_name: string | null
-  member_index: number
-  vmid: number | null
-  status: TaskStatus
-  error: string | null
-  started_at: string | null
-  finished_at: string | null
-}
-
-type BatchJob = {
-  id: string
-  group_id: string
-  resource_type: string
-  hostname_prefix: string
-  status: "pending" | "running" | "completed" | "failed"
-  total: number
-  done: number
-  failed_count: number
-  created_at: string
-  finished_at: string | null
-  tasks: BatchTask[]
-}
+// BatchTask / TaskStatus are imported from @/features/groups/api so the local
+// shape matches the API response (especially the wider BatchJobStatus union
+// that includes pending_review/approved/rejected/cancelled).
 
 type GroupMemberWithRuntimeStats = GroupMemberPublic & {
   vm_cpu_usage_pct?: number | null
@@ -512,6 +491,11 @@ function BatchProvisionDialog({
   const [templateId, setTemplateId] = useState<number | null>(null)
   const [username, setUsername] = useState("")
   const [expiryDate, setExpiryDate] = useState("")
+  const [schedule, setSchedule] = useState<RecurrenceValue>({
+    recurrence_rule: null,
+    recurrence_duration_minutes: null,
+    schedule_timezone: null,
+  })
 
   const { data: lxcTemplates } = useQuery({
     queryKey: queryKeys.resources.templates.lxc,
@@ -526,20 +510,37 @@ function BatchProvisionDialog({
   })
 
   // 輪詢進度
-  const { data: jobStatus } = useQuery<BatchJob>({
+  const { data: jobStatus } = useQuery({
     queryKey: queryKeys.groups.batchJob(jobId ?? "pending"),
     queryFn: () =>
       GroupFeatureService.getBatchProvisionStatus({ jobId: jobId! }),
     enabled: Boolean(jobId),
     refetchInterval: (query) => {
       const status = query.state.data?.status
-      if (status === "completed" || status === "failed") return false
+      // Terminal states — stop polling.
+      if (
+        status === "completed" ||
+        status === "failed" ||
+        status === "rejected" ||
+        status === "cancelled"
+      ) {
+        return false
+      }
+      // Pending review can take a while; poll every 5s to catch admin decision.
+      if (status === "pending_review") return 5000
+      // Active build phases — poll fast.
       return 2000
     },
   })
 
+  // Active states block dialog close; "pending_review" is treated as active so
+  // that the teacher doesn't accidentally close mid-submission. After review
+  // (approved/rejected/cancelled) we're in a settled UX state.
   const isRunning =
-    jobStatus?.status === "pending" || jobStatus?.status === "running"
+    jobStatus?.status === "pending_review" ||
+    jobStatus?.status === "approved" ||
+    jobStatus?.status === "pending" ||
+    jobStatus?.status === "running"
 
   const handleSubmit = async () => {
     if (!hostnamePrefix.trim() || !password) return
@@ -567,6 +568,12 @@ function BatchProvisionDialog({
         body.username = username.trim()
         body.disk_size = diskSize
       }
+      if (schedule.recurrence_rule) {
+        body.recurrence_rule = schedule.recurrence_rule
+        body.recurrence_duration_minutes =
+          schedule.recurrence_duration_minutes ?? undefined
+        body.schedule_timezone = schedule.schedule_timezone ?? undefined
+      }
 
       const job = await GroupFeatureService.createBatchProvisionJob({
         groupId,
@@ -593,6 +600,11 @@ function BatchProvisionDialog({
       setTemplateId(null)
       setUsername("")
       setExpiryDate("")
+      setSchedule({
+        recurrence_rule: null,
+        recurrence_duration_minutes: null,
+        schedule_timezone: null,
+      })
     }
   }
 
@@ -619,6 +631,13 @@ function BatchProvisionDialog({
               會自動加上流水號（例如 <code>webdev-1</code>、
               <code>webdev-2</code>…）。
             </p>
+            <div className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-200">
+              <p className="font-medium">送出後需經管理員審核</p>
+              <p className="mt-0.5 text-xs">
+                此申請會先進入「待審核」，管理員通過後才會開始建立每位成員的資源。送出後可關閉視窗，建立進度可在群組頁面或
+                Approvals 查看。
+              </p>
+            </div>
 
             <Tabs
               value={resourceType}
@@ -857,6 +876,8 @@ function BatchProvisionDialog({
               </TabsContent>
             </Tabs>
 
+            <RecurrenceSchedulePicker value={schedule} onChange={setSchedule} />
+
             <DialogFooter className="pt-2">
               <DialogClose asChild>
                 <Button variant="outline" disabled={submitting}>
@@ -873,13 +894,42 @@ function BatchProvisionDialog({
                   (resourceType === "qemu" && (!templateId || !username.trim()))
                 }
               >
-                開始批量建立（{memberCount} 台）
+                送出審核（{memberCount} 台）
               </LoadingButton>
             </DialogFooter>
           </div>
         ) : (
           /* ── 進度追蹤 ── */
           <div className="space-y-4 py-2">
+            {/* 狀態說明 */}
+            {jobStatus?.status === "pending_review" && (
+              <div className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-200">
+                <p className="font-medium">已送出，等待管理員審核</p>
+                <p className="mt-0.5 text-xs">
+                  資源尚未建立。可關閉此視窗，待管理員通過後 scheduler
+                  會自動進行建立。
+                </p>
+              </div>
+            )}
+            {jobStatus?.status === "rejected" && (
+              <div className="rounded-md border border-destructive/40 bg-destructive/5 px-3 py-2 text-sm">
+                <p className="font-medium text-destructive">申請已被退回</p>
+                {jobStatus.review_comment && (
+                  <p className="mt-0.5 text-xs text-muted-foreground">
+                    管理員留言：{jobStatus.review_comment}
+                  </p>
+                )}
+              </div>
+            )}
+            {jobStatus?.status === "approved" && (
+              <div className="rounded-md border border-blue-300 bg-blue-50 px-3 py-2 text-sm dark:border-blue-700 dark:bg-blue-950/40">
+                <p className="font-medium">審核已通過</p>
+                <p className="mt-0.5 text-xs text-muted-foreground">
+                  資源即將開始建立…
+                </p>
+              </div>
+            )}
+
             {/* 總覽 */}
             <div className="space-y-2">
               <div className="flex items-center justify-between text-sm">
@@ -897,13 +947,18 @@ function BatchProvisionDialog({
                     variant={
                       jobStatus?.status === "completed"
                         ? "default"
-                        : jobStatus?.status === "failed"
+                        : jobStatus?.status === "failed" ||
+                            jobStatus?.status === "rejected"
                           ? "destructive"
                           : "secondary"
                     }
                   >
-                    {jobStatus?.status === "pending" && "等待中"}
-                    {jobStatus?.status === "running" && "執行中"}
+                    {jobStatus?.status === "pending_review" && "等待管理員審核"}
+                    {jobStatus?.status === "approved" && "已通過，準備建立"}
+                    {jobStatus?.status === "rejected" && "已被退回"}
+                    {jobStatus?.status === "cancelled" && "已取消"}
+                    {jobStatus?.status === "pending" && "排隊中"}
+                    {jobStatus?.status === "running" && "建立中"}
                     {jobStatus?.status === "completed" && "已完成"}
                     {jobStatus?.status === "failed" && "失敗"}
                   </Badge>
@@ -973,15 +1028,16 @@ function BatchProvisionDialog({
             )}
 
             <DialogFooter>
-              <Button
-                variant={isRunning ? "outline" : "default"}
-                disabled={isRunning}
-                onClick={() => handleOpenChange(false)}
-              >
-                {isRunning ? (
+              <Button variant="outline" onClick={() => handleOpenChange(false)}>
+                {jobStatus?.status === "pending_review" ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4" />
+                    關閉並等待審核
+                  </>
+                ) : isRunning ? (
                   <>
                     <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    建立中，請稍候…
+                    建立中，可稍後再回來
                   </>
                 ) : (
                   "關閉"

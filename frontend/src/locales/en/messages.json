@@ -11,7 +11,9 @@
   },
   "error": {
     "title": "Error",
-    "generic": "Something went wrong. Please try again."
+    "generic": "Something went wrong. Please try again.",
+    "sessionExpired": "Your session has expired. Please log in again.",
+    "noPermission": "You do not have permission to perform this action"
   },
   "vm": {
     "starting": "{{name}} is starting...",

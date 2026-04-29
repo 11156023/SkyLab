@@ -24,18 +24,57 @@ export type BatchTask = {
   finished_at: string | null
 }
 
+export type BatchJobStatus =
+  | "pending_review"
+  | "approved"
+  | "rejected"
+  | "cancelled"
+  | "pending"
+  | "running"
+  | "completed"
+  | "failed"
+
+export type BatchJobSpec = {
+  cores?: number | null
+  memory?: number | null
+  disk_size?: number | null
+  rootfs_size?: number | null
+  ostemplate?: string | null
+  template_id?: number | null
+  username?: string | null
+  environment_type?: string | null
+  os_info?: string | null
+  expiry_date?: string | null
+}
+
 export type BatchJob = {
   id: string
   group_id: string
+  group_name?: string | null
   resource_type: string
   hostname_prefix: string
-  status: "pending" | "running" | "completed" | "failed"
+  status: BatchJobStatus
   total: number
   done: number
   failed_count: number
   created_at: string
   finished_at: string | null
+  initiated_by?: string | null
+  initiated_by_email?: string | null
+  initiated_by_name?: string | null
+  reviewer_id?: string | null
+  reviewer_email?: string | null
+  reviewed_at?: string | null
+  review_comment?: string | null
+  recurrence_rule?: string | null
+  recurrence_duration_minutes?: number | null
+  schedule_timezone?: string | null
+  spec?: BatchJobSpec
   tasks: BatchTask[]
+}
+
+export type RecurrencePreview = {
+  windows: [string, string][]
 }
 
 export type BatchProvisionFormState = {
@@ -65,6 +104,14 @@ export type BatchProvisionRequestBody = {
   template_id?: number
   username?: string
   disk_size?: number
+  recurrence_rule?: string
+  recurrence_duration_minutes?: number
+  schedule_timezone?: string
+}
+
+export type BatchProvisionReviewBody = {
+  decision: "approved" | "rejected"
+  review_comment?: string | null
 }
 
 export function buildBatchProvisionRequestBody(
@@ -128,6 +175,38 @@ export const GroupFeatureService = {
       method: "GET",
       url: "/api/v1/batch-provision/{jobId}/status",
       path: { jobId: data.jobId },
+    })
+  },
+
+  listPendingBatchJobs(): CancelablePromise<BatchJob[]> {
+    return __request(OpenAPI, {
+      method: "GET",
+      url: "/api/v1/batch-provision/pending",
+    })
+  },
+
+  reviewBatchJob(data: {
+    jobId: string
+    requestBody: BatchProvisionReviewBody
+  }): CancelablePromise<BatchJob> {
+    return __request(OpenAPI, {
+      method: "POST",
+      url: "/api/v1/batch-provision/{jobId}/review",
+      path: { jobId: data.jobId },
+      body: data.requestBody,
+      mediaType: "application/json",
+    })
+  },
+
+  getRecurrencePreview(data: {
+    jobId: string
+    count?: number
+  }): CancelablePromise<RecurrencePreview> {
+    return __request(OpenAPI, {
+      method: "GET",
+      url: "/api/v1/batch-provision/{jobId}/recurrence-preview",
+      path: { jobId: data.jobId },
+      query: { count: data.count ?? 5 },
     })
   },
 }

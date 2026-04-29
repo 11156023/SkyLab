@@ -42,6 +42,7 @@ import { Route as LayoutAdminGatewayRouteImport } from './routes/_layout/admin.g
 import { Route as LayoutAdminDomainsRouteImport } from './routes/_layout/admin.domains'
 import { Route as LayoutAdminDeployLogsRouteImport } from './routes/_layout/admin.deploy-logs'
 import { Route as LayoutAdminConfigurationRouteImport } from './routes/_layout/admin.configuration'
+import { Route as LayoutAdminBatchProvisionReviewRouteImport } from './routes/_layout/admin.batch-provision-review'
 import { Route as LayoutAdminAuditLogsRouteImport } from './routes/_layout/admin.audit-logs'
 import { Route as LayoutAdminAiMonitoringRouteImport } from './routes/_layout/admin.ai-monitoring'
 import { Route as LayoutAdminAiManagementRouteImport } from './routes/_layout/admin.ai-management'
@@ -214,6 +215,12 @@ const LayoutAdminConfigurationRoute =
     path: '/configuration',
     getParentRoute: () => LayoutAdminRoute,
   } as any)
+const LayoutAdminBatchProvisionReviewRoute =
+  LayoutAdminBatchProvisionReviewRouteImport.update({
+    id: '/batch-provision-review',
+    path: '/batch-provision-review',
+    getParentRoute: () => LayoutAdminRoute,
+  } as any)
 const LayoutAdminAuditLogsRoute = LayoutAdminAuditLogsRouteImport.update({
   id: '/audit-logs',
   path: '/audit-logs',
@@ -255,6 +262,7 @@ export interface FileRoutesByFullPath {
   '/admin/ai-management': typeof LayoutAdminAiManagementRoute
   '/admin/ai-monitoring': typeof LayoutAdminAiMonitoringRoute
   '/admin/audit-logs': typeof LayoutAdminAuditLogsRoute
+  '/admin/batch-provision-review': typeof LayoutAdminBatchProvisionReviewRoute
   '/admin/configuration': typeof LayoutAdminConfigurationRoute
   '/admin/deploy-logs': typeof LayoutAdminDeployLogsRoute
   '/admin/domains': typeof LayoutAdminDomainsRoute
@@ -291,6 +299,7 @@ export interface FileRoutesByTo {
   '/admin/ai-management': typeof LayoutAdminAiManagementRoute
   '/admin/ai-monitoring': typeof LayoutAdminAiMonitoringRoute
   '/admin/audit-logs': typeof LayoutAdminAuditLogsRoute
+  '/admin/batch-provision-review': typeof LayoutAdminBatchProvisionReviewRoute
   '/admin/configuration': typeof LayoutAdminConfigurationRoute
   '/admin/deploy-logs': typeof LayoutAdminDeployLogsRoute
   '/admin/domains': typeof LayoutAdminDomainsRoute
@@ -330,6 +339,7 @@ export interface FileRoutesById {
   '/_layout/admin/ai-management': typeof LayoutAdminAiManagementRoute
   '/_layout/admin/ai-monitoring': typeof LayoutAdminAiMonitoringRoute
   '/_layout/admin/audit-logs': typeof LayoutAdminAuditLogsRoute
+  '/_layout/admin/batch-provision-review': typeof LayoutAdminBatchProvisionReviewRoute
   '/_layout/admin/configuration': typeof LayoutAdminConfigurationRoute
   '/_layout/admin/deploy-logs': typeof LayoutAdminDeployLogsRoute
   '/_layout/admin/domains': typeof LayoutAdminDomainsRoute
@@ -369,6 +379,7 @@ export interface FileRouteTypes {
     | '/admin/ai-management'
     | '/admin/ai-monitoring'
     | '/admin/audit-logs'
+    | '/admin/batch-provision-review'
     | '/admin/configuration'
     | '/admin/deploy-logs'
     | '/admin/domains'
@@ -405,6 +416,7 @@ export interface FileRouteTypes {
     | '/admin/ai-management'
     | '/admin/ai-monitoring'
     | '/admin/audit-logs'
+    | '/admin/batch-provision-review'
     | '/admin/configuration'
     | '/admin/deploy-logs'
     | '/admin/domains'
@@ -443,6 +455,7 @@ export interface FileRouteTypes {
     | '/_layout/admin/ai-management'
     | '/_layout/admin/ai-monitoring'
     | '/_layout/admin/audit-logs'
+    | '/_layout/admin/batch-provision-review'
     | '/_layout/admin/configuration'
     | '/_layout/admin/deploy-logs'
     | '/_layout/admin/domains'
@@ -697,6 +710,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof LayoutAdminConfigurationRouteImport
       parentRoute: typeof LayoutAdminRoute
     }
+    '/_layout/admin/batch-provision-review': {
+      id: '/_layout/admin/batch-provision-review'
+      path: '/batch-provision-review'
+      fullPath: '/admin/batch-provision-review'
+      preLoaderRoute: typeof LayoutAdminBatchProvisionReviewRouteImport
+      parentRoute: typeof LayoutAdminRoute
+    }
     '/_layout/admin/audit-logs': {
       id: '/_layout/admin/audit-logs'
       path: '/audit-logs'
@@ -725,6 +745,7 @@ interface LayoutAdminRouteChildren {
   LayoutAdminAiManagementRoute: typeof LayoutAdminAiManagementRoute
   LayoutAdminAiMonitoringRoute: typeof LayoutAdminAiMonitoringRoute
   LayoutAdminAuditLogsRoute: typeof LayoutAdminAuditLogsRoute
+  LayoutAdminBatchProvisionReviewRoute: typeof LayoutAdminBatchProvisionReviewRoute
   LayoutAdminConfigurationRoute: typeof LayoutAdminConfigurationRoute
   LayoutAdminDeployLogsRoute: typeof LayoutAdminDeployLogsRoute
   LayoutAdminDomainsRoute: typeof LayoutAdminDomainsRoute
@@ -738,6 +759,7 @@ const LayoutAdminRouteChildren: LayoutAdminRouteChildren = {
   LayoutAdminAiManagementRoute: LayoutAdminAiManagementRoute,
   LayoutAdminAiMonitoringRoute: LayoutAdminAiMonitoringRoute,
   LayoutAdminAuditLogsRoute: LayoutAdminAuditLogsRoute,
+  LayoutAdminBatchProvisionReviewRoute: LayoutAdminBatchProvisionReviewRoute,
   LayoutAdminConfigurationRoute: LayoutAdminConfigurationRoute,
   LayoutAdminDeployLogsRoute: LayoutAdminDeployLogsRoute,
   LayoutAdminDomainsRoute: LayoutAdminDomainsRoute,

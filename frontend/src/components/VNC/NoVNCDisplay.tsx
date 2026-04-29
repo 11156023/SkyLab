@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react"
+import { useTranslation } from "react-i18next"
 
 interface NoVNCDisplayProps {
   vmid: number
@@ -37,6 +38,7 @@ export default function useNoVNCDisplay({
   onDisconnect,
   controls,
 }: NoVNCDisplayProps) {
+  const { t } = useTranslation("console")
   const canvasRef = useRef<HTMLDivElement>(null)
   const rfbRef = useRef<RFBInstance | null>(null)
   const wsRef = useRef<WebSocket | null>(null)
@@ -125,10 +127,11 @@ export default function useNoVNCDisplay({
                 setStatus("disconnected")
                 if (e.detail.clean) {
                   console.log("✅ noVNC disconnected cleanly")
-                  setError("連接已正常關閉")
+                  setError(t("vnc.normalClosure"))
                 } else {
-                  const errorMsg = e.detail?.reason || "WebSocket 連接意外中斷"
-                  setError(`連接已斷開: ${errorMsg}`)
+                  const errorMsg =
+                    e.detail?.reason || t("vnc.wsUnexpectedClose")
+                  setError(t("vnc.disconnected", { reason: errorMsg }))
                   console.error("❌ noVNC disconnected with error:", e.detail)
                 }
               })
@@ -136,7 +139,11 @@ export default function useNoVNCDisplay({
               rfb.addEventListener("securityfailure", (e: CustomEvent) => {
                 if (!isSubscribed) return
                 setStatus("error")
-                setError(`安全驗證失敗: ${e.detail.reason || "未知原因"}`)
+                setError(
+                  t("vnc.securityFailure", {
+                    reason: e.detail.reason || t("shared.unknownReason"),
+                  }),
+                )
                 console.error("❌ noVNC security failure:", e.detail)
               })
 
@@ -144,7 +151,7 @@ export default function useNoVNCDisplay({
                 if (!isSubscribed) return
                 console.error("❌ Credentials required")
                 setStatus("error")
-                setError("VNC 認證失敗：請檢查後端是否正確獲取了 VNC ticket")
+                setError(t("vnc.credentialsRequired"))
               })
 
               rfbRef.current = rfb
@@ -159,7 +166,7 @@ export default function useNoVNCDisplay({
           console.error("❌ Backend WebSocket error:", wsError)
           if (!ticketReceived) {
             setStatus("error")
-            setError("無法連接到後端 WebSocket")
+            setError(t("vnc.backendConnectFailed"))
           }
         }
 
@@ -167,13 +174,13 @@ export default function useNoVNCDisplay({
           console.log("Backend WebSocket closed:", event.code, event.reason)
           if (!ticketReceived && isSubscribed) {
             setStatus("error")
-            setError("WebSocket 連接已關閉")
+            setError(t("vnc.wsClosed"))
           }
         }
       } catch (err) {
         if (!isSubscribed) return
         setStatus("error")
-        setError(`初始化連接失敗: ${(err as Error).message}`)
+        setError(t("vnc.initFailed", { message: (err as Error).message }))
         console.error("Connection initialization error:", err)
       }
     }
@@ -202,6 +209,7 @@ export default function useNoVNCDisplay({
     showDotCursor,
     clipViewport,
     dragViewport,
+    t,
   ])
 
   const handleDisconnect = () => {
@@ -221,7 +229,7 @@ export default function useNoVNCDisplay({
 
     if (!document.fullscreenElement) {
       container.requestFullscreen().catch((err) => {
-        console.error("無法進入全螢幕:", err)
+        console.error(t("vnc.fullscreenFailed"), err)
       })
     } else {
       document.exitFullscreen()
@@ -236,7 +244,7 @@ export default function useNoVNCDisplay({
           rfbRef.current?.clipboardPasteFrom(text)
         })
         .catch((err) => {
-          console.error("無法讀取剪貼簿:", err)
+          console.error(t("vnc.clipboardFailed"), err)
         })
     }
   }

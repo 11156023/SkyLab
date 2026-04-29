@@ -3,6 +3,7 @@ import { WebLinksAddon } from "@xterm/addon-web-links"
 import { WebglAddon } from "@xterm/addon-webgl"
 import { Terminal } from "@xterm/xterm"
 import { useCallback, useEffect, useRef, useState } from "react"
+import { useTranslation } from "react-i18next"
 import "@xterm/xterm/css/xterm.css"
 
 interface XTermDisplayProps {
@@ -16,6 +17,7 @@ export default function useXTermDisplay({
   vmid,
   onDisconnect,
 }: XTermDisplayProps) {
+  const { t } = useTranslation("console")
   const [terminalElement, setTerminalElement] = useState<HTMLDivElement | null>(
     null,
   )
@@ -212,16 +214,20 @@ export default function useXTermDisplay({
           console.error("❌ Backend WebSocket error:", wsError)
           if (!isSubscribed) return
           setStatus("error")
-          setError("無法連接到後端 WebSocket")
+          setError(t("terminal.backendConnectFailed"))
         }
 
         ws.onclose = (event) => {
           if (!isSubscribed) return
           setStatus("disconnected")
           if (event.code === 1000) {
-            setError("連接已正常關閉")
+            setError(t("terminal.normalClosure"))
           } else {
-            setError(`連接已關閉: ${event.reason || "未知原因"}`)
+            setError(
+              t("terminal.closedWithReason", {
+                reason: event.reason || t("shared.unknownReason"),
+              }),
+            )
           }
         }
 
@@ -284,7 +290,7 @@ export default function useXTermDisplay({
       } catch (err) {
         if (!isSubscribed) return
         setStatus("error")
-        setError(`初始化終端失敗: ${(err as Error).message}`)
+        setError(t("terminal.initFailed", { message: (err as Error).message }))
         console.error("Terminal initialization error:", err)
       }
     }
@@ -305,7 +311,7 @@ export default function useXTermDisplay({
         wsRef.current = null
       }
     }
-  }, [vmid, terminalElement])
+  }, [vmid, terminalElement, t])
 
   const handleDisconnect = () => {
     if (wsRef.current) {

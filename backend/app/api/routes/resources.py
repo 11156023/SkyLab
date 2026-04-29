@@ -15,7 +15,12 @@ from app.models import DeletionRequestStatus
 from app.repositories import resource as resource_repo
 from app.schemas import NodeSchema, ResourcePublic, SSHKeyResponse
 from app.schemas.deletion_request import DeletionRequestCreated
-from app.schemas.resource import BatchActionRequest, BatchActionResponse
+from app.schemas.resource import (
+    BatchActionRequest,
+    BatchActionResponse,
+    ExtendSessionResponse,
+    SessionStatusResponse,
+)
 from app.services.proxmox import proxmox_service
 from app.services.resource import deletion_service, resource_service
 
@@ -197,6 +202,32 @@ def delete_resource(
         vmid=req.vmid,
         status=req.status,
         message="Deletion request queued",
+    )
+
+
+@router.get("/{vmid}/session-status", response_model=SessionStatusResponse)
+def get_session_status(
+    vmid: int,
+    resource_info: ResourceInfoDep,
+    session: SessionDep,
+    _current_user: CurrentUser,
+):
+    """Live auto-stop status used by the student UI to show the warning dialog."""
+    return resource_service.get_session_status(
+        session=session, vmid=vmid, resource_info=resource_info
+    )
+
+
+@router.post("/{vmid}/extend-session", response_model=ExtendSessionResponse)
+def extend_session(
+    vmid: int,
+    session: SessionDep,
+    current_user: CurrentUser,
+    _resource_info: ResourceInfoDep,
+):
+    """Add another practice quota window. Only valid mid-practice-session."""
+    return resource_service.extend_session(
+        session=session, vmid=vmid, user_id=current_user.id
     )
 
 

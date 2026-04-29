@@ -11,7 +11,9 @@
   },
   "error": {
     "title": "錯誤",
-    "generic": "發生錯誤，請重試。"
+    "generic": "發生錯誤，請重試。",
+    "sessionExpired": "登入已失效，請重新登入",
+    "noPermission": "你沒有操作權限"
   },
   "vm": {
     "starting": "{{name}} 正在啟動...",

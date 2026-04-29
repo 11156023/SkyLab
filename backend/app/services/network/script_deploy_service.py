@@ -266,8 +266,14 @@ def _get_all_vmids() -> set[int]:
         proxmox = get_proxmox_api()
         resources = proxmox.cluster.resources.get(type="vm")
         return {r["vmid"] for r in resources}
-    except Exception:
-        return set()
+    except Exception as e:
+        # 不可 silent fallback：PVE 查詢失敗時不能默默回空集，
+        # 否則 _find_new_vmid 會認為沒有新 VM 而變成部署失敗難切
+        logger.error(
+            "_get_all_vmids 查詢 PVE cluster resources 失敗，將影響部署完成後的 VMID 偵測: %s",
+            e,
+        )
+        raise
 
 
 def _find_new_vmid(before: set[int]) -> int | None:
@@ -304,8 +310,11 @@ def _find_resource_any(vmid: int) -> dict | None:
         for r in proxmox.cluster.resources.get(type="vm"):
             if r["vmid"] == vmid:
                 return r
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning(
+            "_find_resource_any(vmid=%s) 查詢 cluster resources 失敗: %s",
+            vmid, e,
+        )
     return None
 
 
@@ -554,8 +563,10 @@ def _destroy_container(vmid: int) -> None:
             status = proxmox_service.get_status(node, vmid, rtype)
             if status.get("status") == "running":
                 proxmox_service.control(node, vmid, rtype, "stop")
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(
+                "預期內的停機失敗 (VMID=%s)，仍將繼續 destroy: %s", vmid, e
+            )
 
         delete_params: dict[str, int] = {"purge": 1}
         if rtype == "qemu":
@@ -737,8 +748,8 @@ def _run_deployment(task: DeploymentTask, request_data: dict) -> None:  # noqa: 
                 for p in inline_env.split(" ")
             )
             logger.info("Inline env (sanitised): %s", safe_env)
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug("Sanitised env logging failed (non-fatal): %s", e)
 
         # 3. 以官方模式執行：VAR=value bash -c "$(cat script)"
         task.progress = "正在執行無人值守部署（可能需要幾分鐘）…"

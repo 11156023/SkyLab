@@ -46,6 +46,15 @@ class Resource(SQLModel, table=True):
         description="創建時間",
     )
 
+    # Auto-stop fields populated by the scheduler / power-on flow.
+    # auto_stop_reason: "window_grace" (course window finished + grace period)
+    # or "practice_quota" (student manually started outside a course window).
+    auto_stop_at: datetime | None = Field(
+        default=None,
+        sa_column=Column(DateTime(timezone=True), nullable=True),
+    )
+    auto_stop_reason: str | None = Field(default=None, max_length=32)
+
     # Relationship
     user: Optional["User"] = Relationship(back_populates="resources")
 

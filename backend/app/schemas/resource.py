@@ -1,8 +1,8 @@
 """資源與 Proxmox 相關 schemas"""
 
 import unicodedata
-from datetime import date
-from typing import Annotated
+from datetime import date, datetime
+from typing import Annotated, Literal
 
 from pydantic import AfterValidator, BaseModel, Field, model_validator
 
@@ -197,6 +197,28 @@ class ResourcePublic(BaseModel):
     mem: int | None = None
     maxmem: int | None = None
     uptime: int | None = None
+    auto_stop_at: datetime | None = None
+    auto_stop_reason: Literal["window_grace", "practice_quota"] | None = None
+
+
+class SessionStatusResponse(BaseModel):
+    """Live status of a VM's auto-stop session, polled by the student UI."""
+
+    vmid: int
+    running: bool
+    auto_stop_at: datetime | None = None
+    auto_stop_reason: Literal["window_grace", "practice_quota"] | None = None
+    minutes_until_stop: int | None = None
+    should_warn: bool = False
+    can_extend: bool = False
+
+
+class ExtendSessionResponse(BaseModel):
+    """Returned after a successful session extension."""
+
+    vmid: int
+    auto_stop_at: datetime
+    extended_minutes: int
 
 
 class SSHKeyResponse(BaseModel):

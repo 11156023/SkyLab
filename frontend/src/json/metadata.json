@@ -100,6 +100,15 @@
       "icon": "file-text"
     },
     {
+      "name": "IoT & Smart Home",
+      "id": 16,
+      "sort_order": 16.0,
+      "description": "Control and automate IoT devices and smart home systems.",
+      "description_zh": "控制和自動化物聯網裝置和智慧家居系統。",
+      "description_ja": "IoT デバイススマートホームシステムを制御および自動化します。",
+      "icon": "home"
+    },
+    {
       "name": "Automation & Scheduling",
       "id": 19,
       "sort_order": 19.0,

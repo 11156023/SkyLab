@@ -7,7 +7,10 @@ function run(command, args, cwd = rootDir) {
   const result = spawnSync(command, args, {
     cwd,
     stdio: "inherit",
-    shell: false,
+    // On Windows, `bun` (and other npm-installed shims) are `.cmd` files
+    // and require shell:true for spawnSync to resolve them. Posix shells
+    // handle bare names fine.
+    shell: process.platform === "win32",
   })
 
   if (result.error) {

@@ -1,7 +1,7 @@
 import logging
 import time
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 from sqlmodel import Session
 
@@ -12,9 +12,18 @@ from app.repositories import batch_provision as batch_provision_repo
 from app.repositories import resource as resource_repo
 from app.repositories import vm_request as vm_request_repo
 from app.schemas import ResourcePublic
-from app.schemas.resource import BatchActionResponse, BatchActionResultItem
+from app.schemas.resource import (
+    BatchActionResponse,
+    BatchActionResultItem,
+    ExtendSessionResponse,
+    SessionStatusResponse,
+)
 from app.services.network import firewall_service
 from app.services.proxmox import proxmox_service
+from app.services.scheduling.recurrence import (
+    get_schedule_policy,
+    is_in_window,
+)
 from app.services.user import audit_service
 
 logger = logging.getLogger(__name__)
@@ -208,6 +217,15 @@ def control(
         # 啟動時確保防火牆仍為啟用狀態
         if action == "start":
             firewall_service.ensure_firewall_enabled(node, vmid, resource_type)
+            _set_auto_stop_for_user_start(session=session, vmid=vmid)
+        elif action in ("stop", "shutdown"):
+            # 學生主動關機 → 清除 auto_stop_at，不會被排程器再啟動
+            resource_repo.set_auto_stop(
+                session=session,
+                vmid=vmid,
+                auto_stop_at=None,
+                auto_stop_reason=None,
+            )
 
         action_map = {
             "start": "resource_start",
@@ -440,6 +458,116 @@ def direct_update_spec(
     except Exception as e:
         logger.error(f"Failed to update spec for {vmid}: {e}")
         raise ProxmoxError(f"Failed to update spec for resource {vmid}: {e}")
+
+
+# ─── Auto-stop / practice session helpers ─────────────────────────────────────
+
+
+def _set_auto_stop_for_user_start(*, session: Session, vmid: int) -> None:
+    """Decide the ``auto_stop_at`` to write when a student manually starts a VM.
+
+    Inside a course window: keep the window-grace stop (until window_end + grace).
+    Outside any window: practice quota (now + practice_session_hours).
+    """
+    policy = get_schedule_policy(session=session)
+    now = _utc_now()
+
+    request = vm_request_repo.get_latest_approved_vm_request_by_vmid(
+        session=session, vmid=vmid
+    )
+    if request and is_in_window(
+        request.next_window_start, request.next_window_end, now
+    ):
+        # In course window — the scheduler already set window_grace; don't shorten it.
+        return
+
+    # Outside any window: enforce practice-quota auto-stop.
+    auto_stop_at = now + timedelta(hours=policy.practice_session_hours)
+    resource_repo.set_auto_stop(
+        session=session,
+        vmid=vmid,
+        auto_stop_at=auto_stop_at,
+        auto_stop_reason="practice_quota",
+    )
+
+
+def extend_session(
+    *,
+    session: Session,
+    vmid: int,
+    user_id: uuid.UUID,
+) -> ExtendSessionResponse:
+    """Extend a practice-quota session by another ``practice_session_hours``.
+
+    Only allowed when:
+    - Caller owns the resource
+    - VM is currently running
+    - ``auto_stop_reason == "practice_quota"`` (window-grace stops are not
+      extendable — the course window dictates that)
+    """
+    resource = resource_repo.get_resource_by_vmid(session=session, vmid=vmid)
+    if resource is None:
+        raise BadRequestError("Resource not found")
+    if resource.user_id != user_id:
+        raise BadRequestError("Not the owner of this resource")
+    if resource.auto_stop_reason != "practice_quota":
+        raise BadRequestError(
+            "Session can only be extended during a practice (out-of-window) session."
+        )
+
+    policy = get_schedule_policy(session=session)
+    now = _utc_now()
+    new_stop = now + timedelta(hours=policy.practice_session_hours)
+    resource_repo.set_auto_stop(
+        session=session,
+        vmid=vmid,
+        auto_stop_at=new_stop,
+        auto_stop_reason="practice_quota",
+    )
+    audit_service.log_action(
+        session=session,
+        user_id=user_id,
+        vmid=vmid,
+        action="resource_extend_session",
+        details=f"Extended practice session to {new_stop.isoformat()}",
+    )
+    return ExtendSessionResponse(
+        vmid=vmid,
+        auto_stop_at=new_stop,
+        extended_minutes=policy.practice_session_hours * 60,
+    )
+
+
+def get_session_status(
+    *,
+    session: Session,
+    vmid: int,
+    resource_info: dict,
+) -> SessionStatusResponse:
+    """Live session info for the student UI (polled every ~30s)."""
+    resource = resource_repo.get_resource_by_vmid(session=session, vmid=vmid)
+    running = resource_info.get("status") == "running"
+    auto_stop_at = resource.auto_stop_at if resource else None
+    auto_stop_reason = resource.auto_stop_reason if resource else None
+
+    minutes_until_stop: int | None = None
+    should_warn = False
+    if running and auto_stop_at:
+        delta = auto_stop_at - _utc_now()
+        minutes_until_stop = max(int(delta.total_seconds() // 60), 0)
+        policy = get_schedule_policy(session=session)
+        should_warn = minutes_until_stop <= policy.practice_warning_minutes
+
+    return SessionStatusResponse(
+        vmid=vmid,
+        running=running,
+        auto_stop_at=auto_stop_at,
+        auto_stop_reason=auto_stop_reason,
+        minutes_until_stop=minutes_until_stop,
+        should_warn=should_warn,
+        # Only practice-quota sessions can be extended via the button.
+        can_extend=running and auto_stop_reason == "practice_quota",
+    )
 
 
 def batch_action(

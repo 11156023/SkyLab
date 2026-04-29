@@ -136,6 +136,12 @@ interface ProxmoxConfigPublic {
   rebalance_resource_weight_memory: number
   rebalance_resource_weight_disk: number
   migration_lxc_live_enabled: boolean
+  scheduled_boot_batch_size: number
+  scheduled_boot_batch_interval_seconds: number
+  scheduled_boot_lead_time_minutes: number
+  window_grace_period_minutes: number
+  practice_session_hours: number
+  practice_warning_minutes: number
   updated_at: string | null
   is_configured: boolean
   has_ca_cert: boolean
@@ -177,6 +183,12 @@ interface ProxmoxConfigUpdate {
   rebalance_resource_weight_memory: number
   rebalance_resource_weight_disk: number
   migration_lxc_live_enabled: boolean
+  scheduled_boot_batch_size: number
+  scheduled_boot_batch_interval_seconds: number
+  scheduled_boot_lead_time_minutes: number
+  window_grace_period_minutes: number
+  practice_session_hours: number
+  practice_warning_minutes: number
 }
 
 interface ProxmoxNodePublic {
@@ -392,6 +404,12 @@ interface ConfigFormData {
   rebalance_resource_weight_memory: number
   rebalance_resource_weight_disk: number
   migration_lxc_live_enabled: boolean
+  scheduled_boot_batch_size: number
+  scheduled_boot_batch_interval_seconds: number
+  scheduled_boot_lead_time_minutes: number
+  window_grace_period_minutes: number
+  practice_session_hours: number
+  practice_warning_minutes: number
 }
 
 interface NodeFormData {
@@ -1258,6 +1276,12 @@ function AdminConfigPage() {
       rebalance_resource_weight_memory: 1.0,
       rebalance_resource_weight_disk: 1.0,
       migration_lxc_live_enabled: false,
+      scheduled_boot_batch_size: 5,
+      scheduled_boot_batch_interval_seconds: 10,
+      scheduled_boot_lead_time_minutes: 5,
+      window_grace_period_minutes: 30,
+      practice_session_hours: 3,
+      practice_warning_minutes: 30,
     },
   })
 
@@ -1309,6 +1333,14 @@ function AdminConfigPage() {
         rebalance_resource_weight_disk:
           config.rebalance_resource_weight_disk ?? 1.0,
         migration_lxc_live_enabled: config.migration_lxc_live_enabled ?? false,
+        scheduled_boot_batch_size: config.scheduled_boot_batch_size ?? 5,
+        scheduled_boot_batch_interval_seconds:
+          config.scheduled_boot_batch_interval_seconds ?? 10,
+        scheduled_boot_lead_time_minutes:
+          config.scheduled_boot_lead_time_minutes ?? 5,
+        window_grace_period_minutes: config.window_grace_period_minutes ?? 30,
+        practice_session_hours: config.practice_session_hours ?? 3,
+        practice_warning_minutes: config.practice_warning_minutes ?? 30,
       })
     }
   }, [config, form])
@@ -1391,6 +1423,13 @@ function AdminConfigPage() {
       rebalance_resource_weight_memory: data.rebalance_resource_weight_memory,
       rebalance_resource_weight_disk: data.rebalance_resource_weight_disk,
       migration_lxc_live_enabled: data.migration_lxc_live_enabled,
+      scheduled_boot_batch_size: data.scheduled_boot_batch_size,
+      scheduled_boot_batch_interval_seconds:
+        data.scheduled_boot_batch_interval_seconds,
+      scheduled_boot_lead_time_minutes: data.scheduled_boot_lead_time_minutes,
+      window_grace_period_minutes: data.window_grace_period_minutes,
+      practice_session_hours: data.practice_session_hours,
+      practice_warning_minutes: data.practice_warning_minutes,
     }
   }
 
@@ -2534,6 +2573,162 @@ function AdminConfigPage() {
                           </FormItem>
                         )}
                       />
+                    </div>
+
+                    <Separator />
+
+                    {/* ── 排程開機 / 自動關機設定 ── */}
+                    <div className="space-y-4">
+                      <div>
+                        <h3 className="text-base font-semibold">
+                          排程開機 / 自動關機
+                        </h3>
+                        <p className="text-sm text-muted-foreground">
+                          老師的群組週期排程會用這組參數決定提早開機節奏與自動關機行為。
+                        </p>
+                      </div>
+                      <div className="grid gap-4 md:grid-cols-3">
+                        <FormField
+                          control={form.control}
+                          name="scheduled_boot_batch_size"
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel>每批開機台數</FormLabel>
+                              <FormControl>
+                                <Input
+                                  type="number"
+                                  min={1}
+                                  max={100}
+                                  {...field}
+                                  onChange={(e) =>
+                                    field.onChange(Number(e.target.value))
+                                  }
+                                />
+                              </FormControl>
+                              <FormDescription>預設 5。</FormDescription>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
+                        <FormField
+                          control={form.control}
+                          name="scheduled_boot_batch_interval_seconds"
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel>每批間隔 (秒)</FormLabel>
+                              <FormControl>
+                                <Input
+                                  type="number"
+                                  min={0}
+                                  max={600}
+                                  {...field}
+                                  onChange={(e) =>
+                                    field.onChange(Number(e.target.value))
+                                  }
+                                />
+                              </FormControl>
+                              <FormDescription>預設 10。</FormDescription>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
+                        <FormField
+                          control={form.control}
+                          name="scheduled_boot_lead_time_minutes"
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel>提早開機 (分)</FormLabel>
+                              <FormControl>
+                                <Input
+                                  type="number"
+                                  min={0}
+                                  max={120}
+                                  {...field}
+                                  onChange={(e) =>
+                                    field.onChange(Number(e.target.value))
+                                  }
+                                />
+                              </FormControl>
+                              <FormDescription>
+                                預設 5；給 OS boot 預留時間。
+                              </FormDescription>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
+                        <FormField
+                          control={form.control}
+                          name="window_grace_period_minutes"
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel>窗口結束緩衝 (分)</FormLabel>
+                              <FormControl>
+                                <Input
+                                  type="number"
+                                  min={0}
+                                  max={240}
+                                  {...field}
+                                  onChange={(e) =>
+                                    field.onChange(Number(e.target.value))
+                                  }
+                                />
+                              </FormControl>
+                              <FormDescription>
+                                預設 30；課程結束多久後自動關機。
+                              </FormDescription>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
+                        <FormField
+                          control={form.control}
+                          name="practice_session_hours"
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel>學生練習配額 (小時)</FormLabel>
+                              <FormControl>
+                                <Input
+                                  type="number"
+                                  min={1}
+                                  max={24}
+                                  {...field}
+                                  onChange={(e) =>
+                                    field.onChange(Number(e.target.value))
+                                  }
+                                />
+                              </FormControl>
+                              <FormDescription>
+                                預設 3；窗口外手動開機最多撐多久。
+                              </FormDescription>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
+                        <FormField
+                          control={form.control}
+                          name="practice_warning_minutes"
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel>關機前提示 (分)</FormLabel>
+                              <FormControl>
+                                <Input
+                                  type="number"
+                                  min={1}
+                                  max={120}
+                                  {...field}
+                                  onChange={(e) =>
+                                    field.onChange(Number(e.target.value))
+                                  }
+                                />
+                              </FormControl>
+                              <FormDescription>
+                                預設 30；學生提前多久看到延長提示。
+                              </FormDescription>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
+                      </div>
                     </div>
 
                     <Separator />

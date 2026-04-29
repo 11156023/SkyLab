@@ -49,7 +49,8 @@ def _from_punycode_hostname(hostname: str) -> str:
             try:
                 decoded = label[4:].encode("ascii").decode("punycode")
                 result_labels.append(decoded)
-            except Exception:
+            except Exception as e:
+                logger.debug("Punycode decode failed for label %s: %s", label, e)
                 result_labels.append(label)
         else:
             result_labels.append(label)
@@ -83,8 +84,15 @@ def _upsert_marker_rule(
     """
     try:
         rules = _firewall_api(node, vmid, resource_type).rules.get() or []
-    except Exception:
-        rules = []
+    except Exception as e:
+        # 不可 silent fallback：拿不到現有規則就直接 raise，避免重複插入或覆蓋既有規則
+        logger.error(
+            "取得 %s/%s 防火牆規則失敗，無法安全 upsert (comment=%s): %s",
+            node, vmid, comment, e,
+        )
+        raise ProxmoxError(
+            f"無法取得 {resource_type}/{vmid} 防火牆規則: {e}"
+        ) from e
     existing = next(
         (r for r in rules if (r.get("comment") or "").strip() == comment), None
     )
@@ -109,8 +117,11 @@ def _upsert_marker_rule(
                 moveto=last_pos,
             )
             return "updated"
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug(
+            "重排 %s/%s 規則 pos 失敗 (comment=%s)，視為 skipped: %s",
+            node, vmid, comment, e,
+        )
     return "skipped"
 
 
@@ -372,8 +383,10 @@ def _get_vm_ip(vmid: int, session: object = None) -> str | None:
         node = resource["node"]
         resource_type = resource["type"]
         ip = proxmox_service.get_ip_address(node, vmid, resource_type)
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug(
+            "VM %s 即時取 IP 失敗，將回退到 DB 快取: %s", vmid, e
+        )
 
     if ip and session is not None:
         # 更新 DB 快取（fire-and-forget，忽略失敗）
@@ -817,8 +830,11 @@ def delete_connection(
                 resource_type=src_resource["type"],
                 source_vmid=source_vmid, target_vmid=target_vmid, ports=ports,
             )
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning(
+                "刪除 src=%s→tgt=%s OUT 規則失敗 (best-effort): %s",
+                source_vmid, target_vmid, e,
+            )
 
         # tgt→src（雙向反向）：source 的 IN + target 的 OUT
         try:
@@ -827,16 +843,22 @@ def delete_connection(
                 resource_type=src_resource["type"],
                 source_vmid=target_vmid, target_vmid=source_vmid, ports=ports,
             )
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning(
+                "刪除 tgt=%s→src=%s IN 規則失敗 (best-effort): %s",
+                target_vmid, source_vmid, e,
+            )
         try:
             _delete_matching_rules(
                 node=tgt_resource["node"], vmid=target_vmid,
                 resource_type=tgt_resource["type"],
                 source_vmid=target_vmid, target_vmid=source_vmid, ports=ports,
             )
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning(
+                "刪除 tgt=%s→src=%s OUT 規則失敗 (best-effort): %s",
+                target_vmid, source_vmid, e,
+            )
 
 
 def _delete_matching_rules(
@@ -926,7 +948,11 @@ def get_connections_from_rules(vmids: list[int]) -> list[TopologyEdge]:
             node = resource["node"]
             resource_type = resource["type"]
             rules = get_vm_firewall_rules(node, vmid, resource_type)
-        except Exception:
+        except Exception as e:
+            logger.warning(
+                "讀取 VMID=%s 防火牆規則失敗，拓撲圖將略過該節點連線: %s",
+                vmid, e,
+            )
             continue
 
         for rule in rules:
@@ -1076,7 +1102,10 @@ def get_topology(user: User, session: Session) -> TopologyResponse:
     for i, vmid in enumerate(target_vmids):
         try:
             resource = proxmox_service.find_resource(vmid)
-        except Exception:
+        except Exception as e:
+            logger.warning(
+                "拓撲圖跳過 VMID=%s（無法在 Proxmox 找到資源）: %s", vmid, e
+            )
             continue
 
         node_name = _from_punycode_hostname(resource.get("name", f"VM-{vmid}"))
@@ -1097,14 +1126,19 @@ def get_topology(user: User, session: Session) -> TopologyResponse:
                 cached = resource_repo.get_resource_by_vmid(session=session, vmid=vmid)
                 if cached and cached.ip_address:
                     ip_address = cached.ip_address
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(
+                "拓撲圖 VMID=%s IP 查詢失敗（將顯示為無 IP）: %s", vmid, e
+            )
 
         try:
             opts = get_firewall_options(resource["node"], vmid, resource["type"])
             firewall_enabled = bool(opts.get("enable", False))
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(
+                "拓撲圖 VMID=%s 防火牆狀態查詢失敗（將顯示為 disabled）: %s",
+                vmid, e,
+            )
 
         layout_key = f"{vmid}:vm"
         if layout_key in layout_map:

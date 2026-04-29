@@ -341,10 +341,16 @@ def create_lxc(
                     if pos is not None:
                         try:
                             firewall_service.delete_rule_by_pos(target_node, vmid, "lxc", int(pos))
-                        except Exception:
-                            pass
-            except Exception:
-                pass
+                        except Exception as fw_err:
+                            logger.debug(
+                                "LXC %d firewall rule pos=%s cleanup failed: %s",
+                                vmid, pos, fw_err,
+                            )
+            except Exception as fw_err:
+                logger.debug(
+                    "LXC %d firewall rule listing for cleanup failed: %s",
+                    vmid, fw_err,
+                )
             _cleanup_failed_resource(target_node, vmid, "lxc")
         logger.error(f"Failed to create LXC container: {e}")
         raise ProxmoxError(f"Failed to create LXC container: {e}")
@@ -486,10 +492,16 @@ def create_vm(
                     if pos is not None:
                         try:
                             firewall_service.delete_rule_by_pos(target_node, new_vmid, "qemu", int(pos))
-                        except Exception:
-                            pass
-            except Exception:
-                pass
+                        except Exception as fw_err:
+                            logger.debug(
+                                "VM %d firewall rule pos=%s cleanup failed: %s",
+                                new_vmid, pos, fw_err,
+                            )
+            except Exception as fw_err:
+                logger.debug(
+                    "VM %d firewall rule listing for cleanup failed: %s",
+                    new_vmid, fw_err,
+                )
             _cleanup_failed_resource(target_node, new_vmid, "qemu")
         logger.error(f"Failed to create VM: {e}")
         raise ProxmoxError(f"Failed to create VM: {e}")
@@ -735,10 +747,13 @@ def execute_provision(plan: dict) -> tuple[int, str]:
                     if pos is not None:
                         try:
                             firewall_service.delete_rule_by_pos(actual_node, new_vmid, resource_type, int(pos))
-                        except Exception:
-                            pass
-            except Exception:
-                logger.debug("Firewall cleanup skipped for VMID %s", new_vmid)
+                        except Exception as fw_err:
+                            logger.debug(
+                                "execute_provision rollback: rule pos=%s on VMID %s failed: %s",
+                                pos, new_vmid, fw_err,
+                            )
+            except Exception as fw_err:
+                logger.debug("Firewall cleanup skipped for VMID %s: %s", new_vmid, fw_err)
             _cleanup_failed_resource(actual_node, new_vmid, resource_type)
         raise
 

@@ -1,0 +1,23 @@
+{
+  "vnc": {
+    "normalClosure": "Connection closed normally",
+    "disconnected": "Disconnected: {{reason}}",
+    "wsUnexpectedClose": "WebSocket connection closed unexpectedly",
+    "securityFailure": "Security verification failed: {{reason}}",
+    "credentialsRequired": "VNC authentication failed: please verify the backend obtained a valid VNC ticket",
+    "backendConnectFailed": "Unable to connect to the backend WebSocket",
+    "wsClosed": "WebSocket connection closed",
+    "initFailed": "Failed to initialize connection: {{message}}",
+    "fullscreenFailed": "Failed to enter fullscreen:",
+    "clipboardFailed": "Failed to read clipboard:"
+  },
+  "terminal": {
+    "backendConnectFailed": "Unable to connect to the backend WebSocket",
+    "normalClosure": "Connection closed normally",
+    "closedWithReason": "Connection closed: {{reason}}",
+    "initFailed": "Failed to initialize terminal: {{message}}"
+  },
+  "shared": {
+    "unknownReason": "Unknown reason"
+  }
+}

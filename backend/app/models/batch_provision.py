@@ -9,6 +9,10 @@ from sqlmodel import Column, DateTime, Enum, Field, SQLModel
 
 
 class BatchProvisionJobStatus(str, enum.Enum):
+    pending_review = "pending_review"
+    approved = "approved"
+    rejected = "rejected"
+    cancelled = "cancelled"
     pending = "pending"
     running = "running"
     completed = "completed"
@@ -63,6 +67,24 @@ class BatchProvisionJob(SQLModel, table=True):
         default=None,
         sa_column=Column(DateTime(timezone=True), nullable=True),
     )
+
+    reviewer_id: uuid.UUID | None = Field(
+        default=None,
+        sa_column=Column(
+            sa.ForeignKey("user.id", ondelete="SET NULL"),
+            nullable=True,
+        ),
+    )
+    reviewed_at: datetime | None = Field(
+        default=None,
+        sa_column=Column(DateTime(timezone=True), nullable=True),
+    )
+    review_comment: str | None = Field(default=None, max_length=500)
+
+    # Recurrence schedule applied to every member's vm_request when the job is approved.
+    recurrence_rule: str | None = Field(default=None)
+    recurrence_duration_minutes: int | None = Field(default=None)
+    schedule_timezone: str | None = Field(default=None)
 
 
 class BatchProvisionTask(SQLModel, table=True):

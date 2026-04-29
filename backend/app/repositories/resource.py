@@ -98,3 +98,40 @@ def delete_resource(*, session: Session, vmid: int, commit: bool = True) -> None
             session.commit()
         else:
             session.flush()
+
+
+def set_auto_stop(
+    *,
+    session: Session,
+    vmid: int,
+    auto_stop_at: datetime | None,
+    auto_stop_reason: str | None,
+    commit: bool = True,
+) -> Resource | None:
+    """Update or clear the auto-stop schedule for a resource.
+
+    Pass ``auto_stop_at=None`` to clear the schedule (e.g. when the student
+    manually stops the VM).
+    """
+    resource = get_resource_by_vmid(session=session, vmid=vmid)
+    if resource is None:
+        return None
+    resource.auto_stop_at = auto_stop_at
+    resource.auto_stop_reason = auto_stop_reason
+    session.add(resource)
+    if commit:
+        session.commit()
+        session.refresh(resource)
+    else:
+        session.flush()
+    return resource
+
+
+def list_due_auto_stops(*, session: Session, now: datetime) -> list[Resource]:
+    """Resources whose ``auto_stop_at`` has elapsed; the scheduler shuts these
+    down on the next tick."""
+    stmt = select(Resource).where(
+        Resource.auto_stop_at.isnot(None),  # type: ignore[union-attr]
+        Resource.auto_stop_at <= now,
+    )
+    return list(session.exec(stmt).all())

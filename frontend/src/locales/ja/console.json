@@ -1,0 +1,23 @@
+{
+  "vnc": {
+    "normalClosure": "接続が正常に終了しました",
+    "disconnected": "切断されました: {{reason}}",
+    "wsUnexpectedClose": "WebSocket 接続が予期せず切断されました",
+    "securityFailure": "セキュリティ認証に失敗しました: {{reason}}",
+    "credentialsRequired": "VNC 認証に失敗しました：バックエンドが VNC チケットを取得できているか確認してください",
+    "backendConnectFailed": "バックエンドの WebSocket に接続できません",
+    "wsClosed": "WebSocket 接続が閉じられました",
+    "initFailed": "接続の初期化に失敗しました: {{message}}",
+    "fullscreenFailed": "フルスクリーンに切り替えられません:",
+    "clipboardFailed": "クリップボードを読み取れません:"
+  },
+  "terminal": {
+    "backendConnectFailed": "バックエンドの WebSocket に接続できません",
+    "normalClosure": "接続が正常に終了しました",
+    "closedWithReason": "接続が閉じられました: {{reason}}",
+    "initFailed": "ターミナルの初期化に失敗しました: {{message}}"
+  },
+  "shared": {
+    "unknownReason": "原因不明"
+  }
+}

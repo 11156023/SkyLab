@@ -1,0 +1,23 @@
+{
+  "vnc": {
+    "normalClosure": "連接已正常關閉",
+    "disconnected": "連接已斷開: {{reason}}",
+    "wsUnexpectedClose": "WebSocket 連接意外中斷",
+    "securityFailure": "安全驗證失敗: {{reason}}",
+    "credentialsRequired": "VNC 認證失敗：請檢查後端是否正確獲取了 VNC ticket",
+    "backendConnectFailed": "無法連接到後端 WebSocket",
+    "wsClosed": "WebSocket 連接已關閉",
+    "initFailed": "初始化連接失敗: {{message}}",
+    "fullscreenFailed": "無法進入全螢幕:",
+    "clipboardFailed": "無法讀取剪貼簿:"
+  },
+  "terminal": {
+    "backendConnectFailed": "無法連接到後端 WebSocket",
+    "normalClosure": "連接已正常關閉",
+    "closedWithReason": "連接已關閉: {{reason}}",
+    "initFailed": "初始化終端失敗: {{message}}"
+  },
+  "shared": {
+    "unknownReason": "未知原因"
+  }
+}

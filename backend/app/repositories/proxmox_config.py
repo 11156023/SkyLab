@@ -58,6 +58,12 @@ def upsert_proxmox_config(
     rebalance_resource_weight_cpu: float = 1.0,
     rebalance_resource_weight_memory: float = 1.0,
     rebalance_resource_weight_disk: float = 1.0,
+    scheduled_boot_batch_size: int = 5,
+    scheduled_boot_batch_interval_seconds: int = 10,
+    scheduled_boot_lead_time_minutes: int = 5,
+    window_grace_period_minutes: int = 30,
+    practice_session_hours: int = 3,
+    practice_warning_minutes: int = 30,
 ) -> ProxmoxConfig:
     config = session.get(ProxmoxConfig, _SINGLETON_ID)
 
@@ -108,6 +114,12 @@ def upsert_proxmox_config(
             rebalance_resource_weight_cpu=rebalance_resource_weight_cpu,
             rebalance_resource_weight_memory=rebalance_resource_weight_memory,
             rebalance_resource_weight_disk=rebalance_resource_weight_disk,
+            scheduled_boot_batch_size=scheduled_boot_batch_size,
+            scheduled_boot_batch_interval_seconds=scheduled_boot_batch_interval_seconds,
+            scheduled_boot_lead_time_minutes=scheduled_boot_lead_time_minutes,
+            window_grace_period_minutes=window_grace_period_minutes,
+            practice_session_hours=practice_session_hours,
+            practice_warning_minutes=practice_warning_minutes,
         )
         session.add(config)
     else:
@@ -155,6 +167,12 @@ def upsert_proxmox_config(
         config.rebalance_resource_weight_cpu = rebalance_resource_weight_cpu
         config.rebalance_resource_weight_memory = rebalance_resource_weight_memory
         config.rebalance_resource_weight_disk = rebalance_resource_weight_disk
+        config.scheduled_boot_batch_size = scheduled_boot_batch_size
+        config.scheduled_boot_batch_interval_seconds = scheduled_boot_batch_interval_seconds
+        config.scheduled_boot_lead_time_minutes = scheduled_boot_lead_time_minutes
+        config.window_grace_period_minutes = window_grace_period_minutes
+        config.practice_session_hours = practice_session_hours
+        config.practice_warning_minutes = practice_warning_minutes
         config.updated_at = datetime.now(timezone.utc)
         session.add(config)
 
