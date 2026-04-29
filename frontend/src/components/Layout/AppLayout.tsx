@@ -2,6 +2,7 @@ import { useQuery } from "@tanstack/react-query"
 import { Link, Outlet, useRouterState } from "@tanstack/react-router"
 import { AlertTriangle } from "lucide-react"
 
+import { GlobalAiNavigator } from "@/components/AiNavigator/GlobalAiNavigator"
 import { Footer } from "@/components/Common/Footer"
 import { ErrorBoundary } from "@/components/ErrorBoundary"
 import { JobsBanner } from "@/components/Jobs/JobsBanner"
@@ -61,6 +62,7 @@ export function AppLayout() {
             </>
           )}
         </SidebarInset>
+        <GlobalAiNavigator />
       </SidebarProvider>
     </div>
   )

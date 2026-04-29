@@ -5,7 +5,6 @@ import {
   ChevronRight,
   ClipboardCheck,
   Cloud,
-  Compass,
   Cpu,
   FileText,
   Globe,
@@ -52,10 +51,7 @@ export function AppSidebar() {
     { icon: Cpu, title: t("sidebar.gpuManagement"), path: "/gpu-management" },
   ]
 
-  const aiItems: Item[] = [
-    { icon: Compass, title: "AI 導覽", path: "/ai-navigator" },
-    { icon: Bot, title: "AI API", path: "/ai-api" },
-  ]
+  const aiItems: Item[] = [{ icon: Bot, title: "AI API", path: "/ai-api" }]
 
   const jobsItem: Item = {
     icon: Activity,
