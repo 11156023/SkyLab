@@ -100,6 +100,20 @@ def _provisioned_current_node(request: VMRequest) -> str | None:
     return placement_support.provisioned_current_node(request)
 
 
+def _is_quick_template_request(request: VMRequest) -> bool:
+    return getattr(request, "request_kind", "research") == "quick_template"
+
+
+def _fixed_node_for_quick_template(request: VMRequest) -> str | None:
+    if not _is_quick_template_request(request):
+        return None
+    return (
+        _provisioned_current_node(request)
+        or request.desired_node
+        or request.assigned_node
+    )
+
+
 def _build_rebalance_baseline_nodes(
     *,
     session: Session,
@@ -134,6 +148,10 @@ def _build_active_rebalance_allowed_target_nodes(
 
     allowed_target_nodes: dict[uuid.UUID, set[str]] = {}
     for request in ordered_requests:
+        fixed_node = _fixed_node_for_quick_template(request)
+        if fixed_node:
+            allowed_target_nodes[request.id] = {fixed_node}
+            continue
         allowed, _ = scheduling_support.migration_allowed_target_nodes_for_request(
             request=request,
             candidate_nodes=candidate_nodes,
@@ -285,6 +303,7 @@ def select_reserved_target_node(
         start_at=start_at,
         end_at=end_at,
         reserved_requests=reserved_requests,
+        allow_cohort_rebalance=not _is_quick_template_request(db_request),
     )
 
 
@@ -295,6 +314,7 @@ def select_reserved_target_node_for_request(
     start_at: datetime | None,
     end_at: datetime | None,
     reserved_requests: list[VMRequest] | None = None,
+    allow_cohort_rebalance: bool = True,
 ) -> CurrentPlacementSelection:
     if not start_at or not end_at:
         nodes, resources = advisor_service._load_cluster_state()
@@ -403,6 +423,20 @@ def select_reserved_target_node_for_request(
         placement_strategy=strategy,
         node_priorities=get_node_priorities(session),
     )
+    if not allow_cohort_rebalance:
+        return CurrentPlacementSelection(
+            node=plan.recommended_node,
+            strategy=strategy,
+            plan=plan.model_copy(
+                update={
+                    "summary": (
+                        "Selected from currently available reserved capacity "
+                        "without previewing cohort rebalance."
+                    ),
+                }
+            ),
+        )
+
     overlapping_start_requests = [
         item
         for item in reserved_requests
@@ -1191,6 +1225,11 @@ def rebalance_active_assignments(
         policy=migration_policy,
         now=_utc_now(),
     )
+    fixed_assignments = {
+        request.id: fixed_node
+        for request in ordered_requests
+        if (fixed_node := _fixed_node_for_quick_template(request))
+    }
     final_assignments = _solve_rebalance_assignments(
         session=session,
         ordered_requests=ordered_requests,
@@ -1198,6 +1237,7 @@ def rebalance_active_assignments(
         strategy=strategy,
         priorities=priorities,
         tuning=tuning,
+        fixed_assignments=fixed_assignments,
         allowed_target_nodes_by_request=allowed_target_nodes_by_request,
         max_migrations=migration_policy.max_per_rebalance,
     )

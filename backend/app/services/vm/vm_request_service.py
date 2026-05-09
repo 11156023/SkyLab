@@ -164,6 +164,41 @@ def _approve_and_place(
         VMRequestStatus.provisioning,
         VMRequestStatus.running,
     )
+    if db_request.request_kind == "quick_template":
+        reserved_requests = [
+            item
+            for item in locked_requests
+            if item.id != db_request.id and item.status in _active_statuses
+        ]
+        selection = vm_request_placement_service.select_reserved_target_node(
+            session=session,
+            db_request=db_request,
+            reserved_requests=reserved_requests,
+        )
+        if not selection or not selection.node:
+            raise BadRequestError(
+                "No node is available for the quick template time window."
+            )
+        vm_request_repo.update_vm_request_provisioning(
+            session=session,
+            db_request=db_request,
+            vmid=db_request.vmid,
+            assigned_node=selection.node,
+            desired_node=selection.node,
+            actual_node=db_request.actual_node,
+            placement_strategy_used=selection.strategy,
+            migration_status=(
+                VMMigrationStatus.pending
+                if db_request.vmid is not None
+                and db_request.actual_node
+                and db_request.actual_node != selection.node
+                else VMMigrationStatus.idle
+            ),
+            migration_error=None,
+            commit=False,
+        )
+        return selection
+
     approved_requests = [
         item
         for item in locked_requests
@@ -348,10 +383,11 @@ def create(
     )
     session.commit()
 
-    # For immediate + auto-approved, trigger provisioning right away in the
-    # background so the HTTP request returns immediately (a VM clone can take
-    # 30+ seconds and must not block the request handler).
-    if auto_approved and mode == "immediate":
+    # For immediate or quick-template auto-approved requests, trigger
+    # provisioning right away in the background so the HTTP request returns
+    # immediately (a VM clone can take 30+ seconds and must not block the
+    # request handler).
+    if auto_approved and mode in {"immediate", "quick_template"}:
         submit_sync(
             vm_request_schedule_service.process_single_request_start,
             db_request.id,

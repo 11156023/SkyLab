@@ -459,6 +459,7 @@ def _aggregate_jobs(
         try:
             items.extend(fetcher(session, user=user, since=since))
         except Exception as exc:  # noqa: BLE001 — 單一來源失敗不應拖垮整個查詢
+            session.rollback()
             logger.exception("fetch jobs for kind=%s failed: %s", kind.value, exc)
     items.sort(key=lambda j: j.updated_at, reverse=True)
     return items

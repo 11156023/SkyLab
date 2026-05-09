@@ -269,6 +269,88 @@ def test_student_quick_template_rejects_unlisted_template(db: Session) -> None:
         vm_request_service.create(session=db, request_in=request_in, user=user)
 
 
+def test_quick_template_approval_does_not_rebuild_existing_reservations(
+    db: Session,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    now = datetime.now(timezone.utc)
+    reviewer_id = uuid.uuid4()
+    existing = VMRequest(
+        id=uuid.uuid4(),
+        user_id=uuid.uuid4(),
+        reason="research reservation should stay assigned",
+        request_kind="research",
+        resource_type="lxc",
+        hostname="research-reservation",
+        cores=4,
+        memory=8192,
+        password="encrypted",
+        storage="local-lvm",
+        environment_type="Research",
+        status=VMRequestStatus.approved,
+        start_at=now - timedelta(minutes=10),
+        end_at=now + timedelta(hours=4),
+        assigned_node="research-node",
+        desired_node="research-node",
+        created_at=now - timedelta(hours=1),
+    )
+    quick = VMRequest(
+        id=uuid.uuid4(),
+        user_id=uuid.uuid4(),
+        reason="quick template",
+        request_kind="quick_template",
+        resource_type="lxc",
+        hostname="quick-template",
+        cores=1,
+        memory=1024,
+        password="encrypted",
+        storage="local-lvm",
+        environment_type="Quick",
+        rootfs_size=8,
+        status=VMRequestStatus.pending,
+        start_at=now,
+        end_at=now + timedelta(hours=3),
+        created_at=now,
+    )
+    db.add(existing)
+    db.add(quick)
+    db.commit()
+    db.refresh(existing)
+    db.refresh(quick)
+
+    def _fail_rebuild(**kwargs):
+        raise AssertionError("quick templates must not rebuild existing reservations")
+
+    def _fake_select_reserved_target_node(*, db_request, reserved_requests, **kwargs):
+        assert db_request.id == quick.id
+        assert [item.assigned_node for item in reserved_requests] == ["research-node"]
+        return SimpleNamespace(
+            node="quick-node",
+            strategy="priority_dominant_share",
+            plan=SimpleNamespace(feasible=True),
+        )
+
+    monkeypatch.setattr(
+        "app.services.vm.vm_request_service.vm_request_placement_service.rebuild_reserved_assignments",
+        _fail_rebuild,
+    )
+    monkeypatch.setattr(
+        "app.services.vm.vm_request_service.vm_request_placement_service.select_reserved_target_node",
+        _fake_select_reserved_target_node,
+    )
+
+    selection = vm_request_service._approve_and_place(
+        session=db,
+        db_request=quick,
+        reviewer_id=reviewer_id,
+    )
+
+    assert selection.node == "quick-node"
+    assert quick.status == VMRequestStatus.approved
+    assert quick.assigned_node == "quick-node"
+    assert existing.assigned_node == "research-node"
+
+
 def test_vm_request_review_rolls_back_and_cleans_up_on_failure(
     db: Session, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -2989,6 +3071,101 @@ def test_reserved_target_node_preview_matches_active_rebalance_objective(
     )
 
     assert selection.node == "pve-b"
+
+
+def test_quick_template_reserved_target_skips_cohort_rebalance_preview(
+    db: Session,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    now = datetime.now(timezone.utc)
+    db.add(
+        ProxmoxConfig(
+            id=1,
+            host="pve.local",
+            user="root@pam",
+            encrypted_password="encrypted",
+            verify_ssl=False,
+            iso_storage="local",
+            data_storage="local-lvm",
+            pool_name="CampusCloud",
+            placement_strategy="priority_dominant_share",
+        )
+    )
+    db.commit()
+
+    quick = VMRequest(
+        id=uuid.uuid4(),
+        user_id=uuid.uuid4(),
+        reason="quick",
+        request_kind="quick_template",
+        resource_type="lxc",
+        hostname="quick-template",
+        cores=1,
+        memory=1024,
+        password="encrypted",
+        storage="local-lvm",
+        environment_type="Quick",
+        rootfs_size=8,
+        status=VMRequestStatus.approved,
+        start_at=now,
+        end_at=now + timedelta(hours=3),
+        created_at=now,
+    )
+    existing = VMRequest(
+        id=uuid.uuid4(),
+        user_id=uuid.uuid4(),
+        reason="existing",
+        resource_type="lxc",
+        hostname="existing-research",
+        cores=2,
+        memory=2048,
+        password="encrypted",
+        storage="local-lvm",
+        environment_type="Research",
+        rootfs_size=16,
+        status=VMRequestStatus.approved,
+        start_at=now,
+        end_at=now + timedelta(hours=4),
+        assigned_node="pve-a",
+        created_at=now - timedelta(hours=1),
+    )
+
+    monkeypatch.setattr(
+        "app.services.vm.placement_service.advisor_service._load_cluster_state",
+        lambda: ([], []),
+    )
+    monkeypatch.setattr(
+        "app.services.vm.placement_service.advisor_service._build_node_capacities",
+        lambda **kwargs: [
+            NodeCapacity(
+                node="pve-a",
+                status="online",
+                candidate=True,
+                guest_soft_limit=100,
+                total_cpu_cores=12,
+                allocatable_cpu_cores=12,
+                total_memory_bytes=64 * 1024**3,
+                allocatable_memory_bytes=64 * 1024**3,
+                total_disk_bytes=500 * 1024**3,
+                allocatable_disk_bytes=500 * 1024**3,
+            )
+        ],
+    )
+    monkeypatch.setattr(
+        "app.services.vm.placement_service._solve_rebalance_assignments",
+        lambda **kwargs: (_ for _ in ()).throw(
+            AssertionError("quick templates should not preview cohort rebalance")
+        ),
+    )
+
+    selection = vm_request_placement_service.select_reserved_target_node(
+        session=db,
+        db_request=quick,
+        reserved_requests=[existing],
+    )
+
+    assert selection.node == "pve-a"
+    assert "without previewing cohort rebalance" in selection.plan.summary
 
 
 def test_storage_selection_penalizes_high_contention_even_with_better_priority() -> None:

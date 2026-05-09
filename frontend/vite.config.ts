@@ -62,10 +62,14 @@ export default defineConfig(({ mode }) => {
           changeOrigin: true,
           configure(proxy) {
             // node-http-proxy reports ECONNRESET / EPIPE on normal WS teardown —
-            // suppress these to avoid spurious console noise.
+            // Suppress these to avoid spurious console noise.
             proxy.on("error", (err) => {
               const code = (err as NodeJS.ErrnoException).code
-              if (code === "ECONNRESET" || code === "EPIPE") return
+              if (
+                code === "ECONNRESET" ||
+                code === "EPIPE" ||
+                code === "ECONNABORTED"
+              ) return
               console.error("[ws proxy]", err)
             })
           },

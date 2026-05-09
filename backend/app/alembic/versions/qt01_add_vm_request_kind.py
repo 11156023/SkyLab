@@ -16,17 +16,31 @@ depends_on = None
 
 
 def upgrade() -> None:
-    op.add_column(
-        "vm_requests",
-        sa.Column(
-            "request_kind",
-            sa.String(),
-            nullable=False,
-            server_default="research",
-        ),
+    bind = op.get_bind()
+    inspector = sa.inspect(bind)
+    has_request_kind = any(
+        column["name"] == "request_kind"
+        for column in inspector.get_columns("vm_requests")
     )
+    if not has_request_kind:
+        op.add_column(
+            "vm_requests",
+            sa.Column(
+                "request_kind",
+                sa.String(),
+                nullable=False,
+                server_default="research",
+            ),
+        )
     op.alter_column("vm_requests", "request_kind", server_default=None)
 
 
 def downgrade() -> None:
-    op.drop_column("vm_requests", "request_kind")
+    bind = op.get_bind()
+    inspector = sa.inspect(bind)
+    has_request_kind = any(
+        column["name"] == "request_kind"
+        for column in inspector.get_columns("vm_requests")
+    )
+    if has_request_kind:
+        op.drop_column("vm_requests", "request_kind")
