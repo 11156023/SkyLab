@@ -5,7 +5,7 @@ import type {
 } from "@/client"
 
 type ResourceType = "lxc" | "vm"
-type RequestMode = "immediate" | "scheduled"
+type RequestMode = "quick_template" | "immediate" | "scheduled"
 
 type ResourceValidationMessages = {
   lxcRequirements: string
@@ -50,7 +50,7 @@ type ApplicationRequestFormInput = SharedResourceFormInput & {
 
 export type VmRequestCreateRequestBody = Omit<
   VMRequestCreate,
-  "start_at" | "end_at"
+  "mode" | "start_at" | "end_at"
 > & {
   mode?: RequestMode
   start_at?: string
@@ -158,6 +158,14 @@ function getNormalizedResourcePayload(
 
 function getRequestWindow(values: ApplicationRequestFormInput) {
   const mode = values.mode ?? "scheduled"
+
+  if (mode === "quick_template") {
+    return {
+      mode,
+      start_at: undefined,
+      end_at: undefined,
+    }
+  }
 
   if (mode === "immediate") {
     return {

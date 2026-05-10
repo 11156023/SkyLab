@@ -55,7 +55,7 @@ class VMRequestCreate(BaseModel):
     environment_type: str = "Custom"
     os_info: str | None = None
     expiry_date: date | None = None
-    mode: Literal["immediate", "scheduled"] = "scheduled"
+    mode: Literal["quick_template", "immediate", "scheduled"] = "scheduled"
     start_at: datetime | None = None
     end_at: datetime | None = None
 
@@ -83,6 +83,7 @@ class VMRequestPublic(BaseModel):
     user_full_name: str | None = None
     reason: str
     resource_type: str
+    request_kind: str = "research"
     hostname: str
     cores: int
     memory: int

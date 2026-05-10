@@ -42,6 +42,22 @@ from app.services.vm.placement_service import CurrentPlacementSelection
 
 logger = logging.getLogger(__name__)
 
+QUICK_TEMPLATE_DURATION_HOURS = 3
+QUICK_TEMPLATE_MAX_ACTIVE_PER_USER = 1
+QUICK_TEMPLATE_MAX_CREATED_PER_24H = 3
+QUICK_TEMPLATE_MAX_CORES = 2
+QUICK_TEMPLATE_MAX_MEMORY_MB = 4096
+QUICK_TEMPLATE_MAX_DISK_GB = 32
+QUICK_TEMPLATE_ALLOWED_SLUGS = frozenset(
+    {
+        "postgresql",
+        "mongodb",
+        "grafana",
+        "homepage",
+        "wordpress",
+    }
+)
+
 
 def _utc_now() -> datetime:
     return datetime.now(UTC)
@@ -56,6 +72,7 @@ def _to_public(req: VMRequest, user_override=None) -> VMRequestPublic:
         user_full_name=user.full_name if user else None,
         reason=req.reason,
         resource_type=req.resource_type,
+        request_kind=req.request_kind,
         hostname=req.hostname,
         cores=req.cores,
         memory=req.memory,
@@ -147,6 +164,41 @@ def _approve_and_place(
         VMRequestStatus.provisioning,
         VMRequestStatus.running,
     )
+    if db_request.request_kind == "quick_template":
+        reserved_requests = [
+            item
+            for item in locked_requests
+            if item.id != db_request.id and item.status in _active_statuses
+        ]
+        selection = vm_request_placement_service.select_reserved_target_node(
+            session=session,
+            db_request=db_request,
+            reserved_requests=reserved_requests,
+        )
+        if not selection or not selection.node:
+            raise BadRequestError(
+                "No node is available for the quick template time window."
+            )
+        vm_request_repo.update_vm_request_provisioning(
+            session=session,
+            db_request=db_request,
+            vmid=db_request.vmid,
+            assigned_node=selection.node,
+            desired_node=selection.node,
+            actual_node=db_request.actual_node,
+            placement_strategy_used=selection.strategy,
+            migration_status=(
+                VMMigrationStatus.pending
+                if db_request.vmid is not None
+                and db_request.actual_node
+                and db_request.actual_node != selection.node
+                else VMMigrationStatus.idle
+            ),
+            migration_error=None,
+            commit=False,
+        )
+        return selection
+
     approved_requests = [
         item
         for item in locked_requests
@@ -186,6 +238,58 @@ def _approve_and_place(
     return selections.get(db_request.id)
 
 
+def _prepare_quick_template_request(
+    *,
+    session: Session,
+    request_in: VMRequestCreate,
+    user,
+    now: datetime,
+) -> None:
+    if request_in.resource_type != "lxc":
+        raise BadRequestError("Quick templates currently support LXC only")
+
+    slug = str(request_in.service_template_slug or "").strip().lower()
+    if not slug:
+        raise BadRequestError("Quick template mode requires a service template")
+    if slug not in QUICK_TEMPLATE_ALLOWED_SLUGS:
+        raise BadRequestError("This service template is not enabled for quick use")
+
+    if request_in.gpu_mapping_id:
+        raise BadRequestError("Quick template mode does not support GPU allocation")
+    if not request_in.rootfs_size:
+        raise BadRequestError("Quick template mode requires rootfs_size")
+    if int(request_in.cores or 0) > QUICK_TEMPLATE_MAX_CORES:
+        raise BadRequestError("Quick template CPU exceeds the allowed limit")
+    if int(request_in.memory or 0) > QUICK_TEMPLATE_MAX_MEMORY_MB:
+        raise BadRequestError("Quick template memory exceeds the allowed limit")
+    if int(request_in.rootfs_size or 0) > QUICK_TEMPLATE_MAX_DISK_GB:
+        raise BadRequestError("Quick template disk size exceeds the allowed limit")
+
+    active_count = vm_request_repo.count_quick_template_requests_for_user(
+        session=session,
+        user_id=user.id,
+        active_at=now,
+    )
+    if active_count >= QUICK_TEMPLATE_MAX_ACTIVE_PER_USER:
+        raise BadRequestError("You already have an active quick template")
+
+    recent_count = vm_request_repo.count_quick_template_requests_for_user(
+        session=session,
+        user_id=user.id,
+        since=now - timedelta(hours=24),
+    )
+    if recent_count >= QUICK_TEMPLATE_MAX_CREATED_PER_24H:
+        raise BadRequestError("Quick template daily limit reached")
+
+    request_in.service_template_slug = slug
+    request_in.service_template_script_path = (
+        request_in.service_template_script_path or f"ct/{slug}.sh"
+    )
+    request_in.start_at = now
+    request_in.end_at = now + timedelta(hours=QUICK_TEMPLATE_DURATION_HOURS)
+    request_in.gpu_mapping_id = None
+
+
 def create(
     *, session: Session, request_in: VMRequestCreate, user
 ) -> VMRequestPublic:
@@ -201,7 +305,15 @@ def create(
     # ---------- mode validation ----------
     mode = getattr(request_in, "mode", "scheduled") or "scheduled"
 
-    if mode == "immediate":
+    if mode == "quick_template":
+        now = _utc_now()
+        _prepare_quick_template_request(
+            session=session,
+            request_in=request_in,
+            user=user,
+            now=now,
+        )
+    elif mode == "immediate":
         require_immediate_vm_request_access(user)
         # Set start_at to now; end_at can be None (infinite) or user-specified.
         request_in.start_at = _utc_now()
@@ -271,10 +383,11 @@ def create(
     )
     session.commit()
 
-    # For immediate + auto-approved, trigger provisioning right away in the
-    # background so the HTTP request returns immediately (a VM clone can take
-    # 30+ seconds and must not block the request handler).
-    if auto_approved and mode == "immediate":
+    # For immediate or quick-template auto-approved requests, trigger
+    # provisioning right away in the background so the HTTP request returns
+    # immediately (a VM clone can take 30+ seconds and must not block the
+    # request handler).
+    if auto_approved and mode in {"immediate", "quick_template"}:
         submit_sync(
             vm_request_schedule_service.process_single_request_start,
             db_request.id,

@@ -28,6 +28,11 @@ def create_vm_request(
         user_id=user_id,
         reason=vm_request_in.reason,
         resource_type=vm_request_in.resource_type,
+        request_kind=(
+            "quick_template"
+            if getattr(vm_request_in, "mode", "scheduled") == "quick_template"
+            else "research"
+        ),
         hostname=to_punycode_hostname(vm_request_in.hostname),
         cores=vm_request_in.cores,
         memory=vm_request_in.memory,
@@ -113,6 +118,36 @@ def get_all_vm_requests(
     if status:
         statement = statement.where(VMRequest.status == status)
     return list(session.exec(statement.offset(skip).limit(limit)).all()), count
+
+
+def count_quick_template_requests_for_user(
+    *,
+    session: Session,
+    user_id: uuid.UUID,
+    since: datetime | None = None,
+    active_at: datetime | None = None,
+) -> int:
+    statement = select(func.count()).select_from(VMRequest).where(
+        VMRequest.user_id == user_id,
+        VMRequest.request_kind == "quick_template",
+    )
+    if since is not None:
+        statement = statement.where(VMRequest.created_at >= since)
+    if active_at is not None:
+        statement = statement.where(
+            VMRequest.status.in_(
+                (
+                    VMRequestStatus.pending,
+                    VMRequestStatus.approved,
+                    VMRequestStatus.provisioning,
+                    VMRequestStatus.running,
+                )
+            ),
+            VMRequest.start_at.is_not(None),
+            VMRequest.start_at <= active_at,
+            sa.or_(VMRequest.end_at.is_(None), VMRequest.end_at > active_at),
+        )
+    return int(session.exec(statement).one())
 
 
 _ACTIVE_STATUSES = (

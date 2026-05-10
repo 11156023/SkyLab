@@ -6,6 +6,7 @@ from typing import Any
 from app.core.permissions import (
     Permission,
     can_access_owner_resource,
+    get_user_role,
     has_permission,
     is_admin,
     is_teacher,
@@ -13,6 +14,7 @@ from app.core.permissions import (
     require_permission,
 )
 from app.exceptions import PermissionDeniedError
+from app.models import UserRole
 
 
 def can_manage_users(user: Any) -> bool:
@@ -136,6 +138,8 @@ def require_immediate_vm_request_access(
 def can_auto_approve_vm_request(user: Any, *, mode: str) -> bool:
     if is_admin(user):
         return True
+    if mode == "quick_template":
+        return get_user_role(user) in {UserRole.student, UserRole.teacher}
     return mode == "immediate" and is_teacher(user)
 
 
