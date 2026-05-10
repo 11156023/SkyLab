@@ -74,4 +74,32 @@ describe("resource payload mappers", () => {
       environment_type: "vm-teaching",
     })
   })
+
+  it("builds a quick template request without client-controlled dates", () => {
+    expect(
+      toVmRequestCreateRequestBody(
+        {
+          resource_type: "lxc",
+          hostname: "quick-pg",
+          ostemplate: "ubuntu-24.04",
+          cores: 2,
+          memory: 2048,
+          rootfs_size: 16,
+          password: "password123",
+          reason: "Need a short PostgreSQL lab environment",
+          mode: "quick_template",
+          start_at: "2026-04-12T08:00:00+08:00",
+          end_at: "2026-04-12T12:00:00+08:00",
+          service_template_slug: "postgresql",
+        },
+        options,
+      ),
+    ).toMatchObject({
+      resource_type: "lxc",
+      mode: "quick_template",
+      start_at: undefined,
+      end_at: undefined,
+      service_template_slug: "postgresql",
+    })
+  })
 })

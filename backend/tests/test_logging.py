@@ -11,7 +11,7 @@ import logging
 
 import pytest
 
-from app.core.logging import JsonFormatter, configure_logging
+from app.core.logging import JsonFormatter, WebSocketNoiseFilter, configure_logging
 from app.core.request_context import (
     RequestContext,
     set_request_context,
@@ -124,6 +124,25 @@ def test_formatter_includes_exception_info(formatter: JsonFormatter) -> None:
     assert payload["level"] == "ERROR"
     assert "ValueError" in payload["exception"]
     assert "kaboom" in payload["exception"]
+
+
+def test_websocket_noise_filter_hides_successful_uvicorn_ws_logs() -> None:
+    filter_ = WebSocketNoiseFilter()
+
+    accepted = _make_record(
+        name="uvicorn.error",
+        msg='127.0.0.1:57100 - "WebSocket /ws/jobs?token=abc" [accepted]',
+    )
+    opened = _make_record(name="uvicorn.error", msg="connection open")
+    error = _make_record(
+        name="uvicorn.error",
+        level=logging.ERROR,
+        msg="WebSocket /ws/jobs failed",
+    )
+
+    assert filter_.filter(accepted) is False
+    assert filter_.filter(opened) is False
+    assert filter_.filter(error) is True
 
 
 def test_configure_logging_is_idempotent() -> None:

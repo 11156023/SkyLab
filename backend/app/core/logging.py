@@ -66,6 +66,21 @@ class JsonFormatter(logging.Formatter):
         return json.dumps(payload, ensure_ascii=False, default=str)
 
 
+class WebSocketNoiseFilter(logging.Filter):
+    """Hide successful WebSocket connection chatter while keeping errors."""
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        if record.levelno >= logging.WARNING:
+            return True
+        message = record.getMessage()
+        if record.name == "uvicorn.error":
+            if message in {"connection open", "connection closed"}:
+                return False
+            if "WebSocket /ws/" in message and "[accepted]" in message:
+                return False
+        return True
+
+
 _CONFIGURED = False
 
 
@@ -79,6 +94,8 @@ def configure_logging(*, level: str = "INFO", json_output: bool = True) -> None:
         return
 
     handler = logging.StreamHandler(stream=sys.stdout)
+    websocket_noise_filter = WebSocketNoiseFilter()
+    handler.addFilter(websocket_noise_filter)
     if json_output:
         handler.setFormatter(JsonFormatter())
     else:
@@ -97,6 +114,7 @@ def configure_logging(*, level: str = "INFO", json_output: bool = True) -> None:
 
     # Tame noisy third-party loggers.
     logging.getLogger("uvicorn.access").setLevel("WARNING")
+    logging.getLogger("uvicorn.error").addFilter(websocket_noise_filter)
     logging.getLogger("httpx").setLevel("WARNING")
 
     _CONFIGURED = True

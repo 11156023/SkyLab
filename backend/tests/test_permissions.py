@@ -96,6 +96,7 @@ def test_vm_request_authorizers_match_existing_role_rules() -> None:
     assert can_auto_approve_vm_request(teacher, mode="immediate") is True
     assert can_auto_approve_vm_request(teacher, mode="scheduled") is False
     assert can_auto_approve_vm_request(student, mode="immediate") is False
+    assert can_auto_approve_vm_request(student, mode="quick_template") is True
 
     require_immediate_vm_request_access(teacher)
     require_vm_request_review(admin)

@@ -39,6 +39,7 @@ class VMRequest(SQLModel, table=True):
 
     reason: str
     resource_type: str
+    request_kind: str = Field(default="research", description="research or quick_template")
 
     hostname: str
     cores: int = Field(default=2)

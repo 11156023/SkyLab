@@ -24,7 +24,7 @@ _SNAPSHOT_INTERVAL_SECONDS = 3.0
 async def jobs_ws_proxy(websocket: WebSocket, token: str) -> None:
     user, session = await get_ws_current_user(websocket, token=token)
     await websocket.accept()
-    logger.info("Jobs WS connected: user=%s", user.email)
+    logger.debug("Jobs WS connected: user=%s", user.email)
 
     last_payload: str | None = None
 
@@ -55,7 +55,7 @@ async def jobs_ws_proxy(websocket: WebSocket, token: str) -> None:
             except asyncio.TimeoutError:
                 pass
     except WebSocketDisconnect:
-        logger.info("Jobs WS disconnected: user=%s", user.email)
+        logger.debug("Jobs WS disconnected: user=%s", user.email)
     except Exception:
         logger.exception("Jobs WS error: user=%s", user.email)
         try:
