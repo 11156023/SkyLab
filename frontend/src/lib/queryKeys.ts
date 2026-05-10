@@ -47,6 +47,8 @@ export const queryKeys = {
         ["vm-request-availability", draftKey] as const,
       byRequest: (requestId: string) =>
         ["vm-request-availability", requestId] as const,
+      window: (windowKey: unknown) =>
+        ["vm-request-window-availability", windowKey] as const,
     },
   },
   aiApi: {

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections import Counter
 from datetime import UTC, date, datetime, time, timedelta
-from typing import cast
+from typing import Literal, cast
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from sqlmodel import Session, select
@@ -21,6 +21,8 @@ from app.schemas.vm_request import (
     VMRequestAvailabilitySlot,
     VMRequestAvailabilityStackItem,
     VMRequestAvailabilitySummary,
+    VMRequestWindowAvailabilityRequest,
+    VMRequestWindowAvailabilityResponse,
 )
 from app.services.vm import vm_request_placement_service
 
@@ -138,12 +140,88 @@ def validate_request_window(
         request=placement_request,
         start_at=start_at,
         end_at=end_at,
+        allow_cohort_rebalance=(
+            getattr(request_in, "mode", "") != "quick_template"
+        ),
     )
     if not selection.node or not selection.plan.feasible:
         raise BadRequestError(
             selection.plan.summary
             or "No node is available for the requested time window."
         )
+
+
+def assess_request_window(
+    *,
+    session: Session,
+    current_user,
+    request_in: VMRequestWindowAvailabilityRequest,
+) -> VMRequestWindowAvailabilityResponse:
+    start_at = _normalize_datetime(request_in.start_at)
+    end_at = _normalize_datetime(request_in.end_at)
+    if not start_at or not end_at:
+        raise BadRequestError("A request window is required.")
+    if end_at <= start_at:
+        raise BadRequestError("end_at must be later than start_at")
+
+    duration_seconds = max((end_at - start_at).total_seconds(), 0)
+    duration_hours = int(duration_seconds // 3600)
+    if duration_seconds % 3600:
+        duration_hours += 1
+    duration_days = round(duration_seconds / 86400, 2)
+
+    placement_request = PlacementRequest(
+        resource_type=cast(str, request_in.resource_type),
+        cpu_cores=int(request_in.cores or 1),
+        memory_mb=int(request_in.memory or 512),
+        disk_gb=_extract_disk_gb(
+            resource_type=cast(str, request_in.resource_type),
+            disk_size=request_in.disk_size,
+            rootfs_size=request_in.rootfs_size,
+        ),
+        instance_count=1,
+        gpu_required=int(request_in.gpu_required or 0),
+    )
+    selection = vm_request_placement_service.select_reserved_target_node_for_request(
+        session=session,
+        request=placement_request,
+        start_at=start_at,
+        end_at=end_at,
+        allow_cohort_rebalance=request_in.mode != "quick_template",
+    )
+    feasible = bool(selection.node and selection.plan.feasible)
+    warnings = list(selection.plan.warnings or [])
+
+    if request_in.mode == "quick_template":
+        available_summary = "目前容量可立即建立，系統會保留 3 小時。"
+        unavailable_summary = "目前容量不足，暫時無法立即建立快速模板。"
+    else:
+        available_summary = "此研究期間預估可安排，送出後仍需管理員審核。"
+        unavailable_summary = "此研究期間目前容量不足，建議縮短期間或降低規格。"
+
+    status: Literal["available", "limited", "unavailable"]
+    if feasible:
+        status = "limited" if duration_days >= 30 else "available"
+        if status == "limited":
+            warnings.append("申請期間較長，核准前建議由管理員確認長期保留影響。")
+    else:
+        status = "unavailable"
+
+    return VMRequestWindowAvailabilityResponse(
+        status=status,
+        feasible=feasible,
+        start_at=start_at,
+        end_at=end_at,
+        duration_hours=duration_hours,
+        duration_days=duration_days,
+        summary=available_summary if feasible else unavailable_summary,
+        reason=selection.plan.summary
+        or (available_summary if feasible else unavailable_summary),
+        selected_node=selection.node,
+        placement_strategy=selection.strategy,
+        checked_checkpoint_count=max(duration_hours, 1),
+        warnings=warnings[:5],
+    )
 
 
 def _build_availability_response(

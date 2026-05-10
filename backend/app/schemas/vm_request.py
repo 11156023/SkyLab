@@ -225,6 +225,33 @@ class VMRequestAvailabilityRequest(BaseModel):
     policy_role: UserRole | None = None
 
 
+class VMRequestWindowAvailabilityRequest(BaseModel):
+    resource_type: Literal["lxc", "vm"] = "lxc"
+    cores: int = Field(default=2, ge=1, le=256)
+    memory: int = Field(default=2048, ge=128, le=1048576, description="MB")
+    disk_size: int | None = Field(default=None, ge=1, le=65536)
+    rootfs_size: int | None = Field(default=None, ge=1, le=65536)
+    gpu_required: int = Field(default=0, ge=0, le=16)
+    start_at: datetime
+    end_at: datetime
+    mode: Literal["quick_template", "research", "scheduled"] = "research"
+
+
+class VMRequestWindowAvailabilityResponse(BaseModel):
+    status: Literal["available", "limited", "unavailable"]
+    feasible: bool
+    start_at: datetime
+    end_at: datetime
+    duration_hours: int = Field(ge=0)
+    duration_days: float = Field(ge=0)
+    summary: str
+    reason: str
+    selected_node: str | None = None
+    placement_strategy: str | None = None
+    checked_checkpoint_count: int = Field(default=0, ge=0)
+    warnings: list[str] = Field(default_factory=list)
+
+
 class VMRequestAvailabilitySlot(BaseModel):
     start_at: datetime
     end_at: datetime
