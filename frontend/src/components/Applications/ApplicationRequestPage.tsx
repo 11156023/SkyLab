@@ -1611,14 +1611,16 @@ export function ApplicationRequestPage({
                     </div>
                     <p className="text-xs text-muted-foreground">
                       系統會送出 {watchedStartAt || "-"} 到{" "}
-                      {watchedEndAt || "-"} 的研究資源申請，結束日期會包含完整當日。
+                      {watchedEndAt || "-"}{" "}
+                      的研究資源申請，結束日期會包含完整當日。
                     </p>
                   </div>
                 ) : watchedMode === "quick_template" ? (
                   <div className="rounded-2xl border border-primary/20 bg-primary/5 p-5 space-y-2">
                     <h3 className="font-medium">快速模板</h3>
                     <p className="text-sm text-muted-foreground">
-                      有可用容量時會自動核准並立即建立，使用時間固定 3 小時，到期後由系統自動關機。
+                      有可用容量時會自動核准並立即建立，使用時間固定 3
+                      小時，到期後由系統自動關機。
                     </p>
                   </div>
                 ) : (
@@ -1763,7 +1765,9 @@ export function ApplicationRequestPage({
                 recommendationContext={{
                   resource_type: resourceType,
                   mode:
-                    watchedMode === "quick_template" ? "immediate" : watchedMode,
+                    watchedMode === "quick_template"
+                      ? "immediate"
+                      : watchedMode,
                   start_at: watchedStartAt || undefined,
                   end_at: watchedEndAt || undefined,
                   selected_gpu_mapping_id: watchedGpuMappingId || undefined,

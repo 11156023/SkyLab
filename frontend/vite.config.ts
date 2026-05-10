@@ -69,7 +69,8 @@ export default defineConfig(({ mode }) => {
                 code === "ECONNRESET" ||
                 code === "EPIPE" ||
                 code === "ECONNABORTED"
-              ) return
+              )
+                return
               console.error("[ws proxy]", err)
             })
           },
