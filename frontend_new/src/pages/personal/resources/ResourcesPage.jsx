@@ -7,9 +7,10 @@ import VncDialog from "./VncDialog";
 
 /* ── Constants ── */
 const STATUS_MAP = {
-  running: { label: "運行中", color: "success", icon: "play_circle"  },
-  stopped: { label: "已停止", color: "muted",   icon: "stop_circle"  },
-  paused:  { label: "已暫停", color: "muted",   icon: "pause_circle" },
+  running: { label: "運行中", color: "success", icon: "play_circle"    },
+  stopped: { label: "已停止", color: "muted",   icon: "stop_circle"    },
+  paused:  { label: "已暫停", color: "muted",   icon: "pause_circle"   },
+  deleted: { label: "已刪除", color: "danger",  icon: "delete_forever" },
 };
 
 const TYPE_MAP = {
