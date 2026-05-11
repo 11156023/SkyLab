@@ -1,10 +1,24 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Sidebar from "../components/Sidebar/Sidebar";
 import styles from "./DashboardLayout.module.scss";
+
+const COLLAPSE_MIN_WIDTH = 1280;
 
 export default function DashboardLayout({ children, activePage, onNavigate }) {
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
+
+  useEffect(() => {
+    function handleResize() {
+      if (window.innerWidth < COLLAPSE_MIN_WIDTH) {
+        setCollapsed(false);
+        setMobileOpen(false);
+      }
+    }
+    window.addEventListener("resize", handleResize);
+    handleResize();
+    return () => window.removeEventListener("resize", handleResize);
+  }, []);
 
   return (
     <div className={`${styles.layout} ${collapsed ? styles.collapsed : ""}`}>
