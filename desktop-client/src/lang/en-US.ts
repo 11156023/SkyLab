@@ -31,7 +31,8 @@ export default {
       "VM #{vmid} will expire and be deactivated in about {hours} hours. Please back up your data; contact an admin if you need to extend the lease.",
     extend: "Extend session",
     later: "Remind me later",
-    gotIt: "Got it"
+    gotIt: "Got it",
+    doNotShow: "Don't show this again"
   },
   login: {
     title: "Sign in to Campus Cloud",

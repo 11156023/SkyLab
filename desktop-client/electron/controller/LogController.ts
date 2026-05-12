@@ -44,12 +44,8 @@ class LogController extends BaseController {
   openFrpcLogFile(req: ControllerParam) {
     this._logService
       .openFrpcLogFile()
-      .then(data => {
-        if (data) {
-          ResponseUtils.success();
-        } else {
-          // ResponseUtils.fail();
-        }
+      .then(() => {
+        req.event.reply(req.channel, ResponseUtils.success(true));
       })
       .catch((err: Error) => {
         Logger.error("LogController.openFrpcLogFile", err);
@@ -60,12 +56,8 @@ class LogController extends BaseController {
   openAppLogFile(req: ControllerParam) {
     this._logService
       .openAppLogFile()
-      .then(data => {
-        if (data) {
-          ResponseUtils.success();
-        } else {
-          // ResponseUtils.fail();
-        }
+      .then(() => {
+        req.event.reply(req.channel, ResponseUtils.success(true));
       })
       .catch((err: Error) => {
         Logger.error("LogController.openAppLogFile", err);
