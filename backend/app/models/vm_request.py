@@ -33,6 +33,10 @@ class VMMigrationStatus(str, enum.Enum):
 
 class VMRequest(SQLModel, table=True):
     __tablename__ = "vm_requests"
+    __table_args__ = (
+        sa.Index("ix_vm_requests_next_window_end", "next_window_end"),
+        sa.Index("ix_vm_requests_next_window_start", "next_window_start"),
+    )
 
     id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
     user_id: uuid.UUID = Field(foreign_key="user.id")

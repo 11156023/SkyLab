@@ -109,7 +109,10 @@ export function SessionWarningDialog({
             checked={doNotShow}
             onCheckedChange={(v) => setDoNotShow(v === true)}
           />
-          <Label htmlFor="do-not-show" className="text-sm text-muted-foreground cursor-pointer">
+          <Label
+            htmlFor="do-not-show"
+            className="text-sm text-muted-foreground cursor-pointer"
+          >
             不再顯示此提醒
           </Label>
         </div>
