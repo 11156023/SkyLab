@@ -6,16 +6,15 @@
  * - ``auto_stop``: VM is about to be powered off (group practice quota or
  *   course-window grace). Practice quota lets the student extend; window-grace
  *   ones can't because the schedule dictates the cutoff.
- * - ``expiry``: VM's ``expiry_date`` is within 24h. No self-service extend
- *   here — the student must request a new spec_change_request.
- *
- * The hook ``useSessionWarning`` polls every owned VM and surfaces whichever
- * warning is most urgent.
+ * - ``expiry``: VM's ``expiry_date`` is within the configured window. No
+ *   self-service extend here — the student must request a new spec_change_request.
  */
 import { useMutation, useQueryClient } from "@tanstack/react-query"
 import { CalendarX, Clock, RefreshCw } from "lucide-react"
+import { useState } from "react"
 
 import { Button } from "@/components/ui/button"
+import { Checkbox } from "@/components/ui/checkbox"
 import {
   Dialog,
   DialogContent,
@@ -24,6 +23,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
+import { Label } from "@/components/ui/label"
 import useCustomToast from "@/hooks/useCustomToast"
 import {
   type SessionStatus,
@@ -34,13 +34,16 @@ export function SessionWarningDialog({
   status,
   open,
   onClose,
+  onDismissPermanent,
 }: {
   status: SessionStatus | null
   open: boolean
   onClose: () => void
+  onDismissPermanent: () => void
 }) {
   const qc = useQueryClient()
   const toast = useCustomToast()
+  const [doNotShow, setDoNotShow] = useState(false)
 
   const mutation = useMutation({
     mutationFn: (vmid: number) => SessionWarningService.extend(vmid),
@@ -58,8 +61,17 @@ export function SessionWarningDialog({
 
   const isExpiry = status.warn_reason === "expiry"
 
+  const handleClose = () => {
+    if (doNotShow) {
+      onDismissPermanent()
+    } else {
+      onClose()
+    }
+    setDoNotShow(false)
+  }
+
   return (
-    <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
+    <Dialog open={open} onOpenChange={(v) => !v && handleClose()}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
@@ -91,8 +103,18 @@ export function SessionWarningDialog({
             )}
           </DialogDescription>
         </DialogHeader>
+        <div className="flex items-center gap-2 py-1">
+          <Checkbox
+            id="do-not-show"
+            checked={doNotShow}
+            onCheckedChange={(v) => setDoNotShow(v === true)}
+          />
+          <Label htmlFor="do-not-show" className="text-sm text-muted-foreground cursor-pointer">
+            不再顯示此提醒
+          </Label>
+        </div>
         <DialogFooter>
-          <Button variant="outline" onClick={onClose}>
+          <Button variant="outline" onClick={handleClose}>
             {isExpiry ? "知道了" : "稍後再說"}
           </Button>
           {!isExpiry && (

@@ -25,7 +25,7 @@ export function AppLayout() {
     location.pathname === "/applications-create" ||
     location.pathname === "/resources-create"
   const isAdmin = user?.role === "admin" || user?.is_superuser
-  const { active: warning, dismiss } = useSessionWarning()
+  const { active: warning, dismiss, dismissPermanent } = useSessionWarning()
 
   return (
     <div className="app-layout min-h-svh w-full">
@@ -33,6 +33,7 @@ export function AppLayout() {
         status={warning}
         open={Boolean(warning)}
         onClose={dismiss}
+        onDismissPermanent={dismissPermanent}
       />
       <SidebarProvider defaultOpen={false}>
         <AppSidebar />
