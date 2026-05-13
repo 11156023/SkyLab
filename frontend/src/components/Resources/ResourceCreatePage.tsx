@@ -5,7 +5,15 @@ import {
   ArrowLeft,
   ChevronDown,
   ChevronUp,
+  Cpu,
+  Globe,
+  HardDrive,
   LayoutTemplate,
+  Lock,
+  MemoryStick,
+  Network,
+  Plug,
+  Shield,
   X,
 } from "lucide-react"
 import { useCallback, useEffect, useMemo, useState } from "react"
@@ -522,202 +530,247 @@ export function ResourceCreatePage({
         className={`grid items-start gap-6 ${showAiAssistant ? "lg:grid-cols-[minmax(0,1fr)_400px] xl:grid-cols-[minmax(0,1fr)_420px]" : ""}`}
       >
         <div className="min-w-0 max-w-[760px] space-y-6">
-          <div className="flex items-start gap-3">
+          <div className="flex items-center gap-3">
             <Button
               asChild
-              variant="outline"
+              variant="ghost"
               size="icon"
-              className="mt-0.5 shrink-0"
+              className="shrink-0 text-muted-foreground hover:text-foreground"
             >
               <Link to="/resources" aria-label={t("common:buttons.back")}>
                 <ArrowLeft className="h-4 w-4" />
               </Link>
             </Button>
             <div className="min-w-0">
-              <h1 className="text-2xl font-bold tracking-tight">
+              <h1 className="text-xl font-semibold tracking-tight">
                 {isQuickStartMode ? "快速入門" : t("resources:create.heading")}
               </h1>
-              <p className="text-muted-foreground">
-                {isQuickStartMode
-                  ? `已選擇 ${activeQuickStartTemplate?.name || ""}，先填名稱與密碼即可直接建立。`
-                  : t("resources:create.description")}
-              </p>
+              {!isQuickStartMode && (
+                <p className="text-sm text-muted-foreground">
+                  {t("resources:create.description")}
+                </p>
+              )}
             </div>
           </div>
 
           {isQuickStartMode ? (
-            <div className="rounded-2xl border border-primary/20 bg-primary/5 px-4 py-3">
-              <div className="flex min-w-0 items-start gap-3">
-                <div className="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-xl border bg-background">
-                  {activeQuickStartTemplate?.logo ? (
-                    <img
-                      src={activeQuickStartTemplate.logo}
-                      alt={activeQuickStartTemplate.name}
-                      className="h-8 w-8 object-contain"
-                      loading="lazy"
-                    />
-                  ) : (
-                    <LayoutTemplate className="h-5 w-5 text-primary" />
-                  )}
+            <article className="overflow-hidden rounded-2xl border border-border/60 bg-card shadow-sm">
+              {/* Accent strip */}
+              <div aria-hidden="true" className="h-[3px] bg-gradient-to-r from-primary to-primary/50" />
+
+              <div className="p-5">
+                {/* Header row */}
+                <div className="flex min-w-0 items-start gap-4">
+                  <div className="flex h-14 w-14 shrink-0 items-center justify-center overflow-hidden rounded-xl border border-border/60 bg-background">
+                    {activeQuickStartTemplate?.logo ? (
+                      <img
+                        src={activeQuickStartTemplate.logo}
+                        alt={activeQuickStartTemplate.name ?? ""}
+                        width={36}
+                        height={36}
+                        className="h-9 w-9 object-contain"
+                        loading="lazy"
+                      />
+                    ) : (
+                      <LayoutTemplate className="h-6 w-6 text-primary" aria-hidden="true" />
+                    )}
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <p className="text-base font-semibold leading-snug">
+                      {activeQuickStartTemplate?.name}
+                    </p>
+                    <p className="mt-1 line-clamp-2 text-sm leading-relaxed text-muted-foreground">
+                      {activeQuickStartTemplate?.description_zh ||
+                        activeQuickStartTemplate?.description ||
+                        "使用模板預設配置一鍵部署。"}
+                    </p>
+                  </div>
+                  <Button asChild variant="ghost" size="sm" className="shrink-0 text-xs text-muted-foreground">
+                    <Link to="/resources-create">完整設定</Link>
+                  </Button>
                 </div>
-                <div className="min-w-0">
-                  <p className="text-sm font-medium text-primary">
-                    {activeQuickStartTemplate?.name}
-                  </p>
-                  <p className="mt-1 line-clamp-2 text-sm text-muted-foreground">
-                    {activeQuickStartTemplate?.description_zh ||
-                      activeQuickStartTemplate?.description ||
-                      "使用模板預設配置，不顯示進階設定。"}
-                  </p>
-                  <p className="mt-2 text-xs text-muted-foreground">
-                    名稱已自動產生，可直接修改。
-                  </p>
+
+                {/* Spec badges */}
+                <div className="mt-4 flex flex-wrap gap-2">
+                  {activeQuickStartTemplate?.cores ? (
+                    <span className="inline-flex items-center gap-1.5 rounded-full border border-border/50 bg-muted/40 px-2.5 py-1 text-xs font-medium text-muted-foreground">
+                      <Cpu className="h-3 w-3" aria-hidden="true" />
+                      {activeQuickStartTemplate.cores} vCPU
+                    </span>
+                  ) : null}
+                  {activeQuickStartTemplate?.memory ? (
+                    <span className="inline-flex items-center gap-1.5 rounded-full border border-border/50 bg-muted/40 px-2.5 py-1 text-xs font-medium text-muted-foreground">
+                      <MemoryStick className="h-3 w-3" aria-hidden="true" />
+                      {activeQuickStartTemplate.memory >= 1024
+                        ? `${(activeQuickStartTemplate.memory / 1024).toFixed(activeQuickStartTemplate.memory % 1024 === 0 ? 0 : 1)} GB`
+                        : `${activeQuickStartTemplate.memory} MB`} RAM
+                    </span>
+                  ) : null}
+                  {activeQuickStartTemplate?.rootfs_size ? (
+                    <span className="inline-flex items-center gap-1.5 rounded-full border border-border/50 bg-muted/40 px-2.5 py-1 text-xs font-medium text-muted-foreground">
+                      <HardDrive className="h-3 w-3" aria-hidden="true" />
+                      {activeQuickStartTemplate.rootfs_size} GB
+                    </span>
+                  ) : null}
+                  {quickStartInterfacePort ? (
+                    <span className="inline-flex items-center gap-1.5 rounded-full border border-border/50 bg-muted/40 px-2.5 py-1 text-xs font-medium text-muted-foreground">
+                      <Plug className="h-3 w-3" aria-hidden="true" />
+                      Port {quickStartInterfacePort}
+                    </span>
+                  ) : null}
                 </div>
+
+                {!isQuickStartTemplateReady ? (
+                  <p className="mt-3 text-xs text-muted-foreground">
+                    正在準備基礎映像，完成後即可建立。
+                  </p>
+                ) : null}
               </div>
-              {!isQuickStartTemplateReady ? (
-                <p className="mt-3 text-xs text-muted-foreground">
-                  正在準備基礎映像，完成後即可建立。
-                </p>
-              ) : null}
-              <div className="mt-3 flex justify-end">
-                <div className="hidden min-w-0">
-                  <p className="text-sm font-medium text-primary">
-                    {activeQuickStartTemplate?.name}
-                  </p>
-                  <p className="text-sm text-muted-foreground">
-                    使用模板預設配置，不顯示進階設定。
-                  </p>
-                </div>
-                <Button asChild variant="ghost" size="sm" className="shrink-0">
-                  <Link to="/resources-create">改用完整設定</Link>
-                </Button>
-              </div>
-            </div>
+            </article>
           ) : null}
 
           {isQuickStartMode ? (
-            <div className="rounded-2xl border bg-background/70 p-4">
+            <div className="rounded-2xl border border-border/60 bg-card">
               <button
                 type="button"
-                className="flex w-full items-center justify-between gap-3 text-left"
+                className="flex min-h-[52px] w-full items-center justify-between gap-3 px-5 py-4 text-left transition-colors duration-150 hover:bg-muted/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-inset rounded-2xl"
                 onClick={() => setShowAdvancedSettings((current) => !current)}
+                aria-expanded={showAdvancedSettings}
               >
                 <div>
                   <p className="text-sm font-medium">進階設定</p>
                   <p className="text-xs text-muted-foreground">
-                    公開網站、公開 Port、防火牆、HTTPS、自動網域
+                    公開存取、防火牆、HTTPS、自動網域
                   </p>
                 </div>
                 {showAdvancedSettings ? (
-                  <ChevronUp className="h-4 w-4 text-muted-foreground" />
+                  <ChevronUp className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden="true" />
                 ) : (
-                  <ChevronDown className="h-4 w-4 text-muted-foreground" />
+                  <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden="true" />
                 )}
               </button>
 
               {showAdvancedSettings ? (
-                <div className="mt-4 grid gap-4 md:grid-cols-2">
-                  <div className="space-y-2">
-                    <p className="text-sm font-medium">公開存取</p>
-                    <Select
-                      value={accessMode}
-                      onValueChange={(value) =>
-                        setAccessMode(value as QuickStartAccessMode)
-                      }
-                    >
-                      <SelectTrigger>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="private">不公開</SelectItem>
-                        <SelectItem
-                          value="public-website"
-                          disabled={!canAutoCreateWebsite}
-                        >
-                          公開網站
-                        </SelectItem>
-                        <SelectItem
-                          value="public-port"
-                          disabled={!quickStartInterfacePort}
-                        >
-                          公開 Port
-                        </SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
+                <div className="border-t border-border/60 px-5 pb-5 pt-4 space-y-5">
 
-                  <div className="space-y-2">
-                    <p className="text-sm font-medium">防火牆預設</p>
-                    <Select
-                      value={firewallPreset}
-                      onValueChange={(value) =>
-                        setFirewallPreset(value as QuickStartFirewallPreset)
-                      }
-                    >
-                      <SelectTrigger>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="safe">安全</SelectItem>
-                        <SelectItem
-                          value="website"
-                          disabled={!quickStartInterfacePort}
+                  {/* Access mode button group */}
+                  <fieldset>
+                    <legend className="mb-2 text-sm font-medium">公開存取</legend>
+                    <div className="grid grid-cols-3 gap-2" role="group" aria-label="公開存取模式">
+                      {(
+                        [
+                          { value: "private", label: "不公開", Icon: Lock, disabled: false },
+                          { value: "public-website", label: "公開網站", Icon: Globe, disabled: !canAutoCreateWebsite },
+                          { value: "public-port", label: "公開 Port", Icon: Plug, disabled: !quickStartInterfacePort },
+                        ] as const
+                      ).map(({ value, label, Icon, disabled }) => (
+                        <button
+                          key={value}
+                          type="button"
+                          disabled={disabled}
+                          onClick={() => !disabled && setAccessMode(value)}
+                          aria-pressed={accessMode === value}
+                          className={`flex min-h-[52px] flex-col items-center justify-center gap-1.5 rounded-xl border px-3 py-2.5 text-xs font-medium transition-all duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-1 disabled:pointer-events-none disabled:opacity-40 ${
+                            accessMode === value
+                              ? "border-primary bg-primary/10 text-primary"
+                              : "border-border/60 bg-background text-muted-foreground hover:border-primary/40 hover:bg-muted/40 hover:text-foreground"
+                          }`}
                         >
-                          網站
-                        </SelectItem>
-                        <SelectItem value="internal">內部</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
+                          <Icon className="h-4 w-4" aria-hidden="true" />
+                          {label}
+                        </button>
+                      ))}
+                    </div>
+                  </fieldset>
 
+                  {/* Firewall preset button group */}
+                  <fieldset>
+                    <legend className="mb-2 text-sm font-medium">防火牆預設</legend>
+                    <div className="grid grid-cols-3 gap-2" role="group" aria-label="防火牆預設模式">
+                      {(
+                        [
+                          { value: "safe", label: "安全", Icon: Shield, disabled: false },
+                          { value: "website", label: "網站", Icon: Globe, disabled: !quickStartInterfacePort },
+                          { value: "internal", label: "內部", Icon: Network, disabled: false },
+                        ] as const
+                      ).map(({ value, label, Icon, disabled }) => (
+                        <button
+                          key={value}
+                          type="button"
+                          disabled={disabled}
+                          onClick={() => !disabled && setFirewallPreset(value)}
+                          aria-pressed={firewallPreset === value}
+                          className={`flex min-h-[52px] flex-col items-center justify-center gap-1.5 rounded-xl border px-3 py-2.5 text-xs font-medium transition-all duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-1 disabled:pointer-events-none disabled:opacity-40 ${
+                            firewallPreset === value
+                              ? "border-primary bg-primary/10 text-primary"
+                              : "border-border/60 bg-background text-muted-foreground hover:border-primary/40 hover:bg-muted/40 hover:text-foreground"
+                          }`}
+                        >
+                          <Icon className="h-4 w-4" aria-hidden="true" />
+                          {label}
+                        </button>
+                      ))}
+                    </div>
+                  </fieldset>
+
+                  {/* HTTPS + auto-domain toggles (public-website only) */}
                   {accessMode === "public-website" ? (
-                    <>
-                      <div className="space-y-2">
-                        <p className="text-sm font-medium">HTTPS</p>
-                        <Select
-                          value={enableHttps}
-                          onValueChange={setEnableHttps}
-                        >
-                          <SelectTrigger>
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="on">開</SelectItem>
-                            <SelectItem value="off">關</SelectItem>
-                          </SelectContent>
-                        </Select>
-                      </div>
-
-                      <div className="space-y-2">
-                        <p className="text-sm font-medium">自動網域</p>
-                        <Select
-                          value={autoDomain}
-                          onValueChange={setAutoDomain}
-                        >
-                          <SelectTrigger>
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="on">開</SelectItem>
-                            <SelectItem value="off">關</SelectItem>
-                          </SelectContent>
-                        </Select>
-                      </div>
-                    </>
+                    <div className="grid grid-cols-2 gap-3">
+                      <fieldset>
+                        <legend className="mb-2 text-sm font-medium">HTTPS</legend>
+                        <div className="flex gap-2">
+                          {(["on", "off"] as const).map((val) => (
+                            <button
+                              key={val}
+                              type="button"
+                              onClick={() => setEnableHttps(val)}
+                              aria-pressed={enableHttps === val}
+                              className={`flex min-h-[44px] flex-1 items-center justify-center rounded-xl border text-xs font-medium transition-all duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-1 ${
+                                enableHttps === val
+                                  ? "border-primary bg-primary/10 text-primary"
+                                  : "border-border/60 bg-background text-muted-foreground hover:border-primary/40 hover:bg-muted/40 hover:text-foreground"
+                              }`}
+                            >
+                              {val === "on" ? "開啟" : "關閉"}
+                            </button>
+                          ))}
+                        </div>
+                      </fieldset>
+                      <fieldset>
+                        <legend className="mb-2 text-sm font-medium">自動網域</legend>
+                        <div className="flex gap-2">
+                          {(["on", "off"] as const).map((val) => (
+                            <button
+                              key={val}
+                              type="button"
+                              onClick={() => setAutoDomain(val)}
+                              aria-pressed={autoDomain === val}
+                              className={`flex min-h-[44px] flex-1 items-center justify-center rounded-xl border text-xs font-medium transition-all duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-1 ${
+                                autoDomain === val
+                                  ? "border-primary bg-primary/10 text-primary"
+                                  : "border-border/60 bg-background text-muted-foreground hover:border-primary/40 hover:bg-muted/40 hover:text-foreground"
+                              }`}
+                            >
+                              {val === "on" ? "開啟" : "關閉"}
+                            </button>
+                          ))}
+                        </div>
+                      </fieldset>
+                    </div>
                   ) : null}
 
+                  {/* External port input */}
                   {accessMode === "public-port" ? (
-                    <div className="space-y-2 md:col-span-2">
-                      <p className="text-sm font-medium">外部 Port</p>
+                    <div className="space-y-2">
+                      <label htmlFor="external-port" className="text-sm font-medium">外部 Port</label>
                       <Input
+                        id="external-port"
                         aria-label="外部 Port"
                         type="number"
                         min={1}
                         max={65535}
                         value={externalPort}
-                        onChange={(event) =>
-                          setExternalPort(event.target.value)
-                        }
+                        onChange={(event) => setExternalPort(event.target.value)}
                         placeholder={
                           quickStartInterfacePort
                             ? String(quickStartInterfacePort)
@@ -727,29 +780,23 @@ export function ResourceCreatePage({
                     </div>
                   ) : null}
 
-                  <div className="md:col-span-2 rounded-xl bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
+                  {/* Info hint */}
+                  <div className="rounded-xl bg-muted/40 px-3 py-2.5 text-xs text-muted-foreground space-y-1">
                     {quickStartInterfacePort ? (
                       <p>模板預設服務 Port：{quickStartInterfacePort}</p>
                     ) : (
-                      <p>
-                        此模板沒有預設服務 Port，公開網站與公開 Port 會停用。
-                      </p>
+                      <p>此模板沒有預設服務 Port，公開網站與公開 Port 會停用。</p>
                     )}
                     {accessMode === "public-website" && canAutoCreateWebsite ? (
-                      <p className="mt-1">
-                        會使用 `{normalizeDomainLabel(watchedHostname) || "app"}
-                        ` 作為子網域前綴。
+                      <p>
+                        會使用「{normalizeDomainLabel(watchedHostname) || "app"}」作為子網域前綴。
                       </p>
                     ) : null}
-                    {accessMode === "public-website" &&
-                    !canAutoCreateWebsite ? (
-                      <p className="mt-1">
-                        目前反向代理或 DNS
-                        尚未完成設定，暫時不能自動建立公開網站。
-                      </p>
+                    {accessMode === "public-website" && !canAutoCreateWebsite ? (
+                      <p>目前反向代理或 DNS 尚未完成設定，暫時不能自動建立公開網站。</p>
                     ) : null}
                     {firewallPreset === "internal" ? (
-                      <p className="mt-1">內部模式不會自動建立對外公開規則。</p>
+                      <p>內部模式不會自動建立對外公開規則。</p>
                     ) : null}
                   </div>
                 </div>
@@ -789,8 +836,13 @@ export function ResourceCreatePage({
                     </TabsList>
                   )}
 
-                  <TabsContent value="lxc" className="mt-6 space-y-6">
-                    <div className="space-y-5">
+                  <TabsContent value="lxc" className={isQuickStartMode ? "space-y-6" : "mt-6 space-y-6"}>
+                    <div className={isQuickStartMode ? "rounded-xl border border-border/60 bg-card p-5 space-y-5" : "space-y-5"}>
+                      {isQuickStartMode && (
+                        <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
+                          基本設定
+                        </p>
+                      )}
                       <FormField
                         control={form.control}
                         name="hostname"
@@ -1381,18 +1433,19 @@ export function ResourceCreatePage({
                   </TabsContent>
                 </Tabs>
 
-                <div className="flex flex-col gap-3 border-t pt-6 sm:flex-row sm:items-center sm:justify-between">
-                  {showAiAssistant ? (
-                    <p className="text-sm text-muted-foreground">
+                <div className="flex flex-col gap-3 pt-2 sm:flex-row sm:items-center sm:justify-between">
+                  {showAiAssistant && !isQuickStartMode ? (
+                    <p className="text-xs text-muted-foreground">
                       可在右側使用 AI 模板推薦，匯入後再確認建立參數。
                     </p>
                   ) : (
                     <div />
                   )}
-                  <div className="flex flex-col-reverse gap-3 sm:flex-row">
+                  <div className="flex flex-col-reverse gap-2 sm:flex-row">
                     <Button
                       type="button"
-                      variant="outline"
+                      variant="ghost"
+                      className="text-muted-foreground"
                       onClick={() => navigate({ to: "/resources" })}
                       disabled={mutation.isPending}
                     >
@@ -1402,6 +1455,7 @@ export function ResourceCreatePage({
                       type="submit"
                       loading={mutation.isPending}
                       disabled={!isQuickStartTemplateReady}
+                      className={isQuickStartMode ? "min-w-[120px]" : ""}
                     >
                       {t("resources:create.submitButton")}
                     </LoadingButton>
