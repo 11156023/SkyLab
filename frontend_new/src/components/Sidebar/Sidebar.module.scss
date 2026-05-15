@@ -215,6 +215,8 @@
     background: var(--color-primary);
     color: var(--color-text-on-primary);
     box-shadow: var(--shadow-sm);
+
+    .navHint { color: var(--color-text-on-primary); }
   }
 
   .collapsed & {
