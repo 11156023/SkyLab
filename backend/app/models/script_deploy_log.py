@@ -26,7 +26,15 @@ class ScriptDeployLog(SQLModel, table=True):
 
     id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
     task_id: str = Field(max_length=64, unique=True, index=True)
-    user_id: uuid.UUID | None = Field(default=None, index=True)
+    user_id: uuid.UUID | None = Field(
+        default=None,
+        sa_column=Column(
+            sa.Uuid,
+            sa.ForeignKey("user.id", ondelete="SET NULL"),
+            nullable=True,
+            index=True,
+        ),
+    )
     vmid: int | None = Field(default=None, index=True)
     resource_vmid: int | None = Field(
         default=None,
