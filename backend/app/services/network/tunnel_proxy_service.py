@@ -135,9 +135,9 @@ def sync_gateway_frpc(*, session: Session) -> None:
     missing_ip_vmids: list[int] = []
 
     for vmid in vmids:
-        res = resource_repo.get_resource_by_vmid(session=session, vmid=vmid)
-        if res and res.ip_address:
-            resource_ips[vmid] = res.ip_address
+        cached_ip = resource_repo.get_cached_ip_address(session=session, vmid=vmid)
+        if cached_ip:
+            resource_ips[vmid] = cached_ip
         else:
             missing_ip_vmids.append(vmid)
 

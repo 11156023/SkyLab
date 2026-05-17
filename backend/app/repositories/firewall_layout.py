@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 
 from sqlmodel import Session, and_, select
 
+from app.models import Resource
 from app.models.firewall_layout import FirewallLayout
 
 
@@ -52,6 +53,9 @@ def upsert_node(
     if existing:
         existing.position_x = position_x
         existing.position_y = position_y
+        existing.resource_vmid = (
+            vmid if vmid is not None and session.get(Resource, vmid) is not None else None
+        )
         existing.updated_at = now
         session.add(existing)
         session.commit()
@@ -61,6 +65,9 @@ def upsert_node(
     node = FirewallLayout(
         user_id=user_id,
         vmid=vmid,
+        resource_vmid=(
+            vmid if vmid is not None and session.get(Resource, vmid) is not None else None
+        ),
         node_type=node_type,
         position_x=position_x,
         position_y=position_y,
@@ -93,12 +100,22 @@ def upsert_layout_batch(
         if existing:
             existing.position_x = position_x
             existing.position_y = position_y
+            existing.resource_vmid = (
+                vmid
+                if vmid is not None and session.get(Resource, vmid) is not None
+                else None
+            )
             existing.updated_at = now
             session.add(existing)
         else:
             node = FirewallLayout(
                 user_id=user_id,
                 vmid=vmid,
+                resource_vmid=(
+                    vmid
+                    if vmid is not None and session.get(Resource, vmid) is not None
+                    else None
+                ),
                 node_type=node_type,
                 position_x=position_x,
                 position_y=position_y,

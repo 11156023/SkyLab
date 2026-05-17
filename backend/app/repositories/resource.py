@@ -72,17 +72,12 @@ def update_resource(
 
 
 def update_ip_address(*, session: Session, vmid: int, ip_address: str) -> None:
-    """Update the resource IP cache and mirror it into resource_networks."""
+    """Update the resource IP cache in resource_networks."""
     resource = get_resource_by_vmid(session=session, vmid=vmid)
     if resource is None:
         return
 
     now = datetime.now(timezone.utc)
-    if resource.ip_address != ip_address:
-        resource.ip_address = ip_address
-        resource.ip_address_cached_at = now
-        session.add(resource)
-
     network = session.exec(
         select(ResourceNetwork).where(ResourceNetwork.resource_vmid == vmid)
     ).first()
@@ -104,11 +99,34 @@ def update_ip_address(*, session: Session, vmid: int, ip_address: str) -> None:
     session.flush()
 
 
-def is_ip_address_fresh(*, session: Session, vmid: int, ttl_seconds: int = 3600) -> bool:
+def get_resource_network_by_vmid(
+    *, session: Session, vmid: int
+) -> ResourceNetwork | None:
+    if not hasattr(session, "exec"):
+        return None
+    return session.exec(
+        select(ResourceNetwork).where(ResourceNetwork.resource_vmid == vmid)
+    ).first()
+
+
+def get_cached_ip_address(*, session: Session, vmid: int) -> str | None:
+    network = get_resource_network_by_vmid(session=session, vmid=vmid)
+    if network and network.ip_address:
+        return network.ip_address
+
     resource = get_resource_by_vmid(session=session, vmid=vmid)
-    if not resource or not resource.ip_address or not resource.ip_address_cached_at:
+    return getattr(resource, "ip_address", None) if resource else None
+
+
+def is_ip_address_fresh(*, session: Session, vmid: int, ttl_seconds: int = 3600) -> bool:
+    network = get_resource_network_by_vmid(session=session, vmid=vmid)
+    cached_at = network.cached_at if network and network.ip_address else None
+    if cached_at is None:
+        resource = get_resource_by_vmid(session=session, vmid=vmid)
+        cached_at = getattr(resource, "ip_address_cached_at", None) if resource else None
+    if cached_at is None:
         return False
-    age = (datetime.now(timezone.utc) - resource.ip_address_cached_at).total_seconds()
+    age = (datetime.now(timezone.utc) - cached_at).total_seconds()
     return age <= ttl_seconds
 
 

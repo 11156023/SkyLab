@@ -139,6 +139,16 @@ class AuditLog(SQLModel, table=True):
         description="操作者ID",
     )
     vmid: int | None = Field(default=None, description="操作的VM/CT ID")
+    resource_vmid: int | None = Field(
+        default=None,
+        sa_column=Column(
+            sa.Integer,
+            sa.ForeignKey("resources.vmid", ondelete="SET NULL"),
+            nullable=True,
+            index=True,
+        ),
+        description="Linked resource VMID; vmid remains as audit snapshot",
+    )
     action: AuditAction = Field(
         sa_column=Column(Enum(AuditAction), nullable=False), description="操作類型"
     )

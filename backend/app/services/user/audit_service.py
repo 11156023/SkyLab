@@ -291,6 +291,7 @@ def _to_public(log: AuditLog) -> AuditLogPublic:
         user_email=log.user.email if log.user else None,
         user_full_name=log.user.full_name if log.user else None,
         vmid=log.vmid,
+        resource_vmid=log.resource_vmid,
         action=log.action,
         details=log.details,
         ip_address=log.ip_address,

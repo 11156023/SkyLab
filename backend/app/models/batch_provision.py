@@ -111,6 +111,16 @@ class BatchProvisionTask(SQLModel, table=True):
     )
     member_index: int = Field(description="成員序號（用於 hostname suffix）")
     vmid: int | None = Field(default=None, description="建立成功後的 VMID")
+    resource_vmid: int | None = Field(
+        default=None,
+        sa_column=Column(
+            sa.Integer,
+            sa.ForeignKey("resources.vmid", ondelete="SET NULL"),
+            nullable=True,
+            index=True,
+        ),
+        description="Linked resource VMID; vmid remains as batch result snapshot",
+    )
     status: BatchProvisionTaskStatus = Field(
         default=BatchProvisionTaskStatus.pending,
         sa_column=Column(

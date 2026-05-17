@@ -3,6 +3,7 @@
 import uuid
 from datetime import datetime
 
+import sqlalchemy as sa
 from sqlmodel import Column, DateTime, Field, SQLModel, UniqueConstraint
 
 
@@ -28,6 +29,16 @@ class FirewallLayout(SQLModel, table=True):
     vmid: int | None = Field(
         default=None,
         description="VM ID；None 代表 gateway（網關）節點",
+    )
+    resource_vmid: int | None = Field(
+        default=None,
+        sa_column=Column(
+            sa.Integer,
+            sa.ForeignKey("resources.vmid", ondelete="CASCADE"),
+            nullable=True,
+            index=True,
+        ),
+        description="Linked resource VMID",
     )
     node_type: str = Field(
         description="節點類型: 'vm' | 'gateway'",

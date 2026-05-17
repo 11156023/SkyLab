@@ -402,10 +402,10 @@ def _get_vm_ip(vmid: int, session: object = None) -> str | None:
     # Proxmox 取不到 IP → 嘗試 DB 快取
     if session is not None:
         try:
-            cached = resource_repo.get_resource_by_vmid(session=session, vmid=vmid)  # type: ignore[arg-type]
-            if cached and cached.ip_address:
-                logger.debug(f"VM {vmid} 使用 DB 快取 IP: {cached.ip_address}")
-                return cached.ip_address
+            cached_ip = resource_repo.get_cached_ip_address(session=session, vmid=vmid)  # type: ignore[arg-type]
+            if cached_ip:
+                logger.debug(f"VM {vmid} 使用 DB 快取 IP: {cached_ip}")
+                return cached_ip
         except Exception as e:
             logger.debug(f"VM {vmid} DB 快取讀取失敗: {e}")
     return None
@@ -1123,9 +1123,9 @@ def get_topology(user: User, session: Session) -> TopologyResponse:
                 )
             else:
                 # VM 離線時回退 DB 快取
-                cached = resource_repo.get_resource_by_vmid(session=session, vmid=vmid)
-                if cached and cached.ip_address:
-                    ip_address = cached.ip_address
+                cached_ip = resource_repo.get_cached_ip_address(session=session, vmid=vmid)
+                if cached_ip:
+                    ip_address = cached_ip
         except Exception as e:
             logger.debug(
                 "拓撲圖 VMID=%s IP 查詢失敗（將顯示為無 IP）: %s", vmid, e
