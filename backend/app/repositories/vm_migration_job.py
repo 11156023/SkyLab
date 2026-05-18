@@ -4,7 +4,7 @@ from datetime import datetime, timedelta, timezone
 from sqlalchemy import func as sa_func
 from sqlmodel import Session, select
 
-from app.models import VMMigrationJob, VMMigrationJobStatus
+from app.models import Resource, VMMigrationJob, VMMigrationJobStatus
 
 _OPEN_JOB_STATUSES = (
     VMMigrationJobStatus.pending,
@@ -64,10 +64,12 @@ def create_or_update_pending_job(
 ) -> VMMigrationJob:
     now = requested_at or datetime.now(timezone.utc)
     existing = get_open_job_for_request(session=session, request_id=request_id)
+    resource_vmid = vmid if vmid is not None and session.get(Resource, vmid) is not None else None
     if existing is None or existing.status == VMMigrationJobStatus.running:
         job = VMMigrationJob(
             request_id=request_id,
             vmid=vmid,
+            resource_vmid=resource_vmid,
             source_node=source_node,
             target_node=target_node,
             status=VMMigrationJobStatus.pending,
@@ -82,6 +84,7 @@ def create_or_update_pending_job(
     else:
         job = existing
         job.vmid = vmid
+        job.resource_vmid = resource_vmid
         job.source_node = source_node
         job.target_node = target_node
         job.status = VMMigrationJobStatus.pending

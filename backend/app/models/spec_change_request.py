@@ -5,6 +5,7 @@ import uuid
 from datetime import datetime
 from typing import TYPE_CHECKING, Optional
 
+import sqlalchemy as sa
 from sqlmodel import Column, DateTime, Enum, Field, Relationship, SQLModel
 
 if TYPE_CHECKING:
@@ -35,6 +36,16 @@ class SpecChangeRequest(SQLModel, table=True):
 
     id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
     vmid: int = Field(description="VM/Container ID")
+    resource_vmid: int | None = Field(
+        default=None,
+        sa_column=Column(
+            sa.Integer,
+            sa.ForeignKey("resources.vmid", ondelete="SET NULL"),
+            nullable=True,
+            index=True,
+        ),
+        description="Linked resource VMID; vmid is kept as request-time snapshot",
+    )
     user_id: uuid.UUID = Field(foreign_key="user.id", description="申請者ID")
 
     # 調整類型與原因

@@ -8,6 +8,7 @@
 """
 
 import logging
+import uuid
 
 from fastapi import APIRouter, HTTPException, Query
 from sqlmodel import func, select
@@ -131,6 +132,13 @@ def register_deployed_resource(
     if task.vmid is None:
         raise HTTPException(status_code=400, detail="無法取得 VMID")
 
+    request_id: uuid.UUID | None = None
+    if task.request_id:
+        try:
+            request_id = uuid.UUID(task.request_id)
+        except ValueError:
+            logger.warning("Invalid script deploy request_id ignored: %s", task.request_id)
+
     try:
         resource_repo.create_resource(
             session=session,
@@ -139,6 +147,7 @@ def register_deployed_resource(
             environment_type=task.template_name or "服務模板",
             os_info=None,
             expiry_date=None,
+            request_id=request_id,
             commit=False,
         )
 

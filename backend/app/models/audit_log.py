@@ -5,6 +5,7 @@ import uuid
 from datetime import datetime
 from typing import TYPE_CHECKING, Optional
 
+import sqlalchemy as sa
 from sqlalchemy import ForeignKey
 from sqlmodel import Column, DateTime, Enum, Field, Relationship, SQLModel
 
@@ -121,6 +122,12 @@ class AuditLog(SQLModel, table=True):
     """審計日誌表"""
 
     __tablename__ = "audit_logs"
+    __table_args__ = (
+        sa.Index("ix_audit_logs_created_at", "created_at"),
+        sa.Index("ix_audit_logs_user_created", "user_id", "created_at"),
+        sa.Index("ix_audit_logs_action_created", "action", "created_at"),
+        sa.Index("ix_audit_logs_vmid_created", "vmid", "created_at"),
+    )
 
     id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
     user_id: uuid.UUID | None = Field(
@@ -132,6 +139,16 @@ class AuditLog(SQLModel, table=True):
         description="操作者ID",
     )
     vmid: int | None = Field(default=None, description="操作的VM/CT ID")
+    resource_vmid: int | None = Field(
+        default=None,
+        sa_column=Column(
+            sa.Integer,
+            sa.ForeignKey("resources.vmid", ondelete="SET NULL"),
+            nullable=True,
+            index=True,
+        ),
+        description="Linked resource VMID; vmid remains as audit snapshot",
+    )
     action: AuditAction = Field(
         sa_column=Column(Enum(AuditAction), nullable=False), description="操作類型"
     )

@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 
 from sqlmodel import Session, select
 
+from app.models import Resource
 from app.models.tunnel_proxy import TunnelProxy
 
 
@@ -21,6 +22,7 @@ def create_proxy(
 ) -> TunnelProxy:
     proxy = TunnelProxy(
         vmid=vmid,
+        resource_vmid=vmid if session.get(Resource, vmid) is not None else None,
         user_id=user_id,
         service=service,
         internal_port=internal_port,

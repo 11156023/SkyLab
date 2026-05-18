@@ -211,7 +211,7 @@ def _resolve_vm_info_from_db(session: Session, vmid: int) -> tuple[str, str]:
     if not resource:
         raise RuntimeError(f"VMID={vmid} 未在 Campus Cloud 資料庫中登記。")
 
-    host = (resource.ip_address or "").strip()
+    host = (resource_repo.get_cached_ip_address(session=session, vmid=vmid) or "").strip()
     if not host:
         # 對齊 /resources/{vmid} 行為：DB 無快取時，向 Proxmox 取即時 IP。
         try:

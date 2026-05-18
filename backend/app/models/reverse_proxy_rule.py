@@ -1,4 +1,4 @@
-"""反向代理規則模型 — Traefik domain → VM 映射"""
+"""Reverse proxy rule model."""
 
 import uuid
 from datetime import datetime
@@ -10,39 +10,52 @@ from .base import get_datetime_utc
 
 
 class ReverseProxyRule(SQLModel, table=True):
-    """儲存反向代理規則（domain → VM IP:port）。
-    Campus Cloud 從此表生成 Traefik dynamic config。
-    未來可擴展 dns_provider 欄位對接 Cloudflare 等 DNS API。
-    """
+    """Domain-to-VM reverse proxy rule for Traefik/Cloudflare integration."""
 
     __tablename__ = "reverse_proxy_rule"
 
     id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
 
-    # VM 資訊
-    vmid: int = Field(index=True, description="目標 VM ID")
-    vm_ip: str = Field(max_length=64, description="目標 VM 內網 IP")
+    vmid: int = Field(
+        sa_column=sa.Column(
+            sa.Integer,
+            sa.ForeignKey("resources.vmid", ondelete="CASCADE"),
+            nullable=False,
+            index=True,
+        ),
+        description="Target VM ID",
+    )
+    resource_vmid: int | None = Field(
+        default=None,
+        sa_column=sa.Column(
+            sa.Integer,
+            sa.ForeignKey("resources.vmid", ondelete="CASCADE"),
+            nullable=True,
+            index=True,
+        ),
+        description="Linked resource VMID",
+    )
+    vm_ip: str = Field(max_length=64, description="Target VM internal IP")
 
-    # 網域對應
     domain: str = Field(
         max_length=255,
         sa_column_kwargs={"unique": True},
-        description="對外網域名稱（如 mysite.campus.edu）",
+        description="Public domain, e.g. mysite.campus.edu",
     )
-    zone_id: str | None = Field(default=None, max_length=64, description="Cloudflare Zone ID")
+    zone_id: str | None = Field(
+        default=None, max_length=64, description="Cloudflare Zone ID"
+    )
     cloudflare_record_id: str | None = Field(
         default=None,
         max_length=64,
-        description="由 Campus Cloud 自動管理的 Cloudflare DNS record ID",
+        description="Cloudflare DNS record ID managed by Campus Cloud",
     )
-    internal_port: int = Field(ge=1, le=65535, description="VM 內部 port")
-    enable_https: bool = Field(default=True, description="是否啟用 HTTPS（Let's Encrypt）")
-
-    # 預留 DNS provider 欄位（未來 Cloudflare 對接用）
+    internal_port: int = Field(ge=1, le=65535, description="VM internal port")
+    enable_https: bool = Field(default=True, description="Enable HTTPS")
     dns_provider: str = Field(
         default="manual",
         max_length=32,
-        description="DNS 管理方式：manual / cloudflare / ...",
+        description="DNS provider: manual, cloudflare, ...",
     )
 
     created_at: datetime = Field(

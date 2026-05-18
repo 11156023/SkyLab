@@ -4,6 +4,7 @@ import enum
 import uuid
 from datetime import datetime
 
+import sqlalchemy as sa
 from sqlalchemy import ForeignKey
 from sqlmodel import Column, DateTime, Enum, Field, SQLModel
 
@@ -29,6 +30,16 @@ class VMMigrationJob(SQLModel, table=True):
         )
     )
     vmid: int | None = Field(default=None, index=True)
+    resource_vmid: int | None = Field(
+        default=None,
+        sa_column=Column(
+            sa.Integer,
+            sa.ForeignKey("resources.vmid", ondelete="SET NULL"),
+            nullable=True,
+            index=True,
+        ),
+        description="Linked resource VMID; vmid remains as migration snapshot",
+    )
     source_node: str | None = Field(default=None, max_length=255)
     target_node: str = Field(max_length=255)
     status: VMMigrationJobStatus = Field(

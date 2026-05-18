@@ -60,6 +60,7 @@ def create_deletion_request(
     req = DeletionRequest(
         user_id=user_id,
         vmid=vmid,
+        resource_vmid=vmid if session.get(Resource, vmid) is not None else None,
         name=resource_info.get("name"),
         node=resource_info.get("node"),
         resource_type=resource_info.get("type"),

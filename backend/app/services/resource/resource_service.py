@@ -94,8 +94,8 @@ def _build_resource_public(
                 )
     else:
         # VM 離線時用 DB 快取
-        if db_resource and db_resource.ip_address:
-            ip_address = db_resource.ip_address
+        if session is not None:
+            ip_address = resource_repo.get_cached_ip_address(session=session, vmid=vmid)
     return ResourcePublic(
         vmid=resource.get("vmid"),
         name=_from_punycode_hostname(resource.get("name", "")),

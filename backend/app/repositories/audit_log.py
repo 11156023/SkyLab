@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 from sqlalchemy.orm import selectinload
 from sqlmodel import Session, func, select
 
-from app.models import AuditAction, AuditLog
+from app.models import AuditAction, AuditLog, Resource
 
 
 def create_audit_log(
@@ -20,9 +20,11 @@ def create_audit_log(
 ) -> AuditLog:
     if isinstance(action, str):
         action = AuditAction(action)
+    resource_vmid = vmid if vmid is not None and session.get(Resource, vmid) is not None else None
     db_log = AuditLog(
         user_id=user_id,
         vmid=vmid,
+        resource_vmid=resource_vmid,
         action=action,
         details=details,
         ip_address=ip_address,

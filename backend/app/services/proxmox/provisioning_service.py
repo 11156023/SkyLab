@@ -321,7 +321,7 @@ def create_lxc(
                 vm_type="lxc",
             )
         except Exception:
-            logger.warning("Failed to register tunnel proxies for LXC %d", vmid, exc_info=True)
+            logger.warning("Failed to register tunnel proxies for LXC %s", vmid, exc_info=True)
 
         logger.info(f"Created LXC container {vmid}: {lxc_data.hostname}")
         return LXCCreateResponse(
@@ -795,6 +795,7 @@ def provision_from_request(*, session: Session, db_request) -> tuple[int, str | 
         ssh_private_key_encrypted=plan.get("ssh_private_key_encrypted"),
         ssh_public_key=plan.get("ssh_public_key"),
         service_template_slug=getattr(db_request, "service_template_slug", None),
+        request_id=getattr(db_request, "id", None),
         commit=False,
     )
     return new_vmid, actual_node, plan["placement_strategy"]

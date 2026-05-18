@@ -3,6 +3,7 @@ import uuid
 from datetime import datetime
 from typing import TYPE_CHECKING
 
+import sqlalchemy as sa
 from sqlalchemy import DateTime
 from sqlmodel import Column, Enum, Field, Relationship, SQLModel
 
@@ -21,6 +22,12 @@ class AIAPIRequestStatus(str, enum.Enum):
 
 class AIAPIRequest(SQLModel, table=True):
     __tablename__ = "ai_api_requests"
+    __table_args__ = (
+        sa.Index("ix_ai_api_requests_user_id", "user_id"),
+        sa.Index("ix_ai_api_requests_reviewer_id", "reviewer_id"),
+        sa.Index("ix_ai_api_requests_user_status_created", "user_id", "status", "created_at"),
+        sa.Index("ix_ai_api_requests_status_created", "status", "created_at"),
+    )
 
     id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
     user_id: uuid.UUID = Field(foreign_key="user.id")

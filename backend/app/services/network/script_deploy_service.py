@@ -142,6 +142,7 @@ def _persist_task(task: DeploymentTask, *, force: bool = False) -> None:
         from sqlmodel import Session, select
 
         from app.core.db import engine  # 延遲匯入避免循環
+        from app.models import Resource
         from app.models.base import get_datetime_utc
         from app.models.script_deploy_log import ScriptDeployLog
 
@@ -168,6 +169,11 @@ def _persist_task(task: DeploymentTask, *, force: bool = False) -> None:
                 session.add(existing)
 
             existing.vmid = task.vmid
+            existing.resource_vmid = (
+                task.vmid
+                if task.vmid is not None and session.get(Resource, task.vmid) is not None
+                else None
+            )
             existing.status = task.status
             existing.progress = task.progress
             existing.message = task.message
