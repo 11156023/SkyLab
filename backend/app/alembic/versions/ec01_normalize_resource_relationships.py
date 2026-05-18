@@ -242,7 +242,6 @@ def upgrade():
         "ix_ai_api_credentials_api_key_prefix",
         "ai_api_credentials",
         ("api_key_prefix",),
-        unique=True,
     )
     _create_index_if_not_exists(
         "ix_ai_api_credentials_user_id",
