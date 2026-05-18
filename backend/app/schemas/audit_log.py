@@ -16,6 +16,7 @@ class AuditLogPublic(BaseModel):
     user_email: str | None = None
     user_full_name: str | None = None
     vmid: int | None
+    resource_vmid: int | None = None
     action: AuditAction
     details: str
     ip_address: str | None

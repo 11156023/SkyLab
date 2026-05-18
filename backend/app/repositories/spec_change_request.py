@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 from sqlalchemy.orm import selectinload
 from sqlmodel import Session, func, select
 
-from app.models import SpecChangeRequest, SpecChangeRequestStatus
+from app.models import Resource, SpecChangeRequest, SpecChangeRequestStatus
 
 
 def create_spec_change_request(
@@ -24,6 +24,7 @@ def create_spec_change_request(
 ) -> SpecChangeRequest:
     db_request = SpecChangeRequest(
         vmid=vmid,
+        resource_vmid=vmid if session.get(Resource, vmid) is not None else None,
         user_id=user_id,
         change_type=change_type,
         reason=reason,

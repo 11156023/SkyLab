@@ -55,6 +55,16 @@ def _is_valid_hostname(value: str) -> bool:
     return all(_HOSTNAME_LABEL_PATTERN.fullmatch(label) for label in labels)
 
 
+def _resolve_resource_vmid(session: object, vmid: int) -> int | None:
+    get = getattr(session, "get", None)
+    if get is None:
+        return None
+
+    from app.models import Resource  # noqa: PLC0415
+
+    return vmid if get(Resource, vmid) is not None else None
+
+
 def _get_gateway_ready_state(session: object) -> tuple[bool, str | None]:
     from app.repositories import gateway_config as gw_repo  # noqa: PLC0415
 
@@ -166,11 +176,11 @@ def resolve_vmid_ip(*, vmid: int, session: object | None = None) -> str | None:
 
     if session is not None:
         try:
-            cached = resource_repo.get_resource_by_vmid(  # type: ignore[arg-type]
+            cached_ip = resource_repo.get_cached_ip_address(  # type: ignore[arg-type]
                 session=session, vmid=vmid
             )
-            if cached and cached.ip_address:
-                return cached.ip_address
+            if cached_ip:
+                return cached_ip
         except Exception as exc:
             logger.debug("VM %s DB 快取讀取失敗: %s", vmid, exc)
 
@@ -335,6 +345,7 @@ def apply_reverse_proxy_rule(
 
     rule = ReverseProxyRule(
         vmid=vmid,
+        resource_vmid=_resolve_resource_vmid(session, vmid),
         vm_ip=vm_ip,
         domain=domain,
         zone_id=zone_id,
@@ -382,6 +393,7 @@ def update_reverse_proxy_rule(
     )
 
     rule.vmid = vmid
+    rule.resource_vmid = _resolve_resource_vmid(session, vmid)
     rule.vm_ip = vm_ip
     rule.domain = domain
     rule.zone_id = zone_id

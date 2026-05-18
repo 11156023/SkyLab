@@ -13,6 +13,7 @@ import logging
 from sqlmodel import Session, select
 
 from app.exceptions import BadRequestError, ConflictError
+from app.models import Resource
 from app.models.base import get_datetime_utc
 from app.models.ip_allocation import IpAllocation
 from app.models.subnet_config import SubnetConfig
@@ -216,6 +217,7 @@ def allocate_ip(session: Session, vmid: int, purpose: str) -> str:
                 ip_address=ip_str,
                 purpose=purpose,
                 vmid=vmid,
+                resource_vmid=vmid if session.get(Resource, vmid) is not None else None,
                 description=f"VMID {vmid}",
             )
             session.add(alloc)

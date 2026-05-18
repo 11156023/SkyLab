@@ -11,6 +11,7 @@ from app.models.batch_provision import (
     BatchProvisionTask,
     BatchProvisionTaskStatus,
 )
+from app.models.resource import Resource
 
 
 def create_job(
@@ -177,6 +178,7 @@ def update_task_done(
     if task:
         task.status = BatchProvisionTaskStatus.completed
         task.vmid = vmid
+        task.resource_vmid = vmid if session.get(Resource, vmid) is not None else None
         task.finished_at = datetime.now(UTC)
         session.add(task)
         session.commit()
@@ -250,6 +252,7 @@ def clear_task_vmid_references(
 
     for task in tasks:
         task.vmid = None
+        task.resource_vmid = None
         session.add(task)
 
     if commit:

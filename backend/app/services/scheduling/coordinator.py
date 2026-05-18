@@ -120,6 +120,7 @@ def _adopt_existing_resource(
             expiry_date=request.expiry_date,
             template_id=request.template_id,
             service_template_slug=getattr(request, "service_template_slug", None),
+            request_id=request.id,
             commit=False,
         )
     vm_request_repo.update_vm_request_provisioning(
@@ -282,6 +283,7 @@ def _provision_new_resource(
             ssh_private_key_encrypted=plan.get("ssh_private_key_encrypted"),
             ssh_public_key=plan.get("ssh_public_key"),
             service_template_slug=request_service_template_slug,
+            request_id=req.id,
             commit=False,
         )
         vm_request_repo.update_vm_request_provisioning(
@@ -541,6 +543,7 @@ def _provision_via_service_template(
             ssh_private_key_encrypted=encrypted_private_key,
             ssh_public_key=public_key,
             service_template_slug=template_slug or None,
+            request_id=req.id,
             commit=False,
         )
         vm_request_repo.update_vm_request_provisioning(

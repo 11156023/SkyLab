@@ -2,6 +2,7 @@ import uuid
 from datetime import datetime
 from typing import TYPE_CHECKING
 
+import sqlalchemy as sa
 from sqlalchemy import DateTime
 from sqlmodel import Field, Relationship, SQLModel
 
@@ -15,6 +16,11 @@ class AITemplateCallLog(SQLModel, table=True):
     """AI Template 呼叫記錄表（chat / recommend）"""
 
     __tablename__ = "ai_template_call_logs"
+    __table_args__ = (
+        sa.Index("ix_ai_template_call_logs_user_created", "user_id", "created_at"),
+        sa.Index("ix_ai_template_call_logs_status_created", "status", "created_at"),
+        sa.Index("ix_ai_template_call_logs_call_type_created", "call_type", "created_at"),
+    )
 
     id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
     user_id: uuid.UUID = Field(foreign_key="user.id", index=True)

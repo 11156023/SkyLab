@@ -2,6 +2,7 @@
 
 import enum
 import uuid
+from dataclasses import dataclass
 from datetime import date, datetime
 from typing import TYPE_CHECKING, Optional
 
@@ -31,11 +32,57 @@ class VMMigrationStatus(str, enum.Enum):
     blocked = "blocked"
 
 
+@dataclass(frozen=True, slots=True)
+class VMRequestReviewState:
+    status: "VMRequestStatus"
+    reviewer_id: uuid.UUID | None
+    review_comment: str | None
+    reviewed_at: datetime | None
+
+
+@dataclass(frozen=True, slots=True)
+class VMRequestScheduleState:
+    start_at: datetime | None
+    end_at: datetime | None
+    recurrence_rule: str | None
+    recurrence_duration_minutes: int | None
+    schedule_timezone: str | None
+    next_window_start: datetime | None
+    next_window_end: datetime | None
+    batch_job_id: uuid.UUID | None
+
+
+@dataclass(frozen=True, slots=True)
+class VMRequestProvisioningState:
+    vmid: int | None
+    assigned_node: str | None
+    desired_node: str | None
+    actual_node: str | None
+    placement_strategy_used: str | None
+
+
+@dataclass(frozen=True, slots=True)
+class VMRequestMigrationState:
+    status: "VMMigrationStatus"
+    error: str | None
+    pinned: bool
+    resource_warning: str | None
+    rebalance_epoch: int
+    last_rebalanced_at: datetime | None
+    last_migrated_at: datetime | None
+
+
 class VMRequest(SQLModel, table=True):
     __tablename__ = "vm_requests"
     __table_args__ = (
         sa.Index("ix_vm_requests_next_window_end", "next_window_end"),
         sa.Index("ix_vm_requests_next_window_start", "next_window_start"),
+        sa.Index("ix_vm_requests_user_id", "user_id"),
+        sa.Index("ix_vm_requests_vmid", "vmid"),
+        sa.Index("ix_vm_requests_user_status_created", "user_id", "status", "created_at"),
+        sa.Index("ix_vm_requests_status_created", "status", "created_at"),
+        sa.Index("ix_vm_requests_schedule", "status", "start_at", "end_at"),
+        sa.Index("ix_vm_requests_gpu_window", "gpu_mapping_id", "start_at", "end_at"),
     )
 
     id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
@@ -43,7 +90,9 @@ class VMRequest(SQLModel, table=True):
 
     reason: str
     resource_type: str
-    request_kind: str = Field(default="research", description="research or quick_template")
+    request_kind: str = Field(
+        default="research", description="research or quick_template"
+    )
 
     hostname: str
     cores: int = Field(default=2)
@@ -148,9 +197,57 @@ class VMRequest(SQLModel, table=True):
         sa_relationship_kwargs={"foreign_keys": "[VMRequest.reviewer_id]"},
     )
 
+    @property
+    def review_state(self) -> VMRequestReviewState:
+        return VMRequestReviewState(
+            status=self.status,
+            reviewer_id=self.reviewer_id,
+            review_comment=self.review_comment,
+            reviewed_at=self.reviewed_at,
+        )
+
+    @property
+    def schedule(self) -> VMRequestScheduleState:
+        return VMRequestScheduleState(
+            start_at=self.start_at,
+            end_at=self.end_at,
+            recurrence_rule=self.recurrence_rule,
+            recurrence_duration_minutes=self.recurrence_duration_minutes,
+            schedule_timezone=self.schedule_timezone,
+            next_window_start=self.next_window_start,
+            next_window_end=self.next_window_end,
+            batch_job_id=self.batch_job_id,
+        )
+
+    @property
+    def provisioning(self) -> VMRequestProvisioningState:
+        return VMRequestProvisioningState(
+            vmid=self.vmid,
+            assigned_node=self.assigned_node,
+            desired_node=self.desired_node,
+            actual_node=self.actual_node,
+            placement_strategy_used=self.placement_strategy_used,
+        )
+
+    @property
+    def migration(self) -> VMRequestMigrationState:
+        return VMRequestMigrationState(
+            status=self.migration_status,
+            error=self.migration_error,
+            pinned=self.migration_pinned,
+            resource_warning=self.resource_warning,
+            rebalance_epoch=self.rebalance_epoch,
+            last_rebalanced_at=self.last_rebalanced_at,
+            last_migrated_at=self.last_migrated_at,
+        )
+
 
 __all__ = [
     "VMMigrationStatus",
     "VMRequestStatus",
     "VMRequest",
+    "VMRequestMigrationState",
+    "VMRequestProvisioningState",
+    "VMRequestReviewState",
+    "VMRequestScheduleState",
 ]

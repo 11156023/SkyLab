@@ -1,17 +1,27 @@
-"""Proxmox Storage 設定模型"""
+"""Proxmox storage pool model."""
 
-from sqlmodel import Field, SQLModel
+import sqlalchemy as sa
+from sqlmodel import Field, SQLModel, UniqueConstraint
 
 
 class ProxmoxStorage(SQLModel, table=True):
-    """每個節點的 Storage pool 設定（含 simulator 用的速度分級與優先級）"""
+    """Storage pool state and placement tuning for a Proxmox node."""
 
     __tablename__ = "proxmox_storages"
+    __table_args__ = (
+        UniqueConstraint("node_name", "storage", name="uq_proxmox_storages_node_storage"),
+    )
 
     id: int | None = Field(default=None, primary_key=True)
-    node_name: str = Field(max_length=255)       # 所屬節點名稱（如 "pve"）
-    storage: str = Field(max_length=255)          # Storage 名稱（如 "local-lvm"）
-    storage_type: str | None = Field(default=None, max_length=50)  # "dir", "lvm", "ceph" 等
+    node_name: str = Field(
+        sa_column=sa.Column(
+            sa.String(length=255),
+            sa.ForeignKey("proxmox_nodes.name", ondelete="CASCADE"),
+            nullable=False,
+        )
+    )
+    storage: str = Field(max_length=255)
+    storage_type: str | None = Field(default=None, max_length=50)
     total_gb: float = Field(default=0.0)
     used_gb: float = Field(default=0.0)
     avail_gb: float = Field(default=0.0)
@@ -21,9 +31,8 @@ class ProxmoxStorage(SQLModel, table=True):
     can_backup: bool = Field(default=False)
     is_shared: bool = Field(default=False)
     active: bool = Field(default=True)
-    # === 使用者可設定（simulator 用）===
     enabled: bool = Field(default=True)
-    speed_tier: str = Field(default="unknown", max_length=20)  # "nvme"|"ssd"|"hdd"|"unknown"
+    speed_tier: str = Field(default="unknown", max_length=20)
     user_priority: int = Field(default=5, ge=1, le=10)
 
 

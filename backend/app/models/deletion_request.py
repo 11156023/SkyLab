@@ -9,6 +9,7 @@ import uuid
 from datetime import datetime
 from typing import TYPE_CHECKING, Optional
 
+import sqlalchemy as sa
 from sqlmodel import Column, DateTime, Enum, Field, Relationship, SQLModel
 
 if TYPE_CHECKING:
@@ -29,6 +30,16 @@ class DeletionRequest(SQLModel, table=True):
     id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
     user_id: uuid.UUID = Field(foreign_key="user.id", index=True)
     vmid: int = Field(index=True)
+    resource_vmid: int | None = Field(
+        default=None,
+        sa_column=Column(
+            sa.Integer,
+            sa.ForeignKey("resources.vmid", ondelete="SET NULL"),
+            nullable=True,
+            index=True,
+        ),
+        description="Linked resource VMID; vmid is kept as deletion snapshot",
+    )
 
     # 刪除時的快照資訊（避免 resource record 被刪後失去脈絡）
     name: str | None = Field(default=None)

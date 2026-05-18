@@ -439,7 +439,7 @@ def clone_vm(node: str, template_id: int, **clone_config) -> str:
 
 def next_vmid() -> int:
     proxmox = get_proxmox_api()
-    return proxmox.cluster.nextid.get()
+    return int(proxmox.cluster.nextid.get())
 
 
 # ---------------------------------------------------------------------------

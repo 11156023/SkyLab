@@ -30,7 +30,8 @@ export default {
       "VM #{vmid} 將在約 {hours} 小時後到期並停用。請及早備份資料；如需延長使用期限，請向管理員申請。",
     extend: "延長使用時間",
     later: "稍後再說",
-    gotIt: "知道了"
+    gotIt: "知道了",
+    doNotShow: "不再顯示此提醒"
   },
   login: {
     title: "登入 Campus Cloud",

@@ -401,29 +401,9 @@ def create(
     return _to_public(db_request, user_override=user)
 
 
-# Internal statuses that mean "approved + already being fulfilled". The
-# personal /vm-requests/my endpoint collapses these into ``approved`` so the
-# RequestsPage only ever sees the four user-facing buckets
-# (pending / approved / rejected / cancelled). The actual fulfilled VM is
-# surfaced separately on the resources page.
-_FULFILLED_AS_APPROVED: frozenset[VMRequestStatus] = frozenset({
-    VMRequestStatus.provisioning,
-    VMRequestStatus.running,
-    VMRequestStatus.scheduled,
-})
-
-
 def _public_for_personal_view(req: VMRequest) -> VMRequestPublic:
-    """Like :func:`_to_public` but folds fulfillment statuses into ``approved``.
-
-    The application page only displays 4 states; once a request reaches
-    provisioning/running/scheduled the application itself is "approved" — the
-    in-flight work belongs on the resource page.
-    """
-    public = _to_public(req)
-    if public.status in _FULFILLED_AS_APPROVED:
-        public = public.model_copy(update={"status": VMRequestStatus.approved})
-    return public
+    """Return the personal-view request payload with the real backend status."""
+    return _to_public(req)
 
 
 def list_by_user(

@@ -51,6 +51,7 @@ def register_vm(
     Creates SSH proxy for all VMs; adds RDP proxy for qemu VMs.
     Then syncs the Gateway frpc.toml.
     """
+    vmid = int(vmid)
     existing = tp_repo.get_proxies_by_vmid(session=session, vmid=vmid)
     if existing:
         logger.info("VM %d already has %d tunnel proxies, skipping", vmid, len(existing))
@@ -89,6 +90,7 @@ def register_vm(
 
 def unregister_vm(*, session: Session, vmid: int) -> int:
     """Remove all tunnel proxies for a VM and sync Gateway."""
+    vmid = int(vmid)
     count = tp_repo.delete_proxies_by_vmid(session=session, vmid=vmid)
     if count:
         try:
@@ -135,9 +137,9 @@ def sync_gateway_frpc(*, session: Session) -> None:
     missing_ip_vmids: list[int] = []
 
     for vmid in vmids:
-        res = resource_repo.get_resource_by_vmid(session=session, vmid=vmid)
-        if res and res.ip_address:
-            resource_ips[vmid] = res.ip_address
+        cached_ip = resource_repo.get_cached_ip_address(session=session, vmid=vmid)
+        if cached_ip:
+            resource_ips[vmid] = cached_ip
         else:
             missing_ip_vmids.append(vmid)
 

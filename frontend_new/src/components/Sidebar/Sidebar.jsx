@@ -10,7 +10,7 @@ const navGroups = [
     label: "個人",
     icon: "person",
     items: [
-      { key: "dashboard",    label: "儀表板",  icon: "dashboard" },
+      { key: "dashboard",    label: "總覽",     icon: "dashboard" },
       { key: "my-resources", label: "我的資源", icon: "inventory_2" },
       { key: "my-requests",  label: "我的申請", icon: "assignment" },
     ],
@@ -23,7 +23,8 @@ const navGroups = [
       { key: "firewall",      label: "防火牆",     icon: "security" },
       { key: "reverse-proxy", label: "反向代理",   icon: "swap_horiz" },
       { key: "domain",        label: "網域管理",   icon: "domain" },
-      { key: "gateway",       label: "Gateway VM", icon: "dns" },
+      { key: "ip-management", label: "IP 管理",    icon: "lan" },
+      { key: "gateway",       label: "閘道 VM",    icon: "dns" },
     ],
   },
   {
@@ -32,7 +33,9 @@ const navGroups = [
     icon: "storage",
     items: [
       { key: "resource-mgmt",  label: "資源管理", icon: "storage" },
+      { key: "gpu-mgmt",       label: "GPU 管理", icon: "memory" },
       { key: "request-review", label: "申請審核", icon: "fact_check" },
+      { key: "batch-review",   label: "批量審核", icon: "library_add_check" },
     ],
   },
   {
@@ -40,9 +43,11 @@ const navGroups = [
     label: "AI 服務",
     icon: "smart_toy",
     items: [
-      { key: "ai-api",        label: "AI API",        icon: "psychology" },
-      { key: "ai-api-review", label: "AI API Review", icon: "rate_review" },
-      { key: "ai-api-keys",   label: "AI API Keys",   icon: "vpn_key" },
+      { key: "ai-api",        label: "AI API 申請", icon: "psychology" },
+      { key: "ai-api-review", label: "AI API 審核", icon: "rate_review" },
+      { key: "ai-api-keys",   label: "AI API 金鑰", icon: "vpn_key" },
+      { key: "ai-monitoring", label: "AI 監控",     icon: "monitor_heart" },
+      { key: "ai-management", label: "AI 管理",     icon: "admin_panel_settings" },
     ],
   },
   {
@@ -50,11 +55,12 @@ const navGroups = [
     label: "系統管理",
     icon: "tune",
     items: [
-      { key: "groups",    label: "Groups",          icon: "groups" },
-      { key: "admin",     label: "管理員",           icon: "admin_panel_settings" },
-      { key: "settings",  label: "System Settings", icon: "settings" },
-      { key: "migration", label: "Migration Jobs",  icon: "move_down" },
-      { key: "audit",     label: "Audit Logs",      icon: "receipt_long" },
+      { key: "groups",    label: "群組",       icon: "groups" },
+      { key: "admin",     label: "使用者管理", icon: "admin_panel_settings" },
+      { key: "settings",  label: "系統設定",   icon: "settings" },
+      { key: "migration", label: "Migration Jobs", icon: "move_down" },
+      { key: "jobs",      label: "背景任務",   icon: "task_alt" },
+      { key: "audit",     label: "Audit Logs", icon: "receipt_long" },
     ],
   },
 ];

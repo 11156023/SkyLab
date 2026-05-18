@@ -35,7 +35,11 @@ function loadDismissed(): DismissedStore {
 }
 
 function saveDismissed(store: DismissedStore) {
-  localStorage.setItem(LS_KEY, JSON.stringify(store))
+  try {
+    localStorage.setItem(LS_KEY, JSON.stringify(store))
+  } catch {
+    // Ignore write failures (e.g. storage quota exceeded or restricted context).
+  }
 }
 
 function warningKey(status: SessionStatus): string {

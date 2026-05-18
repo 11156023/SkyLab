@@ -1,11 +1,11 @@
-"""群組相關模型"""
+"""Group model."""
 
 import uuid
 from datetime import datetime
 from typing import TYPE_CHECKING, Optional
 
 from sqlalchemy import DateTime
-from sqlmodel import Field, Relationship, SQLModel
+from sqlmodel import Field, Relationship, SQLModel, UniqueConstraint
 
 from .base import get_datetime_utc
 
@@ -15,7 +15,11 @@ if TYPE_CHECKING:
 
 
 class Group(SQLModel, table=True):
-    """群組資料庫模型（課程/班級）"""
+    """Course/project group owned by a teacher or administrator."""
+
+    __table_args__ = (
+        UniqueConstraint("owner_id", "name", name="uq_group_owner_name"),
+    )
 
     id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
     name: str = Field(max_length=255)
@@ -26,7 +30,6 @@ class Group(SQLModel, table=True):
         sa_type=DateTime(timezone=True),
     )
 
-    # Relationships
     owner: Optional["User"] = Relationship(
         sa_relationship_kwargs={"foreign_keys": "[Group.owner_id]"}
     )

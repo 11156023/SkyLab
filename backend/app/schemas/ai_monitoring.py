@@ -18,6 +18,10 @@ class AIMonitoringStats(BaseModel):
     template_total_calls: int
     template_total_input_tokens: int
     template_total_output_tokens: int
+    successful_calls: int
+    failed_calls: int
+    success_rate: int
+    avg_latency_ms: int
     active_users: int
     models_used: list[str]
 

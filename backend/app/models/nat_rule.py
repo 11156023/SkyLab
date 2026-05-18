@@ -1,4 +1,4 @@
-"""NAT 端口轉發規則模型"""
+"""NAT forwarding rule model."""
 
 import uuid
 from datetime import datetime
@@ -10,25 +10,45 @@ from .base import get_datetime_utc
 
 
 class NatRule(SQLModel, table=True):
-    """儲存 nftables DNAT 規則記錄。
-    Campus Cloud 作為唯一 source of truth：啟動時從此表重放規則到 PVE 主機。
-    """
+    """Source of truth for nftables DNAT forwarding rules."""
 
     __tablename__ = "nat_rule"
+    __table_args__ = (
+        sa.UniqueConstraint(
+            "ssh_host",
+            "external_port",
+            "protocol",
+            name="uq_nat_rule_host_external_port_protocol",
+        ),
+    )
 
     id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
+    ssh_host: str = Field(max_length=255, description="PVE host where the rule is applied")
 
-    # 套用規則的 PVE 節點（SSH 目標 host）
-    ssh_host: str = Field(max_length=255, description="PVE 主機 IP，規則套用目標")
+    vmid: int = Field(
+        sa_column=sa.Column(
+            sa.Integer,
+            sa.ForeignKey("resources.vmid", ondelete="CASCADE"),
+            nullable=False,
+            index=True,
+        ),
+        description="Target VM ID",
+    )
+    resource_vmid: int | None = Field(
+        default=None,
+        sa_column=sa.Column(
+            sa.Integer,
+            sa.ForeignKey("resources.vmid", ondelete="CASCADE"),
+            nullable=True,
+            index=True,
+        ),
+        description="Linked resource VMID",
+    )
+    vm_ip: str = Field(max_length=64, description="Target VM internal IP")
 
-    # VM 資訊
-    vmid: int = Field(index=True, description="目標 VM ID")
-    vm_ip: str = Field(max_length=64, description="目標 VM 內網 IP")
-
-    # Port mapping
-    external_port: int = Field(ge=1, le=65535, description="外網入站 port（公網）")
-    internal_port: int = Field(ge=1, le=65535, description="VM 內部 port")
-    protocol: str = Field(default="tcp", max_length=16, description="協定 tcp/udp")
+    external_port: int = Field(ge=1, le=65535, description="External port")
+    internal_port: int = Field(ge=1, le=65535, description="VM internal port")
+    protocol: str = Field(default="tcp", max_length=16, description="tcp or udp")
 
     created_at: datetime = Field(
         default_factory=get_datetime_utc,

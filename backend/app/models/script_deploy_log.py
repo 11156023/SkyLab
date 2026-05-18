@@ -7,6 +7,7 @@
 import uuid
 from datetime import datetime
 
+import sqlalchemy as sa
 from sqlalchemy import DateTime, Text
 from sqlmodel import Column, Field, SQLModel
 
@@ -25,8 +26,26 @@ class ScriptDeployLog(SQLModel, table=True):
 
     id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
     task_id: str = Field(max_length=64, unique=True, index=True)
-    user_id: uuid.UUID | None = Field(default=None, index=True)
+    user_id: uuid.UUID | None = Field(
+        default=None,
+        sa_column=Column(
+            sa.Uuid,
+            sa.ForeignKey("user.id", ondelete="SET NULL"),
+            nullable=True,
+            index=True,
+        ),
+    )
     vmid: int | None = Field(default=None, index=True)
+    resource_vmid: int | None = Field(
+        default=None,
+        sa_column=Column(
+            sa.Integer,
+            sa.ForeignKey("resources.vmid", ondelete="SET NULL"),
+            nullable=True,
+            index=True,
+        ),
+        description="Linked resource VMID; vmid remains as deployment snapshot",
+    )
     template_slug: str = Field(max_length=120, index=True)
     template_name: str | None = Field(default=None, max_length=255)
     script_path: str | None = Field(default=None, max_length=500)

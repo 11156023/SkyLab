@@ -28,10 +28,18 @@ from .group import Group
 from .group_member import GroupMember
 from .ip_allocation import IpAllocation
 from .nat_rule import NatRule
-from .proxmox_config import ProxmoxConfig
+from .proxmox_config import (
+    ProxmoxConfig,
+    ProxmoxConnectionConfig,
+    ProxmoxMigrationConfig,
+    ProxmoxPlacementConfig,
+    ProxmoxRebalanceConfig,
+    ProxmoxSchedulerConfig,
+)
 from .proxmox_node import ProxmoxNode
 from .proxmox_storage import ProxmoxStorage
 from .resource import Resource
+from .resource_network import ResourceNetwork
 from .reverse_proxy_rule import ReverseProxyRule
 from .script_deploy_log import ScriptDeployLog
 from .spec_change_request import (
@@ -43,7 +51,15 @@ from .subnet_config import SubnetConfig
 from .tunnel_proxy import TunnelProxy
 from .user import User, UserBase, UserRole
 from .vm_migration_job import VMMigrationJob, VMMigrationJobStatus
-from .vm_request import VMMigrationStatus, VMRequest, VMRequestStatus
+from .vm_request import (
+    VMMigrationStatus,
+    VMRequest,
+    VMRequestMigrationState,
+    VMRequestProvisioningState,
+    VMRequestReviewState,
+    VMRequestScheduleState,
+    VMRequestStatus,
+)
 
 __all__ = [
     # Base
@@ -62,12 +78,17 @@ __all__ = [
     "AITemplateCallLog",
     # Resource
     "Resource",
+    "ResourceNetwork",
     "VMMigrationJob",
     "VMMigrationJobStatus",
     # VM Request
     "VMMigrationStatus",
     "VMRequest",
     "VMRequestStatus",
+    "VMRequestMigrationState",
+    "VMRequestProvisioningState",
+    "VMRequestReviewState",
+    "VMRequestScheduleState",
     # Audit Log
     "AuditAction",
     "AuditLog",
@@ -80,6 +101,11 @@ __all__ = [
     "GroupMember",
     # Proxmox Config
     "ProxmoxConfig",
+    "ProxmoxConnectionConfig",
+    "ProxmoxMigrationConfig",
+    "ProxmoxPlacementConfig",
+    "ProxmoxRebalanceConfig",
+    "ProxmoxSchedulerConfig",
     # Proxmox Nodes
     "ProxmoxNode",
     # Proxmox Storages

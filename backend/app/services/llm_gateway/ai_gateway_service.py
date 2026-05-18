@@ -748,17 +748,33 @@ def get_monitoring_stats(
     end_date: datetime | None = None,
 ) -> dict:
     """全局 AI 監控統計卡片"""
-    from sqlalchemy import distinct, func
+    from sqlalchemy import case, distinct, func
+
+    success_statuses = ("success", "ok", "200")
 
     proxy_query = select(
         func.count(AIAPIUsage.id),
         func.coalesce(func.sum(AIAPIUsage.input_tokens), 0),
         func.coalesce(func.sum(AIAPIUsage.output_tokens), 0),
+        func.coalesce(
+            func.sum(case((AIAPIUsage.status.in_(success_statuses), 1), else_=0)),
+            0,
+        ),
+        func.count(AIAPIUsage.request_duration_ms),
+        func.coalesce(func.sum(AIAPIUsage.request_duration_ms), 0),
     )
     template_query = select(
         func.count(AITemplateCallLog.id),
         func.coalesce(func.sum(AITemplateCallLog.input_tokens), 0),
         func.coalesce(func.sum(AITemplateCallLog.output_tokens), 0),
+        func.coalesce(
+            func.sum(
+                case((AITemplateCallLog.status.in_(success_statuses), 1), else_=0)
+            ),
+            0,
+        ),
+        func.count(AITemplateCallLog.request_duration_ms),
+        func.coalesce(func.sum(AITemplateCallLog.request_duration_ms), 0),
     )
 
     if start_date:
@@ -772,6 +788,13 @@ def get_monitoring_stats(
 
     proxy_row = session.exec(proxy_query).one()
     template_row = session.exec(template_query).one()
+    proxy_total_calls = int(proxy_row[0] or 0)
+    template_total_calls = int(template_row[0] or 0)
+    total_calls = proxy_total_calls + template_total_calls
+    successful_calls = int(proxy_row[3] or 0) + int(template_row[3] or 0)
+    failed_calls = max(0, total_calls - successful_calls)
+    duration_count = int(proxy_row[4] or 0) + int(template_row[4] or 0)
+    duration_sum = int(proxy_row[5] or 0) + int(template_row[5] or 0)
 
     # 活躍使用者（proxy + template 的 distinct user_id 合集）
     proxy_users_q = select(distinct(AIAPIUsage.user_id))
@@ -811,12 +834,20 @@ def get_monitoring_stats(
     )
 
     return {
-        "proxy_total_calls": proxy_row[0],
+        "proxy_total_calls": proxy_total_calls,
         "proxy_total_input_tokens": proxy_row[1],
         "proxy_total_output_tokens": proxy_row[2],
-        "template_total_calls": template_row[0],
+        "template_total_calls": template_total_calls,
         "template_total_input_tokens": template_row[1],
         "template_total_output_tokens": template_row[2],
+        "successful_calls": successful_calls,
+        "failed_calls": failed_calls,
+        "success_rate": 100
+        if total_calls == 0
+        else round((successful_calls / total_calls) * 100),
+        "avg_latency_ms": 0
+        if duration_count == 0
+        else round(duration_sum / duration_count),
         "active_users": active_users,
         "models_used": models,
     }
@@ -993,7 +1024,19 @@ def list_users_usage(
     # 合併：所有有 proxy 或 template 呼叫的使用者
     # 先取得所有相關 user_id
     all_user_ids_q = select(proxy_sub.c.user_id).union(select(tmpl_sub.c.user_id))
-    all_user_ids = list(session.exec(all_user_ids_q).all())
+    raw_rows = session.exec(all_user_ids_q).all()
+
+    # UNION of single-column selects returns Row objects (Sequence-like); unwrap
+    # to scalar UUIDs so downstream `WHERE user_id == uid` binds a UUID, not a Row.
+    def _scalar(r):
+        if isinstance(r, uuid.UUID):
+            return r
+        try:
+            return r[0]
+        except (TypeError, IndexError):
+            return r
+
+    all_user_ids = [_scalar(row) for row in raw_rows]
     total_count = len(all_user_ids)
 
     # 分頁取使用者明細

@@ -185,10 +185,17 @@ def apply_nat_rule(
     from app.repositories import nat_rule as nat_repo  # noqa: PLC0415
 
     check_port_available(external_port, protocol, session)
+    get = getattr(session, "get", None)
+    resource_vmid = None
+    if get is not None:
+        from app.models import Resource  # noqa: PLC0415
+
+        resource_vmid = vmid if get(Resource, vmid) is not None else None
 
     rule = NatRule(
         ssh_host="",  # 已改為 Gateway VM 架構，此欄位保留但不再使用
         vmid=vmid,
+        resource_vmid=resource_vmid,
         vm_ip=vm_ip,
         external_port=external_port,
         internal_port=internal_port,

@@ -1031,7 +1031,7 @@ function BatchProvisionDialog({
             )}
 
             <DialogFooter>
-              <Button variant="outline" onClick={resetAndClose}>
+              <Button variant="outline" onClick={() => handleOpenChange(false)}>
                 {jobStatus?.status === "pending_review" ? (
                   <>
                     <Loader2 className="mr-2 h-4 w-4" />

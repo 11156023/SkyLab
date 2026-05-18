@@ -1,8 +1,8 @@
 <script lang="ts">
-import { ElConfigProvider, ElMessageBox } from "element-plus";
+import { ElConfigProvider } from "element-plus";
 import en from "element-plus/dist/locale/en.mjs";
 import zhCn from "element-plus/dist/locale/zh-cn.mjs";
-import { defineComponent, watch } from "vue";
+import { defineComponent, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import { useAppStore } from "./store/app";
 
@@ -15,6 +15,9 @@ export default defineComponent({
     const appStore = useAppStore();
     const { t } = useI18n();
 
+    const warningVisible = ref(false);
+    const doNotShow = ref(false);
+
     // Start / stop the session-status poller as the user logs in & out.
     watch(
       () => appStore.loggedIn,
@@ -25,66 +28,88 @@ export default defineComponent({
       { immediate: true }
     );
 
-    // When the active warning changes, surface an Element Plus message box.
-    // We reset the per-vmid dismissal flag inside the dialog handlers, NOT
-    // by closing the box — so closing the alert always counts as "snooze".
-    let dialogOpen = false;
     watch(
       () => appStore.activeWarning,
-      async warning => {
-        if (!warning || dialogOpen) return;
-        const isExpiry = warning.warn_reason === "expiry";
-        const title = isExpiry
-          ? t("sessionWarning.expiryTitle")
-          : t("sessionWarning.autoStopTitle");
-        const message = isExpiry
-          ? t("sessionWarning.expiryBody", {
-              vmid: warning.vmid,
-              hours: warning.hours_until_expiry ?? "?"
-            })
-          : t("sessionWarning.autoStopBody", {
-              vmid: warning.vmid,
-              minutes: warning.minutes_until_stop ?? "?"
-            });
-        const showExtend = !isExpiry && warning.can_extend;
-        dialogOpen = true;
-        try {
-          await ElMessageBox({
-            title,
-            message,
-            type: isExpiry ? "error" : "warning",
-            confirmButtonText: showExtend
-              ? t("sessionWarning.extend")
-              : t("sessionWarning.gotIt"),
-            cancelButtonText: showExtend
-              ? t("sessionWarning.later")
-              : t("common.cancel"),
-            showCancelButton: showExtend,
-            distinguishCancelAndClose: true
-          });
-          // confirm clicked
-          if (showExtend) {
-            appStore.extendSession(warning.vmid);
-          } else {
-            appStore.dismissWarning(warning.vmid);
-          }
-        } catch (action) {
-          // cancel ("later") OR close ("X") — both treated as dismiss-for-now.
-          appStore.dismissWarning(warning.vmid);
-        } finally {
-          dialogOpen = false;
+      warning => {
+        if (warning && !warningVisible.value) {
+          doNotShow.value = false;
+          warningVisible.value = true;
+        } else if (!warning) {
+          warningVisible.value = false;
         }
-      }
+      },
+      { immediate: true }
     );
 
+    function handleConfirm() {
+      const warning = appStore.activeWarning;
+      if (!warning) return;
+      warningVisible.value = false;
+      if (!warning.warn_reason || warning.warn_reason === "expiry" || !warning.can_extend) {
+        if (doNotShow.value) {
+          appStore.dismissWarningPermanent(warning.vmid);
+        } else {
+          appStore.dismissWarning(warning.vmid);
+        }
+      } else {
+        appStore.extendSession(warning.vmid);
+        if (doNotShow.value) {
+          appStore.dismissWarningPermanent(warning.vmid);
+        } else {
+          appStore.dismissWarning(warning.vmid);
+        }
+      }
+    }
+
+    function handleLater() {
+      const warning = appStore.activeWarning;
+      if (!warning) return;
+      warningVisible.value = false;
+      if (doNotShow.value) {
+        appStore.dismissWarningPermanent(warning.vmid);
+      } else {
+        appStore.dismissWarning(warning.vmid);
+      }
+    }
+
     return {
-      currentLocale: () =>
-        useAppStore().language === "zh-CN" ? zhCn : en
+      appStore,
+      warningVisible,
+      doNotShow,
+      handleConfirm,
+      handleLater,
+      t
     };
   },
   computed: {
     currentLocale() {
       return useAppStore().language === "zh-CN" ? zhCn : en;
+    },
+    warningInfo(): CampusCloudSessionStatus | null {
+      return this.appStore.activeWarning;
+    },
+    isExpiry(): boolean {
+      return this.warningInfo?.warn_reason === "expiry";
+    },
+    showExtend(): boolean {
+      return !this.isExpiry && (this.warningInfo?.can_extend ?? false);
+    },
+    warningTitle(): string {
+      return this.isExpiry
+        ? this.t("sessionWarning.expiryTitle")
+        : this.t("sessionWarning.autoStopTitle");
+    },
+    warningMessage(): string {
+      if (!this.warningInfo) return "";
+      return this.isExpiry
+        ? this.t("sessionWarning.expiryBody", {
+            vmid: this.warningInfo.vmid,
+            hours: this.warningInfo.hours_until_expiry ?? "?"
+          })
+        : this.t("sessionWarning.autoStopBody", {
+            vmid: this.warningInfo.vmid,
+            minutes: this.warningInfo.minutes_until_stop ?? "?"
+          });
     }
   }
 });
@@ -93,5 +118,28 @@ export default defineComponent({
 <template>
   <el-config-provider :locale="currentLocale">
     <router-view />
+
+    <el-dialog
+      v-model="warningVisible"
+      :title="warningTitle"
+      width="420px"
+      :close-on-click-modal="false"
+      :close-on-press-escape="false"
+      :show-close="false"
+    >
+      <p class="text-sm text-gray-700 dark:text-gray-300 mb-4">{{ warningMessage }}</p>
+      <el-checkbox v-model="doNotShow">{{ t("sessionWarning.doNotShow") }}</el-checkbox>
+
+      <template #footer>
+        <div class="flex justify-end gap-2">
+          <el-button v-if="showExtend" @click="handleLater">
+            {{ t("sessionWarning.later") }}
+          </el-button>
+          <el-button type="primary" @click="handleConfirm">
+            {{ showExtend ? t("sessionWarning.extend") : t("sessionWarning.gotIt") }}
+          </el-button>
+        </div>
+      </template>
+    </el-dialog>
   </el-config-provider>
 </template>
