@@ -8,26 +8,33 @@ on:
 
 jobs:
   opencode:
+    # 🔥 突破盲腸：用括號將「身分群組」與「指令群組」分開，並用 && 連接
     if: |
-      contains(github.event.comment.body, ' /oc') ||
-      startsWith(github.event.comment.body, '/oc') ||
-      contains(github.event.comment.body, ' /opencode') ||
-      startsWith(github.event.comment.body, '/opencode')
+      (github.event.comment.author_association == 'OWNER' ||
+       github.event.comment.author_association == 'MEMBER' ||
+       github.event.comment.author_association == 'COLLABORATOR') &&
+      (contains(github.event.comment.body, ' /oc') ||
+       startsWith(github.event.comment.body, '/oc') ||
+       contains(github.event.comment.body, ' /opencode') ||
+       startsWith(github.event.comment.body, '/opencode'))
+       
     runs-on: ubuntu-latest
+    
     permissions:
       id-token: write
-      contents: read
-      pull-requests: read
-      issues: read
+      contents: write
+      pull-requests: write
+      issues: write
+      
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v6
-        with:
-          persist-credentials: false
+      # 🔥 修正：移除原本空白的步驟，並將版本修正為穩定的 v4
+      - name: Checkout Code
+        uses: actions/checkout@v4
 
       - name: Run opencode
         uses: anomalyco/opencode/github@latest
         env:
-          OPENCODE_API_KEY: ${{ secrets.OPENCODE_API_KEY }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          OPENCODE_API_KEY: ${{ secrets.OPENCODE_API_KEY }} # 確保你有在 Repo 的 Settings -> Secrets 裡設定這個 Key
         with:
           model: opencode/deepseek-v4-pro
