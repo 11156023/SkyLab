@@ -226,35 +226,41 @@ function ResourceCard({ resource, onUpdated, onDeleted }) {
 
         {/* ── Footer ── */}
         <div className={styles.cardFooter}>
-          <button type="button" className={styles.terminalBtn} title={isLxc ? "終端機" : "控制台"} disabled={resource.status !== "running"} onClick={() => setConsoleOpen(true)}>
-            <MIcon name={isLxc ? "terminal" : "desktop_windows"} size={14} />
-            {isLxc ? "終端機" : "控制台"}
-          </button>
-          <div className={styles.cardActions}>
-            {actionLoading && <MIcon name="hourglass_empty" size={16} />}
-            <div className={styles.menuWrap}>
-              {menuOpen && (
-                <PowerMenu
-                  resource={resource}
-                  actionLoading={actionLoading}
-                  onControl={handleControl}
-                  onDeleteClick={() => { closeMenu(); setDeleteConfirm(true); }}
-                  onClose={closeMenu}
-                  anchorRef={menuBtnRef}
-                  closing={menuClosing}
-                />
-              )}
-              <button
-                ref={menuBtnRef}
-                type="button"
-                className={`${styles.menuBtn} ${menuOpen ? styles.menuBtnActive : ""}`}
-                onClick={() => menuOpen ? closeMenu() : setMenuOpen(true)}
-                title="電源控制"
-              >
-                <MIcon name="more_vert" size={18} />
+          {resource.status === "deleted" ? (
+            <span className={styles.deletedNote}>資源已由使用者刪除</span>
+          ) : (
+            <>
+              <button type="button" className={styles.terminalBtn} title={isLxc ? "終端機" : "控制台"} disabled={resource.status !== "running"} onClick={() => setConsoleOpen(true)}>
+                <MIcon name={isLxc ? "terminal" : "desktop_windows"} size={14} />
+                {isLxc ? "終端機" : "控制台"}
               </button>
-            </div>
-          </div>
+              <div className={styles.cardActions}>
+                {actionLoading && <MIcon name="hourglass_empty" size={16} />}
+                <div className={styles.menuWrap}>
+                  {menuOpen && (
+                    <PowerMenu
+                      resource={resource}
+                      actionLoading={actionLoading}
+                      onControl={handleControl}
+                      onDeleteClick={() => { closeMenu(); setDeleteConfirm(true); }}
+                      onClose={closeMenu}
+                      anchorRef={menuBtnRef}
+                      closing={menuClosing}
+                    />
+                  )}
+                  <button
+                    ref={menuBtnRef}
+                    type="button"
+                    className={`${styles.menuBtn} ${menuOpen ? styles.menuBtnActive : ""}`}
+                    onClick={() => menuOpen ? closeMenu() : setMenuOpen(true)}
+                    title="電源控制"
+                  >
+                    <MIcon name="more_vert" size={18} />
+                  </button>
+                </div>
+              </div>
+            </>
+          )}
         </div>
 
       </div>

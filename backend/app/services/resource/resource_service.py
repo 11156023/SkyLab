@@ -393,7 +393,7 @@ def delete(
             session=session, vmid=vmid,
         )
         if linked_request is not None:
-            linked_request.status = VMRequestStatus.rejected
+            linked_request.status = VMRequestStatus.cancelled
             linked_request.review_comment = "Resource deleted by user"
             session.add(linked_request)
 

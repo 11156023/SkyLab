@@ -329,7 +329,11 @@ export default function RequestsPage() {
     setError(false);
     try {
       const res = await VmRequestsService.list();
-      setRequests(res.data ?? []);
+      setRequests(
+        (res.data ?? []).filter(
+          (r) => r.review_comment !== "Resource deleted by user"
+        )
+      );
     } catch {
       setError(true);
     } finally {
