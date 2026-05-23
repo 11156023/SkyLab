@@ -207,8 +207,12 @@ export default function FirewallPage() {
       <div className={styles.content}>
         {loading && !topology && (
           <div className={styles.centerState}>
-            <MIcon name="sync" size={36} />
-            <span>載入拓撲中…</span>
+            <div className={styles.topoLoader}>
+              {Array.from({ length: 9 }, (_, i) => (
+                <div key={i} className={styles.topoNode} style={{ "--i": i }} />
+              ))}
+            </div>
+            <span className={styles.loadingTitle}>載入拓撲中…</span>
           </div>
         )}
 

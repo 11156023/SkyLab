@@ -10,7 +10,7 @@ const navGroups = [
     label: "個人",
     icon: "person",
     items: [
-      { key: "dashboard",    label: "總覽",     icon: "dashboard" },
+      { key: "dashboard",    label: "首頁",  icon: "dashboard" },
       { key: "my-resources", label: "我的資源", icon: "inventory_2" },
       { key: "my-requests",  label: "我的申請", icon: "assignment" },
     ],

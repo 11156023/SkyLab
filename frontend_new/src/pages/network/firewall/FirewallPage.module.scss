@@ -84,6 +84,55 @@
   font-size: $font-size-14;
 }
 
+/* ── Topology loader ── */
+.topoLoader {
+  position: relative;
+  width: 120px;
+  height: 120px;
+  display: grid;
+  grid-template-columns: repeat(3, 40px);
+  grid-template-rows: repeat(3, 40px);
+
+  &::before {
+    content: "";
+    position: absolute;
+    top: 20px; left: 20px; right: 20px; bottom: 20px;
+    background-image:
+      linear-gradient(color-mix(in srgb, var(--color-primary) 22%, transparent) 1px, transparent 1px),
+      linear-gradient(90deg, color-mix(in srgb, var(--color-primary) 22%, transparent) 1px, transparent 1px);
+    background-size: 50% 50%;
+  }
+}
+
+.topoNode {
+  position: relative;
+  z-index: 1;
+  @include flex-center;
+
+  &::before {
+    content: "";
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: var(--color-primary);
+    box-shadow: 0 0 8px color-mix(in srgb, var(--color-primary) 55%, transparent);
+    animation: nodePulse 1.8s ease-in-out infinite;
+    animation-delay: calc(var(--i) * 0.15s);
+  }
+}
+
+.loadingTitle {
+  font-size: $font-size-14;
+  font-weight: $font-weight-500;
+  color: var(--color-text-secondary);
+  letter-spacing: 0.02em;
+}
+
+@keyframes nodePulse {
+  0%, 100% { transform: scale(1);   opacity: 0.35; }
+  50%       { transform: scale(1.5); opacity: 1;    }
+}
+
 /* ── ReactFlow wrap ── */
 .flowWrap {
   flex: 1;

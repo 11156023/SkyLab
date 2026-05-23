@@ -206,6 +206,22 @@ $breakpoint-lg: 992px   $breakpoint-xl: 1200px
 
 ---
 
+## Icon 使用規範
+
+**所有 Icon 一律使用 `material-icons`（filled 風格），透過 `MIcon` 元件呼叫。**
+
+```jsx
+import MIcon from "../components/MIcon";
+
+<MIcon name="search" size={16} />
+```
+
+- Icon 名稱請至 [Material Symbols](https://fonts.google.com/icons) 查詢，使用 **filled** 風格的名稱
+- 禁止直接使用 `<span className="material-icons">` 或其他 Icon 庫
+- 禁止使用 SVG inline、emoji、或其他圖示系統混搭
+
+---
+
 ## 命名規範
 
 ### CSS Modules 類別名稱
