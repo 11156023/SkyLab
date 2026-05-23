@@ -19,6 +19,7 @@ import {
 import { useCallback, useEffect, useMemo, useState } from "react"
 import { useForm, useWatch } from "react-hook-form"
 import { useTranslation } from "react-i18next"
+import { toast } from "sonner"
 import { z } from "zod"
 
 import { LxcService, VmService } from "@/client"
@@ -62,6 +63,7 @@ import {
 import type { FormPrefill } from "@/services/aiTemplateRecommendation"
 import { FirewallService } from "@/services/firewall"
 import { ReverseProxyApiService } from "@/services/reverseProxy"
+import { ScriptDeployApi } from "@/services/scriptDeploy"
 import { handleError } from "@/utils"
 
 function normalizeHostname(value: string) {
@@ -133,6 +135,8 @@ export function ResourceCreatePage({
   const [serviceTemplateName, setServiceTemplateName] = useState("")
   const [serviceTemplateSlug, setServiceTemplateSlug] = useState("")
   const [lastAutoHostname, setLastAutoHostname] = useState("")
+  const [selectedFastTemplate, setSelectedFastTemplate] =
+    useState<FastTemplate | null>(null)
   const [showAdvancedSettings, setShowAdvancedSettings] = useState(false)
   const [accessMode, setAccessMode] = useState<QuickStartAccessMode>("private")
   const [enableHttps, setEnableHttps] = useState("on")
@@ -402,6 +406,7 @@ export function ResourceCreatePage({
 
   const handleSelectTemplate = useCallback(
     (template: FastTemplate) => {
+      setSelectedFastTemplate(template)
       setServiceTemplateName(template.name || "")
       setServiceTemplateSlug(template.slug || "")
       setResourceType("lxc")
@@ -518,7 +523,57 @@ export function ResourceCreatePage({
     }
   }, [accessMode, canAutoCreateWebsite])
 
+  const scriptDeployMutation = useMutation({
+    mutationFn: (data: FormData) => {
+      const effectiveTemplate =
+        selectedFastTemplate ?? activeQuickStartTemplate ?? null
+      if (!effectiveTemplate) throw new Error("No template selected")
+      const method = effectiveTemplate.install_methods?.[0]
+      const disk = Math.max(data.rootfs_size ?? 8, method?.resources?.hdd ?? 8)
+      const scriptPath = method?.script || `ct/${effectiveTemplate.slug}.sh`
+      return ScriptDeployApi.deploy({
+        requestBody: {
+          template_slug: effectiveTemplate.slug,
+          script_path: scriptPath,
+          hostname: data.hostname,
+          password: data.password,
+          cpu: data.cores,
+          ram: data.memory,
+          disk,
+          unprivileged: true,
+          ssh: true,
+          environment_type: "教學環境",
+          os_info: effectiveTemplate.name || null,
+        },
+      })
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.resources.all })
+      toast.success("部署已在背景執行", {
+        description: "容器正在建立中，可至「工作記錄」頁面查看即時進度與日誌。",
+        action: {
+          label: "查看進度",
+          onClick: () => navigate({ to: "/jobs" }),
+        },
+        duration: 8000,
+      })
+      navigate({ to: "/resources" })
+    },
+    onError: (err) => {
+      showErrorToast(err instanceof Error ? err.message : "部署啟動失敗")
+    },
+  })
+
   const onSubmit = (data: FormData) => {
+    const effectiveTemplate = serviceTemplateSlug
+      ? (selectedFastTemplate ?? activeQuickStartTemplate ?? null)
+      : null
+
+    if (effectiveTemplate && data.resource_type === "lxc") {
+      scriptDeployMutation.mutate(data)
+      return
+    }
+
     mutation.mutate(data)
   }
 
@@ -1028,6 +1083,7 @@ export function ResourceCreatePage({
                                 size="icon"
                                 className="h-6 w-6 shrink-0"
                                 onClick={() => {
+                                  setSelectedFastTemplate(null)
                                   setServiceTemplateName("")
                                   setServiceTemplateSlug("")
                                 }}
@@ -1527,13 +1583,17 @@ export function ResourceCreatePage({
                       variant="ghost"
                       className="text-muted-foreground"
                       onClick={() => navigate({ to: "/resources" })}
-                      disabled={mutation.isPending}
+                      disabled={
+                        mutation.isPending || scriptDeployMutation.isPending
+                      }
                     >
                       {t("common:buttons.cancel")}
                     </Button>
                     <LoadingButton
                       type="submit"
-                      loading={mutation.isPending}
+                      loading={
+                        mutation.isPending || scriptDeployMutation.isPending
+                      }
                       disabled={!isQuickStartTemplateReady}
                       className={isQuickStartMode ? "min-w-[120px]" : ""}
                     >

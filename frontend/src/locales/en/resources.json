@@ -49,6 +49,8 @@
     "noExpiry": "No Expiry",
     "running": "Running",
     "stopped": "Stopped",
+    "paused": "Paused",
+    "deleted": "Deleted",
     "lxc": "LXC Container",
     "kvm": "KVM Virtual Machine"
   },

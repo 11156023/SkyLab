@@ -122,6 +122,7 @@ export function useDeletingResourcesLiveSync() {
       lastSig = sig
       queryClient.invalidateQueries({ queryKey: ["deleting-resources"] })
       queryClient.invalidateQueries({ queryKey: queryKeys.resources.all })
+      queryClient.invalidateQueries({ queryKey: queryKeys.resources.my })
     })
     return dispose
   }, [queryClient])

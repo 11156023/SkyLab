@@ -58,12 +58,12 @@
     "actions": "操作"
   },
   "status": {
-    "pending": "待審核",
+    "pending": "審核中",
     "approved": "已核准",
     "provisioning": "部署中",
     "running": "執行中",
     "rejected": "已拒絕",
-    "cancelled": "已撤銷",
+    "cancelled": "已取消",
     "vmid": "VMID: {{id}}"
   },
   "actions": {

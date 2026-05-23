@@ -82,10 +82,7 @@ if (!rootElement) {
 
 ReactDOM.createRoot(rootElement).render(
   <StrictMode>
-    <LanguageProvider
-      defaultLanguage="zh-TW"
-      storageKey="SkyLab-language"
-    >
+    <LanguageProvider defaultLanguage="zh-TW" storageKey="SkyLab-language">
       <ThemeProvider defaultTheme="light" storageKey="vite-ui-theme">
         <QueryClientProvider client={queryClient}>
           <RouterProvider router={router} />

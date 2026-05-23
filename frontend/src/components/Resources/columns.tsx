@@ -39,6 +39,17 @@ function StatusBadge({
   t: TFunction<string, string>
 }) {
   const isRunning = status === "running"
+  const isPaused = status === "paused"
+
+  let label: string
+  if (isRunning) {
+    label = t("table.running")
+  } else if (isPaused) {
+    label = t("table.paused")
+  } else {
+    label = t("table.stopped")
+  }
+
   return (
     <span
       className={cn(
@@ -54,7 +65,7 @@ function StatusBadge({
           isRunning ? "bg-green-500" : "bg-gray-400",
         )}
       />
-      {isRunning ? t("table.running") : t("table.stopped")}
+      {label}
     </span>
   )
 }
@@ -146,6 +157,7 @@ const DELETING_LABEL: Record<DeletingMeta["status"], string> = {
 }
 
 function DeletingStatusBadge({ meta }: { meta: DeletingMeta }) {
+  const isCompleted = meta.status === "completed"
   return (
     <span
       className={cn(
@@ -153,7 +165,7 @@ function DeletingStatusBadge({ meta }: { meta: DeletingMeta }) {
         "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300",
       )}
     >
-      <Loader2 className="h-3 w-3 animate-spin" />
+      {!isCompleted && <Loader2 className="h-3 w-3 animate-spin" />}
       {DELETING_LABEL[meta.status] ?? "刪除中"}
     </span>
   )

@@ -14,6 +14,12 @@ import { TerminalConsoleDialog } from "@/components/Terminal"
 import { Button } from "@/components/ui/button"
 import { VNCConsoleDialog } from "@/components/VNC"
 import { queryKeys } from "@/lib/queryKeys"
+import {
+  deletionToMeta,
+  useDeletingResources,
+  useDeletingResourcesLiveSync,
+} from "@/services/deletingResources"
+import type { ResourceRow } from "@/services/pendingResources"
 
 function getMyResourcesQueryOptions() {
   return {
@@ -45,10 +51,19 @@ function MyResourcesTableContent({
   const { t } = useTranslation(["resources"])
   const navigate = useNavigate()
   const { data: resources } = useSuspenseQuery(getMyResourcesQueryOptions())
+  const { data: deletingMap } = useDeletingResources({ isAdmin: false })
+
+  const merged = useMemo<ResourceRow[]>(() => {
+    return (resources as ResourceRow[]).map((r) => {
+      const del = deletingMap?.get(r.vmid)
+      return del ? { ...r, _deleting: deletionToMeta(del) } : r
+    })
+  }, [resources, deletingMap])
 
   const handleRowClick = useCallback(
-    (vmid: number) => {
-      navigate({ to: "/my-resources/$vmid", params: { vmid: vmid.toString() } })
+    (row: ResourceRow) => {
+      if (row._deleting) return
+      navigate({ to: "/my-resources/$vmid", params: { vmid: row.vmid.toString() } })
     },
     [navigate],
   )
@@ -58,7 +73,7 @@ function MyResourcesTableContent({
     [t, onOpenConsole],
   )
 
-  if (resources.length === 0) {
+  if (merged.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center text-center py-12">
         <div className="rounded-full bg-muted p-4 mb-4">
@@ -77,12 +92,14 @@ function MyResourcesTableContent({
   return (
     <DataTable
       columns={columns}
-      data={resources}
-      onRowClick={(row) => handleRowClick(row.vmid)}
+      data={merged}
+      onRowClick={(row) => handleRowClick(row)}
       enableRowSelection
       rowSelection={rowSelection}
       onRowSelectionChange={onRowSelectionChange}
-      getRowId={(row) => String(row.vmid)}
+      getRowId={(row) =>
+        row._deleting ? `deleting:${row._deleting.request_id}` : String(row.vmid)
+      }
     />
   )
 }
@@ -190,6 +207,7 @@ function DownloadDesktopClientButton() {
 
 function MyResources() {
   const { t } = useTranslation(["resources"])
+  useDeletingResourcesLiveSync()
   const [vncConsoleOpen, setVncConsoleOpen] = useState(false)
   const [terminalConsoleOpen, setTerminalConsoleOpen] = useState(false)
   const [selectedVM, setSelectedVM] = useState<{

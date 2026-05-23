@@ -56,6 +56,13 @@ export function BatchActionBar({
           }),
         )
       }
+      if (action === "delete") {
+        queryClient.setQueryData(
+          queryKeys.resources.my,
+          (old: Array<{ vmid: number }> | undefined) =>
+            old?.filter((r) => !selectedVmids.includes(r.vmid)) ?? [],
+        )
+      }
       queryClient.invalidateQueries({ queryKey: queryKeys.resources.all })
       queryClient.invalidateQueries({ queryKey: queryKeys.resources.my })
       onClearSelection()

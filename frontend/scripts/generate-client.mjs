@@ -117,9 +117,7 @@ function main() {
     for (const rel of preserved) console.log(`  - ${rel}`)
   }
 
-  const snapshotDir = fs.mkdtempSync(
-    path.join(os.tmpdir(), "SkyLab-client-"),
-  )
+  const snapshotDir = fs.mkdtempSync(path.join(os.tmpdir(), "SkyLab-client-"))
 
   let exitCode = 0
   try {

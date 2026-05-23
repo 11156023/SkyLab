@@ -53,7 +53,7 @@ type ScriptDeployPageProps = {
   template: FastTemplate
   formData: ScriptDeployFormData
   onBack: () => void
-  onComplete: () => void
+  onComplete: (vmid?: number) => void
 }
 
 export function ScriptDeployPage({
@@ -286,7 +286,7 @@ export function ScriptDeployPage({
             {t("deploy.close", { defaultValue: "關閉" })}
           </Button>
           {status?.status === "completed" && (
-            <Button onClick={onComplete}>
+            <Button onClick={() => onComplete(status?.vmid ?? undefined)}>
               {t("deploy.goToResources", {
                 defaultValue: "前往資源列表",
               })}

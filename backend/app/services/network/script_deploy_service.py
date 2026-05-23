@@ -238,18 +238,34 @@ def _ssh_exec(client, command: str, timeout: int = 600, retries: int = 2) -> tup
     raise last_exc if last_exc else RuntimeError("SSH exec failed")
 
 
+_ANSI_ESCAPE_RE = __import__("re").compile(
+    r"\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])"
+)
+
+
+def _clean_pty_output(text: str) -> str:
+    """移除 PTY 輸出的 ANSI 控制碼與 carriage-return，讓 log 存成可讀純文字。"""
+    text = _ANSI_ESCAPE_RE.sub("", text)
+    # \r\n → \n；孤立 \r → \n（避免覆寫行看起來像重複行）
+    text = text.replace("\r\n", "\n").replace("\r", "\n")
+    return text
+
+
 def _ssh_exec_streaming(
     client,
     command: str,
     task: DeploymentTask,
     timeout: int = 900,
     cancel_event: threading.Event | None = None,
+    use_pty: bool = False,
+    auto_responses: list[tuple[str, str]] | None = None,
 ) -> tuple[int, str, str]:
     stdout_chunks: list[str] = []
 
     def _on_stdout(chunk: str) -> None:
         stdout_chunks.append(chunk)
-        task.output = "".join(stdout_chunks)
+        raw = "".join(stdout_chunks)
+        task.output = _clean_pty_output(raw) if use_pty else raw
         _store_task(task)
 
     return exec_command_streaming(
@@ -258,6 +274,8 @@ def _ssh_exec_streaming(
         timeout=timeout,
         on_stdout=_on_stdout,
         cancel_event=cancel_event,
+        use_pty=use_pty,
+        auto_responses=auto_responses,
     )
 
 
@@ -662,6 +680,8 @@ def _build_inline_env(
     safe_password = password.replace("'", "'\\''")
     parts = [
         "TERM=xterm",
+        "DEBIAN_FRONTEND=noninteractive",
+        "NEEDRESTART_SUSPEND=1",
         "mode=generated",
         f"var_hostname='{hostname}'",
         f"var_password='{safe_password}'",
@@ -678,16 +698,19 @@ def _build_inline_env(
 
     if net_config and net_config.get("ip_cidr"):
         parts.append(f"var_net='{net_config['ip_cidr']}'")
-        if net_config.get("gateway"):
-            parts.append(f"var_gateway='{net_config['gateway']}'")
+        gateway = net_config.get("gateway") or ""
+        if gateway:
+            parts.append(f"var_gateway='{gateway}'")
         if net_config.get("bridge"):
             parts.append(f"var_brg='{net_config['bridge']}'")
-        if net_config.get("nameserver"):
-            parts.append(f"var_ns='{net_config['nameserver']}'")
     else:
         parts.append("var_net='dhcp'")
         if net_config and net_config.get("bridge"):
             parts.append(f"var_brg='{net_config['bridge']}'")
+
+    nameserver = (net_config.get("nameserver") if net_config else None) or ""
+    if nameserver:
+        parts.append(f"var_ns='{nameserver}'")
 
     return " ".join(parts)
 
@@ -696,6 +719,7 @@ def _run_deployment(task: DeploymentTask, request_data: dict) -> None:  # noqa: 
     """在背景執行緒中執行腳本部署。"""
     client = None
     temp_script = f"/tmp/SkyLab-deploy-{task.task_id}.sh"
+    build_func_file = f"/tmp/skylab-build-{task.task_id[:8]}.func"
     vmids_before = _get_all_vmids()
     new_vmid: int | None = None
 
@@ -757,15 +781,42 @@ def _run_deployment(task: DeploymentTask, request_data: dict) -> None:  # noqa: 
         except Exception as e:
             logger.debug("Sanitised env logging failed (non-fatal): %s", e)
 
-        # 3. 以官方模式執行：VAR=value bash -c "$(cat script)"
+        # 2.6 下載 build.func 並修補升級提示函式，避免無人值守時卡住。
+        #
+        # offer_lxc_stack_upgrade_and_maybe_retry() 在 build_container() 內重新定義
+        # （build.func:5513），使用 `read -rp "..." </dev/tty` 讀取輸入，
+        # 在無人值守環境下永久卡住。
+        # 解法：在函式定義後緊接插入 `return 0`，使函式本身成為 no-op，
+        # 再修補 ct 腳本使其 source 本地修補版本，跳過網路下載原始 build.func。
+        task.progress = "正在下載並修補 build.func…"
+        _store_task(task)
+        build_func_url = f"{GITHUB_RAW_BASE}/misc/build.func"
+        download_build_func_cmd = (
+            f"curl -fsSL '{build_func_url}'"
+            r" | sed '/offer_lxc_stack_upgrade_and_maybe_retry() {/a\    return 0'"
+            f" > '{build_func_file}'"
+        )
+        exit_code, _, stderr = _ssh_exec(client, download_build_func_cmd, timeout=60)
+        if exit_code != 0:
+            raise RuntimeError(f"下載/修補 build.func 失敗: {stderr}")
+
+        # 修補 ct 腳本：將 source <(curl .../build.func) 替換為 source 本地修補版本
+        patch_script_cmd = (
+            f"sed -i 's|source <(curl .*build\\.func.*)|source {build_func_file}|g'"
+            f" '{temp_script}'"
+        )
+        exit_code, _, stderr = _ssh_exec(client, patch_script_cmd, timeout=10)
+        if exit_code != 0:
+            logger.warning("修補腳本 source 行失敗 (非致命): %s", stderr)
+
+        # 3. 執行腳本
         task.progress = "正在執行無人值守部署（可能需要幾分鐘）…"
         _store_task(task)
 
-        deploy_cmd = f'{inline_env} bash -c "$(cat {temp_script})"'
-        # 注意：不記錄完整的 deploy_cmd，以免敏感資訊（例如密碼）洩漏到日誌
+        deploy_cmd = f'bash -c "{inline_env} bash {temp_script}"'
         logger.info("開始執行無人值守部署腳本: %s", request_data["script_path"])
         exit_code, stdout, stderr = _ssh_exec_streaming(
-            client, deploy_cmd, task, timeout=900, cancel_event=cancel_event,
+            client, deploy_cmd, task, timeout=900, cancel_event=cancel_event, use_pty=True,
         )
 
         task.output = stdout
@@ -776,6 +827,7 @@ def _run_deployment(task: DeploymentTask, request_data: dict) -> None:  # noqa: 
         task.progress = "正在清除暫存檔案…"
         _store_task(task)
         _cleanup_script_on_node(client, temp_script)
+        _cleanup_script_on_node(client, build_func_file)
 
         # 5. 檢查執行結果
         if exit_code != 0:
@@ -862,6 +914,7 @@ def _run_deployment(task: DeploymentTask, request_data: dict) -> None:  # noqa: 
         # 回滾：清除暫存檔案
         if client:
             _cleanup_script_on_node(client, temp_script)
+            _cleanup_script_on_node(client, build_func_file)
 
         # 回滾：銷毀已建立的容器
         rollback_vmid = new_vmid or _find_new_vmid(vmids_before)

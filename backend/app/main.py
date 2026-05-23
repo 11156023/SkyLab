@@ -1,5 +1,11 @@
 import asyncio
+import sys
 from contextlib import asynccontextmanager
+
+# Windows ProactorEventLoop 會在 WebSocket 空閒時觸發 WinError 121（IOCP 信號逾時）。
+# 改用 SelectorEventLoop 可避免此問題，且對 FastAPI/uvicorn 功能無影響。
+if sys.platform == "win32":
+    asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
 import sentry_sdk
 from fastapi import FastAPI, Request, WebSocket

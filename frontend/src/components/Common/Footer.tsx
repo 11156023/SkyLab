@@ -28,9 +28,7 @@ export function Footer({
       {...props}
     >
       <div className="flex flex-col items-center justify-between gap-4 sm:flex-row">
-        <p className="text-muted-foreground text-sm">
-          SkyLab - {currentYear}
-        </p>
+        <p className="text-muted-foreground text-sm">SkyLab - {currentYear}</p>
         <div className="flex items-center gap-4">
           {socialLinks.map(({ icon: Icon, href, label }) => (
             <a

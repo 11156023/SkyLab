@@ -49,6 +49,8 @@
     "noExpiry": "無期限",
     "running": "運行中",
     "stopped": "已停止",
+    "paused": "已暫停",
+    "deleted": "已刪除",
     "lxc": "LXC 容器",
     "kvm": "KVM 虛擬機"
   },
