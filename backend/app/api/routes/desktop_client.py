@@ -8,6 +8,7 @@ The desktop client authenticates via a "device auth" flow:
 """
 
 import logging
+import mimetypes
 import secrets
 import time
 from pathlib import Path
@@ -24,6 +25,17 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/desktop-client", tags=["desktop-client"])
 
 _STATIC_DIR = Path(__file__).resolve().parent.parent.parent / "static" / "downloads"
+_REPO_ROOT = Path(__file__).resolve().parents[4]
+_DESKTOP_RELEASE_DIR = _REPO_ROOT / "desktop-client" / "release"
+_DOWNLOAD_PATTERNS = (
+    "campus-cloud-connect.zip",
+    "Campus Cloud Connect Setup *.exe",
+    "Campus Cloud Connect *.exe",
+    "*.msi",
+    "*.dmg",
+    "*.AppImage",
+    "*.zip",
+)
 
 # ─── Device auth in-memory store ─────────────────────────────────────────────
 
@@ -121,22 +133,70 @@ def poll_device_code(code: str) -> DevicePollResponse:
 # ─── Download endpoint ───────────────────────────────────────────────────────
 
 
+def _newest_matching_file(directory: Path, pattern: str) -> Path | None:
+    if not directory.exists():
+        return None
+
+    matches = [
+        path
+        for path in directory.glob(pattern)
+        if path.is_file() and not path.name.endswith(".blockmap")
+    ]
+    if not matches:
+        return None
+    return max(matches, key=lambda path: path.stat().st_mtime)
+
+
+def _find_local_download_asset() -> Path | None:
+    for pattern in _DOWNLOAD_PATTERNS:
+        asset = _newest_matching_file(_STATIC_DIR, pattern)
+        if asset:
+            return asset
+
+    if not _DESKTOP_RELEASE_DIR.exists():
+        return None
+
+    release_dirs = [path for path in _DESKTOP_RELEASE_DIR.iterdir() if path.is_dir()]
+    release_dirs.sort(key=lambda path: path.stat().st_mtime, reverse=True)
+    for release_dir in release_dirs:
+        for pattern in _DOWNLOAD_PATTERNS:
+            asset = _newest_matching_file(release_dir, pattern)
+            if asset:
+                return asset
+
+    return None
+
+
 @router.get("/download")
 def download_desktop_client(session: SessionDep, current_user: CurrentUser):
-    """Return the desktop client zip (Electron portable build).
+    """Return the desktop client installer or archive.
 
     If DESKTOP_CLIENT_DOWNLOAD_URL is set, redirects to that URL (e.g. a
-    GitHub Releases asset). Otherwise serves a local file from static/downloads/.
+    GitHub Releases asset). Otherwise serves a local file from static/downloads/
+    or the latest desktop-client/release build.
     """
     if settings.DESKTOP_CLIENT_DOWNLOAD_URL:
         return RedirectResponse(settings.DESKTOP_CLIENT_DOWNLOAD_URL, status_code=302)
 
-    zip_path = _STATIC_DIR / "campus-cloud-connect.zip"
-    if not zip_path.exists():
-        raise HTTPException(status_code=404, detail="Desktop client zip not found")
+    download_path = _find_local_download_asset()
+    if not download_path:
+        logger.warning(
+            "Desktop client download asset not found in %s or %s",
+            _STATIC_DIR,
+            _DESKTOP_RELEASE_DIR,
+        )
+        raise HTTPException(
+            status_code=404,
+            detail=(
+                "Desktop client installer not found. Build desktop-client or set "
+                "DESKTOP_CLIENT_DOWNLOAD_URL."
+            ),
+        )
+
+    media_type = mimetypes.guess_type(download_path.name)[0] or "application/octet-stream"
 
     return FileResponse(
-        zip_path,
-        media_type="application/zip",
-        filename="campus-cloud-connect.zip",
+        download_path,
+        media_type=media_type,
+        filename=download_path.name,
     )

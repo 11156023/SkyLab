@@ -141,6 +141,7 @@ if settings.all_cors_origins:
         allow_credentials=True,
         allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
         allow_headers=["Content-Type", "Authorization"],
+        expose_headers=["Content-Disposition"],
     )
 
 app.include_router(api_router, prefix=settings.API_V1_STR)

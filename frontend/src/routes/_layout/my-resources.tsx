@@ -127,6 +127,15 @@ function DownloadDesktopClientButton() {
   const [isDownloading, setIsDownloading] = useState(false)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
 
+  const getDownloadFilename = (resp: Response) => {
+    const disposition = resp.headers.get("content-disposition")
+    const utf8Filename = disposition?.match(/filename\*=UTF-8''([^;]+)/i)?.[1]
+    if (utf8Filename) return decodeURIComponent(utf8Filename)
+
+    const plainFilename = disposition?.match(/filename="?([^";]+)"?/i)?.[1]
+    return plainFilename || "campus-cloud-connect.exe"
+  }
+
   const handleDownload = async () => {
     setIsDownloading(true)
     setErrorMessage(null)
@@ -159,7 +168,7 @@ function DownloadDesktopClientButton() {
       const url = URL.createObjectURL(blob)
       const a = document.createElement("a")
       a.href = url
-      a.download = "campus-cloud-connect.zip"
+      a.download = getDownloadFilename(resp)
       a.click()
       URL.revokeObjectURL(url)
     } catch (error) {
