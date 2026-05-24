@@ -171,8 +171,8 @@
     color: var(--color-text);
   }
 
-  &.actionBtnDanger:hover {
-    background: color-mix(in srgb, #dc3545 10%, transparent);
-    color: #dc3545;
+  &.actionBtnDanger {
+    color: var(--color-danger);
+    &:hover { background: color-mix(in srgb, var(--color-danger) 10%, transparent); }
   }
 }

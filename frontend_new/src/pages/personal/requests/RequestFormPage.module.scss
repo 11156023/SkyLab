@@ -805,14 +805,13 @@
   width: 24px;
   height: 24px;
   border-radius: $radius-8;
-  color: var(--color-text-secondary);
+  color: var(--color-danger);
   flex-shrink: 0;
   cursor: pointer;
   transition: background $transition-base, color $transition-base;
 
   &:hover {
-    background: color-mix(in srgb, #dc3545 12%, transparent);
-    color: #dc3545;
+    background: color-mix(in srgb, var(--color-danger) 12%, transparent);
   }
 }
 

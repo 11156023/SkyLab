@@ -139,10 +139,10 @@ export default function TerminalDialog({ resource, onClose }) {
           </span>
           {status === "connected" && (
             <>
-              <button type="button" className={styles.headerBtn} title="清除" onClick={() => termRef.current?.clear()}>
+              <button type="button" className={`${styles.headerBtn} ${styles.headerBtnDanger}`} title="清除" onClick={() => termRef.current?.clear()}>
                 <MIcon name="delete_sweep" size={16} />
               </button>
-              <button type="button" className={styles.headerBtn} title="重置" onClick={() => termRef.current?.reset()}>
+              <button type="button" className={`${styles.headerBtn} ${styles.headerBtnDanger}`} title="重置" onClick={() => termRef.current?.reset()}>
                 <MIcon name="restart_alt" size={16} />
               </button>
             </>

@@ -192,20 +192,17 @@
 
 /* ── Status badge ── */
 .badge {
-  display: inline-flex;
-  align-items: center;
-  padding: 2px 8px;
-  border-radius: $radius-pill;
-  font-size: $font-size-12;
-  font-weight: $font-weight-500;
+  @include badge-base;
+  padding: 4px 10px;
+  margin-left: 8px;
   flex-shrink: 0;
 }
 
-.badge_success { background: color-mix(in srgb, #28a745 12%, transparent); color: #28a745; }
+.badge_success { background: color-mix(in srgb, var(--color-success) 12%, transparent); color: var(--color-success); }
 .badge_warning { background: var(--color-hover); color: var(--color-text-muted); }
-.badge_danger  { background: color-mix(in srgb, #dc3545 12%, transparent); color: #dc3545; }
-.badge_info    { background: color-mix(in srgb, #0891b2 12%, transparent); color: #0891b2; }
-.badge_muted   { background: var(--color-hover); color: var(--color-text-muted); }
+.badge_danger  { background: color-mix(in srgb, var(--color-danger)  12%, transparent); color: var(--color-danger); }
+.badge_info    { background: color-mix(in srgb, var(--color-info)    12%, transparent); color: var(--color-info); }
+.badge_muted   { background: color-mix(in srgb, var(--color-status-neutral) 12%, transparent); color: var(--color-status-neutral); }
 
 /* ── Type / VMID chips ── */
 .cardChips {
@@ -284,6 +281,12 @@
   @include flex-between;
   align-items: center;
   gap: $spacing-8;
+}
+
+/* ── Deleted note ── */
+.deletedNote {
+  font-size: $font-size-12;
+  color: var(--color-text-muted);
 }
 
 /* ── Terminal / Console button ── */

@@ -286,21 +286,18 @@
 
 /* ── Status badge ── */
 .badge {
-  display: inline-flex;
-  align-items: center;
+  @include badge-base;
   gap: 4px;
-  padding: 3px 10px;
-  border-radius: $radius-pill;
-  font-size: $font-size-12;
-  font-weight: $font-weight-500;
+  padding: 4px 10px;
+  margin-left: 8px;
   flex-shrink: 0;
 }
 
-.badge_success { background: color-mix(in srgb, #28a745 12%, transparent); color: #28a745; }
-.badge_warning { background: color-mix(in srgb, #0891b2 12%, transparent); color: #0891b2; }
-.badge_danger  { background: color-mix(in srgb, #dc3545 12%, transparent); color: #dc3545; }
-.badge_info    { background: color-mix(in srgb, #0891b2 12%, transparent); color: #0891b2; }
-.badge_muted   { background: var(--color-hover); color: var(--color-text-muted); }
+.badge_success { background: color-mix(in srgb, var(--color-success) 12%, transparent); color: var(--color-success); }
+.badge_warning { background: color-mix(in srgb, var(--color-info)    12%, transparent); color: var(--color-info); }
+.badge_danger  { background: color-mix(in srgb, var(--color-danger)  12%, transparent); color: var(--color-danger); }
+.badge_info    { background: color-mix(in srgb, var(--color-info)    12%, transparent); color: var(--color-info); }
+.badge_muted   { background: color-mix(in srgb, var(--color-status-neutral) 12%, transparent); color: var(--color-status-neutral); }
 
 /* ── Card period ── */
 .cardPeriod {

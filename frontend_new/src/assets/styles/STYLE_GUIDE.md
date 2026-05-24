@@ -105,7 +105,7 @@ src/pages/personal/resources/
 | 變數 | 色碼 | 語意 | 使用情境 |
 |------|------|------|----------|
 | `--color-success` | `#28a745` | 🟢 正常 | 運行中、已連接、成功 |
-| `--color-info` | `#0891b2` | 🔵 一般 | 進行中、審核中、說明 |
+| `--color-info` | `#2b4d98` | 🔵 一般 | 進行中、審核中、說明 |
 | `--color-danger` | `#dc3545` | 🔴 危險 | 錯誤、失敗、危險操作 |
 | `--color-warning` | `#dc3545` | 🔴 同 danger | （等同 danger，已統一為紅色） |
 | —（灰色） | `--color-hover` / `--color-text-muted` | ⚫ 未啟用 | 已停止、已暫停、disabled |
@@ -116,7 +116,7 @@ src/pages/personal/resources/
 
 ```scss
 .badge_success { background: color-mix(in srgb, #28a745 12%, transparent); color: #28a745; }
-.badge_info    { background: color-mix(in srgb, #0891b2 12%, transparent); color: #0891b2; }
+.badge_info    { background: color-mix(in srgb, #2b4d98 12%, transparent); color: #2b4d98; }
 .badge_danger  { background: color-mix(in srgb, #dc3545 12%, transparent); color: #dc3545; }
 .badge_muted   { background: var(--color-hover); color: var(--color-text-muted); }
 ```

@@ -193,12 +193,12 @@
   width: 28px;
   height: 28px;
   border-radius: $radius-8;
-  color: var(--color-text-muted);
+  color: var(--color-danger);
   cursor: pointer;
   transition: background $transition-base, color $transition-base;
   flex-shrink: 0;
 
-  &:hover { background: color-mix(in srgb, #e53e3e 15%, transparent); color: #e53e3e; }
+  &:hover { background: color-mix(in srgb, var(--color-danger) 15%, transparent); }
 }
 
 .addBtn {

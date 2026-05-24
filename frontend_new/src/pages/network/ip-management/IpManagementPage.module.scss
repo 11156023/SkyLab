@@ -113,8 +113,8 @@
 }
 
 .statIconOk {
-  background: color-mix(in srgb, #28a745 12%, transparent);
-  color: #28a745;
+  background: color-mix(in srgb, var(--color-success) 12%, transparent);
+  color: var(--color-success);
 }
 
 .statIconBusy {
@@ -294,17 +294,13 @@
 }
 
 .badge {
-  display: inline-flex;
-  align-items: center;
+  @include badge-base;
   padding: 2px 10px;
-  border-radius: $radius-pill;
-  font-size: $font-size-12;
-  font-weight: $font-weight-500;
 }
 
-.badge_vm             { background: color-mix(in srgb, #3b82f6 12%, transparent); color: #2563eb; }
+.badge_vm             { background: color-mix(in srgb, var(--color-info)    12%, transparent); color: var(--color-info); }
 .badge_lxc            { background: color-mix(in srgb, #8b5cf6 12%, transparent); color: #7c3aed; }
-.badge_gateway_vm     { background: color-mix(in srgb, #28a745 12%, transparent); color: #28a745; }
+.badge_gateway_vm     { background: color-mix(in srgb, var(--color-success) 12%, transparent); color: var(--color-success); }
 .badge_subnet_gateway { background: color-mix(in srgb, #f59e0b 14%, transparent); color: #d97706; }
 .badge_reserved       { background: var(--color-hover); color: var(--color-text-muted); }
 .badge_unknown        { background: var(--color-hover); color: var(--color-text-muted); }
@@ -327,8 +323,8 @@
     color: var(--color-text);
   }
 
-  &.actionBtnDanger:hover {
-    background: color-mix(in srgb, #dc3545 10%, transparent);
-    color: #dc3545;
+  &.actionBtnDanger {
+    color: var(--color-danger);
+    &:hover { background: color-mix(in srgb, var(--color-danger) 10%, transparent); }
   }
 }

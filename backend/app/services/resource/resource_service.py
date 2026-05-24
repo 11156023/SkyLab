@@ -162,8 +162,13 @@ a few days off."""
 def list_by_user(
     *, session: Session, user_id: uuid.UUID
 ) -> list[ResourcePublic]:
+    from sqlmodel import col, select
+
+    from app.models.vm_request import VMRequest
+
     try:
         result: list[ResourcePublic] = []
+        live_vmids: set[int] = set()
 
         # 1. Live resources owned by the user (from Proxmox + DB join).
         user_resources = resource_repo.get_resources_by_user(
@@ -171,20 +176,75 @@ def list_by_user(
         )
         if user_resources:
             owned_vmids = {r.vmid: r for r in user_resources}
-            resources = proxmox_service.list_all_resources()
-            for r in resources:
-                if r.get("template") == 1:
-                    continue
-                vmid = r.get("vmid")
-                if vmid not in owned_vmids:
-                    continue
-                vm_type = r.get("type")
-                vm_node = r.get("node")
-                result.append(
-                    _build_resource_public(
-                        r, owned_vmids[vmid], vm_node, vm_type, session
+            try:
+                for r in proxmox_service.list_all_resources():
+                    if r.get("template") == 1:
+                        continue
+                    vmid = r.get("vmid")
+                    if vmid not in owned_vmids:
+                        continue
+                    result.append(
+                        _build_resource_public(
+                            r, owned_vmids[vmid], r.get("node", ""), r.get("type", ""), session
+                        )
                     )
+                    live_vmids.add(vmid)
+            except Exception:
+                logger.warning("Proxmox unavailable; marking owned resources as unknown")
+                for db_r in user_resources:
+                    if db_r.vmid not in live_vmids:
+                        result.append(ResourcePublic(
+                            vmid=db_r.vmid,
+                            name=f"vm-{db_r.vmid}",
+                            status="unknown",
+                            node="",
+                            type="",
+                        ))
+                        live_vmids.add(db_r.vmid)
+
+        # 2. Scheduled / Provisioning VMRequests not yet visible in Proxmox.
+        #    Also include approved requests with a future start_at (排程尚未觸發).
+        now = _utc_now()
+        pending_requests = list(
+            session.exec(
+                select(VMRequest).where(
+                    VMRequest.user_id == user_id,
+                    col(VMRequest.status).in_([
+                        VMRequestStatus.scheduled,
+                        VMRequestStatus.provisioning,
+                        VMRequestStatus.approved,
+                    ]),
                 )
+            ).all()
+        )
+        for req in pending_requests:
+            if req.vmid and req.vmid in live_vmids:
+                continue
+            # approved with no future start_at → already provisioned or instant,
+            # skip (it will appear via Proxmox above or has no resource yet).
+            if req.status == VMRequestStatus.approved:
+                if not req.start_at:
+                    continue
+                start_at = req.start_at if req.start_at.tzinfo else req.start_at.replace(tzinfo=UTC)
+                if start_at <= now:
+                    continue
+                display_status = "scheduled"
+            else:
+                display_status = req.status.value
+
+            resource_type = "qemu" if req.resource_type == "vm" else req.resource_type
+            result.append(ResourcePublic(
+                vmid=req.vmid or 0,
+                name=req.hostname,
+                status=display_status,
+                node=req.assigned_node or "",
+                type=resource_type,
+                os_info=req.os_info,
+                expiry_date=req.expiry_date,
+            ))
+
+        # 3. Deletion tombstones (recent self-initiated deletions).
+        result.extend(_list_user_deletion_tombstones(session=session, user_id=user_id))
 
         return result
     except Exception as e:
@@ -198,7 +258,7 @@ def _list_user_deletion_tombstones(
     """Build ResourcePublic tombstones for the user's recent self-initiated
     deletions, so the resources page can render a "已刪除" badge alongside
     live resources."""
-    from sqlmodel import select
+    from sqlmodel import col, select
 
     from app.models.deletion_request import (
         DeletionRequest,
@@ -212,9 +272,9 @@ def _list_user_deletion_tombstones(
             .where(
                 DeletionRequest.user_id == user_id,
                 DeletionRequest.status == DeletionRequestStatus.completed,
-                DeletionRequest.completed_at >= cutoff,  # type: ignore[arg-type]
+                col(DeletionRequest.completed_at) >= cutoff,
             )
-            .order_by(DeletionRequest.completed_at.desc())  # type: ignore[union-attr]
+            .order_by(col(DeletionRequest.completed_at).desc())
         ).all()
     )
     return [
@@ -384,7 +444,7 @@ def delete(
             session=session, vmid=vmid,
         )
         if linked_request is not None:
-            linked_request.status = VMRequestStatus.rejected
+            linked_request.status = VMRequestStatus.cancelled
             linked_request.review_comment = "Resource deleted by user"
             session.add(linked_request)
 

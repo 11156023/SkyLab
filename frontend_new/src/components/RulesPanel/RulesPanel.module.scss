@@ -147,10 +147,10 @@
   white-space: nowrap;
 }
 
-.badge_success { background: color-mix(in srgb, #38a169 15%, transparent); color: #38a169; }
-.badge_danger  { background: color-mix(in srgb, #e53e3e 15%, transparent); color: #e53e3e; }
-.badge_blue    { background: color-mix(in srgb, #3b82f6 15%, transparent); color: #3b82f6; }
-.badge_orange  { background: color-mix(in srgb, #dc3545 15%, transparent); color: #dc3545; }
+.badge_success { background: color-mix(in srgb, var(--color-success) 15%, transparent); color: var(--color-success); }
+.badge_danger  { background: color-mix(in srgb, var(--color-danger)  15%, transparent); color: var(--color-danger); }
+.badge_blue    { background: color-mix(in srgb, var(--color-info)    15%, transparent); color: var(--color-info); }
+.badge_orange  { background: color-mix(in srgb, var(--color-danger)  15%, transparent); color: var(--color-danger); }
 .badge_neutral { background: var(--color-hover); color: var(--color-text-secondary); }
 .badge_muted   { background: var(--color-hover); color: var(--color-text-muted); }
 

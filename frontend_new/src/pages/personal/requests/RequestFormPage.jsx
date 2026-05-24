@@ -1,5 +1,6 @@
-import { useEffect, useRef, useState } from "react";
+import { useContext, useEffect, useRef, useState } from "react";
 import styles from "./RequestFormPage.module.scss";
+import { LayoutContext } from "../../../layout/DashboardLayout";
 import { useAuth } from "../../../contexts/AuthContext";
 import { useToast } from "../../../hooks/useToast";
 import { VmRequestsService } from "../../../services/vmRequests";
@@ -84,6 +85,8 @@ export default function RequestFormPage({ onBack, className }) {
   const { user }  = useAuth();
   const toast     = useToast();
   const isPrivileged = user?.is_superuser || user?.role === "admin" || user?.role === "teacher";
+  const { setCompactFooter } = useContext(LayoutContext);
+  useEffect(() => { setCompactFooter(true); return () => setCompactFooter(false); }, [setCompactFooter]);
 
   const [closing, setClosing]   = useState(false);
   const [aiOpen, setAiOpen]     = useState(false);
@@ -285,7 +288,7 @@ export default function RequestFormPage({ onBack, className }) {
       if (res.ram) set("memory", res.ram);
       if (res.hdd) set("rootfs_size", Math.max(res.hdd, 8));
     }
-    if (template.slug) set("hostname", template.slug.slice(0, 63));
+    if (template.slug && !form.hostname.trim()) set("hostname", template.slug.slice(0, 63));
   }
 
   const animCls = closing ? styles.animSlideOutRight : (className ?? "");

@@ -1,12 +1,15 @@
-﻿import { useEffect, useState } from "react";
+﻿import { createContext, useContext, useEffect, useState } from "react";
 import Sidebar from "../components/Sidebar/Sidebar";
 import styles from "./DashboardLayout.module.scss";
+
+export const LayoutContext = createContext({ setCompactFooter: () => {} });
 
 const COLLAPSE_MIN_WIDTH = 1280;
 
 export default function DashboardLayout({ children, activePage, onNavigate }) {
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [compactFooter, setCompactFooter] = useState(false);
 
   useEffect(() => {
     function handleResize() {
@@ -21,6 +24,7 @@ export default function DashboardLayout({ children, activePage, onNavigate }) {
   }, []);
 
   return (
+    <LayoutContext.Provider value={{ setCompactFooter }}>
     <div className={`${styles.layout} ${collapsed ? styles.collapsed : ""}`}>
       {mobileOpen && (
         <div
@@ -52,8 +56,9 @@ export default function DashboardLayout({ children, activePage, onNavigate }) {
           </button>
         </div>
         {children}
-        <div className={styles.footer}>SkyLab · 2026</div>
+        <div className={`${styles.footer} ${compactFooter ? styles.footerCompact : ""}`}>SkyLab · 2026</div>
       </main>
     </div>
+    </LayoutContext.Provider>
   );
 }

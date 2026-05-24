@@ -154,6 +154,6 @@
   flex-shrink: 0;
 }
 
-.badge_running  { background: color-mix(in srgb, #28a745 12%, transparent); color: #28a745; }
+.badge_running  { background: color-mix(in srgb, var(--color-success) 12%, transparent); color: var(--color-success); }
 .badge_done     { background: var(--color-hover); color: var(--color-text-muted); }
-.badge_failed   { background: color-mix(in srgb, #dc3545 12%, transparent); color: #dc3545; }
+.badge_failed   { background: color-mix(in srgb, var(--color-danger)  12%, transparent); color: var(--color-danger); }

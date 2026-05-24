@@ -15,10 +15,15 @@
   transition: transform 0.3s ease, width 0.25s ease, background-color 0.3s ease;
   overflow-x: hidden;
   overflow-y: auto;
+  scrollbar-width: none;
   border-radius: 0 $radius-16 $radius-16 0;
   border: 1px solid var(--color-sidebar-glass-border);
   border-left: none;
   box-shadow: var(--shadow-md);
+
+  &::-webkit-scrollbar {
+    display: none;
+  }
 
   &.mobileOpen {
     transform: translateX(0);
@@ -41,15 +46,6 @@
     &.collapsed {
       width: $sidebar-width-collapsed;
     }
-  }
-
-  /* ----- Scrollbar (細 + 跟著主題色) ----- */
-  &::-webkit-scrollbar {
-    width: 6px;
-  }
-  &::-webkit-scrollbar-thumb {
-    background: var(--color-border);
-    border-radius: $radius-pill;
   }
 }
 
@@ -109,6 +105,11 @@
   flex: 1;
   overflow-y: auto;
   overflow-x: hidden;
+  scrollbar-width: none;
+
+  &::-webkit-scrollbar {
+    display: none;
+  }
 }
 
 /* ===== Group ===== */

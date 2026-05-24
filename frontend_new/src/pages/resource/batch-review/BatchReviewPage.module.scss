@@ -94,7 +94,7 @@
 }
 
 .statIconWarn { background: color-mix(in srgb, #f59e0b 14%, transparent); color: #d97706; }
-.statIconBusy { background: color-mix(in srgb, #3b82f6 12%, transparent); color: #2563eb; }
+.statIconBusy { background: color-mix(in srgb, var(--color-info) 12%, transparent); color: var(--color-info); }
 
 .statInfo {
   @include flex-column;
@@ -267,13 +267,9 @@
 }
 
 .badge {
-  display: inline-flex;
-  align-items: center;
+  @include badge-base;
   gap: 6px;
   padding: 2px 10px;
-  border-radius: $radius-pill;
-  font-size: $font-size-12;
-  font-weight: $font-weight-500;
 }
 
 .dot {
@@ -285,14 +281,14 @@
 
 .badge_pending        { background: color-mix(in srgb, #f59e0b 14%, transparent); color: #d97706; }
 .badge_pending_review { background: color-mix(in srgb, #f59e0b 14%, transparent); color: #d97706; }
-.badge_running        { background: color-mix(in srgb, #3b82f6 12%, transparent); color: #2563eb; }
+.badge_running        { background: color-mix(in srgb, var(--color-info)    12%, transparent); color: var(--color-info); }
 .badge_cancelled      { background: var(--color-hover); color: var(--color-text-muted); }
-.badge_partial        { background: color-mix(in srgb, #3b82f6 12%, transparent); color: #2563eb; }
-.badge_approved    { background: color-mix(in srgb, #28a745 12%, transparent); color: #28a745; }
-.badge_rejected    { background: color-mix(in srgb, #dc3545 12%, transparent); color: #dc3545; }
-.badge_in_progress { background: color-mix(in srgb, #3b82f6 12%, transparent); color: #2563eb; }
-.badge_completed   { background: color-mix(in srgb, #28a745 12%, transparent); color: #28a745; }
-.badge_failed      { background: color-mix(in srgb, #dc3545 12%, transparent); color: #dc3545; }
+.badge_partial        { background: color-mix(in srgb, var(--color-info)    12%, transparent); color: var(--color-info); }
+.badge_approved    { background: color-mix(in srgb, var(--color-success) 12%, transparent); color: var(--color-success); }
+.badge_rejected    { background: color-mix(in srgb, var(--color-danger)  12%, transparent); color: var(--color-danger); }
+.badge_in_progress { background: color-mix(in srgb, var(--color-info)    12%, transparent); color: var(--color-info); }
+.badge_completed   { background: color-mix(in srgb, var(--color-success) 12%, transparent); color: var(--color-success); }
+.badge_failed      { background: color-mix(in srgb, var(--color-danger)  12%, transparent); color: var(--color-danger); }
 .badge_unknown     { background: var(--color-hover); color: var(--color-text-muted); }
 
 .progressInline {
@@ -342,8 +338,8 @@
     color: #28a745;
   }
 
-  &.actionBtnDanger:hover {
-    background: color-mix(in srgb, #dc3545 10%, transparent);
-    color: #dc3545;
+  &.actionBtnDanger {
+    color: var(--color-danger);
+    &:hover { background: color-mix(in srgb, var(--color-danger) 10%, transparent); }
   }
 }

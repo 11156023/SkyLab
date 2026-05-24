@@ -110,6 +110,15 @@
   &:hover { background: var(--color-hover); color: var(--color-text); }
 }
 
+.headerBtnDanger {
+  color: var(--color-danger);
+  border-color: color-mix(in srgb, var(--color-danger) 30%, var(--color-border));
+  &:hover {
+    background: color-mix(in srgb, var(--color-danger) 10%, transparent);
+    color: var(--color-danger);
+  }
+}
+
 .closeBtn {
   width: 28px;
   height: 28px;
