@@ -180,7 +180,7 @@ def _provision_new_resource(
     *,
     session: Session,
     request: VMRequest,
-) -> tuple[int, str, str | None]:
+) -> tuple[int, str, str | None] | None:
     """Lock, mark migration running, clone outside txn, then record VMID.
 
     This is the core anti-duplication pattern:
@@ -339,7 +339,7 @@ def _provision_via_service_template(
     *,
     session: Session,
     request: VMRequest,
-) -> tuple[int, str, str | None]:
+) -> tuple[int, str, str | None] | None:
     """Provision LXC by running a community-scripts template (e.g. docker/nginx).
 
     The community script creates the container itself; we just trigger it
@@ -383,10 +383,21 @@ def _provision_via_service_template(
         request_id, template_slug,
     )
 
+    active_task_id = script_deploy_service.get_active_task_id_for_request(str(request_id))
+    if active_task_id is not None:
+        logger.info(
+            "Request %s already has active service-template deploy task %s; skipping duplicate provisioning",
+            request_id,
+            active_task_id,
+        )
+        return None
+
     # ── 預先分配 IP（必要：服務模板需要靜態 IP，不允許 silent fallback 到 DHCP）──
     # 使用 proxmox_service.next_vmid() 取得候選 CTID，分配 IP 後傳給 community-scripts。
     # 若部署後實際建立的 VMID 與候選不同，稍後會更新 IpAllocation.vmid 對應。
     from app.services.network import ip_management_service
+    candidate_vmid: int | None = None
+    allocated_ip: str | None = None
     with Session(engine) as prep_session:
         try:
             net_cfg = ip_management_service.get_network_config_for_vm(prep_session)
@@ -461,17 +472,41 @@ def _provision_via_service_template(
             request_id=str(request.id),
             candidate_vmid=candidate_vmid,
         )
+    except script_deploy_service.DuplicateDeploymentError as exc:
+        logger.info(
+            "Request %s already has an active service-template deploy; leaving provisioning in progress: %s",
+            request_id,
+            exc,
+        )
+        if allocated_ip is not None:
+            try:
+                with Session(engine) as rb_ip:
+                    ip_management_service.release_ip_by_address(rb_ip, allocated_ip)
+                    rb_ip.commit()
+                logger.info(
+                    "Released duplicate provisioning candidate IP %s for VMID %s",
+                    allocated_ip,
+                    candidate_vmid,
+                )
+            except Exception as release_exc:
+                logger.warning(
+                    "Failed to release duplicate provisioning candidate IP %s for VMID %s: %s",
+                    allocated_ip,
+                    candidate_vmid,
+                    release_exc,
+                )
+        return None
     except Exception as exc:
         logger.error(
             "Script deploy failed for request %s (%s): %s",
             request_id, template_slug, exc,
         )
         # 回收已預留的 IP
-        if candidate_vmid is not None:
+        if allocated_ip is not None:
             try:
                 from app.services.network import ip_management_service
                 with Session(engine) as rb_ip:
-                    ip_management_service.release_ip(rb_ip, candidate_vmid)
+                    ip_management_service.release_ip_by_address(rb_ip, allocated_ip)
                     rb_ip.commit()
                 logger.info("已釋放部署失敗的預留 IP（候選 VMID %s）", candidate_vmid)
             except Exception as release_exc:

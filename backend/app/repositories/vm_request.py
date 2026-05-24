@@ -78,6 +78,7 @@ def get_vm_request_by_id(
     )
     if for_update:
         statement = statement.with_for_update(skip_locked=skip_locked)
+        statement = statement.execution_options(populate_existing=True)
     return session.exec(statement).first()
 
 
