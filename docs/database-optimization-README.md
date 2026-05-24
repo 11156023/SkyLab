@@ -1,6 +1,6 @@
-# Campus Cloud 資料庫優化方案 README
+﻿# SkyLab 資料庫優化方案 README
 
-> 本文件整理目前 Campus Cloud 資料庫可優化方向。  
+> 本文件整理目前 SkyLab 資料庫可優化方向。  
 > 本階段 **不拆 PostgreSQL schema**，所有資料表仍維持在目前預設 schema 中；優化重點放在正規化、減少多餘欄位、補足關聯、避免孤立資料、提升查詢效能與資料一致性。
 
 ## 1. 優化目標
@@ -25,7 +25,7 @@
 
 ## 2. 核心資料生命週期
 
-Campus Cloud 的核心資料生命週期應區分為「申請紀錄」與「實際資源」：
+SkyLab 的核心資料生命週期應區分為「申請紀錄」與「實際資源」：
 
 ```mermaid
 flowchart TB

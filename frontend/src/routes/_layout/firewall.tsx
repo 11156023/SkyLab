@@ -1,4 +1,4 @@
-import { createFileRoute } from "@tanstack/react-router"
+﻿import { createFileRoute } from "@tanstack/react-router"
 
 import { FirewallTopology } from "@/components/Firewall"
 
@@ -7,7 +7,7 @@ export const Route = createFileRoute("/_layout/firewall")({
   head: () => ({
     meta: [
       {
-        title: "防火牆管理 - Campus Cloud",
+        title: "防火牆管理 - SkyLab",
       },
     ],
   }),

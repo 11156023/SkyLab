@@ -1,6 +1,6 @@
-# Campus Cloud — Frontend
+﻿# SkyLab — Frontend
 
-Campus Cloud 前端：以 React 19 + TypeScript + Vite 7 打造的單頁應用，整合 TanStack Router/Query、Tailwind v4、shadcn/Radix UI、noVNC、xterm.js 與 React Flow，負責所有 VM/LXC 管理、申請工作流、防火牆拓撲與管理員後台介面。
+SkyLab 前端：以 React 19 + TypeScript + Vite 7 打造的單頁應用，整合 TanStack Router/Query、Tailwind v4、shadcn/Radix UI、noVNC、xterm.js 與 React Flow，負責所有 VM/LXC 管理、申請工作流、防火牆拓撲與管理員後台介面。
 
 ## 技術棧
 
@@ -125,7 +125,7 @@ bun run generate-client
 
 - 命名空間：`common`、`auth`、`navigation`、`resources`、`resourceDetail`、`applications`、`approvals`、`settings`、`validation`、`messages`
 - 支援語系：`en`、`zh-TW`、`ja`
-- 偏好語言儲存於 `localStorage` key `campus-cloud-language`
+- 偏好語言儲存於 `localStorage` key `SkyLab-language`
 
 ## 開發指令
 

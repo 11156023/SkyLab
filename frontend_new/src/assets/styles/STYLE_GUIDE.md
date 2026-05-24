@@ -1,4 +1,4 @@
-# Campus Cloud Frontend — 樣式規範
+﻿# SkyLab Frontend — 樣式規範
 
 > 本文件說明前端樣式架構與撰寫規範，所有新頁面、元件都應遵循此指南，確保視覺與程式碼風格一致。若想自行變更_variables.scss、_themes.scss兩檔案，請事先與前端討論。
 

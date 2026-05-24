@@ -1,4 +1,4 @@
-# AI PVE Placement Advisor
+﻿# AI PVE Placement Advisor
 
 獨立的 FastAPI 服務，為 Proxmox VE（PVE）叢集提供「**規則 + 加權評分 + 可解釋輸出**」的工作負載放置建議；可選用 vLLM 產生自然語言解釋。
 
@@ -6,7 +6,7 @@
 
 - 從 Proxmox API 直接讀取節點與 VM/LXC 即時資源狀態
 - 在 Proxmox 不可用時，回退到靜態 JSON snapshot
-- 可選串接 Campus Cloud backend 取得近期 VM 申請流量訊號
+- 可選串接 SkyLab backend 取得近期 VM 申請流量訊號
 - 計算節點安全餘裕（headroom）、Guest 密度、使用者壓力修正
 - 對候選節點以加權分數排序，輸出可解釋的放置決定
 - 提供事件（events）與建議（recommendations），標示風險與原因
@@ -28,7 +28,7 @@ ai-pve-placement-advisor/
 │   │   ├── aggregation_service.py         # 容量計算 / bin-pack / 評分
 │   │   ├── ai_explainer_service.py        # vLLM 解釋（含 fallback）
 │   │   ├── proxmox_source_service.py      # Proxmox API client（proxmoxer）
-│   │   ├── backend_source_service.py      # Campus Cloud backend 流量
+│   │   ├── backend_source_service.py      # SkyLab backend 流量
 │   │   ├── snapshot_source_service.py     # 靜態 snapshot
 │   │   └── metrics_service.py             # 執行期 metrics
 │   └── schemas/analytics.py
@@ -72,7 +72,7 @@ ai-pve-placement-advisor/
 
 1. **Proxmox 即時資料**：節點 CPU / RAM / Disk、狀態、uptime、GPU 映射、Guest 狀態
 2. **靜態 Snapshot**（Proxmox 失效時）：`NODES_SNAPSHOT_JSON`、`TOKEN_USAGE_SNAPSHOT_JSON`、`GPU_METRICS_SNAPSHOT_JSON`
-3. **Campus Cloud Backend 流量**（可選）：近期新增 / pending / 核准 VM 申請統計
+3. **SkyLab Backend 流量**（可選）：近期新增 / pending / 核准 VM 申請統計
 
 ## 判斷邏輯
 
@@ -105,7 +105,7 @@ PROXMOX_PASSWORD=...
 PROXMOX_VERIFY_SSL=false
 PROXMOX_API_TIMEOUT=30
 
-# Campus Cloud Backend（可選）
+# SkyLab Backend（可選）
 BACKEND_API_BASE_URL=
 BACKEND_API_TOKEN=
 BACKEND_TRAFFIC_WINDOW_MINUTES=60

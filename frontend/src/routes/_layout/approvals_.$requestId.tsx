@@ -1,4 +1,4 @@
-import { createFileRoute } from "@tanstack/react-router"
+﻿import { createFileRoute } from "@tanstack/react-router"
 import { Suspense } from "react"
 
 import VMRequestReviewPage from "@/components/Applications/VMRequestReviewPage"
@@ -11,7 +11,7 @@ export const Route = createFileRoute("/_layout/approvals_/$requestId")({
   head: () => ({
     meta: [
       {
-        title: "Request Review - Campus Cloud",
+        title: "Request Review - SkyLab",
       },
     ],
   }),

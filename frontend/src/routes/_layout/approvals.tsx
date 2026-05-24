@@ -1,4 +1,4 @@
-import { useQuery, useSuspenseQuery } from "@tanstack/react-query"
+﻿import { useQuery, useSuspenseQuery } from "@tanstack/react-query"
 import { createFileRoute } from "@tanstack/react-router"
 import { ClipboardCheck } from "lucide-react"
 import { Suspense, useMemo, useState } from "react"
@@ -24,7 +24,7 @@ export const Route = createFileRoute("/_layout/approvals")({
   head: () => ({
     meta: [
       {
-        title: "Approvals - Campus Cloud",
+        title: "Approvals - SkyLab",
       },
     ],
   }),

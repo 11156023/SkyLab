@@ -1,4 +1,4 @@
-import { useState } from "react";
+﻿import { useState } from "react";
 import { useAuth } from "../../contexts/AuthContext";
 import { apiPost } from "../../services/api";
 import styles from "./LoginPage.module.scss";
@@ -66,7 +66,7 @@ function LoginView({ onForgot, onRegister }) {
 
   return (
     <>
-      <h1 className={styles.title}>Campus Cloud</h1>
+      <h1 className={styles.title}>SkyLab</h1>
       <p className={styles.subtitle}>雲端校園管理平台</p>
 
       <form className={styles.form} onSubmit={handleSubmit}>
@@ -227,7 +227,7 @@ function RegisterView({ onBack }) {
       </button>
 
       <h1 className={styles.title}>建立帳號</h1>
-      <p className={styles.subtitle}>加入 Campus Cloud 開始使用雲端資源</p>
+      <p className={styles.subtitle}>加入 SkyLab 開始使用雲端資源</p>
 
       {success ? (
         <div className={styles.successBox}>

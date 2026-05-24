@@ -1,4 +1,4 @@
-# Campus Cloud 系統完善計畫
+﻿# SkyLab 系統完善計畫
 
 > 建立時間：2026-04-23  
 > 狀態：規劃中  
@@ -294,7 +294,7 @@
 ### P8.4 Kubernetes / Helm（選做）
 - **子任務**：
   - [ ] 建立 `k8s/` 目錄，撰寫 Deployment、Service、ConfigMap manifest
-  - [ ] 建立 `helm/campus-cloud/` chart
+  - [ ] 建立 `helm/SkyLab/` chart
   - [ ] 文件說明從 Docker Compose 遷移到 K8s 的步驟
 
 ---

@@ -2,9 +2,11 @@
 
 from datetime import datetime, timezone
 
+from cryptography.fernet import InvalidToken
 from sqlmodel import Session
 
 from app.core.security import decrypt_value, encrypt_value
+from app.exceptions import AppError
 from app.models.proxmox_config import ProxmoxConfig
 
 _SINGLETON_ID = 1
@@ -182,7 +184,13 @@ def upsert_proxmox_config(
 
 
 def get_decrypted_password(config: ProxmoxConfig) -> str:
-    return decrypt_value(config.encrypted_password)
+    try:
+        return decrypt_value(config.encrypted_password)
+    except InvalidToken as e:
+        raise AppError(
+            "無法解密儲存的 Proxmox 密碼：加密金鑰已變更，請重新儲存 Proxmox 設定",
+            status_code=400,
+        ) from e
 
 
 __all__ = [

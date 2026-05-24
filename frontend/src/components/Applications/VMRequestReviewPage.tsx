@@ -1,4 +1,4 @@
-import {
+﻿import {
   useMutation,
   useQueryClient,
   useSuspenseQuery,
@@ -601,7 +601,7 @@ export function VMRequestReviewPage({ requestId }: { requestId: string }) {
                 {context.current_running_resources.length}
               </div>
               <div className="mt-1 text-sm text-muted-foreground">
-                目前 Campus Cloud pool 內正在運行的資源數量。
+                目前 SkyLab pool 內正在運行的資源數量。
               </div>
             </div>
             <div className="rounded-xl border border-border/70 bg-background/50 p-3">
@@ -739,7 +739,7 @@ export function VMRequestReviewPage({ requestId }: { requestId: string }) {
             ))
           ) : (
             <div className="rounded-lg border border-dashed px-3 py-3 text-sm text-muted-foreground">
-              Campus Cloud pool 目前沒有在線資源。
+              SkyLab pool 目前沒有在線資源。
             </div>
           )}
         </div>

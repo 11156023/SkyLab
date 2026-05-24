@@ -1,4 +1,4 @@
-"""Gateway VM 管理服務."""
+﻿"""Gateway VM 管理服務."""
 
 from __future__ import annotations
 
@@ -29,8 +29,8 @@ SERVICE_CONFIG_PATHS: dict[str, str] = {
     "frpc": "/etc/frp/frpc.toml",
 }
 
-TRAEFIK_DYNAMIC_PATH = "/etc/traefik/dynamic/campus-cloud.yml"
-TRAEFIK_ENV_PATH = "/etc/traefik/env/campus-cloud.env"
+TRAEFIK_DYNAMIC_PATH = "/etc/traefik/dynamic/SkyLab.yml"
+TRAEFIK_ENV_PATH = "/etc/traefik/env/SkyLab.env"
 TRAEFIK_SYSTEMD_PATH = "/etc/systemd/system/traefik.service"
 _GENERIC_VERSION_PATTERN = re.compile(r"([0-9]+(?:\.[0-9]+)+(?:[-+~][^\s]+)?)")
 _HAPROXY_VERSION_PATTERN = re.compile(r"HAProxy version\s+([^\s]+)", re.IGNORECASE)
@@ -91,7 +91,7 @@ def build_traefik_static_config(*, acme_email: str) -> str:
         return dedent(
                 f"""\
                 # Traefik 靜態設定
-                # 此檔案由 Campus Cloud 自動維護，請勿手動修改
+                # 此檔案由 SkyLab 自動維護，請勿手動修改
 
                 entryPoints:
                     web:
@@ -146,7 +146,7 @@ def build_traefik_env_file(cloudflare_api_token: str) -> str:
         )
         return dedent(
                 f"""\
-                # Campus Cloud 自動管理，供 Traefik dnsChallenge 使用
+                # SkyLab 自動管理，供 Traefik dnsChallenge 使用
                 CF_DNS_API_TOKEN="{escaped_token}"
                 """
         )
@@ -455,7 +455,7 @@ def _build_service_version_info(
 ) -> GatewayServiceVersionInfo:
     current_version = _extract_current_version(service, version_output)
     target_version = install_targets.get(service)
-    source = "campus-cloud install script"
+    source = "SkyLab install script"
 
     if service == "haproxy":
         target_version = _normalize_version(candidate_version)

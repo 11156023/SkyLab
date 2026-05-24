@@ -1,4 +1,4 @@
-{
+﻿{
   "sidebar": {
     "dashboard": "儀表板",
     "myResources": "我的資源",
@@ -12,13 +12,13 @@
     "gpuManagement": "GPU 管理"
   },
   "pageTitle": {
-    "dashboard": "儀表板 - Campus Cloud",
-    "myResources": "我的資源 - Campus Cloud",
-    "applications": "我的申請 - Campus Cloud",
-    "resources": "虛擬機器 - Campus Cloud",
-    "approvals": "申請審核 - Campus Cloud",
-    "admin": "管理員 - Campus Cloud",
-    "settings": "設定 - Campus Cloud"
+    "dashboard": "儀表板 - SkyLab",
+    "myResources": "我的資源 - SkyLab",
+    "applications": "我的申請 - SkyLab",
+    "resources": "虛擬機器 - SkyLab",
+    "approvals": "申請審核 - SkyLab",
+    "admin": "管理員 - SkyLab",
+    "settings": "設定 - SkyLab"
   },
   "dashboard": {
     "welcome": "嗨，{{name}} 👋",

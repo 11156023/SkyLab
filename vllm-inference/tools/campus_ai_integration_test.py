@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import argparse
 import json
@@ -227,7 +227,7 @@ class CampusAIIntegrationTester:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Campus Cloud AI integration test against main backend routes"
+        description="SkyLab AI integration test against main backend routes"
     )
     parser.add_argument(
         "--base-url",
@@ -295,7 +295,7 @@ def parse_args() -> argparse.Namespace:
 
 def _print_summary(results: list[CaseResult]) -> None:
     print("=" * 78)
-    print("Campus Cloud AI integration test summary")
+    print("SkyLab AI integration test summary")
     print("=" * 78)
     for result in results:
         status = "PASS" if result.success else "FAIL"

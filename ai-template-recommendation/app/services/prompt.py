@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import json
 from typing import Any
@@ -85,7 +85,7 @@ def build_chat_system_prompt(*, is_first_turn: bool, catalog_context: str) -> st
     )
 
     return f"""# Role
-You are a friendly, expert AI infrastructure consultant for a campus cloud platform.
+You are a friendly, expert AI infrastructure consultant for a SkyLab platform.
 Your primary objective is to clarify the user's deployment needs through a natural and practical conversation.
 
 # Context & Constraints
@@ -181,7 +181,7 @@ def build_ai_plan_prompt(
     plan_schema: dict[str, Any],
 ) -> str:
     return f"""# Role
-You are an expert infrastructure planning AI for a campus cloud platform.
+You are an expert infrastructure planning AI for a SkyLab platform.
 
 # Background Context
 - This platform provisions local on-premise Virtual Machines (VMs) and LXC containers for educational, teaching, and research workloads.
@@ -219,7 +219,7 @@ Generate a complete deployment recommendation based on the user's intent, availa
 - **No Buffer Rule**: Do not add extra resource headroom or safety buffer by default. If the user did not clearly describe higher concurrency, larger data volume, heavier workload, or stricter availability needs, keep the allocation lean.
 - **Project Scale Rule**: Infer project scale from the user's role, expected users, sharing scope, and wording. Distinguish between personal coursework, small group projects, and shared course or research services, and size resources accordingly.
 - **Collaboration vs Concurrency Rule**: Multiple students collaborating on one project does not automatically mean high concurrent usage. Only increase CPU or memory for concurrency when the user explicitly describes many simultaneous users, background jobs, large datasets, or other sustained load.
-- **Rental Reasonableness Rule**: Avoid over-allocation that would look unreasonable for a campus cloud borrowing request. Do not recommend large CPU, RAM, disk, or GPU allocations unless the workload evidence clearly justifies them.
+- **Rental Reasonableness Rule**: Avoid over-allocation that would look unreasonable for a SkyLab borrowing request. Do not recommend large CPU, RAM, disk, or GPU allocations unless the workload evidence clearly justifies them.
 - **Escalation Evidence Rule**: Only recommend higher resources when the request explicitly involves conditions such as multi-user shared access, public-facing service load, database-heavy operations, AI inference, GPU compute, Windows, GUI, long-running jobs, or large storage demand.
 - **Capacity Constraint Rule**: If the current nodes are not ideal, reflect that limitation in `summary`, `machines.why`, `overall_config.deployment_strategy`, or `upgrade_when`.
 - **Upgrade Rule**: `upgrade_when` must mention specific measurable thresholds, such as sustained CPU, RAM, or disk pressure.

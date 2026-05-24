@@ -1,4 +1,4 @@
-import { createFileRoute, Link } from "@tanstack/react-router"
+﻿import { createFileRoute, Link } from "@tanstack/react-router"
 import {
   Activity,
   Database,
@@ -43,7 +43,7 @@ const COURSE_ICON: Record<string, CourseIconConfig> = {
 export const Route = createFileRoute("/_layout/")({
   component: Dashboard,
   head: () => ({
-    meta: [{ title: "Dashboard - Campus Cloud" }],
+    meta: [{ title: "Dashboard - SkyLab" }],
   }),
 })
 

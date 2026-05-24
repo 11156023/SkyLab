@@ -1,4 +1,4 @@
-"""PVE API 資料模型
+﻿"""PVE API 資料模型
 
 涵蓋從 Proxmox VE REST API 可取得的所有主要資料結構。
 """
@@ -383,7 +383,7 @@ PVE_API_REFERENCE: list[ApiEndpointReference] = [
                 field="pool",
                 type="string",
                 description="資源池名稱",
-                example="CampusCloud",
+                example="SkyLab",
             ),
             FieldReference(
                 field="cpu",

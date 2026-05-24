@@ -1,4 +1,4 @@
-interface ApiResponse<T> {
+﻿interface ApiResponse<T> {
   bizCode: string;
   data: T;
   message: string;
@@ -44,9 +44,9 @@ type IpcRouters = Record<
 
 type Listeners = Record<string, Listener>;
 
-// ─── Campus Cloud domain types ───────────────────────────────────────────────
+// ─── SkyLab domain types ───────────────────────────────────────────────
 
-interface CampusCloudSettings {
+interface SkyLabSettings {
   _id?: string;
   language?: string;
   backendUrl?: string;
@@ -60,7 +60,7 @@ interface DeviceCodeResponse {
   expires_in: number;
 }
 
-interface CampusCloudResource {
+interface SkyLabResource {
   vmid: number;
   name: string;
   type: string;
@@ -71,7 +71,7 @@ interface CampusCloudResource {
   [key: string]: any;
 }
 
-interface CampusCloudTunnelInfo {
+interface SkyLabTunnelInfo {
   vmid?: number;
   name?: string;
   service?: string;
@@ -79,19 +79,19 @@ interface CampusCloudTunnelInfo {
   [key: string]: any;
 }
 
-interface CampusCloudTunnelConfig {
+interface SkyLabTunnelConfig {
   frpc_config: string;
-  tunnels: CampusCloudTunnelInfo[];
+  tunnels: SkyLabTunnelInfo[];
 }
 
 interface TunnelStatusInfo {
   running: boolean;
   lastStartTime: number;
   connectionError: string | null;
-  tunnels: CampusCloudTunnelInfo[];
+  tunnels: SkyLabTunnelInfo[];
 }
 
-interface CampusCloudSessionStatus {
+interface SkyLabSessionStatus {
   vmid: number;
   running: boolean;
   auto_stop_at: string | null;
@@ -104,7 +104,7 @@ interface CampusCloudSessionStatus {
   can_extend: boolean;
 }
 
-interface CampusCloudExtendResult {
+interface SkyLabExtendResult {
   vmid: number;
   auto_stop_at: string;
   extended_minutes: number;

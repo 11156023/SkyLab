@@ -1,6 +1,6 @@
-# Campus Cloud 分配與重排說明
+﻿# SkyLab 分配與重排說明
 
-Campus Cloud 是一套建置在 Proxmox 叢集上的全端平台，用來處理 VM/LXC 的申請、審核、時段分配、啟動、搬移與自動關機。
+SkyLab 是一套建置在 Proxmox 叢集上的全端平台，用來處理 VM/LXC 的申請、審核、時段分配、啟動、搬移與自動關機。
 
 ## 系統目標
 
@@ -322,7 +322,7 @@ alembic upgrade head
 ```
 
 - 若 backend schema 有變動，frontend 需要同步更新 API 使用方式
-- scheduler 預設以 Campus Cloud 管理的 Proxmox pool 作為 runtime source of truth
+- scheduler 預設以 SkyLab 管理的 Proxmox pool 作為 runtime source of truth
 
 ## 相關測試
 

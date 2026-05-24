@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 from pathlib import Path
 
@@ -31,16 +31,16 @@ class Settings(BaseSettings):
     collector_retry_attempts: int = Field(default=3, ge=1, le=10)
     collector_retry_backoff: float = Field(default=0.3, ge=0.0, le=10.0)
 
-    campus_cloud_api_public_base: str = Field(
+    skylab_api_public_base: str = Field(
         default="http://localhost:8000",
         alias="ai_api_public_base_url",
         description="僅獨立 ai-pve-log 子服務使用；主後端內嵌模組走內部 DB 查詢",
     )
-    campus_cloud_api_user: str = Field(
+    skylab_api_user: str = Field(
         default="",
         alias="first_superuser",
     )
-    campus_cloud_api_password: str = Field(
+    skylab_api_password: str = Field(
         default="",
         alias="first_superuser_password",
     )
@@ -77,8 +77,8 @@ class Settings(BaseSettings):
         return int(self.section.vllm.max_tokens)
 
     @property
-    def campus_cloud_api_base(self) -> str:
-        return self.campus_cloud_api_public_base.rstrip("/") + "/api/v1"
+    def skylab_api_base(self) -> str:
+        return self.skylab_api_public_base.rstrip("/") + "/api/v1"
 
 
 settings = Settings()

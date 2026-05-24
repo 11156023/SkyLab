@@ -1,4 +1,4 @@
-# vLLM Inference
+﻿# vLLM Inference
 
 基於官方 vLLM 的高併發單模型推論部署，採乾淨分層架構（config / core / api / benchmark / utils / tools / webapp）。內建 vLLM 伺服器啟停管理、OpenAI 相容客戶端、benchmark 套件，以及一個 React + FastAPI 的多模態 Web UI（位於 [`webapp/`](webapp/README.md)）。
 
@@ -164,7 +164,7 @@ Benchmark 結果會輸出於 `benchmark_results/`，包含：
 - TPOT（Time Per Output Token）
 - Token 長度統計
 
-## Campus Cloud 主架構整合測試
+## SkyLab 主架構整合測試
 
 可用以下腳本直接驗證「主架構」AI 路由（非子專案路由整合測試）：
 

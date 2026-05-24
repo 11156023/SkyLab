@@ -1,4 +1,4 @@
-"""Business logic for Cloudflare-backed domain management."""
+﻿"""Business logic for Cloudflare-backed domain management."""
 
 from __future__ import annotations
 
@@ -232,7 +232,7 @@ def upsert_reverse_proxy_dns_record(
         content=target_value,
         ttl=1,
         proxied=True,
-        comment=f"Campus Cloud reverse proxy vmid={vmid}",
+        comment=f"SkyLab reverse proxy vmid={vmid}",
     )
     payload = _build_record_payload(record_payload)
 

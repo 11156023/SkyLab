@@ -1,4 +1,4 @@
-import base64
+﻿import base64
 from datetime import datetime, timedelta, timezone
 from functools import lru_cache
 from typing import Any
@@ -28,7 +28,7 @@ def _get_fernet() -> Fernet:
     kdf = PBKDF2HMAC(
         algorithm=hashes.SHA256(),
         length=32,
-        salt=b"campus-cloud-fernet-v1",
+        salt=b"SkyLab-fernet-v1",
         iterations=480_000,
     )
     key = base64.urlsafe_b64encode(kdf.derive(settings.SECRET_KEY.encode()))

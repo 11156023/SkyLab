@@ -223,20 +223,12 @@ def _execute_deletion(session: Session, req: DeletionRequest) -> None:
         session.refresh(req)
     # else: already running → retry path; reuse existing started_at
 
-    resource = session.exec(
+    session.exec(
         select(Resource).where(Resource.vmid == req.vmid)
     ).first()
-    if resource is None:
-        req.status = DeletionRequestStatus.failed
-        req.error_message = f"Resource vmid={req.vmid} not found at execute time"
-        req.completed_at = _utc_now()
-        session.add(req)
-        session.commit()
-        logger.warning(
-            "Deletion request %s skipped: resource vmid=%s no longer exists",
-            req.id, req.vmid,
-        )
-        return
+    # resource may be None for admin-initiated deletion of orphan resources
+    # (machines that exist in Proxmox but have no DB record). In that case
+    # we still attempt the Proxmox deletion using the snapshot data.
 
     # The Resource model only stores user/business metadata (env type, owner,
     # SSH keys, etc.). Live Proxmox info (node / type / status) must come from

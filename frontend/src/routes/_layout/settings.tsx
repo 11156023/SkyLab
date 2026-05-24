@@ -1,4 +1,4 @@
-import { createFileRoute } from "@tanstack/react-router"
+﻿import { createFileRoute } from "@tanstack/react-router"
 import { useTranslation } from "react-i18next"
 
 import ChangePassword from "@/components/UserSettings/ChangePassword"
@@ -12,7 +12,7 @@ export const Route = createFileRoute("/_layout/settings")({
   head: () => ({
     meta: [
       {
-        title: "Settings - Campus Cloud",
+        title: "Settings - SkyLab",
       },
     ],
   }),

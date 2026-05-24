@@ -1,11 +1,11 @@
-# Campus Cloud — Copilot Instructions
+﻿# SkyLab — Copilot Instructions
 
 > 本檔為 GitHub Copilot CLI / Copilot Chat 等 Agent 的工作守則。
 > **更詳盡的開發指引請參考 repo 根目錄的 [`CLAUDE.md`](../CLAUDE.md)**——本檔是其精簡版，兩者衝突以 `CLAUDE.md` 為準。
 
 ## 專案速覽
 
-Campus Cloud 是 Proxmox VE 管理平台，提供：VM/LXC 生命週期、VNC/Terminal Console、批次配置、防火牆/NAT/Gateway 網路、AI 輔助運維、群組多租戶。
+SkyLab 是 Proxmox VE 管理平台，提供：VM/LXC 生命週期、VNC/Terminal Console、批次配置、防火牆/NAT/Gateway 網路、AI 輔助運維、群組多租戶。
 
 - **Backend**: FastAPI + SQLModel + PostgreSQL + Redis + Proxmox API + SSH (paramiko) — `uv` 套件管理
 - **Frontend**: React 19 + TypeScript + Vite + TanStack Router/Query/Table + Tailwind 4 + shadcn/ui + i18next — `bun` 套件管理

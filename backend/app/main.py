@@ -1,5 +1,17 @@
 import asyncio
+import sys
 from contextlib import asynccontextmanager
+
+# uvicorn 0.36+ 使用 loop_factory 參數直接建立 event loop，繞過 asyncio policy。
+# 其 asyncio_loop_factory 在 Windows 單 worker 模式下固定回傳 ProactorEventLoop，
+# 導致 WebSocket 空閒時觸發 WinError 121（IOCP 信號逾時）。
+# 解法：在 uvicorn 載入 app 之前 patch 其 loop factory，強制回傳 SelectorEventLoop。
+if sys.platform == "win32":
+    import uvicorn.loops.asyncio as _uvicorn_asyncio_loop
+    def _win_selector_factory(use_subprocess: bool = False) -> type[asyncio.SelectorEventLoop]:
+        return asyncio.SelectorEventLoop
+    _uvicorn_asyncio_loop.asyncio_loop_factory = _win_selector_factory
+    asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
 import sentry_sdk
 from fastapi import FastAPI, Request, WebSocket
@@ -83,13 +95,49 @@ class SecurityHeadersMiddleware:
         await self.app(scope, receive, send_with_headers)
 
 
+def _recover_orphan_running_deploys() -> None:
+    """將上次重啟前未完成的部署任務標記為 failed，避免永久卡在「執行中」。"""
+    import logging
+
+    from sqlmodel import Session, select
+
+    from app.core.db import engine
+    from app.models.base import get_datetime_utc
+    from app.models.script_deploy_log import ScriptDeployLog
+
+    _log = logging.getLogger(__name__)
+    try:
+        with Session(engine) as session:
+            orphans = session.exec(
+                select(ScriptDeployLog).where(ScriptDeployLog.status == "running")
+            ).all()
+            if not orphans:
+                return
+            for log in orphans:
+                log.status = "failed"
+                log.error = (log.error or "") + "\n[系統] 伺服器重啟，部署中斷"
+                log.progress = "已中斷（伺服器重啟）"
+                log.updated_at = get_datetime_utc()
+                log.completed_at = get_datetime_utc()
+                session.add(log)
+            session.commit()
+            _log.warning(
+                "啟動清理：將 %d 筆殘留 running 部署任務標記為 failed", len(orphans)
+            )
+    except Exception:
+        _log.exception("啟動清理孤兒部署任務失敗（非致命）")
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     configure_logging(
-        level=getattr(settings, "LOG_LEVEL", "INFO"),
-        json_output=getattr(settings, "LOG_JSON", True),
+        level=settings.LOG_LEVEL,
+        json_output=settings.LOG_JSON,
+        log_dir=settings.LOG_DIR,
+        file_enabled=settings.LOG_FILE_ENABLED,
     )
     await init_redis()
+    _recover_orphan_running_deploys()
     init_background_runner()
     stop_event = asyncio.Event()
     scheduler_task: asyncio.Task[None] | None = None

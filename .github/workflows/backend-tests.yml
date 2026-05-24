@@ -1,4 +1,4 @@
-name: Backend Tests
+﻿name: Backend Tests
 
 on:
   pull_request:
@@ -72,7 +72,7 @@ jobs:
       FIRST_SUPERUSER_PASSWORD: ci-test-password-not-for-production
       EMAILS_FROM_EMAIL: noreply@example.com
       ENVIRONMENT: local
-      PROJECT_NAME: campus-cloud-ci
+      PROJECT_NAME: SkyLab-ci
       BACKEND_CORS_ORIGINS: '["http://localhost"]'
 
       # --- Proxmox: tests must mock these; values are placeholders ---

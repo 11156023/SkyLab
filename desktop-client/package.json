@@ -1,8 +1,8 @@
-{
-  "name": "campus-cloud-connect",
+﻿{
+  "name": "SkyLab-connect",
   "version": "0.1.0",
   "main": "dist-electron/main/index.js",
-  "description": "Campus Cloud Connect desktop client",
+  "description": "SkyLab Connect desktop client",
   "private": true,
   "engines": {
     "node": ">= 22.12.0"

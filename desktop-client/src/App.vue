@@ -1,4 +1,4 @@
-<script lang="ts">
+﻿<script lang="ts">
 import { ElConfigProvider } from "element-plus";
 import en from "element-plus/dist/locale/en.mjs";
 import zhCn from "element-plus/dist/locale/zh-cn.mjs";
@@ -85,7 +85,7 @@ export default defineComponent({
     currentLocale() {
       return useAppStore().language === "zh-CN" ? zhCn : en;
     },
-    warningInfo(): CampusCloudSessionStatus | null {
+    warningInfo(): SkyLabSessionStatus | null {
       return this.appStore.activeWarning;
     },
     isExpiry(): boolean {

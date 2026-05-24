@@ -1,4 +1,4 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+﻿import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { createFileRoute } from "@tanstack/react-router"
 import {
   AlertTriangle,
@@ -284,7 +284,7 @@ export const Route = createFileRoute("/_layout/reverse-proxy")({
   head: () => ({
     meta: [
       {
-        title: "網域管理 - Campus Cloud",
+        title: "網域管理 - SkyLab",
       },
     ],
   }),

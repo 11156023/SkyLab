@@ -1,20 +1,20 @@
-import { shell } from "electron";
+﻿import { shell } from "electron";
 import { BusinessError, ResponseCode } from "../core/BusinessError";
 import Logger from "../core/Logger";
-import CampusCloudService from "./CampusCloudService";
+import SkyLabService from "./SkyLabService";
 import SettingsService from "./SettingsService";
 
 class AuthService {
-  private readonly _campusCloudService: CampusCloudService;
+  private readonly _SkyLabService: SkyLabService;
   private readonly _settingsService: SettingsService;
   private _pollTimer: NodeJS.Timeout | null = null;
   private _loginInProgress = false;
 
   constructor(
-    campusCloudService: CampusCloudService,
+    SkyLabService: SkyLabService,
     settingsService: SettingsService
   ) {
-    this._campusCloudService = campusCloudService;
+    this._SkyLabService = SkyLabService;
     this._settingsService = settingsService;
   }
 
@@ -44,7 +44,7 @@ class AuthService {
     this._loginInProgress = true;
 
     try {
-      const dc = await this._campusCloudService.requestDeviceCode();
+      const dc = await this._SkyLabService.requestDeviceCode();
       await shell.openExternal(dc.login_url);
       const expiresAt = Date.now() + dc.expires_in * 1000;
 
@@ -56,7 +56,7 @@ class AuthService {
           return;
         }
         try {
-          const result = await this._campusCloudService.pollDeviceCode(
+          const result = await this._SkyLabService.pollDeviceCode(
             dc.device_code
           );
           if (result.status === "approved" && result.accessToken) {

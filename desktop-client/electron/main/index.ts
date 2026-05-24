@@ -1,4 +1,4 @@
-import {
+﻿import {
   app,
   BrowserWindow,
   ipcMain,
@@ -21,7 +21,7 @@ import { ipcRouters, listeners } from "../core/IpcRouter";
 import Logger from "../core/Logger";
 import SettingsRepository from "../repository/SettingsRepository";
 import AuthService from "../service/AuthService";
-import CampusCloudService from "../service/CampusCloudService";
+import SkyLabService from "../service/SkyLabService";
 import FrpcProcessService from "../service/FrpcProcessService";
 import LogService from "../service/LogService";
 import SettingsService from "../service/SettingsService";
@@ -37,7 +37,7 @@ const preload = join(__dirname, "../preload/index.js");
 const url = process.env.VITE_DEV_SERVER_URL;
 const indexHtml = join(process.env.DIST, "index.html");
 
-class CampusCloudApp {
+class SkyLabApp {
   private _win: BrowserWindow | null = null;
   private _quitting = false;
 
@@ -52,7 +52,7 @@ class CampusCloudApp {
     if (this._win) return;
 
     Logger.info(
-      "CampusCloudApp.initializeWindow",
+      "SkyLabApp.initializeWindow",
       [
         "=== Application Started ===",
         `App       : ${app.getName()} v${app.getVersion()}`,
@@ -120,7 +120,7 @@ class CampusCloudApp {
       return false;
     });
 
-    Logger.info("CampusCloudApp.initializeWindow", "Window initialized.");
+    Logger.info("SkyLabApp.initializeWindow", "Window initialized.");
   }
 
   initializeTray() {
@@ -151,7 +151,7 @@ class CampusCloudApp {
     tray.setToolTip(app.getName());
     tray.setContextMenu(Menu.buildFromTemplate(menu));
     tray.on("double-click", () => this._win?.show());
-    Logger.info("CampusCloudApp.initializeTray", "Tray initialized.");
+    Logger.info("SkyLabApp.initializeTray", "Tray initialized.");
   }
 
   initializeElectronApp() {
@@ -199,7 +199,7 @@ class CampusCloudApp {
     });
 
     Logger.info(
-      "CampusCloudApp.initializeElectronApp",
+      "SkyLabApp.initializeElectronApp",
       "ElectronApp initialized."
     );
   }
@@ -212,13 +212,13 @@ class CampusCloudApp {
     );
     BeanFactory.setBean("systemService", new SystemService());
     BeanFactory.setBean(
-      "campusCloudService",
-      new CampusCloudService(BeanFactory.getBean("settingsService"))
+      "SkyLabService",
+      new SkyLabService(BeanFactory.getBean("settingsService"))
     );
     BeanFactory.setBean(
       "authService",
       new AuthService(
-        BeanFactory.getBean("campusCloudService"),
+        BeanFactory.getBean("SkyLabService"),
         BeanFactory.getBean("settingsService")
       )
     );
@@ -234,7 +234,7 @@ class CampusCloudApp {
     );
     BeanFactory.setBean(
       "resourceController",
-      new ResourceController(BeanFactory.getBean("campusCloudService"))
+      new ResourceController(BeanFactory.getBean("SkyLabService"))
     );
     BeanFactory.setBean(
       "tunnelController",
@@ -250,7 +250,7 @@ class CampusCloudApp {
     );
     BeanFactory.setBean("systemController", new SystemController());
 
-    Logger.info("CampusCloudApp.initializeBeans", "Beans initialized.");
+    Logger.info("SkyLabApp.initializeBeans", "Beans initialized.");
   }
 
   private initializeListeners() {
@@ -261,7 +261,7 @@ class CampusCloudApp {
       const listenerParam: ListenerParam = { channel, args: [] };
       bean[method].call(bean, listenerParam);
     });
-    Logger.info("CampusCloudApp.initializeListeners", "Listeners initialized.");
+    Logger.info("SkyLabApp.initializeListeners", "Listeners initialized.");
   }
 
   private initializeRouters() {
@@ -285,8 +285,8 @@ class CampusCloudApp {
         });
       });
     });
-    Logger.info("CampusCloudApp.initializeRouters", "Routers initialized.");
+    Logger.info("SkyLabApp.initializeRouters", "Routers initialized.");
   }
 }
 
-new CampusCloudApp();
+new SkyLabApp();

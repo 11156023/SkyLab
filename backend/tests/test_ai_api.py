@@ -1,6 +1,6 @@
-#!/usr/bin/env python3
+﻿#!/usr/bin/env python3
 """
-Campus-Cloud AI API — 模型呼叫測試
+SkyLab AI API — 模型呼叫測試
 直接填入 API Key 測試模型輸出
 
 使用方式：
@@ -403,7 +403,7 @@ if __name__ == "__main__":
     test_full = "--full" in sys.argv
 
     print("=" * 55)
-    print("  Campus-Cloud AI API 模型測試")
+    print("  SkyLab AI API 模型測試")
     print(f"  backend : {BACKEND_URL}")
     print(f"  api_key : {API_KEY[:20]}...")
     if test_rate_limit_only:

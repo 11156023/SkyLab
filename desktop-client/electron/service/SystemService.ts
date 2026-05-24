@@ -1,4 +1,4 @@
-import { spawn } from "child_process";
+﻿import { spawn } from "child_process";
 import { app, shell } from "electron";
 import fs from "fs";
 import os from "os";
@@ -40,11 +40,11 @@ class SystemService {
     if (process.platform === "win32") {
       const batPath = path.join(
         os.tmpdir(),
-        `campus-cloud-ssh-${port}-${Date.now()}.bat`
+        `SkyLab-ssh-${port}-${Date.now()}.bat`
       );
       fs.writeFileSync(
         batPath,
-        `@echo off\r\ntitle Campus Cloud SSH - ${host}:${port}\r\n${sshCmd}\r\npause\r\n`,
+        `@echo off\r\ntitle SkyLab SSH - ${host}:${port}\r\n${sshCmd}\r\npause\r\n`,
         { encoding: "utf-8" }
       );
       spawn("cmd.exe", ["/c", "start", "", batPath], {

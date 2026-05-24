@@ -1,4 +1,4 @@
-"""GPU (PCI resource mapping) service.
+﻿"""GPU (PCI resource mapping) service.
 
 Wraps Proxmox /cluster/mapping/pci endpoints and provides GPU availability
 and usage tracking by cross-referencing VM configurations.
@@ -24,7 +24,7 @@ logger = logging.getLogger(__name__)
 
 
 def _get_managed_vmids() -> set[int]:
-    """Return the set of VMIDs that are tracked in the Campus Cloud DB."""
+    """Return the set of VMIDs that are tracked in the SkyLab DB."""
     try:
         with Session(engine) as session:
             rows = session.exec(select(Resource.vmid)).all()
@@ -236,12 +236,12 @@ def list_gpu_mappings() -> list[GPUMappingDetail]:
         has_mdev = any(m.is_mdev for m in maps)
 
         # Compute VRAM totals based on the FULL usage list (so counts stay correct
-        # regardless of whether VMs are Campus Cloud-managed or external).
+        # regardless of whether VMs are SkyLab-managed or external).
         total_vram_mb, used_vram_mb = _resolve_vram_for_mapping(
             maps, has_mdev, physical_gpu_count, description, mapping_id, used_by,
         )
 
-        # Only expose Campus Cloud-managed VMs in the UI list.
+        # Only expose SkyLab-managed VMs in the UI list.
         visible_used_by = [u for u in used_by if u.vmid in managed_vmids]
 
         results.append(

@@ -36,7 +36,7 @@ import {
 export const Route = createFileRoute("/_layout/jobs")({
   component: JobsPage,
   head: () => ({
-    meta: [{ title: "背景任務 - Campus Cloud" }],
+    meta: [{ title: "背景任務 - SkyLab" }],
   }),
 })
 

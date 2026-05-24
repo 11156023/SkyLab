@@ -1,4 +1,4 @@
-"""PVE 批量分析 API 路由"""
+﻿"""PVE 批量分析 API 路由"""
 
 from __future__ import annotations
 
@@ -254,7 +254,7 @@ async def post_chat(body: ChatRequest) -> ChatResponse:
     response_model=SSHExecResult,
     summary="SSH 遠端執行指令",
     description=(
-        "透過 Campus Cloud API 取得 SSH key 後，SSH 進入指定 VM/LXC 執行指令。\n\n"
+        "透過 SkyLab API 取得 SSH key 後，SSH 進入指定 VM/LXC 執行指令。\n\n"
         "**安全機制（雙重）：**\n"
         "1. **黑名單過濾**：危險指令（`rm -rf`、`mkfs`、`shutdown` 等）立即攔截，"
         "回傳 `blocked=true`。\n"

@@ -1,4 +1,4 @@
-import { useQuery } from "@tanstack/react-query"
+﻿import { useQuery } from "@tanstack/react-query"
 import { ChevronRight, Shield } from "lucide-react"
 import { useState } from "react"
 import { Badge } from "@/components/ui/badge"
@@ -156,7 +156,7 @@ export function RulesPanel({ vmid, vmName, onClose }: Props) {
             {rule.comment && (
               <div className="mt-0.5 text-xs text-muted-foreground/50 truncate">
                 {rule.is_managed ? "🔒 " : ""}
-                {rule.comment.replace("campus-cloud:", "")}
+                {rule.comment.replace("SkyLab:", "")}
               </div>
             )}
           </div>

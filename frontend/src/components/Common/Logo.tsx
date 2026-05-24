@@ -1,4 +1,4 @@
-import { Link } from "@tanstack/react-router"
+﻿import { Link } from "@tanstack/react-router"
 
 import { useTheme } from "@/components/theme-provider"
 import { cn } from "@/lib/utils"
@@ -29,7 +29,7 @@ export function Logo({
       <>
         <img
           src={fullLogo}
-          alt="Campus Cloud"
+          alt="SkyLab"
           className={cn(
             "h-6 w-auto group-data-[collapsible=icon]:hidden",
             className,
@@ -37,7 +37,7 @@ export function Logo({
         />
         <img
           src={iconLogo}
-          alt="Campus Cloud"
+          alt="SkyLab"
           className={cn(
             "size-5 hidden group-data-[collapsible=icon]:block",
             className,
@@ -47,7 +47,7 @@ export function Logo({
     ) : (
       <img
         src={variant === "full" ? fullLogo : iconLogo}
-        alt="Campus Cloud"
+        alt="SkyLab"
         className={cn(variant === "full" ? "h-6 w-auto" : "size-5", className)}
       />
     )

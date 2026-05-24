@@ -1,4 +1,4 @@
-"""Tests for app.core.security crypto + password helpers (pure unit).
+﻿"""Tests for app.core.security crypto + password helpers (pure unit).
 
 No DB / no Redis. Exercises:
 - Fernet encrypt/decrypt round-trip (singleton key)
@@ -28,7 +28,7 @@ def test_encrypt_decrypt_round_trip_ascii() -> None:
 
 
 def test_encrypt_decrypt_round_trip_unicode() -> None:
-    plain = "校園雲端 — Campus Cloud — 你好 🚀"
+    plain = "校園雲端 — SkyLab — 你好 🚀"
     assert decrypt_value(encrypt_value(plain)) == plain
 
 

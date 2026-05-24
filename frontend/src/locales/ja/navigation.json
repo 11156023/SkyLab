@@ -1,4 +1,4 @@
-{
+﻿{
   "sidebar": {
     "dashboard": "ダッシュボード",
     "myResources": "マイリソース",
@@ -12,13 +12,13 @@
     "gpuManagement": "GPU管理"
   },
   "pageTitle": {
-    "dashboard": "ダッシュボード - Campus Cloud",
-    "myResources": "マイリソース - Campus Cloud",
-    "applications": "申請一覧 - Campus Cloud",
-    "resources": "仮想マシン - Campus Cloud",
-    "approvals": "承認管理 - Campus Cloud",
-    "admin": "管理者 - Campus Cloud",
-    "settings": "設定 - Campus Cloud"
+    "dashboard": "ダッシュボード - SkyLab",
+    "myResources": "マイリソース - SkyLab",
+    "applications": "申請一覧 - SkyLab",
+    "resources": "仮想マシン - SkyLab",
+    "approvals": "承認管理 - SkyLab",
+    "admin": "管理者 - SkyLab",
+    "settings": "設定 - SkyLab"
   },
   "dashboard": {
     "welcome": "こんにちは、{{name}} 👋",

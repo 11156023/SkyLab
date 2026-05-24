@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+﻿import { useEffect, useState } from "react";
 import Sidebar from "../components/Sidebar/Sidebar";
 import styles from "./DashboardLayout.module.scss";
 
@@ -52,7 +52,7 @@ export default function DashboardLayout({ children, activePage, onNavigate }) {
           </button>
         </div>
         {children}
-        <div className={styles.footer}>Campus Cloud · 2026</div>
+        <div className={styles.footer}>SkyLab · 2026</div>
       </main>
     </div>
   );

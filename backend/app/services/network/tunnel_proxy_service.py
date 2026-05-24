@@ -1,4 +1,4 @@
-"""Tunnel proxy service — manages STCP proxies on Gateway VM's frpc.
+﻿"""Tunnel proxy service — manages STCP proxies on Gateway VM's frpc.
 
 Responsibilities:
 1. Register STCP server proxies when VMs are provisioned
@@ -31,8 +31,8 @@ _INTERNAL_PORTS = {
 }
 
 # Gateway frpc.toml managed-section markers
-_MANAGED_BEGIN = "# BEGIN_CAMPUS_CLOUD_TUNNELS"
-_MANAGED_END = "# END_CAMPUS_CLOUD_TUNNELS"
+_MANAGED_BEGIN = "# BEGIN_skylab_TUNNELS"
+_MANAGED_END = "# END_skylab_TUNNELS"
 
 
 # ─── Register / unregister ────────────────────────────────────────────────────

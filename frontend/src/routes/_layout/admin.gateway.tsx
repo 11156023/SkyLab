@@ -1,4 +1,4 @@
-import Editor from "@monaco-editor/react"
+﻿import Editor from "@monaco-editor/react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { createFileRoute } from "@tanstack/react-router"
 import {
@@ -614,7 +614,7 @@ function ConnectionPanel() {
             </div>
             <p className="text-xs text-muted-foreground leading-relaxed">
               套用後會將 Gateway VM 上的 Traefik 切換為 Cloudflare DNS
-              Challenge，並保留 127.0.0.1:8080 的 runtime API 供 Campus Cloud
+              Challenge，並保留 127.0.0.1:8080 的 runtime API 供 SkyLab
               後端查詢。
             </p>
             {cloudflareConfig?.last_verified_at && (

@@ -1,0 +1,312 @@
+﻿## SkyLab — 完整單檔 Docker Compose
+## 與專案內 compose.yml + compose.override.yml + compose.traefik.yml 等價，
+## 並補上後端 infrastructure/redis 實際使用的 Redis 服務。
+##
+## 使用方式：
+##   docker compose -f docker-compose.yml up -d        # 一鍵啟動全部
+##   docker compose -f docker-compose.yml watch        # 開發模式 + 熱重載
+##
+## 生產環境若已有外部 traefik-public 網路，請：
+##   1. 移除 proxy 服務（或用 profiles: [dev] 排除）
+##   2. 將 networks.traefik-public.external 設為 true
+##
+## 環境變數來源：專案根目錄的 .env（參考 .env.example）
+
+x-backend-env: &backend-env
+  DOMAIN: ${DOMAIN}
+  FRONTEND_HOST: ${FRONTEND_HOST?Variable not set}
+  ENVIRONMENT: ${ENVIRONMENT}
+  BACKEND_CORS_ORIGINS: ${BACKEND_CORS_ORIGINS}
+  SECRET_KEY: ${SECRET_KEY?Variable not set}
+  FIRST_SUPERUSER: ${FIRST_SUPERUSER?Variable not set}
+  FIRST_SUPERUSER_PASSWORD: ${FIRST_SUPERUSER_PASSWORD?Variable not set}
+  SMTP_HOST: ${SMTP_HOST:-mailcatcher}
+  SMTP_PORT: ${SMTP_PORT:-1025}
+  SMTP_TLS: ${SMTP_TLS:-false}
+  SMTP_USER: ${SMTP_USER}
+  SMTP_PASSWORD: ${SMTP_PASSWORD}
+  EMAILS_FROM_EMAIL: ${EMAILS_FROM_EMAIL:-noreply@example.com}
+  POSTGRES_SERVER: db
+  POSTGRES_PORT: ${POSTGRES_PORT}
+  POSTGRES_DB: ${POSTGRES_DB}
+  POSTGRES_USER: ${POSTGRES_USER?Variable not set}
+  POSTGRES_PASSWORD: ${POSTGRES_PASSWORD?Variable not set}
+  REDIS_ENABLED: ${REDIS_ENABLED:-true}
+  REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+  PROXMOX_HOST: ${PROXMOX_HOST}
+  PROXMOX_USER: ${PROXMOX_USER}
+  PROXMOX_PASSWORD: ${PROXMOX_PASSWORD}
+  PROXMOX_VERIFY_SSL: ${PROXMOX_VERIFY_SSL:-false}
+  PROXMOX_ISO_STORAGE: ${PROXMOX_ISO_STORAGE}
+  PROXMOX_DATA_STORAGE: ${PROXMOX_DATA_STORAGE}
+  SENTRY_DSN: ${SENTRY_DSN}
+
+services:
+
+  # ---------------------------------------------------------------------------
+  # 反向代理（本地開發用，生產請改用 compose.traefik.yml）
+  # ---------------------------------------------------------------------------
+  proxy:
+    image: traefik:3.6
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "8090:8080"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    command:
+      - --providers.docker
+      - --providers.docker.constraints=Label(`traefik.constraint-label`, `traefik-public`)
+      - --providers.docker.exposedbydefault=false
+      - --entrypoints.http.address=:80
+      - --entrypoints.https.address=:443
+      - --accesslog
+      - --log
+      - --log.level=DEBUG
+      - --api
+      - --api.insecure=true
+    labels:
+      - traefik.enable=true
+      - traefik.constraint-label=traefik-public
+      - traefik.http.middlewares.https-redirect.contenttype.autodetect=false
+    networks:
+      - traefik-public
+      - default
+
+  # ---------------------------------------------------------------------------
+  # PostgreSQL
+  # ---------------------------------------------------------------------------
+  db:
+    image: postgres:18
+    restart: always
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 10s
+      retries: 5
+      start_period: 30s
+      timeout: 10s
+    ports:
+      - "5432:5432"
+    volumes:
+      - app-db-data:/var/lib/postgresql/data/pgdata
+    env_file:
+      - .env
+    environment:
+      PGDATA: /var/lib/postgresql/data/pgdata
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD?Variable not set}
+      POSTGRES_USER: ${POSTGRES_USER?Variable not set}
+      POSTGRES_DB: ${POSTGRES_DB?Variable not set}
+
+  # ---------------------------------------------------------------------------
+  # Redis（rate limit / JTI 撤銷 / 排程器需要）
+  # ---------------------------------------------------------------------------
+  redis:
+    image: redis:7-alpine
+    restart: always
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    ports:
+      - "6379:6379"
+    volumes:
+      - app-redis-data:/data
+    command: ["redis-server", "--appendonly", "yes"]
+
+  # ---------------------------------------------------------------------------
+  # Adminer（DB UI）
+  # ---------------------------------------------------------------------------
+  adminer:
+    image: adminer
+    restart: always
+    ports:
+      - "8080:8080"
+    networks:
+      - traefik-public
+      - default
+    depends_on:
+      - db
+    environment:
+      ADMINER_DESIGN: pepa-linha-dark
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=traefik-public
+      - traefik.constraint-label=traefik-public
+      - traefik.http.routers.${STACK_NAME?Variable not set}-adminer-http.rule=Host(`adminer.${DOMAIN?Variable not set}`)
+      - traefik.http.routers.${STACK_NAME?Variable not set}-adminer-http.entrypoints=http
+      - traefik.http.routers.${STACK_NAME?Variable not set}-adminer-http.middlewares=https-redirect
+      - traefik.http.routers.${STACK_NAME?Variable not set}-adminer-https.rule=Host(`adminer.${DOMAIN?Variable not set}`)
+      - traefik.http.routers.${STACK_NAME?Variable not set}-adminer-https.entrypoints=https
+      - traefik.http.routers.${STACK_NAME?Variable not set}-adminer-https.tls=true
+      - traefik.http.routers.${STACK_NAME?Variable not set}-adminer-https.tls.certresolver=le
+      - traefik.http.services.${STACK_NAME?Variable not set}-adminer.loadbalancer.server.port=8080
+
+  # ---------------------------------------------------------------------------
+  # MailCatcher（攔截開發環境的 outgoing email）
+  # ---------------------------------------------------------------------------
+  mailcatcher:
+    image: schickling/mailcatcher
+    restart: unless-stopped
+    ports:
+      - "1080:1080"   # Web UI
+      - "1025:1025"   # SMTP
+
+  # ---------------------------------------------------------------------------
+  # Prestart：跑 alembic migration、建立首位 superuser
+  # ---------------------------------------------------------------------------
+  prestart:
+    image: '${DOCKER_IMAGE_BACKEND?Variable not set}:${TAG-latest}'
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    networks:
+      - traefik-public
+      - default
+    depends_on:
+      db:
+        condition: service_healthy
+        restart: true
+      redis:
+        condition: service_healthy
+    command: bash scripts/prestart.sh
+    env_file:
+      - .env
+    environment:
+      <<: *backend-env
+
+  # ---------------------------------------------------------------------------
+  # Backend（FastAPI）
+  # ---------------------------------------------------------------------------
+  backend:
+    image: '${DOCKER_IMAGE_BACKEND?Variable not set}:${TAG-latest}'
+    restart: always
+    ports:
+      - "8000:8000"
+    networks:
+      - traefik-public
+      - default
+    depends_on:
+      db:
+        condition: service_healthy
+        restart: true
+      redis:
+        condition: service_healthy
+      prestart:
+        condition: service_completed_successfully
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    command:
+      - fastapi
+      - run
+      - --reload
+      - app/main.py
+    develop:
+      watch:
+        - path: ./backend
+          action: sync
+          target: /app/backend
+          ignore:
+            - ./backend/.venv
+            - .venv
+        - path: ./backend/pyproject.toml
+          action: rebuild
+    volumes:
+      - ./backend/htmlcov:/app/backend/htmlcov
+    env_file:
+      - .env
+    environment:
+      <<: *backend-env
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/v1/utils/health-check/"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=traefik-public
+      - traefik.constraint-label=traefik-public
+      - traefik.http.services.${STACK_NAME?Variable not set}-backend.loadbalancer.server.port=8000
+      - traefik.http.routers.${STACK_NAME?Variable not set}-backend-http.rule=Host(`api.${DOMAIN?Variable not set}`)
+      - traefik.http.routers.${STACK_NAME?Variable not set}-backend-http.entrypoints=http
+      - traefik.http.routers.${STACK_NAME?Variable not set}-backend-https.rule=Host(`api.${DOMAIN?Variable not set}`)
+      - traefik.http.routers.${STACK_NAME?Variable not set}-backend-https.entrypoints=https
+      - traefik.http.routers.${STACK_NAME?Variable not set}-backend-https.tls=true
+      - traefik.http.routers.${STACK_NAME?Variable not set}-backend-https.tls.certresolver=le
+      - traefik.http.routers.${STACK_NAME?Variable not set}-backend-http.middlewares=https-redirect
+
+  # ---------------------------------------------------------------------------
+  # Frontend（React + Vite，build 後 nginx）
+  # ---------------------------------------------------------------------------
+  frontend:
+    image: '${DOCKER_IMAGE_FRONTEND?Variable not set}:${TAG-latest}'
+    restart: always
+    ports:
+      - "5173:80"
+    networks:
+      - traefik-public
+      - default
+    depends_on:
+      backend:
+        condition: service_healthy
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile
+      args:
+        - VITE_API_URL=${VITE_API_URL:-http://localhost:8000}
+        - NODE_ENV=${NODE_ENV:-development}
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=traefik-public
+      - traefik.constraint-label=traefik-public
+      - traefik.http.services.${STACK_NAME?Variable not set}-frontend.loadbalancer.server.port=80
+      - traefik.http.routers.${STACK_NAME?Variable not set}-frontend-http.rule=Host(`dashboard.${DOMAIN?Variable not set}`)
+      - traefik.http.routers.${STACK_NAME?Variable not set}-frontend-http.entrypoints=http
+      - traefik.http.routers.${STACK_NAME?Variable not set}-frontend-https.rule=Host(`dashboard.${DOMAIN?Variable not set}`)
+      - traefik.http.routers.${STACK_NAME?Variable not set}-frontend-https.entrypoints=https
+      - traefik.http.routers.${STACK_NAME?Variable not set}-frontend-https.tls=true
+      - traefik.http.routers.${STACK_NAME?Variable not set}-frontend-https.tls.certresolver=le
+      - traefik.http.routers.${STACK_NAME?Variable not set}-frontend-http.middlewares=https-redirect
+
+  # ---------------------------------------------------------------------------
+  # Playwright（E2E，預設不啟動，需要時：--profile e2e）
+  # ---------------------------------------------------------------------------
+  playwright:
+    profiles: [e2e]
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile.playwright
+      args:
+        - VITE_API_URL=http://backend:8000
+        - NODE_ENV=production
+    ipc: host
+    depends_on:
+      backend:
+        condition: service_healthy
+      mailcatcher:
+        condition: service_started
+    env_file:
+      - .env
+    environment:
+      VITE_API_URL: http://backend:8000
+      MAILCATCHER_HOST: http://mailcatcher:1080
+      PLAYWRIGHT_HTML_HOST: 0.0.0.0
+      CI: ${CI}
+    volumes:
+      - ./frontend/blob-report:/app/frontend/blob-report
+      - ./frontend/test-results:/app/frontend/test-results
+    ports:
+      - "9323:9323"
+
+volumes:
+  app-db-data:
+  app-redis-data:
+
+networks:
+  default:
+    driver: bridge
+  traefik-public:
+    # 本地開發為 false（由本檔的 proxy 服務建立）
+    # 生產：請改為 true，並改用 compose.traefik.yml 提供的 Traefik
+    external: false

@@ -1,4 +1,4 @@
-name: Migration sanity
+﻿name: Migration sanity
 
 on:
   pull_request:
@@ -27,7 +27,7 @@ jobs:
 
       - name: Run migration check
         env:
-          PROJECT_NAME: campus-cloud-ci
+          PROJECT_NAME: SkyLab-ci
           FIRST_SUPERUSER: admin@example.com
           FIRST_SUPERUSER_PASSWORD: ci-migration-check-password
           SECRET_KEY: ci-migration-check-secret-key-not-for-production

@@ -1,4 +1,4 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+﻿import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { createFileRoute } from "@tanstack/react-router"
 import {
   AlertTriangle,
@@ -366,7 +366,7 @@ export const Route = createFileRoute("/_layout/admin/configuration")({
   component: AdminConfigPage,
   beforeLoad: () => requireAdminUser(),
   head: () => ({
-    meta: [{ title: "系統設定 - Campus Cloud" }],
+    meta: [{ title: "系統設定 - SkyLab" }],
   }),
 })
 
@@ -1254,7 +1254,7 @@ function AdminConfigPage() {
       data_storage: "local-lvm",
       api_timeout: 30,
       task_check_interval: 2,
-      pool_name: "CampusCloud",
+      pool_name: "SkyLab",
       gateway_ip: "",
       local_subnet: "",
       default_node: "",
@@ -2017,7 +2017,7 @@ function AdminConfigPage() {
                           <FormItem>
                             <FormLabel>集區名稱</FormLabel>
                             <FormControl>
-                              <Input placeholder="CampusCloud" {...field} />
+                              <Input placeholder="SkyLab" {...field} />
                             </FormControl>
                             <FormMessage />
                           </FormItem>

@@ -1,4 +1,4 @@
-"""Provisioned resource metadata."""
+﻿"""Provisioned resource metadata."""
 
 import uuid
 from datetime import date, datetime
@@ -13,7 +13,7 @@ if TYPE_CHECKING:
 
 
 class Resource(SQLModel, table=True):
-    """Campus Cloud managed VM/LXC metadata."""
+    """SkyLab managed VM/LXC metadata."""
 
     __tablename__ = "resources"
     __table_args__ = (

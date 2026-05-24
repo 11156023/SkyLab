@@ -1,4 +1,4 @@
-import threading
+﻿import threading
 import uuid
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
@@ -612,7 +612,7 @@ def test_vm_request_review_context_includes_runtime_and_projection(
                 "node": "pve-a",
                 "type": "qemu",
                 "status": "running",
-                "pool": "CampusCloud",
+                "pool": "SkyLab",
             }
         ],
     )
@@ -829,7 +829,7 @@ def test_reserved_target_node_prefers_admin_storage_profile(
             verify_ssl=False,
             iso_storage="local",
             data_storage="local-lvm",
-            pool_name="CampusCloud",
+            pool_name="SkyLab",
             placement_strategy="priority_dominant_share",
             cpu_overcommit_ratio=2.0,
             disk_overcommit_ratio=1.0,
@@ -981,6 +981,10 @@ def test_create_vm_prefers_admin_selected_storage(
         "app.services.proxmox.provisioning_service.audit_service.log_action",
         lambda *args, **kwargs: None,
     )
+    monkeypatch.setattr(
+        "app.services.proxmox.provisioning_service.get_proxmox_settings",
+        lambda: SimpleNamespace(pool_name="SkyLab"),
+    )
 
     provisioning_service.create_vm(
         session=db,
@@ -1008,7 +1012,7 @@ def test_create_vm_prefers_admin_selected_storage(
             "name": "admin-storage-choice",
             "full": 1,
             "storage": "data-nvme",
-            "pool": "CampusCloud",
+            "pool": "SkyLab",
         },
     )
 
@@ -1265,7 +1269,7 @@ def test_process_due_request_starts_defers_when_migration_budget_is_exhausted(
             verify_ssl=False,
             iso_storage="local",
             data_storage="local-lvm",
-            pool_name="CampusCloud",
+            pool_name="SkyLab",
             placement_strategy="priority_dominant_share",
             cpu_overcommit_ratio=2.0,
             disk_overcommit_ratio=1.0,
@@ -1367,7 +1371,7 @@ def test_process_due_request_starts_defers_when_recently_migrated(
             verify_ssl=False,
             iso_storage="local",
             data_storage="local-lvm",
-            pool_name="CampusCloud",
+            pool_name="SkyLab",
             placement_strategy="priority_dominant_share",
             cpu_overcommit_ratio=2.0,
             disk_overcommit_ratio=1.0,
@@ -1590,7 +1594,7 @@ def test_process_due_request_starts_retries_pending_migration_job_until_limit(
             verify_ssl=False,
             iso_storage="local",
             data_storage="local-lvm",
-            pool_name="CampusCloud",
+            pool_name="SkyLab",
             placement_strategy="priority_dominant_share",
             cpu_overcommit_ratio=2.0,
             disk_overcommit_ratio=1.0,
@@ -1716,7 +1720,7 @@ def test_build_plan_prefers_current_node_when_migration_cost_is_applied(
             verify_ssl=False,
             iso_storage="local",
             data_storage="local-lvm",
-            pool_name="CampusCloud",
+            pool_name="SkyLab",
             placement_strategy="priority_dominant_share",
             rebalance_migration_cost=0.5,
         )
@@ -1778,7 +1782,7 @@ def test_build_plan_avoids_high_loadavg_and_peak_risk_node(
             verify_ssl=False,
             iso_storage="local",
             data_storage="local-lvm",
-            pool_name="CampusCloud",
+            pool_name="SkyLab",
             placement_strategy="priority_dominant_share",
             rebalance_peak_cpu_margin=2.0,
             rebalance_peak_memory_margin=1.05,
@@ -1845,7 +1849,7 @@ def test_build_plan_prefers_balance_before_node_priority(
             verify_ssl=False,
             iso_storage="local",
             data_storage="local-lvm",
-            pool_name="CampusCloud",
+            pool_name="SkyLab",
             placement_strategy="priority_dominant_share",
         )
     )
@@ -1907,7 +1911,7 @@ def test_unprovisioned_request_reassignment_has_no_migration_cost(
             verify_ssl=False,
             iso_storage="local",
             data_storage="local-lvm",
-            pool_name="CampusCloud",
+            pool_name="SkyLab",
             placement_strategy="priority_dominant_share",
             rebalance_migration_cost=1.0,
         )
@@ -2600,6 +2604,10 @@ def test_create_vm_uses_template_node_and_normalizes_disk_size(
         "app.services.proxmox.provisioning_service.audit_service.log_action",
         lambda *args, **kwargs: None,
     )
+    monkeypatch.setattr(
+        "app.services.proxmox.provisioning_service.get_proxmox_settings",
+        lambda: SimpleNamespace(pool_name="SkyLab"),
+    )
 
     result = provisioning_service.create_vm(
         session=db,
@@ -2629,7 +2637,7 @@ def test_create_vm_uses_template_node_and_normalizes_disk_size(
             "name": "template-node-check",
             "full": 1,
             "storage": "fast-ssd",
-            "pool": "CampusCloud",
+            "pool": "SkyLab",
         },
     )
     assert captured["resize"] == ("node-b", 900, "qemu", "scsi0", "40G")
@@ -2684,6 +2692,10 @@ def test_create_vm_falls_back_when_requested_storage_is_unavailable(
         "app.services.proxmox.provisioning_service.audit_service.log_action",
         lambda *args, **kwargs: None,
     )
+    monkeypatch.setattr(
+        "app.services.proxmox.provisioning_service.get_proxmox_settings",
+        lambda: SimpleNamespace(pool_name="SkyLab"),
+    )
 
     provisioning_service.create_vm(
         session=db,
@@ -2710,7 +2722,7 @@ def test_create_vm_falls_back_when_requested_storage_is_unavailable(
             "name": "storage-fallback",
             "full": 1,
             "storage": "fast-ssd",
-            "pool": "CampusCloud",
+            "pool": "SkyLab",
         },
     )
 
@@ -2862,21 +2874,21 @@ def test_sync_request_migration_job_uses_specific_clear_reason(
 def test_vm_templates_are_filtered_by_pool(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
         "app.infrastructure.proxmox.operations.get_proxmox_settings",
-        lambda: type("Cfg", (), {"pool_name": "CampusCloud"})(),
+        lambda: type("Cfg", (), {"pool_name": "SkyLab"})(),
     )
     monkeypatch.setattr(
         "app.infrastructure.proxmox.operations._raw_vms",
         lambda: [
-            {"vmid": 100, "name": "allowed", "node": "node-a", "template": 1, "pool": "CampusCloud"},
+            {"vmid": 100, "name": "allowed", "node": "node-a", "template": 1, "pool": "SkyLab"},
             {"vmid": 101, "name": "blocked", "node": "node-b", "template": 1, "pool": "OtherPool"},
-            {"vmid": 102, "name": "not-template", "node": "node-c", "template": 0, "pool": "CampusCloud"},
+            {"vmid": 102, "name": "not-template", "node": "node-c", "template": 0, "pool": "SkyLab"},
         ],
     )
 
     templates = proxmox_service.get_vm_templates()
 
     assert templates == [
-        {"vmid": 100, "name": "allowed", "node": "node-a", "template": 1, "pool": "CampusCloud"}
+        {"vmid": 100, "name": "allowed", "node": "node-a", "template": 1, "pool": "SkyLab"}
     ]
 
 
@@ -2893,7 +2905,7 @@ def test_local_rebalance_search_improves_unbalanced_initial_assignment(
             verify_ssl=False,
             iso_storage="local",
             data_storage="local-lvm",
-            pool_name="CampusCloud",
+            pool_name="SkyLab",
             placement_strategy="priority_dominant_share",
             rebalance_migration_cost=0.1,
             rebalance_search_max_relocations=2,
@@ -2993,7 +3005,7 @@ def test_reserved_target_node_preview_matches_active_rebalance_objective(
             verify_ssl=False,
             iso_storage="local",
             data_storage="local-lvm",
-            pool_name="CampusCloud",
+            pool_name="SkyLab",
             placement_strategy="priority_dominant_share",
             rebalance_migration_cost=0.5,
             rebalance_search_max_relocations=2,
@@ -3087,7 +3099,7 @@ def test_quick_template_reserved_target_skips_cohort_rebalance_preview(
             verify_ssl=False,
             iso_storage="local",
             data_storage="local-lvm",
-            pool_name="CampusCloud",
+            pool_name="SkyLab",
             placement_strategy="priority_dominant_share",
         )
     )

@@ -186,15 +186,6 @@ def list_by_user(
                     )
                 )
 
-        # 2. Tombstones for the user's own recent completed deletions, so the
-        # RequestsPage can show a "已刪除" badge. Admin-initiated deletions
-        # are intentionally excluded — the snapshot's user_id matches the
-        # owner, but ``user_id`` on DeletionRequest is whoever submitted the
-        # delete (could be admin); we only want the user-self case here.
-        result.extend(
-            _list_user_deletion_tombstones(session=session, user_id=user_id)
-        )
-
         return result
     except Exception as e:
         logger.error(f"Failed to get user resources: {e}")
@@ -415,6 +406,55 @@ def delete(
     except Exception as e:
         logger.error(f"Failed to delete resource {vmid}: {e}")
         raise ProxmoxError(f"Failed to delete resource {vmid}: {e}")
+
+
+def delete_orphan_db_record(
+    *,
+    session: Session,
+    vmid: int,
+    user_id: uuid.UUID,
+) -> None:
+    """Clean up a DB resource record whose Proxmox VM no longer exists.
+
+    Runs only the non-Proxmox cleanup steps (IP release, reverse proxy,
+    batch task unlinking, DB row deletion, VM request cancellation, audit log).
+    Safe to call when the VM is already gone from Proxmox.
+    """
+    try:
+        from app.services.network import reverse_proxy_service  # noqa: PLC0415
+        reverse_proxy_service.remove_reverse_proxy_rules_for_vmid(session, vmid)
+    except Exception as exc:
+        logger.warning("Orphan cleanup: failed to remove reverse proxy rules for vmid=%s: %s", vmid, exc)
+
+    try:
+        from app.services.network import ip_management_service  # noqa: PLC0415
+        ip_management_service.release_ip(session, vmid)
+    except Exception as exc:
+        logger.warning("Orphan cleanup: failed to release IP for vmid=%s: %s", vmid, exc)
+
+    try:
+        batch_provision_repo.clear_task_vmid_references(session=session, vmid=vmid, commit=False)
+    except Exception as exc:
+        session.rollback()
+        logger.warning("Orphan cleanup: failed to clear batch task refs for vmid=%s: %s", vmid, exc)
+
+    resource_repo.delete_resource(session=session, vmid=vmid)
+    audit_log_repo.delete_audit_logs_by_vmid(session=session, vmid=vmid)
+
+    linked_request = vm_request_repo.get_latest_approved_vm_request_by_vmid(session=session, vmid=vmid)
+    if linked_request is not None:
+        linked_request.status = VMRequestStatus.rejected
+        linked_request.review_comment = "Resource deleted (orphan DB cleanup)"
+        session.add(linked_request)
+
+    audit_service.log_action(
+        session=session,
+        user_id=user_id,
+        vmid=vmid,
+        action="resource_delete",
+        details=f"Orphan DB cleanup for vmid={vmid} (VM not found in Proxmox)",
+    )
+    logger.info("Orphan DB record for vmid=%s cleaned up", vmid)
 
 
 def get_current_stats(*, vmid: int, resource_info: dict) -> dict:

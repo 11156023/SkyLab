@@ -39,7 +39,7 @@ def test_build_full_domain_rejects_invalid_prefix() -> None:
 def test_apply_reverse_proxy_rule_creates_cloudflare_dns_record(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    session = cast(Session, object())
+    session = cast(Session, SimpleNamespace(get=lambda *_args, **_kwargs: SimpleNamespace(vmid=101)))
     created_rule: dict[str, object] = {}
 
     monkeypatch.setattr(rp_repo, "is_domain_taken", lambda *_args, **_kwargs: False)

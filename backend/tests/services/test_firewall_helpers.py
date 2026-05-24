@@ -1,8 +1,8 @@
-"""Tests for pure helpers in app.services.network.firewall_service.
+﻿"""Tests for pure helpers in app.services.network.firewall_service.
 
 Focus on the parsers/builders that are deterministic and free of any
 Proxmox API or DB calls. Testing these guards against regressions in
-the comment-format contract used by every campus-cloud firewall rule.
+the comment-format contract used by every SkyLab firewall rule.
 """
 
 from __future__ import annotations
@@ -37,7 +37,7 @@ def test_connection_comment_portless_round_trip() -> None:
 
 
 def test_parse_gateway_connection_with_port() -> None:
-    parsed = fw._parse_connection_comment("campus-cloud:101->gateway:443/tcp")
+    parsed = fw._parse_connection_comment("SkyLab:101->gateway:443/tcp")
     assert parsed == {
         "type": "gateway_connection",
         "source_vmid": 101,
@@ -47,7 +47,7 @@ def test_parse_gateway_connection_with_port() -> None:
 
 
 def test_parse_gateway_connection_portless() -> None:
-    parsed = fw._parse_connection_comment("campus-cloud:101->gateway:icmp")
+    parsed = fw._parse_connection_comment("SkyLab:101->gateway:icmp")
     assert parsed == {
         "type": "gateway_connection",
         "source_vmid": 101,
@@ -57,7 +57,7 @@ def test_parse_gateway_connection_portless() -> None:
 
 
 def test_parse_internet_connection_with_port() -> None:
-    parsed = fw._parse_connection_comment("campus-cloud:gateway->101:80/tcp")
+    parsed = fw._parse_connection_comment("SkyLab:gateway->101:80/tcp")
     assert parsed == {
         "type": "internet_connection",
         "target_vmid": 101,
@@ -67,7 +67,7 @@ def test_parse_internet_connection_with_port() -> None:
 
 
 def test_parse_gateway_default_marker() -> None:
-    assert fw._parse_connection_comment("campus-cloud:gateway:default") == {
+    assert fw._parse_connection_comment("SkyLab:gateway:default") == {
         "type": "gateway_default"
     }
 
@@ -77,8 +77,8 @@ def test_parse_unrelated_comment_returns_none() -> None:
     assert fw._parse_connection_comment("") is None
 
 
-def test_parse_malformed_campus_cloud_comment_returns_none() -> None:
-    assert fw._parse_connection_comment("campus-cloud:not-a-known-shape") is None
+def test_parse_malformed_skylab_comment_returns_none() -> None:
+    assert fw._parse_connection_comment("SkyLab:not-a-known-shape") is None
 
 
 # ─── _make_rule_fields ───────────────────────────────────────────────────────
@@ -124,7 +124,7 @@ def test_extra_block_comment_is_deterministic() -> None:
     a = fw._extra_block_comment("10.0.0.0/8")
     b = fw._extra_block_comment("10.0.0.0/8")
     assert a == b
-    assert a.startswith("campus-cloud:block-extra:")
+    assert a.startswith("SkyLab:block-extra:")
 
 
 def test_extra_block_comment_differs_per_dest() -> None:

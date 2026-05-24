@@ -1,16 +1,16 @@
-#!/usr/bin/env bash
+﻿#!/usr/bin/env bash
 # =============================================================================
-# Campus Cloud - Gateway VM 安裝腳本
+# SkyLab - Gateway VM 安裝腳本
 # 支援系統：Debian 12 (Bookworm)
 # 安裝服務：haproxy + Traefik + frps + frpc
 # =============================================================================
 
 set -euo pipefail
 
-# ── 接受 Campus Cloud 公鑰參數 ────────────────────────────────────────────────
+# ── 接受 SkyLab 公鑰參數 ────────────────────────────────────────────────
 # 用法：bash install.sh "<ssh-ed25519 AAAA...>"
 # 若提供公鑰，自動寫入 /root/.ssh/authorized_keys
-CAMPUS_CLOUD_PUBKEY="${1:-}"
+skylab_PUBKEY="${1:-}"
 
 # ── 版本設定（升級時只改這裡）────────────────────────────────────────────────
 TRAEFIK_VERSION="3.3.4"
@@ -49,7 +49,7 @@ global
     log /dev/log local0
     log /dev/log local1 notice
     maxconn 50000
-    # Runtime API socket（Campus Cloud 用於動態管理）
+    # Runtime API socket（SkyLab 用於動態管理）
     stats socket /run/haproxy/admin.sock mode 660 level admin expose-fd listeners
     stats timeout 30s
     user haproxy
@@ -66,12 +66,12 @@ defaults
     timeout server  1m
 
 # ──────────────────────────────────────────────────────────────────────────────
-# 以下為 Campus Cloud 自動管理區域
-# 請勿手動修改 BEGIN/END 之間的內容，由 Campus Cloud 透過 SSH 自動維護
+# 以下為 SkyLab 自動管理區域
+# 請勿手動修改 BEGIN/END 之間的內容，由 SkyLab 透過 SSH 自動維護
 # ──────────────────────────────────────────────────────────────────────────────
-# BEGIN_CAMPUS_CLOUD_MANAGED
+# BEGIN_skylab_MANAGED
 
-# END_CAMPUS_CLOUD_MANAGED
+# END_skylab_MANAGED
 HAPROXY_EOF
 
 systemctl enable haproxy
@@ -96,12 +96,12 @@ mkdir -p /etc/traefik/dynamic /etc/traefik/env
 touch /etc/traefik/acme.json
 chmod 600 /etc/traefik/acme.json
 
-cat > /etc/traefik/env/campus-cloud.env << 'TRAEFIK_ENV_EOF'
-# Campus Cloud 自動管理，供 Traefik dnsChallenge 使用
+cat > /etc/traefik/env/SkyLab.env << 'TRAEFIK_ENV_EOF'
+# SkyLab 自動管理，供 Traefik dnsChallenge 使用
 # 實際值會在 admin/domains 設定 Cloudflare Token 後由後端覆寫
 CF_DNS_API_TOKEN=""
 TRAEFIK_ENV_EOF
-chmod 600 /etc/traefik/env/campus-cloud.env
+chmod 600 /etc/traefik/env/SkyLab.env
 
 # 靜態設定
 cat > /etc/traefik/traefik.yml << 'TRAEFIK_EOF'
@@ -133,7 +133,7 @@ providers:
 certificatesResolvers:
   letsencrypt:
     acme:
-      # 會在 admin/domains 完成設定後由 Campus Cloud 後端覆寫成正式值
+      # 會在 admin/domains 完成設定後由 SkyLab 後端覆寫成正式值
       email: admin@example.com
       storage: /etc/traefik/acme.json
       dnsChallenge:
@@ -149,9 +149,9 @@ accessLog: {}
 TRAEFIK_EOF
 
 # 初始 dynamic config（空）
-cat > /etc/traefik/dynamic/campus-cloud.yml << 'DYNAMIC_EOF'
-# Campus Cloud 自動管理的反向代理設定
-# 此檔案由 Campus Cloud 透過 SSH 自動維護，請勿手動修改
+cat > /etc/traefik/dynamic/SkyLab.yml << 'DYNAMIC_EOF'
+# SkyLab 自動管理的反向代理設定
+# 此檔案由 SkyLab 透過 SSH 自動維護，請勿手動修改
 http:
   routers: {}
   services: {}
@@ -168,7 +168,7 @@ Wants=network-online.target
 [Service]
 Type=simple
 User=root
-EnvironmentFile=-/etc/traefik/env/campus-cloud.env
+EnvironmentFile=-/etc/traefik/env/SkyLab.env
 ExecStart=/usr/local/bin/traefik --configFile=/etc/traefik/traefik.yml
 Restart=always
 RestartSec=5
@@ -295,20 +295,20 @@ systemctl start frps
 info "frp 安裝完成（frps 已啟動，frpc 待設定後手動啟用）"
 
 # =============================================================================
-# 4. Campus Cloud SSH 公鑰（若有提供則自動寫入）
+# 4. SkyLab SSH 公鑰（若有提供則自動寫入）
 # =============================================================================
-if [[ -n "$CAMPUS_CLOUD_PUBKEY" ]]; then
-    section "設定 Campus Cloud SSH 公鑰"
+if [[ -n "$skylab_PUBKEY" ]]; then
+    section "設定 SkyLab SSH 公鑰"
     mkdir -p /root/.ssh
     chmod 700 /root/.ssh
     # 避免重複寫入同一把公鑰
-    if ! grep -qF "$CAMPUS_CLOUD_PUBKEY" /root/.ssh/authorized_keys 2>/dev/null; then
-        echo "$CAMPUS_CLOUD_PUBKEY" >> /root/.ssh/authorized_keys
+    if ! grep -qF "$skylab_PUBKEY" /root/.ssh/authorized_keys 2>/dev/null; then
+        echo "$skylab_PUBKEY" >> /root/.ssh/authorized_keys
     fi
     chmod 600 /root/.ssh/authorized_keys
-    info "Campus Cloud 公鑰已加入 /root/.ssh/authorized_keys"
+    info "SkyLab 公鑰已加入 /root/.ssh/authorized_keys"
 else
-    warn "未提供公鑰，請手動將 Campus Cloud 公鑰加入 /root/.ssh/authorized_keys"
+    warn "未提供公鑰，請手動將 SkyLab 公鑰加入 /root/.ssh/authorized_keys"
 fi
 
 # =============================================================================
@@ -319,7 +319,7 @@ section "安裝完成"
 cat << 'SUMMARY_EOF'
 
 ┌─────────────────────────────────────────────────────────────────┐
-│              Campus Cloud Gateway VM 安裝完成                    │
+│              SkyLab Gateway VM 安裝完成                    │
 ├─────────────────────────────────────────────────────────────────┤
 │  服務          狀態      設定檔                                  │
 │  haproxy       ✅ 運行   /etc/haproxy/haproxy.cfg               │
@@ -330,7 +330,7 @@ cat << 'SUMMARY_EOF'
 │  後續步驟：                                                      │
 │  1. 修改 /etc/frp/frps.toml 中的 auth.token（必要）            │
 │  2. 修改 /etc/traefik/traefik.yml 中的 email（HTTPS 憑證）     │
-│  3. 回到 Campus Cloud 管理介面填入此 VM 的 IP                   │
+│  3. 回到 SkyLab 管理介面填入此 VM 的 IP                   │
 │  4. 點擊「測試連線」確認 SSH 連線正常                           │
 ├─────────────────────────────────────────────────────────────────┤
 │  常用指令：                                                      │

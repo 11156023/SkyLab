@@ -1,6 +1,6 @@
-# Campus Cloud
+﻿# SkyLab
 
-Campus Cloud 是一個面向校園資源管理的全端 Proxmox VE（PVE）虛擬化平台，整合了 VM/LXC 生命週期管理、申請審核流程、防火牆與閘道控制、AI 驅動的資源配置建議，以及自架的 vLLM 推論服務。
+SkyLab 是一個面向校園資源管理的全端 Proxmox VE（PVE）虛擬化平台，整合了 VM/LXC 生命週期管理、申請審核流程、防火牆與閘道控制、AI 驅動的資源配置建議，以及自架的 vLLM 推論服務。
 
 ## 系統組成
 
@@ -152,8 +152,8 @@ python resource_ssh_ls.py --vmid 101 --ssh-user ubuntu --command "whoami; hostna
 ### 常用參數
 
 - `--api-base`：API Base URL（預設 `http://localhost:8000/api/v1`）
-- `--api-user`：Campus Cloud 帳號（email）
-- `--api-password`：Campus Cloud 密碼（不填會互動式提示輸入）
+- `--api-user`：SkyLab 帳號（email）
+- `--api-password`：SkyLab 密碼（不填會互動式提示輸入）
 - `--vmid`：目標 VM/LXC 的 VMID（必填）
 - `--ssh-user`：登入 VM/LXC 的 Linux 帳號（必填）
 - `--ssh-port`：SSH port（預設 22）
@@ -164,16 +164,16 @@ python resource_ssh_ls.py --vmid 101 --ssh-user ubuntu --command "whoami; hostna
 
 ### 環境變數（可選）
 
-- `CAMPUS_CLOUD_API_BASE`
-- `CAMPUS_CLOUD_API_USER`
-- `CAMPUS_CLOUD_API_PASSWORD`
+- `skylab_API_BASE`
+- `skylab_API_USER`
+- `skylab_API_PASSWORD`
 
 範例：
 
 ```bash
-export CAMPUS_CLOUD_API_BASE=http://localhost:8000/api/v1
-export CAMPUS_CLOUD_API_USER=admin@example.com
-export CAMPUS_CLOUD_API_PASSWORD=your_password
+export skylab_API_BASE=http://localhost:8000/api/v1
+export skylab_API_USER=admin@example.com
+export skylab_API_PASSWORD=your_password
 python resource_ssh_ls.py --vmid 101 --ssh-user ubuntu --path /etc
 ```
 

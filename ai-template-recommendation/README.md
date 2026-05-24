@@ -1,11 +1,11 @@
-# AI Template Recommendation
+﻿# AI Template Recommendation
 
 獨立的 FastAPI 服務，依使用者課程情境與既有 Proxmox 節點容量，由 vLLM 推薦最合適的 VM/LXC 模板與資源規格。
 
 ## 功能總覽
 
 - 從 `frontend/src/json/`（或 `TEMPLATES_DIR` 指向的目錄）載入模板目錄
-- 從 Campus Cloud backend 或內建 snapshot 取得即時節點容量
+- 從 SkyLab backend 或內建 snapshot 取得即時節點容量
 - 對話式蒐集使用者意圖（goal、課程情境、Budget、是否需要 GPU / 資料庫 / Windows / Web 等）
 - 由 vLLM 產出推薦模板、機器拆分、CPU/RAM/Disk 與優先放置節點
 - 後端正規化 AI 輸出：模板 slug 必須存在於目錄、規格不得低於模板預設

@@ -1,4 +1,4 @@
-"""Tests for TOTP primitives.
+﻿"""Tests for TOTP primitives.
 
 Skips entirely if ``pyotp`` is not installed.
 """
@@ -24,10 +24,10 @@ def test_provisioning_uri_contains_account_and_issuer() -> None:
     uri = totp.provisioning_uri(
         secret=totp.generate_secret(),
         account_name="alice@example.com",
-        issuer="CampusCloud",
+        issuer="SkyLab",
     )
     assert uri.startswith("otpauth://totp/")
-    assert "CampusCloud" in uri
+    assert "SkyLab" in uri
     assert "alice%40example.com" in uri or "alice@example.com" in uri
 
 

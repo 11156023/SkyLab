@@ -1,4 +1,5 @@
 import logging
+import uuid
 
 from fastapi import APIRouter
 
@@ -8,8 +9,9 @@ from app.api.deps import (
     ResourceInfoDep,
     SessionDep,
 )
+from app.core.authorizers import can_bypass_resource_ownership, require_resource_access
 from app.core.security import decrypt_value
-from app.exceptions import ProxmoxError
+from app.exceptions import NotFoundError, PermissionDeniedError, ProxmoxError
 from app.infrastructure.worker import submit_sync
 from app.models import DeletionRequestStatus
 from app.repositories import resource as resource_repo
@@ -165,7 +167,6 @@ def delete_resource(
     vmid: int,
     session: SessionDep,
     current_user: CurrentUser,
-    resource_info: ResourceInfoDep,
     purge: bool = True,
     force: bool = False,
 ):
@@ -175,7 +176,53 @@ def delete_resource(
       呼叫 ``deletion_service.process_one_request``，無需等 scheduler tick。
     - 兜底：scheduler 每隔 ``SCHEDULER_POLL_SECONDS`` 仍會掃描 pending request，
       涵蓋 server restart / 背景任務失敗的情況。
+    - 孤兒清理：若 VM 在 Proxmox 已不存在但 DB 仍有記錄，直接清理 DB 並回 202。
     """
+    # Check DB ownership first (without requiring Proxmox to be available)
+    db_resource = resource_repo.get_resource_by_vmid(session=session, vmid=vmid)
+    is_admin = can_bypass_resource_ownership(current_user)
+
+    if db_resource is None:
+        if not is_admin:
+            raise NotFoundError(f"Resource {vmid} not found")
+        # Admin deleting an orphan resource (exists in Proxmox but not in DB).
+        # Fall through to locate it in Proxmox below.
+        logger.info(
+            "Admin %s deleting orphan resource %s (no DB record)",
+            current_user.email, vmid,
+        )
+    elif not is_admin:
+        try:
+            require_resource_access(current_user, db_resource.user_id)
+        except PermissionDeniedError:
+            logger.warning(
+                "User %s attempted to delete resource %s owned by %s",
+                current_user.email, vmid, db_resource.user_id,
+            )
+            raise
+
+    # Try to locate the VM in Proxmox.
+    # - If gone and DB record exists → clean up orphan DB record.
+    # - If gone and no DB record → nothing to do.
+    try:
+        resource_info = proxmox_service.find_resource(vmid)
+    except NotFoundError:
+        if db_resource is not None:
+            logger.warning(
+                "Resource %s not found in Proxmox; cleaning up orphan DB record", vmid
+            )
+            resource_service.delete_orphan_db_record(
+                session=session, vmid=vmid, user_id=current_user.id
+            )
+        else:
+            logger.info("Resource %s not found in Proxmox and no DB record; nothing to clean up", vmid)
+        return DeletionRequestCreated(
+            id=uuid.uuid4(),
+            vmid=vmid,
+            status=DeletionRequestStatus.completed,
+            message="Orphan DB record cleaned up (VM already removed from Proxmox)",
+        )
+
     req = deletion_service.create_deletion_request(
         session=session,
         user_id=current_user.id,

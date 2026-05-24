@@ -1,7 +1,7 @@
-/**
+﻿/**
  * firewall.js
  * 防火牆相關 API 封裝。
- * 端點參考：c:/git/Campus-Cloud/frontend/src/client/compat.ts
+ * 端點參考：c:/git/SkyLab/frontend/src/client/compat.ts
  */
 
 import { apiGet, apiPost, apiPut, apiDeleteJson } from "./api";

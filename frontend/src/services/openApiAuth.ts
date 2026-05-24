@@ -18,11 +18,7 @@ function decodeBase64Url(value: string): string | null {
     const paddingLength = (4 - (normalized.length % 4)) % 4
     const padded = `${normalized}${"=".repeat(paddingLength)}`
 
-    if (typeof window !== "undefined" && typeof window.atob === "function") {
-      return window.atob(padded)
-    }
-
-    return Buffer.from(padded, "base64").toString("utf-8")
+    return atob(padded)
   } catch {
     return null
   }

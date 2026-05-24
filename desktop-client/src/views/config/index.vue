@@ -1,4 +1,4 @@
-<script lang="ts" setup>
+﻿<script lang="ts" setup>
 import Breadcrumb from "@/layout/compoenets/Breadcrumb.vue";
 import { useAppStore } from "@/store/app";
 import { on, removeRouterListeners, send } from "@/utils/ipcUtils";
@@ -18,7 +18,7 @@ const form = reactive({
   backendUrl: ""
 });
 
-const syncFromStore = (settings: Partial<CampusCloudSettings> | null) => {
+const syncFromStore = (settings: Partial<SkyLabSettings> | null) => {
   if (!settings) return;
   form.language = settings.language || "zh-CN";
   form.launchAtStartup = !!settings.launchAtStartup;
@@ -52,10 +52,10 @@ watch(
 );
 
 onMounted(() => {
-  on(ipcRouters.SETTINGS.getSettings, (data: CampusCloudSettings) => {
+  on(ipcRouters.SETTINGS.getSettings, (data: SkyLabSettings) => {
     syncFromStore(data);
   });
-  on(ipcRouters.SETTINGS.saveSettings, (data: CampusCloudSettings) => {
+  on(ipcRouters.SETTINGS.saveSettings, (data: SkyLabSettings) => {
     syncFromStore(data);
     ElMessage.success(t("config.saveSuccess"));
   });

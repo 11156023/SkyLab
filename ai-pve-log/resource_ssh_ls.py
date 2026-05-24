@@ -1,12 +1,12 @@
-"""List directories on a VM/LXC via Campus Cloud backend API + SSH key login.
+﻿"""List directories on a VM/LXC via SkyLab backend API + SSH key login.
 
 Usage example:
   python resource_ssh_ls.py --vmid 101 --ssh-user ubuntu --path /home/ubuntu
 
 Environment variable fallbacks:
-  CAMPUS_CLOUD_API_BASE      (default: http://localhost:8000/api/v1)
-  CAMPUS_CLOUD_API_USER
-  CAMPUS_CLOUD_API_PASSWORD
+  skylab_API_BASE      (default: http://localhost:8000/api/v1)
+  skylab_API_USER
+  skylab_API_PASSWORD
 """
 
 from __future__ import annotations
@@ -48,7 +48,7 @@ class ScriptConfig:
 def parse_args() -> ScriptConfig:
     parser = argparse.ArgumentParser(
         description=(
-            "Fetch SSH key from Campus Cloud API and list a directory on a VM/LXC."
+            "Fetch SSH key from SkyLab API and list a directory on a VM/LXC."
         )
     )
     parser.add_argument(
@@ -56,11 +56,11 @@ def parse_args() -> ScriptConfig:
         default=None,
         help="Backend API base URL, e.g. http://localhost:8000/api/v1",
     )
-    parser.add_argument("--api-user", default=None, help="Campus Cloud login email")
+    parser.add_argument("--api-user", default=None, help="SkyLab login email")
     parser.add_argument(
         "--api-password",
         default=None,
-        help="Campus Cloud login password (omit to prompt securely)",
+        help="SkyLab login password (omit to prompt securely)",
     )
     parser.add_argument("--vmid", type=int, required=True, help="Target VM/LXC VMID")
     parser.add_argument(
@@ -96,9 +96,9 @@ def parse_args() -> ScriptConfig:
 
     args = parser.parse_args()
 
-    api_base = args.api_base or _get_env("CAMPUS_CLOUD_API_BASE") or DEFAULT_API_BASE
-    api_user = args.api_user or _get_env("CAMPUS_CLOUD_API_USER")
-    api_password = args.api_password or _get_env("CAMPUS_CLOUD_API_PASSWORD")
+    api_base = args.api_base or _get_env("skylab_API_BASE") or DEFAULT_API_BASE
+    api_user = args.api_user or _get_env("skylab_API_USER")
+    api_password = args.api_password or _get_env("skylab_API_PASSWORD")
 
     if not api_user:
         api_user = input("API user email: ").strip()
@@ -179,7 +179,7 @@ def get_ssh_key(token: str, cfg: ScriptConfig) -> dict[str, Any]:
             raise ScriptError(
                 "Failed to get SSH key: VMID "
                 f"{cfg.vmid} is not registered in backend resources table. "
-                "This VM/LXC may exist on Proxmox but has no stored SSH key in Campus Cloud DB."
+                "This VM/LXC may exist on Proxmox but has no stored SSH key in SkyLab DB."
             )
     _raise_http(resp, "Failed to get SSH key")
     payload = resp.json()

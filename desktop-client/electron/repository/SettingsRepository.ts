@@ -1,17 +1,17 @@
-import BaseRepository from "./BaseRepository";
+﻿import BaseRepository from "./BaseRepository";
 import GlobalConstant from "../core/GlobalConstant";
 
-class SettingsRepository extends BaseRepository<CampusCloudSettings> {
+class SettingsRepository extends BaseRepository<SkyLabSettings> {
   private readonly _id = "1";
 
   constructor() {
     super("settings");
   }
 
-  async get(): Promise<CampusCloudSettings> {
+  async get(): Promise<SkyLabSettings> {
     const existing = await this.findById(this._id);
     if (existing) return existing;
-    const defaults: CampusCloudSettings = {
+    const defaults: SkyLabSettings = {
       _id: this._id,
       backendUrl: GlobalConstant.DEFAULT_BACKEND_URL,
       token: "",
@@ -22,7 +22,7 @@ class SettingsRepository extends BaseRepository<CampusCloudSettings> {
     return defaults;
   }
 
-  async save(patch: Partial<CampusCloudSettings>): Promise<CampusCloudSettings> {
+  async save(patch: Partial<SkyLabSettings>): Promise<SkyLabSettings> {
     const current = await this.get();
     const merged = { ...current, ...patch, _id: this._id };
     return this.updateById(this._id, merged);

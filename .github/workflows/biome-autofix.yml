@@ -1,0 +1,51 @@
+name: Biome Autofix
+
+on:
+  pull_request:
+    paths:
+      - "frontend/**"
+      - ".github/workflows/biome-autofix.yml"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: biome-autofix-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  autofix:
+    name: Biome format + lint autofix
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    defaults:
+      run:
+        working-directory: frontend
+
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.head_ref }}
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Apply Biome fixes
+        run: bunx biome check --write .
+
+      - name: Commit fixes if any
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          if ! git diff --quiet; then
+            git add -A
+            git commit -m "style: biome autofix"
+            git push
+          else
+            echo "No formatting changes needed."
+          fi

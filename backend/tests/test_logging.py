@@ -147,11 +147,11 @@ def test_websocket_noise_filter_hides_successful_uvicorn_ws_logs() -> None:
 
 def test_configure_logging_is_idempotent() -> None:
     """Calling configure_logging twice should not stack handlers."""
-    configure_logging(level="WARNING", json_output=False)
+    configure_logging(level="WARNING", json_output=False, file_enabled=False)
     root = logging.getLogger()
     handlers_after_first = len(root.handlers)
 
-    configure_logging(level="DEBUG", json_output=True)
+    configure_logging(level="DEBUG", json_output=True, file_enabled=False)
     handlers_after_second = len(root.handlers)
 
     assert handlers_after_first == handlers_after_second

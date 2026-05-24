@@ -1,4 +1,4 @@
-"""NAT 端口轉發服務 — 透過 Gateway VM 的 haproxy 管理 TCP/UDP 轉發規則。
+﻿"""NAT 端口轉發服務 — 透過 Gateway VM 的 haproxy 管理 TCP/UDP 轉發規則。
 
 設計原則：
 - DB 為 source of truth，儲存所有 external_port → vm_ip:internal_port 映射
@@ -32,8 +32,8 @@ RESERVED_PORTS: frozenset[int] = frozenset(
 )
 
 # haproxy.cfg 自動管理區段標記（與 install.sh 保持一致）
-_HAPROXY_BEGIN = "# BEGIN_CAMPUS_CLOUD_MANAGED"
-_HAPROXY_END = "# END_CAMPUS_CLOUD_MANAGED"
+_HAPROXY_BEGIN = "# BEGIN_skylab_MANAGED"
+_HAPROXY_END = "# END_skylab_MANAGED"
 
 
 # ─── 檢查 port 可用性 ──────────────────────────────────────────────────────────
@@ -101,7 +101,7 @@ def _sync_haproxy(session: object) -> None:
     rules = nat_repo.list_rules(session)  # type: ignore[arg-type]
     private_key_pem = get_decrypted_private_key(config)  # type: ignore[arg-type]
     haproxy_path = SERVICE_CONFIG_PATHS["haproxy"]
-    tmp_path = haproxy_path + ".campus-cloud.tmp"
+    tmp_path = haproxy_path + ".SkyLab.tmp"
 
     client = create_key_client(
         config.host,

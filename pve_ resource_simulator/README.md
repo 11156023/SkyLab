@@ -1,4 +1,4 @@
-# PVE Resource Simulator
+﻿# PVE Resource Simulator
 
 獨立的 FastAPI 原型工具，用來離線測試 Proxmox VE 風格的資源放置策略。提供 Web UI 讓使用者定義叢集 / 工作負載，並逐步展示放置決定與分數依據；可選用 Proxmox API 拉取月度歷史資料以校準策略。
 
@@ -8,7 +8,7 @@
 - 策略調校：嘗試不同 CPU 超分配比例 / RAM 安全水位 / 評分權重
 - 離線重播：用歷史資料驗證放置策略是否合理
 
-> 與 [`ai-pve-placement-advisor`](../ai-pve-placement-advisor/README.md) 不同：本服務是**離線啟發式模擬器**，可手動調整所有常數，並有完整 24 小時模擬流程；advisor 則作為線上 advisory 服務串接 Campus Cloud。
+> 與 [`ai-pve-placement-advisor`](../ai-pve-placement-advisor/README.md) 不同：本服務是**離線啟發式模擬器**，可手動調整所有常數，並有完整 24 小時模擬流程；advisor 則作為線上 advisory 服務串接 SkyLab。
 
 ## 功能總覽
 

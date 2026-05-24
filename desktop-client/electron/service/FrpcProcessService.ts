@@ -1,4 +1,4 @@
-import { spawn, ChildProcess } from "child_process";
+﻿import { spawn, ChildProcess } from "child_process";
 import { app, BrowserWindow, Notification } from "electron";
 import fs from "fs";
 import treeKill from "tree-kill";
@@ -8,7 +8,7 @@ import GlobalConstant from "../core/GlobalConstant";
 import Logger from "../core/Logger";
 import PathUtils from "../utils/PathUtils";
 import ResponseUtils from "../utils/ResponseUtils";
-import CampusCloudService from "./CampusCloudService";
+import SkyLabService from "./SkyLabService";
 
 const FRPC_ERROR_PATTERNS = [
   "connect to server error",
@@ -21,15 +21,15 @@ const FRPC_SUCCESS_PATTERNS = [
 ];
 
 class FrpcProcessService {
-  private readonly _campusCloudService: CampusCloudService;
+  private readonly _SkyLabService: SkyLabService;
   private _frpcProcess: ChildProcess | null = null;
   private _frpcProcessListener: NodeJS.Timeout | null = null;
   private _frpcLastStartTime: number = -1;
   private _notifiedStartTime: number = -1;
-  private _tunnels: CampusCloudTunnelInfo[] = [];
+  private _tunnels: SkyLabTunnelInfo[] = [];
 
   constructor() {
-    this._campusCloudService = BeanFactory.getBean("campusCloudService");
+    this._SkyLabService = BeanFactory.getBean("SkyLabService");
   }
 
   isRunning(): boolean {
@@ -49,7 +49,7 @@ class FrpcProcessService {
     return this._frpcLastStartTime;
   }
 
-  get tunnels(): CampusCloudTunnelInfo[] {
+  get tunnels(): SkyLabTunnelInfo[] {
     return this._tunnels;
   }
 
@@ -101,7 +101,7 @@ class FrpcProcessService {
       );
     }
 
-    const config = await this._campusCloudService.getTunnelConfig();
+    const config = await this._SkyLabService.getTunnelConfig();
     if (!config.tunnels || config.tunnels.length === 0) {
       throw new BusinessError(ResponseCode.NO_TUNNELS);
     }

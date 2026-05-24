@@ -1,4 +1,4 @@
-import {
+﻿import {
   useMutation,
   useQuery,
   useQueryClient,
@@ -101,7 +101,7 @@ export const Route = createFileRoute("/_layout/groups_/$groupId")({
   component: GroupDetailPage,
   beforeLoad: () => requireGroupManagerUser(),
   head: () => ({
-    meta: [{ title: "群組詳情 - Campus Cloud" }],
+    meta: [{ title: "群組詳情 - SkyLab" }],
   }),
 })
 

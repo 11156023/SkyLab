@@ -1,7 +1,7 @@
-export default {
+﻿export default {
   app: {
-    title: "Campus Cloud Connect",
-    description: "Connect to your campus cloud virtual machines"
+    title: "SkyLab Connect",
+    description: "Connect to your SkyLab virtual machines"
   },
   router: {
     home: { title: "Home" },
@@ -35,7 +35,7 @@ export default {
     doNotShow: "Don't show this again"
   },
   login: {
-    title: "Sign in to Campus Cloud",
+    title: "Sign in to SkyLab",
     description:
       "Click the button below; your browser will open to complete sign-in.",
     startButton: "Open browser to sign in",
@@ -59,7 +59,7 @@ export default {
       refresh: "Refresh"
     },
     empty: {
-      notLoggedIn: "Not signed in. Please sign in to Campus Cloud first.",
+      notLoggedIn: "Not signed in. Please sign in to SkyLab first.",
       noTunnels: "No tunnels available.",
       goLogin: "Go to sign-in",
       goResources: "View my resources"
@@ -84,7 +84,7 @@ export default {
       environment: "Env"
     },
     empty:
-      "No virtual machines assigned. Please request one on Campus Cloud web."
+      "No virtual machines assigned. Please request one on SkyLab web."
   },
   config: {
     title: "Settings",
@@ -95,11 +95,11 @@ export default {
     },
     autoStart: {
       label: "Launch at startup",
-      tips: "Start Campus Cloud Connect hidden when the OS boots."
+      tips: "Start SkyLab Connect hidden when the OS boots."
     },
     backend: {
       label: "Backend URL",
-      tips: "Campus Cloud server address."
+      tips: "SkyLab server address."
     },
     account: {
       label: "Account",
@@ -110,9 +110,9 @@ export default {
     saveSuccess: "Saved"
   },
   about: {
-    name: "Campus Cloud Connect",
+    name: "SkyLab Connect",
     description:
-      "Securely reach your Campus Cloud virtual machines via frp reverse tunnels.",
+      "Securely reach your SkyLab virtual machines via frp reverse tunnels.",
     features: {
       oneClick: "One-click connect",
       bundled: "Bundled frpc",

@@ -1,4 +1,4 @@
-import { useState } from "react";
+﻿import { useState } from "react";
 import styles from "./AiApiPage.module.scss";
 import MIcon from "../../../components/MIcon";
 
@@ -35,7 +35,7 @@ export default function AiApiPage() {
         <div className={styles.pageHeading}>
           <div className={styles.titleRow}>
             <h1 className={styles.pageTitle}>AI API 金鑰申請與管理</h1>
-            <span className={styles.breadcrumb}>CAMPUS CLOUD AI API</span>
+            <span className={styles.breadcrumb}>SkyLab AI API</span>
           </div>
           <p className={styles.pageSubtitle}>申請、管理與查詢 AI API 金鑰。</p>
         </div>

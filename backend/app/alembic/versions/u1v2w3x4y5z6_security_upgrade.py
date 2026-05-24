@@ -1,4 +1,4 @@
-"""security upgrade: token_version, ip_cache_ts, re-encrypt fernet data
+﻿"""security upgrade: token_version, ip_cache_ts, re-encrypt fernet data
 
 Revision ID: u1v2w3x4y5z6
 Revises: t1u2v3w4x5y6
@@ -59,7 +59,7 @@ def _new_fernet(secret_key: str) -> Fernet:
     kdf = PBKDF2HMAC(
         algorithm=hashes.SHA256(),
         length=32,
-        salt=b"campus-cloud-fernet-v1",
+        salt=b"SkyLab-fernet-v1",
         iterations=480_000,
     )
     key = base64.urlsafe_b64encode(kdf.derive(secret_key.encode()))

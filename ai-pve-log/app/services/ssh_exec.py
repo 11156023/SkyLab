@@ -1,10 +1,10 @@
-"""SSH 遠端執行服務
+﻿"""SSH 遠端執行服務
 
 流程：
   1. 黑名單過濾（ssh_guard）
   2. 若 require_confirm=True → 產生 pending token，等待使用者確認
   3. 確認後（或直接執行時）：
-     a. POST /api/v1/login/access-token → 取得 Campus Cloud JWT
+     a. POST /api/v1/login/access-token → 取得 SkyLab JWT
      b. GET  /api/v1/resources/{vmid}   → 取得 VM IP
      c. GET  /api/v1/resources/{vmid}/ssh-key → 取得 SSH private key
      d. paramiko SSH 連線並執行指令
@@ -67,34 +67,34 @@ def _cleanup_expired() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Campus Cloud API 呼叫
+# SkyLab API 呼叫
 # ---------------------------------------------------------------------------
 
 
 async def _get_campus_token(client: httpx.AsyncClient) -> str:
-    """取得 Campus Cloud JWT access token。"""
-    url = f"{settings.campus_cloud_api_base}/login/access-token"
+    """取得 SkyLab JWT access token。"""
+    url = f"{settings.skylab_api_base}/login/access-token"
     resp = await client.post(
         url,
         data={
-            "username": settings.campus_cloud_api_user,
-            "password": settings.campus_cloud_api_password,
+            "username": settings.skylab_api_user,
+            "password": settings.skylab_api_password,
         },
     )
     if not resp.is_success:
         raise RuntimeError(
-            f"Campus Cloud 登入失敗（HTTP {resp.status_code}）：{resp.text[:200]}"
+            f"SkyLab 登入失敗（HTTP {resp.status_code}）：{resp.text[:200]}"
         )
     data = resp.json()
     token = data.get("access_token")
     if not isinstance(token, str) or not token:
-        raise RuntimeError("Campus Cloud 登入回應中缺少 access_token")
+        raise RuntimeError("SkyLab 登入回應中缺少 access_token")
     return token
 
 
 async def _get_vm_ip(client: httpx.AsyncClient, token: str, vmid: int) -> str:
     """取得 VM/LXC 的 IP 位址。"""
-    url = f"{settings.campus_cloud_api_base}/resources/{vmid}"
+    url = f"{settings.skylab_api_base}/resources/{vmid}"
     resp = await client.get(url, headers={"Authorization": f"Bearer {token}"})
     if not resp.is_success:
         raise RuntimeError(
@@ -121,7 +121,7 @@ async def _get_vm_ip(client: httpx.AsyncClient, token: str, vmid: int) -> str:
 
 async def _get_ssh_private_key(client: httpx.AsyncClient, token: str, vmid: int) -> str:
     """取得 VM/LXC 的 SSH private key（PEM 格式）。"""
-    url = f"{settings.campus_cloud_api_base}/resources/{vmid}/ssh-key"
+    url = f"{settings.skylab_api_base}/resources/{vmid}/ssh-key"
     resp = await client.get(url, headers={"Authorization": f"Bearer {token}"})
     if not resp.is_success:
         detail = ""
@@ -131,8 +131,8 @@ async def _get_ssh_private_key(client: httpx.AsyncClient, token: str, vmid: int)
             detail = resp.text[:200]
         if resp.status_code in {404, 502} and "not found" in detail.lower():
             raise RuntimeError(
-                f"VMID={vmid} 未在 Campus Cloud 資料庫中登記 SSH key。"
-                "請先在 Campus Cloud 後端設定此 VM/LXC 的 SSH 金鑰。"
+                f"VMID={vmid} 未在 SkyLab 資料庫中登記 SSH key。"
+                "請先在 SkyLab 後端設定此 VM/LXC 的 SSH 金鑰。"
             )
         raise RuntimeError(
             f"取得 SSH key 失敗（HTTP {resp.status_code}）：{detail or resp.text[:200]}"
@@ -256,14 +256,14 @@ async def confirm_exec(confirm_req: SSHConfirmRequest) -> SSHExecResult:
 
 async def _do_exec(req: SSHExecRequest) -> SSHExecResult:
     """實際執行 SSH 指令（通過安全檢查後）。"""
-    if not settings.campus_cloud_api_user or not settings.campus_cloud_api_password:
+    if not settings.skylab_api_user or not settings.skylab_api_password:
         return SSHExecResult(
             vmid=req.vmid,
             host="",
             ssh_user=req.ssh_user,
             command=req.command,
             error=(
-                "Campus Cloud 登入憑證未設定。"
+                "SkyLab 登入憑證未設定。"
                 "請確認 .env 中有 FIRST_SUPERUSER 與 FIRST_SUPERUSER_PASSWORD。"
             ),
         )

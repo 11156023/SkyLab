@@ -1,18 +1,18 @@
-import Logger from "../core/Logger";
-import CampusCloudService from "../service/CampusCloudService";
+﻿import Logger from "../core/Logger";
+import SkyLabService from "../service/SkyLabService";
 import ResponseUtils from "../utils/ResponseUtils";
 import BaseController from "./BaseController";
 
 class ResourceController extends BaseController {
-  private readonly _campusCloudService: CampusCloudService;
+  private readonly _SkyLabService: SkyLabService;
 
-  constructor(campusCloudService: CampusCloudService) {
+  constructor(SkyLabService: SkyLabService) {
     super();
-    this._campusCloudService = campusCloudService;
+    this._SkyLabService = SkyLabService;
   }
 
   listMyResources(req: ControllerParam) {
-    this._campusCloudService
+    this._SkyLabService
       .listResources()
       .then(data => {
         req.event.reply(req.channel, ResponseUtils.success(data));
@@ -30,13 +30,13 @@ class ResourceController extends BaseController {
    */
   async getSessionStatuses(req: ControllerParam) {
     try {
-      const resources = await this._campusCloudService.listResources();
+      const resources = await this._SkyLabService.listResources();
       const runningVmids = resources
         .filter(r => r.status === "running" && typeof r.vmid === "number")
         .map(r => r.vmid);
       const results = await Promise.all(
         runningVmids.map(vmid =>
-          this._campusCloudService.getSessionStatus(vmid).catch(err => {
+          this._SkyLabService.getSessionStatus(vmid).catch(err => {
             Logger.warn(
               "ResourceController.getSessionStatuses",
               `vmid=${vmid} failed: ${(err as Error).message}`
@@ -46,7 +46,7 @@ class ResourceController extends BaseController {
         )
       );
       const statuses = results.filter(
-        (s): s is CampusCloudSessionStatus => s !== null
+        (s): s is SkyLabSessionStatus => s !== null
       );
       req.event.reply(req.channel, ResponseUtils.success(statuses));
     } catch (err) {
@@ -64,7 +64,7 @@ class ResourceController extends BaseController {
       );
       return;
     }
-    this._campusCloudService
+    this._SkyLabService
       .extendSession(vmid)
       .then(data => {
         req.event.reply(req.channel, ResponseUtils.success(data));

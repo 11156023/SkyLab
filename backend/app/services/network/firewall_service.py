@@ -1,9 +1,9 @@
-"""防火牆服務 — 整合 Proxmox 防火牆 API 與圖形化拓撲管理。
+﻿"""防火牆服務 — 整合 Proxmox 防火牆 API 與圖形化拓撲管理。
 
 設計原則：
 - Proxmox 是防火牆規則的 source of truth
 - DB 只儲存圖形佈局（節點座標）
-- 由 Campus Cloud 管理的規則以 `campus-cloud:` 前綴作為 comment 標記
+- 由 SkyLab 管理的規則以 `SkyLab:` 前綴作為 comment 標記
 - 預設策略：policy_in=DROP, policy_out=ACCEPT（只出不進）
 - 防火牆一旦啟用不允許關閉
 """
@@ -34,8 +34,8 @@ logger = logging.getLogger(__name__)
 _DEFAULT_GATEWAY_X = 800.0
 _DEFAULT_GATEWAY_Y = 300.0
 
-# campus-cloud 管理規則的 comment 前綴
-_CC_PREFIX = "campus-cloud:"
+# SkyLab 管理規則的 comment 前綴
+_CC_PREFIX = "SkyLab:"
 _GATEWAY_COMMENT = f"{_CC_PREFIX}gateway:default"
 _BLOCK_EXTRA_PREFIX = f"{_CC_PREFIX}block-extra:"
 _INTERNET_INBOUND_PREFIX = f"{_CC_PREFIX}gateway->"
@@ -412,15 +412,15 @@ def _get_vm_ip(vmid: int, session: object = None) -> str | None:
 
 
 def _parse_connection_comment(comment: str) -> dict | None:
-    """解析 campus-cloud 管理的規則 comment，回傳連線資訊。
+    """解析 SkyLab 管理的規則 comment，回傳連線資訊。
     格式（有端口）:
-      campus-cloud:{src}->gateway:{port}/{proto}   → gateway_connection
-      campus-cloud:gateway->{tgt}:{port}/{proto}   → internet_connection
-      campus-cloud:{src}->{tgt}:{port}/{proto}     → connection
+      SkyLab:{src}->gateway:{port}/{proto}   → gateway_connection
+      SkyLab:gateway->{tgt}:{port}/{proto}   → internet_connection
+      SkyLab:{src}->{tgt}:{port}/{proto}     → connection
     格式（無端口，如 icmp/esp 等）:
-      campus-cloud:{src}->gateway:{proto}          → gateway_connection  (port=0)
-      campus-cloud:gateway->{tgt}:{proto}          → internet_connection (port=0)
-      campus-cloud:{src}->{tgt}:{proto}            → connection          (port=0)
+      SkyLab:{src}->gateway:{proto}          → gateway_connection  (port=0)
+      SkyLab:gateway->{tgt}:{proto}          → internet_connection (port=0)
+      SkyLab:{src}->{tgt}:{proto}            → connection          (port=0)
     """
     if not comment or not comment.startswith(_CC_PREFIX):
         return None
@@ -431,7 +431,7 @@ def _parse_connection_comment(comment: str) -> dict | None:
     if payload == "gateway:default":
         return {"type": "gateway_default"}
 
-    # campus-cloud:{source}->gateway:{port}/{proto}  （有端口）
+    # SkyLab:{source}->gateway:{port}/{proto}  （有端口）
     match = re.match(r"^(\d+)->gateway:(\d+)/(\w+)$", payload)
     if match:
         return {
@@ -441,7 +441,7 @@ def _parse_connection_comment(comment: str) -> dict | None:
             "protocol": match.group(3),
         }
 
-    # campus-cloud:{source}->gateway:{proto}  （無端口，協定名以字母開頭）
+    # SkyLab:{source}->gateway:{proto}  （無端口，協定名以字母開頭）
     match = re.match(r"^(\d+)->gateway:([a-zA-Z]\w*)$", payload)
     if match:
         return {
@@ -451,7 +451,7 @@ def _parse_connection_comment(comment: str) -> dict | None:
             "protocol": match.group(2),
         }
 
-    # campus-cloud:gateway->{target}:{port}/{proto}  （有端口）
+    # SkyLab:gateway->{target}:{port}/{proto}  （有端口）
     match = re.match(r"^gateway->(\d+):(\d+)/(\w+)$", payload)
     if match:
         return {
@@ -461,7 +461,7 @@ def _parse_connection_comment(comment: str) -> dict | None:
             "protocol": match.group(3),
         }
 
-    # campus-cloud:gateway->{target}:{proto}  （無端口）
+    # SkyLab:gateway->{target}:{proto}  （無端口）
     match = re.match(r"^gateway->(\d+):([a-zA-Z]\w*)$", payload)
     if match:
         return {
@@ -471,7 +471,7 @@ def _parse_connection_comment(comment: str) -> dict | None:
             "protocol": match.group(2),
         }
 
-    # campus-cloud:{source}->{target}:{port}/{proto}  （有端口）
+    # SkyLab:{source}->{target}:{port}/{proto}  （有端口）
     match = re.match(r"^(\d+)->(\d+):(\d+)/(\w+)$", payload)
     if match:
         return {
@@ -482,7 +482,7 @@ def _parse_connection_comment(comment: str) -> dict | None:
             "protocol": match.group(4),
         }
 
-    # campus-cloud:{source}->{target}:{proto}  （無端口）
+    # SkyLab:{source}->{target}:{proto}  （無端口）
     match = re.match(r"^(\d+)->(\d+):([a-zA-Z]\w*)$", payload)
     if match:
         return {
@@ -753,7 +753,7 @@ def delete_connection(
     ports: list[PortSpec] | None = None,
     session: object = None,
 ) -> None:
-    """刪除 VM 間連線（透過 comment 前綴識別 campus-cloud 管理的規則）。
+    """刪除 VM 間連線（透過 comment 前綴識別 SkyLab 管理的規則）。
     從最高 pos 開始刪除，避免 pos 位移問題。
     Internet→VM 時同步清理 NAT DB 記錄並更新 Gateway VM haproxy。
     """
@@ -869,7 +869,7 @@ def _delete_matching_rules(
     target_vmid: int | None,
     ports: list[PortSpec] | None,
 ) -> None:
-    """刪除符合條件的 campus-cloud 管理規則（從最高 pos 開始）"""
+    """刪除符合條件的 SkyLab 管理規則（從最高 pos 開始）"""
     rules = get_vm_firewall_rules(node, vmid, resource_type)
 
     # 找到要刪除的規則 pos（從高到低排序）
@@ -939,7 +939,7 @@ def _delete_matching_rules(
 
 
 def get_connections_from_rules(vmids: list[int]) -> list[TopologyEdge]:
-    """從 VM 的防火牆規則中解析出 campus-cloud 管理的連線（edges）"""
+    """從 VM 的防火牆規則中解析出 SkyLab 管理的連線（edges）"""
     edges: dict[str, TopologyEdge] = {}
 
     for vmid in vmids:

@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 from pathlib import Path
 
@@ -6,7 +6,7 @@ from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
-# parents[3] = Campus-Cloud/ (全局根目錄，含共用 .env)
+# parents[3] = SkyLab/ (全局根目錄，含共用 .env)
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
 
 
@@ -53,18 +53,18 @@ class Settings(BaseSettings):
     # AI 對話逾時（秒），預留給快照收集 + LLM 兩次呼叫
     chat_timeout: int = Field(default=120, ge=10, le=600)
 
-    # ── Campus Cloud 後端 API（用於取得 SSH key）──────────────────────────
+    # ── SkyLab 後端 API（用於取得 SSH key）──────────────────────────
     # 重用 AI_API_PUBLIC_BASE_URL（已在 .env 設定），補上 /api/v1 suffix
-    campus_cloud_api_public_base: str = Field(
+    skylab_api_public_base: str = Field(
         default="http://localhost:8000",
         alias="ai_api_public_base_url",
     )
-    # 使用 FIRST_SUPERUSER / FIRST_SUPERUSER_PASSWORD 作為 Campus Cloud 登入憑證
-    campus_cloud_api_user: str = Field(
+    # 使用 FIRST_SUPERUSER / FIRST_SUPERUSER_PASSWORD 作為 SkyLab 登入憑證
+    skylab_api_user: str = Field(
         default="",
         alias="first_superuser",
     )
-    campus_cloud_api_password: str = Field(
+    skylab_api_password: str = Field(
         default="",
         alias="first_superuser_password",
     )
@@ -78,9 +78,9 @@ class Settings(BaseSettings):
     ssh_timeout: int = Field(default=30, ge=5, le=120)
 
     @property
-    def campus_cloud_api_base(self) -> str:
-        """Campus Cloud 後端 API base URL（含 /api/v1）"""
-        return self.campus_cloud_api_public_base.rstrip("/") + "/api/v1"
+    def skylab_api_base(self) -> str:
+        """SkyLab 後端 API base URL（含 /api/v1）"""
+        return self.skylab_api_public_base.rstrip("/") + "/api/v1"
 
 
 settings = Settings()

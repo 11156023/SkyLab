@@ -1,4 +1,4 @@
-import { on, onListener, send } from "@/utils/ipcUtils";
+﻿import { on, onListener, send } from "@/utils/ipcUtils";
 import { defineStore } from "pinia";
 import { ipcRouters, listeners } from "../../electron/core/IpcRouter";
 
@@ -8,8 +8,8 @@ interface AppState {
   language: string;
   autoStart: boolean;
   tunnelStatus: TunnelStatusInfo;
-  resources: CampusCloudResource[];
-  sessionStatuses: CampusCloudSessionStatus[];
+  resources: SkyLabResource[];
+  sessionStatuses: SkyLabSessionStatus[];
   /** vmids the user already snoozed so we don't re-pop while still warning. */
   dismissedWarnings: number[];
   /** vmid → warning key (auto_stop_at or expiry_at ISO string); persisted in localStorage. */
@@ -48,7 +48,7 @@ function savePermanentDismissals(store: Record<number, string>) {
   }
 }
 
-function warningKey(status: CampusCloudSessionStatus): string {
+function warningKey(status: SkyLabSessionStatus): string {
   return status.auto_stop_at ?? status.expiry_at ?? "";
 }
 
@@ -66,7 +66,7 @@ export const useAppStore = defineStore("app", {
   }),
   getters: {
     /** First not-yet-dismissed warning, used to drive the global alert. */
-    activeWarning(state): CampusCloudSessionStatus | null {
+    activeWarning(state): SkyLabSessionStatus | null {
       return (
         state.sessionStatuses.find(s => {
           if (!s.should_warn) return false;
@@ -100,7 +100,7 @@ export const useAppStore = defineStore("app", {
         this.resources = Array.isArray(data) ? data : [];
       });
       on(ipcRouters.SESSION.getSessionStatuses, data => {
-        const next: CampusCloudSessionStatus[] = Array.isArray(data)
+        const next: SkyLabSessionStatus[] = Array.isArray(data)
           ? data
           : [];
         this.sessionStatuses = next;

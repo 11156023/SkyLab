@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useState } from "react"
+﻿import { createContext, useContext, useEffect, useState } from "react"
 import { useTranslation } from "react-i18next"
 
 export type Language = "zh-TW" | "en" | "ja"
@@ -25,7 +25,7 @@ const LanguageProviderContext =
 export function LanguageProvider({
   children,
   defaultLanguage = "zh-TW",
-  storageKey = "campus-cloud-language",
+  storageKey = "SkyLab-language",
   ...props
 }: LanguageProviderProps) {
   const { i18n } = useTranslation()

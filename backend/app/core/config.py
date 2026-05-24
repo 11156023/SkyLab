@@ -43,6 +43,13 @@ class Settings(BaseSettings):
     DESKTOP_CLIENT_DOWNLOAD_URL: str = ""
     ENVIRONMENT: Literal["local", "staging", "production"] = "local"
 
+    # Logging
+    LOG_LEVEL: str = "INFO"
+    # False = ANSI color console (local dev); True = JSON console (production/Docker)
+    LOG_JSON: bool = False
+    LOG_DIR: str = "logs"
+    LOG_FILE_ENABLED: bool = True
+
     # When false, the lifespan skips starting the VM request scheduler.
     # Set to false in CI/test environments that cannot reach Proxmox,
     # so scheduler ticks don't block test startup on connection timeouts.

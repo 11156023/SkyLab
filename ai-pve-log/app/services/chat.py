@@ -1,10 +1,10 @@
-"""AI 對話服務 — vLLM Tool Calling（支援 Gemma-4 / Qwen3 等模型）
+﻿"""AI 對話服務 — vLLM Tool Calling（支援 Gemma-4 / Qwen3 等模型）
 
 流程：
   1. 帶著工具定義向 vLLM 發出第一次請求
   2. 若 AI 回傳 tool_calls，逐一執行：
      - PVE 工具：內部呼叫 collector，不走 HTTP
-     - ssh_exec：呼叫 Campus Cloud API 取得 SSH key，SSH 進入 VM 執行
+     - ssh_exec：呼叫 SkyLab API 取得 SSH key，SSH 進入 VM 執行
   3. 將工具結果加回 messages，發出第二次請求取得最終回答
   4. 回傳 ChatResponse
 
@@ -35,7 +35,7 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 _SYSTEM_PROMPT = """\
-你是 Campus Cloud PVE 管理助手，專門協助管理員查詢 Proxmox VE 虛擬化平台的資源狀態。
+你是 SkyLab PVE 管理助手，專門協助管理員查詢 Proxmox VE 虛擬化平台的資源狀態。
 
 工具使用原則：
 - 問題只涉及一種資源時，優先呼叫最精確的工具（例如只查儲存空間就用 get_storage，不要呼叫 get_resources）。

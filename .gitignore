@@ -33,4 +33,6 @@ __pycache__/
 *tiktoken_encodings/
 *AImodels/
 backend/app/static/downloads/*.zip
+logs/
+backend/logs/
 vllm-inference/config/tool_chat_template_gemma4.jinja

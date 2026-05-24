@@ -1,4 +1,4 @@
-import { createFileRoute } from "@tanstack/react-router"
+﻿import { createFileRoute } from "@tanstack/react-router"
 import { z } from "zod"
 
 import { ResourceCreatePage } from "@/components/Resources/ResourceCreatePage"
@@ -16,7 +16,7 @@ export const Route = createFileRoute("/_layout/resources-create")({
   head: () => ({
     meta: [
       {
-        title: "Create Resource - Campus Cloud",
+        title: "Create Resource - SkyLab",
       },
     ],
   }),

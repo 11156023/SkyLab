@@ -1,6 +1,6 @@
-# Campus Cloud — Backend
+﻿# SkyLab — Backend
 
-Campus Cloud 後端：基於 FastAPI + SQLModel + PostgreSQL 的 Proxmox VE 虛擬化管理 API，提供 VM/LXC 生命週期、申請審核、防火牆/閘道、AI 放置建議與 vLLM 代理等能力。
+SkyLab 後端：基於 FastAPI + SQLModel + PostgreSQL 的 Proxmox VE 虛擬化管理 API，提供 VM/LXC 生命週期、申請審核、防火牆/閘道、AI 放置建議與 vLLM 代理等能力。
 
 ## 技術棧
 
@@ -98,7 +98,7 @@ WebSocket 端點（`app/main.py`）：
 
 ```env
 # Project
-PROJECT_NAME=Campus Cloud
+PROJECT_NAME=SkyLab
 SECRET_KEY=...
 ENVIRONMENT=local            # local | staging | production
 BACKEND_CORS_ORIGINS=http://localhost:5173

@@ -1,4 +1,4 @@
-"""Reverse proxy rule model."""
+﻿"""Reverse proxy rule model."""
 
 import uuid
 from datetime import datetime
@@ -48,7 +48,7 @@ class ReverseProxyRule(SQLModel, table=True):
     cloudflare_record_id: str | None = Field(
         default=None,
         max_length=64,
-        description="Cloudflare DNS record ID managed by Campus Cloud",
+        description="Cloudflare DNS record ID managed by SkyLab",
     )
     internal_port: int = Field(ge=1, le=65535, description="VM internal port")
     enable_https: bool = Field(default=True, description="Enable HTTPS")

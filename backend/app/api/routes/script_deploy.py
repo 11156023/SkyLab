@@ -24,7 +24,8 @@ from app.schemas.script_deploy import (
     ScriptDeployResponse,
     ScriptDeployStatus,
 )
-from app.services.network import script_deploy_service
+from app.services.network import ip_management_service, script_deploy_service
+from app.services.proxmox import proxmox_service
 from app.services.user import audit_service
 
 logger = logging.getLogger(__name__)
@@ -35,21 +36,66 @@ router = APIRouter(prefix="/script-deploy", tags=["script-deploy"])
 @router.post("/deploy", response_model=ScriptDeployResponse)
 def deploy_service_template(
     request: ScriptDeployRequest,
+    session: SessionDep,
     current_user: AdminUser,
 ) -> ScriptDeployResponse:
     """啟動服務模板的無人值守部署。
 
     從 GitHub community-scripts/ProxmoxVE 下載腳本，
     以無人值守方式在 Proxmox 節點上部署服務容器。
+    若 IP 管理子網已設定，將自動分配靜態 IP；否則拒絕部署。
     """
+    subnet_config = ip_management_service.get_subnet_config(session)
+    if subnet_config is None:
+        raise HTTPException(
+            status_code=400,
+            detail="尚未設定 IP 管理子網，請先到「網路 → IP 管理」設定子網後再部署",
+        )
+
+    try:
+        net_cfg = ip_management_service.get_network_config_for_vm(session)
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=f"讀取子網設定失敗：{exc}") from exc
+
+    if not net_cfg.get("dns_servers"):
+        raise HTTPException(
+            status_code=400,
+            detail="尚未設定 DNS 伺服器，請先到「網路 → IP 管理」填入 DNS 後再部署",
+        )
+
+    candidate_vmid = proxmox_service.next_vmid()
+    try:
+        allocated_ip = ip_management_service.allocate_ip(session, candidate_vmid, "lxc")
+        session.commit()
+    except Exception as exc:
+        session.rollback()
+        raise HTTPException(status_code=409, detail=f"無法分配靜態 IP：{exc}") from exc
+
+    prefix_len = net_cfg["prefix_len"]
+    net_config = {
+        "ip_cidr": f"{allocated_ip}/{prefix_len}",
+        "gateway": net_cfg.get("gateway"),
+        "bridge": net_cfg.get("bridge_name"),
+        "nameserver": net_cfg.get("dns_servers"),
+    }
+
+    request_data = request.model_dump()
+    request_data["net_config"] = net_config
+    request_data["candidate_vmid"] = candidate_vmid
+
+    logger.info(
+        "手動部署：已為候選 VMID %s 預留 IP %s (模板 %s)",
+        candidate_vmid, allocated_ip, request.template_slug,
+    )
+
     task_id = script_deploy_service.start_deployment(
-        request_data=request.model_dump(),
+        request_data=request_data,
         user_id=str(current_user.id),
     )
 
     return ScriptDeployResponse(
         task_id=task_id,
-        message=f"部署任務已啟動：{request.template_slug} → {request.hostname}",
+        message=f"部署任務已啟動：{request.template_slug} → {request.hostname}（IP: {allocated_ip}）",
     )
 
 

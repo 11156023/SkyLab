@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 from app.ai.navigation.catalog import NavigationRoute
 
@@ -11,7 +11,7 @@ def build_navigation_system_prompt(routes: list[NavigationRoute]) -> str:
     catalog_text = "\n".join(catalog_lines)
 
     return (
-        "You are a navigation planner for Campus Cloud.\n"
+        "You are a navigation planner for SkyLab.\n"
         "Your task: map user intent to the best frontend page path from the catalog only.\n\n"
         "Rules:\n"
         "1) Never invent a path not in catalog.\n"

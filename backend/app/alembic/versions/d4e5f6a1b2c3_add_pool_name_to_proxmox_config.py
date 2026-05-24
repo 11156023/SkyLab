@@ -1,4 +1,4 @@
-"""add pool_name to proxmox_config
+﻿"""add pool_name to proxmox_config
 
 Revision ID: d4e5f6a1b2c3
 Revises: c3d4e5f6a1b2
@@ -22,7 +22,7 @@ def upgrade():
             "pool_name",
             sa.String(length=255),
             nullable=False,
-            server_default="CampusCloud",
+            server_default="SkyLab",
         ),
     )
 

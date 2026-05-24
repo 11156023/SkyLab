@@ -1,4 +1,4 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+﻿import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { createFileRoute } from "@tanstack/react-router"
 import type { ColumnDef } from "@tanstack/react-table"
 import {
@@ -91,7 +91,7 @@ export const Route = createFileRoute("/_layout/admin/ai-management")({
   component: AdminAiManagementPage,
   beforeLoad: () => requireAdminUser(),
   head: () => ({
-    meta: [{ title: "AI 管理中心 - Campus Cloud" }],
+    meta: [{ title: "AI 管理中心 - SkyLab" }],
   }),
 })
 
@@ -1467,7 +1467,7 @@ function AdminAiManagementPage() {
       {/* Header */}
       <div className="space-y-1">
         <div className="text-xs uppercase tracking-[0.22em] text-muted-foreground">
-          Campus Cloud Admin
+          SkyLab Admin
         </div>
         <h1 className="text-2xl font-bold tracking-tight">AI 管理中心</h1>
         <p className="text-sm text-muted-foreground">

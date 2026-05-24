@@ -1,4 +1,4 @@
-"""
+﻿"""
 AI Proxy API Schemas - OpenAI 兼容格式
 """
 
@@ -58,7 +58,7 @@ class ChatCompletionResponse(BaseModel):
     model: str
     choices: list[ChatCompletionChoice]
     usage: UsageInfo
-    duration_ms: int | None = None  # 本次請求耗時（毫秒），由 Campus Cloud 附加
+    duration_ms: int | None = None  # 本次請求耗時（毫秒），由 SkyLab 附加
 
 
 # ===== 流式响应相关 =====
@@ -94,7 +94,7 @@ class ModelInfo(BaseModel):
     id: str
     object: str = "model"
     created: int | None = None  # vLLM may not return this field
-    owned_by: str = "campus-cloud"
+    owned_by: str = "SkyLab"
 
 
 class ModelsResponse(BaseModel):

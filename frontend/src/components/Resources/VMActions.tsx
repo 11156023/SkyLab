@@ -127,16 +127,19 @@ export function VMActions({
     mutationFn: () =>
       ResourcesService.deleteResource({ vmid, force: isRunning }),
     onSuccess: () => {
-      // 後端已改為 background task，立即回 202 + DeletionRequestCreated
       showSuccessToast(
         t("messages:vm.deleteQueued", {
           name,
           defaultValue: `已將 ${name} 加入刪除佇列`,
         }),
       )
-      queryClient.invalidateQueries({ queryKey: queryKeys.resources.all })
-      queryClient.invalidateQueries({ queryKey: queryKeys.resources.my })
+      // Invalidate deletion requests so the row immediately shows "deleting"
+      // state via useDeletingResources. Do NOT invalidate resources.my here
+      // to avoid the race where the refetch brings the machine back before the
+      // background task completes — useDeletingResourcesLiveSync handles the
+      // final invalidation once the deletion is confirmed.
       queryClient.invalidateQueries({ queryKey: ["deleting-resources"] })
+      queryClient.invalidateQueries({ queryKey: queryKeys.resources.all })
       queryClient.invalidateQueries({ queryKey: ["jobs"] })
       setDeleteDialogOpen(false)
     },

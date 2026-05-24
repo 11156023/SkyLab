@@ -1,4 +1,4 @@
-import { net } from "electron";
+﻿import { net } from "electron";
 import { BusinessError, ResponseCode } from "../core/BusinessError";
 import Logger from "../core/Logger";
 import SettingsService from "./SettingsService";
@@ -8,7 +8,7 @@ type HttpResult = {
   body: string;
 };
 
-class CampusCloudService {
+class SkyLabService {
   private readonly _settingsService: SettingsService;
 
   constructor(settingsService: SettingsService) {
@@ -66,7 +66,7 @@ class CampusCloudService {
     );
     if (res.status !== 200) {
       Logger.warn(
-        "CampusCloudService.requestDeviceCode",
+        "SkyLabService.requestDeviceCode",
         `status=${res.status} body=${res.body}`
       );
       throw new BusinessError(ResponseCode.BACKEND_ERROR, res.body);
@@ -82,7 +82,7 @@ class CampusCloudService {
       `/api/v1/desktop-client/auth/poll?code=${encodeURIComponent(code)}`
     );
     Logger.info(
-      "CampusCloudService.pollDeviceCode",
+      "SkyLabService.pollDeviceCode",
       `status=${res.status} body=${res.body}`
     );
     if (res.status === 404) {
@@ -101,7 +101,7 @@ class CampusCloudService {
     };
   }
 
-  async listResources(): Promise<CampusCloudResource[]> {
+  async listResources(): Promise<SkyLabResource[]> {
     const res = await this.request("GET", "/api/v1/resources/my", {
       auth: true
     });
@@ -111,10 +111,10 @@ class CampusCloudService {
     if (res.status !== 200) {
       throw new BusinessError(ResponseCode.BACKEND_ERROR, res.body);
     }
-    return JSON.parse(res.body) as CampusCloudResource[];
+    return JSON.parse(res.body) as SkyLabResource[];
   }
 
-  async getSessionStatus(vmid: number): Promise<CampusCloudSessionStatus> {
+  async getSessionStatus(vmid: number): Promise<SkyLabSessionStatus> {
     const res = await this.request(
       "GET",
       `/api/v1/resources/${vmid}/session-status`,
@@ -126,10 +126,10 @@ class CampusCloudService {
     if (res.status !== 200) {
       throw new BusinessError(ResponseCode.BACKEND_ERROR, res.body);
     }
-    return JSON.parse(res.body) as CampusCloudSessionStatus;
+    return JSON.parse(res.body) as SkyLabSessionStatus;
   }
 
-  async extendSession(vmid: number): Promise<CampusCloudExtendResult> {
+  async extendSession(vmid: number): Promise<SkyLabExtendResult> {
     const res = await this.request(
       "POST",
       `/api/v1/resources/${vmid}/extend-session`,
@@ -141,10 +141,10 @@ class CampusCloudService {
     if (res.status !== 200) {
       throw new BusinessError(ResponseCode.BACKEND_ERROR, res.body);
     }
-    return JSON.parse(res.body) as CampusCloudExtendResult;
+    return JSON.parse(res.body) as SkyLabExtendResult;
   }
 
-  async getTunnelConfig(): Promise<CampusCloudTunnelConfig> {
+  async getTunnelConfig(): Promise<SkyLabTunnelConfig> {
     const res = await this.request("GET", "/api/v1/tunnel/my-config", {
       auth: true
     });
@@ -154,8 +154,8 @@ class CampusCloudService {
     if (res.status !== 200) {
       throw new BusinessError(ResponseCode.BACKEND_ERROR, res.body);
     }
-    return JSON.parse(res.body) as CampusCloudTunnelConfig;
+    return JSON.parse(res.body) as SkyLabTunnelConfig;
   }
 }
 
-export default CampusCloudService;
+export default SkyLabService;

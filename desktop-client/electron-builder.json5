@@ -1,11 +1,11 @@
-/**
+﻿/**
  * @see https://www.electron.build/configuration/configuration
  */
 {
   "$schema": "https://raw.githubusercontent.com/electron-userland/electron-builder/master/packages/app-builder-lib/scheme.json",
-  "appId": "edu.campuscloud.connect",
+  "appId": "edu.SkyLab.connect",
   "asar": true,
-  "productName": "Campus Cloud Connect",
+  "productName": "SkyLab Connect",
   "directories": {
     "output": "release/${version}"
   },

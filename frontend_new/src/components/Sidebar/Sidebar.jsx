@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback } from "react";
+﻿import { useState, useRef, useEffect, useCallback } from "react";
 import { useTheme } from "../../contexts/ThemeContext";
 import { useAuth }  from "../../contexts/AuthContext";
 import styles from "./Sidebar.module.scss";
@@ -271,7 +271,7 @@ export default function Sidebar({ collapsed, mobileOpen, onToggle, onClose, acti
         </span>
         {!collapsed && (
           <>
-            <span className={styles.brandText}>Campus Cloud</span>
+            <span className={styles.brandText}>SkyLab</span>
           </>
         )}
       </div>

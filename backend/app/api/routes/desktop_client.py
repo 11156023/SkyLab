@@ -1,4 +1,4 @@
-"""Desktop client download & device auth endpoints.
+﻿"""Desktop client download & device auth endpoints.
 
 The desktop client authenticates via a "device auth" flow:
 1. Client calls POST /auth/device-code  -> gets a device_code

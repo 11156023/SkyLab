@@ -4,6 +4,7 @@ import type { TFunction } from "i18next"
 import type { VMRequestPublic } from "@/client"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import { cn } from "@/lib/utils"
 
 function formatTemplateLabel(request: VMRequestPublic) {
   if (request.resource_type === "lxc") {
@@ -54,30 +55,35 @@ export const createMyRequestColumns = (
     retryingRequestId?: string | null
   },
 ): ColumnDef<VMRequestPublic>[] => {
-  const statusMap: Record<
-    string,
-    {
-      label: string
-      variant: "default" | "secondary" | "destructive" | "outline"
-    }
-  > = {
-    pending: { label: t("applications:status.pending"), variant: "outline" },
-    approved: { label: t("applications:status.approved"), variant: "default" },
+  const statusMap: Record<string, { label: string; className: string }> = {
+    pending: {
+      label: t("applications:status.pending"),
+      className:
+        "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400",
+    },
+    approved: {
+      label: t("applications:status.approved"),
+      className:
+        "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400",
+    },
     provisioning: {
       label: t("applications:status.provisioning"),
-      variant: "secondary",
+      className:
+        "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400",
     },
     running: {
       label: t("applications:status.running"),
-      variant: "secondary",
+      className:
+        "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400",
     },
     rejected: {
       label: t("applications:status.rejected"),
-      variant: "destructive",
+      className: "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400",
     },
     cancelled: {
       label: t("applications:status.cancelled"),
-      variant: "secondary",
+      className:
+        "bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-400",
     },
   }
 
@@ -165,7 +171,16 @@ export const createMyRequestColumns = (
       header: t("applications:table.status"),
       cell: ({ row }) => {
         const s = statusMap[row.original.status] || statusMap.pending
-        return <Badge variant={s.variant}>{s.label}</Badge>
+        return (
+          <span
+            className={cn(
+              "inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium",
+              s.className,
+            )}
+          >
+            {s.label}
+          </span>
+        )
       },
     },
     {

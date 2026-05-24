@@ -1,4 +1,4 @@
-import {
+﻿import {
   useMutation,
   useQueryClient,
   useSuspenseQuery,
@@ -26,7 +26,7 @@ export const Route = createFileRoute("/_layout/applications")({
   head: () => ({
     meta: [
       {
-        title: "Applications - Campus Cloud",
+        title: "Applications - SkyLab",
       },
     ],
   }),

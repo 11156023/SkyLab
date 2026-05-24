@@ -1,4 +1,4 @@
-import { createFileRoute, redirect } from "@tanstack/react-router"
+﻿import { createFileRoute, redirect } from "@tanstack/react-router"
 import { SignUpPage } from "@/components/Auth/SignUpPage"
 import { isLoggedIn } from "@/hooks/useAuth"
 
@@ -14,7 +14,7 @@ export const Route = createFileRoute("/signup")({
   head: () => ({
     meta: [
       {
-        title: "Sign Up - Campus Cloud",
+        title: "Sign Up - SkyLab",
       },
     ],
   }),

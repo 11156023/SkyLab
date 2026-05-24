@@ -1,4 +1,4 @@
-import { app } from "electron";
+﻿import { app } from "electron";
 import Logger from "../core/Logger";
 import SettingsRepository from "../repository/SettingsRepository";
 
@@ -9,11 +9,11 @@ class SettingsService {
     this._repo = repo;
   }
 
-  async get(): Promise<CampusCloudSettings> {
+  async get(): Promise<SkyLabSettings> {
     return this._repo.get();
   }
 
-  async save(patch: Partial<CampusCloudSettings>): Promise<CampusCloudSettings> {
+  async save(patch: Partial<SkyLabSettings>): Promise<SkyLabSettings> {
     const next = await this._repo.save(patch);
     try {
       app.setLoginItemSettings({

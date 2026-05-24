@@ -1,4 +1,4 @@
-"""Proxmox 連線設定模型"""
+﻿"""Proxmox 連線設定模型"""
 
 from dataclasses import dataclass
 from datetime import datetime
@@ -92,7 +92,7 @@ class ProxmoxConfig(SQLModel, table=True):
     data_storage: str = Field(default="local-lvm", max_length=255)
     api_timeout: int = Field(default=30)
     task_check_interval: int = Field(default=2)
-    pool_name: str = Field(default="CampusCloud", max_length=255)
+    pool_name: str = Field(default="SkyLab", max_length=255)
     ca_cert: str | None = Field(default=None, sa_type=sa.Text())
     gateway_ip: str | None = Field(default=None, max_length=255)
     local_subnet: str | None = Field(default=None, max_length=50)

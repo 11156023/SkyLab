@@ -1,4 +1,4 @@
-"""防火牆管理 API 路由"""
+﻿"""防火牆管理 API 路由"""
 
 import logging
 
@@ -219,7 +219,7 @@ def list_rules(
     vmid: int,
     resource_info: ResourceInfoDep,
 ):
-    """列出 VM 防火牆規則（包含 campus-cloud 管理的規則）"""
+    """列出 VM 防火牆規則（包含 SkyLab 管理的規則）"""
     try:
         rules = firewall_service.get_vm_firewall_rules(
             resource_info["node"], vmid, resource_info["type"]
@@ -237,7 +237,7 @@ def list_rules(
                 enable=r.get("enable", 1),
                 comment=r.get("comment"),
                 is_managed=bool(
-                    r.get("comment", "").startswith("campus-cloud:")
+                    r.get("comment", "").startswith("SkyLab:")
                     if r.get("comment")
                     else False
                 ),
@@ -281,16 +281,16 @@ def update_rule(
     current_user: CurrentUser,
     resource_info: ResourceInfoDep,
 ):
-    """更新 VM 防火牆規則（不可修改 campus-cloud 管理的規則）"""
+    """更新 VM 防火牆規則（不可修改 SkyLab 管理的規則）"""
     try:
         rules = firewall_service.get_vm_firewall_rules(
             resource_info["node"], vmid, resource_info["type"]
         )
         target_rule = next((r for r in rules if r.get("pos") == pos), None)
-        if target_rule and str(target_rule.get("comment", "")).startswith("campus-cloud:"):
+        if target_rule and str(target_rule.get("comment", "")).startswith("SkyLab:"):
             raise HTTPException(
                 status_code=400,
-                detail="此規則由 Campus Cloud 管理，不可修改",
+                detail="此規則由 SkyLab 管理，不可修改",
             )
         rule_dict = {k: v for k, v in rule.model_dump().items() if v is not None}
         firewall_service.update_rule(
@@ -316,17 +316,17 @@ def delete_rule(
     current_user: CurrentUser,
     resource_info: ResourceInfoDep,
 ):
-    """刪除 VM 防火牆規則（不可刪除 campus-cloud 管理的規則，請使用連線刪除 API）"""
+    """刪除 VM 防火牆規則（不可刪除 SkyLab 管理的規則，請使用連線刪除 API）"""
     try:
-        # 先取得規則確認不是 campus-cloud 管理的規則
+        # 先取得規則確認不是 SkyLab 管理的規則
         rules = firewall_service.get_vm_firewall_rules(
             resource_info["node"], vmid, resource_info["type"]
         )
         target_rule = next((r for r in rules if r.get("pos") == pos), None)
-        if target_rule and str(target_rule.get("comment", "")).startswith("campus-cloud:"):
+        if target_rule and str(target_rule.get("comment", "")).startswith("SkyLab:"):
             raise HTTPException(
                 status_code=400,
-                detail="此規則由 Campus Cloud 管理，請使用連線管理介面進行操作",
+                detail="此規則由 SkyLab 管理，請使用連線管理介面進行操作",
             )
         firewall_service.delete_rule_by_pos(resource_info["node"], vmid, resource_info["type"], pos)
         audit_service.log_action(

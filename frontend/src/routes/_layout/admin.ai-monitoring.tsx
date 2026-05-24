@@ -1,4 +1,4 @@
-import { useQuery } from "@tanstack/react-query"
+﻿import { useQuery } from "@tanstack/react-query"
 import { createFileRoute, redirect } from "@tanstack/react-router"
 import {
   Activity,
@@ -634,7 +634,7 @@ function AdminAiMonitoringPage() {
       {/* Header */}
       <div className="space-y-1">
         <div className="text-xs uppercase tracking-[0.22em] text-muted-foreground">
-          Campus Cloud AI
+          SkyLab AI
         </div>
         <h1 className="text-2xl font-bold tracking-tight">AI 用量監控</h1>
         <p className="text-sm text-muted-foreground">

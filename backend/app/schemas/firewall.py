@@ -1,4 +1,4 @@
-"""防火牆相關 API schemas"""
+﻿"""防火牆相關 API schemas"""
 
 import uuid
 from datetime import datetime
@@ -132,7 +132,7 @@ class FirewallRulePublic(BaseModel):
     comment: str | None = None
     is_managed: bool = Field(
         default=False,
-        description="是否由 Campus Cloud 管理（comment 含 campus-cloud: 前綴）",
+        description="是否由 SkyLab 管理（comment 含 SkyLab: 前綴）",
     )
 
 

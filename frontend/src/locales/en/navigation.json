@@ -1,4 +1,4 @@
-{
+﻿{
   "sidebar": {
     "dashboard": "Dashboard",
     "myResources": "My Resources",
@@ -12,13 +12,13 @@
     "gpuManagement": "GPU Management"
   },
   "pageTitle": {
-    "dashboard": "Dashboard - Campus Cloud",
-    "myResources": "My Resources - Campus Cloud",
-    "applications": "Applications - Campus Cloud",
-    "resources": "Virtual Machines - Campus Cloud",
-    "approvals": "Approvals - Campus Cloud",
-    "admin": "Admin - Campus Cloud",
-    "settings": "Settings - Campus Cloud"
+    "dashboard": "Dashboard - SkyLab",
+    "myResources": "My Resources - SkyLab",
+    "applications": "Applications - SkyLab",
+    "resources": "Virtual Machines - SkyLab",
+    "approvals": "Approvals - SkyLab",
+    "admin": "Admin - SkyLab",
+    "settings": "Settings - SkyLab"
   },
   "dashboard": {
     "welcome": "Hi, {{name}} 👋",

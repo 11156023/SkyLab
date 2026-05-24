@@ -1,4 +1,4 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+﻿import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { createFileRoute } from "@tanstack/react-router"
 import {
   BarChart3,
@@ -57,7 +57,7 @@ export const Route = createFileRoute("/_layout/ai-api")({
   head: () => ({
     meta: [
       {
-        title: "AI API - Campus Cloud",
+        title: "AI API - SkyLab",
       },
     ],
   }),
@@ -697,7 +697,7 @@ function AiApiPage() {
       <div className="space-y-4">
         <div className="space-y-2">
           <div className="text-xs uppercase tracking-[0.22em] text-muted-foreground">
-            Campus Cloud AI API
+            SkyLab AI API
           </div>
           <h1 className="text-2xl font-bold tracking-tight">
             AI API 金鑰申請與管理

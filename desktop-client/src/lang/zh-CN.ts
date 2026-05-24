@@ -1,6 +1,6 @@
-export default {
+﻿export default {
   app: {
-    title: "Campus Cloud Connect",
+    title: "SkyLab Connect",
     description: "校園雲端虛擬機連線工具"
   },
   router: {
@@ -34,7 +34,7 @@ export default {
     doNotShow: "不再顯示此提醒"
   },
   login: {
-    title: "登入 Campus Cloud",
+    title: "登入 SkyLab",
     description:
       "點擊下方按鈕，會開啟瀏覽器完成登入。完成後請回到此視窗。",
     startButton: "開啟瀏覽器登入",
@@ -58,7 +58,7 @@ export default {
       refresh: "重新整理"
     },
     empty: {
-      notLoggedIn: "尚未登入，請先登入 Campus Cloud 帳號。",
+      notLoggedIn: "尚未登入，請先登入 SkyLab 帳號。",
       noTunnels: "目前沒有可用的虛擬機隧道。",
       goLogin: "前往登入",
       goResources: "查看我的資源"
@@ -82,7 +82,7 @@ export default {
       ip: "內網 IP",
       environment: "環境"
     },
-    empty: "目前沒有任何虛擬機，請至 Campus Cloud 網頁申請。"
+    empty: "目前沒有任何虛擬機，請至 SkyLab 網頁申請。"
   },
   config: {
     title: "設定",
@@ -93,11 +93,11 @@ export default {
     },
     autoStart: {
       label: "開機自動啟動",
-      tips: "開機時自動啟動 Campus Cloud Connect 並隱藏視窗。"
+      tips: "開機時自動啟動 SkyLab Connect 並隱藏視窗。"
     },
     backend: {
       label: "後端網址",
-      tips: "Campus Cloud 伺服器位址。"
+      tips: "SkyLab 伺服器位址。"
     },
     account: {
       label: "帳號",
@@ -108,9 +108,9 @@ export default {
     saveSuccess: "儲存成功"
   },
   about: {
-    name: "Campus Cloud Connect",
+    name: "SkyLab Connect",
     description:
-      "透過 frp 反向代理安全連線至您的 Campus Cloud 虛擬機。",
+      "透過 frp 反向代理安全連線至您的 SkyLab 虛擬機。",
     features: {
       oneClick: "一鍵連線",
       bundled: "免安裝 frpc",

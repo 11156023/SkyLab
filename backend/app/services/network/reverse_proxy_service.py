@@ -1,4 +1,4 @@
-"""反向代理服務 — 透過 Gateway VM 的 Traefik 管理 domain → VM 映射。
+﻿"""反向代理服務 — 透過 Gateway VM 的 Traefik 管理 domain → VM 映射。
 
 設計原則：
 - DB 為 source of truth
@@ -219,8 +219,8 @@ def _build_traefik_dynamic_config(rules: list) -> str:
     }
 
     header = (
-        "# Campus Cloud 自動管理的反向代理設定\n"
-        "# 此檔案由 Campus Cloud 自動維護，請勿手動修改\n\n"
+        "# SkyLab 自動管理的反向代理設定\n"
+        "# 此檔案由 SkyLab 自動維護，請勿手動修改\n\n"
     )
     return header + yaml.dump(config, default_flow_style=False, allow_unicode=True)
 
@@ -325,11 +325,16 @@ def apply_reverse_proxy_rule(
     enable_https: bool = True,
 ) -> None:
     """建立反向代理規則：寫入 DB + 同步 Traefik。"""
+    from app.models import Resource  # noqa: PLC0415
     from app.models.reverse_proxy_rule import ReverseProxyRule  # noqa: PLC0415
     from app.repositories import reverse_proxy as rp_repo  # noqa: PLC0415
     from app.services.network import cloudflare_service  # noqa: PLC0415
 
     ensure_reverse_proxy_ready(session)
+
+    if getattr(session, "get", lambda *_: None)(Resource, vmid) is None:
+        raise BadRequestError(f"VMID {vmid} 不在 SkyLab 資源清單中，無法建立反向代理規則")
+
     zone = cloudflare_service.get_zone(session=session, zone_id=zone_id)  # type: ignore[arg-type]
     domain = build_full_domain(zone_name=zone.name, hostname_prefix=hostname_prefix)
 

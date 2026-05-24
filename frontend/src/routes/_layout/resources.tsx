@@ -1,4 +1,4 @@
-import { useQueryClient, useSuspenseQuery } from "@tanstack/react-query"
+﻿import { useQueryClient, useSuspenseQuery } from "@tanstack/react-query"
 import { createFileRoute, useNavigate } from "@tanstack/react-router"
 import type { RowSelectionState } from "@tanstack/react-table"
 import { Monitor, RefreshCw } from "lucide-react"
@@ -42,7 +42,7 @@ export const Route = createFileRoute("/_layout/resources")({
   head: () => ({
     meta: [
       {
-        title: "Virtual Machines - Campus Cloud",
+        title: "Virtual Machines - SkyLab",
       },
     ],
   }),
