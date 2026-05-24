@@ -40,9 +40,10 @@
   --color-overlay: rgba(20, 30, 60, 0.25);
 
   /* ----- Status ----- */
-  --color-success: #28a745;
-  --color-warning: #dc3545;
-  --color-danger:  #dc3545;
+  --color-success:        #28a745;
+  --color-warning:        #dc3545;
+  --color-danger:         #dc3545;
+  --color-status-neutral: #6b7280;
 
   /* ----- Shadows ----- */
   --shadow-sm: 0 1px 3px rgba(67, 90, 149, 0.08);
@@ -97,6 +98,9 @@ body.dark {
   /* ----- Interactive ----- */
   --color-hover: #1f2636;
   --color-overlay: rgba(0, 0, 0, 0.6);
+
+  /* ----- Status ----- */
+  --color-status-neutral: #9ca3af;
 
   /* ----- Shadows ----- */
   --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.3);

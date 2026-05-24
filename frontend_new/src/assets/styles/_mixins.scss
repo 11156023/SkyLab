@@ -49,6 +49,14 @@
   padding-inline: $spacing-16;
 }
 
+@mixin badge-base {
+  display: inline-flex;
+  align-items: center;
+  border-radius: $radius-pill;
+  font-size: $font-size-12;
+  font-weight: $font-weight-500;
+}
+
 @mixin glass-surface($blur: 12px, $saturate: 1.4) {
   background: var(--color-surface-glass);
   backdrop-filter: blur($blur) saturate($saturate);
