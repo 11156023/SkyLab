@@ -331,7 +331,7 @@ export default function RequestsPage() {
       const res = await VmRequestsService.list();
       setRequests(
         (res.data ?? []).filter(
-          (r) => r.review_comment !== "Resource deleted by user"
+          (r) => r.status in STATUS_MAP && r.review_comment !== "Resource deleted by user"
         )
       );
     } catch {

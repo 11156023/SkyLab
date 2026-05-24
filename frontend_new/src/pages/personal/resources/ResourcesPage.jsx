@@ -7,10 +7,14 @@ import VncDialog from "./VncDialog";
 
 /* ── Constants ── */
 const STATUS_MAP = {
-  running: { label: "運行中", color: "success", icon: "play_circle"    },
-  stopped: { label: "已停止", color: "muted",   icon: "stop_circle"    },
-  paused:  { label: "已暫停", color: "muted",   icon: "pause_circle"   },
-  deleted: { label: "已刪除", color: "danger",  icon: "delete_forever" },
+  scheduled:    { label: "已排程",   color: "info",    icon: "event"          },
+  provisioning: { label: "建立中",   color: "info",    icon: "settings"       },
+  running:      { label: "執行中",   color: "success", icon: "play_circle"    },
+  stopped:      { label: "已關機",   color: "muted",   icon: "stop_circle"    },
+  paused:       { label: "已暫停",   color: "muted",   icon: "pause_circle"   },
+  failed:       { label: "建立失敗", color: "danger",  icon: "error_outline"  },
+  deleted:      { label: "已刪除",   color: "danger",  icon: "delete_forever" },
+  unknown:      { label: "狀態未知", color: "muted",   icon: "help_outline"   },
 };
 
 const TYPE_MAP = {
@@ -147,6 +151,8 @@ function PowerMenu({ resource, actionLoading, onControl, onDeleteClick, onClose,
   );
 }
 
+const LIVE_STATUSES = new Set(["running", "stopped", "paused"]);
+
 /* ── ResourceCard ── */
 function ResourceCard({ resource, onUpdated, onDeleted }) {
   const [actionLoading, setActionLoading] = useState(null);
@@ -162,8 +168,9 @@ function ResourceCard({ resource, onUpdated, onDeleted }) {
     setTimeout(() => { setMenuOpen(false); setMenuClosing(false); }, 130);
   }
 
-  const type  = TYPE_MAP[resource.type] ?? { label: resource.type, icon: "computer" };
-  const isLxc = resource.type === "lxc";
+  const type    = TYPE_MAP[resource.type] ?? { label: resource.type, icon: "computer" };
+  const isLxc   = resource.type === "lxc";
+  const isLive  = LIVE_STATUSES.has(resource.status);
 
   async function handleControl(action) {
     setActionLoading(action);
@@ -199,7 +206,7 @@ function ResourceCard({ resource, onUpdated, onDeleted }) {
             <span className={styles.cardName}>{resource.name}</span>
             <div className={styles.cardChips}>
               <span className={styles.typeChip}>{type.label}</span>
-              <span className={styles.vmidChip}>VMID {resource.vmid}</span>
+              {resource.vmid > 0 && <span className={styles.vmidChip}>VMID {resource.vmid}</span>}
             </div>
           </div>
           <StatusBadge status={resource.status} />
@@ -226,9 +233,7 @@ function ResourceCard({ resource, onUpdated, onDeleted }) {
 
         {/* ── Footer ── */}
         <div className={styles.cardFooter}>
-          {resource.status === "deleted" ? (
-            <span className={styles.deletedNote}>資源已由使用者刪除</span>
-          ) : (
+          {isLive ? (
             <>
               <button type="button" className={styles.terminalBtn} title={isLxc ? "終端機" : "控制台"} disabled={resource.status !== "running"} onClick={() => setConsoleOpen(true)}>
                 <MIcon name={isLxc ? "terminal" : "desktop_windows"} size={14} />
@@ -260,6 +265,10 @@ function ResourceCard({ resource, onUpdated, onDeleted }) {
                 </div>
               </div>
             </>
+          ) : (
+            <span className={styles.deletedNote}>
+              {STATUS_MAP[resource.status]?.label ?? resource.status}
+            </span>
           )}
         </div>
 
@@ -351,7 +360,7 @@ export default function ResourcesPage() {
     setError(false);
     try {
       const data = await ResourcesService.list();
-      setResources(data ?? []);
+      setResources((data ?? []).filter((r) => r.status in STATUS_MAP));
     } catch {
       setError(true);
     } finally {
