@@ -16,10 +16,20 @@ from app.ai.teacher_judge.prompt import (
     CHAT_SYSTEM_TEMPLATE,
     SITUATION_NORMAL,
     SITUATION_REFINE,
+    TEMPLATE_COMMAND_CONTEXT_TEMPLATE,
 )
-from app.ai.teacher_judge.schemas import ChatMessage, RubricAnalysis, RubricItem
+from app.ai.teacher_judge.schemas import (
+    ChatMessage,
+    RubricAnalysis,
+    RubricCheckStep,
+    RubricItem,
+)
+from app.ai.teacher_judge.template_command_service import (
+    format_template_commands_for_prompt,
+)
 from app.ai.utils import apply_thinking_control, strip_think_tags
 from app.infrastructure.ai.teacher_judge import client as teacher_judge_client
+from app.models.teacher_judge_template_command import TeacherJudgeTemplateCommand
 
 logger = logging.getLogger(__name__)
 
@@ -43,7 +53,54 @@ def _to_bool(value: Any, default: bool = False) -> bool:
     return default
 
 
-def _normalize_rubric_items(raw_items: Any) -> list[RubricItem]:
+def _normalize_check_steps(
+    raw_steps: Any,
+    template_key: str | None = None,
+    template_commands: list[TeacherJudgeTemplateCommand] | None = None,
+) -> list[RubricCheckStep]:
+    if not isinstance(raw_steps, list):
+        return []
+
+    command_by_key = (
+        {command.command_key: command for command in template_commands}
+        if template_commands is not None
+        else None
+    )
+    normalized: list[RubricCheckStep] = []
+    for raw_step in raw_steps:
+        if not isinstance(raw_step, dict):
+            continue
+
+        command_key = str(raw_step.get("command_key") or "").strip()
+        step_template_key = str(raw_step.get("template_key") or template_key or "").strip()
+        if not command_key or not step_template_key:
+            continue
+
+        command_label = raw_step.get("command_label")
+        if command_by_key is not None:
+            command = command_by_key.get(command_key)
+            if command is None or step_template_key != template_key:
+                continue
+            command_label = command.command_label
+            step_template_key = command.template_key
+
+        normalized.append(
+            RubricCheckStep(
+                template_key=step_template_key,
+                command_key=command_key,
+                command_label=str(command_label) if command_label else None,
+            )
+        )
+
+    return normalized
+
+
+def _normalize_rubric_items(
+    raw_items: Any,
+    template_key: str | None = None,
+    template_commands: list[TeacherJudgeTemplateCommand] | None = None,
+    force_checked_false: bool = False,
+) -> list[RubricItem]:
     """Best-effort normalization for AI-returned item payloads."""
     if not isinstance(raw_items, list):
         return []
@@ -56,7 +113,11 @@ def _normalize_rubric_items(raw_items: Any) -> list[RubricItem]:
         item_id = str(raw.get("id") or f"item-{i + 1}")
         title = str(raw.get("title") or raw.get("name") or "").strip() or "未命名項目"
         description = str(raw.get("description") or raw.get("desc") or "")
-        checked = _to_bool(raw.get("checked", raw.get("is_checked")), default=False)
+        checked = (
+            False
+            if force_checked_false
+            else _to_bool(raw.get("checked", raw.get("is_checked")), default=False)
+        )
 
         detectable = str(raw.get("detectable") or "manual").strip().lower()
         if detectable not in {"auto", "partial", "manual"}:
@@ -64,6 +125,18 @@ def _normalize_rubric_items(raw_items: Any) -> list[RubricItem]:
 
         detection_method = raw.get("detection_method") or raw.get("detection")
         fallback = raw.get("fallback") or raw.get("suggestion")
+        check_steps = _normalize_check_steps(
+            raw.get("check_steps"),
+            template_key=template_key,
+            template_commands=template_commands,
+        )
+        if template_commands is not None and detectable == "auto" and not check_steps:
+            detectable = "partial"
+            detection_method = (
+                str(detection_method).strip()
+                if detection_method is not None
+                else "目前沒有可引用的有效 command_key，需人工或後續檢查輔助判斷"
+            )
 
         normalized.append(
             RubricItem(
@@ -76,6 +149,7 @@ def _normalize_rubric_items(raw_items: Any) -> list[RubricItem]:
                 if detection_method is not None
                 else None,
                 fallback=str(fallback) if fallback is not None else None,
+                check_steps=check_steps,
             )
         )
 
@@ -150,7 +224,11 @@ async def _call_vllm(
         raise HTTPException(status_code=502, detail=f"AI 呼叫失敗：{exc}") from exc
 
 
-async def analyze_rubric(raw_text: str) -> tuple[RubricAnalysis, dict]:
+async def analyze_rubric(
+    raw_text: str,
+    template_key: str = "linux",
+    template_commands: list[TeacherJudgeTemplateCommand] | None = None,
+) -> tuple[RubricAnalysis, dict]:
     """Send raw document text to AI, return structured RubricAnalysis."""
     if not settings.VLLM_MODEL_NAME:
         raise HTTPException(status_code=503, detail="VLLM_MODEL_NAME 未設定。")
@@ -158,12 +236,20 @@ async def analyze_rubric(raw_text: str) -> tuple[RubricAnalysis, dict]:
     logger.info(f"Starting rubric analysis, text length: {len(raw_text)} characters")
 
     user_content = f"# 評分表原文\n\n{raw_text}"
+    template_command_context = TEMPLATE_COMMAND_CONTEXT_TEMPLATE.format(
+        template_key=template_key,
+        template_commands=format_template_commands_for_prompt(template_commands or []),
+    )
+    analyze_system_prompt = ANALYZE_SYSTEM_PROMPT.replace(
+        "{template_command_context}",
+        template_command_context,
+    )
 
     payload = apply_thinking_control(
         {
             "model": settings.VLLM_MODEL_NAME,
             "messages": [
-                {"role": "system", "content": ANALYZE_SYSTEM_PROMPT},
+                {"role": "system", "content": analyze_system_prompt},
                 {"role": "user", "content": user_content},
             ],
             "max_tokens": settings.VLLM_MAX_TOKENS,
@@ -187,7 +273,12 @@ async def analyze_rubric(raw_text: str) -> tuple[RubricAnalysis, dict]:
         ) from exc
 
     items_raw = data.get("items") or []
-    items = _normalize_rubric_items(items_raw)
+    items = _normalize_rubric_items(
+        items_raw,
+        template_key=template_key,
+        template_commands=template_commands,
+        force_checked_false=True,
+    )
 
     total_items = len(items)
     checked_count = sum(1 for item in items if item.checked)
@@ -216,6 +307,8 @@ async def chat_with_rubric(
     messages: list[ChatMessage],
     rubric_context: str,
     is_refine: bool = False,
+    template_key: str = "linux",
+    template_commands: list[TeacherJudgeTemplateCommand] | None = None,
 ) -> tuple[str, list | None, dict]:
     """
     Multi-turn chat with rubric context injected into system prompt.
@@ -265,7 +358,11 @@ async def chat_with_rubric(
         parsed = json.loads(content)
         reply_text = str(parsed.get("reply") or content)
         raw_updated = parsed.get("updated_items")
-        normalized_updated = _normalize_rubric_items(raw_updated)
+        normalized_updated = _normalize_rubric_items(
+            raw_updated,
+            template_key=template_key,
+            template_commands=template_commands,
+        )
         if normalized_updated:
             if context_item_count > 0:
                 updated_count = len(normalized_updated)

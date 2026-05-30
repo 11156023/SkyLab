@@ -27,6 +27,9 @@ ANALYZE_SYSTEM_PROMPT = """
 - 報告、文件、簡報品質
 - 功能邏輯正確性（需 E2E 操作測試）
 
+## 本次選定評分環境與可用檢查指令
+{template_command_context}
+
 # 任務
 根據以下評分表原始文字，完成兩件事：
 1. 萃取所有評分項目，轉為 JSON 列表。
@@ -46,11 +49,31 @@ ANALYZE_SYSTEM_PROMPT = """
             "checked": 布林值（true 代表「已達成」、false 代表「未達成」，若無明確達成證據請填 false）,
       "detectable": "auto | partial | manual",
       "detection_method": "若 auto/partial，具體說明偵測方式（e.g., TCP Port 80 探測）；否則 null",
+      "check_steps": [
+        {
+          "template_key": "本次選定 template key",
+          "command_key": "只能引用上方 catalog 已列出的 command_key"
+        }
+      ],
       "fallback": "若 manual/partial，說明替代方案（e.g., 請學生提交截圖、要求提交 GitHub 連結）；否則 null"
     }
   ],
     "summary": "整體評分表說明，約 2-3 句，使用繁體中文。包含共幾題、可自動偵測比例、哪些項目需特別注意或無法自動評分。"
 }
+
+# check_steps 規則（極為重要）
+- 本階段只產生評分計劃書，尚未執行任何檢查；`checked` 預設保持 false。
+- `check_steps` 只能引用上方 catalog 已列出的 `command_key`。
+- 不得自行發明 `command_key`，不得輸出 shell command。
+- 若沒有適合的 catalog command，請輸出空陣列 `[]`，並將 `detectable` 設為 "partial" 或 "manual"。
+""".strip()
+
+
+TEMPLATE_COMMAND_CONTEXT_TEMPLATE = """
+目前選定 template：{template_key}
+
+可用 command catalog：
+{template_commands}
 """.strip()
 
 

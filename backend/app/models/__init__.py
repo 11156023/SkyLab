@@ -48,6 +48,7 @@ from .spec_change_request import (
     SpecChangeType,
 )
 from .subnet_config import SubnetConfig
+from .teacher_judge_template_command import TeacherJudgeTemplateCommand
 from .tunnel_proxy import TunnelProxy
 from .user import User, UserBase, UserRole
 from .vm_migration_job import VMMigrationJob, VMMigrationJobStatus
@@ -131,6 +132,7 @@ __all__ = [
     "SubnetConfig",
     "IpAllocation",
     "ScriptDeployLog",
+    "TeacherJudgeTemplateCommand",
     # Deletion Request
     "DeletionRequest",
     "DeletionRequestStatus",

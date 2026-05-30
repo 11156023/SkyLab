@@ -7,9 +7,12 @@ import {
   AiJudgeService,
   type ChatMessage,
   downloadBlob,
+  getTemplateLabel,
   type RubricAnalysis,
   type RubricItem,
   rubricToContext,
+  TEMPLATE_OPTIONS,
+  type TemplateKey,
 } from "@/features/ai-judge/api"
 import {
   ChatPanel,
@@ -31,6 +34,10 @@ export function AiJudgeContent({ groupId: _groupId }: { groupId: string }) {
   const [isUploading, setIsUploading] = useState(false)
   const [isChatting, setIsChatting] = useState(false)
   const [isExporting, setIsExporting] = useState(false)
+  const [selectedTemplateKey, setSelectedTemplateKey] =
+    useState<TemplateKey>("linux")
+  const [analysisTemplateKey, setAnalysisTemplateKey] =
+    useState<TemplateKey>("linux")
 
   // Computed
   const items = analysis?.items ?? []
@@ -56,8 +63,12 @@ export function AiJudgeContent({ groupId: _groupId }: { groupId: string }) {
     async (file: File) => {
       setIsUploading(true)
       try {
-        const response = await AiJudgeService.uploadRubric(file)
+        const response = await AiJudgeService.uploadRubric(
+          file,
+          selectedTemplateKey,
+        )
         setAnalysis(response.analysis)
+        setAnalysisTemplateKey(response.template_key ?? selectedTemplateKey)
         setMessages([])
         showSuccessToast(
           `分析完成：${response.analysis.items.length} 題評估項目`,
@@ -68,7 +79,7 @@ export function AiJudgeContent({ groupId: _groupId }: { groupId: string }) {
         setIsUploading(false)
       }
     },
-    [showSuccessToast, showErrorToast],
+    [selectedTemplateKey, showSuccessToast, showErrorToast],
   )
 
   const handleSendMessage = useCallback(
@@ -85,6 +96,7 @@ export function AiJudgeContent({ groupId: _groupId }: { groupId: string }) {
           messages: newMessages,
           rubric_context: rubricToContext(analysis),
           is_refine: isRefine,
+          template_key: analysisTemplateKey,
         })
 
         // Add assistant reply
@@ -120,6 +132,7 @@ export function AiJudgeContent({ groupId: _groupId }: { groupId: string }) {
       showSuccessToast,
       showErrorToast,
       applyItemsToAnalysis,
+      analysisTemplateKey,
     ],
   )
   const handleItemChange = useCallback(
@@ -151,6 +164,7 @@ export function AiJudgeContent({ groupId: _groupId }: { groupId: string }) {
       detectable: "manual",
       detection_method: null,
       fallback: null,
+      check_steps: [],
     }
     setAnalysis(applyItemsToAnalysis(analysis, [...analysis.items, newItem]))
   }, [analysis, applyItemsToAnalysis])
@@ -210,7 +224,26 @@ export function AiJudgeContent({ groupId: _groupId }: { groupId: string }) {
               上傳情境評估表
             </CardTitle>
           </CardHeader>
-          <CardContent>
+          <CardContent className="space-y-4">
+            <div className="space-y-2">
+              <span className="text-sm font-medium">評分環境</span>
+              <div className="flex flex-wrap gap-2">
+                {TEMPLATE_OPTIONS.map((option) => (
+                  <Button
+                    key={option.key}
+                    type="button"
+                    variant={
+                      selectedTemplateKey === option.key ? "default" : "outline"
+                    }
+                    size="sm"
+                    onClick={() => setSelectedTemplateKey(option.key)}
+                    disabled={isUploading}
+                  >
+                    {option.label}
+                  </Button>
+                ))}
+              </div>
+            </div>
             <RubricUploader onUpload={handleUpload} isLoading={isUploading} />
           </CardContent>
         </Card>
@@ -223,6 +256,9 @@ export function AiJudgeContent({ groupId: _groupId }: { groupId: string }) {
             <Card className="shadow-sm border-border/50">
               <CardContent className="pt-6">
                 <RubricStats {...stats} />
+                <p className="mt-4 text-sm text-muted-foreground">
+                  本次評分環境：{getTemplateLabel(analysisTemplateKey)}
+                </p>
                 {analysis.summary && (
                   <p className="mt-4 rounded-lg bg-muted/50 p-3 text-sm text-muted-foreground shadow-inner">
                     {analysis.summary}

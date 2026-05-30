@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 
-from fastapi import APIRouter, File, HTTPException, UploadFile
+from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 from fastapi.responses import Response
 
 from app.ai.teacher_judge.config import settings
@@ -15,6 +15,11 @@ from app.ai.teacher_judge.service import (
     chat_with_rubric,
     normalize_items_for_export,
 )
+from app.ai.teacher_judge.template_command_service import (
+    SUPPORTED_TEMPLATE_KEYS,
+    get_enabled_template_commands,
+)
+from app.api.deps import SessionDep
 from app.api.deps.auth import InstructorUser
 from app.services.rubric_parser import parse_document
 
@@ -26,7 +31,9 @@ router = APIRouter(prefix="/rubric", tags=["rubric"])
 @router.post("/upload")
 async def upload_rubric(
     current_user: InstructorUser,
+    session: SessionDep,
     file: UploadFile = File(...),
+    template_key: str = Form(default="linux"),
 ):
     """
     上傳評分表文件（.docx / .pdf），AI 解析並回傳結構化評分分析。
@@ -41,6 +48,10 @@ async def upload_rubric(
             status_code=415,
             detail=f"不支援的格式 '{suffix}'，目前接受：{', '.join(allowed)}",
         )
+
+    template_key = template_key.strip().lower() or "linux"
+    if template_key not in SUPPORTED_TEMPLATE_KEYS:
+        raise HTTPException(status_code=400, detail="未知的評分環境 template。")
 
     file_bytes = await file.read()
 
@@ -67,18 +78,26 @@ async def upload_rubric(
             detail="無法從文件中提取任何文字，請確認文件不是掃描版 PDF。",
         )
 
+    template_commands = get_enabled_template_commands(session, template_key)
+
     logger.info(f"User {current_user.email} uploaded rubric file: {filename}")
 
-    analysis, metrics = await analyze_rubric(raw_text)
+    analysis, metrics = await analyze_rubric(
+        raw_text,
+        template_key=template_key,
+        template_commands=template_commands,
+    )
     return {
         "analysis": analysis.model_dump(),
         "ai_metrics": metrics,
+        "template_key": template_key,
     }
 
 
 @router.post("/chat")
 async def chat(
     current_user: InstructorUser,
+    session: SessionDep,
     chat_request: RubricChatRequest,
 ):
     """
@@ -87,10 +106,17 @@ async def chat(
     rubric_context 帶入目前評分表的 JSON 字串。
     限制：Teacher / Admin 角色可使用。
     """
+    template_key = chat_request.template_key.strip().lower() or "linux"
+    if template_key not in SUPPORTED_TEMPLATE_KEYS:
+        raise HTTPException(status_code=400, detail="未知的評分環境 template。")
+    template_commands = get_enabled_template_commands(session, template_key)
+
     reply, updated_items, metrics = await chat_with_rubric(
         chat_request.messages,
         chat_request.rubric_context,
         is_refine=chat_request.is_refine,
+        template_key=template_key,
+        template_commands=template_commands,
     )
     return {
         "reply": reply,

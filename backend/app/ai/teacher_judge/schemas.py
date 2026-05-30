@@ -5,6 +5,17 @@ from __future__ import annotations
 from pydantic import BaseModel, Field
 
 
+class RubricCheckStep(BaseModel):
+    """評分計劃書中的 command catalog 引用。"""
+
+    template_key: str = Field(..., description="評分環境 template key")
+    command_key: str = Field(..., description="template command catalog 的穩定 ID")
+    command_label: str | None = Field(
+        default=None,
+        description="template command catalog 的顯示名稱",
+    )
+
+
 class RubricItem(BaseModel):
     """單一評分項目。"""
 
@@ -23,6 +34,10 @@ class RubricItem(BaseModel):
     fallback: str | None = Field(
         default=None,
         description="無法自動偵測時的替代建議",
+    )
+    check_steps: list[RubricCheckStep] = Field(
+        default_factory=list,
+        description="本階段只產生計劃書，僅引用既有 command_key，不代表已執行。",
     )
 
 
@@ -58,6 +73,10 @@ class RubricChatRequest(BaseModel):
     is_refine: bool = Field(
         default=False, description="True = 老師手動調整後觸發的全表潤飾模式"
     )
+    template_key: str = Field(
+        default="linux",
+        description="目前評分環境 template key，用於驗證 check_steps",
+    )
 
 
 class RubricChatResponse(BaseModel):
@@ -77,6 +96,7 @@ class RubricUploadResponse(BaseModel):
 
     analysis: RubricAnalysis
     ai_metrics: dict
+    template_key: str = "linux"
 
 
 class RubricExportRequest(BaseModel):

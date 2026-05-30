@@ -16,7 +16,16 @@ export type RubricItem = {
   detectable: "auto" | "partial" | "manual"
   detection_method: string | null
   fallback: string | null
+  check_steps?: RubricCheckStep[]
 }
+
+export type RubricCheckStep = {
+  template_key: TemplateKey
+  command_key: string
+  command_label?: string | null
+}
+
+export type TemplateKey = "linux" | "python" | "n8n"
 
 export type RubricAnalysis = {
   items: RubricItem[]
@@ -43,6 +52,7 @@ export type RubricUploadResponse = {
     elapsed_seconds: number
     tokens_per_second: number
   }
+  template_key: TemplateKey
 }
 
 export type RubricChatResponse = {
@@ -66,11 +76,14 @@ export const AiJudgeService = {
   /**
    * Upload rubric document for AI analysis
    */
-  uploadRubric(file: File): CancelablePromise<RubricUploadResponse> {
+  uploadRubric(
+    file: File,
+    templateKey: TemplateKey = "linux",
+  ): CancelablePromise<RubricUploadResponse> {
     return __request(OpenAPI, {
       method: "POST",
       url: "/api/v1/rubric/upload",
-      formData: { file },
+      formData: { file, template_key: templateKey },
     })
   },
 
@@ -81,6 +94,7 @@ export const AiJudgeService = {
     messages: ChatMessage[]
     rubric_context: string
     is_refine?: boolean
+    template_key?: TemplateKey
   }): CancelablePromise<RubricChatResponse> {
     return __request(OpenAPI, {
       method: "POST",
@@ -89,6 +103,7 @@ export const AiJudgeService = {
         messages: data.messages,
         rubric_context: data.rubric_context,
         is_refine: data.is_refine ?? false,
+        template_key: data.template_key ?? "linux",
       },
       mediaType: "application/json",
     })
@@ -216,4 +231,17 @@ export function getCheckedInfo(checked: boolean) {
     className:
       "bg-slate-100 text-slate-700 dark:bg-slate-900/30 dark:text-slate-300",
   }
+}
+
+export const TEMPLATE_OPTIONS: { key: TemplateKey; label: string }[] = [
+  { key: "linux", label: "一般 Linux/LXC" },
+  { key: "python", label: "Python" },
+  { key: "n8n", label: "n8n" },
+]
+
+export function getTemplateLabel(templateKey: string | null | undefined) {
+  return (
+    TEMPLATE_OPTIONS.find((option) => option.key === templateKey)?.label ??
+    "一般 Linux/LXC"
+  )
 }

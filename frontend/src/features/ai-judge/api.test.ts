@@ -1,8 +1,13 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { OpenAPI } from "@/client"
+import { request as requestMock } from "@/client/core/request"
 
 import { AiJudgeService } from "./api"
+
+vi.mock("@/client/core/request", () => ({
+  request: vi.fn(),
+}))
 
 describe("AiJudgeService.downloadExcel", () => {
   const originalToken = OpenAPI.TOKEN
@@ -11,8 +16,44 @@ describe("AiJudgeService.downloadExcel", () => {
   afterEach(() => {
     OpenAPI.TOKEN = originalToken
     OpenAPI.BASE = originalBase
+    vi.clearAllMocks()
     vi.restoreAllMocks()
     vi.unstubAllGlobals()
+  })
+
+  it("sends template_key with rubric upload", async () => {
+    const file = new File(["rubric"], "rubric.pdf", { type: "application/pdf" })
+    vi.mocked(requestMock).mockReturnValue(Promise.resolve({}) as any)
+
+    await AiJudgeService.uploadRubric(file, "n8n")
+
+    expect(requestMock).toHaveBeenCalledWith(
+      OpenAPI,
+      expect.objectContaining({
+        method: "POST",
+        url: "/api/v1/rubric/upload",
+        formData: { file, template_key: "n8n" },
+      }),
+    )
+  })
+
+  it("sends template_key with rubric chat", async () => {
+    vi.mocked(requestMock).mockReturnValue(Promise.resolve({}) as any)
+
+    await AiJudgeService.chat({
+      messages: [{ role: "user", content: "請潤飾" }],
+      rubric_context: "{}",
+      template_key: "python",
+    })
+
+    expect(requestMock).toHaveBeenCalledWith(
+      OpenAPI,
+      expect.objectContaining({
+        method: "POST",
+        url: "/api/v1/rubric/chat",
+        body: expect.objectContaining({ template_key: "python" }),
+      }),
+    )
   })
 
   it("passes endpoint url to token resolver", async () => {

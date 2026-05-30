@@ -16,7 +16,7 @@ import { Input } from "@/components/ui/input"
 import { cn } from "@/lib/utils"
 
 import type { RubricItem } from "../api"
-import { getDetectableInfo } from "../api"
+import { getDetectableInfo, getTemplateLabel } from "../api"
 
 type RubricCardProps = {
   item: RubricItem
@@ -34,6 +34,7 @@ export function RubricCard({
   disabled = false,
 }: RubricCardProps) {
   const detectableInfo = getDetectableInfo(item.detectable)
+  const checkSteps = item.check_steps ?? []
 
   const handleFieldChange = useCallback(
     (field: keyof RubricItem, value: string | null) => {
@@ -126,7 +127,7 @@ export function RubricCard({
       </div>
 
       {/* ── Row 4: Detection info (AI-managed, read-only) ── */}
-      {(item.detection_method || item.fallback) && (
+      {(item.detection_method || item.fallback || checkSteps.length > 0) && (
         <div className="ml-9 mt-3 space-y-2.5 rounded-md border border-dashed bg-muted/20 px-4 py-3">
           <div className="flex items-center gap-1.5">
             <Shield className="h-3.5 w-3.5 text-muted-foreground" />
@@ -160,6 +161,28 @@ export function RubricCard({
               </div>
             )}
           </div>
+
+          {checkSteps.length > 0 && (
+            <div className="space-y-1">
+              <span className="text-[11px] font-medium text-muted-foreground">
+                評分計劃書
+              </span>
+              <div className="flex flex-wrap gap-1.5">
+                {checkSteps.map((step) => (
+                  <span
+                    key={`${step.template_key}-${step.command_key}`}
+                    className="rounded bg-background/70 px-2 py-1 text-[11px] text-muted-foreground"
+                  >
+                    {getTemplateLabel(step.template_key)} /{" "}
+                    {step.command_label ?? step.command_key}
+                    <span className="ml-1 font-mono text-[10px]">
+                      {step.command_key}
+                    </span>
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
       )}
     </div>
