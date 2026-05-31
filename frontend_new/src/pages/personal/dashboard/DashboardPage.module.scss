@@ -1,3 +1,6 @@
+@use "../../../assets/styles/variables" as *;
+@use "../../../assets/styles/mixins" as *;
+
 .page {
   @include flex-column;
   gap: $spacing-24;
@@ -10,6 +13,7 @@
   }
 }
 
+/* ── Page header (matches other pages) ── */
 .pageHeader {
   @include flex-between;
   flex-wrap: wrap;
@@ -34,31 +38,11 @@
   color: var(--color-text-secondary);
 }
 
-.quickStats {
-  min-width: 116px;
-  padding: 12px $spacing-16;
-  border: 1px solid var(--color-border);
-  border-radius: $radius-8;
-  background: var(--color-surface);
+/* ── Section ── */
+.section {
   @include flex-column;
-  gap: 2px;
-}
-
-.quickStatLabel {
-  color: var(--color-text-muted);
-  font-size: $font-size-12;
-}
-
-.quickStatValue {
-  color: var(--color-text-primary);
-  font-size: $font-size-24;
-  font-weight: $font-weight-700;
-  line-height: 1;
-}
-
-.quickSection {
-  @include flex-column;
-  gap: $spacing-16;
+  gap: $spacing-8;
+  min-width: 0;
 }
 
 .sectionHeader {
@@ -74,184 +58,186 @@
   gap: $spacing-4;
 }
 
-.sectionSubtitle {
-  margin: 4px 0 0;
-  color: var(--color-text-secondary);
-  font-size: $font-size-14;
-}
-
-.secondaryButton {
-  min-height: 38px;
+.sectionName {
   display: inline-flex;
   align-items: center;
   gap: $spacing-8;
-  padding: 0 $spacing-16;
-  border-radius: $radius-8;
-  border: 1px solid var(--color-border);
-  background: var(--color-surface);
-  color: var(--color-text);
+  font-size: $font-size-18;
+  font-weight: $font-weight-700;
+  color: var(--color-text-primary);
+}
+
+.sectionDesc {
+  font-size: $font-size-14;
+  color: var(--color-text-muted);
+}
+
+.sectionLink {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
   font-size: $font-size-14;
   font-weight: $font-weight-500;
+  color: var(--color-primary);
   cursor: pointer;
-  transition: background $transition-base, border-color $transition-base;
+  transition: color $transition-base, gap $transition-base;
+  padding: 0;
+  background: none;
+  border: none;
 
   &:hover {
-    background: var(--color-hover);
-    border-color: color-mix(in srgb, var(--color-primary) 30%, var(--color-border));
+    color: var(--color-primary-dark);
+    gap: $spacing-8;
   }
 }
 
-.categoryTabs {
+/* ── Course scroll row ── */
+.courseScroll {
   display: flex;
-  align-items: center;
-  gap: $spacing-8;
-  overflow-x: auto;
-  padding-bottom: 2px;
-}
-
-.categoryTab {
-  min-height: 32px;
-  padding: 0 $spacing-16;
-  border-radius: $radius-pill;
-  border: 1px solid var(--color-border);
-  background: var(--color-surface);
-  color: var(--color-text-secondary);
-  font-size: $font-size-14;
-  cursor: pointer;
-  white-space: nowrap;
-  transition: background $transition-base, color $transition-base, border-color $transition-base;
-
-  &:hover {
-    color: var(--color-text-primary);
-    background: var(--color-hover);
-  }
-}
-
-.categoryTabActive {
-  color: var(--color-text-on-primary);
-  background: var(--color-primary);
-  border-color: var(--color-primary);
-}
-
-.templateGrid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  flex-direction: row;
   gap: $spacing-16;
+  overflow-x: auto;
+  overflow-y: hidden;
+  -webkit-overflow-scrolling: touch;
+  touch-action: pan-x;
+  overscroll-behavior-x: contain;
+  padding: 12px 0 24px;
+  width: 100%;
+  min-width: 0;
+  scrollbar-width: none;
+  cursor: grab;
+  user-select: none;
+
+  &::-webkit-scrollbar { display: none; }
 }
 
-.templateCard {
-  min-height: 238px;
+.dragging {
+  cursor: grabbing;
+  scroll-behavior: auto;
+}
+
+/* ── Course card ── */
+.courseCard {
   @include glass-surface;
   @include flex-column;
-  gap: $spacing-16;
-  padding: $spacing-16;
-  border-radius: $radius-12;
-  color: var(--color-text);
-  text-align: left;
+  border-radius: $radius-16;
+  overflow: hidden;
   cursor: pointer;
-  transition: transform $transition-base, box-shadow $transition-base, border-color $transition-base;
+  transition: transform $transition-base, box-shadow $transition-base;
+  flex-shrink: 0;
+  width: 280px;
 
   &:hover {
-    transform: translateY(-3px);
-    box-shadow: var(--shadow-md);
-    border-color: color-mix(in srgb, var(--color-primary) 28%, var(--color-surface-glass-border));
+    transform: translateY(-5px);
+    box-shadow: var(--shadow-lg);
   }
 }
 
-.templateCardTop {
+.cardBanner {
+  height: 80px;
+  padding: $spacing-16;
   display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: $spacing-8;
+  align-items: center;
+  background: linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--accent-color) 16%, var(--color-surface-glass)),
+    color-mix(in srgb, var(--accent-color)  6%, var(--color-surface-glass))
+  );
+  border-bottom: 1px solid color-mix(in srgb, var(--accent-color) 18%, var(--color-border));
+  position: relative;
+  overflow: hidden;
+  flex-shrink: 0;
+
+  &::after {
+    content: "";
+    position: absolute;
+    right: -24px;
+    top: -24px;
+    width: 130px;
+    height: 130px;
+    border-radius: 50%;
+    background: color-mix(in srgb, var(--accent-color) 8%, transparent);
+    pointer-events: none;
+  }
 }
 
-.templateLogo,
-.templateIcon {
-  width: 44px;
-  height: 44px;
-  border-radius: $radius-8;
+.cardBannerLeft {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+  overflow: hidden;
+  position: relative;
+  z-index: 1;
+}
+
+.cardBannerIcon {
+  @include flex-center;
+  width: 40px;
+  height: 40px;
+  border-radius: $radius-12;
+  background: color-mix(in srgb, var(--accent-color) 14%, transparent);
+  color: var(--accent-color);
   flex-shrink: 0;
 }
 
-.templateLogo {
-  object-fit: contain;
-  border: 1px solid var(--color-border);
-  background: var(--color-surface);
+.cardSubjects {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+  gap: 4px;
 }
 
-.templateIcon {
-  display: grid;
-  place-items: center;
-  color: var(--color-primary);
-  background: color-mix(in srgb, var(--color-primary) 12%, transparent);
+.cardSubjectTag {
+  @include badge-base;
+  padding: 2px 8px;
+  background: color-mix(in srgb, var(--accent-color) 12%, transparent);
+  color: var(--accent-color);
+  font-size: 11px;
+  white-space: nowrap;
 }
 
-.templateCategory {
-  min-height: 24px;
-  display: inline-flex;
-  align-items: center;
-  padding: 0 $spacing-8;
-  border-radius: $radius-pill;
-  background: var(--color-hover);
-  color: var(--color-text-secondary);
-  font-size: $font-size-12;
-  font-weight: $font-weight-500;
+.cardTitle {
+  font-size: $font-size-14;
+  font-weight: $font-weight-700;
+  color: var(--color-text-primary);
+  line-height: 1.4;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.templateMain {
+.cardBody {
   @include flex-column;
   gap: $spacing-8;
-  min-width: 0;
+  padding: $spacing-16;
   flex: 1;
 }
 
-.templateName {
-  margin: 0;
-  color: var(--color-text-primary);
-  font-size: $font-size-16;
-  font-weight: $font-weight-700;
-}
-
-.templateDesc {
-  margin: 0;
-  color: var(--color-text-secondary);
+.cardDesc {
   font-size: $font-size-12;
-  line-height: 1.55;
-  @include text-clamp(3);
+  color: var(--color-text-secondary);
+  line-height: $line-height-base;
+  @include text-clamp(2);
+  flex: 1;
 }
 
-.templateSpecs {
-  min-height: 24px;
-  display: flex;
-  flex-wrap: wrap;
-  gap: $spacing-4;
-
-  span {
-    display: inline-flex;
-    align-items: center;
-    min-height: 22px;
-    padding: 0 $spacing-8;
-    border-radius: $radius-pill;
-    background: color-mix(in srgb, var(--color-primary) 8%, transparent);
-    color: var(--color-primary);
-    font-size: $font-size-12;
-    font-weight: $font-weight-500;
-  }
-}
-
-.templateAction {
+.cardMeta {
   display: flex;
   align-items: center;
-  justify-content: flex-end;
-  gap: 6px;
-  color: var(--color-primary);
-  font-size: $font-size-14;
-  font-weight: $font-weight-700;
+  gap: $spacing-8;
+  flex-wrap: wrap;
+  margin-top: $spacing-4;
 }
 
-/* ────────────────────────────────────────────
-   Quick start (filter chips + card grid)
-   ──────────────────────────────────────────── */
+.metaItem {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: $font-size-12;
+  color: var(--color-text-muted);
+}
 
 /* ── Filter chips ── */
 .filterChips {
@@ -266,17 +252,14 @@
   align-items: center;
   gap: 6px;
   padding: 6px 14px;
-  border-radius: 999px;
+  border-radius: $radius-pill;
   border: 1px solid var(--color-border);
   background: var(--color-surface);
   font-size: $font-size-14;
   font-weight: $font-weight-500;
   color: var(--color-text-secondary);
   cursor: pointer;
-  transition:
-    background $transition-base,
-    color $transition-base,
-    border-color $transition-base;
+  transition: background $transition-base, color $transition-base, border-color $transition-base;
   white-space: nowrap;
 
   &:hover:not(.filterChipActive) {
@@ -299,7 +282,7 @@
   min-width: 18px;
   height: 18px;
   padding: 0 6px;
-  border-radius: 999px;
+  border-radius: $radius-pill;
   background: color-mix(in srgb, currentColor 18%, transparent);
   font-size: 11px;
   font-weight: $font-weight-700;
@@ -313,13 +296,8 @@
   grid-template-columns: 1fr;
   margin-top: 12px;
 
-  @include respond-to(sm) {
-    grid-template-columns: 1fr 1fr;
-  }
-
-  @include respond-to(lg) {
-    grid-template-columns: repeat(3, 1fr);
-  }
+  @include respond-to(sm) { grid-template-columns: 1fr 1fr; }
+  @include respond-to(lg) { grid-template-columns: repeat(3, 1fr); }
 }
 
 /* ── Template card ── */
@@ -335,12 +313,8 @@
   cursor: pointer;
   position: relative;
   overflow: hidden;
-  transition:
-    transform $transition-base,
-    border-color $transition-base,
-    box-shadow $transition-base;
+  transition: transform $transition-base, border-color $transition-base, box-shadow $transition-base;
 
-  /* Decorative corner glow */
   &::before {
     content: "";
     position: absolute;
@@ -450,195 +424,4 @@
   font-weight: $font-weight-500;
   color: var(--color-text-muted);
   transition: color $transition-base, gap $transition-base;
-}
-
-/* ── Section ── */
-.section {
-  @include flex-column;
-  gap: $spacing-8;
-  min-width: 0;
-}
-
-.sectionName {
-  display: inline-flex;
-  align-items: center;
-  gap: $spacing-8;
-  font-size: $font-size-18;
-  font-weight: $font-weight-700;
-  color: var(--color-text-primary);
-}
-
-.sectionDesc {
-  font-size: $font-size-14;
-  color: var(--color-text-muted);
-}
-
-.sectionLink {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  font-size: $font-size-14;
-  font-weight: $font-weight-500;
-  color: var(--color-primary);
-  cursor: pointer;
-  transition: color $transition-base, gap $transition-base;
-  padding: 0;
-  background: none;
-  border: none;
-
-  &:hover {
-    color: var(--color-primary-dark);
-    gap: $spacing-8;
-  }
-}
-
-/* ── Course scroll row ── */
-.courseScroll {
-  display: flex;
-  flex-direction: row;
-  gap: $spacing-16;
-  overflow-x: auto;
-  overflow-y: hidden;
-  -webkit-overflow-scrolling: touch;
-  touch-action: pan-x;
-  overscroll-behavior-x: contain;
-  padding: 12px 0 24px;
-  width: 100%;
-  min-width: 0;
-  scrollbar-width: none;
-  cursor: grab;
-  user-select: none;
-
-  &::-webkit-scrollbar {
-    display: none;
-  }
-}
-
-.dragging {
-  cursor: grabbing;
-  scroll-behavior: auto;
-}
-
-/* ── Course card ── */
-.courseCard {
-  @include glass-surface;
-  border-radius: $radius-16;
-  @include flex-column;
-  overflow: hidden;
-  cursor: pointer;
-  transition: transform $transition-base, box-shadow $transition-base;
-  flex-shrink: 0;
-  width: 280px;
-
-  &:hover {
-    transform: translateY(-5px);
-    box-shadow: var(--shadow-lg);
-  }
-}
-
-/* ── Card banner ── */
-.cardBanner {
-  height: 80px;
-  padding: $spacing-16;
-  display: flex;
-  align-items: center;
-  background: linear-gradient(
-    135deg,
-    color-mix(in srgb, var(--accent-color) 16%, var(--color-surface-glass)),
-    color-mix(in srgb, var(--accent-color)  6%, var(--color-surface-glass))
-  );
-  border-bottom: 1px solid color-mix(in srgb, var(--accent-color) 18%, var(--color-border));
-  position: relative;
-  overflow: hidden;
-  flex-shrink: 0;
-
-  &::after {
-    content: "";
-    position: absolute;
-    right: -24px;
-    top: -24px;
-    width: 130px;
-    height: 130px;
-    border-radius: 50%;
-    background: color-mix(in srgb, var(--accent-color) 8%, transparent);
-    pointer-events: none;
-  }
-}
-
-.cardBannerLeft {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  min-width: 0;
-  overflow: hidden;
-  position: relative;
-  z-index: 1;
-}
-
-.cardBannerIcon {
-  @include flex-center;
-  width: 40px;
-  height: 40px;
-  border-radius: $radius-12;
-  background: color-mix(in srgb, var(--accent-color) 14%, transparent);
-  color: var(--accent-color);
-  flex-shrink: 0;
-}
-
-.cardBannerMeta {
-  display: flex;
-  flex-direction: row;
-  flex-wrap: wrap;
-  gap: 4px;
-}
-
-.cardBannerTag {
-  @include badge-base;
-  padding: 2px 8px;
-  background: color-mix(in srgb, var(--accent-color) 12%, transparent);
-  color: var(--accent-color);
-  font-size: 11px;
-  white-space: nowrap;
-}
-
-.cardTitle {
-  font-size: $font-size-14;
-  font-weight: $font-weight-700;
-  color: var(--color-text-primary);
-  line-height: 1.4;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.cardBody {
-  @include flex-column;
-  gap: $spacing-8;
-  padding: $spacing-16;
-  flex: 1;
-}
-
-.cardDesc {
-  font-size: $font-size-12;
-  color: var(--color-text-secondary);
-  line-height: $line-height-base;
-  @include text-clamp(2);
-  flex: 1;
-}
-
-.cardMeta {
-  display: flex;
-  align-items: center;
-  gap: $spacing-8;
-  flex-wrap: wrap;
-  margin-top: $spacing-4;
-}
-
-.metaItem {
-  display: inline-flex;
-  align-items: center;
-  gap: 3px;
-  font-size: $font-size-12;
-  color: var(--color-text-muted);
 }
