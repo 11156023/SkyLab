@@ -17,6 +17,7 @@ const RESOURCE_TYPE_MAP = {
   vm:  { label: "虛擬機 (VM)", icon: "computer" },
 };
 
+/* Per status-design.md: VMRequest.status only — provisioning lives on Resource.status */
 const CANCELLABLE = new Set(["pending", "approved"]);
 const RETRYABLE   = new Set(["approved"]);
 
@@ -323,6 +324,7 @@ export default function RequestsPage({ intent }) {
   const [loading, setLoading]   = useState(true);
   const [error, setError]       = useState(false);
   const [view, setView]         = useState(VIEW_LIST);
+  const [returning, setReturning] = useState(false);
 
   const fetchRequests = useCallback(async () => {
     setLoading(true);
@@ -358,14 +360,16 @@ export default function RequestsPage({ intent }) {
       <RequestFormPage
         key="create"
         className={styles.animSlideInRight}
-        quickTemplateSlug={intent?.quickTemplateSlug}
-        onBack={() => setView(VIEW_LIST)}
+        onBack={() => { setReturning(true); setView(VIEW_LIST); }}
       />
     );
   }
 
   return (
-    <div className={styles.page}>
+    <div
+      className={`${styles.page} ${returning ? styles.animSlideInLeft : ""}`}
+      onAnimationEnd={returning ? () => setReturning(false) : undefined}
+    >
       <div className={styles.pageHeader}>
         <div className={styles.pageHeading}>
           <h1 className={styles.pageTitle}>我的申請</h1>
