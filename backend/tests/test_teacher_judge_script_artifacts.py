@@ -178,16 +178,12 @@ async def test_build_reviewed_script_retries_with_quality_feedback(
 
     async def fake_generate_script_content(*, rubric_snapshot, template_key):
         seen_snapshots.append(dict(rubric_snapshot))
-        return "bad-script" if len(seen_snapshots) == 1 else SAFE_SCRIPT
+        return "bad-script"
+
+    review_call_count = [0]
 
     async def fake_review_script_with_ai(*, script_content, rubric_snapshot):
-        if script_content == "bad-script":
-            return {
-                "approved": False,
-                "risk_level": "medium",
-                "issues": ["腳本品質不足"],
-                "suggested_fix": "請改成使用 helper 並補 unknown 狀態",
-            }
+        review_call_count[0] += 1
         return {
             "approved": True,
             "risk_level": "low",
@@ -224,7 +220,20 @@ async def test_build_reviewed_script_retries_with_quality_feedback(
             "issues": ["不能用 stdout/stderr truthiness 直接判定 pass"]
             if script_content == "bad-script"
             else [],
+            "fix_hints": [{"type": "remove_stdout_truthiness_check", "description": "不能用 stdout/stderr truthiness 直接判定 pass"}]
+            if script_content == "bad-script"
+            else [],
         },
+    )
+
+    async def fake_fix_script_content(*, script_content, fix_hints):
+        assert fix_hints
+        return SAFE_SCRIPT
+
+    monkeypatch.setattr(
+        script_artifact_service,
+        "fix_script_content",
+        fake_fix_script_content,
     )
 
     script_content, policy_check, ai_review, status = (
@@ -238,14 +247,91 @@ async def test_build_reviewed_script_retries_with_quality_feedback(
     assert status == TeacherJudgeScriptStatus.reviewed
     assert policy_check["quality_approved"] is True
     assert ai_review["approved"] is True
-    assert len(seen_snapshots) == 2
+    assert len(seen_snapshots) == 1
     assert "previous_review_feedback" not in seen_snapshots[0]
-    assert seen_snapshots[1]["previous_review_feedback"]["quality_issues"] == [
-        "不能用 stdout/stderr truthiness 直接判定 pass"
+    assert review_call_count[0] == 1
+
+
+@pytest.mark.asyncio
+async def test_build_reviewed_script_re_reviews_after_ai_feedback_fix(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    ai_review_results = [
+        {
+            "approved": False,
+            "risk_level": "medium",
+            "issues": ["except Exception 後未將錯誤記錄到 errors"],
+            "suggested_fix": "在 except 中追加 errors.append()",
+        },
+        {
+            "approved": True,
+            "risk_level": "low",
+            "issues": [],
+            "suggested_fix": None,
+        },
     ]
-    assert seen_snapshots[1]["previous_review_feedback"]["ai_review_issues"] == [
-        "腳本品質不足"
-    ]
+    reviewed_scripts: list[str] = []
+
+    async def fake_generate_script_content(*, rubric_snapshot, template_key):
+        return SAFE_SCRIPT
+
+    async def fake_review_script_with_ai(*, script_content, rubric_snapshot):
+        reviewed_scripts.append(script_content)
+        return ai_review_results.pop(0)
+
+    async def fake_fix_script_content(*, script_content, fix_hints):
+        assert fix_hints[0]["type"] == "ai_reviewer_feedback"
+        return SAFE_SCRIPT.replace('"summary": "ok"', '"summary": "fixed"')
+
+    monkeypatch.setattr(
+        script_artifact_service,
+        "generate_script_content",
+        fake_generate_script_content,
+    )
+    monkeypatch.setattr(
+        script_artifact_service,
+        "review_script_with_ai",
+        fake_review_script_with_ai,
+    )
+    monkeypatch.setattr(
+        script_artifact_service,
+        "fix_script_content",
+        fake_fix_script_content,
+    )
+    monkeypatch.setattr(
+        script_artifact_service,
+        "check_script_policy",
+        lambda script_content: {
+            "approved": True,
+            "blocked": False,
+            "risk_level": "low",
+            "issues": [],
+        },
+    )
+    monkeypatch.setattr(
+        script_artifact_service,
+        "check_script_quality",
+        lambda script_content: {
+            "approved": True,
+            "blocked": False,
+            "risk_level": "low",
+            "issues": [],
+            "fix_hints": [],
+        },
+    )
+
+    script_content, policy_check, ai_review, status = (
+        await script_artifact_service.build_reviewed_script(
+            rubric_snapshot={"template_key": "linux", "items": []},
+            template_key="linux",
+        )
+    )
+
+    assert '"summary": "fixed"' in script_content
+    assert policy_check["approved"] is True
+    assert ai_review["approved"] is True
+    assert status == TeacherJudgeScriptStatus.reviewed
+    assert len(reviewed_scripts) == 2
 
 
 @pytest.mark.asyncio

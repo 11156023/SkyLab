@@ -5,10 +5,13 @@ from __future__ import annotations
 import ast
 import json
 import re
-from typing import Any
+from typing import TYPE_CHECKING, Any, Literal
 from urllib.parse import urlparse
 
 from pydantic import BaseModel, Field, ValidationError, field_validator
+
+if TYPE_CHECKING:
+    from app.ai.teacher_judge._types import CheckResult, FixHint, ScriptValidationResult
 
 ALLOWED_RESULT_STATUSES = {"pass", "fail", "warning", "unknown", "skipped"}
 
@@ -16,7 +19,7 @@ ALLOWED_RESULT_STATUSES = {"pass", "fail", "warning", "unknown", "skipped"}
 class ManagedScriptCheck(BaseModel):
     id: str = Field(..., min_length=1, max_length=120)
     title: str = Field(..., min_length=1, max_length=240)
-    status: str
+    status: Literal["pass", "fail", "warning", "unknown", "skipped"]
     evidence: str = Field(default="", max_length=4000)
     raw: str = Field(default="", max_length=4000)
 
@@ -35,7 +38,7 @@ class ManagedScriptMetadata(BaseModel):
 
 
 class ManagedScriptResult(BaseModel):
-    schema_version: str
+    schema_version: Literal["teacher_judge_result.v1"]
     metadata: ManagedScriptMetadata
     summary: str = Field(default="", max_length=2000)
     checks: list[ManagedScriptCheck] = Field(default_factory=list)
@@ -295,7 +298,7 @@ def _dangerous_command_issue(command_text: str) -> str | None:
     return None
 
 
-def validate_managed_script_output(payload: str | dict[str, Any]) -> dict[str, Any]:
+def validate_managed_script_output(payload: str | dict[str, Any]) -> ScriptValidationResult:
     """Validate managed script JSON output contract."""
     try:
         data = json.loads(payload) if isinstance(payload, str) else payload
@@ -315,29 +318,38 @@ def validate_managed_script_output(payload: str | dict[str, Any]) -> dict[str, A
     }
 
 
-def check_script_policy(script_content: str) -> dict[str, Any]:
+def check_script_policy(script_content: str) -> CheckResult:
     """Return deterministic allow/block result for a Python managed script."""
     issues: list[str] = []
+    fix_hints: list[FixHint] = []
     normalized = script_content.lower()
 
     for pattern, message in DENY_PATTERNS:
         if re.search(pattern, normalized, flags=re.IGNORECASE | re.DOTALL):
             issues.append(message)
+            fix_hints.append({"type": "remove_dangerous_pattern", "description": message, "pattern": pattern})
 
     if "teacher_judge_result.v1" not in script_content:
         issues.append("腳本必須輸出 teacher_judge_result.v1 schema_version")
+        fix_hints.append({"type": "add_output_field", "field": "schema_version", "value": "teacher_judge_result.v1"})
     if "print(" not in normalized:
         issues.append("腳本必須透過 stdout 輸出 JSON 結果")
+        fix_hints.append({"type": "add_print_output_json", "description": "腳本必須使用 print() 輸出 JSON"})
     if '"checks"' not in script_content and "'checks'" not in script_content:
         issues.append("腳本輸出 JSON 必須包含 checks 欄位")
+        fix_hints.append({"type": "add_output_field", "field": "checks"})
     if '"errors"' not in script_content and "'errors'" not in script_content:
         issues.append("腳本輸出 JSON 必須包含 errors 欄位")
+        fix_hints.append({"type": "add_output_field", "field": "errors"})
     if '"metadata"' not in script_content and "'metadata'" not in script_content:
         issues.append("腳本輸出 JSON 必須包含 metadata 欄位")
+        fix_hints.append({"type": "add_output_field", "field": "metadata"})
     if '"timestamp"' not in script_content and "'timestamp'" not in script_content:
         issues.append("metadata 必須包含 timestamp")
+        fix_hints.append({"type": "add_output_field", "field": "metadata.timestamp"})
     if '"platform"' not in script_content and "'platform'" not in script_content:
         issues.append("metadata 必須包含 platform")
+        fix_hints.append({"type": "add_output_field", "field": "metadata.platform"})
 
     try:
         tree = ast.parse(script_content)
@@ -347,6 +359,7 @@ def check_script_policy(script_content: str) -> dict[str, Any]:
             "blocked": True,
             "risk_level": "high",
             "issues": [f"Python 語法錯誤：{exc.msg}"],
+            "fix_hints": [{"type": "fix_syntax_error", "description": f"Python 語法錯誤：{exc.msg}"}],
         }
     aliases = _import_aliases(tree)
 
@@ -355,6 +368,7 @@ def check_script_policy(script_content: str) -> dict[str, Any]:
             call_name = _call_name(node.func, aliases)
             if call_name in DENY_AST_CALLS:
                 issues.append(DENY_AST_CALLS[call_name])
+                fix_hints.append({"type": "replace_dangerous_call", "function": call_name, "description": DENY_AST_CALLS[call_name]})
             if call_name in {"open", "io.open", "pathlib.Path.open"}:
                 mode_arg_index = 0 if call_name == "pathlib.Path.open" else 1
                 path_arg_index = 0 if call_name != "pathlib.Path.open" else None
@@ -365,28 +379,38 @@ def check_script_policy(script_content: str) -> dict[str, Any]:
                 )
                 if path_text and SENSITIVE_PATH_PATTERN.search(path_text):
                     issues.append("禁止讀取敏感檔案或金鑰")
+                    fix_hints.append({"type": "remove_sensitive_path", "description": "禁止讀取敏感檔案或金鑰", "path": path_text})
                 if _is_write_mode(_open_mode(node, mode_arg_index=mode_arg_index)):
                     issues.append("禁止以寫入模式開啟檔案")
+                    fix_hints.append({"type": "remove_write_mode", "function": call_name, "mode": _open_mode(node, mode_arg_index=mode_arg_index)})
             if call_name in {"pathlib.Path.read_text", "pathlib.Path.read_bytes"}:
                 path_text = _pathlib_call_path_text(node)
                 if path_text and SENSITIVE_PATH_PATTERN.search(path_text):
                     issues.append("禁止讀取敏感檔案或金鑰")
+                    fix_hints.append({"type": "remove_sensitive_path", "description": "禁止讀取敏感檔案或金鑰", "path": path_text})
             if call_name == "subprocess.run" and _keyword_is_true(node, "shell"):
                 issues.append("禁止使用 shell=True 執行指令")
+                fix_hints.append({"type": "remove_keyword_param", "function": "subprocess.run", "param": "shell", "description": "禁止使用 shell=True 執行指令"})
             if call_name == "subprocess.run" and node.args:
                 command_text = _literal_command_text(node.args[0])
                 if command_text:
                     dangerous_issue = _dangerous_command_issue(command_text)
                     if dangerous_issue:
                         issues.append(dangerous_issue)
+                        fix_hints.append({"type": "remove_dangerous_command", "command": command_text, "description": dangerous_issue})
             if call_name in NETWORK_CALLS:
-                issues.extend(_network_issues(call_name, node))
+                net_issues = _network_issues(call_name, node)
+                issues.extend(net_issues)
+                for issue in net_issues:
+                    fix_hints.append({"type": "fix_network_call", "call": call_name, "description": issue})
             if call_name == "subprocess.run" and not _has_timeout_keyword(node):
                 issues.append("subprocess.run 必須設定 timeout")
+                fix_hints.append({"type": "add_keyword_param", "function": "subprocess.run", "param": "timeout", "value": 30, "description": "subprocess.run 必須設定 timeout"})
         elif isinstance(node, (ast.While, ast.For)):
             if isinstance(node, ast.While) and isinstance(node.test, ast.Constant):
                 if node.test.value is True:
                     issues.append("禁止無限制 while True 迴圈")
+                    fix_hints.append({"type": "remove_infinite_loop", "description": "禁止無限制 while True 迴圈"})
 
     deduped = list(dict.fromkeys(issues))
     approved = not deduped
@@ -395,4 +419,5 @@ def check_script_policy(script_content: str) -> dict[str, Any]:
         "blocked": not approved,
         "risk_level": "low" if approved else "high",
         "issues": deduped,
+        "fix_hints": fix_hints,
     }

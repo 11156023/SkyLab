@@ -80,7 +80,7 @@
 5. 執行目標選擇預留三種：全群組有 VM 的成員、只選 running VM、手動勾選成員/VMID。
 6. 第一版不把執行結果自動回填 rubric，也不先實作 VM 檢測；等腳本保存與審查流程完整後再接 executor。
 7. 後續執行進度採用 polling，不先做 WebSocket。
-8. 腳本保存為永久群組資產，除非群組被刪除；一般情況用 archived 停用，不硬刪。
+8. 老師刪除腳本時採硬刪除，直接移除該群組腳本紀錄；第一版不做封存/停用流程。
 9. 腳本 artifact 必須保存 rubric snapshot 與 artifact version；不另外加 `rubric_hash`，因為新評分表會產生新腳本。
 10. `source` 欄位需要保留，第一版支援 `ai_generated` 與 `regenerated`。
 11. 第一版腳本語言固定使用 Python；資料欄位可預留語言值，但 UI 不開 shell / bat。

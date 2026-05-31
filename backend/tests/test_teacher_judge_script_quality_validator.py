@@ -797,3 +797,212 @@ def test_quality_validator_allows_minimal_compliant_script() -> None:
     assert result["approved"] is True
     assert result["blocked"] is False
     assert result["issues"] == []
+
+
+# ── errors 記錄品質測試 ──
+
+
+def test_blocks_bare_except_without_errors_append() -> None:
+    _assert_blocked(
+        """
+        import json
+        import platform
+        import re
+        import shutil
+        import subprocess
+        from datetime import datetime, timezone
+
+        def truncate_output(text: str, limit: int = 400) -> str:
+            return text[:limit]
+
+        def redact_sensitive_text(text: str) -> str:
+            return re.sub(r"secret", "[redacted]", text, flags=re.IGNORECASE)
+
+        def command_available(command: str) -> bool:
+            return shutil.which(command) is not None
+
+        def run_command(argv: list[str], timeout: int = 5) -> dict[str, object]:
+            try:
+                completed = subprocess.run(
+                    argv,
+                    capture_output=True,
+                    text=True,
+                    timeout=timeout,
+                    check=False,
+                )
+            except subprocess.TimeoutExpired:
+                return {"stdout": "", "stderr": "timeout", "returncode": None}
+            except FileNotFoundError:
+                return {"stdout": "", "stderr": "not found", "returncode": None}
+            return {
+                "stdout": completed.stdout,
+                "stderr": completed.stderr,
+                "returncode": completed.returncode,
+            }
+
+        def record_check(check_id: str, title: str, status: str, evidence: str, raw: str = "") -> dict[str, str]:
+            return {
+                "id": check_id,
+                "title": title,
+                "status": status,
+                "evidence": evidence,
+                "raw": truncate_output(redact_sensitive_text(raw)),
+            }
+
+        checks = []
+        if command_available("python"):
+            try:
+                result = run_command(["python", "--version"])
+            except:
+                checks.append(record_check(
+                    "runtime.python_version",
+                    "收集 Python 版本",
+                    "fail",
+                    "bare except caught",
+                ))
+
+        print(json.dumps({
+            "schema_version": "teacher_judge_result.v1",
+            "metadata": {
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "platform": platform.platform(),
+            },
+            "summary": "collected",
+            "checks": checks,
+            "errors": [],
+        }, ensure_ascii=False))
+        """,
+        "bare except",
+        "errors",
+    )
+
+
+def test_allows_bare_except_with_errors_append() -> None:
+    """bare except 有 errors.append → 通過"""
+    result = _check(
+        """
+        import json
+        import platform
+        import re
+        import shutil
+        import subprocess
+        from datetime import datetime, timezone
+
+        errors: list[str] = []
+
+        def truncate_output(text: str, limit: int = 400) -> str:
+            return text[:limit]
+
+        def redact_sensitive_text(text: str) -> str:
+            return re.sub(r"secret", "[redacted]", text, flags=re.IGNORECASE)
+
+        def command_available(command: str) -> bool:
+            return shutil.which(command) is not None
+
+        def run_command(argv: list[str], timeout: int = 5) -> dict[str, object]:
+            try:
+                completed = subprocess.run(
+                    argv,
+                    capture_output=True,
+                    text=True,
+                    timeout=timeout,
+                    check=False,
+                )
+            except subprocess.TimeoutExpired:
+                return {"stdout": "", "stderr": "timeout", "returncode": None}
+            except FileNotFoundError:
+                return {"stdout": "", "stderr": "not found", "returncode": None}
+            return {
+                "stdout": completed.stdout,
+                "stderr": completed.stderr,
+                "returncode": completed.returncode,
+            }
+
+        def record_check(check_id: str, title: str, status: str, evidence: str, raw: str = "") -> dict[str, str]:
+            return {
+                "id": check_id,
+                "title": title,
+                "status": status,
+                "evidence": evidence,
+                "raw": truncate_output(redact_sensitive_text(raw)),
+            }
+
+        checks = []
+        if command_available("python"):
+            try:
+                result = run_command(["python", "--version"])
+            except:
+                errors.append(f"runtime.python_version: 發生未預期錯誤")
+                checks.append(record_check(
+                    "runtime.python_version",
+                    "收集 Python 版本",
+                    "unknown",
+                    "bare except caught",
+                ))
+
+        print(json.dumps({
+            "schema_version": "teacher_judge_result.v1",
+            "metadata": {
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "platform": platform.platform(),
+            },
+            "summary": "collected",
+            "checks": checks,
+            "errors": errors,
+        }, ensure_ascii=False))
+        """
+    )
+
+    assert result["approved"] is True
+    assert result["blocked"] is False
+    assert result["issues"] == []
+
+
+def test_blocks_except_exception_without_errors_append() -> None:
+    _assert_blocked(
+        """
+        import json
+        import platform
+        import re
+        import shutil
+        import subprocess
+        from datetime import datetime, timezone
+
+        def truncate_output(text: str, limit: int = 400) -> str:
+            return text[:limit]
+
+        def redact_sensitive_text(text: str) -> str:
+            return re.sub(r"secret", "[redacted]", text, flags=re.IGNORECASE)
+
+        def command_available(command: str) -> bool:
+            return shutil.which(command) is not None
+
+        def run_command(argv: list[str], timeout: int = 5) -> dict[str, object]:
+            return {"stdout": "", "stderr": "", "returncode": 0}
+
+        def record_check(check_id: str, title: str, status: str, evidence: str, raw: str = "") -> dict[str, str]:
+            return {
+                "id": check_id, "title": title, "status": status,
+                "evidence": evidence, "raw": truncate_output(redact_sensitive_text(raw)),
+            }
+
+        checks = []
+        try:
+            result = run_command(["python", "--version"])
+        except Exception:
+            checks.append(record_check("python", "Python", "fail", "exception"))
+
+        print(json.dumps({
+            "schema_version": "teacher_judge_result.v1",
+            "metadata": {
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "platform": platform.platform(),
+            },
+            "summary": "collected",
+            "checks": checks,
+            "errors": [],
+        }, ensure_ascii=False))
+        """,
+        "except Exception",
+        "errors",
+    )

@@ -5,11 +5,12 @@ from __future__ import annotations
 import json
 import logging
 from time import perf_counter
-from typing import Any
+from typing import Any, Literal, cast
 
 import httpx
 from fastapi import HTTPException
 
+from app.ai.teacher_judge._types import VLLMMetrics
 from app.ai.teacher_judge.config import settings
 from app.ai.teacher_judge.prompt import (
     ANALYZE_SYSTEM_PROMPT,
@@ -120,9 +121,12 @@ def _normalize_rubric_items(
             else _to_bool(raw.get("checked", raw.get("is_checked")), default=False)
         )
 
-        detectable = str(raw.get("detectable") or "manual").strip().lower()
-        if detectable not in {"auto", "partial", "manual"}:
-            detectable = "manual"
+        detectable_raw = str(raw.get("detectable") or "manual").strip().lower()
+        if detectable_raw not in {"auto", "partial", "manual"}:
+            detectable_raw = "manual"
+        detectable: Literal["auto", "partial", "manual"] = cast(
+            "Literal['auto', 'partial', 'manual']", detectable_raw
+        )
 
         detection_method = raw.get("detection_method") or raw.get("detection")
         fallback = raw.get("fallback") or raw.get("suggestion")
@@ -173,7 +177,7 @@ def _extract_context_item_count(rubric_context: str) -> int:
 
 async def _call_vllm(
     payload: dict[str, Any], timeout: float = 60.0
-) -> tuple[str, dict]:
+) -> tuple[str, VLLMMetrics]:
     """Call vLLM chat/completions and return (content, usage_metrics)."""
     url = f"{settings.VLLM_BASE_URL}/chat/completions"
     started = perf_counter()
@@ -208,7 +212,7 @@ async def _call_vllm(
             "elapsed_seconds": round(elapsed, 3),
             "tokens_per_second": round(tps, 2),
         }
-        return content, metrics
+        return content, cast("VLLMMetrics", metrics)
     except httpx.TimeoutException as exc:
         logger.error(f"vLLM API timeout after {timeout}s")
         raise HTTPException(
@@ -229,7 +233,7 @@ async def analyze_rubric(
     raw_text: str,
     template_key: str = "linux",
     template_commands: list[TeacherJudgeTemplateCommand] | None = None,
-) -> tuple[RubricAnalysis, dict]:
+) -> tuple[RubricAnalysis, VLLMMetrics]:
     """Send raw document text to AI, return structured RubricAnalysis."""
     if not settings.VLLM_MODEL_NAME:
         raise HTTPException(status_code=503, detail="VLLM_MODEL_NAME 未設定。")
@@ -310,7 +314,7 @@ async def chat_with_rubric(
     is_refine: bool = False,
     template_key: str = "linux",
     template_commands: list[TeacherJudgeTemplateCommand] | None = None,
-) -> tuple[str, list | None, dict]:
+) -> tuple[str, list[dict[str, Any]] | None, VLLMMetrics]:
     """
     Multi-turn chat with rubric context injected into system prompt.
     Returns (reply_text, updated_items_or_None, metrics).
@@ -363,7 +367,7 @@ async def chat_with_rubric(
     )
 
     reply_text = content
-    updated_items: list | None = None
+    updated_items: list[dict[str, Any]] | None = None
     try:
         parsed = json.loads(content)
         reply_text = str(parsed.get("reply") or content)

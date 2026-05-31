@@ -28,7 +28,7 @@ const STATUS_LABELS: Record<TeacherJudgeScriptStatus, string> = {
   review_failed: "審查未通過",
   reviewed: "待老師核准",
   approved: "已核准",
-  archived: "已封存",
+  archived: "已停用",
 }
 
 function ScriptStatusBadge({ status }: { status: TeacherJudgeScriptStatus }) {
@@ -277,8 +277,8 @@ export function AiJudgeScriptsContent({ groupId }: { groupId: string }) {
             <AlertDialogTitle>確認刪除收集腳本？</AlertDialogTitle>
             <AlertDialogDescription>
               {deleteTarget
-                ? `你即將刪除「${deleteTarget.name}」v${deleteTarget.version}。刪除後此腳本會從可用流程中停用，不能再核准或重新生成。`
-                : "你即將刪除這份收集腳本。"}
+                ? `你即將永久刪除「${deleteTarget.name}」v${deleteTarget.version}。刪除後無法再查看、核准或重新生成。`
+                : "你即將永久刪除這份收集腳本。"}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

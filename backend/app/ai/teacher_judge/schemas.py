@@ -25,7 +25,7 @@ class RubricItem(BaseModel):
     title: str = Field(..., description="評分項目名稱")
     description: str = Field(default="", description="評分說明")
     checked: bool = Field(default=False, description="是否已達成（有做到就打勾）")
-    detectable: str = Field(
+    detectable: Literal["auto", "partial", "manual"] = Field(
         default="manual",
         description="可偵測性：auto | partial | manual",
     )
@@ -61,7 +61,7 @@ class RubricAnalysis(BaseModel):
 class ChatMessage(BaseModel):
     """對話訊息。"""
 
-    role: str = Field(..., description="'user' 或 'assistant'")
+    role: Literal["user", "assistant"] = Field(..., description="'user' 或 'assistant'")
     content: str = Field(..., description="訊息內容")
 
 
@@ -85,7 +85,7 @@ class RubricChatResponse(BaseModel):
     """對話回應。"""
 
     reply: str
-    updated_items: list[dict] | None = None
+    updated_items: list[dict[str, Any]] | None = None
     prompt_tokens: int
     completion_tokens: int
     total_tokens: int
@@ -97,14 +97,14 @@ class RubricUploadResponse(BaseModel):
     """上傳評分表回應。"""
 
     analysis: RubricAnalysis
-    ai_metrics: dict
+    ai_metrics: dict[str, Any]
     template_key: str = "linux"
 
 
 class RubricExportRequest(BaseModel):
     """匯出 Excel 請求。"""
 
-    items: list[dict] = Field(..., min_length=1)
+    items: list[dict[str, Any]] = Field(..., min_length=1)
     summary: str = Field(default="")
 
 

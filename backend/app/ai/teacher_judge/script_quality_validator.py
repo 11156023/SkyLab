@@ -4,7 +4,10 @@ from __future__ import annotations
 
 import ast
 import re
-from typing import Any
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from app.ai.teacher_judge._types import CheckResult, FixHint
 
 REQUIRED_HELPERS = {
     "truncate_output",
@@ -246,6 +249,20 @@ def _record_check_literal_arg(
     return None
 
 
+def _except_handler_appends_errors(handler: ast.ExceptHandler) -> bool:
+    return any(
+        isinstance(node, ast.Call)
+        and (
+            _call_name(node.func) == "errors.append"
+            or (
+                isinstance(node.func, ast.Attribute)
+                and _call_name(node.func.value) == "errors"
+            )
+        )
+        for node in ast.walk(handler)
+    )
+
+
 def _is_generic_check_id(check_id: str) -> bool:
     normalized = check_id.strip().lower()
     return (
@@ -255,9 +272,10 @@ def _is_generic_check_id(check_id: str) -> bool:
     )
 
 
-def check_script_quality(script_content: str) -> dict[str, Any]:
+def check_script_quality(script_content: str) -> CheckResult:
     """Return quality validation results for a generated managed script."""
     issues: list[str] = []
+    fix_hints: list[FixHint] = []
 
     try:
         tree = ast.parse(script_content)
@@ -265,39 +283,49 @@ def check_script_quality(script_content: str) -> dict[str, Any]:
         return {
             "approved": False,
             "blocked": True,
+            "risk_level": "high",
             "issues": [f"Python 語法錯誤：{exc.msg}"],
+            "fix_hints": [{"type": "fix_syntax_error", "description": f"Python 語法錯誤：{exc.msg}"}],
         }
 
     helper_defs = _function_definitions(tree)
     missing_helpers = sorted(REQUIRED_HELPERS - set(helper_defs))
     if missing_helpers:
         issues.append("腳本缺少必要 helper：" + ", ".join(missing_helpers))
+        for helper_name in missing_helpers:
+            fix_hints.append({"type": "add_helper_function", "name": helper_name, "description": f"腳本缺少必要 helper：{helper_name}"})
 
     record_check_def = helper_defs.get("record_check")
     if record_check_def and not _record_check_has_sanitized_raw(record_check_def):
         issues.append(
             "record_check 必須統一透過 redact_sensitive_text 與 truncate_output 處理 raw"
         )
+        fix_hints.append({"type": "add_sanitize_in_record_check", "description": "record_check 必須統一透過 redact_sensitive_text 與 truncate_output 處理 raw"})
 
     command_available_def = helper_defs.get("command_available")
     if command_available_def and not _function_uses_helper(
         command_available_def, "shutil.which"
     ):
         issues.append("command_available 必須使用 shutil.which 檢查工具可用性")
+        fix_hints.append({"type": "use_shutil_which", "function": "command_available", "description": "command_available 必須使用 shutil.which 檢查工具可用性"})
 
     run_command_def = helper_defs.get("run_command")
     if run_command_def and not _function_mentions_returncode(run_command_def):
         issues.append("run_command 必須回傳 returncode")
+        fix_hints.append({"type": "add_returncode_to_run_command", "description": "run_command 必須回傳 returncode"})
 
     redaction_def = helper_defs.get("redact_sensitive_text")
     if redaction_def and _redaction_uses_bare_key(redaction_def):
         issues.append("redact_sensitive_text 不可使用過度寬泛的裸 key 規則")
+        fix_hints.append({"type": "fix_redaction_pattern", "function": "redact_sensitive_text", "description": "redact_sensitive_text 不可使用過度寬泛的裸 key 規則"})
 
     if not _calls_named_helper(tree, "record_check", skip_functions={"record_check"}):
         issues.append("腳本必須透過 record_check 建立檢查結果")
+        fix_hints.append({"type": "add_record_check_calls", "description": "腳本必須透過 record_check 建立檢查結果"})
 
     if not _calls_named_helper(tree, "run_command", skip_functions={"run_command"}):
         issues.append("腳本必須透過 run_command 執行收集指令")
+        fix_hints.append({"type": "add_run_command_calls", "description": "腳本必須透過 run_command 執行收集指令"})
 
     json_dumps_calls = [
         node
@@ -306,8 +334,10 @@ def check_script_quality(script_content: str) -> dict[str, Any]:
     ]
     if not json_dumps_calls:
         issues.append("腳本必須使用 json.dumps 輸出 JSON")
+        fix_hints.append({"type": "add_json_param", "function": "json.dumps", "param": "ensure_ascii", "value": False, "description": "腳本必須使用 json.dumps 輸出 JSON"})
     elif any(not _json_dumps_has_ensure_ascii_false(call) for call in json_dumps_calls):
         issues.append("json.dumps 必須設定 ensure_ascii=False")
+        fix_hints.append({"type": "add_json_param", "function": "json.dumps", "param": "ensure_ascii", "value": False, "description": "json.dumps 必須設定 ensure_ascii=False"})
 
     if (
         '"metadata"' not in script_content
@@ -318,17 +348,21 @@ def check_script_quality(script_content: str) -> dict[str, Any]:
         and "'platform'" not in script_content
     ):
         issues.append("輸出 JSON metadata 必須包含 timestamp 與 platform")
+        fix_hints.append({"type": "add_output_field", "field": "metadata", "description": "輸出 JSON metadata 必須包含 timestamp 與 platform"})
 
     if _DIRECT_RAW_PATTERN.search(script_content):
         issues.append("raw 不可直接保存 stdout/stderr，必須先脫敏並截斷")
+        fix_hints.append({"type": "sanitize_raw_field", "description": "raw 不可直接保存 stdout/stderr，必須先脫敏並截斷"})
 
     if _STDOUT_PASS_TERNARY_PATTERN.search(script_content):
         issues.append("不能用 stdout/stderr truthiness 直接判定 pass")
+        fix_hints.append({"type": "remove_stdout_truthiness_check", "description": "不能用 stdout/stderr truthiness 直接判定 pass"})
 
     commands = _collect_commands_needing_which(tree)
     which_commands = _collect_which_commands(tree)
     for command in sorted(commands - which_commands):
         issues.append(f"外部工具 `{command}` 缺少 shutil.which 可用性檢查")
+        fix_hints.append({"type": "add_command_availability_check", "command": command, "description": f"外部工具 `{command}` 缺少 shutil.which 可用性檢查"})
 
     if commands and not _calls_named_helper(
         tree,
@@ -336,28 +370,34 @@ def check_script_quality(script_content: str) -> dict[str, Any]:
         skip_functions={"command_available"},
     ):
         issues.append("腳本必須透過 command_available 檢查外部工具可用性")
+        fix_hints.append({"type": "add_command_availability_check", "description": "腳本必須透過 command_available 檢查外部工具可用性"})
 
     for node in ast.walk(tree):
         if isinstance(node, ast.Call) and _call_name(node.func) == "record_check":
             check_id = _record_check_literal_arg(node, 0, "check_id")
             if check_id and _is_generic_check_id(check_id):
                 issues.append("record_check id 必須是語意化穩定 ID")
+                fix_hints.append({"type": "rename_check_id", "current": check_id, "description": "record_check id 必須是語意化穩定 ID"})
             title = _record_check_literal_arg(node, 1, "title")
             if title and "檢查" in title:
                 issues.append("record_check title 請使用收集語意，不要使用檢查")
+                fix_hints.append({"type": "rename_title", "current": title, "description": "record_check title 請使用收集語意，不要使用檢查"})
             raw_arg = _record_check_raw_arg(node)
             if raw_arg is not None and _node_mentions_stream(raw_arg):
                 issues.append(
                     "record_check raw 不可直接餵 stdout/stderr，必須先整理為 snippet 再交給 helper"
                 )
+                fix_hints.append({"type": "sanitize_record_check_raw", "description": "record_check raw 不可直接餵 stdout/stderr，必須先整理為 snippet 再交給 helper"})
 
         if isinstance(node, ast.If):
             if _node_mentions_stream(node.test) and _body_marks_pass(node.body):
                 issues.append("不能用 stdout/stderr 是否有內容直接判定 pass")
+                fix_hints.append({"type": "remove_stdout_truthiness_check", "description": "不能用 stdout/stderr 是否有內容直接判定 pass"})
             if _condition_checks_availability(node.test):
                 statuses = _body_record_check_statuses(node.body)
                 if "warning" in statuses:
                     issues.append("工具缺失時應回傳 unknown，不可使用 warning")
+                    fix_hints.append({"type": "fix_status_semantics", "description": "工具缺失時應回傳 unknown，不可使用 warning"})
         elif isinstance(node, ast.ExceptHandler):
             exception_name = _except_name(node)
             statuses = _body_record_check_statuses(node.body)
@@ -369,17 +409,37 @@ def check_script_quality(script_content: str) -> dict[str, Any]:
                     "PermissionError",
                 }:
                     issues.append("例外處理不可吞錯後直接標成 pass")
+                    fix_hints.append({"type": "fix_exception_handling", "exception": exception_name or "bare except", "description": "例外處理不可吞錯後直接標成 pass"})
                 elif exception_name in {"subprocess.TimeoutExpired", "TimeoutExpired"}:
                     issues.append("timeout 例外不可標成 pass")
+                    fix_hints.append({"type": "fix_timeout_status", "description": "timeout 例外不可標成 pass"})
             if exception_name in {None, "Exception"}:
                 if any(isinstance(stmt, ast.Pass) for stmt in node.body):
                     issues.append("不可使用 except Exception/bare except 後直接 swallow/pass")
+                    fix_hints.append({"type": "fix_exception_handling", "description": "不可使用 except Exception/bare except 後直接 swallow/pass"})
             if exception_name in UNKNOWN_ONLY_EXCEPTIONS and "warning" in statuses:
                 issues.append(f"{exception_name} 應回傳 unknown，不可使用 warning")
+                fix_hints.append({"type": "fix_status_semantics", "exception": exception_name, "description": f"{exception_name} 應回傳 unknown，不可使用 warning"})
+
+    # ── errors 記錄完整性檢查 ──
+    # bare except / except Exception 是明確的紅色信號：必須有 errors.append
+    for handler in [n for n in ast.walk(tree) if isinstance(n, ast.ExceptHandler)]:
+        except_name = _except_name(handler)
+        if except_name in {None, "Exception"} and not _except_handler_appends_errors(handler):
+            issues.append("bare except / except Exception 後未將錯誤記錄到 errors")
+            fix_hints.append({
+                "type": "add_errors_append_in_except",
+                "exception": except_name or "bare except",
+                "description": "bare except / except Exception 應追加 errors 條目",
+            })
+            break
 
     deduped = list(dict.fromkeys(issues))
+    approved = not deduped
     return {
-        "approved": not deduped,
+        "approved": approved,
         "blocked": bool(deduped),
+        "risk_level": "low" if approved else "high",
         "issues": deduped,
+        "fix_hints": fix_hints,
     }

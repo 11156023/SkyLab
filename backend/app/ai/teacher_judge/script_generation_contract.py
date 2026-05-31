@@ -49,6 +49,21 @@ SCRIPT_GENERATION_CONTRACT_PROMPT = f"""
 - `raw` 只能是必要片段，且必須經過脫敏與截斷；禁止直接保存完整 stdout/stderr。
 - 發生例外時不能吞錯後標成 `pass`；應記錄到 `errors` 或回 `unknown` / `fail`。
 
+# errors 記錄規則（執行期）
+- 腳本頂層必須定義 `errors: list[str] = []`，並在每個收集項目的例外處理區塊中使用 `errors.append(f"{{check_id}}: {{錯誤說明}}")` 記錄錯誤。
+- `errors` 的用途是讓老師看到執行時的收集品質：哪些項目遇到什麼問題，不是用來觸發腳本修正。
+- 若所有收集項目皆成功，`errors` 輸出空陣列 `[]`。
+- 以下情況**必須**在 except 區塊中追加 errors 條目，不可只靠 status 表示：
+  1. `run_command` 拋出 `subprocess.TimeoutExpired` → `errors.append(f"{{check_id}}: 指令 {{command}} timeout 超過 {{N}} 秒")`
+  2. `run_command` 拋出 `FileNotFoundError` → `errors.append(f"{{check_id}}: 工具 {{command}} 不存在")`
+  3. `run_command` 拋出 `PermissionError` → `errors.append(f"{{check_id}}: 權限不足無法執行 {{command}}")`
+  4. HTTP 請求 timeout / 連線失敗 / 非 2xx 回應 → `errors.append(f"{{check_id}}: HTTP {{status}} {{reason}}")`
+  5. 解析 stdout/stderr 失敗 (JSONDecodeError / ValueError) → `errors.append(f"{{check_id}}: 解析輸出失敗")`
+  6. 任何未預期的 Exception → `errors.append(f"{{check_id}}: 未預期錯誤: {{str(exc)[:200]}}")`
+- 記錄到 errors 的同時，對應 check 的 status 不可為 `pass`；應為 `fail` 或 `unknown`。
+- errors 中的 check_id 必須對應到該收集項目的 `record_check` 所使用的 id。
+- 錯誤訊息必須使用繁體中文，足夠讓老師理解問題原因。
+
 # 結果契約
 - 最後輸出單一 JSON，`schema_version` 固定為 `{RESULT_SCHEMA_VERSION}`。
 - 最後必須使用 `json.dumps(..., ensure_ascii=False)`，避免繁體中文被 escape。
