@@ -30,9 +30,13 @@ jobs:
           bun-version: latest
 
       - name: Install dependencies
-        # Lockfile is generated on Windows and doesn't include Linux-specific
-        # esbuild platform binaries; allow bun to resolve them on this runner.
-        run: bun install
+        # bun.lock is generated on Windows and only locks win32 platform
+        # binaries for nested esbuild (via tsx). On Linux, bun reuses the
+        # wrong-version binary even without --frozen-lockfile. Removing
+        # the lockfile forces a clean resolution on this runner.
+        run: |
+          rm -f ../bun.lock bun.lock
+          bun install
 
       - name: Biome lint + format check
         run: bunx biome check .
