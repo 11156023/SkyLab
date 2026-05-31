@@ -31,11 +31,11 @@ jobs:
 
       - name: Install dependencies
         # bun.lock is generated on Windows and only locks win32 platform
-        # binaries for nested esbuild (via tsx). On Linux, bun reuses the
-        # wrong-version binary even without --frozen-lockfile. Removing
-        # the lockfile forces a clean resolution on this runner.
+        # binaries for nested esbuild (via tsx). Removing all lockfiles
+        # (including package-lock.json that bun would otherwise migrate
+        # from) forces a clean resolution on this Linux runner.
         run: |
-          rm -f ../bun.lock bun.lock
+          rm -f ../bun.lock bun.lock ../package-lock.json package-lock.json
           bun install
 
       - name: Biome lint + format check
