@@ -10,6 +10,8 @@ from app.ai.teacher_judge.schemas import (
     TeacherJudgeScriptArtifactPublic,
     TeacherJudgeScriptCreateRequest,
     TeacherJudgeScriptRegenerateRequest,
+    TeacherJudgeScriptRunCreateRequest,
+    TeacherJudgeScriptRunPublic,
 )
 from app.ai.teacher_judge.script_artifact_service import (
     approve_artifact,
@@ -20,9 +22,11 @@ from app.ai.teacher_judge.script_artifact_service import (
     list_artifacts,
     regenerate_artifact,
 )
+from app.ai.teacher_judge.script_run_service import create_script_run
 from app.ai.teacher_judge.template_command_service import SUPPORTED_TEMPLATE_KEYS
 from app.api.deps import InstructorUser, SessionDep
 from app.core.authorizers import require_group_access
+from app.models.teacher_judge_script_run import TeacherJudgeScriptRunTargetScope
 from app.repositories import group as group_repo
 
 router = APIRouter(prefix="/groups/{group_id}/judge/scripts", tags=["teacher-judge"])
@@ -122,6 +126,25 @@ def approve_group_teacher_judge_script(
         group_id=group_id,
         artifact_id=script_id,
         approved_by=current_user.id,
+    )
+
+
+@router.post("/{script_id}/runs", response_model=TeacherJudgeScriptRunPublic)
+def create_group_teacher_judge_script_run(
+    group_id: uuid.UUID,
+    script_id: uuid.UUID,
+    payload: TeacherJudgeScriptRunCreateRequest,
+    session: SessionDep,
+    current_user: InstructorUser,
+):
+    _ensure_group_access(session=session, group_id=group_id, current_user=current_user)
+    return create_script_run(
+        session=session,
+        group_id=group_id,
+        artifact_id=script_id,
+        target_scope=TeacherJudgeScriptRunTargetScope(payload.target_scope),
+        target_vmids=payload.target_vmids,
+        started_by=current_user.id,
     )
 
 

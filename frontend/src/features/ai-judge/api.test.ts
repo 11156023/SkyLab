@@ -107,6 +107,29 @@ describe("AiJudgeService.downloadExcel", () => {
     )
   })
 
+  it("creates teacher judge script runs with manual target vmids", async () => {
+    vi.mocked(requestMock).mockReturnValue(Promise.resolve({}) as any)
+
+    await AiJudgeService.createScriptRun({
+      groupId: "group-1",
+      scriptId: "script-1",
+      target_vmids: [101, 102],
+    })
+
+    expect(requestMock).toHaveBeenCalledWith(
+      OpenAPI,
+      expect.objectContaining({
+        method: "POST",
+        url: "/api/v1/groups/{groupId}/judge/scripts/{scriptId}/runs",
+        path: { groupId: "group-1", scriptId: "script-1" },
+        body: {
+          target_scope: "manual",
+          target_vmids: [101, 102],
+        },
+      }),
+    )
+  })
+
   it("deletes teacher judge script artifacts", async () => {
     vi.mocked(requestMock).mockReturnValue(Promise.resolve(undefined) as any)
 

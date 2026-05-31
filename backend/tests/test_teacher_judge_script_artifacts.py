@@ -9,7 +9,7 @@ from fastapi import HTTPException
 from sqlmodel import Session, SQLModel, create_engine
 
 from app import models  # noqa: F401
-from app.ai.teacher_judge import script_artifact_service
+from app.ai.teacher_judge import script_artifact_service, script_run_service
 from app.ai.teacher_judge.schemas import RubricAnalysis, RubricItem
 from app.ai.teacher_judge.script_policy import (
     check_script_policy,
@@ -17,6 +17,7 @@ from app.ai.teacher_judge.script_policy import (
 )
 from app.api.routes.teacher_judge_scripts import _normalize_supported_template_key
 from app.models.teacher_judge_script_artifact import TeacherJudgeScriptStatus
+from app.models.teacher_judge_script_run import TeacherJudgeScriptRunTargetScope
 
 SAFE_SCRIPT = """
 import json
@@ -630,6 +631,105 @@ def test_delete_artifact_removes_script_even_when_archived() -> None:
             artifact_id=artifact.id,
         )
     assert exc_info.value.status_code == 404
+
+
+def test_create_script_run_snapshots_only_running_group_targets(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    session = _session()
+    group_id = uuid.uuid4()
+    user_id = uuid.uuid4()
+    artifact = models.TeacherJudgeScriptArtifact(
+        group_id=group_id,
+        name="rubric.pdf",
+        template_key="linux",
+        rubric_snapshot_json={},
+        script_content=SAFE_SCRIPT,
+        status=TeacherJudgeScriptStatus.approved,
+        policy_check_result_json={"approved": True},
+        ai_review_result_json={"approved": True},
+    )
+    session.add(artifact)
+    session.commit()
+    session.refresh(artifact)
+
+    monkeypatch.setattr(
+        script_run_service,
+        "_group_member_by_vmid",
+        lambda *, session, group_id: {
+            101: {
+                "user_id": str(user_id),
+                "email": "student@example.com",
+                "full_name": "Student",
+            }
+        },
+    )
+    monkeypatch.setattr(
+        script_run_service,
+        "_running_resources_by_vmid",
+        lambda: {101: {"vmid": 101, "type": "lxc", "status": "running", "node": "pve1"}},
+    )
+
+    run = script_run_service.create_script_run(
+        session=session,
+        group_id=group_id,
+        artifact_id=artifact.id,
+        target_scope=TeacherJudgeScriptRunTargetScope.manual,
+        target_vmids=[101],
+        started_by=user_id,
+    )
+
+    assert run.status == "pending"
+    assert run.started_by == str(user_id)
+    assert run.target_snapshot_json["targets"][0]["name"] == "101"
+    assert run.target_snapshot_json["targets"][0]["type"] == "lxc"
+    assert run.progress_json["targets"][0]["status"] == "queued"
+
+
+def test_create_script_run_rejects_stopped_target(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    session = _session()
+    group_id = uuid.uuid4()
+    artifact = models.TeacherJudgeScriptArtifact(
+        group_id=group_id,
+        name="rubric.pdf",
+        template_key="linux",
+        rubric_snapshot_json={},
+        script_content=SAFE_SCRIPT,
+        status=TeacherJudgeScriptStatus.approved,
+        policy_check_result_json={"approved": True},
+        ai_review_result_json={"approved": True},
+    )
+    session.add(artifact)
+    session.commit()
+    session.refresh(artifact)
+
+    monkeypatch.setattr(
+        script_run_service,
+        "_group_member_by_vmid",
+        lambda *, session, group_id: {
+            101: {"user_id": str(uuid.uuid4()), "email": "s@example.com", "full_name": None}
+        },
+    )
+    monkeypatch.setattr(
+        script_run_service,
+        "_running_resources_by_vmid",
+        lambda: {101: {"vmid": 101, "type": "qemu", "status": "stopped"}},
+    )
+
+    with pytest.raises(HTTPException) as exc_info:
+        script_run_service.create_script_run(
+            session=session,
+            group_id=group_id,
+            artifact_id=artifact.id,
+            target_scope=TeacherJudgeScriptRunTargetScope.manual,
+            target_vmids=[101],
+            started_by=None,
+        )
+
+    assert exc_info.value.status_code == 400
+    assert "不是運行中" in str(exc_info.value.detail)
 
 
 @pytest.mark.asyncio

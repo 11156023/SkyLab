@@ -111,6 +111,8 @@ class RubricExportRequest(BaseModel):
 ScriptLanguage = Literal["python", "shell", "bat"]
 ScriptSource = Literal["ai_generated", "regenerated"]
 ScriptStatus = Literal["draft", "review_failed", "reviewed", "approved", "archived"]
+ScriptRunTargetScope = Literal["all_with_vm", "running_only", "manual"]
+ScriptRunStatus = Literal["pending", "running", "completed", "failed", "cancelled"]
 
 
 class TeacherJudgeScriptCreateRequest(BaseModel):
@@ -158,3 +160,35 @@ class TeacherJudgeScriptArtifactPublic(BaseModel):
     created_at: str
     updated_at: str
     approved_at: str | None
+
+
+class TeacherJudgeScriptRunCreateRequest(BaseModel):
+    """Create an execution run for an approved managed script."""
+
+    target_scope: ScriptRunTargetScope = "manual"
+    target_vmids: list[int] = Field(default_factory=list)
+
+    @field_validator("target_vmids")
+    @classmethod
+    def validate_target_vmids(cls, value: list[int]) -> list[int]:
+        unique_vmids = list(dict.fromkeys(value))
+        if not unique_vmids:
+            raise ValueError("target_vmids must not be empty")
+        return unique_vmids
+
+
+class TeacherJudgeScriptRunPublic(BaseModel):
+    id: str
+    group_id: str
+    artifact_id: str
+    target_scope: ScriptRunTargetScope
+    target_snapshot_json: dict[str, Any]
+    status: ScriptRunStatus
+    progress_json: dict[str, Any]
+    result_summary_json: dict[str, Any]
+    target_results_json: dict[str, Any]
+    started_by: str | None
+    started_at: str | None
+    finished_at: str | None
+    created_at: str
+    updated_at: str

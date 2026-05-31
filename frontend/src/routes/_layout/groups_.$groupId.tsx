@@ -15,6 +15,7 @@ import {
   Loader2,
   MessageSquare,
   Monitor,
+  PlayCircle,
   Plus,
   Power,
   PowerOff,
@@ -69,6 +70,7 @@ import {
 } from "@/components/ui/table"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { AiJudgeContent } from "@/features/ai-judge/components/AiJudgeContent"
+import { AiJudgeExecutionContent } from "@/features/ai-judge/components/AiJudgeExecutionContent"
 import { AiJudgeScriptsContent } from "@/features/ai-judge/components/AiJudgeScriptsContent"
 import { AiPveMessageContent } from "@/features/ai-pve-log/components/AiPveMessageContent"
 import { requireGroupManagerUser } from "@/features/auth/guards"
@@ -1066,7 +1068,11 @@ function GroupDetailContent({ groupId }: { groupId: string }) {
     currentUser?.role === "admin" || currentUser?.is_superuser || false
 
   const [activeView, setActiveView] = useState<
-    "members" | "ai-judge" | "ai-judge-scripts" | "ai-pve-message"
+    | "members"
+    | "ai-judge"
+    | "ai-judge-scripts"
+    | "script-execution"
+    | "ai-pve-message"
   >("members")
 
   const { data: group } = useSuspenseQuery(groupDetailQueryOptions(groupId))
@@ -1157,6 +1163,16 @@ function GroupDetailContent({ groupId }: { groupId: string }) {
               AI 收集腳本
             </Button>
             <Button
+              variant={
+                activeView === "script-execution" ? "secondary" : "ghost"
+              }
+              className="w-full justify-start transition-all hover:bg-accent hover:text-accent-foreground border-border/50"
+              onClick={() => setActiveView("script-execution")}
+            >
+              <PlayCircle className="mr-2 h-4 w-4 text-emerald-500" />
+              腳本執行
+            </Button>
+            <Button
               variant={activeView === "ai-pve-message" ? "secondary" : "ghost"}
               className="w-full justify-start transition-all hover:bg-accent hover:text-accent-foreground border-border/50"
               onClick={() => setActiveView("ai-pve-message")}
@@ -1177,6 +1193,9 @@ function GroupDetailContent({ groupId }: { groupId: string }) {
           )}
           {activeView === "ai-judge-scripts" && (
             <AiJudgeScriptsContent groupId={groupId} />
+          )}
+          {activeView === "script-execution" && (
+            <AiJudgeExecutionContent groupId={groupId} members={members} />
           )}
           {activeView === "ai-pve-message" && (
             <AiPveMessageContent groupId={groupId} />

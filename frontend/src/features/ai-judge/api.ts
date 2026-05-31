@@ -97,6 +97,35 @@ export type TeacherJudgeScriptArtifact = {
   approved_at: string | null
 }
 
+export type TeacherJudgeScriptRunTargetScope =
+  | "all_with_vm"
+  | "running_only"
+  | "manual"
+
+export type TeacherJudgeScriptRunStatus =
+  | "pending"
+  | "running"
+  | "completed"
+  | "failed"
+  | "cancelled"
+
+export type TeacherJudgeScriptRun = {
+  id: string
+  group_id: string
+  artifact_id: string
+  target_scope: TeacherJudgeScriptRunTargetScope
+  target_snapshot_json: Record<string, any>
+  status: TeacherJudgeScriptRunStatus
+  progress_json: Record<string, any>
+  result_summary_json: Record<string, any>
+  target_results_json: Record<string, any>
+  started_by: string | null
+  started_at: string | null
+  finished_at: string | null
+  created_at: string
+  updated_at: string
+}
+
 // ─── Service ──────────────────────────────────────────────────────────────────
 
 export const AiJudgeService = {
@@ -237,6 +266,23 @@ export const AiJudgeService = {
       method: "POST",
       url: "/api/v1/groups/{groupId}/judge/scripts/{scriptId}/approve",
       path: { groupId: data.groupId, scriptId: data.scriptId },
+    })
+  },
+
+  createScriptRun(data: {
+    groupId: string
+    scriptId: string
+    target_vmids: number[]
+  }): CancelablePromise<TeacherJudgeScriptRun> {
+    return __request(OpenAPI, {
+      method: "POST",
+      url: "/api/v1/groups/{groupId}/judge/scripts/{scriptId}/runs",
+      path: { groupId: data.groupId, scriptId: data.scriptId },
+      body: {
+        target_scope: "manual",
+        target_vmids: data.target_vmids,
+      },
+      mediaType: "application/json",
     })
   },
 
