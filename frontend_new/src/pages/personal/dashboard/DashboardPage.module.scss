@@ -1,6 +1,3 @@
-@use "../../../assets/styles/variables" as *;
-@use "../../../assets/styles/mixins" as *;
-
 .page {
   @include flex-column;
   gap: $spacing-24;
@@ -13,37 +10,28 @@
   }
 }
 
-.header {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: $spacing-16;
+.pageHeader {
+  @include flex-between;
   flex-wrap: wrap;
+  gap: $spacing-16;
 }
 
-.headerText {
+.pageHeading {
   @include flex-column;
   gap: $spacing-4;
-  min-width: 0;
 }
 
-.greeting {
-  margin: 0;
-  font-size: $font-size-28;
+.pageTitle {
+  font-size: $font-size-24;
   font-weight: $font-weight-700;
   color: var(--color-text-primary);
 
-  @include respond-to(sm) {
-    font-size: $font-size-32;
-  }
+  @include respond-to(sm) { font-size: $font-size-28; }
 }
 
-.subtitle {
-  margin: 0;
-  max-width: 680px;
-  color: var(--color-text-secondary);
+.pageSubtitle {
   font-size: $font-size-14;
-  line-height: $line-height-base;
+  color: var(--color-text-secondary);
 }
 
 .quickStats {
@@ -82,10 +70,8 @@
 }
 
 .sectionTitle {
-  margin: 0;
-  color: var(--color-text-primary);
-  font-size: $font-size-18;
-  font-weight: $font-weight-700;
+  @include flex-column;
+  gap: $spacing-4;
 }
 
 .sectionSubtitle {
@@ -464,4 +450,195 @@
   font-weight: $font-weight-500;
   color: var(--color-text-muted);
   transition: color $transition-base, gap $transition-base;
+}
+
+/* ── Section ── */
+.section {
+  @include flex-column;
+  gap: $spacing-8;
+  min-width: 0;
+}
+
+.sectionName {
+  display: inline-flex;
+  align-items: center;
+  gap: $spacing-8;
+  font-size: $font-size-18;
+  font-weight: $font-weight-700;
+  color: var(--color-text-primary);
+}
+
+.sectionDesc {
+  font-size: $font-size-14;
+  color: var(--color-text-muted);
+}
+
+.sectionLink {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: $font-size-14;
+  font-weight: $font-weight-500;
+  color: var(--color-primary);
+  cursor: pointer;
+  transition: color $transition-base, gap $transition-base;
+  padding: 0;
+  background: none;
+  border: none;
+
+  &:hover {
+    color: var(--color-primary-dark);
+    gap: $spacing-8;
+  }
+}
+
+/* ── Course scroll row ── */
+.courseScroll {
+  display: flex;
+  flex-direction: row;
+  gap: $spacing-16;
+  overflow-x: auto;
+  overflow-y: hidden;
+  -webkit-overflow-scrolling: touch;
+  touch-action: pan-x;
+  overscroll-behavior-x: contain;
+  padding: 12px 0 24px;
+  width: 100%;
+  min-width: 0;
+  scrollbar-width: none;
+  cursor: grab;
+  user-select: none;
+
+  &::-webkit-scrollbar {
+    display: none;
+  }
+}
+
+.dragging {
+  cursor: grabbing;
+  scroll-behavior: auto;
+}
+
+/* ── Course card ── */
+.courseCard {
+  @include glass-surface;
+  border-radius: $radius-16;
+  @include flex-column;
+  overflow: hidden;
+  cursor: pointer;
+  transition: transform $transition-base, box-shadow $transition-base;
+  flex-shrink: 0;
+  width: 280px;
+
+  &:hover {
+    transform: translateY(-5px);
+    box-shadow: var(--shadow-lg);
+  }
+}
+
+/* ── Card banner ── */
+.cardBanner {
+  height: 80px;
+  padding: $spacing-16;
+  display: flex;
+  align-items: center;
+  background: linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--accent-color) 16%, var(--color-surface-glass)),
+    color-mix(in srgb, var(--accent-color)  6%, var(--color-surface-glass))
+  );
+  border-bottom: 1px solid color-mix(in srgb, var(--accent-color) 18%, var(--color-border));
+  position: relative;
+  overflow: hidden;
+  flex-shrink: 0;
+
+  &::after {
+    content: "";
+    position: absolute;
+    right: -24px;
+    top: -24px;
+    width: 130px;
+    height: 130px;
+    border-radius: 50%;
+    background: color-mix(in srgb, var(--accent-color) 8%, transparent);
+    pointer-events: none;
+  }
+}
+
+.cardBannerLeft {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+  overflow: hidden;
+  position: relative;
+  z-index: 1;
+}
+
+.cardBannerIcon {
+  @include flex-center;
+  width: 40px;
+  height: 40px;
+  border-radius: $radius-12;
+  background: color-mix(in srgb, var(--accent-color) 14%, transparent);
+  color: var(--accent-color);
+  flex-shrink: 0;
+}
+
+.cardBannerMeta {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.cardBannerTag {
+  @include badge-base;
+  padding: 2px 8px;
+  background: color-mix(in srgb, var(--accent-color) 12%, transparent);
+  color: var(--accent-color);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.cardTitle {
+  font-size: $font-size-14;
+  font-weight: $font-weight-700;
+  color: var(--color-text-primary);
+  line-height: 1.4;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cardBody {
+  @include flex-column;
+  gap: $spacing-8;
+  padding: $spacing-16;
+  flex: 1;
+}
+
+.cardDesc {
+  font-size: $font-size-12;
+  color: var(--color-text-secondary);
+  line-height: $line-height-base;
+  @include text-clamp(2);
+  flex: 1;
+}
+
+.cardMeta {
+  display: flex;
+  align-items: center;
+  gap: $spacing-8;
+  flex-wrap: wrap;
+  margin-top: $spacing-4;
+}
+
+.metaItem {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: $font-size-12;
+  color: var(--color-text-muted);
 }

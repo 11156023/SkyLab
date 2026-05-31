@@ -15,7 +15,8 @@ function templatesPlugin() {
       if (id === "\0virtual:templates") {
         const jsonDir = path.resolve(__dirname, "src/json")
         const jsonKeyPrefix = `${path.relative(__dirname, jsonDir).split(path.sep).join("/")}/`
-        if (!fs.existsSync(jsonDir)) return "export default {}"
+        if (!fs.existsSync(jsonDir))
+          return { code: "export default {}", moduleType: "js" }
         const files = fs.readdirSync(jsonDir).filter((f) => f.endsWith(".json"))
         const allData: Record<string, any> = {}
         for (const f of files) {
@@ -30,7 +31,10 @@ function templatesPlugin() {
             )
           }
         }
-        return `export default ${JSON.stringify(allData)}`
+        return {
+          code: `export default ${JSON.stringify(allData)}`,
+          moduleType: "js",
+        }
       }
     },
   }

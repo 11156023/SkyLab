@@ -334,9 +334,11 @@ export default function DashboardPage() {
     <div className={styles.page}>
 
       {/* ── Greeting ── */}
-      <div className={styles.header}>
-        <h1 className={styles.greeting}>嗨，{firstName} 👋</h1>
-        <p className={styles.subtitle}>歡迎回來，很高興再次見到你！</p>
+      <div className={styles.pageHeader}>
+        <div className={styles.pageHeading}>
+          <h1 className={styles.pageTitle}>嗨，{firstName} 👋</h1>
+          <p className={styles.pageSubtitle}>歡迎回來，很高興再次見到你！</p>
+        </div>
       </div>
 
       {/* ── 課程推薦 ── */}
