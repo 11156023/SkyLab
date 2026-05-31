@@ -471,11 +471,7 @@ def _load_backend_traffic_snapshot(*, session: Session) -> _BackendTrafficSnapsh
     ).one()
     approved_total = session.exec(
         select(func.count()).select_from(VMRequest).where(
-            VMRequest.status.in_((
-                VMRequestStatus.approved,
-                VMRequestStatus.provisioning,
-                VMRequestStatus.running,
-            ))
+            VMRequest.status == VMRequestStatus.approved
         )
     ).one()
 

@@ -16,11 +16,8 @@ if TYPE_CHECKING:
 class VMRequestStatus(str, enum.Enum):
     pending = "pending"
     approved = "approved"
-    provisioning = "provisioning"
-    running = "running"
     rejected = "rejected"
     cancelled = "cancelled"
-    scheduled = "scheduled"
 
 
 class VMMigrationStatus(str, enum.Enum):

@@ -30,16 +30,11 @@ def find_existing_resource_for_request(
 ) -> dict | None:
     expected_type = scheduling_policy.resource_type_for_request(request)
     pool_name = get_proxmox_settings().pool_name
-    _active_statuses = (
-        VMRequestStatus.approved,
-        VMRequestStatus.provisioning,
-        VMRequestStatus.running,
-    )
     claimed_vmids = {
         int(item.vmid)
         for item in session.exec(
             select(VMRequest).where(
-                VMRequest.status.in_(_active_statuses),
+                VMRequest.status == VMRequestStatus.approved,
                 VMRequest.vmid.is_not(None),
                 VMRequest.id != request.id,
             )

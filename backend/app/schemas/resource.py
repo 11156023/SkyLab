@@ -1,6 +1,7 @@
 """資源與 Proxmox 相關 schemas"""
 
 import unicodedata
+import uuid
 from datetime import date, datetime
 from typing import Annotated, Literal
 
@@ -181,11 +182,14 @@ class VMCreateResponse(BaseModel):
 class ResourcePublic(BaseModel):
     """公開的資源資訊（合併 Proxmox + DB）"""
 
-    vmid: int
+    vmid: int | None
+    request_id: uuid.UUID | None = None
     name: str
     status: str
     node: str
     type: str
+    is_placeholder: bool = False
+    can_control: bool = True
     environment_type: str | None = None
     os_info: str | None = None
     expiry_date: date | None = None

@@ -248,6 +248,10 @@ export default function Sidebar({ collapsed, mobileOpen, onToggle, onClose, acti
   const { mode, setMode } = useTheme();
   const { user, logout } = useAuth();
 
+  useEffect(() => {
+    if (activePage) setActive(activePage);
+  }, [activePage]);
+
   const cls = [
     styles.sidebar,
     collapsed && styles.collapsed,

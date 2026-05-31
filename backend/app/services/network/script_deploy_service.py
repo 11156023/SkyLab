@@ -61,6 +61,10 @@ class DeploymentTask:
     _last_persist_at: float = 0.0
 
 
+class DuplicateDeploymentError(RuntimeError):
+    """Raised when the same VM request already has an active deployment."""
+
+
 # Active deploys keyed by VM request id — used to refuse duplicate launches
 _ACTIVE_BY_REQUEST: dict[str, str] = {}
 _ACTIVE_LOCK = threading.Lock()
@@ -108,6 +112,13 @@ def _release_request(request_id: str | None, task_id: str) -> None:
     with _ACTIVE_LOCK:
         if _ACTIVE_BY_REQUEST.get(request_id) == task_id:
             _ACTIVE_BY_REQUEST.pop(request_id, None)
+
+
+def get_active_task_id_for_request(request_id: str | None) -> str | None:
+    if not request_id:
+        return None
+    with _ACTIVE_LOCK:
+        return _ACTIVE_BY_REQUEST.get(request_id)
 
 
 
@@ -1055,7 +1066,7 @@ def deploy_for_vm_request_sync(
     """
     task_id = str(uuid.uuid4())
     if not _try_claim_request(request_id, task_id):
-        raise RuntimeError(
+        raise DuplicateDeploymentError(
             f"VM 請求 {request_id} 已有部署任務在進行中，拒絕重複觸發"
         )
     task = DeploymentTask(

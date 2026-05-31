@@ -26,6 +26,7 @@ from app.models import (
     User,
     VMMigrationJob,
     VMMigrationJobStatus,
+    VMMigrationStatus,
     VMRequest,
     VMRequestStatus,
 )
@@ -61,8 +62,6 @@ _MIGRATION_STATUS_MAP: dict[VMMigrationJobStatus, JobStatus] = {
 _VM_REQUEST_STATUS_MAP: dict[VMRequestStatus, JobStatus] = {
     VMRequestStatus.pending: JobStatus.pending,
     VMRequestStatus.approved: JobStatus.pending,        # 已核准、等待派發
-    VMRequestStatus.provisioning: JobStatus.running,    # 正在開機
-    VMRequestStatus.running: JobStatus.completed,
     VMRequestStatus.rejected: JobStatus.failed,
     VMRequestStatus.cancelled: JobStatus.cancelled,
 }
@@ -203,6 +202,13 @@ def _vm_request_to_job(req: VMRequest) -> JobItem:
     user_email = req.user.email if req.user else None
     title = f"開機申請：{req.hostname}（{req.cores} cores / {req.memory} MB）"
     status = _VM_REQUEST_STATUS_MAP.get(req.status, JobStatus.pending)
+    if req.status == VMRequestStatus.approved:
+        if req.migration_status == VMMigrationStatus.failed or req.migration_error:
+            status = JobStatus.failed
+        elif req.vmid is not None:
+            status = JobStatus.completed
+        elif req.migration_status == VMMigrationStatus.running:
+            status = JobStatus.running
     progress: int | None = None
     if status == JobStatus.completed:
         progress = 100
@@ -341,8 +347,6 @@ def _fetch_vm_requests(
         select(VMRequest)
         .options(selectinload(VMRequest.user))
         .where(VMRequest.created_at >= since)
-        # 排除已成為長期執行中的 running 狀態（那些是 my-resources 的範疇）
-        .where(VMRequest.status != VMRequestStatus.running)
     )
     if not is_admin:
         stmt = stmt.where(VMRequest.user_id == user.id)

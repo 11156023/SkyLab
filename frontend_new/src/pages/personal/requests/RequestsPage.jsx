@@ -17,7 +17,7 @@ const RESOURCE_TYPE_MAP = {
   vm:  { label: "虛擬機 (VM)", icon: "computer" },
 };
 
-const CANCELLABLE = new Set(["pending", "approved", "provisioning"]);
+const CANCELLABLE = new Set(["pending", "approved"]);
 const RETRYABLE   = new Set(["approved"]);
 
 const VIEW_LIST   = "list";
@@ -318,7 +318,7 @@ function ErrorState({ onRetry }) {
 }
 
 /* ── Page ── */
-export default function RequestsPage() {
+export default function RequestsPage({ intent }) {
   const [requests, setRequests] = useState([]);
   const [loading, setLoading]   = useState(true);
   const [error, setError]       = useState(false);
@@ -331,7 +331,7 @@ export default function RequestsPage() {
       const res = await VmRequestsService.list();
       setRequests(
         (res.data ?? []).filter(
-          (r) => r.status in STATUS_MAP && r.review_comment !== "Resource deleted by user"
+          (r) => r.review_comment !== "Resource deleted by user"
         )
       );
     } catch {
@@ -345,6 +345,10 @@ export default function RequestsPage() {
     if (view === "list") fetchRequests();
   }, [view, fetchRequests]);
 
+  useEffect(() => {
+    if (intent?.view === VIEW_CREATE) setView(VIEW_CREATE);
+  }, [intent?.nonce, intent?.view]);
+
   function handleUpdated(updated) {
     setRequests((prev) => prev.map((r) => r.id === updated.id ? updated : r));
   }
@@ -354,6 +358,7 @@ export default function RequestsPage() {
       <RequestFormPage
         key="create"
         className={styles.animSlideInRight}
+        quickTemplateSlug={intent?.quickTemplateSlug}
         onBack={() => setView(VIEW_LIST)}
       />
     );

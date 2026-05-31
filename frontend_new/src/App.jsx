@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { useAuth } from "./contexts/AuthContext";
 import DashboardLayout from "./layout/DashboardLayout";
 import LoginPage from "./pages/login/LoginPage";
@@ -36,46 +36,55 @@ import GatewayPage        from "./pages/network/gateway/GatewayPage";
 import ReverseProxyPage   from "./pages/network/reverse-proxy/ReverseProxyPage";
 import IpManagementPage   from "./pages/network/ip-management/IpManagementPage";
 
-const PAGE_MAP = {
-  dashboard:        <DashboardPage />,
-  "my-resources":   <ResourcesPage />,
-  "my-requests":    <RequestsPage />,
-  "resource-mgmt":  <ResourceMgmtPage />,
-  "request-review": <RequestReviewPage />,
-  "gpu-mgmt":       <GpuMgmtPage />,
-  "batch-review":   <BatchReviewPage />,
-  "ai-api":         <AiApiPage />,
-  "ai-api-review":  <AiApiReviewPage />,
-  "ai-api-keys":    <AiApiKeysPage />,
-  "ai-monitoring":  <AiMonitoringPage />,
-  "ai-management":  <AiManagementPage />,
-  groups:           <GroupsPage />,
-  admin:            <AdminPage />,
-  settings:         <SettingsPage />,
-  migration:        <MigrationPage />,
-  audit:            <AuditPage />,
-  jobs:             <JobsPage />,
-  firewall:         <FirewallPage />,
-  domain:           <DomainPage />,
-  gateway:          <GatewayPage />,
-  "reverse-proxy":  <ReverseProxyPage />,
-  "ip-management":  <IpManagementPage />,
-};
-
 function App() {
   const { user, loading } = useAuth();
   const [activePage, setActivePage] = useState("dashboard");
+  const [pageIntent, setPageIntent] = useState(null);
 
   // 初始化時驗證 token，避免未登入畫面閃爍
-  if (loading) return null;
 
   // 未登入 → 顯示登入頁
+
+  const handleNavigate = useCallback((page, intent = null) => {
+    setPageIntent(intent ? { ...intent, nonce: Date.now() } : null);
+    setActivePage(page);
+  }, []);
+
+  const page = useMemo(() => {
+    const pages = {
+      dashboard:        <DashboardPage onNavigate={handleNavigate} />,
+      "my-resources":   <ResourcesPage />,
+      "my-requests":    <RequestsPage intent={pageIntent} />,
+      "resource-mgmt":  <ResourceMgmtPage />,
+      "request-review": <RequestReviewPage />,
+      "gpu-mgmt":       <GpuMgmtPage />,
+      "batch-review":   <BatchReviewPage />,
+      "ai-api":         <AiApiPage />,
+      "ai-api-review":  <AiApiReviewPage />,
+      "ai-api-keys":    <AiApiKeysPage />,
+      "ai-monitoring":  <AiMonitoringPage />,
+      "ai-management":  <AiManagementPage />,
+      groups:           <GroupsPage />,
+      admin:            <AdminPage />,
+      settings:         <SettingsPage />,
+      migration:        <MigrationPage />,
+      audit:            <AuditPage />,
+      jobs:             <JobsPage />,
+      firewall:         <FirewallPage />,
+      domain:           <DomainPage />,
+      gateway:          <GatewayPage />,
+      "reverse-proxy":  <ReverseProxyPage />,
+      "ip-management":  <IpManagementPage />,
+    };
+    return pages[activePage] ?? pages.dashboard;
+  }, [activePage, handleNavigate, pageIntent]);
+
+  if (loading) return null;
+
   if (!user) return <LoginPage />;
 
-  const page = PAGE_MAP[activePage] ?? PAGE_MAP.dashboard;
-
   return (
-    <DashboardLayout activePage={activePage} onNavigate={setActivePage}>
+    <DashboardLayout activePage={activePage} onNavigate={handleNavigate}>
       {page}
     </DashboardLayout>
   );

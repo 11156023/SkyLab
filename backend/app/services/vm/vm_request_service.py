@@ -159,16 +159,11 @@ def _approve_and_place(
         commit=False,
     )
 
-    _active_statuses = (
-        VMRequestStatus.approved,
-        VMRequestStatus.provisioning,
-        VMRequestStatus.running,
-    )
     if db_request.request_kind == "quick_template":
         reserved_requests = [
             item
             for item in locked_requests
-            if item.id != db_request.id and item.status in _active_statuses
+            if item.id != db_request.id and item.status == VMRequestStatus.approved
         ]
         selection = vm_request_placement_service.select_reserved_target_node(
             session=session,
@@ -202,7 +197,7 @@ def _approve_and_place(
     approved_requests = [
         item
         for item in locked_requests
-        if item.id != db_request.id and item.status in _active_statuses
+        if item.id != db_request.id and item.status == VMRequestStatus.approved
     ]
     approved_requests.append(db_request)
 
@@ -787,10 +782,9 @@ def cancel(
     """Cancel a VM request.
 
     - ``pending``: standard flow.
-    - ``approved`` (not yet provisioning): cancel before scheduler picks it up.
-    - ``provisioning``: best-effort cancel the in-flight background task.
+    - ``approved``: cancel before the resource becomes controllable.
       If the worker is mid-Proxmox-clone the clone may still complete; the
-      scheduler reconciliation will then mark the request running. We
+      scheduler reconciliation will then expose the live machine in resources. We
       surface 409 in that case rather than silently lying about the state.
     """
     from app.infrastructure.worker import (  # noqa: PLC0415
@@ -813,14 +807,13 @@ def cancel(
     cancellable = (
         VMRequestStatus.pending,
         VMRequestStatus.approved,
-        VMRequestStatus.provisioning,
     )
     if db_request.status not in cancellable:
         raise BadRequestError(
             f"Cannot cancel VM request in status={db_request.status.value}"
         )
 
-    if db_request.status == VMRequestStatus.provisioning:
+    if db_request.status == VMRequestStatus.approved and db_request.vmid is None:
         bg_task_id = f"vm_request:{db_request.id}"
         cancelled_in_runner = _cancel_bg_task(bg_task_id)
         if not cancelled_in_runner and _is_bg_task_active(bg_task_id):

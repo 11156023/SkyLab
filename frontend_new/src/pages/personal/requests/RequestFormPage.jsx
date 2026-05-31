@@ -1,4 +1,5 @@
 import { useContext, useEffect, useRef, useState } from "react";
+import rawData from "virtual:templates";
 import styles from "./RequestFormPage.module.scss";
 import { LayoutContext } from "../../../layout/DashboardLayout";
 import { useAuth } from "../../../contexts/AuthContext";
@@ -57,6 +58,12 @@ function SelectField({ value, onChange, disabled, children, placeholder }) {
 const DT_FMT = { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" };
 const formatDT = (iso) => new Date(iso).toLocaleString("zh-TW", DT_FMT);
 const formatOstemplate = (v) => v.split("/").pop()?.replace(".tar.zst", "") ?? v;
+const QUICK_TEMPLATE_DURATION_HOURS = 3;
+const QUICK_TEMPLATES = Object.entries(rawData)
+  .filter(([key]) => !["metadata.json", "versions.json", "github-versions.json"].includes(key))
+  .map(([, value]) => value)
+  .filter(Boolean);
+const getQuickTemplate = (slug) => QUICK_TEMPLATES.find((template) => template.slug === slug);
 const gpuLabel = (gpu) => {
   const vram = gpu.total_vram_mb > 0
     ? ` (${gpu.total_vram_mb >= 1024 ? `${(gpu.total_vram_mb / 1024).toFixed(0)} GB` : `${gpu.total_vram_mb} MB`})`
@@ -81,7 +88,7 @@ const MSG = {
   endInPast:        "結束時間必須晚於現在",
 };
 
-export default function RequestFormPage({ onBack, className }) {
+export default function RequestFormPage({ onBack, className, quickTemplateSlug }) {
   const { user }  = useAuth();
   const toast     = useToast();
   const isPrivileged = user?.is_superuser || user?.role === "admin" || user?.role === "teacher";
@@ -112,7 +119,7 @@ export default function RequestFormPage({ onBack, className }) {
 
   /* Form state */
   const [resourceType, setResourceType] = useState("lxc");
-  const [mode, setMode]                 = useState("scheduled");
+  const [mode, setMode]                 = useState(quickTemplateSlug ? "quick_template" : "scheduled");
   const [form, setForm] = useState({
     hostname:         "",
     ostemplate:       "",
@@ -133,6 +140,7 @@ export default function RequestFormPage({ onBack, className }) {
   const [errors, setErrors]           = useState({});
   const [submitting, setSubmitting]   = useState(false);
   const [availabilityHint, setAvailabilityHint] = useState(null);
+  const isQuickTemplate = mode === "quick_template";
 
   /* API data */
   const [lxcTemplates, setLxcTemplates] = useState([]);
@@ -151,6 +159,34 @@ export default function RequestFormPage({ onBack, className }) {
       .catch(() => {})
       .finally(() => setLxcLoading(false));
   }, [resourceType]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (!quickTemplateSlug) return;
+    const template = getQuickTemplate(quickTemplateSlug);
+    if (!template) return;
+    const res = template.install_methods?.[0]?.resources ?? {};
+    setResourceType("lxc");
+    setMode("quick_template");
+    setServiceTemplateName(template.name || quickTemplateSlug);
+    setServiceTemplateSlug(template.slug || quickTemplateSlug);
+    setForm((prev) => ({
+      ...prev,
+      hostname: prev.hostname || normalizeHostname(`${template.slug || quickTemplateSlug}-${Date.now().toString().slice(-4)}`),
+      cores: Math.min(Number(res.cpu || prev.cores || 2), 2),
+      memory: Math.min(Number(res.ram || prev.memory || 2048), 4096),
+      rootfs_size: Math.min(Math.max(Number(res.hdd || prev.rootfs_size || 8), 8), 32),
+      os_info: prev.os_info || res.os || "",
+      reason: prev.reason || `快速使用 ${template.name || quickTemplateSlug} 模板`,
+      start_at: "",
+      end_at: "",
+      immediate_no_end: false,
+    }));
+  }, [quickTemplateSlug]);
+
+  useEffect(() => {
+    if (!isQuickTemplate || form.ostemplate || lxcTemplates.length === 0) return;
+    set("ostemplate", lxcTemplates[0].volid);
+  }, [isQuickTemplate, form.ostemplate, lxcTemplates]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (resourceType !== "vm" || vmTemplates.length > 0) return;
@@ -259,7 +295,14 @@ export default function RequestFormPage({ onBack, className }) {
         reason:    form.reason.trim(),
         storage:   "local-lvm",
         ...(resourceType === "lxc"
-          ? { ostemplate: form.ostemplate, rootfs_size: form.rootfs_size }
+          ? {
+              ostemplate: form.ostemplate,
+              rootfs_size: form.rootfs_size,
+              ...(serviceTemplateSlug ? {
+                service_template_slug: serviceTemplateSlug,
+                service_template_script_path: `ct/${serviceTemplateSlug}.sh`,
+              } : {}),
+            }
           : { template_id: Number(form.template_id), username: form.username, disk_size: form.disk_size }),
         ...(selectedGpuId ? { gpu_mapping_id: selectedGpuId } : {}),
         ...(mode === "scheduled"
@@ -294,7 +337,7 @@ export default function RequestFormPage({ onBack, className }) {
   const animCls = closing ? styles.animSlideOutRight : (className ?? "");
 
   return (
-    <div className={`${styles.formPage} ${animCls}`}>
+    <div className={`${styles.formPage} ${isQuickTemplate ? styles.quickTemplatePage : ""} ${animCls}`}>
       {/* ── 頁首 ── */}
       <div className={styles.formPageHeader}>
         <div className={styles.pageHeading}>
@@ -320,9 +363,18 @@ export default function RequestFormPage({ onBack, className }) {
           ) : (
           <div className={`${styles.formInner} ${returnedFromTemplate.current ? styles.animSlideInLeft : ""}`}>
           <form id="request-form" onSubmit={handleSubmit} className={styles.form}>
+            {isQuickTemplate && (
+              <div className={styles.quickTemplateNotice}>
+                <MIcon name="bolt" size={18} />
+                <div>
+                  <strong>快速模板</strong>
+                  <span>送出後不需人工審核，系統會建立 {QUICK_TEMPLATE_DURATION_HOURS} 小時的 LXC 練習環境。</span>
+                </div>
+              </div>
+            )}
 
             {/* ── 申請模式（管理員／老師） ── */}
-            {isPrivileged && (
+            {!isQuickTemplate && isPrivileged && (
               <div className={styles.formSection}>
                 <h2 className={styles.sectionTitle}>申請模式</h2>
                 <div className={styles.typeToggle}>
@@ -345,6 +397,7 @@ export default function RequestFormPage({ onBack, className }) {
             )}
 
             {/* ── 資源類型 ── */}
+            {!isQuickTemplate && (
             <div className={styles.formSection}>
               <h2 className={styles.sectionTitle}>類型</h2>
               <div className={styles.typeToggle}>
@@ -356,6 +409,7 @@ export default function RequestFormPage({ onBack, className }) {
                     key={t.key}
                     type="button"
                     className={`${styles.typeBtn} ${resourceType === t.key ? styles.typeBtnActive : ""}`}
+                    disabled={isQuickTemplate && t.key !== "lxc"}
                     onClick={() => setResourceType(t.key)}
                   >
                     <MIcon name={t.icon} size={16} />
@@ -364,6 +418,7 @@ export default function RequestFormPage({ onBack, className }) {
                 ))}
               </div>
             </div>
+            )}
 
             {/* ── LXC 設定 ── */}
             {resourceType === "lxc" && (
@@ -393,6 +448,7 @@ export default function RequestFormPage({ onBack, className }) {
                       <button
                         type="button"
                         className={styles.templateClearBtn}
+                        disabled={isQuickTemplate}
                         onClick={() => { setServiceTemplateName(""); setServiceTemplateSlug(""); }}
                         title="清除"
                       >
@@ -411,6 +467,7 @@ export default function RequestFormPage({ onBack, className }) {
                   )}
                 </FieldGroup>
 
+                {(!isQuickTemplate || !form.ostemplate || errors.ostemplate) && (
                 <FieldGroup label="作業系統映像檔" required error={errors.ostemplate}
                   hint="請從已上傳到節點的映像檔中選擇">
                   <SelectField
@@ -427,7 +484,9 @@ export default function RequestFormPage({ onBack, className }) {
                     )}
                   </SelectField>
                 </FieldGroup>
+                )}
 
+                {!isQuickTemplate && (
                 <FieldGroup label="作業系統資訊（選填）">
                   <input
                     className={styles.input}
@@ -436,6 +495,7 @@ export default function RequestFormPage({ onBack, className }) {
                     onChange={(e) => set("os_info", e.target.value)}
                   />
                 </FieldGroup>
+                )}
 
                 <FieldGroup label="Root 密碼" required error={errors.password}>
                   <input
@@ -450,7 +510,7 @@ export default function RequestFormPage({ onBack, className }) {
             )}
 
             {/* ── VM 設定 ── */}
-            {resourceType === "vm" && (
+            {!isQuickTemplate && resourceType === "vm" && (
               <div className={styles.formSection}>
                 <h2 className={styles.sectionTitle}>虛擬機設定</h2>
 
@@ -513,6 +573,7 @@ export default function RequestFormPage({ onBack, className }) {
             )}
 
             {/* ── 硬體資源配置 ── */}
+            {!isQuickTemplate && (
             <div className={styles.formSection}>
               <h2 className={styles.sectionTitle}>硬體資源配置</h2>
 
@@ -570,9 +631,10 @@ export default function RequestFormPage({ onBack, className }) {
                 );
               })()}
             </div>
+            )}
 
             {/* ── GPU（VM only）── */}
-            {resourceType === "vm" && (
+            {!isQuickTemplate && resourceType === "vm" && (
               <div className={styles.formSection}>
                 <h2 className={styles.sectionTitle}>GPU 加速（選填）</h2>
 
@@ -605,17 +667,26 @@ export default function RequestFormPage({ onBack, className }) {
             )}
 
             {/* ── 租借時段 ── */}
+            {!isQuickTemplate && (
             <div className={styles.formSection}>
               <div className={styles.sectionTitleRow}>
                 <h2 className={styles.sectionTitle}>
-                  {mode === "immediate" ? "立即模式設定" : "租借時段"}
+                  {isQuickTemplate ? "快速模板使用期限" : mode === "immediate" ? "立即模式設定" : "租借時段"}
                 </h2>
                 {mode === "scheduled" && availabilityHint && (
                   <span className={styles.sectionHint}>{availabilityHint}</span>
                 )}
               </div>
 
-              {mode === "immediate" ? (
+              {isQuickTemplate ? (
+                <div className={styles.quickTemplateWindow}>
+                  <MIcon name="schedule" size={18} />
+                  <div>
+                    <span>系統會立即送出並自動核准</span>
+                    <strong>{QUICK_TEMPLATE_DURATION_HOURS} 小時後自動結束</strong>
+                  </div>
+                </div>
+              ) : mode === "immediate" ? (
                 <>
                   <p className={styles.fieldHint}>
                     立即模式會在送出申請後馬上開始部署，不需要選擇開始時間。
@@ -664,8 +735,10 @@ export default function RequestFormPage({ onBack, className }) {
                 </>
               )}
             </div>
+            )}
 
             {/* ── 申請原因 ── */}
+            {!isQuickTemplate && (
             <div className={styles.formSection}>
               <h2 className={styles.sectionTitle}>申請原因<span className={styles.required}> *</span></h2>
               <FieldGroup error={errors.reason}>
@@ -678,6 +751,7 @@ export default function RequestFormPage({ onBack, className }) {
                 <div className={styles.charCount}>{form.reason.length} 字</div>
               </FieldGroup>
             </div>
+            )}
 
           </form>
 
@@ -693,7 +767,7 @@ export default function RequestFormPage({ onBack, className }) {
             >
               {submitting
                 ? <><MIcon name="hourglass_empty" size={16} />送出中…</>
-                : <><MIcon name="send" size={16} />送出申請</>
+                : <><MIcon name={isQuickTemplate ? "bolt" : "send"} size={16} />{isQuickTemplate ? "快速使用" : "送出申請"}</>
               }
             </button>
           </div>
@@ -705,6 +779,7 @@ export default function RequestFormPage({ onBack, className }) {
         {aiOpen && <AiSidePanel className={styles.aiPanelMobile} />}
 
         {/* Desktop 右側面板（摘要 + AI）*/}
+        {!isQuickTemplate && (
         <div className={styles.rightPanel}>
           <div className={styles.rightPanelTabs}>
             {[
@@ -731,10 +806,10 @@ export default function RequestFormPage({ onBack, className }) {
                   <MIcon name={resourceType === "lxc" ? "dashboard" : "computer"} size={12} />
                   {resourceType === "lxc" ? "LXC 容器" : "QEMU 虛擬機"}
                 </span>
-                {isPrivileged && (
+                {(isPrivileged || isQuickTemplate) && (
                   <span className={`${styles.summaryChip} ${mode === "scheduled" ? styles.summaryChipScheduled : styles.summaryChipImmediate}`}>
                     <MIcon name={mode === "scheduled" ? "calendar_month" : "bolt"} size={12} />
-                    {mode === "scheduled" ? "預約" : "立即"}
+                    {isQuickTemplate ? "快速模板" : mode === "scheduled" ? "預約" : "立即"}
                   </span>
                 )}
               </div>
@@ -823,7 +898,12 @@ export default function RequestFormPage({ onBack, className }) {
 
               <div className={styles.summaryDivider} />
 
-              {mode === "immediate" ? (
+              {isQuickTemplate ? (
+                <div className={styles.summaryRow}>
+                  <span className={styles.summaryLabel}>使用期限</span>
+                  <span className={styles.summaryValue}>{QUICK_TEMPLATE_DURATION_HOURS} 小時</span>
+                </div>
+              ) : mode === "immediate" ? (
                 <div className={styles.summaryRow}>
                   <span className={styles.summaryLabel}>時段</span>
                   <span className={styles.summaryValue}>
@@ -854,6 +934,7 @@ export default function RequestFormPage({ onBack, className }) {
 
           {rightTab === "ai" && <AiSidePanel className={styles.aiPanelFill} />}
         </div>
+        )}
       </div>
 
       {/* 浮動 AI Tab（僅手機）*/}

@@ -170,7 +170,8 @@ function ResourceCard({ resource, onUpdated, onDeleted }) {
 
   const type    = TYPE_MAP[resource.type] ?? { label: resource.type, icon: "computer" };
   const isLxc   = resource.type === "lxc";
-  const isLive  = LIVE_STATUSES.has(resource.status);
+  const canControl = resource.can_control !== false && resource.vmid != null && resource.vmid > 0;
+  const isLive  = canControl && LIVE_STATUSES.has(resource.status);
 
   async function handleControl(action) {
     setActionLoading(action);
@@ -360,7 +361,7 @@ export default function ResourcesPage() {
     setError(false);
     try {
       const data = await ResourcesService.list();
-      setResources((data ?? []).filter((r) => r.status in STATUS_MAP));
+      setResources(data ?? []);
     } catch {
       setError(true);
     } finally {
@@ -408,7 +409,7 @@ export default function ResourcesPage() {
           <div className={styles.grid}>
             {resources.map((r) => (
               <ResourceCard
-                key={r.vmid}
+                key={r.vmid ?? r.request_id ?? `${r.name}-${r.status}`}
                 resource={r}
                 onUpdated={handleUpdated}
                 onDeleted={handleDeleted}
