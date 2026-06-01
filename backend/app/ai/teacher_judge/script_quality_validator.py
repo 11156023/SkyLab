@@ -263,6 +263,93 @@ def _except_handler_appends_errors(handler: ast.ExceptHandler) -> bool:
     )
 
 
+def _parent_map(tree: ast.AST) -> dict[ast.AST, ast.AST]:
+    parents: dict[ast.AST, ast.AST] = {}
+    for parent in ast.walk(tree):
+        for child in ast.iter_child_nodes(parent):
+            parents[child] = parent
+    return parents
+
+
+def _enclosing_function_name(
+    node: ast.AST,
+    parents: dict[ast.AST, ast.AST],
+) -> str | None:
+    current = parents.get(node)
+    while current is not None:
+        if isinstance(current, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            return current.name
+        current = parents.get(current)
+    return None
+
+
+def _handler_returns_structured_command_error(handler: ast.ExceptHandler) -> bool:
+    for node in ast.walk(handler):
+        if not isinstance(node, ast.Return) or not isinstance(node.value, ast.Dict):
+            continue
+        keys = {_literal_str(key) for key in node.value.keys}
+        if {"stdout", "stderr", "returncode"}.issubset(keys):
+            return True
+    return False
+
+
+def _allows_helper_scoped_generic_except(
+    handler: ast.ExceptHandler,
+    parents: dict[ast.AST, ast.AST],
+) -> bool:
+    return (
+        _enclosing_function_name(handler, parents) == "run_command"
+        and _handler_returns_structured_command_error(handler)
+    )
+
+
+def _line_span_snippet(
+    lines: list[str],
+    node: ast.AST,
+    *,
+    max_lines: int = 8,
+) -> str:
+    lineno = getattr(node, "lineno", None)
+    end_lineno = getattr(node, "end_lineno", None) or lineno
+    if not isinstance(lineno, int) or not isinstance(end_lineno, int):
+        return ""
+    start = max(lineno, 1)
+    end = min(end_lineno, len(lines), start + max_lines - 1)
+    return "\n".join(
+        f"{line_number:04d}|{lines[line_number - 1]}"
+        for line_number in range(start, end + 1)
+    )
+
+
+def _exception_fix_hint(
+    handler: ast.ExceptHandler,
+    exception_name: str | None,
+    lines: list[str],
+    *,
+    target: str,
+) -> FixHint:
+    lineno = getattr(handler, "lineno", None)
+    end_lineno = getattr(handler, "end_lineno", None)
+    required_pattern = (
+        'except Exception as exc:\n'
+        '    errors.append(f"<check_id>: 未預期錯誤: {str(exc)[:200]}")\n'
+        '    checks.append(record_check("<check_id>", "收集 ...", "unknown", "未預期錯誤"))'
+    )
+    hint: FixHint = {
+        "type": "add_errors_append_in_except",
+        "exception": exception_name or "bare except",
+        "description": "bare except / except Exception 應追加 errors 條目",
+        "target": target,
+        "snippet": _line_span_snippet(lines, handler),
+        "required_pattern": required_pattern,
+    }
+    if isinstance(lineno, int):
+        hint["lineno"] = lineno
+    if isinstance(end_lineno, int):
+        hint["end_lineno"] = end_lineno
+    return hint
+
+
 def _is_generic_check_id(check_id: str) -> bool:
     normalized = check_id.strip().lower()
     return (
@@ -288,6 +375,8 @@ def check_script_quality(script_content: str) -> CheckResult:
             "fix_hints": [{"type": "fix_syntax_error", "description": f"Python 語法錯誤：{exc.msg}"}],
         }
 
+    script_lines = script_content.splitlines()
+    parents = _parent_map(tree)
     helper_defs = _function_definitions(tree)
     missing_helpers = sorted(REQUIRED_HELPERS - set(helper_defs))
     if missing_helpers:
@@ -422,16 +511,24 @@ def check_script_quality(script_content: str) -> CheckResult:
                 fix_hints.append({"type": "fix_status_semantics", "exception": exception_name, "description": f"{exception_name} 應回傳 unknown，不可使用 warning"})
 
     # ── errors 記錄完整性檢查 ──
-    # bare except / except Exception 是明確的紅色信號：必須有 errors.append
+    # 收集項目的 bare except / except Exception 必須有 errors.append。
+    # run_command helper 可以把錯誤轉成結構化回傳值，再由呼叫點寫入 errors。
     for handler in [n for n in ast.walk(tree) if isinstance(n, ast.ExceptHandler)]:
         except_name = _except_name(handler)
-        if except_name in {None, "Exception"} and not _except_handler_appends_errors(handler):
+        if (
+            except_name in {None, "Exception"}
+            and not _except_handler_appends_errors(handler)
+            and not _allows_helper_scoped_generic_except(handler, parents)
+        ):
             issues.append("bare except / except Exception 後未將錯誤記錄到 errors")
-            fix_hints.append({
-                "type": "add_errors_append_in_except",
-                "exception": except_name or "bare except",
-                "description": "bare except / except Exception 應追加 errors 條目",
-            })
+            target = (
+                "helper_exception_handler"
+                if _enclosing_function_name(handler, parents)
+                else "collection_exception_handler"
+            )
+            fix_hints.append(
+                _exception_fix_hint(handler, except_name, script_lines, target=target)
+            )
             break
 
     deduped = list(dict.fromkeys(issues))

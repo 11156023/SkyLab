@@ -157,6 +157,10 @@ async def test_generate_script_content_sends_commands_feedback_and_safety_prompt
     assert "metadata" in system_prompt
     assert "truncate_output" in system_prompt
     assert "quality validator" in system_prompt
+    assert "簡潔程式碼骨架" in system_prompt
+    assert "run_command()" in system_prompt
+    assert "只負責" in system_prompt
+    assert "不要建立 class" in system_prompt
     assert user_payload["template_commands"][0]["command_key"] == "n8n.port_check"
     assert user_payload["previous_review_feedback"]["policy_issues"] == [
         "禁止使用 shell=True 執行指令"
@@ -299,10 +303,89 @@ async def test_build_reviewed_script_retries_with_quality_feedback(
     assert script_content == SAFE_SCRIPT
     assert status == TeacherJudgeScriptStatus.reviewed
     assert policy_check["quality_approved"] is True
+    assert len(policy_check["review_attempts"]) == 1
+    assert policy_check["review_attempts"][0]["quality_issues"] == [
+        "不能用 stdout/stderr truthiness 直接判定 pass"
+    ]
     assert ai_review["approved"] is True
     assert len(seen_snapshots) == 1
     assert "previous_review_feedback" not in seen_snapshots[0]
     assert review_call_count[0] == 1
+
+
+@pytest.mark.asyncio
+async def test_fix_script_content_applies_line_replacements(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured_payload = {}
+    source = "\n".join(
+        [
+            "errors: list[str] = []",
+            "try:",
+            "    collect()",
+            "except Exception:",
+            "    pass",
+        ]
+    )
+
+    async def fake_call_vllm(payload, timeout=60.0):
+        captured_payload.update(payload)
+        return (
+            json.dumps(
+                {
+                    "line_replacements": [
+                        {
+                            "start_line": 4,
+                            "end_line": 5,
+                            "replacement": "\n".join(
+                                [
+                                    "except Exception as exc:",
+                                    "    errors.append(f\"runtime.python_version: 未預期錯誤: {str(exc)[:200]}\")",
+                                ]
+                            ),
+                        }
+                    ],
+                    "changes_summary": "補上 errors.append。",
+                }
+            ),
+            {"total_tokens": 1},
+        )
+
+    monkeypatch.setattr(script_artifact_service, "_call_vllm", fake_call_vllm)
+    monkeypatch.setattr(
+        script_artifact_service,
+        "settings",
+        SimpleNamespace(
+            VLLM_MODEL_NAME="test-model",
+            VLLM_CHAT_MAX_TOKENS=4096,
+            VLLM_TOP_P=1.0,
+            VLLM_ENABLE_THINKING=False,
+            VLLM_TIMEOUT=60,
+        ),
+    )
+
+    fixed = await script_artifact_service.fix_script_content(
+        script_content=source,
+        fix_hints=[
+            {
+                "type": "add_errors_append_in_except",
+                "lineno": 4,
+                "end_lineno": 5,
+                "snippet": "0004|except Exception:\n0005|    pass",
+                "required_pattern": "except Exception as exc:\n    errors.append(...)",
+            }
+        ],
+    )
+
+    user_payload = json.loads(captured_payload["messages"][1]["content"])
+    repair_instruction = user_payload["repair_instructions"][0]
+    assert repair_instruction["line_range"] == [4, 5]
+    assert repair_instruction["snippet"] == "0004|except Exception:\n0005|    pass"
+    assert "errors.append" in repair_instruction["required_pattern"]
+    assert "fix_instructions" in user_payload
+    assert "except Exception as exc:" in fixed
+    assert "errors.append" in fixed
+    assert "    collect()" in fixed
 
 
 @pytest.mark.asyncio

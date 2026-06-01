@@ -958,9 +958,97 @@ def test_allows_bare_except_with_errors_append() -> None:
     assert result["issues"] == []
 
 
-def test_blocks_except_exception_without_errors_append() -> None:
-    _assert_blocked(
+def test_allows_run_command_generic_exception_with_structured_error_return() -> None:
+    result = _check(
         """
+        import json
+        import platform
+        import re
+        import shutil
+        import subprocess
+        from datetime import datetime, timezone
+
+        errors: list[str] = []
+
+        def truncate_output(text: str, limit: int = 400) -> str:
+            return text[:limit]
+
+        def redact_sensitive_text(text: str) -> str:
+            return re.sub(r"secret", "[redacted]", text, flags=re.IGNORECASE)
+
+        def command_available(command: str) -> bool:
+            return shutil.which(command) is not None
+
+        def run_command(argv: list[str], timeout: int = 5) -> dict[str, object]:
+            try:
+                completed = subprocess.run(
+                    argv,
+                    capture_output=True,
+                    text=True,
+                    timeout=timeout,
+                    check=False,
+                )
+            except Exception as exc:
+                return {"stdout": "", "stderr": str(exc), "returncode": None}
+            return {
+                "stdout": completed.stdout,
+                "stderr": completed.stderr,
+                "returncode": completed.returncode,
+            }
+
+        def record_check(check_id: str, title: str, status: str, evidence: str, raw: str = "") -> dict[str, str]:
+            return {
+                "id": check_id,
+                "title": title,
+                "status": status,
+                "evidence": evidence,
+                "raw": truncate_output(redact_sensitive_text(raw)),
+            }
+
+        checks = []
+        python_bin = shutil.which("python")
+        if not command_available("python") or python_bin is None:
+            checks.append(record_check(
+                "runtime.python_version",
+                "收集 Python 版本",
+                "unknown",
+                "python not found",
+            ))
+        else:
+            result = run_command([python_bin, "--version"])
+            if result["returncode"] is None:
+                errors.append("runtime.python_version: 指令執行失敗")
+                status = "unknown"
+            else:
+                status = "pass" if result["returncode"] == 0 else "fail"
+            checks.append(record_check(
+                "runtime.python_version",
+                "收集 Python 版本",
+                status,
+                str(result["stdout"] or result["stderr"] or ""),
+                raw=json.dumps(result, ensure_ascii=False),
+            ))
+
+        print(json.dumps({
+            "schema_version": "teacher_judge_result.v1",
+            "metadata": {
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "platform": platform.platform(),
+            },
+            "summary": "collected",
+            "checks": checks,
+            "errors": errors,
+        }, ensure_ascii=False))
+        """
+    )
+
+    assert result["approved"] is True
+    assert result["blocked"] is False
+    assert result["issues"] == []
+
+
+def test_blocks_except_exception_without_errors_append() -> None:
+    script_content = """
         import json
         import platform
         import re
@@ -1002,7 +1090,20 @@ def test_blocks_except_exception_without_errors_append() -> None:
             "checks": checks,
             "errors": [],
         }, ensure_ascii=False))
-        """,
+    """
+    _assert_blocked(
+        script_content,
         "except Exception",
         "errors",
     )
+    result = _check(script_content)
+    hint = next(
+        hint
+        for hint in result["fix_hints"]
+        if hint.get("type") == "add_errors_append_in_except"
+    )
+    assert hint["lineno"] > 0
+    assert hint["end_lineno"] >= hint["lineno"]
+    assert "except Exception" in hint["snippet"]
+    assert hint["target"] == "collection_exception_handler"
+    assert "errors.append" in hint["required_pattern"]

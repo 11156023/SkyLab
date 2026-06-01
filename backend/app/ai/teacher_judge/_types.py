@@ -25,6 +25,11 @@ class FixHint(TypedDict, total=False):
     mode: NotRequired[str]
     issues: NotRequired[list[str]]
     suggested_fix: NotRequired[str | None]
+    lineno: NotRequired[int]
+    end_lineno: NotRequired[int]
+    snippet: NotRequired[str]
+    target: NotRequired[str]
+    required_pattern: NotRequired[str]
 
 
 # ── Policy / Quality Check Result ─────────────────────────────────────────────
@@ -63,6 +68,7 @@ class GateResult(TypedDict):
     safety_issues: list[str]
     quality_approved: bool
     quality_issues: list[str]
+    review_attempts: NotRequired[list[dict[str, object]]]
 
 
 # ── Previous Review Feedback ──────────────────────────────────────────────────

@@ -71,6 +71,18 @@ SCRIPT_GENERATION_SYSTEM_PROMPT = f"""
 - 若 previous_review_feedback 有內容，代表上一輪腳本審查未通過；必須修正其中所有 policy、quality validator、AI reviewer 問題。
 - 腳本頂層必須定義 `errors: list[str] = []`。每個收集項目的例外處理區塊（try/except）必須使用 `errors.append(f"{{check_id}}: {{錯誤說明}}")` 記錄錯誤原因，讓老師看到執行時的收集品質。所有收集成功時 errors 輸出空陣列。
 
+# 簡潔程式碼骨架
+- 產生單檔 Python script；不要建立 class、plugin 架構、retry framework 或多層抽象。
+- helper 只保留這 5 個：`truncate_output`、`redact_sensitive_text`、`command_available`、`run_command`、`record_check`。
+- `run_command()` 只負責執行 argv list 並回傳 `stdout`、`stderr`、`returncode`；若捕捉例外，回傳 `returncode=None` 與錯誤文字，不要在 helper 內吞掉資訊。
+- 每個收集項目使用同一個簡潔模式：
+  1. 先決定 `check_id`
+  2. 檢查工具是否存在；缺工具時 `record_check(..., "unknown", ...)`
+  3. 執行 `run_command()`
+  4. 若 `returncode is None`，必須 `errors.append(f"{{check_id}}: {{錯誤說明}}")` 並輸出 `unknown`
+  5. 只有明確驗證條件成立時才輸出 `pass`
+- 避免 broad `try/except` 包住大段主流程；若收集項目使用 `except Exception as exc`，該 except 區塊必須同時 `errors.append(...)`，且對應 check 不可為 `pass`。
+
 # managed script 輸出 JSON contract
 {{
   "schema_version": "{RESULT_SCHEMA_VERSION}",
@@ -121,18 +133,29 @@ AI_REVIEWER_SYSTEM_PROMPT = """
 
 FIX_SCRIPT_SYSTEM_PROMPT = """
 # 角色
-你是 managed data collection 腳本的精準修正器。你的任務是根據修正指令對腳本做**最小修正**。
+你是 managed data collection 腳本的精準 patch 修正器。你的任務是根據修正指令對腳本做**指定行區間的最小替換**。
 
 # 規則
 - 只修改修正指令指向的內容，不要重寫整個腳本
 - 不要改動與修正指令無關的任何程式碼
 - 保持腳本結構、縮排、邏輯不變
 - 腳本內容已附行號（格式：`0001|code`），修正時可參考行號定位
+- 優先使用 repair_instructions 裡的 issue、line_range、snippet、required_pattern 定位與修正
+- fix_instructions 是原始 validator hint；repair_instructions 是精簡後的修正指令，優先依 repair_instructions 行動
+- replacement 只能包含替換後的 Python 程式碼，不要包含 `0001|` 行號前綴
+- 若只需新增一行，請把該 except 區塊整段以相同縮排替換，不要重排其他區塊
+- 對 `bare except / except Exception 後未將錯誤記錄到 errors`，必須在同一個 except 區塊加入 `errors.append(...)`，並確保對應 `record_check` 狀態不是 `pass`
 
 # 輸出格式
 只能輸出一個 JSON：
 {
-  "script_content": "修正後的完整 Python 程式（不要行號前綴）",
+  "line_replacements": [
+    {
+      "start_line": 12,
+      "end_line": 15,
+      "replacement": "替換後的完整行區間程式碼（不要行號前綴）"
+    }
+  ],
   "changes_summary": "簡短繁體中文說明改動了什麼，1-2 句"
 }
 """.strip()
@@ -317,6 +340,111 @@ def _merge_gate_results(
     }
 
 
+def _gate_attempt_record(
+    *,
+    attempt: int,
+    safety_check: CheckResult,
+    quality_check: CheckResult,
+    fix_hints: list[FixHint],
+) -> dict[str, object]:
+    safety_issues = safety_check.get("issues")
+    quality_issues = quality_check.get("issues")
+    return {
+        "attempt": attempt,
+        "safety_approved": safety_check.get("approved") is True,
+        "safety_issues": [str(issue) for issue in safety_issues]
+        if isinstance(safety_issues, list)
+        else [],
+        "quality_approved": quality_check.get("approved") is True,
+        "quality_issues": [str(issue) for issue in quality_issues]
+        if isinstance(quality_issues, list)
+        else [],
+        "fix_hints": fix_hints,
+    }
+
+
+def _repair_instructions(fix_hints: list[FixHint]) -> list[dict[str, object]]:
+    instructions: list[dict[str, object]] = []
+    for hint in fix_hints:
+        line_range: list[int] | None = None
+        lineno = hint.get("lineno")
+        end_lineno = hint.get("end_lineno")
+        if isinstance(lineno, int) and isinstance(end_lineno, int):
+            line_range = [lineno, end_lineno]
+
+        issue = str(
+            hint.get("description")
+            or "; ".join(str(issue) for issue in hint.get("issues", []))
+            or hint.get("type")
+            or "未指定修正項目"
+        )
+        instruction: dict[str, object] = {
+            "issue": issue,
+            "fix_goal": _fix_goal_for_hint(hint),
+            "target": str(hint.get("target") or hint.get("type") or "script"),
+        }
+        if line_range:
+            instruction["line_range"] = line_range
+        if hint.get("snippet"):
+            instruction["snippet"] = str(hint["snippet"])
+        if hint.get("required_pattern"):
+            instruction["required_pattern"] = str(hint["required_pattern"])
+        if hint.get("suggested_fix"):
+            instruction["suggested_fix"] = str(hint["suggested_fix"])
+        instructions.append(instruction)
+    return instructions
+
+
+def _fix_goal_for_hint(hint: FixHint) -> str:
+    hint_type = hint.get("type")
+    if hint_type == "add_errors_append_in_except":
+        return (
+            "只替換指定 except 區塊；加入 errors.append(f\"<check_id>: ...\")，"
+            "並確保該錯誤路徑輸出的 record_check status 是 unknown 或 fail，不可為 pass。"
+        )
+    if hint_type == "ai_reviewer_feedback":
+        return "依 AI reviewer issues 做最小行區間替換，不要重寫整份腳本。"
+    return "依 issue 做最小行區間替換，保持未相關程式碼不變。"
+
+
+def _fix_hint_log_summary(fix_hints: list[FixHint]) -> list[dict[str, object]]:
+    summary: list[dict[str, object]] = []
+    for hint in fix_hints[:5]:
+        item: dict[str, object] = {
+            "type": str(hint.get("type") or "unknown"),
+            "target": str(hint.get("target") or ""),
+        }
+        if isinstance(hint.get("lineno"), int):
+            item["line"] = hint["lineno"]
+        if hint.get("description"):
+            item["description"] = str(hint["description"])
+        summary.append(item)
+    return summary
+
+
+def _line_replacement_log_summary(raw_replacements: Any) -> list[dict[str, object]]:
+    if not isinstance(raw_replacements, list):
+        return []
+    summary: list[dict[str, object]] = []
+    for raw in raw_replacements[:5]:
+        if not isinstance(raw, dict):
+            continue
+        replacement = raw.get("replacement")
+        replacement_lines = (
+            len(str(replacement).splitlines())
+            if isinstance(replacement, str)
+            else 0
+        )
+        summary.append(
+            {
+                "start_line": raw.get("start_line"),
+                "end_line": raw.get("end_line"),
+                "replacement_lines": replacement_lines,
+            }
+        )
+    return summary
+
+
 async def generate_script_content(
     *,
     rubric_snapshot: dict[str, Any],
@@ -407,6 +535,51 @@ async def review_script_with_ai(
     return _normalize_ai_review(parsed)
 
 
+def _apply_line_replacements(
+    script_content: str,
+    raw_replacements: Any,
+) -> str:
+    if not isinstance(raw_replacements, list) or not raw_replacements:
+        raise HTTPException(status_code=502, detail="AI 未產生 line_replacements。")
+
+    lines = script_content.split("\n")
+    replacements: list[tuple[int, int, str]] = []
+    for raw in raw_replacements:
+        if not isinstance(raw, dict):
+            raise HTTPException(status_code=502, detail="AI 修正腳本格式不正確。")
+        start_line = raw.get("start_line")
+        end_line = raw.get("end_line")
+        replacement = raw.get("replacement")
+        if (
+            not isinstance(start_line, int)
+            or isinstance(start_line, bool)
+            or not isinstance(end_line, int)
+            or isinstance(end_line, bool)
+            or not isinstance(replacement, str)
+        ):
+            raise HTTPException(status_code=502, detail="AI 修正腳本行號格式不正確。")
+        if start_line < 1 or end_line < start_line or end_line > len(lines):
+            raise HTTPException(status_code=502, detail="AI 修正腳本行號超出範圍。")
+        replacements.append((start_line, end_line, replacement))
+
+    sorted_replacements = sorted(replacements, key=lambda item: item[0])
+    previous_end = 0
+    for start_line, end_line, _replacement in sorted_replacements:
+        if start_line <= previous_end:
+            raise HTTPException(status_code=502, detail="AI 修正腳本行號區間重疊。")
+        previous_end = end_line
+
+    patched_lines = list(lines)
+    for start_line, end_line, replacement in reversed(sorted_replacements):
+        replacement_lines = replacement.split("\n") if replacement else []
+        patched_lines[start_line - 1 : end_line] = replacement_lines
+
+    result = "\n".join(patched_lines).strip()
+    if not result:
+        raise HTTPException(status_code=502, detail="AI 未產生修正後腳本。")
+    return result
+
+
 async def fix_script_content(
     *,
     script_content: str,
@@ -417,6 +590,11 @@ async def fix_script_content(
 
     lines = script_content.split("\n")
     numbered = "\n".join(f"{i+1:04d}|{line}" for i, line in enumerate(lines))
+    repair_instructions = _repair_instructions(fix_hints)
+    logger.info(
+        "Teacher Judge script patch requested: hints=%s",
+        _fix_hint_log_summary(fix_hints),
+    )
 
     payload = apply_thinking_control(
         {
@@ -428,6 +606,7 @@ async def fix_script_content(
                     "content": json.dumps(
                         {
                             "script_with_lines": numbered,
+                            "repair_instructions": repair_instructions,
                             "fix_instructions": fix_hints,
                         },
                         ensure_ascii=False,
@@ -448,10 +627,15 @@ async def fix_script_content(
     except json.JSONDecodeError as exc:
         raise HTTPException(status_code=502, detail="AI 修正腳本格式不是 JSON。") from exc
 
-    result = str(parsed.get("script_content") or "").strip()
-    if not result:
-        raise HTTPException(status_code=502, detail="AI 未產生修正後腳本。")
-    return result
+    logger.info(
+        "Teacher Judge script patch response: replacements=%s summary=%s",
+        _line_replacement_log_summary(parsed.get("line_replacements")),
+        parsed.get("changes_summary"),
+    )
+    return _apply_line_replacements(
+        script_content,
+        parsed.get("line_replacements"),
+    )
 
 
 async def build_reviewed_script(
@@ -466,6 +650,7 @@ async def build_reviewed_script(
         rubric_snapshot=attempt_snapshot,
         template_key=template_key,
     )
+    attempt_records: list[dict[str, object]] = []
 
     # Phase 2: fix loop (policy + quality only, no AI reviewer yet)
     for attempt in range(1, SCRIPT_GENERATION_MAX_ATTEMPTS + 1):
@@ -476,18 +661,34 @@ async def build_reviewed_script(
         if gate_result["approved"]:
             break
 
+        fix_hints = (
+            safety_check.get("fix_hints", [])
+            + quality_check.get("fix_hints", [])
+        )
+        attempt_record = _gate_attempt_record(
+            attempt=attempt,
+            safety_check=safety_check,
+            quality_check=quality_check,
+            fix_hints=fix_hints,
+        )
+        attempt_records.append(attempt_record)
+        logger.warning(
+            "Teacher Judge script gate failed on attempt %s/%s: safety_issues=%s quality_issues=%s fix_hints=%s",
+            attempt,
+            SCRIPT_GENERATION_MAX_ATTEMPTS,
+            attempt_record["safety_issues"],
+            attempt_record["quality_issues"],
+            _fix_hint_log_summary(fix_hints),
+        )
+
         if attempt >= SCRIPT_GENERATION_MAX_ATTEMPTS:
+            gate_result["review_attempts"] = attempt_records
             last_ai_review = await review_script_with_ai(
                 script_content=script_content,
                 rubric_snapshot=attempt_snapshot,
             )
             status = _resolve_status(gate_result, last_ai_review)
             return script_content, gate_result, last_ai_review, status
-
-        fix_hints = (
-            safety_check.get("fix_hints", [])
-            + quality_check.get("fix_hints", [])
-        )
 
         if not fix_hints:
             # no structured hints available — fallback to full re-generate
@@ -511,7 +712,11 @@ async def build_reviewed_script(
                 script_content=script_content,
                 fix_hints=fix_hints,
             )
-        except HTTPException:
+        except HTTPException as exc:
+            logger.warning(
+                "Teacher Judge script patch failed; falling back to regenerate: %s",
+                exc.detail,
+            )
             # fix failed — fallback to full re-generate
             attempt_snapshot = dict(rubric_snapshot)
             attempt_snapshot["previous_review_feedback"] = {
@@ -530,6 +735,7 @@ async def build_reviewed_script(
     final_safety = check_script_policy(script_content)
     final_quality = check_script_quality(script_content)
     final_gate = _merge_gate_results(final_safety, final_quality)
+    final_gate["review_attempts"] = attempt_records
     last_ai_review = await review_script_with_ai(
         script_content=script_content,
         rubric_snapshot=rubric_snapshot,
@@ -552,6 +758,7 @@ async def build_reviewed_script(
             final_safety = check_script_policy(script_content)
             final_quality = check_script_quality(script_content)
             final_gate = _merge_gate_results(final_safety, final_quality)
+            final_gate["review_attempts"] = attempt_records
             if final_gate["approved"]:
                 last_ai_review = await review_script_with_ai(
                     script_content=script_content,
