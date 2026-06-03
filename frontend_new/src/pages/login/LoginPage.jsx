@@ -1,7 +1,21 @@
-﻿import { useState } from "react";
+﻿import { useEffect, useState } from "react";
 import { useAuth } from "../../contexts/AuthContext";
 import { apiPost } from "../../services/api";
 import styles from "./LoginPage.module.scss";
+
+function readResetTokenFromUrl() {
+  if (typeof window === "undefined") return "";
+  const params = new URLSearchParams(window.location.search);
+  return params.get("token") ?? "";
+}
+
+function clearResetTokenFromUrl() {
+  if (typeof window === "undefined") return;
+  const url = new URL(window.location.href);
+  url.searchParams.delete("token");
+  url.pathname = "/";
+  window.history.replaceState(null, "", url.toString());
+}
 
 /* ─── 共用元件 ─────────────────────────────────────────── */
 
@@ -180,6 +194,85 @@ function ForgotView({ onBack }) {
   );
 }
 
+/* ─── 重設密碼 ──────────────────────────────────────────── */
+
+function ResetView({ token, onDone }) {
+  const [password, setPassword] = useState("");
+  const [confirm,  setConfirm]  = useState("");
+  const [error,    setError]    = useState("");
+  const [success,  setSuccess]  = useState(false);
+  const [loading,  setLoading]  = useState(false);
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    setError("");
+
+    if (password.length < 8) {
+      setError("密碼至少需要 8 個字元");
+      return;
+    }
+    if (password !== confirm) {
+      setError("兩次密碼輸入不一致");
+      return;
+    }
+
+    setLoading(true);
+    try {
+      await apiPost("/api/v1/reset-password/", {
+        new_password: password,
+        token,
+      });
+      setSuccess(true);
+    } catch (err) {
+      setError(err?.message ?? "重設失敗，連結可能已失效，請重新申請");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <>
+      <h1 className={styles.title}>重設密碼</h1>
+      <p className={styles.subtitle}>請輸入新的登入密碼</p>
+
+      {success ? (
+        <div className={styles.successBox}>
+          <MIcon name="check_circle" size={32} />
+          <p>密碼已更新，請使用新密碼登入</p>
+          <button type="button" className={styles.btn} onClick={onDone} style={{ marginTop: "8px" }}>
+            前往登入
+          </button>
+        </div>
+      ) : (
+        <form className={styles.form} onSubmit={handleSubmit}>
+          <PasswordField
+            id="reset-password"
+            label="新密碼（至少 8 個字元）"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            disabled={loading}
+          />
+
+          <PasswordField
+            id="reset-confirm"
+            label="確認新密碼"
+            value={confirm}
+            onChange={(e) => setConfirm(e.target.value)}
+            disabled={loading}
+            placeholder="再次輸入新密碼"
+          />
+
+          {error && <p className={styles.error}>{error}</p>}
+
+          <button type="submit" className={styles.btn} disabled={loading}>
+            {loading ? "更新中…" : "更新密碼"}
+          </button>
+        </form>
+      )}
+    </>
+  );
+}
+
 /* ─── 註冊 ──────────────────────────────────────────────── */
 
 function RegisterView({ onBack }) {
@@ -296,7 +389,26 @@ function RegisterView({ onBack }) {
 /* ─── 主元件 ─────────────────────────────────────────────── */
 
 export default function LoginPage() {
-  const [view, setView] = useState("login"); // "login" | "forgot" | "register"
+  const [resetToken, setResetToken] = useState(() => readResetTokenFromUrl());
+  const [view, setView] = useState(() =>
+    readResetTokenFromUrl() ? "reset" : "login",
+  ); // "login" | "forgot" | "register" | "reset"
+
+  useEffect(() => {
+    const onPop = () => {
+      const token = readResetTokenFromUrl();
+      setResetToken(token);
+      setView(token ? "reset" : "login");
+    };
+    window.addEventListener("popstate", onPop);
+    return () => window.removeEventListener("popstate", onPop);
+  }, []);
+
+  const goLogin = () => {
+    clearResetTokenFromUrl();
+    setResetToken("");
+    setView("login");
+  };
 
   return (
     <div className={styles.page}>
@@ -304,6 +416,7 @@ export default function LoginPage() {
         {view === "login"    && <LoginView    onForgot={() => setView("forgot")}   onRegister={() => setView("register")} />}
         {view === "forgot"   && <ForgotView   onBack={() => setView("login")} />}
         {view === "register" && <RegisterView onBack={() => setView("login")} />}
+        {view === "reset"    && <ResetView    token={resetToken} onDone={goLogin} />}
       </div>
     </div>
   );

@@ -1,171 +1,198 @@
-import { useMemo, useState } from "react";
-import rawData from "virtual:templates";
+import { useRef, useState } from "react";
 import { useAuth } from "../../../contexts/AuthContext";
+import { useDragScroll } from "../../../hooks/useDragScroll";
 import MIcon from "../../../components/MIcon";
 import styles from "./DashboardPage.module.scss";
+import {
+  COURSES,
+  TEMPLATE_CATEGORIES,
+  CATEGORY_ACCENT,
+  CATEGORY_BY_ID,
+  TEMPLATES,
+} from "./dashboard.data";
 
-const QUICK_TEMPLATE_SLUGS = ["postgresql", "mongodb", "grafana", "homepage", "wordpress"];
-
-const CATEGORY_LABELS = {
-  database: "資料庫",
-  monitoring: "監控",
-  web: "網站",
-};
-
-const QUICK_TEMPLATE_META = {
-  postgresql: { category: "database", fallbackName: "PostgreSQL", icon: "database" },
-  mongodb: { category: "database", fallbackName: "MongoDB", icon: "database" },
-  grafana: { category: "monitoring", fallbackName: "Grafana", icon: "monitoring" },
-  homepage: { category: "web", fallbackName: "Homepage", icon: "dashboard_customize" },
-  wordpress: { category: "web", fallbackName: "WordPress", icon: "language" },
-};
-
-const TEMPLATES = Object.entries(rawData)
-  .filter(([key]) => !["metadata.json", "versions.json", "github-versions.json"].includes(key))
-  .map(([, value]) => value)
-  .filter(Boolean);
-
-function getTemplate(slug) {
-  return TEMPLATES.find((template) => template.slug === slug);
-}
-
-function getDescription(template) {
-  return template?.description_zh || template?.description || "快速建立一個可立即使用的練習環境。";
-}
-
-function getResources(template) {
-  return template?.install_methods?.[0]?.resources ?? {};
-}
-
-function TemplateLogo({ template, icon }) {
-  const [failed, setFailed] = useState(false);
-  if (template?.logo && !failed) {
-    return <img src={template.logo} alt="" className={styles.templateLogo} onError={() => setFailed(true)} />;
-  }
+/* ── SectionHeader ── */
+function SectionHeader({ icon, title, desc, onSeeAll }) {
   return (
-    <span className={styles.templateIcon}>
-      <MIcon name={icon} size={22} />
-    </span>
+    <div className={styles.sectionHeader}>
+      <div className={styles.sectionTitle}>
+        <span className={styles.sectionName}>
+          <MIcon name={icon} size={20} />
+          {title}
+        </span>
+        <span className={styles.sectionDesc}>{desc}</span>
+      </div>
+      <button type="button" className={styles.sectionLink} onClick={onSeeAll}>
+        查看全部
+        <MIcon name="arrow_forward" size={14} />
+      </button>
+    </div>
   );
 }
 
-function QuickTemplateCard({ item, onUse }) {
-  const resources = getResources(item.template);
-  const cpu = resources.cpu ? Math.min(Number(resources.cpu), 2) : null;
-  const ram = resources.ram ? Math.min(Number(resources.ram), 4096) : null;
-  const disk = resources.hdd ? Math.min(Math.max(Number(resources.hdd), 8), 32) : null;
+/* ── TemplateCard ── */
+function TemplateCard({ name, desc, icon, logo, accent, categoryTitle }) {
+  const [logoFailed, setLogoFailed] = useState(false);
   return (
-    <button type="button" className={styles.templateCard} onClick={() => onUse(item.slug)}>
-      <div className={styles.templateCardTop}>
-        <TemplateLogo template={item.template} icon={item.icon} />
-        <span className={styles.templateCategory}>{CATEGORY_LABELS[item.category]}</span>
+    <button
+      type="button"
+      className={styles.templateCard}
+      style={{ "--accent-color": accent }}
+    >
+      <div className={styles.templateHeader}>
+        <span className={styles.templateLogo}>
+          {logo && !logoFailed ? (
+            <img
+              src={logo}
+              alt={`${name} logo`}
+              width={28}
+              height={28}
+              loading="lazy"
+              onError={() => setLogoFailed(true)}
+            />
+          ) : (
+            <MIcon name={icon} size={22} />
+          )}
+        </span>
+        <span className={styles.templateCategoryChip}>{categoryTitle}</span>
       </div>
-      <div className={styles.templateMain}>
-        <h3 className={styles.templateName}>{item.name}</h3>
-        <p className={styles.templateDesc}>{item.description}</p>
+      <div className={styles.templateBody}>
+        <h4 className={styles.templateName}>{name}</h4>
+        <p className={styles.templateDesc}>{desc}</p>
       </div>
-      <div className={styles.templateSpecs}>
-        {cpu && <span>{cpu} CPU</span>}
-        {ram && <span>{ram} MB</span>}
-        {disk && <span>{disk} GB</span>}
-      </div>
-      <div className={styles.templateAction}>
-        <MIcon name="bolt" size={15} />
-        <span>快速使用</span>
+      <div className={styles.templateFooter}>
+        <span className={styles.templateAction}>
+          立即建立
+          <MIcon name="arrow_forward" size={14} />
+        </span>
       </div>
     </button>
   );
 }
 
-export default function DashboardPage({ onNavigate }) {
-  const { user } = useAuth();
-  const [category, setCategory] = useState("all");
+/* ── CourseCard ── */
+function CourseCard({ title, description, subjects, teacher, classGroup, icon, accent }) {
+  return (
+    <article
+      className={styles.courseCard}
+      style={{ "--accent-color": accent }}
+    >
+      <div className={styles.cardBanner}>
+        <div className={styles.cardBannerLeft}>
+          <div className={styles.cardBannerIcon}>
+            <MIcon name={icon} size={22} />
+          </div>
+          <h3 className={styles.cardTitle}>{title}</h3>
+        </div>
+      </div>
 
-  const quickTemplates = useMemo(
-    () =>
-      QUICK_TEMPLATE_SLUGS.map((slug) => {
-        const template = getTemplate(slug);
-        const meta = QUICK_TEMPLATE_META[slug];
-        return {
-          slug,
-          ...meta,
-          template,
-          name: template?.name || meta.fallbackName,
-          description: getDescription(template),
-        };
-      }),
-    [],
+      <div className={styles.cardBody}>
+        <div className={styles.cardSubjects}>
+          {subjects.map((s) => (
+            <span key={s} className={styles.cardSubjectTag}>{s}</span>
+          ))}
+        </div>
+        <p className={styles.cardDesc}>{description}</p>
+
+        <div className={styles.cardMeta}>
+          <span className={styles.metaItem}>
+            <MIcon name="person" size={12} />
+            {teacher}
+          </span>
+          <span className={styles.metaItem}>
+            <MIcon name="group" size={12} />
+            {classGroup}
+          </span>
+        </div>
+      </div>
+    </article>
   );
+}
 
-  const filteredTemplates =
-    category === "all"
-      ? quickTemplates
-      : quickTemplates.filter((template) => template.category === category);
+/* ── Page ── */
+export default function DashboardPage() {
+  const { user } = useAuth();
+  const firstName = user?.full_name?.split(" ")[0] ?? user?.email?.split("@")[0] ?? "同學";
 
-  function handleUseTemplate(slug) {
-    onNavigate?.("my-requests", {
-      view: "create",
-      quickTemplateSlug: slug,
-    });
-  }
+  const scrollRef = useRef(null);
+  const [activeCategory, setActiveCategory] = useState("all");
+
+  const filteredTemplates = activeCategory === "all"
+    ? TEMPLATES
+    : TEMPLATES.filter((t) => t.categoryId === activeCategory);
+
+  useDragScroll(scrollRef, { draggingClass: styles.dragging });
 
   return (
     <div className={styles.page}>
-      <header className={styles.header}>
-        <div className={styles.headerText}>
-          <h1 className={styles.greeting}>
-            歡迎，{user?.full_name || user?.email || "使用者"}
-          </h1>
-          <p className={styles.subtitle}>選擇常用模板快速啟動練習環境，或前往申請頁建立完整資源。</p>
-        </div>
-        <div className={styles.quickStats}>
-          <span className={styles.quickStatLabel}>快速模板</span>
-          <span className={styles.quickStatValue}>{quickTemplates.length}</span>
-        </div>
-      </header>
 
-      <section className={styles.quickSection} aria-labelledby="quick-templates-heading">
-        <div className={styles.sectionHeader}>
-          <div>
-            <h2 id="quick-templates-heading" className={styles.sectionTitle}>快速使用模板</h2>
-            <p className={styles.sectionSubtitle}>不需人工審核，系統會以快速模板流程建立短時段 LXC 環境。</p>
-          </div>
-          <button
-            type="button"
-            className={styles.secondaryButton}
-            onClick={() => onNavigate?.("my-requests", { view: "create" })}
-          >
-            <MIcon name="add" size={16} />
-            完整申請
-          </button>
+      {/* ── Greeting ── */}
+      <div className={styles.pageHeader}>
+        <div className={styles.pageHeading}>
+          <h1 className={styles.pageTitle}>嗨，{firstName} 👋</h1>
+          <p className={styles.pageSubtitle}>歡迎回來，很高興再次見到你！</p>
         </div>
+      </div>
 
-        <div className={styles.categoryTabs} role="tablist" aria-label="快速模板分類">
-          {[
-            ["all", "全部"],
-            ["database", "資料庫"],
-            ["monitoring", "監控"],
-            ["web", "網站"],
-          ].map(([key, label]) => (
-            <button
-              key={key}
-              type="button"
-              role="tab"
-              aria-selected={category === key}
-              className={`${styles.categoryTab} ${category === key ? styles.categoryTabActive : ""}`}
-              onClick={() => setCategory(key)}
-            >
-              {label}
-            </button>
-          ))}
-        </div>
+      {/* ── 課程推薦 ── */}
+      <section className={styles.section}>
+        <SectionHeader
+          icon="school"
+          title="課程推薦"
+          desc="根據你的學習歷程精選推薦"
+        />
 
-        <div className={styles.templateGrid}>
-          {filteredTemplates.map((item) => (
-            <QuickTemplateCard key={item.slug} item={item} onUse={handleUseTemplate} />
+        <div className={styles.courseScroll} ref={scrollRef}>
+          {COURSES.map((c, i) => (
+            <CourseCard key={`${c.id}-${i}`} {...c} />
           ))}
         </div>
       </section>
+
+      {/* ── 快速入門 ── */}
+      <section className={styles.section}>
+        <SectionHeader
+          icon="bolt"
+          title="快速入門"
+          desc="選擇模板一鍵建立服務環境"
+        />
+
+        {/* Category filter chips */}
+        <div className={styles.filterChips} role="tablist" aria-label="模板分類">
+          {[{ id: "all", title: "全部" }, ...TEMPLATE_CATEGORIES].map((cat) => {
+            const count = cat.id === "all"
+              ? TEMPLATES.length
+              : TEMPLATES.filter((t) => t.categoryId === cat.id).length;
+            const active = activeCategory === cat.id;
+            return (
+              <button
+                key={cat.id}
+                type="button"
+                role="tab"
+                aria-selected={active}
+                onClick={() => setActiveCategory(cat.id)}
+                className={`${styles.filterChip} ${active ? styles.filterChipActive : ""}`}
+              >
+                {cat.title}
+                <span className={styles.filterCount}>{count}</span>
+              </button>
+            );
+          })}
+        </div>
+
+        {/* Template card grid */}
+        <div className={styles.templateGrid}>
+          {filteredTemplates.map((t) => (
+            <TemplateCard
+              key={t.slug}
+              {...t}
+              accent={CATEGORY_ACCENT[t.categoryId]}
+              categoryTitle={CATEGORY_BY_ID[t.categoryId].title}
+            />
+          ))}
+        </div>
+      </section>
+
     </div>
   );
 }
