@@ -361,17 +361,3 @@ async def analyze_target_results(
         return []
     return list(await asyncio.gather(*tasks))
 
-
-def analyze_target_results_sync(
-    *,
-    rubric_snapshot: dict[str, Any],
-    script_metadata: dict[str, Any],
-    target_results: list[dict[str, Any]],
-) -> list[dict[str, Any]]:
-    return asyncio.run(
-        analyze_target_results(
-            rubric_snapshot=rubric_snapshot,
-            script_metadata=script_metadata,
-            target_results=target_results,
-        )
-    )

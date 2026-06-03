@@ -40,14 +40,36 @@ def _literal_str(node: ast.AST | None) -> str | None:
     return None
 
 
-def _call_name(node: ast.AST) -> str | None:
+def _import_aliases(tree: ast.AST) -> dict[str, str]:
+    aliases: dict[str, str] = {}
+
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                local_name = alias.asname or alias.name.split(".", 1)[0]
+                aliases[local_name] = alias.name
+        elif isinstance(node, ast.ImportFrom) and node.module:
+            for alias in node.names:
+                if alias.name == "*":
+                    continue
+                local_name = alias.asname or alias.name
+                if alias.name in REQUIRED_HELPERS:
+                    aliases[local_name] = alias.name
+                else:
+                    aliases[local_name] = f"{node.module}.{alias.name}"
+
+    return aliases
+
+
+def _call_name(node: ast.AST, aliases: dict[str, str] | None = None) -> str | None:
+    aliases = aliases or {}
     if isinstance(node, ast.Name):
-        return node.id
+        return aliases.get(node.id, node.id)
     if isinstance(node, ast.Attribute):
-        parent = _call_name(node.value)
+        parent = _call_name(node.value, aliases)
         return f"{parent}.{node.attr}" if parent else node.attr
     if isinstance(node, ast.Call):
-        return _call_name(node.func)
+        return _call_name(node.func, aliases)
     return None
 
 
@@ -77,34 +99,34 @@ def _call_has_pass_status(node: ast.Call) -> bool:
     return _call_status_literal(node) == "pass"
 
 
-def _body_marks_pass(body: list[ast.stmt]) -> bool:
+def _body_marks_pass(body: list[ast.stmt], aliases: dict[str, str]) -> bool:
     for statement in body:
         for node in ast.walk(statement):
             if isinstance(node, ast.Assign) and _literal_str(node.value) == "pass":
                 return True
             if isinstance(node, ast.Call):
-                if _call_name(node.func) == "record_check" and _call_has_pass_status(node):
+                if _call_name(node.func, aliases) == "record_check" and _call_has_pass_status(node):
                     return True
     return False
 
 
-def _except_name(handler: ast.ExceptHandler) -> str | None:
+def _except_name(handler: ast.ExceptHandler, aliases: dict[str, str]) -> str | None:
     if handler.type is None:
         return None
     if isinstance(handler.type, ast.Name):
-        return handler.type.id
+        return aliases.get(handler.type.id, handler.type.id)
     if isinstance(handler.type, ast.Attribute):
-        base = _call_name(handler.type.value)
+        base = _call_name(handler.type.value, aliases)
         return f"{base}.{handler.type.attr}" if base else handler.type.attr
     return None
 
 
-def _collect_commands_needing_which(tree: ast.AST) -> set[str]:
+def _collect_commands_needing_which(tree: ast.AST, aliases: dict[str, str]) -> set[str]:
     commands: set[str] = set()
     for node in ast.walk(tree):
         if not isinstance(node, ast.Call):
             continue
-        if _call_name(node.func) != "subprocess.run" or not node.args:
+        if _call_name(node.func, aliases) != "subprocess.run" or not node.args:
             continue
         first_arg = node.args[0]
         if not isinstance(first_arg, (ast.List, ast.Tuple)) or not first_arg.elts:
@@ -115,12 +137,12 @@ def _collect_commands_needing_which(tree: ast.AST) -> set[str]:
     return commands
 
 
-def _collect_which_commands(tree: ast.AST) -> set[str]:
+def _collect_which_commands(tree: ast.AST, aliases: dict[str, str]) -> set[str]:
     commands: set[str] = set()
     for node in ast.walk(tree):
         if not isinstance(node, ast.Call):
             continue
-        if _call_name(node.func) != "shutil.which" or not node.args:
+        if _call_name(node.func, aliases) != "shutil.which" or not node.args:
             continue
         command = _literal_str(node.args[0])
         if command:
@@ -131,6 +153,7 @@ def _collect_which_commands(tree: ast.AST) -> set[str]:
 def _calls_named_helper(
     tree: ast.AST,
     helper_name: str,
+    aliases: dict[str, str],
     *,
     skip_functions: set[str] | None = None,
 ) -> bool:
@@ -138,7 +161,7 @@ def _calls_named_helper(
     for node in ast.walk(tree):
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name in skip_functions:
             continue
-        if isinstance(node, ast.Call) and _call_name(node.func) == helper_name:
+        if isinstance(node, ast.Call) and _call_name(node.func, aliases) == helper_name:
             return True
     return False
 
@@ -156,9 +179,10 @@ def _function_definitions(
 def _function_uses_helper(
     function_def: ast.FunctionDef | ast.AsyncFunctionDef,
     helper_name: str,
+    aliases: dict[str, str],
 ) -> bool:
     return any(
-        isinstance(node, ast.Call) and _call_name(node.func) == helper_name
+        isinstance(node, ast.Call) and _call_name(node.func, aliases) == helper_name
         for node in ast.walk(function_def)
     )
 
@@ -191,10 +215,11 @@ def _redaction_uses_bare_key(
 
 def _record_check_has_sanitized_raw(
     function_def: ast.FunctionDef | ast.AsyncFunctionDef,
+    aliases: dict[str, str],
 ) -> bool:
     return _function_uses_helper(
-        function_def, "truncate_output"
-    ) and _function_uses_helper(function_def, "redact_sensitive_text")
+        function_def, "truncate_output", aliases
+    ) and _function_uses_helper(function_def, "redact_sensitive_text", aliases)
 
 
 def _record_check_raw_arg(call: ast.Call) -> ast.AST | None:
@@ -206,21 +231,24 @@ def _record_check_raw_arg(call: ast.Call) -> ast.AST | None:
     return None
 
 
-def _body_record_check_statuses(body: list[ast.stmt]) -> set[str]:
+def _body_record_check_statuses(
+    body: list[ast.stmt],
+    aliases: dict[str, str],
+) -> set[str]:
     statuses: set[str] = set()
     for statement in body:
         for node in ast.walk(statement):
-            if isinstance(node, ast.Call) and _call_name(node.func) == "record_check":
+            if isinstance(node, ast.Call) and _call_name(node.func, aliases) == "record_check":
                 status = _call_status_literal(node)
                 if status:
                     statuses.add(status)
     return statuses
 
 
-def _condition_checks_availability(node: ast.AST) -> bool:
+def _condition_checks_availability(node: ast.AST, aliases: dict[str, str]) -> bool:
     return any(
         isinstance(child, ast.Call)
-        and _call_name(child.func) in {"command_available", "shutil.which"}
+        and _call_name(child.func, aliases) in {"command_available", "shutil.which"}
         for child in ast.walk(node)
     )
 
@@ -249,14 +277,14 @@ def _record_check_literal_arg(
     return None
 
 
-def _except_handler_appends_errors(handler: ast.ExceptHandler) -> bool:
+def _except_handler_appends_errors(handler: ast.ExceptHandler, aliases: dict[str, str]) -> bool:
     return any(
         isinstance(node, ast.Call)
         and (
-            _call_name(node.func) == "errors.append"
+            _call_name(node.func, aliases) == "errors.append"
             or (
                 isinstance(node.func, ast.Attribute)
-                and _call_name(node.func.value) == "errors"
+                and _call_name(node.func.value, aliases) == "errors"
             )
         )
         for node in ast.walk(handler)
@@ -376,6 +404,7 @@ def check_script_quality(script_content: str) -> CheckResult:
         }
 
     script_lines = script_content.splitlines()
+    aliases = _import_aliases(tree)
     parents = _parent_map(tree)
     helper_defs = _function_definitions(tree)
     missing_helpers = sorted(REQUIRED_HELPERS - set(helper_defs))
@@ -385,7 +414,7 @@ def check_script_quality(script_content: str) -> CheckResult:
             fix_hints.append({"type": "add_helper_function", "name": helper_name, "description": f"腳本缺少必要 helper：{helper_name}"})
 
     record_check_def = helper_defs.get("record_check")
-    if record_check_def and not _record_check_has_sanitized_raw(record_check_def):
+    if record_check_def and not _record_check_has_sanitized_raw(record_check_def, aliases):
         issues.append(
             "record_check 必須統一透過 redact_sensitive_text 與 truncate_output 處理 raw"
         )
@@ -393,7 +422,7 @@ def check_script_quality(script_content: str) -> CheckResult:
 
     command_available_def = helper_defs.get("command_available")
     if command_available_def and not _function_uses_helper(
-        command_available_def, "shutil.which"
+        command_available_def, "shutil.which", aliases
     ):
         issues.append("command_available 必須使用 shutil.which 檢查工具可用性")
         fix_hints.append({"type": "use_shutil_which", "function": "command_available", "description": "command_available 必須使用 shutil.which 檢查工具可用性"})
@@ -408,18 +437,18 @@ def check_script_quality(script_content: str) -> CheckResult:
         issues.append("redact_sensitive_text 不可使用過度寬泛的裸 key 規則")
         fix_hints.append({"type": "fix_redaction_pattern", "function": "redact_sensitive_text", "description": "redact_sensitive_text 不可使用過度寬泛的裸 key 規則"})
 
-    if not _calls_named_helper(tree, "record_check", skip_functions={"record_check"}):
+    if not _calls_named_helper(tree, "record_check", aliases, skip_functions={"record_check"}):
         issues.append("腳本必須透過 record_check 建立檢查結果")
         fix_hints.append({"type": "add_record_check_calls", "description": "腳本必須透過 record_check 建立檢查結果"})
 
-    if not _calls_named_helper(tree, "run_command", skip_functions={"run_command"}):
+    if not _calls_named_helper(tree, "run_command", aliases, skip_functions={"run_command"}):
         issues.append("腳本必須透過 run_command 執行收集指令")
         fix_hints.append({"type": "add_run_command_calls", "description": "腳本必須透過 run_command 執行收集指令"})
 
     json_dumps_calls = [
         node
         for node in ast.walk(tree)
-        if isinstance(node, ast.Call) and _call_name(node.func) == "json.dumps"
+        if isinstance(node, ast.Call) and _call_name(node.func, aliases) == "json.dumps"
     ]
     if not json_dumps_calls:
         issues.append("腳本必須使用 json.dumps 輸出 JSON")
@@ -447,8 +476,8 @@ def check_script_quality(script_content: str) -> CheckResult:
         issues.append("不能用 stdout/stderr truthiness 直接判定 pass")
         fix_hints.append({"type": "remove_stdout_truthiness_check", "description": "不能用 stdout/stderr truthiness 直接判定 pass"})
 
-    commands = _collect_commands_needing_which(tree)
-    which_commands = _collect_which_commands(tree)
+    commands = _collect_commands_needing_which(tree, aliases)
+    which_commands = _collect_which_commands(tree, aliases)
     for command in sorted(commands - which_commands):
         issues.append(f"外部工具 `{command}` 缺少 shutil.which 可用性檢查")
         fix_hints.append({"type": "add_command_availability_check", "command": command, "description": f"外部工具 `{command}` 缺少 shutil.which 可用性檢查"})
@@ -456,13 +485,14 @@ def check_script_quality(script_content: str) -> CheckResult:
     if commands and not _calls_named_helper(
         tree,
         "command_available",
+        aliases,
         skip_functions={"command_available"},
     ):
         issues.append("腳本必須透過 command_available 檢查外部工具可用性")
         fix_hints.append({"type": "add_command_availability_check", "description": "腳本必須透過 command_available 檢查外部工具可用性"})
 
     for node in ast.walk(tree):
-        if isinstance(node, ast.Call) and _call_name(node.func) == "record_check":
+        if isinstance(node, ast.Call) and _call_name(node.func, aliases) == "record_check":
             check_id = _record_check_literal_arg(node, 0, "check_id")
             if check_id and _is_generic_check_id(check_id):
                 issues.append("record_check id 必須是語意化穩定 ID")
@@ -479,18 +509,18 @@ def check_script_quality(script_content: str) -> CheckResult:
                 fix_hints.append({"type": "sanitize_record_check_raw", "description": "record_check raw 不可直接餵 stdout/stderr，必須先整理為 snippet 再交給 helper"})
 
         if isinstance(node, ast.If):
-            if _node_mentions_stream(node.test) and _body_marks_pass(node.body):
+            if _node_mentions_stream(node.test) and _body_marks_pass(node.body, aliases):
                 issues.append("不能用 stdout/stderr 是否有內容直接判定 pass")
                 fix_hints.append({"type": "remove_stdout_truthiness_check", "description": "不能用 stdout/stderr 是否有內容直接判定 pass"})
-            if _condition_checks_availability(node.test):
-                statuses = _body_record_check_statuses(node.body)
+            if _condition_checks_availability(node.test, aliases):
+                statuses = _body_record_check_statuses(node.body, aliases)
                 if "warning" in statuses:
                     issues.append("工具缺失時應回傳 unknown，不可使用 warning")
                     fix_hints.append({"type": "fix_status_semantics", "description": "工具缺失時應回傳 unknown，不可使用 warning"})
         elif isinstance(node, ast.ExceptHandler):
-            exception_name = _except_name(node)
-            statuses = _body_record_check_statuses(node.body)
-            if _body_marks_pass(node.body):
+            exception_name = _except_name(node, aliases)
+            statuses = _body_record_check_statuses(node.body, aliases)
+            if _body_marks_pass(node.body, aliases):
                 if exception_name in {
                     None,
                     "Exception",
@@ -514,10 +544,10 @@ def check_script_quality(script_content: str) -> CheckResult:
     # 收集項目的 bare except / except Exception 必須有 errors.append。
     # run_command helper 可以把錯誤轉成結構化回傳值，再由呼叫點寫入 errors。
     for handler in [n for n in ast.walk(tree) if isinstance(n, ast.ExceptHandler)]:
-        except_name = _except_name(handler)
+        except_name = _except_name(handler, aliases)
         if (
             except_name in {None, "Exception"}
-            and not _except_handler_appends_errors(handler)
+            and not _except_handler_appends_errors(handler, aliases)
             and not _allows_helper_scoped_generic_except(handler, parents)
         ):
             issues.append("bare except / except Exception 後未將錯誤記錄到 errors")

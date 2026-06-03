@@ -13,7 +13,10 @@ from fastapi import HTTPException
 from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session, desc, func, select
 
-from app.ai.teacher_judge.schemas import RubricAnalysis, TeacherJudgeFilePublic
+from app.ai.teacher_judge.schemas import (
+    TeacherJudgeFilePublic,
+    TeacherJudgeRubricAnalysis,
+)
 from app.models.teacher_judge_file import TeacherJudgeFile, TeacherJudgeFileStatus
 from app.models.teacher_judge_script_artifact import TeacherJudgeScriptArtifact
 from app.services.rubric_parser import parse_document
@@ -97,14 +100,16 @@ def _active_file_by_name(
     session: Session,
     group_id: uuid.UUID,
     original_filename: str,
+    for_update: bool = False,
 ) -> TeacherJudgeFile | None:
-    return session.exec(
-        select(TeacherJudgeFile).where(
-            TeacherJudgeFile.group_id == group_id,
-            TeacherJudgeFile.original_filename == original_filename,
-            TeacherJudgeFile.status == TeacherJudgeFileStatus.active,
-        )
-    ).first()
+    statement = select(TeacherJudgeFile).where(
+        TeacherJudgeFile.group_id == group_id,
+        TeacherJudgeFile.original_filename == original_filename,
+        TeacherJudgeFile.status == TeacherJudgeFileStatus.active,
+    )
+    if for_update:
+        statement = statement.with_for_update()
+    return session.exec(statement).first()
 
 
 def raise_if_file_name_conflict(
@@ -252,13 +257,14 @@ def save_analyzed_file(
     file_hash: str,
     template_key: str,
     file_bytes: bytes,
-    analysis: RubricAnalysis,
+    analysis: TeacherJudgeRubricAnalysis,
     conflict_strategy: ConflictStrategy | None,
 ) -> TeacherJudgeFilePublic:
     existing = _active_file_by_name(
         session=session,
         group_id=group_id,
         original_filename=original_filename,
+        for_update=conflict_strategy == "overwrite",
     )
     target_filename = original_filename
     target_file: TeacherJudgeFile | None = None
@@ -347,7 +353,7 @@ def update_file_analysis(
     session: Session,
     group_id: uuid.UUID,
     file_id: uuid.UUID,
-    analysis: RubricAnalysis,
+    analysis: TeacherJudgeRubricAnalysis,
 ) -> TeacherJudgeFilePublic:
     file = get_file(session=session, group_id=group_id, file_id=file_id)
     file.analysis_json = analysis.model_dump(mode="json")

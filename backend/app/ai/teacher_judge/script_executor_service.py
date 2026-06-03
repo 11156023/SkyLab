@@ -15,7 +15,7 @@ from sqlmodel import Session
 
 from app.ai.teacher_judge.script_policy import validate_managed_script_output
 from app.ai.teacher_judge.script_result_analysis_service import (
-    analyze_target_results_sync,
+    analyze_target_results,
     pending_judgement,
 )
 from app.ai.teacher_judge.target_ip_resolver import resolve_target_ip_address
@@ -124,23 +124,25 @@ def _target_progress(
 
 def _save_run_progress(
     *,
-    session: Session,
-    run: TeacherJudgeScriptRun,
+    run_id: uuid.UUID,
     stage: str,
     targets: list[dict[str, Any]],
     statuses: dict[int, str],
     done: int,
 ) -> None:
-    run.progress_json = {
-        "stage": stage,
-        "total": len(targets),
-        "done": done,
-        "targets": _target_progress(targets, statuses),
-    }
-    run.updated_at = _now()
-    session.add(run)
-    session.commit()
-    session.refresh(run)
+    with Session(engine) as session:
+        run = session.get(TeacherJudgeScriptRun, run_id)
+        if run is None:
+            return
+        run.progress_json = {
+            "stage": stage,
+            "total": len(targets),
+            "done": done,
+            "targets": _target_progress(targets, statuses),
+        }
+        run.updated_at = _now()
+        session.add(run)
+        session.commit()
 
 
 def _load_run_and_artifact(
@@ -438,7 +440,7 @@ def _mark_run_executor_failed(run_id: uuid.UUID, message: str) -> None:
         session.commit()
 
 
-def _execute_script_run(run_id: uuid.UUID) -> None:
+async def _execute_script_run(run_id: uuid.UUID) -> None:
     """Execute a stored Teacher Judge script run and persist per-target results."""
     with Session(engine) as session:
         run, artifact = _load_run_and_artifact(session=session, run_id=run_id)
@@ -469,8 +471,7 @@ def _execute_script_run(run_id: uuid.UUID) -> None:
         session.commit()
         session.refresh(run)
         _save_run_progress(
-            session=session,
-            run=run,
+            run_id=run.id,
             stage="executing",
             targets=targets,
             statuses=statuses,
@@ -501,8 +502,7 @@ def _execute_script_run(run_id: uuid.UUID) -> None:
                 early_results.append(_target_failure(target, str(exc), reason_code))
 
         _save_run_progress(
-            session=session,
-            run=run,
+            run_id=run.id,
             stage="executing",
             targets=targets,
             statuses=statuses,
@@ -541,8 +541,7 @@ def _execute_script_run(run_id: uuid.UUID) -> None:
                     statuses[vmid] = str(target_result["status"])
                     results.append(target_result)
                     _save_run_progress(
-                        session=session,
-                        run=run,
+                        run_id=run.id,
                         stage="executing",
                         targets=targets,
                         statuses=statuses,
@@ -555,18 +554,14 @@ def _execute_script_run(run_id: uuid.UUID) -> None:
             "schema_version": "teacher_judge_run_results.v1",
             "targets": results,
         }
-        session.add(run)
-        session.commit()
-        session.refresh(run)
         _save_run_progress(
-            session=session,
-            run=run,
+            run_id=run.id,
             stage="analyzing",
             targets=targets,
             statuses=statuses,
             done=len(results),
         )
-        results = analyze_target_results_sync(
+        results = await analyze_target_results(
             rubric_snapshot=artifact.rubric_snapshot_json,
             script_metadata={
                 "id": str(artifact.id),
@@ -598,10 +593,10 @@ def _execute_script_run(run_id: uuid.UUID) -> None:
         session.commit()
 
 
-def execute_script_run(run_id: uuid.UUID) -> None:
+async def execute_script_run(run_id: uuid.UUID) -> None:
     """Background task entrypoint that always records executor-level failures."""
     try:
-        _execute_script_run(run_id)
+        await _execute_script_run(run_id)
     except Exception as exc:
         logger.exception("Teacher Judge script run executor failed run=%s", run_id)
         _mark_run_executor_failed(run_id, str(exc))

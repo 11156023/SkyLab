@@ -30,7 +30,7 @@ from app.ai.teacher_judge.script_run_service import (
 from app.ai.teacher_judge.template_command_service import SUPPORTED_TEMPLATE_KEYS
 from app.api.deps import InstructorUser, SessionDep
 from app.core.authorizers import require_group_access
-from app.infrastructure.worker import submit_sync
+from app.infrastructure.worker import submit
 from app.models.teacher_judge_script_run import TeacherJudgeScriptRunTargetScope
 from app.repositories import group as group_repo
 
@@ -152,12 +152,10 @@ def create_group_teacher_judge_script_run(
         target_vmids=payload.target_vmids,
         started_by=current_user.id,
     )
-    submit_sync(
-        execute_script_run,
-        uuid.UUID(run.id),
+    submit(
+        execute_script_run(uuid.UUID(run.id)),
         name=f"teacher_judge_script_run:{run.id}",
         task_id=f"teacher_judge_script_run:{run.id}",
-        max_retries=0,
     )
     return run
 

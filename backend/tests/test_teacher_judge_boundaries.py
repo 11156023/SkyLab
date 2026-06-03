@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from app.ai.teacher_judge.schemas import RubricItem
+from app.ai.teacher_judge.schemas import RubricItem, TeacherJudgeRubricItem
 from app.ai.teacher_judge.service import normalize_items_for_export
 from app.schemas.rubric import RubricItem as LegacyRubricItem
 from app.services import rubric_service
@@ -8,6 +8,7 @@ from app.services import rubric_service
 
 def test_legacy_rubric_schema_imports_teacher_judge_schema() -> None:
     assert LegacyRubricItem is RubricItem
+    assert RubricItem is TeacherJudgeRubricItem
 
 
 def test_legacy_rubric_service_exports_teacher_judge_workflow() -> None:

@@ -20,16 +20,16 @@ from app.ai.teacher_judge.prompt import (
     TEMPLATE_COMMAND_CONTEXT_TEMPLATE,
 )
 from app.ai.teacher_judge.schemas import (
-    ChatMessage,
-    RubricAnalysis,
-    RubricCheckStep,
-    RubricItem,
+    TeacherJudgeRubricAnalysis,
+    TeacherJudgeRubricChatMessage,
+    TeacherJudgeRubricCheckStep,
+    TeacherJudgeRubricItem,
 )
 from app.ai.teacher_judge.template_command_service import (
     format_template_commands_for_prompt,
     validate_check_steps,
 )
-from app.ai.utils import apply_thinking_control, strip_think_tags
+from app.ai.utils import apply_thinking_control, safe_bool, strip_think_tags
 from app.infrastructure.ai.teacher_judge import client as teacher_judge_client
 from app.models.teacher_judge_template_command import TeacherJudgeTemplateCommand
 
@@ -41,25 +41,12 @@ async def close_http_client() -> None:
     await teacher_judge_client.aclose()
 
 
-def _to_bool(value: Any, default: bool = False) -> bool:
-    if isinstance(value, bool):
-        return value
-    if isinstance(value, (int, float)):
-        return bool(value)
-    if isinstance(value, str):
-        text = value.strip().lower()
-        if text in {"true", "1", "yes", "y", "on", "checked", "done"}:
-            return True
-        if text in {"false", "0", "no", "n", "off", "unchecked", "todo"}:
-            return False
-    return default
-
 
 def _normalize_check_steps(
     raw_steps: Any,
     template_key: str | None = None,
     template_commands: list[TeacherJudgeTemplateCommand] | None = None,
-) -> list[RubricCheckStep]:
+) -> list[TeacherJudgeRubricCheckStep]:
     if not isinstance(raw_steps, list):
         return []
 
@@ -70,11 +57,11 @@ def _normalize_check_steps(
             template_commands,
         )
         return [
-            RubricCheckStep(**step)
+            TeacherJudgeRubricCheckStep(**step)
             for step in validated_items[0].get("check_steps", [])
         ]
 
-    normalized: list[RubricCheckStep] = []
+    normalized: list[TeacherJudgeRubricCheckStep] = []
     for raw_step in raw_steps:
         if not isinstance(raw_step, dict):
             continue
@@ -87,7 +74,7 @@ def _normalize_check_steps(
         command_label = raw_step.get("command_label")
 
         normalized.append(
-            RubricCheckStep(
+            TeacherJudgeRubricCheckStep(
                 template_key=step_template_key,
                 command_key=command_key,
                 command_label=str(command_label) if command_label else None,
@@ -102,12 +89,12 @@ def _normalize_rubric_items(
     template_key: str | None = None,
     template_commands: list[TeacherJudgeTemplateCommand] | None = None,
     force_checked_false: bool = False,
-) -> list[RubricItem]:
+) -> list[TeacherJudgeRubricItem]:
     """Best-effort normalization for AI-returned item payloads."""
     if not isinstance(raw_items, list):
         return []
 
-    normalized: list[RubricItem] = []
+    normalized: list[TeacherJudgeRubricItem] = []
     for i, raw in enumerate(raw_items):
         if not isinstance(raw, dict):
             continue
@@ -118,7 +105,7 @@ def _normalize_rubric_items(
         checked = (
             False
             if force_checked_false
-            else _to_bool(raw.get("checked", raw.get("is_checked")), default=False)
+            else safe_bool(raw.get("checked", raw.get("is_checked")), default=False)
         )
 
         detectable_raw = str(raw.get("detectable") or "manual").strip().lower()
@@ -144,7 +131,7 @@ def _normalize_rubric_items(
             )
 
         normalized.append(
-            RubricItem(
+            TeacherJudgeRubricItem(
                 id=item_id,
                 title=title,
                 description=description,
@@ -161,7 +148,7 @@ def _normalize_rubric_items(
     return normalized
 
 
-def normalize_items_for_export(raw_items: Any) -> list[RubricItem]:
+def normalize_items_for_export(raw_items: Any) -> list[TeacherJudgeRubricItem]:
     """Public helper for robust export parsing."""
     return _normalize_rubric_items(raw_items)
 
@@ -233,8 +220,8 @@ async def analyze_rubric(
     raw_text: str,
     template_key: str = "linux",
     template_commands: list[TeacherJudgeTemplateCommand] | None = None,
-) -> tuple[RubricAnalysis, VLLMMetrics]:
-    """Send raw document text to AI, return structured RubricAnalysis."""
+) -> tuple[TeacherJudgeRubricAnalysis, VLLMMetrics]:
+    """Send raw document text to AI, return structured rubric analysis."""
     if not settings.VLLM_MODEL_NAME:
         raise HTTPException(status_code=503, detail="VLLM_MODEL_NAME 未設定。")
 
@@ -295,7 +282,7 @@ async def analyze_rubric(
         f"Analysis complete: {total_items} items, {checked_count} checked (auto: {auto_count}, partial: {partial_count}, manual: {manual_count})"
     )
 
-    analysis = RubricAnalysis(
+    analysis = TeacherJudgeRubricAnalysis(
         items=items,
         total_items=total_items,
         checked_count=checked_count,
@@ -309,7 +296,7 @@ async def analyze_rubric(
 
 
 async def chat_with_rubric(
-    messages: list[ChatMessage],
+    messages: list[TeacherJudgeRubricChatMessage],
     rubric_context: str,
     is_refine: bool = False,
     template_key: str = "linux",
@@ -319,7 +306,7 @@ async def chat_with_rubric(
     Multi-turn chat with rubric context injected into system prompt.
     Returns (reply_text, updated_items_or_None, metrics).
     - is_refine: True 表示老師手動修改完表單後觸發的「全表潤飾」模式。
-    - updated_items: complete list of RubricItem dicts when AI modified the rubric;
+    - updated_items: complete list of rubric item dicts when AI modified the rubric;
       None when AI only answered a question without changes.
     """
     if not settings.VLLM_MODEL_NAME:

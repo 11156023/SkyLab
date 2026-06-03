@@ -1,4 +1,9 @@
-"""Schemas for AI Teacher Judge rubric workflows."""
+"""Public schemas for AI Teacher Judge workflows.
+
+Canonical names use the ``TeacherJudge`` prefix so API contracts are easy to
+trace back to this feature. Legacy ``Rubric*`` aliases are kept at the bottom
+for older import paths and generated-client compatibility during migration.
+"""
 
 from __future__ import annotations
 
@@ -8,7 +13,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, Field, field_validator
 
 
-class RubricCheckStep(BaseModel):
+class TeacherJudgeRubricCheckStep(BaseModel):
     """評分計劃書中的 command catalog 引用。"""
 
     template_key: str = Field(..., description="評分環境 template key")
@@ -19,7 +24,7 @@ class RubricCheckStep(BaseModel):
     )
 
 
-class RubricItem(BaseModel):
+class TeacherJudgeRubricItem(BaseModel):
     """單一評分項目。"""
 
     id: str = Field(..., description="評分項目唯一 ID")
@@ -38,16 +43,16 @@ class RubricItem(BaseModel):
         default=None,
         description="無法自動偵測時的替代建議",
     )
-    check_steps: list[RubricCheckStep] = Field(
+    check_steps: list[TeacherJudgeRubricCheckStep] = Field(
         default_factory=list,
         description="本階段只產生計劃書，僅引用既有 command_key，不代表已執行。",
     )
 
 
-class RubricAnalysis(BaseModel):
+class TeacherJudgeRubricAnalysis(BaseModel):
     """AI 分析評分表後的結構化結果。"""
 
-    items: list[RubricItem] = Field(default_factory=list)
+    items: list[TeacherJudgeRubricItem] = Field(default_factory=list)
     total_items: int = Field(default=0)
     checked_count: int = Field(default=0)
     auto_count: int = Field(default=0)
@@ -59,17 +64,17 @@ class RubricAnalysis(BaseModel):
     )
 
 
-class ChatMessage(BaseModel):
+class TeacherJudgeRubricChatMessage(BaseModel):
     """對話訊息。"""
 
     role: Literal["user", "assistant"] = Field(..., description="'user' 或 'assistant'")
     content: str = Field(..., description="訊息內容")
 
 
-class RubricChatRequest(BaseModel):
+class TeacherJudgeRubricChatRequest(BaseModel):
     """對話請求。"""
 
-    messages: list[ChatMessage] = Field(..., min_length=1)
+    messages: list[TeacherJudgeRubricChatMessage] = Field(..., min_length=1)
     rubric_context: str = Field(
         default="", description="目前評分表的 JSON 字串（作為背景知識）"
     )
@@ -82,7 +87,7 @@ class RubricChatRequest(BaseModel):
     )
 
 
-class RubricChatResponse(BaseModel):
+class TeacherJudgeRubricChatResponse(BaseModel):
     """對話回應。"""
 
     reply: str
@@ -94,27 +99,33 @@ class RubricChatResponse(BaseModel):
     tokens_per_second: float
 
 
-class RubricUploadResponse(BaseModel):
+class TeacherJudgeRubricUploadResponse(BaseModel):
     """上傳評分表回應。"""
 
-    analysis: RubricAnalysis
+    analysis: TeacherJudgeRubricAnalysis
     ai_metrics: dict[str, Any]
     template_key: str = "linux"
 
 
-class RubricExportRequest(BaseModel):
+class TeacherJudgeRubricExportRequest(BaseModel):
     """匯出 Excel 請求。"""
 
     items: list[dict[str, Any]] = Field(..., min_length=1)
     summary: str = Field(default="")
 
 
-FileStatus = Literal["active", "replaced"]
-ScriptLanguage = Literal["python", "shell", "bat"]
-ScriptSource = Literal["ai_generated", "regenerated"]
-ScriptStatus = Literal["draft", "review_failed", "reviewed", "approved", "archived"]
-ScriptRunTargetScope = Literal["all_with_vm", "running_only", "manual"]
-ScriptRunStatus = Literal["pending", "running", "completed", "failed", "cancelled"]
+TeacherJudgeFileStatusLiteral = Literal["active", "replaced"]
+TeacherJudgeScriptLanguageLiteral = Literal["python", "shell", "bat"]
+TeacherJudgeScriptSourceLiteral = Literal["ai_generated", "regenerated"]
+TeacherJudgeScriptStatusLiteral = Literal[
+    "draft", "review_failed", "reviewed", "approved", "archived"
+]
+TeacherJudgeScriptRunTargetScopeLiteral = Literal[
+    "all_with_vm", "running_only", "manual"
+]
+TeacherJudgeScriptRunStatusLiteral = Literal[
+    "pending", "running", "completed", "failed", "cancelled"
+]
 
 
 class TeacherJudgeScriptCreateRequest(BaseModel):
@@ -122,7 +133,7 @@ class TeacherJudgeScriptCreateRequest(BaseModel):
 
     name: str = Field(..., min_length=1, max_length=255)
     template_key: str = Field(default="linux", max_length=50)
-    rubric_snapshot: RubricAnalysis
+    rubric_snapshot: TeacherJudgeRubricAnalysis
     source_file_id: uuid.UUID | None = None
 
     @field_validator("name")
@@ -142,7 +153,7 @@ class TeacherJudgeScriptCreateRequest(BaseModel):
 class TeacherJudgeScriptRegenerateRequest(BaseModel):
     """Regenerate a managed script artifact."""
 
-    rubric_snapshot: RubricAnalysis | None = None
+    rubric_snapshot: TeacherJudgeRubricAnalysis | None = None
 
 
 class TeacherJudgeScriptArtifactPublic(BaseModel):
@@ -153,11 +164,11 @@ class TeacherJudgeScriptArtifactPublic(BaseModel):
     rubric_snapshot_json: dict[str, Any]
     source_file_id: str | None
     source_file_snapshot_json: dict[str, Any]
-    script_language: ScriptLanguage
+    script_language: TeacherJudgeScriptLanguageLiteral
     script_content: str
-    source: ScriptSource
+    source: TeacherJudgeScriptSourceLiteral
     version: int
-    status: ScriptStatus
+    status: TeacherJudgeScriptStatusLiteral
     policy_check_result_json: dict[str, Any]
     ai_review_result_json: dict[str, Any]
     created_by: str | None
@@ -175,26 +186,26 @@ class TeacherJudgeFilePublic(BaseModel):
     file_hash: str
     template_key: str
     analysis_json: dict[str, Any]
-    status: FileStatus
+    status: TeacherJudgeFileStatusLiteral
     created_at: str
     updated_at: str
 
 
 class TeacherJudgeFileUploadResponse(BaseModel):
     file: TeacherJudgeFilePublic
-    analysis: RubricAnalysis
+    analysis: TeacherJudgeRubricAnalysis
     ai_metrics: dict[str, Any]
     template_key: str = "linux"
 
 
 class TeacherJudgeFileAnalysisUpdateRequest(BaseModel):
-    analysis: RubricAnalysis
+    analysis: TeacherJudgeRubricAnalysis
 
 
 class TeacherJudgeScriptRunCreateRequest(BaseModel):
     """Create an execution run for an approved managed script."""
 
-    target_scope: ScriptRunTargetScope = "manual"
+    target_scope: TeacherJudgeScriptRunTargetScopeLiteral = "manual"
     target_vmids: list[int] = Field(default_factory=list)
 
     @field_validator("target_vmids")
@@ -210,9 +221,9 @@ class TeacherJudgeScriptRunPublic(BaseModel):
     id: str
     group_id: str
     artifact_id: str
-    target_scope: ScriptRunTargetScope
+    target_scope: TeacherJudgeScriptRunTargetScopeLiteral
     target_snapshot_json: dict[str, Any]
-    status: ScriptRunStatus
+    status: TeacherJudgeScriptRunStatusLiteral
     progress_json: dict[str, Any]
     result_summary_json: dict[str, Any]
     target_results_json: dict[str, Any]
@@ -221,3 +232,22 @@ class TeacherJudgeScriptRunPublic(BaseModel):
     finished_at: str | None
     created_at: str
     updated_at: str
+
+
+# Legacy aliases kept for existing imports while new code migrates to the
+# TeacherJudge-prefixed schema names above.
+RubricCheckStep = TeacherJudgeRubricCheckStep
+RubricItem = TeacherJudgeRubricItem
+RubricAnalysis = TeacherJudgeRubricAnalysis
+ChatMessage = TeacherJudgeRubricChatMessage
+RubricChatRequest = TeacherJudgeRubricChatRequest
+RubricChatResponse = TeacherJudgeRubricChatResponse
+RubricUploadResponse = TeacherJudgeRubricUploadResponse
+RubricExportRequest = TeacherJudgeRubricExportRequest
+
+FileStatus = TeacherJudgeFileStatusLiteral
+ScriptLanguage = TeacherJudgeScriptLanguageLiteral
+ScriptSource = TeacherJudgeScriptSourceLiteral
+ScriptStatus = TeacherJudgeScriptStatusLiteral
+ScriptRunTargetScope = TeacherJudgeScriptRunTargetScopeLiteral
+ScriptRunStatus = TeacherJudgeScriptRunStatusLiteral

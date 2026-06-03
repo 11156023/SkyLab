@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import uuid
+from typing import Any
 
 import pytest
 from fastapi import HTTPException
@@ -52,6 +53,30 @@ def _analysis(summary: str = "rubric") -> RubricAnalysis:
         auto_count=1,
         summary=summary,
     )
+
+
+def test_active_file_by_name_can_lock_existing_row_for_overwrite() -> None:
+    captured_statement: Any = None
+
+    class Result:
+        def first(self) -> None:
+            return None
+
+    class DummySession:
+        def exec(self, statement: Any) -> Result:
+            nonlocal captured_statement
+            captured_statement = statement
+            return Result()
+
+    file_service._active_file_by_name(
+        session=DummySession(),
+        group_id=uuid.uuid4(),
+        original_filename="rubric.pdf",
+        for_update=True,
+    )
+
+    assert captured_statement is not None
+    assert getattr(captured_statement, "_for_update_arg", None) is not None
 
 
 def test_save_file_requires_conflict_strategy_for_same_active_name(

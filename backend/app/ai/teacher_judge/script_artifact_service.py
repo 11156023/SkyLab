@@ -22,7 +22,7 @@ from app.ai.teacher_judge._types import (
 from app.ai.teacher_judge.config import settings
 from app.ai.teacher_judge.file_service import source_file_snapshot
 from app.ai.teacher_judge.schemas import (
-    RubricAnalysis,
+    TeacherJudgeRubricAnalysis,
     TeacherJudgeScriptArtifactPublic,
 )
 from app.ai.teacher_judge.script_generation_contract import (
@@ -221,7 +221,9 @@ def _artifact_to_public(
     )
 
 
-def _rubric_snapshot(analysis: RubricAnalysis, template_key: str) -> dict[str, Any]:
+def _rubric_snapshot(
+    analysis: TeacherJudgeRubricAnalysis, template_key: str
+) -> dict[str, Any]:
     snapshot = analysis.model_dump(mode="json")
     snapshot["template_key"] = template_key
     return snapshot
@@ -833,7 +835,7 @@ async def create_artifact(
     group_id: uuid.UUID,
     name: str,
     template_key: str,
-    rubric_analysis: RubricAnalysis,
+    rubric_analysis: TeacherJudgeRubricAnalysis,
     created_by: uuid.UUID | None,
     source_file_id: uuid.UUID | None = None,
     template_commands: list[TeacherJudgeTemplateCommand] | None = None,
@@ -891,7 +893,7 @@ async def regenerate_artifact(
     session: Session,
     group_id: uuid.UUID,
     artifact_id: uuid.UUID,
-    rubric_analysis: RubricAnalysis | None,
+    rubric_analysis: TeacherJudgeRubricAnalysis | None,
     created_by: uuid.UUID | None,
     template_commands: list[TeacherJudgeTemplateCommand] | None = None,
 ) -> TeacherJudgeScriptArtifactPublic:

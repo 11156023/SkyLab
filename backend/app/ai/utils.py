@@ -62,6 +62,24 @@ def safe_float(value: Any, default: float = 0.0) -> float:
         return default
 
 
-def safe_bool(value: Any) -> bool:
-    """Return ``True`` for truthy-ish raw values (``1``, ``"1"``, ``True``, ``"true"``, ``"yes"``)."""
-    return value in (1, "1", True, "true", "yes")
+def safe_bool(value: Any, default: bool = False) -> bool:
+    """Safely coerce *value* to bool with fallback.
+
+    Returns ``True`` for truthy values (e.g., ``True``, ``1``, ``"true"``, ``"yes"``, ``"on"``, ``"checked"``)
+    and ``False`` for falsy values (e.g., ``False``, ``0``, ``"false"``, ``"no"``, ``"off"``, ``"unchecked"``).
+    Otherwise returns *default*.
+    """
+    if value is None:
+        return default
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return bool(value)
+    if isinstance(value, str):
+        text = value.strip().lower()
+        if text in {"true", "1", "yes", "y", "on", "checked", "done"}:
+            return True
+        if text in {"false", "0", "no", "n", "off", "unchecked", "todo"}:
+            return False
+    return default
+

@@ -2055,6 +2055,37 @@ export const Body_rubric_upload_rubricSchema = {
     title: 'Body_rubric-upload_rubric'
 } as const;
 
+export const Body_teacher_judge_upload_group_teacher_judge_fileSchema = {
+    properties: {
+        file: {
+            type: 'string',
+            contentMediaType: 'application/octet-stream',
+            title: 'File'
+        },
+        template_key: {
+            type: 'string',
+            title: 'Template Key',
+            default: 'linux'
+        },
+        conflict_strategy: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Conflict Strategy'
+        }
+    },
+    type: 'object',
+    required: [
+        'file'
+    ],
+    title: 'Body_teacher-judge-upload_group_teacher_judge_file'
+} as const;
+
 export const CertParseResultSchema = {
     properties: {
         valid: {
@@ -8661,231 +8692,6 @@ export const ReverseProxyZoneOptionSchema = {
     title: 'ReverseProxyZoneOption'
 } as const;
 
-export const RubricAnalysisSchema = {
-    properties: {
-        items: {
-            items: {
-                $ref: '#/components/schemas/RubricItem'
-            },
-            type: 'array',
-            title: 'Items'
-        },
-        total_items: {
-            type: 'integer',
-            title: 'Total Items',
-            default: 0
-        },
-        checked_count: {
-            type: 'integer',
-            title: 'Checked Count',
-            default: 0
-        },
-        auto_count: {
-            type: 'integer',
-            title: 'Auto Count',
-            default: 0
-        },
-        partial_count: {
-            type: 'integer',
-            title: 'Partial Count',
-            default: 0
-        },
-        manual_count: {
-            type: 'integer',
-            title: 'Manual Count',
-            default: 0
-        },
-        summary: {
-            type: 'string',
-            title: 'Summary',
-            description: 'AI 整體說明（繁體中文）',
-            default: ''
-        },
-        raw_text: {
-            type: 'string',
-            title: 'Raw Text',
-            description: '解析後的原始文件文字（供後續對話使用）',
-            default: ''
-        }
-    },
-    type: 'object',
-    title: 'RubricAnalysis',
-    description: 'AI 分析評分表後的結構化結果。'
-} as const;
-
-export const RubricChatRequestSchema = {
-    properties: {
-        messages: {
-            items: {
-                $ref: '#/components/schemas/app__ai__teacher_judge__schemas__ChatMessage'
-            },
-            type: 'array',
-            minItems: 1,
-            title: 'Messages'
-        },
-        rubric_context: {
-            type: 'string',
-            title: 'Rubric Context',
-            description: '目前評分表的 JSON 字串（作為背景知識）',
-            default: ''
-        },
-        is_refine: {
-            type: 'boolean',
-            title: 'Is Refine',
-            description: 'True = 老師手動調整後觸發的全表潤飾模式',
-            default: false
-        },
-        template_key: {
-            type: 'string',
-            title: 'Template Key',
-            description: '目前評分環境 template key，用於驗證 check_steps',
-            default: 'linux'
-        }
-    },
-    type: 'object',
-    required: [
-        'messages'
-    ],
-    title: 'RubricChatRequest',
-    description: '對話請求。'
-} as const;
-
-export const RubricCheckStepSchema = {
-    properties: {
-        template_key: {
-            type: 'string',
-            title: 'Template Key',
-            description: '評分環境 template key'
-        },
-        command_key: {
-            type: 'string',
-            title: 'Command Key',
-            description: 'template command catalog 的穩定 ID'
-        },
-        command_label: {
-            anyOf: [
-                {
-                    type: 'string'
-                },
-                {
-                    type: 'null'
-                }
-            ],
-            title: 'Command Label',
-            description: 'template command catalog 的顯示名稱'
-        }
-    },
-    type: 'object',
-    required: [
-        'template_key',
-        'command_key'
-    ],
-    title: 'RubricCheckStep',
-    description: '評分計劃書中的 command catalog 引用。'
-} as const;
-
-export const RubricExportRequestSchema = {
-    properties: {
-        items: {
-            items: {
-                additionalProperties: true,
-                type: 'object'
-            },
-            type: 'array',
-            minItems: 1,
-            title: 'Items'
-        },
-        summary: {
-            type: 'string',
-            title: 'Summary',
-            default: ''
-        }
-    },
-    type: 'object',
-    required: [
-        'items'
-    ],
-    title: 'RubricExportRequest',
-    description: '匯出 Excel 請求。'
-} as const;
-
-export const RubricItemSchema = {
-    properties: {
-        id: {
-            type: 'string',
-            title: 'Id',
-            description: '評分項目唯一 ID'
-        },
-        title: {
-            type: 'string',
-            title: 'Title',
-            description: '評分項目名稱'
-        },
-        description: {
-            type: 'string',
-            title: 'Description',
-            description: '評分說明',
-            default: ''
-        },
-        checked: {
-            type: 'boolean',
-            title: 'Checked',
-            description: '是否已達成（有做到就打勾）',
-            default: false
-        },
-        detectable: {
-            type: 'string',
-            enum: [
-                'auto',
-                'partial',
-                'manual'
-            ],
-            title: 'Detectable',
-            description: '可偵測性：auto | partial | manual',
-            default: 'manual'
-        },
-        detection_method: {
-            anyOf: [
-                {
-                    type: 'string'
-                },
-                {
-                    type: 'null'
-                }
-            ],
-            title: 'Detection Method',
-            description: '自動偵測方式說明（detectable=auto/partial 時填寫）'
-        },
-        fallback: {
-            anyOf: [
-                {
-                    type: 'string'
-                },
-                {
-                    type: 'null'
-                }
-            ],
-            title: 'Fallback',
-            description: '無法自動偵測時的替代建議'
-        },
-        check_steps: {
-            items: {
-                $ref: '#/components/schemas/RubricCheckStep'
-            },
-            type: 'array',
-            title: 'Check Steps',
-            description: '本階段只產生計劃書，僅引用既有 command_key，不代表已執行。'
-        }
-    },
-    type: 'object',
-    required: [
-        'id',
-        'title'
-    ],
-    title: 'RubricItem',
-    description: '單一評分項目。'
-} as const;
-
 export const SSHConfirmRequestSchema = {
     properties: {
         token: {
@@ -10617,6 +10423,449 @@ export const SystemSnapshotSchema = {
     title: 'SystemSnapshot'
 } as const;
 
+export const TeacherJudgeFileAnalysisUpdateRequestSchema = {
+    properties: {
+        analysis: {
+            $ref: '#/components/schemas/TeacherJudgeRubricAnalysis'
+        }
+    },
+    type: 'object',
+    required: [
+        'analysis'
+    ],
+    title: 'TeacherJudgeFileAnalysisUpdateRequest'
+} as const;
+
+export const TeacherJudgeFilePublicSchema = {
+    properties: {
+        id: {
+            type: 'string',
+            title: 'Id'
+        },
+        group_id: {
+            type: 'string',
+            title: 'Group Id'
+        },
+        uploaded_by: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Uploaded By'
+        },
+        original_filename: {
+            type: 'string',
+            title: 'Original Filename'
+        },
+        file_hash: {
+            type: 'string',
+            title: 'File Hash'
+        },
+        template_key: {
+            type: 'string',
+            title: 'Template Key'
+        },
+        analysis_json: {
+            additionalProperties: true,
+            type: 'object',
+            title: 'Analysis Json'
+        },
+        status: {
+            type: 'string',
+            enum: [
+                'active',
+                'replaced'
+            ],
+            title: 'Status'
+        },
+        created_at: {
+            type: 'string',
+            title: 'Created At'
+        },
+        updated_at: {
+            type: 'string',
+            title: 'Updated At'
+        }
+    },
+    type: 'object',
+    required: [
+        'id',
+        'group_id',
+        'uploaded_by',
+        'original_filename',
+        'file_hash',
+        'template_key',
+        'analysis_json',
+        'status',
+        'created_at',
+        'updated_at'
+    ],
+    title: 'TeacherJudgeFilePublic'
+} as const;
+
+export const TeacherJudgeFileUploadResponseSchema = {
+    properties: {
+        file: {
+            $ref: '#/components/schemas/TeacherJudgeFilePublic'
+        },
+        analysis: {
+            $ref: '#/components/schemas/TeacherJudgeRubricAnalysis'
+        },
+        ai_metrics: {
+            additionalProperties: true,
+            type: 'object',
+            title: 'Ai Metrics'
+        },
+        template_key: {
+            type: 'string',
+            title: 'Template Key',
+            default: 'linux'
+        }
+    },
+    type: 'object',
+    required: [
+        'file',
+        'analysis',
+        'ai_metrics'
+    ],
+    title: 'TeacherJudgeFileUploadResponse'
+} as const;
+
+export const TeacherJudgeRubricAnalysisSchema = {
+    properties: {
+        items: {
+            items: {
+                $ref: '#/components/schemas/TeacherJudgeRubricItem'
+            },
+            type: 'array',
+            title: 'Items'
+        },
+        total_items: {
+            type: 'integer',
+            title: 'Total Items',
+            default: 0
+        },
+        checked_count: {
+            type: 'integer',
+            title: 'Checked Count',
+            default: 0
+        },
+        auto_count: {
+            type: 'integer',
+            title: 'Auto Count',
+            default: 0
+        },
+        partial_count: {
+            type: 'integer',
+            title: 'Partial Count',
+            default: 0
+        },
+        manual_count: {
+            type: 'integer',
+            title: 'Manual Count',
+            default: 0
+        },
+        summary: {
+            type: 'string',
+            title: 'Summary',
+            description: 'AI 整體說明（繁體中文）',
+            default: ''
+        },
+        raw_text: {
+            type: 'string',
+            title: 'Raw Text',
+            description: '解析後的原始文件文字（供後續對話使用）',
+            default: ''
+        }
+    },
+    type: 'object',
+    title: 'TeacherJudgeRubricAnalysis',
+    description: 'AI 分析評分表後的結構化結果。'
+} as const;
+
+export const TeacherJudgeRubricChatMessageSchema = {
+    properties: {
+        role: {
+            type: 'string',
+            enum: [
+                'user',
+                'assistant'
+            ],
+            title: 'Role',
+            description: '\'user\' 或 \'assistant\''
+        },
+        content: {
+            type: 'string',
+            title: 'Content',
+            description: '訊息內容'
+        }
+    },
+    type: 'object',
+    required: [
+        'role',
+        'content'
+    ],
+    title: 'TeacherJudgeRubricChatMessage',
+    description: '對話訊息。'
+} as const;
+
+export const TeacherJudgeRubricChatRequestSchema = {
+    properties: {
+        messages: {
+            items: {
+                $ref: '#/components/schemas/TeacherJudgeRubricChatMessage'
+            },
+            type: 'array',
+            minItems: 1,
+            title: 'Messages'
+        },
+        rubric_context: {
+            type: 'string',
+            title: 'Rubric Context',
+            description: '目前評分表的 JSON 字串（作為背景知識）',
+            default: ''
+        },
+        is_refine: {
+            type: 'boolean',
+            title: 'Is Refine',
+            description: 'True = 老師手動調整後觸發的全表潤飾模式',
+            default: false
+        },
+        template_key: {
+            type: 'string',
+            title: 'Template Key',
+            description: '目前評分環境 template key，用於驗證 check_steps',
+            default: 'linux'
+        }
+    },
+    type: 'object',
+    required: [
+        'messages'
+    ],
+    title: 'TeacherJudgeRubricChatRequest',
+    description: '對話請求。'
+} as const;
+
+export const TeacherJudgeRubricChatResponseSchema = {
+    properties: {
+        reply: {
+            type: 'string',
+            title: 'Reply'
+        },
+        updated_items: {
+            anyOf: [
+                {
+                    items: {
+                        additionalProperties: true,
+                        type: 'object'
+                    },
+                    type: 'array'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Updated Items'
+        },
+        prompt_tokens: {
+            type: 'integer',
+            title: 'Prompt Tokens'
+        },
+        completion_tokens: {
+            type: 'integer',
+            title: 'Completion Tokens'
+        },
+        total_tokens: {
+            type: 'integer',
+            title: 'Total Tokens'
+        },
+        elapsed_seconds: {
+            type: 'number',
+            title: 'Elapsed Seconds'
+        },
+        tokens_per_second: {
+            type: 'number',
+            title: 'Tokens Per Second'
+        }
+    },
+    type: 'object',
+    required: [
+        'reply',
+        'prompt_tokens',
+        'completion_tokens',
+        'total_tokens',
+        'elapsed_seconds',
+        'tokens_per_second'
+    ],
+    title: 'TeacherJudgeRubricChatResponse',
+    description: '對話回應。'
+} as const;
+
+export const TeacherJudgeRubricCheckStepSchema = {
+    properties: {
+        template_key: {
+            type: 'string',
+            title: 'Template Key',
+            description: '評分環境 template key'
+        },
+        command_key: {
+            type: 'string',
+            title: 'Command Key',
+            description: 'template command catalog 的穩定 ID'
+        },
+        command_label: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Command Label',
+            description: 'template command catalog 的顯示名稱'
+        }
+    },
+    type: 'object',
+    required: [
+        'template_key',
+        'command_key'
+    ],
+    title: 'TeacherJudgeRubricCheckStep',
+    description: '評分計劃書中的 command catalog 引用。'
+} as const;
+
+export const TeacherJudgeRubricExportRequestSchema = {
+    properties: {
+        items: {
+            items: {
+                additionalProperties: true,
+                type: 'object'
+            },
+            type: 'array',
+            minItems: 1,
+            title: 'Items'
+        },
+        summary: {
+            type: 'string',
+            title: 'Summary',
+            default: ''
+        }
+    },
+    type: 'object',
+    required: [
+        'items'
+    ],
+    title: 'TeacherJudgeRubricExportRequest',
+    description: '匯出 Excel 請求。'
+} as const;
+
+export const TeacherJudgeRubricItemSchema = {
+    properties: {
+        id: {
+            type: 'string',
+            title: 'Id',
+            description: '評分項目唯一 ID'
+        },
+        title: {
+            type: 'string',
+            title: 'Title',
+            description: '評分項目名稱'
+        },
+        description: {
+            type: 'string',
+            title: 'Description',
+            description: '評分說明',
+            default: ''
+        },
+        checked: {
+            type: 'boolean',
+            title: 'Checked',
+            description: '是否已達成（有做到就打勾）',
+            default: false
+        },
+        detectable: {
+            type: 'string',
+            enum: [
+                'auto',
+                'partial',
+                'manual'
+            ],
+            title: 'Detectable',
+            description: '可偵測性：auto | partial | manual',
+            default: 'manual'
+        },
+        detection_method: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Detection Method',
+            description: '自動偵測方式說明（detectable=auto/partial 時填寫）'
+        },
+        fallback: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Fallback',
+            description: '無法自動偵測時的替代建議'
+        },
+        check_steps: {
+            items: {
+                $ref: '#/components/schemas/TeacherJudgeRubricCheckStep'
+            },
+            type: 'array',
+            title: 'Check Steps',
+            description: '本階段只產生計劃書，僅引用既有 command_key，不代表已執行。'
+        }
+    },
+    type: 'object',
+    required: [
+        'id',
+        'title'
+    ],
+    title: 'TeacherJudgeRubricItem',
+    description: '單一評分項目。'
+} as const;
+
+export const TeacherJudgeRubricUploadResponseSchema = {
+    properties: {
+        analysis: {
+            $ref: '#/components/schemas/TeacherJudgeRubricAnalysis'
+        },
+        ai_metrics: {
+            additionalProperties: true,
+            type: 'object',
+            title: 'Ai Metrics'
+        },
+        template_key: {
+            type: 'string',
+            title: 'Template Key',
+            default: 'linux'
+        }
+    },
+    type: 'object',
+    required: [
+        'analysis',
+        'ai_metrics'
+    ],
+    title: 'TeacherJudgeRubricUploadResponse',
+    description: '上傳評分表回應。'
+} as const;
+
 export const TeacherJudgeScriptArtifactPublicSchema = {
     properties: {
         id: {
@@ -10639,6 +10888,22 @@ export const TeacherJudgeScriptArtifactPublicSchema = {
             additionalProperties: true,
             type: 'object',
             title: 'Rubric Snapshot Json'
+        },
+        source_file_id: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Source File Id'
+        },
+        source_file_snapshot_json: {
+            additionalProperties: true,
+            type: 'object',
+            title: 'Source File Snapshot Json'
         },
         script_language: {
             type: 'string',
@@ -10735,6 +11000,8 @@ export const TeacherJudgeScriptArtifactPublicSchema = {
         'name',
         'template_key',
         'rubric_snapshot_json',
+        'source_file_id',
+        'source_file_snapshot_json',
         'script_language',
         'script_content',
         'source',
@@ -10766,7 +11033,19 @@ export const TeacherJudgeScriptCreateRequestSchema = {
             default: 'linux'
         },
         rubric_snapshot: {
-            $ref: '#/components/schemas/RubricAnalysis'
+            $ref: '#/components/schemas/TeacherJudgeRubricAnalysis'
+        },
+        source_file_id: {
+            anyOf: [
+                {
+                    type: 'string',
+                    format: 'uuid'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Source File Id'
         }
     },
     type: 'object',
@@ -10783,7 +11062,7 @@ export const TeacherJudgeScriptRegenerateRequestSchema = {
         rubric_snapshot: {
             anyOf: [
                 {
-                    $ref: '#/components/schemas/RubricAnalysis'
+                    $ref: '#/components/schemas/TeacherJudgeRubricAnalysis'
                 },
                 {
                     type: 'null'
@@ -13859,32 +14138,6 @@ export const app__ai__pve_log__schemas__ChatResponseSchema = {
         'reply'
     ],
     title: 'ChatResponse'
-} as const;
-
-export const app__ai__teacher_judge__schemas__ChatMessageSchema = {
-    properties: {
-        role: {
-            type: 'string',
-            enum: [
-                'user',
-                'assistant'
-            ],
-            title: 'Role',
-            description: '\'user\' 或 \'assistant\''
-        },
-        content: {
-            type: 'string',
-            title: 'Content',
-            description: '訊息內容'
-        }
-    },
-    type: 'object',
-    required: [
-        'role',
-        'content'
-    ],
-    title: 'ChatMessage',
-    description: '對話訊息。'
 } as const;
 
 export const app__ai__template_recommendation__schemas__ChatMessageSchema = {

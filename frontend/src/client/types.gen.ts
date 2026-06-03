@@ -1092,6 +1092,24 @@ export type BodyRubricUploadRubric = {
 };
 
 /**
+ * Body_teacher-judge-upload_group_teacher_judge_file
+ */
+export type BodyTeacherJudgeUploadGroupTeacherJudgeFile = {
+    /**
+     * File
+     */
+    file: Blob | File;
+    /**
+     * Template Key
+     */
+    template_key?: string;
+    /**
+     * Conflict Strategy
+     */
+    conflict_strategy?: string | null;
+};
+
+/**
  * CertParseResult
  *
  * 解析憑證 PEM 的結果
@@ -4994,180 +5012,6 @@ export type ReverseProxyZoneOption = {
 };
 
 /**
- * RubricAnalysis
- *
- * AI 分析評分表後的結構化結果。
- */
-export type RubricAnalysis = {
-    /**
-     * Items
-     */
-    items?: Array<RubricItem>;
-    /**
-     * Total Items
-     */
-    total_items?: number;
-    /**
-     * Checked Count
-     */
-    checked_count?: number;
-    /**
-     * Auto Count
-     */
-    auto_count?: number;
-    /**
-     * Partial Count
-     */
-    partial_count?: number;
-    /**
-     * Manual Count
-     */
-    manual_count?: number;
-    /**
-     * Summary
-     *
-     * AI 整體說明（繁體中文）
-     */
-    summary?: string;
-    /**
-     * Raw Text
-     *
-     * 解析後的原始文件文字（供後續對話使用）
-     */
-    raw_text?: string;
-};
-
-/**
- * RubricChatRequest
- *
- * 對話請求。
- */
-export type RubricChatRequest = {
-    /**
-     * Messages
-     */
-    messages: Array<AppAiTeacherJudgeSchemasChatMessage>;
-    /**
-     * Rubric Context
-     *
-     * 目前評分表的 JSON 字串（作為背景知識）
-     */
-    rubric_context?: string;
-    /**
-     * Is Refine
-     *
-     * True = 老師手動調整後觸發的全表潤飾模式
-     */
-    is_refine?: boolean;
-    /**
-     * Template Key
-     *
-     * 目前評分環境 template key，用於驗證 check_steps
-     */
-    template_key?: string;
-};
-
-/**
- * RubricCheckStep
- *
- * 評分計劃書中的 command catalog 引用。
- */
-export type RubricCheckStep = {
-    /**
-     * Template Key
-     *
-     * 評分環境 template key
-     */
-    template_key: string;
-    /**
-     * Command Key
-     *
-     * template command catalog 的穩定 ID
-     */
-    command_key: string;
-    /**
-     * Command Label
-     *
-     * template command catalog 的顯示名稱
-     */
-    command_label?: string | null;
-};
-
-/**
- * RubricExportRequest
- *
- * 匯出 Excel 請求。
- */
-export type RubricExportRequest = {
-    /**
-     * Items
-     */
-    items: Array<{
-        [key: string]: unknown;
-    }>;
-    /**
-     * Summary
-     */
-    summary?: string;
-};
-
-/**
- * RubricItem
- *
- * 單一評分項目。
- */
-export type RubricItem = {
-    /**
-     * Id
-     *
-     * 評分項目唯一 ID
-     */
-    id: string;
-    /**
-     * Title
-     *
-     * 評分項目名稱
-     */
-    title: string;
-    /**
-     * Description
-     *
-     * 評分說明
-     */
-    description?: string;
-    /**
-     * Checked
-     *
-     * 是否已達成（有做到就打勾）
-     */
-    checked?: boolean;
-    /**
-     * Detectable
-     *
-     * 可偵測性：auto | partial | manual
-     */
-    detectable?: 'auto' | 'partial' | 'manual';
-    /**
-     * Detection Method
-     *
-     * 自動偵測方式說明（detectable=auto/partial 時填寫）
-     */
-    detection_method?: string | null;
-    /**
-     * Fallback
-     *
-     * 無法自動偵測時的替代建議
-     */
-    fallback?: string | null;
-    /**
-     * Check Steps
-     *
-     * 本階段只產生計劃書，僅引用既有 command_key，不代表已執行。
-     */
-    check_steps?: Array<RubricCheckStep>;
-};
-
-/**
  * SSHConfirmRequest
  */
 export type SshConfirmRequest = {
@@ -6177,6 +6021,330 @@ export type SystemSnapshot = {
 };
 
 /**
+ * TeacherJudgeFileAnalysisUpdateRequest
+ */
+export type TeacherJudgeFileAnalysisUpdateRequest = {
+    analysis: TeacherJudgeRubricAnalysis;
+};
+
+/**
+ * TeacherJudgeFilePublic
+ */
+export type TeacherJudgeFilePublic = {
+    /**
+     * Id
+     */
+    id: string;
+    /**
+     * Group Id
+     */
+    group_id: string;
+    /**
+     * Uploaded By
+     */
+    uploaded_by: string | null;
+    /**
+     * Original Filename
+     */
+    original_filename: string;
+    /**
+     * File Hash
+     */
+    file_hash: string;
+    /**
+     * Template Key
+     */
+    template_key: string;
+    /**
+     * Analysis Json
+     */
+    analysis_json: {
+        [key: string]: unknown;
+    };
+    /**
+     * Status
+     */
+    status: 'active' | 'replaced';
+    /**
+     * Created At
+     */
+    created_at: string;
+    /**
+     * Updated At
+     */
+    updated_at: string;
+};
+
+/**
+ * TeacherJudgeFileUploadResponse
+ */
+export type TeacherJudgeFileUploadResponse = {
+    file: TeacherJudgeFilePublic;
+    analysis: TeacherJudgeRubricAnalysis;
+    /**
+     * Ai Metrics
+     */
+    ai_metrics: {
+        [key: string]: unknown;
+    };
+    /**
+     * Template Key
+     */
+    template_key?: string;
+};
+
+/**
+ * TeacherJudgeRubricAnalysis
+ *
+ * AI 分析評分表後的結構化結果。
+ */
+export type TeacherJudgeRubricAnalysis = {
+    /**
+     * Items
+     */
+    items?: Array<TeacherJudgeRubricItem>;
+    /**
+     * Total Items
+     */
+    total_items?: number;
+    /**
+     * Checked Count
+     */
+    checked_count?: number;
+    /**
+     * Auto Count
+     */
+    auto_count?: number;
+    /**
+     * Partial Count
+     */
+    partial_count?: number;
+    /**
+     * Manual Count
+     */
+    manual_count?: number;
+    /**
+     * Summary
+     *
+     * AI 整體說明（繁體中文）
+     */
+    summary?: string;
+    /**
+     * Raw Text
+     *
+     * 解析後的原始文件文字（供後續對話使用）
+     */
+    raw_text?: string;
+};
+
+/**
+ * TeacherJudgeRubricChatMessage
+ *
+ * 對話訊息。
+ */
+export type TeacherJudgeRubricChatMessage = {
+    /**
+     * Role
+     *
+     * 'user' 或 'assistant'
+     */
+    role: 'user' | 'assistant';
+    /**
+     * Content
+     *
+     * 訊息內容
+     */
+    content: string;
+};
+
+/**
+ * TeacherJudgeRubricChatRequest
+ *
+ * 對話請求。
+ */
+export type TeacherJudgeRubricChatRequest = {
+    /**
+     * Messages
+     */
+    messages: Array<TeacherJudgeRubricChatMessage>;
+    /**
+     * Rubric Context
+     *
+     * 目前評分表的 JSON 字串（作為背景知識）
+     */
+    rubric_context?: string;
+    /**
+     * Is Refine
+     *
+     * True = 老師手動調整後觸發的全表潤飾模式
+     */
+    is_refine?: boolean;
+    /**
+     * Template Key
+     *
+     * 目前評分環境 template key，用於驗證 check_steps
+     */
+    template_key?: string;
+};
+
+/**
+ * TeacherJudgeRubricChatResponse
+ *
+ * 對話回應。
+ */
+export type TeacherJudgeRubricChatResponse = {
+    /**
+     * Reply
+     */
+    reply: string;
+    /**
+     * Updated Items
+     */
+    updated_items?: Array<{
+        [key: string]: unknown;
+    }> | null;
+    /**
+     * Prompt Tokens
+     */
+    prompt_tokens: number;
+    /**
+     * Completion Tokens
+     */
+    completion_tokens: number;
+    /**
+     * Total Tokens
+     */
+    total_tokens: number;
+    /**
+     * Elapsed Seconds
+     */
+    elapsed_seconds: number;
+    /**
+     * Tokens Per Second
+     */
+    tokens_per_second: number;
+};
+
+/**
+ * TeacherJudgeRubricCheckStep
+ *
+ * 評分計劃書中的 command catalog 引用。
+ */
+export type TeacherJudgeRubricCheckStep = {
+    /**
+     * Template Key
+     *
+     * 評分環境 template key
+     */
+    template_key: string;
+    /**
+     * Command Key
+     *
+     * template command catalog 的穩定 ID
+     */
+    command_key: string;
+    /**
+     * Command Label
+     *
+     * template command catalog 的顯示名稱
+     */
+    command_label?: string | null;
+};
+
+/**
+ * TeacherJudgeRubricExportRequest
+ *
+ * 匯出 Excel 請求。
+ */
+export type TeacherJudgeRubricExportRequest = {
+    /**
+     * Items
+     */
+    items: Array<{
+        [key: string]: unknown;
+    }>;
+    /**
+     * Summary
+     */
+    summary?: string;
+};
+
+/**
+ * TeacherJudgeRubricItem
+ *
+ * 單一評分項目。
+ */
+export type TeacherJudgeRubricItem = {
+    /**
+     * Id
+     *
+     * 評分項目唯一 ID
+     */
+    id: string;
+    /**
+     * Title
+     *
+     * 評分項目名稱
+     */
+    title: string;
+    /**
+     * Description
+     *
+     * 評分說明
+     */
+    description?: string;
+    /**
+     * Checked
+     *
+     * 是否已達成（有做到就打勾）
+     */
+    checked?: boolean;
+    /**
+     * Detectable
+     *
+     * 可偵測性：auto | partial | manual
+     */
+    detectable?: 'auto' | 'partial' | 'manual';
+    /**
+     * Detection Method
+     *
+     * 自動偵測方式說明（detectable=auto/partial 時填寫）
+     */
+    detection_method?: string | null;
+    /**
+     * Fallback
+     *
+     * 無法自動偵測時的替代建議
+     */
+    fallback?: string | null;
+    /**
+     * Check Steps
+     *
+     * 本階段只產生計劃書，僅引用既有 command_key，不代表已執行。
+     */
+    check_steps?: Array<TeacherJudgeRubricCheckStep>;
+};
+
+/**
+ * TeacherJudgeRubricUploadResponse
+ *
+ * 上傳評分表回應。
+ */
+export type TeacherJudgeRubricUploadResponse = {
+    analysis: TeacherJudgeRubricAnalysis;
+    /**
+     * Ai Metrics
+     */
+    ai_metrics: {
+        [key: string]: unknown;
+    };
+    /**
+     * Template Key
+     */
+    template_key?: string;
+};
+
+/**
  * TeacherJudgeScriptArtifactPublic
  */
 export type TeacherJudgeScriptArtifactPublic = {
@@ -6200,6 +6368,16 @@ export type TeacherJudgeScriptArtifactPublic = {
      * Rubric Snapshot Json
      */
     rubric_snapshot_json: {
+        [key: string]: unknown;
+    };
+    /**
+     * Source File Id
+     */
+    source_file_id: string | null;
+    /**
+     * Source File Snapshot Json
+     */
+    source_file_snapshot_json: {
         [key: string]: unknown;
     };
     /**
@@ -6270,7 +6448,11 @@ export type TeacherJudgeScriptCreateRequest = {
      * Template Key
      */
     template_key?: string;
-    rubric_snapshot: RubricAnalysis;
+    rubric_snapshot: TeacherJudgeRubricAnalysis;
+    /**
+     * Source File Id
+     */
+    source_file_id?: string | null;
 };
 
 /**
@@ -6279,7 +6461,7 @@ export type TeacherJudgeScriptCreateRequest = {
  * Regenerate a managed script artifact.
  */
 export type TeacherJudgeScriptRegenerateRequest = {
-    rubric_snapshot?: RubricAnalysis | null;
+    rubric_snapshot?: TeacherJudgeRubricAnalysis | null;
 };
 
 /**
@@ -7962,26 +8144,6 @@ export type AppAiPveLogSchemasChatResponse = {
      * Error
      */
     error?: string | null;
-};
-
-/**
- * ChatMessage
- *
- * 對話訊息。
- */
-export type AppAiTeacherJudgeSchemasChatMessage = {
-    /**
-     * Role
-     *
-     * 'user' 或 'assistant'
-     */
-    role: 'user' | 'assistant';
-    /**
-     * Content
-     *
-     * 訊息內容
-     */
-    content: string;
 };
 
 /**
@@ -13824,11 +13986,13 @@ export type RubricUploadRubricResponses = {
     /**
      * Successful Response
      */
-    200: unknown;
+    200: TeacherJudgeRubricUploadResponse;
 };
 
+export type RubricUploadRubricResponse = RubricUploadRubricResponses[keyof RubricUploadRubricResponses];
+
 export type RubricChatData = {
-    body: RubricChatRequest;
+    body: TeacherJudgeRubricChatRequest;
     path?: never;
     query?: never;
     url: '/api/v1/rubric/chat';
@@ -13847,11 +14011,13 @@ export type RubricChatResponses = {
     /**
      * Successful Response
      */
-    200: unknown;
+    200: TeacherJudgeRubricChatResponse;
 };
 
+export type RubricChatResponse = RubricChatResponses[keyof RubricChatResponses];
+
 export type RubricDownloadExcelData = {
-    body: RubricExportRequest;
+    body: TeacherJudgeRubricExportRequest;
     path?: never;
     query?: never;
     url: '/api/v1/rubric/download-excel';
@@ -13886,6 +14052,168 @@ export type RubricHealthCheckResponses = {
      */
     200: unknown;
 };
+
+export type TeacherJudgeListGroupTeacherJudgeFilesData = {
+    body?: never;
+    path: {
+        /**
+         * Group Id
+         */
+        group_id: string;
+    };
+    query?: never;
+    url: '/api/v1/groups/{group_id}/judge/files/';
+};
+
+export type TeacherJudgeListGroupTeacherJudgeFilesErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type TeacherJudgeListGroupTeacherJudgeFilesError = TeacherJudgeListGroupTeacherJudgeFilesErrors[keyof TeacherJudgeListGroupTeacherJudgeFilesErrors];
+
+export type TeacherJudgeListGroupTeacherJudgeFilesResponses = {
+    /**
+     * Response Teacher-Judge-List Group Teacher Judge Files
+     *
+     * Successful Response
+     */
+    200: Array<TeacherJudgeFilePublic>;
+};
+
+export type TeacherJudgeListGroupTeacherJudgeFilesResponse = TeacherJudgeListGroupTeacherJudgeFilesResponses[keyof TeacherJudgeListGroupTeacherJudgeFilesResponses];
+
+export type TeacherJudgeUploadGroupTeacherJudgeFileData = {
+    body: BodyTeacherJudgeUploadGroupTeacherJudgeFile;
+    path: {
+        /**
+         * Group Id
+         */
+        group_id: string;
+    };
+    query?: never;
+    url: '/api/v1/groups/{group_id}/judge/files/';
+};
+
+export type TeacherJudgeUploadGroupTeacherJudgeFileErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type TeacherJudgeUploadGroupTeacherJudgeFileError = TeacherJudgeUploadGroupTeacherJudgeFileErrors[keyof TeacherJudgeUploadGroupTeacherJudgeFileErrors];
+
+export type TeacherJudgeUploadGroupTeacherJudgeFileResponses = {
+    /**
+     * Successful Response
+     */
+    200: TeacherJudgeFileUploadResponse;
+};
+
+export type TeacherJudgeUploadGroupTeacherJudgeFileResponse = TeacherJudgeUploadGroupTeacherJudgeFileResponses[keyof TeacherJudgeUploadGroupTeacherJudgeFileResponses];
+
+export type TeacherJudgeDownloadGroupTeacherJudgeFileData = {
+    body?: never;
+    path: {
+        /**
+         * Group Id
+         */
+        group_id: string;
+        /**
+         * File Id
+         */
+        file_id: string;
+    };
+    query?: never;
+    url: '/api/v1/groups/{group_id}/judge/files/{file_id}/download';
+};
+
+export type TeacherJudgeDownloadGroupTeacherJudgeFileErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type TeacherJudgeDownloadGroupTeacherJudgeFileError = TeacherJudgeDownloadGroupTeacherJudgeFileErrors[keyof TeacherJudgeDownloadGroupTeacherJudgeFileErrors];
+
+export type TeacherJudgeDownloadGroupTeacherJudgeFileResponses = {
+    /**
+     * Successful Response
+     */
+    200: unknown;
+};
+
+export type TeacherJudgeUpdateGroupTeacherJudgeFileAnalysisData = {
+    body: TeacherJudgeFileAnalysisUpdateRequest;
+    path: {
+        /**
+         * Group Id
+         */
+        group_id: string;
+        /**
+         * File Id
+         */
+        file_id: string;
+    };
+    query?: never;
+    url: '/api/v1/groups/{group_id}/judge/files/{file_id}/analysis';
+};
+
+export type TeacherJudgeUpdateGroupTeacherJudgeFileAnalysisErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type TeacherJudgeUpdateGroupTeacherJudgeFileAnalysisError = TeacherJudgeUpdateGroupTeacherJudgeFileAnalysisErrors[keyof TeacherJudgeUpdateGroupTeacherJudgeFileAnalysisErrors];
+
+export type TeacherJudgeUpdateGroupTeacherJudgeFileAnalysisResponses = {
+    /**
+     * Successful Response
+     */
+    200: TeacherJudgeFilePublic;
+};
+
+export type TeacherJudgeUpdateGroupTeacherJudgeFileAnalysisResponse = TeacherJudgeUpdateGroupTeacherJudgeFileAnalysisResponses[keyof TeacherJudgeUpdateGroupTeacherJudgeFileAnalysisResponses];
+
+export type TeacherJudgeDeleteGroupTeacherJudgeFileData = {
+    body?: never;
+    path: {
+        /**
+         * Group Id
+         */
+        group_id: string;
+        /**
+         * File Id
+         */
+        file_id: string;
+    };
+    query?: never;
+    url: '/api/v1/groups/{group_id}/judge/files/{file_id}';
+};
+
+export type TeacherJudgeDeleteGroupTeacherJudgeFileErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type TeacherJudgeDeleteGroupTeacherJudgeFileError = TeacherJudgeDeleteGroupTeacherJudgeFileErrors[keyof TeacherJudgeDeleteGroupTeacherJudgeFileErrors];
+
+export type TeacherJudgeDeleteGroupTeacherJudgeFileResponses = {
+    /**
+     * Successful Response
+     */
+    204: void;
+};
+
+export type TeacherJudgeDeleteGroupTeacherJudgeFileResponse = TeacherJudgeDeleteGroupTeacherJudgeFileResponses[keyof TeacherJudgeDeleteGroupTeacherJudgeFileResponses];
 
 export type TeacherJudgeListGroupTeacherJudgeScriptsData = {
     body?: never;

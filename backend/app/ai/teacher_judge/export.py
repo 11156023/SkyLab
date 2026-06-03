@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import io
 
-from app.ai.teacher_judge.schemas import RubricItem
+from app.ai.teacher_judge.schemas import TeacherJudgeRubricItem
 
 _DETECTABLE_LABELS = {
     "auto": "✅ 可自動偵測",
@@ -24,8 +24,8 @@ _CHECKED_LABELS = {
 }
 
 
-def export_to_excel(items: list[RubricItem], summary: str = "") -> bytes:
-    """Generate an .xlsx file from RubricItem list, return as bytes."""
+def export_to_excel(items: list[TeacherJudgeRubricItem], summary: str = "") -> bytes:
+    """Generate an .xlsx file from Teacher Judge rubric items."""
     from openpyxl import Workbook
     from openpyxl.styles import Alignment, Font, PatternFill
     from openpyxl.utils import get_column_letter

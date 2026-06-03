@@ -9,7 +9,12 @@ from fastapi.responses import Response
 
 from app.ai.teacher_judge.config import settings
 from app.ai.teacher_judge.export import export_to_excel
-from app.ai.teacher_judge.schemas import RubricChatRequest, RubricExportRequest
+from app.ai.teacher_judge.schemas import (
+    TeacherJudgeRubricChatRequest,
+    TeacherJudgeRubricChatResponse,
+    TeacherJudgeRubricExportRequest,
+    TeacherJudgeRubricUploadResponse,
+)
 from app.ai.teacher_judge.service import (
     analyze_rubric,
     chat_with_rubric,
@@ -28,7 +33,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/rubric", tags=["rubric"])
 
 
-@router.post("/upload")
+@router.post("/upload", response_model=TeacherJudgeRubricUploadResponse)
 async def upload_rubric(
     current_user: InstructorUser,
     session: SessionDep,
@@ -94,11 +99,11 @@ async def upload_rubric(
     }
 
 
-@router.post("/chat")
+@router.post("/chat", response_model=TeacherJudgeRubricChatResponse)
 async def chat(
     current_user: InstructorUser,
     session: SessionDep,
-    chat_request: RubricChatRequest,
+    chat_request: TeacherJudgeRubricChatRequest,
 ):
     """
     與 AI 對話，精煉評分表。
@@ -132,7 +137,7 @@ async def chat(
 @router.post("/download-excel")
 async def download_excel(
     current_user: InstructorUser,
-    payload: RubricExportRequest,
+    payload: TeacherJudgeRubricExportRequest,
 ):
     """
     接收評分項目列表，產出並回傳 .xlsx 檔案。

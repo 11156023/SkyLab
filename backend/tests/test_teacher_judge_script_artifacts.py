@@ -994,7 +994,8 @@ def test_create_script_run_rejects_target_without_ssh_key(
     assert "SSH" in str(exc_info.value.detail)
 
 
-def test_execute_script_run_saves_valid_target_result(
+@pytest.mark.asyncio
+async def test_execute_script_run_saves_valid_target_result(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     session = _session()
@@ -1049,7 +1050,7 @@ def test_execute_script_run_saves_valid_target_result(
     )
     analysis_calls = []
 
-    def fake_analyze_target_results_sync(
+    async def fake_analyze_target_results(
         *,
         rubric_snapshot,
         script_metadata,
@@ -1079,8 +1080,8 @@ def test_execute_script_run_saves_valid_target_result(
 
     monkeypatch.setattr(
         script_executor_service,
-        "analyze_target_results_sync",
-        fake_analyze_target_results_sync,
+        "analyze_target_results",
+        fake_analyze_target_results,
     )
 
     run = script_run_service.create_script_run(
@@ -1092,7 +1093,7 @@ def test_execute_script_run_saves_valid_target_result(
         started_by=user_id,
     )
 
-    script_executor_service.execute_script_run(uuid.UUID(run.id))
+    await script_executor_service.execute_script_run(uuid.UUID(run.id))
 
     session.expire_all()
     stored_run = session.get(models.TeacherJudgeScriptRun, uuid.UUID(run.id))
@@ -1116,6 +1117,89 @@ def test_execute_script_run_saves_valid_target_result(
     )
     assert analysis_calls[0]["script_metadata"]["id"] == str(artifact.id)
     assert analysis_calls[0]["target_results"][0]["ai_judgement"]["status"] == "pending"
+
+
+@pytest.mark.asyncio
+async def test_execute_script_run_does_not_commit_partial_results_before_analysis(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    session = _session()
+    group_id = uuid.uuid4()
+    user_id = uuid.uuid4()
+    artifact = models.TeacherJudgeScriptArtifact(
+        group_id=group_id,
+        name="rubric.pdf",
+        template_key="linux",
+        rubric_snapshot_json={},
+        script_content=SAFE_SCRIPT,
+        status=TeacherJudgeScriptStatus.approved,
+        policy_check_result_json={"approved": True},
+        ai_review_result_json={"approved": True},
+    )
+    session.add(_resource(vmid=101, user_id=user_id))
+    session.add(artifact)
+    session.commit()
+    session.refresh(artifact)
+
+    monkeypatch.setattr(script_executor_service, "engine", session.get_bind())
+    monkeypatch.setattr(script_executor_service, "decrypt_value", lambda _value: "KEY")
+    monkeypatch.setattr(
+        script_run_service,
+        "_group_member_by_vmid",
+        lambda *, session, group_id: {
+            101: {"user_id": str(user_id), "email": "s@example.com", "full_name": "S"}
+        },
+    )
+    monkeypatch.setattr(
+        script_run_service,
+        "_running_resources_by_vmid",
+        lambda: {
+            101: {"vmid": 101, "type": "lxc", "status": "running", "node": "pve1"}
+        },
+    )
+    monkeypatch.setattr(
+        script_executor_service,
+        "_live_running_by_vmid",
+        lambda: {
+            101: {"vmid": 101, "type": "lxc", "status": "running", "node": "pve1"}
+        },
+    )
+    monkeypatch.setattr(
+        script_executor_service,
+        "_execute_target_script",
+        lambda *, target, script_content: script_executor_service.RemoteScriptResult(
+            exit_code=0,
+            result_json_text=_valid_result_json(),
+            stderr_text="",
+        ),
+    )
+
+    async def raise_analysis_error(**_kwargs):
+        raise RuntimeError("analysis unavailable")
+
+    monkeypatch.setattr(
+        script_executor_service,
+        "analyze_target_results",
+        raise_analysis_error,
+    )
+
+    run = script_run_service.create_script_run(
+        session=session,
+        group_id=group_id,
+        artifact_id=artifact.id,
+        target_scope=TeacherJudgeScriptRunTargetScope.manual,
+        target_vmids=[101],
+        started_by=user_id,
+    )
+
+    await script_executor_service.execute_script_run(uuid.UUID(run.id))
+
+    session.expire_all()
+    stored_run = session.get(models.TeacherJudgeScriptRun, uuid.UUID(run.id))
+    assert stored_run is not None
+    assert stored_run.status.value == "failed"
+    assert stored_run.result_summary_json["executor_error"] == "analysis unavailable"
+    assert stored_run.target_results_json == {}
 
 
 def test_executor_runtime_target_falls_back_to_live_ip_when_cache_missing(
@@ -1159,7 +1243,8 @@ def test_executor_runtime_target_falls_back_to_live_ip_when_cache_missing(
     )
 
 
-def test_execute_script_run_saves_invalid_json_result(
+@pytest.mark.asyncio
+async def test_execute_script_run_saves_invalid_json_result(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     session = _session()
@@ -1222,7 +1307,7 @@ def test_execute_script_run_saves_invalid_json_result(
         started_by=user_id,
     )
 
-    script_executor_service.execute_script_run(uuid.UUID(run.id))
+    await script_executor_service.execute_script_run(uuid.UUID(run.id))
 
     session.expire_all()
     stored_run = session.get(models.TeacherJudgeScriptRun, uuid.UUID(run.id))
@@ -1321,7 +1406,8 @@ async def test_ai_analysis_uses_valid_json_even_when_execution_failed(
     assert results[0]["ai_judgement"]["score"] == 4
 
 
-def test_execute_script_run_records_executor_level_failure(
+@pytest.mark.asyncio
+async def test_execute_script_run_records_executor_level_failure(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     session = _session()
@@ -1376,7 +1462,7 @@ def test_execute_script_run_records_executor_level_failure(
         started_by=user_id,
     )
 
-    script_executor_service.execute_script_run(uuid.UUID(run.id))
+    await script_executor_service.execute_script_run(uuid.UUID(run.id))
 
     session.expire_all()
     stored_run = session.get(models.TeacherJudgeScriptRun, uuid.UUID(run.id))

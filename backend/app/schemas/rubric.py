@@ -11,6 +11,14 @@ from app.ai.teacher_judge.schemas import (
     RubricExportRequest,
     RubricItem,
     RubricUploadResponse,
+    TeacherJudgeRubricAnalysis,
+    TeacherJudgeRubricChatMessage,
+    TeacherJudgeRubricChatRequest,
+    TeacherJudgeRubricChatResponse,
+    TeacherJudgeRubricCheckStep,
+    TeacherJudgeRubricExportRequest,
+    TeacherJudgeRubricItem,
+    TeacherJudgeRubricUploadResponse,
 )
 
 __all__ = [
@@ -22,4 +30,12 @@ __all__ = [
     "RubricExportRequest",
     "RubricItem",
     "RubricUploadResponse",
+    "TeacherJudgeRubricAnalysis",
+    "TeacherJudgeRubricChatMessage",
+    "TeacherJudgeRubricChatRequest",
+    "TeacherJudgeRubricChatResponse",
+    "TeacherJudgeRubricCheckStep",
+    "TeacherJudgeRubricExportRequest",
+    "TeacherJudgeRubricItem",
+    "TeacherJudgeRubricUploadResponse",
 ]
