@@ -14,6 +14,10 @@ from typing import Any
 from sqlmodel import Session
 
 from app.ai.teacher_judge.script_policy import validate_managed_script_output
+from app.ai.teacher_judge.script_result_analysis_service import (
+    analyze_target_results_sync,
+    pending_judgement,
+)
 from app.ai.teacher_judge.target_ip_resolver import resolve_target_ip_address
 from app.core.db import engine
 from app.core.security import decrypt_value
@@ -380,6 +384,39 @@ def _summary(results: list[dict[str, Any]]) -> dict[str, Any]:
     }
 
 
+def _ai_summary(results: list[dict[str, Any]]) -> dict[str, Any]:
+    completed = 0
+    failed = 0
+    skipped = 0
+    for result in results:
+        judgement = result.get("ai_judgement")
+        if not isinstance(judgement, dict):
+            continue
+        status = judgement.get("status")
+        if status == "completed":
+            completed += 1
+        elif status == "failed":
+            failed += 1
+        elif status == "skipped":
+            skipped += 1
+    return {
+        "ai_completed": completed,
+        "ai_failed": failed,
+        "ai_skipped": skipped,
+    }
+
+
+def _with_pending_ai_judgement(results: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    prepared: list[dict[str, Any]] = []
+    for result in results:
+        next_result = dict(result)
+        validation = next_result.get("validation")
+        if isinstance(validation, dict) and validation.get("valid") is True:
+            next_result["ai_judgement"] = pending_judgement()
+        prepared.append(next_result)
+    return prepared
+
+
 def _mark_run_executor_failed(run_id: uuid.UUID, message: str) -> None:
     with Session(engine) as session:
         run = session.get(TeacherJudgeScriptRun, run_id)
@@ -434,7 +471,7 @@ def _execute_script_run(run_id: uuid.UUID) -> None:
         _save_run_progress(
             session=session,
             run=run,
-            stage="running",
+            stage="executing",
             targets=targets,
             statuses=statuses,
             done=0,
@@ -466,7 +503,7 @@ def _execute_script_run(run_id: uuid.UUID) -> None:
         _save_run_progress(
             session=session,
             run=run,
-            stage="running",
+            stage="executing",
             targets=targets,
             statuses=statuses,
             done=len(early_results),
@@ -506,18 +543,48 @@ def _execute_script_run(run_id: uuid.UUID) -> None:
                     _save_run_progress(
                         session=session,
                         run=run,
-                        stage="running",
+                        stage="executing",
                         targets=targets,
                         statuses=statuses,
                         done=len(results),
                     )
 
         results.sort(key=lambda item: int(item.get("vmid") or 0))
+        results = _with_pending_ai_judgement(results)
         run.target_results_json = {
             "schema_version": "teacher_judge_run_results.v1",
             "targets": results,
         }
-        run.result_summary_json = _summary(results)
+        session.add(run)
+        session.commit()
+        session.refresh(run)
+        _save_run_progress(
+            session=session,
+            run=run,
+            stage="analyzing",
+            targets=targets,
+            statuses=statuses,
+            done=len(results),
+        )
+        results = analyze_target_results_sync(
+            rubric_snapshot=artifact.rubric_snapshot_json,
+            script_metadata={
+                "id": str(artifact.id),
+                "name": artifact.name,
+                "version": artifact.version,
+                "template_key": artifact.template_key,
+            },
+            target_results=results,
+        )
+        results.sort(key=lambda item: int(item.get("vmid") or 0))
+        run.target_results_json = {
+            "schema_version": "teacher_judge_run_results.v1",
+            "targets": results,
+        }
+        run.result_summary_json = {
+            **_summary(results),
+            **_ai_summary(results),
+        }
         run.progress_json = {
             "stage": "completed",
             "total": len(targets),

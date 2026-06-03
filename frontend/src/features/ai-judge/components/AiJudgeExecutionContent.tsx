@@ -72,14 +72,30 @@ function TargetStatusBadge({
   return <Badge variant="outline">排隊中</Badge>
 }
 
-function JsonValidationBadge({
+function AiJudgementBadge({
   result,
 }: {
   result?: TeacherJudgeScriptRunTargetResult
 }) {
-  if (!result) return <Badge variant="outline">尚未回收</Badge>
-  if (result.validation?.valid) return <Badge>JSON 正確</Badge>
-  return <Badge variant="destructive">JSON 無效</Badge>
+  if (!result) return <Badge variant="outline">等待回收</Badge>
+  if (result.validation?.valid === false) {
+    return <Badge variant="destructive">JSON 格式錯誤</Badge>
+  }
+  const judgement = result.ai_judgement
+  if (!judgement) return <Badge variant="outline">分析中</Badge>
+  if (judgement.status === "completed") {
+    const score = typeof judgement.score === "number" ? judgement.score : null
+    const maxScore =
+      typeof judgement.max_score === "number" ? judgement.max_score : 5
+    return <Badge>{score === null ? "已分析" : `${score}/${maxScore}`}</Badge>
+  }
+  if (judgement.status === "failed") {
+    return <Badge variant="destructive">AI 分析失敗</Badge>
+  }
+  if (judgement.status === "skipped") {
+    return <Badge variant="secondary">略過</Badge>
+  }
+  return <Badge variant="outline">分析中</Badge>
 }
 
 function reasonLabel(reasonCode?: string | null) {
@@ -120,6 +136,16 @@ function formatUsage(value?: number | null) {
 
 function runIsTerminal(status?: TeacherJudgeScriptRun["status"]) {
   return status === "completed" || status === "failed" || status === "cancelled"
+}
+
+function aiJudgementSummary(result?: TeacherJudgeScriptRunTargetResult) {
+  if (!result) return null
+  if (result.validation?.valid === false) {
+    return result.validation.error ?? "JSON 驗證未通過，未進入 AI 分析。"
+  }
+  const judgement = result.ai_judgement
+  if (!judgement) return "AI 分析尚未完成。"
+  return judgement.error ?? judgement.summary ?? null
 }
 
 export function AiJudgeExecutionContent({
@@ -368,8 +394,7 @@ export function AiJudgeExecutionContent({
                 <TableHead>成員</TableHead>
                 <TableHead>來源節點</TableHead>
                 <TableHead>執行狀態</TableHead>
-                <TableHead>JSON 驗證</TableHead>
-                <TableHead>結果</TableHead>
+                <TableHead>AI 分析</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -412,27 +437,59 @@ export function AiJudgeExecutionContent({
                       )}
                     </TableCell>
                     <TableCell>
-                      <JsonValidationBadge result={result} />
-                    </TableCell>
-                    <TableCell>
+                      <AiJudgementBadge result={result} />
                       {result ? (
-                        <details className="text-sm">
+                        <details className="mt-2 text-sm">
                           <summary className="cursor-pointer text-muted-foreground">
-                            展開完整 JSON
+                            查看心得
                           </summary>
-                          {result.validation?.error && (
-                            <p className="mt-2 text-destructive text-xs">
-                              {result.validation.error}
+                          {aiJudgementSummary(result) && (
+                            <p
+                              className={
+                                result.validation?.valid === false ||
+                                result.ai_judgement?.status === "failed"
+                                  ? "mt-2 text-destructive text-xs"
+                                  : "mt-2 text-muted-foreground text-xs"
+                              }
+                            >
+                              {aiJudgementSummary(result)}
                             </p>
                           )}
-                          <pre className="mt-2 max-h-72 overflow-auto rounded-md bg-muted p-3 text-xs">
-                            {JSON.stringify(result, null, 2)}
-                          </pre>
+                          {result.ai_judgement?.item_judgements?.length ? (
+                            <div className="mt-2 space-y-2">
+                              {result.ai_judgement.item_judgements.map(
+                                (item, index) => (
+                                  <div
+                                    key={`${item.item_id ?? "item"}-${index}`}
+                                    className="rounded-md bg-muted p-3 text-xs"
+                                  >
+                                    <div className="flex flex-wrap items-center justify-between gap-2">
+                                      <span className="font-medium text-foreground">
+                                        {item.title ??
+                                          item.item_id ??
+                                          "評分項目"}
+                                      </span>
+                                      {typeof item.score === "number" && (
+                                        <Badge variant="outline">
+                                          {item.score}/{item.max_score ?? 1}
+                                        </Badge>
+                                      )}
+                                    </div>
+                                    {item.comment && (
+                                      <p className="mt-1 text-muted-foreground">
+                                        {item.comment}
+                                      </p>
+                                    )}
+                                  </div>
+                                ),
+                              )}
+                            </div>
+                          ) : null}
                         </details>
                       ) : (
-                        <span className="text-sm text-muted-foreground">
+                        <div className="mt-1 text-sm text-muted-foreground">
                           等待回收
-                        </span>
+                        </div>
                       )}
                     </TableCell>
                   </TableRow>

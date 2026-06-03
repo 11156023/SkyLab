@@ -182,6 +182,29 @@ export type TeacherJudgeScriptRunTargetResult = {
   stderr_excerpt?: string
   raw_result_json?: string
   parsed_result?: Record<string, any> | null
+  ai_judgement?: TeacherJudgeScriptRunAiJudgement | null
+}
+
+export type TeacherJudgeScriptRunAiJudgement = {
+  schema_version?: string
+  status: "pending" | "running" | "completed" | "failed" | "skipped"
+  score?: number | null
+  max_score?: number | null
+  summary?: string | null
+  error?: string | null
+  item_judgements?: TeacherJudgeScriptRunAiItemJudgement[]
+  analyzed_at?: string | null
+  model?: string | null
+}
+
+export type TeacherJudgeScriptRunAiItemJudgement = {
+  item_id?: string | null
+  title?: string | null
+  status?: "pass" | "fail" | "warning" | "unknown" | "skipped" | string
+  score?: number | null
+  max_score?: number | null
+  evidence_refs?: string[]
+  comment?: string | null
 }
 
 // ─── Service ──────────────────────────────────────────────────────────────────
