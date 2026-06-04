@@ -36,22 +36,37 @@ jobs:
         # bun.lock is generated on Windows and only locks win32 platform
         # binaries for nested esbuild (via tsx). Removing all lockfiles
         # (including package-lock.json that bun would otherwise migrate
-        # from) forces a clean resolution on this Linux runner.
+        # from) forces a clean resolution on this Linux runner. Restore the
+        # tracked lockfiles before autofix commits so install-only changes are
+        # not staged as formatting fixes.
         run: |
           rm -f ../bun.lock bun.lock ../package-lock.json package-lock.json
           bun install
+          git restore -- ../bun.lock ../package-lock.json package-lock.json
+          rm -f bun.lock
 
       - name: Apply Biome fixes
         run: bunx biome check --write .
 
       - name: Commit fixes if any
+        if: github.event.pull_request.head.repo.full_name == github.repository
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           if ! git diff --quiet; then
-            git add -A
+            git add -A .
             git commit -m "style: biome autofix"
-            git push
+            git push || echo "Unable to push autofix commit; continuing without failing CI."
+          else
+            echo "No formatting changes needed."
+          fi
+
+      - name: Skip push for forked pull requests
+        if: github.event.pull_request.head.repo.full_name != github.repository
+        run: |
+          if ! git diff --quiet; then
+            echo "Biome produced changes, but this pull request comes from a fork."
+            echo "Skipping autofix push because GITHUB_TOKEN cannot write to the fork branch."
           else
             echo "No formatting changes needed."
           fi
