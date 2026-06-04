@@ -6,12 +6,12 @@ from typing import Any
 
 from fastapi import HTTPException
 
+from app.ai.template_recommendation.capability_catalog import SUPPORTED_TEMPLATE_SLUGS
 from app.ai.template_recommendation.catalog_service import (
     TemplateCatalog,
     build_catalog_prompt_bundle,
     catalog_lookup,
 )
-from app.ai.template_recommendation.capability_catalog import SUPPORTED_TEMPLATE_SLUGS
 from app.ai.template_recommendation.config import settings
 from app.ai.template_recommendation.node_service import summarize_device_nodes
 from app.ai.template_recommendation.prompt import (

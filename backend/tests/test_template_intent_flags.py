@@ -5,7 +5,9 @@ import json
 from types import SimpleNamespace
 
 from app.ai.template_recommendation import recommendation_service
-from app.ai.template_recommendation.recommendation_service import _extract_user_signal_flags
+from app.ai.template_recommendation.recommendation_service import (
+    _extract_user_signal_flags,
+)
 from app.ai.template_recommendation.schemas import ChatMessage, ChatRequest
 
 

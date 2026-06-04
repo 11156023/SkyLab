@@ -4,7 +4,6 @@ import re
 from dataclasses import dataclass
 from typing import Any
 
-
 SUPPORTED_TEMPLATE_SLUGS = frozenset(
     {
         "wordpress",

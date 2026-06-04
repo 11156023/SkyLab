@@ -3,6 +3,7 @@ import logging
 from fastapi import APIRouter
 
 from app.api.deps import AdminUser, CurrentUser, SessionDep, VmInfoDep
+from app.api.websocket.vnc import register_vnc_session_cookie
 from app.exceptions import BadRequestError, ProxmoxError
 from app.schemas import (
     VMCreateRequest,
@@ -10,7 +11,6 @@ from app.schemas import (
     VMTemplateSchema,
     VNCInfoSchema,
 )
-from app.api.websocket.vnc import register_vnc_session_cookie
 from app.services.proxmox import provisioning_service, proxmox_service
 
 logger = logging.getLogger(__name__)
