@@ -9,6 +9,79 @@ function stripThinkTags(text) {
   return String(text || "").replace(/<think>[\s\S]*?<\/think>/gi, "").trim();
 }
 
+function escapeHtml(text) {
+  return String(text || "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
+}
+
+function renderInlineMarkdown(text) {
+  return text
+    .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
+    .replace(/`([^`\n]+)`/g, "<code>$1</code>");
+}
+
+function renderMarkdown(text) {
+  const codeBlocks = [];
+  const escaped = escapeHtml(text).replace(/```([\s\S]*?)```/g, (_, code) => {
+    const token = `@@CODE_BLOCK_${codeBlocks.length}@@`;
+    codeBlocks.push(`<pre><code>${code.trim()}</code></pre>`);
+    return `\n${token}\n`;
+  });
+
+  const lines = escaped.split(/\r?\n/);
+  const html = [];
+  let inList = false;
+
+  const closeList = () => {
+    if (!inList) return;
+    html.push("</ul>");
+    inList = false;
+  };
+
+  for (const rawLine of lines) {
+    const line = rawLine.trim();
+    if (!line) {
+      closeList();
+      continue;
+    }
+
+    const codeIndex = codeBlocks.findIndex((_, index) => line === `@@CODE_BLOCK_${index}@@`);
+    if (codeIndex >= 0) {
+      closeList();
+      html.push(codeBlocks[codeIndex]);
+      continue;
+    }
+
+    const heading = line.match(/^(#{1,3})\s+(.+)$/);
+    if (heading) {
+      closeList();
+      const level = Math.min(heading[1].length + 1, 4);
+      html.push(`<h${level}>${renderInlineMarkdown(heading[2])}</h${level}>`);
+      continue;
+    }
+
+    const listItem = line.match(/^[-*]\s+(.+)$/);
+    if (listItem) {
+      if (!inList) {
+        html.push("<ul>");
+        inList = true;
+      }
+      html.push(`<li>${renderInlineMarkdown(listItem[1])}</li>`);
+      continue;
+    }
+
+    closeList();
+    html.push(`<p>${renderInlineMarkdown(line)}</p>`);
+  }
+
+  closeList();
+  return html.join("");
+}
+
 function planSummary(data) {
   const plan = data?.final_plan;
   const prefill = plan?.form_prefill ?? {};
@@ -120,7 +193,14 @@ export default function AiSidePanel({
               <div className={styles.aiAvatar}><MIcon name="smart_toy" size={13} /></div>
             )}
             <div className={`${styles.aiMsgBubble} ${msg.role === "user" ? styles.aiMsgBubbleUser : styles.aiMsgBubbleAi}`}>
-              {msg.content}
+              {msg.role === "assistant" ? (
+                <div
+                  className={styles.aiMarkdown}
+                  dangerouslySetInnerHTML={{ __html: renderMarkdown(msg.content) }}
+                />
+              ) : (
+                msg.content
+              )}
             </div>
           </div>
         ))}
@@ -162,7 +242,7 @@ export default function AiSidePanel({
             <MIcon name="auto_fix_high" size={14} />
             產生推薦配置
           </button>
-<button
+          <button
             type="button"
             className={styles.aiSendBtn}
             onClick={send}

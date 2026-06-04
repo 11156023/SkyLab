@@ -97,7 +97,7 @@ export default function RequestFormPage({ onBack, className, quickTemplateSlug }
 
   const [closing, setClosing]   = useState(false);
   const [aiOpen, setAiOpen]     = useState(false);
-  const [rightTab, setRightTab] = useState("summary");
+  const [rightTab, setRightTab] = useState("ai");
 
   /* Service template (LXC only) */
   const [serviceTemplateName, setServiceTemplateName] = useState("");
@@ -861,8 +861,7 @@ export default function RequestFormPage({ onBack, className, quickTemplateSlug }
             ))}
           </div>
 
-          {rightTab === "summary" && (
-            <div className={styles.summaryBody}>
+          <div className={`${styles.summaryBody} ${rightTab !== "summary" ? styles.rightPanelPaneHidden : ""}`}>
               {/* Type / mode chips */}
               <div className={styles.summaryChips}>
                 <span className={`${styles.summaryChip} ${resourceType === "lxc" ? styles.summaryChipLxc : styles.summaryChipVm}`}>
@@ -992,16 +991,13 @@ export default function RequestFormPage({ onBack, className, quickTemplateSlug }
                   <span className={`${styles.summaryValue} ${styles.summaryValueMuted}`}>未選擇</span>
                 </div>
               )}
-            </div>
-          )}
+          </div>
 
-          {rightTab === "ai" && (
-            <AiSidePanel
-              className={styles.aiPanelFill}
-              recommendationContext={recommendationContext}
-              onImportPlan={applyAiPrefill}
-            />
-          )}
+          <AiSidePanel
+            className={`${styles.aiPanelFill} ${rightTab !== "ai" ? styles.rightPanelPaneHidden : ""}`}
+            recommendationContext={recommendationContext}
+            onImportPlan={applyAiPrefill}
+          />
         </div>
         )}
       </div>
