@@ -33,7 +33,13 @@ jobs:
           bun-version: latest
 
       - name: Install dependencies
-        run: bun install --frozen-lockfile
+        # bun.lock is generated on Windows and only locks win32 platform
+        # binaries for nested esbuild (via tsx). Removing all lockfiles
+        # (including package-lock.json that bun would otherwise migrate
+        # from) forces a clean resolution on this Linux runner.
+        run: |
+          rm -f ../bun.lock bun.lock ../package-lock.json package-lock.json
+          bun install
 
       - name: Apply Biome fixes
         run: bunx biome check --write .
