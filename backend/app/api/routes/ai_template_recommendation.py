@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 from collections import Counter
+from copy import deepcopy
 from datetime import datetime
 from time import monotonic, perf_counter
 from typing import Any
@@ -39,7 +40,11 @@ from app.services.proxmox import gpu_service
 logger = logging.getLogger(__name__)
 
 _GPU_OPTIONS_CACHE_TTL_SECONDS = 20.0
+_LIVE_NODES_CACHE_TTL_SECONDS = 15.0
+_RESOURCE_OPTIONS_CACHE_TTL_SECONDS = 20.0
 _gpu_options_cache: dict[str, Any] = {"at": 0.0, "items": []}
+_live_nodes_cache: dict[str, Any] = {"at": 0.0, "items": []}
+_base_resource_options_cache: dict[str, Any] = {"at": 0.0, "items": None}
 
 router = APIRouter(
     prefix="/ai/template-recommendation",
@@ -93,6 +98,53 @@ def _get_base_gpu_options_cached() -> list[dict[str, Any]]:
     _gpu_options_cache["at"] = now
     _gpu_options_cache["items"] = fresh_items
     return [dict(item) for item in fresh_items]
+
+
+def _get_live_device_nodes_cached() -> list[Any]:
+    now = monotonic()
+    cached_at = float(_live_nodes_cache.get("at") or 0.0)
+    cached_items = list(_live_nodes_cache.get("items") or [])
+    if cached_at > 0 and (now - cached_at) <= _LIVE_NODES_CACHE_TTL_SECONDS:
+        return [item.model_copy() for item in cached_items]
+
+    fresh_items = load_live_device_nodes()
+    _live_nodes_cache["at"] = now
+    _live_nodes_cache["items"] = fresh_items
+    return [item.model_copy() for item in fresh_items]
+
+
+def _get_base_resource_options_cached() -> dict[str, Any]:
+    now = monotonic()
+    cached_at = float(_base_resource_options_cache.get("at") or 0.0)
+    cached_items = _base_resource_options_cache.get("items")
+    if cached_items is not None and (now - cached_at) <= _RESOURCE_OPTIONS_CACHE_TTL_SECONDS:
+        return deepcopy(cached_items)
+
+    fresh_items = build_resource_option_bundle(gpu_options=[])
+    fresh_items["gpu_options"] = []
+    _base_resource_options_cache["at"] = now
+    _base_resource_options_cache["items"] = fresh_items
+    return deepcopy(fresh_items)
+
+
+def _build_resource_options_with_gpu(gpu_options: list[dict[str, Any]]) -> dict[str, Any]:
+    resource_options = _get_base_resource_options_cached()
+    resource_options["gpu_options"] = [dict(item) for item in gpu_options]
+    return resource_options
+
+
+def _resolve_recommend_gpu_options(request: ChatRequest, *, requires_gpu: bool) -> list[dict[str, Any]]:
+    form_context = request.form_context
+    if form_context and form_context.gpu_options:
+        return [item.model_dump(mode="json") for item in form_context.gpu_options]
+
+    selected_gpu_mapping_id = (
+        form_context.selected_gpu_mapping_id if form_context else None
+    )
+    if not requires_gpu and not selected_gpu_mapping_id:
+        return []
+
+    return _get_base_gpu_options_cached()
 
 
 def _resolve_chat_gpu_options(request: ChatRequest, session: SessionDep) -> list[dict[str, Any]]:
@@ -254,13 +306,13 @@ async def recommend(
     model_name = settings.VLLM_MODEL_NAME or "unknown"
     started_at = perf_counter()
 
-    live_nodes = load_live_device_nodes()
     extracted_intent = await extract_intent_from_chat(request)
+    live_nodes = _get_live_device_nodes_cached()
     form_context = request.form_context
-    if form_context and form_context.gpu_options:
-        gpu_options = [item.model_dump() for item in form_context.gpu_options]
-    else:
-        gpu_options = [item.model_dump() for item in gpu_service.list_gpu_options()]
+    gpu_options = _resolve_recommend_gpu_options(
+        request,
+        requires_gpu=extracted_intent.requires_gpu,
+    )
     merged_request = RecommendationRequest(
         goal=extracted_intent.goal_summary,
         role=extracted_intent.role,
@@ -276,7 +328,7 @@ async def recommend(
     )
 
     catalog = get_catalog()
-    resource_options = build_resource_option_bundle(gpu_options=gpu_options)
+    resource_options = _build_resource_options_with_gpu(gpu_options)
 
     try:
         ai_result, ai_metrics = await generate_ai_plan(

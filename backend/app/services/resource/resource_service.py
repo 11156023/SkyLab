@@ -18,6 +18,7 @@ from app.schemas.resource import (
     BatchActionResponse,
     BatchActionResultItem,
     ExtendSessionResponse,
+    ResourceStatus,
     SessionStatusResponse,
 )
 from app.services.network import firewall_service
@@ -84,6 +85,22 @@ def _resource_type_for_request(resource_type: str | None) -> str:
     return "qemu" if resource_type == "vm" else (resource_type or "")
 
 
+def _normalize_live_resource_status(value: object) -> ResourceStatus:
+    status = str(value or "").strip().lower()
+    if status in {"running", "stopped", "paused"}:
+        return status  # type: ignore[return-value]
+    return "unknown"
+
+
+def _placeholder_resource_status(req) -> ResourceStatus:
+    if req.migration_status == VMMigrationStatus.failed or req.migration_error:
+        return "failed"
+    start_at = _ensure_utc(req.start_at)
+    if start_at is not None and start_at > _utc_now():
+        return "scheduled"
+    return "provisioning"
+
+
 def _build_resource_public(
     resource: dict, db_resource, node: str, vm_type: str,
     session: Session | None = None,
@@ -112,7 +129,7 @@ def _build_resource_public(
         vmid=resource.get("vmid"),
         request_id=db_resource.request_id if db_resource else None,
         name=_from_punycode_hostname(resource.get("name", "")),
-        status=resource.get("status", ""),
+        status=_normalize_live_resource_status(resource.get("status")),
         node=node,
         type=vm_type,
         environment_type=db_resource.environment_type if db_resource else None,
@@ -242,7 +259,6 @@ def list_by_user(
                         shown_vmids.add(db_r.vmid)
 
         # 2. Approved requests not yet visible in Proxmox.
-        now = _utc_now()
         pending_requests = list(
             session.exec(
                 select(VMRequest).where(
@@ -254,22 +270,12 @@ def list_by_user(
         for req in pending_requests:
             if req.vmid and req.vmid in shown_vmids:
                 continue
-            if req.migration_status == VMMigrationStatus.failed or req.migration_error:
-                display_status = "failed"
-            else:
-                start_at = _ensure_utc(req.start_at)
-                display_status = (
-                    "scheduled"
-                    if start_at is not None and start_at > now
-                    else "provisioning"
-                )
-
             result.append(
                 ResourcePublic(
                     vmid=req.vmid,
                     request_id=req.id,
                     name=_from_punycode_hostname(req.hostname),
-                    status=display_status,
+                    status=_placeholder_resource_status(req),
                     node=req.actual_node or req.assigned_node or req.desired_node or "",
                     type=_resource_type_for_request(req.resource_type),
                     is_placeholder=True,

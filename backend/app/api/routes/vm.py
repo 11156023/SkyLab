@@ -3,6 +3,7 @@ import logging
 from fastapi import APIRouter
 
 from app.api.deps import AdminUser, CurrentUser, SessionDep, VmInfoDep
+from app.api.websocket.vnc import register_vnc_session_cookie
 from app.exceptions import BadRequestError, ProxmoxError
 from app.schemas import (
     VMCreateRequest,
@@ -18,14 +19,21 @@ router = APIRouter(prefix="/vm", tags=["vm"])
 
 
 @router.get("/{vmid}/console", response_model=VNCInfoSchema)
-def get_vm_console(vmid: int, vm_info: VmInfoDep):
+async def get_vm_console(vmid: int, vm_info: VmInfoDep):
     """Get VNC console access for a VM (requires ownership or admin)."""
     try:
         if vm_info["type"] != "qemu":
             raise BadRequestError(f"Resource {vmid} is not a QEMU VM")
 
         node = vm_info["node"]
-        console_data = proxmox_service.get_vnc_ticket(node, vmid)
+        pve_auth_cookie, csrf_token = await proxmox_service.get_session_ticket()
+        console_data = await proxmox_service.get_vnc_ticket_with_session(
+            node,
+            vmid,
+            pve_auth_cookie,
+            csrf_token,
+        )
+        register_vnc_session_cookie(vmid, str(console_data["ticket"]), pve_auth_cookie)
 
         return {
             "vmid": vmid,

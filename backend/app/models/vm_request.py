@@ -14,10 +14,13 @@ if TYPE_CHECKING:
 
 
 class VMRequestStatus(str, enum.Enum):
+    """Review lifecycle for a VM/LXC request.
+
+    Runtime resource state belongs to ResourcePublic.status, not here.
+    """
+
     pending = "pending"
     approved = "approved"
-    provisioning = "provisioning"
-    running = "running"
     rejected = "rejected"
     cancelled = "cancelled"
 

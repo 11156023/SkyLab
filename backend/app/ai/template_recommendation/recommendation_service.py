@@ -6,6 +6,7 @@ from typing import Any
 
 from fastapi import HTTPException
 
+from app.ai.template_recommendation.capability_catalog import SUPPORTED_TEMPLATE_SLUGS
 from app.ai.template_recommendation.catalog_service import (
     TemplateCatalog,
     build_catalog_prompt_bundle,
@@ -30,6 +31,80 @@ from app.infrastructure.ai.template_recommendation import client
 MIN_VM_DISK_GB = 20
 MIN_LXC_DISK_GB = 8
 
+WINDOWS_KEYWORDS = (
+    "windows",
+    "window",
+    "win11",
+    "win10",
+    "rdp",
+    "remote desktop",
+    "gui",
+    "遠端桌面",
+    "圖形介面",
+    "桌面環境",
+    "視窗",
+    "windows 遠端",
+    "windows遠端",
+)
+
+GPU_KEYWORDS = (
+    "gpu",
+    "cuda",
+    "nvidia",
+    "pytorch",
+    "tensorflow",
+    "llm",
+    "stable diffusion",
+    "comfyui",
+    "yolo",
+    "ai training",
+    "inference",
+    "模型訓練",
+    "模型推論",
+    "深度學習",
+    "機器學習",
+    "顯卡",
+    "加速卡",
+    "訓練模型",
+    "跑模型",
+)
+
+DATABASE_KEYWORDS = (
+    "database",
+    "db",
+    "mysql",
+    "postgres",
+    "postgresql",
+    "mariadb",
+    "mongodb",
+    "redis",
+    "sql",
+    "資料庫",
+    "關聯式資料庫",
+    "資料庫伺服器",
+    "儲存資料",
+    "存資料",
+)
+
+PUBLIC_WEB_KEYWORDS = (
+    "public",
+    "internet",
+    "external",
+    "domain",
+    "webhook",
+    "public ip",
+    "public-ip",
+    "外網",
+    "公開網路",
+    "網際網路",
+    "網域",
+    "域名",
+    "公開存取",
+    "對外服務",
+    "外部連線",
+    "公網",
+)
+
 
 def _extract_user_signal_flags(messages: list[ChatMessage]) -> dict[str, bool]:
     user_text = "\n".join(
@@ -41,105 +116,18 @@ def _extract_user_signal_flags(messages: list[ChatMessage]) -> dict[str, bool]:
     normalized_text = _normalize_user_text_for_intent(user_text)
 
     def _contains_any(keywords: tuple[str, ...]) -> bool:
-        return any(keyword in normalized_text for keyword in keywords)
+        return any(keyword.casefold() in normalized_text for keyword in keywords)
 
     return {
-        "needs_windows": _contains_any(
-            (
-                "windows",
-                "window",
-                "win11",
-                "win10",
-                "rdp",
-                "remote desktop",
-                "gui",
-                "視窗",
-                "視窗系統",
-                "圖形介面",
-                "桌面環境",
-                "遠端桌面",
-            )
-        ),
-        "requires_gpu": _contains_any(
-            (
-                "gpu",
-                "cuda",
-                "pytorch",
-                "tensorflow",
-                "llm",
-                "stable diffusion",
-                "comfyui",
-                "gpu訓練",
-                "gpu推論",
-                "顯卡訓練",
-                "顯卡推論",
-                "ai訓練",
-                "機器學習",
-                "深度學習",
-            )
-        ),
-        "needs_database": _contains_any(
-            (
-                "database",
-                "db",
-                "mysql",
-                "postgres",
-                "postgresql",
-                "mariadb",
-                "mongodb",
-                "redis",
-                "sql",
-                "資料庫",
-                "数据库",
-                "db服務",
-                "dbserver",
-            )
-        ),
-        "needs_public_web": _contains_any(
-            (
-                "public",
-                "internet",
-                "external",
-                "domain",
-                "公開網站",
-                "公開",
-                "外網",
-                "對外",
-                "網域",
-                "域名",
-                "公網",
-            )
-        ),
+        "needs_windows": _contains_any(WINDOWS_KEYWORDS),
+        "requires_gpu": _contains_any(GPU_KEYWORDS),
+        "needs_database": _contains_any(DATABASE_KEYWORDS),
+        "needs_public_web": _contains_any(PUBLIC_WEB_KEYWORDS),
     }
 
 
 def _normalize_user_text_for_intent(text: str) -> str:
-    normalized = text.lower()
-    replacements = {
-        "視窗": "windows",
-        "視窗系統": "windows",
-        "窗口": "windows",
-        "遠端桌面": "rdp",
-        "圖形介面": "gui",
-        "資料庫": "database",
-        "数据库": "database",
-        "對外": "external",
-        "外網": "external",
-        "公網": "public",
-        "網域": "domain",
-        "域名": "domain",
-        "顯卡": "gpu",
-        "gpu 訓練": "gpu訓練",
-        "gpu推里": "gpu推論",
-        "gpu推論": "gpu推論",
-        "gpu推理": "gpu推論",
-    }
-    for source, target in replacements.items():
-        normalized = normalized.replace(source, target)
-    return normalized
-
-
-
+    return str(text or "").casefold().replace("　", " ")
 
 
 def _minimum_disk_gb(resource_type: str) -> int:
@@ -151,9 +139,9 @@ def _gpu_option_label(option: dict[str, Any]) -> str:
     mapping_id = str(option.get("mapping_id") or "").strip()
     node = str(option.get("node") or "").strip()
     if description:
-                return description
+        return description
     if mapping_id and node:
-      return f"{mapping_id} ({node})"
+        return f"{mapping_id} ({node})"
     return mapping_id or node or "GPU"
 
 
@@ -418,6 +406,8 @@ def normalize_ai_result(
     recommended_templates: list[dict[str, Any]] = []
     for item in list(ai_result.get("recommended_templates") or []):
         slug = str(item.get("slug") or "").strip().lower()
+        if slug not in SUPPORTED_TEMPLATE_SLUGS:
+            continue
         template = lookup.get(slug)
         if not template:
             continue
@@ -432,6 +422,8 @@ def normalize_ai_result(
     possible_needed_templates: list[dict[str, Any]] = []
     for item in list(ai_result.get("possible_needed_templates") or []):
         slug = str(item.get("slug") or "").strip().lower()
+        if slug not in SUPPORTED_TEMPLATE_SLUGS:
+            continue
         template = lookup.get(slug)
         if not template or any(existing["slug"] == template.slug for existing in recommended_templates):
             continue
@@ -446,6 +438,8 @@ def normalize_ai_result(
     machines: list[dict[str, Any]] = []
     for machine in list(ai_result.get("machines") or []):
         slug = str(machine.get("template_slug") or "").strip().lower()
+        if slug not in SUPPORTED_TEMPLATE_SLUGS:
+            continue
         template = lookup.get(slug)
         if not template:
             continue

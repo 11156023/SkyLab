@@ -5,13 +5,25 @@ import { ResourcesService } from "../../../services/resources";
 import MIcon from "../../../components/MIcon";
 import styles from "./ConsoleDialog.module.scss";
 
+const CONSOLE_INFO_TIMEOUT_MS = 15000;
+
 export default function VncDialog({ resource, onClose }) {
   const vncRef      = useRef(null);
   const dialogRef   = useRef(null);
+  const requestSeq  = useRef(0);
+  const mountedRef  = useRef(true);
   const [connected, setConnected]       = useState(false);
   const [wsUrl, setWsUrl]               = useState("");
+  const [vncTicket, setVncTicket]       = useState("");
   const [error, setError]               = useState("");
   const [isFullscreen, setIsFullscreen] = useState(false);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
 
   useEffect(() => {
     const handler = () => setIsFullscreen(!!document.fullscreenElement);
@@ -21,22 +33,51 @@ export default function VncDialog({ resource, onClose }) {
 
   useEffect(() => {
     if (!resource?.vmid) return;
+    const seq = requestSeq.current + 1;
+    requestSeq.current = seq;
+    let cancelled = false;
+
+    setConnected(false);
+    setWsUrl("");
+    setVncTicket("");
+    setError("");
+
+    const timeoutId = window.setTimeout(() => {
+      if (cancelled || requestSeq.current !== seq || !mountedRef.current) return;
+      setError("取得控制台資訊逾時，請稍後再試。");
+    }, CONSOLE_INFO_TIMEOUT_MS);
+
     ResourcesService.getConsole(resource.vmid)
       .then((data) => {
+        if (cancelled || requestSeq.current !== seq || !mountedRef.current) return;
+        window.clearTimeout(timeoutId);
         const apiUrl = new URL(import.meta.env.VITE_API_URL || `${window.location.protocol}//${window.location.host}`);
         const proto  = apiUrl.protocol === "https:" ? "wss:" : "ws:";
         const token  = AuthStorage.getAccessToken() ?? "";
         const ticket = data.ticket ?? "";
         const port   = data.port   ?? "";
+        if (!ticket) {
+          setError("無法取得 VNC ticket");
+          return;
+        }
         let url = `${proto}//${apiUrl.host}/ws/vnc/${resource.vmid}?token=${encodeURIComponent(token)}&vnc_ticket=${encodeURIComponent(ticket)}`;
         if (port) url += `&vnc_port=${encodeURIComponent(port)}`;
+        setVncTicket(ticket);
         setWsUrl(url);
       })
-      .catch((e) => setError(e.message ?? "無法取得控制台資訊"));
+      .catch((e) => {
+        if (cancelled || requestSeq.current !== seq || !mountedRef.current) return;
+        window.clearTimeout(timeoutId);
+        setError(e.message ?? "無法取得控制台資訊");
+      });
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timeoutId);
+    };
   }, [resource?.vmid]);
 
   function handleClose() {
-    vncRef.current?.disconnect?.();
     onClose();
   }
 
@@ -98,9 +139,16 @@ export default function VncDialog({ resource, onClose }) {
             <VncScreen
               ref={vncRef}
               url={wsUrl}
+              rfbOptions={{
+                credentials: {
+                  username: "",
+                  password: vncTicket,
+                  target: "",
+                },
+              }}
               style={{ width: "100%", height: "100%" }}
-              onConnect={() => setConnected(true)}
-              onDisconnect={() => setConnected(false)}
+              onConnect={() => mountedRef.current && setConnected(true)}
+              onDisconnect={() => mountedRef.current && setConnected(false)}
               scaleViewport
               background="#1e1e1e"
             />

@@ -1,9 +1,11 @@
 import asyncio
 import logging
+from time import monotonic
 from urllib.parse import quote  # used for vncticket query param only
 
 import websockets
 from fastapi import WebSocket, WebSocketDisconnect
+from starlette.websockets import WebSocketState
 
 from app.api.deps.auth import get_ws_current_user
 from app.api.deps.proxmox import check_resource_ownership
@@ -16,6 +18,48 @@ from app.infrastructure.proxmox import (
 from app.services.proxmox import proxmox_service
 
 logger = logging.getLogger(__name__)
+_VNC_SESSION_CACHE_TTL_SECONDS = 90.0
+_vnc_session_cookies: dict[tuple[int, str], tuple[str, float]] = {}
+
+
+def register_vnc_session_cookie(vmid: int, vnc_ticket: str, pve_auth_cookie: str) -> None:
+    _purge_expired_vnc_session_cookies()
+    _vnc_session_cookies[(int(vmid), str(vnc_ticket))] = (
+        pve_auth_cookie,
+        monotonic() + _VNC_SESSION_CACHE_TTL_SECONDS,
+    )
+
+
+def _get_cached_vnc_session_cookie(vmid: int, vnc_ticket: str) -> str | None:
+    _purge_expired_vnc_session_cookies()
+    item = _vnc_session_cookies.get((int(vmid), str(vnc_ticket)))
+    return item[0] if item else None
+
+
+def _purge_expired_vnc_session_cookies() -> None:
+    now = monotonic()
+    for key, (_cookie, expires_at) in list(_vnc_session_cookies.items()):
+        if expires_at <= now:
+            _vnc_session_cookies.pop(key, None)
+
+
+async def _safe_close_websocket(
+    websocket: WebSocket,
+    *,
+    code: int,
+    reason: str = "",
+) -> None:
+    if websocket.application_state == WebSocketState.DISCONNECTED:
+        return
+    try:
+        await websocket.close(code=code, reason=reason)
+    except RuntimeError as exc:
+        if "close message has been sent" not in str(exc):
+            raise
+    except AttributeError as exc:
+        # uvicorn + websockets can raise this while closing a failed handshake.
+        if "transfer_data_task" not in str(exc):
+            raise
 
 
 async def vnc_proxy(
@@ -38,7 +82,7 @@ async def vnc_proxy(
         check_resource_ownership(vmid, user, session)
     except Exception:
         session.close()
-        await websocket.close(code=1008, reason="Permission denied")
+        await _safe_close_websocket(websocket, code=1008, reason="Permission denied")
         return
 
     await websocket.accept()
@@ -47,20 +91,21 @@ async def vnc_proxy(
     pve_websocket = None
 
     try:
-        # Get session ticket (password-based, required for PVE WebSocket)
-        try:
-            pve_auth_cookie, _ = await proxmox_service.get_session_ticket()
-        except ProxmoxError:
-            logger.error("Proxmox session authentication failed")
-            await websocket.close(code=1008, reason="Authentication failed")
-            return
+        pve_auth_cookie = _get_cached_vnc_session_cookie(vmid, vnc_ticket) if vnc_ticket else None
+        if pve_auth_cookie is None:
+            try:
+                pve_auth_cookie, _ = await proxmox_service.get_session_ticket()
+            except ProxmoxError:
+                logger.error("Proxmox session authentication failed")
+                await _safe_close_websocket(websocket, code=1008, reason="Authentication failed")
+                return
 
         # Find VM in cluster resources
         try:
             vm_info = await asyncio.to_thread(proxmox_service.find_resource, vmid)
         except NotFoundError:
             logger.error(f"VM {vmid} not found in cluster")
-            await websocket.close(code=1008, reason="VM not found")
+            await _safe_close_websocket(websocket, code=1008, reason="VM not found")
             return
 
         node = vm_info["node"]
@@ -68,10 +113,18 @@ async def vnc_proxy(
         # Re-use the ticket/port from the REST endpoint when available,
         # so the noVNC client authenticates with the same ticket.
         if not (vnc_ticket and vnc_port):
-            console_data = await asyncio.to_thread(
-                proxmox_service.get_vnc_ticket,
+            csrf_token = ""
+            try:
+                pve_auth_cookie, csrf_token = await proxmox_service.get_session_ticket()
+            except ProxmoxError:
+                logger.error("Proxmox session authentication failed")
+                await _safe_close_websocket(websocket, code=1008, reason="Authentication failed")
+                return
+            console_data = await proxmox_service.get_vnc_ticket_with_session(
                 node,
                 vmid,
+                pve_auth_cookie,
+                csrf_token,
             )
             vnc_port = console_data["port"]
             vnc_ticket = console_data["ticket"]
@@ -106,11 +159,11 @@ async def vnc_proxy(
             logger.error(
                 f"Proxmox WebSocket rejected: HTTP {e.response.status_code}"
             )
-            await websocket.close(code=1008, reason="Proxmox connection failed")
+            await _safe_close_websocket(websocket, code=1008, reason="Proxmox connection failed")
             return
         except Exception as e:
             logger.error(f"Proxmox WebSocket connection failed ({type(e).__name__}): {e}")
-            await websocket.close(code=1008, reason="Proxmox connection failed")
+            await _safe_close_websocket(websocket, code=1008, reason="Proxmox connection failed")
             return
 
         logger.info(f"WebSocket proxy established for VM {vmid}")
@@ -170,7 +223,7 @@ async def vnc_proxy(
 
     except Exception as e:
         logger.error(f"Failed to establish WebSocket proxy: {e}", exc_info=True)
-        await websocket.close(code=1011, reason="Internal server error")
+        await _safe_close_websocket(websocket, code=1011, reason="Internal server error")
     finally:
         if pve_websocket:
             await pve_websocket.close()

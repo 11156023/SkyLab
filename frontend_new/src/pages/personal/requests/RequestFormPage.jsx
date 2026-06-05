@@ -1,4 +1,4 @@
-import { useContext, useEffect, useRef, useState } from "react";
+import { useContext, useEffect, useMemo, useRef, useState } from "react";
 import rawData from "virtual:templates";
 import styles from "./RequestFormPage.module.scss";
 import { LayoutContext } from "../../../layout/DashboardLayout";
@@ -97,7 +97,7 @@ export default function RequestFormPage({ onBack, className, quickTemplateSlug }
 
   const [closing, setClosing]   = useState(false);
   const [aiOpen, setAiOpen]     = useState(false);
-  const [rightTab, setRightTab] = useState("summary");
+  const [rightTab, setRightTab] = useState("ai");
 
   /* Service template (LXC only) */
   const [serviceTemplateName, setServiceTemplateName] = useState("");
@@ -220,6 +220,63 @@ export default function RequestFormPage({ onBack, className, quickTemplateSlug }
   function set(key, val) {
     setForm((prev) => ({ ...prev, [key]: val }));
     if (errors[key]) setErrors((prev) => ({ ...prev, [key]: "" }));
+  }
+
+  const recommendationContext = useMemo(() => ({
+    resource_type: resourceType,
+    mode: mode === "quick_template" ? "immediate" : mode,
+    start_at: form.start_at || null,
+    end_at: form.end_at || null,
+    selected_gpu_mapping_id: form.gpu_mapping_id || null,
+    gpu_options: gpuOptions,
+  }), [resourceType, mode, form.start_at, form.end_at, form.gpu_mapping_id, gpuOptions]);
+
+  function applyAiPrefill(prefill) {
+    if (!prefill) return;
+    const nextResourceType = prefill.resource_type === "vm" ? "vm" : "lxc";
+    setResourceType(nextResourceType);
+
+    if (nextResourceType === "lxc") {
+      const slug = prefill.service_template_slug || prefill.lxc_template_slug || "";
+      const template = slug ? getQuickTemplate(slug) : null;
+      setServiceTemplateSlug(slug);
+      setServiceTemplateName(template?.name || slug || "");
+    } else {
+      setServiceTemplateSlug("");
+      setServiceTemplateName("");
+    }
+
+    setForm((prev) => {
+      const disk = Number(prefill.disk_gb || 0);
+      return {
+        ...prev,
+        hostname: prefill.hostname ? normalizeHostname(prefill.hostname) : prev.hostname,
+        ostemplate: nextResourceType === "lxc"
+          ? (prefill.lxc_os_image || prev.ostemplate)
+          : prev.ostemplate,
+        os_info: prefill.vm_os_choice || prev.os_info,
+        template_id: nextResourceType === "vm" && prefill.vm_template_id
+          ? String(prefill.vm_template_id)
+          : prev.template_id,
+        username: nextResourceType === "vm" && prefill.username
+          ? prefill.username
+          : prev.username,
+        cores: prefill.cores ? Number(prefill.cores) : prev.cores,
+        memory: prefill.memory_mb ? Number(prefill.memory_mb) : prev.memory,
+        rootfs_size: nextResourceType === "lxc" && disk
+          ? Math.max(8, disk)
+          : prev.rootfs_size,
+        disk_size: nextResourceType === "vm" && disk
+          ? Math.max(20, disk)
+          : prev.disk_size,
+        gpu_mapping_id: nextResourceType === "vm" && prefill.gpu_mapping_id
+          ? prefill.gpu_mapping_id
+          : prev.gpu_mapping_id,
+        reason: prefill.reason || prev.reason,
+      };
+    });
+    setErrors({});
+    toast.success("已匯入 AI 推薦配置，請確認欄位後送出。");
   }
 
   function handleBack() {
@@ -776,7 +833,13 @@ export default function RequestFormPage({ onBack, className, quickTemplateSlug }
         </div>
 
         {/* Mobile AI 側欄 */}
-        {aiOpen && <AiSidePanel className={styles.aiPanelMobile} />}
+        {aiOpen && (
+          <AiSidePanel
+            className={styles.aiPanelMobile}
+            recommendationContext={recommendationContext}
+            onImportPlan={applyAiPrefill}
+          />
+        )}
 
         {/* Desktop 右側面板（摘要 + AI）*/}
         {!isQuickTemplate && (
@@ -798,8 +861,7 @@ export default function RequestFormPage({ onBack, className, quickTemplateSlug }
             ))}
           </div>
 
-          {rightTab === "summary" && (
-            <div className={styles.summaryBody}>
+          <div className={`${styles.summaryBody} ${rightTab !== "summary" ? styles.rightPanelPaneHidden : ""}`}>
               {/* Type / mode chips */}
               <div className={styles.summaryChips}>
                 <span className={`${styles.summaryChip} ${resourceType === "lxc" ? styles.summaryChipLxc : styles.summaryChipVm}`}>
@@ -929,10 +991,13 @@ export default function RequestFormPage({ onBack, className, quickTemplateSlug }
                   <span className={`${styles.summaryValue} ${styles.summaryValueMuted}`}>未選擇</span>
                 </div>
               )}
-            </div>
-          )}
+          </div>
 
-          {rightTab === "ai" && <AiSidePanel className={styles.aiPanelFill} />}
+          <AiSidePanel
+            className={`${styles.aiPanelFill} ${rightTab !== "ai" ? styles.rightPanelPaneHidden : ""}`}
+            recommendationContext={recommendationContext}
+            onImportPlan={applyAiPrefill}
+          />
         </div>
         )}
       </div>
