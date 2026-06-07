@@ -7,7 +7,7 @@ python-dotenv>=1.0
 openai>=1.0
 httpx>=0.25
 
-# Web UI 依賴
+# API Gateway 依賴
 fastapi>=0.115.0
 uvicorn[standard]>=0.32.0
 python-multipart>=0.0.27

@@ -1,173 +1,99 @@
-# vLLM Service — Multi-Model Gateway Web UI
+# vLLM Service — API Gateway
 
-`vllm-service/` 的 Web 前端與 Gateway：FastAPI 統一閘道（將請求轉發到多個 vLLM 模型實例）+ React 18（Vite + Tailwind）。本服務面對的是**多模型叢集**，前端可在送出請求前選擇要使用哪一個模型 alias。
+`vllm-service/webapp/backend/main.py` 是純 FastAPI API Gateway。它負責把 OpenAI-compatible
+請求依 `model` alias 轉發到對應的 vLLM instance；本目錄不再提供 React/Vite 前端。
 
 ## 功能
 
-- 多模型路由：依 `model` 參數轉發到對應上游 vLLM 實例
-- SSE 串流輸出
-- 圖片 / 影片 / 文件多模態
-- inflight semaphore 保護（避免 Gateway 被打爆）
+- 多模型路由：依 `model` 參數轉發到對應上游 vLLM instance
+- OpenAI-compatible API：`/v1/models`、`/v1/chat/completions`、`/v1/completions`
+- 相容 demo/integration API：`/api/chat*`、圖片、文件、影片串流端點
+- SSE 串流轉發
+- inflight semaphore 保護
 - 模型列表 60 秒快取
-- 上傳檔案大小 / 類型驗證
+- 上傳檔案大小與類型驗證
 - 上游連線池與非同步轉發
 
 ## 架構
 
-```
+```text
 vllm-service/
 ├── main.py                       # 啟動入口：single 或 gateway/cluster
 ├── models.json                   # 多模型實例設定
-├── models.json.example
 ├── config/
 │   ├── settings.py               # 共用設定
 │   └── multi_model.py            # 載入 models.json + Gateway 設定
 ├── core/
 │   ├── engine.py                 # 單一 vLLM 實例啟停
 │   └── cluster.py                # MultiModelEngineManager
-├── api/                          # 上游 client
-├── benchmark/, utils/            # 共用 benchmark 與多模態工具
-├── webapp/
-│   ├── backend/main.py           # FastAPI Gateway（路由到對應模型）
-│   └── frontend/                 # React 18 + Vite
-└── start_webapp.sh
+└── webapp/
+    └── backend/main.py           # FastAPI API Gateway
 ```
 
 ## Gateway API
 
-Gateway 預設位於 port 3000，會接收前端請求並依 `model` 參數轉發到對應上游模型 endpoint。
+Gateway 預設位於 port `3000`，主 backend 以 `AI_API_BASE_URL=http://localhost:3000`
+對接，並自行 append `/v1/...` 路徑。
 
 | 端點 | 方法 | 說明 |
 | --- | --- | --- |
-| `/api/models` | GET | 列出所有可用模型與 alias（60 秒 cache） |
-| `/api/chat` | POST | 文字對話；以 `model` 指定 alias，未指定則使用 `GATEWAY_DEFAULT_MODEL` |
-| `/api/chat/stream` | POST | 串流對話 |
-| `/api/chat/vision` | POST | 圖片對話 |
-| `/api/chat/vision/stream` | POST | 圖片對話（串流） |
-| `/api/chat/video` | POST | 影片分析 |
-| `/api/chat/document` | POST | 文件分析 |
-
-> 上游 vLLM 實例本身仍對外提供原生 OpenAI 相容 `/v1/...` API，但**通常只在 Gateway 內部呼叫**。
-
-## models.json 範例
-
-```json
-[
-  {
-    "alias": "qwen-9b",
-    "model_name": "./AImodels/Qwen3.5-9B",
-    "api_port": 8101,
-    "max_model_len": 32768,
-    "gpu_memory_utilization": 0.15,
-    "max_num_seqs": 48,
-    "max_num_batched_tokens": 65536
-  },
-  {
-    "alias": "qwen-235b",
-    "model_name": "nvidia/Qwen3-235B-A22B-NVFP4",
-    "api_port": 8102,
-    "max_model_len": 4096,
-    "gpu_memory_utilization": 0.95,
-    "max_num_seqs": 64
-  }
-]
-```
-
-每個項目都會獨立啟動一個 vLLM 實例（在自己的 `api_port` 上），並覆寫 `.env` 中的對應預設值。
-
-## 共用 .env
-
-```env
-# Gateway
-GATEWAY_HOST=0.0.0.0
-GATEWAY_PORT=3000
-GATEWAY_REQUEST_TIMEOUT=120
-GATEWAY_MAX_INFLIGHT=48
-GATEWAY_DEFAULT_MODEL=qwen-9b
-
-# 共用引擎預設值（會被 models.json 覆寫）
-HF_CACHE_DIR=/raid/hf-cache/hub
-TRUST_REMOTE_CODE=true
-DTYPE=auto
-ENABLE_PREFIX_CACHING=true
-GPU_MEMORY_UTILIZATION=0.9
-```
+| `/health` | GET | Gateway liveness |
+| `/ready` | GET | 檢查已設定的上游模型健康狀態 |
+| `/v1/models` | GET | OpenAI-compatible 模型列表 |
+| `/v1/chat/completions` | POST | OpenAI-compatible chat completions proxy |
+| `/v1/completions` | POST | OpenAI-compatible completions proxy |
+| `/api/model-info` | GET | 相容既有工具的模型資訊 |
+| `/api/config` | GET | 相容既有工具的推論預設值 |
+| `/api/chat` | POST | 相容既有工具的文字對話 |
+| `/api/chat/stream` | POST | 相容既有工具的文字串流 |
+| `/api/chat/vision/stream` | POST | 圖片串流分析 |
+| `/api/chat/document/stream` | POST | 文件串流分析 |
+| `/api/chat/video/info` | POST | 影片預檢資訊 |
+| `/api/chat/video/stream` | POST | 影片串流分析 |
 
 ## 啟動
 
-### 完整叢集
+完整多模型 Gateway：
 
 ```bash
-source .venv/bin/activate
-pip install -r requirements.txt
-
-cp .env.example .env             # 編輯 GATEWAY_*、HF_CACHE_DIR、…
+cd vllm-service
+cp .env.example .env
 cp models.json.example models.json
-# 編輯 models.json：加入你的模型路徑、port、GPU 配額
 
-python main.py
+pip install -r requirements.txt
+# 依 GPU/CUDA/平台版本另行安裝 vllm
+
+python main.py gateway
 ```
 
-`main.py` 會：
-
-1. 執行 pre-flight system check
-2. 載入 `models.json` 與共用 `.env`
-3. 透過 `MultiModelEngineManager` 依序啟動每個 vLLM 實例（5 秒間隔，任一失敗即中止）
-4. 啟動 Gateway（`uvicorn webapp.backend.main:app`）
-5. 等待所有引擎與 Gateway `/health` OK 後才宣告就緒
-
-### 透過 Gateway 呼叫
+只啟動 Gateway API 而不由 launcher 管理模型時：
 
 ```bash
-curl http://localhost:3000/api/chat \
-  -H "Authorization: Bearer Rushia_Secret_Key_Change_Me" \
+cd vllm-service
+python -m uvicorn webapp.backend.main:app --host 0.0.0.0 --port 3000
+```
+
+## 呼叫範例
+
+```bash
+curl http://localhost:3000/v1/models \
+  -H "Authorization: Bearer vllm-secret-key-change-me"
+```
+
+```bash
+curl http://localhost:3000/v1/chat/completions \
+  -H "Authorization: Bearer vllm-secret-key-change-me" \
   -H "Content-Type: application/json" \
-  -d '{"message": "你好", "model": "qwen-9b"}'
-```
-
-### 前端開發模式
-
-```bash
-cd webapp/frontend
-npm install
-npm run dev          # http://localhost:5173
-```
-
-前端 dev server 會將 `/api` proxy 到 `http://localhost:3000`。
-
-### 前端 production
-
-```bash
-cd webapp/frontend
-npm install
-npm run build
-
-# Gateway 會直接提供 dist/ 靜態檔
-# 開啟 http://localhost:3000
+  -d '{
+    "model": "qwen3-14b",
+    "messages": [{"role": "user", "content": "你好"}],
+    "stream": false
+  }'
 ```
 
 ## 設計重點
 
-- **Sequential startup**：`MultiModelEngineManager._start_sequential()` 一次起一個引擎，避免 GPU 同時搶資源
-- **Gateway semaphore**：`GATEWAY_MAX_INFLIGHT` 限制同時轉發的請求數
-- **模型快取**：`/api/models` 會快取上游 `/v1/models` 60 秒
-- **檔案上傳**：使用 `aiofiles` 異步處理，<50 MB 限制，圖片 / 影片 / 文件型別檢查
-- **串流轉發**：Gateway 直接把上游 SSE chunk 透傳到前端
-
-## 與舊服務的差別
-
-| | 舊 `vllm-inference` | 舊 `vllm-API` | 新 `vllm-service` |
-| --- | --- | --- | --- |
-| 範疇 | 單一模型 | 多模型 | 單模型 + 多模型 |
-| 設定 | `.env` | `.env` + `models.json` | `.env` + 可選 `models.json` |
-| 啟動 | 單一 vLLM engine | 多個 engine + Gateway | `single` 或 `gateway` |
-| 路由 | 直接到 vLLM | Gateway 依 `model` 轉發 | 直接 vLLM 或 Gateway |
-| Port | API port = 8000 | 多個 model port + Gateway = 3000 | API port 或 Gateway port |
-| 適用 | 單模型實驗 / MVP | 校園叢集 / 成本最佳化 | canonical 維護入口 |
-
-## 故障排除
-
-- Gateway 無法啟動：確認 `models.json` 中所有 `api_port` 都已被對應的 vLLM 引擎成功啟動
-- `/api/models` 為空：上游引擎尚未 ready，等待 health check 通過
-- 上傳檔案被拒：檢查大小（< 50 MB）與型別
-- 串流中斷：調整 `GATEWAY_REQUEST_TIMEOUT`
+- `main.py gateway` 會啟動多個 vLLM instance，再啟動 `webapp.backend.main:app`。
+- `GATEWAY_MAX_INFLIGHT` 限制同時轉發的請求數，避免 Gateway 被打爆。
+- `models.json` 是多模型 alias 與 per-model port 的唯一來源。
+- 本服務不再提供瀏覽器前端；請用 SkyLab 主 frontend 或其他 OpenAI-compatible client 呼叫。

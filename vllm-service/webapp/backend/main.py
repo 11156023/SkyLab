@@ -1,5 +1,5 @@
 """
-FastAPI Web 服務 - 提供 React UI 和 API 代理
+FastAPI API Gateway service for vLLM-compatible model routing.
 """
 
 from __future__ import annotations
@@ -21,7 +21,6 @@ import aiofiles
 from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, Response, StreamingResponse
-from fastapi.staticfiles import StaticFiles
 from PIL import Image
 from pydantic import BaseModel
 
@@ -42,7 +41,7 @@ from config.settings import get_settings  # noqa: E402
 logger = logging.getLogger(__name__)
 
 # 初始化
-app = FastAPI(title="vLLM Web UI", version="1.0.0")
+app = FastAPI(title="vLLM API Gateway", version="1.0.0")
 settings = get_settings()
 client = ModelClient(settings)
 
@@ -472,7 +471,7 @@ async def openai_completions(request: Request) -> Response:
 async def root():
     """根路徑"""
     return {
-        "service": "vLLM Web UI",
+        "service": "vLLM API Gateway",
         "model": client.model_name,
         "is_vision_model": client.is_vision_model,
         "status": "running"
@@ -494,7 +493,7 @@ async def model_info():
 
 @app.get("/api/config")
 async def get_config():
-    """獲取推論配置 - 給前端使用"""
+    """獲取推論配置。"""
     return {
         "default_max_tokens": settings.default_max_tokens,
         "default_temperature": settings.default_temperature,
@@ -833,7 +832,7 @@ async def chat_video_info(
 ):
     """
     影片預檢 - 回傳影片元資料與預估分段數
-    前端可在上傳影片後即時顯示資訊
+    呼叫端可在上傳影片後取得預檢資訊。
     """
     if not client.is_image_capable:
         raise HTTPException(status_code=400, detail="當前模型不支援視覺輸入")
@@ -962,17 +961,6 @@ async def chat_video_stream(
             "Connection": "keep-alive",
         },
     )
-
-
-# ============================================================
-# 靜態檔案 (React build)
-# ============================================================
-
-# 生產環境：掛載 React build 目錄
-frontend_dist = Path(__file__).parent.parent / "frontend" / "dist"
-if frontend_dist.exists():
-    app.mount("/", StaticFiles(directory=str(frontend_dist), html=True), name="static")
-
 
 if __name__ == "__main__":
     import uvicorn

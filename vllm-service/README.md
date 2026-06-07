@@ -87,9 +87,14 @@ AI_API_API_KEY=vllm-secret-key-change-me
 | `core/cluster.py` | 多模型 instance 生命週期 |
 | `config/settings.py` | 共用 vLLM 設定 |
 | `config/multi_model.py` | `models.json` 載入、Gateway route 建立 |
-| `webapp/backend/main.py` | Gateway 與 demo Web API |
+| `webapp/backend/main.py` | 純 FastAPI Gateway/API service；不提供前端 |
 | `tools/` | 單模型呼叫工具與 SkyLab AI 整合測試 |
 | `benchmark/` | async / ShareGPT benchmark |
+
+## 前端狀態
+
+`vllm-service` 只提供推論服務與 API Gateway，不再維護 React/Vite 前端。
+若需要互動介面，請由 SkyLab 主 frontend 或外部 OpenAI-compatible client 呼叫 Gateway。
 
 ## 舊目錄狀態
 

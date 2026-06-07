@@ -1,107 +1,79 @@
-# Web UI 快速啟動指南
+# API Gateway 快速啟動指南
 
-## 🚀 啟動步驟
-
-### 1. 確保 vLLM 服務運行
+## 1. 準備設定
 
 ```bash
-# 啟動 vLLM 服務（如未啟動）
-python main.py
+cd vllm-service
+cp .env.example .env
+cp models.json.example models.json
 ```
 
-### 2. 一鍵啟動 Web UI
+依實際環境編輯：
+
+- `.env`：`API_KEY`、`GATEWAY_HOST`、`GATEWAY_PORT`、`HF_CACHE_DIR`
+- `models.json`：模型 `alias`、`model_name`、`api_port`、GPU 配額
+
+## 2. 安裝依賴
 
 ```bash
-# 執行啟動腳本
-./start_webapp.sh
+pip install -r requirements.txt
 ```
 
-### 3. 訪問應用
+`vllm` 需依 GPU/CUDA/平台版本另外安裝。
 
-開啟瀏覽器訪問: **http://localhost:5173**
-
----
-
-## 📝 手動啟動（開發模式）
-
-### 終端 1 - 後端
+## 3. 啟動多模型 Gateway
 
 ```bash
-cd webapp/backend
-pip install fastapi uvicorn[standard] python-multipart
-python main.py
+python main.py gateway
 ```
 
-### 終端 2 - 前端
+或使用薄封裝腳本：
 
 ```bash
-cd webapp/frontend
-npm install
-npm run dev
+bash ./start_multi_model_gateway.sh
 ```
 
----
+Gateway 預設位於 `http://localhost:3000`。
 
-## 🎨 功能展示
-
-### ✅ 文字聊天（流式輸出）
-
-1. 在輸入框輸入訊息
-2. 觀察實時流式回應
-3. 每次對話獨立，不保存歷史
-
-### ✅ 圖片辨識（視覺模型）
-
-1. 點擊「上傳圖片」
-2. 選擇圖片檔案
-3. 輸入問題
-4. 實時查看分析結果
-
----
-
-## 🐛 常見問題
-
-### Q: 無法連接到後端？
-
-**A**: 確認 vLLM 服務運行在 `http://localhost:8000`
+## 4. 驗證
 
 ```bash
-curl http://localhost:8000/health
+curl http://localhost:3000/health
+curl http://localhost:3000/v1/models \
+  -H "Authorization: Bearer vllm-secret-key-change-me"
 ```
 
-### Q: 圖片上傳不支援？
-
-**A**: 當前模型必須是視覺模型（如 Qwen-VL）
-
-檢查 `.env` 文件中的 `MODEL_NAME`
-
-### Q: 前端無法啟動？
-
-**A**: 確認 Node.js 版本
+Chat completion：
 
 ```bash
-node --version  # 需要 v18+
+curl http://localhost:3000/v1/chat/completions \
+  -H "Authorization: Bearer vllm-secret-key-change-me" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "qwen3-14b",
+    "messages": [{"role": "user", "content": "你好"}]
+  }'
 ```
 
----
+## 常見問題
 
-## 📦 專案結構
+### Gateway 無法啟動
 
+檢查 `models.json` 的 `api_port` 是否重複或已被其他程序佔用。
+
+### `/ready` 回傳 503
+
+代表至少一個上游模型尚未 ready。查看 `logs/` 內的 vLLM instance 與 Gateway 日誌。
+
+### `/v1/models` 沒有模型
+
+確認 `models.json` 有有效 alias，且 Gateway 使用同一份設定啟動。
+
+### 主 backend 無法呼叫 Gateway
+
+確認主專案 `.env`：
+
+```env
+AI_API_BASE_URL=http://localhost:3000
+AI_API_API_KEY=vllm-secret-key-change-me
 ```
-webapp/
-├── backend/
-│   └── main.py          # FastAPI 服務
-├── frontend/
-│   ├── src/
-│   │   ├── App.jsx      # 主應用
-│   │   ├── components/  # React 組件
-│   │   └── index.css    # 樣式
-│   ├── package.json
-│   └── vite.config.js
-├── README.md            # 完整文檔
-└── QUICKSTART.md        # 本文件
-```
-
----
-
-**享受優雅的 AI 對話體驗！✨**

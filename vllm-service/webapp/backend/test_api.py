@@ -1,5 +1,5 @@
 """
-Web UI 測試腳本 - 測試 FastAPI 後端的各個端點
+API Gateway 測試腳本 - 測試 FastAPI 服務的各個端點
 """
 
 from __future__ import annotations
@@ -143,7 +143,7 @@ async def test_vision_chat(image_path: str | Path):
 
 async def main():
     console.print(Panel.fit(
-        "[bold magenta]vLLM Web UI 後端測試[/bold magenta]",
+        "[bold magenta]vLLM API Gateway 測試[/bold magenta]",
         border_style="magenta"
     ))
     
@@ -153,7 +153,7 @@ async def main():
             await client.get("http://localhost:3000/")
     except httpx.ConnectError:
         console.print("\n❌ 無法連接到後端服務 (http://localhost:3000)", style="red")
-        console.print("請先啟動後端: python webapp/backend/main.py", style="yellow")
+        console.print("請先啟動 Gateway: python webapp/backend/main.py", style="yellow")
         return
     
     # 運行測試

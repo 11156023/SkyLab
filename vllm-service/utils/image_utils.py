@@ -234,7 +234,7 @@ def create_multimodal_content_from_base64(
     """
     從已編碼的 Base64 創建多模態內容
     
-    用於處理前端上傳的圖片（已經是 Base64 格式）
+    用於處理呼叫端上傳的圖片（已經是 Base64 格式）
     
     Args:
         text: 文字提示
