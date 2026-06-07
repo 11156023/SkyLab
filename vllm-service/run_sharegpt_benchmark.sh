@@ -45,6 +45,7 @@ print_help() {
     echo ""
     echo -e "${YELLOW}選項:${NC}"
     echo "  --interactive           強制進入詢問式流程"
+    echo "  --target TARGET         非互動：gateway 或 single (預設: gateway)"
     echo "  --download              下載 ShareGPT_V3 數據集"
     echo "  -d, --dataset PATH      進階：ShareGPT 數據集路徑 (默認: ${DEFAULT_DATASET})"
     echo "  -n, --num-samples N     進階：採樣數量 (不指定則使用全部)"
@@ -93,6 +94,7 @@ TEMPERATURE="0.7"
 SEED="42"
 NO_SAVE=""
 DOWNLOAD_ONLY=false
+TARGET="gateway"
 
 while [[ $# -gt 0 ]]; do
     case $1 in
@@ -130,6 +132,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         --interactive)
             exec python3 run_sharegpt_benchmark.py --interactive
+            ;;
+        --target)
+            TARGET="$2"
+            shift 2
             ;;
         -h|--help)
             print_help
@@ -201,10 +207,12 @@ echo "  數據集:         $DATASET"
 [[ -n "$MAX_TOKENS" ]] && echo "  最大 Token:     $MAX_TOKENS"
 echo "  溫度:           $TEMPERATURE"
 echo "  隨機種子:       $SEED"
+echo "  服務目標:       $TARGET"
 echo ""
 
 # 構建命令
 CMD="python3 run_sharegpt_benchmark.py \"$DATASET\""
+CMD="$CMD --target $TARGET"
 [[ -n "$NUM_SAMPLES" ]] && CMD="$CMD -n $NUM_SAMPLES"
 [[ -n "$CONCURRENCY" ]] && CMD="$CMD -c $CONCURRENCY"
 [[ -n "$MAX_TOKENS" ]] && CMD="$CMD -m $MAX_TOKENS"
