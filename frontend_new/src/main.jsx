@@ -9,17 +9,15 @@ import { AuthProvider }  from "./contexts/AuthContext";
 import "./assets/styles/global.scss";
 
 ReactDOM.createRoot(document.getElementById("root")).render(
-  <React.StrictMode>
-    <ThemeProvider>
-      <AuthProvider>
-        <App />
-        <Toaster
-          position="top-right"
-          richColors
-          closeButton
-          toastOptions={{ duration: 4000 }}
-        />
-      </AuthProvider>
-    </ThemeProvider>
-  </React.StrictMode>,
+  <ThemeProvider>
+    <AuthProvider>
+      <App />
+      <Toaster
+        position="top-right"
+        richColors
+        closeButton
+        toastOptions={{ duration: 4000 }}
+      />
+    </AuthProvider>
+  </ThemeProvider>,
 );

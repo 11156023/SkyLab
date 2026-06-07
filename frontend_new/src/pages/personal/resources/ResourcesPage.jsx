@@ -153,6 +153,15 @@ function PowerMenu({ resource, actionLoading, onControl, onDeleteClick, onClose,
 
 const LIVE_STATUSES = new Set(["running", "stopped", "paused"]);
 
+function resourceCardKey(resource, index) {
+  const parts = [
+    resource.type || "resource",
+    resource.node || "unknown-node",
+    resource.vmid ?? resource.request_id ?? resource.name ?? "unknown",
+  ];
+  return `${parts.join(":")}:${index}`;
+}
+
 /* ── ResourceCard ── */
 function ResourceCard({ resource, onUpdated, onDeleted }) {
   const [actionLoading, setActionLoading] = useState(null);
@@ -407,9 +416,9 @@ export default function ResourcesPage() {
           <EmptyState />
         ) : (
           <div className={styles.grid}>
-            {resources.map((r) => (
+            {resources.map((r, index) => (
               <ResourceCard
-                key={r.vmid ?? r.request_id ?? `${r.name}-${r.status}`}
+                key={resourceCardKey(r, index)}
                 resource={r}
                 onUpdated={handleUpdated}
                 onDeleted={handleDeleted}

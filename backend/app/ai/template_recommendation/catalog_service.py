@@ -7,6 +7,12 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
+from app.ai.template_recommendation.capability_catalog import (
+    SUPPORTED_TEMPLATE_SLUGS,
+    match_capabilities,
+    normalize_multilingual_text,
+    serialize_capability,
+)
 from app.ai.template_recommendation.config import settings
 
 IGNORED_FILES = {"metadata.json", "versions.json", "github-versions.json"}
@@ -101,24 +107,56 @@ def build_catalog_prompt_bundle(
     needs_public_web: bool,
     needs_database: bool,
 ) -> dict[str, Any]:
-    explicit_matches = find_explicit_template_matches(template_catalog, goal)
+    supported_catalog = _supported_catalog(template_catalog)
+    capability_matches = match_capabilities(goal)
+    capability_slugs = {
+        slug.lower()
+        for capability in capability_matches
+        for slug in capability.preferred_templates
+    }
+    explicit_matches = find_explicit_template_matches(supported_catalog, goal)
+    explicit_matches = _unique_items(
+        [
+            *explicit_matches,
+            *[
+                item
+                for item in supported_catalog.items
+                if item.slug.lower() in capability_slugs
+            ],
+        ]
+    )
     support_candidates = suggest_support_templates(
-        template_catalog,
+        supported_catalog,
         needs_public_web=needs_public_web,
         needs_database=needs_database,
     )
     candidate_items = _select_ranked_candidates(
-        template_catalog,
+        supported_catalog,
         goal,
         top_k,
         explicit_matches=explicit_matches,
         support_candidates=support_candidates,
+        capability_slugs=capability_slugs,
     )
     return {
+        "matched_capabilities": [
+            serialize_capability(capability) for capability in capability_matches
+        ],
         "explicit_matches": [serialize_template(item) for item in explicit_matches],
         "support_candidates": [serialize_template(item) for item in support_candidates],
         "candidate_templates": [serialize_template(item) for item in candidate_items],
     }
+
+
+def _supported_catalog(template_catalog: TemplateCatalog) -> TemplateCatalog:
+    return TemplateCatalog(
+        items=[
+            item
+            for item in template_catalog.items
+            if item.slug.lower() in SUPPORTED_TEMPLATE_SLUGS
+        ],
+        categories=template_catalog.categories,
+    )
 
 
 def find_explicit_template_matches(template_catalog: TemplateCatalog, goal: str) -> list[TemplateItem]:
@@ -153,9 +191,11 @@ def _select_ranked_candidates(
     *,
     explicit_matches: list[TemplateItem],
     support_candidates: list[TemplateItem],
+    capability_slugs: set[str] | None = None,
 ) -> list[TemplateItem]:
     explicit_slugs = {item.slug.lower() for item in explicit_matches}
     support_slugs = {item.slug.lower() for item in support_candidates}
+    capability_slugs = capability_slugs or set()
     ranked_items = sorted(
         template_catalog.items,
         key=lambda item: (
@@ -164,7 +204,9 @@ def _select_ranked_candidates(
                 goal,
                 explicit_slugs=explicit_slugs,
                 support_slugs=support_slugs,
+                capability_slugs=capability_slugs,
             ),
+            item.slug.lower() in SUPPORTED_TEMPLATE_SLUGS,
             item.updateable,
             item.interface_port is not None,
             item.slug,
@@ -182,16 +224,25 @@ def _template_relevance_score(
     *,
     explicit_slugs: set[str],
     support_slugs: set[str],
+    capability_slugs: set[str],
 ) -> int:
     score = 0
     slug = item.slug.lower()
     if slug in explicit_slugs:
         score += 100
+    if slug in capability_slugs:
+        score += 90
+    if slug in SUPPORTED_TEMPLATE_SLUGS:
+        score += 20
     if slug in support_slugs:
         score += 35
 
-    normalized_goal = _normalize_text(goal)
-    alias_hits = sum(1 for alias in _template_aliases(item) if alias and _goal_mentions_alias(normalized_goal, alias))
+    normalized_goal = _normalize_multilingual_text(goal)
+    alias_hits = sum(
+        1
+        for alias in _template_aliases(item)
+        if alias and _goal_mentions_alias(normalized_goal, alias)
+    )
     score += alias_hits * 12
 
     goal_tokens = set(normalized_goal.split())
@@ -210,6 +261,10 @@ def _template_aliases(item: TemplateItem) -> set[str]:
     aliases.add(_normalize_text(re.sub(r"[^a-z0-9]+", "", item.slug.lower())))
     aliases.add(_normalize_text(re.sub(r"[^a-z0-9]+", "", item.name.lower())))
     return {alias for alias in aliases if alias}
+
+
+def _normalize_multilingual_text(text: str) -> str:
+    return normalize_multilingual_text(text)
 
 
 def _normalize_text(text: str) -> str:

@@ -42,6 +42,17 @@ def _validate_unicode_hostname(v: str) -> str:
 
 UnicodeHostname = Annotated[str, AfterValidator(_validate_unicode_hostname)]
 
+ResourceStatus = Literal[
+    "scheduled",
+    "provisioning",
+    "running",
+    "stopped",
+    "paused",
+    "failed",
+    "deleted",
+    "unknown",
+]
+
 
 # ===== Proxmox Info Schemas =====
 
@@ -185,7 +196,7 @@ class ResourcePublic(BaseModel):
     vmid: int | None
     request_id: uuid.UUID | None = None
     name: str
-    status: str
+    status: ResourceStatus
     node: str
     type: str
     is_placeholder: bool = False

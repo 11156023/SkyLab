@@ -3,6 +3,7 @@ import { useAuth } from "../../../contexts/AuthContext";
 import { useDragScroll } from "../../../hooks/useDragScroll";
 import MIcon from "../../../components/MIcon";
 import styles from "./DashboardPage.module.scss";
+import QuickTemplateFormPage from "./QuickTemplateFormPage";
 import {
   COURSES,
   TEMPLATE_CATEGORIES,
@@ -31,13 +32,14 @@ function SectionHeader({ icon, title, desc, onSeeAll }) {
 }
 
 /* ── TemplateCard ── */
-function TemplateCard({ name, desc, icon, logo, accent, categoryTitle }) {
+function TemplateCard({ name, desc, icon, logo, accent, categoryTitle, onSelect }) {
   const [logoFailed, setLogoFailed] = useState(false);
   return (
     <button
       type="button"
       className={styles.templateCard}
       style={{ "--accent-color": accent }}
+      onClick={onSelect}
     >
       <div className={styles.templateHeader}>
         <span className={styles.templateLogo}>
@@ -110,18 +112,32 @@ function CourseCard({ title, description, subjects, teacher, classGroup, icon, a
 }
 
 /* ── Page ── */
-export default function DashboardPage() {
+export default function DashboardPage({ onNavigate }) {
   const { user } = useAuth();
   const firstName = user?.full_name?.split(" ")[0] ?? user?.email?.split("@")[0] ?? "同學";
 
   const scrollRef = useRef(null);
   const [activeCategory, setActiveCategory] = useState("all");
+  const [quickSlug, setQuickSlug]           = useState(null);
 
   const filteredTemplates = activeCategory === "all"
     ? TEMPLATES
     : TEMPLATES.filter((t) => t.categoryId === activeCategory);
 
   useDragScroll(scrollRef, { draggingClass: styles.dragging });
+
+  if (quickSlug) {
+    return (
+      <QuickTemplateFormPage
+        slug={quickSlug}
+        onBack={() => setQuickSlug(null)}
+        onSubmitted={() => {
+          setQuickSlug(null);
+          onNavigate?.("my-resources");
+        }}
+      />
+    );
+  }
 
   return (
     <div className={styles.page}>
@@ -188,6 +204,7 @@ export default function DashboardPage() {
               {...t}
               accent={CATEGORY_ACCENT[t.categoryId]}
               categoryTitle={CATEGORY_BY_ID[t.categoryId].title}
+              onSelect={() => setQuickSlug(t.slug)}
             />
           ))}
         </div>

@@ -1,0 +1,471 @@
+@use "../../../assets/styles/variables" as *;
+@use "../../../assets/styles/mixins" as *;
+
+.page {
+  @include flex-column;
+  gap: $spacing-24;
+  width: 100%;
+  min-height: 100%;
+  animation: slideInRight 0.18s ease-out;
+}
+
+@keyframes slideInRight {
+  from { transform: translateX(24px); opacity: 0; }
+  to   { transform: translateX(0);    opacity: 1; }
+}
+
+/* ── Header (對齊 RequestFormPage) ── */
+.pageHeader {
+  @include flex-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: $spacing-16;
+  flex-shrink: 0;
+}
+
+.pageHeading {
+  @include flex-column;
+  gap: $spacing-4;
+}
+
+.pageTitle {
+  font-size: $font-size-24;
+  font-weight: $font-weight-700;
+  color: var(--color-text-primary);
+  margin: 0;
+
+  @include respond-to(sm) { font-size: $font-size-28; }
+}
+
+.pageSubtitle {
+  font-size: $font-size-14;
+  color: var(--color-text-secondary);
+  margin: 0;
+}
+
+.backBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px $spacing-16;
+  border-radius: $radius-8;
+  font-size: $font-size-14;
+  font-weight: $font-weight-500;
+  cursor: pointer;
+  white-space: nowrap;
+  background: var(--color-surface);
+  color: var(--color-text);
+  border: 1px solid var(--color-border);
+  transition: all $transition-base;
+
+  &:hover {
+    color: var(--color-primary);
+    border-color: var(--color-primary);
+  }
+}
+
+/* ── Body layout (form + AI side) ── */
+.body {
+  display: grid;
+  gap: $spacing-24;
+  grid-template-columns: 1fr;
+  align-items: start;
+
+  @include respond-to(lg) {
+    grid-template-columns: minmax(0, 1fr) 360px;
+  }
+}
+
+.form {
+  @include flex-column;
+  gap: $spacing-16;
+  min-width: 0;
+}
+
+.aside {
+  position: sticky;
+  top: 24px;
+  min-width: 0;
+  max-height: calc(100vh - 120px);
+  display: none;
+
+  @include respond-to(lg) {
+    display: block;
+  }
+}
+
+.aiPanel {
+  height: 100%;
+  min-height: 480px;
+}
+
+/* ── Template header card ── */
+.templateHeader {
+  @include glass-surface;
+  display: flex;
+  gap: $spacing-16;
+  padding: $spacing-24;
+  border-radius: $radius-16;
+  align-items: flex-start;
+}
+
+.templateLogo {
+  flex-shrink: 0;
+  width: 64px;
+  height: 64px;
+  border-radius: $radius-12;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  color: var(--color-text-secondary);
+
+  img {
+    width: 44px;
+    height: 44px;
+    object-fit: contain;
+  }
+}
+
+.templateMeta {
+  @include flex-column;
+  gap: 6px;
+  min-width: 0;
+  flex: 1;
+}
+
+.templateTitleRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: $spacing-8;
+}
+
+.templateName {
+  font-size: $font-size-18;
+  font-weight: $font-weight-700;
+  color: var(--color-text-primary);
+  margin: 0;
+}
+
+.templateExitLink {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+  font-size: $font-size-12;
+  font-weight: $font-weight-500;
+  color: var(--color-text-secondary);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  cursor: pointer;
+  padding: 6px 12px;
+  border-radius: $radius-pill;
+  transition: all $transition-base;
+  white-space: nowrap;
+
+  &:hover {
+    color: var(--color-primary);
+    border-color: var(--color-primary);
+    background: color-mix(in srgb, var(--color-primary) 8%, var(--color-surface));
+  }
+}
+
+.templateDesc {
+  font-size: $font-size-12;
+  line-height: $line-height-base;
+  color: var(--color-text-secondary);
+  margin: 0;
+  @include text-clamp(2);
+}
+
+.templateChips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 4px;
+}
+
+.portChip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 10px;
+  border-radius: $radius-pill;
+  font-size: $font-size-12;
+  font-weight: $font-weight-500;
+  color: var(--color-text-secondary);
+  background: var(--color-hover);
+  border: 1px solid var(--color-border);
+}
+
+.templateStatus {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: $font-size-12;
+  color: var(--color-text-secondary);
+  margin: 4px 0 0;
+}
+
+/* ── Section card (also for advanced settings & basic settings) ── */
+.section {
+  @include glass-surface;
+  border-radius: $radius-16;
+  overflow: hidden;
+}
+
+.sectionPadded {
+  padding: $spacing-24;
+  display: flex;
+  flex-direction: column;
+  gap: $spacing-16;
+}
+
+.sectionTitle {
+  font-size: $font-size-12;
+  font-weight: $font-weight-500;
+  color: var(--color-text-secondary);
+  letter-spacing: 0.04em;
+  margin: 0;
+}
+
+/* ── Advanced settings collapsible ── */
+.advancedToggle {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  justify-content: space-between;
+  gap: $spacing-16;
+  padding: $spacing-16 $spacing-24;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  text-align: left;
+  color: var(--color-text-primary);
+  transition: background $transition-base;
+  border: 1px solid transparent;
+  border-radius: $radius-16;
+
+  &:hover {
+    background: var(--color-hover);
+  }
+}
+
+.advancedToggleText {
+  @include flex-column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.advancedToggleTitle {
+  font-size: $font-size-14;
+  font-weight: $font-weight-500;
+  color: var(--color-text-primary);
+}
+
+.advancedToggleDesc {
+  font-size: $font-size-12;
+  color: var(--color-text-secondary);
+}
+
+.advancedBody {
+  @include flex-column;
+  gap: $spacing-16;
+  padding: $spacing-16 $spacing-24 $spacing-24;
+  border-top: 1px solid var(--color-border);
+  animation: expand 0.18s ease-out;
+}
+
+@keyframes expand {
+  from { opacity: 0; transform: translateY(-4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* ── Form field primitives ── */
+.field {
+  @include flex-column;
+  gap: 6px;
+  border: none;
+  padding: 0;
+  margin: 0;
+}
+
+.fieldLabel {
+  font-size: $font-size-14;
+  font-weight: $font-weight-500;
+  color: var(--color-text-primary);
+  padding: 0 0 $spacing-8 0;
+}
+
+.required {
+  color: #e94f4f;
+  margin-left: 2px;
+}
+
+.fieldGrid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: $spacing-16;
+}
+
+.fieldError {
+  font-size: $font-size-12;
+  color: #e94f4f;
+  margin: 0;
+}
+
+.input {
+  width: 100%;
+  padding: 9px 12px;
+  border: 1px solid var(--color-border);
+  border-radius: $radius-8;
+  font-size: $font-size-14;
+  font-family: inherit;
+  color: var(--color-text);
+  background: var(--color-surface);
+  transition: border-color $transition-base;
+  outline: none;
+  box-sizing: border-box;
+
+  &:focus { border-color: var(--color-primary); }
+  &::placeholder { color: var(--color-text-muted, #888); }
+}
+
+/* ── Option grid (3-col button group) ── */
+.optionGrid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: $spacing-8;
+}
+
+.optionBtn {
+  @include flex-column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: $spacing-16 $spacing-8;
+  border-radius: $radius-12;
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+  color: var(--color-text-secondary);
+  font-size: $font-size-12;
+  font-weight: $font-weight-500;
+  cursor: pointer;
+  transition: all $transition-base;
+
+  &:hover:not(:disabled) {
+    border-color: var(--color-primary);
+    color: var(--color-primary);
+  }
+
+  &:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+  }
+}
+
+.optionBtnActive {
+  border-color: var(--color-primary);
+  background: color-mix(in srgb, var(--color-primary) 12%, var(--color-surface));
+  color: var(--color-primary);
+}
+
+/* ── Toggle grid (on/off) ── */
+.toggleGrid {
+  display: flex;
+  gap: $spacing-8;
+}
+
+.toggleBtn {
+  flex: 1;
+  padding: 8px 12px;
+  border-radius: $radius-8;
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+  color: var(--color-text-secondary);
+  font-size: $font-size-12;
+  font-weight: $font-weight-500;
+  cursor: pointer;
+  transition: all $transition-base;
+
+  &:hover { border-color: var(--color-primary); color: var(--color-primary); }
+}
+
+.toggleBtnActive {
+  border-color: var(--color-primary);
+  background: color-mix(in srgb, var(--color-primary) 12%, var(--color-surface));
+  color: var(--color-primary);
+}
+
+/* ── Info hint ── */
+.infoHint {
+  @include flex-column;
+  gap: 4px;
+  padding: 10px 12px;
+  background: var(--color-hover);
+  border-radius: $radius-8;
+  font-size: $font-size-12;
+  color: var(--color-text-secondary);
+
+  p { margin: 0; }
+}
+
+/* ── Actions ── */
+.actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: $spacing-8;
+  padding: $spacing-8 0;
+}
+
+.btnPrimary,
+.btnSecondary {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 9px $spacing-16;
+  border-radius: $radius-8;
+  font-size: $font-size-14;
+  font-weight: $font-weight-500;
+  cursor: pointer;
+  transition: all $transition-base;
+}
+
+.btnPrimary {
+  background: var(--color-primary);
+  color: var(--color-text-on-primary);
+  border: 1px solid var(--color-primary);
+
+  &:hover { filter: brightness(1.06); }
+  &:disabled { opacity: 0.5; cursor: not-allowed; }
+}
+
+.btnSecondary {
+  background: transparent;
+  color: var(--color-text-secondary);
+  border: 1px solid var(--color-border);
+
+  &:hover { border-color: var(--color-primary); color: var(--color-primary); }
+}
+
+/* ── Not-found state ── */
+.notFound {
+  @include flex-column;
+  align-items: center;
+  justify-content: center;
+  gap: $spacing-16;
+  padding: $spacing-48;
+  text-align: center;
+  color: var(--color-text-secondary);
+
+  h2 {
+    margin: 0;
+    font-size: $font-size-18;
+    color: var(--color-text-primary);
+  }
+
+  p { margin: 0; font-size: $font-size-14; }
+}

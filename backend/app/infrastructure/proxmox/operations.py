@@ -502,6 +502,44 @@ async def get_session_ticket() -> tuple[str, str]:
         return data["ticket"], data.get("CSRFPreventionToken", "")
 
 
+async def get_vnc_ticket_with_session(
+    node: str,
+    vmid: int,
+    pve_auth_cookie: str,
+    csrf_token: str,
+) -> dict:
+    """Get a VM VNC proxy ticket using the same PVE session used for websocket auth."""
+    import ssl as _ssl
+
+    cfg = get_proxmox_settings()
+    if cfg.ca_cert:
+        _ctx = _ssl.SSLContext(_ssl.PROTOCOL_TLS_CLIENT)
+        _ctx.check_hostname = False
+        _ctx.verify_mode = _ssl.CERT_REQUIRED
+        _ctx.load_verify_locations(cadata=cfg.ca_cert)
+        if hasattr(_ssl, "VERIFY_X509_STRICT"):
+            _ctx.verify_flags &= ~_ssl.VERIFY_X509_STRICT
+        verify: bool | _ssl.SSLContext = _ctx
+    else:
+        verify = cfg.verify_ssl
+
+    headers = {"Cookie": f"PVEAuthCookie={pve_auth_cookie}"}
+    if csrf_token:
+        headers["CSRFPreventionToken"] = csrf_token
+
+    async with httpx.AsyncClient(verify=verify) as client:
+        resp = await client.post(
+            f"https://{get_active_host()}:8006/api2/json/nodes/{node}/qemu/{vmid}/vncproxy",
+            data={"websocket": 1},
+            headers=headers,
+        )
+        if resp.status_code != 200:
+            raise ProxmoxError(
+                f"Proxmox VNC ticket creation failed: HTTP {resp.status_code}"
+            )
+        return resp.json()["data"]
+
+
 async def wait_task(task_id: str, node: str, check_interval: int | None = None) -> dict:
     return await wait_for_task_status(
         node_name=node,
