@@ -116,7 +116,7 @@ def _start_gateway_process(
     project_root = Path(__file__).resolve().parent
     logs_dir = project_root / "logs"
     logs_dir.mkdir(parents=True, exist_ok=True)
-    log_path = logs_dir / "cluster-gateway.log"
+    log_path = logs_dir / "gateway.log"
 
     python_bin = _resolve_python_bin(project_root)
     command = [

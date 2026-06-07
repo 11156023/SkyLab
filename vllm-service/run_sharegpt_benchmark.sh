@@ -15,13 +15,6 @@ YELLOW='\033[1;33m'
 CYAN='\033[0;36m'
 NC='\033[0m'
 
-# 載入 .env
-if [[ -f .env ]]; then
-    set -a
-    source .env
-    set +a
-fi
-
 # 啟用虛擬環境
 if [[ -f .venv/bin/activate ]]; then
     source .venv/bin/activate
@@ -41,27 +34,36 @@ print_help() {
     echo -e "${YELLOW}使用方式:${NC}"
     echo "  $0 [選項]"
     echo ""
+    echo -e "${YELLOW}無參數模式:${NC}"
+    echo "  進入詢問式流程，只詢問："
+    echo "    1. 壓測 API Gateway 或主服務"
+    echo "    2. 模型 alias / 模型名稱"
+    echo "    3. 測試筆數"
+    echo "    4. 併發數"
+    echo ""
+    echo "  其他設定固定：ShareGPT 預設測試集、settings.py 的 max tokens、temperature=0.7、seed=42、儲存報告。"
+    echo ""
     echo -e "${YELLOW}選項:${NC}"
-    echo "  -d, --dataset PATH      ShareGPT 數據集路徑 (默認: ${DEFAULT_DATASET})"
-    echo "  -n, --num-samples N     採樣數量 (不指定則使用全部)"
-    echo "  -c, --concurrency N     併發數"
-    echo "  -m, --max-tokens N      每次最大生成 token 數"
-    echo "  -t, --temperature T     溫度參數 (默認: 0.7)"
-    echo "  --seed N                隨機種子 (默認: 42)"
-    echo "  --no-save               不儲存報告"
+    echo "  --interactive           強制進入詢問式流程"
     echo "  --download              下載 ShareGPT_V3 數據集"
-    echo "  --interactive           強制進入互動模式"
+    echo "  -d, --dataset PATH      進階：ShareGPT 數據集路徑 (默認: ${DEFAULT_DATASET})"
+    echo "  -n, --num-samples N     進階：採樣數量 (不指定則使用全部)"
+    echo "  -c, --concurrency N     進階：併發數"
+    echo "  -m, --max-tokens N      進階：每次最大生成 token 數"
+    echo "  -t, --temperature T     進階：溫度參數 (默認: 0.7)"
+    echo "  --seed N                進階：隨機種子 (默認: 42)"
+    echo "  --no-save               進階：不儲存報告"
     echo "  -h, --help              顯示此幫助訊息"
     echo ""
     echo -e "${YELLOW}範例:${NC}"
     echo ""
-    echo "  # 互動模式"
+    echo "  # 詢問式流程"
     echo "  $0"
     echo ""
     echo "  # 下載 ShareGPT 數據集"
     echo "  $0 --download"
     echo ""
-    echo "  # 快速測試 (100 個樣本)"
+    echo "  # 進階：快速測試 (100 個樣本)"
     echo "  $0 -n 100 -c 20"
     echo ""
     echo "  # 完整測試 (預設採樣 1000 個)"

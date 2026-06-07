@@ -287,6 +287,14 @@ def _get_default_gateway_base_url(settings: Settings) -> str:
         return _normalize_gateway_base_url(f"http://{host}:{settings.api_port}")
 
 
+def _get_default_service_base_url(settings: Settings) -> str:
+    """取得單模型主服務 OpenAI base URL。"""
+    host = settings.api_host
+    if host in {"0.0.0.0", "::"}:
+        host = "127.0.0.1"
+    return _normalize_gateway_base_url(f"http://{host}:{settings.api_port}")
+
+
 def _fetch_gateway_models(base_url: str, timeout: float = 3.0) -> list[str]:
     """從 Gateway 的 /models 端點取得模型 alias 清單。"""
     models_url = f"{base_url.rstrip('/')}/models"
@@ -357,6 +365,23 @@ def _ask_yes_no(prompt: str, default_yes: bool = True) -> bool:
         print("[Input] 請輸入 y 或 n")
 
 
+def _choose_service_target() -> str:
+    """讓使用者選擇要壓測的服務入口。"""
+    print("\n壓測目標:")
+    print("  1. API Gateway（多模型 API 服務）")
+    print("  2. 主服務（單模型 vLLM 服務）")
+
+    while True:
+        answer = input("選擇服務 [預設: 1]: ").strip().lower()
+        if not answer:
+            return "gateway"
+        if answer in {"1", "gateway", "api", "api gateway"}:
+            return "gateway"
+        if answer in {"2", "single", "main", "service", "主服務"}:
+            return "single"
+        print("[Input] 請輸入 1 或 2")
+
+
 def _choose_model_alias(candidates: list[str], default_alias: str | None = None) -> str:
     """讓使用者互動選擇模型 alias。"""
     if not candidates:
@@ -389,66 +414,71 @@ def _choose_model_alias(candidates: list[str], default_alias: str | None = None)
         print("[Input] 請輸入模型編號或 alias")
 
 
-def collect_interactive_config(settings: Settings) -> InteractiveBenchmarkConfig:
+def collect_interactive_config() -> InteractiveBenchmarkConfig:
     """收集互動式 Benchmark 參數。"""
     print(f"\n{'='*80}")
-    print("  🎯 ShareGPT Benchmark 互動模式（Gateway 轉發）")
+    print("  🎯 ShareGPT Benchmark 互動模式")
     print(f"{'='*80}")
 
-    default_gateway_url = _get_default_gateway_base_url(settings)
-    gateway_url_input = _ask_with_default("Gateway URL", default_gateway_url)
-    gateway_base_url = _normalize_gateway_base_url(gateway_url_input)
-
-    model_aliases: list[str] = []
-    try:
-        model_aliases = _fetch_gateway_models(gateway_base_url)
-        print(f"[Gateway] 已讀取模型清單: {len(model_aliases)} 個")
-    except (URLError, TimeoutError, json.JSONDecodeError, ValueError) as exc:
-        print(f"[Gateway] 無法從 {gateway_base_url}/models 取得模型清單: {exc}")
+    service_target = _choose_service_target()
+    if service_target == "gateway":
+        target_settings = get_settings(".env.API")
+        base_url = _get_default_gateway_base_url(target_settings)
+        model_aliases: list[str] = []
         try:
-            model_aliases = _load_model_aliases_from_local_config()
-            print(f"[Config] 回退使用本地設定模型: {len(model_aliases)} 個")
-        except Exception as fallback_exc:
-            raise RuntimeError(
-                "無法取得可用模型，請確認 Gateway 已啟動或 models.json 設定正確"
-            ) from fallback_exc
+            model_aliases = _fetch_gateway_models(base_url)
+            print(f"[Gateway] 已讀取模型清單: {len(model_aliases)} 個")
+        except (URLError, TimeoutError, json.JSONDecodeError, ValueError) as exc:
+            print(f"[Gateway] 無法從 {base_url}/models 取得模型清單: {exc}")
+            try:
+                model_aliases = _load_model_aliases_from_local_config()
+                print(f"[Config] 回退使用本地設定模型: {len(model_aliases)} 個")
+            except Exception as fallback_exc:
+                raise RuntimeError(
+                    "無法取得可用模型，請確認 Gateway 已啟動或 models.json 設定正確"
+                ) from fallback_exc
 
-    selected_model = _choose_model_alias(
-        model_aliases,
-        default_alias=model_aliases[0] if model_aliases else None,
-    )
+        selected_model = _choose_model_alias(
+            model_aliases,
+            default_alias=model_aliases[0] if model_aliases else None,
+        )
+    else:
+        target_settings = get_settings(".env.interface")
+        base_url = _get_default_service_base_url(target_settings)
+        selected_model = _ask_with_default("主服務模型名稱", target_settings.model_name)
 
     default_dataset = "test_datasets/ShareGPT_V3_unfiltered_cleaned_split.json"
-    dataset_path = _ask_with_default("資料集路徑", default_dataset)
+    dataset_path = default_dataset
 
     # 0 代表使用全部對話
     sample_input = _ask_int_with_default("測試樣本數 (0=全部)", 100, allow_zero=True)
     num_samples = None if sample_input == 0 else sample_input
 
-    concurrency = _ask_int_with_default("併發數", settings.bench_concurrency)
-    max_tokens = _ask_int_with_default("每次最大 Token", settings.bench_max_tokens)
-    temperature = _ask_float_with_default("Temperature", 0.7)
-    seed = _ask_int_with_default("隨機種子", 42)
-    save_report = _ask_yes_no("儲存 JSON 報告", default_yes=True)
+    concurrency = _ask_int_with_default("併發數", target_settings.bench_concurrency)
+    max_tokens = target_settings.bench_max_tokens
+    temperature = 0.7
+    seed = 42
+    save_report = True
 
     print(f"\n{'─'*80}")
     print("  互動設定確認")
     print(f"{'─'*80}")
-    print(f"  Gateway URL:     {gateway_base_url}")
-    print(f"  模型 alias:      {selected_model}")
+    print(f"  服務:            {'API Gateway' if service_target == 'gateway' else '主服務'}")
+    print(f"  API Base URL:    {base_url}")
+    print(f"  模型:            {selected_model}")
     print(f"  資料集:          {dataset_path}")
     print(f"  測試樣本數:      {'全部' if num_samples is None else num_samples}")
     print(f"  併發數:          {concurrency}")
-    print(f"  最大 Token:      {max_tokens}")
-    print(f"  Temperature:     {temperature}")
-    print(f"  Seed:            {seed}")
-    print(f"  儲存報告:        {'是' if save_report else '否'}")
+    print(f"  固定最大 Token:  {max_tokens}")
+    print(f"  固定 Temperature: {temperature}")
+    print(f"  固定 Seed:       {seed}")
+    print("  儲存報告:        是")
     print(f"{'─'*80}\n")
 
     return InteractiveBenchmarkConfig(
         dataset_path=dataset_path,
         model=selected_model,
-        base_url=gateway_base_url,
+        base_url=base_url,
         num_samples=num_samples,
         concurrency=concurrency,
         max_tokens=max_tokens,
@@ -808,7 +838,7 @@ def main():
     parser.add_argument(
         "--interactive",
         action="store_true",
-        help="互動模式（透過 Gateway 選模型、輸入測試量與併發）",
+        help="詢問式流程（選 API Gateway/主服務、模型、測試量與併發）",
     )
     parser.add_argument(
         "--model",
@@ -857,7 +887,7 @@ def main():
     settings = get_settings()
 
     if args.interactive or not args.dataset:
-        config = collect_interactive_config(settings)
+        config = collect_interactive_config()
         dataset_path = Path(config.dataset_path)
         model = config.model
         base_url = config.base_url

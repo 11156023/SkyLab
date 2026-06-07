@@ -38,6 +38,9 @@ pip install vllm
 bash ./start_single_model.sh
 ```
 
+此腳本會背景啟動服務，主控輸出寫入 `logs/main.log`，launcher PID 寫入
+`.runtime/single-model.pid`。若 PID 仍在執行，再次啟動會直接提示既有進程。
+
 等同：
 
 ```bash
@@ -57,6 +60,10 @@ VLLM_MODEL_NAME=<MODEL_NAME>
 ```bash
 bash ./start_multi_model_gateway.sh
 ```
+
+此腳本會背景啟動服務，主控輸出寫入 `logs/main.log`，Gateway API 輸出寫入
+`logs/gateway.log`，各模型 instance 另寫入 `logs/<alias>.log`。launcher PID 寫入
+`.runtime/multi-model-gateway.pid`。若 PID 仍在執行，再次啟動會直接提示既有進程。
 
 等同：
 
