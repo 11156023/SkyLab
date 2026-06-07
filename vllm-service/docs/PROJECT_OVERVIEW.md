@@ -62,9 +62,9 @@ vllm-service/
 ├── utils/
 ├── tools/
 ├── benchmark/
-└── webapp/
-    └── backend/main.py
+└── gateway/
+    └── main.py
 ```
 
-`webapp/backend/main.py` 的名稱保留是為了相容既有 launcher import：
-`uvicorn webapp.backend.main:app`。
+`gateway/main.py` 是多模型 Gateway 的 FastAPI app，launcher 會以
+`uvicorn gateway.main:app` 啟動。

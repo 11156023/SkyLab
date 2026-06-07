@@ -25,7 +25,7 @@ from PIL import Image
 from pydantic import BaseModel
 
 # 導入專案的 API 客戶端
-sys.path.append(str(Path(__file__).parent.parent.parent))
+sys.path.append(str(Path(__file__).resolve().parent.parent))
 
 from api.client import ModelClient  # noqa: E402
 from config.multi_model import (
@@ -965,7 +965,7 @@ async def chat_video_stream(
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(
-        "main:app",
+        "gateway.main:app",
         host=gateway_host,
         port=gateway_port,
         reload=True,

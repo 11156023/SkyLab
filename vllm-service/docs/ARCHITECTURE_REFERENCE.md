@@ -24,7 +24,7 @@ vllm-service
 2. Load `models.json`.
 3. Validate duplicate aliases, duplicate ports, and aggregate GPU memory settings.
 4. Start each vLLM instance sequentially through `MultiModelEngineManager`.
-5. Start `uvicorn webapp.backend.main:app`.
+5. Start `uvicorn gateway.main:app`.
 6. Wait for Gateway `/health`.
 
 `python main.py single`:
@@ -35,7 +35,7 @@ vllm-service
 
 ## Gateway Routing
 
-`webapp/backend/main.py` builds routes from `models.json`:
+`gateway/main.py` builds routes from `models.json`:
 
 - requested `model` matches alias first
 - then exact resolved model name

@@ -87,7 +87,7 @@ AI_API_API_KEY=vllm-secret-key-change-me
 | `core/cluster.py` | 多模型 instance 生命週期 |
 | `config/settings.py` | 共用 vLLM 設定 |
 | `config/multi_model.py` | `models.json` 載入、Gateway route 建立 |
-| `webapp/backend/main.py` | 純 FastAPI Gateway/API service；不提供前端 |
+| `gateway/main.py` | 純 FastAPI Gateway/API service；不提供前端 |
 | `tools/` | 單模型呼叫工具與 SkyLab AI 整合測試 |
 | `benchmark/` | async / ShareGPT benchmark |
 

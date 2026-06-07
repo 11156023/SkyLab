@@ -8,7 +8,7 @@ import sys
 from pathlib import Path
 
 # 添加專案根目錄到路徑
-sys.path.append(str(Path(__file__).parent.parent.parent))
+sys.path.append(str(Path(__file__).resolve().parent.parent))
 
 import asyncio
 import httpx
@@ -153,7 +153,7 @@ async def main():
             await client.get("http://localhost:3000/")
     except httpx.ConnectError:
         console.print("\n❌ 無法連接到後端服務 (http://localhost:3000)", style="red")
-        console.print("請先啟動 Gateway: python webapp/backend/main.py", style="yellow")
+        console.print("請先啟動 Gateway: python gateway/main.py", style="yellow")
         return
     
     # 運行測試

@@ -32,7 +32,7 @@
 For service-only changes, use:
 
 ```bash
-python -B -m py_compile vllm-service/main.py vllm-service/webapp/backend/main.py
+python -B -m py_compile vllm-service/main.py vllm-service/gateway/main.py
 python -B vllm-service/main.py --help
 python -B vllm-service/main.py single --help
 python -B vllm-service/main.py gateway --help

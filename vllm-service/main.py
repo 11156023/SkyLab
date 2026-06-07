@@ -111,7 +111,7 @@ def _start_gateway_process(
     ready_timeout: int,
     logger,
 ) -> GatewayRuntime:
-    """啟動 Gateway (uvicorn webapp.backend.main:app)。"""
+    """啟動 Gateway (uvicorn gateway.main:app)。"""
     project_root = Path(__file__).resolve().parent
     logs_dir = project_root / "logs"
     logs_dir.mkdir(parents=True, exist_ok=True)
@@ -122,7 +122,7 @@ def _start_gateway_process(
         python_bin,
         "-m",
         "uvicorn",
-        "webapp.backend.main:app",
+        "gateway.main:app",
         "--host",
         gateway_host,
         "--port",

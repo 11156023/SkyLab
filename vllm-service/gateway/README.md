@@ -1,6 +1,6 @@
 # vLLM Service — API Gateway
 
-`vllm-service/webapp/backend/main.py` 是純 FastAPI API Gateway。它負責把 OpenAI-compatible
+`vllm-service/gateway/main.py` 是純 FastAPI API Gateway。它負責把 OpenAI-compatible
 請求依 `model` alias 轉發到對應的 vLLM instance；本目錄不再提供 React/Vite 前端。
 
 ## 功能
@@ -26,8 +26,8 @@ vllm-service/
 ├── core/
 │   ├── engine.py                 # 單一 vLLM 實例啟停
 │   └── cluster.py                # MultiModelEngineManager
-└── webapp/
-    └── backend/main.py           # FastAPI API Gateway
+└── gateway/
+    └── main.py                   # FastAPI API Gateway
 ```
 
 ## Gateway API
@@ -70,7 +70,7 @@ python main.py gateway
 
 ```bash
 cd vllm-service
-python -m uvicorn webapp.backend.main:app --host 0.0.0.0 --port 3000
+python -m uvicorn gateway.main:app --host 0.0.0.0 --port 3000
 ```
 
 ## 呼叫範例
@@ -93,7 +93,7 @@ curl http://localhost:3000/v1/chat/completions \
 
 ## 設計重點
 
-- `main.py gateway` 會啟動多個 vLLM instance，再啟動 `webapp.backend.main:app`。
+- `main.py gateway` 會啟動多個 vLLM instance，再啟動 `gateway.main:app`。
 - `GATEWAY_MAX_INFLIGHT` 限制同時轉發的請求數，避免 Gateway 被打爆。
 - `models.json` 是多模型 alias 與 per-model port 的唯一來源。
 - 本服務不再提供瀏覽器前端；請用 SkyLab 主 frontend 或其他 OpenAI-compatible client 呼叫。
