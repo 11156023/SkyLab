@@ -306,11 +306,43 @@ def _fetch_gateway_models(base_url: str, timeout: float = 3.0) -> list[str]:
     return sorted([alias for alias in aliases if alias])
 
 
-def _load_model_aliases_from_local_config() -> list[str]:
+def _load_model_aliases_from_local_config(base_env_file: str | Path | None = None) -> list[str]:
     """當 Gateway 不可用時，從本地多模型設定推導 alias。"""
-    instances = load_model_instances()
+    instances = load_model_instances(base_env_file=base_env_file)
     aliases = [instance.alias for instance in instances if instance.alias]
     return sorted(aliases)
+
+
+def _resolve_noninteractive_target(
+    service_target: str,
+    explicit_model: str | None,
+    explicit_base_url: str | None,
+) -> tuple[Settings, str | None, str | None]:
+    """解析非互動模式的設定來源，避免落回預設 .env/API key。"""
+    if service_target == "gateway":
+        target_settings = get_settings(".env.API")
+        base_url = (
+            _normalize_gateway_base_url(explicit_base_url)
+            if explicit_base_url
+            else _get_default_gateway_base_url(target_settings)
+        )
+        model = explicit_model
+        if not model:
+            try:
+                model_aliases = _fetch_gateway_models(base_url)
+            except (URLError, TimeoutError, json.JSONDecodeError, ValueError):
+                model_aliases = _load_model_aliases_from_local_config(".env.API")
+            model = model_aliases[0] if model_aliases else None
+        return target_settings, model, base_url
+
+    target_settings = get_settings(".env.interface")
+    base_url = (
+        _normalize_gateway_base_url(explicit_base_url)
+        if explicit_base_url
+        else _get_default_service_base_url(target_settings)
+    )
+    model = explicit_model or target_settings.model_name
+    return target_settings, model, base_url
 
 
 def _ask_with_default(prompt: str, default: str) -> str:
@@ -846,6 +878,12 @@ def main():
         help="指定模型名稱或 alias（走 Gateway 時填 alias）",
     )
     parser.add_argument(
+        "--target",
+        choices=("gateway", "single"),
+        default="gateway",
+        help="非互動模式壓測目標：gateway 讀 .env.API，single 讀 .env.interface（預設: gateway）",
+    )
+    parser.add_argument(
         "--base-url",
         type=str,
         help="OpenAI API Base URL（例如 http://127.0.0.1:3000/v1）",
@@ -884,7 +922,7 @@ def main():
     )
     args = parser.parse_args()
 
-    settings = get_settings()
+    settings = get_settings(".env.API")
 
     if args.interactive or not args.dataset:
         config = collect_interactive_config()
@@ -899,8 +937,11 @@ def main():
         save_report = config.save_report
     else:
         dataset_path = Path(args.dataset)
-        model = args.model
-        base_url = _normalize_gateway_base_url(args.base_url) if args.base_url else None
+        settings, model, base_url = _resolve_noninteractive_target(
+            service_target=args.target,
+            explicit_model=args.model,
+            explicit_base_url=args.base_url,
+        )
         num_samples = args.num_samples
         concurrency = args.concurrency
         max_tokens = args.max_tokens
