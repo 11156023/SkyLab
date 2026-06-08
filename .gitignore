@@ -36,4 +36,7 @@ backend/app/static/downloads/*.zip
 logs/
 backend/logs/
 vllm-inference/config/tool_chat_template_gemma4.jinja
+vllm-service/config/tool_chat_template_gemma4.jinja
+vllm-service/.runtime/
 AGENTS.md
+data/teacher-judge/

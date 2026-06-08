@@ -23,12 +23,13 @@ from urllib.request import urlopen
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from config.multi_model import (
+    GATEWAY_ENV_FILE_VAR,
     build_gateway_routes,
     load_gateway_config,
     load_model_instances,
     validate_cluster_resources,
 )
-from config.settings import get_settings
+from config.settings import SERVICE_ENV_FILE_VAR, get_settings, resolve_env_file
 from core.cluster import MultiModelEngineManager
 from core.engine import VLLMEngine
 from utils.health_utils import check_system_health
@@ -111,18 +112,18 @@ def _start_gateway_process(
     ready_timeout: int,
     logger,
 ) -> GatewayRuntime:
-    """啟動 Gateway (uvicorn webapp.backend.main:app)。"""
+    """啟動 Gateway (uvicorn gateway.main:app)。"""
     project_root = Path(__file__).resolve().parent
     logs_dir = project_root / "logs"
     logs_dir.mkdir(parents=True, exist_ok=True)
-    log_path = logs_dir / "cluster-gateway.log"
+    log_path = logs_dir / "gateway.log"
 
     python_bin = _resolve_python_bin(project_root)
     command = [
         python_bin,
         "-m",
         "uvicorn",
-        "webapp.backend.main:app",
+        "gateway.main:app",
         "--host",
         gateway_host,
         "--port",
@@ -217,7 +218,7 @@ def pre_launch_check(settings=None, logger_name: str = "PreCheck") -> bool:
         return False
     
     # 檢查端口可用性
-    if not check_port_available(settings.api_port, logger):
+    if not check_port_available(settings.api_host, settings.api_port, logger):
         return False
     
     # 檢查 CUDA 環境
@@ -355,7 +356,7 @@ def validate_model_integrity(settings, logger) -> bool:
     return True
 
 
-def check_port_available(port: int, logger) -> bool:
+def check_port_available(host: str, port: int, logger) -> bool:
     """檢查端口是否可用。"""
     import socket
     
@@ -364,13 +365,13 @@ def check_port_available(port: int, logger) -> bool:
     
     try:
         # 嘗試綁定端口
-        sock.bind(("0.0.0.0", port))
+        sock.bind((host, port))
         sock.close()
-        logger.success(f"✓ 端口 {port} 可用")
+        logger.success(f"✓ 端口 {host}:{port} 可用")
         return True
     except OSError as e:
         sock.close()
-        logger.error(f"端口 {port} 不可用: {e}")
+        logger.error(f"端口 {host}:{port} 不可用: {e}")
         
         # 嘗試找出佔用進程（Linux）
         try:
@@ -475,6 +476,9 @@ def quick_start_cluster(
         kv_cache_dtype: vLLM --kv-cache-dtype 覆寫值（空字串表示不啟用）
     """
     logger = get_logger("ClusterLauncher")
+    base_env_path = resolve_env_file(base_env)
+    os.environ[SERVICE_ENV_FILE_VAR] = str(base_env_path)
+    os.environ[GATEWAY_ENV_FILE_VAR] = str(base_env_path)
 
     try:
         cli_overrides = {
@@ -558,16 +562,19 @@ def quick_start_single(
     wait_ready: bool = True,
     timeout: int = 600,
     skip_check: bool = False,
+    env_file: str = ".env.interface",
 ) -> VLLMEngine | None:
     """啟動單一模型 vLLM 主服務。"""
     logger = get_logger("SingleLauncher")
-    settings = get_settings()
+    env_path = resolve_env_file(env_file)
+    os.environ[SERVICE_ENV_FILE_VAR] = str(env_path)
+    settings = get_settings(env_file=env_path)
 
     if skip_check:
         logger.warning("已跳過預啟動檢查")
     elif not pre_launch_check(settings=settings):
         logger.error("預啟動檢查失敗，取消啟動")
-        logger.info("運行 'python 診斷工具.py' 查看詳細診斷資訊")
+        logger.info("請檢查模型路徑、GPU/CUDA 環境、port 佔用與 logs/ 內的服務日誌")
         return None
 
     logger.section("啟動單模型 vLLM 服務")
@@ -595,7 +602,7 @@ def quick_start_single(
         return engine
     except Exception as exc:
         logger.error(f"啟動失敗: {exc}")
-        logger.info("運行 'python 診斷工具.py' 查看詳細診斷資訊")
+        logger.info("請檢查模型路徑、GPU/CUDA 環境、port 佔用與 logs/ 內的服務日誌")
         engine.stop()
         return None
 
@@ -604,11 +611,13 @@ def _run_single_mode(args) -> None:
     """執行單模型模式並阻塞到服務結束。"""
     logger = get_logger("Main")
     logger.info("啟動模式: single（單一模型主服務）")
+    logger.info(f"單模型設定檔: {args.env_file}")
 
     engine = quick_start_single(
         wait_ready=not args.no_wait,
         timeout=args.timeout,
         skip_check=args.skip_check,
+        env_file=args.env_file,
     )
     if engine is None:
         sys.exit(1)
@@ -722,10 +731,16 @@ def main() -> None:
         help="跳過預啟動檢查"
     )
     parser.add_argument(
+        "--env-file",
+        type=str,
+        default=".env.interface",
+        help="單模型主服務設定檔路徑（預設 .env.interface）",
+    )
+    parser.add_argument(
         "--base-env",
         type=str,
-        default=".env",
-        help="集群共用設定檔路徑（預設 .env）"
+        default=".env.API",
+        help="Gateway/cluster 共用設定檔路徑（預設 .env.API）"
     )
     parser.add_argument(
         "--models-json",

@@ -1,0 +1,22 @@
+# 核心依賴
+# vLLM 請依 GPU/CUDA/平台版本另行安裝，例如：
+# pip install vllm
+# 或依官方文件選擇對應 CUDA wheel。
+pydantic-settings>=2.0
+python-dotenv>=1.0
+openai>=1.0
+httpx>=0.25
+
+# API Gateway 依賴
+fastapi>=0.115.0
+uvicorn[standard]>=0.32.0
+python-multipart>=0.0.27
+aiofiles>=23.0
+
+# 視覺模型支援（圖片處理）
+pillow>=10.0
+python-docx
+python-pptx
+
+# Benchmark & 工具
+rich>=13.0
