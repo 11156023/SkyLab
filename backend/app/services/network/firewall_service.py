@@ -598,7 +598,7 @@ def create_connection(
                     from app.services.network import (
                         reverse_proxy_service,  # noqa: PLC0415
                     )
-                    reverse_proxy_service.apply_reverse_proxy_rule(
+                    reverse_proxy_service.apply_reverse_proxy_rule_for_domain(
                         session=session,
                         vmid=target_vmid,
                         vm_ip=tgt_ip,

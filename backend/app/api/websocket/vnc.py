@@ -5,10 +5,10 @@ from urllib.parse import quote  # used for vncticket query param only
 
 import websockets
 from fastapi import WebSocket, WebSocketDisconnect
-from starlette.websockets import WebSocketState
 
 from app.api.deps.auth import get_ws_current_user
 from app.api.deps.proxmox import check_resource_ownership
+from app.api.websocket.utils import safe_close_websocket as _safe_close_websocket
 from app.exceptions import NotFoundError, ProxmoxError
 from app.infrastructure.proxmox import (
     build_ws_ssl_context,
@@ -41,25 +41,6 @@ def _purge_expired_vnc_session_cookies() -> None:
     for key, (_cookie, expires_at) in list(_vnc_session_cookies.items()):
         if expires_at <= now:
             _vnc_session_cookies.pop(key, None)
-
-
-async def _safe_close_websocket(
-    websocket: WebSocket,
-    *,
-    code: int,
-    reason: str = "",
-) -> None:
-    if websocket.application_state == WebSocketState.DISCONNECTED:
-        return
-    try:
-        await websocket.close(code=code, reason=reason)
-    except RuntimeError as exc:
-        if "close message has been sent" not in str(exc):
-            raise
-    except AttributeError as exc:
-        # uvicorn + websockets can raise this while closing a failed handshake.
-        if "transfer_data_task" not in str(exc):
-            raise
 
 
 async def vnc_proxy(

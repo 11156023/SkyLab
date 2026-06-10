@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import logging
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from sqlmodel import Session, select
 
@@ -435,20 +435,52 @@ def process_pending_deletions(session: Session) -> None:
     This tick exists to recover from server restarts or background-task failures.
     Processes up to a small batch per tick to avoid blocking the scheduler loop.
     """
-    pending = session.exec(
-        select(DeletionRequest)
-        .where(DeletionRequest.status == DeletionRequestStatus.pending)
-        .order_by(DeletionRequest.created_at.asc())  # type: ignore[union-attr]
-        .limit(5)
-    ).all()
+    pending = list(
+        session.exec(
+            select(DeletionRequest)
+            .where(DeletionRequest.status == DeletionRequestStatus.pending)
+            .order_by(DeletionRequest.created_at.asc())  # type: ignore[union-attr]
+            .limit(5)
+        ).all()
+    )
 
-    for req in pending:
+    # 回收殭屍 running：伺服器重啟或背景任務消失會把請求永遠留在 running，
+    # 而 create_deletion_request 看到 running 會擋掉同 vmid 的新請求。
+    stale_cutoff = _utc_now() - timedelta(minutes=30)
+    stale_running = list(
+        session.exec(
+            select(DeletionRequest)
+            .where(
+                DeletionRequest.status == DeletionRequestStatus.running,
+                DeletionRequest.started_at.is_not(None),  # type: ignore[union-attr]
+                DeletionRequest.started_at <= stale_cutoff,
+            )
+            .limit(5)
+        ).all()
+    )
+
+    for req in pending + stale_running:
         try:
             _execute_deletion(session, req)
-        except Exception:
+        except Exception as exc:
             logger.exception(
                 "process_pending_deletions: unhandled error for request %s", req.id
             )
+            # 安全網路徑沒有重試 wrapper：若不收尾，請求會永遠卡在 running
+            # （之後的 tick 只撈 pending）。標記 failed，留給使用者手動 retry。
+            try:
+                session.rollback()
+                fresh = session.get(DeletionRequest, req.id)
+                if fresh is not None and fresh.status == DeletionRequestStatus.running:
+                    fresh.status = DeletionRequestStatus.failed
+                    fresh.error_message = str(exc)[:2000]
+                    fresh.completed_at = _utc_now()
+                    session.add(fresh)
+                    session.commit()
+            except Exception:
+                logger.exception(
+                    "process_pending_deletions: failed to finalize request %s", req.id
+                )
 
 
 # ──────────────────────────────────────────────────────────────────────────────

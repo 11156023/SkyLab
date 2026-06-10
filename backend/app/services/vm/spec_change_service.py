@@ -290,9 +290,22 @@ def _apply_spec_changes(*, db_request) -> list[str]:
             )
 
         if db_request.requested_disk is not None:
-            disk_increase = db_request.requested_disk - (
-                db_request.current_disk or 0
-            )
+            # Proxmox resize 只接受「增量」。current_disk 解析失敗（None）時
+            # 不能把 requested 整個當增量套上去，那會把磁碟擴成
+            # current + requested；增量 <= 0（combined 類型建立時未驗證）
+            # 也必須擋下。
+            if db_request.current_disk is None:
+                raise ProxmoxError(
+                    f"Cannot apply disk change for VMID {db_request.vmid}: "
+                    "current disk size is unknown"
+                )
+            disk_increase = db_request.requested_disk - db_request.current_disk
+            if disk_increase <= 0:
+                raise ProxmoxError(
+                    f"Disk size can only be increased "
+                    f"(current={db_request.current_disk}GB, "
+                    f"requested={db_request.requested_disk}GB)"
+                )
             size_param = f"+{disk_increase}G"
             disk_name = "scsi0" if resource_type == "qemu" else "rootfs"
             proxmox_service.resize_disk(

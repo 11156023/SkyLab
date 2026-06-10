@@ -311,12 +311,26 @@ def _get_all_vmids() -> set[int]:
         raise
 
 
-def _find_new_vmid(before: set[int]) -> int | None:
-    """比較部署前後的 VMID 差異，找出新建的容器。"""
+def _detect_new_vmid(before: set[int], hostname: str) -> int | None:
+    """安全地偵測本次部署建立的容器 VMID。
+
+    多個部署並發時，前後差集可能包含其他部署建立的容器——絕不能用
+    max() 亂猜（誤認領甚至誤銷毀別人的容器）。差集唯一才直接採用，
+    多個時用 hostname 精準比對，比對不到就回 None。
+    """
     after = _get_all_vmids()
     new_ids = after - before
+    if len(new_ids) == 1:
+        return next(iter(new_ids))
     if new_ids:
-        return max(new_ids)
+        for vmid in sorted(new_ids, reverse=True):
+            res = _find_resource_any(vmid)
+            if res and res.get("name") == hostname:
+                return vmid
+        return None
+    by_name = _find_vmid_by_hostname(hostname)
+    if by_name is not None and by_name not in before:
+        return by_name
     return None
 
 
@@ -850,9 +864,7 @@ def _run_deployment(task: DeploymentTask, request_data: dict) -> None:  # noqa: 
         task.progress = "正在確認部署結果…"
         _store_task(task)
 
-        new_vmid = _find_new_vmid(vmids_before)
-        if new_vmid is None:
-            new_vmid = _find_vmid_by_hostname(request_data["hostname"])
+        new_vmid = _detect_new_vmid(vmids_before, request_data["hostname"])
 
         if new_vmid is None:
             raise RuntimeError(
@@ -943,10 +955,11 @@ def _run_deployment(task: DeploymentTask, request_data: dict) -> None:  # noqa: 
             _cleanup_script_on_node(client, temp_script)
             _cleanup_script_on_node(client, build_func_file)
 
-        # 回滾：銷毀已建立的容器
-        rollback_vmid = new_vmid or _find_new_vmid(vmids_before)
-        if rollback_vmid is None:
-            rollback_vmid = _find_vmid_by_hostname(request_data["hostname"])
+        # 回滾：銷毀已建立的容器（只銷毀能確認屬於本次部署的容器，
+        # 避免並發部署時誤毀別人剛建立的容器）
+        rollback_vmid = new_vmid or _detect_new_vmid(
+            vmids_before, request_data["hostname"]
+        )
 
         if rollback_vmid:
             logger.info("回滾：正在銷毀容器 VMID=%s", rollback_vmid)

@@ -7,6 +7,7 @@ from fastapi import WebSocket, WebSocketDisconnect
 
 from app.api.deps.auth import get_ws_current_user
 from app.api.deps.proxmox import check_resource_ownership
+from app.api.websocket.utils import safe_close_websocket
 from app.exceptions import NotFoundError, ProxmoxError
 from app.infrastructure.proxmox import (
     build_ws_ssl_context,
@@ -26,7 +27,7 @@ async def terminal_proxy(websocket: WebSocket, vmid: int, token: str):
         check_resource_ownership(vmid, user, session)
     except Exception:
         session.close()
-        await websocket.close(code=1008, reason="Permission denied")
+        await safe_close_websocket(websocket, code=1008, reason="Permission denied")
         return
 
     await websocket.accept()
@@ -40,7 +41,7 @@ async def terminal_proxy(websocket: WebSocket, vmid: int, token: str):
             pve_auth_cookie, _ = await proxmox_service.get_session_ticket()
         except ProxmoxError:
             logger.error("Proxmox session authentication failed")
-            await websocket.close(code=1008, reason="Authentication failed")
+            await safe_close_websocket(websocket, code=1008, reason="Authentication failed")
             return
 
         logger.info("Retrieved session ticket for WebSocket authentication")
@@ -50,7 +51,7 @@ async def terminal_proxy(websocket: WebSocket, vmid: int, token: str):
             container_info = await asyncio.to_thread(proxmox_service.find_lxc, vmid)
         except NotFoundError:
             logger.error(f"LXC container {vmid} not found in cluster")
-            await websocket.close(code=1008, reason="LXC container not found")
+            await safe_close_websocket(websocket, code=1008, reason="LXC container not found")
             return
 
         node = container_info["node"]
@@ -106,11 +107,11 @@ async def terminal_proxy(websocket: WebSocket, vmid: int, token: str):
             logger.error(
                 f"Proxmox WebSocket rejected: HTTP {e.response.status_code} — {e.response.headers}"
             )
-            await websocket.close(code=1008, reason="Proxmox connection failed")
+            await safe_close_websocket(websocket, code=1008, reason="Proxmox connection failed")
             return
         except Exception as e:
             logger.error(f"Proxmox WebSocket connection failed ({type(e).__name__}): {e}")
-            await websocket.close(code=1008, reason="Proxmox connection failed")
+            await safe_close_websocket(websocket, code=1008, reason="Proxmox connection failed")
             return
 
         logger.info(f"WebSocket proxy established for LXC {vmid}")
@@ -170,7 +171,7 @@ async def terminal_proxy(websocket: WebSocket, vmid: int, token: str):
 
     except Exception as e:
         logger.error(f"Failed to establish WebSocket proxy: {e}", exc_info=True)
-        await websocket.close(code=1011, reason="Internal server error")
+        await safe_close_websocket(websocket, code=1011, reason="Internal server error")
     finally:
         if pve_websocket:
             await pve_websocket.close()
