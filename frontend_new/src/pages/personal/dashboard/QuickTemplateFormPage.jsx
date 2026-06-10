@@ -1,10 +1,12 @@
-import { useContext, useEffect, useState } from "react";
+import { useContext, useEffect, useRef, useState } from "react";
 import rawData from "virtual:templates";
 import styles from "./QuickTemplateFormPage.module.scss";
 import MIcon from "../../../components/MIcon";
 import AiSidePanel from "../requests/AiSidePanel";
 import { useToast } from "../../../hooks/useToast";
 import { LayoutContext } from "../../../layout/DashboardLayout";
+import { VmRequestsService } from "../../../services/vmRequests";
+import { apiGet } from "../../../services/api";
 
 /* Load quick templates from virtual:templates */
 const QUICK_TEMPLATES = Object.entries(rawData)
@@ -12,6 +14,23 @@ const QUICK_TEMPLATES = Object.entries(rawData)
   .map(([, value]) => value)
   .filter(Boolean);
 const getQuickTemplate = (slug) => QUICK_TEMPLATES.find((t) => t.slug === slug);
+const QUICK_TEMPLATE_MAX = { cores: 2, memory: 4096, disk: 32 };
+
+function pickLxcTemplate(lxcTemplates, template) {
+  if (!Array.isArray(lxcTemplates) || lxcTemplates.length === 0) return "";
+
+  const resources = template?.install_methods?.[0]?.resources ?? {};
+  const os = String(resources.os || "").toLowerCase();
+  const version = String(resources.version || "").toLowerCase();
+  const hasText = (item, text) => String(item?.volid || "").toLowerCase().includes(text);
+
+  return (
+    lxcTemplates.find((item) => os && version && hasText(item, os) && hasText(item, version))?.volid ||
+    lxcTemplates.find((item) => os && hasText(item, os))?.volid ||
+    lxcTemplates[0]?.volid ||
+    ""
+  );
+}
 
 function normalizeHostname(value) {
   return String(value || "")
@@ -103,6 +122,9 @@ export default function QuickTemplateFormPage({ slug, onBack, onSubmitted }) {
   const [hostname, setHostname] = useState("");
   const [password, setPassword] = useState("");
   const [errors, setErrors]     = useState({});
+  const [submitting, setSubmitting] = useState(false);
+  const [lxcTemplates, setLxcTemplates] = useState([]);
+  const submitLockRef = useRef(false);
 
   /* Advanced settings */
   const [showAdvanced, setShowAdvanced]     = useState(false);
@@ -122,6 +144,12 @@ export default function QuickTemplateFormPage({ slug, onBack, onSubmitted }) {
     ));
   }, [template]);
 
+  useEffect(() => {
+    apiGet("/api/v1/lxc/templates")
+      .then(setLxcTemplates)
+      .catch(() => setLxcTemplates([]));
+  }, []);
+
   function update(setter, key) {
     return (val) => {
       setter(val);
@@ -129,8 +157,9 @@ export default function QuickTemplateFormPage({ slug, onBack, onSubmitted }) {
     };
   }
 
-  function handleSubmit(e) {
+  async function handleSubmit(e) {
     e.preventDefault();
+    if (submitLockRef.current) return;
     const errs = {};
     const hostnameRegex = /^[a-z0-9]([a-z0-9-]*[a-z0-9])?$/;
 
@@ -150,9 +179,43 @@ export default function QuickTemplateFormPage({ slug, onBack, onSubmitted }) {
       return;
     }
 
-    // Stage 1: UI only — backend wiring pending
-    toast.success(`已建立 ${template?.name || slug}（UI 階段，尚未串接後端）`);
-    onSubmitted?.();
+    const selectedOstemplate = pickLxcTemplate(lxcTemplates, template);
+    if (!selectedOstemplate) {
+      toast.error("無法載入 LXC 作業系統映像，請確認後端 /api/v1/lxc/templates 可用。");
+      return;
+    }
+
+    const resources = template.install_methods?.[0]?.resources ?? {};
+    const templateSlug = template.slug || slug;
+    const requestBody = {
+      resource_type: "lxc",
+      mode: "quick_template",
+      hostname: normalizeHostname(hostname),
+      password,
+      cores: Math.min(Number(resources.cpu || 2), QUICK_TEMPLATE_MAX.cores),
+      memory: Math.min(Number(resources.ram || 2048), QUICK_TEMPLATE_MAX.memory),
+      rootfs_size: Math.min(Math.max(Number(resources.hdd || 8), 8), QUICK_TEMPLATE_MAX.disk),
+      ostemplate: selectedOstemplate,
+      os_info: resources.os ? `${resources.os}${resources.version ? ` ${resources.version}` : ""}` : undefined,
+      storage: "local-lvm",
+      reason: `快速使用 ${template.name || slug} 模板`,
+      service_template_slug: templateSlug,
+      service_template_script_path: template.install_methods?.[0]?.script || `ct/${templateSlug}.sh`,
+    };
+
+    submitLockRef.current = true;
+    setSubmitting(true);
+    try {
+      await VmRequestsService.create(requestBody);
+      toast.success(`已送出 ${template.name || slug} 快速建立，系統會自動核准並開始佈建。`);
+      onSubmitted?.();
+    } catch (err) {
+      toast.error(err?.message ?? "建立失敗，請稍後再試。");
+    } finally {
+      submitLockRef.current = false;
+      setSubmitting(false);
+    }
+    return;
   }
 
   if (!template) {
@@ -363,8 +426,8 @@ export default function QuickTemplateFormPage({ slug, onBack, onSubmitted }) {
           <button type="button" className={styles.btnSecondary} onClick={onBack}>
             取消
           </button>
-          <button type="submit" form="quick-template-form" className={styles.btnPrimary}>
-            <MIcon name="bolt" size={16} />
+          <button type="submit" form="quick-template-form" className={styles.btnPrimary} disabled={submitting}>
+            <MIcon name={submitting ? "hourglass_empty" : "bolt"} size={16} />
             建立資源
           </button>
         </div>

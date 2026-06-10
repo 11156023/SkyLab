@@ -54,6 +54,7 @@ QUICK_TEMPLATE_ALLOWED_SLUGS = frozenset(
         "mongodb",
         "grafana",
         "homepage",
+        "n8n",
         "wordpress",
     }
 )
@@ -88,6 +89,8 @@ def _to_public(req: VMRequest, user_override=None) -> VMRequestPublic:
         disk_size=req.disk_size,
         username=req.username,
         status=req.status,
+        service_template_slug=req.service_template_slug,
+        service_template_script_path=req.service_template_script_path,
         reviewer_id=req.reviewer_id,
         review_comment=req.review_comment,
         reviewed_at=req.reviewed_at,

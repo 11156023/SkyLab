@@ -250,6 +250,59 @@ def test_student_quick_template_is_limited_and_auto_approved(
     assert calls == [saved.id]
 
 
+def test_student_quick_template_allows_n8n(
+    db: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    user = _create_user(db, role=UserRole.student)
+
+    monkeypatch.setattr(
+        "app.services.vm.vm_request_service.vm_request_availability_service.validate_request_window",
+        lambda **kwargs: None,
+    )
+
+    def fake_approve_and_place(*, session: Session, db_request: VMRequest, reviewer_id: uuid.UUID):
+        db_request.status = VMRequestStatus.approved
+        db_request.reviewer_id = reviewer_id
+        db_request.assigned_node = "pve-a"
+        db_request.desired_node = "pve-a"
+        session.add(db_request)
+        session.flush()
+        return None
+
+    monkeypatch.setattr(
+        "app.services.vm.vm_request_service._approve_and_place",
+        fake_approve_and_place,
+    )
+    monkeypatch.setattr(
+        "app.services.vm.vm_request_service.submit_sync",
+        lambda *_args, **_kwargs: None,
+    )
+
+    request_in = VMRequestCreate(
+        reason="Need a short n8n automation lab",
+        resource_type="lxc",
+        hostname="quick-n8n",
+        cores=2,
+        memory=2048,
+        password="strongpass123",
+        ostemplate="local:vztmpl/debian-13.tar.zst",
+        rootfs_size=10,
+        service_template_slug="n8n",
+        service_template_script_path="ct/n8n.sh",
+        mode="quick_template",
+    )
+
+    result = vm_request_service.create(session=db, request_in=request_in, user=user)
+
+    db.expire_all()
+    saved = db.exec(select(VMRequest).where(VMRequest.id == result.id)).first()
+    assert saved is not None
+    assert saved.status == VMRequestStatus.approved
+    assert saved.service_template_slug == "n8n"
+    assert saved.service_template_script_path == "ct/n8n.sh"
+    assert result.service_template_slug == "n8n"
+
+
 def test_student_quick_template_rejects_unlisted_template(db: Session) -> None:
     user = _create_user(db, role=UserRole.student)
     request_in = VMRequestCreate(

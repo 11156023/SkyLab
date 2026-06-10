@@ -1,5 +1,5 @@
 /**
- * AvailabilityPanel — 月曆 + 時間選擇器版
+ * AvailabilityPanel — 月曆日期範圍選擇器版
  * Props:
  *   draft         { resource_type, cores, memory, disk_size?, rootfs_size?, gpu_required? }
  *   onChange      ({ start_at: string|null, end_at: string|null }) => void
@@ -10,26 +10,6 @@ import { VmRequestAvailabilityService } from "../../services/vmRequestAvailabili
 import styles from "./AvailabilityPanel.module.scss";
 import MIcon from "../MIcon";
 
-function TimeGroup({ label, date, hours, value, onChange }) {
-  return (
-    <div className={styles.timeGroup}>
-      <span className={styles.timeLabel}>{label}</span>
-      <span className={styles.timeDate}>{date ?? "—"}</span>
-      <select
-        className={styles.timeSelect}
-        value={value ?? ""}
-        disabled={!date}
-        onChange={(e) => onChange(Number(e.target.value))}
-      >
-        <option value="" disabled>選擇時間</option>
-        {hours.map((h) => (
-          <option key={h} value={h}>{String(h).padStart(2, "0")}:00</option>
-        ))}
-      </select>
-    </div>
-  );
-}
-
 const MONTH_NAMES = ["一月","二月","三月","四月","五月","六月","七月","八月","九月","十月","十一月","十二月"];
 const DAY_HEADERS = ["日","一","二","三","四","五","六"];
 
@@ -39,6 +19,12 @@ const PICK_IDLE   = "idle";
 
 function toDateStr(d) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
+function localDateAt(dateStr, hour, minute = 0, second = 0) {
+  const [year, month, day] = String(dateStr || "").split("-").map(Number);
+  if (!year || !month || !day) return null;
+  return new Date(year, month - 1, day, hour, minute, second, 0);
 }
 
 function isDraftReady(draft) {
@@ -59,8 +45,6 @@ export default function AvailabilityPanel({ draft, onChange, onHintChange }) {
 
   const [startDate, setStartDate] = useState(null);
   const [endDate, setEndDate]     = useState(null);
-  const [startHour, setStartHour] = useState(null);
-  const [endHour, setEndHour]     = useState(null);
   const [hoverDate, setHoverDate] = useState(null);
   const [picking, setPicking]     = useState(PICK_IDLE);
 
@@ -81,7 +65,7 @@ export default function AvailabilityPanel({ draft, onChange, onHintChange }) {
     let cancelled = false;
     setLoading(true);
     setError(false);
-    setStartDate(null); setEndDate(null); setStartHour(null); setEndHour(null);
+    setStartDate(null); setEndDate(null);
     VmRequestAvailabilityService.preview(draft)
       .then((res) => { if (!cancelled) setData(res); })
       .catch(() => { if (!cancelled) setError(true); })
@@ -107,13 +91,6 @@ export default function AvailabilityPanel({ draft, onChange, onHintChange }) {
     return "limited";
   }
 
-  function getSelectableHours(dateStr) {
-    return (dayMap[dateStr]?.slots ?? [])
-      .filter((s) => s.status === "available" || s.status === "limited")
-      .map((s) => s.hour)
-      .sort((a, b) => a - b);
-  }
-
   /* ── Calendar grid ── */
   const calendarDays = useMemo(() => {
     const first = new Date(viewYear, viewMonth, 1);
@@ -137,43 +114,40 @@ export default function AvailabilityPanel({ draft, onChange, onHintChange }) {
     if (!level || level === "none") return;
     if (picking === PICK_IDLE || !startDate) {
       setStartDate(dateStr); setEndDate(dateStr);
-      setStartHour(null);   setEndHour(null);
       setPicking(PICK_EXTEND);
     } else {
       if (dateStr > startDate) {
         setEndDate(dateStr);
-        setEndHour(null);
         setPicking(PICK_IDLE);
       } else {
         // Same or earlier date: restart as single-day
         setStartDate(dateStr); setEndDate(dateStr);
-        setStartHour(null);   setEndHour(null);
       }
     }
   }
 
   /* ── Notify parent ── */
   useEffect(() => {
-    if (!startDate || !endDate || startHour == null || endHour == null) {
+    if (!startDate || !endDate) {
       onChangeRef.current?.({ start_at: null, end_at: null });
       return;
     }
-    const startSlot = dayMap[startDate]?.slots.find((s) => s.hour === startHour);
-    const endSlot   = dayMap[endDate]?.slots.find((s) => s.hour === endHour);
+    const start = startDate === todayStr ? new Date() : localDateAt(startDate, 0);
+    const end = localDateAt(endDate, 23, 59, 59);
     onChangeRef.current?.({
-      start_at: startSlot?.start_at ?? null,
-      end_at:   endSlot?.end_at     ?? null,
+      start_at: start?.toISOString() ?? null,
+      end_at: end?.toISOString() ?? null,
     });
-  }, [startDate, endDate, startHour, endHour, dayMap]);
+  }, [startDate, endDate, todayStr]);
 
   useEffect(() => {
     let hint = null;
     if (!startDate) hint = "點選日期即可選取單日，或繼續點選其他日期延伸範圍";
-    else if (picking === PICK_EXTEND && startDate === endDate) hint = `已選單日 ${startDate}，可繼續點選其他日期延伸範圍`;
-    else if (picking === PICK_IDLE && !(startDate && endDate && startHour != null && endHour != null))
+    else if (picking === PICK_EXTEND && startDate === endDate) hint = `已選單日 ${startDate}，審核通過後會依日期啟用`;
+    else if (picking === PICK_IDLE && startDate && endDate)
       hint = "日期已選定，點選日期即可重新選擇";
     onHintChangeRef.current?.(hint);
-  }, [startDate, endDate, startHour, endHour, picking]);
+  }, [startDate, endDate, picking]);
 
   /* ── Early returns ── */
   if (!draftReady) return (
@@ -194,12 +168,10 @@ export default function AvailabilityPanel({ draft, onChange, onHintChange }) {
     </div>
   );
 
-  const isComplete     = startDate && endDate && startHour != null && endHour != null;
+  const isComplete     = startDate && endDate;
   const isHoverPreview = picking === PICK_EXTEND && Boolean(hoverDate) && hoverDate > startDate;
   const effectiveEnd   = isHoverPreview ? hoverDate : endDate;
   const hasRange       = picking === PICK_IDLE && Boolean(startDate) && Boolean(endDate) && startDate !== endDate;
-  const startHours     = startDate ? getSelectableHours(startDate) : [];
-  const endHours       = endDate   ? getSelectableHours(endDate)   : [];
 
   return (
     <div className={styles.root}>
@@ -277,22 +249,13 @@ export default function AvailabilityPanel({ draft, onChange, onHintChange }) {
         ))}
       </div>
 
-      {/* ── Time pickers ── */}
-      {(startDate || endDate) && (
-        <div className={styles.timeRow}>
-          <TimeGroup label="開始" date={startDate} hours={startHours} value={startHour} onChange={setStartHour} />
-          <TimeGroup label="結束" date={endDate}   hours={endHours}   value={endHour}   onChange={setEndHour} />
-        </div>
-      )}
-
       {/* ── Summary ── */}
       {isComplete && (
         <div className={styles.summary}>
           <MIcon name="check_circle" size={14} />
           <span>
-            {startDate} {String(startHour).padStart(2, "0")}:00
-            {" → "}
-            {endDate} {String(endHour).padStart(2, "0")}:00
+            {startDate}
+            {startDate !== endDate ? ` → ${endDate}` : ""}
           </span>
         </div>
       )}
