@@ -20,7 +20,7 @@ function EmptyState() {
   );
 }
 
-export default function ResourceMgmtPage() {
+export default function ResourceMgmtPage({ onNavigate }) {
   const [resources] = useState(MOCK_RESOURCES);
 
   return (
@@ -36,7 +36,7 @@ export default function ResourceMgmtPage() {
             <MIcon name="sync" size={16} />
             重新整理
           </button>
-          <button type="button" className={styles.btnPrimary}>
+          <button type="button" className={styles.btnPrimary} onClick={() => onNavigate?.("my-requests", { view: "create" })}>
             <MIcon name="add" size={16} />
             建立資源
           </button>
