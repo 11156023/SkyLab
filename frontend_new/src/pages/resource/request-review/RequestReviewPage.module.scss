@@ -4,7 +4,7 @@
 /* ── Page shell ── */
 .page {
   @include flex-column;
-  gap: $spacing-16;
+  gap: $spacing-24;
   padding: $spacing-8 $spacing-16;
   flex: 1;
 
@@ -40,29 +40,167 @@
   color: var(--color-text-secondary);
 }
 
+.pageActions {
+  display: flex;
+  align-items: center;
+  gap: $spacing-8;
+  flex-wrap: wrap;
+  flex-shrink: 0;
+}
+
+%btn-base {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px $spacing-16;
+  border-radius: $radius-8;
+  font-size: $font-size-14;
+  font-weight: $font-weight-500;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background $transition-base, box-shadow $transition-base;
+
+  &:disabled {
+    opacity: 0.55;
+    cursor: not-allowed;
+  }
+}
+
+.btnSecondary {
+  @extend %btn-base;
+  background: var(--color-surface);
+  color: var(--color-text);
+  border: 1px solid var(--color-border);
+  box-shadow: var(--shadow-sm);
+
+  &:hover {
+    background: var(--color-hover);
+  }
+}
+
+.statRow {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: $spacing-16;
+
+  @include respond-to(sm) {
+    grid-template-columns: repeat(4, 1fr);
+  }
+}
+
+.statCard {
+  display: flex;
+  align-items: center;
+  gap: $spacing-16;
+  padding: $spacing-16;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: $radius-16;
+  box-shadow: var(--shadow-sm);
+}
+
+.statIcon {
+  width: 40px;
+  height: 40px;
+  border-radius: $radius-8;
+  background: var(--color-hover);
+  color: var(--color-primary);
+  @include flex-center;
+  flex-shrink: 0;
+}
+
+.statIconOk {
+  background: color-mix(in srgb, var(--color-success) 12%, transparent);
+  color: var(--color-success);
+}
+
+.statIconBusy {
+  background: color-mix(in srgb, #f59e0b 14%, transparent);
+  color: #d97706;
+}
+
+.statIconDanger {
+  background: color-mix(in srgb, var(--color-danger) 12%, transparent);
+  color: var(--color-danger);
+}
+
+.statInfo {
+  @include flex-column;
+  gap: 2px;
+}
+
+.statLabel {
+  font-size: $font-size-12;
+  color: var(--color-text-muted);
+}
+
+.statValue {
+  font-size: $font-size-24;
+  font-weight: $font-weight-700;
+  color: var(--color-text-primary);
+  font-variant-numeric: tabular-nums;
+}
+
 /* ── Tabs ── */
 .tabs {
   display: flex;
   gap: $spacing-4;
+  border-bottom: 1px solid var(--color-border);
 }
 
 .tab {
-  padding: 6px $spacing-16;
-  border-radius: $radius-pill;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: $spacing-8 $spacing-16;
   font-size: $font-size-14;
+  font-weight: $font-weight-500;
   color: var(--color-text-secondary);
+  border-bottom: 2px solid transparent;
   cursor: pointer;
-  transition: background $transition-base, color $transition-base;
+  margin-bottom: -1px;
+  transition: color $transition-base, border-color $transition-base;
 
   &:hover {
-    background: var(--color-hover);
     color: var(--color-text);
   }
 
   &.tabActive {
-    background: var(--color-text);
-    color: var(--color-surface);
-    font-weight: $font-weight-500;
+    color: var(--color-primary);
+    border-bottom-color: var(--color-primary);
+  }
+}
+
+.toolbar {
+  display: flex;
+  align-items: center;
+  gap: $spacing-8;
+  flex-wrap: wrap;
+}
+
+.search {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px $spacing-8 6px 10px;
+  border: 1px solid var(--color-border);
+  border-radius: $radius-8;
+  background: var(--color-surface);
+  color: var(--color-text-muted);
+  min-width: 280px;
+  box-shadow: var(--shadow-sm);
+}
+
+.searchInput {
+  flex: 1;
+  border: none;
+  outline: none;
+  background: transparent;
+  font-size: $font-size-14;
+  color: var(--color-text-primary);
+
+  &::placeholder {
+    color: var(--color-text-muted);
   }
 }
 
@@ -70,6 +208,51 @@
 .content {
   flex: 1;
   @include flex-column;
+}
+
+.reviewGrid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: $spacing-16;
+
+  @include respond-to(lg) {
+    grid-template-columns: minmax(320px, 0.9fr) minmax(0, 1.1fr);
+    align-items: start;
+  }
+}
+
+.listPane,
+.detailPane {
+  @include flex-column;
+  gap: $spacing-16;
+}
+
+.detailPane {
+  padding: $spacing-16;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: $radius-12;
+  box-shadow: var(--shadow-sm);
+}
+
+.stateBox {
+  @include flex-column;
+  align-items: center;
+  justify-content: center;
+  gap: $spacing-8;
+  min-height: 120px;
+  padding: $spacing-24;
+  color: var(--color-text-secondary);
+  background: var(--color-surface);
+  border: 1px dashed var(--color-border);
+  border-radius: $radius-12;
+  text-align: center;
+}
+
+.stateError {
+  color: #dc3545;
+  border-color: color-mix(in srgb, #dc3545 35%, var(--color-border));
+  background: color-mix(in srgb, #dc3545 8%, var(--color-surface));
 }
 
 /* ── Empty state ── */
@@ -105,6 +288,84 @@
   line-height: $line-height-base;
 }
 
+.tableWrap {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: $radius-16;
+  box-shadow: var(--shadow-sm);
+  overflow: hidden;
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.th {
+  padding: $spacing-8 $spacing-16;
+  font-size: $font-size-12;
+  font-weight: $font-weight-500;
+  color: var(--color-text-muted);
+  text-align: left;
+  background: var(--color-hover);
+  border-bottom: 1px solid var(--color-border);
+  white-space: nowrap;
+}
+
+.tr {
+  cursor: pointer;
+  transition: background $transition-base;
+
+  &:not(:last-child) {
+    border-bottom: 1px solid var(--color-divider);
+  }
+
+  &:hover {
+    background: var(--color-hover);
+  }
+}
+
+.trActive {
+  background: color-mix(in srgb, var(--color-primary) 8%, transparent);
+  box-shadow: inset 3px 0 0 var(--color-primary);
+}
+
+.td {
+  padding: $spacing-8 $spacing-16;
+  font-size: $font-size-14;
+  color: var(--color-text-primary);
+  vertical-align: middle;
+}
+
+.nameCell {
+  display: flex;
+  align-items: center;
+  gap: $spacing-8;
+  min-width: 180px;
+}
+
+.nameIcon {
+  width: 34px;
+  height: 34px;
+  border-radius: $radius-8;
+  background: var(--color-hover);
+  color: var(--color-primary);
+  @include flex-center;
+  flex-shrink: 0;
+}
+
+.namePrimary {
+  font-size: $font-size-14;
+  font-weight: $font-weight-500;
+  color: var(--color-text-primary);
+  @include text-truncate;
+}
+
+.nameSub {
+  font-size: $font-size-12;
+  color: var(--color-text-muted);
+}
+
 /* ── List ── */
 .list {
   @include flex-column;
@@ -112,14 +373,21 @@
 }
 
 .row {
+  width: 100%;
   display: flex;
   align-items: center;
+  text-align: left;
   gap: $spacing-16;
   padding: $spacing-16;
   background: var(--color-surface);
   border: 1px solid var(--color-border);
   border-radius: $radius-12;
   box-shadow: var(--shadow-sm);
+}
+
+.rowActive {
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-primary) 16%, transparent);
 }
 
 .rowIcon {
@@ -155,6 +423,165 @@
   display: flex;
   gap: $spacing-8;
   flex-shrink: 0;
+  flex-wrap: wrap;
+}
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 64px;
+  padding: 4px 8px;
+  border-radius: $radius-pill;
+  font-size: $font-size-12;
+  font-weight: $font-weight-500;
+  white-space: nowrap;
+}
+
+.badge_info {
+  color: #0d6efd;
+  background: color-mix(in srgb, #0d6efd 12%, transparent);
+}
+
+.badge_success {
+  color: #28a745;
+  background: color-mix(in srgb, #28a745 12%, transparent);
+}
+
+.badge_danger {
+  color: #dc3545;
+  background: color-mix(in srgb, #dc3545 10%, transparent);
+}
+
+.badge_muted {
+  color: var(--color-text-muted);
+  background: var(--color-hover);
+}
+
+.detailHeader {
+  @include flex-between;
+  gap: $spacing-16;
+
+  h2 {
+    margin: 0;
+    font-size: $font-size-18;
+    color: var(--color-text-primary);
+  }
+
+  p {
+    margin: 2px 0 0;
+    color: var(--color-text-secondary);
+    font-size: $font-size-14;
+  }
+}
+
+.infoGrid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: $spacing-8;
+
+  @include respond-to(md) {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+.infoRow {
+  @include flex-column;
+  gap: 2px;
+  padding: 10px 12px;
+  border: 1px solid var(--color-border);
+  border-radius: $radius-8;
+  background: var(--color-bg-base);
+
+  span {
+    color: var(--color-text-muted);
+    font-size: $font-size-12;
+  }
+
+  strong {
+    color: var(--color-text-primary);
+    font-size: $font-size-14;
+    font-weight: $font-weight-500;
+    overflow-wrap: anywhere;
+  }
+}
+
+.reasonBox,
+.contextBox {
+  @include flex-column;
+  gap: $spacing-8;
+  padding: $spacing-16;
+  border: 1px solid var(--color-border);
+  border-radius: $radius-12;
+  background: var(--color-bg-base);
+
+  span {
+    color: var(--color-text-muted);
+    font-size: $font-size-12;
+    font-weight: $font-weight-500;
+  }
+
+  p {
+    margin: 0;
+    color: var(--color-text-primary);
+    font-size: $font-size-14;
+    line-height: $line-height-base;
+  }
+}
+
+.contextTitle {
+  display: flex;
+  align-items: center;
+  gap: $spacing-8;
+  color: var(--color-primary);
+
+  span {
+    color: inherit;
+    font-size: $font-size-14;
+  }
+}
+
+.warningList {
+  display: flex;
+  flex-wrap: wrap;
+  gap: $spacing-8;
+
+  span {
+    padding: 4px 8px;
+    border-radius: $radius-pill;
+    color: #b7791f;
+    background: color-mix(in srgb, #ffc107 18%, transparent);
+  }
+}
+
+.commentField {
+  @include flex-column;
+  gap: $spacing-8;
+  color: var(--color-text-primary);
+  font-size: $font-size-14;
+  font-weight: $font-weight-500;
+
+  textarea {
+    min-height: 96px;
+    resize: vertical;
+    padding: 10px 12px;
+    border: 1px solid var(--color-border);
+    border-radius: $radius-8;
+    background: var(--color-bg-base);
+    color: var(--color-text-primary);
+    font: inherit;
+    font-weight: $font-weight-400;
+
+    &:disabled {
+      opacity: 0.65;
+      cursor: not-allowed;
+    }
+  }
+}
+
+.doneText {
+  color: var(--color-text-secondary);
+  font-size: $font-size-14;
 }
 
 %review-btn {
@@ -164,6 +591,11 @@
   font-weight: $font-weight-500;
   cursor: pointer;
   transition: background $transition-base;
+
+  &:disabled {
+    opacity: 0.55;
+    cursor: not-allowed;
+  }
 }
 
 .btnApprove {

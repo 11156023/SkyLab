@@ -136,11 +136,11 @@ def require_immediate_vm_request_access(
 
 
 def can_auto_approve_vm_request(user: Any, *, mode: str) -> bool:
-    if is_admin(user):
-        return True
     if mode == "quick_template":
-        return get_user_role(user) in {UserRole.student, UserRole.teacher}
-    return mode == "immediate" and is_teacher(user)
+        return get_user_role(user) in {UserRole.student, UserRole.teacher, UserRole.admin}
+    if mode == "immediate":
+        return is_teacher(user) or is_admin(user)
+    return False
 
 
 def require_admin_access(
