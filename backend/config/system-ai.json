@@ -21,7 +21,7 @@
   "pve_advisor": {
     "source_cache_ttl_seconds": 20,
     "backend_node_gpu_map": {
-      "pve-gpu-1": 1
+      "pve": 1
     },
     "backend_traffic_window_minutes": 60,
     "backend_traffic_sample_limit": 200,

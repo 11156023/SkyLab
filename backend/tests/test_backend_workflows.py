@@ -162,6 +162,95 @@ def test_vm_request_create_preserves_environment_type(
     assert saved.storage == "fast-ssd"
 
 
+def test_admin_scheduled_request_stays_pending(
+    db: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    admin = _create_user(db, role=UserRole.admin)
+    now = datetime.now(timezone.utc)
+    monkeypatch.setattr(
+        "app.services.vm.vm_request_service.vm_request_availability_service.validate_request_window",
+        lambda **kwargs: None,
+    )
+    monkeypatch.setattr(
+        "app.services.vm.vm_request_service._approve_and_place",
+        lambda **kwargs: (_ for _ in ()).throw(AssertionError("should not auto approve")),
+    )
+
+    request_in = VMRequestCreate(
+        reason="Need a scheduled VM for a reviewed admin request",
+        resource_type="vm",
+        hostname="admin-scheduled-review",
+        cores=2,
+        memory=2048,
+        password="strongpass123",
+        storage="fast-ssd",
+        template_id=9000,
+        disk_size=32,
+        username="admin",
+        mode="scheduled",
+        start_at=now + timedelta(hours=1),
+        end_at=now + timedelta(hours=3),
+    )
+
+    result = vm_request_service.create(session=db, request_in=request_in, user=admin)
+
+    db.expire_all()
+    saved = db.exec(select(VMRequest).where(VMRequest.id == result.id)).first()
+    assert saved is not None
+    assert saved.status == VMRequestStatus.pending
+    assert saved.reviewer_id is None
+    assert saved.assigned_node is None
+
+
+def test_admin_immediate_request_is_auto_approved(
+    db: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    admin = _create_user(db, role=UserRole.admin)
+    calls: list[uuid.UUID] = []
+
+    def fake_approve_and_place(*, session: Session, db_request: VMRequest, reviewer_id: uuid.UUID):
+        db_request.status = VMRequestStatus.approved
+        db_request.reviewer_id = reviewer_id
+        db_request.assigned_node = "pve-a"
+        db_request.desired_node = "pve-a"
+        session.add(db_request)
+        session.flush()
+        return None
+
+    monkeypatch.setattr(
+        "app.services.vm.vm_request_service._approve_and_place",
+        fake_approve_and_place,
+    )
+    monkeypatch.setattr(
+        "app.services.vm.vm_request_service.submit_sync",
+        lambda _fn, request_id, **_kwargs: calls.append(request_id),
+    )
+
+    request_in = VMRequestCreate(
+        reason="Need an immediate VM for admin maintenance",
+        resource_type="vm",
+        hostname="admin-immediate",
+        cores=2,
+        memory=2048,
+        password="strongpass123",
+        storage="fast-ssd",
+        template_id=9000,
+        disk_size=32,
+        username="admin",
+        mode="immediate",
+    )
+
+    result = vm_request_service.create(session=db, request_in=request_in, user=admin)
+
+    db.expire_all()
+    saved = db.exec(select(VMRequest).where(VMRequest.id == result.id)).first()
+    assert saved is not None
+    assert saved.status == VMRequestStatus.approved
+    assert saved.reviewer_id == admin.id
+    assert saved.start_at is not None
+    assert calls == [saved.id]
+
+
 def test_vm_request_create_rejects_unavailable_window(
     db: Session, monkeypatch: pytest.MonkeyPatch
 ) -> None:

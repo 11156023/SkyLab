@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="zh-Hant">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>SkyLab AI Navigation Demo</title>
+    <link rel="stylesheet" href="/static/styles.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <aside class="sidebar">
+        <div class="brand">
+          <span class="brand-icon">S</span>
+          <div>
+            <strong>SkyLab</strong>
+            <small>AI Navigation Demo</small>
+          </div>
+        </div>
+        <nav id="sidebarNav" class="sidebar-nav"></nav>
+        <div class="sidebar-footer">
+          <label for="role">Role</label>
+          <select id="role">
+            <option value="student">Student</option>
+            <option value="teacher">Teacher</option>
+            <option value="admin">Admin</option>
+          </select>
+        </div>
+      </aside>
+
+      <main class="main-pane">
+        <section id="pageView" class="page-view"></section>
+      </main>
+
+      <div id="chatResizeHandle" class="chat-resize-handle" aria-hidden="true"></div>
+
+      <aside class="chat-pane">
+        <div class="chat-header">
+          <div>
+            <p class="eyebrow">AI Chat</p>
+            <h2>快速導引</h2>
+          </div>
+          <span id="actionBadge">waiting</span>
+        </div>
+
+        <div class="mode-toggle" role="group" aria-label="導引模式">
+          <button class="mode-btn active" type="button" data-mode="guide">教我</button>
+          <button class="mode-btn" type="button" data-mode="shortcut">快速</button>
+        </div>
+
+        <div id="chatLog" class="chat-log">
+          <article class="message assistant">
+            <p>輸入你想完成的事，我會輸出導引按鈕；若需要多頁完成，會產生 workflow 指引。</p>
+          </article>
+        </div>
+
+        <form id="chatForm" class="chat-form">
+          <div class="chat-input-wrapper">
+            <textarea id="query" rows="2" placeholder="用文字描述需求，例如：我要開 VM"></textarea>
+            <button id="resolveBtn" class="send-icon-btn" type="submit" aria-label="送出">
+              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 16 16"><path d="M15.964.686a.5.5 0 0 0-.65-.65L.767 5.855H.766l-.452.18a.5.5 0 0 0-.082.887l.41.26.001.002 4.995 3.178 3.178 4.995.002.002.26.41a.5.5 0 0 0 .886-.083l6-15Zm-1.833 1.89L6.637 10.07l-.215-.338a.5.5 0 0 0-.154-.154l-.338-.215 7.494-7.494 1.178-.471-.47 1.178Z"/></svg>
+            </button>
+          </div>
+        </form>
+      </aside>
+    </div>
+
+    <script src="/static/app.js"></script>
+  </body>
+</html>

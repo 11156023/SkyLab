@@ -1,22 +1,34 @@
 import { apiGet, apiPost } from "./api";
 
 export const VmRequestsService = {
-  /** 取得我的申請列表 */
   list() {
     return apiGet("/api/v1/vm-requests/my");
   },
 
-  /** 送出申請 */
+  listAll(status) {
+    const query = new URLSearchParams();
+    if (status && status !== "all") query.set("status", status);
+    query.set("limit", "100");
+    const qs = query.toString();
+    return apiGet(`/api/v1/vm-requests/${qs ? `?${qs}` : ""}`);
+  },
+
+  getReviewContext(requestId) {
+    return apiGet(`/api/v1/vm-requests/${requestId}/review-context`);
+  },
+
   create(body) {
     return apiPost("/api/v1/vm-requests/", body);
   },
 
-  /** 撤銷申請（pending / approved / provisioning） */
+  review(requestId, body) {
+    return apiPost(`/api/v1/vm-requests/${requestId}/review`, body);
+  },
+
   cancel(requestId) {
     return apiPost(`/api/v1/vm-requests/${requestId}/cancel`, {});
   },
 
-  /** 重試佈建（approved 且上次佈建失敗） */
   retry(requestId) {
     return apiPost(`/api/v1/vm-requests/${requestId}/retry`, {});
   },
