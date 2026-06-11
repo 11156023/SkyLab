@@ -56,9 +56,9 @@ def _patch_availability(monkeypatch: MonkeyPatch) -> None:
         node_capacities,
         effective_resource_type,
         resource_type_reason,
-        session=None,
+        **kwargs,
     ):
-        del request, node_capacities, effective_resource_type, resource_type_reason, session
+        del request, node_capacities, effective_resource_type, resource_type_reason, kwargs
         return PlacementPlan(
             feasible=True,
             requested_resource_type="lxc",
