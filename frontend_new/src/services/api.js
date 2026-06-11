@@ -95,8 +95,12 @@ export function apiGet(path) {
 }
 
 /** POST（JSON body） */
-export function apiPost(path, body) {
-  return request(path, { method: "POST", body: JSON.stringify(body) });
+export function apiPost(path, body, options = {}) {
+  return request(path, {
+    method: "POST",
+    body: JSON.stringify(body),
+    signal: options.signal,
+  });
 }
 
 /** POST（form-urlencoded，登入用，不帶 Authorization 也不重試） */
