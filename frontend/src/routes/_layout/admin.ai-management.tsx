@@ -100,6 +100,17 @@ export const Route = createFileRoute("/_layout/admin/ai-management")({
 const PAGE_SIZE = 50
 const LIMIT = 50
 
+const TEMPLATE_CALL_TYPE_OPTIONS = [
+  { value: "chat", label: "模板推薦對話" },
+  { value: "recommend", label: "模板推薦方案" },
+  { value: "ai_nav", label: "AI 導覽" },
+  { value: "tj_rubric", label: "Teacher Judge 文件分析" },
+  { value: "tj_chat", label: "Teacher Judge 評分表對話" },
+  { value: "tj_script_gen", label: "Teacher Judge 腳本產生" },
+  { value: "tj_script_review", label: "Teacher Judge 腳本審查" },
+  { value: "tj_result_ai", label: "Teacher Judge 結果分析" },
+] as const
+
 // ─── Utility functions ────────────────────────────────────────────────────────
 
 function formatTime(value?: string | null) {
@@ -131,6 +142,13 @@ function formatModelDisplay(modelName?: string | null): string {
   const match = trimmed.match(/models--([^/]+)--([^/]+)/)
   if (!match) return trimmed
   return `${match[1]}/${match[2]}`
+}
+
+function templateCallTypeLabel(value: string): string {
+  return (
+    TEMPLATE_CALL_TYPE_OPTIONS.find((option) => option.value === value)
+      ?.label ?? value
+  )
 }
 
 function inactiveReasonLabel(reason?: "revoked" | "expired" | null) {
@@ -1001,15 +1019,25 @@ function TemplateCallsTab({
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap gap-3">
-        <Input
-          placeholder="篩選呼叫類型"
-          value={callTypeFilter}
-          onChange={(e) => {
-            setCallTypeFilter(e.target.value)
+        <Select
+          value={callTypeFilter || "__all__"}
+          onValueChange={(v) => {
+            setCallTypeFilter(v === "__all__" ? "" : v)
             setPage(0)
           }}
-          className="w-48"
-        />
+        >
+          <SelectTrigger className="w-56">
+            <SelectValue placeholder="所有呼叫類型" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="__all__">所有呼叫類型</SelectItem>
+            {TEMPLATE_CALL_TYPE_OPTIONS.map((option) => (
+              <SelectItem key={option.value} value={option.value}>
+                {option.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
         <Select
           value={statusFilter || "__all__"}
           onValueChange={(v) => {
@@ -1079,7 +1107,10 @@ function TemplateCallsTab({
                           />
                         </TableCell>
                         <TableCell className="text-sm">
-                          {row.call_type}
+                          <div>{templateCallTypeLabel(row.call_type)}</div>
+                          <div className="text-xs text-muted-foreground">
+                            {row.call_type}
+                          </div>
                         </TableCell>
                         <TableCell
                           className="font-mono text-sm"

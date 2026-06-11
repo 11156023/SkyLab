@@ -2,8 +2,12 @@ from __future__ import annotations
 
 import json
 import logging
+from time import perf_counter
 from typing import Any
 
+from sqlmodel import Session
+
+from app.ai.monitoring import CALL_AI_NAVIGATION, record_ai_template_call
 from app.ai.navigation.catalog import (
     NavigationRoute,
     find_route_by_path,
@@ -110,6 +114,22 @@ def _keyword_fallback(query: str, routes: list[NavigationRoute]) -> NavigationRe
     )
 
 
+def _usage_metrics(response_data: dict[str, Any], elapsed: float) -> dict[str, Any]:
+    usage = response_data.get("usage")
+    if not isinstance(usage, dict):
+        usage = {}
+    prompt_tokens = int(usage.get("prompt_tokens") or 0)
+    completion_tokens = int(usage.get("completion_tokens") or 0)
+    return {
+        "prompt_tokens": prompt_tokens,
+        "completion_tokens": completion_tokens,
+        "total_tokens": int(
+            usage.get("total_tokens") or prompt_tokens + completion_tokens
+        ),
+        "elapsed_seconds": round(max(elapsed, 0.0), 3),
+    }
+
+
 def _build_response_from_payload(
     payload: dict[str, Any],
     *,
@@ -169,7 +189,11 @@ def _build_response_from_payload(
     )
 
 
-async def resolve_navigation(query: str, current_user: User) -> NavigationResolveResponse:
+async def resolve_navigation(
+    query: str,
+    current_user: User,
+    session: Session | None = None,
+) -> NavigationResolveResponse:
     clean_query = query.strip()
     allowed_routes = list(get_routes_for_user(current_user))
     if not clean_query:
@@ -205,27 +229,67 @@ async def resolve_navigation(query: str, current_user: User) -> NavigationResolv
     }
 
     try:
+        started = perf_counter()
         response_data = await navigation_client.create_chat_completion(
             payload,
             timeout=_DEFAULT_TIMEOUT_SECONDS,
         )
+        metrics = _usage_metrics(response_data, perf_counter() - started)
         content = str(response_data["choices"][0]["message"]["content"] or "")
         normalized_text = strip_think_tags(content)
         raw_json = _extract_first_json_object(normalized_text)
         if not raw_json:
             logger.warning("Navigation model returned non-JSON text, using keyword fallback")
+            if session is not None:
+                record_ai_template_call(
+                    session=session,
+                    user_id=current_user.id,
+                    call_type=CALL_AI_NAVIGATION,
+                    model_name=model_name,
+                    metrics=metrics,
+                    status="error",
+                    error_message="Navigation model returned non-JSON text.",
+                )
             return _keyword_fallback(clean_query, allowed_routes)
 
         parsed = json.loads(raw_json)
         if not isinstance(parsed, dict):
             logger.warning("Navigation model returned non-object JSON, using keyword fallback")
+            if session is not None:
+                record_ai_template_call(
+                    session=session,
+                    user_id=current_user.id,
+                    call_type=CALL_AI_NAVIGATION,
+                    model_name=model_name,
+                    metrics=metrics,
+                    status="error",
+                    error_message="Navigation model returned non-object JSON.",
+                )
             return _keyword_fallback(clean_query, allowed_routes)
 
-        return _build_response_from_payload(
+        result = _build_response_from_payload(
             parsed,
             user_query=clean_query,
             allowed_routes=allowed_routes,
         )
+        if session is not None:
+            record_ai_template_call(
+                session=session,
+                user_id=current_user.id,
+                call_type=CALL_AI_NAVIGATION,
+                model_name=model_name,
+                metrics=metrics,
+            )
+        return result
     except Exception as exc:  # pragma: no cover - defensive fallback
         logger.exception("Navigation resolve failed, fallback to keyword strategy: %s", exc)
+        if session is not None:
+            record_ai_template_call(
+                session=session,
+                user_id=current_user.id,
+                call_type=CALL_AI_NAVIGATION,
+                model_name=model_name,
+                status="error",
+                error_message=str(exc),
+            )
         return _keyword_fallback(clean_query, allowed_routes)

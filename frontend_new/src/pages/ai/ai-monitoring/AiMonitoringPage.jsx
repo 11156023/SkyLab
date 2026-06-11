@@ -24,13 +24,24 @@ const PRESETS = [
 
 const TABS = [
   { key: "proxy",    label: "Proxy 呼叫", icon: "swap_horiz" },
-  { key: "template", label: "Template",   icon: "auto_awesome" },
+  { key: "template", label: "Template 呼叫", icon: "auto_awesome" },
   { key: "users",    label: "使用者用量", icon: "groups" },
 ];
 
-const PROXY_COLS = ["時間", "使用者", "模型", "Tokens", "延遲", "狀態"];
-const TPL_COLS   = ["時間", "使用者", "模板", "Tokens", "延遲", "狀態"];
+const PROXY_COLS = ["時間", "使用者", "模型", "類型", "輸入", "輸出", "耗時", "狀態"];
+const TPL_COLS   = ["時間", "使用者", "呼叫類型", "模型", "Preset", "輸入", "輸出", "耗時", "狀態"];
 const USER_COLS  = ["使用者", "呼叫次數", "Tokens 總計", "平均延遲", "失敗率"];
+
+const CALL_TYPE_LABELS = {
+  recommend: "模板推薦方案",
+  chat: "模板推薦對話",
+  ai_nav: "AI 導覽",
+  tj_rubric: "Teacher Judge 評分表分析",
+  tj_chat: "Teacher Judge 對話",
+  tj_script_gen: "Teacher Judge 腳本生成",
+  tj_script_review: "Teacher Judge 腳本審查",
+  tj_result_ai: "Teacher Judge 結果分析",
+};
 
 function formatTokens(n) {
   if (n == null) return "—";
@@ -43,6 +54,22 @@ function formatDuration(ms) {
   if (ms == null) return "—";
   if (ms >= 1000) return `${(ms / 1000).toFixed(1)}s`;
   return `${ms}ms`;
+}
+
+function formatModelDisplay(modelName) {
+  if (!modelName) return "—";
+  const trimmed = modelName.trim();
+  if (!trimmed) return "—";
+
+  const match = trimmed.match(/models--([^/]+)--([^/]+)/);
+  if (!match) return trimmed;
+
+  return `${match[1]}/${match[2]}`;
+}
+
+function formatCallType(callType) {
+  if (!callType) return "—";
+  return CALL_TYPE_LABELS[callType] ?? callType;
 }
 
 function isOkStatus(status) {
@@ -73,6 +100,27 @@ function StatusBadge({ status }) {
       <span className={styles.dot} />
       {ok ? "成功" : "失敗"}
     </span>
+  );
+}
+
+function UserCell({ email, fullName, fallback }) {
+  return (
+    <div className={styles.userCell}>
+      <div className={styles.userName}>{fullName || fallback || "—"}</div>
+      {email ? <div className={styles.userEmail}>{email}</div> : null}
+    </div>
+  );
+}
+
+function CallTypeCell({ callType }) {
+  const label = formatCallType(callType);
+  return (
+    <div className={styles.callTypeCell}>
+      <div className={styles.callTypeLabel}>{label}</div>
+      {callType && label !== callType ? (
+        <div className={styles.callTypeKey}>{callType}</div>
+      ) : null}
+    </div>
   );
 }
 
@@ -134,6 +182,9 @@ export default function AiMonitoringPage() {
         (c.user_email ?? "").toLowerCase().includes(q) ||
         (c.user_full_name ?? "").toLowerCase().includes(q) ||
         (c.model_name ?? "").toLowerCase().includes(q) ||
+        (c.call_type ?? "").toLowerCase().includes(q) ||
+        formatCallType(c.call_type).toLowerCase().includes(q) ||
+        (c.request_type ?? "").toLowerCase().includes(q) ||
         (c.preset ?? "").toLowerCase().includes(q),
     );
   }, [proxyCalls, templateCalls, tab, query]);
@@ -234,7 +285,7 @@ export default function AiMonitoringPage() {
           <input
             type="text"
             className={styles.searchInput}
-            placeholder={tab === "users" ? "搜尋使用者" : "搜尋使用者、模型或模板"}
+            placeholder={tab === "users" ? "搜尋使用者" : "搜尋使用者、模型、呼叫類型或 Preset"}
             value={query}
             onChange={(e) => setQuery(e.target.value)}
           />
@@ -269,7 +320,13 @@ export default function AiMonitoringPage() {
                       (u.template_output_tokens ?? 0);
                     return (
                       <tr key={u.user_id} className={styles.tr}>
-                        <td className={styles.td}>{u.user_email ?? u.user_full_name ?? u.user_id}</td>
+                        <td className={styles.td}>
+                          <UserCell
+                            email={u.user_email}
+                            fullName={u.user_full_name}
+                            fallback={u.user_id}
+                          />
+                        </td>
                         <td className={styles.td}>{totalCalls}</td>
                         <td className={styles.td}>{formatTokens(totalTokens)}</td>
                         <td className={styles.td}>—</td>
@@ -301,14 +358,36 @@ export default function AiMonitoringPage() {
                 {visibleCalls.map((c) => (
                   <tr key={c.id} className={styles.tr}>
                     <td className={styles.td}>{fmtTime(c.created_at)}</td>
-                    <td className={styles.td}>{c.user_email ?? c.user_full_name ?? "—"}</td>
                     <td className={styles.td}>
-                      {tab === "proxy" ? c.model_name : (c.preset ?? c.call_type ?? c.model_name)}
+                      <UserCell
+                        email={c.user_email}
+                        fullName={c.user_full_name}
+                        fallback={c.user_id}
+                      />
                     </td>
-                    <td className={styles.td}>
-                      {formatTokens((c.input_tokens ?? 0) + (c.output_tokens ?? 0))}
-                    </td>
-                    <td className={styles.td}>{formatDuration(c.request_duration_ms)}</td>
+                    {tab === "proxy" ? (
+                      <>
+                        <td className={`${styles.td} ${styles.monoCell}`} title={c.model_name}>
+                          {formatModelDisplay(c.model_name)}
+                        </td>
+                        <td className={styles.td}>{c.request_type ?? "—"}</td>
+                        <td className={`${styles.td} ${styles.numericCell}`}>{formatTokens(c.input_tokens ?? 0)}</td>
+                        <td className={`${styles.td} ${styles.numericCell}`}>{formatTokens(c.output_tokens ?? 0)}</td>
+                      </>
+                    ) : (
+                      <>
+                        <td className={styles.td}>
+                          <CallTypeCell callType={c.call_type} />
+                        </td>
+                        <td className={`${styles.td} ${styles.monoCell}`} title={c.model_name}>
+                          {formatModelDisplay(c.model_name)}
+                        </td>
+                        <td className={styles.td}>{c.preset ?? "—"}</td>
+                        <td className={`${styles.td} ${styles.numericCell}`}>{formatTokens(c.input_tokens ?? 0)}</td>
+                        <td className={`${styles.td} ${styles.numericCell}`}>{formatTokens(c.output_tokens ?? 0)}</td>
+                      </>
+                    )}
+                    <td className={`${styles.td} ${styles.numericCell}`}>{formatDuration(c.request_duration_ms)}</td>
                     <td className={styles.td}>
                       <StatusBadge status={c.status} />
                     </td>

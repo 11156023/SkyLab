@@ -7,6 +7,7 @@ import uuid
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse
 
+from app.ai.monitoring import CALL_TJ_RUBRIC, record_ai_template_call
 from app.ai.teacher_judge.config import settings
 from app.ai.teacher_judge.file_service import (
     delete_file,
@@ -96,11 +97,23 @@ async def upload_group_teacher_judge_file(
     )
 
     template_commands = get_enabled_template_commands(session, template_key)
-    analysis, metrics = await analyze_rubric(
-        raw_text,
-        template_key=template_key,
-        template_commands=template_commands,
-    )
+    try:
+        analysis, metrics = await analyze_rubric(
+            raw_text,
+            template_key=template_key,
+            template_commands=template_commands,
+        )
+    except HTTPException as exc:
+        record_ai_template_call(
+            session=session,
+            user_id=current_user.id,
+            call_type=CALL_TJ_RUBRIC,
+            model_name=settings.VLLM_MODEL_NAME,
+            preset=template_key,
+            status="error",
+            error_message=str(exc.detail),
+        )
+        raise
     saved_file = save_analyzed_file(
         session=session,
         group_id=group_id,
@@ -111,6 +124,14 @@ async def upload_group_teacher_judge_file(
         file_bytes=file_bytes,
         analysis=analysis,
         conflict_strategy=conflict_strategy,
+    )
+    record_ai_template_call(
+        session=session,
+        user_id=current_user.id,
+        call_type=CALL_TJ_RUBRIC,
+        model_name=settings.VLLM_MODEL_NAME,
+        preset=template_key,
+        metrics=metrics,
     )
     return TeacherJudgeFileUploadResponse(
         file=saved_file,

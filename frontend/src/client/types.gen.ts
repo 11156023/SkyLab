@@ -4593,7 +4593,7 @@ export type ResourcePublic = {
     /**
      * Status
      */
-    status: string;
+    status: 'scheduled' | 'provisioning' | 'running' | 'stopped' | 'paused' | 'failed' | 'deleted' | 'unknown';
     /**
      * Node
      */
@@ -7901,8 +7901,12 @@ export type VmRequestReviewRuntimeResource = {
 
 /**
  * VMRequestStatus
+ *
+ * Review lifecycle for a VM/LXC request.
+ *
+ * Runtime resource state belongs to ResourcePublic.status, not here.
  */
-export type VmRequestStatus = 'pending' | 'approved' | 'provisioning' | 'running' | 'rejected' | 'cancelled';
+export type VmRequestStatus = 'pending' | 'approved' | 'rejected' | 'cancelled';
 
 /**
  * VMRequestWindowAvailabilityRequest
@@ -10368,6 +10372,40 @@ export type AiApiListMyAiApiCredentialsResponses = {
 };
 
 export type AiApiListMyAiApiCredentialsResponse = AiApiListMyAiApiCredentialsResponses[keyof AiApiListMyAiApiCredentialsResponses];
+
+export type AiApiGetMyProxyUsageData = {
+    body?: never;
+    path?: never;
+    query?: {
+        /**
+         * Start Date
+         */
+        start_date?: string | null;
+        /**
+         * End Date
+         */
+        end_date?: string | null;
+    };
+    url: '/api/v1/ai-api/usage/proxy/my';
+};
+
+export type AiApiGetMyProxyUsageErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type AiApiGetMyProxyUsageError = AiApiGetMyProxyUsageErrors[keyof AiApiGetMyProxyUsageErrors];
+
+export type AiApiGetMyProxyUsageResponses = {
+    /**
+     * Successful Response
+     */
+    200: UsageStatsResponse;
+};
+
+export type AiApiGetMyProxyUsageResponse = AiApiGetMyProxyUsageResponses[keyof AiApiGetMyProxyUsageResponses];
 
 export type AiApiListAllAiApiCredentialsData = {
     body?: never;

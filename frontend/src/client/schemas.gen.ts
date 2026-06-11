@@ -7986,6 +7986,16 @@ export const ResourcePublicSchema = {
         },
         status: {
             type: 'string',
+            enum: [
+                'scheduled',
+                'provisioning',
+                'running',
+                'stopped',
+                'paused',
+                'failed',
+                'deleted',
+                'unknown'
+            ],
             title: 'Status'
         },
         node: {
@@ -13728,12 +13738,11 @@ export const VMRequestStatusSchema = {
     enum: [
         'pending',
         'approved',
-        'provisioning',
-        'running',
         'rejected',
         'cancelled'
     ],
-    title: 'VMRequestStatus'
+    title: 'VMRequestStatus',
+    description: 'Review lifecycle for a VM/LXC request.\n\nRuntime resource state belongs to ResourcePublic.status, not here.'
 } as const;
 
 export const VMRequestWindowAvailabilityRequestSchema = {

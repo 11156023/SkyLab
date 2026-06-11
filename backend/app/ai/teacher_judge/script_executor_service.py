@@ -13,6 +13,7 @@ from typing import Any
 
 from sqlmodel import Session
 
+from app.ai.monitoring import CALL_TJ_RESULT_ANALYSIS, record_ai_template_call
 from app.ai.teacher_judge.script_policy import validate_managed_script_output
 from app.ai.teacher_judge.script_result_analysis_service import (
     analyze_target_results,
@@ -440,6 +441,33 @@ def _mark_run_executor_failed(run_id: uuid.UUID, message: str) -> None:
         session.commit()
 
 
+def _record_result_ai_usage(
+    *,
+    session: Session,
+    user_id: uuid.UUID | None,
+    template_key: str,
+    results: list[dict[str, Any]],
+) -> None:
+    for result in results:
+        judgement = result.get("ai_judgement")
+        if not isinstance(judgement, dict):
+            continue
+        judgement_status = str(judgement.get("status") or "")
+        if judgement_status in {"", "pending", "skipped"}:
+            continue
+        metrics = judgement.get("metrics")
+        record_ai_template_call(
+            session=session,
+            user_id=user_id,
+            call_type=CALL_TJ_RESULT_ANALYSIS,
+            model_name=str(judgement.get("model") or ""),
+            preset=template_key,
+            metrics=metrics if isinstance(metrics, dict) else None,
+            status="success" if judgement_status == "completed" else "error",
+            error_message=str(judgement.get("error") or "") or None,
+        )
+
+
 async def _execute_script_run(run_id: uuid.UUID) -> None:
     """Execute a stored Teacher Judge script run and persist per-target results."""
     with Session(engine) as session:
@@ -591,6 +619,12 @@ async def _execute_script_run(run_id: uuid.UUID) -> None:
         run.updated_at = _now()
         session.add(run)
         session.commit()
+        _record_result_ai_usage(
+            session=session,
+            user_id=run.started_by,
+            template_key=artifact.template_key,
+            results=results,
+        )
 
 
 async def execute_script_run(run_id: uuid.UUID) -> None:
