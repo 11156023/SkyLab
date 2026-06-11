@@ -5,8 +5,8 @@ from datetime import datetime, timedelta, timezone
 from fastapi.testclient import TestClient
 from pytest import MonkeyPatch
 
-from app.ai.pve_advisor.schemas import NodeCapacity, PlacementDecision, PlacementPlan
 from app.core.config import settings
+from app.domain.placement.schemas import NodeCapacity, PlacementDecision, PlacementPlan
 from app.services.vm import vm_request_availability_service
 
 
@@ -35,17 +35,17 @@ def _fake_capacities() -> list[NodeCapacity]:
 
 def _patch_availability(monkeypatch: MonkeyPatch) -> None:
     monkeypatch.setattr(
-        vm_request_availability_service.advisor_service,
+        vm_request_availability_service.placement_advisor,
         "_load_cluster_state",
         lambda: ([], []),
     )
     monkeypatch.setattr(
-        vm_request_availability_service.advisor_service,
+        vm_request_availability_service.placement_advisor,
         "_build_node_capacities",
         lambda **kwargs: _fake_capacities(),
     )
     monkeypatch.setattr(
-        vm_request_availability_service.advisor_service,
+        vm_request_availability_service.placement_advisor,
         "_decide_resource_type",
         lambda request: ("lxc", "Prefer LXC for this request."),
     )
@@ -79,8 +79,8 @@ def _patch_availability(monkeypatch: MonkeyPatch) -> None:
         )
 
     monkeypatch.setattr(
-        vm_request_availability_service.advisor_service,
-        "_build_rule_based_plan",
+        vm_request_availability_service.vm_request_placement_service,
+        "build_plan",
         fake_plan,
     )
 

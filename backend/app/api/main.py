@@ -2,7 +2,6 @@ from fastapi import APIRouter
 
 from app.api.routes import (
     ai,
-    ai_pve_advisor,
     audit_logs,
     batch_provision,
     cloudflare,
@@ -47,7 +46,6 @@ api_router.include_router(vm_requests.router)
 api_router.include_router(deletion_requests.router)
 api_router.include_router(migration_jobs.router)
 api_router.include_router(ai.router)
-api_router.include_router(ai_pve_advisor.router)
 api_router.include_router(spec_change_requests.router)
 api_router.include_router(audit_logs.router)
 api_router.include_router(groups.router)

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
 from typing import Any, Literal
 
 from pydantic import AliasChoices, BaseModel, ConfigDict, Field, model_validator
@@ -55,14 +54,6 @@ class PlacementRequest(BaseModel):
             except (TypeError, ValueError):
                 pass
         return data
-
-
-class AiMetrics(BaseModel):
-    prompt_tokens: int = Field(default=0, ge=0)
-    completion_tokens: int = Field(default=0, ge=0)
-    total_tokens: int = Field(default=0, ge=0)
-    elapsed_seconds: float = Field(default=0.0, ge=0.0)
-    tokens_per_second: float = Field(default=0.0, ge=0.0)
 
 
 class NodeSnapshot(BaseModel):
@@ -134,36 +125,3 @@ class PlacementPlan(BaseModel):
     warnings: list[str] = Field(default_factory=list)
     placements: list[PlacementDecision] = Field(default_factory=list)
     candidate_nodes: list[NodeCapacity] = Field(default_factory=list)
-
-
-class RecommendedMachine(BaseModel):
-    node: str
-    resource_type: ResourceType
-    instance_count: int = Field(default=0, ge=0)
-    reason: str
-
-
-class MachineCurrentStatus(BaseModel):
-    node: str
-    status: str
-    candidate: bool
-    running_resources: int = Field(default=0, ge=0)
-    cpu_usage_ratio: float = Field(default=0.0, ge=0.0)
-    memory_usage_ratio: float = Field(default=0.0, ge=0.0)
-    disk_usage_ratio: float = Field(default=0.0, ge=0.0)
-    allocatable_cpu_cores: float = Field(default=0.0, ge=0.0)
-    allocatable_memory_gb: float = Field(default=0.0, ge=0.0)
-    allocatable_disk_gb: float = Field(default=0.0, ge=0.0)
-    gpu_count: int = Field(default=0, ge=0)
-
-
-class PlacementAdvisorResponse(BaseModel):
-    generated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
-    reply: str
-    machines_to_open: list[RecommendedMachine] = Field(default_factory=list)
-    reasons: list[str] = Field(default_factory=list)
-    current_status: list[MachineCurrentStatus] = Field(default_factory=list)
-    ai_used: bool = False
-    model: str | None = None
-    warning: str | None = None
-    ai_metrics: AiMetrics | None = None

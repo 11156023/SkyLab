@@ -1,12 +1,12 @@
 from __future__ import annotations
 
-from app.ai.pve_advisor.schemas import ResourceType
 from app.domain.placement.models import (
     PlacementTuning,
     StorageSelection,
     WorkingStoragePool,
 )
 from app.domain.placement.scorer import projected_share, storage_contention_penalty
+from app.domain.placement.schemas import ResourceType
 
 STORAGE_SPEED_RANK = {"nvme": 0, "ssd": 1, "hdd": 2, "unknown": 3}
 

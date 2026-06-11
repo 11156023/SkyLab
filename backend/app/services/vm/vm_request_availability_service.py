@@ -9,9 +9,9 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from sqlmodel import Session, select
 
-from app.ai.pve_advisor import recommendation_service as advisor_service
-from app.ai.pve_advisor.schemas import NodeCapacity, PlacementRequest, ResourceType
 from app.core.authorizers import require_vm_request_access
+from app.domain.placement import advisor as placement_advisor
+from app.domain.placement.schemas import NodeCapacity, PlacementRequest, ResourceType
 from app.domain.placement.storage import (
     reserve_storage_pool,
     select_best_storage_for_request,
@@ -242,11 +242,11 @@ def _build_availability_response(
     allowed_start, allowed_end = _ALL_DAY_POLICY_WINDOW
 
     placement_request = _to_placement_request(source_request)
-    baseline_nodes, baseline_resources = advisor_service._load_cluster_state()
+    baseline_nodes, baseline_resources = placement_advisor._load_cluster_state()
     cpu_overcommit_ratio, disk_overcommit_ratio = (
         vm_request_placement_service.get_overcommit_ratios(session)
     )
-    baseline_capacities = advisor_service._build_node_capacities(
+    baseline_capacities = placement_advisor._build_node_capacities(
         nodes=baseline_nodes,
         resources=baseline_resources,
         cpu_overcommit_ratio=cpu_overcommit_ratio,
@@ -258,7 +258,7 @@ def _build_availability_response(
         session=session,
         baseline_capacities=baseline_capacities,
     )
-    effective_resource_type, resource_type_reason = advisor_service._decide_resource_type(
+    effective_resource_type, resource_type_reason = placement_advisor._decide_resource_type(
         placement_request
     )
     placement_strategy = vm_request_placement_service.get_placement_strategy(session)
@@ -640,8 +640,8 @@ def _lightweight_fit_nodes(
     disk_overcommit_ratio: float,
     tuning,
 ) -> list[str]:
-    required_cpu = advisor_service._effective_cpu_cores(request, effective_resource_type)
-    required_memory = advisor_service._effective_memory_bytes(
+    required_cpu = placement_advisor._effective_cpu_cores(request, effective_resource_type)
+    required_memory = placement_advisor._effective_memory_bytes(
         request,
         effective_resource_type,
     )
@@ -655,7 +655,7 @@ def _lightweight_fit_nodes(
         for node in working_nodes:
             if not node.candidate:
                 continue
-            if not advisor_service._can_fit(
+            if not placement_advisor._can_fit(
                 node,
                 cores=required_cpu,
                 memory_bytes=required_memory,

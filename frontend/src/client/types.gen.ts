@@ -526,32 +526,6 @@ export type AiUsersUsageResponse = {
 };
 
 /**
- * AiMetrics
- */
-export type AiMetrics = {
-    /**
-     * Prompt Tokens
-     */
-    prompt_tokens?: number;
-    /**
-     * Completion Tokens
-     */
-    completion_tokens?: number;
-    /**
-     * Total Tokens
-     */
-    total_tokens?: number;
-    /**
-     * Elapsed Seconds
-     */
-    elapsed_seconds?: number;
-    /**
-     * Tokens Per Second
-     */
-    tokens_per_second?: number;
-};
-
-/**
  * AuditAction
  *
  * 審計操作類型
@@ -3137,56 +3111,6 @@ export type LayoutUpdate = {
 };
 
 /**
- * MachineCurrentStatus
- */
-export type MachineCurrentStatus = {
-    /**
-     * Node
-     */
-    node: string;
-    /**
-     * Status
-     */
-    status: string;
-    /**
-     * Candidate
-     */
-    candidate: boolean;
-    /**
-     * Running Resources
-     */
-    running_resources?: number;
-    /**
-     * Cpu Usage Ratio
-     */
-    cpu_usage_ratio?: number;
-    /**
-     * Memory Usage Ratio
-     */
-    memory_usage_ratio?: number;
-    /**
-     * Disk Usage Ratio
-     */
-    disk_usage_ratio?: number;
-    /**
-     * Allocatable Cpu Cores
-     */
-    allocatable_cpu_cores?: number;
-    /**
-     * Allocatable Memory Gb
-     */
-    allocatable_memory_gb?: number;
-    /**
-     * Allocatable Disk Gb
-     */
-    allocatable_disk_gb?: number;
-    /**
-     * Gpu Count
-     */
-    gpu_count?: number;
-};
-
-/**
  * Message
  *
  * 通用訊息回應
@@ -3612,75 +3536,6 @@ export type NodeStatsPublic = {
      * Vm Count
      */
     vm_count?: number;
-};
-
-/**
- * PlacementAdvisorResponse
- */
-export type PlacementAdvisorResponse = {
-    /**
-     * Generated At
-     */
-    generated_at?: string;
-    /**
-     * Reply
-     */
-    reply: string;
-    /**
-     * Machines To Open
-     */
-    machines_to_open?: Array<RecommendedMachine>;
-    /**
-     * Reasons
-     */
-    reasons?: Array<string>;
-    /**
-     * Current Status
-     */
-    current_status?: Array<MachineCurrentStatus>;
-    /**
-     * Ai Used
-     */
-    ai_used?: boolean;
-    /**
-     * Model
-     */
-    model?: string | null;
-    /**
-     * Warning
-     */
-    warning?: string | null;
-    ai_metrics?: AiMetrics | null;
-};
-
-/**
- * PlacementRequest
- */
-export type PlacementRequest = {
-    /**
-     * Resource Type
-     */
-    resource_type?: 'lxc' | 'vm';
-    /**
-     * Cpu Cores
-     */
-    cpu_cores?: number;
-    /**
-     * Memory Mb
-     */
-    memory_mb?: number;
-    /**
-     * Disk Gb
-     */
-    disk_gb?: number;
-    /**
-     * Instance Count
-     */
-    instance_count?: number;
-    /**
-     * Gpu Required
-     */
-    gpu_required?: number;
 };
 
 /**
@@ -4450,28 +4305,6 @@ export type RecommendationFormContext = {
      * Gpu Options
      */
     gpu_options?: Array<GpuOptionContext>;
-};
-
-/**
- * RecommendedMachine
- */
-export type RecommendedMachine = {
-    /**
-     * Node
-     */
-    node: string;
-    /**
-     * Resource Type
-     */
-    resource_type: 'lxc' | 'vm';
-    /**
-     * Instance Count
-     */
-    instance_count?: number;
-    /**
-     * Reason
-     */
-    reason: string;
 };
 
 /**
@@ -7219,6 +7052,12 @@ export type VmRequestAvailabilityRequest = {
      */
     timezone?: string;
     policy_role?: UserRole | null;
+    /**
+     * Detail
+     *
+     * When false, return lightweight calendar data without per-node snapshots.
+     */
+    detail?: boolean;
 };
 
 /**
@@ -11263,31 +11102,6 @@ export type AiTemplateRecommendationGetMyTemplateUsageResponses = {
      */
     200: unknown;
 };
-
-export type AiPveAdvisorRecommendPlacementData = {
-    body: PlacementRequest;
-    path?: never;
-    query?: never;
-    url: '/api/v1/ai/pve-advisor/recommend';
-};
-
-export type AiPveAdvisorRecommendPlacementErrors = {
-    /**
-     * Validation Error
-     */
-    422: HttpValidationError;
-};
-
-export type AiPveAdvisorRecommendPlacementError = AiPveAdvisorRecommendPlacementErrors[keyof AiPveAdvisorRecommendPlacementErrors];
-
-export type AiPveAdvisorRecommendPlacementResponses = {
-    /**
-     * Successful Response
-     */
-    200: PlacementAdvisorResponse;
-};
-
-export type AiPveAdvisorRecommendPlacementResponse = AiPveAdvisorRecommendPlacementResponses[keyof AiPveAdvisorRecommendPlacementResponses];
 
 export type SpecChangeRequestsGetAllSpecChangeRequestsData = {
     body?: never;
