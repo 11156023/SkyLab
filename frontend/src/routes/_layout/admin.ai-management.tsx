@@ -146,8 +146,8 @@ function formatModelDisplay(modelName?: string | null): string {
 
 function templateCallTypeLabel(value: string): string {
   return (
-    TEMPLATE_CALL_TYPE_OPTIONS.find((option) => option.value === value)?.label ??
-    value
+    TEMPLATE_CALL_TYPE_OPTIONS.find((option) => option.value === value)
+      ?.label ?? value
   )
 }
 
