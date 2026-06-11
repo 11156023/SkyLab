@@ -59,7 +59,7 @@ function DeleteDialog({ item, onClose, onDone }) {
   };
 
   return (
-    <div className={styles.dialogOverlay} onClick={onClose}>
+    <div className={styles.dialogOverlay} onClick={() => { if (!busy) onClose(); }}>
       <div className={styles.dialog} onClick={(e) => e.stopPropagation()}>
         <div className={styles.dialogHeader}>
           <h3 className={styles.dialogTitle}>確認刪除這把金鑰？</h3>
