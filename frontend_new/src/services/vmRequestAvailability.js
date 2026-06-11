@@ -13,6 +13,10 @@ export const VmRequestAvailabilityService = {
     });
   },
 
+  windowAvailability(draft) {
+    return apiPost("/api/v1/vm-requests/window-availability", draft);
+  },
+
   /**
    * 取得某筆申請的可用時段
    * @param {string} requestId
