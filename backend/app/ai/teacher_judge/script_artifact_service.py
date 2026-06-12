@@ -6,11 +6,17 @@ import json
 import logging
 import uuid
 from datetime import datetime, timezone
+from inspect import signature
 from typing import Any, Literal, cast
 
 from fastapi import HTTPException
 from sqlmodel import Session, desc, func, select
 
+from app.ai.monitoring import (
+    CALL_TJ_SCRIPT_GENERATION,
+    CALL_TJ_SCRIPT_REVIEW,
+    record_ai_template_call,
+)
 from app.ai.teacher_judge._types import (
     AIReviewResult,
     CheckResult,
@@ -44,6 +50,48 @@ from app.models.teacher_judge_script_artifact import (
 from app.models.teacher_judge_template_command import TeacherJudgeTemplateCommand
 
 logger = logging.getLogger(__name__)
+
+ScriptUsageRecord = dict[str, Any]
+
+
+def _script_result(value: Any) -> tuple[str, dict[str, Any]]:
+    if isinstance(value, tuple) and len(value) == 2:
+        return str(value[0]), cast("dict[str, Any]", value[1] or {})
+    return str(value), {}
+
+
+def _review_result(value: Any) -> tuple[AIReviewResult, dict[str, Any]]:
+    if isinstance(value, tuple) and len(value) == 2:
+        return cast("AIReviewResult", value[0]), cast("dict[str, Any]", value[1] or {})
+    return cast("AIReviewResult", value), {}
+
+
+def _build_result(
+    value: Any,
+) -> tuple[
+    str,
+    GateResult,
+    AIReviewResult,
+    TeacherJudgeScriptStatus,
+    list[ScriptUsageRecord],
+]:
+    if isinstance(value, tuple) and len(value) == 5:
+        return (
+            str(value[0]),
+            cast("GateResult", value[1]),
+            cast("AIReviewResult", value[2]),
+            cast("TeacherJudgeScriptStatus", value[3]),
+            cast("list[ScriptUsageRecord]", value[4]),
+        )
+    if isinstance(value, tuple) and len(value) == 4:
+        return (
+            str(value[0]),
+            cast("GateResult", value[1]),
+            cast("AIReviewResult", value[2]),
+            cast("TeacherJudgeScriptStatus", value[3]),
+            [],
+        )
+    raise TypeError("Unexpected build_reviewed_script result.")
 
 
 SCRIPT_GENERATION_SYSTEM_PROMPT = f"""
@@ -456,7 +504,7 @@ async def generate_script_content(
     *,
     rubric_snapshot: dict[str, Any],
     template_key: str,
-) -> str:
+) -> tuple[str, dict[str, Any]]:
     if not settings.VLLM_MODEL_NAME:
         raise HTTPException(status_code=503, detail="VLLM_MODEL_NAME 未設定。")
 
@@ -489,7 +537,7 @@ async def generate_script_content(
         },
         settings.VLLM_ENABLE_THINKING,
     )
-    content, _metrics = await _call_vllm(payload, timeout=float(settings.VLLM_TIMEOUT))
+    content, metrics = await _call_vllm(payload, timeout=float(settings.VLLM_TIMEOUT))
 
     try:
         parsed = json.loads(content)
@@ -499,14 +547,14 @@ async def generate_script_content(
     script_content = str(parsed.get("script_content") or "").strip()
     if not script_content:
         raise HTTPException(status_code=502, detail="AI 未產生 script_content。")
-    return script_content
+    return script_content, dict(metrics)
 
 
 async def review_script_with_ai(
     *,
     script_content: str,
     rubric_snapshot: dict[str, Any],
-) -> AIReviewResult:
+) -> tuple[AIReviewResult, dict[str, Any]]:
     if not settings.VLLM_MODEL_NAME:
         raise HTTPException(status_code=503, detail="VLLM_MODEL_NAME 未設定。")
 
@@ -533,13 +581,13 @@ async def review_script_with_ai(
         },
         settings.VLLM_ENABLE_THINKING,
     )
-    content, _metrics = await _call_vllm(payload, timeout=float(settings.VLLM_TIMEOUT))
+    content, metrics = await _call_vllm(payload, timeout=float(settings.VLLM_TIMEOUT))
 
     try:
         parsed = json.loads(content)
     except json.JSONDecodeError:
         parsed = {}
-    return _normalize_ai_review(parsed)
+    return _normalize_ai_review(parsed), dict(metrics)
 
 
 def _apply_line_replacements(
@@ -591,7 +639,7 @@ async def fix_script_content(
     *,
     script_content: str,
     fix_hints: list[FixHint],
-) -> str:
+) -> tuple[str, dict[str, Any]]:
     if not settings.VLLM_MODEL_NAME:
         raise HTTPException(status_code=503, detail="VLLM_MODEL_NAME 未設定。")
 
@@ -627,7 +675,7 @@ async def fix_script_content(
         },
         settings.VLLM_ENABLE_THINKING,
     )
-    content, _metrics = await _call_vllm(payload, timeout=float(settings.VLLM_TIMEOUT))
+    content, metrics = await _call_vllm(payload, timeout=float(settings.VLLM_TIMEOUT))
 
     try:
         parsed = json.loads(content)
@@ -639,9 +687,12 @@ async def fix_script_content(
         _line_replacement_log_summary(parsed.get("line_replacements")),
         parsed.get("changes_summary"),
     )
-    return _apply_line_replacements(
-        script_content,
-        parsed.get("line_replacements"),
+    return (
+        _apply_line_replacements(
+            script_content,
+            parsed.get("line_replacements"),
+        ),
+        dict(metrics),
     )
 
 
@@ -649,13 +700,34 @@ async def build_reviewed_script(
     *,
     rubric_snapshot: dict[str, Any],
     template_key: str,
-) -> tuple[str, GateResult, AIReviewResult, TeacherJudgeScriptStatus]:
+    include_usage: bool = False,
+) -> tuple[
+    str,
+    GateResult,
+    AIReviewResult,
+    TeacherJudgeScriptStatus,
+] | tuple[
+    str,
+    GateResult,
+    AIReviewResult,
+    TeacherJudgeScriptStatus,
+    list[ScriptUsageRecord],
+]:
     attempt_snapshot = dict(rubric_snapshot)
+    usage_records: list[ScriptUsageRecord] = []
 
     # Phase 1: initial generation
-    script_content = await generate_script_content(
-        rubric_snapshot=attempt_snapshot,
-        template_key=template_key,
+    script_content, metrics = _script_result(
+        await generate_script_content(
+            rubric_snapshot=attempt_snapshot,
+            template_key=template_key,
+        )
+    )
+    usage_records.append(
+        {
+            "call_type": CALL_TJ_SCRIPT_GENERATION,
+            "metrics": metrics,
+        }
     )
     attempt_records: list[dict[str, object]] = []
 
@@ -690,12 +762,23 @@ async def build_reviewed_script(
 
         if attempt >= SCRIPT_GENERATION_MAX_ATTEMPTS:
             gate_result["review_attempts"] = attempt_records
-            last_ai_review = await review_script_with_ai(
-                script_content=script_content,
-                rubric_snapshot=attempt_snapshot,
+            last_ai_review, metrics = _review_result(
+                await review_script_with_ai(
+                    script_content=script_content,
+                    rubric_snapshot=attempt_snapshot,
+                )
+            )
+            usage_records.append(
+                {
+                    "call_type": CALL_TJ_SCRIPT_REVIEW,
+                    "metrics": metrics,
+                }
             )
             status = _resolve_status(gate_result, last_ai_review)
-            return script_content, gate_result, last_ai_review, status
+            result = (script_content, gate_result, last_ai_review, status)
+            if include_usage:
+                return (*result, usage_records)
+            return result
 
         if not fix_hints:
             # no structured hints available — fallback to full re-generate
@@ -707,17 +790,33 @@ async def build_reviewed_script(
                 "quality_approved": gate_result.get("quality_approved"),
                 "quality_issues": gate_result.get("quality_issues", []),
             }
-            script_content = await generate_script_content(
-                rubric_snapshot=attempt_snapshot,
-                template_key=template_key,
+            script_content, metrics = _script_result(
+                await generate_script_content(
+                    rubric_snapshot=attempt_snapshot,
+                    template_key=template_key,
+                )
+            )
+            usage_records.append(
+                {
+                    "call_type": CALL_TJ_SCRIPT_GENERATION,
+                    "metrics": metrics,
+                }
             )
             continue
 
         # incremental fix via LLM
         try:
-            script_content = await fix_script_content(
-                script_content=script_content,
-                fix_hints=fix_hints,
+            script_content, metrics = _script_result(
+                await fix_script_content(
+                    script_content=script_content,
+                    fix_hints=fix_hints,
+                )
+            )
+            usage_records.append(
+                {
+                    "call_type": CALL_TJ_SCRIPT_GENERATION,
+                    "metrics": metrics,
+                }
             )
         except HTTPException as exc:
             logger.warning(
@@ -733,9 +832,17 @@ async def build_reviewed_script(
                 "quality_approved": gate_result.get("quality_approved"),
                 "quality_issues": gate_result.get("quality_issues", []),
             }
-            script_content = await generate_script_content(
-                rubric_snapshot=attempt_snapshot,
-                template_key=template_key,
+            script_content, metrics = _script_result(
+                await generate_script_content(
+                    rubric_snapshot=attempt_snapshot,
+                    template_key=template_key,
+                )
+            )
+            usage_records.append(
+                {
+                    "call_type": CALL_TJ_SCRIPT_GENERATION,
+                    "metrics": metrics,
+                }
             )
 
     # Phase 3: final AI reviewer (only once)
@@ -743,9 +850,17 @@ async def build_reviewed_script(
     final_quality = check_script_quality(script_content)
     final_gate = _merge_gate_results(final_safety, final_quality)
     final_gate["review_attempts"] = attempt_records
-    last_ai_review = await review_script_with_ai(
-        script_content=script_content,
-        rubric_snapshot=rubric_snapshot,
+    last_ai_review, metrics = _review_result(
+        await review_script_with_ai(
+            script_content=script_content,
+            rubric_snapshot=rubric_snapshot,
+        )
+    )
+    usage_records.append(
+        {
+            "call_type": CALL_TJ_SCRIPT_REVIEW,
+            "metrics": metrics,
+        }
     )
 
     # if AI reviewer failed, try one fix with AI feedback
@@ -758,24 +873,43 @@ async def build_reviewed_script(
             })
         ]
         try:
-            script_content = await fix_script_content(
-                script_content=script_content,
-                fix_hints=ai_fix_hints,
+            script_content, metrics = _script_result(
+                await fix_script_content(
+                    script_content=script_content,
+                    fix_hints=ai_fix_hints,
+                )
+            )
+            usage_records.append(
+                {
+                    "call_type": CALL_TJ_SCRIPT_GENERATION,
+                    "metrics": metrics,
+                }
             )
             final_safety = check_script_policy(script_content)
             final_quality = check_script_quality(script_content)
             final_gate = _merge_gate_results(final_safety, final_quality)
             final_gate["review_attempts"] = attempt_records
             if final_gate["approved"]:
-                last_ai_review = await review_script_with_ai(
-                    script_content=script_content,
-                    rubric_snapshot=rubric_snapshot,
+                last_ai_review, metrics = _review_result(
+                    await review_script_with_ai(
+                        script_content=script_content,
+                        rubric_snapshot=rubric_snapshot,
+                    )
+                )
+                usage_records.append(
+                    {
+                        "call_type": CALL_TJ_SCRIPT_REVIEW,
+                        "metrics": metrics,
+                    }
                 )
         except HTTPException:
             pass
 
     status = _resolve_status(final_gate, last_ai_review)
-    return script_content, final_gate, last_ai_review, status
+    result = (script_content, final_gate, last_ai_review, status)
+    if include_usage:
+        return (*result, usage_records)
+    return result
 
 
 def list_artifacts(
@@ -829,6 +963,44 @@ def _next_artifact_version(
     return int(max_version or artifact.version) + 1
 
 
+def _record_script_usage(
+    *,
+    session: Session,
+    user_id: uuid.UUID | None,
+    template_key: str,
+    usage_records: list[ScriptUsageRecord],
+) -> None:
+    for record in usage_records:
+        record_ai_template_call(
+            session=session,
+            user_id=user_id,
+            call_type=str(record.get("call_type") or ""),
+            model_name=settings.VLLM_MODEL_NAME,
+            preset=template_key,
+            metrics=cast("dict[str, Any]", record.get("metrics") or {}),
+        )
+
+
+async def _build_reviewed_script_for_artifact(
+    *,
+    rubric_snapshot: dict[str, Any],
+    template_key: str,
+) -> tuple[
+    str,
+    GateResult,
+    AIReviewResult,
+    TeacherJudgeScriptStatus,
+    list[ScriptUsageRecord],
+]:
+    kwargs: dict[str, Any] = {
+        "rubric_snapshot": rubric_snapshot,
+        "template_key": template_key,
+    }
+    if "include_usage" in signature(build_reviewed_script).parameters:
+        kwargs["include_usage"] = True
+    return _build_result(await build_reviewed_script(**kwargs))
+
+
 async def create_artifact(
     *,
     session: Session,
@@ -860,7 +1032,13 @@ async def create_artifact(
         source_file.analysis_json = rubric_analysis.model_dump(mode="json")
         source_file.updated_at = _now()
         session.add(source_file)
-    script_content, policy_check, ai_review, status = await build_reviewed_script(
+    (
+        script_content,
+        policy_check,
+        ai_review,
+        status,
+        usage_records,
+    ) = await _build_reviewed_script_for_artifact(
         rubric_snapshot=rubric_snapshot,
         template_key=template_key,
     )
@@ -885,6 +1063,12 @@ async def create_artifact(
     session.add(artifact)
     session.commit()
     session.refresh(artifact)
+    _record_script_usage(
+        session=session,
+        user_id=created_by,
+        template_key=template_key,
+        usage_records=usage_records,
+    )
     return _artifact_to_public(artifact)
 
 
@@ -930,7 +1114,13 @@ async def regenerate_artifact(
     previous_feedback = _previous_review_feedback(artifact)
     if previous_feedback:
         generation_snapshot["previous_review_feedback"] = previous_feedback
-    script_content, policy_check, ai_review, status = await build_reviewed_script(
+    (
+        script_content,
+        policy_check,
+        ai_review,
+        status,
+        usage_records,
+    ) = await _build_reviewed_script_for_artifact(
         rubric_snapshot=generation_snapshot,
         template_key=template_key,
     )
@@ -957,6 +1147,12 @@ async def regenerate_artifact(
         session.add(next_artifact)
         session.commit()
         session.refresh(next_artifact)
+        _record_script_usage(
+            session=session,
+            user_id=created_by,
+            template_key=template_key,
+            usage_records=usage_records,
+        )
         return _artifact_to_public(next_artifact)
 
     artifact.rubric_snapshot_json = rubric_snapshot
@@ -970,6 +1166,12 @@ async def regenerate_artifact(
     session.add(artifact)
     session.commit()
     session.refresh(artifact)
+    _record_script_usage(
+        session=session,
+        user_id=created_by,
+        template_key=template_key,
+        usage_records=usage_records,
+    )
     return _artifact_to_public(artifact)
 
 

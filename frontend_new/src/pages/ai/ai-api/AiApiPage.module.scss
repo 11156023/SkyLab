@@ -31,7 +31,6 @@
   gap: $spacing-8;
 }
 
-/* ── 麵包屑 ── */
 .breadcrumb {
   font-size: $font-size-24;
   font-weight: $font-weight-500;
@@ -54,36 +53,415 @@
   color: var(--color-text-secondary);
 }
 
-/* ── Tabs（pill 樣式，同申請審核） ── */
+/* ── Stat cards ── */
+.statRow {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: $spacing-16;
+
+  @include respond-to(sm) { grid-template-columns: repeat(2, 1fr); }
+  @include respond-to(lg) { grid-template-columns: repeat(4, 1fr); }
+}
+
+.statCard {
+  display: flex;
+  align-items: center;
+  gap: $spacing-16;
+  padding: $spacing-16;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: $radius-16;
+  box-shadow: var(--shadow-sm);
+}
+
+.statIcon {
+  width: 40px;
+  height: 40px;
+  border-radius: $radius-8;
+  background: var(--color-hover);
+  color: var(--color-primary);
+  @include flex-center;
+  flex-shrink: 0;
+}
+
+.statIconOk { background: color-mix(in srgb, var(--color-success) 12%, transparent); color: var(--color-success); }
+.statIconErr { background: color-mix(in srgb, var(--color-danger)  12%, transparent); color: var(--color-danger); }
+
+.statInfo {
+  @include flex-column;
+  gap: 2px;
+}
+
+.statLabel {
+  font-size: $font-size-12;
+  color: var(--color-text-muted);
+}
+
+.statValue {
+  font-size: $font-size-24;
+  font-weight: $font-weight-700;
+  color: var(--color-text-primary);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── Tabs ── */
 .tabs {
   display: flex;
   gap: $spacing-4;
+  border-bottom: 1px solid var(--color-border);
 }
 
 .tab {
-  padding: 6px $spacing-16;
-  border-radius: $radius-pill;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: $spacing-8 $spacing-16;
   font-size: $font-size-14;
+  font-weight: $font-weight-500;
   color: var(--color-text-secondary);
+  border-bottom: 2px solid transparent;
   cursor: pointer;
-  transition: background $transition-base, color $transition-base;
+  margin-bottom: -1px;
+  transition: color $transition-base, border-color $transition-base;
 
-  &:hover {
-    background: var(--color-hover);
-    color: var(--color-text);
-  }
+  &:hover { color: var(--color-text); }
+}
 
-  &.tabActive {
-    background: var(--color-text);
-    color: var(--color-surface);
-    font-weight: $font-weight-500;
-  }
+.tabActive {
+  color: var(--color-primary);
+  border-bottom-color: var(--color-primary);
 }
 
 /* ── Content ── */
 .content {
   flex: 1;
   @include flex-column;
+}
+
+/* ── Panel ── */
+.panel {
+  @include flex-column;
+  gap: $spacing-16;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: $radius-16;
+  padding: $spacing-16;
+  box-shadow: var(--shadow-sm);
+}
+
+.panelHeader {
+  @include flex-column;
+  gap: $spacing-4;
+}
+
+.panelTitle {
+  font-size: $font-size-16;
+  font-weight: 600;
+  color: var(--color-text-primary);
+}
+
+.panelDesc {
+  font-size: $font-size-14;
+  color: var(--color-text-muted);
+}
+
+/* ── Form ── */
+.formGroup {
+  @include flex-column;
+  gap: 6px;
+}
+
+.formLabel {
+  font-size: $font-size-14;
+  font-weight: $font-weight-500;
+  color: var(--color-text-primary);
+}
+
+.formInput,
+.formTextarea,
+.formSelect {
+  padding: $spacing-8 12px;
+  border: 1px solid var(--color-border);
+  border-radius: $radius-8;
+  background: var(--color-bg);
+  color: var(--color-text-primary);
+  font-size: $font-size-14;
+  transition: border-color $transition-base, box-shadow $transition-base;
+
+  &:focus {
+    outline: none;
+    border-color: var(--color-primary);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-primary) 15%, transparent);
+  }
+
+  &::placeholder { color: var(--color-text-muted); }
+}
+
+.formTextarea {
+  resize: vertical;
+  min-height: 100px;
+  font-family: inherit;
+}
+
+.formSelect {
+  appearance: auto;
+  max-width: 200px;
+}
+
+.formFooter {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: $spacing-8;
+}
+
+.formHint {
+  font-size: $font-size-12;
+  color: var(--color-text-muted);
+}
+
+/* ── Buttons ── */
+%btn-base {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px $spacing-16;
+  border-radius: $radius-8;
+  font-size: $font-size-14;
+  font-weight: $font-weight-500;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background $transition-base, box-shadow $transition-base, opacity $transition-base;
+
+  &:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+}
+
+.btnPrimary {
+  @extend %btn-base;
+  background: var(--color-primary);
+  color: var(--color-text-on-primary);
+
+  &:hover:not(:disabled) {
+    background: var(--color-primary-dark);
+    box-shadow: var(--shadow-sm);
+  }
+}
+
+.btnOutline {
+  @extend %btn-base;
+  padding: 6px 12px;
+  background: var(--color-surface);
+  color: var(--color-text);
+  border: 1px solid var(--color-border);
+  font-size: $font-size-12;
+  box-shadow: var(--shadow-sm);
+
+  &:hover:not(:disabled) { background: var(--color-hover); }
+}
+
+.btnDanger {
+  color: var(--color-danger);
+  border-color: color-mix(in srgb, var(--color-danger) 30%, transparent);
+
+  &:hover:not(:disabled) {
+    background: color-mix(in srgb, var(--color-danger) 8%, transparent);
+  }
+}
+
+.btnIcon {
+  width: 28px;
+  height: 28px;
+  border-radius: $radius-8;
+  @include flex-center;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  transition: background $transition-base;
+
+  &:hover { background: var(--color-hover); }
+}
+
+.btnIconSm {
+  @extend .btnIcon;
+  width: 22px;
+  height: 22px;
+}
+
+/* ── Credential card ── */
+.credList {
+  @include flex-column;
+  gap: $spacing-8;
+}
+
+.credCard {
+  @include flex-column;
+  gap: 12px;
+  padding: $spacing-16;
+  border: 1px solid var(--color-divider);
+  border-radius: $radius-12;
+  transition: background $transition-base;
+
+  &:hover { background: var(--color-hover); }
+}
+
+.credHeader {
+  @include flex-column;
+  gap: $spacing-8;
+}
+
+.credNameRow {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: $spacing-8;
+}
+
+.nameWithEdit {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.credName {
+  font-weight: $font-weight-500;
+  color: var(--color-text-primary);
+}
+
+.renameRow {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.renameInput {
+  height: 28px;
+  width: 176px;
+  padding: 0 $spacing-8;
+  border: 1px solid var(--color-border);
+  border-radius: $radius-8;
+  font-size: $font-size-14;
+  font-weight: $font-weight-500;
+  background: var(--color-bg);
+  color: var(--color-text-primary);
+
+  &:focus {
+    outline: none;
+    border-color: var(--color-primary);
+  }
+}
+
+.credMeta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0 $spacing-16;
+  font-size: $font-size-12;
+  color: var(--color-text-muted);
+}
+
+.credFields {
+  display: grid;
+  gap: $spacing-8;
+  grid-template-columns: 1fr;
+
+  @include respond-to(md) { grid-template-columns: 1fr 1fr; }
+}
+
+.credField {
+  min-width: 0;
+}
+
+.credFieldLabel {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.16em;
+  color: var(--color-text-muted);
+  margin-bottom: 4px;
+}
+
+.credFieldValue {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: $font-size-14;
+  color: var(--color-text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.credActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: $spacing-8;
+}
+
+/* ── Badge ── */
+.badge {
+  @include badge-base;
+  gap: 6px;
+  padding: 2px 10px;
+}
+
+.dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.badge_active   { background: color-mix(in srgb, var(--color-success) 12%, transparent); color: var(--color-success); }
+.badge_inactive { background: var(--color-hover); color: var(--color-text-muted); }
+.badge_expired  { background: color-mix(in srgb, #f59e0b 14%, transparent); color: #d97706; }
+.badge_pending  { background: color-mix(in srgb, #f59e0b 14%, transparent); color: #d97706; }
+.badge_approved { background: color-mix(in srgb, var(--color-success) 12%, transparent); color: var(--color-success); }
+.badge_rejected { background: color-mix(in srgb, var(--color-danger)  12%, transparent); color: var(--color-danger); }
+
+/* ── Request rows ── */
+.requestList {
+  @include flex-column;
+}
+
+.requestRow {
+  @include flex-column;
+  gap: $spacing-4;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--color-divider);
+
+  &:last-child { border-bottom: none; }
+  &:first-child { padding-top: 0; }
+}
+
+.requestInfo {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: $spacing-8;
+}
+
+.requestName {
+  font-weight: $font-weight-500;
+  color: var(--color-text-primary);
+}
+
+.requestPurpose {
+  font-size: $font-size-14;
+  color: var(--color-text-muted);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.requestMeta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0 $spacing-16;
+  font-size: $font-size-12;
+  color: var(--color-text-muted);
 }
 
 /* ── Empty state ── */
@@ -117,4 +495,165 @@
   color: var(--color-text-primary);
   max-width: 320px;
   line-height: $line-height-base;
+}
+
+/* ── Usage tab ── */
+.usageTab {
+  @include flex-column;
+  gap: $spacing-24;
+}
+
+.usageDateRow {
+  display: flex;
+  align-items: center;
+  gap: $spacing-8;
+  flex-wrap: wrap;
+}
+
+.segmentBtn {
+  padding: 6px $spacing-16;
+  border-radius: $radius-pill;
+  font-size: $font-size-14;
+  font-weight: $font-weight-500;
+  color: var(--color-text-secondary);
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+  cursor: pointer;
+  transition: background $transition-base, color $transition-base, border-color $transition-base;
+
+  &:hover { color: var(--color-text); background: var(--color-hover); }
+}
+
+.segmentActive {
+  background: var(--color-primary);
+  color: var(--color-text-on-primary);
+  border-color: var(--color-primary);
+
+  &:hover { background: var(--color-primary-dark); }
+}
+
+.usageDateRange {
+  font-size: $font-size-12;
+  color: var(--color-text-muted);
+}
+
+.usagePanel {
+  @include flex-column;
+  gap: $spacing-16;
+  padding: $spacing-16;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: $radius-16;
+  box-shadow: var(--shadow-sm);
+}
+
+.usagePanelHeader {
+  @include flex-column;
+  gap: $spacing-4;
+}
+
+.usagePanelTitle {
+  font-size: $font-size-16;
+  font-weight: 600;
+  color: var(--color-text-primary);
+}
+
+.usagePanelDesc {
+  font-size: $font-size-14;
+  color: var(--color-text-muted);
+}
+
+.usageStatsGrid {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: 1fr;
+
+  @include respond-to(sm) { grid-template-columns: repeat(3, 1fr); }
+}
+
+.usageStatCard {
+  @include flex-column;
+  gap: $spacing-8;
+  padding: $spacing-16;
+  border: 1px solid var(--color-border);
+  border-radius: $radius-12;
+  background: var(--color-bg);
+}
+
+.usageStatLabel {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.18em;
+  color: var(--color-text-muted);
+}
+
+.usageStatValue {
+  font-size: $font-size-24;
+  font-weight: $font-weight-700;
+  color: var(--color-text-primary);
+}
+
+.usageBreakdown {
+  @include flex-column;
+  gap: $spacing-8;
+}
+
+.usageBreakdownTitle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.18em;
+  color: var(--color-text-muted);
+}
+
+.usageBreakdownList {
+  border: 1px solid var(--color-border);
+  border-radius: $radius-8;
+  overflow: hidden;
+}
+
+.usageBreakdownRow {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 80px 80px 80px;
+  align-items: center;
+  gap: $spacing-16;
+  padding: $spacing-8 $spacing-16;
+  font-size: $font-size-14;
+  color: var(--color-text-muted);
+  border-bottom: 1px solid var(--color-divider);
+
+  &:last-child { border-bottom: none; }
+
+  span:not(:first-child) { text-align: right; }
+}
+
+.usageBreakdownKey {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: $font-size-12;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ── Misc ── */
+.loadingText {
+  font-size: $font-size-14;
+  color: var(--color-text-muted);
+  padding: $spacing-16 0;
+}
+
+.textDanger {
+  color: var(--color-danger);
+  font-size: $font-size-14;
+}
+
+.noData {
+  font-size: $font-size-14;
+  color: var(--color-text-muted);
+  padding: $spacing-24;
+  border: 1px dashed var(--color-border);
+  border-radius: $radius-12;
+  text-align: center;
 }

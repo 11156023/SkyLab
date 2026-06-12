@@ -1,4 +1,4 @@
-﻿import threading
+import threading
 import uuid
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
@@ -6,8 +6,8 @@ from types import SimpleNamespace
 import pytest
 from sqlmodel import Session, SQLModel, create_engine, select
 
-from app.ai.pve_advisor.schemas import NodeCapacity, PlacementRequest
 from app.core.security import encrypt_value
+from app.domain.placement.schemas import NodeCapacity, PlacementRequest
 from app.exceptions import BadRequestError, ProvisioningError, ProxmoxError
 from app.infrastructure.proxmox import operations as proxmox_service
 from app.models import (
@@ -897,15 +897,15 @@ def test_select_request_placement_falls_back_when_reserved_node_is_unavailable(
     placement_request = SimpleNamespace()
 
     monkeypatch.setattr(
-        "app.services.proxmox.provisioning_service.advisor_service._load_cluster_state",
+        "app.services.proxmox.provisioning_service.placement_advisor._load_cluster_state",
         lambda: ([], []),
     )
     monkeypatch.setattr(
-        "app.services.proxmox.provisioning_service.advisor_service._build_node_capacities",
+        "app.services.proxmox.provisioning_service.placement_advisor._build_node_capacities",
         lambda **kwargs: [SimpleNamespace(node="pve-a")],
     )
     monkeypatch.setattr(
-        "app.services.proxmox.provisioning_service.advisor_service._decide_resource_type",
+        "app.services.proxmox.provisioning_service.placement_advisor._decide_resource_type",
         lambda request: ("lxc", "Prefer LXC for this request."),
     )
     monkeypatch.setattr(
@@ -1013,11 +1013,11 @@ def test_reserved_target_node_prefers_admin_storage_profile(
     )
 
     monkeypatch.setattr(
-        "app.services.vm.placement_service.advisor_service._load_cluster_state",
+        "app.services.vm.placement_service.placement_advisor._load_cluster_state",
         lambda: ([], []),
     )
     monkeypatch.setattr(
-        "app.services.vm.placement_service.advisor_service._build_node_capacities",
+        "app.services.vm.placement_service.placement_advisor._build_node_capacities",
         lambda **kwargs: [
             NodeCapacity(
                 node="pve-a",
@@ -3157,11 +3157,11 @@ def test_reserved_target_node_preview_matches_active_rebalance_objective(
     db.commit()
 
     monkeypatch.setattr(
-        "app.services.vm.placement_service.advisor_service._load_cluster_state",
+        "app.services.vm.placement_service.placement_advisor._load_cluster_state",
         lambda: ([], []),
     )
     monkeypatch.setattr(
-        "app.services.vm.placement_service.advisor_service._build_node_capacities",
+        "app.services.vm.placement_service.placement_advisor._build_node_capacities",
         lambda **kwargs: [
             NodeCapacity(
                 node="pve-a",
@@ -3285,11 +3285,11 @@ def test_quick_template_reserved_target_skips_cohort_rebalance_preview(
     )
 
     monkeypatch.setattr(
-        "app.services.vm.placement_service.advisor_service._load_cluster_state",
+        "app.services.vm.placement_service.placement_advisor._load_cluster_state",
         lambda: ([], []),
     )
     monkeypatch.setattr(
-        "app.services.vm.placement_service.advisor_service._build_node_capacities",
+        "app.services.vm.placement_service.placement_advisor._build_node_capacities",
         lambda **kwargs: [
             NodeCapacity(
                 node="pve-a",

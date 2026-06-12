@@ -7,6 +7,11 @@ import logging
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 from fastapi.responses import Response
 
+from app.ai.monitoring import (
+    CALL_TJ_CHAT,
+    CALL_TJ_RUBRIC,
+    record_ai_template_call,
+)
 from app.ai.teacher_judge.config import settings
 from app.ai.teacher_judge.export import export_to_excel
 from app.ai.teacher_judge.schemas import (
@@ -87,10 +92,30 @@ async def upload_rubric(
 
     logger.info(f"User {current_user.email} uploaded rubric file: {filename}")
 
-    analysis, metrics = await analyze_rubric(
-        raw_text,
-        template_key=template_key,
-        template_commands=template_commands,
+    try:
+        analysis, metrics = await analyze_rubric(
+            raw_text,
+            template_key=template_key,
+            template_commands=template_commands,
+        )
+    except HTTPException as exc:
+        record_ai_template_call(
+            session=session,
+            user_id=current_user.id,
+            call_type=CALL_TJ_RUBRIC,
+            model_name=settings.VLLM_MODEL_NAME,
+            preset=template_key,
+            status="error",
+            error_message=str(exc.detail),
+        )
+        raise
+    record_ai_template_call(
+        session=session,
+        user_id=current_user.id,
+        call_type=CALL_TJ_RUBRIC,
+        model_name=settings.VLLM_MODEL_NAME,
+        preset=template_key,
+        metrics=metrics,
     )
     return {
         "analysis": analysis.model_dump(),
@@ -116,12 +141,32 @@ async def chat(
         raise HTTPException(status_code=400, detail="未知的評分環境 template。")
     template_commands = get_enabled_template_commands(session, template_key)
 
-    reply, updated_items, metrics = await chat_with_rubric(
-        chat_request.messages,
-        chat_request.rubric_context,
-        is_refine=chat_request.is_refine,
-        template_key=template_key,
-        template_commands=template_commands,
+    try:
+        reply, updated_items, metrics = await chat_with_rubric(
+            chat_request.messages,
+            chat_request.rubric_context,
+            is_refine=chat_request.is_refine,
+            template_key=template_key,
+            template_commands=template_commands,
+        )
+    except HTTPException as exc:
+        record_ai_template_call(
+            session=session,
+            user_id=current_user.id,
+            call_type=CALL_TJ_CHAT,
+            model_name=settings.VLLM_MODEL_NAME,
+            preset=template_key,
+            status="error",
+            error_message=str(exc.detail),
+        )
+        raise
+    record_ai_template_call(
+        session=session,
+        user_id=current_user.id,
+        call_type=CALL_TJ_CHAT,
+        model_name=settings.VLLM_MODEL_NAME,
+        preset=template_key,
+        metrics=metrics,
     )
     return {
         "reply": reply,

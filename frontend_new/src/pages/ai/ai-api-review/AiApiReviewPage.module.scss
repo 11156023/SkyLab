@@ -7,16 +7,13 @@
   padding: $spacing-8 $spacing-16;
   flex: 1;
 
-  @include respond-to(md) {
-    padding: 0;
-  }
+  @include respond-to(md) { padding: 0; }
 }
 
 .pageHeader {
   @include flex-between;
   flex-wrap: wrap;
   gap: $spacing-16;
-  align-items: center;
 }
 
 .pageHeading {
@@ -29,14 +26,70 @@
   font-weight: $font-weight-700;
   color: var(--color-text-primary);
 
-  @include respond-to(sm) {
-    font-size: $font-size-28;
-  }
+  @include respond-to(sm) { font-size: $font-size-28; }
 }
 
 .pageSubtitle {
   font-size: $font-size-14;
   color: var(--color-text-secondary);
+}
+
+.pageActions {
+  display: flex;
+  align-items: center;
+  gap: $spacing-8;
+  flex-shrink: 0;
+}
+
+/* ── Buttons ── */
+%btn-base {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px $spacing-16;
+  border-radius: $radius-8;
+  font-size: $font-size-14;
+  font-weight: $font-weight-500;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background $transition-base, box-shadow $transition-base, opacity $transition-base;
+
+  &:disabled { opacity: 0.5; cursor: not-allowed; }
+}
+
+.btnPrimary {
+  @extend %btn-base;
+  background: var(--color-primary);
+  color: var(--color-text-on-primary);
+
+  &:hover:not(:disabled) { background: var(--color-primary-dark); box-shadow: var(--shadow-sm); }
+}
+
+.btnSecondary {
+  @extend %btn-base;
+  background: var(--color-surface);
+  color: var(--color-text);
+  border: 1px solid var(--color-border);
+  box-shadow: var(--shadow-sm);
+
+  &:hover:not(:disabled) { background: var(--color-hover); }
+}
+
+.btnOutline {
+  @extend %btn-base;
+  background: var(--color-surface);
+  color: var(--color-text);
+  border: 1px solid var(--color-border);
+
+  &:hover:not(:disabled) { background: var(--color-hover); }
+}
+
+.btnDanger {
+  @extend %btn-base;
+  background: var(--color-danger);
+  color: #fff;
+
+  &:hover:not(:disabled) { opacity: 0.9; }
 }
 
 /* ── Tabs ── */
@@ -53,22 +106,223 @@
   cursor: pointer;
   transition: background $transition-base, color $transition-base;
 
-  &:hover {
-    background: var(--color-hover);
-    color: var(--color-text);
-  }
+  &:hover { background: var(--color-hover); color: var(--color-text); }
+}
 
-  &.tabActive {
-    background: var(--color-text);
-    color: var(--color-surface);
-    font-weight: $font-weight-500;
-  }
+.tabActive {
+  background: var(--color-text);
+  color: var(--color-surface);
+  font-weight: $font-weight-500;
 }
 
 /* ── Content ── */
-.content {
-  flex: 1;
+.content { flex: 1; @include flex-column; }
+
+/* ── Table ── */
+.tableWrap {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: $radius-16;
+  box-shadow: var(--shadow-sm);
+  overflow-x: auto;
+}
+
+.table { width: 100%; border-collapse: collapse; }
+
+.th {
+  padding: $spacing-8 $spacing-16;
+  font-size: $font-size-12;
+  font-weight: $font-weight-500;
+  color: var(--color-text-muted);
+  text-align: left;
+  background: var(--color-hover);
+  border-bottom: 1px solid var(--color-border);
+  white-space: nowrap;
+}
+
+.tr {
+  transition: background $transition-base;
+
+  &:not(:last-child) { border-bottom: 1px solid var(--color-divider); }
+  &:hover { background: var(--color-hover); }
+}
+
+.td {
+  padding: $spacing-8 $spacing-16;
+  font-size: $font-size-14;
+  color: var(--color-text-primary);
+  vertical-align: middle;
+}
+
+.userCell {
   @include flex-column;
+  gap: 2px;
+  min-width: 160px;
+}
+
+.userName {
+  font-weight: $font-weight-500;
+  color: var(--color-text-primary);
+}
+
+.userEmail {
+  font-size: $font-size-12;
+  color: var(--color-text-muted);
+}
+
+.purposeCell {
+  max-width: 320px;
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--color-text-muted);
+}
+
+/* ── Badge ── */
+.badge {
+  @include badge-base;
+  gap: 6px;
+  padding: 2px 10px;
+}
+
+.dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.badge_pending  { background: color-mix(in srgb, #f59e0b 14%, transparent); color: #d97706; }
+.badge_approved { background: color-mix(in srgb, var(--color-success) 12%, transparent); color: var(--color-success); }
+.badge_rejected { background: color-mix(in srgb, var(--color-danger)  12%, transparent); color: var(--color-danger); }
+
+/* ── Actions ── */
+.actions {
+  display: flex;
+  gap: $spacing-4;
+}
+
+.actionBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 12px;
+  border-radius: $radius-8;
+  font-size: $font-size-12;
+  font-weight: $font-weight-500;
+  cursor: pointer;
+  transition: background $transition-base, color $transition-base;
+}
+
+.actionBtnOk {
+  background: color-mix(in srgb, var(--color-success) 12%, transparent);
+  color: var(--color-success);
+
+  &:hover { background: color-mix(in srgb, var(--color-success) 20%, transparent); }
+}
+
+.actionBtnDanger {
+  background: color-mix(in srgb, var(--color-danger) 10%, transparent);
+  color: var(--color-danger);
+
+  &:hover { background: color-mix(in srgb, var(--color-danger) 18%, transparent); }
+}
+
+.reviewComment {
+  font-size: $font-size-12;
+  color: var(--color-text-muted);
+  max-width: 160px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ── Dialog ── */
+.dialogOverlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.45);
+  backdrop-filter: blur(4px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  animation: fadeIn 0.15s ease;
+}
+
+.dialog {
+  width: 90%;
+  max-width: 480px;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: $radius-16;
+  box-shadow: var(--shadow-lg);
+  @include flex-column;
+  gap: $spacing-16;
+  padding: $spacing-24;
+  animation: slideUp 0.2s ease;
+}
+
+.dialogHeader {
+  @include flex-column;
+  gap: $spacing-4;
+}
+
+.dialogTitle {
+  font-size: $font-size-18;
+  font-weight: 600;
+  color: var(--color-text-primary);
+}
+
+.dialogDesc {
+  font-size: $font-size-14;
+  color: var(--color-text-muted);
+}
+
+.dialogBody {
+  @include flex-column;
+  gap: $spacing-16;
+}
+
+.dialogInfo {
+  @include flex-column;
+  gap: $spacing-4;
+  padding: 12px;
+  border: 1px solid var(--color-border);
+  border-radius: $radius-8;
+  font-size: $font-size-14;
+  color: var(--color-text-primary);
+}
+
+.dialogPurpose {
+  white-space: pre-wrap;
+  color: var(--color-text-muted);
+}
+
+.dialogTextarea {
+  padding: $spacing-8 12px;
+  border: 1px solid var(--color-border);
+  border-radius: $radius-8;
+  background: var(--color-bg);
+  color: var(--color-text-primary);
+  font-size: $font-size-14;
+  font-family: inherit;
+  resize: vertical;
+
+  &:focus {
+    outline: none;
+    border-color: var(--color-primary);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-primary) 15%, transparent);
+  }
+
+  &::placeholder { color: var(--color-text-muted); }
+}
+
+.dialogFooter {
+  display: flex;
+  justify-content: flex-end;
+  gap: $spacing-8;
 }
 
 /* ── Empty state ── */
@@ -91,6 +345,12 @@
   @include flex-center;
 }
 
+.emptyTitle {
+  font-size: $font-size-18;
+  font-weight: $font-weight-700;
+  color: var(--color-text-primary);
+}
+
 .emptyDesc {
   font-size: $font-size-14;
   color: var(--color-text-primary);
@@ -98,77 +358,19 @@
   line-height: $line-height-base;
 }
 
-/* ── List ── */
-.list {
-  @include flex-column;
-  gap: $spacing-8;
-}
-
-.row {
-  display: flex;
-  align-items: center;
-  gap: $spacing-16;
-  padding: $spacing-16;
-  background: var(--color-surface);
-  border: 1px solid var(--color-border);
-  border-radius: $radius-12;
-  box-shadow: var(--shadow-sm);
-}
-
-.rowIcon {
-  width: 40px;
-  height: 40px;
-  border-radius: $radius-8;
-  background: var(--color-hover);
-  color: var(--color-primary);
-  @include flex-center;
-  flex-shrink: 0;
-}
-
-.rowMain {
-  @include flex-column;
-  gap: 2px;
-  flex: 1;
-  min-width: 0;
-}
-
-.rowName {
+.loadingText {
   font-size: $font-size-14;
-  font-weight: $font-weight-500;
-  color: var(--color-text-primary);
-  @include text-truncate;
-}
-
-.rowMeta {
-  font-size: $font-size-12;
   color: var(--color-text-muted);
+  padding: $spacing-16 0;
 }
 
-.rowActions {
-  display: flex;
-  gap: $spacing-8;
-  flex-shrink: 0;
+/* ── Animations ── */
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
 }
 
-%review-btn {
-  padding: 6px $spacing-16;
-  border-radius: $radius-8;
-  font-size: $font-size-14;
-  font-weight: $font-weight-500;
-  cursor: pointer;
-  transition: background $transition-base;
-}
-
-.btnApprove {
-  @extend %review-btn;
-  background: color-mix(in srgb, #28a745 12%, transparent);
-  color: #28a745;
-  &:hover { background: color-mix(in srgb, #28a745 20%, transparent); }
-}
-
-.btnReject {
-  @extend %review-btn;
-  background: color-mix(in srgb, #dc3545 10%, transparent);
-  color: #dc3545;
-  &:hover { background: color-mix(in srgb, #dc3545 18%, transparent); }
+@keyframes slideUp {
+  from { opacity: 0; transform: translateY(16px); }
+  to { opacity: 1; transform: translateY(0); }
 }

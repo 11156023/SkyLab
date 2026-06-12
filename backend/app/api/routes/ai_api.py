@@ -1,4 +1,5 @@
 import uuid
+from datetime import datetime, timedelta
 from typing import Any, Literal
 
 from fastapi import APIRouter, Query
@@ -15,6 +16,7 @@ from app.schemas import (
     AIAPIRequestReview,
     AIAPIRequestsPublic,
     Message,
+    UsageStatsResponse,
 )
 from app.services.llm_gateway import ai_gateway_service
 
@@ -92,6 +94,26 @@ def list_my_ai_api_credentials(
 ) -> Any:
     return ai_gateway_service.list_credentials_by_user(
         session=session, user_id=current_user.id, skip=skip, limit=limit
+    )
+
+
+@router.get("/usage/proxy/my", response_model=UsageStatsResponse)
+def get_my_proxy_usage(
+    session: SessionDep,
+    current_user: CurrentUser,
+    start_date: datetime | None = None,
+    end_date: datetime | None = None,
+) -> Any:
+    if not end_date:
+        end_date = datetime.utcnow()
+    if not start_date:
+        start_date = end_date - timedelta(days=30)
+
+    return ai_gateway_service.get_user_usage_stats(
+        session=session,
+        user_id=current_user.id,
+        start_date=start_date,
+        end_date=end_date,
     )
 
 

@@ -223,6 +223,10 @@ class VMRequestAvailabilityRequest(BaseModel):
     days: int = Field(default=7, ge=1, le=14)
     timezone: str = Field(default="Asia/Taipei", min_length=1, max_length=64)
     policy_role: UserRole | None = None
+    detail: bool = Field(
+        default=True,
+        description="When false, return lightweight calendar data without per-node snapshots.",
+    )
 
 
 class VMRequestWindowAvailabilityRequest(BaseModel):

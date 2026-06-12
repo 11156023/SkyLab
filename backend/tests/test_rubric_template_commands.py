@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import uuid
 from io import BytesIO
 from types import SimpleNamespace
 
@@ -249,7 +250,7 @@ async def test_upload_rubric_defaults_linux_template(
     monkeypatch.setattr(rubric_route, "analyze_rubric", fake_analyze_rubric)
 
     response = await rubric_route.upload_rubric(
-        current_user=SimpleNamespace(email="teacher@example.com"),
+        current_user=SimpleNamespace(id=uuid.uuid4(), email="teacher@example.com"),
         session=session,
         file=UploadFile(filename="rubric.pdf", file=BytesIO(b"pdf")),
         template_key="linux",

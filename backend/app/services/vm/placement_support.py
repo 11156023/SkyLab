@@ -5,20 +5,20 @@ from datetime import UTC, datetime, timedelta
 
 from sqlmodel import Session
 
-from app.ai.pve_advisor import recommendation_service as advisor_service
-from app.ai.pve_advisor.schemas import (
-    NodeCapacity,
-    PlacementDecision,
-    PlacementPlan,
-    PlacementRequest,
-    ResourceType,
-)
+from app.domain.placement import advisor as placement_advisor
 from app.domain.placement import policy as placement_policy
 from app.domain.placement import scorer as placement_scorer
 from app.domain.placement.models import (
     PlacementTuning,
     StorageSelection,
     WorkingStoragePool,
+)
+from app.domain.placement.schemas import (
+    NodeCapacity,
+    PlacementDecision,
+    PlacementPlan,
+    PlacementRequest,
+    ResourceType,
 )
 from app.domain.placement.storage import (
     reserve_storage_pool,
@@ -132,9 +132,9 @@ def build_rebalance_baseline_nodes(
     get_overcommit_ratios_fn,
     release_request_from_capacities_fn,
 ) -> list[NodeCapacity]:
-    nodes, resources = advisor_service._load_cluster_state()
+    nodes, resources = placement_advisor._load_cluster_state()
     cpu_overcommit_ratio, disk_overcommit_ratio = get_overcommit_ratios_fn(session)
-    working_nodes = advisor_service._build_node_capacities(
+    working_nodes = placement_advisor._build_node_capacities(
         nodes=nodes,
         resources=resources,
         cpu_overcommit_ratio=cpu_overcommit_ratio,
@@ -181,12 +181,12 @@ def build_preview_vm_request(
 
 
 def refresh_node_candidate(node: NodeCapacity) -> None:
-    node.guest_pressure_ratio = advisor_service._guest_pressure_ratio(
+    node.guest_pressure_ratio = placement_advisor._guest_pressure_ratio(
         int(node.running_resources),
         int(node.total_cpu_cores),
     )
     node.guest_overloaded = (
-        node.guest_pressure_ratio >= advisor_service.settings.guest_pressure_threshold
+        node.guest_pressure_ratio >= placement_advisor.settings.guest_pressure_threshold
     )
     node.candidate = (
         node.status == "online"
@@ -326,8 +326,8 @@ def build_plan(
         node_names=[item.node for item in working_nodes],
     )
     _, disk_overcommit_ratio = get_overcommit_ratios_fn(session)
-    required_cpu = advisor_service._effective_cpu_cores(request, effective_resource_type)
-    required_memory = advisor_service._effective_memory_bytes(request, effective_resource_type)
+    required_cpu = placement_advisor._effective_cpu_cores(request, effective_resource_type)
+    required_memory = placement_advisor._effective_memory_bytes(request, effective_resource_type)
     required_disk = request.disk_gb * GIB
     placements: dict[str, int] = {item.node: 0 for item in working_nodes}
     remaining = request.instance_count
@@ -335,7 +335,7 @@ def build_plan(
     while remaining > 0:
         candidates: list[tuple[NodeCapacity, StorageSelection | None]] = []
         for item in working_nodes:
-            if not item.candidate or not advisor_service._can_fit(
+            if not item.candidate or not placement_advisor._can_fit(
                 item,
                 cores=required_cpu,
                 memory_bytes=required_memory,
@@ -412,20 +412,20 @@ def build_plan(
         assigned_instances=assigned,
         unassigned_instances=remaining,
         recommended_node=placement_decisions[0].node if placement_decisions else None,
-        summary=advisor_service._build_summary_text(
+        summary=placement_advisor._build_summary_text(
             request=request,
             placement_decisions=placement_decisions,
             effective_resource_type=effective_resource_type,
             assigned=assigned,
             remaining=remaining,
         ),
-        rationale=advisor_service._build_rationale(
+        rationale=placement_advisor._build_rationale(
             request=request,
             placement_decisions=placement_decisions,
             effective_resource_type=effective_resource_type,
             node_capacities=node_capacities,
         ),
-        warnings=advisor_service._build_warnings(
+        warnings=placement_advisor._build_warnings(
             node_capacities=node_capacities,
             request=request,
             effective_resource_type=effective_resource_type,
