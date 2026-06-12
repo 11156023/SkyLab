@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from app.ai.pve_advisor.schemas import NodeCapacity
 from app.domain.placement.models import PlacementTuning
+from app.domain.placement.schemas import NodeCapacity
 
 
 def projected_share(*, used: float | int, total: float | int) -> float:

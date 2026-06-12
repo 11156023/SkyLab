@@ -67,7 +67,6 @@ backend/
 | `spec_change_requests.py` | VM 規格變更申請與審核 |
 | `audit_logs.py` | 操作稽核紀錄查詢 |
 | `script_deploy.py` | 從 GitHub 自動化部署服務模板 |
-| `ai_pve_advisor` | 內嵌 AI 放置建議 |
 | `ai_template_recommendation` | 內嵌 AI 模板推薦 |
 
 WebSocket 端點（`app/main.py`）：
@@ -190,7 +189,6 @@ docker compose exec backend bash scripts/tests-start.sh -x
 
 - `test_login.py` / `test_users.py`：認證與使用者
 - `test_ai_api.py`：AI API 工作流
-- `test_ai_pve_advisor.py`：放置建議
 - `test_vm_request_availability.py`：VM 申請可用性
 
 ## 程式碼品質

@@ -16,6 +16,10 @@ const DAY_HEADERS = ["日","一","二","三","四","五","六"];
 /* picking state: "extend" = waiting for user to pick end date; "idle" = can start fresh */
 const PICK_EXTEND = "extend";
 const PICK_IDLE   = "idle";
+const AVAILABILITY_DEBOUNCE_MS = 450;
+const AVAILABILITY_CACHE_TTL_MS = 30_000;
+const AVAILABILITY_CACHE_MAX = 50;
+const availabilityCache = new Map();
 
 function toDateStr(d) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
@@ -30,6 +34,13 @@ function localDateAt(dateStr, hour, minute = 0, second = 0) {
 function isDraftReady(draft) {
   if (!draft?.resource_type || !draft?.cores || !draft?.memory) return false;
   return draft.resource_type === "vm" ? Boolean(draft.disk_size) : Boolean(draft.rootfs_size);
+}
+
+function cacheAvailability(key, data) {
+  availabilityCache.set(key, { data, ts: Date.now() });
+  while (availabilityCache.size > AVAILABILITY_CACHE_MAX) {
+    availabilityCache.delete(availabilityCache.keys().next().value);
+  }
 }
 
 export default function AvailabilityPanel({ draft, onChange, onHintChange }) {
@@ -61,16 +72,45 @@ export default function AvailabilityPanel({ draft, onChange, onHintChange }) {
     : null;
 
   useEffect(() => {
-    if (!draftKey) return;
+    if (!draftKey) {
+      setLoading(false);
+      return;
+    }
     let cancelled = false;
+
+    const cached = availabilityCache.get(draftKey);
+    if (cached && Date.now() - cached.ts < AVAILABILITY_CACHE_TTL_MS) {
+      setData(cached.data);
+      setError(false);
+      setLoading(false);
+      return;
+    }
+
+    const controller = new AbortController();
     setLoading(true);
     setError(false);
-    setStartDate(null); setEndDate(null);
-    VmRequestAvailabilityService.preview(draft)
-      .then((res) => { if (!cancelled) setData(res); })
-      .catch(() => { if (!cancelled) setError(true); })
-      .finally(() => { if (!cancelled) setLoading(false); });
-    return () => { cancelled = true; };
+    const timeoutId = window.setTimeout(() => {
+      if (cancelled) return;
+      VmRequestAvailabilityService.preview(draft, { signal: controller.signal })
+        .then((res) => {
+          if (cancelled) return;
+          cacheAvailability(draftKey, res);
+          setData(res);
+        })
+        .catch((err) => {
+          if (cancelled || err?.name === "AbortError") return;
+          setError(true);
+        })
+        .finally(() => {
+          if (!cancelled) setLoading(false);
+        });
+    }, data ? AVAILABILITY_DEBOUNCE_MS : 0);
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timeoutId);
+      controller.abort();
+    };
   }, [draftKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
   /* ── Day map ── */
@@ -90,6 +130,20 @@ export default function AvailabilityPanel({ draft, onChange, onHintChange }) {
     if (available / total >= 0.5) return "good";
     return "limited";
   }
+
+  function isDateSelectable(dateStr) {
+    const level = getDayLevel(dateStr);
+    return Boolean(dateStr) && dateStr >= todayStr && level && level !== "none";
+  }
+
+  useEffect(() => {
+    if (!data || !startDate || !endDate) return;
+    if (!isDateSelectable(startDate) || !isDateSelectable(endDate)) {
+      setStartDate(null);
+      setEndDate(null);
+      setPicking(PICK_IDLE);
+    }
+  }, [data, startDate, endDate, todayStr]); // eslint-disable-line react-hooks/exhaustive-deps
 
   /* ── Calendar grid ── */
   const calendarDays = useMemo(() => {
@@ -187,7 +241,6 @@ export default function AvailabilityPanel({ draft, onChange, onHintChange }) {
             <MIcon name="chevron_right" size={18} />
           </button>
         </div>
-
         <div className={styles.calendarGrid}>
           {DAY_HEADERS.map((h) => (
             <div key={h} className={styles.calendarDayHeader}>{h}</div>
@@ -197,7 +250,8 @@ export default function AvailabilityPanel({ draft, onChange, onHintChange }) {
             const dateStr  = toDateStr(d);
             const level    = getDayLevel(dateStr);
             const isPast   = dateStr < todayStr;
-            const disabled = isPast || !level || level === "none";
+            const unavailable = isPast || !level || level === "none";
+            const disabled = unavailable;
             const isStart   = dateStr === startDate;
             const isEnd     = dateStr === endDate;
             const inRange   = Boolean(startDate) && Boolean(effectiveEnd)
@@ -206,16 +260,16 @@ export default function AvailabilityPanel({ draft, onChange, onHintChange }) {
 
             const dayClass = [
               styles.calendarDay,
-              !disabled && level === "good"    && styles.calendarDayGood,
-              !disabled && level === "limited" && styles.calendarDayLimited,
-              !disabled && level === "none"    && styles.calendarDayNone,
+              !unavailable && level === "good"    && styles.calendarDayGood,
+              !unavailable && level === "limited" && styles.calendarDayLimited,
+              !unavailable && level === "none"    && styles.calendarDayNone,
               isStart                          && styles.calendarDayStart,
               isEnd                            && styles.calendarDayEnd,
               isStart && hasRange              && styles.calendarDayStartBar,
               isEnd   && hasRange              && styles.calendarDayEndBar,
               inRange && !isPreview            && styles.calendarDayInRange,
               isPreview                        && styles.calendarDayPreview,
-              disabled                         && styles.calendarDayDisabled,
+              unavailable                      && styles.calendarDayDisabled,
             ].filter(Boolean).join(" ");
 
             return (

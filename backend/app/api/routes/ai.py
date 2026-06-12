@@ -10,7 +10,6 @@ from app.api.routes import (
 )
 
 # Unified AI router mount point for core AI-related APIs.
-# Keep pve-advisor separate for now per integration plan.
 router = APIRouter()
 router.include_router(ai_api.router)
 router.include_router(ai_monitoring.router)

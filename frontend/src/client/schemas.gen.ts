@@ -903,43 +903,6 @@ export const AIUsersUsageResponseSchema = {
     description: '使用者用量彙總回應'
 } as const;
 
-export const AiMetricsSchema = {
-    properties: {
-        prompt_tokens: {
-            type: 'integer',
-            minimum: 0,
-            title: 'Prompt Tokens',
-            default: 0
-        },
-        completion_tokens: {
-            type: 'integer',
-            minimum: 0,
-            title: 'Completion Tokens',
-            default: 0
-        },
-        total_tokens: {
-            type: 'integer',
-            minimum: 0,
-            title: 'Total Tokens',
-            default: 0
-        },
-        elapsed_seconds: {
-            type: 'number',
-            minimum: 0,
-            title: 'Elapsed Seconds',
-            default: 0
-        },
-        tokens_per_second: {
-            type: 'number',
-            minimum: 0,
-            title: 'Tokens Per Second',
-            default: 0
-        }
-    },
-    type: 'object',
-    title: 'AiMetrics'
-} as const;
-
 export const AuditActionSchema = {
     type: 'string',
     enum: [
@@ -5606,78 +5569,6 @@ export const LayoutUpdateSchema = {
     description: '批次更新圖形佈局'
 } as const;
 
-export const MachineCurrentStatusSchema = {
-    properties: {
-        node: {
-            type: 'string',
-            title: 'Node'
-        },
-        status: {
-            type: 'string',
-            title: 'Status'
-        },
-        candidate: {
-            type: 'boolean',
-            title: 'Candidate'
-        },
-        running_resources: {
-            type: 'integer',
-            minimum: 0,
-            title: 'Running Resources',
-            default: 0
-        },
-        cpu_usage_ratio: {
-            type: 'number',
-            minimum: 0,
-            title: 'Cpu Usage Ratio',
-            default: 0
-        },
-        memory_usage_ratio: {
-            type: 'number',
-            minimum: 0,
-            title: 'Memory Usage Ratio',
-            default: 0
-        },
-        disk_usage_ratio: {
-            type: 'number',
-            minimum: 0,
-            title: 'Disk Usage Ratio',
-            default: 0
-        },
-        allocatable_cpu_cores: {
-            type: 'number',
-            minimum: 0,
-            title: 'Allocatable Cpu Cores',
-            default: 0
-        },
-        allocatable_memory_gb: {
-            type: 'number',
-            minimum: 0,
-            title: 'Allocatable Memory Gb',
-            default: 0
-        },
-        allocatable_disk_gb: {
-            type: 'number',
-            minimum: 0,
-            title: 'Allocatable Disk Gb',
-            default: 0
-        },
-        gpu_count: {
-            type: 'integer',
-            minimum: 0,
-            title: 'Gpu Count',
-            default: 0
-        }
-    },
-    type: 'object',
-    required: [
-        'node',
-        'status',
-        'candidate'
-    ],
-    title: 'MachineCurrentStatus'
-} as const;
-
 export const MessageSchema = {
     properties: {
         message: {
@@ -6382,134 +6273,6 @@ export const NodeStatsPublicSchema = {
     ],
     title: 'NodeStatsPublic',
     description: '單一節點的即時資源使用狀態'
-} as const;
-
-export const PlacementAdvisorResponseSchema = {
-    properties: {
-        generated_at: {
-            type: 'string',
-            format: 'date-time',
-            title: 'Generated At'
-        },
-        reply: {
-            type: 'string',
-            title: 'Reply'
-        },
-        machines_to_open: {
-            items: {
-                $ref: '#/components/schemas/RecommendedMachine'
-            },
-            type: 'array',
-            title: 'Machines To Open'
-        },
-        reasons: {
-            items: {
-                type: 'string'
-            },
-            type: 'array',
-            title: 'Reasons'
-        },
-        current_status: {
-            items: {
-                $ref: '#/components/schemas/MachineCurrentStatus'
-            },
-            type: 'array',
-            title: 'Current Status'
-        },
-        ai_used: {
-            type: 'boolean',
-            title: 'Ai Used',
-            default: false
-        },
-        model: {
-            anyOf: [
-                {
-                    type: 'string'
-                },
-                {
-                    type: 'null'
-                }
-            ],
-            title: 'Model'
-        },
-        warning: {
-            anyOf: [
-                {
-                    type: 'string'
-                },
-                {
-                    type: 'null'
-                }
-            ],
-            title: 'Warning'
-        },
-        ai_metrics: {
-            anyOf: [
-                {
-                    $ref: '#/components/schemas/AiMetrics'
-                },
-                {
-                    type: 'null'
-                }
-            ]
-        }
-    },
-    type: 'object',
-    required: [
-        'reply'
-    ],
-    title: 'PlacementAdvisorResponse'
-} as const;
-
-export const PlacementRequestSchema = {
-    properties: {
-        resource_type: {
-            type: 'string',
-            enum: [
-                'lxc',
-                'vm'
-            ],
-            title: 'Resource Type',
-            default: 'vm'
-        },
-        cpu_cores: {
-            type: 'integer',
-            maximum: 256,
-            minimum: 1,
-            title: 'Cpu Cores',
-            default: 2
-        },
-        memory_mb: {
-            type: 'integer',
-            maximum: 1048576,
-            minimum: 128,
-            title: 'Memory Mb',
-            default: 2048
-        },
-        disk_gb: {
-            type: 'integer',
-            maximum: 65536,
-            minimum: 1,
-            title: 'Disk Gb',
-            default: 20
-        },
-        instance_count: {
-            type: 'integer',
-            maximum: 100,
-            minimum: 1,
-            title: 'Instance Count',
-            default: 1
-        },
-        gpu_required: {
-            type: 'integer',
-            maximum: 16,
-            minimum: 0,
-            title: 'Gpu Required',
-            default: 0
-        }
-    },
-    type: 'object',
-    title: 'PlacementRequest'
 } as const;
 
 export const PortSpecSchema = {
@@ -7726,40 +7489,6 @@ export const RecommendationFormContextSchema = {
     },
     type: 'object',
     title: 'RecommendationFormContext'
-} as const;
-
-export const RecommendedMachineSchema = {
-    properties: {
-        node: {
-            type: 'string',
-            title: 'Node'
-        },
-        resource_type: {
-            type: 'string',
-            enum: [
-                'lxc',
-                'vm'
-            ],
-            title: 'Resource Type'
-        },
-        instance_count: {
-            type: 'integer',
-            minimum: 0,
-            title: 'Instance Count',
-            default: 0
-        },
-        reason: {
-            type: 'string',
-            title: 'Reason'
-        }
-    },
-    type: 'object',
-    required: [
-        'node',
-        'resource_type',
-        'reason'
-    ],
-    title: 'RecommendedMachine'
 } as const;
 
 export const RecurrencePreviewSchema = {
@@ -12385,6 +12114,12 @@ export const VMRequestAvailabilityRequestSchema = {
                     type: 'null'
                 }
             ]
+        },
+        detail: {
+            type: 'boolean',
+            title: 'Detail',
+            description: 'When false, return lightweight calendar data without per-node snapshots.',
+            default: true
         }
     },
     type: 'object',

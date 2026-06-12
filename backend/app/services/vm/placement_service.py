@@ -6,13 +6,7 @@ from datetime import UTC, datetime
 
 from sqlmodel import Session
 
-from app.ai.pve_advisor import recommendation_service as advisor_service
-from app.ai.pve_advisor.schemas import (
-    NodeCapacity,
-    PlacementPlan,
-    PlacementRequest,
-    ResourceType,
-)
+from app.domain.placement import advisor as placement_advisor
 from app.domain.placement import policy as placement_policy
 from app.domain.placement import scorer as placement_scorer
 from app.domain.placement.models import (
@@ -29,6 +23,12 @@ from app.domain.placement.models import (
 )
 from app.domain.placement.models import (
     WorkingStoragePool as _WorkingStoragePool,
+)
+from app.domain.placement.schemas import (
+    NodeCapacity,
+    PlacementPlan,
+    PlacementRequest,
+    ResourceType,
 )
 from app.domain.placement.storage import (
     reserve_storage_pool as _reserve_storage_pool,
@@ -265,15 +265,15 @@ def select_current_target_node(
     db_request: VMRequest,
 ) -> CurrentPlacementSelection:
     request = _to_placement_request(db_request)
-    nodes, resources = advisor_service._load_cluster_state()
+    nodes, resources = placement_advisor._load_cluster_state()
     cpu_overcommit_ratio, disk_overcommit_ratio = get_overcommit_ratios(session)
-    node_capacities = advisor_service._build_node_capacities(
+    node_capacities = placement_advisor._build_node_capacities(
         nodes=nodes,
         resources=resources,
         cpu_overcommit_ratio=cpu_overcommit_ratio,
         disk_overcommit_ratio=disk_overcommit_ratio,
     )
-    effective_resource_type, resource_type_reason = advisor_service._decide_resource_type(
+    effective_resource_type, resource_type_reason = placement_advisor._decide_resource_type(
         request
     )
     plan = build_plan(
@@ -317,16 +317,16 @@ def select_reserved_target_node_for_request(
     allow_cohort_rebalance: bool = True,
 ) -> CurrentPlacementSelection:
     if not start_at or not end_at:
-        nodes, resources = advisor_service._load_cluster_state()
+        nodes, resources = placement_advisor._load_cluster_state()
         cpu_overcommit_ratio, disk_overcommit_ratio = get_overcommit_ratios(session)
-        node_capacities = advisor_service._build_node_capacities(
+        node_capacities = placement_advisor._build_node_capacities(
             nodes=nodes,
             resources=resources,
             cpu_overcommit_ratio=cpu_overcommit_ratio,
             disk_overcommit_ratio=disk_overcommit_ratio,
         )
         effective_resource_type, resource_type_reason = (
-            advisor_service._decide_resource_type(request)
+            placement_advisor._decide_resource_type(request)
         )
         plan = build_plan(
             session=session,
@@ -341,15 +341,15 @@ def select_reserved_target_node_for_request(
             plan=plan,
         )
 
-    nodes, resources = advisor_service._load_cluster_state()
+    nodes, resources = placement_advisor._load_cluster_state()
     cpu_overcommit_ratio, disk_overcommit_ratio = get_overcommit_ratios(session)
-    baseline_capacities = advisor_service._build_node_capacities(
+    baseline_capacities = placement_advisor._build_node_capacities(
         nodes=nodes,
         resources=resources,
         cpu_overcommit_ratio=cpu_overcommit_ratio,
         disk_overcommit_ratio=disk_overcommit_ratio,
     )
-    effective_resource_type, resource_type_reason = advisor_service._decide_resource_type(
+    effective_resource_type, resource_type_reason = placement_advisor._decide_resource_type(
         request
     )
     if reserved_requests is None:
@@ -379,12 +379,12 @@ def select_reserved_target_node_for_request(
         hour_feasible_nodes = {
             item.node
             for item in adjusted_capacities
-            if advisor_service._can_fit(
+            if placement_advisor._can_fit(
                 item,
-                cores=advisor_service._effective_cpu_cores(
+                cores=placement_advisor._effective_cpu_cores(
                     request, effective_resource_type
                 ),
-                memory_bytes=advisor_service._effective_memory_bytes(
+                memory_bytes=placement_advisor._effective_memory_bytes(
                     request, effective_resource_type
                 ),
                 disk_bytes=request.disk_gb * GIB,
@@ -582,19 +582,19 @@ def _evaluate_active_assignment_map(
             )
 
         placement_request = _to_placement_request(request)
-        effective_resource_type, _ = advisor_service._decide_resource_type(
+        effective_resource_type, _ = placement_advisor._decide_resource_type(
             placement_request
         )
-        required_cpu = advisor_service._effective_cpu_cores(
+        required_cpu = placement_advisor._effective_cpu_cores(
             placement_request,
             effective_resource_type,
         )
-        required_memory = advisor_service._effective_memory_bytes(
+        required_memory = placement_advisor._effective_memory_bytes(
             placement_request,
             effective_resource_type,
         )
         required_disk = placement_request.disk_gb * GIB
-        if not node.candidate or not advisor_service._can_fit(
+        if not node.candidate or not placement_advisor._can_fit(
             node,
             cores=required_cpu,
             memory_bytes=required_memory,
@@ -713,14 +713,14 @@ def _initial_active_assignment_map(
 
     for request in ordered_requests:
         placement_request = _to_placement_request(request)
-        effective_resource_type, resource_type_reason = advisor_service._decide_resource_type(
+        effective_resource_type, resource_type_reason = placement_advisor._decide_resource_type(
             placement_request
         )
-        required_cpu = advisor_service._effective_cpu_cores(
+        required_cpu = placement_advisor._effective_cpu_cores(
             placement_request,
             effective_resource_type,
         )
-        required_memory = advisor_service._effective_memory_bytes(
+        required_memory = placement_advisor._effective_memory_bytes(
             placement_request,
             effective_resource_type,
         )
@@ -741,7 +741,7 @@ def _initial_active_assignment_map(
             allowed_targets = (allowed_target_nodes_by_request or {}).get(request.id)
             if allowed_targets is not None and item.node not in allowed_targets:
                 continue
-            if not item.candidate or not advisor_service._can_fit(
+            if not item.candidate or not placement_advisor._can_fit(
                 item,
                 cores=required_cpu,
                 memory_bytes=required_memory,
@@ -982,9 +982,9 @@ def _try_relief_relocation(
         return None
 
     stuck_placement = _to_placement_request(stuck_request)
-    effective_type, _ = advisor_service._decide_resource_type(stuck_placement)
-    required_cpu = advisor_service._effective_cpu_cores(stuck_placement, effective_type)
-    required_memory = advisor_service._effective_memory_bytes(stuck_placement, effective_type)
+    effective_type, _ = placement_advisor._decide_resource_type(stuck_placement)
+    required_cpu = placement_advisor._effective_cpu_cores(stuck_placement, effective_type)
+    required_memory = placement_advisor._effective_memory_bytes(stuck_placement, effective_type)
     required_disk = stuck_placement.disk_gb * GIB
 
     node_names = [n.node for n in working_nodes]
@@ -1114,13 +1114,13 @@ def _build_preview_selection_reasons(
         if node != selected_node and evaluation.feasible
     ]
     if not alternatives:
-        return [f"因為 {selected_node} 是目前這個時段唯一可行的節點。"]
+        return [f"{selected_node} is the only feasible node for this reservation window."]
 
     runner_up_node, runner_up_eval = min(alternatives, key=lambda item: item[1].objective)
     reasons = [
         (
-            f"因為把本次申請放在 {selected_node}，可以讓這個時段整體 cohort "
-            "的最大節點負載分數更低。"
+            f"{selected_node} has the best feasible active-window objective "
+            "for the reservation cohort."
         )
     ]
 
@@ -1130,7 +1130,9 @@ def _build_preview_selection_reasons(
             key=lambda item: item[1],
             default=(runner_up_node, runner_up_eval.max_node_score),
         )[0]
-        reasons.append(f"因為可降低 {bottleneck_node} 的整體負載尖峰風險。")
+        reasons.append(
+            f"It leaves less projected pressure on {bottleneck_node} than the runner-up."
+        )
 
     selected_storage_penalty = (selected_eval.storage_penalties or {}).get(selected_node, 0.0)
     runner_up_storage_penalty = (runner_up_eval.storage_penalties or {}).get(
@@ -1139,12 +1141,12 @@ def _build_preview_selection_reasons(
     )
     if selected_storage_penalty + 0.08 < runner_up_storage_penalty:
         reasons.append(
-            f"因為 {selected_node} 的磁碟 contention 風險較低，可避免把壓力集中到 {runner_up_node}。"
+            f"{selected_node} has lower storage contention than {runner_up_node}."
         )
 
     if selected_eval.movement_count < runner_up_eval.movement_count:
         delta = runner_up_eval.movement_count - selected_eval.movement_count
-        reasons.append(f"因為不需要多搬 {delta} 台 VM。")
+        reasons.append(f"It avoids {delta} extra VM movement(s).")
 
     selected_priority = priorities.get(selected_node, 5)
     runner_up_priority = priorities.get(runner_up_node, 5)
@@ -1153,7 +1155,7 @@ def _build_preview_selection_reasons(
         and abs(selected_eval.total_score - runner_up_eval.total_score) <= 0.15
     ):
         reasons.append(
-            f"在平衡結果接近時，{selected_node} 的節點優先級也比較高。"
+            f"{selected_node} wins the tie-breaker by node priority."
         )
 
     return reasons[:4]
@@ -1245,7 +1247,7 @@ def rebalance_active_assignments(
     selections: dict[uuid.UUID, CurrentPlacementSelection] = {}
     for request in ordered_requests:
         placement_request = _to_placement_request(request)
-        effective_resource_type, resource_type_reason = advisor_service._decide_resource_type(
+        effective_resource_type, resource_type_reason = placement_advisor._decide_resource_type(
             placement_request
         )
         chosen_node = final_assignments.get(request.id)
@@ -1303,8 +1305,9 @@ def compute_node_score_breakdown(
             priority=priorities.get(node_name, 5),
             is_selected=node_name == selected_node,
             reason=(
-                "最佳平衡方案" if node_name == selected_node
-                else ("可行但非最佳" if evaluation.feasible else "不可行")
+                "Selected node"
+                if node_name == selected_node
+                else ("Feasible alternative" if evaluation.feasible else "Not feasible")
             ),
         ))
     breakdowns.sort(key=lambda b: (not b.is_selected, b.balance_score, b.priority))
@@ -1322,11 +1325,11 @@ def get_preview_node_scores(
         return []
 
     request = _to_placement_request(db_request)
-    effective_resource_type, _ = advisor_service._decide_resource_type(request)
+    effective_resource_type, _ = placement_advisor._decide_resource_type(request)
 
-    nodes, resources = advisor_service._load_cluster_state()
+    nodes, resources = placement_advisor._load_cluster_state()
     cpu_overcommit_ratio, disk_overcommit_ratio = get_overcommit_ratios(session)
-    baseline_capacities = advisor_service._build_node_capacities(
+    baseline_capacities = placement_advisor._build_node_capacities(
         nodes=nodes,
         resources=resources,
         cpu_overcommit_ratio=cpu_overcommit_ratio,
@@ -1355,10 +1358,10 @@ def get_preview_node_scores(
         )
         hour_feasible = {
             item.node for item in adjusted
-            if advisor_service._can_fit(
+            if placement_advisor._can_fit(
                 item,
-                cores=advisor_service._effective_cpu_cores(request, effective_resource_type),
-                memory_bytes=advisor_service._effective_memory_bytes(request, effective_resource_type),
+                cores=placement_advisor._effective_cpu_cores(request, effective_resource_type),
+                memory_bytes=placement_advisor._effective_memory_bytes(request, effective_resource_type),
                 disk_bytes=request.disk_gb * GIB,
                 gpu_required=request.gpu_required,
             )
