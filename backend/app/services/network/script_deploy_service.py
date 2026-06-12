@@ -225,7 +225,6 @@ def _ssh_connect():
         ssh_user,
         cfg.password,
         timeout=30,
-        host_key_policy="warning",
     )
 
 
@@ -740,8 +739,12 @@ def _build_inline_env(
     return " ".join(parts)
 
 
-def _run_deployment(task: DeploymentTask, request_data: dict) -> None:  # noqa: C901
-    """在背景執行緒中執行腳本部署。"""
+def _run_deployment(task: DeploymentTask, request_data: dict, password: str) -> None:  # noqa: C901
+    """在背景執行緒中執行腳本部署。
+
+    password 以獨立參數傳遞（不放進 request_data），
+    確保 request_data 內容可以安全地寫入 log。
+    """
     client = None
     temp_script = f"/tmp/SkyLab-deploy-{task.task_id}.sh"
     build_func_file = f"/tmp/skylab-build-{task.task_id[:8]}.func"
@@ -785,7 +788,7 @@ def _run_deployment(task: DeploymentTask, request_data: dict) -> None:  # noqa: 
 
         inline_env = _build_inline_env(
             hostname=request_data["hostname"],
-            password=request_data["password"],
+            password=password,
             cpu=request_data["cpu"],
             ram=request_data["ram"],
             disk=request_data["disk"],
@@ -795,16 +798,21 @@ def _run_deployment(task: DeploymentTask, request_data: dict) -> None:  # noqa: 
             container_storage=data_storage,
             net_config=request_data.get("net_config"),
         )
-        # 安全地記錄 inline env（移除 password 與 ssh keys 的值）以利除錯
-        try:
-            safe_env = " ".join(
-                p if not (p.startswith("var_password=") or p.startswith("var_ssh_keys="))
-                else p.split("=", 1)[0] + "=***"
-                for p in inline_env.split(" ")
-            )
-            logger.info("Inline env (sanitised): %s", safe_env)
-        except Exception as e:
-            logger.debug("Sanitised env logging failed (non-fatal): %s", e)
+        # 安全地記錄 inline env：用遮罩密碼重新產生一份，
+        # 確保 log 內容完全不經手真實密碼
+        safe_env = _build_inline_env(
+            hostname=request_data["hostname"],
+            password="***",
+            cpu=request_data["cpu"],
+            ram=request_data["ram"],
+            disk=request_data["disk"],
+            unprivileged=request_data["unprivileged"],
+            ssh=request_data["ssh"],
+            template_storage=iso_storage,
+            container_storage=data_storage,
+            net_config=request_data.get("net_config"),
+        )
+        logger.info("Inline env (sanitised): %s", safe_env)
 
         # 2.6 下載 build.func 並修補升級提示函式，避免無人值守時卡住。
         #
@@ -1025,6 +1033,9 @@ def start_deployment(
     user_id: str,
 ) -> str:
     """啟動背景部署任務，回傳 task_id。"""
+    # 把密碼從 request_data 抽出來單獨傳遞，
+    # 之後 request_data 的內容才能安全地出現在 log
+    password = request_data.pop("password", "")
     task_id = str(uuid.uuid4())
     task = DeploymentTask(
         task_id=task_id,
@@ -1041,7 +1052,7 @@ def start_deployment(
 
     thread = threading.Thread(
         target=_run_deployment,
-        args=(task, request_data),
+        args=(task, request_data, password),
         daemon=True,
         name=f"deploy-{task_id[:8]}",
     )
@@ -1095,11 +1106,12 @@ def deploy_for_vm_request_sync(
     # Pre-create cancel event so cancel_task() can interrupt before streaming starts
     _make_cancel_event(task_id)
 
+    # password 不放進 request_data —— 以獨立參數傳給 _run_deployment，
+    # 確保 request_data 可以安全寫入 log
     request_data = {
         "template_slug": template_slug,
         "script_path": script_path or f"ct/{template_slug}.sh",
         "hostname": hostname,
-        "password": password,
         "cpu": cpu,
         "ram": ram,
         "disk": max(int(disk), 1),
@@ -1113,7 +1125,7 @@ def deploy_for_vm_request_sync(
     }
 
     try:
-        _run_deployment(task, request_data)
+        _run_deployment(task, request_data, password)
     finally:
         _release_request(request_id, task_id)
 

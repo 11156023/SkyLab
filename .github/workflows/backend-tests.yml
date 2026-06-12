@@ -13,6 +13,10 @@ concurrency:
   group: backend-tests-${{ github.ref }}
   cancel-in-progress: true
 
+# Least privilege: jobs only need to read repo contents
+permissions:
+  contents: read
+
 jobs:
   pytest:
     name: pytest (Python ${{ matrix.python-version }})

@@ -246,12 +246,18 @@ def service_logs(service: str, session: SessionDep, _: AdminUser, lines: int = 5
     """查看服務最近的 journalctl 日誌"""
     _require_valid_service(service)
     try:
-        ok, output = gateway_service.get_service_logs(
+        _ok, output = gateway_service.get_service_logs(
             session=session, service=service, lines=lines
         )
-        return PlainTextResponse(content=output)
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    except BadRequestError:
+        raise
+    except Exception:
+        # 例外細節只記在伺服器端，避免將內部資訊洩漏給呼叫端
+        logger.exception("讀取 %s 服務日誌失敗", service)
+        raise HTTPException(
+            status_code=502, detail=f"無法讀取 {service} 服務日誌，請稍後再試"
+        )
+    return PlainTextResponse(content=output)
 
 
 @router.post("/services/{service}/{action}", response_model=ServiceActionResult)

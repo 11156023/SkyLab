@@ -131,10 +131,11 @@ async def validate_image_content(file_bytes: bytes) -> None:
     try:
         img = Image.open(io.BytesIO(file_bytes))
         img.verify()  # 驗證圖片完整性
-    except Exception as e:
+    except Exception:
+        logger.exception("圖片驗證失敗")
         raise HTTPException(
             status_code=400,
-            detail=f"無效的圖片檔案: {str(e)}"
+            detail="無效的圖片檔案"
         )
 
 
@@ -317,9 +318,9 @@ async def _proxy_openai_post(path: str, payload: dict) -> Response:
             )
     except httpx.TimeoutException:
         return _openai_error(504, f"Upstream timeout for model '{route.alias}'", code="upstream_timeout")
-    except httpx.HTTPError as exc:
+    except httpx.HTTPError:
         logger.exception("Gateway upstream error")
-        return _openai_error(503, f"Upstream unavailable for model '{route.alias}': {exc}", code="upstream_unavailable")
+        return _openai_error(503, f"Upstream unavailable for model '{route.alias}'", code="upstream_unavailable")
 
 
 def _build_text_chat_payload(request: ChatRequest, stream: bool) -> dict:
@@ -387,10 +388,12 @@ async def ready() -> JSONResponse:
                 "reason": "timeout",
                 "url": health_url
             })
-        except Exception as e:
+        except Exception:
+            # 例外細節只記在伺服器端，避免洩漏內部資訊
+            logger.exception("模型 %s 健康檢查失敗", alias)
             unhealthy_models.append({
                 "alias": alias,
-                "reason": str(e),
+                "reason": "unreachable",
                 "url": health_url
             })
     
@@ -544,8 +547,9 @@ async def chat(request: ChatRequest) -> ChatResponse:
         return ChatResponse(response=content or "")
     except HTTPException:
         raise
-    except Exception as exc:
-        raise HTTPException(status_code=500, detail=str(exc))
+    except Exception:
+        logger.exception("聊天請求處理失敗")
+        raise HTTPException(status_code=500, detail="內部錯誤，請稍後再試")
 
 
 @app.post("/api/chat/stream")
@@ -614,8 +618,9 @@ async def chat_vision(
         
         return ChatResponse(response=response.choices[0].message.content or "")
     
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    except Exception:
+        logger.exception("聊天請求處理失敗")
+        raise HTTPException(status_code=500, detail="內部錯誤，請稍後再試")
 
 
 @app.post("/api/chat/vision/stream")
@@ -868,9 +873,9 @@ async def chat_video_info(
         }
     except HTTPException:
         raise
-    except Exception as e:
+    except Exception:
         logger.exception("影片解析失敗")
-        raise HTTPException(status_code=422, detail=f"影片解析失敗: {str(e)}")
+        raise HTTPException(status_code=422, detail="影片解析失敗，請確認檔案格式")
     finally:
         safe_remove_temp_file(tmp_path)
 
