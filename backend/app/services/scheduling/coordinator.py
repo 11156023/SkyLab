@@ -31,8 +31,12 @@ from app.services.vm import vm_request_placement_service
 logger = logging.getLogger(__name__)
 
 # 這些名稱由此模組 re-export，測試以
-# ``app.services.scheduling.coordinator.<name>`` monkeypatch。
-__all__ = ["vm_migration_job_repo", "_process_claimed_migration_job"]
+# ``app.services.scheduling.coordinator.<name>`` 引用或 monkeypatch。
+__all__ = [
+    "vm_migration_job_repo",
+    "_migrate_request_to_desired_node",
+    "_process_claimed_migration_job",
+]
 
 SCHEDULER_POLL_SECONDS = scheduling_policy.SCHEDULER_POLL_SECONDS
 _MigrationPolicy = scheduling_policy.MigrationPolicy
@@ -709,6 +713,7 @@ def _refresh_actual_node(
 from app.services.scheduling.migration import (
     _detect_migration_pinned,
     _effective_request_migration_state,
+    _migrate_request_to_desired_node,
     _process_claimed_migration_job,
     _process_pending_migration_jobs,
     _sync_request_migration_job,
