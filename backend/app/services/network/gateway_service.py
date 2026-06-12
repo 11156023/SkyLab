@@ -54,7 +54,6 @@ def _make_client(host: str, ssh_port: int, ssh_user: str, private_key_pem: str):
         ssh_user,
         private_key_pem,
         timeout=10,
-        host_key_policy="auto_add",
     )
 
 
@@ -376,8 +375,6 @@ def get_service_logs(session: object, service: str, lines: int = 50) -> tuple[bo
         client = _make_client(config.host, config.ssh_port, config.ssh_user, private_key_pem)
         _, out, err = _exec(client, f"journalctl -u {service} --no-pager -n {lines} 2>&1")
         return True, (out + err).strip()
-    except Exception as exc:
-        return False, str(exc)
     finally:
         if client is not None:
             client.close()

@@ -25,6 +25,8 @@ jobs:
     steps:
       - uses: actions/checkout@v5
         with:
+          # Fork PR 的分支不存在於 base repo，必須指定 head repo 才抓得到
+          repository: ${{ github.event.pull_request.head.repo.full_name }}
           ref: ${{ github.head_ref }}
           token: ${{ secrets.GITHUB_TOKEN }}
 

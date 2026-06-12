@@ -363,8 +363,8 @@ def check_port_available(port: int, logger) -> bool:
     sock.settimeout(1)
     
     try:
-        # 嘗試綁定端口
-        sock.bind(("0.0.0.0", port))
+        # 嘗試綁定端口（只綁 loopback 做可用性探測，不對外開放）
+        sock.bind(("127.0.0.1", port))
         sock.close()
         logger.success(f"✓ 端口 {port} 可用")
         return True

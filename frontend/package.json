@@ -72,7 +72,7 @@
     "zod": "^4.4.3"
   },
   "devDependencies": {
-    "@biomejs/biome": "^2.4.16",
+    "@biomejs/biome": "2.4.16",
     "@hey-api/openapi-ts": "0.98.2",
     "@playwright/test": "1.60.0",
     "@tanstack/router-devtools": "^1.167.0",
@@ -86,5 +86,8 @@
     "vite": "^8.0.16",
     "vite-plugin-commonjs": "^0.10.4",
     "vitest": "^4.1.8"
+  },
+  "overrides": {
+    "dompurify": "^3.4.0"
   }
 }

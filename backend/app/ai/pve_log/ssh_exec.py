@@ -23,20 +23,19 @@
 from __future__ import annotations
 
 import asyncio
-import io
 import logging
 import time
 import uuid
 from typing import Any
 
 import httpx
-import paramiko
 from sqlmodel import Session
 
 from app.ai.pve_log.config import settings
 from app.ai.pve_log.schemas import SSHConfirmRequest, SSHExecRequest, SSHExecResult
 from app.ai.pve_log.ssh_guard import check_command
 from app.core.security import decrypt_value
+from app.infrastructure.ssh import create_key_client
 from app.repositories import resource as resource_repo
 from app.services.proxmox import proxmox_service
 
@@ -170,23 +169,18 @@ def _ssh_exec_sync(
     command: str,
     timeout: int,
 ) -> tuple[int, str, str]:
-    """建立 SSH 連線並執行指令，回傳 (exit_code, stdout, stderr)。"""
-    pkey = paramiko.Ed25519Key.from_private_key(io.StringIO(private_key_pem))
-    client = paramiko.SSHClient()
+    """建立 SSH 連線並執行指令，回傳 (exit_code, stdout, stderr)。
 
-    # 自動接受 unknown host key，避免首次連線因 known_hosts 缺少紀錄而中斷。
-    client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-
-    client.connect(
-        hostname=host,
-        port=port,
-        username=username,
-        pkey=pkey,
+    使用 infrastructure 共用的 create_key_client：
+    首次連線記錄 host key（trust-on-first-use），之後 key 變更會拒絕連線。
+    """
+    client = create_key_client(
+        host,
+        port,
+        username,
+        private_key_pem,
         timeout=timeout,
-        allow_agent=False,
-        look_for_keys=False,
     )
-
     try:
         _, stdout, stderr = client.exec_command(command, timeout=timeout)
         exit_code = stdout.channel.recv_exit_status()

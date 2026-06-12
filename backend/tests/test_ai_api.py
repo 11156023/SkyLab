@@ -405,7 +405,7 @@ if __name__ == "__main__":
     print("=" * 55)
     print("  SkyLab AI API 模型測試")
     print(f"  backend : {BACKEND_URL}")
-    print(f"  api_key : {API_KEY[:20]}...")
+    print(f"  api_key : {'已設定' if API_KEY and API_KEY != 'ccai_' else '未設定'}")
     if test_rate_limit_only:
         print("  模式    : 速率限制測試")
     elif test_full:

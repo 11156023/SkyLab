@@ -6,9 +6,11 @@ import rehypeHighlight from 'rehype-highlight'
 import 'highlight.js/styles/github.css' // Changed to github.css for light theme
 import { useState } from 'react'
 
+// 只允許本地 blob 物件 URL 或 base64 圖片/影片 data URL，其他一律拒絕
 const sanitizeMediaUrl = (url) => {
   if (typeof url !== 'string') return null
-  if (url.startsWith('blob:') || url.startsWith('data:')) return url
+  if (/^blob:/.test(url)) return url
+  if (/^data:(?:image|video)\/[a-z0-9.+-]+;base64,[A-Za-z0-9+/=]*$/i.test(url)) return url
   return null
 }
 

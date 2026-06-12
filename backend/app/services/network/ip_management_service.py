@@ -240,6 +240,7 @@ def release_ip(session: Session, vmid: int) -> str | None:
     ip = alloc.ip_address
     session.delete(alloc)
     session.flush()
+    _forget_ssh_host_key(ip)
     logger.info("已釋放 VMID %s 的 IP %s", vmid, ip)
     return ip
 
@@ -253,8 +254,19 @@ def release_ip_by_address(session: Session, ip_address: str) -> bool:
         return False
     session.delete(alloc)
     session.flush()
+    _forget_ssh_host_key(ip_address)
     logger.info("已釋放 IP %s", ip_address)
     return True
+
+
+def _forget_ssh_host_key(ip: str) -> None:
+    """IP 回收後清除 pinned SSH host key，避免新主機因 key 不符被拒連。"""
+    try:
+        from app.infrastructure.ssh import forget_host_key  # noqa: PLC0415
+
+        forget_host_key(ip)
+    except Exception:
+        logger.warning("清除 IP %s 的 SSH host key 失敗（非致命）", ip, exc_info=True)
 
 
 # ─── 查詢 ──────────────────────────────────────────────────────────────────
