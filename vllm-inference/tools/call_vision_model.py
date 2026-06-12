@@ -3,6 +3,7 @@
 演示如何使用 Qwen3-VL 等視覺-語言模型處理圖片輸入
 """
 
+import asyncio
 import sys
 from pathlib import Path
 
@@ -131,8 +132,6 @@ def demo_vision_stream():
 
 async def demo_vision_async():
     """異步視覺對話範例"""
-    import asyncio
-    
     print("\n" + "=" * 70)
     print("  範例 4: 異步視覺對話")
     print("=" * 70)
@@ -241,8 +240,6 @@ def show_model_info():
 
 
 if __name__ == "__main__":
-    import asyncio
-    
     mode = sys.argv[1] if len(sys.argv) > 1 else "all"
     
     if mode == "info":

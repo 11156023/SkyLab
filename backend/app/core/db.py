@@ -45,5 +45,5 @@ def init_db(session: Session) -> None:
             role="admin",
             is_superuser=True,
         )
-        user = user_repo.create_user(session=session, user_create=user_in)
+        user_repo.create_user(session=session, user_create=user_in)
         session.commit()

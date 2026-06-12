@@ -114,6 +114,7 @@ def check_system_health() -> SystemHealth:
                 except (ImportError, Exception):
                     gpu_utilization.append(0.0)
     except (ImportError, Exception):
+        # GPU 資訊不可用時使用預設值
         pass
     
     return SystemHealth(

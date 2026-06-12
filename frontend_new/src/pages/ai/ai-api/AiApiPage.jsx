@@ -309,7 +309,6 @@ function formatModelDisplay(modelName) {
 
 /* ── My Usage Tab ── */
 function MyUsageTab() {
-  const toast = useToast();
   const [preset, setPreset] = useState("30d");
   const [proxyData, setProxyData] = useState(null);
   const [templateData, setTemplateData] = useState(null);

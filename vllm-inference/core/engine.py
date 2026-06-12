@@ -19,8 +19,9 @@ from config.settings import Settings, get_settings
 class VLLMEngine:
     """vLLM 伺服器引擎管理器"""
 
-    def __init__(self, settings: Settings | None = None) -> None:
+    def __init__(self, settings: Settings | None = None, alias: str | None = None) -> None:
         self.settings = settings or get_settings()
+        self.alias = alias  # 用於識別日誌檔名（與 vllm-API/vllm-service 介面一致）
         self._process: subprocess.Popen | None = None
 
     @property
@@ -105,7 +106,6 @@ class VLLMEngine:
                     except Exception as e:
                         last_error = f"models 端點檢查失敗: {e}"
                         # health 正常但 models 失敗，繼續等待
-                        pass
                 
                 consecutive_failures = 0
                 

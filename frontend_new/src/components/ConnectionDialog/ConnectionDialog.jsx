@@ -16,11 +16,6 @@ const PROTOCOLS = ["tcp", "udp", "icmp", "icmpv6", "sctp"];
 
 const GATEWAY_LABEL = "網際網路";
 
-function portLabel(port) {
-  if (!port || port === "0") return "全部";
-  return port;
-}
-
 let _uid = 0;
 function uid() { return ++_uid; }
 

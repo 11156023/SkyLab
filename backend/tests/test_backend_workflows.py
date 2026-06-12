@@ -3016,7 +3016,7 @@ def test_sync_request_migration_job_uses_specific_clear_reason(
 def test_vm_templates_are_filtered_by_pool(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
         "app.infrastructure.proxmox.operations.get_proxmox_settings",
-        lambda: type("Cfg", (), {"pool_name": "SkyLab"})(),
+        type("Cfg", (), {"pool_name": "SkyLab"}),
     )
     monkeypatch.setattr(
         "app.infrastructure.proxmox.operations._raw_vms",

@@ -1,6 +1,10 @@
 from __future__ import annotations
 
 from importlib import import_module
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from app.services.vm import placement_service as vm_request_placement_service
 
 __all__ = [
     "batch_provision_service",

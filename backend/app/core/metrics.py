@@ -31,10 +31,17 @@ except ImportError:  # pragma: no cover - optional dep
     CONTENT_TYPE_LATEST = "text/plain"
 
     class _Stub:  # type: ignore[no-redef]
-        def __init__(self, *_: Any, **__: Any) -> None: ...
-        def labels(self, *_: Any, **__: Any) -> _Stub: return self
-        def inc(self, *_: Any, **__: Any) -> None: ...
-        def observe(self, *_: Any, **__: Any) -> None: ...
+        def __init__(self, *_: Any, **__: Any) -> None:
+            pass
+
+        def labels(self, *_: Any, **__: Any) -> _Stub:
+            return self
+
+        def inc(self, *_: Any, **__: Any) -> None:
+            pass
+
+        def observe(self, *_: Any, **__: Any) -> None:
+            pass
 
     Counter = Histogram = _Stub  # type: ignore[misc, assignment]
     CollectorRegistry = _Stub  # type: ignore[misc, assignment]

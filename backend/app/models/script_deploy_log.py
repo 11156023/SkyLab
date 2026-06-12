@@ -8,7 +8,6 @@ import uuid
 from datetime import datetime
 
 import sqlalchemy as sa
-from sqlalchemy import DateTime, Text
 from sqlmodel import Column, Field, SQLModel
 
 from .base import get_datetime_utc
@@ -53,20 +52,20 @@ class ScriptDeployLog(SQLModel, table=True):
     status: str = Field(default="running", max_length=20, index=True)
     progress: str | None = Field(default=None, max_length=255)
     message: str | None = Field(default=None, max_length=2000)
-    error: str | None = Field(default=None, sa_column=Column(Text, nullable=True))
-    output: str | None = Field(default=None, sa_column=Column(Text, nullable=True))
+    error: str | None = Field(default=None, sa_column=Column(sa.Text, nullable=True))
+    output: str | None = Field(default=None, sa_column=Column(sa.Text, nullable=True))
     created_at: datetime = Field(
         default_factory=get_datetime_utc,
-        sa_type=DateTime(timezone=True),
+        sa_type=sa.DateTime(timezone=True),
         index=True,
     )
     updated_at: datetime = Field(
         default_factory=get_datetime_utc,
-        sa_type=DateTime(timezone=True),
+        sa_type=sa.DateTime(timezone=True),
     )
     completed_at: datetime | None = Field(
         default=None,
-        sa_type=DateTime(timezone=True),
+        sa_type=sa.DateTime(timezone=True),
     )
 
 

@@ -506,6 +506,7 @@ class ModelClient:
                 try:
                     os.remove(f)
                 except OSError:
+                    # 暫存檔可能已被移除
                     pass
 
         # 彙整段
@@ -910,6 +911,7 @@ class ModelClient:
                 try:
                     os.remove(f)
                 except OSError:
+                    # 暫存檔可能已被移除
                     pass
 
         # 彙整段

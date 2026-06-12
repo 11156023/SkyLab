@@ -271,7 +271,6 @@ const ChatBox = ({ modelInfo }) => {
 
     try {
       let endpoint
-      let body
 
       if (userDocument) {
         // 文件模式 - 使用 FormData

@@ -154,6 +154,7 @@ async def lifespan(app: FastAPI):
             try:
                 await scheduler_task
             except asyncio.CancelledError:
+                # 排程器取消屬預期的關閉流程
                 pass
         await shutdown_background_runner()
         await close_ai_clients()

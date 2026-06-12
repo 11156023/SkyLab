@@ -207,6 +207,7 @@ def exec_command_streaming(
             try:
                 channel.close()
             except Exception:
+                # 通道可能已關閉，關閉失敗可忽略
                 pass
             raise RuntimeError("SSH command cancelled by user")
         if time.monotonic() - start > timeout:
@@ -230,6 +231,7 @@ def exec_command_streaming(
                             try:
                                 channel.send(response)
                             except Exception:
+                                # 自動回應寫入失敗時不中斷輸出讀取
                                 pass
 
             if channel.recv_stderr_ready():

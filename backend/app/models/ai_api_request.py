@@ -4,7 +4,6 @@ from datetime import datetime
 from typing import TYPE_CHECKING
 
 import sqlalchemy as sa
-from sqlalchemy import DateTime
 from sqlmodel import Column, Enum, Field, Relationship, SQLModel
 
 from .base import get_datetime_utc
@@ -47,10 +46,10 @@ class AIAPIRequest(SQLModel, table=True):
     )
     reviewer_id: uuid.UUID | None = Field(default=None, foreign_key="user.id")
     review_comment: str | None = Field(default=None, max_length=2000)
-    reviewed_at: datetime | None = Field(default=None, sa_type=DateTime(timezone=True))
+    reviewed_at: datetime | None = Field(default=None, sa_type=sa.DateTime(timezone=True))
     created_at: datetime = Field(
         default_factory=get_datetime_utc,
-        sa_type=DateTime(timezone=True),
+        sa_type=sa.DateTime(timezone=True),
     )
 
     user: "User" = Relationship(

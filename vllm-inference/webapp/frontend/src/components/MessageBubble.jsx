@@ -1,4 +1,4 @@
-import { User, Sparkles, Loader2, FileText, Video, ChevronDown, ChevronRight } from 'lucide-react'
+import { Sparkles, Loader2, FileText, Video, ChevronDown, ChevronRight } from 'lucide-react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import remarkBreaks from 'remark-breaks'

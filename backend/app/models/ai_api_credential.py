@@ -3,7 +3,6 @@ from datetime import datetime
 from typing import TYPE_CHECKING
 
 import sqlalchemy as sa
-from sqlalchemy import DateTime
 from sqlmodel import Field, Relationship, SQLModel
 
 from .base import get_datetime_utc
@@ -31,11 +30,11 @@ class AIAPICredential(SQLModel, table=True):
     rate_limit: int | None = Field(
         default=None, description="每分鐘請求限制（1-1000），None 使用預設值 20"
     )
-    expires_at: datetime | None = Field(default=None, sa_type=DateTime(timezone=True))
-    revoked_at: datetime | None = Field(default=None, sa_type=DateTime(timezone=True))
+    expires_at: datetime | None = Field(default=None, sa_type=sa.DateTime(timezone=True))
+    revoked_at: datetime | None = Field(default=None, sa_type=sa.DateTime(timezone=True))
     created_at: datetime = Field(
         default_factory=get_datetime_utc,
-        sa_type=DateTime(timezone=True),
+        sa_type=sa.DateTime(timezone=True),
     )
 
     user: "User" = Relationship(back_populates="ai_api_credentials")

@@ -439,6 +439,7 @@ def _enforce_static_network(vmid: int, net_config: dict) -> None:
             try:
                 client.close()
             except Exception:
+                # SSH 連線關閉失敗可忽略
                 pass
         actual = (out or "").strip().split()
         if ip_only in actual:
@@ -549,6 +550,7 @@ pct exec "$CTID" -- hostname -I 2>/dev/null || true
             try:
                 client.close()
             except Exception:
+                # SSH 連線關閉失敗可忽略
                 pass
 
     if exit_code != 0:
@@ -592,6 +594,7 @@ pct exec "$CTID" -- chmod 600 /root/.ssh/authorized_keys
             try:
                 client.close()
             except Exception:
+                # SSH 連線關閉失敗可忽略
                 pass
 
 
@@ -1000,6 +1003,7 @@ def _run_deployment(task: DeploymentTask, request_data: dict, password: str) -> 
             try:
                 client.close()
             except Exception:
+                # SSH 連線關閉失敗可忽略
                 pass
 
 

@@ -227,7 +227,7 @@ def _normalize_ai_review(payload: Any) -> AIReviewResult:
     risk_level_raw = str(payload.get("risk_level") or ("low" if approved else "high"))
     if risk_level_raw not in {"low", "medium", "high"}:
         risk_level_raw = "high"
-    risk_level = cast("Literal['low', 'medium', 'high']", risk_level_raw)
+    risk_level = cast(Literal["low", "medium", "high"], risk_level_raw)
 
     issues = payload.get("issues")
     if not isinstance(issues, list):
@@ -903,6 +903,7 @@ async def build_reviewed_script(
                     }
                 )
         except HTTPException:
+            # 用量記錄失敗不影響審查主流程
             pass
 
     status = _resolve_status(final_gate, last_ai_review)
