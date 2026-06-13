@@ -22,7 +22,7 @@ from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, Response, StreamingResponse
 from PIL import Image
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
 # 導入專案的 API 客戶端
 sys.path.append(str(Path(__file__).resolve().parent.parent))
@@ -212,6 +212,8 @@ SYSTEM_PROMPT = """<Role>
 
 class ChatRequest(BaseModel):
     """聊天請求 - 預設值從 settings 讀取"""
+    model_config = ConfigDict(extra="allow")
+
     message: str
     model: str | None = None
     max_tokens: int = settings.default_max_tokens
@@ -221,6 +223,7 @@ class ChatRequest(BaseModel):
     min_p: float = settings.default_min_p
     presence_penalty: float = settings.default_presence_penalty
     repetition_penalty: float = settings.default_repetition_penalty
+    extra_body: dict | None = None
 
 
 class ChatResponse(BaseModel):
@@ -252,8 +255,41 @@ def _resolve_model_route(model: str | None) -> GatewayRoute | None:
     return find_route_for_model(model=model, routes=gateway_routes)
 
 
-async def _proxy_openai_post(path: str, payload: dict) -> Response:
-    requested_model = payload.get("model")
+def _normalize_openai_payload(payload: dict) -> dict:
+    """將 SDK 風格 extra_body 正規化為直接 HTTP payload。"""
+    normalized = dict(payload)
+    extra_body = normalized.pop("extra_body", None)
+
+    if isinstance(extra_body, dict):
+        for key, value in extra_body.items():
+            normalized.setdefault(key, value)
+
+    return normalized
+
+
+def _build_upstream_headers(route: GatewayRoute, request: Request | None = None) -> dict[str, str]:
+    headers = {
+        "Authorization": f"Bearer {route.api_key}",
+        "Content-Type": "application/json",
+    }
+    if request is not None:
+        request_id = request.headers.get("x-request-id")
+        if request_id:
+            headers["x-request-id"] = request_id
+    return headers
+
+
+def _build_downstream_headers(headers: httpx.Headers) -> dict[str, str]:
+    downstream_headers: dict[str, str] = {}
+    request_id = headers.get("x-request-id")
+    if request_id:
+        downstream_headers["x-request-id"] = request_id
+    return downstream_headers
+
+
+async def _proxy_openai_post(path: str, payload: dict, request: Request | None = None) -> Response:
+    normalized_payload = _normalize_openai_payload(payload)
+    requested_model = normalized_payload.get("model")
     route = _resolve_model_route(requested_model)
     if route is None:
         available = ", ".join(sorted(gateway_routes.keys()))
@@ -264,63 +300,76 @@ async def _proxy_openai_post(path: str, payload: dict) -> Response:
             code="model_not_found",
         )
 
-    upstream_payload = dict(payload)
+    upstream_payload = dict(normalized_payload)
     upstream_payload["model"] = route.model_name
 
-    headers = {
-        "Authorization": f"Bearer {route.api_key}",
-        "Content-Type": "application/json",
-    }
+    headers = _build_upstream_headers(route, request)
     upstream_url = f"{route.base_url}{path}"
     stream_mode = bool(upstream_payload.get("stream", False))
+    acquired = False
+    release_in_stream = False
+    resp: httpx.Response | None = None
 
     try:
-        async with gateway_semaphore:
-            if stream_mode:
-                req = gateway_http_client.build_request(
-                    method="POST",
-                    url=upstream_url,
-                    json=upstream_payload,
-                    headers=headers,
-                )
-                resp = await gateway_http_client.send(req, stream=True)
-                if resp.status_code >= 400:
-                    body = await resp.aread()
-                    await resp.aclose()
-                    return Response(
-                        content=body,
-                        status_code=resp.status_code,
-                        media_type=resp.headers.get("content-type", "application/json"),
-                    )
+        await gateway_semaphore.acquire()
+        acquired = True
 
-                async def _stream_bytes() -> AsyncGenerator[bytes, None]:
-                    try:
-                        async for chunk in resp.aiter_bytes():
-                            if chunk:
-                                yield chunk
-                    finally:
-                        await resp.aclose()
-
-                return StreamingResponse(
-                    _stream_bytes(),
-                    media_type=resp.headers.get("content-type", "text/event-stream"),
-                )
-
-            resp = await gateway_http_client.post(
+        if stream_mode:
+            req = gateway_http_client.build_request(
+                method="POST",
                 url=upstream_url,
                 json=upstream_payload,
                 headers=headers,
             )
-            return Response(
-                content=resp.content,
-                status_code=resp.status_code,
-                media_type=resp.headers.get("content-type", "application/json"),
+            resp = await gateway_http_client.send(req, stream=True)
+            response_headers = _build_downstream_headers(resp.headers)
+            if resp.status_code >= 400:
+                body = await resp.aread()
+                await resp.aclose()
+                return Response(
+                    content=body,
+                    status_code=resp.status_code,
+                    media_type=resp.headers.get("content-type", "application/json"),
+                    headers=response_headers,
+                )
+
+            async def _stream_bytes() -> AsyncGenerator[bytes, None]:
+                try:
+                    async for chunk in resp.aiter_bytes():
+                        if chunk:
+                            yield chunk
+                finally:
+                    await resp.aclose()
+                    gateway_semaphore.release()
+
+            release_in_stream = True
+            return StreamingResponse(
+                _stream_bytes(),
+                media_type=resp.headers.get("content-type", "text/event-stream"),
+                headers=response_headers,
             )
+
+        resp = await gateway_http_client.post(
+            url=upstream_url,
+            json=upstream_payload,
+            headers=headers,
+        )
+        return Response(
+            content=resp.content,
+            status_code=resp.status_code,
+            media_type=resp.headers.get("content-type", "application/json"),
+            headers=_build_downstream_headers(resp.headers),
+        )
     except httpx.TimeoutException:
         return _openai_error(504, f"Upstream timeout for model '{route.alias}'", code="upstream_timeout")
     except httpx.HTTPError:
         logger.exception("Gateway upstream error")
         return _openai_error(503, f"Upstream unavailable for model '{route.alias}'", code="upstream_unavailable")
+    finally:
+        if resp is not None and stream_mode and not release_in_stream:
+            await resp.aclose()
+        if acquired and not release_in_stream:
+            gateway_semaphore.release()
 
 
 def _build_text_chat_payload(request: ChatRequest, stream: bool) -> dict:
@@ -328,6 +377,21 @@ def _build_text_chat_payload(request: ChatRequest, stream: bool) -> dict:
         {"role": "system", "content": SYSTEM_PROMPT},
         {"role": "user", "content": request.message},
     ]
+    request_data = request.model_dump(exclude_none=True)
+    extra_body = request_data.pop("extra_body", None)
+    passthrough_reserved = {
+        "message",
+        "messages",
+        "model",
+        "max_tokens",
+        "temperature",
+        "top_p",
+        "top_k",
+        "min_p",
+        "presence_penalty",
+        "repetition_penalty",
+        "stream",
+    }
     payload: dict = {
         "model": request.model or gateway_default_model,
         "messages": messages,
@@ -336,12 +400,19 @@ def _build_text_chat_payload(request: ChatRequest, stream: bool) -> dict:
         "top_p": request.top_p,
         "presence_penalty": request.presence_penalty,
         "stream": stream,
-        "extra_body": {
-            "top_k": request.top_k,
-            "min_p": request.min_p,
-            "repetition_penalty": request.repetition_penalty,
-        },
+        "top_k": request.top_k,
+        "min_p": request.min_p,
+        "repetition_penalty": request.repetition_penalty,
     }
+
+    for key, value in request_data.items():
+        if key not in passthrough_reserved:
+            payload[key] = value
+
+    if isinstance(extra_body, dict):
+        for key, value in extra_body.items():
+            payload.setdefault(key, value)
+
     if stream:
         payload["stream_options"] = {"include_usage": True}
     return payload
@@ -444,7 +515,7 @@ async def openai_chat_completions(request: Request) -> Response:
         return _openai_error(400, "Invalid JSON payload", code="bad_request")
     if not isinstance(payload, dict):
         return _openai_error(400, "JSON payload must be an object", code="bad_request")
-    return await _proxy_openai_post("/chat/completions", payload)
+    return await _proxy_openai_post("/chat/completions", payload, request)
 
 
 @app.post("/v1/completions")
@@ -456,7 +527,19 @@ async def openai_completions(request: Request) -> Response:
         return _openai_error(400, "Invalid JSON payload", code="bad_request")
     if not isinstance(payload, dict):
         return _openai_error(400, "JSON payload must be an object", code="bad_request")
-    return await _proxy_openai_post("/completions", payload)
+    return await _proxy_openai_post("/completions", payload, request)
+
+
+@app.post("/v1/responses")
+async def openai_responses(request: Request) -> Response:
+    """OpenAI Compatible: Responses API 代理。"""
+    try:
+        payload = await request.json()
+    except Exception:
+        return _openai_error(400, "Invalid JSON payload", code="bad_request")
+    if not isinstance(payload, dict):
+        return _openai_error(400, "JSON payload must be an object", code="bad_request")
+    return await _proxy_openai_post("/responses", payload, request)
 
 
 @app.get("/")
@@ -519,14 +602,12 @@ async def chat(request: ChatRequest) -> ChatResponse:
     upstream_payload = dict(payload)
     upstream_payload["model"] = route.model_name
     try:
-        resp = await gateway_http_client.post(
-            url=f"{route.base_url}/chat/completions",
-            json=upstream_payload,
-            headers={
-                "Authorization": f"Bearer {route.api_key}",
-                "Content-Type": "application/json",
-            },
-        )
+        async with gateway_semaphore:
+            resp = await gateway_http_client.post(
+                url=f"{route.base_url}/chat/completions",
+                json=upstream_payload,
+                headers=_build_upstream_headers(route),
+            )
         if resp.status_code >= 400:
             raise HTTPException(status_code=resp.status_code, detail=resp.text)
 

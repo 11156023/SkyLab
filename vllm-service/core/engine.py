@@ -17,6 +17,14 @@ import httpx
 
 from config.settings import Settings, get_settings
 
+_VLLM_ENV_VARS_TO_STRIP = {
+    # 專案內部控制用變數，不是 vLLM 官方支援的 env 名稱。
+    "VLLM_SERVICE_ENV_FILE",
+    "VLLM_SERVICE_GATEWAY_ENV_FILE",
+    # 舊版私有命名；vLLM 0.22.1 會將其視為未知變數。
+    "VLLM_USAGE_STATS_ENABLED",
+}
+
 
 class VLLMEngine:
     """vLLM 伺服器引擎管理器"""
@@ -65,6 +73,8 @@ class VLLMEngine:
 
         # 明確傳遞環境變數到子進程
         env = os.environ.copy()
+        for env_key in _VLLM_ENV_VARS_TO_STRIP:
+            env.pop(env_key, None)
         
         # 建立日誌目錄和日誌檔案
         if self.alias:
