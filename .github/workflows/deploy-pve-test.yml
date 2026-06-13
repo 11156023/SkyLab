@@ -19,10 +19,10 @@ permissions:
 jobs:
   deploy:
     name: Deploy to PVE test environment
-    # 防止 upstream 或其他 fork 收錄此檔後誤觸發（它們沒有 pve-test runner，
+    # 防止其他 fork 收錄此檔後誤觸發（它們沒有掛 skylab runner，
     # job 會無限排隊）
-    if: github.repository == 'jerry102039/SkyLab'
-    runs-on: [self-hosted, pve-test]
+    if: github.repository == 'ntubclass/SkyLab'
+    runs-on: [self-hosted, Linux, X64]
     # 綁定 pve-test environment：required reviewers 會擋在 job 開始前，
     # 管理者在 Actions 頁面按下 Approve 才會真正部署
     environment: pve-test
