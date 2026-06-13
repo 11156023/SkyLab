@@ -21,30 +21,34 @@ logger = logging.getLogger(__name__)
 
 PROXMOX_TICKET_TTL = 7000
 
-_proxmox_client: ProxmoxAPI | None = None
-_proxmox_created_at = 0.0
-_proxmox_active_host: str | None = None
+class _ProxmoxClientState:
+    """共享的 Proxmox 連線快取狀態。"""
+
+    def __init__(self) -> None:
+        self.client: ProxmoxAPI | None = None
+        self.created_at = 0.0
+        self.active_host: str | None = None
+
+
+_state = _ProxmoxClientState()
 _proxmox_lock = threading.Lock()
 
 
 def invalidate_proxmox_client() -> None:
-    global _proxmox_client, _proxmox_created_at, _proxmox_active_host
     with _proxmox_lock:
-        _proxmox_client = None
-        _proxmox_created_at = 0.0
-        _proxmox_active_host = None
+        _state.client = None
+        _state.created_at = 0.0
+        _state.active_host = None
 
 
 def get_proxmox_api() -> ProxmoxAPI:
-    global _proxmox_client, _proxmox_created_at, _proxmox_active_host
-
     now = time.monotonic()
-    if _proxmox_client is not None and (now - _proxmox_created_at) < PROXMOX_TICKET_TTL:
-        return _proxmox_client
+    if _state.client is not None and (now - _state.created_at) < PROXMOX_TICKET_TTL:
+        return _state.client
 
     with _proxmox_lock:
-        if _proxmox_client is not None and (now - _proxmox_created_at) < PROXMOX_TICKET_TTL:
-            return _proxmox_client
+        if _state.client is not None and (now - _state.created_at) < PROXMOX_TICKET_TTL:
+            return _state.client
 
         cfg = get_proxmox_settings()
         nodes = get_nodes_for_ha()
@@ -64,15 +68,15 @@ def get_proxmox_api() -> ProxmoxAPI:
                 try:
                     client = try_connect(node.host, cfg)
                     update_node_online(node.id, True)
-                    _proxmox_client = client
-                    _proxmox_created_at = time.monotonic()
-                    _proxmox_active_host = node.host
+                    _state.client = client
+                    _state.created_at = time.monotonic()
+                    _state.active_host = node.host
                     logger.info(
                         "Connected to Proxmox node %s (%s)",
                         node.name,
                         node.host,
                     )
-                    return _proxmox_client
+                    return _state.client
                 except Exception as exc:
                     last_error = exc
                     logger.warning(
@@ -88,15 +92,15 @@ def get_proxmox_api() -> ProxmoxAPI:
             )
 
         logger.info("Using configured single Proxmox host %s", cfg.host)
-        _proxmox_client = try_connect(cfg.host, cfg)
-        _proxmox_created_at = time.monotonic()
-        _proxmox_active_host = cfg.host
-        return _proxmox_client
+        _state.client = try_connect(cfg.host, cfg)
+        _state.created_at = time.monotonic()
+        _state.active_host = cfg.host
+        return _state.client
 
 
 def get_active_host() -> str:
-    if _proxmox_active_host:
-        return _proxmox_active_host
+    if _state.active_host:
+        return _state.active_host
     return get_proxmox_settings().host
 
 

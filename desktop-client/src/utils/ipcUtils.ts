@@ -51,7 +51,7 @@ export const onListener = (
 ) => {
   // return new Promise((resolve, reject) => {
   ipcRenderer.on(`${listener.channel}`, (event, args: ApiResponse<any>) => {
-    const { bizCode, data, message } = args;
+    const { bizCode, data } = args;
     if (bizCode === "A1000") {
       listerHandler(data);
     }

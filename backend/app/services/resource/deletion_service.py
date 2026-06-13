@@ -300,6 +300,7 @@ def _execute_deletion(session: Session, req: DeletionRequest) -> None:
         try:
             session.rollback()
         except Exception:
+            # rollback 失敗不影響錯誤回報
             pass
         # Surface the error to the caller's retry loop. We deliberately do
         # NOT mark the row as ``failed`` here so the row stays ``running``

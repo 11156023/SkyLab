@@ -23,12 +23,6 @@ const TYPE_MAP = {
 };
 
 /* ── Helpers ── */
-function formatBytes(bytes) {
-  if (!bytes) return null;
-  const gb = bytes / (1024 ** 3);
-  return gb >= 1 ? `${gb % 1 === 0 ? gb : gb.toFixed(1)} GB` : `${Math.round(bytes / (1024 ** 2))} MB`;
-}
-
 function formatDate(isoStr) {
   if (!isoStr) return null;
   return new Date(isoStr).toLocaleDateString("zh-TW", {

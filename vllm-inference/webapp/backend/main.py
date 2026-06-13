@@ -595,6 +595,7 @@ async def chat_video_stream(
                 try:
                     os.remove(tmp_path)
                 except OSError:
+                    # 暫存檔可能已被移除
                     pass
 
     return StreamingResponse(

@@ -5,9 +5,6 @@ Revises: r7s8t9u0v1w2, dr01_sync_constraints
 Create Date: 2026-04-29 00:38:49.161684
 
 """
-from alembic import op
-import sqlalchemy as sa
-import sqlmodel.sql.sqltypes
 
 
 # revision identifiers, used by Alembic.

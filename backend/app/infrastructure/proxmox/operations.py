@@ -379,6 +379,7 @@ def get_ip_address(node: str, vmid: int, resource_type: ResourceType) -> str | N
                                 if _is_usable_ipv4(ip):
                                     return ip
             except Exception:
+                # 單一查詢來源失敗時繼續嘗試下一個
                 pass
     except Exception as e:
         logger.debug(f"Failed to get IP for VMID {vmid}: {e}")

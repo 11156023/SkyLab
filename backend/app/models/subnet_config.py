@@ -3,7 +3,6 @@
 from datetime import datetime
 
 import sqlalchemy as sa
-from sqlalchemy import DateTime
 from sqlmodel import Field, SQLModel
 
 from .base import get_datetime_utc
@@ -27,7 +26,7 @@ class SubnetConfig(SQLModel, table=True):
     extra_blocked_subnets: str | None = Field(default=None, sa_type=sa.Text())
     updated_at: datetime = Field(
         default_factory=get_datetime_utc,
-        sa_type=DateTime(timezone=True),
+        sa_type=sa.DateTime(timezone=True),
     )
 
 

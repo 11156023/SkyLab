@@ -136,7 +136,6 @@ class VLLMEngine:
                     except Exception as e:
                         last_error = f"models 端點檢查失敗: {e}"
                         # health 正常但 models 失敗，繼續等待
-                        pass
                 
                 consecutive_failures = 0
                 
@@ -199,6 +198,7 @@ class VLLMEngine:
             try:
                 self._http_client.close()
             except Exception:
+                # 連線池關閉失敗可忽略
                 pass
             self._http_client = None
         
@@ -211,6 +211,7 @@ class VLLMEngine:
                 try:
                     os.killpg(os.getpgid(pid), signal.SIGTERM)
                 except ProcessLookupError:
+                    # 進程已不存在
                     pass
             else:
                 self._process.send_signal(signal.SIGTERM)
@@ -246,6 +247,7 @@ class VLLMEngine:
             try:
                 self._log_handle.close()
             except Exception:
+                # 日誌檔關閉失敗可忽略
                 pass
             self._log_handle = None
 

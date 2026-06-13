@@ -79,8 +79,7 @@ gateway_http_client = httpx.AsyncClient(
 gateway_semaphore = asyncio.Semaphore(gateway_max_inflight)
 
 # 模型列表快取（60秒有效期）
-_models_cache: dict | None = None
-_models_cache_time: float = 0
+_models_cache: dict = {"data": None, "time": 0.0}
 _MODELS_CACHE_TTL = 60.0  # 秒
 
 # ============================================================
@@ -421,13 +420,12 @@ async def ready() -> JSONResponse:
 @app.get("/v1/models")
 async def openai_list_models() -> dict:
     """OpenAI Compatible: 列出可用模型 alias（帶快取）。"""
-    global _models_cache, _models_cache_time
-    
     current_time = time.time()
-    
+
     # 檢查快取是否有效
-    if _models_cache is not None and (current_time - _models_cache_time) < _MODELS_CACHE_TTL:
-        return _models_cache
+    cached = _models_cache["data"]
+    if cached is not None and (current_time - _models_cache["time"]) < _MODELS_CACHE_TTL:
+        return cached
     
     # 重新建立模型列表
     data = [
@@ -441,8 +439,8 @@ async def openai_list_models() -> dict:
     result = {"object": "list", "data": data}
     
     # 更新快取
-    _models_cache = result
-    _models_cache_time = current_time
+    _models_cache["data"] = result
+    _models_cache["time"] = current_time
     
     return result
 

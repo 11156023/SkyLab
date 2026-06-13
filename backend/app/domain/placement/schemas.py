@@ -52,6 +52,7 @@ class PlacementRequest(BaseModel):
             try:
                 data["memory_mb"] = int(float(memory_gb) * 1024)
             except (TypeError, ValueError):
+                # 無法換算時保留原始輸入，交由後續欄位驗證處理
                 pass
         return data
 

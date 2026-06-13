@@ -121,7 +121,6 @@ def validate_request_window(
     current_user,
     request_in,
 ) -> None:
-    role = cast(UserRole, getattr(current_user, "role", UserRole.student))
     start_at = _normalize_datetime(getattr(request_in, "start_at", None))
     end_at = _normalize_datetime(getattr(request_in, "end_at", None))
     if not start_at or not end_at:

@@ -6,25 +6,26 @@
 
 from __future__ import annotations
 
+import logging
 import io
 from pathlib import Path
 from typing import Union, BinaryIO
+
+logger = logging.getLogger(__name__)
 
 try:
     from docx import Document
     DOCX_AVAILABLE = True
 except ImportError:
     DOCX_AVAILABLE = False
-    print("[Warning] python-docx 未安裝，.docx 支援將不可用")
-    print("[Info] 安裝: pip install python-docx")
+    logger.warning("python-docx 未安裝，.docx 支援將不可用（安裝: pip install python-docx）")
 
 try:
     from pypdf import PdfReader
     PDF_AVAILABLE = True
 except ImportError:
     PDF_AVAILABLE = False
-    print("[Warning] pypdf 未安裝，.pdf 支援將不可用")
-    print("[Info] 安裝: pip install pypdf")
+    logger.warning("pypdf 未安裝，.pdf 支援將不可用（安裝: pip install pypdf）")
 
 
 class DocumentProcessor:

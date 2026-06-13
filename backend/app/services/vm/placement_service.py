@@ -43,7 +43,6 @@ from app.services.scheduling import support as scheduling_support
 from app.services.vm import placement_support
 
 GIB = 1024**3
-_STORAGE_SPEED_RANK = {"nvme": 0, "ssd": 1, "hdd": 2, "unknown": 3}
 DEFAULT_PLACEMENT_STRATEGY = placement_policy.DEFAULT_PLACEMENT_STRATEGY
 _MigrationPolicy = scheduling_policy.MigrationPolicy
 
@@ -58,11 +57,6 @@ class CurrentPlacementSelection:
 _projected_share = placement_scorer.projected_share
 _storage_contention_penalty = placement_scorer.storage_contention_penalty
 _node_balance_score = placement_scorer.node_balance_score
-_peak_penalty = placement_scorer.peak_penalty
-_cpu_contention_penalty = placement_scorer.cpu_contention_penalty
-_loadavg_penalty = placement_scorer.loadavg_penalty
-_reference_loadavg_per_core = placement_scorer.reference_loadavg_per_core
-_linear_penalty = placement_scorer.linear_penalty
 
 
 def _utc_now() -> datetime:
@@ -980,12 +974,6 @@ def _try_relief_relocation(
     """
     if tuning.search_max_relocations <= 0:
         return None
-
-    stuck_placement = _to_placement_request(stuck_request)
-    effective_type, _ = placement_advisor._decide_resource_type(stuck_placement)
-    required_cpu = placement_advisor._effective_cpu_cores(stuck_placement, effective_type)
-    required_memory = placement_advisor._effective_memory_bytes(stuck_placement, effective_type)
-    required_disk = stuck_placement.disk_gb * GIB
 
     node_names = [n.node for n in working_nodes]
     evaluations = 0

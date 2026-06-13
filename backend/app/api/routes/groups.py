@@ -40,8 +40,17 @@ router = APIRouter(prefix="/groups", tags=["groups"])
 
 _GROUP_RESOURCES_CACHE_TTL_SECONDS = 8.0
 _group_resources_cache_lock = threading.Lock()
-_group_resources_cache_data: list[dict] | None = None
-_group_resources_cache_monotonic = 0.0
+
+
+class _GroupResourcesCache:
+    """群組 VM 查詢用的短 TTL Proxmox 資源快取。"""
+
+    def __init__(self) -> None:
+        self.data: list[dict] | None = None
+        self.monotonic = 0.0
+
+
+_group_resources_cache = _GroupResourcesCache()
 
 
 def _check_group_access(current_user, db_group) -> None:
@@ -66,23 +75,21 @@ def _safe_usage_pct(used: object, total: object) -> float | None:
 
 def _get_cached_group_resources() -> list[dict]:
     """回傳群組 VM 查詢所需的 Proxmox 資源列表（短 TTL 快取）。"""
-    global _group_resources_cache_data, _group_resources_cache_monotonic
-
     now = time.monotonic()
     with _group_resources_cache_lock:
         if (
-            _group_resources_cache_data is not None
-            and now - _group_resources_cache_monotonic
+            _group_resources_cache.data is not None
+            and now - _group_resources_cache.monotonic
             < _GROUP_RESOURCES_CACHE_TTL_SECONDS
         ):
-            return list(_group_resources_cache_data)
+            return list(_group_resources_cache.data)
 
     resources = proxmox_ops.list_all_resources()
 
     with _group_resources_cache_lock:
-        _group_resources_cache_data = list(resources)
-        _group_resources_cache_monotonic = time.monotonic()
-        return list(_group_resources_cache_data)
+        _group_resources_cache.data = list(resources)
+        _group_resources_cache.monotonic = time.monotonic()
+        return list(_group_resources_cache.data)
 
 
 @router.post("/", response_model=GroupPublic)

@@ -2,6 +2,7 @@
 API 呼叫範例入口
 """
 
+import asyncio
 import sys
 from pathlib import Path
 
@@ -47,8 +48,6 @@ def demo_sync():
 
 async def demo_async():
     """異步呼叫範例"""
-    import asyncio
-
     client = ModelClient()
 
     print("=" * 60)
@@ -89,8 +88,6 @@ async def demo_async():
 
 
 if __name__ == "__main__":
-    import asyncio
-
     mode = sys.argv[1] if len(sys.argv) > 1 else "sync"
 
     if mode == "async":

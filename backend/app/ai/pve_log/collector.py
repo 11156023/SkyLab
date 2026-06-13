@@ -23,36 +23,41 @@ from app.ai.utils import safe_bool, safe_float, safe_int
 
 logger = logging.getLogger(__name__)
 
-_proxmox_client: ProxmoxAPI | None = None
-_proxmox_created_at: float = 0.0
+class _ProxmoxClientState:
+    """共享的 PVE 連線快取狀態。"""
+
+    def __init__(self) -> None:
+        self.client: ProxmoxAPI | None = None
+        self.created_at = 0.0
+
+
+_state = _ProxmoxClientState()
 _proxmox_lock = threading.Lock()
 _TICKET_TTL = 7000
 
 
 def _get_proxmox() -> ProxmoxAPI:
-    global _proxmox_client, _proxmox_created_at
-
     if not settings.proxmox_user or not settings.proxmox_password:
         raise RuntimeError("請在 .env 設定 PROXMOX_USER 與 PROXMOX_PASSWORD")
 
     now = time.monotonic()
-    if _proxmox_client is not None and (now - _proxmox_created_at) < _TICKET_TTL:
-        return _proxmox_client
+    if _state.client is not None and (now - _state.created_at) < _TICKET_TTL:
+        return _state.client
 
     with _proxmox_lock:
-        if _proxmox_client is not None and (now - _proxmox_created_at) < _TICKET_TTL:
-            return _proxmox_client
+        if _state.client is not None and (now - _state.created_at) < _TICKET_TTL:
+            return _state.client
 
         logger.info("建立 PVE API 連線 -> %s", settings.proxmox_host)
-        _proxmox_client = ProxmoxAPI(
+        _state.client = ProxmoxAPI(
             settings.proxmox_host,
             user=settings.proxmox_user,
             password=settings.proxmox_password,
             verify_ssl=settings.proxmox_verify_ssl,
             timeout=settings.proxmox_api_timeout,
         )
-        _proxmox_created_at = now
-        return _proxmox_client
+        _state.created_at = now
+        return _state.client
 
 
 
@@ -243,6 +248,7 @@ def _collect_resource_config(proxmox: ProxmoxAPI, node: str, vmid: int, resource
                 try:
                     disk_size_gb = int(size_part[:-1])
                 except ValueError:
+                    # size 解析失敗時保留 disk_size_gb=None
                     pass
 
         name_key = "name" if resource_type == "qemu" else "hostname"

@@ -72,6 +72,7 @@ async def jobs_ws_proxy(websocket: WebSocket, token: str) -> None:
                 if message.get("type") == "websocket.disconnect":
                     raise WebSocketDisconnect(message.get("code") or 1000)
             except asyncio.TimeoutError:
+                # 逾時代表沒有新訊息，回到迴圈推送快照
                 pass
     except WebSocketDisconnect:
         logger.debug("Jobs WS disconnected: user=%s", user_email)
@@ -80,11 +81,13 @@ async def jobs_ws_proxy(websocket: WebSocket, token: str) -> None:
         try:
             await websocket.close(code=1011)
         except Exception:
+            # 連線可能已關閉，關閉失敗可忽略
             pass
     finally:
         try:
             session.close()
         except Exception:
+            # session 清理失敗可忽略
             pass
 
 

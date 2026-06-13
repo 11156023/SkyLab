@@ -24,10 +24,6 @@ class SkyLabService {
     const url = backendUrl.replace(/\/$/, "") + pathname;
     return new Promise((resolve, reject) => {
       const req = net.request({ method, url });
-      if (options.auth) {
-        const token = ""; // resolved below
-        // token resolution done after promise setup to keep code simple
-      }
       if (options.body !== undefined) {
         req.setHeader("Content-Type", "application/json");
       }

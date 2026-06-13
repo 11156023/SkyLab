@@ -198,7 +198,7 @@ export default function AvailabilityPanel({ draft, onChange, onHintChange }) {
     let hint = null;
     if (!startDate) hint = "點選日期即可選取單日，或繼續點選其他日期延伸範圍";
     else if (picking === PICK_EXTEND && startDate === endDate) hint = `已選單日 ${startDate}，審核通過後會依日期啟用`;
-    else if (picking === PICK_IDLE && startDate && endDate)
+    else if (picking === PICK_IDLE && endDate)
       hint = "日期已選定，點選日期即可重新選擇";
     onHintChangeRef.current?.(hint);
   }, [startDate, endDate, picking]);

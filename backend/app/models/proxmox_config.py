@@ -4,7 +4,6 @@ from dataclasses import dataclass
 from datetime import datetime
 
 import sqlalchemy as sa
-from sqlalchemy import DateTime
 from sqlmodel import Field, SQLModel
 
 from .base import get_datetime_utc
@@ -136,7 +135,7 @@ class ProxmoxConfig(SQLModel, table=True):
     expiry_warning_hours: int = Field(default=24, ge=1, le=720)
     updated_at: datetime = Field(
         default_factory=get_datetime_utc,
-        sa_type=DateTime(timezone=True),
+        sa_type=sa.DateTime(timezone=True),
     )
 
     @property

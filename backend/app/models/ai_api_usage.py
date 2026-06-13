@@ -3,7 +3,6 @@ from datetime import datetime
 from typing import TYPE_CHECKING
 
 import sqlalchemy as sa
-from sqlalchemy import DateTime
 from sqlmodel import Field, Relationship, SQLModel
 
 from .base import get_datetime_utc
@@ -35,7 +34,7 @@ class AIAPIUsage(SQLModel, table=True):
     error_message: str | None = Field(default=None)
     created_at: datetime = Field(
         default_factory=get_datetime_utc,
-        sa_type=DateTime(timezone=True),
+        sa_type=sa.DateTime(timezone=True),
         index=True,
     )
 

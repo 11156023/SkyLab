@@ -90,9 +90,6 @@ class Logger:
             print(f"{'='*width}\n")
 
 
-# 全局默認 logger
-_default_logger = Logger()
-
 
 def get_logger(name: str = "vLLM") -> Logger:
     """獲取日誌記錄器"""

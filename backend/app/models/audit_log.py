@@ -6,7 +6,6 @@ from datetime import datetime
 from typing import TYPE_CHECKING, Optional
 
 import sqlalchemy as sa
-from sqlalchemy import ForeignKey
 from sqlmodel import Column, DateTime, Enum, Field, Relationship, SQLModel
 
 if TYPE_CHECKING:
@@ -133,7 +132,7 @@ class AuditLog(SQLModel, table=True):
     user_id: uuid.UUID | None = Field(
         default=None,
         sa_column=Column(
-            ForeignKey("user.id", ondelete="SET NULL"),
+            sa.ForeignKey("user.id", ondelete="SET NULL"),
             nullable=True,
         ),
         description="操作者ID",

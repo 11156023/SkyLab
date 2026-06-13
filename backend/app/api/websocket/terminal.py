@@ -131,6 +131,7 @@ async def terminal_proxy(websocket: WebSocket, vmid: int, token: str):
                     except Exception:
                         break
             except websockets.exceptions.ConnectionClosed:
+                # PVE 端正常關閉連線
                 pass
             except Exception as e:
                 logger.error(f"Error forwarding from Proxmox: {e}")
@@ -150,6 +151,7 @@ async def terminal_proxy(websocket: WebSocket, vmid: int, token: str):
                     elif "text" in data:
                         await pve_websocket.send(data["text"])
             except WebSocketDisconnect:
+                # 客戶端斷線屬正常結束
                 pass
             except Exception as e:
                 logger.error(f"Error forwarding to Proxmox: {e}")
@@ -167,6 +169,7 @@ async def terminal_proxy(websocket: WebSocket, vmid: int, token: str):
             try:
                 await task
             except asyncio.CancelledError:
+                # 任務取消屬預期行為
                 pass
 
     except Exception as e:

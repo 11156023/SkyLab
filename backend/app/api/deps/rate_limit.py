@@ -8,15 +8,12 @@ behaviour of `check_rate_limit_sliding_window`.
 
 from __future__ import annotations
 
-import logging
 from collections.abc import Callable
 
 from fastapi import Depends, HTTPException, Request, status
 
 from app.infrastructure.redis import check_rate_limit_by_key, get_redis
 from app.models import User
-
-logger = logging.getLogger(__name__)
 
 
 def _client_ip(request: Request) -> str:
