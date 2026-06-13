@@ -68,6 +68,13 @@ services:
     networks:
       - skylab
 
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
   # -------------------------
   # Redis
   # -------------------------
@@ -81,6 +88,12 @@ services:
       - app-redis-data:/data
     networks:
       - skylab
+
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
 
   # -------------------------
   # Mailcatcher
