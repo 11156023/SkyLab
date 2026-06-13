@@ -47,7 +47,9 @@ services:
     depends_on:
       backend:
         condition: service_healthy
-      frontend:
+      frontend_old:
+        condition: service_started
+      frontend_new:
         condition: service_started
 
   # -------------------------
