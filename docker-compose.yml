@@ -164,7 +164,7 @@ services:
   # -------------------------
   # Frontend
   # -------------------------
-  frontend:
+  frontend_old:
     image: '${DOCKER_IMAGE_FRONTEND}:${TAG-latest}'
     build:
       context: .
