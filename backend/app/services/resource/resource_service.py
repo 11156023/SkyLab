@@ -417,6 +417,81 @@ def control(
         raise ProxmoxError(f"Failed to {action} resource {vmid}: {e}")
 
 
+def _wait_until_stopped(
+    node: str,
+    vmid: int,
+    resource_type: str,
+    *,
+    timeout_seconds: int,
+    poll_interval: float = 2.0,
+) -> bool:
+    """Poll resource status until it reports ``stopped`` or the timeout elapses.
+
+    Transient status-query errors are tolerated (keep polling); they must NOT
+    be treated as "stopped", otherwise we would attempt to delete a VM that is
+    still running.
+    """
+    deadline = time.monotonic() + timeout_seconds
+    while time.monotonic() < deadline:
+        try:
+            status = proxmox_service.get_status(node, vmid, resource_type)
+            if status.get("status") == "stopped":
+                return True
+        except Exception as exc:
+            logger.warning(
+                "Status poll failed for resource %s while waiting for stop: %s",
+                vmid, exc,
+            )
+        time.sleep(poll_interval)
+    return False
+
+
+def _ensure_stopped_before_delete(
+    node: str,
+    vmid: int,
+    resource_type: str,
+    *,
+    force: bool,
+    shutdown_timeout: int = 60,
+    stop_timeout: int = 30,
+) -> None:
+    """Shut down a running resource before deletion.
+
+    Graceful ``shutdown`` first; if it doesn't stop within ``shutdown_timeout``
+    (e.g. no guest agent / hung OS) fall back to a hard ``stop``. With
+    ``force=True`` the graceful phase is skipped. Raises ``ProxmoxError`` if
+    the resource is still running afterwards — deletion must never proceed on
+    a running resource.
+    """
+    if not force:
+        try:
+            proxmox_service.control(node, vmid, resource_type, "shutdown")
+            if _wait_until_stopped(
+                node, vmid, resource_type, timeout_seconds=shutdown_timeout
+            ):
+                return
+            logger.warning(
+                "Resource %s did not stop within %ss after graceful shutdown; "
+                "falling back to hard stop",
+                vmid, shutdown_timeout,
+            )
+        except Exception as exc:
+            logger.warning(
+                "Graceful shutdown of resource %s failed (%s); "
+                "falling back to hard stop",
+                vmid, exc,
+            )
+
+    proxmox_service.control(node, vmid, resource_type, "stop")
+    if not _wait_until_stopped(
+        node, vmid, resource_type, timeout_seconds=stop_timeout
+    ):
+        raise ProxmoxError(
+            f"Resource {vmid} is still running after shutdown/stop; "
+            "aborting deletion"
+        )
+
+
 def delete(
     *,
     session: Session,
@@ -430,24 +505,23 @@ def delete(
         node = resource_info["node"]
         resource_type = resource_info["type"]
 
-        # Force stop if running
-        current_status = resource_info.get("status", "")
-        if current_status == "running":
-            if not force:
-                raise BadRequestError(
-                    f"Resource {vmid} is running. Use force=true to stop and delete."
-                )
-            proxmox_service.control(node, vmid, resource_type, "stop")
+        # Re-check live status: deletion runs from a queue, so the snapshot in
+        # resource_info may be stale by the time we execute.
+        try:
+            current_status = proxmox_service.get_status(
+                node, vmid, resource_type
+            ).get("status", "")
+        except Exception as exc:
+            logger.warning(
+                "Failed to fetch live status for resource %s before delete: %s",
+                vmid, exc,
+            )
+            current_status = resource_info.get("status", "")
 
-            # Wait for stop
-            for _ in range(30):
-                time.sleep(1)
-                try:
-                    status = proxmox_service.get_status(node, vmid, resource_type)
-                    if status.get("status") == "stopped":
-                        break
-                except Exception:
-                    break
+        if current_status == "running":
+            _ensure_stopped_before_delete(
+                node, vmid, resource_type, force=force
+            )
 
         # Delete the resource
         delete_params = {}

@@ -80,11 +80,16 @@ def _to_request_public(req: AIAPIRequest) -> AIAPIRequestPublic:
 
 
 def _to_credential_public(credential: AIAPICredential) -> AIAPICredentialPublic:
+    try:
+        api_key = decrypt_value(credential.api_key_encrypted)
+    except Exception:
+        api_key = "<無效的或已損壞的金鑰>"
+
     return AIAPICredentialPublic(
         id=credential.id,
         request_id=credential.request_id,
         base_url=credential.base_url,
-        api_key=decrypt_value(credential.api_key_encrypted),
+        api_key=api_key,
         api_key_prefix=credential.api_key_prefix,
         api_key_name=credential.api_key_name,
         rate_limit=credential.rate_limit,

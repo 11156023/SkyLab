@@ -1,4 +1,4 @@
-﻿import threading
+import threading
 import uuid
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
@@ -6,8 +6,8 @@ from types import SimpleNamespace
 import pytest
 from sqlmodel import Session, SQLModel, create_engine, select
 
-from app.ai.pve_advisor.schemas import NodeCapacity, PlacementRequest
 from app.core.security import encrypt_value
+from app.domain.placement.schemas import NodeCapacity, PlacementRequest
 from app.exceptions import BadRequestError, ProvisioningError, ProxmoxError
 from app.infrastructure.proxmox import operations as proxmox_service
 from app.models import (
@@ -162,6 +162,95 @@ def test_vm_request_create_preserves_environment_type(
     assert saved.storage == "fast-ssd"
 
 
+def test_admin_scheduled_request_stays_pending(
+    db: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    admin = _create_user(db, role=UserRole.admin)
+    now = datetime.now(timezone.utc)
+    monkeypatch.setattr(
+        "app.services.vm.vm_request_service.vm_request_availability_service.validate_request_window",
+        lambda **kwargs: None,
+    )
+    monkeypatch.setattr(
+        "app.services.vm.vm_request_service._approve_and_place",
+        lambda **kwargs: (_ for _ in ()).throw(AssertionError("should not auto approve")),
+    )
+
+    request_in = VMRequestCreate(
+        reason="Need a scheduled VM for a reviewed admin request",
+        resource_type="vm",
+        hostname="admin-scheduled-review",
+        cores=2,
+        memory=2048,
+        password="strongpass123",
+        storage="fast-ssd",
+        template_id=9000,
+        disk_size=32,
+        username="admin",
+        mode="scheduled",
+        start_at=now + timedelta(hours=1),
+        end_at=now + timedelta(hours=3),
+    )
+
+    result = vm_request_service.create(session=db, request_in=request_in, user=admin)
+
+    db.expire_all()
+    saved = db.exec(select(VMRequest).where(VMRequest.id == result.id)).first()
+    assert saved is not None
+    assert saved.status == VMRequestStatus.pending
+    assert saved.reviewer_id is None
+    assert saved.assigned_node is None
+
+
+def test_admin_immediate_request_is_auto_approved(
+    db: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    admin = _create_user(db, role=UserRole.admin)
+    calls: list[uuid.UUID] = []
+
+    def fake_approve_and_place(*, session: Session, db_request: VMRequest, reviewer_id: uuid.UUID):
+        db_request.status = VMRequestStatus.approved
+        db_request.reviewer_id = reviewer_id
+        db_request.assigned_node = "pve-a"
+        db_request.desired_node = "pve-a"
+        session.add(db_request)
+        session.flush()
+        return None
+
+    monkeypatch.setattr(
+        "app.services.vm.vm_request_service._approve_and_place",
+        fake_approve_and_place,
+    )
+    monkeypatch.setattr(
+        "app.services.vm.vm_request_service.submit_sync",
+        lambda _fn, request_id, **_kwargs: calls.append(request_id),
+    )
+
+    request_in = VMRequestCreate(
+        reason="Need an immediate VM for admin maintenance",
+        resource_type="vm",
+        hostname="admin-immediate",
+        cores=2,
+        memory=2048,
+        password="strongpass123",
+        storage="fast-ssd",
+        template_id=9000,
+        disk_size=32,
+        username="admin",
+        mode="immediate",
+    )
+
+    result = vm_request_service.create(session=db, request_in=request_in, user=admin)
+
+    db.expire_all()
+    saved = db.exec(select(VMRequest).where(VMRequest.id == result.id)).first()
+    assert saved is not None
+    assert saved.status == VMRequestStatus.approved
+    assert saved.reviewer_id == admin.id
+    assert saved.start_at is not None
+    assert calls == [saved.id]
+
+
 def test_vm_request_create_rejects_unavailable_window(
     db: Session, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -248,6 +337,59 @@ def test_student_quick_template_is_limited_and_auto_approved(
     assert saved.end_at is not None
     assert saved.end_at - saved.start_at == timedelta(hours=3)
     assert calls == [saved.id]
+
+
+def test_student_quick_template_allows_n8n(
+    db: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    user = _create_user(db, role=UserRole.student)
+
+    monkeypatch.setattr(
+        "app.services.vm.vm_request_service.vm_request_availability_service.validate_request_window",
+        lambda **kwargs: None,
+    )
+
+    def fake_approve_and_place(*, session: Session, db_request: VMRequest, reviewer_id: uuid.UUID):
+        db_request.status = VMRequestStatus.approved
+        db_request.reviewer_id = reviewer_id
+        db_request.assigned_node = "pve-a"
+        db_request.desired_node = "pve-a"
+        session.add(db_request)
+        session.flush()
+        return None
+
+    monkeypatch.setattr(
+        "app.services.vm.vm_request_service._approve_and_place",
+        fake_approve_and_place,
+    )
+    monkeypatch.setattr(
+        "app.services.vm.vm_request_service.submit_sync",
+        lambda *_args, **_kwargs: None,
+    )
+
+    request_in = VMRequestCreate(
+        reason="Need a short n8n automation lab",
+        resource_type="lxc",
+        hostname="quick-n8n",
+        cores=2,
+        memory=2048,
+        password="strongpass123",
+        ostemplate="local:vztmpl/debian-13.tar.zst",
+        rootfs_size=10,
+        service_template_slug="n8n",
+        service_template_script_path="ct/n8n.sh",
+        mode="quick_template",
+    )
+
+    result = vm_request_service.create(session=db, request_in=request_in, user=user)
+
+    db.expire_all()
+    saved = db.exec(select(VMRequest).where(VMRequest.id == result.id)).first()
+    assert saved is not None
+    assert saved.status == VMRequestStatus.approved
+    assert saved.service_template_slug == "n8n"
+    assert saved.service_template_script_path == "ct/n8n.sh"
+    assert result.service_template_slug == "n8n"
 
 
 def test_student_quick_template_rejects_unlisted_template(db: Session) -> None:
@@ -755,15 +897,15 @@ def test_select_request_placement_falls_back_when_reserved_node_is_unavailable(
     placement_request = SimpleNamespace()
 
     monkeypatch.setattr(
-        "app.services.proxmox.provisioning_service.advisor_service._load_cluster_state",
+        "app.services.proxmox.provisioning_service.placement_advisor._load_cluster_state",
         lambda: ([], []),
     )
     monkeypatch.setattr(
-        "app.services.proxmox.provisioning_service.advisor_service._build_node_capacities",
+        "app.services.proxmox.provisioning_service.placement_advisor._build_node_capacities",
         lambda **kwargs: [SimpleNamespace(node="pve-a")],
     )
     monkeypatch.setattr(
-        "app.services.proxmox.provisioning_service.advisor_service._decide_resource_type",
+        "app.services.proxmox.provisioning_service.placement_advisor._decide_resource_type",
         lambda request: ("lxc", "Prefer LXC for this request."),
     )
     monkeypatch.setattr(
@@ -871,11 +1013,11 @@ def test_reserved_target_node_prefers_admin_storage_profile(
     )
 
     monkeypatch.setattr(
-        "app.services.vm.placement_service.advisor_service._load_cluster_state",
+        "app.services.vm.placement_service.placement_advisor._load_cluster_state",
         lambda: ([], []),
     )
     monkeypatch.setattr(
-        "app.services.vm.placement_service.advisor_service._build_node_capacities",
+        "app.services.vm.placement_service.placement_advisor._build_node_capacities",
         lambda **kwargs: [
             NodeCapacity(
                 node="pve-a",
@@ -2874,7 +3016,7 @@ def test_sync_request_migration_job_uses_specific_clear_reason(
 def test_vm_templates_are_filtered_by_pool(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
         "app.infrastructure.proxmox.operations.get_proxmox_settings",
-        lambda: type("Cfg", (), {"pool_name": "SkyLab"})(),
+        type("Cfg", (), {"pool_name": "SkyLab"}),
     )
     monkeypatch.setattr(
         "app.infrastructure.proxmox.operations._raw_vms",
@@ -3015,11 +3157,11 @@ def test_reserved_target_node_preview_matches_active_rebalance_objective(
     db.commit()
 
     monkeypatch.setattr(
-        "app.services.vm.placement_service.advisor_service._load_cluster_state",
+        "app.services.vm.placement_service.placement_advisor._load_cluster_state",
         lambda: ([], []),
     )
     monkeypatch.setattr(
-        "app.services.vm.placement_service.advisor_service._build_node_capacities",
+        "app.services.vm.placement_service.placement_advisor._build_node_capacities",
         lambda **kwargs: [
             NodeCapacity(
                 node="pve-a",
@@ -3143,11 +3285,11 @@ def test_quick_template_reserved_target_skips_cohort_rebalance_preview(
     )
 
     monkeypatch.setattr(
-        "app.services.vm.placement_service.advisor_service._load_cluster_state",
+        "app.services.vm.placement_service.placement_advisor._load_cluster_state",
         lambda: ([], []),
     )
     monkeypatch.setattr(
-        "app.services.vm.placement_service.advisor_service._build_node_capacities",
+        "app.services.vm.placement_service.placement_advisor._build_node_capacities",
         lambda **kwargs: [
             NodeCapacity(
                 node="pve-a",

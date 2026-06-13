@@ -54,7 +54,6 @@ def _make_client(host: str, ssh_port: int, ssh_user: str, private_key_pem: str):
         ssh_user,
         private_key_pem,
         timeout=10,
-        host_key_policy="auto_add",
     )
 
 
@@ -194,10 +193,10 @@ def test_connection(
     ssh_user: str,
     private_key_pem: str,
 ) -> tuple[bool, str]:
+    client = None
     try:
         client = _make_client(host, ssh_port, ssh_user, private_key_pem)
         _, out, _ = _exec(client, "echo ok")
-        client.close()
         if out.strip() == "ok":
             return True, "連線成功"
         return False, f"指令回應異常：{out}"
@@ -205,6 +204,9 @@ def test_connection(
         return False, "SSH 認證失敗，請確認公鑰已加入 Gateway VM 的 authorized_keys"
     except Exception as exc:
         return False, f"連線失敗：{exc}"
+    finally:
+        if client is not None:
+            client.close()
 
 
 def read_service_config(session: object, service: str) -> str:
@@ -333,6 +335,7 @@ def control_service(session: object, service: str, action: str) -> tuple[bool, s
     if service not in SERVICE_CONFIG_PATHS:
         raise BadRequestError(f"未知服務：{service}")
 
+    client = None
     try:
         client = _make_client(config.host, config.ssh_port, config.ssh_user, private_key_pem)
         if action == "restart":
@@ -341,17 +344,18 @@ def control_service(session: object, service: str, action: str) -> tuple[bool, s
                           f"systemctl kill -s SIGKILL {service} 2>/dev/null; "
                           f"systemctl start {service} 2>&1")
             code, out, err = _exec(client, f"systemctl is-active {service} 2>&1")
-            client.close()
             if out.strip() == "active":
                 return True, f"{service} restart 完成"
             return False, f"{service} restart 後狀態: {out.strip()}"
         else:
             code, out, err = _exec(client, f"systemctl {action} {service} 2>&1")
-            client.close()
             output = (out + err).strip()
             return code == 0, output or f"{service} {action} 完成"
     except Exception as exc:
         return False, str(exc)
+    finally:
+        if client is not None:
+            client.close()
 
 
 def get_service_logs(session: object, service: str, lines: int = 50) -> tuple[bool, str]:
@@ -366,13 +370,14 @@ def get_service_logs(session: object, service: str, lines: int = 50) -> tuple[bo
     if service not in SERVICE_CONFIG_PATHS:
         raise BadRequestError(f"未知服務：{service}")
 
+    client = None
     try:
         client = _make_client(config.host, config.ssh_port, config.ssh_user, private_key_pem)
         _, out, err = _exec(client, f"journalctl -u {service} --no-pager -n {lines} 2>&1")
-        client.close()
         return True, (out + err).strip()
-    except Exception as exc:
-        return False, str(exc)
+    finally:
+        if client is not None:
+            client.close()
 
 
 def get_service_status(session: object, service: str) -> tuple[bool, str]:
@@ -386,6 +391,7 @@ def get_service_status(session: object, service: str) -> tuple[bool, str]:
     if service not in SERVICE_CONFIG_PATHS:
         raise BadRequestError(f"未知服務：{service}")
 
+    client = None
     try:
         client = _make_client(config.host, config.ssh_port, config.ssh_user, private_key_pem)
         code, _, _ = _exec(client, f"systemctl is-active {service}")
@@ -394,10 +400,12 @@ def get_service_status(session: object, service: str) -> tuple[bool, str]:
             f"systemctl show {service} --no-page "
             f"-p ActiveState,SubState,MainPID 2>&1 | head -5",
         )
-        client.close()
         return code == 0, status_out.strip()
     except Exception as exc:
         return False, str(exc)
+    finally:
+        if client is not None:
+            client.close()
 
 
 def _normalize_version(value: str | None) -> str | None:

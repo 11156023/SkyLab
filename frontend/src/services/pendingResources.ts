@@ -15,7 +15,6 @@ import { connectJobsWebSocket } from "@/services/jobs"
 export const CREATING_STATUSES: ReadonlySet<VMRequestStatus> = new Set([
   "pending",
   "approved",
-  "provisioning",
 ])
 
 /** 用於資源列表 row 的 placeholder 標記資料。 */
@@ -64,7 +63,7 @@ export function pendingToFakeRow(
   return {
     vmid: -(idx + 1), // 負數 placeholder vmid
     name: req.hostname,
-    status: "creating",
+    status: "provisioning",
     node: req.assigned_node ?? req.desired_node ?? "—",
     type: req.resource_type === "lxc" ? "lxc" : "qemu",
     environment_type: req.environment_type ?? null,
@@ -89,7 +88,7 @@ interface UsePendingResourcesOpts {
 
 /**
  * Fetch 目前 user（一般使用者）或全部（admin）尚未 provisioned 完成的 VM Request，
- * 過濾出 pending / approved / provisioning 三種狀態。
+ * 過濾出 pending / approved 兩種尚未完成供應的申請狀態。
  */
 export function usePendingResources({
   isAdmin,

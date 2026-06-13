@@ -116,12 +116,13 @@ async def google_login(*, session: Session, id_token: str) -> Token:
     return _create_token_pair(user)
 
 
-def refresh_access_token(*, session: Session, refresh_token: str) -> Token:
+async def refresh_access_token(*, session: Session, refresh_token: str) -> Token:
     """Validate a refresh token and return a new access + refresh token pair."""
     import jwt
     from jwt.exceptions import InvalidTokenError
     from pydantic import ValidationError
 
+    from app.infrastructure.redis import get_redis, is_jti_revoked
     from app.models import User
     from app.schemas import TokenPayload
 
@@ -137,6 +138,13 @@ def refresh_access_token(*, session: Session, refresh_token: str) -> Token:
 
     if token_data.type != "refresh":
         raise AuthenticationError("Invalid token type")
+
+    # Logout revokes the refresh token's jti — honour that here, otherwise a
+    # logged-out refresh token could still mint new token pairs.
+    if token_data.jti:
+        redis = await get_redis()
+        if await is_jti_revoked(redis, token_data.jti):
+            raise AuthenticationError("Token has been revoked")
 
     user = session.get(User, token_data.sub)
     if not user:

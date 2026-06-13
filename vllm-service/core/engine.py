@@ -17,6 +17,14 @@ import httpx
 
 from config.settings import Settings, get_settings
 
+_VLLM_ENV_VARS_TO_STRIP = {
+    # 專案內部控制用變數，不是 vLLM 官方支援的 env 名稱。
+    "VLLM_SERVICE_ENV_FILE",
+    "VLLM_SERVICE_GATEWAY_ENV_FILE",
+    # 舊版私有命名；vLLM 0.22.1 會將其視為未知變數。
+    "VLLM_USAGE_STATS_ENABLED",
+}
+
 
 class VLLMEngine:
     """vLLM 伺服器引擎管理器"""
@@ -65,6 +73,8 @@ class VLLMEngine:
 
         # 明確傳遞環境變數到子進程
         env = os.environ.copy()
+        for env_key in _VLLM_ENV_VARS_TO_STRIP:
+            env.pop(env_key, None)
         
         # 建立日誌目錄和日誌檔案
         if self.alias:
@@ -136,7 +146,6 @@ class VLLMEngine:
                     except Exception as e:
                         last_error = f"models 端點檢查失敗: {e}"
                         # health 正常但 models 失敗，繼續等待
-                        pass
                 
                 consecutive_failures = 0
                 
@@ -199,6 +208,7 @@ class VLLMEngine:
             try:
                 self._http_client.close()
             except Exception:
+                # 連線池關閉失敗可忽略
                 pass
             self._http_client = None
         
@@ -211,6 +221,7 @@ class VLLMEngine:
                 try:
                     os.killpg(os.getpgid(pid), signal.SIGTERM)
                 except ProcessLookupError:
+                    # 進程已不存在
                     pass
             else:
                 self._process.send_signal(signal.SIGTERM)
@@ -246,6 +257,7 @@ class VLLMEngine:
             try:
                 self._log_handle.close()
             except Exception:
+                # 日誌檔關閉失敗可忽略
                 pass
             self._log_handle = None
 

@@ -441,6 +441,7 @@ def _choose_model_alias(candidates: list[str], default_alias: str | None = None)
             if 1 <= choice <= len(candidates):
                 return candidates[choice - 1]
         except ValueError:
+            # 非數字輸入，往下改以 alias 比對
             pass
 
         print("[Input] 請輸入模型編號或 alias")

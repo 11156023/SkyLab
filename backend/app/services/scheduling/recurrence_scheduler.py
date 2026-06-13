@@ -20,6 +20,8 @@ from __future__ import annotations
 
 import logging
 import time
+import uuid
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 
 from sqlmodel import Session, select
@@ -38,6 +40,22 @@ logger = logging.getLogger(__name__)
 
 def _utc_now() -> datetime:
     return datetime.now(UTC)
+
+
+@dataclass(frozen=True)
+class _BootSpec:
+    """Plain snapshot of a VMRequest taken while its session is still open.
+
+    ``_filter_due_for_boot`` may commit (via set_auto_stop), which expires all
+    ORM objects in the session; reading them after the session closes raises
+    DetachedInstanceError.
+    """
+
+    request_id: uuid.UUID
+    vmid: int
+    node: str | None
+    window_end: datetime | None
+    resource_type: str
 
 
 def process_recurrence_windows() -> None:
@@ -97,23 +115,37 @@ def process_scheduled_boot() -> None:
         )
         candidates = list(session.exec(stmt).all())
         targets = _filter_due_for_boot(session=session, requests=candidates)
+        # Snapshot plain values while the session is still open — commits made
+        # inside _filter_due_for_boot expire these ORM objects, and they become
+        # unreadable (DetachedInstanceError) once the session closes.
+        boot_specs = [
+            _BootSpec(
+                request_id=req.id,
+                vmid=req.vmid,
+                node=req.actual_node or req.assigned_node,
+                window_end=req.next_window_end,
+                resource_type=_resource_type(req),
+            )
+            for req in targets
+            if req.vmid is not None
+        ]
 
-    if not targets:
+    if not boot_specs:
         return
 
-    logger.info("Scheduled boot: %d VM(s) to power on", len(targets))
+    logger.info("Scheduled boot: %d VM(s) to power on", len(boot_specs))
 
-    for batch_idx, batch in enumerate(_chunk(targets, policy.boot_batch_size)):
-        for req in batch:
+    for batch_idx, batch in enumerate(_chunk(boot_specs, policy.boot_batch_size)):
+        for spec in batch:
             try:
-                _boot_one(req=req, window_end=req.next_window_end, grace=grace)
+                _boot_one(spec=spec, grace=grace)
             except Exception:
                 logger.exception(
                     "Scheduled boot failed for vmid=%s request=%s",
-                    req.vmid, req.id,
+                    spec.vmid, spec.request_id,
                 )
         # Sleep between batches (skip after final batch).
-        if batch_idx < (len(targets) - 1) // policy.boot_batch_size:
+        if batch_idx < (len(boot_specs) - 1) // policy.boot_batch_size:
             time.sleep(policy.boot_batch_interval_seconds)
 
 
@@ -186,26 +218,22 @@ def _filter_due_for_boot(
 
 def _boot_one(
     *,
-    req: VMRequest,
-    window_end: datetime | None,
+    spec: _BootSpec,
     grace: timedelta,
 ) -> None:
-    if req.vmid is None:
+    if not spec.node:
+        logger.warning("Cannot boot vmid=%s: no node assigned", spec.vmid)
         return
-    node = req.actual_node or req.assigned_node
-    if not node:
-        logger.warning("Cannot boot vmid=%s: no node assigned", req.vmid)
-        return
-    proxmox_service.control(node, req.vmid, _resource_type(req), "start")
-    logger.info("Scheduled boot triggered: vmid=%s node=%s", req.vmid, node)
+    proxmox_service.control(spec.node, spec.vmid, spec.resource_type, "start")
+    logger.info("Scheduled boot triggered: vmid=%s node=%s", spec.vmid, spec.node)
 
-    if window_end is None:
+    if spec.window_end is None:
         return
-    auto_stop_at = window_end + grace
+    auto_stop_at = spec.window_end + grace
     with Session(engine) as session:
         resource_repo.set_auto_stop(
             session=session,
-            vmid=req.vmid,
+            vmid=spec.vmid,
             auto_stop_at=auto_stop_at,
             auto_stop_reason="window_grace",
         )

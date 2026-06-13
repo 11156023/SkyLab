@@ -213,10 +213,10 @@ def claim_jobs_for_requests(
         claim_expires_at = _normalize_datetime(job.claim_expires_at)
         if claim_expires_at is not None and claim_expires_at > claim_deadline:
             continue
+        # 先前的 continue 已保證 claim_expires_at <= claim_deadline
         if (
             job.status == VMMigrationJobStatus.running
             and claim_expires_at is not None
-            and claim_expires_at <= claim_deadline
         ):
             job.status = VMMigrationJobStatus.pending
             job.last_error = (
@@ -362,7 +362,7 @@ def get_migration_stats(
     ).one()
 
     by_status = {}
-    for s in VMMigrationJobStatus:
+    for s in list(VMMigrationJobStatus):
         count = session.exec(
             select(sa_func.count())
             .select_from(VMMigrationJob)

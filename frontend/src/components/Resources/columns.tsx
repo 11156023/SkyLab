@@ -73,8 +73,6 @@ function StatusBadge({
 const CREATING_LABEL: Record<VMRequestStatus, string> = {
   pending: "等待審核",
   approved: "排程中",
-  provisioning: "建立中",
-  running: "執行中",
   rejected: "已拒絕",
   cancelled: "已取消",
 }

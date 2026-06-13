@@ -1,6 +1,10 @@
 from __future__ import annotations
 
 from importlib import import_module
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from app.services.scheduling import coordinator as vm_request_schedule_service
 
 __all__ = ["vm_request_schedule_service"]
 

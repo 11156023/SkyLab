@@ -1,5 +1,16 @@
 # FastAPI Project - Deployment
 
+> **本專案部署現況（SkyLab）**
+>
+> 已精簡為**單一 `docker-compose.yml` + 單一根目錄 `.env`**：
+>
+> - **啟動：** `cp .env.example .env`（改好密鑰）後 `docker compose up -d --build`，會自動載入 `docker-compose.yml`，不需要 `-f`。
+> - **對外路由：** 由內建的 `nginx` 服務（單一入口 :80，設定見 `nginx/default.conf`）做同源反向代理：`/api`、`/ws` → backend，其餘 → frontend。已不使用 Traefik / cloudflared。
+> - **自動部署：** push（或 merge PR）到 `main` 觸發 [`.github/workflows/deploy-pve-test.yml`](.github/workflows/deploy-pve-test.yml)，在 self-hosted runner 上 `docker compose up -d`。
+> - 已移除上游 template 的 `compose.yml`、`compose.override.yml`、`compose.traefik.yml`。
+>
+> 以下章節為上游 FastAPI template 的通用部署參考；其中「外部 Traefik」「staging/production」「release 觸發」等**不適用**於本專案，僅供日後自建獨立生產環境時參考。
+
 You can deploy the project using Docker Compose to a remote server.
 
 This project expects you to have a Traefik proxy handling communication to the outside world and HTTPS certificates.
@@ -16,6 +27,8 @@ But you have to configure a couple things first. 🤓
 * Install and configure [Docker](https://docs.docker.com/engine/install/) on the remote server (Docker Engine, not Docker Desktop).
 
 ## Public Traefik
+
+> **注意（SkyLab）：** 本專案已移除 `compose.traefik.yml`、改用 `docker-compose.yml` 內建的 `nginx` 服務做反向代理。以下「外部 Traefik」章節僅為上游 template 參考，相關 `compose.traefik.yml` 指令在本專案已無對應檔案。
 
 We need a Traefik proxy to handle incoming connections and HTTPS certificates.
 
@@ -202,11 +215,11 @@ With the environment variables in place, you can deploy with Docker Compose:
 
 ```bash
 cd /root/code/app/
-docker compose -f compose.yml build
-docker compose -f compose.yml up -d
+docker compose build
+docker compose up -d
 ```
 
-For production you wouldn't want to have the overrides in `compose.override.yml`, that's why we explicitly specify `compose.yml` as the file to use.
+本專案的單一 `docker-compose.yml` 會被自動載入，因此不需要 `-f` 參數。
 
 ## Continuous Deployment (CD)
 

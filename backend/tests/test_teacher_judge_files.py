@@ -8,7 +8,6 @@ from fastapi import HTTPException
 from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session, SQLModel, create_engine, select
 
-from app import models  # noqa: F401
 from app.ai.teacher_judge import file_service, script_artifact_service
 from app.ai.teacher_judge.schemas import RubricAnalysis, RubricItem
 from app.models.teacher_judge_file import TeacherJudgeFile, TeacherJudgeFileStatus

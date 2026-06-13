@@ -7,6 +7,7 @@
 
 from __future__ import annotations
 
+import logging
 import base64
 import importlib.util
 import io
@@ -17,13 +18,14 @@ from typing import List, Optional, Tuple
 
 NUMPY_AVAILABLE = importlib.util.find_spec("numpy") is not None
 
+logger = logging.getLogger(__name__)
+
 try:
     import cv2
     CV2_AVAILABLE = True
 except ImportError:
     CV2_AVAILABLE = False
-    print("[Warning] opencv-python-headless 未安裝，影片功能不可用")
-    print("[Info] 安裝: pip install opencv-python-headless")
+    logger.warning("opencv-python-headless 未安裝，影片功能不可用（安裝: pip install opencv-python-headless）")
 
 try:
     from PIL import Image

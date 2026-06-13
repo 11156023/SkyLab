@@ -124,8 +124,7 @@ export function VMActions({
   })
 
   const deleteMutation = useMutation({
-    mutationFn: () =>
-      ResourcesService.deleteResource({ vmid, force: isRunning }),
+    mutationFn: () => ResourcesService.deleteResource({ vmid }),
     onSuccess: () => {
       showSuccessToast(
         t("messages:vm.deleteQueued", {

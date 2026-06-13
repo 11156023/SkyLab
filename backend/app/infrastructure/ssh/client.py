@@ -1,11 +1,13 @@
 ﻿from __future__ import annotations
 
 import io
+import os
 import select
+import threading
 import time
 from collections.abc import Callable
 from types import SimpleNamespace
-from typing import Any, Literal
+from typing import Any
 
 try:
     import paramiko
@@ -28,7 +30,10 @@ from app.exceptions import ProxmoxError
 
 _PARAMIKO_AVAILABLE = not isinstance(paramiko, SimpleNamespace)
 SSHAuthenticationError = paramiko.AuthenticationException
-HostKeyPolicy = Literal["auto_add", "warning"]
+
+# 平台管理的 known_hosts：首次連線記錄 host key，之後 key 變更會拒絕連線
+_KNOWN_HOSTS_ENV = "SSH_KNOWN_HOSTS_FILE"
+_KNOWN_HOSTS_LOCK = threading.Lock()
 
 
 def ensure_ssh_backend() -> None:
@@ -51,10 +56,67 @@ def generate_ed25519_keypair(*, comment: str = "SkyLab-gateway") -> tuple[str, s
     return private_key_pem, public_key
 
 
-def _resolve_host_key_policy(policy: HostKeyPolicy):
-    if policy == "warning":
-        return paramiko.WarningPolicy()
-    return paramiko.AutoAddPolicy()
+def _known_hosts_file() -> str:
+    """回傳（必要時建立）平台管理的 known_hosts 檔案路徑。"""
+    path = os.environ.get(_KNOWN_HOSTS_ENV) or os.path.join(
+        os.path.expanduser("~"), ".ssh", "skylab_known_hosts"
+    )
+    directory = os.path.dirname(path)
+    if directory:
+        os.makedirs(directory, mode=0o700, exist_ok=True)
+    if not os.path.exists(path):
+        fd = os.open(path, os.O_WRONLY | os.O_CREAT, 0o600)
+        os.close(fd)
+    return path
+
+
+class _TrustOnFirstUsePolicy:
+    """未知主機首次連線時記錄 host key 並持久化（trust-on-first-use）。
+
+    已記錄的主機若 key 不符，paramiko 會拋出 BadHostKeyException，
+    藉此偵測中間人攻擊。VM 銷毀重建後請以 forget_host_key() 清除舊紀錄。
+    """
+
+    def __init__(self, known_hosts_path: str) -> None:
+        self._path = known_hosts_path
+
+    def missing_host_key(self, client: Any, hostname: str, key: Any) -> None:
+        client.get_host_keys().add(hostname, key.get_name(), key)
+        with _KNOWN_HOSTS_LOCK:
+            client.save_host_keys(self._path)
+
+
+def _configure_host_key_verification(client: Any) -> None:
+    """載入持久化 known_hosts 並啟用 trust-on-first-use 驗證。"""
+    try:
+        client.load_system_host_keys()
+    except Exception:  # pragma: no cover - 系統 known_hosts 不可讀時忽略
+        pass
+    path = _known_hosts_file()
+    with _KNOWN_HOSTS_LOCK:
+        client.load_host_keys(path)
+    client.set_missing_host_key_policy(_TrustOnFirstUsePolicy(path))
+
+
+def forget_host_key(host: str) -> None:
+    """移除指定主機的 pinned host key。
+
+    VM 銷毀或 IP 回收時呼叫，避免同一 IP 之後的新主機因 key 不符被拒連。
+    """
+    if not _PARAMIKO_AVAILABLE:
+        return
+    path = _known_hosts_file()
+    with _KNOWN_HOSTS_LOCK:
+        keys = paramiko.HostKeys(path)
+        stale = [
+            h for h in keys.keys()
+            if h == host or h.startswith(f"[{host}]:")
+        ]
+        if not stale:
+            return
+        for h in stale:
+            del keys[h]
+        keys.save(path)
 
 
 def create_key_client(
@@ -64,11 +126,10 @@ def create_key_client(
     private_key_pem: str,
     *,
     timeout: int = 10,
-    host_key_policy: HostKeyPolicy = "auto_add",
 ) -> Any:
     ensure_ssh_backend()
     client = paramiko.SSHClient()
-    client.set_missing_host_key_policy(_resolve_host_key_policy(host_key_policy))
+    _configure_host_key_verification(client)
     pkey = paramiko.Ed25519Key.from_private_key(io.StringIO(private_key_pem))
     client.connect(
         hostname=host,
@@ -89,11 +150,10 @@ def create_password_client(
     password: str,
     *,
     timeout: int = 30,
-    host_key_policy: HostKeyPolicy = "warning",
 ) -> Any:
     ensure_ssh_backend()
     client = paramiko.SSHClient()
-    client.set_missing_host_key_policy(_resolve_host_key_policy(host_key_policy))
+    _configure_host_key_verification(client)
     client.connect(
         hostname=host,
         port=port,
@@ -147,6 +207,7 @@ def exec_command_streaming(
             try:
                 channel.close()
             except Exception:
+                # 通道可能已關閉，關閉失敗可忽略
                 pass
             raise RuntimeError("SSH command cancelled by user")
         if time.monotonic() - start > timeout:
@@ -170,6 +231,7 @@ def exec_command_streaming(
                             try:
                                 channel.send(response)
                             except Exception:
+                                # 自動回應寫入失敗時不中斷輸出讀取
                                 pass
 
             if channel.recv_stderr_ready():

@@ -7,16 +7,13 @@
   padding: $spacing-8 $spacing-16;
   flex: 1;
 
-  @include respond-to(md) {
-    padding: 0;
-  }
+  @include respond-to(md) { padding: 0; }
 }
 
 .pageHeader {
   @include flex-between;
   flex-wrap: wrap;
   gap: $spacing-16;
-  align-items: center;
 }
 
 .pageHeading {
@@ -29,9 +26,7 @@
   font-weight: $font-weight-700;
   color: var(--color-text-primary);
 
-  @include respond-to(sm) {
-    font-size: $font-size-28;
-  }
+  @include respond-to(sm) { font-size: $font-size-28; }
 }
 
 .pageSubtitle {
@@ -39,10 +34,316 @@
   color: var(--color-text-secondary);
 }
 
-/* ── Content ── */
-.content {
-  flex: 1;
+.pageActions {
+  display: flex;
+  align-items: center;
+  gap: $spacing-8;
+  flex-shrink: 0;
+}
+
+/* ── Buttons ── */
+%btn-base {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px $spacing-16;
+  border-radius: $radius-8;
+  font-size: $font-size-14;
+  font-weight: $font-weight-500;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background $transition-base, box-shadow $transition-base, opacity $transition-base;
+
+  &:disabled { opacity: 0.5; cursor: not-allowed; }
+}
+
+.btnSecondary {
+  @extend %btn-base;
+  background: var(--color-surface);
+  color: var(--color-text);
+  border: 1px solid var(--color-border);
+  box-shadow: var(--shadow-sm);
+
+  &:hover:not(:disabled) { background: var(--color-hover); }
+}
+
+.btnOutline {
+  @extend %btn-base;
+  background: var(--color-surface);
+  color: var(--color-text);
+  border: 1px solid var(--color-border);
+
+  &:hover:not(:disabled) { background: var(--color-hover); }
+}
+
+.btnDanger {
+  @extend %btn-base;
+  background: var(--color-danger);
+  color: #fff;
+
+  &:hover:not(:disabled) { opacity: 0.9; }
+}
+
+/* ── Stat cards ── */
+.statRow {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: $spacing-16;
+
+  @include respond-to(sm) { grid-template-columns: repeat(3, 1fr); }
+}
+
+.statCard {
+  display: flex;
+  align-items: center;
+  gap: $spacing-16;
+  padding: $spacing-16;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: $radius-16;
+  box-shadow: var(--shadow-sm);
+}
+
+.statIcon {
+  width: 40px;
+  height: 40px;
+  border-radius: $radius-8;
+  background: var(--color-hover);
+  color: var(--color-primary);
+  @include flex-center;
+  flex-shrink: 0;
+}
+
+.statIconOk { background: color-mix(in srgb, var(--color-success) 12%, transparent); color: var(--color-success); }
+.statIconErr { background: color-mix(in srgb, var(--color-danger)  12%, transparent); color: var(--color-danger); }
+
+.statInfo {
   @include flex-column;
+  gap: 2px;
+}
+
+.statLabel {
+  font-size: $font-size-12;
+  color: var(--color-text-muted);
+}
+
+.statValue {
+  font-size: $font-size-24;
+  font-weight: $font-weight-700;
+  color: var(--color-text-primary);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── Filter card ── */
+.filterCard {
+  @include flex-column;
+  gap: 12px;
+  padding: $spacing-16;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: $radius-16;
+  box-shadow: var(--shadow-sm);
+}
+
+.filterTitle {
+  font-size: $font-size-16;
+  font-weight: 600;
+  color: var(--color-text-primary);
+}
+
+.filterDesc {
+  font-size: $font-size-14;
+  color: var(--color-text-muted);
+}
+
+.filterRow {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: 1fr;
+
+  @include respond-to(sm) { grid-template-columns: 1fr 1fr; }
+}
+
+.filterSelect,
+.filterInput {
+  padding: $spacing-8 12px;
+  border: 1px solid var(--color-border);
+  border-radius: $radius-8;
+  background: var(--color-bg);
+  color: var(--color-text-primary);
+  font-size: $font-size-14;
+  transition: border-color $transition-base;
+
+  &:focus {
+    outline: none;
+    border-color: var(--color-primary);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-primary) 15%, transparent);
+  }
+
+  &::placeholder { color: var(--color-text-muted); }
+}
+
+.filterSelect { appearance: auto; }
+
+/* ── Content ── */
+.content { flex: 1; @include flex-column; gap: $spacing-16; }
+
+/* ── Table ── */
+.tableWrap {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: $radius-16;
+  box-shadow: var(--shadow-sm);
+  overflow-x: auto;
+}
+
+.table { width: 100%; border-collapse: collapse; }
+
+.th {
+  padding: $spacing-8 $spacing-16;
+  font-size: $font-size-12;
+  font-weight: $font-weight-500;
+  color: var(--color-text-muted);
+  text-align: left;
+  background: var(--color-hover);
+  border-bottom: 1px solid var(--color-border);
+  white-space: nowrap;
+}
+
+.tr {
+  transition: background $transition-base;
+
+  &:not(:last-child) { border-bottom: 1px solid var(--color-divider); }
+  &:hover { background: var(--color-hover); }
+}
+
+.td {
+  padding: $spacing-8 $spacing-16;
+  font-size: $font-size-14;
+  color: var(--color-text-primary);
+  vertical-align: middle;
+  white-space: nowrap;
+}
+
+.mono {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+.userCell {
+  min-width: 200px;
+  max-width: 260px;
+}
+
+.userName {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: $font-weight-500;
+}
+
+/* ── Badge ── */
+.badge {
+  @include badge-base;
+  gap: 6px;
+  padding: 2px 10px;
+}
+
+.dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.badge_active   { background: color-mix(in srgb, var(--color-success) 12%, transparent); color: var(--color-success); }
+.badge_inactive { background: color-mix(in srgb, var(--color-danger)  12%, transparent); color: var(--color-danger); }
+
+/* ── Action button ── */
+.actionBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 12px;
+  border-radius: $radius-8;
+  font-size: $font-size-12;
+  font-weight: $font-weight-500;
+  cursor: pointer;
+  transition: background $transition-base, color $transition-base;
+}
+
+.actionBtnDanger {
+  background: color-mix(in srgb, var(--color-danger) 10%, transparent);
+  color: var(--color-danger);
+
+  &:hover { background: color-mix(in srgb, var(--color-danger) 18%, transparent); }
+}
+
+/* ── Pagination ── */
+.pagination {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: $spacing-8;
+}
+
+.paginationInfo {
+  font-size: $font-size-14;
+  color: var(--color-text-muted);
+}
+
+.paginationBtns {
+  display: flex;
+  gap: $spacing-8;
+}
+
+/* ── Dialog ── */
+.dialogOverlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.45);
+  backdrop-filter: blur(4px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  animation: fadeIn 0.15s ease;
+}
+
+.dialog {
+  width: 90%;
+  max-width: 420px;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: $radius-16;
+  box-shadow: var(--shadow-lg);
+  @include flex-column;
+  gap: $spacing-16;
+  padding: $spacing-24;
+  animation: slideUp 0.2s ease;
+}
+
+.dialogHeader {
+  @include flex-column;
+  gap: $spacing-4;
+}
+
+.dialogTitle {
+  font-size: $font-size-18;
+  font-weight: 600;
+  color: var(--color-text-primary);
+}
+
+.dialogDesc {
+  font-size: $font-size-14;
+  color: var(--color-text-muted);
+}
+
+.dialogFooter {
+  display: flex;
+  justify-content: flex-end;
+  gap: $spacing-8;
 }
 
 /* ── Empty state ── */
@@ -78,70 +379,19 @@
   line-height: $line-height-base;
 }
 
-/* ── Table ── */
-.tableWrap {
-  background: var(--color-surface);
-  border: 1px solid var(--color-border);
-  border-radius: $radius-16;
-  box-shadow: var(--shadow-sm);
-  overflow: hidden;
-}
-
-.table {
-  width: 100%;
-  border-collapse: collapse;
-}
-
-.th {
-  padding: $spacing-8 $spacing-16;
-  font-size: $font-size-12;
-  font-weight: $font-weight-500;
-  color: var(--color-text-muted);
-  text-align: left;
-  background: var(--color-hover);
-  border-bottom: 1px solid var(--color-border);
-  white-space: nowrap;
-}
-
-.tr {
-  transition: background $transition-base;
-
-  &:not(:last-child) {
-    border-bottom: 1px solid var(--color-divider);
-  }
-
-  &:hover {
-    background: var(--color-hover);
-  }
-}
-
-.td {
-  padding: $spacing-8 $spacing-16;
+.loadingText {
   font-size: $font-size-14;
-  color: var(--color-text-primary);
-  vertical-align: middle;
+  color: var(--color-text-muted);
+  padding: $spacing-16 0;
 }
 
-/* ── Badge ── */
-.badge {
-  @include badge-base;
-  padding: 2px 10px;
+/* ── Animations ── */
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
 }
 
-.badge_active   { background: color-mix(in srgb, var(--color-success) 12%, transparent); color: var(--color-success); }
-.badge_inactive { background: color-mix(in srgb, var(--color-danger)  12%, transparent); color: var(--color-danger); }
-
-/* ── Action ── */
-.actionBtn {
-  width: 28px;
-  height: 28px;
-  border-radius: $radius-8;
-  @include flex-center;
-  color: var(--color-text-secondary);
-  transition: background $transition-base, color $transition-base;
-
-  &.actionBtnDanger {
-    color: var(--color-danger);
-    &:hover { background: color-mix(in srgb, var(--color-danger) 10%, transparent); }
-  }
+@keyframes slideUp {
+  from { opacity: 0; transform: translateY(16px); }
+  to { opacity: 1; transform: translateY(0); }
 }

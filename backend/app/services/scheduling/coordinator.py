@@ -18,7 +18,7 @@ from app.models import (
     VMRequestStatus,
 )
 from app.repositories import resource as resource_repo
-from app.repositories import vm_migration_job as vm_migration_job_repo  # noqa: F401  (re-exported for tests/back-compat)
+from app.repositories import vm_migration_job as vm_migration_job_repo
 from app.repositories import vm_request as vm_request_repo
 from app.services.network import ip_management_service
 from app.services.proxmox import provisioning_service, proxmox_service
@@ -30,9 +30,15 @@ from app.services.vm import vm_request_placement_service
 
 logger = logging.getLogger(__name__)
 
+# 這些名稱由此模組 re-export，測試以
+# ``app.services.scheduling.coordinator.<name>`` 引用或 monkeypatch。
+__all__ = [
+    "vm_migration_job_repo",
+    "_migrate_request_to_desired_node",
+    "_process_claimed_migration_job",
+]
+
 SCHEDULER_POLL_SECONDS = scheduling_policy.SCHEDULER_POLL_SECONDS
-_VM_DISK_PREFIXES = ("scsi", "sata", "ide", "virtio", "efidisk", "tpmstate")
-_LXC_MOUNT_PREFIXES = ("rootfs", "mp")
 _MigrationPolicy = scheduling_policy.MigrationPolicy
 
 
@@ -707,13 +713,9 @@ def _refresh_actual_node(
 from app.services.scheduling.migration import (
     _detect_migration_pinned,
     _effective_request_migration_state,
-    _extract_storage_id,
     _migrate_request_to_desired_node,
-    _migration_block_reason,
     _process_claimed_migration_job,
     _process_pending_migration_jobs,
-    _record_migration_gate_result,
-    _storage_ids_available_on_node,
     _sync_request_migration_job,
 )
 

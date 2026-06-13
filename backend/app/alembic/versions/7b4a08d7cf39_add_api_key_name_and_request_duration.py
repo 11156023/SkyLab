@@ -19,8 +19,7 @@ depends_on = None
 
 def upgrade():
     connection = op.get_bind()
-    from sqlalchemy import inspect
-    inspector = inspect(connection)
+    inspector = sa.inspect(connection)
 
     ai_api_requests_cols = [col['name'] for col in inspector.get_columns('ai_api_requests')]
     if 'duration' not in ai_api_requests_cols:

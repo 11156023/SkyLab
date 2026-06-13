@@ -7,6 +7,10 @@ on:
       - "backend/app/alembic/**"
       - "backend/scripts/check-migrations.sh"
 
+# Least privilege: jobs only need to read repo contents
+permissions:
+  contents: read
+
 jobs:
   check-migrations:
     runs-on: ubuntu-latest

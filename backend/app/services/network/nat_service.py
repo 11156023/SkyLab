@@ -201,8 +201,20 @@ def apply_nat_rule(
         internal_port=internal_port,
         protocol=protocol,
     )
-    nat_repo.create_rule(session, rule)  # type: ignore[arg-type]
-    _sync_haproxy(session)
+    created = nat_repo.create_rule(session, rule)  # type: ignore[arg-type]
+    try:
+        _sync_haproxy(session)
+    except Exception:
+        # 同步失敗時補償刪除剛建立的規則：否則規則留在 DB（實際未生效）
+        # 會永久佔住該外網 port，使用者重試會收到「Port 已被佔用」。
+        try:
+            nat_repo.delete_rule(session, created)  # type: ignore[arg-type]
+        except Exception:
+            logger.exception(
+                "[NAT] 規則 %s 同步失敗後的回滾刪除也失敗，DB 可能殘留無效規則",
+                created.id,
+            )
+        raise
 
 
 def remove_nat_rule_by_id(session: object, rule_id: str) -> None:

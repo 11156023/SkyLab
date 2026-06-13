@@ -60,6 +60,7 @@ def _to_public(config, *, is_configured: bool) -> ProxmoxConfigPublic:
         try:
             fingerprint = _cert_fingerprint(config.ca_cert)
         except Exception:
+            # 憑證指紋計算失敗時以 None 呈現
             pass
     return ProxmoxConfigPublic(
         host=config.host,

@@ -26,11 +26,10 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 try:  # pragma: no cover - optional dep
-    from arq.connections import ArqRedis, RedisSettings, create_pool
+    from arq.connections import RedisSettings, create_pool
 
     _AVAILABLE = True
 except ImportError:  # pragma: no cover - optional dep
-    ArqRedis = None  # type: ignore[assignment,misc]
     RedisSettings = None  # type: ignore[assignment,misc]
     create_pool = None  # type: ignore[assignment]
     _AVAILABLE = False

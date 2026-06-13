@@ -1,15 +1,21 @@
 from __future__ import annotations
 
+from bisect import bisect_left
 from collections import Counter
+from copy import deepcopy
 from datetime import UTC, date, datetime, time, timedelta
 from typing import Literal, cast
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from sqlmodel import Session, select
 
-from app.ai.pve_advisor import recommendation_service as advisor_service
-from app.ai.pve_advisor.schemas import PlacementRequest
 from app.core.authorizers import require_vm_request_access
+from app.domain.placement import advisor as placement_advisor
+from app.domain.placement.schemas import NodeCapacity, PlacementRequest, ResourceType
+from app.domain.placement.storage import (
+    reserve_storage_pool,
+    select_best_storage_for_request,
+)
 from app.exceptions import BadRequestError, NotFoundError
 from app.models import UserRole, VMRequest, VMRequestStatus
 from app.repositories import vm_request as vm_request_repo
@@ -115,7 +121,6 @@ def validate_request_window(
     current_user,
     request_in,
 ) -> None:
-    role = cast(UserRole, getattr(current_user, "role", UserRole.student))
     start_at = _normalize_datetime(getattr(request_in, "start_at", None))
     end_at = _normalize_datetime(getattr(request_in, "end_at", None))
     if not start_at or not end_at:
@@ -236,11 +241,11 @@ def _build_availability_response(
     allowed_start, allowed_end = _ALL_DAY_POLICY_WINDOW
 
     placement_request = _to_placement_request(source_request)
-    baseline_nodes, baseline_resources = advisor_service._load_cluster_state()
+    baseline_nodes, baseline_resources = placement_advisor._load_cluster_state()
     cpu_overcommit_ratio, disk_overcommit_ratio = (
         vm_request_placement_service.get_overcommit_ratios(session)
     )
-    baseline_capacities = advisor_service._build_node_capacities(
+    baseline_capacities = placement_advisor._build_node_capacities(
         nodes=baseline_nodes,
         resources=baseline_resources,
         cpu_overcommit_ratio=cpu_overcommit_ratio,
@@ -252,7 +257,7 @@ def _build_availability_response(
         session=session,
         baseline_capacities=baseline_capacities,
     )
-    effective_resource_type, resource_type_reason = advisor_service._decide_resource_type(
+    effective_resource_type, resource_type_reason = placement_advisor._decide_resource_type(
         placement_request
     )
     placement_strategy = vm_request_placement_service.get_placement_strategy(session)
@@ -269,6 +274,31 @@ def _build_availability_response(
         window_start=start_anchor,
         window_end=start_anchor + timedelta(days=days),
     )
+    slot_starts = _availability_slot_starts(
+        day_anchor=day_anchor,
+        days=days,
+        start_anchor=start_anchor,
+        allowed_start=allowed_start,
+        allowed_end=allowed_end,
+    )
+    reserved_capacities_by_slot = _build_reserved_capacity_timeline(
+        baseline_capacities=baseline_capacities,
+        reserved_requests=reserved_requests,
+        slot_starts=slot_starts,
+    )
+    lite_storage_pools_by_node = None
+    lite_has_managed_storage = False
+    lite_tuning = None
+    if not source_request.detail:
+        lite_storage_pools_by_node, lite_has_managed_storage = (
+            vm_request_placement_service._build_storage_pool_state(
+                session=session,
+                node_names=[item.node for item in baseline_capacities],
+            )
+        )
+        lite_tuning = vm_request_placement_service._get_placement_tuning(
+            session=session
+        )
 
     slots: list[VMRequestAvailabilitySlot] = []
     per_day: dict[date, list[VMRequestAvailabilitySlot]] = {}
@@ -300,48 +330,68 @@ def _build_availability_response(
                     reasons=["此時段已過，請選擇目前時間之後的時段。"],
                     recommended_nodes=[],
                     placement_strategy=placement_strategy,
-                    node_snapshots=_build_slot_node_snapshots(
-                        adjusted_nodes=baseline_capacities,
-                        plan=None,
-                        node_priorities=node_priorities,
-                        resource_stack_by_node=resource_stack_by_node,
-                        stack_label=stack_label,
+                    node_snapshots=(
+                        _build_slot_node_snapshots(
+                            adjusted_nodes=baseline_capacities,
+                            plan=None,
+                            node_priorities=node_priorities,
+                            resource_stack_by_node=resource_stack_by_node,
+                            stack_label=stack_label,
+                        )
+                        if source_request.detail
+                        else []
                     ),
                 )
             elif within_policy:
-                reserved_adjusted_nodes = vm_request_placement_service._apply_reserved_requests_to_capacities(
-                    baseline_capacities=baseline_capacities,
-                    reserved_requests=reserved_requests,
-                    at_time=slot_start,
-                )
+                reserved_adjusted_nodes = reserved_capacities_by_slot.get(slot_start)
+                if reserved_adjusted_nodes is None:
+                    reserved_adjusted_nodes = [
+                        item.model_copy(deep=True) for item in baseline_capacities
+                    ]
                 adjusted_nodes = _adjust_node_capacities_for_slot(
                     baseline_capacities=reserved_adjusted_nodes,
                     demand_ratio=demand_ratio,
                     pending_pressure=pending_pressure,
                 )
-                plan = vm_request_placement_service.build_plan(
-                    session=session,
-                    request=placement_request,
-                    node_capacities=adjusted_nodes,
-                    effective_resource_type=effective_resource_type,
-                    resource_type_reason=resource_type_reason,
-                    placement_strategy=placement_strategy,
-                    node_priorities=node_priorities,
-                )
-                slot = _slot_from_plan(
-                    plan=plan,
-                    slot_start=slot_start,
-                    slot_end=slot_end,
-                    within_policy=True,
-                    role=role,
-                    demand_ratio=demand_ratio,
-                    pending_pressure=pending_pressure,
-                    adjusted_nodes=adjusted_nodes,
-                    node_priorities=node_priorities,
-                    resource_stack_by_node=resource_stack_by_node,
-                    stack_label=stack_label,
-                    placement_strategy=placement_strategy,
-                )
+                if source_request.detail:
+                    plan = vm_request_placement_service.build_plan(
+                        session=session,
+                        request=placement_request,
+                        node_capacities=adjusted_nodes,
+                        effective_resource_type=effective_resource_type,
+                        resource_type_reason=resource_type_reason,
+                        placement_strategy=placement_strategy,
+                        node_priorities=node_priorities,
+                    )
+                    slot = _slot_from_plan(
+                        plan=plan,
+                        slot_start=slot_start,
+                        slot_end=slot_end,
+                        within_policy=True,
+                        role=role,
+                        demand_ratio=demand_ratio,
+                        pending_pressure=pending_pressure,
+                        adjusted_nodes=adjusted_nodes,
+                        node_priorities=node_priorities,
+                        resource_stack_by_node=resource_stack_by_node,
+                        stack_label=stack_label,
+                        placement_strategy=placement_strategy,
+                    )
+                else:
+                    slot = _lite_slot_from_capacities(
+                        request=placement_request,
+                        effective_resource_type=effective_resource_type,
+                        adjusted_nodes=adjusted_nodes,
+                        storage_pools_by_node=lite_storage_pools_by_node or {},
+                        has_managed_storage=lite_has_managed_storage,
+                        disk_overcommit_ratio=disk_overcommit_ratio,
+                        tuning=lite_tuning,
+                        slot_start=slot_start,
+                        slot_end=slot_end,
+                        demand_ratio=demand_ratio,
+                        pending_pressure=pending_pressure,
+                        placement_strategy=placement_strategy,
+                    )
             else:
                 slot = VMRequestAvailabilitySlot(
                     start_at=slot_start,
@@ -356,12 +406,16 @@ def _build_availability_response(
                     reasons=[_policy_block_summary(role=role, allowed_start=allowed_start, allowed_end=allowed_end)],
                     recommended_nodes=[],
                     placement_strategy=placement_strategy,
-                    node_snapshots=_build_slot_node_snapshots(
-                        adjusted_nodes=baseline_capacities,
-                        plan=None,
-                        node_priorities=node_priorities,
-                        resource_stack_by_node=resource_stack_by_node,
-                        stack_label=stack_label,
+                    node_snapshots=(
+                        _build_slot_node_snapshots(
+                            adjusted_nodes=baseline_capacities,
+                            plan=None,
+                            node_priorities=node_priorities,
+                            resource_stack_by_node=resource_stack_by_node,
+                            stack_label=stack_label,
+                        )
+                        if source_request.detail
+                        else []
                     ),
                 )
 
@@ -390,6 +444,349 @@ def _build_availability_response(
         summary=summary,
         recommended_slots=recommended_slots,
         days=days_summary,
+    )
+
+
+def _availability_slot_starts(
+    *,
+    day_anchor: datetime,
+    days: int,
+    start_anchor: datetime,
+    allowed_start: int,
+    allowed_end: int,
+) -> list[datetime]:
+    slot_starts: list[datetime] = []
+    for day_offset in range(days):
+        day_start = day_anchor + timedelta(days=day_offset)
+        for hour in range(24):
+            slot_start = day_start + timedelta(hours=hour)
+            if slot_start < start_anchor:
+                continue
+            if not _is_hour_within_policy(
+                hour=hour,
+                allowed_start=allowed_start,
+                allowed_end=allowed_end,
+            ):
+                continue
+            slot_starts.append(slot_start)
+    return slot_starts
+
+
+def _vm_request_capacity_tuple(db_request: VMRequest) -> tuple[float, int, int]:
+    cpu_cores = float(db_request.cores or 1)
+    memory_bytes = int(db_request.memory or 512) * 1024 * 1024
+    resource_type = str(db_request.resource_type or "lxc")
+    disk_gb = (
+        int(db_request.disk_size or 0)
+        if resource_type == "vm"
+        else int(db_request.rootfs_size or 0)
+    )
+    if disk_gb <= 0:
+        disk_gb = 20 if resource_type == "vm" else 8
+    return cpu_cores, memory_bytes, disk_gb * GIB
+
+
+def _add_reservation_event(
+    events: dict[int, list[tuple[str, float, int, int, int]]],
+    *,
+    index: int,
+    node: str,
+    cpu_cores: float,
+    memory_bytes: int,
+    disk_bytes: int,
+    sign: int,
+) -> None:
+    events.setdefault(index, []).append(
+        (node, cpu_cores * sign, memory_bytes * sign, disk_bytes * sign, sign)
+    )
+
+
+def _build_reserved_capacity_timeline(
+    *,
+    baseline_capacities: list[NodeCapacity],
+    reserved_requests: list[VMRequest],
+    slot_starts: list[datetime],
+) -> dict[datetime, list[NodeCapacity]]:
+    if not slot_starts:
+        return {}
+
+    events: dict[int, list[tuple[str, float, int, int, int]]] = {}
+    for reserved in reserved_requests:
+        reserved_start = _normalize_datetime(reserved.start_at)
+        reserved_end = _normalize_datetime(reserved.end_at)
+        assigned_node = str(reserved.assigned_node or "")
+        if not reserved_start or not reserved_end or not assigned_node:
+            continue
+
+        start_index = bisect_left(slot_starts, reserved_start)
+        end_index = bisect_left(slot_starts, reserved_end)
+        if start_index >= len(slot_starts) or start_index >= end_index:
+            continue
+
+        cpu_cores, memory_bytes, disk_bytes = _vm_request_capacity_tuple(reserved)
+        _add_reservation_event(
+            events,
+            index=start_index,
+            node=assigned_node,
+            cpu_cores=cpu_cores,
+            memory_bytes=memory_bytes,
+            disk_bytes=disk_bytes,
+            sign=1,
+        )
+        if end_index < len(slot_starts):
+            _add_reservation_event(
+                events,
+                index=end_index,
+                node=assigned_node,
+                cpu_cores=cpu_cores,
+                memory_bytes=memory_bytes,
+                disk_bytes=disk_bytes,
+                sign=-1,
+            )
+
+    active_by_node: dict[str, list[float | int]] = {}
+    capacities_by_slot: dict[datetime, list[NodeCapacity]] = {}
+    for index, slot_start in enumerate(slot_starts):
+        for node, cpu_delta, memory_delta, disk_delta, count_delta in events.get(
+            index,
+            [],
+        ):
+            active = active_by_node.setdefault(node, [0.0, 0, 0, 0])
+            active[0] = float(active[0]) + cpu_delta
+            active[1] = int(active[1]) + memory_delta
+            active[2] = int(active[2]) + disk_delta
+            active[3] = int(active[3]) + count_delta
+            if (
+                abs(float(active[0])) < 1e-9
+                and int(active[1]) == 0
+                and int(active[2]) == 0
+                and int(active[3]) == 0
+            ):
+                active_by_node.pop(node, None)
+
+        adjusted = [item.model_copy(deep=True) for item in baseline_capacities]
+        by_node = {item.node: item for item in adjusted}
+        for node_name, (
+            cpu_cores,
+            memory_bytes,
+            disk_bytes,
+            _count,
+        ) in active_by_node.items():
+            node = by_node.get(node_name)
+            if not node:
+                continue
+            node.allocatable_cpu_cores = max(
+                round(node.allocatable_cpu_cores - float(cpu_cores), 2),
+                0.0,
+            )
+            node.allocatable_memory_bytes = max(
+                node.allocatable_memory_bytes - int(memory_bytes),
+                0,
+            )
+            node.allocatable_disk_bytes = max(
+                node.allocatable_disk_bytes - int(disk_bytes),
+                0,
+            )
+            node.candidate = (
+                node.status == "online"
+                and node.allocatable_cpu_cores > 0
+                and node.allocatable_memory_bytes > 0
+                and node.allocatable_disk_bytes > 0
+            )
+        capacities_by_slot[slot_start] = adjusted
+
+    return capacities_by_slot
+
+
+def _lite_candidate_key(
+    node: NodeCapacity,
+    *,
+    required_cpu: float,
+    required_memory: int,
+    required_disk: int,
+) -> tuple[float, float, str]:
+    remaining_cpu = max(node.allocatable_cpu_cores - required_cpu, 0.0)
+    remaining_memory = max(node.allocatable_memory_bytes - required_memory, 0)
+    remaining_disk = max(node.allocatable_disk_bytes - required_disk, 0)
+    return (
+        _dominant_share(
+            total_cpu=float(node.total_cpu_cores),
+            remaining_cpu=remaining_cpu,
+            total_memory=int(node.total_memory_bytes),
+            remaining_memory=int(remaining_memory),
+            total_disk=int(node.total_disk_bytes),
+            remaining_disk=int(remaining_disk),
+        ),
+        _average_share(
+            total_cpu=float(node.total_cpu_cores),
+            remaining_cpu=remaining_cpu,
+            total_memory=int(node.total_memory_bytes),
+            remaining_memory=int(remaining_memory),
+            total_disk=int(node.total_disk_bytes),
+            remaining_disk=int(remaining_disk),
+        ),
+        node.node,
+    )
+
+
+def _lightweight_fit_nodes(
+    *,
+    request: PlacementRequest,
+    effective_resource_type: ResourceType,
+    adjusted_nodes: list[NodeCapacity],
+    storage_pools_by_node,
+    has_managed_storage: bool,
+    disk_overcommit_ratio: float,
+    tuning,
+) -> list[str]:
+    required_cpu = placement_advisor._effective_cpu_cores(request, effective_resource_type)
+    required_memory = placement_advisor._effective_memory_bytes(
+        request,
+        effective_resource_type,
+    )
+    required_disk = int(request.disk_gb * GIB)
+    working_nodes = [item.model_copy(deep=True) for item in adjusted_nodes]
+    working_storage = deepcopy(storage_pools_by_node)
+    placed_nodes: list[str] = []
+
+    for _ in range(int(request.instance_count or 1)):
+        candidates = []
+        for node in working_nodes:
+            if not node.candidate:
+                continue
+            if not placement_advisor._can_fit(
+                node,
+                cores=required_cpu,
+                memory_bytes=required_memory,
+                disk_bytes=required_disk,
+                gpu_required=request.gpu_required,
+            ):
+                continue
+
+            storage_selection = None
+            if has_managed_storage:
+                if tuning is None:
+                    continue
+                storage_selection = select_best_storage_for_request(
+                    storage_pools=working_storage.get(node.node, []),
+                    resource_type=cast(ResourceType, request.resource_type),
+                    disk_gb=int(request.disk_gb),
+                    disk_overcommit_ratio=disk_overcommit_ratio,
+                    tuning=tuning,
+                )
+                if storage_selection is None:
+                    continue
+            candidates.append((node, storage_selection))
+
+        if not candidates:
+            return placed_nodes
+
+        chosen, chosen_storage = min(
+            candidates,
+            key=lambda candidate: _lite_candidate_key(
+                candidate[0],
+                required_cpu=required_cpu,
+                required_memory=required_memory,
+                required_disk=required_disk,
+            ),
+        )
+        chosen.allocatable_cpu_cores = max(
+            round(chosen.allocatable_cpu_cores - required_cpu, 2),
+            0.0,
+        )
+        chosen.allocatable_memory_bytes = max(
+            chosen.allocatable_memory_bytes - required_memory,
+            0,
+        )
+        chosen.allocatable_disk_bytes = max(
+            chosen.allocatable_disk_bytes - required_disk,
+            0,
+        )
+        chosen.running_resources += 1
+        chosen.candidate = (
+            chosen.status == "online"
+            and chosen.allocatable_cpu_cores > 0
+            and chosen.allocatable_memory_bytes > 0
+            and chosen.allocatable_disk_bytes > 0
+            and chosen.running_resources < chosen.guest_soft_limit
+        )
+        if chosen_storage is not None:
+            reserve_storage_pool(
+                selection=chosen_storage,
+                disk_gb=int(request.disk_gb),
+                disk_overcommit_ratio=disk_overcommit_ratio,
+            )
+        placed_nodes.append(chosen.node)
+
+    return placed_nodes
+
+
+def _lite_slot_from_capacities(
+    *,
+    request: PlacementRequest,
+    effective_resource_type: ResourceType,
+    adjusted_nodes: list[NodeCapacity],
+    storage_pools_by_node,
+    has_managed_storage: bool,
+    disk_overcommit_ratio: float,
+    tuning,
+    slot_start: datetime,
+    slot_end: datetime,
+    demand_ratio: float,
+    pending_pressure: float,
+    placement_strategy: str,
+) -> VMRequestAvailabilitySlot:
+    placed_nodes = _lightweight_fit_nodes(
+        request=request,
+        effective_resource_type=effective_resource_type,
+        adjusted_nodes=adjusted_nodes,
+        storage_pools_by_node=storage_pools_by_node,
+        has_managed_storage=has_managed_storage,
+        disk_overcommit_ratio=disk_overcommit_ratio,
+        tuning=tuning,
+    )
+    feasible = len(placed_nodes) >= int(request.instance_count or 1)
+    partial = bool(placed_nodes)
+
+    if feasible:
+        status = (
+            "limited"
+            if demand_ratio >= 0.6 or pending_pressure >= 0.35
+            else "available"
+        )
+        label = "Available" if status == "available" else "Limited"
+        summary = "This time slot has enough capacity for the requested resources."
+    elif partial:
+        status = "limited"
+        label = "Limited"
+        summary = "Only part of the requested capacity appears available in this time slot."
+    else:
+        status = "unavailable"
+        label = "Unavailable"
+        summary = "No node appears to have enough available capacity in this time slot."
+
+    reasons = [summary]
+    if status == "limited":
+        reasons.append(
+            f"Demand pressure {demand_ratio:.2f}; pending pressure {pending_pressure:.2f}."
+        )
+
+    unique_nodes = list(dict.fromkeys(placed_nodes))
+    return VMRequestAvailabilitySlot(
+        start_at=slot_start,
+        end_at=slot_end,
+        date=slot_start.date(),
+        hour=slot_start.hour,
+        within_policy=True,
+        feasible=feasible,
+        status=status,
+        label=label,
+        summary=summary,
+        reasons=reasons[:4],
+        recommended_nodes=unique_nodes[:3],
+        target_node=unique_nodes[0] if unique_nodes else None,
+        placement_strategy=placement_strategy,
+        node_snapshots=[],
     )
 
 

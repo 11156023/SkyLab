@@ -19,8 +19,7 @@ depends_on = None
 
 def upgrade():
     connection = op.get_bind()
-    from sqlalchemy import inspect
-    inspector = inspect(connection)
+    inspector = sa.inspect(connection)
     columns = [col['name'] for col in inspector.get_columns('ai_api_requests')]
     if 'api_key_name' not in columns:
         op.add_column('ai_api_requests', sa.Column('api_key_name', sqlmodel.sql.sqltypes.AutoString(length=20), nullable=False, server_default="test"))

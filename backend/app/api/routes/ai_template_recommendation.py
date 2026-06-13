@@ -295,6 +295,7 @@ async def chat(
                 error_message=str(exc)[:500],
             )
         except Exception:
+            # 記錄失敗 log 時出錯不得掩蓋原始錯誤
             pass
         raise
 
@@ -381,6 +382,7 @@ async def recommend(
                 error_message=str(exc)[:500],
             )
         except Exception:
+            # 記錄失敗 log 時出錯不得掩蓋原始錯誤
             pass
         raise
 

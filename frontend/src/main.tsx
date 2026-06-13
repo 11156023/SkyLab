@@ -66,7 +66,10 @@ client.instance.interceptors.response.use(
   },
 )
 
-const router = createRouter({ routeTree })
+// 跟 vite `base` 同步：production build 時 BASE_URL = "/old/"，
+// router basepath 接收不含尾巴 slash 的字串。
+const basepath = import.meta.env.BASE_URL.replace(/\/$/, "") || undefined
+const router = createRouter({ routeTree, basepath })
 
 declare module "@tanstack/react-router" {
   interface Register {

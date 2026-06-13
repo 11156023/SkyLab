@@ -13,6 +13,8 @@ RUN bun install
 
 COPY ./frontend /app/frontend
 ARG VITE_API_URL
+# 讓 vite build 讀得到 build arg；留空時前端走相對路徑（同源），自動適應訪問用的 host
+ENV VITE_API_URL=${VITE_API_URL}
 
 RUN bun run build
 

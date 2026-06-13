@@ -8,10 +8,14 @@
  */
 
 import { createContext, useContext, useEffect, useRef, useState, useCallback } from "react";
+import { toast } from "sonner";
 import { AuthStorage } from "../services/auth";
-import { apiGet, apiPostForm } from "../services/api";
+import { apiGet, apiPostForm, refreshTokens } from "../services/api";
 
 const AuthContext = createContext(null);
+
+/** access token 到期前多久觸發續期 */
+const REFRESH_MARGIN_MS = 60 * 1000;
 
 export function AuthProvider({ children }) {
   const [user, setUser]       = useState(null);
@@ -33,25 +37,31 @@ export function AuthProvider({ children }) {
     setUser(null);
   }, [clearExpiryTimer]);
 
+  /** 強制登出（token 失效），與使用者主動登出不同，會顯示提示 */
+  const forceLogout = useCallback(() => {
+    logout();
+    toast.error("登入已過期，請重新登入");
+  }, [logout]);
+
   /**
-   * 依據 token 的 exp 設定自動登出計時器。
-   * 若 token 已過期則立即登出。
+   * 依據 token 的 exp，在到期前自動用 refresh token 續期；
+   * 續期成功就重新排程，失敗才強制登出。
    */
-  const scheduleExpiryLogout = useCallback(() => {
+  const scheduleTokenRefresh = useCallback(() => {
     clearExpiryTimer();
     const expiry = AuthStorage.getTokenExpiry();
     if (!expiry) return;
 
-    const msLeft = expiry - Date.now();
-    if (msLeft <= 0) {
-      logout();
-      return;
-    }
-
-    expiryTimerRef.current = setTimeout(() => {
-      logout();
-    }, msLeft);
-  }, [clearExpiryTimer, logout]);
+    const msUntilRefresh = expiry - Date.now() - REFRESH_MARGIN_MS;
+    expiryTimerRef.current = setTimeout(async () => {
+      const ok = await refreshTokens();
+      if (ok) {
+        scheduleTokenRefresh();
+      } else {
+        forceLogout();
+      }
+    }, Math.max(msUntilRefresh, 0));
+  }, [clearExpiryTimer, forceLogout]);
 
   /** 啟動時若有 token，嘗試取得當前用戶以確認 token 仍有效 */
   useEffect(() => {
@@ -63,20 +73,20 @@ export function AuthProvider({ children }) {
     apiGet("/api/v1/users/me")
       .then((me) => {
         setUser(me);
-        scheduleExpiryLogout();
+        scheduleTokenRefresh();
       })
       .catch(() => {
-        // token 無效或過期，清除
+        // token 無效或過期（api 層已嘗試續期失敗），清除
         AuthStorage.clearTokens();
       })
       .finally(() => setLoading(false));
-  }, [scheduleExpiryLogout]);
+  }, [scheduleTokenRefresh]);
 
-  /** 監聽 API 層拋出的 401 事件，強制登出 */
+  /** 監聽 API 層拋出的 401 事件（續期也失敗時），強制登出 */
   useEffect(() => {
-    window.addEventListener("auth:unauthorized", logout);
-    return () => window.removeEventListener("auth:unauthorized", logout);
-  }, [logout]);
+    window.addEventListener("auth:unauthorized", forceLogout);
+    return () => window.removeEventListener("auth:unauthorized", forceLogout);
+  }, [forceLogout]);
 
   /** 元件卸載時清除計時器 */
   useEffect(() => () => clearExpiryTimer(), [clearExpiryTimer]);
@@ -96,8 +106,8 @@ export function AuthProvider({ children }) {
 
     const me = await apiGet("/api/v1/users/me");
     setUser(me);
-    scheduleExpiryLogout();
-  }, [scheduleExpiryLogout]);
+    scheduleTokenRefresh();
+  }, [scheduleTokenRefresh]);
 
   return (
     <AuthContext.Provider value={{ user, loading, login, logout }}>

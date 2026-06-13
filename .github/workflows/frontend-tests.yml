@@ -12,6 +12,10 @@ concurrency:
   group: frontend-tests-${{ github.ref }}
   cancel-in-progress: true
 
+# Least privilege: jobs only need to read repo contents
+permissions:
+  contents: read
+
 jobs:
   vitest:
     name: vitest + biome + build

@@ -77,14 +77,18 @@ def test_all_subclasses_inherit_app_error() -> None:
         assert issubclass(cls, AppError)
 
 
+def _raise(exc: AppError) -> None:
+    raise exc
+
+
 def test_can_be_raised_and_caught() -> None:
     with pytest.raises(NotFoundError) as exc_info:
-        raise NotFoundError("missing")
+        _raise(NotFoundError("missing"))
     assert exc_info.value.status_code == 404
 
 
 def test_can_be_caught_as_app_error_base() -> None:
     """Generic handlers should be able to catch all subclasses via AppError."""
     with pytest.raises(AppError) as exc_info:
-        raise ConflictError("dup key")
+        _raise(ConflictError("dup key"))
     assert exc_info.value.status_code == 409

@@ -54,9 +54,9 @@ class RefreshTokenRequest(BaseModel):
 
 
 @router.post("/login/refresh-token")
-def refresh_token(session: SessionDep, body: RefreshTokenRequest) -> Token:
+async def refresh_token(session: SessionDep, body: RefreshTokenRequest) -> Token:
     """Use a refresh token to get a new access + refresh token pair."""
-    return auth_service.refresh_access_token(
+    return await auth_service.refresh_access_token(
         session=session, refresh_token=body.refresh_token
     )
 

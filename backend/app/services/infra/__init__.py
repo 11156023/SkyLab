@@ -1,6 +1,17 @@
 from __future__ import annotations
 
 from importlib import import_module
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from app.services.network import (
+        firewall_service,
+        gateway_service,
+        nat_service,
+        reverse_proxy_service,
+        script_deploy_service,
+        snapshot_service,
+    )
 
 __all__ = [
     "firewall_service",

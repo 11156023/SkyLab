@@ -105,15 +105,13 @@ After you update it, run again:
 docker compose watch
 ```
 
-When deploying, for example in production, the main Traefik is configured outside of the Docker Compose files. For local development, there's an included Traefik in `compose.override.yml`, just to let you test that the domains work as expected, for example with `api.localhost.tiangolo.com` and `dashboard.localhost.tiangolo.com`.
+For local development, there's an included Traefik (the `proxy` service) in `docker-compose.yml`, just to let you test that the domains work as expected, for example with `api.localhost.tiangolo.com` and `dashboard.localhost.tiangolo.com`.
 
-## Docker Compose files and env vars
+## Docker Compose file and env vars
 
-There is a main `compose.yml` file with all the configurations that apply to the whole stack, it is used automatically by `docker compose`.
+There is a single `docker-compose.yml` file with all the configurations that apply to the whole stack — services, exposed ports, and development source-code sync (via `develop.watch`). It is used automatically by `docker compose`, so no `-f` flag is needed.
 
-And there's also a `compose.override.yml` with overrides for development, for example to mount the source code as a volume. It is used automatically by `docker compose` to apply overrides on top of `compose.yml`.
-
-These Docker Compose files use the `.env` file containing configurations to be injected as environment variables in the containers.
+This Docker Compose file uses the `.env` file containing configurations to be injected as environment variables in the containers.
 
 They also use some additional configurations taken from environment variables set in the scripts before calling the `docker compose` command.
 
@@ -129,7 +127,7 @@ The `.env` file is the one that contains all your configurations, generated keys
 
 Depending on your workflow, you could want to exclude it from Git, for example if your project is public. In that case, you would have to make sure to set up a way for your CI tools to obtain it while building or deploying your project.
 
-One way to do it could be to add each environment variable to your CI/CD system, and updating the `compose.yml` file to read that specific env var instead of reading the `.env` file.
+One way to do it could be to add each environment variable to your CI/CD system, and updating the `docker-compose.yml` file to read that specific env var instead of reading the `.env` file.
 
 ## Pre-commits and code linting
 

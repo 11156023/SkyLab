@@ -55,7 +55,7 @@ function App() {
       dashboard:        <DashboardPage onNavigate={handleNavigate} />,
       "my-resources":   <ResourcesPage />,
       "my-requests":    <RequestsPage intent={pageIntent} />,
-      "resource-mgmt":  <ResourceMgmtPage />,
+      "resource-mgmt":  <ResourceMgmtPage onNavigate={handleNavigate} />,
       "request-review": <RequestReviewPage />,
       "gpu-mgmt":       <GpuMgmtPage />,
       "batch-review":   <BatchReviewPage />,

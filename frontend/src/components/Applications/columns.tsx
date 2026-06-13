@@ -207,10 +207,7 @@ export const createMyRequestColumns = (
       cell: ({ row }) => {
         const request = row.original
         const status = request.status
-        const canCancel =
-          status === "pending" ||
-          status === "approved" ||
-          status === "provisioning"
+        const canCancel = status === "pending" || status === "approved"
         const canRetry = status === "approved"
         const showCancel = canCancel && !!options?.onCancelRequest
         const showRetry = canRetry && !!options?.onRetryRequest
@@ -251,14 +248,6 @@ export const createMyRequestColumns = (
                 variant="outline"
                 disabled={isCancelling || isRetrying}
                 onClick={() => options?.onCancelRequest?.(request)}
-                title={
-                  status === "provisioning"
-                    ? t("applications:actions.cancelHintProvisioning", {
-                        defaultValue:
-                          "嘗試取消（若部署已開始呼叫 Proxmox 可能仍會完成）",
-                      })
-                    : undefined
-                }
               >
                 {isCancelling
                   ? t("applications:actions.cancelling")

@@ -363,6 +363,66 @@ def apply_reverse_proxy_rule(
     _sync_traefik(session)
 
 
+def resolve_zone_for_domain(session: object, domain: str) -> tuple[str, str]:
+    """從完整網域反查 Cloudflare Zone，回傳 (zone_id, hostname_prefix)。
+
+    取 zone name 為網域字尾中最長的那個（例如 a.b.example.com 同時符合
+    example.com 與 b.example.com 兩個 zone 時，取 b.example.com）。
+    """
+    from app.services.network import cloudflare_service  # noqa: PLC0415
+
+    clean = domain.strip().lower().rstrip(".")
+    if not _is_valid_hostname(clean):
+        raise BadRequestError(f"網域 {domain} 格式不正確")
+
+    zones = cloudflare_service.list_zones(  # type: ignore[arg-type]
+        session=session,
+        page=1,
+        per_page=100,
+        status="active",
+    ).items
+
+    best: tuple[str, str] | None = None
+    for zone in zones:
+        zone_name = zone.name.strip().lower().rstrip(".")
+        if clean == zone_name or clean.endswith(f".{zone_name}"):
+            if best is None or len(zone_name) > len(best[1]):
+                best = (zone.id, zone_name)
+    if best is None:
+        raise BadRequestError(
+            f"找不到網域 {clean} 對應的 Cloudflare Zone，請確認 Zone 已啟用"
+        )
+
+    zone_id, zone_name = best
+    prefix = "" if clean == zone_name else clean[: -(len(zone_name) + 1)]
+    return zone_id, prefix
+
+
+def apply_reverse_proxy_rule_for_domain(
+    session: object,
+    *,
+    vmid: int,
+    vm_ip: str,
+    domain: str,
+    internal_port: int,
+    enable_https: bool = True,
+) -> None:
+    """以完整網域建立反向代理規則（自動反查 Cloudflare Zone）。
+
+    供防火牆拓撲（PortSpec.domain 為完整網域）等呼叫端使用。
+    """
+    zone_id, hostname_prefix = resolve_zone_for_domain(session, domain)
+    apply_reverse_proxy_rule(
+        session,
+        vmid=vmid,
+        vm_ip=vm_ip,
+        zone_id=zone_id,
+        hostname_prefix=hostname_prefix,
+        internal_port=internal_port,
+        enable_https=enable_https,
+    )
+
+
 def update_reverse_proxy_rule(
     session: object,
     rule_id: str,

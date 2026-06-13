@@ -3,18 +3,20 @@
 支援視覺模型的圖片輸入處理
 """
 
+import logging
 import base64
 import io
 from pathlib import Path
 from typing import Union, List
+
+logger = logging.getLogger(__name__)
 
 try:
     from PIL import Image
     PIL_AVAILABLE = True
 except ImportError:
     PIL_AVAILABLE = False
-    print("[Warning] PIL 未安裝，圖片調整大小功能將不可用")
-    print("[Info] 安裝: pip install pillow")
+    logger.warning("PIL 未安裝，圖片調整大小功能將不可用（安裝: pip install pillow）")
 
 
 def image_to_base64(image_path: Union[str, Path]) -> str:

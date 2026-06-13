@@ -5,7 +5,6 @@ import uuid
 from datetime import datetime
 
 import sqlalchemy as sa
-from sqlalchemy import ForeignKey
 from sqlmodel import Column, DateTime, Enum, Field, SQLModel
 
 
@@ -24,7 +23,7 @@ class VMMigrationJob(SQLModel, table=True):
     id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
     request_id: uuid.UUID = Field(
         sa_column=Column(
-            ForeignKey("vm_requests.id", ondelete="CASCADE"),
+            sa.ForeignKey("vm_requests.id", ondelete="CASCADE"),
             nullable=False,
             index=True,
         )

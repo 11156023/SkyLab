@@ -82,6 +82,7 @@ class MultiModelEngineManager:
                 try:
                     engine.stop()
                 except Exception:
+                    # 回滾中的停止失敗不影響後續清理
                     pass
                 self.stop_all()
                 raise

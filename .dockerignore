@@ -1,0 +1,16 @@
+# 不要把本機安裝產物複製進 image（容器內會自行 bun install / uv sync）
+**/node_modules
+**/dist
+**/.venv
+.venv
+
+# 版本控制與快取
+.git
+.mypy_cache
+.ruff_cache
+.serena
+
+# 測試輸出
+frontend/blob-report
+frontend/test-results
+backend/htmlcov

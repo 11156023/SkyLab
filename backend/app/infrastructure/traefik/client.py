@@ -61,7 +61,6 @@ class TraefikGatewayClient:
             config.ssh_user,
             private_key_pem,
             timeout=10,
-            host_key_policy="auto_add",
         )
 
     def close(self) -> None:

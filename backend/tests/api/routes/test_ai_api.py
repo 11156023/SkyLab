@@ -1,10 +1,12 @@
 import uuid
+from datetime import timedelta
 
 from fastapi.testclient import TestClient
 from sqlmodel import Session
 
 from app.core.config import settings
 from app.features.ai.config import settings as ai_api_settings
+from app.models import AIAPIUsage, get_datetime_utc
 from app.repositories import user as user_repo
 from app.schemas import UserCreate
 from tests.utils.user import user_authentication_headers
@@ -105,6 +107,76 @@ def test_ai_api_request_review_flow(
     # echoing the upstream shared key.
     assert isinstance(latest["api_key"], str) and latest["api_key"].startswith("ccai_")
     assert latest["api_key_prefix"] == latest["api_key"][:8]
+
+
+def test_ai_api_proxy_usage_my_uses_jwt_auth(
+    client: TestClient,
+    superuser_token_headers: dict[str, str],
+    db: Session,
+) -> None:
+    email = _unique_email("ai-api-usage-user@example.com")
+    password = random_lower_string()
+    user = user_repo.create_user(
+        session=db,
+        user_create=UserCreate(email=email, password=password),
+    )
+    db.commit()
+    db.refresh(user)
+    user_headers = user_authentication_headers(
+        client=client,
+        email=email,
+        password=password,
+    )
+
+    _create_and_approve_ai_api_request(
+        client=client,
+        user_headers=user_headers,
+        superuser_token_headers=superuser_token_headers,
+        purpose="Track AI API proxy usage in the user dashboard.",
+        api_key_name="usage-key",
+    )
+
+    credentials_response = client.get(
+        f"{settings.API_V1_STR}/ai-api/credentials/my",
+        headers=user_headers,
+    )
+    assert credentials_response.status_code == 200
+    credential_id = credentials_response.json()["data"][0]["id"]
+
+    now = get_datetime_utc()
+    db.add(
+        AIAPIUsage(
+            user_id=user.id,
+            credential_id=uuid.UUID(credential_id),
+            model_name="Qwen/Qwen3-14B-FP8",
+            request_type="chat_completion",
+            input_tokens=123,
+            output_tokens=45,
+            status="success",
+            created_at=now - timedelta(days=1),
+        )
+    )
+    db.commit()
+
+    response = client.get(
+        f"{settings.API_V1_STR}/ai-api/usage/proxy/my",
+        headers=user_headers,
+        params={
+            "start_date": (now - timedelta(days=2)).isoformat(),
+            "end_date": now.isoformat(),
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["total_requests"] == 1
+    assert payload["total_input_tokens"] == 123
+    assert payload["total_output_tokens"] == 45
+    assert payload["by_model"]["Qwen/Qwen3-14B-FP8"] == {
+        "requests": 1,
+        "input_tokens": 123,
+        "output_tokens": 45,
+    }
 
 
 def test_ai_api_requests_require_admin_for_review(

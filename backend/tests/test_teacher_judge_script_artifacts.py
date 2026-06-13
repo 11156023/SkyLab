@@ -365,7 +365,7 @@ async def test_fix_script_content_applies_line_replacements(
         ),
     )
 
-    fixed = await script_artifact_service.fix_script_content(
+    fixed, _metrics = await script_artifact_service.fix_script_content(
         script_content=source,
         fix_hints=[
             {

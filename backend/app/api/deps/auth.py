@@ -45,8 +45,10 @@ async def get_current_user(session: SessionDep, token: TokenDep) -> User:
         token_data = TokenPayload(**payload)
     except (InvalidTokenError, ValidationError):
         raise AuthenticationError("Could not validate credentials")
-    if token_data.type == "refresh":
-        raise AuthenticationError("Refresh tokens cannot be used for API access")
+    # Only access tokens may call the API — this also rejects refresh tokens
+    # and any other JWT signed with the same key (e.g. password-reset tokens).
+    if token_data.type != "access":
+        raise AuthenticationError("Only access tokens can be used for API access")
     # Per-token revocation via Redis blacklist (in addition to the
     # token_version global kill switch enforced below).
     if token_data.jti:
@@ -120,6 +122,17 @@ async def get_ws_current_user(
     except (InvalidTokenError, ValidationError):
         logger.warning("WebSocket connection with invalid token")
         raise WebSocketException(code=status.WS_1008_POLICY_VIOLATION)
+
+    # Mirror get_current_user: only access tokens may open WebSocket
+    # connections; revoked (blacklisted) tokens are rejected as well.
+    if token_data.type != "access":
+        logger.warning("WebSocket connection attempted with a non-access token")
+        raise WebSocketException(code=status.WS_1008_POLICY_VIOLATION)
+    if token_data.jti:
+        redis = await get_redis()
+        if await is_jti_revoked(redis, token_data.jti):
+            logger.warning("WebSocket connection attempted with a revoked token")
+            raise WebSocketException(code=status.WS_1008_POLICY_VIOLATION)
 
     session = Session(engine)
     try:

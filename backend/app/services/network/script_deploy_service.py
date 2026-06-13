@@ -225,7 +225,6 @@ def _ssh_connect():
         ssh_user,
         cfg.password,
         timeout=30,
-        host_key_policy="warning",
     )
 
 
@@ -311,12 +310,26 @@ def _get_all_vmids() -> set[int]:
         raise
 
 
-def _find_new_vmid(before: set[int]) -> int | None:
-    """比較部署前後的 VMID 差異，找出新建的容器。"""
+def _detect_new_vmid(before: set[int], hostname: str) -> int | None:
+    """安全地偵測本次部署建立的容器 VMID。
+
+    多個部署並發時，前後差集可能包含其他部署建立的容器——絕不能用
+    max() 亂猜（誤認領甚至誤銷毀別人的容器）。差集唯一才直接採用，
+    多個時用 hostname 精準比對，比對不到就回 None。
+    """
     after = _get_all_vmids()
     new_ids = after - before
+    if len(new_ids) == 1:
+        return next(iter(new_ids))
     if new_ids:
-        return max(new_ids)
+        for vmid in sorted(new_ids, reverse=True):
+            res = _find_resource_any(vmid)
+            if res and res.get("name") == hostname:
+                return vmid
+        return None
+    by_name = _find_vmid_by_hostname(hostname)
+    if by_name is not None and by_name not in before:
+        return by_name
     return None
 
 
@@ -426,6 +439,7 @@ def _enforce_static_network(vmid: int, net_config: dict) -> None:
             try:
                 client.close()
             except Exception:
+                # SSH 連線關閉失敗可忽略
                 pass
         actual = (out or "").strip().split()
         if ip_only in actual:
@@ -536,6 +550,7 @@ pct exec "$CTID" -- hostname -I 2>/dev/null || true
             try:
                 client.close()
             except Exception:
+                # SSH 連線關閉失敗可忽略
                 pass
 
     if exit_code != 0:
@@ -579,6 +594,7 @@ pct exec "$CTID" -- chmod 600 /root/.ssh/authorized_keys
             try:
                 client.close()
             except Exception:
+                # SSH 連線關閉失敗可忽略
                 pass
 
 
@@ -726,8 +742,12 @@ def _build_inline_env(
     return " ".join(parts)
 
 
-def _run_deployment(task: DeploymentTask, request_data: dict) -> None:  # noqa: C901
-    """在背景執行緒中執行腳本部署。"""
+def _run_deployment(task: DeploymentTask, request_data: dict, password: str) -> None:  # noqa: C901
+    """在背景執行緒中執行腳本部署。
+
+    password 以獨立參數傳遞（不放進 request_data），
+    確保 request_data 內容可以安全地寫入 log。
+    """
     client = None
     temp_script = f"/tmp/SkyLab-deploy-{task.task_id}.sh"
     build_func_file = f"/tmp/skylab-build-{task.task_id[:8]}.func"
@@ -771,7 +791,7 @@ def _run_deployment(task: DeploymentTask, request_data: dict) -> None:  # noqa: 
 
         inline_env = _build_inline_env(
             hostname=request_data["hostname"],
-            password=request_data["password"],
+            password=password,
             cpu=request_data["cpu"],
             ram=request_data["ram"],
             disk=request_data["disk"],
@@ -781,16 +801,22 @@ def _run_deployment(task: DeploymentTask, request_data: dict) -> None:  # noqa: 
             container_storage=data_storage,
             net_config=request_data.get("net_config"),
         )
-        # 安全地記錄 inline env（移除 password 與 ssh keys 的值）以利除錯
-        try:
-            safe_env = " ".join(
-                p if not (p.startswith("var_password=") or p.startswith("var_ssh_keys="))
-                else p.split("=", 1)[0] + "=***"
-                for p in inline_env.split(" ")
-            )
-            logger.info("Inline env (sanitised): %s", safe_env)
-        except Exception as e:
-            logger.debug("Sanitised env logging failed (non-fatal): %s", e)
+        # 安全地記錄部署參數：只記錄非敏感欄位，
+        # 不經過 _build_inline_env，確保 log 與密碼完全無資料流關聯
+        logger.info(
+            "Inline env params: hostname=%s cpu=%s ram=%s disk=%s"
+            " unprivileged=%s ssh=%s template_storage=%s container_storage=%s"
+            " net_config=%s",
+            request_data["hostname"],
+            request_data["cpu"],
+            request_data["ram"],
+            request_data["disk"],
+            request_data["unprivileged"],
+            request_data["ssh"],
+            iso_storage,
+            data_storage,
+            request_data.get("net_config"),
+        )
 
         # 2.6 下載 build.func 並修補升級提示函式，避免無人值守時卡住。
         #
@@ -850,9 +876,7 @@ def _run_deployment(task: DeploymentTask, request_data: dict) -> None:  # noqa: 
         task.progress = "正在確認部署結果…"
         _store_task(task)
 
-        new_vmid = _find_new_vmid(vmids_before)
-        if new_vmid is None:
-            new_vmid = _find_vmid_by_hostname(request_data["hostname"])
+        new_vmid = _detect_new_vmid(vmids_before, request_data["hostname"])
 
         if new_vmid is None:
             raise RuntimeError(
@@ -943,10 +967,11 @@ def _run_deployment(task: DeploymentTask, request_data: dict) -> None:  # noqa: 
             _cleanup_script_on_node(client, temp_script)
             _cleanup_script_on_node(client, build_func_file)
 
-        # 回滾：銷毀已建立的容器
-        rollback_vmid = new_vmid or _find_new_vmid(vmids_before)
-        if rollback_vmid is None:
-            rollback_vmid = _find_vmid_by_hostname(request_data["hostname"])
+        # 回滾：銷毀已建立的容器（只銷毀能確認屬於本次部署的容器，
+        # 避免並發部署時誤毀別人剛建立的容器）
+        rollback_vmid = new_vmid or _detect_new_vmid(
+            vmids_before, request_data["hostname"]
+        )
 
         if rollback_vmid:
             logger.info("回滾：正在銷毀容器 VMID=%s", rollback_vmid)
@@ -978,6 +1003,7 @@ def _run_deployment(task: DeploymentTask, request_data: dict) -> None:  # noqa: 
             try:
                 client.close()
             except Exception:
+                # SSH 連線關閉失敗可忽略
                 pass
 
 
@@ -1012,6 +1038,9 @@ def start_deployment(
     user_id: str,
 ) -> str:
     """啟動背景部署任務，回傳 task_id。"""
+    # 把密碼從 request_data 抽出來單獨傳遞，
+    # 之後 request_data 的內容才能安全地出現在 log
+    password = request_data.pop("password", "")
     task_id = str(uuid.uuid4())
     task = DeploymentTask(
         task_id=task_id,
@@ -1028,7 +1057,7 @@ def start_deployment(
 
     thread = threading.Thread(
         target=_run_deployment,
-        args=(task, request_data),
+        args=(task, request_data, password),
         daemon=True,
         name=f"deploy-{task_id[:8]}",
     )
@@ -1082,11 +1111,12 @@ def deploy_for_vm_request_sync(
     # Pre-create cancel event so cancel_task() can interrupt before streaming starts
     _make_cancel_event(task_id)
 
+    # password 不放進 request_data —— 以獨立參數傳給 _run_deployment，
+    # 確保 request_data 可以安全寫入 log
     request_data = {
         "template_slug": template_slug,
         "script_path": script_path or f"ct/{template_slug}.sh",
         "hostname": hostname,
-        "password": password,
         "cpu": cpu,
         "ram": ram,
         "disk": max(int(disk), 1),
@@ -1100,7 +1130,7 @@ def deploy_for_vm_request_sync(
     }
 
     try:
-        _run_deployment(task, request_data)
+        _run_deployment(task, request_data, password)
     finally:
         _release_request(request_id, task_id)
 

@@ -92,7 +92,9 @@ def test_vm_request_authorizers_match_existing_role_rules() -> None:
     teacher = _user(role=UserRole.teacher)
     student = _user(role=UserRole.student)
 
-    assert can_auto_approve_vm_request(admin, mode="scheduled") is True
+    assert can_auto_approve_vm_request(admin, mode="scheduled") is False
+    assert can_auto_approve_vm_request(admin, mode="immediate") is True
+    assert can_auto_approve_vm_request(admin, mode="quick_template") is True
     assert can_auto_approve_vm_request(teacher, mode="immediate") is True
     assert can_auto_approve_vm_request(teacher, mode="scheduled") is False
     assert can_auto_approve_vm_request(student, mode="immediate") is False

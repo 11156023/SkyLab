@@ -1,0 +1,59 @@
+name: Deploy to PVE Test
+
+# 只有 push 到 main（即 PR merge 後）與手動觸發會執行。
+# 絕對不要加 pull_request / pull_request_target —— 這個 workflow 跑在
+# self-hosted runner 上，讓 PR 觸發等於允許外部程式碼在內網機器執行。
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# 同一時間只允許一個部署，且不中斷進行中的部署
+concurrency:
+  group: deploy-pve-test
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    name: Deploy to PVE test environment
+    # 防止其他 fork 收錄此檔後誤觸發（它們沒有掛 skylab runner，
+    # job 會無限排隊）
+    if: github.repository == 'ntubclass/SkyLab'
+    runs-on: [self-hosted, Linux, X64]
+    # 綁定 pve-test environment：required reviewers 會擋在 job 開始前，
+    # 管理者在 Actions 頁面按下 Approve 才會真正部署
+    environment: pve-test
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5.0.1
+
+      - name: Load deployment .env
+        # 機密不進 repo，固定放在 runner VM 的 /opt/skylab/.env
+        run: cp /opt/skylab/.env .env
+
+      - name: Build images
+        run: docker compose build
+
+      - name: Deploy
+        run: docker compose up -d --remove-orphans
+
+      - name: Smoke test
+        run: |
+          for i in {1..30}; do
+            if curl -fsS http://localhost:8000/api/v1/utils/health-check/; then
+              echo "Backend healthy"
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "Backend did not become healthy in time"
+          docker compose logs --tail 50 backend
+          exit 1
+
+      - name: Cleanup dangling images
+        if: always()
+        run: docker image prune -f

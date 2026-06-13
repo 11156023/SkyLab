@@ -8,7 +8,6 @@ from datetime import datetime
 from typing import Any
 
 import sqlalchemy as sa
-from sqlalchemy import DateTime
 from sqlmodel import Column, Field, SQLModel
 
 from .base import get_datetime_utc
@@ -132,15 +131,15 @@ class TeacherJudgeScriptArtifact(SQLModel, table=True):
     )
     created_at: datetime = Field(
         default_factory=get_datetime_utc,
-        sa_column=Column(DateTime(timezone=True), nullable=False, index=True),
+        sa_column=Column(sa.DateTime(timezone=True), nullable=False, index=True),
     )
     updated_at: datetime = Field(
         default_factory=get_datetime_utc,
-        sa_column=Column(DateTime(timezone=True), nullable=False),
+        sa_column=Column(sa.DateTime(timezone=True), nullable=False),
     )
     approved_at: datetime | None = Field(
         default=None,
-        sa_column=Column(DateTime(timezone=True), nullable=True),
+        sa_column=Column(sa.DateTime(timezone=True), nullable=True),
     )
 
 

@@ -6,6 +6,11 @@ export const ResourcesService = {
     return apiGet("/api/v1/resources/my");
   },
 
+  /** 取得所有資源列表（管理員） */
+  listAll() {
+    return apiGet("/api/v1/resources/");
+  },
+
   /** 啟動 */
   start(vmid) {
     return apiPost(`/api/v1/resources/${vmid}/start`, {});

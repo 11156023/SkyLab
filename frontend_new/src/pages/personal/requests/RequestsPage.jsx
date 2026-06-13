@@ -1,15 +1,16 @@
 import { useCallback, useEffect, useState } from "react";
 import styles from "./RequestsPage.module.scss";
 import { VmRequestsService } from "../../../services/vmRequests";
+import { useToast } from "../../../hooks/useToast";
 import RequestFormPage from "./RequestFormPage";
 import MIcon from "../../../components/MIcon";
 
 /* ── Constants ── */
 const STATUS_MAP = {
-  pending:   { label: "審核中", color: "info",    icon: "schedule"     },
-  approved:  { label: "已核准", color: "success", icon: "check_circle" },
-  rejected:  { label: "已拒絕", color: "danger",  icon: "cancel"       },
-  cancelled: { label: "已取消", color: "muted",   icon: "block"        },
+  pending:   { label: "審核中", color: "info"    },
+  approved:  { label: "已核准", color: "success" },
+  rejected:  { label: "已拒絕", color: "danger"  },
+  cancelled: { label: "已取消", color: "muted"   },
 };
 
 const RESOURCE_TYPE_MAP = {
@@ -17,9 +18,30 @@ const RESOURCE_TYPE_MAP = {
   vm:  { label: "虛擬機 (VM)", icon: "computer" },
 };
 
-/* Per status-design.md: VMRequest.status only — provisioning lives on Resource.status */
-const CANCELLABLE = new Set(["pending", "approved"]);
-const RETRYABLE   = new Set(["approved"]);
+/* 開通成功後 VMRequest.status 仍停留在 approved（後端只把 vmid 寫回），
+   所以「重試／撤銷」必須同時看 vmid：vmid 已存在代表機器已開出來，
+   重試會把使用者關機的 VM 重新開機、撤銷會讓 request 與活著的資源脫鉤。 */
+function canRetry(req) {
+  return req.status === "approved" && req.vmid == null;
+}
+
+function canCancel(req) {
+  return (
+    req.status === "pending" ||
+    (req.status === "approved" && req.vmid == null)
+  );
+}
+
+/* approved 在 UI 上再依開通進度細分（vmid 為空時 migration_status 反映的是開通流程） */
+function getDisplayStatus(req) {
+  if (req.status === "approved") {
+    if (req.vmid != null)                    return { label: "已開通",   color: "success" };
+    if (req.migration_status === "failed")   return { label: "開通失敗", color: "danger"  };
+    if (req.migration_status === "running")  return { label: "開通中",   color: "info"    };
+    return { label: "已核准", color: "success" };
+  }
+  return STATUS_MAP[req.status] ?? { label: req.status, color: "muted" };
+}
 
 const VIEW_LIST   = "list";
 const VIEW_CREATE = "create";
@@ -63,8 +85,8 @@ function getMemDisplay(memMB) {
 }
 
 /* ── Primitive sub-components ── */
-function StatusBadge({ status }) {
-  const s = STATUS_MAP[status] ?? { label: status, color: "muted", icon: "info" };
+function StatusBadge({ req }) {
+  const s = getDisplayStatus(req);
   return (
     <span className={`${styles.badge} ${styles[`badge_${s.color}`]}`}>
       {s.label}
@@ -136,6 +158,7 @@ function ConfirmModal({ title, desc, confirmLabel = "確定", danger = false, lo
 
 /* ── RequestCard ── */
 function RequestCard({ req, onUpdated }) {
+  const toast = useToast();
   const [cancelConfirm, setCancelConfirm] = useState(false);
   const [cancelling, setCancelling]       = useState(false);
   const [retrying, setRetrying]           = useState(false);
@@ -151,6 +174,9 @@ function RequestCard({ req, onUpdated }) {
     try {
       const updated = await VmRequestsService.cancel(req.id);
       onUpdated(updated);
+      toast.success(`已撤銷申請「${req.hostname}」`);
+    } catch (err) {
+      toast.error(err?.message ?? "撤銷失敗，請稍後再試。");
     } finally {
       setCancelling(false);
       setCancelConfirm(false);
@@ -162,6 +188,9 @@ function RequestCard({ req, onUpdated }) {
     try {
       const updated = await VmRequestsService.retry(req.id);
       onUpdated(updated);
+      toast.success("已重新觸發開通，請稍後重新整理查看進度");
+    } catch (err) {
+      toast.error(err?.message ?? "重試失敗，請稍後再試。");
     } finally {
       setRetrying(false);
     }
@@ -183,7 +212,7 @@ function RequestCard({ req, onUpdated }) {
               {req.vmid && <span className={styles.vmidChip}>VMID {req.vmid}</span>}
             </div>
           </div>
-          <StatusBadge status={req.status} />
+          <StatusBadge req={req} />
         </div>
 
         {/* ── Info rows ── */}
@@ -218,17 +247,25 @@ function RequestCard({ req, onUpdated }) {
           </div>
         )}
 
+        {/* ── Provisioning failure reason ── */}
+        {canRetry(req) && req.migration_status === "failed" && req.migration_error && (
+          <div className={styles.reviewComment}>
+            <MIcon name="error_outline" size={13} />
+            <span>{req.migration_error}</span>
+          </div>
+        )}
+
         {/* ── Footer ── */}
         <div className={styles.cardFooter}>
           <span className={styles.cardDate}>申請於 {formatDate(req.created_at)}</span>
           <div className={styles.cardActions}>
-            {RETRYABLE.has(req.status) && (
+            {canRetry(req) && (
               <button type="button" className={styles.retryBtn} disabled={retrying} onClick={handleRetry}>
                 <MIcon name="refresh" size={13} />
                 {retrying ? "…" : "重試"}
               </button>
             )}
-            {CANCELLABLE.has(req.status) && (
+            {canCancel(req) && (
               <button type="button" className={styles.cardCancelBtn} onClick={() => setCancelConfirm(true)}>
                 <MIcon name="close" size={13} />
                 撤銷申請

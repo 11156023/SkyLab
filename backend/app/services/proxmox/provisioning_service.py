@@ -6,8 +6,8 @@ from urllib.parse import quote
 
 from sqlmodel import Session
 
-from app.ai.pve_advisor import recommendation_service as advisor_service
 from app.core.security import decrypt_value, encrypt_value
+from app.domain.placement import advisor as placement_advisor
 from app.exceptions import ProxmoxError
 from app.infrastructure.proxmox import get_proxmox_settings
 from app.infrastructure.ssh.client import generate_ed25519_keypair
@@ -111,11 +111,11 @@ def _select_request_placement(
                 f"'{getattr(db_request, 'gpu_mapping_id', '')}'."
             )
 
-        nodes, resources = advisor_service._load_cluster_state()
+        nodes, resources = placement_advisor._load_cluster_state()
         cpu_overcommit_ratio, disk_overcommit_ratio = (
             vm_request_placement_service.get_overcommit_ratios(session)
         )
-        node_capacities = advisor_service._build_node_capacities(
+        node_capacities = placement_advisor._build_node_capacities(
             nodes=nodes,
             resources=resources,
             cpu_overcommit_ratio=cpu_overcommit_ratio,
@@ -124,7 +124,7 @@ def _select_request_placement(
         node_capacities = [
             item for item in node_capacities if item.node == str(pinned_node)
         ]
-        effective_resource_type, resource_type_reason = advisor_service._decide_resource_type(
+        effective_resource_type, resource_type_reason = placement_advisor._decide_resource_type(
             placement_request
         )
         placement = vm_request_placement_service.CurrentPlacementSelection(

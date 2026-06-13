@@ -95,9 +95,40 @@ class Settings(BaseSettings):
         description="Reasoning 輸出解析器 (qwen3, deepseek_r1 等)",
         validation_alias=AliasChoices("REASONING_PARSER", "reasoning-parser", "reasoning_parser"),
     )
+    reasoning_config: str = Field(
+        default="",
+        description="Reasoning 邊界設定 JSON（對應 --reasoning-config）",
+    )
     chat_template: str = Field(
         default="",
         description="Chat template 路徑 (Jinja2 格式)；啟用 tool-call-parser 或 reasoning-parser 時通常必填",
+    )
+    generation_config: str = Field(
+        default="",
+        description="生成設定來源（如 vllm，對應 --generation-config）",
+    )
+    enable_request_id_headers: bool = Field(
+        default=False,
+        description="啟用 X-Request-Id 標頭支援（對應 --enable-request-id-headers）",
+    )
+    scheduling_policy: str = Field(
+        default="",
+        description='排程策略（fcfs 或 priority；對應 --scheduling-policy）',
+    )
+    max_num_partial_prefills: int | None = Field(
+        default=None,
+        description="Chunked prefill 可同時部分 prefill 的最大序列數",
+        ge=1,
+    )
+    max_long_partial_prefills: int | None = Field(
+        default=None,
+        description="Chunked prefill 下長 prompt 可同時部分 prefill 的最大數量",
+        ge=1,
+    )
+    long_prefill_token_threshold: int | None = Field(
+        default=None,
+        description="超過此 token 數的 prompt 視為長 prompt",
+        ge=0,
     )
     limit_mm_per_prompt: str = Field(
         default="",
@@ -183,7 +214,15 @@ class Settings(BaseSettings):
 
     # ---- HuggingFace 設定 ----
     hf_hub_offline: int = Field(default=0, description="HuggingFace 離線模式")
-    vllm_usage_stats_enabled: int = Field(default=0, description="vLLM 使用統計")
+    vllm_usage_stats_enabled: bool = Field(
+        default=False,
+        description="是否啟用 vLLM 匿名使用統計（舊版相容欄位；會映射為 VLLM_NO_USAGE_STATS）",
+    )
+    vllm_no_usage_stats: bool | None = Field(
+        default=None,
+        description="vLLM 官方使用統計停用旗標（1 表示停用匿名使用統計）",
+        validation_alias=AliasChoices("VLLM_NO_USAGE_STATS", "DO_NOT_TRACK"),
+    )
     tokenizers_parallelism: bool = Field(default=False, description="Tokenizer 平行化")
 
     # ---- Triton/CUDA 設定 ----
@@ -205,7 +244,10 @@ class Settings(BaseSettings):
         "vllm_nvfp4_gemm_backend",
         "tool_call_parser",
         "reasoning_parser",
+        "reasoning_config",
         "chat_template",
+        "generation_config",
+        "scheduling_policy",
         "limit_mm_per_prompt",
         "moe_backend",
         mode="before",
@@ -232,6 +274,15 @@ class Settings(BaseSettings):
         if v > 128000:
             import warnings
             warnings.warn(f"max_model_len={v} 過大，可能導致 OOM")
+        return v
+
+    @field_validator("scheduling_policy")
+    @classmethod
+    def validate_scheduling_policy(cls, v: str) -> str:
+        if not v:
+            return ""
+        if v not in {"fcfs", "priority"}:
+            raise ValueError("scheduling_policy 只能是 'fcfs' 或 'priority'")
         return v
 
     @property
@@ -349,11 +400,25 @@ class Settings(BaseSettings):
             args.extend(["--tool-call-parser", tool_call_parser])
         if self.reasoning_parser:
             args.extend(["--reasoning-parser", self.reasoning_parser])
+        if self.reasoning_config:
+            args.extend(["--reasoning-config", self.reasoning_config])
         if self.chat_template:
             tmpl_path = Path(self.chat_template)
             if not tmpl_path.is_absolute():
                 tmpl_path = PROJECT_ROOT / tmpl_path
             args.extend(["--chat-template", str(tmpl_path)])
+        if self.generation_config:
+            args.extend(["--generation-config", self.generation_config])
+        if self.enable_request_id_headers:
+            args.append("--enable-request-id-headers")
+        if self.scheduling_policy:
+            args.extend(["--scheduling-policy", self.scheduling_policy])
+        if self.max_num_partial_prefills is not None:
+            args.extend(["--max-num-partial-prefills", str(self.max_num_partial_prefills)])
+        if self.max_long_partial_prefills is not None:
+            args.extend(["--max-long-partial-prefills", str(self.max_long_partial_prefills)])
+        if self.long_prefill_token_threshold is not None:
+            args.extend(["--long-prefill-token-threshold", str(self.long_prefill_token_threshold)])
         if self.limit_mm_per_prompt:
             args.extend(["--limit-mm-per-prompt", self.limit_mm_per_prompt])
         if self.moe_backend:
@@ -379,7 +444,18 @@ class Settings(BaseSettings):
         os.environ["HF_MODULES_CACHE"] = str(modules_cache)
         os.environ.setdefault("HUGGING_FACE_HUB_TOKEN", "")
         os.environ.setdefault("HF_HUB_OFFLINE", str(self.hf_hub_offline))
-        os.environ.setdefault("VLLM_USAGE_STATS_ENABLED", str(self.vllm_usage_stats_enabled))
+        # vLLM 0.22.1 以 VLLM_NO_USAGE_STATS / DO_NOT_TRACK 控制匿名統計，
+        # 不再接受舊的 VLLM_USAGE_STATS_ENABLED。
+        disable_usage_stats = (
+            self.vllm_no_usage_stats
+            if self.vllm_no_usage_stats is not None
+            else (not self.vllm_usage_stats_enabled)
+        )
+        os.environ.pop("VLLM_USAGE_STATS_ENABLED", None)
+        if disable_usage_stats:
+            os.environ["VLLM_NO_USAGE_STATS"] = "1"
+        else:
+            os.environ.pop("VLLM_NO_USAGE_STATS", None)
         os.environ.setdefault("TOKENIZERS_PARALLELISM", str(self.tokenizers_parallelism).lower())
         
         # Triton/CUDA 設定 - 對 Blackwell 等新 GPU 至關重要

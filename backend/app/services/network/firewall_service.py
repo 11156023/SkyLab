@@ -38,7 +38,6 @@ _DEFAULT_GATEWAY_Y = 300.0
 _CC_PREFIX = "SkyLab:"
 _GATEWAY_COMMENT = f"{_CC_PREFIX}gateway:default"
 _BLOCK_EXTRA_PREFIX = f"{_CC_PREFIX}block-extra:"
-_INTERNET_INBOUND_PREFIX = f"{_CC_PREFIX}gateway->"
 _GATEWAY_FULL_ACCESS_COMMENT = f"{_CC_PREFIX}gateway:full-access"
 
 
@@ -598,7 +597,7 @@ def create_connection(
                     from app.services.network import (
                         reverse_proxy_service,  # noqa: PLC0415
                     )
-                    reverse_proxy_service.apply_reverse_proxy_rule(
+                    reverse_proxy_service.apply_reverse_proxy_rule_for_domain(
                         session=session,
                         vmid=target_vmid,
                         vm_ip=tgt_ip,

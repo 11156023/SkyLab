@@ -114,7 +114,7 @@ class _ErrorOnlyFilter(logging.Filter):
         return record.levelno >= logging.ERROR
 
 
-_CONFIGURED = False
+_configure_state = {"configured": False}
 
 
 def configure_logging(
@@ -134,8 +134,7 @@ def configure_logging(
         log_dir:      Directory for log files.
         file_enabled: Whether to write log files at all.
     """
-    global _CONFIGURED
-    if _CONFIGURED:
+    if _configure_state["configured"]:
         return
 
     ws_filter = WebSocketNoiseFilter()
@@ -191,4 +190,4 @@ def configure_logging(
     logging.getLogger("uvicorn.error").addFilter(ws_filter)
     logging.getLogger("httpx").setLevel("WARNING")
 
-    _CONFIGURED = True
+    _configure_state["configured"] = True

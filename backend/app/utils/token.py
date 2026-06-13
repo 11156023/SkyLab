@@ -16,7 +16,7 @@ def generate_password_reset_token(email: str) -> str:
     expires = now + delta
     exp = expires.timestamp()
     encoded_jwt = jwt.encode(
-        {"exp": exp, "nbf": now, "sub": email},
+        {"exp": exp, "nbf": now, "sub": email, "type": "reset"},
         settings.SECRET_KEY,
         algorithm=security.ALGORITHM,
     )
@@ -29,6 +29,10 @@ def verify_password_reset_token(token: str) -> str | None:
         decoded_token = jwt.decode(
             token, settings.SECRET_KEY, algorithms=[security.ALGORITHM]
         )
+        # 同一把 SECRET_KEY 也用來簽 access/refresh token——必須驗證用途，
+        # 避免其他類型的 token 被當成密碼重設 token 使用。
+        if decoded_token.get("type") != "reset":
+            return None
         return str(decoded_token["sub"])
     except InvalidTokenError:
         return None

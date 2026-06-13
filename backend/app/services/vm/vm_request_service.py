@@ -54,6 +54,7 @@ QUICK_TEMPLATE_ALLOWED_SLUGS = frozenset(
         "mongodb",
         "grafana",
         "homepage",
+        "n8n",
         "wordpress",
     }
 )
@@ -88,6 +89,8 @@ def _to_public(req: VMRequest, user_override=None) -> VMRequestPublic:
         disk_size=req.disk_size,
         username=req.username,
         status=req.status,
+        service_template_slug=req.service_template_slug,
+        service_template_script_path=req.service_template_script_path,
         reviewer_id=req.reviewer_id,
         review_comment=req.review_comment,
         reviewed_at=req.reviewed_at,
@@ -782,10 +785,16 @@ def cancel(
     """Cancel a VM request.
 
     - ``pending``: standard flow.
-    - ``approved``: cancel before the resource becomes controllable.
-      If the worker is mid-Proxmox-clone the clone may still complete; the
-      scheduler reconciliation will then expose the live machine in resources. We
-      surface 409 in that case rather than silently lying about the state.
+    - ``approved`` without ``vmid``: cancel before the resource becomes
+      controllable. If the worker is mid-Proxmox-clone the clone may still
+      complete; the scheduler reconciliation will then expose the live machine
+      in resources. We surface 409 in that case rather than silently lying
+      about the state.
+    - ``approved`` with ``vmid``: rejected. The machine is already provisioned
+      and the scheduler manages it through the active-approved-request list;
+      cancelling here would orphan the live VM (no start window, auto-shutdown
+      or migration). The resource deletion flow cancels the request itself
+      (``review_comment="Resource deleted by user"``).
     """
     from app.infrastructure.worker import (  # noqa: PLC0415
         cancel as _cancel_bg_task,
@@ -811,6 +820,17 @@ def cancel(
     if db_request.status not in cancellable:
         raise BadRequestError(
             f"Cannot cancel VM request in status={db_request.status.value}"
+        )
+
+    if (
+        db_request.status == VMRequestStatus.approved
+        and db_request.vmid is not None
+    ):
+        raise BadRequestError(
+            "This request has already been provisioned and its machine is "
+            "managed by the scheduler; cancelling it here would orphan the "
+            "running machine. Delete the resource instead — resource "
+            "deletion cancels the request automatically."
         )
 
     if db_request.status == VMRequestStatus.approved and db_request.vmid is None:

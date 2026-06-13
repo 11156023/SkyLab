@@ -30,7 +30,6 @@ describe("AuthSessionService.revokeTokens", () => {
   beforeEach(() => {
     // @ts-expect-error - jsdom shim
     globalThis.window = globalThis as unknown as Window
-    // @ts-expect-error - jsdom shim
     globalThis.localStorage = new MemoryStorage()
   })
 
@@ -44,8 +43,8 @@ describe("AuthSessionService.revokeTokens", () => {
 
   it("does nothing when no access token is stored", async () => {
     const fetchSpy = vi
-      .spyOn(globalThis, "fetch" as never)
-      .mockResolvedValue(new Response(null, { status: 200 }) as never)
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValue(new Response(null, { status: 200 }))
 
     await AuthSessionService.revokeTokens()
 
@@ -57,8 +56,8 @@ describe("AuthSessionService.revokeTokens", () => {
     localStorage.setItem(REFRESH_KEY, "refresh-xyz")
 
     const fetchSpy = vi
-      .spyOn(globalThis, "fetch" as never)
-      .mockResolvedValue(new Response(null, { status: 200 }) as never)
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValue(new Response(null, { status: 200 }))
 
     await AuthSessionService.revokeTokens()
 
@@ -79,8 +78,8 @@ describe("AuthSessionService.revokeTokens", () => {
     localStorage.setItem(ACCESS_KEY, "access-only")
 
     const fetchSpy = vi
-      .spyOn(globalThis, "fetch" as never)
-      .mockResolvedValue(new Response(null, { status: 200 }) as never)
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValue(new Response(null, { status: 200 }))
 
     await AuthSessionService.revokeTokens()
 
@@ -90,9 +89,7 @@ describe("AuthSessionService.revokeTokens", () => {
 
   it("never throws even if fetch rejects", async () => {
     localStorage.setItem(ACCESS_KEY, "access-fail")
-    vi.spyOn(globalThis, "fetch" as never).mockRejectedValue(
-      new Error("network down") as never,
-    )
+    vi.spyOn(globalThis, "fetch").mockRejectedValue(new Error("network down"))
 
     await expect(AuthSessionService.revokeTokens()).resolves.toBeUndefined()
   })

@@ -73,6 +73,7 @@ export const TEMPLATE_CATEGORIES = [
   { id: "databases",    title: "資料庫",   desc: "關聯式資料庫與 NoSQL" },
   { id: "data-science", title: "資料科學", desc: "資料分析與機器學習" },
   { id: "monitoring",   title: "監控",     desc: "系統指標收集與視覺化" },
+  { id: "automation",   title: "自動化",   desc: "工作流程與服務整合" },
   { id: "ai-devtools",  title: "AI 工具",  desc: "LLM 部署與 AI 應用" },
   { id: "webservers",   title: "網站服務", desc: "網頁應用與入口儀表板" },
 ];
@@ -81,6 +82,7 @@ export const CATEGORY_ACCENT = {
   databases:      "#5471bf",
   "data-science": "#7b92d0",
   monitoring:     "#5471bf",
+  automation:      "#3f8f7b",
   "ai-devtools":  "#7b92d0",
   webservers:     "#5471bf",
 };
@@ -100,6 +102,8 @@ export const TEMPLATES = [
     desc: "資料科學與機器學習的互動式環境，支援 Python 科學運算。" },
   { slug: "grafana",         name: "Grafana",          icon: "show_chart", logo: `${LOGO_BASE}/grafana.webp`,      categoryId: "monitoring",
     desc: "強大的監控指標視覺化儀表板，支援多種資料來源。" },
+  { slug: "n8n",             name: "n8n",              icon: "account_tree", logo: `${LOGO_BASE}/n8n.webp`,        categoryId: "automation",
+    desc: "視覺化工作流程自動化工具，可串接 API、資料來源與外部服務。" },
   { slug: "openwebui",       name: "Open WebUI",       icon: "psychology", logo: `${LOGO_BASE}/open-webui.webp`,   categoryId: "ai-devtools",
     desc: "本地 LLM 對話介面，支援多種開源模型。" },
   { slug: "wordpress",       name: "WordPress",        icon: "article",    logo: `${LOGO_BASE}/wordpress.webp`,    categoryId: "webservers",

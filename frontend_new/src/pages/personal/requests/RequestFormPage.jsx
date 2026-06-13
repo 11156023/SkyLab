@@ -5,6 +5,7 @@ import { LayoutContext } from "../../../layout/DashboardLayout";
 import { useAuth } from "../../../contexts/AuthContext";
 import { useToast } from "../../../hooks/useToast";
 import { VmRequestsService } from "../../../services/vmRequests";
+import { VmRequestAvailabilityService } from "../../../services/vmRequestAvailability";
 import { GpuService } from "../../../services/gpu";
 import { apiGet } from "../../../services/api";
 import AiSidePanel from "./AiSidePanel";
@@ -201,9 +202,14 @@ export default function RequestFormPage({ onBack, className, quickTemplateSlug }
     (mode === "immediate" || (form.start_at && form.end_at));
 
   useEffect(() => {
+    if (resourceType !== "vm" && form.gpu_mapping_id) {
+      setForm((prev) => ({ ...prev, gpu_mapping_id: "" }));
+    }
+  }, [resourceType, form.gpu_mapping_id]);
+
+  useEffect(() => {
     if (!canLoadGpu) {
       setGpuOptions([]);
-      setForm((prev) => ({ ...prev, gpu_mapping_id: "" }));
       return;
     }
     setGpuLoading(true);
@@ -336,6 +342,31 @@ export default function RequestFormPage({ onBack, className, quickTemplateSlug }
         );
         if (!gpuStillAvailable) {
           toast.error("目前所選時段的 GPU 已不可用，請重新選擇時段或 GPU。");
+          setSubmitting(false);
+          return;
+        }
+      }
+
+      if (mode === "scheduled") {
+        const windowAvailability = await VmRequestAvailabilityService.windowAvailability({
+          resource_type: resourceType,
+          cores: form.cores,
+          memory: form.memory,
+          ...(resourceType === "lxc"
+            ? { rootfs_size: form.rootfs_size }
+            : { disk_size: form.disk_size }),
+          gpu_required: selectedGpuId ? 1 : 0,
+          start_at: form.start_at,
+          end_at: form.end_at,
+          mode: "scheduled",
+        });
+
+        if (windowAvailability?.feasible === false) {
+          toast.error(
+            windowAvailability.reason ||
+            windowAvailability.summary ||
+            "所選時段目前沒有足夠資源，請重新選擇時段或調整規格。",
+          );
           setSubmitting(false);
           return;
         }
@@ -778,7 +809,7 @@ export default function RequestFormPage({ onBack, className, quickTemplateSlug }
                       ...(resourceType === "lxc"
                         ? { rootfs_size: form.rootfs_size }
                         : { disk_size:   form.disk_size }),
-                      gpu_required: form.gpu_mapping_id ? 1 : 0,
+                      gpu_required: 0,
                     }}
                     onChange={({ start_at, end_at }) => {
                       setForm((prev) => ({ ...prev, start_at: start_at ?? "", end_at: end_at ?? "" }));

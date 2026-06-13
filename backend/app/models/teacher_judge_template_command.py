@@ -2,7 +2,6 @@ import uuid
 from datetime import datetime
 
 import sqlalchemy as sa
-from sqlalchemy import DateTime
 from sqlmodel import Field, SQLModel
 
 from .base import get_datetime_utc
@@ -32,11 +31,11 @@ class TeacherJudgeTemplateCommand(SQLModel, table=True):
     enabled: bool = Field(default=True, index=True)
     created_at: datetime = Field(
         default_factory=get_datetime_utc,
-        sa_type=DateTime(timezone=True),
+        sa_type=sa.DateTime(timezone=True),
     )
     updated_at: datetime = Field(
         default_factory=get_datetime_utc,
-        sa_type=DateTime(timezone=True),
+        sa_type=sa.DateTime(timezone=True),
     )
 
 

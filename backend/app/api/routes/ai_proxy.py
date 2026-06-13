@@ -108,6 +108,7 @@ async def chat_completions(
                                     input_tokens = int(usage.get("prompt_tokens") or 0)
                                     output_tokens = int(usage.get("completion_tokens") or 0)
                             except (json.JSONDecodeError, ValueError):
+                                # 略過無法解析的 SSE chunk，不影響串流轉發
                                 pass
 
                         yield chunk_str

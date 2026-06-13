@@ -47,6 +47,10 @@ export default defineConfig(({ mode }) => {
   const wsTarget = apiUrl.replace(/^http/, "ws")
 
   return {
+    // Production 部署時掛在 /old/ subpath（共用 nginx 反向代理同源入口），
+    // dev mode 仍走 root 讓 `bun run dev` 直接訪問 http://localhost:5173。
+    // main.tsx 透過 import.meta.env.BASE_URL 同步 router basepath。
+    base: mode === "production" ? "/old/" : "/",
     resolve: {
       alias: {
         "@": path.resolve(__dirname, "./src"),

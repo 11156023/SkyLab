@@ -65,10 +65,7 @@ def upsert_subnet_config(
         from app.services.network import firewall_service  # noqa: PLC0415
         firewall_service.sync_block_local_subnet_rules()
     except Exception as e:
-        import logging  # noqa: PLC0415
-        logging.getLogger(__name__).warning(
-            "同步預設封鎖防火牆規則失敗（非致命）: %s", e
-        )
+        logger.warning("同步預設封鎖防火牆規則失敗（非致命）: %s", e)
     stats = ip_management_service.get_ip_stats(session)
     return SubnetConfigPublic(
         cidr=config.cidr,

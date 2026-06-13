@@ -65,7 +65,11 @@ def _extract_gpu_info(description: str, mapping_id: str) -> tuple[str, str, int]
     vram_mb = 0
 
     # Try to find VRAM pattern like "24GB", "12 GB", "8192MB"
-    vram_match = re.search(r"(\d+)\s*(GB|MB|GiB|MiB)", text, re.IGNORECASE)
+    # 數字與空白都用有界量詞（而非 \d+、\s*）避免長輸入造成多項式回溯；
+    # (?<!\d) 確保不會從長數字中間開始匹配
+    vram_match = re.search(
+        r"(?<!\d)(\d{1,6})\s{0,8}(GB|MB|GiB|MiB)", text, re.IGNORECASE
+    )
     if vram_match:
         amount = int(vram_match.group(1))
         unit = vram_match.group(2).upper()

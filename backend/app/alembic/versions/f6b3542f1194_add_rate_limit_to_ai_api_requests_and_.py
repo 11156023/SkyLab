@@ -8,8 +8,6 @@ Create Date: 2026-04-04 21:42:31.895406
 
 from alembic import op
 import sqlalchemy as sa
-import sqlmodel.sql.sqltypes
-from sqlalchemy import inspect
 
 
 # revision identifiers, used by Alembic.
@@ -21,7 +19,7 @@ depends_on = None
 
 def upgrade():
     connection = op.get_bind()
-    inspector = inspect(connection)
+    inspector = sa.inspect(connection)
 
     request_columns = {col["name"] for col in inspector.get_columns("ai_api_requests")}
     if "rate_limit" not in request_columns:
@@ -52,7 +50,7 @@ def upgrade():
 
 def downgrade():
     connection = op.get_bind()
-    inspector = inspect(connection)
+    inspector = sa.inspect(connection)
 
     credential_columns = {
         col["name"] for col in inspector.get_columns("ai_api_credentials")
