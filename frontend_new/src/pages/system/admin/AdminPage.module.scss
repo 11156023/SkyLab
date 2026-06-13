@@ -39,23 +39,120 @@
   color: var(--color-text-secondary);
 }
 
-.btnPrimary {
+.btnPrimary,
+.btnSecondary,
+.btnDanger {
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: 6px;
+  min-height: 36px;
   padding: 8px $spacing-16;
   border-radius: $radius-8;
   font-size: $font-size-14;
   font-weight: $font-weight-500;
   cursor: pointer;
   white-space: nowrap;
+  transition: background $transition-base, border-color $transition-base, box-shadow $transition-base, color $transition-base;
+
+  &:disabled {
+    opacity: 0.55;
+    cursor: not-allowed;
+  }
+}
+
+.btnPrimary {
   background: var(--color-primary);
   color: var(--color-text-on-primary);
-  transition: background $transition-base, box-shadow $transition-base;
 
-  &:hover {
+  &:hover:not(:disabled) {
     background: var(--color-primary-dark);
     box-shadow: var(--shadow-sm);
+  }
+}
+
+.btnSecondary {
+  background: var(--color-surface);
+  color: var(--color-text-primary);
+  border: 1px solid var(--color-border);
+
+  &:hover:not(:disabled) {
+    background: var(--color-hover);
+  }
+}
+
+.btnDanger {
+  background: var(--color-danger);
+  color: #fff;
+
+  &:hover:not(:disabled) {
+    box-shadow: var(--shadow-sm);
+  }
+}
+
+.summaryGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: $spacing-16;
+
+  @include respond-to(lg) {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+
+.summaryItem {
+  @include flex-column;
+  gap: 4px;
+  padding: $spacing-16;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: $radius-8;
+
+  span {
+    font-size: $font-size-12;
+    color: var(--color-text-muted);
+  }
+
+  strong {
+    font-size: $font-size-24;
+    color: var(--color-text-primary);
+  }
+}
+
+.toolbar {
+  display: flex;
+  flex-direction: column;
+  gap: $spacing-16;
+
+  @include respond-to(md) {
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
+  }
+}
+
+.searchBox {
+  display: flex;
+  align-items: center;
+  gap: $spacing-8;
+  min-height: 38px;
+  padding: 0 $spacing-16;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: $radius-8;
+  color: var(--color-text-muted);
+
+  @include respond-to(md) {
+    width: min(420px, 100%);
+  }
+
+  input {
+    width: 100%;
+    border: 0;
+    outline: 0;
+    background: transparent;
+    color: var(--color-text-primary);
+    font-size: $font-size-14;
   }
 }
 
@@ -64,7 +161,12 @@
   @include flex-column;
 }
 
-/* ── Empty state ── */
+.loading {
+  padding: $spacing-32;
+  color: var(--color-text-secondary);
+  text-align: center;
+}
+
 .empty {
   flex: 1;
   @include flex-column;
@@ -92,30 +194,29 @@
 
 .emptyDesc {
   font-size: $font-size-14;
-  color: var(--color-text-primary);
-  max-width: 320px;
+  color: var(--color-text-secondary);
+  max-width: 360px;
   line-height: $line-height-base;
 }
 
-/* ── List ── */
 .list {
   @include flex-column;
   gap: $spacing-8;
 }
 
 .row {
-  display: flex;
-  align-items: center;
+  display: grid;
+  grid-template-columns: 40px minmax(0, 1fr) auto;
   gap: $spacing-16;
+  align-items: center;
   padding: $spacing-16;
   background: var(--color-surface);
   border: 1px solid var(--color-border);
-  border-radius: $radius-12;
+  border-radius: $radius-8;
   box-shadow: var(--shadow-sm);
-  transition: box-shadow $transition-base;
 
-  &:hover {
-    box-shadow: var(--shadow-md);
+  @include respond-to(lg) {
+    grid-template-columns: 40px minmax(220px, 1fr) auto auto auto 96px auto;
   }
 }
 
@@ -128,13 +229,11 @@
   font-size: $font-size-16;
   font-weight: $font-weight-700;
   @include flex-center;
-  flex-shrink: 0;
 }
 
 .rowMain {
   @include flex-column;
   gap: 2px;
-  flex: 1;
   min-width: 0;
 }
 
@@ -148,42 +247,216 @@
 .rowMeta {
   font-size: $font-size-12;
   color: var(--color-text-muted);
+  @include text-truncate;
 }
 
-.badge {
+.badge,
+.statusBadge {
   display: inline-flex;
   align-items: center;
+  justify-content: center;
+  gap: 4px;
+  min-height: 24px;
   padding: 2px 10px;
   border-radius: $radius-pill;
   font-size: $font-size-12;
   font-weight: $font-weight-500;
-  flex-shrink: 0;
+  white-space: nowrap;
 }
 
-.badge_admin { background: color-mix(in srgb, var(--color-primary) 12%, transparent); color: var(--color-primary); }
-.badge_user  { background: var(--color-hover); color: var(--color-text-muted); }
+.badge_student {
+  background: color-mix(in srgb, var(--color-status-neutral) 12%, transparent);
+  color: var(--color-text-secondary);
+}
+
+.badge_teacher {
+  background: color-mix(in srgb, var(--color-success) 12%, transparent);
+  color: var(--color-success);
+}
+
+.badge_admin,
+.badge_super {
+  background: color-mix(in srgb, var(--color-primary) 12%, transparent);
+  color: var(--color-primary);
+}
+
+.statusActive {
+  background: color-mix(in srgb, var(--color-success) 12%, transparent);
+  color: var(--color-success);
+}
+
+.statusInactive {
+  background: color-mix(in srgb, var(--color-danger) 12%, transparent);
+  color: var(--color-danger);
+}
+
+.createdAt {
+  display: none;
+  color: var(--color-text-muted);
+  font-size: $font-size-12;
+  white-space: nowrap;
+
+  @include respond-to(lg) {
+    display: inline;
+  }
+}
 
 .rowActions {
   display: flex;
   gap: $spacing-4;
-  flex-shrink: 0;
+  justify-content: flex-end;
 }
 
-.actionBtn {
-  width: 28px;
-  height: 28px;
+.actionBtn,
+.iconBtn {
+  width: 30px;
+  height: 30px;
   border-radius: $radius-8;
   @include flex-center;
   color: var(--color-text-secondary);
-  transition: background $transition-base, color $transition-base;
+  transition: background $transition-base, color $transition-base, opacity $transition-base;
 
-  &:hover {
+  &:hover:not(:disabled) {
     background: var(--color-hover);
-    color: var(--color-text);
+    color: var(--color-text-primary);
   }
 
-  &.actionBtnDanger {
-    color: var(--color-danger);
-    &:hover { background: color-mix(in srgb, var(--color-danger) 10%, transparent); }
+  &:disabled {
+    opacity: 0.35;
+    cursor: not-allowed;
   }
+}
+
+.actionBtnDanger {
+  color: var(--color-danger);
+
+  &:hover:not(:disabled) {
+    background: color-mix(in srgb, var(--color-danger) 10%, transparent);
+  }
+}
+
+.modalOverlay {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: $spacing-16;
+  background: rgba(15, 23, 42, 0.42);
+}
+
+.modal,
+.confirm {
+  width: min(640px, 100%);
+  @include flex-column;
+  gap: $spacing-16;
+  padding: $spacing-24;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: $radius-8;
+  box-shadow: var(--shadow-xl);
+}
+
+.modalHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: $spacing-16;
+
+  h2 {
+    margin: 0;
+    font-size: $font-size-18;
+    color: var(--color-text-primary);
+  }
+
+  p {
+    margin: 4px 0 0;
+    font-size: $font-size-12;
+    color: var(--color-text-secondary);
+  }
+}
+
+.formGrid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: $spacing-16;
+
+  @include respond-to(md) {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+.field {
+  @include flex-column;
+  gap: 6px;
+  font-size: $font-size-12;
+  font-weight: $font-weight-500;
+  color: var(--color-text-secondary);
+
+  input,
+  select {
+    min-height: 38px;
+    padding: 8px $spacing-16;
+    border: 1px solid var(--color-border);
+    border-radius: $radius-8;
+    background: var(--color-surface);
+    color: var(--color-text-primary);
+    outline: none;
+
+    &:focus {
+      border-color: var(--color-primary);
+      box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-primary) 12%, transparent);
+    }
+  }
+}
+
+.toggleGrid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: $spacing-16;
+}
+
+.checkRow {
+  display: inline-flex;
+  align-items: center;
+  gap: $spacing-8;
+  min-height: 34px;
+  padding: 0 $spacing-16;
+  border: 1px solid var(--color-border);
+  border-radius: $radius-8;
+  color: var(--color-text-primary);
+  font-size: $font-size-14;
+  cursor: pointer;
+}
+
+.modalActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: $spacing-8;
+}
+
+.confirm {
+  max-width: 480px;
+  text-align: left;
+
+  h2 {
+    margin: 0;
+    color: var(--color-text-primary);
+  }
+
+  p {
+    margin: 0;
+    color: var(--color-text-secondary);
+    line-height: $line-height-base;
+  }
+}
+
+.confirmIcon {
+  width: 44px;
+  height: 44px;
+  border-radius: $radius-8;
+  background: color-mix(in srgb, var(--color-danger) 12%, transparent);
+  color: var(--color-danger);
+  @include flex-center;
 }
