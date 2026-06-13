@@ -6,7 +6,7 @@ import {
   useNavigate,
   useSearch,
 } from "@tanstack/react-router"
-import { useEffect, useMemo, useRef, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { useForm } from "react-hook-form"
 import { useTranslation } from "react-i18next"
 import { z } from "zod"
@@ -127,7 +127,7 @@ function Login() {
   const [deviceApproved, setDeviceApproved] = useState(false)
   const [deviceApprovalError, setDeviceApprovalError] = useState("")
   const [deviceApprovalPending, setDeviceApprovalPending] = useState(false)
-  const approveDesktopClient = async () => {
+  const approveDesktopClient = useCallback(async () => {
     if (!deviceCode || deviceApprovalPending) return false
     setDeviceApprovalPending(true)
     setDeviceApprovalError("")
@@ -139,7 +139,7 @@ function Login() {
       setDeviceApprovalError("桌面連線工具授權失敗，請重新登入或稍後再試。")
     }
     return ok
-  }
+  }, [deviceCode, deviceApprovalPending])
   const { loginMutation, googleLoginMutation } = useAuth({
     onLoginSuccess: deviceCode
       ? async () => {
@@ -158,7 +158,7 @@ function Login() {
   useEffect(() => {
     if (!deviceCode || !isLoggedIn() || deviceApproved) return
     void approveDesktopClient()
-  }, [deviceCode, deviceApproved])
+  }, [deviceCode, deviceApproved, approveDesktopClient])
 
   useEffect(() => {
     if (!GOOGLE_CLIENT_ID) return

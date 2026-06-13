@@ -57,7 +57,10 @@ describe("isLoggedIn", () => {
   }
 
   it("returns true when access_token is present and not expired", () => {
-    storage.setItem("access_token", tokenWithExp(Math.floor(Date.now() / 1000) + 60))
+    storage.setItem(
+      "access_token",
+      tokenWithExp(Math.floor(Date.now() / 1000) + 60),
+    )
     expect(isLoggedIn()).toBe(true)
   })
 
@@ -67,12 +70,18 @@ describe("isLoggedIn", () => {
   })
 
   it("returns false for an expired token", () => {
-    storage.setItem("access_token", tokenWithExp(Math.floor(Date.now() / 1000) - 60))
+    storage.setItem(
+      "access_token",
+      tokenWithExp(Math.floor(Date.now() / 1000) - 60),
+    )
     expect(isLoggedIn()).toBe(false)
   })
 
   it("returns false after the token is removed", () => {
-    storage.setItem("access_token", tokenWithExp(Math.floor(Date.now() / 1000) + 60))
+    storage.setItem(
+      "access_token",
+      tokenWithExp(Math.floor(Date.now() / 1000) + 60),
+    )
     expect(isLoggedIn()).toBe(true)
     storage.removeItem("access_token")
     expect(isLoggedIn()).toBe(false)
