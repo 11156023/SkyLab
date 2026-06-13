@@ -68,3 +68,7 @@ vllm-service/
 
 `gateway/main.py` 是多模型 Gateway 的 FastAPI app，launcher 會以
 `uvicorn gateway.main:app` 啟動。
+
+## 相關設計文件
+
+- `AI_API_DESIGN_PLAN.md`：AI API 高併發、公平性、reasoning/response_format 參數開放的設計建議與分階段計劃
