@@ -15,35 +15,5 @@
       "presence_penalty": 0.0,
       "repetition_penalty": 1.0
     }
-  },
-  "pve_advisor": {
-    "source_cache_ttl_seconds": 20,
-    "backend_node_gpu_map": {
-      "pve-gpu-1": 1
-    },
-    "backend_traffic_window_minutes": 60,
-    "backend_traffic_sample_limit": 200,
-    "audit_log_window_minutes": 120,
-    "audit_log_sample_limit": 300,
-    "guest_pressure_threshold": 0.85,
-    "guest_per_core_limit": 2.0,
-    "placement_headroom_ratio": 0.1,
-    "placement_weight_cpu": 0.35,
-    "placement_weight_memory": 0.35,
-    "placement_weight_disk": 0.15,
-    "placement_weight_guest": 0.15,
-    "vllm": {
-      "enable_thinking": false,
-      "timeout": 30,
-      "temperature": 0.2,
-      "chat_temperature": 0.2,
-      "top_p": 0.95,
-      "top_k": 20,
-      "min_p": 0.0,
-      "max_tokens": 900,
-      "chat_max_tokens": 900,
-      "presence_penalty": 0.0,
-      "repetition_penalty": 1.0
-    }
   }
 }

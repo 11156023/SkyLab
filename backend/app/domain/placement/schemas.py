@@ -39,6 +39,7 @@ class PlacementRequest(BaseModel):
         validation_alias=AliasChoices("instance_count", "count", "machines"),
     )
     gpu_required: int = Field(default=0, ge=0, le=16)
+    gpu_mapping_id: str | None = Field(default=None, max_length=128)
 
     @model_validator(mode="before")
     @classmethod

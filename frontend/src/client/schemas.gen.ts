@@ -1913,7 +1913,7 @@ export const Body_groups_import_members_from_csvSchema = {
     properties: {
         file: {
             type: 'string',
-            contentMediaType: 'application/octet-stream',
+            format: 'binary',
             title: 'File'
         }
     },
@@ -2002,7 +2002,7 @@ export const Body_rubric_upload_rubricSchema = {
     properties: {
         file: {
             type: 'string',
-            contentMediaType: 'application/octet-stream',
+            format: 'binary',
             title: 'File'
         },
         template_key: {
@@ -2022,7 +2022,7 @@ export const Body_teacher_judge_upload_group_teacher_judge_fileSchema = {
     properties: {
         file: {
             type: 'string',
-            contentMediaType: 'application/octet-stream',
+            format: 'binary',
             title: 'File'
         },
         template_key: {
@@ -10165,7 +10165,7 @@ export const SystemSnapshotSchema = {
 export const TeacherJudgeFileAnalysisUpdateRequestSchema = {
     properties: {
         analysis: {
-            $ref: '#/components/schemas/TeacherJudgeRubricAnalysis'
+            $ref: '#/components/schemas/TeacherJudgeRubricAnalysis-Input'
         }
     },
     type: 'object',
@@ -10252,7 +10252,7 @@ export const TeacherJudgeFileUploadResponseSchema = {
             $ref: '#/components/schemas/TeacherJudgeFilePublic'
         },
         analysis: {
-            $ref: '#/components/schemas/TeacherJudgeRubricAnalysis'
+            $ref: '#/components/schemas/TeacherJudgeRubricAnalysis-Output'
         },
         ai_metrics: {
             additionalProperties: true,
@@ -10274,7 +10274,59 @@ export const TeacherJudgeFileUploadResponseSchema = {
     title: 'TeacherJudgeFileUploadResponse'
 } as const;
 
-export const TeacherJudgeRubricAnalysisSchema = {
+export const TeacherJudgeRubricAnalysis_InputSchema = {
+    properties: {
+        items: {
+            items: {
+                $ref: '#/components/schemas/TeacherJudgeRubricItem'
+            },
+            type: 'array',
+            title: 'Items'
+        },
+        total_items: {
+            type: 'integer',
+            title: 'Total Items',
+            default: 0
+        },
+        checked_count: {
+            type: 'integer',
+            title: 'Checked Count',
+            default: 0
+        },
+        auto_count: {
+            type: 'integer',
+            title: 'Auto Count',
+            default: 0
+        },
+        partial_count: {
+            type: 'integer',
+            title: 'Partial Count',
+            default: 0
+        },
+        manual_count: {
+            type: 'integer',
+            title: 'Manual Count',
+            default: 0
+        },
+        summary: {
+            type: 'string',
+            title: 'Summary',
+            description: 'AI 整體說明（繁體中文）',
+            default: ''
+        },
+        raw_text: {
+            type: 'string',
+            title: 'Raw Text',
+            description: '解析後的原始文件文字（供後續對話使用）',
+            default: ''
+        }
+    },
+    type: 'object',
+    title: 'TeacherJudgeRubricAnalysis',
+    description: 'AI 分析評分表後的結構化結果。'
+} as const;
+
+export const TeacherJudgeRubricAnalysis_OutputSchema = {
     properties: {
         items: {
             items: {
@@ -10583,7 +10635,7 @@ export const TeacherJudgeRubricItemSchema = {
 export const TeacherJudgeRubricUploadResponseSchema = {
     properties: {
         analysis: {
-            $ref: '#/components/schemas/TeacherJudgeRubricAnalysis'
+            $ref: '#/components/schemas/TeacherJudgeRubricAnalysis-Output'
         },
         ai_metrics: {
             additionalProperties: true,
@@ -10772,7 +10824,7 @@ export const TeacherJudgeScriptCreateRequestSchema = {
             default: 'linux'
         },
         rubric_snapshot: {
-            $ref: '#/components/schemas/TeacherJudgeRubricAnalysis'
+            $ref: '#/components/schemas/TeacherJudgeRubricAnalysis-Input'
         },
         source_file_id: {
             anyOf: [
@@ -10801,7 +10853,7 @@ export const TeacherJudgeScriptRegenerateRequestSchema = {
         rubric_snapshot: {
             anyOf: [
                 {
-                    $ref: '#/components/schemas/TeacherJudgeRubricAnalysis'
+                    $ref: '#/components/schemas/TeacherJudgeRubricAnalysis-Input'
                 },
                 {
                     type: 'null'
@@ -12090,6 +12142,18 @@ export const VMRequestAvailabilityRequestSchema = {
             minimum: 0,
             title: 'Gpu Required',
             default: 0
+        },
+        gpu_mapping_id: {
+            anyOf: [
+                {
+                    type: 'string',
+                    maxLength: 128
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Gpu Mapping Id'
         },
         days: {
             type: 'integer',
@@ -13538,6 +13602,18 @@ export const VMRequestWindowAvailabilityRequestSchema = {
             minimum: 0,
             title: 'Gpu Required',
             default: 0
+        },
+        gpu_mapping_id: {
+            anyOf: [
+                {
+                    type: 'string',
+                    maxLength: 128
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Gpu Mapping Id'
         },
         start_at: {
             type: 'string',

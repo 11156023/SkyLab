@@ -6,6 +6,8 @@ and usage tracking by cross-referencing VM configurations.
 
 import logging
 import re
+import threading
+import time
 
 from sqlmodel import Session, select
 
@@ -21,6 +23,9 @@ from app.schemas.gpu import (
 )
 
 logger = logging.getLogger(__name__)
+_GPU_NODE_COUNTS_CACHE_TTL_SECONDS = 20
+_gpu_node_counts_cache: dict[str, tuple[float, dict[str, int]]] = {}
+_gpu_node_counts_cache_lock = threading.Lock()
 
 
 def _get_managed_vmids() -> set[int]:
@@ -266,6 +271,50 @@ def list_gpu_mappings() -> list[GPUMappingDetail]:
         )
 
     return results
+
+
+def get_gpu_node_counts(mapping_id: str | None = None) -> dict[str, int]:
+    """Return assignable GPU mapping slots by PVE node.
+
+    Placement uses this lightweight view instead of a hand-maintained config
+    so node GPU capacity follows Proxmox PCI resource mappings.
+    """
+    cache_key = str(mapping_id or "")
+    now = time.monotonic()
+    with _gpu_node_counts_cache_lock:
+        cached = _gpu_node_counts_cache.get(cache_key)
+        if cached and now - cached[0] <= _GPU_NODE_COUNTS_CACHE_TTL_SECONDS:
+            return dict(cached[1])
+
+    try:
+        proxmox = get_proxmox_api()
+        if mapping_id:
+            raw_mappings = [proxmox.cluster.mapping.pci(str(mapping_id)).get()]
+        else:
+            raw_mappings = proxmox.cluster.mapping.pci.get()
+    except Exception as e:
+        logger.warning("Failed to load GPU mapping node counts: %s", e)
+        return {}
+
+    counts: dict[str, int] = {}
+    for mapping in raw_mappings:
+        raw_maps = mapping.get("map", []) if isinstance(mapping, dict) else []
+        if isinstance(raw_maps, str):
+            raw_maps = [raw_maps]
+
+        for raw_map in raw_maps:
+            if not isinstance(raw_map, str):
+                continue
+            parsed = _parse_map_entry(raw_map)
+            node = str(parsed.node or "").strip()
+            if not node:
+                continue
+            counts[node] = counts.get(node, 0) + 1
+
+    with _gpu_node_counts_cache_lock:
+        _gpu_node_counts_cache[cache_key] = (now, dict(counts))
+
+    return counts
 
 
 def get_gpu_mapping(mapping_id: str) -> GPUMappingDetail:

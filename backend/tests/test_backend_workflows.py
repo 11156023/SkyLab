@@ -35,7 +35,7 @@ from app.schemas import (
     VMRequestCreate,
     VMRequestReview,
 )
-from app.services.proxmox import provisioning_service
+from app.services.proxmox import gpu_service, provisioning_service
 from app.services.scheduling import support as scheduling_support
 from app.services.scheduling import vm_request_schedule_service
 from app.services.user import user_service
@@ -125,6 +125,41 @@ def _seed_subnet_config(session: Session) -> None:
         )
     )
     session.commit()
+
+
+def test_gpu_node_counts_are_loaded_from_proxmox_mappings(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    raw_mappings = [
+        {
+            "id": "gpu-a",
+            "map": [
+                "node=pve-a,path=0000:01:00.0",
+                "node=pve-a,path=0000:02:00.0",
+            ],
+        },
+        {
+            "id": "gpu-b",
+            "map": "node=pve-b,path=0000:03:00.0",
+        },
+    ]
+
+    class FakePciMappings:
+        def get(self):
+            return raw_mappings
+
+        def __call__(self, mapping_id: str):
+            return SimpleNamespace(
+                get=lambda: next(item for item in raw_mappings if item["id"] == mapping_id)
+            )
+
+    proxmox = SimpleNamespace(
+        cluster=SimpleNamespace(mapping=SimpleNamespace(pci=FakePciMappings()))
+    )
+    monkeypatch.setattr(gpu_service, "get_proxmox_api", lambda: proxmox)
+
+    assert gpu_service.get_gpu_node_counts() == {"pve-a": 2, "pve-b": 1}
+    assert gpu_service.get_gpu_node_counts(mapping_id="gpu-b") == {"pve-b": 1}
 
 
 def test_vm_request_create_preserves_environment_type(
@@ -1137,6 +1172,64 @@ def test_reserved_target_node_uses_managed_storage_instead_of_node_root_disk(
 
     assert selection.node == "pve-a"
     assert selection.plan.feasible is True
+
+
+def test_placement_request_with_gpu_mapping_uses_mapping_nodes(
+    db: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(
+        "app.services.vm.placement_support.gpu_service.get_gpu_node_counts",
+        lambda mapping_id=None: {"pve-b": 1} if mapping_id == "gpu-b" else {"pve-a": 1, "pve-b": 1},
+    )
+
+    plan = vm_request_placement_service.build_plan(
+        session=db,
+        request=PlacementRequest(
+            resource_type="vm",
+            cpu_cores=2,
+            memory_mb=2048,
+            disk_gb=40,
+            instance_count=1,
+            gpu_required=1,
+            gpu_mapping_id="gpu-b",
+        ),
+        node_capacities=[
+            NodeCapacity(
+                node="pve-a",
+                status="online",
+                total_cpu_cores=32,
+                allocatable_cpu_cores=32,
+                total_memory_bytes=128 * 1024**3,
+                allocatable_memory_bytes=128 * 1024**3,
+                total_disk_bytes=1000 * 1024**3,
+                allocatable_disk_bytes=1000 * 1024**3,
+                gpu_count=1,
+                running_resources=0,
+                guest_soft_limit=64,
+                candidate=True,
+            ),
+            NodeCapacity(
+                node="pve-b",
+                status="online",
+                total_cpu_cores=8,
+                allocatable_cpu_cores=8,
+                total_memory_bytes=32 * 1024**3,
+                allocatable_memory_bytes=32 * 1024**3,
+                total_disk_bytes=500 * 1024**3,
+                allocatable_disk_bytes=500 * 1024**3,
+                gpu_count=1,
+                running_resources=0,
+                guest_soft_limit=16,
+                candidate=True,
+            ),
+        ],
+        effective_resource_type="vm",
+        resource_type_reason="VM request uses VM placement.",
+        placement_strategy="priority_dominant_share",
+    )
+
+    assert plan.feasible is True
+    assert plan.recommended_node == "pve-b"
 
 
 def test_create_vm_prefers_admin_selected_storage(

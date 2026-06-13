@@ -45,23 +45,6 @@ class TemplateRecommendationConfig(BaseModel):
     vllm: SystemAIVLLMConfig = Field(default_factory=SystemAIVLLMConfig)
 
 
-class PVEAdvisorConfig(BaseModel):
-    source_cache_ttl_seconds: int = 20
-    backend_node_gpu_map: dict[str, int] = Field(default_factory=dict)
-    backend_traffic_window_minutes: int = 60
-    backend_traffic_sample_limit: int = 200
-    audit_log_window_minutes: int = 120
-    audit_log_sample_limit: int = 300
-    guest_pressure_threshold: float = 0.85
-    guest_per_core_limit: float = 2.0
-    placement_headroom_ratio: float = 0.1
-    placement_weight_cpu: float = 0.35
-    placement_weight_memory: float = 0.35
-    placement_weight_disk: float = 0.15
-    placement_weight_guest: float = 0.15
-    vllm: SystemAIVLLMConfig = Field(default_factory=SystemAIVLLMConfig)
-
-
 class PVELogConfig(BaseModel):
     vllm: SystemAIVLLMConfig = Field(default_factory=SystemAIVLLMConfig)
 
@@ -75,7 +58,6 @@ class SystemAIConfig(BaseModel):
     template_recommendation: TemplateRecommendationConfig = Field(
         default_factory=TemplateRecommendationConfig
     )
-    pve_advisor: PVEAdvisorConfig = Field(default_factory=PVEAdvisorConfig)
     pve_log: PVELogConfig = Field(default_factory=PVELogConfig)
     teacher_judge: TeacherJudgeConfig = Field(default_factory=TeacherJudgeConfig)
 

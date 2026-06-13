@@ -18,7 +18,7 @@
 - 學生端有 AI 模板與配置推薦。
 - 老師端有 AI 情境分析與評估表解析。
 - 老師 / 管理者端有 AI-PVE 訊息與安全指令確認。
-- 後端已有 PVE placement advisor。
+- 後端已有 placement 規則與容量檢查。
 - 管理者端已有 AI API 申請、金鑰與用量監控。
 
 真正的問題是：AI 還沒有被整理成「角色任務鏈」。使用者看到的是功能入口，不一定感覺 AI 認識自己的目標。
@@ -32,7 +32,6 @@
 | AI 模板與配置推薦 | 申請頁 `AiChatPanel`、`/ai/template-recommendation` | 學生 | 把自然語言需求轉成模板、CPU、RAM、Disk、GPU 與申請理由 | 只停在申請頁，送出後不會成為審核依據，也沒有延伸到首頁與狀態解釋 |
 | AI 情境分析 | 群組頁 `AI 情境分析`、`/rubric` | 老師 | 上傳評估表，AI 拆解評估項目、判斷哪些可自動偵測、可匯出 Excel | 偏向評估表工具，尚未和學生 VM 狀態、群組資源健康度直接串起來 |
 | AI-PVE 訊息 | 群組頁 `AI PVE 訊息`、`/ai/pve-log` | 老師 / 管理者 | 查詢 PVE 節點、VM/LXC、儲存、資源狀態；可要求安全指令並二次確認 | 能力強但風險高，目前像進階工具，不像一般老師的日常入口 |
-| PVE Placement Advisor | 後端 `/ai/pve-advisor/recommend` | 管理者 / 系統 | 可產生節點放置建議與 AI placement plan | 多半在後端，使用者不一定看得到「為何分配到這台節點」 |
 | AI API 管理與監控 | `/ai-api`、`/admin/ai-management`、`/ai-proxy` | 學生 / 管理者 | 申請 AI API Key、審核、金鑰、用量、rate limit、Proxy 呼叫監控 | 這是 AI 服務治理，不是 VM 資源治理；容易和「AI 管理雲資源」混在一起 |
 
 ## 原本 MD 建議需要修正的地方

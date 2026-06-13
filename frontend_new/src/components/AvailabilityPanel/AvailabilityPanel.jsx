@@ -1,7 +1,7 @@
 /**
  * AvailabilityPanel — 月曆日期範圍選擇器版
  * Props:
- *   draft         { resource_type, cores, memory, disk_size?, rootfs_size?, gpu_required? }
+ *   draft         { resource_type, cores, memory, disk_size?, rootfs_size?, gpu_required?, gpu_mapping_id? }
  *   onChange      ({ start_at: string|null, end_at: string|null }) => void
  *   onHintChange  (hint: string|null) => void  — contextual UX hint for the parent to display
  */
@@ -68,7 +68,7 @@ export default function AvailabilityPanel({ draft, onChange, onHintChange }) {
   /* ── Fetch ── */
   const draftReady = isDraftReady(draft);
   const draftKey = draftReady
-    ? `${draft.resource_type}|${draft.cores}|${draft.memory}|${draft.disk_size ?? ""}|${draft.rootfs_size ?? ""}|${draft.gpu_required ?? 0}`
+    ? `${draft.resource_type}|${draft.cores}|${draft.memory}|${draft.disk_size ?? ""}|${draft.rootfs_size ?? ""}|${draft.gpu_required ?? 0}|${draft.gpu_mapping_id ?? ""}`
     : null;
 
   useEffect(() => {

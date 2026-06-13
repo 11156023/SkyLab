@@ -350,6 +350,7 @@ def select_reserved_target_node_for_request(
         session=session,
         node_names=[item.node for item in baseline_capacities],
     )
+    allowed_gpu_nodes = placement_support.allowed_gpu_nodes_for_request(request)
     if reserved_requests is None:
         reserved_requests = vm_request_repo.get_approved_vm_requests_overlapping_window(
             session=session,
@@ -388,6 +389,7 @@ def select_reserved_target_node_for_request(
                 disk_bytes=request.disk_gb * GIB,
                 gpu_required=request.gpu_required,
                 has_managed_storage=has_managed_storage,
+                allowed_gpu_nodes=allowed_gpu_nodes,
             )
             and (
                 not has_managed_storage
@@ -604,6 +606,9 @@ def _evaluate_active_assignment_map(
             disk_bytes=required_disk,
             gpu_required=placement_request.gpu_required,
             has_managed_storage=has_managed_storage,
+            allowed_gpu_nodes=placement_support.allowed_gpu_nodes_for_request(
+                placement_request
+            ),
         ):
             return _AssignmentEvaluation(
                 feasible=False,
@@ -733,6 +738,9 @@ def _initial_active_assignment_map(
             disk_bytes=required_disk,
             has_managed_storage=has_managed_storage,
         )
+        allowed_gpu_nodes = placement_support.allowed_gpu_nodes_for_request(
+            placement_request
+        )
         current_node = _provisioned_current_node(request)
         movement_budget_exhausted = (
             max_migrations is not None
@@ -756,6 +764,7 @@ def _initial_active_assignment_map(
                 disk_bytes=required_disk,
                 gpu_required=placement_request.gpu_required,
                 has_managed_storage=has_managed_storage,
+                allowed_gpu_nodes=allowed_gpu_nodes,
             ):
                 continue
 
@@ -1357,6 +1366,7 @@ def get_preview_node_scores(
         session=session,
         node_names=[item.node for item in baseline_capacities],
     )
+    allowed_gpu_nodes = placement_support.allowed_gpu_nodes_for_request(request)
     for checkpoint in checkpoints:
         adjusted = _apply_reserved_requests_to_capacities(
             baseline_capacities=baseline_capacities,
@@ -1372,6 +1382,7 @@ def get_preview_node_scores(
                 disk_bytes=request.disk_gb * GIB,
                 gpu_required=request.gpu_required,
                 has_managed_storage=has_managed_storage,
+                allowed_gpu_nodes=allowed_gpu_nodes,
             )
             and (
                 not has_managed_storage

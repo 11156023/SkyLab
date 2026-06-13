@@ -103,6 +103,7 @@ def assess_existing_request(
         rootfs_size=int(db_request.rootfs_size or 0) or None,
         instance_count=1,
         gpu_required=1 if db_request.gpu_mapping_id else 0,
+        gpu_mapping_id=db_request.gpu_mapping_id,
         days=days,
         timezone=timezone,
         policy_role=role,
@@ -139,6 +140,7 @@ def validate_request_window(
         ),
         instance_count=1,
         gpu_required=1 if bool(getattr(request_in, "gpu_mapping_id", None)) else 0,
+        gpu_mapping_id=getattr(request_in, "gpu_mapping_id", None),
     )
     selection = vm_request_placement_service.select_reserved_target_node_for_request(
         session=session,
@@ -185,7 +187,11 @@ def assess_request_window(
             rootfs_size=request_in.rootfs_size,
         ),
         instance_count=1,
-        gpu_required=int(request_in.gpu_required or 0),
+        gpu_required=max(
+            int(request_in.gpu_required or 0),
+            1 if request_in.gpu_mapping_id else 0,
+        ),
+        gpu_mapping_id=request_in.gpu_mapping_id,
     )
     selection = vm_request_placement_service.select_reserved_target_node_for_request(
         session=session,
@@ -262,6 +268,7 @@ def _build_availability_response(
     )
     placement_strategy = vm_request_placement_service.get_placement_strategy(session)
     node_priorities = vm_request_placement_service.get_node_priorities(session)
+    allowed_gpu_nodes = placement_support.allowed_gpu_nodes_for_request(placement_request)
 
     now_local = datetime.now(tz)
     start_anchor = now_local.replace(minute=0, second=0, microsecond=0)
@@ -386,6 +393,7 @@ def _build_availability_response(
                         has_managed_storage=lite_has_managed_storage,
                         disk_overcommit_ratio=disk_overcommit_ratio,
                         tuning=lite_tuning,
+                        allowed_gpu_nodes=allowed_gpu_nodes,
                         slot_start=slot_start,
                         slot_end=slot_end,
                         demand_ratio=demand_ratio,
@@ -638,6 +646,7 @@ def _lightweight_fit_nodes(
     has_managed_storage: bool,
     disk_overcommit_ratio: float,
     tuning,
+    allowed_gpu_nodes: set[str] | None = None,
 ) -> list[str]:
     required_cpu = placement_advisor._effective_cpu_cores(request, effective_resource_type)
     required_memory = placement_advisor._effective_memory_bytes(
@@ -663,6 +672,7 @@ def _lightweight_fit_nodes(
                 disk_bytes=required_disk,
                 gpu_required=request.gpu_required,
                 has_managed_storage=has_managed_storage,
+                allowed_gpu_nodes=allowed_gpu_nodes,
             ):
                 continue
 
@@ -710,6 +720,7 @@ def _lightweight_fit_nodes(
             disk_bytes=required_disk,
             gpu_required=request.gpu_required,
             has_managed_storage=has_managed_storage,
+            allowed_gpu_nodes=allowed_gpu_nodes,
         )
         if chosen_storage is not None:
             reserve_storage_pool(
@@ -731,6 +742,7 @@ def _lite_slot_from_capacities(
     has_managed_storage: bool,
     disk_overcommit_ratio: float,
     tuning,
+    allowed_gpu_nodes: set[str] | None = None,
     slot_start: datetime,
     slot_end: datetime,
     demand_ratio: float,
@@ -745,6 +757,7 @@ def _lite_slot_from_capacities(
         has_managed_storage=has_managed_storage,
         disk_overcommit_ratio=disk_overcommit_ratio,
         tuning=tuning,
+        allowed_gpu_nodes=allowed_gpu_nodes,
     )
     feasible = len(placed_nodes) >= int(request.instance_count or 1)
     partial = bool(placed_nodes)
@@ -817,7 +830,11 @@ def _to_placement_request(request_in: VMRequestAvailabilityRequest) -> Placement
             rootfs_size=request_in.rootfs_size,
         ),
         instance_count=int(request_in.instance_count),
-        gpu_required=int(request_in.gpu_required),
+        gpu_required=max(
+            int(request_in.gpu_required),
+            1 if request_in.gpu_mapping_id else 0,
+        ),
+        gpu_mapping_id=request_in.gpu_mapping_id,
     )
 
 

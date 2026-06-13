@@ -16,7 +16,7 @@ from app.domain.placement.schemas import (
     ResourceSnapshot,
     ResourceType,
 )
-from app.services.proxmox import proxmox_service
+from app.services.proxmox import gpu_service, proxmox_service
 
 GIB = 1024**3
 MIB = 1024**2
@@ -38,7 +38,7 @@ def _load_cluster_state() -> tuple[list[NodeSnapshot], list[ResourceSnapshot]]:
     if cached is not None:
         return cached.nodes, cached.resources
 
-    gpu_map = settings.parsed_backend_node_gpu_map
+    gpu_map = gpu_service.get_gpu_node_counts()
     nodes = [
         NodeSnapshot(
             node=str(item.get("node") or "unknown"),

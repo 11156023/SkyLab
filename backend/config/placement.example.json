@@ -1,0 +1,10 @@
+{
+  "source_cache_ttl_seconds": 20,
+  "guest_pressure_threshold": 0.85,
+  "guest_per_core_limit": 2.0,
+  "placement_headroom_ratio": 0.1,
+  "placement_weight_cpu": 0.35,
+  "placement_weight_memory": 0.35,
+  "placement_weight_disk": 0.15,
+  "placement_weight_guest": 0.15
+}

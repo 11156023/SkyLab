@@ -26,6 +26,7 @@ from app.domain.placement.storage import (
 )
 from app.models import VMRequest
 from app.repositories import proxmox_storage as proxmox_storage_repo
+from app.services.proxmox import gpu_service
 
 GIB = 1024**3
 
@@ -205,12 +206,18 @@ def node_can_host_request(
     disk_bytes: int,
     gpu_required: int,
     has_managed_storage: bool,
+    allowed_gpu_nodes: set[str] | None = None,
 ) -> bool:
+    if gpu_required > 0:
+        if allowed_gpu_nodes is not None:
+            if node.node not in allowed_gpu_nodes:
+                return False
+        elif node.gpu_count < gpu_required:
+            return False
     if (
         node.status != "online"
         or node.allocatable_cpu_cores < cores
         or node.allocatable_memory_bytes < memory_bytes
-        or node.gpu_count < gpu_required
         or node.running_resources >= node.guest_soft_limit
     ):
         return False
@@ -221,6 +228,17 @@ def node_can_host_request(
 
 def node_disk_bytes_for_capacity(*, disk_bytes: int, has_managed_storage: bool) -> int:
     return 0 if has_managed_storage else disk_bytes
+
+
+def allowed_gpu_nodes_for_request(request: PlacementRequest) -> set[str] | None:
+    mapping_id = str(request.gpu_mapping_id or "").strip()
+    if not mapping_id:
+        return None
+    return {
+        node
+        for node, count in gpu_service.get_gpu_node_counts(mapping_id=mapping_id).items()
+        if count > 0
+    }
 
 
 def release_request_from_capacities(
@@ -359,6 +377,7 @@ def build_plan(
         disk_bytes=required_disk,
         has_managed_storage=has_managed_storage,
     )
+    allowed_gpu_nodes = allowed_gpu_nodes_for_request(request)
     placements: dict[str, int] = {item.node: 0 for item in working_nodes}
     remaining = request.instance_count
 
@@ -372,6 +391,7 @@ def build_plan(
                 disk_bytes=required_disk,
                 gpu_required=request.gpu_required,
                 has_managed_storage=has_managed_storage,
+                allowed_gpu_nodes=allowed_gpu_nodes,
             ):
                 continue
             storage_selection: StorageSelection | None = None
@@ -639,4 +659,5 @@ def to_placement_request(db_request: VMRequest) -> PlacementRequest:
         disk_gb=disk_gb,
         instance_count=1,
         gpu_required=1 if bool(getattr(db_request, "gpu_mapping_id", None)) else 0,
+        gpu_mapping_id=getattr(db_request, "gpu_mapping_id", None),
     )

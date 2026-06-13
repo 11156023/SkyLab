@@ -1,6 +1,6 @@
 ﻿# SkyLab — Backend
 
-SkyLab 後端：基於 FastAPI + SQLModel + PostgreSQL 的 Proxmox VE 虛擬化管理 API，提供 VM/LXC 生命週期、申請審核、防火牆/閘道、AI 放置建議與 vLLM 代理等能力。
+SkyLab 後端：基於 FastAPI + SQLModel + PostgreSQL 的 Proxmox VE 虛擬化管理 API，提供 VM/LXC 生命週期、申請審核、防火牆/閘道、placement 檢查與 vLLM 代理等能力。
 
 ## 技術棧
 
@@ -30,7 +30,8 @@ backend/
 │   ├── schemas/               # 14 個 Pydantic schema 模組
 │   ├── services/              # 21 個業務邏輯服務
 │   ├── repositories/          # 15 個資料存取層
-│   ├── ai/                    # PVE Advisor / Template Recommendation 內嵌邏輯
+│   ├── ai/                    # Template Recommendation / PVE Log 等 AI 內嵌邏輯
+│   ├── domain/placement/      # VM/LXC placement 規則、容量與 scoring
 │   ├── ai_api/                # 外部 AI API 整合設定
 │   ├── alembic/versions/      # 22+ 個遷移版本
 │   ├── email-templates/       # MJML 來源 + 編譯後 HTML
@@ -203,7 +204,7 @@ uv run prek run --all-files  # 手動執行
 
 ## 主要特性
 
-- **VM 申請工作流**：可用性檢查 → AI 放置建議 → 審核 → 排程供應 → 自動遷移（背景排程器每 60 秒掃描）
+- **VM 申請工作流**：可用性檢查 → placement 節點建議 → 審核 → 排程供應 → 自動遷移（背景排程器每 60 秒掃描）
 - **HA failover**：cluster 設定支援多個 Proxmox host，TCP ping 偵測接管
 - **Gateway 控制**：透過 SSH 直接讀寫 HAProxy / Traefik / FRP 設定並重啟服務
 - **腳本部署**：從 community-scripts/ProxmoxVE 拉取腳本並於 PVE 節點背景部署

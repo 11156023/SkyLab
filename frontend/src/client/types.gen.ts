@@ -5857,7 +5857,7 @@ export type SystemSnapshot = {
  * TeacherJudgeFileAnalysisUpdateRequest
  */
 export type TeacherJudgeFileAnalysisUpdateRequest = {
-    analysis: TeacherJudgeRubricAnalysis;
+    analysis: TeacherJudgeRubricAnalysisInput;
 };
 
 /**
@@ -5913,7 +5913,7 @@ export type TeacherJudgeFilePublic = {
  */
 export type TeacherJudgeFileUploadResponse = {
     file: TeacherJudgeFilePublic;
-    analysis: TeacherJudgeRubricAnalysis;
+    analysis: TeacherJudgeRubricAnalysisOutput;
     /**
      * Ai Metrics
      */
@@ -5931,7 +5931,51 @@ export type TeacherJudgeFileUploadResponse = {
  *
  * AI 分析評分表後的結構化結果。
  */
-export type TeacherJudgeRubricAnalysis = {
+export type TeacherJudgeRubricAnalysisInput = {
+    /**
+     * Items
+     */
+    items?: Array<TeacherJudgeRubricItem>;
+    /**
+     * Total Items
+     */
+    total_items?: number;
+    /**
+     * Checked Count
+     */
+    checked_count?: number;
+    /**
+     * Auto Count
+     */
+    auto_count?: number;
+    /**
+     * Partial Count
+     */
+    partial_count?: number;
+    /**
+     * Manual Count
+     */
+    manual_count?: number;
+    /**
+     * Summary
+     *
+     * AI 整體說明（繁體中文）
+     */
+    summary?: string;
+    /**
+     * Raw Text
+     *
+     * 解析後的原始文件文字（供後續對話使用）
+     */
+    raw_text?: string;
+};
+
+/**
+ * TeacherJudgeRubricAnalysis
+ *
+ * AI 分析評分表後的結構化結果。
+ */
+export type TeacherJudgeRubricAnalysisOutput = {
     /**
      * Items
      */
@@ -6164,7 +6208,7 @@ export type TeacherJudgeRubricItem = {
  * 上傳評分表回應。
  */
 export type TeacherJudgeRubricUploadResponse = {
-    analysis: TeacherJudgeRubricAnalysis;
+    analysis: TeacherJudgeRubricAnalysisOutput;
     /**
      * Ai Metrics
      */
@@ -6281,7 +6325,7 @@ export type TeacherJudgeScriptCreateRequest = {
      * Template Key
      */
     template_key?: string;
-    rubric_snapshot: TeacherJudgeRubricAnalysis;
+    rubric_snapshot: TeacherJudgeRubricAnalysisInput;
     /**
      * Source File Id
      */
@@ -6294,7 +6338,7 @@ export type TeacherJudgeScriptCreateRequest = {
  * Regenerate a managed script artifact.
  */
 export type TeacherJudgeScriptRegenerateRequest = {
-    rubric_snapshot?: TeacherJudgeRubricAnalysis | null;
+    rubric_snapshot?: TeacherJudgeRubricAnalysisInput | null;
 };
 
 /**
@@ -7044,6 +7088,10 @@ export type VmRequestAvailabilityRequest = {
      */
     gpu_required?: number;
     /**
+     * Gpu Mapping Id
+     */
+    gpu_mapping_id?: string | null;
+    /**
      * Days
      */
     days?: number;
@@ -7777,6 +7825,10 @@ export type VmRequestWindowAvailabilityRequest = {
      * Gpu Required
      */
     gpu_required?: number;
+    /**
+     * Gpu Mapping Id
+     */
+    gpu_mapping_id?: string | null;
     /**
      * Start At
      */

@@ -64,6 +64,7 @@ const DT_FMT = { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-d
 const formatDT = (iso) => new Date(iso).toLocaleString("zh-TW", DT_FMT);
 const formatOstemplate = (v) => v.split("/").pop()?.replace(".tar.zst", "") ?? v;
 const QUICK_TEMPLATE_DURATION_HOURS = 3;
+const GPU_OPTIONS_DEBOUNCE_MS = 300;
 const QUICK_TEMPLATES = Object.entries(rawData)
   .filter(([key]) => !["metadata.json", "versions.json", "github-versions.json"].includes(key))
   .map(([, value]) => value)
@@ -154,6 +155,7 @@ export default function RequestFormPage({ onBack, className, quickTemplateSlug, 
   const [vmLoading, setVmLoading]       = useState(false);
   const [gpuOptions, setGpuOptions]     = useState([]);
   const [gpuLoading, setGpuLoading]     = useState(false);
+  const [gpuOptionsKey, setGpuOptionsKey] = useState("");
   const activeQuickStart = useMemo(
     () => getQuickStartPreset(quickStartPreset),
     [quickStartPreset],
@@ -234,8 +236,11 @@ export default function RequestFormPage({ onBack, className, quickTemplateSlug, 
     if (templateId) set("template_id", templateId);
   }, [activeQuickStart, resourceType, form.template_id, vmTemplates]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const canLoadGpu = resourceType === "vm" &&
-    (mode === "immediate" || (form.start_at && form.end_at));
+  const canLoadGpu = resourceType === "vm";
+  const gpuWindowReady = Boolean(mode === "scheduled" && form.start_at && form.end_at);
+  const gpuOptionsRequestKey = canLoadGpu
+    ? `${mode}|${gpuWindowReady ? form.start_at : ""}|${gpuWindowReady ? form.end_at : ""}`
+    : "";
 
   useEffect(() => {
     if (resourceType !== "vm" && form.gpu_mapping_id) {
@@ -246,19 +251,63 @@ export default function RequestFormPage({ onBack, className, quickTemplateSlug, 
   useEffect(() => {
     if (!canLoadGpu) {
       setGpuOptions([]);
+      setGpuOptionsKey("");
+      setGpuLoading(false);
       return;
     }
-    setGpuLoading(true);
-    const params = mode === "immediate"
-      ? undefined
-      : { startAt: form.start_at, endAt: form.end_at };
-    GpuService.listOptions(params)
-      .then(setGpuOptions)
-      .catch(() => setGpuOptions([]))
-      .finally(() => setGpuLoading(false));
-  }, [canLoadGpu, form.start_at, form.end_at, mode]); // eslint-disable-line react-hooks/exhaustive-deps
+    let cancelled = false;
+    const requestKey = gpuOptionsRequestKey;
+    const params = gpuWindowReady
+      ? { startAt: form.start_at, endAt: form.end_at }
+      : undefined;
+    const timeoutId = window.setTimeout(() => {
+      if (cancelled) return;
+      setGpuLoading(true);
+      GpuService.listOptions(params)
+        .then((options) => {
+          if (cancelled) return;
+          setGpuOptions(options);
+          setGpuOptionsKey(requestKey);
+        })
+        .catch(() => {
+          if (cancelled) return;
+          setGpuOptions([]);
+          setGpuOptionsKey(requestKey);
+        })
+        .finally(() => {
+          if (!cancelled) setGpuLoading(false);
+        });
+    }, gpuWindowReady ? GPU_OPTIONS_DEBOUNCE_MS : 0);
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timeoutId);
+    };
+  }, [canLoadGpu, form.start_at, form.end_at, gpuOptionsRequestKey, gpuWindowReady, mode]);
 
   /* ── Helpers ── */
+  useEffect(() => {
+    if (resourceType !== "vm" || !form.gpu_mapping_id) return;
+    if (!canLoadGpu) return;
+    if (!gpuWindowReady && mode === "scheduled") return;
+    if (gpuLoading) return;
+    if (gpuOptionsKey !== gpuOptionsRequestKey) return;
+    const selected = gpuOptions.find((gpu) => gpu.mapping_id === form.gpu_mapping_id);
+    if (!selected || selected.available_count <= 0) {
+      setForm((prev) => ({ ...prev, gpu_mapping_id: "" }));
+    }
+  }, [
+    canLoadGpu,
+    gpuWindowReady,
+    mode,
+    resourceType,
+    form.gpu_mapping_id,
+    gpuLoading,
+    gpuOptions,
+    gpuOptionsKey,
+    gpuOptionsRequestKey,
+  ]);
+
   function set(key, val) {
     setForm((prev) => ({ ...prev, [key]: val }));
     if (errors[key]) setErrors((prev) => ({ ...prev, [key]: "" }));
@@ -392,6 +441,7 @@ export default function RequestFormPage({ onBack, className, quickTemplateSlug, 
             ? { rootfs_size: form.rootfs_size }
             : { disk_size: form.disk_size }),
           gpu_required: selectedGpuId ? 1 : 0,
+          gpu_mapping_id: selectedGpuId || undefined,
           start_at: form.start_at,
           end_at: form.end_at,
           mode: "scheduled",
@@ -766,7 +816,7 @@ export default function RequestFormPage({ onBack, className, quickTemplateSlug, 
                 {!canLoadGpu && mode === "scheduled" && (
                   <p className={styles.fieldHint}>請先選擇租借時段，再載入該時段可用的 GPU。</p>
                 )}
-                {canLoadGpu && !gpuLoading && gpuOptions.length === 0 && (
+                {!gpuLoading && gpuOptions.length === 0 && (
                   <p className={styles.fieldHint}>此時段目前沒有可用 GPU，可改選其他時段或不使用 GPU。</p>
                 )}
 
@@ -777,7 +827,7 @@ export default function RequestFormPage({ onBack, className, quickTemplateSlug, 
                   <SelectField
                     value={form.gpu_mapping_id || "__none__"}
                     onChange={(v) => set("gpu_mapping_id", v === "__none__" ? "" : v)}
-                    disabled={!canLoadGpu || gpuLoading || gpuOptions.length === 0}
+                    disabled={gpuLoading || gpuOptions.length === 0}
                     placeholder={!canLoadGpu ? "請先選擇時段" : undefined}
                   >
                     <option value="__none__">不需要 GPU</option>
@@ -846,7 +896,10 @@ export default function RequestFormPage({ onBack, className, quickTemplateSlug, 
                       ...(resourceType === "lxc"
                         ? { rootfs_size: form.rootfs_size }
                         : { disk_size:   form.disk_size }),
-                      gpu_required: 0,
+                      gpu_required: resourceType === "vm" && form.gpu_mapping_id ? 1 : 0,
+                      gpu_mapping_id: resourceType === "vm" && form.gpu_mapping_id
+                        ? form.gpu_mapping_id
+                        : undefined,
                     }}
                     onChange={({ start_at, end_at }) => {
                       setForm((prev) => ({ ...prev, start_at: start_at ?? "", end_at: end_at ?? "" }));
