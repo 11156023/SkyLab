@@ -30,7 +30,7 @@ from app.schemas.vm_request import (
     VMRequestWindowAvailabilityRequest,
     VMRequestWindowAvailabilityResponse,
 )
-from app.services.vm import vm_request_placement_service
+from app.services.vm import placement_support, vm_request_placement_service
 
 GIB = 1024**3
 
@@ -645,6 +645,10 @@ def _lightweight_fit_nodes(
         effective_resource_type,
     )
     required_disk = int(request.disk_gb * GIB)
+    node_disk_bytes = placement_support.node_disk_bytes_for_capacity(
+        disk_bytes=required_disk,
+        has_managed_storage=has_managed_storage,
+    )
     working_nodes = [item.model_copy(deep=True) for item in adjusted_nodes]
     working_storage = deepcopy(storage_pools_by_node)
     placed_nodes: list[str] = []
@@ -652,14 +656,13 @@ def _lightweight_fit_nodes(
     for _ in range(int(request.instance_count or 1)):
         candidates = []
         for node in working_nodes:
-            if not node.candidate:
-                continue
-            if not placement_advisor._can_fit(
+            if not placement_support.node_can_host_request(
                 node,
                 cores=required_cpu,
                 memory_bytes=required_memory,
                 disk_bytes=required_disk,
                 gpu_required=request.gpu_required,
+                has_managed_storage=has_managed_storage,
             ):
                 continue
 
@@ -687,7 +690,7 @@ def _lightweight_fit_nodes(
                 candidate[0],
                 required_cpu=required_cpu,
                 required_memory=required_memory,
-                required_disk=required_disk,
+                required_disk=node_disk_bytes,
             ),
         )
         chosen.allocatable_cpu_cores = max(
@@ -698,17 +701,15 @@ def _lightweight_fit_nodes(
             chosen.allocatable_memory_bytes - required_memory,
             0,
         )
-        chosen.allocatable_disk_bytes = max(
-            chosen.allocatable_disk_bytes - required_disk,
-            0,
-        )
+        chosen.allocatable_disk_bytes = max(chosen.allocatable_disk_bytes - node_disk_bytes, 0)
         chosen.running_resources += 1
-        chosen.candidate = (
-            chosen.status == "online"
-            and chosen.allocatable_cpu_cores > 0
-            and chosen.allocatable_memory_bytes > 0
-            and chosen.allocatable_disk_bytes > 0
-            and chosen.running_resources < chosen.guest_soft_limit
+        chosen.candidate = placement_support.node_can_host_request(
+            chosen,
+            cores=required_cpu,
+            memory_bytes=required_memory,
+            disk_bytes=required_disk,
+            gpu_required=request.gpu_required,
+            has_managed_storage=has_managed_storage,
         )
         if chosen_storage is not None:
             reserve_storage_pool(

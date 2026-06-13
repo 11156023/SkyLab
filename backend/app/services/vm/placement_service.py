@@ -346,6 +346,10 @@ def select_reserved_target_node_for_request(
     effective_resource_type, resource_type_reason = placement_advisor._decide_resource_type(
         request
     )
+    storage_pools_by_node, has_managed_storage = _build_storage_pool_state(
+        session=session,
+        node_names=[item.node for item in baseline_capacities],
+    )
     if reserved_requests is None:
         reserved_requests = vm_request_repo.get_approved_vm_requests_overlapping_window(
             session=session,
@@ -373,7 +377,7 @@ def select_reserved_target_node_for_request(
         hour_feasible_nodes = {
             item.node
             for item in adjusted_capacities
-            if placement_advisor._can_fit(
+            if placement_support.node_can_host_request(
                 item,
                 cores=placement_advisor._effective_cpu_cores(
                     request, effective_resource_type
@@ -383,6 +387,11 @@ def select_reserved_target_node_for_request(
                 ),
                 disk_bytes=request.disk_gb * GIB,
                 gpu_required=request.gpu_required,
+                has_managed_storage=has_managed_storage,
+            )
+            and (
+                not has_managed_storage
+                or storage_pools_by_node.get(item.node)
             )
         }
         feasible_nodes &= hour_feasible_nodes
@@ -588,12 +597,13 @@ def _evaluate_active_assignment_map(
             effective_resource_type,
         )
         required_disk = placement_request.disk_gb * GIB
-        if not node.candidate or not placement_advisor._can_fit(
+        if not placement_support.node_can_host_request(
             node,
             cores=required_cpu,
             memory_bytes=required_memory,
             disk_bytes=required_disk,
             gpu_required=placement_request.gpu_required,
+            has_managed_storage=has_managed_storage,
         ):
             return _AssignmentEvaluation(
                 feasible=False,
@@ -719,6 +729,10 @@ def _initial_active_assignment_map(
             effective_resource_type,
         )
         required_disk = placement_request.disk_gb * GIB
+        node_disk_bytes = placement_support.node_disk_bytes_for_capacity(
+            disk_bytes=required_disk,
+            has_managed_storage=has_managed_storage,
+        )
         current_node = _provisioned_current_node(request)
         movement_budget_exhausted = (
             max_migrations is not None
@@ -735,12 +749,13 @@ def _initial_active_assignment_map(
             allowed_targets = (allowed_target_nodes_by_request or {}).get(request.id)
             if allowed_targets is not None and item.node not in allowed_targets:
                 continue
-            if not item.candidate or not placement_advisor._can_fit(
+            if not placement_support.node_can_host_request(
                 item,
                 cores=required_cpu,
                 memory_bytes=required_memory,
                 disk_bytes=required_disk,
                 gpu_required=placement_request.gpu_required,
+                has_managed_storage=has_managed_storage,
             ):
                 continue
 
@@ -803,7 +818,7 @@ def _initial_active_assignment_map(
                 strategy=strategy,
                 cores=required_cpu,
                 memory_bytes=required_memory,
-                disk_bytes=required_disk,
+                disk_bytes=node_disk_bytes,
                 storage_selection=candidate[1],
                 tuning=tuning,
                 current_node=_provisioned_current_node(request),
@@ -1338,6 +1353,10 @@ def get_preview_node_scores(
     ]
 
     feasible_nodes = {item.node for item in baseline_capacities}
+    storage_pools_by_node, has_managed_storage = _build_storage_pool_state(
+        session=session,
+        node_names=[item.node for item in baseline_capacities],
+    )
     for checkpoint in checkpoints:
         adjusted = _apply_reserved_requests_to_capacities(
             baseline_capacities=baseline_capacities,
@@ -1346,12 +1365,17 @@ def get_preview_node_scores(
         )
         hour_feasible = {
             item.node for item in adjusted
-            if placement_advisor._can_fit(
+            if placement_support.node_can_host_request(
                 item,
                 cores=placement_advisor._effective_cpu_cores(request, effective_resource_type),
                 memory_bytes=placement_advisor._effective_memory_bytes(request, effective_resource_type),
                 disk_bytes=request.disk_gb * GIB,
                 gpu_required=request.gpu_required,
+                has_managed_storage=has_managed_storage,
+            )
+            and (
+                not has_managed_storage
+                or storage_pools_by_node.get(item.node)
             )
         }
         feasible_nodes &= hour_feasible

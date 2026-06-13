@@ -1068,6 +1068,77 @@ def test_reserved_target_node_prefers_admin_storage_profile(
     assert selection.plan.feasible is True
 
 
+def test_reserved_target_node_uses_managed_storage_instead_of_node_root_disk(
+    db: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    now = datetime.now(timezone.utc)
+    db.add(
+        ProxmoxConfig(
+            id=1,
+            host="pve.local",
+            user="root@pam",
+            encrypted_password="encrypted",
+            verify_ssl=False,
+            iso_storage="local",
+            data_storage="local-lvm",
+            pool_name="SkyLab",
+            placement_strategy="priority_dominant_share",
+        )
+    )
+    _seed_managed_storage(
+        db,
+        node_name="pve-a",
+        storage="local-lvm",
+        speed_tier="ssd",
+        user_priority=1,
+        avail_gb=200,
+        total_gb=400,
+    )
+    db.commit()
+
+    monkeypatch.setattr(
+        "app.services.vm.placement_service.placement_advisor._load_cluster_state",
+        lambda: ([], []),
+    )
+    monkeypatch.setattr(
+        "app.services.vm.placement_service.placement_advisor._build_node_capacities",
+        lambda **kwargs: [
+            NodeCapacity(
+                node="pve-a",
+                status="online",
+                total_cpu_cores=16,
+                allocatable_cpu_cores=16,
+                total_memory_bytes=64 * 1024**3,
+                allocatable_memory_bytes=64 * 1024**3,
+                total_disk_bytes=10 * 1024**3,
+                allocatable_disk_bytes=1 * 1024**3,
+                gpu_count=0,
+                running_resources=0,
+                guest_soft_limit=32,
+                candidate=False,
+            )
+        ],
+    )
+
+    selection = vm_request_placement_service.select_reserved_target_node_for_request(
+        session=db,
+        request=PlacementRequest(
+            resource_type="vm",
+            cpu_cores=2,
+            memory_mb=2048,
+            disk_gb=40,
+            instance_count=1,
+        ),
+        start_at=now + timedelta(hours=1),
+        end_at=now + timedelta(hours=2),
+        reserved_requests=[],
+        allow_cohort_rebalance=False,
+    )
+
+    assert selection.node == "pve-a"
+    assert selection.plan.feasible is True
+
+
 def test_create_vm_prefers_admin_selected_storage(
     db: Session, monkeypatch: pytest.MonkeyPatch
 ) -> None:

@@ -197,6 +197,32 @@ def refresh_node_candidate(node: NodeCapacity) -> None:
     )
 
 
+def node_can_host_request(
+    node: NodeCapacity,
+    *,
+    cores: float,
+    memory_bytes: int,
+    disk_bytes: int,
+    gpu_required: int,
+    has_managed_storage: bool,
+) -> bool:
+    if (
+        node.status != "online"
+        or node.allocatable_cpu_cores < cores
+        or node.allocatable_memory_bytes < memory_bytes
+        or node.gpu_count < gpu_required
+        or node.running_resources >= node.guest_soft_limit
+    ):
+        return False
+    if has_managed_storage:
+        return True
+    return node.allocatable_disk_bytes >= disk_bytes
+
+
+def node_disk_bytes_for_capacity(*, disk_bytes: int, has_managed_storage: bool) -> int:
+    return 0 if has_managed_storage else disk_bytes
+
+
 def release_request_from_capacities(
     *,
     node_capacities: list[NodeCapacity],
@@ -329,18 +355,23 @@ def build_plan(
     required_cpu = placement_advisor._effective_cpu_cores(request, effective_resource_type)
     required_memory = placement_advisor._effective_memory_bytes(request, effective_resource_type)
     required_disk = request.disk_gb * GIB
+    node_disk_bytes = node_disk_bytes_for_capacity(
+        disk_bytes=required_disk,
+        has_managed_storage=has_managed_storage,
+    )
     placements: dict[str, int] = {item.node: 0 for item in working_nodes}
     remaining = request.instance_count
 
     while remaining > 0:
         candidates: list[tuple[NodeCapacity, StorageSelection | None]] = []
         for item in working_nodes:
-            if not item.candidate or not placement_advisor._can_fit(
+            if not node_can_host_request(
                 item,
                 cores=required_cpu,
                 memory_bytes=required_memory,
                 disk_bytes=required_disk,
                 gpu_required=request.gpu_required,
+                has_managed_storage=has_managed_storage,
             ):
                 continue
             storage_selection: StorageSelection | None = None
@@ -367,7 +398,7 @@ def build_plan(
                 strategy=strategy,
                 cores=required_cpu,
                 memory_bytes=required_memory,
-                disk_bytes=required_disk,
+                disk_bytes=node_disk_bytes,
                 storage_selection=candidate[1],
                 tuning=tuning,
                 current_node=current_node,
@@ -376,7 +407,7 @@ def build_plan(
         placements[chosen.node] += 1
         chosen.allocatable_cpu_cores = max(chosen.allocatable_cpu_cores - required_cpu, 0.0)
         chosen.allocatable_memory_bytes = max(chosen.allocatable_memory_bytes - required_memory, 0)
-        chosen.allocatable_disk_bytes = max(chosen.allocatable_disk_bytes - required_disk, 0)
+        chosen.allocatable_disk_bytes = max(chosen.allocatable_disk_bytes - node_disk_bytes, 0)
         chosen.running_resources += 1
         refresh_node_candidate(chosen)
         if chosen_storage is not None:
