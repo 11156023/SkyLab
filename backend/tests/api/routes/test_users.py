@@ -365,10 +365,11 @@ def test_register_user(client: TestClient, db: Session) -> None:
         "full_name": full_name,
         "avatar_url": avatar_url,
     }
-    r = client.post(
-        f"{settings.API_V1_STR}/users/signup",
-        json=data,
-    )
+    with patch("app.services.user.user_service.settings.ENABLE_SIGNUP", True):
+        r = client.post(
+            f"{settings.API_V1_STR}/users/signup",
+            json=data,
+        )
     assert r.status_code == 200
     created_user = r.json()
     assert created_user["email"] == username
@@ -393,12 +394,28 @@ def test_register_user_already_exists_error(client: TestClient) -> None:
         "password": password,
         "full_name": full_name,
     }
-    r = client.post(
-        f"{settings.API_V1_STR}/users/signup",
-        json=data,
-    )
+    with patch("app.services.user.user_service.settings.ENABLE_SIGNUP", True):
+        r = client.post(
+            f"{settings.API_V1_STR}/users/signup",
+            json=data,
+        )
     assert r.status_code == 409
     assert r.json()["detail"] == "The user with this email already exists in the system"
+
+
+def test_register_user_disabled(client: TestClient) -> None:
+    data = {
+        "email": random_email(),
+        "password": random_lower_string(),
+        "full_name": random_lower_string(),
+    }
+    with patch("app.services.user.user_service.settings.ENABLE_SIGNUP", False):
+        r = client.post(
+            f"{settings.API_V1_STR}/users/signup",
+            json=data,
+        )
+    assert r.status_code == 400
+    assert r.json()["detail"] == "User registration is currently disabled"
 
 
 def test_update_user(

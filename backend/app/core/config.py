@@ -42,6 +42,7 @@ class Settings(BaseSettings):
     # When set, /desktop-client/download redirects here instead of serving a local file.
     DESKTOP_CLIENT_DOWNLOAD_URL: str = ""
     ENVIRONMENT: Literal["local", "staging", "production"] = "local"
+    ENABLE_SIGNUP: bool = True
 
     # Logging
     LOG_LEVEL: str = "INFO"

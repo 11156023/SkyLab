@@ -4,6 +4,7 @@ import { apiPost } from "../../services/api";
 import styles from "./LoginPage.module.scss";
 
 const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID ?? "";
+const ENABLE_SIGNUP = import.meta.env.VITE_ENABLE_SIGNUP !== "false";
 let googleIdentityScriptPromise;
 
 function loadGoogleIdentityScript() {
@@ -248,12 +249,14 @@ function LoginView({ onForgot, onRegister }) {
         </div>
       )}
 
-      <p className={styles.footerText}>
-        還沒有帳號？{" "}
-        <button type="button" className={styles.link} onClick={onRegister}>
-          立即註冊
-        </button>
-      </p>
+      {ENABLE_SIGNUP && (
+        <p className={styles.footerText}>
+          還沒有帳號？{" "}
+          <button type="button" className={styles.link} onClick={onRegister}>
+            立即註冊
+          </button>
+        </p>
+      )}
     </>
   );
 }
@@ -537,13 +540,16 @@ export default function LoginPage() {
     setView("login");
   };
 
+  const showRegister = ENABLE_SIGNUP && view === "register";
+
   return (
     <div className={styles.page}>
       <div className={styles.card}>
         {view === "login"    && <LoginView    onForgot={() => setView("forgot")}   onRegister={() => setView("register")} />}
         {view === "forgot"   && <ForgotView   onBack={() => setView("login")} />}
-        {view === "register" && <RegisterView onBack={() => setView("login")} />}
+        {showRegister && <RegisterView onBack={() => setView("login")} />}
         {view === "reset"    && <ResetView    token={resetToken} onDone={goLogin} />}
+        {view === "register" && !ENABLE_SIGNUP && <LoginView onForgot={() => setView("forgot")} onRegister={() => setView("login")} />}
       </div>
     </div>
   );

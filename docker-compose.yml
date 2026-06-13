@@ -4,6 +4,7 @@ x-backend-env: &backend-env
   DOMAIN: ${DOMAIN}
   FRONTEND_HOST: ${FRONTEND_HOST?Variable not set}
   ENVIRONMENT: ${ENVIRONMENT}
+  ENABLE_SIGNUP: ${ENABLE_SIGNUP:-true}
   BACKEND_CORS_ORIGINS: ${BACKEND_CORS_ORIGINS}
   SECRET_KEY: ${SECRET_KEY?Variable not set}
   FIRST_SUPERUSER: ${FIRST_SUPERUSER?Variable not set}
@@ -187,6 +188,9 @@ services:
     build:
       context: .
       dockerfile: frontend_new/Dockerfile
+      args:
+        VITE_GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+        VITE_ENABLE_SIGNUP: ${ENABLE_SIGNUP:-true}
     ports:
       - "5174:80"
     depends_on:

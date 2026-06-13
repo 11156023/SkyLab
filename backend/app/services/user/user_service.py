@@ -120,6 +120,9 @@ def create_user(
 
 
 def register_user(*, session: Session, user_in: UserRegister) -> User:
+    if not settings.ENABLE_SIGNUP:
+        raise BadRequestError("User registration is currently disabled")
+
     existing = user_repo.get_user_by_email(session=session, email=user_in.email)
     if existing:
         raise ConflictError("The user with this email already exists in the system")
