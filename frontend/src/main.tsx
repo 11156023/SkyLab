@@ -1,4 +1,8 @@
-﻿import { QueryClientProvider } from "@tanstack/react-query"
+﻿// MUST come first — polyfills `crypto.randomUUID` for HTTP non-secure contexts
+// (LAN IP deploy) before any dependency's top-level code can throw.
+import "./lib/polyfills"
+
+import { QueryClientProvider } from "@tanstack/react-query"
 import { createRouter, RouterProvider } from "@tanstack/react-router"
 import type { AxiosError } from "axios"
 import { StrictMode } from "react"
