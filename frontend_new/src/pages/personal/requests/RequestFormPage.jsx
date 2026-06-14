@@ -124,7 +124,6 @@ export default function RequestFormPage({ onBack, className }) {
   const [form, setForm] = useState({
     hostname:         "",
     ostemplate:       "",
-    os_info:          "",
     password:         "",
     template_id:      "",
     username:         "",
@@ -279,7 +278,6 @@ export default function RequestFormPage({ onBack, className }) {
         ostemplate: nextResourceType === "lxc"
           ? (prefill.lxc_os_image || prev.ostemplate)
           : prev.ostemplate,
-        os_info: prefill.vm_os_choice || prev.os_info,
         template_id: nextResourceType === "vm" && prefill.vm_template_id
           ? String(prefill.vm_template_id)
           : prev.template_id,
@@ -399,7 +397,6 @@ export default function RequestFormPage({ onBack, className }) {
         password:  form.password,
         cores:     form.cores,
         memory:    form.memory,
-        os_info:   form.os_info || undefined,
         reason:    form.reason.trim(),
         storage:   "local-lvm",
         ...(resourceType === "lxc"
@@ -578,15 +575,6 @@ export default function RequestFormPage({ onBack, className }) {
                   </SelectField>
                 </FieldGroup>
 
-                <FieldGroup label="作業系統資訊（選填）">
-                  <input
-                    className={styles.input}
-                    placeholder="Ubuntu 22.04 LTS"
-                    value={form.os_info}
-                    onChange={(e) => set("os_info", e.target.value)}
-                  />
-                </FieldGroup>
-
                 <FieldGroup label="Root 密碼" required error={errors.password}>
                   <input
                     className={styles.input}
@@ -628,15 +616,6 @@ export default function RequestFormPage({ onBack, className }) {
                       <option value="" disabled>目前沒有可用範本</option>
                     )}
                   </SelectField>
-                </FieldGroup>
-
-                <FieldGroup label="作業系統資訊（選填）">
-                  <input
-                    className={styles.input}
-                    placeholder="Ubuntu 22.04 LTS"
-                    value={form.os_info}
-                    onChange={(e) => set("os_info", e.target.value)}
-                  />
                 </FieldGroup>
 
                 <div className={styles.formGrid}>
@@ -920,12 +899,6 @@ export default function RequestFormPage({ onBack, className }) {
                       {form.ostemplate ? formatOstemplate(form.ostemplate) : "未選擇"}
                     </span>
                   </div>
-                  {form.os_info && (
-                    <div className={styles.summaryRow}>
-                      <span className={styles.summaryLabel}>系統資訊</span>
-                      <span className={styles.summaryValue}>{form.os_info}</span>
-                    </div>
-                  )}
                 </>
               )}
 
@@ -943,12 +916,6 @@ export default function RequestFormPage({ onBack, className }) {
                     <div className={styles.summaryRow}>
                       <span className={styles.summaryLabel}>使用者</span>
                       <span className={styles.summaryValue}>{form.username}</span>
-                    </div>
-                  )}
-                  {form.os_info && (
-                    <div className={styles.summaryRow}>
-                      <span className={styles.summaryLabel}>系統資訊</span>
-                      <span className={styles.summaryValue}>{form.os_info}</span>
                     </div>
                   )}
                 </>
