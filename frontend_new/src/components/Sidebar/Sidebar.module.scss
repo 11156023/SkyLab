@@ -66,12 +66,16 @@
 
 .brandIcon {
   @include flex-center;
-  width: 24px;
-  height: 24px;
-  border-radius: $radius-8;
-  background: var(--color-text-secondary);
-  color: #fff;
+  width: 28px;
+  height: 28px;
   flex-shrink: 0;
+
+  img {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    display: block;
+  }
 }
 
 .brandText {
