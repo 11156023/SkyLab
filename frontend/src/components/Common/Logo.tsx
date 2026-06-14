@@ -1,11 +1,6 @@
 ﻿import { Link } from "@tanstack/react-router"
 
-import { useTheme } from "@/components/theme-provider"
 import { cn } from "@/lib/utils"
-import icon from "/assets/images/fastapi-icon.svg"
-import iconLight from "/assets/images/fastapi-icon-light.svg"
-import logo from "/assets/images/fastapi-logo.svg"
-import logoLight from "/assets/images/fastapi-logo-light.svg"
 
 interface LogoProps {
   variant?: "full" | "icon" | "responsive"
@@ -13,43 +8,43 @@ interface LogoProps {
   asLink?: boolean
 }
 
+const ICON_SRC = "/assets/images/favicon.png"
+
 export function Logo({
   variant = "full",
   className,
   asLink = true,
 }: LogoProps) {
-  const { resolvedTheme } = useTheme()
-  const isDark = resolvedTheme === "dark"
-
-  const fullLogo = isDark ? logoLight : logo
-  const iconLogo = isDark ? iconLight : icon
+  const renderBrand = (sizeClass: string, extraClass = "") => (
+    <span
+      className={cn("inline-flex items-center gap-2 font-semibold", extraClass)}
+    >
+      <img
+        src={ICON_SRC}
+        alt="SkyLab"
+        className={cn(sizeClass, "object-contain")}
+      />
+      {variant !== "icon" && <span className="text-base">SkyLab</span>}
+    </span>
+  )
 
   const content =
     variant === "responsive" ? (
       <>
-        <img
-          src={fullLogo}
-          alt="SkyLab"
+        <span className={cn("group-data-[collapsible=icon]:hidden", className)}>
+          {renderBrand("h-6 w-6")}
+        </span>
+        <span
           className={cn(
-            "h-6 w-auto group-data-[collapsible=icon]:hidden",
+            "hidden group-data-[collapsible=icon]:inline-flex",
             className,
           )}
-        />
-        <img
-          src={iconLogo}
-          alt="SkyLab"
-          className={cn(
-            "size-5 hidden group-data-[collapsible=icon]:block",
-            className,
-          )}
-        />
+        >
+          <img src={ICON_SRC} alt="SkyLab" className="size-5 object-contain" />
+        </span>
       </>
     ) : (
-      <img
-        src={variant === "full" ? fullLogo : iconLogo}
-        alt="SkyLab"
-        className={cn(variant === "full" ? "h-6 w-auto" : "size-5", className)}
-      />
+      renderBrand(variant === "full" ? "h-6 w-6" : "size-5", className)
     )
 
   if (!asLink) {

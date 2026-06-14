@@ -156,7 +156,7 @@ function DownloadDesktopClientButton() {
     if (utf8Filename) return decodeURIComponent(utf8Filename)
 
     const plainFilename = disposition?.match(/filename="?([^";]+)"?/i)?.[1]
-    return plainFilename || "campus-cloud-connect.exe"
+    return plainFilename || "skylab-connect.exe"
   }
 
   const handleDownload = async () => {

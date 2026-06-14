@@ -269,7 +269,7 @@ export default function Sidebar({ collapsed, mobileOpen, onToggle, onClose }) {
       {/* ===== Brand ===== */}
       <div className={styles.brand} onClick={() => window.innerWidth >= 768 && onToggle?.()}>
         <span className={styles.brandIcon}>
-          <MIcon name="bolt" size={18} />
+          <img src="/favicon.ico" alt="SkyLab" />
         </span>
         {!collapsed && (
           <>
