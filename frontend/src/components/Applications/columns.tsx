@@ -207,7 +207,11 @@ export const createMyRequestColumns = (
       cell: ({ row }) => {
         const request = row.original
         const status = request.status
-        const canCancel = status === "pending" || status === "approved"
+        // approved + vmid 已設代表機器已開通由 scheduler 管理，取消會孤兒化
+        // 活機器；只有尚未產出 vmid 的 pending / approved 才允許撤銷。
+        const canCancel =
+          status === "pending" ||
+          (status === "approved" && request.vmid == null)
         const canRetry = status === "approved"
         const showCancel = canCancel && !!options?.onCancelRequest
         const showRetry = canRetry && !!options?.onRetryRequest

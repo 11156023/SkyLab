@@ -184,6 +184,17 @@ def list_all(
 
 DELETED_TOMBSTONE_DAYS = 30
 
+# Marker written onto a VMRequest's resource_warning / migration_error /
+# review_comment when the user explicitly deletes the live resource. Used
+# by list_by_user to suppress the now-defunct approved request from being
+# resurrected as a "failed" placeholder, and by the frontend to hide the
+# consumed request from the applications list.
+RESOURCE_DELETED_BY_USER_MARKER = "Resource deleted by user"
+RESOURCE_DELETED_ORPHAN_MARKER = "Resource deleted (orphan DB cleanup)"
+_RESOURCE_DELETED_MARKERS = frozenset(
+    {RESOURCE_DELETED_BY_USER_MARKER, RESOURCE_DELETED_ORPHAN_MARKER}
+)
+
 
 def list_by_user(
     *, session: Session, user_id: uuid.UUID
@@ -265,6 +276,11 @@ def list_by_user(
         )
         for req in pending_requests:
             if req.vmid and req.vmid in shown_vmids:
+                continue
+            # Approved requests whose live resource was deleted by the user
+            # are kept on disk for audit but must NOT resurrect as "failed"
+            # placeholders in the resources list.
+            if req.resource_warning in _RESOURCE_DELETED_MARKERS:
                 continue
             result.append(
                 ResourcePublic(
@@ -567,8 +583,9 @@ def delete(
         )
         if linked_request is not None:
             linked_request.migration_status = VMMigrationStatus.failed
-            linked_request.migration_error = "Resource deleted by user"
-            linked_request.resource_warning = "Resource deleted by user"
+            linked_request.migration_error = RESOURCE_DELETED_BY_USER_MARKER
+            linked_request.resource_warning = RESOURCE_DELETED_BY_USER_MARKER
+            linked_request.review_comment = RESOURCE_DELETED_BY_USER_MARKER
             session.add(linked_request)
 
         audit_service.log_action(
@@ -627,8 +644,9 @@ def delete_orphan_db_record(
     linked_request = vm_request_repo.get_latest_approved_vm_request_by_vmid(session=session, vmid=vmid)
     if linked_request is not None:
         linked_request.migration_status = VMMigrationStatus.failed
-        linked_request.migration_error = "Resource deleted (orphan DB cleanup)"
-        linked_request.resource_warning = "Resource deleted (orphan DB cleanup)"
+        linked_request.migration_error = RESOURCE_DELETED_ORPHAN_MARKER
+        linked_request.resource_warning = RESOURCE_DELETED_ORPHAN_MARKER
+        linked_request.review_comment = RESOURCE_DELETED_ORPHAN_MARKER
         session.add(linked_request)
 
     audit_service.log_action(
