@@ -88,6 +88,7 @@ def _to_public(req: VMRequest, user_override=None) -> VMRequestPublic:
         template_id=req.template_id,
         disk_size=req.disk_size,
         username=req.username,
+        gpu_mapping_id=req.gpu_mapping_id,
         status=req.status,
         service_template_slug=req.service_template_slug,
         service_template_script_path=req.service_template_script_path,
@@ -793,8 +794,8 @@ def cancel(
     - ``approved`` with ``vmid``: rejected. The machine is already provisioned
       and the scheduler manages it through the active-approved-request list;
       cancelling here would orphan the live VM (no start window, auto-shutdown
-      or migration). The resource deletion flow cancels the request itself
-      (``review_comment="Resource deleted by user"``).
+      or migration). The resource deletion flow keeps the approval record
+      intact and marks the request as no longer schedulable.
     """
     from app.infrastructure.worker import (  # noqa: PLC0415
         cancel as _cancel_bg_task,

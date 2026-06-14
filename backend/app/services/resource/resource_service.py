@@ -559,13 +559,16 @@ def delete(
         resource_repo.delete_resource(session=session, vmid=vmid)
         audit_log_repo.delete_audit_logs_by_vmid(session=session, vmid=vmid)
 
-        # Cancel the associated VM request so the scheduler won't re-provision
+        # Keep the original approval result for audit/review reporting.
+        # Mark it as no longer schedulable so the scheduler will not
+        # re-provision a resource that the user intentionally deleted.
         linked_request = vm_request_repo.get_latest_approved_vm_request_by_vmid(
             session=session, vmid=vmid,
         )
         if linked_request is not None:
-            linked_request.status = VMRequestStatus.cancelled
-            linked_request.review_comment = "Resource deleted by user"
+            linked_request.migration_status = VMMigrationStatus.failed
+            linked_request.migration_error = "Resource deleted by user"
+            linked_request.resource_warning = "Resource deleted by user"
             session.add(linked_request)
 
         audit_service.log_action(
@@ -597,7 +600,7 @@ def delete_orphan_db_record(
     """Clean up a DB resource record whose Proxmox VM no longer exists.
 
     Runs only the non-Proxmox cleanup steps (IP release, reverse proxy,
-    batch task unlinking, DB row deletion, VM request cancellation, audit log).
+    batch task unlinking, DB row deletion, VM request scheduling stop, audit log).
     Safe to call when the VM is already gone from Proxmox.
     """
     try:
@@ -623,8 +626,9 @@ def delete_orphan_db_record(
 
     linked_request = vm_request_repo.get_latest_approved_vm_request_by_vmid(session=session, vmid=vmid)
     if linked_request is not None:
-        linked_request.status = VMRequestStatus.rejected
-        linked_request.review_comment = "Resource deleted (orphan DB cleanup)"
+        linked_request.migration_status = VMMigrationStatus.failed
+        linked_request.migration_error = "Resource deleted (orphan DB cleanup)"
+        linked_request.resource_warning = "Resource deleted (orphan DB cleanup)"
         session.add(linked_request)
 
     audit_service.log_action(

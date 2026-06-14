@@ -2,6 +2,8 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import styles from "./RequestReviewPage.module.scss";
 import MIcon from "../../../components/MIcon";
 import { useToast } from "../../../hooks/useToast";
+import { DeletionRequestsService } from "../../../services/deletionRequests";
+import { SpecChangeRequestsService } from "../../../services/specChangeRequests";
 import { VmRequestsService } from "../../../services/vmRequests";
 
 const TABS = [
@@ -11,13 +13,17 @@ const TABS = [
   { key: "all", label: "全部", icon: "view_list" },
 ];
 
-const REVIEW_COLUMNS = ["申請資源", "申請人", "時段", "規格", "狀態"];
+const REVIEW_COLUMNS = ["申請類型", "申請內容", "申請人", "時間", "規格 / 摘要", "狀態"];
 
 const STATUS_META = {
   pending: { label: "待審核", tone: "info" },
   approved: { label: "已通過", tone: "success" },
   rejected: { label: "已拒絕", tone: "danger" },
   cancelled: { label: "已取消", tone: "muted" },
+  running: { label: "處理中", tone: "info" },
+  completed: { label: "已完成", tone: "muted" },
+  failed: { label: "失敗", tone: "danger" },
+  deleted_approved: { label: "已通過 / 資源已刪除", tone: "success" },
 };
 
 const EMPTY_TEXT = {
@@ -44,20 +50,124 @@ function formatRange(startAt, endAt) {
   return `${formatDateTime(startAt)} - ${formatDateTime(endAt)}`;
 }
 
-function requestTitle(request) {
-  return request?.hostname || request?.name || "未命名申請";
+function isDeletedApprovedVm(request) {
+  return (
+    request?.review_comment === "Resource deleted by user" ||
+    request?.review_comment === "Resource deleted (orphan DB cleanup)" ||
+    request?.resource_warning === "Resource deleted by user" ||
+    request?.resource_warning === "Resource deleted (orphan DB cleanup)"
+  );
 }
 
-function requestUser(request) {
-  return request?.user_full_name || request?.user_email || "未知使用者";
-}
-
-function specLabel(request) {
+function vmSpecLabel(request) {
   if (!request) return "-";
-  const disk = request.resource_type === "vm"
-    ? `${request.disk_size ?? 0} GB Disk`
-    : `${request.rootfs_size ?? 0} GB Rootfs`;
+  const disk =
+    request.resource_type === "vm"
+      ? `${request.disk_size ?? 0} GB Disk`
+      : `${request.rootfs_size ?? 0} GB Rootfs`;
   return `${request.cores} CPU / ${(request.memory / 1024).toFixed(1)} GB RAM / ${disk}`;
+}
+
+function specChangeLabel(request) {
+  const parts = [
+    request.requested_cpu
+      ? `CPU ${request.current_cpu ?? "-"} -> ${request.requested_cpu}`
+      : "",
+    request.requested_memory
+      ? `RAM ${request.current_memory ?? "-"} -> ${request.requested_memory} MB`
+      : "",
+    request.requested_disk
+      ? `Disk ${request.current_disk ?? "-"} -> ${request.requested_disk} GB`
+      : "",
+  ].filter(Boolean);
+  return parts.join(" / ") || request.change_type || "-";
+}
+
+function sourceLabel(source) {
+  if (source === "vm") return "建立申請";
+  if (source === "spec") return "規格調整";
+  return "刪除請求";
+}
+
+function sourceIcon(item) {
+  if (item.source === "spec") return "tune";
+  if (item.source === "deletion") return "delete_outline";
+  return item.raw?.resource_type === "vm" ? "computer" : "terminal";
+}
+
+function normalizeVmRequest(request) {
+  const deletedApproved = isDeletedApprovedVm(request);
+  const reviewStatus = deletedApproved
+    ? "approved"
+    : ["pending", "approved", "rejected"].includes(request.status)
+      ? request.status
+      : "other";
+
+  return {
+    id: `vm:${request.id}`,
+    rawId: request.id,
+    source: "vm",
+    raw: request,
+    reviewStatus,
+    status: deletedApproved ? "deleted_approved" : request.status,
+    title: request.hostname || request.name || "未命名申請",
+    user: request.user_full_name || request.user_email || "未知使用者",
+    userSubtext: request.user_email || request.user_id || "-",
+    timeText: formatRange(request.start_at, request.end_at),
+    specText: vmSpecLabel(request),
+    reason: request.reason,
+    templateText: request.template_id
+      ? `Template #${request.template_id}`
+      : request.ostemplate || request.service_template_slug || "未設定",
+    gpuText: request.gpu_mapping_id || "未申請",
+    nodeText: request.assigned_node || request.desired_node || "尚未評估",
+    createdAt: request.created_at,
+    reviewedAt: request.reviewed_at,
+  };
+}
+
+function normalizeSpecRequest(request) {
+  return {
+    id: `spec:${request.id}`,
+    rawId: request.id,
+    source: "spec",
+    raw: request,
+    reviewStatus: request.status,
+    status: request.status,
+    title: `VMID ${request.vmid} 規格調整`,
+    user: request.user_full_name || request.user_email || "未知使用者",
+    userSubtext: request.user_email || request.user_id || "-",
+    timeText: formatDateTime(request.created_at),
+    specText: specChangeLabel(request),
+    reason: request.reason,
+    templateText: request.change_type || "-",
+    gpuText: "-",
+    nodeText: `VMID ${request.vmid}`,
+    createdAt: request.created_at,
+    reviewedAt: request.reviewed_at,
+  };
+}
+
+function normalizeDeletionRequest(request) {
+  return {
+    id: `deletion:${request.id}`,
+    rawId: request.id,
+    source: "deletion",
+    raw: request,
+    reviewStatus: "other",
+    status: request.status,
+    title: `${request.name || "Resource"} / VMID ${request.vmid}`,
+    user: request.user_full_name || request.user_email || "未知使用者",
+    userSubtext: request.user_email || request.user_id || "-",
+    timeText: formatDateTime(request.created_at),
+    specText: `${request.resource_type || "resource"} / ${request.node || "unknown node"}`,
+    reason: request.error_message || "使用者送出刪除請求",
+    templateText: `purge=${request.purge ? "yes" : "no"} / force=${request.force ? "yes" : "no"}`,
+    gpuText: "-",
+    nodeText: request.node || "unknown node",
+    createdAt: request.created_at,
+    reviewedAt: request.completed_at,
+  };
 }
 
 function StatusBadge({ status }) {
@@ -90,6 +200,11 @@ function InfoRow({ label, value }) {
   );
 }
 
+function filterByTab(items, tab) {
+  if (tab === "all") return items;
+  return items.filter((item) => item.reviewStatus === tab);
+}
+
 export default function RequestReviewPage() {
   const toast = useToast();
   const [activeTab, setActiveTab] = useState("pending");
@@ -114,18 +229,27 @@ export default function RequestReviewPage() {
     setLoading(true);
     setError("");
     try {
-      const [res, allRes] = await Promise.all([
-        VmRequestsService.listAll(tab === "all" ? undefined : tab),
+      const [vmRes, specRes, deletionRes] = await Promise.all([
         VmRequestsService.listAll(undefined),
+        SpecChangeRequestsService.listAll(),
+        DeletionRequestsService.listAll(),
       ]);
-      const data = res.data ?? [];
-      setAllRequests(allRes.data ?? []);
-      setRequests(data);
-      setSelectedId((current) => (
-        current && data.some((item) => item.id === current)
+      const items = [
+        ...(vmRes.data ?? []).map(normalizeVmRequest),
+        ...(specRes.data ?? []).map(normalizeSpecRequest),
+        ...(deletionRes.data ?? []).map(normalizeDeletionRequest),
+      ].sort(
+        (a, b) =>
+          new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime(),
+      );
+      const filtered = filterByTab(items, tab);
+      setAllRequests(items);
+      setRequests(filtered);
+      setSelectedId((current) =>
+        current && filtered.some((item) => item.id === current)
           ? current
-          : data[0]?.id ?? null
-      ));
+          : filtered[0]?.id ?? null,
+      );
     } catch (err) {
       setRequests([]);
       setAllRequests([]);
@@ -142,9 +266,14 @@ export default function RequestReviewPage() {
   }, [activeTab, fetchRequests]);
 
   useEffect(() => {
-    if (!selected?.id) {
+    if (
+      !selected?.rawId ||
+      selected.source !== "vm" ||
+      selected.reviewStatus !== "pending"
+    ) {
       setContext(null);
       setContextError("");
+      setContextLoading(false);
       return;
     }
 
@@ -152,23 +281,36 @@ export default function RequestReviewPage() {
     setContextLoading(true);
     setContextError("");
     setContext(null);
-    VmRequestsService.getReviewContext(selected.id)
-      .then((res) => { if (!cancelled) setContext(res); })
+    VmRequestsService.getReviewContext(selected.rawId)
+      .then((res) => {
+        if (!cancelled) setContext(res);
+      })
       .catch((err) => {
         if (!cancelled) setContextError(err?.message ?? "讀取審核資訊失敗");
       })
-      .finally(() => { if (!cancelled) setContextLoading(false); });
-    return () => { cancelled = true; };
-  }, [selected?.id]);
+      .finally(() => {
+        if (!cancelled) setContextLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [selected?.rawId, selected?.source, selected?.reviewStatus]);
 
   async function submitReview(status) {
-    if (!selected?.id || reviewing) return;
+    if (!selected?.rawId || reviewing || selected.reviewStatus !== "pending") return;
     setReviewing(true);
     try {
-      await VmRequestsService.review(selected.id, {
+      const body = {
         status,
         review_comment: comment.trim() || null,
-      });
+      };
+      if (selected.source === "vm") {
+        await VmRequestsService.review(selected.rawId, body);
+      } else if (selected.source === "spec") {
+        await SpecChangeRequestsService.review(selected.rawId, body);
+      } else {
+        return;
+      }
       toast.success(status === "approved" ? "申請已核准" : "申請已拒絕");
       setComment("");
       await fetchRequests(activeTab);
@@ -179,13 +321,12 @@ export default function RequestReviewPage() {
     }
   }
 
-  const effectiveRequest = context?.request ?? selected;
-  const isPending = effectiveRequest?.status === "pending";
+  const isPending = selected?.reviewStatus === "pending";
   const stats = useMemo(() => {
     const source = allRequests.length ? allRequests : requests;
-    const pending = source.filter((request) => request.status === "pending").length;
-    const approved = source.filter((request) => request.status === "approved").length;
-    const rejected = source.filter((request) => request.status === "rejected").length;
+    const pending = source.filter((request) => request.reviewStatus === "pending").length;
+    const approved = source.filter((request) => request.reviewStatus === "approved").length;
+    const rejected = source.filter((request) => request.reviewStatus === "rejected").length;
     return { total: source.length, pending, approved, rejected };
   }, [allRequests, requests]);
 
@@ -194,14 +335,17 @@ export default function RequestReviewPage() {
     if (!q) return requests;
     return requests.filter((request) => {
       const searchable = [
-        requestTitle(request),
-        requestUser(request),
-        request.resource_type,
+        sourceLabel(request.source),
+        request.title,
+        request.user,
+        request.userSubtext,
         request.status,
-        request.gpu_mapping_id,
-        specLabel(request),
-        formatRange(request.start_at, request.end_at),
-      ].join(" ").toLowerCase();
+        request.specText,
+        request.timeText,
+        request.gpuText,
+      ]
+        .join(" ")
+        .toLowerCase();
       return searchable.includes(q);
     });
   }, [query, requests]);
@@ -211,7 +355,9 @@ export default function RequestReviewPage() {
       <div className={styles.pageHeader}>
         <div className={styles.pageHeading}>
           <h1 className={styles.pageTitle}>申請審核</h1>
-          <p className={styles.pageSubtitle}>審核使用者提交的 VM / LXC 預約申請</p>
+          <p className={styles.pageSubtitle}>
+            集中查看建立、規格調整與刪除請求；刪除資源不會扣除原本已通過的審核數量
+          </p>
         </div>
         <div className={styles.pageActions}>
           <button type="button" className={styles.btnSecondary} onClick={() => fetchRequests(activeTab)} disabled={loading}>
@@ -280,7 +426,7 @@ export default function RequestReviewPage() {
           <input
             type="text"
             className={styles.searchInput}
-            placeholder="搜尋主機、申請人、狀態或 GPU"
+            placeholder="搜尋類型、主機、申請人、狀態或 GPU"
             value={query}
             onChange={(event) => setQuery(event.target.value)}
           />
@@ -318,20 +464,21 @@ export default function RequestReviewPage() {
                         className={`${styles.tr} ${selected?.id === request.id ? styles.trActive : ""}`}
                         onClick={() => { setSelectedId(request.id); setComment(""); }}
                       >
+                        <td className={styles.td}>{sourceLabel(request.source)}</td>
                         <td className={styles.td}>
                           <div className={styles.nameCell}>
                             <div className={styles.nameIcon}>
-                              <MIcon name={request.resource_type === "vm" ? "computer" : "terminal"} size={18} />
+                              <MIcon name={sourceIcon(request)} size={18} />
                             </div>
                             <div>
-                              <div className={styles.namePrimary}>{requestTitle(request)}</div>
-                              <div className={styles.nameSub}>{request.resource_type === "vm" ? "VM" : "LXC"}</div>
+                              <div className={styles.namePrimary}>{request.title}</div>
+                              <div className={styles.nameSub}>{request.templateText}</div>
                             </div>
                           </div>
                         </td>
-                        <td className={styles.td}>{requestUser(request)}</td>
-                        <td className={styles.td}>{formatRange(request.start_at, request.end_at)}</td>
-                        <td className={styles.td}>{specLabel(request)}</td>
+                        <td className={styles.td}>{request.user}</td>
+                        <td className={styles.td}>{request.timeText}</td>
+                        <td className={styles.td}>{request.specText}</td>
                         <td className={styles.td}><StatusBadge status={request.status} /></td>
                       </tr>
                     ))}
@@ -342,39 +489,39 @@ export default function RequestReviewPage() {
           </section>
 
           <section className={styles.detailPane}>
-            {!effectiveRequest ? (
+            {!selected ? (
               <div className={styles.stateBox}>請選擇一筆申請</div>
             ) : (
               <>
                 <div className={styles.detailHeader}>
                   <div>
-                    <h2>{requestTitle(effectiveRequest)}</h2>
-                    <p>{requestUser(effectiveRequest)}</p>
+                    <h2>{selected.title}</h2>
+                    <p>{selected.user}</p>
                   </div>
-                  <StatusBadge status={effectiveRequest.status} />
+                  <StatusBadge status={selected.status} />
                 </div>
 
                 <div className={styles.infoGrid}>
-                  <InfoRow label="類型" value={effectiveRequest.resource_type === "vm" ? "VM" : "LXC"} />
-                  <InfoRow label="規格" value={specLabel(effectiveRequest)} />
-                  <InfoRow label="時段" value={formatRange(effectiveRequest.start_at, effectiveRequest.end_at)} />
-                  <InfoRow label="模板" value={effectiveRequest.template_id ? `Template #${effectiveRequest.template_id}` : effectiveRequest.ostemplate} />
-                  <InfoRow label="GPU" value={effectiveRequest.gpu_mapping_id || "未申請"} />
-                  <InfoRow label="預測節點" value={context?.projected_node || effectiveRequest.assigned_node || "尚未評估"} />
+                  <InfoRow label="申請類型" value={sourceLabel(selected.source)} />
+                  <InfoRow label="規格 / 摘要" value={selected.specText} />
+                  <InfoRow label="時間" value={selected.timeText} />
+                  <InfoRow label="模板 / 參數" value={selected.templateText} />
+                  <InfoRow label="GPU" value={selected.gpuText} />
+                  <InfoRow label="節點 / VMID" value={context?.projected_node || selected.nodeText} />
                 </div>
 
                 <div className={styles.reasonBox}>
-                  <span>申請原因</span>
-                  <p>{effectiveRequest.reason}</p>
+                  <span>申請原因 / 備註</span>
+                  <p>{selected.reason}</p>
                 </div>
 
                 {contextLoading && <div className={styles.stateBox}>讀取資源評估中...</div>}
-                {contextError && (
+                {contextError && selected.source === "vm" && (
                   <div className={`${styles.stateBox} ${styles.stateError}`}>
                     {contextError}
                   </div>
                 )}
-                {context && (
+                {context && selected.source === "vm" && (
                   <div className={styles.contextBox}>
                     <div className={styles.contextTitle}>
                       <MIcon name={context.feasible ? "check_circle" : "warning"} size={18} />
@@ -396,18 +543,18 @@ export default function RequestReviewPage() {
                   <textarea
                     value={comment}
                     onChange={(event) => setComment(event.target.value)}
-                    disabled={!isPending || reviewing}
+                    disabled={!isPending || reviewing || selected.source === "deletion"}
                     placeholder="可填寫核准原因或退回說明"
                   />
                 </label>
 
                 <div className={styles.rowActions}>
-                  {isPending ? (
+                  {isPending && selected.source !== "deletion" ? (
                     <>
                       <button
                         type="button"
                         className={styles.btnApprove}
-                        disabled={reviewing || (context && !context.feasible)}
+                        disabled={reviewing || (selected.source === "vm" && context && !context.feasible)}
                         onClick={() => submitReview("approved")}
                       >
                         核准
@@ -421,6 +568,8 @@ export default function RequestReviewPage() {
                         拒絕
                       </button>
                     </>
+                  ) : selected.source === "deletion" ? (
+                    <span className={styles.doneText}>刪除請求只作為申請紀錄，不計入審核通過數量。</span>
                   ) : (
                     <span className={styles.doneText}>這筆申請已完成審核。</span>
                   )}
