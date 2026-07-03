@@ -185,7 +185,7 @@ function SelectPopup({ options, value, onSelect, onClose, triggerRef, closing })
   );
 }
 
-function UserPopup({ user, onLogout, onClose, triggerRef, closing }) {
+function UserPopup({ user, onLogout, onSettings, onClose, triggerRef, closing }) {
   const ref = useRef(null);
 
   useEffect(() => {
@@ -210,7 +210,7 @@ function UserPopup({ user, onLogout, onClose, triggerRef, closing }) {
         </div>
       </div>
       <div className={styles.userPopupDivider} />
-      <button type="button" className={styles.userPopupItem} onClick={onClose}>
+      <button type="button" className={styles.userPopupItem} onClick={() => { onClose(); onSettings(); }}>
         <MIcon name="settings" size={18} />
         <span>User Settings</span>
       </button>
@@ -353,6 +353,7 @@ export default function Sidebar({ collapsed, mobileOpen, onToggle, onClose }) {
             <UserPopup
               user={user}
               onLogout={logout}
+              onSettings={() => handleNav("account")}
               onClose={userPopup.close}
               triggerRef={userBtnRef}
               closing={userPopup.closing}

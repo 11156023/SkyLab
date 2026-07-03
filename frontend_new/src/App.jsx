@@ -8,6 +8,7 @@ import DashboardPage         from "./pages/personal/dashboard/DashboardPage";
 import QuickTemplateFormPage from "./pages/personal/dashboard/QuickTemplateFormPage";
 import ResourcesPage         from "./pages/personal/resources/ResourcesPage";
 import RequestsPage          from "./pages/personal/requests/RequestsPage";
+import AccountSettingsPage   from "./pages/personal/account/AccountSettingsPage";
 
 // 資源
 import ResourceMgmtPage  from "./pages/resource/resource-mgmt/ResourceMgmtPage";
@@ -59,6 +60,7 @@ function App() {
           <Route path="/quick-template/:slug" element={<QuickTemplateFormPage />} />
           <Route path="/my-resources"         element={<ResourcesPage />} />
           <Route path="/my-requests"          element={<RequestsPage />} />
+          <Route path="/account"              element={<AccountSettingsPage />} />
 
           {/* 資源 */}
           <Route path="/resource-mgmt"  element={<ResourceMgmtPage />} />
