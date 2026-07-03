@@ -484,3 +484,233 @@ $spacing-16: 12px;
   border: 1px solid var(--color-border);
   font-family: "Courier New", Courier, monospace;
 }
+
+/* ── 串接後補充樣式 ────────────────────────────────── */
+.headerActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: $spacing-8;
+}
+
+.btnSecondary,
+.btnDanger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 36px;
+  padding: 8px $spacing-16;
+  border-radius: $radius-8;
+  font-size: $font-size-14;
+  font-weight: $font-weight-500;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background $transition-base, box-shadow $transition-base;
+
+  &:disabled {
+    opacity: 0.55;
+    cursor: not-allowed;
+  }
+}
+
+.btnSecondary {
+  background: var(--color-surface);
+  color: var(--color-text-primary);
+  border: 1px solid var(--color-border);
+
+  &:hover:not(:disabled) {
+    background: var(--color-hover);
+  }
+}
+
+.btnDanger {
+  background: var(--color-danger);
+  color: #fff;
+
+  &:hover:not(:disabled) {
+    box-shadow: var(--shadow-sm);
+  }
+}
+
+.iconBtn {
+  width: 30px;
+  height: 30px;
+  border-radius: $radius-8;
+  @include flex-center;
+  color: var(--color-text-secondary);
+  transition: background $transition-base, color $transition-base;
+
+  &:hover:not(:disabled) {
+    background: var(--color-hover);
+    color: var(--color-text-primary);
+  }
+}
+
+.loading {
+  padding: $spacing-32;
+  color: var(--color-text-secondary);
+  text-align: center;
+}
+
+/* ── Modal ── */
+.modalOverlay {
+  position: fixed;
+  inset: 0;
+  z-index: 300;
+  @include flex-center;
+  padding: $spacing-16;
+  background: var(--color-overlay);
+  backdrop-filter: blur(4px);
+}
+
+.modal,
+.confirm {
+  width: min(620px, 100%);
+  max-height: 88vh;
+  overflow-y: auto;
+  @include flex-column;
+  gap: $spacing-16;
+  padding: $spacing-24;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: $radius-12;
+  box-shadow: var(--shadow-lg);
+}
+
+.modalHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: $spacing-16;
+
+  h2 {
+    margin: 0;
+    font-size: $font-size-18;
+    color: var(--color-text-primary);
+  }
+
+  p {
+    margin: 4px 0 0;
+    font-size: $font-size-12;
+    color: var(--color-text-secondary);
+    line-height: $line-height-base;
+  }
+}
+
+.modalActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: $spacing-8;
+}
+
+.confirm {
+  max-width: 480px;
+
+  h2 { margin: 0; color: var(--color-text-primary); }
+  p  { margin: 0; color: var(--color-text-secondary); }
+}
+
+.confirmIcon {
+  width: 44px;
+  height: 44px;
+  border-radius: $radius-8;
+  background: color-mix(in srgb, var(--color-danger) 12%, transparent);
+  color: var(--color-danger);
+  @include flex-center;
+}
+
+/* ── 表單 ── */
+.field {
+  @include flex-column;
+  gap: 6px;
+  font-size: $font-size-12;
+  font-weight: $font-weight-500;
+  color: var(--color-text-secondary);
+  flex: 1;
+
+  input,
+  select {
+    min-height: 38px;
+    padding: 8px $spacing-16;
+    border: 1px solid var(--color-border);
+    border-radius: $radius-8;
+    background: var(--color-surface);
+    color: var(--color-text-primary);
+    outline: none;
+    font-size: $font-size-14;
+
+    &:focus {
+      border-color: var(--color-primary);
+      box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-primary) 12%, transparent);
+    }
+  }
+}
+
+.fieldRow {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: $spacing-16;
+
+  @include respond-to(md) {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+.fieldHint {
+  font-style: normal;
+  font-size: $font-size-12;
+  color: var(--color-danger);
+}
+
+.linkBtn {
+  align-self: flex-start;
+  font-size: $font-size-12;
+  color: var(--color-primary);
+  cursor: pointer;
+  background: transparent;
+  border: 0;
+  padding: 0;
+
+  &:hover { text-decoration: underline; }
+}
+
+.checkRow {
+  display: inline-flex;
+  align-items: center;
+  gap: $spacing-8;
+  min-height: 34px;
+  padding: 0 $spacing-16;
+  border: 1px solid var(--color-border);
+  border-radius: $radius-8;
+  color: var(--color-text-primary);
+  font-size: $font-size-14;
+  cursor: pointer;
+}
+
+/* ── 提示框 ── */
+.noticeInfo,
+.noticeDanger {
+  @include flex-column;
+  gap: 4px;
+  padding: $spacing-8 $spacing-16;
+  border-radius: $radius-8;
+  font-size: $font-size-12;
+
+  p { margin: 0; }
+}
+
+.noticeInfo {
+  border: 1px solid color-mix(in srgb, #2b4d98 30%, transparent);
+  background: color-mix(in srgb, #2b4d98 8%, transparent);
+  color: var(--color-text-secondary);
+
+  strong { color: #2b4d98; }
+}
+
+.noticeDanger {
+  border: 1px solid color-mix(in srgb, #dc3545 30%, transparent);
+  background: color-mix(in srgb, #dc3545 8%, transparent);
+  color: var(--color-text-secondary);
+
+  strong { color: #dc3545; }
+}

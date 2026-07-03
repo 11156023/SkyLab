@@ -277,3 +277,65 @@
   &:disabled { opacity: 0.4; cursor: not-allowed; }
   &:not(:disabled):hover { opacity: 0.85; }
 }
+
+/* ── 模式切換 ── */
+.modeTabs {
+  display: flex;
+  gap: 2px;
+  margin-left: auto;
+  margin-right: $spacing-4;
+  padding: 2px;
+  border-radius: $radius-pill;
+  background: var(--color-hover);
+}
+
+.modeTab,
+.modeTabActive {
+  padding: 2px 10px;
+  border-radius: $radius-pill;
+  font-size: $font-size-12;
+  cursor: pointer;
+  transition: background $transition-base, color $transition-base;
+}
+
+.modeTab {
+  background: transparent;
+  color: var(--color-text-secondary);
+
+  &:hover { color: var(--color-text-primary); }
+}
+
+.modeTabActive {
+  background: var(--color-surface);
+  color: var(--color-text-primary);
+  font-weight: $font-weight-500;
+  box-shadow: var(--shadow-sm);
+}
+
+/* ── 導航目標按鈕 ── */
+.navTargets {
+  @include flex-column;
+  gap: $spacing-4;
+  margin-top: $spacing-8;
+}
+
+.navTargetBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border: 1px solid var(--color-border);
+  border-radius: $radius-8;
+  background: var(--color-surface);
+  color: var(--color-primary);
+  font-size: $font-size-12;
+  font-weight: $font-weight-500;
+  cursor: pointer;
+  text-align: left;
+  transition: background $transition-base, border-color $transition-base;
+
+  &:hover {
+    background: var(--color-hover);
+    border-color: var(--color-primary);
+  }
+}

@@ -43,6 +43,7 @@
   display: inline-flex;
   align-items: center;
   gap: 6px;
+  min-height: 36px;
   padding: 8px $spacing-16;
   border-radius: $radius-8;
   font-size: $font-size-14;
@@ -55,9 +56,105 @@
   box-shadow: var(--shadow-sm);
   transition: background $transition-base;
 
-  &:hover {
+  &:hover:not(:disabled) {
     background: var(--color-hover);
   }
+
+  &:disabled {
+    opacity: 0.55;
+    cursor: not-allowed;
+  }
+}
+
+/* ── 統計摘要 ── */
+.summaryGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: $spacing-16;
+
+  @include respond-to(lg) {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+
+.summaryItem {
+  @include flex-column;
+  gap: 4px;
+  padding: $spacing-16;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: $radius-8;
+
+  span {
+    font-size: $font-size-12;
+    color: var(--color-text-muted);
+  }
+
+  strong {
+    font-size: $font-size-24;
+    color: var(--color-text-primary);
+  }
+}
+
+.summaryDanger {
+  color: var(--color-danger) !important;
+}
+
+/* ── 篩選工具列 ── */
+.toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: $spacing-8;
+  align-items: center;
+}
+
+.searchBox {
+  display: flex;
+  align-items: center;
+  gap: $spacing-8;
+  min-height: 38px;
+  padding: 0 $spacing-16;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: $radius-8;
+  color: var(--color-text-muted);
+  flex: 1;
+  min-width: 200px;
+
+  @include respond-to(md) {
+    max-width: 320px;
+  }
+
+  input {
+    width: 100%;
+    border: 0;
+    outline: 0;
+    background: transparent;
+    color: var(--color-text-primary);
+    font-size: $font-size-14;
+  }
+}
+
+.filterSelect {
+  min-height: 38px;
+  padding: 0 $spacing-8;
+  border: 1px solid var(--color-border);
+  border-radius: $radius-8;
+  background: var(--color-surface);
+  color: var(--color-text-primary);
+  font-size: $font-size-14;
+  outline: none;
+  max-width: 220px;
+
+  &:focus {
+    border-color: var(--color-primary);
+  }
+}
+
+.loading {
+  padding: $spacing-32;
+  color: var(--color-text-secondary);
+  text-align: center;
 }
 
 .content {
@@ -140,4 +237,53 @@
   font-size: $font-size-14;
   color: var(--color-text-primary);
   vertical-align: middle;
+}
+
+.tdNowrap {
+  white-space: nowrap;
+}
+
+.tdDetails {
+  max-width: 360px;
+  @include text-truncate;
+}
+
+.userCell {
+  @include flex-column;
+  gap: 2px;
+}
+
+.userEmail {
+  font-size: $font-size-12;
+  color: var(--color-text-muted);
+}
+
+.actionBadge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 10px;
+  border-radius: $radius-pill;
+  font-size: $font-size-12;
+  font-weight: $font-weight-500;
+  background: color-mix(in srgb, #2b4d98 12%, transparent);
+  color: #2b4d98;
+  white-space: nowrap;
+}
+
+/* ── 分頁 ── */
+.pagination {
+  @include flex-between;
+  flex-wrap: wrap;
+  gap: $spacing-8;
+  margin-top: $spacing-16;
+}
+
+.paginationInfo {
+  font-size: $font-size-12;
+  color: var(--color-text-muted);
+}
+
+.paginationBtns {
+  display: flex;
+  gap: $spacing-8;
 }

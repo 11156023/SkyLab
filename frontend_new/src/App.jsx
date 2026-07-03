@@ -29,6 +29,7 @@ import SettingsPage  from "./pages/system/settings/SettingsPage";
 import MigrationPage from "./pages/system/migration/MigrationPage";
 import AuditPage     from "./pages/system/audit/AuditPage";
 import JobsPage      from "./pages/system/jobs/JobsPage";
+import DeployLogsPage from "./pages/system/deploy-logs/DeployLogsPage";
 
 // 網路
 import FirewallPage       from "./pages/network/firewall/FirewallPage";
@@ -42,56 +43,58 @@ function App() {
 
   if (loading) return null;
 
-  if (!user) {
-    return (
-      <Routes>
-        <Route path="*" element={<LoginPage />} />
-      </Routes>
-    );
-  }
-
   return (
     <Routes>
-      <Route element={<DashboardLayout />}>
-        <Route index element={<Navigate to="/dashboard" replace />} />
+      <Route
+        path="/login"
+        element={user ? <Navigate to="/dashboard" replace /> : <LoginPage />}
+      />
 
-        {/* 個人 */}
-        <Route path="/dashboard"            element={<DashboardPage />} />
-        <Route path="/quick-template/:slug" element={<QuickTemplateFormPage />} />
-        <Route path="/my-resources"         element={<ResourcesPage />} />
-        <Route path="/my-requests"          element={<RequestsPage />} />
+      {user ? (
+        <Route element={<DashboardLayout />}>
+          <Route index element={<Navigate to="/dashboard" replace />} />
 
-        {/* 資源 */}
-        <Route path="/resource-mgmt"  element={<ResourceMgmtPage />} />
-        <Route path="/request-review" element={<RequestReviewPage />} />
-        <Route path="/gpu-mgmt"       element={<GpuMgmtPage />} />
-        <Route path="/batch-review"   element={<BatchReviewPage />} />
+          {/* 個人 */}
+          <Route path="/dashboard"            element={<DashboardPage />} />
+          <Route path="/quick-template/:slug" element={<QuickTemplateFormPage />} />
+          <Route path="/my-resources"         element={<ResourcesPage />} />
+          <Route path="/my-requests"          element={<RequestsPage />} />
 
-        {/* AI */}
-        <Route path="/ai-api"         element={<AiApiPage />} />
-        <Route path="/ai-api-review"  element={<AiApiReviewPage />} />
-        <Route path="/ai-api-keys"    element={<AiApiKeysPage />} />
-        <Route path="/ai-monitoring"  element={<AiMonitoringPage />} />
-        <Route path="/ai-management"  element={<AiManagementPage />} />
+          {/* 資源 */}
+          <Route path="/resource-mgmt"  element={<ResourceMgmtPage />} />
+          <Route path="/request-review" element={<RequestReviewPage />} />
+          <Route path="/gpu-mgmt"       element={<GpuMgmtPage />} />
+          <Route path="/batch-review"   element={<BatchReviewPage />} />
 
-        {/* 系統管理 */}
-        <Route path="/groups"    element={<GroupsPage />} />
-        <Route path="/admin"     element={<AdminPage />} />
-        <Route path="/settings"  element={<SettingsPage />} />
-        <Route path="/migration" element={<MigrationPage />} />
-        <Route path="/audit"     element={<AuditPage />} />
-        <Route path="/jobs"      element={<JobsPage />} />
+          {/* AI */}
+          <Route path="/ai-api"         element={<AiApiPage />} />
+          <Route path="/ai-api-review"  element={<AiApiReviewPage />} />
+          <Route path="/ai-api-keys"    element={<AiApiKeysPage />} />
+          <Route path="/ai-monitoring"  element={<AiMonitoringPage />} />
+          <Route path="/ai-management"  element={<AiManagementPage />} />
 
-        {/* 網路 */}
-        <Route path="/firewall"       element={<FirewallPage />} />
-        <Route path="/domain"         element={<DomainPage />} />
-        <Route path="/gateway"        element={<GatewayPage />} />
-        <Route path="/reverse-proxy"  element={<ReverseProxyPage />} />
-        <Route path="/ip-management"  element={<IpManagementPage />} />
+          {/* 系統管理 */}
+          <Route path="/groups"    element={<GroupsPage />} />
+          <Route path="/admin"     element={<AdminPage />} />
+          <Route path="/settings"  element={<SettingsPage />} />
+          <Route path="/migration" element={<MigrationPage />} />
+          <Route path="/audit"     element={<AuditPage />} />
+          <Route path="/jobs"      element={<JobsPage />} />
+          <Route path="/deploy-logs" element={<DeployLogsPage />} />
 
-        {/* fallback */}
-        <Route path="*" element={<Navigate to="/dashboard" replace />} />
-      </Route>
+          {/* 網路 */}
+          <Route path="/firewall"       element={<FirewallPage />} />
+          <Route path="/domain"         element={<DomainPage />} />
+          <Route path="/gateway"        element={<GatewayPage />} />
+          <Route path="/reverse-proxy"  element={<ReverseProxyPage />} />
+          <Route path="/ip-management"  element={<IpManagementPage />} />
+
+          {/* fallback */}
+          <Route path="*" element={<Navigate to="/dashboard" replace />} />
+        </Route>
+      ) : (
+        <Route path="*" element={<Navigate to="/login" replace />} />
+      )}
     </Routes>
   );
 }
