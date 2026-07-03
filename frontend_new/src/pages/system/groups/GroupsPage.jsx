@@ -5,6 +5,16 @@ import { useToast } from "../../../hooks/useToast";
 import { apiGet } from "../../../services/api";
 import { GroupsService } from "../../../services/groups";
 import { BatchProvisionService } from "../../../services/batchProvision";
+import RecurrenceSchedulePicker from "./RecurrenceSchedulePicker";
+import AiJudgePanel from "./AiJudgePanel";
+import AiPvePanel from "./AiPvePanel";
+
+/* 群組詳情的三個 view */
+const DETAIL_VIEWS = [
+  { key: "members", label: "群組資源大廳", icon: "groups" },
+  { key: "ai-judge", label: "AI 評分管理", icon: "checklist" },
+  { key: "ai-pve", label: "AI PVE 訊息", icon: "smart_toy" },
+];
 
 /* ── 共用小元件 ─────────────────────────────────────────── */
 
@@ -322,6 +332,11 @@ function BatchProvisionModal({ groupId, memberCount, onClose }) {
     username: "",
     expiryDate: "",
   });
+  const [schedule, setSchedule] = useState({
+    recurrence_rule: null,
+    recurrence_duration_minutes: null,
+    schedule_timezone: null,
+  });
 
   const [lxcTemplates, setLxcTemplates] = useState([]);
   const [vmTemplates, setVmTemplates] = useState([]);
@@ -392,6 +407,11 @@ function BatchProvisionModal({ groupId, memberCount, onClose }) {
         body.template_id = Number(form.templateId);
         body.username = form.username.trim();
         body.disk_size = form.diskSize;
+      }
+      if (schedule.recurrence_rule) {
+        body.recurrence_rule = schedule.recurrence_rule;
+        body.recurrence_duration_minutes = schedule.recurrence_duration_minutes ?? undefined;
+        body.schedule_timezone = schedule.schedule_timezone ?? undefined;
       }
       const job = await BatchProvisionService.submit(groupId, body);
       setJobId(job.id);
@@ -570,6 +590,8 @@ function BatchProvisionModal({ groupId, memberCount, onClose }) {
               )}
             </div>
 
+            <RecurrenceSchedulePicker onChange={setSchedule} />
+
             <div className={styles.modalActions}>
               <button type="button" className={styles.btnSecondary} onClick={onClose} disabled={submitting}>
                 取消
@@ -660,6 +682,7 @@ function GroupDetail({ groupId, onBack }) {
   const [group, setGroup] = useState(null);
   const [loading, setLoading] = useState(true);
   const [modal, setModal] = useState(null); // "add" | "csv" | "batch"
+  const [view, setView] = useState("members"); // "members" | "ai-judge" | "ai-pve"
   const [savingMembers, setSavingMembers] = useState(false);
   const [removingId, setRemovingId] = useState(null);
 
@@ -752,24 +775,44 @@ function GroupDetail({ groupId, onBack }) {
             {group.description && <p className={styles.pageSubtitle}>{group.description}</p>}
           </div>
         </div>
-        <div className={styles.headerActions}>
-          <button type="button" className={styles.btnSecondary} onClick={() => setModal("csv")}>
-            <MIcon name="upload" size={16} />
-            匯入 CSV
-          </button>
-          <button type="button" className={styles.btnSecondary} onClick={() => setModal("add")}>
-            <MIcon name="person_add" size={16} />
-            加入成員
-          </button>
-          {members.length > 0 && (
-            <button type="button" className={styles.btnPrimary} onClick={() => setModal("batch")}>
-              <MIcon name="dns" size={16} />
-              批量建立資源
+        {view === "members" && (
+          <div className={styles.headerActions}>
+            <button type="button" className={styles.btnSecondary} onClick={() => setModal("csv")}>
+              <MIcon name="upload" size={16} />
+              匯入 CSV
             </button>
-          )}
-        </div>
+            <button type="button" className={styles.btnSecondary} onClick={() => setModal("add")}>
+              <MIcon name="person_add" size={16} />
+              加入成員
+            </button>
+            {members.length > 0 && (
+              <button type="button" className={styles.btnPrimary} onClick={() => setModal("batch")}>
+                <MIcon name="dns" size={16} />
+                批量建立資源
+              </button>
+            )}
+          </div>
+        )}
       </div>
 
+      <div className={styles.viewTabs}>
+        {DETAIL_VIEWS.map((item) => (
+          <button
+            key={item.key}
+            type="button"
+            className={view === item.key ? styles.viewTabActive : styles.viewTab}
+            onClick={() => setView(item.key)}
+          >
+            <MIcon name={item.icon} size={16} />
+            {item.label}
+          </button>
+        ))}
+      </div>
+
+      {view === "ai-judge" && <AiJudgePanel groupId={groupId} members={members} />}
+      {view === "ai-pve" && <AiPvePanel groupId={groupId} />}
+
+      {view === "members" && (
       <div className={styles.memberCard}>
         <div className={styles.memberCardHead}>
           <h2 className={styles.sectionTitle}>成員列表（{members.length} 人）</h2>
@@ -817,6 +860,7 @@ function GroupDetail({ groupId, onBack }) {
           </div>
         )}
       </div>
+      )}
 
       {modal === "add" && (
         <AddMembersModal

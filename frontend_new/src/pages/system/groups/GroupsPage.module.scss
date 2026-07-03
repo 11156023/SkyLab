@@ -237,6 +237,45 @@
   text-align: center;
 }
 
+/* ── 詳情頁 view 切換 ── */
+.viewTabs {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: $spacing-4;
+  padding: $spacing-4;
+  border-radius: $radius-8;
+  background: var(--color-hover);
+  max-width: 520px;
+}
+
+.viewTab,
+.viewTabActive {
+  @include flex-center;
+  gap: 6px;
+  min-height: 34px;
+  border-radius: $radius-8;
+  font-size: $font-size-14;
+  font-weight: $font-weight-500;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background $transition-base, color $transition-base;
+}
+
+.viewTab {
+  background: transparent;
+  color: var(--color-text-secondary);
+
+  &:hover:not(:disabled) {
+    color: var(--color-text-primary);
+  }
+}
+
+.viewTabActive {
+  background: var(--color-surface);
+  color: var(--color-text-primary);
+  box-shadow: var(--shadow-sm);
+}
+
 /* ── 詳情頁 ── */
 .detailHeading {
   display: flex;

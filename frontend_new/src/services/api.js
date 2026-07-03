@@ -111,6 +111,29 @@ export async function apiGetBlob(path, isRetry = false) {
   throw { status: res.status, message: `HTTP ${res.status}` };
 }
 
+/** POST（JSON body，回傳 Blob，報表匯出用；同樣支援 401 續期重試） */
+export async function apiPostBlob(path, body, isRetry = false) {
+  const res = await fetch(`${BASE_URL}${path}`, {
+    method: "POST",
+    headers: buildHeaders(),
+    body: JSON.stringify(body),
+  });
+  if (res.ok) return res.blob();
+
+  if (res.status === 401 && !isRetry && (await refreshTokens())) {
+    return apiPostBlob(path, body, true);
+  }
+
+  let message = `HTTP ${res.status}`;
+  try {
+    const errBody = await res.json();
+    message = errBody?.detail ?? errBody?.message ?? message;
+  } catch {
+    // 若 body 不是 JSON 就用預設訊息
+  }
+  throw { status: res.status, message };
+}
+
 /** 觸發瀏覽器下載 Blob */
 export function downloadBlob(blob, filename) {
   const url = URL.createObjectURL(blob);

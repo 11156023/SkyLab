@@ -1,0 +1,1163 @@
+@use "../../../assets/styles/variables" as *;
+@use "../../../assets/styles/mixins" as *;
+
+/* ── 主面板 ── */
+.panel {
+  @include flex-column;
+  gap: $spacing-24;
+}
+
+.panelHeading {
+  @include flex-column;
+  gap: $spacing-4;
+}
+
+.panelTitle {
+  display: flex;
+  align-items: center;
+  gap: $spacing-8;
+  font-size: $font-size-18;
+  font-weight: $font-weight-700;
+  color: var(--color-text-primary);
+
+  span {
+    color: var(--color-primary);
+  }
+}
+
+.panelDesc {
+  font-size: $font-size-14;
+  color: var(--color-text-secondary);
+}
+
+/* ── 子分頁 ── */
+.subTabs {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: $spacing-4;
+  padding: $spacing-4;
+  border-radius: $radius-8;
+  background: var(--color-hover);
+  max-width: 520px;
+}
+
+.subTab,
+.subTabActive {
+  @include flex-center;
+  gap: 6px;
+  min-height: 34px;
+  border-radius: $radius-8;
+  font-size: $font-size-14;
+  font-weight: $font-weight-500;
+  cursor: pointer;
+  transition: background $transition-base, color $transition-base;
+}
+
+.subTab {
+  background: transparent;
+  color: var(--color-text-secondary);
+
+  &:hover:not(:disabled) {
+    color: var(--color-text-primary);
+  }
+}
+
+.subTabActive {
+  background: var(--color-surface);
+  color: var(--color-text-primary);
+  box-shadow: var(--shadow-sm);
+}
+
+.tabBody {
+  @include flex-column;
+  gap: $spacing-16;
+}
+
+.sectionHead {
+  @include flex-between;
+  flex-wrap: wrap;
+  gap: $spacing-16;
+  align-items: flex-start;
+}
+
+.sectionTitle {
+  font-size: $font-size-16;
+  font-weight: $font-weight-700;
+  color: var(--color-text-primary);
+}
+
+.sectionDesc {
+  margin-top: $spacing-4;
+  font-size: $font-size-14;
+  color: var(--color-text-secondary);
+}
+
+.sectionActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: $spacing-8;
+}
+
+/* ── 按鈕 ── */
+.btnPrimary,
+.btnSecondary,
+.btnDanger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 36px;
+  padding: 8px $spacing-16;
+  border-radius: $radius-8;
+  font-size: $font-size-14;
+  font-weight: $font-weight-500;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background $transition-base, border-color $transition-base, box-shadow $transition-base, color $transition-base;
+
+  &:disabled {
+    opacity: 0.55;
+    cursor: not-allowed;
+  }
+}
+
+.btnPrimary {
+  background: var(--color-primary);
+  color: var(--color-text-on-primary);
+
+  &:hover:not(:disabled) {
+    background: var(--color-primary-dark);
+    box-shadow: var(--shadow-sm);
+  }
+}
+
+.btnSecondary {
+  background: var(--color-surface);
+  color: var(--color-text-primary);
+  border: 1px solid var(--color-border);
+
+  &:hover:not(:disabled) {
+    background: var(--color-hover);
+  }
+}
+
+.btnDanger {
+  background: var(--color-danger);
+  color: #fff;
+
+  &:hover:not(:disabled) {
+    box-shadow: var(--shadow-sm);
+  }
+}
+
+.btnBlock {
+  width: 100%;
+}
+
+.iconBtn {
+  width: 30px;
+  height: 30px;
+  border-radius: $radius-8;
+  @include flex-center;
+  color: var(--color-text-secondary);
+  transition: background $transition-base, color $transition-base, opacity $transition-base;
+
+  &:hover:not(:disabled) {
+    background: var(--color-hover);
+    color: var(--color-text-primary);
+  }
+
+  &:disabled {
+    opacity: 0.35;
+    cursor: not-allowed;
+  }
+}
+
+.iconBtnDanger {
+  color: var(--color-danger);
+
+  &:hover:not(:disabled) {
+    background: color-mix(in srgb, var(--color-danger) 10%, transparent);
+    color: var(--color-danger);
+  }
+}
+
+/* ── Spinner ── */
+@keyframes rotate {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+.spinning {
+  display: inline-flex;
+  animation: rotate 1s linear infinite;
+}
+
+/* ── 卡片 ── */
+.card {
+  @include glass-surface;
+  @include flex-column;
+  gap: $spacing-16;
+  padding: $spacing-24;
+  border-radius: $radius-12;
+}
+
+.cardHead {
+  @include flex-between;
+  flex-wrap: wrap;
+  gap: $spacing-8;
+  align-items: flex-start;
+}
+
+.cardTitle {
+  display: flex;
+  align-items: center;
+  gap: $spacing-8;
+  font-size: $font-size-16;
+  font-weight: $font-weight-700;
+  color: var(--color-text-primary);
+}
+
+.mutedText {
+  font-size: $font-size-14;
+  color: var(--color-text-muted);
+
+  strong {
+    color: var(--color-text-primary);
+  }
+}
+
+.dangerText {
+  font-size: $font-size-14;
+  color: var(--color-danger);
+}
+
+/* ── 提示框 ── */
+.noticeInfo {
+  @include flex-column;
+  gap: 4px;
+  padding: $spacing-8 $spacing-16;
+  border-radius: $radius-8;
+  font-size: $font-size-12;
+  border: 1px solid color-mix(in srgb, #2b4d98 30%, transparent);
+  background: color-mix(in srgb, #2b4d98 8%, transparent);
+  color: var(--color-text-secondary);
+
+  p { margin: 0; }
+  strong { color: #2b4d98; }
+}
+
+/* ── 已保存評分表列表 ── */
+.fileList {
+  @include flex-column;
+  gap: $spacing-8;
+}
+
+.fileRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: $spacing-8 $spacing-16;
+  padding: $spacing-8 $spacing-16;
+  border: 1px solid var(--color-border);
+  border-radius: $radius-8;
+  transition: border-color $transition-base, background $transition-base;
+}
+
+.fileRowActive {
+  border-color: var(--color-primary);
+  background: color-mix(in srgb, var(--color-primary) 6%, transparent);
+}
+
+.fileMain {
+  @include flex-column;
+  gap: 2px;
+  flex: 1;
+  min-width: 0;
+  text-align: left;
+  cursor: pointer;
+  background: transparent;
+  border: 0;
+  padding: 0;
+}
+
+.fileName {
+  font-size: $font-size-14;
+  font-weight: $font-weight-500;
+  color: var(--color-text-primary);
+  @include text-truncate;
+}
+
+.fileMeta {
+  font-size: $font-size-12;
+  color: var(--color-text-muted);
+}
+
+.fileActions {
+  display: flex;
+  gap: $spacing-8;
+  flex-shrink: 0;
+}
+
+/* ── 上傳區 ── */
+.templateRow {
+  @include flex-column;
+  gap: $spacing-8;
+}
+
+.fieldLabel {
+  font-size: $font-size-12;
+  font-weight: $font-weight-500;
+  color: var(--color-text-secondary);
+}
+
+.chipBtns {
+  display: flex;
+  flex-wrap: wrap;
+  gap: $spacing-8;
+}
+
+.chipBtn,
+.chipBtnActive {
+  min-height: 32px;
+  padding: 4px $spacing-16;
+  border-radius: $radius-8;
+  font-size: $font-size-14;
+  cursor: pointer;
+  transition: background $transition-base, color $transition-base, border-color $transition-base;
+
+  &:disabled {
+    opacity: 0.55;
+    cursor: not-allowed;
+  }
+}
+
+.chipBtn {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  color: var(--color-text-secondary);
+
+  &:hover:not(:disabled) {
+    background: var(--color-hover);
+    color: var(--color-text-primary);
+  }
+}
+
+.chipBtnActive {
+  background: var(--color-primary);
+  border: 1px solid var(--color-primary);
+  color: var(--color-text-on-primary);
+}
+
+.uploaderWrap {
+  @include flex-column;
+  gap: $spacing-16;
+}
+
+.dropZone {
+  position: relative;
+  @include flex-column;
+  align-items: center;
+  justify-content: center;
+  gap: $spacing-16;
+  padding: $spacing-32;
+  border: 2px dashed var(--color-border);
+  border-radius: $radius-12;
+  transition: border-color $transition-base, background $transition-base;
+
+  &:hover {
+    border-color: var(--color-text-muted);
+  }
+}
+
+.dropZoneDragging {
+  border-color: var(--color-primary);
+  background: color-mix(in srgb, var(--color-primary) 5%, transparent);
+}
+
+.dropZoneLoading {
+  pointer-events: none;
+  opacity: 0.5;
+}
+
+.dropZoneInput {
+  position: absolute;
+  inset: 0;
+  cursor: pointer;
+  opacity: 0;
+}
+
+.dropHint {
+  @include flex-column;
+  align-items: center;
+  gap: $spacing-8;
+  color: var(--color-text-muted);
+  text-align: center;
+}
+
+.dropHintTitle {
+  font-size: $font-size-14;
+  font-weight: $font-weight-500;
+  color: var(--color-text-primary);
+}
+
+.dropHintMeta {
+  font-size: $font-size-12;
+  color: var(--color-text-muted);
+}
+
+.selectedFile {
+  display: flex;
+  align-items: center;
+  gap: $spacing-16;
+  color: var(--color-primary);
+
+  /* 清除按鈕要能點到，蓋在透明 input 上層 */
+  button {
+    position: relative;
+    z-index: 1;
+  }
+}
+
+.selectedFileName {
+  font-size: $font-size-14;
+  font-weight: $font-weight-500;
+  color: var(--color-text-primary);
+}
+
+.selectedFileMeta {
+  font-size: $font-size-12;
+  color: var(--color-text-muted);
+}
+
+/* ── 分析結果版面 ── */
+.analysisGrid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: $spacing-24;
+  align-items: start;
+
+  @include respond-to(xl) {
+    grid-template-columns: minmax(0, 1fr) 400px;
+  }
+}
+
+.analysisMain {
+  @include flex-column;
+  gap: $spacing-16;
+  min-width: 0;
+}
+
+/* ── 統計 ── */
+.statsGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: $spacing-8;
+
+  @include respond-to(sm) {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+
+.statBox {
+  @include flex-column;
+  align-items: center;
+  gap: 4px;
+  padding: $spacing-16 $spacing-8;
+  border-radius: $radius-12;
+  background: var(--color-hover);
+  text-align: center;
+}
+
+.statValue {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: $font-size-24;
+  font-weight: $font-weight-700;
+  color: var(--color-text-primary);
+}
+
+.statLabel {
+  font-size: $font-size-12;
+  color: var(--color-text-muted);
+}
+
+.statBox_success {
+  background: color-mix(in srgb, #28a745 10%, transparent);
+
+  .statValue { color: #28a745; }
+  .statLabel { color: #28a745; }
+}
+
+.statBox_info {
+  background: color-mix(in srgb, #2b4d98 10%, transparent);
+
+  .statValue { color: #2b4d98; }
+  .statLabel { color: #2b4d98; }
+}
+
+.statBox_danger {
+  background: color-mix(in srgb, #dc3545 10%, transparent);
+
+  .statValue { color: #dc3545; }
+  .statLabel { color: #dc3545; }
+}
+
+.summaryBox {
+  padding: $spacing-16;
+  border-radius: $radius-8;
+  background: var(--color-hover);
+  font-size: $font-size-14;
+  color: var(--color-text-secondary);
+  line-height: $line-height-base;
+}
+
+/* ── 評分項目卡片 ── */
+.itemsList {
+  @include flex-column;
+  gap: $spacing-16;
+}
+
+.rubricCard {
+  @include flex-column;
+  gap: $spacing-8;
+  padding: $spacing-16;
+  border: 1px solid var(--color-border);
+  border-left-width: 4px;
+  border-radius: $radius-8;
+  transition: background $transition-base;
+
+  &:hover {
+    background: var(--color-hover);
+  }
+}
+
+.rubricCard_auto { border-left-color: #28a745; }
+.rubricCard_partial { border-left-color: #2b4d98; }
+.rubricCard_manual { border-left-color: #dc3545; }
+
+.rubricCardHead {
+  @include flex-between;
+  gap: $spacing-8;
+}
+
+.rubricCardHeadMain {
+  display: flex;
+  align-items: center;
+  gap: $spacing-8;
+}
+
+.rubricIndex {
+  font-size: $font-size-14;
+  font-weight: $font-weight-700;
+  color: var(--color-text-muted);
+}
+
+.detBadge {
+  @include badge-base;
+  padding: 2px 10px;
+  white-space: nowrap;
+}
+
+.detBadge_auto { background: color-mix(in srgb, #28a745 12%, transparent); color: #28a745; }
+.detBadge_partial { background: color-mix(in srgb, #2b4d98 12%, transparent); color: #2b4d98; }
+.detBadge_manual { background: color-mix(in srgb, #dc3545 12%, transparent); color: #dc3545; }
+
+.rubricField {
+  @include flex-column;
+  gap: 4px;
+  font-size: $font-size-12;
+  font-weight: $font-weight-500;
+  color: var(--color-text-secondary);
+
+  input {
+    min-height: 34px;
+    padding: 6px $spacing-16;
+    border: 1px solid var(--color-border);
+    border-radius: $radius-8;
+    background: var(--color-surface);
+    color: var(--color-text-primary);
+    outline: none;
+    font-size: $font-size-14;
+
+    &:focus {
+      border-color: var(--color-primary);
+      box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-primary) 12%, transparent);
+    }
+
+    &:disabled {
+      opacity: 0.55;
+      cursor: not-allowed;
+    }
+  }
+}
+
+.detectInfo {
+  @include flex-column;
+  gap: $spacing-8;
+  padding: $spacing-8 $spacing-16;
+  border: 1px dashed var(--color-border);
+  border-radius: $radius-8;
+  background: var(--color-hover);
+}
+
+.detectInfoHead {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: $font-size-12;
+  font-weight: $font-weight-500;
+  color: var(--color-text-muted);
+}
+
+.detectGrid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: $spacing-8;
+
+  @include respond-to(sm) {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+.detectItem {
+  @include flex-column;
+  gap: 2px;
+
+  span {
+    font-size: $font-size-12;
+    font-weight: $font-weight-500;
+    color: var(--color-text-muted);
+  }
+
+  p {
+    margin: 0;
+    padding: 6px 10px;
+    border-radius: $radius-8;
+    background: var(--color-surface);
+    font-size: $font-size-12;
+    color: var(--color-text-secondary);
+    line-height: $line-height-base;
+  }
+}
+
+.chipRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: $radius-8;
+  background: var(--color-surface);
+  font-size: $font-size-12;
+  color: var(--color-text-secondary);
+
+  code {
+    font-family: monospace;
+    font-size: 10px;
+    color: var(--color-text-muted);
+  }
+}
+
+/* ── AI 對話 ── */
+.chatCard {
+  padding: $spacing-16 $spacing-24;
+  height: 640px;
+  min-width: 0;
+
+  @include respond-to(xl) {
+    position: sticky;
+    top: $spacing-24;
+  }
+}
+
+.chatPanel {
+  @include flex-column;
+  flex: 1;
+  min-height: 0;
+}
+
+.chatMessages {
+  flex: 1;
+  overflow-y: auto;
+  @include flex-column;
+  gap: $spacing-16;
+  padding: $spacing-8 0;
+}
+
+.chatEmpty {
+  flex: 1;
+  @include flex-column;
+  align-items: center;
+  justify-content: center;
+  gap: $spacing-8;
+  color: var(--color-text-muted);
+  text-align: center;
+  font-size: $font-size-14;
+}
+
+.chatEmptyMeta {
+  font-size: $font-size-12;
+}
+
+.chatMsgRow {
+  display: flex;
+  gap: $spacing-8;
+  justify-content: flex-start;
+}
+
+.chatMsgRow_user {
+  justify-content: flex-end;
+}
+
+.chatAvatar {
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  @include flex-center;
+  background: color-mix(in srgb, var(--color-primary) 12%, transparent);
+  color: var(--color-primary);
+}
+
+.chatAvatar_user {
+  background: var(--color-hover);
+  color: var(--color-text-secondary);
+}
+
+.chatBubble {
+  max-width: 80%;
+  padding: 8px $spacing-16;
+  border-radius: $radius-12;
+  background: var(--color-hover);
+  font-size: $font-size-14;
+  color: var(--color-text);
+  white-space: pre-wrap;
+  line-height: $line-height-base;
+  overflow-wrap: anywhere;
+}
+
+.chatBubble_user {
+  background: var(--color-primary);
+  color: var(--color-text-on-primary);
+}
+
+@keyframes bounce {
+  0%, 80%, 100% { transform: translateY(0); opacity: 0.4; }
+  40% { transform: translateY(-4px); opacity: 1; }
+}
+
+.typing {
+  display: inline-flex;
+  gap: 4px;
+
+  span {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--color-primary);
+    animation: bounce 1.2s infinite;
+
+    &:nth-child(2) { animation-delay: 0.15s; }
+    &:nth-child(3) { animation-delay: 0.3s; }
+  }
+}
+
+.chatInputArea {
+  @include flex-column;
+  gap: $spacing-8;
+  padding-top: $spacing-8;
+  border-top: 1px solid var(--color-divider);
+
+  > button {
+    align-self: flex-start;
+    min-height: 30px;
+    padding: 4px 10px;
+    font-size: $font-size-12;
+  }
+}
+
+.chatForm {
+  display: flex;
+  gap: $spacing-8;
+
+  textarea {
+    flex: 1;
+    min-height: 38px;
+    padding: 8px $spacing-16;
+    border: 1px solid var(--color-border);
+    border-radius: $radius-8;
+    background: var(--color-surface);
+    color: var(--color-text-primary);
+    outline: none;
+    font-size: $font-size-14;
+    resize: none;
+
+    &:focus {
+      border-color: var(--color-primary);
+      box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-primary) 12%, transparent);
+    }
+
+    &:disabled {
+      opacity: 0.55;
+      cursor: not-allowed;
+    }
+  }
+
+  button {
+    padding: 8px;
+    min-width: 38px;
+  }
+}
+
+.chatHint {
+  font-size: $font-size-12;
+  color: var(--color-text-muted);
+}
+
+/* ── 收集腳本 ── */
+.scriptsGrid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: $spacing-24;
+  align-items: start;
+
+  @include respond-to(xl) {
+    grid-template-columns: 320px minmax(0, 1fr);
+  }
+}
+
+.scriptList {
+  @include flex-column;
+  gap: $spacing-8;
+}
+
+.scriptItem,
+.scriptItemActive {
+  @include flex-column;
+  gap: 4px;
+  padding: $spacing-8 $spacing-16;
+  border: 1px solid var(--color-border);
+  border-radius: $radius-8;
+  background: var(--color-surface);
+  text-align: left;
+  cursor: pointer;
+  transition: border-color $transition-base, background $transition-base;
+
+  &:hover {
+    background: var(--color-hover);
+  }
+}
+
+.scriptItemActive {
+  border-color: var(--color-primary);
+  background: color-mix(in srgb, var(--color-primary) 6%, transparent);
+}
+
+.scriptItemHead {
+  @include flex-between;
+  gap: $spacing-8;
+}
+
+.scriptName {
+  font-size: $font-size-14;
+  font-weight: $font-weight-500;
+  color: var(--color-text-primary);
+  @include text-truncate;
+}
+
+.reviewGrid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: $spacing-16;
+
+  @include respond-to(md) {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+.reviewPanel {
+  @include flex-column;
+  gap: $spacing-8;
+  padding: $spacing-16;
+  border: 1px solid var(--color-border);
+  border-radius: $radius-8;
+  background: var(--color-hover);
+  font-size: $font-size-14;
+}
+
+.reviewPanelHead {
+  @include flex-between;
+  gap: $spacing-8;
+  font-weight: $font-weight-500;
+  color: var(--color-text-primary);
+}
+
+.reviewIssues {
+  margin: 0;
+  padding-left: $spacing-24;
+  @include flex-column;
+  gap: 4px;
+  color: var(--color-text-secondary);
+  font-size: $font-size-12;
+}
+
+.codeBlock {
+  max-height: 560px;
+  overflow: auto;
+  padding: $spacing-16;
+  border-radius: $radius-8;
+  background: var(--color-hover);
+  font-family: monospace;
+  font-size: $font-size-12;
+  color: var(--color-text);
+  line-height: 1.6;
+  white-space: pre;
+}
+
+/* ── 腳本執行 ── */
+.execToolbar {
+  @include flex-between;
+  flex-wrap: wrap;
+  gap: $spacing-8;
+  padding: $spacing-8 $spacing-16;
+  border: 1px solid var(--color-border);
+  border-radius: $radius-8;
+  background: var(--color-hover);
+}
+
+.tableWrap {
+  overflow-x: auto;
+  border: 1px solid var(--color-border);
+  border-radius: $radius-8;
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: $font-size-14;
+  color: var(--color-text);
+
+  th {
+    padding: $spacing-8 $spacing-16;
+    text-align: left;
+    font-size: $font-size-12;
+    font-weight: $font-weight-500;
+    color: var(--color-text-muted);
+    border-bottom: 1px solid var(--color-border);
+    white-space: nowrap;
+  }
+
+  td {
+    padding: $spacing-8 $spacing-16;
+    border-bottom: 1px solid var(--color-divider);
+    vertical-align: top;
+  }
+
+  tbody tr:last-child td {
+    border-bottom: none;
+  }
+
+  tbody tr:hover {
+    background: var(--color-hover);
+  }
+}
+
+.checkCol {
+  width: 40px;
+}
+
+.checkbox {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--color-primary);
+  cursor: pointer;
+}
+
+.tableEmpty {
+  padding: $spacing-32 $spacing-16;
+  text-align: center;
+  color: var(--color-text-muted);
+}
+
+.monoCell {
+  font-family: monospace;
+  font-size: $font-size-14;
+}
+
+.typeCell {
+  text-transform: uppercase;
+  font-size: $font-size-12;
+  color: var(--color-text-muted);
+}
+
+.judgeDetails {
+  margin-top: $spacing-8;
+  font-size: $font-size-12;
+
+  summary {
+    cursor: pointer;
+    color: var(--color-text-muted);
+  }
+
+  p {
+    margin: $spacing-8 0 0;
+    font-size: $font-size-12;
+  }
+}
+
+.judgeItem {
+  margin-top: $spacing-8;
+  padding: $spacing-8 $spacing-16;
+  border-radius: $radius-8;
+  background: var(--color-hover);
+
+  p {
+    margin: 4px 0 0;
+    color: var(--color-text-secondary);
+  }
+}
+
+.judgeItemHead {
+  @include flex-between;
+  gap: $spacing-8;
+  font-weight: $font-weight-500;
+  color: var(--color-text-primary);
+}
+
+.vmidBox {
+  @include flex-column;
+  gap: $spacing-8;
+  padding: $spacing-16;
+  border: 1px solid var(--color-border);
+  border-radius: $radius-8;
+  background: var(--color-hover);
+}
+
+/* ── Badge ── */
+.badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  min-height: 24px;
+  padding: 2px 10px;
+  border-radius: $radius-pill;
+  font-size: $font-size-12;
+  font-weight: $font-weight-500;
+  white-space: nowrap;
+}
+
+.badge_success { background: color-mix(in srgb, #28a745 12%, transparent); color: #28a745; }
+.badge_info    { background: color-mix(in srgb, #2b4d98 12%, transparent); color: #2b4d98; }
+.badge_danger  { background: color-mix(in srgb, #dc3545 12%, transparent); color: #dc3545; }
+.badge_muted   { background: var(--color-hover); color: var(--color-text-muted); }
+
+/* ── Modal ── */
+.modalOverlay {
+  position: fixed;
+  inset: 0;
+  z-index: 300;
+  @include flex-center;
+  padding: $spacing-16;
+  background: var(--color-overlay);
+  backdrop-filter: blur(4px);
+}
+
+.modal,
+.confirm {
+  width: min(560px, 100%);
+  max-height: 88vh;
+  overflow-y: auto;
+  @include flex-column;
+  gap: $spacing-16;
+  padding: $spacing-24;
+  background: var(--color-surface-glass);
+  backdrop-filter: blur(12px) saturate(1.4);
+  -webkit-backdrop-filter: blur(12px) saturate(1.4);
+  border: 1px solid var(--color-surface-glass-border);
+  border-radius: $radius-12;
+  box-shadow: var(--shadow-lg);
+}
+
+.modalHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: $spacing-16;
+
+  h2 {
+    margin: 0;
+    font-size: $font-size-18;
+    color: var(--color-text-primary);
+  }
+
+  p {
+    margin: 4px 0 0;
+    font-size: $font-size-12;
+    color: var(--color-text-secondary);
+  }
+}
+
+.modalActions {
+  display: flex;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: $spacing-8;
+}
+
+.confirm {
+  max-width: 480px;
+
+  h2 {
+    margin: 0;
+    color: var(--color-text-primary);
+  }
+
+  p {
+    margin: 0;
+    font-size: $font-size-14;
+    color: var(--color-text-secondary);
+    line-height: $line-height-base;
+  }
+}
+
+.confirmIcon {
+  width: 44px;
+  height: 44px;
+  border-radius: $radius-8;
+  background: color-mix(in srgb, var(--color-danger) 12%, transparent);
+  color: var(--color-danger);
+  @include flex-center;
+}
+
+/* ── 表單欄位 ── */
+.field {
+  @include flex-column;
+  gap: 6px;
+  font-size: $font-size-12;
+  font-weight: $font-weight-500;
+  color: var(--color-text-secondary);
+
+  select {
+    min-height: 38px;
+    padding: 8px $spacing-16;
+    border: 1px solid var(--color-border);
+    border-radius: $radius-8;
+    background: var(--color-surface);
+    color: var(--color-text-primary);
+    outline: none;
+    font-size: $font-size-14;
+
+    &:focus {
+      border-color: var(--color-primary);
+      box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-primary) 12%, transparent);
+    }
+  }
+}

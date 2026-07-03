@@ -42,6 +42,15 @@ export default defineConfig(({ mode }) => {
     plugins: [react(), templatesPlugin()],
     server: {
       port: Number(process.env.PORT) || 5174,
+      // VITE_API_URL 留空（same-origin）時，/api 由 dev server 轉發到後端，
+      // 讓 dev server 不必落在後端 CORS 白名單的埠
+      proxy: {
+        "/api": {
+          target: "http://localhost:8000",
+          changeOrigin: true,
+          ws: true,
+        },
+      },
     },
     resolve: {
       alias: {
