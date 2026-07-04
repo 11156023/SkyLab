@@ -165,6 +165,14 @@ def require_template_owner(
     )
 
 
+def require_classroom_monitor(
+    user: Any,
+    *,
+    detail: str = "Only teachers and admins can use classroom monitoring",
+) -> None:
+    require_permission(user, Permission.CLASSROOM_MONITOR, detail=detail)
+
+
 def require_admin_access(
     user: Any,
     *,

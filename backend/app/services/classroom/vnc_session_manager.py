@@ -254,17 +254,18 @@ class VncSessionManager:
             )
             consumer = asyncio.create_task(self._subscriber_consumer(subscriber))
             reader = asyncio.create_task(self._subscriber_reader(state, subscriber))
-            done, pending = await asyncio.wait(
-                {consumer, reader}, return_when=asyncio.FIRST_COMPLETED
-            )
-            for task in pending:
-                task.cancel()
-                with contextlib.suppress(asyncio.CancelledError, Exception):
-                    await task
-            for task in done:
-                # 讀掉例外（斷線屬正常結束），避免 "exception never retrieved"
-                if not task.cancelled():
-                    task.exception()
+            try:
+                await asyncio.wait(
+                    {consumer, reader}, return_when=asyncio.FIRST_COMPLETED
+                )
+            finally:
+                # 不論正常結束或本 handler 被取消，都要 cancel 並「消費」
+                # 兩個子 task 的結果/例外（斷線屬正常結束），
+                # 避免 "Task exception was never retrieved"。
+                for task in (consumer, reader):
+                    task.cancel()
+                    with contextlib.suppress(asyncio.CancelledError, Exception):
+                        await task
         finally:
             state.subscribers.pop(key, None)
 

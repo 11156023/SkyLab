@@ -11,6 +11,7 @@ class Permission(str, enum.Enum):
     AI_API_REVIEW = "ai_api_review"
     AI_API_VIEW_ALL = "ai_api_view_all"
     AUDIT_LOG_READ_ALL = "audit_log_read_all"
+    CLASSROOM_MONITOR = "classroom_monitor"
     GROUP_OWNERSHIP_BYPASS = "group_ownership_bypass"
     NAT_RULES_SYNC = "nat_rules_sync"
     RESOURCE_OWNERSHIP_BYPASS = "resource_ownership_bypass"
@@ -32,6 +33,7 @@ _ROLE_PERMISSION_MATRIX: dict[UserRole, frozenset[Permission]] = {
         {
             Permission.VM_REQUEST_USE_IMMEDIATE_MODE,
             Permission.TEMPLATE_MANAGE,
+            Permission.CLASSROOM_MONITOR,
         }
     ),
     UserRole.admin: _ALL_PERMISSIONS,

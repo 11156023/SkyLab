@@ -22,6 +22,10 @@ from starlette.types import ASGIApp, Receive, Scope, Send
 
 from app.api.main import api_router
 from app.api.websocket import vnc_proxy
+from app.api.websocket.classroom import (
+    classroom_presence_proxy,
+    classroom_watch_proxy,
+)
 from app.api.websocket.jobs import jobs_ws_proxy
 from app.api.websocket.terminal import terminal_proxy
 from app.core.config import settings
@@ -227,3 +231,15 @@ async def websocket_terminal_proxy(websocket: WebSocket, vmid: int, token: str =
 @app.websocket("/ws/jobs")
 async def websocket_jobs_proxy(websocket: WebSocket, token: str = ""):
     await jobs_ws_proxy(websocket, token=token)
+
+
+@app.websocket("/ws/classroom")
+async def websocket_classroom_presence(websocket: WebSocket, token: str = ""):
+    await classroom_presence_proxy(websocket, token=token)
+
+
+@app.websocket("/ws/classroom/{session_id}/watch")
+async def websocket_classroom_watch(
+    websocket: WebSocket, session_id: str, token: str = ""
+):
+    await classroom_watch_proxy(websocket, session_id, token=token)

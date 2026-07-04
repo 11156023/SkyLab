@@ -273,6 +273,7 @@ class TestFanOut:
         await eventually(lambda: ws1.payload_after_handshake() == expected)
         await eventually(lambda: ws2.payload_after_handshake() == expected)
         await manager.stop_session(session.id)
+        await asyncio.gather(t1, t2)
 
     async def test_new_subscriber_triggers_keyframe_request(
         self, manager: VncSessionManager, upstream: FakeUpstream
@@ -282,6 +283,7 @@ class TestFanOut:
         ws, task = await _attach(manager, session.id, USER_A)
         await eventually(lambda: upstream.sent.count(FULL_FBUR) == 2)
         await manager.stop_session(session.id)
+        await task
 
     async def test_framebuffer_update_triggers_incremental_fbur(
         self, manager: VncSessionManager, upstream: FakeUpstream
@@ -334,6 +336,7 @@ class TestFanOut:
                 session.id, user_id=USER_B, websocket=ws2
             )
         await manager.stop_session(session.id)
+        await t1
 
 
 class TestControl:
@@ -349,6 +352,7 @@ class TestControl:
         await asyncio.sleep(0.05)
         assert upstream.sent == sent_before
         await manager.stop_session(session.id)
+        await task
 
     async def test_controller_input_forwarded(
         self, manager: VncSessionManager, upstream: FakeUpstream
@@ -365,6 +369,7 @@ class TestControl:
         await asyncio.sleep(0.05)
         assert upstream.sent == sent_before
         await manager.stop_session(session.id)
+        await task
 
     async def test_release_control_stops_forwarding(
         self, manager: VncSessionManager, upstream: FakeUpstream
@@ -378,6 +383,7 @@ class TestControl:
         await asyncio.sleep(0.05)
         assert upstream.sent == sent_before
         await manager.stop_session(session.id)
+        await task
 
     async def test_is_input_blocked(self, manager: VncSessionManager) -> None:
         session = await _start(manager, vmid=100)
