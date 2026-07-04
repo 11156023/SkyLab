@@ -1,0 +1,767 @@
+.page {
+  @include flex-column;
+  gap: $spacing-24;
+  padding: $spacing-8 $spacing-16;
+  flex: 1;
+
+  @include respond-to(md) {
+    padding: 0;
+  }
+}
+
+.pageHeader {
+  @include flex-between;
+  flex-wrap: wrap;
+  gap: $spacing-16;
+}
+
+.pageHeading {
+  display: flex;
+  align-items: center;
+  gap: $spacing-8;
+}
+
+.backBtn {
+  @include flex-center;
+  width: 36px;
+  height: 36px;
+  border-radius: $radius-8;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  transition: background $transition-base, color $transition-base;
+
+  &:hover {
+    background: var(--color-hover);
+    color: var(--color-text);
+  }
+}
+
+.pageTitle {
+  font-size: $font-size-24;
+  font-weight: $font-weight-700;
+  color: var(--color-text-primary);
+
+  @include respond-to(sm) {
+    font-size: $font-size-28;
+  }
+}
+
+.vmidText {
+  color: var(--color-primary);
+}
+
+/* ── Tabs（pill 樣式，同 SettingsPage） ── */
+.tabs {
+  display: flex;
+  gap: $spacing-4;
+  flex-wrap: wrap;
+}
+
+.tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px $spacing-16;
+  border-radius: $radius-pill;
+  font-size: $font-size-14;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  transition: background $transition-base, color $transition-base;
+
+  &:hover {
+    background: var(--color-hover);
+    color: var(--color-text);
+  }
+
+  &.tabActive {
+    background: var(--color-text);
+    color: var(--color-surface);
+    font-weight: $font-weight-500;
+  }
+}
+
+.content {
+  flex: 1;
+  @include flex-column;
+}
+
+.tabStack {
+  @include flex-column;
+  gap: $spacing-16;
+}
+
+.stateText {
+  padding: $spacing-24 $spacing-16;
+  text-align: center;
+  color: var(--color-text-muted);
+  font-size: $font-size-14;
+}
+
+/* ── 卡片 ── */
+.card {
+  @include flex-column;
+  background: var(--color-surface-glass);
+  backdrop-filter: blur(12px) saturate(1.4);
+  -webkit-backdrop-filter: blur(12px) saturate(1.4);
+  border: 1px solid var(--color-surface-glass-border);
+  border-radius: $radius-16;
+  box-shadow: var(--shadow-sm);
+  overflow: hidden;
+}
+
+.cardAccent {
+  border-color: color-mix(in srgb, var(--color-primary) 35%, transparent);
+}
+
+.cardHeader {
+  @include flex-between;
+  gap: $spacing-8;
+  padding: $spacing-16;
+  flex-wrap: wrap;
+}
+
+.cardTitle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: $font-size-16;
+  font-weight: $font-weight-700;
+  color: var(--color-text-primary);
+}
+
+.cardDesc {
+  margin-top: 2px;
+  font-size: $font-size-12;
+  color: var(--color-text-muted);
+}
+
+.cardBody {
+  @include flex-column;
+  gap: $spacing-16;
+  padding: 0 $spacing-16 $spacing-16;
+}
+
+.headerActions {
+  display: flex;
+  align-items: center;
+  gap: $spacing-8;
+  flex-wrap: wrap;
+}
+
+/* ── 模板卡 ── */
+.tplHead {
+  display: flex;
+  align-items: flex-start;
+  gap: $spacing-16;
+}
+
+.tplLogo {
+  width: 40px;
+  height: 40px;
+  border-radius: $radius-8;
+  object-fit: contain;
+  background: #fff;
+}
+
+.tplLogoFallback {
+  @include flex-center;
+  width: 40px;
+  height: 40px;
+  border-radius: $radius-8;
+  background: var(--color-hover);
+  color: var(--color-primary);
+}
+
+.portChip {
+  margin-left: $spacing-8;
+  padding: 1px $spacing-8;
+  border-radius: $radius-pill;
+  background: var(--color-hover);
+  color: var(--color-text-secondary);
+  font-size: $font-size-12;
+  font-weight: $font-weight-400;
+}
+
+.linkRow {
+  display: flex;
+  gap: $spacing-8;
+  flex-wrap: wrap;
+}
+
+.linkBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 5px $spacing-16;
+  border: 1px solid var(--color-border);
+  border-radius: $radius-8;
+  font-size: $font-size-12;
+  color: var(--color-text);
+  background: var(--color-surface);
+  transition: background $transition-base;
+
+  &:hover {
+    background: var(--color-hover);
+  }
+}
+
+.noteBox {
+  @include flex-column;
+  gap: $spacing-4;
+  padding: $spacing-8 $spacing-16;
+  border: 1px solid var(--color-border);
+  border-radius: $radius-8;
+  background: var(--color-hover);
+}
+
+.noteBoxTitle {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: $font-size-12;
+  font-weight: $font-weight-700;
+  color: var(--color-text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.noteBoxLine {
+  font-size: $font-size-14;
+
+  code {
+    font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
+  }
+}
+
+.noteList {
+  margin-top: $spacing-4;
+  padding-left: $spacing-24;
+  font-size: $font-size-14;
+  color: var(--color-text-primary);
+  list-style: disc;
+
+  li + li {
+    margin-top: $spacing-4;
+  }
+}
+
+/* ── 基本資訊 ── */
+.factGrid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: $spacing-16;
+
+  @include respond-to(lg) {
+    grid-template-columns: repeat(3, 1fr);
+  }
+}
+
+.fact {
+  @include flex-column;
+  gap: 2px;
+}
+
+.factLabel {
+  font-size: $font-size-12;
+  font-weight: $font-weight-500;
+  color: var(--color-text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.factValue {
+  font-size: $font-size-18;
+  font-weight: $font-weight-700;
+  color: var(--color-text-primary);
+  @include text-truncate;
+}
+
+.monoText {
+  font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
+}
+
+.mutedText {
+  font-size: $font-size-12;
+  color: var(--color-text-muted);
+}
+
+/* ── 規格 ── */
+.specGrid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: $spacing-16;
+
+  @include respond-to(md) {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+.specTile {
+  display: flex;
+  align-items: flex-start;
+  gap: $spacing-16;
+  padding: $spacing-16;
+  border: 1px solid var(--color-border);
+  border-radius: $radius-12;
+  background: var(--color-hover);
+}
+
+.specIcon {
+  @include flex-center;
+  width: 40px;
+  height: 40px;
+  border-radius: $radius-8;
+  background: color-mix(in srgb, var(--color-primary) 10%, transparent);
+  color: var(--color-primary);
+  flex-shrink: 0;
+}
+
+.specValue {
+  display: block;
+  font-size: $font-size-28;
+  font-weight: $font-weight-700;
+  color: var(--color-text-primary);
+  line-height: 1.2;
+}
+
+/* ── SSH 金鑰 ── */
+.keyBlock {
+  @include flex-column;
+  gap: $spacing-4;
+}
+
+.keyHead {
+  @include flex-between;
+  gap: $spacing-8;
+}
+
+.keyActions {
+  display: flex;
+  gap: $spacing-4;
+}
+
+.ghostBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px $spacing-8;
+  border-radius: $radius-8;
+  font-size: $font-size-12;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  transition: background $transition-base, color $transition-base;
+
+  &:hover {
+    background: var(--color-hover);
+    color: var(--color-text);
+  }
+}
+
+.keyPre {
+  padding: $spacing-8 $spacing-16;
+  border: 1px solid var(--color-border);
+  border-radius: $radius-8;
+  background: var(--color-hover);
+  font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
+  font-size: $font-size-12;
+  white-space: pre-wrap;
+  word-break: break-all;
+  color: var(--color-text-primary);
+}
+
+.keyHidden {
+  padding: $spacing-8 $spacing-16;
+  border: 1px solid var(--color-border);
+  border-radius: $radius-8;
+  background: var(--color-hover);
+  font-size: $font-size-12;
+  font-style: italic;
+  color: var(--color-text-muted);
+}
+
+/* ── 監控 ── */
+.monHead {
+  @include flex-between;
+  gap: $spacing-8;
+  flex-wrap: wrap;
+}
+
+.segment {
+  display: inline-flex;
+  padding: 3px;
+  border: 1px solid var(--color-border);
+  border-radius: $radius-8;
+  background: var(--color-surface);
+  box-shadow: var(--shadow-sm);
+  flex-wrap: wrap;
+}
+
+.segmentBtn {
+  padding: 5px $spacing-8;
+  font-size: $font-size-12;
+  font-weight: $font-weight-500;
+  color: var(--color-text-secondary);
+  border-radius: $radius-8;
+  cursor: pointer;
+  transition: background $transition-base, color $transition-base;
+
+  &:hover {
+    color: var(--color-text);
+  }
+}
+
+.segmentActive {
+  background: var(--color-primary);
+  color: var(--color-text-on-primary);
+
+  &:hover {
+    color: var(--color-text-on-primary);
+  }
+}
+
+.statGrid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: $spacing-16;
+
+  @include respond-to(lg) {
+    grid-template-columns: repeat(4, 1fr);
+  }
+}
+
+.statCard {
+  @include flex-column;
+  gap: $spacing-8;
+  padding: $spacing-16;
+  background: var(--color-surface-glass);
+  backdrop-filter: blur(12px) saturate(1.4);
+  -webkit-backdrop-filter: blur(12px) saturate(1.4);
+  border: 1px solid var(--color-surface-glass-border);
+  border-radius: $radius-16;
+  box-shadow: var(--shadow-sm);
+}
+
+.overviewTop {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: $spacing-8;
+  flex: 1;
+}
+
+.overviewInfo {
+  @include flex-column;
+  gap: 2px;
+}
+
+.statPct {
+  font-size: $font-size-24;
+  font-weight: $font-weight-700;
+  color: var(--color-text-primary);
+  font-variant-numeric: tabular-nums;
+  line-height: 1.2;
+}
+
+.netLine {
+  font-size: $font-size-14;
+  font-weight: $font-weight-500;
+  color: var(--color-text-primary);
+  font-variant-numeric: tabular-nums;
+}
+
+.usageBar {
+  width: 100%;
+  height: 6px;
+  border-radius: $radius-pill;
+  background: var(--color-hover);
+  overflow: hidden;
+}
+
+.usageFill {
+  height: 100%;
+  border-radius: $radius-pill;
+  background: var(--color-info);
+  transition: width $transition-slow;
+}
+
+.usageFill_danger {
+  background: var(--color-danger);
+}
+
+/* ── 表單 ── */
+.formGrid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: $spacing-16;
+
+  @include respond-to(md) {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+.field {
+  @include flex-column;
+  gap: $spacing-4;
+
+  label {
+    font-size: $font-size-14;
+    font-weight: $font-weight-500;
+    color: var(--color-text);
+  }
+
+  input,
+  textarea {
+    width: 100%;
+    padding: $spacing-8 $spacing-16;
+    border: 1px solid var(--color-border);
+    border-radius: $radius-8;
+    font-size: $font-size-14;
+    background: var(--color-surface);
+    color: var(--color-text);
+    transition: border-color $transition-base;
+
+    &::placeholder {
+      color: var(--color-text-muted);
+    }
+
+    &:focus {
+      border-color: var(--color-primary);
+    }
+  }
+
+  textarea {
+    resize: vertical;
+  }
+}
+
+.fieldHint {
+  font-size: $font-size-12;
+  color: var(--color-text-muted);
+}
+
+.stepList {
+  padding-left: $spacing-24;
+  font-size: $font-size-14;
+  color: var(--color-text-secondary);
+  list-style: decimal;
+
+  li + li {
+    margin-top: $spacing-8;
+  }
+}
+
+/* ── 按鈕 ── */
+%btn-base {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px $spacing-16;
+  border-radius: $radius-8;
+  font-size: $font-size-14;
+  font-weight: $font-weight-500;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background $transition-base;
+
+  &:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+  }
+}
+
+.btnPrimary {
+  @extend %btn-base;
+  background: var(--color-primary);
+  color: var(--color-text-on-primary);
+  align-self: flex-start;
+
+  &:hover:not(:disabled) {
+    background: var(--color-primary-dark);
+  }
+}
+
+.btnSecondary {
+  @extend %btn-base;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  color: var(--color-text-secondary);
+
+  &:hover:not(:disabled) {
+    background: var(--color-hover);
+  }
+}
+
+.btnDanger {
+  @extend %btn-base;
+  background: #dc3545;
+  color: #fff;
+
+  &:hover:not(:disabled) {
+    background: #b91c1c;
+  }
+}
+
+.btnDangerOutline {
+  @extend %btn-base;
+  background: transparent;
+  border: 1px solid color-mix(in srgb, var(--color-danger) 40%, transparent);
+  color: var(--color-danger);
+
+  &:hover:not(:disabled) {
+    background: color-mix(in srgb, var(--color-danger) 8%, transparent);
+  }
+}
+
+/* ── 表格 ── */
+.table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.th {
+  padding: $spacing-8 $spacing-16;
+  font-size: $font-size-12;
+  font-weight: $font-weight-500;
+  color: var(--color-text-muted);
+  text-align: left;
+  background: var(--color-hover);
+  border-bottom: 1px solid var(--color-border);
+  white-space: nowrap;
+}
+
+.thRight {
+  text-align: right;
+}
+
+.tr {
+  transition: background $transition-base;
+
+  &:not(:last-child) {
+    border-bottom: 1px solid var(--color-divider);
+  }
+
+  &:hover {
+    background: var(--color-hover);
+  }
+}
+
+.td {
+  padding: $spacing-8 $spacing-16;
+  font-size: $font-size-14;
+  color: var(--color-text-primary);
+  vertical-align: middle;
+}
+
+.tdRight {
+  text-align: right;
+  white-space: nowrap;
+
+  button + button {
+    margin-left: $spacing-8;
+  }
+}
+
+.mutedCell {
+  color: var(--color-text-muted);
+}
+
+.nowrapCell {
+  white-space: nowrap;
+}
+
+.detailCell {
+  max-width: 420px;
+  @include text-truncate;
+}
+
+.snapName {
+  display: inline-flex;
+  align-items: center;
+  gap: $spacing-8;
+  font-weight: $font-weight-500;
+}
+
+.userCell {
+  @include flex-column;
+  gap: 2px;
+}
+
+.userName {
+  font-weight: $font-weight-500;
+  color: var(--color-text-primary);
+}
+
+.userEmail {
+  font-size: $font-size-12;
+  color: var(--color-text-muted);
+  word-break: break-all;
+}
+
+/* ── Badge ── */
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 10px;
+  border-radius: $radius-pill;
+  font-size: $font-size-12;
+  font-weight: $font-weight-500;
+}
+
+.badge_ok    { background: color-mix(in srgb, var(--color-success) 12%, transparent); color: var(--color-success); }
+.badge_err   { background: color-mix(in srgb, var(--color-danger)  12%, transparent); color: var(--color-danger); }
+.badge_info  { background: color-mix(in srgb, var(--color-info)    12%, transparent); color: var(--color-info); }
+.badge_muted { background: var(--color-hover); color: var(--color-text-muted); }
+
+/* ── Modal ── */
+.modalOverlay {
+  position: fixed;
+  inset: 0;
+  background: var(--color-overlay);
+  backdrop-filter: blur(4px);
+  z-index: 300;
+  @include flex-center;
+  padding: $spacing-16;
+}
+
+.modal {
+  @include flex-column;
+  gap: $spacing-16;
+  width: 100%;
+  max-width: 440px;
+  padding: $spacing-24;
+  background: var(--color-surface);
+  border-radius: $radius-16;
+  box-shadow: var(--shadow-lg);
+}
+
+.modalTitle {
+  font-size: $font-size-18;
+  font-weight: $font-weight-700;
+  color: var(--color-text-primary);
+}
+
+.modalDesc {
+  font-size: $font-size-14;
+  color: var(--color-text-secondary);
+}
+
+.modalActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: $spacing-8;
+}
+
+/* ── 進階設定 ── */
+.comingSoon {
+  align-items: center;
+  padding: $spacing-32 $spacing-16 $spacing-32;
+  text-align: center;
+  color: var(--color-text-secondary);
+  gap: $spacing-8;
+
+  p {
+    font-size: $font-size-16;
+    font-weight: $font-weight-500;
+  }
+}

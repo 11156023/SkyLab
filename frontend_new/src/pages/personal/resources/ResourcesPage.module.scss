@@ -185,6 +185,18 @@
   @include text-truncate;
 }
 
+/* 可點擊導向詳情頁的名稱 */
+.cardNameLink {
+  text-align: left;
+  cursor: pointer;
+  transition: color $transition-base;
+
+  &:hover {
+    color: var(--color-primary);
+    text-decoration: underline;
+  }
+}
+
 .cardType {
   font-size: $font-size-12;
   color: var(--color-text-muted);

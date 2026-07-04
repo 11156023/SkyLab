@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import styles from "./ResourcesPage.module.scss";
 import MIcon from "../../../components/MIcon";
 import { ResourcesService } from "../../../services/resources";
@@ -289,6 +290,7 @@ function resourceCardKey(resource, index) {
 
 /* ── ResourceCard ── */
 function ResourceCard({ resource, onUpdated, onDeleted }) {
+  const navigate = useNavigate();
   const [actionLoading, setActionLoading] = useState(null);
   const [deleteConfirm, setDeleteConfirm]  = useState(false);
   const [deleting, setDeleting]            = useState(false);
@@ -338,7 +340,18 @@ function ResourceCard({ resource, onUpdated, onDeleted }) {
             <MIcon name={type.icon} size={20} />
           </div>
           <div className={styles.cardMeta}>
-            <span className={styles.cardName}>{resource.name}</span>
+            {resource.vmid > 0 ? (
+              <button
+                type="button"
+                className={`${styles.cardName} ${styles.cardNameLink}`}
+                title="查看詳情"
+                onClick={() => navigate(`/my-resources/${resource.vmid}`)}
+              >
+                {resource.name}
+              </button>
+            ) : (
+              <span className={styles.cardName}>{resource.name}</span>
+            )}
             <div className={styles.cardChips}>
               <span className={styles.typeChip}>{type.label}</span>
               {resource.vmid > 0 && <span className={styles.vmidChip}>VMID {resource.vmid}</span>}

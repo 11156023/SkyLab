@@ -163,6 +163,7 @@ function PowerMenu({ resource, actionLoading, onControl, onDeleteClick, onClose,
 /* ── Table row ── */
 function ResourceRow({ resource, onUpdated, onDeleted }) {
   const toast = useToast();
+  const navigate = useNavigate();
   const [actionLoading, setActionLoading] = useState(null);
   const [deleteConfirm, setDeleteConfirm] = useState(false);
   const [deleting, setDeleting]           = useState(false);
@@ -218,7 +219,18 @@ function ResourceRow({ resource, onUpdated, onDeleted }) {
               <MIcon name={type.icon} size={18} />
             </div>
             <div>
-              <div className={styles.namePrimary}>{resource.name}</div>
+              {resource.vmid > 0 ? (
+                <button
+                  type="button"
+                  className={`${styles.namePrimary} ${styles.nameLink}`}
+                  title="查看詳情"
+                  onClick={() => navigate(`/resource-mgmt/${resource.vmid}`)}
+                >
+                  {resource.name}
+                </button>
+              ) : (
+                <div className={styles.namePrimary}>{resource.name}</div>
+              )}
               <div className={styles.nameSub}>
                 {type.label}
                 {resource.vmid > 0 && ` · VMID ${resource.vmid}`}

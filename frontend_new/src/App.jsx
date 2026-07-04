@@ -7,6 +7,7 @@ import LoginPage from "./pages/login/LoginPage";
 import DashboardPage         from "./pages/personal/dashboard/DashboardPage";
 import QuickTemplateFormPage from "./pages/personal/dashboard/QuickTemplateFormPage";
 import ResourcesPage         from "./pages/personal/resources/ResourcesPage";
+import ResourceDetailPage    from "./pages/personal/resources/detail/ResourceDetailPage";
 import RequestsPage          from "./pages/personal/requests/RequestsPage";
 import AccountSettingsPage   from "./pages/personal/account/AccountSettingsPage";
 
@@ -60,11 +61,13 @@ function App() {
           <Route path="/dashboard"            element={<DashboardPage />} />
           <Route path="/quick-template/:slug" element={<QuickTemplateFormPage />} />
           <Route path="/my-resources"         element={<ResourcesPage />} />
+          <Route path="/my-resources/:vmid"   element={<ResourceDetailPage backTo="/my-resources" />} />
           <Route path="/my-requests"          element={<RequestsPage />} />
           <Route path="/account"              element={<AccountSettingsPage />} />
 
           {/* 資源 */}
           <Route path="/resource-mgmt"  element={<ResourceMgmtPage />} />
+          <Route path="/resource-mgmt/:vmid" element={<ResourceDetailPage backTo="/resource-mgmt" />} />
           <Route path="/request-review" element={<RequestReviewPage />} />
           <Route path="/gpu-mgmt"       element={<GpuMgmtPage />} />
           <Route path="/batch-review"   element={<BatchReviewPage />} />

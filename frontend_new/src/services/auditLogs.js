@@ -27,6 +27,12 @@ export const AuditLogsService = {
     return apiGet(`/api/v1/audit-logs/my${qs ? `?${qs}` : ""}`);
   },
 
+  /** 單一資源的操作紀錄（擁有者或管理員） */
+  listForResource(vmid, params) {
+    const qs = buildQuery({ skip: 0, limit: 100, ...params });
+    return apiGet(`/api/v1/audit-logs/resources/${vmid}${qs ? `?${qs}` : ""}`);
+  },
+
   /** 統計摘要（total / danger / login_failed / active_users） */
   stats(params = {}) {
     const qs = buildQuery(params);

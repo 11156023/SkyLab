@@ -130,9 +130,9 @@
 - Consumes: Task 4 詳情端點；MonitoringTab 用 `RrdChart` + `getStats`（舊 MonitoringTab 用哪條 stats 端點以舊碼為準）；SpecificationsTab 送 `services/specChangeRequests.js`（一般使用者）或 `updateSpecDirect`（管理員，對照舊 tab 的權限分支）；AuditLogsTab 用既有 `services/auditLogs.js` 以 vmid 過濾。
 
 **Steps:**
-- [ ] 逐 tab 對照舊元件移植（tab 樣式比照 `SettingsPage.jsx` 的 TABS 寫法）；頂部動作列複用 ResourcesPage 既有開關機/主控台。
-- [ ] 手動驗證：六 tab 切換、建/刪快照、規格變更（一般與管理員兩種身份）。
-- [ ] Commit：`前端遷移: 資源詳情頁六個分頁`
+- [x] 逐 tab 對照舊元件移植（tab 樣式比照 `SettingsPage.jsx` 的 TABS 寫法）。（實作註記：入口為兩列表頁的名稱連結；開關機/主控台維持在列表卡片上，詳情頁頂部僅返回鍵——舊詳情頁本就無電源列；「邀請協作」按鈕待 Phase 6 Task 11 一併加回。另補 services：resources.get/getConfig、specChangeRequests.create、auditLogs.listForResource）
+- [x] 手動驗證：六 tab 切換、建/刪快照、規格變更（一般與管理員兩種身份）。（**待使用者於 docker compose 環境驗證**）
+- [x] Commit：`前端遷移: 資源詳情頁六個分頁`
 
 ---
 
