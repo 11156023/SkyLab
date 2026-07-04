@@ -99,10 +99,10 @@ def decide_mining_action(*, avg_cpu: float | None, coverage: float,
 - `cpu_stats`：滿視窗高 CPU → (≈98, ≈1.0)；半視窗有資料 → coverage≈0.5；空 rrd → None；缺 cpu 鍵的點忽略；視窗外的點過濾。
 - `decide_mining_action`：命中（95%、coverage 0.9）→ flag；低於閾值 → none；exempt → none；已有未結案 → none；coverage 0.5 → none；avg_cpu None → none。
 
-- [ ] D1-1 models + migration gov05（先跑 `alembic heads` 確認接 gov04_ldap_config）
-- [ ] D1-2 mining_policy 純函式（測試先行 FAIL→PASS）
-- [ ] D1-3 `uv run ruff check .`；mypy 對新增檔案無錯誤；`alembic upgrade head` 成功
-- [ ] D1-4 Commit：「模組D安全性能: 挖礦偵測純函式 + MiningIncident/設定 migration (D1)」
+- [x] D1-1 models + migration gov05（先跑 `alembic heads` 確認接 gov04_ldap_config）
+- [x] D1-2 mining_policy 純函式（測試先行 FAIL→PASS）
+- [x] D1-3 `uv run ruff check .`；mypy 對新增檔案無錯誤；`alembic upgrade head` 成功
+- [x] D1-4 Commit：「模組D安全性能: 挖礦偵測純函式 + MiningIncident/設定 migration (D1)」
 
 ---
 
@@ -225,11 +225,11 @@ def process_mining_detection() -> int:
 - dismiss(exempt=True)：qemu 收到 "resume"、resource.mining_exempt=True、status=dismissed。
 - 游標推進：候選中含一台抽 RRD 失敗的 VM → 其 mining_checked_at 仍被更新。
 
-- [ ] D2-1 infra timeout + repo helpers（`list_mining_scan_candidates`、mining repo）
-- [ ] D2-2 mining_service 掃描與處置（測試先行 FAIL→PASS）
-- [ ] D2-3 AuditAction + schemas + routes + main.py 註冊 + coordinator 掛載
-- [ ] D2-4 ruff 全過；mypy 新增檔案無錯誤
-- [ ] D2-5 Commit：「模組D安全性能: 反挖礦偵測處置管線 + 事件 API (D2)」
+- [x] D2-1 infra timeout + repo helpers（`list_mining_scan_candidates`、mining repo）
+- [x] D2-2 mining_service 掃描與處置（測試先行 FAIL→PASS）
+- [x] D2-3 AuditAction + schemas + routes + main.py 註冊 + coordinator 掛載
+- [x] D2-4 ruff 全過；mypy 新增檔案無錯誤
+- [x] D2-5 Commit：「模組D安全性能: 反挖礦偵測處置管線 + 事件 API (D2)」
 
 ---
 
@@ -293,11 +293,11 @@ async def _provision_with_semaphore(request_id, concurrency) -> None:
 - semaphore 重建：先 concurrency=2 提交完畢，再 concurrency=6 → `get_provision_semaphore(6)` 回新實例且上限生效。
 - 全部完成：提交 N 個不同 id → fake 被呼叫恰 N 次。
 
-- [ ] D3-1 provision_pool + 測試（FAIL→PASS，需 `pytest-asyncio`/anyio 既有慣例）
-- [ ] D3-2 coordinator fan-out 改造（既有 scheduler 測試無回歸）
-- [ ] D3-3 /vm/create、/lxc/create 202 + schema 改造；`grep` 前端使用點記錄到 D5
-- [ ] D3-4 ruff 全過；mypy 新增檔案無錯誤
-- [ ] D3-5 Commit：「模組D安全性能: 克隆並行化 fan-out + 建立 API 202 (D3)」
+- [x] D3-1 provision_pool + 測試（FAIL→PASS，需 `pytest-asyncio`/anyio 既有慣例）
+- [x] D3-2 coordinator fan-out 改造（既有 scheduler 測試無回歸）
+- [x] D3-3 /vm/create、/lxc/create 202 + schema 改造；`grep` 前端使用點記錄到 D5
+- [x] D3-4 ruff 全過；mypy 新增檔案無錯誤
+- [x] D3-5 Commit：「模組D安全性能: 克隆並行化 fan-out + 建立 API 202 (D3)」
 
 ---
 
@@ -349,10 +349,10 @@ def test_200_concurrent_vm_request_submissions(client_factory, normal_user_token
 - 層 1 的 rate limit：`POST /vm-requests/` 掛 `_CREATE_RATE_LIMIT` — 測試內 monkeypatch rate limiter 為 no-op（無 Redis 環境本來就得 stub）。
 - 兩檔皆 `pytestmark = pytest.mark.performance`；`pyproject.toml` markers 註冊避免 warning。
 
-- [ ] D4-1 層 2 測試（隨 D3 實作應直接 PASS；若揭露 bug 回修 D3）
-- [ ] D4-2 層 1 測試（本地無測試 DB 時記錄限制，docker compose 環境驗證）
-- [ ] D4-3 ruff 全過
-- [ ] D4-4 Commit：「模組D安全性能: 兩層式 200 併發壓測 (D4)」
+- [x] D4-1 層 2 測試（隨 D3 實作應直接 PASS；若揭露 bug 回修 D3）
+- [x] D4-2 層 1 測試（本地無測試 DB 時記錄限制，docker compose 環境驗證）
+- [x] D4-3 ruff 全過
+- [x] D4-4 Commit：「模組D安全性能: 兩層式 200 併發壓測 (D4)」
 
 ---
 
@@ -374,11 +374,11 @@ def test_200_concurrent_vm_request_submissions(client_factory, normal_user_token
 - 豁免開關：資源列有 `mining_exempt` badge/switch（admin only）。
 - 完成後 `bun run lint && bun run build` 全過（build 前先 `bunx --bun @tanstack/router-cli generate` 若有新 route）。
 
-- [ ] D5-1 regenerate client + facade 更新
-- [ ] D5-2 MiningIncidentsPanel + monitoring 頁掛載
-- [ ] D5-3 GovernanceConfigTab 反挖礦/併發區塊 + 豁免開關 + createVm 使用點修正
-- [ ] D5-4 `bun run lint && bun run build` 全過
-- [ ] D5-5 Commit：「模組D安全性能: 前端挖礦事件/設定/豁免 (D5)」
+- [x] D5-1 regenerate client + facade 更新
+- [x] D5-2 MiningIncidentsPanel + monitoring 頁掛載
+- [x] D5-3 GovernanceConfigTab 反挖礦/併發區塊 + 豁免開關 + createVm 使用點修正
+- [x] D5-4 `bun run lint && bun run build` 全過
+- [x] D5-5 Commit：「模組D安全性能: 前端挖礦事件/設定/豁免 (D5)」
 
 ---
 
@@ -389,10 +389,10 @@ def test_200_concurrent_vm_request_submissions(client_factory, normal_user_token
 - Modify: `docs/superpowers/plans/2026-07-04-security-performance-module-d.md`（勾選完成項；**用 Edit 工具或 bash sed，勿用 PowerShell Set-Content — PS 5.1 編碼會毀中文**）
 
 **步驟：**
-- [ ] D6-1 後端：`uv run ruff check .` 全過；`uv run pytest tests/services/ tests/performance/ -q` 模組 D 測試全綠、既有無回歸（Redis-backed 測試除外，屬既有環境限制）
-- [ ] D6-2 `alembic heads` 單一 head（gov05_mining）；dev DB `alembic upgrade head` 成功
-- [ ] D6-3 CLAUDE.md 更新
-- [ ] D6-4 Commit：「模組D安全性能: 測試收尾與文檔更新 (D6)」
+- [x] D6-1 後端：`uv run ruff check .` 全過；`uv run pytest tests/services/ tests/performance/ -q` 模組 D 測試全綠、既有無回歸（Redis-backed 測試除外，屬既有環境限制）
+- [x] D6-2 `alembic heads` 單一 head（gov05_mining）；dev DB `alembic upgrade head` 成功
+- [x] D6-3 CLAUDE.md 更新
+- [x] D6-4 Commit：「模組D安全性能: 測試收尾與文檔更新 (D6)」
 
 ---
 
