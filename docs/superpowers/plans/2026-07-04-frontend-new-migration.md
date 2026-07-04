@@ -200,9 +200,9 @@
 - Modify: `App.jsx`（`/teaching`）、`Sidebar.jsx`（位置比照舊 `AppSidebar.tsx`）
 
 **Steps:**
-- [ ] 移植六元件；熱圖消費 `MonitoringService`＋`GroupsService`（舊 HeatmapPanel 即如此）；QuotaUsageBar 用 `/quotas/my-usage`。
-- [ ] 手動驗證：熱圖輪詢、批次規格送出後出現在批量審核、邀請發送/撤回。
-- [ ] Commit：`前端遷移: 老師教學面板`
+- [x] 移植六元件；熱圖消費 `MonitoringService`＋`GroupsService`（舊 HeatmapPanel 即如此）；QuotaUsageBar 用 `/quotas/my-usage`。（核對修正：舊 HeatmapPanel 實際用 `/teaching/heatmap` 端點而非 MonitoringService；QuotaUsageBar/PairInvitesCard 舊版掛在「我的資源」頁而非教學面板——QuotaUsageBar 已掛上 ResourcesPage，Pair 兩元件放 `components/Teaching/`、掛載待 Task 11 WatchDialog 完成）
+- [x] 手動驗證：熱圖輪詢、批次規格送出後出現在批量審核、邀請發送/撤回。（**待使用者於 docker compose 環境驗證**）
+- [x] Commit：`前端遷移: 老師教學面板`
 
 ### Task 11: 虛擬教室（學生層 + 廣播觀看）
 

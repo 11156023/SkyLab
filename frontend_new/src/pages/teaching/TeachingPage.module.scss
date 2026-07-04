@@ -1,0 +1,332 @@
+.page {
+  @include flex-column;
+  gap: $spacing-24;
+  padding: $spacing-8 $spacing-16;
+  flex: 1;
+
+  @include respond-to(md) {
+    padding: 0;
+  }
+}
+
+.pageHeader {
+  @include flex-between;
+  flex-wrap: wrap;
+  gap: $spacing-16;
+}
+
+.pageHeading {
+  @include flex-column;
+  gap: $spacing-4;
+}
+
+.pageTitle {
+  font-size: $font-size-24;
+  font-weight: $font-weight-700;
+  color: var(--color-text-primary);
+
+  @include respond-to(sm) {
+    font-size: $font-size-28;
+  }
+}
+
+.pageSubtitle {
+  font-size: $font-size-14;
+  color: var(--color-text-secondary);
+}
+
+.groupSelect {
+  min-width: 220px;
+  padding: $spacing-8 $spacing-16;
+  border: 1px solid var(--color-border);
+  border-radius: $radius-8;
+  font-size: $font-size-14;
+  background: var(--color-surface);
+  color: var(--color-text);
+  box-shadow: var(--shadow-sm);
+
+  &:focus {
+    border-color: var(--color-primary);
+  }
+}
+
+/* ── Tabs（pill 樣式） ── */
+.tabs {
+  display: flex;
+  gap: $spacing-4;
+  flex-wrap: wrap;
+}
+
+.tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px $spacing-16;
+  border-radius: $radius-pill;
+  font-size: $font-size-14;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  transition: background $transition-base, color $transition-base;
+
+  &:hover {
+    background: var(--color-hover);
+    color: var(--color-text);
+  }
+
+  &.tabActive {
+    background: var(--color-text);
+    color: var(--color-surface);
+    font-weight: $font-weight-500;
+  }
+}
+
+.content {
+  flex: 1;
+  @include flex-column;
+}
+
+.panelStack {
+  @include flex-column;
+  gap: $spacing-16;
+}
+
+.emptyHint {
+  @include flex-column;
+  align-items: center;
+  justify-content: center;
+  gap: $spacing-8;
+  padding: $spacing-48 $spacing-16;
+  color: var(--color-text-muted);
+  font-size: $font-size-14;
+}
+
+.stateText {
+  padding: $spacing-24 $spacing-16;
+  text-align: center;
+  color: var(--color-text-muted);
+  font-size: $font-size-14;
+}
+
+/* ── 卡片 ── */
+.card {
+  @include flex-column;
+  background: var(--color-surface-glass);
+  backdrop-filter: blur(12px) saturate(1.4);
+  -webkit-backdrop-filter: blur(12px) saturate(1.4);
+  border: 1px solid var(--color-surface-glass-border);
+  border-radius: $radius-16;
+  box-shadow: var(--shadow-sm);
+  overflow: hidden;
+}
+
+.cardHeader {
+  @include flex-between;
+  gap: $spacing-8;
+  padding: $spacing-16;
+}
+
+.cardTitle {
+  font-size: $font-size-16;
+  font-weight: $font-weight-700;
+  color: var(--color-text-primary);
+}
+
+.cardBody {
+  @include flex-column;
+  gap: $spacing-16;
+  padding: 0 $spacing-16 $spacing-16;
+}
+
+/* ── 熱圖 ── */
+.legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: $spacing-16;
+  font-size: $font-size-12;
+  color: var(--color-text-muted);
+}
+
+/* 資料視覺化漸層色（比照 AvailabilityPanel 例外，非 UI 警示色） */
+.legend_stopped { color: #9ca3af; }
+.legend_active  { color: #28a745; }
+.legend_hot     { color: #f59e0b; }
+.legend_stale   { color: #6b7280; }
+
+.heatGrid {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: $spacing-8;
+
+  @include respond-to(md) {
+    grid-template-columns: repeat(10, 1fr);
+  }
+}
+
+.heatCell {
+  aspect-ratio: 1;
+  border-radius: $radius-8;
+  @include flex-center;
+  font-size: 10px;
+  font-weight: $font-weight-500;
+  color: #fff;
+  cursor: default;
+}
+
+.cell_stopped { background: #9ca3af; }
+.cell_stale   { background: #6b7280; }
+.cell_hot     { background: #dc3545; }
+.cell_warm    { background: #f59e0b; }
+.cell_active  { background: #28a745; }
+.cell_idle    { background: color-mix(in srgb, #28a745 45%, transparent); }
+
+/* ── 表單 ── */
+.formGrid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: $spacing-16;
+
+  @include respond-to(md) {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+.field {
+  @include flex-column;
+  gap: $spacing-4;
+
+  span {
+    font-size: $font-size-14;
+    font-weight: $font-weight-500;
+    color: var(--color-text);
+  }
+
+  input {
+    width: 100%;
+    padding: $spacing-8 $spacing-16;
+    border: 1px solid var(--color-border);
+    border-radius: $radius-8;
+    font-size: $font-size-14;
+    background: var(--color-surface);
+    color: var(--color-text);
+
+    &::placeholder {
+      color: var(--color-text-muted);
+    }
+
+    &:focus {
+      border-color: var(--color-primary);
+    }
+  }
+}
+
+/* ── 表格 ── */
+.table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.th {
+  padding: $spacing-8 $spacing-16;
+  font-size: $font-size-12;
+  font-weight: $font-weight-500;
+  color: var(--color-text-muted);
+  text-align: left;
+  background: var(--color-hover);
+  border-bottom: 1px solid var(--color-border);
+  white-space: nowrap;
+}
+
+.thCheck {
+  width: 40px;
+}
+
+.thRight {
+  text-align: right;
+}
+
+.tr {
+  transition: background $transition-base;
+
+  &:not(:last-child) {
+    border-bottom: 1px solid var(--color-divider);
+  }
+
+  &:hover {
+    background: var(--color-hover);
+  }
+}
+
+.td {
+  padding: $spacing-8 $spacing-16;
+  font-size: $font-size-14;
+  color: var(--color-text-primary);
+  vertical-align: middle;
+}
+
+.tdRight {
+  text-align: right;
+  white-space: nowrap;
+}
+
+.monoCell {
+  font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
+  font-size: $font-size-12;
+}
+
+.mutedCell {
+  color: var(--color-text-muted);
+}
+
+.cell_ok   { color: var(--color-success); font-weight: $font-weight-500; }
+.cell_err  { color: var(--color-danger);  font-weight: $font-weight-500; }
+.cell_info { color: var(--color-info);    font-weight: $font-weight-500; }
+
+.check {
+  accent-color: var(--color-primary);
+  width: 16px;
+  height: 16px;
+  cursor: pointer;
+}
+
+/* ── 按鈕 ── */
+%btn-base {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px $spacing-16;
+  border-radius: $radius-8;
+  font-size: $font-size-14;
+  font-weight: $font-weight-500;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background $transition-base;
+
+  &:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+  }
+}
+
+.btnPrimary {
+  @extend %btn-base;
+  background: var(--color-primary);
+  color: var(--color-text-on-primary);
+  align-self: flex-start;
+
+  &:hover:not(:disabled) {
+    background: var(--color-primary-dark);
+  }
+}
+
+.btnSecondary {
+  @extend %btn-base;
+  padding: 4px $spacing-8;
+  font-size: $font-size-12;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  color: var(--color-text-secondary);
+
+  &:hover:not(:disabled) {
+    background: var(--color-hover);
+  }
+}

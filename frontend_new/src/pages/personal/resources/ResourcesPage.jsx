@@ -12,6 +12,7 @@ import {
 import { useToast } from "../../../hooks/useToast";
 import TerminalDialog from "./TerminalDialog";
 import VncDialog from "./VncDialog";
+import QuotaUsageBar from "../../../components/Teaching/QuotaUsageBar";
 
 /* ── Constants ── */
 const STATUS_MAP = {
@@ -568,6 +569,9 @@ export default function ResourcesPage() {
           </button>
         </div>
       </div>
+
+      {/* 我的配額用量（模組 E） */}
+      <QuotaUsageBar />
 
       <div className={styles.content}>
         {loading ? (

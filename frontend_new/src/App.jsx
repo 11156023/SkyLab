@@ -25,6 +25,9 @@ import AiApiKeysPage   from "./pages/ai/ai-api-keys/AiApiKeysPage";
 import AiMonitoringPage from "./pages/ai/ai-monitoring/AiMonitoringPage";
 import AiManagementPage from "./pages/ai/ai-management/AiManagementPage";
 
+// 教學
+import TeachingPage from "./pages/teaching/TeachingPage";
+
 // 系統管理
 import GroupsPage    from "./pages/system/groups/GroupsPage";
 import AdminPage     from "./pages/system/admin/AdminPage";
@@ -80,6 +83,9 @@ function App() {
           <Route path="/ai-api-keys"    element={<AiApiKeysPage />} />
           <Route path="/ai-monitoring"  element={<AiMonitoringPage />} />
           <Route path="/ai-management"  element={<AiManagementPage />} />
+
+          {/* 教學 */}
+          <Route path="/teaching"  element={<TeachingPage />} />
 
           {/* 系統管理 */}
           <Route path="/groups"    element={<GroupsPage />} />

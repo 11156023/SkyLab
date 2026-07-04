@@ -1,0 +1,195 @@
+/* 協作邀請卡 / 配額用量條（掛在「我的資源」頁）共用樣式 */
+
+.card {
+  @include flex-column;
+  gap: $spacing-16;
+  padding: $spacing-16;
+  background: var(--color-surface-glass);
+  backdrop-filter: blur(12px) saturate(1.4);
+  -webkit-backdrop-filter: blur(12px) saturate(1.4);
+  border: 1px solid var(--color-surface-glass-border);
+  border-radius: $radius-16;
+  box-shadow: var(--shadow-sm);
+}
+
+.cardAccent {
+  border-color: color-mix(in srgb, var(--color-primary) 35%, transparent);
+}
+
+.cardTitle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: $font-size-16;
+  font-weight: $font-weight-700;
+  color: var(--color-text-primary);
+}
+
+/* ── 配額用量 ── */
+.meterGrid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: $spacing-16;
+
+  @include respond-to(md) {
+    grid-template-columns: repeat(4, 1fr);
+  }
+}
+
+.meter {
+  @include flex-column;
+  gap: $spacing-4;
+}
+
+.meterHead {
+  @include flex-between;
+  font-size: $font-size-12;
+}
+
+.meterLabel {
+  color: var(--color-text-muted);
+}
+
+.meterValue {
+  color: var(--color-text-primary);
+  font-variant-numeric: tabular-nums;
+}
+
+.meterValue_over {
+  color: var(--color-danger);
+  font-weight: $font-weight-500;
+}
+
+.meterTrack {
+  width: 100%;
+  height: 8px;
+  border-radius: $radius-pill;
+  background: var(--color-hover);
+  overflow: hidden;
+}
+
+.meterFill {
+  height: 100%;
+  border-radius: $radius-pill;
+  background: var(--color-primary);
+  transition: width $transition-slow;
+}
+
+.meterFill_danger {
+  background: var(--color-danger);
+}
+
+/* ── 協作邀請 ── */
+.inviteList {
+  @include flex-column;
+  gap: $spacing-8;
+}
+
+.inviteRow {
+  @include flex-between;
+  gap: $spacing-16;
+  padding: $spacing-8 $spacing-16;
+  border: 1px solid var(--color-border);
+  border-radius: $radius-8;
+  font-size: $font-size-14;
+  color: var(--color-text-primary);
+}
+
+.inviteActions {
+  display: flex;
+  gap: $spacing-8;
+  flex-shrink: 0;
+}
+
+/* ── 按鈕 ── */
+%btn-base {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 5px $spacing-16;
+  border-radius: $radius-8;
+  font-size: $font-size-12;
+  font-weight: $font-weight-500;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background $transition-base;
+
+  &:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+  }
+}
+
+.btnPrimary {
+  @extend %btn-base;
+  background: var(--color-primary);
+  color: var(--color-text-on-primary);
+
+  &:hover:not(:disabled) {
+    background: var(--color-primary-dark);
+  }
+}
+
+.btnSecondary {
+  @extend %btn-base;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  color: var(--color-text-secondary);
+
+  &:hover:not(:disabled) {
+    background: var(--color-hover);
+  }
+}
+
+/* ── 邀請 dialog ── */
+.modalOverlay {
+  position: fixed;
+  inset: 0;
+  background: var(--color-overlay);
+  backdrop-filter: blur(4px);
+  z-index: 300;
+  @include flex-center;
+  padding: $spacing-16;
+}
+
+.modal {
+  @include flex-column;
+  gap: $spacing-16;
+  width: 100%;
+  max-width: 440px;
+  padding: $spacing-24;
+  background: var(--color-surface);
+  border-radius: $radius-16;
+  box-shadow: var(--shadow-lg);
+}
+
+.modalTitle {
+  font-size: $font-size-18;
+  font-weight: $font-weight-700;
+  color: var(--color-text-primary);
+}
+
+.modalDesc {
+  font-size: $font-size-14;
+  color: var(--color-text-secondary);
+}
+
+.modalActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: $spacing-8;
+}
+
+.select {
+  width: 100%;
+  padding: $spacing-8 $spacing-16;
+  border: 1px solid var(--color-border);
+  border-radius: $radius-8;
+  font-size: $font-size-14;
+  background: var(--color-surface);
+  color: var(--color-text);
+
+  &:focus {
+    border-color: var(--color-primary);
+  }
+}

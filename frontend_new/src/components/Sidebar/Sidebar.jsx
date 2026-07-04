@@ -53,6 +53,14 @@ const navGroups = [
     ],
   },
   {
+    key: "teaching",
+    label: "教學",
+    icon: "school",
+    items: [
+      { key: "teaching", label: "教學面板", icon: "grid_view" },
+    ],
+  },
+  {
     key: "system",
     label: "系統管理",
     icon: "tune",
