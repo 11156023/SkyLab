@@ -444,6 +444,181 @@
 .badge_ok  { background: color-mix(in srgb, var(--color-success) 12%, transparent); color: var(--color-success); }
 .badge_err { background: color-mix(in srgb, var(--color-danger)  12%, transparent); color: var(--color-danger); }
 
+.tdRight {
+  text-align: right;
+  white-space: nowrap;
+
+  button + button {
+    margin-left: $spacing-8;
+  }
+}
+
+.snapCell {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.badge_muted {
+  background: var(--color-hover);
+  color: var(--color-text-muted);
+}
+
+.btnPrimary {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 5px $spacing-16;
+  border-radius: $radius-8;
+  font-size: $font-size-12;
+  font-weight: $font-weight-500;
+  background: var(--color-primary);
+  color: var(--color-text-on-primary);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background $transition-base;
+
+  &:hover:not(:disabled) {
+    background: var(--color-primary-dark);
+  }
+
+  &:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+  }
+}
+
+.btnDanger {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 5px $spacing-16;
+  border-radius: $radius-8;
+  font-size: $font-size-12;
+  font-weight: $font-weight-500;
+  background: #dc3545;
+  color: #fff;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background $transition-base;
+
+  &:hover:not(:disabled) {
+    background: #b91c1c;
+  }
+
+  &:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+  }
+}
+
+.btnDangerOutline {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 5px $spacing-16;
+  border-radius: $radius-8;
+  font-size: $font-size-12;
+  font-weight: $font-weight-500;
+  background: transparent;
+  border: 1px solid color-mix(in srgb, var(--color-danger) 40%, transparent);
+  color: var(--color-danger);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background $transition-base;
+
+  &:hover:not(:disabled) {
+    background: color-mix(in srgb, var(--color-danger) 8%, transparent);
+  }
+
+  &:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+  }
+}
+
+/* ── Modal ── */
+.modalOverlay {
+  position: fixed;
+  inset: 0;
+  background: var(--color-overlay);
+  backdrop-filter: blur(4px);
+  z-index: 300;
+  @include flex-center;
+  padding: $spacing-16;
+}
+
+.modal {
+  @include flex-column;
+  gap: $spacing-16;
+  width: 100%;
+  max-width: 440px;
+  padding: $spacing-24;
+  background: var(--color-surface);
+  border-radius: $radius-16;
+  box-shadow: var(--shadow-lg);
+}
+
+.modalTitle {
+  font-size: $font-size-18;
+  font-weight: $font-weight-700;
+  color: var(--color-text-primary);
+}
+
+.modalDesc {
+  font-size: $font-size-14;
+  color: var(--color-text-secondary);
+}
+
+.modalActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: $spacing-8;
+}
+
+.checkLine {
+  display: flex;
+  align-items: center;
+  gap: $spacing-8;
+  font-size: $font-size-14;
+  color: var(--color-text);
+  cursor: pointer;
+
+  input[type="checkbox"] {
+    accent-color: var(--color-primary);
+  }
+}
+
+.field {
+  @include flex-column;
+  gap: $spacing-4;
+
+  label {
+    font-size: $font-size-14;
+    font-weight: $font-weight-500;
+    color: var(--color-text);
+  }
+
+  textarea {
+    width: 100%;
+    padding: $spacing-8 $spacing-16;
+    border: 1px solid var(--color-border);
+    border-radius: $radius-8;
+    font-size: $font-size-14;
+    background: var(--color-surface);
+    color: var(--color-text);
+    resize: vertical;
+
+    &::placeholder {
+      color: var(--color-text-muted);
+    }
+
+    &:focus {
+      border-color: var(--color-primary);
+    }
+  }
+}
+
 /* ── 節點趨勢 ── */
 .trendLoading {
   @include flex-center;

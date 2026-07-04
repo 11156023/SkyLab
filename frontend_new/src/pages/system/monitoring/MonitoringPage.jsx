@@ -2,6 +2,7 @@ import { Fragment, useCallback, useEffect, useState } from "react";
 import styles from "./MonitoringPage.module.scss";
 import MIcon from "../../../components/MIcon";
 import RrdChart from "../../../components/RrdChart/RrdChart";
+import MiningIncidentsPanel from "./MiningIncidentsPanel";
 import { MonitoringService } from "../../../services/monitoring";
 import { useToast } from "../../../hooks/useToast";
 
@@ -389,6 +390,9 @@ export default function MonitoringPage() {
 
       {/* 活動告警 */}
       <AlertsCard />
+
+      {/* 挖礦事件（模組 D，位置比照舊版監控頁） */}
+      <MiningIncidentsPanel />
 
       {/* 節點用量 */}
       <div className={styles.card}>

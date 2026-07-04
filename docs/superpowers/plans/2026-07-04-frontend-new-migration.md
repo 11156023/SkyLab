@@ -176,9 +176,9 @@
 - Create: 同目錄 `GovernanceTab.jsx`、`LdapTab.jsx`、`MiningIncidentsPanel.jsx`（規格來源 `components/Admin/*`；MiningIncidentsPanel 內嵌於 GovernanceTab，位置比照舊版）
 
 **Steps:**
-- [ ] 對照舊元件逐欄位移植（分節樣式比照 PveTab 的 `title:` 寫法）。
-- [ ] 手動驗證：governance 存檔後 GET 回讀一致；LDAP test 按鈕回報結果；mining 事件 ban/dismiss/豁免。
-- [ ] Commit：`前端遷移: 系統設定治理/LDAP分頁與反挖礦面板`
+- [x] 對照舊元件逐欄位移植（分節樣式比照 PveTab 的 `title:` 寫法）。（修正：MiningIncidentsPanel 舊版實際位置在監控頁而非 GovernanceTab，已放到 MonitoringPage 告警下方，位置比照舊版）
+- [x] 手動驗證：governance 存檔後 GET 回讀一致；LDAP test 按鈕回報結果；mining 事件 ban/dismiss/豁免。（**待使用者於 docker compose 環境驗證**）
+- [x] Commit：`前端遷移: 系統設定治理/LDAP分頁與反挖礦面板`
 
 ---
 

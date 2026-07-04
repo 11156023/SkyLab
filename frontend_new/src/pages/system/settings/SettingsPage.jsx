@@ -3,11 +3,15 @@ import styles from "./SettingsPage.module.scss";
 import MIcon from "../../../components/MIcon";
 import { useToast } from "../../../hooks/useToast";
 import { ProxmoxConfigService } from "../../../services/proxmoxConfig";
+import GovernanceTab from "./GovernanceTab";
+import LdapTab from "./LdapTab";
 
 const TABS = [
   { key: "overview",  label: "叢集概覽", icon: "layers"         },
   { key: "pve",       label: "PVE 連線",  icon: "device_hub"    },
   { key: "scheduler", label: "資源排程",  icon: "settings_input_component" },
+  { key: "governance", label: "治理",     icon: "policy"        },
+  { key: "ldap",      label: "LDAP",      icon: "badge"         },
   { key: "nodes",     label: "節點管理",  icon: "lock"          },
   { key: "storage",   label: "Storage",   icon: "storage"       },
 ];
@@ -674,6 +678,8 @@ export default function SettingsPage() {
             {activeTab === "scheduler" && (
               <SchedulerTab form={form} setField={setField} onSave={handleSave} saving={saving} />
             )}
+            {activeTab === "governance" && <GovernanceTab />}
+            {activeTab === "ldap" && <LdapTab />}
             {activeTab === "nodes" && <NodesTab />}
             {activeTab === "storage" && <StorageTab />}
           </>
