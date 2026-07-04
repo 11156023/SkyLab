@@ -34,6 +34,14 @@ const ACTION_LABEL = {
 
 const COLUMNS = ["名稱", "環境 / 系統", "狀態", "IP 位址", "到期日", "節點", "動作"];
 
+const BATCH_ACTIONS = [
+  { action: "start",    label: "啟動",     icon: "play_arrow" },
+  { action: "shutdown", label: "關機",     icon: "power_settings_new" },
+  { action: "reboot",   label: "重新啟動", icon: "restart_alt" },
+  { action: "stop",     label: "強制停止", icon: "stop" },
+  { action: "reset",    label: "強制重置", icon: "cancel" },
+];
+
 const LIVE_STATUSES = new Set(["running", "stopped", "paused"]);
 
 /* ── Helpers ── */
@@ -161,7 +169,85 @@ function PowerMenu({ resource, actionLoading, onControl, onDeleteClick, onClose,
 }
 
 /* ── Table row ── */
-function ResourceRow({ resource, onUpdated, onDeleted }) {
+/* ── 批次操作列（有勾選才顯示） ── */
+function BatchActionBar({ selectedVmids, onDone, onClear }) {
+  const toast = useToast();
+  const [pending, setPending] = useState(null); // 進行中的 action
+  const [deleteConfirm, setDeleteConfirm] = useState(false);
+  const count = selectedVmids.length;
+
+  async function run(action) {
+    setPending(action);
+    try {
+      const res = await ResourcesService.batchAction(selectedVmids, action);
+      const label = action === "delete" ? "刪除" : ACTION_LABEL[action];
+      if ((res?.failed ?? 0) === 0) {
+        toast.success(`已對 ${res?.succeeded ?? count} 台送出「${label}」`);
+      } else {
+        toast.error(`「${label}」成功 ${res?.succeeded ?? 0} 台、失敗 ${res?.failed} 台`);
+      }
+      onDone();
+    } catch (err) {
+      toast.error(err?.message ?? "批次操作失敗");
+    } finally {
+      setPending(null);
+      setDeleteConfirm(false);
+    }
+  }
+
+  if (count === 0) return null;
+
+  return (
+    <div className={styles.batchBar}>
+      <span className={styles.batchCount}>已選 {count} 台</span>
+      <span className={styles.batchDivider} />
+      {BATCH_ACTIONS.map(({ action, label, icon }) => (
+        <button
+          key={action}
+          type="button"
+          className={styles.btnSecondary}
+          disabled={pending !== null}
+          onClick={() => run(action)}
+        >
+          <MIcon name={icon} size={14} />
+          {label}
+        </button>
+      ))}
+      <span className={styles.batchDivider} />
+      <button
+        type="button"
+        className={styles.btnDangerOutline}
+        disabled={pending !== null}
+        onClick={() => setDeleteConfirm(true)}
+      >
+        <MIcon name="delete" size={14} />
+        刪除
+      </button>
+      <button
+        type="button"
+        className={styles.btnGhost}
+        disabled={pending !== null}
+        onClick={onClear}
+      >
+        取消選取
+      </button>
+
+      {deleteConfirm && (
+        <ConfirmModal
+          title={`刪除 ${count} 台資源？`}
+          desc="將對所有勾選的虛擬機/容器送出刪除請求，此操作無法復原。"
+          confirmLabel={pending === "delete" ? "刪除中…" : "確認刪除"}
+          danger
+          loading={pending !== null}
+          onConfirm={() => run("delete")}
+          onClose={() => setDeleteConfirm(false)}
+        />
+      )}
+    </div>
+  );
+}
+
+function ResourceRow({ resource, onUpdated, onDeleted, selected = false, onToggleSelect = null }) {
   const toast = useToast();
   const navigate = useNavigate();
   const [actionLoading, setActionLoading] = useState(null);
@@ -212,6 +298,18 @@ function ResourceRow({ resource, onUpdated, onDeleted }) {
   return (
     <>
       <tr className={styles.tr}>
+        {/* 勾選 */}
+        <td className={`${styles.td} ${styles.checkCell}`}>
+          {onToggleSelect && canControl ? (
+            <input
+              type="checkbox"
+              className={styles.checkbox}
+              checked={selected}
+              onChange={() => onToggleSelect(resource.vmid)}
+              aria-label={`選取 ${resource.name}`}
+            />
+          ) : null}
+        </td>
         {/* 名稱 */}
         <td className={styles.td}>
           <div className={styles.nameCell}>
@@ -338,6 +436,7 @@ function ResourceRow({ resource, onUpdated, onDeleted }) {
 function SkeletonRow() {
   return (
     <tr className={styles.tr} aria-hidden>
+      <td className={`${styles.td} ${styles.checkCell}`} />
       <td className={styles.td}>
         <div className={styles.nameCell}>
           <div className={`${styles.nameIcon} ${styles.skeleton}`} />
@@ -391,6 +490,25 @@ export default function ResourceMgmtPage() {
   const [resources, setResources] = useState([]);
   const [loading, setLoading]     = useState(true);
   const [error, setError]         = useState(false);
+  const [selectedVmids, setSelectedVmids] = useState(() => new Set());
+
+  const selectableVmids = resources
+    .filter((r) => r.can_control !== false && r.vmid != null && r.vmid > 0)
+    .map((r) => r.vmid);
+  const allSelected = selectableVmids.length > 0 && selectableVmids.every((v) => selectedVmids.has(v));
+
+  function toggleSelect(vmid) {
+    setSelectedVmids((prev) => {
+      const next = new Set(prev);
+      if (next.has(vmid)) next.delete(vmid);
+      else next.add(vmid);
+      return next;
+    });
+  }
+
+  function toggleSelectAll() {
+    setSelectedVmids(allSelected ? new Set() : new Set(selectableVmids));
+  }
 
   const fetchResources = useCallback(async () => {
     setLoading(true);
@@ -415,6 +533,12 @@ export default function ResourceMgmtPage() {
 
   function handleDeleted(vmid) {
     setResources((prev) => prev.filter((r) => r.vmid !== vmid));
+    setSelectedVmids((prev) => {
+      if (!prev.has(vmid)) return prev;
+      const next = new Set(prev);
+      next.delete(vmid);
+      return next;
+    });
   }
 
   return (
@@ -437,6 +561,16 @@ export default function ResourceMgmtPage() {
         </div>
       </div>
 
+      {/* ── 批次操作 ── */}
+      <BatchActionBar
+        selectedVmids={[...selectedVmids]}
+        onDone={() => {
+          setSelectedVmids(new Set());
+          fetchResources();
+        }}
+        onClear={() => setSelectedVmids(new Set())}
+      />
+
       {/* ── 內容 ── */}
       <div className={styles.content}>
         {error ? (
@@ -448,6 +582,16 @@ export default function ResourceMgmtPage() {
             <table className={styles.table}>
               <thead>
                 <tr>
+                  <th className={`${styles.th} ${styles.checkCell}`}>
+                    <input
+                      type="checkbox"
+                      className={styles.checkbox}
+                      checked={allSelected}
+                      disabled={selectableVmids.length === 0}
+                      onChange={toggleSelectAll}
+                      aria-label="全選"
+                    />
+                  </th>
                   {COLUMNS.map((col) => (
                     <th key={col} className={styles.th}>{col}</th>
                   ))}
@@ -462,6 +606,8 @@ export default function ResourceMgmtPage() {
                         resource={r}
                         onUpdated={handleUpdated}
                         onDeleted={handleDeleted}
+                        selected={selectedVmids.has(r.vmid)}
+                        onToggleSelect={toggleSelect}
                       />
                     ))}
               </tbody>

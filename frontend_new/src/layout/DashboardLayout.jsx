@@ -3,6 +3,7 @@ import { Outlet } from "react-router-dom";
 import Sidebar from "../components/Sidebar/Sidebar";
 import AiFloatingChat from "../components/AiFloatingChat/AiFloatingChat";
 import ClassroomStudentLayer from "../components/Classroom/ClassroomStudentLayer";
+import ErrorBoundary from "../components/ErrorBoundary/ErrorBoundary";
 import styles from "./DashboardLayout.module.scss";
 
 export const LayoutContext = createContext({ setCompactFooter: () => {} });
@@ -58,7 +59,9 @@ export default function DashboardLayout() {
               </span>
             </button>
           </div>
-          <Outlet />
+          <ErrorBoundary>
+            <Outlet />
+          </ErrorBoundary>
           <div className={`${styles.footer} ${compactFooter ? styles.footerCompact : ""}`}>SkyLab · 2026</div>
           <AiFloatingChat />
         </ClassroomStudentLayer>

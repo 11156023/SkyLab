@@ -239,10 +239,10 @@
 ### Task 13: 以舊側欄為清單逐項驗收
 
 **Steps:**
-- [ ] 以 `frontend/src/components/Sidebar/AppSidebar.tsx` 的完整選單為 checklist，兩個身份（一般/管理員）逐項在 frontend_new 操作一遍，缺漏即回補。
-- [ ] 核對非頁面資產：ErrorBoundary（舊 `components/ErrorBoundary.tsx`→ 新版若無，補一個包在 DashboardLayout）、Session 到期行為（新版 401-refresh 已覆蓋舊 SessionWarningDialog 的目的，記錄為「以 refresh 取代」即可）、批次操作列（舊 `Resources/BatchActionBar.tsx`，核對新 ResourcesPage 是否已有等價物）。
-- [ ] `bun run build`、`bun run test` 全綠。
-- [ ] Commit（如有回補）：`前端遷移: 總驗收回補`
+- [x] 以 `frontend/src/components/Sidebar/AppSidebar.tsx` 的完整選單為 checklist，兩個身份（一般/管理員）逐項在 frontend_new 操作一遍，缺漏即回補。（靜態路由比對 23/23 全數對應；**實機雙身份點擊驗證待使用者於 docker compose 環境操作**）
+- [x] 核對非頁面資產：ErrorBoundary（已補 `components/ErrorBoundary/`，包在 DashboardLayout 的 Outlet 外層）、Session 到期行為（以 401-refresh 取代舊 SessionWarningDialog，記錄為「以 refresh 取代」）、批次操作列（已補：`resources.js` 加 `batchAction`（`POST /resources/batch`），ResourceMgmtPage 加勾選欄 + 批次列（啟動/關機/重啟/強制停止/強制重置/刪除確認）；舊版 my-resources 也有批次列，新版個人頁為卡片設計、暫不加，如需再補）。
+- [x] `bun run build`、`bun run test` 全綠。
+- [x] Commit（如有回補）：`前端遷移: 總驗收回補`
 
 ---
 

@@ -1,0 +1,92 @@
+.wrap {
+  @include flex-column;
+  align-items: center;
+  justify-content: center;
+  gap: $spacing-8;
+  min-height: 240px;
+  margin: $spacing-16;
+  padding: $spacing-32 $spacing-16;
+  text-align: center;
+  border: 1px solid color-mix(in srgb, var(--color-danger) 30%, transparent);
+  border-radius: $radius-16;
+  background: color-mix(in srgb, var(--color-danger) 5%, transparent);
+}
+
+.icon {
+  color: var(--color-danger);
+}
+
+.title {
+  font-size: $font-size-18;
+  font-weight: $font-weight-700;
+  color: var(--color-danger);
+}
+
+.desc {
+  max-width: 48ch;
+  font-size: $font-size-14;
+  color: var(--color-text-secondary);
+}
+
+.details {
+  max-width: 560px;
+  width: 100%;
+  text-align: left;
+  font-size: $font-size-12;
+  color: var(--color-text-muted);
+
+  summary {
+    cursor: pointer;
+  }
+
+  pre {
+    margin-top: $spacing-8;
+    padding: $spacing-8;
+    overflow: auto;
+    white-space: pre-wrap;
+    word-break: break-word;
+    border-radius: $radius-8;
+    background: var(--color-hover);
+    font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
+  }
+}
+
+.actions {
+  display: flex;
+  gap: $spacing-8;
+  margin-top: $spacing-8;
+}
+
+%btn-base {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px $spacing-16;
+  border-radius: $radius-8;
+  font-size: $font-size-14;
+  font-weight: $font-weight-500;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background $transition-base;
+}
+
+.btnPrimary {
+  @extend %btn-base;
+  background: var(--color-primary);
+  color: var(--color-text-on-primary);
+
+  &:hover {
+    background: var(--color-primary-dark);
+  }
+}
+
+.btnSecondary {
+  @extend %btn-base;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  color: var(--color-text);
+
+  &:hover {
+    background: var(--color-hover);
+  }
+}

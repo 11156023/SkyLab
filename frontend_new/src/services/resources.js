@@ -51,6 +51,11 @@ export const ResourcesService = {
     return apiDelete(`/api/v1/resources/${vmid}`);
   },
 
+  /** 批次操作（action: start|stop|shutdown|reboot|reset|delete）→ { succeeded, failed } */
+  batchAction(vmids, action) {
+    return apiPost("/api/v1/resources/batch", { vmids, action });
+  },
+
   /** 取得 VNC 控制台資訊（QEMU VM） */
   getConsole(vmid) {
     return apiGet(`/api/v1/vm/${vmid}/console`);
