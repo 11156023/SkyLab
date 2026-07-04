@@ -132,7 +132,7 @@ function PowerMenu({ resource, actionLoading, onControl, onDeleteClick, onClose,
       <div className={styles.powerMenuGrid}>
         <button type="button" className={styles.powerMenuItem}
           disabled={!isStopped || !!actionLoading} onClick={() => { onClose(); onControl("start"); }}>
-          <span className="material-icons" style={{ fontSize: 15, lineHeight: 1, color: "#28a745" }}>play_arrow</span>
+          <span style={{ color: "var(--color-success)", lineHeight: 1 }}><MIcon name="play_arrow" size={15} /></span>
           啟動
         </button>
         <button type="button" className={`${styles.powerMenuItem} ${styles.powerMenuItemWarn}`}

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { useNavigate } from "react-router-dom";
 import styles from "./ResourceMgmtPage.module.scss";
 import MIcon from "../../../components/MIcon";
@@ -132,7 +133,7 @@ function PowerMenu({ resource, actionLoading, onControl, onDeleteClick, onClose,
       <div className={styles.powerMenuGrid}>
         <button type="button" className={styles.powerMenuItem}
           disabled={!isStopped || !!actionLoading} onClick={() => { onClose(); onControl("start"); }}>
-          <span className="material-icons" style={{ fontSize: 15, lineHeight: 1, color: "#28a745" }}>play_arrow</span>
+          <span style={{ color: "var(--color-success)", lineHeight: 1 }}><MIcon name="play_arrow" size={15} /></span>
           啟動
         </button>
         <button type="button" className={`${styles.powerMenuItem} ${styles.powerMenuItemWarn}`}
@@ -300,7 +301,9 @@ function ResourceRow({ resource, onUpdated, onDeleted }) {
         </td>
       </tr>
 
-      {deleteConfirm && (
+      {/* Portal 到 body：列在 <tbody> 內，div 直接掛這裡是不合法巢狀，
+          且 .tableWrap 的 backdrop-filter 會讓 fixed 遮罩只蓋住表格範圍 */}
+      {deleteConfirm && createPortal(
         <ConfirmModal
           title="確定刪除資源？"
           desc={`「${resource.name}」(VMID ${resource.vmid}) 刪除後無法復原，所有資料將會消失。`}
@@ -309,14 +312,17 @@ function ResourceRow({ resource, onUpdated, onDeleted }) {
           loading={deleting}
           onConfirm={handleDelete}
           onClose={() => setDeleteConfirm(false)}
-        />
+        />,
+        document.body,
       )}
 
-      {consoleOpen && isLxc && (
-        <TerminalDialog resource={resource} onClose={() => setConsoleOpen(false)} />
+      {consoleOpen && isLxc && createPortal(
+        <TerminalDialog resource={resource} onClose={() => setConsoleOpen(false)} />,
+        document.body,
       )}
-      {consoleOpen && !isLxc && (
-        <VncDialog resource={resource} onClose={() => setConsoleOpen(false)} />
+      {consoleOpen && !isLxc && createPortal(
+        <VncDialog resource={resource} onClose={() => setConsoleOpen(false)} />,
+        document.body,
       )}
     </>
   );

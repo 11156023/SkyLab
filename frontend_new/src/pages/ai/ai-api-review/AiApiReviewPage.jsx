@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { createPortal } from "react-dom";
 import styles from "./AiApiReviewPage.module.scss";
 import MIcon from "../../../components/MIcon";
 import { AiApiService } from "../../../services/aiApi";
@@ -67,7 +68,9 @@ function ReviewDialog({ open, onClose, request, action, onDone }) {
     }
   };
 
-  return (
+  // Portal 到 body：此 Dialog 由表格列觸發，若直接掛在 .tableWrap（backdrop-filter）
+  // 底下，position: fixed 會以卡片為 containing block，遮罩蓋不滿整個視窗
+  return createPortal(
     <div className={styles.dialogOverlay} onClick={onClose}>
       <div className={styles.dialog} onClick={(e) => e.stopPropagation()}>
         <div className={styles.dialogHeader}>
@@ -111,7 +114,8 @@ function ReviewDialog({ open, onClose, request, action, onDone }) {
           </button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
 

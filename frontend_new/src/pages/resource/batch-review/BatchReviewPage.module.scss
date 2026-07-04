@@ -347,3 +347,36 @@
     &:hover { background: color-mix(in srgb, var(--color-danger) 10%, transparent); }
   }
 }
+
+/* ── 週期排程 chip 與時段預覽 ── */
+.recurChip {
+  display: inline-flex;
+  align-items: center;
+  gap: $spacing-4;
+  margin-top: $spacing-4;
+  padding: 2px $spacing-8;
+  font-size: $font-size-12;
+  border: none;
+  border-radius: $radius-pill;
+  background: color-mix(in srgb, #2b4d98 12%, transparent);
+  color: #2b4d98;
+  cursor: pointer;
+  transition: background $transition-base;
+
+  &:hover { background: color-mix(in srgb, #2b4d98 20%, transparent); }
+}
+
+.recurWindows {
+  margin: $spacing-4 0 0;
+  padding-left: $spacing-16;
+  font-size: $font-size-12;
+  color: var(--color-text-secondary);
+  list-style: disc;
+}
+
+.recurLoading {
+  display: block;
+  margin-top: $spacing-4;
+  font-size: $font-size-12;
+  color: var(--color-text-muted);
+}

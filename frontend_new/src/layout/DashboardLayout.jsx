@@ -1,5 +1,6 @@
 ﻿import { createContext, useEffect, useState } from "react";
 import { Outlet } from "react-router-dom";
+import MIcon from "../components/MIcon";
 import Sidebar from "../components/Sidebar/Sidebar";
 import AiFloatingChat from "../components/AiFloatingChat/AiFloatingChat";
 import styles from "./DashboardLayout.module.scss";
@@ -50,9 +51,7 @@ export default function DashboardLayout() {
             aria-label="開啟選單"
             type="button"
           >
-            <span className="material-icons-outlined" style={{ fontSize: 22 }}>
-              segment
-            </span>
+            <MIcon name="segment" size={22} />
           </button>
         </div>
         <Outlet />
