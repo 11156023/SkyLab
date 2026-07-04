@@ -2,7 +2,7 @@
 
 import logging
 
-from fastapi import WebSocket
+from fastapi import WebSocket, WebSocketDisconnect
 
 from app.api.deps.auth import get_ws_current_user
 from app.api.websocket.utils import safe_close_websocket
@@ -76,6 +76,9 @@ async def classroom_watch_proxy(
         )
     except AppError as exc:
         await safe_close_websocket(websocket, code=1008, reason=exc.message)
+    except WebSocketDisconnect:
+        # 客戶端斷線（含握手途中）屬正常結束
+        pass
     except Exception:
         logger.exception(f"Classroom watch failed for session {session_id}")
         await safe_close_websocket(websocket, code=1011, reason="Internal server error")
