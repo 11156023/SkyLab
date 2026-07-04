@@ -48,6 +48,9 @@ dev = [
 # Auto-mode: async test functions are awaited without needing
 # @pytest.mark.asyncio decorator on each one. Existing decorators stay valid.
 asyncio_mode = "auto"
+markers = [
+    "performance: 併發壓力測試（層1 需測試 DB；層2 無外部依賴）",
+]
 
 [build-system]
 requires = ["hatchling"]
