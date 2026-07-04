@@ -27,6 +27,7 @@ import AiManagementPage from "./pages/ai/ai-management/AiManagementPage";
 import GroupsPage    from "./pages/system/groups/GroupsPage";
 import AdminPage     from "./pages/system/admin/AdminPage";
 import SettingsPage  from "./pages/system/settings/SettingsPage";
+import MonitoringPage from "./pages/system/monitoring/MonitoringPage";
 import MigrationPage from "./pages/system/migration/MigrationPage";
 import AuditPage     from "./pages/system/audit/AuditPage";
 import JobsPage      from "./pages/system/jobs/JobsPage";
@@ -79,6 +80,7 @@ function App() {
           <Route path="/groups"    element={<GroupsPage />} />
           <Route path="/admin"     element={<AdminPage />} />
           <Route path="/settings"  element={<SettingsPage />} />
+          <Route path="/monitoring" element={<MonitoringPage />} />
           <Route path="/migration" element={<MigrationPage />} />
           <Route path="/audit"     element={<AuditPage />} />
           <Route path="/jobs"      element={<JobsPage />} />

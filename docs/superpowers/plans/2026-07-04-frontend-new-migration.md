@@ -98,9 +98,9 @@
 - Modify: `frontend_new/src/App.jsx`（`/monitoring`）、`frontend_new/src/components/Sidebar/Sidebar.jsx`（「系統管理」加「資源監控」）
 
 **Steps:**
-- [ ] 對照舊頁移植三區塊；timeframe 切換、ack 後就地更新。
-- [ ] 手動驗證 overview 與 Proxmox 實際數字一致。
-- [ ] Commit：`前端遷移: 模組C 資源監控頁`
+- [x] 對照舊頁移植三區塊；timeframe 切換、ack 後就地更新。（註：舊頁的 MiningIncidentsPanel 實際位置在監控頁而非系統設定，Task 8 實作後將加回本頁，位置比照舊版）
+- [x] 手動驗證 overview 與 Proxmox 實際數字一致。（**待使用者於 docker compose 環境驗證**）
+- [x] Commit：`前端遷移: 模組C 資源監控頁`
 
 ---
 
