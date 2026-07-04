@@ -1,16 +1,21 @@
 """教學體驗 API（E2 配置分發 / E3 熱圖 / E6 批次規格），InstructorUser 起跳。"""
 
+import asyncio
 import logging
+import uuid
+from typing import Any
 
 from fastapi import APIRouter, File, Form, UploadFile
 
 from app.api.deps import InstructorUser, SessionDep
+from app.infrastructure.proxmox import operations as proxmox_ops
 from app.schemas import (
     ConfigPushAccepted,
     ConfigPushItemPublic,
     ConfigPushStatusPublic,
+    HeatmapEntry,
 )
-from app.services.teaching import config_push_service
+from app.services.teaching import config_push_service, progress_service
 
 logger = logging.getLogger(__name__)
 
@@ -52,4 +57,27 @@ def get_config_push_status(
             ConfigPushItemPublic(vmid=i.vmid, status=i.status, error=i.error)
             for i in sorted(task.items.values(), key=lambda x: x.vmid)
         ],
+    )
+
+
+async def _safe_cluster_listing() -> list[dict[str, Any]]:
+    try:
+        return await asyncio.to_thread(proxmox_ops.list_all_resources)
+    except Exception:
+        logger.warning("Teaching: failed to list cluster resources", exc_info=True)
+        return []
+
+
+@router.get("/heatmap", response_model=list[HeatmapEntry])
+async def get_heatmap(
+    group_id: uuid.UUID,
+    session: SessionDep,
+    current_user: InstructorUser,
+) -> list[HeatmapEntry]:
+    cluster_resources = await _safe_cluster_listing()
+    return progress_service.get_heatmap(
+        session,
+        group_id=group_id,
+        user=current_user,
+        cluster_resources=cluster_resources,
     )
