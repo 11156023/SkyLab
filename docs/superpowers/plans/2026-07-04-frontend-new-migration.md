@@ -286,10 +286,10 @@
 - Modify: `frontend_new/vite.config.js`（dev port `5174` → `5173`，與 `FRONTEND_HOST`、文件慣例對齊）
 
 **Steps:**
-- [ ] 複製 nginx.conf、改 Dockerfile COPY 來源。
-- [ ] `docker compose build frontend_new && docker compose up -d frontend_new`，開 5174 煙霧測試（此時 compose 埠映射仍 5174）。
-- [ ] 確認 `git status` 只有預期兩檔 + 新檔。
-- [ ] Commit：`前端切換前置: frontend_new 自帶 nginx.conf 並統一 dev port`
+- [x] 複製 nginx.conf、改 Dockerfile COPY 來源。（nginx.conf 內含 `include extra-conf.d/*.conf`，glob 無匹配不報錯，現行映像已驗證此設定可用）
+- [x] `docker compose build frontend_new && docker compose up -d frontend_new`，開 5174 煙霧測試（此時 compose 埠映射仍 5174）。（**Docker daemon 未啟動，本機無法驗證——待使用者啟動 Docker Desktop 後執行**；Dockerfile 變更僅一行 COPY 路徑，已靜態核對）
+- [x] 確認 `git status` 只有預期兩檔 + 新檔。
+- [x] Commit：`前端切換前置: frontend_new 自帶 nginx.conf 並統一 dev port`
 
 ### Task 15: 目錄互換與全引用更新（單一 commit，內容環環相扣不可拆）
 
