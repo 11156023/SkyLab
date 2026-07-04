@@ -98,8 +98,10 @@
   align-items: center;
   gap: $spacing-16;
   padding: $spacing-16;
-  background: var(--color-surface);
-  border: 1px solid var(--color-border);
+  background: var(--color-surface-glass);
+  backdrop-filter: blur(12px) saturate(1.4);
+  -webkit-backdrop-filter: blur(12px) saturate(1.4);
+  border: 1px solid var(--color-surface-glass-border);
   border-radius: $radius-16;
   box-shadow: var(--shadow-sm);
 }
@@ -139,8 +141,10 @@
   @include flex-column;
   gap: 12px;
   padding: $spacing-16;
-  background: var(--color-surface);
-  border: 1px solid var(--color-border);
+  background: var(--color-surface-glass);
+  backdrop-filter: blur(12px) saturate(1.4);
+  -webkit-backdrop-filter: blur(12px) saturate(1.4);
+  border: 1px solid var(--color-surface-glass-border);
   border-radius: $radius-16;
   box-shadow: var(--shadow-sm);
 }
@@ -190,8 +194,10 @@
 
 /* ── Table ── */
 .tableWrap {
-  background: var(--color-surface);
-  border: 1px solid var(--color-border);
+  background: var(--color-surface-glass);
+  backdrop-filter: blur(12px) saturate(1.4);
+  -webkit-backdrop-filter: blur(12px) saturate(1.4);
+  border: 1px solid var(--color-surface-glass-border);
   border-radius: $radius-16;
   box-shadow: var(--shadow-sm);
   overflow-x: auto;
@@ -314,8 +320,10 @@
 .dialog {
   width: 90%;
   max-width: 420px;
-  background: var(--color-surface);
-  border: 1px solid var(--color-border);
+  background: var(--color-surface-glass);
+  backdrop-filter: blur(12px) saturate(1.4);
+  -webkit-backdrop-filter: blur(12px) saturate(1.4);
+  border: 1px solid var(--color-surface-glass-border);
   border-radius: $radius-16;
   box-shadow: var(--shadow-lg);
   @include flex-column;

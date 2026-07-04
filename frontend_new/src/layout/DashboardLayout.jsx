@@ -1,6 +1,7 @@
 ﻿import { createContext, useEffect, useState } from "react";
 import { Outlet } from "react-router-dom";
 import Sidebar from "../components/Sidebar/Sidebar";
+import AiFloatingChat from "../components/AiFloatingChat/AiFloatingChat";
 import styles from "./DashboardLayout.module.scss";
 
 export const LayoutContext = createContext({ setCompactFooter: () => {} });
@@ -56,6 +57,7 @@ export default function DashboardLayout() {
         </div>
         <Outlet />
         <div className={`${styles.footer} ${compactFooter ? styles.footerCompact : ""}`}>SkyLab · 2026</div>
+        <AiFloatingChat />
       </main>
     </div>
     </LayoutContext.Provider>

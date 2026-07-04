@@ -44,22 +44,53 @@
 }
 
 /* ── Button ── */
-.btnPrimary {
+.btnPrimary,
+.btnSecondary,
+.btnDanger {
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: 6px;
+  min-height: 36px;
   padding: 8px $spacing-16;
   border-radius: $radius-8;
   font-size: $font-size-14;
   font-weight: $font-weight-500;
   cursor: pointer;
   white-space: nowrap;
+  transition: background $transition-base, border-color $transition-base, box-shadow $transition-base, color $transition-base;
+
+  &:disabled {
+    opacity: 0.55;
+    cursor: not-allowed;
+  }
+}
+
+.btnPrimary {
   background: var(--color-primary);
   color: var(--color-text-on-primary);
-  transition: background $transition-base, box-shadow $transition-base;
 
-  &:hover {
+  &:hover:not(:disabled) {
     background: var(--color-primary-dark);
+    box-shadow: var(--shadow-sm);
+  }
+}
+
+.btnSecondary {
+  background: var(--color-surface);
+  color: var(--color-text-primary);
+  border: 1px solid var(--color-border);
+
+  &:hover:not(:disabled) {
+    background: var(--color-hover);
+  }
+}
+
+.btnDanger {
+  background: var(--color-danger);
+  color: #fff;
+
+  &:hover:not(:disabled) {
     box-shadow: var(--shadow-sm);
   }
 }
@@ -114,8 +145,10 @@
   align-items: center;
   gap: $spacing-16;
   padding: $spacing-16;
-  background: var(--color-surface);
-  border: 1px solid var(--color-border);
+  background: var(--color-surface-glass);
+  backdrop-filter: blur(12px) saturate(1.4);
+  -webkit-backdrop-filter: blur(12px) saturate(1.4);
+  border: 1px solid var(--color-surface-glass-border);
   border-radius: $radius-12;
   box-shadow: var(--shadow-sm);
   transition: box-shadow $transition-base;
@@ -160,21 +193,494 @@
   flex-shrink: 0;
 }
 
-.actionBtn {
-  width: 28px;
-  height: 28px;
+.actionBtn,
+.iconBtn {
+  width: 30px;
+  height: 30px;
   border-radius: $radius-8;
   @include flex-center;
   color: var(--color-text-secondary);
-  transition: background $transition-base, color $transition-base;
+  transition: background $transition-base, color $transition-base, opacity $transition-base;
 
-  &:hover {
+  &:hover:not(:disabled) {
     background: var(--color-hover);
-    color: var(--color-text);
+    color: var(--color-text-primary);
+  }
+
+  &:disabled {
+    opacity: 0.35;
+    cursor: not-allowed;
   }
 
   &.actionBtnDanger {
     color: var(--color-danger);
-    &:hover { background: color-mix(in srgb, var(--color-danger) 10%, transparent); }
+    &:hover:not(:disabled) { background: color-mix(in srgb, var(--color-danger) 10%, transparent); }
+  }
+}
+
+/* ── 列表項可點擊主體 ── */
+.rowLink {
+  @include flex-column;
+  gap: 2px;
+  flex: 1;
+  min-width: 0;
+  text-align: left;
+  cursor: pointer;
+  background: transparent;
+  border: 0;
+  padding: 0;
+}
+
+.loading {
+  padding: $spacing-32;
+  color: var(--color-text-secondary);
+  text-align: center;
+}
+
+/* ── 詳情頁 view 切換 ── */
+.viewTabs {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: $spacing-4;
+  padding: $spacing-4;
+  border-radius: $radius-8;
+  background: var(--color-hover);
+  max-width: 520px;
+}
+
+.viewTab,
+.viewTabActive {
+  @include flex-center;
+  gap: 6px;
+  min-height: 34px;
+  border-radius: $radius-8;
+  font-size: $font-size-14;
+  font-weight: $font-weight-500;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background $transition-base, color $transition-base;
+}
+
+.viewTab {
+  background: transparent;
+  color: var(--color-text-secondary);
+
+  &:hover:not(:disabled) {
+    color: var(--color-text-primary);
+  }
+}
+
+.viewTabActive {
+  background: var(--color-surface);
+  color: var(--color-text-primary);
+  box-shadow: var(--shadow-sm);
+}
+
+/* ── 詳情頁 ── */
+.detailHeading {
+  display: flex;
+  align-items: center;
+  gap: $spacing-8;
+  min-width: 0;
+}
+
+.headerActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: $spacing-8;
+}
+
+.memberCard {
+  @include flex-column;
+  gap: $spacing-16;
+  padding: $spacing-24;
+  background: var(--color-surface-glass);
+  backdrop-filter: blur(12px) saturate(1.4);
+  -webkit-backdrop-filter: blur(12px) saturate(1.4);
+  border: 1px solid var(--color-surface-glass-border);
+  border-radius: $radius-12;
+  box-shadow: var(--shadow-sm);
+}
+
+.memberCardHead {
+  @include flex-between;
+  flex-wrap: wrap;
+  gap: $spacing-8;
+}
+
+.sectionTitle {
+  font-size: $font-size-16;
+  font-weight: $font-weight-700;
+  color: var(--color-text-primary);
+}
+
+.vmStats {
+  display: flex;
+  gap: $spacing-16;
+  font-size: $font-size-12;
+  color: var(--color-text-muted);
+
+  strong {
+    color: var(--color-text-primary);
+  }
+}
+
+.memberRow {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: $spacing-8 $spacing-16;
+  align-items: center;
+  padding: $spacing-8 $spacing-16;
+  border: 1px solid var(--color-border);
+  border-radius: $radius-8;
+
+  @include respond-to(lg) {
+    grid-template-columns: minmax(200px, 1fr) 72px minmax(200px, auto) 96px auto;
+  }
+}
+
+.memberStatus {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: $spacing-8;
+}
+
+.usageGroup {
+  display: inline-flex;
+  gap: $spacing-4;
+}
+
+.usagePill {
+  padding: 2px 8px;
+  border-radius: $radius-pill;
+  background: var(--color-hover);
+  color: var(--color-text-secondary);
+  font-size: $font-size-12;
+  white-space: nowrap;
+}
+
+.createdAt {
+  display: none;
+  color: var(--color-text-muted);
+  font-size: $font-size-12;
+  white-space: nowrap;
+
+  @include respond-to(lg) {
+    display: inline;
+  }
+}
+
+/* ── Badge ── */
+.badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  min-height: 24px;
+  padding: 2px 10px;
+  border-radius: $radius-pill;
+  font-size: $font-size-12;
+  font-weight: $font-weight-500;
+  white-space: nowrap;
+}
+
+.badge_success { background: color-mix(in srgb, #28a745 12%, transparent); color: #28a745; }
+.badge_info    { background: color-mix(in srgb, #2b4d98 12%, transparent); color: #2b4d98; }
+.badge_danger  { background: color-mix(in srgb, #dc3545 12%, transparent); color: #dc3545; }
+.badge_muted   { background: var(--color-hover); color: var(--color-text-muted); }
+
+/* ── Modal ── */
+.modalOverlay {
+  position: fixed;
+  inset: 0;
+  z-index: 300;
+  @include flex-center;
+  padding: $spacing-16;
+  background: var(--color-overlay);
+  backdrop-filter: blur(4px);
+}
+
+.modal,
+.confirm {
+  width: min(640px, 100%);
+  max-height: 88vh;
+  overflow-y: auto;
+  @include flex-column;
+  gap: $spacing-16;
+  padding: $spacing-24;
+  background: var(--color-surface-glass);
+  backdrop-filter: blur(12px) saturate(1.4);
+  -webkit-backdrop-filter: blur(12px) saturate(1.4);
+  border: 1px solid var(--color-surface-glass-border);
+  border-radius: $radius-12;
+  box-shadow: var(--shadow-lg);
+}
+
+.modalWide {
+  width: min(760px, 100%);
+}
+
+.modalHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: $spacing-16;
+
+  h2 {
+    margin: 0;
+    font-size: $font-size-18;
+    color: var(--color-text-primary);
+  }
+
+  p {
+    margin: 4px 0 0;
+    font-size: $font-size-12;
+    color: var(--color-text-secondary);
+  }
+}
+
+.modalActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: $spacing-8;
+}
+
+.confirm {
+  max-width: 480px;
+
+  h2 {
+    margin: 0;
+    color: var(--color-text-primary);
+  }
+
+  p {
+    margin: 0;
+    color: var(--color-text-secondary);
+  }
+}
+
+.confirmIcon {
+  width: 44px;
+  height: 44px;
+  border-radius: $radius-8;
+  background: color-mix(in srgb, var(--color-danger) 12%, transparent);
+  color: var(--color-danger);
+  @include flex-center;
+}
+
+/* ── 表單 ── */
+.formGrid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: $spacing-16;
+
+  @include respond-to(md) {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+.field {
+  @include flex-column;
+  gap: 6px;
+  font-size: $font-size-12;
+  font-weight: $font-weight-500;
+  color: var(--color-text-secondary);
+
+  input,
+  select,
+  textarea {
+    min-height: 38px;
+    padding: 8px $spacing-16;
+    border: 1px solid var(--color-border);
+    border-radius: $radius-8;
+    background: var(--color-surface);
+    color: var(--color-text-primary);
+    outline: none;
+    font-size: $font-size-14;
+
+    &:focus {
+      border-color: var(--color-primary);
+      box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-primary) 12%, transparent);
+    }
+  }
+
+  textarea {
+    resize: vertical;
+  }
+}
+
+/* ── 提示框 ── */
+.noticeInfo,
+.noticeDanger {
+  @include flex-column;
+  gap: 4px;
+  padding: $spacing-8 $spacing-16;
+  border-radius: $radius-8;
+  font-size: $font-size-12;
+
+  p { margin: 0; }
+}
+
+.noticeInfo {
+  border: 1px solid color-mix(in srgb, #2b4d98 30%, transparent);
+  background: color-mix(in srgb, #2b4d98 8%, transparent);
+  color: var(--color-text-secondary);
+
+  strong { color: #2b4d98; }
+}
+
+.noticeDanger {
+  border: 1px solid color-mix(in srgb, #dc3545 30%, transparent);
+  background: color-mix(in srgb, #dc3545 8%, transparent);
+  color: var(--color-text-secondary);
+
+  strong { color: #dc3545; }
+}
+
+/* ── 型別切換 Tabs ── */
+.typeTabs {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: $spacing-4;
+  padding: $spacing-4;
+  border-radius: $radius-8;
+  background: var(--color-hover);
+}
+
+.typeTab,
+.typeTabActive {
+  min-height: 34px;
+  border-radius: $radius-8;
+  font-size: $font-size-14;
+  font-weight: $font-weight-500;
+  cursor: pointer;
+  transition: background $transition-base, color $transition-base;
+}
+
+.typeTab {
+  background: transparent;
+  color: var(--color-text-secondary);
+
+  &:hover:not(:disabled) { color: var(--color-text-primary); }
+}
+
+.typeTabActive {
+  background: var(--color-surface);
+  color: var(--color-text-primary);
+  box-shadow: var(--shadow-sm);
+}
+
+/* ── 硬體規格 ── */
+.specCard {
+  @include flex-column;
+  gap: $spacing-16;
+  padding: $spacing-16;
+  border: 1px solid var(--color-border);
+  border-radius: $radius-12;
+}
+
+.specTitle {
+  font-size: $font-size-14;
+  font-weight: $font-weight-500;
+  color: var(--color-text-primary);
+}
+
+.sliderRow {
+  display: grid;
+  grid-template-columns: 56px minmax(0, 1fr) 88px;
+  gap: $spacing-16;
+  align-items: center;
+  font-size: $font-size-14;
+  color: var(--color-text-secondary);
+
+  input[type="range"] {
+    width: 100%;
+    accent-color: var(--color-primary);
+  }
+
+  strong {
+    color: var(--color-primary);
+    text-align: right;
+    white-space: nowrap;
+  }
+}
+
+/* ── 進度 ── */
+.progressHead {
+  @include flex-between;
+  font-size: $font-size-14;
+  color: var(--color-text-secondary);
+}
+
+.progressBar {
+  width: 100%;
+  height: 8px;
+  border-radius: $radius-pill;
+  background: var(--color-hover);
+  overflow: hidden;
+}
+
+.progressFill {
+  height: 100%;
+  background: var(--color-primary);
+  transition: width $transition-slow;
+}
+
+.taskList {
+  @include flex-column;
+  gap: $spacing-4;
+  max-height: 288px;
+  overflow-y: auto;
+  border: 1px solid var(--color-border);
+  border-radius: $radius-8;
+  padding: $spacing-8;
+}
+
+.taskRow {
+  display: grid;
+  grid-template-columns: 40px minmax(0, 1fr) 64px auto;
+  gap: $spacing-8;
+  align-items: center;
+  padding: $spacing-4 $spacing-8;
+  border-radius: $radius-8;
+
+  &:hover { background: var(--color-hover); }
+}
+
+.taskIndex {
+  font-size: $font-size-12;
+  color: var(--color-text-muted);
+}
+
+.taskMain {
+  @include flex-column;
+  gap: 2px;
+  min-width: 0;
+}
+
+/* ── CSV 匯入結果 ── */
+.importResult {
+  @include flex-column;
+  gap: 4px;
+  padding: $spacing-16;
+  border: 1px solid var(--color-border);
+  border-radius: $radius-8;
+  background: var(--color-hover);
+  font-size: $font-size-14;
+  color: var(--color-text-secondary);
+
+  p { margin: 0; }
+
+  strong { color: var(--color-text-primary); }
+}
+
+.importErrors {
+  color: var(--color-danger);
+
+  ul {
+    margin: 4px 0 0;
+    padding-left: $spacing-16;
+    font-size: $font-size-12;
   }
 }

@@ -190,6 +190,60 @@
   color: var(--color-text-muted);
 }
 
+/* ── Creating placeholder card ── */
+.cardCreating {
+  border-style: dashed;
+
+  &:hover {
+    transform: none;
+    box-shadow: var(--shadow-glass);
+  }
+
+  .cardIcon {
+    color: var(--color-text-muted);
+  }
+}
+
+.creatingBadge {
+  gap: 4px;
+}
+
+.badgeIcon {
+  @include flex-center;
+}
+
+.spin {
+  @include flex-center;
+  animation: iconSpin 1s linear infinite;
+}
+
+@keyframes iconSpin {
+  to { transform: rotate(360deg); }
+}
+
+/* ── Cancel request button ── */
+.cancelBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 10px;
+  border-radius: $radius-8;
+  font-size: 13px;
+  font-weight: $font-weight-500;
+  cursor: pointer;
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+  color: #dc3545;
+  transition: background $transition-base, border-color $transition-base;
+
+  &:hover:not(:disabled) {
+    background: color-mix(in srgb, #dc3545 8%, transparent);
+    border-color: color-mix(in srgb, #dc3545 40%, var(--color-border));
+  }
+
+  &:disabled { opacity: 0.4; cursor: not-allowed; }
+}
+
 /* ── Status badge ── */
 .badge {
   @include badge-base;
@@ -344,8 +398,10 @@
   bottom: calc(100% + 6px);
   right: 0;
   width: 240px;
-  background: var(--color-surface);
-  border: 1px solid var(--color-border);
+  background: var(--color-surface-glass);
+  backdrop-filter: blur(12px) saturate(1.4);
+  -webkit-backdrop-filter: blur(12px) saturate(1.4);
+  border: 1px solid var(--color-surface-glass-border);
   border-radius: $radius-12;
   padding: $spacing-8 0;
   z-index: 50;

@@ -50,8 +50,11 @@ async function doRefresh() {
 }
 
 /** 建立共用 headers（每次重建，重試時才會帶到新 token） */
-function buildHeaders(extra = {}) {
-  const headers = { "Content-Type": "application/json", ...extra };
+function buildHeaders(extra = {}, isFormData = false) {
+  // FormData 由瀏覽器自動帶 multipart boundary，不能手動設 Content-Type
+  const headers = isFormData
+    ? { ...extra }
+    : { "Content-Type": "application/json", ...extra };
   const token = AuthStorage.getAccessToken();
   if (token) headers["Authorization"] = `Bearer ${token}`;
   return headers;
@@ -61,7 +64,7 @@ function buildHeaders(extra = {}) {
 async function request(path, init, isRetry = false) {
   const res = await fetch(`${BASE_URL}${path}`, {
     ...init,
-    headers: buildHeaders(init.headers),
+    headers: buildHeaders(init.headers, init.body instanceof FormData),
   });
 
   if (res.ok) {
@@ -94,6 +97,55 @@ export function apiGet(path) {
   return request(path, { method: "GET" });
 }
 
+/** GET（回傳 Blob，檔案下載用；同樣支援 401 續期重試） */
+export async function apiGetBlob(path, isRetry = false) {
+  const res = await fetch(`${BASE_URL}${path}`, {
+    method: "GET",
+    headers: buildHeaders({}, true),
+  });
+  if (res.ok) return res.blob();
+
+  if (res.status === 401 && !isRetry && (await refreshTokens())) {
+    return apiGetBlob(path, true);
+  }
+  throw { status: res.status, message: `HTTP ${res.status}` };
+}
+
+/** POST（JSON body，回傳 Blob，報表匯出用；同樣支援 401 續期重試） */
+export async function apiPostBlob(path, body, isRetry = false) {
+  const res = await fetch(`${BASE_URL}${path}`, {
+    method: "POST",
+    headers: buildHeaders(),
+    body: JSON.stringify(body),
+  });
+  if (res.ok) return res.blob();
+
+  if (res.status === 401 && !isRetry && (await refreshTokens())) {
+    return apiPostBlob(path, body, true);
+  }
+
+  let message = `HTTP ${res.status}`;
+  try {
+    const errBody = await res.json();
+    message = errBody?.detail ?? errBody?.message ?? message;
+  } catch {
+    // 若 body 不是 JSON 就用預設訊息
+  }
+  throw { status: res.status, message };
+}
+
+/** 觸發瀏覽器下載 Blob */
+export function downloadBlob(blob, filename) {
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
+}
+
 /** POST（JSON body） */
 export function apiPost(path, body, options = {}) {
   return request(path, {
@@ -120,6 +172,11 @@ export async function apiPostForm(path, params) {
     // 若 body 不是 JSON 就用預設訊息
   }
   throw { status: res.status, message };
+}
+
+/** POST（multipart/form-data，檔案上傳用；formData 為 FormData 實例） */
+export function apiPostMultipart(path, formData) {
+  return request(path, { method: "POST", body: formData });
 }
 
 /** PATCH */

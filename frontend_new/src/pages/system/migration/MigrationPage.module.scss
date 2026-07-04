@@ -55,14 +55,88 @@
   box-shadow: var(--shadow-sm);
   transition: background $transition-base;
 
-  &:hover {
+  &:hover:not(:disabled) {
     background: var(--color-hover);
+  }
+
+  &:disabled {
+    opacity: 0.55;
+    cursor: not-allowed;
   }
 }
 
 .content {
   flex: 1;
   @include flex-column;
+}
+
+/* ── 統計摘要 ── */
+.summaryGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: $spacing-16;
+
+  @include respond-to(lg) {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+
+.summaryItem {
+  @include flex-column;
+  gap: 4px;
+  padding: $spacing-16;
+  background: var(--color-surface-glass);
+  backdrop-filter: blur(12px) saturate(1.4);
+  -webkit-backdrop-filter: blur(12px) saturate(1.4);
+  border: 1px solid var(--color-surface-glass-border);
+  border-radius: $radius-8;
+
+  span {
+    font-size: $font-size-12;
+    color: var(--color-text-muted);
+  }
+
+  strong {
+    font-size: $font-size-24;
+    color: var(--color-text-primary);
+  }
+}
+
+/* ── 狀態篩選 ── */
+.filterTabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: $spacing-4;
+}
+
+.filterTab,
+.filterTabActive {
+  min-height: 32px;
+  padding: 4px $spacing-16;
+  border-radius: $radius-pill;
+  font-size: $font-size-14;
+  cursor: pointer;
+  transition: background $transition-base, color $transition-base;
+}
+
+.filterTab {
+  background: transparent;
+  color: var(--color-text-secondary);
+  border: 1px solid var(--color-border);
+
+  &:hover { background: var(--color-hover); }
+}
+
+.filterTabActive {
+  background: var(--color-primary);
+  color: var(--color-text-on-primary);
+  border: 1px solid var(--color-primary);
+}
+
+.loading {
+  padding: $spacing-32;
+  color: var(--color-text-secondary);
+  text-align: center;
 }
 
 /* ── Empty state ── */
@@ -109,8 +183,10 @@
   align-items: center;
   gap: $spacing-16;
   padding: $spacing-16;
-  background: var(--color-surface);
-  border: 1px solid var(--color-border);
+  background: var(--color-surface-glass);
+  backdrop-filter: blur(12px) saturate(1.4);
+  -webkit-backdrop-filter: blur(12px) saturate(1.4);
+  border: 1px solid var(--color-surface-glass-border);
   border-radius: $radius-12;
   box-shadow: var(--shadow-sm);
 }
@@ -154,6 +230,64 @@
   flex-shrink: 0;
 }
 
-.badge_running  { background: color-mix(in srgb, var(--color-success) 12%, transparent); color: var(--color-success); }
-.badge_done     { background: var(--color-hover); color: var(--color-text-muted); }
+.badge_success  { background: color-mix(in srgb, var(--color-success) 12%, transparent); color: var(--color-success); }
+.badge_info     { background: color-mix(in srgb, #2b4d98 12%, transparent); color: #2b4d98; }
+.badge_muted    { background: var(--color-hover); color: var(--color-text-muted); }
 .badge_failed   { background: color-mix(in srgb, var(--color-danger)  12%, transparent); color: var(--color-danger); }
+
+.rowError {
+  font-size: $font-size-12;
+  color: var(--color-danger);
+  @include text-truncate;
+}
+
+.rowActions {
+  display: flex;
+  gap: $spacing-4;
+  flex-shrink: 0;
+}
+
+.actionBtn {
+  width: 30px;
+  height: 30px;
+  border-radius: $radius-8;
+  @include flex-center;
+  color: var(--color-text-secondary);
+  transition: background $transition-base, color $transition-base;
+
+  &:hover:not(:disabled) {
+    background: var(--color-hover);
+    color: var(--color-text-primary);
+  }
+
+  &:disabled {
+    opacity: 0.35;
+    cursor: not-allowed;
+  }
+}
+
+.actionBtnDanger {
+  color: var(--color-danger);
+
+  &:hover:not(:disabled) {
+    background: color-mix(in srgb, var(--color-danger) 10%, transparent);
+  }
+}
+
+/* ── 分頁 ── */
+.pagination {
+  @include flex-between;
+  flex-wrap: wrap;
+  gap: $spacing-8;
+  margin-top: $spacing-16;
+}
+
+.paginationInfo {
+  font-size: $font-size-12;
+  color: var(--color-text-muted);
+}
+
+.paginationBtns {
+  display: flex;
+  gap: $spacing-8;
+}

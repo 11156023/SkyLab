@@ -2,6 +2,13 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import styles from "./ResourcesPage.module.scss";
 import MIcon from "../../../components/MIcon";
 import { ResourcesService } from "../../../services/resources";
+import {
+  PENDING_POLL_INTERVAL,
+  cancelVmRequest,
+  fetchPendingResources,
+  pendingSignature,
+} from "../../../services/pendingResources";
+import { useToast } from "../../../hooks/useToast";
 import TerminalDialog from "./TerminalDialog";
 import VncDialog from "./VncDialog";
 
@@ -27,6 +34,14 @@ function formatDate(isoStr) {
   if (!isoStr) return null;
   return new Date(isoStr).toLocaleDateString("zh-TW", {
     year: "numeric", month: "2-digit", day: "2-digit",
+  });
+}
+
+function formatDatetime(isoStr) {
+  if (!isoStr) return null;
+  return new Date(isoStr).toLocaleString("zh-TW", {
+    year: "numeric", month: "2-digit", day: "2-digit",
+    hour: "2-digit", minute: "2-digit", hour12: false,
   });
 }
 
@@ -142,6 +157,122 @@ function PowerMenu({ resource, actionLoading, onControl, onDeleteClick, onClose,
         </button>
       </div>
     </div>
+  );
+}
+
+/* ── Creating placeholder card ── */
+
+/** 依申請階段決定 placeholder 的狀態顯示（開通中 / 超時 / 失敗…） */
+function getCreatingDisplay(req) {
+  if (req.status === "pending") {
+    return { label: "審核中", color: "info", spin: true };
+  }
+  if (req.migration_status === "failed") {
+    return { label: "開通失敗", color: "danger", spin: false };
+  }
+  if (req.migration_status === "running") {
+    return { label: "開通中", color: "info", spin: true };
+  }
+  // approved 等待排程開機：start_at 已過但仍未開始建立 → 超時
+  if (req.start_at && new Date(req.start_at).getTime() < Date.now()) {
+    const overdueMin = Math.floor((Date.now() - new Date(req.start_at).getTime()) / 60_000);
+    const overdueLabel = overdueMin >= 60 ? `${Math.floor(overdueMin / 60)} 小時` : `${overdueMin} 分鐘`;
+    return { label: `超時 (${overdueLabel})`, color: "danger", spin: false };
+  }
+  return { label: "排程中", color: "info", spin: true };
+}
+
+function formatMemory(memoryMb) {
+  if (memoryMb == null) return null;
+  return memoryMb >= 1024 ? `${memoryMb / 1024} GB` : `${memoryMb} MB`;
+}
+
+function CreatingCard({ request, onCancelled }) {
+  const toast = useToast();
+  const [cancelConfirm, setCancelConfirm] = useState(false);
+  const [cancelling, setCancelling]       = useState(false);
+
+  const type    = TYPE_MAP[request.resource_type === "lxc" ? "lxc" : "qemu"];
+  const display = getCreatingDisplay(request);
+  // 開通流程一旦開始跑 Proxmox clone 就無法取消
+  const canCancel = request.migration_status !== "running";
+
+  async function handleCancel() {
+    setCancelling(true);
+    try {
+      await cancelVmRequest(request.id);
+      toast.success(`已送出取消申請「${request.hostname}」`);
+      setCancelConfirm(false);
+      onCancelled();
+    } catch (err) {
+      toast.error(err?.message ?? "取消申請失敗");
+    } finally {
+      setCancelling(false);
+    }
+  }
+
+  const specs = [
+    request.cores != null ? `${request.cores} 核心` : null,
+    formatMemory(request.memory),
+  ].filter(Boolean).join(" / ");
+
+  return (
+    <>
+      <div className={`${styles.card} ${styles.cardCreating}`}>
+
+        <div className={styles.cardHeader}>
+          <div className={styles.cardIcon}>
+            <MIcon name={type.icon} size={20} />
+          </div>
+          <div className={styles.cardMeta}>
+            <span className={styles.cardName}>{request.hostname}</span>
+            <div className={styles.cardChips}>
+              <span className={styles.typeChip}>{type.label}</span>
+            </div>
+          </div>
+          <span className={`${styles.badge} ${styles[`badge_${display.color}`]} ${styles.creatingBadge}`}>
+            <span className={display.spin ? styles.spin : styles.badgeIcon}>
+              <MIcon name={display.spin ? "autorenew" : "error_outline"} size={12} />
+            </span>
+            {display.label}
+          </span>
+        </div>
+
+        <div className={styles.cardInfo}>
+          <InfoRow icon="memory"   label="規格" value={specs || null} />
+          <InfoRow icon="dns"      label="節點" value={request.assigned_node ?? request.desired_node ?? "自動分配"} />
+          <InfoRow icon="schedule" label="排程" value={formatDatetime(request.start_at)} />
+          <InfoRow icon="event"    label="申請" value={formatDatetime(request.created_at)} />
+        </div>
+
+        <div className={styles.cardFooter}>
+          <span className={styles.deletedNote}>建立完成後會自動出現在列表</span>
+          <button
+            type="button"
+            className={styles.cancelBtn}
+            disabled={!canCancel || cancelling}
+            title={canCancel ? "取消申請" : "建立流程已開始，無法取消"}
+            onClick={() => setCancelConfirm(true)}
+          >
+            <MIcon name="cancel" size={14} />
+            取消申請
+          </button>
+        </div>
+
+      </div>
+
+      {cancelConfirm && (
+        <ConfirmModal
+          title="確定取消申請？"
+          desc={`申請「${request.hostname}」取消後無法復原，需重新提出申請。`}
+          confirmLabel="取消申請"
+          danger
+          loading={cancelling}
+          onConfirm={handleCancel}
+          onClose={() => setCancelConfirm(false)}
+        />
+      )}
+    </>
   );
 }
 
@@ -356,25 +487,51 @@ function ErrorState({ onRetry }) {
 /* ── Page ── */
 export default function ResourcesPage() {
   const [resources, setResources] = useState([]);
+  const [pending, setPending]     = useState([]);
   const [loading, setLoading]     = useState(true);
   const [error, setError]         = useState(false);
+  const pendingSigRef = useRef(null);
 
-  const fetchResources = useCallback(async () => {
-    setLoading(true);
-    setError(false);
+  /** silent = true 時不觸發 skeleton / error state，供背景同步使用 */
+  const fetchResources = useCallback(async (silent = false) => {
+    if (!silent) {
+      setLoading(true);
+      setError(false);
+    }
     try {
       const data = await ResourcesService.list();
       setResources(data ?? []);
     } catch {
-      setError(true);
+      if (!silent) setError(true);
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   }, []);
+
+  /** 輪詢建立中的申請；階段變化（開通完成／失敗／取消）時靜默刷新資源列表 */
+  const refreshPending = useCallback(async () => {
+    try {
+      const items = await fetchPendingResources();
+      setPending(items);
+      const sig = pendingSignature(items);
+      if (pendingSigRef.current !== null && sig !== pendingSigRef.current) {
+        fetchResources(true);
+      }
+      pendingSigRef.current = sig;
+    } catch {
+      // 輪詢失敗靜默忽略，下一輪再試
+    }
+  }, [fetchResources]);
 
   useEffect(() => {
     fetchResources();
   }, [fetchResources]);
+
+  useEffect(() => {
+    refreshPending();
+    const timer = setInterval(refreshPending, PENDING_POLL_INTERVAL);
+    return () => clearInterval(timer);
+  }, [refreshPending]);
 
   function handleUpdated(updated) {
     setResources((prev) => prev.map((r) => r.vmid === updated.vmid ? updated : r));
@@ -392,7 +549,7 @@ export default function ResourcesPage() {
           <p className={styles.pageSubtitle}>查看與管理申請通過的虛擬機和容器</p>
         </div>
         <div className={styles.pageActions}>
-          <button type="button" className={styles.btnSecondary} onClick={fetchResources} disabled={loading}>
+          <button type="button" className={styles.btnSecondary} onClick={() => { fetchResources(); refreshPending(); }} disabled={loading}>
             <MIcon name="sync" size={16} />
             重新整理
           </button>
@@ -405,11 +562,18 @@ export default function ResourcesPage() {
             {[0, 1, 2].map((i) => <SkeletonCard key={i} />)}
           </div>
         ) : error ? (
-          <ErrorState onRetry={fetchResources} />
-        ) : resources.length === 0 ? (
+          <ErrorState onRetry={() => fetchResources()} />
+        ) : resources.length === 0 && pending.length === 0 ? (
           <EmptyState />
         ) : (
           <div className={styles.grid}>
+            {pending.map((req) => (
+              <CreatingCard
+                key={`creating:${req.id}`}
+                request={req}
+                onCancelled={refreshPending}
+              />
+            ))}
             {resources.map((r, index) => (
               <ResourceCard
                 key={resourceCardKey(r, index)}

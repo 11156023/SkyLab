@@ -1,0 +1,318 @@
+@use "../../../assets/styles/variables" as *;
+@use "../../../assets/styles/mixins" as *;
+
+.panel {
+  @include flex-column;
+  gap: $spacing-24;
+  flex: 1;
+  min-height: 0;
+}
+
+.panelHeading {
+  @include flex-column;
+  gap: $spacing-4;
+}
+
+.panelTitle {
+  display: flex;
+  align-items: center;
+  gap: $spacing-8;
+  font-size: $font-size-18;
+  font-weight: $font-weight-700;
+  color: var(--color-text-primary);
+
+  span {
+    color: var(--color-primary);
+  }
+}
+
+.panelDesc {
+  font-size: $font-size-14;
+  color: var(--color-text-secondary);
+}
+
+/* ── 對話卡片 ── */
+.chatCard {
+  @include glass-surface;
+  @include flex-column;
+  gap: $spacing-16;
+  padding: $spacing-24;
+  border-radius: $radius-12;
+  height: calc(100vh - 240px);
+  min-height: 500px;
+}
+
+.chatCardHead {
+  display: flex;
+  align-items: center;
+  gap: $spacing-8;
+  padding-bottom: $spacing-8;
+  border-bottom: 1px solid var(--color-divider);
+  font-size: $font-size-16;
+  font-weight: $font-weight-700;
+  color: var(--color-text-primary);
+}
+
+.chatLog {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  @include flex-column;
+  gap: $spacing-16;
+  padding: $spacing-16;
+  border: 1px solid var(--color-border);
+  border-radius: $radius-8;
+  background: var(--color-hover);
+}
+
+.msg {
+  @include flex-column;
+  gap: $spacing-8;
+  padding: $spacing-16;
+  border-radius: $radius-12;
+  font-size: $font-size-14;
+}
+
+.msg_user {
+  margin-left: $spacing-32;
+  background: color-mix(in srgb, var(--color-primary) 8%, transparent);
+  border: 1px solid color-mix(in srgb, var(--color-primary) 20%, transparent);
+}
+
+.msg_assistant {
+  margin-right: $spacing-32;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  box-shadow: var(--shadow-sm);
+}
+
+.msgHead {
+  display: flex;
+  align-items: center;
+  gap: $spacing-8;
+  font-weight: $font-weight-500;
+  font-size: $font-size-12;
+
+  .msg_assistant & {
+    color: var(--color-primary);
+  }
+
+  .msg_user & {
+    color: var(--color-text-secondary);
+  }
+}
+
+.msgContent {
+  margin: 0;
+  white-space: pre-wrap;
+  line-height: $line-height-base;
+  color: var(--color-text);
+  overflow-wrap: anywhere;
+}
+
+.toolRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: $spacing-8;
+  padding-top: $spacing-8;
+  border-top: 1px solid var(--color-divider);
+}
+
+.toolLabel {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: $font-size-12;
+  font-weight: $font-weight-500;
+  color: var(--color-text-muted);
+}
+
+.toolBadge {
+  padding: 2px 8px;
+  border-radius: $radius-pill;
+  background: var(--color-hover);
+  font-size: 10px;
+  text-transform: uppercase;
+  color: var(--color-text-secondary);
+}
+
+/* ── SSH 指令確認 ── */
+.pendingBox {
+  @include flex-column;
+  gap: $spacing-8;
+  margin-right: $spacing-32;
+  padding: $spacing-16;
+  border: 1px solid color-mix(in srgb, var(--color-danger) 25%, transparent);
+  border-radius: $radius-12;
+  background: color-mix(in srgb, var(--color-danger) 5%, transparent);
+
+  textarea {
+    min-height: 88px;
+    padding: 8px $spacing-16;
+    border: 1px solid var(--color-border);
+    border-radius: $radius-8;
+    background: var(--color-surface);
+    color: var(--color-text-primary);
+    outline: none;
+    font-family: monospace;
+    font-size: $font-size-12;
+    resize: vertical;
+
+    &:focus {
+      border-color: var(--color-danger);
+      box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-danger) 12%, transparent);
+    }
+
+    &:disabled {
+      opacity: 0.55;
+      cursor: not-allowed;
+    }
+  }
+}
+
+.pendingHead {
+  display: flex;
+  align-items: center;
+  gap: $spacing-8;
+  font-weight: $font-weight-700;
+  color: var(--color-danger);
+}
+
+.pendingReason {
+  margin: 0;
+  font-size: $font-size-14;
+  color: var(--color-text);
+
+  strong {
+    color: var(--color-text-primary);
+  }
+}
+
+.pendingHint {
+  margin: 0;
+  font-size: $font-size-12;
+  color: var(--color-text-muted);
+}
+
+.pendingActions {
+  display: flex;
+  gap: $spacing-8;
+
+  button {
+    flex: 1;
+  }
+}
+
+/* ── 思考中 ── */
+.thinking {
+  display: flex;
+  align-items: center;
+  gap: $spacing-8;
+  margin-right: $spacing-32;
+  padding: $spacing-16;
+  border: 1px solid var(--color-border);
+  border-radius: $radius-12;
+  background: var(--color-surface);
+  box-shadow: var(--shadow-sm);
+  font-size: $font-size-14;
+  color: var(--color-text-muted);
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 0.4; transform: scale(1); }
+  50% { opacity: 1; transform: scale(1.4); }
+}
+
+.pulse {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--color-primary);
+  animation: pulse 1.2s ease-in-out infinite;
+}
+
+/* ── 輸入區 ── */
+.composer {
+  @include flex-column;
+  gap: $spacing-8;
+
+  textarea {
+    min-height: 100px;
+    padding: 8px $spacing-16;
+    border: 1px solid var(--color-border);
+    border-radius: $radius-8;
+    background: var(--color-surface);
+    color: var(--color-text-primary);
+    outline: none;
+    font-size: $font-size-14;
+    resize: none;
+
+    &:focus {
+      border-color: var(--color-primary);
+      box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-primary) 12%, transparent);
+    }
+
+    &:disabled {
+      opacity: 0.55;
+      cursor: not-allowed;
+    }
+  }
+}
+
+.composerActions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+/* ── 按鈕 ── */
+.btnPrimary,
+.btnSecondary,
+.btnAllow {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 36px;
+  padding: 8px $spacing-16;
+  border-radius: $radius-8;
+  font-size: $font-size-14;
+  font-weight: $font-weight-500;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background $transition-base, border-color $transition-base, box-shadow $transition-base, color $transition-base;
+
+  &:disabled {
+    opacity: 0.55;
+    cursor: not-allowed;
+  }
+}
+
+.btnPrimary {
+  background: var(--color-primary);
+  color: var(--color-text-on-primary);
+
+  &:hover:not(:disabled) {
+    background: var(--color-primary-dark);
+    box-shadow: var(--shadow-sm);
+  }
+}
+
+.btnSecondary {
+  background: var(--color-surface);
+  color: var(--color-text-primary);
+  border: 1px solid var(--color-border);
+
+  &:hover:not(:disabled) {
+    background: var(--color-hover);
+  }
+}
+
+.btnAllow {
+  background: var(--color-success);
+  color: #fff;
+
+  &:hover:not(:disabled) {
+    box-shadow: var(--shadow-sm);
+  }
+}
