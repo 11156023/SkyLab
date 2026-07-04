@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, Literal
 
 from sqlmodel import Session, select
 
@@ -118,7 +118,9 @@ def process_snapshot_cleanup() -> int:
                 if pve_info is None:
                     continue
                 node = str(pve_info.get("node") or "")
-                rtype = "lxc" if str(pve_info.get("type") or "") == "lxc" else "qemu"
+                rtype: Literal["qemu", "lxc"] = (
+                    "lxc" if str(pve_info.get("type") or "") == "lxc" else "qemu"
+                )
                 try:
                     snapshots = proxmox_service.list_snapshots(
                         node, resource.vmid, rtype

@@ -1066,6 +1066,70 @@ export type BatchProvisionTaskPublic = {
 };
 
 /**
+ * BatchSpecAccepted
+ */
+export type BatchSpecAccepted = {
+    /**
+     * Task Id
+     */
+    task_id: string;
+};
+
+/**
+ * BatchSpecItemPublic
+ */
+export type BatchSpecItemPublic = {
+    /**
+     * Vmid
+     */
+    vmid: number;
+    /**
+     * Status
+     */
+    status: string;
+    /**
+     * Error
+     */
+    error?: string | null;
+};
+
+/**
+ * BatchSpecRequest
+ */
+export type BatchSpecRequest = {
+    /**
+     * Vmids
+     */
+    vmids?: Array<number> | null;
+    /**
+     * Group Id
+     */
+    group_id?: string | null;
+    /**
+     * Cores
+     */
+    cores?: number | null;
+    /**
+     * Memory Mb
+     */
+    memory_mb?: number | null;
+};
+
+/**
+ * BatchSpecStatusPublic
+ */
+export type BatchSpecStatusPublic = {
+    /**
+     * Task Id
+     */
+    task_id: string;
+    /**
+     * Items
+     */
+    items: Array<BatchSpecItemPublic>;
+};
+
+/**
  * Body_groups-import_members_from_csv
  */
 export type BodyGroupsImportMembersFromCsv = {
@@ -1145,6 +1209,24 @@ export type BodyTeacherJudgeUploadGroupTeacherJudgeFile = {
      * Conflict Strategy
      */
     conflict_strategy?: string | null;
+};
+
+/**
+ * Body_teaching-start_config_push
+ */
+export type BodyTeachingStartConfigPush = {
+    /**
+     * File
+     */
+    file: Blob | File;
+    /**
+     * Target Path
+     */
+    target_path: string;
+    /**
+     * Vmids
+     */
+    vmids: Array<number>;
 };
 
 /**
@@ -1869,6 +1951,56 @@ export type ClusterStatsPublic = {
 };
 
 /**
+ * ConfigPushAccepted
+ */
+export type ConfigPushAccepted = {
+    /**
+     * Task Id
+     */
+    task_id: string;
+};
+
+/**
+ * ConfigPushItemPublic
+ */
+export type ConfigPushItemPublic = {
+    /**
+     * Vmid
+     */
+    vmid: number;
+    /**
+     * Status
+     */
+    status: string;
+    /**
+     * Error
+     */
+    error?: string | null;
+};
+
+/**
+ * ConfigPushStatusPublic
+ */
+export type ConfigPushStatusPublic = {
+    /**
+     * Task Id
+     */
+    task_id: string;
+    /**
+     * File Name
+     */
+    file_name: string;
+    /**
+     * Target Path
+     */
+    target_path: string;
+    /**
+     * Items
+     */
+    items: Array<ConfigPushItemPublic>;
+};
+
+/**
  * ConnectionCreate
  *
  * 建立 VM 間連線（或 VM 到網關，或 Internet 入站）
@@ -2235,6 +2367,28 @@ export type DirectSpecUpdateRequest = {
      * Disk size increment (e.g. "+10G")
      */
     disk_size?: string | null;
+};
+
+/**
+ * EffectiveQuotaPublic
+ */
+export type EffectiveQuotaPublic = {
+    /**
+     * Max Cpu Cores
+     */
+    max_cpu_cores: number;
+    /**
+     * Max Memory Mb
+     */
+    max_memory_mb: number;
+    /**
+     * Max Disk Gb
+     */
+    max_disk_gb: number;
+    /**
+     * Max Instances
+     */
+    max_instances: number;
 };
 
 /**
@@ -2930,6 +3084,18 @@ export type GovernanceConfigPublic = {
      */
     provision_max_concurrency: number;
     /**
+     * Snapshot Cleanup Enabled
+     */
+    snapshot_cleanup_enabled: boolean;
+    /**
+     * Snapshot Retention Days
+     */
+    snapshot_retention_days: number;
+    /**
+     * Student Snapshot Max Count
+     */
+    student_snapshot_max_count: number;
+    /**
      * Updated At
      */
     updated_at: string;
@@ -3029,6 +3195,18 @@ export type GovernanceConfigUpdate = {
      * Provision Max Concurrency
      */
     provision_max_concurrency?: number | null;
+    /**
+     * Snapshot Cleanup Enabled
+     */
+    snapshot_cleanup_enabled?: boolean | null;
+    /**
+     * Snapshot Retention Days
+     */
+    snapshot_retention_days?: number | null;
+    /**
+     * Student Snapshot Max Count
+     */
+    student_snapshot_max_count?: number | null;
 };
 
 /**
@@ -3208,6 +3386,48 @@ export type HealthResponse = {
     db: DependencyStatus;
     redis: DependencyStatus;
     proxmox: DependencyStatus;
+};
+
+/**
+ * HeatmapEntry
+ */
+export type HeatmapEntry = {
+    /**
+     * Vmid
+     */
+    vmid: number;
+    /**
+     * Name
+     */
+    name?: string | null;
+    /**
+     * Owner Id
+     */
+    owner_id: string;
+    /**
+     * Owner Name
+     */
+    owner_name?: string | null;
+    /**
+     * Status
+     */
+    status: string;
+    /**
+     * Cpu Percent
+     */
+    cpu_percent: number;
+    /**
+     * Mem Percent
+     */
+    mem_percent: number;
+    /**
+     * Uptime Seconds
+     */
+    uptime_seconds: number;
+    /**
+     * Activity
+     */
+    activity: string;
 };
 
 /**
@@ -4320,6 +4540,54 @@ export type NodeStatsPublic = {
 };
 
 /**
+ * PairSessionCreate
+ */
+export type PairSessionCreate = {
+    /**
+     * Vmid
+     */
+    vmid: number;
+    /**
+     * Invitee User Id
+     */
+    invitee_user_id: string;
+};
+
+/**
+ * PairSessionPublic
+ */
+export type PairSessionPublic = {
+    /**
+     * Id
+     */
+    id: string;
+    /**
+     * Vmid
+     */
+    vmid: number;
+    /**
+     * Owner Id
+     */
+    owner_id: string;
+    /**
+     * Invitee Id
+     */
+    invitee_id: string;
+    /**
+     * Owner Name
+     */
+    owner_name?: string | null;
+    /**
+     * Invitee Name
+     */
+    invitee_name?: string | null;
+    /**
+     * Created At
+     */
+    created_at: string;
+};
+
+/**
  * PortSpec
  *
  * 端口規格（port=0 表示無端口協定，如 icmp/esp 等）
@@ -4961,6 +5229,34 @@ export type ProxmoxStorageUpdate = {
 };
 
 /**
+ * QuotaScope
+ */
+export type QuotaScope = 'group' | 'user';
+
+/**
+ * QuotaUsagePublic
+ */
+export type QuotaUsagePublic = {
+    /**
+     * Used Cpu Cores
+     */
+    used_cpu_cores: number;
+    /**
+     * Used Memory Mb
+     */
+    used_memory_mb: number;
+    /**
+     * Used Disk Gb
+     */
+    used_disk_gb: number;
+    /**
+     * Used Instances
+     */
+    used_instances: number;
+    quota: EffectiveQuotaPublic;
+};
+
+/**
  * RRDDataPoint
  *
  * RRD 數據點
@@ -5112,6 +5408,22 @@ export type RefreshTokenRequest = {
      * Refresh Token
      */
     refresh_token: string;
+};
+
+/**
+ * ResetAcceptedResponse
+ *
+ * 一鍵重置接受回應（背景任務）
+ */
+export type ResetAcceptedResponse = {
+    /**
+     * Message
+     */
+    message: string;
+    /**
+     * Task Id
+     */
+    task_id: string;
 };
 
 /**
@@ -5284,6 +5596,106 @@ export type ResourcePublic = {
      * Mining Exempt
      */
     mining_exempt?: boolean;
+};
+
+/**
+ * ResourceQuotaCreate
+ */
+export type ResourceQuotaCreate = {
+    scope: QuotaScope;
+    /**
+     * Group Id
+     */
+    group_id?: string | null;
+    /**
+     * User Id
+     */
+    user_id?: string | null;
+    /**
+     * Max Cpu Cores
+     */
+    max_cpu_cores?: number;
+    /**
+     * Max Memory Mb
+     */
+    max_memory_mb?: number;
+    /**
+     * Max Disk Gb
+     */
+    max_disk_gb?: number;
+    /**
+     * Max Instances
+     */
+    max_instances?: number;
+};
+
+/**
+ * ResourceQuotaPublic
+ */
+export type ResourceQuotaPublic = {
+    /**
+     * Id
+     */
+    id: string;
+    scope: QuotaScope;
+    /**
+     * Group Id
+     */
+    group_id: string | null;
+    /**
+     * User Id
+     */
+    user_id: string | null;
+    /**
+     * Group Name
+     */
+    group_name?: string | null;
+    /**
+     * User Email
+     */
+    user_email?: string | null;
+    /**
+     * Max Cpu Cores
+     */
+    max_cpu_cores: number;
+    /**
+     * Max Memory Mb
+     */
+    max_memory_mb: number;
+    /**
+     * Max Disk Gb
+     */
+    max_disk_gb: number;
+    /**
+     * Max Instances
+     */
+    max_instances: number;
+    /**
+     * Created At
+     */
+    created_at: string;
+};
+
+/**
+ * ResourceQuotaUpdate
+ */
+export type ResourceQuotaUpdate = {
+    /**
+     * Max Cpu Cores
+     */
+    max_cpu_cores?: number | null;
+    /**
+     * Max Memory Mb
+     */
+    max_memory_mb?: number | null;
+    /**
+     * Max Disk Gb
+     */
+    max_disk_gb?: number | null;
+    /**
+     * Max Instances
+     */
+    max_instances?: number | null;
 };
 
 /**
@@ -10180,7 +10592,7 @@ export type ResourcesShutdownResourceResponses = {
     200: unknown;
 };
 
-export type ResourcesResetResourceData = {
+export type ResourceDetailsResetResourceData = {
     body?: never;
     path: {
         /**
@@ -10192,21 +10604,23 @@ export type ResourcesResetResourceData = {
     url: '/api/v1/resources/{vmid}/reset';
 };
 
-export type ResourcesResetResourceErrors = {
+export type ResourceDetailsResetResourceErrors = {
     /**
      * Validation Error
      */
     422: HttpValidationError;
 };
 
-export type ResourcesResetResourceError = ResourcesResetResourceErrors[keyof ResourcesResetResourceErrors];
+export type ResourceDetailsResetResourceError = ResourceDetailsResetResourceErrors[keyof ResourceDetailsResetResourceErrors];
 
-export type ResourcesResetResourceResponses = {
+export type ResourceDetailsResetResourceResponses = {
     /**
      * Successful Response
      */
-    200: unknown;
+    202: ResetAcceptedResponse;
 };
+
+export type ResourceDetailsResetResourceResponse = ResourceDetailsResetResourceResponses[keyof ResourceDetailsResetResourceResponses];
 
 export type ResourcesGetSessionStatusData = {
     body?: never;
@@ -10519,6 +10933,34 @@ export type ResourceDetailsDirectUpdateSpecResponses = {
      * Successful Response
      */
     200: unknown;
+};
+
+export type ResourceDetailsCreateInitSnapshotData = {
+    body?: never;
+    path: {
+        /**
+         * Vmid
+         */
+        vmid: number;
+    };
+    query?: never;
+    url: '/api/v1/resources/{vmid}/init-snapshot';
+};
+
+export type ResourceDetailsCreateInitSnapshotErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type ResourceDetailsCreateInitSnapshotError = ResourceDetailsCreateInitSnapshotErrors[keyof ResourceDetailsCreateInitSnapshotErrors];
+
+export type ResourceDetailsCreateInitSnapshotResponses = {
+    /**
+     * Successful Response
+     */
+    201: unknown;
 };
 
 export type VmGetVmConsoleData = {
@@ -11504,6 +11946,267 @@ export type GovernanceUpdateConfigResponses = {
 };
 
 export type GovernanceUpdateConfigResponse = GovernanceUpdateConfigResponses[keyof GovernanceUpdateConfigResponses];
+
+export type QuotasGetMyUsageData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/api/v1/quotas/my-usage';
+};
+
+export type QuotasGetMyUsageResponses = {
+    /**
+     * Successful Response
+     */
+    200: QuotaUsagePublic;
+};
+
+export type QuotasGetMyUsageResponse = QuotasGetMyUsageResponses[keyof QuotasGetMyUsageResponses];
+
+export type QuotasListQuotasData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/api/v1/quotas';
+};
+
+export type QuotasListQuotasResponses = {
+    /**
+     * Response Quotas-List Quotas
+     *
+     * Successful Response
+     */
+    200: Array<ResourceQuotaPublic>;
+};
+
+export type QuotasListQuotasResponse = QuotasListQuotasResponses[keyof QuotasListQuotasResponses];
+
+export type QuotasCreateQuotaData = {
+    body: ResourceQuotaCreate;
+    path?: never;
+    query?: never;
+    url: '/api/v1/quotas';
+};
+
+export type QuotasCreateQuotaErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type QuotasCreateQuotaError = QuotasCreateQuotaErrors[keyof QuotasCreateQuotaErrors];
+
+export type QuotasCreateQuotaResponses = {
+    /**
+     * Successful Response
+     */
+    201: ResourceQuotaPublic;
+};
+
+export type QuotasCreateQuotaResponse = QuotasCreateQuotaResponses[keyof QuotasCreateQuotaResponses];
+
+export type QuotasDeleteQuotaData = {
+    body?: never;
+    path: {
+        /**
+         * Quota Id
+         */
+        quota_id: string;
+    };
+    query?: never;
+    url: '/api/v1/quotas/{quota_id}';
+};
+
+export type QuotasDeleteQuotaErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type QuotasDeleteQuotaError = QuotasDeleteQuotaErrors[keyof QuotasDeleteQuotaErrors];
+
+export type QuotasDeleteQuotaResponses = {
+    /**
+     * Successful Response
+     */
+    200: Message;
+};
+
+export type QuotasDeleteQuotaResponse = QuotasDeleteQuotaResponses[keyof QuotasDeleteQuotaResponses];
+
+export type QuotasUpdateQuotaData = {
+    body: ResourceQuotaUpdate;
+    path: {
+        /**
+         * Quota Id
+         */
+        quota_id: string;
+    };
+    query?: never;
+    url: '/api/v1/quotas/{quota_id}';
+};
+
+export type QuotasUpdateQuotaErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type QuotasUpdateQuotaError = QuotasUpdateQuotaErrors[keyof QuotasUpdateQuotaErrors];
+
+export type QuotasUpdateQuotaResponses = {
+    /**
+     * Successful Response
+     */
+    200: ResourceQuotaPublic;
+};
+
+export type QuotasUpdateQuotaResponse = QuotasUpdateQuotaResponses[keyof QuotasUpdateQuotaResponses];
+
+export type TeachingStartConfigPushData = {
+    body: BodyTeachingStartConfigPush;
+    path?: never;
+    query?: never;
+    url: '/api/v1/teaching/config-push';
+};
+
+export type TeachingStartConfigPushErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type TeachingStartConfigPushError = TeachingStartConfigPushErrors[keyof TeachingStartConfigPushErrors];
+
+export type TeachingStartConfigPushResponses = {
+    /**
+     * Successful Response
+     */
+    202: ConfigPushAccepted;
+};
+
+export type TeachingStartConfigPushResponse = TeachingStartConfigPushResponses[keyof TeachingStartConfigPushResponses];
+
+export type TeachingGetConfigPushStatusData = {
+    body?: never;
+    path: {
+        /**
+         * Task Id
+         */
+        task_id: string;
+    };
+    query?: never;
+    url: '/api/v1/teaching/config-push/{task_id}';
+};
+
+export type TeachingGetConfigPushStatusErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type TeachingGetConfigPushStatusError = TeachingGetConfigPushStatusErrors[keyof TeachingGetConfigPushStatusErrors];
+
+export type TeachingGetConfigPushStatusResponses = {
+    /**
+     * Successful Response
+     */
+    200: ConfigPushStatusPublic;
+};
+
+export type TeachingGetConfigPushStatusResponse = TeachingGetConfigPushStatusResponses[keyof TeachingGetConfigPushStatusResponses];
+
+export type TeachingGetHeatmapData = {
+    body?: never;
+    path?: never;
+    query: {
+        /**
+         * Group Id
+         */
+        group_id: string;
+    };
+    url: '/api/v1/teaching/heatmap';
+};
+
+export type TeachingGetHeatmapErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type TeachingGetHeatmapError = TeachingGetHeatmapErrors[keyof TeachingGetHeatmapErrors];
+
+export type TeachingGetHeatmapResponses = {
+    /**
+     * Response Teaching-Get Heatmap
+     *
+     * Successful Response
+     */
+    200: Array<HeatmapEntry>;
+};
+
+export type TeachingGetHeatmapResponse = TeachingGetHeatmapResponses[keyof TeachingGetHeatmapResponses];
+
+export type TeachingStartBatchSpecData = {
+    body: BatchSpecRequest;
+    path?: never;
+    query?: never;
+    url: '/api/v1/teaching/batch-spec';
+};
+
+export type TeachingStartBatchSpecErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type TeachingStartBatchSpecError = TeachingStartBatchSpecErrors[keyof TeachingStartBatchSpecErrors];
+
+export type TeachingStartBatchSpecResponses = {
+    /**
+     * Successful Response
+     */
+    202: BatchSpecAccepted;
+};
+
+export type TeachingStartBatchSpecResponse = TeachingStartBatchSpecResponses[keyof TeachingStartBatchSpecResponses];
+
+export type TeachingGetBatchSpecStatusData = {
+    body?: never;
+    path: {
+        /**
+         * Task Id
+         */
+        task_id: string;
+    };
+    query?: never;
+    url: '/api/v1/teaching/batch-spec/{task_id}';
+};
+
+export type TeachingGetBatchSpecStatusErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type TeachingGetBatchSpecStatusError = TeachingGetBatchSpecStatusErrors[keyof TeachingGetBatchSpecStatusErrors];
+
+export type TeachingGetBatchSpecStatusResponses = {
+    /**
+     * Successful Response
+     */
+    200: BatchSpecStatusPublic;
+};
+
+export type TeachingGetBatchSpecStatusResponse = TeachingGetBatchSpecStatusResponses[keyof TeachingGetBatchSpecStatusResponses];
 
 export type LdapConfigGetConfigData = {
     body?: never;
@@ -13527,6 +14230,79 @@ export type ClassroomGetLiveBroadcastResponses = {
 };
 
 export type ClassroomGetLiveBroadcastResponse = ClassroomGetLiveBroadcastResponses[keyof ClassroomGetLiveBroadcastResponses];
+
+export type PairSessionsCreatePairSessionData = {
+    body: PairSessionCreate;
+    path?: never;
+    query?: never;
+    url: '/api/v1/pair-sessions';
+};
+
+export type PairSessionsCreatePairSessionErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type PairSessionsCreatePairSessionError = PairSessionsCreatePairSessionErrors[keyof PairSessionsCreatePairSessionErrors];
+
+export type PairSessionsCreatePairSessionResponses = {
+    /**
+     * Successful Response
+     */
+    201: PairSessionPublic;
+};
+
+export type PairSessionsCreatePairSessionResponse = PairSessionsCreatePairSessionResponses[keyof PairSessionsCreatePairSessionResponses];
+
+export type PairSessionsListMyPairSessionsData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/api/v1/pair-sessions/mine';
+};
+
+export type PairSessionsListMyPairSessionsResponses = {
+    /**
+     * Response Pair-Sessions-List My Pair Sessions
+     *
+     * Successful Response
+     */
+    200: Array<PairSessionPublic>;
+};
+
+export type PairSessionsListMyPairSessionsResponse = PairSessionsListMyPairSessionsResponses[keyof PairSessionsListMyPairSessionsResponses];
+
+export type PairSessionsEndPairSessionData = {
+    body?: never;
+    path: {
+        /**
+         * Session Id
+         */
+        session_id: string;
+    };
+    query?: never;
+    url: '/api/v1/pair-sessions/{session_id}';
+};
+
+export type PairSessionsEndPairSessionErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type PairSessionsEndPairSessionError = PairSessionsEndPairSessionErrors[keyof PairSessionsEndPairSessionErrors];
+
+export type PairSessionsEndPairSessionResponses = {
+    /**
+     * Successful Response
+     */
+    200: Message;
+};
+
+export type PairSessionsEndPairSessionResponse = PairSessionsEndPairSessionResponses[keyof PairSessionsEndPairSessionResponses];
 
 export type BatchProvisionStartBatchProvisionData = {
     body: BatchProvisionRequest;

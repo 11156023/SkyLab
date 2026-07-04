@@ -2051,6 +2051,131 @@ export const BatchProvisionTaskPublicSchema = {
     title: 'BatchProvisionTaskPublic'
 } as const;
 
+export const BatchSpecAcceptedSchema = {
+    properties: {
+        task_id: {
+            type: 'string',
+            title: 'Task Id'
+        }
+    },
+    type: 'object',
+    required: [
+        'task_id'
+    ],
+    title: 'BatchSpecAccepted'
+} as const;
+
+export const BatchSpecItemPublicSchema = {
+    properties: {
+        vmid: {
+            type: 'integer',
+            title: 'Vmid'
+        },
+        status: {
+            type: 'string',
+            title: 'Status'
+        },
+        error: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Error'
+        }
+    },
+    type: 'object',
+    required: [
+        'vmid',
+        'status'
+    ],
+    title: 'BatchSpecItemPublic'
+} as const;
+
+export const BatchSpecRequestSchema = {
+    properties: {
+        vmids: {
+            anyOf: [
+                {
+                    items: {
+                        type: 'integer'
+                    },
+                    type: 'array'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Vmids'
+        },
+        group_id: {
+            anyOf: [
+                {
+                    type: 'string',
+                    format: 'uuid'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Group Id'
+        },
+        cores: {
+            anyOf: [
+                {
+                    type: 'integer',
+                    maximum: 256,
+                    minimum: 1
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Cores'
+        },
+        memory_mb: {
+            anyOf: [
+                {
+                    type: 'integer',
+                    maximum: 1048576,
+                    minimum: 128
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Memory Mb'
+        }
+    },
+    type: 'object',
+    title: 'BatchSpecRequest'
+} as const;
+
+export const BatchSpecStatusPublicSchema = {
+    properties: {
+        task_id: {
+            type: 'string',
+            title: 'Task Id'
+        },
+        items: {
+            items: {
+                $ref: '#/components/schemas/BatchSpecItemPublic'
+            },
+            type: 'array',
+            title: 'Items'
+        }
+    },
+    type: 'object',
+    required: [
+        'task_id',
+        'items'
+    ],
+    title: 'BatchSpecStatusPublic'
+} as const;
+
 export const Body_groups_import_members_from_csvSchema = {
     properties: {
         file: {
@@ -2189,6 +2314,34 @@ export const Body_teacher_judge_upload_group_teacher_judge_fileSchema = {
         'file'
     ],
     title: 'Body_teacher-judge-upload_group_teacher_judge_file'
+} as const;
+
+export const Body_teaching_start_config_pushSchema = {
+    properties: {
+        file: {
+            type: 'string',
+            contentMediaType: 'application/octet-stream',
+            title: 'File'
+        },
+        target_path: {
+            type: 'string',
+            title: 'Target Path'
+        },
+        vmids: {
+            items: {
+                type: 'integer'
+            },
+            type: 'array',
+            title: 'Vmids'
+        }
+    },
+    type: 'object',
+    required: [
+        'file',
+        'target_path',
+        'vmids'
+    ],
+    title: 'Body_teaching-start_config_push'
 } as const;
 
 export const CertParseResultSchema = {
@@ -3523,6 +3676,82 @@ export const ClusterStatsPublicSchema = {
     description: '整個叢集的資源加總與各節點狀態'
 } as const;
 
+export const ConfigPushAcceptedSchema = {
+    properties: {
+        task_id: {
+            type: 'string',
+            title: 'Task Id'
+        }
+    },
+    type: 'object',
+    required: [
+        'task_id'
+    ],
+    title: 'ConfigPushAccepted'
+} as const;
+
+export const ConfigPushItemPublicSchema = {
+    properties: {
+        vmid: {
+            type: 'integer',
+            title: 'Vmid'
+        },
+        status: {
+            type: 'string',
+            title: 'Status'
+        },
+        error: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Error'
+        }
+    },
+    type: 'object',
+    required: [
+        'vmid',
+        'status'
+    ],
+    title: 'ConfigPushItemPublic'
+} as const;
+
+export const ConfigPushStatusPublicSchema = {
+    properties: {
+        task_id: {
+            type: 'string',
+            title: 'Task Id'
+        },
+        file_name: {
+            type: 'string',
+            title: 'File Name'
+        },
+        target_path: {
+            type: 'string',
+            title: 'Target Path'
+        },
+        items: {
+            items: {
+                $ref: '#/components/schemas/ConfigPushItemPublic'
+            },
+            type: 'array',
+            title: 'Items'
+        }
+    },
+    type: 'object',
+    required: [
+        'task_id',
+        'file_name',
+        'target_path',
+        'items'
+    ],
+    title: 'ConfigPushStatusPublic'
+} as const;
+
 export const ConnectionCreateSchema = {
     properties: {
         source_vmid: {
@@ -4184,6 +4413,35 @@ export const DirectSpecUpdateRequestSchema = {
     type: 'object',
     title: 'DirectSpecUpdateRequest',
     description: '管理員直接調整規格'
+} as const;
+
+export const EffectiveQuotaPublicSchema = {
+    properties: {
+        max_cpu_cores: {
+            type: 'integer',
+            title: 'Max Cpu Cores'
+        },
+        max_memory_mb: {
+            type: 'integer',
+            title: 'Max Memory Mb'
+        },
+        max_disk_gb: {
+            type: 'integer',
+            title: 'Max Disk Gb'
+        },
+        max_instances: {
+            type: 'integer',
+            title: 'Max Instances'
+        }
+    },
+    type: 'object',
+    required: [
+        'max_cpu_cores',
+        'max_memory_mb',
+        'max_disk_gb',
+        'max_instances'
+    ],
+    title: 'EffectiveQuotaPublic'
 } as const;
 
 export const ExtendSessionResponseSchema = {
@@ -5210,6 +5468,18 @@ export const GovernanceConfigPublicSchema = {
             type: 'integer',
             title: 'Provision Max Concurrency'
         },
+        snapshot_cleanup_enabled: {
+            type: 'boolean',
+            title: 'Snapshot Cleanup Enabled'
+        },
+        snapshot_retention_days: {
+            type: 'integer',
+            title: 'Snapshot Retention Days'
+        },
+        student_snapshot_max_count: {
+            type: 'integer',
+            title: 'Student Snapshot Max Count'
+        },
         updated_at: {
             type: 'string',
             format: 'date-time',
@@ -5240,6 +5510,9 @@ export const GovernanceConfigPublicSchema = {
         'mining_scan_batch_size',
         'mining_auto_suspend',
         'provision_max_concurrency',
+        'snapshot_cleanup_enabled',
+        'snapshot_retention_days',
+        'student_snapshot_max_count',
         'updated_at'
     ],
     title: 'GovernanceConfigPublic'
@@ -5518,6 +5791,43 @@ export const GovernanceConfigUpdateSchema = {
                 }
             ],
             title: 'Provision Max Concurrency'
+        },
+        snapshot_cleanup_enabled: {
+            anyOf: [
+                {
+                    type: 'boolean'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Snapshot Cleanup Enabled'
+        },
+        snapshot_retention_days: {
+            anyOf: [
+                {
+                    type: 'integer',
+                    maximum: 90,
+                    minimum: 1
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Snapshot Retention Days'
+        },
+        student_snapshot_max_count: {
+            anyOf: [
+                {
+                    type: 'integer',
+                    maximum: 10,
+                    minimum: 1
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Student Snapshot Max Count'
         }
     },
     type: 'object',
@@ -5863,6 +6173,73 @@ export const HealthResponseSchema = {
         'proxmox'
     ],
     title: 'HealthResponse'
+} as const;
+
+export const HeatmapEntrySchema = {
+    properties: {
+        vmid: {
+            type: 'integer',
+            title: 'Vmid'
+        },
+        name: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Name'
+        },
+        owner_id: {
+            type: 'string',
+            format: 'uuid',
+            title: 'Owner Id'
+        },
+        owner_name: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Owner Name'
+        },
+        status: {
+            type: 'string',
+            title: 'Status'
+        },
+        cpu_percent: {
+            type: 'number',
+            title: 'Cpu Percent'
+        },
+        mem_percent: {
+            type: 'number',
+            title: 'Mem Percent'
+        },
+        uptime_seconds: {
+            type: 'integer',
+            title: 'Uptime Seconds'
+        },
+        activity: {
+            type: 'string',
+            title: 'Activity'
+        }
+    },
+    type: 'object',
+    required: [
+        'vmid',
+        'owner_id',
+        'status',
+        'cpu_percent',
+        'mem_percent',
+        'uptime_seconds',
+        'activity'
+    ],
+    title: 'HeatmapEntry'
 } as const;
 
 export const IpAllocationListResponseSchema = {
@@ -7726,6 +8103,85 @@ export const NodeStatsPublicSchema = {
     description: '單一節點的即時資源使用狀態'
 } as const;
 
+export const PairSessionCreateSchema = {
+    properties: {
+        vmid: {
+            type: 'integer',
+            title: 'Vmid'
+        },
+        invitee_user_id: {
+            type: 'string',
+            format: 'uuid',
+            title: 'Invitee User Id'
+        }
+    },
+    type: 'object',
+    required: [
+        'vmid',
+        'invitee_user_id'
+    ],
+    title: 'PairSessionCreate'
+} as const;
+
+export const PairSessionPublicSchema = {
+    properties: {
+        id: {
+            type: 'string',
+            title: 'Id'
+        },
+        vmid: {
+            type: 'integer',
+            title: 'Vmid'
+        },
+        owner_id: {
+            type: 'string',
+            format: 'uuid',
+            title: 'Owner Id'
+        },
+        invitee_id: {
+            type: 'string',
+            format: 'uuid',
+            title: 'Invitee Id'
+        },
+        owner_name: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Owner Name'
+        },
+        invitee_name: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Invitee Name'
+        },
+        created_at: {
+            type: 'string',
+            format: 'date-time',
+            title: 'Created At'
+        }
+    },
+    type: 'object',
+    required: [
+        'id',
+        'vmid',
+        'owner_id',
+        'invitee_id',
+        'created_at'
+    ],
+    title: 'PairSessionPublic'
+} as const;
+
 export const PortSpecSchema = {
     properties: {
         port: {
@@ -8687,6 +9143,48 @@ export const ProxmoxStorageUpdateSchema = {
     description: '更新 Storage 使用者設定的請求 schema'
 } as const;
 
+export const QuotaScopeSchema = {
+    type: 'string',
+    enum: [
+        'group',
+        'user'
+    ],
+    title: 'QuotaScope'
+} as const;
+
+export const QuotaUsagePublicSchema = {
+    properties: {
+        used_cpu_cores: {
+            type: 'integer',
+            title: 'Used Cpu Cores'
+        },
+        used_memory_mb: {
+            type: 'integer',
+            title: 'Used Memory Mb'
+        },
+        used_disk_gb: {
+            type: 'integer',
+            title: 'Used Disk Gb'
+        },
+        used_instances: {
+            type: 'integer',
+            title: 'Used Instances'
+        },
+        quota: {
+            $ref: '#/components/schemas/EffectiveQuotaPublic'
+        }
+    },
+    type: 'object',
+    required: [
+        'used_cpu_cores',
+        'used_memory_mb',
+        'used_disk_gb',
+        'used_instances',
+        'quota'
+    ],
+    title: 'QuotaUsagePublic'
+} as const;
+
 export const RRDDataPointSchema = {
     properties: {
         time: {
@@ -8984,6 +9482,26 @@ export const RefreshTokenRequestSchema = {
         'refresh_token'
     ],
     title: 'RefreshTokenRequest'
+} as const;
+
+export const ResetAcceptedResponseSchema = {
+    properties: {
+        message: {
+            type: 'string',
+            title: 'Message'
+        },
+        task_id: {
+            type: 'string',
+            title: 'Task Id'
+        }
+    },
+    type: 'object',
+    required: [
+        'message',
+        'task_id'
+    ],
+    title: 'ResetAcceptedResponse',
+    description: '一鍵重置接受回應（背景任務）'
 } as const;
 
 export const ResourceConfigSchema = {
@@ -9373,6 +9891,223 @@ export const ResourcePublicSchema = {
     ],
     title: 'ResourcePublic',
     description: '公開的資源資訊（合併 Proxmox + DB）'
+} as const;
+
+export const ResourceQuotaCreateSchema = {
+    properties: {
+        scope: {
+            $ref: '#/components/schemas/QuotaScope'
+        },
+        group_id: {
+            anyOf: [
+                {
+                    type: 'string',
+                    format: 'uuid'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Group Id'
+        },
+        user_id: {
+            anyOf: [
+                {
+                    type: 'string',
+                    format: 'uuid'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'User Id'
+        },
+        max_cpu_cores: {
+            type: 'integer',
+            maximum: 256,
+            minimum: 1,
+            title: 'Max Cpu Cores',
+            default: 8
+        },
+        max_memory_mb: {
+            type: 'integer',
+            maximum: 1048576,
+            minimum: 256,
+            title: 'Max Memory Mb',
+            default: 16384
+        },
+        max_disk_gb: {
+            type: 'integer',
+            maximum: 65536,
+            minimum: 1,
+            title: 'Max Disk Gb',
+            default: 100
+        },
+        max_instances: {
+            type: 'integer',
+            maximum: 100,
+            minimum: 1,
+            title: 'Max Instances',
+            default: 5
+        }
+    },
+    type: 'object',
+    required: [
+        'scope'
+    ],
+    title: 'ResourceQuotaCreate'
+} as const;
+
+export const ResourceQuotaPublicSchema = {
+    properties: {
+        id: {
+            type: 'string',
+            format: 'uuid',
+            title: 'Id'
+        },
+        scope: {
+            $ref: '#/components/schemas/QuotaScope'
+        },
+        group_id: {
+            anyOf: [
+                {
+                    type: 'string',
+                    format: 'uuid'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Group Id'
+        },
+        user_id: {
+            anyOf: [
+                {
+                    type: 'string',
+                    format: 'uuid'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'User Id'
+        },
+        group_name: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Group Name'
+        },
+        user_email: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'User Email'
+        },
+        max_cpu_cores: {
+            type: 'integer',
+            title: 'Max Cpu Cores'
+        },
+        max_memory_mb: {
+            type: 'integer',
+            title: 'Max Memory Mb'
+        },
+        max_disk_gb: {
+            type: 'integer',
+            title: 'Max Disk Gb'
+        },
+        max_instances: {
+            type: 'integer',
+            title: 'Max Instances'
+        },
+        created_at: {
+            type: 'string',
+            format: 'date-time',
+            title: 'Created At'
+        }
+    },
+    type: 'object',
+    required: [
+        'id',
+        'scope',
+        'group_id',
+        'user_id',
+        'max_cpu_cores',
+        'max_memory_mb',
+        'max_disk_gb',
+        'max_instances',
+        'created_at'
+    ],
+    title: 'ResourceQuotaPublic'
+} as const;
+
+export const ResourceQuotaUpdateSchema = {
+    properties: {
+        max_cpu_cores: {
+            anyOf: [
+                {
+                    type: 'integer',
+                    maximum: 256,
+                    minimum: 1
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Max Cpu Cores'
+        },
+        max_memory_mb: {
+            anyOf: [
+                {
+                    type: 'integer',
+                    maximum: 1048576,
+                    minimum: 256
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Max Memory Mb'
+        },
+        max_disk_gb: {
+            anyOf: [
+                {
+                    type: 'integer',
+                    maximum: 65536,
+                    minimum: 1
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Max Disk Gb'
+        },
+        max_instances: {
+            anyOf: [
+                {
+                    type: 'integer',
+                    maximum: 100,
+                    minimum: 1
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Max Instances'
+        }
+    },
+    type: 'object',
+    title: 'ResourceQuotaUpdate'
 } as const;
 
 export const ResourceStatusSchema = {

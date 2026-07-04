@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import logging
 import uuid
-from typing import Literal
+from typing import Any, Literal
 
 from sqlmodel import Session
 
@@ -25,7 +25,7 @@ INIT_SNAPSHOT_DESCRIPTION = "SkyLab 初始快照（受保護）"
 INIT_SNAPSHOT_WAIT_SECONDS = 120.0
 
 
-def _rtype(resource_info: dict) -> Literal["qemu", "lxc"]:
+def _rtype(resource_info: dict[str, Any]) -> Literal["qemu", "lxc"]:
     return "lxc" if str(resource_info.get("type") or "") == "lxc" else "qemu"
 
 
@@ -63,8 +63,8 @@ def ensure_init_snapshot(vmid: int) -> bool:
 
 
 def create_init_snapshot(
-    session: Session, *, vmid: int, resource_info: dict, user
-) -> dict:
+    session: Session, *, vmid: int, resource_info: dict[str, Any], user: Any
+) -> dict[str, str]:
     """老師/admin 為舊 VM 補建初始快照；已存在回 409。"""
     node = str(resource_info["node"])
     rtype = _rtype(resource_info)
@@ -135,7 +135,9 @@ def _run_reset(
         raise
 
 
-def start_reset(session: Session, *, vmid: int, resource_info: dict, user) -> str:
+def start_reset(
+    session: Session, *, vmid: int, resource_info: dict[str, Any], user: Any
+) -> str:
     node = str(resource_info["node"])
     rtype = _rtype(resource_info)
     if not _has_init_snapshot(node, vmid, rtype):

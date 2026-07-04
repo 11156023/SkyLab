@@ -363,6 +363,9 @@ def _provision_one(
             session=session, vm_data=req, user_id=user_id, batch_job_id=batch_job_id
         )
 
+    if result.vmid is None:
+        # 批量路徑走同步 provision，正常不會沒有 vmid（202 背景克隆才會）
+        raise RuntimeError(f"Provisioning for '{hostname}' did not return a vmid")
     return result.vmid
 
 

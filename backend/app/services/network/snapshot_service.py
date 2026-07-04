@@ -1,5 +1,6 @@
 import logging
 import uuid
+from typing import Any
 
 from sqlmodel import Session
 
@@ -47,7 +48,7 @@ def create_snapshot(
     vmstate: bool,
     resource_info: dict,
     user_id: uuid.UUID,
-    user,
+    user: Any,
 ) -> dict:
     node = resource_info["node"]
     resource_type = resource_info["type"]
@@ -67,7 +68,7 @@ def create_snapshot(
                 f"快照數量已達上限（{limit}），請先刪除舊快照再建立"
             )
 
-    params = {"snapname": snapname}
+    params: dict[str, Any] = {"snapname": snapname}
     if description:
         params["description"] = description
     if resource_type == "qemu" and vmstate:
@@ -97,7 +98,7 @@ def delete_snapshot(
     snapname: str,
     resource_info: dict,
     user_id: uuid.UUID,
-    user,
+    user: Any,
 ) -> dict:
     node = resource_info["node"]
     resource_type = resource_info["type"]
