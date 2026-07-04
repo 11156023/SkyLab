@@ -98,6 +98,13 @@ class Resource(SQLModel, table=True):
         sa_column=Column(DateTime(timezone=True), nullable=True),
     )
 
+    # ── 反挖礦（模組D）────────────────────────────────────────────────────
+    mining_exempt: bool = Field(default=False)
+    mining_checked_at: datetime | None = Field(
+        default=None,
+        sa_column=Column(DateTime(timezone=True), nullable=True),
+    )
+
     user: Optional["User"] = Relationship(back_populates="resources")
     request: Optional["VMRequest"] = Relationship()
 

@@ -38,6 +38,16 @@ class GovernanceConfig(SQLModel, table=True):
     # ── VM vs Container 自動判斷 ─────────────────────────────────────────
     workload_advisor_enabled: bool = Field(default=True)
 
+    # ── 反挖礦偵測（模組 D）──────────────────────────────────────────────
+    mining_detection_enabled: bool = Field(default=True)
+    mining_cpu_threshold_percent: float = Field(default=90.0, ge=50, le=100)
+    mining_window_hours: int = Field(default=6, ge=1, le=72)
+    mining_scan_batch_size: int = Field(default=20, ge=1, le=200)
+    mining_auto_suspend: bool = Field(default=True)
+
+    # ── 克隆並行化（模組 D）──────────────────────────────────────────────
+    provision_max_concurrency: int = Field(default=4, ge=1, le=16)
+
     updated_at: datetime = Field(
         default_factory=get_datetime_utc,
         sa_column=Column(DateTime(timezone=True), nullable=False),
