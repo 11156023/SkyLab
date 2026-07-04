@@ -149,9 +149,9 @@
 - Produces: `TemplatesService.{list, get, create, update, remove, clone, startUpdateCycle, finishUpdateCycle, cancelUpdateCycle, listTasks, getTask}`。
 
 **Steps:**
-- [ ] service（1 條測試）→ 頁面 → 路由/側欄 → build 綠。
-- [ ] 手動驗證：CRUD、clone、更新週期 start/finish/cancel、任務卡輪詢。
-- [ ] Commit：`前端遷移: 模板管理頁`
+- [x] service（1 條測試）→ 頁面 → 路由/側欄 → build 綠。（含老師/管理員管理表格與學生型錄兩種視圖、pve_exists 警示、動態輪詢間隔）
+- [x] 手動驗證：CRUD、clone、更新週期 start/finish/cancel、任務卡輪詢。（**待使用者於 docker compose 環境驗證**）
+- [x] Commit：`前端遷移: 模板管理頁`
 
 ---
 

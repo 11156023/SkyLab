@@ -16,6 +16,7 @@ import ResourceMgmtPage  from "./pages/resource/resource-mgmt/ResourceMgmtPage";
 import RequestReviewPage from "./pages/resource/request-review/RequestReviewPage";
 import GpuMgmtPage       from "./pages/resource/gpu-mgmt/GpuMgmtPage";
 import BatchReviewPage   from "./pages/resource/batch-review/BatchReviewPage";
+import TemplatesPage     from "./pages/resource/templates/TemplatesPage";
 
 // AI
 import AiApiPage       from "./pages/ai/ai-api/AiApiPage";
@@ -71,6 +72,7 @@ function App() {
           <Route path="/request-review" element={<RequestReviewPage />} />
           <Route path="/gpu-mgmt"       element={<GpuMgmtPage />} />
           <Route path="/batch-review"   element={<BatchReviewPage />} />
+          <Route path="/templates"      element={<TemplatesPage />} />
 
           {/* AI */}
           <Route path="/ai-api"         element={<AiApiPage />} />

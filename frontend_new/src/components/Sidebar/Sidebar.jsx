@@ -34,6 +34,7 @@ const navGroups = [
     icon: "storage",
     items: [
       { key: "resource-mgmt",  label: "資源管理", icon: "storage" },
+      { key: "templates",      label: "模板管理", icon: "library_books" },
       { key: "gpu-mgmt",       label: "GPU 管理", icon: "memory" },
       { key: "request-review", label: "申請審核", icon: "fact_check" },
       { key: "batch-review",   label: "批量審核", icon: "library_add_check" },
