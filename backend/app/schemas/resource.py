@@ -374,3 +374,13 @@ class BatchActionResponse(BaseModel):
     succeeded: int
     failed: int
     results: list[BatchActionResultItem]
+
+
+# ===== Teaching Experience (Module E) Schemas =====
+
+
+class ResetAcceptedResponse(BaseModel):
+    """一鍵重置接受回應（背景任務）"""
+
+    message: str
+    task_id: str

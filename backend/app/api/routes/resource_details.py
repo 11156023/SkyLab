@@ -2,10 +2,18 @@ import logging
 
 from fastapi import APIRouter
 
-from app.api.deps import AdminUser, CurrentUser, ResourceInfoDep, SessionDep
+from app.api.deps import (
+    AdminUser,
+    CurrentUser,
+    InstructorUser,
+    ResourceInfoDep,
+    SessionDep,
+    TeachingResourceInfoDep,
+)
 from app.schemas import (
     CurrentStatsResponse,
     DirectSpecUpdateRequest,
+    ResetAcceptedResponse,
     RRDDataPoint,
     RRDDataResponse,
     SnapshotCreateRequest,
@@ -13,7 +21,7 @@ from app.schemas import (
     SnapshotResponse,
 )
 from app.services.network import snapshot_service
-from app.services.resource import resource_service
+from app.services.resource import reset_service, resource_service
 
 logger = logging.getLogger(__name__)
 
@@ -129,4 +137,33 @@ def direct_update_spec(
         cores=request.cores,
         memory=request.memory,
         disk_size=request.disk_size,
+    )
+
+
+@router.post(
+    "/{vmid}/reset", response_model=ResetAcceptedResponse, status_code=202
+)
+def reset_resource(
+    vmid: int,
+    resource_info: TeachingResourceInfoDep,
+    session: SessionDep,
+    current_user: CurrentUser,
+):
+    task_id = reset_service.start_reset(
+        session, vmid=vmid, resource_info=resource_info, user=current_user
+    )
+    return ResetAcceptedResponse(
+        message="重置任務已排入背景執行", task_id=task_id
+    )
+
+
+@router.post("/{vmid}/init-snapshot", status_code=201)
+def create_init_snapshot(
+    vmid: int,
+    resource_info: TeachingResourceInfoDep,
+    session: SessionDep,
+    current_user: InstructorUser,
+):
+    return reset_service.create_init_snapshot(
+        session, vmid=vmid, resource_info=resource_info, user=current_user
     )

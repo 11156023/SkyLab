@@ -128,6 +128,7 @@ from .resource import (
     LXCCreateResponse,
     NextVMIDSchema,
     NodeSchema,
+    ResetAcceptedResponse,
     ResourcePublic,
     ResourceStatus,
     RRDDataPoint,
@@ -250,6 +251,7 @@ __all__ = [
     "SnapshotCreateRequest",
     "SnapshotResponse",
     "DirectSpecUpdateRequest",
+    "ResetAcceptedResponse",
     # VM Request
     "VMRequestAvailabilityRequest",
     "VMRequestAvailabilitySlot",
