@@ -116,8 +116,8 @@
 - Produces: `getCurrentStats(vmid)`、`getStats(vmid, params)`、`listSnapshots(vmid)`、`createSnapshot(vmid, body)`、`deleteSnapshot(vmid, snapname)`、`updateSpecDirect(vmid, body)`、`initSnapshot(vmid)`——一一對應 `resource_details.py`。
 
 **Steps:**
-- [ ] 讀 `resource_details.py` 核對參數/回傳 → 實作 + 1 條測試 → 綠。
-- [ ] Commit：`前端遷移: resources service 詳情端點`
+- [x] 讀 `resource_details.py` 核對參數/回傳 → 實作 + 1 條測試 → 綠。（後端另有 rollbackSnapshot、resetToInit(202)、createInitSnapshot 三端點，已一併納入 service）
+- [x] Commit：`前端遷移: resources service 詳情端點`
 
 ### Task 5: 資源詳情頁（6 tab）與路由
 

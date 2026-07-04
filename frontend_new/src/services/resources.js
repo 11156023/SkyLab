@@ -1,4 +1,4 @@
-import { apiDelete, apiGet, apiPost } from "./api";
+import { apiDelete, apiGet, apiPost, apiPut } from "./api";
 
 export const ResourcesService = {
   /** 取得我的資源列表 */
@@ -49,5 +49,57 @@ export const ResourcesService = {
   /** 取得 SSH 金鑰 */
   getSshKey(vmid) {
     return apiGet(`/api/v1/resources/${vmid}/ssh-key`);
+  },
+
+  /* ── 詳情頁端點（resource_details.py） ── */
+
+  /** 即時狀態（CPU/記憶體/磁碟/網路目前值） */
+  getCurrentStats(vmid) {
+    return apiGet(`/api/v1/resources/${vmid}/current-stats`);
+  },
+
+  /** RRD 歷史趨勢（timeframe: hour|day|week） */
+  getStats(vmid, timeframe = "hour") {
+    return apiGet(`/api/v1/resources/${vmid}/stats?timeframe=${timeframe}`);
+  },
+
+  /** 快照列表 */
+  listSnapshots(vmid) {
+    return apiGet(`/api/v1/resources/${vmid}/snapshots`);
+  },
+
+  /** 建立快照（body: { snapname, description, vmstate }） */
+  createSnapshot(vmid, body) {
+    return apiPost(`/api/v1/resources/${vmid}/snapshots`, body);
+  },
+
+  /** 刪除快照 */
+  deleteSnapshot(vmid, snapname) {
+    return apiDelete(
+      `/api/v1/resources/${vmid}/snapshots/${encodeURIComponent(snapname)}`,
+    );
+  },
+
+  /** 還原到指定快照 */
+  rollbackSnapshot(vmid, snapname) {
+    return apiPost(
+      `/api/v1/resources/${vmid}/snapshots/${encodeURIComponent(snapname)}/rollback`,
+      {},
+    );
+  },
+
+  /** 管理員直改規格（body: { cores, memory, disk_size }） */
+  updateSpecDirect(vmid, body) {
+    return apiPut(`/api/v1/resources/${vmid}/spec/direct`, body);
+  },
+
+  /** 一鍵重置到初始快照（202，背景任務） */
+  resetToInit(vmid) {
+    return apiPost(`/api/v1/resources/${vmid}/reset-to-init`, {});
+  },
+
+  /** 建立初始快照（教師/管理員） */
+  createInitSnapshot(vmid) {
+    return apiPost(`/api/v1/resources/${vmid}/init-snapshot`, {});
   },
 };
