@@ -229,8 +229,8 @@
 - Modify: `App.jsx`（`/quotas`）、`Sidebar.jsx`（「系統管理」加「配額管理」）
 
 **Steps:**
-- [ ] CRUD 表格 + 表單 dialog；驗證改配額後教學面板 QuotaUsageBar 反映。
-- [ ] Commit：`前端遷移: 配額管理頁`
+- [x] CRUD 表格 + 表單 dialog；驗證改配額後教學面板 QuotaUsageBar 反映。（表格/新增/刪除完成，比照舊頁無編輯功能；**改配額後 QuotaUsageBar 連動待使用者於 docker compose 環境驗證**）
+- [x] Commit：`前端遷移: 配額管理頁`
 
 ---
 

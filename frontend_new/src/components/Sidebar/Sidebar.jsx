@@ -69,6 +69,7 @@ const navGroups = [
       { key: "groups",    label: "群組",       icon: "groups" },
       { key: "admin",     label: "使用者管理", icon: "admin_panel_settings" },
       { key: "settings",  label: "系統設定",   icon: "settings" },
+      { key: "quotas",    label: "配額管理",   icon: "data_usage" },
       { key: "monitoring", label: "資源監控",  icon: "monitor_heart" },
       { key: "migration", label: "Migration Jobs", icon: "move_down" },
       { key: "jobs",      label: "背景任務",   icon: "task_alt" },
