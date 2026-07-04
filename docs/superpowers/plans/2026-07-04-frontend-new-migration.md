@@ -86,10 +86,10 @@
 - Produces: `<RrdChart data={points} series={[{key,label,color}]} unit="%" />`——recharts LineChart 包裝，顏色取 `_themes.scss` CSS 變數，供監控頁、資源詳情 MonitoringTab、教學熱圖共用。
 
 **Steps:**
-- [ ] service + 1 條 URL 組裝測試 → 綠。
-- [ ] RrdChart 先以固定資料渲染，確認深淺色主題下可讀。
-- [ ] `bun run build` 綠（確認 recharts 進 bundle 無 ESM 問題）。
-- [ ] Commit：`前端遷移: monitoring service 與 RrdChart 圖表元件`
+- [x] service + 1 條 URL 組裝測試 → 綠。（2 條：getNodeRrd 路徑、listAlerts 參數）
+- [x] RrdChart 先以固定資料渲染，確認深淺色主題下可讀。（主題色以 getComputedStyle(document.body) 執行期解析——SVG 屬性不支援 var()；視覺確認待監控頁接上實際資料）
+- [x] `bun run build` 綠（確認 recharts 進 bundle 無 ESM 問題）。
+- [x] Commit：`前端遷移: monitoring service 與 RrdChart 圖表元件`
 
 ### Task 3: 資源監控頁
 
