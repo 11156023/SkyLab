@@ -10,12 +10,20 @@ from fastapi import APIRouter, File, Form, UploadFile
 from app.api.deps import InstructorUser, SessionDep
 from app.infrastructure.proxmox import operations as proxmox_ops
 from app.schemas import (
+    BatchSpecAccepted,
+    BatchSpecItemPublic,
+    BatchSpecRequest,
+    BatchSpecStatusPublic,
     ConfigPushAccepted,
     ConfigPushItemPublic,
     ConfigPushStatusPublic,
     HeatmapEntry,
 )
-from app.services.teaching import config_push_service, progress_service
+from app.services.teaching import (
+    batch_spec_service,
+    config_push_service,
+    progress_service,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -80,4 +88,35 @@ async def get_heatmap(
         group_id=group_id,
         user=current_user,
         cluster_resources=cluster_resources,
+    )
+
+
+@router.post("/batch-spec", response_model=BatchSpecAccepted, status_code=202)
+def start_batch_spec(
+    body: BatchSpecRequest,
+    session: SessionDep,
+    current_user: InstructorUser,
+) -> BatchSpecAccepted:
+    task_id = batch_spec_service.start_batch_spec(
+        session,
+        vmids=body.vmids,
+        group_id=body.group_id,
+        cores=body.cores,
+        memory_mb=body.memory_mb,
+        user=current_user,
+    )
+    return BatchSpecAccepted(task_id=task_id)
+
+
+@router.get("/batch-spec/{task_id}", response_model=BatchSpecStatusPublic)
+def get_batch_spec_status(
+    task_id: str, current_user: InstructorUser
+) -> BatchSpecStatusPublic:
+    task = batch_spec_service.get_batch_status(task_id, current_user)
+    return BatchSpecStatusPublic(
+        task_id=task.id,
+        items=[
+            BatchSpecItemPublic(vmid=i.vmid, status=i.status, error=i.error)
+            for i in sorted(task.items.values(), key=lambda x: x.vmid)
+        ],
     )
