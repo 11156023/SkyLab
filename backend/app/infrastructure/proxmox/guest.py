@@ -62,7 +62,12 @@ def _node_ssh_client() -> Any:
 
 
 def write_file_lxc(
-    _node: str, vmid: int, path: str, content: bytes, *, perms: str = "0644"
+    node: str,  # noqa: ARG001 - 單主機架構，使用 get_active_host() 而非參數值
+    vmid: int,
+    path: str,
+    content: bytes,
+    *,
+    perms: str = "0644",
 ) -> None:
     validate_target_path(path)
     client = _node_ssh_client()
