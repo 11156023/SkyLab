@@ -190,8 +190,8 @@
 - Create: `frontend_new/src/services/classroom.js`、`teaching.js`、`pairSessions.js`、`quotas.js`（端點見差距表 #6–#8；各 1 條測試）
 
 **Steps:**
-- [ ] 逐檔對照後端路由實作；ConfigPushPanel 的「送出」端點以舊元件實際呼叫為準（可能複用既有 script-deploy service，核對 `components/Teaching/ConfigPushPanel.tsx`）。
-- [ ] Commit：`前端遷移: 模組E services（classroom/teaching/pair/quotas）`
+- [x] 逐檔對照後端路由實作；ConfigPushPanel 的「送出」端點以舊元件實際呼叫為準（可能複用既有 script-deploy service，核對 `components/Teaching/ConfigPushPanel.tsx`）。（service 依後端 `/teaching/config-push` multipart 實作；Task 10 讀舊元件時再核對）
+- [x] Commit：`前端遷移: 模組E services（classroom/teaching/pair/quotas）`
 
 ### Task 10: 老師教學面板
 
