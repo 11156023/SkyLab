@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { useLocation } from "react-router-dom";
 import styles from "./RequestsPage.module.scss";
 import { VmRequestsService } from "../../../services/vmRequests";
 import { useToast } from "../../../hooks/useToast";
@@ -372,10 +373,12 @@ function ErrorState({ onRetry }) {
 
 /* ── Page ── */
 export default function RequestsPage() {
+  /* 其他頁（如快速建立的「完整設定」）可用 navigate("/my-requests", { state: { create: true } }) 直接開表單 */
+  const location = useLocation();
   const [requests, setRequests] = useState([]);
   const [loading, setLoading]   = useState(true);
   const [error, setError]       = useState(false);
-  const [view, setView]         = useState(VIEW_LIST);
+  const [view, setView]         = useState(location.state?.create ? VIEW_CREATE : VIEW_LIST);
   const [returning, setReturning] = useState(false);
 
   /** silent = true 時不觸發 loading / error state，供背景自動刷新使用 */

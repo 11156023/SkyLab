@@ -23,10 +23,12 @@ function SectionHeader({ icon, title, desc, onSeeAll }) {
         </span>
         <span className={styles.sectionDesc}>{desc}</span>
       </div>
-      <button type="button" className={styles.sectionLink} onClick={onSeeAll}>
-        查看全部
-        <MIcon name="arrow_forward" size={14} />
-      </button>
+      {onSeeAll && (
+        <button type="button" className={styles.sectionLink} onClick={onSeeAll}>
+          查看全部
+          <MIcon name="arrow_forward" size={14} />
+        </button>
+      )}
     </div>
   );
 }
@@ -158,6 +160,7 @@ export default function DashboardPage() {
           icon="bolt"
           title="快速入門"
           desc="選擇模板一鍵建立服務環境"
+          onSeeAll={() => setActiveCategory("all")}
         />
 
         {/* Category filter chips */}
