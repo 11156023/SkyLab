@@ -9,6 +9,7 @@ import {
   pendingSignature,
 } from "../../../services/pendingResources";
 import { useToast } from "../../../hooks/useToast";
+import useAutoRefresh from "../../../hooks/useAutoRefresh";
 import TerminalDialog from "./TerminalDialog";
 import VncDialog from "./VncDialog";
 
@@ -132,7 +133,7 @@ function PowerMenu({ resource, actionLoading, onControl, onDeleteClick, onClose,
       <div className={styles.powerMenuGrid}>
         <button type="button" className={styles.powerMenuItem}
           disabled={!isStopped || !!actionLoading} onClick={() => { onClose(); onControl("start"); }}>
-          <span className="material-icons" style={{ fontSize: 15, lineHeight: 1, color: "#28a745" }}>play_arrow</span>
+          <span style={{ color: "var(--color-success)", lineHeight: 1 }}><MIcon name="play_arrow" size={15} /></span>
           啟動
         </button>
         <button type="button" className={`${styles.powerMenuItem} ${styles.powerMenuItemWarn}`}
@@ -533,6 +534,8 @@ export default function ResourcesPage() {
     return () => clearInterval(timer);
   }, [refreshPending]);
 
+  useAutoRefresh(() => fetchResources(true));
+
   function handleUpdated(updated) {
     setResources((prev) => prev.map((r) => r.vmid === updated.vmid ? updated : r));
   }
@@ -547,12 +550,6 @@ export default function ResourcesPage() {
         <div className={styles.pageHeading}>
           <h1 className={styles.pageTitle}>我的資源</h1>
           <p className={styles.pageSubtitle}>查看與管理申請通過的虛擬機和容器</p>
-        </div>
-        <div className={styles.pageActions}>
-          <button type="button" className={styles.btnSecondary} onClick={() => { fetchResources(); refreshPending(); }} disabled={loading}>
-            <MIcon name="sync" size={16} />
-            重新整理
-          </button>
         </div>
       </div>
 

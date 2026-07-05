@@ -3,6 +3,7 @@ import styles from "./BatchReviewPage.module.scss";
 import MIcon from "../../../components/MIcon";
 import { BatchProvisionService } from "../../../services/batchProvision";
 import { useToast } from "../../../hooks/useToast";
+import useAutoRefresh from "../../../hooks/useAutoRefresh";
 
 const STATUS_LABELS = {
   pending_review: "待審核",
@@ -72,20 +73,39 @@ export default function BatchReviewPage() {
   const [status, setStatus] = useState("all");
   const [query, setQuery] = useState("");
   const [loading, setLoading] = useState(true);
+  /** jobId → "loading" | [start, end][]，點「週期」chip 時才載入 */
+  const [previews, setPreviews] = useState({});
 
-  const load = useCallback(async () => {
-    setLoading(true);
+  const togglePreview = async (jobId) => {
+    if (previews[jobId]) {
+      setPreviews((p) => { const n = { ...p }; delete n[jobId]; return n; });
+      return;
+    }
+    setPreviews((p) => ({ ...p, [jobId]: "loading" }));
+    try {
+      const res = await BatchProvisionService.getRecurrencePreview(jobId);
+      setPreviews((p) => ({ ...p, [jobId]: res?.windows ?? [] }));
+    } catch (e) {
+      setPreviews((p) => { const n = { ...p }; delete n[jobId]; return n; });
+      toast.error(e?.message ?? "載入週期預覽失敗");
+    }
+  };
+
+  /** silent = true 時不觸發 loading 與錯誤提示，供背景自動刷新使用 */
+  const load = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true);
     try {
       const res = await BatchProvisionService.listPending();
       setBatches(Array.isArray(res) ? res : []);
     } catch (e) {
-      toast.error(e?.message ?? "載入批量申請失敗");
+      if (!silent) toast.error(e?.message ?? "載入批量申請失敗");
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   }, [toast]);
 
   useEffect(() => { load(); }, [load]);
+  useAutoRefresh(() => load(true));
 
   const review = async (jobId, decision) => {
     if (!window.confirm(decision === "approved" ? "確定核准此批次?" : "確定駁回此批次?")) return;
@@ -127,12 +147,6 @@ export default function BatchReviewPage() {
         <div className={styles.pageHeading}>
           <h1 className={styles.pageTitle}>批量建立審核</h1>
           <p className={styles.pageSubtitle}>審核教師提交的批次 VM 配置申請</p>
-        </div>
-        <div className={styles.pageActions}>
-          <button type="button" className={styles.btnSecondary} onClick={load} disabled={loading}>
-            <MIcon name="sync" size={16} />
-            {loading ? "載入中…" : "重新整理"}
-          </button>
         </div>
       </div>
 
@@ -217,6 +231,30 @@ export default function BatchReviewPage() {
                           <div>
                             <div className={styles.namePrimary}>{b.hostname_prefix}</div>
                             <div className={styles.nameSub}>{b.resource_type?.toUpperCase()}</div>
+                            {b.recurrence_rule && (
+                              <>
+                                <button
+                                  type="button"
+                                  className={styles.recurChip}
+                                  title="點擊查看未來開機時段"
+                                  onClick={() => togglePreview(b.id)}
+                                >
+                                  <MIcon name="update" size={12} />
+                                  週期排程
+                                </button>
+                                {Array.isArray(previews[b.id]) && (
+                                  <ul className={styles.recurWindows}>
+                                    {previews[b.id].length === 0 && <li>沒有排定的時段</li>}
+                                    {previews[b.id].map(([start, end]) => (
+                                      <li key={start}>{fmtTime(start)} ～ {fmtTime(end)}</li>
+                                    ))}
+                                  </ul>
+                                )}
+                                {previews[b.id] === "loading" && (
+                                  <span className={styles.recurLoading}>載入中…</span>
+                                )}
+                              </>
+                            )}
                           </div>
                         </div>
                       </td>

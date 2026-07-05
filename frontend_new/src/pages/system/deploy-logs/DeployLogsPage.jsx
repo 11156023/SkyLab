@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import styles from "./DeployLogsPage.module.scss";
 import MIcon from "../../../components/MIcon";
 import { useToast } from "../../../hooks/useToast";
+import useAutoRefresh from "../../../hooks/useAutoRefresh";
 import { ScriptDeployLogsService } from "../../../services/scriptDeployLogs";
 
 const PAGE_SIZE = 50;
@@ -112,8 +113,9 @@ export default function DeployLogsPage() {
   const [page, setPage] = useState(0);
   const [detailTaskId, setDetailTaskId] = useState(null);
 
-  const fetchLogs = useCallback(async () => {
-    setLoading(true);
+  /** silent = true 時不觸發 loading 與錯誤提示，供背景自動刷新使用 */
+  const fetchLogs = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true);
     try {
       const res = await ScriptDeployLogsService.list({
         limit: PAGE_SIZE,
@@ -123,15 +125,16 @@ export default function DeployLogsPage() {
       setItems(res?.items ?? []);
       setTotal(res?.total ?? 0);
     } catch (err) {
-      toast.error(err?.message ?? "載入部署日誌失敗");
+      if (!silent) toast.error(err?.message ?? "載入部署日誌失敗");
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   }, [page, statusFilter, toast]);
 
   useEffect(() => {
     fetchLogs();
   }, [fetchLogs]);
+  useAutoRefresh(() => fetchLogs(true));
 
   const totalPages = Math.max(Math.ceil(total / PAGE_SIZE), 1);
 
@@ -142,10 +145,6 @@ export default function DeployLogsPage() {
           <h1 className={styles.pageTitle}>部署日誌</h1>
           <p className={styles.pageSubtitle}>快速模板一鍵部署的執行紀錄與輸出</p>
         </div>
-        <button type="button" className={styles.btnSecondary} onClick={fetchLogs} disabled={loading}>
-          <MIcon name="refresh" size={16} />
-          重新整理
-        </button>
       </div>
 
       <div className={styles.filterTabs}>

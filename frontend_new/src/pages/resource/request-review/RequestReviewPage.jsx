@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import styles from "./RequestReviewPage.module.scss";
 import MIcon from "../../../components/MIcon";
 import { useToast } from "../../../hooks/useToast";
+import useAutoRefresh from "../../../hooks/useAutoRefresh";
 import { DeletionRequestsService } from "../../../services/deletionRequests";
 import { SpecChangeRequestsService } from "../../../services/specChangeRequests";
 import { VmRequestsService } from "../../../services/vmRequests";
@@ -230,9 +231,12 @@ export default function RequestReviewPage() {
     [requests, selectedId],
   );
 
-  const fetchRequests = useCallback(async (tab = activeTab) => {
-    setLoading(true);
-    setError("");
+  /** silent = true 時不觸發 loading 與錯誤提示，供背景自動刷新使用 */
+  const fetchRequests = useCallback(async (tab = activeTab, silent = false) => {
+    if (!silent) {
+      setLoading(true);
+      setError("");
+    }
     try {
       const [vmRes, specRes, deletionRes] = await Promise.all([
         VmRequestsService.listAll(undefined),
@@ -256,12 +260,14 @@ export default function RequestReviewPage() {
           : filtered[0]?.id ?? null,
       );
     } catch (err) {
-      setRequests([]);
-      setAllRequests([]);
-      setSelectedId(null);
-      setError(err?.message ?? "讀取申請失敗");
+      if (!silent) {
+        setRequests([]);
+        setAllRequests([]);
+        setSelectedId(null);
+        setError(err?.message ?? "讀取申請失敗");
+      }
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   }, [activeTab]);
 
@@ -269,6 +275,8 @@ export default function RequestReviewPage() {
     fetchRequests(activeTab);
     setComment("");
   }, [activeTab, fetchRequests]);
+
+  useAutoRefresh(() => fetchRequests(activeTab, true));
 
   useEffect(() => {
     if (
@@ -364,12 +372,6 @@ export default function RequestReviewPage() {
             集中查看建立、規格調整與刪除請求；刪除資源不會扣除原本已通過的審核數量
           </p>
         </div>
-        <div className={styles.pageActions}>
-          <button type="button" className={styles.btnSecondary} onClick={() => fetchRequests(activeTab)} disabled={loading}>
-            <MIcon name="sync" size={16} />
-            {loading ? "讀取中..." : "重新整理"}
-          </button>
-        </div>
       </div>
 
       <div className={styles.statRow}>
@@ -447,7 +449,7 @@ export default function RequestReviewPage() {
               <div className={styles.stateBox}>
                 <span>{error}</span>
                 <button type="button" className={styles.btnSecondary} onClick={() => fetchRequests(activeTab)}>
-                  重新整理
+                  重試
                 </button>
               </div>
             ) : visibleRequests.length === 0 ? (

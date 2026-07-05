@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { createPortal } from "react-dom";
 import styles from "./AiApiReviewPage.module.scss";
 import MIcon from "../../../components/MIcon";
 import { AiApiService } from "../../../services/aiApi";
 import { useToast } from "../../../hooks/useToast";
+import useAutoRefresh from "../../../hooks/useAutoRefresh";
 
 const TABS = [
   { key: "pending",  label: "待審核" },
@@ -67,7 +69,9 @@ function ReviewDialog({ open, onClose, request, action, onDone }) {
     }
   };
 
-  return (
+  // Portal 到 body：此 Dialog 由表格列觸發，若直接掛在 .tableWrap（backdrop-filter）
+  // 底下，position: fixed 會以卡片為 containing block，遮罩蓋不滿整個視窗
+  return createPortal(
     <div className={styles.dialogOverlay} onClick={onClose}>
       <div className={styles.dialog} onClick={(e) => e.stopPropagation()}>
         <div className={styles.dialogHeader}>
@@ -111,7 +115,8 @@ function ReviewDialog({ open, onClose, request, action, onDone }) {
           </button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
 
@@ -175,19 +180,21 @@ export default function AiApiReviewPage() {
   const [allRequests, setAllRequests] = useState([]);
   const [loading, setLoading] = useState(true);
 
-  const load = useCallback(async () => {
-    setLoading(true);
+  /** silent = true 時不觸發 loading 與錯誤提示，供背景自動刷新使用 */
+  const load = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true);
     try {
       const res = await AiApiService.listAllRequests();
       setAllRequests(res?.data ?? []);
     } catch (e) {
-      toast.error(e?.message ?? "載入 AI API 審核資料失敗");
+      if (!silent) toast.error(e?.message ?? "載入 AI API 審核資料失敗");
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   }, [toast]);
 
   useEffect(() => { load(); }, [load]);
+  useAutoRefresh(() => load(true));
 
   const filtered = useMemo(() => {
     if (activeTab === "all") return allRequests;
@@ -202,12 +209,6 @@ export default function AiApiReviewPage() {
         <div className={styles.pageHeading}>
           <h1 className={styles.pageTitle}>AI API 審核</h1>
           <p className={styles.pageSubtitle}>審核申請並核發 API 存取參數。</p>
-        </div>
-        <div className={styles.pageActions}>
-          <button type="button" className={styles.btnSecondary} onClick={load} disabled={loading}>
-            <MIcon name="sync" size={16} />
-            {loading ? "載入中…" : "重新整理"}
-          </button>
         </div>
       </div>
 

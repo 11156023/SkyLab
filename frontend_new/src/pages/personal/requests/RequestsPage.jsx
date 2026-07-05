@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useState } from "react";
+import { useLocation } from "react-router-dom";
 import styles from "./RequestsPage.module.scss";
 import { VmRequestsService } from "../../../services/vmRequests";
 import { useToast } from "../../../hooks/useToast";
+import useAutoRefresh from "../../../hooks/useAutoRefresh";
 import RequestFormPage from "./RequestFormPage";
 import MIcon from "../../../components/MIcon";
 
@@ -49,6 +51,8 @@ function getDisplayStatus(req) {
 
 const VIEW_LIST   = "list";
 const VIEW_CREATE = "create";
+
+const LIST_COLUMNS = ["資源", "系統", "規格", "申請時間", "狀態", "操作"];
 
 /* ── Helpers ── */
 function formatDatetime(isoStr) {
@@ -111,13 +115,8 @@ function InfoRow({ icon, label, value }) {
   );
 }
 
-function SpecChip({ label, value }) {
-  return (
-    <div className={styles.specChip}>
-      <span className={styles.specChipLabel}>{label}</span>
-      <span className={styles.specChipValue}>{value}</span>
-    </div>
-  );
+function getSpecDisplay(req) {
+  return `${req.cores} 核 / ${getMemDisplay(req.memory)} / ${req.storage}`;
 }
 
 /* ── Confirm Modal ── */
@@ -160,9 +159,10 @@ function ConfirmModal({ title, desc, confirmLabel = "確定", danger = false, lo
   );
 }
 
-/* ── RequestCard ── */
-function RequestCard({ req, onUpdated }) {
+/* ── RequestRow ── */
+function RequestRow({ req, onUpdated }) {
   const toast = useToast();
+  const [expanded, setExpanded]           = useState(false);
   const [cancelConfirm, setCancelConfirm] = useState(false);
   const [cancelling, setCancelling]       = useState(false);
   const [retrying, setRetrying]           = useState(false);
@@ -172,6 +172,11 @@ function RequestCard({ req, onUpdated }) {
   const formItems = getFormInfoItems(req);
   const startFmt  = formatDatetime(req.start_at);
   const endFmt    = formatDatetime(req.end_at);
+
+  const showRejection = req.status === "rejected" && req.review_comment;
+  const showFailure   = canRetry(req) && req.migration_status === "failed" && req.migration_error;
+  const hasDetail =
+    formItems.length > 0 || req.reason || startFmt || showRejection || showFailure;
 
   async function handleCancel() {
     setCancelling(true);
@@ -192,7 +197,7 @@ function RequestCard({ req, onUpdated }) {
     try {
       const updated = await VmRequestsService.retry(req.id);
       onUpdated(updated);
-      toast.success("已重新觸發開通，請稍後重新整理查看進度");
+      toast.success("已重新觸發開通，進度將自動更新");
     } catch (err) {
       toast.error(err?.message ?? "重試失敗，請稍後再試。");
     } finally {
@@ -202,67 +207,34 @@ function RequestCard({ req, onUpdated }) {
 
   return (
     <>
-      <div className={styles.card}>
-
-        {/* ── Header ── */}
-        <div className={styles.cardHeader}>
-          <div className={styles.cardIcon}>
-            <MIcon name={type.icon} size={22} />
-          </div>
-          <div className={styles.cardMeta}>
-            <span className={styles.cardName}>{req.hostname}</span>
-            <div className={styles.cardChips}>
-              <span className={styles.typeChip}>{type.label}</span>
-              {req.vmid && <span className={styles.vmidChip}>VMID {req.vmid}</span>}
+      <tr
+        className={`${styles.tr} ${hasDetail ? styles.trClickable : ""} ${expanded ? styles.trExpanded : ""}`}
+        onClick={hasDetail ? () => setExpanded((v) => !v) : undefined}
+      >
+        <td className={styles.td}>
+          <div className={styles.nameCell}>
+            <div className={styles.nameIcon}>
+              <MIcon name={type.icon} size={18} />
+            </div>
+            <div className={styles.nameMeta}>
+              <span className={styles.namePrimary}>{req.hostname}</span>
+              <span className={styles.nameSub}>
+                {type.label}
+                {req.vmid != null && ` · VMID ${req.vmid}`}
+              </span>
             </div>
           </div>
-          <StatusBadge req={req} />
-        </div>
-
-        {/* ── Info rows ── */}
-        <div className={styles.cardInfo}>
-          <InfoRow icon="monitor"             label="系統"    value={osDisplay} />
-          {formItems.map(({ label, value }) => (
-            <InfoRow key={label} icon="tune"  label={label}   value={value} />
-          ))}
-          <InfoRow icon="chat_bubble_outline" label="申請原因" value={req.reason} />
-        </div>
-
-        {/* ── Spec chips ── */}
-        <div className={styles.specRow}>
-          <SpecChip label="CPU"    value={`${req.cores} 核`}        />
-          <SpecChip label="記憶體" value={getMemDisplay(req.memory)} />
-          <SpecChip label="儲存"   value={req.storage}              />
-        </div>
-
-        {/* ── Booking period ── */}
-        {startFmt && (
-          <div className={styles.cardPeriod}>
-            <MIcon name="calendar_month" size={13} />
-            <span>{startFmt}{endFmt ? ` ~ ${endFmt}` : ""}</span>
-          </div>
-        )}
-
-        {/* ── Rejection comment ── */}
-        {req.status === "rejected" && req.review_comment && (
-          <div className={styles.reviewComment}>
-            <MIcon name="comment" size={13} />
-            <span>{req.review_comment}</span>
-          </div>
-        )}
-
-        {/* ── Provisioning failure reason ── */}
-        {canRetry(req) && req.migration_status === "failed" && req.migration_error && (
-          <div className={styles.reviewComment}>
-            <MIcon name="error_outline" size={13} />
-            <span>{req.migration_error}</span>
-          </div>
-        )}
-
-        {/* ── Footer ── */}
-        <div className={styles.cardFooter}>
-          <span className={styles.cardDate}>申請於 {formatDate(req.created_at)}</span>
-          <div className={styles.cardActions}>
+        </td>
+        <td className={styles.td}>
+          <span className={styles.osCell}>{osDisplay ?? "—"}</span>
+        </td>
+        <td className={styles.td}>
+          <span className={styles.specCell}>{getSpecDisplay(req)}</span>
+        </td>
+        <td className={styles.td}>{formatDate(req.created_at)}</td>
+        <td className={styles.td}><StatusBadge req={req} /></td>
+        <td className={styles.td} onClick={(e) => e.stopPropagation()}>
+          <div className={styles.rowActions}>
             {canRetry(req) && (
               <button type="button" className={styles.retryBtn} disabled={retrying} onClick={handleRetry}>
                 <MIcon name="refresh" size={13} />
@@ -270,14 +242,54 @@ function RequestCard({ req, onUpdated }) {
               </button>
             )}
             {canCancel(req) && (
-              <button type="button" className={styles.cardCancelBtn} onClick={() => setCancelConfirm(true)}>
+              <button type="button" className={styles.cancelBtn} onClick={() => setCancelConfirm(true)}>
                 <MIcon name="close" size={13} />
-                撤銷申請
+                撤銷
+              </button>
+            )}
+            {hasDetail && (
+              <button
+                type="button"
+                className={`${styles.expandBtn} ${expanded ? styles.expandBtnOpen : ""}`}
+                aria-label={expanded ? "收合詳細資訊" : "展開詳細資訊"}
+                onClick={() => setExpanded((v) => !v)}
+              >
+                <MIcon name="expand_more" size={16} />
               </button>
             )}
           </div>
-        </div>
-      </div>
+        </td>
+      </tr>
+
+      {expanded && (
+        <tr className={styles.detailTr}>
+          <td className={styles.detailTd} colSpan={LIST_COLUMNS.length}>
+            <div className={styles.detailBody}>
+              {formItems.map(({ label, value }) => (
+                <InfoRow key={label} icon="tune" label={label} value={value} />
+              ))}
+              <InfoRow icon="chat_bubble_outline" label="申請原因" value={req.reason} />
+              <InfoRow
+                icon="calendar_month"
+                label="預約期間"
+                value={startFmt ? `${startFmt}${endFmt ? ` ~ ${endFmt}` : ""}` : null}
+              />
+              {showRejection && (
+                <div className={styles.reviewComment}>
+                  <MIcon name="comment" size={13} />
+                  <span>{req.review_comment}</span>
+                </div>
+              )}
+              {showFailure && (
+                <div className={styles.reviewComment}>
+                  <MIcon name="error_outline" size={13} />
+                  <span>{req.migration_error}</span>
+                </div>
+              )}
+            </div>
+          </td>
+        </tr>
+      )}
 
       {cancelConfirm && (
         <ConfirmModal
@@ -295,34 +307,34 @@ function RequestCard({ req, onUpdated }) {
 }
 
 /* ── Skeleton ── */
-function SkeletonCard() {
+function SkeletonRow() {
   return (
-    <div className={styles.card} aria-hidden>
-      <div className={styles.cardHeader}>
-        <div className={`${styles.cardIcon} ${styles.skeleton}`} />
-        <div className={styles.cardMeta}>
-          <div className={`${styles.skeleton} ${styles.skRow}`} style={{ width: "55%", height: 14 }} />
-          <div className={`${styles.skeleton} ${styles.skRow}`} style={{ width: "32%", height: 11 }} />
-        </div>
-        <div className={`${styles.skeleton} ${styles.skBadge}`} />
-      </div>
-      <div className={styles.cardInfo}>
-        {[0, 1, 2].map((i) => (
-          <div key={i} className={styles.skInfoRow}>
-            <div className={`${styles.skeleton} ${styles.skRow}`} style={{ width: "22%", height: 11 }} />
-            <div className={`${styles.skeleton} ${styles.skRow}`} style={{ width: "55%", height: 11 }} />
+    <tr className={styles.tr} aria-hidden>
+      <td className={styles.td}>
+        <div className={styles.nameCell}>
+          <div className={`${styles.nameIcon} ${styles.skeleton}`} />
+          <div className={styles.nameMeta}>
+            <div className={`${styles.skeleton} ${styles.skRow}`} style={{ width: 110, height: 13 }} />
+            <div className={`${styles.skeleton} ${styles.skRow}`} style={{ width: 70, height: 10 }} />
           </div>
-        ))}
-      </div>
-      <div className={styles.specRow}>
-        {[0, 1, 2].map((i) => (
-          <div key={i} className={`${styles.skeleton} ${styles.skChip}`} />
-        ))}
-      </div>
-      <div className={styles.cardFooter}>
-        <div className={`${styles.skeleton} ${styles.skRow}`} style={{ width: 120, height: 11 }} />
-      </div>
-    </div>
+        </div>
+      </td>
+      <td className={styles.td}>
+        <div className={`${styles.skeleton} ${styles.skRow}`} style={{ width: 90, height: 12 }} />
+      </td>
+      <td className={styles.td}>
+        <div className={`${styles.skeleton} ${styles.skRow}`} style={{ width: 130, height: 12 }} />
+      </td>
+      <td className={styles.td}>
+        <div className={`${styles.skeleton} ${styles.skRow}`} style={{ width: 80, height: 12 }} />
+      </td>
+      <td className={styles.td}>
+        <div className={`${styles.skeleton} ${styles.skBadge}`} />
+      </td>
+      <td className={styles.td}>
+        <div className={`${styles.skeleton} ${styles.skRow}`} style={{ width: 60, height: 12 }} />
+      </td>
+    </tr>
   );
 }
 
@@ -361,15 +373,20 @@ function ErrorState({ onRetry }) {
 
 /* ── Page ── */
 export default function RequestsPage() {
+  /* 其他頁（如快速建立的「完整設定」）可用 navigate("/my-requests", { state: { create: true } }) 直接開表單 */
+  const location = useLocation();
   const [requests, setRequests] = useState([]);
   const [loading, setLoading]   = useState(true);
   const [error, setError]       = useState(false);
-  const [view, setView]         = useState(VIEW_LIST);
+  const [view, setView]         = useState(location.state?.create ? VIEW_CREATE : VIEW_LIST);
   const [returning, setReturning] = useState(false);
 
-  const fetchRequests = useCallback(async () => {
-    setLoading(true);
-    setError(false);
+  /** silent = true 時不觸發 loading / error state，供背景自動刷新使用 */
+  const fetchRequests = useCallback(async (silent = false) => {
+    if (!silent) {
+      setLoading(true);
+      setError(false);
+    }
     try {
       const res = await VmRequestsService.list();
       setRequests(
@@ -378,15 +395,19 @@ export default function RequestsPage() {
         )
       );
     } catch {
-      setError(true);
+      if (!silent) setError(true);
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   }, []);
 
   useEffect(() => {
     if (view === "list") fetchRequests();
   }, [view, fetchRequests]);
+
+  useAutoRefresh(() => {
+    if (view === "list") fetchRequests(true);
+  });
 
   function handleUpdated(updated) {
     setRequests((prev) => prev.map((r) => r.id === updated.id ? updated : r));
@@ -419,19 +440,28 @@ export default function RequestsPage() {
       </div>
 
       <div className={styles.content}>
-        {loading ? (
-          <div className={styles.grid}>
-            {[0, 1, 2].map((i) => <SkeletonCard key={i} />)}
-          </div>
-        ) : error ? (
+        {error ? (
           <ErrorState onRetry={fetchRequests} />
-        ) : requests.length === 0 ? (
+        ) : !loading && requests.length === 0 ? (
           <EmptyState onCreateClick={() => setView(VIEW_CREATE)} />
         ) : (
-          <div className={styles.grid}>
-            {requests.map((r) => (
-              <RequestCard key={r.id} req={r} onUpdated={handleUpdated} />
-            ))}
+          <div className={styles.tableWrap}>
+            <table className={styles.table}>
+              <thead>
+                <tr>
+                  {LIST_COLUMNS.map((column) => (
+                    <th key={column} className={styles.th}>{column}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {loading
+                  ? [0, 1, 2, 3].map((i) => <SkeletonRow key={i} />)
+                  : requests.map((r) => (
+                      <RequestRow key={r.id} req={r} onUpdated={handleUpdated} />
+                    ))}
+              </tbody>
+            </table>
           </div>
         )}
       </div>

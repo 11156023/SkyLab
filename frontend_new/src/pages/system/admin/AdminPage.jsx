@@ -3,6 +3,7 @@ import styles from "./AdminPage.module.scss";
 import MIcon from "../../../components/MIcon";
 import { useAuth } from "../../../contexts/AuthContext";
 import { useToast } from "../../../hooks/useToast";
+import useAutoRefresh from "../../../hooks/useAutoRefresh";
 import { UsersService } from "../../../services/users";
 
 const ROLE_OPTIONS = [
@@ -229,22 +230,24 @@ export default function AdminPage() {
   const [modal, setModal] = useState(null);
   const [deleteTarget, setDeleteTarget] = useState(null);
 
-  const fetchUsers = useCallback(async () => {
-    setLoading(true);
+  /** silent = true 時不觸發 loading 與錯誤提示，供背景自動刷新使用 */
+  const fetchUsers = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true);
     try {
       const res = await UsersService.list({ limit: 100 });
       setUsers(res?.data ?? []);
       setCount(res?.count ?? 0);
     } catch (err) {
-      toast.error(err?.message ?? "載入使用者失敗");
+      if (!silent) toast.error(err?.message ?? "載入使用者失敗");
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   }, [toast]);
 
   useEffect(() => {
     fetchUsers();
   }, [fetchUsers]);
+  useAutoRefresh(() => fetchUsers(true));
 
   const visibleUsers = useMemo(() => {
     const keyword = query.trim().toLowerCase();
@@ -342,10 +345,6 @@ export default function AdminPage() {
             placeholder="搜尋姓名、Email 或角色"
           />
         </div>
-        <button type="button" className={styles.btnSecondary} onClick={fetchUsers} disabled={loading}>
-          <MIcon name="refresh" size={16} />
-          重新整理
-        </button>
       </div>
 
       <div className={styles.content}>

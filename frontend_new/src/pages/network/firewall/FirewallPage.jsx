@@ -29,6 +29,7 @@ import VMNode           from "./nodes/VMNode";
 import ConnectionEdge   from "./edges/ConnectionEdge";
 import { buildFlow, portLabel } from "./utils/buildFlow";
 import { useTheme } from "../../../contexts/ThemeContext";
+import useAutoRefresh from "../../../hooks/useAutoRefresh";
 import styles from "./FirewallPage.module.scss";
 import MIcon from "../../../components/MIcon";
 
@@ -69,10 +70,12 @@ export default function FirewallPage() {
     );
   }, [showLabels, setEdges]);
 
-  /* ── 載入拓撲 ── */
-  const fetchTopology = useCallback(async () => {
-    setLoading(true);
-    setError("");
+  /* ── 載入拓撲（silent = true 時不觸發 loading / error state，供背景自動刷新使用） ── */
+  const fetchTopology = useCallback(async (silent = false) => {
+    if (!silent) {
+      setLoading(true);
+      setError("");
+    }
     try {
       const data = await getTopology();
       setTopology(data);
@@ -80,13 +83,14 @@ export default function FirewallPage() {
       setNodes(n);
       setEdges(e);
     } catch (err) {
-      setError(err?.message ?? "載入拓撲失敗");
+      if (!silent) setError(err?.message ?? "載入拓撲失敗");
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   }, [handleDeleteEdge, showLabels, setNodes, setEdges]);
 
   useEffect(() => { fetchTopology(); }, [fetchTopology]);
+  useAutoRefresh(() => fetchTopology(true));
 
   /* ── 自動排列 ── */
   const autoArrange = useCallback(() => {
@@ -183,15 +187,6 @@ export default function FirewallPage() {
           <p className={styles.pageSubtitle}>管理 VM 之間與對外的網路連線規則</p>
         </div>
         <div className={styles.headerActions}>
-          <button
-            type="button"
-            className={styles.btnSecondary}
-            onClick={fetchTopology}
-            disabled={loading}
-          >
-            <MIcon name="refresh" size={16} />
-            重新整理
-          </button>
           <button
             type="button"
             className={styles.btnPrimary}

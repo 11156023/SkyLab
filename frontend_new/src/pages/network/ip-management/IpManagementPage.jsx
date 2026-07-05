@@ -3,6 +3,7 @@ import styles from "./IpManagementPage.module.scss";
 import MIcon from "../../../components/MIcon";
 import { IpManagementService } from "../../../services/ipManagement";
 import { useToast } from "../../../hooks/useToast";
+import useAutoRefresh from "../../../hooks/useAutoRefresh";
 
 const COLUMNS = ["IP 位址", "用途", "VMID", "備註", "分配時間"];
 
@@ -45,8 +46,9 @@ export default function IpManagementPage() {
   const [filter, setFilter] = useState("");
   const [loading, setLoading] = useState(true);
 
-  const load = useCallback(async () => {
-    setLoading(true);
+  /** silent = true 時不觸發 loading 與錯誤提示，供背景自動刷新使用 */
+  const load = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true);
     try {
       const [allocRes, subnetRes, statusRes] = await Promise.all([
         IpManagementService.listAllocations({ limit: 500 }),
@@ -57,13 +59,14 @@ export default function IpManagementPage() {
       setSubnet(subnetRes ?? null);
       setStatus(statusRes ?? null);
     } catch (e) {
-      toast.error(e?.message ?? "載入 IP 分配失敗");
+      if (!silent) toast.error(e?.message ?? "載入 IP 分配失敗");
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   }, [toast]);
 
   useEffect(() => { load(); }, [load]);
+  useAutoRefresh(() => load(true));
 
   const stats = useMemo(() => {
     const total = subnet?.total_ips ?? status?.total_ips ?? 0;
@@ -89,12 +92,6 @@ export default function IpManagementPage() {
         <div className={styles.pageHeading}>
           <h1 className={styles.pageTitle}>IP 管理</h1>
           <p className={styles.pageSubtitle}>管理子網設定與所有 IP 位址分配</p>
-        </div>
-        <div className={styles.pageActions}>
-          <button type="button" className={styles.btnSecondary} onClick={load} disabled={loading}>
-            <MIcon name="sync" size={16} />
-            {loading ? "載入中…" : "重新整理"}
-          </button>
         </div>
       </div>
 

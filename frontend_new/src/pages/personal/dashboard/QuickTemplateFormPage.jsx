@@ -280,7 +280,7 @@ export default function QuickTemplateFormPage() {
                 <button
                   type="button"
                   className={styles.templateExitLink}
-                  onClick={onBack}
+                  onClick={() => navigate("/my-requests", { state: { create: true } })}
                   title="改用完整申請表單"
                 >
                   <MIcon name="tune" size={14} />

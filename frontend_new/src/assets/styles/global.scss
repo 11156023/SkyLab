@@ -1,4 +1,5 @@
 @use "themes";
+@use "backgrounds";
 @use "reset";
 
 #root {
@@ -7,7 +8,9 @@
   @include flex-column;
 }
 
-/* ===== 全頁面三色暈染背景 ===== */
+/* ===== 全頁背景層 =====
+   預設畫三色暈染，掛上 data-style / data-bg 後
+   由 _backgrounds.scss 的花色覆寫 background */
 body {
   position: relative;
 

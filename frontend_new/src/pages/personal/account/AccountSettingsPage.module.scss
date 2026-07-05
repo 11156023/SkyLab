@@ -239,6 +239,119 @@
   color: var(--color-text-muted);
 }
 
+/* ── 外觀 ── */
+.colorRow {
+  display: flex;
+  align-items: center;
+  gap: $spacing-8;
+
+  input[type="color"] {
+    width: 56px;
+    padding: 4px;
+    cursor: pointer;
+  }
+}
+
+.hexInput {
+  width: 110px;
+  font-family: ui-monospace, "Cascadia Mono", Consolas, monospace;
+  text-transform: lowercase;
+}
+
+.shadeRow {
+  display: flex;
+  gap: $spacing-8;
+}
+
+.shadeLight,
+.shadeBase,
+.shadeDark {
+  flex: 1;
+  min-height: 36px;
+  border-radius: $radius-8;
+  @include flex-center;
+  font-size: $font-size-12;
+  color: var(--color-text-on-primary);
+}
+
+.shadeLight { background: var(--color-primary-light); }
+.shadeBase  { background: var(--color-primary); }
+.shadeDark  { background: var(--color-primary-dark); }
+
+.optionRow {
+  display: flex;
+  gap: $spacing-8;
+  flex-wrap: wrap;
+}
+
+.optionBtn,
+.optionBtnActive {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 36px;
+  padding: 8px $spacing-16;
+  border-radius: $radius-8;
+  border: 1px solid var(--color-border);
+  font-size: $font-size-14;
+  cursor: pointer;
+  transition: background $transition-base, border-color $transition-base, color $transition-base;
+}
+
+.optionBtn {
+  background: var(--color-surface);
+  color: var(--color-text-secondary);
+
+  &:hover {
+    background: var(--color-hover);
+    color: var(--color-text);
+  }
+}
+
+.optionBtnActive {
+  border-color: var(--color-primary);
+  background: color-mix(in srgb, var(--color-primary) 10%, var(--color-surface));
+  color: var(--color-primary);
+  font-weight: $font-weight-500;
+}
+
+/* 背景花色縮圖 gallery */
+.bgGallery {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(90px, 1fr));
+  gap: $spacing-8;
+}
+
+.bgThumb,
+.bgThumbActive {
+  height: 64px;
+  border-radius: $radius-8;
+  border: 2px solid var(--color-border);
+  cursor: pointer;
+  display: flex;
+  align-items: flex-end;
+  padding: 6px;
+  transition: border-color $transition-base, box-shadow $transition-base;
+}
+
+.bgThumb:hover {
+  box-shadow: var(--shadow-sm);
+}
+
+.bgThumbActive {
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-primary) 15%, transparent);
+}
+
+.bgThumbLabel {
+  font-size: $font-size-12;
+  padding: 2px 8px;
+  border-radius: $radius-pill;
+  background: var(--color-surface);
+  color: var(--color-text-primary);
+  box-shadow: var(--shadow-sm);
+}
+
 /* ── 危險區域 ── */
 .dangerCard {
   border-color: color-mix(in srgb, var(--color-danger) 30%, var(--color-surface-glass-border));

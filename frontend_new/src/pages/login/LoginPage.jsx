@@ -1,4 +1,5 @@
 ﻿import { useCallback, useEffect, useRef, useState } from "react";
+import MIcon from "../../components/MIcon";
 import { useAuth } from "../../contexts/AuthContext";
 import { apiPost } from "../../services/api";
 import styles from "./LoginPage.module.scss";
@@ -49,14 +50,6 @@ function clearResetTokenFromUrl() {
 }
 
 /* ─── 共用元件 ─────────────────────────────────────────── */
-
-function MIcon({ name, size = 20 }) {
-  return (
-    <span className="material-icons-outlined" style={{ fontSize: size, lineHeight: 1 }}>
-      {name}
-    </span>
-  );
-}
 
 function PasswordField({ id, label, value, onChange, disabled, placeholder }) {
   const [show, setShow] = useState(false);
