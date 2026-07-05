@@ -5,11 +5,13 @@ import MIcon from "../../../components/MIcon";
 import { useAuth } from "../../../contexts/AuthContext";
 import { useToast } from "../../../hooks/useToast";
 import { AccountService } from "../../../services/account";
+import AppearanceTab from "./AppearanceTab";
 
 const TABS = [
-  { key: "profile",  label: "個人資料", icon: "person" },
-  { key: "password", label: "密碼",     icon: "lock" },
-  { key: "danger",   label: "危險區域", icon: "warning" },
+  { key: "profile",    label: "個人資料", icon: "person" },
+  { key: "password",   label: "密碼",     icon: "lock" },
+  { key: "appearance", label: "外觀",     icon: "palette" },
+  { key: "danger",     label: "危險區域", icon: "warning" },
 ];
 
 function initials(user) {
@@ -332,7 +334,7 @@ export default function AccountSettingsPage() {
       <div className={styles.pageHeader}>
         <div className={styles.pageHeading}>
           <h1 className={styles.pageTitle}>帳號設定</h1>
-          <p className={styles.pageSubtitle}>管理你的個人資料、密碼與帳號安全</p>
+          <p className={styles.pageSubtitle}>管理你的個人資料、密碼、外觀與帳號安全</p>
         </div>
       </div>
 
@@ -353,6 +355,7 @@ export default function AccountSettingsPage() {
       <div className={styles.content}>
         {activeTab === "profile" && <ProfileTab />}
         {activeTab === "password" && <PasswordTab />}
+        {activeTab === "appearance" && <AppearanceTab />}
         {activeTab === "danger" && <DangerZoneTab />}
       </div>
     </div>

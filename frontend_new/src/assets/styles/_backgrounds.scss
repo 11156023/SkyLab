@@ -1,0 +1,91 @@
+/* ============================================
+   背景花色（Background Presets）集中管理
+   由 body[data-style] × body[data-bg] 屬性組合切換，
+   實際畫在 body::before（global.scss 定義的全頁背景層）。
+
+   玻璃質感的三種花色都不寫死 hex，色碼由 ThemeContext
+   依背景基準色（背景色，未設定則跟隨主色）衍生後寫入 :root：
+   - 跟隨主色：--color-bg-primary-tint（淡階）/ -soft（最淡階）/ -deep（最深階）
+   - 柔和雙色 / 對角三色：--color-bg-duo-light-* / -dark-*、
+     --color-bg-tri-light-* / -dark-*，下方以別名依明暗模式切換。
+   固定花色（純白、米白、純黑、深藍紫）直接定義在此。
+   白底限淺色模式、黑底限深色模式（ThemeContext 保證），
+   玻璃質感兩種模式都有，深色模式套暗部變體。
+   ============================================ */
+
+/* 明暗模式別名：縮圖與花色規則共用同一組變數 */
+body {
+  --color-bg-duo-1: var(--color-bg-duo-light-1);
+  --color-bg-duo-2: var(--color-bg-duo-light-2);
+  --color-bg-tri-1: var(--color-bg-tri-light-1);
+  --color-bg-tri-2: var(--color-bg-tri-light-2);
+  --color-bg-tri-3: var(--color-bg-tri-light-3);
+}
+
+body.dark {
+  --color-bg-duo-1: var(--color-bg-duo-dark-1);
+  --color-bg-duo-2: var(--color-bg-duo-dark-2);
+  --color-bg-tri-1: var(--color-bg-tri-dark-1);
+  --color-bg-tri-2: var(--color-bg-tri-dark-2);
+  --color-bg-tri-3: var(--color-bg-tri-dark-3);
+}
+
+/* ---- 玻璃質感 ---- */
+
+/* 跟隨主色：主色系雙色斜向漸層 */
+body[data-style="glass"][data-bg="auto-gradient"]::before {
+  background: linear-gradient(
+    135deg,
+    var(--color-bg-primary-soft) 0%,
+    var(--color-bg-primary-tint) 100%
+  );
+}
+
+body.dark[data-style="glass"][data-bg="auto-gradient"]::before {
+  background: linear-gradient(135deg, #0d1117 0%, var(--color-bg-primary-deep) 100%);
+}
+
+/* 柔和雙色：基準色色相 + 旋轉 -70° 的雙色斜漸層（別名已依明暗切換） */
+body[data-style="glass"][data-bg="preset-2"]::before {
+  background: linear-gradient(135deg, var(--color-bg-duo-1) 0%, var(--color-bg-duo-2) 100%);
+}
+
+/* 對角三色：基準色色相 ±120° 的三色暈染（沿用原三色暈染的幾何） */
+body[data-style="glass"][data-bg="preset-3"]::before {
+  background:
+    radial-gradient(ellipse 100% 60% at 100% 0%, var(--color-bg-tri-1) 0%, transparent 100%),
+    radial-gradient(ellipse 100% 80% at 0% 90%, var(--color-bg-tri-2) 0%, transparent 100%),
+    radial-gradient(ellipse 150% 70% at 100% 100%, var(--color-bg-tri-3) 0%, transparent 100%);
+}
+
+/* ---- 白底（僅淺色模式） ---- */
+
+/* 跟隨主色：白到主色最淡階的斜向漸層 */
+body[data-style="white"][data-bg="auto-gradient"]::before {
+  background: linear-gradient(135deg, #ffffff 35%, var(--color-bg-primary-soft) 100%);
+}
+
+body[data-style="white"][data-bg="preset-2"]::before {
+  background: #ffffff;
+}
+
+/* 米白：白到淺灰米色 */
+body[data-style="white"][data-bg="preset-3"]::before {
+  background: linear-gradient(135deg, #ffffff 0%, #f2ede1 100%);
+}
+
+/* ---- 黑底（僅深色模式） ---- */
+
+/* 跟隨主色：黑到主色最深階的斜向漸層 */
+body[data-style="black"][data-bg="auto-gradient"]::before {
+  background: linear-gradient(135deg, #000000 35%, var(--color-bg-primary-deep) 100%);
+}
+
+body[data-style="black"][data-bg="preset-2"]::before {
+  background: #000000;
+}
+
+/* 深藍紫：固定深色漸層 */
+body[data-style="black"][data-bg="preset-3"]::before {
+  background: linear-gradient(135deg, #08070f 0%, #191344 60%, #251a54 100%);
+}

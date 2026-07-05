@@ -1,6 +1,5 @@
 ﻿import { useState, useRef, useEffect, useCallback } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
-import { useTheme } from "../../contexts/ThemeContext";
 import { useAuth }  from "../../contexts/AuthContext";
 import styles from "./Sidebar.module.scss";
 import MIcon from "../MIcon";
@@ -226,12 +225,6 @@ function UserPopup({ user, onLogout, onSettings, onClose, triggerRef, closing })
   );
 }
 
-const THEME_OPTIONS = [
-  { key: "light",  label: "淺色", icon: "light_mode" },
-  { key: "dark",   label: "深色", icon: "dark_mode" },
-  { key: "system", label: "系統", icon: "monitor" },
-];
-
 const LANG_OPTIONS = [
   { key: "zh-TW", label: "繁體中文", flag: "🇹🇼" },
   { key: "en",    label: "English",  flag: "🇬🇧" },
@@ -243,13 +236,10 @@ export default function Sidebar({ collapsed, mobileOpen, onToggle, onClose }) {
   const location = useLocation();
   const active   = location.pathname.split("/")[1] || "dashboard";
   const [lang, setLang] = useState("zh-TW");
-  const appearance = usePopup();
   const langPopup  = usePopup();
   const userPopup  = usePopup();
-  const appearanceBtnRef = useRef(null);
   const langBtnRef = useRef(null);
   const userBtnRef = useRef(null);
-  const { mode, setMode } = useTheme();
   const { user, logout } = useAuth();
 
   const cls = [
@@ -297,31 +287,6 @@ export default function Sidebar({ collapsed, mobileOpen, onToggle, onClose }) {
 
       {/* ===== Bottom section ===== */}
       <div className={styles.bottom}>
-        {/* 外觀選擇 */}
-        <div className={styles.appearanceWrap}>
-          {appearance.open && (
-            <SelectPopup
-              options={THEME_OPTIONS}
-              value={mode}
-              onSelect={setMode}
-              onClose={appearance.close}
-              triggerRef={appearanceBtnRef}
-              closing={appearance.closing}
-            />
-          )}
-          <button
-            ref={appearanceBtnRef}
-            type="button"
-            className={`${styles.navItem} ${appearance.open && !appearance.closing ? styles.active : ""}`}
-            onClick={appearance.toggle}
-            title={collapsed ? "外觀" : undefined}
-          >
-            <MIcon name="palette" size={20} />
-            {!collapsed && <span className={styles.navLabel}>外觀</span>}
-            {!collapsed && <span className={styles.navHint}>{THEME_OPTIONS.find(o => o.key === mode)?.label}</span>}
-          </button>
-        </div>
-
         {/* 語言選擇 */}
         <div className={styles.appearanceWrap}>
           {langPopup.open && (
