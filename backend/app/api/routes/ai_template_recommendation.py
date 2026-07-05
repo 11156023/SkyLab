@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 from collections import Counter
 from copy import deepcopy
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from time import monotonic, perf_counter
 from typing import Any
 
@@ -395,10 +395,8 @@ def get_my_template_usage(
     end_date: datetime | None = None,
 ):
     """查看當前使用者的 Template 呼叫統計（最近 30 天）"""
-    from datetime import timedelta
-
     if not end_date:
-        end_date = datetime.utcnow()
+        end_date = datetime.now(timezone.utc)
     if not start_date:
         start_date = end_date - timedelta(days=30)
 

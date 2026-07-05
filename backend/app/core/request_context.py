@@ -41,16 +41,21 @@ def _extract_client_ip(headers: list[tuple[bytes, bytes]], client_host: str | No
         except Exception:
             continue
 
+    # Trust X-Real-IP first: nginx sets it to $remote_addr, which the client
+    # cannot forge. X-Forwarded-For is built with $proxy_add_x_forwarded_for,
+    # so a client-supplied XFF header is preserved as the *leading* entries and
+    # only the LAST hop (appended by our nginx) is trustworthy. Never take the
+    # first XFF value — it is attacker-controlled and would let a caller spoof
+    # their source IP (bypassing per-IP rate limits and poisoning audit logs).
+    real_ip = header_map.get("x-real-ip")
+    if real_ip and real_ip.strip():
+        return real_ip.strip()
+
     forwarded_for = header_map.get("x-forwarded-for")
     if forwarded_for:
-        # Take the first hop = original client.
-        first = forwarded_for.split(",")[0].strip()
-        if first:
-            return first
-
-    real_ip = header_map.get("x-real-ip")
-    if real_ip:
-        return real_ip.strip()
+        hops = [hop.strip() for hop in forwarded_for.split(",") if hop.strip()]
+        if hops:
+            return hops[-1]
 
     return client_host
 

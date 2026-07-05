@@ -1,7 +1,8 @@
 """Tests for app.core.request_context — context var + ASGI middleware.
 
 Covers IP / user-agent extraction precedence:
-- X-Forwarded-For (first hop) > X-Real-IP > socket peer
+- X-Real-IP > X-Forwarded-For (last/trusted hop) > socket peer
+  (never the first XFF hop — that value is client-supplied and spoofable)
 - User-Agent header truncated to 512 chars
 """
 
@@ -21,12 +22,24 @@ from app.core.request_context import (
 # ─── Pure helpers ────────────────────────────────────────────────────────────
 
 
-def test_extract_client_ip_prefers_xff_first_hop() -> None:
+def test_extract_client_ip_prefers_real_ip_over_xff() -> None:
+    # X-Real-IP (set by nginx to the unforgeable $remote_addr) must win over
+    # any client-supplied X-Forwarded-For, so a spoofed leading XFF hop
+    # (203.0.113.42) is ignored.
     headers = [
         (b"x-forwarded-for", b"203.0.113.42, 10.0.0.1, 10.0.0.2"),
         (b"x-real-ip", b"10.0.0.99"),
     ]
-    assert _extract_client_ip(headers, "127.0.0.1") == "203.0.113.42"
+    assert _extract_client_ip(headers, "127.0.0.1") == "10.0.0.99"
+
+
+def test_extract_client_ip_uses_xff_last_hop_when_no_real_ip() -> None:
+    # Without X-Real-IP, only the LAST XFF hop is trustworthy (appended by our
+    # own nginx); the spoofable leading hops must never be returned.
+    headers = [
+        (b"x-forwarded-for", b"203.0.113.42, 10.0.0.1, 10.0.0.2"),
+    ]
+    assert _extract_client_ip(headers, "127.0.0.1") == "10.0.0.2"
 
 
 def test_extract_client_ip_falls_back_to_real_ip() -> None:

@@ -77,6 +77,9 @@ class Settings(BaseSettings):
 
     PROJECT_NAME: str
     SENTRY_DSN: HttpUrl | None = None
+    # Fraction of transactions sampled for Sentry performance tracing.
+    # 1.0 (100%) is only sensible for low-traffic staging; keep low in prod.
+    SENTRY_TRACES_SAMPLE_RATE: float = 0.1
     POSTGRES_SERVER: str
     POSTGRES_PORT: int = 5432
     POSTGRES_USER: str
@@ -155,9 +158,6 @@ class Settings(BaseSettings):
     VLLM_CHAT_MAX_TOKENS: int = 4096
     VLLM_REPETITION_PENALTY: float = 1.0
     VLLM_MAX_UPLOAD_SIZE_MB: int = 10
-
-    TRAEFIK_API_BASE_URL: str = "http://127.0.0.1:8080"
-    TRAEFIK_API_TIMEOUT: int = 10
 
     def _check_default_secret(self, var_name: str, value: str | None) -> None:
         if value == "changethis":

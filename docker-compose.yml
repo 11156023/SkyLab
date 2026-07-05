@@ -58,7 +58,9 @@ services:
     image: postgres:18
     restart: always
     ports:
-      - "5432:5432"
+      # Bind to localhost only: reachable for on-host tooling, never from the
+      # public network. Inter-container access uses the `db` service DNS name.
+      - "127.0.0.1:5432:5432"
     volumes:
       - app-db-data:/var/lib/postgresql/data/pgdata
     environment:
@@ -84,7 +86,8 @@ services:
     restart: always
     command: ["redis-server", "--appendonly", "yes"]
     ports:
-      - "6379:6379"
+      # Localhost only — Redis has no auth; must never be exposed externally.
+      - "127.0.0.1:6379:6379"
     volumes:
       - app-redis-data:/data
     networks:
@@ -102,8 +105,11 @@ services:
   mailcatcher:
     image: schickling/mailcatcher
     ports:
-      - "1080:1080"
-      - "1025:1025"
+      # Dev-only mail sink — bind to localhost so captured mail (incl. password
+      # reset links) is not readable from the public network. Replace with a
+      # real SMTP (set SMTP_HOST/SMTP_* in .env) before a real production run.
+      - "127.0.0.1:1080:1080"
+      - "127.0.0.1:1025:1025"
     networks:
       - skylab
 
@@ -142,7 +148,10 @@ services:
       - --reload
       - app/main.py
     ports:
-      - "8000:8000"
+      # Localhost only: the public entry point is nginx (:80), which proxies
+      # /api and /ws to this service over the internal network. Exposing 8000
+      # externally would let callers bypass nginx and forge X-Forwarded-For.
+      - "127.0.0.1:8000:8000"
     env_file:
       - .env
     environment:
@@ -200,7 +209,8 @@ services:
         VITE_GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
         ENABLE_SIGNUP: ${ENABLE_SIGNUP:-true}
     ports:
-      - "5173:80"
+      # Localhost only — public traffic goes through nginx (:80).
+      - "127.0.0.1:5173:80"
     depends_on:
       backend:
         condition: service_healthy
