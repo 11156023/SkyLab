@@ -100,37 +100,73 @@
   line-height: $line-height-base;
 }
 
-/* ── Request grid ── */
-.grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(360px, 1fr));
-  gap: $spacing-16;
+/* ── Request table ── */
+.tableWrap {
+  @include glass-surface;
+  border-radius: $radius-16;
+  box-shadow: var(--shadow-sm);
+  overflow: hidden;
+  overflow-x: auto;
 }
 
-/* ── Request card ── */
-.card {
-  @include flex-column;
-  @include glass-surface;
-  gap: $spacing-16;
-  border-radius: $radius-16;
-  padding: $spacing-16;
-  transition: box-shadow $transition-base, transform $transition-base;
+.table {
+  width: 100%;
+  min-width: 720px;
+  border-collapse: collapse;
+}
+
+.th {
+  padding: $spacing-8 $spacing-16;
+  font-size: $font-size-12;
+  font-weight: $font-weight-500;
+  color: var(--color-text-muted);
+  text-align: left;
+  background: var(--color-hover);
+  border-bottom: 1px solid var(--color-border);
+  white-space: nowrap;
+}
+
+.tr {
+  transition: background $transition-base;
+
+  &:not(:last-child) {
+    border-bottom: 1px solid var(--color-divider);
+  }
 
   &:hover {
-    box-shadow: var(--shadow-md);
-    transform: translateY(-5px);
+    background: var(--color-hover);
   }
 }
 
-.cardHeader {
+.trClickable {
+  cursor: pointer;
+}
+
+.trExpanded {
+  background: color-mix(in srgb, var(--color-primary) 6%, transparent);
+
+  &:not(:last-child) {
+    border-bottom: none;
+  }
+}
+
+.td {
+  padding: $spacing-8 $spacing-16;
+  font-size: $font-size-14;
+  color: var(--color-text-primary);
+  vertical-align: middle;
+}
+
+.nameCell {
   display: flex;
   align-items: center;
   gap: $spacing-8;
+  min-width: 160px;
 }
 
-.cardIcon {
-  width: 40px;
-  height: 40px;
+.nameIcon {
+  width: 34px;
+  height: 34px;
   border-radius: $radius-8;
   background: var(--color-hover);
   color: var(--color-primary);
@@ -138,64 +174,71 @@
   flex-shrink: 0;
 }
 
-.cardMeta {
+.nameMeta {
   @include flex-column;
   gap: 2px;
-  flex: 1;
   min-width: 0;
 }
 
-.cardName {
+.namePrimary {
   font-size: $font-size-14;
-  font-weight: $font-weight-700;
-  color: var(--color-text);
+  font-weight: $font-weight-500;
+  color: var(--color-text-primary);
   @include text-truncate;
 }
 
-.cardType {
+.nameSub {
   font-size: $font-size-12;
   color: var(--color-text-muted);
+  white-space: nowrap;
 }
 
-/* ── Type / VMID chips under hostname ── */
-.cardChips {
+.osCell,
+.specCell {
+  font-size: $font-size-12;
+  color: var(--color-text);
+  white-space: nowrap;
+}
+
+/* ── Row actions ── */
+.rowActions {
   display: flex;
   align-items: center;
-  flex-wrap: wrap;
-  gap: 5px;
-  margin-top: 2px;
+  justify-content: flex-end;
+  gap: $spacing-8;
 }
 
-.typeChip {
-  display: inline-flex;
-  align-items: center;
-  padding: 2px 8px;
-  border-radius: $radius-pill;
-  font-size: $font-size-12;
-  font-weight: $font-weight-500;
-  background: color-mix(in srgb, var(--color-primary) 10%, transparent);
-  color: var(--color-primary);
-}
-
-.vmidChip {
-  display: inline-flex;
-  align-items: center;
-  padding: 2px 8px;
-  border-radius: $radius-pill;
-  font-size: $font-size-12;
-  font-weight: $font-weight-500;
-  background: var(--color-hover);
+.expandBtn {
+  width: 26px;
+  height: 26px;
+  border-radius: $radius-8;
   color: var(--color-text-muted);
-  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+  @include flex-center;
+  transition: background $transition-base, transform $transition-base;
+
+  &:hover { background: var(--color-hover); }
 }
 
-/* ── Info rows ── */
-.cardInfo {
+.expandBtnOpen {
+  transform: rotate(180deg);
+}
+
+/* ── Expanded detail row ── */
+.detailTr {
+  &:not(:last-child) {
+    border-bottom: 1px solid var(--color-divider);
+  }
+}
+
+.detailTd {
+  padding: $spacing-8 $spacing-16 $spacing-16;
+  background: color-mix(in srgb, var(--color-primary) 3%, transparent);
+}
+
+.detailBody {
   @include flex-column;
-  gap: 5px;
-  padding: $spacing-8 0;
-  border-top: 1px solid var(--color-border);
-  border-bottom: 1px solid var(--color-border);
+  gap: 6px;
 }
 
 .infoRow {
@@ -223,74 +266,13 @@
   @include text-truncate;
 }
 
-/* ── Spec chips row ── */
-.specRow {
-  display: flex;
-  flex-wrap: wrap;
-  gap: $spacing-8;
-}
-
-.specChip {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 4px 10px;
-  border-radius: $radius-8;
-  background: var(--color-hover);
-}
-
-.specChipLabel {
-  font-size: $font-size-12;
-  color: var(--color-text-primary);
-}
-
-.specChipValue {
-  font-size: $font-size-12;
-  font-weight: $font-weight-700;
-  color: var(--color-text);
-}
-
-/* ── Card footer ── */
-.cardFooter {
-  @include flex-between;
-  align-items: center;
-  gap: $spacing-8;
-  padding-top: $spacing-8;
-  border-top: 1px solid var(--color-border);
-}
-
-.cardActions {
-  display: flex;
-  align-items: center;
-  gap: $spacing-8;
-  flex-shrink: 0;
-}
-
-.cardDate {
-  font-size: $font-size-12;
-  color: var(--color-text-muted);
-}
-
-.cardDetailBtn {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  font-size: $font-size-12;
-  font-weight: $font-weight-500;
-  color: var(--color-primary);
-  cursor: pointer;
-  transition: opacity $transition-base;
-
-  &:hover { opacity: 0.75; }
-}
-
 /* ── Status badge ── */
 .badge {
   @include badge-base;
   gap: 4px;
   padding: 4px 10px;
-  margin-left: 8px;
   flex-shrink: 0;
+  white-space: nowrap;
 }
 
 .badge_success { background: color-mix(in srgb, var(--color-success) 12%, transparent); color: var(--color-success); }
@@ -298,15 +280,6 @@
 .badge_danger  { background: color-mix(in srgb, var(--color-danger)  12%, transparent); color: var(--color-danger); }
 .badge_info    { background: color-mix(in srgb, var(--color-info)    12%, transparent); color: var(--color-info); }
 .badge_muted   { background: color-mix(in srgb, var(--color-status-neutral) 12%, transparent); color: var(--color-status-neutral); }
-
-/* ── Card period ── */
-.cardPeriod {
-  display: flex;
-  align-items: center;
-  gap: 5px;
-  font-size: $font-size-12;
-  color: var(--color-text-secondary);
-}
 
 /* ── Review comment ── */
 .reviewComment {
@@ -392,8 +365,8 @@
   &:disabled { opacity: 0.5; cursor: not-allowed; }
 }
 
-/* ── Card action buttons ── */
-%cardBtn {
+/* ── Row action buttons ── */
+%rowBtn {
   display: inline-flex;
   align-items: center;
   gap: 5px;
@@ -407,8 +380,8 @@
   transition: background $transition-base, border-color $transition-base;
 }
 
-.cardCancelBtn {
-  @extend %cardBtn;
+.cancelBtn {
+  @extend %rowBtn;
   background: color-mix(in srgb, #dc3545 80%, var(--color-border));
   color: var(--color-text-on-primary);
   border-color: color-mix(in srgb, #dc3545 80%, var(--color-border));
@@ -444,14 +417,12 @@
   animation: shimmer 1.4s ease-in-out infinite;
 }
 
-.skRow     { border-radius: 4px; }
-.skBadge   { width: 60px; height: 22px; border-radius: $radius-pill; }
-.skChip    { width: 72px; height: 30px; border-radius: $radius-8; }
-.skInfoRow { display: flex; align-items: center; gap: $spacing-8; }
+.skRow   { border-radius: 4px; }
+.skBadge { width: 60px; height: 22px; border-radius: $radius-pill; }
 
 /* ── Retry button ── */
 .retryBtn {
-  @extend %cardBtn;
+  @extend %rowBtn;
   background: var(--color-surface);
   color: var(--color-text);
   border-color: var(--color-border);

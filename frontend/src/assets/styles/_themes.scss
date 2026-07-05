@@ -116,3 +116,26 @@ body.dark {
   --color-flow-border: rgba(255, 255, 255, 0.06);
   --color-flow-shadow: rgba(0, 0, 0, 0.25);
 }
+
+/* ============================================
+   Style Variants（介面風格）
+   玻璃質感為預設（data-style="glass"，變數即 :root / body.dark 原值）。
+   白底 / 黑底只把卡片等表面改為實色（白底限淺色模式、
+   黑底限深色模式，由 ThemeContext 保證），頁面背景、
+   文字、hover、Modal 遮罩都跟著明暗模式走，不在此覆寫。
+   放在 body.dark 之後，同特異度下由原始碼順序勝出。
+   ============================================ */
+
+body[data-style="white"] {
+  --color-surface-glass: #ffffff;
+  --color-surface-glass-border: #e5eaf3;
+  --color-sidebar-glass: #ffffff;
+  --color-sidebar-glass-border: #e5eaf3;
+}
+
+body[data-style="black"] {
+  --color-surface-glass: #0d0d10;
+  --color-surface-glass-border: #26262b;
+  --color-sidebar-glass: #0d0d10;
+  --color-sidebar-glass-border: #26262b;
+}

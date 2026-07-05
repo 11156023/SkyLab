@@ -3,6 +3,7 @@ import styles from "./AiApiKeysPage.module.scss";
 import MIcon from "../../../components/MIcon";
 import { AiApiService } from "../../../services/aiApi";
 import { useToast } from "../../../hooks/useToast";
+import useAutoRefresh from "../../../hooks/useAutoRefresh";
 
 const PAGE_SIZE = 50;
 
@@ -95,8 +96,9 @@ export default function AiApiKeysPage() {
   const [activeCount, setActiveCount] = useState(0);
   const [inactiveCount, setInactiveCount] = useState(0);
 
-  const load = useCallback(async () => {
-    setLoading(true);
+  /** silent = true 時不觸發 loading 與錯誤提示，供背景自動刷新使用 */
+  const load = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true);
     try {
       const res = await AiApiService.listAllCredentials();
       const data = res?.data ?? [];
@@ -124,13 +126,14 @@ export default function AiApiKeysPage() {
       const start = page * PAGE_SIZE;
       setRows(filtered.slice(start, start + PAGE_SIZE));
     } catch (e) {
-      toast.error(e?.message ?? "載入金鑰資料失敗");
+      if (!silent) toast.error(e?.message ?? "載入金鑰資料失敗");
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   }, [statusFilter, userEmail, page, toast]);
 
   useEffect(() => { load(); }, [load]);
+  useAutoRefresh(() => load(true));
 
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
 
@@ -144,12 +147,6 @@ export default function AiApiKeysPage() {
           <p className={styles.pageSubtitle}>
             查看目前資料庫中所有 AI API 金鑰紀錄與狀態（僅顯示現存紀錄）。
           </p>
-        </div>
-        <div className={styles.pageActions}>
-          <button type="button" className={styles.btnSecondary} onClick={load} disabled={loading}>
-            <MIcon name="sync" size={16} />
-            {loading ? "載入中…" : "重新整理"}
-          </button>
         </div>
       </div>
 

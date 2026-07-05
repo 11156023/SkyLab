@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import styles from "./MigrationPage.module.scss";
 import MIcon from "../../../components/MIcon";
 import { useToast } from "../../../hooks/useToast";
+import useAutoRefresh from "../../../hooks/useAutoRefresh";
 import { MigrationJobsService } from "../../../services/migrationJobs";
 
 const PAGE_SIZE = 50;
@@ -58,8 +59,9 @@ export default function MigrationPage() {
   const [page, setPage] = useState(0);
   const [actingId, setActingId] = useState(null);
 
-  const fetchJobs = useCallback(async () => {
-    setLoading(true);
+  /** silent = true 時不觸發 loading 與錯誤提示，供背景自動刷新使用 */
+  const fetchJobs = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true);
     try {
       const [jobsRes, statsRes] = await Promise.all([
         MigrationJobsService.list({
@@ -73,21 +75,22 @@ export default function MigrationPage() {
       setCount(jobsRes?.count ?? 0);
       if (statsRes) setStats(statsRes);
     } catch (err) {
-      toast.error(err?.message ?? "載入遷移任務失敗");
+      if (!silent) toast.error(err?.message ?? "載入遷移任務失敗");
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   }, [statusFilter, page, toast]);
 
   useEffect(() => {
     fetchJobs();
   }, [fetchJobs]);
+  useAutoRefresh(() => fetchJobs(true));
 
   /* 有進行中任務時每 5 秒自動更新 */
   useEffect(() => {
     const hasActive = jobs.some((j) => j.status === "pending" || j.status === "running");
     if (!hasActive) return undefined;
-    const timer = setInterval(fetchJobs, 5000);
+    const timer = setInterval(() => fetchJobs(true), 5000);
     return () => clearInterval(timer);
   }, [jobs, fetchJobs]);
 
@@ -126,10 +129,6 @@ export default function MigrationPage() {
           <h1 className={styles.pageTitle}>Migration Jobs</h1>
           <p className={styles.pageSubtitle}>追蹤虛擬機與容器的跨節點遷移進度與歷史紀錄</p>
         </div>
-        <button type="button" className={styles.btnSecondary} onClick={fetchJobs} disabled={loading}>
-          <MIcon name="sync" size={16} />
-          重新整理
-        </button>
       </div>
 
       {stats && (

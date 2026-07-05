@@ -3,6 +3,7 @@ import styles from "./AiMonitoringPage.module.scss";
 import MIcon from "../../../components/MIcon";
 import { AiMonitoringService } from "../../../services/aiMonitoring";
 import { useToast } from "../../../hooks/useToast";
+import useAutoRefresh from "../../../hooks/useAutoRefresh";
 
 function presetToRange(preset) {
   const end = new Date();
@@ -135,8 +136,9 @@ export default function AiMonitoringPage() {
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
 
-  const load = useCallback(async () => {
-    setLoading(true);
+  /** silent = true 時不觸發 loading 與錯誤提示，供背景自動刷新使用 */
+  const load = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true);
     try {
       const range = presetToRange(preset);
       const [s, p, t, u] = await Promise.all([
@@ -150,13 +152,14 @@ export default function AiMonitoringPage() {
       setTemplateCalls(t?.data ?? []);
       setUsers(u?.data ?? []);
     } catch (e) {
-      toast.error(e?.message ?? "載入 AI 監控資料失敗");
+      if (!silent) toast.error(e?.message ?? "載入 AI 監控資料失敗");
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   }, [preset, toast]);
 
   useEffect(() => { load(); }, [load]);
+  useAutoRefresh(() => load(true));
 
   const stats = useMemo(() => {
     if (!statsData) {
@@ -219,10 +222,6 @@ export default function AiMonitoringPage() {
               </button>
             ))}
           </div>
-          <button type="button" className={styles.btnSecondary} onClick={load} disabled={loading}>
-            <MIcon name="sync" size={16} />
-            {loading ? "載入中…" : "重新整理"}
-          </button>
         </div>
       </div>
 

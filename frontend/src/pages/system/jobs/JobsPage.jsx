@@ -3,6 +3,7 @@ import styles from "./JobsPage.module.scss";
 import MIcon from "../../../components/MIcon";
 import { JobsService } from "../../../services/jobs";
 import { useToast } from "../../../hooks/useToast";
+import useAutoRefresh from "../../../hooks/useAutoRefresh";
 
 const COLUMNS = ["任務", "類型", "狀態", "進度", "建立時間", "更新時間", "申請人"];
 
@@ -82,8 +83,9 @@ export default function JobsPage() {
   const [status, setStatus] = useState("all");
   const [loading, setLoading] = useState(true);
 
-  const load = useCallback(async () => {
-    setLoading(true);
+  /** silent = true 時不觸發 loading 與錯誤提示，供背景自動刷新使用 */
+  const load = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true);
     try {
       const params = { limit: 200 };
       if (kind !== "all") params.kinds = [kind];
@@ -93,13 +95,14 @@ export default function JobsPage() {
       setJobs(res?.items ?? []);
       setActiveCount(res?.active_count ?? 0);
     } catch (e) {
-      toast.error(e?.message ?? "載入背景任務失敗");
+      if (!silent) toast.error(e?.message ?? "載入背景任務失敗");
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   }, [kind, status, toast]);
 
   useEffect(() => { load(); }, [load]);
+  useAutoRefresh(() => load(true));
 
   const stats = useMemo(() => {
     const completed = jobs.filter((j) => j.status === "completed").length;
@@ -115,12 +118,6 @@ export default function JobsPage() {
         <div className={styles.pageHeading}>
           <h1 className={styles.pageTitle}>背景任務</h1>
           <p className={styles.pageSubtitle}>追蹤遷移、部署與資源配置等長時間執行的任務</p>
-        </div>
-        <div className={styles.pageActions}>
-          <button type="button" className={styles.btnSecondary} onClick={load} disabled={loading}>
-            <MIcon name="sync" size={16} />
-            {loading ? "載入中…" : "重新整理"}
-          </button>
         </div>
       </div>
 

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import styles from "./AiJudgePanel.module.scss";
 import MIcon from "../../../components/MIcon";
 import { useToast } from "../../../hooks/useToast";
+import useAutoRefresh from "../../../hooks/useAutoRefresh";
 import { downloadBlob } from "../../../services/api";
 import {
   AiJudgeService,
@@ -417,21 +418,25 @@ function RubricsTab({ groupId, onScriptCreated }) {
   const [selectedTemplateKey, setSelectedTemplateKey] = useState("linux");
   const [analysisTemplateKey, setAnalysisTemplateKey] = useState("linux");
 
-  const fetchFiles = useCallback(async () => {
-    setFilesLoading(true);
-    setFilesError(false);
+  /** silent = true 時不觸發 loading / error state，供背景自動刷新使用 */
+  const fetchFiles = useCallback(async (silent = false) => {
+    if (!silent) {
+      setFilesLoading(true);
+      setFilesError(false);
+    }
     try {
       setFiles(await AiJudgeService.listFiles(groupId));
     } catch {
-      setFilesError(true);
+      if (!silent) setFilesError(true);
     } finally {
-      setFilesLoading(false);
+      if (!silent) setFilesLoading(false);
     }
   }, [groupId]);
 
   useEffect(() => {
     fetchFiles();
   }, [fetchFiles]);
+  useAutoRefresh(() => fetchFiles(true));
 
   /** 重算統計欄位後套用新的項目清單 */
   function applyItems(base, nextItems) {
@@ -668,15 +673,6 @@ function RubricsTab({ groupId, onScriptCreated }) {
             <MIcon name="description" size={18} />
             已保存評分表
           </h4>
-          <button
-            type="button"
-            className={styles.btnSecondary}
-            onClick={fetchFiles}
-            disabled={filesLoading}
-          >
-            <MIcon name="refresh" size={16} />
-            重新整理
-          </button>
         </div>
         {filesLoading ? (
           <p className={styles.mutedText}>載入評分表中...</p>

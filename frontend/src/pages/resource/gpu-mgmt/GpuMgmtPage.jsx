@@ -3,6 +3,7 @@ import styles from "./GpuMgmtPage.module.scss";
 import MIcon from "../../../components/MIcon";
 import { GpuService } from "../../../services/gpu";
 import { useToast } from "../../../hooks/useToast";
+import useAutoRefresh from "../../../hooks/useAutoRefresh";
 
 const COLUMNS = ["Mapping", "描述", "節點 / PCI", "可用 / 總數", "使用中 VM", "狀態", "動作"];
 
@@ -96,19 +97,21 @@ export default function GpuMgmtPage() {
   const [filter, setFilter] = useState("");
   const [loading, setLoading] = useState(true);
 
-  const load = useCallback(async () => {
-    setLoading(true);
+  /** silent = true 時不觸發 loading 與錯誤提示，供背景自動刷新使用 */
+  const load = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true);
     try {
       const res = await GpuService.listMappings();
       setRows(flattenMappings(res?.data ?? []));
     } catch (e) {
-      toast.error(e?.message ?? "載入 GPU mappings 失敗");
+      if (!silent) toast.error(e?.message ?? "載入 GPU mappings 失敗");
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   }, [toast]);
 
   useEffect(() => { load(); }, [load]);
+  useAutoRefresh(() => load(true));
 
   const handleDelete = async (id) => {
     if (!window.confirm(`確定要刪除 mapping "${id}"?`)) return;
@@ -151,12 +154,6 @@ export default function GpuMgmtPage() {
         <div className={styles.pageHeading}>
           <h1 className={styles.pageTitle}>GPU 管理</h1>
           <p className={styles.pageSubtitle}>查看叢集中所有 PCI Passthrough GPU 的指派狀態</p>
-        </div>
-        <div className={styles.pageActions}>
-          <button type="button" className={styles.btnSecondary} onClick={load} disabled={loading}>
-            <MIcon name="sync" size={16} />
-            {loading ? "載入中…" : "重新整理"}
-          </button>
         </div>
       </div>
 

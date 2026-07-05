@@ -4,6 +4,7 @@ import MIcon from "../../../components/MIcon";
 import { AiApiService } from "../../../services/aiApi";
 import { AiMonitoringService } from "../../../services/aiMonitoring";
 import { useToast } from "../../../hooks/useToast";
+import useAutoRefresh from "../../../hooks/useAutoRefresh";
 
 function fmtDate(iso) {
   return iso ? new Date(iso).toLocaleString("zh-TW") : "—";
@@ -70,8 +71,9 @@ export default function AiManagementPage() {
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
 
-  const load = useCallback(async () => {
-    setLoading(true);
+  /** silent = true 時不觸發 loading 與錯誤提示，供背景自動刷新使用 */
+  const load = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true);
     try {
       const [credRes, reqRes, usersRes] = await Promise.all([
         AiApiService.listAllCredentials(),
@@ -82,13 +84,14 @@ export default function AiManagementPage() {
       setRequests(reqRes?.data ?? []);
       setUsers(usersRes?.data ?? []);
     } catch (e) {
-      toast.error(e?.message ?? "載入 AI 管理資料失敗");
+      if (!silent) toast.error(e?.message ?? "載入 AI 管理資料失敗");
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   }, [toast]);
 
   useEffect(() => { load(); }, [load]);
+  useAutoRefresh(() => load(true));
 
   const reviewRequest = async (id, decisionStatus) => {
     if (!window.confirm(decisionStatus === "approved" ? "確定核准此申請?" : "確定駁回此申請?")) return;
@@ -162,12 +165,6 @@ export default function AiManagementPage() {
         <div className={styles.pageHeading}>
           <h1 className={styles.pageTitle}>AI 管理</h1>
           <p className={styles.pageSubtitle}>管理 AI API 憑證、處理使用申請與檢視使用者統計</p>
-        </div>
-        <div className={styles.pageActions}>
-          <button type="button" className={styles.btnSecondary} onClick={load} disabled={loading}>
-            <MIcon name="sync" size={16} />
-            {loading ? "載入中…" : "重新整理"}
-          </button>
         </div>
       </div>
 
