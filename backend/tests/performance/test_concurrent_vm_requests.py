@@ -29,13 +29,19 @@ P95_LIMIT_SECONDS = 2.0
 
 @pytest.fixture()
 def _stubbed_side_effects(monkeypatch: pytest.MonkeyPatch) -> None:
-    """略過視窗驗證（會打 PVE）、rate limit 與背景 provision 觸發。"""
+    """略過視窗驗證與配額用量查詢（皆會打 PVE）、rate limit 與背景 provision 觸發。"""
+    from app.services.resource import quota_service
     from app.services.vm import vm_request_service
 
     monkeypatch.setattr(
         vm_request_service.vm_request_availability_service,
         "validate_request_window",
         lambda **kwargs: None,
+    )
+    # 配額執法會在持有 DB 連線時呼叫 PVE cluster/resources —— 壓測下
+    # 50 併發 × HTTP 往返會耗盡連線池，且量測的是 PVE 而非本 API。
+    monkeypatch.setattr(
+        quota_service.proxmox_service, "list_all_resources", lambda: []
     )
     monkeypatch.setattr(
         vm_request_service, "submit_sync", lambda *a, **k: ""
