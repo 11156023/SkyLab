@@ -239,12 +239,12 @@
   padding: $spacing-8 $spacing-16;
   border-radius: $radius-8;
   font-size: $font-size-12;
-  border: 1px solid color-mix(in srgb, #2b4d98 30%, transparent);
-  background: color-mix(in srgb, #2b4d98 8%, transparent);
+  border: 1px solid color-mix(in srgb, var(--color-primary-dark) 30%, transparent);
+  background: color-mix(in srgb, var(--color-primary-dark) 8%, transparent);
   color: var(--color-text-secondary);
 
   p { margin: 0; }
-  strong { color: #2b4d98; }
+  strong { color: var(--color-primary-dark); }
 }
 
 /* ── 已保存評分表列表 ── */
@@ -491,10 +491,10 @@
 }
 
 .statBox_info {
-  background: color-mix(in srgb, #2b4d98 10%, transparent);
+  background: color-mix(in srgb, var(--color-primary-dark) 10%, transparent);
 
-  .statValue { color: #2b4d98; }
-  .statLabel { color: #2b4d98; }
+  .statValue { color: var(--color-primary-dark); }
+  .statLabel { color: var(--color-primary-dark); }
 }
 
 .statBox_danger {
@@ -534,7 +534,7 @@
 }
 
 .rubricCard_auto { border-left-color: #28a745; }
-.rubricCard_partial { border-left-color: #2b4d98; }
+.rubricCard_partial { border-left-color: var(--color-primary-dark); }
 .rubricCard_manual { border-left-color: #dc3545; }
 
 .rubricCardHead {
@@ -561,7 +561,7 @@
 }
 
 .detBadge_auto { background: color-mix(in srgb, #28a745 12%, transparent); color: #28a745; }
-.detBadge_partial { background: color-mix(in srgb, #2b4d98 12%, transparent); color: #2b4d98; }
+.detBadge_partial { background: color-mix(in srgb, var(--color-primary-dark) 12%, transparent); color: var(--color-primary-dark); }
 .detBadge_manual { background: color-mix(in srgb, #dc3545 12%, transparent); color: #dc3545; }
 
 .rubricField {
@@ -1055,7 +1055,7 @@
 }
 
 .badge_success { background: color-mix(in srgb, #28a745 12%, transparent); color: #28a745; }
-.badge_info    { background: color-mix(in srgb, #2b4d98 12%, transparent); color: #2b4d98; }
+.badge_info    { background: color-mix(in srgb, var(--color-primary-dark) 12%, transparent); color: var(--color-primary-dark); }
 .badge_danger  { background: color-mix(in srgb, #dc3545 12%, transparent); color: #dc3545; }
 .badge_muted   { background: var(--color-hover); color: var(--color-text-muted); }
 

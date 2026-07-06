@@ -24,63 +24,28 @@ export const STYLE_OPTIONS = [
 ];
 
 /**
- * 背景花色選項，依風格分組；每組第一個「跟隨主色」(auto-gradient) 為預設。
- * 柔和雙色 / 對角三色三種風格共用（色碼由基準色衍生，明暗模式自動切換），
- * 只有「跟隨主色」依風格有各自的款式。preview 為縮圖用的 CSS background，
- * 直接吃 :root / body 上的衍生變數。
+ * 背景花色選項，與風格完全無關的一組；第一個「跟隨主色」(auto-gradient) 為預設。
+ * 色碼由基準色衍生、明暗模式自動切換（_backgrounds.scss 的別名處理），
+ * preview 為縮圖用的 CSS background，直接吃 :root / body 上的衍生變數。
  */
-const DUO_OPTION = {
-  id: "preset-2",
-  label: "柔和雙色",
-  preview: "linear-gradient(135deg, var(--color-bg-duo-1), var(--color-bg-duo-2))",
-};
-
-const TRI_OPTION = {
-  id: "preset-3",
-  label: "對角三色",
-  preview:
-    "linear-gradient(135deg, var(--color-bg-tri-1), var(--color-bg-tri-2) 50%, var(--color-bg-tri-3))",
-};
-
-export const BACKGROUND_OPTIONS = {
-  glass: [
-    {
-      id: "auto-gradient",
-      label: "跟隨主色",
-      preview: "linear-gradient(135deg, var(--color-bg-primary-soft), var(--color-bg-primary-tint))",
-    },
-    DUO_OPTION,
-    TRI_OPTION,
-  ],
-  liquid: [
-    {
-      id: "auto-gradient",
-      label: "跟隨主色",
-      preview:
-        "radial-gradient(ellipse 90% 90% at 20% 10%, var(--color-bg-primary-tint), transparent 70%), linear-gradient(135deg, var(--color-bg-primary-soft), var(--color-bg-primary-tint))",
-    },
-    DUO_OPTION,
-    TRI_OPTION,
-  ],
-  white: [
-    {
-      id: "auto-gradient",
-      label: "跟隨主色",
-      preview: "linear-gradient(135deg, #ffffff 35%, var(--color-bg-primary-soft))",
-    },
-    DUO_OPTION,
-    TRI_OPTION,
-  ],
-  black: [
-    {
-      id: "auto-gradient",
-      label: "跟隨主色",
-      preview: "linear-gradient(135deg, #000000 35%, var(--color-bg-primary-deep))",
-    },
-    DUO_OPTION,
-    TRI_OPTION,
-  ],
-};
+export const BACKGROUND_OPTIONS = [
+  {
+    id: "auto-gradient",
+    label: "跟隨主色",
+    preview: "linear-gradient(135deg, var(--color-bg-primary-soft), var(--color-bg-primary-tint))",
+  },
+  {
+    id: "preset-2",
+    label: "柔和雙色",
+    preview: "linear-gradient(135deg, var(--color-bg-duo-1), var(--color-bg-duo-2))",
+  },
+  {
+    id: "preset-3",
+    label: "對角三色",
+    preview:
+      "linear-gradient(135deg, var(--color-bg-tri-1), var(--color-bg-tri-2) 50%, var(--color-bg-tri-3))",
+  },
+];
 
 export { THEME_DEFAULTS };
 
@@ -98,11 +63,20 @@ function paletteToCss(p) {
     `--color-text: ${p.text};`,
     `--color-text-primary: ${p.textPrimary};`,
     `--color-text-secondary: ${p.textSecondary};`,
+    `--color-text-muted: ${p.textMuted};`,
+    `--color-hover: ${p.hover};`,
+    `--color-border: ${p.border};`,
+    `--color-divider: ${p.divider};`,
+    `--color-bg-base: ${p.bgBase};`,
+    `--color-info: ${p.primary};`,
+    `--color-flow-bg: ${p.flowBg};`,
   ].join(" ");
 }
 
 /**
- * 非預設主色時注入 <style>，讓主色連同文字、按鈕用色一起換：
+ * 非預設主色時注入 <style>，讓整個介面帶主色色調的用色一起換：
+ * primary 色階、文字、hover、邊框、分隔線、頁面底色、info、
+ * 流程畫布底（狀態語意色 綠/黃/紅 與白黑基底不動）：
  * - body:      淺色模式配色
  * - body.dark: 深色模式配色（高亮度、帶主色色調的文字）
  * 預設主色則移除 <style>，讓 _themes.scss 的原始配色生效。
@@ -205,25 +179,24 @@ export function ThemeProvider({ children }) {
     document.body.setAttribute("data-style", style);
   }, [style]);
 
-  // 背景：目前風格下沒有對應花色時退回預設，否則以 data-bg 套用
+  // 背景：與風格無關，直接以 data-bg 套用
   // （實際花色集中定義在 _backgrounds.scss）。
-  // 玻璃質感在完全未自訂時（跟隨主色 + 預設主色 + 未另選背景色）
+  // 完全未自訂時（跟隨主色 + 預設主色 + 未另選背景色）
   // 不掛 data-bg，讓 global.scss 的原始三色暈染呈現 ——
   // 系統預設外觀維持最初的樣子
   useEffect(() => {
-    if (!BACKGROUND_OPTIONS[style]?.some((opt) => opt.id === backgroundId)) {
+    if (!BACKGROUND_OPTIONS.some((opt) => opt.id === backgroundId)) {
       setBackgroundId(THEME_DEFAULTS.backgroundId);
       return;
     }
     themePreferenceStore.save({ backgroundId });
     const untouched =
-      style === "glass" &&
       backgroundId === "auto-gradient" &&
       !backgroundColor &&
       primaryColor.toLowerCase() === THEME_DEFAULTS.primaryColor;
     if (untouched) document.body.removeAttribute("data-bg");
     else document.body.setAttribute("data-bg", backgroundId);
-  }, [style, backgroundId, primaryColor, backgroundColor]);
+  }, [backgroundId, primaryColor, backgroundColor]);
 
   // 白底只能配淺色模式、黑底只能配深色模式；
   // 明暗模式切換（含系統模式跟隨 OS）時自動換成對應的底

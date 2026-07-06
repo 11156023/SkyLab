@@ -303,7 +303,7 @@
 }
 
 .badge_success { background: color-mix(in srgb, #28a745 12%, transparent); color: #28a745; }
-.badge_info    { background: color-mix(in srgb, #2b4d98 12%, transparent); color: #2b4d98; }
+.badge_info    { background: color-mix(in srgb, var(--color-primary-dark) 12%, transparent); color: var(--color-primary-dark); }
 .badge_danger  { background: color-mix(in srgb, #dc3545 12%, transparent); color: #dc3545; }
 .badge_muted   { background: var(--color-hover); color: var(--color-text-muted); }
 

@@ -109,6 +109,30 @@ describe("derivePrimaryTheme — 文字用色", () => {
   });
 });
 
+describe("derivePrimaryTheme — 介面用色（hover / 邊框 / 底色）", () => {
+  test("淺色模式：hover / 邊框 / 底色為高亮度、次要文字在中間段", () => {
+    const { light } = derivePrimaryTheme("#e91e63");
+    for (const c of [light.hover, light.border, light.divider, light.bgBase]) {
+      expect(lightnessOf(c)).toBeGreaterThanOrEqual(90);
+    }
+    expect(lightnessOf(light.textMuted)).toBeGreaterThan(45);
+    expect(lightnessOf(light.textMuted)).toBeLessThan(70);
+  });
+
+  test("深色模式：hover / 邊框 / 底色壓暗", () => {
+    const { dark } = derivePrimaryTheme("#e91e63");
+    for (const c of [dark.hover, dark.border, dark.divider, dark.bgBase]) {
+      expect(lightnessOf(c)).toBeLessThanOrEqual(25);
+    }
+  });
+
+  test("flowBg 為帶透明度的 color-mix 值", () => {
+    const { light, dark } = derivePrimaryTheme("#5471bf");
+    expect(light.flowBg).toMatch(/^color-mix\(in srgb, #[0-9a-f]{6} \d+%, transparent\)$/);
+    expect(dark.flowBg).toMatch(/^color-mix\(in srgb, #[0-9a-f]{6} \d+%, transparent\)$/);
+  });
+});
+
 describe("deriveBackgroundPalettes — 柔和雙色 / 對角三色", () => {
   test("淺色套組為粉彩（高亮度）、深色套組壓暗", () => {
     const { duo, tri } = deriveBackgroundPalettes("#5471bf");

@@ -98,15 +98,19 @@ export function deriveBackgroundPalettes(hex) {
 }
 
 /**
- * 主色 → 明暗兩種模式的完整配色（primary 色階 + 文字色）。
- * 文字色沿用主色的色相，只調 lightness：
- * 淺色模式壓在可讀範圍（避免極亮主色產生看不見的文字），
- * 深色模式固定在高亮度、僅帶主色色調。
+ * 主色 → 明暗兩種模式的完整配色。
+ * 除了 primary 色階與文字色，介面上所有帶主色色調的用色
+ * （hover、邊框、分隔線、次要文字、頁面底色、流程畫布底）
+ * 也一併沿用主色色相衍生——各項的飽和上限與亮度
+ * 對齊 _themes.scss 原始藍色系的量測值。
+ * 文字色只調 lightness：淺色模式壓在可讀範圍
+ * （避免極亮主色產生看不見的文字），深色模式固定高亮度。
  */
 export function derivePrimaryTheme(hex) {
   const { primary, light, dark } = derivePrimaryShades(hex);
   const { h, s, l } = hexToHsl(primary);
   const between = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
+  const tone = (maxS, lig) => hslToHex(h, Math.min(s, maxS), lig);
   const shades = { primary, primaryLight: light, primaryDark: dark };
   return {
     light: {
@@ -114,12 +118,24 @@ export function derivePrimaryTheme(hex) {
       text: hslToHex(h, s, between(l, 25, 60)),
       textPrimary: hslToHex(h, s, between(l - 12, 18, 45)),
       textSecondary: hslToHex(h, s, between(l + 4, 30, 66)),
+      textMuted: tone(20, 59),
+      hover: tone(80, 95),
+      border: tone(40, 93),
+      divider: tone(45, 96),
+      bgBase: tone(85, 95),
+      flowBg: `color-mix(in srgb, ${tone(60, 84)} 32%, transparent)`,
     },
     dark: {
       ...shades,
       text: hslToHex(h, Math.min(s, 46), 88),
       textPrimary: hslToHex(h, s, 96),
       textSecondary: hslToHex(h, s, 92),
+      textMuted: tone(18, 43),
+      hover: tone(30, 17),
+      border: tone(25, 21),
+      divider: tone(25, 17),
+      bgBase: tone(30, 7),
+      flowBg: `color-mix(in srgb, ${tone(26, 28)} 47%, transparent)`,
     },
   };
 }

@@ -99,12 +99,12 @@ export default function AppearanceTab() {
       !(opt.key === "black" && theme === "light")
   );
 
-  // 主色與背景色都未自訂：玻璃質感的「跟隨主色」呈現原始三色暈染
+  // 主色與背景色都未自訂：「跟隨主色」呈現原始三色暈染
   const untouchedAuto =
     !backgroundColor && primaryColor.toLowerCase() === THEME_DEFAULTS.primaryColor;
 
   function thumbPreview(opt) {
-    if (style === "glass" && opt.id === "auto-gradient" && untouchedAuto) return CLASSIC_PREVIEW;
+    if (opt.id === "auto-gradient" && untouchedAuto) return CLASSIC_PREVIEW;
     return opt.preview;
   }
 
@@ -134,7 +134,7 @@ export default function AppearanceTab() {
 
         <OptionGroup label="風格" options={visibleStyleOptions} value={style} onSelect={setStyle} />
 
-        {/* 背景：只顯示目前風格對應的那組花色 */}
+        {/* 背景：與風格無關的同一組花色 */}
         <div className={styles.field}>
           <span>背景</span>
 
@@ -158,7 +158,7 @@ export default function AppearanceTab() {
           </div>
           
           <div className={styles.bgGallery}>
-            {BACKGROUND_OPTIONS[style].map((opt) => (
+            {BACKGROUND_OPTIONS.map((opt) => (
               <button
                 key={opt.id}
                 type="button"

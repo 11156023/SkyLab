@@ -9,7 +9,7 @@ export const COURSES = [
     teacher: "王建明",
     classGroup: "資工系 113-A",
     icon: "storage",
-    accent: "#5471bf",
+    accent: "var(--color-primary)",
   },
   {
     id: "linux-ops",
@@ -20,7 +20,7 @@ export const COURSES = [
     teacher: "李怡萱",
     classGroup: "資工系 113-B",
     icon: "terminal",
-    accent: "rgb(43, 112, 152)",
+    accent: "var(--color-primary-dark)",
   },
   {
     id: "data-science",
@@ -31,7 +31,7 @@ export const COURSES = [
     teacher: "陳文彬",
     classGroup: "資科系 113-A",
     icon: "science",
-    accent: "#5471bf",
+    accent: "var(--color-primary)",
   },
   {
     id: "web-dev",
@@ -42,7 +42,7 @@ export const COURSES = [
     teacher: "林佳穎",
     classGroup: "資管系 113-A",
     icon: "public",
-    accent: "rgb(43, 112, 152)",
+    accent: "var(--color-primary-dark)",
   },
   {
     id: "db-design",
@@ -53,7 +53,7 @@ export const COURSES = [
     teacher: "王建明",
     classGroup: "資工系 113-A",
     icon: "storage",
-    accent: "#5471bf",
+    accent: "var(--color-primary)",
   },
   {
     id: "linux-ops",
@@ -64,7 +64,7 @@ export const COURSES = [
     teacher: "李怡萱",
     classGroup: "資工系 113-B",
     icon: "terminal",
-    accent: "rgb(43, 112, 152)",
+    accent: "var(--color-primary-dark)",
   },
 ];
 
@@ -79,12 +79,12 @@ export const TEMPLATE_CATEGORIES = [
 ];
 
 export const CATEGORY_ACCENT = {
-  databases:      "#5471bf",
-  "data-science": "#7b92d0",
-  monitoring:     "#5471bf",
+  databases:      "var(--color-primary)",
+  "data-science": "var(--color-primary-light)",
+  monitoring:     "var(--color-primary)",
   automation:      "#3f8f7b",
-  "ai-devtools":  "#7b92d0",
-  webservers:     "#5471bf",
+  "ai-devtools":  "var(--color-primary-light)",
+  webservers:     "var(--color-primary)",
 };
 
 const LOGO_BASE = "https://cdn.jsdelivr.net/gh/selfhst/icons@main/webp";

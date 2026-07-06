@@ -708,11 +708,11 @@ $spacing-16: 12px;
 }
 
 .noticeInfo {
-  border: 1px solid color-mix(in srgb, #2b4d98 30%, transparent);
-  background: color-mix(in srgb, #2b4d98 8%, transparent);
+  border: 1px solid color-mix(in srgb, var(--color-primary-dark) 30%, transparent);
+  background: color-mix(in srgb, var(--color-primary-dark) 8%, transparent);
   color: var(--color-text-secondary);
 
-  strong { color: #2b4d98; }
+  strong { color: var(--color-primary-dark); }
 }
 
 .noticeDanger {
