@@ -111,7 +111,10 @@ export function derivePrimaryTheme(hex) {
   const { h, s, l } = hexToHsl(primary);
   const between = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
   const tone = (maxS, lig) => hslToHex(h, Math.min(s, maxS), lig);
-  const shades = { primary, primaryLight: light, primaryDark: dark };
+  // 主色上的文字：極亮主色（如純白）配白字會看不見，
+  // 依主色亮度自動選深墨色或白色，兩種明暗模式共用
+  const textOnPrimary = l >= 62 ? tone(60, 16) : "#ffffff";
+  const shades = { primary, primaryLight: light, primaryDark: dark, textOnPrimary };
   return {
     light: {
       ...shades,

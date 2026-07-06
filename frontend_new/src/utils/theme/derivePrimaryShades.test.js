@@ -126,6 +126,15 @@ describe("derivePrimaryTheme — 介面用色（hover / 邊框 / 底色）", () 
     }
   });
 
+  test("主色上的文字依亮度自動選色：極亮主色配深字、一般主色配白字", () => {
+    const bright = derivePrimaryTheme("#ffffff");
+    expect(lightnessOf(bright.light.textOnPrimary)).toBeLessThan(25);
+    expect(bright.light.textOnPrimary).toBe(bright.dark.textOnPrimary);
+
+    const normal = derivePrimaryTheme("#5471bf");
+    expect(normal.light.textOnPrimary).toBe("#ffffff");
+  });
+
   test("flowBg 為帶透明度的 color-mix 值", () => {
     const { light, dark } = derivePrimaryTheme("#5471bf");
     expect(light.flowBg).toMatch(/^color-mix\(in srgb, #[0-9a-f]{6} \d+%, transparent\)$/);
