@@ -15,6 +15,12 @@ from app.infrastructure.proxmox import (
     get_active_host,
     get_proxmox_settings,
 )
+from app.infrastructure.vnc.messages import (
+    ClientMessageSplitter,
+    RfbStreamError,
+    filter_client_bytes,
+)
+from app.services.classroom import vnc_session_manager
 from app.services.proxmox import proxmox_service
 
 logger = logging.getLogger(__name__)
@@ -172,6 +178,10 @@ async def vnc_proxy(
                 disconnect.set()
 
         async def forward_to_proxmox():
+            # 教室接管攔截：splitter 持續切框以維持訊息邊界同步；
+            # 失去同步（未知訊息型別）時 fail-open 改為原樣轉發。
+            input_splitter = ClientMessageSplitter()
+            filter_passthrough = False
             try:
                 while not disconnect.is_set():
                     data = await websocket.receive()
@@ -180,7 +190,26 @@ async def vnc_proxy(
                     if disconnect.is_set():
                         break
                     if "bytes" in data:
-                        await pve_websocket.send(data["bytes"])
+                        if filter_passthrough:
+                            await pve_websocket.send(data["bytes"])
+                            continue
+                        blocked = vnc_session_manager.is_input_blocked(vmid)
+                        try:
+                            messages = filter_client_bytes(
+                                input_splitter, data["bytes"], blocked=blocked
+                            )
+                        except RfbStreamError as exc:
+                            logger.warning(
+                                f"VM {vmid} console input filter lost sync "
+                                f"({exc}); falling back to passthrough"
+                            )
+                            filter_passthrough = True
+                            remainder = input_splitter.pending
+                            if remainder:
+                                await pve_websocket.send(remainder)
+                            continue
+                        for message in messages:
+                            await pve_websocket.send(message)
                     elif "text" in data:
                         await pve_websocket.send(data["text"])
             except WebSocketDisconnect:

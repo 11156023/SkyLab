@@ -3,7 +3,9 @@ import uuid
 from fastapi import APIRouter, Depends, Query
 
 from app.api.deps import AdminUser, CurrentUser, SessionDep, rate_limit_by_user
+from app.exceptions import BadRequestError
 from app.models import VMRequestStatus
+from app.repositories import governance as governance_repo
 from app.schemas import (
     VMRequestAvailabilityRequest,
     VMRequestAvailabilityResponse,
@@ -14,8 +16,14 @@ from app.schemas import (
     VMRequestsPublic,
     VMRequestWindowAvailabilityRequest,
     VMRequestWindowAvailabilityResponse,
+    WorkloadAdviceResponse,
+    WorkloadAdviseRequest,
 )
-from app.services.vm import vm_request_availability_service, vm_request_service
+from app.services.vm import (
+    vm_request_availability_service,
+    vm_request_service,
+    workload_advisor,
+)
 
 router = APIRouter(prefix="/vm-requests", tags=["vm-requests"])
 
@@ -31,6 +39,32 @@ def create_vm_request(
 ):
     return vm_request_service.create(
         session=session, request_in=request_in, user=current_user
+    )
+
+
+@router.post("/advise", response_model=WorkloadAdviceResponse)
+def advise_workload(
+    request_in: WorkloadAdviseRequest,
+    session: SessionDep,
+    _: CurrentUser,
+) -> WorkloadAdviceResponse:
+    """VM vs LXC 自動判斷（規則引擎，回傳建議型別與理由）。"""
+    config = governance_repo.get_governance_config(session=session)
+    if not config.workload_advisor_enabled:
+        raise BadRequestError("Auto mode is disabled by administrator")
+    advice = workload_advisor.advise(
+        environment_type=request_in.environment_type,
+        os_info=request_in.os_info,
+        reason=request_in.reason,
+        cores=request_in.cores,
+        memory=request_in.memory,
+        gpu_mapping_id=request_in.gpu_mapping_id,
+        service_template_slug=request_in.service_template_slug,
+    )
+    return WorkloadAdviceResponse(
+        resource_type=advice.resource_type,
+        confidence=advice.confidence,
+        reasons=advice.reasons,
     )
 
 

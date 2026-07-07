@@ -175,18 +175,20 @@ class VMCreateRequest(BaseModel):
 
 
 class LXCCreateResponse(BaseModel):
-    """建立 LXC 回應"""
+    """建立 LXC 回應（202：clone 於背景執行，vmid/upid 為 null）"""
 
-    vmid: int
-    upid: str
+    vmid: int | None = None
+    upid: str | None = None
+    task_id: str | None = None
     message: str
 
 
 class VMCreateResponse(BaseModel):
-    """建立 VM 回應"""
+    """建立 VM 回應（202：clone 於背景執行，vmid/upid 為 null）"""
 
-    vmid: int
-    upid: str
+    vmid: int | None = None
+    upid: str | None = None
+    task_id: str | None = None
     message: str
 
 
@@ -214,6 +216,8 @@ class ResourcePublic(BaseModel):
     uptime: int | None = None
     auto_stop_at: datetime | None = None
     auto_stop_reason: Literal["window_grace", "practice_quota"] | None = None
+    idle_since: datetime | None = None
+    mining_exempt: bool = False
 
 
 class SessionStatusResponse(BaseModel):
@@ -370,3 +374,13 @@ class BatchActionResponse(BaseModel):
     succeeded: int
     failed: int
     results: list[BatchActionResultItem]
+
+
+# ===== Teaching Experience (Module E) Schemas =====
+
+
+class ResetAcceptedResponse(BaseModel):
+    """一鍵重置接受回應（背景任務）"""
+
+    message: str
+    task_id: str

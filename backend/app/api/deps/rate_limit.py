@@ -17,13 +17,22 @@ from app.models import User
 
 
 def _client_ip(request: Request) -> str:
-    """Best-effort client IP extraction respecting common reverse-proxy headers."""
+    """Best-effort client IP extraction respecting common reverse-proxy headers.
+
+    Trust X-Real-IP first (nginx sets it to the unforgeable $remote_addr). Only
+    fall back to X-Forwarded-For's LAST hop — the entry appended by our own
+    nginx — because any leading XFF values are attacker-supplied. Taking the
+    first XFF value here would let a caller forge their IP and mint a fresh
+    per-IP rate-limit budget on every request, defeating brute-force protection.
+    """
+    real_ip = request.headers.get("x-real-ip")
+    if real_ip and real_ip.strip():
+        return real_ip.strip()
     forwarded = request.headers.get("x-forwarded-for")
     if forwarded:
-        return forwarded.split(",")[0].strip()
-    real_ip = request.headers.get("x-real-ip")
-    if real_ip:
-        return real_ip.strip()
+        hops = [hop.strip() for hop in forwarded.split(",") if hop.strip()]
+        if hops:
+            return hops[-1]
     if request.client and request.client.host:
         return request.client.host
     return "unknown"

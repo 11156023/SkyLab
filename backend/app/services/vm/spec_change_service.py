@@ -23,6 +23,7 @@ from app.schemas import (
     SpecChangeRequestsPublic,
 )
 from app.services.proxmox import proxmox_service
+from app.services.resource import quota_service
 from app.services.user import audit_service
 
 logger = logging.getLogger(__name__)
@@ -202,6 +203,25 @@ def review(
 
     try:
         if review_data.status == SpecChangeRequestStatus.approved:
+            quota_service.check_quota(
+                session,
+                db_request.user_id,
+                delta_cores=max(
+                    0,
+                    int(db_request.requested_cpu or db_request.current_cpu or 0)
+                    - int(db_request.current_cpu or 0),
+                ),
+                delta_memory_mb=max(
+                    0,
+                    int(db_request.requested_memory or db_request.current_memory or 0)
+                    - int(db_request.current_memory or 0),
+                ),
+                delta_disk_gb=max(
+                    0,
+                    int(db_request.requested_disk or db_request.current_disk or 0)
+                    - int(db_request.current_disk or 0),
+                ),
+            )
             changes = _apply_spec_changes(db_request=db_request)
             db_request = spec_request_repo.update_spec_change_request_status(
                 session=session,

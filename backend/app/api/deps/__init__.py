@@ -16,11 +16,13 @@ from app.api.deps.database import SessionDep, get_db
 from app.api.deps.proxmox import (
     LxcInfoDep,
     ResourceInfoDep,
+    TeachingResourceInfoDep,
     VmInfoDep,
     check_firewall_access,
     check_resource_ownership,
     get_lxc_info,
     get_resource_info,
+    get_resource_info_teaching,
     get_vm_info,
 )
 from app.api.deps.rate_limit import rate_limit_by_ip, rate_limit_by_user
@@ -53,6 +55,8 @@ __all__ = [
     "LxcInfoDep",
     "get_resource_info",
     "ResourceInfoDep",
+    "get_resource_info_teaching",
+    "TeachingResourceInfoDep",
     # Rate limiting
     "rate_limit_by_ip",
     "rate_limit_by_user",

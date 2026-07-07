@@ -5,7 +5,7 @@ AI Proxy API Routes - 代理到 VLLM 的 API 端点
 import json
 import logging
 import time
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 import httpx
 from fastapi import APIRouter, HTTPException, status
@@ -125,20 +125,30 @@ async def chat_completions(
                     # 使用 finally 確保無論正常結束、例外或客戶端斷線
                     # (GeneratorExit 不被 except Exception 捕捉，但 finally 保證執行)
                     # 都能寫入使用紀錄。
+                    #
+                    # 關鍵：generator body 由 Starlette 在 response 送出「之後」執行，
+                    # 此時 route 依賴注入的 `session` 已被 get_db 的 with 區塊關閉。
+                    # 因此串流的 usage 記錄必須開一個獨立 session，不能沿用 `session`，
+                    # 否則會落入 except 而漏記（計費統計缺串流呼叫）。
                     duration_ms = int((time.time() - start_time) * 1000)
                     try:
-                        ai_gateway_service.record_usage(
-                            session=session,
-                            user_id=user.id,
-                            credential_id=credential.id,
-                            model_name=model_name,
-                            request_type="chat_completion",
-                            input_tokens=input_tokens,
-                            output_tokens=output_tokens,
-                            request_duration_ms=duration_ms,
-                            status=_status,
-                            error_message=_error_message,
-                        )
+                        from sqlmodel import Session  # noqa: PLC0415
+
+                        from app.core.db import engine  # noqa: PLC0415
+
+                        with Session(engine) as rec_session:
+                            ai_gateway_service.record_usage(
+                                session=rec_session,
+                                user_id=user.id,
+                                credential_id=credential.id,
+                                model_name=model_name,
+                                request_type="chat_completion",
+                                input_tokens=input_tokens,
+                                output_tokens=output_tokens,
+                                request_duration_ms=duration_ms,
+                                status=_status,
+                                error_message=_error_message,
+                            )
                     except Exception as rec_err:
                         logger.error("Failed to record stream usage: %s", rec_err)
 
@@ -307,7 +317,7 @@ async def get_my_usage_stats(
 
     # 默认查询最近 30 天
     if not end_date:
-        end_date = datetime.utcnow()
+        end_date = datetime.now(timezone.utc)
     if not start_date:
         start_date = end_date - timedelta(days=30)
 
@@ -348,8 +358,6 @@ async def get_rate_limit_status(
 
     # 如果 Redis 未啟用，返回禁用狀態
     if redis is None:
-        from datetime import timezone
-
         return RateLimitStatusResponse(
             limit_per_minute=limit,
             current_usage=0,
@@ -369,8 +377,6 @@ async def get_rate_limit_status(
         await redis.zremrangebyscore(key, "-inf", window_start_ms)
         current_usage = await redis.zcard(key)
 
-        from datetime import timezone
-
         reset_at = datetime.fromtimestamp(
             (now_ms + window_seconds * 1000) / 1000, tz=timezone.utc
         )
@@ -385,8 +391,6 @@ async def get_rate_limit_status(
     except Exception as e:
         # Redis 錯誤時返回預設值
         logger.error("Failed to get rate limit status: %s", str(e))
-        from datetime import timezone
-
         return RateLimitStatusResponse(
             limit_per_minute=limit,
             current_usage=0,

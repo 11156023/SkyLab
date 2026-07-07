@@ -17,13 +17,14 @@ from app.models import (
     VMRequest,
     VMRequestStatus,
 )
+from app.repositories import governance as governance_repo
 from app.repositories import resource as resource_repo
 from app.repositories import vm_migration_job as vm_migration_job_repo
 from app.repositories import vm_request as vm_request_repo
 from app.services.network import ip_management_service
 from app.services.proxmox import provisioning_service, proxmox_service
 from app.services.scheduling import policy as scheduling_policy
-from app.services.scheduling import recurrence_scheduler
+from app.services.scheduling import provision_pool, recurrence_scheduler
 from app.services.scheduling import support as scheduling_support
 from app.services.user import audit_service
 from app.services.vm import vm_request_placement_service
@@ -333,6 +334,11 @@ def _provision_new_resource(
             req.migration_pinned = True
             finish_session.add(req)
         finish_session.commit()
+
+    # E1：provision 完成即建受保護初始快照（best-effort，不阻斷）
+    from app.services.resource import reset_service  # noqa: PLC0415 — 避免 import cycle
+
+    reset_service.ensure_init_snapshot(new_vmid)
 
     logger.info(
         "Provisioned request %s → VMID %s on node %s",
@@ -1004,8 +1010,18 @@ def process_due_request_starts() -> int:
             policy=policy,
             active_requests=active_requests,
         )
+        governance_config = governance_repo.get_governance_config(session=session)
 
         for request in active_requests:
+            if request.vmid is None:
+                # 尚未 provision — fan-out 到背景並行 clone（獨立 semaphore
+                # 限流），tick 不再同步等待重 I/O。防重複由 runner task_id
+                # 去重 + DB SKIP LOCKED + migration_status 再檢查三層保障。
+                provision_pool.submit_provision(
+                    request.id,
+                    concurrency=governance_config.provision_max_concurrency,
+                )
+                continue
             try:
                 started, migrations_used = _ensure_request_running(
                     session=session,
@@ -1184,9 +1200,74 @@ async def run_scheduler(stop_event: asyncio.Event) -> None:
                 name="process_auto_stops",
                 handler=recurrence_scheduler.process_auto_stops,
             ),
+            ScheduledTask(
+                name="process_resource_alerts",
+                handler=process_resource_alerts_task,
+            ),
+            ScheduledTask(
+                name="process_ttl_lifecycle",
+                handler=process_ttl_lifecycle_task,
+            ),
+            ScheduledTask(
+                name="process_idle_detection",
+                handler=process_idle_detection_task,
+            ),
+            ScheduledTask(
+                name="process_mining_detection",
+                handler=process_mining_detection_task,
+            ),
+            ScheduledTask(
+                name="process_snapshot_cleanup",
+                handler=process_snapshot_cleanup_task,
+            ),
         ],
     )
     logger.info("VM request scheduler stopped")
+
+
+def process_resource_alerts_task() -> int:
+    """Scheduler tick：資源閾值告警評估（間隔由 GovernanceConfig 控制）。"""
+    from app.services.monitoring import (
+        alert_service,  # noqa: PLC0415 — 避免 import cycle
+    )
+
+    return alert_service.process_resource_alerts()
+
+
+def process_ttl_lifecycle_task() -> int:
+    """Scheduler tick：TTL 漸進回收（通知 → 關機 → 寬限期 → 刪除佇列）。"""
+    from app.services.governance import (
+        lifecycle_service,  # noqa: PLC0415 — 避免 import cycle
+    )
+
+    return lifecycle_service.process_ttl_lifecycle()
+
+
+def process_idle_detection_task() -> int:
+    """Scheduler tick：閒置偵測（CPU 長期低於閾值 → 通知 → 自動關機）。"""
+    from app.services.governance import (
+        lifecycle_service,  # noqa: PLC0415 — 避免 import cycle
+    )
+
+    return lifecycle_service.process_idle_detection()
+
+
+def process_mining_detection_task() -> int:
+    """Scheduler tick：挖礦偵測（CPU 長期滿載 → 存證 → 暫停 → 通知）。"""
+    from app.services.security import (
+        mining_service,  # noqa: PLC0415 — 避免 import cycle
+    )
+
+    return mining_service.process_mining_detection()
+
+
+def process_snapshot_cleanup_task() -> int:
+    """Scheduler tick：快照自動清理（超過保留天數的一般快照）。"""
+    from app.services.governance import (
+        snapshot_cleanup_service,  # noqa: PLC0415 — 避免 import cycle
+    )
+
+    return snapshot_cleanup_service.process_snapshot_cleanup()
 
 
 def process_pending_deletions_task() -> int:

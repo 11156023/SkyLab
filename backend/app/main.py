@@ -22,6 +22,11 @@ from starlette.types import ASGIApp, Receive, Scope, Send
 
 from app.api.main import api_router
 from app.api.websocket import vnc_proxy
+from app.api.websocket.classroom import (
+    classroom_presence_proxy,
+    classroom_watch_proxy,
+)
+from app.api.websocket.course_progress import course_progress_proxy
 from app.api.websocket.jobs import jobs_ws_proxy
 from app.api.websocket.terminal import terminal_proxy
 from app.core.config import settings
@@ -30,6 +35,7 @@ from app.core.metrics import PrometheusMiddleware, metrics_endpoint
 from app.core.request_context import RequestContextMiddleware
 from app.exceptions import AppError
 from app.infrastructure.ai import close_ai_clients
+from app.infrastructure.queue import close_arq_pool, init_arq_pool
 from app.infrastructure.redis import close_redis, init_redis
 from app.infrastructure.worker import init_background_runner, shutdown_background_runner
 from app.services.scheduling import vm_request_schedule_service
@@ -137,6 +143,7 @@ async def lifespan(app: FastAPI):
         file_enabled=settings.LOG_FILE_ENABLED,
     )
     await init_redis()
+    await init_arq_pool()
     _recover_orphan_running_deploys()
     init_background_runner()
     stop_event = asyncio.Event()
@@ -158,6 +165,7 @@ async def lifespan(app: FastAPI):
                 pass
         await shutdown_background_runner()
         await close_ai_clients()
+        await close_arq_pool()
         await close_redis()
 
 
@@ -168,7 +176,7 @@ def custom_generate_unique_id(route: APIRoute) -> str:
 if settings.SENTRY_DSN:
     sentry_sdk.init(
         dsn=str(settings.SENTRY_DSN),
-        traces_sample_rate=1.0,
+        traces_sample_rate=settings.SENTRY_TRACES_SAMPLE_RATE,
         send_default_pii=False,
     )
 
@@ -224,3 +232,22 @@ async def websocket_terminal_proxy(websocket: WebSocket, vmid: int, token: str =
 @app.websocket("/ws/jobs")
 async def websocket_jobs_proxy(websocket: WebSocket, token: str = ""):
     await jobs_ws_proxy(websocket, token=token)
+
+
+@app.websocket("/ws/classroom")
+async def websocket_classroom_presence(websocket: WebSocket, token: str = ""):
+    await classroom_presence_proxy(websocket, token=token)
+
+
+@app.websocket("/ws/classroom/{session_id}/watch")
+async def websocket_classroom_watch(
+    websocket: WebSocket, session_id: str, token: str = ""
+):
+    await classroom_watch_proxy(websocket, session_id, token=token)
+
+
+@app.websocket("/ws/courses/paths/{path_id}/progress")
+async def websocket_course_progress(
+    websocket: WebSocket, path_id: str, token: str = ""
+):
+    await course_progress_proxy(websocket, path_id, token=token)

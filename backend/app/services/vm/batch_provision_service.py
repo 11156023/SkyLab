@@ -11,12 +11,16 @@ from sqlmodel import Session
 
 from app.core.db import engine
 from app.exceptions import BadRequestError
+from app.models import VMTemplateStatus
 from app.models.batch_provision import BatchProvisionJobStatus, BatchProvisionTask
 from app.repositories import batch_provision as bp_repo
 from app.repositories import group as group_repo
+from app.repositories import vm_template as vm_template_repo
 from app.schemas import LXCCreateRequest, VMCreateRequest
 from app.services.network import ip_management_service
 from app.services.proxmox import provisioning_service
+from app.services.resource import quota_service
+from app.services.template import clone_service
 
 logger = logging.getLogger(__name__)
 
@@ -47,6 +51,15 @@ def submit_batch_job(
     member_rows = group_repo.get_member_rows(session=session, group_id=group_id)
     if not member_rows:
         raise BadRequestError("群組沒有成員，無法執行批量建立")
+
+    # 範本系統 2.0：指定 vm_template_id 時走克隆路徑，範本必須存在且 ready
+    if params.get("vm_template_id"):
+        template = vm_template_repo.get_template(
+            session=session,
+            template_id=uuid.UUID(str(params["vm_template_id"])),
+        )
+        if template is None or template.status != VMTemplateStatus.ready:
+            raise BadRequestError("指定的範本不存在或尚未就緒")
 
     # 防護：子網必須已設定
     ip_management_service.ensure_subnet_configured(session)
@@ -250,6 +263,11 @@ def _process_task(*, job_id: uuid.UUID, task_id: uuid.UUID) -> None:
                 batch_job_id=job_id,
             )
 
+        # E1：批量建立完成點也建初始快照（best-effort）
+        from app.services.resource import reset_service  # noqa: PLC0415
+
+        reset_service.ensure_init_snapshot(vmid)
+
         with Session(engine) as session:
             bp_repo.update_task_done(session=session, task_id=task_id, vmid=vmid)
             bp_repo.increment_job_done(session=session, job_id=job_id)
@@ -276,7 +294,38 @@ def _provision_one(
     start: bool = True,
     batch_job_id: uuid.UUID | None = None,
 ) -> int:
-    """呼叫 provisioning_service 建立單一資源，回傳 vmid。"""
+    """建立單一資源，回傳 vmid。
+
+    指定 ``vm_template_id`` 時走範本系統 2.0 統一克隆路徑
+    （linked 優先退 full）；否則沿用 provisioning_service 舊路徑。
+    """
+    quota_service.check_quota(
+        session,
+        user_id,
+        delta_cores=int(params.get("cores") or 0),
+        delta_memory_mb=int(params.get("memory") or 0),
+        delta_disk_gb=int(params.get("disk_size") or params.get("rootfs_size") or 0),
+        delta_instances=1,
+    )
+
+    if params.get("vm_template_id"):
+        payload = {
+            "template_id": str(params["vm_template_id"]),
+            "user_id": str(user_id),
+            "hostname": hostname,
+            "cores": params.get("cores"),
+            "memory": params.get("memory"),
+            "disk": params.get("disk_size"),
+            "start": start,
+            "batch_job_id": str(batch_job_id) if batch_job_id else None,
+            "environment_type": params.get("environment_type", "批量建立"),
+            "expiry_date": params.get("expiry_date"),
+        }
+        # 同步執行（batch 已在背景執行緒）；task_id 無對應 TaskRecord，
+        # report_progress 會自動 no-op
+        clone_result = clone_service.run_clone_task(uuid.uuid4(), payload)
+        return int(clone_result["vmid"])
+
     if resource_type == "lxc":
         req = LXCCreateRequest(
             hostname=hostname,
@@ -314,6 +363,9 @@ def _provision_one(
             session=session, vm_data=req, user_id=user_id, batch_job_id=batch_job_id
         )
 
+    if result.vmid is None:
+        # 批量路徑走同步 provision，正常不會沒有 vmid（202 背景克隆才會）
+        raise RuntimeError(f"Provisioning for '{hostname}' did not return a vmid")
     return result.vmid
 
 

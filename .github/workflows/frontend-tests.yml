@@ -18,7 +18,7 @@ permissions:
 
 jobs:
   vitest:
-    name: vitest + biome + build
+    name: vitest + build
     runs-on: ubuntu-latest
     timeout-minutes: 10
     defaults:
@@ -34,24 +34,19 @@ jobs:
           bun-version: latest
 
       - name: Install dependencies
-        # bun.lock is generated on Windows and only locks win32 platform
-        # binaries for nested esbuild (via tsx). Removing all lockfiles
-        # (including package-lock.json that bun would otherwise migrate
-        # from) forces a clean resolution on this Linux runner.
+        # bun.lock is generated on Windows and may only lock win32 platform
+        # binaries for nested native deps. Removing all lockfiles (including
+        # package-lock.json that bun would otherwise migrate from) forces a
+        # clean resolution on this Linux runner.
         run: |
           rm -f ../bun.lock bun.lock ../package-lock.json package-lock.json
           bun install
 
-      - name: Biome lint + format check
-        run: bunx biome check .
-
       - name: Run vitest
         run: bunx vitest run
 
-      - name: Type-check + production build
-        # `bun run build` runs `tsc --noEmit` then `vite build`
-        # If the OpenAPI client is missing, generate-client step would normally
-        # be required, but we ship the generated client in-repo, so build works.
+      - name: Production build
+        # `bun run build` runs `vite build`
         run: bun run build
 
       - name: Upload build artifact

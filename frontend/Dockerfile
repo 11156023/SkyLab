@@ -1,29 +1,30 @@
-# Stage 0, "build-stage", based on Bun, to build and compile the frontend
+# Stage 0, "build-stage": 用 Bun 編譯 frontend
+# 注意：build context 必須是專案根目錄（vite.config.js 的 templatesPlugin
+# reads ../backend/app/ai/template_recommendation/catalog_json)
 FROM oven/bun:1 AS build-stage
-
-WORKDIR /app
-
-COPY package.json bun.lock /app/
-
-COPY frontend/package.json /app/frontend/
 
 WORKDIR /app/frontend
 
+COPY frontend/package.json frontend/bun.lock ./
+
 RUN bun install
 
-COPY backend/app/ai/template_recommendation/catalog_json /app/backend/app/ai/template_recommendation/catalog_json/
+# Template JSON used by templatesPlugin.
+COPY backend/app/ai/template_recommendation/catalog_json /app/backend/app/ai/template_recommendation/catalog_json
+
 COPY ./frontend /app/frontend
+
 ARG VITE_API_URL
-# 讓 vite build 讀得到 build arg；留空時前端走相對路徑（同源），自動適應訪問用的 host
-ENV VITE_API_URL=${VITE_API_URL}
+ARG VITE_GOOGLE_CLIENT_ID
+ARG ENABLE_SIGNUP
+ENV ENABLE_SIGNUP=${ENABLE_SIGNUP}
 
 RUN bun run build
 
 
-# Stage 1, based on Nginx, to have only the compiled app, ready for production with Nginx
+# Stage 1: 用 Nginx 提供編譯後的靜態檔
 FROM nginx:1
 
 COPY --from=build-stage /app/frontend/dist/ /usr/share/nginx/html
 
 COPY ./frontend/nginx.conf /etc/nginx/conf.d/default.conf
-COPY ./frontend/nginx-backend-not-found.conf /etc/nginx/extra-conf.d/backend-not-found.conf

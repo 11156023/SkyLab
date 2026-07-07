@@ -1,0 +1,273 @@
+/* 教室觀看 dialog / 直播橫幅 / 接管覆蓋 共用樣式 */
+
+.overlay {
+  position: fixed;
+  inset: 0;
+  background: var(--color-overlay);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+  z-index: 300;
+  @include flex-center;
+  padding: $spacing-16;
+  animation: fadeIn 0.15s ease;
+}
+
+@keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+
+.dialog {
+  width: 100%;
+  max-width: 1280px;
+  height: 88vh;
+  @include glass-surface;
+  border-radius: $radius-16;
+  @include flex-column;
+  overflow: hidden;
+  animation: slideUp 0.18s cubic-bezier(0.25, 0.8, 0.25, 1);
+}
+
+@keyframes slideUp {
+  from { opacity: 0; transform: translateY(16px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* ── Header ── */
+.header {
+  display: flex;
+  align-items: center;
+  gap: $spacing-8;
+  padding: $spacing-8 $spacing-8;
+  border-bottom: 1px solid var(--color-border);
+  flex-shrink: 0;
+}
+
+.headerIcon {
+  @include flex-center;
+  width: 28px;
+  height: 28px;
+  border-radius: $radius-8;
+  background: color-mix(in srgb, var(--color-success) 12%, transparent);
+  color: var(--color-success);
+  flex-shrink: 0;
+}
+
+.headerTitleGroup {
+  display: flex;
+  align-items: center;
+  gap: $spacing-8;
+  flex: 1;
+  min-width: 0;
+}
+
+.headerTitle {
+  font-size: $font-size-14;
+  font-weight: $font-weight-700;
+  color: var(--color-text-primary);
+  @include text-truncate;
+}
+
+.statusDot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.dot_connecting { background: #0891b2; }
+.dot_connected  { background: #28a745; }
+
+.statusText {
+  font-size: $font-size-12;
+  color: var(--color-text-muted);
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+.headerBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px;
+  border-radius: $radius-8;
+  font-size: $font-size-12;
+  color: var(--color-text-secondary);
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+  cursor: pointer;
+  transition: background $transition-base;
+
+  &:hover:not(:disabled) {
+    background: var(--color-hover);
+    color: var(--color-text);
+  }
+
+  &:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+  }
+}
+
+.headerBtnActive {
+  color: var(--color-primary);
+  border-color: color-mix(in srgb, var(--color-primary) 40%, var(--color-border));
+  background: color-mix(in srgb, var(--color-primary) 8%, transparent);
+}
+
+.closeBtn {
+  width: 28px;
+  height: 28px;
+  border-radius: $radius-8;
+  @include flex-center;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  transition: background $transition-base;
+  flex-shrink: 0;
+
+  &:hover {
+    background: var(--color-hover);
+    color: var(--color-text);
+  }
+}
+
+/* ── VNC 區 ── */
+.vncWrap {
+  flex: 1;
+  overflow: hidden;
+  background: #1e1e1e;
+  display: flex;
+  position: relative;
+
+  :global(canvas) {
+    display: block;
+  }
+}
+
+.vncLoading {
+  position: absolute;
+  inset: 0;
+  z-index: 20;
+  @include flex-column;
+  align-items: center;
+  justify-content: center;
+  gap: $spacing-8;
+  background: #1e1e1e;
+  color: rgba(255, 255, 255, 0.6);
+  font-size: $font-size-14;
+}
+
+/* ── 直播橫幅（掛在版面最上方） ── */
+.liveBanner {
+  display: flex;
+  align-items: center;
+  gap: $spacing-8;
+  padding: $spacing-8 $spacing-24;
+  background: color-mix(in srgb, var(--color-danger) 10%, var(--color-surface));
+  border-bottom: 1px solid color-mix(in srgb, var(--color-danger) 30%, transparent);
+  color: var(--color-danger);
+  font-size: $font-size-14;
+}
+
+.liveDot {
+  position: relative;
+  width: 10px;
+  height: 10px;
+  flex-shrink: 0;
+
+  &::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: 50%;
+    background: var(--color-danger);
+    opacity: 0.6;
+    animation: livePing 1.2s ease-out infinite;
+  }
+
+  &::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: 50%;
+    background: var(--color-danger);
+  }
+}
+
+@keyframes livePing {
+  from { transform: scale(1); opacity: 0.6; }
+  to   { transform: scale(2.2); opacity: 0; }
+}
+
+.liveWatchBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px $spacing-16;
+  border-radius: $radius-8;
+  font-size: $font-size-12;
+  font-weight: $font-weight-500;
+  background: var(--color-danger);
+  color: #fff;
+  cursor: pointer;
+  transition: opacity $transition-base;
+
+  &:hover {
+    opacity: 0.85;
+  }
+}
+
+.liveDismiss {
+  margin-left: auto;
+  @include flex-center;
+  width: 24px;
+  height: 24px;
+  border-radius: $radius-8;
+  color: var(--color-danger);
+  opacity: 0.7;
+  cursor: pointer;
+
+  &:hover {
+    opacity: 1;
+    background: color-mix(in srgb, var(--color-danger) 10%, transparent);
+  }
+}
+
+/* ── 接管覆蓋（學生主控台） ── */
+.takeoverOverlay {
+  pointer-events: none;
+  position: absolute;
+  inset: 0;
+  z-index: 30;
+  @include flex-center;
+  background: rgba(0, 0, 0, 0.6);
+  backdrop-filter: blur(4px);
+}
+
+.takeoverBox {
+  @include flex-column;
+  align-items: center;
+  gap: $spacing-8;
+  padding: $spacing-24 $spacing-32;
+  border: 1px solid color-mix(in srgb, var(--color-danger) 40%, transparent);
+  border-radius: $radius-16;
+  background: rgba(24, 24, 27, 0.92);
+  text-align: center;
+}
+
+.takeoverIcon {
+  @include flex-center;
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--color-danger) 20%, transparent);
+  color: var(--color-danger);
+}
+
+.takeoverTitle {
+  font-size: $font-size-16;
+  font-weight: $font-weight-500;
+  color: #fff;
+}
+
+.takeoverDesc {
+  font-size: $font-size-14;
+  color: rgba(255, 255, 255, 0.55);
+}

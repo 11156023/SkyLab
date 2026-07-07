@@ -619,7 +619,33 @@ def plan_provision(*, session: Session, db_request) -> dict:
         "net_cfg": net_cfg,
     }
 
-    if db_request.resource_type == "lxc":
+    if db_request.resource_type == "lxc" and getattr(db_request, "template_id", None):
+        # LXC 範本克隆路徑（Course Lab）：linked clone 必須與範本同節點同 storage，
+        # 直接以範本節點覆寫 placement 結果（與範本系統 2.0 clone_service 行為一致）。
+        from sqlmodel import select as _select  # noqa: PLC0415 — 避免頂層循環相依
+
+        from app.models import VMTemplate  # noqa: PLC0415
+
+        template_row = session.exec(
+            _select(VMTemplate).where(VMTemplate.pve_vmid == db_request.template_id)
+        ).first()
+        if template_row is None:
+            raise ProxmoxError(
+                f"LXC template VMID {db_request.template_id} is not registered"
+            )
+        plan["target_node"] = template_row.node
+        plan["lxc_clone"] = True
+        plan["template_id"] = db_request.template_id
+        plan["template_node"] = template_row.node
+        plan["target_storage"] = _resolve_managed_storage(
+            session=session,
+            node=template_row.node,
+            resource_type="lxc",
+            requested_storage=db_request.storage,
+            disk_gb=int(db_request.rootfs_size or 8),
+            required_content="rootdir",
+        )
+    elif db_request.resource_type == "lxc":
         plan["target_storage"] = _resolve_managed_storage(
             session=session,
             node=target_node,
@@ -691,6 +717,39 @@ def execute_provision(plan: dict) -> tuple[int, str]:
                 f"gw={net_cfg['gateway']},firewall=1"
             )
 
+            if plan.get("lxc_clone"):
+                # Course Lab：克隆 LXC 範本（linked 優先退 full），克隆後重配置。
+                # LXC 無 cloud-init，登入憑證沿用範本內建帳密。
+                from app.services.template import clone_service  # noqa: PLC0415
+
+                clone_service.clone_with_fallback(
+                    node=plan["template_node"],
+                    template_vmid=plan["template_id"],
+                    new_vmid=new_vmid,
+                    hostname=hostname,
+                    resource_type="lxc",
+                    full_kwargs={"storage": plan["target_storage"]},
+                )
+                created = True
+                actual_node = plan["template_node"]
+                clone_updates = {
+                    "cores": plan["cores"],
+                    "memory": plan["memory"],
+                    "net0": net0_parts,
+                }
+                if net_cfg.get("dns_servers"):
+                    clone_updates["nameserver"] = net_cfg["dns_servers"]
+                proxmox_service.update_config(
+                    actual_node, new_vmid, "lxc", **clone_updates
+                )
+                firewall_service.setup_default_rules(actual_node, new_vmid, "lxc")
+                if plan["start_immediately"]:
+                    proxmox_service.control(actual_node, new_vmid, "lxc", "start")
+                logger.info(
+                    "Provisioned lxc VMID %s on node %s", new_vmid, actual_node
+                )
+                return new_vmid, actual_node
+
             config = {
                 "vmid": new_vmid,
                 "hostname": plan["hostname"],
@@ -714,41 +773,53 @@ def execute_provision(plan: dict) -> tuple[int, str]:
             firewall_service.setup_default_rules(target_node, new_vmid, "lxc")
         else:
             template_node = plan["template_node"]
-            clone_config = {
-                "newid": new_vmid,
-                "name": hostname,
-                "full": 1,
-                "storage": plan["target_storage"],
-                "pool": pool_name,
-            }
-            if target_node != template_node:
-                clone_config["target"] = target_node
-            try:
-                proxmox_service.clone_vm(
-                    template_node,
-                    plan["template_id"],
-                    **clone_config,
-                )
-                actual_node = target_node
-            except Exception:
-                if target_node == template_node:
-                    raise
-                logger.warning(
-                    "Cross-node clone failed for VMID %s; falling back to template node %s",
-                    new_vmid,
-                    template_node,
+            if target_node == template_node:
+                # 範本系統 2.0 統一克隆路徑：linked clone 優先、失敗退 full
+                from app.services.template import clone_service
+
+                clone_service.clone_with_fallback(
+                    node=template_node,
+                    template_vmid=plan["template_id"],
+                    new_vmid=new_vmid,
+                    hostname=hostname,
+                    resource_type="qemu",
+                    full_kwargs={"storage": plan["target_storage"]},
                 )
                 actual_node = template_node
-                fallback_storage = plan.get("fallback_storage", plan["target_storage"])
-                proxmox_service.clone_vm(
-                    template_node,
-                    plan["template_id"],
-                    newid=new_vmid,
-                    name=hostname,
-                    full=1,
-                    storage=fallback_storage,
-                    pool=pool_name,
-                )
+            else:
+                # 跨節點只能 full clone（linked clone 需與範本同 storage）
+                clone_config = {
+                    "newid": new_vmid,
+                    "name": hostname,
+                    "full": 1,
+                    "storage": plan["target_storage"],
+                    "pool": pool_name,
+                    "target": target_node,
+                }
+                try:
+                    proxmox_service.clone_vm(
+                        template_node,
+                        plan["template_id"],
+                        **clone_config,
+                    )
+                    actual_node = target_node
+                except Exception:
+                    logger.warning(
+                        "Cross-node clone failed for VMID %s; falling back to template node %s",
+                        new_vmid,
+                        template_node,
+                    )
+                    actual_node = template_node
+                    fallback_storage = plan.get("fallback_storage", plan["target_storage"])
+                    proxmox_service.clone_vm(
+                        template_node,
+                        plan["template_id"],
+                        newid=new_vmid,
+                        name=hostname,
+                        full=1,
+                        storage=fallback_storage,
+                        pool=pool_name,
+                    )
             created = True
 
             config_updates = {

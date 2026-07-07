@@ -70,6 +70,28 @@ class VMRequestCreate(BaseModel):
     service_template_slug: str | None = None
     service_template_script_path: str | None = None
 
+    # manual = 使用者自選 resource_type；auto = 前端依 advise API 帶入，
+    # 後端建立時重跑規則引擎記錄判斷理由。
+    requested_mode: Literal["manual", "auto"] = "manual"
+
+
+class WorkloadAdviseRequest(BaseModel):
+    """VM vs LXC 自動判斷輸入（申請表單欄位子集）。"""
+
+    environment_type: str | None = None
+    os_info: str | None = None
+    reason: str | None = None
+    cores: int | None = None
+    memory: int | None = None
+    gpu_mapping_id: str | None = None
+    service_template_slug: str | None = None
+
+
+class WorkloadAdviceResponse(BaseModel):
+    resource_type: Literal["vm", "lxc"]
+    confidence: Literal["high", "medium", "low"]
+    reasons: list[str]
+
 
 class VMRequestReview(BaseModel):
     status: Literal["approved", "rejected"]
@@ -104,6 +126,9 @@ class VMRequestPublic(BaseModel):
 
     service_template_slug: str | None = None
     service_template_script_path: str | None = None
+
+    requested_mode: str = "manual"
+    auto_decision_reason: str | None = None
 
     status: VMRequestStatus
     reviewer_id: uuid.UUID | None = None

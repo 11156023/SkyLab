@@ -12,6 +12,7 @@ from .ai_api_rate_limit import AIAPIRateLimit
 from .ai_api_request import AIAPIRequest, AIAPIRequestStatus
 from .ai_api_usage import AIAPIUsage
 from .ai_template_call_log import AITemplateCallLog
+from .alert_event import AlertEvent, AlertMetric, AlertScope
 from .audit_log import AuditAction, AuditLog
 from .base import get_datetime_utc
 from .batch_provision import (
@@ -21,12 +22,26 @@ from .batch_provision import (
     BatchProvisionTaskStatus,
 )
 from .cloudflare_config import CloudflareConfig
+from .course import (
+    CourseDeployment,
+    CourseDifficulty,
+    CoursePath,
+    CoursePathStatus,
+    CourseQuestion,
+    CourseQuestionType,
+    CourseRoom,
+    CourseTask,
+    UserCourseProgress,
+)
 from .deletion_request import DeletionRequest, DeletionRequestStatus
 from .firewall_layout import FirewallLayout
 from .gateway_config import GatewayConfig
+from .governance_config import GovernanceConfig
 from .group import Group
 from .group_member import GroupMember
 from .ip_allocation import IpAllocation
+from .ldap_config import LdapConfig
+from .mining_incident import MiningIncident, MiningIncidentStatus
 from .nat_rule import NatRule
 from .proxmox_config import (
     ProxmoxConfig,
@@ -40,6 +55,7 @@ from .proxmox_node import ProxmoxNode
 from .proxmox_storage import ProxmoxStorage
 from .resource import Resource
 from .resource_network import ResourceNetwork
+from .resource_quota import QuotaScope, ResourceQuota
 from .reverse_proxy_rule import ReverseProxyRule
 from .script_deploy_log import ScriptDeployLog
 from .spec_change_request import (
@@ -48,6 +64,7 @@ from .spec_change_request import (
     SpecChangeType,
 )
 from .subnet_config import SubnetConfig
+from .task_record import TaskRecord, TaskRecordStatus
 from .teacher_judge_file import TeacherJudgeFile, TeacherJudgeFileStatus
 from .teacher_judge_script_artifact import (
     TeacherJudgeScriptArtifact,
@@ -73,6 +90,12 @@ from .vm_request import (
     VMRequestScheduleState,
     VMRequestStatus,
 )
+from .vm_template import (
+    VMTemplate,
+    VMTemplateGroupLink,
+    VMTemplateStatus,
+    VMTemplateVisibility,
+)
 
 __all__ = [
     # Base
@@ -92,6 +115,8 @@ __all__ = [
     # Resource
     "Resource",
     "ResourceNetwork",
+    "ResourceQuota",
+    "QuotaScope",
     "VMMigrationJob",
     "VMMigrationJobStatus",
     # VM Request
@@ -105,6 +130,15 @@ __all__ = [
     # Audit Log
     "AuditAction",
     "AuditLog",
+    # Governance / Alerts
+    "AlertEvent",
+    "AlertMetric",
+    "AlertScope",
+    "GovernanceConfig",
+    "MiningIncident",
+    "MiningIncidentStatus",
+    # LDAP
+    "LdapConfig",
     # Spec Change Request
     "SpecChangeRequest",
     "SpecChangeRequestStatus",
@@ -157,4 +191,22 @@ __all__ = [
     # Deletion Request
     "DeletionRequest",
     "DeletionRequestStatus",
+    # VM Template (範本系統 2.0)
+    "VMTemplate",
+    "VMTemplateGroupLink",
+    "VMTemplateStatus",
+    "VMTemplateVisibility",
+    # Task Record (背景任務)
+    "TaskRecord",
+    "TaskRecordStatus",
+    # Course Lab (互動式實作教學)
+    "CoursePath",
+    "CoursePathStatus",
+    "CourseRoom",
+    "CourseDifficulty",
+    "CourseTask",
+    "CourseQuestion",
+    "CourseQuestionType",
+    "UserCourseProgress",
+    "CourseDeployment",
 ]

@@ -95,7 +95,12 @@ def _provisioned_current_node(request: VMRequest) -> str | None:
 
 
 def _is_quick_template_request(request: VMRequest) -> bool:
-    return getattr(request, "request_kind", "research") == "quick_template"
+    # course（課程實驗機）與 quick_template 同屬短 TTL 快速通道：
+    # 一樣釘住節點、不參與 cohort rebalance。
+    return getattr(request, "request_kind", "research") in {
+        "quick_template",
+        "course",
+    }
 
 
 def _fixed_node_for_quick_template(request: VMRequest) -> str | None:

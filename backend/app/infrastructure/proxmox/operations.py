@@ -257,10 +257,14 @@ def list_snapshots(node: str, vmid: int, resource_type: ResourceType) -> list:
 
 
 def create_snapshot(
-    node: str, vmid: int, resource_type: ResourceType, **params
+    node: str,
+    vmid: int,
+    resource_type: ResourceType,
+    wait_timeout_seconds: float | None = None,
+    **params,
 ) -> str:
     task = _resource_api(node, vmid, resource_type).snapshot.post(**params)
-    basic_blocking_task_status(node, task)
+    basic_blocking_task_status(node, task, timeout_seconds=wait_timeout_seconds)
     return task
 
 
@@ -288,6 +292,12 @@ def get_rrd_data(
     node: str, vmid: int, resource_type: ResourceType, timeframe: str
 ) -> list[dict]:
     return _resource_api(node, vmid, resource_type).rrddata.get(timeframe=timeframe)
+
+
+def get_node_rrd_data(node: str, timeframe: str) -> list[dict]:
+    """GET /nodes/{node}/rrddata"""
+    proxmox = get_proxmox_api()
+    return proxmox.nodes(node).rrddata.get(timeframe=timeframe)
 
 
 # ---------------------------------------------------------------------------
@@ -436,6 +446,24 @@ def clone_vm(node: str, template_id: int, **clone_config) -> str:
     task = proxmox.nodes(node).qemu(template_id).clone.post(**clone_config)
     basic_blocking_task_status(node, task)
     return task
+
+
+def clone_lxc(node: str, template_id: int, **clone_config) -> str:
+    """Clone an LXC template and wait. Returns UPID."""
+    proxmox = get_proxmox_api()
+    task = proxmox.nodes(node).lxc(template_id).clone.post(**clone_config)
+    basic_blocking_task_status(node, task)
+    return task
+
+
+def convert_to_template(
+    node: str, vmid: int, resource_type: ResourceType = "qemu"
+) -> None:
+    """POST /nodes/{node}/{type}/{vmid}/template — 轉為唯讀範本（不可逆）。
+
+    VM 必須處於 stopped 狀態，呼叫端負責先關機。
+    """
+    _resource_api(node, vmid, resource_type).template.post()
 
 
 def next_vmid() -> int:

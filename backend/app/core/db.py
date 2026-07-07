@@ -18,6 +18,10 @@ engine = create_engine(
     pool_pre_ping=True,
     pool_recycle=1800,
     pool_use_lifo=True,
+    # 池上限（pool_size + max_overflow）必須 ≥ anyio threadpool 併發數（40），
+    # 否則高併發下持有 threadpool token 的請求會互等連線而餓死。
+    pool_size=10,
+    max_overflow=40,
 )
 
 

@@ -17,7 +17,8 @@ from app.core import security
 from app.core.config import settings
 from app.infrastructure.redis import get_redis, revoke_jti
 from app.schemas import Message, NewPassword, Token, TokenPayload, UserPublic
-from app.services.user import auth_service
+from app.schemas.ldap import LdapLoginRequest, LoginMethodsPublic
+from app.services.user import auth_service, ldap_auth_service
 
 router = APIRouter(tags=["login"])
 
@@ -47,6 +48,20 @@ class GoogleLoginRequest(BaseModel):
 @router.post("/login/google", dependencies=[_LOGIN_RATE_LIMIT])
 async def login_google(session: SessionDep, body: GoogleLoginRequest) -> Token:
     return await auth_service.google_login(session=session, id_token=body.id_token)
+
+
+@router.post("/login/ldap", dependencies=[_LOGIN_RATE_LIMIT])
+def login_ldap(session: SessionDep, body: LdapLoginRequest) -> Token:
+    """以校園 LDAP/AD 帳號登入。"""
+    return ldap_auth_service.login_ldap(
+        session=session, username=body.username, password=body.password
+    )
+
+
+@router.get("/login/methods", response_model=LoginMethodsPublic)
+def login_methods(session: SessionDep) -> LoginMethodsPublic:
+    """回報可用的登入方式（公開端點，登入頁據此顯示分頁）。"""
+    return LoginMethodsPublic(**ldap_auth_service.get_login_methods(session=session))
 
 
 class RefreshTokenRequest(BaseModel):

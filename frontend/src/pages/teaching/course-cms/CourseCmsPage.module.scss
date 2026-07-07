@@ -1,0 +1,475 @@
+.page {
+  @include flex-column;
+  gap: $spacing-16;
+  padding: $spacing-8 $spacing-16;
+  flex: 1;
+  min-height: 0;
+
+  @include respond-to(md) {
+    padding: 0;
+  }
+}
+
+.pageHeader {
+  @include flex-between;
+  flex-wrap: wrap;
+  gap: $spacing-16;
+}
+
+.pageHeading {
+  @include flex-column;
+  gap: $spacing-4;
+}
+
+.pageTitle {
+  font-size: $font-size-24;
+  font-weight: $font-weight-700;
+  color: var(--color-text-primary);
+
+  @include respond-to(sm) {
+    font-size: $font-size-28;
+  }
+}
+
+.pageSubtitle {
+  font-size: $font-size-14;
+  color: var(--color-text-secondary);
+}
+
+.stateText {
+  padding: $spacing-32 $spacing-16;
+  text-align: center;
+  color: var(--color-text-muted);
+  font-size: $font-size-14;
+}
+
+.emptyHint {
+  padding: $spacing-8;
+  text-align: center;
+  color: var(--color-text-muted);
+  font-size: $font-size-12;
+}
+
+/* ── Tabs ── */
+.tabs {
+  display: flex;
+  gap: $spacing-4;
+  padding: $spacing-4;
+  background: var(--color-surface-glass);
+  border: 1px solid var(--color-surface-glass-border);
+  border-radius: $radius-12;
+}
+
+.tabBtn {
+  display: flex;
+  align-items: center;
+  gap: $spacing-4;
+  padding: $spacing-8 $spacing-16;
+  border: none;
+  border-radius: $radius-8;
+  background: none;
+  color: var(--color-text-secondary);
+  font-size: $font-size-12;
+  cursor: pointer;
+
+  &:hover {
+    background: var(--color-hover);
+  }
+}
+
+.tabActive {
+  background: var(--color-primary);
+  color: var(--color-text-on-primary);
+
+  &:hover {
+    background: var(--color-primary-dark);
+  }
+}
+
+/* ── 編輯器欄位佈局 ── */
+.editorLayout {
+  display: flex;
+  gap: $spacing-8;
+  flex: 1;
+  min-height: 0;
+  align-items: stretch;
+
+  @media (max-width: 1100px) {
+    flex-direction: column;
+    overflow: auto;
+  }
+}
+
+.column {
+  @include flex-column;
+  width: 280px;
+  flex-shrink: 0;
+  background: var(--color-surface-glass);
+  border: 1px solid var(--color-surface-glass-border);
+  border-radius: $radius-16;
+  overflow: hidden;
+
+  @media (max-width: 1100px) {
+    width: 100%;
+  }
+}
+
+.columnWide {
+  flex: 1;
+  width: auto;
+  min-width: 0;
+}
+
+.columnHeader {
+  padding: $spacing-8 $spacing-16;
+  font-size: $font-size-12;
+  font-weight: $font-weight-500;
+  color: var(--color-text-secondary);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.columnBody {
+  @include flex-column;
+  flex: 1;
+  overflow-y: auto;
+  padding: $spacing-8;
+  gap: $spacing-4;
+}
+
+/* ── 列表項 ── */
+.item {
+  display: flex;
+  align-items: center;
+  gap: $spacing-8;
+  padding: $spacing-8 $spacing-8;
+  border-radius: $radius-8;
+  font-size: $font-size-12;
+  color: var(--color-text-primary);
+  cursor: pointer;
+
+  &:hover {
+    background: var(--color-hover);
+
+    .iconBtn {
+      opacity: 1;
+    }
+  }
+}
+
+.itemActive {
+  background: color-mix(in srgb, var(--color-primary) 12%, transparent);
+  color: var(--color-primary);
+}
+
+.itemLabel {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.itemMeta {
+  font-size: $font-size-12;
+  color: var(--color-text-muted);
+  flex-shrink: 0;
+}
+
+.iconBtn {
+  display: flex;
+  align-items: center;
+  padding: 2px;
+  border: none;
+  background: none;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  opacity: 0;
+  flex-shrink: 0;
+
+  &:hover {
+    color: var(--color-danger);
+  }
+}
+
+.pubDot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--color-status-neutral);
+  flex-shrink: 0;
+}
+
+.pub_on {
+  background: var(--color-success);
+}
+
+/* ── 表單 ── */
+.addForm {
+  display: flex;
+  flex-wrap: wrap;
+  gap: $spacing-4;
+  padding: $spacing-8;
+  border-top: 1px solid var(--color-border);
+}
+
+.input {
+  flex: 1;
+  min-width: 100px;
+  padding: $spacing-8 $spacing-8;
+  border: 1px solid var(--color-border);
+  border-radius: $radius-8;
+  background: var(--color-surface);
+  color: var(--color-text-primary);
+  font-size: $font-size-12;
+
+  &:focus {
+    outline: none;
+    border-color: var(--color-primary);
+  }
+}
+
+.inputNarrow {
+  flex: 0 0 64px;
+  min-width: 64px;
+}
+
+.select {
+  padding: $spacing-8;
+  border: 1px solid var(--color-border);
+  border-radius: $radius-8;
+  background: var(--color-surface);
+  color: var(--color-text-primary);
+  font-size: $font-size-12;
+  max-width: 100%;
+}
+
+.addBtn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: $spacing-8;
+  border: none;
+  border-radius: $radius-8;
+  background: var(--color-primary);
+  color: var(--color-text-on-primary);
+  cursor: pointer;
+
+  &:hover:not(:disabled) {
+    background: var(--color-primary-dark);
+  }
+
+  &:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+}
+
+/* ── 任務欄雙欄 ── */
+.taskLayout {
+  display: grid;
+  grid-template-columns: 220px minmax(0, 1fr);
+  flex: 1;
+  min-height: 0;
+
+  @media (max-width: 1100px) {
+    grid-template-columns: 1fr;
+  }
+}
+
+.taskList {
+  @include flex-column;
+  gap: $spacing-4;
+  padding: $spacing-8;
+  border-right: 1px solid var(--color-border);
+  overflow-y: auto;
+}
+
+.taskEditor {
+  @include flex-column;
+  gap: $spacing-8;
+  padding: $spacing-8;
+  overflow-y: auto;
+  min-height: 0;
+}
+
+.textarea {
+  padding: $spacing-8 $spacing-8;
+  border: 1px solid var(--color-border);
+  border-radius: $radius-8;
+  background: var(--color-surface);
+  color: var(--color-text-primary);
+  font-size: $font-size-12;
+  font-family: monospace;
+  line-height: 1.6;
+  resize: vertical;
+
+  &:focus {
+    outline: none;
+    border-color: var(--color-primary);
+  }
+}
+
+.editorActions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.saveBtn {
+  display: flex;
+  align-items: center;
+  gap: $spacing-4;
+  padding: $spacing-8 $spacing-16;
+  border: none;
+  border-radius: $radius-8;
+  background: var(--color-primary);
+  color: var(--color-text-on-primary);
+  font-size: $font-size-12;
+  cursor: pointer;
+
+  &:hover {
+    background: var(--color-primary-dark);
+  }
+}
+
+/* ── 題目區 ── */
+.questionBlock {
+  @include flex-column;
+  gap: $spacing-4;
+  margin-top: $spacing-8;
+  padding-top: $spacing-8;
+  border-top: 1px solid var(--color-border);
+}
+
+.questionHeader {
+  font-size: $font-size-12;
+  font-weight: $font-weight-500;
+  color: var(--color-text-secondary);
+  padding: $spacing-4 0;
+}
+
+.questionRow {
+  display: flex;
+  align-items: center;
+  gap: $spacing-8;
+  padding: $spacing-8;
+  border: 1px solid var(--color-border);
+  border-radius: $radius-8;
+  font-size: $font-size-12;
+  color: var(--color-text-primary);
+
+  &:hover .iconBtn {
+    opacity: 1;
+  }
+}
+
+.questionForm {
+  display: flex;
+  flex-wrap: wrap;
+  gap: $spacing-4;
+}
+
+/* ── 進度面板 ── */
+.progressPanel {
+  @include flex-column;
+  gap: $spacing-8;
+  background: var(--color-surface-glass);
+  border: 1px solid var(--color-surface-glass-border);
+  border-radius: $radius-16;
+  padding: $spacing-16;
+  flex: 1;
+  min-height: 0;
+}
+
+.progressToolbar {
+  display: flex;
+  align-items: center;
+  gap: $spacing-8;
+}
+
+.liveBadge {
+  display: flex;
+  align-items: center;
+  gap: $spacing-4;
+  font-size: $font-size-12;
+  color: var(--color-text-muted);
+}
+
+.liveOn {
+  color: var(--color-success);
+
+  .liveDot {
+    background: var(--color-success);
+    animation: pulse 1.6s infinite;
+  }
+}
+
+.liveDot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--color-status-neutral);
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+
+.progressTableWrap {
+  overflow: auto;
+  min-height: 0;
+}
+
+.progressTable {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: $font-size-12;
+
+  th {
+    padding: $spacing-8 $spacing-8;
+    font-size: $font-size-12;
+    font-weight: $font-weight-500;
+    color: var(--color-text-muted);
+    text-align: left;
+    background: var(--color-hover);
+    border-bottom: 1px solid var(--color-border);
+    white-space: nowrap;
+  }
+
+  td {
+    padding: $spacing-8 $spacing-8;
+    border-bottom: 1px solid var(--color-border);
+    color: var(--color-text-primary);
+    white-space: nowrap;
+  }
+}
+
+.studentCell {
+  @include flex-column;
+  gap: 2px;
+}
+
+.studentEmail {
+  font-size: $font-size-12;
+  color: var(--color-text-muted);
+}
+
+.cellProgress {
+  display: flex;
+  align-items: center;
+  gap: $spacing-8;
+}
+
+.progressBarSm {
+  width: 90px;
+  height: 6px;
+  border-radius: 3px;
+  background: var(--color-border);
+  overflow: hidden;
+}
+
+.progressFillSm {
+  height: 100%;
+  background: var(--color-primary);
+  transition: width 0.4s ease;
+}

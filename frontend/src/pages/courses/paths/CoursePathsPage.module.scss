@@ -1,0 +1,218 @@
+.page {
+  @include flex-column;
+  gap: $spacing-16;
+  padding: $spacing-8 $spacing-16;
+  flex: 1;
+
+  @include respond-to(md) {
+    padding: 0;
+  }
+}
+
+.pageHeader {
+  @include flex-between;
+  flex-wrap: wrap;
+  gap: $spacing-16;
+}
+
+.pageHeading {
+  @include flex-column;
+  gap: $spacing-4;
+}
+
+.pageTitle {
+  font-size: $font-size-24;
+  font-weight: $font-weight-700;
+  color: var(--color-text-primary);
+
+  @include respond-to(sm) {
+    font-size: $font-size-28;
+  }
+}
+
+.pageSubtitle {
+  font-size: $font-size-14;
+  color: var(--color-text-secondary);
+}
+
+.stateText {
+  padding: $spacing-32 $spacing-16;
+  text-align: center;
+  color: var(--color-text-muted);
+  font-size: $font-size-14;
+}
+
+.empty {
+  @include flex-column;
+  align-items: center;
+  gap: $spacing-8;
+  padding: $spacing-32 $spacing-16;
+  color: var(--color-text-muted);
+  font-size: $font-size-14;
+  text-align: center;
+}
+
+/* ── 路徑卡片 ── */
+.card {
+  @include flex-column;
+  background: var(--color-surface-glass);
+  backdrop-filter: blur(12px) saturate(1.4);
+  -webkit-backdrop-filter: blur(12px) saturate(1.4);
+  border: 1px solid var(--color-surface-glass-border);
+  border-radius: $radius-16;
+  box-shadow: var(--shadow-sm);
+  overflow: hidden;
+}
+
+.cardHeader {
+  display: flex;
+  align-items: center;
+  gap: $spacing-8;
+  padding: $spacing-16;
+  background: none;
+  border: none;
+  cursor: pointer;
+  text-align: left;
+  color: var(--color-text-primary);
+
+  &:hover {
+    background: var(--color-hover);
+  }
+}
+
+.cardIcon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  border-radius: $radius-12;
+  background: color-mix(in srgb, var(--color-primary) 12%, transparent);
+  color: var(--color-primary);
+  flex-shrink: 0;
+}
+
+.cardHeading {
+  @include flex-column;
+  gap: $spacing-4;
+  flex: 1;
+  min-width: 0;
+}
+
+.cardTitle {
+  font-size: $font-size-16;
+  font-weight: $font-weight-500;
+}
+
+.cardDesc {
+  font-size: $font-size-12;
+  color: var(--color-text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cardMeta {
+  @include flex-column;
+  align-items: flex-end;
+  gap: $spacing-4;
+  flex-shrink: 0;
+}
+
+.metaText {
+  font-size: $font-size-12;
+  color: var(--color-text-muted);
+}
+
+.percentText {
+  font-size: $font-size-14;
+  font-weight: $font-weight-500;
+  color: var(--color-primary);
+}
+
+/* ── 進度條 ── */
+.progressBar {
+  height: 4px;
+  background: var(--color-border);
+}
+
+.progressFill {
+  height: 100%;
+  background: var(--color-primary);
+  transition: width 0.4s ease;
+}
+
+/* ── 房間列表 ── */
+.roomList {
+  @include flex-column;
+  border-top: 1px solid var(--color-border);
+}
+
+.roomRow {
+  display: flex;
+  align-items: center;
+  gap: $spacing-8;
+  padding: $spacing-8 $spacing-16;
+  background: none;
+  border: none;
+  border-bottom: 1px solid var(--color-border);
+  cursor: pointer;
+  text-align: left;
+  color: var(--color-text-primary);
+  font-size: $font-size-14;
+
+  &:last-child {
+    border-bottom: none;
+  }
+
+  &:hover {
+    background: var(--color-hover);
+  }
+}
+
+.roomTitle {
+  font-weight: $font-weight-500;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.roomCategory {
+  font-size: $font-size-12;
+  color: var(--color-text-muted);
+  padding: 2px $spacing-8;
+  border: 1px solid var(--color-border);
+  border-radius: $radius-8;
+  flex-shrink: 0;
+}
+
+.diffBadge {
+  font-size: $font-size-12;
+  font-weight: $font-weight-500;
+  padding: 2px $spacing-8;
+  border-radius: $radius-8;
+  flex-shrink: 0;
+}
+
+.diff_easy {
+  color: var(--color-success);
+  background: color-mix(in srgb, var(--color-success) 12%, transparent);
+}
+
+.diff_medium {
+  color: var(--color-warning);
+  background: color-mix(in srgb, var(--color-warning) 12%, transparent);
+}
+
+.diff_hard {
+  color: var(--color-danger);
+  background: color-mix(in srgb, var(--color-danger) 12%, transparent);
+}
+
+.roomProgress {
+  font-size: $font-size-12;
+  color: var(--color-text-muted);
+  flex-shrink: 0;
+}

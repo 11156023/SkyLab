@@ -3,6 +3,7 @@ from typing import Annotated
 
 import jwt
 from fastapi import Depends, Query, WebSocket, WebSocketException, status
+from fastapi.concurrency import run_in_threadpool
 from fastapi.security import OAuth2PasswordBearer
 from jwt.exceptions import InvalidTokenError
 from pydantic import ValidationError
@@ -55,7 +56,9 @@ async def get_current_user(session: SessionDep, token: TokenDep) -> User:
         redis = await get_redis()
         if await is_jti_revoked(redis, token_data.jti):
             raise AuthenticationError("Token has been revoked")
-    user = session.get(User, token_data.sub)
+    # 同步 DB 查詢不可直接在 event loop 上執行：連線池耗盡時會凍結整個
+    # loop，使已完成的請求無法歸還連線而形成死結（見 tests/performance）。
+    user = await run_in_threadpool(session.get, User, token_data.sub)
     if not user:
         raise AuthenticationError("User not found")
     if not user.is_active:
@@ -136,7 +139,7 @@ async def get_ws_current_user(
 
     session = Session(engine)
     try:
-        user = session.get(User, token_data.sub)
+        user = await run_in_threadpool(session.get, User, token_data.sub)
         if not user or not user.is_active:
             logger.warning(f"WebSocket auth failed: user not found or inactive (sub={token_data.sub})")
             raise WebSocketException(code=status.WS_1008_POLICY_VIOLATION)

@@ -17,18 +17,24 @@ def create_vm_request(
     vm_request_in: VMRequestCreate,
     user_id: uuid.UUID,
     encrypted_password: str,
+    auto_decision_reason: str | None = None,
+    request_kind: str | None = None,
     commit: bool = True,
 ) -> VMRequest:
     """Create VM request. Password should be pre-encrypted by the service layer.
 
     Hostname is normalised to Punycode on creation so all downstream
     comparisons use a single canonical form.
+
+    ``request_kind`` 明確指定時優先（Course Lab 走 "course"），
+    否則依 mode 推導（quick_template / research）。
     """
     db_request = VMRequest(
         user_id=user_id,
         reason=vm_request_in.reason,
         resource_type=vm_request_in.resource_type,
-        request_kind=(
+        request_kind=request_kind
+        or (
             "quick_template"
             if getattr(vm_request_in, "mode", "scheduled") == "quick_template"
             else "research"
@@ -51,6 +57,8 @@ def create_vm_request(
         gpu_mapping_id=vm_request_in.gpu_mapping_id,
         service_template_slug=vm_request_in.service_template_slug,
         service_template_script_path=vm_request_in.service_template_script_path,
+        requested_mode=getattr(vm_request_in, "requested_mode", "manual"),
+        auto_decision_reason=auto_decision_reason,
         status=VMRequestStatus.pending,
         migration_status=VMMigrationStatus.idle,
         created_at=datetime.now(timezone.utc),

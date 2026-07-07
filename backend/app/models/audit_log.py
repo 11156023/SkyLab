@@ -63,11 +63,20 @@ class AuditAction(str, enum.Enum):
     # 腳本部署
     script_deploy = "script_deploy"
 
+    # 反挖礦（模組D）
+    mining_detected = "mining_detected"
+    mining_suspend = "mining_suspend"
+    mining_ban = "mining_ban"
+    mining_dismiss = "mining_dismiss"
+    mining_exempt_change = "mining_exempt_change"
+
     # 認證 / Login
     login_success = "login_success"
     login_failed = "login_failed"
     login_google_success = "login_google_success"
     login_google_failed = "login_google_failed"
+    login_ldap_success = "login_ldap_success"
+    login_ldap_failed = "login_ldap_failed"
     password_change = "password_change"
     password_recovery_request = "password_recovery_request"
     password_reset = "password_reset"

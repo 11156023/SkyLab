@@ -169,3 +169,69 @@ def list_due_auto_stops(*, session: Session, now: datetime) -> list[Resource]:
         Resource.auto_stop_at <= now,
     )
     return list(session.exec(stmt).all())
+
+
+def list_resources_with_expiry(*, session: Session) -> list[Resource]:
+    """所有設定了到期日的資源（TTL 生命週期掃描用）。"""
+    stmt = select(Resource).where(
+        Resource.expiry_date.isnot(None),  # type: ignore[union-attr]
+    )
+    return list(session.exec(stmt).all())
+
+
+def list_idle_scan_candidates(
+    *,
+    session: Session,
+    vmids: list[int],
+    checked_before: datetime,
+    limit: int,
+) -> list[Resource]:
+    """閒置掃描候選：running 集合中最久未檢查的前 N 台。
+
+    ``idle_checked_at`` 為 NULL（從未檢查）優先，其次為早於
+    ``checked_before`` 者，避免每個 tick 重複打同一批 RRD。
+    """
+    if not vmids:
+        return []
+    stmt = (
+        select(Resource)
+        .where(
+            Resource.vmid.in_(vmids),  # type: ignore[attr-defined]
+            (
+                Resource.idle_checked_at.is_(None)  # type: ignore[union-attr]
+                | (Resource.idle_checked_at < checked_before)  # type: ignore[operator]
+            ),
+        )
+        .order_by(
+            Resource.idle_checked_at.asc().nulls_first()  # type: ignore[union-attr]
+        )
+        .limit(limit)
+    )
+    return list(session.exec(stmt).all())
+
+
+def list_mining_scan_candidates(
+    *,
+    session: Session,
+    vmids: list[int],
+    checked_before: datetime,
+    limit: int,
+) -> list[Resource]:
+    """挖礦掃描候選：running 集合中最久未檢查的前 N 台（同閒置掃描模式）。"""
+    if not vmids:
+        return []
+    stmt = (
+        select(Resource)
+        .where(
+            Resource.vmid.in_(vmids),  # type: ignore[attr-defined]
+            (
+                Resource.mining_checked_at.is_(None)  # type: ignore[union-attr]
+                | (Resource.mining_checked_at < checked_before)  # type: ignore[operator]
+            ),
+        )
+        .order_by(
+            Resource.mining_checked_at.asc().nulls_first()  # type: ignore[union-attr]
+        )
+        .limit(limit)
+    )
+    return list(session.exec(stmt).all())

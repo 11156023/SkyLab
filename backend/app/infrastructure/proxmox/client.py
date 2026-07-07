@@ -141,14 +141,28 @@ def basic_blocking_task_status(
     check_interval: int | None = None,
     progress_callback: Callable[[dict], None] | None = None,
     task_log_tail_lines: int = 8,
+    timeout_seconds: float | None = None,
 ) -> dict:
+    """阻塞等待 PVE 任務完成。
+
+    ``timeout_seconds`` 有值時，超過即拋 ``TimeoutError``（任務在 PVE 端
+    繼續跑，不會被取消）— 供 best-effort 場景（如挖礦存證快照）設上限。
+    """
     if check_interval is None:
         check_interval = get_proxmox_settings().task_check_interval
 
     proxmox = get_proxmox_api()
     logger.info("Waiting for task %s on node %s", task_id, node_name)
+    deadline = (
+        time.monotonic() + timeout_seconds if timeout_seconds is not None else None
+    )
 
     while True:
+        if deadline is not None and time.monotonic() > deadline:
+            raise TimeoutError(
+                f"PVE task {task_id} on {node_name} did not finish within "
+                f"{timeout_seconds:.0f}s"
+            )
         data = proxmox.nodes(node_name).tasks(task_id).status.get()
 
         status = data.get("status", "")

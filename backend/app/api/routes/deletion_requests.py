@@ -65,16 +65,12 @@ def cancel_deletion_request(
     session: SessionDep,
     current_user: CurrentUser,
 ):
-    try:
-        req = deletion_service.cancel_deletion_request(
-            session=session,
-            request_id=request_id,
-            user_id=current_user.id,
-            is_admin=current_user.is_superuser,
-        )
-    except Exception as e:
-        # AppError 由 global handler 處理；這裡僅做型別上的相容
-        raise e
+    req = deletion_service.cancel_deletion_request(
+        session=session,
+        request_id=request_id,
+        user_id=current_user.id,
+        is_admin=current_user.is_superuser,
+    )
     return DeletionRequestPublic(
         **deletion_service.to_public_with_user(session=session, req=req)
     )

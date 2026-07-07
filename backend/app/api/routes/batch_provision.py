@@ -31,7 +31,10 @@ class BatchProvisionRequest(BaseModel):
         pattern=r"^[a-zA-Z0-9][a-zA-Z0-9-]*$",
         description="Hostname prefix: ASCII letters, digits, hyphens; cannot start with hyphen",
     )
-    password: str = Field(..., min_length=6)
+    # 範本系統 2.0：指定時走統一克隆路徑（linked 優先退 full），
+    # 忽略 ostemplate / template_id / username / password
+    vm_template_id: uuid.UUID | None = None
+    password: str | None = Field(default=None, min_length=6)
     cores: int = Field(2, ge=1, le=32)
     memory: int = Field(2048, ge=128, le=65536)
     environment_type: str = Field(default="批次部署")
@@ -82,6 +85,7 @@ class BatchProvisionJobSpec(BaseModel):
     rootfs_size: int | None = None
     ostemplate: str | None = None
     template_id: int | None = None
+    vm_template_id: str | None = None
     username: str | None = None
     environment_type: str | None = None
     os_info: str | None = None
@@ -115,6 +119,13 @@ class BatchProvisionJobPublic(BaseModel):
 
 
 def _validate_request(body: BatchProvisionRequest) -> None:
+    if body.vm_template_id:
+        # 克隆路徑：憑證/映像來自範本本身
+        return
+
+    if not body.password:
+        raise BadRequestError("Batch provision requires password")
+
     if body.resource_type == "lxc":
         if not body.ostemplate:
             raise BadRequestError("LXC batch provision requires ostemplate")
@@ -169,6 +180,7 @@ def _build_job_public(session: SessionDep, job) -> BatchProvisionJobPublic:
         rootfs_size=params.get("rootfs_size"),
         ostemplate=params.get("ostemplate"),
         template_id=params.get("template_id"),
+        vm_template_id=params.get("vm_template_id"),
         username=params.get("username"),
         environment_type=params.get("environment_type"),
         os_info=params.get("os_info"),
@@ -256,6 +268,8 @@ def start_batch_provision(
     )
     if params.get("expiry_date"):
         params["expiry_date"] = params["expiry_date"].isoformat()
+    if params.get("vm_template_id"):
+        params["vm_template_id"] = str(params["vm_template_id"])
 
     job_id = batch_provision_service.submit_batch_job(
         session=session,

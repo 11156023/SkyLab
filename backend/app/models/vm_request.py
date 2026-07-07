@@ -125,6 +125,10 @@ class VMRequest(SQLModel, table=True):
     service_template_slug: str | None = Field(default=None)
     service_template_script_path: str | None = Field(default=None)
 
+    # VM vs LXC 自動判斷（模組C）：manual = 使用者自選；auto = 規則引擎決定
+    requested_mode: str = Field(default="manual")
+    auto_decision_reason: str | None = Field(default=None)
+
     status: VMRequestStatus = Field(
         default=VMRequestStatus.pending,
         sa_column=Column(

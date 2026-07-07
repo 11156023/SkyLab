@@ -56,6 +56,14 @@ class Settings(BaseSettings):
     # so scheduler ticks don't block test startup on connection timeouts.
     SCHEDULER_ENABLED: bool = True
 
+    # 範本系統 2.0：學生自助克隆時，名下資源總數上限（teacher/admin 不受限）
+    TEMPLATE_CLONE_STUDENT_MAX_INSTANCES: int = 3
+
+    # 虛擬教室：單一 VNC session 的下游訂閱者上限
+    CLASSROOM_MAX_SUBSCRIBERS: int = 250
+    # 虛擬教室：每個訂閱者的訊息佇列深度（滿了直接斷開該訂閱者）
+    CLASSROOM_SUBSCRIBER_QUEUE_SIZE: int = 256
+
     BACKEND_CORS_ORIGINS: Annotated[
         list[AnyUrl] | str, BeforeValidator(parse_cors)
     ] = []
@@ -69,6 +77,9 @@ class Settings(BaseSettings):
 
     PROJECT_NAME: str
     SENTRY_DSN: HttpUrl | None = None
+    # Fraction of transactions sampled for Sentry performance tracing.
+    # 1.0 (100%) is only sensible for low-traffic staging; keep low in prod.
+    SENTRY_TRACES_SAMPLE_RATE: float = 0.1
     POSTGRES_SERVER: str
     POSTGRES_PORT: int = 5432
     POSTGRES_USER: str
@@ -147,9 +158,6 @@ class Settings(BaseSettings):
     VLLM_CHAT_MAX_TOKENS: int = 4096
     VLLM_REPETITION_PENALTY: float = 1.0
     VLLM_MAX_UPLOAD_SIZE_MB: int = 10
-
-    TRAEFIK_API_BASE_URL: str = "http://127.0.0.1:8080"
-    TRAEFIK_API_TIMEOUT: int = 10
 
     def _check_default_secret(self, var_name: str, value: str | None) -> None:
         if value == "changethis":

@@ -2,10 +2,18 @@ import logging
 
 from fastapi import APIRouter
 
-from app.api.deps import AdminUser, CurrentUser, ResourceInfoDep, SessionDep
+from app.api.deps import (
+    AdminUser,
+    CurrentUser,
+    InstructorUser,
+    ResourceInfoDep,
+    SessionDep,
+    TeachingResourceInfoDep,
+)
 from app.schemas import (
     CurrentStatsResponse,
     DirectSpecUpdateRequest,
+    ResetAcceptedResponse,
     RRDDataPoint,
     RRDDataResponse,
     SnapshotCreateRequest,
@@ -13,7 +21,7 @@ from app.schemas import (
     SnapshotResponse,
 )
 from app.services.network import snapshot_service
-from app.services.resource import resource_service
+from app.services.resource import reset_service, resource_service
 
 logger = logging.getLogger(__name__)
 
@@ -54,7 +62,7 @@ def get_rrd_stats(
 
 
 @router.get("/{vmid}/snapshots", response_model=list[SnapshotInfo])
-def list_snapshots(vmid: int, resource_info: ResourceInfoDep):
+def list_snapshots(vmid: int, resource_info: TeachingResourceInfoDep):
     return snapshot_service.list_snapshots(vmid=vmid, resource_info=resource_info)
 
 
@@ -62,7 +70,7 @@ def list_snapshots(vmid: int, resource_info: ResourceInfoDep):
 def create_snapshot(
     vmid: int,
     request: SnapshotCreateRequest,
-    resource_info: ResourceInfoDep,
+    resource_info: TeachingResourceInfoDep,
     session: SessionDep,
     current_user: CurrentUser,
 ):
@@ -74,6 +82,7 @@ def create_snapshot(
         vmstate=request.vmstate,
         resource_info=resource_info,
         user_id=current_user.id,
+        user=current_user,
     )
 
 
@@ -81,7 +90,7 @@ def create_snapshot(
 def delete_snapshot(
     vmid: int,
     snapname: str,
-    resource_info: ResourceInfoDep,
+    resource_info: TeachingResourceInfoDep,
     session: SessionDep,
     current_user: CurrentUser,
 ):
@@ -91,6 +100,7 @@ def delete_snapshot(
         snapname=snapname,
         resource_info=resource_info,
         user_id=current_user.id,
+        user=current_user,
     )
 
 
@@ -100,7 +110,7 @@ def delete_snapshot(
 def rollback_snapshot(
     vmid: int,
     snapname: str,
-    resource_info: ResourceInfoDep,
+    resource_info: TeachingResourceInfoDep,
     session: SessionDep,
     current_user: CurrentUser,
 ):
@@ -129,4 +139,35 @@ def direct_update_spec(
         cores=request.cores,
         memory=request.memory,
         disk_size=request.disk_size,
+    )
+
+
+# 路徑不能用 /{vmid}/reset：resources.py 已有同路徑的電源硬重啟端點，
+# 兩者同時註冊會讓 OpenAPI schema 互相覆蓋、其中一個 runtime 打不到。
+@router.post(
+    "/{vmid}/reset-to-init", response_model=ResetAcceptedResponse, status_code=202
+)
+def reset_to_init(
+    vmid: int,
+    resource_info: TeachingResourceInfoDep,
+    session: SessionDep,
+    current_user: CurrentUser,
+):
+    task_id = reset_service.start_reset(
+        session, vmid=vmid, resource_info=resource_info, user=current_user
+    )
+    return ResetAcceptedResponse(
+        message="重置任務已排入背景執行", task_id=task_id
+    )
+
+
+@router.post("/{vmid}/init-snapshot", status_code=201)
+def create_init_snapshot(
+    vmid: int,
+    resource_info: TeachingResourceInfoDep,
+    session: SessionDep,
+    current_user: InstructorUser,
+):
+    return reset_service.create_init_snapshot(
+        session, vmid=vmid, resource_info=resource_info, user=current_user
     )

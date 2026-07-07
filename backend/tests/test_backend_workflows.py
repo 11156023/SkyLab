@@ -26,6 +26,9 @@ from app.models import (
     VMMigrationStatus,
     VMRequest,
     VMRequestStatus,
+    VMTemplate,
+    VMTemplateStatus,
+    VMTemplateVisibility,
 )
 from app.repositories import user as user_repo
 from app.schemas import (
@@ -318,10 +321,30 @@ def test_vm_request_create_rejects_unavailable_window(
         vm_request_service.create(session=db, request_in=request_in, user=user)
 
 
+def _seed_lxc_template(
+    session: Session,
+    *,
+    pve_vmid: int = 9100,
+    status: VMTemplateStatus = VMTemplateStatus.ready,
+) -> VMTemplate:
+    template = VMTemplate(
+        pve_vmid=pve_vmid,
+        name=f"lab-template-{pve_vmid}",
+        node="pve-a",
+        resource_type="lxc",
+        status=status,
+        visibility=VMTemplateVisibility.global_,
+    )
+    session.add(template)
+    session.commit()
+    return template
+
+
 def test_student_quick_template_is_limited_and_auto_approved(
     db: Session, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     user = _create_user(db, role=UserRole.student)
+    _seed_lxc_template(db, pve_vmid=9100)
     calls: list[uuid.UUID] = []
 
     monkeypatch.setattr(
@@ -354,9 +377,8 @@ def test_student_quick_template_is_limited_and_auto_approved(
         cores=2,
         memory=2048,
         password="strongpass123",
-        ostemplate="local:vztmpl/ubuntu-24.04.tar.zst",
+        template_id=9100,
         rootfs_size=16,
-        service_template_slug="postgresql",
         mode="quick_template",
     )
 
@@ -368,69 +390,18 @@ def test_student_quick_template_is_limited_and_auto_approved(
     assert result.request_kind == "quick_template"
     assert saved.request_kind == "quick_template"
     assert saved.status == VMRequestStatus.approved
+    assert saved.template_id == 9100
     assert saved.start_at is not None
     assert saved.end_at is not None
     assert saved.end_at - saved.start_at == timedelta(hours=3)
     assert calls == [saved.id]
 
 
-def test_student_quick_template_allows_n8n(
-    db: Session, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    user = _create_user(db, role=UserRole.student)
-
-    monkeypatch.setattr(
-        "app.services.vm.vm_request_service.vm_request_availability_service.validate_request_window",
-        lambda **kwargs: None,
-    )
-
-    def fake_approve_and_place(*, session: Session, db_request: VMRequest, reviewer_id: uuid.UUID):
-        db_request.status = VMRequestStatus.approved
-        db_request.reviewer_id = reviewer_id
-        db_request.assigned_node = "pve-a"
-        db_request.desired_node = "pve-a"
-        session.add(db_request)
-        session.flush()
-        return None
-
-    monkeypatch.setattr(
-        "app.services.vm.vm_request_service._approve_and_place",
-        fake_approve_and_place,
-    )
-    monkeypatch.setattr(
-        "app.services.vm.vm_request_service.submit_sync",
-        lambda *_args, **_kwargs: None,
-    )
-
-    request_in = VMRequestCreate(
-        reason="Need a short n8n automation lab",
-        resource_type="lxc",
-        hostname="quick-n8n",
-        cores=2,
-        memory=2048,
-        password="strongpass123",
-        ostemplate="local:vztmpl/debian-13.tar.zst",
-        rootfs_size=10,
-        service_template_slug="n8n",
-        service_template_script_path="ct/n8n.sh",
-        mode="quick_template",
-    )
-
-    result = vm_request_service.create(session=db, request_in=request_in, user=user)
-
-    db.expire_all()
-    saved = db.exec(select(VMRequest).where(VMRequest.id == result.id)).first()
-    assert saved is not None
-    assert saved.status == VMRequestStatus.approved
-    assert saved.service_template_slug == "n8n"
-    assert saved.service_template_script_path == "ct/n8n.sh"
-    assert result.service_template_slug == "n8n"
-
-
-def test_student_quick_template_rejects_unlisted_template(db: Session) -> None:
+def test_student_quick_template_requires_template(db: Session) -> None:
+    """quick_template 模式必須帶範本系統的 template_id（不再接受安裝腳本）。"""
     user = _create_user(db, role=UserRole.student)
     request_in = VMRequestCreate(
-        reason="Need a short unlisted service template",
+        reason="Need a short lab without a template",
         resource_type="lxc",
         hostname="quick-bad",
         cores=2,
@@ -438,7 +409,25 @@ def test_student_quick_template_rejects_unlisted_template(db: Session) -> None:
         password="strongpass123",
         ostemplate="local:vztmpl/ubuntu-24.04.tar.zst",
         rootfs_size=16,
-        service_template_slug="openwebui",
+        mode="quick_template",
+    )
+
+    with pytest.raises(BadRequestError):
+        vm_request_service.create(session=db, request_in=request_in, user=user)
+
+
+def test_student_quick_template_rejects_not_ready_template(db: Session) -> None:
+    user = _create_user(db, role=UserRole.student)
+    _seed_lxc_template(db, pve_vmid=9200, status=VMTemplateStatus.creating)
+    request_in = VMRequestCreate(
+        reason="Need a short lab from an unfinished template",
+        resource_type="lxc",
+        hostname="quick-bad",
+        cores=2,
+        memory=2048,
+        password="strongpass123",
+        template_id=9200,
+        rootfs_size=16,
         mode="quick_template",
     )
 
@@ -1546,11 +1535,28 @@ def test_process_due_request_starts_provisions_new_active_request_on_rebalanced_
         lambda *args, **kwargs: None,
     )
 
+    # 模組 D 後，未 provision 的 request 走 provision_pool fan-out 背景執行；
+    # 測試中改為同步執行背景任務實際會跑的 process_single_request_start。
+    provision_results: list[bool] = []
+
+    def _sync_submit_provision(request_id: uuid.UUID, *, concurrency: int) -> str:
+        provision_results.append(
+            vm_request_schedule_service.process_single_request_start(request_id)
+        )
+        return f"provision-{request_id}"
+
+    monkeypatch.setattr(
+        "app.services.scheduling.coordinator.provision_pool.submit_provision",
+        _sync_submit_provision,
+    )
+
     started_count = vm_request_schedule_service.process_due_request_starts()
 
     db.expire_all()
     refreshed = db.exec(select(VMRequest).where(VMRequest.id == request.id)).first()
-    assert started_count == 1
+    # fan-out 的 provision 不計入 tick 同步計數；started 由背景任務回傳驗證。
+    assert started_count == 0
+    assert provision_results == [True]
     assert refreshed is not None
     assert refreshed.vmid == 990
     assert refreshed.assigned_node == "pve-b"

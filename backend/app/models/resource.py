@@ -76,6 +76,35 @@ class Resource(SQLModel, table=True):
     )
     auto_stop_reason: str | None = Field(default=None, max_length=32)
 
+    # ── TTL / 閒置生命週期（模組C）────────────────────────────────────────
+    expiry_notified_at: datetime | None = Field(
+        default=None,
+        sa_column=Column(DateTime(timezone=True), nullable=True),
+    )
+    idle_since: datetime | None = Field(
+        default=None,
+        sa_column=Column(DateTime(timezone=True), nullable=True),
+    )
+    idle_notified_at: datetime | None = Field(
+        default=None,
+        sa_column=Column(DateTime(timezone=True), nullable=True),
+    )
+    idle_checked_at: datetime | None = Field(
+        default=None,
+        sa_column=Column(DateTime(timezone=True), nullable=True),
+    )
+    scheduled_deletion_at: datetime | None = Field(
+        default=None,
+        sa_column=Column(DateTime(timezone=True), nullable=True),
+    )
+
+    # ── 反挖礦（模組D）────────────────────────────────────────────────────
+    mining_exempt: bool = Field(default=False)
+    mining_checked_at: datetime | None = Field(
+        default=None,
+        sa_column=Column(DateTime(timezone=True), nullable=True),
+    )
+
     user: Optional["User"] = Relationship(back_populates="resources")
     request: Optional["VMRequest"] = Relationship()
 

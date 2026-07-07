@@ -33,6 +33,7 @@ Cancellation semantics:
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 import uuid
 from collections.abc import Awaitable, Callable
@@ -164,11 +165,18 @@ class BackgroundTaskRunner:
         max_retries: int = 0,
         retry_delay: float = 5.0,
         retry_backoff: float = 2.0,
+        bypass_semaphore: bool = False,
     ) -> str:
         """Schedule a coroutine factory; supports retries.
 
         ``coro_factory`` must produce a fresh awaitable on each call so
         retries can re-invoke the underlying work.
+
+        ``bypass_semaphore=True`` skips the runner's global concurrency
+        semaphore — for task classes that manage their own dedicated
+        semaphore (e.g. provisioning clones). Without this, tasks queued
+        on a dedicated semaphore would still pin global slots and starve
+        lightweight tasks (emails, state sync).
         """
         if self._shutting_down:
             logger.warning("BackgroundTaskRunner is shutting down; rejecting task %s", name)
@@ -189,7 +197,10 @@ class BackgroundTaskRunner:
         )
 
         async def _runner() -> None:
-            async with self._semaphore:
+            gate: Any = (
+                contextlib.nullcontext() if bypass_semaphore else self._semaphore
+            )
+            async with gate:
                 attempt = 0
                 delay = max(0.0, retry_delay)
                 while True:
@@ -417,6 +428,35 @@ def submit_sync(
         retry_delay=retry_delay,
         retry_backoff=retry_backoff,
         **kwargs,
+    )
+
+
+def submit_factory(
+    coro_factory: Callable[[], Awaitable[Any]],
+    *,
+    name: str,
+    task_id: str | None = None,
+    max_retries: int = 0,
+    retry_delay: float = 5.0,
+    retry_backoff: float = 2.0,
+    bypass_semaphore: bool = False,
+) -> str:
+    """Submit a coroutine factory to the global background runner."""
+    if _runner is None:
+        logger.error(
+            "Background runner not initialized; dropping task %s. "
+            "Did you call init_background_runner() in lifespan?",
+            name,
+        )
+        return ""
+    return _runner.submit_factory(
+        coro_factory,
+        name=name,
+        task_id=task_id,
+        max_retries=max_retries,
+        retry_delay=retry_delay,
+        retry_backoff=retry_backoff,
+        bypass_semaphore=bypass_semaphore,
     )
 
 

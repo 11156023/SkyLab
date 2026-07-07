@@ -12,6 +12,7 @@ __all__ = [
     "vm_request_availability_service",
     "vm_request_placement_service",
     "vm_request_service",
+    "workload_advisor",
 ]
 
 _MODULES = {
@@ -20,6 +21,7 @@ _MODULES = {
     "vm_request_availability_service": "app.services.vm.vm_request_availability_service",
     "vm_request_placement_service": "app.services.vm.placement_service",
     "vm_request_service": "app.services.vm.vm_request_service",
+    "workload_advisor": "app.services.vm.workload_advisor",
 }
 
 

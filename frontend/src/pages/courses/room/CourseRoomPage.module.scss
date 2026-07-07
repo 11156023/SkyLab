@@ -1,0 +1,400 @@
+.page {
+  @include flex-column;
+  gap: $spacing-8;
+  flex: 1;
+  min-height: 0;
+}
+
+.stateText {
+  padding: $spacing-32 $spacing-16;
+  text-align: center;
+  color: var(--color-text-muted);
+  font-size: $font-size-14;
+}
+
+/* ── 頂部列 ── */
+.topBar {
+  display: flex;
+  align-items: center;
+  gap: $spacing-8;
+  padding: $spacing-8 $spacing-16;
+  background: var(--color-surface-glass);
+  border: 1px solid var(--color-surface-glass-border);
+  border-radius: $radius-16;
+  box-shadow: var(--shadow-sm);
+}
+
+.backBtn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border: 1px solid var(--color-border);
+  border-radius: $radius-8;
+  background: none;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+
+  &:hover {
+    background: var(--color-hover);
+  }
+}
+
+.topHeading {
+  @include flex-column;
+  gap: 2px;
+  flex: 1;
+  min-width: 0;
+}
+
+.roomTitle {
+  font-size: $font-size-16;
+  font-weight: $font-weight-500;
+  color: var(--color-text-primary);
+}
+
+.roomMeta {
+  font-size: $font-size-12;
+  color: var(--color-text-muted);
+}
+
+.labControls {
+  display: flex;
+  align-items: center;
+  gap: $spacing-8;
+  flex-shrink: 0;
+}
+
+.labStatus {
+  display: flex;
+  align-items: center;
+  gap: $spacing-4;
+  font-size: $font-size-12;
+  color: var(--color-text-secondary);
+}
+
+.primaryBtn,
+.dangerBtn {
+  display: flex;
+  align-items: center;
+  gap: $spacing-4;
+  padding: $spacing-8 $spacing-16;
+  border: none;
+  border-radius: $radius-8;
+  font-size: $font-size-12;
+  font-weight: $font-weight-500;
+  cursor: pointer;
+
+  &:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+  }
+}
+
+.primaryBtn {
+  background: var(--color-primary);
+  color: var(--color-text-on-primary);
+
+  &:hover:not(:disabled) {
+    background: var(--color-primary-dark);
+  }
+}
+
+.dangerBtn {
+  background: color-mix(in srgb, var(--color-danger) 12%, transparent);
+  color: var(--color-danger);
+
+  &:hover {
+    background: color-mix(in srgb, var(--color-danger) 20%, transparent);
+  }
+}
+
+.failedBanner {
+  display: flex;
+  align-items: center;
+  gap: $spacing-8;
+  padding: $spacing-8 $spacing-16;
+  border-radius: $radius-8;
+  background: color-mix(in srgb, var(--color-danger) 10%, transparent);
+  color: var(--color-danger);
+  font-size: $font-size-12;
+}
+
+/* ── 三欄工作區 ── */
+.workspace {
+  display: grid;
+  grid-template-columns: 220px minmax(0, 1fr) minmax(320px, 42%);
+  gap: $spacing-8;
+  flex: 1;
+  min-height: 0;
+
+  &.noLab {
+    grid-template-columns: 220px minmax(0, 1fr);
+  }
+
+  @media (max-width: 1100px) {
+    grid-template-columns: 1fr;
+    overflow: auto;
+  }
+}
+
+/* 左：任務導航 */
+.taskNav {
+  @include flex-column;
+  gap: $spacing-4;
+  padding: $spacing-8;
+  background: var(--color-surface-glass);
+  border: 1px solid var(--color-surface-glass-border);
+  border-radius: $radius-16;
+  overflow-y: auto;
+}
+
+.taskNavItem {
+  display: flex;
+  align-items: center;
+  gap: $spacing-8;
+  padding: $spacing-8 $spacing-8;
+  border: none;
+  border-radius: $radius-8;
+  background: none;
+  color: var(--color-text-secondary);
+  font-size: $font-size-12;
+  text-align: left;
+  cursor: pointer;
+
+  &:hover {
+    background: var(--color-hover);
+  }
+}
+
+.taskNavActive {
+  background: color-mix(in srgb, var(--color-primary) 12%, transparent);
+  color: var(--color-primary);
+  font-weight: $font-weight-500;
+}
+
+.taskNavLabel {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 中：教學內容 */
+.content {
+  @include flex-column;
+  gap: $spacing-16;
+  padding: $spacing-16;
+  background: var(--color-surface-glass);
+  border: 1px solid var(--color-surface-glass-border);
+  border-radius: $radius-16;
+  overflow-y: auto;
+  min-height: 0;
+}
+
+.taskTitle {
+  font-size: $font-size-18;
+  font-weight: $font-weight-500;
+  color: var(--color-text-primary);
+}
+
+.markdown {
+  font-size: $font-size-14;
+  line-height: 1.7;
+  color: var(--color-text-primary);
+
+  h1, h2, h3, h4 {
+    margin: $spacing-16 0 $spacing-8;
+    color: var(--color-text-primary);
+  }
+
+  p {
+    margin: $spacing-8 0;
+  }
+
+  code {
+    padding: 1px 5px;
+    border-radius: 4px;
+    background: var(--color-hover);
+    font-size: $font-size-12;
+  }
+
+  pre {
+    padding: $spacing-8;
+    border-radius: $radius-8;
+    background: var(--color-hover);
+    overflow-x: auto;
+
+    code {
+      padding: 0;
+      background: none;
+    }
+  }
+
+  ul, ol {
+    padding-left: $spacing-24;
+    margin: $spacing-8 0;
+  }
+
+  a {
+    color: var(--color-primary);
+  }
+
+  blockquote {
+    margin: $spacing-8 0;
+    padding-left: $spacing-8;
+    border-left: 3px solid var(--color-border);
+    color: var(--color-text-secondary);
+  }
+}
+
+/* 題目 */
+.questions {
+  @include flex-column;
+  gap: $spacing-8;
+}
+
+.question {
+  display: flex;
+  align-items: center;
+  gap: $spacing-8;
+  flex-wrap: wrap;
+  padding: $spacing-8;
+  border: 1px solid var(--color-border);
+  border-radius: $radius-12;
+  font-size: $font-size-14;
+  color: var(--color-text-primary);
+}
+
+.questionDone {
+  border-color: color-mix(in srgb, var(--color-success) 40%, transparent);
+  background: color-mix(in srgb, var(--color-success) 6%, transparent);
+  color: var(--color-success);
+  animation: pop 0.3s ease;
+}
+
+@keyframes pop {
+  0% { transform: scale(0.98); opacity: 0.6; }
+  60% { transform: scale(1.01); }
+  100% { transform: scale(1); opacity: 1; }
+}
+
+.questionPrompt {
+  flex: 1;
+  min-width: 200px;
+}
+
+.points {
+  font-size: $font-size-12;
+  font-weight: $font-weight-500;
+}
+
+.answerForm {
+  display: flex;
+  gap: $spacing-8;
+}
+
+.answerInput {
+  padding: $spacing-8 $spacing-8;
+  border: 1px solid var(--color-border);
+  border-radius: $radius-8;
+  background: var(--color-surface);
+  color: var(--color-text-primary);
+  font-size: $font-size-12;
+  font-family: monospace;
+  min-width: 180px;
+
+  &:focus {
+    outline: none;
+    border-color: var(--color-primary);
+  }
+}
+
+.submitBtn {
+  padding: $spacing-8 $spacing-16;
+  border: none;
+  border-radius: $radius-8;
+  background: var(--color-primary);
+  color: var(--color-text-on-primary);
+  font-size: $font-size-12;
+  cursor: pointer;
+
+  &:hover:not(:disabled) {
+    background: var(--color-primary-dark);
+  }
+
+  &:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+}
+
+/* 右：VNC */
+.vncPane {
+  @include flex-column;
+  background: var(--color-surface-glass);
+  border: 1px solid var(--color-surface-glass-border);
+  border-radius: $radius-16;
+  overflow: hidden;
+  min-height: 320px;
+}
+
+.vncState {
+  @include flex-column;
+  align-items: center;
+  justify-content: center;
+  gap: $spacing-8;
+  flex: 1;
+  color: var(--color-text-muted);
+  font-size: $font-size-12;
+  text-align: center;
+  padding: $spacing-16;
+}
+
+.vncWrap {
+  @include flex-column;
+  flex: 1;
+  min-height: 0;
+}
+
+.vncToolbar {
+  display: flex;
+  align-items: center;
+  gap: $spacing-8;
+  padding: $spacing-4 $spacing-8;
+  font-size: $font-size-12;
+  color: var(--color-text-secondary);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.vncBtn {
+  display: flex;
+  align-items: center;
+  margin-left: auto;
+  padding: 3px 6px;
+  border: 1px solid var(--color-border);
+  border-radius: $radius-8;
+  background: none;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+
+  &:hover {
+    background: var(--color-hover);
+  }
+}
+
+.statusDot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+
+.dot_ok {
+  background: var(--color-success);
+}
+
+.dot_wait {
+  background: var(--color-warning);
+}

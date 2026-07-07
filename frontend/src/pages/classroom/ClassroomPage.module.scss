@@ -1,0 +1,232 @@
+.page {
+  @include flex-column;
+  gap: $spacing-24;
+  padding: $spacing-8 $spacing-16;
+  flex: 1;
+
+  @include respond-to(md) {
+    padding: 0;
+  }
+}
+
+.pageHeader {
+  @include flex-between;
+  flex-wrap: wrap;
+  gap: $spacing-16;
+}
+
+.pageHeading {
+  @include flex-column;
+  gap: $spacing-4;
+}
+
+.pageTitle {
+  font-size: $font-size-24;
+  font-weight: $font-weight-700;
+  color: var(--color-text-primary);
+
+  @include respond-to(sm) {
+    font-size: $font-size-28;
+  }
+}
+
+.pageSubtitle {
+  font-size: $font-size-14;
+  color: var(--color-text-secondary);
+}
+
+.groupSelect {
+  min-width: 220px;
+  padding: $spacing-8 $spacing-16;
+  border: 1px solid var(--color-border);
+  border-radius: $radius-8;
+  font-size: $font-size-14;
+  background: var(--color-surface);
+  color: var(--color-text);
+  box-shadow: var(--shadow-sm);
+
+  &:focus {
+    border-color: var(--color-primary);
+  }
+}
+
+.stateText {
+  padding: $spacing-24 $spacing-16;
+  text-align: center;
+  color: var(--color-text-muted);
+  font-size: $font-size-14;
+}
+
+.emptyHint {
+  @include flex-column;
+  align-items: center;
+  justify-content: center;
+  gap: $spacing-8;
+  padding: $spacing-48 $spacing-16;
+  border: 1px dashed var(--color-border);
+  border-radius: $radius-16;
+  color: var(--color-text-muted);
+  font-size: $font-size-14;
+}
+
+/* ── 直播列 ── */
+.broadcastBar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: $spacing-8;
+  padding: $spacing-8 $spacing-16;
+  border: 1px solid color-mix(in srgb, var(--color-danger) 30%, transparent);
+  border-radius: $radius-12;
+  background: color-mix(in srgb, var(--color-danger) 6%, transparent);
+  color: var(--color-danger);
+}
+
+.broadcastLabel {
+  font-size: $font-size-14;
+  font-weight: $font-weight-500;
+}
+
+.broadcastSelect {
+  min-width: 220px;
+  padding: 6px $spacing-16;
+  border: 1px solid var(--color-border);
+  border-radius: $radius-8;
+  font-size: $font-size-14;
+  background: var(--color-surface);
+  color: var(--color-text);
+}
+
+.broadcastHint {
+  font-size: $font-size-12;
+  color: var(--color-text-muted);
+}
+
+/* ── 學生卡片 ── */
+.studentGrid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: $spacing-16;
+
+  @include respond-to(sm) {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  @include respond-to(lg) {
+    grid-template-columns: repeat(3, 1fr);
+  }
+
+  @include respond-to(xl) {
+    grid-template-columns: repeat(4, 1fr);
+  }
+}
+
+.studentCard {
+  @include flex-column;
+  gap: $spacing-16;
+  padding: $spacing-16;
+  background: var(--color-surface-glass);
+  backdrop-filter: blur(12px) saturate(1.4);
+  -webkit-backdrop-filter: blur(12px) saturate(1.4);
+  border: 1px solid var(--color-surface-glass-border);
+  border-radius: $radius-16;
+  box-shadow: var(--shadow-sm);
+}
+
+.studentHead {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: $spacing-8;
+}
+
+.studentInfo {
+  @include flex-column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.studentName {
+  font-size: $font-size-14;
+  font-weight: $font-weight-500;
+  color: var(--color-text-primary);
+  @include text-truncate;
+}
+
+.studentEmail {
+  font-size: $font-size-12;
+  color: var(--color-text-muted);
+  @include text-truncate;
+}
+
+.studentFoot {
+  @include flex-between;
+  gap: $spacing-8;
+}
+
+.vmLine {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: $font-size-12;
+  color: var(--color-text-primary);
+  min-width: 0;
+}
+
+.vmLineMuted {
+  font-size: $font-size-12;
+  color: var(--color-text-muted);
+}
+
+.vmDot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--color-text-muted);
+  flex-shrink: 0;
+}
+
+.vmDot_on {
+  background: var(--color-success);
+}
+
+/* ── Badge ── */
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px $spacing-8;
+  border-radius: $radius-pill;
+  font-size: $font-size-12;
+  font-weight: $font-weight-500;
+  flex-shrink: 0;
+}
+
+.badge_ok    { background: color-mix(in srgb, var(--color-success) 12%, transparent); color: var(--color-success); }
+.badge_muted { background: var(--color-hover); color: var(--color-text-muted); }
+
+/* ── 按鈕 ── */
+.btnSecondary {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px $spacing-8;
+  border-radius: $radius-8;
+  font-size: $font-size-12;
+  font-weight: $font-weight-500;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background $transition-base;
+
+  &:hover:not(:disabled) {
+    background: var(--color-hover);
+  }
+
+  &:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+  }
+}

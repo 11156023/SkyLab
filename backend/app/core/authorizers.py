@@ -143,6 +143,36 @@ def can_auto_approve_vm_request(user: Any, *, mode: str) -> bool:
     return False
 
 
+def require_template_manage(
+    user: Any,
+    *,
+    detail: str = "Only teachers and admins can manage templates",
+) -> None:
+    require_permission(user, Permission.TEMPLATE_MANAGE, detail=detail)
+
+
+def require_template_owner(
+    user: Any,
+    owner_id: uuid.UUID | None,
+    *,
+    detail: str = "Only the template owner or an admin can do this",
+) -> None:
+    require_owner_or_permission(
+        user,
+        owner_id,
+        bypass_permission=Permission.ADMIN_ACCESS,
+        detail=detail,
+    )
+
+
+def require_classroom_monitor(
+    user: Any,
+    *,
+    detail: str = "Only teachers and admins can use classroom monitoring",
+) -> None:
+    require_permission(user, Permission.CLASSROOM_MONITOR, detail=detail)
+
+
 def require_admin_access(
     user: Any,
     *,

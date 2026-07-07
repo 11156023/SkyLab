@@ -1,7 +1,7 @@
 # AI Navigation Demo
 
 This standalone demo shows how an AI-native navigation layer can guide a frontend.
-The UI mimics the `frontend_new` dashboard shape: left sidebar, central page
+The UI mimics the `frontend` dashboard shape: left sidebar, central page
 preview, and a right-side AI chatbox.
 
 Flow:
@@ -77,7 +77,7 @@ That is a lightweight version of a Page Capability Schema.
 
 ## UI behavior
 
-- Left sidebar matches the broad `frontend_new` navigation groups.
+- Left sidebar matches the broad `frontend` navigation groups.
 - Center panel renders a rough mock shape for the selected page.
 - Right AI panel is only a chatbox plus guide output.
 - A single-page result renders a guide button.

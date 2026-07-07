@@ -87,10 +87,40 @@ from .group import (
     GroupPublic,
     GroupsPublic,
 )
+from .ldap import (
+    LdapConfigPublic,
+    LdapConfigUpdate,
+    LdapLoginRequest,
+    LdapTestResult,
+    LoginMethodsPublic,
+)
+from .mining import (
+    MiningDismissRequest,
+    MiningIncidentPublic,
+)
+from .monitoring import (
+    AlertEventPublic,
+    GovernanceConfigPublic,
+    GovernanceConfigUpdate,
+    MonitoringOverview,
+    NodeMetrics,
+    VMTopEntry,
+)
+from .pair_session import (
+    PairSessionCreate,
+    PairSessionPublic,
+)
 from .proxmox_config import (
     ProxmoxConfigPublic,
     ProxmoxConfigUpdate,
     ProxmoxConnectionTestResult,
+)
+from .quota import (
+    EffectiveQuotaPublic,
+    QuotaUsagePublic,
+    ResourceQuotaCreate,
+    ResourceQuotaPublic,
+    ResourceQuotaUpdate,
 )
 from .resource import (
     BatchActionRequest,
@@ -102,6 +132,7 @@ from .resource import (
     LXCCreateResponse,
     NextVMIDSchema,
     NodeSchema,
+    ResetAcceptedResponse,
     ResourcePublic,
     ResourceStatus,
     RRDDataPoint,
@@ -128,6 +159,16 @@ from .spec_change_request import (
     SpecChangeRequestPublic,
     SpecChangeRequestReview,
     SpecChangeRequestsPublic,
+)
+from .teaching import (
+    BatchSpecAccepted,
+    BatchSpecItemPublic,
+    BatchSpecRequest,
+    BatchSpecStatusPublic,
+    ConfigPushAccepted,
+    ConfigPushItemPublic,
+    ConfigPushStatusPublic,
+    HeatmapEntry,
 )
 from .user import (
     UpdatePassword,
@@ -158,6 +199,8 @@ from .vm_request import (
     VMRequestsPublic,
     VMRequestWindowAvailabilityRequest,
     VMRequestWindowAvailabilityResponse,
+    WorkloadAdviceResponse,
+    WorkloadAdviseRequest,
 )
 
 __all__ = [
@@ -222,6 +265,7 @@ __all__ = [
     "SnapshotCreateRequest",
     "SnapshotResponse",
     "DirectSpecUpdateRequest",
+    "ResetAcceptedResponse",
     # VM Request
     "VMRequestAvailabilityRequest",
     "VMRequestAvailabilitySlot",
@@ -242,6 +286,8 @@ __all__ = [
     "VMRequestReviewProjectedNode",
     "VMRequestReviewRuntimeResource",
     "VMRequestsPublic",
+    "WorkloadAdviceResponse",
+    "WorkloadAdviseRequest",
     # Audit Log
     "AuditLogPublic",
     "AuditLogsPublic",
@@ -285,12 +331,46 @@ __all__ = [
     "TopologyEdge",
     "TopologyResponse",
     "NATRulePublic",
+    # LDAP
+    "LdapConfigPublic",
+    "LdapConfigUpdate",
+    "LdapLoginRequest",
+    "LdapTestResult",
+    "LoginMethodsPublic",
+    # Monitoring / Governance
+    "AlertEventPublic",
+    "GovernanceConfigPublic",
+    "GovernanceConfigUpdate",
+    "MonitoringOverview",
+    "NodeMetrics",
+    "VMTopEntry",
+    # Mining (module D)
+    "MiningDismissRequest",
+    "MiningIncidentPublic",
     # Proxmox Config
     "ProxmoxConfigPublic",
     "ProxmoxConfigUpdate",
     "ProxmoxConnectionTestResult",
+    # Pair Mode (module E)
+    "PairSessionCreate",
+    "PairSessionPublic",
+    # Quota (module E)
+    "EffectiveQuotaPublic",
+    "QuotaUsagePublic",
+    "ResourceQuotaCreate",
+    "ResourceQuotaPublic",
+    "ResourceQuotaUpdate",
     # Script Deploy
     "ScriptDeployRequest",
     "ScriptDeployResponse",
     "ScriptDeployStatus",
+    # Teaching (module E)
+    "ConfigPushAccepted",
+    "ConfigPushItemPublic",
+    "ConfigPushStatusPublic",
+    "HeatmapEntry",
+    "BatchSpecRequest",
+    "BatchSpecAccepted",
+    "BatchSpecItemPublic",
+    "BatchSpecStatusPublic",
 ]

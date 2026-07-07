@@ -1,5 +1,5 @@
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 
 from fastapi import APIRouter
 from fastapi.responses import StreamingResponse
@@ -103,7 +103,7 @@ def export_audit_logs(
         ip_address=ip_address,
         search=search,
     )
-    filename = f"audit-logs-{datetime.utcnow().strftime('%Y%m%d-%H%M%S')}.csv"
+    filename = f"audit-logs-{datetime.now(timezone.utc).strftime('%Y%m%d-%H%M%S')}.csv"
     # UTF-8 BOM so Excel opens Chinese correctly.
     body = "\ufeff" + csv_text
     return StreamingResponse(
