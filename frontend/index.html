@@ -7,6 +7,23 @@
     <title>SkyLab</title>
   </head>
   <body>
+    <!-- 液態玻璃折射濾鏡：data-style="liquid" 的 backdrop-filter 引用
+         （_themes.scss）；僅 Chromium 支援 backdrop-filter: url()，
+         其他瀏覽器自動退回無折射的清透玻璃 -->
+    <svg width="0" height="0" style="position: absolute" aria-hidden="true">
+      <filter
+        id="liquid-glass-lens"
+        x="-20%"
+        y="-20%"
+        width="140%"
+        height="140%"
+        color-interpolation-filters="sRGB"
+      >
+        <feTurbulence type="fractalNoise" baseFrequency="0.007 0.007" numOctaves="2" seed="7" result="noise" />
+        <feGaussianBlur in="noise" stdDeviation="2" result="soft" />
+        <feDisplacementMap in="SourceGraphic" in2="soft" scale="24" xChannelSelector="R" yChannelSelector="G" />
+      </filter>
+    </svg>
     <div id="root"></div>
     <script type="module" src="/src/main.jsx"></script>
   </body>

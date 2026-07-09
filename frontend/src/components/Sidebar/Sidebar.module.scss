@@ -6,8 +6,8 @@
   bottom: 0;
   width: $sidebar-width;
   background: var(--color-sidebar-glass);
-  backdrop-filter: blur(16px) saturate(1.6);
-  -webkit-backdrop-filter: blur(16px) saturate(1.6);
+  backdrop-filter: var(--sidebar-backdrop-filter);
+  -webkit-backdrop-filter: var(--sidebar-backdrop-filter);
   color: var(--color-text);
   @include flex-column;
   z-index: 100;
@@ -271,12 +271,8 @@
   bottom: calc(100% + 8px);
   left: 0;
   right: 0;
-  background: var(--color-surface-glass);
-  backdrop-filter: blur(12px) saturate(1.4);
-  -webkit-backdrop-filter: blur(12px) saturate(1.4);
-  border: 1px solid var(--color-surface-glass-border);
+  @include glass-surface($shadow: var(--shadow-md));
   border-radius: $radius-12;
-  box-shadow: var(--shadow-md);
   padding: $spacing-4;
   @include flex-column;
   gap: 2px;
@@ -335,12 +331,8 @@
   bottom: calc(100% + 8px);
   left: 0;
   right: 0;
-  background: var(--color-surface-glass);
-  backdrop-filter: blur(12px) saturate(1.4);
-  -webkit-backdrop-filter: blur(12px) saturate(1.4);
-  border: 1px solid var(--color-surface-glass-border);
+  @include glass-surface($shadow: var(--shadow-md));
   border-radius: $radius-12;
-  box-shadow: var(--shadow-md);
   padding: $spacing-4;
   z-index: 200;
 

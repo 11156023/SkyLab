@@ -68,10 +68,7 @@
 
 /* ── Info accordion ───────────────────────────────── */
 .infoCard {
-  background: var(--color-surface-glass);
-  backdrop-filter: blur(12px) saturate(1.4);
-  -webkit-backdrop-filter: blur(12px) saturate(1.4);
-  border: 1px solid var(--color-surface-glass-border);
+  @include glass-surface($shadow: none);
   border-radius: $radius-12;
   overflow: hidden;
 }
@@ -245,12 +242,8 @@ $spacing-16: 12px;
   align-items: center;
   gap: $spacing-16;
   padding: $spacing-16;
-  background: var(--color-surface-glass);
-  backdrop-filter: blur(12px) saturate(1.4);
-  -webkit-backdrop-filter: blur(12px) saturate(1.4);
-  border: 1px solid var(--color-surface-glass-border);
+  @include glass-surface($shadow: var(--shadow-sm));
   border-radius: $radius-12;
-  box-shadow: var(--shadow-sm);
   transition: box-shadow $transition-base;
 
   &:hover {
@@ -349,10 +342,7 @@ $spacing-16: 12px;
 
 /* ── Admin / Traefik panel ────────────────────────── */
 .adminCard {
-  background: var(--color-surface-glass);
-  backdrop-filter: blur(12px) saturate(1.4);
-  -webkit-backdrop-filter: blur(12px) saturate(1.4);
-  border: 1px solid var(--color-surface-glass-border);
+  @include glass-surface($shadow: none);
   border-radius: $radius-12;
   overflow: hidden;
 }
@@ -577,12 +567,8 @@ $spacing-16: 12px;
   @include flex-column;
   gap: $spacing-16;
   padding: $spacing-24;
-  background: var(--color-surface-glass);
-  backdrop-filter: blur(12px) saturate(1.4);
-  -webkit-backdrop-filter: blur(12px) saturate(1.4);
-  border: 1px solid var(--color-surface-glass-border);
+  @include glass-surface($shadow: var(--shadow-lg));
   border-radius: $radius-12;
-  box-shadow: var(--shadow-lg);
 }
 
 .modalHeader {

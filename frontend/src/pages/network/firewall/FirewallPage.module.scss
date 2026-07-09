@@ -403,12 +403,8 @@
 }
 
 .confirmDialog {
-  background: var(--color-surface-glass);
-  backdrop-filter: blur(12px) saturate(1.4);
-  -webkit-backdrop-filter: blur(12px) saturate(1.4);
-  border: 1px solid var(--color-surface-glass-border);
+  @include glass-surface($shadow: var(--shadow-lg));
   border-radius: $radius-16;
-  box-shadow: var(--shadow-lg);
   padding: $spacing-24;
   width: 320px;
   @include flex-column;

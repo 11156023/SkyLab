@@ -192,9 +192,15 @@ $breakpoint-lg: 992px   $breakpoint-xl: 1200px
 ### 毛玻璃效果
 
 ```scss
-@include glass-surface;              // 預設 blur(12px) saturate(1.4)
-@include glass-surface(8px, 1.2);   // 自訂參數
+@include glass-surface;                                // 預設玻璃陰影 var(--shadow-glass)
+@include glass-surface($shadow: var(--shadow-sm));    // 換陰影
+@include glass-surface($shadow: none);                // 不輸出 box-shadow
+@include glass-surface(8px, 1.2);                     // 固定濾鏡參數（不跟隨風格切換，特殊情況才用）
 ```
+
+玻璃表面的 backdrop-filter 一律走 `var(--glass-backdrop-filter)`
+（sidebar 用 `var(--sidebar-backdrop-filter)`），讓「液態玻璃」等
+風格變體能整體換濾鏡——**不要在元件裡寫死 `blur(12px) saturate(1.4)`**。
 
 ### 響應式斷點
 

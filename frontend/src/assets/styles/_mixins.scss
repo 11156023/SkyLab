@@ -57,10 +57,22 @@
   font-weight: $font-weight-500;
 }
 
-@mixin glass-surface($blur: 12px, $saturate: 1.4) {
+/* 玻璃表面基本組：背景塗層＋backdrop 濾鏡＋亮邊框＋陰影。
+   - 未帶 $blur 時濾鏡吃 --glass-backdrop-filter，跟隨風格切換
+     （液態玻璃等），有特殊需求才傳 $blur / $saturate 固定值
+   - $shadow 預設玻璃陰影，可換成 var(--shadow-sm) 等；
+     傳 none 表示不輸出 box-shadow */
+@mixin glass-surface($blur: null, $saturate: 1.4, $shadow: var(--shadow-glass)) {
   background: var(--color-surface-glass);
-  backdrop-filter: blur($blur) saturate($saturate);
-  -webkit-backdrop-filter: blur($blur) saturate($saturate);
+  @if $blur == null {
+    -webkit-backdrop-filter: var(--glass-backdrop-filter);
+    backdrop-filter: var(--glass-backdrop-filter);
+  } @else {
+    -webkit-backdrop-filter: blur($blur) saturate($saturate);
+    backdrop-filter: blur($blur) saturate($saturate);
+  }
   border: 1px solid var(--color-surface-glass-border);
-  box-shadow: var(--shadow-glass);
+  @if $shadow != none {
+    box-shadow: $shadow;
+  }
 }

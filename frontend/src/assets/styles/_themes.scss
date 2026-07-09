@@ -46,6 +46,12 @@
   --color-info:           #5471bf;
   --color-status-neutral: #6b7280;
 
+  /* ----- Glass backdrop filters -----
+     所有玻璃表面的 backdrop-filter 集中在此，風格變體（液態玻璃）
+     可整體換濾鏡；sidebar 霧度較重、獨立一組 */
+  --glass-backdrop-filter: blur(12px) saturate(1.4);
+  --sidebar-backdrop-filter: blur(16px) saturate(1.6);
+
   /* ----- Shadows ----- */
   --shadow-sm: 0 1px 3px rgba(67, 90, 149, 0.08);
   --shadow-md: 0 4px 12px rgba(67, 90, 149, 0.08);
@@ -131,6 +137,9 @@ body[data-style="white"] {
   --color-surface-glass-border: #e5eaf3;
   --color-sidebar-glass: #ffffff;
   --color-sidebar-glass-border: #e5eaf3;
+  /* 實色表面看不到 backdrop，關掉省效能 */
+  --glass-backdrop-filter: none;
+  --sidebar-backdrop-filter: none;
 }
 
 body[data-style="black"] {
@@ -138,33 +147,42 @@ body[data-style="black"] {
   --color-surface-glass-border: #26262b;
   --color-sidebar-glass: #0d0d10;
   --color-sidebar-glass-border: #26262b;
+  --glass-backdrop-filter: none;
+  --sidebar-backdrop-filter: none;
 }
 
-/* 液態玻璃（Liquid Glass）：仿真實玻璃的折射感——
-   表面比毛玻璃更清透、邊框是明顯的白色亮邊（rim highlight），
-   陰影組合模擬凸面玻璃：頂部鏡面亮線 + 底部反光 +
-   集中在邊緣的內側亮帶（負 spread 讓中央保持清透）。
-   明暗模式皆可用，兩套變數分開定義。 */
+/* 液態玻璃（Liquid Glass）：仿真實玻璃的清透折射感——
+   清透的關鍵是把毛玻璃的重霧（blur 12px）降到 2px，表面塗層壓到
+   近乎全透，改靠「提高背後內容的飽和與亮度 + SVG 折射濾鏡
+   （index.html 的 #liquid-glass-lens，僅 Chromium 生效，其他瀏覽器
+   自動退回無折射的清透玻璃）」呈現玻璃體感。
+   邊框是明顯的白色亮邊（rim highlight），陰影組合模擬凸面玻璃：
+   頂部鏡面亮線 + 底部反光 + 集中在邊緣的內側亮帶
+   （負 spread 讓中央保持清透）。明暗模式皆可用，兩套變數分開定義。 */
 body[data-style="liquid"] {
-  --color-surface-glass: rgba(255, 255, 255, 0.3);
-  --color-surface-glass-border: rgba(255, 255, 255, 0.9);
-  --color-sidebar-glass: rgba(255, 255, 255, 0.24);
-  --color-sidebar-glass-border: rgba(255, 255, 255, 0.75);
+  --color-surface-glass: rgba(255, 255, 255, 0.18);
+  --color-surface-glass-border: rgba(255, 255, 255, 0.95);
+  --color-sidebar-glass: rgba(255, 255, 255, 0.12);
+  --color-sidebar-glass-border: rgba(255, 255, 255, 0.8);
+  --glass-backdrop-filter: url(#liquid-glass-lens) blur(2px) saturate(1.8) brightness(1.06);
+  --sidebar-backdrop-filter: url(#liquid-glass-lens) blur(3px) saturate(1.85) brightness(1.06);
   --shadow-glass:
-    0 8px 32px rgba(31, 44, 90, 0.16),
-    inset 0 1px 1px rgba(255, 255, 255, 0.95),
-    inset 0 -1px 1px rgba(255, 255, 255, 0.5),
-    inset 0 0 20px -8px rgba(255, 255, 255, 0.85);
+    0 12px 40px rgba(31, 44, 90, 0.18),
+    inset 0 1px 1px rgba(255, 255, 255, 1),
+    inset 0 -1px 1px rgba(255, 255, 255, 0.6),
+    inset 0 0 24px -10px rgba(255, 255, 255, 0.9);
 }
 
 body.dark[data-style="liquid"] {
-  --color-surface-glass: rgba(18, 24, 38, 0.35);
-  --color-surface-glass-border: rgba(255, 255, 255, 0.22);
-  --color-sidebar-glass: rgba(18, 24, 38, 0.3);
-  --color-sidebar-glass-border: rgba(255, 255, 255, 0.18);
+  --color-surface-glass: rgba(16, 22, 36, 0.22);
+  --color-surface-glass-border: rgba(255, 255, 255, 0.28);
+  --color-sidebar-glass: rgba(16, 22, 36, 0.18);
+  --color-sidebar-glass-border: rgba(255, 255, 255, 0.22);
+  --glass-backdrop-filter: url(#liquid-glass-lens) blur(2px) saturate(1.6) brightness(1.15);
+  --sidebar-backdrop-filter: url(#liquid-glass-lens) blur(3px) saturate(1.6) brightness(1.15);
   --shadow-glass:
-    0 8px 32px rgba(0, 0, 0, 0.45),
-    inset 0 1px 1px rgba(255, 255, 255, 0.3),
-    inset 0 -1px 1px rgba(255, 255, 255, 0.12),
-    inset 0 0 20px -8px rgba(255, 255, 255, 0.18);
+    0 12px 40px rgba(0, 0, 0, 0.5),
+    inset 0 1px 1px rgba(255, 255, 255, 0.35),
+    inset 0 -1px 1px rgba(255, 255, 255, 0.14),
+    inset 0 0 24px -10px rgba(255, 255, 255, 0.22);
 }

@@ -88,12 +88,8 @@
   align-items: center;
   gap: $spacing-16;
   padding: $spacing-16;
-  background: var(--color-surface-glass);
-  backdrop-filter: blur(12px) saturate(1.4);
-  -webkit-backdrop-filter: blur(12px) saturate(1.4);
-  border: 1px solid var(--color-surface-glass-border);
+  @include glass-surface($shadow: var(--shadow-sm));
   border-radius: $radius-16;
-  box-shadow: var(--shadow-sm);
 }
 
 .statIcon {
@@ -220,12 +216,8 @@
 }
 
 .tableWrap {
-  background: var(--color-surface-glass);
-  backdrop-filter: blur(12px) saturate(1.4);
-  -webkit-backdrop-filter: blur(12px) saturate(1.4);
-  border: 1px solid var(--color-surface-glass-border);
+  @include glass-surface($shadow: var(--shadow-sm));
   border-radius: $radius-16;
-  box-shadow: var(--shadow-sm);
   overflow: hidden;
 }
 
