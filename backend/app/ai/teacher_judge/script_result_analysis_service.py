@@ -43,6 +43,8 @@ AI_JUDGEMENT_SYSTEM_PROMPT = """
 - evidence_refs 只能引用本次 checks 已存在的 id，不得自行發明。
 - 工具缺失、timeout、skipped 或其他缺乏證據的情況使用 unknown/skipped，不得當成 pass/fail。
 - 工具成功不等於 rubric 條件成立；只有直接證據支持判定時才能使用 pass/fail。
+- `judgement_mode=teacher` 的項目只交由導師判斷：必須使用 unknown，score 為 0，comment 說明待導師人工審核；可引用已收集的 evidence，但不得替導師判定 pass/fail。
+- 總分只代表 `judgement_mode=ai` 項目的 AI 建議，不得把 `teacher` 項目當成已通過或未通過。
 
 # 輸出格式
 {
@@ -97,6 +99,7 @@ def _compact_rubric_item(item: dict[str, Any]) -> dict[str, Any]:
         "title": str(item.get("title") or "")[:240],
         "description": _truncate(item.get("description")),
         "detectable": item.get("detectable"),
+        "judgement_mode": item.get("judgement_mode") or "ai",
         "detection_method": _truncate(item.get("detection_method")),
         "fallback": _truncate(item.get("fallback")),
         "check_steps": [
@@ -154,6 +157,9 @@ def _validate_ai_judgement(parsed: dict[str, Any], payload: dict[str, Any]) -> N
         invalid()
     checks_by_id = {check["id"]: check for check in checks}
     rubric_ids = {item["id"] for item in rubric_items}
+    judgement_modes = {
+        item["id"]: str(item.get("judgement_mode") or "ai") for item in rubric_items
+    }
     allowed_ids = rubric_ids or set(checks_by_id)
     items = parsed["item_judgements"]
     if allowed_ids and not items:
@@ -183,6 +189,10 @@ def _validate_ai_judgement(parsed: dict[str, Any], payload: dict[str, Any]) -> N
         if status in {"pass", "fail"} and (
             not refs
             or all(checks_by_id[ref].get("status") in {"unknown", "skipped"} for ref in refs)
+        ):
+            invalid()
+        if judgement_modes.get(item_id) == "teacher" and (
+            status != "unknown" or item.get("score") != 0
         ):
             invalid()
         seen.add(item_id)
@@ -227,20 +237,33 @@ def _normalize_ai_judgement(
     parsed: dict[str, Any],
     *,
     metrics: dict[str, Any],
+    payload: dict[str, Any],
 ) -> dict[str, Any]:
     try:
         score = int(parsed.get("score") or 0)
     except (TypeError, ValueError):
         score = 0
+    rubric_items = payload.get("rubric_items")
+    judgement_modes = {
+        str(item.get("id") or ""): str(item.get("judgement_mode") or "ai")
+        for item in rubric_items or []
+        if isinstance(item, dict)
+    }
+    item_judgements = _normalize_item_judgements(parsed.get("item_judgements"))
+    for item in item_judgements:
+        item["judgement_mode"] = judgement_modes.get(item["item_id"], "ai")
+    teacher_review_item_ids = [
+        item_id for item_id, mode in judgement_modes.items() if mode == "teacher"
+    ]
     return {
         "schema_version": "teacher_judge_ai_judgement.v1",
         "status": "completed",
         "score": max(0, min(5, score)),
         "max_score": 5,
         "summary": _truncate(parsed.get("summary"), 2000),
-        "item_judgements": _normalize_item_judgements(
-            parsed.get("item_judgements")
-        ),
+        "item_judgements": item_judgements,
+        "requires_teacher_review": bool(teacher_review_item_ids),
+        "teacher_review_item_ids": teacher_review_item_ids,
         "metrics": metrics,
         "model": settings.VLLM_MODEL_NAME,
         "analyzed_at": _now_iso(),
@@ -333,7 +356,7 @@ async def _call_ai_judgement(payload: dict[str, Any]) -> dict[str, Any]:
     if not isinstance(parsed, dict):
         raise HTTPException(status_code=502, detail=t("analysis.invalid_format"))
     _validate_ai_judgement(parsed, payload)
-    return _normalize_ai_judgement(parsed, metrics=dict(metrics))
+    return _normalize_ai_judgement(parsed, metrics=dict(metrics), payload=payload)
 
 
 async def _analyze_one_target(

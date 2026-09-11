@@ -34,7 +34,7 @@ const SCRIPT_GENERATION_PROGRESS = {
   },
   reviewing: {
     title: "正在核對所有檢查項目",
-    message: "AI 正在逐項確認自動檢測方式與必要資訊。",
+    message: "AI 正在逐項確認檢查方式與必要資訊。",
   },
   queued: {
     title: "已收到製作要求",
@@ -165,18 +165,23 @@ export function SessionTitle({ children, title }) {
   );
 }
 
-/** 自動檢測支援標籤：auto=綠、partial=琥珀、manual=紅。 */
+/** 檢查狀態固定收斂為三態：auto=綠、partial=琥珀、manual=紅。 */
 const DETECTABLE_INFO = {
-  auto: { label: "能自動檢測", icon: "check_circle", className: styles.detBadge_auto },
+  auto: { label: "可以", icon: "check_circle", className: styles.detBadge_auto },
   partial: { label: "缺少資訊", icon: "warning_amber", className: styles.detBadge_partial },
-  manual: { label: "不支援", icon: "block", className: styles.detBadge_manual },
+  manual: { label: "人工審核／無法執行", icon: "cancel", className: styles.detBadge_manual },
+};
+const TEACHER_REVIEW_INFO = {
+  label: "導師檢查",
+  icon: "cancel",
+  className: styles.detBadge_manual,
 };
 
 function getDetectableInfo(detectable) {
   return DETECTABLE_INFO[detectable] ?? DETECTABLE_INFO.manual;
 }
 
-function hasCompleteParameterizedStep(step) {
+function hasCompleteParameterizedStep(step, judgementMode = "ai") {
   const parameters = step?.parameters ?? {};
   const hasArgv = Array.isArray(parameters.argv)
     && parameters.argv.length > 0
@@ -184,8 +189,9 @@ function hasCompleteParameterizedStep(step) {
   const hasTimeout = Number.isInteger(parameters.timeout_seconds)
     && parameters.timeout_seconds >= 1
     && parameters.timeout_seconds <= 300;
-  const hasSuccessCriteria = typeof parameters.success_criteria === "string"
-    && parameters.success_criteria.trim();
+  const hasSuccessCriteria = judgementMode === "teacher"
+    || (typeof parameters.success_criteria === "string"
+      && parameters.success_criteria.trim());
   if (step?.command_key === "python.run_entrypoint") {
     return Boolean(typeof parameters.cwd === "string"
       && parameters.cwd.trim()
@@ -236,15 +242,17 @@ export function getScriptCreationBlocker({ analysis, pendingProposal = null, pen
       !item.detection_method?.trim()
       || !Array.isArray(item.check_steps)
       || item.check_steps.length === 0
-      || item.check_steps.some((step) => !hasCompleteParameterizedStep(step))
+      || item.check_steps.some((step) => (
+        !hasCompleteParameterizedStep(step, item.judgement_mode ?? "ai")
+      ))
     ))
   )).length;
   if (missingCount || unsupportedCount) {
     const details = [
       missingCount ? `${missingCount} 項缺少資訊` : null,
-      unsupportedCount ? `${unsupportedCount} 項不支援自動檢測` : null,
+      unsupportedCount ? `${unsupportedCount} 項需要人工審核或無法執行` : null,
     ].filter(Boolean).join("、");
-    return `${details}；所有項目都能自動檢測後，才能製作檢查腳本`;
+    return `${details}；所有項目都顯示「可以」後，才能製作檢查腳本`;
   }
   return null;
 }
@@ -317,6 +325,7 @@ function comparableItem(item) {
     description: item.description ?? "",
     checked: Boolean(item.checked),
     detectable: item.detectable ?? "manual",
+    judgement_mode: item.judgement_mode ?? "ai",
     detection_method: item.detection_method ?? null,
     fallback: item.fallback ?? null,
     missing_information: item.missing_information ?? [],
@@ -480,10 +489,12 @@ export function ProposalPanel({ proposal, selectedIds, onToggle, onApply, onSkip
 
 /* ── 可編輯檢查項目表格 ───────────────────────────────── */
 
-function DetectabilityBadge({ detectable, needsReview = false }) {
+function DetectabilityBadge({ detectable, judgementMode = "ai", needsReview = false }) {
   const detectableInfo = needsReview
     ? DETECTABLE_INFO.partial
-    : getDetectableInfo(detectable);
+    : judgementMode === "teacher"
+      ? TEACHER_REVIEW_INFO
+      : getDetectableInfo(detectable);
   return (
     <span
       className={`${styles.detBadge} ${detectableInfo.className} ${needsReview ? styles.detBadge_stale : ""}`}
@@ -548,7 +559,11 @@ function RubricTableRow({ item, index, onChange, onDelete, disabled, needsReview
           </label>
         </td>
         <td className={styles.rubricDetectabilityCell}>
-          <DetectabilityBadge detectable={item.detectable} needsReview={needsReview} />
+          <DetectabilityBadge
+            detectable={item.detectable}
+            judgementMode={item.judgement_mode}
+            needsReview={needsReview}
+          />
         </td>
         <td className={styles.rubricActionsCell}>
           <div className={styles.tableActions}>
@@ -584,7 +599,7 @@ function RubricTableRow({ item, index, onChange, onDelete, disabled, needsReview
                       <span>缺少資訊</span>
                       <p>{missingInformation.length
                         ? missingInformation.join("、")
-                        : "請補充完整的服務名稱、程式位置、連接埠或客觀成功條件。"}</p>
+                        : "請補充完整的服務名稱、程式位置、連接埠、取證範圍或判定條件。"}</p>
                     </div>
                   )}
                   {item.detection_method && (
@@ -595,7 +610,7 @@ function RubricTableRow({ item, index, onChange, onDelete, disabled, needsReview
                   )}
                   {item.fallback && (
                     <div className={styles.detectItem}>
-                      <span>無法自動檢測時</span>
+                      <span>無法使用腳本取證時</span>
                       <p>{item.fallback}</p>
                     </div>
                   )}
@@ -2211,6 +2226,9 @@ function AiJudgementBadge({ result }) {
   const judgement = result.ai_judgement;
   if (!judgement) return <span className={`${styles.badge} ${styles.badge_muted}`}>分析中</span>;
   if (judgement.status === "completed") {
+    if (judgement.requires_teacher_review) {
+      return <span className={`${styles.badge} ${styles.badge_info}`}>待導師審核</span>;
+    }
     const score = typeof judgement.score === "number" ? judgement.score : null;
     const maxScore = typeof judgement.max_score === "number" ? judgement.max_score : 5;
     return (
@@ -2236,6 +2254,20 @@ function aiJudgementSummary(result) {
   const judgement = result.ai_judgement;
   if (!judgement) return "AI 分析尚未完成。";
   return judgement.error ?? judgement.summary ?? null;
+}
+
+function JudgementItemBadge({ item }) {
+  let info = { label: "未判定", className: styles.badge_muted };
+  if (item?.judgement_mode === "teacher") {
+    info = { label: "待導師審核", className: styles.badge_info };
+  } else if (item?.status === "pass") {
+    info = { label: "通過", className: styles.badge_success };
+  } else if (item?.status === "fail") {
+    info = { label: "未通過", className: styles.badge_danger };
+  } else if (item?.status === "warning") {
+    info = { label: "需注意", className: styles.badge_info };
+  }
+  return <span className={`${styles.badge} ${info.className}`}>{info.label}</span>;
 }
 
 function formatUsage(value) {
@@ -2482,7 +2514,7 @@ function ExecutionTab({ classId, sessionId, members }) {
                   <th>成員</th>
                   <th>來源節點</th>
                   <th>執行狀態</th>
-                  <th>AI 分析</th>
+                  <th>AI 分析／導師審核</th>
                 </tr>
               </thead>
               <tbody>
@@ -2529,7 +2561,8 @@ function ExecutionTab({ classId, sessionId, members }) {
                               <div key={`${item.item_id ?? "item"}-${index}`} className={styles.judgeItem}>
                                 <div className={styles.judgeItemHead}>
                                   <span>{item.title ?? item.item_id ?? "檢查項目"}</span>
-                                  {typeof item.score === "number" && (
+                                  <JudgementItemBadge item={item} />
+                                  {item.judgement_mode !== "teacher" && typeof item.score === "number" && (
                                     <span className={`${styles.badge} ${styles.badge_muted}`}>
                                       {item.score}/{item.max_score ?? 1}
                                     </span>
@@ -2538,6 +2571,20 @@ function ExecutionTab({ classId, sessionId, members }) {
                                 {item.comment && <p>{item.comment}</p>}
                               </div>
                             ))}
+                            {(result.parsed_result?.checks ?? []).length > 0 && (
+                              <div className={styles.judgeItem}>
+                                <div className={styles.judgeItemHead}>
+                                  <span>腳本收集證據</span>
+                                </div>
+                                {(result.parsed_result.checks ?? []).map((check, index) => (
+                                  <div key={`${check.id ?? "check"}-${index}`}>
+                                    <strong>{check.title ?? check.id ?? "收集項目"}</strong>
+                                    {check.evidence && <p>{check.evidence}</p>}
+                                    {check.raw && <pre>{check.raw}</pre>}
+                                  </div>
+                                ))}
+                              </div>
+                            )}
                           </details>
                         ) : (
                           <div className={styles.fileMeta}>等待回收</div>

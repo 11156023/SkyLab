@@ -65,6 +65,7 @@ def test_teacher_judge_chat_prompt_is_scoped_and_clarifies_missing_information()
     assert "不要求老師先說「新增」" in CHAT_SYSTEM_TEMPLATE
     assert "一則訊息包含多條需求時逐條拆解" in CHAT_SYSTEM_TEMPLATE
     assert "不得因其中一條不完整而忽略其他 Ready 需求" in CHAT_SYSTEM_TEMPLATE
+    assert "不得因缺少客觀答案而攔截提案" in CHAT_SYSTEM_TEMPLATE
     assert "只有老師明確要求「重新核查整張檢查表」" in CHAT_SYSTEM_TEMPLATE
     assert "不得只說「資訊不足」" in CHAT_SYSTEM_TEMPLATE
     assert '"proposal_status": "ready | needs_information | unsupported | none"' in (
@@ -551,10 +552,10 @@ async def test_teacher_judge_invalid_ready_step_asks_for_missing_details(
     assert call_count == 3
     assert proposal is None
     assert "「確認 answer.txt 內容格式」" in reply
-    assert "完整位置或執行範圍" in reply
-    assert "可客觀比對的成功條件" in reply
-    assert "補充後我會重新核查" in reply
-    assert "建立提案供你查閱與同意" in reply
+    assert "不存在或未啟用的檢查能力" in reply
+    assert "linux/invented.read_file" in reply
+    assert "不是老師需要補充答案" in reply
+    assert "由管理員檢查 AI 輸出與命令目錄" in reply
     assert "AI 回覆失敗" not in reply
     assert "請稍後再試" not in reply
 
@@ -852,6 +853,38 @@ async def test_unknown_judgement_preserves_status_without_fabricated_refs(
     monkeypatch.setattr(analysis, "_call_vllm", fake_call)
     judgement = await analysis._call_ai_judgement(_analysis_payload())
     assert judgement["item_judgements"][0]["status"] == status
+
+
+async def test_teacher_judgement_never_becomes_ai_pass(monkeypatch):
+    monkeypatch.setattr(system_ai_env, "vllm_model_name", "test-model")
+    payload = _analysis_payload()
+    payload["rubric_items"][0]["judgement_mode"] = "teacher"
+    result = _judgement()
+    result["score"] = 0
+    result["item_judgements"][0].update(status="unknown", score=0)
+
+    async def fake_call(*args, **kwargs):
+        return json.dumps(result), {}
+
+    monkeypatch.setattr(analysis, "_call_vllm", fake_call)
+    judgement = await analysis._call_ai_judgement(payload)
+
+    assert judgement["requires_teacher_review"] is True
+    assert judgement["teacher_review_item_ids"] == ["item-1"]
+    assert judgement["item_judgements"][0]["judgement_mode"] == "teacher"
+
+
+async def test_teacher_judgement_rejects_ai_pass(monkeypatch):
+    monkeypatch.setattr(system_ai_env, "vllm_model_name", "test-model")
+    payload = _analysis_payload()
+    payload["rubric_items"][0]["judgement_mode"] = "teacher"
+
+    async def fake_call(*args, **kwargs):
+        return json.dumps(_judgement()), {}
+
+    monkeypatch.setattr(analysis, "_call_vllm", fake_call)
+    with pytest.raises(HTTPException):
+        await analysis._call_ai_judgement(payload)
 
 
 async def test_judgement_cannot_silently_omit_rubric_items(monkeypatch):

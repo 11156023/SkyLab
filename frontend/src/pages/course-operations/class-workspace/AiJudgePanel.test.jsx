@@ -229,6 +229,7 @@ describe("RubricTable", () => {
       title: "Python 版本檢查",
       description: "Python 需要至少 3.11",
       detectable: "auto",
+      judgement_mode: "ai",
       detection_method: "執行 python --version",
       fallback: "無法執行時由老師確認",
       check_steps: [{ template_key: "python", command_key: "python_version", command_label: "Python 版本" }],
@@ -242,6 +243,15 @@ describe("RubricTable", () => {
       fallback: "請補充實際輸出格式",
       missing_information: ["預期輸出格式"],
       check_steps: [],
+    },
+    {
+      id: "teacher-review",
+      title: "程式架構品質",
+      description: "收集原始碼供老師判斷",
+      detectable: "auto",
+      judgement_mode: "teacher",
+      detection_method: "讀取 main.py 內容",
+      check_steps: [{ template_key: "linux", command_key: "system.run_command" }],
     },
     {
       id: "manual-review",
@@ -263,9 +273,16 @@ describe("RubricTable", () => {
     expect(html).toContain("評分標準");
     expect(html).toContain("自動檢測支援");
     expect(html).toContain('value="Python 版本檢查"');
-    expect(html).toContain("能自動檢測");
+    expect(html).toContain("可以");
     expect(html).toContain("缺少資訊");
-    expect(html).toContain("不支援");
+    expect(html).toContain("導師檢查");
+    expect(html).toContain("人工審核／無法執行");
+    expect(html).toContain("check_circle");
+    expect(html).toContain("warning_amber");
+    expect(html.match(/cancel/g)).toHaveLength(2);
+    expect(html.match(/detBadge_manual/g)).toHaveLength(2);
+    expect(html).not.toContain("可執行取證");
+    expect(html).not.toContain("導師人工審核");
     expect(html).toContain('aria-expanded="false"');
     expect(html).toContain('aria-label="展開第 1 項檢查設定"');
     expect(html.indexOf('aria-label="展開第 1 項檢查設定"')).toBeLessThan(html.indexOf('value="Python 版本檢查"'));
@@ -308,11 +325,28 @@ describe("getScriptCreationBlocker", () => {
     }],
   };
 
-  test("所有項目都能自動檢測時允許製作腳本", () => {
+  test("所有項目都可以執行時允許製作腳本", () => {
     expect(getScriptCreationBlocker({ analysis: { items: [completeItem] } })).toBeNull();
   });
 
-  test("缺少資訊或不支援自動檢測時阻擋整份腳本", () => {
+  test("後端導師判定模式不受客觀答案攔截", () => {
+    const teacherReviewItem = {
+      ...completeItem,
+      judgement_mode: "teacher",
+      check_steps: [{
+        ...completeItem.check_steps[0],
+        parameters: {
+          cwd: "/home/student/project",
+          argv: ["python3", "main.py"],
+          timeout_seconds: 30,
+        },
+      }],
+    };
+
+    expect(getScriptCreationBlocker({ analysis: { items: [teacherReviewItem] } })).toBeNull();
+  });
+
+  test("缺少資訊或需要人工審核時阻擋整份腳本", () => {
     const blocker = getScriptCreationBlocker({
       analysis: {
         items: [
@@ -323,7 +357,7 @@ describe("getScriptCreationBlocker", () => {
     });
 
     expect(blocker).toContain("1 項缺少資訊");
-    expect(blocker).toContain("1 項不支援自動檢測");
+    expect(blocker).toContain("1 項需要人工審核或無法執行");
   });
 
   test("異動後尚未重新確認時阻擋腳本", () => {

@@ -12,6 +12,7 @@ from sqlmodel import Session, SQLModel, create_engine
 
 from app import models  # noqa: F401
 from app.ai.teacher_judge import (
+    automation_support,
     script_artifact_service,
     script_executor_service,
     script_result_analysis_service,
@@ -26,6 +27,7 @@ from app.ai.teacher_judge.script_policy import (
     check_script_policy,
     validate_managed_script_output,
 )
+from app.ai.teacher_judge.template_command_service import GENERAL_COMMAND
 from app.api.routes.teacher_judge_scripts import _normalize_supported_template_key
 from app.models.teacher_judge_script_artifact import TeacherJudgeScriptStatus
 from app.models.teacher_judge_script_run import (
@@ -147,6 +149,30 @@ async def test_create_artifact_blocks_non_auto_item_before_model_call(
     assert exc_info.value.status_code == 422
     assert exc_info.value.detail["code"] == "teacher_judge_script_not_ready"
     assert model_called is False
+
+
+def test_teacher_judgement_item_is_script_ready_without_objective_answer() -> None:
+    analysis = _analysis()
+    item = analysis.items[0]
+    item.judgement_mode = "teacher"
+    item.check_steps[0].parameters.pop("success_criteria")
+
+    assert automation_support.get_script_generation_blockers(
+        analysis,
+        [GENERAL_COMMAND],
+    ) == []
+
+
+def test_ai_judgement_item_still_requires_objective_answer() -> None:
+    analysis = _analysis()
+    analysis.items[0].check_steps[0].parameters.pop("success_criteria")
+
+    blockers = automation_support.get_script_generation_blockers(
+        analysis,
+        [GENERAL_COMMAND],
+    )
+
+    assert blockers[0]["missing_information"] == ["客觀成功條件"]
 
 
 def _resource(*, vmid: int, user_id: uuid.UUID) -> models.Resource:

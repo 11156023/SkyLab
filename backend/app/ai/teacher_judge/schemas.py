@@ -40,11 +40,15 @@ class TeacherJudgeRubricItem(BaseModel):
     checked: bool = Field(default=False, description="是否已達成（有做到就打勾）")
     detectable: Literal["auto", "partial", "manual"] = Field(
         default="manual",
-        description="自動檢測支援：auto=完整支援、partial=缺少資訊、manual=不支援",
+        description="腳本取證支援：auto=可執行取證、partial=缺少資訊、manual=不支援",
+    )
+    judgement_mode: Literal["ai", "teacher"] = Field(
+        default="ai",
+        description="結果判定方式：ai=AI 自動判斷、teacher=導師依腳本證據人工審核",
     )
     detection_method: str | None = Field(
         default=None,
-        description="自動檢測方式說明（detectable=auto/partial 時填寫）",
+        description="腳本取證方式說明（detectable=auto/partial 時填寫）",
     )
     fallback: str | None = Field(
         default=None,
@@ -52,7 +56,7 @@ class TeacherJudgeRubricItem(BaseModel):
     )
     missing_information: list[str] = Field(
         default_factory=list,
-        description="目前尚缺、補齊後才可能支援自動檢測的資訊。",
+        description="目前尚缺、補齊後才可能產生並執行取證腳本的資訊。",
     )
     check_steps: list[TeacherJudgeRubricCheckStep] = Field(
         default_factory=list,
@@ -71,11 +75,11 @@ class TeacherJudgeRubricAnalysis(BaseModel):
     manual_count: int = Field(default=0)
     detectability_needs_review: bool = Field(
         default=False,
-        description="評分項目異動後，既有可偵測性結果是否需要重新評估。",
+        description="評分項目異動後，既有腳本取證支援是否需要重新評估。",
     )
     pending_review_item_ids: list[str] = Field(
         default_factory=list,
-        description="尚未重新確認自動檢測支援的評分項目 ID。",
+        description="尚未重新確認腳本取證支援的評分項目 ID。",
     )
     summary: str = Field(default="", description="AI 整體說明（繁體中文）")
 

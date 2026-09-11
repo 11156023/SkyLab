@@ -146,10 +146,11 @@ SCRIPT_GENERATION_SYSTEM_PROMPT = f"""
 - 腳本最後必須 print 單一 JSON，schema_version 固定為 {RESULT_SCHEMA_VERSION}，並使用 json.dumps(..., ensure_ascii=False)。
 - 輸出 JSON 的 metadata 必須包含 timestamp 與 platform。
 - 優先根據 rubric item 的 check_steps.command_key 對應 template_commands 產生收集項目。
-- `python.run_entrypoint` 是執行觀察能力，不是原始碼審查：只使用 check_steps.parameters 中已驗證的 cwd、argv、timeout_seconds 與 success_criteria，不得從自然語言猜測或補值。
-- `system.run_command` 是跨 template 的通用受控能力，適用所有通過平台政策的唯讀／診斷系統指令，不限於列出的範例。使用 check_steps.parameters 中已驗證的 argv、success_criteria 與可選 cwd；timeout_seconds 缺少或無效時使用平台安全預設 30 秒。這是最大執行時間，不是啟動延遲。不要為個別系統指令建立命令特例。
+- `python.run_entrypoint` 是執行觀察能力，不是原始碼審查：只使用 check_steps.parameters 中已驗證的 cwd、argv、timeout_seconds 與可選 success_criteria，不得從自然語言猜測或補值。
+- `system.run_command` 是跨 template 的通用受控能力，適用所有通過平台政策的唯讀／診斷系統指令，不限於列出的範例。使用 check_steps.parameters 中已驗證的 argv、可選 success_criteria 與可選 cwd；timeout_seconds 缺少或無效時使用平台安全預設 30 秒。這是最大執行時間，不是啟動延遲。不要為個別系統指令建立命令特例。
 - 所有唯讀 argv 都必須保持原問題的範圍。常見範例：查看指定文件用 `["cat", "<相對檔名或路徑>"]` 並搭配 rubric 已提供的 cwd；列出服務用 `["systemctl", "list-units", "--type=service", "--all"]`；查看失敗服務用 `["systemctl", "--failed"]`；查看最近一小時錯誤記錄用 `["journalctl", "--since", "1 hour ago", "-p", "err", "--no-pager", "-n", "50"]`。不要因為任何系統指令可用就加入 rubric 未要求的檢查。
-- success_criteria 必須照 rubric 的語意粒度實作。只有明確要求完全相等時才比較整份 stdout；「有／包含／存在某行或設定」應檢查內容或逐行存在，不得要求整份輸出只有該字串。設定行如 `web_URL=True` 可忽略行首尾及等號周圍空白，但 key 與值仍須相符。
+- `judgement_mode=ai` 時，success_criteria 必須照 rubric 的語意粒度實作。只有明確要求完全相等時才比較整份 stdout；「有／包含／存在某行或設定」應檢查內容或逐行存在，不得要求整份輸出只有該字串。設定行如 `web_URL=True` 可忽略行首尾及等號周圍空白，但 key 與值仍須相符。
+- `judgement_mode=teacher` 時，腳本只負責完整收集指定答案／檔案／系統資訊；不得發明客觀答案或代替導師判定內容正確性。成功取證的 check 使用 `unknown` 並清楚標示「待導師人工審核」，evidence/raw 帶回可讀證據；執行或收集失敗仍依事實使用 fail/unknown 並記錄 errors。
 - `history` 是 shell builtin，不得用 bash、sh 或其他 shell launcher 間接執行，也不得自行猜測歷史檔路徑。若已核准的 check_steps 仍缺少明確、允許讀取的歷史來源，該 check 回傳 `unknown`，不得擴張搜尋。
 - `system.run_command` 只允許單一唯讀／診斷 argv；禁止 pipe、redirect、寫入型 Git 子命令及其他會改變環境的操作。
 - 執行 Python 入口時，必須使用 argv list、明確 `cwd`、有限 timeout，並把 exit code、stdout、stderr、未捕捉例外與 timeout 寫成該 check 的證據。
@@ -174,7 +175,7 @@ SCRIPT_GENERATION_SYSTEM_PROMPT = f"""
   2. 需要外部命令時，先檢查工具是否存在；缺工具時 `record_check(..., "unknown", ...)`
   3. 需要外部命令時執行 `run_command()`；標準函式庫可直接完成的檢查不要執行命令
   4. 若 `returncode is None`，必須 `errors.append(f"{{check_id}}: {{錯誤說明}}")` 並輸出 `unknown`
-  5. 只有明確驗證條件成立時才輸出 `pass`
+  5. `judgement_mode=ai` 只有明確驗證條件成立時才輸出 `pass`；`judgement_mode=teacher` 成功取證時輸出 `unknown` 並保留證據供導師審核
 - 避免 broad `try/except` 包住大段主流程；若收集項目使用 `except Exception as exc`，該 except 區塊必須同時 `errors.append(...)`，且對應 check 不可為 `pass`。
 
 # managed script 輸出 JSON contract
@@ -209,7 +210,7 @@ AI_REVIEWER_SYSTEM_PROMPT = """
 
 ## 安全審查
 若腳本可能刪除、修改、修復、安裝、重啟或對外傳資料，approved 必須是 false。讀取檔案與原樣回傳受控命令的 stdout/stderr 本身不是拒絕理由。
-若腳本使用 `python.run_entrypoint`，確認它只採用 rubric check_steps.parameters 的 cwd、argv、timeout_seconds 與 success_criteria，且程式只收集 exit code/stdout/stderr、沒有安裝或修復動作；risk_level 至少為 medium。只有靜態政策與本 AI reviewer 都核准時，腳本才會進入可執行狀態。
+若腳本使用 `python.run_entrypoint`，確認它只採用 rubric check_steps.parameters 的 cwd、argv、timeout_seconds 與可選 success_criteria，且程式只收集 exit code/stdout/stderr、沒有安裝或修復動作；risk_level 至少為 medium。`judgement_mode=teacher` 不得因沒有客觀答案而拒絕，但必須確認腳本能執行並帶回證據。只有靜態政策與本 AI reviewer 都核准時，腳本才會進入可執行狀態。
 若腳本使用 `system.run_command`，確認它採 argv list、cwd、有限 timeout、無 shell/pipe/redirect，且只做唯讀／診斷操作；stdout/stderr 不需遮蔽。
 若 rubric 只要求內容、行或設定存在，腳本不得擅自改成整份 stdout 完全相等；這種過度收緊應列為 issues。
 若腳本嘗試用 bash、sh 或其他 shell launcher 執行 `history`，或自行猜測並讀取未授權的歷史檔，approved 必須是 false。

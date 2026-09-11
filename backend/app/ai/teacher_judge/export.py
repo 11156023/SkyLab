@@ -7,9 +7,14 @@ import io
 from app.ai.teacher_judge.schemas import TeacherJudgeRubricItem
 
 _DETECTABLE_LABELS = {
-    "auto": "✅ 可自動偵測",
+    "auto": "✅ 可執行取證",
     "partial": "⚠️ 缺少資訊",
-    "manual": "❌ 需人工評閱",
+    "manual": "❌ 不支援腳本取證",
+}
+
+_JUDGEMENT_MODE_LABELS = {
+    "ai": "AI 自動判斷",
+    "teacher": "導師人工審核",
 }
 
 _DETECTABLE_COLORS = {
@@ -41,10 +46,11 @@ def export_to_excel(items: list[TeacherJudgeRubricItem], summary: str = "") -> b
         "說明",
         "是否達成",
         "可偵測性",
-        "自動偵測方式",
+        "結果判定",
+        "腳本取證方式",
         "替代建議",
     ]
-    col_widths = [10, 25, 40, 12, 18, 35, 35]
+    col_widths = [10, 25, 40, 12, 18, 18, 35, 35]
 
     for col_idx, (h, w) in enumerate(zip(headers, col_widths, strict=True), start=1):
         cell = ws.cell(row=1, column=col_idx, value=h)
@@ -69,6 +75,11 @@ def export_to_excel(items: list[TeacherJudgeRubricItem], summary: str = "") -> b
             item.description,
             _CHECKED_LABELS.get(bool(item.checked), "⬜ 未達成"),
             label,
+            (
+                _JUDGEMENT_MODE_LABELS.get(item.judgement_mode, item.judgement_mode)
+                if detectable == "auto"
+                else ""
+            ),
             item.detection_method or "",
             item.fallback or "",
         ]

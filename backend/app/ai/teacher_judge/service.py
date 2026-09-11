@@ -46,6 +46,16 @@ _PLATFORM_OWNED_SYSTEM_COMMAND_INFORMATION = {
 _CONFIG_ASSIGNMENT_PATTERN = re.compile(
     r"(?<![\w.-])([A-Za-z_][A-Za-z0-9_.-]*)\s*=\s*([A-Za-z0-9_./:+-]+)"
 )
+_PYTHON_VERSION_INTENT_PATTERN = re.compile(
+    r"(?:python(?:3)?|直譯器).{0,16}(?:版本|version)"
+    r"|(?:版本|version).{0,16}(?:python(?:3)?|直譯器)",
+    re.IGNORECASE,
+)
+_EXPLICIT_PYTHON_VERSION_PATTERN = re.compile(
+    r"(?:python\s+v?\d+(?:\.\d+){0,2})"
+    r"|(?:(?:版本|version).{0,12}v?\d+(?:\.\d+){1,2})",
+    re.IGNORECASE,
+)
 
 
 def _config_assignment_from_item_text(*values: Any) -> str | None:
@@ -103,6 +113,48 @@ def _normalize_check_steps(
     return normalized
 
 
+def _recover_known_catalog_steps(
+    *values: Any,
+    template_commands: list[TeacherJudgeTemplateCommand] | None,
+) -> list[TeacherJudgeRubricCheckStep]:
+    """Recover unambiguous, parameter-free catalog lookups from weak model output."""
+    if template_commands is None:
+        return []
+
+    item_text = "\n".join(str(value) for value in values if value is not None)
+    if not _PYTHON_VERSION_INTENT_PATTERN.search(item_text):
+        return []
+
+    command = next(
+        (
+            candidate
+            for candidate in template_commands
+            if candidate.template_key == "python"
+            and candidate.command_key == "python.version"
+        ),
+        None,
+    )
+    if command is None:
+        return []
+
+    return [
+        TeacherJudgeRubricCheckStep(
+            template_key=command.template_key,
+            command_key=command.command_key,
+            command_label=command.command_label,
+            parameters={},
+        )
+    ]
+
+
+def _is_python_version_lookup_without_expected_answer(*values: Any) -> bool:
+    """Identify version evidence requests that do not state an expected version."""
+    item_text = "\n".join(str(value) for value in values if value is not None)
+    return bool(_PYTHON_VERSION_INTENT_PATTERN.search(item_text)) and not bool(
+        _EXPLICIT_PYTHON_VERSION_PATTERN.search(item_text)
+    )
+
+
 def _normalize_rubric_items(
     raw_items: Any,
     template_key: str | None = None,
@@ -129,6 +181,12 @@ def _normalize_rubric_items(
         detectable: Literal["auto", "partial", "manual"] = cast(
             "Literal['auto', 'partial', 'manual']", detectable_raw
         )
+        judgement_mode_raw = str(raw.get("judgement_mode") or "ai").strip().lower()
+        if judgement_mode_raw not in {"ai", "teacher"}:
+            judgement_mode_raw = "ai"
+        judgement_mode: Literal["ai", "teacher"] = cast(
+            "Literal['ai', 'teacher']", judgement_mode_raw
+        )
 
         detection_method = raw.get("detection_method") or raw.get("detection")
         fallback = raw.get("fallback") or raw.get("suggestion")
@@ -149,6 +207,32 @@ def _normalize_rubric_items(
             template_key=template_key,
             template_commands=template_commands,
         )
+        if not check_steps:
+            recovered_steps = _recover_known_catalog_steps(
+                title,
+                description,
+                detection_method,
+                template_commands=template_commands,
+            )
+            if recovered_steps:
+                check_steps = recovered_steps
+                detectable = "auto"
+                if "judgement_mode" not in raw:
+                    judgement_mode = "teacher"
+                if detection_method is None or not str(detection_method).strip():
+                    detection_method = (
+                        "執行已登錄的 Python 版本查詢並收集版本資訊"
+                    )
+                missing_information = []
+                fallback = None
+        if (
+            detectable == "auto"
+            and check_steps
+            and _is_python_version_lookup_without_expected_answer(title, description)
+        ):
+            # The script can collect the installed version, but without a stated
+            # target version there is no objective pass/fail answer for AI to apply.
+            judgement_mode = "teacher"
         system_command_steps = [
             step for step in check_steps if step.command_key == "system.run_command"
         ]
@@ -197,7 +281,9 @@ def _normalize_rubric_items(
             )
             missing_information = filtered_missing_information
             for step in system_command_steps:
-                missing_information.extend(missing_step_information(step))
+                missing_information.extend(
+                    missing_step_information(step, judgement_mode=judgement_mode)
+                )
             if (
                 detectable == "partial"
                 and (
@@ -217,20 +303,22 @@ def _normalize_rubric_items(
                 if detection_method is not None
                 else "目前沒有可引用的有效 command_key，缺少自動取得客觀證據的能力"
             )
-            fallback = fallback or "目前平台不支援此項目的安全自動檢測。"
+            fallback = fallback or "目前平台不支援此項目的安全腳本取證。"
         if detectable == "auto" and (
             detection_method is None or not str(detection_method).strip()
         ):
             detectable = "partial"
-            missing_information.append("檢測方式與客觀成功條件")
+            missing_information.append("腳本取證方式")
         if detectable == "auto":
             for step in check_steps:
-                missing_information.extend(missing_step_information(step))
+                missing_information.extend(
+                    missing_step_information(step, judgement_mode=judgement_mode)
+                )
             if missing_information:
                 detectable = "partial"
         if detectable == "partial" and not missing_information:
             missing_information.append(
-                "完整的服務名稱、程式位置、連接埠或客觀成功條件"
+                "完整的服務名稱、程式位置、連接埠、取證範圍或判定條件"
             )
         missing_information = list(dict.fromkeys(missing_information))
         if strip_auto_fallback and detectable == "auto":
@@ -243,6 +331,7 @@ def _normalize_rubric_items(
                 description=description,
                 checked=checked,
                 detectable=detectable,
+                judgement_mode=judgement_mode,
                 detection_method=str(detection_method)
                 if detection_method is not None
                 else None,
@@ -276,6 +365,7 @@ _PROPOSAL_COMPARE_FIELDS = (
     "description",
     "checked",
     "detectable",
+    "judgement_mode",
     "detection_method",
     "fallback",
     "missing_information",
@@ -395,6 +485,41 @@ def _invalid_auto_item_titles(
     ]
 
 
+def _recovered_catalog_item_titles(
+    normalized_items: list[TeacherJudgeRubricItem],
+    raw_items: Any,
+) -> list[str]:
+    """Return items whose executable catalog step was recovered server-side."""
+    raw_by_id = (
+        {
+            str(raw.get("id") or f"item-{index + 1}"): raw
+            for index, raw in enumerate(raw_items)
+            if isinstance(raw, dict)
+        }
+        if isinstance(raw_items, list)
+        else {}
+    )
+    recovered: list[str] = []
+    for item in normalized_items:
+        if item.detectable != "auto" or not item.check_steps:
+            continue
+        raw = raw_by_id.get(item.id, {})
+        raw_references = {
+            (
+                str(step.get("template_key") or "").strip(),
+                str(step.get("command_key") or "").strip(),
+            )
+            for step in raw.get("check_steps") or []
+            if isinstance(step, dict)
+        }
+        normalized_references = {
+            (step.template_key, step.command_key) for step in item.check_steps
+        }
+        if not normalized_references.issubset(raw_references):
+            recovered.append(item.title)
+    return recovered
+
+
 def _proposal_repair_instruction(
     normalized_items: list[TeacherJudgeRubricItem],
     raw_items: Any,
@@ -428,7 +553,8 @@ def _proposal_repair_instruction(
         "請只重新輸出一次合法 JSON：若需求資料完整，回傳包含既有項目與 Ready 變更的"
         " updated_items 並將 proposal_status 設為 ready；若資料不完整，"
         "updated_items 必須是 null，proposal_status 設為 needs_information，"
-        "reply 改為逐項列出老師需要補充的檢查位置／範圍或客觀成功條件；"
+        "reply 改為逐項列出老師需要補充的檢查位置／範圍；若要由 AI 判斷，"
+        "才需要補充客觀成功條件，也可以明確改為 judgement_mode=teacher；"
         "不得要求老師提供內部 command_key。若仍無法用可用 command 與完整 parameters "
         "表達檢查，也必須改為 needs_information，不得繼續宣稱 Ready。"
         "純詢問或沒有變更則設為 none。不得省略"
@@ -439,6 +565,7 @@ def _proposal_repair_instruction(
 def _proposal_unavailable_reply(
     normalized_items: list[TeacherJudgeRubricItem],
     raw_items: Any,
+    template_commands: list[TeacherJudgeTemplateCommand] | None = None,
 ) -> str:
     """Give the teacher a short, actionable reason why no proposal was created."""
     incomplete = [item for item in normalized_items if item.detectable == "partial"]
@@ -451,23 +578,44 @@ def _proposal_unavailable_reply(
 
     invalid_auto_items = _invalid_auto_item_titles(normalized_items, raw_items)
     if invalid_auto_items:
-        invalid_details = "；".join(
-            f"「{title}」還需要確認檢查對象的完整位置或執行範圍，"
-            "以及可客觀比對的成功條件（例如預期文字、行數、欄位或狀態）"
-            for title in invalid_auto_items
+        valid_command_keys = {
+            (command.template_key, command.command_key)
+            for command in template_commands or []
+        }
+        invalid_references: list[str] = []
+        for raw_item in raw_items if isinstance(raw_items, list) else []:
+            if not isinstance(raw_item, dict):
+                continue
+            for raw_step in raw_item.get("check_steps") or []:
+                if not isinstance(raw_step, dict):
+                    continue
+                reference = (
+                    str(raw_step.get("template_key") or "").strip(),
+                    str(raw_step.get("command_key") or "").strip(),
+                )
+                if reference not in valid_command_keys:
+                    invalid_references.append("/".join(value or "未提供" for value in reference))
+        invalid_details = "、".join(f"「{title}」" for title in invalid_auto_items)
+        reason = (
+            "AI 引用了不存在或未啟用的檢查能力："
+            + "、".join(dict.fromkeys(invalid_references))
+            if invalid_references
+            else "AI 沒有產生通過命令目錄驗證的檢查步驟"
         )
         return (
-            f"這次還不能建立提案。請補充：{invalid_details}。"
-            "補充後我會重新核查；資料完整且可安全自動檢查時，"
-            "會建立提案供你查閱與同意。"
+            f"這次未建立提案：{invalid_details}的腳本格式未通過驗證；{reason}。"
+            "系統已攔截未知命令，這不是老師需要補充答案。請重新產生；"
+            "若持續發生，請由管理員檢查 AI 輸出與命令目錄。"
         )
 
     unsupported = [item.title for item in normalized_items if item.detectable == "manual"]
     if unsupported:
         return (
-            "這次還不能建立自動檢查提案："
+            "這次未建立提案：AI 將"
             + "、".join(f"「{title}」" for title in unsupported)
-            + "需要人工判斷。"
+            + "判定為目前命令目錄無法取證，且沒有提供可執行的檢查步驟。"
+            "若這是一般系統資訊查詢，代表 AI 沒有正確選用既有能力，"
+            "並非老師需要補充答案；請重新產生，持續發生時由管理員檢查 AI 輸出。"
         )
 
     if normalized_items:
@@ -838,6 +986,14 @@ async def chat_with_rubric(
             and _proposal_status_claims_ready(proposal_status, reply_text)
         )
 
+    recovered_titles = _recovered_catalog_item_titles(normalized_updated, raw_updated)
+    if not is_refine and updated_items is not None and recovered_titles:
+        titles = "、".join(f"「{title}」" for title in recovered_titles)
+        reply_text = (
+            f"已為{titles}建立腳本取證提案；系統已補上可執行的既有檢查能力，"
+            "結果將依提案設定由 AI 或導師判斷。"
+        )
+
     if (
         not is_refine
         and updated_items is None
@@ -850,7 +1006,11 @@ async def chat_with_rubric(
                 repair_attempts,
                 ", ".join(invalid_titles),
             )
-        reply_text = _proposal_unavailable_reply(normalized_updated, raw_updated)
+        reply_text = _proposal_unavailable_reply(
+            normalized_updated,
+            raw_updated,
+            template_commands,
+        )
 
     if normalized_updated and context_item_count > 0:
         updated_count = len(normalized_updated)

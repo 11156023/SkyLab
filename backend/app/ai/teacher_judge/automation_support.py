@@ -34,7 +34,11 @@ def _valid_timeout(value: Any) -> bool:
     return isinstance(value, int) and not isinstance(value, bool) and 1 <= value <= 300
 
 
-def missing_step_information(step: TeacherJudgeRubricCheckStep) -> list[str]:
+def missing_step_information(
+    step: TeacherJudgeRubricCheckStep,
+    *,
+    judgement_mode: str = "ai",
+) -> list[str]:
     """Return required structured inputs missing from a parameterized command step."""
     parameters = step.parameters
     missing: list[str] = []
@@ -48,16 +52,18 @@ def missing_step_information(step: TeacherJudgeRubricCheckStep) -> list[str]:
             missing.append("實際 Python 命令與參數")
         if not _valid_timeout(parameters.get("timeout_seconds")):
             missing.append("1 至 300 秒的逾時限制")
-        if not isinstance(parameters.get("success_criteria"), str) or not str(
-            parameters.get("success_criteria")
-        ).strip():
+        if judgement_mode == "ai" and (
+            not isinstance(parameters.get("success_criteria"), str)
+            or not str(parameters.get("success_criteria")).strip()
+        ):
             missing.append("客觀成功條件")
     elif step.command_key == "system.run_command":
         if not _non_empty_argv(parameters.get("argv")):
             missing.append("要檢查的檔案、服務或記錄範圍")
-        if not isinstance(parameters.get("success_criteria"), str) or not str(
-            parameters.get("success_criteria")
-        ).strip():
+        if judgement_mode == "ai" and (
+            not isinstance(parameters.get("success_criteria"), str)
+            or not str(parameters.get("success_criteria")).strip()
+        ):
             missing.append("客觀成功條件")
 
     return missing
@@ -76,7 +82,9 @@ def _item_missing_information(
     for step in item.check_steps:
         if (step.template_key, step.command_key) not in valid_commands:
             missing.append(f"有效的檢查能力：{step.command_key}")
-        missing.extend(missing_step_information(step))
+        missing.extend(
+            missing_step_information(step, judgement_mode=item.judgement_mode)
+        )
     return list(dict.fromkeys(value for value in missing if value))
 
 
@@ -96,7 +104,7 @@ def get_script_generation_blockers(
                 "item_id": None,
                 "title": "尚未新增檢查項目",
                 "status": "missing_info",
-                "missing_information": ["至少一個能自動檢測的檢查項目"],
+                "missing_information": ["至少一個具備可執行取證步驟的檢查項目"],
                 "reason_code": "automatic_detection_items_missing",
             }
         )
@@ -105,9 +113,9 @@ def get_script_generation_blockers(
         blockers.append(
             {
                 "item_id": None,
-                "title": "自動檢測支援待更新",
+                "title": "腳本取證支援待更新",
                 "status": "missing_info",
-                "missing_information": ["重新確認異動項目的自動檢測方式"],
+                "missing_information": ["重新確認異動項目的腳本取證方式"],
                 "reason_code": "automation_support_needs_review",
             }
         )
@@ -169,7 +177,7 @@ def ensure_script_generation_supported(
             status_code=422,
             detail={
                 "code": "teacher_judge_script_not_ready",
-                "message": "所有檢查項目都能自動檢測後，才能製作檢查腳本。",
+                "message": "所有檢查項目都具備可執行的取證步驟後，才能製作檢查腳本。",
                 "items": blockers,
             },
         )

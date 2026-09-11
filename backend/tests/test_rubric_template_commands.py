@@ -79,6 +79,19 @@ def _python_entrypoint_command() -> TeacherJudgeTemplateCommand:
     )
 
 
+def _python_version_command() -> TeacherJudgeTemplateCommand:
+    return TeacherJudgeTemplateCommand(
+        template_key="python",
+        command_key="python.version",
+        command_label="Python 版本",
+        category="runtime",
+        command_template="python3 --version",
+        description="查看 Python 直譯器版本。",
+        risk_level="read_only",
+        requires_confirmation=True,
+    )
+
+
 def test_get_enabled_template_commands_filters_template_and_enabled() -> None:
     session = _session_with_commands()
 
@@ -440,13 +453,16 @@ async def test_chat_prompt_accepts_objectively_verifiable_main_py_checkpoint(
     )
 
     system_prompt = captured_payload["messages"][0]["content"]
-    assert "`auto` 表示「自動檢測支援完整」" in system_prompt
+    assert "`auto` 表示「腳本取證支援完整」" in system_prompt
     assert "執行 main.py，確認無錯誤並輸出整數 20" in system_prompt
     assert (
-        "缺少無法由上下文得知的工作目錄、檔案、服務名稱、Port、記錄範圍或成功條件"
+        "缺少無法由上下文得知的工作目錄、檔案、服務名稱、Port 或記錄範圍"
         in system_prompt
     )
-    assert "主觀條件或平台沒有安全取證能力" in system_prompt
+    assert "主觀作品品質、程式架構或開放式答案" in system_prompt
+    assert "不得因缺少客觀答案而攔截提案" in system_prompt
+    assert "確認學生環境中安裝的 Python 版本" in system_prompt
+    assert "沒有提供期望版本或門檻" in system_prompt
     assert "`auto` 項目的 `check_steps` 必須引用該 `command_key`" in system_prompt
     assert "`checked` 表示是否已達成" in system_prompt
     assert "`auto` 項目的 `missing_information` 必須是空陣列" in system_prompt
@@ -589,6 +605,101 @@ async def test_chat_prompt_treats_attachment_as_concrete_rubric_content(
     assert updated_items[0]["title"] == "服務 Port"
 
 
+def test_normalize_allows_teacher_judgement_when_script_inputs_are_complete() -> None:
+    items = teacher_judge_service._normalize_rubric_items(
+        [
+            {
+                "id": "item-1",
+                "title": "收集 main.py 輸出供老師評閱",
+                "detectable": "auto",
+                "judgement_mode": "teacher",
+                "detection_method": "執行程式並收集 stdout 與 stderr",
+                "check_steps": [
+                    {
+                        "template_key": "python",
+                        "command_key": "python.run_entrypoint",
+                        "parameters": {
+                            "cwd": "/home/student/project",
+                            "argv": ["python3", "main.py"],
+                            "timeout_seconds": 30,
+                        },
+                    }
+                ],
+            }
+        ],
+        template_key="python",
+        template_commands=[_python_entrypoint_command()],
+    )
+
+    assert items[0].detectable == "auto"
+    assert items[0].judgement_mode == "teacher"
+    assert items[0].missing_information == []
+
+
+@pytest.mark.asyncio
+async def test_teacher_judgement_requirement_can_form_proposal_without_objective_answer(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def fake_call_vllm(payload, timeout=60.0):
+        return (
+            json.dumps(
+                {
+                    "reply": "已建立取證提案，結果交由導師人工審核。",
+                    "proposal_status": "ready",
+                    "updated_items": [
+                        {
+                            "id": "item-1",
+                            "title": "程式架構品質",
+                            "description": "檢視 main.py 原始碼的架構與可讀性。",
+                            "checked": False,
+                            "detectable": "auto",
+                            "judgement_mode": "teacher",
+                            "detection_method": "讀取 main.py 內容供導師審核。",
+                            "missing_information": [],
+                            "check_steps": [
+                                {
+                                    "template_key": "linux",
+                                    "command_key": "system.run_command",
+                                    "parameters": {
+                                        "cwd": "/home/student/project",
+                                        "argv": ["cat", "main.py"],
+                                        "timeout_seconds": 30,
+                                    },
+                                }
+                            ],
+                            "fallback": None,
+                        }
+                    ],
+                },
+                ensure_ascii=False,
+            ),
+            {},
+        )
+
+    monkeypatch.setattr(teacher_judge_service, "_call_vllm", fake_call_vllm)
+    _patch_teacher_judge_vllm_settings(monkeypatch)
+
+    _reply, proposal, _metrics = await teacher_judge_service.chat_with_rubric(
+        messages=[
+            SimpleNamespace(
+                role="user",
+                content=(
+                    "在 /home/student/project 讀取 main.py，"
+                    "把程式碼交給我人工審核架構品質。"
+                ),
+            )
+        ],
+        rubric_context=json.dumps({"items": []}),
+        template_key="linux",
+        template_commands=[GENERAL_COMMAND],
+    )
+
+    assert proposal is not None
+    assert proposal[0]["detectable"] == "auto"
+    assert proposal[0]["judgement_mode"] == "teacher"
+    assert "success_criteria" not in proposal[0]["check_steps"][0]["parameters"]
+
+
 def test_normalize_marks_auto_without_valid_check_steps_as_unsupported() -> None:
     items = teacher_judge_service._normalize_rubric_items(
         [
@@ -608,12 +719,226 @@ def test_normalize_marks_auto_without_valid_check_steps_as_unsupported() -> None
             title="未知檢查",
             description="",
             checked=False,
-                detectable="manual",
-                detection_method="目前沒有可引用的有效 command_key，缺少自動取得客觀證據的能力",
-                fallback="目前平台不支援此項目的安全自動檢測。",
-                check_steps=[],
+            detectable="manual",
+            detection_method="目前沒有可引用的有效 command_key，缺少自動取得客觀證據的能力",
+            fallback="目前平台不支援此項目的安全腳本取證。",
+            check_steps=[],
         )
     ]
+
+
+def test_normalize_recovers_python_version_lookup_from_manual_model_output() -> None:
+    items = teacher_judge_service._normalize_rubric_items(
+        [
+            {
+                "id": "item-1",
+                "title": "檢查 Python 版本",
+                "description": "我想看學生 Python 的版本號。",
+                "detectable": "manual",
+                "check_steps": [],
+            }
+        ],
+        template_key="linux",
+        template_commands=[_python_version_command(), GENERAL_COMMAND],
+    )
+
+    assert items[0].detectable == "auto"
+    assert items[0].judgement_mode == "teacher"
+    assert items[0].missing_information == []
+    assert items[0].check_steps[0].template_key == "python"
+    assert items[0].check_steps[0].command_key == "python.version"
+    assert items[0].check_steps[0].parameters == {}
+
+
+def test_normalize_python_version_lookup_without_expected_answer_uses_teacher() -> None:
+    items = teacher_judge_service._normalize_rubric_items(
+        [
+            {
+                "id": "item-1",
+                "title": "確認學生環境中安裝的 Python 版本",
+                "description": "取得目前安裝的 Python 版本。",
+                "detectable": "auto",
+                "judgement_mode": "ai",
+                "detection_method": "執行 Python 版本查詢。",
+                "missing_information": [],
+                "check_steps": [
+                    {
+                        "template_key": "python",
+                        "command_key": "python.version",
+                        "parameters": {},
+                    }
+                ],
+            }
+        ],
+        template_key="python",
+        template_commands=[_python_version_command()],
+    )
+
+    assert items[0].detectable == "auto"
+    assert items[0].judgement_mode == "teacher"
+    assert items[0].missing_information == []
+
+
+def test_normalize_python_version_with_expected_answer_keeps_ai_judgement() -> None:
+    items = teacher_judge_service._normalize_rubric_items(
+        [
+            {
+                "id": "item-1",
+                "title": "確認 Python 版本至少為 3.11",
+                "description": "學生環境必須安裝 Python 3.11 以上版本。",
+                "detectable": "auto",
+                "judgement_mode": "ai",
+                "detection_method": "取得版本後與 3.11 比較。",
+                "missing_information": [],
+                "check_steps": [
+                    {
+                        "template_key": "python",
+                        "command_key": "python.version",
+                        "parameters": {},
+                    }
+                ],
+            }
+        ],
+        template_key="python",
+        template_commands=[_python_version_command()],
+    )
+
+    assert items[0].detectable == "auto"
+    assert items[0].judgement_mode == "ai"
+
+
+@pytest.mark.asyncio
+async def test_python_version_lookup_proposal_corrects_model_ai_judgement(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def fake_call_vllm(payload, timeout=60.0):
+        return (
+            json.dumps(
+                {
+                    "reply": "已建立 Python 版本檢查提案。",
+                    "proposal_status": "ready",
+                    "updated_items": [
+                        {
+                            "id": "item-1",
+                            "title": "確認學生環境中安裝的 Python 版本",
+                            "description": "取得目前安裝的 Python 版本。",
+                            "detectable": "auto",
+                            "judgement_mode": "ai",
+                            "detection_method": "執行 Python 版本查詢。",
+                            "missing_information": [],
+                            "check_steps": [
+                                {
+                                    "template_key": "python",
+                                    "command_key": "python.version",
+                                    "parameters": {},
+                                }
+                            ],
+                            "fallback": None,
+                        }
+                    ],
+                },
+                ensure_ascii=False,
+            ),
+            {},
+        )
+
+    monkeypatch.setattr(teacher_judge_service, "_call_vllm", fake_call_vllm)
+    _patch_teacher_judge_vllm_settings(monkeypatch)
+
+    _reply, proposal, _metrics = await teacher_judge_service.chat_with_rubric(
+        messages=[
+            SimpleNamespace(
+                role="user",
+                content="確認學生環境中安裝的 Python 版本",
+            )
+        ],
+        rubric_context=json.dumps({"items": []}),
+        template_key="python",
+        template_commands=[_python_version_command()],
+    )
+
+    assert proposal is not None
+    assert proposal[0]["detectable"] == "auto"
+    assert proposal[0]["judgement_mode"] == "teacher"
+    assert proposal[0]["check_steps"][0]["command_key"] == "python.version"
+
+
+@pytest.mark.asyncio
+async def test_python_version_requirement_forms_proposal_when_model_marks_it_manual(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def fake_call_vllm(payload, timeout=60.0):
+        return (
+            json.dumps(
+                {
+                    "reply": "目前無法產生取證步驟。",
+                    "proposal_status": "ready",
+                    "updated_items": [
+                        {
+                            "id": "item-1",
+                            "title": "檢查 Python 版本",
+                            "description": "查看學生使用的 Python 版本號。",
+                            "detectable": "manual",
+                            "check_steps": [],
+                        }
+                    ],
+                },
+                ensure_ascii=False,
+            ),
+            {},
+        )
+
+    monkeypatch.setattr(teacher_judge_service, "_call_vllm", fake_call_vllm)
+    _patch_teacher_judge_vllm_settings(monkeypatch)
+
+    reply, proposal, _metrics = await teacher_judge_service.chat_with_rubric(
+        messages=[SimpleNamespace(role="user", content="我想看學生 Python 的版本號")],
+        rubric_context=json.dumps({"items": []}),
+        template_key="linux",
+        template_commands=[_python_version_command(), GENERAL_COMMAND],
+    )
+
+    assert "已為「檢查 Python 版本」建立腳本取證提案" in reply
+    assert "系統已補上可執行的既有檢查能力" in reply
+    assert proposal is not None
+    assert proposal[0]["detectable"] == "auto"
+    assert proposal[0]["judgement_mode"] == "teacher"
+    assert proposal[0]["check_steps"] == [
+        {
+            "template_key": "python",
+            "command_key": "python.version",
+            "command_label": "Python 版本",
+            "parameters": {},
+        }
+    ]
+
+
+def test_unavailable_reply_explains_invalid_catalog_reference() -> None:
+    raw_items = [
+        {
+            "id": "item-1",
+            "title": "未知檢查",
+            "detectable": "auto",
+            "check_steps": [
+                {"template_key": "n8n", "command_key": "missing.command"}
+            ],
+        }
+    ]
+    normalized = teacher_judge_service._normalize_rubric_items(
+        raw_items,
+        template_key="n8n",
+        template_commands=[],
+    )
+
+    reply = teacher_judge_service._proposal_unavailable_reply(
+        normalized,
+        raw_items,
+        [],
+    )
+
+    assert "不存在或未啟用的檢查能力" in reply
+    assert "n8n/missing.command" in reply
+    assert "不是老師需要補充答案" in reply
 
 
 def test_normalize_preserves_objectively_verifiable_main_py_checkpoint() -> None:
