@@ -73,6 +73,61 @@ def test_sync_ip_cache_falls_back_to_cache_when_offline(
     assert session.rollbacks == 0
 
 
+def test_sync_ip_cache_falls_back_to_allocation_when_never_observed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """關機且從未被觀測過的機器：快取空、但 ip_allocation 有佈建時分配的 IP。"""
+    monkeypatch.setattr(
+        resource_repo, "get_cached_ip_address", lambda *, session, vmid: None
+    )
+    monkeypatch.setattr(
+        resource_repo, "get_allocated_ip_address", lambda *, session, vmid: "10.0.0.20"
+    )
+    session = _Session()
+
+    ip = resource_repo.sync_ip_cache(session=session, vmid=150, live_ip=None)  # type: ignore[arg-type]
+
+    assert ip == "10.0.0.20"
+    assert session.rollbacks == 0
+
+
+def test_sync_ip_cache_prefers_observed_cache_over_allocation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """快取是實際觀測到的位址，優先於分配紀錄。"""
+    monkeypatch.setattr(
+        resource_repo, "get_cached_ip_address", lambda *, session, vmid: "10.0.0.9"
+    )
+    monkeypatch.setattr(
+        resource_repo, "get_allocated_ip_address", lambda *, session, vmid: "10.0.0.20"
+    )
+    session = _Session()
+
+    ip = resource_repo.sync_ip_cache(session=session, vmid=150, live_ip=None)  # type: ignore[arg-type]
+
+    assert ip == "10.0.0.9"
+
+
+def test_sync_ip_cache_rolls_back_when_allocation_read_fails(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        resource_repo, "get_cached_ip_address", lambda *, session, vmid: None
+    )
+    monkeypatch.setattr(resource_repo, "get_allocated_ip_address", _db_down)
+    session = _Session()
+
+    ip = resource_repo.sync_ip_cache(session=session, vmid=150, live_ip=None)  # type: ignore[arg-type]
+
+    assert ip is None
+    assert session.rollbacks == 1
+
+
+def test_get_allocated_ip_address_ignores_sessions_without_exec() -> None:
+    """拓撲測試用的假 session 沒有 exec，不能炸。"""
+    assert resource_repo.get_allocated_ip_address(session=_Session(), vmid=150) is None  # type: ignore[arg-type]
+
+
 # ─── get_topology ────────────────────────────────────────────────────────────
 
 
