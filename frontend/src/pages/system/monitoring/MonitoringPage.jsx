@@ -5,7 +5,6 @@ import MIcon from "../../../components/MIcon";
 import LoadingState from "../../../components/LoadingState/LoadingState";
 import EmptyState from "../../../components/EmptyState/EmptyState";
 import RrdChart from "../../../components/RrdChart/RrdChart";
-import SegmentedControl from "../../../components/SegmentedControl/SegmentedControl";
 import MiningIncidentsPanel from "./MiningIncidentsPanel";
 import { MonitoringService } from "../../../services/monitoring";
 import { useToast } from "../../../hooks/useToast";
@@ -425,23 +424,38 @@ export default function MonitoringPage() {
         </div>
       </div>
 
-      {/* 警告與挖礦事件收進分頁（#24）；兩個面板保持掛載，輪詢與角標持續更新 */}
-      <div className={styles.panelTabs}>
-        <SegmentedControl
-          options={[
-            { value: "alerts", label: t("MonitoringPage.tabAlerts"), badge: alertCount ?? undefined },
-            { value: "mining", label: t("MonitoringPage.tabMining"), badge: miningCount ?? undefined },
-          ]}
-          value={panelTab}
-          onChange={setPanelTab}
-          ariaLabel={t("MonitoringPage.panelTabsAria")}
-        />
-      </div>
-      <div className={panelTab === "alerts" ? undefined : styles.tabHidden}>
-        <AlertsCard onCountChange={setAlertCount} />
-      </div>
-      <div className={panelTab === "mining" ? undefined : styles.tabHidden}>
-        <MiningIncidentsPanel onCountChange={setMiningCount} />
+      {/* 警告與挖礦事件收進分頁（#24）；改底線頁籤緊貼面板，與右上的膠囊
+          時間切換器區隔——避免被誤讀成整頁（含節點用量、Top 5）的篩選器。
+          兩個面板保持掛載，輪詢與角標持續更新 */}
+      <div className={styles.tabbedPanels}>
+        <div className={styles.panelTabBar} role="tablist" aria-label={t("MonitoringPage.panelTabsAria")}>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={panelTab === "alerts"}
+            className={`${styles.panelTab} ${panelTab === "alerts" ? styles.panelTabActive : ""}`}
+            onClick={() => setPanelTab("alerts")}
+          >
+            {t("MonitoringPage.tabAlerts")}
+            {alertCount != null && <span className={styles.panelTabBadge}>{alertCount}</span>}
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={panelTab === "mining"}
+            className={`${styles.panelTab} ${panelTab === "mining" ? styles.panelTabActive : ""}`}
+            onClick={() => setPanelTab("mining")}
+          >
+            {t("MonitoringPage.tabMining")}
+            {miningCount != null && <span className={styles.panelTabBadge}>{miningCount}</span>}
+          </button>
+        </div>
+        <div className={panelTab === "alerts" ? undefined : styles.tabHidden}>
+          <AlertsCard onCountChange={setAlertCount} />
+        </div>
+        <div className={panelTab === "mining" ? undefined : styles.tabHidden}>
+          <MiningIncidentsPanel onCountChange={setMiningCount} />
+        </div>
       </div>
 
       {/* 節點用量：整卡收合，收起時標題列仍看得到在線摘要 */}

@@ -143,9 +143,58 @@
   }
 }
 
-/* 警告／挖礦事件分頁切換列 */
-.panelTabs {
+/* 警告／挖礦事件頁籤：底線式、緊貼下方面板（比照 ConnectionDialog），
+   與右上的膠囊時間切換器視覺區隔，避免被誤讀成整頁的篩選器 */
+.tabbedPanels {
+  @include flex-column;
+  gap: $spacing-8;
+}
+
+.panelTabBar {
   display: flex;
+  gap: $spacing-4;
+  padding: 0 $spacing-8;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.panelTab {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: $spacing-8 $spacing-16;
+  margin-bottom: -1px;
+  border-bottom: 2px solid transparent;
+  font-size: $font-size-14;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  transition: color $transition-base, border-color $transition-base;
+
+  &:hover {
+    color: var(--color-text);
+  }
+}
+
+.panelTabActive {
+  color: var(--color-primary);
+  border-bottom-color: var(--color-primary);
+  font-weight: $font-weight-500;
+}
+
+.panelTabBadge {
+  min-width: 18px;
+  padding: 1px 6px;
+  border-radius: $radius-pill;
+  background: var(--color-hover);
+  color: var(--color-text-secondary);
+  font-size: $font-size-10;
+  font-weight: $font-weight-500;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+.panelTabActive .panelTabBadge {
+  background: color-mix(in srgb, var(--color-primary) 12%, transparent);
+  color: var(--color-primary);
 }
 
 /* 未選中的面板隱藏但保持掛載：輪詢與角標筆數持續更新 */
