@@ -187,14 +187,9 @@ function AlertsCard({ onCountChange }) {
 
   return (
     <div className={styles.card}>
+      {/* 標題由外層頁籤承擔，卡內只留說明 */}
       <div className={styles.cardHeader}>
-        <div>
-          <h2 className={styles.cardTitle}>
-            <MIcon name="notifications" size={18} />
-            {t("MonitoringPage.activeAlertsTitle")}
-          </h2>
-          <p className={styles.cardDesc}>{t("MonitoringPage.activeAlertsDesc")}</p>
-        </div>
+        <p className={styles.cardDesc}>{t("MonitoringPage.activeAlertsDesc")}</p>
         {alerts && alerts.length > 0 && (
           <span className={styles.alertCount}>{alerts.length}</span>
         )}
