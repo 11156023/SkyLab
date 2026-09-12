@@ -27,6 +27,7 @@ import ConnectionDialog from "../../../components/ConnectionDialog/ConnectionDia
 import GatewayNode      from "./nodes/GatewayNode";
 import VMNode           from "./nodes/VMNode";
 import ConnectionEdge   from "./edges/ConnectionEdge";
+import ConnectionDetailPanel from "./ConnectionDetailPanel";
 import { buildFlow, portLabel } from "./utils/buildFlow";
 import { useTheme } from "../../../contexts/ThemeContext";
 import useAutoRefresh from "../../../hooks/useAutoRefresh";
@@ -61,27 +62,39 @@ export default function FirewallPage() {
   const [loading,      setLoading]      = useState(true);
   const [error,        setError]        = useState("");
   const [selectedNode, setSelectedNode] = useState(null);
+  const [selectedEdge, setSelectedEdge] = useState(null); // { id, edge }
   const [showDialog,   setShowDialog]   = useState(false);
   const [dialogPreset, setDialogPreset] = useState(null); // 拉線帶入的來源/目標
   const [deleteEdge,   setDeleteEdge]   = useState(null);
-  const [showLabels,   setShowLabels]   = useState(false);
+  /* 預設開啟：標籤本身就是「這條線在開什麼」的答案，不該要使用者自己去翻開 */
+  const [showLabels,   setShowLabels]   = useState(true);
   const [showMiniMap,  setShowMiniMap]  = useState(true);
   const connDialog    = useDialogPresence(showDialog);
   const deleteConfirm = useDialogPresence(deleteEdge);
   /* 關閉細項面板時先播 0.22s 滑出動畫再卸載，時長需與 SCSS 的 panelOut 一致 */
   const rulesPanel    = useDialogPresence(selectedNode, 220);
+  const detailPanel   = useDialogPresence(selectedEdge, 220);
   const rfInstance = useRef(null);
   const saveTimer  = useRef(null);
+  /* 重建拓撲時要沿用目前選取的邊，但選取本身不該讓整張圖重排，所以走 ref */
+  const selectedEdgeIdRef = useRef(null);
+  selectedEdgeIdRef.current = selectedEdge?.id ?? null;
 
-  /* ── 刪除邊回呼 ── */
-  const handleDeleteEdge = useCallback((edge) => setDeleteEdge(edge), []);
+  /* ── 點選邊：開啟連線細節面板（與節點面板互斥） ── */
+  const handleSelectEdge = useCallback((edge, id) => {
+    setSelectedNode(null);
+    setSelectedEdge((prev) => (prev?.id === id ? null : { id, edge }));
+  }, []);
 
-  /* ── showLabels 變更時同步更新所有邊 ── */
+  /* ── 標籤開關／選取狀態變更時同步更新所有邊 ── */
   useEffect(() => {
     setEdges((prev) =>
-      prev.map((e) => ({ ...e, data: { ...e.data, showLabel: showLabels } }))
+      prev.map((e) => ({
+        ...e,
+        data: { ...e.data, showLabel: showLabels, selected: e.id === selectedEdge?.id },
+      }))
     );
-  }, [showLabels, setEdges]);
+  }, [showLabels, selectedEdge, setEdges]);
 
   /* ── 載入拓撲（silent = true 時不觸發 loading / error state，供背景自動刷新使用） ── */
   const fetchTopology = useCallback(async (silent = false, signal) => {
@@ -101,21 +114,27 @@ export default function FirewallPage() {
 
   useEffect(() => {
     if (!topology) return;
-    const { nodes: nextNodes, edges: nextEdges } = buildFlow(
-      topology,
-      handleDeleteEdge,
-      showLabels
-    );
+    const { nodes: nextNodes, edges: nextEdges } = buildFlow(topology, {
+      onSelectEdge: handleSelectEdge,
+      showLabel: showLabels,
+      selectedEdgeId: selectedEdgeIdRef.current,
+    });
     /* 拓撲刷新時保留仍存在的選取節點：規則面板可就地操作後，
        不能被 30 秒自動刷新或連線變更關掉 */
     setSelectedNode((prev) =>
       prev ? nextNodes.find((n) => n.id === prev.id) ?? null : null
     );
+    /* 連線面板同理；連線被刪掉或改掉時才關閉 */
+    setSelectedEdge((prev) => {
+      if (!prev) return null;
+      const match = nextEdges.find((e) => e.id === prev.id);
+      return match ? { id: match.id, edge: match.data.edge } : null;
+    });
     setDeleteEdge(null);
     setNodes(nextNodes);
     setEdges(nextEdges);
     window.requestAnimationFrame(() => rfInstance.current?.fitView({ padding: 0.2, duration: 250 }));
-  }, [handleDeleteEdge, setEdges, setNodes, showLabels, topology]);
+  }, [handleSelectEdge, setEdges, setNodes, showLabels, topology]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -173,14 +192,18 @@ export default function FirewallPage() {
     }, SAVE_DEBOUNCE);
   }, []);
 
-  /* ── 點擊節點：開啟規則面板 ── */
+  /* ── 點擊節點：開啟規則面板（與連線面板互斥） ── */
   const onNodeClick = useCallback((_, node) => {
+    setSelectedEdge(null);
     if (node.type === "gateway") { setSelectedNode(null); return; }
     setSelectedNode((prev) => prev?.id === node.id ? null : node);
   }, []);
 
   /* ── 點擊空白處：取消選取 ── */
-  const onPaneClick = useCallback(() => setSelectedNode(null), []);
+  const onPaneClick = useCallback(() => {
+    setSelectedNode(null);
+    setSelectedEdge(null);
+  }, []);
 
   /* ── 拉線前驗證：禁止自連（網關只有一個，自連即網關對網關） ── */
   const isValidConnection = useCallback(
@@ -200,6 +223,16 @@ export default function FirewallPage() {
     .filter((n) => n.node_type !== "gateway")
     .map((n) => ({ key: String(n.vmid), vmid: n.vmid, name: n.name }));
 
+  /* ── 連線面板顯示兩端名稱；vmid 為 null 代表網際網路 ── */
+  const resolveName = useCallback(
+    (vmid) => {
+      if (vmid === null || vmid === undefined) return t("GatewayNode.internet");
+      const hit = (topology?.nodes ?? []).find((n) => n.vmid === vmid);
+      return hit?.name ?? `vmid:${vmid}`;
+    },
+    [t, topology],
+  );
+
   /* ── 對話框送出成功（連線或自訂規則都由對話框自己呼叫 API）── */
   const handleDialogDone = () => {
     setShowDialog(false);
@@ -216,6 +249,7 @@ export default function FirewallPage() {
         ports: null,
       });
       setDeleteEdge(null);
+      setSelectedEdge(null);
       fetchTopology();
     } catch (err) {
       toast.error(err?.message ?? t("FirewallPage.deleteFailed"));
@@ -323,9 +357,26 @@ export default function FirewallPage() {
               </Panel>
 
               <Panel position="bottom-left" style={{ marginLeft: 60 }}>
-                <p className={styles.hint}>
-                  {t("FirewallPage.hint")}
-                </p>
+                <div className={styles.bottomStack}>
+                  {/* 線的顏色本來只寫在程式碼註解裡，圖上沒有任何地方解釋 */}
+                  <div className={styles.legend}>
+                    <span className={styles.legendItem}>
+                      <i className={`${styles.legendLine} ${styles.legendInbound}`} />
+                      {t("FirewallPage.legendInbound")}
+                    </span>
+                    <span className={styles.legendItem}>
+                      <i className={`${styles.legendLine} ${styles.legendOutbound}`} />
+                      {t("FirewallPage.legendOutbound")}
+                    </span>
+                    <span className={styles.legendItem}>
+                      <i className={`${styles.legendLine} ${styles.legendInternal}`} />
+                      {t("FirewallPage.legendInternal")}
+                    </span>
+                  </div>
+                  <p className={styles.hint}>
+                    {t("FirewallPage.hint")}
+                  </p>
+                </div>
               </Panel>
             </ReactFlow>
 
@@ -335,6 +386,16 @@ export default function FirewallPage() {
                 closing={rulesPanel.closing}
                 onClose={() => setSelectedNode(null)}
                 onChanged={() => fetchTopology(true)}
+              />
+            )}
+
+            {detailPanel.open && (
+              <ConnectionDetailPanel
+                edge={detailPanel.item.edge}
+                resolveName={resolveName}
+                closing={detailPanel.closing}
+                onClose={() => setSelectedEdge(null)}
+                onDelete={(edge) => setDeleteEdge(edge)}
               />
             )}
           </div>

@@ -160,6 +160,46 @@
   }
 }
 
+/* ── 圖例 + 操作提示（畫布左下） ── */
+.bottomStack {
+  @include flex-column;
+  align-items: flex-start;
+  gap: 6px;
+}
+
+.legend {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  font-size: 12px;
+  color: var(--color-text-secondary);
+  background: color-mix(in srgb, var(--color-surface) 85%, transparent);
+  border: 1px solid var(--color-border);
+  border-radius: $radius-8;
+  padding: 5px 12px;
+  backdrop-filter: blur(4px);
+}
+
+.legendItem {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  white-space: nowrap;
+}
+
+/* 與邊同樣式的短虛線，對得上圖上的線 */
+.legendLine {
+  width: 16px;
+  height: 0;
+  border-top: 2px dashed currentColor;
+  flex-shrink: 0;
+}
+
+.legendInbound  { color: var(--color-info); }
+.legendOutbound { color: var(--color-success); }
+.legendInternal { color: var(--color-status-neutral); }
+
 /* ── Hint ── */
 .hint {
   font-size: 12px;
@@ -219,6 +259,7 @@
 
 /* ── VM 節點 ── */
 .vmNode {
+  position: relative;
   display: flex;
   align-items: center;
   gap: $spacing-8;
@@ -267,6 +308,24 @@
   @include text-truncate;
 }
 
+/* 對外暴露數：掛在節點右上角，不佔節點內既有的三欄空間 */
+.exposedBadge {
+  position: absolute;
+  top: -8px;
+  right: -8px;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 1px 6px;
+  border-radius: $radius-pill;
+  background: var(--color-info);
+  color: var(--color-text-on-primary);
+  font-size: 11px;
+  font-weight: $font-weight-700;
+  line-height: 1.5;
+  box-shadow: var(--shadow-sm);
+}
+
 /* ── Edge label ── */
 .edgeLabelWrap {
   position: absolute;
@@ -276,34 +335,24 @@
   pointer-events: all;
 }
 
+/* 標籤本身就是開啟連線細節的按鈕，取代原本掛在線上的刪除叉叉 */
 .edgeLabel {
   font-size: 11px;
   font-weight: $font-weight-500;
   background: var(--color-surface);
   border: 1px solid var(--color-border);
   border-radius: $radius-pill;
-  padding: 1px 7px;
+  padding: 2px 8px;
   white-space: nowrap;
-  pointer-events: none;
-  box-shadow: var(--shadow-sm);
-}
-
-.edgeDeleteBtn {
-  @include flex-center;
-  width: 18px;
-  height: 18px;
-  border-radius: 50%;
-  background: var(--color-surface);
-  border: 1px solid var(--color-border);
-  color: var(--color-text-muted);
   cursor: pointer;
-  transition: background $transition-base;
   box-shadow: var(--shadow-sm);
+  transition: border-color $transition-base, box-shadow $transition-base;
 
-  &:hover {
-    background: var(--color-danger);
-    border-color: var(--color-danger);
-    color: var(--color-text-on-primary);
+  &:hover { border-color: currentColor; }
+
+  &.edgeLabelActive {
+    border-color: currentColor;
+    box-shadow: 0 0 0 3px color-mix(in srgb, currentColor 18%, transparent);
   }
 }
 
