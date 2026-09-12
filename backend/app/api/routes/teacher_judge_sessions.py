@@ -506,6 +506,8 @@ async def create_message(
             template_commands=template_commands,
             environment_keys=file.environment_keys if file else None,
             attachment_context=attachment_context(attachments),
+            analysis_revision=base_revision,
+            rubric_available=file is not None,
         )
         # Without a selected rubric the conversation is general assistance only;
         # do not let an unconstrained model response create an unreviewed proposal.

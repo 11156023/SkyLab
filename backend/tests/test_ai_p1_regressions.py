@@ -24,6 +24,7 @@ from app.ai.teacher_judge import service
 from app.ai.teacher_judge.prompt import (
     CHAT_SYSTEM_TEMPLATE,
     SITUATION_NORMAL,
+    TEACHER_REPLY_REWRITE_SYSTEM_PROMPT,
 )
 from app.ai.teacher_judge.schemas import TeacherJudgeRubricChatMessage
 from app.models.teacher_judge_script_artifact import (
@@ -45,7 +46,12 @@ def test_navigation_json_handles_braces_inside_strings(value):
 
 
 @pytest.mark.parametrize(
-    "prompt", [CHAT_SYSTEM_TEMPLATE, artifacts.AI_REVIEWER_SYSTEM_PROMPT]
+    "prompt",
+    [
+        CHAT_SYSTEM_TEMPLATE,
+        TEACHER_REPLY_REWRITE_SYSTEM_PROMPT,
+        artifacts.AI_REVIEWER_SYSTEM_PROMPT,
+    ],
 )
 def test_plain_prompt_json_examples_are_valid(prompt):
     assert "\n{{\n" not in prompt
@@ -60,14 +66,34 @@ def test_teacher_judge_chat_prompt_is_scoped_and_clarifies_missing_information()
     assert "不要補充未詢問的" in CHAT_SYSTEM_TEMPLATE
     assert "只協助老師規劃、新增或調整評分項目" in CHAT_SYSTEM_TEMPLATE
     assert "不會當場連線學生環境、讀取檔案或執行指令" in CHAT_SYSTEM_TEMPLATE
-    assert "不得回覆「未登錄的指令需求」" in CHAT_SYSTEM_TEMPLATE
-    assert "不得要求老師新增「讀取檔案」權限" in CHAT_SYSTEM_TEMPLATE
+    assert "不是提案白名單" in CHAT_SYSTEM_TEMPLATE
+    assert "不得只因沒有專用 `command_key` 就拒絕提案" in CHAT_SYSTEM_TEMPLATE
+    assert "要求老師新增權限" in CHAT_SYSTEM_TEMPLATE
     assert "不要求老師先說「新增」" in CHAT_SYSTEM_TEMPLATE
     assert "一則訊息包含多條需求時逐條拆解" in CHAT_SYSTEM_TEMPLATE
     assert "不得因其中一條不完整而忽略其他 Ready 需求" in CHAT_SYSTEM_TEMPLATE
     assert "不得因缺少客觀答案而攔截提案" in CHAT_SYSTEM_TEMPLATE
     assert "只有老師明確要求「重新核查整張檢查表」" in CHAT_SYSTEM_TEMPLATE
     assert "不得只說「資訊不足」" in CHAT_SYSTEM_TEMPLATE
+    assert "像助教當面說明的日常繁體中文" in CHAT_SYSTEM_TEMPLATE
+    assert "先說已經知道什麼，再說還缺什麼" in CHAT_SYSTEM_TEMPLATE
+    assert "完整路徑" in CHAT_SYSTEM_TEMPLATE
+    assert "工作目錄與相對路徑" in CHAT_SYSTEM_TEMPLATE
+    assert "預期文字、數字、行數、欄位、版本、Port 或狀態" in (
+        CHAT_SYSTEM_TEMPLATE
+    )
+    assert "若沒有固定答案，可說明能先收集結果，再由老師本人查看" in (
+        CHAT_SYSTEM_TEMPLATE
+    )
+    assert "一般回覆不要使用「腳本取證」" in CHAT_SYSTEM_TEMPLATE
+    assert "我還不知道怎樣才算通過" in CHAT_SYSTEM_TEMPLATE
+    assert "兩者只能選符合本項設定的一種" in CHAT_SYSTEM_TEMPLATE
+    assert "不得含糊寫成「由 AI 或導師判斷」" in CHAT_SYSTEM_TEMPLATE
+    assert "補充後，我會重新確認並建立提案給你查看" in CHAT_SYSTEM_TEMPLATE
+    assert "才呼叫 `get_current_rubric`" in CHAT_SYSTEM_TEMPLATE
+    assert "全新、與既有項目無關" in CHAT_SYSTEM_TEMPLATE
+    assert "只回傳本輪要預覽的新增、修改或刪除操作" in CHAT_SYSTEM_TEMPLATE
+    assert "{rubric_context}" not in CHAT_SYSTEM_TEMPLATE
     assert '"proposal_status": "ready | needs_information | unsupported | none"' in (
         CHAT_SYSTEM_TEMPLATE
     )
@@ -90,6 +116,30 @@ def test_ready_proposal_claim_compatibility_fallback(reply: str, expected: bool)
 def test_structured_proposal_status_overrides_reply_wording() -> None:
     assert service._proposal_status_claims_ready("ready", "尚未準備就緒") is True
     assert service._proposal_status_claims_ready("needs_information", "Ready") is False
+
+
+@pytest.mark.asyncio
+async def test_teacher_reply_rewrite_uses_fallback_when_ai_is_unavailable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def unavailable(*args, **kwargs):
+        raise HTTPException(status_code=504, detail="synthetic timeout")
+
+    monkeypatch.setattr(service, "_call_vllm", unavailable)
+    fallback = "關於「檢查 answer.txt 內容」，還需要確認怎樣才算通過。"
+
+    reply, metrics = await service._rewrite_teacher_reply(
+        facts={
+            "outcome": "needs_information",
+            "proposal_created": False,
+            "items": [{"title": "檢查 answer.txt 內容"}],
+            "next_step": "請老師補充預期結果",
+        },
+        fallback=fallback,
+    )
+
+    assert reply == fallback
+    assert metrics is None
 
 
 def test_proposal_repair_instruction_explains_invalid_step_to_model_only() -> None:
@@ -129,28 +179,27 @@ def test_proposal_repair_instruction_explains_invalid_step_to_model_only() -> No
 
     assert "「檢查 answer.txt 內容」" in instruction
     assert "linux/system.run_command" in instruction
-    assert "不得自創 read_file、file_check 等 command_key" in instruction
+    assert "這份清單不是提案限制" in instruction
+    assert "system.run_command" in instruction
+    assert "單一非空 argv list" in instruction
 
 
-def test_teacher_judge_prompts_document_scoped_system_commands():
-    assert "history` 是 shell builtin" in CHAT_SYSTEM_TEMPLATE
-    assert "systemctl list-units --type=service --all" in CHAT_SYSTEM_TEMPLATE
-    assert "systemctl --failed" in CHAT_SYSTEM_TEMPLATE
-    assert (
-        'journalctl --since "1 hour ago" -p err --no-pager -n 50'
-        in CHAT_SYSTEM_TEMPLATE
-    )
-    assert "若連目前目錄也沒有，才詢問 `.env` 所在目錄" in CHAT_SYSTEM_TEMPLATE
-    assert "直接以 `system.run_command` 規劃提案" in CHAT_SYSTEM_TEMPLATE
-    assert "都只是範例，不是限定清單" in CHAT_SYSTEM_TEMPLATE
-    assert "確認有／包含／存在 X" in CHAT_SYSTEM_TEMPLATE
-    assert "只有老師明確說「輸出必須完全等於 X／只能輸出 X」" in (
+def test_teacher_judge_prompt_uses_goal_directed_diagnostic_principles():
+    assert "熟悉 Linux、Windows 系統管理與常見 CLI 工具" in CHAT_SYSTEM_TEMPLATE
+    assert "根據老師要確認的目的，自行選擇適合的診斷指令" in (
         CHAT_SYSTEM_TEMPLATE
     )
-    assert "允許行首尾及等號周圍空白" in CHAT_SYSTEM_TEMPLATE
-    assert "教師已說要確認該設定存在時，這句話本身就是成功條件" in (
+    assert "優先規劃唯讀、診斷型指令" in CHAT_SYSTEM_TEMPLATE
+    assert "能以低權限取得資訊時，不要求 `sudo` 或 Administrator" in (
         CHAT_SYSTEM_TEMPLATE
     )
+    assert "避免無目的大量執行指令" in CHAT_SYSTEM_TEMPLATE
+    assert "不只回傳原始輸出" in CHAT_SYSTEM_TEMPLATE
+    assert "不是提案白名單" in CHAT_SYSTEM_TEMPLATE
+    assert "沒有專用項目時使用 `system.run_command`" in CHAT_SYSTEM_TEMPLATE
+    assert "systemctl list-units" not in CHAT_SYSTEM_TEMPLATE
+    assert "journalctl --since" not in CHAT_SYSTEM_TEMPLATE
+    assert "`history` 是 shell builtin" not in CHAT_SYSTEM_TEMPLATE
 
 
 @pytest.mark.parametrize("content", ["null", "[]", '"text"'])
@@ -160,7 +209,7 @@ async def test_non_object_chat_and_script_outputs_fail_cleanly(monkeypatch, cont
     async def fake_call(*args, **kwargs):
         return content, {}
 
-    monkeypatch.setattr(service, "_call_vllm", fake_call)
+    monkeypatch.setattr(service, "_call_vllm_message", fake_call)
     monkeypatch.setattr(artifacts, "_call_vllm", fake_call)
     with pytest.raises(HTTPException) as error:
         await artifacts.fix_script_content(script_content="pass", fix_hints=[])
@@ -255,7 +304,7 @@ async def test_teacher_judge_session_proposal_keeps_only_ready_changes(monkeypat
             {},
         )
 
-    monkeypatch.setattr(service, "_call_vllm", fake_call)
+    monkeypatch.setattr(service, "_call_vllm_message", fake_call)
     proposal_command = TeacherJudgeTemplateCommand(
         template_key="python",
         command_key="python.run_entrypoint",
@@ -386,7 +435,7 @@ async def test_teacher_judge_repairs_ready_reply_without_structured_proposal(
             },
         )
 
-    monkeypatch.setattr(service, "_call_vllm", fake_call)
+    monkeypatch.setattr(service, "_call_vllm_message", fake_call)
     command = TeacherJudgeTemplateCommand(
         template_key="linux",
         command_key="system.run_command",
@@ -431,7 +480,7 @@ async def test_teacher_judge_repairs_missing_status_without_turning_question_int
             response["proposal_status"] = "none"
         return json.dumps(response, ensure_ascii=False), {}
 
-    monkeypatch.setattr(service, "_call_vllm", fake_call)
+    monkeypatch.setattr(service, "_call_vllm_message", fake_call)
 
     reply, proposal, _metrics = await service.chat_with_rubric(
         [TeacherJudgeRubricChatMessage(role="user", content="可以讀取檔案嗎？")],
@@ -449,8 +498,29 @@ async def test_teacher_judge_does_not_keep_false_ready_reply_after_failed_repair
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(system_ai_env, "vllm_model_name", "test-model")
+    calls = []
 
     async def fake_call(payload, timeout=60.0):
+        calls.append(payload)
+        if len(calls) == 4:
+            facts = json.loads(payload["messages"][-1]["content"])
+            assert facts["outcome"] == "needs_information"
+            assert facts["proposal_created"] is False
+            assert facts["items"][0]["missing_information"] == [
+                "要檢查的檔案位置"
+            ]
+            return (
+                json.dumps(
+                    {
+                        "reply": (
+                            "關於「檔案格式檢查」，我還不知道檔案放在哪裡。"
+                            "請提供完整路徑，或工作目錄和相對路徑；收到後我會再確認。"
+                        )
+                    },
+                    ensure_ascii=False,
+                ),
+                {},
+            )
         return (
             json.dumps(
                 {
@@ -472,7 +542,7 @@ async def test_teacher_judge_does_not_keep_false_ready_reply_after_failed_repair
             {},
         )
 
-    monkeypatch.setattr(service, "_call_vllm", fake_call)
+    monkeypatch.setattr(service, "_call_vllm_message", fake_call)
 
     reply, proposal, _metrics = await service.chat_with_rubric(
         [TeacherJudgeRubricChatMessage(role="user", content="檢查檔案格式")],
@@ -480,14 +550,15 @@ async def test_teacher_judge_does_not_keep_false_ready_reply_after_failed_repair
         template_commands=[],
     )
 
+    assert len(calls) == 4
     assert proposal is None
-    assert "這次還不能建立提案" in reply
-    assert "要檢查的檔案位置" in reply
+    assert "關於「檔案格式檢查」，我還不知道檔案放在哪裡" in reply
+    assert "請提供完整路徑，或工作目錄和相對路徑" in reply
     assert "已放入提案" not in reply
 
 
 @pytest.mark.asyncio
-async def test_teacher_judge_invalid_ready_step_asks_for_missing_details(
+async def test_teacher_judge_recovers_read_file_alias_as_generic_command(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(system_ai_env, "vllm_model_name", "test-model")
@@ -528,7 +599,7 @@ async def test_teacher_judge_invalid_ready_step_asks_for_missing_details(
             {},
         )
 
-    monkeypatch.setattr(service, "_call_vllm", fake_call)
+    monkeypatch.setattr(service, "_call_vllm_message", fake_call)
     command = TeacherJudgeTemplateCommand(
         template_key="linux",
         command_key="system.run_command",
@@ -549,15 +620,22 @@ async def test_teacher_judge_invalid_ready_step_asks_for_missing_details(
         template_commands=[command],
     )
 
-    assert call_count == 3
-    assert proposal is None
-    assert "「確認 answer.txt 內容格式」" in reply
-    assert "不存在或未啟用的檢查能力" in reply
-    assert "linux/invented.read_file" in reply
-    assert "不是老師需要補充答案" in reply
-    assert "由管理員檢查 AI 輸出與命令目錄" in reply
-    assert "AI 回覆失敗" not in reply
-    assert "請稍後再試" not in reply
+    assert call_count == 2
+    assert proposal is not None
+    assert "確認 answer.txt 內容格式" in reply
+    assert proposal[0]["operation"] == "add"
+    assert proposal[0]["check_steps"] == [
+        {
+            "template_key": "linux",
+            "command_key": "system.run_command",
+            "command_label": "通用受控指令",
+            "parameters": {
+                "argv": ["cat", "answer.txt"],
+                "timeout_seconds": 30,
+                "success_criteria": "內容格式正確",
+            },
+        }
+    ]
 
 
 @pytest.mark.asyncio
@@ -582,7 +660,7 @@ async def test_teacher_judge_session_proposal_preserves_explicit_delete(monkeypa
             {},
         )
 
-    monkeypatch.setattr(service, "_call_vllm", fake_call)
+    monkeypatch.setattr(service, "_call_vllm_message", fake_call)
     _reply, proposal, _metrics = await service.chat_with_rubric(
         [TeacherJudgeRubricChatMessage(role="user", content="刪除舊版 Port 檢查")],
         json.dumps(

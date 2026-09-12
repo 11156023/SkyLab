@@ -603,8 +603,10 @@ async def test_attachment_proposal_is_ephemeral_until_explicit_apply(
             },
         }
     ]
+    captured_chat_kwargs = {}
 
-    async def fake_chat(*_args, **_kwargs):
+    async def fake_chat(*_args, **kwargs):
+        captured_chat_kwargs.update(kwargs)
         return "已建立一項可確認的提案。", proposal, {"total_tokens": 1}
 
     monkeypatch.setattr(teacher_judge_sessions, "_access", lambda *args: None)
@@ -626,6 +628,8 @@ async def test_attachment_proposal_is_ephemeral_until_explicit_apply(
 
     assert result.rubric_proposal == proposal
     assert result.base_revision == original_revision
+    assert captured_chat_kwargs["analysis_revision"] == original_revision
+    assert captured_chat_kwargs["rubric_available"] is True
     assert "rubric_proposal" not in result.assistant_message.metadata_json
     assert "base_revision" not in result.assistant_message.metadata_json
     assert result.assistant_message.message_type == "chat"

@@ -36,10 +36,8 @@ SCRIPT_GENERATION_CONTRACT_PROMPT = f"""
 # 可移植性與證據規則
 - 優先使用 Python 標準函式庫；若需外部工具，先 `command_available()` 再執行。
 - 若需執行外部指令，必須透過 `run_command()` 收集 stdout/stderr/returncode。
-- 不要假設一定有 `systemctl`、`ss`、`curl`、`grep`；工具缺失時回 `unknown`。
-- 所有通過平台政策的唯讀／診斷系統指令都使用 argv list，不限於特定命令。常見範例：`["cat", "<相對檔名或路徑>"]`（搭配 rubric 已提供的 cwd）、`["systemctl", "list-units", "--type=service", "--all"]`、`["systemctl", "--failed"]`、`["journalctl", "--since", "1 hour ago", "-p", "err", "--no-pager", "-n", "50"]`；只執行 rubric 明確要求的項目。system.run_command 未提供有效 timeout_seconds 時使用安全預設 30 秒；timeout 是最大執行時間，不是延遲。
+- 不假設外部工具一定存在；工具缺失時回 `unknown`。
 - 判定條件採 rubric 要求的最小充分粒度：只有明確要求完全相等時才比較整份輸出；「有／包含／存在某行或設定」使用內容或逐行存在判定。設定行如 `web_URL=True` 可忽略行首尾及等號周圍空白，不得因 stdout 還有其他內容就判定失敗。
-- `history` 是 shell builtin，不得用 shell launcher 間接執行，也不得猜測歷史檔。缺少明確且已允許讀取的歷史來源時回 `unknown`。
 - `evidence` 應是老師可讀的判斷摘要，不是原始輸出全文。
 - `raw` 應包含判斷所需的 stdout、stderr 與 returncode，不做內容遮蔽，只以 `truncate_output` 控制單一欄位大小。
 - 發生例外時不能吞錯後標成 `pass`；應記錄到 `errors` 或回 `unknown` / `fail`。
