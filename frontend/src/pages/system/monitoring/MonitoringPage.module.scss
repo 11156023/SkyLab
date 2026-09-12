@@ -352,33 +352,10 @@
 }
 
 /* Top 5 表在半版寬的卡片內，min-width 取小值讓它卷動而非硬擠（#24 重排前的過渡） */
+/* Top 5 在半版寬的卡片內：min-width 撐出橫向卷動，欄位不互擠 */
 .topTable {
   @include table-base;
-  min-width: 380px;
-}
-
-/* Top 5 的機器欄：類型小徽章＋名稱＋VMID 合併一欄（#24） */
-.vmCell {
-  display: flex;
-  align-items: center;
-  gap: $spacing-8;
-  min-width: 0;
-}
-
-.vmCellText {
-  @include flex-column;
-  min-width: 0;
-
-  strong {
-    overflow: hidden;
-    font-weight: $font-weight-500;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-  span {
-    font-size: $font-size-10;
-  }
+  min-width: 520px;
 }
 
 .th {

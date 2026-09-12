@@ -270,12 +270,13 @@ function TopVmTable({ title, entries, metric }) {
         <EmptyState icon="dns" title={t("MonitoringPage.emptyNoRunningResources")} />
       ) : (
         <div className={styles.tableScroll}>
-        {/* 半版寬容不下 5 欄：VMID／名稱／類型合併成一欄（#24） */}
         <table className={styles.topTable}>
           <thead>
             <tr>
-              <th className={styles.th}>{t("MonitoringPage.colMachine")}</th>
+              <th className={styles.th}>VMID</th>
+              <th className={styles.th}>{t("MonitoringPage.colName")}</th>
               <th className={styles.th}>{t("MonitoringPage.colNode")}</th>
+              <th className={styles.th}>{t("MonitoringPage.colType")}</th>
               <th className={`${styles.th} ${styles.thRight}`}>
                 {metric === "cpu" ? "CPU" : t("MonitoringPage.memoryLabel")}
               </th>
@@ -284,18 +285,14 @@ function TopVmTable({ title, entries, metric }) {
           <tbody>
             {entries.map((vm) => (
               <tr key={vm.vmid} className={styles.tr}>
-                <td className={styles.td}>
-                  <div className={styles.vmCell}>
-                    <span className={styles.typeBadge}>
-                      {vm.type === "qemu" ? "VM" : "LXC"}
-                    </span>
-                    <div className={styles.vmCellText}>
-                      <strong>{vm.name}</strong>
-                      <span className={styles.mutedText}>#{vm.vmid}</span>
-                    </div>
-                  </div>
-                </td>
+                <td className={`${styles.td} ${styles.monoCell}`}>{vm.vmid}</td>
+                <td className={styles.td}>{vm.name}</td>
                 <td className={`${styles.td} ${styles.mutedCell}`}>{vm.node}</td>
+                <td className={styles.td}>
+                  <span className={styles.typeBadge}>
+                    {vm.type === "qemu" ? "VM" : "LXC"}
+                  </span>
+                </td>
                 <td className={`${styles.td} ${styles.numericCell}`}>
                   {metric === "cpu" ? `${(vm.cpu * 100).toFixed(1)}%` : formatBytes(vm.mem)}
                 </td>
