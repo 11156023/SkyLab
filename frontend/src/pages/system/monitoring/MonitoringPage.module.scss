@@ -312,7 +312,7 @@
 .alertMain {
   display: flex;
   align-items: flex-start;
-  gap: $spacing-8;
+  gap: 12px;
   color: var(--color-danger);
 
   /* 圖示對齊第一行（alertHead）的垂直中線：head 行高約 23px、圖示 16px */
