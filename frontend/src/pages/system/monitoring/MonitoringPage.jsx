@@ -45,33 +45,23 @@ function mapNodeRrd(points) {
     }));
 }
 
-/* ── 節點用量表的異常優先收斂 ──
-   監控頁的用途是找問題，不是逐一巡禮：離線或任一資源偏高的節點永遠
-   顯示且排最前，其餘按用量取前幾名，剩下收進「顯示全部」。 */
-const NODE_ATTENTION_SHARE = 80;
-const NODE_COLLAPSED_EXTRA = 5;
+/* 節點用量整卡收合的偏好記在本機，重整後維持使用者的選擇 */
+const NODES_OPEN_STORAGE_KEY = "skylab.monitoringNodesOpen";
 
-function nodeMaxShare(node) {
-  const cpu = node.maxcpu > 0 ? node.cpu * 100 : 0;
-  const mem = node.maxmem > 0 ? (node.mem / node.maxmem) * 100 : 0;
-  const disk = node.maxdisk > 0 ? (node.disk / node.maxdisk) * 100 : 0;
-  return Math.max(cpu, mem, disk);
+function loadNodesOpen() {
+  try {
+    return window.localStorage.getItem(NODES_OPEN_STORAGE_KEY) === "1";
+  } catch {
+    return false;
+  }
 }
 
-function nodeNeedsAttention(node) {
-  return node.status !== "online" || nodeMaxShare(node) >= NODE_ATTENTION_SHARE;
-}
-
-/** 需注意的在前，其餘用量高的在前；同分按名稱穩定排序，輪詢間不跳動 */
-function rankNodes(nodes) {
-  return [...nodes].sort((a, b) => {
-    const aa = nodeNeedsAttention(a);
-    const ba = nodeNeedsAttention(b);
-    if (aa !== ba) return aa ? -1 : 1;
-    const diff = nodeMaxShare(b) - nodeMaxShare(a);
-    if (Math.abs(diff) > 0.001) return diff;
-    return a.node.localeCompare(b.node);
-  });
+function saveNodesOpen(open) {
+  try {
+    window.localStorage.setItem(NODES_OPEN_STORAGE_KEY, open ? "1" : "0");
+  } catch {
+    // localStorage 不可用時偏好僅本次瀏覽生效
+  }
 }
 
 function UsageBar({ pct }) {
@@ -322,8 +312,8 @@ export default function MonitoringPage() {
   const [panelTab, setPanelTab] = useState("alerts");
   const [alertCount, setAlertCount] = useState(null);
   const [miningCount, setMiningCount] = useState(null);
-  /* 節點多時預設只列需注意與用量最高的，其餘收進「顯示全部」 */
-  const [showAllNodes, setShowAllNodes] = useState(false);
+  /* 節點用量整卡收合：預設收起省版面，標題列保留在線摘要 */
+  const [nodesOpen, setNodesOpen] = useState(loadNodesOpen);
 
   const load = useCallback(async (signal) => {
     try {
@@ -361,15 +351,12 @@ export default function MonitoringPage() {
     );
   }
 
-  const rankedNodes = rankNodes(overview.nodes);
-  const collapsedCount = Math.min(
-    rankedNodes.length,
-    rankedNodes.filter(nodeNeedsAttention).length + NODE_COLLAPSED_EXTRA,
-  );
-  const hiddenNodeCount = rankedNodes.length - collapsedCount;
-  const nodesToRender = showAllNodes || hiddenNodeCount === 0
-    ? rankedNodes
-    : rankedNodes.slice(0, collapsedCount);
+  function toggleNodesOpen() {
+    setNodesOpen((open) => {
+      saveNodesOpen(!open);
+      return !open;
+    });
+  }
 
   const cpuPct = overview.cpu_total > 0 ? (overview.cpu_used / overview.cpu_total) * 100 : 0;
   const memPct = overview.mem_total > 0 ? (overview.mem_used / overview.mem_total) * 100 : 0;
@@ -457,14 +444,27 @@ export default function MonitoringPage() {
         <MiningIncidentsPanel onCountChange={setMiningCount} />
       </div>
 
-      {/* 節點用量 */}
+      {/* 節點用量：整卡收合，收起時標題列仍看得到在線摘要 */}
       <div className={styles.card}>
-        <div className={styles.cardHeader}>
+        <button
+          type="button"
+          className={styles.cardHeaderToggle}
+          onClick={toggleNodesOpen}
+          aria-expanded={nodesOpen}
+        >
           <div>
             <h2 className={styles.cardTitle}>{t("MonitoringPage.nodeUsageTitle")}</h2>
             <p className={styles.cardDesc}>{t("MonitoringPage.nodeUsageDesc")}</p>
           </div>
-        </div>
+          <span className={styles.cardHeaderMeta}>
+            {t("MonitoringPage.nodesSummary", {
+              online: overview.nodes_online,
+              total: overview.nodes_total,
+            })}
+            <MIcon name={nodesOpen ? "expand_less" : "expand_more"} size={18} />
+          </span>
+        </button>
+        {nodesOpen && (
         <div className={styles.tableScroll}>
         <table className={styles.table}>
           <thead>
@@ -479,7 +479,7 @@ export default function MonitoringPage() {
             </tr>
           </thead>
           <tbody>
-            {nodesToRender.map((node) => {
+            {overview.nodes.map((node) => {
               const online = node.status === "online";
               const nodeCpu = node.maxcpu > 0 ? node.cpu * 100 : 0;
               const nodeMem = node.maxmem > 0 ? (node.mem / node.maxmem) * 100 : 0;
@@ -563,17 +563,6 @@ export default function MonitoringPage() {
           </tbody>
         </table>
         </div>
-        {hiddenNodeCount > 0 && (
-          <button
-            type="button"
-            className={styles.showAllBtn}
-            onClick={() => setShowAllNodes((value) => !value)}
-          >
-            <MIcon name={showAllNodes ? "expand_less" : "expand_more"} size={16} />
-            {showAllNodes
-              ? t("MonitoringPage.collapseNodes", { count: hiddenNodeCount })
-              : t("MonitoringPage.showAllNodes", { count: rankedNodes.length })}
-          </button>
         )}
       </div>
 

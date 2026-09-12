@@ -314,25 +314,35 @@
 }
 
 /* ── 表格 ── */
-/* 「顯示全部節點／收合」切換：收在表格下方置中的細按鈕 */
-.showAllBtn {
-  display: inline-flex;
+/* 節點用量整卡收合：標題列即開關，收起時右側保留在線摘要 */
+.cardHeaderToggle {
+  display: flex;
   align-items: center;
-  gap: 4px;
-  align-self: center;
-  margin: $spacing-8 0 $spacing-16;
-  padding: 6px 14px;
-  border: 1px solid var(--color-border);
-  border-radius: $radius-pill;
-  background: var(--color-surface);
-  color: var(--color-text-secondary);
-  font-size: $font-size-12;
+  justify-content: space-between;
+  gap: $spacing-16;
+  width: 100%;
+  padding: $spacing-16;
+  border: 0;
+  background: transparent;
+  text-align: left;
+  font: inherit;
   cursor: pointer;
   transition: background $transition-base;
 
   &:hover {
     background: var(--color-hover);
   }
+}
+
+.cardHeaderMeta {
+  display: inline-flex;
+  align-items: center;
+  gap: $spacing-8;
+  flex-shrink: 0;
+  color: var(--color-text-secondary);
+  font-size: $font-size-12;
+  font-weight: $font-weight-500;
+  white-space: nowrap;
 }
 
 /* 離線列的展開箭頭佔位（與 16px 的 MIcon 同寬），名稱欄才對得齊 */
