@@ -10,18 +10,11 @@ import useAutoRefresh from "../../../hooks/useAutoRefresh";
 import useDialogPresence from "../../../hooks/useDialogPresence";
 import PageHeader from "../../../components/PageHeader/PageHeader";
 import SegmentedControl from "../../../components/SegmentedControl/SegmentedControl";
+import { formatDate, formatDateTime } from "../../../utils/formatDate";
 
 const PAGE_SIZE = 50;
 const ROLE_OPTIONS = ["student", "teacher", "admin"];
 const CREATED_OPTIONS = ["all", "7d", "30d"];
-
-function fmtTime(iso) {
-  return iso ? new Date(iso).toLocaleString("zh-TW") : "—";
-}
-
-function fmtDate(iso) {
-  return iso ? new Date(iso).toLocaleDateString("zh-TW") : "—";
-}
 
 function createdAfterFor(range) {
   if (range === "all") return undefined;
@@ -313,10 +306,10 @@ export default function AiApiKeysPage() {
                           <span className={styles.cellText} title={item.request_purpose || undefined}>{item.request_purpose || "—"}</span>
                         </td>
                         <td className={styles.td}>
-                          {item.last_used_at ? fmtTime(item.last_used_at) : <span className={styles.cellMuted}>{t("AiApiKeysPage.detailNeverUsed")}</span>}
+                          {item.last_used_at ? formatDateTime(item.last_used_at) : <span className={styles.cellMuted}>{t("AiApiKeysPage.detailNeverUsed")}</span>}
                         </td>
                         <td className={styles.td}><StatusBadge item={item} /></td>
-                        <td className={styles.td}>{fmtDate(item.created_at)}</td>
+                        <td className={styles.td}>{formatDate(item.created_at)}</td>
                         <td className={styles.td}>
                           {item.status === "active" ? (
                             <button

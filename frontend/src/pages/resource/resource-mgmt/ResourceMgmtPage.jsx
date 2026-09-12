@@ -18,6 +18,7 @@ import PageHeader from "../../../components/PageHeader/PageHeader";
 import { useConfirm } from "../../../components/ConfirmDialog/ConfirmProvider";
 import { QuickPracticeService } from "../../../services/quickPractice";
 import { buildEnvironmentGroups, groupedResourceKeys } from "../../../utils/environmentGroups";
+import { formatDate } from "../../../utils/formatDate";
 
 /* ── Constants ── */
 function useStatusMap() {
@@ -80,13 +81,6 @@ function useBatchActions() {
 const LIVE_STATUSES = new Set(["running", "stopped", "paused"]);
 
 /* ── Helpers ── */
-function formatDate(isoStr) {
-  if (!isoStr) return null;
-  return new Date(isoStr).toLocaleDateString("zh-TW", {
-    year: "numeric", month: "2-digit", day: "2-digit",
-  });
-}
-
 function resourceRowKey(resource, index) {
   const parts = [
     resource.type || "resource",

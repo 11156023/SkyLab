@@ -6,9 +6,12 @@ VM 的 IP 是由 guest agent（VM 內部）回報的，VM 擁有者可以任意�
 
 規則：
 1. 一律拒絕 loopback / link-local / multicast / unspecified / reserved。
-2. 拒絕 SubnetConfig 的 gateway、gateway_vm_ip、extra_blocked_subnets，
+2. 拒絕 SubnetConfig 的 gateway、gateway_vm_ip，
    以及所有 PVE 連線的 host / gateway_ip。
 3. 若已設定 SubnetConfig.cidr（平台配發 VM IP 的網段），目標必須落在其中。
+
+extra_blocked_subnets 是 VM 出站防火牆規則，不是發布目標黑名單；
+管理員可封鎖整個 VM 網段以限制橫向連線，同時允許從 Gateway 發布網站。
 """
 
 from __future__ import annotations
@@ -99,7 +102,6 @@ def assert_publishable_vm_ip(session: object, vm_ip: str) -> None:
     """
     allowed_cidrs: list[str] = []
     blocked_ips: list[str] = []
-    blocked_cidrs: list[str] = []
 
     try:
         from app.services.network import ip_management_service  # noqa: PLC0415
@@ -116,14 +118,6 @@ def assert_publishable_vm_ip(session: object, vm_ip: str) -> None:
             value = getattr(subnet_config, attr, None)
             if value:
                 blocked_ips.append(value)
-        try:
-            from app.services.network import ip_management_service  # noqa: PLC0415
-
-            blocked_cidrs.extend(
-                ip_management_service.get_extra_blocked_subnets(subnet_config)
-            )
-        except Exception:  # noqa: BLE001
-            pass
 
     try:
         from sqlmodel import select  # noqa: PLC0415
@@ -154,7 +148,6 @@ def assert_publishable_vm_ip(session: object, vm_ip: str) -> None:
         vm_ip,
         allowed_cidrs=allowed_cidrs,
         blocked_ips=blocked_ips,
-        blocked_cidrs=blocked_cidrs,
     )
 
 

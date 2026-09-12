@@ -750,6 +750,33 @@ async def proxy_to_vllm_chat_completion_stream(
 # ===== 新增：查询使用统计 =====
 
 
+def _daily_usage_buckets(records, *, start_date: datetime, end_date: datetime) -> list[dict]:
+    """把逐筆用量紀錄按日分桶（我的用量折線圖用，#7）。
+
+    區間內沒有呼叫的日子補零，X 軸才連續；區間異常大（>400 天）時
+    不補零，只回傳實際有紀錄的日子，避免產生上千個空桶。
+    """
+    start_day = start_date.date()
+    end_day = end_date.date()
+    span = (end_day - start_day).days
+    buckets: dict = {}
+    if 0 <= span <= 400:
+        day = start_day
+        while day <= end_day:
+            buckets[day] = {"date": day, "requests": 0, "input_tokens": 0, "output_tokens": 0}
+            day += timedelta(days=1)
+    for record in records:
+        day = record.created_at.date()
+        bucket = buckets.get(day)
+        if bucket is None:
+            bucket = {"date": day, "requests": 0, "input_tokens": 0, "output_tokens": 0}
+            buckets[day] = bucket
+        bucket["requests"] += 1
+        bucket["input_tokens"] += record.input_tokens
+        bucket["output_tokens"] += record.output_tokens
+    return [buckets[key] for key in sorted(buckets)]
+
+
 def get_user_usage_stats(
     *,
     session: Session,
@@ -790,6 +817,7 @@ def get_user_usage_stats(
         "total_input_tokens": total_input_tokens,
         "total_output_tokens": total_output_tokens,
         "by_model": by_model,
+        "daily": _daily_usage_buckets(records, start_date=start_date, end_date=end_date),
         "start_date": start_date,
         "end_date": end_date,
     }
@@ -834,6 +862,7 @@ def get_user_template_usage_stats(
         "total_input_tokens": total_input_tokens,
         "total_output_tokens": total_output_tokens,
         "by_call_type": by_call_type,
+        "daily": _daily_usage_buckets(records, start_date=start_date, end_date=end_date),
         "start_date": start_date,
         "end_date": end_date,
     }

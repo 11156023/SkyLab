@@ -578,7 +578,7 @@ _LDAP_ELEMENTS: tuple[ElementSpec, ...] = (
         help="在 ldap:// 連線上升級為加密連線（ldaps:// 不需要）。",
     ),
     ElementSpec(
-        id="ldap.bind_password", role="text", label="Bind 密碼",
+        id="ldap.bind_password", role="text", label="服務帳號密碼",
         section="服務帳號與使用者搜尋", sensitive=True,
         help="服務帳號的密碼；已設定時留空表示不變更。",
     ),

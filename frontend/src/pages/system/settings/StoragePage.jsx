@@ -88,26 +88,30 @@ function StorageList() {
               {" "}{[storage.can_vm && "VM", storage.can_lxc && "LXC", storage.can_iso && "ISO", storage.can_backup && "Backup"].filter(Boolean).join(" / ") || t("SettingsPage.noPurpose")}
             </span>
           </div>
-          <select
-            value={storage.speed_tier}
-            disabled={savingId === storage.id}
-            onChange={(e) => save(storage, { speed_tier: e.target.value })}
-            className={styles.inlineSelect}
-            title={t("SettingsPage.speedTierTitle")}
-          >
-            <option value="nvme">NVMe</option>
-            <option value="ssd">SSD</option>
-            <option value="hdd">HDD</option>
-            <option value="unknown">{t("SettingsPage.unknown")}</option>
-          </select>
-          <input
-            type="number"
-            className={styles.inlineInput}
-            title={t("SettingsPage.userPriorityTitle")}
-            value={storage.user_priority}
-            disabled={savingId === storage.id}
-            onChange={(e) => save(storage, { user_priority: Number(e.target.value) || 0 })}
-          />
+          <label className={styles.inlineField}>
+            <span>{t("SettingsPage.speedTierTitle")}</span>
+            <select
+              value={storage.speed_tier}
+              disabled={savingId === storage.id}
+              onChange={(e) => save(storage, { speed_tier: e.target.value })}
+              className={styles.inlineSelect}
+            >
+              <option value="nvme">NVMe</option>
+              <option value="ssd">SSD</option>
+              <option value="hdd">HDD</option>
+              <option value="unknown">{t("SettingsPage.unknown")}</option>
+            </select>
+          </label>
+          <label className={styles.inlineField}>
+            <span>{t("SettingsPage.userPriorityTitle")}</span>
+            <input
+              type="number"
+              className={styles.inlineInput}
+              value={storage.user_priority}
+              disabled={savingId === storage.id}
+              onChange={(e) => save(storage, { user_priority: Number(e.target.value) || 0 })}
+            />
+          </label>
           <label className={styles.checkRow}>
             <input
               type="checkbox"
@@ -130,6 +134,7 @@ export default function StoragePage() {
     <div className={styles.page}>
       <PageHeader title={t("SettingsPage.storageTitle")} subtitle={t("SettingsPage.storageSubtitle")} />
       <div className={styles.content}>
+        <p className={styles.listHint}>{t("SettingsPage.storageHint")}</p>
         <StorageList />
       </div>
     </div>

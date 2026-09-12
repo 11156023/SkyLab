@@ -9,6 +9,8 @@ import { useConfirm } from "../../../components/ConfirmDialog/ConfirmProvider";
 import { useToast } from "../../../hooks/useToast";
 import { focusInvalidField } from "../../../utils/focusField";
 import PageHeader from "../../../components/PageHeader/PageHeader";
+import RrdChart from "../../../components/RrdChart/RrdChart";
+import { formatDateTime, formatMonthDay } from "../../../utils/formatDate";
 
 /* ── helpers ── */
 function isExpired(value) {
@@ -68,14 +70,10 @@ function CredentialCard({ item, onRefresh }) {
   const [nameInput, setNameInput] = useState(item.api_key_name);
   const [busy, setBusy] = useState(false);
 
-  function fmtTime(iso) {
-    return iso ? new Date(iso).toLocaleString("zh-TW") : "—";
-  }
-
   function fmtExpiry(value) {
     if (!value) return t("AiApiPage.durationOptionNever");
-    const d = new Date(value);
-    return d < new Date() ? t("AiApiPage.expiredFormat", { date: d.toLocaleString() }) : d.toLocaleString();
+    const label = formatDateTime(value);
+    return isExpired(value) ? t("AiApiPage.expiredFormat", { date: label }) : label;
   }
 
   function credStatusInfo(it) {
@@ -193,9 +191,9 @@ function CredentialCard({ item, onRefresh }) {
         </div>
         <div className={styles.credMeta}>
           <span>{t("AiApiPage.metaPrefix", { value: item.api_key_prefix })}</span>
-          <span>{t("AiApiPage.metaCreated", { value: fmtTime(item.created_at) })}</span>
+          <span>{t("AiApiPage.metaCreated", { value: formatDateTime(item.created_at) })}</span>
           <span className={expired ? styles.textDanger : ""}>{t("AiApiPage.metaExpiry", { value: fmtExpiry(item.expires_at) })}</span>
-          {item.revoked_at && <span>{t("AiApiPage.metaRevoked", { value: fmtTime(item.revoked_at) })}</span>}
+          {item.revoked_at && <span>{t("AiApiPage.metaRevoked", { value: formatDateTime(item.revoked_at) })}</span>}
         </div>
       </div>
 
@@ -229,8 +227,9 @@ function CredentialCard({ item, onRefresh }) {
         <button type="button" className={styles.btnOutline} onClick={() => copy("API Key", item.api_key)}>
           <MIcon name="content_copy" size={16} /> API Key
         </button>
-        <button type="button" className={styles.btnOutline} onClick={doRotate} disabled={inactive || busy}>
-          <MIcon name="refresh" size={16} /> {t("AiApiPage.actionRefresh")}
+        {/* 重新產生金鑰是破壞性動作（舊金鑰立即失效），不叫「刷新」也不長得像刷新 */}
+        <button type="button" className={`${styles.btnOutline} ${styles.btnDanger}`} onClick={doRotate} disabled={inactive || busy}>
+          <MIcon name="autorenew" size={16} /> {t("AiApiPage.actionRotate")}
         </button>
         <button type="button" className={`${styles.btnOutline} ${styles.btnDanger}`} onClick={doDelete} disabled={busy}>
           <MIcon name="delete" size={16} /> {t("AiApiPage.actionDelete")}
@@ -243,10 +242,6 @@ function CredentialCard({ item, onRefresh }) {
 /* ── Request row ── */
 function RequestRow({ item }) {
   const { t } = useTranslation("ai");
-
-  function fmtTime(iso) {
-    return iso ? new Date(iso).toLocaleString("zh-TW") : "—";
-  }
 
   function statusLabel(status) {
     if (status === "approved") return t("AiApiPage.statusApproved");
@@ -266,8 +261,8 @@ function RequestRow({ item }) {
       </div>
       <p className={styles.requestPurpose}>{item.purpose}</p>
       <div className={styles.requestMeta}>
-        <span>{t("AiApiPage.requestMetaApply", { value: fmtTime(item.created_at) })}</span>
-        <span>{t("AiApiPage.requestMetaReview", { value: item.reviewed_at ? fmtTime(item.reviewed_at) : t("AiApiPage.requestNotReviewed") })}</span>
+        <span>{t("AiApiPage.requestMetaApply", { value: formatDateTime(item.created_at) })}</span>
+        <span>{t("AiApiPage.requestMetaReview", { value: formatDateTime(item.reviewed_at, t("AiApiPage.requestNotReviewed")) })}</span>
         {item.review_comment && <span>{t("AiApiPage.requestMetaComment", { value: item.review_comment })}</span>}
       </div>
     </div>
@@ -281,6 +276,32 @@ function UsageStatCard({ label, value }) {
       <span className={styles.usageStatLabel}>{label}</span>
       <span className={styles.usageStatValue}>{value}</span>
     </div>
+  );
+}
+
+/* ── Usage: 逐日 Tokens 折線圖（#7）── */
+function DailyUsageChart({ daily }) {
+  const { t } = useTranslation("ai");
+  const data = useMemo(
+    () => (daily ?? []).map((point) => ({
+      time: formatMonthDay(point.date),
+      input: point.input_tokens,
+      output: point.output_tokens,
+    })),
+    [daily],
+  );
+  /* 區間內完全沒用量就不畫（統計卡已是 0），有值才值得佔版面 */
+  if (data.length === 0 || data.every((point) => !point.input && !point.output)) return null;
+  return (
+    <RrdChart
+      title={t("AiApiPage.usageDailyTitle")}
+      data={data}
+      series={[
+        { key: "input", label: t("AiApiPage.usageStatInputTokens"), color: "--color-info" },
+        { key: "output", label: t("AiApiPage.usageStatOutputTokens"), color: "--color-success" },
+      ]}
+      height={180}
+    />
   );
 }
 
@@ -394,6 +415,7 @@ function MyUsageTab() {
                   <UsageStatCard label={t("AiApiPage.usageStatInputTokens")} value={formatTokens(proxyData.total_input_tokens)} />
                   <UsageStatCard label={t("AiApiPage.usageStatOutputTokens")} value={formatTokens(proxyData.total_output_tokens)} />
                 </div>
+                <DailyUsageChart daily={proxyData.daily} />
                 <UsageBreakdown
                   icon="bar_chart"
                   title={t("AiApiPage.usageBreakdownByModel")}
@@ -421,6 +443,7 @@ function MyUsageTab() {
                   <UsageStatCard label={t("AiApiPage.usageStatInputTokens")} value={formatTokens(templateData.total_input_tokens)} />
                   <UsageStatCard label={t("AiApiPage.usageStatOutputTokens")} value={formatTokens(templateData.total_output_tokens)} />
                 </div>
+                <DailyUsageChart daily={templateData.daily} />
                 <UsageBreakdown
                   icon="auto_awesome"
                   title={t("AiApiPage.usageBreakdownByCallType")}

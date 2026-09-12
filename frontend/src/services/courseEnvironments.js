@@ -1,4 +1,5 @@
 import { apiDelete, apiGet, apiPost, apiPut } from "./api";
+import { formatDate } from "../utils/formatDate";
 
 export function courseNodeHasUsableSource(node) {
   return node?.sourceType === "custom"
@@ -30,9 +31,7 @@ export function normalizeCourseEnvironment(item) {
     ...item,
     id: String(item.id),
     versionId: String(item.version_id),
-    updatedAt: item.updated_at
-      ? new Date(item.updated_at).toLocaleDateString("zh-TW")
-      : "",
+    updatedAt: formatDate(item.updated_at, ""),
     usageScope: item.usage_scope ?? "course",
     audience: item.audience ?? "class",
     audienceClassIds: (item.audience_class_ids ?? []).map(String),

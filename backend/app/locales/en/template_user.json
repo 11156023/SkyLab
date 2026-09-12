@@ -37,6 +37,7 @@
   "user.emailExistsShort": "User with this email already exists",
   "user.notFound": "User not found",
   "user.idNotFound": "The user with this id does not exist in the system",
+  "user.ldapPasswordLocked": "This account is managed by LDAP; the local password is not used. Change the password in the LDAP directory instead.",
   "user.selfDeleteForbidden": "Super users are not allowed to delete themselves",
   "user.incorrectPassword": "Incorrect password",
   "user.samePassword": "New password cannot be the same as the current one",

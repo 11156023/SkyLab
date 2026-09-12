@@ -2,7 +2,7 @@
 AI Proxy API Schemas - OpenAI 兼容格式
 """
 
-from datetime import datetime
+from datetime import date, datetime
 
 from pydantic import BaseModel, Field
 
@@ -113,6 +113,15 @@ class UsageByModel(BaseModel):
     output_tokens: int
 
 
+class DailyUsagePoint(BaseModel):
+    """逐日用量點（我的用量折線圖用；區間內沒有呼叫的日子補零）"""
+
+    date: date
+    requests: int
+    input_tokens: int
+    output_tokens: int
+
+
 class UsageStatsResponse(BaseModel):
     """Proxy 使用量統計回應"""
 
@@ -120,6 +129,7 @@ class UsageStatsResponse(BaseModel):
     total_input_tokens: int
     total_output_tokens: int
     by_model: dict[str, UsageByModel]
+    daily: list[DailyUsagePoint] = []
     start_date: datetime
     end_date: datetime
 
@@ -139,6 +149,7 @@ class TemplateUsageStatsResponse(BaseModel):
     total_input_tokens: int
     total_output_tokens: int
     by_call_type: dict[str, TemplateUsageByCallType]
+    daily: list[DailyUsagePoint] = []
     start_date: datetime
     end_date: datetime
 

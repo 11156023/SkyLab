@@ -85,6 +85,8 @@
   "AppearanceTab.backgroundApplied": "背景画像を適用しました",
   "AppearanceTab.backgroundReadFailed": "背景画像の読み込みに失敗しました",
   "AdminDashboardPage.issueJobsTitle": "バックグラウンドタスクが失敗またはブロックされています",
+  "AdminDashboardPage.issueMiningTitle": "マイニング疑い事件の対応待ち",
+  "AdminDashboardPage.issueMiningDesc": "停止処分か誤検知解除かを判断してください。判断まで VM は凍結されたままです",
   "AdminDashboardPage.issueJobsDesc": "失敗の原因と関連する実行履歴を確認してください",
   "AdminDashboardPage.issueRequestsTitle": "審査待ちの申請があります",
   "AdminDashboardPage.issueBatchesTitle": "クラス一括作成の審査待ちがあります",

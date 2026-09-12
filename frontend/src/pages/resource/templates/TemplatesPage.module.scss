@@ -33,8 +33,14 @@
 }
 
 /* ── 表格 ── */
+/* 表格嵌在卡片內、無 table-wrap，橫向卷動由 .tableScroll 提供 */
+.tableScroll {
+  overflow-x: auto;
+}
+
 .table {
   @include table-base;
+  min-width: 960px;
 }
 
 .th {

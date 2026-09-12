@@ -5,6 +5,7 @@ import MIcon from "../../../../components/MIcon";
 import LoadingState from "../../../../components/LoadingState/LoadingState";
 import RrdChart from "../../../../components/RrdChart/RrdChart";
 import { ResourcesService } from "../../../../services/resources";
+import { formatTime } from "../../../../utils/formatDate";
 
 const TIMEFRAMES = [
   { value: "hour",  labelKey: "MonitoringTab.timeframeHour" },
@@ -115,10 +116,7 @@ export default function MonitoringTab({ vmid }) {
   const chartData = (rrd ?? [])
     .filter((p) => typeof p.time === "number")
     .map((p) => ({
-      time: new Date(p.time * 1000).toLocaleTimeString("zh-TW", {
-        hour: "2-digit",
-        minute: "2-digit",
-      }),
+      time: formatTime(p.time * 1000),
       cpu: p.cpu != null ? Number((p.cpu * 100).toFixed(2)) : null,
       memory:
         p.mem != null && p.maxmem ? Number(((p.mem / p.maxmem) * 100).toFixed(2)) : null,

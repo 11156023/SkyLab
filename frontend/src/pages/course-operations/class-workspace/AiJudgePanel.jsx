@@ -9,6 +9,7 @@ import useAutoRefresh from "../../../hooks/useAutoRefresh";
 import useDialogPresence from "../../../hooks/useDialogPresence";
 import { downloadBlob } from "../../../services/api";
 import { focusInvalidField } from "../../../utils/focusField";
+import { formatDateTime } from "../../../utils/formatDate";
 import { createRubricAnalysisAutosave } from "./rubricAnalysisAutosave";
 import {
   AiJudgeService,
@@ -102,11 +103,6 @@ const DETECTABLE_INFO = {
 
 function getDetectableInfo(detectable) {
   return DETECTABLE_INFO[detectable] ?? DETECTABLE_INFO.manual;
-}
-
-function formatDateTime(value) {
-  if (!value) return "—";
-  return new Date(value).toLocaleString("zh-TW");
 }
 
 const RUBRIC_FILE_EXTENSION = /\.(?:md|txt|doc|docx|pdf)$/i;

@@ -28,11 +28,6 @@
 .searchInput { display: flex; align-items: center; gap: 8px; width: min(360px, 100%); padding: 0 12px; border: 1px solid var(--color-border); border-radius: $radius-8; color: var(--color-text-muted); background: var(--color-surface); }
 .searchInput:focus-within { border-color: var(--color-primary); }
 .searchInput input { width: 100%; height: 38px; border: 0; outline: 0; color: var(--color-text); background: transparent; font: inherit; font-size: $font-size-14; }
-.pillTabs { display: flex; gap: 4px; flex-wrap: wrap; }
-.pillTabs button { padding: 6px 16px; border: 0; border-radius: $radius-pill; color: var(--color-text-secondary); background: transparent; font: inherit; font-size: $font-size-14; cursor: pointer; }
-.pillTabs button:hover { color: var(--color-text); background: var(--color-hover); }
-.pillTabs button.pillActive { color: var(--color-surface); background: var(--color-text); font-weight: $font-weight-500; }
-
 .tableWrap { min-width: 0; overflow-x: auto; }
 .table { width: 100%; border-collapse: collapse; }
 .table th { padding: $spacing-8 $spacing-16; border-bottom: 1px solid var(--color-border); color: var(--color-text-muted); background: var(--color-hover); font-size: $font-size-12; font-weight: $font-weight-500; text-align: left; white-space: nowrap; }
@@ -163,9 +158,6 @@
 .cardHeader h2 { letter-spacing: -.01em; }
 
 .toolbar { padding: 14px 16px; background: color-mix(in srgb, var(--color-hover) 35%, var(--color-surface)); }
-.toolbar .pillTabs button { display: inline-flex; align-items: center; gap: 6px; }
-.toolbar .pillTabs i { min-width: 17px; box-sizing: border-box; padding: 1px 5px; border-radius: $radius-pill; color: var(--color-text-muted); background: var(--color-hover); font-size: $font-size-10; font-style: normal; font-weight: $font-weight-500; font-variant-numeric: tabular-nums; text-align: center; }
-.toolbar .pillTabs button.pillActive i { color: var(--color-surface); background: color-mix(in srgb, var(--color-surface) 24%, transparent); }
 .table th { height: 38px; padding-inline: $spacing-16; background: color-mix(in srgb, var(--color-hover) 58%, var(--color-surface)); font-size: $font-size-12; letter-spacing: .035em; text-transform: uppercase; }
 .table td { height: 62px; padding-inline: $spacing-16; }
 .rowLink:hover { background: color-mix(in srgb, var(--color-primary) 3.5%, var(--color-surface)); }
@@ -173,15 +165,6 @@
 .archivedToggle { display: inline-flex; align-items: center; gap: 6px; margin-left: auto; color: var(--color-text-muted); font-size: $font-size-12; cursor: pointer; user-select: none; }
 .archivedToggle input { width: 13px; height: 13px; margin: 0; accent-color: var(--color-primary); cursor: pointer; }
 .classToolbar .searchInput { flex: 0 1 320px; border: 1px solid var(--color-border); border-radius: $radius-8; background: var(--color-surface); }
-.classToolbar .pillTabs { justify-content: flex-end; }
-.classToolbar .pillTabs button { display: inline-flex; align-items: center; gap: 6px; }
-.classToolbar .pillTabs i { min-width: 17px; box-sizing: border-box; padding: 1px 5px; border-radius: $radius-pill; color: var(--color-text-muted); background: var(--color-hover); font-size: $font-size-10; font-style: normal; font-weight: $font-weight-500; font-variant-numeric: tabular-nums; text-align: center; }
-.classToolbar .pillTabs button.pillActive i { color: var(--color-surface); background: color-mix(in srgb, var(--color-surface) 24%, transparent); }
-.pillTabs button.pillAlert { color: var(--color-danger); background: color-mix(in srgb, var(--color-danger) 10%, transparent); font-weight: $font-weight-500; }
-.pillTabs button.pillAlert:hover { color: var(--color-danger); background: color-mix(in srgb, var(--color-danger) 17%, transparent); }
-.pillTabs button.pillAlert.pillActive { color: var(--color-surface); background: var(--color-danger); }
-.classToolbar .pillTabs button.pillAlert i { color: var(--color-danger); background: color-mix(in srgb, var(--color-danger) 17%, transparent); }
-.classToolbar .pillTabs button.pillAlert.pillActive i { color: var(--color-surface); background: color-mix(in srgb, var(--color-surface) 24%, transparent); }
 .classCardGrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(330px, 1fr)); gap: 16px; align-items: stretch; }
 .classCard { display: flex; min-width: 0; flex-direction: column; overflow: hidden; @include glass-surface($shadow: var(--shadow-sm)); border-radius: $radius-16; transition: border-color $transition-base, box-shadow $transition-base, transform $transition-base; }
 .classCard:hover { border-color: color-mix(in srgb, var(--color-primary) 28%, var(--color-border)); box-shadow: 0 7px 24px color-mix(in srgb, var(--color-text-primary) 8%, transparent); transform: translateY(-1px); }
@@ -631,7 +614,6 @@
   .listSummary { align-items: flex-start; flex-direction: column; }
   .classToolbar { align-items: stretch; flex-direction: column; gap: 10px; }
   .classToolbar .searchInput { flex-basis: auto; width: 100%; }
-  .classToolbar .pillTabs { justify-content: flex-start; }
   .classCardGrid { grid-template-columns: 1fr; }
   .classCardTop h2 { white-space: normal; }
   .classCardMain { padding: 16px 16px 14px; }
@@ -672,6 +654,9 @@
 
 /* 送出時未填的欄位：紅框標示並被聚焦（雙類名壓過 .field input 這類巢狀選擇器） */
 .fieldInvalid.fieldInvalid { @include form-control-invalid; }
+/* 反紅欄位下的一行 inline 錯誤說明：儲存鈕與必填欄位分屬不同分頁，
+   被傳送過來的使用者要看得到「為什麼」（#26），紅框本身不夠 */
+.fieldError { color: var(--color-danger); font-size: $font-size-12; font-style: normal; }
 
 /* ── 學習環境列表：篩選與搜尋比照「申請審核」、表格比照「我的申請」 ── */
 .envControls { display: flex; align-items: center; gap: $spacing-16; flex-wrap: wrap; }

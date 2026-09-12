@@ -138,6 +138,24 @@
   gap: $spacing-8;
 }
 
+/* 前端分頁列（樣式同 AuditPage） */
+.pagination {
+  @include flex-between;
+  flex-wrap: wrap;
+  gap: $spacing-8;
+  margin-top: $spacing-16;
+}
+
+.paginationInfo {
+  font-size: $font-size-12;
+  color: var(--color-text-muted);
+}
+
+.paginationBtns {
+  display: flex;
+  gap: $spacing-8;
+}
+
 .row {
   display: grid;
   grid-template-columns: 40px minmax(0, 1fr) auto;
@@ -174,6 +192,25 @@
   font-weight: $font-weight-500;
   color: var(--color-text-primary);
   @include text-truncate;
+}
+
+/* LDAP 帳號來源小標（稽核 #9）：密碼歸目錄管，編輯時本地密碼欄位鎖住 */
+.ldapTag {
+  margin-left: 6px;
+  padding: 1px 6px;
+  border-radius: $radius-pill;
+  background: color-mix(in srgb, var(--color-info) 12%, transparent);
+  color: var(--color-info);
+  font-size: $font-size-10;
+  font-weight: $font-weight-500;
+  vertical-align: 1px;
+}
+
+/* 欄位下的一行說明（LDAP 密碼鎖定原因） */
+.fieldHint {
+  font-style: normal;
+  font-size: $font-size-12;
+  color: var(--color-text-muted);
 }
 
 .rowMeta {

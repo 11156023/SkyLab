@@ -26,6 +26,7 @@ import PageHeader from "../../../components/PageHeader/PageHeader";
 import { useConfirm } from "../../../components/ConfirmDialog/ConfirmProvider";
 import { QuickPracticeService } from "../../../services/quickPractice";
 import { buildEnvironmentGroups, groupedResourceKeys } from "../../../utils/environmentGroups";
+import * as fmt from "../../../utils/formatDate";
 
 /* ── Constants ── */
 const STATUS_MAP = {
@@ -53,18 +54,11 @@ const DESKTOP_CLIENT_DOWNLOAD_URL = import.meta.env.VITE_DESKTOP_CLIENT_DOWNLOAD
 
 /* ── Helpers ── */
 function formatDate(isoStr) {
-  if (!isoStr) return null;
-  return new Date(isoStr).toLocaleDateString("zh-TW", {
-    year: "numeric", month: "2-digit", day: "2-digit",
-  });
+  return fmt.formatDate(isoStr, null);
 }
 
 function formatDatetime(isoStr) {
-  if (!isoStr) return null;
-  return new Date(isoStr).toLocaleString("zh-TW", {
-    year: "numeric", month: "2-digit", day: "2-digit",
-    hour: "2-digit", minute: "2-digit", hour12: false,
-  });
+  return fmt.formatDateTime(isoStr, null);
 }
 
 /* ── Primitive sub-components ── */

@@ -316,23 +316,25 @@ def _storage_to_public(
     )
 
 
-def _validate_threshold_ordering(config_in: ProxmoxConfigUpdate) -> None:
+def _validate_threshold_ordering(
+    *,
+    loadavg_warn: float,
+    loadavg_max: float,
+    disk_warn: float,
+    disk_high: float,
+) -> None:
     """成對的警戒／上限閾值必須嚴格遞增。
 
     /preview 與 PUT / 都要檢查：評分函式雖然會用 max(high, warn + 0.01) 兜底，
     但存進 DB 的順序若顛倒，管理員看到的數字就與實際生效的不一致。
+    PUT 是部分更新，呼叫端要傳入「合併後」的生效值再驗，
+    只送一半的成對欄位也擋得住順序顛倒。
     """
-    if (
-        config_in.placement_loadavg_max_per_core
-        <= config_in.placement_loadavg_warn_per_core
-    ):
+    if loadavg_max <= loadavg_warn:
         raise BadRequestError(
             "Loadavg max per core must be greater than the warning threshold"
         )
-    if (
-        config_in.placement_disk_contention_high_share
-        <= config_in.placement_disk_contention_warn_share
-    ):
+    if disk_high <= disk_warn:
         raise BadRequestError(
             "Disk contention high share must be greater than the warning threshold"
         )
@@ -348,7 +350,12 @@ def _resolve_credentials(
     ca_cert：用請求提供的；若無則從 DB 取。
     回傳 (password, verify_ssl_or_ca_cert_pem)。
     """
-    _validate_threshold_ordering(config_in)
+    _validate_threshold_ordering(
+        loadavg_warn=config_in.placement_loadavg_warn_per_core,
+        loadavg_max=config_in.placement_loadavg_max_per_core,
+        disk_warn=config_in.placement_disk_contention_warn_share,
+        disk_high=config_in.placement_disk_contention_high_share,
+    )
 
     existing = proxmox_config_repo.get_proxmox_config(session)
 
@@ -421,10 +428,31 @@ def get_proxmox_config(session: SessionDep, current_user: AdminUser) -> Any:
 def update_proxmox_config(
     session: SessionDep, current_user: AdminUser, config_in: ProxmoxConfigUpdate
 ) -> Any:
-    """新增或更新 Proxmox 連線設定"""
-    _validate_threshold_ordering(config_in)
+    """新增或更新 Proxmox 設定。
+
+    **部分更新**：payload 沒帶的欄位維持 DB 現值，呼叫端只需送自己管的
+    欄位（資源排程頁不必回送連線欄位）。尚無設定列時，未帶欄位退回
+    schema 預設值。
+    """
+    provided = config_in.model_dump(exclude_unset=True)
     existing = proxmox_config_repo.get_proxmox_config(session)
-    password = config_in.password
+
+    def merged(name: str):
+        """生效值：payload 有帶用帶的，否則沿用現值，初次建立退回 schema 預設"""
+        if name in provided:
+            return provided[name]
+        if existing is not None:
+            return getattr(existing, name)
+        return getattr(config_in, name)
+
+    _validate_threshold_ordering(
+        loadavg_warn=merged("placement_loadavg_warn_per_core"),
+        loadavg_max=merged("placement_loadavg_max_per_core"),
+        disk_warn=merged("placement_disk_contention_warn_share"),
+        disk_high=merged("placement_disk_contention_high_share"),
+    )
+
+    password = config_in.password  # None = 不更新，repo 原生支援
     if existing is None and password is None:
         # 連線帳密已改由 proxmox_connections 管理，此 singleton 只承載放置與
         # 排程參數；已經有連線時不必再要一次密碼。
@@ -443,44 +471,44 @@ def update_proxmox_config(
 
     config = proxmox_config_repo.upsert_proxmox_config(
         session=session,
-        host=config_in.host,
-        user=config_in.user,
+        host=merged("host"),
+        user=merged("user"),
         password=password,
-        verify_ssl=config_in.verify_ssl,
-        iso_storage=config_in.iso_storage,
-        data_storage=config_in.data_storage,
-        api_timeout=config_in.api_timeout,
-        task_check_interval=config_in.task_check_interval,
-        pool_name=config_in.pool_name,
-        ca_cert=config_in.ca_cert,
-        gateway_ip=config_in.gateway_ip,
-        local_subnet=config_in.local_subnet,
-        default_node=config_in.default_node,
-        cpu_overcommit_ratio=config_in.cpu_overcommit_ratio,
-        disk_overcommit_ratio=config_in.disk_overcommit_ratio,
-        placement_reassignment_cost=config_in.placement_reassignment_cost,
-        placement_peak_cpu_margin=config_in.placement_peak_cpu_margin,
-        placement_peak_memory_margin=config_in.placement_peak_memory_margin,
-        placement_loadavg_warn_per_core=config_in.placement_loadavg_warn_per_core,
-        placement_loadavg_max_per_core=config_in.placement_loadavg_max_per_core,
-        placement_loadavg_penalty_weight=config_in.placement_loadavg_penalty_weight,
-        placement_disk_contention_warn_share=config_in.placement_disk_contention_warn_share,
-        placement_disk_contention_high_share=config_in.placement_disk_contention_high_share,
-        placement_disk_penalty_weight=config_in.placement_disk_penalty_weight,
-        placement_cpu_peak_warn_share=config_in.placement_cpu_peak_warn_share,
-        placement_cpu_peak_high_share=config_in.placement_cpu_peak_high_share,
-        placement_memory_peak_warn_share=config_in.placement_memory_peak_warn_share,
-        placement_memory_peak_high_share=config_in.placement_memory_peak_high_share,
-        placement_resource_weight_cpu=config_in.placement_resource_weight_cpu,
-        placement_resource_weight_memory=config_in.placement_resource_weight_memory,
-        placement_resource_weight_disk=config_in.placement_resource_weight_disk,
-        scheduled_boot_batch_size=config_in.scheduled_boot_batch_size,
-        scheduled_boot_batch_interval_seconds=config_in.scheduled_boot_batch_interval_seconds,
-        scheduled_boot_lead_time_minutes=config_in.scheduled_boot_lead_time_minutes,
-        window_grace_period_minutes=config_in.window_grace_period_minutes,
-        practice_session_hours=config_in.practice_session_hours,
-        practice_warning_minutes=config_in.practice_warning_minutes,
-        expiry_warning_hours=config_in.expiry_warning_hours,
+        verify_ssl=merged("verify_ssl"),
+        iso_storage=merged("iso_storage"),
+        data_storage=merged("data_storage"),
+        api_timeout=merged("api_timeout"),
+        task_check_interval=merged("task_check_interval"),
+        pool_name=merged("pool_name"),
+        ca_cert=config_in.ca_cert,  # None = 不更新，repo 原生支援
+        gateway_ip=merged("gateway_ip"),
+        local_subnet=merged("local_subnet"),
+        default_node=merged("default_node"),
+        cpu_overcommit_ratio=merged("cpu_overcommit_ratio"),
+        disk_overcommit_ratio=merged("disk_overcommit_ratio"),
+        placement_reassignment_cost=merged("placement_reassignment_cost"),
+        placement_peak_cpu_margin=merged("placement_peak_cpu_margin"),
+        placement_peak_memory_margin=merged("placement_peak_memory_margin"),
+        placement_loadavg_warn_per_core=merged("placement_loadavg_warn_per_core"),
+        placement_loadavg_max_per_core=merged("placement_loadavg_max_per_core"),
+        placement_loadavg_penalty_weight=merged("placement_loadavg_penalty_weight"),
+        placement_disk_contention_warn_share=merged("placement_disk_contention_warn_share"),
+        placement_disk_contention_high_share=merged("placement_disk_contention_high_share"),
+        placement_disk_penalty_weight=merged("placement_disk_penalty_weight"),
+        placement_cpu_peak_warn_share=merged("placement_cpu_peak_warn_share"),
+        placement_cpu_peak_high_share=merged("placement_cpu_peak_high_share"),
+        placement_memory_peak_warn_share=merged("placement_memory_peak_warn_share"),
+        placement_memory_peak_high_share=merged("placement_memory_peak_high_share"),
+        placement_resource_weight_cpu=merged("placement_resource_weight_cpu"),
+        placement_resource_weight_memory=merged("placement_resource_weight_memory"),
+        placement_resource_weight_disk=merged("placement_resource_weight_disk"),
+        scheduled_boot_batch_size=merged("scheduled_boot_batch_size"),
+        scheduled_boot_batch_interval_seconds=merged("scheduled_boot_batch_interval_seconds"),
+        scheduled_boot_lead_time_minutes=merged("scheduled_boot_lead_time_minutes"),
+        window_grace_period_minutes=merged("window_grace_period_minutes"),
+        practice_session_hours=merged("practice_session_hours"),
+        practice_warning_minutes=merged("practice_warning_minutes"),
+        expiry_warning_hours=merged("expiry_warning_hours"),
     )
 
     # 連線欄位與 pool / storage / gateway 的唯一真相來源是 proxmox_connections，
@@ -491,7 +519,7 @@ def update_proxmox_config(
         session=session,
         user_id=current_user.id,
         action=AuditAction.proxmox_config_update,
-        details=f"Updated Proxmox config: host={config_in.host} user={config_in.user}",
+        details=f"Updated Proxmox config fields: {', '.join(sorted(provided)) or '(none)'}",
     )
 
     return _to_public(config, is_configured=True)
@@ -507,6 +535,11 @@ def preview_cluster(
     用表單內容臨時連線，偵測叢集節點。不儲存任何資料。
     前端在儲存前呼叫此 endpoint，根據回傳決定是否顯示確認 popup。
     """
+    # schema 已改為部分更新用（host/user 可缺省），preview 要實際連線必須有值
+    if not config_in.host or not config_in.user:
+        raise HTTPException(
+            status_code=400, detail="host and user are required for preview"
+        )
     try:
         password, ssl_param = _resolve_credentials(session, config_in)
 

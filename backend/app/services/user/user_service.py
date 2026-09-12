@@ -151,6 +151,9 @@ def update_user(
     db_user = session.get(User, user_id)
     if not db_user:
         raise NotFoundError(t("user.idNotFound"))
+    # LDAP 帳號的密碼歸目錄管：設本地密碼登不進去，只會造成困惑（稽核 #9）
+    if user_in.password and db_user.auth_source == "ldap":
+        raise BadRequestError(t("user.ldapPasswordLocked"))
     if user_in.email:
         existing = user_repo.get_user_by_email(session=session, email=user_in.email)
         if existing and existing.id != user_id:

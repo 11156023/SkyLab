@@ -88,6 +88,7 @@ def login_ldap(*, session: Session, username: str, password: str) -> Token:
             full_name=info.full_name,
             role=role,
             is_active=True,
+            auth_source="ldap",
             # LDAP 帳號不允許本地密碼登入 — 設不可猜的隨機雜湊。
             hashed_password=security.get_password_hash(
                 secrets.token_urlsafe(32)
@@ -99,6 +100,13 @@ def login_ldap(*, session: Session, username: str, password: str) -> Token:
         logger.info(
             "Auto-created LDAP user %s with role %s", info.email, role.value
         )
+    elif user.auth_source != "ldap":
+        # 標記欄位晚於帳號出現（或帳號先由管理員手動建立）：
+        # 能用 LDAP 登入成功就代表密碼歸 LDAP 目錄管，自癒標記。
+        user.auth_source = "ldap"
+        session.add(user)
+        session.commit()
+        session.refresh(user)
 
     if not user.is_active:
         _fail(f"inactive user {info.email}")

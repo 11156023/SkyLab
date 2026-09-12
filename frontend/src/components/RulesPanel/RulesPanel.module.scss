@@ -63,6 +63,37 @@
   @include text-truncate;
 }
 
+.headerActions {
+  display: flex;
+  align-items: center;
+  gap: $spacing-8;
+  flex-shrink: 0;
+}
+
+.addBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 10px;
+  border: 1px solid var(--color-border);
+  border-radius: $radius-8;
+  background: var(--color-surface);
+  color: var(--color-text-primary);
+  font-size: $font-size-12;
+  font-weight: $font-weight-500;
+  cursor: pointer;
+  white-space: nowrap;
+
+  &:hover:not(:disabled) {
+    background: var(--color-hover);
+  }
+
+  &:disabled {
+    opacity: 0.55;
+    cursor: not-allowed;
+  }
+}
+
 .closeBtn {
   color: var(--color-text-secondary);
   cursor: pointer;
@@ -157,6 +188,58 @@
   color: var(--color-text-muted);
   font-style: italic;
   font-size: 11px;
+}
+
+/* 規則列尾端的操作：自訂規則可停用／刪除，受管規則只有鎖 */
+.ruleActions {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  margin-left: auto;
+  flex-shrink: 0;
+}
+
+.ruleBtn {
+  @include flex-center;
+  padding: 2px;
+  border-radius: $radius-8;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  transition: background $transition-base, color $transition-base;
+
+  &:hover:not(:disabled) {
+    background: var(--color-surface);
+    color: var(--color-text-primary);
+  }
+
+  &:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+}
+
+.ruleBtnDanger:hover:not(:disabled) {
+  color: var(--color-danger);
+}
+
+.lockedTag {
+  @include flex-center;
+  padding: 2px;
+  color: var(--color-text-muted);
+}
+
+/* 前往資源詳情（迷你拓撲、對外服務等單機深度資訊） */
+.detailLink {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: $font-size-12;
+  color: var(--color-primary);
+  text-decoration: none;
+
+  &:hover {
+    text-decoration: underline;
+  }
 }
 
 /* ── Badge ── */

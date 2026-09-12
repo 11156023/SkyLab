@@ -14,6 +14,7 @@ import { useToast } from "../../../hooks/useToast";
 import { ClassroomService } from "../../../services/classroom";
 import { courseNodeHasUsableSource, CourseEnvironmentsService } from "../../../services/courseEnvironments";
 import { TeachingClassesService } from "../../../services/teachingClasses";
+import { formatDate, formatTime } from "../../../utils/formatDate";
 import ClassCreateDialog from "./ClassCreateDialog";
 import EnvironmentChoice from "../EnvironmentChoice";
 import useDialogPresence from "../../../hooks/useDialogPresence";
@@ -317,7 +318,7 @@ function Students({ item, onRefresh }) {
           <div className={styles.memberIdentity}><strong>{student.full_name || student.email}</strong><span>{student.email}</span></div>
           <span>{student.machines.length ? student.machines.map((machine) => machine.vmid ?? "—").join("、") : "—"}</span>
           <span className={`${styles.memberMachineState} ${ready === item.nodes.length && item.nodes.length ? styles.memberReady : ""}`}>{item.nodes.length ? t("ClassWorkspacePage.readyCountLabel", { ready, total: item.nodes.length }) : t("ClassWorkspacePage.notBuiltLabel")}</span>
-          <span>{student.joined_at ? new Date(student.joined_at).toLocaleDateString("zh-TW") : "—"}</span>
+          <span>{formatDate(student.joined_at)}</span>
           {!locked ? <button type="button" className={styles.memberRemove} aria-label={t("ClassWorkspacePage.removeStudentAriaLabel")} onClick={() => remove(student.id)}><MIcon name="person_remove" size={17} /></button> : <span />}
         </article>;
       })}</div> : <EmptyState icon="group_add" title={t("ClassWorkspacePage.emptyStudentsTitle")} />}
@@ -774,7 +775,7 @@ function StudentMachines({ item }) {
 
       {selectedNode && item.students.length ? <>
         <div className={styles.heatmapSummary}>
-          <div><span className={styles.selectedMachineIcon}><MIcon name={selectedNode.resource_type === "lxc" ? "terminal" : "dns"} size={20} /></span><div><strong>{selectedNode.name}</strong><small>{t("ClassWorkspacePage.heatmapMachineSubtitle", { role: selectedNode.role || t("ClassWorkspacePage.classroomMachineFallback"), metric: metricInfo.label, updatedSuffix: collectedAt ? t("ClassWorkspacePage.updatedAtSuffix", { time: collectedAt.toLocaleTimeString("zh-TW", { hour: "2-digit", minute: "2-digit", second: "2-digit" }) }) : "" })}</small></div></div>
+          <div><span className={styles.selectedMachineIcon}><MIcon name={selectedNode.resource_type === "lxc" ? "terminal" : "dns"} size={20} /></span><div><strong>{selectedNode.name}</strong><small>{t("ClassWorkspacePage.heatmapMachineSubtitle", { role: selectedNode.role || t("ClassWorkspacePage.classroomMachineFallback"), metric: metricInfo.label, updatedSuffix: collectedAt ? t("ClassWorkspacePage.updatedAtSuffix", { time: formatTime(collectedAt, "", { seconds: true }) }) : "" })}</small></div></div>
           <dl><div><dt>{t("ClassWorkspacePage.poweredOnLabel")}</dt><dd>{activeCells.length}<small>/{cells.length}</small></dd></div><div><dt>{t("ClassWorkspacePage.averageLabel")}</dt><dd>{average ?? "—"}{average !== null && <small>%</small>}</dd></div><div><dt>{t("ClassWorkspacePage.highLoadLabel")}</dt><dd>{highUsage}<small>{t("ClassWorkspacePage.highLoadPeopleUnit")}</small></dd></div></dl>
         </div>
 

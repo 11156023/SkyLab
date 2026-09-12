@@ -12,6 +12,8 @@ import {
 } from "recharts";
 import styles from "./AiMonitoringPage.module.scss";
 import MIcon from "../../../components/MIcon";
+import { formatDateTime, formatTime } from "../../../utils/formatDate";
+import i18n from "../../../i18n";
 import LoadingState from "../../../components/LoadingState/LoadingState";
 import SharedEmptyState from "../../../components/EmptyState/EmptyState";
 import { AiMonitoringService } from "../../../services/aiMonitoring";
@@ -110,7 +112,7 @@ export function isOkStatus(status) {
 
 function formatNumber(n) {
   if (n == null) return "—";
-  return new Intl.NumberFormat("zh-TW").format(n);
+  return new Intl.NumberFormat(i18n.language).format(n);
 }
 
 function formatPercent(value) {
@@ -129,7 +131,7 @@ function formatChartTime(value, bucket) {
   if (!value) return "—";
   const date = new Date(value);
   return date.toLocaleDateString(
-    "zh-TW",
+    i18n.language,
     bucket === "hour"
       ? { month: "numeric", day: "numeric", hour: "2-digit" }
       : { month: "numeric", day: "numeric" },
@@ -327,7 +329,7 @@ function CompactHealthPanel({ overview, runtime, overviewError, error, loading, 
         </div>
         {runtime?.checked_at ? (
           <span className={styles.checkedAt}>
-            {t("AiMonitoringPage.checkedAt", { time: new Date(runtime.checked_at).toLocaleTimeString("zh-TW") })}
+            {t("AiMonitoringPage.checkedAt", { time: formatTime(runtime.checked_at, "—", { seconds: true }) })}
           </span>
         ) : null}
       </div>
@@ -526,7 +528,7 @@ function DetailTable({ tab, calls, users, models, runtimeModels, query, statusFi
           <th className={styles.th}>{t("AiMonitoringPage.colStatus")}</th>
         </tr></thead>
         <tbody>{visibleCalls.map((call) => <tr key={call.id} className={styles.tr}>
-          <td className={styles.td}>{call.created_at ? new Date(call.created_at).toLocaleString("zh-TW") : "—"}</td>
+          <td className={styles.td}>{formatDateTime(call.created_at)}</td>
           <td className={styles.td}><UserCell email={call.user_email} fullName={call.user_full_name} fallback={call.user_id} /></td>
           {tab === "proxy" ? <>
             <td className={`${styles.td} ${styles.monoCell}`} title={call.model_name}>{formatModelDisplay(call.model_name)}</td>
@@ -712,7 +714,7 @@ export default function AiMonitoringPage() {
         <div className={styles.pageActions}>
           <div className={styles.refreshMeta}>
             <span className={styles.refreshDot} />
-            <span>{lastUpdated ? t("AiMonitoringPage.lastUpdated", { time: lastUpdated.toLocaleTimeString("zh-TW") }) : t("AiMonitoringPage.waitingForData")}</span>
+            <span>{lastUpdated ? t("AiMonitoringPage.lastUpdated", { time: formatTime(lastUpdated, "—", { seconds: true }) }) : t("AiMonitoringPage.waitingForData")}</span>
           </div>
           <SegmentedControl
             options={PRESETS}

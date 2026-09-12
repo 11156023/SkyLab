@@ -11,10 +11,7 @@ import useAutoRefresh from "../../../hooks/useAutoRefresh";
 import useDialogPresence from "../../../hooks/useDialogPresence";
 import PageHeader from "../../../components/PageHeader/PageHeader";
 import SegmentedControl from "../../../components/SegmentedControl/SegmentedControl";
-
-function fmtTime(iso, notReviewedLabel) {
-  return iso ? new Date(iso).toLocaleString("zh-TW") : notReviewedLabel;
-}
+import { formatDateTime } from "../../../utils/formatDate";
 
 function EmptyState() {
   const { t } = useTranslation("ai");
@@ -75,7 +72,7 @@ function ReviewDialog({ open, onClose, request, action, onDone }) {
           <div className={styles.dialogInfo}>
             <div>{t("AiApiReviewPage.dialogApplicant", { value: request.user_full_name || request.user_email })}</div>
             <div>{t("AiApiReviewPage.dialogKeyName", { value: request.api_key_name })}</div>
-            <div>{t("AiApiReviewPage.dialogAppliedAt", { value: fmtTime(request.created_at, t("AiApiReviewPage.notReviewed")) })}</div>
+            <div>{t("AiApiReviewPage.dialogAppliedAt", { value: formatDateTime(request.created_at, t("AiApiReviewPage.notReviewed")) })}</div>
             <div className={styles.dialogPurpose}>{t("AiApiReviewPage.dialogPurpose", { value: request.purpose })}</div>
           </div>
           <textarea
@@ -264,8 +261,8 @@ export default function AiApiReviewPage() {
                         {STATUS_LABELS[r.status] ?? r.status}
                       </span>
                     </td>
-                    <td className={styles.td}>{fmtTime(r.created_at, t("AiApiReviewPage.notReviewed"))}</td>
-                    <td className={styles.td}>{fmtTime(r.reviewed_at, t("AiApiReviewPage.notReviewed"))}</td>
+                    <td className={styles.td}>{formatDateTime(r.created_at, t("AiApiReviewPage.notReviewed"))}</td>
+                    <td className={styles.td}>{formatDateTime(r.reviewed_at, t("AiApiReviewPage.notReviewed"))}</td>
                     <td className={styles.td}>
                       <ReviewActions item={r} onDone={load} />
                     </td>

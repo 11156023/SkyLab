@@ -106,7 +106,11 @@ export default function FirewallPage() {
       handleDeleteEdge,
       showLabels
     );
-    setSelectedNode(null);
+    /* 拓撲刷新時保留仍存在的選取節點：規則面板可就地操作後，
+       不能被 30 秒自動刷新或連線變更關掉 */
+    setSelectedNode((prev) =>
+      prev ? nextNodes.find((n) => n.id === prev.id) ?? null : null
+    );
     setDeleteEdge(null);
     setNodes(nextNodes);
     setEdges(nextEdges);
@@ -330,6 +334,7 @@ export default function FirewallPage() {
                 node={{ vmid: Number(rulesPanel.item.id), name: rulesPanel.item.data.name }}
                 closing={rulesPanel.closing}
                 onClose={() => setSelectedNode(null)}
+                onChanged={() => fetchTopology(true)}
               />
             )}
           </div>

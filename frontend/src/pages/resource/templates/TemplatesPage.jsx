@@ -429,6 +429,7 @@ export default function TemplatesPage() {
         </div>
       ) : (
         <div className={styles.card}>
+          <div className={styles.tableScroll}>
           <table className={styles.table}>
             <thead>
               <tr>
@@ -457,6 +458,7 @@ export default function TemplatesPage() {
               ))}
             </tbody>
           </table>
+          </div>
         </div>
       )}
 

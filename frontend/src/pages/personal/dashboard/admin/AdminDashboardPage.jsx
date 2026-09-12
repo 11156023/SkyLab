@@ -8,6 +8,7 @@ import { useAuth } from "../../../../contexts/AuthContext";
 import { AiApiService } from "../../../../services/aiApi";
 import { BatchProvisionService } from "../../../../services/batchProvision";
 import { JobsService } from "../../../../services/jobs";
+import { MiningIncidentsService } from "../../../../services/miningIncidents";
 import { MonitoringService } from "../../../../services/monitoring";
 import { SpecChangeRequestsService } from "../../../../services/specChangeRequests";
 import { VmRequestsService } from "../../../../services/vmRequests";
@@ -44,7 +45,7 @@ export default function AdminDashboardPage() {
   const [conversationPrompt, setConversationPrompt] = useState("");
   /* 放大模式：對話佔滿版面，上面的待辦暫時收起來 */
   const [focusMode, setFocusMode] = useState(false);
-  const [checks, setChecks] = useState({ alerts: [], failedJobs: 0, requests: 0, batches: 0, aiRequests: 0, unavailable: 0 });
+  const [checks, setChecks] = useState({ alerts: [], failedJobs: 0, requests: 0, batches: 0, aiRequests: 0, miningIncidents: 0, unavailable: 0 });
   const [loading, setLoading] = useState(true);
   const [checkVersion, setCheckVersion] = useState(0);
 
@@ -59,17 +60,23 @@ export default function AdminDashboardPage() {
         AiApiService.listAllRequests(),
         JobsService.list({ statuses: ["failed", "blocked"], historyDays: 7, limit: 50 }),
         MonitoringService.listAlerts({ active: true, limit: 100 }),
+        MiningIncidentsService.list({ limit: 200 }),
       ]);
       if (!active) return;
       const value = (index) => settled[index].status === "fulfilled" ? settled[index].value : null;
       const aiPending = value(3)?.data?.filter((request) => request.status === "pending").length ?? 0;
       const alertRows = value(5);
+      /* 只算還沒被管理員定奪的事件（detected 待判斷、suspended 已凍結待處置） */
+      const miningRows = value(6);
+      const miningActive = (Array.isArray(miningRows) ? miningRows : miningRows?.data ?? [])
+        .filter((incident) => incident.status === "detected" || incident.status === "suspended").length;
       setChecks({
         requests: countRows(value(0)) + countRows(value(1)),
         batches: countRows(value(2)),
         aiRequests: aiPending,
         failedJobs: countRows(value(4)),
         alerts: Array.isArray(alertRows) ? alertRows : alertRows?.data ?? [],
+        miningIncidents: miningActive,
         unavailable: settled.filter((result) => result.status === "rejected").length,
       });
       setLoading(false);
@@ -85,8 +92,8 @@ export default function AdminDashboardPage() {
     [overview?.issues, checks.alerts],
   );
   const urgent = useMemo(
-    () => buildUrgentRows({ infraProblems, failedJobs: checks.failedJobs }, t),
-    [infraProblems, checks.failedJobs, t],
+    () => buildUrgentRows({ infraProblems, failedJobs: checks.failedJobs, miningIncidents: checks.miningIncidents }, t),
+    [infraProblems, checks.failedJobs, checks.miningIncidents, t],
   );
   const today = useMemo(() => buildTodayRows(checks, t), [checks, t]);
   const stats = useMemo(() => buildFyiStats(overview, t), [overview, t]);
