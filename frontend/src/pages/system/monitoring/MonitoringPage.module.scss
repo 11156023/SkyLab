@@ -153,8 +153,11 @@
 .panelTabBar {
   display: flex;
   gap: $spacing-4;
-  /* 內縮避開卡片的圓角弧線 */
-  padding: 0 0 0 $spacing-16;
+}
+
+/* 頁籤貼齊卡片左緣：左上角改直角，第一頁才能與卡片完全密合 */
+.tabbedPanels .card {
+  border-top-left-radius: 0;
 }
 
 .panelTab {
