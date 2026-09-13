@@ -144,6 +144,24 @@ export function edgeLabel(ports, maxItems = 2) {
   return rest > 0 ? `${shown.join(", ")} +${rest}` : shown.join(", ");
 }
 
+/**
+ * 同一對節點之間的邊編號。
+ * 一台機器同時有入站與出站時，兩條邊的端點完全相同，不編號就會疊成一條，
+ * 看不出有兩條規則，標籤也會互相蓋住。以無向的節點對分組，畫的時候各走一側。
+ */
+function parallelLanes(edges) {
+  const counts = new Map();
+  const assigned = edges.map((edge) => {
+    const a = String(edge.source_vmid ?? GATEWAY_KEY);
+    const b = String(edge.target_vmid ?? GATEWAY_KEY);
+    const key = a < b ? `${a}|${b}` : `${b}|${a}`;
+    const index = counts.get(key) ?? 0;
+    counts.set(key, index + 1);
+    return { key, index };
+  });
+  return assigned.map(({ key, index }) => ({ index, count: counts.get(key) ?? 1 }));
+}
+
 /** 每台 VM 的對外暴露量：以網際網路為來源、指向該 VM 的 port 數 */
 function exposureByVmid(edges) {
   const counts = new Map();
@@ -168,6 +186,7 @@ export function buildFlow(topology, { onSelectEdge, showLabel, selectedEdgeId } 
   }));
 
   const nodeById = new Map(nodes.map((n) => [n.id, n]));
+  const lanes = parallelLanes(rawEdges);
 
   const edges = rawEdges.map((edge, i) => {
     const srcKey = edge.source_vmid === null ? GATEWAY_KEY : String(edge.source_vmid);
@@ -188,6 +207,8 @@ export function buildFlow(topology, { onSelectEdge, showLabel, selectedEdgeId } 
         label: edgeLabel(edge.ports),
         showLabel,
         selected: id === selectedEdgeId,
+        laneIndex: lanes[i].index,
+        laneCount: lanes[i].count,
         edge,
         onSelect: onSelectEdge,
       },

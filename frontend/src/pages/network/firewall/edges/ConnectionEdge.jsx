@@ -6,6 +6,40 @@ import styles from "../FirewallPage.module.scss";
 /* 標籤與所屬節點的距離。固定距離而非固定比例：長線的標籤才不會
    飄到沿途其他節點上被蓋住，短線的也不會貼在節點身上。 */
 const LABEL_GAP = 52;
+/* 同一對節點之間的多條線，彼此錯開的量。控制點偏移，端點不動 */
+const LANE_GAP = 56;
+/* 標籤在端點附近時線才剛分岔，額外再錯開一點才不會疊住 */
+const LANE_LABEL_GAP = 26;
+
+/** 解析 getBezierPath 產生的 "M sx,sy C c1x,c1y c2x,c2y tx,ty" */
+function parsePath(d) {
+  const nums = d.match(/-?\d+(?:\.\d+)?/g);
+  return nums && nums.length >= 8 ? nums.slice(0, 8).map(Number) : null;
+}
+
+/**
+ * 單位法線。方向統一朝右半平面，否則入站與出站因為起訖點互換，
+ * 算出來的法線相反，各自往「自己的左邊」偏移後又會疊回同一條線上。
+ */
+function unitNormal([x0, y0, , , , , x3, y3]) {
+  const dx = x3 - x0;
+  const dy = y3 - y0;
+  const len = Math.hypot(dx, dy) || 1;
+  let nx = -dy / len;
+  let ny = dx / len;
+  if (nx < -1e-6 || (Math.abs(nx) <= 1e-6 && ny < 0)) {
+    nx = -nx;
+    ny = -ny;
+  }
+  return { nx, ny };
+}
+
+/** 只推開控制點，端點仍固定在 handle 上，線才不會脫離節點 */
+function spreadPath([x0, y0, x1, y1, x2, y2, x3, y3], { nx, ny }, offset) {
+  const ox = nx * offset;
+  const oy = ny * offset;
+  return `M${x0},${y0} C${x1 + ox},${y1 + oy} ${x2 + ox},${y2 + oy} ${x3},${y3}`;
+}
 
 /**
  * 算標籤該放在 getBezierPath 產生的 "M sx,sy C c1x,c1y c2x,c2y tx,ty" 上的哪一點。
@@ -78,10 +112,20 @@ export default function ConnectionEdge(props) {
 
   const { t } = useTranslation("network");
   const [hovered, setHovered] = useState(false);
-  const [edgePath, labelX, labelY] = getBezierPath({
+  const [basePath, labelX, labelY] = getBezierPath({
     sourceX, sourceY, sourcePosition,
     targetX, targetY, targetPosition,
   });
+
+  /* 同一對節點之間的線各走一側：入站與出站的端點完全相同，
+     不錯開就會疊成一條，看不出有兩條規則也點不到下面那條 */
+  const laneCount = data?.laneCount ?? 1;
+  const lane = laneCount > 1 ? (data?.laneIndex ?? 0) - (laneCount - 1) / 2 : 0;
+  const parsed = lane ? parsePath(basePath) : null;
+  const normal = parsed ? unitNormal(parsed) : null;
+  const edgePath = parsed && normal
+    ? spreadPath(parsed, normal, lane * LANE_GAP)
+    : basePath;
 
   const edge       = data?.edge ?? {};
   const isInbound  = edge.source_vmid === null;
@@ -110,8 +154,16 @@ export default function ConnectionEdge(props) {
   /* 不限 port 的連線（出站上網等）沒有可列的埠，仍要講清楚它開了什麼 */
   const label = data?.label || t("ConnectionEdge.allPorts");
   /* 入站的主體是目標 VM，出站與內部互通的主體是來源 VM */
-  const labelPoint = labelPointOnPath(edgePath, isInbound)
+  const basePoint = labelPointOnPath(edgePath, isInbound)
     ?? { x: labelX, y: labelY, align: "-50%, -50%" };
+  /* 標籤所在的端點附近，兩條線才剛分岔，再往外錯開一段才分得開 */
+  const labelPoint = normal
+    ? {
+        ...basePoint,
+        x: basePoint.x + normal.nx * lane * LANE_LABEL_GAP,
+        y: basePoint.y + normal.ny * lane * LANE_LABEL_GAP,
+      }
+    : basePoint;
 
   return (
     <g>
