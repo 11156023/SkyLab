@@ -1,8 +1,10 @@
-﻿"""
+"""
 AI Proxy API Schemas - OpenAI 兼容格式
 """
 
-from datetime import datetime
+import uuid
+from datetime import date, datetime
+from typing import Literal
 
 from pydantic import BaseModel, Field
 
@@ -113,6 +115,15 @@ class UsageByModel(BaseModel):
     output_tokens: int
 
 
+class DailyUsagePoint(BaseModel):
+    """逐日用量點（我的用量折線圖用；區間內沒有呼叫的日子補零）"""
+
+    date: date
+    requests: int
+    input_tokens: int
+    output_tokens: int
+
+
 class UsageStatsResponse(BaseModel):
     """Proxy 使用量統計回應"""
 
@@ -120,6 +131,7 @@ class UsageStatsResponse(BaseModel):
     total_input_tokens: int
     total_output_tokens: int
     by_model: dict[str, UsageByModel]
+    daily: list[DailyUsagePoint] = []
     start_date: datetime
     end_date: datetime
 
@@ -139,8 +151,63 @@ class TemplateUsageStatsResponse(BaseModel):
     total_input_tokens: int
     total_output_tokens: int
     by_call_type: dict[str, TemplateUsageByCallType]
+    daily: list[DailyUsagePoint] = []
     start_date: datetime
     end_date: datetime
+
+
+# ===== 統一用量統計（AI 模型路由 + AI 系統路由） =====
+class UnifiedRouteUsage(BaseModel):
+    """單一路由（model / system）的彙總用量"""
+
+    calls: int
+    input_tokens: int
+    output_tokens: int
+
+
+class UnifiedUsageByModel(BaseModel):
+    """統一用量：按模型分組（含各路由呼叫次數）"""
+
+    calls: int
+    input_tokens: int
+    output_tokens: int
+    routes: dict[str, int]
+
+
+class UnifiedUsageStatsResponse(BaseModel):
+    """統一 API 用量統計回應（整合 Proxy 與 Template 兩種計算路由）"""
+
+    total_calls: int
+    total_input_tokens: int
+    total_output_tokens: int
+    routes: dict[str, UnifiedRouteUsage]
+    by_model: dict[str, UnifiedUsageByModel]
+    daily: list[DailyUsagePoint] = []
+    start_date: datetime
+    end_date: datetime
+
+
+class UsageRecordPublic(BaseModel):
+    """統一細項呼叫紀錄"""
+
+    id: uuid.UUID
+    route: Literal["model", "system"]
+    model_name: str
+    call_type: str | None = None
+    preset: str | None = None
+    input_tokens: int
+    output_tokens: int
+    request_duration_ms: int | None = None
+    status: str
+    error_message: str | None = None
+    created_at: datetime
+
+
+class UsageRecordsPublic(BaseModel):
+    """統一細項呼叫紀錄列表"""
+
+    data: list[UsageRecordPublic]
+    count: int
 
 
 # ===== 速率限制相关 =====
@@ -172,9 +239,16 @@ __all__ = [
     "ModelsResponse",
     # Usage Stats
     "UsageByModel",
+    "DailyUsagePoint",
     "UsageStatsResponse",
     "TemplateUsageByCallType",
     "TemplateUsageStatsResponse",
+    # Unified Usage
+    "UnifiedRouteUsage",
+    "UnifiedUsageByModel",
+    "UnifiedUsageStatsResponse",
+    "UsageRecordPublic",
+    "UsageRecordsPublic",
     # Rate Limit
     "RateLimitStatusResponse",
 ]

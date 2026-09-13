@@ -6,6 +6,7 @@ import MIcon from "../../../components/MIcon";
 import LoadingState from "../../../components/LoadingState/LoadingState";
 import { useConfirm } from "../../../components/ConfirmDialog/ConfirmProvider";
 import { useToast } from "../../../hooks/useToast";
+import useDialogPresence from "../../../hooks/useDialogPresence";
 import { ProxmoxConfigService } from "../../../services/proxmoxConfig";
 import PageHeader from "../../../components/PageHeader/PageHeader";
 
@@ -58,7 +59,7 @@ function connectionToForm(conn) {
   };
 }
 
-function ConnectionForm({ initial, isEdit, saving, onSubmit, onCancel }) {
+function ConnectionForm({ initial, isEdit, saving, closing = false, onSubmit, onCancel }) {
   const { t } = useTranslation("system");
   const [form, setForm] = useState(initial);
   const set = (name, value) => setForm((prev) => ({ ...prev, [name]: value }));
@@ -93,10 +94,17 @@ function ConnectionForm({ initial, isEdit, saving, onSubmit, onCancel }) {
   }
 
   return (
-    <form className={styles.card} onSubmit={handleSubmit}>
-      <h2 className={styles.cardTitle}>{isEdit ? t("SettingsPage.editConnection") : t("SettingsPage.addConnection")}</h2>
+    <div
+      className={`${styles.modalOverlay} ${closing ? styles.modalOverlayOut : ""}`}
+      onMouseDown={onCancel}
+    >
+    <form className={styles.modal} onSubmit={handleSubmit} onMouseDown={(e) => e.stopPropagation()}>
+      <span className={styles.modalTitle}>
+        <MIcon name="device_hub" size={18} />
+        {isEdit ? t("SettingsPage.editConnection") : t("SettingsPage.addConnection")}
+      </span>
       <h3 className={styles.sectionTitle}>{t("SettingsPage.connectionSettingsTitle")}</h3>
-      <div className={styles.formGrid}>
+      <div className={styles.modalFormGrid}>
         <label className={styles.field}>
           <span>{t("SettingsPage.connectionName")}</span>
           <input value={form.name} onChange={(e) => set("name", e.target.value)} placeholder={t("SettingsPage.connectionNamePlaceholder")} required />
@@ -149,7 +157,7 @@ function ConnectionForm({ initial, isEdit, saving, onSubmit, onCancel }) {
       <p className={styles.cardDesc}>
         {t("SettingsPage.clusterResourceSettingsDesc")}
       </p>
-      <div className={styles.formGrid}>
+      <div className={styles.modalFormGrid}>
         <label className={styles.field}>
           <span>{t("SettingsPage.poolName")}</span>
           <input value={form.pool_name} onChange={(e) => set("pool_name", e.target.value)} placeholder="SkyLab" />
@@ -196,13 +204,14 @@ function ConnectionForm({ initial, isEdit, saving, onSubmit, onCancel }) {
           <span>{t("SettingsPage.setAsDefaultConnection")}</span>
         </label>
       </div>
-      <div className={styles.cardActions}>
+      <div className={styles.modalActions}>
         <button type="button" className={styles.btnSecondary} onClick={onCancel}>{t("SettingsPage.cancel")}</button>
         <button type="submit" className={styles.btnPrimary} disabled={saving}>
           {saving ? t("SettingsPage.saving") : t("SettingsPage.saveConnection")}
         </button>
       </div>
     </form>
+    </div>
   );
 }
 
@@ -211,6 +220,7 @@ function ConnectionsSection({ connections, loading, onRefresh }) {
   const toast = useToast();
   const confirm = useConfirm();
   const [editing, setEditing] = useState(null); // null | "new" | connection 物件
+  const editPresence = useDialogPresence(editing);
   const [saving, setSaving] = useState(false);
   const [busyId, setBusyId] = useState(null);
 
@@ -340,13 +350,14 @@ function ConnectionsSection({ connections, loading, onRefresh }) {
         </p>
       </div>
 
-      {editing !== null && (
+      {editPresence.open && (
         <ConnectionForm
-          key={editing === "new" ? "new" : editing.id}
-          isEdit={editing !== "new"}
+          key={editPresence.item === "new" ? "new" : editPresence.item.id}
+          isEdit={editPresence.item !== "new"}
           saving={saving}
+          closing={editPresence.closing}
           initial={
-            editing === "new" ? EMPTY_CONNECTION_FORM : connectionToForm(editing)
+            editPresence.item === "new" ? EMPTY_CONNECTION_FORM : connectionToForm(editPresence.item)
           }
           onSubmit={handleSubmit}
           onCancel={() => setEditing(null)}

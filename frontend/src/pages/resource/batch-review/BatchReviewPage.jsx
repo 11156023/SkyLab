@@ -10,6 +10,7 @@ import useAutoRefresh from "../../../hooks/useAutoRefresh";
 import LoadingState from "../../../components/LoadingState/LoadingState";
 import PageHeader from "../../../components/PageHeader/PageHeader";
 import SegmentedControl from "../../../components/SegmentedControl/SegmentedControl";
+import { formatShortDateTime } from "../../../utils/formatDate";
 
 /* 這些 hook 的回傳值會進 useCallback / useMemo 的相依陣列，
    必須 useMemo 固定身分，否則載入 effect 會無限重跑 */
@@ -50,14 +51,7 @@ const REVIEW_STATUS_BY_STATUS = {
 };
 
 function formatDateTime(value, t) {
-  if (!value) return t("BatchReviewPage.notSet");
-  return new Date(value).toLocaleString("zh-TW", {
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    hour12: false,
-  });
+  return formatShortDateTime(value, t("BatchReviewPage.notSet"));
 }
 
 function specLabel(spec, resourceType, t) {

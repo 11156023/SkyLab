@@ -750,6 +750,33 @@ async def proxy_to_vllm_chat_completion_stream(
 # ===== 新增：查询使用统计 =====
 
 
+def _daily_usage_buckets(records, *, start_date: datetime, end_date: datetime) -> list[dict]:
+    """把逐筆用量紀錄按日分桶（我的用量折線圖用，#7）。
+
+    區間內沒有呼叫的日子補零，X 軸才連續；區間異常大（>400 天）時
+    不補零，只回傳實際有紀錄的日子，避免產生上千個空桶。
+    """
+    start_day = start_date.date()
+    end_day = end_date.date()
+    span = (end_day - start_day).days
+    buckets: dict = {}
+    if 0 <= span <= 400:
+        day = start_day
+        while day <= end_day:
+            buckets[day] = {"date": day, "requests": 0, "input_tokens": 0, "output_tokens": 0}
+            day += timedelta(days=1)
+    for record in records:
+        day = record.created_at.date()
+        bucket = buckets.get(day)
+        if bucket is None:
+            bucket = {"date": day, "requests": 0, "input_tokens": 0, "output_tokens": 0}
+            buckets[day] = bucket
+        bucket["requests"] += 1
+        bucket["input_tokens"] += record.input_tokens
+        bucket["output_tokens"] += record.output_tokens
+    return [buckets[key] for key in sorted(buckets)]
+
+
 def get_user_usage_stats(
     *,
     session: Session,
@@ -790,6 +817,7 @@ def get_user_usage_stats(
         "total_input_tokens": total_input_tokens,
         "total_output_tokens": total_output_tokens,
         "by_model": by_model,
+        "daily": _daily_usage_buckets(records, start_date=start_date, end_date=end_date),
         "start_date": start_date,
         "end_date": end_date,
     }
@@ -834,8 +862,158 @@ def get_user_template_usage_stats(
         "total_input_tokens": total_input_tokens,
         "total_output_tokens": total_output_tokens,
         "by_call_type": by_call_type,
+        "daily": _daily_usage_buckets(records, start_date=start_date, end_date=end_date),
         "start_date": start_date,
         "end_date": end_date,
+    }
+
+
+# ===== 統一用量（整合 Proxy / Template 兩種計算路由） =====
+
+ROUTE_MODEL = "model"
+ROUTE_SYSTEM = "system"
+
+
+def _empty_route_stats() -> dict[str, int]:
+    return {"calls": 0, "input_tokens": 0, "output_tokens": 0}
+
+
+def _accumulate_route_stats(stats: dict[str, int], record: Any) -> None:
+    stats["calls"] += 1
+    stats["input_tokens"] += record.input_tokens
+    stats["output_tokens"] += record.output_tokens
+
+
+def get_user_unified_usage_stats(
+    *,
+    session: Session,
+    user_id: uuid.UUID,
+    start_date: datetime,
+    end_date: datetime,
+) -> dict[str, Any]:
+    """
+    查詢使用者的統一 API 用量統計（AI 模型路由 + AI 系統路由）
+    """
+    proxy_records = session.exec(
+        select(AIAPIUsage)
+        .where(AIAPIUsage.user_id == user_id)
+        .where(AIAPIUsage.created_at >= start_date)
+        .where(AIAPIUsage.created_at <= end_date)
+    ).all()
+    template_records = session.exec(
+        select(AITemplateCallLog)
+        .where(AITemplateCallLog.user_id == user_id)
+        .where(AITemplateCallLog.created_at >= start_date)
+        .where(AITemplateCallLog.created_at <= end_date)
+    ).all()
+
+    routes: dict[str, dict[str, int]] = {
+        ROUTE_MODEL: _empty_route_stats(),
+        ROUTE_SYSTEM: _empty_route_stats(),
+    }
+    by_model: dict[str, dict[str, Any]] = {}
+
+    def _accumulate(record: Any, route: str) -> None:
+        _accumulate_route_stats(routes[route], record)
+        model = record.model_name
+        if model not in by_model:
+            by_model[model] = {
+                "calls": 0,
+                "input_tokens": 0,
+                "output_tokens": 0,
+                "routes": {},
+            }
+        stats = by_model[model]
+        stats["calls"] += 1
+        stats["input_tokens"] += record.input_tokens
+        stats["output_tokens"] += record.output_tokens
+        stats["routes"][route] = stats["routes"].get(route, 0) + 1
+
+    for proxy_record in proxy_records:
+        _accumulate(proxy_record, ROUTE_MODEL)
+    for template_record in template_records:
+        _accumulate(template_record, ROUTE_SYSTEM)
+
+    total_calls = sum(route["calls"] for route in routes.values())
+    return {
+        "total_calls": total_calls,
+        "total_input_tokens": sum(r["input_tokens"] for r in routes.values()),
+        "total_output_tokens": sum(r["output_tokens"] for r in routes.values()),
+        "routes": routes,
+        "by_model": by_model,
+        "daily": _daily_usage_buckets(
+            [*proxy_records, *template_records],
+            start_date=start_date,
+            end_date=end_date,
+        ),
+        "start_date": start_date,
+        "end_date": end_date,
+    }
+
+
+def list_user_usage_records(
+    *,
+    session: Session,
+    user_id: uuid.UUID,
+    start_date: datetime,
+    end_date: datetime,
+    skip: int = 0,
+    limit: int = 50,
+) -> dict[str, Any]:
+    """
+    查詢使用者的統一細項呼叫紀錄（依時間新→舊排序）
+    """
+    proxy_records = session.exec(
+        select(AIAPIUsage)
+        .where(AIAPIUsage.user_id == user_id)
+        .where(AIAPIUsage.created_at >= start_date)
+        .where(AIAPIUsage.created_at <= end_date)
+        .order_by(AIAPIUsage.created_at.desc())
+    ).all()
+    template_records = session.exec(
+        select(AITemplateCallLog)
+        .where(AITemplateCallLog.user_id == user_id)
+        .where(AITemplateCallLog.created_at >= start_date)
+        .where(AITemplateCallLog.created_at <= end_date)
+        .order_by(AITemplateCallLog.created_at.desc())
+    ).all()
+
+    merged: list[dict[str, Any]] = [
+        {
+            "id": r.id,
+            "route": ROUTE_MODEL,
+            "model_name": r.model_name,
+            "call_type": r.request_type,
+            "preset": None,
+            "input_tokens": r.input_tokens,
+            "output_tokens": r.output_tokens,
+            "request_duration_ms": r.request_duration_ms,
+            "status": r.status,
+            "error_message": r.error_message,
+            "created_at": r.created_at,
+        }
+        for r in proxy_records
+    ] + [
+        {
+            "id": r.id,
+            "route": ROUTE_SYSTEM,
+            "model_name": r.model_name,
+            "call_type": r.call_type,
+            "preset": r.preset,
+            "input_tokens": r.input_tokens,
+            "output_tokens": r.output_tokens,
+            "request_duration_ms": r.request_duration_ms,
+            "status": r.status,
+            "error_message": r.error_message,
+            "created_at": r.created_at,
+        }
+        for r in template_records
+    ]
+    merged.sort(key=lambda item: item["created_at"], reverse=True)
+
+    return {
+        "data": merged[skip : skip + limit],
+        "count": len(merged),
     }
 
 

@@ -578,7 +578,7 @@ _LDAP_ELEMENTS: tuple[ElementSpec, ...] = (
         help="在 ldap:// 連線上升級為加密連線（ldaps:// 不需要）。",
     ),
     ElementSpec(
-        id="ldap.bind_password", role="text", label="Bind 密碼",
+        id="ldap.bind_password", role="text", label="服務帳號密碼",
         section="服務帳號與使用者搜尋", sensitive=True,
         help="服務帳號的密碼；已設定時留空表示不變更。",
     ),
@@ -870,12 +870,9 @@ _AI_API_ELEMENTS: tuple[ElementSpec, ...] = (
         help="刪除這把 API Key。",
     ),
     ElementSpec(
-        id="aiapi.usage_proxy", role="chart", label="Proxy 用量", section="我的用量",
-        help="直接呼叫 AI API 的 Token 用量。",
-    ),
-    ElementSpec(
-        id="aiapi.usage_template", role="chart", label="Template 用量",
-        section="我的用量", help="使用 AI Template API 的 Token 用量。",
+        id="aiapi.usage_overview", role="chart", label="API 用量", section="我的用量",
+        help="整合 AI 模型路由與 AI 系統路由的 Token 用量統計，"
+             "可按模型與呼叫類型查看明細。",
     ),
 )
 

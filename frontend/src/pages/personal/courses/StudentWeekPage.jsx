@@ -71,7 +71,6 @@ function createGuideDemoWeek(t) {
     }],
   };
 }
-
 export default function StudentWeekPage() {
   const { t, i18n } = useTranslation("personal");
   const navigate = useNavigate();

@@ -7,23 +7,9 @@ import useDialogPresence from "../../hooks/useDialogPresence";
 import { JobsService } from "../../services/jobs";
 import { JOB_KIND_LABEL_KEYS, JOB_STATUS_META_KEYS } from "./JobRow";
 import styles from "./Jobs.module.scss";
+import { formatDateTime } from "../../utils/formatDate";
 
-const fmt = (iso) => {
-  if (!iso) return "—";
-  try {
-    return new Intl.DateTimeFormat("zh-TW", {
-      year: "numeric",
-      month: "2-digit",
-      day: "2-digit",
-      hour: "2-digit",
-      minute: "2-digit",
-      second: "2-digit",
-      hour12: false,
-    }).format(new Date(iso));
-  } catch {
-    return iso;
-  }
-};
+const fmt = (iso) => formatDateTime(iso);
 
 const formatExtraValue = (v, t) => {
   if (v === null || v === undefined || v === "") return "—";

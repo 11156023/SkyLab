@@ -90,6 +90,15 @@
   gap: $spacing-8;
 }
 
+/* 頁面層級的儲存列：固定放頁尾（form 的最後一個子元素）；
+   未儲存就跳離由 UnsavedChangesContext 攔截確認。卡片內的表單仍用 .cardActions。 */
+.saveBar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: $spacing-8;
+}
 .btnPrimary,
 .btnSecondary {
   display: inline-flex;
@@ -233,13 +242,104 @@
 
 .nodeRow,
 .storageRow {
-  display: flex;
-  flex-wrap: wrap;
   align-items: center;
   gap: $spacing-16;
   padding: $spacing-16;
   @include glass-surface($shadow: var(--shadow-sm));
   border-radius: $radius-12;
+}
+
+/* 節點／連線列用 grid：名稱欄吃剩餘寬度，尾端控件各佔一欄，
+   同構的列彼此對得齊（#22）；窄螢幕退回換行 flex */
+.nodeRow {
+  display: grid;
+  grid-template-columns: minmax(200px, 1fr);
+  grid-auto-flow: column;
+  grid-auto-columns: max-content;
+
+  @include respond-below(md) {
+    display: flex;
+    flex-wrap: wrap;
+  }
+}
+
+.storageRow {
+  display: flex;
+  flex-wrap: wrap;
+}
+
+/* ── Modal（節點編輯、PVE 連線表單；卡片基準比照 QuotasPage）── */
+.modalOverlay {
+  position: fixed;
+  inset: 0;
+  background: var(--color-overlay);
+  backdrop-filter: blur(4px);
+  z-index: 300;
+  @include flex-center;
+  padding: $spacing-16;
+  animation: fadeIn 0.15s ease;
+  transition: opacity 0.15s ease;
+}
+
+.modalOverlayOut {
+  animation: none;
+  opacity: 0;
+  pointer-events: none;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+@keyframes slideUp {
+  from { opacity: 0; transform: translateY(12px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.modal {
+  animation: slideUp 0.18s cubic-bezier(0.25, 0.8, 0.25, 1);
+  @include flex-column;
+  gap: $spacing-16;
+  width: 100%;
+  max-width: 640px;
+  max-height: 88vh;
+  overflow-y: auto;
+  padding: $spacing-24;
+  background: var(--color-surface);
+  border-radius: $radius-16;
+  box-shadow: var(--shadow-lg);
+}
+
+/* 小型表單款（節點編輯只有三個欄位） */
+.modalNarrow {
+  max-width: 420px;
+}
+
+.modalTitle {
+  display: inline-flex;
+  align-items: center;
+  gap: $spacing-8;
+  font-size: $font-size-16;
+  font-weight: $font-weight-700;
+  color: var(--color-text-primary);
+}
+
+.modalActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: $spacing-8;
+}
+
+/* modal 內的表單固定兩欄：欄數跟著 640px 的卡片走，不吃視口斷點 */
+.modalFormGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: $spacing-16;
+
+  @include respond-below(sm) {
+    grid-template-columns: 1fr;
+  }
 }
 
 .rowMain {
@@ -263,25 +363,31 @@
   color: var(--color-text-muted);
 }
 
-.nodeEdit {
+/* 節點／Storage 列的行內小欄位：可見標籤取代只有 tooltip 的裸控件（觸控裝置看不到 tooltip） */
+.inlineField {
+  @include flex-column;
+  gap: 2px;
+  font-size: $font-size-10;
+  font-weight: $font-weight-500;
+  color: var(--color-text-muted);
+}
+
+/* 配額／資源排程／治理的分工互連列（#17），貼在頁首下方 */
+.relatedNav {
   display: flex;
-  flex-wrap: wrap;
-  gap: $spacing-8;
   align-items: center;
+  flex-wrap: wrap;
+  gap: $spacing-4 $spacing-16;
+  margin: -$spacing-8 0 0;
+  font-size: $font-size-12;
+  color: var(--color-text-muted);
+}
 
-  input {
-    min-height: 34px;
-    max-width: 160px;
-    padding: 4px $spacing-8;
-    border: 1px solid var(--color-border);
-    border-radius: $radius-8;
-    background: var(--color-surface);
-    color: var(--color-text-primary);
-    font-size: $font-size-14;
-    outline: none;
-
-    &:focus { border-color: var(--color-primary); }
-  }
+/* 清單頂的一行運作說明（欄位怎麼影響放置、何時生效） */
+.listHint {
+  margin: -$spacing-8 0 0;
+  font-size: $font-size-12;
+  color: var(--color-text-muted);
 }
 
 .inlineSelect,

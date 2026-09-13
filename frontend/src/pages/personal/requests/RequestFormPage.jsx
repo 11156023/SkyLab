@@ -14,6 +14,7 @@ import AvailabilityPanel from "../../../components/AvailabilityPanel/Availabilit
 import MIcon from "../../../components/MIcon";
 import PageHeader from "../../../components/PageHeader/PageHeader";
 import { focusInvalidField } from "../../../utils/focusField";
+import { formatShortDateTime } from "../../../utils/formatDate";
 
 /* Hostname normalization — preserves alphanumeric, replaces others with hyphen */
 function normalizeHostname(value) {
@@ -85,8 +86,7 @@ function SelectField({ value, onChange, disabled, children, placeholder }) {
 }
 
 /* ── Helpers ── */
-const DT_FMT = { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" };
-const formatDT = (iso) => new Date(iso).toLocaleString("zh-TW", DT_FMT);
+const formatDT = (iso) => formatShortDateTime(iso);
 const OS_DISPLAY_NAMES = {
   ubuntu: "Ubuntu",
   debian: "Debian",
@@ -236,7 +236,7 @@ export default function RequestFormPage({ onBack, className, initialPrefill = nu
   const { user }  = useAuth();
   const toast     = useToast();
   const isPrivileged = user?.is_superuser || user?.role === "admin" || user?.role === "teacher";
-  const { setCompactFooter, registerRequestForm, registerSurface } =
+  const { setCompactFooter, registerRequestForm, registerSurface, reportRequestSubmission } =
     useContext(LayoutContext);
   useEffect(() => { setCompactFooter(true); return () => setCompactFooter(false); }, [setCompactFooter]);
 
@@ -929,7 +929,8 @@ export default function RequestFormPage({ onBack, className, initialPrefill = nu
           : (!form.immediate_no_end && form.end_at ? { end_at: form.end_at } : {})),
       };
 
-      await VmRequestsService.create(body);
+      const created = await VmRequestsService.create(body);
+      reportRequestSubmission?.({ id: created.id });
       toast.success(t("RequestFormPage.submitSuccess"));
       handleBack();
     } catch (err) {

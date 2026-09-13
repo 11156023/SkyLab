@@ -80,6 +80,7 @@
 
 .table {
   @include table-base;
+  min-width: 1080px;
 }
 
 .th {

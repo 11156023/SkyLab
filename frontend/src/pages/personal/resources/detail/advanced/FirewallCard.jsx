@@ -145,7 +145,7 @@ export default function FirewallCard({ vmid, canManage }) {
             {rules.length === 0 ? (
               <p className={styles.mutedText}>{t("FirewallCard.noRules")}</p>
             ) : (
-              <div style={{ overflowX: "auto" }}>
+              <div className={styles.tableScroll}>
                 <table className={styles.table}>
                   <thead>
                     <tr>

@@ -8,22 +8,11 @@ import { useToast } from "../../../hooks/useToast";
 import { downloadBlob } from "../../../services/api";
 import { AuditLogsService } from "../../../services/auditLogs";
 import PageHeader from "../../../components/PageHeader/PageHeader";
+import { formatDateTime } from "../../../utils/formatDate";
 
 const PAGE_SIZE = 50;
 /** 搜尋框即時查詢的防抖間隔（ms）；下拉與日期改變則立即查詢 */
 const SEARCH_DEBOUNCE = 300;
-
-function formatTime(value) {
-  if (!value) return "—";
-  return new Date(value).toLocaleString("zh-TW", {
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-  });
-}
 
 /** date input（yyyy-mm-dd）轉 ISO；end 補到當日 23:59:59 */
 function toIso(dateStr, endOfDay = false) {
@@ -305,7 +294,7 @@ export default function AuditPage() {
                 <tbody>
                   {logs.map((log) => (
                     <tr key={log.id} className={styles.tr}>
-                      <td className={`${styles.td} ${styles.tdNowrap}`}>{formatTime(log.created_at)}</td>
+                      <td className={`${styles.td} ${styles.tdNowrap}`}>{formatDateTime(log.created_at)}</td>
                       <td className={styles.td}>
                         <div className={styles.userCell}>
                           <span>{log.user_full_name ?? (log.user_email ? "—" : t("AuditPage.systemUser"))}</span>

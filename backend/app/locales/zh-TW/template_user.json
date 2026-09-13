@@ -37,6 +37,7 @@
   "user.emailExistsShort": "此電子郵件的使用者已存在",
   "user.notFound": "找不到使用者",
   "user.idNotFound": "系統中不存在此 ID 的使用者",
+  "user.ldapPasswordLocked": "此帳號由 LDAP 管理，本地密碼無法使用；請在 LDAP 目錄變更密碼",
   "user.selfDeleteForbidden": "管理員不可刪除自己的帳號",
   "user.incorrectPassword": "密碼錯誤",
   "user.samePassword": "新密碼不可與目前密碼相同",

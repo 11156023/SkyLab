@@ -455,6 +455,32 @@
   @include flex-center;
 }
 
+/* Token 建立指引：說去哪裡拿、要哪些權限，附外部連結 */
+.modalGuide {
+  margin: 6px 0 0;
+  font-size: $font-size-12;
+  color: var(--color-text-muted);
+
+  a {
+    display: inline-flex;
+    align-items: center;
+    gap: 2px;
+    color: var(--color-primary);
+    text-decoration: none;
+
+    &:hover {
+      text-decoration: underline;
+    }
+  }
+}
+
+/* 欄位群下方的一行說明（預設 DNS 目標） */
+.fieldHint {
+  margin: -$spacing-8 0 0;
+  font-size: $font-size-12;
+  color: var(--color-text-muted);
+}
+
 .field {
   @include flex-column;
   gap: 6px;

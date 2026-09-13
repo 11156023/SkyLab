@@ -6,6 +6,7 @@ from app.ai.navigation.intake import read_intake
 from app.ai.navigation.schemas import (
     IntakeRequest,
     IntakeState,
+    NavigationMessage,
     NavigationResolveRequest,
     NavigationResolveResponse,
 )
@@ -36,4 +37,7 @@ def navigation_intake(request: IntakeRequest, _current_user: CurrentUser) -> Int
 
     純本地判斷，不打模型——問問題不該花一次推論，也不該因為模型慢而卡住對話。
     """
-    return read_intake(request.history, request.asked)
+    history = request.history
+    if request.goal:
+        history = [NavigationMessage(role="user", content=request.goal), *history]
+    return read_intake(history, facts=request.facts, pending_key=request.pending_key)

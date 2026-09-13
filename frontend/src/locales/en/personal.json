@@ -85,6 +85,8 @@
   "AppearanceTab.backgroundApplied": "Background image applied",
   "AppearanceTab.backgroundReadFailed": "Failed to read background image",
   "AdminDashboardPage.issueJobsTitle": "Background jobs failed or blocked",
+  "AdminDashboardPage.issueMiningTitle": "Suspected mining incidents need a decision",
+  "AdminDashboardPage.issueMiningDesc": "Confirm the ban or dismiss the false positive; the VM stays suspended until decided",
   "AdminDashboardPage.issueJobsDesc": "Review failure reasons and related execution logs",
   "AdminDashboardPage.issueRequestsTitle": "Requests are pending review",
   "AdminDashboardPage.issueBatchesTitle": "Class batch provisioning is pending review",

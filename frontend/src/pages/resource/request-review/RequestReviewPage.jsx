@@ -6,12 +6,12 @@ import SharedEmptyState from "../../../components/EmptyState/EmptyState";
 import { useToast } from "../../../hooks/useToast";
 import useAutoRefresh from "../../../hooks/useAutoRefresh";
 import LoadingState from "../../../components/LoadingState/LoadingState";
-import { DeletionRequestsService } from "../../../services/deletionRequests";
 import { SpecChangeRequestsService } from "../../../services/specChangeRequests";
 import { VmRequestsService } from "../../../services/vmRequests";
 import { CONSUMED_REQUEST_MARKERS } from "../../../services/pendingResources";
 import PageHeader from "../../../components/PageHeader/PageHeader";
 import SegmentedControl from "../../../components/SegmentedControl/SegmentedControl";
+import { formatShortDateTime } from "../../../utils/formatDate";
 
 function useTabs() {
   const { t } = useTranslation("resource");
@@ -24,6 +24,8 @@ function useTabs() {
   ], [t]);
 }
 
+/* 主 badge 只反映審核者的決策結果（#4）：准／不准／還沒定，
+   加上申請自身的取消與過期。核准後的執行進度是申請人的事，降為次要灰字。 */
 function useStatusMeta() {
   const { t } = useTranslation("resource");
   return useMemo(() => ({
@@ -32,29 +34,22 @@ function useStatusMeta() {
     rejected: { label: t("RequestReviewPage.statusRejected"), tone: "danger" },
     cancelled: { label: t("RequestReviewPage.statusCancelled"), tone: "muted" },
     expired: { label: t("RequestReviewPage.statusExpired"), tone: "muted" },
-    running: { label: t("RequestReviewPage.statusRunning"), tone: "info" },
-    completed: { label: t("RequestReviewPage.statusCompleted"), tone: "muted" },
-    failed: { label: t("RequestReviewPage.statusFailed"), tone: "danger" },
-    /* 規格調整：核准後由申請人自己按「套用」，所以 approved 再依套用進度細分 */
-    approved_awaiting_apply: { label: t("RequestReviewPage.statusAwaitingApply"), tone: "success" },
-    applying: { label: t("RequestReviewPage.statusApplying"), tone: "info" },
-    applied: { label: t("RequestReviewPage.statusApplied"), tone: "success" },
-    apply_failed: { label: t("RequestReviewPage.statusApplyFailed"), tone: "danger" },
   }), [t]);
 }
 
-function specReviewStatus(request) {
-  if (request.status !== "approved") return request.status;
+/** 規格調整核准後的套用進度（列表次要資訊用；未核准回傳 null） */
+function specProgressLabel(request, t) {
+  if (request.status !== "approved") return null;
   switch (request.apply_status) {
     case "applied":
-      return "applied";
+      return t("RequestReviewPage.statusApplied");
     case "applying":
-      return "applying";
+      return t("RequestReviewPage.statusApplying");
     case "failed":
     case "interrupted":
-      return "apply_failed";
+      return t("RequestReviewPage.statusApplyFailed");
     default:
-      return "approved_awaiting_apply";
+      return t("RequestReviewPage.statusAwaitingApply");
   }
 }
 
@@ -94,14 +89,7 @@ function ExpandableText({ text }) {
 }
 
 function formatDateTime(value, t) {
-  if (!value) return t("RequestReviewPage.notSet");
-  return new Date(value).toLocaleString("zh-TW", {
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    hour12: false,
-  });
+  return formatShortDateTime(value, t("RequestReviewPage.notSet"));
 }
 
 function formatRange(startAt, endAt, t) {
@@ -144,16 +132,14 @@ function specChangeLabel(request, t) {
   return parts.join(" / ") || request.change_type || "-";
 }
 
-/* AI API 金鑰申請有專屬的 /ai-api-review 頁，這裡不重複列出 */
+/* AI API 金鑰申請有專屬的 /ai-api-review 頁；刪除申請是自動處理的佇列
+   （無審核動作），由背景任務頁呈現，這裡都不列出 */
 function sourceLabel(source, t) {
-  if (source === "vm") return t("RequestReviewPage.sourceCreate");
-  if (source === "spec") return t("RequestReviewPage.sourceSpec");
-  return t("RequestReviewPage.sourceDeletion");
+  return source === "spec" ? t("RequestReviewPage.sourceSpec") : t("RequestReviewPage.sourceCreate");
 }
 
 function sourceIcon(item) {
   if (item.source === "spec") return "tune";
-  if (item.source === "deletion") return "delete_outline";
   return item.raw?.resource_type === "vm" ? "computer" : "terminal";
 }
 
@@ -195,7 +181,8 @@ function normalizeSpecRequest(request, t) {
     source: "spec",
     raw: request,
     reviewStatus: request.status,
-    status: specReviewStatus(request),
+    status: request.status,
+    progressText: specProgressLabel(request, t),
     title: request.resource_name
       ? t("RequestReviewPage.specChangeTitleNamed", { name: request.resource_name, vmid: request.vmid })
       : t("RequestReviewPage.specChangeTitle", { vmid: request.vmid }),
@@ -210,29 +197,6 @@ function normalizeSpecRequest(request, t) {
     nodeText: `VMID ${request.vmid}`,
     createdAt: request.created_at,
     reviewedAt: request.reviewed_at,
-  };
-}
-
-function normalizeDeletionRequest(request, t) {
-  return {
-    id: `deletion:${request.id}`,
-    rawId: request.id,
-    source: "deletion",
-    raw: request,
-    reviewStatus: "other",
-    status: request.status,
-    title: `${request.name || "Resource"} / VMID ${request.vmid}`,
-    user: request.user_full_name || request.user_email || t("RequestReviewPage.unknownUser"),
-    userSubtext: request.user_email || request.user_id || "-",
-    timeText: formatDateTime(request.created_at, t),
-    specText: `${request.resource_type || "resource"} / ${request.node || "unknown node"}`,
-    reason: request.error_message || t("RequestReviewPage.deletionReasonDefault"),
-    paramLabel: t("RequestReviewPage.paramLabelDeleteParams"),
-    paramText: `purge=${request.purge ? "yes" : "no"} / force=${request.force ? "yes" : "no"}`,
-    gpuText: "-",
-    nodeText: request.node || "unknown node",
-    createdAt: request.created_at,
-    reviewedAt: request.completed_at,
   };
 }
 
@@ -297,15 +261,13 @@ export default function RequestReviewPage() {
       setError("");
     }
     try {
-      const [vmRes, specRes, deletionRes] = await Promise.all([
+      const [vmRes, specRes] = await Promise.all([
         VmRequestsService.listAll(undefined),
         SpecChangeRequestsService.listAll(),
-        DeletionRequestsService.listAll(),
       ]);
       const items = [
         ...(vmRes.data ?? []).map((r) => normalizeVmRequest(r, t)),
         ...(specRes.data ?? []).map((r) => normalizeSpecRequest(r, t)),
-        ...(deletionRes.data ?? []).map((r) => normalizeDeletionRequest(r, t)),
       ].sort(
         (a, b) =>
           new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime(),
@@ -378,10 +340,8 @@ export default function RequestReviewPage() {
       };
       if (selected.source === "vm") {
         await VmRequestsService.review(selected.rawId, body);
-      } else if (selected.source === "spec") {
-        await SpecChangeRequestsService.review(selected.rawId, body);
       } else {
-        return;
+        await SpecChangeRequestsService.review(selected.rawId, body);
       }
       toast.success(status === "approved" ? t("RequestReviewPage.approvedToast") : t("RequestReviewPage.rejectedToast"));
       setComment("");
@@ -403,13 +363,14 @@ export default function RequestReviewPage() {
     rawReviewComment && !CONSUMED_REQUEST_MARKERS.includes(rawReviewComment)
       ? rawReviewComment
       : null;
-  const stats = useMemo(() => {
-    const source = allRequests.length ? allRequests : requests;
-    const pending = source.filter((request) => request.reviewStatus === "pending").length;
-    const approved = source.filter((request) => request.reviewStatus === "approved").length;
-    const rejected = source.filter((request) => request.reviewStatus === "rejected").length;
-    return { total: source.length, pending, approved, rejected };
-  }, [allRequests, requests]);
+  /* 各狀態筆數掛在分頁角標上（同金鑰管理；原本的四張統計卡已移除） */
+  const tabCounts = useMemo(() => {
+    const counts = { all: allRequests.length };
+    for (const request of allRequests) {
+      counts[request.reviewStatus] = (counts[request.reviewStatus] ?? 0) + 1;
+    }
+    return counts;
+  }, [allRequests]);
 
   const visibleRequests = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -435,49 +396,14 @@ export default function RequestReviewPage() {
     <div className={styles.page}>
       <PageHeader title={t("RequestReviewPage.pageTitle")} subtitle={t("RequestReviewPage.pageSubtitle")} />
 
-      <div className={styles.statRow}>
-        <div className={styles.statCard}>
-          <div className={styles.statIcon}>
-            <MIcon name="assignment" size={20} />
-          </div>
-          <div className={styles.statInfo}>
-            <span className={styles.statLabel}>{t("RequestReviewPage.statTotal")}</span>
-            <span className={styles.statValue}>{stats.total}</span>
-          </div>
-        </div>
-        <div className={styles.statCard}>
-          <div className={`${styles.statIcon} ${styles.statIconBusy}`}>
-            <MIcon name="pending_actions" size={20} />
-          </div>
-          <div className={styles.statInfo}>
-            <span className={styles.statLabel}>{t("RequestReviewPage.statPending")}</span>
-            <span className={styles.statValue}>{stats.pending}</span>
-          </div>
-        </div>
-        <div className={styles.statCard}>
-          <div className={`${styles.statIcon} ${styles.statIconOk}`}>
-            <MIcon name="task_alt" size={20} />
-          </div>
-          <div className={styles.statInfo}>
-            <span className={styles.statLabel}>{t("RequestReviewPage.statApproved")}</span>
-            <span className={styles.statValue}>{stats.approved}</span>
-          </div>
-        </div>
-        <div className={styles.statCard}>
-          <div className={`${styles.statIcon} ${styles.statIconDanger}`}>
-            <MIcon name="block" size={20} />
-          </div>
-          <div className={styles.statInfo}>
-            <span className={styles.statLabel}>{t("RequestReviewPage.statRejected")}</span>
-            <span className={styles.statValue}>{stats.rejected}</span>
-          </div>
-        </div>
-      </div>
-
       <div className={styles.tabsRow}>
         <SegmentedControl
           className={styles.tabsControl}
-          options={tabs.map(({ key, label }) => ({ value: key, label }))}
+          options={tabs.map(({ key, label }) => ({
+            value: key,
+            label,
+            badge: tabCounts[key] ?? 0,
+          }))}
           value={activeTab}
           onChange={setActiveTab}
           ariaLabel={t("RequestReviewPage.tabsAriaLabel")}
@@ -529,6 +455,7 @@ export default function RequestReviewPage() {
                     </div>
                     <div className={styles.rowSide}>
                       <StatusBadge status={request.status} />
+                      {request.progressText && <span className={styles.rowProgress}>{request.progressText}</span>}
                       <span className={styles.rowTime}>{request.timeText}</span>
                     </div>
                   </button>
@@ -568,11 +495,7 @@ export default function RequestReviewPage() {
                       {contextError}
                     </div>
                   )}
-                  {selected.source === "deletion" ? (
-                    <div className={styles.rowActions}>
-                      <span className={styles.doneText}>{t("RequestReviewPage.deletionOnlyNote")}</span>
-                    </div>
-                  ) : !isPending && (
+                  {!isPending && (
                     <>
                       {(reviewNote || selected.reviewedAt) && (
                         <div className={styles.reasonBox}>
@@ -603,7 +526,7 @@ export default function RequestReviewPage() {
                   )}
                 </div>
 
-                {isPending && selected.source !== "deletion" && (
+                {isPending && (
                   <div className={styles.reviewBar}>
                     {specResourceGone && (
                       <div className={styles.rowActions}>

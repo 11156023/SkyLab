@@ -85,6 +85,8 @@
   "AppearanceTab.backgroundApplied": "背景圖已套用",
   "AppearanceTab.backgroundReadFailed": "背景圖讀取失敗",
   "AdminDashboardPage.issueJobsTitle": "背景任務失敗或受阻",
+  "AdminDashboardPage.issueMiningTitle": "疑似挖礦事件待處置",
+  "AdminDashboardPage.issueMiningDesc": "確認停權或解除誤判，機器在定奪前維持凍結",
   "AdminDashboardPage.issueJobsDesc": "查看失敗原因與相關執行紀錄",
   "AdminDashboardPage.issueRequestsTitle": "有申請等待審核",
   "AdminDashboardPage.issueBatchesTitle": "有班級批量建機等待審核",

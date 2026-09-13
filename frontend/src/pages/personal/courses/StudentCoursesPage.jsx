@@ -58,7 +58,6 @@ export default function StudentCoursesPage() {
     window.addEventListener("skylab:user-guide-state", handleGuideState);
     return () => window.removeEventListener("skylab:user-guide-state", handleGuideState);
   }, []);
-
   if (view.loading) {
     return (
       <div className={styles.page}>

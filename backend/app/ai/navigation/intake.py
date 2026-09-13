@@ -9,6 +9,7 @@
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 
 from app.ai.navigation.flows import (
@@ -18,6 +19,8 @@ from app.ai.navigation.flows import (
     public_steps,
 )
 from app.ai.navigation.schemas import (
+    IntakeFacts,
+    IntakeKey,
     IntakeQuestion,
     IntakeState,
     NavigationMessage,
@@ -43,8 +46,6 @@ class IntakeSlot:
     question: str
     options: tuple[str, ...]
     keywords: tuple[str, ...] = ()
-    # 這一格靠自由描述回答（用途），而不是關鍵字命中
-    freeform: bool = False
 
 
 SLOTS: tuple[IntakeSlot, ...] = (
@@ -52,7 +53,6 @@ SLOTS: tuple[IntakeSlot, ...] = (
         key="purpose",
         question="這台機器主要要拿來做什麼？",
         options=("課程作業", "專題開發", "架設網站", "AI 訓練", "資料庫"),
-        freeform=True,
     ),
     IntakeSlot(
         key="gpu",
@@ -76,15 +76,100 @@ SLOTS: tuple[IntakeSlot, ...] = (
 
 _ALL_OPTIONS = {option for slot in SLOTS for option in slot.options}
 # 使用者可能只是點了上一題的選項，那不算描述用途。
-_MIN_PURPOSE_LENGTH = 4
+_PURPOSE_KEYWORDS = (
+    "網站", "架站", "網頁", "開發", "專題", "作業", "課程", "教學", "研究",
+    "資料庫", "訓練", "推論", "node", "flask", "django", "web", "database",
+    "mysql", "postgres", "redis", "docker", "python", "java", "minecraft",
+    "pytorch", "tensorflow", "深度學習", "機器學習", "deep learning", "research",
+)
+_ACK = re.compile(r"^(好|好的|好啊|可以|沒問題|ok|yes|繼續|下一步)[。！!\s]*$", re.I)
+_NO = re.compile(r"^(不用|不需要|不要|沒有|no)[。！!\s]*$", re.I)
 
 
-def _user_texts(history: list[NavigationMessage] | None) -> list[str]:
-    return [
-        message.content.strip()
-        for message in (history or [])
-        if message.role == "user" and message.content.strip()
-    ]
+def _is_answer(text: str) -> bool:
+    return bool(text.strip()) and not (
+        _ACK.fullmatch(text.strip())
+        or re.search(r"為什麼|什麼意思|是什麼|怎麼|如何|取消|先不要", text)
+        or text.strip().rstrip("。！!？?") in {"幫我填", "我沒有機器", "沒有機器"}
+    )
+
+
+def _explicit_answer(slot: IntakeSlot, text: str) -> str | None:
+    """Only user statements contribute facts; retain the answer, not a boolean."""
+    if not _is_answer(text):
+        return None
+    if slot.key == "purpose":
+        if text in _ALL_OPTIONS and text not in slot.options:
+            return None
+        return text if _mentions(text, _PURPOSE_KEYWORDS) else None
+    if any(option in text for option in slot.options) or _mentions(text, slot.keywords):
+        return text
+    return None
+
+
+def _collect_facts(
+    history: list[NavigationMessage] | None,
+    facts: IntakeFacts | None,
+    pending_key: IntakeKey | None,
+) -> IntakeFacts:
+    result = (facts or IntakeFacts()).model_copy(deep=True)
+
+    def record(key: str, value: str) -> None:
+        # Keep the original detailed purpose when a later category button is clicked.
+        if key == "purpose" and result.purpose and value in SLOTS[0].options:
+            return
+        setattr(result, key, value)
+        result.inferred = [item for item in result.inferred if item != key]
+
+    pending = None
+    # Once facts exist, earlier messages have already been processed. Replaying
+    # them could undo a later correction whose original message was trimmed.
+    has_memory = facts is not None and any(getattr(facts, slot.key) for slot in SLOTS)
+    messages = (history or [])[-1:] if has_memory else (history or [])
+    for message in messages:
+        text = message.content.strip()
+        if message.role == "assistant":
+            pending = next((slot.key for slot in SLOTS if slot.question in text), None)
+            continue
+        if not _is_answer(text):
+            pending = None
+            continue
+        for slot in SLOTS:
+            value = _explicit_answer(slot, text)
+            if value:
+                record(slot.key, value)
+        if pending:
+            slot = next(slot for slot in SLOTS if slot.key == pending)
+            if slot.key in {"gpu", "display"} and _NO.fullmatch(text):
+                record(slot.key, "不需要 GPU" if slot.key == "gpu" else "Linux 指令列就好")
+            elif slot.key == "purpose" and text not in _ALL_OPTIONS and not any(
+                _explicit_answer(other, text) for other in SLOTS[1:]
+            ):
+                record(slot.key, text)
+        pending = None
+
+    # The client identifies the question being answered even after old turns expire.
+    last = history[-1] if history else None
+    if pending_key and last and last.role == "user" and _is_answer(last.content):
+        text = last.content.strip()
+        if pending_key in {"gpu", "display"} and _NO.fullmatch(text):
+            record(pending_key, "不需要 GPU" if pending_key == "gpu" else "Linux 指令列就好")
+        elif text in {"不確定", "你幫我判斷", "都可以"} and pending_key != "purpose":
+            record(pending_key, "還不確定" if pending_key == "duration" else "不確定，你幫我判斷")
+        elif pending_key == "purpose" and text not in _ALL_OPTIONS and not any(
+            _explicit_answer(other, text) for other in SLOTS[1:]
+        ):
+            record(pending_key, text)
+
+    # Ordinary web services have useful defaults; explicit requirements win.
+    purpose = result.purpose or ""
+    ordinary_web = _mentions(purpose, ("網站", "網頁", "架站", "node.js", "nodejs", "flask", "django", "website"))
+    if ordinary_web and not _mentions(purpose, GPU_KEYWORDS + WINDOWS_KEYWORDS + _DISPLAY_KEYWORDS):
+        for key, value in (("gpu", "不需要 GPU"), ("display", "Linux 指令列就好")):
+            if not getattr(result, key):
+                setattr(result, key, value)
+                result.inferred.append(key)
+    return result
 
 
 def _mentions(text: str, keywords: tuple[str, ...]) -> bool:
@@ -92,57 +177,18 @@ def _mentions(text: str, keywords: tuple[str, ...]) -> bool:
     return any(keyword.casefold() in lowered for keyword in keywords)
 
 
-def _slots_already_replied_to(history: list[NavigationMessage] | None) -> set[str]:
-    """問過而且使用者回了話，就算答過——「不用」「沒有」這種也算。
-
-    靠關鍵字判斷答案內容太脆弱（「不用」裡面沒有 GPU 兩個字），所以改看
-    「上一句助手問的是哪一格」。
-    """
-    replied: set[str] = set()
-    pending: str | None = None
-    for message in history or []:
-        if message.role == "assistant":
-            for slot in SLOTS:
-                if slot.question in message.content:
-                    pending = slot.key
-                    break
-        elif message.role == "user" and message.content.strip() and pending:
-            replied.add(pending)
-            pending = None
-    return replied
-
-
-def _slot_is_answered(slot: IntakeSlot, texts: list[str], replied: set[str]) -> bool:
-    if slot.key in replied:
-        return True
-    for text in texts:
-        # 點選項回答：選項字面出現就算答過，包括「不確定」這種明確跳過。
-        if any(option in text for option in slot.options):
-            return True
-        if slot.freeform:
-            stripped = text.strip()
-            if stripped in _ALL_OPTIONS:
-                continue
-            if len(stripped) >= _MIN_PURPOSE_LENGTH:
-                return True
-            continue
-        if _mentions(text, slot.keywords):
-            return True
-    return False
-
-
 def read_intake(
     history: list[NavigationMessage] | None,
-    asked: list[str] | None = None,
+    *,
+    facts: IntakeFacts | None = None,
+    pending_key: IntakeKey | None = None,
 ) -> IntakeState:
     """看看還缺哪一格，回傳下一個要問的問題（都齊了就是 ready）。
 
-    ``asked`` 是前端記錄「已經問過的欄位」。問句由推薦 AI 用對話語氣生成，
-    字面不會等於這裡的指示文字，所以問過什麼只能由前端帶回來。
+    答案獨立保存；只有實際回答才填入，單純問過或同意繼續不算回答。
     """
-    texts = _user_texts(history)
-    replied = _slots_already_replied_to(history) | set(asked or [])
-    answered = [slot.key for slot in SLOTS if _slot_is_answered(slot, texts, replied)]
+    facts = _collect_facts(history, facts, pending_key)
+    answered = [slot.key for slot in SLOTS if getattr(facts, slot.key)]
     missing = [slot for slot in SLOTS if slot.key not in answered]
 
     # 配置產生後要接回「申請一台機器」的後續步驟，所以每一輪都把流程帶著，
@@ -153,6 +199,8 @@ def read_intake(
         0,
     ) if flow else 0
     flow_fields = {
+        "facts": facts,
+        "assumptions": [getattr(facts, key) for key in facts.inferred if getattr(facts, key)],
         "flow_id": flow.flow_id,
         "flow_title": flow.title,
         # 進度停在規劃那一步：填完還要自己檢查、輸入密碼、按送出，

@@ -7,10 +7,14 @@ import SharedEmptyState from "../../../components/EmptyState/EmptyState";
 import { AiApiService } from "../../../services/aiApi";
 import { useConfirm } from "../../../components/ConfirmDialog/ConfirmProvider";
 import { useToast } from "../../../hooks/useToast";
+import useDialogPresence from "../../../hooks/useDialogPresence";
 import { focusInvalidField } from "../../../utils/focusField";
 import PageHeader from "../../../components/PageHeader/PageHeader";
+import RrdChart from "../../../components/RrdChart/RrdChart";
+import { formatDateTime, formatMonthDay } from "../../../utils/formatDate";
 
 /* ── helpers ── */
+
 function isExpired(value) {
   if (!value) return false;
   return new Date(value) < new Date();
@@ -68,14 +72,10 @@ function CredentialCard({ item, onRefresh }) {
   const [nameInput, setNameInput] = useState(item.api_key_name);
   const [busy, setBusy] = useState(false);
 
-  function fmtTime(iso) {
-    return iso ? new Date(iso).toLocaleString("zh-TW") : "—";
-  }
-
   function fmtExpiry(value) {
     if (!value) return t("AiApiPage.durationOptionNever");
-    const d = new Date(value);
-    return d < new Date() ? t("AiApiPage.expiredFormat", { date: d.toLocaleString() }) : d.toLocaleString();
+    const label = formatDateTime(value);
+    return isExpired(value) ? t("AiApiPage.expiredFormat", { date: label }) : label;
   }
 
   function credStatusInfo(it) {
@@ -87,6 +87,7 @@ function CredentialCard({ item, onRefresh }) {
   const info = credStatusInfo(item);
   const inactive = Boolean(item.revoked_at);
   const expired = isExpired(item.expires_at);
+  const deprecated = inactive || expired;
 
   const copy = async (label, value) => {
     try {
@@ -153,7 +154,10 @@ function CredentialCard({ item, onRefresh }) {
   };
 
   return (
-    <div className={styles.credCard} data-guide="ai-keys-content">
+    <div
+      className={`${styles.credCard} ${deprecated ? styles.credCardDeprecated : ""}`}
+      data-guide="ai-keys-content"
+    >
       {/* Top row: name + badge */}
       <div className={styles.credHeader}>
         <div className={styles.credNameRow}>
@@ -180,7 +184,9 @@ function CredentialCard({ item, onRefresh }) {
             </div>
           ) : (
             <div className={styles.nameWithEdit}>
-              <span className={styles.credName}>{item.api_key_name}</span>
+              <span className={`${styles.credName} ${deprecated ? styles.credNameDeprecated : ""}`}>
+                {item.api_key_name}
+              </span>
               <button type="button" className={styles.btnIconSm} onClick={() => { setNameInput(item.api_key_name); setEditing(true); }}>
                 <MIcon name="edit" size={12} />
               </button>
@@ -193,9 +199,9 @@ function CredentialCard({ item, onRefresh }) {
         </div>
         <div className={styles.credMeta}>
           <span>{t("AiApiPage.metaPrefix", { value: item.api_key_prefix })}</span>
-          <span>{t("AiApiPage.metaCreated", { value: fmtTime(item.created_at) })}</span>
+          <span>{t("AiApiPage.metaCreated", { value: formatDateTime(item.created_at) })}</span>
           <span className={expired ? styles.textDanger : ""}>{t("AiApiPage.metaExpiry", { value: fmtExpiry(item.expires_at) })}</span>
-          {item.revoked_at && <span>{t("AiApiPage.metaRevoked", { value: fmtTime(item.revoked_at) })}</span>}
+          {item.revoked_at && <span>{t("AiApiPage.metaRevoked", { value: formatDateTime(item.revoked_at) })}</span>}
         </div>
       </div>
 
@@ -211,7 +217,7 @@ function CredentialCard({ item, onRefresh }) {
           <div className={styles.credFieldLabel}>
             <MIcon name="vpn_key" size={14} /> API Key
           </div>
-          <div className={styles.credFieldValue}>
+          <div className={`${styles.credFieldValue} ${deprecated ? styles.credValueDeprecated : ""}`}>
             {showKey ? item.api_key : maskKey(item.api_key)}
           </div>
         </div>
@@ -229,8 +235,9 @@ function CredentialCard({ item, onRefresh }) {
         <button type="button" className={styles.btnOutline} onClick={() => copy("API Key", item.api_key)}>
           <MIcon name="content_copy" size={16} /> API Key
         </button>
-        <button type="button" className={styles.btnOutline} onClick={doRotate} disabled={inactive || busy}>
-          <MIcon name="refresh" size={16} /> {t("AiApiPage.actionRefresh")}
+        {/* 重新產生金鑰是破壞性動作（舊金鑰立即失效），不叫「刷新」也不長得像刷新 */}
+        <button type="button" className={`${styles.btnOutline} ${styles.btnDanger}`} onClick={doRotate} disabled={inactive || busy}>
+          <MIcon name="autorenew" size={16} /> {t("AiApiPage.actionRotate")}
         </button>
         <button type="button" className={`${styles.btnOutline} ${styles.btnDanger}`} onClick={doDelete} disabled={busy}>
           <MIcon name="delete" size={16} /> {t("AiApiPage.actionDelete")}
@@ -244,10 +251,6 @@ function CredentialCard({ item, onRefresh }) {
 function RequestRow({ item }) {
   const { t } = useTranslation("ai");
 
-  function fmtTime(iso) {
-    return iso ? new Date(iso).toLocaleString("zh-TW") : "—";
-  }
-
   function statusLabel(status) {
     if (status === "approved") return t("AiApiPage.statusApproved");
     if (status === "rejected") return t("AiApiPage.statusRejected");
@@ -256,19 +259,24 @@ function RequestRow({ item }) {
 
   const st = statusStyle(item.status);
   return (
-    <div className={styles.requestRow} data-guide="ai-records-content">
+    <div
+      className={`${styles.requestRow} ${styles[`requestRow_${st}`] ?? ""}`}
+      data-guide="ai-records-content"
+    >
       <div className={styles.requestInfo}>
-        <span className={styles.requestName}>{item.api_key_name}</span>
+        <span className={`${styles.requestName} ${styles[`requestName_${st}`] ?? ""}`}>
+          {item.api_key_name}
+        </span>
         <span className={`${styles.badge} ${styles[`badge_${st}`]}`}>
           <span className={styles.dot} />
           {statusLabel(item.status)}
         </span>
       </div>
-      <p className={styles.requestPurpose}>{item.purpose}</p>
+      <p className={`${styles.requestPurpose} ${styles[`requestPurpose_${st}`] ?? ""}`}>{item.purpose}</p>
       <div className={styles.requestMeta}>
-        <span>{t("AiApiPage.requestMetaApply", { value: fmtTime(item.created_at) })}</span>
-        <span>{t("AiApiPage.requestMetaReview", { value: item.reviewed_at ? fmtTime(item.reviewed_at) : t("AiApiPage.requestNotReviewed") })}</span>
-        {item.review_comment && <span>{t("AiApiPage.requestMetaComment", { value: item.review_comment })}</span>}
+        <span>{t("AiApiPage.requestMetaApply", { value: formatDateTime(item.created_at) })}</span>
+        <span>{t("AiApiPage.requestMetaReview", { value: formatDateTime(item.reviewed_at, t("AiApiPage.requestNotReviewed")) })}</span>
+        {item.review_comment && <span className={st === "rejected" ? styles.textDanger : ""}>{t("AiApiPage.requestMetaComment", { value: item.review_comment })}</span>}
       </div>
     </div>
   );
@@ -281,6 +289,32 @@ function UsageStatCard({ label, value }) {
       <span className={styles.usageStatLabel}>{label}</span>
       <span className={styles.usageStatValue}>{value}</span>
     </div>
+  );
+}
+
+/* ── Usage: 逐日 Tokens 折線圖（#7）── */
+function DailyUsageChart({ daily }) {
+  const { t } = useTranslation("ai");
+  const data = useMemo(
+    () => (daily ?? []).map((point) => ({
+      time: formatMonthDay(point.date),
+      input: point.input_tokens,
+      output: point.output_tokens,
+    })),
+    [daily],
+  );
+  /* 區間內完全沒用量就不畫（統計卡已是 0），有值才值得佔版面 */
+  if (data.length === 0 || data.every((point) => !point.input && !point.output)) return null;
+  return (
+    <RrdChart
+      title={t("AiApiPage.usageDailyTitle")}
+      data={data}
+      series={[
+        { key: "input", label: t("AiApiPage.usageStatInputTokens"), color: "--color-info" },
+        { key: "output", label: t("AiApiPage.usageStatOutputTokens"), color: "--color-success" },
+      ]}
+      height={180}
+    />
   );
 }
 
@@ -297,7 +331,7 @@ function UsageBreakdown({ icon, title, entries, formatter }) {
         {Object.entries(entries).map(([key, stats]) => (
           <div key={key} className={styles.usageBreakdownRow}>
             <span className={styles.usageBreakdownKey}>{formatter ? formatter(key) : key}</span>
-            <span>{t("AiApiPage.callCount", { count: stats.requests ?? stats.calls ?? 0 })}</span>
+            <span>{t("AiApiPage.callCount", { count: stats.calls ?? stats.requests ?? 0 })}</span>
             <span>↑ {formatTokens(stats.input_tokens)}</span>
             <span>↓ {formatTokens(stats.output_tokens)}</span>
           </div>
@@ -316,15 +350,66 @@ function formatModelDisplay(modelName) {
   return `${match[1]}/${match[2]}`;
 }
 
+/* ── Usage record row ── */
+function UsageRecordRow({ item }) {
+  const { t } = useTranslation("ai");
+
+  const statusCls = item.status === "success" ? "success" : "error";
+  const statusLabel =
+    item.status === "success"
+      ? t("AiApiPage.recordStatusSuccess")
+      : t("AiApiPage.recordStatusError");
+
+  const callTypeLabels = {
+    chat: "AiApiPage.callTypeChat",
+    recommend: "AiApiPage.callTypeRecommend",
+    chat_completion: "AiApiPage.callTypeChatCompletion",
+  };
+  const callTypeKey = callTypeLabels[item.call_type];
+
+  return (
+    <div className={styles.usageRecordRow}>
+      <div className={styles.usageRecordTop}>
+        {item.call_type && (
+          <span className={styles.usageRecordType}>
+            {callTypeKey ? t(callTypeKey) : item.call_type}
+            {item.preset ? ` · ${item.preset}` : ""}
+          </span>
+        )}
+        <span className={styles.usageRecordModel}>{formatModelDisplay(item.model_name)}</span>
+        <span className={`${styles.badge} ${styles[`badge_${statusCls}`]}`}>
+          <span className={styles.dot} />
+          {statusLabel}
+        </span>
+      </div>
+      <div className={styles.usageRecordMeta}>
+        <span>{new Date(item.created_at).toLocaleString("zh-TW")}</span>
+        <span>↑ {formatTokens(item.input_tokens)}</span>
+        <span>↓ {formatTokens(item.output_tokens)}</span>
+        {item.request_duration_ms != null && (
+          <span>
+            {t("AiApiPage.recordDuration", { seconds: (item.request_duration_ms / 1000).toFixed(1) })}
+          </span>
+        )}
+        {item.error_message && <span className={styles.textDanger}>{item.error_message}</span>}
+      </div>
+    </div>
+  );
+}
+
 /* ── My Usage Tab ── */
+const USAGE_RECORD_PAGE_SIZE = 20;
+
 function MyUsageTab() {
   const { t } = useTranslation("ai");
   const [preset, setPreset] = useState("30d");
-  const [proxyData, setProxyData] = useState(null);
-  const [templateData, setTemplateData] = useState(null);
+  const [usageData, setUsageData] = useState(null);
+  const [usageError, setUsageError] = useState(false);
+  const [records, setRecords] = useState([]);
+  const [recordsCount, setRecordsCount] = useState(0);
+  const [recordsError, setRecordsError] = useState(false);
   const [loading, setLoading] = useState(true);
-  const [proxyError, setProxyError] = useState(false);
-  const [templateError, setTemplateError] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
 
   const { start, end } = useMemo(() => {
     const now = new Date();
@@ -338,26 +423,54 @@ function MyUsageTab() {
 
   const load = useCallback(async () => {
     setLoading(true);
-    setProxyError(false);
-    setTemplateError(false);
-    const [proxyRes, tplRes] = await Promise.allSettled([
-      AiApiService.getMyProxyUsage({ start_date: start, end_date: end }),
-      AiApiService.getMyTemplateUsage({ start_date: start, end_date: end }),
+    setUsageError(false);
+    setRecordsError(false);
+    const [usageRes, recRes] = await Promise.allSettled([
+      AiApiService.getMyUsage({ start_date: start, end_date: end }),
+      AiApiService.getMyUsageRecords({ start_date: start, end_date: end, limit: USAGE_RECORD_PAGE_SIZE }),
     ]);
-    if (proxyRes.status === "fulfilled") setProxyData(proxyRes.value);
-    else setProxyError(true);
-    if (tplRes.status === "fulfilled") setTemplateData(tplRes.value);
-    else setTemplateError(true);
+    if (usageRes.status === "fulfilled") setUsageData(usageRes.value);
+    else setUsageError(true);
+    if (recRes.status === "fulfilled") {
+      setRecords(recRes.value?.data ?? []);
+      setRecordsCount(recRes.value?.count ?? 0);
+    } else {
+      setRecords([]);
+      setRecordsCount(0);
+      setRecordsError(true);
+    }
     setLoading(false);
   }, [start, end]);
 
   useEffect(() => { load(); }, [load]);
+
+  const hasMoreRecords = !recordsError && records.length > 0 && records.length < recordsCount;
+
+  const loadMore = async () => {
+    setLoadingMore(true);
+    try {
+      const res = await AiApiService.getMyUsageRecords({
+        start_date: start,
+        end_date: end,
+        skip: records.length,
+        limit: USAGE_RECORD_PAGE_SIZE,
+      });
+      setRecords((prev) => [...prev, ...(res?.data ?? [])]);
+      setRecordsCount(res?.count ?? 0);
+    } catch {
+      /* 維持現有清單，不覆蓋成功資料 */
+    } finally {
+      setLoadingMore(false);
+    }
+  };
 
   const PRESETS = [
     { value: "7d", label: t("AiApiPage.preset7d") },
     { value: "30d", label: t("AiApiPage.preset30d") },
     { value: "90d", label: t("AiApiPage.preset90d") },
   ];
+
+  const hasAnyUsage = (usageData?.total_calls ?? 0) > 0;
 
   return (
     <div className={styles.usageTab}>
@@ -379,60 +492,196 @@ function MyUsageTab() {
         <LoadingState />
       ) : (
         <>
-          {/* Proxy usage */}
-          <div className={styles.usagePanel} data-guide="ai-proxy-usage">
+          {/* ── 統一用量總覽 ── */}
+          <div className={styles.usagePanel} data-guide="ai-route-usage">
             <div className={styles.usagePanelHeader}>
-              <h3 className={styles.usagePanelTitle}>{t("AiApiPage.usageProxyTitle")}</h3>
-              <p className={styles.usagePanelDesc}>{t("AiApiPage.usageProxyDesc")}</p>
+              <h3 className={styles.usagePanelTitle}>{t("AiApiPage.usageTitle")}</h3>
+              <p className={styles.usagePanelDesc}>{t("AiApiPage.usageDesc")}</p>
             </div>
-            {proxyError ? (
-              <p className={styles.textDanger}>{t("AiApiPage.usageProxyError")}</p>
-            ) : proxyData ? (
+            {usageError ? (
+              <p className={styles.textDanger}>{t("AiApiPage.usageError")}</p>
+            ) : (
               <>
                 <div className={styles.usageStatsGrid}>
-                  <UsageStatCard label={t("AiApiPage.usageStatTotalCalls")} value={proxyData.total_requests} />
-                  <UsageStatCard label={t("AiApiPage.usageStatInputTokens")} value={formatTokens(proxyData.total_input_tokens)} />
-                  <UsageStatCard label={t("AiApiPage.usageStatOutputTokens")} value={formatTokens(proxyData.total_output_tokens)} />
+                  <UsageStatCard label={t("AiApiPage.usageStatTotalCalls")} value={usageData?.total_calls ?? 0} />
+                  <UsageStatCard label={t("AiApiPage.usageStatInputTokens")} value={formatTokens(usageData?.total_input_tokens)} />
+                  <UsageStatCard label={t("AiApiPage.usageStatOutputTokens")} value={formatTokens(usageData?.total_output_tokens)} />
                 </div>
+                <DailyUsageChart daily={usageData?.daily} />
                 <UsageBreakdown
                   icon="bar_chart"
                   title={t("AiApiPage.usageBreakdownByModel")}
-                  entries={proxyData.by_model}
+                  entries={usageData?.by_model}
                   formatter={formatModelDisplay}
                 />
+                {!usageError && !hasAnyUsage && (
+                  <p className={styles.noData}>{t("AiApiPage.usageEmpty")}</p>
+                )}
               </>
-            ) : (
-              <p className={styles.noData}>{t("AiApiPage.usageProxyEmpty")}</p>
             )}
           </div>
 
-          {/* Template usage */}
-          <div className={styles.usagePanel} data-guide="ai-template-usage">
+          {/* ── 細項呼叫紀錄 ── */}
+          <div className={styles.usagePanel} data-guide="ai-usage-records">
             <div className={styles.usagePanelHeader}>
-              <h3 className={styles.usagePanelTitle}>{t("AiApiPage.usageTemplateTitle")}</h3>
-              <p className={styles.usagePanelDesc}>{t("AiApiPage.usageTemplateDesc")}</p>
+              <h3 className={styles.usagePanelTitle}>{t("AiApiPage.usageRecordsTitle")}</h3>
+              <p className={styles.usagePanelDesc}>{t("AiApiPage.usageRecordsDesc")}</p>
             </div>
-            {templateError ? (
-              <p className={styles.textDanger}>{t("AiApiPage.usageTemplateError")}</p>
-            ) : templateData ? (
-              <>
-                <div className={styles.usageStatsGrid}>
-                  <UsageStatCard label={t("AiApiPage.usageStatTotalCalls")} value={templateData.total_calls} />
-                  <UsageStatCard label={t("AiApiPage.usageStatInputTokens")} value={formatTokens(templateData.total_input_tokens)} />
-                  <UsageStatCard label={t("AiApiPage.usageStatOutputTokens")} value={formatTokens(templateData.total_output_tokens)} />
-                </div>
-                <UsageBreakdown
-                  icon="auto_awesome"
-                  title={t("AiApiPage.usageBreakdownByCallType")}
-                  entries={templateData.by_call_type}
-                />
-              </>
+            {recordsError ? (
+              <p className={styles.textDanger}>{t("AiApiPage.usageRecordsError")}</p>
+            ) : records.length === 0 ? (
+              <p className={styles.noData}>{t("AiApiPage.usageRecordsEmpty")}</p>
             ) : (
-              <p className={styles.noData}>{t("AiApiPage.usageTemplateEmpty")}</p>
+              <>
+                <div className={styles.usageRecordList}>
+                  {records.map((item) => (
+                    <UsageRecordRow key={`${item.route}-${item.id}`} item={item} />
+                  ))}
+                </div>
+                {hasMoreRecords && (
+                  <div className={styles.usageRecordsMoreRow}>
+                    <button type="button" className={styles.btnOutline} onClick={loadMore} disabled={loadingMore}>
+                      {loadingMore ? (
+                        <>
+                          <MIcon name="hourglass_empty" size={16} />
+                          {t("AiApiPage.recordsLoadingMore")}
+                        </>
+                      ) : (
+                        <>
+                          <MIcon name="expand_more" size={16} />
+                          {t("AiApiPage.recordsLoadMore")}
+                        </>
+                      )}
+                    </button>
+                    <span className={styles.usageDateRange}>
+                      {t("AiApiPage.recordsShownCount", {
+                        shown: records.length,
+                        total: recordsCount,
+                      })}
+                    </span>
+                  </div>
+                )}
+              </>
             )}
           </div>
         </>
       )}
+    </div>
+  );
+}
+
+/* ── Apply key dialog ── */
+function ApplyKeyModal({
+  closing = false,
+  busy = false,
+  apiKeyName,
+  onApiKeyNameChange,
+  purpose,
+  onPurposeChange,
+  purposeInvalid,
+  purposeInputRef,
+  duration,
+  onDurationChange,
+  durationOptions,
+  onClose,
+  onSubmit,
+}) {
+  const { t } = useTranslation("ai");
+
+  useEffect(() => {
+    const closeOnEscape = (event) => {
+      if (event.key === "Escape" && !busy) onClose();
+    };
+    document.addEventListener("keydown", closeOnEscape);
+    return () => document.removeEventListener("keydown", closeOnEscape);
+  }, [busy, onClose]);
+
+  return (
+    <div
+      className={`${styles.dialogOverlay} ${closing ? styles.dialogOverlayOut : ""}`}
+      role="presentation"
+      onMouseDown={() => { if (!busy) onClose(); }}
+    >
+      <div
+        className={styles.dialog}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="ai-apply-dialog-title"
+        onMouseDown={(event) => event.stopPropagation()}
+      >
+        <div className={styles.dialogHeader}>
+          <div>
+            <h2 id="ai-apply-dialog-title" className={styles.dialogTitle} data-guide="ai-form">{t("AiApiPage.applyPanelTitle")}</h2>
+            <p className={styles.dialogDesc}>{t("AiApiPage.applyPanelDesc")}</p>
+          </div>
+          <button
+            type="button"
+            className={styles.dialogClose}
+            onClick={onClose}
+            disabled={busy}
+            aria-label={t("AiApiPage.close")}
+            data-guide="ai-apply-close"
+          >
+            <MIcon name="close" size={18} />
+          </button>
+        </div>
+
+        <div className={styles.formGroup}>
+          <label className={styles.formLabel} htmlFor="ai-key-name">{t("AiApiPage.formLabelKeyName")}</label>
+          <input
+            id="ai-key-name"
+            type="text"
+            className={styles.formInput}
+            value={apiKeyName}
+            onChange={(e) => onApiKeyNameChange(e.target.value)}
+            placeholder={t("AiApiPage.formPlaceholderKeyName")}
+            maxLength={20}
+            data-guide="ai-apply-name"
+          />
+        </div>
+
+        <div className={styles.formGroup}>
+          <label className={styles.formLabel} htmlFor="ai-purpose">{t("AiApiPage.formLabelPurpose")}</label>
+          <textarea
+            id="ai-purpose"
+            ref={purposeInputRef}
+            className={`${styles.formTextarea} ${purposeInvalid ? styles.fieldInvalid : ""}`}
+            value={purpose}
+            onChange={(e) => onPurposeChange(e.target.value)}
+            placeholder={t("AiApiPage.formPlaceholderPurpose")}
+            rows={5}
+            data-guide="ai-apply-purpose"
+          />
+        </div>
+
+        <div className={styles.formGroup}>
+          <label className={styles.formLabel} htmlFor="ai-duration">{t("AiApiPage.formLabelDuration")}</label>
+          <select
+            id="ai-duration"
+            className={styles.formSelect}
+            value={duration}
+            onChange={(e) => onDurationChange(e.target.value)}
+            data-guide="ai-apply-duration"
+          >
+            {durationOptions.map((opt) => (
+              <option key={opt.value} value={opt.value}>{opt.label}</option>
+            ))}
+          </select>
+        </div>
+
+        <div className={styles.dialogFooter}>
+          <span className={styles.formHint}>{t("AiApiPage.formHintPurpose")}</span>
+          <div className={styles.dialogActions}>
+            <button type="button" className={styles.btnOutline} onClick={onClose} disabled={busy}>
+              {t("AiApiPage.cancel")}
+            </button>
+            <button type="button" className={styles.btnPrimary} onClick={onSubmit} disabled={busy} data-guide="ai-submit">
+              <MIcon name="send" size={16} />
+              {busy ? t("AiApiPage.submitButtonSubmitting") : t("AiApiPage.submitButton")}
+            </button>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
@@ -453,7 +702,6 @@ export default function AiApiPage() {
   ];
 
   const TABS = [
-    { key: "apply",   label: t("AiApiPage.tabApply"),   icon: "send" },
     { key: "keys",    label: "API Keys",                icon: "vpn_key" },
     { key: "records", label: t("AiApiPage.tabRecords"), icon: "history" },
     { key: "usage",   label: t("AiApiPage.tabUsage"),   icon: "trending_up" },
@@ -466,6 +714,8 @@ export default function AiApiPage() {
   const [submitting, setSubmitting] = useState(false);
   const [purposeInvalid, setPurposeInvalid] = useState(false);
   const purposeInputRef = useRef(null);
+  const [showApplyModal, setShowApplyModal] = useState(false);
+  const applyDialog = useDialogPresence(showApplyModal);
 
   /* ── Data ── */
   const [credentials, setCredentials] = useState([]);
@@ -511,6 +761,7 @@ export default function AiApiPage() {
       setPurpose("");
       setApiKeyName("test");
       setDuration("never");
+      setShowApplyModal(false);
       toast.success(t("AiApiPage.submitSuccess"));
       load();
     } catch (e) {
@@ -557,79 +808,23 @@ export default function AiApiPage() {
 
       {/* ── Content ── */}
       <div className={styles.content}>
-        {/* ---- Tab: 申請 ---- */}
-        {activeTab === "apply" && (
-          <div className={styles.panel}>
-            <div className={styles.panelHeader}>
-              <h2 className={styles.panelTitle} data-guide="ai-form">{t("AiApiPage.applyPanelTitle")}</h2>
-              <p className={styles.panelDesc}>{t("AiApiPage.applyPanelDesc")}</p>
-            </div>
-
-            <div className={styles.formGroup}>
-              <label className={styles.formLabel} htmlFor="ai-key-name">{t("AiApiPage.formLabelKeyName")}</label>
-              <input
-                id="ai-key-name"
-                type="text"
-                className={styles.formInput}
-                value={apiKeyName}
-                onChange={(e) => setApiKeyName(e.target.value)}
-                placeholder={t("AiApiPage.formPlaceholderKeyName")}
-                maxLength={20}
-                data-guide="ai-apply-name"
-              />
-            </div>
-
-            <div className={styles.formGroup}>
-              <label className={styles.formLabel} htmlFor="ai-purpose">{t("AiApiPage.formLabelPurpose")}</label>
-              <textarea
-                id="ai-purpose"
-                ref={purposeInputRef}
-                className={`${styles.formTextarea} ${purposeInvalid ? styles.fieldInvalid : ""}`}
-                value={purpose}
-                onChange={(e) => { setPurpose(e.target.value); setPurposeInvalid(false); }}
-                placeholder={t("AiApiPage.formPlaceholderPurpose")}
-                rows={5}
-                data-guide="ai-apply-purpose"
-              />
-            </div>
-
-            <div className={styles.formGroup}>
-              <label className={styles.formLabel} htmlFor="ai-duration">{t("AiApiPage.formLabelDuration")}</label>
-              <select
-                id="ai-duration"
-                className={styles.formSelect}
-                value={duration}
-                onChange={(e) => setDuration(e.target.value)}
-                data-guide="ai-apply-duration"
-              >
-                {DURATION_OPTIONS.map((opt) => (
-                  <option key={opt.value} value={opt.value}>{opt.label}</option>
-                ))}
-              </select>
-            </div>
-
-            <div className={styles.formFooter}>
-              <span className={styles.formHint}>{t("AiApiPage.formHintPurpose")}</span>
-              <button
-                type="button"
-                className={styles.btnPrimary}
-                onClick={handleSubmit}
-                disabled={submitting}
-                data-guide="ai-submit"
-              >
-                <MIcon name="send" size={16} />
-                {submitting ? t("AiApiPage.submitButtonSubmitting") : t("AiApiPage.submitButton")}
-              </button>
-            </div>
-          </div>
-        )}
-
         {/* ---- Tab: API Keys ---- */}
         {activeTab === "keys" && (
           <div className={styles.panel}>
-            <div className={styles.panelHeader}>
-              <h2 className={styles.panelTitle} data-guide="ai-keys-panel">{t("AiApiPage.keysPanelTitle")}</h2>
-              <p className={styles.panelDesc}>{t("AiApiPage.keysPanelDesc")}</p>
+            <div className={styles.panelHeaderRow}>
+              <div className={styles.panelHeader}>
+                <h2 className={styles.panelTitle} data-guide="ai-keys-panel">{t("AiApiPage.keysPanelTitle")}</h2>
+                <p className={styles.panelDesc}>{t("AiApiPage.keysPanelDesc")}</p>
+              </div>
+              <button
+                type="button"
+                className={styles.btnAddKey}
+                onClick={() => setShowApplyModal(true)}
+                data-guide="ai-add-key"
+              >
+                <MIcon name="add" size={16} />
+                {t("AiApiPage.addKeyButton")}
+              </button>
             </div>
             {loading ? (
               <LoadingState />
@@ -677,6 +872,25 @@ export default function AiApiPage() {
         {/* ---- Tab: 我的用量 ---- */}
         {activeTab === "usage" && <MyUsageTab />}
       </div>
+
+      {/* ── 新增金鑰彈窗 ── */}
+      {applyDialog.open && (
+        <ApplyKeyModal
+          closing={applyDialog.closing}
+          busy={submitting}
+          apiKeyName={apiKeyName}
+          onApiKeyNameChange={setApiKeyName}
+          purpose={purpose}
+          onPurposeChange={(value) => { setPurpose(value); setPurposeInvalid(false); }}
+          purposeInvalid={purposeInvalid}
+          purposeInputRef={purposeInputRef}
+          duration={duration}
+          onDurationChange={setDuration}
+          durationOptions={DURATION_OPTIONS}
+          onClose={() => setShowApplyModal(false)}
+          onSubmit={handleSubmit}
+        />
+      )}
     </div>
   );
 }

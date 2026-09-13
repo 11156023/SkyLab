@@ -142,6 +142,7 @@
 
 .table {
   @include table-base;
+  min-width: 960px;
 }
 
 .th {
