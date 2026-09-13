@@ -144,6 +144,20 @@ describe("ChatPanel", () => {
     expect(html).toContain('data-workflow-status="generating"');
     expect(html).toContain("spinning");
   });
+  test("附件逐項核查期間顯示階段文案，不偽造進度百分比", () => {
+    const html = renderToStaticMarkup(
+      <ChatPanel
+        messages={[]}
+        onSendMessage={() => {}}
+        isLoading
+        loadingText="正在拆解評分表並逐項核查…"
+        hasRubric
+      />,
+    );
+
+    expect(html).toContain("正在拆解評分表並逐項核查");
+    expect(html).not.toContain("%");
+  });
 });
 
 describe("CreateCheckDialog", () => {
@@ -190,6 +204,60 @@ describe("ProposalPanel", () => {
     expect(html).toContain("同意套用");
     expect(html).not.toContain("略過");
     expect(html).not.toContain("套用選取");
+  });
+
+  test("附件逐項結果依來源順序顯示，不可套用項目不提供勾選框", () => {
+    const itemResults = [
+      {
+        source_index: 1,
+        source_label: "第 1 列",
+        title: "確認 Python 版本",
+        status: "ready",
+        operation: { id: "item-attachment-1", operation: "add", title: "確認 Python 版本" },
+        missing_information: [],
+        detail: "",
+      },
+      {
+        source_index: 2,
+        source_label: "第 2 列",
+        title: "檢查 Port 8080",
+        status: "needs_information",
+        operation: null,
+        missing_information: ["要檢查的服務或連接埠範圍"],
+        detail: "",
+      },
+      {
+        source_index: 3,
+        source_label: "第 3 列",
+        title: "程式架構品質",
+        status: "teacher_review",
+        operation: { id: "item-attachment-3", operation: "add", title: "程式架構品質" },
+        missing_information: [],
+        detail: "",
+      },
+    ];
+
+    const html = renderToStaticMarkup(
+      <ProposalPanel
+        proposal={[
+          { id: "item-attachment-1", operation: "add", title: "確認 Python 版本" },
+          { id: "item-attachment-3", operation: "add", title: "程式架構品質" },
+        ]}
+        selectedIds={new Set(["item-attachment-1", "item-attachment-3"])}
+        onToggle={() => {}}
+        onApply={() => {}}
+        onSkip={() => {}}
+        disabled={false}
+        itemResults={itemResults}
+      />,
+    );
+
+    expect(html.indexOf("第 1 列")).toBeLessThan(html.indexOf("第 2 列"));
+    expect(html.indexOf("第 2 列")).toBeLessThan(html.indexOf("第 3 列"));
+    expect(html).toContain("缺少資訊");
+    expect(html).toContain("要檢查的服務或連接埠範圍");
+    expect(html.match(/type="checkbox"/g)).toHaveLength(2);
+    expect(html).toContain("同意套用");
   });
 });
 

@@ -39,7 +39,7 @@ from app.ai.teacher_judge.schemas import (
 from app.ai.teacher_judge.script_artifact_service import create_artifact
 from app.ai.teacher_judge.script_executor_service import execute_script_run
 from app.ai.teacher_judge.script_run_service import _run_to_public, create_script_run
-from app.ai.teacher_judge.service import chat_with_rubric
+from app.ai.teacher_judge.service import analyze_attachments_itemwise, chat_with_rubric
 from app.ai.teacher_judge.session_service import (
     bounded_history,
     clear_session_messages,
@@ -493,24 +493,49 @@ async def create_message(
             file.template_key if file else "linux",
             include_cross_template=True,
         )
-        chat_result = await chat_with_rubric(
-            bounded_history(
-                session,
-                item.id,
-                exclude_attachments_for_message_id=user_message.id,
-                summary=item.summary,
-                source_file_id=file.id if file else None,
-            ),
-            json.dumps(file.analysis_json, ensure_ascii=False) if file else "{}",
-            is_refine=payload.is_refine,
-            template_key=file.template_key if file else "linux",
-            template_commands=template_commands,
-            environment_keys=file.environment_keys if file else None,
-            attachment_context=attachment_context(attachments),
-            analysis_revision=base_revision,
-            rubric_available=file is not None,
+        rubric_context = (
+            json.dumps(file.analysis_json, ensure_ascii=False) if file else "{}"
         )
-        reply, proposal, metrics = chat_result
+        item_results: list[dict[str, object]] | None = None
+        conversation_focus: dict[str, object] | None = None
+        if attachments and not payload.is_refine:
+            # Attachment analysis runs itemwise: extract source rows first, then
+            # judge each row through the same isolated single-item chat core so
+            # one row's Ready reasoning cannot leak into the other rows.
+            itemwise = await analyze_attachments_itemwise(
+                teacher_message=payload.content.strip(),
+                rubric_context=rubric_context,
+                template_key=file.template_key if file else "linux",
+                template_commands=template_commands,
+                environment_keys=file.environment_keys if file else None,
+                attachment_context=attachment_context(attachments),
+                analysis_revision=base_revision,
+                rubric_available=file is not None,
+            )
+            reply, proposal, metrics = itemwise.reply, itemwise.proposal, itemwise.metrics
+            item_results = itemwise.item_results
+        else:
+            chat_result = await chat_with_rubric(
+                bounded_history(
+                    session,
+                    item.id,
+                    exclude_attachments_for_message_id=user_message.id,
+                    summary=item.summary,
+                    source_file_id=file.id if file else None,
+                ),
+                rubric_context,
+                is_refine=payload.is_refine,
+                template_key=file.template_key if file else "linux",
+                template_commands=template_commands,
+                environment_keys=file.environment_keys if file else None,
+                attachment_context=attachment_context(attachments),
+                analysis_revision=base_revision,
+                rubric_available=file is not None,
+            )
+            reply, proposal, metrics = chat_result
+            focus = getattr(chat_result, "conversation_focus", None)
+            if isinstance(focus, dict):
+                conversation_focus = focus
         # Without a selected rubric the conversation is general assistance only;
         # do not let an unconstrained model response create an unreviewed proposal.
         if file is None and proposal:
@@ -520,8 +545,9 @@ async def create_message(
             )
             proposal = None
         message_metadata: dict[str, object] = {"metrics": metrics}
-        conversation_focus = getattr(chat_result, "conversation_focus", None)
-        if isinstance(conversation_focus, dict):
+        if item_results is not None:
+            message_metadata["item_results"] = item_results
+        if conversation_focus is not None:
             message_metadata["conversation_focus"] = {
                 **conversation_focus,
                 "source_file_id": str(file.id) if file else None,

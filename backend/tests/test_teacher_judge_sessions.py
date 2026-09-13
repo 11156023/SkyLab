@@ -10,6 +10,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session, SQLModel, create_engine, select
 
 from app.ai.teacher_judge import attachment_service, file_service, session_service
+from app.ai.teacher_judge import service as teacher_judge_service
 from app.ai.teacher_judge.schemas import (
     TeacherJudgeRubricAnalysis,
     TeacherJudgeSessionCreateRequest,
@@ -543,13 +544,19 @@ async def test_message_can_send_parsed_attachment_without_text(
         file_bytes=b"# Requirements\nExpose port 8080.",
     )
 
-    async def fake_chat(messages, rubric_context, **kwargs):
-        assert messages[-1].content == ""
+    async def fake_itemwise(**kwargs):
         assert "requirements.md" in kwargs["attachment_context"]
         assert "port 8080" in kwargs["attachment_context"]
-        return "已讀取附件。", None, {}
+        return teacher_judge_service.TeacherJudgeItemwiseResult(
+            reply="這份附件中沒有辨識出可核查的評分列。",
+            proposal=None,
+            metrics={"total_tokens": 1},
+            item_results=[],
+        )
 
-    monkeypatch.setattr(teacher_judge_sessions, "chat_with_rubric", fake_chat)
+    monkeypatch.setattr(
+        teacher_judge_sessions, "analyze_attachments_itemwise", fake_itemwise
+    )
     monkeypatch.setattr(
         teacher_judge_sessions, "get_enabled_template_commands", lambda *args, **kwargs: []
     )
@@ -636,6 +643,108 @@ async def test_attachment_proposal_is_ephemeral_until_explicit_apply(
     db.refresh(rubric_file)
     assert rubric_file.analysis_revision == original_revision
     assert rubric_file.analysis_json == original_analysis
+
+
+@pytest.mark.asyncio
+async def test_attachment_message_runs_itemwise_analysis_and_records_results(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+) -> None:
+    db = _session()
+    class_id = uuid.uuid4()
+    rubric_file = _file(db, class_id)
+    item = TeacherJudgeSession(
+        teaching_class_id=class_id,
+        title="Itemwise attachment",
+        selected_file_id=rubric_file.id,
+    )
+    db.add(item)
+    db.commit()
+    db.refresh(item)
+    monkeypatch.setattr(teacher_judge_sessions, "_access", lambda *args: None)
+    monkeypatch.setattr(attachment_service, "ATTACHMENT_ROOT", tmp_path)
+    attachment = attachment_service.create_attachment(
+        db,
+        session_id=item.id,
+        uploaded_by=None,
+        filename="rubric.md",
+        media_type="text/markdown",
+        file_bytes="| 審查重點 |\n| 確認 Python 版本 |".encode(),
+    )
+    captured_kwargs = {}
+    original_revision = rubric_file.analysis_revision
+    ready_operation = {
+        "id": "item-attachment-1",
+        "operation": "add",
+        "title": "確認 Python 版本",
+        "description": "",
+        "checked": False,
+        "detectable": "auto",
+        "judgement_mode": "ai",
+        "detection_method": "執行 python --version。",
+        "missing_information": [],
+        "check_steps": [],
+        "fallback": None,
+    }
+
+    async def fake_itemwise(**kwargs):
+        captured_kwargs.update(kwargs)
+        return teacher_judge_service.TeacherJudgeItemwiseResult(
+            reply="已逐項核查附件中的 2 個項目。",
+            proposal=[ready_operation],
+            metrics={"total_tokens": 1},
+            item_results=[
+                {
+                    "source_index": 1,
+                    "source_label": "第 1 列",
+                    "title": "確認 Python 版本",
+                    "description": "",
+                    "status": "ready",
+                    "operation": ready_operation,
+                    "missing_information": [],
+                    "detail": "",
+                },
+                {
+                    "source_index": 2,
+                    "source_label": "第 2 列",
+                    "title": "Port 8080",
+                    "description": "",
+                    "status": "needs_information",
+                    "operation": None,
+                    "missing_information": ["連接埠"],
+                    "detail": "請補充 Port",
+                },
+            ],
+        )
+
+    monkeypatch.setattr(
+        teacher_judge_sessions, "analyze_attachments_itemwise", fake_itemwise
+    )
+    monkeypatch.setattr(
+        teacher_judge_sessions, "get_enabled_template_commands", lambda *a, **k: []
+    )
+
+    result = await teacher_judge_sessions.create_message(
+        class_id,
+        item.id,
+        TeacherJudgeSessionMessageCreateRequest(
+            content="幫我增加這些項目",
+            attachment_ids=[attachment.id],
+        ),
+        db,
+        SimpleNamespace(id=uuid.uuid4()),
+    )
+
+    assert captured_kwargs["rubric_available"] is True
+    assert captured_kwargs["analysis_revision"] == rubric_file.analysis_revision
+    assert captured_kwargs["teacher_message"] == "幫我增加這些項目"
+    assert result.rubric_proposal == [ready_operation]
+    item_results = result.assistant_message.metadata_json["item_results"]
+    assert [row["status"] for row in item_results] == ["ready", "needs_information"]
+    assert "rubric_proposal" not in result.assistant_message.metadata_json
+    assert result.assistant_message.message_type == "chat"
+    db.refresh(rubric_file)
+    assert rubric_file.analysis_revision == original_revision
 
 
 @pytest.mark.asyncio
