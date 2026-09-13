@@ -32,3 +32,34 @@ describe("AiApiService.listAllCredentials", () => {
     );
   });
 });
+
+describe("AiApiService 統一用量", () => {
+  beforeEach(() => {
+    apiGetMock.mockReset();
+    apiGetMock.mockResolvedValue({});
+  });
+
+  test("getMyUsage 帶上日期範圍查詢統一用量", async () => {
+    await AiApiService.getMyUsage({
+      start_date: "2026-09-01",
+      end_date: "2026-09-11",
+    });
+
+    expect(apiGetMock).toHaveBeenCalledWith(
+      "/api/v1/ai-api/usage/my?start_date=2026-09-01&end_date=2026-09-11",
+    );
+  });
+
+  test("getMyUsageRecords 帶上日期範圍與分頁條件", async () => {
+    await AiApiService.getMyUsageRecords({
+      start_date: "2026-09-01",
+      end_date: "2026-09-11",
+      skip: 20,
+      limit: 20,
+    });
+
+    expect(apiGetMock).toHaveBeenCalledWith(
+      "/api/v1/ai-api/usage/records/my?start_date=2026-09-01&end_date=2026-09-11&skip=20&limit=20",
+    );
+  });
+});

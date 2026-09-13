@@ -25,27 +25,17 @@ export const TEMPLATE_OPTIONS = [
 
 /** 正式工作區與獨立編輯頁共用的整表潤飾動作。 */
 export const RUBRIC_POLISH_PROMPT =
-  "請在不改變原始評分目標的前提下潤飾目前評分表：檢查每個項目的描述與成功條件，判斷後續自動檢測支援程度為 auto、partial 或 manual，並補充偵測方式、fallback 與 check_steps，讓下一層檢查 AI 能理解。即使內容不需修改，也請回傳完整評分項目列表，以完成這次可偵測性評估。將目前評分環境視為主要情境而非硬性範圍，逐項查找平台所有已啟用的受控檢查能力；若缺少工作目錄、執行命令或成功條件，請明確向我詢問，不要改成較容易但不同的檢查目標，也不要只因單一項目跨環境就要求切換整份評分表環境";
+  "請在不改變原始評分目標的前提下潤飾目前檢查表：檢查每個項目的描述與成功條件，將自動檢測支援狀態判定為 auto、partial 或 manual，並補充檢測方式、missing_information、fallback、check_steps 與必要 parameters，讓下一層檢查 AI 能理解。只有客觀判準、平台能力與完整執行資訊都具備時才能標為 auto；若缺少服務名稱、工作目錄、執行命令、Port 或成功條件，請標為 partial 並明確列出缺口，不要猜測。不要改成較容易但不同的檢查目標。即使內容不需修改，也請回傳完整評分項目列表。將目前評分環境視為主要情境而非硬性範圍，個別項目仍可使用平台其他已啟用的受控能力。";
 
 /** 評分項目異動後，重新判斷目前環境能自動檢查到什麼程度。 */
 export const RUBRIC_REASSESS_PROMPT =
-  "請在不改變原始評分目標的前提下重新評估各項目的可自動偵測程度，更新偵測分類、偵測方式、替代建議與評分計劃書。將目前評分環境視為主要情境，個別項目可使用平台其他已啟用的受控能力；若缺少工作目錄、執行命令或成功條件，請明確向我詢問，不要改成不同的檢查目標，也不要只因單一項目跨環境就要求切換整份評分表環境";
+  "請在不改變原始評分目標的前提下重新評估各項目的自動檢測支援狀態，更新檢測分類、檢測方式、缺少資訊、替代建議與評分計劃書。只有具備客觀判準、平台能力與完整執行資訊時才能標為能自動檢測；若缺少服務名稱、工作目錄、執行命令、Port 或成功條件，請明確向我詢問，不要猜測，也不要改成不同的檢查目標。將目前評分環境視為主要情境，個別項目仍可使用平台其他已啟用的受控能力。";
 
 export function getTemplateLabel(templateKey) {
   return (
     TEMPLATE_OPTIONS.find((option) => option.key === templateKey)?.label ??
     i18n.t("aiJudge.linuxTemplateLabel", { ns: "services" })
   );
-}
-
-/** 把 rubric 分析結果轉成 AI 對話用的 context 字串 */
-export function rubricToContext(analysis) {
-  return JSON.stringify({
-    items: analysis.items,
-    total_items: analysis.total_items,
-    checked_count: analysis.checked_count,
-    summary: analysis.summary,
-  });
 }
 
 /** refine action 的內部指令仍保留在 session 歷史，但不在教師聊天室呈現。 */
@@ -169,10 +159,14 @@ export const AiJudgeService = {
     );
   },
 
-  createSessionScript(classId, sessionId) {
+  createSessionScript(classId, sessionId, analysisRevision = null) {
+    const payload = {};
+    if (analysisRevision !== null && analysisRevision !== undefined) {
+      payload.analysis_revision = analysisRevision;
+    }
     return apiPost(
       `/api/v1/teaching-classes/${classId}/judge/sessions/${sessionId}/scripts`,
-      {},
+      payload,
       { timeoutMs: SCRIPT_GENERATION_TIMEOUT_MS },
     );
   },
@@ -196,34 +190,14 @@ export const AiJudgeService = {
     );
   },
 
-  /* ── 評分表文件 ── */
+  /* ── 檢查表文件 ── */
 
-  /** 列出班級已保存的評分表 */
+  /** 列出班級已保存的檢查表 */
   listFiles(classId) {
     return apiGet(`/api/v1/teaching-classes/${classId}/judge/files/`);
   },
 
-  /**
-   * 上傳評分表文件並觸發 AI 分析；environmentKeys 的第一項為主要情境。
-   * 同名檔案已存在時後端回 409，可帶 conflictStrategy（"overwrite" | "copy"）重送。
-   */
-  uploadFile(classId, file, templateKey, conflictStrategy, environmentKeys = null) {
-    const formData = new FormData();
-    formData.append("file", file);
-    formData.append("template_key", templateKey);
-    const selectedEnvironments = Array.isArray(environmentKeys) && environmentKeys.length
-      ? environmentKeys
-      : [templateKey];
-    selectedEnvironments.forEach((key) => formData.append("environment_keys", key));
-    if (conflictStrategy) formData.append("conflict_strategy", conflictStrategy);
-    return apiPostMultipart(
-      `/api/v1/teaching-classes/${classId}/judge/files/`,
-      formData,
-      { timeoutMs: TEACHER_JUDGE_REQUEST_TIMEOUT_MS },
-    );
-  },
-
-  /** 更新已保存評分表的分析結果（項目編輯後持久化） */
+  /** 更新已保存檢查表的分析結果（項目編輯後持久化） */
   updateFileAnalysis(classId, fileId, analysis, expectedRevision = null) {
     const payload = { analysis };
     if (expectedRevision !== null && expectedRevision !== undefined) {
@@ -235,45 +209,12 @@ export const AiJudgeService = {
     );
   },
 
-  updateFileMetadata(classId, fileId, metadata) {
-    return apiPatch(
-      `/api/v1/teaching-classes/${classId}/judge/files/${fileId}`,
-      metadata,
-    );
-  },
-
-  createBlankFile(classId, { displayName, environmentKeys }) {
-    return apiPost(`/api/v1/teaching-classes/${classId}/judge/files/blank`, {
-      display_name: displayName,
-      environment_keys: environmentKeys,
-    });
-  },
-
-  /** 下載評分表原始檔 */
+  /** 下載檢查表原始檔 */
   downloadFile(classId, fileId) {
     return apiGetBlob(`/api/v1/teaching-classes/${classId}/judge/files/${fileId}/download`);
   },
 
-  /** 刪除評分表（原始檔＋分析結果） */
-  deleteFile(classId, fileId) {
-    return apiDelete(`/api/v1/teaching-classes/${classId}/judge/files/${fileId}`);
-  },
-
-  /* ── AI 對話與匯出 ── */
-
-  /** 與 AI 對話精煉評分表；isRefine 為全表潤飾 */
-  chat({ messages, rubricContext, isRefine = false, templateKey = "linux" }) {
-    return apiPost(
-      "/api/v1/rubric/chat",
-      {
-        messages,
-        rubric_context: rubricContext,
-        is_refine: isRefine,
-        template_key: templateKey,
-      },
-      { timeoutMs: TEACHER_JUDGE_REQUEST_TIMEOUT_MS },
-    );
-  },
+  /* ── 匯出 ── */
 
   /** 將評分項目匯出成 Excel（回傳 Blob） */
   downloadExcel(items, summary) {
@@ -288,7 +229,7 @@ export const AiJudgeService = {
     return apiGet(`/api/v1/teaching-classes/${classId}/judge/scripts/${query}`);
   },
 
-  /** 由評分表快照產生受管收集腳本（後端會接著跑 policy 與 AI 審查） */
+  /** 由檢查表快照產生受管收集腳本（後端會接著跑 policy 與 AI 審查） */
   createScript(classId, { name, templateKey, rubricSnapshot, sourceFileId = null }) {
     return apiPost(
       `/api/v1/teaching-classes/${classId}/judge/scripts/`,

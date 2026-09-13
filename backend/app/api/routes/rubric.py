@@ -4,199 +4,26 @@ from __future__ import annotations
 
 import logging
 
-from fastapi import APIRouter, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, HTTPException
 from fastapi.responses import Response
 
-from app.ai.monitoring import (
-    CALL_TJ_CHAT,
-    CALL_TJ_RUBRIC,
-    record_ai_template_call,
-)
 from app.ai.teacher_judge.config import settings
 from app.ai.teacher_judge.export import export_to_excel
-from app.ai.teacher_judge.schemas import (
-    TeacherJudgeRubricChatRequest,
-    TeacherJudgeRubricChatResponse,
-    TeacherJudgeRubricExportRequest,
-    TeacherJudgeRubricUploadResponse,
-)
-from app.ai.teacher_judge.service import (
-    analyze_rubric,
-    chat_with_rubric,
-    normalize_items_for_export,
-)
-from app.ai.teacher_judge.template_command_service import (
-    SUPPORTED_TEMPLATE_KEYS,
-    get_enabled_template_commands,
-)
-from app.api.deps import SessionDep
+from app.ai.teacher_judge.schemas import TeacherJudgeRubricExportRequest
+from app.ai.teacher_judge.service import normalize_items_for_export
 from app.api.deps.auth import InstructorUser
 from app.core.i18n import t
-from app.services.rubric_parser import parse_document
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/rubric", tags=["rubric"])
 
 
-@router.post("/upload", response_model=TeacherJudgeRubricUploadResponse)
-async def upload_rubric(
-    current_user: InstructorUser,
-    session: SessionDep,
-    file: UploadFile = File(...),
-    template_key: str = Form(default="linux"),
-):
-    """
-    上傳評分表文件（.docx / .pdf），AI 解析並回傳結構化評分分析。
-
-    限制：Teacher / Admin 角色可使用。
-    """
-    filename = file.filename or "unknown"
-    allowed = {".docx", ".pdf"}
-    suffix = "." + filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
-    if suffix not in allowed:
-        raise HTTPException(
-            status_code=415,
-            detail=t(
-                "rubric.unsupportedFormat",
-                suffix=suffix,
-                allowed=", ".join(allowed),
-            ),
-        )
-
-    template_key = template_key.strip().lower() or "linux"
-    if template_key not in SUPPORTED_TEMPLATE_KEYS:
-        raise HTTPException(status_code=400, detail=t("rubric.unknownTemplate"))
-
-    file_bytes = await file.read()
-
-    # 檔案大小檢查
-    max_upload_size_bytes = settings.VLLM_MAX_UPLOAD_SIZE_MB * 1024 * 1024
-    file_size_mb = len(file_bytes) / (1024 * 1024)
-    if len(file_bytes) > max_upload_size_bytes:
-        raise HTTPException(
-            status_code=413,
-            detail=t(
-                "rubric.fileTooLarge",
-                file_size_mb=file_size_mb,
-                max_size_mb=settings.VLLM_MAX_UPLOAD_SIZE_MB,
-            ),
-        )
-
-    if not file_bytes:
-        raise HTTPException(status_code=400, detail=t("rubric.emptyFile"))
-
-    try:
-        raw_text = parse_document(filename, file_bytes)
-    except ValueError as exc:
-        raise HTTPException(status_code=415, detail=str(exc)) from exc
-
-    if not raw_text.strip():
-        raise HTTPException(
-            status_code=422,
-            detail=t("rubric.noTextExtracted"),
-        )
-
-    template_commands = get_enabled_template_commands(
-        session, template_key, include_cross_template=True
-    )
-
-    logger.info(f"User {current_user.email} uploaded rubric file: {filename}")
-
-    try:
-        analysis, metrics = await analyze_rubric(
-            raw_text,
-            template_key=template_key,
-            template_commands=template_commands,
-        )
-    except HTTPException as exc:
-        record_ai_template_call(
-            session=session,
-            user_id=current_user.id,
-            call_type=CALL_TJ_RUBRIC,
-            model_name=settings.VLLM_MODEL_NAME,
-            preset=template_key,
-            status="error",
-            error_message=str(exc.detail),
-        )
-        raise
-    record_ai_template_call(
-        session=session,
-        user_id=current_user.id,
-        call_type=CALL_TJ_RUBRIC,
-        model_name=settings.VLLM_MODEL_NAME,
-        preset=template_key,
-        metrics=metrics,
-    )
-    return {
-        "analysis": analysis.model_dump(),
-        "ai_metrics": metrics,
-        "template_key": template_key,
-    }
-
-
-@router.post("/chat", response_model=TeacherJudgeRubricChatResponse)
-async def chat(
-    current_user: InstructorUser,
-    session: SessionDep,
-    chat_request: TeacherJudgeRubricChatRequest,
-):
-    """
-    與 AI 對話，精煉評分表。
-
-    rubric_context 帶入目前評分表的 JSON 字串。
-    限制：Teacher / Admin 角色可使用。
-    """
-    template_key = chat_request.template_key.strip().lower() or "linux"
-    if template_key not in SUPPORTED_TEMPLATE_KEYS:
-        raise HTTPException(status_code=400, detail=t("rubric.unknownTemplate"))
-    template_commands = get_enabled_template_commands(
-        session, template_key, include_cross_template=True
-    )
-
-    try:
-        reply, updated_items, metrics = await chat_with_rubric(
-            chat_request.messages,
-            chat_request.rubric_context,
-            is_refine=chat_request.is_refine,
-            template_key=template_key,
-            template_commands=template_commands,
-        )
-    except HTTPException as exc:
-        record_ai_template_call(
-            session=session,
-            user_id=current_user.id,
-            call_type=CALL_TJ_CHAT,
-            model_name=settings.VLLM_MODEL_NAME,
-            preset=template_key,
-            status="error",
-            error_message=str(exc.detail),
-        )
-        raise
-    record_ai_template_call(
-        session=session,
-        user_id=current_user.id,
-        call_type=CALL_TJ_CHAT,
-        model_name=settings.VLLM_MODEL_NAME,
-        preset=template_key,
-        metrics=metrics,
-    )
-    return {
-        "reply": reply,
-        "updated_items": updated_items,  # None 或更新後的完整 item 列表
-        "prompt_tokens": metrics["prompt_tokens"],
-        "completion_tokens": metrics["completion_tokens"],
-        "total_tokens": metrics["total_tokens"],
-        "elapsed_seconds": metrics["elapsed_seconds"],
-        "tokens_per_second": metrics["tokens_per_second"],
-    }
-
-
 @router.post("/download-excel")
 async def download_excel(
     current_user: InstructorUser,
     payload: TeacherJudgeRubricExportRequest,
-):
+) -> Response:
     """
     接收評分項目列表，產出並回傳 .xlsx 檔案。
 
@@ -221,7 +48,7 @@ async def download_excel(
 
 
 @router.get("/health")
-async def health_check(_: InstructorUser):
+async def health_check(_: InstructorUser) -> dict[str, object]:
     """健康檢查端點（與其他 rubric 端點一致，僅老師/管理員可查）。"""
     return {
         "status": "ok",

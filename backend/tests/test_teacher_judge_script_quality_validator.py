@@ -470,8 +470,8 @@ def test_quality_validator_blocks_missing_metadata() -> None:
     )
 
 
-def test_quality_validator_blocks_generic_id_and_check_title() -> None:
-    _assert_blocked(
+def test_quality_validator_flags_generic_id_and_check_title_as_warnings() -> None:
+    result = _check(
         """
         import json
         import platform
@@ -529,10 +529,17 @@ def test_quality_validator_blocks_generic_id_and_check_title() -> None:
             )],
             "errors": [],
         }, ensure_ascii=False))
-        """,
-        "語意化",
-        "收集",
+        """
     )
+
+    assert result["approved"] is True
+    assert result["blocked"] is False
+    assert result["issues"] == []
+    warnings_text = "\n".join(result["warnings"])
+    assert "check-1" in warnings_text
+    assert "語意化穩定" in warnings_text
+    assert "檢查 Python 版本" in warnings_text
+    assert "收集語意" in warnings_text
 
 
 def test_quality_validator_blocks_warning_for_unknown_only_conditions() -> None:
@@ -765,6 +772,116 @@ def test_quality_validator_allows_minimal_compliant_script() -> None:
     assert result["approved"] is True
     assert result["blocked"] is False
     assert result["issues"] == []
+
+
+def test_quality_validator_allows_stdlib_only_script_without_command_helpers() -> None:
+    result = _check(
+        """
+        import json
+        import platform
+        from datetime import datetime, timezone
+        from pathlib import Path
+
+        def truncate_output(text: str, limit: int = 400) -> str:
+            return text[:limit]
+
+        def record_check(check_id: str, title: str, status: str, evidence: str, raw: str = "") -> dict[str, str]:
+            return {
+                "id": check_id,
+                "title": title,
+                "status": status,
+                "evidence": evidence,
+                "raw": truncate_output(raw),
+            }
+
+        checks = []
+        errors = []
+        entrypoint = Path("/home/student/main.py")
+        try:
+            exists = entrypoint.is_file()
+        except Exception as exc:
+            errors.append(f"homework.entrypoint_exists: 未預期錯誤: {str(exc)[:200]}")
+            checks.append(record_check(
+                "homework.entrypoint_exists",
+                "收集 main.py 存在狀態",
+                "unknown",
+                "無法確認檔案狀態",
+            ))
+        else:
+            status = "pass" if exists else "fail"
+            checks.append(record_check(
+                "homework.entrypoint_exists",
+                "收集 main.py 存在狀態",
+                status,
+                f"exists={exists}",
+            ))
+
+        print(json.dumps({
+            "schema_version": "teacher_judge_result.v1",
+            "metadata": {
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "platform": platform.platform(),
+            },
+            "summary": "collected",
+            "checks": checks,
+            "errors": errors,
+        }, ensure_ascii=False))
+        """
+    )
+
+    assert result["approved"] is True
+    assert result["blocked"] is False
+    assert result["issues"] == []
+    assert result["warnings"] == []
+
+
+def test_quality_validator_requires_command_helpers_when_subprocess_used() -> None:
+    _assert_blocked(
+        """
+        import json
+        import subprocess
+        import platform
+        from datetime import datetime, timezone
+
+        def truncate_output(text: str, limit: int = 400) -> str:
+            return text[:limit]
+
+        def record_check(check_id: str, title: str, status: str, evidence: str, raw: str = "") -> dict[str, str]:
+            return {
+                "id": check_id,
+                "title": title,
+                "status": status,
+                "evidence": evidence,
+                "raw": truncate_output(raw),
+            }
+
+        completed = subprocess.run(
+            ["python", "--version"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+            check=False,
+        )
+        checks = [record_check(
+            "runtime.python_version",
+            "收集 Python 版本",
+            "unknown",
+            "collected",
+        )]
+        print(json.dumps({
+            "schema_version": "teacher_judge_result.v1",
+            "metadata": {
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "platform": platform.platform(),
+            },
+            "summary": "collected",
+            "checks": checks,
+            "errors": [],
+        }, ensure_ascii=False))
+        """,
+        "run_command",
+        "command_available",
+    )
 
 
 # ── errors 記錄品質測試 ──
