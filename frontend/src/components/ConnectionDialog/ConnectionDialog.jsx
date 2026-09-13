@@ -594,16 +594,16 @@ export default function ConnectionDialog({
       className={`${styles.overlay} ${closing ? styles.overlayOut : ""}`}
       onMouseDown={(e) => e.target === e.currentTarget && onClose()}
     >
-      <div className={styles.dialog} role="dialog" aria-modal="true" aria-label={title}>
+      <div className={styles.dialog} role="dialog" aria-modal="true" aria-label={title} data-guide="connection-dialog">
         <div className={styles.dialogHeader}>
           <h2 className={styles.dialogTitle}>{title}</h2>
-          <button type="button" className={styles.closeBtn} onClick={onClose} aria-label={t("ConnectionDialog.cancel")}>
+          <button type="button" className={styles.closeBtn} onClick={onClose} aria-label={t("ConnectionDialog.cancel")} data-guide="connection-dialog-close">
             <MIcon name="close" size={20} />
           </button>
         </div>
 
         {!editing && (
-          <div className={styles.tabs} role="tablist">
+          <div className={styles.tabs} role="tablist" data-guide="connection-dialog-tabs">
             <button
               type="button" role="tab" aria-selected={tab === "connection"}
               className={`${styles.tab} ${tab === "connection" ? styles.tabActive : ""}`}
@@ -633,7 +633,7 @@ export default function ConnectionDialog({
               <p className={styles.tabDesc}>{t("ConnectionDialog.tabConnectionDesc")}</p>
 
               {/* 來源 ⇄ 目標 */}
-              <div className={styles.nodeRow}>
+              <div className={styles.nodeRow} data-guide="connection-dialog-endpoints">
                 {endSelect(t("ConnectionDialog.source"), sourceKey, pickSource)}
                 <button
                   type="button"
@@ -887,7 +887,7 @@ export default function ConnectionDialog({
 
           {error && <p className={styles.errorMsg}>{error}</p>}
 
-          <div className={styles.actions}>
+          <div className={styles.actions} data-guide="connection-dialog-actions">
             <button type="button" className={styles.cancelBtn} onClick={onClose} disabled={submitting}>
               {t("ConnectionDialog.cancel")}
             </button>

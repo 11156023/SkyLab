@@ -57,18 +57,18 @@ function ConfigModal({ config, loading, closing = false, onClose, onSubmit }) {
       className={`${styles.modalOverlay} ${closing ? styles.modalOverlayOut : ""}`}
       onMouseDown={onClose}
     >
-      <form className={styles.modal} onSubmit={submit} onMouseDown={(e) => e.stopPropagation()}>
+      <form className={styles.modal} onSubmit={submit} onMouseDown={(e) => e.stopPropagation()} data-guide="domain-config-form">
         <div className={styles.modalHeader}>
           <div>
             <h2>{t("DomainPage.configModalTitle")}</h2>
             <p>{t("DomainPage.configModalDesc")}</p>
           </div>
-          <button type="button" className={styles.iconBtn} onClick={onClose} aria-label={t("DomainPage.close")}>
+          <button type="button" className={styles.iconBtn} onClick={onClose} aria-label={t("DomainPage.close")} data-guide="domain-modal-close">
             <MIcon name="close" size={18} />
           </button>
         </div>
 
-        <label className={styles.field}>
+        <label className={styles.field} data-guide="domain-config-credentials">
           <span>Account ID</span>
           <input
             value={form.account_id}
@@ -159,13 +159,13 @@ function RecordModal({ record, loading, closing = false, onClose, onSubmit }) {
       className={`${styles.modalOverlay} ${closing ? styles.modalOverlayOut : ""}`}
       onMouseDown={onClose}
     >
-      <form className={styles.modal} onSubmit={submit} onMouseDown={(e) => e.stopPropagation()}>
+      <form className={styles.modal} onSubmit={submit} onMouseDown={(e) => e.stopPropagation()} data-guide="domain-record-form">
         <div className={styles.modalHeader}>
           <div>
             <h2>{isEdit ? t("DomainPage.recordModalEditTitle") : t("DomainPage.recordModalCreateTitle")}</h2>
             <p>{t("DomainPage.ttlHint")}</p>
           </div>
-          <button type="button" className={styles.iconBtn} onClick={onClose} aria-label={t("DomainPage.close")}>
+          <button type="button" className={styles.iconBtn} onClick={onClose} aria-label={t("DomainPage.close")} data-guide="domain-modal-close">
             <MIcon name="close" size={18} />
           </button>
         </div>
@@ -399,7 +399,7 @@ export default function DomainPage() {
             <MIcon name="wifi_tethering" size={16} />
             {testing ? t("DomainPage.testing") : t("DomainPage.testConnection")}
           </button>
-          <button type="button" className={styles.btnPrimary} onClick={() => setModal({ kind: "config" })}>
+          <button type="button" className={styles.btnPrimary} onClick={() => setModal({ kind: "config" })} data-guide="domain-settings-open">
             <MIcon name="settings" size={16} />
             {t("DomainPage.connectionSettings")}
           </button>
@@ -419,7 +419,7 @@ export default function DomainPage() {
         </div>
       )}
 
-      <div className={styles.tabs}>
+      <div className={styles.tabs} data-guide="domain-tabs">
         <button
           type="button"
           className={`${styles.tab} ${activeTab === "dns" ? styles.tabActive : ""}`}
@@ -495,6 +495,7 @@ export default function DomainPage() {
                 className={styles.btnPrimary}
                 onClick={() => setModal({ kind: "record" })}
                 disabled={!selectedZone}
+                data-guide="domain-record-open"
               >
                 <MIcon name="add" size={16} />
                 {t("DomainPage.addRecord")}

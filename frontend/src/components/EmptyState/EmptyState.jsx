@@ -21,7 +21,7 @@ export default function EmptyState({
   className,
 }) {
   return (
-    <div className={`${styles.empty}${className ? ` ${className}` : ""}`}>
+    <div className={`${styles.empty}${className ? ` ${className}` : ""}`} data-empty-state="true">
       {icon && <MIcon name={icon} size={iconSize} className={styles.icon} />}
       {title && <p className={styles.title}>{title}</p>}
       {description && <p className={styles.description}>{description}</p>}

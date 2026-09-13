@@ -6,7 +6,7 @@ import styles from "./PageHeader.module.scss";
  */
 export default function PageHeader({ eyebrow, title, subtitle, leading, children }) {
   const heading = (
-    <div className={styles.pageHeading}>
+    <div className={styles.pageHeading} data-page-guide="header">
       {eyebrow && <p className={styles.eyebrow}>{eyebrow}</p>}
       <h1 className={styles.pageTitle}>{title}</h1>
       {subtitle && (
@@ -29,7 +29,7 @@ export default function PageHeader({ eyebrow, title, subtitle, leading, children
       ) : (
         heading
       )}
-      {children}
+      {children && <div className={styles.pageActions} data-page-guide="actions">{children}</div>}
     </div>
   );
 }

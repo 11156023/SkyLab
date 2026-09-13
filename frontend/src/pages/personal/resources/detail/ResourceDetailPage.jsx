@@ -29,11 +29,16 @@ export default function ResourceDetailPage({ backTo = "/my-resources" }) {
   const { t } = useTranslation("personal");
   const navigate = useNavigate();
   const params = useParams();
-  const vmid = Number.parseInt(params.vmid, 10);
+  const isGuideDemo = params.vmid === "demo";
+  const vmid = isGuideDemo ? 100 : Number.parseInt(params.vmid, 10);
   const [tab, setTab] = useState("overview");
   const [access, setAccess] = useState(null); // { access_role, can_manage, owner_email }
 
   useEffect(() => {
+    if (isGuideDemo) {
+      setAccess({ access_role: "owner", can_manage: true, owner_email: null });
+      return undefined;
+    }
     let cancelled = false;
     ResourcesService.get(vmid)
       .then((r) => !cancelled && setAccess({
@@ -43,7 +48,7 @@ export default function ResourceDetailPage({ backTo = "/my-resources" }) {
       }))
       .catch(() => !cancelled && setAccess({ access_role: "owner", can_manage: true, owner_email: null }));
     return () => { cancelled = true; };
-  }, [vmid]);
+  }, [isGuideDemo, vmid]);
 
   const isShared = access?.access_role === "shared";
   const visibleTabs = TABS.filter((tabDef) => !isShared || tabDef.sharedOnly);
@@ -61,8 +66,15 @@ export default function ResourceDetailPage({ backTo = "/my-resources" }) {
             <MIcon name="arrow_back" size={20} />
           </button>
         }
-        title={<>{t("ResourceDetailPage.title")} <span className={styles.vmidText}>#{vmid}</span></>}
+        title={<>{t("ResourceDetailPage.title")} <span className={styles.vmidText}>#{isGuideDemo ? "DEMO" : vmid}</span></>}
       />
+
+      {isGuideDemo && (
+        <div className={styles.demoNotice}>
+          <MIcon name="visibility" size={17} />
+          <span><strong>{t("ResourceDetailPage.guideDemoTitle")}</strong>{t("ResourceDetailPage.guideDemoDesc")}</span>
+        </div>
+      )}
 
       {isShared && (
         <p className={styles.rpHint}>
@@ -71,13 +83,15 @@ export default function ResourceDetailPage({ backTo = "/my-resources" }) {
         </p>
       )}
 
-      <div className={styles.tabs}>
+      <div className={styles.tabs} data-guide="resource-detail-tabs">
         {visibleTabs.map((tabDef) => (
           <button
             key={tabDef.key}
             type="button"
             className={`${styles.tab} ${tab === tabDef.key ? styles.tabActive : ""}`}
             onClick={() => setTab(tabDef.key)}
+            data-guide-tab={`resource-${tabDef.key}`}
+            aria-selected={tab === tabDef.key}
           >
             <MIcon name={tabDef.icon} size={16} />
             {t(tabDef.labelKey)}
@@ -85,14 +99,67 @@ export default function ResourceDetailPage({ backTo = "/my-resources" }) {
         ))}
       </div>
 
-      <div className={styles.content}>
-        {tab === "overview"       && <OverviewTab vmid={vmid} />}
-        {tab === "monitoring"     && <MonitoringTab vmid={vmid} />}
-        {tab === "specifications" && <SpecificationsTab vmid={vmid} />}
-        {tab === "snapshots"      && <SnapshotsTab vmid={vmid} />}
-        {tab === "auditLogs"      && <AuditLogsTab vmid={vmid} />}
-        {tab === "advanced"       && <AdvancedSettingsTab vmid={vmid} backTo={backTo} />}
+      <div className={styles.content} data-guide={`resource-detail-${tab}`}>
+        {isGuideDemo ? <ResourceDetailGuideDemo tab={tab} /> : (
+          <>
+            {tab === "overview"       && <OverviewTab vmid={vmid} />}
+            {tab === "monitoring"     && <MonitoringTab vmid={vmid} />}
+            {tab === "specifications" && <SpecificationsTab vmid={vmid} />}
+            {tab === "snapshots"      && <SnapshotsTab vmid={vmid} />}
+            {tab === "auditLogs"      && <AuditLogsTab vmid={vmid} />}
+            {tab === "advanced"       && <AdvancedSettingsTab vmid={vmid} backTo={backTo} />}
+          </>
+        )}
       </div>
+    </div>
+  );
+}
+
+function DemoCard({ guide, icon, title, children }) {
+  return (
+    <section className={styles.card} data-guide={guide}>
+      <div className={styles.cardHeader}>
+        <h2 className={styles.cardTitle}><MIcon name={icon} size={18} />{title}</h2>
+      </div>
+      <div className={styles.cardBody}>{children}</div>
+    </section>
+  );
+}
+
+function ResourceDetailGuideDemo({ tab }) {
+  const { t } = useTranslation("personal");
+
+  if (tab === "overview") return (
+    <div className={styles.tabStack}>
+      <DemoCard icon="dns" title="demo-web-01"><div className={styles.demoFacts}><span><small>Status</small><strong className={styles.demoSuccess}>Running</strong></span><span><small>IP</small><strong>10.20.0.24</strong></span><span><small>CPU</small><strong>2 cores</strong></span><span><small>RAM</small><strong>4 GB</strong></span></div></DemoCard>
+      <DemoCard icon="terminal" title={t("ResourceDetailPage.guideDemoAccessTitle")}><p className={styles.demoText}>SSH · ssh student@10.20.0.24</p></DemoCard>
+    </div>
+  );
+
+  if (tab === "monitoring") return (
+    <DemoCard icon="monitor_heart" title={t("ResourceDetailPage.tabMonitoring")}><div className={styles.demoMeters}>{[["CPU", "36%"], ["RAM", "58%"], ["Disk", "42%"]].map(([label, value]) => <div key={label}><span>{label}<strong>{value}</strong></span><i><b style={{ width: value }} /></i></div>)}</div></DemoCard>
+  );
+
+  if (tab === "specifications") return (
+    <DemoCard icon="tune" title={t("ResourceDetailPage.tabSpecifications")}><div className={styles.demoSpecs}>{[["CPU", "2 cores", 30], ["RAM", "4 GB", 45], ["Disk", "40 GB", 62]].map(([label, value, rangeValue]) => <label key={label}><span>{label}<strong>{value}</strong></span><input type="range" value={rangeValue} readOnly /></label>)}</div></DemoCard>
+  );
+
+  if (tab === "snapshots") return (
+    <DemoCard icon="photo_camera" title={t("ResourceDetailPage.tabSnapshots")}><div className={styles.demoSnapshot}><MIcon name="history" size={18} /><span><strong>before-upgrade</strong><small>2026/09/10 14:30 · Ready to restore</small></span><button type="button">Restore</button></div></DemoCard>
+  );
+
+  if (tab === "auditLogs") return (
+    <DemoCard icon="receipt_long" title={t("ResourceDetailPage.tabAuditLogs")}><div className={styles.demoAudit}><span>14:32</span><strong>VM started</strong><small>student@example.edu</small><span>13:58</span><strong>Firewall rule updated</strong><small>student@example.edu</small></div></DemoCard>
+  );
+
+  return (
+    <div className={styles.tabStack}>
+      <DemoCard guide="resource-setting-lifecycle" icon="event" title={t("ResourceDetailPage.guideDemoLifecycle")}><p className={styles.demoText}>{t("ResourceDetailPage.guideDemoLifecycleDesc")}</p></DemoCard>
+      <DemoCard guide="resource-setting-firewall" icon="security" title={t("ResourceDetailPage.guideDemoFirewall")}><p className={styles.demoText}>TCP 22 · TCP 80/443</p></DemoCard>
+      <DemoCard guide="resource-setting-boot" icon="power_settings_new" title={t("ResourceDetailPage.guideDemoBoot")}><p className={styles.demoText}>Disk → Network → ISO</p></DemoCard>
+      <DemoCard guide="resource-setting-credentials" icon="key" title={t("ResourceDetailPage.guideDemoCredentials")}><p className={styles.demoText}>{t("ResourceDetailPage.guideDemoCredentialsDesc")}</p></DemoCard>
+      <DemoCard guide="resource-setting-metadata" icon="label" title={t("ResourceDetailPage.guideDemoMetadata")}><p className={styles.demoText}>course · web · team-a</p></DemoCard>
+      <DemoCard guide="resource-setting-sharing" icon="group" title={t("ResourceDetailPage.guideDemoSharing")}><p className={styles.demoText}>{t("ResourceDetailPage.guideDemoSharingDesc")}</p></DemoCard>
     </div>
   );
 }

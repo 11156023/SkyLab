@@ -53,6 +53,7 @@ const toDialogKey = (nodeId) => (nodeId === GATEWAY_KEY ? "internet" : String(no
 /* ─── 主頁面 ─────────────────────────────────────────────── */
 export default function FirewallPage() {
   const { t } = useTranslation("network");
+  const [guideActive, setGuideActive] = useState(false);
   const { theme } = useTheme();
   const toast = useToast();
   const [nodes, setNodes, onNodesChange] = useNodesState([]);
@@ -72,6 +73,12 @@ export default function FirewallPage() {
   const rulesPanel    = useDialogPresence(selectedNode, 220);
   const rfInstance = useRef(null);
   const saveTimer  = useRef(null);
+
+  useEffect(() => {
+    const handleGuideState = (event) => setGuideActive(Boolean(event.detail?.open && event.detail?.id === "firewall"));
+    window.addEventListener("skylab:user-guide-state", handleGuideState);
+    return () => window.removeEventListener("skylab:user-guide-state", handleGuideState);
+  }, []);
 
   /* ── 刪除邊回呼 ── */
   const handleDeleteEdge = useCallback((edge) => setDeleteEdge(edge), []);
@@ -255,6 +262,21 @@ export default function FirewallPage() {
 
         {!loading && !error && topology && (
           <div className={styles.flowWrap} data-guide="firewall-map">
+            {guideActive && nodes.length === 0 && (
+              <div className={styles.guideTopologyDemo} aria-label={t("FirewallPage.guideDemoAriaLabel")}>
+                <div className={`${styles.guideDemoNode} ${styles.guideDemoNodeA}`}>
+                  <span className={styles.guideDemoHandleIn} data-firewall-handle="target" />
+                  <MIcon name="terminal" size={23} /><strong>demo-web-01</strong><small>10.20.0.24</small>
+                  <span className={styles.guideDemoHandleOut} data-firewall-handle="source" data-guide="firewall-drag-start" />
+                </div>
+                <div className={`${styles.guideDemoNode} ${styles.guideDemoNodeB}`}>
+                  <span className={styles.guideDemoHandleIn} data-firewall-handle="target" data-guide="firewall-drag-end" />
+                  <MIcon name="storage" size={23} /><strong>demo-db-01</strong><small>10.20.0.31</small>
+                  <span className={styles.guideDemoHandleOut} data-firewall-handle="source" />
+                </div>
+                <span className={styles.guideDemoBadge}>{t("FirewallPage.guideDemoBadge")}</span>
+              </div>
+            )}
             <ReactFlow
               nodes={nodes}
               edges={edges}

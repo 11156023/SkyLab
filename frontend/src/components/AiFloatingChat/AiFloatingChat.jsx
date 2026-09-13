@@ -706,7 +706,7 @@ export default function AiFloatingChat({ open = false, onOpenChange = () => {} }
       )}
 
       {presence.open && (
-        <aside className={`${styles.panel} ${presence.closing ? styles.panelOut : ""}`} aria-label={t("AiFloatingChat.assistantName")}>
+        <aside className={`${styles.panel} ${presence.closing ? styles.panelOut : ""}`} aria-label={t("AiFloatingChat.assistantName")} data-guide="request-ai-helper-panel">
           <header className={styles.header}>
             <div className={styles.headerText}>
               <strong>{t("AiFloatingChat.assistantName")}</strong>
@@ -797,7 +797,7 @@ export default function AiFloatingChat({ open = false, onOpenChange = () => {} }
       )}
 
       {!presence.open && (
-        <button type="button" className={styles.fab} onClick={() => onOpenChange(true)} title={t("AiFloatingChat.assistantName")} aria-label={t("AiFloatingChat.openAssistantAriaLabel")}>
+        <button type="button" className={styles.fab} onClick={() => onOpenChange(true)} title={t("AiFloatingChat.assistantName")} aria-label={t("AiFloatingChat.openAssistantAriaLabel")} data-guide="request-ai-helper-button">
           <MIcon name="smart_toy" size={22} />
         </button>
       )}

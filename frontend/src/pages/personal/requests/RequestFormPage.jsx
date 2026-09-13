@@ -1038,7 +1038,7 @@ export default function RequestFormPage({ onBack, className, initialPrefill = nu
             )}
 
             {/* ── 資源設定（型別由作業系統選擇 + 規則引擎自動決定，學生免選 QEMU/LXC） ── */}
-            <div className={styles.formSection}>
+            <div className={styles.formSection} data-guide="request-resource-settings">
               <h2 className={styles.sectionTitle}>{t("RequestFormPage.resourceSettingsTitle")}</h2>
 
               <p className={styles.adviceBox}>
@@ -1179,7 +1179,7 @@ export default function RequestFormPage({ onBack, className, initialPrefill = nu
             </div>
 
             {/* ── 硬體資源配置 ── */}
-            <div className={styles.formSection}>
+            <div className={styles.formSection} data-guide="request-hardware">
               <h2 className={styles.sectionTitle}>{t("RequestFormPage.hardwareConfigTitle")}</h2>
 
               {selectedCatalogItem && (
@@ -1315,7 +1315,7 @@ export default function RequestFormPage({ onBack, className, initialPrefill = nu
             )}
 
             {/* ── 租借時段 ── */}
-            <div className={styles.formSection}>
+            <div className={styles.formSection} data-guide="request-schedule">
               <div className={styles.sectionTitleRow}>
                 <h2 className={styles.sectionTitle}>
                   {mode === "immediate" ? t("RequestFormPage.immediateModeSettingsTitle") : t("RequestFormPage.scheduleTitle")}
@@ -1407,7 +1407,7 @@ export default function RequestFormPage({ onBack, className, initialPrefill = nu
             </div>
 
             {/* ── 申請原因 ── */}
-            <div className={styles.formSection}>
+            <div className={styles.formSection} data-guide="request-reason">
               <h2 className={styles.sectionTitle}>{t("RequestFormPage.reasonTitle")}<span className={styles.required}> *</span></h2>
               <FieldGroup error={errors.reason} name="reason">
                 <textarea
@@ -1422,7 +1422,7 @@ export default function RequestFormPage({ onBack, className, initialPrefill = nu
 
           </form>
 
-          <div className={styles.formActions}>
+          <div className={styles.formActions} data-guide="request-submit">
             <button type="button" className={styles.btnSecondary} onClick={handleBack}>
               {t("RequestFormPage.cancel")}
             </button>
@@ -1442,7 +1442,7 @@ export default function RequestFormPage({ onBack, className, initialPrefill = nu
         </div>
 
         {/* Desktop 右側面板（摘要 + AI）*/}
-        <div className={styles.rightPanel}>
+        <div className={styles.rightPanel} data-guide="request-summary">
           <div className={styles.summaryBody}>
               {/* Type / mode chips */}
               <div className={styles.summaryChips}>
