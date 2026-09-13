@@ -30,7 +30,6 @@
   "AiApiPage.deleteError": "Delete failed",
   "AiApiPage.renameSuccess": "Name updated",
   "AiApiPage.renameError": "Update failed",
-  "AiApiPage.metaPrefix": "Prefix: {{value}}",
   "AiApiPage.metaCreated": "Created: {{value}}",
   "AiApiPage.metaExpiry": "Expires: {{value}}",
   "AiApiPage.metaRevoked": "Revoked: {{value}}",
