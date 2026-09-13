@@ -17,9 +17,9 @@ from app.core.i18n import t
 
 
 class TeacherJudgeRubricCheckStep(BaseModel):
-    """評分計劃書中的 command catalog 引用。"""
+    """檢查計劃中的 command catalog 引用。"""
 
-    template_key: str = Field(..., description="評分環境 template key")
+    template_key: str = Field(..., description="檢查環境 template key")
     command_key: str = Field(..., description="template command catalog 的穩定 ID")
     command_label: str | None = Field(
         default=None,
@@ -32,19 +32,19 @@ class TeacherJudgeRubricCheckStep(BaseModel):
 
 
 class TeacherJudgeRubricItem(BaseModel):
-    """單一評分項目。"""
+    """單一檢查項目。"""
 
-    id: str = Field(..., description="評分項目唯一 ID")
-    title: str = Field(..., description="評分項目名稱")
-    description: str = Field(default="", description="評分說明")
-    checked: bool = Field(default=False, description="是否已達成（有做到就打勾）")
+    id: str = Field(..., description="檢查項目唯一 ID")
+    title: str = Field(..., description="檢查項目名稱")
+    description: str = Field(default="", description="檢查說明")
+    checked: bool = Field(default=False, description="是否已確認")
     detectable: Literal["auto", "partial", "manual"] = Field(
         default="manual",
         description="腳本取證支援：auto=可執行取證、partial=缺少資訊、manual=不支援",
     )
     judgement_mode: Literal["ai", "teacher"] = Field(
         default="ai",
-        description="結果判定方式：ai=AI 自動判斷、teacher=導師依腳本證據人工審核",
+        description="結果核對方式：ai=系統自動核對、teacher=導師依腳本證據核查",
     )
     detection_method: str | None = Field(
         default=None,
@@ -65,7 +65,7 @@ class TeacherJudgeRubricItem(BaseModel):
 
 
 class TeacherJudgeRubricAnalysis(BaseModel):
-    """AI 分析檢查表後的結構化結果。"""
+    """AI 核對檢查表後的結構化結果。"""
 
     items: list[TeacherJudgeRubricItem] = Field(default_factory=list)
     total_items: int = Field(default=0)
@@ -75,11 +75,11 @@ class TeacherJudgeRubricAnalysis(BaseModel):
     manual_count: int = Field(default=0)
     detectability_needs_review: bool = Field(
         default=False,
-        description="評分項目異動後，既有腳本取證支援是否需要重新評估。",
+        description="檢查項目異動後，既有證據收集支援是否需要重新核查。",
     )
     pending_review_item_ids: list[str] = Field(
         default_factory=list,
-        description="尚未重新確認腳本取證支援的評分項目 ID。",
+        description="尚未重新確認證據收集支援的檢查項目 ID。",
     )
     summary: str = Field(default="", description="AI 整體說明（繁體中文）")
 

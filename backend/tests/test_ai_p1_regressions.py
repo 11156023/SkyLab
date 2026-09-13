@@ -24,7 +24,6 @@ from app.ai.teacher_judge import service
 from app.ai.teacher_judge.prompt import (
     CHAT_SYSTEM_TEMPLATE,
     SITUATION_NORMAL,
-    TEACHER_REPLY_REWRITE_SYSTEM_PROMPT,
 )
 from app.ai.teacher_judge.schemas import TeacherJudgeRubricChatMessage
 from app.models.teacher_judge_script_artifact import (
@@ -49,7 +48,6 @@ def test_navigation_json_handles_braces_inside_strings(value):
     "prompt",
     [
         CHAT_SYSTEM_TEMPLATE,
-        TEACHER_REPLY_REWRITE_SYSTEM_PROMPT,
         artifacts.AI_REVIEWER_SYSTEM_PROMPT,
     ],
 )
@@ -64,7 +62,7 @@ def test_teacher_judge_chat_prompt_is_scoped_and_clarifies_missing_information()
     assert "只詢問最少且具體的問題" in CHAT_SYSTEM_TEMPLATE
     assert "不得猜測後繼續" in CHAT_SYSTEM_TEMPLATE
     assert "不要補充未詢問的" in CHAT_SYSTEM_TEMPLATE
-    assert "只協助老師規劃、新增或調整評分項目" in CHAT_SYSTEM_TEMPLATE
+    assert "只協助老師規劃、新增或調整檢查項目" in CHAT_SYSTEM_TEMPLATE
     assert "不會當場連線學生環境、讀取檔案或執行指令" in CHAT_SYSTEM_TEMPLATE
     assert "不是提案白名單" in CHAT_SYSTEM_TEMPLATE
     assert "不得只因沒有專用 `command_key` 就拒絕提案" in CHAT_SYSTEM_TEMPLATE
@@ -90,7 +88,7 @@ def test_teacher_judge_chat_prompt_is_scoped_and_clarifies_missing_information()
     assert "兩者只能選符合本項設定的一種" in CHAT_SYSTEM_TEMPLATE
     assert "不得含糊寫成「由 AI 或導師判斷」" in CHAT_SYSTEM_TEMPLATE
     assert "補充後，我會重新確認並建立提案給你查看" in CHAT_SYSTEM_TEMPLATE
-    assert "才呼叫 `get_current_rubric`" in CHAT_SYSTEM_TEMPLATE
+    assert "才呼叫 `get_current_checklist`" in CHAT_SYSTEM_TEMPLATE
     assert "全新、與既有項目無關" in CHAT_SYSTEM_TEMPLATE
     assert "只回傳本輪要預覽的新增、修改或刪除操作" in CHAT_SYSTEM_TEMPLATE
     assert "{rubric_context}" not in CHAT_SYSTEM_TEMPLATE
@@ -100,46 +98,10 @@ def test_teacher_judge_chat_prompt_is_scoped_and_clarifies_missing_information()
     assert "你覺得...如何" not in SITUATION_NORMAL
 
 
-@pytest.mark.parametrize(
-    ("reply", "expected"),
-    [
-        ("已為您規劃評分項目，該需求已準備就緒。", True),
-        ("需求 Ready。", True),
-        ("目前尚未準備就緒，請補充檔案位置。", False),
-        ("已說明可用能力，沒有建立提案。", False),
-    ],
-)
-def test_ready_proposal_claim_compatibility_fallback(reply: str, expected: bool) -> None:
-    assert service._reply_claims_ready_proposal(reply) is expected
-
-
 def test_structured_proposal_status_overrides_reply_wording() -> None:
     assert service._proposal_status_claims_ready("ready", "尚未準備就緒") is True
     assert service._proposal_status_claims_ready("needs_information", "Ready") is False
-
-
-@pytest.mark.asyncio
-async def test_teacher_reply_rewrite_uses_fallback_when_ai_is_unavailable(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    async def unavailable(*args, **kwargs):
-        raise HTTPException(status_code=504, detail="synthetic timeout")
-
-    monkeypatch.setattr(service, "_call_vllm", unavailable)
-    fallback = "關於「檢查 answer.txt 內容」，還需要確認怎樣才算通過。"
-
-    reply, metrics = await service._rewrite_teacher_reply(
-        facts={
-            "outcome": "needs_information",
-            "proposal_created": False,
-            "items": [{"title": "檢查 answer.txt 內容"}],
-            "next_step": "請老師補充預期結果",
-        },
-        fallback=fallback,
-    )
-
-    assert reply == fallback
-    assert metrics is None
+    assert service._proposal_status_claims_ready(None, "Ready") is False
 
 
 def test_proposal_repair_instruction_explains_invalid_step_to_model_only() -> None:
@@ -550,10 +512,9 @@ async def test_teacher_judge_does_not_keep_false_ready_reply_after_failed_repair
         template_commands=[],
     )
 
-    assert len(calls) == 4
+    assert len(calls) == 2
     assert proposal is None
-    assert "關於「檔案格式檢查」，我還不知道檔案放在哪裡" in reply
-    assert "請提供完整路徑，或工作目錄和相對路徑" in reply
+    assert "檔案格式檢查" in reply
     assert "已放入提案" not in reply
 
 
@@ -620,9 +581,9 @@ async def test_teacher_judge_recovers_read_file_alias_as_generic_command(
         template_commands=[command],
     )
 
-    assert call_count == 2
+    assert call_count == 1
     assert proposal is not None
-    assert "確認 answer.txt 內容格式" in reply
+    assert "answer.txt 內容格式" in reply
     assert proposal[0]["operation"] == "add"
     assert proposal[0]["check_steps"] == [
         {
@@ -706,7 +667,7 @@ async def test_teacher_judge_summary_uses_dedicated_low_budget_prompt(monkeypatc
     assert metrics == {}
     assert payload["max_tokens"] <= 768
     assert "response_format" not in payload
-    assert "不要新增、刪除或修改任何評分項目" in payload["messages"][0]["content"]
+    assert "不要新增、刪除或修改任何檢查項目" in payload["messages"][0]["content"]
     assert "舊方向" in payload["messages"][1]["content"]
     assert payload["messages"][-1]["role"] == "user"
 
@@ -898,7 +859,8 @@ async def test_valid_judgement_accepts_different_rubric_and_check_ids(monkeypatc
 
     monkeypatch.setattr(analysis, "_call_vllm", fake_call)
     result = await analysis._call_ai_judgement(_analysis_payload())
-    assert result["score"] == 5
+    assert "score" not in result
+    assert "max_score" not in result
     assert result["item_judgements"][0]["evidence_refs"] == ["service.http"]
 
 

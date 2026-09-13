@@ -15,6 +15,7 @@ from app.ai.teacher_judge.template_command_service import (
     format_template_commands_for_prompt,
     get_enabled_template_commands,
     validate_check_steps,
+    validate_check_steps_with_issues,
 )
 from app.models.teacher_judge_template_command import TeacherJudgeTemplateCommand
 
@@ -210,6 +211,26 @@ def test_validate_generic_command_applies_platform_timeout_default() -> None:
     }
 
 
+def test_validate_check_steps_reports_model_owned_unknown_command() -> None:
+    result = validate_check_steps_with_issues(
+        "linux",
+        [
+            {
+                "id": "item-cpu",
+                "check_steps": [
+                    {"template_key": "linux", "command_key": "invented.cpu"}
+                ],
+            }
+        ],
+        [GENERAL_COMMAND],
+    )
+
+    assert result.items[0]["check_steps"] == []
+    assert [(issue.owner, issue.item_id, issue.code) for issue in result.issues] == [
+        ("model", "item-cpu", "unknown_command")
+    ]
+
+
 def test_normalize_repairs_flattened_system_command_shape() -> None:
     items = teacher_judge_service._normalize_rubric_items(
         [
@@ -355,7 +376,7 @@ async def test_uncatalogued_tool_with_complete_argv_still_forms_proposal(
         template_commands=[GENERAL_COMMAND],
     )
 
-    assert len(calls) == 2
+    assert len(calls) == 1
     assert "整理成提案" in reply
     assert proposal is not None
     assert proposal[0]["check_steps"][0]["command_key"] == "system.run_command"
@@ -383,7 +404,7 @@ def test_validate_check_steps_fills_omitted_template_from_unique_command() -> No
     ]
 
 
-def test_generic_command_internal_fields_are_not_teacher_missing_information() -> None:
+def test_backend_does_not_classify_issue_owner_from_missing_info_prose() -> None:
     normalized = teacher_judge_service._normalize_rubric_items(
         [
             {
@@ -413,8 +434,11 @@ def test_generic_command_internal_fields_are_not_teacher_missing_information() -
         template_commands=[GENERAL_COMMAND],
     )
 
-    assert normalized[0].detectable == "auto"
-    assert normalized[0].missing_information == []
+    assert normalized[0].detectable == "partial"
+    assert normalized[0].missing_information == [
+        "唯讀命令與參數",
+        "1 至 300 秒的逾時限制",
+    ]
     assert normalized[0].check_steps[0].parameters["timeout_seconds"] == 30
 
 
@@ -442,11 +466,12 @@ def test_generic_command_missing_target_uses_teacher_facing_description() -> Non
 
     assert normalized[0].detectable == "partial"
     assert normalized[0].missing_information == [
+        "唯讀命令與參數",
         "要檢查的檔案、服務或記錄範圍"
     ]
 
 
-def test_cat_config_assignment_resolves_redundant_success_condition_gap() -> None:
+def test_backend_does_not_infer_config_semantics_from_teacher_text() -> None:
     normalized = teacher_judge_service._normalize_rubric_items(
         [
             {
@@ -476,122 +501,17 @@ def test_cat_config_assignment_resolves_redundant_success_condition_gap() -> Non
     )
 
     item = normalized[0]
-    assert item.detectable == "auto"
-    assert item.missing_information == []
-    assert item.check_steps[0].parameters["success_criteria"] == (
-        "exit code 為 0，且輸出中存在設定行 `web_URL=True`"
-        "（允許行首尾及等號周圍空白）"
-    )
+    assert item.detectable == "partial"
+    assert item.missing_information == [
+        "客觀成功條件",
+        "「成功條件」尚未定義為「包含 web_URL=True 字樣」",
+    ]
+    assert "success_criteria" not in item.check_steps[0].parameters
     assert item.check_steps[0].parameters["timeout_seconds"] == 30
 
 
-def test_explicit_env_assignment_builds_safe_read_only_item() -> None:
-    item = teacher_judge_service._explicit_text_file_item(
-        [
-            SimpleNamespace(
-                role="user",
-                content="我想和/home/student/.env 內容有 web_url=True 這行就給過",
-            )
-        ],
-        [GENERAL_COMMAND],
-    )
-
-    assert item is not None
-    assert item["detectable"] == "auto"
-    assert item["judgement_mode"] == "ai"
-    assert item["missing_information"] == []
-    assert item["check_steps"] == [
-        {
-            "template_key": "linux",
-            "command_key": "system.run_command",
-            "parameters": {
-                "argv": ["cat", "--", "/home/student/.env"],
-                "timeout_seconds": 30,
-                "success_criteria": (
-                    "exit code 為 0，且輸出中存在設定行 `web_url=True`"
-                    "（允許行首尾及等號周圍空白）"
-                ),
-            },
-        }
-    ]
-
-
-@pytest.mark.parametrize(
-    ("content", "path", "expected_text"),
-    [
-        (
-            "/home/student/answer.txt 內容有 67 這行就給過",
-            "/home/student/answer.txt",
-            "67",
-        ),
-        (
-            "/home/student/README.md 包含 ## 安裝 就通過",
-            "/home/student/README.md",
-            "## 安裝",
-        ),
-        (
-            "/var/log/student-app.log 含有 ERROR 即可",
-            "/var/log/student-app.log",
-            "ERROR",
-        ),
-    ],
-)
-def test_explicit_text_file_contains_builds_safe_read_only_item(
-    content: str,
-    path: str,
-    expected_text: str,
-) -> None:
-    item = teacher_judge_service._explicit_text_file_item(
-        [SimpleNamespace(role="user", content=content)],
-        [GENERAL_COMMAND],
-    )
-
-    assert item is not None
-    assert item["detectable"] == "auto"
-    assert item["judgement_mode"] == "ai"
-    assert item["check_steps"][0]["parameters"] == {
-        "argv": ["cat", "--", path],
-        "timeout_seconds": 30,
-        "success_criteria": (
-            f"exit code 為 0，且輸出中包含文字 `{expected_text}`"
-        ),
-    }
-
-
-def test_text_file_without_expected_content_is_not_guessed() -> None:
-    item = teacher_judge_service._explicit_text_file_item(
-        [SimpleNamespace(role="user", content="請檢查 /home/student/answer.txt")],
-        [GENERAL_COMMAND],
-    )
-
-    assert item is None
-
-
-def test_explicit_env_assignment_updates_matching_item_instead_of_duplicating() -> None:
-    item = teacher_judge_service._explicit_text_file_item(
-        [
-            SimpleNamespace(
-                role="user",
-                content="/home/student/.env 內容有 web_url=True 這行就給過",
-            )
-        ],
-        [GENERAL_COMMAND],
-        json.dumps(
-            {
-                "items": [
-                    {
-                        "id": "existing-env-check",
-                        "title": "檢查 .env 檔案內容",
-                    }
-                ]
-            },
-            ensure_ascii=False,
-        ),
-    )
-
-    assert item is not None
-    assert item["operation"] == "update"
-    assert item["id"] == "existing-env-check"
+def test_backend_has_no_text_file_intent_parser() -> None:
+    assert not hasattr(teacher_judge_service, "_explicit_text_file_item")
 
 
 @pytest.mark.asyncio
@@ -618,9 +538,31 @@ async def test_explicit_env_assignment_forms_proposal_when_model_claims_missing_
         return (
             json.dumps(
                 {
-                    "reply": "還不知道 web_url 要設定成什麼值。",
-                    "proposal_status": "needs_information",
-                    "updated_items": None,
+                        "reply": "已把 .env 設定檢查整理成提案。",
+                        "proposal_status": "ready",
+                        "updated_items": [
+                            {
+                                "operation": "add",
+                                "id": "item-env",
+                                "title": "檢查 .env 檔案內容",
+                                "description": "確認 web_url=True 設定行存在。",
+                                "detectable": "auto",
+                                "judgement_mode": "ai",
+                                "detection_method": "讀取指定檔案並比對設定行。",
+                                "missing_information": [],
+                                "check_steps": [
+                                    {
+                                        "template_key": "linux",
+                                        "command_key": "system.run_command",
+                                        "parameters": {
+                                            "argv": ["cat", "--", "/home/student/.env"],
+                                            "timeout_seconds": 30,
+                                            "success_criteria": "輸出含 web_url=True",
+                                        },
+                                    }
+                                ],
+                            }
+                        ],
                 },
                 ensure_ascii=False,
             ),
@@ -642,7 +584,7 @@ async def test_explicit_env_assignment_forms_proposal_when_model_claims_missing_
         template_commands=[GENERAL_COMMAND],
     )
 
-    assert len(calls) == 2
+    assert len(calls) == 1
     assert "整理成提案" in reply
     assert "重新產生" not in reply
     assert "管理員" not in reply
@@ -902,22 +844,6 @@ async def test_follow_up_natural_answer_is_audited_before_repeating_question(
 
     async def fake_call_vllm(payload, timeout=60.0):
         calls.append(payload)
-        if len(calls) == 1:
-            return (
-                json.dumps(
-                    {
-                        "reply": "請提供 answer.txt 的客觀成功條件。",
-                        "proposal_status": "needs_information",
-                        "updated_items": None,
-                    },
-                    ensure_ascii=False,
-                ),
-                {},
-            )
-        assert "最新教師訊息可能是在用自然語言回答" in (
-            payload["messages"][-1]["content"]
-        )
-        assert "不得原句重問" in payload["messages"][-1]["content"]
         return (
             json.dumps(
                 {
@@ -978,7 +904,7 @@ async def test_follow_up_natural_answer_is_audited_before_repeating_question(
         template_commands=[GENERAL_COMMAND],
     )
 
-    assert len(calls) == 2
+    assert len(calls) == 1
     assert "每一行都要是整數，而且至少要有 20 行" in reply
     assert proposal is not None
     assert proposal[0]["detectable"] == "auto"
@@ -998,7 +924,7 @@ async def test_follow_up_audit_asks_only_the_remaining_real_ambiguity(
         calls.append(payload)
         reply = (
             "還需要客觀成功條件，請再補充。"
-            if len(calls) == 1
+            if len(calls) != 1
             else (
                 "我知道你要確認 web 服務正常，但『正常』有兩種檢查方式："
                 "你要確認服務程序正在執行，還是網頁可以正常開啟？"
@@ -1030,7 +956,7 @@ async def test_follow_up_audit_asks_only_the_remaining_real_ambiguity(
         template_commands=[GENERAL_COMMAND],
     )
 
-    assert len(calls) == 2
+    assert len(calls) == 1
     assert proposal is None
     assert "服務程序正在執行，還是網頁可以正常開啟" in reply
     assert "客觀成功條件" not in reply
@@ -1081,7 +1007,7 @@ async def test_chat_prompt_treats_attachment_as_concrete_rubric_content(
     system_prompt = captured_payload["messages"][0]["content"]
     assert "附件中的可讀文字就是老師提供的具體內容" in system_prompt
     assert "不要因目前項目數為 0 就回覆尚未提供內容" in system_prompt
-    assert "附件表格的每一列可轉成一個評分項目" in system_prompt
+    assert "附件表格的每一列可轉成一個檢查項目" in system_prompt
     assert captured_payload["messages"][-1]["role"] == "user"
     assert "請直接逐條核查，不要求教師再使用「新增」句型" in (
         captured_payload["messages"][-1]["content"]
@@ -1301,7 +1227,7 @@ async def test_existing_item_update_loads_current_rubric_tool(
                             "id": "call_rubric",
                             "type": "function",
                             "function": {
-                                "name": "get_current_rubric",
+                                "name": "get_current_checklist",
                                 "arguments": "{}",
                             },
                         }
@@ -1431,7 +1357,7 @@ async def test_existing_item_proposal_without_tool_is_retried_with_forced_read(
         if len(calls) == 2:
             assert payload["tool_choice"] == {
                 "type": "function",
-                "function": {"name": "get_current_rubric"},
+                "function": {"name": "get_current_checklist"},
             }
             return (
                 {
@@ -1442,7 +1368,7 @@ async def test_existing_item_proposal_without_tool_is_retried_with_forced_read(
                             "id": "call_forced",
                             "type": "function",
                             "function": {
-                                "name": "get_current_rubric",
+                                "name": "get_current_checklist",
                                 "arguments": "{}",
                             },
                         }
@@ -1474,7 +1400,7 @@ async def test_existing_item_proposal_without_tool_is_retried_with_forced_read(
     assert proposal[0]["operation"] == "update"
 
 
-def test_normalize_recovers_python_version_lookup_from_manual_model_output() -> None:
+def test_normalize_does_not_infer_python_version_intent_from_text() -> None:
     items = teacher_judge_service._normalize_rubric_items(
         [
             {
@@ -1489,15 +1415,469 @@ def test_normalize_recovers_python_version_lookup_from_manual_model_output() -> 
         template_commands=[_python_version_command(), GENERAL_COMMAND],
     )
 
-    assert items[0].detectable == "auto"
-    assert items[0].judgement_mode == "teacher"
-    assert items[0].missing_information == []
-    assert items[0].check_steps[0].template_key == "python"
-    assert items[0].check_steps[0].command_key == "python.version"
-    assert items[0].check_steps[0].parameters == {}
+    assert items[0].detectable == "manual"
+    assert items[0].check_steps == []
 
 
-def test_normalize_python_version_lookup_without_expected_answer_uses_teacher() -> None:
+@pytest.mark.asyncio
+@pytest.mark.parametrize("initial_status", ["ready", "unsupported"])
+async def test_complete_manual_system_info_candidate_reselects_generic_capability(
+    monkeypatch: pytest.MonkeyPatch,
+    initial_status: str,
+) -> None:
+    calls = []
+
+    async def fake_call_vllm(payload, timeout=60.0):
+        calls.append(payload)
+        if len(calls) == 1:
+            return (
+                json.dumps(
+                    {
+                        "reply": "目前無法取得系統版本。",
+                        "proposal_status": initial_status,
+                        "conversation_focus": {
+                            "turn_kind": "requirement",
+                            "requirements": [
+                                {
+                                    "focus_key": "system-version",
+                                    "status": initial_status,
+                                    "known_information": ["查看學生系統版本"],
+                                    "missing_information": [],
+                                    "target_item_id": None,
+                                }
+                            ],
+                        },
+                        "updated_items": [
+                            {
+                                "operation": "add",
+                                "id": "item-system-version",
+                                "title": "查看學生系統版本",
+                                "description": "取得學生環境的系統版本資訊。",
+                                "detectable": "manual",
+                                "judgement_mode": "teacher",
+                                "detection_method": "查看系統資訊。",
+                                "missing_information": [],
+                                "check_steps": [],
+                                "fallback": "由老師自行查看。",
+                            }
+                        ],
+                    },
+                    ensure_ascii=False,
+                ),
+                {},
+            )
+        repair_instruction = payload["messages"][-1]["content"]
+        assert payload["temperature"] == 0.0
+        assert len(payload["messages"]) == 2
+        assert json.loads(repair_instruction)["task"] == (
+            "repair_manual_capability_selection"
+        )
+        assert "已提供 system.run_command" in repair_instruction
+        assert "只有確實無法用安全唯讀命令取得" in repair_instruction
+        return (
+            json.dumps(
+                {
+                    "reply": "我已把系統版本查詢整理成提案，請確認後再套用。",
+                    "proposal_status": "ready",
+                    "conversation_focus": {
+                        "turn_kind": "requirement",
+                        "requirements": [
+                            {
+                                "focus_key": "system-version",
+                                "status": "ready",
+                                "known_information": ["查看學生系統版本"],
+                                "missing_information": [],
+                                "target_item_id": None,
+                            }
+                        ],
+                    },
+                    "updated_items": [
+                        {
+                            "operation": "add",
+                            "id": "item-system-version",
+                            "title": "查看學生系統版本",
+                            "description": "取得學生環境的系統版本資訊。",
+                            "detectable": "auto",
+                            "judgement_mode": "teacher",
+                            "detection_method": "執行唯讀系統版本查詢。",
+                            "missing_information": [],
+                            "check_steps": [
+                                {
+                                    "template_key": "linux",
+                                    "command_key": "system.run_command",
+                                    "parameters": {"argv": ["uname", "-a"]},
+                                }
+                            ],
+                            "fallback": None,
+                        }
+                    ],
+                },
+                ensure_ascii=False,
+            ),
+            {},
+        )
+
+    monkeypatch.setattr(teacher_judge_service, "_call_vllm_message", fake_call_vllm)
+    _patch_teacher_judge_vllm_settings(monkeypatch)
+
+    reply, proposal, _metrics = await teacher_judge_service.chat_with_rubric(
+        messages=[SimpleNamespace(role="user", content="查看學生系統版本")],
+        rubric_context=json.dumps({"items": []}),
+        template_key="linux",
+        template_commands=[GENERAL_COMMAND],
+    )
+
+    assert len(calls) == 2
+    assert "整理成提案" in reply
+    assert proposal is not None
+    assert proposal[0]["detectable"] == "auto"
+    assert proposal[0]["judgement_mode"] == "teacher"
+    assert proposal[0]["check_steps"][0]["command_key"] == "system.run_command"
+    assert proposal[0]["check_steps"][0]["parameters"]["argv"] == ["uname", "-a"]
+
+
+@pytest.mark.asyncio
+async def test_invalid_step_then_manual_uses_distinct_capability_repair(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls = []
+
+    def response(item: dict[str, object]) -> tuple[str, dict[str, object]]:
+        return (
+            json.dumps(
+                {
+                    "reply": "我已整理成提案。",
+                    "proposal_status": "ready",
+                    "conversation_focus": {
+                        "turn_kind": "requirement",
+                        "requirements": [
+                            {
+                                "focus_key": "system-version",
+                                "status": "ready",
+                                "known_information": ["查看學生系統版本"],
+                                "missing_information": [],
+                                "target_item_id": None,
+                            }
+                        ],
+                    },
+                    "updated_items": [item],
+                },
+                ensure_ascii=False,
+            ),
+            {},
+        )
+
+    common_item: dict[str, object] = {
+        "operation": "add",
+        "id": "item-system-version",
+        "title": "查看學生系統版本",
+        "description": "取得學生環境的系統版本資訊。",
+        "judgement_mode": "teacher",
+        "detection_method": "執行唯讀系統版本查詢。",
+        "missing_information": [],
+        "fallback": None,
+    }
+
+    async def fake_call_vllm(payload, timeout=60.0):
+        calls.append(payload)
+        if len(calls) == 1:
+            return response(
+                {
+                    **common_item,
+                    "detectable": "auto",
+                    "check_steps": [
+                        {
+                            "template_key": "linux",
+                            "command_key": "system.info",
+                            "parameters": {},
+                        }
+                    ],
+                }
+            )
+        if len(calls) == 2:
+            assert "check_steps 沒有通過驗證" in payload["messages"][-1]["content"]
+            return response(
+                {
+                    **common_item,
+                    "detectable": "manual",
+                    "check_steps": [],
+                    "fallback": "由老師自行查看。",
+                }
+            )
+        assert payload["temperature"] == 0.0
+        assert len(payload["messages"]) == 2
+        focused_context = json.loads(payload["messages"][-1]["content"])
+        assert focused_context["task"] == "repair_manual_capability_selection"
+        assert "已提供 system.run_command" in focused_context["validation_instruction"]
+        return response(
+            {
+                **common_item,
+                "detectable": "auto",
+                "check_steps": [
+                    {
+                        "template_key": "linux",
+                        "command_key": "system.run_command",
+                        "parameters": {"argv": ["uname", "-a"]},
+                    }
+                ],
+            }
+        )
+
+    monkeypatch.setattr(teacher_judge_service, "_call_vllm_message", fake_call_vllm)
+    _patch_teacher_judge_vllm_settings(monkeypatch)
+
+    reply, proposal, _metrics = await teacher_judge_service.chat_with_rubric(
+        messages=[SimpleNamespace(role="user", content="查看學生系統版本")],
+        rubric_context=json.dumps({"items": []}),
+        template_key="linux",
+        template_commands=[GENERAL_COMMAND],
+    )
+
+    assert len(calls) == 3
+    assert "整理成提案" in reply
+    assert proposal is not None
+    assert proposal[0]["check_steps"][0]["command_key"] == "system.run_command"
+
+
+@pytest.mark.asyncio
+async def test_none_response_without_focus_does_not_invent_requirement(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls = []
+
+    async def fake_call_vllm(payload, timeout=60.0):
+        calls.append(payload)
+        if len(calls) == 1:
+            return (
+                json.dumps(
+                    {
+                        "reply": "老師您好，請問有什麼我可以幫您的嗎？",
+                        "proposal_status": "none",
+                        "updated_items": None,
+                    },
+                    ensure_ascii=False,
+                ),
+                {},
+            )
+        assert payload["temperature"] == 0.0
+        assert len(payload["messages"]) == 2
+        assert "判斷 turn_kind" in payload["messages"][0]["content"]
+        assert payload["messages"][-1]["content"] == "查看學生系統版本"
+        return (
+            json.dumps(
+                {
+                    "reply": "我已把系統版本查詢整理成提案，請確認後再套用。",
+                    "proposal_status": "ready",
+                    "conversation_focus": {
+                        "turn_kind": "requirement",
+                        "requirements": [
+                            {
+                                "focus_key": "system-version",
+                                "status": "ready",
+                                "known_information": ["查看學生系統版本"],
+                                "missing_information": [],
+                                "target_item_id": None,
+                            }
+                        ],
+                    },
+                    "updated_items": [
+                        {
+                            "operation": "add",
+                            "id": "item-system-version",
+                            "title": "查看學生系統版本",
+                            "description": "取得學生環境的系統版本資訊。",
+                            "checked": False,
+                            "detectable": "auto",
+                            "judgement_mode": "teacher",
+                            "detection_method": "執行唯讀系統版本查詢。",
+                            "missing_information": [],
+                            "check_steps": [
+                                {
+                                    "template_key": "linux",
+                                    "command_key": "system.run_command",
+                                    "parameters": {"argv": ["uname", "-a"]},
+                                }
+                            ],
+                            "fallback": None,
+                        }
+                    ],
+                },
+                ensure_ascii=False,
+            ),
+            {},
+        )
+
+    monkeypatch.setattr(teacher_judge_service, "_call_vllm_message", fake_call_vllm)
+    _patch_teacher_judge_vllm_settings(monkeypatch)
+
+    reply, proposal, _metrics = await teacher_judge_service.chat_with_rubric(
+        messages=[SimpleNamespace(role="user", content="查看學生系統版本")],
+        rubric_context=json.dumps({"items": []}),
+        template_key="linux",
+        template_commands=[GENERAL_COMMAND],
+    )
+
+    assert len(calls) == 1
+    assert "有什麼我可以幫您" in reply
+    assert proposal is None
+
+
+@pytest.mark.asyncio
+async def test_empty_question_classification_remains_plain_question(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls = []
+
+    async def fake_call_vllm(payload, timeout=60.0):
+        calls.append(payload)
+        if len(calls) == 1:
+            return (
+                json.dumps(
+                    {
+                        "reply": "老師您好，請問有什麼我可以幫您的嗎？",
+                        "proposal_status": "none",
+                        "conversation_focus": {
+                            "turn_kind": "question",
+                            "requirements": [],
+                        },
+                        "updated_items": None,
+                    },
+                    ensure_ascii=False,
+                ),
+                {},
+            )
+        assert payload["temperature"] == 0.0
+        assert "判斷 turn_kind" in payload["messages"][0]["content"]
+        assert payload["messages"][-1]["content"] == "查看學生系統版本"
+        return (
+            json.dumps(
+                {
+                    "reply": "我已把系統版本查詢整理成提案，請確認後再套用。",
+                    "proposal_status": "ready",
+                    "conversation_focus": {
+                        "turn_kind": "requirement",
+                        "requirements": [
+                            {
+                                "focus_key": "system-version",
+                                "status": "ready",
+                                "known_information": ["查看學生系統版本"],
+                                "missing_information": [],
+                                "target_item_id": None,
+                            }
+                        ],
+                    },
+                    "updated_items": [
+                        {
+                            "operation": "add",
+                            "id": "item-system-version",
+                            "title": "查看學生系統版本",
+                            "description": "取得學生環境的系統版本資訊。",
+                            "checked": False,
+                            "detectable": "auto",
+                            "judgement_mode": "teacher",
+                            "detection_method": "執行唯讀系統版本查詢。",
+                            "missing_information": [],
+                            "check_steps": [
+                                {
+                                    "template_key": "linux",
+                                    "command_key": "system.run_command",
+                                    "parameters": {"argv": ["uname", "-a"]},
+                                }
+                            ],
+                            "fallback": None,
+                        }
+                    ],
+                },
+                ensure_ascii=False,
+            ),
+            {},
+        )
+
+    monkeypatch.setattr(teacher_judge_service, "_call_vllm_message", fake_call_vllm)
+    _patch_teacher_judge_vllm_settings(monkeypatch)
+
+    _reply, proposal, _metrics = await teacher_judge_service.chat_with_rubric(
+        messages=[SimpleNamespace(role="user", content="查看學生系統版本")],
+        rubric_context=json.dumps({"items": []}),
+        template_key="linux",
+        template_commands=[GENERAL_COMMAND],
+    )
+
+    assert len(calls) == 1
+    assert proposal is None
+
+
+@pytest.mark.asyncio
+async def test_boolean_detectable_and_flat_generic_argv_form_proposal(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls = []
+
+    async def fake_call_vllm(payload, timeout=60.0):
+        calls.append(payload)
+        return (
+            json.dumps(
+                {
+                    "reply": "我已把 Python 版本檢查整理成提案。",
+                    "proposal_status": "ready",
+                    "conversation_focus": {
+                        "turn_kind": "follow_up",
+                        "requirements": [
+                            {
+                                "focus_key": "python-version",
+                                "status": "ready",
+                                "known_information": ["檢查 Python 版本"],
+                                "missing_information": [],
+                            }
+                        ],
+                    },
+                    "updated_items": [
+                        {
+                            "operation": "add",
+                            "id": "python-version",
+                            "title": "檢查 Python 版本",
+                            "description": "取得學生環境的 Python 版本。",
+                            "checked": False,
+                            "detectable": True,
+                            "judgement_mode": "teacher",
+                            "detection_method": "command_output",
+                            "missing_information": [],
+                            "check_steps": [
+                                {
+                                    "command_key": "system.run_command",
+                                    "argv": ["python3", "--version"],
+                                }
+                            ],
+                            "fallback": None,
+                        }
+                    ],
+                },
+                ensure_ascii=False,
+            ),
+            {},
+        )
+
+    monkeypatch.setattr(teacher_judge_service, "_call_vllm_message", fake_call_vllm)
+    _patch_teacher_judge_vllm_settings(monkeypatch)
+
+    _reply, proposal, _metrics = await teacher_judge_service.chat_with_rubric(
+        messages=[SimpleNamespace(role="user", content="再發提案")],
+        rubric_context=json.dumps({"items": []}),
+        template_key="linux",
+        template_commands=[GENERAL_COMMAND],
+    )
+
+    assert len(calls) == 1
+    assert proposal is not None
+    assert proposal[0]["detectable"] == "auto"
+    assert proposal[0]["check_steps"][0]["command_key"] == "system.run_command"
+    assert proposal[0]["check_steps"][0]["parameters"]["argv"] == [
+        "python3",
+        "--version",
+    ]
+
+
+def test_normalize_preserves_structured_python_judgement_mode() -> None:
     items = teacher_judge_service._normalize_rubric_items(
         [
             {
@@ -1522,7 +1902,7 @@ def test_normalize_python_version_lookup_without_expected_answer_uses_teacher() 
     )
 
     assert items[0].detectable == "auto"
-    assert items[0].judgement_mode == "teacher"
+    assert items[0].judgement_mode == "ai"
     assert items[0].missing_information == []
 
 
@@ -1555,7 +1935,7 @@ def test_normalize_python_version_with_expected_answer_keeps_ai_judgement() -> N
 
 
 @pytest.mark.asyncio
-async def test_python_version_lookup_proposal_corrects_model_ai_judgement(
+async def test_python_version_lookup_proposal_preserves_model_contract(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     async def fake_call_vllm(payload, timeout=60.0):
@@ -1606,7 +1986,7 @@ async def test_python_version_lookup_proposal_corrects_model_ai_judgement(
 
     assert proposal is not None
     assert proposal[0]["detectable"] == "auto"
-    assert proposal[0]["judgement_mode"] == "teacher"
+    assert proposal[0]["judgement_mode"] == "ai"
     assert proposal[0]["check_steps"][0]["command_key"] == "python.version"
 
 
@@ -1638,15 +2018,24 @@ async def test_python_version_requirement_forms_proposal_when_model_marks_it_man
         return (
             json.dumps(
                 {
-                    "reply": "目前無法產生取證步驟。",
+                    "reply": "我已把「檢查 Python 版本」整理成提案。請先查看提案內容，確認後再套用。",
                     "proposal_status": "ready",
                     "updated_items": [
                         {
                             "id": "item-1",
                             "title": "檢查 Python 版本",
                             "description": "查看學生使用的 Python 版本號。",
-                            "detectable": "manual",
-                            "check_steps": [],
+                            "detectable": "auto",
+                            "judgement_mode": "teacher",
+                            "detection_method": "查詢 Python 版本。",
+                            "missing_information": [],
+                            "check_steps": [
+                                {
+                                    "template_key": "python",
+                                    "command_key": "python.version",
+                                    "parameters": {},
+                                }
+                            ],
                         }
                     ],
                 },
@@ -1665,11 +2054,8 @@ async def test_python_version_requirement_forms_proposal_when_model_marks_it_man
         template_commands=[_python_version_command(), GENERAL_COMMAND],
     )
 
-    assert len(calls) == 2
-    assert reply == (
-        "「檢查 Python 版本」已整理成提案。"
-        "執行後會顯示學生使用的版本，供你查看；確認內容後再套用即可。"
-    )
+    assert len(calls) == 1
+    assert reply == "我已把「檢查 Python 版本」整理成提案。請先查看提案內容，確認後再套用。"
     assert "腳本取證" not in reply
     assert "AI 或導師判斷" not in reply
     assert proposal is not None
@@ -1685,7 +2071,7 @@ async def test_python_version_requirement_forms_proposal_when_model_marks_it_man
     ]
 
 
-def test_normalize_recovers_python_package_status_from_invalid_model_command() -> None:
+def test_normalize_rejects_unknown_python_package_command() -> None:
     items = teacher_judge_service._normalize_rubric_items(
         [
             {
@@ -1709,15 +2095,8 @@ def test_normalize_recovers_python_package_status_from_invalid_model_command() -
         template_commands=[GENERAL_COMMAND],
     )
 
-    assert items[0].detectable == "auto"
-    assert items[0].judgement_mode == "ai"
-    assert items[0].missing_information == []
-    assert items[0].check_steps[0].command_key == "system.run_command"
-    assert items[0].check_steps[0].parameters == {
-        "argv": ["python3", "-m", "pip", "show", "torch"],
-        "timeout_seconds": 30,
-        "success_criteria": "exit code 為 0 表示套件已安裝",
-    }
+    assert items[0].detectable == "manual"
+    assert items[0].check_steps == []
 
 
 def test_normalize_does_not_replace_python_package_version_requirement() -> None:
@@ -1785,9 +2164,13 @@ async def test_python_package_status_forms_proposal_instead_of_system_error(
                             "missing_information": [],
                             "check_steps": [
                                 {
-                                    "template_key": "python",
-                                    "command_key": "python.package_status",
-                                    "parameters": {"package": "torch"},
+                                    "template_key": "linux",
+                                    "command_key": "system.run_command",
+                                    "parameters": {
+                                        "argv": ["python3", "-m", "pip", "show", "torch"],
+                                        "timeout_seconds": 30,
+                                        "success_criteria": "exit code 為 0",
+                                    },
                                 }
                             ],
                         }
@@ -1808,7 +2191,7 @@ async def test_python_package_status_forms_proposal_instead_of_system_error(
         template_commands=[GENERAL_COMMAND],
     )
 
-    assert len(calls) == 2
+    assert len(calls) == 1
     assert "整理成提案" in reply
     assert "重新產生" not in reply
     assert "管理員" not in reply

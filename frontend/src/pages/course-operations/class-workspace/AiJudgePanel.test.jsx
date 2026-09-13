@@ -270,13 +270,13 @@ describe("RubricTable", () => {
     );
 
     expect(html).toContain("檢查點");
-    expect(html).toContain("評分標準");
+    expect(html).toContain("檢查條件");
     expect(html).toContain("自動檢測支援");
     expect(html).toContain('value="Python 版本檢查"');
     expect(html).toContain("可以");
     expect(html).toContain("缺少資訊");
     expect(html).toContain("導師檢查");
-    expect(html).toContain("人工審核／無法執行");
+    expect(html).toContain("導師核查／無法執行");
     expect(html).toContain("check_circle");
     expect(html).toContain("warning_amber");
     expect(html.match(/cancel/g)).toHaveLength(2);
@@ -357,7 +357,7 @@ describe("getScriptCreationBlocker", () => {
     });
 
     expect(blocker).toContain("1 項缺少資訊");
-    expect(blocker).toContain("1 項需要人工審核或無法執行");
+    expect(blocker).toContain("1 項需要導師核查或無法執行");
   });
 
   test("異動後尚未重新確認時阻擋腳本", () => {

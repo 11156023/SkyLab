@@ -169,7 +169,7 @@ export function SessionTitle({ children, title }) {
 const DETECTABLE_INFO = {
   auto: { label: "可以", icon: "check_circle", className: styles.detBadge_auto },
   partial: { label: "缺少資訊", icon: "warning_amber", className: styles.detBadge_partial },
-  manual: { label: "人工審核／無法執行", icon: "cancel", className: styles.detBadge_manual },
+  manual: { label: "導師核查／無法執行", icon: "cancel", className: styles.detBadge_manual },
 };
 const TEACHER_REVIEW_INFO = {
   label: "導師檢查",
@@ -250,7 +250,7 @@ export function getScriptCreationBlocker({ analysis, pendingProposal = null, pen
   if (missingCount || unsupportedCount) {
     const details = [
       missingCount ? `${missingCount} 項缺少資訊` : null,
-      unsupportedCount ? `${unsupportedCount} 項需要人工審核或無法執行` : null,
+      unsupportedCount ? `${unsupportedCount} 項需要導師核查或無法執行` : null,
     ].filter(Boolean).join("、");
     return `${details}；所有項目都顯示「可以」後，才能製作檢查腳本`;
   }
@@ -548,7 +548,7 @@ function RubricTableRow({ item, index, onChange, onDelete, disabled, needsReview
         </td>
         <td className={styles.rubricDescriptionCell}>
           <label className={styles.tableField}>
-            <span className={styles.srOnly}>第 {index + 1} 項評分標準</span>
+            <span className={styles.srOnly}>第 {index + 1} 項檢查條件</span>
             <textarea
               value={item.description}
               onChange={(event) => onChange({ ...item, description: event.target.value })}
@@ -653,7 +653,7 @@ export function RubricTable({ items, onChange, onDelete, disabled, needsReviewId
             </th>
             <th scope="col">#</th>
             <th scope="col">檢查點</th>
-            <th scope="col">評分標準</th>
+            <th scope="col">檢查條件</th>
             <th scope="col">自動檢測支援</th>
             <th scope="col"><span className={styles.srOnly}>操作</span></th>
           </tr>
@@ -2227,18 +2227,12 @@ function AiJudgementBadge({ result }) {
   if (!judgement) return <span className={`${styles.badge} ${styles.badge_muted}`}>分析中</span>;
   if (judgement.status === "completed") {
     if (judgement.requires_teacher_review) {
-      return <span className={`${styles.badge} ${styles.badge_info}`}>待導師審核</span>;
+      return <span className={`${styles.badge} ${styles.badge_info}`}>待導師核查</span>;
     }
-    const score = typeof judgement.score === "number" ? judgement.score : null;
-    const maxScore = typeof judgement.max_score === "number" ? judgement.max_score : 5;
-    return (
-      <span className={`${styles.badge} ${styles.badge_success}`}>
-        {score === null ? "已分析" : `${score}/${maxScore}`}
-      </span>
-    );
+    return <span className={`${styles.badge} ${styles.badge_success}`}>已核對</span>;
   }
   if (judgement.status === "failed") {
-    return <span className={`${styles.badge} ${styles.badge_danger}`}>AI 分析失敗</span>;
+    return <span className={`${styles.badge} ${styles.badge_danger}`}>AI 核對失敗</span>;
   }
   if (judgement.status === "skipped") {
     return <span className={`${styles.badge} ${styles.badge_muted}`}>略過</span>;
@@ -2249,17 +2243,17 @@ function AiJudgementBadge({ result }) {
 function aiJudgementSummary(result) {
   if (!result) return null;
   if (result.validation?.valid === false) {
-    return result.validation.error ?? "JSON 驗證未通過，未進入 AI 分析。";
+    return result.validation.error ?? "JSON 驗證未通過，未進入 AI 核對。";
   }
   const judgement = result.ai_judgement;
-  if (!judgement) return "AI 分析尚未完成。";
+  if (!judgement) return "AI 核對尚未完成。";
   return judgement.error ?? judgement.summary ?? null;
 }
 
 function JudgementItemBadge({ item }) {
   let info = { label: "未判定", className: styles.badge_muted };
   if (item?.judgement_mode === "teacher") {
-    info = { label: "待導師審核", className: styles.badge_info };
+    info = { label: "待導師核查", className: styles.badge_info };
   } else if (item?.status === "pass") {
     info = { label: "通過", className: styles.badge_success };
   } else if (item?.status === "fail") {
@@ -2514,7 +2508,7 @@ function ExecutionTab({ classId, sessionId, members }) {
                   <th>成員</th>
                   <th>來源節點</th>
                   <th>執行狀態</th>
-                  <th>AI 分析／導師審核</th>
+                  <th>系統核對／導師核查</th>
                 </tr>
               </thead>
               <tbody>
@@ -2551,7 +2545,7 @@ function ExecutionTab({ classId, sessionId, members }) {
                         <AiJudgementBadge result={result} />
                         {result ? (
                           <details className={styles.judgeDetails}>
-                            <summary>查看心得</summary>
+                            <summary>查看檢查結果說明</summary>
                             {summary && (
                               <p className={summaryIsError ? styles.dangerText : styles.mutedText}>
                                 {summary}
@@ -2562,11 +2556,6 @@ function ExecutionTab({ classId, sessionId, members }) {
                                 <div className={styles.judgeItemHead}>
                                   <span>{item.title ?? item.item_id ?? "檢查項目"}</span>
                                   <JudgementItemBadge item={item} />
-                                  {item.judgement_mode !== "teacher" && typeof item.score === "number" && (
-                                    <span className={`${styles.badge} ${styles.badge_muted}`}>
-                                      {item.score}/{item.max_score ?? 1}
-                                    </span>
-                                  )}
                                 </div>
                                 {item.comment && <p>{item.comment}</p>}
                               </div>

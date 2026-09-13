@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Any
 
 from sqlmodel import Session, select
@@ -10,6 +11,20 @@ from app.models.teacher_judge_template_command import TeacherJudgeTemplateComman
 
 SUPPORTED_TEMPLATE_KEYS = {"linux", "python", "n8n", "postgresql"}
 DEFAULT_SYSTEM_COMMAND_TIMEOUT_SECONDS = 30
+
+
+@dataclass(frozen=True, slots=True)
+class CheckStepIssue:
+    owner: str
+    item_id: str
+    code: str
+    detail: str
+
+
+@dataclass(frozen=True, slots=True)
+class CheckStepValidationResult:
+    items: list[dict[str, Any]]
+    issues: list[CheckStepIssue]
 
 GENERAL_COMMAND = TeacherJudgeTemplateCommand(
     template_key="linux",
@@ -112,17 +127,31 @@ def validate_check_steps(
     template key is a preferred environment hint; an omitted or mismatched hint is
     repaired when the command key identifies exactly one enabled capability.
     """
+    return validate_check_steps_with_issues(template_key, items, commands).items
+
+
+def validate_check_steps_with_issues(
+    template_key: str,
+    items: list[dict[str, Any]],
+    commands: list[TeacherJudgeTemplateCommand],
+) -> CheckStepValidationResult:
+    """Normalize command references and retain why a model candidate was rejected."""
     valid_commands = {
         (command.template_key, command.command_key): command for command in commands
     }
     normalized_items: list[dict[str, Any]] = []
+    issues: list[CheckStepIssue] = []
     for item in items:
         next_item = dict(item)
+        item_id = str(item.get("id") or "")
         valid_steps: list[dict[str, Any]] = []
         raw_steps = item.get("check_steps")
         if isinstance(raw_steps, list):
             for raw_step in raw_steps:
                 if not isinstance(raw_step, dict):
+                    issues.append(
+                        CheckStepIssue("model", item_id, "invalid_step", "檢查步驟不是物件")
+                    )
                     continue
                 step_template_key = str(raw_step.get("template_key") or template_key).strip()
                 command_key = str(raw_step.get("command_key") or "").strip()
@@ -136,6 +165,14 @@ def validate_check_steps(
                     if len(matching_commands) == 1:
                         command = matching_commands[0]
                 if command is None:
+                    issues.append(
+                        CheckStepIssue(
+                            "model",
+                            item_id,
+                            "unknown_command",
+                            f"未啟用的 command_key: {command_key or '(empty)'}",
+                        )
+                    )
                     continue
                 step: dict[str, Any] = {
                     "template_key": command.template_key,
@@ -163,7 +200,7 @@ def validate_check_steps(
                     valid_steps.append(step)
         next_item["check_steps"] = valid_steps
         normalized_items.append(next_item)
-    return normalized_items
+    return CheckStepValidationResult(items=normalized_items, issues=issues)
 
 
 __all__ = [

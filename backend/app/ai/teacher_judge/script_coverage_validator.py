@@ -132,7 +132,7 @@ def validate_coverage(
             f"{item_id}（{titles.get(item_id) or '未命名項目'}）"
             for item_id in uncovered
         )
-        issue = f"以下評分項目沒有任何 check 取證覆蓋：{described}"
+        issue = f"以下檢查項目沒有任何 check 證據覆蓋：{described}"
         issues.append(issue)
         fix_hints.append({"type": "cover_rubric_items", "description": issue})
 

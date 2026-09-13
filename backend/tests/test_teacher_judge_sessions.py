@@ -790,6 +790,18 @@ def test_message_content_redacts_common_secrets() -> None:
     assert content.count("[REDACTED]") == 2
 
 
+def test_message_public_normalizes_only_whitespace_entities() -> None:
+    item = TeacherJudgeSessionMessage(
+        session_id=uuid.uuid4(),
+        role=TeacherJudgeMessageRole.assistant,
+        content="CPU&#x20;資訊&#32;&nbsp;<b>純文字</b>",
+    )
+
+    public = session_service.message_public(item)
+
+    assert public.content == "CPU 資訊  <b>純文字</b>"
+
+
 def test_bounded_history_keeps_latest_messages_in_stable_order() -> None:
     db = _session()
     item = TeacherJudgeSession(teaching_class_id=uuid.uuid4(), title="History")
@@ -852,6 +864,54 @@ def test_bounded_history_includes_summary_before_newer_messages() -> None:
     assert history[0].role == "assistant"
     assert "只檢查 Python 執行結果" in history[0].content
     assert history[-1].content == "好的，會保留。"
+
+
+def test_bounded_history_injects_latest_focus_for_same_source_only() -> None:
+    db = _session()
+    source_id = uuid.uuid4()
+    item = TeacherJudgeSession(teaching_class_id=uuid.uuid4(), title="Focus")
+    db.add(item)
+    db.commit()
+    db.refresh(item)
+    db.add_all(
+        [
+            TeacherJudgeSessionMessage(
+                session_id=item.id,
+                role=TeacherJudgeMessageRole.assistant,
+                content="請補充範圍。",
+                metadata_json={
+                    "conversation_focus": {
+                        "source_file_id": str(source_id),
+                        "turn_kind": "requirement",
+                        "requirements": [
+                            {
+                                "focus_key": "resource-usage",
+                                "status": "needs_information",
+                                "known_information": ["整台 VM"],
+                                "missing_information": ["目前或一段期間"],
+                            }
+                        ],
+                    }
+                },
+            ),
+            TeacherJudgeSessionMessage(
+                session_id=item.id,
+                role=TeacherJudgeMessageRole.user,
+                content="看目前就好",
+            ),
+        ]
+    )
+    db.commit()
+
+    same_source = session_service.bounded_history(
+        db, item.id, source_file_id=source_id
+    )
+    other_source = session_service.bounded_history(
+        db, item.id, source_file_id=uuid.uuid4()
+    )
+
+    assert any("resource-usage" in message.content for message in same_source)
+    assert not any("resource-usage" in message.content for message in other_source)
 
 
 def test_summary_persistence_is_monotonic_for_out_of_order_workers() -> None:

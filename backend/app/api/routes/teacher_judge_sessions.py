@@ -493,12 +493,13 @@ async def create_message(
             file.template_key if file else "linux",
             include_cross_template=True,
         )
-        reply, proposal, metrics = await chat_with_rubric(
+        chat_result = await chat_with_rubric(
             bounded_history(
                 session,
                 item.id,
                 exclude_attachments_for_message_id=user_message.id,
                 summary=item.summary,
+                source_file_id=file.id if file else None,
             ),
             json.dumps(file.analysis_json, ensure_ascii=False) if file else "{}",
             is_refine=payload.is_refine,
@@ -509,6 +510,7 @@ async def create_message(
             analysis_revision=base_revision,
             rubric_available=file is not None,
         )
+        reply, proposal, metrics = chat_result
         # Without a selected rubric the conversation is general assistance only;
         # do not let an unconstrained model response create an unreviewed proposal.
         if file is None and proposal:
@@ -518,6 +520,12 @@ async def create_message(
             )
             proposal = None
         message_metadata: dict[str, object] = {"metrics": metrics}
+        conversation_focus = getattr(chat_result, "conversation_focus", None)
+        if isinstance(conversation_focus, dict):
+            message_metadata["conversation_focus"] = {
+                **conversation_focus,
+                "source_file_id": str(file.id) if file else None,
+            }
         if payload.is_refine:
             message_metadata["ui_hidden"] = True
         assistant = TeacherJudgeSessionMessage(

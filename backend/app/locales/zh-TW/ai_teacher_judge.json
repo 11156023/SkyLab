@@ -58,8 +58,8 @@
   "artifact.ai_review_failed": "腳本未通過 AI reviewer。",
 
   "analysis.model_not_configured": "VLLM_MODEL_NAME 未設定。",
-  "analysis.not_json": "AI 分析回傳不是 JSON。",
-  "analysis.invalid_format": "AI 分析回傳格式不正確。",
+  "analysis.not_json": "AI 核對回傳不是 JSON。",
+  "analysis.invalid_format": "AI 核對回傳格式不正確。",
 
   "file.name_conflict": "已有同名檢查表。",
   "file.copy_name_exhausted": "無法建立同名副本，請重新命名檔案。",
@@ -73,9 +73,9 @@
   "file.replaced_choose_active": "這份檢查表已被取代，請先選擇進行中的來源。",
   "file.revision_conflict": "檢查表已被其他變更更新，請重新載入後再套用。",
   "file.blank_name": "檢查表名稱不可為空白。",
-  "file.no_environment_selected": "至少選擇一個評分環境。",
+  "file.no_environment_selected": "至少選擇一個檢查環境。",
   "file.replaced_cannot_edit": "這份檢查表已被取代，無法編輯。",
-  "file.template_key_not_in_candidates": "主要評分環境必須包含在候選環境中。",
+  "file.template_key_not_in_candidates": "主要檢查環境必須包含在候選環境中。",
   "file.clone_info_incomplete": "原始檢查表資訊不完整，無法複製。",
   "file.clone_original_missing": "原始檢查表檔案不存在，無法複製。",
   "file.unknown_conflict_strategy": "未知的同名檔案處理方式。"

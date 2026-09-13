@@ -1982,8 +1982,6 @@ async def test_execute_script_run_saves_valid_target_result(
                 "ai_judgement": {
                     "schema_version": "teacher_judge_ai_judgement.v1",
                     "status": "completed",
-                    "score": 5,
-                    "max_score": 5,
                     "summary": "符合檢查表要求。",
                     "item_judgements": [],
                 },
@@ -2025,7 +2023,7 @@ async def test_execute_script_run_saves_valid_target_result(
         stored_run.target_results_json["targets"][0]["parsed_result"]["schema_version"]
         == "teacher_judge_result.v1"
     )
-    assert stored_run.target_results_json["targets"][0]["ai_judgement"]["score"] == 5
+    assert "score" not in stored_run.target_results_json["targets"][0]["ai_judgement"]
     assert analysis_calls[0]["script_metadata"]["id"] == str(artifact.id)
     assert analysis_calls[0]["target_results"][0]["ai_judgement"]["status"] == "pending"
 
@@ -2281,8 +2279,6 @@ async def test_ai_analysis_uses_valid_json_even_when_execution_failed(
         return {
             "schema_version": "teacher_judge_ai_judgement.v1",
             "status": "completed",
-            "score": 4,
-            "max_score": 5,
             "summary": "部分符合。",
             "item_judgements": [],
         }
@@ -2311,7 +2307,7 @@ async def test_ai_analysis_uses_valid_json_even_when_execution_failed(
     assert captured_payload["target"]["execution_status"] == "failed"
     assert captured_payload["target"]["reason_code"] == "execution_nonzero"
     assert results[0]["ai_judgement"]["status"] == "completed"
-    assert results[0]["ai_judgement"]["score"] == 4
+    assert "score" not in results[0]["ai_judgement"]
 
 
 @pytest.mark.asyncio

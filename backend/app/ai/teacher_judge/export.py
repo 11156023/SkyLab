@@ -7,14 +7,14 @@ import io
 from app.ai.teacher_judge.schemas import TeacherJudgeRubricItem
 
 _DETECTABLE_LABELS = {
-    "auto": "✅ 可執行取證",
+    "auto": "✅ 可執行檢查",
     "partial": "⚠️ 缺少資訊",
-    "manual": "❌ 不支援腳本取證",
+    "manual": "❌ 無法執行",
 }
 
 _JUDGEMENT_MODE_LABELS = {
-    "ai": "AI 自動判斷",
-    "teacher": "導師人工審核",
+    "ai": "系統自動核對",
+    "teacher": "導師核查",
 }
 
 _DETECTABLE_COLORS = {
@@ -24,8 +24,8 @@ _DETECTABLE_COLORS = {
 }
 
 _CHECKED_LABELS = {
-    True: "✅ 已達成",
-    False: "⬜ 未達成",
+    True: "✅ 已確認",
+    False: "⬜ 未確認",
 }
 
 
@@ -42,12 +42,12 @@ def export_to_excel(items: list[TeacherJudgeRubricItem], summary: str = "") -> b
     header_font = Font(bold=True, size=11)
     headers = [
         "項目編號",
-        "評分項目",
+        "檢查項目",
         "說明",
-        "是否達成",
-        "可偵測性",
-        "結果判定",
-        "腳本取證方式",
+        "確認狀態",
+        "執行狀態",
+        "核對方式",
+        "證據收集方式",
         "替代建議",
     ]
     col_widths = [10, 25, 40, 12, 18, 18, 35, 35]
@@ -73,7 +73,7 @@ def export_to_excel(items: list[TeacherJudgeRubricItem], summary: str = "") -> b
             item.id,
             item.title,
             item.description,
-            _CHECKED_LABELS.get(bool(item.checked), "⬜ 未達成"),
+            _CHECKED_LABELS.get(bool(item.checked), "⬜ 未確認"),
             label,
             (
                 _JUDGEMENT_MODE_LABELS.get(item.judgement_mode, item.judgement_mode)
