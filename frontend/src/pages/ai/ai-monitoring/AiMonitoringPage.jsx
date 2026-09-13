@@ -275,46 +275,7 @@ function TrendChart({ series, bucket, loading, metric, t }) {
   );
 }
 
-function CompactHealthPanel({ overview, runtime, overviewError, error, loading, t, onOpen }) {
-  const gateway = runtime?.gateway;
-  const gatewayStatus = error ? "unavailable" : gateway?.status ?? "unknown";
-  const gatewayLabel = {
-    available: t("AiMonitoringPage.runtimeAvailable"),
-    degraded: t("AiMonitoringPage.runtimeDegraded"),
-    unavailable: t("AiMonitoringPage.runtimeUnavailable"),
-    not_configured: t("AiMonitoringPage.runtimeNotConfigured"),
-    unknown: t("AiMonitoringPage.runtimeUnknown"),
-  }[gatewayStatus] ?? t("AiMonitoringPage.runtimeUnknown");
-  const readinessLabel = !error && gateway?.readiness
-    ? t("AiMonitoringPage.readinessReady")
-    : t("AiMonitoringPage.readinessNotReady");
-  const offline = runtime?.summary?.offline ?? 0;
-  const degraded = runtime?.summary?.degraded ?? 0;
-  const modelTone = offline > 0 ? "danger" : degraded > 0 ? "warning" : runtime?.models?.length ? "success" : "neutral";
-  const healthItems = [
-    {
-      key: "usage",
-      label: t("AiMonitoringPage.healthUsage"),
-      value: overviewError ? t("AiMonitoringPage.healthUnavailable") : overview ? t("AiMonitoringPage.healthNormal") : t("AiMonitoringPage.healthWaiting"),
-      tone: overviewError ? "danger" : overview ? "success" : "neutral",
-      target: "api",
-    },
-    {
-      key: "gateway",
-      label: t("AiMonitoringPage.healthGateway"),
-      value: `${gatewayLabel} · ${readinessLabel}`,
-      tone: gatewayStatus === "available" && gateway?.readiness ? "success" : gatewayStatus === "degraded" ? "warning" : "danger",
-      target: "runtime",
-    },
-    {
-      key: "models",
-      label: t("AiMonitoringPage.healthModels"),
-      value: runtime?.models?.length ? t("AiMonitoringPage.healthModelCount", { count: runtime.models.length, problem: offline + degraded }) : t("AiMonitoringPage.healthWaiting"),
-      tone: modelTone,
-      target: "models",
-    },
-  ];
-
+function CompactHealthPanel({ items, loading, t, onOpen }) {
   return (
     <section className={`${styles.panel} ${styles.healthPanel}`} aria-labelledby="runtime-heading">
       <div className={styles.panelHeader}>
@@ -325,23 +286,26 @@ function CompactHealthPanel({ overview, runtime, overviewError, error, loading, 
           </h2>
           <p className={styles.panelDescription}>{t("AiMonitoringPage.healthDescription")}</p>
         </div>
-        {runtime?.checked_at ? (
-          <span className={styles.checkedAt}>
-            {t("AiMonitoringPage.checkedAt", { time: new Date(runtime.checked_at).toLocaleTimeString("zh-TW") })}
-          </span>
-        ) : null}
+        {!loading && <span className={styles.healthIssueCount} aria-label={t("AiMonitoringPage.healthIssueSummary", { count: items.length })}>{items.length}</span>}
       </div>
 
       {loading ? (
         <LoadingState text={t("AiMonitoringPage.loadingRuntime")} />
       ) : (
         <div className={styles.healthList}>
-          {healthItems.map((item) => <button type="button" key={item.key} className={styles.healthRow} onClick={() => onOpen(item.target)}>
-            <span className={`${styles.healthDot} ${styles[`healthDot_${item.tone}`]}`} />
-            <span>{item.label}</span>
-            <strong className={styles[`healthValue_${item.tone}`]}>{item.value}</strong>
-            <MIcon name="chevron_right" size={17} />
-          </button>)}
+          {items.map((item) => {
+            const tone = item.tone === "critical" ? "danger" : item.tone;
+            return (
+              <button type="button" key={item.key} className={styles.healthRow} onClick={() => onOpen(item.target)}>
+                <span className={`${styles.healthDot} ${styles[`healthDot_${tone}`]}`} />
+                <span className={styles.healthCopy}>
+                  <strong>{item.title}</strong>
+                  <small>{item.detail}</small>
+                </span>
+                <MIcon name="chevron_right" size={17} />
+              </button>
+            );
+          })}
         </div>
       )}
     </section>
@@ -375,40 +339,6 @@ export function buildAttentionItems({ overview, runtime, overviewError, runtimeE
     rows.push({ key: "errors", tone: errorRate >= 10 ? "critical" : "warning", icon: "error_outline", title: t("AiMonitoringPage.attentionErrorRateTitle", { rate: formatPercent(errorRate) }), detail: errorDelta != null ? t("AiMonitoringPage.attentionErrorRateDesc", { delta: formatDelta(errorDelta, "pp") }) : t("AiMonitoringPage.attentionFailedCalls", { count: overview?.summary?.failed_calls ?? 0 }), target: "api-errors" });
   }
   return rows;
-}
-
-function HealthSummary({ items, loading, t }) {
-  const critical = items.some((item) => item.tone === "critical");
-  const tone = loading ? "neutral" : critical ? "danger" : items.length ? "warning" : "success";
-  const icon = loading ? "sync" : critical ? "report_problem" : items.length ? "warning" : "check_circle";
-  return <section className={`${styles.healthSummary} ${styles[`healthSummary_${tone}`]}`} role="status">
-    <span className={styles.healthSummaryIcon}><MIcon name={icon} size={28} /></span>
-    <div>
-      <span className={styles.healthEyebrow}>{t("AiMonitoringPage.systemHealth")}</span>
-      <h2>{loading ? t("AiMonitoringPage.healthChecking") : items.length ? t("AiMonitoringPage.healthDegraded") : t("AiMonitoringPage.healthHealthy")}</h2>
-      <p>{loading ? t("AiMonitoringPage.healthCheckingDesc") : items.length ? t("AiMonitoringPage.healthIssueCount", { count: items.length }) : t("AiMonitoringPage.healthHealthyDesc")}</p>
-    </div>
-  </section>;
-}
-
-function AttentionPanel({ items, onOpen, t }) {
-  const actionLabel = (target) => ({
-    runtime: t("AiMonitoringPage.openGateway"),
-    models: t("AiMonitoringPage.viewModels"),
-    "api-errors": t("AiMonitoringPage.viewFailedCalls"),
-    api: t("AiMonitoringPage.viewApiCalls"),
-  }[target] ?? t("AiMonitoringPage.viewDetail"));
-  return <section className={styles.attentionPanel} aria-labelledby="attention-heading">
-    <div className={styles.attentionHeader}>
-      <div><h2 id="attention-heading">{t("AiMonitoringPage.attentionTitle")}</h2><p>{t("AiMonitoringPage.attentionDescription")}</p></div>
-      <span>{items.length}</span>
-    </div>
-    {items.length ? <div className={styles.attentionList}>{items.map((item) => <button type="button" key={item.key} className={`${styles.attentionRow} ${styles[`attentionRow_${item.tone}`]}`} onClick={() => onOpen(item.target)}>
-      <span className={styles.attentionIcon}><MIcon name={item.icon} size={19} /></span>
-      <span className={styles.attentionCopy}><strong>{item.title}</strong><small>{item.detail}</small></span>
-      <span className={styles.attentionAction}>{actionLabel(item.target)}<MIcon name="arrow_forward" size={16} /></span>
-    </button>)}</div> : <div className={styles.attentionClear}><MIcon name="task_alt" size={20} /><span>{t("AiMonitoringPage.attentionClear")}</span></div>}
-  </section>;
 }
 
 function DetailSummary({ summary, t }) {
@@ -723,8 +653,6 @@ export default function AiMonitoringPage() {
         </div>
       </PageHeader>
 
-      <HealthSummary items={attentionItems} loading={overviewLoading || runtimeLoading} t={t} />
-
       <section className={styles.metricRow} aria-label={t("AiMonitoringPage.summaryTitle")}>
         <MetricCard
           icon="swap_calls"
@@ -751,18 +679,9 @@ export default function AiMonitoringPage() {
           delta={comparison ? formatDelta(comparison.error_rate_delta, "pp") : null}
           deltaTone={comparison?.error_rate_delta > 0 ? "danger" : "positive"}
         />
-        <MetricCard
-          icon="speed"
-          tone="info"
-          label={t("AiMonitoringPage.statAvgLatency")}
-          value={formatDuration(summary?.avg_latency_ms)}
-          detail={t("AiMonitoringPage.previousPeriod")}
-          delta={comparison?.avg_latency_ms_delta != null ? formatDelta(comparison.avg_latency_ms_delta, "ms") : null}
-          deltaTone={comparison?.avg_latency_ms_delta > 0 ? "danger" : "positive"}
-        />
       </section>
 
-      <section className={styles.primaryGrid}>
+      <section className={`${styles.primaryGrid} ${!overviewLoading && !runtimeLoading && attentionItems.length === 0 ? styles.primaryGridSingle : ""}`}>
         <div className={`${styles.panel} ${styles.trendPanel}`}>
           <div className={styles.panelHeader}>
             <div>
@@ -775,10 +694,10 @@ export default function AiMonitoringPage() {
           </div>
           <TrendChart series={overview?.series} bucket={overview?.bucket ?? presetToBucket(preset)} loading={overviewLoading} metric={trendMetric} t={t} />
         </div>
-        <CompactHealthPanel overview={overview} runtime={runtime} overviewError={overviewError} error={runtimeError} loading={runtimeLoading} t={t} onOpen={openAttention} />
+        {(overviewLoading || runtimeLoading || attentionItems.length > 0) && (
+          <CompactHealthPanel items={attentionItems} loading={overviewLoading || runtimeLoading} t={t} onOpen={openAttention} />
+        )}
       </section>
-
-      <AttentionPanel items={attentionItems} onOpen={openAttention} t={t} />
 
       <section ref={detailSectionRef} id="monitoring-details" className={styles.detailSection} aria-labelledby="detail-heading">
         <div className={styles.detailHeader}>
