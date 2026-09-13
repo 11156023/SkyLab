@@ -664,7 +664,8 @@ def _proposal_repair_instruction(
             f"具體能力核查結果：{titles}資料沒有列出需由老師補充的缺口，"
             "但被標成 manual 且沒有 check_steps；目前平台已提供 system.run_command。"
             "請重新判斷這些需求：若可由唯讀系統、程序、網路、檔案、套件或版本查詢取得證據，"
-            "必須改為 auto，依結果能否客觀判定選擇 judgement_mode，並提供單一完整 argv；"
+            "必須改為 auto，並預設以可客觀判定的 judgement_mode=ai 為目標，提供單一完整 argv；"
+            "只有老師已明確表示想自己檢查時才使用 judgement_mode=teacher；"
             "只有確實無法用安全唯讀命令取得任何可供核對的證據時，才能維持 manual。"
         )
 
@@ -675,15 +676,161 @@ def _proposal_repair_instruction(
         "請只重新輸出一次合法 JSON：若需求資料完整，回傳包含既有項目與 Ready 變更的"
         " updated_items 並將 proposal_status 設為 ready；若資料不完整，"
         "updated_items 必須是 null，proposal_status 設為 needs_information，"
-        "reply 改為逐項列出老師需要補充的檢查位置／範圍；若要由 AI 判斷，"
-        "才需要補充客觀成功條件，也可以明確改為 judgement_mode=teacher；"
-        "給老師的 reply 不得使用『客觀成功條件』，應改說『還不知道怎樣才算通過』"
-        "並舉出貼近需求的例子；"
+        "reply 改為逐項列出老師需要補充的檢查位置／範圍；若要由 AI 自動判定，"
+        "才需要補充客觀成功條件；只有老師已明確表示想自己檢查時，才可以改為 judgement_mode=teacher；"
+        "給老師的 reply 必須依本次已知內容、實際缺口與下一步自然組句，"
+        "不得顯示『客觀成功條件』等內部名稱，也不要套用固定開頭、結尾或完整範本；"
         "不得要求老師提供內部 command_key。若仍無法用可用 command 與完整 parameters "
         "表達檢查，也必須改為 needs_information，不得繼續宣稱 Ready。"
         "純詢問或沒有變更則設為 none。不得省略"
         " proposal_status，也不得在沒有有效 updated_items 時宣稱已建立提案。"
     )
+
+
+_TEACHER_LOCATION_GAP_MARKERS = (
+    "位置",
+    "路徑",
+    "目錄",
+    "工作目錄",
+    "檔案",
+    "程式位置",
+    "服務名稱",
+    "連接埠",
+    "Port",
+    "記錄",
+    "日誌",
+    "範圍",
+    "對象",
+)
+_TEACHER_RESULT_GAP_MARKERS = (
+    "成功條件",
+    "判定條件",
+    "預期答案",
+    "預期結果",
+    "預期內容",
+    "通過方式",
+)
+_TEACHER_INTERNAL_GAP_MARKERS = (
+    "取證",
+    "command_key",
+    "argv",
+    "check_steps",
+    "檢查步驟",
+    "檢查能力",
+    "命令與參數",
+    "唯讀命令",
+    "逾時",
+    "timeout",
+    "可執行",
+    "judgement_mode",
+    "proposal_status",
+    "detection_method",
+    "missing_information",
+    "template_key",
+    "parameters",
+    "客觀答案",
+    "AI",
+)
+
+
+def _has_gap_marker(value: str, markers: tuple[str, ...]) -> bool:
+    return any(marker.casefold() in value.casefold() for marker in markers)
+
+
+def _teacher_result_hints(item: TeacherJudgeRubricItem) -> list[str]:
+    """Select only result examples relevant to this item's wording."""
+    context = item.title
+    hint_rules = (
+        (("文字", "內容", "輸出", "字串", "包含"), "預期文字或內容"),
+        (("行", "列"), "行數"),
+        (("欄位", "欄"), "欄位值"),
+        (("版本",), "版本"),
+        (("port", "連接埠", "埠"), "Port"),
+        (("狀態", "正常", "執行", "安裝"), "狀態"),
+        (("數字", "數值", "門檻", "至少", "不低於"), "數字或門檻"),
+    )
+    return list(
+        dict.fromkeys(
+            label
+            for markers, label in hint_rules
+            if any(marker.casefold() in context.casefold() for marker in markers)
+        )
+    )
+
+
+def _teacher_missing_gap_reply(item: TeacherJudgeRubricItem) -> str:
+    """Render a teacher-facing gap description without leaking schema details."""
+    missing = [value.strip() for value in item.missing_information if value.strip()]
+    location_gaps = [
+        value
+        for value in missing
+        if _has_gap_marker(value, _TEACHER_LOCATION_GAP_MARKERS)
+    ]
+    result_gaps = [
+        value
+        for value in missing
+        if _has_gap_marker(value, _TEACHER_RESULT_GAP_MARKERS)
+    ]
+    remaining = [
+        value
+        for value in missing
+        if value not in location_gaps
+        and value not in result_gaps
+        and not _has_gap_marker(value, _TEACHER_INTERNAL_GAP_MARKERS)
+    ]
+
+    gap_labels: list[str] = []
+    if location_gaps:
+        gap_labels.append("檢查位置")
+    if result_gaps:
+        gap_labels.append("通過方式")
+    if remaining:
+        gap_labels.append("「" + "、".join(remaining) + "」")
+    if not gap_labels:
+        gap_labels.append("會影響檢查範圍或判定的資訊")
+
+    if len(gap_labels) == 1:
+        gap_text = gap_labels[0]
+    else:
+        gap_text = "、".join(gap_labels[:-1]) + "與" + gap_labels[-1]
+    detail = f"「{item.title}」的檢查目標已確認，但目前還缺少{gap_text}。"
+
+    requests: list[str] = []
+    if location_gaps:
+        location_text = " ".join(location_gaps)
+        needs_path = _has_gap_marker(
+            location_text,
+            (
+                "位置",
+                "路徑",
+                "目錄",
+                "工作目錄",
+                "檔案位置",
+                "檔案所在",
+                "程式位置",
+            ),
+        )
+        needs_scope = _has_gap_marker(
+            location_text,
+            ("服務名稱", "連接埠", "Port", "範圍", "對象"),
+        )
+        if needs_path and needs_scope:
+            requests.append("請補充檔案或程式的完整路徑，以及服務、連接埠或記錄範圍")
+        elif needs_path:
+            requests.append("請補上完整路徑，或工作目錄與相對路徑")
+        else:
+            requests.append("請補充要檢查的服務、檔案或記錄範圍")
+    if result_gaps:
+        hints = _teacher_result_hints(item)
+        expected = "、".join(hints) if hints else "可直接比對的預期結果"
+        requests.append(f"請補充{expected}")
+        requests.append("沒有固定答案時，也可以先收集結果讓你查看")
+    if remaining:
+        requests.append("請補充「" + "、".join(remaining) + "」")
+    if not requests:
+        requests.append("請補充會改變檢查範圍或判定的具體資訊")
+
+    return detail + "。".join(requests) + "。"
 
 
 def _proposal_unavailable_reply(
@@ -694,53 +841,7 @@ def _proposal_unavailable_reply(
     """Give the teacher a short, actionable reason why no proposal was created."""
     incomplete = [item for item in normalized_items if item.detectable == "partial"]
     if incomplete:
-        details: list[str] = []
-        for item in incomplete:
-            missing = item.missing_information
-            needs_location = any(
-                any(word in value for word in ("位置", "路徑", "目錄", "範圍"))
-                for value in missing
-            )
-            needs_result = any(
-                any(word in value for word in ("成功條件", "判定條件", "預期答案"))
-                for value in missing
-            )
-            remaining = [
-                value
-                for value in missing
-                if not any(
-                    word in value
-                    for word in (
-                        "位置",
-                        "路徑",
-                        "目錄",
-                        "範圍",
-                        "成功條件",
-                        "判定條件",
-                        "預期答案",
-                    )
-                )
-            ]
-            gaps: list[str] = []
-            requests: list[str] = []
-            if needs_location:
-                gaps.append("還不知道要在哪裡檢查")
-                requests.append("請提供完整路徑，或工作目錄和相對路徑")
-            if needs_result:
-                gaps.append("還不知道怎樣才算通過")
-                requests.append(
-                    "請告訴我預期結果，例如必須包含的文字、行數、欄位值、版本或狀態；"
-                    "如果沒有固定答案，也可以直接說由你查看"
-                )
-            if remaining:
-                gaps.append("還需要你補充「" + "、".join(remaining) + "」")
-            if not gaps:
-                gaps.append("還需要更明確的檢查位置或通過方式")
-            detail = f"關於「{item.title}」，" + "，也".join(gaps) + "。"
-            if requests:
-                detail += "；".join(requests) + "。"
-            details.append(detail)
-        return " ".join(details) + "補充後，我會重新確認並建立提案給你查看。"
+        return " ".join(_teacher_missing_gap_reply(item) for item in incomplete)
 
     invalid_auto_items = _invalid_auto_item_titles(normalized_items, raw_items)
     if invalid_auto_items:

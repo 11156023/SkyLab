@@ -80,14 +80,22 @@ def test_teacher_judge_chat_prompt_is_scoped_and_clarifies_missing_information()
     assert "預期文字、數字、行數、欄位、版本、Port 或狀態" in (
         CHAT_SYSTEM_TEMPLATE
     )
-    assert "若沒有固定答案，可說明能先收集結果，再由老師本人查看" in (
+    assert "老師明確表示想自己檢查時，才說明會先收集結果再由老師查看" in (
         CHAT_SYSTEM_TEMPLATE
     )
+    assert "不得自行改用 `teacher`" in CHAT_SYSTEM_TEMPLATE
+    assert "應使用 `auto + teacher`" not in CHAT_SYSTEM_TEMPLATE
     assert "一般回覆不要使用「腳本取證」" in CHAT_SYSTEM_TEMPLATE
-    assert "我還不知道怎樣才算通過" in CHAT_SYSTEM_TEMPLATE
+    assert "依項目的檢查對象與缺口自然組句" in CHAT_SYSTEM_TEMPLATE
+    assert "不要固定套用任何預設開頭、結尾或完整範本" in (
+        CHAT_SYSTEM_TEMPLATE
+    )
+    assert "不要照抄範例、硬塞檔名或重複固定收尾" in CHAT_SYSTEM_TEMPLATE
+    assert "不要複製它的句首、例子或收尾" in CHAT_SYSTEM_TEMPLATE
+    assert "我還不知道怎樣才算通過" not in CHAT_SYSTEM_TEMPLATE
     assert "兩者只能選符合本項設定的一種" in CHAT_SYSTEM_TEMPLATE
     assert "不得含糊寫成「由 AI 或導師判斷」" in CHAT_SYSTEM_TEMPLATE
-    assert "補充後，我會重新確認並建立提案給你查看" in CHAT_SYSTEM_TEMPLATE
+    assert "補充後，我會重新確認並建立提案給你查看" not in CHAT_SYSTEM_TEMPLATE
     assert "才呼叫 `get_current_checklist`" in CHAT_SYSTEM_TEMPLATE
     assert "全新、與既有項目無關" in CHAT_SYSTEM_TEMPLATE
     assert "只回傳本輪要預覽的新增、修改或刪除操作" in CHAT_SYSTEM_TEMPLATE

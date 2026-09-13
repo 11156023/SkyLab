@@ -744,8 +744,9 @@ async def test_chat_prompt_accepts_objectively_verifiable_main_py_checkpoint(
         "缺少無法由上下文得知的工作目錄、檔案、服務名稱、Port 或記錄範圍"
         in system_prompt
     )
-    assert "主觀作品品質、程式架構或開放式答案" in system_prompt
+    assert "判斷方式預設以自動檢查為目標" in system_prompt
     assert "不得因缺少客觀答案而攔截提案" in system_prompt
+    assert "不得主觀替老師決定改交導師檢查" in system_prompt
     assert "catalog 有對應能力時" in system_prompt
     assert "用無關檢查替換原目標" in system_prompt
     assert "`auto` 項目的 `check_steps` 應優先引用該 `command_key`" in system_prompt
@@ -892,7 +893,7 @@ async def test_follow_up_natural_answer_is_audited_before_repeating_question(
             SimpleNamespace(role="user", content="我要檢查 answer.txt"),
             SimpleNamespace(
                 role="assistant",
-                content="我還不知道怎樣才算通過，請告訴我預期內容。",
+                content="目前還缺少 answer.txt 的內容判定方式，請補充預期內容。",
             ),
             SimpleNamespace(
                 role="user",
@@ -2248,12 +2249,59 @@ def test_unavailable_reply_explains_missing_result_in_plain_language() -> None:
 
     reply = teacher_judge_service._proposal_unavailable_reply([item], [item.model_dump()])
 
-    assert "關於「檢查 answer.txt 內容」" in reply
-    assert "還不知道怎樣才算通過" in reply
-    assert "必須包含的文字、行數、欄位值、版本或狀態" in reply
-    assert "如果沒有固定答案，也可以直接說由你查看" in reply
-    assert "補充後，我會重新確認並建立提案給你查看" in reply
+    assert "「檢查 answer.txt 內容」" in reply
+    assert "目前還缺少通過方式" in reply
+    assert "請補充預期文字或內容" in reply
+    assert "沒有固定答案時，也可以先收集結果讓你查看" in reply
+    assert "檢查位置" not in reply
+    assert "完整路徑" not in reply
+    assert "我還不知道怎樣才算通過" not in reply
+    assert "補充後，我會重新確認並建立提案給你查看" not in reply
     assert "客觀成功條件" not in reply
+
+
+def test_unavailable_reply_only_asks_for_location_when_location_is_missing() -> None:
+    item = TeacherJudgeRubricItem(
+        id="item-log",
+        title="檢查服務日誌",
+        detectable="partial",
+        judgement_mode="teacher",
+        detection_method="收集服務日誌供老師查看。",
+        missing_information=["服務日誌的檔案位置"],
+    )
+
+    reply = teacher_judge_service._proposal_unavailable_reply([item], [item.model_dump()])
+
+    assert "檢查服務日誌" in reply
+    assert "檢查位置" in reply
+    assert "完整路徑" in reply
+    assert "服務、連接埠或記錄範圍" not in reply
+    assert "通過方式" not in reply
+    assert "預期結果" not in reply
+
+
+def test_unavailable_reply_hides_platform_fields_from_teacher() -> None:
+    item = TeacherJudgeRubricItem(
+        id="item-internal",
+        title="檢查服務",
+        detectable="partial",
+        judgement_mode="ai",
+        detection_method="收集服務資訊。",
+        missing_information=[
+            "腳本取證方式",
+            "1 至 300 秒的逾時限制",
+            "有效的檢查能力：system.run_command",
+            "proposal_status",
+        ],
+    )
+
+    reply = teacher_judge_service._proposal_unavailable_reply([item], [item.model_dump()])
+
+    assert "檢查服務" in reply
+    assert "會影響檢查範圍或判定的資訊" in reply
+    assert "腳本取證" not in reply
+    assert "逾時" not in reply
+    assert "proposal_status" not in reply
 
 
 def test_normalize_preserves_objectively_verifiable_main_py_checkpoint() -> None:
