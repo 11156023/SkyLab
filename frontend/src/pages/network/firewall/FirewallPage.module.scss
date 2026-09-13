@@ -211,19 +211,27 @@
   backdrop-filter: blur(4px);
 }
 
-/* ── Handle（節點連接點） ── */
-.handleIn {
+/* ── Handle（節點連接點） ──
+   四面各一組（source 疊在 target 上），線從哪一側走由相對位置決定。
+   平常隱形以免畫布佈滿小圓點，滑到節點上或正在拉線時才浮現；
+   透明時仍保有 pointer-events，配合 connectionRadius 一樣拉得到。 */
+.nodeHandle {
   background: var(--color-primary) !important;
   border-color: var(--color-primary) !important;
-  width: 12px !important;
-  height: 12px !important;
+  width: 10px !important;
+  height: 10px !important;
+  opacity: 0;
+  transition: opacity $transition-base;
 }
 
-.handleOut {
-  background: var(--color-success) !important;
-  border-color: var(--color-success) !important;
-  width: 12px !important;
-  height: 12px !important;
+.vmNode:hover .nodeHandle,
+.gwNode:hover .nodeHandle {
+  opacity: 1;
+}
+
+/* 拉線途中所有節點都要看得到可放的位置（class 由 onConnectStart/End 掛在畫布上） */
+.connecting .nodeHandle {
+  opacity: 1;
 }
 
 /* ── Gateway 節點 ── */

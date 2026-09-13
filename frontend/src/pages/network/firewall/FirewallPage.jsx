@@ -3,7 +3,7 @@
  * 防火牆拓撲頁面，使用 @xyflow/react 繪製互動式節點圖。
  */
 
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import { useTranslation } from "react-i18next";
 import {
   ReactFlow,
@@ -28,7 +28,7 @@ import GatewayNode      from "./nodes/GatewayNode";
 import VMNode           from "./nodes/VMNode";
 import ConnectionEdge   from "./edges/ConnectionEdge";
 import ConnectionDetailPanel from "./ConnectionDetailPanel";
-import { buildFlow, portLabel } from "./utils/buildFlow";
+import { buildFlow, portLabel, routeEdges } from "./utils/buildFlow";
 import { useTheme } from "../../../contexts/ThemeContext";
 import useAutoRefresh from "../../../hooks/useAutoRefresh";
 import LoadingState from "../../../components/LoadingState/LoadingState";
@@ -69,6 +69,7 @@ export default function FirewallPage() {
   /* 預設開啟：標籤本身就是「這條線在開什麼」的答案，不該要使用者自己去翻開 */
   const [showLabels,   setShowLabels]   = useState(true);
   const [showMiniMap,  setShowMiniMap]  = useState(true);
+  const [connecting,   setConnecting]   = useState(false);
   const connDialog    = useDialogPresence(showDialog);
   const deleteConfirm = useDialogPresence(deleteEdge);
   /* 關閉細項面板時先播 0.22s 滑出動畫再卸載，時長需與 SCSS 的 panelOut 一致 */
@@ -223,6 +224,9 @@ export default function FirewallPage() {
     .filter((n) => n.node_type !== "gateway")
     .map((n) => ({ key: String(n.vmid), vmid: n.vmid, name: n.name }));
 
+  /* ── 依目前節點位置決定每條線走哪一側：拖動節點時線會即時改走最短路徑 ── */
+  const routedEdges = useMemo(() => routeEdges(edges, nodes), [edges, nodes]);
+
   /* ── 連線面板顯示兩端名稱；vmid 為 null 代表網際網路 ── */
   const resolveName = useCallback(
     (vmid) => {
@@ -292,16 +296,21 @@ export default function FirewallPage() {
         )}
 
         {!loading && !error && topology && (
-          <div className={styles.flowWrap} data-guide="firewall-map">
+          <div
+            className={`${styles.flowWrap} ${connecting ? styles.connecting : ""}`}
+            data-guide="firewall-map"
+          >
             <ReactFlow
               nodes={nodes}
-              edges={edges}
+              edges={routedEdges}
               onNodesChange={onNodesChange}
               onEdgesChange={onEdgesChange}
               onNodeDragStop={onNodeDragStop}
               onNodeClick={onNodeClick}
               onPaneClick={onPaneClick}
               onConnect={onConnect}
+              onConnectStart={() => setConnecting(true)}
+              onConnectEnd={() => setConnecting(false)}
               isValidConnection={isValidConnection}
               connectionRadius={36}
               onInit={(instance) => { rfInstance.current = instance; }}

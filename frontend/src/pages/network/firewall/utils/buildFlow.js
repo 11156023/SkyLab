@@ -8,6 +8,67 @@
 
 const GATEWAY_KEY = "gateway";
 
+/* 節點四面都有連接點，線走哪一側由兩端的相對位置決定。
+   尺寸與 FirewallPage.module.scss 的 .vmNode / .gwNode 一致，
+   只在 ReactFlow 量到實際尺寸前當備援。 */
+const NODE_SIZE = {
+  vm: { w: 180, h: 60 },
+  gateway: { w: 90, h: 90 },
+};
+
+export const HANDLE = {
+  SOURCE: { top: "s-top", right: "s-right", bottom: "s-bottom", left: "s-left" },
+  TARGET: { top: "t-top", right: "t-right", bottom: "t-bottom", left: "t-left" },
+};
+
+function centerOf(node) {
+  const fallback = NODE_SIZE[node.type] ?? NODE_SIZE.vm;
+  const w = node.measured?.width ?? fallback.w;
+  const h = node.measured?.height ?? fallback.h;
+  return {
+    x: (node.position?.x ?? 0) + w / 2,
+    y: (node.position?.y ?? 0) + h / 2,
+  };
+}
+
+/**
+ * 選出兩節點之間最短的連接側。
+ * 水平距離較大就左右相接，否則上下相接，避免上下相鄰的節點也要繞一圈。
+ */
+export function pickHandles(sourceNode, targetNode) {
+  if (!sourceNode || !targetNode) {
+    return [HANDLE.SOURCE.right, HANDLE.TARGET.left];
+  }
+  const a = centerOf(sourceNode);
+  const b = centerOf(targetNode);
+  const dx = b.x - a.x;
+  const dy = b.y - a.y;
+
+  if (Math.abs(dx) >= Math.abs(dy)) {
+    return dx >= 0
+      ? [HANDLE.SOURCE.right, HANDLE.TARGET.left]
+      : [HANDLE.SOURCE.left, HANDLE.TARGET.right];
+  }
+  return dy >= 0
+    ? [HANDLE.SOURCE.bottom, HANDLE.TARGET.top]
+    : [HANDLE.SOURCE.top, HANDLE.TARGET.bottom];
+}
+
+/** 依目前節點位置重算每條邊該走哪一側；節點拖動時即時套用 */
+export function routeEdges(edges, nodes) {
+  const byId = new Map(nodes.map((n) => [n.id, n]));
+  return edges.map((edge) => {
+    const [sourceHandle, targetHandle] = pickHandles(
+      byId.get(edge.source),
+      byId.get(edge.target),
+    );
+    if (edge.sourceHandle === sourceHandle && edge.targetHandle === targetHandle) {
+      return edge;
+    }
+    return { ...edge, sourceHandle, targetHandle };
+  });
+}
+
 /* 常用埠 → 服務名。專有名詞，不進 i18n */
 const PORT_SERVICE = {
   20: "FTP",
@@ -106,14 +167,22 @@ export function buildFlow(topology, { onSelectEdge, showLabel, selectedEdgeId } 
     data: { ...node, exposed_count: exposure.get(node.vmid) ?? 0 },
   }));
 
+  const nodeById = new Map(nodes.map((n) => [n.id, n]));
+
   const edges = rawEdges.map((edge, i) => {
     const srcKey = edge.source_vmid === null ? GATEWAY_KEY : String(edge.source_vmid);
     const tgtKey = edge.target_vmid === null ? GATEWAY_KEY : String(edge.target_vmid);
     const id = `edge-${i}-${srcKey}-${tgtKey}`;
+    const [sourceHandle, targetHandle] = pickHandles(
+      nodeById.get(srcKey),
+      nodeById.get(tgtKey),
+    );
     return {
       id,
       source: srcKey,
       target: tgtKey,
+      sourceHandle,
+      targetHandle,
       type: "connection",
       data: {
         label: edgeLabel(edge.ports),
