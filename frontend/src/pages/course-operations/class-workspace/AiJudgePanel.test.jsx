@@ -15,6 +15,7 @@ import {
   getRubricItemsValue,
   getRubricReviewItemIds,
   getPendingRubricItemIds,
+  resolveDetectabilityNeedsReview,
   getScriptCreationBlocker,
   getSessionMenuPosition,
   getSelectedRubricSource,
@@ -433,6 +434,88 @@ describe("rubric item change detection", () => {
 
     expect([...getPendingRubricItemIds(currentItems, savedItems)]).toEqual(["item-1"]);
     expect([...getPendingRubricItemIds([savedItems[1]], savedItems)]).toEqual([]);
+  });
+});
+
+describe("detectability review state", () => {
+  test("待確認清單為空時不得保存整表待更新旗標，避免未編輯項目全變待更新", () => {
+    expect(resolveDetectabilityNeedsReview({
+      requested: true,
+      reviewItemIds: new Set(),
+      hasActualChange: true,
+      lastSavedNeedsReview: false,
+    })).toBe(false);
+
+    expect(resolveDetectabilityNeedsReview({
+      requested: true,
+      reviewItemIds: new Set(["item-2"]),
+      hasActualChange: true,
+      lastSavedNeedsReview: false,
+    })).toBe(true);
+
+    expect(resolveDetectabilityNeedsReview({
+      requested: true,
+      reviewItemIds: new Set(),
+      hasActualChange: false,
+      lastSavedNeedsReview: true,
+    })).toBe(false);
+
+    expect(resolveDetectabilityNeedsReview({
+      requested: false,
+      reviewItemIds: new Set(["item-2"]),
+      hasActualChange: true,
+    })).toBe(false);
+  });
+
+  test("未指定意圖時沿用分析結果既有旗標", () => {
+    expect(resolveDetectabilityNeedsReview({
+      requested: null,
+      reviewItemIds: new Set(["item-1"]),
+      fallbackNeedsReview: true,
+    })).toBe(true);
+    expect(resolveDetectabilityNeedsReview({
+      requested: null,
+      reviewItemIds: new Set(),
+      fallbackNeedsReview: false,
+    })).toBe(false);
+  });
+
+  test("刪除單一項目不會把其他未編輯項目算進待確認清單", () => {
+    const savedItems = [
+      { id: "item-1", title: "檢查版本", description: "至少 3.11", detectable: "auto" },
+      { id: "item-2", title: "檢查輸出", description: "符合格式", detectable: "auto" },
+    ];
+    const nextItems = [savedItems[1]];
+
+    expect([...getPendingRubricItemIds(nextItems, savedItems)]).toEqual([]);
+  });
+
+  test("套用提案期間尚未保存完成的內容，會以排程中的分析為基準，不把 AI 套用結果誤判成待更新", () => {
+    const savedItems = [
+      { id: "item-1", title: "檢查版本", description: "至少 3.11", detectable: "auto" },
+      { id: "item-2", title: "檢查輸出", description: "符合格式", detectable: "auto" },
+    ];
+    // AI 提案已套用 item-1（尚未保存完成），使用者此時編輯 item-2
+    const pendingSaveAnalysis = {
+      items: [
+        { ...savedItems[0], description: "至少 3.11（AI 補充）" },
+        savedItems[1],
+      ],
+      detectability_needs_review: false,
+      pending_review_item_ids: [],
+    };
+    const nextItems = [
+      pendingSaveAnalysis.items[0],
+      { ...savedItems[1], description: "符合格式（教師微調）" },
+    ];
+
+    expect([...getPendingRubricItemIds(
+      nextItems,
+      savedItems,
+      [],
+      false,
+      pendingSaveAnalysis,
+    )]).toEqual(["item-2"]);
   });
 });
 

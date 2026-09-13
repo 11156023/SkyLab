@@ -47,4 +47,31 @@ describe("createRubricAnalysisAutosave", () => {
     expect(save.mock.calls[1][0]).toEqual({ title: "輸入中的最新版" });
     expect(autosave.isPending()).toBe(false);
   });
+
+  test("pendingValue 反映排程中與保存中的內容，完成後清空", async () => {
+    let finishFirst;
+    const firstSave = new Promise((resolve) => {
+      finishFirst = resolve;
+    });
+    const save = vi.fn()
+      .mockReturnValueOnce(firstSave)
+      .mockResolvedValueOnce(undefined);
+    const autosave = createRubricAnalysisAutosave({ save, delay: 0 });
+
+    expect(autosave.pendingValue()).toBeNull();
+    autosave.schedule({ title: "第一版" });
+    const flushing = autosave.flush();
+    await Promise.resolve();
+    expect(autosave.pendingValue()).toEqual({ title: "第一版" });
+
+    autosave.schedule({ title: "輸入中的最新版" });
+    expect(autosave.pendingValue()).toEqual({ title: "輸入中的最新版" });
+
+    finishFirst();
+    await flushing;
+
+    expect(autosave.pendingValue()).toBeNull();
+    expect(save).toHaveBeenCalledTimes(2);
+    expect(save.mock.calls[1][0]).toEqual({ title: "輸入中的最新版" });
+  });
 });

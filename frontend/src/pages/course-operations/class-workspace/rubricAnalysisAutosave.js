@@ -1,6 +1,7 @@
 export function createRubricAnalysisAutosave({ save, onError, delay = 650 }) {
   let timer = null;
   let pending = null;
+  let inFlightValue = null;
   let inFlight = null;
   let disposed = false;
 
@@ -23,6 +24,7 @@ export function createRubricAnalysisAutosave({ save, onError, delay = 650 }) {
 
       const value = pending;
       pending = null;
+      inFlightValue = value;
       inFlight = Promise.resolve()
         .then(() => save(value))
         .then(() => true)
@@ -32,6 +34,7 @@ export function createRubricAnalysisAutosave({ save, onError, delay = 650 }) {
         })
         .finally(() => {
           inFlight = null;
+          inFlightValue = null;
         });
       const saved = await inFlight;
       succeeded = saved && succeeded;
@@ -65,5 +68,7 @@ export function createRubricAnalysisAutosave({ save, onError, delay = 650 }) {
     flush,
     dispose,
     isPending: () => pending !== null || inFlight !== null || timer !== null,
+    /** 排程中或正在保存的最新內容；供待更新判定以即將保存的版本為基準。 */
+    pendingValue: () => pending ?? inFlightValue,
   };
 }

@@ -342,15 +342,27 @@ export function getRubricItemsValue(analysis) {
   })));
 }
 
-/** 只標記與最後儲存內容不同的檢查項目；整表旗標不會外溢到其他列。 */
+/** 只標記與最後儲存內容不同的檢查項目；整表旗標不會外溢到其他列。
+ *
+ * `pendingSaveAnalysis` 為尚在排程／傳送中的分析內容（最新將被保存的版本）；
+ * 競態期間（例如 AI 提案套用後保存仍在進行）以它為基準，避免把 AI 剛套用、
+ * 教師實際上沒有編輯的項目誤判成待更新。
+ */
 export function getPendingRubricItemIds(
   currentItems,
   lastSavedItems,
   previousIds = [],
   lastSavedNeedsReview = false,
+  pendingSaveAnalysis = null,
 ) {
+  const baselineItems = pendingSaveAnalysis && Array.isArray(pendingSaveAnalysis.items)
+    ? pendingSaveAnalysis.items
+    : lastSavedItems;
+  const baselineNeedsReview = pendingSaveAnalysis
+    ? Boolean(pendingSaveAnalysis.detectability_needs_review)
+    : lastSavedNeedsReview;
   const current = Array.isArray(currentItems) ? currentItems : [];
-  const saved = Array.isArray(lastSavedItems) ? lastSavedItems : [];
+  const saved = Array.isArray(baselineItems) ? baselineItems : [];
   const savedById = new Map(saved.filter((item) => item?.id).map((item) => [item.id, comparableItem(item)]));
   const currentIds = new Set(current.filter((item) => item?.id).map((item) => item.id));
   const next = new Set(previousIds ?? []);
@@ -360,7 +372,7 @@ export function getPendingRubricItemIds(
     const savedValue = savedById.get(item.id);
     if (savedValue === undefined || savedValue !== comparableItem(item)) {
       next.add(item.id);
-    } else if (!lastSavedNeedsReview) {
+    } else if (!baselineNeedsReview) {
       next.delete(item.id);
     }
   });
@@ -369,6 +381,23 @@ export function getPendingRubricItemIds(
     if (!currentIds.has(itemId)) next.delete(itemId);
   });
   return next;
+}
+
+/**
+ * 待更新旗標一律由「待確認項目清單」推導：清單為空代表沒有任何項目實際
+ * 被編輯，不得保存整表旗標；否則重新載入或自動保存完成後，整表旗標的
+ * fallback 會把所有未編輯項目一起標成待更新。
+ */
+export function resolveDetectabilityNeedsReview({
+  requested = null,
+  reviewItemIds = new Set(),
+  hasActualChange = false,
+  lastSavedNeedsReview = false,
+  fallbackNeedsReview = false,
+}) {
+  if (typeof requested !== "boolean") return fallbackNeedsReview;
+  if (!requested) return false;
+  return (hasActualChange || lastSavedNeedsReview) && reviewItemIds.size > 0;
 }
 
 /**
@@ -1311,10 +1340,14 @@ function RubricsTab({ classId, judgeSession, onSessionUpdated, onScriptCreated, 
     const lastSavedNeedsReview = sourceFileId
       ? Boolean(lastSavedNeedsReviewRef.current.get(sourceFileId))
       : false;
-    const evaluatedNeedsReview = typeof detectabilityNeedsReview === "boolean"
-      ? (detectabilityNeedsReview ? hasActualChange || lastSavedNeedsReview : false)
-      : nextAnalysis.detectability_needs_review;
     const nextReviewIds = getRubricReviewItemIds(nextAnalysis, reviewItemIds ?? pendingReviewIds);
+    const evaluatedNeedsReview = resolveDetectabilityNeedsReview({
+      requested: detectabilityNeedsReview,
+      reviewItemIds: nextReviewIds,
+      hasActualChange,
+      lastSavedNeedsReview,
+      fallbackNeedsReview: nextAnalysis.detectability_needs_review,
+    });
     const evaluatedAnalysis = typeof evaluatedNeedsReview === "boolean"
       ? {
           ...nextAnalysis,
@@ -1331,6 +1364,13 @@ function RubricsTab({ classId, judgeSession, onSessionUpdated, onScriptCreated, 
   }
 
   function updatePendingReviewIds(nextItems) {
+    // 自動保存排程中／傳送中時，最新將被保存的內容才是正確基準；
+    // 否則 AI 提案套用後的保存延遲期間編輯其他欄位，會把 AI 剛套用、
+    // 教師沒有編輯的項目誤判成待更新。
+    const pendingSave = autosaveRef.current?.pendingValue?.() ?? null;
+    const pendingSaveAnalysis = pendingSave && pendingSave.fileId === sourceFileId
+      ? pendingSave.analysis
+      : null;
     const savedItems = sourceFileId ? lastSavedItemsRef.current.get(sourceFileId) : [];
     const lastSavedNeedsReview = sourceFileId
       ? Boolean(lastSavedNeedsReviewRef.current.get(sourceFileId))
@@ -1343,6 +1383,7 @@ function RubricsTab({ classId, judgeSession, onSessionUpdated, onScriptCreated, 
       savedItems,
       previousIds,
       lastSavedNeedsReview,
+      pendingSaveAnalysis,
     );
     if (sourceFileId) pendingReviewIdsByFileRef.current.set(sourceFileId, nextIds);
     setPendingReviewIds(nextIds);
