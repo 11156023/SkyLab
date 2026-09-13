@@ -37,6 +37,8 @@
   "course_env.audience_class_required": "When opening this for quick practice, you must choose which classes can see this environment",
 
   "gateway.unknown_service": "Unknown service: {service}",
+  "gateway.service_config_not_exposed": "Raw configuration editing is not exposed for {service} for security reasons",
+  "gateway.wireguard_overview_failed": "Unable to retrieve the Gateway WireGuard overview",
   "gateway.install_script_missing": "Install script not found",
   "gateway.proxmox_failed": "Proxmox operation failed",
   "gateway.traefik_sync_failed": "Failed to sync Traefik certificate settings",

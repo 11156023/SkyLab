@@ -24,6 +24,7 @@ defineComponent({ name: "Home" });
 const { t } = useI18n();
 const appStore = useAppStore();
 const loading = ref(false);
+const authenticating = ref(false);
 const refreshing = ref(false);
 const operationError = ref("");
 const expandedCourses = ref<string[]>([]);
@@ -108,10 +109,49 @@ watch(
   }
 );
 
-const handleConnect = () => {
+const startTunnel = () => {
   loading.value = true;
+  authenticating.value = false;
   operationError.value = "";
   send(ipcRouters.TUNNEL.start);
+};
+
+const handleConnect = () => {
+  if (appStore.loggedIn) {
+    startTunnel();
+    return;
+  }
+
+  loading.value = true;
+  authenticating.value = true;
+  operationError.value = "";
+  appStore.loginInProgress = true;
+  send(ipcRouters.AUTH.startLogin);
+};
+
+const authEventHandler = (_event: any, args: ApiResponse<any>) => {
+  if (!args || args.bizCode !== "A1000") return;
+  const payload = args.data;
+  if (!payload) return;
+
+  appStore.loginInProgress = false;
+  if (payload.type === "login-success") {
+    appStore.loggedIn = true;
+    appStore.refreshAuth();
+    appStore.refreshResources();
+    ElMessage.success(t("login.success"));
+    startTunnel();
+    return;
+  }
+
+  if (payload.type === "login-failure") {
+    loading.value = false;
+    authenticating.value = false;
+    operationError.value = t("login.failure", {
+      error: payload.error || "unknown"
+    });
+    ElMessage.error(operationError.value);
+  }
 };
 
 const handleDisconnect = () => {
@@ -121,7 +161,7 @@ const handleDisconnect = () => {
 };
 
 const refresh = () => {
-  appStore.refreshResources();
+  if (appStore.loggedIn) appStore.refreshResources();
   if (appStore.tunnelStatus.running) {
     refreshing.value = true;
     send(ipcRouters.TUNNEL.refresh);
@@ -145,6 +185,19 @@ const openRdp = (target: { host: string; port: number }) => {
 };
 
 onMounted(() => {
+  on(
+    ipcRouters.AUTH.startLogin,
+    () => {
+      appStore.loginInProgress = true;
+    },
+    (_code, message) => {
+      loading.value = false;
+      authenticating.value = false;
+      appStore.loginInProgress = false;
+      operationError.value = message;
+      ElMessage.error(message);
+    }
+  );
   on(
     ipcRouters.TUNNEL.start,
     () => {
@@ -194,6 +247,8 @@ onMounted(() => {
     (_code, message) => ElMessage.error(message)
   );
 
+  window.electronIpcRenderer.on("auth:event", authEventHandler);
+
   refresh();
   window.addEventListener("online", refreshAfterNetworkRecovery);
   if (router.currentRoute.value.query.connect === "1") {
@@ -203,12 +258,14 @@ onMounted(() => {
 });
 
 onUnmounted(() => {
+  removeRouterListeners(ipcRouters.AUTH.startLogin);
   removeRouterListeners(ipcRouters.TUNNEL.start);
   removeRouterListeners(ipcRouters.TUNNEL.stop);
   removeRouterListeners(ipcRouters.TUNNEL.refresh);
   removeRouterListeners(ipcRouters.TUNNEL.getStatus);
   removeRouterListeners(ipcRouters.SYSTEM.openSsh);
   removeRouterListeners(ipcRouters.SYSTEM.openRdp);
+  window.electronIpcRenderer.removeListener("auth:event", authEventHandler);
   window.removeEventListener("online", refreshAfterNetworkRecovery);
 });
 </script>
@@ -259,9 +316,17 @@ onUnmounted(() => {
           </span>
           <span class="connect-button__copy">
             <strong>{{
-              loading ? t("home.connect.connecting") : t("home.connect.button")
+              authenticating
+                ? t("home.connect.authenticating")
+                : loading
+                  ? t("home.connect.connecting")
+                  : t("home.connect.button")
             }}</strong>
-            <small>{{ t("home.connect.secureHint") }}</small>
+            <small>{{
+              authenticating
+                ? t("home.connect.authHint")
+                : t("home.connect.secureHint")
+            }}</small>
           </span>
           <span class="connect-button__arrow">
             <IconifyIconOffline icon="arrow-forward-rounded" />

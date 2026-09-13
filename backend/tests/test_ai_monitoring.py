@@ -78,6 +78,40 @@ def test_monitoring_overview_aggregates_total_tokens_per_model(
     ]
 
 
+def test_monitoring_overview_aggregates_total_tokens_per_bucket(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    stats = {
+        "proxy_total_calls": 2,
+        "template_total_calls": 1,
+        "successful_calls": 2,
+        "active_users": 1,
+        "avg_latency_ms": 100,
+    }
+    bucket_start = "2026-09-11 10:00:00"
+
+    monkeypatch.setattr(
+        ai_gateway_service,
+        "get_monitoring_stats",
+        lambda **_kwargs: stats,
+    )
+
+    def bucket_rows(**kwargs):
+        if kwargs["model"] is AIAPIUsage:
+            return [(bucket_start, 2, 1, 10, 20, 2, 200)]
+        assert kwargs["model"] is AITemplateCallLog
+        return [(bucket_start, 1, 1, 30, 40, 1, 100)]
+
+    monkeypatch.setattr(ai_gateway_service, "_monitoring_bucket_rows", bucket_rows)
+    monkeypatch.setattr(ai_gateway_service, "_monitoring_model_rows", lambda **_kwargs: [])
+
+    overview = ai_gateway_service.get_monitoring_overview(session=object(), compare=False)
+
+    assert len(overview["series"]) == 1
+    assert overview["series"][0]["total_tokens"] == 100
+    assert overview["series"][0]["failed_calls"] == 1
+
+
 @pytest.mark.asyncio
 async def test_runtime_snapshot_normalizes_model_health_without_leaking_upstream(
     monkeypatch: pytest.MonkeyPatch,

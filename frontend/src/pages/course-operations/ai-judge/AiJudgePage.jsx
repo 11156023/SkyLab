@@ -122,7 +122,7 @@ export default function AiJudgePage() {
         </div>
       </PageHeader>
       <main className={styles.workspaceContent}>
-        {item.status !== "active" ? <LockedFeature /> : membersLoading ? <LoadingState text="正在讀取班級機器…" /> : <AiJudgePanel classId={item.id} members={members} />}
+        {item.status !== "active" ? <LockedFeature /> : membersLoading ? <LoadingState text="正在讀取班級機器…" /> : <AiJudgePanel classId={item.id} members={members} weeks={item.weeks} />}
       </main>
     </div>
   );

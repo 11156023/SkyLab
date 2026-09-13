@@ -68,7 +68,9 @@
       description: "按一下建立安全連線，完成後就能直接查看並連接你的虛擬機。",
       button: "開始連線",
       connecting: "正在建立安全連線",
-      secureHint: "WireGuard 加密 · 一鍵完成"
+      authenticating: "等待登入驗證",
+      secureHint: "WireGuard 加密 · 一鍵完成",
+      authHint: "請在瀏覽器完成登入 · 完成後自動連線"
     },
     machines: {
       summary: "連線已建立 · {machines} 台機器 · {courses} 個課程環境",

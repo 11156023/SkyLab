@@ -8,7 +8,7 @@ export const AiNavigationService = {
    * @param {{history?: {role: "user"|"assistant", content: string}[],
    *          currentPath?: string}} options
    *   history 是同一段對話的前文（伺服器端沒有會話表，由前端保存），
-   *   currentPath 讓後端判斷流程已經走到哪一步。
+   *   currentPath 提供頁面脈絡，不作為工作已完成的依據。
    *
    * 回傳 { intent, confidence, action: "navigate"|"suggest"|"clarify"|"guide",
    *        primary?: { title, path, reason, state? }, suggestions: [...],
@@ -33,13 +33,13 @@ export const AiNavigationService = {
    * 判斷在伺服器端本地做（不打模型），所以每一輪都是即時的。
    *
    * @param {{role: string, content: string}[]} history 目前為止的對話
-   * @param {string[]} asked 已經問過的欄位 key（問句由推薦 AI 生成，字面對不上，
-   *   所以要由前端記住問過什麼）
+   * @param {{facts?: object, pendingKey?: string|null, goal?: string|null}} options
+   *   保存需求答案與原始目標；pendingKey 只指出本輪正在回答哪一題。
    * @returns {Promise<{ready: boolean, answered: number, total: number,
    *   known: string[], question: {key: string, text: string, options: string[]}|null,
    *   hint: string}>}
    */
-  intake(history = [], asked = []) {
+  intake(history = [], { facts = {}, pendingKey = null, goal = null } = {}) {
     return apiPost("/api/v1/ai/navigation/intake", {
       history: history
         .filter((message) => message?.role === "user" || message?.role === "assistant")
@@ -48,7 +48,9 @@ export const AiNavigationService = {
           role: message.role,
           content: String(message.content ?? "").slice(0, 2000),
         })),
-      asked,
+      facts,
+      pending_key: pendingKey,
+      goal,
     });
   },
 };

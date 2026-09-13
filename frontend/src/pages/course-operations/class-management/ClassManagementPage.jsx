@@ -8,6 +8,7 @@ import { TeachingClassesService } from "../../../services/teachingClasses";
 import { useToast } from "../../../hooks/useToast";
 import styles from "../CourseOperations.module.scss";
 import PageHeader from "../../../components/PageHeader/PageHeader";
+import SegmentedControl from "../../../components/SegmentedControl/SegmentedControl";
 
 const STATUS_KEYS = {
   planning: "ClassManagementPage.statusPlanning",
@@ -164,8 +165,18 @@ export default function ClassManagementPage() {
     </PageHeader>
 
     <div className={styles.classToolbar}>
+      <SegmentedControl
+        options={tabs.map((group) => ({
+          value: group.key,
+          label: t(group.labelKey),
+          icon: group.alertOnly ? "warning" : undefined,
+          badge: statusCounts[group.key] ?? 0,
+        }))}
+        value={status}
+        onChange={setStatus}
+        ariaLabel={t("ClassManagementPage.filterAriaLabel")}
+      />
       <label className={styles.searchInput}><MIcon name="search" size={18} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={t("ClassManagementPage.searchPlaceholder")} /></label>
-      <div className={styles.pillTabs}>{tabs.map((group) => <button type="button" key={group.key} className={`${status === group.key ? styles.pillActive : ""}${group.alertOnly ? ` ${styles.pillAlert}` : ""}`} onClick={() => setStatus(group.key)}>{t(group.labelKey)}<i>{statusCounts[group.key] ?? 0}</i></button>)}</div>
       {archivedCount > 0 && <label className={styles.archivedToggle}><input type="checkbox" checked={showArchived} onChange={(event) => { setShowArchived(event.target.checked); if (!event.target.checked) setStatus("all"); }} />{t("ClassManagementPage.showArchived", { count: archivedCount })}</label>}
     </div>
 

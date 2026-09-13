@@ -56,11 +56,11 @@ export const CoursesService = {
     return apiGet(`/api/v1/courses/paths/${pathId}/practice-machines`);
   },
 
-  /** 學生只回報完成狀態；AI 檢查由老師統一啟動。 */
-  updateAssignmentCompletion(pathId, assignmentId, itemId, completed) {
+  /** 學生以每週／整份任務為單位回報完成；AI 檢查由老師統一啟動。 */
+  updateAssignmentCompletion(pathId, assignmentId, completed) {
     return apiPut(
       `/api/v1/courses/paths/${pathId}/ai-assignments/${assignmentId}/completion`,
-      { item_id: itemId, completed },
+      { completed },
     );
   },
 

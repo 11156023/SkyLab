@@ -71,7 +71,7 @@ class SkyLabApp {
 
     this._win = new BrowserWindow({
       title: `${app.getName()} v${app.getVersion()}`,
-      icon: join(process.env.VITE_PUBLIC, "logo/only/16x16.png"),
+      icon: join(process.env.VITE_PUBLIC, "logo/pack/icon.ico"),
       width: 960,
       height: 640,
       minWidth: 900,

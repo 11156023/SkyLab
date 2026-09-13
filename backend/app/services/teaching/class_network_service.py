@@ -332,6 +332,7 @@ def apply_class_topology(session: Session, *, class_id: uuid.UUID) -> list[str]:
                         if row.vmid is not None
                     },
                     owner=student,
+                    scope=f"{teaching_class.code[:12]}-{teaching_class.id.hex[:6]}",
                 )
             )
         if edges:

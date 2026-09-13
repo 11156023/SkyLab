@@ -71,7 +71,9 @@
         "Create a secure connection, then view and access your virtual machines directly.",
       button: "Connect",
       connecting: "Creating secure connection",
-      secureHint: "WireGuard encrypted · One click"
+      authenticating: "Waiting for sign-in",
+      secureHint: "WireGuard encrypted · One click",
+      authHint: "Complete sign-in in your browser · Connects automatically"
     },
     machines: {
       summary:

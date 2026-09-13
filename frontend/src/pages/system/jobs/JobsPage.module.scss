@@ -111,32 +111,24 @@
   flex-wrap: wrap;
 }
 
-.selectWrap {
+.filterGroup {
   display: inline-flex;
   align-items: center;
   gap: 6px;
+  min-width: 0;
+  max-width: 100%;
 }
 
 .selectLabel {
   font-size: $font-size-12;
   color: var(--color-text-muted);
+  white-space: nowrap;
 }
 
-.select {
-  appearance: none;
-  padding: 6px $spacing-16 6px 10px;
-  border: 1px solid var(--color-border);
-  border-radius: $radius-8;
-  background: var(--color-surface);
-  color: var(--color-text-primary);
-  font-size: $font-size-14;
-  box-shadow: var(--shadow-sm);
-  cursor: pointer;
-
-  &:focus {
-    outline: none;
-    border-color: var(--color-primary);
-  }
+/* 狀態組 8 段，窄螢幕橫向卷動（SegmentedControl 慣例） */
+.filterTabs {
+  max-width: 100%;
+  overflow-x: auto;
 }
 
 .content {
@@ -150,6 +142,8 @@
 
 .table {
   @include table-base;
+  /* 7 欄；沒有 min-width 時 table-wrap 的橫向卷動永遠不會觸發，欄位互擠讓狀態 badge 溢出 */
+  min-width: 1080px;
 }
 
 .th {

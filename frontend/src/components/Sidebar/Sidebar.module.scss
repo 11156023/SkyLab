@@ -311,6 +311,15 @@
   flex-shrink: 0;
 }
 
+/* ===== 管理員設定核心側欄 ===== */
+.sectionTitle {
+  padding: $spacing-8 $spacing-8 2px;
+  font-size: $font-size-12;
+  font-weight: $font-weight-500;
+  color: var(--color-text-muted);
+  white-space: nowrap;
+}
+
 /* ===== Popup animations ===== */
 @keyframes popupIn {
   from { opacity: 0; transform: translateY(6px) scale(0.97); }

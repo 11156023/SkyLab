@@ -9,6 +9,7 @@ import { useToast } from "../../../../hooks/useToast";
 import useDialogPresence from "../../../../hooks/useDialogPresence";
 import { focusInvalidField } from "../../../../utils/focusField";
 import { useConfirm } from "../../../../components/ConfirmDialog/ConfirmProvider";
+import { formatDateTime } from "../../../../utils/formatDate";
 
 const INIT_SNAPSHOT_NAME = "skylab-init";
 
@@ -154,6 +155,7 @@ export default function SnapshotsTab({ vmid }) {
         {snapshots.length === 0 ? (
           <EmptyState icon="photo_camera" title={t("SnapshotsTab.emptyTitle")} />
         ) : (
+          <div className={styles.tableScroll}>
           <table className={styles.table}>
             <thead>
               <tr>
@@ -181,9 +183,7 @@ export default function SnapshotsTab({ vmid }) {
                     {snap.description || "—"}
                   </td>
                   <td className={`${styles.td} ${styles.mutedCell}`}>
-                    {snap.snaptime
-                      ? new Date(snap.snaptime * 1000).toLocaleString("zh-TW")
-                      : "—"}
+                    {snap.snaptime ? formatDateTime(snap.snaptime * 1000) : "—"}
                   </td>
                   <td className={`${styles.td} ${styles.tdRight}`}>
                     <button
@@ -211,6 +211,7 @@ export default function SnapshotsTab({ vmid }) {
               ))}
             </tbody>
           </table>
+          </div>
         )}
       </div>
 

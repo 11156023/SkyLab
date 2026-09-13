@@ -151,6 +151,7 @@ def test_weekly_tasks_only_show_published_content_and_pdf(tmp_path, monkeypatch)
         week_number=1,
         session_date=today,
         title="Linux 權限任務",
+        target_node_key="main",
         status="published",
     )
     draft = TeachingClassWeek(
@@ -210,6 +211,7 @@ def test_weekly_tasks_only_show_published_content_and_pdf(tmp_path, monkeypatch)
     )
 
     assert [row.title for row in rows] == ["Linux 權限任務"]
+    assert rows[0].target_node_key == "main"
     assert rows[0].files[0].filename == "permissions.pdf"
     assert [item.title for item in rows[0].checkpoints] == [
         "確認權限模式",

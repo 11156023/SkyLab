@@ -38,7 +38,7 @@ const handleLogout = () => {
 };
 
 const goBack = () => {
-  router.replace({ name: appStore.loggedIn ? "Home" : "Login" });
+  router.replace({ name: "Home" });
 };
 
 watch(

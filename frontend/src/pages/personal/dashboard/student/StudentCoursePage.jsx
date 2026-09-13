@@ -41,7 +41,7 @@ function StatusBadge({ meta }) {
 }
 
 /**
- * 單一課程的總覽頁（/dashboard/course/:pathId）。
+ * 學生端單一課程頁（/courses/:pathId）。
  * 內容分三塊：課堂卡片（進度與環境）、課堂機器、截至今天的 AI 任務。
  */
 export default function StudentCoursePage() {
@@ -58,10 +58,11 @@ export default function StudentCoursePage() {
     pathDetail: null,
     roomDetail: null,
     aiAssignments: [],
+    weeklyTasks: [],
     practiceMachines: [],
   });
   const [expandedAssignmentId, setExpandedAssignmentId] = useState(null);
-  const [reportingItemKey, setReportingItemKey] = useState(null);
+  const [reportingAssignmentId, setReportingAssignmentId] = useState(null);
   const [activePracticeResource, setActivePracticeResource] = useState(null);
   const [openingMachineId, setOpeningMachineId] = useState(null);
 
@@ -100,12 +101,14 @@ export default function StudentCoursePage() {
       let pathDetail = null;
       let roomDetail = null;
       let aiAssignments = [];
+      let weeklyTasks = [];
       let practiceMachines = [];
 
       if (activePath) {
-        const [pathDetailResult, aiAssignmentsResult, practiceMachinesResult] = await Promise.allSettled([
+        const [pathDetailResult, aiAssignmentsResult, weeklyTasksResult, practiceMachinesResult] = await Promise.allSettled([
           CoursesService.getPath(activePath.id),
           CoursesService.getAiAssignments(activePath.id),
+          CoursesService.getWeeklyTasks(activePath.id),
           CoursesService.getPracticeMachines(activePath.id),
         ]);
         if (pathDetailResult.status === "fulfilled") {
@@ -123,6 +126,10 @@ export default function StudentCoursePage() {
           && Array.isArray(aiAssignmentsResult.value)
           ? aiAssignmentsResult.value
           : [];
+        weeklyTasks = weeklyTasksResult.status === "fulfilled"
+          && Array.isArray(weeklyTasksResult.value)
+          ? weeklyTasksResult.value
+          : [];
         practiceMachines = practiceMachinesResult.status === "fulfilled"
           && Array.isArray(practiceMachinesResult.value)
           ? practiceMachinesResult.value
@@ -138,6 +145,7 @@ export default function StudentCoursePage() {
         pathDetail,
         roomDetail,
         aiAssignments,
+        weeklyTasks,
         practiceMachines,
       });
     }
@@ -158,10 +166,34 @@ export default function StudentCoursePage() {
     view.roomDetail?.title,
   );
   const aiAssignments = assignmentsUntilToday(view.aiAssignments);
-  const aiRequirementCount = aiAssignments.reduce(
-    (count, assignment) => count + (assignment.items?.length ?? 0),
-    0,
+  const weekById = new Map(
+    (view.weeklyTasks ?? []).map((week) => [String(week.id), week]),
   );
+  const weeklyAssignmentGroups = [];
+  const weeklyAssignmentGroupByKey = new Map();
+  (view.weeklyTasks ?? []).forEach((week) => {
+    const key = `week-${week.id}`;
+    const group = { id: key, week, assignments: [] };
+    weeklyAssignmentGroupByKey.set(key, group);
+    weeklyAssignmentGroups.push(group);
+  });
+  aiAssignments.forEach((assignment) => {
+    const weekId = assignment.teaching_class_week_id
+      ? String(assignment.teaching_class_week_id)
+      : null;
+    const key = weekId ? `week-${weekId}` : `assignment-${assignment.id}`;
+    let group = weeklyAssignmentGroupByKey.get(key);
+    if (!group) {
+      group = {
+        id: key,
+        week: weekId ? weekById.get(weekId) : null,
+        assignments: [],
+      };
+      weeklyAssignmentGroupByKey.set(key, group);
+      weeklyAssignmentGroups.push(group);
+    }
+    group.assignments.push(assignment);
+  });
   const currentSchedule = view.activePath?.schedule;
   const heroStatusMeta = view.activePath
     ? currentSchedule?.state === "now"
@@ -204,37 +236,48 @@ export default function StudentCoursePage() {
     navigate(`/my-resources/${machine.vmid}`);
   }
 
-  function toggleAssignment(assignmentId) {
-    setExpandedAssignmentId((current) => (current === assignmentId ? null : assignmentId));
+  function toggleAssignment(groupId) {
+    setExpandedAssignmentId((current) => (current === groupId ? null : groupId));
   }
 
-  async function updateCompletion(assignment, taskItem) {
-    if (reportingItemKey) return;
-    const itemKey = `${assignment.id}:${taskItem.id}`;
-    const completedItemIds = new Set(assignment.completion?.completed_item_ids ?? []);
-    const completed = !completedItemIds.has(taskItem.id);
-    setReportingItemKey(itemKey);
-    setExpandedAssignmentId(assignment.id);
+  async function updateCompletion(group) {
+    if (reportingAssignmentId) return;
+    const completed = !group.assignments.every((assignment) => (
+      Boolean(assignment.completion?.completed)
+    ));
+    setReportingAssignmentId(group.id);
+    setExpandedAssignmentId(group.id);
     try {
-      const completion = await CoursesService.updateAssignmentCompletion(
-        view.activePath.id,
-        assignment.id,
-        taskItem.id,
-        completed,
-      );
+      const results = await Promise.allSettled(group.assignments.map((assignment) => (
+        CoursesService.updateAssignmentCompletion(
+          view.activePath.id,
+          assignment.id,
+          completed,
+        )
+      )));
+      const completions = new Map();
+      results.forEach((result, index) => {
+        if (result.status === "fulfilled") {
+          completions.set(group.assignments[index].id, result.value);
+        }
+      });
       setView((current) => ({
         ...current,
         aiAssignments: current.aiAssignments.map((item) => (
-          item.id === assignment.id ? { ...item, completion } : item
+          completions.has(item.id) ? { ...item, completion: completions.get(item.id) } : item
         )),
       }));
+      const failedResult = results.find((result) => result.status === "rejected");
+      if (failedResult) {
+        throw failedResult.reason;
+      }
       toast.success(completed
-        ? t("StudentCoursePage.itemChecked")
-        : t("StudentCoursePage.itemUnchecked"));
+        ? t("StudentCoursePage.weekChecked")
+        : t("StudentCoursePage.weekUnchecked"));
     } catch (error) {
       toast.error(error?.message ?? t("StudentCoursePage.completionUpdateFailed"));
     } finally {
-      setReportingItemKey(null);
+      setReportingAssignmentId(null);
     }
   }
 
@@ -252,10 +295,10 @@ export default function StudentCoursePage() {
         <button
           type="button"
           className={styles.courseBackButton}
-          onClick={() => navigate(location.state?.from ?? "/dashboard")}
+          onClick={() => navigate(location.state?.from ?? "/courses")}
         >
           <MIcon name="arrow_back" size={18} />
-          {t("StudentCoursePage.backToToday")}
+          {t("StudentCoursePage.backToCourses")}
         </button>
         <div className={styles.coursePageTitle}>
           <p className={styles.eyebrow}>{t("StudentCoursePage.eyebrowCourseOverview")}</p>
@@ -405,94 +448,101 @@ export default function StudentCoursePage() {
           <div>
             <h2 id="task-title">{t("StudentCoursePage.tasksTitle")}</h2>
           </div>
-          {aiRequirementCount > 0 && (
-            <span>{t("StudentCoursePage.tasksSummary", { tasks: aiAssignments.length, items: aiRequirementCount })}</span>
+          {weeklyAssignmentGroups.length > 0 && (
+            <span>{t("StudentCoursePage.weeksSummary", { count: weeklyAssignmentGroups.length })}</span>
           )}
         </div>
 
-        {aiAssignments.length > 0 ? (
+        {weeklyAssignmentGroups.length > 0 ? (
           <div className={styles.assignmentList}>
-            {aiAssignments.map((assignment, index) => {
-              const expanded = expandedAssignmentId === assignment.id;
-              const completedItemIds = new Set(
-                assignment.completion?.completed_item_ids ?? [],
+            {weeklyAssignmentGroups.map((group, index) => {
+              const firstAssignment = group.assignments[0];
+              const expanded = expandedAssignmentId === group.id;
+              const completionReported = group.assignments.length > 0 && group.assignments.every((assignment) => (
+                Boolean(assignment.completion?.completed)
+              ));
+              const itemCount = group.assignments.reduce(
+                (count, assignment) => count + (assignment.items?.length ?? 0),
+                0,
               );
-              const completedItemCount = (assignment.items ?? []).filter(
-                (item) => completedItemIds.has(item.id),
-              ).length;
-              const completionReported = Boolean(assignment.completion?.completed);
               return (
                 <article
-                  key={assignment.id}
+                  key={group.id}
+                  id={`weekly-task-${group.id}`}
                   className={`${styles.assignmentRow} ${expanded ? styles.assignmentRowOpen : ""}`}
                 >
-                  <button
-                    type="button"
-                    className={styles.assignmentToggle}
-                    onClick={() => toggleAssignment(assignment.id)}
-                    aria-expanded={expanded}
-                    aria-controls={`assignment-detail-${assignment.id}`}
-                  >
-                    <span className={styles.taskNumber}>{index + 1}</span>
-                    <span className={styles.assignmentTitle}>
-                      <strong>{assignment.title}</strong>
-                      <small>
-                        {formatAssignmentDate(assignment.approved_at)}
-                        {" · "}{assignment.teaching_class_name}
-                        {" · "}{t("StudentCoursePage.itemsCount", { count: assignment.items?.length ?? 0 })}
-                      </small>
-                    </span>
-                    <span className={`${styles.assignmentStatus} ${completionReported ? styles.assignmentStatus_completed : styles.assignmentStatus_ready}`}>
-                      <MIcon name={completionReported ? "check_circle" : "checklist"} size={16} />
-                      {t("StudentCoursePage.completedCount", { completed: completedItemCount, total: assignment.items?.length ?? 0 })}
-                    </span>
-                    <MIcon name={expanded ? "expand_less" : "expand_more"} size={21} />
-                  </button>
+                  <div className={styles.assignmentHeader}>
+                    {group.assignments.length > 0 ? <label className={styles.weekCompletion}>
+                      <input
+                        type="checkbox"
+                        checked={completionReported}
+                        onChange={() => updateCompletion(group)}
+                        disabled={reportingAssignmentId !== null}
+                        aria-label={t(completionReported ? "StudentCoursePage.uncheckWeekAria" : "StudentCoursePage.checkWeekAria", { title: group.week?.title ?? firstAssignment?.title })}
+                      />
+                      {reportingAssignmentId === group.id && <MIcon name="sync" size={15} />}
+                    </label> : <span className={styles.weekCompletion} aria-hidden="true" />}
+                    <button
+                      type="button"
+                      className={styles.assignmentToggle}
+                      onClick={() => group.week
+                        ? navigate(`/courses/${pathId}/weeks/${group.week.id}`)
+                        : toggleAssignment(group.id)}
+                      aria-expanded={expanded}
+                      aria-controls={`assignment-detail-${group.id}`}
+                    >
+                      <span className={styles.taskNumber}>{group.week?.week_number ?? index + 1}</span>
+                      <span className={styles.assignmentTitle}>
+                        <strong>{group.week?.title ?? firstAssignment?.title}</strong>
+                        <small>
+                          {group.week ? t("StudentCoursePage.weekMeta", { week: group.week.week_number, date: group.week.session_date }) : formatAssignmentDate(firstAssignment.approved_at)}
+                          {" · "}{t("StudentCoursePage.itemsCount", { count: itemCount })}
+                        </small>
+                      </span>
+                      <span className={`${styles.assignmentStatus} ${completionReported ? styles.assignmentStatus_completed : styles.assignmentStatus_ready}`}>
+                        <MIcon name={completionReported ? "check_circle" : "pending_actions"} size={16} />
+                        {t(completionReported ? "StudentCoursePage.weekCompleted" : "StudentCoursePage.weekPending")}
+                      </span>
+                      <MIcon name={group.week ? "arrow_forward" : (expanded ? "expand_less" : "expand_more")} size={21} />
+                    </button>
+                  </div>
 
                   {expanded && (
-                    <div className={styles.assignmentDetail} id={`assignment-detail-${assignment.id}`}>
-                      <div className={styles.aiBrief}>
-                        <span><MIcon name="auto_awesome" size={19} /></span>
-                        <div>
-                          <strong>{t("StudentCoursePage.aiSummaryTitle")}</strong>
-                          <p>{assignment.summary || t("StudentCoursePage.aiSummaryFallback")}</p>
-                        </div>
-                      </div>
+                    <div className={styles.assignmentDetail} id={`assignment-detail-${group.id}`}>
+                      {group.assignments.map((assignment) => (
+                        <div className={styles.assignmentDetailBlock} key={assignment.id}>
+                          <div className={styles.aiBrief}>
+                            <span><MIcon name="auto_awesome" size={19} /></span>
+                            <div>
+                              <strong>{group.assignments.length > 1 ? assignment.title : t("StudentCoursePage.aiSummaryTitle")}</strong>
+                              <p>{assignment.summary || t("StudentCoursePage.aiSummaryFallback")}</p>
+                            </div>
+                          </div>
 
-                      <ol className={styles.aiRequirementList}>
-                        {(assignment.items ?? []).map((item, itemIndex) => {
-                          const detectableMeta = AI_DETECTABLE_META[item.detectable]
-                            ?? AI_DETECTABLE_META.manual;
-                          const itemKey = `${assignment.id}:${item.id}`;
-                          const itemCompleted = completedItemIds.has(item.id);
-                          return (
-                            <li
-                              className={`${styles.aiRequirementItem} ${itemCompleted ? styles.aiRequirementItemCompleted : ""}`}
-                              key={item.id}
-                            >
-                              <label className={styles.requirementCheckbox}>
-                                <input
-                                  type="checkbox"
-                                  checked={itemCompleted}
-                                  onChange={() => updateCompletion(assignment, item)}
-                                  disabled={reportingItemKey !== null}
-                                  aria-label={t(itemCompleted ? "StudentCoursePage.uncheckItemAria" : "StudentCoursePage.checkItemAria", { title: item.title })}
-                                />
-                                {reportingItemKey === itemKey && <MIcon name="sync" size={15} />}
-                              </label>
-                              <span className={styles.aiRequirementNumber}>{itemIndex + 1}</span>
-                              <div className={styles.aiRequirementContent}>
-                                <strong>{item.title}</strong>
-                                {item.description && <p>{item.description}</p>}
-                              </div>
-                              <span className={`${styles.aiCheckBadge} ${styles[detectableMeta.tone]}`}>
-                                <MIcon name={detectableMeta.icon} size={15} />
-                                {t(detectableMeta.labelKey)}
-                              </span>
-                            </li>
-                          );
-                        })}
-                      </ol>
+                          <ol className={styles.aiRequirementList}>
+                            {(assignment.items ?? []).map((item, itemIndex) => {
+                              const detectableMeta = AI_DETECTABLE_META[item.detectable]
+                                ?? AI_DETECTABLE_META.manual;
+                              return (
+                                <li
+                                  className={styles.aiRequirementItem}
+                                  key={`${assignment.id}:${item.id}`}
+                                >
+                                  <span className={styles.aiRequirementNumber}>{itemIndex + 1}</span>
+                                  <div className={styles.aiRequirementContent}>
+                                    <strong>{item.title}</strong>
+                                    {item.description && <p>{item.description}</p>}
+                                  </div>
+                                  <span className={`${styles.aiCheckBadge} ${styles[detectableMeta.tone]}`}>
+                                    <MIcon name={detectableMeta.icon} size={15} />
+                                    {t(detectableMeta.labelKey)}
+                                  </span>
+                                </li>
+                              );
+                            })}
+                          </ol>
+                        </div>
+                      ))}
 
                       <p className={styles.assignmentNote}>
                         <MIcon name="info" size={16} />
@@ -512,7 +562,6 @@ export default function StudentCoursePage() {
           />
         )}
       </section>
-
       {activePracticeResource?.type === "lxc" && (
         <TerminalDialog
           resource={activePracticeResource}

@@ -37,6 +37,8 @@
   "course_env.audience_class_required": "開放快速練習時，必須選擇可以看到這個環境的班級",
 
   "gateway.unknown_service": "未知服務：{service}",
+  "gateway.service_config_not_exposed": "基於安全考量，不提供 {service} 原始設定檔編輯",
+  "gateway.wireguard_overview_failed": "無法取得 Gateway WireGuard 摘要",
   "gateway.install_script_missing": "安裝腳本不存在",
   "gateway.proxmox_failed": "Proxmox 操作失敗",
   "gateway.traefik_sync_failed": "同步 Traefik 憑證設定失敗",

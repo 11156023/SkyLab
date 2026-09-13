@@ -28,11 +28,6 @@
 .searchInput { display: flex; align-items: center; gap: 8px; width: min(360px, 100%); padding: 0 12px; border: 1px solid var(--color-border); border-radius: $radius-8; color: var(--color-text-muted); background: var(--color-surface); }
 .searchInput:focus-within { border-color: var(--color-primary); }
 .searchInput input { width: 100%; height: 38px; border: 0; outline: 0; color: var(--color-text); background: transparent; font: inherit; font-size: $font-size-14; }
-.pillTabs { display: flex; gap: 4px; flex-wrap: wrap; }
-.pillTabs button { padding: 6px 16px; border: 0; border-radius: $radius-pill; color: var(--color-text-secondary); background: transparent; font: inherit; font-size: $font-size-14; cursor: pointer; }
-.pillTabs button:hover { color: var(--color-text); background: var(--color-hover); }
-.pillTabs button.pillActive { color: var(--color-surface); background: var(--color-text); font-weight: $font-weight-500; }
-
 .tableWrap { min-width: 0; overflow-x: auto; }
 .table { width: 100%; border-collapse: collapse; }
 .table th { padding: $spacing-8 $spacing-16; border-bottom: 1px solid var(--color-border); color: var(--color-text-muted); background: var(--color-hover); font-size: $font-size-12; font-weight: $font-weight-500; text-align: left; white-space: nowrap; }
@@ -163,9 +158,6 @@
 .cardHeader h2 { letter-spacing: -.01em; }
 
 .toolbar { padding: 14px 16px; background: color-mix(in srgb, var(--color-hover) 35%, var(--color-surface)); }
-.toolbar .pillTabs button { display: inline-flex; align-items: center; gap: 6px; }
-.toolbar .pillTabs i { min-width: 17px; box-sizing: border-box; padding: 1px 5px; border-radius: $radius-pill; color: var(--color-text-muted); background: var(--color-hover); font-size: $font-size-10; font-style: normal; font-weight: $font-weight-500; font-variant-numeric: tabular-nums; text-align: center; }
-.toolbar .pillTabs button.pillActive i { color: var(--color-surface); background: color-mix(in srgb, var(--color-surface) 24%, transparent); }
 .table th { height: 38px; padding-inline: $spacing-16; background: color-mix(in srgb, var(--color-hover) 58%, var(--color-surface)); font-size: $font-size-12; letter-spacing: .035em; text-transform: uppercase; }
 .table td { height: 62px; padding-inline: $spacing-16; }
 .rowLink:hover { background: color-mix(in srgb, var(--color-primary) 3.5%, var(--color-surface)); }
@@ -173,15 +165,6 @@
 .archivedToggle { display: inline-flex; align-items: center; gap: 6px; margin-left: auto; color: var(--color-text-muted); font-size: $font-size-12; cursor: pointer; user-select: none; }
 .archivedToggle input { width: 13px; height: 13px; margin: 0; accent-color: var(--color-primary); cursor: pointer; }
 .classToolbar .searchInput { flex: 0 1 320px; border: 1px solid var(--color-border); border-radius: $radius-8; background: var(--color-surface); }
-.classToolbar .pillTabs { justify-content: flex-end; }
-.classToolbar .pillTabs button { display: inline-flex; align-items: center; gap: 6px; }
-.classToolbar .pillTabs i { min-width: 17px; box-sizing: border-box; padding: 1px 5px; border-radius: $radius-pill; color: var(--color-text-muted); background: var(--color-hover); font-size: $font-size-10; font-style: normal; font-weight: $font-weight-500; font-variant-numeric: tabular-nums; text-align: center; }
-.classToolbar .pillTabs button.pillActive i { color: var(--color-surface); background: color-mix(in srgb, var(--color-surface) 24%, transparent); }
-.pillTabs button.pillAlert { color: var(--color-danger); background: color-mix(in srgb, var(--color-danger) 10%, transparent); font-weight: $font-weight-500; }
-.pillTabs button.pillAlert:hover { color: var(--color-danger); background: color-mix(in srgb, var(--color-danger) 17%, transparent); }
-.pillTabs button.pillAlert.pillActive { color: var(--color-surface); background: var(--color-danger); }
-.classToolbar .pillTabs button.pillAlert i { color: var(--color-danger); background: color-mix(in srgb, var(--color-danger) 17%, transparent); }
-.classToolbar .pillTabs button.pillAlert.pillActive i { color: var(--color-surface); background: color-mix(in srgb, var(--color-surface) 24%, transparent); }
 .classCardGrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(330px, 1fr)); gap: 16px; align-items: stretch; }
 .classCard { display: flex; min-width: 0; flex-direction: column; overflow: hidden; @include glass-surface($shadow: var(--shadow-sm)); border-radius: $radius-16; transition: border-color $transition-base, box-shadow $transition-base, transform $transition-base; }
 .classCard:hover { border-color: color-mix(in srgb, var(--color-primary) 28%, var(--color-border)); box-shadow: 0 7px 24px color-mix(in srgb, var(--color-text-primary) 8%, transparent); transform: translateY(-1px); }
@@ -218,46 +201,51 @@
 .classCardAlert .classCardAction button { color: var(--color-danger); background: color-mix(in srgb, var(--color-danger) 9%, transparent); }
 .classCardAlert .classCardAction button:hover { background: color-mix(in srgb, var(--color-danger) 16%, transparent); }
 
-.heatmapCard { overflow: visible; }
+.heatmapCard { overflow: hidden; }
 .heatmapHeader { display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; padding: 22px 22px 18px; }
 .heatmapHeader h2 { margin: 3px 0 0; color: var(--color-text-primary); font-size: $font-size-18; letter-spacing: -.02em; }
 .heatmapHeader p { margin: 6px 0 0; color: var(--color-text-secondary); font-size: $font-size-14; line-height: 1.5; }
 .heatmapEyebrow { color: var(--color-primary); font-size: $font-size-10; font-weight: $font-weight-700; letter-spacing: .12em; }
 .prototypeBadge { display: inline-flex; align-items: center; gap: 5px; flex: 0 0 auto; padding: 5px 9px; border: 1px solid color-mix(in srgb, var(--color-pending) 24%, var(--color-border)); border-radius: $radius-pill; color: var(--color-pending); background: color-mix(in srgb, var(--color-pending) 7%, var(--color-surface)); font-size: $font-size-12; font-weight: $font-weight-500; }
 .liveBadge { display: inline-flex; align-items: center; gap: 5px; flex: 0 0 auto; padding: 5px 9px; border: 1px solid color-mix(in srgb, var(--color-success) 28%, var(--color-border)); border-radius: $radius-pill; color: var(--color-success); background: color-mix(in srgb, var(--color-success) 7%, var(--color-surface)); font-size: $font-size-12; font-weight: $font-weight-500; }
-.heatmapToolbar { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 0 22px 18px; border-bottom: 1px solid var(--color-border); }
-.machineTabs { display: flex; gap: 7px; min-width: 0; overflow-x: auto; scrollbar-width: none; }
+.heatmapToolbar { display: flex; align-items: flex-end; justify-content: space-between; gap: 12px 16px; flex-wrap: wrap; padding: 0 22px 18px; border-bottom: 1px solid var(--color-border); }
+.machineTabs { display: flex; flex: 1 1 360px; gap: 7px; min-width: 0; max-width: 100%; overflow-x: auto; scrollbar-width: none; }
 .machineTabs::-webkit-scrollbar { display: none; }
-.machineTabs > button { display: flex; align-items: center; gap: 9px; flex: 0 0 auto; min-width: 150px; box-sizing: border-box; padding: 9px 12px; border: 1px solid var(--color-border); border-radius: $radius-8; color: var(--color-text-secondary); background: var(--color-surface); text-align: left; transition: border-color $transition-base, background $transition-base, color $transition-base; }
+.machineTabs > button { display: flex; width: 220px; max-width: 100%; align-items: center; gap: 9px; flex: 0 0 auto; box-sizing: border-box; padding: 9px 12px; border: 1px solid var(--color-border); border-radius: $radius-8; color: var(--color-text-secondary); background: var(--color-surface); text-align: left; transition: border-color $transition-base, background $transition-base, color $transition-base; }
 .machineTabs > button:hover { border-color: color-mix(in srgb, var(--color-primary) 35%, var(--color-border)); background: var(--color-hover); }
-.machineTabs > button > span:first-child { display: grid; width: 30px; height: 30px; flex: 0 0 auto; place-items: center; border-radius: $radius-8; background: var(--color-hover); }
+.machineTabs > button > span:first-child { display: grid; width: 30px; height: 30px; flex: 0 0 auto; place-items: center; overflow: hidden; border-radius: $radius-8; background: var(--color-hover); }
 .machineTabs > button > span:last-child { display: flex; flex-direction: column; min-width: 0; }
 .machineTabs small { color: var(--color-text-muted); font-size: $font-size-10; letter-spacing: .06em; text-transform: uppercase; }
 .machineTabs strong { overflow: hidden; font-size: $font-size-12; font-weight: $font-weight-500; text-overflow: ellipsis; white-space: nowrap; }
 .machineTabs > button.machineTabActive { border-color: color-mix(in srgb, var(--color-primary) 50%, var(--color-border)); color: var(--color-primary); background: color-mix(in srgb, var(--color-primary) 8%, var(--color-surface)); box-shadow: inset 0 -2px 0 var(--color-primary); }
 .machineTabs > button.machineTabActive > span:first-child { background: color-mix(in srgb, var(--color-primary) 13%, var(--color-surface)); }
-.metricTabs { display: flex; flex: 0 0 auto; gap: 3px; padding: 3px; border: 1px solid var(--color-border); border-radius: $radius-8; background: var(--color-hover); }
+.metricTabs { display: flex; flex: 0 0 auto; gap: 3px; margin-left: auto; padding: 3px; border: 1px solid var(--color-border); border-radius: $radius-8; background: var(--color-hover); }
 .metricTabs button { display: inline-flex; align-items: center; gap: 5px; min-height: 32px; padding: 0 13px; border: 0; border-radius: $radius-8; color: var(--color-text-secondary); background: transparent; font-size: $font-size-12; font-weight: $font-weight-500; }
 .metricTabs button.metricTabActive { color: var(--color-text-primary); background: var(--color-surface); box-shadow: 0 1px 3px color-mix(in srgb, var(--color-text-primary) 12%, transparent); }
-.heatmapSummary { display: flex; align-items: center; justify-content: space-between; gap: 20px; padding: 16px 22px; }
-.heatmapSummary > div:first-child { display: flex; align-items: center; gap: 10px; min-width: 0; }
-.heatmapSummary > div:first-child > div { display: flex; flex-direction: column; min-width: 0; }
-.heatmapSummary strong { color: var(--color-text-primary); font-size: $font-size-14; }
-.heatmapSummary small { color: var(--color-text-muted); font-size: $font-size-10; }
-.selectedMachineIcon { display: grid; width: 36px; height: 36px; flex: 0 0 auto; place-items: center; border-radius: $radius-8; color: var(--color-primary); background: color-mix(in srgb, var(--color-primary) 10%, var(--color-surface)); }
+.heatmapSummary { display: flex; align-items: center; justify-content: space-between; gap: 14px 20px; flex-wrap: wrap; padding: 16px 22px; }
+.heatmapSummary > div:first-child { display: flex; flex: 1 1 260px; align-items: center; gap: 10px; min-width: 0; overflow: hidden; }
+.heatmapSummary > div:first-child > div { display: flex; min-width: 0; flex-direction: column; overflow: hidden; }
+.heatmapSummary strong { overflow: hidden; color: var(--color-text-primary); font-size: $font-size-14; text-overflow: ellipsis; white-space: nowrap; }
+.heatmapSummary small { overflow: hidden; color: var(--color-text-muted); font-size: $font-size-10; text-overflow: ellipsis; white-space: nowrap; }
+.selectedMachineIcon { display: grid; width: 36px; height: 36px; flex: 0 0 auto; place-items: center; overflow: hidden; border-radius: $radius-8; color: var(--color-primary); background: color-mix(in srgb, var(--color-primary) 10%, var(--color-surface)); }
 .heatmapSummary dl { display: flex; gap: 0; margin: 0; }
 .heatmapSummary dl > div { min-width: 78px; padding: 0 14px; border-left: 1px solid var(--color-divider); }
 .heatmapSummary dt { color: var(--color-text-muted); font-size: $font-size-10; }
 .heatmapSummary dd { margin: 2px 0 0; color: var(--color-text-primary); font-size: $font-size-18; font-weight: $font-weight-700; }
 .heatmapSummary dd small { margin-left: 2px; font-weight: $font-weight-500; }
 .heatGrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(126px, 1fr)); gap: 7px; padding: 0 22px 18px; }
-.heatCell { position: relative; display: grid; grid-template-columns: auto minmax(0, 1fr); grid-template-rows: auto auto; gap: 12px 9px; min-height: 92px; padding: 12px; overflow: hidden; contain: layout paint; border: 1px solid transparent; border-radius: $radius-8; transition: transform $transition-base, box-shadow $transition-base; }
-.heatCell:hover { z-index: 1; transform: translateY(-2px); box-shadow: 0 5px 16px color-mix(in srgb, var(--color-text-primary) 16%, transparent); }
+.heatCell { position: relative; display: grid; width: 100%; grid-template-columns: auto minmax(0, 1fr); grid-template-rows: auto auto; gap: 12px 9px; min-height: 92px; padding: 12px; overflow: hidden; contain: layout paint; border: 1px solid transparent; border-radius: $radius-8; color: inherit; text-align: left; font: inherit; appearance: none; transition: transform $transition-base, box-shadow $transition-base, border-color $transition-base; }
+.heatCell:disabled { opacity: 1; cursor: default; }
+.heatCellClickable { cursor: pointer; }
+.heatCellClickable:hover:not(:disabled) { z-index: 1; border-color: color-mix(in srgb, currentColor 50%, transparent); transform: translateY(-2px); box-shadow: 0 5px 16px color-mix(in srgb, var(--color-text-primary) 16%, transparent); }
+.heatCellClickable:focus-visible { z-index: 1; outline: 3px solid color-mix(in srgb, var(--color-primary) 35%, transparent); outline-offset: 2px; }
 .studentNumber { display: grid; grid-row: 1; width: 24px; height: 24px; place-items: center; border-radius: $radius-8; background: color-mix(in srgb, currentColor 9%, transparent); font-size: $font-size-10; font-weight: $font-weight-700; }
 .heatCell > div { display: flex; flex-direction: column; min-width: 0; }
 .heatCell > div strong { overflow: hidden; font-size: $font-size-12; font-weight: $font-weight-500; text-overflow: ellipsis; white-space: nowrap; }
 .heatCell > div small { margin-top: 2px; font-size: $font-size-10; opacity: .72; }
 .heatCell > b { grid-column: 1 / -1; font-size: $font-size-18; line-height: 1; }
+.heatCellClickable > b { padding-right: 58px; }
+.heatWatchCue { position: absolute; right: 11px; bottom: 10px; display: inline-flex; align-items: center; gap: 4px; padding: 3px 6px; border-radius: $radius-pill; background: color-mix(in srgb, currentColor 10%, transparent); font-size: $font-size-10; font-weight: $font-weight-700; }
 .heatOff { border-color: var(--color-border); color: var(--color-text-muted); background: transparent; }
 .heatOff.heatCell { border-style: dashed; }
 .heatUnavailable { border-color: var(--color-border); color: var(--color-text-muted); background: repeating-linear-gradient(135deg, color-mix(in srgb, var(--color-hover) 70%, var(--color-surface)) 0 7px, var(--color-surface) 7px 14px); }
@@ -546,7 +534,7 @@
 .jobGrid small { color: var(--color-text-secondary); font-size: $font-size-10; }
 /* 18 列共用一份欄位標題，不要每一列都重印一次「主題／任務」「任務檔案」。 */
 .weekRows { display: flex; flex-direction: column; border-top: 1px solid var(--color-border); }
-.weekRows article, .weekRowsHead { display: grid; grid-template-columns: 116px minmax(240px, 1.2fr) minmax(240px, 1fr) 124px; align-items: center; gap: 18px; padding: 14px 22px; border-bottom: 1px solid var(--color-divider); }
+.weekRows article, .weekRowsHead { display: grid; grid-template-columns: 116px minmax(210px, 1.1fr) minmax(150px, .65fr) minmax(220px, 1fr) 124px; align-items: center; gap: 18px; padding: 14px 22px; border-bottom: 1px solid var(--color-divider); }
 .weekRowsHead { padding-block: 9px; border-bottom: 1px solid var(--color-border); background: color-mix(in srgb, var(--color-hover) 40%, var(--color-surface)); }
 .weekRowsHead span { color: var(--color-text-muted); font-size: $font-size-10; font-weight: $font-weight-700; letter-spacing: .04em; }
 .weekRowsHead span:last-child { text-align: center; }
@@ -555,6 +543,7 @@
 .weekDate strong { color: var(--color-primary); font-size: $font-size-12; }
 .weekDate span { color: var(--color-text-secondary); font-size: $font-size-12; font-variant-numeric: tabular-nums; }
 .weekTitleInput { @include form-control; }
+.weekMachineSelect { @include form-control; min-width: 0; }
 .weekFileList { display: flex; min-width: 0; align-items: center; flex-wrap: wrap; gap: 6px; }
 /* 學生可見與否的切換：草稿是安靜的中性色，已發布才亮起來。 */
 .weekPublishButton { display: inline-flex; width: 100%; height: 32px; align-items: center; justify-content: center; gap: 5px; padding: 0 10px; border: 1px solid var(--color-border); border-radius: $radius-pill; color: var(--color-text-muted); background: var(--color-surface); font: inherit; font-size: $font-size-12; font-weight: $font-weight-500; white-space: nowrap; cursor: pointer; transition: color $transition-base, border-color $transition-base, background $transition-base; }
@@ -579,11 +568,12 @@
   .machineWorkspaceHeader { align-items: flex-start; flex-direction: column; }
   .topologyWorkspace { grid-template-columns: minmax(0, 1fr) 268px; }
   /* 窄一點時檔案列換到第二行，週次／主題／可見度仍然同一排 */
-  .weekRows article, .weekRowsHead { grid-template-columns: 100px minmax(220px, 1fr) 124px; }
-  .weekRowsHead span:nth-child(3) { display: none; }
+  .weekRows article, .weekRowsHead { grid-template-columns: 100px minmax(220px, 1fr) minmax(150px, .6fr) 124px; }
+  .weekRowsHead span:nth-child(4) { display: none; }
   .weekRows article > .weekDate { grid-area: 1 / 1; }
   .weekRows article > .weekTitleInput { grid-area: 1 / 2; }
-  .weekRows article > .weekPublishButton { grid-area: 1 / 3; }
+  .weekRows article > .weekMachineSelect { grid-area: 1 / 3; }
+  .weekRows article > .weekPublishButton { grid-area: 1 / 4; }
   .weekRows article > .weekFileList { grid-area: 2 / 2 / auto / -1; }
   .memberRow { grid-template-columns: minmax(200px, 1.3fr) minmax(100px, .7fr) 100px 34px; }
   .memberRow > span:nth-of-type(3) { display: none; }
@@ -624,7 +614,6 @@
   .listSummary { align-items: flex-start; flex-direction: column; }
   .classToolbar { align-items: stretch; flex-direction: column; gap: 10px; }
   .classToolbar .searchInput { flex-basis: auto; width: 100%; }
-  .classToolbar .pillTabs { justify-content: flex-start; }
   .classCardGrid { grid-template-columns: 1fr; }
   .classCardTop h2 { white-space: normal; }
   .classCardMain { padding: 16px 16px 14px; }
@@ -665,6 +654,9 @@
 
 /* 送出時未填的欄位：紅框標示並被聚焦（雙類名壓過 .field input 這類巢狀選擇器） */
 .fieldInvalid.fieldInvalid { @include form-control-invalid; }
+/* 反紅欄位下的一行 inline 錯誤說明：儲存鈕與必填欄位分屬不同分頁，
+   被傳送過來的使用者要看得到「為什麼」（#26），紅框本身不夠 */
+.fieldError { color: var(--color-danger); font-size: $font-size-12; font-style: normal; }
 
 /* ── 學習環境列表：篩選與搜尋比照「申請審核」、表格比照「我的申請」 ── */
 .envControls { display: flex; align-items: center; gap: $spacing-16; flex-wrap: wrap; }

@@ -26,7 +26,7 @@ def _publication(**overrides) -> CourseEnvironmentPublication:
         "mode": "domain",
         "port": 5678,
         "protocol": "tcp",
-        "hostname_prefix": "{student}-n8n",
+        "hostname_prefix": "{class}-{student}-n8n",
         "zone_id": "zone-1",
         "enable_https": True,
     }
@@ -37,23 +37,25 @@ def _publication(**overrides) -> CourseEnvironmentPublication:
 # ── 學生識別片段 ────────────────────────────────────────────────────────
 
 
-@pytest.mark.parametrize(
-    "email,expected",
-    [
-        ("alice@school.edu", "alice"),
-        ("Alice.Wang@school.edu", "alice-wang"),
-        ("a_b+c@school.edu", "a-b-c"),
-        ("--weird--@school.edu", "weird"),
-    ],
-)
-def test_student_token_is_dns_safe(email: str, expected: str) -> None:
-    assert cps.student_token(_user(email)) == expected
+@pytest.mark.parametrize("email", ["alice@school.edu", "student123@school.edu"])
+def test_student_token_is_pseudonymous_and_dns_safe(email: str) -> None:
+    token = cps.student_token(_user(email))
+    assert token == "s6e76689e43"
+    assert "alice" not in token and "student123" not in token
 
 
-def test_student_token_falls_back_to_user_id() -> None:
+def test_student_token_handles_non_ascii_email_without_exposing_it() -> None:
     """帳號清完是空的（例如全形字元）時仍要產生合法的主機名片段。"""
     token = cps.student_token(_user("測試@school.edu"))
-    assert token.startswith("u") and token[1:].isalnum()
+    assert token.startswith("s") and token[1:].isalnum()
+
+
+def test_student_token_is_different_between_classes() -> None:
+    user = _user("alice@school.edu")
+
+    assert cps.student_token(user, scope="linux-a") != cps.student_token(
+        user, scope="linux-b"
+    )
 
 
 # ── 網域組合 ────────────────────────────────────────────────────────────
@@ -76,10 +78,11 @@ def test_each_student_gets_their_own_domain(monkeypatch) -> None:
     _patch_zone_and_availability(monkeypatch, available=True)
 
     domain = cps.resolve_domain(
-        Mock(), publication=_publication(), user=_user("alice@school.edu"), vmid=101
+        Mock(), publication=_publication(), user=_user("alice@school.edu"), vmid=101,
+        scope="LINUX-101 A",
     )
 
-    assert domain == "alice-n8n.lab.example.edu"
+    assert domain == "linux-101-a-sbe1c6d9a8a-n8n.lab.example.edu"
 
 
 def test_collision_falls_back_to_a_suffixed_hostname(monkeypatch) -> None:
@@ -87,10 +90,11 @@ def test_collision_falls_back_to_a_suffixed_hostname(monkeypatch) -> None:
     _patch_zone_and_availability(monkeypatch, available=False)
 
     domain = cps.resolve_domain(
-        Mock(), publication=_publication(), user=_user("alice@school.edu"), vmid=101
+        Mock(), publication=_publication(), user=_user("alice@school.edu"), vmid=101,
+        scope="linux-101-a",
     )
 
-    assert domain.startswith("alice-1111-n8n.") or domain == "alice-1111-n8n.lab.example.edu"
+    assert domain == "linux-101-a-sbe1c6d9a8a-1111-n8n.lab.example.edu"
 
 
 # ── 模板驗證 ────────────────────────────────────────────────────────────

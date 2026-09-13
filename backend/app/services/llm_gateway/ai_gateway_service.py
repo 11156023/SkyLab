@@ -750,6 +750,33 @@ async def proxy_to_vllm_chat_completion_stream(
 # ===== 新增：查询使用统计 =====
 
 
+def _daily_usage_buckets(records, *, start_date: datetime, end_date: datetime) -> list[dict]:
+    """把逐筆用量紀錄按日分桶（我的用量折線圖用，#7）。
+
+    區間內沒有呼叫的日子補零，X 軸才連續；區間異常大（>400 天）時
+    不補零，只回傳實際有紀錄的日子，避免產生上千個空桶。
+    """
+    start_day = start_date.date()
+    end_day = end_date.date()
+    span = (end_day - start_day).days
+    buckets: dict = {}
+    if 0 <= span <= 400:
+        day = start_day
+        while day <= end_day:
+            buckets[day] = {"date": day, "requests": 0, "input_tokens": 0, "output_tokens": 0}
+            day += timedelta(days=1)
+    for record in records:
+        day = record.created_at.date()
+        bucket = buckets.get(day)
+        if bucket is None:
+            bucket = {"date": day, "requests": 0, "input_tokens": 0, "output_tokens": 0}
+            buckets[day] = bucket
+        bucket["requests"] += 1
+        bucket["input_tokens"] += record.input_tokens
+        bucket["output_tokens"] += record.output_tokens
+    return [buckets[key] for key in sorted(buckets)]
+
+
 def get_user_usage_stats(
     *,
     session: Session,
@@ -790,6 +817,7 @@ def get_user_usage_stats(
         "total_input_tokens": total_input_tokens,
         "total_output_tokens": total_output_tokens,
         "by_model": by_model,
+        "daily": _daily_usage_buckets(records, start_date=start_date, end_date=end_date),
         "start_date": start_date,
         "end_date": end_date,
     }
@@ -834,6 +862,7 @@ def get_user_template_usage_stats(
         "total_input_tokens": total_input_tokens,
         "total_output_tokens": total_output_tokens,
         "by_call_type": by_call_type,
+        "daily": _daily_usage_buckets(records, start_date=start_date, end_date=end_date),
         "start_date": start_date,
         "end_date": end_date,
     }
@@ -912,6 +941,11 @@ def get_user_unified_usage_stats(
         "total_output_tokens": sum(r["output_tokens"] for r in routes.values()),
         "routes": routes,
         "by_model": by_model,
+        "daily": _daily_usage_buckets(
+            [*proxy_records, *template_records],
+            start_date=start_date,
+            end_date=end_date,
+        ),
         "start_date": start_date,
         "end_date": end_date,
     }
@@ -1023,6 +1057,8 @@ def _monitoring_bucket_rows(
             ),
             0,
         ).label("successful_calls"),
+        func.coalesce(func.sum(model.input_tokens), 0).label("input_tokens"),
+        func.coalesce(func.sum(model.output_tokens), 0).label("output_tokens"),
         func.count(model.request_duration_ms).label("duration_count"),
         func.coalesce(func.sum(model.request_duration_ms), 0).label("duration_sum"),
     ).where(*_monitoring_filters(model, start_date, end_date))
@@ -1184,6 +1220,7 @@ def get_monitoring_overview(
                     "bucket_start": bucket_start,
                     "total_calls": 0,
                     "successful_calls": 0,
+                    "total_tokens": 0,
                     "avg_latency_sum": 0.0,
                     "avg_latency_count": 0,
                     "proxy_calls": 0,
@@ -1194,10 +1231,11 @@ def get_monitoring_overview(
             successful_calls = int(row[2] or 0)
             item["total_calls"] += total_calls
             item["successful_calls"] += successful_calls
+            item["total_tokens"] += int(row[3] or 0) + int(row[4] or 0)
             item[source_key] += total_calls
-            duration_count = int(row[3] or 0)
+            duration_count = int(row[5] or 0)
             if duration_count:
-                item["avg_latency_sum"] += float(row[4] or 0)
+                item["avg_latency_sum"] += float(row[6] or 0)
                 item["avg_latency_count"] += duration_count
 
     series = []
@@ -1210,6 +1248,7 @@ def get_monitoring_overview(
                 "total_calls": total_calls,
                 "successful_calls": item["successful_calls"],
                 "failed_calls": failed_calls,
+                "total_tokens": item["total_tokens"],
                 "error_rate": (
                     None if total_calls == 0 else round(failed_calls / total_calls * 100, 2)
                 ),

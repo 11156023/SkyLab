@@ -1,10 +1,9 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { useNavigate } from "react-router-dom";
 import {
-  Bar,
   CartesianGrid,
   ComposedChart,
-  Legend,
   Line,
   ResponsiveContainer,
   Tooltip,
@@ -13,6 +12,8 @@ import {
 } from "recharts";
 import styles from "./AiMonitoringPage.module.scss";
 import MIcon from "../../../components/MIcon";
+import { formatDateTime, formatTime } from "../../../utils/formatDate";
+import i18n from "../../../i18n";
 import LoadingState from "../../../components/LoadingState/LoadingState";
 import SharedEmptyState from "../../../components/EmptyState/EmptyState";
 import { AiMonitoringService } from "../../../services/aiMonitoring";
@@ -63,6 +64,43 @@ export function formatModelDisplay(modelName) {
   return trimmed;
 }
 
+function modelKey(modelName) {
+  return formatModelDisplay(modelName).toLocaleLowerCase();
+}
+
+export function mergeModelRows(usageModels = [], runtimeModels = []) {
+  const rows = new Map();
+
+  usageModels.forEach((model) => {
+    rows.set(modelKey(model.model_name), {
+      ...model,
+      runtime_name: null,
+      runtime_status: null,
+      healthy_deployments: null,
+      unhealthy_deployments: null,
+    });
+  });
+
+  runtimeModels.forEach((runtimeModel) => {
+    const key = modelKey(runtimeModel.name);
+    const usage = rows.get(key);
+    rows.set(key, {
+      model_name: usage?.model_name ?? runtimeModel.name,
+      total_calls: usage?.total_calls ?? 0,
+      total_tokens: usage?.total_tokens ?? 0,
+      failed_calls: usage?.failed_calls ?? 0,
+      error_rate: usage?.error_rate ?? null,
+      avg_latency_ms: usage?.avg_latency_ms ?? null,
+      runtime_name: runtimeModel.name,
+      runtime_status: runtimeModel.status ?? "unknown",
+      healthy_deployments: runtimeModel.healthy_deployments ?? 0,
+      unhealthy_deployments: runtimeModel.unhealthy_deployments ?? 0,
+    });
+  });
+
+  return Array.from(rows.values()).sort((a, b) => b.total_calls - a.total_calls);
+}
+
 export function isOkStatus(status) {
   return (
     status === "success" ||
@@ -74,7 +112,7 @@ export function isOkStatus(status) {
 
 function formatNumber(n) {
   if (n == null) return "—";
-  return new Intl.NumberFormat("zh-TW").format(n);
+  return new Intl.NumberFormat(i18n.language).format(n);
 }
 
 function formatPercent(value) {
@@ -93,7 +131,7 @@ function formatChartTime(value, bucket) {
   if (!value) return "—";
   const date = new Date(value);
   return date.toLocaleDateString(
-    "zh-TW",
+    i18n.language,
     bucket === "hour"
       ? { month: "numeric", day: "numeric", hour: "2-digit" }
       : { month: "numeric", day: "numeric" },
@@ -153,32 +191,6 @@ function MetricCard({ icon, tone, label, value, detail, delta, deltaTone }) {
   );
 }
 
-function MetricGroupCard({ icon, tone, label, items }) {
-  return (
-    <div className={`${styles.metricCard} ${styles.metricGroupCard}`}>
-      <div className={`${styles.metricIcon} ${styles[`metricIcon_${tone}`]}`}>
-        <MIcon name={icon} size={19} />
-      </div>
-      <div className={styles.metricGroupBody}>
-        <span className={styles.metricLabel}>{label}</span>
-        <div className={styles.metricGroupItems}>
-          {items.map((item) => (
-            <div className={styles.metricItem} key={item.key}>
-              <span className={styles.metricItemLabel}>{item.label}</span>
-              <span className={styles.metricItemValue}>{item.value}</span>
-              {item.delta || item.detail ? (
-                <span className={`${styles.metricDetail} ${item.deltaTone ? styles[`metricDetail_${item.deltaTone}`] : ""}`}>
-                  {item.delta || item.detail}
-                </span>
-              ) : null}
-            </div>
-          ))}
-        </div>
-      </div>
-    </div>
-  );
-}
-
 function TrendTooltip({ active, payload, label, bucket, t }) {
   if (!active || !payload?.length) return null;
   const row = payload[0]?.payload;
@@ -194,6 +206,10 @@ function TrendTooltip({ active, payload, label, bucket, t }) {
         <strong className={styles.tooltipDanger}>{formatNumber(row?.failed_calls)}</strong>
       </div>
       <div className={styles.tooltipRow}>
+        <span>{t("AiMonitoringPage.chartTokens")}</span>
+        <strong>{formatTokens(row?.total_tokens)}</strong>
+      </div>
+      <div className={styles.tooltipRow}>
         <span>{t("AiMonitoringPage.chartErrorRate")}</span>
         <strong>{formatPercent(row?.error_rate)}</strong>
       </div>
@@ -205,11 +221,20 @@ function TrendTooltip({ active, payload, label, bucket, t }) {
   );
 }
 
-function TrendChart({ series, bucket, loading, t }) {
+const TREND_METRICS = {
+  calls: { dataKey: "total_calls", labelKey: "AiMonitoringPage.chartCalls", color: "var(--color-primary)", format: formatNumber, allowDecimals: false },
+  tokens: { dataKey: "total_tokens", labelKey: "AiMonitoringPage.chartTokens", color: "var(--color-info)", format: formatTokens, allowDecimals: false },
+  failed: { dataKey: "failed_calls", labelKey: "AiMonitoringPage.chartFailed", color: "var(--color-danger)", format: formatNumber, allowDecimals: false },
+  error: { dataKey: "error_rate", labelKey: "AiMonitoringPage.chartErrorRate", color: "var(--color-danger)", format: formatPercent, allowDecimals: true },
+  latency: { dataKey: "avg_latency_ms", labelKey: "AiMonitoringPage.chartLatency", color: "var(--color-info)", format: formatDuration, allowDecimals: true },
+};
+
+function TrendChart({ series, bucket, loading, metric, t }) {
   if (loading) return <LoadingState text={t("AiMonitoringPage.loadingTrend")} />;
   if (!series?.length) {
     return <EmptyState icon="show_chart" title={t("AiMonitoringPage.emptyTrendTitle")} />;
   }
+  const activeMetric = TREND_METRICS[metric] ?? TREND_METRICS.calls;
 
   return (
     <div className={styles.chartFrame}>
@@ -225,62 +250,25 @@ function TrendChart({ series, bucket, loading, t }) {
             minTickGap={28}
           />
           <YAxis
-            yAxisId="calls"
-            allowDecimals={false}
+            allowDecimals={activeMetric.allowDecimals}
+            tickFormatter={activeMetric.format}
             tick={{ fill: "var(--color-text-muted)", fontSize: 11 }}
             axisLine={false}
             tickLine={false}
-            width={36}
-          />
-          <YAxis
-            yAxisId="rate"
-            orientation="right"
-            domain={[0, "auto"]}
-            tickFormatter={(value) => `${value}%`}
-            tick={{ fill: "var(--color-text-muted)", fontSize: 11 }}
-            axisLine={false}
-            tickLine={false}
-            width={42}
+            width={52}
           />
           <Tooltip
             content={<TrendTooltip bucket={bucket} t={t} />}
             cursor={{ fill: "var(--color-hover)", opacity: 0.45 }}
           />
-          <Legend
-            verticalAlign="top"
-            align="right"
-            height={32}
-            iconType="circle"
-            wrapperStyle={{ color: "var(--color-text-secondary)", fontSize: 12 }}
-          />
-          <Bar
-            yAxisId="calls"
-            dataKey="failed_calls"
-            name={t("AiMonitoringPage.chartFailed")}
-            fill="var(--color-danger)"
-            fillOpacity={0.75}
-            radius={[4, 4, 0, 0]}
-            maxBarSize={20}
-          />
           <Line
-            yAxisId="calls"
             type="monotone"
-            dataKey="total_calls"
-            name={t("AiMonitoringPage.chartCalls")}
-            stroke="var(--color-primary)"
+            dataKey={activeMetric.dataKey}
+            name={t(activeMetric.labelKey)}
+            stroke={activeMetric.color}
             strokeWidth={2.5}
             dot={false}
             activeDot={{ r: 4, strokeWidth: 0 }}
-          />
-          <Line
-            yAxisId="rate"
-            type="monotone"
-            dataKey="error_rate"
-            name={t("AiMonitoringPage.chartErrorRate")}
-            stroke="var(--color-danger)"
-            strokeWidth={2}
-            strokeDasharray="5 4"
-            dot={false}
             connectNulls
           />
         </ComposedChart>
@@ -289,10 +277,9 @@ function TrendChart({ series, bucket, loading, t }) {
   );
 }
 
-function ModelStatusPanel({ runtime, error, loading, t }) {
+function CompactHealthPanel({ overview, runtime, overviewError, error, loading, t, onOpen }) {
   const gateway = runtime?.gateway;
   const gatewayStatus = error ? "unavailable" : gateway?.status ?? "unknown";
-  const modelCount = error ? 0 : runtime?.models?.length ?? 0;
   const gatewayLabel = {
     available: t("AiMonitoringPage.runtimeAvailable"),
     degraded: t("AiMonitoringPage.runtimeDegraded"),
@@ -300,127 +287,151 @@ function ModelStatusPanel({ runtime, error, loading, t }) {
     not_configured: t("AiMonitoringPage.runtimeNotConfigured"),
     unknown: t("AiMonitoringPage.runtimeUnknown"),
   }[gatewayStatus] ?? t("AiMonitoringPage.runtimeUnknown");
+  const readinessLabel = !error && gateway?.readiness
+    ? t("AiMonitoringPage.readinessReady")
+    : t("AiMonitoringPage.readinessNotReady");
+  const offline = runtime?.summary?.offline ?? 0;
+  const degraded = runtime?.summary?.degraded ?? 0;
+  const modelTone = offline > 0 ? "danger" : degraded > 0 ? "warning" : runtime?.models?.length ? "success" : "neutral";
+  const healthItems = [
+    {
+      key: "usage",
+      label: t("AiMonitoringPage.healthUsage"),
+      value: overviewError ? t("AiMonitoringPage.healthUnavailable") : overview ? t("AiMonitoringPage.healthNormal") : t("AiMonitoringPage.healthWaiting"),
+      tone: overviewError ? "danger" : overview ? "success" : "neutral",
+      target: "api",
+    },
+    {
+      key: "gateway",
+      label: t("AiMonitoringPage.healthGateway"),
+      value: `${gatewayLabel} · ${readinessLabel}`,
+      tone: gatewayStatus === "available" && gateway?.readiness ? "success" : gatewayStatus === "degraded" ? "warning" : "danger",
+      target: "runtime",
+    },
+    {
+      key: "models",
+      label: t("AiMonitoringPage.healthModels"),
+      value: runtime?.models?.length ? t("AiMonitoringPage.healthModelCount", { count: runtime.models.length, problem: offline + degraded }) : t("AiMonitoringPage.healthWaiting"),
+      tone: modelTone,
+      target: "models",
+    },
+  ];
 
   return (
-    <section className={`${styles.panel} ${styles.runtimePanel}`} aria-labelledby="runtime-heading">
+    <section className={`${styles.panel} ${styles.healthPanel}`} aria-labelledby="runtime-heading">
       <div className={styles.panelHeader}>
         <div>
           <h2 id="runtime-heading" className={styles.panelTitle}>
-            <MIcon name="dns" size={18} />
-            {t("AiMonitoringPage.runtimeTitle")}
+            <MIcon name="health_and_safety" size={18} />
+            {t("AiMonitoringPage.healthTitle")}
           </h2>
-          <p className={styles.panelDescription}>{t("AiMonitoringPage.runtimeDescription")}</p>
+          <p className={styles.panelDescription}>{t("AiMonitoringPage.healthDescription")}</p>
         </div>
         {runtime?.checked_at ? (
           <span className={styles.checkedAt}>
-            {t("AiMonitoringPage.checkedAt", { time: new Date(runtime.checked_at).toLocaleTimeString("zh-TW") })}
+            {t("AiMonitoringPage.checkedAt", { time: formatTime(runtime.checked_at, "—", { seconds: true }) })}
           </span>
         ) : null}
       </div>
 
-      <div className={`${styles.gatewayStatus} ${styles[`gatewayStatus_${gatewayStatus}`]}`}>
-        <span className={styles.statusPulse} />
-        <div>
-          <strong>{gatewayLabel}</strong>
-          <span>{!error && gateway?.readiness ? t("AiMonitoringPage.readinessReady") : t("AiMonitoringPage.readinessNotReady")}</span>
-        </div>
-      </div>
-
       {loading ? (
         <LoadingState text={t("AiMonitoringPage.loadingRuntime")} />
-      ) : modelCount === 0 ? (
-        <div className={styles.runtimeEmpty}>
-          <MIcon name="help_outline" size={18} />
-          <span>{error ? t("AiMonitoringPage.runtimeLoadError") : t("AiMonitoringPage.noModelDiscovery")}</span>
-        </div>
       ) : (
-        <div className={styles.modelList}>
-          {runtime.models.map((model) => (
-            <div className={styles.modelRow} key={model.name}>
-              <span className={`${styles.modelDot} ${styles[`modelDot_${model.status}`]}`} />
-              <div className={styles.modelInfo}>
-                <strong title={model.name}>{formatModelDisplay(model.name)}</strong>
-                <span>{t("AiMonitoringPage.deploymentCount", { healthy: model.healthy_deployments, unhealthy: model.unhealthy_deployments })}</span>
-              </div>
-              <span className={`${styles.modelStatus} ${styles[`modelStatus_${model.status}`]}`}>
-                {t(`AiMonitoringPage.modelStatus_${model.status}`, { defaultValue: model.status })}
-              </span>
-            </div>
-          ))}
+        <div className={styles.healthList}>
+          {healthItems.map((item) => <button type="button" key={item.key} className={styles.healthRow} onClick={() => onOpen(item.target)}>
+            <span className={`${styles.healthDot} ${styles[`healthDot_${item.tone}`]}`} />
+            <span>{item.label}</span>
+            <strong className={styles[`healthValue_${item.tone}`]}>{item.value}</strong>
+            <MIcon name="chevron_right" size={17} />
+          </button>)}
         </div>
       )}
     </section>
   );
 }
 
-function ModelBreakdown({ models, t, onModelSelect }) {
-  if (!models?.length) {
-    return <EmptyState icon="model_training" title={t("AiMonitoringPage.emptyModelBreakdown")} />;
-  }
-
+function ModelRuntimeBadge({ status, t }) {
+  if (!status) return <span className={styles.runtimeUnavailable}>—</span>;
+  const normalized = ["online", "degraded", "offline"].includes(status) ? status : "unknown";
   return (
-    <div className={styles.breakdownList}>
-      {models.slice(0, 6).map((model) => (
-        <button
-          type="button"
-          className={styles.breakdownRow}
-          key={model.model_name}
-          onClick={() => onModelSelect(model.model_name)}
-        >
-          <span className={styles.breakdownModel} title={model.model_name}>
-            {formatModelDisplay(model.model_name)}
-          </span>
-          <span className={styles.breakdownCalls}>{formatNumber(model.total_calls)}</span>
-          <span className={styles.breakdownTokens}>{formatTokens(model.total_tokens)}</span>
-          <span className={`${styles.breakdownRate} ${model.error_rate > 0 ? styles.breakdownRateDanger : ""}`}>
-            {formatPercent(model.error_rate)}
-          </span>
-        </button>
+    <span className={`${styles.runtimeBadge} ${styles[`runtimeBadge_${normalized}`]}`}>
+      <span className={styles.dot} />
+      {t(`AiMonitoringPage.modelStatus_${normalized}`)}
+    </span>
+  );
+}
+
+export function buildAttentionItems({ overview, runtime, overviewError, runtimeError }, t) {
+  const rows = [];
+  if (overviewError) rows.push({ key: "usage", tone: "critical", icon: "sync_problem", title: t("AiMonitoringPage.attentionUsageTitle"), detail: t("AiMonitoringPage.summaryLoadError"), target: "api" });
+  const gateway = runtime?.gateway;
+  if (runtimeError || (gateway && (gateway.status !== "available" || !gateway.readiness))) {
+    rows.push({ key: "gateway", tone: "critical", icon: "cloud_off", title: t("AiMonitoringPage.attentionGatewayTitle"), detail: t("AiMonitoringPage.attentionGatewayDesc"), target: "runtime" });
+  }
+  const offline = runtime?.summary?.offline ?? 0;
+  const degraded = runtime?.summary?.degraded ?? 0;
+  if (offline + degraded > 0) rows.push({ key: "models", tone: offline > 0 ? "critical" : "warning", icon: "model_training", title: t("AiMonitoringPage.attentionModelsTitle", { count: offline + degraded }), detail: t("AiMonitoringPage.attentionModelsDesc", { offline, degraded }), target: "models" });
+  const errorRate = overview?.summary?.error_rate;
+  const errorDelta = overview?.comparison?.error_rate_delta;
+  if (!overviewError && errorRate != null && (errorRate >= 5 || errorDelta > 0.5)) {
+    rows.push({ key: "errors", tone: errorRate >= 10 ? "critical" : "warning", icon: "error_outline", title: t("AiMonitoringPage.attentionErrorRateTitle", { rate: formatPercent(errorRate) }), detail: errorDelta != null ? t("AiMonitoringPage.attentionErrorRateDesc", { delta: formatDelta(errorDelta, "pp") }) : t("AiMonitoringPage.attentionFailedCalls", { count: overview?.summary?.failed_calls ?? 0 }), target: "api-errors" });
+  }
+  return rows;
+}
+
+function HealthSummary({ items, loading, t }) {
+  const critical = items.some((item) => item.tone === "critical");
+  const tone = loading ? "neutral" : critical ? "danger" : items.length ? "warning" : "success";
+  const icon = loading ? "sync" : critical ? "report_problem" : items.length ? "warning" : "check_circle";
+  return <section className={`${styles.healthSummary} ${styles[`healthSummary_${tone}`]}`} role="status">
+    <span className={styles.healthSummaryIcon}><MIcon name={icon} size={28} /></span>
+    <div>
+      <span className={styles.healthEyebrow}>{t("AiMonitoringPage.systemHealth")}</span>
+      <h2>{loading ? t("AiMonitoringPage.healthChecking") : items.length ? t("AiMonitoringPage.healthDegraded") : t("AiMonitoringPage.healthHealthy")}</h2>
+      <p>{loading ? t("AiMonitoringPage.healthCheckingDesc") : items.length ? t("AiMonitoringPage.healthIssueCount", { count: items.length }) : t("AiMonitoringPage.healthHealthyDesc")}</p>
+    </div>
+  </section>;
+}
+
+function AttentionPanel({ items, onOpen, t }) {
+  const actionLabel = (target) => ({
+    runtime: t("AiMonitoringPage.openGateway"),
+    models: t("AiMonitoringPage.viewModels"),
+    "api-errors": t("AiMonitoringPage.viewFailedCalls"),
+    api: t("AiMonitoringPage.viewApiCalls"),
+  }[target] ?? t("AiMonitoringPage.viewDetail"));
+  return <section className={styles.attentionPanel} aria-labelledby="attention-heading">
+    <div className={styles.attentionHeader}>
+      <div><h2 id="attention-heading">{t("AiMonitoringPage.attentionTitle")}</h2><p>{t("AiMonitoringPage.attentionDescription")}</p></div>
+      <span>{items.length}</span>
+    </div>
+    {items.length ? <div className={styles.attentionList}>{items.map((item) => <button type="button" key={item.key} className={`${styles.attentionRow} ${styles[`attentionRow_${item.tone}`]}`} onClick={() => onOpen(item.target)}>
+      <span className={styles.attentionIcon}><MIcon name={item.icon} size={19} /></span>
+      <span className={styles.attentionCopy}><strong>{item.title}</strong><small>{item.detail}</small></span>
+      <span className={styles.attentionAction}>{actionLabel(item.target)}<MIcon name="arrow_forward" size={16} /></span>
+    </button>)}</div> : <div className={styles.attentionClear}><MIcon name="task_alt" size={20} /><span>{t("AiMonitoringPage.attentionClear")}</span></div>}
+  </section>;
+}
+
+function DetailSummary({ summary, t }) {
+  const items = [
+    { key: "success", icon: "check_circle", tone: "success", label: t("AiMonitoringPage.successfulCalls"), value: formatNumber(summary?.successful_calls) },
+    { key: "failed", icon: "error_outline", tone: "danger", label: t("AiMonitoringPage.statFailedCalls"), value: formatNumber(summary?.failed_calls) },
+    { key: "users", icon: "groups", tone: "info", label: t("AiMonitoringPage.activeUsers"), value: formatNumber(summary?.active_users) },
+  ];
+  return (
+    <div className={styles.detailSummary} aria-label={t("AiMonitoringPage.detailSummaryTitle")}>
+      {items.map((item) => (
+        <div className={styles.detailSummaryItem} key={item.key}>
+          <span className={`${styles.detailSummaryIcon} ${styles[`detailSummaryIcon_${item.tone}`]}`}><MIcon name={item.icon} size={17} /></span>
+          <span><small>{item.label}</small><strong>{item.value}</strong></span>
+        </div>
       ))}
     </div>
   );
 }
 
-function StatusBanner({ overview, runtime, overviewError, runtimeError, t }) {
-  const errorRate = overview?.summary?.error_rate;
-  const errorDelta = overview?.comparison?.error_rate_delta;
-  let tone = "neutral";
-  let icon = "info";
-  let message = t("AiMonitoringPage.summaryNoData");
-
-  if (overviewError) {
-    tone = "danger";
-    icon = "error_outline";
-    message = t("AiMonitoringPage.summaryLoadError");
-  } else if (runtimeError) {
-    tone = "warning";
-    icon = "cloud_off";
-    message = t("AiMonitoringPage.summaryRuntimeError");
-  } else if (errorRate != null && errorDelta != null && errorDelta > 0.5) {
-    tone = "warning";
-    icon = "trending_up";
-    message = t("AiMonitoringPage.summaryWorsening", { delta: formatDelta(errorDelta, "pp") });
-  } else if (errorRate != null) {
-    tone = "success";
-    icon = "check_circle";
-    message = t("AiMonitoringPage.summaryStable", { rate: formatPercent(errorRate) });
-  }
-
-  if (runtime?.summary?.offline > 0 && !overviewError) {
-    tone = "danger";
-    icon = "report_problem";
-    message = t("AiMonitoringPage.summaryOfflineModels", { count: runtime.summary.offline });
-  }
-
-  return (
-    <div className={`${styles.statusBanner} ${styles[`statusBanner_${tone}`]}`} role="status">
-      <MIcon name={icon} size={20} />
-      <span>{message}</span>
-    </div>
-  );
-}
-
-function DetailTable({ tab, calls, users, query, statusFilter, t }) {
+function DetailTable({ tab, calls, users, models, runtimeModels, query, statusFilter, onModelSelect, t }) {
   const CALL_TYPE_LABELS = {
     recommend: t("AiMonitoringPage.callTypeRecommend"),
     chat: t("AiMonitoringPage.callTypeChat"),
@@ -433,6 +444,20 @@ function DetailTable({ tab, calls, users, query, statusFilter, t }) {
   };
   const formatCallType = (callType) => callType ? CALL_TYPE_LABELS[callType] ?? callType : "—";
   const q = query.trim().toLowerCase();
+
+  if (tab === "models") {
+    const visibleModels = mergeModelRows(models, runtimeModels).filter((model) => (
+      !q
+      || model.model_name.toLowerCase().includes(q)
+      || (model.runtime_name ?? "").toLowerCase().includes(q)
+      || (model.runtime_status ?? "").toLowerCase().includes(q)
+    ));
+    if (!visibleModels.length) return <EmptyState icon="model_training" title={t("AiMonitoringPage.emptyModelBreakdown")} />;
+    return <div className={styles.tableWrap}><table className={styles.table}>
+      <thead><tr><th className={styles.th}>{t("AiMonitoringPage.colModel")}</th><th className={styles.th}>{t("AiMonitoringPage.colRuntimeStatus")}</th><th className={styles.th}>{t("AiMonitoringPage.colDeployments")}</th><th className={`${styles.th} ${styles.thRight}`}>{t("AiMonitoringPage.colCallCount")}</th><th className={`${styles.th} ${styles.thRight}`}>{t("AiMonitoringPage.colTokensTotal")}</th><th className={`${styles.th} ${styles.thRight}`}>{t("AiMonitoringPage.colFailRate")}</th><th className={`${styles.th} ${styles.thRight}`}>{t("AiMonitoringPage.colAvgLatency")}</th></tr></thead>
+      <tbody>{visibleModels.map((model) => <tr key={`${model.model_name}:${model.runtime_name ?? "usage"}`} className={styles.tr}><td className={`${styles.td} ${styles.monoCell}`}>{model.total_calls > 0 ? <button type="button" className={styles.modelDrilldown} onClick={() => onModelSelect(model.model_name)} title={t("AiMonitoringPage.viewModelCalls", { model: formatModelDisplay(model.model_name) })}><span>{formatModelDisplay(model.model_name)}</span><MIcon name="arrow_forward" size={15} /></button> : <span>{formatModelDisplay(model.model_name)}</span>}</td><td className={styles.td}><ModelRuntimeBadge status={model.runtime_status} t={t} /></td><td className={styles.td}>{model.runtime_status ? t("AiMonitoringPage.deploymentCount", { healthy: model.healthy_deployments, unhealthy: model.unhealthy_deployments }) : "—"}</td><td className={`${styles.td} ${styles.numericCell}`}>{formatNumber(model.total_calls)}</td><td className={`${styles.td} ${styles.numericCell}`}>{formatTokens(model.total_tokens)}</td><td className={`${styles.td} ${styles.numericCell}`}>{formatPercent(model.error_rate)}</td><td className={`${styles.td} ${styles.numericCell}`}>{formatDuration(model.avg_latency_ms)}</td></tr>)}</tbody>
+    </table></div>;
+  }
 
   if (tab === "users") {
     const visibleUsers = (users ?? []).filter((user) => {
@@ -503,7 +528,7 @@ function DetailTable({ tab, calls, users, query, statusFilter, t }) {
           <th className={styles.th}>{t("AiMonitoringPage.colStatus")}</th>
         </tr></thead>
         <tbody>{visibleCalls.map((call) => <tr key={call.id} className={styles.tr}>
-          <td className={styles.td}>{call.created_at ? new Date(call.created_at).toLocaleString("zh-TW") : "—"}</td>
+          <td className={styles.td}>{formatDateTime(call.created_at)}</td>
           <td className={styles.td}><UserCell email={call.user_email} fullName={call.user_full_name} fallback={call.user_id} /></td>
           {tab === "proxy" ? <>
             <td className={`${styles.td} ${styles.monoCell}`} title={call.model_name}>{formatModelDisplay(call.model_name)}</td>
@@ -526,11 +551,12 @@ function DetailTable({ tab, calls, users, query, statusFilter, t }) {
 export default function AiMonitoringPage() {
   const { t } = useTranslation("ai");
   const toast = useToast();
+  const navigate = useNavigate();
   const [preset, setPreset] = useState("7d");
-  const [detailTab, setDetailTab] = useState("proxy");
+  const [trendMetric, setTrendMetric] = useState("calls");
+  const [detailTab, setDetailTab] = useState("models");
   const [query, setQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
-  const [selectedModel, setSelectedModel] = useState("");
   const [overview, setOverview] = useState(null);
   const [runtime, setRuntime] = useState(null);
   const [proxyCalls, setProxyCalls] = useState([]);
@@ -543,6 +569,12 @@ export default function AiMonitoringPage() {
   const [overviewError, setOverviewError] = useState(false);
   const [runtimeError, setRuntimeError] = useState(false);
   const [lastUpdated, setLastUpdated] = useState(null);
+  const [detailFocusRequest, setDetailFocusRequest] = useState(0);
+  const detailSectionRef = useRef(null);
+  const modelRows = useMemo(
+    () => mergeModelRows(overview?.model_breakdown, runtime?.models),
+    [overview?.model_breakdown, runtime?.models],
+  );
 
   const PRESETS = [
     { value: "7d", label: t("AiMonitoringPage.preset7d") },
@@ -550,6 +582,7 @@ export default function AiMonitoringPage() {
     { value: "90d", label: t("AiMonitoringPage.preset90d") },
   ];
   const DETAIL_TABS = [
+    { key: "models", label: t("AiMonitoringPage.tabModels"), icon: "model_training", count: modelRows.length },
     { key: "proxy", label: t("AiMonitoringPage.tabProxy"), icon: "swap_horiz", count: counts.proxy },
     { key: "template", label: t("AiMonitoringPage.tabTemplate"), icon: "auto_awesome", count: counts.template },
     { key: "users", label: t("AiMonitoringPage.tabUsers"), icon: "groups", count: counts.users },
@@ -558,6 +591,13 @@ export default function AiMonitoringPage() {
     { value: "all", label: t("AiMonitoringPage.statusFilterAll") },
     { value: "success", label: t("AiMonitoringPage.statusSuccess") },
     { value: "error", label: t("AiMonitoringPage.statusFail") },
+  ];
+  const TREND_OPTIONS = [
+    { value: "calls", label: t("AiMonitoringPage.chartCalls") },
+    { value: "tokens", label: t("AiMonitoringPage.chartTokens") },
+    { value: "failed", label: t("AiMonitoringPage.chartFailed") },
+    { value: "error", label: t("AiMonitoringPage.chartErrorRate") },
+    { value: "latency", label: t("AiMonitoringPage.chartLatency") },
   ];
 
   const load = useCallback(async (silent = false) => {
@@ -625,20 +665,47 @@ export default function AiMonitoringPage() {
   useEffect(() => { load(); }, [load]);
   useAutoRefresh(() => load(true));
 
+  useEffect(() => {
+    if (!detailFocusRequest) return undefined;
+    const frame = window.requestAnimationFrame(() => {
+      detailSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [detailFocusRequest, detailTab, statusFilter]);
+
   const summary = overview?.summary;
   const comparison = overview?.comparison;
-  const detailQuery = selectedModel || query;
+  const attentionItems = useMemo(
+    () => buildAttentionItems({ overview, runtime, overviewError, runtimeError }, t),
+    [overview, runtime, overviewError, runtimeError, t],
+  );
+  const detailQuery = query;
   const detailPlaceholder = detailTab === "users"
     ? t("AiMonitoringPage.searchPlaceholderUsers")
-    : t("AiMonitoringPage.searchPlaceholderCalls");
+    : detailTab === "models" ? t("AiMonitoringPage.searchPlaceholderModels") : t("AiMonitoringPage.searchPlaceholderCalls");
 
   const selectModel = (modelName) => {
-    setSelectedModel(modelName);
-    const hasProxyCalls = proxyCalls.some((call) => call.model_name === modelName);
-    const hasTemplateCalls = templateCalls.some((call) => call.model_name === modelName);
+    const hasProxyCalls = proxyCalls.some((call) => modelKey(call.model_name) === modelKey(modelName));
+    const hasTemplateCalls = templateCalls.some((call) => modelKey(call.model_name) === modelKey(modelName));
     setDetailTab(hasProxyCalls || !hasTemplateCalls ? "proxy" : "template");
-    setQuery("");
     setStatusFilter("all");
+    setQuery(modelName);
+  };
+
+  const openAttention = (target) => {
+    if (target === "runtime") {
+      navigate("/gateway");
+      return;
+    }
+    if (target === "models") {
+      setDetailTab("models");
+      setStatusFilter("all");
+    } else {
+      setDetailTab("proxy");
+      setStatusFilter(target === "api-errors" ? "error" : "all");
+    }
+    setQuery("");
+    setDetailFocusRequest((current) => current + 1);
   };
 
   return (
@@ -647,7 +714,7 @@ export default function AiMonitoringPage() {
         <div className={styles.pageActions}>
           <div className={styles.refreshMeta}>
             <span className={styles.refreshDot} />
-            <span>{lastUpdated ? t("AiMonitoringPage.lastUpdated", { time: lastUpdated.toLocaleTimeString("zh-TW") }) : t("AiMonitoringPage.waitingForData")}</span>
+            <span>{lastUpdated ? t("AiMonitoringPage.lastUpdated", { time: formatTime(lastUpdated, "—", { seconds: true }) }) : t("AiMonitoringPage.waitingForData")}</span>
           </div>
           <SegmentedControl
             options={PRESETS}
@@ -658,51 +725,33 @@ export default function AiMonitoringPage() {
         </div>
       </PageHeader>
 
-      <StatusBanner overview={overview} runtime={runtime} overviewError={overviewError} runtimeError={runtimeError} t={t} />
+      <HealthSummary items={attentionItems} loading={overviewLoading || runtimeLoading} t={t} />
 
       <section className={styles.metricRow} aria-label={t("AiMonitoringPage.summaryTitle")}>
-        <MetricGroupCard
+        <MetricCard
           icon="swap_calls"
           tone="primary"
-          label={t("AiMonitoringPage.usageGroupTitle")}
-          items={[
-            {
-              key: "calls",
-              label: t("AiMonitoringPage.statCallCount"),
-              value: summary ? formatNumber(summary.total_calls) : "—",
-              detail: t("AiMonitoringPage.previousPeriod"),
-              delta: comparison ? formatDelta(comparison.total_calls_percent) : null,
-              deltaTone: comparison?.total_calls_percent > 0 ? "neutral" : "positive",
-            },
-            {
-              key: "tokens",
-              label: t("AiMonitoringPage.statTokensTotal"),
-              value: formatTokens(summary?.total_tokens),
-            },
-          ]}
+          label={t("AiMonitoringPage.statCallCount")}
+          value={summary ? formatNumber(summary.total_calls) : "—"}
+          detail={t("AiMonitoringPage.previousPeriod")}
+          delta={comparison ? formatDelta(comparison.total_calls_percent) : null}
+          deltaTone={comparison?.total_calls_percent > 0 ? "neutral" : "positive"}
         />
-        <MetricGroupCard
+        <MetricCard
+          icon="data_usage"
+          tone="info"
+          label={t("AiMonitoringPage.statTokensTotal")}
+          value={formatTokens(summary?.total_tokens)}
+          detail={t("AiMonitoringPage.currentPeriod")}
+        />
+        <MetricCard
           icon="error_outline"
           tone="danger"
-          label={t("AiMonitoringPage.reliabilityGroupTitle")}
-          items={[
-            {
-              key: "failed-calls",
-              label: t("AiMonitoringPage.statFailedCalls"),
-              value: summary ? formatNumber(summary.failed_calls) : "—",
-              detail: t("AiMonitoringPage.previousPeriod"),
-              delta: comparison ? formatDelta(comparison.failed_calls_delta, "") : null,
-              deltaTone: comparison?.failed_calls_delta > 0 ? "danger" : "positive",
-            },
-            {
-              key: "error-rate",
-              label: t("AiMonitoringPage.statErrorRate"),
-              value: formatPercent(summary?.error_rate),
-              detail: t("AiMonitoringPage.previousPeriod"),
-              delta: comparison ? formatDelta(comparison.error_rate_delta, "pp") : null,
-              deltaTone: comparison?.error_rate_delta > 0 ? "danger" : "positive",
-            },
-          ]}
+          label={t("AiMonitoringPage.statErrorRate")}
+          value={formatPercent(summary?.error_rate)}
+          detail={t("AiMonitoringPage.previousPeriod")}
+          delta={comparison ? formatDelta(comparison.error_rate_delta, "pp") : null}
+          deltaTone={comparison?.error_rate_delta > 0 ? "danger" : "positive"}
         />
         <MetricCard
           icon="speed"
@@ -723,49 +772,24 @@ export default function AiMonitoringPage() {
               <p className={styles.panelDescription}>{t("AiMonitoringPage.trendDescription")}</p>
             </div>
             <div className={styles.trendMeta}>
-              <span>{t("AiMonitoringPage.totalTokensShort", { value: formatTokens(summary?.total_tokens) })}</span>
-              <span>{t("AiMonitoringPage.activeUsersShort", { value: formatNumber(summary?.active_users) })}</span>
+              <SegmentedControl options={TREND_OPTIONS} value={trendMetric} onChange={setTrendMetric} ariaLabel={t("AiMonitoringPage.trendMetricLabel")} />
             </div>
           </div>
-          <TrendChart series={overview?.series} bucket={overview?.bucket ?? presetToBucket(preset)} loading={overviewLoading} t={t} />
+          <TrendChart series={overview?.series} bucket={overview?.bucket ?? presetToBucket(preset)} loading={overviewLoading} metric={trendMetric} t={t} />
         </div>
-        <ModelStatusPanel runtime={runtime} error={runtimeError} loading={runtimeLoading} t={t} />
+        <CompactHealthPanel overview={overview} runtime={runtime} overviewError={overviewError} error={runtimeError} loading={runtimeLoading} t={t} onOpen={openAttention} />
       </section>
 
-      <section className={styles.secondaryGrid}>
-        <div className={styles.panel}>
-          <div className={styles.panelHeader}>
-            <div>
-              <h2 className={styles.panelTitle}><MIcon name="model_training" size={18} />{t("AiMonitoringPage.modelBreakdownTitle")}</h2>
-              <p className={styles.panelDescription}>{t("AiMonitoringPage.modelBreakdownDescription")}</p>
-            </div>
-            <span className={styles.columnHint}>{t("AiMonitoringPage.breakdownCallsHeader")} · {t("AiMonitoringPage.breakdownTokensHeader")} · {t("AiMonitoringPage.breakdownErrorHeader")}</span>
-          </div>
-          <ModelBreakdown models={overview?.model_breakdown} t={t} onModelSelect={selectModel} />
-        </div>
-        <div className={`${styles.panel} ${styles.healthNote}`}>
-          <div className={styles.panelHeader}>
-            <div>
-              <h2 className={styles.panelTitle}><MIcon name="insights" size={18} />{t("AiMonitoringPage.readingTitle")}</h2>
-              <p className={styles.panelDescription}>{t("AiMonitoringPage.readingDescription")}</p>
-            </div>
-          </div>
-          <div className={styles.readingRows}>
-            <div><span>{t("AiMonitoringPage.successfulCalls")}</span><strong>{formatNumber(summary?.successful_calls)}</strong></div>
-            <div><span>{t("AiMonitoringPage.totalTokens")}</span><strong>{formatTokens(summary?.total_tokens)}</strong></div>
-            <div><span>{t("AiMonitoringPage.activeUsers")}</span><strong>{formatNumber(summary?.active_users)}</strong></div>
-          </div>
-        </div>
-      </section>
+      <AttentionPanel items={attentionItems} onOpen={openAttention} t={t} />
 
-      <section className={styles.detailSection} aria-labelledby="detail-heading">
+      <section ref={detailSectionRef} id="monitoring-details" className={styles.detailSection} aria-labelledby="detail-heading">
         <div className={styles.detailHeader}>
           <div>
             <h2 id="detail-heading" className={styles.detailTitle}>{t("AiMonitoringPage.detailTitle")}</h2>
             <p className={styles.detailDescription}>{t("AiMonitoringPage.detailDescription")}</p>
           </div>
           <div className={styles.detailToolbar}>
-            {detailTab !== "users" ? (
+            {detailTab === "proxy" || detailTab === "template" ? (
               <SegmentedControl
                 options={STATUS_FILTERS}
                 value={statusFilter}
@@ -779,23 +803,24 @@ export default function AiMonitoringPage() {
                 type="text"
                 className={styles.searchInput}
                 placeholder={detailPlaceholder}
-                value={selectedModel ? selectedModel : query}
-                onChange={(event) => { setSelectedModel(""); setQuery(event.target.value); }}
+                value={query}
+                onChange={(event) => setQuery(event.target.value)}
                 aria-label={detailPlaceholder}
               />
-              {(query || selectedModel) ? <button type="button" className={styles.clearSearch} onClick={() => { setQuery(""); setSelectedModel(""); }} aria-label={t("AiMonitoringPage.clearSearch")}><MIcon name="close" size={14} /></button> : null}
+              {query ? <button type="button" className={styles.clearSearch} onClick={() => setQuery("")} aria-label={t("AiMonitoringPage.clearSearch")}><MIcon name="close" size={14} /></button> : null}
             </div>
           </div>
         </div>
+        <DetailSummary summary={summary} t={t} />
         <div className={styles.detailTabs} role="tablist" aria-label={t("AiMonitoringPage.detailTitle")}>
           {DETAIL_TABS.map((item) => (
-            <button key={item.key} type="button" role="tab" aria-selected={detailTab === item.key} className={`${styles.detailTab} ${detailTab === item.key ? styles.detailTabActive : ""}`} onClick={() => { setDetailTab(item.key); setQuery(""); setSelectedModel(""); }}>
+            <button key={item.key} type="button" role="tab" aria-selected={detailTab === item.key} className={`${styles.detailTab} ${detailTab === item.key ? styles.detailTabActive : ""}`} onClick={() => { setDetailTab(item.key); setQuery(""); }}>
               <MIcon name={item.icon} size={16} />{item.label}<span className={styles.tabCount}>{formatNumber(item.count)}</span>
             </button>
           ))}
         </div>
         <div className={styles.detailContent}>
-          {detailLoading ? <LoadingState /> : <DetailTable tab={detailTab} calls={{ proxy: proxyCalls, template: templateCalls }} users={users} query={detailQuery} statusFilter={statusFilter} t={t} />}
+          {detailLoading ? <LoadingState /> : <DetailTable tab={detailTab} calls={{ proxy: proxyCalls, template: templateCalls }} users={users} models={overview?.model_breakdown} runtimeModels={runtime?.models} query={detailQuery} statusFilter={statusFilter} onModelSelect={selectModel} t={t} />}
         </div>
       </section>
     </div>

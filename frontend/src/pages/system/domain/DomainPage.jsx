@@ -10,21 +10,11 @@ import useDialogPresence from "../../../hooks/useDialogPresence";
 import { CloudflareService } from "../../../services/cloudflare";
 import PageHeader from "../../../components/PageHeader/PageHeader";
 import { ReverseProxyPanel } from "../../network/reverse-proxy/ReverseProxyPage";
+import { formatDateTime } from "../../../utils/formatDate";
 
 const TAB_KEYS = ["dns", "reverse-proxy"];
 
 const DNS_TYPES = ["A", "AAAA", "CNAME", "TXT", "MX", "NS", "SRV"];
-
-function formatDate(value) {
-  if (!value) return "—";
-  return new Date(value).toLocaleString("zh-TW", {
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
-}
 
 /* ── 供應商設定 Modal ───────────────────────────────────── */
 
@@ -62,6 +52,13 @@ function ConfigModal({ config, loading, closing = false, onClose, onSubmit }) {
           <div>
             <h2>{t("DomainPage.configModalTitle")}</h2>
             <p>{t("DomainPage.configModalDesc")}</p>
+            <p className={styles.modalGuide}>
+              {t("DomainPage.tokenGuideText")}{" "}
+              <a href="https://dash.cloudflare.com/profile/api-tokens" target="_blank" rel="noreferrer">
+                {t("DomainPage.tokenGuideLink")}
+                <MIcon name="open_in_new" size={13} />
+              </a>
+            </p>
           </div>
           <button type="button" className={styles.iconBtn} onClick={onClose} aria-label={t("DomainPage.close")}>
             <MIcon name="close" size={18} />
@@ -109,6 +106,7 @@ function ConfigModal({ config, loading, closing = false, onClose, onSubmit }) {
             />
           </label>
         </div>
+        <p className={styles.fieldHint}>{t("DomainPage.dnsTargetHint")}</p>
 
         <div className={styles.modalActions}>
           <button type="button" className={styles.btnSecondary} onClick={onClose} disabled={loading}>
@@ -414,7 +412,7 @@ export default function DomainPage() {
           </span>
           {config.account_id && <span className={styles.configMeta}>{t("DomainPage.accountLabel")}{config.account_id}</span>}
           {config.last_verified_at && (
-            <span className={styles.configMeta}>{t("DomainPage.lastVerifiedLabel")}{formatDate(config.last_verified_at)}</span>
+            <span className={styles.configMeta}>{t("DomainPage.lastVerifiedLabel")}{formatDateTime(config.last_verified_at)}</span>
           )}
         </div>
       )}

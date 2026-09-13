@@ -22,6 +22,7 @@
     }
   ],
   "mac": {
+    "icon": "./public/logo/pack/512x512.png",
     "target": [
       {
         "target": "dmg",
@@ -35,6 +36,7 @@
     "category": "public.app-category.utilities"
   },
   "win": {
+    "icon": "./public/logo/pack/icon.ico",
     "extraResources": [
       {
         "from": "vendor/wireguard",
@@ -61,6 +63,7 @@
     "include": "build/installer.nsh"
   },
   "linux": {
+    "icon": "./public/logo/pack/512x512.png",
     "target": [
       {
         "target": "AppImage",

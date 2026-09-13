@@ -499,7 +499,7 @@ export default function StudentHomePage({ courseView = false }) {
       navigate("/dashboard");
       return;
     }
-    navigate(`/dashboard/course/${path.id}`, { state: { from: "/dashboard" } });
+    navigate(`/courses/${path.id}`, { state: { from: "/dashboard" } });
   };
 
   const toggleAssignment = (assignmentId) => {

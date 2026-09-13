@@ -134,8 +134,15 @@ describe("buildUrgentRows", () => {
     expect(rows[0].path).toBe("/monitoring");
   });
 
-  it("omits the job row when nothing failed", () => {
-    expect(buildUrgentRows({ infraProblems: [], failedJobs: 0 }, t)).toEqual([]);
+  it("lists undecided mining incidents between infra and jobs", () => {
+    const rows = buildUrgentRows({ infraProblems: [], failedJobs: 1, miningIncidents: 2 }, t);
+    expect(rows.map((row) => row.key)).toEqual(["mining-incidents", "failed-jobs"]);
+    expect(rows[0].count).toBe(2);
+    expect(rows[0].path).toBe("/monitoring");
+  });
+
+  it("omits the job and mining rows when there is nothing to act on", () => {
+    expect(buildUrgentRows({ infraProblems: [], failedJobs: 0, miningIncidents: 0 }, t)).toEqual([]);
   });
 });
 

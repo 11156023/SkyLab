@@ -31,7 +31,7 @@ export const GatewayService = {
     return apiPost("/api/v1/gateway/traefik/dns-challenge/sync");
   },
 
-  /** 讀取服務設定檔（haproxy / traefik / frps / frpc） */
+  /** 讀取可安全編輯的服務設定檔（haproxy / traefik） */
   readServiceConfig(service) {
     return apiGet(`/api/v1/gateway/services/${service}/config`);
   },
@@ -49,6 +49,11 @@ export const GatewayService = {
   /** 取得所有服務版本資訊 */
   getServiceVersions() {
     return apiGet("/api/v1/gateway/services/versions");
+  },
+
+  /** Return a WireGuard runtime summary without private or peer keys. */
+  getWireGuardOverview() {
+    return apiGet("/api/v1/gateway/wireguard/overview");
   },
 
   /** 控制服務（start / stop / restart / reload） */

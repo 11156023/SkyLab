@@ -37,6 +37,8 @@
   "course_env.audience_class_required": "クイック練習として公開する場合、この環境を閲覧できるクラスを選択する必要があります",
 
   "gateway.unknown_service": "不明なサービスです：{service}",
+  "gateway.service_config_not_exposed": "セキュリティ上の理由により、{service} の生設定編集は提供していません",
+  "gateway.wireguard_overview_failed": "Gateway WireGuard の概要を取得できません",
   "gateway.install_script_missing": "インストールスクリプトが見つかりません",
   "gateway.proxmox_failed": "Proxmox の操作に失敗しました",
   "gateway.traefik_sync_failed": "Traefik の証明書設定の同期に失敗しました",

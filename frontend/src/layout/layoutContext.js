@@ -12,6 +12,8 @@ export const LayoutContext = createContext({
      並且拿得到表單當下的真實候選（該時段的 GPU、時段選項、作業系統清單）。 */
   registerRequestForm: () => {},
   requestForm: null,
+  reportRequestSubmission: () => {},
+  requestSubmission: null,
   /* 畫面說明用：頁面掛載時把自己註冊進來，助手才拿得到欄位當下的值與驗證錯誤。
      沒有註冊的頁面照樣能被問「這頁在做什麼」——那部分只需要伺服器端的靜態定義。 */
   registerSurface: () => {},

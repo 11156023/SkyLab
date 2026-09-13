@@ -40,7 +40,10 @@ class Settings(BaseSettings):
     DESKTOP_CLIENT_BACKEND_URL: str = "http://localhost:8000"
     # External URL for the desktop client zip (e.g. GitHub Releases asset).
     # When set, /desktop-client/download redirects here instead of serving a local file.
-    DESKTOP_CLIENT_DOWNLOAD_URL: str = ""
+    DESKTOP_CLIENT_DOWNLOAD_URL: str = (
+        "https://github.com/1Ray0/SkyLab-Connect-Releases/"
+        "releases/latest/download/SkyLab-Connect-Setup.exe"
+    )
     # Desktop VPN control plane. The public endpoint host falls back to the
     # configured Gateway VM host when left empty.
     DESKTOP_TUNNEL_MODE: Literal["frp", "wireguard"] = "wireguard"

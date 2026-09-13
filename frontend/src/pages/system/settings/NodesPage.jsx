@@ -5,6 +5,7 @@ import MIcon from "../../../components/MIcon";
 import LoadingState from "../../../components/LoadingState/LoadingState";
 import EmptyState from "../../../components/EmptyState/EmptyState";
 import { useToast } from "../../../hooks/useToast";
+import useDialogPresence from "../../../hooks/useDialogPresence";
 import { ProxmoxConfigService } from "../../../services/proxmoxConfig";
 import PageHeader from "../../../components/PageHeader/PageHeader";
 
@@ -13,14 +14,81 @@ import PageHeader from "../../../components/PageHeader/PageHeader";
  * 節點清單由「PVE 連線」的同步動作更新。2026-09 從「系統設定」的分頁拆成獨立頁面。
  */
 
+/* ── 編輯 Modal：改用彈窗，列本身不再變形（#22） ── */
+function NodeEditDialog({ node, saving, closing = false, onClose, onSave }) {
+  const { t } = useTranslation("system");
+  const [form, setForm] = useState({ host: node.host, port: node.port, priority: node.priority });
+
+  function submit(e) {
+    e.preventDefault();
+    onSave(node, form);
+  }
+
+  return (
+    <div
+      className={`${styles.modalOverlay} ${closing ? styles.modalOverlayOut : ""}`}
+      onMouseDown={onClose}
+    >
+      <form
+        className={`${styles.modal} ${styles.modalNarrow}`}
+        onSubmit={submit}
+        onMouseDown={(e) => e.stopPropagation()}
+      >
+        <span className={styles.modalTitle}>
+          <MIcon name="dns" size={18} />
+          {t("SettingsPage.editNodeTitle", { name: node.name })}
+        </span>
+
+        <label className={styles.field}>
+          <span>Host</span>
+          <input
+            value={form.host}
+            onChange={(e) => setForm((p) => ({ ...p, host: e.target.value }))}
+            required
+          />
+        </label>
+        <label className={styles.field}>
+          <span>Port</span>
+          <input
+            type="number"
+            min={1}
+            max={65535}
+            value={form.port}
+            onChange={(e) => setForm((p) => ({ ...p, port: e.target.value }))}
+          />
+          <em className={styles.fieldHint}>{t("SettingsPage.nodeHostHint")}</em>
+        </label>
+        <label className={styles.field}>
+          <span>{t("SettingsPage.nodePriorityLabel")}</span>
+          <input
+            type="number"
+            value={form.priority}
+            onChange={(e) => setForm((p) => ({ ...p, priority: e.target.value }))}
+          />
+          <em className={styles.fieldHint}>{t("SettingsPage.nodePriorityHint")}</em>
+        </label>
+
+        <div className={styles.modalActions}>
+          <button type="button" className={styles.btnSecondary} onClick={onClose} disabled={saving}>
+            {t("SettingsPage.cancel")}
+          </button>
+          <button type="submit" className={styles.btnPrimary} disabled={saving}>
+            {saving ? t("SettingsPage.saving") : t("SettingsPage.save")}
+          </button>
+        </div>
+      </form>
+    </div>
+  );
+}
+
 /* ── 節點管理 ──────────────────────────────────────── */
 function NodeList() {
   const { t } = useTranslation("system");
   const toast = useToast();
   const [nodes, setNodes] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [editing, setEditing] = useState(null); // node id
-  const [editForm, setEditForm] = useState({ host: "", port: 8006, priority: 0 });
+  const [editTarget, setEditTarget] = useState(null); // node 物件
+  const editPresence = useDialogPresence(editTarget);
   const [saving, setSaving] = useState(false);
 
   const fetchNodes = useCallback(() => {
@@ -35,23 +103,18 @@ function NodeList() {
     fetchNodes();
   }, [fetchNodes]);
 
-  function startEdit(node) {
-    setEditing(node.id);
-    setEditForm({ host: node.host, port: node.port, priority: node.priority });
-  }
-
-  async function saveEdit(node) {
+  async function saveEdit(node, form) {
     setSaving(true);
     try {
       const updated = await ProxmoxConfigService.updateNode(node.id, {
-        host: editForm.host.trim(),
-        port: Number(editForm.port) || 8006,
-        priority: Number(editForm.priority) || 0,
+        host: form.host.trim(),
+        port: Number(form.port) || 8006,
+        priority: Number(form.priority) || 0,
         enabled: node.enabled ?? true,
       });
       setNodes((prev) => prev.map((n) => (n.id === node.id ? updated : n)));
       toast.success(t("SettingsPage.toastNodeUpdated"));
-      setEditing(null);
+      setEditTarget(null);
     } catch (err) {
       toast.error(err?.message ?? t("SettingsPage.toastUpdateNodeFailed"));
     } finally {
@@ -115,40 +178,23 @@ function NodeList() {
             />
             <span>{t("SettingsPage.enable")}</span>
           </label>
-          {editing === node.id ? (
-            <div className={styles.nodeEdit}>
-              <input
-                value={editForm.host}
-                onChange={(e) => setEditForm((p) => ({ ...p, host: e.target.value }))}
-                placeholder="Host"
-              />
-              <input
-                type="number"
-                value={editForm.port}
-                onChange={(e) => setEditForm((p) => ({ ...p, port: e.target.value }))}
-                placeholder="Port"
-              />
-              <input
-                type="number"
-                value={editForm.priority}
-                onChange={(e) => setEditForm((p) => ({ ...p, priority: e.target.value }))}
-                placeholder="Priority"
-              />
-              <button type="button" className={styles.btnPrimary} disabled={saving} onClick={() => saveEdit(node)}>
-                {saving ? "..." : t("SettingsPage.save")}
-              </button>
-              <button type="button" className={styles.btnSecondary} onClick={() => setEditing(null)}>
-                {t("SettingsPage.cancel")}
-              </button>
-            </div>
-          ) : (
-            <button type="button" className={styles.btnSecondary} onClick={() => startEdit(node)} disabled={node.id == null}>
-              <MIcon name="edit" size={16} />
-              {t("SettingsPage.edit")}
-            </button>
-          )}
+          <button type="button" className={styles.btnSecondary} onClick={() => setEditTarget(node)} disabled={node.id == null}>
+            <MIcon name="edit" size={16} />
+            {t("SettingsPage.edit")}
+          </button>
         </div>
       ))}
+
+      {editPresence.open && (
+        <NodeEditDialog
+          key={editPresence.item.id}
+          node={editPresence.item}
+          saving={saving}
+          closing={editPresence.closing}
+          onClose={() => setEditTarget(null)}
+          onSave={saveEdit}
+        />
+      )}
     </div>
   );
 }
@@ -160,6 +206,7 @@ export default function NodesPage() {
     <div className={styles.page}>
       <PageHeader title={t("SettingsPage.nodesTitle")} subtitle={t("SettingsPage.nodesSubtitle")} />
       <div className={styles.content}>
+        <p className={styles.listHint}>{t("SettingsPage.nodesHint")}</p>
         <NodeList />
       </div>
     </div>

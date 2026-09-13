@@ -452,10 +452,14 @@ def update_student_completion(
     user_id: uuid.UUID,
     path_id: uuid.UUID,
     assignment_id: uuid.UUID,
-    item_id: str,
+    item_id: str | None,
     completed: bool,
 ) -> CourseAICompletionStudent:
-    """Persist one task item's completion signal without starting any check."""
+    """Persist completion without starting any check.
+
+    When ``item_id`` is omitted, all rubric items are toggled atomically so the
+    student-facing course page can expose one completion control per week.
+    """
 
     assignment = get_student_ai_assignment(
         session,
@@ -469,7 +473,7 @@ def update_student_completion(
         user_id=user_id,
     )
     valid_item_ids = [item.id for item in assignment.items]
-    if item_id not in valid_item_ids:
+    if item_id is not None and item_id not in valid_item_ids:
         from fastapi import HTTPException
 
         raise HTTPException(
@@ -477,11 +481,14 @@ def update_student_completion(
         )
 
     now = _now()
-    completed_items = set(submission.completed_item_ids if submission else [])
-    if completed:
-        completed_items.add(item_id)
+    if item_id is None:
+        completed_items = set(valid_item_ids if completed else [])
     else:
-        completed_items.discard(item_id)
+        completed_items = set(submission.completed_item_ids if submission else [])
+        if completed:
+            completed_items.add(item_id)
+        else:
+            completed_items.discard(item_id)
     completed_item_ids = [
         valid_item_id
         for valid_item_id in valid_item_ids

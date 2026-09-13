@@ -61,9 +61,9 @@ describe("describePlan", () => {
 });
 
 describe("stepStatuses", () => {
-  test("以使用者目前所在頁面決定進度", () => {
-    expect(stepStatuses(STEPS, "/reverse-proxy")).toEqual(["done", "current", "todo"]);
-    expect(stepStatuses(STEPS, "/firewall")).toEqual(["done", "done", "current"]);
+  test("開啟頁面不代表前面的工作已完成", () => {
+    expect(stepStatuses(STEPS, "/reverse-proxy")).toEqual(["current", "todo", "todo"]);
+    expect(stepStatuses(STEPS, "/firewall")).toEqual(["current", "todo", "todo"]);
   });
 
   test("目前頁面不在流程裡時，沿用後端算好的狀態", () => {

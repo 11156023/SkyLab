@@ -5,9 +5,7 @@ const Layout = () => import("@/layout/index.vue");
 const routes: RouteRecordRaw[] = [
   {
     path: "/login",
-    name: "Login",
-    meta: { title: "router.login.title", hidden: true },
-    component: () => import("@/views/login/index.vue")
+    redirect: "/home"
   },
   {
     path: "/",

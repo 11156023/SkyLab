@@ -22,17 +22,6 @@ app.use(i18n).use(router).use(ElementPlus).use(pinia);
 
 const appStore = useAppStore(pinia);
 
-router.beforeEach((to, _from, next) => {
-  const publicRoutes = new Set(["Login", "Config"]);
-  if (!appStore.loggedIn && !publicRoutes.has(String(to.name))) {
-    next({ name: "Login" });
-  } else if (appStore.loggedIn && to.name === "Login") {
-    next({ name: "Home" });
-  } else {
-    next();
-  }
-});
-
 app.mount("#app").$nextTick(() => {
   appStore.registerListeners();
   appStore.refreshAuth();
@@ -43,19 +32,6 @@ app.mount("#app").$nextTick(() => {
     lang => {
       if (lang) {
         (i18n.global.locale as any).value = lang;
-      }
-    },
-    { immediate: true }
-  );
-
-  watch(
-    () => appStore.loggedIn,
-    loggedIn => {
-      const currentName = router.currentRoute.value.name;
-      if (!loggedIn && !["Login", "Config"].includes(String(currentName))) {
-        router.replace({ name: "Login" });
-      } else if (loggedIn && currentName === "Login") {
-        router.replace({ name: "Home" });
       }
     },
     { immediate: true }

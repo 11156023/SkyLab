@@ -58,17 +58,16 @@ describe("CoursesService", () => {
     expect(init.method).toBe("GET");
   });
 
-  test("學生只切換自己的完成狀態", async () => {
+  test("學生以整週任務切換自己的完成狀態", async () => {
     fetchMock.mockResolvedValueOnce(jsonRes(200, { completed: true }));
 
-    await CoursesService.updateAssignmentCompletion("path-1", "assignment-1", "task-1", true);
+    await CoursesService.updateAssignmentCompletion("path-1", "assignment-1", true);
 
     expect(fetchMock.mock.calls[0][0]).toContain(
       "/api/v1/courses/paths/path-1/ai-assignments/assignment-1/completion",
     );
     expect(fetchMock.mock.calls[0][1].method).toBe("PUT");
     expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({
-      item_id: "task-1",
       completed: true,
     });
   });

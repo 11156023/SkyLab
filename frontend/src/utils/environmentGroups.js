@@ -1,12 +1,7 @@
+import { formatShortDateTime } from "./formatDate";
+
 function formatDateTime(value) {
-  if (!value) return "依環境政策";
-  return new Date(value).toLocaleString("zh-TW", {
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    hour12: false,
-  });
+  return formatShortDateTime(value, "依環境政策");
 }
 
 function machineFromResource(resource, fallback = {}) {

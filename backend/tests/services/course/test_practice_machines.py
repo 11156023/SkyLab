@@ -22,7 +22,7 @@ def _session() -> Session:
     return Session(engine)
 
 
-def test_student_gets_every_assigned_course_machine_in_role_order() -> None:
+def test_student_gets_every_assigned_course_machine_in_role_order(monkeypatch) -> None:
     session = _session()
     teacher_id = uuid.uuid4()
     student_id = uuid.uuid4()
@@ -94,6 +94,12 @@ def test_student_gets_every_assigned_course_machine_in_role_order() -> None:
         )
     )
     session.commit()
+    monkeypatch.setattr(
+        "app.api.routes.courses.course_publication_service.public_urls_by_vmid",
+        lambda _session, vmids: {218: "https://linux-a-sabc-main.lab.example.edu"}
+        if 218 in vmids
+        else {},
+    )
 
     machines = list_practice_machines(
         session=session,
@@ -103,5 +109,6 @@ def test_student_gets_every_assigned_course_machine_in_role_order() -> None:
 
     assert [machine.name for machine in machines] == ["操作主機", "資料庫主機"]
     assert machines[0].vmid == 218
+    assert machines[0].public_url == "https://linux-a-sabc-main.lab.example.edu"
     assert machines[1].vmid is None
     assert machines[1].status == "pending"

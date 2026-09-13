@@ -8,6 +8,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import logging
 import re
 import uuid
@@ -25,7 +26,8 @@ from app.services.network import (
 logger = logging.getLogger(__name__)
 
 STUDENT_PLACEHOLDER = "{student}"
-_MAX_TOKEN_LENGTH = 30
+CLASS_PLACEHOLDER = "{class}"
+_MAX_TOKEN_LENGTH = 20
 _UNSAFE = re.compile(r"[^a-z0-9]+")
 
 
@@ -41,19 +43,29 @@ def list_for_version(
     )
 
 
-def student_token(user: User) -> str:
-    """學生在網址裡的識別片段：取信箱帳號部分，清成 DNS 安全的字串。"""
-    local_part = str(getattr(user, "email", "") or "").split("@")[0]
-    token = _UNSAFE.sub("-", local_part.lower()).strip("-")[:_MAX_TOKEN_LENGTH].strip("-")
-    if token:
-        return token
-    # 信箱清完是空的（例如全形字元帳號）時，退回使用者 id 的短碼
-    return f"u{uuid.UUID(str(user.id)).hex[:8]}"
+def student_token(user: User, *, scope: str = "") -> str:
+    """Return a class-scoped pseudonym without exposing account identifiers."""
+    source = f"{uuid.UUID(str(user.id))}:{scope}".encode()
+    return f"s{hashlib.sha256(source).hexdigest()[:10]}"
 
 
-def _hostname_for(publication: CourseEnvironmentPublication, token: str) -> str:
+def context_token(value: str | uuid.UUID, *, fallback: str = "class") -> str:
+    token = _UNSAFE.sub("-", str(value).lower()).strip("-")
+    return token[:_MAX_TOKEN_LENGTH].strip("-") or fallback
+
+
+def _hostname_for(
+    publication: CourseEnvironmentPublication,
+    student: str,
+    class_scope: str,
+) -> str:
     template = publication.hostname_prefix or STUDENT_PLACEHOLDER
-    return template.replace(STUDENT_PLACEHOLDER, token).strip(".").lower()
+    return (
+        template.replace(STUDENT_PLACEHOLDER, student)
+        .replace(CLASS_PLACEHOLDER, class_scope)
+        .strip(".")
+        .lower()
+    )
 
 
 def resolve_domain(
@@ -62,14 +74,17 @@ def resolve_domain(
     publication: CourseEnvironmentPublication,
     user: User,
     vmid: int,
+    scope: str = "class",
 ) -> str:
     """組出這位學生的完整網域；撞名時補上使用者短碼再試一次。"""
     zone = cloudflare_service.get_zone(
         session=session, zone_id=str(publication.zone_id or "")
     )
-    token = student_token(user)
+    class_scope = context_token(scope)
+    token = student_token(user, scope=class_scope)
     domain = reverse_proxy_service.build_full_domain(
-        zone_name=zone.name, hostname_prefix=_hostname_for(publication, token)
+        zone_name=zone.name,
+        hostname_prefix=_hostname_for(publication, token, class_scope),
     )
     availability = reverse_proxy_service.check_domain_availability(
         session, domain, zone_id=publication.zone_id
@@ -87,7 +102,9 @@ def resolve_domain(
     )
     return reverse_proxy_service.build_full_domain(
         zone_name=zone.name,
-        hostname_prefix=_hostname_for(publication, f"{token}-{suffix}"),
+        hostname_prefix=_hostname_for(
+            publication, f"{token}-{suffix}", class_scope
+        ),
     )
 
 
@@ -97,6 +114,7 @@ def apply_for_machines(
     version_id: uuid.UUID,
     vmid_by_key: dict[str, int],
     owner: User,
+    scope: str = "class",
 ) -> list[str]:
     """把這個版本的宣告套用到一位學生的機器上；已發布的略過（可重複執行）。"""
     publications = list_for_version(session, version_id=version_id)
@@ -129,7 +147,11 @@ def apply_for_machines(
                     protocol="tcp",
                     mode="domain",
                     domain=resolve_domain(
-                        session, publication=publication, user=owner, vmid=vmid
+                        session,
+                        publication=publication,
+                        user=owner,
+                        vmid=vmid,
+                        scope=scope,
                     ),
                     enable_https=publication.enable_https,
                 )

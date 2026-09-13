@@ -282,6 +282,7 @@ def _apply_session_topology(
                     if request.vmid is not None
                 },
                 owner=owner,
+                scope=f"practice-{practice.id.hex[:8]}",
             )
         )
     return errors

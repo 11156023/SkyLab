@@ -258,9 +258,13 @@ class CourseAICheckStudent(BaseModel):
 
 
 class CourseAICompletionUpdate(BaseModel):
-    """學生只回報作業是否已完成，不會觸發 AI 檢查。"""
+    """學生只回報作業是否已完成，不會觸發 AI 檢查。
 
-    item_id: str = Field(min_length=1, max_length=255)
+    ``item_id`` 留空時代表一次切換整份每週任務；保留單項模式供舊版
+    用戶端相容使用。
+    """
+
+    item_id: str | None = Field(default=None, min_length=1, max_length=255)
     completed: bool
 
 
@@ -330,6 +334,7 @@ class CourseWeeklyTaskStudent(BaseModel):
     week_number: int
     session_date: date
     title: str
+    target_node_key: str | None = None
     files: list[CourseWeeklyTaskFileStudent] = Field(default_factory=list)
     checkpoints: list[CourseWeeklyCheckpointStudent] = Field(default_factory=list)
 
@@ -346,6 +351,7 @@ class CoursePracticeMachineStudent(BaseModel):
     resource_type: str
     vmid: int | None = None
     status: str
+    public_url: str | None = None
 
 
 DeploymentStatus = Literal["provisioning", "running", "failed", "expired"]

@@ -8,6 +8,46 @@
   border-radius: $radius-16;
 }
 
+.cardHead {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: $spacing-4 $spacing-8;
+}
+
+.cardTitle {
+  font-size: $font-size-14;
+  font-weight: $font-weight-700;
+  color: var(--color-text-primary);
+}
+
+.cardDesc {
+  font-size: $font-size-12;
+  color: var(--color-text-muted);
+}
+
+.loadFailed {
+  margin: 0;
+  font-size: $font-size-12;
+  color: var(--color-text-muted);
+}
+
+.nearLimitHint {
+  margin: 0;
+  font-size: $font-size-12;
+  color: var(--color-text-secondary);
+
+  a {
+    margin-left: 4px;
+    color: var(--color-primary);
+    text-decoration: none;
+
+    &:hover {
+      text-decoration: underline;
+    }
+  }
+}
+
 .meterGrid {
   display: grid;
   grid-template-columns: 1fr 1fr;

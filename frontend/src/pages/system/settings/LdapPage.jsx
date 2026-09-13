@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import styles from "./settings.module.scss";
 import MIcon from "../../../components/MIcon";
@@ -6,6 +6,7 @@ import LoadingState from "../../../components/LoadingState/LoadingState";
 import PageHeader from "../../../components/PageHeader/PageHeader";
 import { LdapConfigService } from "../../../services/ldapConfig";
 import { useToast } from "../../../hooks/useToast";
+import { useUnsavedChangesGuard } from "../../../contexts/UnsavedChangesContext";
 
 /**
  * LDAP（系統管理 → LDAP）：LDAP / Active Directory 登入的連線、服務帳號與角色對映。
@@ -56,6 +57,9 @@ function LdapForm() {
   const [form, setForm] = useState(null);
   const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState(false);
+  const baseline = useMemo(() => (config ? buildForm(config) : null), [config]);
+  const dirty = Boolean(form && baseline && Object.keys(form).some((key) => form[key] !== baseline[key]));
+  useUnsavedChangesGuard(dirty);
 
   useEffect(() => {
     let cancelled = false;
@@ -158,7 +162,7 @@ function LdapForm() {
         <p className={styles.cardDesc}>{t("LdapTab.serviceAccountSectionDesc")}</p>
         <div className={styles.formGrid}>
           <label className={styles.field}>
-            <span>Bind DN</span>
+            <span>{t("LdapTab.bindDn")}</span>
             <input
               value={form.bind_dn}
               onChange={(e) => setField("bind_dn", e.target.value)}
@@ -246,7 +250,17 @@ function LdapForm() {
         </div>
       </div>
 
-      <div className={styles.cardActions}>
+      <div className={styles.saveBar}>
+        {dirty && (
+          <button
+            type="button"
+            className={styles.btnSecondary}
+            disabled={saving}
+            onClick={() => setForm(buildForm(config))}
+          >
+            {t("SettingsPage.restore")}
+          </button>
+        )}
         <button
           type="button"
           className={styles.btnSecondary}
@@ -256,7 +270,7 @@ function LdapForm() {
           <MIcon name="wifi_tethering" size={16} />
           {testing ? t("LdapTab.testing") : t("LdapTab.testConnection")}
         </button>
-        <button type="submit" className={styles.btnPrimary} disabled={saving}>
+        <button type="submit" className={styles.btnPrimary} disabled={!dirty || saving}>
           {saving ? t("LdapTab.saving") : t("LdapTab.saveConfig")}
         </button>
       </div>

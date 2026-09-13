@@ -13,7 +13,9 @@ import styles from "./App.module.scss";
 const AdminDashboardPage = lazy(() => import("./pages/personal/dashboard/admin/AdminDashboardPage"));
 const TeacherDashboardPage = lazy(() => import("./pages/personal/dashboard/teacher/TeacherDashboardPage"));
 const StudentHomePage = lazy(() => import("./pages/personal/dashboard/StudentHomePage"));
+const StudentCoursesPage = lazy(() => import("./pages/personal/courses/StudentCoursesPage"));
 const StudentCoursePage = lazy(() => import("./pages/personal/dashboard/student/StudentCoursePage"));
+const StudentWeekPage = lazy(() => import("./pages/personal/courses/StudentWeekPage"));
 const QuickTemplateFormPage = lazy(() => import("./pages/personal/quick-practice/QuickTemplateFormPage"));
 const ResourcesPage = lazy(() => import("./pages/personal/resources/ResourcesPage"));
 const ResourceDetailPage = lazy(() => import("./pages/personal/resources/detail/ResourceDetailPage"));
@@ -106,6 +108,11 @@ function LegacyAiJudgeEditorRedirect() {
   return <Navigate to={`/class-management/${classId}/ai${query}`} replace />;
 }
 
+function LegacyStudentCourseRedirect() {
+  const { pathId } = useParams();
+  return <Navigate to={`/courses/${encodeURIComponent(pathId)}`} replace />;
+}
+
 /** 舊「系統設定」的 ?tab= 值 → 升格後的獨立頁面；沒帶 tab 就是原本的第一個分頁（PVE 連線）。 */
 const LEGACY_SETTINGS_TABS = {
   pve: "/pve-connections",
@@ -172,7 +179,10 @@ function App() {
             }
           />
           {/* 單一課程總覽：課堂環境、課堂機器與截至今天的 AI 任務 */}
-          <Route path="/dashboard/course/:pathId" element={<StudentCoursePage />} />
+          <Route path="/courses" element={!canTeach ? <StudentCoursesPage /> : <Navigate to="/dashboard" replace />} />
+          <Route path="/courses/:pathId" element={!canTeach ? <StudentCoursePage /> : <Navigate to="/dashboard" replace />} />
+          <Route path="/courses/:pathId/weeks/:weekId" element={!canTeach ? <StudentWeekPage /> : <Navigate to="/dashboard" replace />} />
+          <Route path="/dashboard/course/:pathId" element={!canTeach ? <LegacyStudentCourseRedirect /> : <Navigate to="/dashboard" replace />} />
           <Route path="/quick-template/:id"   element={<QuickTemplateFormPage />} />
           <Route path="/my-resources"         element={<ResourcesPage />} />
           <Route path="/my-resources/:vmid"   element={<ResourceDetailPage backTo="/my-resources" />} />

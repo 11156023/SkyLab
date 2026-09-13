@@ -55,6 +55,127 @@
   gap: $spacing-16;
 }
 
+.wireguardLayout {
+  @include flex-column;
+  gap: $spacing-16;
+}
+
+.wireguardMetrics {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: $spacing-16;
+
+  @include respond-to(sm) {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  @include respond-to(lg) {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+
+.metricCard {
+  display: flex;
+  align-items: center;
+  gap: $spacing-8;
+  min-width: 0;
+  padding: $spacing-16;
+  @include glass-surface($shadow: var(--shadow-sm));
+  border-radius: $radius-12;
+  color: var(--color-primary);
+
+  div {
+    @include flex-column;
+    gap: 2px;
+    min-width: 0;
+  }
+
+  strong {
+    color: var(--color-text-primary);
+    font-size: $font-size-18;
+    line-height: 1.25;
+    overflow-wrap: anywhere;
+  }
+
+  span {
+    color: var(--color-text-muted);
+    font-size: $font-size-12;
+  }
+}
+
+.detailGrid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 1px;
+  overflow: hidden;
+  border: 1px solid var(--color-border);
+  border-radius: $radius-8;
+  background: var(--color-border);
+  margin: 0;
+
+  @include respond-to(md) {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+.detailItem {
+  display: grid;
+  grid-template-columns: minmax(110px, 0.8fr) minmax(0, 1.2fr);
+  gap: $spacing-8;
+  padding: $spacing-8 $spacing-16;
+  background: var(--color-surface);
+
+  dt {
+    color: var(--color-text-muted);
+    font-size: $font-size-12;
+  }
+
+  dd {
+    min-width: 0;
+    margin: 0;
+    color: var(--color-text-primary);
+    font-family: monospace;
+    font-size: $font-size-14;
+    overflow-wrap: anywhere;
+  }
+}
+
+.securityNote,
+.warningNote {
+  display: flex;
+  align-items: flex-start;
+  gap: $spacing-8;
+  padding: $spacing-8 $spacing-16;
+  border-radius: $radius-8;
+  line-height: $line-height-base;
+}
+
+.securityNote {
+  background: color-mix(in srgb, var(--color-info) 10%, transparent);
+  color: var(--color-info);
+
+  div {
+    @include flex-column;
+    gap: 2px;
+  }
+
+  strong {
+    color: var(--color-text-primary);
+    font-size: $font-size-14;
+  }
+
+  span {
+    color: var(--color-text-secondary);
+    font-size: $font-size-12;
+  }
+}
+
+.warningNote {
+  background: color-mix(in srgb, var(--color-pending) 12%, transparent);
+  color: var(--color-pending);
+  font-size: $font-size-14;
+}
+
 /* ── 服務 Tab 左右分割：左 = 狀態 + 日誌，右 = 設定檔編輯器 ── */
 .serviceLayout {
   display: grid;

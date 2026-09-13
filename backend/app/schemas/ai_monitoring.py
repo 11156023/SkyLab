@@ -56,6 +56,7 @@ class AIMonitoringTrendPoint(BaseModel):
     total_calls: int
     successful_calls: int
     failed_calls: int
+    total_tokens: int = 0
     error_rate: float | None = None
     avg_latency_ms: int | None = None
     proxy_calls: int = 0

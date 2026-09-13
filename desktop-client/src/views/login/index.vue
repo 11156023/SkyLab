@@ -78,12 +78,31 @@ onUnmounted(() => {
         :disabled="waiting"
         @click="handleLogin"
       >
-        <IconifyIconOffline
-          :icon="waiting ? 'refresh-rounded' : 'settings-ethernet-rounded'"
-        />
-        <span>{{
-          waiting ? t("login.waitingShort") : t("login.connect")
-        }}</span>
+        <span class="connect-button__icon" aria-hidden="true">
+          <svg
+            v-if="waiting"
+            class="connect-button__spinner"
+            viewBox="0 0 24 24"
+            fill="none"
+          >
+            <circle cx="12" cy="12" r="8.5" stroke="currentColor" />
+            <path d="M12 3.5a8.5 8.5 0 0 1 8.5 8.5" stroke="currentColor" />
+          </svg>
+          <svg v-else viewBox="0 0 24 24" fill="none">
+            <path d="M12 3v9" stroke="currentColor" />
+            <path
+              d="M7.05 6.64a8 8 0 1 0 9.9 0"
+              stroke="currentColor"
+            />
+          </svg>
+        </span>
+        <span class="connect-button__label">
+          {{ waiting ? t("login.waitingShort") : t("login.connect") }}
+        </span>
+        <span v-if="waiting" class="connect-button__dots" aria-hidden="true">
+          <i></i><i></i><i></i>
+        </span>
+        <span v-else class="connect-button__arrow" aria-hidden="true">→</span>
       </button>
       <p class="login-hint">
         {{ waiting ? t("login.waiting") : t("login.firstUseHint") }}
@@ -176,54 +195,157 @@ onUnmounted(() => {
 }
 
 .connect-button {
+  position: relative;
   display: flex;
-  width: 148px;
-  height: 148px;
-  flex-direction: column;
+  width: min(100%, 318px);
+  min-height: 66px;
   align-items: center;
-  justify-content: center;
-  gap: 10px;
+  gap: 14px;
+  padding: 10px 17px 10px 12px;
+  overflow: hidden;
   color: white;
-  font-size: 15px;
-  font-weight: 700;
+  font-size: 16px;
+  font-weight: 650;
+  text-align: left;
   background: linear-gradient(
-    145deg,
-    var(--color-primary),
-    var(--color-primary-dark)
+    120deg,
+    color-mix(in srgb, var(--color-primary) 92%, #738cff),
+    var(--color-primary-dark) 72%,
+    color-mix(in srgb, var(--color-primary-dark) 88%, #243978)
   );
-  border: 0;
-  border-radius: 50%;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 18px;
   box-shadow:
-    0 16px 34px color-mix(in srgb, var(--color-primary) 32%, transparent),
-    inset 0 1px 0 rgba(255, 255, 255, 0.35);
+    0 14px 30px color-mix(in srgb, var(--color-primary) 24%, transparent),
+    0 3px 8px color-mix(in srgb, var(--color-primary-dark) 15%, transparent),
+    inset 0 1px 0 rgba(255, 255, 255, 0.26);
   cursor: pointer;
   transition:
-    transform 0.2s ease,
-    box-shadow 0.2s ease;
+    transform 0.18s ease,
+    box-shadow 0.18s ease,
+    filter 0.18s ease;
 }
 
-.connect-button svg {
-  font-size: 46px;
+.connect-button::before {
+  position: absolute;
+  top: -60%;
+  left: -18%;
+  width: 44%;
+  height: 220%;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(255, 255, 255, 0.13),
+    transparent
+  );
+  content: "";
+  pointer-events: none;
+  transform: rotate(18deg);
+}
+
+.connect-button__icon {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  width: 44px;
+  height: 44px;
+  flex: 0 0 44px;
+  place-items: center;
+  font-size: 24px;
+  background: rgba(255, 255, 255, 0.14);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 13px;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.16);
+}
+
+.connect-button__icon svg {
+  width: 24px;
+  height: 24px;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 2;
+}
+
+.connect-button__label {
+  position: relative;
+  z-index: 1;
+  flex: 1;
+  letter-spacing: 0.01em;
+}
+
+.connect-button__arrow {
+  position: relative;
+  z-index: 1;
+  color: rgba(255, 255, 255, 0.78);
+  font-size: 22px;
+  font-weight: 400;
+  transition: transform 0.18s ease;
 }
 
 .connect-button:hover:not(:disabled) {
   box-shadow:
-    0 20px 42px color-mix(in srgb, var(--color-primary) 42%, transparent),
-    inset 0 1px 0 rgba(255, 255, 255, 0.35);
-  transform: translateY(-3px) scale(1.02);
+    0 17px 36px color-mix(in srgb, var(--color-primary) 31%, transparent),
+    0 4px 10px color-mix(in srgb, var(--color-primary-dark) 17%, transparent),
+    inset 0 1px 0 rgba(255, 255, 255, 0.3);
+  filter: saturate(1.06) brightness(1.03);
+  transform: translateY(-2px);
+}
+
+.connect-button:hover:not(:disabled) .connect-button__arrow {
+  transform: translateX(3px);
 }
 
 .connect-button:active:not(:disabled) {
-  transform: scale(0.98);
+  box-shadow:
+    0 9px 20px color-mix(in srgb, var(--color-primary) 22%, transparent),
+    inset 0 1px 0 rgba(255, 255, 255, 0.22);
+  transform: translateY(0) scale(0.99);
 }
 
 .connect-button--waiting {
+  background: linear-gradient(
+    120deg,
+    color-mix(in srgb, var(--color-primary) 76%, #7d91d7),
+    color-mix(in srgb, var(--color-primary-dark) 82%, #354c8a)
+  );
   cursor: wait;
-  animation: connect-pulse 1.6s ease-in-out infinite;
+  opacity: 1;
 }
 
-.connect-button--waiting svg {
+.connect-button__spinner {
   animation: connect-spin 1.2s linear infinite;
+}
+
+.connect-button__spinner circle {
+  opacity: 0.28;
+}
+
+.connect-button__spinner path {
+  opacity: 0.95;
+}
+
+.connect-button__dots {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.connect-button__dots i {
+  width: 4px;
+  height: 4px;
+  background: rgba(255, 255, 255, 0.75);
+  border-radius: 50%;
+  animation: connect-dot 1.2s ease-in-out infinite;
+}
+
+.connect-button__dots i:nth-child(2) {
+  animation-delay: 0.15s;
+}
+
+.connect-button__dots i:nth-child(3) {
+  animation-delay: 0.3s;
 }
 
 .login-hint {
@@ -252,12 +374,17 @@ onUnmounted(() => {
   }
 }
 
-@keyframes connect-pulse {
-  50% {
-    box-shadow:
-      0 18px 46px color-mix(in srgb, var(--color-primary) 48%, transparent),
-      inset 0 1px 0 rgba(255, 255, 255, 0.35);
-    transform: scale(1.025);
+@keyframes connect-dot {
+  0%,
+  60%,
+  100% {
+    opacity: 0.42;
+    transform: translateY(0);
+  }
+
+  30% {
+    opacity: 1;
+    transform: translateY(-3px);
   }
 }
 </style>

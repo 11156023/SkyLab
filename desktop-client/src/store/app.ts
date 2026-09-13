@@ -90,8 +90,8 @@ export const useAppStore = defineStore("app", {
         this.loginInProgress = false;
         this.tunnelStatus = { ...DEFAULT_TUNNEL_STATUS };
         this.stopSessionPolling();
-        if (router.currentRoute.value.name !== "Login") {
-          void router.replace({ name: "Login" });
+        if (router.currentRoute.value.name !== "Home") {
+          void router.replace({ name: "Home" });
         }
       });
       on(ipcRouters.SETTINGS.getSettings, data => {
