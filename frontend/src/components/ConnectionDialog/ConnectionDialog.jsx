@@ -11,6 +11,9 @@
  * 「自訂規則」分頁直接寫一條 Proxmox 原始規則（方向／動作／協定／來源／備註），走 createVmRule；
  * 這類規則不帶 SkyLab: 標記，不會出現在拓撲圖上。
  *
+ * payload 組裝與驗證在 connectionPayload.js、送出流程在 submitConnection.js，
+ * 兩者都是純邏輯且有測試覆蓋；這個檔案只負責表單狀態與呈現。
+ *
  * props：
  * - nodes            可選，[{ key, vmid, name }]；沒給就自己抓 getTopology()
  * - fixedVmid        鎖定一端為這台 VM（資源詳情頁用），另一端自由選；fixedName 為顯示名稱備援
@@ -31,13 +34,15 @@ import { useTranslation } from "react-i18next";
 import styles from "./ConnectionDialog.module.scss";
 import MIcon from "../MIcon";
 import { focusInvalidField } from "../../utils/focusField";
+import { getTopology } from "../../services/firewall";
 import {
-  createConnection,
-  createVmRule,
-  getTopology,
-  publishService,
-  replacePublishedService,
-} from "../../services/firewall";
+  buildInboundPayload,
+  buildOutboundPorts,
+  buildPeerPortsPayload,
+  buildRulePayload,
+  isPortless,
+} from "./connectionPayload";
+import { submitEdge, submitInbound, submitRule } from "./submitConnection";
 import { ReverseProxyService } from "../../services/reverseProxy";
 import {
   COMMON_PORTS,
@@ -52,12 +57,9 @@ const CONNECTION_PROTOCOLS = ["tcp", "udp", "icmp", "icmpv6", "sctp"];
 const FORWARD_PROTOCOLS = ["tcp", "udp"];
 const RULE_PROTOCOLS = ["tcp", "udp", "icmp"];
 const AVAILABILITY_DEBOUNCE_MS = 500;
-const RULE_PORT_RE = /^\d{1,5}(?::\d{1,5})?$/; // 自訂規則允許 8000:8010 這種範圍
 const COMMON_PORTS_LIST_ID = "connection-dialog-common-ports";
 const EMPTY = [];
 
-const isPortless = (proto) => proto === "icmp" || proto === "icmpv6";
-const validPort = (n) => Number.isInteger(n) && n >= 1 && n <= 65535;
 const isVmKey = (key) => Boolean(key) && key !== INTERNET_KEY;
 
 let _uid = 0;
@@ -379,69 +381,17 @@ export default function ConnectionDialog({
   const [portsInvalid, setPortsInvalid] = useState(false);
   const editRows = (setter) => (updater) => { setPortsInvalid(false); setError(""); setter(updater); };
 
-  /** 入站：拆成走 publishService 的清單與（無 port 協定）走 createConnection 的清單 */
-  function buildInbound() {
-    if (mode === "domain") {
-      const port = Number(domainPort);
-      if (!validPort(port)) return { error: t("ConnectionDialog.portRangeError") };
-      if (!fullDomain) return { error: t("ConnectionDialog.domainRequired") };
-      if (availability?.available === false) return { error: availability.message ?? t("ConnectionDialog.domainTaken") };
-      return { publish: [{ port, protocol: "tcp", mode, domain: fullDomain, enable_https: enableHttps }], raw: [] };
+  /** 錯誤優先顯示後端訊息，沒有才用翻譯；partialFailed 的巢狀訊息也在這裡補齊 */
+  const describeError = (err) => {
+    if (!err) return "";
+    if (err.text) return err.text;
+    if (!err.key) return t("ConnectionDialog.createFailed");
+    const params = { ...(err.params ?? {}) };
+    if ("message" in params && !params.message) {
+      params.message = t("ConnectionDialog.createFailed");
     }
-    if (mode === "port_forward") {
-      const rows = fwdRows.filter((r) => r.externalPort || r.internalPort);
-      if (rows.length === 0) return { invalid: true, error: t("ConnectionDialog.portsRequired") };
-      const publish = [];
-      for (const r of rows) {
-        const ext = Number(r.externalPort);
-        const inn = Number(r.internalPort);
-        if (!validPort(ext) || !validPort(inn)) return { invalid: true, error: t("ConnectionDialog.portRangeError") };
-        publish.push({ port: inn, protocol: r.protocol, mode, external_port: ext });
-      }
-      return { publish, raw: [] };
-    }
-    const rows = fwRows.filter((r) => r.port || isPortless(r.protocol));
-    if (rows.length === 0) return { invalid: true, error: t("ConnectionDialog.portsRequired") };
-    const publish = [];
-    const raw = [];
-    for (const r of rows) {
-      if (isPortless(r.protocol)) { raw.push({ port: 0, protocol: r.protocol }); continue; }
-      const port = Number(r.port);
-      if (!validPort(port)) return { invalid: true, error: t("ConnectionDialog.portRangeError") };
-      publish.push({ port, protocol: r.protocol, mode });
-    }
-    return { publish, raw };
-  }
-
-  /** VM→VM：一列一個 port，icmp 類不需 port */
-  function buildPeerPorts() {
-    const rows = vmRows.filter((r) => r.port || isPortless(r.protocol));
-    if (rows.length === 0) return { invalid: true, error: t("ConnectionDialog.portsRequired") };
-    const ports = [];
-    for (const r of rows) {
-      if (isPortless(r.protocol)) { ports.push({ port: 0, protocol: r.protocol }); continue; }
-      const port = Number(r.port);
-      if (!validPort(port)) return { invalid: true, error: t("ConnectionDialog.portRangeError") };
-      ports.push({ port, protocol: r.protocol });
-    }
-    return { ports };
-  }
-
-  function buildRule() {
-    const body = { type: rule.type, action: rule.action, enable: 1 };
-    if (rule.proto) body.proto = rule.proto;
-    const dport = rule.dport.trim();
-    if (dport && !rulePortDisabled) {
-      const ok = RULE_PORT_RE.test(dport) && dport.split(":").every((p) => validPort(Number(p)));
-      if (!ok) return { error: t("ConnectionDialog.portRangeFormatError") };
-      body.dport = dport;
-    }
-    const addr = rule.source.trim();
-    if (addr) body[rule.type === "in" ? "source" : "dest"] = addr;
-    const comment = rule.comment.trim();
-    if (comment) body.comment = comment;
-    return { body };
-  }
+    return t(err.key, params);
+  };
 
   async function handleSubmit(e) {
     e.preventDefault();
@@ -451,68 +401,53 @@ export default function ConnectionDialog({
     if (tab === "rule") {
       const vmid = getVmid(ruleVmKey);
       if (vmid == null) { setError(t("ConnectionDialog.noNodes")); return; }
-      const built = buildRule();
-      if (built.error) { setError(built.error); return; }
+      const built = buildRulePayload(rule);
+      if (built.error) { setError(describeError(built.error)); return; }
       setSubmitting(true);
-      try {
-        await createVmRule(vmid, built.body);
-        onDone?.({ kind: "rule", vmid });
-      } catch (err) {
-        setError(err?.message ?? t("ConnectionDialog.createFailed"));
-      } finally {
-        setSubmitting(false);
-      }
+      const res = await submitRule({ vmid, body: built.body });
+      setSubmitting(false);
+      if (res.ok) onDone?.(res.result);
+      else setError(describeError(res.error));
       return;
     }
 
     if (isInbound) {
       const vmid = getVmid(targetKey);
-      const built = buildInbound();
+      const built = buildInboundPayload({
+        mode,
+        domainPort,
+        fullDomain,
+        enableHttps,
+        domainTaken: availability?.available === false,
+        domainTakenText: availability?.message ?? null,
+        forwardRows: fwdRows,
+        firewallRows: fwRows,
+      });
       if (built.error) {
-        setError(built.error);
-        if (built.invalid) { setPortsInvalid(true); focusInvalidField(form.querySelector('input[type="number"]')); }
+        setError(describeError(built.error));
+        if (built.invalid) {
+          setPortsInvalid(true);
+          focusInvalidField(form.querySelector('input[type="number"]'));
+        }
         return;
       }
       setSubmitting(true);
-      let done = 0;
-      try {
-        if (editing) {
-          await replacePublishedService(vmid, { port: service.port, protocol: service.protocol }, built.publish[0]);
-          onDone?.({ kind: "replace", vmid });
-          return;
-        }
-        for (const payload of built.publish) {
-          try {
-            await publishService(vmid, payload);
-          } catch (err) {
-            if (done > 0) onChanged?.();
-            setError(t("ConnectionDialog.partialFailed", {
-              done, port: `${payload.port}/${payload.protocol}`, message: err?.message ?? t("ConnectionDialog.createFailed"),
-            }));
-            return;
-          }
-          done += 1;
-        }
-        if (built.raw.length > 0) {
-          await createConnection({ source_vmid: null, target_vmid: vmid, ports: built.raw, direction: "one_way" });
-        }
-        onDone?.({ kind: "publish", vmid, count: done + built.raw.length });
-      } catch (err) {
-        if (done > 0) onChanged?.();
-        setError(err?.message ?? t("ConnectionDialog.createFailed"));
-      } finally {
-        setSubmitting(false);
-      }
+      const res = await submitInbound({ vmid, publish: built.publish, raw: built.raw, service });
+      setSubmitting(false);
+      if (res.ok) { onDone?.(res.result); return; }
+      /* 已經成功的那幾條要先讓呼叫端刷新，否則畫面上看不到它們 */
+      if (res.partialDone > 0) onChanged?.();
+      setError(describeError(res.error));
       return;
     }
 
     let ports;
     if (isOutbound) {
-      ports = [{ port: 0, protocol: "tcp" }]; // 出站不限 port
+      ports = buildOutboundPorts();
     } else if (isVmToVm) {
-      const built = buildPeerPorts();
+      const built = buildPeerPortsPayload(vmRows);
       if (built.error) {
-        setError(built.error);
+        setError(describeError(built.error));
         setPortsInvalid(true);
         focusInvalidField(form.querySelector('input[type="number"]'));
         return;
@@ -522,20 +457,17 @@ export default function ConnectionDialog({
       setError(t("ConnectionDialog.noNodes"));
       return;
     }
+
     setSubmitting(true);
-    try {
-      await createConnection({
-        source_vmid: getVmid(sourceKey),
-        target_vmid: getVmid(targetKey),
-        ports,
-        direction: isVmToVm ? direction : "one_way",
-      });
-      onDone?.({ kind: "connection", source_vmid: getVmid(sourceKey), target_vmid: getVmid(targetKey) });
-    } catch (err) {
-      setError(err?.message ?? t("ConnectionDialog.createFailed"));
-    } finally {
-      setSubmitting(false);
-    }
+    const res = await submitEdge({
+      sourceVmid: getVmid(sourceKey),
+      targetVmid: getVmid(targetKey),
+      ports,
+      direction: isVmToVm ? direction : "one_way",
+    });
+    setSubmitting(false);
+    if (res.ok) onDone?.(res.result);
+    else setError(describeError(res.error));
   }
 
   /* ── 文案 ── */
