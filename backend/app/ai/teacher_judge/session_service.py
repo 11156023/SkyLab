@@ -689,11 +689,24 @@ def bounded_history(
         expected_source = str(source_file_id) if source_file_id is not None else None
         if focus_source != expected_source:
             continue
+        # The snapshot is labelled "unresolved"; ready requirements were already
+        # turned into a proposal and none/empty ones need no action, so
+        # re-injecting them makes the model re-propose the previous turn.
+        unresolved = [
+            requirement
+            for requirement in focus.get("requirements") or []
+            if isinstance(requirement, dict)
+            and requirement.get("status") not in {"ready", "none"}
+        ]
+        if not unresolved:
+            continue
         focus_message = TeacherJudgeRubricChatMessage(
             role="assistant",
             content=(
                 "【目前未解需求焦點｜結構化資料，以最新對話與目前檢查表為準】\n"
-                + json.dumps(focus, ensure_ascii=False)
+                + json.dumps(
+                    {**focus, "requirements": unresolved}, ensure_ascii=False
+                )
             ),
         )
         insert_at = max(0, len(history) - 1)

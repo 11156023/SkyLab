@@ -737,7 +737,6 @@ async def test_attachment_message_runs_itemwise_analysis_and_records_results(
 
     assert captured_kwargs["rubric_available"] is True
     assert captured_kwargs["analysis_revision"] == rubric_file.analysis_revision
-    assert captured_kwargs["teacher_message"] == "幫我增加這些項目"
     assert result.rubric_proposal == [ready_operation]
     item_results = result.assistant_message.metadata_json["item_results"]
     assert [row["status"] for row in item_results] == ["ready", "needs_information"]
@@ -1021,6 +1020,91 @@ def test_bounded_history_injects_latest_focus_for_same_source_only() -> None:
 
     assert any("resource-usage" in message.content for message in same_source)
     assert not any("resource-usage" in message.content for message in other_source)
+
+
+def test_bounded_history_skips_resolved_requirements_in_focus() -> None:
+    db = _session()
+    source_id = uuid.uuid4()
+    item = TeacherJudgeSession(
+        teaching_class_id=uuid.uuid4(), title="Focus resolved"
+    )
+    db.add(item)
+    db.commit()
+    db.refresh(item)
+    db.add(
+        TeacherJudgeSessionMessage(
+            session_id=item.id,
+            role=TeacherJudgeMessageRole.assistant,
+            content="已建立提案。",
+            metadata_json={
+                "conversation_focus": {
+                    "source_file_id": str(source_id),
+                    "turn_kind": "requirement",
+                    "requirements": [
+                        {
+                            "focus_key": "applied-item",
+                            "status": "ready",
+                            "known_information": ["檢查磁碟空間"],
+                            "missing_information": [],
+                        },
+                        {
+                            "focus_key": "pending-item",
+                            "status": "needs_information",
+                            "known_information": [],
+                            "missing_information": ["服務名稱"],
+                        },
+                    ],
+                }
+            },
+        )
+    )
+    db.commit()
+
+    history = session_service.bounded_history(db, item.id, source_file_id=source_id)
+
+    focus_messages = [
+        message for message in history if "目前未解需求焦點" in message.content
+    ]
+    assert len(focus_messages) == 1
+    assert "pending-item" in focus_messages[0].content
+    assert "applied-item" not in focus_messages[0].content
+
+
+def test_bounded_history_skips_focus_when_all_requirements_resolved() -> None:
+    db = _session()
+    source_id = uuid.uuid4()
+    item = TeacherJudgeSession(
+        teaching_class_id=uuid.uuid4(), title="Focus all ready"
+    )
+    db.add(item)
+    db.commit()
+    db.refresh(item)
+    db.add(
+        TeacherJudgeSessionMessage(
+            session_id=item.id,
+            role=TeacherJudgeMessageRole.assistant,
+            content="已建立提案。",
+            metadata_json={
+                "conversation_focus": {
+                    "source_file_id": str(source_id),
+                    "turn_kind": "requirement",
+                    "requirements": [
+                        {
+                            "focus_key": "applied-item",
+                            "status": "ready",
+                            "known_information": ["檢查磁碟空間"],
+                            "missing_information": [],
+                        }
+                    ],
+                }
+            },
+        )
+    )
+    db.commit()
+
+    history = session_service.bounded_history(db, item.id, source_file_id=source_id)
+
+    assert not any("目前未解需求焦點" in message.content for message in history)
 
 
 def test_summary_persistence_is_monotonic_for_out_of_order_workers() -> None:

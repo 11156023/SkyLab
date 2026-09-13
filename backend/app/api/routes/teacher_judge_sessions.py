@@ -503,7 +503,6 @@ async def create_message(
             # judge each row through the same isolated single-item chat core so
             # one row's Ready reasoning cannot leak into the other rows.
             itemwise = await analyze_attachments_itemwise(
-                teacher_message=payload.content.strip(),
                 rubric_context=rubric_context,
                 template_key=file.template_key if file else "linux",
                 template_commands=template_commands,

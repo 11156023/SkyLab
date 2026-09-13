@@ -1143,7 +1143,6 @@ async def test_attachment_itemwise_analysis_checks_each_row_in_isolation(
     _patch_teacher_judge_vllm_settings(monkeypatch)
 
     result = await teacher_judge_service.analyze_attachments_itemwise(
-        teacher_message="幫我增加這些項目",
         rubric_context=json.dumps({"items": []}),
         template_key="linux",
         template_commands=[GENERAL_COMMAND],
@@ -1187,7 +1186,9 @@ async def test_attachment_itemwise_analysis_checks_each_row_in_isolation(
         "要檢查的服務或連接埠範圍"
     ]
     assert "第 2 列" in result.reply
-    assert "還缺少資訊" in result.reply
+    assert "缺少檢查位置" in result.reply
+    assert "請補充後再送出此項" in result.reply
+    assert "已列入提案" in result.reply
 
 
 @pytest.mark.asyncio
@@ -1232,6 +1233,296 @@ async def test_attachment_itemwise_single_item_failure_keeps_other_proposals(
     ]
     assert "AI 回覆失敗" in result.item_results[1]["detail"]
     assert "第 2 列" in result.reply
+    assert "分析失敗" in result.reply
+    assert "AI 回覆失敗" not in result.reply
+
+
+@pytest.mark.asyncio
+async def test_itemwise_add_with_colliding_id_does_not_require_rubric_tool(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls = []
+
+    async def fake_call_vllm(payload, timeout=60.0):
+        calls.append(payload)
+        return (
+            json.dumps(
+                {
+                    "reply": "已把需求整理成提案。",
+                    "proposal_status": "ready",
+                    "updated_items": [
+                        {
+                            "operation": "add",
+                            "id": "item-1",
+                            "title": "全新檢查",
+                            "description": "確認全新項目。",
+                            "checked": False,
+                            "detectable": "auto",
+                            "detection_method": "執行唯讀指令。",
+                            "missing_information": [],
+                            "check_steps": [
+                                {
+                                    "template_key": "linux",
+                                    "command_key": "system.run_command",
+                                    "parameters": {
+                                        "argv": ["python3", "--version"],
+                                        "timeout_seconds": 30,
+                                        "success_criteria": "stdout 包含 Python 3",
+                                    },
+                                }
+                            ],
+                            "fallback": None,
+                        }
+                    ],
+                },
+                ensure_ascii=False,
+            ),
+            {"total_tokens": 1},
+        )
+
+    monkeypatch.setattr(teacher_judge_service, "_call_vllm_message", fake_call_vllm)
+    _patch_teacher_judge_vllm_settings(monkeypatch)
+
+    _reply, proposal, _metrics = await teacher_judge_service.chat_with_rubric(
+        messages=[
+            SimpleNamespace(role="user", content="請核查以下單一檢查需求：全新檢查")
+        ],
+        rubric_context=json.dumps(
+            {"items": [{"id": "item-1", "title": "既有項目"}]},
+            ensure_ascii=False,
+        ),
+        template_commands=[GENERAL_COMMAND],
+        rubric_available=True,
+        allow_add_without_rubric=True,
+    )
+
+    assert len(calls) == 1
+    assert calls[0].get("tool_choice") == "auto"
+    assert "本次新增邊界" in calls[0]["messages"][0]["content"]
+    assert proposal is not None
+    assert proposal[0]["operation"] == "add"
+    assert proposal[0]["id"].startswith("item-new-")
+
+
+@pytest.mark.asyncio
+async def test_stateful_proposal_intercept_emits_diagnostic_log(
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    import logging
+
+    update_response = json.dumps(
+        {
+            "reply": "已整理修改提案。",
+            "proposal_status": "ready",
+            "updated_items": [
+                {
+                    "operation": "update",
+                    "id": "item-existing",
+                    "title": "既有項目",
+                    "detectable": "auto",
+                    "detection_method": "讀取指定檔案。",
+                    "missing_information": [],
+                    "check_steps": [
+                        {
+                            "template_key": "linux",
+                            "command_key": "system.run_command",
+                            "parameters": {
+                                "argv": ["cat", "/tmp/result.txt"],
+                                "timeout_seconds": 30,
+                                "success_criteria": "exit code 為 0",
+                            },
+                        }
+                    ],
+                }
+            ],
+        },
+        ensure_ascii=False,
+    )
+
+    async def fake_call_vllm(payload, timeout=60.0):
+        return (
+            json.dumps(
+                {
+                    "reply": "檢查完畢。",
+                    "proposal_status": "none",
+                    "updated_items": [],
+                },
+                ensure_ascii=False,
+            ),
+            {},
+        )
+
+    monkeypatch.setattr(teacher_judge_service, "_call_vllm_message", fake_call_vllm)
+    _patch_teacher_judge_vllm_settings(monkeypatch)
+
+    with caplog.at_level(
+        logging.WARNING, logger="app.ai.teacher_judge.service"
+    ):
+        _reply, proposal, _metrics = await teacher_judge_service.chat_with_rubric(
+            messages=[SimpleNamespace(role="user", content="請審核並潤飾目前的檢查表")],
+            is_refine=True,
+            # Empty current rubric: no snapshot to inject, so the repair falls
+            # back to the forced tool call, which the fake model never issues.
+            rubric_context=json.dumps({"items": []}, ensure_ascii=False),
+            template_commands=[GENERAL_COMMAND],
+            rubric_available=True,
+        )
+
+    assert proposal is None
+    messages_text = " ".join(
+        record.getMessage() for record in caplog.records
+    )
+    assert "stateful_proposal_without_rubric_read" in messages_text
+    assert "repair scheduled" in messages_text or "repair_scheduled" in messages_text
+
+
+@pytest.mark.asyncio
+async def test_itemwise_model_update_operation_is_coerced_to_add(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls = []
+
+    async def fake_call_vllm(payload, timeout=60.0):
+        calls.append(payload)
+        return (
+            json.dumps(
+                {
+                    "reply": "已整理提案。",
+                    "proposal_status": "ready",
+                    "updated_items": [
+                        {
+                            "operation": "update",
+                            "id": "item-1",
+                            "title": "全新檢查",
+                            "description": "確認全新項目。",
+                            "checked": False,
+                            "detectable": "auto",
+                            "detection_method": "執行唯讀指令。",
+                            "missing_information": [],
+                            "check_steps": [
+                                {
+                                    "template_key": "linux",
+                                    "command_key": "system.run_command",
+                                    "parameters": {
+                                        "argv": ["python3", "--version"],
+                                        "timeout_seconds": 30,
+                                        "success_criteria": "stdout 包含 Python 3",
+                                    },
+                                }
+                            ],
+                            "fallback": None,
+                        }
+                    ],
+                },
+                ensure_ascii=False,
+            ),
+            {"total_tokens": 1},
+        )
+
+    monkeypatch.setattr(teacher_judge_service, "_call_vllm_message", fake_call_vllm)
+    _patch_teacher_judge_vllm_settings(monkeypatch)
+
+    _reply, proposal, _metrics = await teacher_judge_service.chat_with_rubric(
+        messages=[
+            SimpleNamespace(role="user", content="請核查以下單一檢查需求：全新檢查")
+        ],
+        rubric_context=json.dumps(
+            {"items": [{"id": "item-1", "title": "既有項目"}]},
+            ensure_ascii=False,
+        ),
+        template_commands=[GENERAL_COMMAND],
+        rubric_available=True,
+        allow_add_without_rubric=True,
+    )
+
+    assert len(calls) == 1
+    assert proposal is not None
+    assert proposal[0]["operation"] == "add"
+    assert proposal[0]["id"].startswith("item-new-")
+
+
+@pytest.mark.asyncio
+async def test_attachment_itemwise_survives_existing_rubric_id_and_title_collision(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def fake_call_vllm(payload, timeout=60.0):
+        system_prompt = payload["messages"][0]["content"]
+        if "評分表拆解器" in system_prompt:
+            return (
+                json.dumps(
+                    {"items": [{"title": "確認 Python 版本"}]}, ensure_ascii=False
+                ),
+                {"total_tokens": 1},
+            )
+        assert "本次新增邊界" in system_prompt
+        return (_itemwise_ready_payload("確認 Python 版本"), {"total_tokens": 1})
+
+    monkeypatch.setattr(teacher_judge_service, "_call_vllm_message", fake_call_vllm)
+    _patch_teacher_judge_vllm_settings(monkeypatch)
+
+    result = await teacher_judge_service.analyze_attachments_itemwise(
+        rubric_context=json.dumps(
+            {"items": [{"id": "item-1", "title": "確認 Python 版本"}]},
+            ensure_ascii=False,
+        ),
+        template_key="linux",
+        template_commands=[GENERAL_COMMAND],
+        attachment_context=MULTI_ROW_ATTACHMENT_CONTEXT,
+        rubric_available=True,
+    )
+
+    assert result.proposal is not None
+    assert [operation["id"] for operation in result.proposal] == [
+        "item-attachment-1"
+    ]
+    assert [row["status"] for row in result.item_results] == ["ready"]
+
+
+@pytest.mark.asyncio
+async def test_attachment_itemwise_partial_item_claiming_ready_becomes_missing_info(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def fake_call_vllm(payload, timeout=60.0):
+        system_prompt = payload["messages"][0]["content"]
+        if "評分表拆解器" in system_prompt:
+            return (
+                json.dumps({"items": [{"title": "Python 版本檢查"}]}, ensure_ascii=False),
+                {"total_tokens": 1},
+            )
+        return (
+            json.dumps(
+                {
+                    "reply": "已確認。",
+                    "proposal_status": "ready",
+                    "updated_items": [
+                        {
+                            "id": "item-1",
+                            "title": "Python 版本檢查",
+                            "detectable": "partial",
+                            "missing_information": ["預期版本"],
+                        }
+                    ],
+                },
+                ensure_ascii=False,
+            ),
+            {"total_tokens": 1},
+        )
+
+    monkeypatch.setattr(teacher_judge_service, "_call_vllm_message", fake_call_vllm)
+    _patch_teacher_judge_vllm_settings(monkeypatch)
+
+    result = await teacher_judge_service.analyze_attachments_itemwise(
+        rubric_context=json.dumps({"items": []}),
+        template_key="linux",
+        template_commands=[GENERAL_COMMAND],
+        attachment_context=MULTI_ROW_ATTACHMENT_CONTEXT,
+    )
+
+    assert result.proposal is None
+    assert [row["status"] for row in result.item_results] == ["needs_information"]
+    assert "缺少" in result.reply
+    assert "分析失敗" not in result.reply
 
 
 @pytest.mark.asyncio
@@ -1614,7 +1905,7 @@ async def test_existing_item_update_loads_current_rubric_tool(
 
 
 @pytest.mark.asyncio
-async def test_existing_item_proposal_without_tool_is_retried_with_forced_read(
+async def test_existing_item_proposal_without_tool_is_repaired_with_server_snapshot(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     calls = []
@@ -1653,31 +1944,12 @@ async def test_existing_item_proposal_without_tool_is_retried_with_forced_read(
         calls.append(payload)
         if len(calls) == 1:
             return update_response, {}
-        if len(calls) == 2:
-            assert payload["tool_choice"] == {
-                "type": "function",
-                "function": {"name": "get_current_checklist"},
-            }
-            return (
-                {
-                    "role": "assistant",
-                    "content": None,
-                    "tool_calls": [
-                        {
-                            "id": "call_forced",
-                            "type": "function",
-                            "function": {
-                                "name": "get_current_checklist",
-                                "arguments": "{}",
-                            },
-                        }
-                    ],
-                },
-                {},
-            )
-        assert json.loads(payload["messages"][-1]["content"])["items"][0][
-            "id"
-        ] == "item-existing"
+        joined = "\n".join(
+            str(message.get("content") or "") for message in payload["messages"]
+        )
+        assert "【目前檢查表】" in joined
+        assert "item-existing" in joined
+        assert payload.get("tool_choice") == "auto"
         return update_response, {}
 
     monkeypatch.setattr(teacher_judge_service, "_call_vllm_message", fake_call_vllm)
@@ -1694,9 +1966,207 @@ async def test_existing_item_proposal_without_tool_is_retried_with_forced_read(
         rubric_available=True,
     )
 
-    assert len(calls) == 3
+    assert len(calls) == 2
     assert proposal is not None
     assert proposal[0]["operation"] == "update"
+
+
+@pytest.mark.asyncio
+async def test_add_with_colliding_title_resolves_server_side_in_single_call(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Regression: batch add where one title collides resolves without repair."""
+    calls = []
+
+    async def fake_call_vllm(payload, timeout=60.0):
+        calls.append(payload)
+        return (
+            json.dumps(
+                {
+                    "reply": "已整理提案。",
+                    "proposal_status": "ready",
+                    "updated_items": [
+                        {
+                            "operation": "add",
+                            "title": "Python 版本檢查",
+                            "detectable": "auto",
+                            "judgement_mode": "ai",
+                            "detection_method": "執行 python --version。",
+                            "missing_information": [],
+                            "check_steps": [
+                                {
+                                    "template_key": "linux",
+                                    "command_key": "system.run_command",
+                                    "parameters": {
+                                        "argv": ["python3", "--version"],
+                                        "timeout_seconds": 30,
+                                        "success_criteria": "stdout 包含 Python 3",
+                                    },
+                                }
+                            ],
+                        },
+                        {
+                            "operation": "add",
+                            "title": "必要套件安裝檢查",
+                            "detectable": "auto",
+                            "judgement_mode": "ai",
+                            "detection_method": "檢查套件清單。",
+                            "missing_information": [],
+                            "check_steps": [
+                                {
+                                    "template_key": "linux",
+                                    "command_key": "system.run_command",
+                                    "parameters": {
+                                        "argv": ["python3", "-m", "pip", "list"],
+                                        "timeout_seconds": 30,
+                                        "success_criteria": "exit code 為 0",
+                                    },
+                                }
+                            ],
+                        },
+                    ],
+                },
+                ensure_ascii=False,
+            ),
+            {},
+        )
+
+    monkeypatch.setattr(teacher_judge_service, "_call_vllm_message", fake_call_vllm)
+    _patch_teacher_judge_vllm_settings(monkeypatch)
+
+    _reply, proposal, _metrics = await teacher_judge_service.chat_with_rubric(
+        messages=[SimpleNamespace(role="user", content="幫我增加這些項目")],
+        rubric_context=json.dumps(
+            {"items": [{"id": "item-9", "title": "必要套件安裝檢查"}]},
+            ensure_ascii=False,
+        ),
+        template_commands=[GENERAL_COMMAND],
+        rubric_available=True,
+    )
+
+    assert len(calls) == 1
+    assert proposal is not None
+    by_title = {item["title"]: item for item in proposal}
+    assert by_title["Python 版本檢查"]["operation"] == "add"
+    assert by_title["Python 版本檢查"]["id"].startswith("item-new-")
+    assert by_title["必要套件安裝檢查"]["operation"] == "update"
+    assert by_title["必要套件安裝檢查"]["id"] == "item-9"
+
+
+@pytest.mark.asyncio
+async def test_add_without_id_gets_server_assigned_id_in_single_call(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls = []
+
+    async def fake_call_vllm(payload, timeout=60.0):
+        calls.append(payload)
+        return (
+            json.dumps(
+                {
+                    "reply": "已整理提案。",
+                    "proposal_status": "ready",
+                    "updated_items": [
+                        {
+                            "operation": "add",
+                            "title": "全新檢查",
+                            "detectable": "auto",
+                            "judgement_mode": "ai",
+                            "detection_method": "執行唯讀指令。",
+                            "missing_information": [],
+                            "check_steps": [
+                                {
+                                    "template_key": "linux",
+                                    "command_key": "system.run_command",
+                                    "parameters": {
+                                        "argv": ["python3", "--version"],
+                                        "timeout_seconds": 30,
+                                        "success_criteria": "stdout 包含 Python 3",
+                                    },
+                                }
+                            ],
+                        }
+                    ],
+                },
+                ensure_ascii=False,
+            ),
+            {},
+        )
+
+    monkeypatch.setattr(teacher_judge_service, "_call_vllm_message", fake_call_vllm)
+    _patch_teacher_judge_vllm_settings(monkeypatch)
+
+    _reply, proposal, _metrics = await teacher_judge_service.chat_with_rubric(
+        messages=[SimpleNamespace(role="user", content="新增檢查")],
+        rubric_context=json.dumps(
+            {"items": [{"id": "item-1", "title": "既有項目"}]},
+            ensure_ascii=False,
+        ),
+        template_commands=[GENERAL_COMMAND],
+        rubric_available=True,
+    )
+
+    assert len(calls) == 1
+    assert proposal is not None
+    assert proposal[0]["operation"] == "add"
+    assert proposal[0]["id"].startswith("item-new-")
+
+
+def test_resolve_add_candidates_guessed_id_with_new_title_stays_add() -> None:
+    """A guessed id for a brand-new item must not become an update of that id."""
+    raw_items = [
+        {
+            "operation": "add",
+            "id": "item-2",
+            "title": "檢查磁碟空間",
+            "detectable": "auto",
+        }
+    ]
+    rubric_context = json.dumps(
+        {"items": [{"id": "item-2", "title": "檢查服務日誌"}]},
+        ensure_ascii=False,
+    )
+
+    rewritten, add_only = teacher_judge_service._resolve_add_candidates(
+        raw_items,
+        rubric_context,
+    )
+
+    assert add_only is True
+    assert rewritten[0]["operation"] == "add"
+    assert rewritten[0]["id"].startswith("item-new-")
+    assert rewritten[0]["title"] == "檢查磁碟空間"
+
+
+def test_resolve_add_candidates_title_collision_maps_to_update() -> None:
+    raw_items = [
+        {"operation": "add", "id": "item-9", "title": "檢查服務日誌"}
+    ]
+    rubric_context = json.dumps(
+        {"items": [{"id": "item-2", "title": "檢查服務日誌"}]},
+        ensure_ascii=False,
+    )
+
+    rewritten, _add_only = teacher_judge_service._resolve_add_candidates(
+        raw_items,
+        rubric_context,
+    )
+
+    assert rewritten[0]["operation"] == "update"
+    assert rewritten[0]["id"] == "item-2"
+
+
+def test_resolve_add_candidates_assigns_add_operation_without_id() -> None:
+    raw_items = [{"title": "檢查備份排程"}]
+
+    rewritten, add_only = teacher_judge_service._resolve_add_candidates(
+        raw_items,
+        json.dumps({"items": []}),
+    )
+
+    assert add_only is True
+    assert rewritten[0]["operation"] == "add"
+    assert rewritten[0]["id"].startswith("item-new-")
 
 
 def test_normalize_does_not_infer_python_version_intent_from_text() -> None:
@@ -1833,6 +2303,93 @@ async def test_complete_manual_system_info_candidate_reselects_generic_capabilit
     assert proposal[0]["judgement_mode"] == "teacher"
     assert proposal[0]["check_steps"][0]["command_key"] == "system.run_command"
     assert proposal[0]["check_steps"][0]["parameters"]["argv"] == ["uname", "-a"]
+
+
+@pytest.mark.asyncio
+async def test_ready_claim_fallback_backfills_source_title_and_status(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An unnamed, unclassified candidate must still produce a useful fallback."""
+    calls = []
+
+    async def fake_call_vllm(payload, timeout=60.0):
+        calls.append(payload)
+        return (
+            json.dumps(
+                {
+                    "reply": "已建立提案。",
+                    "proposal_status": "ready",
+                    "updated_items": [
+                        {
+                            "operation": "add",
+                            "id": "item-1",
+                            "description": "確認 n8n 服務是否正常。",
+                            "check_steps": [],
+                        }
+                    ],
+                },
+                ensure_ascii=False,
+            ),
+            {},
+        )
+
+    monkeypatch.setattr(teacher_judge_service, "_call_vllm_message", fake_call_vllm)
+    _patch_teacher_judge_vllm_settings(monkeypatch)
+
+    result = await teacher_judge_service.chat_with_rubric(
+        messages=[
+            SimpleNamespace(
+                role="user", content="請核查以下單一檢查需求：檢查 n8n 服務狀態"
+            )
+        ],
+        rubric_context=json.dumps({"items": []}),
+        template_key="linux",
+        template_commands=[GENERAL_COMMAND],
+        allow_add_without_rubric=True,
+        source_title="檢查 n8n 服務狀態",
+    )
+
+    assert len(calls) == 2
+    assert result.proposal is None
+    assert result.proposal_status == "needs_information"
+    assert "檢查 n8n 服務狀態" in result.reply
+    assert "未命名項目" not in result.reply
+
+
+def test_itemwise_result_missing_information_falls_back_to_item_gaps() -> None:
+    """Without conversation_focus, gaps come from the normalized item itself."""
+    result = teacher_judge_service.TeacherJudgeChatResult(
+        reply="缺少檢查位置。",
+        proposal=None,
+        metrics={
+            "prompt_tokens": 0,
+            "completion_tokens": 0,
+            "total_tokens": 0,
+            "elapsed_seconds": 0.0,
+            "tokens_per_second": 0.0,
+        },
+        conversation_focus=None,
+        proposal_status="needs_information",
+        normalized_items=(
+            TeacherJudgeRubricItem(
+                id="item-1",
+                title="檢查服務日誌",
+                detectable="partial",
+                missing_information=["服務日誌的檔案位置", "客觀成功條件"],
+            ),
+        ),
+    )
+
+    item_result = teacher_judge_service._itemwise_result_from_chat(
+        {"source_index": 1, "source_label": "第 1 列", "title": "檢查服務日誌"},
+        result,
+    )
+
+    assert item_result["status"] == "needs_information"
+    assert item_result["missing_information"] == [
+        "服務日誌的檔案位置",
+        "通過方式（怎樣檢測才算正確）",
+    ]
 
 
 @pytest.mark.asyncio
@@ -2600,6 +3157,92 @@ def test_unavailable_reply_hides_platform_fields_from_teacher() -> None:
     assert "腳本取證" not in reply
     assert "逾時" not in reply
     assert "proposal_status" not in reply
+
+
+def test_unavailable_reply_explains_unfilled_manual_item_with_gaps() -> None:
+    raw_items = [
+        {
+            "id": "item-1",
+            "title": "檢查服務日誌",
+            "description": "確認服務正在記錄事件。",
+            "check_steps": [
+                {"template_key": "linux", "command_key": "system.run_command"}
+            ],
+        }
+    ]
+    normalized = teacher_judge_service._normalize_rubric_items(
+        raw_items,
+        template_key="linux",
+        template_commands=[GENERAL_COMMAND],
+    )
+    assert normalized[0].detectable == "manual"
+    assert normalized[0].missing_information
+
+    reply = teacher_judge_service._proposal_unavailable_reply(
+        normalized,
+        raw_items,
+        [GENERAL_COMMAND],
+    )
+
+    assert "檢查服務日誌" in reply
+    assert "目前還缺少檢查位置" in reply
+    assert "未命名項目" not in reply
+    assert "平台已有一般系統資訊查詢能力" not in reply
+
+
+def test_unavailable_reply_explains_unexplained_manual_item() -> None:
+    raw_items = [
+        {
+            "id": "item-1",
+            "title": "檢查伺服器負載",
+            "description": "確認伺服器負載狀況。",
+        }
+    ]
+    normalized = teacher_judge_service._normalize_rubric_items(
+        raw_items,
+        template_key="linux",
+        template_commands=[GENERAL_COMMAND],
+    )
+    assert normalized[0].detectable == "manual"
+
+    reply = teacher_judge_service._proposal_unavailable_reply(
+        normalized,
+        raw_items,
+        [GENERAL_COMMAND],
+    )
+
+    assert "檢查伺服器負載" in reply
+    assert "沒有產出可自動執行的檢查步驟" in reply
+    assert "位置、範圍或通過方式" in reply
+    assert "仍未替" not in reply
+    assert "平台已有一般系統資訊查詢能力" not in reply
+
+
+def test_unavailable_reply_uses_declared_manual_reason() -> None:
+    raw_items = [
+        {
+            "id": "item-1",
+            "title": "評分學生的報告內容",
+            "description": "由老師評分報告品質。",
+            "detectable": "manual",
+            "fallback": "需要老師主觀評分。",
+        }
+    ]
+    normalized = teacher_judge_service._normalize_rubric_items(
+        raw_items,
+        template_key="linux",
+        template_commands=[GENERAL_COMMAND],
+    )
+
+    reply = teacher_judge_service._proposal_unavailable_reply(
+        normalized,
+        raw_items,
+        [GENERAL_COMMAND],
+    )
+
+    assert "評分學生的報告內容" in reply
+    assert "需要老師主觀評分" in reply
+    assert "未命名項目" not in reply
 
 
 def test_normalize_preserves_objectively_verifiable_main_py_checkpoint() -> None:

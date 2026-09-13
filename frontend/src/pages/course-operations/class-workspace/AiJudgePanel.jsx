@@ -449,7 +449,7 @@ export function applyProposalOperations(currentItems, proposalItems, selectedIds
 
 const ITEMWISE_STATUS_INFO = {
   needs_information: { label: "缺少資訊", className: styles.detBadge_partial },
-  unsupported: { label: "無法自動取證", className: styles.detBadge_manual },
+  unsupported: { label: "無法自動檢查", className: styles.detBadge_manual },
   analysis_error: { label: "分析失敗", className: styles.detBadge_manual },
 };
 
@@ -515,7 +515,9 @@ export function ProposalPanel({ proposal, selectedIds, onToggle, onApply, onSkip
                   }
                   const info = ITEMWISE_STATUS_INFO[result.status] ?? ITEMWISE_STATUS_INFO.analysis_error;
                   const gaps = Array.isArray(result.missing_information) ? result.missing_information.filter(Boolean) : [];
-                  const reason = gaps.length ? gaps.join("、") : (result.detail || "");
+                  const reason = gaps.length
+                    ? gaps.join("、")
+                    : (result.status === "unsupported" ? result.detail || "" : "");
                   return (
                     <div className={styles.proposalRow} key={`${result.source_index ?? index}-${result.title ?? ""}`}>
                       <span className={`${styles.detBadge} ${styles[info.className]}`}>
