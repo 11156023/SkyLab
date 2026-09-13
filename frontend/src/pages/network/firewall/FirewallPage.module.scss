@@ -352,6 +352,10 @@
   border-radius: $radius-pill;
   padding: 2px 8px;
   white-space: nowrap;
+  /* 長網域不要撐出一條橫貫畫布的標籤；完整內容留在 title 與細節面板 */
+  max-width: 170px;
+  overflow: hidden;
+  text-overflow: ellipsis;
   cursor: pointer;
   box-shadow: var(--shadow-sm);
   transition: border-color $transition-base, box-shadow $transition-base;

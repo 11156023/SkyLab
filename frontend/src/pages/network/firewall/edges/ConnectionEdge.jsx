@@ -3,6 +3,65 @@ import { EdgeLabelRenderer, getBezierPath } from "@xyflow/react";
 import { useTranslation } from "react-i18next";
 import styles from "../FirewallPage.module.scss";
 
+/* 標籤與所屬節點的距離。固定距離而非固定比例：長線的標籤才不會
+   飄到沿途其他節點上被蓋住，短線的也不會貼在節點身上。 */
+const LABEL_GAP = 52;
+
+/**
+ * 算標籤該放在 getBezierPath 產生的 "M sx,sy C c1x,c1y c2x,c2y tx,ty" 上的哪一點。
+ *
+ * 不放中點有兩個理由：多條線匯聚到同一個節點時，中點會擠成一排，
+ * 看不出哪個標籤屬於哪條線；中段又常被沿線的其他節點蓋住。
+ * 改成緊貼「這條規則的主體」那一端，標籤就散到各自的機器旁邊。
+ */
+function labelPointOnPath(d, nearTarget) {
+  const nums = d.match(/-?\d+(?:\.\d+)?/g);
+  if (!nums || nums.length < 8) return null;
+  const [x0, y0, x1, y1, x2, y2, x3, y3] = nums.map(Number);
+
+  const at = (t) => {
+    const u = 1 - t;
+    const a = u * u * u;
+    const b = 3 * u * u * t;
+    const c = 3 * u * t * t;
+    const e = t * t * t;
+    return {
+      x: a * x0 + b * x1 + c * x2 + e * x3,
+      y: a * y0 + b * y1 + c * y2 + e * y3,
+    };
+  };
+
+  /* 標籤往遠離自己節點的方向展開，否則長標籤會往回蓋住節點 */
+  const anchorX = nearTarget ? x3 : x0;
+  const anchorY = nearTarget ? y3 : y0;
+  const withAlign = (point) => {
+    const awayX = point.x - anchorX;
+    const awayY = point.y - anchorY;
+    const horizontal = Math.abs(awayX) > Math.abs(awayY);
+    return {
+      ...point,
+      align: horizontal
+        ? `${awayX >= 0 ? "0" : "-100%"}, -50%`
+        : `-50%, ${awayY >= 0 ? "0" : "-100%"}`,
+    };
+  };
+
+  /* 沿路徑取樣累積真實弧長：貝茲的 t 與弧長不成正比，垂直連線尤其明顯，
+     直接用 t 估距離會讓標籤飄進沿途的節點裡。 */
+  const SAMPLES = 32;
+  let prev = at(nearTarget ? 1 : 0);
+  let travelled = 0;
+  for (let i = 1; i <= SAMPLES; i++) {
+    const ratio = i / SAMPLES;
+    const point = at(nearTarget ? 1 - ratio : ratio);
+    travelled += Math.hypot(point.x - prev.x, point.y - prev.y);
+    if (travelled >= LABEL_GAP) return withAlign(point);
+    prev = point;
+  }
+  /* 整條線比一個間距還短，放中點就好 */
+  return withAlign(at(0.5));
+}
+
 /* ─── 邊動畫 keyframes（注入 head，避免 React 19 的 <style> 提升行為破壞 SVG 結構） ── */
 if (!document.getElementById("flow-fwd-kf")) {
   const s = document.createElement("style");
@@ -50,6 +109,9 @@ export default function ConnectionEdge(props) {
   const select = () => data?.onSelect?.(edge, id);
   /* 不限 port 的連線（出站上網等）沒有可列的埠，仍要講清楚它開了什麼 */
   const label = data?.label || t("ConnectionEdge.allPorts");
+  /* 入站的主體是目標 VM，出站與內部互通的主體是來源 VM */
+  const labelPoint = labelPointOnPath(edgePath, isInbound)
+    ?? { x: labelX, y: labelY, align: "-50%, -50%" };
 
   return (
     <g>
@@ -106,7 +168,7 @@ export default function ConnectionEdge(props) {
           className={`${styles.edgeLabelWrap} nodrag nopan`}
           style={{
             position: "absolute",
-            transform: `translate(-50%,-50%) translate(${labelX}px,${labelY}px)`,
+            transform: `translate(${labelPoint.align}) translate(${labelPoint.x}px,${labelPoint.y}px)`,
             pointerEvents: showLabel ? "all" : "none",
             opacity: showLabel ? 1 : 0,
             transition: "opacity 0.15s",
@@ -119,6 +181,7 @@ export default function ConnectionEdge(props) {
             className={`${styles.edgeLabel} ${isSelected ? styles.edgeLabelActive : ""}`}
             style={{ color, cursor }}
             onClick={select}
+            title={label}
           >
             {label}
           </button>
