@@ -87,10 +87,10 @@ def _conversation_focus_from_content(
     if not isinstance(raw_requirements, list):
         return None
     requirements: list[dict[str, Any]] = []
-    for raw in raw_requirements[:8]:
+    for raw in raw_requirements[:4]:
         if not isinstance(raw, dict):
             continue
-        focus_key = str(raw.get("focus_key") or "").strip()[:120]
+        focus_key = str(raw.get("focus_key") or "").strip()[:40]
         if not focus_key:
             continue
         known = raw.get("known_information")
@@ -109,15 +109,15 @@ def _conversation_focus_from_content(
                     else "none"
                 ),
                 "known_information": [
-                    str(value).strip()[:500]
+                    str(value).strip()[:80]
                     for value in known or []
                     if str(value).strip()
-                ][:8],
+                ][:3],
                 "missing_information": [
-                    str(value).strip()[:500]
+                    str(value).strip()[:80]
                     for value in missing or []
                     if str(value).strip()
-                ][:8],
+                ][:3],
                 **({"target_item_id": target_item_id} if target_item_id else {}),
             }
         )
@@ -682,6 +682,25 @@ def _allowed_command_text(
     ) or "（目前沒有可用 command）"
 
 
+_PARAMETER_GAP_FIELD_HINTS: dict[str, str] = {
+    "客觀成功條件": "success_criteria（依需求語意寫成可比對的客觀輸出條件）",
+    "要檢查的檔案、服務或記錄範圍": "argv（單一非空的命令字串 list）",
+    "實際 Python 命令與參數": "argv（python.run_entrypoint 的完整命令 list）",
+    "main.py 所在的工作目錄": "cwd（main.py 所在的工作目錄）",
+    "1 至 300 秒的逾時限制": "timeout_seconds（1 至 300 的整數）",
+}
+
+
+def _recoverable_parameter_gaps(item: TeacherJudgeRubricItem) -> list[str]:
+    """Return step-parameter gaps the model can fix itself by re-calling the tool."""
+    gaps: list[str] = []
+    for step in item.check_steps:
+        gaps.extend(
+            missing_step_information(step, judgement_mode=item.judgement_mode)
+        )
+    return list(dict.fromkeys(gaps))
+
+
 def _proposal_candidate_rejection(
     normalized: TeacherJudgeRubricItem,
     raw: dict[str, Any],
@@ -717,12 +736,22 @@ def _proposal_candidate_rejection(
             "只有確實無法取得任何證據時，才維持 manual 並在 missing_information 說明原因。"
         )
     if normalized.detectable != "auto":
-        missing = (
-            "、".join(normalized.missing_information)
-            or "缺少可自動取證的完整檢查步驟"
-        )
+        missing = list(normalized.missing_information)
+        parameter_gaps = _recoverable_parameter_gaps(normalized)
+        if missing and parameter_gaps and set(missing) <= set(parameter_gaps):
+            hints = "；".join(
+                _PARAMETER_GAP_FIELD_HINTS.get(gap, gap) for gap in missing
+            )
+            return (
+                f"「{normalized.title}」的提案只缺少可由你自行補齊的欄位：{hints}。"
+                "請重新呼叫 create_checklist_item（修改既有項目則用 "
+                "edit_checklist_item），把上述欄位填進 check_steps[].parameters "
+                "後重試；這些欄位由你依需求語意判斷即可，不需要老師補充，"
+                "也不要改在 reply 中說明缺少內容。"
+            )
+        missing_text = "、".join(missing) or "缺少可自動取證的完整檢查步驟"
         return (
-            f"「{normalized.title}」目前無法形成可套用的提案：{missing}。"
+            f"「{normalized.title}」目前無法形成可套用的提案：{missing_text}。"
             "不要為缺少資訊或不支援的項目建立提案；請改在 reply 中說明缺少的內容。"
         )
     return None

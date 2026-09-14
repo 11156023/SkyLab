@@ -580,6 +580,50 @@ def test_teacher_judge_structured_readers_unwrap_fenced_payload() -> None:
     assert status is None
 
 
+def test_teacher_judge_chat_prompt_caps_structured_payload_size() -> None:
+    assert "requirements 最多 4 條" in CHAT_SYSTEM_TEMPLATE
+    assert "每條不超過 30 字" in CHAT_SYSTEM_TEMPLATE
+    assert "不要用 markdown code block 包住整份 JSON" in CHAT_SYSTEM_TEMPLATE
+    assert "不要把結構化欄位重複寫進 reply" in CHAT_SYSTEM_TEMPLATE
+
+
+def test_conversation_focus_caps_shrink_long_payload() -> None:
+    """Server-side caps bound the focus metadata regardless of model output size."""
+    focus = {
+        "turn_kind": "requirement",
+        "requirements": [
+            {
+                "focus_key": f"需求 {index} " + "細節" * 60,
+                "status": "needs_information",
+                "known_information": [f"已知 {index} " + "長" * 100] * 5,
+                "missing_information": [f"缺口 {index} " + "缺" * 100] * 5,
+                "target_item_id": None,
+            }
+            for index in range(6)
+        ],
+    }
+    parsed = service._conversation_focus_from_content(
+        json.dumps(
+            {
+                "reply": "還缺少檔案位置。",
+                "proposal_status": "needs_information",
+                "conversation_focus": focus,
+            },
+            ensure_ascii=False,
+        ),
+        proposal=None,
+    )
+
+    assert parsed is not None
+    assert len(parsed["requirements"]) == 4
+    for requirement in parsed["requirements"]:
+        assert len(requirement["focus_key"]) <= 40
+        assert len(requirement["known_information"]) == 3
+        assert max(len(value) for value in requirement["known_information"]) <= 80
+        assert len(requirement["missing_information"]) == 3
+        assert max(len(value) for value in requirement["missing_information"]) <= 80
+
+
 def _scripted_vllm(steps: list[object]):
     """Build a fake `_call_vllm_message`; steps may carry (response, metrics)."""
     calls: list[dict[str, object]] = []

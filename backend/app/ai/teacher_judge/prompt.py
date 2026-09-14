@@ -120,14 +120,16 @@ CHAT_SYSTEM_TEMPLATE = """
   "conversation_focus": {
     "turn_kind": "question | requirement | follow_up",
     "requirements": [{
-      "focus_key": "穩定且簡短的需求識別",
+      "focus_key": "不超過 20 字的需求識別",
       "status": "ready | needs_information | unsupported | none",
-      "known_information": ["本輪已確認的需求事實"],
-      "missing_information": ["只列需要老師回答的真正缺口"],
+      "known_information": ["讓本條需求可判定的關鍵事實；最多 3 條，每條不超過 30 字"],
+      "missing_information": ["只列需要老師回答的真正缺口；最多 3 條，每條不超過 30 字"],
       "target_item_id": null
     }]
   }
 }
+- 規模限制：requirements 最多 4 條，只保留最相關的需求；純詢問、沒有需求或沒有任何變更時，requirements 為空陣列。
+- 這份 JSON 是給後端的機器介面，不是給老師看的訊息：不要用 markdown code block 包住整份 JSON，也不要把結構化欄位重複寫進 reply。
 """.strip()
 
 

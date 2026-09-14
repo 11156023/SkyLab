@@ -264,6 +264,108 @@ def test_validate_generic_command_applies_platform_timeout_default() -> None:
     }
 
 
+@pytest.mark.parametrize(
+    ("raw_timeout", "expected"),
+    [
+        ("5", 5),
+        (" 5 ", 5),
+        ("5.0", 5),
+        (5.0, 5),
+        (300, 300),
+    ],
+)
+def test_validate_python_entrypoint_coerces_numeric_timeout(
+    raw_timeout: object, expected: int
+) -> None:
+    items = validate_check_steps(
+        "python",
+        [
+            {
+                "check_steps": [
+                    {
+                        "template_key": "python",
+                        "command_key": "python.run_entrypoint",
+                        "parameters": {
+                            "cwd": "/home/student/project",
+                            "argv": ["python3", "main.py"],
+                            "timeout_seconds": raw_timeout,
+                            "success_criteria": "exit code 為 0",
+                        },
+                    }
+                ]
+            }
+        ],
+        [_python_entrypoint_command()],
+    )
+
+    parameters = items[0]["check_steps"][0]["parameters"]
+    assert parameters["timeout_seconds"] == expected
+    assert isinstance(parameters["timeout_seconds"], int)
+
+
+@pytest.mark.parametrize(
+    "raw_timeout",
+    ["abc", "5.5", 5.5, 0, 301, True, None],
+)
+def test_validate_python_entrypoint_keeps_uncoercible_timeout_raw(
+    raw_timeout: object,
+) -> None:
+    items = validate_check_steps(
+        "python",
+        [
+            {
+                "check_steps": [
+                    {
+                        "template_key": "python",
+                        "command_key": "python.run_entrypoint",
+                        "parameters": {
+                            "cwd": "/home/student/project",
+                            "argv": ["python3", "main.py"],
+                            "timeout_seconds": raw_timeout,
+                            "success_criteria": "exit code 為 0",
+                        },
+                    }
+                ]
+            }
+        ],
+        [_python_entrypoint_command()],
+    )
+
+    parameters = items[0]["check_steps"][0]["parameters"]
+    assert parameters["timeout_seconds"] == raw_timeout
+
+
+def test_normalize_rubric_item_accepts_string_timeout_for_python_entrypoint() -> None:
+    normalized = teacher_judge_service._normalize_rubric_items(
+        [
+            {
+                "id": "item-1",
+                "title": "main.py 執行檢查",
+                "detectable": "auto",
+                "detection_method": "執行 main.py 並檢查輸出",
+                "check_steps": [
+                    {
+                        "template_key": "python",
+                        "command_key": "python.run_entrypoint",
+                        "parameters": {
+                            "cwd": "/home/student/project",
+                            "argv": ["python3", "main.py"],
+                            "timeout_seconds": "5",
+                            "success_criteria": "exit code 為 0",
+                        },
+                    }
+                ],
+            }
+        ],
+        template_key="python",
+        template_commands=[_python_entrypoint_command()],
+    )
+
+    assert normalized[0].detectable == "auto"
+    assert normalized[0].missing_information == []
+    assert normalized[0].check_steps[0].parameters["timeout_seconds"] == 5
+
+
 def test_validate_check_steps_reports_model_owned_unknown_command() -> None:
     result = validate_check_steps_with_issues(
         "linux",
@@ -600,6 +702,126 @@ async def test_partial_failure_note_skips_titles_staged_after_retry(
     assert result.proposal is not None
     assert len(result.proposal) == 1
     assert "另外" not in result.reply
+
+
+@pytest.mark.asyncio
+async def test_parameter_gap_rejection_asks_model_to_retry_with_success_criteria(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls, fake_call_vllm = _scripted_vllm(
+        [
+            _tool_call_message(
+                "create_checklist_item",
+                {
+                    "title": "必要套件安裝檢查",
+                    "detectable": "auto",
+                    "judgement_mode": "ai",
+                    "detection_method": "查詢套件安裝狀態。",
+                    "check_steps": [
+                        {
+                            "template_key": "linux",
+                            "command_key": "system.run_command",
+                            "parameters": {
+                                "argv": ["dpkg", "-l", "jq"],
+                                "timeout_seconds": 30,
+                            },
+                        }
+                    ],
+                },
+            ),
+            _tool_call_message(
+                "create_checklist_item",
+                {
+                    "title": "必要套件安裝檢查",
+                    "detectable": "auto",
+                    "judgement_mode": "ai",
+                    "detection_method": "查詢套件安裝狀態。",
+                    "check_steps": [
+                        {
+                            "template_key": "linux",
+                            "command_key": "system.run_command",
+                            "parameters": {
+                                "argv": ["dpkg", "-l", "jq"],
+                                "timeout_seconds": 30,
+                                "success_criteria": "stdout 內含 ii jq",
+                            },
+                        }
+                    ],
+                },
+            ),
+            _reply_message("提案已建立完成。", "ready"),
+        ]
+    )
+    monkeypatch.setattr(teacher_judge_service, "_call_vllm_message", fake_call_vllm)
+    _patch_teacher_judge_vllm_settings(monkeypatch)
+
+    result = await teacher_judge_service.chat_with_rubric(
+        messages=[SimpleNamespace(role="user", content="確認必要套件已安裝")],
+        rubric_context=json.dumps({"items": []}),
+        template_key="linux",
+        template_commands=[GENERAL_COMMAND],
+        rubric_available=True,
+    )
+
+    assert len(calls) == 3
+    assert result.proposal is not None
+    assert result.proposal[0]["detectable"] == "auto"
+    assert result.proposal[0]["check_steps"][0]["parameters"]["success_criteria"] == (
+        "stdout 內含 ii jq"
+    )
+    tool_outcomes = result.tool_calls or []
+    rejected = [entry for entry in tool_outcomes if entry.get("status") == "rejected"]
+    staged = [entry for entry in tool_outcomes if entry.get("status") == "staged"]
+    assert len(rejected) == 1
+    assert len(staged) == 1
+    retry_reason = str(rejected[0]["reason"])
+    assert "可由你自行補齊" in retry_reason
+    assert "success_criteria" in retry_reason
+    assert "不需要老師" in retry_reason
+    assert "目前無法形成可套用的提案" not in retry_reason
+
+
+@pytest.mark.asyncio
+async def test_teacher_information_gap_rejection_still_defers_to_reply(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls, fake_call_vllm = _scripted_vllm(
+        [
+            _tool_call_message(
+                "create_checklist_item",
+                {
+                    "title": "檢查 Web 服務",
+                    "detectable": "partial",
+                    "judgement_mode": "ai",
+                    "missing_information": ["服務名稱與 Port 號"],
+                },
+            ),
+            _reply_message("還需要服務名稱與 Port 號。", "needs_information"),
+        ]
+    )
+    monkeypatch.setattr(teacher_judge_service, "_call_vllm_message", fake_call_vllm)
+    _patch_teacher_judge_vllm_settings(monkeypatch)
+
+    result = await teacher_judge_service.chat_with_rubric(
+        messages=[SimpleNamespace(role="user", content="檢查 Web 服務")],
+        rubric_context=json.dumps({"items": []}),
+        template_key="linux",
+        template_commands=[GENERAL_COMMAND],
+        rubric_available=True,
+    )
+
+    assert len(calls) == 2
+    assert result.proposal is None
+    rejected = [
+        entry
+        for entry in result.tool_calls or []
+        if entry.get("status") == "rejected"
+    ]
+    assert len(rejected) == 1
+    reason = str(rejected[0]["reason"])
+    assert "目前無法形成可套用的提案" in reason
+    assert "請改在 reply 中說明缺少的內容" in reason
+    assert "可由你自行補齊" not in reason
 
 
 def test_validate_check_steps_fills_omitted_template_from_unique_command() -> None:
