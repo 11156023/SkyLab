@@ -91,7 +91,6 @@ def _compact_rubric_item(item: dict[str, Any]) -> dict[str, Any]:
     return {
         "id": str(item.get("id") or "").strip(),
         "title": str(item.get("title") or "")[:240],
-        "description": _truncate(item.get("description")),
         "detectable": item.get("detectable"),
         "judgement_mode": item.get("judgement_mode") or "ai",
         "detection_method": _truncate(item.get("detection_method")),

@@ -442,7 +442,6 @@ async def test_message_does_not_enable_script_creation_workflow(
             {
                 "id": "item-1",
                 "title": "程式可執行",
-                "description": "",
                 "checked": False,
                 "detectable": "auto",
                 "detection_method": "exit code",
@@ -600,7 +599,6 @@ async def test_attachment_proposal_is_ephemeral_until_explicit_apply(
             "item": {
                 "id": "item-1",
                 "title": "檢查 Port 8080",
-                "description": "確認服務監聽 8080",
                 "checked": False,
                 "detectable": "auto",
                 "detection_method": "檢查 listening socket",
@@ -677,7 +675,6 @@ async def test_attachment_message_runs_itemwise_analysis_and_records_results(
         "id": "item-attachment-1",
         "operation": "add",
         "title": "確認 Python 版本",
-        "description": "",
         "checked": False,
         "detectable": "auto",
         "judgement_mode": "ai",

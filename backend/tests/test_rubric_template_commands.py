@@ -290,9 +290,6 @@ def test_normalize_repairs_flattened_system_command_shape() -> None:
             {
                 "id": "check-main-log-success",
                 "title": "檢查日誌關鍵字",
-                "description": (
-                    "確認 /home/student/main.log 是否存在 successful 字樣。"
-                ),
                 "detectable": "auto",
                 "judgement_mode": "ai",
                 "detection_method": "content_search",
@@ -333,7 +330,6 @@ def test_normalize_converges_uncatalogued_readonly_argv_to_general_command() -> 
             {
                 "id": "item-jq",
                 "title": "檢查 jq 工具版本",
-                "description": "確認環境中的 jq 可以執行。",
                 "detectable": "auto",
                 "judgement_mode": "ai",
                 "detection_method": "執行版本查詢。",
@@ -375,7 +371,6 @@ async def test_uncatalogued_tool_with_complete_argv_still_forms_proposal(
                 "create_checklist_item",
                 {
                     "title": "檢查 jq 工具版本",
-                    "description": "確認環境中的 jq 可以執行。",
                     "detectable": "auto",
                     "judgement_mode": "ai",
                     "detection_method": "執行版本查詢。",
@@ -631,7 +626,6 @@ def test_backend_does_not_classify_issue_owner_from_missing_info_prose() -> None
             {
                 "id": "item-1",
                 "title": "讀取環境設定",
-                "description": "在目前目錄讀取 .env。",
                 "detectable": "partial",
                 "detection_method": "以 exit code 判定檔案是否可讀",
                 "missing_information": [
@@ -698,7 +692,6 @@ def test_backend_does_not_infer_config_semantics_from_teacher_text() -> None:
             {
                 "id": "item-1",
                 "title": "確認 Web URL 設定",
-                "description": "讀取 .env，確認有 web_URL=True 這條設定。",
                 "detectable": "partial",
                 "detection_method": "使用 cat 讀取 .env",
                 "missing_information": [
@@ -745,7 +738,6 @@ async def test_explicit_env_assignment_forms_proposal_when_model_claims_missing_
                 "create_checklist_item",
                 {
                     "title": "檢查 .env 檔案內容",
-                    "description": "確認 web_url=True 設定行存在。",
                     "detectable": "auto",
                     "judgement_mode": "ai",
                     "detection_method": "讀取指定檔案並比對設定行。",
@@ -894,7 +886,6 @@ async def test_chat_prompt_accepts_objectively_verifiable_main_py_checkpoint(
                 "create_checklist_item",
                 {
                     "title": "main.py 執行結果",
-                    "description": "執行 main.py，確認無錯誤並輸出整數 20。",
                     "detectable": "auto",
                     "detection_method": (
                         "執行 main.py，依 exit code 與 stderr 判斷錯誤，"
@@ -977,7 +968,6 @@ async def test_chat_prompt_accepts_generic_cat_env_checkpoint(
                 "create_checklist_item",
                 {
                     "title": "讀取環境設定",
-                    "description": "在專案目錄執行 cat .env 並回傳內容。",
                     "detectable": "auto",
                     "detection_method": (
                         "以 argv ['cat', '.env']、指定 cwd 與 timeout 執行，"
@@ -1046,7 +1036,6 @@ async def test_follow_up_natural_answer_is_audited_before_repeating_question(
                 "create_checklist_item",
                 {
                     "title": "檢查 answer.txt 內容",
-                    "description": "確認每一行都是整數，且至少有 20 行。",
                     "detectable": "auto",
                     "judgement_mode": "ai",
                     "detection_method": "讀取檔案並逐行檢查內容與行數。",
@@ -1162,7 +1151,6 @@ async def test_chat_prompt_treats_attachment_as_concrete_rubric_content(
                 "create_checklist_item",
                 {
                     "title": "服務 Port",
-                    "description": "確認預期服務 Port 正在監聽。",
                     "checked": False,
                     "detectable": "auto",
                     "detection_method": "檢查 listening ports。",
@@ -1231,7 +1219,6 @@ def _itemwise_ready_tool_call(title: str, judgement_mode: str = "ai") -> dict[st
         "create_checklist_item",
         {
             "title": title,
-            "description": "確認目前環境符合需求。",
             "checked": False,
             "detectable": "auto",
             "judgement_mode": judgement_mode,
@@ -1554,7 +1541,6 @@ async def test_teacher_judgement_requirement_can_form_proposal_without_objective
                 "create_checklist_item",
                 {
                     "title": "程式架構品質",
-                    "description": "檢視 main.py 原始碼的架構與可讀性。",
                     "checked": False,
                     "detectable": "auto",
                     "judgement_mode": "teacher",
@@ -1618,7 +1604,6 @@ def test_normalize_marks_auto_without_valid_check_steps_as_unsupported() -> None
         TeacherJudgeRubricItem(
             id="item-1",
             title="未知檢查",
-            description="",
             checked=False,
             detectable="manual",
             detection_method="目前沒有可引用的有效 command_key，缺少自動取得客觀證據的能力",
@@ -1638,7 +1623,6 @@ async def test_new_item_proposal_does_not_load_current_rubric(
                 "create_checklist_item",
                 {
                     "title": "檢查 result.txt",
-                    "description": "確認 result.txt 包含 OK。",
                     "detectable": "auto",
                     "judgement_mode": "ai",
                     "detection_method": "讀取檔案並確認內容。",
@@ -1697,7 +1681,6 @@ async def test_existing_item_update_loads_current_rubric_tool(
                 "edit_checklist_item",
                 {
                     "id": "item-port",
-                    "description": "確認服務監聽 Port 8080。",
                     "check_steps": [
                         {
                             "template_key": "linux",
@@ -1722,7 +1705,6 @@ async def test_existing_item_update_loads_current_rubric_tool(
             {
                 "id": "item-port",
                 "title": "既有 Port 檢查",
-                "description": "確認服務監聽 Port 3000。",
                 "detectable": "auto",
                 "judgement_mode": "ai",
                 "detection_method": "檢查指定 Port。",
@@ -1772,7 +1754,6 @@ async def test_existing_item_proposal_without_tool_is_retried_with_forced_read(
                 "edit_checklist_item",
                 {
                     "id": "item-existing",
-                    "description": "更新後的說明。",
                     "detectable": "auto",
                     "judgement_mode": "ai",
                     "detection_method": "讀取指定檔案。",
@@ -1795,7 +1776,6 @@ async def test_existing_item_proposal_without_tool_is_retried_with_forced_read(
                 "edit_checklist_item",
                 {
                     "id": "item-existing",
-                    "description": "更新後的說明。",
                     "detectable": "auto",
                     "judgement_mode": "ai",
                     "detection_method": "讀取指定檔案。",
@@ -1957,7 +1937,6 @@ def test_normalize_does_not_infer_python_version_intent_from_text() -> None:
             {
                 "id": "item-1",
                 "title": "檢查 Python 版本",
-                "description": "我想看學生 Python 的版本號。",
                 "detectable": "manual",
                 "check_steps": [],
             }
@@ -1983,7 +1962,6 @@ async def test_complete_manual_system_info_candidate_reselects_generic_capabilit
                 "create_checklist_item",
                 {
                     "title": "查看學生系統版本",
-                    "description": "取得學生環境的系統版本資訊。",
                     "detectable": "manual",
                     "judgement_mode": "teacher",
                     "detection_method": "查看系統資訊。",
@@ -1995,10 +1973,9 @@ async def test_complete_manual_system_info_candidate_reselects_generic_capabilit
                 "create_checklist_item",
                 {
                     "title": "查看學生系統版本",
-                    "description": "取得學生環境的系統版本資訊。",
                     "detectable": "auto",
-                    "judgement_mode": "teacher",
-                    "detection_method": "執行唯讀系統版本查詢。",
+                    "judgement_mode": "ai",
+                    "detection_method": "執行唯讀指令並收集輸出。",
                     "check_steps": [
                         {
                             "template_key": "linux",
@@ -2048,10 +2025,9 @@ async def test_invalid_step_then_manual_uses_distinct_capability_repair(
                 "create_checklist_item",
                 {
                     "title": "查看學生系統版本",
-                    "description": "取得學生環境的系統版本資訊。",
                     "detectable": "auto",
-                    "judgement_mode": "teacher",
-                    "detection_method": "執行唯讀系統版本查詢。",
+                    "judgement_mode": "ai",
+                    "detection_method": "執行唯讀指令並收集輸出。",
                     "check_steps": [
                         {
                             "template_key": "linux",
@@ -2067,7 +2043,6 @@ async def test_invalid_step_then_manual_uses_distinct_capability_repair(
                 "create_checklist_item",
                 {
                     "title": "查看學生系統版本",
-                    "description": "取得學生環境的系統版本資訊。",
                     "detectable": "manual",
                     "judgement_mode": "teacher",
                     "detection_method": "執行唯讀系統版本查詢。",
@@ -2079,10 +2054,9 @@ async def test_invalid_step_then_manual_uses_distinct_capability_repair(
                 "create_checklist_item",
                 {
                     "title": "查看學生系統版本",
-                    "description": "取得學生環境的系統版本資訊。",
                     "detectable": "auto",
-                    "judgement_mode": "teacher",
-                    "detection_method": "執行唯讀系統版本查詢。",
+                    "judgement_mode": "ai",
+                    "detection_method": "執行唯讀指令並收集輸出。",
                     "check_steps": [
                         {
                             "template_key": "linux",
@@ -2162,7 +2136,6 @@ async def test_none_response_without_focus_does_not_invent_requirement(
                             "operation": "add",
                             "id": "item-system-version",
                             "title": "查看學生系統版本",
-                            "description": "取得學生環境的系統版本資訊。",
                             "checked": False,
                             "detectable": "auto",
                             "judgement_mode": "teacher",
@@ -2248,7 +2221,6 @@ async def test_empty_question_classification_remains_plain_question(
                             "operation": "add",
                             "id": "item-system-version",
                             "title": "查看學生系統版本",
-                            "description": "取得學生環境的系統版本資訊。",
                             "checked": False,
                             "detectable": "auto",
                             "judgement_mode": "teacher",
@@ -2296,7 +2268,6 @@ async def test_boolean_detectable_and_flat_generic_argv_form_proposal(
                 "create_checklist_item",
                 {
                     "title": "檢查 Python 版本",
-                    "description": "取得學生環境的 Python 版本。",
                     "checked": False,
                     "detectable": True,
                     "judgement_mode": "teacher",
@@ -2340,7 +2311,6 @@ def test_normalize_preserves_structured_python_judgement_mode() -> None:
             {
                 "id": "item-1",
                 "title": "確認學生環境中安裝的 Python 版本",
-                "description": "取得目前安裝的 Python 版本。",
                 "detectable": "auto",
                 "judgement_mode": "ai",
                 "detection_method": "執行 Python 版本查詢。",
@@ -2369,7 +2339,6 @@ def test_normalize_python_version_with_expected_answer_keeps_ai_judgement() -> N
             {
                 "id": "item-1",
                 "title": "確認 Python 版本至少為 3.11",
-                "description": "學生環境必須安裝 Python 3.11 以上版本。",
                 "detectable": "auto",
                 "judgement_mode": "ai",
                 "detection_method": "取得版本後與 3.11 比較。",
@@ -2401,7 +2370,6 @@ async def test_python_version_lookup_proposal_preserves_model_contract(
                 "create_checklist_item",
                 {
                     "title": "確認學生環境中安裝的 Python 版本",
-                    "description": "取得目前安裝的 Python 版本。",
                     "detectable": "auto",
                     "judgement_mode": "ai",
                     "detection_method": "執行 Python 版本查詢。",
@@ -2451,7 +2419,6 @@ async def test_python_version_requirement_forms_proposal_when_model_marks_it_man
                 "create_checklist_item",
                 {
                     "title": "檢查 Python 版本",
-                    "description": "查看學生使用的 Python 版本號。",
                     "detectable": "auto",
                     "judgement_mode": "teacher",
                     "detection_method": "查詢 Python 版本。",
@@ -2505,7 +2472,6 @@ def test_normalize_rejects_unknown_python_package_command() -> None:
             {
                 "id": "item-torch",
                 "title": "檢查 torch 套件安裝情況",
-                "description": "確認學生環境是否已安裝 torch。",
                 "detectable": "auto",
                 "judgement_mode": "ai",
                 "detection_method": "查詢套件安裝狀態。",
@@ -2564,7 +2530,6 @@ async def test_python_package_status_forms_proposal_instead_of_system_error(
                 "create_checklist_item",
                 {
                     "title": "檢查 torch 套件安裝情況",
-                    "description": "確認學生環境是否已安裝 torch。",
                     "detectable": "auto",
                     "judgement_mode": "ai",
                     "detection_method": "查詢套件安裝狀態。",
@@ -2718,7 +2683,6 @@ def test_normalize_preserves_objectively_verifiable_main_py_checkpoint() -> None
         [
             {
                 "title": "main.py 執行結果",
-                "description": "執行 main.py，確認無錯誤並輸出整數 20。",
                 "detectable": "auto",
                 "detection_method": (
                     "以 exit code 與 stderr 判斷錯誤，並精確比對 stdout 是否為整數 20。"

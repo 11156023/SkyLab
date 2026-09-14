@@ -93,7 +93,6 @@ def _analysis() -> TeacherJudgeRubricAnalysis:
             TeacherJudgeRubricItem(
                 id="item-1",
                 title="n8n Web UI",
-                description="確認 n8n 可存取",
                 checked=False,
                 detectable="auto",
                 detection_method="檢查 localhost 5678",

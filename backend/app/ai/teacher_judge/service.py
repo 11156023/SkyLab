@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import re
 import uuid
 from collections.abc import Iterator
 from dataclasses import dataclass
@@ -76,13 +77,10 @@ def _conversation_focus_from_content(
     proposal: list[dict[str, Any]] | None,
 ) -> dict[str, Any] | None:
     """Keep only compact, model-stated requirement facts needed by the next turn."""
-    try:
-        parsed = json.loads(content)
-    except (json.JSONDecodeError, TypeError):
+    _leftover, payload = _reply_payload_object(content)
+    if payload is None:
         return None
-    if not isinstance(parsed, dict):
-        return None
-    raw_focus = parsed.get("conversation_focus")
+    raw_focus = payload.get("conversation_focus")
     if not isinstance(raw_focus, dict):
         return None
     raw_requirements = raw_focus.get("requirements")
@@ -135,13 +133,10 @@ def _conversation_focus_from_content(
 
 def _structured_requirement_needs_candidate(content: str) -> bool:
     """Detect a concrete requirement that the model left without a candidate or gap."""
-    try:
-        parsed = json.loads(content)
-    except (json.JSONDecodeError, TypeError):
+    _leftover, payload = _reply_payload_object(content)
+    if payload is None:
         return False
-    if not isinstance(parsed, dict):
-        return False
-    focus = parsed.get("conversation_focus")
+    focus = payload.get("conversation_focus")
     if not isinstance(focus, dict) or focus.get("turn_kind") not in {
         "requirement",
         "follow_up",
@@ -160,13 +155,10 @@ def _structured_requirement_needs_candidate(content: str) -> bool:
 
 def _structured_requirement_target_item(content: str) -> str | None:
     """Return the item id the structured focus points at, when editing intent."""
-    try:
-        parsed = json.loads(content)
-    except (json.JSONDecodeError, TypeError):
+    _leftover, payload = _reply_payload_object(content)
+    if payload is None:
         return None
-    if not isinstance(parsed, dict):
-        return None
-    focus = parsed.get("conversation_focus")
+    focus = payload.get("conversation_focus")
     if not isinstance(focus, dict):
         return None
     for requirement in focus.get("requirements") or []:
@@ -194,6 +186,24 @@ _GET_CHECKLIST_ITEM_TOOL_NAME = "get_checklist_item"
 _CREATE_CHECKLIST_ITEM_TOOL_NAME = "create_checklist_item"
 _EDIT_CHECKLIST_ITEM_TOOL_NAME = "edit_checklist_item"
 
+_KNOWN_TOOL_NAMES = frozenset(
+    {
+        _LIST_CHECKLIST_TOOL_NAME,
+        _GET_CHECKLIST_ITEM_TOOL_NAME,
+        _CREATE_CHECKLIST_ITEM_TOOL_NAME,
+        _EDIT_CHECKLIST_ITEM_TOOL_NAME,
+    }
+)
+
+_TOOL_CALL_FENCE_RE = re.compile(
+    r"```(?:json|tool_code)?\s*(\{.*?\})\s*```",
+    re.DOTALL,
+)
+_TOOL_CALL_MARKER_RE = re.compile(
+    r"<\|?tool_call\|?>\s*(?:call:)?([a-zA-Z0-9_]+)\s*(\{.*?\})\s*<\|?/?tool_call\|?>",
+    re.DOTALL,
+)
+
 _CHECKLIST_STEP_TOOL_SCHEMA: dict[str, Any] = {
     "type": "object",
     "properties": {
@@ -217,7 +227,6 @@ _CHECKLIST_STEP_TOOL_SCHEMA: dict[str, Any] = {
 
 _PROPOSAL_FILL_PROPERTIES: dict[str, Any] = {
     "title": {"type": "string", "description": "檢查項目名稱"},
-    "description": {"type": "string", "description": "檢查說明"},
     "checked": {
         "type": "boolean",
         "description": "是否已達成；只有老師明確要求或已有直接證據時才能改，新項目為 false",
@@ -294,6 +303,8 @@ _CREATE_CHECKLIST_ITEM_TOOL: dict[str, Any] = {
         "description": (
             "建立全新檢查項目的新增提案，老師確認套用後才會寫入檢查表。"
             "只需填 title 與已知欄位；留空欄位使用系統預設；系統會自動指定項目 ID。"
+            "標題與既有項目重複時會被拒絕；請改用 edit_checklist_item 修改，"
+            "或改用更精確的標題後重新建立。"
         ),
         "parameters": {
             "type": "object",
@@ -503,7 +514,6 @@ def _normalize_rubric_items(
 
         item_id = str(raw.get("id") or f"item-{i + 1}")
         title = str(raw.get("title") or raw.get("name") or "").strip() or "未命名項目"
-        description = str(raw.get("description") or raw.get("desc") or "")
         checked = safe_bool(raw.get("checked", raw.get("is_checked")), default=False)
 
         raw_detectable = raw.get("detectable")
@@ -583,7 +593,6 @@ def _normalize_rubric_items(
             TeacherJudgeRubricItem(
                 id=item_id,
                 title=title,
-                description=description,
                 checked=checked,
                 detectable=detectable,
                 judgement_mode=judgement_mode,
@@ -620,6 +629,44 @@ def _mint_proposal_item_id(existing_ids: set[str]) -> str:
         candidate = f"item-{uuid.uuid4().hex[:8]}"
         if candidate not in existing_ids:
             return candidate
+
+
+def _normalized_title_key(title: Any) -> str:
+    """Case/whitespace-insensitive key for duplicate item title checks."""
+    return " ".join(str(title or "").split()).casefold()
+
+
+def _duplicate_title_owner(
+    title: str,
+    snapshot_items: Any,
+    staged_ops: list[dict[str, Any]],
+) -> tuple[str, str] | None:
+    """Return (id, title) of the first same-title item already present.
+
+    Checks the current server-side rubric snapshot plus every operation staged
+    this turn, so a create call cannot duplicate an existing item or another
+    candidate staged earlier in the same conversation turn.
+    """
+    key = _normalized_title_key(title)
+    if not key:
+        return None
+    snapshot = snapshot_items if isinstance(snapshot_items, list) else []
+    for item in snapshot:
+        if not isinstance(item, dict):
+            continue
+        item_id = str(item.get("id") or "").strip()
+        existing_title = str(item.get("title") or "")
+        if item_id and _normalized_title_key(existing_title) == key:
+            return item_id, existing_title
+    for entry in staged_ops:
+        staged_item = entry.get("item")
+        if staged_item is None:
+            continue
+        staged_id = str(getattr(staged_item, "id", "") or "").strip()
+        staged_title = str(getattr(staged_item, "title", "") or "")
+        if staged_id and _normalized_title_key(staged_title) == key:
+            return staged_id, staged_title
+    return None
 
 
 def _allowed_command_text(
@@ -683,7 +730,6 @@ def _proposal_candidate_rejection(
 
 _PROPOSAL_COMPARE_FIELDS = (
     "title",
-    "description",
     "checked",
     "detectable",
     "judgement_mode",
@@ -1138,25 +1184,177 @@ def _tool_arguments(value: Any) -> dict[str, Any] | None:
     return parsed if isinstance(parsed, dict) else None
 
 
+def _tool_call_from_payload(payload: Any) -> tuple[str, Any] | None:
+    """Accept Hermes/OpenAI/pve_log style tool-call JSON shapes."""
+    if not isinstance(payload, dict):
+        return None
+    if isinstance(payload.get("tool_call"), dict):
+        payload = payload["tool_call"]
+    if isinstance(payload.get("function"), dict):
+        payload = {**payload, **payload["function"]}
+    name = str(payload.get("name") or "").strip()
+    if name not in _KNOWN_TOOL_NAMES:
+        return None
+    return name, payload.get("arguments")
+
+
+def _fenced_tool_call(name: str, arguments: Any) -> dict[str, Any]:
+    return {
+        "id": f"call_{uuid.uuid4().hex[:8]}",
+        "type": "function",
+        "function": {
+            "name": name,
+            "arguments": (
+                arguments
+                if isinstance(arguments, str)
+                else json.dumps(arguments or {}, ensure_ascii=False)
+            ),
+        },
+    }
+
+
+def _extract_fenced_tool_calls(content: str) -> tuple[str, list[dict[str, Any]]]:
+    """Move tool calls the model wrote as fenced JSON into structured calls.
+
+    Qwen-family models sometimes emit checklist tool calls as ```json blocks
+    or <|tool_call|> markers inside ``content`` instead of the structured
+    ``tool_calls`` field (mirrors pve_log.chat._normalize_assistant_message).
+    Parse them back into structured calls and strip the leftovers so the raw
+    JSON never reaches the teacher-facing reply.
+    """
+    calls: list[dict[str, Any]] = []
+
+    def _from_fence(match: re.Match[str]) -> str:
+        try:
+            parsed = json.loads(match.group(1))
+        except json.JSONDecodeError:
+            return match.group(0)
+        extracted = _tool_call_from_payload(parsed)
+        if extracted is None:
+            return match.group(0)
+        name, arguments = extracted
+        calls.append(_fenced_tool_call(name, arguments))
+        return ""
+
+    def _from_marker(match: re.Match[str]) -> str:
+        name = match.group(1)
+        if name not in _KNOWN_TOOL_NAMES:
+            return match.group(0)
+        args_fixed = match.group(2).replace('<|"|>', '"')
+        args_fixed = re.sub(
+            r"([{,]\s*)([a-zA-Z_][a-zA-Z0-9_]*)(\s*:)",
+            r'\1"\2"\3',
+            args_fixed,
+        )
+        try:
+            arguments = json.dumps(json.loads(args_fixed), ensure_ascii=False)
+        except json.JSONDecodeError:
+            arguments = args_fixed
+        calls.append(_fenced_tool_call(name, arguments))
+        return ""
+
+    cleaned = _TOOL_CALL_FENCE_RE.sub(_from_fence, content)
+    cleaned = _TOOL_CALL_MARKER_RE.sub(_from_marker, cleaned)
+    # Broken ```json {"tool_call" ...} blocks that failed to parse are still
+    # tool-call noise, not teacher-facing prose.
+    cleaned = re.sub(
+        r'```(?:json)?\s*\{\s*"tool_call".*?```', "", cleaned, flags=re.DOTALL
+    )
+    cleaned = re.sub(r"<\|/?tool_call\|?>", "", cleaned)
+    return cleaned.strip(), calls
+
+
 _PROPOSAL_STATUS_VALUES = {"ready", "needs_information", "unsupported", "none"}
+
+_REPLY_PAYLOAD_KEYS_RE = re.compile(
+    r'"(?:reply|proposal_status|conversation_focus)"\s*:'
+)
+_REPLY_PAYLOAD_FENCE_RE = re.compile(
+    r"```(?:json|tool_code)?\s*(\{.*?\})\s*```",
+    re.DOTALL,
+)
+
+
+def _is_reply_payload_object(value: Any) -> bool:
+    """Recognize the structured chat reply payload across model variants."""
+    if not isinstance(value, dict):
+        return False
+    reply = value.get("reply")
+    if isinstance(reply, str) and reply.strip():
+        return True
+    if value.get("proposal_status") in _PROPOSAL_STATUS_VALUES:
+        return True
+    return isinstance(value.get("conversation_focus"), dict)
+
+
+def _reply_payload_object(content: str) -> tuple[str, dict[str, Any] | None]:
+    """Extract the structured reply payload from raw, fenced or mixed text.
+
+    The prompt asks the model to answer with one plain JSON object (reply /
+    proposal_status / conversation_focus), but Qwen-family models sometimes
+    wrap it in a ```json fence or emit it next to leftover prose instead of
+    plain JSON. Return the text with every recognized payload blob removed
+    plus the first parsed payload, so internal fields never reach the reply.
+    """
+    text = (content or "").strip()
+    if not text:
+        return "", None
+    try:
+        parsed = json.loads(text)
+    except (json.JSONDecodeError, TypeError):
+        parsed = None
+    if _is_reply_payload_object(parsed):
+        return "", parsed
+    payload: dict[str, Any] | None = None
+    leftover = text
+    for match in _REPLY_PAYLOAD_FENCE_RE.finditer(text):
+        try:
+            parsed = json.loads(match.group(1))
+        except (json.JSONDecodeError, TypeError):
+            continue
+        if _is_reply_payload_object(parsed):
+            if payload is None:
+                payload = parsed
+            leftover = leftover.replace(match.group(0), "")
+    if payload is not None:
+        return leftover.strip(), payload
+    decoder = json.JSONDecoder()
+    index = 0
+    while index < len(text):
+        brace = text.find("{", index)
+        if brace < 0:
+            break
+        try:
+            parsed, end = decoder.raw_decode(text, brace)
+        except ValueError:
+            index = brace + 1
+            continue
+        if _is_reply_payload_object(parsed):
+            leftover = (text[:brace] + text[brace + end :]).strip()
+            return leftover, parsed
+        index = end
+    # Unparseable fence bodies still carrying internal payload keys are
+    # contract noise, not teacher-facing prose; drop them as a safety net.
+    for match in _REPLY_PAYLOAD_FENCE_RE.finditer(text):
+        if _REPLY_PAYLOAD_KEYS_RE.search(match.group(1)):
+            leftover = leftover.replace(match.group(0), "")
+    return leftover.strip(), None
 
 
 def _parse_chat_reply_payload(content: str) -> tuple[str, str | None]:
     """Extract the teacher-facing reply and normalized proposal_status."""
-    try:
-        parsed = json.loads(content)
-    except (json.JSONDecodeError, TypeError):
-        parsed = None
-    if not isinstance(parsed, dict):
-        return content, None
-    reply = str(parsed.get("reply") or content)
-    raw_status = parsed.get("proposal_status")
+    text = (content or "").strip()
+    leftover, payload = _reply_payload_object(text)
+    if payload is None:
+        return leftover, None
+    raw_status = payload.get("proposal_status")
     status = (
         raw_status.strip().lower()
         if isinstance(raw_status, str)
         and raw_status.strip().lower() in _PROPOSAL_STATUS_VALUES
         else None
     )
+    reply = str(payload.get("reply") or "").strip() or leftover or text
     return reply, status
 
 
@@ -1235,6 +1433,25 @@ def _execute_checklist_tool(
         title = str(arguments.get("title") or "").strip()
         if not title:
             return {"error": "title 不可空白；請重新呼叫 create_checklist_item。"}
+        duplicate_owner = _duplicate_title_owner(title, snapshot, staged_ops)
+        if duplicate_owner is not None:
+            existing_id, existing_title = duplicate_owner
+            tool_calls.append(
+                {
+                    "tool": name,
+                    "status": "duplicate",
+                    "item_id": existing_id,
+                    "title": title,
+                },
+            )
+            return {
+                "error": (
+                    f"檢查表已有同標題項目 id={existing_id}「{existing_title}」，"
+                    "未建立重複的新增提案；"
+                    f"若要調整該項目內容，請改呼叫 edit_checklist_item 並提供 id={existing_id}；"
+                    "若確實是另一個不同項目，請改用更精確的標題後重新呼叫 create_checklist_item。"
+                ),
+            }
         existing_ids = set(current_raw_by_id) | {
             entry["item"].id for entry in staged_ops
         }
@@ -1469,9 +1686,15 @@ async def _run_proposal_tool_loop(
         )
         metrics = _merge_vllm_metrics(metrics, round_metrics)
         assistant = _assistant_message(raw_message)
+        cleaned_content, fenced_calls = _extract_fenced_tool_calls(
+            str(assistant.get("content") or "")
+        )
+        assistant = {**assistant, "content": cleaned_content or None}
         tool_calls = assistant.get("tool_calls")
         if not isinstance(tool_calls, list) or not tool_calls:
-            final_content = str(assistant.get("content") or "")
+            tool_calls = fenced_calls
+        if not tool_calls:
+            final_content = cleaned_content
             _, proposal_status = _parse_chat_reply_payload(final_content)
             claims_ready = (
                 proposal_status == "ready"
@@ -1582,7 +1805,9 @@ async def _run_proposal_tool_loop(
             request, timeout=float(settings.VLLM_TIMEOUT)
         )
         metrics = _merge_vllm_metrics(metrics, round_metrics)
-        final_content = str(_assistant_message(raw_message).get("content") or "")
+        final_content, _ = _extract_fenced_tool_calls(
+            str(_assistant_message(raw_message).get("content") or "")
+        )
 
     return final_content, metrics, staged_ops, rejected_ops, tool_outcomes
 

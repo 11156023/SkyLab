@@ -318,7 +318,6 @@ function proposalOperationLabel(item) {
 function comparableItem(item) {
   return JSON.stringify({
     title: item.title ?? "",
-    description: item.description ?? "",
     checked: Boolean(item.checked),
     detectable: item.detectable ?? "manual",
     judgement_mode: item.judgement_mode ?? "ai",
@@ -508,7 +507,7 @@ export function ProposalPanel({ proposal, selectedIds, onToggle, onApply, onSkip
                         />
                         <span>
                           <b>{result.source_label ? `${result.source_label}·` : ""}{item.title || "未命名項目"}</b>
-                          <small><em>{proposalOperationLabel(item)}</em>{item.description || "AI 建議新增或調整此檢查項目"}</small>
+                          <small><em>{proposalOperationLabel(item)}</em>AI 建議新增或調整此檢查項目</small>
                         </span>
                       </label>
                     );
@@ -541,7 +540,7 @@ export function ProposalPanel({ proposal, selectedIds, onToggle, onApply, onSkip
                       />
                       <span>
                         <b>{item.title || "未命名項目"}</b>
-                        <small><em>{proposalOperationLabel(item)}</em>{item.description || "AI 建議新增或調整此檢查項目"}</small>
+                        <small><em>{proposalOperationLabel(item)}</em>AI 建議新增或調整此檢查項目</small>
                       </span>
                     </label>
                   );
@@ -617,16 +616,12 @@ function RubricTableRow({ item, index, onChange, onDelete, disabled, needsReview
           </label>
         </td>
         <td className={styles.rubricDescriptionCell}>
-          <label className={styles.tableField}>
-            <span className={styles.srOnly}>第 {index + 1} 項檢查條件</span>
-            <textarea
-              value={item.description}
-              onChange={(event) => onChange({ ...item, description: event.target.value })}
-              placeholder="寫下學生需要符合的條件"
-              rows={2}
-              disabled={disabled}
-            />
-          </label>
+          <div className={styles.tableField}>
+            <span className={styles.srOnly}>第 {index + 1} 項檢測方式</span>
+            <p className={`${styles.rubricMethodText} ${!item.detection_method ? styles.rubricMethodTextEmpty : ""}`}>
+              {item.detection_method || "尚未提供檢測方式"}
+            </p>
+          </div>
         </td>
         <td className={styles.rubricDetectabilityCell}>
           <DetectabilityBadge
@@ -670,12 +665,6 @@ function RubricTableRow({ item, index, onChange, onDelete, disabled, needsReview
                       <p>{missingInformation.length
                         ? missingInformation.join("、")
                         : "請補充完整的服務名稱、程式位置、連接埠、取證範圍或判定條件。"}</p>
-                    </div>
-                  )}
-                  {item.detection_method && (
-                    <div className={styles.detectItem}>
-                      <span>檢測方式</span>
-                      <p>{item.detection_method}</p>
                     </div>
                   )}
                   {item.fallback && (
@@ -723,7 +712,7 @@ export function RubricTable({ items, onChange, onDelete, disabled, needsReviewId
             </th>
             <th scope="col">#</th>
             <th scope="col">檢查點</th>
-            <th scope="col">檢查條件</th>
+            <th scope="col">檢測方式</th>
             <th scope="col">自動檢測支援</th>
             <th scope="col"><span className={styles.srOnly}>操作</span></th>
           </tr>

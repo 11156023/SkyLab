@@ -421,6 +421,19 @@
 }
 
 .rubricDescriptionCell { min-width: 260px; }
+.rubricMethodText {
+  min-height: 36px;
+  margin: 0;
+  padding: 7px 9px;
+  border-radius: $radius-8;
+  color: var(--color-text-primary);
+  line-height: 1.45;
+  white-space: pre-wrap;
+}
+.rubricMethodTextEmpty {
+  color: var(--color-text-muted);
+  font-style: italic;
+}
 .rubricDetailToggleCell { vertical-align: middle !important; }
 .rubricDetectabilityCell { vertical-align: middle !important; }
 .rubricActionsCell { vertical-align: middle !important; }

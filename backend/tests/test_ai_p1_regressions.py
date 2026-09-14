@@ -166,6 +166,89 @@ def test_create_tool_rejection_explains_invalid_step_to_model_only() -> None:
     )
 
 
+def test_create_tool_blocks_duplicate_title_of_existing_item() -> None:
+    read_ids: set[str] = set()
+    staged_ops: list[dict[str, object]] = []
+    rejected_ops: list[tuple[object, dict[str, object], str]] = []
+    tool_calls: list[dict[str, object]] = []
+    snapshot_items = [
+        {
+            "id": "item-1",
+            "title": "檢查 SSH 服務狀態",
+            "detectable": "manual",
+            "judgement_mode": "ai",
+        }
+    ]
+
+    result = service._execute_checklist_tool(
+        service._CREATE_CHECKLIST_ITEM_TOOL_NAME,
+        {"title": "檢查 ssh 服務狀態"},
+        snapshot_items=snapshot_items,
+        analysis_revision=1,
+        template_key="linux",
+        template_commands=None,
+        ready_only=True,
+        read_ids=read_ids,
+        staged_ops=staged_ops,
+        rejected_ops=rejected_ops,
+        tool_calls=tool_calls,
+    )
+
+    assert "error" in result
+    assert "id=item-1" in result["error"]
+    assert "edit_checklist_item" in result["error"]
+    assert staged_ops == []
+    assert rejected_ops == []
+    duplicates = [entry for entry in tool_calls if entry.get("status") == "duplicate"]
+    assert len(duplicates) == 1
+    assert duplicates[0]["tool"] == service._CREATE_CHECKLIST_ITEM_TOOL_NAME
+    assert duplicates[0]["item_id"] == "item-1"
+
+
+def test_create_tool_blocks_second_same_title_in_same_turn() -> None:
+    read_ids: set[str] = set()
+    staged_ops: list[dict[str, object]] = []
+    rejected_ops: list[tuple[object, dict[str, object], str]] = []
+    tool_calls: list[dict[str, object]] = []
+
+    first = service._execute_checklist_tool(
+        service._CREATE_CHECKLIST_ITEM_TOOL_NAME,
+        {"title": "檢查磁碟空間", "detectable": "manual"},
+        snapshot_items=[],
+        analysis_revision=1,
+        template_key="linux",
+        template_commands=None,
+        ready_only=False,
+        read_ids=read_ids,
+        staged_ops=staged_ops,
+        rejected_ops=rejected_ops,
+        tool_calls=tool_calls,
+    )
+    second = service._execute_checklist_tool(
+        service._CREATE_CHECKLIST_ITEM_TOOL_NAME,
+        {"title": "檢查磁碟空間 "},
+        snapshot_items=[],
+        analysis_revision=1,
+        template_key="linux",
+        template_commands=None,
+        ready_only=False,
+        read_ids=read_ids,
+        staged_ops=staged_ops,
+        rejected_ops=rejected_ops,
+        tool_calls=tool_calls,
+    )
+
+    assert first.get("staged") == "add"
+    assert "error" in second
+    assert "同標題" in second["error"]
+    staged_id = str(staged_ops[0]["item"].id)
+    assert second["error"].find(f"id={staged_id}") >= 0
+    duplicates = [entry for entry in tool_calls if entry.get("status") == "duplicate"]
+    assert len(duplicates) == 1
+    assert duplicates[0]["item_id"] == staged_id
+    assert len(staged_ops) == 1
+
+
 def test_teacher_judge_prompt_uses_goal_directed_diagnostic_principles():
     assert "熟悉 Linux、Windows 系統管理與常見 CLI 工具" in CHAT_SYSTEM_TEMPLATE
     assert "根據老師要確認的目的，自行選擇適合的診斷指令" in (
@@ -220,7 +303,6 @@ async def test_teacher_judge_session_proposal_keeps_only_ready_changes(monkeypat
                 "create_checklist_item",
                 {
                     "title": "main.py 輸出 20",
-                    "description": "在專案目錄執行 main.py 並確認輸出 20。",
                     "detectable": "auto",
                     "judgement_mode": "ai",
                     "detection_method": "比較 exit code 與 stdout。",
@@ -281,7 +363,6 @@ async def test_teacher_judge_session_proposal_keeps_only_ready_changes(monkeypat
                     {
                         "id": "item-existing",
                         "title": "既有檢查",
-                        "description": "保留原本設定。",
                         "detectable": "auto",
                         "detection_method": "比較 exit code 與 stdout。",
                         "check_steps": [
@@ -313,6 +394,190 @@ async def test_teacher_judge_session_proposal_keeps_only_ready_changes(monkeypat
     assert "多條需求可以分次呼叫工具" in captured["messages"][0][
         "content"
     ]
+
+
+@pytest.mark.asyncio
+async def test_teacher_judge_parses_fenced_json_tool_call_and_hides_it_from_reply(
+    monkeypatch,
+):
+    """Qwen-style ```json tool calls in content must execute and never leak."""
+    monkeypatch.setattr(system_ai_env, "vllm_model_name", "test-model")
+    fenced_call = (
+        "```json\n"
+        + json.dumps(
+            {
+                "name": "create_checklist_item",
+                "arguments": {
+                    "title": "main.py 輸出 20",
+                    "detectable": "auto",
+                    "judgement_mode": "ai",
+                    "detection_method": "比較 exit code 與 stdout。",
+                    "missing_information": [],
+                    "check_steps": [
+                        {
+                            "template_key": "python",
+                            "command_key": "python.run_entrypoint",
+                            "parameters": {
+                                "cwd": "/home/student/project",
+                                "argv": ["python3", "main.py"],
+                                "timeout_seconds": 30,
+                                "success_criteria": (
+                                    "exit code 為 0 且 stdout 等於 20"
+                                ),
+                            },
+                        }
+                    ],
+                },
+            },
+            ensure_ascii=False,
+        )
+        + "\n```"
+    )
+    calls, fake_call = _scripted_vllm(
+        [
+            {"role": "assistant", "content": fenced_call},
+            _reply_message("已將 main.py 輸出 20 放入提案。", "ready"),
+        ],
+    )
+
+    async def capture_call(payload, timeout=60.0):
+        calls.append(payload)
+        return await fake_call(payload, timeout=timeout)
+
+    monkeypatch.setattr(service, "_call_vllm_message", capture_call)
+    proposal_command = TeacherJudgeTemplateCommand(
+        template_key="python",
+        command_key="python.run_entrypoint",
+        command_label="執行 Python 程式入口",
+        category="execution",
+        command_template="python3 main.py",
+        description="執行老師指定目錄中的 Python 程式並收集輸出。",
+        risk_level="executes_code",
+        requires_confirmation=True,
+    )
+
+    reply, proposal, _metrics = await service.chat_with_rubric(
+        [
+            TeacherJudgeRubricChatMessage(
+                role="user",
+                content="執行 main.py 輸出 20。",
+            )
+        ],
+        json.dumps({"items": []}),
+        template_key="python",
+        template_commands=[proposal_command],
+        rubric_available=True,
+    )
+
+    assert proposal is not None
+    assert proposal[0]["operation"] == "add"
+    assert proposal[0]["title"] == "main.py 輸出 20"
+    assert "```" not in reply
+    assert "create_checklist_item" not in reply
+    assert "main.py 輸出 20" in reply
+    assistant_history = [
+        message
+        for message in calls[-1]["messages"]
+        if message.get("role") == "assistant"
+    ]
+    assert assistant_history and "```" not in str(assistant_history[-1]["content"])
+
+
+@pytest.mark.asyncio
+async def test_teacher_judge_unwraps_non_tool_json_fence_in_reply(monkeypatch):
+    """A ```json fence around the reply payload is unwrapped, not leaked."""
+    monkeypatch.setattr(system_ai_env, "vllm_model_name", "test-model")
+    fenced_reply = (
+        "```json\n"
+        + json.dumps(
+            {"reply": "這是普通說明。", "proposal_status": "none"},
+            ensure_ascii=False,
+        )
+        + "\n```"
+    )
+    calls, fake_call = _scripted_vllm([{"role": "assistant", "content": fenced_reply}])
+    monkeypatch.setattr(service, "_call_vllm_message", fake_call)
+
+    reply, proposal, _metrics = await service.chat_with_rubric(
+        [TeacherJudgeRubricChatMessage(role="user", content="說明")],
+        json.dumps({"items": []}),
+        template_commands=[],
+    )
+
+    assert proposal is None
+    assert reply == "這是普通說明。"
+
+
+@pytest.mark.asyncio
+async def test_teacher_judge_strips_fenced_reply_payload_around_prose(monkeypatch):
+    """A ```json reply payload next to prose must never leak to the teacher."""
+    monkeypatch.setattr(system_ai_env, "vllm_model_name", "test-model")
+    payload = json.dumps(
+        {
+            "reply": "還缺少檔案位置，請提供完整路徑。",
+            "proposal_status": "needs_information",
+        },
+        ensure_ascii=False,
+    )
+    leaked = f"好的。\n```json\n{payload}\n```"
+    calls, fake_call = _scripted_vllm([{"role": "assistant", "content": leaked}])
+    monkeypatch.setattr(service, "_call_vllm_message", fake_call)
+
+    reply, proposal, _metrics = await service.chat_with_rubric(
+        [TeacherJudgeRubricChatMessage(role="user", content="檢查檔案格式")],
+        json.dumps({"items": []}),
+        template_commands=[],
+    )
+
+    assert len(calls) == 1
+    assert proposal is None
+    assert reply == "還缺少檔案位置，請提供完整路徑。"
+    assert "```" not in reply
+    assert "proposal_status" not in reply
+    assert "conversation_focus" not in reply
+
+
+def test_teacher_judge_structured_readers_unwrap_fenced_payload() -> None:
+    """Focus and ready-claim detection must survive a fenced reply payload."""
+    focus = _requirement_focus("ready", key="Python 版本檢查", title="目標版本為 3.12")
+    fenced = (
+        "```json\n"
+        + json.dumps(
+            {
+                "reply": "我已將需求整理成提案。",
+                "proposal_status": "ready",
+                "conversation_focus": focus,
+            },
+            ensure_ascii=False,
+        )
+        + "\n```"
+    )
+
+    parsed_focus = service._conversation_focus_from_content(fenced, proposal=None)
+    assert parsed_focus is not None
+    assert parsed_focus["turn_kind"] == "requirement"
+    assert parsed_focus["requirements"][0]["focus_key"] == "Python 版本檢查"
+    assert service._structured_requirement_needs_candidate(fenced) is True
+
+    # Bare JSON embedded in prose is unwrapped instead of leaked.
+    bare = (
+        "已記下。"
+        + json.dumps(
+            {"reply": "補充完成。", "proposal_status": "none"},
+            ensure_ascii=False,
+        )
+        + "以上。"
+    )
+    leftover, parsed = service._reply_payload_object(bare)
+    assert parsed is not None
+    assert parsed["reply"] == "補充完成。"
+    assert '"reply"' not in leftover
+
+    # An unparseable fence with internal payload keys is dropped, not shown.
+    broken = '```json\n{"reply": "提案已建立。", "proposal_status": "ready",}\n```'
+    reply, status = service._parse_chat_reply_payload(broken)
+    assert reply == ""
+    assert status is None
 
 
 def _scripted_vllm(steps: list[object]):
@@ -451,7 +716,6 @@ async def test_teacher_judge_recovers_read_file_alias_as_generic_command(
                 "create_checklist_item",
                 {
                     "title": "確認 answer.txt 內容格式",
-                    "description": "確認 answer.txt 內容格式正確。",
                     "detectable": "auto",
                     "judgement_mode": "ai",
                     "detection_method": "讀取檔案並逐行驗證。",

@@ -32,7 +32,6 @@ def _item(*, detectable: str = "auto", parameters: dict | None = None) -> Teache
     return TeacherJudgeRubricItem(
         id="item-1",
         title="main.py 執行結果",
-        description="執行 main.py，確認無錯誤並輸出整數 20。",
         detectable=detectable,
         detection_method="依 exit code 與 stdout 精確判定",
         check_steps=[
@@ -96,7 +95,6 @@ def test_generic_command_timeout_is_platform_owned_not_teacher_missing_info() ->
     item = TeacherJudgeRubricItem(
         id="item-1",
         title="讀取環境設定",
-        description="在指定工作目錄讀取 .env。",
         detectable="auto",
         detection_method="以 exit code 判定檔案是否可讀",
         check_steps=[
@@ -122,7 +120,6 @@ def test_generic_command_reports_target_instead_of_internal_argv_or_timeout() ->
     item = TeacherJudgeRubricItem(
         id="item-1",
         title="讀取資料",
-        description="讀取尚未指定的資料。",
         detectable="auto",
         detection_method="以 exit code 判定",
         check_steps=[
