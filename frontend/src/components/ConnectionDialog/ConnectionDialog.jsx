@@ -1,26 +1,25 @@
 /**
- * ConnectionDialog — 網路連線／防火牆規則的統一對話框
- * 兩個入口共用同一份：拓撲頁「新增連線」、資源頁防火牆卡片「新增規則」。
- * （`service` 編輯模式目前沒有入口在用，保留給日後需要就地編輯既有發布的頁面。）
+ * ConnectionDialog — 網路連線／防火牆規則的統一對話框（意圖優先）
+ * 三個入口共用：拓撲頁「新增連線」（可由拉線帶入兩端）、資源頁防火牆卡片與
+ * 拓撲頁規則面板的「新增規則」（鎖定這台機器）。
  *
- * 「連線」分頁依來源／目標的組合決定表單：
- * - 網際網路 → VM：入站發布（用網址／用對外 port／僅開放防火牆），逐 port 走 publishService，
- *   有重複 port 與網域撞名保護；無 port 協定（icmp）走 createConnection。
- * - VM → 網際網路：出站上網、不限 port，走 createConnection。
- * - VM → VM：指定 port 與單向／雙向，走 createConnection。
- * 「自訂規則」分頁直接寫一條 Proxmox 原始規則（方向／動作／協定／來源／備註），走 createVmRule；
- * 這類規則不帶 SkyLab: 標記，不會出現在拓撲圖上。
+ * 使用者先選「要做什麼」，方向由意圖決定，不再自己排來源與目標：
+ * - 開放服務給外部（網際網路 → VM）：網址／對外 port／僅開放防火牆三選一，
+ *   逐 port 走 publishService，有網域撞名保護；無 port 協定（icmp）走 createConnection。
+ * - 讓機器能上網（VM → 網際網路）：不限 port，走 createConnection。
+ * - 兩台機器互通（VM → VM）：指定 port 與單向／雙向，走 createConnection。
+ * - 自己寫規則：直接寫一條 Proxmox 原始規則，走 createVmRule；不帶 SkyLab: 標記，不上拓撲圖。
  *
- * payload 組裝與驗證在 connectionPayload.js、送出流程在 submitConnection.js，
- * 兩者都是純邏輯且有測試覆蓋；這個檔案只負責表單狀態與呈現。
+ * payload 組裝與驗證在 connectionPayload.js、送出在 submitConnection.js、
+ * 意圖推導在 intents.js，三者都是純邏輯且有測試；這個檔案只管表單狀態與呈現。
  *
  * props：
  * - nodes            可選，[{ key, vmid, name }]；沒給就自己抓 getTopology()
- * - fixedVmid        鎖定一端為這台 VM（資源詳情頁用），另一端自由選；fixedName 為顯示名稱備援
- * - initialSource / initialTarget  預設兩端（"internet" 或 vmid 字串）
- * - initialTab       "connection"（預設）| "rule"
+ * - fixedVmid        鎖定機器為這台 VM（資源詳情頁用）；fixedName 為顯示名稱備援
+ * - initialSource / initialTarget  拉線帶入的兩端（"internet" 或 vmid 字串），能推導出意圖就直接跳過選意圖
+ * - initialTab       "rule" 時預選「自己寫規則」（仍可更改）
  * - initialMode      入站預設發布方式 "domain" | "port_forward" | "firewall_only"（網址不可用時退回對外 port）
- * - service          編輯既有對外服務時傳入（鎖定入站、單一 port，改走 replacePublishedService）
+ * - service          編輯既有對外服務時傳入（鎖定意圖與機器、單一 port，改走 replacePublishedService）
  * - onDone(result)   全部成功後回呼（呼叫端負責關閉與重新載入）
  * - onChanged()      可選；多筆發布途中失敗時，已成功的部分會先通知一次
  * - onClose / closing
@@ -35,6 +34,12 @@ import styles from "./ConnectionDialog.module.scss";
 import MIcon from "../MIcon";
 import { focusInvalidField } from "../../utils/focusField";
 import { getTopology } from "../../services/firewall";
+import { ReverseProxyService } from "../../services/reverseProxy";
+import {
+  COMMON_PORTS,
+  extractHostnamePrefix,
+  findZoneByDomain,
+} from "../ReverseProxyRuleModal/ReverseProxyRuleModal";
 import {
   buildInboundPayload,
   buildOutboundPorts,
@@ -43,14 +48,10 @@ import {
   isPortless,
 } from "./connectionPayload";
 import { submitEdge, submitInbound, submitRule } from "./submitConnection";
-import { ReverseProxyService } from "../../services/reverseProxy";
-import {
-  COMMON_PORTS,
-  extractHostnamePrefix,
-  findZoneByDomain,
-} from "../ReverseProxyRuleModal/ReverseProxyRuleModal";
+import { INTENT, INTERNET_KEY, deriveInitialState, endsOf, isVmKey } from "./intents";
+import IntentPicker from "./IntentPicker";
 
-export const INTERNET_KEY = "internet";
+export { INTERNET_KEY };
 
 const INBOUND_MODES = ["domain", "port_forward", "firewall_only"];
 const CONNECTION_PROTOCOLS = ["tcp", "udp", "icmp", "icmpv6", "sctp"];
@@ -59,8 +60,6 @@ const RULE_PROTOCOLS = ["tcp", "udp", "icmp"];
 const AVAILABILITY_DEBOUNCE_MS = 500;
 const COMMON_PORTS_LIST_ID = "connection-dialog-common-ports";
 const EMPTY = [];
-
-const isVmKey = (key) => Boolean(key) && key !== INTERNET_KEY;
 
 let _uid = 0;
 const uid = () => ++_uid;
@@ -108,8 +107,14 @@ function PortRows({ rows, setRows, protocols, invalid, single }) {
               {protocols.map((p) => <option key={p} value={p}>{p}</option>)}
             </select>
             {!single && (
-              <button type="button" className={styles.removeBtn} onClick={() => remove(row.id)} disabled={rows.length === 1}>
-                <MIcon name="remove" size={16} />
+              <button
+                type="button"
+                className={styles.removeBtn}
+                onClick={() => remove(row.id)}
+                disabled={rows.length === 1}
+                aria-label={t("ConnectionDialog.removeRow")}
+              >
+                <MIcon name="close" size={16} />
               </button>
             )}
           </div>
@@ -168,8 +173,14 @@ function ForwardRows({ rows, setRows, invalid, single }) {
             {FORWARD_PROTOCOLS.map((p) => <option key={p} value={p}>{p}</option>)}
           </select>
           {!single && (
-            <button type="button" className={styles.removeBtn} onClick={() => remove(row.id)} disabled={rows.length === 1}>
-              <MIcon name="remove" size={16} />
+            <button
+              type="button"
+              className={styles.removeBtn}
+              onClick={() => remove(row.id)}
+              disabled={rows.length === 1}
+              aria-label={t("ConnectionDialog.removeRow")}
+            >
+              <MIcon name="close" size={16} />
             </button>
           )}
         </div>
@@ -204,8 +215,26 @@ export default function ConnectionDialog({
   const fixedKey = fixedVmid != null ? String(fixedVmid) : null;
   const editing = Boolean(service);
 
-  /* ── 分頁 ── */
-  const [tab, setTab] = useState(editing ? "connection" : initialTab);
+  /* ── 送出狀態（放前面，換意圖時要一起清） ── */
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState("");
+  const [portsInvalid, setPortsInvalid] = useState(false);
+  const editRows = (setter) => (updater) => { setPortsInvalid(false); setError(""); setter(updater); };
+
+  /* ── 意圖與機器 ── */
+  const [initial] = useState(() =>
+    deriveInitialState({ initialSource, initialTarget, initialTab, fixedKey, editing }),
+  );
+  const [intent, setIntentState] = useState(initial.intent);
+  const [vmKey, setVmKey] = useState(initial.vmKey);
+  const [peerSourceKey, setPeerSourceKey] = useState(initial.peerSourceKey);
+  const [peerTargetKey, setPeerTargetKey] = useState(initial.peerTargetKey);
+  const setIntent = (next) => { setIntentState(next); setError(""); setPortsInvalid(false); };
+
+  const isInbound  = intent === INTENT.PUBLISH;
+  const isOutbound = intent === INTENT.OUTBOUND;
+  const isVmToVm   = intent === INTENT.PEER;
+  const isRule     = intent === INTENT.RULE;
 
   /* ── 節點清單：沒給就自己抓 ── */
   const [fetchedNodes, setFetchedNodes] = useState(null);
@@ -234,51 +263,31 @@ export default function ConnectionDialog({
     return list;
   }, [nodes, fetchedNodes, fixedKey, fixedVmid, fixedName]);
 
-  const nodeOptions = useMemo(
-    () => [{ key: INTERNET_KEY, label: t("ConnectionDialog.gatewayLabel") }, ...vmNodes.map((n) => ({ key: n.key, label: n.name }))],
-    [vmNodes, t],
-  );
-  const labelOf = (key) => nodeOptions.find((n) => n.key === key)?.label ?? key;
+  const labelOf = (key) =>
+    key === INTERNET_KEY
+      ? t("ConnectionDialog.gatewayLabel")
+      : (vmNodes.find((n) => n.key === key)?.name ?? key);
   const getVmid = (key) => (key === INTERNET_KEY ? null : (vmNodes.find((n) => n.key === key)?.vmid ?? null));
 
-  /* ── 兩端 ── */
-  const [sourceKey, setSourceKey] = useState(() => {
-    if (editing) return INTERNET_KEY;
-    return initialSource ?? INTERNET_KEY;
-  });
-  const [targetKey, setTargetKey] = useState(() => {
-    if (editing) return fixedKey ?? initialTarget ?? "";
-    if (initialTarget) return initialTarget;
-    if (fixedKey) return initialSource === fixedKey ? INTERNET_KEY : fixedKey;
-    return "";
-  });
-
-  /* 清單載入後修正無效的端點（拉線帶入的 key 不存在、或還沒選到 VM） */
+  /* 清單載入後修正無效的機器（拉線帶入的 key 不存在、或還沒選） */
   useEffect(() => {
     if (nodesLoading) return;
-    const known = (k) => k === INTERNET_KEY || vmNodes.some((n) => n.key === k);
-    setSourceKey((s) => (known(s) ? s : INTERNET_KEY));
-    setTargetKey((tk) => {
-      if (known(tk)) return tk;
-      return fixedKey ?? vmNodes[0]?.key ?? "";
-    });
+    const known = (k) => isVmKey(k) && vmNodes.some((n) => n.key === k);
+    const fallback = fixedKey ?? vmNodes[0]?.key ?? "";
+    setVmKey((k) => (known(k) ? k : fallback));
+    setPeerSourceKey((k) => (known(k) ? k : fallback));
   }, [nodesLoading, vmNodes, fixedKey]);
 
-  /* 兩端不能相同；鎖定模式下必須有一端是這台 VM */
-  const applyEnds = (s, tk) => {
-    if (fixedKey && s !== fixedKey && tk !== fixedKey) tk = fixedKey;
-    setSourceKey(s);
-    setTargetKey(tk);
-  };
-  const pickSource = (key) => applyEnds(key, key === targetKey ? sourceKey : targetKey);
-  const pickTarget = (key) => applyEnds(key === sourceKey ? targetKey : sourceKey, key);
-  const swapEnds = () => applyEnds(targetKey, sourceKey);
+  /* 互通的另一端必須是另一台已知的機器；來源改成跟目標同一台時目標自動讓位 */
+  useEffect(() => {
+    if (nodesLoading) return;
+    setPeerTargetKey((k) => {
+      const ok = isVmKey(k) && k !== peerSourceKey && vmNodes.some((n) => n.key === k);
+      return ok ? k : (vmNodes.find((n) => n.key !== peerSourceKey)?.key ?? "");
+    });
+  }, [nodesLoading, vmNodes, peerSourceKey]);
 
-  const isInternetSrc = sourceKey === INTERNET_KEY;
-  const isInternetTgt = targetKey === INTERNET_KEY;
-  const isInbound = isInternetSrc && isVmKey(targetKey);
-  const isOutbound = isVmKey(sourceKey) && isInternetTgt;
-  const isVmToVm = isVmKey(sourceKey) && isVmKey(targetKey);
+  const { sourceKey, targetKey } = endsOf(intent, { vmKey, peerSourceKey, peerTargetKey });
 
   /* ── 入站：發布方式 ── */
   const [setupContext, setSetupContext] = useState(null);
@@ -303,12 +312,8 @@ export default function ConnectionDialog({
   }, [setupContext, domainReady, editing]);
   const modeCards = INBOUND_MODES.filter((m) => m !== "domain" || domainReady || service?.mode === "domain");
 
-  /* 網址模式 */
-  const matchedCommon = editing ? COMMON_PORTS.find((p) => p.value === String(service.port)) : null;
-  const [commonPort, setCommonPort] = useState(matchedCommon?.value ?? "80");
-  const [customPort, setCustomPort] = useState(editing && !matchedCommon ? String(service.port) : "");
-  const [useCustomPort, setUseCustomPort] = useState(Boolean(editing && !matchedCommon));
-  const domainPort = useCustomPort ? customPort : commonPort;
+  /* 網址模式：port 直接輸入，常用埠由 datalist 提示 */
+  const [domainPort, setDomainPort] = useState(editing ? String(service.port) : "80");
   const [zoneId, setZoneId] = useState("");
   const [prefix, setPrefix] = useState(service?.domain ?? "");
   const [enableHttps, setEnableHttps] = useState(service?.enable_https ?? true);
@@ -335,7 +340,7 @@ export default function ConnectionDialog({
 
   /* 網域即時檢查：本系統建的或 Cloudflare 上原本就有的，撞名都提醒 */
   useEffect(() => {
-    if (tab !== "connection" || !isInbound || mode !== "domain" || !fullDomain || domainUnchanged) {
+    if (!isInbound || mode !== "domain" || !fullDomain || domainUnchanged) {
       setAvailability(null);
       return undefined;
     }
@@ -347,7 +352,7 @@ export default function ConnectionDialog({
         .catch(() => !cancelled && setAvailability(null));
     }, AVAILABILITY_DEBOUNCE_MS);
     return () => { cancelled = true; clearTimeout(timer); };
-  }, [tab, isInbound, mode, fullDomain, domainUnchanged]);
+  }, [isInbound, mode, fullDomain, domainUnchanged]);
 
   /* port 列 */
   const [fwdRows, setFwdRows] = useState(() => [
@@ -362,13 +367,6 @@ export default function ConnectionDialog({
   const [direction, setDirection] = useState("one_way");
 
   /* ── 自訂規則 ── */
-  const [ruleVmKey, setRuleVmKey] = useState(
-    fixedKey ?? (isVmKey(initialTarget) ? initialTarget : isVmKey(initialSource) ? initialSource : ""),
-  );
-  useEffect(() => {
-    if (nodesLoading) return;
-    setRuleVmKey((k) => (vmNodes.some((n) => n.key === k) ? k : (fixedKey ?? vmNodes[0]?.key ?? "")));
-  }, [nodesLoading, vmNodes, fixedKey]);
   const [rule, setRule] = useState({ type: "in", action: "ACCEPT", proto: "tcp", dport: "", source: "", comment: "" });
   const setRuleField = (k, v) => setRule((prev) => ({ ...prev, [k]: v }));
   /* Proxmox 的 dport 一定要搭配協定；icmp 類沒有 port */
@@ -376,11 +374,6 @@ export default function ConnectionDialog({
   const ruleOverlapsPublish = rule.type === "in" && rule.action === "ACCEPT" && !rule.source.trim() && !rulePortDisabled;
 
   /* ── 送出 ── */
-  const [submitting, setSubmitting] = useState(false);
-  const [error, setError] = useState("");
-  const [portsInvalid, setPortsInvalid] = useState(false);
-  const editRows = (setter) => (updater) => { setPortsInvalid(false); setError(""); setter(updater); };
-
   /** 錯誤優先顯示後端訊息，沒有才用翻譯；partialFailed 的巢狀訊息也在這裡補齊 */
   const describeError = (err) => {
     if (!err) return "";
@@ -397,9 +390,10 @@ export default function ConnectionDialog({
     e.preventDefault();
     const form = e.currentTarget;
     setError("");
+    if (!intent) return;
 
-    if (tab === "rule") {
-      const vmid = getVmid(ruleVmKey);
+    if (isRule) {
+      const vmid = getVmid(vmKey);
       if (vmid == null) { setError(t("ConnectionDialog.noNodes")); return; }
       const built = buildRulePayload(rule);
       if (built.error) { setError(describeError(built.error)); return; }
@@ -412,7 +406,8 @@ export default function ConnectionDialog({
     }
 
     if (isInbound) {
-      const vmid = getVmid(targetKey);
+      const vmid = getVmid(vmKey);
+      if (vmid == null) { setError(t("ConnectionDialog.noNodes")); return; }
       const built = buildInboundPayload({
         mode,
         domainPort,
@@ -454,14 +449,19 @@ export default function ConnectionDialog({
       }
       ports = built.ports;
     } else {
+      return;
+    }
+    const sourceVmid = getVmid(sourceKey);
+    const targetVmid = getVmid(targetKey);
+    if ((isVmKey(sourceKey) && sourceVmid == null) || (isVmKey(targetKey) && targetVmid == null)) {
       setError(t("ConnectionDialog.noNodes"));
       return;
     }
 
     setSubmitting(true);
     const res = await submitEdge({
-      sourceVmid: getVmid(sourceKey),
-      targetVmid: getVmid(targetKey),
+      sourceVmid,
+      targetVmid,
       ports,
       direction: isVmToVm ? direction : "one_way",
     });
@@ -473,18 +473,21 @@ export default function ConnectionDialog({
   /* ── 文案 ── */
   const title = editing
     ? t("ConnectionDialog.titleEditService")
-    : tab === "rule" ? t("ConnectionDialog.titleRule") : t("ConnectionDialog.title");
+    : isRule ? t("ConnectionDialog.titleRule") : t("ConnectionDialog.title");
   const submitLabel = submitting
     ? t("ConnectionDialog.working")
-    : tab === "rule"
+    : isRule
       ? t("ConnectionDialog.addRule")
       : editing
         ? t("ConnectionDialog.saveChanges")
         : isInbound
           ? t("ConnectionDialog.publish")
           : t("ConnectionDialog.createConnection");
-  const submitDisabled = submitting || nodesLoading
-    || (tab === "connection" && isInbound && mode === "domain" && (availability?.checking || availability?.available === false));
+  const machineReady = isVmToVm
+    ? isVmKey(peerSourceKey) && isVmKey(peerTargetKey)
+    : isVmKey(vmKey);
+  const submitDisabled = submitting || nodesLoading || !intent || !machineReady
+    || (isInbound && mode === "domain" && (availability?.checking || availability?.available === false));
 
   const availabilityTone = availability?.checking
     ? ""
@@ -512,14 +515,36 @@ export default function ConnectionDialog({
           ? t("ConnectionDialog.domainUnchanged", { domain: fullDomain })
           : fullDomain;
 
-  const endSelect = (label, value, onPick) => (
-    <div className={styles.nodeSelect}>
-      <label className={styles.nodeLabel}>{label}</label>
-      <select value={value} onChange={(e) => onPick(e.target.value)} className={styles.select} disabled={editing || nodesLoading}>
-        {nodeOptions.map((n) => <option key={n.key} value={n.key}>{n.label}</option>)}
-      </select>
-    </div>
-  );
+  /* 機器欄位：鎖定（資源頁入口、編輯）就顯示名稱，否則下拉 */
+  const machineField = (id, label, value, onPick, { exclude } = {}) => {
+    const locked = editing || (fixedKey !== null && value === fixedKey);
+    const options = vmNodes.filter((n) => n.key !== exclude);
+    return (
+      <div className={styles.field}>
+        <label className={styles.fieldLabel} htmlFor={id}>{label}</label>
+        {locked ? (
+          <div className={styles.lockedMachine} id={id}>
+            <MIcon name="dns" size={16} />
+            <span>{labelOf(value)}</span>
+          </div>
+        ) : (
+          <select
+            id={id}
+            className={styles.select}
+            value={value}
+            onChange={(e) => onPick(e.target.value)}
+            disabled={nodesLoading}
+          >
+            {options.map((n) => <option key={n.key} value={n.key}>{n.name}</option>)}
+          </select>
+        )}
+        {nodesLoading && <span className={styles.fieldHint}>{t("ConnectionDialog.loadingNodes")}</span>}
+        {!nodesLoading && !locked && options.length === 0 && (
+          <span className={styles.fieldHint}>{t("ConnectionDialog.noNodes")}</span>
+        )}
+      </div>
+    );
+  };
 
   return createPortal(
     <div
@@ -534,213 +559,162 @@ export default function ConnectionDialog({
           </button>
         </div>
 
-        {!editing && (
-          <div className={styles.tabs} role="tablist">
-            <button
-              type="button" role="tab" aria-selected={tab === "connection"}
-              className={`${styles.tab} ${tab === "connection" ? styles.tabActive : ""}`}
-              onClick={() => { setTab("connection"); setError(""); }}
-            >
-              <MIcon name="hub" size={16} />
-              {t("ConnectionDialog.tabConnection")}
-            </button>
-            <button
-              type="button" role="tab" aria-selected={tab === "rule"}
-              className={`${styles.tab} ${tab === "rule" ? styles.tabActive : ""}`}
-              onClick={() => { setTab("rule"); setError(""); }}
-            >
-              <MIcon name="tune" size={16} />
-              {t("ConnectionDialog.tabRule")}
-            </button>
-          </div>
-        )}
-
         <form className={styles.dialogBody} onSubmit={handleSubmit}>
           <datalist id={COMMON_PORTS_LIST_ID}>
             {COMMON_PORTS.map((p) => <option key={p.value} value={p.value}>{t(p.labelKey)}</option>)}
           </datalist>
 
-          {tab === "connection" ? (
+          <IntentPicker value={intent} onChange={setIntent} locked={editing} />
+
+          {/* 讓機器能上網：選好機器就能送 */}
+          {isOutbound && (
             <>
-              <p className={styles.tabDesc}>{t("ConnectionDialog.tabConnectionDesc")}</p>
+              {machineField("cd-vm", t("ConnectionDialog.machine"), vmKey, setVmKey)}
+              <p className={styles.infoBox}>
+                <MIcon name="info" size={16} />
+                {t("ConnectionDialog.outboundMessage", { source: labelOf(vmKey) })}
+              </p>
+            </>
+          )}
 
-              {/* 來源 ⇄ 目標 */}
-              <div className={styles.nodeRow}>
-                {endSelect(t("ConnectionDialog.source"), sourceKey, pickSource)}
-                <button
-                  type="button"
-                  className={styles.swapBtn}
-                  onClick={swapEnds}
-                  disabled={editing || nodesLoading}
-                  title={t("ConnectionDialog.swapAriaLabel")}
-                  aria-label={t("ConnectionDialog.swapAriaLabel")}
-                >
-                  <MIcon name="swap_horiz" size={20} />
-                </button>
-                {endSelect(t("ConnectionDialog.target"), targetKey, pickTarget)}
+          {/* 開放服務給外部 */}
+          {isInbound && (
+            <>
+              {machineField("cd-vm", t("ConnectionDialog.machine"), vmKey, setVmKey)}
+
+              <div className={styles.field}>
+                <label className={styles.fieldLabel}>{t("ConnectionDialog.publishMethod")}</label>
+                <div className={styles.modeCards}>
+                  {modeCards.map((m) => {
+                    const meta = modeMeta(m);
+                    const active = mode === m;
+                    return (
+                      <button
+                        key={m}
+                        type="button"
+                        className={`${styles.modeCard} ${active ? styles.modeCardActive : ""}`}
+                        onClick={() => setMode(m)}
+                        aria-pressed={active}
+                      >
+                        <strong><MIcon name={meta.icon} size={14} /> {t(meta.labelKey)}</strong>
+                        {/* 只有選中的那張展開說明，其餘留標題就好 */}
+                        {active && <span>{t(meta.descKey)}</span>}
+                      </button>
+                    );
+                  })}
+                </div>
+                {setupContext && !domainReady && (
+                  <span className={styles.fieldHint}>
+                    {setupContext?.reasons?.[0] ?? t("ConnectionDialog.domainUnavailable")}
+                  </span>
+                )}
               </div>
-              {nodesLoading && <p className={styles.fieldHint}>{t("ConnectionDialog.loadingNodes")}</p>}
-              {!nodesLoading && vmNodes.length === 0 && <p className={styles.fieldHint}>{t("ConnectionDialog.noNodes")}</p>}
 
-              {/* 出站：只需確認 */}
-              {isOutbound && (
-                <p className={styles.infoBox}>
-                  <MIcon name="info" size={16} />
-                  {t("ConnectionDialog.outboundMessage", { source: labelOf(sourceKey) })}
-                </p>
-              )}
-
-              {/* 入站：發布方式 */}
-              {isInbound && (
+              {mode === "domain" && (
                 <>
-                  <div className={styles.field}>
-                    <label className={styles.fieldLabel}>{t("ConnectionDialog.publishMethod")}</label>
-                    <div className={styles.modeCards}>
-                      {modeCards.map((m) => {
-                        const meta = modeMeta(m);
-                        return (
-                          <button
-                            key={m}
-                            type="button"
-                            className={`${styles.modeCard} ${mode === m ? styles.modeCardActive : ""}`}
-                            onClick={() => setMode(m)}
-                          >
-                            <strong><MIcon name={meta.icon} size={14} /> {t(meta.labelKey)}</strong>
-                            <span>{t(meta.descKey)}</span>
-                          </button>
-                        );
-                      })}
+                  <div className={styles.formGrid}>
+                    <div className={styles.field}>
+                      <label className={styles.fieldLabel} htmlFor="cd-domain-port">{t("ConnectionDialog.portLabel")}</label>
+                      <input
+                        id="cd-domain-port"
+                        type="number" min="1" max="65535"
+                        list={COMMON_PORTS_LIST_ID}
+                        className={styles.textInput}
+                        value={domainPort}
+                        onChange={(e) => { setError(""); setDomainPort(e.target.value); }}
+                        placeholder="80"
+                      />
                     </div>
-                    {setupContext && !domainReady && (
-                      <span className={styles.fieldHint}>
-                        {setupContext?.reasons?.[0] ?? t("ConnectionDialog.domainUnavailable")}
-                      </span>
-                    )}
-                  </div>
-
-                  {mode === "domain" && (
-                    <>
-                      <div className={styles.formGrid}>
-                        <div className={styles.field}>
-                          <label className={styles.fieldLabel} htmlFor="cd-domain-port">{t("ConnectionDialog.portLabel")}</label>
-                          {useCustomPort ? (
-                            <input
-                              id="cd-domain-port"
-                              type="number" min="1" max="65535"
-                              className={styles.textInput}
-                              value={customPort}
-                              onChange={(e) => { setError(""); setCustomPort(e.target.value); }}
-                              placeholder={t("ConnectionDialog.customPortPlaceholder")}
-                            />
-                          ) : (
-                            <select id="cd-domain-port" className={styles.select} value={commonPort} onChange={(e) => setCommonPort(e.target.value)}>
-                              {COMMON_PORTS.map((p) => <option key={p.value} value={p.value}>{t(p.labelKey)}</option>)}
-                            </select>
-                          )}
-                          <button type="button" className={styles.ghostBtn} onClick={() => setUseCustomPort((v) => !v)}>
-                            {useCustomPort ? t("ConnectionDialog.backToCommonPorts") : t("ConnectionDialog.portNotListed")}
-                          </button>
-                        </div>
-                        <div className={styles.field}>
-                          <label className={styles.fieldLabel}>{t("ConnectionDialog.protocol")}</label>
-                          <select className={styles.select} value="tcp" disabled>
-                            <option value="tcp">tcp</option>
-                          </select>
-                          <span className={styles.fieldHint}>{t("ConnectionDialog.domainTcpOnly")}</span>
-                        </div>
-                      </div>
-                      <div className={styles.formGrid}>
-                        <div className={styles.field}>
-                          <label className={styles.fieldLabel} htmlFor="cd-prefix">{t("ConnectionDialog.prefixLabel")}</label>
-                          <input
-                            id="cd-prefix"
-                            className={styles.textInput}
-                            value={prefix}
-                            onChange={(e) => { setError(""); setPrefix(e.target.value); }}
-                            placeholder={t("ConnectionDialog.prefixPlaceholder")}
-                          />
-                        </div>
-                        <div className={styles.field}>
-                          <label className={styles.fieldLabel} htmlFor="cd-zone">{t("ConnectionDialog.zoneLabel")}</label>
-                          <select id="cd-zone" className={styles.select} value={zoneId} onChange={(e) => setZoneId(e.target.value)}>
-                            {zones.map((z) => <option key={z.id} value={z.id}>.{z.name}</option>)}
-                          </select>
-                        </div>
-                      </div>
-                      {fullDomain && (
-                        <span className={`${styles.hintLine} ${availabilityTone}`}>
-                          <MIcon name={availabilityIcon} size={14} />
-                          {availabilityText}
-                        </span>
-                      )}
+                    <div className={`${styles.field} ${styles.fieldAlignEnd}`}>
                       <label className={styles.checkRow}>
                         <input type="checkbox" checked={enableHttps} onChange={(e) => setEnableHttps(e.target.checked)} />
                         <span>{t("ConnectionDialog.enableHttps")}</span>
                       </label>
-                    </>
-                  )}
-
-                  {mode === "port_forward" && (
-                    <ForwardRows rows={fwdRows} setRows={editRows(setFwdRows)} invalid={portsInvalid} single={editing} />
-                  )}
-
-                  {mode === "firewall_only" && (
-                    <>
-                      <p className={styles.fieldHint}>{t("ConnectionDialog.firewallOnlyHint")}</p>
-                      <PortRows
-                        rows={fwRows}
-                        setRows={editRows(setFwRows)}
-                        protocols={editing ? FORWARD_PROTOCOLS : CONNECTION_PROTOCOLS}
-                        invalid={portsInvalid}
-                        single={editing}
+                    </div>
+                  </div>
+                  <div className={styles.formGrid}>
+                    <div className={styles.field}>
+                      <label className={styles.fieldLabel} htmlFor="cd-prefix">{t("ConnectionDialog.prefixLabel")}</label>
+                      <input
+                        id="cd-prefix"
+                        className={styles.textInput}
+                        value={prefix}
+                        onChange={(e) => { setError(""); setPrefix(e.target.value); }}
+                        placeholder={t("ConnectionDialog.prefixPlaceholder")}
                       />
-                    </>
+                    </div>
+                    <div className={styles.field}>
+                      <label className={styles.fieldLabel} htmlFor="cd-zone">{t("ConnectionDialog.zoneLabel")}</label>
+                      <select id="cd-zone" className={styles.select} value={zoneId} onChange={(e) => setZoneId(e.target.value)}>
+                        {zones.map((z) => <option key={z.id} value={z.id}>.{z.name}</option>)}
+                      </select>
+                    </div>
+                  </div>
+                  {fullDomain && (
+                    <span className={`${styles.hintLine} ${availabilityTone}`}>
+                      <MIcon name={availabilityIcon} size={14} />
+                      {availabilityText}
+                    </span>
                   )}
                 </>
               )}
 
-              {/* VM → VM */}
-              {isVmToVm && (
+              {mode === "port_forward" && (
+                <ForwardRows rows={fwdRows} setRows={editRows(setFwdRows)} invalid={portsInvalid} single={editing} />
+              )}
+
+              {mode === "firewall_only" && (
                 <>
-                  <div className={styles.field}>
-                    <label className={styles.fieldLabel}>{t("ConnectionDialog.direction")}</label>
-                    <div className={styles.modeToggle}>
-                      <button
-                        type="button"
-                        className={`${styles.modeBtn} ${direction === "one_way" ? styles.modeBtnActive : ""}`}
-                        onClick={() => setDirection("one_way")}
-                      >
-                        {labelOf(sourceKey)} → {labelOf(targetKey)}
-                      </button>
-                      <button
-                        type="button"
-                        className={`${styles.modeBtn} ${direction === "bidirectional" ? styles.modeBtnActive : ""}`}
-                        onClick={() => setDirection("bidirectional")}
-                      >
-                        {t("ConnectionDialog.bidirectional")}
-                      </button>
-                    </div>
-                  </div>
-                  <p className={styles.fieldHint}>
-                    {t("ConnectionDialog.vmToVmHint", { source: labelOf(sourceKey), target: labelOf(targetKey) })}
-                  </p>
-                  <PortRows rows={vmRows} setRows={editRows(setVmRows)} protocols={CONNECTION_PROTOCOLS} invalid={portsInvalid} />
+                  <p className={styles.fieldHint}>{t("ConnectionDialog.firewallOnlyHint")}</p>
+                  <PortRows
+                    rows={fwRows}
+                    setRows={editRows(setFwRows)}
+                    protocols={editing ? FORWARD_PROTOCOLS : CONNECTION_PROTOCOLS}
+                    invalid={portsInvalid}
+                    single={editing}
+                  />
                 </>
               )}
             </>
-          ) : (
-            <>
-              <p className={styles.tabDesc}>{t("ConnectionDialog.tabRuleDesc")}</p>
+          )}
 
-              {!fixedKey && (
-                <div className={styles.field}>
-                  <label className={styles.fieldLabel} htmlFor="cd-rule-vm">{t("ConnectionDialog.ruleVm")}</label>
-                  <select id="cd-rule-vm" className={styles.select} value={ruleVmKey} onChange={(e) => setRuleVmKey(e.target.value)} disabled={nodesLoading}>
-                    {vmNodes.map((n) => <option key={n.key} value={n.key}>{n.name}</option>)}
-                  </select>
-                  {nodesLoading && <span className={styles.fieldHint}>{t("ConnectionDialog.loadingNodes")}</span>}
+          {/* 兩台機器互通 */}
+          {isVmToVm && (
+            <>
+              <div className={styles.formGrid}>
+                {machineField("cd-peer-source", t("ConnectionDialog.peerSource"), peerSourceKey, setPeerSourceKey)}
+                {machineField("cd-peer-target", t("ConnectionDialog.peerTarget"), peerTargetKey, setPeerTargetKey, { exclude: peerSourceKey })}
+              </div>
+              <div className={styles.field}>
+                <label className={styles.fieldLabel}>{t("ConnectionDialog.direction")}</label>
+                <div className={styles.modeToggle}>
+                  <button
+                    type="button"
+                    className={`${styles.modeBtn} ${direction === "one_way" ? styles.modeBtnActive : ""}`}
+                    onClick={() => setDirection("one_way")}
+                  >
+                    {labelOf(peerSourceKey)} → {labelOf(peerTargetKey)}
+                  </button>
+                  <button
+                    type="button"
+                    className={`${styles.modeBtn} ${direction === "bidirectional" ? styles.modeBtnActive : ""}`}
+                    onClick={() => setDirection("bidirectional")}
+                  >
+                    {t("ConnectionDialog.bidirectional")}
+                  </button>
                 </div>
-              )}
+              </div>
+              <p className={styles.fieldHint}>
+                {t("ConnectionDialog.vmToVmHint", { source: labelOf(peerSourceKey), target: labelOf(peerTargetKey) })}
+              </p>
+              <PortRows rows={vmRows} setRows={editRows(setVmRows)} protocols={CONNECTION_PROTOCOLS} invalid={portsInvalid} />
+            </>
+          )}
+
+          {/* 自己寫規則 */}
+          {isRule && (
+            <>
+              {machineField("cd-vm", t("ConnectionDialog.machine"), vmKey, setVmKey)}
 
               <div className={styles.formGrid}>
                 <div className={styles.field}>
@@ -808,7 +782,11 @@ export default function ConnectionDialog({
                   <MIcon name="lightbulb" size={16} />
                   <span>
                     {t("ConnectionDialog.ruleOverlapHint")}{" "}
-                    <button type="button" className={styles.linkBtn} onClick={() => { setTab("connection"); setError(""); }}>
+                    <button
+                      type="button"
+                      className={styles.linkBtn}
+                      onClick={() => { setIntent(INTENT.PUBLISH); setMode("firewall_only"); }}
+                    >
                       {t("ConnectionDialog.ruleOverlapAction")}
                     </button>
                   </span>
