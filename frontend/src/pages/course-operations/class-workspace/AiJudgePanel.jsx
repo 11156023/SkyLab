@@ -748,6 +748,38 @@ export function RubricTable({ items, onChange, onDelete, disabled, needsReviewId
 
 /* ── AI 對話面板 ────────────────────────────────────────── */
 
+/**
+ * 工具呼叫結果的教師顯示文字；以後端實際執行結果為準，
+ * 覆蓋模型回覆文字可能宣稱但實際未建立的狀態。
+ */
+export function proposalToolCallLines(message) {
+  const toolCalls = Array.isArray(message?.metadata_json?.tool_calls)
+    ? message.metadata_json.tool_calls
+    : [];
+  const lines = [];
+  toolCalls.forEach((call) => {
+    if (!call || typeof call !== "object") return;
+    if (call.status === "staged") {
+      const label =
+        call.operation === "update"
+          ? "已送出修改提案"
+          : "已建立提案";
+      lines.push({ icon: "check_circle", text: `${label}：${call.title ?? ""}` });
+    } else if (call.status === "rejected") {
+      lines.push({
+        icon: "cancel",
+        text: `提案未建立：${call.title ?? ""}`,
+      });
+    } else if (call.status === "no_change") {
+      lines.push({
+        icon: "info",
+        text: `內容未變更，未建立提案：${call.title ?? ""}`,
+      });
+    }
+  });
+  return lines;
+}
+
 export function ChatPanel({
   messages,
   onSendMessage,
@@ -825,6 +857,22 @@ export function ChatPanel({
                   </div>
                 )}
                 {msg.content}
+                {msg.role === "assistant" && (
+                  (() => {
+                    const toolLines = proposalToolCallLines(msg);
+                    if (!toolLines.length) return null;
+                    return (
+                      <ul className={styles.chatToolCallList} aria-label="AI 工具執行結果">
+                        {toolLines.map((line) => (
+                          <li key={line.text} className={styles.chatToolCallItem}>
+                            <MIcon name={line.icon} size={14} />
+                            <span>{line.text}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    );
+                  })()
+                )}
               </div>
               {msg.role === "user" && (
                 <span className={`${styles.chatAvatar} ${styles.chatAvatar_user}`}>
@@ -1331,6 +1379,7 @@ function RubricsTab({ classId, judgeSession, onSessionUpdated, onScriptCreated, 
       setSelectedProposalIds(new Set());
       setPendingProposalMeta(null);
       setPendingProposalIsRefine(false);
+      setPendingItemResults(null);
     }
 
     if (!judgeSession?.selected_file_id) {

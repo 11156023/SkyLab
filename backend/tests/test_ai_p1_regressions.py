@@ -96,9 +96,13 @@ def test_teacher_judge_chat_prompt_is_scoped_and_clarifies_missing_information()
     assert "兩者只能選符合本項設定的一種" in CHAT_SYSTEM_TEMPLATE
     assert "不得含糊寫成「由 AI 或導師判斷」" in CHAT_SYSTEM_TEMPLATE
     assert "補充後，我會重新確認並建立提案給你查看" not in CHAT_SYSTEM_TEMPLATE
-    assert "才呼叫 `get_current_checklist`" in CHAT_SYSTEM_TEMPLATE
+    assert "`list_checklist` 回傳所有項目的 ID、標題與偵測狀態" in CHAT_SYSTEM_TEMPLATE
+    assert "用 ID 查詢單一項目完整內容" in CHAT_SYSTEM_TEMPLATE
     assert "全新、與既有項目無關" in CHAT_SYSTEM_TEMPLATE
-    assert "只回傳本輪要預覽的新增、修改或刪除操作" in CHAT_SYSTEM_TEMPLATE
+    assert "檢查項目提案只能透過 `create_checklist_item`（新增）或" in (
+        CHAT_SYSTEM_TEMPLATE
+    )
+    assert "只填有變動的欄位" in CHAT_SYSTEM_TEMPLATE
     assert "{rubric_context}" not in CHAT_SYSTEM_TEMPLATE
     assert '"proposal_status": "ready | needs_information | unsupported | none"' in (
         CHAT_SYSTEM_TEMPLATE
@@ -112,10 +116,23 @@ def test_structured_proposal_status_overrides_reply_wording() -> None:
     assert service._proposal_status_claims_ready(None, "Ready") is False
 
 
-def test_proposal_repair_instruction_explains_invalid_step_to_model_only() -> None:
-    raw_items = [
+def test_create_tool_rejection_explains_invalid_step_to_model_only() -> None:
+    command = TeacherJudgeTemplateCommand(
+        template_key="linux",
+        command_key="system.run_command",
+        command_label="通用受控指令",
+        category="inspection",
+        command_template="argv + cwd + timeout",
+        description="執行單一唯讀診斷指令。",
+    )
+    read_ids: set[str] = set()
+    staged_ops: list[dict[str, object]] = []
+    rejected_ops: list[tuple[object, dict[str, object], str]] = []
+    tool_calls: list[dict[str, object]] = []
+
+    result = service._execute_checklist_tool(
+        service._CREATE_CHECKLIST_ITEM_TOOL_NAME,
         {
-            "id": "item-answer",
             "title": "檢查 answer.txt 內容",
             "detectable": "auto",
             "detection_method": "讀取檔案並確認內容格式。",
@@ -125,33 +142,28 @@ def test_proposal_repair_instruction_explains_invalid_step_to_model_only() -> No
                     "command_key": "invented.command",
                 }
             ],
-        }
-    ]
-    normalized = service._normalize_rubric_items(
-        raw_items,
+        },
+        snapshot_items=[],
+        analysis_revision=1,
         template_key="linux",
-        template_commands=[],
+        template_commands=[command],
+        ready_only=True,
+        read_ids=read_ids,
+        staged_ops=staged_ops,
+        rejected_ops=rejected_ops,
+        tool_calls=tool_calls,
     )
 
-    command = TeacherJudgeTemplateCommand(
-        template_key="linux",
-        command_key="system.run_command",
-        command_label="通用受控指令",
-        category="inspection",
-        command_template="argv + cwd + timeout",
-        description="執行單一唯讀診斷指令。",
+    assert "error" in result
+    assert "「檢查 answer.txt 內容」" in result["error"]
+    assert "linux/system.run_command" in result["error"]
+    assert "這份清單不是提案限制" in result["error"]
+    assert "system.run_command" in result["error"]
+    assert "單一非空 argv list" in result["error"]
+    assert staged_ops == []
+    assert any(
+        entry.get("status") == "rejected" for entry in tool_calls
     )
-    instruction = service._proposal_repair_instruction(
-        normalized,
-        raw_items,
-        [command],
-    )
-
-    assert "「檢查 answer.txt 內容」" in instruction
-    assert "linux/system.run_command" in instruction
-    assert "這份清單不是提案限制" in instruction
-    assert "system.run_command" in instruction
-    assert "單一非空 argv list" in instruction
 
 
 def test_teacher_judge_prompt_uses_goal_directed_diagnostic_principles():
@@ -200,81 +212,49 @@ async def test_non_object_chat_and_script_outputs_fail_cleanly(monkeypatch, cont
 async def test_teacher_judge_session_proposal_keeps_only_ready_changes(monkeypatch):
     monkeypatch.setattr(system_ai_env, "vllm_model_name", "test-model")
     captured = {}
-
-    async def fake_call(payload, timeout=60.0):
-        captured.update(payload)
-        return (
-            json.dumps(
+    calls, fake_call = _scripted_vllm(
+        [
+            # Round 1: the model creates only the Ready requirement; the
+            # partial and manual requirements stay out of the proposal.
+            _tool_call_message(
+                "create_checklist_item",
                 {
-                    "reply": (
-                        "1. main.py 輸出 20：Ready，已放入提案。\n"
-                        "2. Web 服務：缺少 Port。\n"
-                        "3. 報告清楚：不支援自動檢測，需人工評閱。"
-                    ),
-                    "updated_items": [
+                    "title": "main.py 輸出 20",
+                    "description": "在專案目錄執行 main.py 並確認輸出 20。",
+                    "detectable": "auto",
+                    "judgement_mode": "ai",
+                    "detection_method": "比較 exit code 與 stdout。",
+                    "missing_information": [],
+                    "check_steps": [
                         {
-                            "id": "item-existing",
-                            "title": "既有檢查",
-                            "description": "保留原本設定。",
-                            "detectable": "auto",
-                            "detection_method": "比較 exit code 與 stdout。",
-                            "check_steps": [
-                                {
-                                    "template_key": "python",
-                                    "command_key": "python.run_entrypoint",
-                                    "parameters": {
-                                        "cwd": "/home/student/existing",
-                                        "argv": ["python3", "main.py"],
-                                        "timeout_seconds": 30,
-                                        "success_criteria": "exit code 為 0",
-                                    },
-                                }
-                            ],
-                        },
-                        {
-                            "id": "item-ready",
-                            "title": "main.py 輸出 20",
-                            "description": "在專案目錄執行 main.py 並確認輸出 20。",
-                            "detectable": "auto",
-                            "detection_method": "比較 exit code 與 stdout。",
-                            "check_steps": [
-                                {
-                                    "template_key": "python",
-                                    "command_key": "python.run_entrypoint",
-                                    "parameters": {
-                                        "cwd": "/home/student/project",
-                                        "argv": ["python3", "main.py"],
-                                        "timeout_seconds": 30,
-                                        "success_criteria": (
-                                            "exit code 為 0 且 stdout 等於 20"
-                                        ),
-                                    },
-                                }
-                            ],
-                        },
-                        {
-                            "id": "item-missing",
-                            "title": "Web 服務回傳 200",
-                            "detectable": "partial",
-                            "detection_method": "發送 HTTP request。",
-                            "missing_information": ["服務 Port"],
-                            "check_steps": [],
-                        },
-                        {
-                            "id": "item-manual",
-                            "title": "報告說明清楚",
-                            "detectable": "manual",
-                            "fallback": "由老師人工評閱。",
-                            "check_steps": [],
-                        },
+                            "template_key": "python",
+                            "command_key": "python.run_entrypoint",
+                            "parameters": {
+                                "cwd": "/home/student/project",
+                                "argv": ["python3", "main.py"],
+                                "timeout_seconds": 30,
+                                "success_criteria": (
+                                    "exit code 為 0 且 stdout 等於 20"
+                                ),
+                            },
+                        }
                     ],
                 },
-                ensure_ascii=False,
             ),
-            {},
-        )
+            _reply_message(
+                "1. main.py 輸出 20：Ready，已放入提案。\n"
+                "2. Web 服務：缺少 Port。\n"
+                "3. 報告清楚：不支援自動檢測，需人工評閱。",
+                "ready",
+            ),
+        ],
+    )
 
-    monkeypatch.setattr(service, "_call_vllm_message", fake_call)
+    async def capture_call(payload, timeout=60.0):
+        captured.update(payload)
+        return await fake_call(payload, timeout=timeout)
+
+    monkeypatch.setattr(service, "_call_vllm_message", capture_call)
     proposal_command = TeacherJudgeTemplateCommand(
         template_key="python",
         command_key="python.run_entrypoint",
@@ -323,113 +303,73 @@ async def test_teacher_judge_session_proposal_keeps_only_ready_changes(monkeypat
         ),
         template_key="python",
         template_commands=[proposal_command],
+        rubric_available=True,
     )
 
     assert "缺少 Port" in reply
     assert proposal is not None
-    assert [item["id"] for item in proposal] == ["item-ready"]
+    assert proposal[0]["id"].startswith("item-")
     assert proposal[0]["operation"] == "add"
-    assert "多條需求可以只讓 Ready 子集進入候選" in captured["messages"][0][
+    assert "多條需求可以分次呼叫工具" in captured["messages"][0][
         "content"
     ]
 
 
-@pytest.mark.asyncio
-async def test_teacher_judge_repairs_ready_reply_without_structured_proposal(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setattr(system_ai_env, "vllm_model_name", "test-model")
-    calls = []
+def _scripted_vllm(steps: list[object]):
+    """Build a fake `_call_vllm_message`; steps may carry (response, metrics)."""
+    calls: list[dict[str, object]] = []
 
     async def fake_call(payload, timeout=60.0):
         calls.append(payload)
-        if len(calls) == 1:
-            return (
-                json.dumps(
-                    {
-                        "reply": (
-                            "已為您規劃評分項目。由於您已提供明確的工作目錄與"
-                            "檢查目標，該需求已準備就緒。"
-                        ),
-                        "updated_items": None,
-                    },
-                    ensure_ascii=False,
-                ),
-                {
-                    "prompt_tokens": 10,
-                    "completion_tokens": 5,
-                    "total_tokens": 15,
-                    "elapsed_seconds": 1.0,
-                    "tokens_per_second": 5.0,
-                },
-            )
-        return (
-            json.dumps(
-                {
-                    "reply": "檔案格式檢查：Ready，已放入提案。",
-                    "proposal_status": "ready",
-                    "updated_items": [
-                        {
-                            "id": "item-file-format",
-                            "title": "檔案格式檢查",
-                            "description": "確認 numbers.txt 有 67 行且每行只有一個數字。",
-                            "detectable": "auto",
-                            "detection_method": "讀取檔案並逐行驗證。",
-                            "missing_information": [],
-                            "check_steps": [
-                                {
-                                    "template_key": "linux",
-                                    "command_key": "system.run_command",
-                                    "parameters": {
-                                        "cwd": "/home/student/project",
-                                        "argv": ["cat", "numbers.txt"],
-                                        "timeout_seconds": 30,
-                                        "success_criteria": (
-                                            "exit code 為 0，輸出共 67 行且每行只含一個數字"
-                                        ),
-                                    },
-                                }
-                            ],
-                            "fallback": None,
-                        }
-                    ],
-                },
-                ensure_ascii=False,
-            ),
+        step = steps.pop(0)
+        if isinstance(step, tuple):
+            return step
+        return step, {}
+
+    return calls, fake_call
+
+
+def _tool_call_message(name: str, arguments: dict[str, object]) -> dict[str, object]:
+    """Assistant message that invokes one checklist proposal tool."""
+    return {
+        "role": "assistant",
+        "content": None,
+        "tool_calls": [
             {
-                "prompt_tokens": 12,
-                "completion_tokens": 8,
-                "total_tokens": 20,
-                "elapsed_seconds": 1.0,
-                "tokens_per_second": 8.0,
-            },
-        )
+                "id": "call_1",
+                "type": "function",
+                "function": {
+                    "name": name,
+                    "arguments": json.dumps(arguments, ensure_ascii=False),
+                },
+            }
+        ],
+    }
 
-    monkeypatch.setattr(service, "_call_vllm_message", fake_call)
-    command = TeacherJudgeTemplateCommand(
-        template_key="linux",
-        command_key="system.run_command",
-        command_label="通用受控指令",
-        category="inspection",
-        command_template="argv + cwd + timeout",
-        description="執行單一唯讀診斷指令。",
-    )
 
-    reply, proposal, metrics = await service.chat_with_rubric(
-        [TeacherJudgeRubricChatMessage(role="user", content="檢查 numbers.txt 格式")],
-        json.dumps({"items": []}),
-        template_key="linux",
-        template_commands=[command],
-    )
+def _reply_message(
+    reply: str, status: str, focus: dict[str, object] | None = None
+) -> str:
+    """Final assistant JSON reply without any tool calls."""
+    payload: dict[str, object] = {"reply": reply, "proposal_status": status}
+    if focus is not None:
+        payload["conversation_focus"] = focus
+    return json.dumps(payload, ensure_ascii=False)
 
-    assert len(calls) == 2
-    assert "上一個回覆宣稱 Ready" in calls[1]["messages"][-1]["content"]
-    assert "proposal_status 設為 ready" in calls[1]["messages"][-1]["content"]
-    assert "已放入提案" in reply
-    assert proposal is not None
-    assert proposal[0]["operation"] == "add"
-    assert proposal[0]["check_steps"][0]["command_key"] == "system.run_command"
-    assert metrics["total_tokens"] == 35
+
+def _requirement_focus(status: str, *, key: str, title: str) -> dict[str, object]:
+    return {
+        "turn_kind": "requirement",
+        "requirements": [
+            {
+                "focus_key": key,
+                "status": status,
+                "known_information": [title],
+                "missing_information": [],
+                "target_item_id": None,
+            }
+        ],
+    }
 
 
 @pytest.mark.asyncio
@@ -437,18 +377,16 @@ async def test_teacher_judge_repairs_missing_status_without_turning_question_int
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(system_ai_env, "vllm_model_name", "test-model")
-    call_count = 0
-
-    async def fake_call(payload, timeout=60.0):
-        nonlocal call_count
-        call_count += 1
-        response = {
-            "reply": "system.run_command 可讀取指定檔案，但不會在聊天室立即執行。",
-            "updated_items": None,
-        }
-        if call_count == 2:
-            response["proposal_status"] = "none"
-        return json.dumps(response, ensure_ascii=False), {}
+    calls, fake_call = _scripted_vllm(
+        [
+            # A pure question with no proposal_status and no proposal: no
+            # reminder is sent and no proposal is invented.
+            _reply_message(
+                "system.run_command 可讀取指定檔案，但不會在聊天室立即執行。",
+                "none",
+            ),
+        ],
+    )
 
     monkeypatch.setattr(service, "_call_vllm_message", fake_call)
 
@@ -458,7 +396,7 @@ async def test_teacher_judge_repairs_missing_status_without_turning_question_int
         template_commands=[],
     )
 
-    assert call_count == 2
+    assert len(calls) == 1
     assert proposal is None
     assert reply == "system.run_command 可讀取指定檔案，但不會在聊天室立即執行。"
 
@@ -468,49 +406,24 @@ async def test_teacher_judge_does_not_keep_false_ready_reply_after_failed_repair
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(system_ai_env, "vllm_model_name", "test-model")
-    calls = []
-
-    async def fake_call(payload, timeout=60.0):
-        calls.append(payload)
-        if len(calls) == 4:
-            facts = json.loads(payload["messages"][-1]["content"])
-            assert facts["outcome"] == "needs_information"
-            assert facts["proposal_created"] is False
-            assert facts["items"][0]["missing_information"] == [
-                "要檢查的檔案位置"
-            ]
-            return (
-                json.dumps(
-                    {
-                        "reply": (
-                            "關於「檔案格式檢查」，我還不知道檔案放在哪裡。"
-                            "請提供完整路徑，或工作目錄和相對路徑；收到後我會再確認。"
-                        )
-                    },
-                    ensure_ascii=False,
-                ),
-                {},
-            )
-        return (
-            json.dumps(
+    calls, fake_call = _scripted_vllm(
+        [
+            # Round 1: the model claims Ready but submits a partial candidate;
+            # the tool rejects it because it cannot produce an executable step.
+            _tool_call_message(
+                "create_checklist_item",
                 {
-                    "reply": "狀態：Ready，已放入提案。",
-                    "proposal_status": "ready",
-                    "updated_items": [
-                        {
-                            "id": "item-file-format",
-                            "title": "檔案格式檢查",
-                            "detectable": "partial",
-                            "detection_method": "讀取檔案並逐行驗證。",
-                            "missing_information": ["要檢查的檔案位置"],
-                            "check_steps": [],
-                        }
-                    ],
+                    "title": "檔案格式檢查",
+                    "detectable": "partial",
+                    "detection_method": "讀取檔案並逐行驗證。",
+                    "missing_information": ["要檢查的檔案位置"],
+                    "check_steps": [],
                 },
-                ensure_ascii=False,
             ),
-            {},
-        )
+            # Round 2: the model still claims Ready without a proposal.
+            _reply_message("狀態：Ready，已放入提案。", "ready"),
+        ],
+    )
 
     monkeypatch.setattr(service, "_call_vllm_message", fake_call)
 
@@ -523,6 +436,7 @@ async def test_teacher_judge_does_not_keep_false_ready_reply_after_failed_repair
     assert len(calls) == 2
     assert proposal is None
     assert "檔案格式檢查" in reply
+    assert "檢查位置" in reply
     assert "已放入提案" not in reply
 
 
@@ -531,42 +445,33 @@ async def test_teacher_judge_recovers_read_file_alias_as_generic_command(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(system_ai_env, "vllm_model_name", "test-model")
-    call_count = 0
-
-    async def fake_call(payload, timeout=60.0):
-        nonlocal call_count
-        call_count += 1
-        return (
-            json.dumps(
+    calls, fake_call = _scripted_vllm(
+        [
+            _tool_call_message(
+                "create_checklist_item",
                 {
-                    "reply": "answer.txt 內容格式：Ready，已放入提案。",
-                    "proposal_status": "ready",
-                    "updated_items": [
+                    "title": "確認 answer.txt 內容格式",
+                    "description": "確認 answer.txt 內容格式正確。",
+                    "detectable": "auto",
+                    "judgement_mode": "ai",
+                    "detection_method": "讀取檔案並逐行驗證。",
+                    "missing_information": [],
+                    "check_steps": [
                         {
-                            "id": "item-answer-format",
-                            "title": "確認 answer.txt 內容格式",
-                            "description": "確認 answer.txt 內容格式正確。",
-                            "detectable": "auto",
-                            "detection_method": "讀取檔案並逐行驗證。",
-                            "missing_information": [],
-                            "check_steps": [
-                                {
-                                    "template_key": "linux",
-                                    "command_key": "invented.read_file",
-                                    "parameters": {
-                                        "argv": ["cat", "answer.txt"],
-                                        "timeout_seconds": 30,
-                                        "success_criteria": "內容格式正確",
-                                    },
-                                }
-                            ],
+                            "template_key": "linux",
+                            "command_key": "invented.read_file",
+                            "parameters": {
+                                "argv": ["cat", "answer.txt"],
+                                "timeout_seconds": 30,
+                                "success_criteria": "內容格式正確",
+                            },
                         }
                     ],
                 },
-                ensure_ascii=False,
             ),
-            {},
-        )
+            _reply_message("answer.txt 內容格式：Ready，已放入提案。", "ready"),
+        ],
+    )
 
     monkeypatch.setattr(service, "_call_vllm_message", fake_call)
     command = TeacherJudgeTemplateCommand(
@@ -589,7 +494,7 @@ async def test_teacher_judge_recovers_read_file_alias_as_generic_command(
         template_commands=[command],
     )
 
-    assert call_count == 1
+    assert len(calls) == 2
     assert proposal is not None
     assert "answer.txt 內容格式" in reply
     assert proposal[0]["operation"] == "add"
@@ -608,50 +513,6 @@ async def test_teacher_judge_recovers_read_file_alias_as_generic_command(
 
 
 @pytest.mark.asyncio
-async def test_teacher_judge_session_proposal_preserves_explicit_delete(monkeypatch):
-    monkeypatch.setattr(system_ai_env, "vllm_model_name", "test-model")
-
-    async def fake_call(payload, timeout=60.0):
-        return (
-            json.dumps(
-                {
-                    "reply": "舊版 Port 檢查：Ready，已放入刪除提案。",
-                    "updated_items": [
-                        {
-                            "id": "item-old",
-                            "title": "舊版 Port 檢查",
-                            "operation": "delete",
-                        }
-                    ],
-                },
-                ensure_ascii=False,
-            ),
-            {},
-        )
-
-    monkeypatch.setattr(service, "_call_vllm_message", fake_call)
-    _reply, proposal, _metrics = await service.chat_with_rubric(
-        [TeacherJudgeRubricChatMessage(role="user", content="刪除舊版 Port 檢查")],
-        json.dumps(
-            {
-                "items": [
-                    {
-                        "id": "item-old",
-                        "title": "舊版 Port 檢查",
-                        "description": "檢查 3000 Port。",
-                        "detectable": "manual",
-                    }
-                ]
-            },
-            ensure_ascii=False,
-        ),
-    )
-
-    assert proposal is not None
-    assert proposal[0]["id"] == "item-old"
-    assert proposal[0]["operation"] == "delete"
-
-
 async def test_teacher_judge_summary_uses_dedicated_low_budget_prompt(monkeypatch):
     monkeypatch.setattr(system_ai_env, "vllm_model_name", "test-model")
     captured = {}

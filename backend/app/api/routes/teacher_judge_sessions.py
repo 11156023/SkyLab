@@ -39,7 +39,11 @@ from app.ai.teacher_judge.schemas import (
 from app.ai.teacher_judge.script_artifact_service import create_artifact
 from app.ai.teacher_judge.script_executor_service import execute_script_run
 from app.ai.teacher_judge.script_run_service import _run_to_public, create_script_run
-from app.ai.teacher_judge.service import analyze_attachments_itemwise, chat_with_rubric
+from app.ai.teacher_judge.service import (
+    TeacherJudgeChatResult,
+    analyze_attachments_itemwise,
+    chat_with_rubric,
+)
 from app.ai.teacher_judge.session_service import (
     bounded_history,
     clear_session_messages,
@@ -498,6 +502,7 @@ async def create_message(
         )
         item_results: list[dict[str, object]] | None = None
         conversation_focus: dict[str, object] | None = None
+        chat_result: TeacherJudgeChatResult | None = None
         if attachments and not payload.is_refine:
             # Attachment analysis runs itemwise: extract source rows first, then
             # judge each row through the same isolated single-item chat core so
@@ -552,6 +557,10 @@ async def create_message(
                 **conversation_focus,
                 "source_file_id": str(file.id) if file else None,
             }
+        if chat_result is not None:
+            chat_tool_calls = getattr(chat_result, "tool_calls", None)
+            if chat_tool_calls:
+                message_metadata["tool_calls"] = chat_tool_calls
         if payload.is_refine:
             message_metadata["ui_hidden"] = True
         assistant = TeacherJudgeSessionMessage(

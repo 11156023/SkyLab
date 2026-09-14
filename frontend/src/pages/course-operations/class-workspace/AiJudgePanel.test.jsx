@@ -21,6 +21,7 @@ import {
   getSelectedRubricSource,
   getScriptCreationDestination,
   resolveActiveSessionId,
+  proposalToolCallLines,
 } from "./AiJudgePanel";
 import { RUBRIC_POLISH_PROMPT } from "../../../services/aiJudge";
 
@@ -624,6 +625,46 @@ describe("buildProposalDiff", () => {
       { id: "remove", title: "移除", description: "舊內容" },
     ]);
     expect([...result.evaluatedIds]).toEqual(["keep"]);
+  });
+});
+
+describe("proposalToolCallLines", () => {
+  test("以工具實際結果顯示建立／修改提案狀態，read 事件不顯示", () => {
+    const message = {
+      metadata_json: {
+        tool_calls: [
+          { tool: "list_checklist", status: "read", item_count: 2 },
+          {
+            tool: "create_checklist_item",
+            status: "staged",
+            operation: "add",
+            title: "檢查 Python 版本",
+          },
+          {
+            tool: "edit_checklist_item",
+            status: "staged",
+            operation: "update",
+            title: "既有 Port 檢查",
+          },
+          {
+            tool: "edit_checklist_item",
+            status: "rejected",
+            title: "未讀取項目",
+          },
+        ],
+      },
+    };
+
+    expect(proposalToolCallLines(message)).toEqual([
+      { icon: "check_circle", text: "已建立提案：檢查 Python 版本" },
+      { icon: "check_circle", text: "已送出修改提案：既有 Port 檢查" },
+      { icon: "cancel", text: "提案未建立：未讀取項目" },
+    ]);
+  });
+
+  test("沒有 tool_calls metadata 時回傳空陣列", () => {
+    expect(proposalToolCallLines({ metadata_json: {} })).toEqual([]);
+    expect(proposalToolCallLines(null)).toEqual([]);
   });
 });
 
