@@ -2179,7 +2179,7 @@ async def test_complete_manual_system_info_candidate_reselects_generic_capabilit
         [
             # The model first submits a complete-looking manual candidate;
             # the tool rejects it for skipping the available generic capability,
-            # then the model resubmits as auto + teacher with a real argv.
+            # then the model resubmits as auto + ai with a complete argv step.
             _tool_call_message(
                 "create_checklist_item",
                 {
@@ -2202,7 +2202,10 @@ async def test_complete_manual_system_info_candidate_reselects_generic_capabilit
                         {
                             "template_key": "linux",
                             "command_key": "system.run_command",
-                            "parameters": {"argv": ["uname", "-a"]},
+                            "parameters": {
+                                "argv": ["uname", "-a"],
+                                "success_criteria": "exit code 為 0",
+                            },
                         }
                     ],
                 },
@@ -2230,7 +2233,7 @@ async def test_complete_manual_system_info_candidate_reselects_generic_capabilit
     assert "整理成提案" in reply
     assert proposal is not None
     assert proposal[0]["detectable"] == "auto"
-    assert proposal[0]["judgement_mode"] == "teacher"
+    assert proposal[0]["judgement_mode"] == "ai"
     assert proposal[0]["check_steps"][0]["command_key"] == "system.run_command"
     assert proposal[0]["check_steps"][0]["parameters"]["argv"] == ["uname", "-a"]
 
@@ -2283,7 +2286,10 @@ async def test_invalid_step_then_manual_uses_distinct_capability_repair(
                         {
                             "template_key": "linux",
                             "command_key": "system.run_command",
-                            "parameters": {"argv": ["uname", "-a"]},
+                            "parameters": {
+                                "argv": ["uname", "-a"],
+                                "success_criteria": "exit code 為 0",
+                            },
                         }
                     ],
                 },
