@@ -15,6 +15,8 @@ import { formatDateTime, formatMonthDay } from "../../../utils/formatDate";
 
 /* ── helpers ── */
 
+const DISPLAY_BASE_URL = "http://SkyLab.com.tw/v1";
+
 function isExpired(value) {
   if (!value) return false;
   return new Date(value) < new Date();
@@ -198,7 +200,6 @@ function CredentialCard({ item, onRefresh }) {
           </span>
         </div>
         <div className={styles.credMeta}>
-          <span>{t("AiApiPage.metaPrefix", { value: item.api_key_prefix })}</span>
           <span>{t("AiApiPage.metaCreated", { value: formatDateTime(item.created_at) })}</span>
           <span className={expired ? styles.textDanger : ""}>{t("AiApiPage.metaExpiry", { value: fmtExpiry(item.expires_at) })}</span>
           {item.revoked_at && <span>{t("AiApiPage.metaRevoked", { value: formatDateTime(item.revoked_at) })}</span>}
@@ -211,7 +212,7 @@ function CredentialCard({ item, onRefresh }) {
           <div className={styles.credFieldLabel}>
             <MIcon name="link" size={14} /> Base URL
           </div>
-          <div className={styles.credFieldValue}>{item.base_url}</div>
+          <div className={styles.credFieldValue}>{DISPLAY_BASE_URL}</div>
         </div>
         <div className={styles.credField}>
           <div className={styles.credFieldLabel}>
@@ -229,7 +230,7 @@ function CredentialCard({ item, onRefresh }) {
           <MIcon name={showKey ? "visibility_off" : "visibility"} size={16} />
           {showKey ? t("AiApiPage.actionHide") : t("AiApiPage.actionShow")}
         </button>
-        <button type="button" className={styles.btnOutline} onClick={() => copy("Base URL", item.base_url)}>
+        <button type="button" className={styles.btnOutline} onClick={() => copy("Base URL", DISPLAY_BASE_URL)}>
           <MIcon name="content_copy" size={16} /> Base URL
         </button>
         <button type="button" className={styles.btnOutline} onClick={() => copy("API Key", item.api_key)}>

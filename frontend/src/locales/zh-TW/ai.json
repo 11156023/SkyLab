@@ -30,7 +30,6 @@
   "AiApiPage.deleteError": "刪除失敗",
   "AiApiPage.renameSuccess": "名稱已更新",
   "AiApiPage.renameError": "更新失敗",
-  "AiApiPage.metaPrefix": "Prefix：{{value}}",
   "AiApiPage.metaCreated": "建立：{{value}}",
   "AiApiPage.metaExpiry": "到期：{{value}}",
   "AiApiPage.metaRevoked": "失效：{{value}}",

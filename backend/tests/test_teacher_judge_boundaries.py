@@ -23,7 +23,6 @@ def test_teacher_judge_normalizes_ai_returned_items() -> None:
         TeacherJudgeRubricItem(
             id="item-1",
             title="Port 80",
-            description="檢查 Web 服務",
             checked=True,
             detectable="auto",
             detection_method="TCP Port 80 探測",
@@ -32,7 +31,6 @@ def test_teacher_judge_normalizes_ai_returned_items() -> None:
         TeacherJudgeRubricItem(
             id="item-2",
             title="程式碼品質",
-            description="",
             checked=False,
             detectable="manual",
             detection_method=None,

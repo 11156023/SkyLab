@@ -318,7 +318,6 @@ function proposalOperationLabel(item) {
 function comparableItem(item) {
   return JSON.stringify({
     title: item.title ?? "",
-    description: item.description ?? "",
     checked: Boolean(item.checked),
     detectable: item.detectable ?? "manual",
     judgement_mode: item.judgement_mode ?? "ai",
@@ -447,15 +446,23 @@ export function applyProposalOperations(currentItems, proposalItems, selectedIds
   return { items: [...byId.values()], evaluatedIds };
 }
 
-export function ProposalPanel({ proposal, selectedIds, onToggle, onApply, onSkip, disabled, isRefine = false }) {
+const ITEMWISE_STATUS_INFO = {
+  needs_information: { label: "缺少資訊", className: styles.detBadge_partial },
+  unsupported: { label: "無法自動取證", className: styles.detBadge_manual },
+  analysis_error: { label: "分析失敗", className: styles.detBadge_manual },
+};
+
+export function ProposalPanel({ proposal, selectedIds, onToggle, onApply, onSkip, disabled, isRefine = false, itemResults = null }) {
   const contentId = useId();
   const [expanded, setExpanded] = useState(true);
 
   useEffect(() => {
     setExpanded(true);
-  }, [proposal]);
+  }, [proposal, itemResults]);
 
   if (!proposal?.length) return null;
+  const results = Array.isArray(itemResults) && itemResults.length ? itemResults : null;
+  const proposalById = new Map(proposal.map((item, index) => [item.id ?? `proposal-${index}`, item]));
   return (
     <section className={styles.proposalPreview} aria-label="AI 提案" aria-live="polite">
       <button
@@ -484,23 +491,60 @@ export function ProposalPanel({ proposal, selectedIds, onToggle, onApply, onSkip
               : "只有同意套用的項目才會正式保存到目前檢查表。"}
           </p>
           <div className={styles.proposalList}>
-            {proposal.map((item, index) => {
-              const id = item.id ?? `proposal-${index}`;
-              return (
-                <label className={styles.proposalRow} key={id}>
-                  <input
-                    type="checkbox"
-                    checked={selectedIds.has(id)}
-                    disabled={disabled}
-                    onChange={() => onToggle(id)}
-                  />
-                  <span>
-                    <b>{item.title || "未命名項目"}</b>
-                    <small><em>{proposalOperationLabel(item)}</em>{item.description || "AI 建議新增或調整此檢查項目"}</small>
-                  </span>
-                </label>
-              );
-            })}
+            {results
+              ? results.map((result, index) => {
+                  const operationId = result.operation?.id;
+                  const selectable = (result.status === "ready" || result.status === "teacher_review") && operationId && proposalById.has(operationId);
+                  if (selectable) {
+                    const item = proposalById.get(operationId);
+                    return (
+                      <label className={styles.proposalRow} key={operationId}>
+                        <input
+                          type="checkbox"
+                          checked={selectedIds.has(operationId)}
+                          disabled={disabled}
+                          onChange={() => onToggle(operationId)}
+                        />
+                        <span>
+                          <b>{result.source_label ? `${result.source_label}·` : ""}{item.title || "未命名項目"}</b>
+                          <small><em>{proposalOperationLabel(item)}</em>AI 建議新增或調整此檢查項目</small>
+                        </span>
+                      </label>
+                    );
+                  }
+                  const info = ITEMWISE_STATUS_INFO[result.status] ?? ITEMWISE_STATUS_INFO.analysis_error;
+                  const gaps = Array.isArray(result.missing_information) ? result.missing_information.filter(Boolean) : [];
+                  const reason = gaps.length ? gaps.join("、") : (result.detail || "");
+                  return (
+                    <div className={styles.proposalRow} key={`${result.source_index ?? index}-${result.title ?? ""}`}>
+                      <span className={`${styles.detBadge} ${styles[info.className]}`}>
+                        <MIcon name={result.status === "needs_information" ? "warning_amber" : "cancel"} size={16} aria-hidden="true" />
+                        <span>{info.label}</span>
+                      </span>
+                      <span>
+                        <b>{result.source_label ? `${result.source_label}·` : ""}{result.title || "未命名項目"}</b>
+                        {reason && <small><em>{reason}</em></small>}
+                      </span>
+                    </div>
+                  );
+                })
+              : proposal.map((item, index) => {
+                  const id = item.id ?? `proposal-${index}`;
+                  return (
+                    <label className={styles.proposalRow} key={id}>
+                      <input
+                        type="checkbox"
+                        checked={selectedIds.has(id)}
+                        disabled={disabled}
+                        onChange={() => onToggle(id)}
+                      />
+                      <span>
+                        <b>{item.title || "未命名項目"}</b>
+                        <small><em>{proposalOperationLabel(item)}</em>AI 建議新增或調整此檢查項目</small>
+                      </span>
+                    </label>
+                  );
+                })}
           </div>
           <div className={styles.proposalActions}>
             <button type="button" className={styles.btnSecondary} disabled={disabled} onClick={onSkip}>忽略</button>
@@ -572,16 +616,12 @@ function RubricTableRow({ item, index, onChange, onDelete, disabled, needsReview
           </label>
         </td>
         <td className={styles.rubricDescriptionCell}>
-          <label className={styles.tableField}>
-            <span className={styles.srOnly}>第 {index + 1} 項檢查條件</span>
-            <textarea
-              value={item.description}
-              onChange={(event) => onChange({ ...item, description: event.target.value })}
-              placeholder="寫下學生需要符合的條件"
-              rows={2}
-              disabled={disabled}
-            />
-          </label>
+          <div className={styles.tableField}>
+            <span className={styles.srOnly}>第 {index + 1} 項檢測方式</span>
+            <p className={`${styles.rubricMethodText} ${!item.detection_method ? styles.rubricMethodTextEmpty : ""}`}>
+              {item.detection_method || "尚未提供檢測方式"}
+            </p>
+          </div>
         </td>
         <td className={styles.rubricDetectabilityCell}>
           <DetectabilityBadge
@@ -625,12 +665,6 @@ function RubricTableRow({ item, index, onChange, onDelete, disabled, needsReview
                       <p>{missingInformation.length
                         ? missingInformation.join("、")
                         : "請補充完整的服務名稱、程式位置、連接埠、取證範圍或判定條件。"}</p>
-                    </div>
-                  )}
-                  {item.detection_method && (
-                    <div className={styles.detectItem}>
-                      <span>檢測方式</span>
-                      <p>{item.detection_method}</p>
                     </div>
                   )}
                   {item.fallback && (
@@ -678,7 +712,7 @@ export function RubricTable({ items, onChange, onDelete, disabled, needsReviewId
             </th>
             <th scope="col">#</th>
             <th scope="col">檢查點</th>
-            <th scope="col">檢查條件</th>
+            <th scope="col">檢測方式</th>
             <th scope="col">自動檢測支援</th>
             <th scope="col"><span className={styles.srOnly}>操作</span></th>
           </tr>
@@ -703,6 +737,38 @@ export function RubricTable({ items, onChange, onDelete, disabled, needsReviewId
 
 /* ── AI 對話面板 ────────────────────────────────────────── */
 
+/**
+ * 工具呼叫結果的教師顯示文字；以後端實際執行結果為準，
+ * 覆蓋模型回覆文字可能宣稱但實際未建立的狀態。
+ */
+export function proposalToolCallLines(message) {
+  const toolCalls = Array.isArray(message?.metadata_json?.tool_calls)
+    ? message.metadata_json.tool_calls
+    : [];
+  const lines = [];
+  toolCalls.forEach((call) => {
+    if (!call || typeof call !== "object") return;
+    if (call.status === "staged") {
+      const label =
+        call.operation === "update"
+          ? "已送出修改提案"
+          : "已建立提案";
+      lines.push({ icon: "check_circle", text: `${label}：${call.title ?? ""}` });
+    } else if (call.status === "rejected") {
+      lines.push({
+        icon: "cancel",
+        text: `提案未建立：${call.title ?? ""}`,
+      });
+    } else if (call.status === "no_change") {
+      lines.push({
+        icon: "info",
+        text: `內容未變更，未建立提案：${call.title ?? ""}`,
+      });
+    }
+  });
+  return lines;
+}
+
 export function ChatPanel({
   messages,
   onSendMessage,
@@ -718,6 +784,7 @@ export function ChatPanel({
   onRemoveAttachment,
   onUploadFile,
   isUploading = false,
+  loadingText = "",
 }) {
   const [input, setInput] = useState("");
   const fileInputRef = useRef(null);
@@ -779,6 +846,22 @@ export function ChatPanel({
                   </div>
                 )}
                 {msg.content}
+                {msg.role === "assistant" && (
+                  (() => {
+                    const toolLines = proposalToolCallLines(msg);
+                    if (!toolLines.length) return null;
+                    return (
+                      <ul className={styles.chatToolCallList} aria-label="AI 工具執行結果">
+                        {toolLines.map((line) => (
+                          <li key={line.text} className={styles.chatToolCallItem}>
+                            <MIcon name={line.icon} size={14} />
+                            <span>{line.text}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    );
+                  })()
+                )}
               </div>
               {msg.role === "user" && (
                 <span className={`${styles.chatAvatar} ${styles.chatAvatar_user}`}>
@@ -795,6 +878,7 @@ export function ChatPanel({
               <MIcon name="smart_toy" size={16} />
             </span>
             <div className={styles.chatBubble}>
+              {loadingText ? <p className={styles.chatLoadingText}>{loadingText}</p> : null}
               <span className={styles.typing}>
                 <span />
                 <span />
@@ -1152,6 +1236,8 @@ function RubricsTab({ classId, judgeSession, onSessionUpdated, onScriptCreated, 
   const [sourcesOpen, setSourcesOpen] = useState(false);
   const [pendingProposalMeta, setPendingProposalMeta] = useState(null);
   const [pendingProposalIsRefine, setPendingProposalIsRefine] = useState(false);
+  const [pendingItemResults, setPendingItemResults] = useState(null);
+  const [isItemwiseAnalysis, setIsItemwiseAnalysis] = useState(false);
   const [environmentKeys, setEnvironmentKeys] = useState([]);
   const analysisRevisionsRef = useRef(new Map());
   const lastSavedValuesRef = useRef(new Map());
@@ -1174,6 +1260,7 @@ function RubricsTab({ classId, judgeSession, onSessionUpdated, onScriptCreated, 
     setSelectedProposalIds(new Set());
     setPendingProposalMeta(null);
     setPendingProposalIsRefine(false);
+    setPendingItemResults(null);
   }
 
   useEffect(() => {
@@ -1281,6 +1368,7 @@ function RubricsTab({ classId, judgeSession, onSessionUpdated, onScriptCreated, 
       setSelectedProposalIds(new Set());
       setPendingProposalMeta(null);
       setPendingProposalIsRefine(false);
+      setPendingItemResults(null);
     }
 
     if (!judgeSession?.selected_file_id) {
@@ -1431,6 +1519,8 @@ function RubricsTab({ classId, judgeSession, onSessionUpdated, onScriptCreated, 
     const newMessages = isRefine ? messages : requestMessages;
     setMessages(newMessages);
     setIsChatting(true);
+    const itemwise = !isRefine && attachments.length > 0;
+    setIsItemwiseAnalysis(itemwise);
     try {
       const response = await AiJudgeService.sendSessionMessage(
         classId,
@@ -1449,6 +1539,8 @@ function RubricsTab({ classId, judgeSession, onSessionUpdated, onScriptCreated, 
       });
       setPendingAttachments([]);
       const proposal = buildProposalDiff(analysis?.items ?? [], response.rubric_proposal);
+      const itemResults = response.assistant_message?.metadata_json?.item_results;
+      setPendingItemResults(Array.isArray(itemResults) && itemResults.length ? itemResults : null);
       setPendingProposal(proposal.length ? proposal : null);
       setSelectedProposalIds(new Set(proposal.map((item, index) => item.id ?? `proposal-${index}`)));
       setPendingProposalMeta(proposal.length ? { baseRevision: response.base_revision ?? analysisRevisionsRef.current.get(sourceFileId) } : null);
@@ -1473,6 +1565,7 @@ function RubricsTab({ classId, judgeSession, onSessionUpdated, onScriptCreated, 
       setMessages(messages);
     } finally {
       setIsChatting(false);
+      setIsItemwiseAnalysis(false);
     }
   }
 
@@ -1547,6 +1640,7 @@ function RubricsTab({ classId, judgeSession, onSessionUpdated, onScriptCreated, 
       setSelectedProposalIds(new Set());
       setPendingProposalMeta(null);
       setPendingProposalIsRefine(false);
+      setPendingItemResults(null);
       setScriptGenerationNotice(null);
       toast.success("對話內容已清除");
     } catch (err) {
@@ -1720,6 +1814,7 @@ function RubricsTab({ classId, judgeSession, onSessionUpdated, onScriptCreated, 
                   onApply={applyPendingProposal}
                   onSkip={clearPendingProposal}
                   isRefine={pendingProposalIsRefine}
+                  itemResults={pendingItemResults}
                   disabled={isChatting || isClearingMessages}
                 />}
                 <div className={sidebar ? styles.checkRubricBody : undefined}>
@@ -1767,6 +1862,7 @@ function RubricsTab({ classId, judgeSession, onSessionUpdated, onScriptCreated, 
               onSendMessage={handleSendMessage}
               onClearMessages={handleClearMessages}
               isLoading={isChatting}
+              loadingText={isItemwiseAnalysis ? "正在拆解評分表並逐項核查…" : ""}
               isClearing={isClearingMessages}
               disabled={isCreatingScript}
               hasRubric={Boolean(analysis)}
