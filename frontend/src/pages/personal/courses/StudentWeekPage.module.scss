@@ -1,0 +1,44 @@
+@use "../../../assets/styles/variables" as *;
+@use "../../../assets/styles/mixins" as *;
+
+.page { @include flex-column; width: 100%; min-width: 0; gap: $spacing-24; padding: 0 0 $spacing-32; }
+.header { @include glass-surface($shadow: none); display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: $spacing-16; padding: $spacing-24; border-radius: $radius-16; }
+.header p { margin: 0 0 3px; color: var(--color-primary); font-size: $font-size-12; font-weight: $font-weight-700; }
+.header h1 { margin: 0 0 4px; color: var(--color-text-primary); font-size: $font-size-24; }
+.header div > span { color: var(--color-text-secondary); font-size: $font-size-14; }
+.backButton { display: inline-flex; min-height: 40px; align-items: center; gap: 7px; padding: 8px 12px; border: 1px solid var(--color-border); border-radius: $radius-8; color: var(--color-text-primary); background: var(--color-hover); font: inherit; font-size: $font-size-14; font-weight: $font-weight-700; cursor: pointer; }
+.grid { display: grid; grid-template-columns: minmax(0, 1.45fr) minmax(300px, .75fr); align-items: start; gap: $spacing-16; }
+.side { display: grid; gap: $spacing-16; }
+.panel { @include glass-surface; display: grid; gap: $spacing-16; padding: $spacing-24; border-radius: $radius-16; }
+.panelHeading { display: flex; align-items: center; gap: 11px; }
+.panelHeading > span { @include flex-center; width: 38px; height: 38px; flex: 0 0 auto; border-radius: $radius-8; color: var(--color-primary); background: color-mix(in srgb, var(--color-primary) 11%, var(--color-surface)); }
+.panelHeading h2 { margin: 0; color: var(--color-text-primary); font-size: $font-size-18; }
+.panelHeading p { margin: 3px 0 0; color: var(--color-text-muted); font-size: $font-size-12; }
+.feedbackList, .machineList, .fileList { display: grid; gap: 10px; }
+.feedbackCard { overflow: hidden; border: 1px solid var(--color-border); border-radius: $radius-12; background: var(--color-surface); }
+.feedbackTop { display: grid; grid-template-columns: 30px minmax(0, 1fr) auto; align-items: start; gap: 10px; padding: 13px; }
+.feedbackTop strong { color: var(--color-text-primary); font-size: $font-size-14; }
+.feedbackTop p { margin: 3px 0 0; color: var(--color-text-secondary); font-size: $font-size-12; line-height: 1.5; }
+.number { @include flex-center; width: 28px; height: 28px; border-radius: 50%; color: var(--color-primary); background: color-mix(in srgb, var(--color-primary) 10%, transparent); font-size: $font-size-12; font-weight: $font-weight-700; }
+.feedbackStatus { display: inline-flex; align-items: center; gap: 5px; color: var(--color-text-muted); font-size: $font-size-12; white-space: nowrap; }
+.feedback_completed .feedbackStatus, .feedback_passed .feedbackStatus { color: var(--color-success); }
+.feedback_partial .feedbackStatus, .feedback_needs_review .feedbackStatus { color: var(--color-info); }
+.feedback_failed .feedbackStatus, .feedback_cancelled .feedbackStatus { color: var(--color-danger); }
+.feedbackBody { display: grid; gap: 5px; padding: 11px 13px 13px 53px; border-top: 1px solid var(--color-divider); background: color-mix(in srgb, var(--color-primary) 3%, var(--color-surface)); }
+.feedbackBody strong { color: var(--color-primary); font-size: $font-size-14; }
+.feedbackBody p { margin: 0; color: var(--color-text-secondary); font-size: $font-size-14; line-height: 1.55; white-space: pre-wrap; }
+.machineCard { display: grid; gap: 11px; padding: 12px; border: 1px solid var(--color-border); border-radius: $radius-12; background: var(--color-surface); }
+.machineCopy { display: flex; min-width: 0; align-items: center; gap: 10px; }
+.machineCopy > span { @include flex-center; width: 36px; height: 36px; border-radius: $radius-8; color: var(--color-primary); background: color-mix(in srgb, var(--color-primary) 10%, transparent); }
+.machineCopy div { @include flex-column; min-width: 0; gap: 2px; }
+.machineCopy strong, .machineCopy small { @include text-truncate; }
+.machineCopy small { color: var(--color-text-muted); font-size: $font-size-12; }
+.machineActions { display: flex; flex-wrap: wrap; gap: 7px; }
+.machineActions a, .machineActions button { display: inline-flex; min-height: 34px; align-items: center; justify-content: center; gap: 6px; padding: 0 10px; border: 1px solid color-mix(in srgb, var(--color-primary) 35%, var(--color-border)); border-radius: $radius-8; color: var(--color-primary); background: color-mix(in srgb, var(--color-primary) 7%, var(--color-surface)); font: inherit; font-size: $font-size-12; font-weight: $font-weight-700; text-decoration: none; cursor: pointer; }
+.urlPending { display: inline-flex; align-items: center; gap: 5px; color: var(--color-text-muted); font-size: $font-size-12; }
+.fileList button { display: grid; grid-template-columns: 20px minmax(0, 1fr) 18px; align-items: center; gap: 8px; width: 100%; padding: 10px; border: 1px solid var(--color-border); border-radius: $radius-8; color: var(--color-text-primary); background: var(--color-surface); font: inherit; text-align: left; cursor: pointer; }
+.fileList button span { @include text-truncate; font-size: $font-size-12; }
+.fileList button > :first-child, .fileList button > :last-child { color: var(--color-primary); }
+
+@include respond-below(lg) { .grid { grid-template-columns: 1fr; } }
+@include respond-below(sm) { .page { padding-inline: $spacing-16; } .header { align-items: start; grid-template-columns: 1fr; } .backButton { width: max-content; } .panel { padding: $spacing-16; } .feedbackTop { grid-template-columns: 28px minmax(0, 1fr); } .feedbackStatus { grid-column: 2; } .feedbackBody { padding-left: 51px; } }

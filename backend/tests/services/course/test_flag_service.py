@@ -53,6 +53,19 @@ class TestVerifyFlag:
         stored = flag_service.hash_flag("FLAG{secret}")
         assert flag_service.verify_flag("", stored) is False
 
+    def test_whitespace_only_answer_fails(self):
+        stored = flag_service.hash_flag("FLAG{secret}")
+        assert flag_service.verify_flag("  \n\t ", stored) is False
+
+    def test_whitespace_only_answer_never_matches_empty_hash(self):
+        # 即使儲存的 hash 剛好等於空字串的 SHA-256，純空白答案也不得通過
+        stored = flag_service.hash_flag("   ")
+        assert flag_service.verify_flag("   ", stored) is False
+
+    def test_answer_with_extra_char_fails(self):
+        stored = flag_service.hash_flag("FLAG{secret}")
+        assert flag_service.verify_flag("FLAG{secret}x", stored) is False
+
     def test_missing_hash_fails(self):
         assert flag_service.verify_flag("FLAG{secret}", None) is False
 

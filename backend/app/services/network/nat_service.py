@@ -11,6 +11,7 @@ import logging
 
 from app.core.i18n import t
 from app.exceptions import BadRequestError, ProxmoxError
+from app.services.network.publish_target_policy import assert_publishable_vm_ip
 
 logger = logging.getLogger(__name__)
 
@@ -186,6 +187,9 @@ def apply_nat_rule(
     from app.repositories import nat_rule as nat_repo  # noqa: PLC0415
 
     check_port_available(external_port, protocol, session)
+    # vm_ip 來自 guest agent 回報，VM 擁有者可偽造：不可讓外網 port 轉到
+    # Gateway / PVE 節點等內部主機
+    assert_publishable_vm_ip(session, vm_ip)
     get = getattr(session, "get", None)
     resource_vmid = None
     if get is not None:

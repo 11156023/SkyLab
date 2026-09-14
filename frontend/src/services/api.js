@@ -399,8 +399,13 @@ export async function apiPostForm(path, params) {
 }
 
 /** POST（multipart/form-data，檔案上傳用；formData 為 FormData 實例） */
-export function apiPostMultipart(path, formData) {
-  return request(path, { method: "POST", body: formData });
+export function apiPostMultipart(path, formData, options = {}) {
+  return request(path, {
+    method: "POST",
+    body: formData,
+    signal: options.signal,
+    timeoutMs: options.timeoutMs,
+  });
 }
 
 /** PATCH */

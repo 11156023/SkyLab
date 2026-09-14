@@ -13,7 +13,65 @@
   }
 }
 
-/* ── Header ───────────────────────────────────────── */
+/* ── Panel（嵌在網域管理頁的分頁裡） ─────────────── */
+.panel {
+  @include flex-column;
+  gap: $spacing-16;
+  flex: 1;
+  min-height: 0;
+}
+
+/* ── 清單卡片：標題列（標題＋筆數／動作）+ 網址列表，對齊 DNS 分頁的 recordPanel ── */
+.listCard {
+  @include flex-column;
+  gap: $spacing-16;
+  padding: $spacing-16;
+  @include glass-surface($shadow: var(--shadow-sm));
+  border-radius: $radius-12;
+}
+
+.listToolbar {
+  @include flex-between;
+  gap: $spacing-16;
+  flex-wrap: wrap;
+}
+
+.listHeading {
+  display: flex;
+  align-items: center;
+  gap: $spacing-8;
+  min-width: 0;
+}
+
+.listTitle {
+  margin: 0;
+  font-size: $font-size-14;
+  font-weight: $font-weight-700;
+  color: var(--color-text-primary);
+}
+
+/* 標題下的一行用途說明（#13：「網址清單是什麼」） */
+.listDesc {
+  margin: -$spacing-8 0 0;
+  font-size: $font-size-12;
+  color: var(--color-text-muted);
+}
+
+.listCount {
+  padding: 2px 8px;
+  border-radius: $radius-pill;
+  background: var(--color-hover);
+  color: var(--color-text-secondary);
+  font-size: $font-size-12;
+  font-weight: $font-weight-500;
+  white-space: nowrap;
+}
+
+.listBody {
+  @include flex-column;
+  gap: $spacing-8;
+}
+
 /* ── Buttons ──────────────────────────────────────── */
 .btnPrimary {
   display: inline-flex;
@@ -37,35 +95,7 @@
   }
 }
 
-/* ── Info accordion ───────────────────────────────── */
-.infoCard {
-  @include glass-surface($shadow: none);
-  border-radius: $radius-12;
-  overflow: hidden;
-}
-
-.infoToggle {
-  width: 100%;
-  @include flex-between;
-  padding: $spacing-16;
-  text-align: left;
-  cursor: pointer;
-  transition: background $transition-base;
-
-  &:hover {
-    background: var(--color-hover);
-  }
-}
-
-.infoToggleLeft {
-  display: flex;
-  align-items: center;
-  gap: $spacing-8;
-  font-size: $font-size-14;
-  font-weight: $font-weight-500;
-  color: var(--color-text-primary);
-}
-
+/* ── 收合箭頭（Traefik 面板用） ───────────────────── */
 .infoChevron {
   color: var(--color-text-secondary);
   transition: transform $transition-base;
@@ -76,98 +106,8 @@
   }
 }
 
-.infoBody {
-  padding: 0 $spacing-16 $spacing-16;
-  @include flex-column;
-  gap: $spacing-16;
-}
-
-.steps {
-  display: grid;
-  gap: $spacing-16;
-
-  @include respond-to(md) {
-    grid-template-columns: repeat(3, 1fr);
-  }
-}
-
+/* 以下區塊沿用既有的 12px 間距（初版即如此覆寫，維持列表／面板／對話框的原有視覺） */
 $spacing-16: 12px;
-
-.step {
-  display: flex;
-  gap: $spacing-16;
-  align-items: flex-start;
-  padding: $spacing-16;
-  background: var(--color-hover);
-  border-radius: $radius-8;
-}
-
-.stepNum {
-  width: 24px;
-  height: 24px;
-  border-radius: 50%;
-  background: var(--color-primary);
-  color: var(--color-text-on-primary);
-  font-size: $font-size-12;
-  font-weight: $font-weight-700;
-  @include flex-center;
-  flex-shrink: 0;
-}
-
-.stepContent {
-  @include flex-column;
-  gap: 4px;
-}
-
-.stepTitle {
-  font-size: $font-size-14;
-  font-weight: $font-weight-500;
-  color: var(--color-text-primary);
-}
-
-.stepDesc {
-  font-size: $font-size-12;
-  color: var(--color-text-secondary);
-  line-height: $line-height-base;
-}
-
-.prereqBox {
-  @include flex-column;
-  gap: $spacing-8;
-  padding: $spacing-16 $spacing-16;
-  background: color-mix(in srgb, var(--color-primary) 6%, transparent);
-  border: 1px solid color-mix(in srgb, var(--color-primary) 20%, transparent);
-  border-radius: $radius-8;
-}
-
-.prereqTitle {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: $font-size-14;
-  font-weight: $font-weight-500;
-  color: var(--color-text-primary);
-}
-
-.prereqList {
-  @include flex-column;
-  gap: 6px;
-  padding-left: $spacing-16;
-  margin: 0;
-
-  li {
-    font-size: $font-size-14;
-    color: var(--color-text-secondary);
-    line-height: $line-height-base;
-  }
-}
-
-/* ── Content ──────────────────────────────────────── */
-.content {
-  flex: 1;
-  @include flex-column;
-  gap: 12px;
-}
 
 /* ── Empty state ──────────────────────────────────── */
 

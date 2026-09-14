@@ -6,6 +6,7 @@ from typing import Any
 from fastapi import APIRouter, Query
 
 from app.api.deps import AdminUser, CurrentUser, SessionDep
+from app.infrastructure.redis import get_redis
 from app.repositories import governance as governance_repo
 from app.schemas.monitoring import AlertEventPublic, MonitoringOverview
 from app.services.monitoring import monitoring_service
@@ -14,9 +15,10 @@ router = APIRouter(prefix="/monitoring", tags=["monitoring"])
 
 
 @router.get("/overview", response_model=MonitoringOverview)
-def get_overview(session: SessionDep, _: AdminUser) -> MonitoringOverview:
+async def get_overview(_: AdminUser) -> MonitoringOverview:
     """全域監控匯總（叢集容量/用量、節點與 VM 統計）。"""
-    return monitoring_service.get_overview(session=session)
+    redis = await get_redis()
+    return await monitoring_service.get_overview_cached(redis=redis)
 
 
 @router.get("/nodes/{node}/rrd")

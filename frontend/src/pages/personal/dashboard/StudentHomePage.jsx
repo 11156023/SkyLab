@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
 import { toast } from "sonner";
 import { useTranslation } from "react-i18next";
@@ -10,9 +10,11 @@ import { ResourcesService } from "../../../services/resources";
 import { QuickPracticeService } from "../../../services/quickPractice";
 import styles from "./StudentHomePage.module.scss";
 import PageHeader from "../../../components/PageHeader/PageHeader";
+import LoadingState from "../../../components/LoadingState/LoadingState";
 import i18n from "../../../i18n";
 
-const defaultT = (key) => i18n.t(key, { ns: "personal" });
+// 與 react-i18next 的 t 同型（key, options），normalizeSchedule 會帶插值參數
+const defaultT = (key, options = {}) => i18n.t(key, { ns: "personal", ...options });
 
 const STATUS_META = {
   running: { labelKey: "StudentHomePage.statusRunning", tone: "success", icon: "check_circle" },
@@ -25,45 +27,10 @@ const STATUS_META = {
   empty: { labelKey: "StudentHomePage.statusEmpty", tone: "muted", icon: "event_busy" },
 };
 
-const TOUR_STEPS = [
-  {
-    selector: '[data-student-tour="class"]',
-    icon: "school",
-    eyebrowKey: "StudentHomePage.tourClassEyebrow",
-    titleKey: "StudentHomePage.tourClassTitle",
-    descriptionKey: "StudentHomePage.tourClassDescription",
-    tipKey: "StudentHomePage.tourClassTip",
-  },
-  {
-    selector: '[data-student-tour="tasks"]',
-    icon: "checklist",
-    eyebrowKey: "StudentHomePage.tourTasksEyebrow",
-    titleKey: "StudentHomePage.tourTasksTitle",
-    descriptionKey: "StudentHomePage.tourTasksDescription",
-    tipKey: "StudentHomePage.tourTasksTip",
-  },
-  {
-    selector: '[data-student-tour="practice"]',
-    icon: "history",
-    eyebrowKey: "StudentHomePage.tourPracticeEyebrow",
-    titleKey: "StudentHomePage.tourPracticeTitle",
-    descriptionKey: "StudentHomePage.tourPracticeDescription",
-    tipKey: "StudentHomePage.tourPracticeTip",
-  },
-  {
-    selector: '[data-student-tour="research"]',
-    icon: "science",
-    eyebrowKey: "StudentHomePage.tourResearchEyebrow",
-    titleKey: "StudentHomePage.tourResearchTitle",
-    descriptionKey: "StudentHomePage.tourResearchDescription",
-    tipKey: "StudentHomePage.tourResearchTip",
-  },
-];
-
 const AI_DETECTABLE_META = {
   auto: { labelKey: "StudentHomePage.detectableAuto", icon: "smart_toy", tone: "auto" },
   partial: { labelKey: "StudentHomePage.detectablePartial", icon: "rule", tone: "partial" },
-  manual: { labelKey: "StudentHomePage.detectableManual", icon: "person_check", tone: "manual" },
+  manual: { labelKey: "StudentHomePage.detectableManual", icon: "how_to_reg", tone: "manual" },
 };
 
 const AI_CHECK_STATUS_META = {
@@ -107,149 +74,6 @@ function formatAssignmentDate(value, t = defaultT) {
     month: "numeric",
     day: "numeric",
   }).format(date);
-}
-
-function getTourStorageKey(user) {
-  return `skylab:student-home-tour:v1:${user?.id ?? user?.email ?? "student"}`;
-}
-
-function TourOverlay({ stepIndex, onBack, onNext, onSkip }) {
-  const { t } = useTranslation("personal");
-  const [targetRect, setTargetRect] = useState(null);
-  const panelRef = useRef(null);
-  const step = TOUR_STEPS[stepIndex];
-  const isLast = stepIndex === TOUR_STEPS.length - 1;
-
-  useEffect(() => {
-    const target = document.querySelector(step.selector);
-    if (!target) {
-      setTargetRect(null);
-      return undefined;
-    }
-
-    const reducedMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
-    target.scrollIntoView({
-      behavior: reducedMotion ? "auto" : "smooth",
-      block: "center",
-      inline: "nearest",
-    });
-
-    const updateRect = () => {
-      const rect = target.getBoundingClientRect();
-      setTargetRect({
-        top: rect.top,
-        left: rect.left,
-        right: rect.right,
-        bottom: rect.bottom,
-        width: rect.width,
-        height: rect.height,
-      });
-    };
-
-    const timer = window.setTimeout(updateRect, reducedMotion ? 0 : 280);
-    updateRect();
-    window.addEventListener("resize", updateRect);
-    window.addEventListener("scroll", updateRect, true);
-
-    return () => {
-      window.clearTimeout(timer);
-      window.removeEventListener("resize", updateRect);
-      window.removeEventListener("scroll", updateRect, true);
-    };
-  }, [step]);
-
-  useEffect(() => {
-    panelRef.current?.focus();
-    const handleKeyDown = (event) => {
-      if (event.key === "Escape") onSkip();
-      if (event.key === "ArrowLeft" && stepIndex > 0) onBack();
-      if (event.key === "ArrowRight") onNext();
-    };
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [onBack, onNext, onSkip, stepIndex]);
-
-  const panelStyle = useMemo(() => {
-    if (!targetRect || typeof window === "undefined") return undefined;
-    const panelWidth = Math.min(360, window.innerWidth - 32);
-    const estimatedHeight = 250;
-    const left = Math.min(
-      Math.max(16, targetRect.left),
-      Math.max(16, window.innerWidth - panelWidth - 16),
-    );
-    const hasRoomBelow = window.innerHeight - targetRect.bottom > estimatedHeight + 24;
-    const top = hasRoomBelow
-      ? targetRect.bottom + 12
-      : Math.max(16, targetRect.top - estimatedHeight - 12);
-    return { left, top, width: panelWidth };
-  }, [targetRect]);
-
-  return (
-    <div className={styles.tourLayer}>
-      <div className={styles.tourClickBlocker} aria-hidden="true" />
-      {targetRect && (
-        <div
-          className={styles.tourSpotlight}
-          style={{
-            top: Math.max(8, targetRect.top - 6),
-            left: Math.max(8, targetRect.left - 6),
-            width: Math.min(
-              window.innerWidth - Math.max(8, targetRect.left - 6) - 8,
-              targetRect.width + 12,
-            ),
-            height: targetRect.height + 12,
-          }}
-          aria-hidden="true"
-        />
-      )}
-      <section
-        ref={panelRef}
-        className={styles.tourPanel}
-        style={panelStyle}
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="student-tour-title"
-        tabIndex={-1}
-      >
-        <div className={styles.tourPanelTop}>
-          <span className={styles.tourIcon}><MIcon name={step.icon} size={22} /></span>
-          <span className={styles.tourCount}>{stepIndex + 1} / {TOUR_STEPS.length}</span>
-          <button type="button" className={styles.tourClose} onClick={onSkip} aria-label={t("StudentHomePage.tourSkip")}>
-            <MIcon name="close" size={19} />
-          </button>
-        </div>
-        <p className={styles.tourEyebrow}>{t(step.eyebrowKey)}</p>
-        <h2 id="student-tour-title">{t(step.titleKey)}</h2>
-        <p className={styles.tourDescription}>{t(step.descriptionKey)}</p>
-        <div className={styles.tourTip}>
-          <MIcon name="lightbulb" size={17} />
-          <span>{t(step.tipKey)}</span>
-        </div>
-        <div className={styles.tourProgress} aria-label={t("StudentHomePage.tourProgressAria", { current: stepIndex + 1, total: TOUR_STEPS.length })}>
-          {TOUR_STEPS.map((tourStep, index) => (
-            <span
-              key={tourStep.selector}
-              className={index === stepIndex ? styles.tourProgressActive : ""}
-            />
-          ))}
-        </div>
-        <div className={styles.tourActions}>
-          <button type="button" className={styles.tourSkip} onClick={onSkip}>{t("StudentHomePage.tourSkip")}</button>
-          <div>
-            {stepIndex > 0 && (
-              <button type="button" className={styles.tourBack} onClick={onBack}>
-                {t("StudentHomePage.tourBack")}
-              </button>
-            )}
-            <button type="button" className={styles.tourNext} onClick={onNext}>
-              {isLast ? t("StudentHomePage.tourFinish") : t("StudentHomePage.tourNext")}
-              <MIcon name={isLast ? "check" : "arrow_forward"} size={17} />
-            </button>
-          </div>
-        </div>
-      </section>
-    </div>
-  );
 }
 
 function toPercent(value) {
@@ -335,19 +159,6 @@ function StatusBadge({ meta }) {
       <MIcon name={meta.icon} size={16} />
       {meta.label ?? t(meta.labelKey)}
     </span>
-  );
-}
-
-function LoadingState() {
-  const { t } = useTranslation("personal");
-  return (
-    <div className={styles.loadingState} aria-label={t("StudentHomePage.loadingLabel")}>
-      <span className={styles.loadingIcon}><MIcon name="school" size={28} /></span>
-      <div>
-        <strong>{t("StudentHomePage.loadingLabel")}</strong>
-        <p>{t("StudentHomePage.loadingDesc")}</p>
-      </div>
-    </div>
   );
 }
 
@@ -688,7 +499,7 @@ export default function StudentHomePage({ courseView = false }) {
       navigate("/dashboard");
       return;
     }
-    navigate(`/dashboard/course/${path.id}`, { state: { from: "/dashboard" } });
+    navigate(`/courses/${path.id}`, { state: { from: "/dashboard" } });
   };
 
   const toggleAssignment = (assignmentId) => {
@@ -777,7 +588,7 @@ export default function StudentHomePage({ courseView = false }) {
   if (view.loading) {
     return (
       <div className={styles.page}>
-        <LoadingState />
+        <LoadingState fullPage text={t("StudentHomePage.loadingLabel")} />
       </div>
     );
   }
@@ -1195,14 +1006,12 @@ export default function StudentHomePage({ courseView = false }) {
       <section className={styles.otherNeeds} aria-labelledby="other-needs-title" data-guide="home-other-needs">
         <div className={styles.sectionHeading}>
           <div>
-            <p className={styles.eyebrow}>{t("StudentHomePage.notAttendingNow")}</p>
             <h2 id="other-needs-title">{t("StudentHomePage.otherUseCases")}</h2>
           </div>
         </div>
 
         <div className={styles.needGrid}>
           <article className={styles.needCard} data-student-tour="practice">
-            <span className={`${styles.needIcon} ${styles.needIcon_primary}`}><MIcon name="history" size={22} /></span>
             <div>
               <span className={styles.needBadge}>{t("StudentHomePage.afterClassBadge")}</span>
               <h3>{t("StudentHomePage.continueLastProgress")}</h3>
@@ -1215,7 +1024,6 @@ export default function StudentHomePage({ courseView = false }) {
           </article>
 
           <article className={`${styles.needCard} ${styles.researchCard}`} data-student-tour="research">
-            <span className={`${styles.needIcon} ${styles.needIcon_info}`}><MIcon name="science" size={22} /></span>
             <div>
               <span className={`${styles.needBadge} ${styles.needBadge_info}`}>{t("StudentHomePage.researchBadge")}</span>
               <h3>{t("StudentHomePage.buildResearchEnv")}</h3>
@@ -1231,16 +1039,13 @@ export default function StudentHomePage({ courseView = false }) {
         <section className={styles.quickTemplateSection} aria-labelledby="quick-template-title" data-guide="home-quick-templates">
           <div className={styles.sectionHeading}>
             <div>
-              <p className={styles.eyebrow}>{t("StudentHomePage.noManualReviewWait")}</p>
               <h2 id="quick-template-title">{t("StudentHomePage.quickPracticeEnv")}</h2>
             </div>
             <span>{t("StudentHomePage.quickPracticeEnvDesc")}</span>
           </div>
 
           {templatesLoading ? (
-            <div className={styles.quickTemplateGrid} aria-label={t("StudentHomePage.loadingTemplatesAria")}>
-              {[0, 1, 2].map((item) => <div key={item} className={styles.quickTemplateSkeleton} />)}
-            </div>
+            <LoadingState />
           ) : displayedQuickTemplates.length > 0 ? (
             <div className={styles.quickTemplateGrid}>
               {displayedQuickTemplates.map((template) => (
@@ -1248,7 +1053,6 @@ export default function StudentHomePage({ courseView = false }) {
                   type="button"
                   key={template.id}
                   className={styles.templateCard}
-                  style={{ "--accent-color": "var(--color-primary)" }}
                   onClick={() => navigate(`/quick-template/${template.id}`, { state: { from: "/dashboard" } })}
                 >
                   <div className={styles.templateHeader}>

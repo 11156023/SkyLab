@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import re
+import shlex
 from datetime import datetime, timezone
 from pathlib import Path
 from textwrap import dedent
@@ -20,7 +21,11 @@ from app.infrastructure.ssh import (
 from app.infrastructure.ssh import (
     generate_ed25519_keypair as _generate_ed25519_keypair,
 )
-from app.schemas.gateway import GatewayServiceVersionInfo, GatewayServiceVersionsResult
+from app.schemas.gateway import (
+    GatewayServiceVersionInfo,
+    GatewayServiceVersionsResult,
+    GatewayWireGuardOverview,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -29,6 +34,13 @@ SERVICE_CONFIG_PATHS: dict[str, str] = {
     "traefik": "/etc/traefik/traefik.yml",
     "frps": "/etc/frp/frps.toml",
     "frpc": "/etc/frp/frpc.toml",
+}
+SERVICE_SYSTEMD_UNITS: dict[str, str] = {
+    "haproxy": "haproxy",
+    "traefik": "traefik",
+    "frps": "frps",
+    "frpc": "frpc",
+    "wireguard": f"wg-quick@{settings.WIREGUARD_INTERFACE}",
 }
 
 TRAEFIK_DYNAMIC_PATH = "/etc/traefik/dynamic/SkyLab.yml"
@@ -40,9 +52,15 @@ _TRAEFIK_VERSION_PATTERN = re.compile(r"^Version:\s*([^\s]+)", re.MULTILINE)
 _SERVICE_VERSION_COMMANDS: dict[str, str] = {
     "haproxy": "haproxy -v 2>/dev/null | head -1",
     "traefik": "/usr/local/bin/traefik version 2>/dev/null",
-    "frps": "/usr/local/bin/frps -v 2>&1 | head -1",
-    "frpc": "/usr/local/bin/frpc -v 2>&1 | head -1",
+    "wireguard": "wg --version 2>&1 | head -1",
 }
+
+
+def _systemd_unit(service: str) -> str:
+    unit = SERVICE_SYSTEMD_UNITS.get(service)
+    if unit is None:
+        raise BadRequestError(t("gateway.unknownService", service=service))
+    return unit
 
 
 def generate_ed25519_keypair() -> tuple[str, str]:
@@ -349,23 +367,22 @@ def control_service(session: object, service: str, action: str) -> tuple[bool, s
     if action not in valid_actions:
         raise BadRequestError(t("gateway.invalidAction", action=action))
 
-    if service not in SERVICE_CONFIG_PATHS:
-        raise BadRequestError(t("gateway.unknownService", service=service))
+    unit = _systemd_unit(service)
 
     client = None
     try:
         client = _make_client(config.host, config.ssh_port, config.ssh_user, private_key_pem)
         if action == "restart":
             # Some services hang on restart; do stop+start with a kill fallback
-            _exec(client, f"systemctl stop {service} 2>&1; sleep 1; "
-                          f"systemctl kill -s SIGKILL {service} 2>/dev/null; "
-                          f"systemctl start {service} 2>&1")
-            code, out, err = _exec(client, f"systemctl is-active {service} 2>&1")
+            _exec(client, f"systemctl stop {unit} 2>&1; sleep 1; "
+                          f"systemctl kill -s SIGKILL {unit} 2>/dev/null; "
+                          f"systemctl start {unit} 2>&1")
+            code, out, err = _exec(client, f"systemctl is-active {unit} 2>&1")
             if out.strip() == "active":
                 return True, f"{service} restart 完成"
             return False, f"{service} restart 後狀態: {out.strip()}"
         else:
-            code, out, err = _exec(client, f"systemctl {action} {service} 2>&1")
+            code, out, err = _exec(client, f"systemctl {action} {unit} 2>&1")
             output = (out + err).strip()
             return code == 0, output or f"{service} {action} 完成"
     except Exception as exc:
@@ -384,13 +401,12 @@ def get_service_logs(session: object, service: str, lines: int = 50) -> tuple[bo
     config = _get_config(session)
     private_key_pem = get_decrypted_private_key(config)  # type: ignore[arg-type]
 
-    if service not in SERVICE_CONFIG_PATHS:
-        raise BadRequestError(t("gateway.unknownService", service=service))
+    unit = _systemd_unit(service)
 
     client = None
     try:
         client = _make_client(config.host, config.ssh_port, config.ssh_user, private_key_pem)
-        _, out, err = _exec(client, f"journalctl -u {service} --no-pager -n {lines} 2>&1")
+        _, out, err = _exec(client, f"journalctl -u {unit} --no-pager -n {lines} 2>&1")
         return True, (out + err).strip()
     finally:
         if client is not None:
@@ -405,16 +421,15 @@ def get_service_status(session: object, service: str) -> tuple[bool, str]:
     config = _get_config(session)
     private_key_pem = get_decrypted_private_key(config)  # type: ignore[arg-type]
 
-    if service not in SERVICE_CONFIG_PATHS:
-        raise BadRequestError(t("gateway.unknownService", service=service))
+    unit = _systemd_unit(service)
 
     client = None
     try:
         client = _make_client(config.host, config.ssh_port, config.ssh_user, private_key_pem)
-        code, _, _ = _exec(client, f"systemctl is-active {service}")
+        code, _, _ = _exec(client, f"systemctl is-active {unit}")
         _, status_out, _ = _exec(
             client,
-            f"systemctl show {service} --no-page "
+            f"systemctl show {unit} --no-page "
             f"-p ActiveState,SubState,MainPID 2>&1 | head -5",
         )
         return code == 0, status_out.strip()
@@ -423,6 +438,111 @@ def get_service_status(session: object, service: str) -> tuple[bool, str]:
     finally:
         if client is not None:
             client.close()
+
+
+def _parse_wireguard_dump(
+    output: str, *, now_timestamp: int | None = None
+) -> dict[str, int | bool | None]:
+    """Parse `wg show <interface> dump` without returning any key material."""
+    lines = [line.split("\t") for line in output.splitlines() if line.strip()]
+    if not lines:
+        return {
+            "listen_port": None,
+            "live_peers": 0,
+            "recent_handshakes": 0,
+            "transfer_rx_bytes": 0,
+            "transfer_tx_bytes": 0,
+            "inspection_available": False,
+        }
+
+    now_value = (
+        now_timestamp
+        if now_timestamp is not None
+        else int(datetime.now(timezone.utc).timestamp())
+    )
+
+    def integer(value: str | None) -> int:
+        try:
+            return int(value or 0)
+        except (TypeError, ValueError):
+            return 0
+
+    interface = lines[0]
+    peers = lines[1:]
+    handshakes = [integer(peer[4] if len(peer) > 4 else None) for peer in peers]
+    return {
+        # `wg show <interface> dump` interface row:
+        # private-key, public-key, listen-port, fwmark.
+        "listen_port": integer(interface[2] if len(interface) > 2 else None) or None,
+        "live_peers": len(peers),
+        "recent_handshakes": sum(
+            1
+            for handshake in handshakes
+            if handshake > 0 and 0 <= now_value - handshake <= 180
+        ),
+        "transfer_rx_bytes": sum(
+            integer(peer[5] if len(peer) > 5 else None) for peer in peers
+        ),
+        "transfer_tx_bytes": sum(
+            integer(peer[6] if len(peer) > 6 else None) for peer in peers
+        ),
+        "inspection_available": True,
+    }
+
+
+def get_wireguard_overview(session: object) -> GatewayWireGuardOverview:
+    """Return a secret-free WireGuard control-plane and runtime summary."""
+    from app.repositories import wireguard_peer as peer_repo  # noqa: PLC0415
+    from app.repositories.gateway_config import (  # noqa: PLC0415
+        get_decrypted_private_key,
+    )
+
+    now = datetime.now(timezone.utc)
+    config = _get_config(session)
+    private_key_pem = get_decrypted_private_key(config)  # type: ignore[arg-type]
+    interface = settings.WIREGUARD_INTERFACE
+    unit = _systemd_unit("wireguard")
+    active_sessions = peer_repo.list_active_unexpired(  # type: ignore[arg-type]
+        session=session, now=now
+    )
+    expired_sessions = peer_repo.list_expired_active(  # type: ignore[arg-type]
+        session=session, now=now
+    )
+
+    metrics = _parse_wireguard_dump("")
+    client = None
+    try:
+        client = _make_client(
+            config.host, config.ssh_port, config.ssh_user, private_key_pem
+        )
+        code, out, _err = _exec(
+            client, f"wg show {shlex.quote(interface)} dump 2>/dev/null"
+        )
+        if code == 0:
+            metrics = _parse_wireguard_dump(out)
+    except Exception as exc:
+        logger.warning("Unable to inspect WireGuard runtime on Gateway VM: %s", exc)
+    finally:
+        if client is not None:
+            client.close()
+
+    endpoint_host = settings.WIREGUARD_ENDPOINT_HOST.strip() or config.host
+    if ":" in endpoint_host and not endpoint_host.startswith("["):
+        endpoint_host = f"[{endpoint_host}]"
+    return GatewayWireGuardOverview(
+        mode=settings.DESKTOP_TUNNEL_MODE,
+        interface=interface,
+        systemd_unit=unit,
+        endpoint=f"{endpoint_host}:{settings.WIREGUARD_ENDPOINT_PORT}",
+        client_subnet=settings.WIREGUARD_CLIENT_SUBNET,
+        vm_subnet=settings.WIREGUARD_VM_SUBNET,
+        session_ttl_seconds=settings.WIREGUARD_SESSION_TTL_SECONDS,
+        reconcile_enabled=settings.WIREGUARD_RECONCILE_ENABLED,
+        authorized_sessions=len(active_sessions),
+        expired_sessions=len(expired_sessions),
+        inspected_at=now,
+        **metrics,
+    )
 
 
 def _normalize_version(value: str | None) -> str | None:

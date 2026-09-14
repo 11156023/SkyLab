@@ -12,12 +12,16 @@
     padding: 0;
   }
 
-  /* 桌面版鎖定視口高度，改由 tableWrap / detailPane 內部滾動；
-     flex: none 讓 height 不被外層 column flex 演算法蓋掉 */
+  /* 桌面版鎖定視口高度，改由 detailScroll / list 內部滾動；
+     flex: none 讓 height 不被外層 column flex 演算法蓋掉。
+     視窗太矮時內部捲動區只剩幾十 px、滾輪形同失效，
+     所以高度不足就不鎖定，退回整頁自然捲動 */
   @include respond-to(lg) {
-    flex: none;
-    height: calc(100dvh - var(--layout-py) * 2 - var(--footer-h) - #{$spacing-16});
-    overflow: hidden;
+    @media (min-height: 768px) {
+      flex: none;
+      height: calc(100dvh - var(--layout-py) * 2 - var(--footer-h) - #{$spacing-16});
+      overflow: hidden;
+    }
   }
 }
 
@@ -60,114 +64,39 @@
   }
 }
 
-.statRow {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: $spacing-16;
-
-  @include respond-to(sm) {
-    grid-template-columns: repeat(4, 1fr);
-  }
-}
-
-.statCard {
-  display: flex;
-  align-items: center;
-  gap: $spacing-16;
-  padding: $spacing-16;
-  @include glass-surface($shadow: var(--shadow-sm));
-  border-radius: $radius-16;
-}
-
-.statIcon {
-  width: 40px;
-  height: 40px;
-  border-radius: $radius-8;
-  background: var(--color-hover);
-  color: var(--color-primary);
-  @include flex-center;
-  flex-shrink: 0;
-}
-
-.statIconOk {
-  background: color-mix(in srgb, var(--color-success) 12%, transparent);
-  color: var(--color-success);
-}
-
-.statIconBusy {
-  background: color-mix(in srgb, var(--color-pending) 14%, transparent);
-  color: var(--color-pending);
-}
-
-.statIconDanger {
-  background: color-mix(in srgb, var(--color-danger) 12%, transparent);
-  color: var(--color-danger);
-}
-
-.statInfo {
-  @include flex-column;
-  gap: 2px;
-}
-
-.statLabel {
-  font-size: $font-size-12;
-  color: var(--color-text-muted);
-}
-
-.statValue {
-  font-size: $font-size-24;
-  font-weight: $font-weight-700;
-  color: var(--color-text-primary);
-  font-variant-numeric: tabular-nums;
-}
-
 /* ── Tabs ── */
-.tabs {
-  display: flex;
-  gap: $spacing-4;
-  border-bottom: 1px solid var(--color-border);
-}
-
-.tab {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: $spacing-8 $spacing-16;
-  font-size: $font-size-14;
-  font-weight: $font-weight-500;
-  color: var(--color-text-secondary);
-  border-bottom: 2px solid transparent;
-  cursor: pointer;
-  margin-bottom: -1px;
-  transition: color $transition-base, border-color $transition-base;
-
-  &:hover {
-    color: var(--color-text);
-  }
-
-  &.tabActive {
-    color: var(--color-primary);
-    border-bottom-color: var(--color-primary);
-  }
-}
-
-.toolbar {
+/* 分段切換器與搜尋擺同一排，省下的垂直空間留給右側詳情表單與審核按鈕 */
+.tabsRow {
   display: flex;
   align-items: center;
-  gap: $spacing-8;
+  gap: $spacing-16;
   flex-wrap: wrap;
+}
+
+/* 窄螢幕選項放不下時讓切換器自己橫向捲動；高度鎖 38px 與搜尋框對齊 */
+.tabsControl {
+  height: 38px;
+  max-width: 100%;
+  overflow-x: auto;
+  scrollbar-width: none;
+
+  &::-webkit-scrollbar {
+    display: none;
+  }
 }
 
 .search {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  padding: 6px $spacing-8 6px 10px;
+  min-height: 38px;
+  padding: 0 $spacing-8 0 10px;
   border: 1px solid var(--color-border);
   border-radius: $radius-8;
   background: var(--color-surface);
   color: var(--color-text-muted);
-  min-width: 280px;
+  flex: 0 1 280px;
+  min-width: 200px;
   box-shadow: var(--shadow-sm);
 }
 
@@ -221,8 +150,17 @@
   padding: $spacing-16;
   @include glass-surface($shadow: var(--shadow-sm));
   border-radius: $radius-12;
+}
+
+/* 詳情內容自成捲動區，審核列固定在外面：兩者永不重疊，
+   sticky 在捲到底時吃掉間距的問題也一併消失 */
+.detailScroll {
+  @include flex-column;
+  gap: $spacing-16;
 
   @include respond-to(lg) {
+    flex: 1;
+    min-height: 0;
     overflow-y: auto;
   }
 }
@@ -328,6 +266,13 @@
   white-space: nowrap;
 }
 
+/* 核准後的套用進度：次要灰字，不佔主 badge 位置（#4） */
+.rowProgress {
+  font-size: $font-size-10;
+  color: var(--color-text-muted);
+  white-space: nowrap;
+}
+
 .rowActions {
   display: flex;
   gap: $spacing-8;
@@ -372,12 +317,14 @@
     margin: 0;
     font-size: $font-size-18;
     color: var(--color-text-primary);
+    overflow-wrap: anywhere;
   }
 
   p {
     margin: 2px 0 0;
     color: var(--color-text-secondary);
     font-size: $font-size-14;
+    overflow-wrap: anywhere;
   }
 }
 
@@ -412,8 +359,7 @@
   }
 }
 
-.reasonBox,
-.contextBox {
+.reasonBox {
   @include flex-column;
   gap: $spacing-8;
   padding: $spacing-16;
@@ -432,44 +378,88 @@
     color: var(--color-text-primary);
     font-size: $font-size-14;
     line-height: $line-height-base;
+    overflow-wrap: anywhere;
+    white-space: pre-wrap;
   }
 }
 
-.contextTitle {
-  display: flex;
-  align-items: center;
-  gap: $spacing-8;
+/* 超長備註預設收合，避免一筆申請原因把整欄撐爆 */
+.reasonClamp {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 4;
+  line-clamp: 4;
+  overflow: hidden;
+}
+
+.reasonToggle {
+  align-self: flex-start;
+  padding: 0;
+  border: none;
+  background: none;
   color: var(--color-primary);
+  font-size: $font-size-12;
+  font-weight: $font-weight-500;
+  cursor: pointer;
 
-  span {
-    color: inherit;
-    font-size: $font-size-14;
+  &:hover {
+    text-decoration: underline;
   }
 }
 
-.warningList {
+/* 審核列固定在詳情欄底部（捲動區之外）：上方資訊再長，
+   審核動作都不必捲動就看得到 */
+.reviewBar {
+  /* 窄螢幕直向堆疊：備註欄滿寬、按鈕列在下方滿寬 */
   display: flex;
-  flex-wrap: wrap;
+  flex-direction: column;
+  align-items: stretch;
   gap: $spacing-8;
+  flex-shrink: 0;
+  margin: 0 (-$spacing-16) (-$spacing-16);
+  padding: $spacing-16;
+  border-top: 1px solid var(--color-border);
+  border-radius: 0 0 $radius-12 $radius-12;
+  background: var(--color-surface);
 
-  span {
-    padding: 4px 8px;
-    border-radius: $radius-pill;
-    color: var(--color-pending);
-    background: color-mix(in srgb, var(--color-pending) 18%, transparent);
+  @include respond-to(md) {
+    flex-direction: row;
+    align-items: flex-end;
+    flex-wrap: wrap;
+    gap: $spacing-16;
+  }
+
+  .rowActions {
+    width: 100%;
+
+    button {
+      flex: 1;
+      padding-block: 10px;
+    }
+
+    @include respond-to(md) {
+      width: auto;
+
+      button {
+        flex: none;
+        padding-block: 6px;
+      }
+    }
   }
 }
 
 .commentField {
   @include flex-column;
   gap: $spacing-8;
+  flex: 1 1 240px;
+  min-width: 0;
   color: var(--color-text-primary);
   font-size: $font-size-14;
   font-weight: $font-weight-500;
 
   textarea {
-    min-height: 96px;
-    resize: vertical;
+    height: 72px;
+    resize: none;
     padding: 10px 12px;
     border: 1px solid var(--color-border);
     border-radius: $radius-8;

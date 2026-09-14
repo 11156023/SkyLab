@@ -12,6 +12,7 @@ import SubnetBanner from "../components/SubnetBanner/SubnetBanner";
 import SessionWarningDialog from "../components/SessionWarning/SessionWarningDialog";
 import useSessionWarning from "../hooks/useSessionWarning";
 import useDialogPresence from "../hooks/useDialogPresence";
+import useBodyScrollLock from "../hooks/useBodyScrollLock";
 import ErrorBoundary from "../components/ErrorBoundary/ErrorBoundary";
 import UserGuide from "../components/UserGuide/UserGuide";
 import { isAiJudgePath } from "./layoutRouteVisibility";
@@ -28,13 +29,33 @@ export default function DashboardLayout() {
   const { t } = useTranslation("common");
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
+  /* 手機側欄抽屜開啟時鎖住底下頁面捲動 */
+  useBodyScrollLock(mobileOpen);
   const [compactFooter, setCompactFooter] = useState(false);
   const [assistantOpen, setAssistantOpen] = useState(false);
   const [requestForm, setRequestForm] = useState(null);
+  const [requestSubmission, reportRequestSubmission] = useState(null);
   const registerRequestForm = useCallback((api) => setRequestForm(api ?? null), []);
+  /* 一次只有一個畫面被問：使用者問的一定是眼前這個。取消註冊時比對 id，
+     免得後掛載的頁面先卸載時把還在畫面上的那個清掉。 */
+  const [surface, setSurface] = useState(null);
+  const registerSurface = useCallback((surfaceId, api) => {
+    setSurface((current) => {
+      if (!api) return current?.id === surfaceId ? null : current;
+      return { id: surfaceId, ...api };
+    });
+  }, []);
   const layoutValue = useMemo(
-    () => ({ setCompactFooter, registerRequestForm, requestForm }),
-    [registerRequestForm, requestForm],
+    () => ({
+      setCompactFooter,
+      registerRequestForm,
+      requestForm,
+      requestSubmission,
+      reportRequestSubmission,
+      registerSurface,
+      surface,
+    }),
+    [registerRequestForm, requestForm, registerSurface, surface, requestSubmission],
   );
   const { active: sessionWarning, dismiss, dismissPermanent } = useSessionWarning();
   const mobileOverlay = useDialogPresence(mobileOpen);

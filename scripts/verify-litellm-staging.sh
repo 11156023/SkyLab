@@ -8,18 +8,25 @@ curl_json() {
   curl --fail --silent --show-error "$@"
 }
 
+curl_auth() {
+  # 金鑰透過 --config 傳入，不出現在 curl 的命令列參數（ps / shell history）
+  curl --fail --silent --show-error \
+    --config <(printf 'header = "Authorization: Bearer %s"\n' "$LITELLM_MASTER_KEY") \
+    "$@"
+}
+
 printf 'Checking LiteLLM liveliness and readiness...\n'
 curl_json "$base_url/health/liveliness" | jq -e '. == "I\u0027m alive!"' >/dev/null
 curl_json "$base_url/health/readiness" | jq -e '.status == "healthy"' >/dev/null
 
 printf 'Checking the public model allowlist...\n'
-curl_json -H "Authorization: Bearer $LITELLM_MASTER_KEY" "$base_url/v1/models" \
+curl_auth "$base_url/v1/models" \
   | jq -e '
       [.data[].id] | sort == ["Qwen/Qwen3-14B-FP8", "gpt-oss-20B"]
     ' >/dev/null
 
 printf 'Checking both hosted vLLM deployments...\n'
-curl_json -H "Authorization: Bearer $LITELLM_MASTER_KEY" "$base_url/health" \
+curl_auth "$base_url/health" \
   | jq -e '.healthy_count == 2 and .unhealthy_count == 0' >/dev/null
 
 printf 'Checking backend-to-host gateway reachability...\n'

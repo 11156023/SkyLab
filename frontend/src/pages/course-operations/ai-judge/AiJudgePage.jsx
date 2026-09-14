@@ -5,6 +5,7 @@ import MIcon from "../../../components/MIcon";
 import PageHeader from "../../../components/PageHeader/PageHeader";
 import { ClassroomService } from "../../../services/classroom";
 import { TeachingClassesService } from "../../../services/teachingClasses";
+import { useToast } from "../../../hooks/useToast";
 import AiJudgePanel from "../class-workspace/AiJudgePanel";
 import styles from "../CourseOperations.module.scss";
 
@@ -61,23 +62,22 @@ function LockedFeature() {
 export default function AiJudgePage() {
   const { classId } = useParams();
   const navigate = useNavigate();
+  const toast = useToast();
   const [item, setItem] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
   const [members, setMembers] = useState([]);
   const [membersLoading, setMembersLoading] = useState(false);
 
   useEffect(() => {
     let active = true;
-    setError("");
     setItem(null);
     setLoading(true);
     TeachingClassesService.get(classId)
       .then((result) => active && setItem(normalizeAiJudgeClass(result)))
-      .catch((reason) => active && setError(reason?.message ?? "無法讀取班級"))
+      .catch((reason) => active && toast.error(reason?.message ?? "無法讀取班級"))
       .finally(() => active && setLoading(false));
     return () => { active = false; };
-  }, [classId]);
+  }, [classId, toast]);
 
   useEffect(() => {
     let active = true;
@@ -102,7 +102,7 @@ export default function AiJudgePage() {
         <button type="button" className={styles.backLink} onClick={() => navigate("/class-management")}>
           <MIcon name="arrow_back" size={18} />返回班級管理
         </button>
-        <p className={styles.errorMessage}>{error || "找不到班級"}</p>
+        <p className={styles.errorMessage}>找不到班級</p>
       </div>
     );
   }
@@ -121,7 +121,6 @@ export default function AiJudgePage() {
           </button>
         </div>
       </PageHeader>
-      {error && <p className={styles.errorMessage}>{error}</p>}
       <main className={styles.workspaceContent}>
         {item.status !== "active" ? <LockedFeature /> : membersLoading ? <LoadingState text="正在讀取班級機器…" /> : <AiJudgePanel classId={item.id} members={members} weeks={item.weeks} />}
       </main>

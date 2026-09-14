@@ -25,7 +25,7 @@ class NavigationResolveRequest(BaseModel):
     history: list[NavigationMessage] = Field(
         default_factory=list, max_length=MAX_HISTORY_MESSAGES
     )
-    # 使用者目前所在的頁面路徑，用來判斷流程走到哪一步。
+    # 使用者目前所在的頁面路徑，提供脈絡但不代表工作已完成。
     current_path: str | None = Field(default=None, max_length=200)
 
 
@@ -40,20 +40,35 @@ class NavigationStepPublic(BaseModel):
     action: str | None = None
 
 
+IntakeKey = Literal["purpose", "gpu", "display", "duration"]
+
+
+class IntakeFacts(BaseModel):
+    """Confirmed answers survive history trimming; defaults remain distinguishable."""
+
+    purpose: str | None = Field(default=None, max_length=2000)
+    gpu: str | None = Field(default=None, max_length=2000)
+    display: str | None = Field(default=None, max_length=2000)
+    duration: str | None = Field(default=None, max_length=2000)
+    inferred: list[IntakeKey] = Field(default_factory=list, max_length=4)
+
+
 class IntakeRequest(BaseModel):
     """配置模式的每一輪：把到目前為止的對話送回來，問下一個問題。"""
 
     history: list[NavigationMessage] = Field(
         default_factory=list, max_length=MAX_HISTORY_MESSAGES
     )
-    # 已經問過的欄位（問句由推薦 AI 生成，字面對不上，所以由前端記住問過什麼）
+    # 相容舊客戶端；問過不等於已回答，不能用來推算完成度。
     asked: list[str] = Field(default_factory=list, max_length=20)
+    facts: IntakeFacts = Field(default_factory=IntakeFacts)
+    pending_key: IntakeKey | None = None
+    goal: str | None = Field(default=None, max_length=2000)
 
 
 class IntakeQuestion(BaseModel):
     key: str
-    # 這一格要問到的東西。實際問句交給推薦 AI 用對話語氣講，
-    # 這裡的文字是給它的指示，模型不可用時也能直接顯示。
+    # 與下方選項配對的實際問句，前端直接顯示以避免問答主題不一致。
     text: str
     # 可以直接點的答案，讓使用者不用打字
     options: list[str] = Field(default_factory=list)
@@ -64,6 +79,8 @@ class IntakeState(BaseModel):
     answered: int
     total: int
     known: list[str] = Field(default_factory=list)
+    facts: IntakeFacts = Field(default_factory=IntakeFacts)
+    assumptions: list[str] = Field(default_factory=list)
     question: IntakeQuestion | None = None
     hint: str = ""
     # 配置只是「申請一台機器」的其中一步，附上整條流程，配置產生後才接得回去。

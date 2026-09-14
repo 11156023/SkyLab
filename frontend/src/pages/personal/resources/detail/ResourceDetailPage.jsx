@@ -1,8 +1,9 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import styles from "./ResourceDetailPage.module.scss";
 import MIcon from "../../../../components/MIcon";
+import { ResourcesService } from "../../../../services/resources";
 import OverviewTab from "./OverviewTab";
 import MonitoringTab from "./MonitoringTab";
 import SpecificationsTab from "./SpecificationsTab";
@@ -11,13 +12,14 @@ import AuditLogsTab from "./AuditLogsTab";
 import AdvancedSettingsTab from "./AdvancedSettingsTab";
 import PageHeader from "../../../../components/PageHeader/PageHeader";
 
+/* sharedOnly=false 的分頁只有擁有者／管理員看得到；被分享的使用者只能看總覽、監控與進階設定裡的唯讀卡片 */
 const TABS = [
-  { key: "overview",       labelKey: "ResourceDetailPage.tabOverview", icon: "info" },
-  { key: "monitoring",     labelKey: "ResourceDetailPage.tabMonitoring", icon: "monitoring" },
-  { key: "specifications", labelKey: "ResourceDetailPage.tabSpecifications", icon: "tune" },
-  { key: "snapshots",      labelKey: "ResourceDetailPage.tabSnapshots", icon: "photo_camera" },
-  { key: "auditLogs",      labelKey: "ResourceDetailPage.tabAuditLogs", icon: "receipt_long" },
-  { key: "advanced",       labelKey: "ResourceDetailPage.tabAdvanced", icon: "settings" },
+  { key: "overview",       labelKey: "ResourceDetailPage.tabOverview", icon: "info", sharedOnly: true },
+  { key: "monitoring",     labelKey: "ResourceDetailPage.tabMonitoring", icon: "monitor_heart", sharedOnly: true },
+  { key: "specifications", labelKey: "ResourceDetailPage.tabSpecifications", icon: "tune", sharedOnly: false },
+  { key: "snapshots",      labelKey: "ResourceDetailPage.tabSnapshots", icon: "photo_camera", sharedOnly: false },
+  { key: "auditLogs",      labelKey: "ResourceDetailPage.tabAuditLogs", icon: "receipt_long", sharedOnly: false },
+  { key: "advanced",       labelKey: "ResourceDetailPage.tabAdvanced", icon: "settings", sharedOnly: true },
 ];
 
 /**
@@ -29,6 +31,22 @@ export default function ResourceDetailPage({ backTo = "/my-resources" }) {
   const params = useParams();
   const vmid = Number.parseInt(params.vmid, 10);
   const [tab, setTab] = useState("overview");
+  const [access, setAccess] = useState(null); // { access_role, can_manage, owner_email }
+
+  useEffect(() => {
+    let cancelled = false;
+    ResourcesService.get(vmid)
+      .then((r) => !cancelled && setAccess({
+        access_role: r?.access_role ?? "owner",
+        can_manage: r?.can_manage !== false,
+        owner_email: r?.owner_email ?? null,
+      }))
+      .catch(() => !cancelled && setAccess({ access_role: "owner", can_manage: true, owner_email: null }));
+    return () => { cancelled = true; };
+  }, [vmid]);
+
+  const isShared = access?.access_role === "shared";
+  const visibleTabs = TABS.filter((tabDef) => !isShared || tabDef.sharedOnly);
 
   return (
     <div className={styles.page}>
@@ -46,8 +64,15 @@ export default function ResourceDetailPage({ backTo = "/my-resources" }) {
         title={<>{t("ResourceDetailPage.title")} <span className={styles.vmidText}>#{vmid}</span></>}
       />
 
+      {isShared && (
+        <p className={styles.rpHint}>
+          <MIcon name="group" size={14} />
+          {t("ResourceDetailPage.sharedNotice", { email: access?.owner_email ?? "—" })}
+        </p>
+      )}
+
       <div className={styles.tabs}>
-        {TABS.map((tabDef) => (
+        {visibleTabs.map((tabDef) => (
           <button
             key={tabDef.key}
             type="button"
@@ -66,7 +91,7 @@ export default function ResourceDetailPage({ backTo = "/my-resources" }) {
         {tab === "specifications" && <SpecificationsTab vmid={vmid} />}
         {tab === "snapshots"      && <SnapshotsTab vmid={vmid} />}
         {tab === "auditLogs"      && <AuditLogsTab vmid={vmid} />}
-        {tab === "advanced"       && <AdvancedSettingsTab vmid={vmid} />}
+        {tab === "advanced"       && <AdvancedSettingsTab vmid={vmid} backTo={backTo} />}
       </div>
     </div>
   );

@@ -4,7 +4,7 @@ import uuid
 from fastapi import APIRouter
 from sqlmodel import Session
 
-from app.api.deps import AdminUser, CurrentUser, LxcInfoDep, SessionDep
+from app.api.deps import AdminUser, ControlLxcInfoDep, CurrentUser, SessionDep
 from app.core.i18n import t
 from app.exceptions import ProxmoxError
 from app.infrastructure.worker import background_tasks
@@ -22,8 +22,8 @@ router = APIRouter(prefix="/lxc", tags=["lxc"])
 
 
 @router.get("/{vmid}/terminal", response_model=TerminalInfoSchema)
-def get_lxc_terminal(vmid: int, container_info: LxcInfoDep):
-    """Get terminal access for an LXC container (requires ownership or admin)."""
+def get_lxc_terminal(vmid: int, container_info: ControlLxcInfoDep):
+    """Get terminal access for an LXC container (owner, admin, or shared user)."""
     try:
         node = container_info["node"]
         console_data = proxmox_service.get_terminal_ticket(node, vmid)

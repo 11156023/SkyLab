@@ -37,6 +37,7 @@
   "user.emailExistsShort": "このメールアドレスのユーザーは既に存在します",
   "user.notFound": "ユーザーが見つかりません",
   "user.idNotFound": "この ID のユーザーはシステムに存在しません",
+  "user.ldapPasswordLocked": "このアカウントは LDAP で管理されています。ローカルパスワードは使用されません。パスワードは LDAP ディレクトリで変更してください。",
   "user.selfDeleteForbidden": "管理者は自分自身のアカウントを削除できません",
   "user.incorrectPassword": "パスワードが正しくありません",
   "user.samePassword": "新しいパスワードは現在のパスワードと同じにできません",
@@ -54,5 +55,7 @@
   "auth.tokenInvalid": "無効なトークンです",
   "auth.usernameNotFound": "このユーザー名のアカウントはシステムに存在しません。",
   "ldapAuth.notEnabled": "LDAP ログインは有効になっていません",
-  "ldapAuth.accountNotRegistered": "このアカウントは登録されていません"
+  "ldapAuth.accountNotRegistered": "このアカウントは登録されていません",
+  "auth.googleNotConfigured": "Google ログインは設定されていません",
+  "template.sourceVmNotRegistered": "VM {vmid} はプラットフォームに登録されていないため、テンプレートに変換できません"
 }

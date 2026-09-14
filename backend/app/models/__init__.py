@@ -39,6 +39,7 @@ from .course_environment import (
     CourseEnvironmentAudience,
     CourseEnvironmentEdge,
     CourseEnvironmentNode,
+    CourseEnvironmentPublication,
     CourseEnvironmentVersion,
     CourseEnvironmentVersionStatus,
 )
@@ -50,20 +51,17 @@ from .ip_allocation import IpAllocation
 from .ldap_config import LdapConfig
 from .mining_incident import MiningIncident, MiningIncidentStatus
 from .nat_rule import NatRule
-from .proxmox_config import (
-    ProxmoxConfig,
-    ProxmoxConnectionConfig,
-    ProxmoxPlacementConfig,
-    ProxmoxSchedulerConfig,
-)
+from .proxmox_config import ProxmoxConfig
 from .proxmox_connection import ProxmoxConnection
 from .proxmox_node import ProxmoxNode
 from .proxmox_storage import ProxmoxStorage
+from .push_subscription import PushSubscription, WebPushConfig
 from .quick_practice import QuickPracticeSession, QuickPracticeSessionMachine
 from .quota_config import QuotaConfig
 from .resource import Resource
 from .resource_network import ResourceNetwork
 from .resource_quota import ResourceQuota
+from .resource_share import ResourceShare
 from .reverse_proxy_rule import ReverseProxyRule
 from .spec_change_request import (
     SpecChangeRequest,
@@ -72,6 +70,10 @@ from .spec_change_request import (
 )
 from .subnet_config import SubnetConfig
 from .task_record import TaskRecord, TaskRecordStatus
+from .teacher_judge_attachment import (
+    TeacherJudgeAttachmentStatus,
+    TeacherJudgeSessionAttachment,
+)
 from .teacher_judge_file import TeacherJudgeFile, TeacherJudgeFileStatus
 from .teacher_judge_script_artifact import (
     TeacherJudgeScriptArtifact,
@@ -104,14 +106,7 @@ from .teaching_class import (
 )
 from .tunnel_proxy import TunnelProxy
 from .user import User, UserBase, UserRole
-from .vm_request import (
-    VMProvisioningStatus,
-    VMRequest,
-    VMRequestProvisioningState,
-    VMRequestReviewState,
-    VMRequestScheduleState,
-    VMRequestStatus,
-)
+from .vm_request import VMProvisioningStatus, VMRequest, VMRequestStatus
 from .vm_template import (
     TemplateAttachment,
     VMTemplate,
@@ -139,14 +134,12 @@ __all__ = [
     "Resource",
     "ResourceNetwork",
     "ResourceQuota",
+    "ResourceShare",
     "QuotaConfig",
     # VM Request
     "VMProvisioningStatus",
     "VMRequest",
     "VMRequestStatus",
-    "VMRequestProvisioningState",
-    "VMRequestReviewState",
-    "VMRequestScheduleState",
     # Audit Log
     "AuditAction",
     "AuditLog",
@@ -159,6 +152,9 @@ __all__ = [
     "MiningIncidentStatus",
     # LDAP
     "LdapConfig",
+    # Web Push
+    "PushSubscription",
+    "WebPushConfig",
     # Spec Change Request
     "SpecChangeRequest",
     "SpecChangeRequestStatus",
@@ -166,9 +162,6 @@ __all__ = [
     # Proxmox Config
     "ProxmoxConfig",
     "ProxmoxConnection",
-    "ProxmoxConnectionConfig",
-    "ProxmoxPlacementConfig",
-    "ProxmoxSchedulerConfig",
     # Proxmox Nodes
     "ProxmoxNode",
     # Proxmox Storages
@@ -184,6 +177,7 @@ __all__ = [
     "CourseEnvironment",
     "CourseEnvironmentAudience",
     "CourseEnvironmentEdge",
+    "CourseEnvironmentPublication",
     "CourseEnvironmentVersion",
     "CourseEnvironmentVersionStatus",
     "CourseEnvironmentNode",
@@ -204,6 +198,8 @@ __all__ = [
     "IpAllocation",
     "TeacherJudgeFile",
     "TeacherJudgeFileStatus",
+    "TeacherJudgeAttachmentStatus",
+    "TeacherJudgeSessionAttachment",
     "TeacherJudgeMessageRole",
     "TeacherJudgeMessageType",
     "TeacherJudgeSession",

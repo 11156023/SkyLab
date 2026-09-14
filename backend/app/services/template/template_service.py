@@ -291,8 +291,14 @@ async def create_template(
     if data.requires_gpu and resource_type == "lxc":
         raise BadRequestError(t("template.lxcGpuUnsupported"))
 
-    # 母機若是平台管理的資源，僅擁有者或 admin 能轉換（轉換後原 VM 消失）
+    # 母機若是平台管理的資源，僅擁有者或 admin 能轉換（轉換後原 VM 消失）；
+    # 未登記在平台的 pool 內 VM（孤兒、基礎設施 VM）也只有 admin 能轉換，
+    # 與 check_resource_ownership 對未登記 VMID 的處理一致。
     owned = session.get(Resource, data.source_vmid)
+    if owned is None and not is_admin(user):
+        raise PermissionDeniedError(
+            t("template.sourceVmNotRegistered", vmid=data.source_vmid)
+        )
     if owned is not None and owned.user_id != user.id and not is_admin(user):
         raise PermissionDeniedError(
             t("template.sourceVmBelongsToOther", vmid=data.source_vmid)
@@ -519,7 +525,10 @@ def add_attachment(
     template = _get_or_404(session, template_id)
     _require_owner(user, template)
 
-    safe_name = Path(filename or "").name.strip()
+    # 去掉路徑片段與控制字元（CR/LF 等），避免下載時的 Content-Disposition 被污染
+    safe_name = "".join(
+        ch for ch in Path(filename or "").name if ch.isprintable()
+    ).strip()
     if not safe_name:
         raise BadRequestError(t("template.filenameRequired"))
     ext = Path(safe_name).suffix.lower()
@@ -605,7 +614,7 @@ def _clone_children_vmids(session: Session, pve_vmid: int) -> list[int]:
 
 
 def _environments_referencing(session: Session, template_id: uuid.UUID) -> list[str]:
-    """引用這個母範本的多機環境名稱（含草稿與已下架版本）。
+    """引用這個母範本的學習環境名稱（含草稿與已下架版本）。
 
     已發布的環境會在學生按下啟動時才用到來源範本，所以刪除前必須先盤點；
     草稿與已下架版本一樣要算，否則教師之後建立新版本會拿到空的來源。

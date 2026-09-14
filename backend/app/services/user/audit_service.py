@@ -56,6 +56,10 @@ ACTION_CATEGORY: dict[AuditAction, str] = {
     AuditAction.user_delete: "user",
     AuditAction.batch_provision_vm: "user",
     AuditAction.batch_provision_lxc: "user",
+    AuditAction.group_create: "user",
+    AuditAction.group_delete: "user",
+    AuditAction.group_member_add: "user",
+    AuditAction.group_member_remove: "user",
     # 防火牆
     AuditAction.firewall_layout_update: "firewall",
     AuditAction.firewall_connection_create: "firewall",
@@ -78,6 +82,7 @@ ACTION_CATEGORY: dict[AuditAction, str] = {
     AuditAction.cloudflare_dns_record_create: "system",
     AuditAction.cloudflare_dns_record_update: "system",
     AuditAction.cloudflare_dns_record_delete: "system",
+    AuditAction.cloudflare_zone_activation_check: "system",
     # Proxmox
     AuditAction.proxmox_config_update: "system",
     AuditAction.proxmox_node_update: "system",

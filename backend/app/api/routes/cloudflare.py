@@ -108,7 +108,7 @@ def list_dns_records(
     record_type: str | None = Query(default=None, alias="type"),
     proxied: bool | None = None,
 ) -> CloudflareDNSRecordsPublic:
-    return cloudflare_service.list_dns_records(
+    result = cloudflare_service.list_dns_records(
         session=session,
         zone_id=zone_id,
         page=page,
@@ -117,6 +117,11 @@ def list_dns_records(
         record_type=record_type,
         proxied=proxied,
     )
+    # 標出哪些紀錄是本系統的對外網址建的，管理員才分得出來哪些是外部自己加的
+    from app.services.network import reverse_proxy_service  # noqa: PLC0415
+
+    reverse_proxy_service.annotate_dns_records_with_system_rules(session, result.items)
+    return result
 
 
 @router.post("/zones/{zone_id}/dns-records", response_model=CloudflareDNSRecordPublic)

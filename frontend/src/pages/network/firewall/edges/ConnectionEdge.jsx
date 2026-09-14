@@ -28,11 +28,13 @@ export default function ConnectionEdge(props) {
   const edge       = data?.edge ?? {};
   const isInbound  = edge.source_vmid === null;
   const isOutbound = edge.target_vmid === null;
-  const color = isInbound
-    ? (hovered ? "#93c5fd" : "#60a5fa")
+  // 入站藍 / 出站綠 / 內部灰，走主題語意色；hover 用 color-mix 提亮，深淺色模式都跟著換
+  const baseColor = isInbound
+    ? "var(--color-info)"
     : isOutbound
-    ? (hovered ? "#6ee7b7" : "#4ade80")
-    : (hovered ? "#94a3b8" : "#64748b");
+    ? "var(--color-success)"
+    : "var(--color-status-neutral)";
+  const color = hovered ? `color-mix(in srgb, ${baseColor} 70%, white)` : baseColor;
 
   const showLabel = hovered || data?.showLabel;
 

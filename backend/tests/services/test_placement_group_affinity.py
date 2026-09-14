@@ -133,6 +133,10 @@ def _placement_request(group_id: uuid.UUID | None = None, **overrides):
     return PlacementRequest(**payload)
 
 
+def _fake_get_tuning(*, session):
+    return _tuning()
+
+
 def _build_plan(session, request, nodes, **overrides):
     """以注入的假依賴呼叫 build_plan，不碰資料庫設定與 Proxmox。"""
     kwargs = dict(
@@ -145,7 +149,7 @@ def _build_plan(session, request, nodes, **overrides):
             {name: [] for name in node_names},
             False,
         ),
-        get_placement_tuning_fn=lambda *, session: _tuning(),
+        get_placement_tuning_fn=_fake_get_tuning,
         get_overcommit_ratios_fn=lambda session: (1.0, 1.0),
         get_node_priorities_fn=lambda session: {},
         placement_sort_key_fn=placement_support.placement_sort_key,

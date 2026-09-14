@@ -8,55 +8,23 @@ import { ResourcesService } from "../../../../services/resources";
 import { useToast } from "../../../../hooks/useToast";
 import useDialogPresence from "../../../../hooks/useDialogPresence";
 import { focusInvalidField } from "../../../../utils/focusField";
+import { useConfirm } from "../../../../components/ConfirmDialog/ConfirmProvider";
+import { formatDateTime } from "../../../../utils/formatDate";
 
 const INIT_SNAPSHOT_NAME = "skylab-init";
-
-/** 輕量確認 dialog（比照 ResourcesPage 的 ConfirmModal 行為） */
-function ConfirmModal({ title, desc, confirmLabel, danger = false, loading = false, closing = false, onConfirm, onClose }) {
-  const { t } = useTranslation("personal");
-  return (
-    <div
-      className={`${styles.modalOverlay} ${closing ? styles.modalOverlayOut : ""}`}
-      onClick={onClose}
-    >
-      <div className={styles.modal} onClick={(e) => e.stopPropagation()}>
-        <span className={styles.modalTitle}>{title}</span>
-        {desc && <p className={styles.modalDesc}>{desc}</p>}
-        <div className={styles.modalActions}>
-          <button type="button" className={styles.btnSecondary} onClick={onClose}>
-            {t("ConfirmModal.cancel")}
-          </button>
-          <button
-            type="button"
-            className={danger ? styles.btnDanger : styles.btnPrimary}
-            disabled={loading}
-            onClick={onConfirm}
-          >
-            {loading ? t("ConfirmModal.processing") : (confirmLabel ?? t("ConfirmModal.confirm"))}
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
 
 export default function SnapshotsTab({ vmid }) {
   const { t } = useTranslation("personal");
   const toast = useToast();
+  const confirm = useConfirm();
   const [snapshots, setSnapshots] = useState(null);
   const [createOpen, setCreateOpen] = useState(false);
-  const [resetConfirm, setResetConfirm] = useState(false);
-  const [deleteTarget, setDeleteTarget] = useState(null);
-  const [rollbackTarget, setRollbackTarget] = useState(null);
   const [snapname, setSnapname] = useState("");
   const [nameInvalid, setNameInvalid] = useState(false);
   const snapnameRef = useRef(null);
   const [description, setDescription] = useState("");
   const [busy, setBusy] = useState(false);
   const createDialog    = useDialogPresence(createOpen);
-  const resetDialog     = useDialogPresence(resetConfirm);
-  const rollbackDialog  = useDialogPresence(rollbackTarget);
-  const deleteDialog    = useDialogPresence(deleteTarget);
 
   const load = useCallback(async () => {
     try {
@@ -86,6 +54,36 @@ export default function SnapshotsTab({ vmid }) {
       setBusy(false);
     }
   };
+
+  async function handleReset() {
+    const ok = await confirm({
+      title: t("SnapshotsTab.resetConfirmTitle"),
+      message: t("SnapshotsTab.resetConfirmDesc"),
+      confirmText: t("SnapshotsTab.reset"),
+      danger: true,
+    });
+    if (ok) run(() => ResourcesService.resetToInit(vmid), t("SnapshotsTab.resetTaskQueued"));
+  }
+
+  async function handleRollback(name) {
+    const ok = await confirm({
+      title: t("SnapshotsTab.rollbackConfirmTitle", { name }),
+      message: t("SnapshotsTab.rollbackConfirmDesc"),
+      confirmText: t("SnapshotsTab.restore"),
+      danger: true,
+    });
+    if (ok) run(() => ResourcesService.rollbackSnapshot(vmid, name), t("SnapshotsTab.rollbackStarted"));
+  }
+
+  async function handleDeleteSnap(name) {
+    const ok = await confirm({
+      title: t("SnapshotsTab.deleteConfirmTitle", { name }),
+      message: t("SnapshotsTab.deleteConfirmDesc"),
+      confirmText: t("SnapshotsTab.delete"),
+      danger: true,
+    });
+    if (ok) run(() => ResourcesService.deleteSnapshot(vmid, name), t("SnapshotsTab.snapshotDeleted"));
+  }
 
   const handleCreate = () => {
     if (!snapname.trim()) {
@@ -126,7 +124,7 @@ export default function SnapshotsTab({ vmid }) {
               className={styles.btnSecondary}
               disabled={!hasInitSnapshot || busy}
               title={hasInitSnapshot ? undefined : t("SnapshotsTab.noInitSnapshotHint")}
-              onClick={() => setResetConfirm(true)}
+              onClick={handleReset}
             >
               <MIcon name="restart_alt" size={14} />
               {t("SnapshotsTab.oneClickReset")}
@@ -157,6 +155,7 @@ export default function SnapshotsTab({ vmid }) {
         {snapshots.length === 0 ? (
           <EmptyState icon="photo_camera" title={t("SnapshotsTab.emptyTitle")} />
         ) : (
+          <div className={styles.tableScroll}>
           <table className={styles.table}>
             <thead>
               <tr>
@@ -184,16 +183,14 @@ export default function SnapshotsTab({ vmid }) {
                     {snap.description || "—"}
                   </td>
                   <td className={`${styles.td} ${styles.mutedCell}`}>
-                    {snap.snaptime
-                      ? new Date(snap.snaptime * 1000).toLocaleString("zh-TW")
-                      : "—"}
+                    {snap.snaptime ? formatDateTime(snap.snaptime * 1000) : "—"}
                   </td>
                   <td className={`${styles.td} ${styles.tdRight}`}>
                     <button
                       type="button"
                       className={styles.btnSecondary}
                       disabled={busy}
-                      onClick={() => setRollbackTarget(snap.name)}
+                      onClick={() => handleRollback(snap.name)}
                     >
                       <MIcon name="history" size={14} />
                       {t("SnapshotsTab.restore")}
@@ -203,7 +200,7 @@ export default function SnapshotsTab({ vmid }) {
                         type="button"
                         className={styles.btnDangerOutline}
                         disabled={busy}
-                        onClick={() => setDeleteTarget(snap.name)}
+                        onClick={() => handleDeleteSnap(snap.name)}
                       >
                         <MIcon name="delete_outline" size={14} />
                         {t("SnapshotsTab.delete")}
@@ -214,6 +211,7 @@ export default function SnapshotsTab({ vmid }) {
               ))}
             </tbody>
           </table>
+          </div>
         )}
       </div>
 
@@ -268,60 +266,6 @@ export default function SnapshotsTab({ vmid }) {
         </div>
       )}
 
-      {resetDialog.open && (
-        <ConfirmModal
-          title={t("SnapshotsTab.resetConfirmTitle")}
-          desc={t("SnapshotsTab.resetConfirmDesc")}
-          confirmLabel={t("SnapshotsTab.reset")}
-          danger
-          loading={busy}
-          closing={resetDialog.closing}
-          onConfirm={() =>
-            run(() => ResourcesService.resetToInit(vmid), t("SnapshotsTab.resetTaskQueued"), () =>
-              setResetConfirm(false),
-            )
-          }
-          onClose={() => setResetConfirm(false)}
-        />
-      )}
-
-      {rollbackDialog.open && (
-        <ConfirmModal
-          title={t("SnapshotsTab.rollbackConfirmTitle", { name: rollbackDialog.item })}
-          desc={t("SnapshotsTab.rollbackConfirmDesc")}
-          confirmLabel={t("SnapshotsTab.restore")}
-          danger
-          loading={busy}
-          closing={rollbackDialog.closing}
-          onConfirm={() =>
-            run(
-              () => ResourcesService.rollbackSnapshot(vmid, rollbackDialog.item),
-              t("SnapshotsTab.rollbackStarted"),
-              () => setRollbackTarget(null),
-            )
-          }
-          onClose={() => setRollbackTarget(null)}
-        />
-      )}
-
-      {deleteDialog.open && (
-        <ConfirmModal
-          title={t("SnapshotsTab.deleteConfirmTitle", { name: deleteDialog.item })}
-          desc={t("SnapshotsTab.deleteConfirmDesc")}
-          confirmLabel={t("SnapshotsTab.delete")}
-          danger
-          loading={busy}
-          closing={deleteDialog.closing}
-          onConfirm={() =>
-            run(
-              () => ResourcesService.deleteSnapshot(vmid, deleteDialog.item),
-              t("SnapshotsTab.snapshotDeleted"),
-              () => setDeleteTarget(null),
-            )
-          }
-          onClose={() => setDeleteTarget(null)}
-        />
-      )}
     </div>
   );
 }

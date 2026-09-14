@@ -1,243 +1,62 @@
+/**
+ * AdvancedSettingsTab — 進階設定
+ * 生命週期、防火牆、開機選項、登入憑證、標籤、共享轉移。
+ * 對外發布（網址／對外 port／僅開放防火牆）走防火牆卡片的「新增規則」對話框裡的「連線」分頁，
+ * 或拓撲頁；這裡不再有獨立的「對外服務」卡片。
+ * 被分享的使用者只看得到生命週期與防火牆（唯讀）；擁有者層級的卡片要 can_manage。
+ * 「轉成範本」不在這裡：老師／管理員從資源列表每列的「更多」選單操作。
+ */
+
 import { useCallback, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import styles from "./ResourceDetailPage.module.scss";
-import MIcon from "../../../../components/MIcon";
 import LoadingState from "../../../../components/LoadingState/LoadingState";
-import ReverseProxyRuleModal from "../../../../components/ReverseProxyRuleModal/ReverseProxyRuleModal";
-import { useAuth } from "../../../../contexts/AuthContext";
-import { useToast } from "../../../../hooks/useToast";
-import useDialogPresence from "../../../../hooks/useDialogPresence";
-import { ReverseProxyService } from "../../../../services/reverseProxy";
 import { ResourcesService } from "../../../../services/resources";
+import LifecycleCard from "./advanced/LifecycleCard";
+import FirewallCard from "./advanced/FirewallCard";
+import BootOptionsCard from "./advanced/BootOptionsCard";
+import CredentialsCard from "./advanced/CredentialsCard";
+import MetadataCard from "./advanced/MetadataCard";
+import SharingCard from "./advanced/SharingCard";
 
-export default function AdvancedSettingsTab({ vmid }) {
+export default function AdvancedSettingsTab({ vmid, backTo }) {
   const { t } = useTranslation("personal");
-  const { user } = useAuth();
-  const toast = useToast();
-  const isAdmin = user?.role === "admin" || user?.is_superuser === true;
 
   const [resource, setResource] = useState(null);
-  const [rules, setRules] = useState([]);
-  const [setupContext, setSetupContext] = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
-  const [modal, setModal] = useState(null); // { kind: "rule", rule? } | { kind: "delete", rule }
-  const modalPresence = useDialogPresence(modal);
+  const [error, setError] = useState(false);
 
-  const fetchData = useCallback(async () => {
-    setLoading(true);
+  const loadResource = useCallback(async () => {
     try {
-      const [resourceRes, rulesRes, ctxRes] = await Promise.all([
-        ResourcesService.get(vmid).catch(() => null),
-        ReverseProxyService.listRules(),
-        ReverseProxyService.setupContext().catch(() => null),
-      ]);
-      setResource(resourceRes);
-      setRules((rulesRes ?? []).filter((r) => r.vmid === vmid));
-      if (ctxRes) setSetupContext(ctxRes);
-    } catch (err) {
-      toast.error(err?.message ?? t("AdvancedSettingsTab.loadRulesFailed"));
-    } finally {
-      setLoading(false);
+      setResource(await ResourcesService.get(vmid));
+    } catch {
+      setError(true);
     }
-  }, [vmid, toast, t]);
+  }, [vmid]);
 
   useEffect(() => {
-    fetchData();
-  }, [fetchData]);
+    loadResource();
+  }, [loadResource]);
 
-  const setupBlocked = setupContext?.enabled === false;
-  const running = resource?.status === "running";
-  const createDisabled = setupBlocked || !running;
-  const createHint = setupBlocked
-    ? setupContext?.reasons?.[0] ?? t("AdvancedSettingsTab.featureUnavailable")
-    : !running
-      ? t("AdvancedSettingsTab.vmMustBeRunning")
-      : "";
+  if (error) return <p className={styles.stateText}>{t("AdvancedSettingsTab.loadFailed")}</p>;
+  if (!resource) return <LoadingState />;
 
-  async function handleSubmitRule(payload) {
-    setSaving(true);
-    try {
-      if (modal?.rule) {
-        await ReverseProxyService.updateRule(modal.rule.id, payload);
-        toast.success(t("AdvancedSettingsTab.ruleUpdated"));
-      } else {
-        await ReverseProxyService.createRule(payload);
-        toast.success(t("AdvancedSettingsTab.ruleCreated"));
-      }
-      setModal(null);
-      fetchData();
-    } catch (err) {
-      toast.error(err?.message ?? t("AdvancedSettingsTab.saveRuleFailed"));
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  async function handleDeleteRule() {
-    if (!modal?.rule) return;
-    setSaving(true);
-    try {
-      await ReverseProxyService.deleteRule(modal.rule.id);
-      toast.success(t("AdvancedSettingsTab.ruleDeleted"));
-      setModal(null);
-      fetchData();
-    } catch (err) {
-      toast.error(err?.message ?? t("AdvancedSettingsTab.deleteRuleFailed"));
-    } finally {
-      setSaving(false);
-    }
-  }
+  const canManage = resource.can_manage !== false;
+  const isShared = resource.access_role === "shared";
 
   return (
     <div className={styles.tabStack}>
-      {/* 反向代理 */}
-      <div className={styles.card}>
-        <div className={styles.cardHeader}>
-          <div>
-            <h2 className={styles.cardTitle}>
-              <MIcon name="swap_horiz" size={18} />
-              {t("AdvancedSettingsTab.externalUrlTitle")}
-            </h2>
-            <p className={styles.cardDesc}>
-              {t("AdvancedSettingsTab.externalUrlDesc")}
-            </p>
-          </div>
-          <div className={styles.headerActions}>
-            <button
-              type="button"
-              className={styles.btnPrimary}
-              disabled={createDisabled}
-              title={createHint}
-              onClick={() => setModal({ kind: "rule" })}
-            >
-              <MIcon name="add" size={16} />
-              {t("AdvancedSettingsTab.addUrl")}
-            </button>
-          </div>
-        </div>
-        <div className={styles.cardBody}>
-          {loading ? (
-            <LoadingState text={t("AdvancedSettingsTab.loadingRules")} />
-          ) : (
-            <>
-              {createHint && (
-                <p className={styles.rpHint}>
-                  <MIcon name="info" size={14} />
-                  {createHint}
-                </p>
-              )}
-              {rules.length === 0 ? (
-                <p className={styles.mutedText}>
-                  {t("AdvancedSettingsTab.noRulesText")}
-                </p>
-              ) : (
-                <div className={styles.rpList}>
-                  {rules.map((rule) => (
-                    <div key={rule.id} className={styles.rpItem}>
-                      <div className={styles.rpMain}>
-                        <span className={styles.rpDomain}>{rule.domain}</span>
-                        <span className={styles.rpMeta}>
-                          Port {rule.internal_port}
-                          {rule.enable_https && (
-                            <span className={`${styles.badge} ${styles.badge_ok}`}>
-                              <MIcon name="lock" size={11} /> HTTPS
-                            </span>
-                          )}
-                        </span>
-                      </div>
-                      <a
-                        className={styles.rpOpen}
-                        href={`${rule.enable_https ? "https" : "http"}://${rule.domain}`}
-                        target="_blank"
-                        rel="noreferrer"
-                      >
-                        <MIcon name="open_in_new" size={14} />
-                        {t("AdvancedSettingsTab.open")}
-                      </a>
-                      <div className={styles.rpActions}>
-                        <button
-                          type="button"
-                          className={styles.rpIconBtn}
-                          title={t("AdvancedSettingsTab.edit")}
-                          onClick={() => setModal({ kind: "rule", rule })}
-                        >
-                          <MIcon name="edit" size={16} />
-                        </button>
-                        <button
-                          type="button"
-                          className={`${styles.rpIconBtn} ${styles.rpIconBtnDanger}`}
-                          title={t("AdvancedSettingsTab.delete")}
-                          onClick={() => setModal({ kind: "delete", rule })}
-                        >
-                          <MIcon name="delete" size={16} />
-                        </button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </>
-          )}
-        </div>
-      </div>
+      <LifecycleCard vmid={vmid} resource={resource} canManage={canManage} onChanged={loadResource} />
 
-      {/* 其他進階功能 */}
-      <div className={styles.card}>
-        <div className={styles.cardHeader}>
-          <div>
-            <h2 className={styles.cardTitle}>{t("AdvancedSettingsTab.moreAdvancedTitle")}</h2>
-            <p className={styles.cardDesc}>{t("AdvancedSettingsTab.moreAdvancedDesc")}</p>
-          </div>
-        </div>
-        <div className={`${styles.cardBody} ${styles.comingSoon}`}>
-          <MIcon name="construction" size={32} />
-          <p>{t("AdvancedSettingsTab.comingSoon")}</p>
-          <span className={styles.mutedText}>{t("AdvancedSettingsTab.bootOrderPlanned")}</span>
-        </div>
-      </div>
+      <FirewallCard vmid={vmid} canManage={canManage} />
 
-      {modalPresence.item?.kind === "rule" && (
-        <ReverseProxyRuleModal
-          rule={modalPresence.item.rule}
-          setupContext={setupContext}
-          isAdmin={isAdmin}
-          fixedResource={{ vmid, name: resource?.name }}
-          loading={saving}
-          onClose={() => setModal(null)}
-          onSubmit={handleSubmitRule}
-          closing={modalPresence.closing}
-        />
-      )}
-      {modalPresence.item?.kind === "delete" && (
-        <div
-          className={`${styles.modalOverlay} ${modalPresence.closing ? styles.modalOverlayOut : ""}`}
-          onMouseDown={() => setModal(null)}
-        >
-          <div className={styles.modal} onMouseDown={(e) => e.stopPropagation()}>
-            <h2 className={styles.modalTitle}>{t("AdvancedSettingsTab.deleteUrlTitle")}</h2>
-            <p className={styles.modalDesc}>
-              {t("AdvancedSettingsTab.deleteUrlDescPart1")}<strong>{modalPresence.item.rule.domain}</strong>{t("AdvancedSettingsTab.deleteUrlDescPart2")}
-            </p>
-            <div className={styles.modalActions}>
-              <button
-                type="button"
-                className={styles.btnSecondary}
-                onClick={() => setModal(null)}
-              >
-                {t("AdvancedSettingsTab.cancel")}
-              </button>
-              <button
-                type="button"
-                className={styles.btnDanger}
-                disabled={saving}
-                onClick={handleDeleteRule}
-              >
-                {saving ? t("AdvancedSettingsTab.deleting") : t("AdvancedSettingsTab.delete")}
-              </button>
-            </div>
-          </div>
-        </div>
+      {!isShared && <BootOptionsCard vmid={vmid} canManage={canManage} />}
+
+      {canManage && <CredentialsCard vmid={vmid} canManage={canManage} />}
+
+      {!isShared && <MetadataCard vmid={vmid} canManage={canManage} onChanged={loadResource} />}
+
+      {canManage && resource.allocation_scope !== "teaching_class" && (
+        <SharingCard vmid={vmid} resource={resource} canManage={canManage} backTo={backTo} />
       )}
     </div>
   );

@@ -4,169 +4,245 @@
 .page {
   @include flex-column;
   gap: $spacing-24;
+  min-width: 0;
   padding: $spacing-8 $spacing-16;
   flex: 1;
 
   @media (min-width: $breakpoint-sidebar) { padding: 0; }
+
+  /* 桌面版鎖定視口高度，改由 list 內部滾動；
+     flex: none 讓 height 不被外層 column flex 演算法蓋掉 */
+  @include respond-to(lg) {
+    flex: none;
+    height: calc(100dvh - var(--layout-py) * 2 - var(--footer-h) - #{$spacing-16});
+    overflow: hidden;
+  }
 }
 
-.pageActions {
+/* 窄螢幕上下堆疊；空間夠寬時「切換器＋篩選」一組在左、搜尋框自成一組，
+   兩組之間留較大間距 */
+.controlsRow {
+  @include flex-column;
+  gap: $spacing-24;
+
+  @include respond-to(lg) {
+    flex-direction: row;
+    align-items: center;
+    gap: $spacing-32;
+  }
+}
+
+/* 切換器與篩選鈕成組；也是篩選 popover 的定位錨點 */
+.segmentGroup {
+  position: relative;
   display: flex;
   align-items: center;
   gap: $spacing-8;
+  max-width: 100%;
   flex-shrink: 0;
 }
 
-/* ── Buttons ── */
-%btn-base {
+/* 狀態切換用共用 SegmentedControl；這裡只管窄螢幕橫向捲動，
+   並鎖定高度與旁邊的篩選鈕、搜尋框（38px）對齊 */
+.statusTabs {
+  min-width: 0;
+  height: 38px;
+  overflow-x: auto;
+  scrollbar-width: none;
+
+  &::-webkit-scrollbar {
+    display: none;
+  }
+}
+
+.searchBox {
+  display: flex;
+  align-items: center;
+  gap: $spacing-8;
+  min-width: min(420px, 100%);
+  min-height: 38px;
+
+  /* 寬版固定寬度，不需要整排這麼長 */
+  @include respond-to(lg) {
+    flex: 0 1 320px;
+    min-width: 240px;
+  }
+  padding: 0 12px;
+  border: 1px solid var(--color-border);
+  border-radius: $radius-8;
+  background: var(--color-surface);
+  color: var(--color-text-muted);
+  transition: border-color $transition-base, box-shadow $transition-base;
+
+  &:focus-within {
+    border-color: var(--color-primary);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-primary) 12%, transparent);
+  }
+
+  input {
+    min-width: 0;
+    width: 100%;
+    border: 0;
+    outline: 0;
+    background: transparent;
+    color: var(--color-text-primary);
+    font-size: $font-size-14;
+
+    &::placeholder { color: var(--color-text-muted); }
+  }
+}
+
+.clearSearch {
   display: inline-flex;
   align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 26px;
+  height: 26px;
+  border-radius: $radius-8;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  transition: background $transition-base, color $transition-base;
+
+  &:hover { background: var(--color-hover); color: var(--color-text-primary); }
+  &:focus-visible { outline: 2px solid var(--color-primary); outline-offset: 2px; }
+}
+
+/* popover 改以 .segmentGroup 為錨點，避免按鈕靠左時往右爆出畫面 */
+.filterArea {
+  flex-shrink: 0;
+}
+
+.filterButton,
+.btnOutline,
+.btnDanger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   gap: 6px;
-  padding: 8px $spacing-16;
+  min-height: 38px;
+  padding: 0 12px;
   border-radius: $radius-8;
   font-size: $font-size-14;
   font-weight: $font-weight-500;
-  cursor: pointer;
   white-space: nowrap;
-  transition: background $transition-base, box-shadow $transition-base, opacity $transition-base;
+  cursor: pointer;
+  transition: background $transition-base, border-color $transition-base, color $transition-base, opacity $transition-base;
 
   &:disabled { opacity: 0.5; cursor: not-allowed; }
 }
 
-.btnSecondary {
-  @extend %btn-base;
-  background: var(--color-surface);
-  color: var(--color-text);
+.filterButton,
+.btnOutline {
   border: 1px solid var(--color-border);
-  box-shadow: var(--shadow-sm);
+  background: var(--color-surface);
+  color: var(--color-text-secondary);
 
-  &:hover:not(:disabled) { background: var(--color-hover); }
+  &:hover:not(:disabled) { background: var(--color-hover); color: var(--color-text-primary); }
 }
 
-.btnOutline {
-  @extend %btn-base;
-  background: var(--color-surface);
-  color: var(--color-text);
-  border: 1px solid var(--color-border);
-
-  &:hover:not(:disabled) { background: var(--color-hover); }
+.filterButtonActive {
+  border-color: color-mix(in srgb, var(--color-primary) 36%, var(--color-border));
+  background: color-mix(in srgb, var(--color-primary) 10%, var(--color-surface));
+  color: var(--color-primary);
 }
 
 .btnDanger {
-  @extend %btn-base;
+  border: 1px solid var(--color-danger);
   background: var(--color-danger);
   color: var(--color-text-on-primary);
 
   &:hover:not(:disabled) { opacity: 0.9; }
 }
 
-/* ── Stat cards ── */
-.statRow {
-  display: grid;
-  grid-template-columns: 1fr;
-  gap: $spacing-16;
-
-  @include respond-to(sm) { grid-template-columns: repeat(3, 1fr); }
-}
-
-.statCard {
-  display: flex;
-  align-items: center;
-  gap: $spacing-16;
+.filterPopover {
+  position: absolute;
+  z-index: 40;
+  top: calc(100% + 8px);
+  left: 0;
+  width: min(300px, calc(100vw - 32px));
   padding: $spacing-16;
-  @include glass-surface($shadow: var(--shadow-sm));
-  border-radius: $radius-16;
+  border: 1px solid var(--color-surface-glass-border);
+  border-radius: $radius-12;
+  background: var(--color-surface);
+  box-shadow: var(--shadow-lg);
+  animation: popIn 0.16s ease-out;
 }
 
-.statIcon {
-  width: 40px;
-  height: 40px;
-  border-radius: $radius-8;
-  background: var(--color-hover);
-  color: var(--color-primary);
-  @include flex-center;
-  flex-shrink: 0;
-}
-
-.statIconOk { background: color-mix(in srgb, var(--color-success) 12%, transparent); color: var(--color-success); }
-.statIconErr { background: color-mix(in srgb, var(--color-danger)  12%, transparent); color: var(--color-danger); }
-
-.statInfo {
+.filterPopoverHeader {
   @include flex-column;
   gap: 2px;
-}
-
-.statLabel {
-  font-size: $font-size-12;
-  color: var(--color-text-muted);
-}
-
-.statValue {
-  font-size: $font-size-24;
-  font-weight: $font-weight-700;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--color-divider);
   color: var(--color-text-primary);
-  font-variant-numeric: tabular-nums;
-}
-
-/* ── Filter card ── */
-.filterCard {
-  @include flex-column;
-  gap: 12px;
-  padding: $spacing-16;
-  @include glass-surface($shadow: var(--shadow-sm));
-  border-radius: $radius-16;
-}
-
-.filterTitle {
-  font-size: $font-size-16;
-  font-weight: 600;
-  color: var(--color-text-primary);
-}
-
-.filterDesc {
   font-size: $font-size-14;
-  color: var(--color-text-muted);
 }
 
-.filterRow {
+.filterPopoverHint { color: var(--color-text-muted); font-size: $font-size-12; font-weight: $font-weight-400; }
+
+.filterGroup {
   display: grid;
-  gap: 12px;
-  grid-template-columns: 1fr;
+  gap: $spacing-8;
+  margin: $spacing-16 0 0;
+  padding: 0;
+  border: 0;
 
-  @include respond-to(sm) { grid-template-columns: 1fr 1fr; }
+  legend {
+    margin-bottom: $spacing-4;
+    color: var(--color-text-secondary);
+    font-size: $font-size-12;
+    font-weight: $font-weight-700;
+  }
 }
 
-.filterSelect,
-.filterInput {
-  padding: $spacing-8 12px;
-  border: 1px solid var(--color-border);
-  border-radius: $radius-8;
-  background: var(--color-bg);
+.checkOption {
+  display: flex;
+  align-items: center;
+  gap: $spacing-8;
+  min-height: 28px;
   color: var(--color-text-primary);
   font-size: $font-size-14;
-  transition: border-color $transition-base;
+  cursor: pointer;
 
-  &:focus {
-    outline: none;
-    border-color: var(--color-primary);
-    box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-primary) 15%, transparent);
-  }
-
-  &::placeholder { color: var(--color-text-muted); }
+  input { accent-color: var(--color-primary); }
 }
 
-.filterSelect { appearance: auto; }
+.clearFilters {
+  width: 100%;
+  margin-top: $spacing-16;
+  padding-top: $spacing-8;
+  border-top: 1px solid var(--color-divider);
+  color: var(--color-primary);
+  font-size: $font-size-12;
+  text-align: left;
+  cursor: pointer;
+}
 
-/* ── Content ── */
-.content { flex: 1; @include flex-column; gap: $spacing-16; }
+.content {
+  min-width: 0;
+  flex: 1;
+  @include flex-column;
+  gap: $spacing-16;
 
-/* ── Table ── */
+  @include respond-to(lg) { min-height: 0; }
+}
+
+/* ── 左右分欄：左列表、右常駐詳細面板（仿 RequestReviewPage） ── */
+/* 表格樣式比照「我的申請」：table-wrap 玻璃卡 + 標準 th/td */
 .tableWrap {
   @include table-wrap;
+
+  /* 桌面版鎖高模式下由表格容器內部滾動 */
+  @include respond-to(lg) {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+  }
 }
 
 .table {
   @include table-base;
+  min-width: 880px;
 }
 
 .th {
@@ -179,65 +255,93 @@
 
 .td {
   @include table-td;
-  white-space: nowrap;
+  padding-block: 12px;
 }
 
-.mono {
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+.nameCell {
+  display: flex;
+  align-items: center;
+  gap: $spacing-8;
 }
 
-.userCell {
-  min-width: 200px;
-  max-width: 260px;
+/* 擁有者／申請用途：截斷保欄寬，全文靠 title */
+.cellText {
+  display: inline-block;
+  max-width: 200px;
+  vertical-align: middle;
+  font-size: $font-size-14;
+  @include text-truncate;
 }
 
-.userName {
-  display: block;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-weight: $font-weight-500;
+.cellMuted {
+  color: var(--color-text-muted);
 }
 
-/* ── Badge ── */
-.badge {
-  @include badge-base;
-  gap: 6px;
-  padding: 2px 10px;
+.rowIcon {
+  width: 40px;
+  height: 40px;
+  border-radius: $radius-8;
+  background: var(--color-hover);
+  color: var(--color-primary);
+  @include flex-center;
+  flex-shrink: 0;
 }
 
-.dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: currentColor;
+.rowMain {
+  @include flex-column;
+  gap: 2px;
+  min-width: 0;
 }
 
-.badge_active   { background: color-mix(in srgb, var(--color-success) 12%, transparent); color: var(--color-success); }
-.badge_inactive { background: color-mix(in srgb, var(--color-danger)  12%, transparent); color: var(--color-danger); }
-
-/* ── Action button ── */
-.actionBtn {
+/* 操作鈕樣式比照 AI API 審核頁：淡色底＋圖示＋文字 */
+.rowRevokeBtn {
   display: inline-flex;
   align-items: center;
   gap: 4px;
   padding: 6px 12px;
   border-radius: $radius-8;
-  font-size: $font-size-12;
-  font-weight: $font-weight-500;
-  cursor: pointer;
-  transition: background $transition-base, color $transition-base;
-}
-
-.actionBtnDanger {
   background: color-mix(in srgb, var(--color-danger) 10%, transparent);
   color: var(--color-danger);
+  font-size: $font-size-12;
+  font-weight: $font-weight-500;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background $transition-base, color $transition-base;
 
-  &:hover { background: color-mix(in srgb, var(--color-danger) 18%, transparent); }
+  &:hover {
+    background: color-mix(in srgb, var(--color-danger) 18%, transparent);
+  }
 }
 
-/* ── Pagination ── */
+.rowName {
+  max-width: 220px;
+  font-size: $font-size-14;
+  font-weight: $font-weight-500;
+  color: var(--color-text-primary);
+  @include text-truncate;
+}
+
+.rowMeta {
+  max-width: 220px;
+  font-size: $font-size-12;
+  color: var(--color-text-muted);
+  @include text-truncate;
+}
+
+.badge {
+  @include badge-base;
+  min-height: 24px;
+  padding: 2px 9px;
+  gap: 6px;
+  white-space: nowrap;
+}
+
+.badge_active { background: color-mix(in srgb, var(--color-success) 12%, transparent); color: var(--color-success); }
+.badge_inactive { background: color-mix(in srgb, var(--color-danger) 12%, transparent); color: var(--color-danger); }
+.dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+
 .pagination {
+  flex-shrink: 0;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -245,76 +349,50 @@
   gap: $spacing-8;
 }
 
-.paginationInfo {
-  font-size: $font-size-14;
-  color: var(--color-text-muted);
-}
+.paginationInfo { color: var(--color-text-muted); font-size: $font-size-14; }
+.paginationBtns { display: flex; gap: $spacing-8; }
 
-.paginationBtns {
-  display: flex;
-  gap: $spacing-8;
-}
-
-/* ── Dialog ── */
 .dialogOverlay {
   position: fixed;
   inset: 0;
-  background: var(--color-overlay);
-  backdrop-filter: blur(4px);
   display: flex;
-  align-items: center;
-  justify-content: center;
   z-index: 300;
+  background: var(--color-overlay);
   animation: fadeIn 0.15s ease;
   transition: opacity 0.15s ease;
 }
 
-.dialogOverlayOut {
-  animation: none;
-  opacity: 0;
-  pointer-events: none;
-}
+.dialogOverlayOut { opacity: 0; pointer-events: none; }
 
+.dialogOverlay { align-items: center; justify-content: center; padding: $spacing-16; }
 .dialog {
-  width: 90%;
-  max-width: 420px;
-  @include glass-surface($shadow: var(--shadow-lg));
-  border-radius: $radius-16;
-  @include flex-column;
-  gap: $spacing-16;
+  width: min(440px, 100%);
   padding: $spacing-24;
-  animation: slideUp 0.2s ease;
+  border: 1px solid var(--color-surface-glass-border);
+  border-radius: $radius-12;
+  background: var(--color-surface);
+  box-shadow: var(--shadow-lg);
+  animation: slideUp 0.18s ease-out;
 }
 
-.dialogHeader {
-  @include flex-column;
-  gap: $spacing-4;
+.dialogHeader { display: flex; gap: 12px; align-items: flex-start; }
+.dialogIcon { display: inline-flex; align-items: center; justify-content: center; width: 36px; height: 36px; flex-shrink: 0; border-radius: 50%; background: color-mix(in srgb, var(--color-danger) 12%, transparent); color: var(--color-danger); }
+.dialogTitle { color: var(--color-text-primary); font-size: $font-size-18; font-weight: $font-weight-700; }
+.dialogDesc { margin-top: $spacing-8; color: var(--color-text-secondary); font-size: $font-size-14; line-height: 1.6; }
+.dialogFooter { display: flex; justify-content: flex-end; gap: $spacing-8; margin-top: $spacing-24; }
+
+@keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+@keyframes popIn { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: translateY(0); } }
+@keyframes slideUp { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: translateY(0); } }
+
+@media (max-width: $breakpoint-sm - 0.02px) {
+  .toolbar { align-items: stretch; }
+  .searchBox { min-width: 0; flex-basis: 100%; }
+  .filterButton { width: 100%; }
+  .filterArea { width: 100%; }
+  .filterPopover { left: 0; right: auto; width: 100%; }
 }
 
-.dialogTitle {
-  font-size: $font-size-18;
-  font-weight: 600;
-  color: var(--color-text-primary);
-}
-
-.dialogDesc {
-  font-size: $font-size-14;
-  color: var(--color-text-muted);
-}
-
-.dialogFooter {
-  display: flex;
-  justify-content: flex-end;
-  gap: $spacing-8;
-}
-
-/* ── Animations ── */
-@keyframes fadeIn {
-  from { opacity: 0; }
-  to { opacity: 1; }
-}
-
-@keyframes slideUp {
-  from { opacity: 0; transform: translateY(16px); }
-  to { opacity: 1; transform: translateY(0); }
+@media (prefers-reduced-motion: reduce) {
+  .filterPopover, .dialog, .dialogOverlay { animation: none; transition: none; }
 }

@@ -20,8 +20,14 @@ from app.infrastructure.worker import background_tasks
 
 logger = logging.getLogger(__name__)
 
-_semaphore: asyncio.Semaphore | None = None
-_semaphore_size: int = 0
+class _PoolState:
+    """目前的 provision 信號量與其上限（集中在物件上，避免 global 重新指派）。"""
+
+    semaphore: asyncio.Semaphore | None = None
+    size: int = 0
+
+
+_pool = _PoolState()
 
 
 def get_provision_semaphore(size: int) -> asyncio.Semaphore:
@@ -30,18 +36,16 @@ def get_provision_semaphore(size: int) -> asyncio.Semaphore:
     重建後，仍在舊 semaphore 上等待的任務會以舊上限跑完；
     新提交的任務立即採用新上限（下個 scheduler tick 生效）。
     """
-    global _semaphore, _semaphore_size
-    if _semaphore is None or _semaphore_size != size:
-        _semaphore = asyncio.Semaphore(size)
-        _semaphore_size = size
-    return _semaphore
+    if _pool.semaphore is None or _pool.size != size:
+        _pool.semaphore = asyncio.Semaphore(size)
+        _pool.size = size
+    return _pool.semaphore
 
 
 def reset_provision_semaphore() -> None:
     """測試用：清除全域信號量狀態。"""
-    global _semaphore, _semaphore_size
-    _semaphore = None
-    _semaphore_size = 0
+    _pool.semaphore = None
+    _pool.size = 0
 
 
 async def _execute_provision(request_id: uuid.UUID) -> None:

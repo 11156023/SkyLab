@@ -32,6 +32,7 @@ export default function SubnetConfigForm({
   cidrLocked,
   saving,
   deleting,
+  closing = false,
   onSubmit,
   onCancel,
   onDelete,
@@ -55,15 +56,19 @@ export default function SubnetConfigForm({
   }
 
   return (
-    <form className={styles.card} onSubmit={handleSubmit}>
-      <h2 className={styles.cardTitle}>
+    <div
+      className={`${styles.modalOverlay} ${closing ? styles.modalOverlayOut : ""}`}
+      onMouseDown={onCancel}
+    >
+    <form className={styles.modal} onSubmit={handleSubmit} onMouseDown={(e) => e.stopPropagation()}>
+      <span className={styles.modalTitle}>
         {isEdit ? t("SubnetConfigForm.editTitle") : t("SubnetConfigForm.createTitle")}
-      </h2>
+      </span>
       <p className={styles.cardDesc}>
         {t("SubnetConfigForm.cardDesc")}
       </p>
 
-      <div className={styles.formGrid}>
+      <div className={styles.modalFormGrid}>
         <label className={styles.field}>
           <span>{t("SubnetConfigForm.cidr")}</span>
           <input
@@ -137,7 +142,7 @@ export default function SubnetConfigForm({
         </span>
       </label>
 
-      <div className={styles.cardActions}>
+      <div className={styles.modalActions}>
         {isEdit && (
           <button
             type="button"
@@ -161,5 +166,6 @@ export default function SubnetConfigForm({
         </button>
       </div>
     </form>
+    </div>
   );
 }

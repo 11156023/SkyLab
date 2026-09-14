@@ -35,4 +35,14 @@ export const ReverseProxyService = {
   syncRules() {
     return apiPost("/api/v1/reverse-proxy/rules/sync");
   },
+
+  /**
+   * 網域是否可用（同時查本系統紀錄與 Cloudflare 既有紀錄）
+   * → { domain, available, reason: system|external|invalid|no_zone|unverified|null, message }
+   */
+  checkDomainAvailability(domain, excludeRuleId) {
+    const query = new URLSearchParams({ domain });
+    if (excludeRuleId) query.set("exclude_rule_id", excludeRuleId);
+    return apiGet(`/api/v1/reverse-proxy/domain-availability?${query.toString()}`);
+  },
 };

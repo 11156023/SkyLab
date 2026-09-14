@@ -1,7 +1,8 @@
 """Isolated AI PVE machine-template test routes."""
 
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException
 
+from app.ai.pve_log.history import PveHistoryValidationError
 from app.ai.pve_template import service
 from app.ai.pve_template.schemas import (
     AIPVETemplateChatRequest,
@@ -28,11 +29,14 @@ async def chat(
     current_user: InstructorUser,
     session: SessionDep,
 ) -> AIPVETemplateChatResponse:
-    return await service.chat(
-        request=request,
-        current_user=current_user,
-        session=session,
-    )
+    try:
+        return await service.chat(
+            request=request,
+            current_user=current_user,
+            session=session,
+        )
+    except PveHistoryValidationError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
 @router.post("/ssh/confirm", response_model=AIPVETemplateChatResponse)
@@ -41,8 +45,11 @@ async def confirm_ssh(
     current_user: InstructorUser,
     session: SessionDep,
 ) -> AIPVETemplateChatResponse:
-    return await service.confirm_ssh(
-        request=request,
-        current_user=current_user,
-        session=session,
-    )
+    try:
+        return await service.confirm_ssh(
+            request=request,
+            current_user=current_user,
+            session=session,
+        )
+    except PveHistoryValidationError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc

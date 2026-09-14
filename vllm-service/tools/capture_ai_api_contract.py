@@ -68,6 +68,7 @@ def _stream_chat(client: httpx.Client, payload: dict[str, Any]) -> dict[str, Any
                     if usage:
                         last_usage = usage
                 except json.JSONDecodeError:
+                    # SSE 串流中的非 JSON 片段（keep-alive 等）直接略過
                     pass
         return {
             "status_code": response.status_code,

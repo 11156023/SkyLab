@@ -9,6 +9,7 @@ from sqlmodel import Session, select
 
 from app.core.i18n import t
 from app.domain.placement import advisor as placement_advisor
+from app.domain.placement import storage as placement_storage
 from app.exceptions import BadRequestError
 from app.infrastructure.proxmox import (
     get_connection_id_for_node,
@@ -21,7 +22,7 @@ from app.models import (
 )
 from app.services.network import ip_management_service
 from app.services.proxmox import provisioning_service, proxmox_service
-from app.services.vm import placement_service
+from app.services.vm import placement_service, placement_support
 
 GIB = 1024**3
 logger = logging.getLogger(__name__)
@@ -680,7 +681,62 @@ def _evaluate_cluster_capacity(
                     available=capacity.allocatable_disk_bytes // GIB,
                 )
             )
+    if not issues:
+        issues = _storage_pool_issues(session, nodes=nodes, placements=placements)
     return dict(demand), placements, issues
+
+
+def _storage_pool_issues(
+    session: Session,
+    *,
+    nodes: list[TeachingClassMachineNode],
+    placements: dict[uuid.UUID, dict[uuid.UUID, str]],
+) -> list[str]:
+    """節點層磁碟總量夠，不代表任何一個儲存區放得下。
+
+    上面的檢查看的是節點的 allocatable_disk_bytes 加總；實際開機是逐台挑
+    儲存區，一台機器不能跨池。所以照 placement 的真實規則把整班逐台試放
+    一次，避免預檢通過、開課當下才撞上「沒有可用儲存區」。
+    """
+    target_names = sorted(
+        {name for machine in placements.values() for name in machine.values()}
+    )
+    if not target_names:
+        return []
+    pools_by_node, has_managed_storage = placement_support.build_storage_pool_state(
+        session=session, node_names=target_names
+    )
+    if not has_managed_storage:
+        return []
+
+    _cpu_ratio, disk_ratio = placement_service.get_overcommit_ratios(session)
+    tuning = placement_service._get_placement_tuning(session=session)
+    for machine_node in nodes:
+        disk_gb = int(machine_node.disk_gb)
+        resource_type = "lxc" if machine_node.resource_type.lower() == "lxc" else "vm"
+        for target_node in placements[machine_node.id].values():
+            selection = placement_storage.select_best_storage_for_request(
+                storage_pools=pools_by_node.get(target_node, []),
+                resource_type=resource_type,
+                disk_gb=disk_gb,
+                disk_overcommit_ratio=disk_ratio,
+                tuning=tuning,
+            )
+            if selection is None:
+                # 第一個放不下的就足以擋下整班，不必把剩下的學生也列出來
+                return [
+                    t(
+                        "class_capacity.storage_insufficient",
+                        node=target_node,
+                        required=disk_gb,
+                    )
+                ]
+            placement_storage.reserve_storage_pool(
+                selection=selection,
+                disk_gb=disk_gb,
+                disk_overcommit_ratio=disk_ratio,
+            )
+    return []
 
 
 def _check_cluster_capacity(

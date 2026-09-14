@@ -15,8 +15,11 @@ STUDENT = SimpleNamespace(id=uuid.uuid4(), email="s@campus.edu")
 
 
 class _FakeSession:
-    def add(self, obj) -> None: ...
-    def commit(self) -> None: ...
+    def add(self, obj) -> None:
+        """測試替身：不需實作。"""
+
+    def commit(self) -> None:
+        """測試替身：不需實作。"""
 
 
 @pytest.fixture()

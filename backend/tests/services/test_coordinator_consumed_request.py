@@ -14,8 +14,6 @@ import uuid
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
-import pytest
-
 from app.exceptions import NotFoundError
 from app.models import VMProvisioningStatus, VMRequest, VMRequestStatus
 from app.services.scheduling import coordinator

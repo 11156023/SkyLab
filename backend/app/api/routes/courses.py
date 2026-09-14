@@ -38,6 +38,7 @@ from app.services.course import (
     weekly_task_service,
 )
 from app.services.course.progress_hub import course_progress_hub
+from app.services.teaching import course_publication_service
 
 router = APIRouter(prefix="/courses", tags=["courses"])
 
@@ -181,6 +182,10 @@ def list_practice_machines(
         )
         .order_by(TeachingClass.name, TeachingClassMachineNode.sort_order)
     ).all()
+    public_urls = course_publication_service.public_urls_by_vmid(
+        session,
+        [machine.vmid for _teaching_class, machine, _node in rows if machine.vmid],
+    )
     return [
         CoursePracticeMachineStudent(
             teaching_class_id=teaching_class.id,
@@ -192,6 +197,7 @@ def list_practice_machines(
             resource_type=node.resource_type,
             vmid=machine.vmid,
             status=machine.status,
+            public_url=public_urls.get(machine.vmid) if machine.vmid else None,
         )
         for teaching_class, machine, node in rows
     ]

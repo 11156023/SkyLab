@@ -22,7 +22,7 @@ def _rrd_points(
     now: datetime = NOW,
     step_minutes: int = 30,
 ) -> list[dict]:
-    """產生視窗內每 step_minutes 一點的 RRD 假資料（PVE day timeframe 約 30 分鐘一點）。"""
+    """產生每 step_minutes 一點的 RRD 假資料（PVE day 約 30 分鐘一點、week 約 3 小時一點）。"""
     points = []
     steps = int(hours * 60 / step_minutes)
     for i in range(steps):
@@ -75,12 +75,45 @@ def test_cpu_stats_points_outside_window_filtered() -> None:
 
 
 def test_cpu_stats_coverage_capped_at_one() -> None:
-    # 點密度高於預期（hour timeframe 混入）→ coverage 封頂 1.0
-    rrd = _rrd_points(hours=6, cpu=0.97, step_minutes=10)
+    # 視窗內點數超過期望（RRD 頭尾多一點）→ coverage 封頂 1.0
+    rrd = _rrd_points(hours=6.5, cpu=0.97)
     stats = cpu_stats(rrd, window_hours=6, now=NOW)
     assert stats is not None
     _avg, coverage = stats
     assert coverage == pytest.approx(1.0)
+
+
+def test_cpu_stats_coverage_follows_sampling_step() -> None:
+    # week timeframe 約每 3 小時一點：48h 視窗 16 點就是完整覆蓋，
+    # 不能再用 day 的每 30 分鐘一點去算（那會只剩 1/6 而永遠判不了）
+    rrd = _rrd_points(hours=48, cpu=0.95, step_minutes=180)
+    stats = cpu_stats(rrd, window_hours=48, now=NOW)
+    assert stats is not None
+    _avg, coverage = stats
+    assert coverage == pytest.approx(1.0)
+
+
+def test_cpu_stats_gap_points_count_toward_step_not_coverage() -> None:
+    # 前半段只有 time 沒 cpu（關機/缺洞）：間隔仍推得出來，覆蓋率只算有值的點
+    rrd = _rrd_points(hours=3, cpu=0.95)
+    rrd += [
+        {"time": (NOW - timedelta(hours=3, minutes=30 * i)).timestamp()}
+        for i in range(6)
+    ]
+    stats = cpu_stats(rrd, window_hours=6, now=NOW)
+    assert stats is not None
+    _avg, coverage = stats
+    assert coverage == pytest.approx(0.5)
+
+
+def test_cpu_stats_single_point_has_zero_coverage() -> None:
+    # 只有一點推不出取樣間隔 → 覆蓋率 0，交由 decide 視為資料不足
+    rrd = [{"time": NOW.timestamp(), "cpu": 0.99}]
+    stats = cpu_stats(rrd, window_hours=6, now=NOW)
+    assert stats is not None
+    avg, coverage = stats
+    assert avg == pytest.approx(99.0)
+    assert coverage == 0.0
 
 
 # ── decide_mining_action ─────────────────────────────────────────────────────

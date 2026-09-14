@@ -26,8 +26,16 @@ export const AiApiService = {
   },
 
   /* ── Admin: 憑證管理 ── */
-  listAllCredentials() {
-    return apiGet(`${BASE}/credentials`);
+  listAllCredentials({ status, user_email, query, user_role = [], created_after, skip = 0, limit = 100 } = {}) {
+    const params = new URLSearchParams();
+    if (status) params.set("status", status);
+    if (user_email) params.set("user_email", user_email);
+    if (query) params.set("query", query);
+    for (const role of user_role) params.append("user_role", role);
+    if (created_after) params.set("created_after", created_after);
+    params.set("skip", String(skip));
+    params.set("limit", String(limit));
+    return apiGet(`${BASE}/credentials?${params.toString()}`);
   },
   rotateCredential(credentialId) {
     return apiPost(`${BASE}/credentials/${credentialId}/rotate`, {});
@@ -39,19 +47,20 @@ export const AiApiService = {
     return apiPatch(`${BASE}/credentials/${credentialId}`, body);
   },
 
-  /* ── User 端: 我的用量 ── */
-  getMyProxyUsage({ start_date, end_date }) {
+  /* ── User 端: 我的用量（統一兩種計算路由） ── */
+  getMyUsage({ start_date, end_date }) {
     const q = new URLSearchParams();
     if (start_date) q.set("start_date", start_date);
     if (end_date) q.set("end_date", end_date);
     const qs = q.toString();
-    return apiGet(`${BASE}/usage/proxy/my${qs ? `?${qs}` : ""}`);
+    return apiGet(`${BASE}/usage/my${qs ? `?${qs}` : ""}`);
   },
-  getMyTemplateUsage({ start_date, end_date }) {
+  getMyUsageRecords({ start_date, end_date, skip = 0, limit = 50 }) {
     const q = new URLSearchParams();
     if (start_date) q.set("start_date", start_date);
     if (end_date) q.set("end_date", end_date);
-    const qs = q.toString();
-    return apiGet(`/api/v1/ai/template-recommendation/usage/my${qs ? `?${qs}` : ""}`);
+    q.set("skip", String(skip));
+    q.set("limit", String(limit));
+    return apiGet(`${BASE}/usage/records/my?${q.toString()}`);
   },
 };

@@ -37,7 +37,7 @@
   "run.no_ip": "VMID {vmid} に利用可能な IP アドレスがありません。",
   "run.no_ssh_key": "VMID {vmid} に利用可能な SSH 鍵がありません。",
   "run.manual_scope_only": "第一版では実行対象マシンの手動選択のみサポートされています。",
-  "run.artifact_not_approved": "承認されたスクリプトのみ実行できます。",
+  "run.artifact_not_approved": "静的チェックと AI チェックに合格したスクリプトのみ実行できます。",
   "run.no_target_selected": "実行中の VM/LXC を少なくとも1台選択してください。",
   "run.too_many_targets": "一度に選択できる VM/LXC は最大5台です。",
 

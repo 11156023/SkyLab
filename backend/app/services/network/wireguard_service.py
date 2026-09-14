@@ -44,7 +44,15 @@ _IP_ALLOCATION_LOCK_ID = 0x534B594C41425747
 _ALLOCATION_RETRIES = 3
 
 logger = logging.getLogger(__name__)
-_last_gateway_state_id: str | None = None
+
+
+class _ReconcileState:
+    """上次看到的 Gateway 狀態 id（集中在物件上，避免 global 重新指派）。"""
+
+    last_gateway_state_id: str | None = None
+
+
+_reconcile_state = _ReconcileState()
 
 
 def _now() -> datetime:
@@ -566,8 +574,6 @@ def _mark_peer_inactive(session: Session, peer: WireGuardPeer, now: datetime) ->
 
 def reconcile_once() -> None:
     """Expire stale leases and replay live peers after Gateway service restarts."""
-    global _last_gateway_state_id
-
     now = _now()
     with Session(engine) as session:
         expired = peer_repo.list_expired_active(session=session, now=now)
@@ -606,7 +612,7 @@ def reconcile_once() -> None:
             # Keep leases intact so a transient outage can recover next minute.
             logger.exception("Unable to inspect Gateway WireGuard state")
             return
-        if state_id == _last_gateway_state_id:
+        if state_id == _reconcile_state.last_gateway_state_id:
             return
 
         logger.info(
@@ -630,7 +636,7 @@ def reconcile_once() -> None:
                     peer.id,
                 )
                 _mark_peer_inactive(session, peer, now)
-        _last_gateway_state_id = state_id
+        _reconcile_state.last_gateway_state_id = state_id
 
 
 async def run_reconciler(stop_event: asyncio.Event) -> None:
@@ -645,6 +651,7 @@ async def run_reconciler(stop_event: asyncio.Event) -> None:
         try:
             await asyncio.wait_for(stop_event.wait(), timeout=interval)
         except TimeoutError:
+            # 逾時代表這一輪等待結束、進入下一個 reconcile tick
             pass
 
 

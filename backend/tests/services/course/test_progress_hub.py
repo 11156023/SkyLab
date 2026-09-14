@@ -53,7 +53,7 @@ def test_disconnected_socket_is_removed():
         assert hub.subscriber_count(path_id) == 1
 
         sock.close()
-        await task
+        await asyncio.wait_for(task, timeout=5)
         assert hub.subscriber_count(path_id) == 0
 
         # 對無訂閱者的 path 廣播不應噴錯
@@ -79,6 +79,6 @@ def test_send_failure_evicts_dead_connection():
         assert hub.subscriber_count(path_id) == 0
 
         sock.close()
-        await task
+        await asyncio.wait_for(task, timeout=5)
 
     asyncio.run(scenario())

@@ -1,0 +1,66 @@
+@use "../../assets/styles/variables" as *;
+
+/* 分段切換器：外框膠囊 + 選中段以主色填滿 */
+.segment {
+  display: inline-flex;
+  padding: 3px;
+  border: 1px solid var(--color-border);
+  border-radius: $radius-8;
+  background: var(--color-surface);
+  box-shadow: var(--shadow-sm);
+}
+
+.segmentBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px $spacing-16;
+  border-radius: $radius-8;
+  color: var(--color-text-secondary);
+  font-size: $font-size-12;
+  font-weight: $font-weight-500;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background $transition-base, color $transition-base;
+
+  &:hover {
+    color: var(--color-text);
+  }
+
+  &:focus-visible,
+  &[aria-pressed="true"]:focus-visible {
+    outline: 2px solid var(--color-primary);
+    outline-offset: 2px;
+  }
+}
+
+.segmentActive {
+  background: var(--color-primary);
+  color: var(--color-text-on-primary);
+
+  &:hover {
+    color: var(--color-text-on-primary);
+  }
+}
+
+/* 可選的數量徽章 */
+.segmentBadge {
+  min-width: 20px;
+  padding: 1px 6px;
+  border-radius: $radius-pill;
+  background: var(--color-hover);
+  color: var(--color-text-muted);
+  font-size: $font-size-12;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+}
+
+.segmentActive .segmentBadge {
+  background: color-mix(in srgb, var(--color-text-on-primary) 22%, transparent);
+  color: var(--color-text-on-primary);
+}
+@media (prefers-reduced-motion: reduce) {
+  .segmentBtn {
+    transition: none;
+  }
+}

@@ -63,11 +63,25 @@ _VM_REQUEST_STATUS_MAP: dict[VMRequestStatus, JobStatus] = {
     VMRequestStatus.expired: JobStatus.cancelled,       # 時段過完沒人審，失效
 }
 
-_SPEC_CHANGE_STATUS_MAP: dict[SpecChangeRequestStatus, JobStatus] = {
-    SpecChangeRequestStatus.pending: JobStatus.pending,
-    SpecChangeRequestStatus.approved: JobStatus.completed,
-    SpecChangeRequestStatus.rejected: JobStatus.failed,
-}
+def _spec_change_job_status(req: SpecChangeRequest) -> tuple[JobStatus, str | None]:
+    """規格變更的正規化狀態與補充訊息。
+
+    核准不再等於完成：規格要等申請人按「套用」、背景任務關機改完開機後
+    才寫 applied_at。
+    """
+    if req.status == SpecChangeRequestStatus.pending:
+        return JobStatus.pending, None
+    if req.status == SpecChangeRequestStatus.rejected:
+        return JobStatus.failed, None
+    if req.status == SpecChangeRequestStatus.cancelled:
+        return JobStatus.cancelled, None
+    if req.applied_at is not None:
+        return JobStatus.completed, req.apply_error  # 成功但可能帶警告（自動開機失敗）
+    if req.apply_error:
+        return JobStatus.failed, req.apply_error
+    if req.apply_started_at is not None:
+        return JobStatus.running, "套用中：關機 → 改規格 → 開機"
+    return JobStatus.blocked, "已核准，等待申請人按「套用」"
 
 _TEMPLATE_TASK_STATUS_MAP: dict[TaskRecordStatus, JobStatus] = {
     TaskRecordStatus.queued: JobStatus.pending,
@@ -207,8 +221,14 @@ def _vm_request_to_job(req: VMRequest) -> JobItem:
 def _spec_change_to_job(req: SpecChangeRequest) -> JobItem:
     user_email = req.user.email if req.user else None
     title = f"規格變更：VMID {req.vmid}（{req.change_type.value}）"
-    status = _SPEC_CHANGE_STATUS_MAP.get(req.status, JobStatus.pending)
+    status, status_message = _spec_change_job_status(req)
     progress = 100 if status == JobStatus.completed else (0 if status == JobStatus.pending else None)
+    finished_at = (
+        req.applied_at
+        if status == JobStatus.completed
+        else req.reviewed_at if status in {JobStatus.failed, JobStatus.cancelled} else None
+    )
+    last_touched = req.applied_at or req.apply_started_at or req.reviewed_at or req.created_at
 
     return JobItem(
         id=f"spec_change:{req.id}",
@@ -216,12 +236,12 @@ def _spec_change_to_job(req: SpecChangeRequest) -> JobItem:
         title=title,
         status=status,
         progress=progress,
-        message=req.review_comment or req.reason,
+        message=status_message or req.review_comment or req.reason,
         user_id=req.user_id,
         user_email=user_email,
         created_at=_coerce_aware(req.created_at) or _now(),
-        updated_at=_coerce_aware(req.reviewed_at) or _coerce_aware(req.created_at) or _now(),
-        completed_at=_coerce_aware(req.reviewed_at) if status in {JobStatus.completed, JobStatus.failed} else None,
+        updated_at=_coerce_aware(last_touched) or _now(),
+        completed_at=_coerce_aware(finished_at) if finished_at else None,
         detail_url=f"/approvals/{req.id}",
         meta={
             "vmid": req.vmid,

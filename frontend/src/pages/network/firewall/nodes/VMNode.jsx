@@ -2,10 +2,10 @@ import { Handle, Position } from "@xyflow/react";
 import styles from "../FirewallPage.module.scss";
 import MIcon from "../../../../components/MIcon";
 
-const STATUS_COLOR = { running: "#38a169", stopped: "#e53e3e" };
+const STATUS_COLOR = { running: "var(--color-success)", stopped: "var(--color-danger)" };
 
 export default function VMNode({ data, selected }) {
-  const statusColor = STATUS_COLOR[data.status] ?? "#a0aec0";
+  const statusColor = STATUS_COLOR[data.status] ?? "var(--color-status-neutral)";
   return (
     <div className={`${styles.vmNode} ${selected ? styles.nodeSelected : ""}`}>
       <Handle type="target" position={Position.Left}  className={styles.handleIn} />

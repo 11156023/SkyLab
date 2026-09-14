@@ -283,7 +283,7 @@ class TestFanOut:
         ws, task = await _attach(manager, session.id, USER_A)
         await eventually(lambda: upstream.sent.count(FULL_FBUR) == 2)
         await manager.stop_session(session.id)
-        await task
+        await asyncio.wait_for(task, timeout=5)
 
     async def test_framebuffer_update_triggers_incremental_fbur(
         self, manager: VncSessionManager, upstream: FakeUpstream
@@ -336,7 +336,7 @@ class TestFanOut:
         with pytest.raises(AppError):
             await manager.attach_subscriber(session.id, user_id=USER_B, websocket=ws2)
         await manager.stop_session(session.id)
-        await t1
+        await asyncio.wait_for(t1, timeout=5)
 
 
 class TestControl:
@@ -352,7 +352,7 @@ class TestControl:
         await asyncio.sleep(0.05)
         assert upstream.sent == sent_before
         await manager.stop_session(session.id)
-        await task
+        await asyncio.wait_for(task, timeout=5)
 
     async def test_controller_input_forwarded(
         self, manager: VncSessionManager, upstream: FakeUpstream
@@ -369,7 +369,7 @@ class TestControl:
         await asyncio.sleep(0.05)
         assert upstream.sent == sent_before
         await manager.stop_session(session.id)
-        await task
+        await asyncio.wait_for(task, timeout=5)
 
     async def test_release_control_stops_forwarding(
         self, manager: VncSessionManager, upstream: FakeUpstream
@@ -383,7 +383,7 @@ class TestControl:
         await asyncio.sleep(0.05)
         assert upstream.sent == sent_before
         await manager.stop_session(session.id)
-        await task
+        await asyncio.wait_for(task, timeout=5)
 
     async def test_is_input_blocked(self, manager: VncSessionManager) -> None:
         session = await _start(manager, vmid=100)

@@ -10,33 +10,35 @@
 
   @media (min-width: $breakpoint-sidebar) { padding: 0; }
 }
-.stepper { display: grid; grid-template-columns: repeat(5, 1fr); overflow: hidden; @include glass-surface($shadow: var(--shadow-sm)); border-radius: $radius-12; }
-.stepper button { display: grid; min-width: 0; grid-template-columns: 28px minmax(0, 1fr); align-items: center; gap: 8px; min-height: 62px; padding: 9px 12px; border: 0; border-right: 1px solid var(--color-divider); color: var(--color-text-muted); background: transparent; text-align: left; cursor: pointer; }
-.stepper button:last-child { border-right: 0; }
+.stepperBar { display: flex; align-items: stretch; min-width: 0; overflow: hidden; @include glass-surface($shadow: var(--shadow-sm)); border-radius: $radius-12; }
+.stepper { display: flex; flex: 1; min-width: 0; overflow-x: auto; padding: 5px; scrollbar-width: thin; }
+.stepper button { position: relative; display: grid; flex: 1 0 max-content; min-width: 120px; grid-template-columns: 24px minmax(0, 1fr); align-items: center; gap: 8px; height: 44px; padding: 0 14px; border: 0; border-radius: $radius-8; color: var(--color-text-secondary); background: transparent; text-align: left; cursor: pointer; }
+.stepper button::after { position: absolute; right: 0; bottom: -5px; left: 0; height: 2px; border-radius: 2px 2px 0 0; background: transparent; content: ""; }
+.stepper button:hover:not(:disabled) { color: var(--color-text-primary); background: var(--color-hover); }
 .stepper button:disabled { cursor: not-allowed; opacity: .5; }
-.stepper button > span { display: grid; width: 28px; height: 28px; place-items: center; border: 1px solid var(--color-border); border-radius: 50%; font-size: $font-size-10; font-weight: $font-weight-700; }
-.stepper button div { display: flex; min-width: 0; flex-direction: column; gap: 2px; }
-.stepper strong { @include text-truncate; font-size: $font-size-12; }
-.stepper small { @include text-truncate; font-size: $font-size-10; }
-.stepper .stepActive { color: var(--color-primary); background: color-mix(in srgb, var(--color-primary) 7%, transparent); box-shadow: inset 0 -3px var(--color-primary); }
+.stepper button > span { display: grid; width: 24px; height: 24px; place-items: center; border: 1px solid var(--color-border); border-radius: 50%; font-size: $font-size-10; font-weight: $font-weight-700; }
+.stepper strong { @include text-truncate; color: inherit; font-size: $font-size-14; font-weight: $font-weight-500; }
+.stepper .stepActive { color: var(--color-primary); background: color-mix(in srgb, var(--color-primary) 8%, var(--color-surface)); }
+.stepper .stepActive::after { background: var(--color-primary); }
 .stepper .stepActive > span { border-color: var(--color-primary); color: var(--color-text-on-primary); background: var(--color-primary); }
 .stepper .stepDone > span { border-color: color-mix(in srgb, var(--color-success) 30%, var(--color-border)); color: var(--color-success); background: color-mix(in srgb, var(--color-success) 10%, transparent); }
+.stepperProgress { display: flex; flex: 0 0 auto; min-width: 120px; flex-direction: column; justify-content: center; gap: 2px; padding: 0 18px; border-left: 1px solid var(--color-border); background: color-mix(in srgb, var(--color-hover) 34%, var(--color-surface)); }
+.stepperProgress span { color: var(--color-text-muted); font-size: $font-size-10; }
+.stepperProgress strong { font-size: $font-size-12; font-weight: $font-weight-500; white-space: nowrap; }
 .message { display: flex; align-items: flex-start; gap: $spacing-8; padding: 10px 12px; border-radius: $radius-8; color: var(--color-info); background: color-mix(in srgb, var(--color-info) 8%, transparent); font-size: $font-size-12; line-height: 1.5; }
 .content { min-height: 420px; }
-.card, .capacityCard { overflow: hidden; @include glass-surface($shadow: var(--shadow-sm)); border-radius: $radius-16; }
+.card { overflow: hidden; @include glass-surface($shadow: var(--shadow-sm)); border-radius: $radius-16; }
+.stack { display: flex; flex-direction: column; gap: $spacing-16; }
 .sectionHeader { display: grid; grid-template-columns: 36px minmax(0, 1fr) auto; align-items: center; gap: 12px; padding: $spacing-16 $spacing-24; border-bottom: 1px solid var(--color-divider); }
 .sectionHeader > span:first-child { display: grid; width: 36px; height: 36px; place-items: center; border-radius: 10px; color: var(--color-primary); background: color-mix(in srgb, var(--color-primary) 9%, transparent); font-size: $font-size-14; font-weight: $font-weight-700; }
 .sectionHeader h2 { margin: 0; color: var(--color-text-primary); font-size: $font-size-18; }
 .sectionHeader p { margin: 4px 0 0; color: var(--color-text-secondary); font-size: $font-size-12; line-height: 1.5; }
 .sectionHeader > em { color: var(--color-primary); font-size: $font-size-10; font-style: normal; font-weight: $font-weight-700; }
 .formGrid { display: grid; grid-template-columns: 1fr 1fr; gap: $spacing-16; padding: $spacing-24; }
-.formGrid label, .studentLayout label, .advancedGrid label { display: flex; flex-direction: column; gap: 6px; }
-.formGrid label > span, .studentLayout label > span, .advancedGrid label > span { color: var(--color-text-secondary); font-size: 11px; font-weight: $font-weight-700; }
+.formGrid label, .studentLayout label, .advancedGrid label { @include form-field; }
 .full { grid-column: 1 / -1; }
-.formGrid input, .formGrid select, .studentLayout textarea, .advancedGrid input, .advancedGrid select, .weekList input { box-sizing: border-box; width: 100%; min-height: 42px; padding: 8px 11px; border: 1px solid var(--color-border); border-radius: $radius-8; color: var(--color-text); background: var(--color-surface); font: inherit; font-size: $font-size-12; }
-.formGrid input:focus, .formGrid select:focus, .studentLayout textarea:focus, .weekList input:focus { border-color: var(--color-primary); outline: 2px solid color-mix(in srgb, var(--color-primary) 14%, transparent); }
-.formGrid input.invalid, .studentLayout textarea.invalid { border-color: var(--color-danger); background: color-mix(in srgb, var(--color-danger) 4%, var(--color-surface)); }
-.formGrid input.invalid:focus, .studentLayout textarea.invalid:focus { border-color: var(--color-danger); outline: 2px solid color-mix(in srgb, var(--color-danger) 18%, transparent); }
+.formGrid input, .formGrid select, .studentLayout textarea, .advancedGrid input, .advancedGrid select, .weekList input { @include form-control; }
+.fieldInvalid.fieldInvalid { @include form-control-invalid; }
 .timePair { display: grid; grid-template-columns: 1fr 22px 1fr; align-items: center; gap: 4px; }
 .timePair i { color: var(--color-text-muted); font-size: $font-size-10; font-style: normal; text-align: center; }
 .advanced { grid-column: 1 / -1; overflow: hidden; border: 1px solid var(--color-border); border-radius: $radius-8; }
@@ -51,7 +53,7 @@
 .studentLayout aside > span small { margin-left: 4px; font-size: $font-size-12; }
 .studentLayout aside p { margin: 0 0 $spacing-8; color: var(--color-text-secondary); font-size: $font-size-10; line-height: 1.5; }
 .studentLayout aside em { @include text-truncate; padding: 7px 9px; border: 1px solid var(--color-border); border-radius: 7px; color: var(--color-text-secondary); background: var(--color-surface); font-size: $font-size-10; font-style: normal; }
-.templatePauseCard { display: grid; grid-template-columns: 44px minmax(0, 1fr) auto; align-items: center; gap: 14px; margin: $spacing-24 $spacing-24 0; padding: $spacing-16; border: 1px solid color-mix(in srgb, var(--color-primary) 28%, var(--color-border)); border-radius: $radius-12; background: color-mix(in srgb, var(--color-primary) 5%, transparent); }
+.templatePauseCard { display: grid; grid-template-columns: 44px minmax(0, 1fr) auto; align-items: center; gap: 14px; margin: $spacing-16 $spacing-24 $spacing-24; padding: $spacing-16; border: 1px solid color-mix(in srgb, var(--color-primary) 28%, var(--color-border)); border-radius: $radius-12; background: color-mix(in srgb, var(--color-primary) 5%, transparent); }
 .templatePauseIcon { display: grid; width: 44px; height: 44px; place-items: center; border-radius: 11px; color: var(--color-primary); background: color-mix(in srgb, var(--color-primary) 11%, transparent); }
 .templatePauseCard > div:nth-child(2) { display: flex; min-width: 0; flex-direction: column; gap: 4px; }
 .templatePauseCard strong { color: var(--color-text-primary); font-size: $font-size-14; }
@@ -59,24 +61,18 @@
 .templatePauseCard small { display: inline-flex; align-items: center; gap: 5px; margin-top: 2px; color: var(--color-success); font-size: $font-size-10; font-weight: $font-weight-700; }
 .templatePauseActions { display: flex; align-items: stretch; flex-direction: column; gap: 7px; }
 .templatePauseActions button { white-space: nowrap; }
-.environmentGrid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; padding: $spacing-24; }
-.environmentGrid > button { display: grid; grid-template-columns: 38px minmax(0, 1fr) auto; align-items: center; gap: 11px; min-height: 92px; padding: 13px; border: 1px solid var(--color-border); border-radius: $radius-12; color: var(--color-text); background: transparent; text-align: left; cursor: pointer; }
-.environmentGrid > button:hover { border-color: color-mix(in srgb, var(--color-primary) 45%, var(--color-border)); background: color-mix(in srgb, var(--color-primary) 3%, transparent); }
-.environmentGrid > button.environmentSelected { border: 2px solid var(--color-primary); padding: 12px; background: color-mix(in srgb, var(--color-primary) 6%, transparent); }
-.environmentGrid > button > span { display: grid; width: 38px; height: 38px; place-items: center; border-radius: 10px; color: var(--color-primary); background: color-mix(in srgb, var(--color-primary) 9%, transparent); }
-.environmentGrid > button div { display: flex; min-width: 0; flex-direction: column; gap: 3px; }
-.environmentGrid strong { @include text-truncate; font-size: $font-size-14; }
-.environmentGrid p { @include text-truncate; margin: 0; color: var(--color-text-secondary); font-size: $font-size-10; }
-.environmentGrid small { color: var(--color-text-muted); font-size: $font-size-10; }
-.environmentGrid em { color: var(--color-primary); font-size: $font-size-10; font-style: normal; font-weight: $font-weight-700; }
-.environmentSummary { @include flex-between; gap: $spacing-16; margin: 0 $spacing-24 $spacing-24; padding: 12px 14px; border-radius: $radius-8; color: var(--color-info); background: color-mix(in srgb, var(--color-info) 7%, transparent); font-size: $font-size-12; }
+.environmentSummary { @include flex-between; gap: $spacing-16; margin: $spacing-16 $spacing-24 0; padding: 12px 14px; border-radius: $radius-8; color: var(--color-info); background: color-mix(in srgb, var(--color-info) 7%, transparent); font-size: $font-size-12; }
 .environmentSummary span { color: var(--color-text-secondary); font-size: $font-size-10; }
+.publishToggle { display: grid; grid-template-columns: 16px minmax(0, 1fr); align-items: start; gap: 12px; padding: 12px $spacing-24; border-bottom: 1px solid var(--color-divider); background: color-mix(in srgb, var(--color-hover) 45%, transparent); cursor: pointer; }
+.publishToggle input { width: 15px; height: 15px; margin: 1px 0 0; accent-color: var(--color-primary); cursor: pointer; }
+.publishToggle > div { display: flex; flex-direction: column; gap: 3px; }
+.publishToggle strong { font-size: $font-size-12; }
+.publishToggle small { color: var(--color-text-muted); font-size: $font-size-10; line-height: 1.5; }
 .weekList { display: flex; max-height: 520px; flex-direction: column; overflow-y: auto; }
 .weekList label { display: grid; grid-template-columns: 150px minmax(0, 1fr); align-items: center; gap: $spacing-16; padding: 12px $spacing-24; border-bottom: 1px solid var(--color-divider); }
 .weekList label > span { display: flex; flex-direction: column; gap: 3px; }
 .weekList label strong { font-size: $font-size-12; }
 .weekList label small { color: var(--color-text-muted); font-size: $font-size-10; }
-.reviewLayout { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(300px, .8fr); gap: $spacing-24; align-items: start; }
 .summaryList > div { display: grid; grid-template-columns: 30px minmax(0, 1fr) auto; align-items: center; gap: 10px; min-height: 66px; padding: 10px $spacing-24; border-bottom: 1px solid var(--color-divider); }
 .summaryList > div > span { display: grid; width: 28px; height: 28px; place-items: center; border-radius: 50%; }
 .summaryList > div div { display: flex; min-width: 0; flex-direction: column; gap: 3px; }
@@ -87,16 +83,19 @@
 .summaryDone em { color: var(--color-success); }
 .summaryPending > span { color: var(--color-text-muted); background: var(--color-hover); }
 .summaryPending em { color: var(--color-text-muted); }
-.capacityCard { display: flex; align-items: center; flex-direction: column; gap: 10px; padding: $spacing-24; text-align: center; }
-.capacityIcon { display: grid; width: 52px; height: 52px; place-items: center; border-radius: 50%; color: var(--color-primary); background: color-mix(in srgb, var(--color-primary) 9%, transparent); }
-.capacityCard h2 { margin: 0; font-size: $font-size-18; }
-.capacityCard p { margin: 0; color: var(--color-text-secondary); font-size: $font-size-12; line-height: 1.6; }
-.capacityCard dl { display: grid; width: 100%; grid-template-columns: repeat(3, 1fr); margin: $spacing-8 0; border: 1px solid var(--color-border); border-radius: $radius-8; }
-.capacityCard dl div { display: flex; flex-direction: column; gap: 3px; padding: 10px; }
-.capacityCard dl div + div { border-left: 1px solid var(--color-divider); }
-.capacityCard dt { color: var(--color-text-muted); font-size: $font-size-10; }
-.capacityCard dd { margin: 0; font-size: $font-size-14; font-weight: $font-weight-700; }
-.capacityCard button { width: 100%; }
+.readyPanel { overflow: hidden; @include glass-surface($shadow: var(--shadow-sm)); border-radius: $radius-16; }
+.readySummary { display: grid; grid-template-columns: 42px minmax(0, 1fr) auto; align-items: center; gap: 14px; padding: 22px 24px; }
+.readyIcon { display: grid; width: 42px; height: 42px; place-items: center; border-radius: $radius-12; color: var(--color-primary); background: color-mix(in srgb, var(--color-primary) 9%, var(--color-surface)); }
+.readySummary > div { min-width: 0; }
+.readySummary > div > span { color: var(--color-text-muted); font-size: $font-size-12; font-weight: $font-weight-500; }
+.readySummary h2 { margin: 3px 0 2px; font-size: $font-size-18; font-weight: $font-weight-700; letter-spacing: -.015em; }
+.readySummary p { margin: 0; color: var(--color-text-secondary); font-size: $font-size-14; line-height: 1.5; }
+.readyActions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
+.capacityFacts { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); border-top: 1px solid var(--color-border); }
+.capacityFacts > div { display: flex; min-width: 0; flex-direction: column; gap: 3px; padding: 12px 18px; }
+.capacityFacts > div + div { border-left: 1px solid var(--color-border); }
+.capacityFacts span { color: var(--color-text-muted); font-size: $font-size-10; }
+.capacityFacts strong { @include text-truncate; font-size: $font-size-14; font-weight: $font-weight-700; font-variant-numeric: tabular-nums; }
 .footer { position: sticky; bottom: $spacing-16; z-index: 50; display: grid; grid-template-columns: 150px 1fr 190px; align-items: center; gap: $spacing-16; padding: 12px $spacing-16; @include glass-surface($shadow: var(--shadow-md)); border-radius: $radius-12; }
 .footer > span { color: var(--color-text-muted); font-size: $font-size-10; text-align: center; }
 .footerHint { display: inline-flex; align-items: center; justify-content: flex-end; gap: 6px; color: var(--color-text-muted); font-size: $font-size-10; font-style: normal; font-weight: $font-weight-700; text-align: right; }
@@ -110,10 +109,10 @@
 .backBtn { display: inline-flex; align-items: center; gap: 6px; padding: 8px $spacing-16; border-radius: $radius-8; font-size: $font-size-14; font-weight: $font-weight-500; cursor: pointer; white-space: nowrap; background: var(--color-surface); color: var(--color-text); border: 1px solid var(--color-border); box-shadow: var(--shadow-sm); transition: background $transition-base; }
 .backBtn:hover { background: var(--color-hover); }
 
-@include respond-below(lg) { .stepper { grid-template-columns: repeat(5, minmax(135px, 1fr)); overflow-x: auto; } .studentLayout, .reviewLayout { grid-template-columns: 1fr; } }
+@include respond-below(lg) { .studentLayout { grid-template-columns: 1fr; } .capacityFacts { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
 @include respond-below(md) {
   .backBtn { align-self: stretch; }
-  .formGrid, .environmentGrid { grid-template-columns: 1fr; padding: $spacing-16; }
+  .formGrid { grid-template-columns: 1fr; padding: $spacing-16; }
   .full { grid-column: auto; }
   .advancedGrid { grid-template-columns: 1fr; }
   .sectionHeader { grid-template-columns: 34px minmax(0, 1fr); padding: $spacing-16; }
@@ -123,6 +122,7 @@
   .templatePauseIcon { width: 38px; height: 38px; }
   .templatePauseActions { grid-column: 1 / -1; }
   .templatePauseActions button { width: 100%; }
+  .publishToggle { padding: 12px $spacing-16; }
   .weekList label { grid-template-columns: 1fr; gap: $spacing-8; padding: 12px $spacing-16; }
   .environmentSummary { align-items: flex-start; flex-direction: column; margin-inline: $spacing-16; }
   .footer { bottom: $spacing-8; grid-template-columns: 92px 1fr; }

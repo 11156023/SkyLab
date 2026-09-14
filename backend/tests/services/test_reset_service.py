@@ -15,9 +15,14 @@ INFO = {"node": "pve1", "type": "qemu"}
 
 
 class _FakeSession:
-    def add(self, obj) -> None: ...
-    def commit(self) -> None: ...
-    def rollback(self) -> None: ...
+    def add(self, obj) -> None:
+        """測試替身：不需實作。"""
+
+    def commit(self) -> None:
+        """測試替身：不需實作。"""
+
+    def rollback(self) -> None:
+        """測試替身：不需實作。"""
 
 
 @pytest.fixture(autouse=True)

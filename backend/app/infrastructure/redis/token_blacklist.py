@@ -68,4 +68,51 @@ async def is_jti_revoked(redis: Redis | None, jti: str) -> bool:
         return False
 
 
-__all__ = ["revoke_jti", "is_jti_revoked"]
+_REFRESH_USED_PREFIX = "refresh_used:"
+# 多分頁同時觸發 refresh 時，舊 refresh token 在這段寬限期內仍可重用一次，
+# 之後即視為已輪替（等同撤銷）。
+REFRESH_ROTATION_GRACE_SECONDS = 30
+
+
+async def mark_refresh_token_used(
+    redis: Redis | None,
+    jti: str,
+    exp_unix: int,
+    *,
+    grace_seconds: int = REFRESH_ROTATION_GRACE_SECONDS,
+) -> bool:
+    """Record that a refresh token was exchanged; return False on stale reuse.
+
+    Implements refresh-token rotation: the first exchange stores the
+    timestamp under ``refresh_used:<jti>``; later exchanges of the same
+    token are only tolerated within ``grace_seconds`` (concurrent tabs),
+    otherwise the token is treated as revoked. Fails-open without Redis.
+    """
+    if redis is None:
+        return True
+
+    now = int(time.time())
+    ttl = exp_unix - now
+    if ttl <= 0:
+        return False
+
+    key = f"{_REFRESH_USED_PREFIX}{jti}"
+    try:
+        first_use = await redis.set(key, str(now), ex=ttl, nx=True)
+        if first_use:
+            return True
+        raw = await redis.get(key)
+        if raw is None:
+            return True
+        used_at = int(raw.decode() if isinstance(raw, bytes) else raw)
+        return (now - used_at) <= grace_seconds
+    except Exception as exc:  # noqa: BLE001
+        logger.error(
+            "Failed to record refresh-token use for jti=%s (allowing): %s",
+            jti,
+            exc,
+        )
+        return True
+
+
+__all__ = ["revoke_jti", "is_jti_revoked", "mark_refresh_token_used"]

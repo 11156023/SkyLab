@@ -8,14 +8,15 @@ VMID 重新註冊——應復用該筆紀錄重新開始生命週期。
 from __future__ import annotations
 
 import uuid
+from datetime import UTC, datetime
 from types import SimpleNamespace
 from typing import Any
 
 import pytest
 from sqlmodel import Session, SQLModel, create_engine, select
 
-from app.exceptions import ConflictError
-from app.models import VMTemplate, VMTemplateStatus, VMTemplateVisibility
+from app.exceptions import ConflictError, PermissionDeniedError
+from app.models import Resource, VMTemplate, VMTemplateStatus, VMTemplateVisibility
 from app.repositories import vm_template as template_repo
 from app.schemas.template import VMTemplateCreate
 from app.services.template import template_service
@@ -48,6 +49,19 @@ def fake_pve(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def make_user(role: str = "teacher") -> SimpleNamespace:
     return SimpleNamespace(id=uuid.uuid4(), role=role, is_superuser=False)
+
+
+def seed_owned_resource(session: Session, *, vmid: int, user_id: uuid.UUID) -> None:
+    """把 VM 登記為該使用者的平台資源（非 admin 只能轉換自己登記的 VM）。"""
+    session.add(
+        Resource(
+            vmid=vmid,
+            user_id=user_id,
+            environment_type="test",
+            created_at=datetime.now(UTC),
+        )
+    )
+    session.commit()
 
 
 def seed_template(
@@ -106,6 +120,7 @@ async def test_create_template_reuses_soft_deleted_record(
 ) -> None:
     old = seed_template(db, pve_vmid=102, status=VMTemplateStatus.deleted)
     user = make_user("teacher")
+    seed_owned_resource(db, vmid=102, user_id=user.id)
 
     public, _record = await template_service.create_template(
         session=db,
@@ -138,10 +153,35 @@ async def test_create_template_conflicts_on_active_record(
     db: Session, fake_pve: None
 ) -> None:
     seed_template(db, pve_vmid=102, status=VMTemplateStatus.failed)
+    user = make_user("teacher")
+    seed_owned_resource(db, vmid=102, user_id=user.id)
 
     with pytest.raises(ConflictError):
         await template_service.create_template(
             session=db,
-            user=make_user("teacher"),
+            user=user,
             data=VMTemplateCreate(source_vmid=102, name="dup"),
         )
+
+
+async def test_create_template_rejects_unregistered_vm_for_non_admin(
+    db: Session, fake_pve: None
+) -> None:
+    """未登記在平台的 pool 內 VM（孤兒 / 基礎設施 VM）只有 admin 能轉換。"""
+    with pytest.raises(PermissionDeniedError):
+        await template_service.create_template(
+            session=db,
+            user=make_user("teacher"),
+            data=VMTemplateCreate(source_vmid=102, name="orphan"),
+        )
+
+
+async def test_create_template_allows_unregistered_vm_for_admin(
+    db: Session, fake_pve: None
+) -> None:
+    public, _record = await template_service.create_template(
+        session=db,
+        user=make_user("admin"),
+        data=VMTemplateCreate(source_vmid=102, name="infra-template"),
+    )
+    assert public.name == "infra-template"

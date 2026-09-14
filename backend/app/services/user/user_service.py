@@ -151,6 +151,9 @@ def update_user(
     db_user = session.get(User, user_id)
     if not db_user:
         raise NotFoundError(t("user.idNotFound"))
+    # LDAP 帳號的密碼歸目錄管：設本地密碼登不進去，只會造成困惑（稽核 #9）
+    if user_in.password and db_user.auth_source == "ldap":
+        raise BadRequestError(t("user.ldapPasswordLocked"))
     if user_in.email:
         existing = user_repo.get_user_by_email(session=session, email=user_in.email)
         if existing and existing.id != user_id:
@@ -158,9 +161,11 @@ def update_user(
 
     db_user = user_repo.update_user(session=session, db_user=db_user, user_in=user_in)
 
-    changes = ", ".join(
-        f"{k}={v}" for k, v in user_in.model_dump(exclude_unset=True).items()
-    )
+    # 稽核紀錄絕不可寫入明文密碼；只記錄「密碼已變更」
+    changed_fields = user_in.model_dump(exclude_unset=True)
+    if "password" in changed_fields:
+        changed_fields["password"] = "<changed>"
+    changes = ", ".join(f"{k}={v}" for k, v in changed_fields.items())
     try:
         audit_service.log_action(
             session=session,

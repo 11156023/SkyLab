@@ -167,7 +167,13 @@ def evaluate(
 
 # ── I/O 協調 ──────────────────────────────────────────────────────────────
 
-_last_run_monotonic: float | None = None
+class _AlertTickState:
+    """上次抽樣的 monotonic 時間，供 tick 節流（集中在物件上，避免 global 重新指派）。"""
+
+    last_run_monotonic: float | None = None
+
+
+_tick_state = _AlertTickState()
 
 
 def _list_admin_emails(session: Session) -> list[str]:
@@ -206,20 +212,19 @@ def _notify_admins(session: Session, created: list[AlertEvent]) -> None:
 
 def process_resource_alerts() -> int:
     """Scheduler tick：依設定間隔抽樣並評估警告。回傳新建事件數。"""
-    global _last_run_monotonic
     try:
         with Session(engine) as session:
             config = governance_repo.get_governance_config(session=session)
             if not config.alerts_enabled:
                 return 0
             now_mono = time.monotonic()
+            last_run = _tick_state.last_run_monotonic
             if (
-                _last_run_monotonic is not None
-                and now_mono - _last_run_monotonic
-                < config.alert_check_interval_seconds
+                last_run is not None
+                and now_mono - last_run < config.alert_check_interval_seconds
             ):
                 return 0
-            _last_run_monotonic = now_mono
+            _tick_state.last_run_monotonic = now_mono
 
             nodes = proxmox_service.list_nodes()
             resources = proxmox_service.list_all_resources()

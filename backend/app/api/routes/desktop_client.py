@@ -13,11 +13,12 @@ import secrets
 import time
 from pathlib import Path
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import FileResponse, RedirectResponse
 from pydantic import BaseModel
 
 from app.api.deps import CurrentUser, SessionDep
+from app.api.deps.rate_limit import rate_limit_by_ip
 from app.core.config import settings
 from app.core.i18n import t
 from app.schemas.wireguard import (
@@ -49,7 +50,12 @@ _DOWNLOAD_PATTERNS = (
 # ─── Device auth in-memory store ─────────────────────────────────────────────
 
 _DEVICE_CODE_TTL = 300  # 5 minutes
+# 未認證端點會往記憶體寫入；限制同時存在的待核准碼數量，避免被灌爆
+_DEVICE_CODE_MAX_PENDING = 1000
 _device_codes: dict[str, dict] = {}  # code -> {token, created_at}
+_DEVICE_CODE_RATE_LIMIT = Depends(
+    rate_limit_by_ip(scope="device-code", limit=10, window_seconds=60)
+)
 
 
 def _cleanup_expired() -> None:
@@ -80,10 +86,14 @@ class DevicePollResponse(BaseModel):
 # ─── Device auth endpoints ───────────────────────────────────────────────────
 
 
-@router.post("/auth/device-code")
+@router.post("/auth/device-code", dependencies=[_DEVICE_CODE_RATE_LIMIT])
 def create_device_code() -> DeviceCodeResponse:
     """Generate a new device code for desktop client login."""
     _cleanup_expired()
+    if len(_device_codes) >= _DEVICE_CODE_MAX_PENDING:
+        raise HTTPException(
+            status_code=429, detail=t("desktop.device_code_too_many")
+        )
     code = secrets.token_urlsafe(32)
     _device_codes[code] = {"token": None, "created_at": time.time()}
     frontend_url = str(settings.FRONTEND_HOST).rstrip("/")
@@ -99,7 +109,8 @@ def approve_device_code(
     current_user: CurrentUser,
     session: SessionDep,
 ) -> dict:
-    """Approve a device code (called by the frontend after user logs in).
+    """Approve a device code (called by the frontend after the user explicitly
+    confirms the "authorize this device" prompt).
 
     The current user's access token is associated with the device code.
     We generate a fresh token for the desktop client using the same user identity.
@@ -119,10 +130,19 @@ def approve_device_code(
         del _device_codes[body.device_code]
         raise HTTPException(status_code=410, detail=t("desktop.device_code_expired"))
 
-    # Generate a long-lived access token for the desktop client (8 hours)
+    if entry["token"] is not None:
+        # 一組 code 只能被核准一次，避免第二個人（或釣魚頁）覆寫成自己的身份
+        raise HTTPException(
+            status_code=409, detail=t("desktop.device_code_already_approved")
+        )
+
+    # Generate a long-lived access token for the desktop client (8 hours).
+    # token_version 必須帶入，否則改過密碼的使用者拿到的 token 會立刻被拒，
+    # 且無法透過 token_version 一次撤銷。
     token = create_access_token(
         subject=str(current_user.id),
         expires_delta=timedelta(hours=8),
+        token_version=current_user.token_version,
     )
     entry["token"] = token
     return {"status": "approved"}

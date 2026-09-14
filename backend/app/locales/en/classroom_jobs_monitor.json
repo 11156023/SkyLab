@@ -18,5 +18,17 @@
   "ai_gateway.connection_incomplete": "AI API connection settings are incomplete",
   "ai_gateway.credential_already_revoked": "This AI API credential has already been revoked",
   "monitoring.invalid_timeframe": "timeframe must be one of {allowed}",
-  "monitoring.resource_not_found": "Resource {vmid} not found"
+  "monitoring.resource_not_found": "Resource {vmid} not found",
+  "governance.idle_notify_after_must_precede_grace": "Idle notification delay ({notify_after} h) must be shorter than the shutdown grace period ({grace} h)",
+  "push.kind_vm_request": "Boot request",
+  "push.kind_spec_change": "Spec change",
+  "push.kind_deletion": "Deletion",
+  "push.kind_template": "Template task",
+  "push.kind_generic": "Job",
+  "push.job_completed": "{kind} completed",
+  "push.job_failed": "{kind} failed",
+  "push.job_blocked": "{kind} blocked",
+  "push.job_cancelled": "{kind} cancelled",
+  "push.test_title": "Desktop notifications enabled",
+  "push.test_body": "From now on, finished jobs and new reminders will reach you like this even after the tab is closed"
 }

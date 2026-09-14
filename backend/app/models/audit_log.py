@@ -111,11 +111,25 @@ class AuditAction(str, enum.Enum):
     proxmox_sync_now = "proxmox_sync_now"
 
     # Historical values retained so archived audit rows remain readable.
+    # 注意：PostgreSQL enum 標籤無法刪除，audit_logs 也仍有這些 action 的紀錄；
+    # 從這裡拿掉任何一個值，稽核清單／CSV 匯出讀到該筆時會整批 LookupError。
     migration_job_retry = "migration_job_retry"
     migration_job_cancel = "migration_job_cancel"
+    # 群組功能已於 2026-07-30（677ffcad）改為正式班級，舊紀錄仍在
+    group_create = "group_create"
+    group_delete = "group_delete"
+    group_member_add = "group_member_add"
+    group_member_remove = "group_member_remove"
+    # 其他分支曾寫入共用資料庫的標籤
+    cloudflare_zone_activation_check = "cloudflare_zone_activation_check"
 
     # 規格直改
     spec_direct_update = "spec_direct_update"
+
+    # 資源進階設定（憑證重設 / 共享 / 轉移）
+    credential_update = "credential_update"
+    resource_share_update = "resource_share_update"
+    resource_transfer = "resource_transfer"
 
     # AI API 憑證
     ai_api_credential_rotate = "ai_api_credential_rotate"

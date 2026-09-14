@@ -5,7 +5,7 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
-GatewayService = Literal["haproxy", "traefik", "frps", "frpc"]
+GatewayService = Literal["haproxy", "traefik", "frps", "frpc", "wireguard"]
 ServiceAction = Literal["start", "stop", "restart", "reload"]
 
 
@@ -64,6 +64,26 @@ class GatewayServiceVersionsResult(BaseModel):
     checked_at: datetime
 
 
+class GatewayWireGuardOverview(BaseModel):
+    mode: str
+    interface: str
+    systemd_unit: str
+    endpoint: str
+    client_subnet: str
+    vm_subnet: str
+    session_ttl_seconds: int
+    reconcile_enabled: bool
+    authorized_sessions: int
+    expired_sessions: int
+    live_peers: int
+    recent_handshakes: int
+    transfer_rx_bytes: int
+    transfer_tx_bytes: int
+    listen_port: int | None = None
+    inspection_available: bool
+    inspected_at: datetime
+
+
 __all__ = [
     "GatewayService",
     "ServiceAction",
@@ -76,4 +96,5 @@ __all__ = [
     "ServiceActionResult",
     "GatewayServiceVersionInfo",
     "GatewayServiceVersionsResult",
+    "GatewayWireGuardOverview",
 ]

@@ -73,6 +73,7 @@ class UserPublic(BaseModel):
     is_superuser: bool
     full_name: str | None = None
     avatar_url: str | None = None
+    auth_source: str = "local"  # "local" | "ldap"（LDAP 帳號的本地密碼欄位應鎖住）
     created_at: datetime | None = None
 
 

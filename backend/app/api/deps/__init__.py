@@ -14,14 +14,19 @@ from app.api.deps.auth import (
 )
 from app.api.deps.database import SessionDep, get_db
 from app.api.deps.proxmox import (
+    ControlLxcInfoDep,
+    ControlResourceInfoDep,
+    ControlVmInfoDep,
     LxcInfoDep,
     ResourceInfoDep,
     TeachingResourceInfoDep,
     VmInfoDep,
     check_firewall_access,
+    check_resource_control_access,
     check_resource_ownership,
     get_lxc_info,
     get_resource_info,
+    get_resource_info_controllable,
     get_resource_info_teaching,
     get_vm_info,
 )
@@ -55,6 +60,11 @@ __all__ = [
     "LxcInfoDep",
     "get_resource_info",
     "ResourceInfoDep",
+    "check_resource_control_access",
+    "get_resource_info_controllable",
+    "ControlResourceInfoDep",
+    "ControlVmInfoDep",
+    "ControlLxcInfoDep",
     "get_resource_info_teaching",
     "TeachingResourceInfoDep",
     # Rate limiting

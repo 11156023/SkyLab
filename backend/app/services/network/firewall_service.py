@@ -10,6 +10,7 @@
 
 import logging
 import re
+from typing import Any
 
 from sqlmodel import Session
 
@@ -23,6 +24,9 @@ from app.repositories import firewall_layout as layout_repo
 from app.repositories import resource as resource_repo
 from app.schemas.firewall import (
     PortSpec,
+    PublishedService,
+    PublishedServiceCreate,
+    PublishedServiceRef,
     TopologyEdge,
     TopologyNode,
     TopologyResponse,
@@ -232,12 +236,26 @@ def _set_firewall_options(
 
 
 def ensure_firewall_enabled(node: str, vmid: int, resource_type: ResourceType) -> None:
-    """確保防火牆已啟用（VM 啟動時呼叫）"""
+    """確保防火牆已啟用且入站仍為 DROP（VM 啟動時呼叫）。
+
+    學生之間的隔離完全靠這兩件事：機器都在同一個 bridge、同一個 IP 子網，
+    沒有 VLAN 隔離，擋下來的是每台自己的 policy_in=DROP。只檢查 enable
+    不夠 —— 防火牆開著但 policy_in 被改成 ACCEPT 的話，這台就對整個實驗室
+    子網敞開，拓樸的白名單也失去意義。
+
+    policy_in 沒有值時代表沿用 PVE 預設（DROP），不需要處理。
+    """
     try:
         opts = get_firewall_options(node, vmid, resource_type)
+        fixes: dict[str, Any] = {}
         if not opts.get("enable"):
-            _set_firewall_options(node, vmid, resource_type, enable=1)
-            logger.info(f"VM {vmid}: 已強制啟用防火牆")
+            fixes["enable"] = 1
+        policy_in = opts.get("policy_in")
+        if policy_in and str(policy_in).upper() != "DROP":
+            fixes["policy_in"] = "DROP"
+        if fixes:
+            _set_firewall_options(node, vmid, resource_type, **fixes)
+            logger.warning(f"VM {vmid}: 已回復防火牆設定 {fixes}")
     except Exception as e:
         logger.error(f"VM {vmid}: 確認防火牆啟用失敗: {e}")
 
@@ -388,27 +406,11 @@ def _get_vm_ip(vmid: int, session: object = None) -> str | None:
             "VM %s 即時取 IP 失敗，將回退到 DB 快取: %s", vmid, e
         )
 
-    if ip and session is not None:
-        # 更新 DB 快取（fire-and-forget，忽略失敗）
-        try:
-            resource_repo.update_ip_address(session=session, vmid=vmid, ip_address=ip)  # type: ignore[arg-type]
-        except Exception as e:
-            logger.debug(f"VM {vmid} IP 快取寫入失敗: {e}")
+    if session is None:
         return ip
 
-    if ip:
-        return ip
-
-    # Proxmox 取不到 IP → 嘗試 DB 快取
-    if session is not None:
-        try:
-            cached_ip = resource_repo.get_cached_ip_address(session=session, vmid=vmid)  # type: ignore[arg-type]
-            if cached_ip:
-                logger.debug(f"VM {vmid} 使用 DB 快取 IP: {cached_ip}")
-                return cached_ip
-        except Exception as e:
-            logger.debug(f"VM {vmid} DB 快取讀取失敗: {e}")
-    return None
+    # 有即時 IP 就寫回快取；Proxmox 取不到就回退 DB 快取（DB 出錯會自行 rollback）
+    return resource_repo.sync_ip_cache(session=session, vmid=vmid, live_ip=ip)  # type: ignore[arg-type]
 
 
 def _parse_connection_comment(comment: str) -> dict | None:
@@ -1117,19 +1119,15 @@ def get_topology(user: User, session: Session) -> TopologyResponse:
             ip_address = proxmox_service.get_ip_address(
                 resource["node"], vmid, resource["type"]
             )
-            if ip_address:
-                resource_repo.update_ip_address(
-                    session=session, vmid=vmid, ip_address=ip_address
-                )
-            else:
-                # VM 離線時回退 DB 快取
-                cached_ip = resource_repo.get_cached_ip_address(session=session, vmid=vmid)
-                if cached_ip:
-                    ip_address = cached_ip
         except Exception as e:
             logger.debug(
-                "拓撲圖 VMID=%s IP 查詢失敗（將顯示為無 IP）: %s", vmid, e
+                "拓撲圖 VMID=%s 即時 IP 查詢失敗（改查 DB 快取）: %s", vmid, e
             )
+        # 有即時 IP 就寫回快取，否則回退 DB 快取。DB 出錯時 sync_ip_cache 會
+        # rollback，避免 session 帶著無效交易撐到後面的 _enrich_edges_from_db。
+        ip_address = resource_repo.sync_ip_cache(
+            session=session, vmid=vmid, live_ip=ip_address
+        )
 
         try:
             opts = get_firewall_options(resource["node"], vmid, resource["type"])
@@ -1183,3 +1181,301 @@ def get_topology(user: User, session: Session) -> TopologyResponse:
     _enrich_edges_from_db(edges, session)
 
     return TopologyResponse(nodes=nodes, edges=edges)
+
+
+# ─── 單台 VM：對外服務與迷你拓撲 ──────────────────────────────────────────────
+
+
+def _service_url(domain: str | None, enable_https: bool) -> str | None:
+    if not domain:
+        return None
+    scheme = "https" if enable_https else "http"
+    return f"{scheme}://{domain}"
+
+
+def _service_from_spec(
+    spec: PortSpec, *, firewall_rule_present: bool
+) -> PublishedService:
+    if spec.domain:
+        mode = "domain"
+    elif spec.external_port is not None:
+        mode = "port_forward"
+    else:
+        mode = "firewall_only"
+    return PublishedService(
+        port=spec.port,
+        protocol=spec.protocol,
+        mode=mode,
+        domain=spec.domain,
+        enable_https=spec.enable_https,
+        external_port=spec.external_port,
+        url=_service_url(spec.domain, spec.enable_https),
+        firewall_rule_present=firewall_rule_present,
+    )
+
+
+def list_vm_published_services(
+    vmid: int, session: Session
+) -> list[PublishedService]:
+    """列出這台 VM 的所有 Internet 入站發布（對外網址 / port 轉發 / 僅開放）。
+
+    以 Proxmox 上 ``SkyLab:gateway->{vmid}`` 規則為主；DB 裡有反向代理或
+    NAT 紀錄但 Proxmox 上找不到對應規則的（例如舊版反向代理頁直接建的網址），
+    也一併列出並標記 ``firewall_rule_present=False``，讓使用者看得到、刪得掉。
+    """
+    from app.repositories import nat_rule as nat_repo  # noqa: PLC0415
+    from app.repositories import reverse_proxy as rp_repo  # noqa: PLC0415
+
+    edges = get_connections_from_rules([vmid])
+    _enrich_edges_from_db(edges, session)
+
+    services: list[PublishedService] = []
+    seen: set[tuple[int, str]] = set()
+    for edge in edges:
+        if edge.source_vmid is not None or edge.target_vmid != vmid:
+            continue
+        for spec in edge.ports:
+            key = (spec.port, spec.protocol)
+            if key in seen:
+                continue
+            seen.add(key)
+            services.append(_service_from_spec(spec, firewall_rule_present=True))
+
+    for rp_rule in rp_repo.list_rules_by_vmid(session, vmid):
+        key = (rp_rule.internal_port, "tcp")
+        if key in seen:
+            continue
+        seen.add(key)
+        services.append(
+            _service_from_spec(
+                PortSpec(
+                    port=rp_rule.internal_port,
+                    protocol="tcp",
+                    domain=rp_rule.domain,
+                    enable_https=rp_rule.enable_https,
+                ),
+                firewall_rule_present=False,
+            )
+        )
+
+    for nat_rule in nat_repo.list_rules_by_vmid(session, vmid):
+        key = (nat_rule.internal_port, nat_rule.protocol)
+        if key in seen:
+            continue
+        seen.add(key)
+        services.append(
+            _service_from_spec(
+                PortSpec(
+                    port=nat_rule.internal_port,
+                    protocol=nat_rule.protocol,
+                    external_port=nat_rule.external_port,
+                ),
+                firewall_rule_present=False,
+            )
+        )
+
+    services.sort(key=lambda s: (s.port, s.protocol))
+    return services
+
+
+def publish_vm_service(
+    vmid: int, data: PublishedServiceCreate, session: Session
+) -> PublishedService:
+    """發布一條對外服務：走 ``create_connection``（先開防火牆，再套 NAT / 反向代理）。"""
+    existing = {
+        (s.port, s.protocol) for s in list_vm_published_services(vmid, session)
+    }
+    if (data.port, data.protocol) in existing:
+        raise BadRequestError(
+            t(
+                "firewall.servicePortAlreadyPublished",
+                port=data.port,
+                protocol=data.protocol,
+            )
+        )
+    if data.mode == "domain" and data.domain:
+        from app.services.network import reverse_proxy_service  # noqa: PLC0415
+
+        reverse_proxy_service.assert_domain_available(session, data.domain)
+    spec = data.to_port_spec()
+    create_connection(
+        source_vmid=None, target_vmid=vmid, ports=[spec], session=session
+    )
+    return _service_from_spec(spec, firewall_rule_present=True)
+
+
+def unpublish_vm_service(
+    vmid: int, ref: PublishedServiceRef, session: Session
+) -> None:
+    """撤下一條對外服務：刪 Proxmox 入站規則並清 NAT / 反向代理紀錄。"""
+    delete_connection(
+        source_vmid=None,
+        target_vmid=vmid,
+        ports=[PortSpec(port=ref.port, protocol=ref.protocol)],
+        session=session,
+    )
+
+
+def replace_vm_service(
+    vmid: int,
+    current: PublishedServiceRef,
+    replacement: PublishedServiceCreate,
+    session: Session,
+) -> PublishedService:
+    """換掉一條服務的發布方式：先撤下舊的，再依新設定發布。"""
+    existing = {
+        (s.port, s.protocol) for s in list_vm_published_services(vmid, session)
+    }
+    if (current.port, current.protocol) not in existing:
+        raise NotFoundError(
+            t("firewall.serviceNotFound", port=current.port, protocol=current.protocol)
+        )
+    same_port = (current.port, current.protocol) == (
+        replacement.port,
+        replacement.protocol,
+    )
+    if not same_port and (replacement.port, replacement.protocol) in existing:
+        raise BadRequestError(
+            t(
+                "firewall.servicePortAlreadyPublished",
+                port=replacement.port,
+                protocol=replacement.protocol,
+            )
+        )
+    if replacement.mode == "domain" and replacement.domain:
+        from app.repositories import reverse_proxy as rp_repo  # noqa: PLC0415
+        from app.services.network import reverse_proxy_service  # noqa: PLC0415
+
+        # 同一條服務沿用原本網域時，不能把自己的紀錄算成衝突
+        own_rule = next(
+            (
+                r
+                for r in rp_repo.list_rules_by_vmid(session, vmid)
+                if r.internal_port == current.port
+                and r.domain == replacement.domain
+            ),
+            None,
+        )
+        reverse_proxy_service.assert_domain_available(
+            session,
+            replacement.domain,
+            exclude_rule_id=own_rule.id if own_rule else None,
+        )
+    unpublish_vm_service(vmid, current, session)
+    spec = replacement.to_port_spec()
+    create_connection(
+        source_vmid=None, target_vmid=vmid, ports=[spec], session=session
+    )
+    return _service_from_spec(spec, firewall_rule_present=True)
+
+
+def _topology_node_for_vm(
+    vmid: int,
+    resource: dict,
+    session: Session | None,
+    *,
+    x: float,
+    y: float,
+    with_details: bool,
+) -> TopologyNode:
+    ip_address: str | None = None
+    firewall_enabled = False
+    if with_details:
+        try:
+            ip_address = _get_vm_ip(vmid, session)
+        except Exception as e:  # pragma: no cover - 防禦性
+            logger.debug("VMID=%s IP 查詢失敗: %s", vmid, e)
+        try:
+            opts = get_firewall_options(resource["node"], vmid, resource["type"])
+            firewall_enabled = bool(opts.get("enable", False))
+        except Exception as e:
+            logger.debug("VMID=%s 防火牆狀態查詢失敗: %s", vmid, e)
+    return TopologyNode(
+        vmid=vmid,
+        name=_from_punycode_hostname(resource.get("name", f"VM-{vmid}")),
+        node_type="vm",
+        vm_type=resource.get("type", "qemu"),
+        status=resource.get("status", "unknown"),
+        ip_address=ip_address,
+        firewall_enabled=firewall_enabled,
+        position_x=x,
+        position_y=y,
+    )
+
+
+_MINI_PEER_X = 0.0
+_MINI_CENTER_X = 340.0
+_MINI_GATEWAY_X = 680.0
+_MINI_ROW_H = 110.0
+
+
+def get_vm_topology(vmid: int, session: Session) -> TopologyResponse:
+    """以單台 VM 為中心的迷你拓撲：這台 VM、Internet 節點、有連線關係的其他 VM。
+
+    只讀這台 VM 自己的防火牆規則：VM 對 VM 的連線在雙方都會留下同一組
+    ``SkyLab:{src}->{tgt}`` 註解，所以從單邊就能還原所有跟它有關的連線。
+    """
+    resource = proxmox_service.find_resource(vmid)
+    edges = get_connections_from_rules([vmid])
+    _enrich_edges_from_db(edges, session)
+
+    peer_vmids = sorted(
+        {
+            v
+            for edge in edges
+            for v in (edge.source_vmid, edge.target_vmid)
+            if v is not None and v != vmid
+        }
+    )
+
+    nodes: list[TopologyNode] = []
+    known: set[int | None] = {None, vmid}
+    for i, peer in enumerate(peer_vmids):
+        try:
+            peer_resource = proxmox_service.find_resource(peer)
+        except Exception as e:
+            logger.debug("迷你拓撲略過 VMID=%s（找不到資源）: %s", peer, e)
+            continue
+        nodes.append(
+            _topology_node_for_vm(
+                peer,
+                peer_resource,
+                session,
+                x=_MINI_PEER_X,
+                y=40.0 + i * _MINI_ROW_H,
+                with_details=False,
+            )
+        )
+        known.add(peer)
+
+    rows = max(len(peer_vmids), 1)
+    center_y = 40.0 + (rows - 1) * _MINI_ROW_H / 2
+    nodes.append(
+        _topology_node_for_vm(
+            vmid,
+            resource,
+            session,
+            x=_MINI_CENTER_X,
+            y=center_y,
+            with_details=True,
+        )
+    )
+    nodes.append(
+        TopologyNode(
+            vmid=None,
+            name="Internet",
+            node_type="gateway",
+            status="online",
+            ip_address=None,
+            firewall_enabled=True,
+            position_x=_MINI_GATEWAY_X,
+            position_y=center_y,
+        )
+    )
+
+    visible_edges = [
+        edge
+        for edge in edges
+        if edge.source_vmid in known and edge.target_vmid in known
+    ]
+    return TopologyResponse(nodes=nodes, edges=visible_edges)

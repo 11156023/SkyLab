@@ -165,9 +165,10 @@ def sync_gateway_frpc(*, session: Session) -> None:
                     ip = pve_ops.get_ip_address(node, vmid, vm_type)
                     if ip:
                         resource_ips[vmid] = ip
-                        # Cache the IP in DB
-                        resource_repo.update_ip_address(
-                            session=session, vmid=vmid, ip_address=ip
+                        # Cache the IP in DB (rolls back on failure so the
+                        # session stays usable for the remaining VMs)
+                        resource_repo.sync_ip_cache(
+                            session=session, vmid=vmid, live_ip=ip
                         )
                         logger.info("Resolved IP for VM %d: %s", vmid, ip)
                 except Exception:

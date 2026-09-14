@@ -8,6 +8,7 @@ import logging
 import re
 import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
 from typing import Any, NamedTuple
 
 from sqlmodel import Session, select
@@ -33,6 +34,18 @@ logger = logging.getLogger(__name__)
 _GPU_NODE_COUNTS_CACHE_TTL_SECONDS = 20
 _gpu_node_counts_cache: dict[str, tuple[float, dict[str, int]]] = {}
 _gpu_node_counts_cache_lock = threading.Lock()
+
+# PVE 沒有批次讀 VM 設定的 API，只能一台一台問；序列化會讓 GPU 管理頁
+# 隨叢集 VM 數線性變慢，因此併發送出並對整份掃描結果做短期快取。
+_VM_CONFIG_FETCH_WORKERS = 12
+_USAGE_MAP_CACHE_TTL_SECONDS = 15
+_usage_map_cache: tuple[float, dict[str, list[GPUUsageInfo]]] | None = None
+_usage_map_cache_lock = threading.Lock()
+
+# mdev 探測同樣是每個 mapping 一次 HTTP；creatable 旗標會變動，只做短期快取。
+_MDEV_TYPES_CACHE_TTL_SECONDS = 15
+_mdev_types_cache: dict[tuple[str, str], tuple[float, dict[str, "MdevProfile"] | None]] = {}
+_mdev_types_cache_lock = threading.Lock()
 
 # 累積式 vGPU profile 目錄（type → 規格）。NVIDIA 驅動只回報「目前還建立得
 # 起來」的 profile：記憶體吃緊時大 profile 會從清單消失，但已佔用 VM 的
@@ -200,14 +213,8 @@ def _parse_mdev_entry(mdev: dict) -> MdevProfile:
     return MdevProfile(name=name, vram_mb=vram_mb, max_instances=max_instances)
 
 
-def _get_mdev_types(node: str, pci_path: str) -> dict[str, MdevProfile] | None:
-    """Query available mdev types for a PCI device from PVE.
-
-    Returns dict of mdev_type (e.g. "nvidia-1436") → MdevProfile.
-    注意語意：NVIDIA 驅動只回報「目前還建立得起來」的 profile——
-    空 dict 代表查詢成功但已無法再建立任何 vGPU（記憶體已滿或非 vGPU 裝置）；
-    None 代表查詢失敗（無法連線等），呼叫端應退回保守估計。
-    """
+def _fetch_mdev_types(node: str, pci_path: str) -> dict[str, MdevProfile] | None:
+    """Query available mdev types for a PCI device from PVE (uncached)."""
     try:
         proxmox = get_proxmox_api_for_node(node)
         mdev_list = proxmox.nodes(node).hardware.pci(pci_path).mdev.get()
@@ -222,6 +229,44 @@ def _get_mdev_types(node: str, pci_path: str) -> dict[str, MdevProfile] | None:
             result[mdev_type] = _parse_mdev_entry(mdev)
     _mdev_profile_catalog.update(result)
     return result
+
+
+def _get_mdev_types(node: str, pci_path: str) -> dict[str, MdevProfile] | None:
+    """Query available mdev types for a PCI device, with a short TTL cache.
+
+    Returns dict of mdev_type (e.g. "nvidia-1436") → MdevProfile.
+    注意語意：NVIDIA 驅動只回報「目前還建立得起來」的 profile——
+    空 dict 代表查詢成功但已無法再建立任何 vGPU（記憶體已滿或非 vGPU 裝置）；
+    None 代表查詢失敗（無法連線等），呼叫端應退回保守估計。
+
+    每個 mapping 都要探測一次，列表頁一次就是數個 HTTP round trip；
+    creatable 旗標會變動，所以只快取數秒，足以讓同一次列表與緊接著的
+    自動刷新共用結果。
+    """
+    key = (node, pci_path)
+    now = time.time()
+    with _mdev_types_cache_lock:
+        cached = _mdev_types_cache.get(key)
+        if cached and now - cached[0] < _MDEV_TYPES_CACHE_TTL_SECONDS:
+            return dict(cached[1]) if cached[1] is not None else None
+
+    result = _fetch_mdev_types(node, pci_path)
+    with _mdev_types_cache_lock:
+        _mdev_types_cache[key] = (time.time(), result)
+    return dict(result) if result is not None else None
+
+
+def _prefetch_mdev_types(maps_per_mapping: list[list[GPUDeviceMap]]) -> None:
+    """並行預熱 mdev 探測快取，讓後續逐 mapping 的解析不再各自等待 HTTP。"""
+    targets = {
+        (maps[0].node, maps[0].path)
+        for maps in maps_per_mapping
+        if maps and maps[0].node and maps[0].path
+    }
+    if len(targets) <= 1:
+        return
+    with ThreadPoolExecutor(max_workers=min(len(targets), _VM_CONFIG_FETCH_WORKERS)) as pool:
+        list(pool.map(lambda t: _get_mdev_types(*t), targets))
 
 
 class MappingVramInfo(NamedTuple):
@@ -402,16 +447,22 @@ def list_gpu_mappings() -> list[GPUMappingDetail]:
     usage_map = _build_usage_map()
     managed_vmids = _get_managed_vmids()
 
-    results: list[GPUMappingDetail] = []
+    parsed: list[tuple[dict, list[GPUDeviceMap]]] = []
     for mapping in raw_mappings:
-        mapping_id = mapping.get("id", "")
-        description = mapping.get("description", "")
         raw_maps = mapping.get("map", [])
-
         if isinstance(raw_maps, str):
             raw_maps = [raw_maps]
+        parsed.append(
+            (mapping, [_parse_map_entry(m) for m in raw_maps if isinstance(m, str)])
+        )
 
-        maps = [_parse_map_entry(m) for m in raw_maps if isinstance(m, str)]
+    # 逐 mapping 探測 mdev 會串成一長串 HTTP，先併發預熱共用快取。
+    _prefetch_mdev_types([maps for _mapping, maps in parsed])
+
+    results: list[GPUMappingDetail] = []
+    for mapping, maps in parsed:
+        mapping_id = mapping.get("id", "")
+        description = mapping.get("description", "")
 
         used_by = usage_map.get(mapping_id, [])
         physical_gpu_count, is_sriov = _count_physical_gpus(maps)
@@ -723,7 +774,7 @@ def list_gpu_options(node: str | None = None) -> list[GPUSummary]:
     return options
 
 
-def _build_usage_map() -> dict[str, list[GPUUsageInfo]]:
+def _scan_usage_map() -> dict[str, list[GPUUsageInfo]]:
     """Scan all VMs to find which ones are using PCI resource mappings.
 
     Returns a dict mapping mapping_id → list of GPUUsageInfo.
@@ -746,22 +797,37 @@ def _build_usage_map() -> dict[str, list[GPUUsageInfo]]:
     if not all_resources:
         return usage
 
+    targets: list[tuple[dict[str, Any], Any]] = []
     for resource, proxmox in all_resources:
         if resource.get("type") != "qemu":
             continue
+        if not resource.get("vmid") or not resource.get("node"):
+            continue
+        targets.append((resource, proxmox))
+    if not targets:
+        return usage
 
-        vmid = resource.get("vmid")
-        node = resource.get("node", "")
+    def fetch(item: tuple[dict[str, Any], Any]) -> tuple[dict[str, Any], dict | None]:
+        resource, proxmox = item
+        try:
+            config = proxmox.nodes(resource["node"]).qemu(resource["vmid"]).config.get()
+        except Exception:
+            return resource, None
+        return resource, config
+
+    # 每台 VM 各一次 HTTP，序列跑會讓整頁隨叢集規模線性變慢，改為併發送出。
+    workers = min(len(targets), _VM_CONFIG_FETCH_WORKERS)
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        fetched = list(pool.map(fetch, targets))
+
+    for resource, config in fetched:
+        if not config:
+            continue
+
+        vmid = resource["vmid"]
+        node = resource["node"]
         vm_name = resource.get("name", "")
         status = resource.get("status", "")
-
-        if not vmid or not node:
-            continue
-
-        try:
-            config = proxmox.nodes(node).qemu(vmid).config.get()
-        except Exception:
-            continue
 
         # Check hostpci0..hostpci15 for mapping= references
         for i in range(16):
@@ -789,3 +855,24 @@ def _build_usage_map() -> dict[str, list[GPUUsageInfo]]:
                 )
 
     return usage
+
+
+def _build_usage_map() -> dict[str, list[GPUUsageInfo]]:
+    """TTL 快取版的 VM → mapping 使用狀況掃描。
+
+    掃描成本正比於叢集 VM 數，而列表頁與 /gpu/options 會在短時間內重複要同
+    一份資料（自動刷新、申請表單），因此快取數秒。回傳深拷貝，避免呼叫端
+    在 ``_resolve_vram_for_mapping`` 內寫入 allocated_vram_mb 污染快取。
+    """
+    global _usage_map_cache
+
+    now = time.time()
+    with _usage_map_cache_lock:
+        cached = _usage_map_cache
+    if cached and now - cached[0] < _USAGE_MAP_CACHE_TTL_SECONDS:
+        return {mid: [u.model_copy() for u in items] for mid, items in cached[1].items()}
+
+    usage = _scan_usage_map()
+    with _usage_map_cache_lock:
+        _usage_map_cache = (time.time(), usage)
+    return {mid: [u.model_copy() for u in items] for mid, items in usage.items()}

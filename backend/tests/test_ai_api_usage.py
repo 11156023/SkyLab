@@ -13,9 +13,6 @@ Usage examples:
   python test_ai_api_usage.py
   python test_ai_api_usage.py --prompt "Introduce yourself in one sentence."
   python test_ai_api_usage.py --model Qwen/Qwen3-14B-FP8
-    python test_ai_api_usage.py
-    python test_ai_api_usage.py --prompt "Introduce yourself in one sentence."
-    python test_ai_api_usage.py --model Qwen/Qwen3-14B-FP8
 """
 
 from __future__ import annotations

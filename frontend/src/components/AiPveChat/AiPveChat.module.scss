@@ -1,14 +1,11 @@
-@use "../../assets/styles/variables" as *;
-@use "../../assets/styles/mixins" as *;
-
+/* 只嵌在管理者首頁的助手卡片裡，所以不自己畫卡片：外層已經是一張卡，
+   再套一層就變成盒中盒。訊息語彙沿用站上另一個對話元件 AiFloatingChat。 */
 .chatCard {
-  @include glass-surface;
   @include flex-column;
-  gap: $spacing-16;
+  min-width: 0;
+  gap: 14px;
   height: min(600px, calc(100vh - 260px));
   min-height: 420px;
-  padding: $spacing-24;
-  border-radius: $radius-12;
 }
 
 /* 放大模式：由外層決定高度，這裡只負責填滿 */
@@ -18,63 +15,106 @@
   flex: 1;
 }
 
+/* 嵌在首頁時高度跟著內容走、只設上限。固定高度在只有兩三則訊息時
+   會撐出一大片空白，輸入框就變成飄在下面的另一個盒子。 */
 .compact {
-  height: min(580px, calc(100vh - 250px));
-  min-height: 380px;
-  border-radius: 0 0 $radius-16 $radius-16;
-  box-shadow: none;
+  height: auto;
+  min-height: 0;
+  max-height: min(460px, calc(100vh - 340px));
 }
 
-
-.chatLog {
+.chatViewport {
+  position: relative;
   @include flex-column;
   min-height: 0;
   flex: 1;
-  gap: $spacing-16;
+}
+
+.chatLog {
+  min-height: 0;
+  flex: 1;
   overflow-y: auto;
-  padding: $spacing-16;
+  overscroll-behavior: contain;
+  padding: $spacing-8 10px $spacing-8 0;
+
+  &::-webkit-scrollbar { width: 5px; }
+  &::-webkit-scrollbar-thumb {
+    background: var(--color-border);
+    border-radius: $radius-pill;
+  }
+}
+
+.chatLogContent { @include flex-column; gap: $spacing-24; }
+
+.latestMessage {
+  position: absolute;
+  bottom: $spacing-8;
+  right: $spacing-16;
+  display: inline-flex;
+  align-items: center;
+  gap: $spacing-4;
+  min-height: 34px;
+  padding: $spacing-4 12px;
   border: 1px solid var(--color-border);
-  border-radius: $radius-8;
-  background: var(--color-hover);
+  border-radius: $radius-pill;
+  background: var(--color-surface);
+  color: var(--color-primary-on-surface);
+  box-shadow: var(--shadow-sm);
+  font-size: $font-size-12;
+  cursor: pointer;
+}
+
+.latestMessage:hover { background: var(--color-hover); }
+.latestMessage:focus-visible, .toolHistory summary:focus-visible {
+  outline: 2px solid var(--color-primary-on-surface);
+  outline-offset: 2px;
 }
 
 .msg {
-  @include flex-column;
-  gap: $spacing-8;
-  padding: $spacing-16;
-  border-radius: $radius-12;
-  font-size: $font-size-14;
-}
-
-.msg_user {
-  /* 問題通常只有一句，讓它靠右且不要拉滿整列 */
-  max-width: min(72ch, 100%);
-  margin-left: auto;
-  border: 1px solid color-mix(in srgb, var(--color-primary) 20%, transparent);
-  background: color-mix(in srgb, var(--color-primary) 8%, transparent);
-}
-
-.msg_assistant {
-  margin-right: $spacing-32;
-  /* 回覆可能含長表格，寬度給滿但內容各自處理溢出 */
-  min-width: 0;
-  border: 1px solid var(--color-border);
-  background: var(--color-surface);
-  box-shadow: var(--shadow-sm);
-}
-
-.msgHead {
   display: flex;
-  align-items: center;
-  gap: $spacing-8;
-  font-size: $font-size-12;
-  font-weight: $font-weight-500;
+  align-items: flex-start;
+  gap: 10px;
+  font-size: $font-size-14;
+  animation: messageIn 150ms ease both;
 }
 
-.msg_assistant .msgHead { color: var(--color-primary); }
-.msg_user .msgHead { color: var(--color-text-secondary); }
+@keyframes messageIn {
+  from { opacity: 0; transform: translateY(5px); }
+  to { opacity: 1; transform: translateY(0); }
+}
 
-/* 維運回覆是 markdown：節點清單、用量表格、指令片段 */
+.avatar {
+  display: grid;
+  width: 28px;
+  height: 28px;
+  flex: 0 0 28px;
+  place-items: center;
+  border-radius: 50%;
+  color: var(--color-primary);
+  background: color-mix(in srgb, var(--color-primary) 10%, transparent);
+}
+
+.msgBody { min-width: 0; }
+
+/* 問題通常一句話：靠右的實心氣泡，缺角朝發話端 */
+.msg_user {
+  justify-content: flex-end;
+
+  .msgBody {
+    max-width: 84%;
+    padding: 9px 14px;
+    border-radius: $radius-16 $radius-16 4px $radius-16;
+    color: var(--color-text-on-primary);
+    background: var(--color-primary);
+  }
+}
+
+/* 回覆可能含長表格，寬度給滿、不加框，內容各自處理溢出 */
+.msg_assistant .msgBody {
+  flex: 1;
+  padding-top: 3px;
+}
+
 .msgContent {
   overflow-wrap: anywhere;
   color: var(--color-text);
@@ -170,38 +210,169 @@
 }
 
 .msgMarkdown { white-space: normal; }
-.msgPlain { white-space: pre-wrap; }
 
-.toolRow {
-  display: flex;
-  padding-top: $spacing-8;
-  flex-wrap: wrap;
+/* ── 表格內的 UI 元件 ────────────────────────────────────────────────
+   AI 回的診斷表格原本整格都是文字，狀態要靠讀才知道。這裡把 prompt 固定
+   會出現的三種內容轉成可掃讀的元件：狀態徽章、分層晶片、百分比量表。 */
+
+.cellStatus {
+  display: inline-flex;
   align-items: center;
-  gap: $spacing-8;
-  border-top: 1px solid var(--color-divider);
+  gap: 5px;
+  padding: 2px 9px 2px 6px;
+  border: 1px solid transparent;
+  border-radius: $radius-pill;
+  font-size: $font-size-12;
+  font-weight: $font-weight-500;
+  white-space: nowrap;
 }
 
-.toolLabel {
-  display: flex;
-  align-items: center;
-  gap: 4px;
+.cellStatus_ok {
+  border-color: color-mix(in srgb, var(--color-success) 30%, transparent);
+  background: color-mix(in srgb, var(--color-success) 12%, transparent);
+  color: var(--color-success);
+}
+
+.cellStatus_warn {
+  border-color: color-mix(in srgb, var(--color-pending) 32%, transparent);
+  background: color-mix(in srgb, var(--color-pending) 14%, transparent);
+  color: var(--color-pending);
+}
+
+.cellStatus_bad {
+  border-color: color-mix(in srgb, var(--color-danger) 30%, transparent);
+  background: color-mix(in srgb, var(--color-danger) 12%, transparent);
+  color: var(--color-danger);
+}
+
+.cellStatus_unknown {
+  border-color: var(--color-border);
+  background: var(--color-hover);
   color: var(--color-text-muted);
-  font-size: $font-size-12;
+}
+
+/* 分層標籤是固定五層，給各自的色相讓同層的列在表格裡能對齊掃讀 */
+.cellLayer {
+  display: inline-block;
+  padding: 2px 8px;
+  border: 1px solid var(--color-border);
+  border-radius: $radius-8;
+  background: var(--color-hover);
+  color: var(--color-text-secondary);
+  font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  font-size: 11px;
+  font-weight: $font-weight-700;
+  letter-spacing: .02em;
+}
+
+.cellLayer_pve {
+  border-color: color-mix(in srgb, var(--color-primary) 35%, transparent);
+  background: color-mix(in srgb, var(--color-primary) 12%, transparent);
+  color: var(--color-primary);
+}
+
+.cellLayer_vm {
+  border-color: color-mix(in srgb, var(--color-info) 35%, transparent);
+  background: color-mix(in srgb, var(--color-info) 12%, transparent);
+  color: var(--color-info);
+}
+
+.cellLayer_os,
+.cellLayer_service,
+.cellLayer_application {
+  border-color: var(--color-border);
+  background: var(--color-hover);
+  color: var(--color-text-secondary);
+}
+
+/* 量表刻意不上語意色：門檻在監控設定裡，對話這端拿不到，
+   自己編一組紅黃綠會和後端的異常判定打架。語意留給狀態徽章。 */
+.cellMeter {
+  display: inline-flex;
+  align-items: center;
+  gap: $spacing-8;
+  min-width: 108px;
+}
+
+.cellMeterTrack {
+  position: relative;
+  flex: 1;
+  height: 6px;
+  min-width: 48px;
+  border-radius: $radius-pill;
+  background: var(--color-hover);
+  overflow: hidden;
+}
+
+.cellMeterFill {
+  display: block;
+  height: 100%;
+  border-radius: $radius-pill;
+  background: var(--color-primary);
+}
+
+.cellMeterValue {
+  color: var(--color-text-primary);
+  font-variant-numeric: tabular-nums;
   font-weight: $font-weight-500;
 }
 
-.toolBadge {
-  padding: 3px 10px;
-  border-radius: $radius-pill;
-  color: var(--color-text-secondary);
-  background: var(--color-hover);
-  font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+/* 固定診斷格式的段落標題配圖示，長回覆才掃得動 */
+.mdHeadingWithIcon {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+
+  :global(.material-icons-outlined) { color: var(--color-primary); }
+}
+.msgPlain { margin: 0; white-space: pre-wrap; }
+
+/* 氣泡是實心主色，文字色要跟著氣泡而不是 .msgContent 的預設 */
+.msg_user .msgContent { color: inherit; }
+
+.toolHistory {
+  margin-top: $spacing-8;
+  padding-top: $spacing-8;
+  border-top: 1px solid var(--color-divider);
+  color: var(--color-text-muted);
   font-size: $font-size-12;
 }
 
+.toolHistory summary {
+  display: inline-flex;
+  align-items: center;
+  gap: $spacing-4;
+  min-height: 32px;
+  border-radius: $radius-8;
+  cursor: pointer;
+  list-style: none;
+}
+
+.toolHistory summary::-webkit-details-marker { display: none; }
+.toolHistory summary:hover { color: var(--color-primary-on-surface); }
+.toolChevron { transition: transform $transition-base; }
+.toolHistory[open] .toolChevron { transform: rotate(90deg); }
+
+.toolHistory ul {
+  @include flex-column;
+  gap: $spacing-8;
+  margin: $spacing-8 0;
+  padding: 0 0 0 20px;
+  list-style: none;
+}
+
+.toolHistory li {
+  display: flex;
+  flex-wrap: wrap;
+  gap: $spacing-4 $spacing-8;
+  color: var(--color-text-secondary);
+  overflow-wrap: anywhere;
+}
+
+.toolHistory small { color: var(--color-text-muted); font-size: inherit; }
 .pendingBox {
   @include flex-column;
-  margin-right: $spacing-32;
+  margin-left: 38px;
   padding: $spacing-16;
   gap: $spacing-8;
   border: 1px solid color-mix(in srgb, var(--color-danger) 25%, transparent);
@@ -245,15 +416,10 @@
 
 .thinking {
   display: flex;
-  margin-right: $spacing-32;
-  padding: $spacing-16;
+  padding-top: 7px;
   align-items: center;
   gap: $spacing-8;
-  border: 1px solid var(--color-border);
-  border-radius: $radius-12;
   color: var(--color-text-muted);
-  background: var(--color-surface);
-  box-shadow: var(--shadow-sm);
   font-size: $font-size-14;
 }
 
@@ -272,43 +438,59 @@
 
 /* 輸入與送出並排：兩行式的送出鍵把輸出區的高度吃掉了 */
 .composer {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: stretch;
+  display: flex;
+  flex-shrink: 0;
+  align-items: flex-end;
   gap: $spacing-8;
-}
-
-.composer textarea {
-  min-height: 52px;
-  padding: 10px $spacing-16;
+  padding: $spacing-8 $spacing-8 $spacing-8 18px;
   border: 1px solid var(--color-border);
-  border-radius: $radius-8;
-  outline: none;
-  color: var(--color-text-primary);
+  border-radius: $radius-16;
   background: var(--color-surface);
-  font-size: $font-size-14;
-  resize: none;
+  transition: border-color $transition-base, box-shadow $transition-base;
 }
 
-.composer textarea:focus {
+.composer:focus-within {
   border-color: var(--color-primary);
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-primary) 12%, transparent);
 }
 
+.composer textarea {
+  box-sizing: border-box;
+  min-width: 0;
+  min-height: 34px;
+  max-height: calc(4lh + 18px);
+  flex: 1;
+  padding: 9px 0;
+  border: 0;
+  outline: none;
+  color: var(--color-text-primary);
+  background: transparent;
+  font-family: inherit;
+  font-size: $font-size-14;
+  line-height: 1.4;
+  resize: none;
+  overflow-y: hidden;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .msg, .pulse { animation: none; }
+  .toolChevron { transition: none; }
+}
+
+.composer textarea::placeholder { color: var(--color-text-muted); }
 .composer textarea:disabled { cursor: not-allowed; opacity: .55; }
 .composerActions { display: flex; }
-.composerActions button { height: 100%; }
 
 .btnPrimary,
 .btnSecondary,
 .btnAllow {
   display: inline-flex;
-  min-height: 36px;
-  padding: 8px $spacing-16;
+  min-height: 34px;
+  padding: 6px $spacing-16;
   align-items: center;
   justify-content: center;
   gap: 6px;
-  border-radius: $radius-8;
+  border-radius: $radius-pill;
   font-size: $font-size-14;
   font-weight: $font-weight-500;
   white-space: nowrap;

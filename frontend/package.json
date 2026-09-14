@@ -16,7 +16,7 @@
     "@xterm/addon-web-links": "^0.12.0",
     "@xterm/xterm": "^6.0.0",
     "@xyflow/react": "^12.11.6",
-    "i18next": "^26.4.1",
+    "i18next": "^26.4.2",
     "monaco-editor": "^0.56.0",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
@@ -31,8 +31,9 @@
   },
   "devDependencies": {
     "@vitejs/plugin-react": "^6.1.1",
-    "sass": "^1.103.1",
-    "sass-embedded": "^1.103.1",
+    "happy-dom": "^20.14.3",
+    "sass": "^1.104.0",
+    "sass-embedded": "^1.104.0",
     "vite": "^8.2.2",
     "vitest": "^4.1.11"
   }

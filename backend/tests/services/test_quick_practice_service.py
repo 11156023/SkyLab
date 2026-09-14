@@ -243,8 +243,14 @@ def test_reconcile_session_applies_topology_before_ready(
 
     monkeypatch.setattr(
         class_network_service,
-        "allow_one_way",
-        lambda session, **kwargs: calls.append(kwargs),
+        "plan_one_way",
+        lambda session, **kwargs: (calls.append(kwargs) or []),
+    )
+    synced: list[dict] = []
+    monkeypatch.setattr(
+        class_network_service,
+        "sync_scope_rules",
+        lambda **kwargs: (synced.append(kwargs) or []),
     )
 
     result = quick_practice.reconcile_session(quick_db, practice_id=practice.id)
@@ -264,6 +270,10 @@ def test_reconcile_session_applies_topology_before_ready(
             "port": 3306,
         }
     ]
+    # 規則是同步的，不是只建立：整組機器都要交給 sync 才會清掉舊 vmid 留下的孤兒
+    assert len(synced) == 1
+    assert synced[0]["comment_prefix"] == quick_practice.QUICK_NETWORK_COMMENT_PREFIX
+    assert synced[0]["scope_vmids"] == {requests[0].vmid, requests[1].vmid}
 
 
 def test_reconcile_session_keeps_topology_failure_retryable(
@@ -275,7 +285,7 @@ def test_reconcile_session_keeps_topology_failure_retryable(
     def fail_topology(*_args, **_kwargs):
         raise RuntimeError("firewall unavailable")
 
-    monkeypatch.setattr(class_network_service, "allow_one_way", fail_topology)
+    monkeypatch.setattr(class_network_service, "plan_one_way", fail_topology)
 
     result = quick_practice.reconcile_session(quick_db, practice_id=practice.id)
     quick_db.commit()

@@ -37,6 +37,7 @@ def test_spec_change_review_blocked_by_quota(monkeypatch: pytest.MonkeyPatch) ->
     db_request = SimpleNamespace(
         id=uuid.uuid4(),
         vmid=101,
+        resource_vmid=101,  # 機器還在；None 代表已刪除、核准前就會被擋
         user_id=uuid.uuid4(),
         status=spec_change_service.SpecChangeRequestStatus.pending,
         requested_cpu=8,
@@ -51,6 +52,20 @@ def test_spec_change_review_blocked_by_quota(monkeypatch: pytest.MonkeyPatch) ->
         "get_spec_change_request_by_id",
         lambda **kwargs: db_request,
     )
+    # 核准前會用 Proxmox 實際值刷新「目前規格」快照，再算配額增量
+    monkeypatch.setattr(
+        spec_change_service,
+        "proxmox_service",
+        SimpleNamespace(
+            find_resource=lambda vmid: {"node": "pve1", "type": "qemu", "vmid": vmid},
+            get_current_specs=lambda *a, **k: {"cpu": 2, "memory": 2048, "disk": 20},
+        ),
+    )
+    monkeypatch.setattr(
+        spec_change_service.spec_request_repo,
+        "update_spec_change_current_specs",
+        lambda **kwargs: db_request,
+    )
 
     def _deny(session, user_id, **kwargs):
         raise ConflictError("配額不足")
@@ -63,7 +78,8 @@ def test_spec_change_review_blocked_by_quota(monkeypatch: pytest.MonkeyPatch) ->
     reviewer = SimpleNamespace(id=uuid.uuid4(), email="admin@campus.edu")
 
     class _S:
-        def rollback(self) -> None: ...
+        def rollback(self) -> None:
+            """測試替身：不需實作。"""
 
     with pytest.raises(ConflictError):
         spec_change_service.review(

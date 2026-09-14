@@ -6,8 +6,16 @@ import PageHeader from "../../../components/PageHeader/PageHeader";
 import EmptyState from "../../../components/EmptyState/EmptyState";
 import LoadingState from "../../../components/LoadingState/LoadingState";
 import { CourseEnvironmentsService } from "../../../services/courseEnvironments";
+import EnvironmentChoice from "../EnvironmentChoice";
+import shared from "../CourseOperations.module.scss";
 import { TeachingClassesService } from "../../../services/teachingClasses";
 import { focusInvalidField } from "../../../utils/focusField";
+import {
+  BOOT_LEAD_OPTIONS,
+  classSchedulePayload,
+  createClassScheduleForm,
+  SHUTDOWN_GRACE_OPTIONS,
+} from "../classScheduleForm";
 import styles from "./ClassSetupPage.module.scss";
 
 const STEPS = [
@@ -38,41 +46,36 @@ const WEEKDAY_SHORT_KEYS = [
   "ClassSetupPage.weekdayShortSun",
 ];
 
-function localDate(date) {
-  const value = new Date(date);
-  value.setMinutes(value.getMinutes() - value.getTimezoneOffset());
-  return value.toISOString().slice(0, 10);
-}
-
-function defaultForm() {
-  const start = new Date();
-  start.setDate(start.getDate() + ((8 - start.getDay()) % 7));
-  const end = new Date(start);
-  end.setMonth(end.getMonth() + 4);
-  const rocYear = start.getFullYear() - 1911;
-  return {
-    name: "", code: "", term: `${rocYear}-1`, location: "", startDate: localDate(start), endDate: localDate(end),
-    weekday: (start.getDay() + 6) % 7, startTime: "13:10", endTime: "16:00", timezone: "Asia/Taipei", bootLeadMinutes: 10,
-  };
-}
-
 export function parseStudentEmails(value) {
   return [...new Set(String(value).split(/[\s,;]+/).map((email) => email.trim().toLowerCase()).filter(Boolean))];
 }
 
-export function weekPayload(weeks) {
-  return weeks.map((week, index) => ({
-    week_number: Number(week.week_number ?? week.week ?? index + 1),
-    session_date: week.session_date ?? week.date,
-    title: String(week.title ?? "").trim(),
-    target_node_key: week.target_node_key ?? week.target ?? null,
-    status: week.status ?? "draft",
-    files: (week.files ?? []).map((file) => ({
-      filename: file.filename,
-      storage_key: file.storage_key ?? null,
-      target_path: file.target_path ?? null,
-    })),
-  }));
+// 後端只把這兩種狀態的週次送到學生端（weekly_task_service.VISIBLE_WEEK_STATUSES）。
+const VISIBLE_WEEK_STATUSES = ["published", "completed"];
+
+export function weekPayload(weeks, { publish = false } = {}) {
+  return weeks.map((week, index) => {
+    const title = String(week.title ?? "").trim();
+    const status = week.status ?? "draft";
+    return {
+      week_number: Number(week.week_number ?? week.week ?? index + 1),
+      session_date: week.session_date ?? week.date,
+      title,
+      target_node_key: week.target_node_key ?? week.target ?? null,
+      // 精靈沒有班級頁那種逐週發布鈕；少了這個開關，老師填好的主題會全部停在
+      // 草稿，班級建好、狀態變成可上課，學生端卻一週內容都看不到。
+      status: publish && title && !VISIBLE_WEEK_STATUSES.includes(status) ? "published" : status,
+      files: (week.files ?? []).map((file) => ({
+        filename: file.filename,
+        storage_key: file.storage_key ?? null,
+        target_path: file.target_path ?? null,
+      })),
+    };
+  });
+}
+
+export function visibleWeekCount(weeks) {
+  return weeks.filter((week) => VISIBLE_WEEK_STATUSES.includes(week.status)).length;
 }
 
 export function templateBuilderPath(classId) {
@@ -104,12 +107,13 @@ export default function ClassSetupPage() {
   const classId = params.get("classId") ?? "";
   const requestedStep = Number(params.get("step") ?? 1);
   const step = Math.min(5, Math.max(1, requestedStep));
-  const [form, setForm] = useState(defaultForm);
+  const [form, setForm] = useState(() => createClassScheduleForm());
   const [item, setItem] = useState(null);
   const [templates, setTemplates] = useState([]);
   const [templateId, setTemplateId] = useState("");
   const [emails, setEmails] = useState("");
   const [weeks, setWeeks] = useState([]);
+  const [publishWeeks, setPublishWeeks] = useState(true);
   const [capacity, setCapacity] = useState(null);
   const [loading, setLoading] = useState(Boolean(classId));
   const [busy, setBusy] = useState(false);
@@ -126,19 +130,18 @@ export default function ClassSetupPage() {
   function clearInvalid(key) { setInvalidField((current) => (current === key ? "" : current)); }
 
   const selectedTemplate = templates.find((template) => String(template.versionId) === String(templateId));
-  const completed = [Boolean(item), Boolean(item?.students.length), Boolean(item?.course_environment && item?.nodes.length), weeks.some((week) => String(week.title ?? "").trim())];
+  const studentsReady = Boolean(item?.students.length);
+  const environmentReady = Boolean(item?.course_environment && item?.nodes.length);
+  const completed = [Boolean(item), studentsReady, environmentReady, weeks.some((week) => String(week.title ?? "").trim())];
+  // 與班級頁的「建機準備 x/2」同一份定義，兩邊不會算出不同數字。
+  const provisionReady = [studentsReady, environmentReady].filter(Boolean).length;
 
   function applyClass(result) {
     const normalized = normalizeClass(result);
     setItem(normalized);
     setWeeks(normalized.weeks);
     if (normalized.course_version_id) setTemplateId(String(normalized.course_version_id));
-    setForm({
-      name: normalized.name, code: normalized.code, term: normalized.term, location: normalized.location ?? "",
-      startDate: normalized.start_date, endDate: normalized.end_date, weekday: normalized.weekday,
-      startTime: String(normalized.start_time).slice(0, 5), endTime: String(normalized.end_time).slice(0, 5),
-      timezone: normalized.timezone, bootLeadMinutes: normalized.boot_lead_minutes,
-    });
+    setForm(createClassScheduleForm(normalized));
   }
 
   useEffect(() => {
@@ -189,11 +192,7 @@ export default function ClassSetupPage() {
 
   async function saveBasic() {
     if (!form.name.trim()) { markInvalid("name", nameRef); return false; }
-    const payload = {
-      name: form.name.trim(), code: form.code.trim() || `CLASS-${Date.now().toString().slice(-8)}`, term: form.term.trim() || t("ClassSetupPage.unspecifiedTerm"), location: form.location.trim() || null,
-      start_date: form.startDate, end_date: form.endDate, weekday: Number(form.weekday), start_time: form.startTime,
-      end_time: form.endTime, timezone: form.timezone, boot_lead_minutes: Number(form.bootLeadMinutes),
-    };
+    const payload = classSchedulePayload(form);
     const saved = classId ? await TeachingClassesService.update(classId, payload) : await TeachingClassesService.create(payload);
     applyClass(saved);
     if (!classId) setParams({ classId: String(saved.id), step: "2" });
@@ -219,7 +218,7 @@ export default function ClassSetupPage() {
   }
 
   async function saveTasks() {
-    applyClass(await TeachingClassesService.replaceWeeks(classId, weekPayload(weeks)));
+    applyClass(await TeachingClassesService.replaceWeeks(classId, weekPayload(weeks, { publish: publishWeeks })));
     return true;
   }
 
@@ -243,6 +242,7 @@ export default function ClassSetupPage() {
   }
 
   const taskCount = useMemo(() => weeks.filter((week) => String(week.title ?? "").trim()).length, [weeks]);
+  const visibleCount = useMemo(() => visibleWeekCount(weeks), [weeks]);
   if (loading) return <LoadingState fullPage text={t("ClassSetupPage.restoringText")} />;
 
   return <div className={styles.page}>
@@ -250,26 +250,29 @@ export default function ClassSetupPage() {
       <button type="button" className={styles.backBtn} onClick={() => navigate("/class-management")}><MIcon name="arrow_back" size={18} />{t("ClassSetupPage.backToClassManagement")}</button>
     </PageHeader>
 
-    <nav className={styles.stepper} aria-label={t("ClassSetupPage.stepperAriaLabel")}>{STEPS.map(([key, labelKey, hintKey], index) => {
-      const number = index + 1;
-      const done = number < step || (number <= 4 && completed[index]);
-      return <button type="button" key={key} disabled={!classId && number > 1} className={`${step === number ? styles.stepActive : ""} ${done ? styles.stepDone : ""}`} onClick={() => number <= step && go(number)}><span>{done ? <MIcon name="check" size={15} /> : number}</span><div><strong>{t(labelKey)}</strong><small>{t(hintKey)}</small></div></button>;
-    })}</nav>
+    <section className={styles.stepperBar}>
+      <nav className={styles.stepper} aria-label={t("ClassSetupPage.stepperAriaLabel")}>{STEPS.map(([key, labelKey], index) => {
+        const number = index + 1;
+        const done = number < step || (number <= 4 && completed[index]);
+        return <button type="button" key={key} disabled={!classId && number > 1} className={`${step === number ? styles.stepActive : ""} ${done ? styles.stepDone : ""}`} onClick={() => number <= step && go(number)}><span>{done ? <MIcon name="check" size={13} /> : number}</span><strong>{t(labelKey)}</strong></button>;
+      })}</nav>
+      <div className={styles.stepperProgress}><span>{t("ClassSetupPage.progressLabel")}</span><strong>{t("ClassSetupPage.progressCount", { count: provisionReady })}</strong></div>
+    </section>
 
     {message && <div className={styles.message}><MIcon name="info" size={17} />{message}</div>}
 
     <main className={styles.content}>
       {step === 1 && <section className={styles.card}><div className={styles.sectionHeader}><span>1</span><div><h2>{t("ClassSetupPage.step1Title")}</h2><p>{t("ClassSetupPage.step1Desc")}</p></div></div><div className={styles.formGrid}>
-        <label className={styles.full}><span>{t("ClassSetupPage.fieldClassName")}</span><input ref={nameRef} className={invalidField === "name" ? styles.invalid : undefined} aria-invalid={invalidField === "name"} value={form.name} onChange={(event) => updateForm("name", event.target.value)} placeholder={t("ClassSetupPage.classNamePlaceholder")} autoFocus /></label>
+        <label className={styles.full}><span>{t("ClassSetupPage.fieldClassName")}</span><input ref={nameRef} className={invalidField === "name" ? styles.fieldInvalid : undefined} aria-invalid={invalidField === "name"} value={form.name} onChange={(event) => updateForm("name", event.target.value)} placeholder={t("ClassSetupPage.classNamePlaceholder")} autoFocus /></label>
         <label className={styles.full}><span>{t("ClassSetupPage.fieldLocation")}</span><input value={form.location} onChange={(event) => updateForm("location", event.target.value)} placeholder={t("ClassSetupPage.locationPlaceholder")} /></label>
         <label><span>{t("ClassSetupPage.fieldStartDate")}</span><input type="date" value={form.startDate} onChange={(event) => updateForm("startDate", event.target.value)} /></label>
         <label><span>{t("ClassSetupPage.fieldEndDate")}</span><input type="date" value={form.endDate} onChange={(event) => updateForm("endDate", event.target.value)} /></label>
         <label><span>{t("ClassSetupPage.fieldWeekday")}</span><select value={form.weekday} onChange={(event) => updateForm("weekday", Number(event.target.value))}>{WEEKDAY_FULL_KEYS.map((labelKey, index) => <option key={labelKey} value={index}>{t(labelKey)}</option>)}</select></label>
         <label><span>{t("ClassSetupPage.fieldClassTime")}</span><div className={styles.timePair}><input type="time" value={form.startTime} onChange={(event) => updateForm("startTime", event.target.value)} /><i>{t("ClassSetupPage.timeRangeSeparator")}</i><input type="time" value={form.endTime} onChange={(event) => updateForm("endTime", event.target.value)} /></div></label>
-        <details className={styles.advanced}><summary>{t("ClassSetupPage.advancedSettings")}</summary><div className={styles.advancedGrid}><label><span>{t("ClassSetupPage.fieldTerm")}</span><input value={form.term} onChange={(event) => updateForm("term", event.target.value)} /></label><label><span>{t("ClassSetupPage.fieldBootLead")}</span><select value={form.bootLeadMinutes} onChange={(event) => updateForm("bootLeadMinutes", Number(event.target.value))}><option value={0}>{t("ClassSetupPage.bootLeadOnTime")}</option><option value={5}>{t("ClassSetupPage.bootLeadMinutesOption", { minutes: 5 })}</option><option value={10}>{t("ClassSetupPage.bootLeadMinutesOption", { minutes: 10 })}</option><option value={15}>{t("ClassSetupPage.bootLeadMinutesOption", { minutes: 15 })}</option><option value={30}>{t("ClassSetupPage.bootLeadMinutesOption", { minutes: 30 })}</option></select></label></div></details>
+        <details className={styles.advanced}><summary>{t("ClassSetupPage.advancedSettings")}</summary><div className={styles.advancedGrid}><label><span>{t("ClassSetupPage.fieldTerm")}</span><input value={form.term} onChange={(event) => updateForm("term", event.target.value)} /></label><label><span>{t("ClassSetupPage.fieldBootLead")}</span><select value={form.bootLeadMinutes} onChange={(event) => updateForm("bootLeadMinutes", Number(event.target.value))}>{BOOT_LEAD_OPTIONS.map((minutes) => <option key={minutes} value={minutes}>{minutes === 0 ? t("ClassSetupPage.bootLeadOnTime") : t("ClassSetupPage.bootLeadMinutesOption", { minutes })}</option>)}</select></label><label><span>{t("ClassSetupPage.fieldShutdownGrace")}</span><select value={form.shutdownGraceMinutes} onChange={(event) => updateForm("shutdownGraceMinutes", Number(event.target.value))}>{SHUTDOWN_GRACE_OPTIONS.map((minutes) => <option key={minutes} value={minutes}>{minutes === 0 ? t("ClassSetupPage.shutdownGraceImmediate") : t("ClassSetupPage.shutdownGraceMinutesOption", { minutes })}</option>)}</select></label></div></details>
       </div></section>}
 
-      {step === 2 && <section className={styles.card}><div className={styles.sectionHeader}><span>2</span><div><h2>{t("ClassSetupPage.step2Title")}</h2><p>{t("ClassSetupPage.step2Desc")}</p></div></div><div className={styles.studentLayout}><label><span>{t("ClassSetupPage.fieldStudentEmails")}</span><textarea ref={emailsRef} className={invalidField === "emails" ? styles.invalid : undefined} aria-invalid={invalidField === "emails"} rows={10} value={emails} onChange={(event) => { setEmails(event.target.value); clearInvalid("emails"); }} placeholder={"student01@example.edu\nstudent02@example.edu"} autoFocus /><small>{t("ClassSetupPage.pendingEmailsCount", { count: parseStudentEmails(emails).length })}</small></label><aside><strong>{t("ClassSetupPage.currentStudentsLabel")}</strong><span>{item?.students.length ?? 0}<small>{t("ClassSetupPage.unitPeople")}</small></span><p>{item?.students.length ? t("ClassSetupPage.canAddMoreStudents") : t("ClassSetupPage.needAtLeastOneStudent")}</p>{item?.students.slice(0, 5).map((student) => <em key={student.id}>{student.full_name || student.email}</em>)}</aside></div></section>}
+      {step === 2 && <section className={styles.card}><div className={styles.sectionHeader}><span>2</span><div><h2>{t("ClassSetupPage.step2Title")}</h2><p>{t("ClassSetupPage.step2Desc")}</p></div></div><div className={styles.studentLayout}><label><span>{t("ClassSetupPage.fieldStudentEmails")}</span><textarea ref={emailsRef} className={invalidField === "emails" ? styles.fieldInvalid : undefined} aria-invalid={invalidField === "emails"} rows={10} value={emails} onChange={(event) => { setEmails(event.target.value); clearInvalid("emails"); }} placeholder={"student01@example.edu\nstudent02@example.edu"} autoFocus /><small>{t("ClassSetupPage.pendingEmailsCount", { count: parseStudentEmails(emails).length })}</small></label><aside><strong>{t("ClassSetupPage.currentStudentsLabel")}</strong><span>{item?.students.length ?? 0}<small>{t("ClassSetupPage.unitPeople")}</small></span><p>{item?.students.length ? t("ClassSetupPage.canAddMoreStudents") : t("ClassSetupPage.needAtLeastOneStudent")}</p>{item?.students.slice(0, 5).map((student) => <em key={student.id}>{student.full_name || student.email}</em>)}</aside></div></section>}
 
       {step === 3 && (
         <section className={styles.card}>
@@ -281,42 +284,15 @@ export default function ClassSetupPage() {
             </div>
           </div>
 
-          <div className={styles.templatePauseCard}>
-            <span className={styles.templatePauseIcon}><MIcon name="bookmark_added" size={22} /></span>
-            <div>
-              <strong>{t("ClassSetupPage.noSuitableTemplateTitle")}</strong>
-              <p>{t("ClassSetupPage.templatePauseDesc")}</p>
-              <small><MIcon name="cloud_done" size={14} />{t("ClassSetupPage.noDataLossHint")}</small>
-            </div>
-            <div className={styles.templatePauseActions}>
-              {templates.length > 0 && (
-                <button type="button" className={styles.btnPrimary} onClick={createTemplate}>
-                  <MIcon name="add" size={16} />{t("ClassSetupPage.createNewTemplateBtn")}
-                </button>
-              )}
-              <button type="button" className={styles.btnSecondary} onClick={pauseSetup}>
-                {t("ClassSetupPage.saveForLaterBtn")}
-              </button>
-            </div>
-          </div>
-
           {templates.length > 0 ? (
-            <div className={styles.environmentGrid}>
-              {templates.map((template) => (
-                <button
-                  type="button"
-                  key={template.versionId}
-                  className={String(template.versionId) === String(templateId) ? styles.environmentSelected : ""}
-                  onClick={() => setTemplateId(String(template.versionId))}
-                >
-                  <span><MIcon name="account_tree" size={20} /></span>
-                  <div>
-                    <strong>{template.name}</strong>
-                    <p>{template.description || t("ClassSetupPage.noDescriptionFallback")}</p>
-                    <small>{t("ClassSetupPage.perStudentMachinesPublished", { count: template.nodes.length, version: template.version })}</small>
-                  </div>
-                  <em>{String(template.versionId) === String(templateId) ? t("ClassSetupPage.selectedLabel") : t("ClassSetupPage.selectLabel")}</em>
-                </button>
+            <div className={shared.envChoices}>
+              {templates.map((candidate) => (
+                <EnvironmentChoice
+                  key={candidate.versionId}
+                  candidate={candidate}
+                  selected={String(candidate.versionId) === String(templateId)}
+                  onSelect={() => setTemplateId(String(candidate.versionId))}
+                />
               ))}
             </div>
           ) : (
@@ -333,16 +309,67 @@ export default function ClassSetupPage() {
 
           {selectedTemplate && (
             <div className={styles.environmentSummary}>
-              <strong>{t("ClassSetupPage.estimatedMachinesTotal", { count: Number(item?.students.length ?? 0) * selectedTemplate.nodes.length })}</strong>
+              <strong>{item?.students.length
+                ? t("ClassSetupPage.estimatedMachinesTotal", { count: item.students.length * selectedTemplate.nodes.length })
+                : t("ClassSetupPage.estimatedMachinesNoStudents")}</strong>
               <span>{t("ClassSetupPage.studentsTimesMachines", { students: item?.students.length ?? 0, perStudent: selectedTemplate.nodes.length })}</span>
             </div>
           )}
+
+          {/* 找不到合適範本是例外，放在清單後面當出口，不要擋在選擇之前 */}
+          <div className={styles.templatePauseCard}>
+            <span className={styles.templatePauseIcon}><MIcon name="bookmark_added" size={22} /></span>
+            <div>
+              <strong>{t("ClassSetupPage.noSuitableTemplateTitle")}</strong>
+              <p>{t("ClassSetupPage.templatePauseDesc")}</p>
+              <small><MIcon name="cloud_done" size={14} />{t("ClassSetupPage.noDataLossHint")}</small>
+            </div>
+            <div className={styles.templatePauseActions}>
+              <button type="button" className={styles.btnPrimary} onClick={createTemplate}>
+                <MIcon name="add" size={16} />{t("ClassSetupPage.createNewTemplateBtn")}
+              </button>
+              <button type="button" className={styles.btnSecondary} onClick={pauseSetup}>
+                {t("ClassSetupPage.saveForLaterBtn")}
+              </button>
+            </div>
+          </div>
         </section>
       )}
 
-      {step === 4 && <section className={styles.card}><div className={styles.sectionHeader}><span>4</span><div><h2>{t("ClassSetupPage.step4Title")}</h2><p>{t("ClassSetupPage.step4Desc")}</p></div><em>{t("ClassSetupPage.weeksConfiguredCount", { done: taskCount, total: weeks.length })}</em></div><div className={styles.weekList}>{weeks.map((week, index) => <label key={week.id ?? week.session_date}><span><strong>{t("ClassSetupPage.weekNumberLabel", { week: week.week_number ?? index + 1 })}</strong><small>{week.session_date}</small></span><input value={week.title ?? ""} onChange={(event) => setWeeks((current) => current.map((row, rowIndex) => rowIndex === index ? { ...row, title: event.target.value } : row))} placeholder={t("ClassSetupPage.weekTitlePlaceholder")} /></label>)}</div></section>}
+      {step === 4 && <section className={styles.card}><div className={styles.sectionHeader}><span>4</span><div><h2>{t("ClassSetupPage.step4Title")}</h2><p>{t("ClassSetupPage.step4Desc")}</p></div><em>{t("ClassSetupPage.weeksConfiguredCount", { done: taskCount, total: weeks.length })}</em></div><label className={styles.publishToggle}><input type="checkbox" checked={publishWeeks} onChange={(event) => setPublishWeeks(event.target.checked)} /><div><strong>{t("ClassSetupPage.publishWeeksLabel")}</strong><small>{t("ClassSetupPage.publishWeeksHint")}</small></div></label><div className={styles.weekList}>{weeks.map((week, index) => <label key={week.id ?? week.session_date}><span><strong>{t("ClassSetupPage.weekNumberLabel", { week: week.week_number ?? index + 1 })}</strong><small>{week.session_date}</small></span><input value={week.title ?? ""} onChange={(event) => setWeeks((current) => current.map((row, rowIndex) => rowIndex === index ? { ...row, title: event.target.value } : row))} placeholder={t("ClassSetupPage.weekTitlePlaceholder")} /></label>)}</div></section>}
 
-      {step === 5 && <section className={styles.reviewLayout}><div className={styles.card}><div className={styles.sectionHeader}><span>5</span><div><h2>{t("ClassSetupPage.step5Title")}</h2><p>{t("ClassSetupPage.step5Desc")}</p></div></div><div className={styles.summaryList}><SummaryLine done={Boolean(item)} label={t("ClassSetupPage.summaryLabelSchedule")} value={item ? `${item.start_date} ${t("ClassSetupPage.scheduleDateTo")} ${item.end_date} · ${t("ClassSetupPage.weeklyPrefix")}${t(WEEKDAY_SHORT_KEYS[item.weekday])} ${String(item.start_time).slice(0, 5)}` : t("ClassSetupPage.notCreatedYet")} /><SummaryLine done={Boolean(item?.students.length)} label={t("ClassSetupPage.summaryLabelStudents")} value={t("ClassSetupPage.studentsCountLabel", { count: item?.students.length ?? 0 })} /><SummaryLine done={Boolean(item?.course_environment && item?.nodes.length)} label={t("ClassSetupPage.summaryLabelEnvironment")} value={item?.course_environment ? t("ClassSetupPage.envSummaryValue", { name: item.course_environment.name, count: item.nodes.length }) : t("ClassSetupPage.notSelectedYet")} /><SummaryLine done={taskCount > 0} label={t("ClassSetupPage.summaryLabelTasks")} value={t("ClassSetupPage.weeksSetSummary", { done: taskCount, total: weeks.length })} /></div></div><aside className={styles.capacityCard}><span className={styles.capacityIcon}><MIcon name={capacity?.ready ? "check" : "hourglass_top"} size={24} /></span><h2>{capacity ? capacity.ready ? t("ClassSetupPage.capacityReady") : t("ClassSetupPage.capacityNotReady") : t("ClassSetupPage.capacityChecking")}</h2>{capacity?.ready ? <><p>{t("ClassSetupPage.capacitySummary", { machines: capacity.machine_count, ips: capacity.ip_count })}</p><dl><div><dt>CPU</dt><dd>{capacity.cpu_cores}</dd></div><div><dt>RAM</dt><dd>{Math.round(capacity.memory_mb / 1024)} GB</dd></div><div><dt>Disk</dt><dd>{capacity.disk_gb} GB</dd></div></dl></> : <p>{capacity?.issues?.join("；") ?? t("ClassSetupPage.capacityCheckingDetail")}</p>}<button type="button" className={styles.btnPrimary} disabled={!capacity?.ready || busy} onClick={provision}><MIcon name="rocket_launch" size={17} />{busy ? t("ClassSetupPage.submittingBtn") : t("ClassSetupPage.finishAndSubmitBtn")}</button><button type="button" className={styles.btnSecondary} onClick={() => navigate(`/class-management/${classId}`)}>{t("ClassSetupPage.saveDraftLaterBtn")}</button></aside></section>}
+      {step === 5 && <div className={styles.stack}>
+        <section className={styles.readyPanel}>
+          <div className={styles.readySummary}>
+            <span className={styles.readyIcon}><MIcon name={capacity?.ready ? "check" : "hourglass_top"} size={22} /></span>
+            <div>
+              <span>{t("ClassSetupPage.progressLabel")} · {t("ClassSetupPage.progressCount", { count: provisionReady })}</span>
+              <h2>{capacity ? capacity.ready ? t("ClassSetupPage.capacityReady") : t("ClassSetupPage.capacityNotReady") : t("ClassSetupPage.capacityChecking")}</h2>
+              <p>{capacity?.ready ? t("ClassSetupPage.capacitySummary", { machines: capacity.machine_count, ips: capacity.ip_count }) : capacity?.issues?.join("；") ?? t("ClassSetupPage.capacityCheckingDetail")}</p>
+            </div>
+            <div className={styles.readyActions}>
+              <button type="button" className={styles.btnSecondary} onClick={() => navigate(`/class-management/${classId}`)}>{t("ClassSetupPage.saveDraftLaterBtn")}</button>
+              <button type="button" className={styles.btnPrimary} disabled={!capacity?.ready || busy} onClick={provision}><MIcon name="rocket_launch" size={17} />{busy ? t("ClassSetupPage.submittingBtn") : t("ClassSetupPage.finishAndSubmitBtn")}</button>
+            </div>
+          </div>
+          {capacity?.ready && <div className={styles.capacityFacts}>
+            <div><span>{t("ClassSetupPage.capacityFactMachines")}</span><strong>{capacity.machine_count}</strong></div>
+            <div><span>CPU</span><strong>{capacity.cpu_cores}</strong></div>
+            <div><span>RAM</span><strong>{Math.round(capacity.memory_mb / 1024)} GB</strong></div>
+            <div><span>Disk</span><strong>{capacity.disk_gb} GB</strong></div>
+            <div><span>{t("ClassSetupPage.capacityFactIps")}</span><strong>{capacity.ip_count}</strong></div>
+          </div>}
+        </section>
+        <section className={styles.card}>
+          <div className={styles.sectionHeader}><span>5</span><div><h2>{t("ClassSetupPage.step5Title")}</h2><p>{t("ClassSetupPage.step5Desc")}</p></div></div>
+          <div className={styles.summaryList}>
+            <SummaryLine done={Boolean(item)} label={t("ClassSetupPage.summaryLabelSchedule")} value={item ? `${item.start_date} ${t("ClassSetupPage.scheduleDateTo")} ${item.end_date} · ${t("ClassSetupPage.weeklyPrefix")}${t(WEEKDAY_SHORT_KEYS[item.weekday])} ${String(item.start_time).slice(0, 5)}` : t("ClassSetupPage.notCreatedYet")} />
+            <SummaryLine done={studentsReady} label={t("ClassSetupPage.summaryLabelStudents")} value={t("ClassSetupPage.studentsCountLabel", { count: item?.students.length ?? 0 })} />
+            <SummaryLine done={environmentReady} label={t("ClassSetupPage.summaryLabelEnvironment")} value={item?.course_environment ? t("ClassSetupPage.envSummaryValue", { name: item.course_environment.name, count: item.nodes.length }) : t("ClassSetupPage.notSelectedYet")} />
+            <SummaryLine done={taskCount > 0} label={t("ClassSetupPage.summaryLabelTasks")} value={t("ClassSetupPage.weeksSetSummary", { done: taskCount, total: weeks.length, visible: visibleCount })} />
+          </div>
+        </section>
+      </div>}
     </main>
 
     {step < 5 && <footer className={styles.footer}><button type="button" className={styles.btnSecondary} disabled={step === 1 || busy} onClick={() => go(step - 1)}>{t("ClassSetupPage.prevStepBtn")}</button><span>{t("ClassSetupPage.stepProgressLabel", { step })}</span>{step === 3 && !templateId ? <em className={styles.footerHint}><MIcon name="info" size={16} />{templates.length === 0 ? t("ClassSetupPage.needCreateTemplateHint") : t("ClassSetupPage.selectTemplateHint")}</em> : <button type="button" className={styles.btnPrimary} disabled={busy} onClick={next}>{busy ? t("ClassSetupPage.savingBtn") : t("ClassSetupPage.saveAndNextBtn")}<MIcon name="arrow_forward" size={16} /></button>}</footer>}

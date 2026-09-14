@@ -112,6 +112,16 @@
   color: var(--color-danger);
 }
 
+/* 送出時未填的欄位：紅框標示並被聚焦（雙類名壓過 .field input 這類巢狀選擇器） */
+.fieldInvalid.fieldInvalid {
+  border-color: var(--color-danger);
+
+  &:focus {
+    border-color: var(--color-danger);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-danger) 12%, transparent);
+  }
+}
+
 .formActions {
   display: flex;
   gap: $spacing-8;

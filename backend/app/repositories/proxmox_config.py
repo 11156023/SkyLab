@@ -32,9 +32,9 @@ def upsert_proxmox_config(
     gateway_ip: str = "",
     local_subnet: str | None = None,
     default_node: str | None = None,
-    placement_strategy: str = "priority_dominant_share",
     cpu_overcommit_ratio: float = 2.0,
     disk_overcommit_ratio: float = 1.0,
+    placement_reassignment_cost: float = 0.15,
     placement_peak_cpu_margin: float = 1.1,
     placement_peak_memory_margin: float = 1.05,
     placement_loadavg_warn_per_core: float = 0.8,
@@ -56,6 +56,7 @@ def upsert_proxmox_config(
     window_grace_period_minutes: int = 30,
     practice_session_hours: int = 3,
     practice_warning_minutes: int = 30,
+    expiry_warning_hours: int = 24,
 ) -> ProxmoxConfig:
     config = session.get(ProxmoxConfig, _SINGLETON_ID)
 
@@ -77,9 +78,9 @@ def upsert_proxmox_config(
             gateway_ip=gateway_ip or None,
             local_subnet=local_subnet or None,
             default_node=default_node or None,
-            placement_strategy=placement_strategy,
             cpu_overcommit_ratio=cpu_overcommit_ratio,
             disk_overcommit_ratio=disk_overcommit_ratio,
+            placement_reassignment_cost=placement_reassignment_cost,
             placement_peak_cpu_margin=placement_peak_cpu_margin,
             placement_peak_memory_margin=placement_peak_memory_margin,
             placement_loadavg_warn_per_core=placement_loadavg_warn_per_core,
@@ -101,6 +102,7 @@ def upsert_proxmox_config(
             window_grace_period_minutes=window_grace_period_minutes,
             practice_session_hours=practice_session_hours,
             practice_warning_minutes=practice_warning_minutes,
+            expiry_warning_hours=expiry_warning_hours,
         )
         session.add(config)
     else:
@@ -119,9 +121,9 @@ def upsert_proxmox_config(
         config.gateway_ip = gateway_ip or None
         config.local_subnet = local_subnet or None
         config.default_node = default_node or None
-        config.placement_strategy = placement_strategy
         config.cpu_overcommit_ratio = cpu_overcommit_ratio
         config.disk_overcommit_ratio = disk_overcommit_ratio
+        config.placement_reassignment_cost = placement_reassignment_cost
         config.placement_peak_cpu_margin = placement_peak_cpu_margin
         config.placement_peak_memory_margin = placement_peak_memory_margin
         config.placement_loadavg_warn_per_core = placement_loadavg_warn_per_core
@@ -143,6 +145,7 @@ def upsert_proxmox_config(
         config.window_grace_period_minutes = window_grace_period_minutes
         config.practice_session_hours = practice_session_hours
         config.practice_warning_minutes = practice_warning_minutes
+        config.expiry_warning_hours = expiry_warning_hours
         config.updated_at = datetime.now(timezone.utc)
         session.add(config)
 

@@ -24,9 +24,11 @@ from app.api.routes import (
     monitoring,
     private,
     proxmox_config,
+    push,
     quick_practice,
     quotas,
     resource_details,
+    resource_settings,
     resources,
     reverse_proxy,
     rubric,
@@ -50,6 +52,7 @@ api_router.include_router(users.router)
 api_router.include_router(utils.router)
 api_router.include_router(resources.router)
 api_router.include_router(resource_details.router)
+api_router.include_router(resource_settings.router)
 api_router.include_router(vm.router)
 api_router.include_router(lxc.router)
 api_router.include_router(vm_requests.router)
@@ -77,6 +80,7 @@ api_router.include_router(gateway.router)
 api_router.include_router(gpu.router)
 api_router.include_router(ip_management.router)
 api_router.include_router(jobs.router)
+api_router.include_router(push.router)
 api_router.include_router(rubric.router)
 api_router.include_router(teacher_judge_files.router)
 api_router.include_router(teacher_judge_scripts.router)

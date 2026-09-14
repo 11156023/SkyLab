@@ -2,14 +2,16 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import shlex
 import uuid
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from copy import deepcopy
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, TypeVar
 
 from sqlmodel import Session
 
@@ -36,6 +38,7 @@ from app.models.teacher_judge_session import TeacherJudgeSession
 from app.repositories import resource as resource_repo
 
 logger = logging.getLogger(__name__)
+_WorkerResult = TypeVar("_WorkerResult")
 
 MAX_RUN_TARGETS = 5
 MAX_SSH_CONCURRENCY = 5
@@ -435,7 +438,7 @@ def _with_pending_ai_judgement(results: list[dict[str, Any]]) -> list[dict[str, 
 def _mark_run_executor_failed(run_id: uuid.UUID, message: str) -> None:
     with Session(engine) as session:
         run = session.get(TeacherJudgeScriptRun, run_id)
-        if run is None:
+        if run is None or run.status == TeacherJudgeScriptRunStatus.completed:
             return
         targets = list(run.target_snapshot_json.get("targets") or [])
         statuses = {_target_vmid(target): "failed" for target in targets}
@@ -497,8 +500,15 @@ def _record_result_ai_usage(
         )
 
 
-async def _execute_script_run(run_id: uuid.UUID) -> None:
-    """Execute a stored Teacher Judge script run and persist per-target results."""
+@dataclass(frozen=True)
+class _ExecutedTargets:
+    rubric_snapshot: dict[str, Any]
+    script_metadata: dict[str, Any]
+    results: list[dict[str, Any]]
+
+
+def _execute_targets(run_id: uuid.UUID) -> _ExecutedTargets | None:
+    """Own all synchronous target execution and its Sessions in one worker."""
     with Session(engine) as session:
         run, artifact = _load_run_and_artifact(session=session, run_id=run_id)
         if artifact.status != TeacherJudgeScriptStatus.approved:
@@ -509,7 +519,7 @@ async def _execute_script_run(run_id: uuid.UUID) -> None:
             session.add(run)
             _touch_judge_session(session, artifact)
             session.commit()
-            return
+            return None
 
         targets = list(run.target_snapshot_json.get("targets") or [])
         if not targets or len(targets) > MAX_RUN_TARGETS:
@@ -520,7 +530,7 @@ async def _execute_script_run(run_id: uuid.UUID) -> None:
             session.add(run)
             _touch_judge_session(session, artifact)
             session.commit()
-            return
+            return None
 
         live_by_vmid = _live_running_by_vmid()
         statuses = {_target_vmid(target): "queued" for target in targets}
@@ -608,11 +618,6 @@ async def _execute_script_run(run_id: uuid.UUID) -> None:
                     )
 
         results.sort(key=lambda item: int(item.get("vmid") or 0))
-        results = _with_pending_ai_judgement(results)
-        run.target_results_json = {
-            "schema_version": "teacher_judge_run_results.v1",
-            "targets": results,
-        }
         _save_run_progress(
             run_id=run.id,
             stage="analyzing",
@@ -620,16 +625,23 @@ async def _execute_script_run(run_id: uuid.UUID) -> None:
             statuses=statuses,
             done=len(results),
         )
-        results = await analyze_target_results(
-            rubric_snapshot=artifact.rubric_snapshot_json,
+        return _ExecutedTargets(
+            rubric_snapshot=deepcopy(artifact.rubric_snapshot_json),
             script_metadata={
                 "id": str(artifact.id),
                 "name": artifact.name,
                 "version": artifact.version,
                 "template_key": artifact.template_key,
             },
-            target_results=results,
+            results=_with_pending_ai_judgement(results),
         )
+
+
+def _save_analyzed_results(run_id: uuid.UUID, results: list[dict[str, Any]]) -> None:
+    with Session(engine) as session:
+        run, artifact = _load_run_and_artifact(session=session, run_id=run_id)
+        targets = list(run.target_snapshot_json.get("targets") or [])
+        statuses = {_target_vmid(result): str(result["status"]) for result in results}
         results.sort(key=lambda item: int(item.get("vmid") or 0))
         run.target_results_json = {
             "schema_version": "teacher_judge_run_results.v1",
@@ -659,10 +671,59 @@ async def _execute_script_run(run_id: uuid.UUID) -> None:
         )
 
 
+async def _await_worker(worker: asyncio.Task[_WorkerResult]) -> _WorkerResult:
+    try:
+        return await asyncio.shield(worker)
+    except asyncio.CancelledError:
+        # Cancelling the coroutine cannot stop an SSH thread. Drain the worker
+        # before recording failure so it cannot write progress after termination.
+        while not worker.done():
+            try:
+                await asyncio.shield(worker)
+            except asyncio.CancelledError:
+                continue
+            except Exception:
+                break
+        if not worker.cancelled():
+            worker.exception()
+        raise
+
+
+async def _execute_script_run(run_id: uuid.UUID) -> None:
+    collected = await _await_worker(
+        asyncio.create_task(asyncio.to_thread(_execute_targets, run_id))
+    )
+    if collected is None:
+        return
+    results = await analyze_target_results(
+        rubric_snapshot=collected.rubric_snapshot,
+        script_metadata=collected.script_metadata,
+        target_results=collected.results,
+    )
+    await _await_worker(
+        asyncio.create_task(asyncio.to_thread(_save_analyzed_results, run_id, results))
+    )
+
+
 async def execute_script_run(run_id: uuid.UUID) -> None:
     """Background task entrypoint that always records executor-level failures."""
     try:
         await _execute_script_run(run_id)
+    except asyncio.CancelledError:
+        await _await_worker(
+            asyncio.create_task(
+                asyncio.to_thread(
+                    _mark_run_executor_failed,
+                    run_id,
+                    "執行流程已中斷；請檢查目標狀態後再重試。",
+                )
+            )
+        )
+        raise
     except Exception as exc:
         logger.exception("Teacher Judge script run executor failed run=%s", run_id)
-        _mark_run_executor_failed(run_id, str(exc))
+        await _await_worker(
+            asyncio.create_task(
+                asyncio.to_thread(_mark_run_executor_failed, run_id, str(exc))
+            )
+        )

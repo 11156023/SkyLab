@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -30,6 +30,23 @@ class ReverseProxySetupContext(BaseModel):
     zones: list[ReverseProxyZoneOption] = Field(default_factory=list)
     default_dns_target_type: str | None = None
     default_dns_target_value: str | None = None
+
+
+class DomainAvailability(BaseModel):
+    """網域是否可用來建立對外網址。
+
+    ``reason``:
+    - system: 本系統已有一條反向代理規則用了這個網域
+    - external: Cloudflare 上已有同名的 A / AAAA / CNAME 紀錄（非本系統建立）
+    - invalid: 不是合法的主機名稱
+    - no_zone: 沒有任何啟用中的 Cloudflare zone 對得上這個網域
+    - unverified: 查不到 Cloudflare（暫時性錯誤），只驗過本系統紀錄
+    """
+
+    domain: str
+    available: bool
+    reason: Literal["system", "external", "invalid", "no_zone", "unverified"] | None = None
+    message: str | None = None
 
 
 class ReverseProxyRuntimeSection(BaseModel):

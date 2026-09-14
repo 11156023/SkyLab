@@ -5,13 +5,16 @@ database points at a migration revision that is not present in this checkout.
 All operations are additive/idempotent and the alembic_version row is untouched.
 """
 
+import importlib
 import logging
 
 from sqlalchemy import inspect, text
 from sqlmodel import SQLModel
 
-import app.models  # noqa: F401 - register SQLModel tables
 from app.core.db import engine
+
+# 副作用匯入：載入 app.models 以註冊所有 SQLModel table（不直接使用模組物件）
+importlib.import_module("app.models")
 
 NEW_TABLE_NAMES = [
     "course_environments",

@@ -5,7 +5,7 @@ from typing import Any, Literal
 from fastapi import APIRouter, Query
 
 from app.api.deps import AIAPIReviewerUser, AIAPIViewAllUser, CurrentUser, SessionDep
-from app.models import AIAPIRequestStatus
+from app.models import AIAPIRequestStatus, UserRole
 from app.schemas import (
     AIAPICredentialPublic,
     AIAPICredentialsAdminPublic,
@@ -16,6 +16,8 @@ from app.schemas import (
     AIAPIRequestReview,
     AIAPIRequestsPublic,
     Message,
+    UnifiedUsageStatsResponse,
+    UsageRecordsPublic,
     UsageStatsResponse,
 )
 from app.services.llm_gateway import ai_gateway_service
@@ -117,12 +119,61 @@ def get_my_proxy_usage(
     )
 
 
+@router.get("/usage/my", response_model=UnifiedUsageStatsResponse)
+def get_my_unified_usage(
+    session: SessionDep,
+    current_user: CurrentUser,
+    start_date: datetime | None = None,
+    end_date: datetime | None = None,
+) -> Any:
+    """統一 API 用量統計（整合 AI 模型路由與 AI 系統路由）"""
+    if not end_date:
+        end_date = datetime.now(timezone.utc)
+    if not start_date:
+        start_date = end_date - timedelta(days=30)
+
+    return ai_gateway_service.get_user_unified_usage_stats(
+        session=session,
+        user_id=current_user.id,
+        start_date=start_date,
+        end_date=end_date,
+    )
+
+
+@router.get("/usage/records/my", response_model=UsageRecordsPublic)
+def get_my_usage_records(
+    session: SessionDep,
+    current_user: CurrentUser,
+    start_date: datetime | None = None,
+    end_date: datetime | None = None,
+    skip: int = Query(default=0, ge=0),
+    limit: int = Query(default=50, ge=1, le=200),
+) -> Any:
+    """統一細項呼叫紀錄（依時間新→舊排序）"""
+    if not end_date:
+        end_date = datetime.now(timezone.utc)
+    if not start_date:
+        start_date = end_date - timedelta(days=30)
+
+    return ai_gateway_service.list_user_usage_records(
+        session=session,
+        user_id=current_user.id,
+        start_date=start_date,
+        end_date=end_date,
+        skip=skip,
+        limit=limit,
+    )
+
+
 @router.get("/credentials", response_model=AIAPICredentialsAdminPublic)
 def list_all_ai_api_credentials(
     session: SessionDep,
     _current_user: AIAPIViewAllUser,
     status: Literal["active", "inactive"] | None = None,
     user_email: str | None = Query(default=None, max_length=255),
+    query: str | None = Query(default=None, max_length=255),
+    user_role: list[UserRole] | None = Query(default=None),
+    created_after: datetime | None = None,
     skip: int = Query(default=0, ge=0),
     limit: int = Query(default=100, ge=1, le=100),
 ) -> Any:
@@ -130,6 +181,9 @@ def list_all_ai_api_credentials(
         session=session,
         status=status,
         user_email=user_email,
+        query=query,
+        user_roles=[role.value for role in user_role] if user_role else None,
+        created_after=created_after,
         skip=skip,
         limit=limit,
     )
@@ -144,6 +198,7 @@ def rotate_my_ai_api_credential(
     return ai_gateway_service.rotate_credential(
         session=session, credential_id=credential_id, current_user=current_user
     )
+
 
 @router.delete("/credentials/{credential_id}", response_model=Message)
 def delete_my_ai_api_credential(

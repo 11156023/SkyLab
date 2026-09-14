@@ -199,6 +199,13 @@
   letter-spacing: 0.04em;
 }
 
+.noteActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: $spacing-8;
+  margin-top: $spacing-4;
+}
+
 .noteBoxLine {
   font-size: $font-size-14;
 
@@ -583,8 +590,14 @@
 }
 
 /* ── 表格 ── */
+/* 表格嵌在卡片內、無 table-wrap，橫向卷動由 .tableScroll 提供 */
+.tableScroll {
+  overflow-x: auto;
+}
+
 .table {
   @include table-base;
+  min-width: 640px;
 }
 
 .th {
@@ -706,12 +719,14 @@
 }
 
 .modalTitle {
+  overflow-wrap: anywhere;
   font-size: $font-size-18;
   font-weight: $font-weight-700;
   color: var(--color-text-primary);
 }
 
 .modalDesc {
+  overflow-wrap: anywhere;
   font-size: $font-size-14;
   color: var(--color-text-secondary);
 }
@@ -776,7 +791,7 @@
   &:disabled { opacity: 0.5; cursor: default; }
 }
 
-/* ── 反向代理（進階設定） ── */
+/* ── 進階設定卡片共用的列表小元件（rp 前綴是歷史遺留，對外服務卡片已移除） ── */
 .rpHint {
   display: inline-flex;
   align-items: center;
@@ -784,21 +799,6 @@
   margin: 0 0 $spacing-8;
   font-size: $font-size-12;
   color: var(--color-text-muted);
-}
-
-.rpList {
-  display: flex;
-  flex-direction: column;
-  gap: $spacing-8;
-}
-
-.rpItem {
-  display: flex;
-  align-items: center;
-  gap: $spacing-16;
-  padding: $spacing-8 $spacing-16;
-  border: 1px solid var(--color-border);
-  border-radius: $radius-8;
 }
 
 .rpMain {
@@ -825,23 +825,6 @@
   flex-wrap: wrap;
   font-size: $font-size-12;
   color: var(--color-text-secondary);
-}
-
-.rpOpen {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  font-size: $font-size-12;
-  color: var(--color-primary);
-  flex-shrink: 0;
-
-  &:hover { text-decoration: underline; }
-}
-
-.rpActions {
-  display: flex;
-  gap: 4px;
-  flex-shrink: 0;
 }
 
 .rpIconBtn {
@@ -877,5 +860,340 @@
       border-color: var(--color-danger);
       box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-danger) 18%, transparent);
     }
+  }
+}
+
+/* ── 進階設定：共用元素 ── */
+.field select {
+  width: 100%;
+  padding: $spacing-8 $spacing-16;
+  border: 1px solid var(--color-border);
+  border-radius: $radius-8;
+  font-size: $font-size-14;
+  background: var(--color-surface);
+  color: var(--color-text);
+
+  &:focus {
+    border-color: var(--color-primary);
+  }
+}
+
+.inlineForm {
+  display: flex;
+  gap: $spacing-8;
+  align-items: flex-start;
+  flex-wrap: wrap;
+
+  input,
+  textarea {
+    flex: 1;
+    min-width: 200px;
+    padding: $spacing-8 $spacing-16;
+    border: 1px solid var(--color-border);
+    border-radius: $radius-8;
+    font-size: $font-size-14;
+    background: var(--color-surface);
+    color: var(--color-text);
+
+    &:focus {
+      border-color: var(--color-primary);
+    }
+  }
+}
+
+.hintLine {
+  display: inline-flex;
+  align-items: flex-start;
+  gap: 6px;
+  font-size: $font-size-12;
+  color: var(--color-text-muted);
+  line-height: 1.5;
+}
+
+.hintOk {
+  color: var(--color-success);
+}
+
+.hintBad {
+  color: var(--color-danger);
+}
+
+.hintWarn {
+  color: var(--color-pending);
+}
+
+.chipList {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px 2px 10px;
+  border-radius: $radius-pill;
+  background: color-mix(in srgb, var(--color-primary) 10%, transparent);
+  color: var(--color-primary-on-surface);
+  font-size: $font-size-12;
+  font-weight: $font-weight-500;
+}
+
+.chipRemove {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 50%;
+  color: inherit;
+  opacity: 0.7;
+
+  &:hover {
+    opacity: 1;
+  }
+}
+
+.switchRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: $spacing-16;
+  padding: $spacing-8 0;
+}
+
+.switchLabel {
+  @include flex-column;
+  gap: 2px;
+
+  strong {
+    font-size: $font-size-14;
+    font-weight: $font-weight-500;
+    color: var(--color-text-primary);
+  }
+
+  span {
+    font-size: $font-size-12;
+    color: var(--color-text-muted);
+  }
+}
+
+.switch {
+  position: relative;
+  width: 40px;
+  height: 22px;
+  flex-shrink: 0;
+  border-radius: $radius-pill;
+  background: var(--color-status-neutral);
+  transition: background $transition-base;
+
+  &::after {
+    content: "";
+    position: absolute;
+    top: 2px;
+    left: 2px;
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    background: var(--color-surface);
+    transition: transform $transition-base;
+  }
+
+  &:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+  }
+}
+
+.switchOn {
+  background: var(--color-primary);
+
+  &::after {
+    transform: translateX(18px);
+  }
+}
+
+.radioGroup {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: $spacing-8;
+
+  @include respond-to(md) {
+    grid-template-columns: repeat(3, 1fr);
+  }
+}
+
+.radioOption {
+  @include flex-column;
+  gap: 2px;
+  padding: $spacing-8 $spacing-16;
+  border: 1px solid var(--color-border);
+  border-radius: $radius-8;
+  text-align: left;
+  color: var(--color-text-secondary);
+  transition: border-color $transition-base, background $transition-base;
+
+  strong {
+    font-size: $font-size-14;
+    font-weight: $font-weight-500;
+    color: var(--color-text-primary);
+  }
+
+  span {
+    font-size: $font-size-12;
+  }
+
+  &:hover {
+    background: var(--color-hover);
+  }
+}
+
+.radioOptionActive {
+  border-color: var(--color-primary);
+  background: color-mix(in srgb, var(--color-primary) 8%, transparent);
+}
+
+.orderList {
+  @include flex-column;
+  gap: 6px;
+}
+
+.orderItem {
+  display: flex;
+  align-items: center;
+  gap: $spacing-8;
+  padding: 6px $spacing-16;
+  border: 1px solid var(--color-border);
+  border-radius: $radius-8;
+  font-size: $font-size-14;
+
+  code {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: $font-size-12;
+  }
+}
+
+.orderIndex {
+  width: 20px;
+  font-size: $font-size-12;
+  color: var(--color-text-muted);
+}
+
+.orderMain {
+  flex: 1;
+  display: inline-flex;
+  align-items: center;
+  gap: $spacing-8;
+  min-width: 0;
+}
+
+.orderBtns {
+  display: flex;
+  gap: 2px;
+}
+
+.keyList {
+  @include flex-column;
+  gap: $spacing-8;
+}
+
+.keyItem {
+  display: flex;
+  align-items: center;
+  gap: $spacing-8;
+  padding: $spacing-8 $spacing-16;
+  border: 1px solid var(--color-border);
+  border-radius: $radius-8;
+}
+
+.keyText {
+  flex: 1;
+  min-width: 0;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: $font-size-12;
+  color: var(--color-text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.lockedRow {
+  opacity: 0.75;
+}
+
+.flowMini {
+  position: relative;
+  height: 280px;
+  border: 1px solid var(--color-border);
+  border-radius: $radius-12;
+  overflow: hidden;
+  background: color-mix(in srgb, var(--color-hover) 40%, var(--color-surface));
+
+  :global(.react-flow) { background: transparent; }
+  :global(.react-flow) svg { max-width: none; }
+  :global(.react-flow__background) { background: transparent; }
+  :global(.react-flow__edge path) { stroke-opacity: 1 !important; }
+  :global(.react-flow__attribution) { display: none; }
+}
+
+.flowLegend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: $spacing-16;
+  font-size: $font-size-12;
+  color: var(--color-text-muted);
+}
+
+.legendDot {
+  display: inline-block;
+  width: 18px;
+  height: 0;
+  margin-right: 6px;
+  border-top: 2px dashed currentColor;
+  vertical-align: middle;
+}
+
+.legendIn { color: var(--color-info); }
+.legendOut { color: var(--color-success); }
+.legendPeer { color: var(--color-status-neutral); }
+
+.secretBox {
+  @include flex-column;
+  gap: $spacing-8;
+  padding: $spacing-16;
+  border: 1px solid color-mix(in srgb, var(--color-pending) 40%, transparent);
+  border-radius: $radius-12;
+  background: color-mix(in srgb, var(--color-pending) 8%, transparent);
+}
+
+.dangerZone {
+  border-color: color-mix(in srgb, var(--color-danger) 35%, transparent);
+}
+
+.rowStack {
+  @include flex-column;
+  gap: $spacing-8;
+}
+
+.fieldRow {
+  display: flex;
+  gap: $spacing-8;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.modalWide {
+  max-width: 560px;
+}
+
+.checkRow {
+  display: inline-flex;
+  align-items: center;
+  gap: $spacing-8;
+  font-size: $font-size-14;
+  color: var(--color-text);
+  cursor: pointer;
+
+  input {
+    width: 16px;
+    height: 16px;
   }
 }

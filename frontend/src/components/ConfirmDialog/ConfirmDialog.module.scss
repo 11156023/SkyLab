@@ -24,13 +24,16 @@
   to   { opacity: 1; }
 }
 
+/* 卡片底色與排版以「我的申請」錯誤記錄 modal 為基準：
+   毛玻璃表面、flex-column gap 16 的節奏 */
 .dialog {
-  width: min(440px, 100%);
-  padding: $spacing-24;
+  width: 100%;
+  max-width: 400px;
+  @include glass-surface;
   border-radius: $radius-16;
-  border: 1px solid var(--color-border);
-  background: var(--color-surface);
-  box-shadow: var(--shadow-lg);
+  padding: $spacing-24;
+  @include flex-column;
+  gap: $spacing-16;
   animation: slideUp 0.18s cubic-bezier(0.25, 0.8, 0.25, 1);
 }
 
@@ -59,18 +62,19 @@
 }
 
 .message {
-  margin-top: $spacing-8;
+  margin: 0;
   font-size: $font-size-14;
   line-height: $line-height-base;
   color: var(--color-text-secondary);
   white-space: pre-line;
+  /* 內文常插入主機名稱等連續長字串，強制可斷行以免撐破彈窗 */
+  overflow-wrap: anywhere;
 }
 
 .actions {
   display: flex;
   justify-content: flex-end;
   gap: $spacing-8;
-  margin-top: $spacing-24;
 }
 
 %btn {

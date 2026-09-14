@@ -14,7 +14,12 @@ import yaml
 
 from app.core.i18n import t
 from app.exceptions import BadRequestError, ProxmoxError
-from app.schemas.reverse_proxy import ReverseProxySetupContext, ReverseProxyZoneOption
+from app.schemas.reverse_proxy import (
+    DomainAvailability,
+    ReverseProxySetupContext,
+    ReverseProxyZoneOption,
+)
+from app.services.network.publish_target_policy import assert_publishable_vm_ip
 
 logger = logging.getLogger(__name__)
 _HOSTNAME_LABEL_PATTERN = re.compile(
@@ -163,29 +168,11 @@ def resolve_vmid_ip(*, vmid: int, session: object | None = None) -> str | None:
         # Fallback to DB cache if PVE API fails
         pass
 
-    if ip and session is not None:
-        try:
-            resource_repo.update_ip_address(
-                session=session, vmid=vmid, ip_address=ip
-            )  # type: ignore[arg-type]
-        except Exception as exc:
-            logger.debug("VM %s IP 快取寫入失敗: %s", vmid, exc)
+    if session is None:
         return ip
 
-    if ip:
-        return ip
-
-    if session is not None:
-        try:
-            cached_ip = resource_repo.get_cached_ip_address(  # type: ignore[arg-type]
-                session=session, vmid=vmid
-            )
-            if cached_ip:
-                return cached_ip
-        except Exception as exc:
-            logger.debug("VM %s DB 快取讀取失敗: %s", vmid, exc)
-
-    return None
+    # 有即時 IP 就寫回快取；取不到就回退 DB 快取（DB 出錯會自行 rollback）
+    return resource_repo.sync_ip_cache(session=session, vmid=vmid, live_ip=ip)  # type: ignore[arg-type]
 
 
 def _build_traefik_dynamic_config(rules: list) -> str:
@@ -332,6 +319,9 @@ def apply_reverse_proxy_rule(
     from app.services.network import cloudflare_service  # noqa: PLC0415
 
     ensure_reverse_proxy_ready(session)
+    # vm_ip 來自 guest agent 回報，VM 擁有者可偽造：必須確認它真的是
+    # 平台配發的 VM 位址，而不是 Gateway / PVE 節點等內部主機
+    assert_publishable_vm_ip(session, vm_ip)
 
     if getattr(session, "get", lambda *_: None)(Resource, vmid) is None:
         raise BadRequestError(t("reverseProxy.vmidNotInResourceList", vmid=vmid))
@@ -339,8 +329,8 @@ def apply_reverse_proxy_rule(
     zone = cloudflare_service.get_zone(session=session, zone_id=zone_id)  # type: ignore[arg-type]
     domain = build_full_domain(zone_name=zone.name, hostname_prefix=hostname_prefix)
 
-    if rp_repo.is_domain_taken(session, domain):  # type: ignore[arg-type]
-        raise BadRequestError(t("reverseProxy.domainAlreadyTaken", domain=domain))
+    # 不管是本系統建的還是使用者在 Cloudflare 上自己建的，同名紀錄一律視為衝突
+    assert_domain_available(session, domain, zone_id=zone_id)
 
     record = cloudflare_service.upsert_reverse_proxy_dns_record(  # type: ignore[arg-type]
         session=session,
@@ -399,6 +389,148 @@ def resolve_zone_for_domain(session: object, domain: str) -> tuple[str, str]:
     return zone_id, prefix
 
 
+_CONFLICTING_RECORD_TYPES = frozenset({"A", "AAAA", "CNAME"})
+
+
+def check_domain_availability(
+    session: object,
+    domain: str,
+    *,
+    zone_id: str | None = None,
+    exclude_rule_id: object = None,
+) -> DomainAvailability:
+    """判斷網域能不能拿來建對外網址：本系統紀錄與 Cloudflare 既有紀錄都要查。
+
+    ``exclude_rule_id`` 用在更新既有規則：那條規則自己的網域與 DNS 紀錄不算衝突。
+    ``zone_id`` 已知時略過 zone 反查。
+    """
+    import uuid as _uuid  # noqa: PLC0415
+
+    from app.repositories import reverse_proxy as rp_repo  # noqa: PLC0415
+    from app.services.network import cloudflare_service  # noqa: PLC0415
+
+    clean = (domain or "").strip().lower().rstrip(".")
+    if not clean or not _is_valid_hostname(clean):
+        return DomainAvailability(
+            domain=clean,
+            available=False,
+            reason="invalid",
+            message=t("reverseProxy.domainInvalid", domain=domain),
+        )
+
+    exclude_uuid: _uuid.UUID | None = None
+    if exclude_rule_id is not None:
+        exclude_uuid = (
+            exclude_rule_id
+            if isinstance(exclude_rule_id, _uuid.UUID)
+            else _uuid.UUID(str(exclude_rule_id))
+        )
+
+    if rp_repo.is_domain_taken(session, clean, exclude_rule_id=exclude_uuid):  # type: ignore[arg-type]
+        return DomainAvailability(
+            domain=clean,
+            available=False,
+            reason="system",
+            message=t("reverseProxy.domainAlreadyTaken", domain=clean),
+        )
+
+    if zone_id is None:
+        try:
+            zone_id, _prefix = resolve_zone_for_domain(session, clean)
+        except BadRequestError as exc:
+            return DomainAvailability(
+                domain=clean,
+                available=False,
+                reason="no_zone",
+                message=exc.message,
+            )
+        except Exception as exc:
+            logger.warning("網域 %s 的 zone 反查失敗，無法驗證外部衝突: %s", clean, exc)
+            return DomainAvailability(
+                domain=clean,
+                available=True,
+                reason="unverified",
+                message=t("reverseProxy.domainConflictUnverified", domain=clean),
+            )
+
+    excluded_record_id: str | None = None
+    if exclude_uuid is not None:
+        own_rule = rp_repo.get_rule(session, exclude_uuid)  # type: ignore[arg-type]
+        excluded_record_id = own_rule.cloudflare_record_id if own_rule else None
+
+    try:
+        records = cloudflare_service.list_dns_records(  # type: ignore[arg-type]
+            session=session,
+            zone_id=zone_id,
+            page=1,
+            per_page=100,
+            search=clean,
+        ).items
+    except Exception as exc:
+        logger.warning("網域 %s 的 Cloudflare 紀錄查詢失敗，無法驗證外部衝突: %s", clean, exc)
+        return DomainAvailability(
+            domain=clean,
+            available=True,
+            reason="unverified",
+            message=t("reverseProxy.domainConflictUnverified", domain=clean),
+        )
+
+    conflict = next(
+        (
+            record
+            for record in records
+            if record.name.lower() == clean
+            and record.type.upper() in _CONFLICTING_RECORD_TYPES
+            and record.id != excluded_record_id
+        ),
+        None,
+    )
+    if conflict is not None:
+        return DomainAvailability(
+            domain=clean,
+            available=False,
+            reason="external",
+            message=t(
+                "reverseProxy.domainInUseExternally",
+                domain=clean,
+                record_type=conflict.type,
+            ),
+        )
+    return DomainAvailability(domain=clean, available=True)
+
+
+def assert_domain_available(
+    session: object,
+    domain: str,
+    *,
+    zone_id: str | None = None,
+    exclude_rule_id: object = None,
+) -> None:
+    """網域被占用（不論是誰建的）就 raise BadRequestError。"""
+    result = check_domain_availability(
+        session, domain, zone_id=zone_id, exclude_rule_id=exclude_rule_id
+    )
+    if not result.available:
+        raise BadRequestError(
+            result.message or t("reverseProxy.domainAlreadyTaken", domain=domain)
+        )
+
+
+def annotate_dns_records_with_system_rules(session: object, records: list) -> None:
+    """把 Cloudflare DNS 紀錄標上「本系統建立」：對得上反向代理規則的 record id 或網域。"""
+    from app.repositories import reverse_proxy as rp_repo  # noqa: PLC0415
+
+    rules = rp_repo.list_rules(session)  # type: ignore[arg-type]
+    by_record_id = {r.cloudflare_record_id: r for r in rules if r.cloudflare_record_id}
+    by_domain = {r.domain.lower(): r for r in rules}
+    for record in records:
+        rule = by_record_id.get(record.id) or by_domain.get(record.name.lower())
+        if rule is None:
+            continue
+        record.managed_by_system = True
+        record.managed_vmid = rule.vmid
+
+
 def apply_reverse_proxy_rule_for_domain(
     session: object,
     *,
@@ -440,14 +572,16 @@ def update_reverse_proxy_rule(
     from app.services.network import cloudflare_service  # noqa: PLC0415
 
     ensure_reverse_proxy_ready(session)
+    assert_publishable_vm_ip(session, vm_ip)
     rule = rp_repo.get_rule(session, _uuid.UUID(rule_id))  # type: ignore[arg-type]
     if rule is None:
         raise BadRequestError(t("reverseProxy.ruleIdNotFound", ruleId=rule_id))
 
     zone = cloudflare_service.get_zone(session=session, zone_id=zone_id)  # type: ignore[arg-type]
     domain = build_full_domain(zone_name=zone.name, hostname_prefix=hostname_prefix)
-    if rp_repo.is_domain_taken(session, domain, exclude_rule_id=rule.id):  # type: ignore[arg-type]
-        raise BadRequestError(t("reverseProxy.domainAlreadyTaken", domain=domain))
+    assert_domain_available(
+        session, domain, zone_id=zone_id, exclude_rule_id=rule.id
+    )
 
     record = cloudflare_service.upsert_reverse_proxy_dns_record(  # type: ignore[arg-type]
         session=session,

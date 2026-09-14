@@ -398,7 +398,9 @@ def test_reconcile_marks_peer_inactive_when_gateway_replay_fails(
         "save",
         lambda **kwargs: saved.append(kwargs["peer"]) or kwargs["peer"],
     )
-    monkeypatch.setattr(wireguard_service, "_last_gateway_state_id", "boot-1")
+    monkeypatch.setattr(
+        wireguard_service._reconcile_state, "last_gateway_state_id", "boot-1"
+    )
 
     wireguard_service.reconcile_once()
 

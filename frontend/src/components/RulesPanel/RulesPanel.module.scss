@@ -1,21 +1,40 @@
 @use "../../assets/styles/variables" as *;
 @use "../../assets/styles/mixins" as *;
 
+/* 浮在畫布右側的絕對定位卡片：高度被畫布範圍鎖住，
+   內容過多時由面板自己捲動，不會把 react-flow pane 撐大 */
 .panel {
+  position: absolute;
+  top: $spacing-16;
+  right: $spacing-16;
+  max-height: calc(100% - #{$spacing-16 * 2});
   width: 320px;
-  flex-shrink: 0;
-  @include glass-surface($shadow: none);
+  @include glass-surface($shadow: var(--shadow-sm));
   border-radius: $radius-16;
   @include flex-column;
   overflow: hidden;
-  max-height: 100%;
   overflow-y: auto;
-  animation: panelIn 0.18s ease;
+  animation: panelIn 0.22s cubic-bezier(0.25, 0.8, 0.25, 1);
 }
 
 @keyframes panelIn {
-  from { opacity: 0; transform: translateX(8px); }
+  from { opacity: 0; transform: translateX(calc(100% + #{$spacing-16})); }
   to   { opacity: 1; transform: translateX(0); }
+}
+
+/* 關閉時滑出：fill forwards 讓面板停在畫面外直到卸載，避免最後一幀跳回 */
+.panelOut {
+  animation: panelOut 0.22s cubic-bezier(0.25, 0.8, 0.25, 1) forwards;
+}
+
+@keyframes panelOut {
+  from { opacity: 1; transform: translateX(0); }
+  to   { opacity: 0; transform: translateX(calc(100% + #{$spacing-16})); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .panel,
+  .panelOut { animation: none; }
 }
 
 /* ── Header ── */
@@ -42,6 +61,37 @@
   font-weight: $font-weight-700;
   color: var(--color-text-primary);
   @include text-truncate;
+}
+
+.headerActions {
+  display: flex;
+  align-items: center;
+  gap: $spacing-8;
+  flex-shrink: 0;
+}
+
+.addBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 10px;
+  border: 1px solid var(--color-border);
+  border-radius: $radius-8;
+  background: var(--color-surface);
+  color: var(--color-text-primary);
+  font-size: $font-size-12;
+  font-weight: $font-weight-500;
+  cursor: pointer;
+  white-space: nowrap;
+
+  &:hover:not(:disabled) {
+    background: var(--color-hover);
+  }
+
+  &:disabled {
+    opacity: 0.55;
+    cursor: not-allowed;
+  }
 }
 
 .closeBtn {
@@ -138,6 +188,58 @@
   color: var(--color-text-muted);
   font-style: italic;
   font-size: 11px;
+}
+
+/* 規則列尾端的操作：自訂規則可停用／刪除，受管規則只有鎖 */
+.ruleActions {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  margin-left: auto;
+  flex-shrink: 0;
+}
+
+.ruleBtn {
+  @include flex-center;
+  padding: 2px;
+  border-radius: $radius-8;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  transition: background $transition-base, color $transition-base;
+
+  &:hover:not(:disabled) {
+    background: var(--color-surface);
+    color: var(--color-text-primary);
+  }
+
+  &:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+}
+
+.ruleBtnDanger:hover:not(:disabled) {
+  color: var(--color-danger);
+}
+
+.lockedTag {
+  @include flex-center;
+  padding: 2px;
+  color: var(--color-text-muted);
+}
+
+/* 前往資源詳情（迷你拓撲、對外服務等單機深度資訊） */
+.detailLink {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: $font-size-12;
+  color: var(--color-primary);
+  text-decoration: none;
+
+  &:hover {
+    text-decoration: underline;
+  }
 }
 
 /* ── Badge ── */

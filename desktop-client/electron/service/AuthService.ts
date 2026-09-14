@@ -71,7 +71,24 @@ class AuthService {
 
     try {
       const dc = await this._SkyLabService.requestDeviceCode();
-      await shell.openExternal(dc.login_url);
+      // 只允許在瀏覽器開啟 http(s) 連結；後端若被竄改回傳 file:// 或自訂 scheme，
+      // shell.openExternal 會直接交給作業系統執行，必須先擋掉。
+      let loginUrl: URL;
+      try {
+        loginUrl = new URL(dc.login_url);
+      } catch {
+        throw new BusinessError(
+          ResponseCode.INTERNAL_ERROR,
+          "Backend returned an invalid login URL"
+        );
+      }
+      if (loginUrl.protocol !== "https:" && loginUrl.protocol !== "http:") {
+        throw new BusinessError(
+          ResponseCode.INTERNAL_ERROR,
+          `Refusing to open login URL with scheme ${loginUrl.protocol}`
+        );
+      }
+      await shell.openExternal(loginUrl.toString());
       const expiresAt = Date.now() + dc.expires_in * 1000;
 
       const poll = async () => {

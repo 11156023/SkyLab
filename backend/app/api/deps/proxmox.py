@@ -109,6 +109,68 @@ def get_resource_info(
 ResourceInfoDep = Annotated[dict, Depends(get_resource_info)]
 
 
+def check_resource_control_access(
+    vmid: int,
+    current_user: CurrentUser,
+    session: SessionDep,
+) -> None:
+    """使用層級的存取：擁有者／管理員之外，被分享的使用者也能開關機與開主控台。
+
+    只用在電源控制、主控台、即時監控這些「用機器」的端點；憑證、快照、
+    規格、對外服務等擁有者層級的操作仍走 ``check_resource_ownership``。
+    """
+    try:
+        check_resource_ownership(vmid, current_user, session)
+        return
+    except PermissionDeniedError:
+        from app.services.resource import sharing_service  # noqa: PLC0415
+
+        if sharing_service.user_has_share(
+            session=session, vmid=vmid, user_id=current_user.id
+        ):
+            return
+        raise
+
+
+def get_resource_info_controllable(
+    vmid: int,
+    current_user: CurrentUser,
+    session: SessionDep,
+) -> dict:
+    """Resource info for control-level access (owner, admin, or shared user)."""
+    check_resource_control_access(vmid, current_user, session)
+    return proxmox_service.find_resource(vmid)
+
+
+ControlResourceInfoDep = Annotated[dict, Depends(get_resource_info_controllable)]
+
+
+def get_vm_info_controllable(
+    vmid: int,
+    current_user: CurrentUser,
+    session: SessionDep,
+) -> dict:
+    """VM info for console access (owner, admin, or shared user)."""
+    check_resource_control_access(vmid, current_user, session)
+    return proxmox_service.find_resource(vmid)
+
+
+ControlVmInfoDep = Annotated[dict, Depends(get_vm_info_controllable)]
+
+
+def get_lxc_info_controllable(
+    vmid: int,
+    current_user: CurrentUser,
+    session: SessionDep,
+) -> dict:
+    """LXC info for terminal access (owner, admin, or shared user)."""
+    check_resource_control_access(vmid, current_user, session)
+    return proxmox_service.find_lxc(vmid)
+
+
+ControlLxcInfoDep = Annotated[dict, Depends(get_lxc_info_controllable)]
+
+
 def check_firewall_access(
     vmid: int,
     current_user: CurrentUser,

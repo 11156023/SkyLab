@@ -17,34 +17,46 @@ from app.core.i18n import t
 
 
 class TeacherJudgeRubricCheckStep(BaseModel):
-    """評分計劃書中的 command catalog 引用。"""
+    """檢查計劃中的 command catalog 引用。"""
 
-    template_key: str = Field(..., description="評分環境 template key")
+    template_key: str = Field(..., description="檢查環境 template key")
     command_key: str = Field(..., description="template command catalog 的穩定 ID")
     command_label: str | None = Field(
         default=None,
         description="template command catalog 的顯示名稱",
     )
+    parameters: dict[str, Any] = Field(
+        default_factory=dict,
+        description="產生受管腳本所需的結構化執行參數，不得由腳本生成器猜測。",
+    )
 
 
 class TeacherJudgeRubricItem(BaseModel):
-    """單一評分項目。"""
+    """單一檢查項目。"""
 
-    id: str = Field(..., description="評分項目唯一 ID")
-    title: str = Field(..., description="評分項目名稱")
-    description: str = Field(default="", description="評分說明")
-    checked: bool = Field(default=False, description="是否已達成（有做到就打勾）")
+    id: str = Field(..., description="檢查項目唯一 ID")
+    title: str = Field(..., description="檢查項目名稱")
+    description: str = Field(default="", description="檢查說明")
+    checked: bool = Field(default=False, description="是否已確認")
     detectable: Literal["auto", "partial", "manual"] = Field(
         default="manual",
-        description="可偵測性：auto | partial | manual",
+        description="腳本取證支援：auto=可執行取證、partial=缺少資訊、manual=不支援",
+    )
+    judgement_mode: Literal["ai", "teacher"] = Field(
+        default="ai",
+        description="結果核對方式：ai=系統自動核對、teacher=導師依腳本證據核查",
     )
     detection_method: str | None = Field(
         default=None,
-        description="自動偵測方式說明（detectable=auto/partial 時填寫）",
+        description="腳本取證方式說明（detectable=auto/partial 時填寫）",
     )
     fallback: str | None = Field(
         default=None,
         description="無法自動偵測時的替代建議",
+    )
+    missing_information: list[str] = Field(
+        default_factory=list,
+        description="目前尚缺、補齊後才可能產生並執行取證腳本的資訊。",
     )
     check_steps: list[TeacherJudgeRubricCheckStep] = Field(
         default_factory=list,
@@ -53,7 +65,7 @@ class TeacherJudgeRubricItem(BaseModel):
 
 
 class TeacherJudgeRubricAnalysis(BaseModel):
-    """AI 分析評分表後的結構化結果。"""
+    """AI 核對檢查表後的結構化結果。"""
 
     items: list[TeacherJudgeRubricItem] = Field(default_factory=list)
     total_items: int = Field(default=0)
@@ -63,12 +75,13 @@ class TeacherJudgeRubricAnalysis(BaseModel):
     manual_count: int = Field(default=0)
     detectability_needs_review: bool = Field(
         default=False,
-        description="評分項目異動後，既有可偵測性結果是否需要重新評估。",
+        description="檢查項目異動後，既有證據收集支援是否需要重新核查。",
+    )
+    pending_review_item_ids: list[str] = Field(
+        default_factory=list,
+        description="尚未重新確認證據收集支援的檢查項目 ID。",
     )
     summary: str = Field(default="", description="AI 整體說明（繁體中文）")
-    raw_text: str = Field(
-        default="", description="解析後的原始文件文字（供後續對話使用）"
-    )
 
 
 class TeacherJudgeRubricChatMessage(BaseModel):
@@ -76,42 +89,6 @@ class TeacherJudgeRubricChatMessage(BaseModel):
 
     role: Literal["user", "assistant"] = Field(..., description="'user' 或 'assistant'")
     content: str = Field(..., description="訊息內容")
-
-
-class TeacherJudgeRubricChatRequest(BaseModel):
-    """對話請求。"""
-
-    messages: list[TeacherJudgeRubricChatMessage] = Field(..., min_length=1)
-    rubric_context: str = Field(
-        default="", description="目前評分表的 JSON 字串（作為背景知識）"
-    )
-    is_refine: bool = Field(
-        default=False, description="True = 以目前評分表執行整表潤飾模式"
-    )
-    template_key: str = Field(
-        default="linux",
-        description="目前評分環境 template key，用於驗證 check_steps",
-    )
-
-
-class TeacherJudgeRubricChatResponse(BaseModel):
-    """對話回應。"""
-
-    reply: str
-    updated_items: list[dict[str, Any]] | None = None
-    prompt_tokens: int
-    completion_tokens: int
-    total_tokens: int
-    elapsed_seconds: float
-    tokens_per_second: float
-
-
-class TeacherJudgeRubricUploadResponse(BaseModel):
-    """上傳評分表回應。"""
-
-    analysis: TeacherJudgeRubricAnalysis
-    ai_metrics: dict[str, Any]
-    template_key: str = "linux"
 
 
 class TeacherJudgeRubricExportRequest(BaseModel):
@@ -134,6 +111,7 @@ TeacherJudgeScriptRunStatusLiteral = Literal[
     "pending", "running", "completed", "failed", "cancelled"
 ]
 TeacherJudgeSessionStatusLiteral = Literal["active", "archived"]
+TeacherJudgeAttachmentStatusLiteral = Literal["ready", "failed"]
 TeacherJudgeMessageRoleLiteral = Literal["user", "assistant"]
 TeacherJudgeMessageTypeLiteral = Literal["chat", "rubric_proposal", "system_notice"]
 TeacherJudgeSessionCreationModeLiteral = Literal["blank", "existing"]
@@ -171,7 +149,9 @@ class TeacherJudgeSessionCreateRequest(BaseModel):
     def normalize_environment_keys(cls, value: list[str] | None) -> list[str] | None:
         if value is None:
             return None
-        normalized = list(dict.fromkeys(str(key).strip().lower() for key in value if str(key).strip()))
+        normalized = list(
+            dict.fromkeys(str(key).strip().lower() for key in value if str(key).strip())
+        )
         if any(key not in SUPPORTED_TEMPLATE_KEYS for key in normalized):
             raise ValueError(t("schemas.environment_keys_unsupported"))
         return normalized
@@ -233,11 +213,12 @@ class TeacherJudgeSessionPublic(BaseModel):
 
 
 class TeacherJudgeSessionMessageCreateRequest(BaseModel):
-    content: str = Field(..., min_length=1, max_length=20000)
+    content: str = Field(default="", max_length=20000)
     analysis_revision: int | None = Field(default=None, ge=1)
+    attachment_ids: list[uuid.UUID] = Field(default_factory=list, max_length=5)
     is_refine: bool = Field(
         default=False,
-        description="True = 以目前評分表執行整表潤飾",
+        description="True = 以目前檢查表執行整表潤飾",
     )
 
 
@@ -248,6 +229,7 @@ class TeacherJudgeSessionMessagePublic(BaseModel):
     content: str
     message_type: TeacherJudgeMessageTypeLiteral
     metadata_json: dict[str, Any]
+    attachments: list[TeacherJudgeSessionAttachmentPublic] = Field(default_factory=list)
     created_by: str | None
     created_at: str
 
@@ -257,6 +239,29 @@ class TeacherJudgeSessionChatResponse(BaseModel):
     assistant_message: TeacherJudgeSessionMessagePublic
     rubric_proposal: list[dict[str, Any]] | None = None
     base_revision: int | None = None
+
+
+class TeacherJudgeSessionAttachmentPublic(BaseModel):
+    id: str
+    session_id: str
+    message_id: str | None = None
+    original_filename: str
+    media_type: str | None = None
+    size_bytes: int
+    file_hash: str
+    status: TeacherJudgeAttachmentStatusLiteral
+    error_message: str | None = None
+    created_at: str
+
+
+class TeacherJudgeSessionAttachmentUploadResponse(BaseModel):
+    attachment: TeacherJudgeSessionAttachmentPublic
+
+
+class TeacherJudgeSessionScriptCreateRequest(BaseModel):
+    """Create a session script only from the currently confirmed rubric revision."""
+
+    analysis_revision: int | None = Field(default=None, ge=1)
 
 
 class TeacherJudgeScriptCreateRequest(BaseModel):
@@ -285,6 +290,20 @@ class TeacherJudgeScriptRegenerateRequest(BaseModel):
     """Regenerate a managed script artifact."""
 
     rubric_snapshot: TeacherJudgeRubricAnalysis | None = None
+
+
+class TeacherJudgeScriptUpdateRequest(BaseModel):
+    """Rename a managed script artifact."""
+
+    name: str = Field(..., min_length=1, max_length=255)
+
+    @field_validator("name")
+    @classmethod
+    def validate_name(cls, value: str) -> str:
+        name = value.strip()
+        if not name:
+            raise ValueError(t("schemas.name_blank"))
+        return name
 
 
 class TeacherJudgeScriptArtifactPublic(BaseModel):
@@ -327,75 +346,9 @@ class TeacherJudgeFilePublic(BaseModel):
     updated_at: str
 
 
-class TeacherJudgeFileCreateRequest(BaseModel):
-    """Create a class-scoped rubric asset without uploading a document."""
-
-    display_name: str = Field(..., min_length=1, max_length=255)
-    environment_keys: list[str] = Field(..., min_length=1)
-
-    @field_validator("display_name")
-    @classmethod
-    def normalize_create_display_name(cls, value: str) -> str:
-        name = value.strip()
-        if not name:
-            raise ValueError(t("schemas.display_name_blank"))
-        return name
-
-    @field_validator("environment_keys")
-    @classmethod
-    def normalize_create_environment_keys(cls, value: list[str]) -> list[str]:
-        normalized = list(dict.fromkeys(str(key).strip().lower() for key in value if str(key).strip()))
-        if not normalized or any(key not in SUPPORTED_TEMPLATE_KEYS for key in normalized):
-            raise ValueError(t("schemas.environment_keys_must_contain_supported"))
-        return normalized
-
-
-class TeacherJudgeFileUploadResponse(BaseModel):
-    file: TeacherJudgeFilePublic
-    analysis: TeacherJudgeRubricAnalysis
-    ai_metrics: dict[str, Any]
-    template_key: str = "linux"
-
-
 class TeacherJudgeFileAnalysisUpdateRequest(BaseModel):
     analysis: TeacherJudgeRubricAnalysis
     expected_revision: int | None = Field(default=None, ge=1)
-
-
-class TeacherJudgeFileMetadataUpdateRequest(BaseModel):
-    display_name: str | None = Field(default=None, min_length=1, max_length=255)
-    environment_keys: list[str] | None = None
-    template_key: str | None = Field(default=None, max_length=50)
-
-    @field_validator("display_name")
-    @classmethod
-    def normalize_display_name(cls, value: str | None) -> str | None:
-        if value is None:
-            return None
-        name = value.strip()
-        if not name:
-            raise ValueError(t("schemas.display_name_blank"))
-        return name
-
-    @field_validator("environment_keys")
-    @classmethod
-    def normalize_metadata_environment_keys(cls, value: list[str] | None) -> list[str] | None:
-        if value is None:
-            return None
-        normalized = list(dict.fromkeys(str(key).strip().lower() for key in value if str(key).strip()))
-        if not normalized or any(key not in SUPPORTED_TEMPLATE_KEYS for key in normalized):
-            raise ValueError(t("schemas.environment_keys_must_contain_supported"))
-        return normalized
-
-    @field_validator("template_key")
-    @classmethod
-    def normalize_metadata_template_key(cls, value: str | None) -> str | None:
-        if value is None:
-            return None
-        key = value.strip().lower()
-        if key not in SUPPORTED_TEMPLATE_KEYS:
-            raise ValueError(t("schemas.template_key_unsupported"))
-        return key
 
 
 class TeacherJudgeSessionForkRequest(BaseModel):
@@ -455,22 +408,3 @@ class TeacherJudgeScriptRunSummary(BaseModel):
     finished_at: str | None
     created_at: str
     updated_at: str
-
-
-# Legacy aliases kept for existing imports while new code migrates to the
-# TeacherJudge-prefixed schema names above.
-RubricCheckStep = TeacherJudgeRubricCheckStep
-RubricItem = TeacherJudgeRubricItem
-RubricAnalysis = TeacherJudgeRubricAnalysis
-ChatMessage = TeacherJudgeRubricChatMessage
-RubricChatRequest = TeacherJudgeRubricChatRequest
-RubricChatResponse = TeacherJudgeRubricChatResponse
-RubricUploadResponse = TeacherJudgeRubricUploadResponse
-RubricExportRequest = TeacherJudgeRubricExportRequest
-
-FileStatus = TeacherJudgeFileStatusLiteral
-ScriptLanguage = TeacherJudgeScriptLanguageLiteral
-ScriptSource = TeacherJudgeScriptSourceLiteral
-ScriptStatus = TeacherJudgeScriptStatusLiteral
-ScriptRunTargetScope = TeacherJudgeScriptRunTargetScopeLiteral
-ScriptRunStatus = TeacherJudgeScriptRunStatusLiteral

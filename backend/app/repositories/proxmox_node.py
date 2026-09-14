@@ -2,7 +2,7 @@
 
 from datetime import datetime, timezone
 
-from sqlmodel import Session, select
+from sqlmodel import Session, col, select
 
 from app.models.proxmox_connection import ProxmoxConnection
 from app.models.proxmox_node import ProxmoxNode
@@ -86,7 +86,7 @@ def upsert_nodes(
     if connection_id is not None:
         stmt = stmt.where(
             (ProxmoxNode.connection_id == connection_id)
-            | (ProxmoxNode.connection_id == None)  # noqa: E711 - 舊資料歸屬預設連線
+            | col(ProxmoxNode.connection_id).is_(None)  # 舊資料歸屬預設連線
         )
     existing_all = list(session.exec(stmt).all())
     existing_map: dict[str, ProxmoxNode] = {n.name: n for n in existing_all}

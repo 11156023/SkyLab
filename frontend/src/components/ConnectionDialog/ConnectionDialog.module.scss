@@ -29,7 +29,7 @@
   @include glass-surface($shadow: var(--shadow-lg));
   border-radius: $radius-16;
   width: 100%;
-  max-width: 480px;
+  max-width: 560px;
   @include flex-column;
   max-height: 90vh;
   overflow: hidden;
@@ -68,6 +68,42 @@
   &:hover { background: var(--color-hover); }
 }
 
+/* ── 分頁：連線 / 自訂規則 ── */
+.tabs {
+  display: flex;
+  gap: $spacing-4;
+  padding: $spacing-8 $spacing-24 0;
+  border-bottom: 1px solid var(--color-border);
+  flex-shrink: 0;
+}
+
+.tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: $spacing-8 $spacing-16;
+  margin-bottom: -1px;
+  border-bottom: 2px solid transparent;
+  font-size: $font-size-14;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  transition: color $transition-base, border-color $transition-base;
+
+  &:hover { color: var(--color-text); }
+}
+
+.tabActive {
+  color: var(--color-primary);
+  border-bottom-color: var(--color-primary);
+  font-weight: $font-weight-500;
+}
+
+.tabDesc {
+  font-size: $font-size-14;
+  color: var(--color-text-secondary);
+  line-height: 1.5;
+}
+
 /* ── Body ── */
 .dialogBody {
   @include flex-column;
@@ -76,7 +112,7 @@
   overflow-y: auto;
 }
 
-/* ── Node selector row ── */
+/* ── 來源 ⇄ 目標 ── */
 .nodeRow {
   display: flex;
   align-items: flex-end;
@@ -98,7 +134,6 @@
   letter-spacing: 0.05em;
 }
 
-/* 來源 ⇄ 目標交換按鈕 */
 .swapBtn {
   @include flex-center;
   flex-shrink: 0;
@@ -112,13 +147,15 @@
   cursor: pointer;
   transition: color $transition-base, border-color $transition-base;
 
-  &:hover {
+  &:hover:not(:disabled) {
     color: var(--color-primary);
     border-color: var(--color-primary);
   }
+  &:disabled { opacity: 0.5; cursor: not-allowed; }
 }
 
-.select {
+.select,
+.textInput {
   width: 100%;
   padding: 8px $spacing-16;
   border: 1px solid var(--color-border);
@@ -126,13 +163,143 @@
   font-size: $font-size-14;
   background: var(--color-surface);
   color: var(--color-text);
-  cursor: pointer;
   transition: border-color $transition-base;
 
   &:focus { border-color: var(--color-primary); }
+  &:disabled { opacity: 0.6; cursor: not-allowed; }
+  &::placeholder { color: var(--color-text-muted); }
 }
 
-/* ── Mode toggle ── */
+.select { cursor: pointer; }
+
+/* ── 表單欄位 ── */
+.formGrid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: $spacing-16;
+
+  @include respond-to(md) {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+.field {
+  @include flex-column;
+  gap: $spacing-4;
+  min-width: 0;
+}
+
+.fieldLabel {
+  font-size: $font-size-14;
+  font-weight: $font-weight-500;
+  color: var(--color-text);
+}
+
+.fieldHint {
+  font-size: $font-size-12;
+  color: var(--color-text-muted);
+  line-height: 1.5;
+}
+
+.ghostBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  align-self: flex-start;
+  padding: 3px $spacing-8;
+  border-radius: $radius-8;
+  font-size: $font-size-12;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  transition: background $transition-base, color $transition-base;
+
+  &:hover {
+    background: var(--color-hover);
+    color: var(--color-text);
+  }
+}
+
+.linkBtn {
+  font-size: inherit;
+  color: var(--color-primary);
+  text-decoration: underline;
+  cursor: pointer;
+
+  &:hover { opacity: 0.8; }
+}
+
+.checkRow {
+  display: inline-flex;
+  align-items: center;
+  gap: $spacing-8;
+  font-size: $font-size-14;
+  color: var(--color-text);
+  cursor: pointer;
+
+  input {
+    width: 16px;
+    height: 16px;
+  }
+}
+
+.hintLine {
+  display: inline-flex;
+  align-items: flex-start;
+  gap: 6px;
+  font-size: $font-size-12;
+  color: var(--color-text-muted);
+  line-height: 1.5;
+}
+
+.hintOk   { color: var(--color-success); }
+.hintBad  { color: var(--color-danger); }
+.hintWarn { color: var(--color-pending); }
+
+/* ── 發布方式卡片 ── */
+.modeCards {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: $spacing-8;
+
+  @include respond-to(md) {
+    grid-template-columns: repeat(3, 1fr);
+  }
+}
+
+.modeCard {
+  @include flex-column;
+  gap: 2px;
+  padding: $spacing-8 $spacing-16;
+  border: 1px solid var(--color-border);
+  border-radius: $radius-8;
+  text-align: left;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  transition: border-color $transition-base, background $transition-base;
+
+  strong {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-size: $font-size-14;
+    font-weight: $font-weight-500;
+    color: var(--color-text-primary);
+  }
+
+  span {
+    font-size: $font-size-12;
+    line-height: 1.4;
+  }
+
+  &:hover { background: var(--color-hover); }
+}
+
+.modeCardActive {
+  border-color: var(--color-primary);
+  background: color-mix(in srgb, var(--color-primary) 8%, transparent);
+}
+
+/* ── Segmented toggle（VM→VM 方向） ── */
 .modeToggle {
   display: flex;
   gap: $spacing-4;
@@ -150,6 +317,8 @@
   cursor: pointer;
   transition: background $transition-base, color $transition-base;
   white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 
   &.modeBtnActive {
     background: var(--color-surface);
@@ -159,19 +328,20 @@
   }
 }
 
-.modeDesc {
-  font-size: $font-size-14;
-  color: var(--color-text-secondary);
-  margin-bottom: -$spacing-4;
-}
-
-/* ── Port section ── */
+/* ── Port 列 ── */
 .portSection {
   @include flex-column;
   gap: $spacing-8;
 }
 
-.portRowHeader {
+.portRow {
+  display: grid;
+  grid-template-columns: 1fr 96px 28px;
+  gap: $spacing-8;
+  align-items: center;
+}
+
+.forwardRowHeader {
   display: grid;
   grid-template-columns: 1fr 1fr 80px 28px;
   gap: $spacing-8;
@@ -181,17 +351,11 @@
   padding: 0 2px;
 }
 
-.portRow {
+.forwardRow {
   display: grid;
-  grid-template-columns: 1fr 80px 28px;
+  grid-template-columns: 1fr 1fr 80px 28px;
   gap: $spacing-8;
   align-items: center;
-}
-
-/* Port forwarding row has 4 columns */
-.portRowHeader + .portSection .portRow,
-.portRow:has(:nth-child(4)) {
-  grid-template-columns: 1fr 1fr 80px 28px;
 }
 
 .portInput {
@@ -205,7 +369,17 @@
   transition: border-color $transition-base;
 
   &:focus { border-color: var(--color-primary); }
+  &:disabled { opacity: 0.6; }
   &::placeholder { color: var(--color-text-muted); }
+}
+
+.portInputInvalid {
+  border-color: var(--color-danger);
+
+  &:focus {
+    border-color: var(--color-danger);
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-danger) 18%, transparent);
+  }
 }
 
 .protoSelect {
@@ -228,7 +402,8 @@
   transition: background $transition-base, color $transition-base;
   flex-shrink: 0;
 
-  &:hover { background: color-mix(in srgb, var(--color-danger) 15%, transparent); }
+  &:hover:not(:disabled) { background: color-mix(in srgb, var(--color-danger) 15%, transparent); }
+  &:disabled { opacity: 0.35; cursor: not-allowed; }
 }
 
 .addBtn {
@@ -244,22 +419,17 @@
   &:hover { opacity: 0.75; }
 }
 
-/* ── Outbound message ── */
-.outboundMsg {
+/* ── 說明框（出站說明、自訂規則提示） ── */
+.infoBox {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: $spacing-8;
   font-size: $font-size-14;
+  line-height: 1.5;
   color: var(--color-text-secondary);
   background: var(--color-hover);
   padding: $spacing-8 $spacing-16;
   border-radius: $radius-8;
-}
-
-/* ── Direction ── */
-.directionRow {
-  @include flex-column;
-  gap: $spacing-8;
 }
 
 /* ── Error ── */
@@ -288,7 +458,8 @@
   cursor: pointer;
   transition: background $transition-base;
 
-  &:hover { background: var(--color-hover); }
+  &:hover:not(:disabled) { background: var(--color-hover); }
+  &:disabled { opacity: 0.6; cursor: not-allowed; }
 }
 
 .confirmBtn {
@@ -303,16 +474,4 @@
 
   &:hover:not(:disabled) { background: var(--color-primary-dark); }
   &:disabled { opacity: 0.6; cursor: not-allowed; }
-}
-
-$spacing-16: 12px;
-
-/* ── 未填欄位：紅框 ── */
-.portInputInvalid {
-  border-color: var(--color-danger);
-
-  &:focus {
-    border-color: var(--color-danger);
-    box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-danger) 18%, transparent);
-  }
 }

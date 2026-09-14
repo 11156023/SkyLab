@@ -111,22 +111,112 @@ class TestAverageCpuPercent:
 
 class TestDecideIdleAction:
     THRESHOLD = 1.0
+    NOTIFY_HOURS = 12
     GRACE_HOURS = 24
+    WINDOW_HOURS = 48
 
     def _idle(
         self,
         *,
         avg: float | None,
         idle_since: datetime | None = None,
+        notified: datetime | None = None,
         now: datetime = NOW,
+        uptime: int | None = None,
+        window: int = WINDOW_HOURS,
     ) -> IdleAction:
         return decide_idle_action(
             avg_cpu=avg,
             idle_since=idle_since,
+            idle_notified_at=notified,
             now=now,
             threshold_percent=self.THRESHOLD,
+            notify_after_hours=self.NOTIFY_HOURS,
             grace_hours=self.GRACE_HOURS,
+            window_hours=window,
+            uptime_seconds=uptime,
         )
+
+    # ── 通知延遲 ─────────────────────────────────────────────────────────
+
+    def test_notify_after_elapsed_notifies_once(self) -> None:
+        assert (
+            self._idle(avg=0.5, idle_since=NOW - timedelta(hours=13))
+            is IdleAction.notify
+        )
+        # 已通知過就等寬限期，不重複寄
+        assert (
+            self._idle(
+                avg=0.5,
+                idle_since=NOW - timedelta(hours=13),
+                notified=NOW - timedelta(hours=1),
+            )
+            is IdleAction.none
+        )
+
+    def test_before_notify_after_stays_silent(self) -> None:
+        assert (
+            self._idle(avg=0.5, idle_since=NOW - timedelta(hours=11))
+            is IdleAction.none
+        )
+
+    def test_grace_elapsed_without_notification_still_stops(self) -> None:
+        # 掃描漏拍導致沒寄過通知：寬限期滿仍關機（關機信本身就是通知）
+        assert (
+            self._idle(avg=0.5, idle_since=NOW - timedelta(hours=25))
+            is IdleAction.stop
+        )
+
+    def test_active_after_notification_clears(self) -> None:
+        assert (
+            self._idle(
+                avg=5.0,
+                idle_since=NOW - timedelta(hours=13),
+                notified=NOW - timedelta(hours=1),
+            )
+            is IdleAction.clear
+        )
+
+    # ── uptime 規則 ──────────────────────────────────────────────────────
+
+    def test_rebooted_since_mark_clears(self) -> None:
+        # 標記 30 小時前、但本次只開機 1 小時 → 曾重開機，清除舊標記
+        assert (
+            self._idle(avg=0.5, idle_since=NOW - timedelta(hours=30), uptime=3600)
+            is IdleAction.clear
+        )
+
+    def test_rebooted_since_mark_clears_even_without_data(self) -> None:
+        assert (
+            self._idle(avg=None, idle_since=NOW - timedelta(hours=30), uptime=600)
+            is IdleAction.clear
+        )
+
+    def test_marked_not_rebooted_grace_elapsed_stops(self) -> None:
+        assert (
+            self._idle(
+                avg=0.5,
+                idle_since=NOW - timedelta(hours=25),
+                uptime=100 * 3600,
+            )
+            is IdleAction.stop
+        )
+
+    def test_uptime_shorter_than_window_skips(self) -> None:
+        # 開機未滿觀察視窗：平均只代表短暫開機時間，不標記也不清除
+        assert self._idle(avg=0.5, uptime=47 * 3600) is IdleAction.none
+        assert (
+            self._idle(avg=0.5, idle_since=NOW - timedelta(hours=2), uptime=47 * 3600)
+            is IdleAction.none
+        )
+
+    def test_uptime_covers_window_marks(self) -> None:
+        assert self._idle(avg=0.5, uptime=48 * 3600) is IdleAction.mark
+
+    def test_unknown_uptime_keeps_cpu_only_rule(self) -> None:
+        assert self._idle(avg=0.5, uptime=None) is IdleAction.mark
+
+    # ── CPU 規則（uptime 未知）────────────────────────────────────────────
 
     def test_below_threshold_first_time(self) -> None:
         assert self._idle(avg=0.5) is IdleAction.mark

@@ -6,7 +6,10 @@ import { useAuth } from "../../../contexts/AuthContext";
 import styles from "./ResourcesPage.module.scss";
 import MIcon from "../../../components/MIcon";
 import PowerMenu from "../../../components/PowerMenu/PowerMenu";
+import TemplateConvertDialog from "../../../components/TemplateConvertDialog/TemplateConvertDialog";
+import useDialogPresence from "../../../hooks/useDialogPresence";
 import SharedEmptyState from "../../../components/EmptyState/EmptyState";
+import LoadingState from "../../../components/LoadingState/LoadingState";
 import { ResourcesService } from "../../../services/resources";
 import {
   PENDING_POLL_INTERVAL,
@@ -20,8 +23,10 @@ import TerminalDialog from "./TerminalDialog";
 import VncDialog from "./VncDialog";
 import QuotaUsageBar from "../../../components/Teaching/QuotaUsageBar";
 import PageHeader from "../../../components/PageHeader/PageHeader";
+import { useConfirm } from "../../../components/ConfirmDialog/ConfirmProvider";
 import { QuickPracticeService } from "../../../services/quickPractice";
 import { buildEnvironmentGroups, groupedResourceKeys } from "../../../utils/environmentGroups";
+import * as fmt from "../../../utils/formatDate";
 
 /* ── Constants ── */
 const STATUS_MAP = {
@@ -49,21 +54,19 @@ const DESKTOP_CLIENT_DOWNLOAD_URL = import.meta.env.VITE_DESKTOP_CLIENT_DOWNLOAD
 
 /* ── Helpers ── */
 function formatDate(isoStr) {
-  if (!isoStr) return null;
-  return new Date(isoStr).toLocaleDateString("zh-TW", {
-    year: "numeric", month: "2-digit", day: "2-digit",
-  });
+  return fmt.formatDate(isoStr, null);
 }
 
 function formatDatetime(isoStr) {
-  if (!isoStr) return null;
-  return new Date(isoStr).toLocaleString("zh-TW", {
-    year: "numeric", month: "2-digit", day: "2-digit",
-    hour: "2-digit", minute: "2-digit", hour12: false,
-  });
+  return fmt.formatDateTime(isoStr, null);
 }
 
 /* ── Primitive sub-components ── */
+/* reboot / reset 之後機器仍是開著的；原本一律當成 stopped 會讓列上的狀態說謊。 */
+function statusAfterAction(action) {
+  return action === "stop" || action === "shutdown" ? "stopped" : "running";
+}
+
 function StatusBadge({ status }) {
   const { t } = useTranslation("personal");
   const s = STATUS_MAP[status] ?? { label: status, color: "muted", icon: "help_outline" };
@@ -75,46 +78,6 @@ function StatusBadge({ status }) {
 }
 
 /* ── Confirm Modal ── */
-function ConfirmModal({ title, desc, confirmLabel, danger = false, loading = false, onConfirm, onClose }) {
-  const { t } = useTranslation("personal");
-  const [closing, setClosing] = useState(false);
-
-  function close() {
-    if (closing) return;
-    setClosing(true);
-  }
-
-  function handleAnimationEnd() {
-    if (closing) onClose();
-  }
-
-  return (
-    <div
-      className={`${styles.modalOverlay} ${closing ? styles.modalOverlayOut : ""}`}
-      onClick={close}
-      onAnimationEnd={handleAnimationEnd}
-    >
-      <div className={styles.modal} onClick={(e) => e.stopPropagation()}>
-        <span className={styles.modalTitle}>{title}</span>
-        {desc && <p className={styles.modalDesc}>{desc}</p>}
-        <div className={styles.modalActions}>
-          <button type="button" className={styles.btnSecondary} onClick={close}>
-            {t("ConfirmModal.cancel")}
-          </button>
-          <button
-            type="button"
-            className={danger ? styles.btnDanger : styles.btnPrimary}
-            disabled={loading}
-            onClick={onConfirm}
-          >
-            {loading ? t("ConfirmModal.processing") : (confirmLabel ?? t("ConfirmModal.confirm"))}
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
 /* ── Creating placeholder row ── */
 
 /** 依申請階段決定 placeholder 的狀態顯示（開通中 / 超時 / 失敗…） */
@@ -147,7 +110,7 @@ function formatMemory(memoryMb) {
 function CreatingRow({ request, onCancelled }) {
   const { t } = useTranslation("personal");
   const toast = useToast();
-  const [cancelConfirm, setCancelConfirm] = useState(false);
+  const confirm = useConfirm();
   const [cancelling, setCancelling]       = useState(false);
 
   const type    = TYPE_MAP[request.resource_type === "lxc" ? "lxc" : "qemu"];
@@ -156,11 +119,17 @@ function CreatingRow({ request, onCancelled }) {
   const canCancel = request.provisioning_status !== "running";
 
   async function handleCancel() {
+    const ok = await confirm({
+      title: t("CreatingRow.confirmCancelTitle"),
+      message: t("CreatingRow.confirmCancelDesc", { hostname: request.hostname }),
+      confirmText: t("CreatingRow.confirmCancelLabel"),
+      danger: true,
+    });
+    if (!ok) return;
     setCancelling(true);
     try {
       await cancelVmRequest(request.id);
       toast.success(t("CreatingRow.cancelRequestSuccess", { hostname: request.hostname }));
-      setCancelConfirm(false);
       onCancelled();
     } catch (err) {
       toast.error(err?.message ?? t("CreatingRow.cancelRequestFailed"));
@@ -178,6 +147,7 @@ function CreatingRow({ request, onCancelled }) {
     <tr className={`${styles.tr} ${styles.pendingRow}`}>
       <td className={styles.td}>
         <div className={styles.nameCell}>
+          <span className={styles.nameIcon}><MIcon name={type.icon} size={18} /></span>
           <div><strong>{request.hostname}</strong><small>{t(type.labelKey)} · {specs || t("CreatingRow.specsPending")}</small></div>
         </div>
       </td>
@@ -191,23 +161,11 @@ function CreatingRow({ request, onCancelled }) {
       <td className={styles.td}>{formatDatetime(request.start_at) ?? formatDatetime(request.created_at)}</td>
       <td className={styles.td}>{request.assigned_node ?? request.desired_node ?? t("CreatingRow.notAssigned")}</td>
       <td className={styles.td}>
-        <button type="button" className={styles.cancelBtn} disabled={!canCancel || cancelling} onClick={() => setCancelConfirm(true)}>
+        <button type="button" className={styles.cancelBtn} disabled={!canCancel || cancelling} onClick={handleCancel}>
           <MIcon name="cancel" size={14} />{t("CreatingRow.cancelRequest")}
         </button>
       </td>
     </tr>
-    {cancelConfirm && createPortal(
-      <ConfirmModal
-        title={t("CreatingRow.confirmCancelTitle")}
-        desc={t("CreatingRow.confirmCancelDesc", { hostname: request.hostname })}
-        confirmLabel={t("CreatingRow.confirmCancelLabel")}
-        danger
-        loading={cancelling}
-        onConfirm={handleCancel}
-        onClose={() => setCancelConfirm(false)}
-      />,
-      document.body,
-    )}
   </>;
 }
 
@@ -229,12 +187,20 @@ function ResourceRow({ resource, onUpdated, onDeleted }) {
   const { user } = useAuth();
   /* VMID 是系統內部編號，僅管理員／老師看得到 */
   const showVmid = user?.is_superuser || user?.role === "admin" || user?.role === "teacher";
+  /* 轉成範本只給老師／管理員，且只有自己能管理的個人機器 */
+  const canConvertTemplate = showVmid
+    && resource.can_manage !== false
+    && resource.allocation_scope !== "teaching_class"
+    && !resource.is_placeholder
+    && resource.vmid > 0;
+  const confirm = useConfirm();
   const [actionLoading, setActionLoading] = useState(null);
-  const [deleteConfirm, setDeleteConfirm]  = useState(false);
   const [deleting, setDeleting]            = useState(false);
   const [menuOpen, setMenuOpen]            = useState(false);
   const [menuClosing, setMenuClosing]      = useState(false);
   const [consoleOpen, setConsoleOpen]      = useState(false);
+  const [convertOpen, setConvertOpen]      = useState(false);
+  const convertDialog = useDialogPresence(convertOpen);
   const menuBtnRef = useRef(null);
 
   function closeMenu() {
@@ -251,20 +217,29 @@ function ResourceRow({ resource, onUpdated, onDeleted }) {
     setActionLoading(action);
     try {
       await ResourcesService[action](resource.vmid);
-      onUpdated({ ...resource, status: action === "start" ? "running" : "stopped" });
+      onUpdated({ ...resource, status: statusAfterAction(action) });
     } finally {
       setActionLoading(null);
     }
   }
 
   async function handleDelete() {
+    if (deleting) return;
+    const ok = await confirm({
+      title: t("ResourceRow.confirmDeleteTitle"),
+      message: showVmid
+        ? t("ResourceRow.confirmDeleteDescWithVmid", { name: resource.name, vmid: resource.vmid })
+        : t("ResourceRow.confirmDeleteDescNoVmid", { name: resource.name }),
+      confirmText: t("ResourceRow.confirmDeleteLabel"),
+      danger: true,
+    });
+    if (!ok) return;
     setDeleting(true);
     try {
       await ResourcesService.delete(resource.vmid);
       onDeleted(resource.vmid);
     } finally {
       setDeleting(false);
-      setDeleteConfirm(false);
     }
   }
 
@@ -272,11 +247,24 @@ function ResourceRow({ resource, onUpdated, onDeleted }) {
     <tr className={styles.tr} data-guide="resource-card">
       <td className={styles.td}>
         <div className={styles.nameCell}>
+          <span className={styles.nameIcon}><MIcon name={type.icon} size={18} /></span>
           <div>
             {resource.vmid > 0
               ? <button type="button" className={styles.nameLink} onClick={() => navigate(`/my-resources/${resource.vmid}`)}>{resource.name}</button>
               : <strong>{resource.name}</strong>}
             <small>{t(type.labelKey)}{showVmid && resource.vmid > 0 ? t("ResourceRow.vmidSuffix", { vmid: resource.vmid }) : ""}</small>
+            {(resource.access_role === "shared" || (resource.tags ?? []).length > 0) && (
+              <div className={styles.rowChips}>
+                {resource.access_role === "shared" && (
+                  <span className={`${styles.badge} ${styles.badge_info}`} title={t("ResourceRow.sharedByHint", { email: resource.owner_email ?? "—" })}>
+                    <MIcon name="group" size={11} /> {t("ResourceRow.sharedBadge")}
+                  </span>
+                )}
+                {(resource.tags ?? []).map((tag) => (
+                  <span key={tag} className={styles.tagChip}>{tag}</span>
+                ))}
+              </div>
+            )}
           </div>
         </div>
       </td>
@@ -292,24 +280,35 @@ function ResourceRow({ resource, onUpdated, onDeleted }) {
           </button>
           {actionLoading && <MIcon name="hourglass_empty" size={16} />}
           <div className={styles.menuWrap}>
-            {menuOpen && <PowerMenu resource={resource} actionLoading={actionLoading} onControl={handleControl} onDeleteClick={() => { closeMenu(); setDeleteConfirm(true); }} onClose={closeMenu} anchorRef={menuBtnRef} closing={menuClosing} />}
+            {menuOpen && <PowerMenu resource={resource} actionLoading={actionLoading} onControl={handleControl} onDeleteClick={resource.can_delete === false ? undefined : () => { closeMenu(); handleDelete(); }} onConvertTemplate={canConvertTemplate ? () => { closeMenu(); setConvertOpen(true); } : undefined} onClose={closeMenu} anchorRef={menuBtnRef} closing={menuClosing} />}
             <button ref={menuBtnRef} type="button" className={`${styles.menuBtn} ${menuOpen ? styles.menuBtnActive : ""}`} onClick={() => menuOpen ? closeMenu() : setMenuOpen(true)} title={t("ResourceRow.moreActions")}><MIcon name="more_vert" size={18} /></button>
           </div>
         </div> : <span className={styles.deletedNote}>{STATUS_MAP[resource.status]?.labelKey ? t(STATUS_MAP[resource.status].labelKey) : resource.status}</span>}
       </td>
     </tr>
-    {deleteConfirm && createPortal(<ConfirmModal title={t("ResourceRow.confirmDeleteTitle")} desc={showVmid ? t("ResourceRow.confirmDeleteDescWithVmid", { name: resource.name, vmid: resource.vmid }) : t("ResourceRow.confirmDeleteDescNoVmid", { name: resource.name })} confirmLabel={t("ResourceRow.confirmDeleteLabel")} danger loading={deleting} onConfirm={handleDelete} onClose={() => setDeleteConfirm(false)} />, document.body)}
     {consoleOpen && isLxc && createPortal(<TerminalDialog resource={resource} onClose={() => setConsoleOpen(false)} />, document.body)}
     {consoleOpen && !isLxc && createPortal(<VncDialog resource={resource} onClose={() => setConsoleOpen(false)} />, document.body)}
+    {convertDialog.open && createPortal(<TemplateConvertDialog resource={resource} closing={convertDialog.closing} onClose={() => setConvertOpen(false)} onDone={() => onDeleted(resource.vmid)} />, document.body)}
   </>;
+}
+
+function machineSpecLabel(machine) {
+  const parts = [];
+  if (machine.cpu) parts.push(`${machine.cpu} CPU`);
+  if (machine.memoryBytes) parts.push(`${Math.round(machine.memoryBytes / 1024 ** 3)} GB`);
+  return parts.join(" · ");
 }
 
 function EnvironmentMachineRow({ machine, groupStatus, onUpdated }) {
   const { t } = useTranslation("personal");
   const toast = useToast();
+  const navigate = useNavigate();
   const type = TYPE_MAP[machine.type] ?? { label: machine.type, icon: "computer" };
   const [consoleOpen, setConsoleOpen] = useState(false);
-  const [actionLoading, setActionLoading] = useState(false);
+  const [actionLoading, setActionLoading] = useState(null);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [menuClosing, setMenuClosing] = useState(false);
+  const menuBtnRef = useRef(null);
   const resource = machine.resource;
   const isLxc = machine.type === "lxc";
   const environmentReady = ["running", "active"].includes(groupStatus);
@@ -317,32 +316,47 @@ function EnvironmentMachineRow({ machine, groupStatus, onUpdated }) {
     environmentReady && resource?.vmid && resource.can_control !== false,
   );
   const canOpen = canControl && resource.status === "running";
-  const controlAction = resource?.status === "running" ? "shutdown" : "start";
+  const specLabel = machineSpecLabel(machine);
 
-  async function handleControl() {
+  function closeMenu() {
+    setMenuClosing(true);
+    setTimeout(() => { setMenuOpen(false); setMenuClosing(false); }, 130);
+  }
+
+  // 與單機列同一組電源控制；環境內的機器差別只在不能單台刪除。
+  async function handleControl(action) {
     if (!canControl || actionLoading) return;
-    setActionLoading(true);
+    setActionLoading(action);
     try {
-      await ResourcesService[controlAction](resource.vmid);
-      const status = controlAction === "start" ? "running" : "stopped";
-      onUpdated({ ...resource, status });
-      toast.success(controlAction === "start" ? t("EnvironmentMachineRow.startCommandSent") : t("EnvironmentMachineRow.shutdownCommandSent"));
+      await ResourcesService[action](resource.vmid);
+      onUpdated({ ...resource, status: statusAfterAction(action) });
+      toast.success(t("EnvironmentMachineRow.commandSent"));
     } catch (error) {
       toast.error(error?.message ?? t("EnvironmentMachineRow.controlFailed"));
     } finally {
-      setActionLoading(false);
+      setActionLoading(null);
     }
   }
 
   return <>
     <tr className={`${styles.tr} ${styles.environmentMachineRow}`}>
-    <td className={styles.td}><div className={`${styles.nameCell} ${styles.environmentMachineName}`}><span className={styles.machineBranch}>└</span><div><strong>{machine.name}</strong><small>{machine.role} · {t(type.labelKey ?? type.label)}</small></div></div></td>
+    <td className={styles.td}><div className={`${styles.nameCell} ${styles.environmentMachineName}`}><span className={styles.machineBranch}>└</span><div>{resource?.vmid > 0
+      ? <button type="button" className={styles.nameLink} onClick={() => navigate(`/my-resources/${resource.vmid}`)}>{machine.name}</button>
+      : <strong>{machine.name}</strong>}<small>{machine.role} · {t(type.labelKey ?? type.label)}{specLabel ? ` · ${specLabel}` : ""}</small></div></div></td>
     <td className={styles.td}><div className={styles.envPrimary}>{machine.os}</div><div className={styles.envSub}>{machine.resource ? t("EnvironmentMachineRow.resourceConnected") : t("EnvironmentMachineRow.creating")}</div></td>
     <td className={styles.td}><StatusBadge status={machine.status} /></td>
-    <td className={styles.td}><span className={styles.mono}>{machine.ip}</span></td>
+    <td className={styles.td}><span className={styles.mono}>{machine.ip}</span>
+      {machine.publicUrl && <a className={styles.publicUrlLink} href={machine.publicUrl} target="_blank" rel="noreferrer"><MIcon name="open_in_new" size={13} />{machine.publicUrl.replace(/^https?:\/\//, "")}</a>}</td>
     <td className={styles.td}><span className={styles.muted}>{t("EnvironmentMachineRow.managedByEnvironment")}</span></td>
     <td className={styles.td}>{machine.node}</td>
-    <td className={styles.td}><div className={styles.rowActions}><button type="button" className={styles.terminalBtn} disabled={!canOpen} title={canOpen ? (isLxc ? t("EnvironmentMachineRow.terminal") : t("EnvironmentMachineRow.console")) : t("EnvironmentMachineRow.notReadyTitle")} onClick={() => setConsoleOpen(true)}><MIcon name={isLxc ? "terminal" : "desktop_windows"} size={14} />{isLxc ? t("EnvironmentMachineRow.terminal") : t("EnvironmentMachineRow.console")}</button><button type="button" className={styles.terminalBtn} disabled={!canControl || actionLoading || !["running", "stopped"].includes(resource?.status)} onClick={handleControl}><MIcon name={actionLoading ? "hourglass_empty" : controlAction === "start" ? "play_arrow" : "power_settings_new"} size={14} />{controlAction === "start" ? t("EnvironmentMachineRow.start") : t("EnvironmentMachineRow.shutdown")}</button></div></td>
+    <td className={styles.td}><div className={styles.rowActions}>
+      <button type="button" className={styles.terminalBtn} disabled={!canOpen} title={canOpen ? (isLxc ? t("EnvironmentMachineRow.terminal") : t("EnvironmentMachineRow.console")) : t("EnvironmentMachineRow.notReadyTitle")} onClick={() => setConsoleOpen(true)}><MIcon name={isLxc ? "terminal" : "desktop_windows"} size={14} />{isLxc ? t("EnvironmentMachineRow.terminal") : t("EnvironmentMachineRow.console")}</button>
+      {actionLoading && <MIcon name="hourglass_empty" size={16} />}
+      {canControl && <div className={styles.menuWrap}>
+        {menuOpen && <PowerMenu resource={resource} actionLoading={actionLoading} onControl={handleControl} onClose={closeMenu} anchorRef={menuBtnRef} closing={menuClosing} />}
+        <button ref={menuBtnRef} type="button" className={`${styles.menuBtn} ${menuOpen ? styles.menuBtnActive : ""}`} onClick={() => menuOpen ? closeMenu() : setMenuOpen(true)} title={t("ResourceRow.moreActions")}><MIcon name="more_vert" size={18} /></button>
+      </div>}
+    </div></td>
     </tr>
     {consoleOpen && isLxc && createPortal(<TerminalDialog resource={resource} onClose={() => setConsoleOpen(false)} />, document.body)}
     {consoleOpen && !isLxc && createPortal(<VncDialog resource={resource} onClose={() => setConsoleOpen(false)} />, document.body)}
@@ -351,18 +365,43 @@ function EnvironmentMachineRow({ machine, groupStatus, onUpdated }) {
 
 function EnvironmentGroupRows({ group, onUpdated, onEnded }) {
   const { t } = useTranslation("personal");
+  const confirm = useConfirm();
   const [expanded, setExpanded] = useState(true);
   const [ending, setEnding] = useState(false);
-  const [endConfirm, setEndConfirm] = useState(false);
+  const [groupAction, setGroupAction] = useState(null);
   const toast = useToast();
   const canEnd = group.kind === "quick_practice" && !["reclaiming", "reclaimed"].includes(group.status);
+  const controllableVmids = group.machines
+    .filter((machine) => machine.resource?.vmid && machine.resource.can_control !== false)
+    .map((machine) => machine.resource.vmid);
+  const runningCount = group.machines.filter((machine) => machine.status === "running").length;
+
+  async function runGroupAction(action) {
+    if (!controllableVmids.length || groupAction) return;
+    setGroupAction(action);
+    try {
+      await ResourcesService.batchAction(controllableVmids, action);
+      toast.success(t("EnvironmentGroupRows.groupCommandSent"));
+      onEnded?.();
+    } catch (error) {
+      toast.error(error?.message ?? t("EnvironmentGroupRows.groupCommandFailed"));
+    } finally {
+      setGroupAction(null);
+    }
+  }
 
   async function endPractice() {
+    const ok = await confirm({
+      title: t("EnvironmentGroupRows.confirmEndTitle"),
+      message: t("EnvironmentGroupRows.confirmEndDesc"),
+      confirmText: t("EnvironmentGroupRows.endPractice"),
+      danger: true,
+    });
+    if (!ok) return;
     setEnding(true);
     try {
       await QuickPracticeService.endSession(group.id);
       toast.success(t("EnvironmentGroupRows.endPracticeSuccess"));
-      setEndConfirm(false);
       onEnded?.();
     } catch (error) {
       toast.error(error?.message ?? t("EnvironmentGroupRows.endPracticeFailed"));
@@ -383,23 +422,19 @@ function EnvironmentGroupRows({ group, onUpdated, onEnded }) {
       <td className={styles.td}><button type="button" className={styles.environmentToggle} aria-expanded={expanded} onClick={() => setExpanded((value) => !value)}><MIcon name={expanded ? "expand_more" : "chevron_right"} size={20} /><span><strong>{group.kindLabel}｜{group.title}</strong><small>{t("EnvironmentGroupRows.machineCount", { count: group.machines.length })}</small></span></button></td>
       <td className={styles.td}><div className={styles.envPrimary}>{group.kind === "course" ? t("EnvironmentGroupRows.courseEnv") : t("EnvironmentGroupRows.quickPracticeEnv")}</div><div className={styles.envSub}>{t("EnvironmentGroupRows.groupOverview")}</div></td>
       <td className={styles.td}><StatusBadge status={group.status} /></td>
-      <td className={styles.td}><span className={styles.muted}>{t("EnvironmentGroupRows.expandToView")}</span></td>
+      <td className={styles.td}><span className={styles.muted}>{t("EnvironmentGroupRows.runningCount", { running: runningCount, total: group.machines.length })}</span></td>
       <td className={styles.td}><strong className={styles.environmentTiming}>{group.timingLabel}</strong></td>
       <td className={styles.td}>{group.nodeLabel}</td>
       <td className={styles.td}><div className={styles.groupActions}>
-        {canEnd
-          ? <button type="button" className={styles.terminalBtn} disabled={ending} onClick={() => setEndConfirm(true)}><MIcon name="stop_circle" size={14} />{ending ? t("EnvironmentGroupRows.ending") : t("EnvironmentGroupRows.endPractice")}</button>
-          : <span className={styles.muted}>{t("EnvironmentGroupRows.expandToView")}</span>}
+        {controllableVmids.length > 0 && <>
+          <button type="button" className={styles.terminalBtn} disabled={Boolean(groupAction) || runningCount === group.machines.length} onClick={() => runGroupAction("start")}><MIcon name={groupAction === "start" ? "hourglass_empty" : "play_arrow"} size={14} />{t("EnvironmentGroupRows.startAll")}</button>
+          <button type="button" className={styles.terminalBtn} disabled={Boolean(groupAction) || runningCount === 0} onClick={() => runGroupAction("shutdown")}><MIcon name={groupAction === "shutdown" ? "hourglass_empty" : "power_settings_new"} size={14} />{t("EnvironmentGroupRows.shutdownAll")}</button>
+        </>}
+        {canEnd && <button type="button" className={styles.terminalBtn} disabled={ending} onClick={endPractice}><MIcon name="stop_circle" size={14} />{ending ? t("EnvironmentGroupRows.ending") : t("EnvironmentGroupRows.endPractice")}</button>}
       </div></td>
     </tr>
     {expanded && group.machines.map((machine) => <EnvironmentMachineRow key={machine.id} machine={machine} groupStatus={group.status} onUpdated={onUpdated} />)}
-    {endConfirm && createPortal(<ConfirmModal title={t("EnvironmentGroupRows.confirmEndTitle")} desc={t("EnvironmentGroupRows.confirmEndDesc")} confirmLabel={t("EnvironmentGroupRows.endPractice")} danger loading={ending} onConfirm={endPractice} onClose={() => setEndConfirm(false)} />, document.body)}
   </>;
-}
-
-/* ── Skeleton ── */
-function SkeletonRow() {
-  return <tr className={styles.tr} aria-hidden>{[0, 1, 2, 3, 4, 5, 6].map((column) => <td key={column} className={styles.td}><div className={`${styles.skeleton} ${styles.skRow}`} style={{ width: column === 0 ? "75%" : "60%", height: 14 }} /></td>)}</tr>;
 }
 
 /* ── Empty / Error states ── */
@@ -433,6 +468,7 @@ export default function ResourcesPage() {
   const [pending, setPending]     = useState([]);
   const [loading, setLoading]     = useState(true);
   const [error, setError]         = useState(false);
+  const [tagFilter, setTagFilter] = useState("");
   const pendingSigRef = useRef(null);
 
   /** silent = true 時不觸發 skeleton / error state，供背景同步使用 */
@@ -494,11 +530,14 @@ export default function ResourcesPage() {
 
   // 建立中申請會同時出現在 pending 與資源 API；先移除 placeholder，避免重複列。
   const pendingRequestIds = new Set(pending.map((request) => String(request.id)));
+  // 標籤篩選：Proxmox 上的 tags，由資源詳情的「標籤與備註」設定
+  const allTags = [...new Set(resources.flatMap((resource) => resource.tags ?? []))].sort();
+  const activeTag = allTags.includes(tagFilter) ? tagFilter : "";
   const resourcesForDisplay = resources.filter((resource) => !(
     resource.is_placeholder
     && resource.request_id != null
     && pendingRequestIds.has(String(resource.request_id))
-  ));
+  )).filter((resource) => !activeTag || (resource.tags ?? []).includes(activeTag));
   const environmentGroups = buildEnvironmentGroups(resourcesForDisplay, quickSessions);
   const grouped = groupedResourceKeys(environmentGroups);
   const visibleResources = resourcesForDisplay.filter((resource) => (
@@ -532,16 +571,44 @@ export default function ResourcesPage() {
       {/* 我的配額用量（模組 E） */}
       <QuotaUsageBar />
 
+      {allTags.length > 0 && (
+        <div className={styles.filterBar} data-guide="resource-tag-filter">
+          <span className={styles.filterLabel}>
+            <MIcon name="label" size={14} />
+            {t("ResourcesPage.tagFilterLabel")}
+          </span>
+          <button
+            type="button"
+            className={`${styles.filterChip} ${!activeTag ? styles.filterChipActive : ""}`}
+            onClick={() => setTagFilter("")}
+          >
+            {t("ResourcesPage.tagFilterAll")}
+          </button>
+          {allTags.map((tag) => (
+            <button
+              key={tag}
+              type="button"
+              className={`${styles.filterChip} ${activeTag === tag ? styles.filterChipActive : ""}`}
+              onClick={() => setTagFilter(activeTag === tag ? "" : tag)}
+            >
+              {tag}
+            </button>
+          ))}
+        </div>
+      )}
+
       <div className={styles.content}>
         {error ? (
           <ErrorState onRetry={() => fetchResources()} />
-        ) : !loading && visibleResources.length === 0 && visiblePending.length === 0 && environmentGroups.length === 0 ? (
+        ) : loading ? (
+          <LoadingState fullPage />
+        ) : visibleResources.length === 0 && visiblePending.length === 0 && environmentGroups.length === 0 ? (
           <EmptyState />
         ) : (
           <div className={styles.tableWrap}>
             <table className={styles.table}>
               <colgroup>
-                <col />
+                <col className={styles.colName} />
                 <col className={styles.colEnv} />
                 <col className={styles.colStatus} />
                 <col className={styles.colIp} />
@@ -553,11 +620,9 @@ export default function ResourcesPage() {
                 <tr><th className={styles.th}>{t("ResourcesPage.colName")}</th><th className={styles.th}>{t("ResourcesPage.colEnvironment")}</th><th className={styles.th}>{t("ResourcesPage.colStatus")}</th><th className={styles.th}>{t("ResourcesPage.colIp")}</th><th className={styles.th}>{t("ResourcesPage.colExpiry")}</th><th className={styles.th}>{t("ResourcesPage.colNode")}</th><th className={styles.th}>{t("ResourcesPage.colActions")}</th></tr>
               </thead>
               <tbody>
-                {loading ? [0, 1, 2].map((i) => <SkeletonRow key={i} />) : <>
-                  {environmentGroups.map((group) => <EnvironmentGroupRows key={group.id} group={group} onUpdated={handleUpdated} onEnded={() => fetchResources(true)} />)}
-                  {visiblePending.map((req) => <CreatingRow key={`creating:${req.id}`} request={req} onCancelled={refreshPending} />)}
-                  {visibleResources.map((r, index) => <ResourceRow key={resourceRowKey(r, index)} resource={r} onUpdated={handleUpdated} onDeleted={handleDeleted} />)}
-                </>}
+                {environmentGroups.map((group) => <EnvironmentGroupRows key={group.id} group={group} onUpdated={handleUpdated} onEnded={() => fetchResources(true)} />)}
+                {visiblePending.map((req) => <CreatingRow key={`creating:${req.id}`} request={req} onCancelled={refreshPending} />)}
+                {visibleResources.map((r, index) => <ResourceRow key={resourceRowKey(r, index)} resource={r} onUpdated={handleUpdated} onDeleted={handleDeleted} />)}
               </tbody>
             </table>
           </div>

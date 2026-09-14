@@ -2,6 +2,7 @@ from fastapi import APIRouter
 
 from app.api.routes import (
     ai_api,
+    ai_contextual_help,
     ai_monitoring,
     ai_navigation,
     ai_proxy,
@@ -18,4 +19,5 @@ router.include_router(ai_proxy.router)
 router.include_router(ai_pve_log.router)
 router.include_router(ai_pve_template.router)
 router.include_router(ai_navigation.router)
+router.include_router(ai_contextual_help.router)
 router.include_router(ai_template_recommendation.router)

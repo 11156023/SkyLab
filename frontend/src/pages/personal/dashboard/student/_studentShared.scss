@@ -29,7 +29,7 @@
   gap: 12px;
   padding: $spacing-16;
   border-radius: $radius-12;
-  color: var(--color-warning);
+  color: var(--color-danger);
 
   div {
     @include flex-column;

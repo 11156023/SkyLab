@@ -8,6 +8,16 @@ function buildRange(q, params) {
 }
 
 export const AiMonitoringService = {
+  /** 用量、錯誤與模型聚合趨勢 */
+  overview(params) {
+    const q = new URLSearchParams();
+    buildRange(q, params);
+    if (params?.bucket) q.set("bucket", params.bucket);
+    if (params?.compare != null) q.set("compare", String(params.compare));
+    const qs = q.toString();
+    return apiGet(`${BASE}/overview${qs ? `?${qs}` : ""}`);
+  },
+
   /** 全域 AI 統計卡片 */
   stats(params) {
     const q = new URLSearchParams();
@@ -51,5 +61,10 @@ export const AiMonitoringService = {
     if (params?.limit != null) q.set("limit", String(params.limit));
     const qs = q.toString();
     return apiGet(`${BASE}/users${qs ? `?${qs}` : ""}`);
+  },
+
+  /** LiteLLM gateway 與目前模型健康摘要（Admin only） */
+  runtime() {
+    return apiGet(`${BASE}/litellm-runtime`);
   },
 };

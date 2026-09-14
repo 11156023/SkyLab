@@ -5,6 +5,8 @@ import { useTranslation } from "react-i18next";
 import styles from "./ResourceMgmtPage.module.scss";
 import MIcon from "../../../components/MIcon";
 import PowerMenu from "../../../components/PowerMenu/PowerMenu";
+import TemplateConvertDialog from "../../../components/TemplateConvertDialog/TemplateConvertDialog";
+import useDialogPresence from "../../../hooks/useDialogPresence";
 import SharedEmptyState from "../../../components/EmptyState/EmptyState";
 import { useToast } from "../../../hooks/useToast";
 import useAutoRefresh from "../../../hooks/useAutoRefresh";
@@ -13,8 +15,10 @@ import { ResourcesService } from "../../../services/resources";
 import TerminalDialog from "../../personal/resources/TerminalDialog";
 import VncDialog from "../../personal/resources/VncDialog";
 import PageHeader from "../../../components/PageHeader/PageHeader";
+import { useConfirm } from "../../../components/ConfirmDialog/ConfirmProvider";
 import { QuickPracticeService } from "../../../services/quickPractice";
 import { buildEnvironmentGroups, groupedResourceKeys } from "../../../utils/environmentGroups";
+import { formatDate } from "../../../utils/formatDate";
 
 /* ── Constants ── */
 function useStatusMap() {
@@ -77,13 +81,6 @@ function useBatchActions() {
 const LIVE_STATUSES = new Set(["running", "stopped", "paused"]);
 
 /* ── Helpers ── */
-function formatDate(isoStr) {
-  if (!isoStr) return null;
-  return new Date(isoStr).toLocaleDateString("zh-TW", {
-    year: "numeric", month: "2-digit", day: "2-digit",
-  });
-}
-
 function resourceRowKey(resource, index) {
   const parts = [
     resource.type || "resource",
@@ -96,6 +93,13 @@ function resourceRowKey(resource, index) {
 /** 電源操作後的樂觀狀態：start/reboot/reset 後仍為執行中，stop/shutdown 後為已關機 */
 function statusAfterAction(action) {
   return action === "stop" || action === "shutdown" ? "stopped" : "running";
+}
+
+function machineSpecLabel(machine) {
+  const parts = [];
+  if (machine.cpu) parts.push(`${machine.cpu} CPU`);
+  if (machine.memoryBytes) parts.push(`${Math.round(machine.memoryBytes / 1024 ** 3)} GB`);
+  return parts.join(" · ");
 }
 
 /* ── Primitive sub-components ── */
@@ -112,28 +116,37 @@ function StatusBadge({ status }) {
 function EnvironmentMachineRow({ machine, onUpdated }) {
   const { t } = useTranslation("resource");
   const toast = useToast();
+  const navigate = useNavigate();
   const typeMap = useTypeMap();
   const type = typeMap[machine.type] ?? { label: machine.type, icon: "computer" };
   const [consoleOpen, setConsoleOpen] = useState(false);
-  const [actionLoading, setActionLoading] = useState(false);
+  const [actionLoading, setActionLoading] = useState(null);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [menuClosing, setMenuClosing] = useState(false);
+  const menuBtnRef = useRef(null);
   const resource = machine.resource;
   const isLxc = machine.type === "lxc";
   const canControl = Boolean(resource?.vmid && resource.can_control !== false);
   const canOpen = canControl && resource.status === "running";
-  const controlAction = resource?.status === "running" ? "shutdown" : "start";
+  const specLabel = machineSpecLabel(machine);
 
-  async function handleControl() {
+  function closeMenu() {
+    setMenuClosing(true);
+    setTimeout(() => { setMenuOpen(false); setMenuClosing(false); }, 130);
+  }
+
+  // 與單機列同一組電源控制；環境內的機器差別只在不能單台刪除。
+  async function handleControl(action) {
     if (!canControl || actionLoading) return;
-    setActionLoading(true);
+    setActionLoading(action);
     try {
-      await ResourcesService[controlAction](resource.vmid);
-      const status = controlAction === "start" ? "running" : "stopped";
-      onUpdated({ ...resource, status });
-      toast.success(controlAction === "start" ? t("ResourceMgmtPage.startCommandSent") : t("ResourceMgmtPage.shutdownCommandSent"));
+      await ResourcesService[action](resource.vmid);
+      onUpdated({ ...resource, status: statusAfterAction(action) });
+      toast.success(t("ResourceMgmtPage.machineCommandSent"));
     } catch (error) {
       toast.error(error?.message ?? t("ResourceMgmtPage.machineActionFailed"));
     } finally {
-      setActionLoading(false);
+      setActionLoading(null);
     }
   }
 
@@ -144,8 +157,10 @@ function EnvironmentMachineRow({ machine, onUpdated }) {
         <div className={`${styles.nameCell} ${styles.environmentMachineName}`}>
           <span className={styles.machineBranch} aria-hidden="true">└</span>
           <div>
-            <div className={styles.namePrimary}>{machine.name}</div>
-            <div className={styles.nameSub}>{machine.role} · {type.label}</div>
+            {resource?.vmid > 0
+              ? <button type="button" className={`${styles.namePrimary} ${styles.nameLink}`} title={t("ResourceMgmtPage.viewDetailTitle")} onClick={() => navigate(`/resource-mgmt/${resource.vmid}`)}>{machine.name}</button>
+              : <div className={styles.namePrimary}>{machine.name}</div>}
+            <div className={styles.nameSub}>{machine.role} · {type.label}{specLabel ? ` · ${specLabel}` : ""}</div>
           </div>
         </div>
       </td>
@@ -162,7 +177,11 @@ function EnvironmentMachineRow({ machine, onUpdated }) {
           <MIcon name={isLxc ? "terminal" : "desktop_windows"} size={14} />
           {isLxc ? t("ResourceMgmtPage.terminalTitle") : t("ResourceMgmtPage.consoleTitle")}
         </button>
-        <button type="button" className={styles.consoleBtn} disabled={!canControl || actionLoading || !["running", "stopped"].includes(resource?.status)} onClick={handleControl}><MIcon name={actionLoading ? "hourglass_empty" : controlAction === "start" ? "play_arrow" : "power_settings_new"} size={14} />{controlAction === "start" ? t("ResourceMgmtPage.actionStart") : t("ResourceMgmtPage.actionShutdown")}</button>
+        {actionLoading && <MIcon name="hourglass_empty" size={16} />}
+        {canControl && <div className={styles.menuWrap}>
+          {menuOpen && <PowerMenu resource={resource} actionLoading={actionLoading} onControl={handleControl} onClose={closeMenu} anchorRef={menuBtnRef} closing={menuClosing} />}
+          <button ref={menuBtnRef} type="button" className={`${styles.menuBtn} ${menuOpen ? styles.menuBtnActive : ""}`} onClick={() => menuOpen ? closeMenu() : setMenuOpen(true)} title={t("ResourceMgmtPage.powerControlTitle")}><MIcon name="more_vert" size={18} /></button>
+        </div>}
       </div></td>
     </tr>
     {consoleOpen && isLxc && createPortal(<TerminalDialog resource={resource} onClose={() => setConsoleOpen(false)} />, document.body)}
@@ -170,11 +189,30 @@ function EnvironmentMachineRow({ machine, onUpdated }) {
   </>;
 }
 
-function EnvironmentGroupRows({ group, onUpdated }) {
+function EnvironmentGroupRows({ group, onUpdated, onRefresh }) {
   const { t } = useTranslation("resource");
+  const toast = useToast();
   const [expanded, setExpanded] = useState(true);
+  const [groupAction, setGroupAction] = useState(null);
   const running = group.machines.filter((machine) => machine.status === "running").length;
   const allRunning = running === group.machines.length;
+  const controllableVmids = group.machines
+    .filter((machine) => machine.resource?.vmid && machine.resource.can_control !== false)
+    .map((machine) => machine.resource.vmid);
+
+  async function runGroupAction(action) {
+    if (!controllableVmids.length || groupAction) return;
+    setGroupAction(action);
+    try {
+      await ResourcesService.batchAction(controllableVmids, action);
+      toast.success(t("ResourceMgmtPage.groupCommandSent"));
+      onRefresh?.();
+    } catch (error) {
+      toast.error(error?.message ?? t("ResourceMgmtPage.groupCommandFailed"));
+    } finally {
+      setGroupAction(null);
+    }
+  }
   return (
     <>
       <tr
@@ -204,10 +242,15 @@ function EnvironmentGroupRows({ group, onUpdated }) {
         <td className={styles.td}>
           <span className={`${styles.badge} ${styles[`badge_${allRunning ? "success" : "info"}`]}`}>{t("ResourceMgmtPage.runningCount", { running, total: group.machines.length })}</span>
         </td>
-        <td className={styles.td}><span className={styles.noAction}>{t("ResourceMgmtPage.expandToView")}</span></td>
+        <td className={styles.td}><span className={styles.noAction}>—</span></td>
         <td className={styles.td}><strong className={styles.environmentTiming}>{group.timingLabel}</strong></td>
         <td className={styles.td}>{group.nodeLabel}</td>
-        <td className={styles.td}><span className={styles.noAction}>{t("ResourceMgmtPage.expandForActions")}</span></td>
+        <td className={styles.td}>{controllableVmids.length > 0
+          ? <div className={styles.actions}>
+              <button type="button" className={styles.consoleBtn} disabled={Boolean(groupAction) || allRunning} onClick={() => runGroupAction("start")}><MIcon name={groupAction === "start" ? "hourglass_empty" : "play_arrow"} size={14} />{t("ResourceMgmtPage.startAll")}</button>
+              <button type="button" className={styles.consoleBtn} disabled={Boolean(groupAction) || running === 0} onClick={() => runGroupAction("shutdown")}><MIcon name={groupAction === "shutdown" ? "hourglass_empty" : "power_settings_new"} size={14} />{t("ResourceMgmtPage.shutdownAll")}</button>
+            </div>
+          : <span className={styles.noAction}>—</span>}</td>
       </tr>
       {expanded && group.machines.map((machine) => (
         <EnvironmentMachineRow key={machine.id} machine={machine} onUpdated={onUpdated} />
@@ -216,56 +259,14 @@ function EnvironmentGroupRows({ group, onUpdated }) {
   );
 }
 
-/* ── Confirm Modal ── */
-function ConfirmModal({ title, desc, confirmLabel, danger = false, loading = false, onConfirm, onClose }) {
-  const { t } = useTranslation("resource");
-  const [closing, setClosing] = useState(false);
-  const resolvedConfirmLabel = confirmLabel ?? t("ResourceMgmtPage.confirmDefault");
-
-  function close() {
-    if (closing) return;
-    setClosing(true);
-  }
-
-  function handleAnimationEnd() {
-    if (closing) onClose();
-  }
-
-  return (
-    <div
-      className={`${styles.modalOverlay} ${closing ? styles.modalOverlayOut : ""}`}
-      onClick={close}
-      onAnimationEnd={handleAnimationEnd}
-    >
-      <div className={styles.modal} onClick={(e) => e.stopPropagation()}>
-        <span className={styles.modalTitle}>{title}</span>
-        {desc && <p className={styles.modalDesc}>{desc}</p>}
-        <div className={styles.modalActions}>
-          <button type="button" className={styles.btnSecondary} onClick={close}>
-            {t("ResourceMgmtPage.cancel")}
-          </button>
-          <button
-            type="button"
-            className={danger ? styles.btnDanger : styles.btnPrimary}
-            disabled={loading}
-            onClick={onConfirm}
-          >
-            {loading ? t("ResourceMgmtPage.processing") : resolvedConfirmLabel}
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
 /* ── 批次操作列（有勾選才顯示） ── */
 function BatchActionBar({ selectedVmids, onDone, onClear }) {
   const { t } = useTranslation("resource");
   const toast = useToast();
+  const confirm = useConfirm();
   const actionLabel = useActionLabel();
   const batchActions = useBatchActions();
   const [pending, setPending] = useState(null); // 進行中的 action
-  const [deleteConfirm, setDeleteConfirm] = useState(false);
   const count = selectedVmids.length;
 
   async function run(action) {
@@ -283,8 +284,17 @@ function BatchActionBar({ selectedVmids, onDone, onClear }) {
       toast.error(err?.message ?? t("ResourceMgmtPage.batchActionFailed"));
     } finally {
       setPending(null);
-      setDeleteConfirm(false);
     }
+  }
+
+  async function confirmBatchDelete() {
+    const ok = await confirm({
+      title: t("ResourceMgmtPage.batchDeleteTitle", { count }),
+      message: t("ResourceMgmtPage.batchDeleteDesc"),
+      confirmText: t("ResourceMgmtPage.confirmDelete"),
+      danger: true,
+    });
+    if (ok) run("delete");
   }
 
   if (count === 0) return null;
@@ -310,7 +320,7 @@ function BatchActionBar({ selectedVmids, onDone, onClear }) {
         type="button"
         className={styles.btnDangerOutline}
         disabled={pending !== null}
-        onClick={() => setDeleteConfirm(true)}
+        onClick={confirmBatchDelete}
       >
         <MIcon name="delete" size={14} />
         {t("ResourceMgmtPage.delete")}
@@ -324,17 +334,6 @@ function BatchActionBar({ selectedVmids, onDone, onClear }) {
         {t("ResourceMgmtPage.clearSelection")}
       </button>
 
-      {deleteConfirm && (
-        <ConfirmModal
-          title={t("ResourceMgmtPage.batchDeleteTitle", { count })}
-          desc={t("ResourceMgmtPage.batchDeleteDesc")}
-          confirmLabel={pending === "delete" ? t("ResourceMgmtPage.deleting") : t("ResourceMgmtPage.confirmDelete")}
-          danger
-          loading={pending !== null}
-          onConfirm={() => run("delete")}
-          onClose={() => setDeleteConfirm(false)}
-        />
-      )}
     </div>
   );
 }
@@ -346,12 +345,18 @@ function ResourceRow({ resource, onUpdated, onDeleted, selected = false, onToggl
   const typeMap = useTypeMap();
   const statusMap = useStatusMap();
   const actionLabel = useActionLabel();
+  const confirm = useConfirm();
   const [actionLoading, setActionLoading] = useState(null);
-  const [deleteConfirm, setDeleteConfirm] = useState(false);
   const [deleting, setDeleting]           = useState(false);
   const [menuOpen, setMenuOpen]           = useState(false);
   const [menuClosing, setMenuClosing]     = useState(false);
   const [consoleOpen, setConsoleOpen]     = useState(false);
+  const [convertOpen, setConvertOpen]     = useState(false);
+  const convertDialog = useDialogPresence(convertOpen);
+  /* 課堂機器由老師統一管理，不轉範本；申請中的佔位列也沒有實體可轉 */
+  const canConvertTemplate = resource.allocation_scope !== "teaching_class"
+    && !resource.is_placeholder
+    && resource.vmid > 0;
   const menuBtnRef = useRef(null);
 
   function closeMenu() {
@@ -378,6 +383,14 @@ function ResourceRow({ resource, onUpdated, onDeleted, selected = false, onToggl
   }
 
   async function handleDelete() {
+    if (deleting) return;
+    const ok = await confirm({
+      title: t("ResourceMgmtPage.deleteResourceTitle"),
+      message: t("ResourceMgmtPage.deleteResourceDesc", { name: resource.name, vmid: resource.vmid }),
+      confirmText: t("ResourceMgmtPage.delete"),
+      danger: true,
+    });
+    if (!ok) return;
     setDeleting(true);
     try {
       await ResourcesService.delete(resource.vmid);
@@ -387,7 +400,6 @@ function ResourceRow({ resource, onUpdated, onDeleted, selected = false, onToggl
       toast.error(err?.message ?? t("ResourceMgmtPage.deleteFailed"));
     } finally {
       setDeleting(false);
-      setDeleteConfirm(false);
     }
   }
 
@@ -478,7 +490,8 @@ function ResourceRow({ resource, onUpdated, onDeleted, selected = false, onToggl
                     resource={resource}
                     actionLoading={actionLoading}
                     onControl={handleControl}
-                    onDeleteClick={() => { closeMenu(); setDeleteConfirm(true); }}
+                    onDeleteClick={() => { closeMenu(); handleDelete(); }}
+                    onConvertTemplate={canConvertTemplate ? () => { closeMenu(); setConvertOpen(true); } : undefined}
                     onClose={closeMenu}
                     anchorRef={menuBtnRef}
                     closing={menuClosing}
@@ -503,27 +516,21 @@ function ResourceRow({ resource, onUpdated, onDeleted, selected = false, onToggl
         </td>
       </tr>
 
-      {/* Portal 到 body：列在 <tbody> 內，div 直接掛這裡是不合法巢狀，
-          且 .tableWrap 的 backdrop-filter 會讓 fixed 遮罩只蓋住表格範圍 */}
-      {deleteConfirm && createPortal(
-        <ConfirmModal
-          title={t("ResourceMgmtPage.deleteResourceTitle")}
-          desc={t("ResourceMgmtPage.deleteResourceDesc", { name: resource.name, vmid: resource.vmid })}
-          confirmLabel={t("ResourceMgmtPage.delete")}
-          danger
-          loading={deleting}
-          onConfirm={handleDelete}
-          onClose={() => setDeleteConfirm(false)}
-        />,
-        document.body,
-      )}
-
       {consoleOpen && isLxc && createPortal(
         <TerminalDialog resource={resource} onClose={() => setConsoleOpen(false)} />,
         document.body,
       )}
       {consoleOpen && !isLxc && createPortal(
         <VncDialog resource={resource} onClose={() => setConsoleOpen(false)} />,
+        document.body,
+      )}
+      {convertDialog.open && createPortal(
+        <TemplateConvertDialog
+          resource={resource}
+          closing={convertDialog.closing}
+          onClose={() => setConvertOpen(false)}
+          onDone={() => onDeleted(resource.vmid)}
+        />,
         document.body,
       )}
     </>
@@ -653,10 +660,6 @@ export default function ResourceMgmtPage() {
 
       {/* ── 內容 ── */}
       <div className={styles.content}>
-        <div className={styles.previewNotice} role="note">
-          <MIcon name="account_tree" size={17} />
-          <span><strong>{t("ResourceMgmtPage.multiMachineNoticeBold")}</strong>{t("ResourceMgmtPage.multiMachineNoticeText")}</span>
-        </div>
         {error ? (
           <ErrorState onRetry={fetchResources} />
         ) : loading ? (
@@ -694,7 +697,7 @@ export default function ResourceMgmtPage() {
                 </tr>
               </thead>
               <tbody>
-                {environmentGroups.map((group) => <EnvironmentGroupRows key={group.id} group={group} onUpdated={handleUpdated} />)}
+                {environmentGroups.map((group) => <EnvironmentGroupRows key={group.id} group={group} onUpdated={handleUpdated} onRefresh={() => fetchResources(true)} />)}
                 {visibleResources.map((r, index) => (
                   <ResourceRow
                     key={resourceRowKey(r, index)}

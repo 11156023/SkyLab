@@ -251,11 +251,36 @@ def _run_queue(job_id: uuid.UUID) -> None:
             else BatchProvisionJobStatus.completed
         )
         bp_repo.update_job_status(session=session, job_id=job_id, status=final)
+        teaching_class_id = job.teaching_class_id
         logger.info(
             "Batch provision job %s finished: done=%d failed=%d",
             job_id,
             job.done,
             job.failed_count,
+        )
+
+    if teaching_class_id is not None:
+        _refresh_teaching_class_status(teaching_class_id)
+
+
+def _refresh_teaching_class_status(teaching_class_id: uuid.UUID) -> None:
+    """Advance the owning class once a node job reaches a terminal state.
+
+    Without this the class list keeps showing "建立中" until a teacher happens
+    to open the class workspace, which is the only other caller that recomputes
+    the status.
+    """
+    from app.services.teaching import class_status_service  # noqa: PLC0415
+
+    try:
+        with Session(engine) as session:
+            class_status_service.recompute(
+                session=session, class_id=teaching_class_id
+            )
+            session.commit()
+    except Exception:
+        logger.exception(
+            "Failed to refresh teaching class status class_id=%s", teaching_class_id
         )
 
 

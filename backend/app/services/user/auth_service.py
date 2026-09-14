@@ -12,10 +12,10 @@ from app.repositories import user as user_repo
 from app.schemas import Token, UserUpdate
 from app.services.user import audit_service
 from app.utils import (
+    decode_password_reset_token,
     generate_password_reset_token,
     generate_reset_password_email,
     send_email,
-    verify_password_reset_token,
 )
 
 
@@ -71,6 +71,12 @@ async def google_login(*, session: Session, id_token: str) -> Token:
             + (f" for {email}" if email else ""),
         )
 
+    # aud 必須永遠驗證：未設定 GOOGLE_CLIENT_ID 時不得接受任何 Google ID token，
+    # 否則使用者交給其他 OAuth 應用的 ID token 也能登入本系統。
+    if not settings.GOOGLE_CLIENT_ID:
+        _fail("google login not configured")
+        raise BadRequestError("Google login is not configured")
+
     try:
         async with httpx.AsyncClient(timeout=5.0) as client:
             r = await client.get(
@@ -84,7 +90,7 @@ async def google_login(*, session: Session, id_token: str) -> Token:
         _fail("invalid token")
         raise BadRequestError(t("auth.googleTokenInvalid"))
     data = r.json()
-    if settings.GOOGLE_CLIENT_ID and data.get("aud") != settings.GOOGLE_CLIENT_ID:
+    if data.get("aud") != settings.GOOGLE_CLIENT_ID:
         _fail("invalid audience")
         raise BadRequestError(t("auth.googleTokenAudienceInvalid"))
     email_verified_raw = data.get("email_verified")
@@ -123,7 +129,11 @@ async def refresh_access_token(*, session: Session, refresh_token: str) -> Token
     from jwt.exceptions import InvalidTokenError
     from pydantic import ValidationError
 
-    from app.infrastructure.redis import get_redis, is_jti_revoked
+    from app.infrastructure.redis import (
+        get_redis,
+        is_jti_revoked,
+        mark_refresh_token_used,
+    )
     from app.models import User
     from app.schemas import TokenPayload
 
@@ -155,6 +165,17 @@ async def refresh_access_token(*, session: Session, refresh_token: str) -> Token
     if user.token_version != token_data.ver:
         raise AuthenticationError(t("auth.tokenRevoked"))
 
+    # Refresh-token rotation: a refresh token may only be exchanged once
+    # (plus a short grace window for concurrent tabs). Without this a leaked
+    # refresh token stays usable for its full lifetime even after the
+    # legitimate client has already rotated past it.
+    if token_data.jti and token_data.exp:
+        redis = await get_redis()
+        if not await mark_refresh_token_used(
+            redis, token_data.jti, token_data.exp
+        ):
+            raise AuthenticationError("Token has been revoked")
+
     return _create_token_pair(user)
 
 
@@ -168,7 +189,9 @@ def recover_password(*, session: Session, email: str) -> None:
         + ("" if user else " (no matching account)"),
     )
     if user:
-        token = generate_password_reset_token(email=email)
+        token = generate_password_reset_token(
+            email=email, token_version=user.token_version
+        )
         email_data = generate_reset_password_email(
             email_to=user.email, email=email, token=token
         )
@@ -180,14 +203,19 @@ def recover_password(*, session: Session, email: str) -> None:
 
 
 def reset_password(*, session: Session, token: str, new_password: str) -> None:
-    email = verify_password_reset_token(token=token)
-    if not email:
+    decoded = decode_password_reset_token(token=token)
+    if not decoded:
         raise BadRequestError(t("auth.tokenInvalid"))
+    email, token_version = decoded
     user = user_repo.get_user_by_email(session=session, email=email)
     if not user:
         raise BadRequestError(t("auth.tokenInvalid"))
     if not user.is_active:
         raise BadRequestError(t("auth.inactiveUser"))
+    # 重設連結綁定簽發當下的 token_version；成功重設會 +1，
+    # 所以同一封信裡的連結只能用一次，之後（即使仍在 48 小時內）一律失效。
+    if token_version != user.token_version:
+        raise BadRequestError(t("auth.tokenInvalid"))
     user_repo.update_user(
         session=session, db_user=user, user_in=UserUpdate(password=new_password)
     )
@@ -211,7 +239,9 @@ def get_password_recovery_html(
     user = user_repo.get_user_by_email(session=session, email=email)
     if not user:
         raise NotFoundError(t("auth.usernameNotFound"))
-    token = generate_password_reset_token(email=email)
+    token = generate_password_reset_token(
+        email=email, token_version=user.token_version
+    )
     email_data = generate_reset_password_email(
         email_to=user.email, email=email, token=token
     )

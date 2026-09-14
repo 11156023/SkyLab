@@ -62,3 +62,53 @@ def test_parse_detected_service_versions() -> None:
     assert haproxy_info.current_version == "2.6.12-1+deb12u2"
     assert haproxy_info.target_version == "2.8.10-1~deb12u1"
     assert haproxy_info.update_available is True
+
+
+def test_wireguard_uses_wg_quick_systemd_unit_without_exposing_raw_config() -> None:
+    assert gateway_service._systemd_unit("wireguard") == (
+        f"wg-quick@{gateway_service.settings.WIREGUARD_INTERFACE}"
+    )
+    assert "wireguard" not in gateway_service.SERVICE_CONFIG_PATHS
+
+
+def test_parse_wireguard_dump_returns_aggregate_metrics_without_keys() -> None:
+    now = 1_700_000_000
+    dump = "\n".join(
+        [
+            "SERVER_PRIVATE\tSERVER_PUBLIC\t51821\toff",
+            (
+                "PEER_ONE\tPRESHARED_ONE\t198.51.100.1:51820\t10.210.0.2/32"
+                f"\t{now - 100}\t1024\t2048\t25"
+            ),
+            (
+                "PEER_TWO\tPRESHARED_TWO\t198.51.100.2:51820\t10.210.0.3/32"
+                f"\t{now - 600}\t4096\t8192\t25"
+            ),
+        ]
+    )
+
+    metrics = gateway_service._parse_wireguard_dump(dump, now_timestamp=now)
+
+    assert metrics == {
+        "listen_port": 51821,
+        "live_peers": 2,
+        "recent_handshakes": 1,
+        "transfer_rx_bytes": 5120,
+        "transfer_tx_bytes": 10240,
+        "inspection_available": True,
+    }
+    rendered = repr(metrics)
+    assert "SERVER_PRIVATE" not in rendered
+    assert "PEER_ONE" not in rendered
+    assert "PRESHARED_ONE" not in rendered
+
+
+def test_parse_wireguard_dump_marks_unavailable_runtime() -> None:
+    assert gateway_service._parse_wireguard_dump("") == {
+        "listen_port": None,
+        "live_peers": 0,
+        "recent_handshakes": 0,
+        "transfer_rx_bytes": 0,
+        "transfer_tx_bytes": 0,
+        "inspection_available": False,
+    }

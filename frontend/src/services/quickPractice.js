@@ -35,6 +35,7 @@ function normalizeSession(item) {
       requestId: String(machine.request_id),
       type: machine.resource_type,
       ip: machine.ip_address,
+      publicUrl: machine.public_url ?? null,
     })),
   };
 }

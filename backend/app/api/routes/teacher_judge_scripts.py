@@ -12,6 +12,7 @@ from app.ai.teacher_judge.schemas import (
     TeacherJudgeScriptRegenerateRequest,
     TeacherJudgeScriptRunCreateRequest,
     TeacherJudgeScriptRunPublic,
+    TeacherJudgeScriptUpdateRequest,
 )
 from app.ai.teacher_judge.script_artifact_service import (
     approve_artifact,
@@ -21,6 +22,7 @@ from app.ai.teacher_judge.script_artifact_service import (
     get_artifact_public,
     list_artifacts,
     regenerate_artifact,
+    rename_artifact,
 )
 from app.ai.teacher_judge.script_executor_service import execute_script_run
 from app.ai.teacher_judge.script_run_service import (
@@ -153,6 +155,25 @@ def approve_class_teacher_judge_script(
         teaching_class_id=teaching_class_id,
         artifact_id=script_id,
         approved_by=current_user.id,
+    )
+
+
+@router.patch("/{script_id}", response_model=TeacherJudgeScriptArtifactPublic)
+def rename_class_teacher_judge_script(
+    teaching_class_id: uuid.UUID,
+    script_id: uuid.UUID,
+    payload: TeacherJudgeScriptUpdateRequest,
+    session: SessionDep,
+    current_user: InstructorUser,
+) -> TeacherJudgeScriptArtifactPublic:
+    _ensure_class_access(
+        session=session, teaching_class_id=teaching_class_id, current_user=current_user
+    )
+    return rename_artifact(
+        session=session,
+        teaching_class_id=teaching_class_id,
+        artifact_id=script_id,
+        name=payload.name,
     )
 
 

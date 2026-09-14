@@ -1,5 +1,5 @@
 import { memo, startTransition, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Background, MarkerType, ReactFlow } from "@xyflow/react";
+import { Background, Handle, MarkerType, Position, ReactFlow } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
 import { useTranslation } from "react-i18next";
@@ -8,12 +8,17 @@ import MIcon from "../../../components/MIcon";
 import PageHeader from "../../../components/PageHeader/PageHeader";
 import EmptyState from "../../../components/EmptyState/EmptyState";
 import ClassroomWatchDialog from "../../../components/Classroom/ClassroomWatchDialog";
+import TerminalDialog from "../../personal/resources/TerminalDialog";
 import { useConfirm } from "../../../components/ConfirmDialog/ConfirmProvider";
+import { useToast } from "../../../hooks/useToast";
 import { ClassroomService } from "../../../services/classroom";
 import { courseNodeHasUsableSource, CourseEnvironmentsService } from "../../../services/courseEnvironments";
 import { TeachingClassesService } from "../../../services/teachingClasses";
+import { formatDate, formatTime } from "../../../utils/formatDate";
 import ClassCreateDialog from "./ClassCreateDialog";
+import EnvironmentChoice from "../EnvironmentChoice";
 import useDialogPresence from "../../../hooks/useDialogPresence";
+import { focusInvalidField } from "../../../utils/focusField";
 import {
   machineRuntimeState,
   mergeResourceUsageByVmid,
@@ -22,13 +27,14 @@ import {
 } from "./classHeatmapUsage";
 import styles from "../CourseOperations.module.scss";
 
+const POST_ACTIVE_TABS = ["progress", "ai"];
+
 const TABS = [
   ["overview", "dashboard", "ClassWorkspacePage.tabOverviewLabel", "ClassWorkspacePage.tabOverviewHint"],
   ["students", "groups", "ClassWorkspacePage.tabStudentsLabel", "ClassWorkspacePage.tabStudentsHint"],
   ["machines", "account_tree", "ClassWorkspacePage.tabMachinesLabel", "ClassWorkspacePage.tabMachinesHint"],
   ["weekly", "calendar_view_week", "ClassWorkspacePage.tabWeeklyLabel", "ClassWorkspacePage.tabWeeklyHint"],
-  ["classroom", "cast_for_education", "ClassWorkspacePage.tabClassroomLabel", "ClassWorkspacePage.tabClassroomHint"],
-  ["progress", "grid_view", "ClassWorkspacePage.tabProgressLabel", "ClassWorkspacePage.tabProgressHint"],
+  ["progress", "cast_for_education", "ClassWorkspacePage.tabProgressLabel", "ClassWorkspacePage.tabProgressHint"],
   ["ai", "auto_awesome", "ClassWorkspacePage.tabAiLabel", "ClassWorkspacePage.tabAiHint"],
 ];
 
@@ -47,6 +53,7 @@ function normalizeClass(item) {
     startTime: String(item.start_time ?? "").slice(0, 5),
     endTime: String(item.end_time ?? "").slice(0, 5),
     bootLeadMinutes: item.boot_lead_minutes,
+    shutdownGraceMinutes: item.shutdown_grace_minutes,
     nodes: item.machine_nodes ?? [],
     weeks: (item.weeks ?? []).map((week) => ({
       ...week,
@@ -59,6 +66,8 @@ function normalizeClass(item) {
     students: (item.students ?? []).map((student) => ({ ...student, id: String(student.id), machines: student.machines ?? [] })),
     jobs: item.provision_jobs ?? [],
     topologyEdges: item.topology_edges ?? [],
+    nodePositions: item.node_positions ?? {},
+    publications: item.publications ?? [],
     readyMachines: item.ready_machines ?? 0,
     totalMachines: item.total_machines ?? 0,
     archivedAt: item.archived_at,
@@ -67,40 +76,40 @@ function normalizeClass(item) {
   };
 }
 
-function CourseMachineAccess({ item, onNavigate }) {
+function ExtendDialog({ item, closing, busy, onClose, onExtend }) {
   const { t } = useTranslation("teaching");
-  const [expanded, setExpanded] = useState(false);
-  const machines = item.nodes ?? [];
-  const running = Math.min(item.readyMachines, machines.length);
+  const [endDate, setEndDate] = useState(item.endDate);
+  return <div className={`${styles.createDialogOverlay} ${closing ? styles.createDialogOverlayOut : ""}`} role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget && !busy) onClose(); }}>
+    <section className={styles.createDialog} role="dialog" aria-modal="true" aria-labelledby="extend-class-title">
+      <header className={styles.createDialogHeader}>
+        <h2 id="extend-class-title">{t("ClassWorkspacePage.extendDialogTitle")}</h2>
+        <button type="button" className={styles.iconBtn} aria-label={t("ClassWorkspacePage.closeAriaLabel")} disabled={busy} onClick={onClose}><MIcon name="close" size={19} /></button>
+      </header>
+      <form onSubmit={(event) => { event.preventDefault(); onExtend(endDate); }}>
+        <div className={styles.createDialogBody}>
+          <div className={styles.compactFormSection}>
+            <p className={styles.dialogNote}>{t("ClassWorkspacePage.extendDialogDesc", { endDate: item.endDate })}</p>
+            <label className={styles.field}>
+              <span>{t("ClassWorkspacePage.extendDateLabel")}</span>
+              <input type="date" min={item.endDate} value={endDate} onChange={(event) => setEndDate(event.target.value)} autoFocus />
+            </label>
+          </div>
+        </div>
+        <footer className={styles.createDialogFooter}>
+          <button type="button" className={styles.btnSecondary} disabled={busy} onClick={onClose}>{t("ClassWorkspacePage.cancelBtn")}</button>
+          <button type="submit" className={styles.btnPrimary} disabled={busy || endDate <= item.endDate}>{busy ? t("ClassWorkspacePage.processingLabel") : t("ClassWorkspacePage.extendBtn")}</button>
+        </footer>
+      </form>
+    </section>
+  </div>;
+}
 
-  return <section className={`${styles.overviewInfoCard} ${styles.machineAccessCard}`}>
-    <div className={styles.overviewCardHeader}>
-      <div className={styles.machineAccessTitle}>
-        <span className={styles.machineAccessIcon}><MIcon name="dns" size={18} /></span>
-        <div><h2>{t("ClassWorkspacePage.machineAccessTitle")}</h2><small>{item.name} · {t("ClassWorkspacePage.machineTypesUnit", { count: machines.length })}</small></div>
-        <em>{t("ClassWorkspacePage.connectedToCourse")}</em>
-      </div>
-      <div className={styles.machineAccessHeaderActions}>
-        <button type="button" onClick={() => onNavigate("progress")}>{t("ClassWorkspacePage.viewResourceStatusBtn")}<MIcon name="monitoring" size={15} /></button>
-        <button type="button" className={styles.machineAccessPrimary} aria-expanded={expanded} onClick={() => setExpanded((value) => !value)}>
-          <MIcon name={expanded ? "expand_less" : "computer"} size={16} />{expanded ? t("ClassWorkspacePage.collapseBtn") : t("ClassWorkspacePage.useMachinesBtn")}
-        </button>
-      </div>
-    </div>
-    <div className={styles.machineAccessSummary}>
-      <span className={styles.machineAccessStatus}><i />{t("ClassWorkspacePage.machinesReadyCount", { running, total: item.totalMachines || machines.length })}</span>
-      <span><MIcon name="schedule" size={15} />{t("ClassWorkspacePage.managedByCourseSchedule")}</span>
-      <p>{t("ClassWorkspacePage.viewFromCourseHint")}</p>
-    </div>
-    {expanded && <div className={styles.machineAccessList}>
-      {machines.map((machine) => <article key={machine.id}>
-        <span className={styles.machineAccessMachineIcon}><MIcon name={machine.resource_type === "lxc" ? "terminal" : "desktop_windows"} size={18} /></span>
-        <div><strong>{machine.name}</strong><small>{machine.role} · {String(machine.resource_type).toUpperCase()} · {machine.cpu} CPU / {Math.round(machine.memory_mb / 1024)} GB</small></div>
-        <span className={styles.machineRunning}>{t("ClassWorkspacePage.courseConfiguredLabel")}</span>
-        <button type="button" onClick={() => onNavigate("progress")}>{t("ClassWorkspacePage.viewStudentMachinesBtn")}</button>
-      </article>)}
-    </div>}
-  </section>;
+function machineSummary(item, t) {
+  if (item.status === "planning") {
+    if (!item.course_environment || !item.nodes.length) return t("ClassWorkspacePage.machineSummaryNoEnv");
+    return t("ClassWorkspacePage.machineSummaryPlanned", { total: item.students.length * item.nodes.length });
+  }
+  return t("ClassWorkspacePage.machineSummaryReady", { ready: item.readyMachines, total: item.totalMachines });
 }
 
 function Overview({
@@ -108,16 +117,12 @@ function Overview({
   template,
   onProvision,
   onNavigate,
-  onEditSchedule,
   onRetry,
   onReset,
-  onExtend,
-  onArchive,
   onReclaim,
   provisioning,
   recovering,
   lifecycleBusy,
-  message,
 }) {
   const { t } = useTranslation("teaching");
   const studentsReady = item.students.length > 0;
@@ -126,7 +131,6 @@ function Overview({
   const canProvision = completed === 2 && item.status === "planning";
   const [capacity, setCapacity] = useState(null);
   const [capacityLoading, setCapacityLoading] = useState(false);
-  const [extendedEndDate, setExtendedEndDate] = useState(item.endDate);
   useEffect(() => {
     let active = true;
     if (!canProvision) {
@@ -147,6 +151,11 @@ function Overview({
   const currentWeek = [...item.weeks].reverse().find((week) => week.date <= today) ?? item.weeks.find((week) => week.date > today);
   const weekLabel = currentWeek?.date === today ? t("ClassWorkspacePage.weekLabelThisWeek") : currentWeek?.date > today ? t("ClassWorkspacePage.weekLabelNextSession") : currentWeek === item.weeks.at(-1) && today > currentWeek.date ? t("ClassWorkspacePage.weekLabelLastWeek") : t("ClassWorkspacePage.weekLabelCurrentWeek");
   const weekday = t(["ClassWorkspacePage.weekdayFullMon", "ClassWorkspacePage.weekdayFullTue", "ClassWorkspacePage.weekdayFullWed", "ClassWorkspacePage.weekdayFullThu", "ClassWorkspacePage.weekdayFullFri", "ClassWorkspacePage.weekdayFullSat", "ClassWorkspacePage.weekdayFullSun"][item.weekday]);
+  // 建置完成後，checklist 與建機工作只是把狀態面板已經說過的話再說兩次；
+  // 一直留著會讓概覽的焦點散掉，只在還沒定案時顯示。
+  const settled = ["active", "archived"].includes(item.status);
+  const showChecklist = !settled;
+  const showJobs = item.jobs.length > 0 && !settled;
   const setupItems = [
     [studentsReady, t("ClassWorkspacePage.fieldStudentsLabel"), studentsReady ? t("ClassWorkspacePage.studentsCountLabel", { count: item.students.length }) : t("ClassWorkspacePage.noStudentsYet")],
     [machinesReady, t("ClassWorkspacePage.fieldMachinesLabel"), machinesReady ? t("ClassWorkspacePage.machinesReadyValue", { name: template?.name ?? t("ClassWorkspacePage.appliedEnvFallback"), count: item.nodes.length }) : t("ClassWorkspacePage.noEnvSelected")],
@@ -187,7 +196,12 @@ function Overview({
     description = item.resourcesReclaimedAt
       ? t("ClassWorkspacePage.archivedReclaimedDesc")
       : t("ClassWorkspacePage.archivedNotReclaimedDesc");
-    actionLabel = "";
+    actionLabel = item.resourcesReclaimedAt
+      ? ""
+      : lifecycleBusy ? t("ClassWorkspacePage.processingLabel") : t("ClassWorkspacePage.retryReclaimBtn");
+    actionIcon = "refresh";
+    action = onReclaim;
+    actionDisabled = lifecycleBusy;
   }
   return <div className={styles.stack}>
     <section className={styles.readinessPanel}>
@@ -196,37 +210,34 @@ function Overview({
         <div><span>{t("ClassWorkspacePage.setupProgressLabel", { completed })}</span><h2>{title}</h2><p>{description}</p></div>
         {actionLabel && <div className={styles.setupActions}>{secondaryAction && <button type="button" className={styles.btnSecondary} disabled={recovering} onClick={secondaryAction}>{t("ClassWorkspacePage.unlockAndEditBtn")}</button>}<button type="button" className={styles.btnPrimary} disabled={provisioning || actionDisabled} onClick={action}><MIcon name={actionIcon} size={17} />{actionLabel}</button></div>}
       </div>
-      <div className={styles.setupChecklist}>{setupItems.map(([done, label, note]) => <div key={label} className={done ? styles.setupItemDone : styles.setupItemTodo}><span><MIcon name={done ? "check" : "radio_button_unchecked"} size={17} /></span><div><strong>{label}</strong><small>{note}</small></div><em>{done ? t("ClassWorkspacePage.doneLabel") : t("ClassWorkspacePage.pendingLabel")}</em></div>)}</div>
-      {item.jobs.length > 0 && <div className={styles.jobGrid}>{item.jobs.map((job, index) => <article key={job.id}><span>{t("ClassWorkspacePage.nodeIndexLabel", { index: index + 1 })}</span><strong>{JOB_STATUS_KEYS[job.status] ? t(JOB_STATUS_KEYS[job.status]) : job.status}</strong><small>{t("ClassWorkspacePage.jobResultSummary", { done: job.done, total: job.total, failed: job.failed_count })}</small></article>)}</div>}
-      {message && <p className={styles.persistentFeedback}><MIcon name="info" size={17} />{message}</p>}
+      {showChecklist && <div className={styles.setupChecklist}>{setupItems.map(([done, label, note]) => <div key={label} className={done ? styles.setupItemDone : styles.setupItemTodo}><span><MIcon name={done ? "check" : "radio_button_unchecked"} size={17} /></span><div><strong>{label}</strong><small>{note}</small></div><em>{done ? t("ClassWorkspacePage.doneLabel") : t("ClassWorkspacePage.pendingLabel")}</em></div>)}</div>}
+      {showJobs && <div className={styles.jobGrid}>{item.jobs.map((job, index) => <article key={job.id}><span>{t("ClassWorkspacePage.nodeIndexLabel", { index: index + 1 })}</span><strong>{JOB_STATUS_KEYS[job.status] ? t(JOB_STATUS_KEYS[job.status]) : job.status}</strong><small>{t("ClassWorkspacePage.jobResultSummary", { done: job.done, total: job.total, failed: job.failed_count })}</small></article>)}</div>}
     </section>
     <div className={styles.overviewDetailGrid}>
-      <CourseMachineAccess item={item} onNavigate={onNavigate} />
-      <section className={styles.overviewInfoCard}>
-        <div className={styles.overviewCardHeader}><h2>{t("ClassWorkspacePage.classInfoTitle")}</h2>{item.status === "planning" && <button type="button" onClick={onEditSchedule}>{t("ClassWorkspacePage.editScheduleBtn")}<MIcon name="edit" size={15} /></button>}</div>
-        <div className={styles.classFacts}>
-          <div><span>{t("ClassWorkspacePage.classCodeLabel")}</span><strong>{item.code}</strong></div><div><span>{t("ClassWorkspacePage.termLabel")}</span><strong>{item.term}</strong></div>
-          <div><span>{t("ClassWorkspacePage.fixedScheduleLabel")}</span><strong>{weekday} {item.startTime}–{item.endTime}</strong></div><div><span>{t("ClassWorkspacePage.bootLeadFieldLabel")}</span><strong>{t("ClassWorkspacePage.minutesSuffix", { minutes: item.bootLeadMinutes })}</strong></div>
-          <div><span>{t("ClassWorkspacePage.coursePeriodLabel")}</span><strong>{item.startDate}–{item.endDate}</strong></div><div><span>{t("ClassWorkspacePage.timezoneLabel")}</span><strong>{item.timezone}</strong></div>
-        </div>
-      </section>
       <section className={styles.overviewInfoCard}>
         <div className={styles.overviewCardHeader}><h2>{weekLabel}</h2><button type="button" onClick={() => onNavigate("weekly")}>{t("ClassWorkspacePage.viewAllWeeksBtn")}<MIcon name="arrow_forward" size={15} /></button></div>
         {currentWeek ? <div className={styles.currentWeekSummary}><div><span>{t("ClassWorkspacePage.weekNumberLabel", { week: currentWeek.week })}</span><strong>{currentWeek.title || t("ClassWorkspacePage.noTopicSet")}</strong><small>{currentWeek.date} · {item.startTime}–{item.endTime}</small></div><span className={styles.weekFileCount}><MIcon name="attach_file" size={15} />{t("ClassWorkspacePage.fileCountUnit", { count: currentWeek.files.length })}</span></div> : <EmptyState icon="event" title={t("ClassWorkspacePage.noWeeksTitle")} />}
       </section>
-      <section className={`${styles.overviewInfoCard} ${styles.lifecycleCard}`}>
-        <div className={styles.overviewCardHeader}><h2>{t("ClassWorkspacePage.lifecycleTitle")}</h2></div>
-        {item.status === "archived" ? <div className={styles.lifecycleBody}>
-          <div><strong>{item.resourcesReclaimedAt ? t("ClassWorkspacePage.allReclaimedLabel") : item.reclaimRequestedAt ? t("ClassWorkspacePage.reclaimPendingLabel") : t("ClassWorkspacePage.notReclaimedLabel")}</strong><p>{t("ClassWorkspacePage.archivedNote")}</p></div>
-          {!item.resourcesReclaimedAt && <button type="button" className={styles.btnSecondary} disabled={lifecycleBusy} onClick={onReclaim}><MIcon name="refresh" size={16} />{lifecycleBusy ? t("ClassWorkspacePage.processingLabel") : t("ClassWorkspacePage.retryReclaimBtn")}</button>}
-        </div> : <div className={styles.lifecycleBody}>
-          <label className={styles.lifecycleDate}><span>{t("ClassWorkspacePage.extendDateLabel")}</span><input type="date" min={item.endDate} value={extendedEndDate} onChange={(event) => setExtendedEndDate(event.target.value)} /></label>
-          <div className={styles.lifecycleActions}>
-            <button type="button" className={styles.btnSecondary} disabled={lifecycleBusy || extendedEndDate <= item.endDate} onClick={() => onExtend(extendedEndDate)}><MIcon name="event_repeat" size={16} />{t("ClassWorkspacePage.extendBtn")}</button>
-            <button type="button" className={styles.inspectorDanger} disabled={lifecycleBusy} onClick={onArchive}><MIcon name="archive" size={16} />{t("ClassWorkspacePage.archiveAndReclaimBtn")}</button>
+      <div className={styles.stack}>
+        <section className={styles.overviewInfoCard}>
+          <button type="button" className={styles.summaryRow} onClick={() => onNavigate("machines")}>
+            <span><MIcon name="dns" size={17} />{machineSummary(item, t)}</span>
+            <em>{t("ClassWorkspacePage.tabMachinesLabel")}<MIcon name="arrow_forward" size={15} /></em>
+          </button>
+        </section>
+        <details className={`${styles.overviewInfoCard} ${styles.classInfoFold}`}>
+          <summary>
+            <b>{t("ClassWorkspacePage.classInfoTitle")}</b>
+            <span>{weekday} {item.startTime}–{item.endTime}{item.location ? ` · ${item.location}` : ""} · {t("ClassWorkspacePage.bootLeadShort", { minutes: item.bootLeadMinutes })}</span>
+            <MIcon name="expand_more" size={19} />
+          </summary>
+          <div className={styles.classFacts}>
+            <div><span>{t("ClassWorkspacePage.termLabel")}</span><strong>{item.term}</strong></div><div><span>{t("ClassWorkspacePage.locationLabel")}</span><strong>{item.location || t("ClassWorkspacePage.locationUnset")}</strong></div>
+            <div><span>{t("ClassWorkspacePage.fixedScheduleLabel")}</span><strong>{weekday} {item.startTime}–{item.endTime}</strong></div><div><span>{t("ClassWorkspacePage.coursePeriodLabel")}</span><strong>{item.startDate}–{item.endDate}</strong></div>
+            <div><span>{t("ClassWorkspacePage.bootLeadFieldLabel")}</span><strong>{t("ClassWorkspacePage.minutesSuffix", { minutes: item.bootLeadMinutes })}</strong></div><div><span>{t("ClassWorkspacePage.shutdownGraceFieldLabel")}</span><strong>{t("ClassWorkspacePage.minutesSuffix", { minutes: item.shutdownGraceMinutes })}</strong></div>
           </div>
-        </div>}
-      </section>
+        </details>
+      </div>
     </div>
   </div>;
 }
@@ -234,17 +245,23 @@ function Overview({
 function Students({ item, onRefresh }) {
   const { t } = useTranslation("teaching");
   const confirm = useConfirm();
+  const toast = useToast();
   const [emails, setEmails] = useState("");
-  const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
   const [showAdd, setShowAdd] = useState(false);
   const addDialog = useDialogPresence(showAdd);
   const fileRef = useRef(null);
+  const [emailsInvalid, setEmailsInvalid] = useState(false);
+  const emailsInputRef = useRef(null);
   const locked = item.status !== "planning";
   async function add(event) {
     event.preventDefault();
     const values = emails.split(/[\n,;]/).map((value) => value.trim()).filter(Boolean);
-    if (!values.length) return;
+    if (!values.length) {
+      setEmailsInvalid(true);
+      focusInvalidField(emailsInputRef.current);
+      return;
+    }
     setBusy(true);
     try {
       const result = await TeachingClassesService.addStudents(item.id, values);
@@ -253,9 +270,9 @@ function Students({ item, onRefresh }) {
       const notices = [t("ClassWorkspacePage.addedStudentsCount", { count: result.added })];
       if (result.not_found?.length) notices.push(t("ClassWorkspacePage.notFoundList", { list: result.not_found.join("、") }));
       if (result.invalid_role?.length) notices.push(t("ClassWorkspacePage.invalidRoleList", { list: result.invalid_role.join("、") }));
-      setMessage(`${notices.join("；")}。`);
+      toast.success(`${notices.join("；")}。`);
       onRefresh(result.class);
-    } catch (error) { setMessage(error?.message ?? t("ClassWorkspacePage.addStudentsFailed")); }
+    } catch (error) { toast.error(error?.message ?? t("ClassWorkspacePage.addStudentsFailed")); }
     finally { setBusy(false); }
   }
   async function importCsv() {
@@ -267,9 +284,9 @@ function Students({ item, onRefresh }) {
       const notices = [t("ClassWorkspacePage.csvImportedCount", { count: result.added })];
       if (result.not_found?.length) notices.push(t("ClassWorkspacePage.accountsNotFoundCount", { count: result.not_found.length }));
       if (result.invalid_role?.length) notices.push(t("ClassWorkspacePage.accountsInvalidRoleCount", { count: result.invalid_role.length }));
-      setMessage(`${notices.join("；")}。`);
+      toast.success(`${notices.join("；")}。`);
       onRefresh(result.class);
-    } catch (error) { setMessage(error?.message ?? t("ClassWorkspacePage.csvImportFailed")); }
+    } catch (error) { toast.error(error?.message ?? t("ClassWorkspacePage.csvImportFailed")); }
     finally { if (fileRef.current) fileRef.current.value = ""; setBusy(false); }
   }
   async function remove(studentId) {
@@ -281,7 +298,7 @@ function Students({ item, onRefresh }) {
     });
     if (!ok) return;
     try { onRefresh(await TeachingClassesService.removeStudent(item.id, studentId)); }
-    catch (error) { setMessage(error?.message ?? t("ClassWorkspacePage.removeFailed")); }
+    catch (error) { toast.error(error?.message ?? t("ClassWorkspacePage.removeFailed")); }
   }
   return <div className={styles.stack}>
     <div className={styles.memberPageHeader}>
@@ -293,8 +310,6 @@ function Students({ item, onRefresh }) {
       </div>
     </div>
 
-    {message && <p className={styles.inlineMessage}>{message}</p>}
-
     <section className={styles.memberPanel}>
       <div className={styles.memberPanelHead}><strong>{t("ClassWorkspacePage.memberListHeader", { count: item.students.length })}</strong><span>{t("ClassWorkspacePage.machinesReadyShort", { ready: item.readyMachines, total: item.totalMachines || 0 })}</span></div>
       {item.students.length ? <div className={styles.memberList}>{item.students.map((student) => {
@@ -303,22 +318,22 @@ function Students({ item, onRefresh }) {
           <div className={styles.memberIdentity}><strong>{student.full_name || student.email}</strong><span>{student.email}</span></div>
           <span>{student.machines.length ? student.machines.map((machine) => machine.vmid ?? "—").join("、") : "—"}</span>
           <span className={`${styles.memberMachineState} ${ready === item.nodes.length && item.nodes.length ? styles.memberReady : ""}`}>{item.nodes.length ? t("ClassWorkspacePage.readyCountLabel", { ready, total: item.nodes.length }) : t("ClassWorkspacePage.notBuiltLabel")}</span>
-          <span>{student.joined_at ? new Date(student.joined_at).toLocaleDateString("zh-TW") : "—"}</span>
+          <span>{formatDate(student.joined_at)}</span>
           {!locked ? <button type="button" className={styles.memberRemove} aria-label={t("ClassWorkspacePage.removeStudentAriaLabel")} onClick={() => remove(student.id)}><MIcon name="person_remove" size={17} /></button> : <span />}
         </article>;
       })}</div> : <EmptyState icon="group_add" title={t("ClassWorkspacePage.emptyStudentsTitle")} />}
     </section>
 
-    {addDialog.open && <div className={`${styles.createDialogOverlay} ${addDialog.closing ? styles.createDialogOverlayOut : ""}`} role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget && !busy) setShowAdd(false); }}><section className={`${styles.createDialog} ${styles.studentDialog}`} role="dialog" aria-modal="true" aria-labelledby="add-student-title"><header className={styles.createDialogHeader}><h2 id="add-student-title">{t("ClassWorkspacePage.addStudentsBtn")}</h2><button type="button" className={styles.iconBtn} aria-label={t("ClassWorkspacePage.closeAriaLabel")} onClick={() => setShowAdd(false)}><MIcon name="close" size={19} /></button></header><form onSubmit={add}><div className={styles.studentDialogBody}><label className={styles.field}><span>{t("ClassWorkspacePage.emailFieldLabel")}</span><textarea rows={6} value={emails} onChange={(event) => setEmails(event.target.value)} placeholder="student01@example.edu&#10;student02@example.edu" autoFocus /></label></div><footer className={styles.createDialogFooter}><button type="button" className={styles.btnSecondary} onClick={() => setShowAdd(false)}>{t("ClassWorkspacePage.cancelBtn")}</button><button type="submit" className={styles.btnPrimary} disabled={!emails.trim() || busy}>{busy ? t("ClassWorkspacePage.addingLabel") : t("ClassWorkspacePage.addStudentsBtn")}</button></footer></form></section></div>}
+    {addDialog.open && <div className={`${styles.createDialogOverlay} ${addDialog.closing ? styles.createDialogOverlayOut : ""}`} role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget && !busy) setShowAdd(false); }}><section className={`${styles.createDialog} ${styles.studentDialog}`} role="dialog" aria-modal="true" aria-labelledby="add-student-title"><header className={styles.createDialogHeader}><h2 id="add-student-title">{t("ClassWorkspacePage.addStudentsBtn")}</h2><button type="button" className={styles.iconBtn} aria-label={t("ClassWorkspacePage.closeAriaLabel")} onClick={() => setShowAdd(false)}><MIcon name="close" size={19} /></button></header><form onSubmit={add}><div className={styles.studentDialogBody}><label className={styles.field}><span>{t("ClassWorkspacePage.emailFieldLabel")}</span><textarea ref={emailsInputRef} className={emailsInvalid ? styles.fieldInvalid : undefined} rows={6} value={emails} onChange={(event) => { setEmails(event.target.value); setEmailsInvalid(false); }} placeholder="student01@example.edu&#10;student02@example.edu" autoFocus /></label></div><footer className={styles.createDialogFooter}><button type="button" className={styles.btnSecondary} onClick={() => setShowAdd(false)}>{t("ClassWorkspacePage.cancelBtn")}</button><button type="submit" className={styles.btnPrimary} disabled={busy}>{busy ? t("ClassWorkspacePage.addingLabel") : t("ClassWorkspacePage.addStudentsBtn")}</button></footer></form></section></div>}
   </div>;
 }
 
 function WeeklyContent({ item, onRefresh }) {
   const { t } = useTranslation("teaching");
+  const toast = useToast();
   const [weeks, setWeeks] = useState(item.weeks);
   const [saving, setSaving] = useState(false);
   const [uploadingWeek, setUploadingWeek] = useState("");
-  const [message, setMessage] = useState("");
   const locked = item.status === "archived";
   useEffect(() => setWeeks(item.weeks), [item.weeks]);
   function update(id, key, value) { setWeeks((rows) => rows.map((row) => row.id === id ? { ...row, [key]: value } : row)); }
@@ -329,45 +344,125 @@ function WeeklyContent({ item, onRefresh }) {
   async function upload(weekId, fileList) {
     const files = Array.from(fileList ?? []);
     if (!files.length) return;
-    setUploadingWeek(weekId); setMessage("");
+    setUploadingWeek(weekId);
     try {
       let result;
       for (const file of files) result = await TeachingClassesService.uploadWeekFile(item.id, weekId, file);
       if (result) mergeUploadedFiles(result);
-      setMessage(t("ClassWorkspacePage.uploadedFilesCount", { count: files.length }));
-    } catch (error) { setMessage(error?.message ?? t("ClassWorkspacePage.uploadFailed")); }
+      toast.success(t("ClassWorkspacePage.uploadedFilesCount", { count: files.length }));
+    } catch (error) { toast.error(error?.message ?? t("ClassWorkspacePage.uploadFailed")); }
     finally { setUploadingWeek(""); }
   }
   async function removeFile(weekId, file) {
     if (!file.id) return;
-    setUploadingWeek(weekId); setMessage("");
+    setUploadingWeek(weekId);
     try { mergeUploadedFiles(await TeachingClassesService.deleteWeekFile(item.id, weekId, file.id)); }
-    catch (error) { setMessage(error?.message ?? t("ClassWorkspacePage.removeFileFailed")); }
+    catch (error) { toast.error(error?.message ?? t("ClassWorkspacePage.removeFileFailed")); }
     finally { setUploadingWeek(""); }
   }
   async function save() {
-    setSaving(true); setMessage("");
+    setSaving(true);
     try {
-      const result = await TeachingClassesService.replaceWeeks(item.id, weeks.map((week) => ({ week_number: week.week, session_date: week.date, title: week.title.trim(), target_node_key: null, status: week.status, files: week.files.map((file) => ({ filename: file.filename, storage_key: file.storage_key ?? null, target_path: file.target_path ?? null })) })));
-      onRefresh(result); setMessage(t("ClassWorkspacePage.weeklySavedMsg"));
-    } catch (error) { setMessage(error?.message ?? t("ClassWorkspacePage.saveFailed")); }
+      const result = await TeachingClassesService.replaceWeeks(item.id, weeks.map((week) => ({ week_number: week.week, session_date: week.date, title: week.title.trim(), target_node_key: week.target || null, status: week.status, files: week.files.map((file) => ({ filename: file.filename, storage_key: file.storage_key ?? null, target_path: file.target_path ?? null })) })));
+      onRefresh(result); toast.success(t("ClassWorkspacePage.weeklySavedMsg"));
+    } catch (error) { toast.error(error?.message ?? t("ClassWorkspacePage.saveFailed")); }
     finally { setSaving(false); }
   }
   return <div className={styles.stack}>
-    <section className={styles.card}><div className={styles.cardHeader}><div><h2>{t("ClassWorkspacePage.weeklyContentHeader", { count: weeks.length })}</h2><p>{t("ClassWorkspacePage.weeklyPublishHint")}</p></div></div><div className={styles.weekRows}>{weeks.map((week) => { const published = ["published", "completed"].includes(week.status); return <article key={week.id}><div className={styles.weekDate}><strong>{t("ClassWorkspacePage.weekNumberLabel", { week: week.week })}</strong><span>{week.date}</span><button type="button" disabled={locked || !week.title.trim()} className={`${styles.weekPublishButton} ${published ? styles.weekPublished : ""}`} onClick={() => update(week.id, "status", published ? "draft" : "published")}><MIcon name={published ? "visibility" : "visibility_off"} size={14} />{published ? t("ClassWorkspacePage.publishedShortLabel") : t("ClassWorkspacePage.draftKeepLabel")}</button></div><label className={styles.field}><span>{t("ClassWorkspacePage.topicTaskLabel")}</span><input disabled={locked} value={week.title} onChange={(event) => update(week.id, "title", event.target.value)} placeholder={t("ClassWorkspacePage.topicPlaceholder")} /></label><div className={styles.weekFiles}><span>{t("ClassWorkspacePage.taskFilesLabel")}</span><div className={styles.weekFileList}>{week.files.map((file) => <span className={styles.weekFileChip} key={file.id ?? file.filename}><MIcon name="description" size={15} /><b>{file.filename}</b>{!locked && file.id && <button type="button" disabled={uploadingWeek === week.id} aria-label={t("ClassWorkspacePage.removeFileAria", { filename: file.filename })} onClick={() => removeFile(week.id, file)}><MIcon name="close" size={14} /></button>}</span>)}{!locked && <label className={styles.weekUploadButton}><input type="file" multiple disabled={uploadingWeek === week.id} onChange={(event) => { upload(week.id, event.target.files); event.target.value = ""; }} /><MIcon name="upload_file" size={16} />{uploadingWeek === week.id ? t("ClassWorkspacePage.uploadingLabel") : t("ClassWorkspacePage.uploadFileBtn")}</label>}</div></div></article>; })}</div>{message && <p className={styles.inlineMessage}>{message}</p>}{!locked && <div className={styles.actionFooter}><button type="button" className={styles.btnPrimary} disabled={saving || Boolean(uploadingWeek)} onClick={save}><MIcon name="save" size={16} />{saving ? t("ClassWorkspacePage.savingLabel") : t("ClassWorkspacePage.saveWeeklyBtn")}</button></div>}</section>
+    <section className={styles.card}>
+      <div className={styles.cardHeader}><div><h2>{t("ClassWorkspacePage.weeklyContentHeader", { count: weeks.length })}</h2><p>{t("ClassWorkspacePage.weeklyPublishHint")}</p></div><span className={styles.weekVisibleCount}>{t("ClassWorkspacePage.weeksVisibleCount", { count: weeks.filter((week) => ["published", "completed"].includes(week.status)).length })}</span></div>
+      <div className={styles.weekRows}>
+        <div className={styles.weekRowsHead}><span>{t("ClassWorkspacePage.weekColWeek")}</span><span>{t("ClassWorkspacePage.topicTaskLabel")}</span><span>{t("ClassWorkspacePage.weekColMachine")}</span><span>{t("ClassWorkspacePage.taskFilesLabel")}</span><span>{t("ClassWorkspacePage.weekColVisible")}</span></div>
+        {weeks.map((week) => {
+          const published = ["published", "completed"].includes(week.status);
+          return <article key={week.id}>
+            <div className={styles.weekDate}><strong>{t("ClassWorkspacePage.weekNumberLabel", { week: week.week })}</strong><span>{week.date}</span></div>
+            <input className={styles.weekTitleInput} disabled={locked} value={week.title} onChange={(event) => update(week.id, "title", event.target.value)} placeholder={t("ClassWorkspacePage.topicPlaceholder")} />
+            <select className={styles.weekMachineSelect} disabled={locked} value={week.target} onChange={(event) => update(week.id, "target", event.target.value)} aria-label={t("ClassWorkspacePage.weekMachineAria", { week: week.week })}>
+              <option value="">{t("ClassWorkspacePage.weekMachineAll")}</option>
+              {item.nodes.map((node) => <option key={node.node_key} value={node.node_key}>{node.name}</option>)}
+            </select>
+            <div className={styles.weekFileList}>
+              {week.files.map((file) => <span className={styles.weekFileChip} key={file.id ?? file.filename}><MIcon name="description" size={15} /><b>{file.filename}</b>{!locked && file.id && <button type="button" disabled={uploadingWeek === week.id} aria-label={t("ClassWorkspacePage.removeFileAria", { filename: file.filename })} onClick={() => removeFile(week.id, file)}><MIcon name="close" size={14} /></button>}</span>)}
+              {!locked && <label className={styles.weekUploadButton}><input type="file" multiple disabled={uploadingWeek === week.id} onChange={(event) => { upload(week.id, event.target.files); event.target.value = ""; }} /><MIcon name="upload_file" size={16} />{uploadingWeek === week.id ? t("ClassWorkspacePage.uploadingLabel") : t("ClassWorkspacePage.uploadFileBtn")}</label>}
+            </div>
+            <button type="button" disabled={locked || !week.title.trim()} title={!week.title.trim() ? t("ClassWorkspacePage.publishNeedsTopicHint") : undefined} className={`${styles.weekPublishButton} ${published ? styles.weekPublished : ""}`} onClick={() => update(week.id, "status", published ? "draft" : "published")}><MIcon name={published ? "visibility" : "visibility_off"} size={15} />{published ? t("ClassWorkspacePage.publishedShortLabel") : t("ClassWorkspacePage.draftKeepLabel")}</button>
+          </article>;
+        })}
+      </div>
+      {!locked && <div className={styles.actionFooter}><button type="button" className={styles.btnPrimary} disabled={saving || Boolean(uploadingWeek)} onClick={save}><MIcon name="save" size={16} />{saving ? t("ClassWorkspacePage.savingLabel") : t("ClassWorkspacePage.saveWeeklyBtn")}</button></div>}
+    </section>
+  </div>;
+}
+
+/* 唯讀拓撲節點：外觀與課程環境編輯器的 TopologyMachineNode 一致（同一份
+   .flowMachineNode 樣式），差別只在不能拖曳連線。角色與對外服務是課程環境
+   宣告的內容，這裡一併顯示，老師才對得起來。 */
+function ReadonlyMachineNode({ data }) {
+  const { t } = useTranslation("teaching");
+  const { node, publicationCount } = data;
+  return <div className={`${styles.flowMachineNode} ${styles.flowMachineNodeStatic}`}>
+    <Handle type="target" position={Position.Left} isConnectable={false} />
+    <div className={styles.flowNodeIcon}><MIcon name={node.resource_type === "lxc" ? "terminal" : "dns"} size={18} /></div>
+    <div className={styles.flowNodeLabel}>
+      <strong title={node.name}>{node.name}</strong>
+      <span>{node.role ? `${node.role} · ` : ""}{node.source_type === "custom" ? t("ClassWorkspacePage.sourceCustomSpecLabel") : t("ClassWorkspacePage.machineTemplateLabel")} · {node.resource_type === "lxc" ? t("ClassWorkspacePage.typeContainerLxc") : t("ClassWorkspacePage.typeVm")}</span>
+      <small>{node.cpu} CPU · {Math.round(node.memory_mb / 1024)} GB RAM · {node.disk_gb} GB</small>
+      {publicationCount > 0 && <em className={styles.flowNodePublic}>
+        <MIcon name="public" size={12} />
+        {t("ClassWorkspacePage.nodePublicCount", { count: publicationCount })}
+      </em>}
+    </div>
+    <Handle type="source" position={Position.Right} isConnectable={false} />
+  </div>;
+}
+
+const READONLY_NODE_TYPES = { classMachine: ReadonlyMachineNode };
+
+/* 對外服務清單：與課程環境編輯器側欄的摘要同一套說法。網址是每位學生各一個，
+   模板只存主機名樣板，所以這裡顯示的是樣板而不是實際網址。 */
+function PublicationSummary({ item }) {
+  const { t } = useTranslation("teaching");
+  const nameByKey = useMemo(
+    () => Object.fromEntries(item.nodes.map((node) => [node.node_key, node.name])),
+    [item.nodes],
+  );
+  return <div className={styles.classPublicationList}>
+    {item.publications.map((publication) => <div key={publication.id} className={styles.classPublicationRow}>
+      <span className={styles.classPublicationIcon}>
+        <MIcon name={publication.mode === "domain" ? "public" : "lock"} size={16} />
+      </span>
+      <div>
+        <strong>{nameByKey[publication.node_key] ?? publication.node_key} · Port {publication.port}</strong>
+        <small>{publication.mode === "domain"
+          ? t("ClassWorkspacePage.publicationDomainHint", { hostname: `${publication.hostname_prefix ?? ""}` })
+          : t("ClassWorkspacePage.publicationFirewallHint")}</small>
+      </div>
+    </div>)}
   </div>;
 }
 
 function TopologyPreview({ item }) {
   const { t } = useTranslation("teaching");
-  const nodes = item.nodes.map((node, index) => ({
-    id: String(node.node_key),
-    position: { x: 70 + index * 250, y: 95 + (index % 2) * 35 },
-    data: {
-      label: <div className={styles.readonlyTopologyNode}><strong>{node.name}</strong><span>{node.source_type === "custom" ? t("ClassWorkspacePage.sourceCustomSpecLabel") : t("ClassWorkspacePage.machineTemplateLabel")} · {node.resource_type === "lxc" ? t("ClassWorkspacePage.typeContainerLxc") : t("ClassWorkspacePage.typeVm")}</span><small>{node.cpu} CPU · {Math.round(node.memory_mb / 1024)} GB RAM · {node.disk_gb} GB</small></div>,
-    },
-    style: { width: 205, padding: 0, borderRadius: 10, borderColor: "var(--color-border)", background: "var(--color-surface)" },
-  }));
+  const publicationCounts = useMemo(() => {
+    const counts = {};
+    for (const publication of item.publications ?? []) {
+      counts[publication.node_key] = (counts[publication.node_key] ?? 0) + 1;
+    }
+    return counts;
+  }, [item.publications]);
+  const nodes = item.nodes.map((node, index) => {
+    // 老師在課程環境排好的座標優先；環境版本查不到才退回依序排開
+    const saved = item.nodePositions?.[node.node_key];
+    return {
+      id: String(node.node_key),
+      type: "classMachine",
+      position: saved
+        ? { x: Number(saved.x), y: Number(saved.y) }
+        : { x: 70 + index * 250, y: 95 + (index % 2) * 35 },
+      data: { node, publicationCount: publicationCounts[node.node_key] ?? 0 },
+    };
+  });
   const edges = item.topologyEdges.map((edge, index) => {
     const bidirectional = edge.direction === "bidirectional";
     return {
@@ -377,17 +472,20 @@ function TopologyPreview({ item }) {
       type: "smoothstep",
       animated: true,
       label: `${bidirectional ? t("ClassWorkspacePage.directionBidirectional") : t("ClassWorkspacePage.directionOneWay")} · ${String(edge.protocol).toUpperCase()}${edge.port ? `/${edge.port}` : ""}`,
-      markerEnd: { type: MarkerType.ArrowClosed, color: "#5d78cf" },
-      markerStart: bidirectional ? { type: MarkerType.ArrowClosed, color: "#5d78cf" } : undefined,
-      style: { stroke: "#5d78cf", strokeWidth: 2 },
+      markerEnd: { type: MarkerType.ArrowClosed, color: "var(--color-primary)" },
+      markerStart: bidirectional ? { type: MarkerType.ArrowClosed, color: "var(--color-primary)" } : undefined,
+      style: { stroke: "var(--color-primary)", strokeWidth: 2 },
       labelStyle: { fill: "var(--color-text-secondary)", fontSize: 10, fontWeight: 600 },
       labelBgStyle: { fill: "var(--color-surface)", fillOpacity: 0.95 },
     };
   });
-  return <div className={styles.readonlyTopology}>
+  // 高度跟著節點數走，一台機器不該撐出一整片空網格。
+  const canvasHeight = Math.min(400, 260 + Math.max(0, item.nodes.length - 1) * 70);
+  return <div className={styles.readonlyTopology} style={{ height: canvasHeight }}>
     <ReactFlow
       nodes={nodes}
       edges={edges}
+      nodeTypes={READONLY_NODE_TYPES}
       nodesDraggable={false}
       nodesConnectable={false}
       elementsSelectable={false}
@@ -405,97 +503,60 @@ function TopologyPreview({ item }) {
 function Machines({ item, templates, template, onRefresh, onTemplate, createdTemplateId }) {
   const { t } = useTranslation("teaching");
   const navigate = useNavigate();
-  const [message, setMessage] = useState(createdTemplateId ? t("ClassWorkspacePage.templateCreatedMsg") : "");
+  const toast = useToast();
+  const createdNoticeShown = useRef(false);
+  useEffect(() => {
+    if (!createdTemplateId || createdNoticeShown.current) return;
+    createdNoticeShown.current = true;
+    toast.info(t("ClassWorkspacePage.templateCreatedMsg"));
+  }, [createdTemplateId, toast, t]);
   const locked = item.status !== "planning";
   async function choose(candidate) {
     const invalidNode = candidate.nodes.find((node) => !courseNodeHasUsableSource(node));
     if (invalidNode) {
-      setMessage(t("ClassWorkspacePage.unboundSourceMsg", { name: invalidNode.name, sourceLabel: invalidNode.sourceType === "custom" ? t("ClassWorkspacePage.baseImageLabel") : t("ClassWorkspacePage.machineTemplateLabel") }));
+      toast.error(t("ClassWorkspacePage.unboundSourceMsg", { name: invalidNode.name, sourceLabel: invalidNode.sourceType === "custom" ? t("ClassWorkspacePage.baseImageLabel") : t("ClassWorkspacePage.machineTemplateLabel") }));
       return;
     }
     try {
       const result = await TeachingClassesService.selectCourse(item.id, candidate.versionId);
-      onTemplate(candidate.id); onRefresh(result); setMessage(t("ClassWorkspacePage.selectedEnvMsg", { name: candidate.name, version: candidate.version }));
-    } catch (error) { setMessage(error?.message ?? t("ClassWorkspacePage.applyEnvFailed")); }
+      onTemplate(candidate.id); onRefresh(result);
+    } catch (error) { toast.error(error?.message ?? t("ClassWorkspacePage.applyEnvFailed")); }
   }
+  // 鎖定後不該再擺一份選不了的清單：直接呈現已套用的環境與它的拓撲。
+  if (locked) {
+    return <div className={styles.stack}>
+      <section className={styles.card}>
+        <div className={styles.cardHeader}>
+          <div><h2>{t("ClassWorkspacePage.appliedEnvTitle")}</h2><p>{item.course_environment ? `${item.course_environment.name} · v${item.course_environment.version}` : t("ClassWorkspacePage.appliedEnvFallback")}</p></div>
+          <span className={styles.lockBadge}><MIcon name="lock" size={14} />{t("ClassWorkspacePage.settingsLockedLabel")}</span>
+        </div>
+        <div className={styles.envFacts}>
+          <div><span>{t("ClassWorkspacePage.envFactPerStudent")}</span><strong>{t("ClassWorkspacePage.machineCountUnit", { count: item.nodes.length })}</strong></div>
+          <div><span>{t("ClassWorkspacePage.envFactStudents")}</span><strong>{t("ClassWorkspacePage.peopleCountUnit", { count: item.students.length })}</strong></div>
+          <div><span>{t("ClassWorkspacePage.envFactTotal")}</span><strong>{t("ClassWorkspacePage.machineCountUnit", { count: item.students.length * item.nodes.length })}</strong></div>
+          <div><span>{t("ClassWorkspacePage.envFactTopology")}</span><strong>{item.topologyEdges.length ? t("ClassWorkspacePage.envFactLinkCount", { count: item.topologyEdges.length }) : t("ClassWorkspacePage.envFactNoLink")}</strong></div>
+          <div><span>{t("ClassWorkspacePage.envFactPublic")}</span><strong>{item.publications.length ? t("ClassWorkspacePage.envFactPublicCount", { count: item.publications.length }) : t("ClassWorkspacePage.envFactNoPublic")}</strong></div>
+        </div>
+        {item.publications.length > 0 && <PublicationSummary item={item} />}
+        {item.nodes.length > 0 && <TopologyPreview item={item} />}
+      </section>
+    </div>;
+  }
+
   return <div className={styles.stack}>
     <section className={styles.card}>
-      <div className={styles.cardHeader}><div><h2>{t("ClassWorkspacePage.chooseEnvTitle")}</h2><p>{t("ClassWorkspacePage.chooseEnvDesc")}</p></div><div className={styles.pageActions}>{!locked && <button type="button" className={styles.btnSecondary} onClick={() => navigate(`/course-template-management/new?returnTo=${encodeURIComponent(`/class-management/${item.id}/machines`)}`)}><MIcon name="add" size={16} />{t("ClassWorkspacePage.createNewEnvBtn")}</button>}{locked && <span className={styles.lockBadge}><MIcon name="lock" size={14} />{t("ClassWorkspacePage.settingsLockedLabel")}</span>}</div></div>
-      <div className={styles.templateChoices}>{templates.map((candidate) => <button type="button" key={candidate.versionId} disabled={locked} className={`${template?.id === candidate.id ? styles.templateSelected : ""} ${String(candidate.id) === String(createdTemplateId) ? styles.templateSuggested : ""}`} onClick={() => choose(candidate)}><span><MIcon name="account_tree" size={21} /></span><div><strong>{candidate.name} · v{candidate.version}</strong><p>{candidate.description}</p><small>{t("ClassWorkspacePage.perStudentMachinesLocked", { count: candidate.nodes.length })}</small></div></button>)}</div>
+      <div className={styles.cardHeader}><div><h2>{t("ClassWorkspacePage.chooseEnvTitle")}</h2><p>{t("ClassWorkspacePage.chooseEnvDesc")}</p></div><div className={styles.pageActions}><button type="button" className={styles.btnSecondary} onClick={() => navigate(`/course-template-management/new?returnTo=${encodeURIComponent(`/class-management/${item.id}/machines`)}`)}><MIcon name="add" size={16} />{t("ClassWorkspacePage.createNewEnvBtn")}</button></div></div>
+      <div className={styles.envChoices}>{templates.map((candidate) => <EnvironmentChoice key={candidate.versionId} candidate={candidate} selected={template?.id === candidate.id} suggested={String(candidate.id) === String(createdTemplateId)} onSelect={() => choose(candidate)} />)}</div>
       {!templates.length && <div className={styles.emptyState}><p>{t("ClassWorkspacePage.noPublishedEnvNote")}</p></div>}
-      {message && <p className={styles.inlineMessage}>{message}</p>}
     </section>
     {item.nodes.length > 0 && <section className={styles.card}>
-      <div className={styles.cardHeader}><div><h2>{t("ClassWorkspacePage.confirmBeforeLockTitle")}</h2><p>{item.course_environment ? `${item.course_environment.name} v${item.course_environment.version} · ` : ""}{t("ClassWorkspacePage.topologyDescSuffix", { count: item.nodes.length, total: item.students.length * item.nodes.length })}</p></div></div>
+      <div className={styles.cardHeader}>
+        <div><h2>{t("ClassWorkspacePage.topologyTitle")}</h2></div>
+        <span className={styles.topologySummary}>{t("ClassWorkspacePage.perStudentUnit", { count: item.nodes.length })} · {item.topologyEdges.length ? t("ClassWorkspacePage.envFactLinkCount", { count: item.topologyEdges.length }) : t("ClassWorkspacePage.envFactNoLink")} · {item.publications.length ? t("ClassWorkspacePage.envFactPublicCount", { count: item.publications.length }) : t("ClassWorkspacePage.envFactNoPublic")}</span>
+      </div>
       <TopologyPreview item={item} />
-      {!item.topologyEdges.length && <p className={styles.topologyEmptyNote}>{t("ClassWorkspacePage.noTopologyEdgesNote")}</p>}
+      {item.publications.length > 0 && <PublicationSummary item={item} />}
     </section>}
-  </div>;
-}
-
-function ClassMonitor({ item }) {
-  const { t } = useTranslation("teaching");
-  const [students, setStudents] = useState(null);
-  const [sources, setSources] = useState([]);
-  const [message, setMessage] = useState("");
-  const [watch, setWatch] = useState(null);
-  const [watching, setWatching] = useState(false);
-  const [broadcasting, setBroadcasting] = useState(false);
-  const [broadcast, setBroadcast] = useState(null);
-  const load = useCallback(async () => {
-    try { setStudents(await ClassroomService.listClassStudents(item.id)); }
-    catch (error) { setMessage(error?.message ?? t("ClassWorkspacePage.loadMonitorFailed")); setStudents((current) => current ?? []); }
-  }, [item.id]);
-  useEffect(() => {
-    load();
-    ClassroomService.listClassBroadcastSources(item.id).then(setSources).catch(() => setSources([]));
-    const timer = window.setInterval(load, 10000);
-    return () => window.clearInterval(timer);
-  }, [item.id, load]);
-  const orderedStudents = useMemo(() => [...(students ?? [])].sort((a, b) => {
-    const aReady = a.online && a.vms.some((vm) => vm.status === "running");
-    const bReady = b.online && b.vms.some((vm) => vm.status === "running");
-    return Number(aReady) - Number(bReady);
-  }), [students]);
-  const onlineCount = (students ?? []).filter((student) => student.online).length;
-  const machineCount = (students ?? []).reduce((sum, student) => sum + student.vms.length, 0);
-  const runningCount = (students ?? []).reduce((sum, student) => sum + student.vms.filter((vm) => vm.status === "running").length, 0);
-  async function openWatch(student, vm) {
-    setWatching(true); setMessage("");
-    try {
-      const session = await ClassroomService.createSession({ vmid: vm.vmid, mode: "monitor", class_id: item.id });
-      setWatch({ sessionId: session.id, title: `${student.full_name || student.email} · ${vm.name || t("ClassWorkspacePage.vmFallbackName", { vmid: vm.vmid })}` });
-    } catch (error) { setMessage(error?.message ?? t("ClassWorkspacePage.openWatchFailed")); }
-    finally { setWatching(false); }
-  }
-  async function closeWatch() {
-    if (watch) ClassroomService.stopSession(watch.sessionId).catch(() => {});
-    setWatch(null);
-  }
-  async function startBroadcast(vmid) {
-    if (!vmid) return;
-    setBroadcasting(true); setMessage("");
-    try {
-      const session = await ClassroomService.createSession({ vmid: Number(vmid), mode: "broadcast", class_id: item.id });
-      setBroadcast(session); setMessage(t("ClassWorkspacePage.broadcastStartedMsg"));
-    } catch (error) { setMessage(error?.message ?? t("ClassWorkspacePage.startBroadcastFailed")); }
-    finally { setBroadcasting(false); }
-  }
-  async function stopBroadcast() {
-    if (!broadcast) return;
-    setBroadcasting(true);
-    try { await ClassroomService.stopSession(broadcast.id); setBroadcast(null); setMessage(t("ClassWorkspacePage.broadcastEndedMsg")); }
-    catch (error) { setMessage(error?.message ?? t("ClassWorkspacePage.stopBroadcastFailed")); }
-    finally { setBroadcasting(false); }
-  }
-  return <div className={styles.stack}>
-    <section className={styles.classroomPanel}>
-      <div className={styles.classroomHeader}><div><h2>{t("ClassWorkspacePage.tabClassroomLabel")}</h2><p>{t("ClassWorkspacePage.classroomHint")}</p></div><div className={styles.classroomStats}><span><strong>{onlineCount}</strong>{t("ClassWorkspacePage.onlineCountLabel", { total: students?.length ?? 0 })}</span><span><strong>{runningCount}</strong>{t("ClassWorkspacePage.runningCountLabel", { total: machineCount })}</span></div></div>
-      <div className={styles.broadcastTools}><MIcon name="sensors" size={18} /><strong>{t("ClassWorkspacePage.broadcastDemoLabel")}</strong>{broadcast ? <><span>{t("ClassWorkspacePage.broadcastInProgress")}</span><button type="button" className={styles.btnSecondary} disabled={broadcasting} onClick={stopBroadcast}>{t("ClassWorkspacePage.stopBroadcastBtn")}</button></> : <><select disabled={broadcasting || !sources.length} defaultValue="" onChange={(event) => { startBroadcast(event.target.value); event.target.value = ""; }}><option value="">{sources.length ? t("ClassWorkspacePage.selectRunningVmOption") : t("ClassWorkspacePage.noBroadcastVmOption")}</option>{sources.map((source) => <option key={source.vmid} value={source.vmid}>{source.name || t("ClassWorkspacePage.vmFallbackName", { vmid: source.vmid })}</option>)}</select></>}</div>
-      {message && <p className={styles.inlineMessage}>{message}</p>}
-      {students === null ? <div className={styles.classroomLoading}>{t("ClassWorkspacePage.loadingStudentsText")}</div> : orderedStudents.length ? <div className={styles.classroomList}>{orderedStudents.map((student) => <article className={styles.classroomStudentRow} key={student.user_id}><div className={styles.classroomStudentIdentity}><strong>{student.full_name || student.email}</strong><span>{student.email}</span></div><span className={`${styles.classroomPresence} ${student.online ? styles.classroomOnline : ""}`}><i />{student.online ? t("ClassWorkspacePage.onlineLabel") : t("ClassWorkspacePage.offlineLabel")}</span><div className={styles.classroomMachines}>{student.vms.map((vm) => { const canWatch = vm.vm_type !== "lxc" && vm.status === "running"; return <div className={styles.classroomMachine} key={vm.vmid}><span><strong>{vm.name || t("ClassWorkspacePage.vmFallbackName", { vmid: vm.vmid })}</strong><small>{vm.status === "running" ? t("ClassWorkspacePage.runningStatusLabel") : vm.status === "completed" ? t("ClassWorkspacePage.notBootedLabel") : vm.status}</small></span><button type="button" disabled={!canWatch || watching} onClick={() => openWatch(student, vm)}>{vm.vm_type === "lxc" ? "LXC" : t("ClassWorkspacePage.watchBtn")}</button></div>; })}{!student.vms.length && <span className={styles.classroomNoMachine}>{t("ClassWorkspacePage.noClassMachinesLabel")}</span>}</div></article>)}</div> : <EmptyState icon="groups" title={t("ClassWorkspacePage.noStudentMachinesTitle")} />}
-    </section>
-    {watch && <ClassroomWatchDialog sessionId={watch.sessionId} title={watch.title} canControl onClose={closeWatch} />}
   </div>;
 }
 
@@ -508,25 +569,41 @@ function heatLevel(usage) {
 }
 
 const StudentHeatCell = memo(function StudentHeatCell({
+  canWatch,
   email,
   index,
   machineName,
   metricLabel,
+  machine,
   name,
   nodeName,
+  nodeType,
+  onWatch,
   state,
+  student,
   usage,
   vmid,
+  watching,
 }) {
   const { t } = useTranslation("teaching");
   const hasUsage = state === "on" && usage !== null;
   const detail = state === "off" ? t("ClassWorkspacePage.offLabel") : hasUsage ? `${metricLabel} ${usage}%` : t("ClassWorkspacePage.noDataLabel");
   const tone = state === "off" ? styles.heatOff : hasUsage ? styles[`heat_${heatLevel(usage)}`] : styles.heatUnavailable;
-  return <article className={`${styles.heatCell} ${tone}`} title={`${name}\n${email ?? ""}\n${nodeName} · VM ${vmid ?? "—"}\n${detail}`} aria-label={`${name}，${detail}`}>
+  const watchHint = canWatch ? t("ClassWorkspacePage.clickToWatchLabel") : "";
+  const isLxc = String(nodeType).toLowerCase() === "lxc";
+  return <button
+    type="button"
+    className={`${styles.heatCell} ${tone} ${canWatch ? styles.heatCellClickable : ""}`}
+    title={`${name}\n${email ?? ""}\n${nodeName} · VM ${vmid ?? "—"}\n${detail}${watchHint ? `\n${watchHint}` : ""}`}
+    aria-label={canWatch ? t("ClassWorkspacePage.openStudentMachineAria", { machine: nodeName, name }) : `${name}，${detail}`}
+    disabled={!canWatch || watching}
+    onClick={() => onWatch(student, machine, { name: nodeName, resource_type: nodeType })}
+  >
     <span className={styles.studentNumber}>{String(index + 1).padStart(2, "0")}</span>
     <div><strong>{name}</strong><small>{vmid ? t("ClassWorkspacePage.vmFallbackName", { vmid }) : machineName || t("ClassWorkspacePage.notBuiltLabel")}</small></div>
     <b>{state === "off" ? t("ClassWorkspacePage.offLabel") : hasUsage ? `${usage}%` : t("ClassWorkspacePage.noDataLabel")}</b>
-  </article>;
+    {canWatch && <span className={styles.heatWatchCue}><MIcon name={isLxc ? "terminal" : "visibility"} size={14} />{t(isLxc ? "ClassWorkspacePage.terminalBtn" : "ClassWorkspacePage.watchBtn")}</span>}
+  </button>;
 });
 
 function StudentMachines({ item }) {
@@ -536,6 +613,13 @@ function StudentMachines({ item }) {
   const [usageByVmid, setUsageByVmid] = useState({});
   const [usageStatus, setUsageStatus] = useState("loading");
   const [collectedAt, setCollectedAt] = useState(null);
+  const [sources, setSources] = useState([]);
+  const [message, setMessage] = useState("");
+  const [watch, setWatch] = useState(null);
+  const [terminal, setTerminal] = useState(null);
+  const [watching, setWatching] = useState(false);
+  const [broadcasting, setBroadcasting] = useState(false);
+  const [broadcast, setBroadcast] = useState(null);
   const usageByVmidRef = useRef(null);
 
   useEffect(() => {
@@ -579,6 +663,70 @@ function StudentMachines({ item }) {
     };
   }, [item.id]);
 
+  useEffect(() => {
+    let active = true;
+    ClassroomService.listClassBroadcastSources(item.id)
+      .then((result) => { if (active) setSources(result); })
+      .catch(() => { if (active) setSources([]); });
+    return () => { active = false; };
+  }, [item.id]);
+
+  const openWatch = useCallback(async (student, machine, node) => {
+    if (!machine?.vmid) return;
+    setMessage("");
+    const machineName = node?.name || t("ClassWorkspacePage.vmFallbackName", { vmid: machine.vmid });
+    if (String(node?.resource_type).toLowerCase() === "lxc") {
+      setTerminal({ vmid: machine.vmid, name: `${student.full_name || student.email} · ${machineName}`, type: "lxc", status: "running" });
+      return;
+    }
+    setWatching(true);
+    try {
+      const session = await ClassroomService.createSession({ vmid: machine.vmid, mode: "monitor", class_id: item.id });
+      setWatch({
+        sessionId: session.id,
+        title: `${student.full_name || student.email} · ${machineName}`,
+      });
+    } catch (error) {
+      setMessage(error?.message ?? t("ClassWorkspacePage.openWatchFailed"));
+    } finally {
+      setWatching(false);
+    }
+  }, [item.id, t]);
+
+  function closeWatch() {
+    if (watch) ClassroomService.stopSession(watch.sessionId).catch(() => {});
+    setWatch(null);
+  }
+
+  async function startBroadcast(vmid) {
+    if (!vmid) return;
+    setBroadcasting(true);
+    setMessage("");
+    try {
+      const session = await ClassroomService.createSession({ vmid: Number(vmid), mode: "broadcast", class_id: item.id });
+      setBroadcast(session);
+      setMessage(t("ClassWorkspacePage.broadcastStartedMsg"));
+    } catch (error) {
+      setMessage(error?.message ?? t("ClassWorkspacePage.startBroadcastFailed"));
+    } finally {
+      setBroadcasting(false);
+    }
+  }
+
+  async function stopBroadcast() {
+    if (!broadcast) return;
+    setBroadcasting(true);
+    try {
+      await ClassroomService.stopSession(broadcast.id);
+      setBroadcast(null);
+      setMessage(t("ClassWorkspacePage.broadcastEndedMsg"));
+    } catch (error) {
+      setMessage(error?.message ?? t("ClassWorkspacePage.stopBroadcastFailed"));
+    } finally {
+      setBroadcasting(false);
+    }
+  }
+
   const selectedNode = item.nodes.find((node) => String(node.id) === selectedNodeId) ?? item.nodes[0];
   const cells = useMemo(() => item.students.map((student, index) => {
     const machine = student.machines.find((candidate) => String(candidate.machine_node_id) === String(selectedNode?.id));
@@ -607,12 +755,15 @@ function StudentMachines({ item }) {
         <span className={usageStatus === "error" ? styles.prototypeBadge : styles.liveBadge}><MIcon name={usageStatus === "error" ? "sync_problem" : "sensors"} size={15} />{badgeText}</span>
       </div>
 
+      <div className={styles.broadcastTools}><MIcon name="sensors" size={18} /><strong>{t("ClassWorkspacePage.broadcastDemoLabel")}</strong>{broadcast ? <><span>{t("ClassWorkspacePage.broadcastInProgress")}</span><button type="button" className={styles.btnSecondary} disabled={broadcasting} onClick={stopBroadcast}>{t("ClassWorkspacePage.stopBroadcastBtn")}</button></> : <select disabled={broadcasting || !sources.length} defaultValue="" onChange={(event) => { startBroadcast(event.target.value); event.target.value = ""; }}><option value="">{sources.length ? t("ClassWorkspacePage.selectRunningVmOption") : t("ClassWorkspacePage.noBroadcastVmOption")}</option>{sources.map((source) => <option key={source.vmid} value={source.vmid}>{source.name || t("ClassWorkspacePage.vmFallbackName", { vmid: source.vmid })}</option>)}</select>}</div>
+      {message && <p className={styles.inlineMessage}>{message}</p>}
+
       <div className={styles.heatmapToolbar}>
         <div className={styles.machineTabs} role="tablist" aria-label={t("ClassWorkspacePage.selectMachineAria")}>
           {item.nodes.map((node, index) => {
             const selected = String(node.id) === String(selectedNode?.id);
             return <button key={node.id} type="button" role="tab" aria-selected={selected} className={selected ? styles.machineTabActive : ""} onClick={() => setSelectedNodeId(String(node.id))}>
-              <span><MIcon name={node.resource_type === "lxc" ? "deployed_code" : "dns"} size={17} /></span>
+              <span><MIcon name={node.resource_type === "lxc" ? "terminal" : "dns"} size={17} /></span>
               <span><small>{t("ClassWorkspacePage.machineIndexLabel", { index: String(index + 1).padStart(2, "0") })}</small><strong>{node.name}</strong></span>
             </button>;
           })}
@@ -624,28 +775,36 @@ function StudentMachines({ item }) {
 
       {selectedNode && item.students.length ? <>
         <div className={styles.heatmapSummary}>
-          <div><span className={styles.selectedMachineIcon}><MIcon name={selectedNode.resource_type === "lxc" ? "deployed_code" : "dns"} size={20} /></span><div><strong>{selectedNode.name}</strong><small>{t("ClassWorkspacePage.heatmapMachineSubtitle", { role: selectedNode.role || t("ClassWorkspacePage.classroomMachineFallback"), metric: metricInfo.label, updatedSuffix: collectedAt ? t("ClassWorkspacePage.updatedAtSuffix", { time: collectedAt.toLocaleTimeString("zh-TW", { hour: "2-digit", minute: "2-digit", second: "2-digit" }) }) : "" })}</small></div></div>
+          <div><span className={styles.selectedMachineIcon}><MIcon name={selectedNode.resource_type === "lxc" ? "terminal" : "dns"} size={20} /></span><div><strong>{selectedNode.name}</strong><small>{t("ClassWorkspacePage.heatmapMachineSubtitle", { role: selectedNode.role || t("ClassWorkspacePage.classroomMachineFallback"), metric: metricInfo.label, updatedSuffix: collectedAt ? t("ClassWorkspacePage.updatedAtSuffix", { time: formatTime(collectedAt, "", { seconds: true }) }) : "" })}</small></div></div>
           <dl><div><dt>{t("ClassWorkspacePage.poweredOnLabel")}</dt><dd>{activeCells.length}<small>/{cells.length}</small></dd></div><div><dt>{t("ClassWorkspacePage.averageLabel")}</dt><dd>{average ?? "—"}{average !== null && <small>%</small>}</dd></div><div><dt>{t("ClassWorkspacePage.highLoadLabel")}</dt><dd>{highUsage}<small>{t("ClassWorkspacePage.highLoadPeopleUnit")}</small></dd></div></dl>
         </div>
 
         <div className={styles.heatGrid} aria-label={`${selectedNode.name} ${metricInfo.label} ${t("ClassWorkspacePage.usageRateLabel")}`}>
           {cells.map(({ student, machine, index, state, usage }) => <StudentHeatCell
             key={student.id}
+            canWatch={Boolean(machine?.vmid) && state === "on"}
             email={student.email}
             index={index}
+            machine={machine}
             machineName={machine?.name}
             metricLabel={metricInfo.label}
             name={student.full_name || student.email || t("ClassWorkspacePage.studentFallbackName", { index: index + 1 })}
             nodeName={selectedNode.name}
+            nodeType={selectedNode.resource_type}
+            onWatch={openWatch}
             state={state}
+            student={student}
             usage={usage}
             vmid={machine?.vmid}
+            watching={watching}
           />)}
         </div>
 
         <div className={styles.heatLegend} aria-label={t("ClassWorkspacePage.heatLegendAria")}><span><i className={styles.heatOff} />{t("ClassWorkspacePage.offLabel")}</span><span><i className={styles.heatUnavailable} />{t("ClassWorkspacePage.noDataLabel")}</span><span className={styles.legendScale}>{t("ClassWorkspacePage.lowLabel")}<i className={styles.heat_1} /><i className={styles.heat_2} /><i className={styles.heat_3} /><i className={styles.heat_4} /><i className={styles.heat_5} />{t("ClassWorkspacePage.highLabel")}</span><span>{t("ClassWorkspacePage.usageRateLabel")}</span></div>
       </> : <EmptyState icon="grid_view" title={selectedNode ? t("ClassWorkspacePage.noStudentsInClassTitle") : t("ClassWorkspacePage.noClassroomMachinesTitle")} />}
     </section>
+    {watch && <ClassroomWatchDialog sessionId={watch.sessionId} title={watch.title} canControl onClose={closeWatch} />}
+    {terminal && <TerminalDialog resource={terminal} onClose={() => setTerminal(null)} />}
   </div>;
 }
 
@@ -658,19 +817,22 @@ function LockedFeature({ section }) {
 export default function ClassWorkspacePage() {
   const { t } = useTranslation("teaching");
   const confirm = useConfirm();
+  const toast = useToast();
   const { classId, section } = useParams();
   const navigate = useNavigate();
   const location = useLocation();
-  const tab = section ?? "overview";
+  const tab = section === "classroom" ? "progress" : section ?? "overview";
   const [item, setItem] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
-  const [message, setMessage] = useState("");
   const [provisioning, setProvisioning] = useState(false);
   const [recovering, setRecovering] = useState(false);
   const [lifecycleBusy, setLifecycleBusy] = useState(false);
   const [scheduleOpen, setScheduleOpen] = useState(false);
   const scheduleDialog = useDialogPresence(scheduleOpen);
+  const [extendOpen, setExtendOpen] = useState(false);
+  const extendDialog = useDialogPresence(extendOpen);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const menuRef = useRef(null);
   const [templateId, setTemplateId] = useState("");
   const [templates, setTemplates] = useState([]);
   const template = templates.find((row) => row.id === templateId);
@@ -682,16 +844,27 @@ export default function ClassWorkspacePage() {
   }
   useEffect(() => {
     let active = true;
-    TeachingClassesService.get(classId).then((result) => active && refresh(result)).catch((reason) => active && setError(reason?.message ?? t("ClassWorkspacePage.loadClassFailed"))).finally(() => active && setLoading(false));
+    TeachingClassesService.get(classId).then((result) => active && refresh(result)).catch((reason) => active && toast.error(reason?.message ?? t("ClassWorkspacePage.loadClassFailed"))).finally(() => active && setLoading(false));
     return () => { active = false; };
-  }, [classId, t]);
+  }, [classId, toast, t]);
   useEffect(() => {
     let active = true;
     CourseEnvironmentsService.listPublished()
       .then((rows) => active && setTemplates(rows))
-      .catch((reason) => active && setError(reason?.message ?? t("ClassWorkspacePage.loadPublishedCoursesFailed")));
+      .catch((reason) => active && toast.error(reason?.message ?? t("ClassWorkspacePage.loadPublishedCoursesFailed")));
     return () => { active = false; };
-  }, [t]);
+  }, [toast, t]);
+  useEffect(() => {
+    if (!menuOpen) return undefined;
+    function dismiss(event) {
+      if (event.type === "keydown" && event.key !== "Escape") return;
+      if (event.type === "mousedown" && menuRef.current?.contains(event.target)) return;
+      setMenuOpen(false);
+    }
+    window.addEventListener("mousedown", dismiss);
+    window.addEventListener("keydown", dismiss);
+    return () => { window.removeEventListener("mousedown", dismiss); window.removeEventListener("keydown", dismiss); };
+  }, [menuOpen]);
   useEffect(() => {
     if (!item || !["pending_review", "provisioning"].includes(item.status)) return undefined;
     const timer = window.setInterval(() => TeachingClassesService.provisionStatus(item.id).then(refresh).catch(() => {}), 3000);
@@ -705,19 +878,20 @@ export default function ClassWorkspacePage() {
       confirmText: t("ClassWorkspacePage.submitLabel"),
     });
     if (!ok) return;
-    setProvisioning(true); setMessage("");
-    try { refresh(await TeachingClassesService.provision(classId)); setMessage(t("ClassWorkspacePage.provisionSubmittedMsg")); }
-    catch (reason) { setMessage(reason?.message ?? t("ClassWorkspacePage.provisionFailedMsg")); }
+    setProvisioning(true);
+    try { refresh(await TeachingClassesService.provision(classId)); toast.success(t("ClassWorkspacePage.provisionSubmittedMsg")); }
+    catch (reason) { toast.error(reason?.message ?? t("ClassWorkspacePage.provisionFailedMsg")); }
     finally { setProvisioning(false); }
   }
 
   async function retryFailed() {
-    setRecovering(true); setMessage("");
+    setRecovering(true);
     try {
       const result = await TeachingClassesService.retryFailed(classId);
       refresh(result);
-      setMessage(result.status === "active" ? t("ClassWorkspacePage.topologyReappliedMsg") : t("ClassWorkspacePage.retryPartialMsg"));
-    } catch (reason) { setMessage(reason?.message ?? t("ClassWorkspacePage.retryFailedMsg")); }
+      if (result.status === "active") toast.success(t("ClassWorkspacePage.topologyReappliedMsg"));
+      else toast.info(t("ClassWorkspacePage.retryPartialMsg"));
+    } catch (reason) { toast.error(reason?.message ?? t("ClassWorkspacePage.retryFailedMsg")); }
     finally { setRecovering(false); }
   }
 
@@ -729,20 +903,21 @@ export default function ClassWorkspacePage() {
       danger: true,
     });
     if (!ok) return;
-    setRecovering(true); setMessage("");
+    setRecovering(true);
     try {
       refresh(await TeachingClassesService.resetFailed(classId));
-      setMessage(t("ClassWorkspacePage.resetSuccessMsg"));
-    } catch (reason) { setMessage(reason?.message ?? t("ClassWorkspacePage.resetFailedMsg")); }
+      toast.success(t("ClassWorkspacePage.resetSuccessMsg"));
+    } catch (reason) { toast.error(reason?.message ?? t("ClassWorkspacePage.resetFailedMsg")); }
     finally { setRecovering(false); }
   }
 
   async function extendClass(endDate) {
-    setLifecycleBusy(true); setMessage("");
+    setLifecycleBusy(true);
     try {
       refresh(await TeachingClassesService.extend(classId, endDate));
-      setMessage(t("ClassWorkspacePage.extendedMsg", { endDate }));
-    } catch (reason) { setMessage(reason?.message ?? t("ClassWorkspacePage.extendFailedMsg")); }
+      setExtendOpen(false);
+      toast.success(t("ClassWorkspacePage.extendedMsg", { endDate }));
+    } catch (reason) { toast.error(reason?.message ?? t("ClassWorkspacePage.extendFailedMsg")); }
     finally { setLifecycleBusy(false); }
   }
 
@@ -754,60 +929,75 @@ export default function ClassWorkspacePage() {
       danger: true,
     });
     if (!ok) return;
-    setLifecycleBusy(true); setMessage("");
+    setLifecycleBusy(true);
     try {
       const result = await TeachingClassesService.archive(classId);
       refresh(result.class);
       const failed = result.reclaim?.failed?.length ?? 0;
-      setMessage(failed ? t("ClassWorkspacePage.archivedWithFailuresMsg", { count: failed }) : t("ClassWorkspacePage.archivedSuccessMsg"));
-    } catch (reason) { setMessage(reason?.message ?? t("ClassWorkspacePage.archiveFailedMsg")); }
+      if (failed) toast.error(t("ClassWorkspacePage.archivedWithFailuresMsg", { count: failed }));
+      else toast.success(t("ClassWorkspacePage.archivedSuccessMsg"));
+    } catch (reason) { toast.error(reason?.message ?? t("ClassWorkspacePage.archiveFailedMsg")); }
     finally { setLifecycleBusy(false); }
   }
 
   async function reclaimClass() {
-    setLifecycleBusy(true); setMessage("");
+    setLifecycleBusy(true);
     try {
       const result = await TeachingClassesService.reclaim(classId, { force: true });
       refresh(await TeachingClassesService.get(classId));
       const failed = result.failed?.length ?? 0;
-      setMessage(failed ? t("ClassWorkspacePage.reclaimStillFailedMsg", { count: failed }) : t("ClassWorkspacePage.reclaimSuccessMsg"));
-    } catch (reason) { setMessage(reason?.message ?? t("ClassWorkspacePage.reclaimFailedMsg")); }
+      if (failed) toast.error(t("ClassWorkspacePage.reclaimStillFailedMsg", { count: failed }));
+      else toast.success(t("ClassWorkspacePage.reclaimSuccessMsg"));
+    } catch (reason) { toast.error(reason?.message ?? t("ClassWorkspacePage.reclaimFailedMsg")); }
     finally { setLifecycleBusy(false); }
   }
 
   if (loading) return <LoadingState fullPage text={t("ClassWorkspacePage.loadingClassText")} />;
-  if (!item) return <div className={styles.page}><button type="button" className={styles.backLink} onClick={() => navigate("/class-management")}><MIcon name="arrow_back" size={18} />{t("ClassWorkspacePage.backToClassManagementBtn")}</button><p className={styles.errorMessage}>{error || t("ClassWorkspacePage.classNotFoundText")}</p></div>;
-  const postUnavailable = ["classroom", "progress", "ai"].includes(tab) && item.status !== "active";
+  if (!item) return <div className={styles.page}><button type="button" className={styles.backLink} onClick={() => navigate("/class-management")}><MIcon name="arrow_back" size={18} />{t("ClassWorkspacePage.backToClassManagementBtn")}</button><p className={styles.errorMessage}>{t("ClassWorkspacePage.classNotFoundText")}</p></div>;
+  const postUnavailable = POST_ACTIVE_TABS.includes(tab) && item.status !== "active";
+  const visibleTabs = TABS.filter(([key]) => !POST_ACTIVE_TABS.includes(key) || item.status === "active");
+  // 已封存的班級沒有任何可用選項，就不要留一顆會打開空選單的按鈕；
+  // 「重試回收」已經是狀態面板的行動。
+  const canEditSchedule = item.status === "planning";
+  const canManageLifecycle = item.status !== "archived";
   const completed = [item.students.length > 0, Boolean(item.course_environment) && item.nodes.length > 0].filter(Boolean).length;
 
   return <div className={styles.page}>
     <PageHeader
-      eyebrow={`${item.code} · ${item.term}`}
+      eyebrow={item.location ? `${item.term} · ${item.location}` : item.term}
       title={item.name}
       subtitle={t("ClassWorkspacePage.subtitleTemplate", { students: item.students.length, weeks: item.weeks.length, weekday: t(["ClassWorkspacePage.weekdayShortMon", "ClassWorkspacePage.weekdayShortTue", "ClassWorkspacePage.weekdayShortWed", "ClassWorkspacePage.weekdayShortThu", "ClassWorkspacePage.weekdayShortFri", "ClassWorkspacePage.weekdayShortSat", "ClassWorkspacePage.weekdayShortSun"][item.weekday]), start: item.startTime, end: item.endTime })}
     >
-      <div className={styles.pageActions}><button type="button" className={`${styles.btnSecondary} ${styles.backBtn}`} onClick={() => navigate("/class-management")}><MIcon name="arrow_back" size={18} />{t("ClassWorkspacePage.backToClassManagementBtn")}</button></div>
+      <div className={styles.pageActions}>
+        <button type="button" className={`${styles.btnSecondary} ${styles.backBtn}`} onClick={() => navigate("/class-management")}><MIcon name="arrow_back" size={18} />{t("ClassWorkspacePage.backToClassManagementBtn")}</button>
+        {(canEditSchedule || canManageLifecycle) && <div className={styles.headerMenuWrap} ref={menuRef}>
+          <button type="button" className={`${styles.iconBtn} ${styles.headerMenuBtn}`} aria-haspopup="menu" aria-expanded={menuOpen} aria-label={t("ClassWorkspacePage.moreActionsAria")} onClick={() => setMenuOpen((open) => !open)}><MIcon name="more_horiz" size={19} /></button>
+          {menuOpen && <div className={styles.headerMenu} role="menu">
+            {canEditSchedule && <button type="button" role="menuitem" onClick={() => { setMenuOpen(false); setScheduleOpen(true); }}><MIcon name="edit_calendar" size={16} />{t("ClassWorkspacePage.editScheduleBtn")}</button>}
+            {canManageLifecycle && <button type="button" role="menuitem" onClick={() => { setMenuOpen(false); setExtendOpen(true); }}><MIcon name="event_repeat" size={16} />{t("ClassWorkspacePage.extendBtn")}</button>}
+            {canManageLifecycle && <><hr /><button type="button" role="menuitem" className={styles.headerMenuRisky} disabled={lifecycleBusy} onClick={() => { setMenuOpen(false); archiveClass(); }}><MIcon name="archive" size={16} />{t("ClassWorkspacePage.archiveAndReclaimBtn")}</button></>}
+          </div>}
+        </div>}
+      </div>
     </PageHeader>
-    {error && <p className={styles.errorMessage}>{error}</p>}
     <section className={styles.workflowTabsBar} aria-label={t("ClassWorkspacePage.workflowAriaLabel")}>
-      <nav className={styles.workspaceTabs}>{TABS.map(([key, icon, labelKey]) => {
-        const unavailable = ["classroom", "progress", "ai"].includes(key) && item.status !== "active";
+      <nav className={styles.workspaceTabs}>{visibleTabs.map(([key, icon, labelKey]) => {
         const done = key === "students" ? item.students.length > 0 : key === "weekly" ? item.weeks.some((week) => week.title.trim()) : key === "machines" ? Boolean(item.course_environment) && item.nodes.length > 0 : false;
         const target = key === "overview" ? `/class-management/${classId}` : key === "ai" ? `/class-management/${classId}/ai` : `/class-management/${classId}/${key}`;
-        return <button type="button" key={key} disabled={unavailable} title={unavailable ? t("ClassWorkspacePage.allMachinesRequiredHint") : undefined} className={`${tab === key ? styles.workspaceTabActive : ""} ${unavailable ? styles.workspaceTabLocked : ""}`} onClick={() => navigate(target)}><MIcon name={unavailable ? "lock" : done ? "check" : icon} size={17} /><strong>{t(labelKey)}</strong></button>;
+        return <button type="button" key={key} className={tab === key ? styles.workspaceTabActive : ""} onClick={() => navigate(target)}><MIcon name={done ? "check" : icon} size={17} /><strong>{t(labelKey)}</strong></button>;
       })}</nav>
       <div className={styles.workflowProgress}><span>{t("ClassWorkspacePage.setupProgressLabelShort")}</span><strong>{item.status === "active" ? t("ClassWorkspacePage.allReadyLabel") : t("ClassWorkspacePage.completedCountLabel", { count: completed })}</strong></div>
     </section>
     <main className={styles.workspaceContent}>
-      {tab === "overview" && <Overview item={item} template={template} onProvision={provision} onNavigate={(target) => navigate(`/class-management/${classId}/${target}`)} onEditSchedule={() => setScheduleOpen(true)} onRetry={retryFailed} onReset={resetFailed} onExtend={extendClass} onArchive={archiveClass} onReclaim={reclaimClass} provisioning={provisioning} recovering={recovering} lifecycleBusy={lifecycleBusy} message={message} />}
+      {tab === "overview" && <Overview item={item} template={template} onProvision={provision} onNavigate={(target) => navigate(`/class-management/${classId}/${target}`)} onRetry={retryFailed} onReset={resetFailed} onReclaim={reclaimClass} provisioning={provisioning} recovering={recovering} lifecycleBusy={lifecycleBusy} />}
       {tab === "students" && <Students item={item} onRefresh={refresh} />}
       {tab === "weekly" && <WeeklyContent item={item} onRefresh={refresh} />}
       {tab === "machines" && <Machines item={item} templates={templates} template={template} onRefresh={refresh} onTemplate={setTemplateId} createdTemplateId={location.state?.createdTemplateId} />}
       {postUnavailable && <LockedFeature section={tab} />}
-      {tab === "classroom" && !postUnavailable && <ClassMonitor item={item} />}
       {tab === "progress" && !postUnavailable && <StudentMachines item={item} />}
       {!TABS.some(([key]) => key === tab) && <LockedFeature section={tab} />}
     </main>
-    {scheduleDialog.open && <ClassCreateDialog item={item} closing={scheduleDialog.closing} onClose={() => setScheduleOpen(false)} onUpdated={(result) => { refresh(result); setScheduleOpen(false); setMessage(t("ClassWorkspacePage.scheduleUpdatedMsg")); }} />}
+    {scheduleDialog.open && <ClassCreateDialog item={item} closing={scheduleDialog.closing} onClose={() => setScheduleOpen(false)} onUpdated={(result) => { refresh(result); setScheduleOpen(false); toast.success(t("ClassWorkspacePage.scheduleUpdatedMsg")); }} />}
+    {extendDialog.open && <ExtendDialog item={item} closing={extendDialog.closing} busy={lifecycleBusy} onClose={() => setExtendOpen(false)} onExtend={extendClass} />}
   </div>;
 }

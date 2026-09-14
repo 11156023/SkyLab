@@ -1,3 +1,4 @@
+import logging
 import uuid
 from datetime import date, datetime, timezone
 from typing import Any
@@ -5,6 +6,8 @@ from typing import Any
 from sqlmodel import Session, select
 
 from app.models import Resource, ResourceNetwork
+
+logger = logging.getLogger(__name__)
 
 
 def create_resource(
@@ -152,6 +155,40 @@ def get_resource_network_by_vmid(
 def get_cached_ip_address(*, session: Session, vmid: int) -> str | None:
     network = get_resource_network_by_vmid(session=session, vmid=vmid)
     return network.ip_address if network else None
+
+
+def _rollback_quietly(session: Session) -> None:
+    rollback = getattr(session, "rollback", None)
+    if rollback is not None:
+        rollback()
+
+
+def sync_ip_cache(*, session: Session, vmid: int, live_ip: str | None) -> str | None:
+    """有即時 IP 就順手寫回快取並回傳它；沒有就回退 DB 快取。
+
+    快取讀寫是唯讀流程裡的順手動作，失敗一律不往外拋。但 flush／查詢一旦出錯
+    （連線中斷、約束衝突），session 會停在無效交易，之後同一個 session 的任何查詢
+    都會 PendingRollbackError，所以這裡必須 rollback 讓呼叫端能繼續用同一個 session。
+    """
+    if live_ip:
+        try:
+            update_ip_address(session=session, vmid=vmid, ip_address=live_ip)
+        except Exception:
+            _rollback_quietly(session)
+            logger.warning(
+                "VMID=%s IP 快取寫入失敗，已 rollback（ip=%s）",
+                vmid,
+                live_ip,
+                exc_info=True,
+            )
+        return live_ip
+
+    try:
+        return get_cached_ip_address(session=session, vmid=vmid)
+    except Exception:
+        _rollback_quietly(session)
+        logger.warning("VMID=%s IP 快取讀取失敗，已 rollback", vmid, exc_info=True)
+        return None
 
 
 def is_ip_address_fresh(*, session: Session, vmid: int, ttl_seconds: int = 3600) -> bool:

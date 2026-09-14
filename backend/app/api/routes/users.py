@@ -95,9 +95,15 @@ async def upload_avatar_me(
         raise HTTPException(
             status_code=400, detail=t("users.avatarUnsupportedFormat")
         )
-    data = await file.read()
-    if len(data) > AVATAR_MAX_BYTES:
-        raise HTTPException(status_code=400, detail=t("users.avatarTooLarge"))
+    # 邊讀邊檢查大小，超過上限立即中止，避免先把整個檔案讀進記憶體
+    buffer = bytearray()
+    while chunk := await file.read(64 * 1024):
+        buffer.extend(chunk)
+        if len(buffer) > AVATAR_MAX_BYTES:
+            raise HTTPException(
+                status_code=400, detail=t("users.avatarTooLarge")
+            )
+    data = bytes(buffer)
 
     AVATAR_DIR.mkdir(parents=True, exist_ok=True)
     for old in AVATAR_DIR.glob(f"{current_user.id}.*"):

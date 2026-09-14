@@ -2,7 +2,7 @@
 
 import enum
 import uuid
-from datetime import datetime
+from datetime import date, datetime
 from typing import TYPE_CHECKING, Optional
 
 import sqlalchemy as sa
@@ -18,6 +18,7 @@ class SpecChangeRequestStatus(str, enum.Enum):
     pending = "pending"
     approved = "approved"
     rejected = "rejected"
+    cancelled = "cancelled"  # 申請人撤銷，或機器已刪除
 
 
 class SpecChangeType(str, enum.Enum):
@@ -27,6 +28,7 @@ class SpecChangeType(str, enum.Enum):
     memory = "memory"
     disk = "disk"
     combined = "combined"  # 同時調整多項
+    expiry = "expiry"  # 延長到期日：核准即生效，不需要申請人再套用
 
 
 class SpecChangeRequest(SQLModel, table=True):
@@ -64,6 +66,14 @@ class SpecChangeRequest(SQLModel, table=True):
     requested_memory: int | None = Field(default=None, description="請求記憶體 (MB)")
     requested_disk: int | None = Field(default=None, description="請求磁碟大小 (GB)")
 
+    # 到期日延長（change_type=expiry）
+    current_expiry_date: date | None = Field(
+        default=None, description="申請當下的到期日（None 代表原本不限期）"
+    )
+    requested_expiry_date: date | None = Field(
+        default=None, description="希望延長到的到期日"
+    )
+
     # 審核狀態
     status: SpecChangeRequestStatus = Field(
         default=SpecChangeRequestStatus.pending,
@@ -85,6 +95,15 @@ class SpecChangeRequest(SQLModel, table=True):
         default=None,
         sa_column=Column(DateTime(timezone=True), nullable=True),
         description="實際調整時間",
+    )
+    # 核准後不立即套用：申請人自己按「套用」，背景任務關機 → 改規格 → 開機。
+    apply_started_at: datetime | None = Field(
+        default=None,
+        sa_column=Column(DateTime(timezone=True), nullable=True),
+        description="申請人按下套用、背景任務開始的時間",
+    )
+    apply_error: str | None = Field(
+        default=None, description="最近一次套用失敗的原因（成功後清空）"
     )
 
     created_at: datetime = Field(

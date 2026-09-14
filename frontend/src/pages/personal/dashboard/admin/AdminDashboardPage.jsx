@@ -1,18 +1,26 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import AiPveChat from "../../../../components/AiPveChat/AiPveChat";
 import MIcon from "../../../../components/MIcon";
+import usePveOverview from "../../../../hooks/usePveOverview";
 import { useAuth } from "../../../../contexts/AuthContext";
 import { AiApiService } from "../../../../services/aiApi";
 import { BatchProvisionService } from "../../../../services/batchProvision";
 import { JobsService } from "../../../../services/jobs";
+import { MiningIncidentsService } from "../../../../services/miningIncidents";
 import { MonitoringService } from "../../../../services/monitoring";
 import { SpecChangeRequestsService } from "../../../../services/specChangeRequests";
 import { VmRequestsService } from "../../../../services/vmRequests";
+import {
+  buildFyiStats,
+  buildTodayRows,
+  buildUrgentRows,
+  formatCheckedAt,
+  mergeInfraProblems,
+} from "./adminAttention";
 import styles from "./AdminDashboardPage.module.scss";
 import PageHeader from "../../../../components/PageHeader/PageHeader";
-import i18n from "../../../../i18n";
 
 export function countRows(response) {
   if (Array.isArray(response)) return response.length;
@@ -23,33 +31,23 @@ export function countRows(response) {
   return 0;
 }
 
-const defaultT = (key) => i18n.t(key, { ns: "personal" });
-
-export function buildAdminIssues(checks, t = defaultT) {
-  const issues = [];
-  if (checks.alerts > 0) issues.push({ key: "alerts", tone: "danger", icon: "error", title: t("AdminDashboardPage.issueAlertsTitle"), description: t("AdminDashboardPage.issueAlertsDesc"), count: checks.alerts, path: "/monitoring" });
-  if (checks.failedJobs > 0) issues.push({ key: "jobs", tone: "danger", icon: "error_outline", title: t("AdminDashboardPage.issueJobsTitle"), description: t("AdminDashboardPage.issueJobsDesc"), count: checks.failedJobs, path: "/jobs" });
-  if (checks.requests > 0) issues.push({ key: "requests", tone: "info", icon: "pending_actions", title: t("AdminDashboardPage.issueRequestsTitle"), description: t("AdminDashboardPage.issueRequestsDesc"), count: checks.requests, path: "/request-review" });
-  if (checks.batches > 0) issues.push({ key: "batches", tone: "info", icon: "library_add_check", title: t("AdminDashboardPage.issueBatchesTitle"), description: t("AdminDashboardPage.issueBatchesDesc"), count: checks.batches, path: "/batch-review" });
-  if (checks.aiRequests > 0) issues.push({ key: "ai", tone: "info", icon: "rate_review", title: t("AdminDashboardPage.issueAiTitle"), description: t("AdminDashboardPage.issueAiDesc"), count: checks.aiRequests, path: "/ai-api-review" });
-  if (checks.unavailable > 0) issues.push({ key: "unavailable", tone: "muted", icon: "cloud_off", title: t("AdminDashboardPage.issueUnavailableTitle"), description: t("AdminDashboardPage.issueUnavailableDesc"), count: checks.unavailable, path: "/monitoring" });
-  return issues;
-}
-
 export function normalizeAssistantPrompt(value) {
   return String(value ?? "").trim();
 }
 
 export default function AdminDashboardPage() {
-  const { t } = useTranslation("personal");
+  const { t, i18n } = useTranslation("personal");
   const navigate = useNavigate();
   const { user } = useAuth();
+  const { overview, loading: overviewLoading, refreshing, error: overviewError, reload } = usePveOverview();
   const [assistantPrompt, setAssistantPrompt] = useState("");
+  const assistantInputRef = useRef(null);
   const [conversationPrompt, setConversationPrompt] = useState("");
-  /* 放大模式：對話佔滿版面，上面的「需要前往確認」暫時收起來 */
+  /* 放大模式：對話佔滿版面，上面的待辦暫時收起來 */
   const [focusMode, setFocusMode] = useState(false);
-  const [checks, setChecks] = useState({ alerts: 0, failedJobs: 0, requests: 0, batches: 0, aiRequests: 0, unavailable: 0 });
+  const [checks, setChecks] = useState({ alerts: [], failedJobs: 0, requests: 0, batches: 0, aiRequests: 0, miningIncidents: 0, unavailable: 0 });
   const [loading, setLoading] = useState(true);
+  const [checkVersion, setCheckVersion] = useState(0);
 
   useEffect(() => {
     let active = true;
@@ -62,27 +60,56 @@ export default function AdminDashboardPage() {
         AiApiService.listAllRequests(),
         JobsService.list({ statuses: ["failed", "blocked"], historyDays: 7, limit: 50 }),
         MonitoringService.listAlerts({ active: true, limit: 100 }),
+        MiningIncidentsService.list({ limit: 200 }),
       ]);
       if (!active) return;
       const value = (index) => settled[index].status === "fulfilled" ? settled[index].value : null;
-      const unavailable = settled.filter((result) => result.status === "rejected").length;
       const aiPending = value(3)?.data?.filter((request) => request.status === "pending").length ?? 0;
+      const alertRows = value(5);
+      /* 只算還沒被管理員定奪的事件（detected 待判斷、suspended 已凍結待處置） */
+      const miningRows = value(6);
+      const miningActive = (Array.isArray(miningRows) ? miningRows : miningRows?.data ?? [])
+        .filter((incident) => incident.status === "detected" || incident.status === "suspended").length;
       setChecks({
         requests: countRows(value(0)) + countRows(value(1)),
         batches: countRows(value(2)),
         aiRequests: aiPending,
         failedJobs: countRows(value(4)),
-        alerts: countRows(value(5)),
-        unavailable,
+        alerts: Array.isArray(alertRows) ? alertRows : alertRows?.data ?? [],
+        miningIncidents: miningActive,
+        unavailable: settled.filter((result) => result.status === "rejected").length,
       });
       setLoading(false);
     }
     loadChecks();
     return () => { active = false; };
-  }, []);
+  }, [checkVersion]);
 
-  const issues = useMemo(() => buildAdminIssues(checks, t), [checks, t]);
+  /* 即時異常與未解除告警的門檻判斷共用同一組設定，兩邊都列會讓同一台機器
+     出現兩次；mergeInfraProblems 負責去重，細節見 adminAttention.js。 */
+  const infraProblems = useMemo(
+    () => mergeInfraProblems(overview?.issues ?? [], checks.alerts ?? []),
+    [overview?.issues, checks.alerts],
+  );
+  const urgent = useMemo(
+    () => buildUrgentRows({ infraProblems, failedJobs: checks.failedJobs, miningIncidents: checks.miningIncidents }, t),
+    [infraProblems, checks.failedJobs, checks.miningIncidents, t],
+  );
+  const today = useMemo(() => buildTodayRows(checks, t), [checks, t]);
+  const stats = useMemo(() => buildFyiStats(overview, t), [overview, t]);
+
+  const busy = loading || (overviewLoading && !overview);
+  const urgentCount = urgent.reduce((total, row) => total + (row.count ?? 1), 0);
+  const todayCount = today.reduce((total, row) => total + row.count, 0);
+  const incomplete = overviewError || !overview || overview.data_status === "stale"
+    || overview.data_status === "partial" || checks.unavailable > 0;
   const name = user?.full_name?.trim() || user?.email?.split("@")[0] || t("AdminDashboardPage.defaultName");
+
+  function refreshDashboard() {
+    setLoading(true);
+    setCheckVersion((value) => value + 1);
+    reload();
+  }
 
   function resetAssistant() {
     setConversationPrompt("");
@@ -104,51 +131,123 @@ export default function AdminDashboardPage() {
   ];
 
   return <div className={`${styles.page} ${focusMode ? styles.pageFocused : ""}`}>
-    <PageHeader title={t("AdminDashboardPage.greeting", { name })} subtitle={t("AdminDashboardPage.subtitle")} />
+    <PageHeader title={t("AdminDashboardPage.greeting", { name })} subtitle={t("AdminDashboardPage.subtitle")}>
+      {!focusMode && <div className={styles.refreshControls}>
+        <span className={styles.checkedAt}>
+          {overview
+            ? t("AdminDashboardPage.pveUpdatedAt", { time: formatCheckedAt(overview.collected_at, i18n.language) })
+            : t("AdminDashboardPage.pveNotChecked")}
+        </span>
+        <button type="button" onClick={refreshDashboard} disabled={busy || refreshing}>
+          <MIcon name="refresh" size={16} className={refreshing || loading ? styles.spin : ""} />
+          {t("AdminDashboardPage.pveRefresh")}
+        </button>
+      </div>}
+    </PageHeader>
 
-    {!focusMode && <section className={styles.attention} aria-labelledby="admin-attention-title">
-      <div className={styles.sectionHeading}><div><span className={styles.eyebrow}>{t("AdminDashboardPage.priorityLabel")}</span><h2 id="admin-attention-title">{t("AdminDashboardPage.attentionTitle")}</h2></div><button type="button" onClick={() => navigate("/monitoring")}>{t("AdminDashboardPage.openMonitoring")}<MIcon name="arrow_forward" size={16} /></button></div>
-      {loading ? <div className={styles.checking}><MIcon name="sync" size={20} />{t("AdminDashboardPage.checking")}</div> : issues.length ? <div className={styles.issueList}>{issues.map((issue) => <button type="button" key={issue.key} className={styles[`issue_${issue.tone}`]} onClick={() => navigate(issue.path)}><span className={styles.issueIcon}><MIcon name={issue.icon} size={20} /></span><span><strong>{issue.title}</strong><small>{issue.description}</small></span><em>{issue.count}</em><MIcon name="arrow_forward" size={18} /></button>)}</div> : <div className={styles.allClear}><span><MIcon name="check_circle" size={21} /></span><div><strong>{t("AdminDashboardPage.allClearTitle")}</strong><p>{t("AdminDashboardPage.allClearDesc")}</p></div></div>}
+    {!focusMode && <>
+    {stats.length > 0 && <section className={styles.statsGrid} aria-label={t("AdminDashboardPage.resourceOverview")}>
+      {stats.map((stat) => <button type="button" key={stat.key} className={styles.statCard} onClick={() => navigate(stat.path)}>
+        <span className={styles.statIcon}><MIcon name={stat.icon} size={21} /></span>
+        <span className={styles.statContent}>
+          <span className={styles.statLabel}>{stat.label}</span>
+          <strong>{stat.value}</strong>
+          <small>{t(stat.key === "nodes" ? "AdminDashboardPage.onlineOfTotal" : "AdminDashboardPage.runningOfTotal")}</small>
+        </span>
+        <MIcon name="chevron_right" size={17} className={styles.statArrow} />
+      </button>)}
     </section>}
 
-    <section className={`${styles.assistantSection} ${conversationPrompt ? styles.assistantSectionExpanded : ""} ${focusMode ? styles.assistantSectionFocused : ""}`} aria-labelledby="admin-assistant-title">
-      <div className={styles.assistantHero}>
-        <div className={styles.assistantIntro}>
-          <span className={styles.assistantIcon}><MIcon name="support_agent" size={28} /></span>
-          <div>
-            <span className={styles.assistantLabel}>{t("AdminDashboardPage.assistantLabel")}</span>
-            <h2 id="admin-assistant-title">{t("AdminDashboardPage.assistantTitle")}</h2>
-            {/* 對話開始後這段說明就沒有作用了，版面留給對話 */}
-            {!conversationPrompt && <p>{t("AdminDashboardPage.assistantIntro")}</p>}
+    <section className={styles.attention} aria-label={t("AdminDashboardPage.attentionTitle")} aria-busy={busy}>
+      {busy ? <div className={styles.checking} role="status"><MIcon name="sync" size={18} className={styles.spin} />{t("AdminDashboardPage.checking")}</div> : <>
+        <div className={styles.tiers}>
+        <section className={`${styles.tier} ${urgent.length ? styles.tierNow : ""}`} aria-labelledby="admin-urgent-title">
+          <div className={styles.tierHead}>
+            <h3 id="admin-urgent-title"><MIcon name="error_outline" size={18} />{t("AdminDashboardPage.tierNowTitle")}</h3>
+            <span className={styles.countBadge}>{incomplete && !urgentCount ? "—" : urgentCount}</span>
           </div>
+          <div className={styles.rowList}>
+          {urgent.map((row) => <button type="button" key={row.key} className={`${styles.row} ${styles[`row_${row.tone}`]}`} onClick={() => navigate(row.path)}>
+            <MIcon name={row.icon} size={17} />
+            <span className={styles.rowContent}><strong>{row.title}</strong><small>{row.detail}</small></span>
+            <b>{row.count ?? ""}</b>
+            <MIcon name="chevron_right" size={16} />
+          </button>)}
+          {urgent.length === 0 && <div className={styles.emptyState}>
+            <MIcon name={incomplete ? "sync_problem" : "check_circle"} size={22} />
+            <span>{t(incomplete ? "AdminDashboardPage.emptyUnavailable" : "AdminDashboardPage.noUrgent")}</span>
+          </div>}
+          </div>
+          <button type="button" className={styles.tierLink} onClick={() => navigate("/monitoring")}>
+            {t("AdminDashboardPage.viewMonitoring")}<MIcon name="arrow_forward" size={15} />
+          </button>
+        </section>
+
+        <section className={styles.tier} aria-labelledby="admin-today-title">
+          <div className={styles.tierHead}>
+            <h3 id="admin-today-title"><MIcon name="event_note" size={18} />{t("AdminDashboardPage.tierTodayTitle")}</h3>
+            <span className={`${styles.countBadge} ${todayCount ? styles.countPending : ""}`}>{checks.unavailable && !todayCount ? "—" : todayCount}</span>
+          </div>
+          <div className={styles.rowList}>
+          {today.map((row) => <button type="button" key={row.key} className={styles.row} onClick={() => navigate(row.path)}>
+            <MIcon name={row.icon} size={17} />
+            <span className={styles.rowContent}><strong>{row.title}</strong></span>
+            <b>{row.count}</b>
+            <MIcon name="chevron_right" size={16} />
+          </button>)}
+          {today.length === 0 && <div className={styles.emptyState}>
+            <MIcon name={checks.unavailable ? "sync_problem" : "task_alt"} size={22} />
+            <span>{t(checks.unavailable ? "AdminDashboardPage.emptyUnavailable" : "AdminDashboardPage.noPending")}</span>
+          </div>}
+          </div>
+          {today.length > 0 && <p className={styles.tierFootnote}>{t("AdminDashboardPage.todayHint")}</p>}
+        </section>
         </div>
-        {conversationPrompt && (
-          <div className={styles.assistantActions}>
-            {/* 問問題時把上面那區暫時收起來，對話拿到整個版面；隨時可以回去 */}
-            <button type="button" className={styles.assistantReset} onClick={() => setFocusMode((value) => !value)}>
-              <MIcon name={focusMode ? "close_fullscreen" : "open_in_full"} size={16} />
-              {focusMode ? t("AdminDashboardPage.backToOverview") : t("AdminDashboardPage.expandChat")}
-            </button>
-            <button type="button" className={styles.assistantReset} onClick={resetAssistant}>
-              <MIcon name="refresh" size={16} />
-              {t("AdminDashboardPage.askAgain")}
-            </button>
-          </div>
-        )}
-        {!conversationPrompt && <form className={styles.assistantForm} onSubmit={openAssistant}>
+      </>}
+
+      {!busy && incomplete && <div className={styles.staleNote} role="status">
+        <MIcon name="sync_problem" size={16} />
+        <span>{t(!overview ? "AdminDashboardPage.emptyUnavailable"
+          : overview?.data_status === "partial" ? "AdminDashboardPage.pvePartialMessage"
+            : overviewError || overview?.data_status === "stale" ? "AdminDashboardPage.pveStaleMessage"
+              : "AdminDashboardPage.issueUnavailableTitle")}</span>
+      </div>}
+    </section>
+    </>}
+
+    {/* AI 助手：沒開始對話前只是一條輸入列，不要先佔掉整片高度 */}
+    <section className={`${styles.assistant} ${focusMode ? styles.assistantFocused : ""}`} aria-labelledby="admin-assistant-title">
+      <div className={styles.assistantHead}>
+        <div className={styles.assistantIdentity}>
+          <span className={styles.assistantIcon}><MIcon name="support_agent" size={24} /></span>
+          <h2 id="admin-assistant-title">{t("AdminDashboardPage.assistantLabel")}</h2>
+        </div>
+        {conversationPrompt && <div className={styles.assistantActions}>
+          <button type="button" onClick={() => setFocusMode((value) => !value)}>
+            <MIcon name={focusMode ? "close_fullscreen" : "open_in_full"} size={15} />
+            {focusMode ? t("AdminDashboardPage.backToOverview") : t("AdminDashboardPage.expandChat")}
+          </button>
+          <button type="button" onClick={resetAssistant}>
+            <MIcon name="refresh" size={15} />
+            {t("AdminDashboardPage.askAgain")}
+          </button>
+        </div>}
+      </div>
+
+      {conversationPrompt ? <AiPveChat initialPrompt={conversationPrompt} compact={!focusMode} fill={focusMode} />
+        : <form className={styles.assistantForm} onSubmit={openAssistant}>
           <div className={styles.assistantInput}>
-            <MIcon name="terminal" size={21} />
-            <textarea value={assistantPrompt} onChange={(event) => setAssistantPrompt(event.target.value)} placeholder={t("AdminDashboardPage.promptPlaceholder")} rows={2} autoComplete="off" />
-            <button type="submit" disabled={!assistantPrompt.trim()}><span>{t("AdminDashboardPage.startAsking")}</span><MIcon name="arrow_downward" size={18} /></button>
+            <MIcon name="terminal" size={19} />
+            <input ref={assistantInputRef} aria-label={t("AdminDashboardPage.assistantLabel")} value={assistantPrompt} onChange={(event) => setAssistantPrompt(event.target.value)} placeholder={t("AdminDashboardPage.promptPlaceholder")} autoComplete="off" />
+            <button type="submit" disabled={!assistantPrompt.trim()}>{t("AdminDashboardPage.startAsking")}<MIcon name="arrow_forward" size={16} /></button>
           </div>
-          <div className={styles.assistantFooter}>
-            <span>{t("AdminDashboardPage.suggestionsLabel")}</span>
-            {suggestions.map((suggestion) => <button type="button" key={suggestion} onClick={() => setAssistantPrompt(suggestion)}>{suggestion}</button>)}
+          <div className={styles.suggestionButtons}>
+            {suggestions.map((suggestion) => <button type="button" key={suggestion} onClick={() => {
+              setAssistantPrompt(suggestion);
+              assistantInputRef.current?.focus();
+            }}>{suggestion}</button>)}
           </div>
         </form>}
-      </div>
-      {conversationPrompt && <AiPveChat initialPrompt={conversationPrompt} compact={!focusMode} fill={focusMode} />}
     </section>
-
   </div>;
 }

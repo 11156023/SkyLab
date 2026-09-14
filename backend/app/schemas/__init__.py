@@ -28,6 +28,11 @@ from .ai_proxy import (
     ModelsResponse,
     RateLimitStatusResponse,
     TemplateUsageStatsResponse,
+    UnifiedRouteUsage,
+    UnifiedUsageByModel,
+    UnifiedUsageStatsResponse,
+    UsageRecordPublic,
+    UsageRecordsPublic,
     UsageStatsResponse,
 )
 from .audit_log import (
@@ -94,7 +99,10 @@ from .monitoring import (
     AlertEventPublic,
     GovernanceConfigPublic,
     GovernanceConfigUpdate,
+    MonitoringIssue,
     MonitoringOverview,
+    MonitoringSignal,
+    MonitoringThresholds,
     NodeMetrics,
     VMTopEntry,
 )
@@ -140,6 +148,7 @@ from .resource import (
     VNCInfoSchema,
 )
 from .spec_change_request import (
+    SpecChangeApplyAccepted,
     SpecChangeRequestCreate,
     SpecChangeRequestPublic,
     SpecChangeRequestReview,
@@ -205,6 +214,11 @@ __all__ = [
     "ModelsResponse",
     "UsageStatsResponse",
     "TemplateUsageStatsResponse",
+    "UnifiedRouteUsage",
+    "UnifiedUsageByModel",
+    "UnifiedUsageStatsResponse",
+    "UsageRecordPublic",
+    "UsageRecordsPublic",
     "RateLimitStatusResponse",
     # User
     "UserCreate",
@@ -282,6 +296,7 @@ __all__ = [
     "CloudflareDNSRecordCreate",
     "CloudflareDNSRecordUpdate",
     # Spec Change Request
+    "SpecChangeApplyAccepted",
     "SpecChangeRequestCreate",
     "SpecChangeRequestReview",
     "SpecChangeRequestPublic",
@@ -309,7 +324,10 @@ __all__ = [
     "AlertEventPublic",
     "GovernanceConfigPublic",
     "GovernanceConfigUpdate",
+    "MonitoringIssue",
     "MonitoringOverview",
+    "MonitoringSignal",
+    "MonitoringThresholds",
     "NodeMetrics",
     "VMTopEntry",
     # Mining (module D)

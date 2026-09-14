@@ -71,5 +71,12 @@
   "LoginPage.confirmPasswordLabel": "Confirm Password",
   "LoginPage.confirmPasswordPlaceholder": "Re-enter your password",
   "LoginPage.creating": "Creating…",
-  "LoginPage.createAccount": "Create Account"
+  "LoginPage.createAccount": "Create Account",
+  "LoginPage.deviceConsentTitle": "Authorize desktop app sign-in",
+  "LoginPage.deviceConsentSubtitle": "SkyLab Connect is asking to sign in with your account",
+  "LoginPage.deviceConsentIdentity": "The desktop app will be authorized to access your VMs as {{email}}.",
+  "LoginPage.deviceConsentCurrentAccount": "the current account",
+  "LoginPage.deviceConsentHelp": "Only approve if you just clicked \"Sign in\" in SkyLab Connect yourself. If someone else sent you this link, choose \"Cancel\".",
+  "LoginPage.deviceConsentApprove": "Authorize this device",
+  "LoginPage.deviceConsentDecline": "Cancel"
 }

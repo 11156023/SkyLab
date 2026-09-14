@@ -51,17 +51,21 @@ _SERVER_FRAMEBUFFER_UPDATE = 0
 class UpstreamConnection(Protocol):
     """上游 PVE websocket 需要的最小介面（websockets ClientConnection 相容）。"""
 
-    async def recv(self) -> str | bytes: ...
+    async def recv(self) -> str | bytes:
+        """接收上游送來的一個訊框。"""
 
-    async def send(self, data: bytes, /) -> None: ...
+    async def send(self, data: bytes, /) -> None:
+        """送出一個二進位訊框到上游。"""
 
-    async def close(self) -> None: ...
+    async def close(self) -> None:
+        """關閉上游連線。"""
 
 
 class SubscriberSocket(DownstreamSocket, Protocol):
     """下游訂閱者 websocket 需要的最小介面（FastAPI WebSocket 相容）。"""
 
-    async def close(self, code: int = 1000, reason: str = "") -> None: ...
+    async def close(self, code: int = 1000, reason: str = "") -> None:
+        """以指定 close code / reason 關閉下游連線。"""
 
 
 class SessionMode(str, Enum):
@@ -266,8 +270,9 @@ class VncSessionManager:
                 # 避免 "Task exception was never retrieved"。
                 for task in (consumer, reader):
                     task.cancel()
-                    with contextlib.suppress(asyncio.CancelledError, Exception):
-                        await task
+                # gather(return_exceptions=True) 會把 CancelledError / 例外
+                # 當成結果回傳而不拋出，等同逐一 await 並 suppress
+                await asyncio.gather(consumer, reader, return_exceptions=True)
         finally:
             state.subscribers.pop(key, None)
 

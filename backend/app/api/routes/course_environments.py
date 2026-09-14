@@ -19,6 +19,7 @@ from app.models import (
     CourseEnvironmentAudience,
     CourseEnvironmentEdge,
     CourseEnvironmentNode,
+    CourseEnvironmentPublication,
     CourseEnvironmentVersion,
     CourseEnvironmentVersionStatus,
     QuickPracticeSession,
@@ -86,6 +87,39 @@ class EnvironmentEdgeIn(BaseModel):
         return self
 
 
+class EnvironmentPublicationIn(BaseModel):
+    """一條「外網 → 機器」的宣告。
+
+    網域是全域唯一的資源，而每位學生都會拿到一份自己的環境，所以模板上
+    只能填主機名樣板；實際網址在開課／開練習時逐人組出來。
+    """
+
+    node_key: str = Field(min_length=1, max_length=80)
+    mode: Literal["domain", "firewall_only"] = "domain"
+    port: int = Field(ge=1, le=65535)
+    protocol: Literal["tcp", "udp"] = "tcp"
+    hostname_prefix: str | None = Field(default=None, max_length=120)
+    zone_id: str | None = Field(default=None, max_length=64)
+    enable_https: bool = True
+
+    @model_validator(mode="after")
+    def validate_mode(self) -> "EnvironmentPublicationIn":
+        if self.mode != "domain":
+            self.hostname_prefix = None
+            self.zone_id = None
+            return self
+        if self.protocol != "tcp":
+            raise ValueError(t("course_env.publication_domain_tcp_only"))
+        if not (self.zone_id or "").strip():
+            raise ValueError(t("course_env.publication_zone_required"))
+        prefix = (self.hostname_prefix or "").strip().lower()
+        if "{student}" not in prefix:
+            # 少了它，全班會搶同一個網址，只有第一位學生拿得到
+            raise ValueError(t("course_env.publication_student_placeholder"))
+        self.hostname_prefix = prefix
+        return self
+
+
 class EnvironmentCreate(BaseModel):
     name: str = Field(min_length=1, max_length=255)
     description: str | None = Field(default=None, max_length=2000)
@@ -95,6 +129,9 @@ class EnvironmentCreate(BaseModel):
     audience_class_ids: list[uuid.UUID] = Field(default_factory=list, max_length=50)
     nodes: list[EnvironmentNodeIn] = Field(min_length=1, max_length=3)
     edges: list[EnvironmentEdgeIn] = Field(default_factory=list, max_length=6)
+    publications: list[EnvironmentPublicationIn] = Field(
+        default_factory=list, max_length=6
+    )
 
     @model_validator(mode="after")
     def validate_audience(self) -> "EnvironmentCreate":
@@ -152,6 +189,18 @@ def _nodes(session: SessionDep, version_id: uuid.UUID) -> list[CourseEnvironment
     )
 
 
+def _publications(
+    session: SessionDep, version_id: uuid.UUID
+) -> list[CourseEnvironmentPublication]:
+    return list(
+        session.exec(
+            select(CourseEnvironmentPublication)
+            .where(CourseEnvironmentPublication.version_id == version_id)
+            .order_by(col(CourseEnvironmentPublication.sort_order))
+        ).all()
+    )
+
+
 def _edges(session: SessionDep, version_id: uuid.UUID) -> list[CourseEnvironmentEdge]:
     return list(
         session.exec(
@@ -166,6 +215,7 @@ def _validate_configuration(
     session: SessionDep,
     nodes: list[EnvironmentNodeIn],
     edges: list[EnvironmentEdgeIn],
+    publications: list[EnvironmentPublicationIn] | None = None,
 ) -> None:
     if len({node.node_key for node in nodes}) != len(nodes):
         raise BadRequestError(t("course_env.duplicate_node_key"))
@@ -181,23 +231,59 @@ def _validate_configuration(
         if node.resource_type != expected:
             raise BadRequestError(t("course_env.type_mismatch", name=node.name))
     node_keys = {node.node_key for node in nodes}
-    signatures: set[tuple[object, ...]] = set()
+    # 每條連線實際授予的方向：單向一個，雙向兩個。以此比對才抓得到
+    # 「A→B 單向」被「A↔B 雙向」涵蓋、或「A↔B」與「B↔A」互為同一件事。
+    granted: dict[tuple[str, str], list[tuple[str, int | None]]] = {}
     for edge in edges:
         if (
             edge.source_node_key not in node_keys
             or edge.target_node_key not in node_keys
         ):
             raise BadRequestError(t("course_env.edge_unknown_node"))
-        signature = (
-            edge.source_node_key,
-            edge.target_node_key,
-            edge.direction,
-            edge.protocol,
-            edge.port,
-        )
-        if signature in signatures:
-            raise BadRequestError(t("course_env.duplicate_edge"))
-        signatures.add(signature)
+        pairs = [(edge.source_node_key, edge.target_node_key)]
+        if edge.direction == "bidirectional":
+            pairs.append((edge.target_node_key, edge.source_node_key))
+        for pair in pairs:
+            for protocol, port in granted.get(pair, []):
+                # 舊資料的 "any" 不分協定與 port，與同一組機器的任何規則重疊
+                if (
+                    protocol == "any"
+                    or edge.protocol == "any"
+                    or (protocol, port) == (edge.protocol, edge.port)
+                ):
+                    raise BadRequestError(
+                        t(
+                            "course_env.overlapping_edge",
+                            source=pair[0],
+                            target=pair[1],
+                        )
+                    )
+            granted.setdefault(pair, []).append((edge.protocol, edge.port))
+
+    seen_publications: set[tuple[str, int, str]] = set()
+    # 一個網域只能指向一個目標，所以整份環境裡的主機名樣板必須各不相同，
+    # 否則第二條之後在開課時才會撞上「網域已被占用」。
+    seen_hostnames: set[tuple[str, str]] = set()
+    for publication in publications or []:
+        if publication.node_key not in node_keys:
+            raise BadRequestError(t("course_env.publication_unknown_node"))
+        signature = (publication.node_key, publication.port, publication.protocol)
+        if signature in seen_publications:
+            raise BadRequestError(
+                t("course_env.duplicate_publication", port=publication.port)
+            )
+        seen_publications.add(signature)
+        if publication.mode != "domain":
+            continue
+        hostname = (str(publication.zone_id or ""), str(publication.hostname_prefix or ""))
+        if hostname in seen_hostnames:
+            raise BadRequestError(
+                t(
+                    "course_env.duplicate_publication_hostname",
+                    hostname=publication.hostname_prefix,
+                )
+            )
+        seen_hostnames.add(hostname)
 
 
 def _audience_class_ids(
@@ -250,8 +336,14 @@ def _replace_nodes(
     version: CourseEnvironmentVersion,
     nodes: list[EnvironmentNodeIn],
     edges: list[EnvironmentEdgeIn],
+    publications: list[EnvironmentPublicationIn] | None = None,
 ) -> None:
-    _validate_configuration(session, nodes, edges)
+    _validate_configuration(session, nodes, edges, publications)
+    session.exec(
+        delete(CourseEnvironmentPublication).where(
+            col(CourseEnvironmentPublication.version_id) == version.id
+        )
+    )
     session.exec(
         delete(CourseEnvironmentEdge).where(
             col(CourseEnvironmentEdge.version_id) == version.id
@@ -272,6 +364,14 @@ def _replace_nodes(
         )
     for edge in edges:
         session.add(CourseEnvironmentEdge(version_id=version.id, **edge.model_dump()))
+    for index, publication in enumerate(publications or []):
+        session.add(
+            CourseEnvironmentPublication(
+                version_id=version.id,
+                sort_order=index,
+                **publication.model_dump(),
+            )
+        )
 
 
 def _serialize_version(
@@ -281,6 +381,7 @@ def _serialize_version(
 ) -> dict[str, Any]:
     nodes = _nodes(session, version.id)
     edges = _edges(session, version.id)
+    publications = _publications(session, version.id)
     class_count = session.exec(
         select(func.count(col(TeachingClass.id))).where(
             col(TeachingClass.course_version_id) == version.id
@@ -305,6 +406,7 @@ def _serialize_version(
         "classes": int(class_count or 0),
         "nodes": [node.model_dump() for node in nodes],
         "edges": [edge.model_dump() for edge in edges],
+        "publications": [item.model_dump() for item in publications],
         "per_student": {
             "machines": len(nodes),
             "cpu_cores": sum(node.cpu for node in nodes),
@@ -408,7 +510,7 @@ def create_environment(
         owner_id=None if is_admin(current_user) else current_user.id,
         class_ids=body.audience_class_ids,
     )
-    _replace_nodes(session, version, body.nodes, body.edges)
+    _replace_nodes(session, version, body.nodes, body.edges, body.publications)
     session.commit()
     return _serialize_version(session, environment, version)
 
@@ -436,7 +538,7 @@ def update_environment(
         owner_id=None if is_admin(current_user) else environment.owner_id,
         class_ids=body.audience_class_ids,
     )
-    _replace_nodes(session, version, body.nodes, body.edges)
+    _replace_nodes(session, version, body.nodes, body.edges, body.publications)
     session.add(environment)
     session.commit()
     return _serialize_version(session, environment, version)
@@ -454,10 +556,15 @@ def publish_environment(
         raise BadRequestError(t("course_env.only_draft_publishable"))
     nodes = _nodes(session, version.id)
     edges = _edges(session, version.id)
+    publications = _publications(session, version.id)
     _validate_configuration(
         session,
         [EnvironmentNodeIn.model_validate(node.model_dump()) for node in nodes],
         [EnvironmentEdgeIn.model_validate(edge.model_dump()) for edge in edges],
+        [
+            EnvironmentPublicationIn.model_validate(item.model_dump())
+            for item in publications
+        ],
     )
     payload: dict[str, Any] = {
         "nodes": [
@@ -475,6 +582,14 @@ def publish_environment(
                 if key not in {"id", "version_id"}
             }
             for edge in edges
+        ],
+        "publications": [
+            {
+                key: value
+                for key, value in item.model_dump().items()
+                if key not in {"id", "version_id"}
+            }
+            for item in publications
         ],
     }
     version.configuration_hash = hashlib.sha256(
@@ -513,6 +628,9 @@ def create_environment_version(
     for edge in _edges(session, latest.id):
         values = edge.model_dump(exclude={"id", "version_id"})
         session.add(CourseEnvironmentEdge(version_id=version.id, **values))
+    for publication in _publications(session, latest.id):
+        values = publication.model_dump(exclude={"id", "version_id"})
+        session.add(CourseEnvironmentPublication(version_id=version.id, **values))
     environment.updated_at = get_datetime_utc()
     session.add(environment)
     session.commit()
@@ -593,6 +711,11 @@ def delete_environment(
         )
     version_ids = [version.id for version in _versions(session, environment.id)]
     if version_ids:
+        session.exec(
+            delete(CourseEnvironmentPublication).where(
+                col(CourseEnvironmentPublication.version_id).in_(version_ids)
+            )
+        )
         session.exec(
             delete(CourseEnvironmentEdge).where(
                 col(CourseEnvironmentEdge.version_id).in_(version_ids)

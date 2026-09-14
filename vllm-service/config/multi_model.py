@@ -90,7 +90,8 @@ def load_gateway_config(base_env_file: str | Path | None = None) -> GatewayConfi
     load_dotenv(env_path)
     
     return GatewayConfig(
-        host=os.getenv("GATEWAY_HOST", "0.0.0.0"),
+        # gateway 沒有呼叫端認證（會替所有請求注入上游 API key），預設只監聽本機
+        host=os.getenv("GATEWAY_HOST", "127.0.0.1"),
         port=int(os.getenv("GATEWAY_PORT", "3000")),
         request_timeout=int(os.getenv("GATEWAY_REQUEST_TIMEOUT", "300")),
         max_inflight=int(os.getenv("GATEWAY_MAX_INFLIGHT", "48")),

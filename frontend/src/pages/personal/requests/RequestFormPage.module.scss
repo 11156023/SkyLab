@@ -81,6 +81,11 @@
     column-gap: $spacing-24;
     row-gap: $spacing-24;
     align-items: start;
+
+    /* 頁首（PageHeader）橫跨兩欄，返回鍵才會靠到頁面右緣而非左欄右緣 */
+    > :first-child {
+      grid-column: 1 / -1;
+    }
   }
 }
 
@@ -369,6 +374,31 @@
 }
 
 .textarea { resize: none; height: 80px; }
+
+/* 密碼欄的顯示/隱藏眼睛按鈕 */
+.passwordWrap {
+  position: relative;
+
+  .input { padding-right: 40px; }
+}
+
+.eyeBtn {
+  position: absolute;
+  top: 50%;
+  right: 6px;
+  translate: 0 -50%;
+  display: inline-flex;
+  padding: 5px;
+  border-radius: $radius-8;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  transition: color $transition-base, background $transition-base;
+
+  &:hover {
+    color: var(--color-text-primary);
+    background: var(--color-hover);
+  }
+}
 
 .typeToggle {
   display: flex;

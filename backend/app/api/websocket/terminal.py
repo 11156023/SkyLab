@@ -6,7 +6,7 @@ import websockets
 from fastapi import WebSocket, WebSocketDisconnect
 
 from app.api.deps.auth import get_ws_current_user
-from app.api.deps.proxmox import check_resource_ownership
+from app.api.deps.proxmox import check_resource_control_access
 from app.api.websocket.utils import safe_close_websocket
 from app.exceptions import NotFoundError, ProxmoxError
 from app.infrastructure.proxmox import (
@@ -25,7 +25,7 @@ async def terminal_proxy(websocket: WebSocket, vmid: int, token: str):
     # Authenticate user and check ownership before accepting
     user, session = await get_ws_current_user(websocket, token=token)
     try:
-        check_resource_ownership(vmid, user, session)
+        check_resource_control_access(vmid, user, session)
     except Exception:
         session.close()
         await safe_close_websocket(websocket, code=1008, reason="Permission denied")

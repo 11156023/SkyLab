@@ -2,7 +2,6 @@
 
 import argparse
 import json
-import mimetypes
 import os
 import sys
 import time
@@ -11,11 +10,6 @@ from pathlib import Path
 from typing import Any
 
 import httpx
-
-
-DEFAULT_RUBRIC_FILE = (
-    Path(__file__).resolve().parent.parent / "專題 AI 實戰評分測試表.docx"
-)
 
 
 @dataclass
@@ -95,60 +89,6 @@ class CampusAIIntegrationTester:
         if not self._access_token:
             raise RuntimeError("Missing access token. Call login() first.")
         return {"Authorization": f"Bearer {self._access_token}"}
-
-    async def run_rubric_upload(self, rubric_file: Path) -> CaseResult:
-        started = time.perf_counter()
-        if not rubric_file.exists():
-            elapsed_ms = int((time.perf_counter() - started) * 1000)
-            return CaseResult(
-                name="rubric_upload",
-                success=False,
-                status_code=None,
-                elapsed_ms=elapsed_ms,
-                detail={
-                    "error": f"Rubric file not found: {rubric_file}",
-                    "skipped": True,
-                },
-            )
-
-        mime_type, _ = mimetypes.guess_type(str(rubric_file))
-        if not mime_type:
-            mime_type = "application/octet-stream"
-
-        with rubric_file.open("rb") as f:
-            response = await self._request(
-                "POST",
-                "/rubric/upload",
-                headers=self._auth_headers(),
-                files={"file": (rubric_file.name, f, mime_type)},
-            )
-
-        elapsed_ms = int((time.perf_counter() - started) * 1000)
-        if response.status_code != 200:
-            return CaseResult(
-                name="rubric_upload",
-                success=False,
-                status_code=response.status_code,
-                elapsed_ms=elapsed_ms,
-                detail={"error": response.text},
-            )
-
-        data = response.json()
-        analysis = data.get("analysis") or {}
-        ai_metrics = data.get("ai_metrics") or {}
-        return CaseResult(
-            name="rubric_upload",
-            success=True,
-            status_code=response.status_code,
-            elapsed_ms=elapsed_ms,
-            detail={
-                "file": str(rubric_file),
-                "summary_preview": str(analysis.get("summary") or "")[:180],
-                "total_items": int(analysis.get("total_items") or 0),
-                "checked_count": int(analysis.get("checked_count") or 0),
-                "ai_metrics": ai_metrics,
-            },
-        )
 
     async def run_template_chat(self, prompt: str) -> CaseResult:
         started = time.perf_counter()
@@ -250,11 +190,6 @@ def parse_args() -> argparse.Namespace:
         help="Backend login password",
     )
     parser.add_argument(
-        "--rubric-file",
-        default=os.getenv("CAMPUS_RUBRIC_FILE", str(DEFAULT_RUBRIC_FILE)),
-        help="Rubric file path for /rubric/upload (.docx or .pdf)",
-    )
-    parser.add_argument(
         "--template-prompt",
         default=os.getenv("CAMPUS_TEMPLATE_PROMPT", "我想建立python環境"),
         help="Prompt for template recommendation chat",
@@ -279,11 +214,6 @@ def parse_args() -> argparse.Namespace:
         "--report-file",
         default="",
         help="Optional JSON report output path",
-    )
-    parser.add_argument(
-        "--skip-rubric",
-        action="store_true",
-        help="Skip rubric upload scenario",
     )
     parser.add_argument(
         "--strict",
@@ -325,9 +255,6 @@ async def _run(args: argparse.Namespace) -> tuple[list[CaseResult], dict[str, An
     await tester.login()
 
     results: list[CaseResult] = []
-
-    if not args.skip_rubric:
-        results.append(await tester.run_rubric_upload(Path(args.rubric_file)))
 
     results.append(await tester.run_template_chat(args.template_prompt))
     results.append(await tester.run_pve_chat(args.pve_prompt))

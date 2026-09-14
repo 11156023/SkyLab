@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import styles from "./DomainPage.module.scss";
 import MIcon from "../../../components/MIcon";
@@ -8,19 +9,12 @@ import { useToast } from "../../../hooks/useToast";
 import useDialogPresence from "../../../hooks/useDialogPresence";
 import { CloudflareService } from "../../../services/cloudflare";
 import PageHeader from "../../../components/PageHeader/PageHeader";
+import { ReverseProxyPanel } from "../../network/reverse-proxy/ReverseProxyPage";
+import { formatDateTime } from "../../../utils/formatDate";
+
+const TAB_KEYS = ["dns", "reverse-proxy"];
 
 const DNS_TYPES = ["A", "AAAA", "CNAME", "TXT", "MX", "NS", "SRV"];
-
-function formatDate(value) {
-  if (!value) return "—";
-  return new Date(value).toLocaleString("zh-TW", {
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
-}
 
 /* ── 供應商設定 Modal ───────────────────────────────────── */
 
@@ -58,6 +52,13 @@ function ConfigModal({ config, loading, closing = false, onClose, onSubmit }) {
           <div>
             <h2>{t("DomainPage.configModalTitle")}</h2>
             <p>{t("DomainPage.configModalDesc")}</p>
+            <p className={styles.modalGuide}>
+              {t("DomainPage.tokenGuideText")}{" "}
+              <a href="https://dash.cloudflare.com/profile/api-tokens" target="_blank" rel="noreferrer">
+                {t("DomainPage.tokenGuideLink")}
+                <MIcon name="open_in_new" size={13} />
+              </a>
+            </p>
           </div>
           <button type="button" className={styles.iconBtn} onClick={onClose} aria-label={t("DomainPage.close")}>
             <MIcon name="close" size={18} />
@@ -105,6 +106,7 @@ function ConfigModal({ config, loading, closing = false, onClose, onSubmit }) {
             />
           </label>
         </div>
+        <p className={styles.fieldHint}>{t("DomainPage.dnsTargetHint")}</p>
 
         <div className={styles.modalActions}>
           <button type="button" className={styles.btnSecondary} onClick={onClose} disabled={loading}>
@@ -254,6 +256,17 @@ export default function DomainPage() {
   const [modal, setModal] = useState(null); // { kind: "config" } | { kind: "record", record? } | { kind: "deleteRecord", record }
   const modalPresence = useDialogPresence(modal);
 
+  // 分頁狀態放在網址 ?tab=，讓 /domain?tab=reverse-proxy 這類連結（舊反向代理頁）能直接開到指定分頁
+  const [searchParams, setSearchParams] = useSearchParams();
+  const requestedTab = searchParams.get("tab");
+  const activeTab = TAB_KEYS.includes(requestedTab) ? requestedTab : TAB_KEYS[0];
+  const selectTab = (key) => {
+    const next = new URLSearchParams(searchParams);
+    if (key === TAB_KEYS[0]) next.delete("tab");
+    else next.set("tab", key);
+    setSearchParams(next, { replace: true });
+  };
+
   const fetchConfig = useCallback(async () => {
     try {
       setConfig(await CloudflareService.getConfig());
@@ -399,12 +412,35 @@ export default function DomainPage() {
           </span>
           {config.account_id && <span className={styles.configMeta}>{t("DomainPage.accountLabel")}{config.account_id}</span>}
           {config.last_verified_at && (
-            <span className={styles.configMeta}>{t("DomainPage.lastVerifiedLabel")}{formatDate(config.last_verified_at)}</span>
+            <span className={styles.configMeta}>{t("DomainPage.lastVerifiedLabel")}{formatDateTime(config.last_verified_at)}</span>
           )}
         </div>
       )}
 
-      {!isConfigured && !loadingZones ? (
+      <div className={styles.tabs}>
+        <button
+          type="button"
+          className={`${styles.tab} ${activeTab === "dns" ? styles.tabActive : ""}`}
+          onClick={() => selectTab("dns")}
+        >
+          <MIcon name="dns" size={16} />
+          {t("DomainPage.tabDns")}
+        </button>
+        <button
+          type="button"
+          className={`${styles.tab} ${activeTab === "reverse-proxy" ? styles.tabActive : ""}`}
+          onClick={() => selectTab("reverse-proxy")}
+        >
+          <MIcon name="swap_horiz" size={16} />
+          {t("DomainPage.tabReverseProxy")}
+        </button>
+      </div>
+
+      {activeTab === "reverse-proxy" ? (
+        <div className={styles.tabBody}>
+          <ReverseProxyPanel />
+        </div>
+      ) : !isConfigured && !loadingZones ? (
         <EmptyState
           icon="domain"
           title={t("DomainPage.emptyNotConnected")}
@@ -483,6 +519,18 @@ export default function DomainPage() {
                         {r.comment ? ` · ${r.comment}` : ""}
                       </span>
                     </div>
+                    {/* 一眼分出哪些紀錄是本系統的對外網址建的、哪些是外部自己加的 */}
+                    <span
+                      className={`${styles.badge} ${r.managed_by_system ? styles.badge_success : styles.badge_muted}`}
+                      title={r.managed_by_system
+                        ? t("DomainPage.managedBySystemHint", { vmid: r.managed_vmid ?? "-" })
+                        : t("DomainPage.externalRecordHint")}
+                    >
+                      <MIcon name={r.managed_by_system ? "verified" : "public"} size={12} />
+                      {r.managed_by_system
+                        ? t("DomainPage.managedBySystem", { vmid: r.managed_vmid ?? "-" })
+                        : t("DomainPage.externalRecord")}
+                    </span>
                     {r.proxied != null && (
                       <span className={`${styles.badge} ${r.proxied ? styles.badge_info : styles.badge_muted}`}>
                         {r.proxied ? "Proxied" : "DNS only"}

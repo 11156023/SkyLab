@@ -8,6 +8,7 @@ duplicate the same cluster.resources iteration or qemu/lxc dispatch logic.
 import logging
 import threading
 import time
+from dataclasses import dataclass
 from typing import Any, Literal
 
 import httpx
@@ -29,6 +30,16 @@ from app.infrastructure.proxmox import (
 logger = logging.getLogger(__name__)
 
 ResourceType = Literal["qemu", "lxc"]
+
+
+@dataclass(frozen=True)
+class MonitoringSnapshot:
+    """同一輪監控取樣的節點、資源與連線完成度。"""
+
+    nodes: list[dict[str, Any]]
+    resources: list[dict[str, Any]]
+    failed_connections: int
+    total_connections: int
 
 
 def _connection_keys() -> list[int | None]:
@@ -138,6 +149,50 @@ def list_nodes() -> list[dict]:
     if errors and not results and len(errors) == len(keys):
         raise ProxmoxError(f"All Proxmox connections are unavailable. {errors[0]}")
     return results
+
+
+def collect_monitoring_snapshot() -> MonitoringSnapshot:
+    """以每個連線一次取回 nodes/resources，供監控讀模型使用。
+
+    ``list_nodes`` 與 ``list_all_resources`` 各自查詢時，可能在兩次呼叫間
+    得到不同的連線可用性；監控需要知道這一輪是否只拿到部分叢集資料，
+    因此在同一個 connection client 上完成兩項取樣並保留失敗數。
+    """
+    nodes: list[dict[str, Any]] = []
+    resources: list[dict[str, Any]] = []
+    failures: list[str] = []
+    keys = _connection_keys()
+
+    for key in keys:
+        try:
+            proxmox = get_proxmox_api(key)
+            nodes.extend(proxmox.nodes.get())
+            raw_resources = list(proxmox.cluster.resources.get(type="vm"))
+            pool_name = get_proxmox_settings(key).pool_name
+            resources.extend(
+                resource
+                for resource in raw_resources
+                if resource.get("pool") == pool_name
+            )
+        except Exception as exc:
+            failures.append(str(exc))
+            logger.warning(
+                "Failed to collect monitoring snapshot for Proxmox connection %s: %s",
+                key,
+                exc,
+            )
+
+    if failures and not nodes and not resources and len(failures) == len(keys):
+        raise ProxmoxError(
+            f"All Proxmox connections are unavailable. {failures[0]}"
+        )
+
+    return MonitoringSnapshot(
+        nodes=nodes,
+        resources=resources,
+        failed_connections=len(failures),
+        total_connections=len(keys),
+    )
 
 
 def _admin_disabled_node_names() -> set[str]:
@@ -313,9 +368,17 @@ def _resource_api(node: str, vmid: int, resource_type: ResourceType):
 # Config
 # ---------------------------------------------------------------------------
 
-def get_config(node: str, vmid: int, resource_type: ResourceType) -> dict:
-    """GET /nodes/{node}/{type}/{vmid}/config"""
-    return _resource_api(node, vmid, resource_type).config.get()
+def get_config(
+    node: str, vmid: int, resource_type: ResourceType, *, current: bool = False
+) -> dict:
+    """GET /nodes/{node}/{type}/{vmid}/config
+
+    預設回傳的是「含 pending 的設定」：執行中的機器若有尚未生效的變更
+    （例如改了 cores 但還沒重開機），拿到的會是那個尚未生效的值。
+    ``current=True`` 改要實際生效中的值。
+    """
+    api = _resource_api(node, vmid, resource_type).config
+    return api.get(current=1) if current else api.get()
 
 
 def update_config(
@@ -325,9 +388,63 @@ def update_config(
     _resource_api(node, vmid, resource_type).config.put(**params)
 
 
+def list_storage_content(
+    node: str, storage: str, content: str | None = None
+) -> list[dict]:
+    """GET /nodes/{node}/storage/{storage}/content（可用 content=iso 過濾）"""
+    api = get_proxmox_api_for_node(node).nodes(node).storage(storage).content
+    items = api.get(content=content) if content else api.get()
+    return list(items or [])
+
+
+def list_iso_images(node: str) -> list[dict]:
+    """列出該節點 ISO 儲存區上的 ISO 映像（儲存區取自該節點所屬連線的設定）。"""
+    iso_storage = get_proxmox_settings_for_node(node).iso_storage
+    if not iso_storage:
+        return []
+    return [
+        item
+        for item in list_storage_content(node, iso_storage, "iso")
+        if str(item.get("content") or "iso") == "iso"
+    ]
+
+
 # ---------------------------------------------------------------------------
 # Control (start / stop / reboot / shutdown / reset)
 # ---------------------------------------------------------------------------
+
+# 電源動作 → 該資源「應該」處於的開機狀態；onboot 跟著它走，不開放使用者自行設定：
+# 主機重開後只把本來就該開著的機器拉起來，關掉／暫停的機器不會偷偷復活。
+_ONBOOT_BY_ACTION: dict[str, int] = {
+    "start": 1,
+    "resume": 1,
+    "reboot": 1,
+    "reset": 1,
+    "stop": 0,
+    "shutdown": 0,
+    "suspend": 0,
+}
+
+
+def sync_onboot(
+    node: str, vmid: int, resource_type: ResourceType, action: str
+) -> None:
+    """依電源動作把 guest config 的 ``onboot`` 對齊到應有狀態（best-effort）。
+
+    寫入失敗（例如 guest 被 backup/snapshot 鎖住）只記 warning，不能讓
+    已成功送出的電源動作跟著報錯；下一次開關機會再對齊一次。
+    """
+    onboot = _ONBOOT_BY_ACTION.get(action)
+    if onboot is None:
+        return
+    try:
+        update_config(node, vmid, resource_type, onboot=onboot)
+    except Exception as exc:
+        logger.warning(
+            "Failed to sync onboot=%s for %s %s on %s after %s: %s",
+            onboot, resource_type, vmid, node, action, exc,
+        )
+
 
 def control(
     node: str,
@@ -342,12 +459,16 @@ def control(
     ``wait_timeout_seconds`` 有值時阻塞等待 PVE 任務結束：任務失敗拋
     ``ProxmoxError``（訊息含 task log tail，可辨識 vGPU 開機失敗等原因），
     逾時拋 ``TimeoutError``（任務在 PVE 端照跑）。預設 fire-and-forget。
+
+    電源動作送出成功後會順手把 ``onboot`` 對齊（start/resume/reboot/reset → 1，
+    stop/shutdown/suspend → 0），見 :func:`sync_onboot`。
     """
     upid = getattr(_resource_api(node, vmid, resource_type).status, action).post()
     if wait_timeout_seconds is not None and upid:
         basic_blocking_task_status(
             node, str(upid), timeout_seconds=wait_timeout_seconds
         )
+    sync_onboot(node, vmid, resource_type, action)
 
 
 def get_status(node: str, vmid: int, resource_type: ResourceType) -> dict:
@@ -491,8 +612,12 @@ def get_ip_address(node: str, vmid: int, resource_type: ResourceType) -> str | N
 # ---------------------------------------------------------------------------
 
 def get_current_specs(node: str, vmid: int, resource_type: ResourceType) -> dict:
-    """Returns {"cpu": int|None, "memory": int|None, "disk": int|None}."""
-    config = get_config(node, vmid, resource_type)
+    """Returns {"cpu": int|None, "memory": int|None, "disk": int|None}.
+
+    讀實際生效值（current=1），規格調整申請的「目前規格」才不會抄到
+    尚未生效的 pending 設定。
+    """
+    config = get_config(node, vmid, resource_type, current=True)
 
     current_cpu = config.get("cores") or config.get("cpus")
     current_memory = config.get("memory")
@@ -603,8 +728,16 @@ def get_vm_templates() -> list[dict]:
 
 _TEMPLATE_NODE_MAP_TTL_SECONDS = 60.0
 _template_node_map: dict[str, set[str]] = {}
-_template_node_map_at = 0.0
 _template_node_map_lock = threading.Lock()
+
+
+class _TemplateNodeMapCacheMeta:
+    """快取最後刷新時間（集中在物件上，避免 global 重新指派）。"""
+
+    refreshed_at: float = 0.0
+
+
+_template_node_map_meta = _TemplateNodeMapCacheMeta()
 
 
 def get_lxc_template_node_map() -> dict[str, set[str]]:
@@ -613,10 +746,11 @@ def get_lxc_template_node_map() -> dict[str, set[str]]:
     vztmpl 存在與否是節點層事實（各連線 iso_storage 未必共享到每個節點），
     placement 與模板清單都以此判斷。個別節點查詢失敗視為該節點沒有模板。
     """
-    global _template_node_map_at
     now = time.monotonic()
     with _template_node_map_lock:
-        if (now - _template_node_map_at) < _TEMPLATE_NODE_MAP_TTL_SECONDS:
+        if (
+            now - _template_node_map_meta.refreshed_at
+        ) < _TEMPLATE_NODE_MAP_TTL_SECONDS:
             return {volid: set(nodes) for volid, nodes in _template_node_map.items()}
 
     mapping: dict[str, set[str]] = {}
@@ -641,7 +775,7 @@ def get_lxc_template_node_map() -> dict[str, set[str]]:
     with _template_node_map_lock:
         _template_node_map.clear()
         _template_node_map.update(mapping)
-        _template_node_map_at = time.monotonic()
+        _template_node_map_meta.refreshed_at = time.monotonic()
     return {volid: set(nodes) for volid, nodes in mapping.items()}
 
 

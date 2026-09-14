@@ -94,6 +94,17 @@ class TeacherJudgeSession(SQLModel, table=True):
         ),
     )
     summary: str = Field(default="", sa_column=Column(sa.Text, nullable=False))
+    # The boundary is persisted so a completed background summary is not
+    # scheduled repeatedly, and a later boundary can never be overwritten by
+    # an older worker that finishes out of order.
+    summary_through_message_id: uuid.UUID | None = Field(
+        default=None,
+        sa_column=Column(sa.Uuid, nullable=True),
+    )
+    summary_through_assistant_count: int = Field(
+        default=0,
+        sa_column=Column(sa.Integer, nullable=False, server_default="0"),
+    )
     created_by: uuid.UUID | None = Field(
         default=None,
         sa_column=Column(

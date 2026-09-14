@@ -1,474 +1,270 @@
-@use "../../../../assets/styles/variables" as *;
-@use "../../../../assets/styles/mixins" as *;
-
 .page {
   display: flex;
-  /* 超寬螢幕上整頁被拉開，一行字橫跨兩千像素很難讀 */
-  max-width: 1440px;
-  margin-inline: auto;
   width: 100%;
+  min-width: 0;
+  container-type: inline-size;
   flex-direction: column;
   gap: $spacing-24;
   padding: $spacing-8 $spacing-16;
+  @media (min-width: $breakpoint-sidebar) { padding: 0; }
+}
+.pageFocused { height: calc(100dvh - 120px); min-height: 420px; }
 
-  @media (min-width: $breakpoint-sidebar) {
-    padding: 0;
-  }
-}
-.sectionHeading p {
-  margin: 0;
-  color: var(--color-text-secondary);
-  font-size: $font-size-14;
-  line-height: 1.6;
-}
-.eyebrow {
-  color: var(--color-primary);
-  font-size: 11px;
-  font-weight: $font-weight-700;
-  letter-spacing: 0.08em;
-}
-
-.assistantSection {
-  @include glass-surface($shadow: var(--shadow-md));
-  overflow: hidden;
+/* 卡片底比照 style guide 與其他頁面：玻璃卡＋radius-16＋shadow-sm */
+@mixin surface-card {
+  min-width: 0;
+  @include glass-surface($shadow: var(--shadow-sm));
   border-radius: $radius-16;
 }
-.assistantHero {
-  display: grid;
-  grid-template-columns: minmax(280px, 0.8fr) minmax(460px, 1.2fr);
-  gap: $spacing-32;
-  padding: $spacing-32;
-  align-items: center;
-}
-/* 對話開始後這一列縮成一條窄標頭，版面全部讓給輸出 */
-.assistantSectionExpanded .assistantHero {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: $spacing-16;
-  padding: 10px $spacing-16 10px $spacing-24;
-  border-bottom: 1px solid var(--color-divider);
-}
-.assistantSectionExpanded .assistantIntro {
-  align-items: center;
-  gap: 10px;
-}
-.assistantSectionExpanded .assistantIcon {
-  /* 圖示字級固定 28，框留到 40 才不會擠邊 */
-  width: 40px;
-  height: 40px;
-  border-radius: $radius-8;
-}
-.assistantSectionExpanded .assistantIntro h2 {
-  margin: 0;
-  font-size: $font-size-16;
-}
-.assistantSectionExpanded .assistantLabel {
-  display: none;
-}
-.assistantSectionExpanded .assistantActions {
-  display: flex;
-  flex-shrink: 0;
-  align-items: center;
-  gap: $spacing-8;
-}
 
-/* 放大模式：整頁固定成一個視窗高，剩下的高度全給對話。
-   不寫死標題列高度，交給 flex 去分。 */
-.pageFocused {
-  height: calc(100dvh - 120px);
-  min-height: 420px;
-}
-
-.assistantSectionFocused {
-  display: flex;
-  min-height: 0;
-  flex: 1;
-  flex-direction: column;
-}
-
-.assistantReset {
-  min-height: 34px;
-  padding: 0 12px;
-  font-size: $font-size-12;
-}
-
-.assistantActions {
-  display: flex;
-  flex-shrink: 0;
-  align-items: center;
-  gap: $spacing-8;
-}
-
-/* 放大模式：整頁固定成一個視窗高，剩下的高度全給對話。
-   不寫死標題列高度，交給 flex 去分。 */
-.pageFocused {
-  height: calc(100dvh - 120px);
-  min-height: 420px;
-}
-
-.assistantSectionFocused {
-  display: flex;
-  min-height: 0;
-  flex: 1;
-  flex-direction: column;
-}
-
-.assistantReset {
-  flex-shrink: 0;
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 8px 14px;
-  border: 1px solid var(--color-border);
-  border-radius: $radius-pill;
-  background: var(--color-surface);
-  color: var(--color-text-secondary);
-  font-size: $font-size-14;
-  cursor: pointer;
-
-  &:hover {
-    border-color: var(--color-primary);
-    color: var(--color-primary);
-  }
-}
-.assistantIntro {
-  display: flex;
-  align-items: flex-start;
-  gap: $spacing-16;
-}
-.assistantIcon {
-  display: grid;
-  width: 54px;
-  height: 54px;
-  flex: 0 0 auto;
-  place-items: center;
-  border-radius: $radius-12;
-  color: var(--color-text-on-primary);
-  background: var(--color-primary);
-  box-shadow: var(--shadow-sm);
-}
-.assistantIntro > div {
-  min-width: 0;
-}
-.assistantLabel {
-  color: var(--color-primary);
-  font-size: 11px;
-  font-weight: $font-weight-700;
-  letter-spacing: 0.08em;
-}
-.assistantIntro h2 {
-  margin: $spacing-4 0 $spacing-8;
-  color: var(--color-text-primary);
-  font-size: $font-size-24;
-  line-height: 1.25;
-}
-.assistantIntro p {
-  margin: 0;
-  max-width: 42ch;
-  color: var(--color-text-secondary);
-  font-size: $font-size-14;
-  line-height: 1.7;
-}
-.assistantForm {
-  display: flex;
-  min-width: 0;
-  flex-direction: column;
-  gap: 10px;
-}
-.assistantInput {
-  display: grid;
-  min-height: 76px;
-  padding: 12px 12px 12px $spacing-16;
-  grid-template-columns: 22px minmax(0, 1fr) auto;
-  /* 三個元素同一條中線：之前讓按鈕沉到底，中間會空出一塊 */
-  align-items: center;
-  gap: 12px;
-  border: 1px solid var(--color-border);
-  border-radius: $radius-12;
-  color: var(--color-primary);
-  background: var(--color-surface);
-  box-shadow: var(--shadow-sm);
-}
-.assistantInput:focus-within {
-  border-color: var(--color-primary);
-  box-shadow:
-    0 0 0 3px color-mix(in srgb, var(--color-primary) 12%, transparent),
-    var(--shadow-sm);
-}
-.assistantInput textarea {
-  width: 100%;
-  min-height: 46px;
-  padding: 2px 0;
-  border: 0;
-  outline: 0;
-  color: var(--color-text-primary);
-  background: transparent;
-  font: inherit;
-  /* 16px：這是整頁的主要輸入，也避免手機上聚焦時自動放大 */
-  font-size: $font-size-16;
-  line-height: 1.65;
-  resize: none;
-}
-.assistantInput textarea::placeholder {
-  color: var(--color-text-muted);
-}
-.assistantInput button {
-  display: inline-flex;
-  min-height: 46px;
-  padding: 0 $spacing-16;
-  align-items: center;
-  justify-content: center;
-  gap: $spacing-8;
-  border: 1px solid var(--color-primary);
-  border-radius: $radius-8;
-  color: var(--color-text-on-primary);
-  background: var(--color-primary);
-  font-size: $font-size-14;
-  font-weight: $font-weight-700;
-  white-space: nowrap;
-  cursor: pointer;
-  transition: background 140ms ease;
-}
-.assistantInput button:hover:not(:disabled) {
-  background: var(--color-primary-dark);
-}
-.assistantInput button:disabled {
-  cursor: not-allowed;
-  opacity: 0.4;
-}
-.assistantFooter {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: $spacing-8;
-  color: var(--color-text-muted);
-  font-size: $font-size-12;
-}
-.assistantFooter button {
-  min-height: 34px;
-  padding: 0 14px;
-  border: 1px solid var(--color-border);
-  border-radius: $radius-pill;
-  color: var(--color-text-secondary);
-  background: var(--color-surface);
-  font-size: $font-size-12;
-  cursor: pointer;
-}
-.assistantFooter button:hover:not(:disabled) {
-  color: var(--color-primary);
-  border-color: var(--color-primary);
-  background: var(--color-hover);
-}
-.assistantFooter button:disabled {
-  cursor: not-allowed;
-  opacity: 0.4;
-}
-
-.attention {
-  @include glass-surface;
-  overflow: hidden;
-  border-radius: $radius-16;
-}
-.sectionHeading {
-  @include flex-between;
-  gap: $spacing-16;
-  padding: $spacing-16 $spacing-24;
-  border-bottom: 1px solid var(--color-divider);
-}
-.sectionHeading h2 {
-  margin: 3px 0 2px;
-  color: var(--color-text-primary);
-  font-size: $font-size-18;
-}
-.sectionHeading > button {
+.page button:focus-visible { outline: 2px solid var(--color-primary-on-surface); outline-offset: 3px; }
+.refreshControls { display: flex; align-items: center; flex-wrap: wrap; gap: $spacing-8; }
+.checkedAt { color: var(--color-text-muted); font-size: $font-size-12; }
+.checkedAt { font-variant-numeric: tabular-nums; }
+.refreshControls > button, .assistantActions button {
   display: inline-flex;
   min-height: 36px;
-  padding: 0 $spacing-16;
+  padding: $spacing-4 $spacing-8;
+  align-items: center;
+  justify-content: center;
+  gap: $spacing-4;
+  border: 1px solid var(--color-border);
+  border-radius: $radius-8;
+  color: var(--color-primary-on-surface);
+  background: var(--color-surface);
+  font-size: $font-size-12;
+  font-weight: $font-weight-500;
+  cursor: pointer;
+}
+.refreshControls > button:hover:not(:disabled), .assistantActions button:hover { background: var(--color-hover); }
+.refreshControls > button:disabled { cursor: not-allowed; opacity: 0.45; }
+
+/* 數字只表達運行數量，不把關機或缺少資料誤標為故障。 */
+.statsGrid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: $spacing-16; }
+.statCard {
+  @include surface-card;
+  display: flex;
+  align-items: center;
+  gap: $spacing-16;
+  padding: $spacing-16;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color $transition-base, background $transition-base;
+}
+/* hover 疊色不蓋掉毛玻璃底（同申請審核列表列的疊法） */
+.statCard:hover {
+  border-color: var(--color-primary-on-surface);
+  background:
+    linear-gradient(var(--color-hover), var(--color-hover)),
+    var(--color-surface-glass);
+}
+.statIcon {
+  @include flex-center;
+  width: 40px;
+  height: 40px;
+  flex-shrink: 0;
+  border-radius: $radius-8;
+  color: var(--color-primary);
+  background: var(--color-hover);
+}
+.statContent { display: flex; min-width: 0; flex-direction: column; gap: 2px; }
+.statLabel { color: var(--color-text-secondary); font-size: $font-size-12; font-weight: $font-weight-500; }
+.statContent strong {
+  color: var(--color-text-primary);
+  font-size: $font-size-24;
+  line-height: 1.2;
+  font-weight: $font-weight-700;
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+.statContent small { color: var(--color-text-muted); font-size: $font-size-12; }
+.statArrow { margin-left: auto; color: var(--color-text-muted); }
+
+.attention { @include flex-column; gap: $spacing-8; }
+.assistantHead h2 { margin: 0; color: var(--color-text-primary); font-size: $font-size-18; font-weight: $font-weight-700; line-height: 1.5; overflow-wrap: anywhere; }
+.checking {
+  @include surface-card;
+  display: flex;
+  min-height: 160px;
+  align-items: center;
+  justify-content: center;
+  gap: $spacing-8;
+  padding: $spacing-16;
+  color: var(--color-text-muted);
+  font-size: $font-size-14;
+}
+.tiers { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: $spacing-16; }
+.tier { @include surface-card; @include flex-column; overflow: hidden; }
+.tierHead { display: flex; align-items: center; gap: $spacing-8; padding: 12px $spacing-16; border-bottom: 1px solid var(--color-divider); }
+.tierHead h3 { display: flex; margin: 0; align-items: center; gap: $spacing-8; color: var(--color-text-primary); font-size: $font-size-14; font-weight: $font-weight-700; }
+.countBadge {
+  @include flex-center;
+  min-width: 24px;
+  padding: 0 6px;
+  border-radius: $radius-pill;
+  background: var(--color-hover);
+  color: var(--color-text-secondary);
+  font-size: $font-size-12;
+  font-weight: $font-weight-700;
+  font-variant-numeric: tabular-nums;
+}
+.tierNow .tierHead { background: color-mix(in srgb, var(--color-danger) 5%, transparent); }
+.tierNow h3 { color: var(--color-danger); }
+.tierNow .countBadge { color: var(--color-danger); background: color-mix(in srgb, var(--color-danger) 10%, transparent); }
+.countPending { color: var(--color-pending); background: color-mix(in srgb, var(--color-pending) 10%, transparent); }
+/* 預留四列選項（每列 48px）及上下內距，兩張待辦卡片維持等高。 */
+.rowList { flex: 1; min-height: 200px; max-height: 320px; overflow-y: auto; overscroll-behavior: contain; padding: $spacing-4 $spacing-8; }
+.row {
+  display: grid;
+  width: 100%;
+  min-height: 48px;
+  padding: $spacing-8;
+  grid-template-columns: 17px minmax(0, 1fr) auto 16px;
   align-items: center;
   gap: $spacing-8;
   border: 0;
   border-radius: $radius-8;
-  color: var(--color-primary);
-  background: transparent;
-  font-size: $font-size-14;
-  font-weight: $font-weight-700;
-  cursor: pointer;
-}
-.sectionHeading > button:hover:not(:disabled) {
-  background: var(--color-hover);
-}
-.sectionHeading > button:disabled {
-  cursor: not-allowed;
-  opacity: 0.4;
-}
-.checking {
-  display: flex;
-  min-height: 92px;
-  padding: $spacing-24;
-  align-items: center;
-  justify-content: center;
-  gap: $spacing-8;
-  color: var(--color-text-muted);
-  font-size: $font-size-14;
-}
-.checking > :first-child {
-  animation: spin 1s linear infinite;
-}
-.issueList {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-}
-.issueList > button {
-  display: grid;
-  min-height: 92px;
-  padding: $spacing-16 $spacing-24;
-  grid-template-columns: 40px minmax(0, 1fr) auto 20px;
-  align-items: center;
-  gap: 12px;
-  border: 0;
-  border-right: 1px solid var(--color-divider);
-  border-bottom: 1px solid var(--color-divider);
+  color: var(--color-text-primary);
   background: transparent;
   text-align: left;
   cursor: pointer;
+  transition: background $transition-base;
 }
-.issueList > button:nth-child(2n) {
-  border-right: 0;
-}
-.issueList > button:hover:not(:disabled) {
-  background: var(--color-hover);
-}
-.issueList > button:disabled {
-  cursor: not-allowed;
-  opacity: 0.4;
-}
-.issueIcon {
-  display: grid;
-  width: 40px;
-  height: 40px;
-  place-items: center;
-  border-radius: 10px;
-}
-.issueList button > span:nth-child(2) {
+.row + .row { border-top: 1px solid var(--color-divider); }
+.row:hover { background: var(--color-hover); }
+.rowContent { display: flex; min-width: 0; flex-wrap: wrap; align-items: baseline; gap: 2px $spacing-8; overflow-wrap: anywhere; }
+.row strong { font-size: $font-size-14; font-weight: $font-weight-500; }
+.row small { color: var(--color-text-muted); font-size: $font-size-12; }
+.row b { color: var(--color-text-secondary); font-size: $font-size-14; font-variant-numeric: tabular-nums; }
+.row > :global(.material-icons-outlined) { color: var(--color-text-muted); }
+.row_critical > :global(.material-icons-outlined):first-child,
+.row_warning > :global(.material-icons-outlined):first-child { color: var(--color-danger); }
+.emptyState { display: flex; min-height: 104px; align-items: center; justify-content: center; gap: $spacing-8; padding: $spacing-16; color: var(--color-text-muted); font-size: $font-size-14; }
+.tierLink, .tierFootnote {
   display: flex;
-  min-width: 0;
-  flex-direction: column;
-  gap: 3px;
-}
-.issueList strong {
-  color: var(--color-text-primary);
-  font-size: $font-size-16;
-}
-.issueList small {
-  @include text-truncate;
-  color: var(--color-text-muted);
-  font-size: $font-size-12;
-}
-.issueList em {
-  display: grid;
-  min-width: 26px;
-  height: 26px;
-  padding: 0 7px;
-  place-items: center;
-  border-radius: $radius-pill;
-  font-size: $font-size-12;
-  font-style: normal;
-  font-weight: $font-weight-700;
-}
-.issue_danger .issueIcon,
-.issue_danger em {
-  color: var(--color-danger);
-  background: color-mix(in srgb, var(--color-danger) 10%, var(--color-surface));
-}
-.issue_info .issueIcon,
-.issue_info em {
-  color: var(--color-info);
-  background: color-mix(in srgb, var(--color-info) 10%, var(--color-surface));
-}
-.issue_muted .issueIcon,
-.issue_muted em {
-  color: var(--color-text-muted);
-  background: var(--color-hover);
-}
-.allClear {
-  display: flex;
-  min-height: 88px;
-  padding: $spacing-16 $spacing-24;
-  align-items: center;
-  gap: 12px;
-}
-.allClear > span {
-  display: grid;
-  width: 40px;
-  height: 40px;
-  flex: 0 0 auto;
-  place-items: center;
-  border-radius: 50%;
-  color: var(--color-success);
-  background: color-mix(
-    in srgb,
-    var(--color-success) 10%,
-    var(--color-surface)
-  );
-}
-.allClear div {
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
-}
-.allClear strong {
-  color: var(--color-text-primary);
-  font-size: $font-size-14;
-}
-.allClear p {
+  min-height: 40px;
   margin: 0;
+  padding: $spacing-8 $spacing-16;
+  align-items: center;
+  gap: $spacing-4;
+  border: 0;
+  border-top: 1px solid var(--color-divider);
   color: var(--color-text-muted);
+  background: transparent;
   font-size: $font-size-12;
+  text-align: left;
 }
+.tierLink { color: var(--color-primary-on-surface); cursor: pointer; }
+.tierLink:hover { background: var(--color-hover); }
+.staleNote { display: flex; align-items: flex-start; gap: $spacing-8; color: var(--color-danger); font-size: $font-size-12; }
+.staleNote > :global(.material-icons-outlined) { flex-shrink: 0; margin-top: 2px; }
 
-@keyframes spin {
-  to {
-    transform: rotate(360deg);
-  }
+.assistant { @include surface-card; @include flex-column; padding: $spacing-16; gap: $spacing-16; }
+.assistantFocused { min-height: 0; flex: 1; }
+.assistantHead {
+  display: flex;
+  flex-shrink: 0;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: $spacing-8 $spacing-16;
+  min-height: 64px;
+  margin: (-$spacing-16) (-$spacing-16) 0;
+  padding: 12px $spacing-16;
+  border-bottom: 1px solid var(--color-border);
+  border-radius: $radius-16 $radius-16 0 0;
+  background: color-mix(in srgb, var(--color-primary) 6%, var(--color-surface));
 }
+.assistantIdentity { display: flex; min-width: 0; align-items: center; gap: 12px; }
+.assistantIcon {
+  @include flex-center;
+  width: 40px;
+  height: 40px;
+  flex-shrink: 0;
+  border-radius: $radius-12;
+  color: var(--color-primary-on-surface);
+  background: color-mix(in srgb, var(--color-primary) 12%, var(--color-surface));
+}
+.assistantActions { display: flex; flex-wrap: wrap; margin-left: auto; gap: $spacing-8; }
+.assistantForm { display: grid; grid-template-columns: minmax(0, 1fr) fit-content(40%); align-items: center; min-width: 0; gap: $spacing-16; }
+.assistantInput {
+  display: grid;
+  min-width: 0;
+  padding: 6px 6px 6px 12px;
+  grid-template-columns: 19px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: $spacing-8;
+  border: 1px solid var(--color-border);
+  border-radius: $radius-12;
+  background: var(--color-surface);
+  transition: border-color $transition-base, box-shadow $transition-base;
+}
+.assistantInput:focus-within { border-color: var(--color-primary-on-surface); box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-primary) 12%, transparent); }
+.assistantInput > :global(.material-icons-outlined) { color: var(--color-text-muted); }
+.assistantInput input { width: 100%; min-width: 0; padding: $spacing-8 0; border: 0; outline: none; color: var(--color-text-primary); background: transparent; font-family: inherit; font-size: $font-size-14; }
+.assistantInput input::placeholder { color: var(--color-text-muted); }
+.assistantInput button {
+  display: inline-flex;
+  min-height: 36px;
+  padding: 0 12px;
+  align-items: center;
+  justify-content: center;
+  gap: $spacing-4;
+  border: 0;
+  border-radius: $radius-8;
+  color: var(--color-text-on-primary);
+  background: var(--color-primary);
+  font-size: $font-size-12;
+  font-weight: $font-weight-500;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background $transition-base;
+}
+.assistantInput button:hover:not(:disabled) { background: var(--color-primary-dark); }
+.assistantInput button:disabled { cursor: not-allowed; opacity: 0.4; }
+.suggestionButtons { display: flex; min-width: 0; flex-wrap: wrap; gap: 6px; }
+.suggestionButtons button {
+  display: inline-flex;
+  align-items: center;
+  gap: $spacing-4;
+  min-height: 32px;
+  max-width: 100%;
+  padding: $spacing-4 $spacing-8;
+  border: 1px solid var(--color-border);
+  border-radius: $radius-pill;
+  color: var(--color-text-secondary);
+  background: var(--color-surface);
+  font-size: $font-size-12;
+  text-align: left;
+  cursor: pointer;
+  transition: background $transition-base, border-color $transition-base, color $transition-base;
+}
+.suggestionButtons button:hover { border-color: var(--color-primary-on-surface); color: var(--color-primary-on-surface); background: var(--color-hover); }
 
-@media (max-width: $breakpoint-xl) {
-  .assistantHero {
-    grid-template-columns: 1fr;
-  }
+@keyframes spin { to { transform: rotate(360deg); } }
+.spin { animation: spin 1s linear infinite; }
+/* 側欄展開時也依實際內容寬度收斂，不只依整個視窗寬度。 */
+@container (max-width: 960px) {
+  .assistantForm { grid-template-columns: minmax(0, 1fr); gap: $spacing-8; }
+}
+@container (max-width: 640px) {
+  .tiers { grid-template-columns: minmax(0, 1fr); }
 }
 @media (max-width: $breakpoint-md) {
-  .page {
-    gap: $spacing-16;
-  }
-  .header h1 {
-    font-size: $font-size-24;
-  }
-  .assistantHero {
-    padding: $spacing-16;
-    gap: $spacing-16;
-  }
-  .assistantIntro h2 {
-    font-size: $font-size-18;
-  }
-  .assistantInput {
-    padding: 10px;
-    grid-template-columns: 20px minmax(0, 1fr);
-  }
-  .assistantInput button {
-    grid-column: 1 / -1;
-    width: 100%;
-  }
-  .sectionHeading {
-    padding: $spacing-16;
-    align-items: flex-start;
-  }
-  .issueList {
-    grid-template-columns: 1fr;
-  }
-  .issueList > button {
-    padding-inline: $spacing-16;
-    border-right: 0;
-  }
+  .page { gap: $spacing-16; }
+  .tiers { grid-template-columns: minmax(0, 1fr); }
+  .statsGrid { gap: $spacing-8; }
+  .statCard { flex-direction: column; align-items: flex-start; gap: $spacing-8; padding: 12px; }
+  .statIcon { width: 32px; height: 32px; border-radius: $radius-8; }
+  .statContent strong { font-size: $font-size-18; }
+  .statArrow { display: none; }
+  .assistantActions { margin-left: 0; }
+}
+@media (max-width: $breakpoint-sm) {
+  .assistantInput { grid-template-columns: 19px minmax(0, 1fr); }
+  .assistantInput button { grid-column: 1 / -1; width: 100%; }
+  .refreshControls > button, .assistantActions button, .suggestionButtons button { min-height: 44px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .spin { animation: none; }
+  .page button, .assistantInput { transition: none; }
 }

@@ -4,7 +4,6 @@ from datetime import datetime
 
 from pydantic import BaseModel, Field
 
-from app.domain.placement.constants import DEFAULT_PLACEMENT_STRATEGY
 from app.infrastructure.proxmox import DEFAULT_PROXMOX_POOL_NAME
 
 
@@ -22,9 +21,9 @@ class ProxmoxConfigPublic(BaseModel):
     gateway_ip: str | None = None  # 可能尚未設定（舊資料相容）
     local_subnet: str | None = None
     default_node: str | None = None
-    placement_strategy: str = DEFAULT_PLACEMENT_STRATEGY
     cpu_overcommit_ratio: float = 2.0
     disk_overcommit_ratio: float = 1.0
+    placement_reassignment_cost: float = 0.15
     placement_peak_cpu_margin: float = 1.1
     placement_peak_memory_margin: float = 1.05
     placement_loadavg_warn_per_core: float = 0.8
@@ -46,6 +45,7 @@ class ProxmoxConfigPublic(BaseModel):
     window_grace_period_minutes: int = 30
     practice_session_hours: int = 3
     practice_warning_minutes: int = 30
+    expiry_warning_hours: int = 24
     updated_at: datetime | None = None
     is_configured: bool
     has_ca_cert: bool
@@ -53,10 +53,16 @@ class ProxmoxConfigPublic(BaseModel):
 
 
 class ProxmoxConfigUpdate(BaseModel):
-    """更新 Proxmox 設定的請求 schema"""
+    """更新 Proxmox 設定的請求 schema。
 
-    host: str
-    user: str
+    PUT / 為**部分更新**：route 以 ``model_dump(exclude_unset=True)`` 判斷
+    payload 實際帶了哪些欄位，沒出現的欄位維持 DB 現值（尚無設定列時
+    退回此 schema 的預設值）。呼叫端只需送自己管的欄位——資源排程頁
+    因此不必回送連線欄位。欄位預設值僅在「初次建立且未帶該欄位」時生效。
+    """
+
+    host: str = ""
+    user: str = ""
     password: str | None = None  # None 表示不更新密碼
     verify_ssl: bool = False
     iso_storage: str = "local"
@@ -68,9 +74,9 @@ class ProxmoxConfigUpdate(BaseModel):
     gateway_ip: str | None = None
     local_subnet: str | None = None
     default_node: str | None = None
-    placement_strategy: str = DEFAULT_PLACEMENT_STRATEGY
     cpu_overcommit_ratio: float = Field(default=2.0, ge=1.0, le=8.0)
     disk_overcommit_ratio: float = Field(default=1.0, ge=1.0, le=5.0)
+    placement_reassignment_cost: float = Field(default=0.15, ge=0.0, le=5.0)
     placement_peak_cpu_margin: float = Field(default=1.1, ge=1.0, le=2.0)
     placement_peak_memory_margin: float = Field(default=1.05, ge=1.0, le=2.0)
     placement_loadavg_warn_per_core: float = Field(default=0.8, ge=0.0, le=4.0)
@@ -92,6 +98,7 @@ class ProxmoxConfigUpdate(BaseModel):
     window_grace_period_minutes: int = Field(default=30, ge=0, le=240)
     practice_session_hours: int = Field(default=3, ge=1, le=24)
     practice_warning_minutes: int = Field(default=30, ge=1, le=120)
+    expiry_warning_hours: int = Field(default=24, ge=1, le=720)
 
 
 class ProxmoxConnectionPublic(BaseModel):

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Literal, NotRequired, TypedDict
+from typing import Any, Literal, NotRequired, TypedDict
 
 # ── Fix Hint ──────────────────────────────────────────────────────────────────
 # Each fix_type populates a different subset; total=False allows partial keys.
@@ -42,6 +42,8 @@ class CheckResult(TypedDict):
     risk_level: Literal["low", "high"]
     issues: list[str]
     fix_hints: list[FixHint]
+    # 非阻斷提示（文案類建議）；不影響 approved/blocked 判定。
+    warnings: NotRequired[list[str]]
 
 
 # ── AI Review Result ──────────────────────────────────────────────────────────
@@ -68,7 +70,28 @@ class GateResult(TypedDict):
     safety_issues: list[str]
     quality_approved: bool
     quality_issues: list[str]
+    quality_warnings: NotRequired[list[str]]
+    coverage: NotRequired[dict[str, Any]]
     review_attempts: NotRequired[list[dict[str, object]]]
+    retry_summary: NotRequired[dict[str, object]]
+    generation_error: NotRequired[str]
+
+
+# ── Rubric Coverage ───────────────────────────────────────────────────────────
+# Generated alongside the script; maps each record_check to rubric item ids.
+
+
+class CoverageMapping(TypedDict):
+    check_id: str
+    rubric_item_ids: list[str]
+
+
+class CoverageResult(TypedDict):
+    approved: bool
+    issues: list[str]
+    fix_hints: list[FixHint]
+    mappings: list[CoverageMapping]
+    uncovered_items: list[dict[str, str]]
 
 
 # ── Previous Review Feedback ──────────────────────────────────────────────────
@@ -80,13 +103,16 @@ class PreviousReviewFeedback(TypedDict, total=False):
     policy_issues: list[str]
     quality_approved: bool | None
     quality_issues: list[str]
+    coverage_approved: bool | None
+    coverage_issues: list[str]
+    uncovered_rubric_items: list[dict[str, str]]
     ai_review_approved: bool | None
     ai_review_issues: list[str]
     ai_review_suggested_fix: str | None
 
 
 # ── VLLM Metrics ──────────────────────────────────────────────────────────────
-# Returned by _call_vllm(); passed through analyze_rubric / chat_with_rubric.
+# Returned by _call_vllm(); passed through chat and summary workflows.
 
 
 class VLLMMetrics(TypedDict):

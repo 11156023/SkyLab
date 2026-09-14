@@ -1,0 +1,511 @@
+/* OverviewTab — 總覽分頁專屬樣式。
+   卡片外殼沿用 ResourceDetailPage.module.scss 的 .card／.cardHeader／.cardBody，
+   這裡只放身分卡、指標格、資訊列、憑證列與手冊列的版面。 */
+
+%mono {
+  font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
+}
+
+/* ── 身分卡 ── */
+.hero {
+  position: relative;
+  gap: $spacing-16;
+  padding: $spacing-24;
+
+  /* 左上角一抹主色暈染，讓身分卡從其他卡片裡跳出來 */
+  &::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    background: radial-gradient(
+      640px 260px at 0% 0%,
+      color-mix(in srgb, var(--color-primary) 14%, transparent),
+      transparent 70%
+    );
+  }
+
+  > * {
+    position: relative;
+  }
+}
+
+.heroTop {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: $spacing-16;
+  flex-wrap: wrap;
+}
+
+.identity {
+  display: flex;
+  align-items: center;
+  gap: $spacing-16;
+  flex: 1;
+  min-width: 0;
+}
+
+.typeIcon {
+  @include flex-center;
+  width: 56px;
+  height: 56px;
+  flex-shrink: 0;
+  border-radius: $radius-16;
+  background: color-mix(in srgb, var(--color-primary) 12%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-primary) 18%, transparent);
+  color: var(--color-primary-on-surface);
+}
+
+.nameBlock {
+  @include flex-column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.name {
+  font-size: $font-size-24;
+  font-weight: $font-weight-700;
+  line-height: 1.2;
+  color: var(--color-text-primary);
+  @include text-truncate;
+}
+
+.subline {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: $spacing-8;
+  font-size: $font-size-14;
+  color: var(--color-text-secondary);
+
+  > span {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+  }
+}
+
+.sep {
+  width: 3px;
+  height: 3px;
+  border-radius: 50%;
+  background: var(--color-text-muted);
+}
+
+.heroSide {
+  @include flex-column;
+  align-items: flex-end;
+  gap: $spacing-8;
+  flex-shrink: 0;
+}
+
+.status {
+  display: inline-flex;
+  align-items: center;
+  gap: $spacing-8;
+  padding: 6px 14px;
+  border-radius: $radius-pill;
+  font-size: $font-size-14;
+  font-weight: $font-weight-500;
+}
+
+.status_ok    { background: color-mix(in srgb, var(--color-success) 12%, transparent); color: var(--color-success); }
+.status_info  { background: color-mix(in srgb, var(--color-info)    12%, transparent); color: var(--color-info); }
+.status_err   { background: color-mix(in srgb, var(--color-danger)  12%, transparent); color: var(--color-danger); }
+.status_muted { background: var(--color-hover); color: var(--color-status-neutral); }
+
+.statusDot {
+  position: relative;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+/* 執行中：往外擴散的光圈，提示這是即時狀態 */
+.statusDot_live::after {
+  content: "";
+  position: absolute;
+  inset: -3px;
+  border: 2px solid currentColor;
+  border-radius: 50%;
+  animation: statusPulse 1.8s ease-out infinite;
+}
+
+@keyframes statusPulse {
+  0%   { transform: scale(0.6); opacity: 0.8; }
+  100% { transform: scale(1.7); opacity: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .statusDot_live::after {
+    display: none;
+  }
+}
+
+.expiry {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: $font-size-12;
+  color: var(--color-text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.expiry_danger {
+  color: var(--color-danger);
+  font-weight: $font-weight-500;
+}
+
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: $spacing-8;
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  padding: 5px 12px;
+  border: 1px solid var(--color-border);
+  border-radius: $radius-pill;
+  background: color-mix(in srgb, var(--color-surface) 72%, transparent);
+  font-size: $font-size-12;
+  color: var(--color-text-secondary);
+}
+
+.chipBtn {
+  cursor: pointer;
+  transition: border-color $transition-base, background $transition-base, color $transition-base;
+
+  &:hover {
+    border-color: color-mix(in srgb, var(--color-primary) 40%, var(--color-border));
+    background: var(--color-hover);
+    color: var(--color-text-primary);
+  }
+}
+
+.chipMono {
+  @extend %mono;
+}
+
+.chipTag {
+  border-color: transparent;
+  background: color-mix(in srgb, var(--color-primary) 10%, transparent);
+  color: var(--color-primary-on-surface);
+  font-weight: $font-weight-500;
+}
+
+/* ── 指標格 ── */
+.kpiGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: $spacing-16;
+
+  @include respond-to(lg) {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+
+.kpi {
+  @include flex-column;
+  gap: $spacing-8;
+  min-width: 0;
+  padding: $spacing-16;
+  @include glass-surface($shadow: var(--shadow-sm));
+  border-radius: $radius-16;
+}
+
+.kpiHead {
+  @include flex-between;
+  gap: $spacing-8;
+}
+
+.kpiLabel {
+  font-size: $font-size-12;
+  font-weight: $font-weight-500;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+}
+
+.kpiIcon {
+  @include flex-center;
+  width: 32px;
+  height: 32px;
+  flex-shrink: 0;
+  border-radius: $radius-8;
+  background: color-mix(in srgb, var(--color-primary) 10%, transparent);
+  color: var(--color-primary-on-surface);
+}
+
+.kpiValue {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+  min-width: 0;
+  font-size: $font-size-28;
+  font-weight: $font-weight-700;
+  line-height: 1.1;
+  color: var(--color-text-primary);
+  font-variant-numeric: tabular-nums;
+}
+
+/* 文字型的值（運行時間）字級收小，避免一串中文撐爆格子 */
+.kpiValue_text {
+  font-size: $font-size-18;
+  line-height: 1.3;
+}
+
+.kpiUnit {
+  font-size: $font-size-14;
+  font-weight: $font-weight-500;
+  color: var(--color-text-muted);
+}
+
+.kpiCaption {
+  font-size: $font-size-12;
+  color: var(--color-text-muted);
+  @include text-truncate;
+}
+
+.bar {
+  width: 100%;
+  height: 6px;
+  margin-top: auto;
+  border-radius: $radius-pill;
+  background: var(--color-hover);
+  overflow: hidden;
+}
+
+.barFill {
+  height: 100%;
+  border-radius: $radius-pill;
+  background: var(--color-primary);
+  transition: width $transition-slow;
+}
+
+.barFill_danger {
+  background: var(--color-danger);
+}
+
+/* ── 兩欄資訊卡 ── */
+.grid2 {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: $spacing-16;
+
+  @include respond-to(lg) {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    align-items: start;
+  }
+}
+
+.list {
+  @include flex-column;
+
+  > * + * {
+    border-top: 1px solid var(--color-divider);
+  }
+}
+
+.row {
+  display: grid;
+  grid-template-columns: 112px minmax(0, 1fr);
+  gap: $spacing-16;
+  align-items: start;
+  padding: 10px 0;
+}
+
+.rowLabel {
+  padding-top: 2px;
+  font-size: $font-size-12;
+  font-weight: $font-weight-500;
+  color: var(--color-text-muted);
+}
+
+.rowValue {
+  @include flex-column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.rowMain {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: $spacing-8;
+  font-size: $font-size-14;
+  font-weight: $font-weight-500;
+  color: var(--color-text-primary);
+  word-break: break-word;
+}
+
+.rowNote {
+  font-size: $font-size-12;
+  font-weight: $font-weight-400;
+  line-height: 1.5;
+  color: var(--color-text-muted);
+}
+
+.mono {
+  @extend %mono;
+}
+
+.muted {
+  font-weight: $font-weight-400;
+  color: var(--color-text-muted);
+}
+
+.dangerText {
+  color: var(--color-danger);
+}
+
+.pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 8px;
+  border-radius: $radius-pill;
+  background: var(--color-hover);
+  font-size: $font-size-12;
+  font-weight: $font-weight-500;
+  color: var(--color-text-secondary);
+}
+
+.pill_danger {
+  background: color-mix(in srgb, var(--color-danger) 12%, transparent);
+  color: var(--color-danger);
+}
+
+/* ── 憑證列 ── */
+.secret {
+  @include flex-column;
+  gap: 6px;
+  padding: 10px 0;
+}
+
+.secretHead {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: $spacing-16;
+}
+
+.secretLabel {
+  width: 112px; /* 與 .row 第一欄對齊 */
+  flex-shrink: 0;
+  font-size: $font-size-12;
+  font-weight: $font-weight-500;
+  color: var(--color-text-muted);
+}
+
+.secretValue {
+  @extend %mono;
+  flex: 1;
+  min-width: 120px;
+  font-size: $font-size-12;
+  color: var(--color-text-primary);
+  @include text-truncate;
+}
+
+.secretMasked {
+  letter-spacing: 0.18em;
+  color: var(--color-text-muted);
+}
+
+.secretActions {
+  display: flex;
+  gap: 2px;
+  flex-shrink: 0;
+  margin-left: auto;
+}
+
+.secretPre {
+  @extend %mono;
+  margin: 0;
+  padding: $spacing-8 $spacing-16;
+  border: 1px solid var(--color-border);
+  border-radius: $radius-8;
+  background: var(--color-hover);
+  font-size: $font-size-12;
+  line-height: 1.5;
+  color: var(--color-text-primary);
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+/* 說明文字對齊值欄；窄螢幕標籤與值會換行，就不縮排 */
+.secretNote {
+  @include respond-to(sm) {
+    padding-left: 112px + $spacing-16;
+  }
+}
+
+.emptyNote {
+  padding: $spacing-16 0;
+  text-align: center;
+  font-size: $font-size-14;
+  color: var(--color-text-muted);
+}
+
+/* ── 使用手冊 ── */
+.manualRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: $spacing-8;
+}
+
+.manualChip {
+  display: inline-flex;
+  align-items: center;
+  gap: $spacing-8;
+  max-width: 100%;
+  padding: 6px 6px 6px 10px;
+  border: 1px solid var(--color-border);
+  border-radius: $radius-12;
+  background: color-mix(in srgb, var(--color-surface) 72%, transparent);
+}
+
+.manualIcon {
+  @include flex-center;
+  width: 32px;
+  height: 32px;
+  flex-shrink: 0;
+  border-radius: $radius-8;
+  background: color-mix(in srgb, var(--color-primary) 10%, transparent);
+  color: var(--color-primary-on-surface);
+}
+
+.manualName {
+  max-width: 280px;
+  font-size: $font-size-14;
+  font-weight: $font-weight-500;
+  color: var(--color-text-primary);
+  @include text-truncate;
+}
+
+.manualDl {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 5px 10px;
+  border-radius: $radius-8;
+  background: var(--color-primary);
+  color: var(--color-text-on-primary);
+  font-size: $font-size-12;
+  font-weight: $font-weight-500;
+  cursor: pointer;
+  transition: background $transition-base;
+
+  &:hover:not(:disabled) {
+    background: var(--color-primary-dark);
+  }
+
+  &:disabled {
+    opacity: 0.5;
+    cursor: default;
+  }
+}

@@ -126,6 +126,13 @@
 .content {
   flex: 1;
   @include flex-column;
+  transition: opacity 0.15s ease;
+}
+
+/* 即時查詢進行中：保留舊資料、半透明並暫停互動 */
+.refreshing {
+  opacity: 0.55;
+  pointer-events: none;
 }
 
 /* ── Table ── */
@@ -135,6 +142,7 @@
 
 .table {
   @include table-base;
+  min-width: 960px;
 }
 
 .th {

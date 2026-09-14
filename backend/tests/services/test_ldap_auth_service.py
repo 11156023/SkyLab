@@ -59,9 +59,10 @@ class _FakeSession:
 def patched(monkeypatch: pytest.MonkeyPatch) -> dict:
     """預設樁：enabled 設定、無本地帳號、audit 記到 list。"""
     calls: dict = {"audit": []}
-    monkeypatch.setattr(
-        ldap_auth_service, "get_ldap_config", lambda *, session: _config()
-    )
+    def _fake_get_ldap_config(*, session):
+        return _config()
+
+    monkeypatch.setattr(ldap_auth_service, "get_ldap_config", _fake_get_ldap_config)
     monkeypatch.setattr(
         ldap_auth_service.user_repo,
         "get_user_by_email",
@@ -184,7 +185,8 @@ def test_inactive_existing_user_rejected(
     monkeypatch: pytest.MonkeyPatch, patched: dict
 ) -> None:
     existing = SimpleNamespace(
-        id=uuid.uuid4(), email="stu1@campus.edu", is_active=False
+        id=uuid.uuid4(), email="stu1@campus.edu", is_active=False,
+        auth_source="ldap",
     )
     monkeypatch.setattr(
         ldap_auth_service.user_repo,

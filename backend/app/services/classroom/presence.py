@@ -17,9 +17,11 @@ logger = logging.getLogger(__name__)
 class PresenceSocket(Protocol):
     """已 accept 的 FastAPI WebSocket 需要的最小介面。"""
 
-    async def receive_text(self) -> str: ...
+    async def receive_text(self) -> str:
+        """讀取下一則文字訊息（斷線時拋出）。"""
 
-    async def send_json(self, data: dict[str, Any]) -> None: ...
+    async def send_json(self, data: dict[str, Any]) -> None:
+        """推送一則 JSON 事件。"""
 
 
 @dataclass

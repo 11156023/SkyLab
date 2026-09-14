@@ -48,8 +48,10 @@ class VMRequestCreate(BaseModel):
     reason: str = Field(min_length=10)
     resource_type: str
     hostname: UnicodeHostname = Field(min_length=1, max_length=63)
-    cores: int = 2
-    memory: int = 2048
+    # 上下界對齊 EnvironmentNodeIn：課程模板與快速練習共用這個 schema，
+    # 收得比模板嚴會讓既有課程環境在開課時被自己的 schema 擋下。
+    cores: int = Field(default=2, ge=1, le=64)
+    memory: int = Field(default=2048, ge=128, le=131072, description="MB")
     password: str = Field(min_length=8, max_length=128)
     storage: str = "local-lvm"
     environment_type: str = "Custom"
@@ -60,10 +62,10 @@ class VMRequestCreate(BaseModel):
     end_at: datetime | None = None
 
     ostemplate: str | None = None
-    rootfs_size: int | None = None
+    rootfs_size: int | None = Field(default=None, ge=1, le=2000)
 
     template_id: int | None = None
-    disk_size: int | None = None
+    disk_size: int | None = Field(default=None, ge=1, le=2000)
     username: str | None = None
     gpu_mapping_id: str | None = None
     # vGPU 規格（mdev type，如 'nvidia-1436'）；僅對 has_mdev 的 GPU 有意義

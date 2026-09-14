@@ -2,6 +2,7 @@
 
 import uuid
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel, Field
 
@@ -37,11 +38,48 @@ class VMTopEntry(BaseModel):
     status: str
 
 
+class MonitoringThresholds(BaseModel):
+    """即時快看使用的 CPU／RAM 閾值（百分比）。"""
+
+    cpu: float = Field(default=90.0, ge=0, le=100)
+    memory: float = Field(default=90.0, ge=0, le=100)
+
+
+class MonitoringSignal(BaseModel):
+    """單一資源超過閾值的指標。"""
+
+    metric: Literal["cpu", "memory"]
+    value: float = Field(..., ge=0)
+    threshold: float = Field(..., ge=0, le=100)
+
+
+class MonitoringIssue(BaseModel):
+    """首頁快看需要管理員注意的單一目標。
+
+    同一台機器可同時有 CPU/RAM 多個 signal，但 issues 只計一筆，
+    避免摘要數字與明細數量不一致。
+    """
+
+    kind: Literal["node_offline", "node_overloaded", "guest_overloaded"]
+    severity: Literal["critical", "warning"]
+    scope: Literal["node", "qemu", "lxc"]
+    target: str
+    node: str | None = None
+    vmid: int | None = None
+    signals: list[MonitoringSignal] = Field(default_factory=list)
+
+
 class MonitoringOverview(BaseModel):
     """全域監控匯總。"""
 
+    collected_at: datetime
+    data_status: Literal["fresh", "stale", "partial"] = "fresh"
+    cache_age_seconds: int = Field(default=0, ge=0)
+    overall_status: Literal["healthy", "warning", "critical", "unknown"]
+    thresholds: MonitoringThresholds
     nodes_online: int
     nodes_total: int
+    nodes_saturated: int = 0
     cpu_used: float
     cpu_total: int
     mem_used: int
@@ -50,11 +88,14 @@ class MonitoringOverview(BaseModel):
     disk_total: int
     vms_running: int
     vms_stopped: int
+    vms_saturated: int = 0
     lxc_running: int
     lxc_stopped: int
+    lxc_saturated: int = 0
     nodes: list[NodeMetrics]
     top_cpu: list[VMTopEntry]
     top_mem: list[VMTopEntry]
+    issues: list[MonitoringIssue] = Field(default_factory=list)
 
 
 class AlertEventPublic(BaseModel):
@@ -87,6 +128,7 @@ class GovernanceConfigPublic(BaseModel):
     idle_detection_enabled: bool
     idle_cpu_threshold_percent: float
     idle_window_hours: int
+    idle_notify_after_hours: int
     idle_grace_hours: int
     idle_scan_batch_size: int
     workload_advisor_enabled: bool
@@ -120,6 +162,7 @@ class GovernanceConfigUpdate(BaseModel):
     idle_detection_enabled: bool | None = None
     idle_cpu_threshold_percent: float | None = Field(default=None, ge=0.1, le=20)
     idle_window_hours: int | None = Field(default=None, ge=1, le=720)
+    idle_notify_after_hours: int | None = Field(default=None, ge=1, le=720)
     idle_grace_hours: int | None = Field(default=None, ge=1, le=720)
     idle_scan_batch_size: int | None = Field(default=None, ge=1, le=200)
     workload_advisor_enabled: bool | None = None

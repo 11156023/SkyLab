@@ -27,6 +27,10 @@ from app.schemas.firewall import (
     FirewallRuleUpdate,
     LayoutUpdate,
     NATRulePublic,
+    PublishedService,
+    PublishedServiceCreate,
+    PublishedServiceRef,
+    PublishedServiceUpdate,
     TopologyResponse,
 )
 from app.services.network import firewall_service, nat_service
@@ -437,6 +441,126 @@ def sync_nat_rules(
         raise HTTPException(
             status_code=500, detail=t("firewall.sync_nat_rules_failed")
         )
+
+
+# ─── 單台 VM：迷你拓撲與對外服務 ──────────────────────────────────────────────
+
+
+@router.get("/{vmid}/topology", response_model=TopologyResponse)
+def get_vm_topology(
+    vmid: int,
+    session: SessionDep,
+    _resource_info: ResourceInfoDep,
+):
+    """以這台 VM 為中心的迷你拓撲（Internet、這台 VM、與它有連線的其他 VM）"""
+    try:
+        return firewall_service.get_vm_topology(vmid, session)
+    except ProxmoxError as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/{vmid}/services", response_model=list[PublishedService])
+def list_published_services(
+    vmid: int,
+    session: SessionDep,
+    _resource_info: ResourceInfoDep,
+):
+    """列出這台 VM 的對外服務（對外網址 / port 轉發 / 僅開放防火牆）"""
+    try:
+        return firewall_service.list_vm_published_services(vmid, session)
+    except ProxmoxError as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/{vmid}/services", response_model=PublishedService)
+def publish_service(
+    vmid: int,
+    body: PublishedServiceCreate,
+    session: SessionDep,
+    current_user: CurrentUser,
+    _resource_info: ResourceInfoDep,
+):
+    """發布一條對外服務：先開 Proxmox 防火牆，再依模式套反向代理或 NAT"""
+    require_resource_management(session=session, user=current_user, vmid=vmid)
+    try:
+        service = firewall_service.publish_vm_service(vmid, body, session)
+    except (BadRequestError, NotFoundError) as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except ProxmoxError as e:
+        raise HTTPException(status_code=502, detail=str(e))
+    audit_service.log_action(
+        session=session,
+        user_id=current_user.id,
+        vmid=vmid,
+        action=AuditAction.firewall_connection_create,
+        details=(
+            f"Published service on VM {vmid}: {body.port}/{body.protocol} "
+            f"mode={body.mode} domain={body.domain} external_port={body.external_port}"
+        ),
+    )
+    return service
+
+
+@router.put("/{vmid}/services", response_model=PublishedService)
+def replace_published_service(
+    vmid: int,
+    body: PublishedServiceUpdate,
+    session: SessionDep,
+    current_user: CurrentUser,
+    _resource_info: ResourceInfoDep,
+):
+    """把一條服務換成新的發布方式（先撤下舊的再重新發布）"""
+    require_resource_management(session=session, user=current_user, vmid=vmid)
+    try:
+        service = firewall_service.replace_vm_service(
+            vmid, body.current, body.replacement, session
+        )
+    except NotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except BadRequestError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except ProxmoxError as e:
+        raise HTTPException(status_code=502, detail=str(e))
+    audit_service.log_action(
+        session=session,
+        user_id=current_user.id,
+        vmid=vmid,
+        action=AuditAction.firewall_connection_create,
+        details=(
+            f"Replaced published service on VM {vmid}: "
+            f"{body.current.port}/{body.current.protocol} -> "
+            f"{body.replacement.port}/{body.replacement.protocol} "
+            f"mode={body.replacement.mode} domain={body.replacement.domain} "
+            f"external_port={body.replacement.external_port}"
+        ),
+    )
+    return service
+
+
+@router.delete("/{vmid}/services", response_model=Message)
+def unpublish_service(
+    vmid: int,
+    body: PublishedServiceRef,
+    session: SessionDep,
+    current_user: CurrentUser,
+    _resource_info: ResourceInfoDep,
+):
+    """撤下一條對外服務（刪防火牆入站規則並清 NAT / 反向代理）"""
+    require_resource_management(session=session, user=current_user, vmid=vmid)
+    try:
+        firewall_service.unpublish_vm_service(vmid, body, session)
+    except (BadRequestError, NotFoundError) as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except ProxmoxError as e:
+        raise HTTPException(status_code=502, detail=str(e))
+    audit_service.log_action(
+        session=session,
+        user_id=current_user.id,
+        vmid=vmid,
+        action=AuditAction.firewall_connection_delete,
+        details=f"Unpublished service on VM {vmid}: {body.port}/{body.protocol}",
+    )
+    return Message(message=t("firewall.serviceUnpublished"))
 
 
 @router.get("/{vmid}/options", response_model=FirewallOptionsPublic)

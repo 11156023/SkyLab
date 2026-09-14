@@ -27,12 +27,21 @@ import logging
 import re
 import time
 import uuid
+from collections.abc import Sequence
 from typing import Any
 
 import httpx
 from sqlmodel import Session
 
 from app.ai.pve_log.config import settings
+from app.ai.pve_log.guest_diagnostics import (
+    ERROR_CODE_COMMAND_FAILED,
+    ERROR_CODE_CONNECTION_FAILED,
+    ERROR_CODE_PROBE_TIMEOUT,
+    ERROR_CODE_RESOLVE_FAILED,
+    GuestProbe,
+    ProbeResult,
+)
 from app.ai.pve_log.schemas import SSHConfirmRequest, SSHExecRequest, SSHExecResult
 from app.ai.pve_log.ssh_guard import check_command
 from app.core.i18n import t
@@ -59,6 +68,7 @@ _SENSITIVE_OUTPUT_PATTERNS = (
     ),
 )
 _pending_store: dict[str, dict[str, Any]] = {}  # token → {request, created_at}
+_completed_store: dict[str, dict[str, Any]] = {}
 
 
 def _store_pending(
@@ -94,6 +104,62 @@ def _peek_pending(token: str) -> dict[str, Any] | None:
     return _pending_store.get(token)
 
 
+def bind_pending_tool_call(token: str, tool_call_id: str) -> bool:
+    """Bind a pending confirmation token to the assistant tool-call id."""
+    entry = _peek_pending(token)
+    if entry is None or not tool_call_id:
+        return False
+    entry["tool_call_id"] = tool_call_id
+    return True
+
+
+def _store_completed(
+    token: str,
+    *,
+    entry: dict[str, Any],
+    result: SSHExecResult,
+) -> None:
+    _completed_store[token] = {
+        "token": token,
+        "created_at": time.monotonic(),
+        "request": entry.get("request"),
+        "tool_call_id": entry.get("tool_call_id"),
+        "requester_id": entry.get("requester_id"),
+        "scope_type": entry.get("scope_type"),
+        "scope_id": entry.get("scope_id"),
+        "allowed_vmids": entry.get("allowed_vmids"),
+        "result": result.model_dump(mode="json"),
+        "consumed": False,
+    }
+
+
+def peek_completed_confirmation(token: str) -> dict[str, Any] | None:
+    """Read a just-consumed confirmation result for one history continuation."""
+    _cleanup_expired()
+    return _completed_store.get(token)
+
+
+def consume_completed_confirmation(token: str) -> dict[str, Any] | None:
+    """Mark a confirmation result as consumed after history validation."""
+    _cleanup_expired()
+    entry = _completed_store.get(token)
+    if entry is None or entry.get("consumed"):
+        return None
+    entry["consumed"] = True
+    return entry
+
+
+def find_completed_confirmation_by_tool_call(
+    tool_call_id: str,
+) -> dict[str, Any] | None:
+    """Find a confirmation record by its immutable assistant tool-call id."""
+    _cleanup_expired()
+    for entry in _completed_store.values():
+        if entry.get("tool_call_id") == tool_call_id:
+            return entry
+    return None
+
+
 def peek_pending_scope(token: str) -> tuple[str | None, uuid.UUID | None]:
     """Read token scope without consuming it."""
     entry = _peek_pending(token)
@@ -116,6 +182,12 @@ def _cleanup_expired() -> None:
     expired = [k for k, v in _pending_store.items() if now - v["created_at"] > _PENDING_TTL]
     for k in expired:
         _pending_store.pop(k, None)
+    completed_expired = [
+        k for k, v in _completed_store.items()
+        if now - v["created_at"] > _PENDING_TTL
+    ]
+    for k in completed_expired:
+        _completed_store.pop(k, None)
 
 
 # ---------------------------------------------------------------------------
@@ -251,6 +323,133 @@ def _redact_and_truncate(value: str) -> tuple[str, bool]:
 
 
 # ---------------------------------------------------------------------------
+# Server-owned guest probe batch runner（供 get_guest_diagnostic_summary 使用）
+# ---------------------------------------------------------------------------
+
+
+def _read_limited(stream: Any, max_bytes: int) -> tuple[str, bool]:
+    """讀取 stream 到 EOF，最多保留 max_bytes；其餘持續 drain。"""
+    chunks: list[str] = []
+    kept = 0
+    truncated = False
+    while True:
+        chunk = stream.read(65536)
+        if not chunk:
+            break
+        data = chunk.encode() if isinstance(chunk, str) else chunk
+        if truncated:
+            continue
+        if kept + len(data) > max_bytes:
+            allowed = max_bytes - kept
+            if allowed > 0:
+                chunks.append(data[:allowed].decode(errors="replace"))
+            truncated = True
+            continue
+        chunks.append(data.decode(errors="replace"))
+        kept += len(data)
+    return "".join(chunks), truncated
+
+
+def _execute_single_probe(client: Any, probe: GuestProbe) -> ProbeResult:
+    try:
+        _, stdout_ch, stderr_ch = client.exec_command(
+            probe.command, timeout=probe.exec_timeout
+        )
+        stdout, stdout_truncated = _read_limited(
+            stdout_ch, probe.max_output_bytes
+        )
+        stderr, stderr_truncated = _read_limited(
+            stderr_ch, probe.max_output_bytes
+        )
+        exit_code = stdout_ch.channel.recv_exit_status()
+        return ProbeResult(
+            name=probe.name,
+            exit_code=exit_code,
+            stdout=stdout,
+            stderr=stderr,
+            truncated=stdout_truncated or stderr_truncated,
+        )
+    except TimeoutError:
+        logger.warning("Guest probe %s 執行逾時", probe.name)
+        return ProbeResult(name=probe.name, error_code=ERROR_CODE_PROBE_TIMEOUT)
+    except Exception as exc:
+        logger.warning("Guest probe %s 執行失敗：%s", probe.name, exc)
+        return ProbeResult(name=probe.name, error_code=ERROR_CODE_COMMAND_FAILED)
+
+
+def _run_probe_batch_sync(
+    host: str,
+    private_key_pem: str,
+    probes: Sequence[GuestProbe],
+    *,
+    connect_timeout: int,
+    ssh_user: str,
+    ssh_port: int,
+) -> dict[str, ProbeResult]:
+    """一次 SSH connection 逐項執行固定 probes（同步，供 to_thread 包裝）。"""
+    client = create_key_client(
+        host,
+        ssh_port,
+        ssh_user,
+        private_key_pem,
+        timeout=connect_timeout,
+    )
+    try:
+        return {
+            probe.name: _execute_single_probe(client, probe) for probe in probes
+        }
+    finally:
+        client.close()
+
+
+async def run_guest_probe_batch(
+    vmid: int,
+    probes: Sequence[GuestProbe],
+    *,
+    session: Session | None = None,
+    allowed_vmids: set[int] | None = None,
+) -> dict[str, ProbeResult]:
+    """Server-owned guest 診斷 probe 批次執行。
+
+    模型不可控：probes 由後端固定產生，SSH user/port 由後端決定，
+    IP 與金鑰沿用既有授權解析。單一 probe 失敗不影響其他 probe。
+    """
+    if allowed_vmids is not None and vmid not in allowed_vmids:
+        raise ValueError(t("pveLog.scopeRestricted"))
+    try:
+        host, private_key = await _resolve_vm_credentials(vmid, session=session)
+    except Exception as exc:
+        logger.error("Guest probe VMID=%s 解析失敗：%s", vmid, exc)
+        return {
+            probe.name: ProbeResult(
+                name=probe.name, error_code=ERROR_CODE_RESOLVE_FAILED
+            )
+            for probe in probes
+        }
+    logger.info(
+        "Guest probe batch vmid=%d host=%s probes=%d", vmid, host, len(probes)
+    )
+    try:
+        return await asyncio.to_thread(
+            _run_probe_batch_sync,
+            host,
+            private_key,
+            probes,
+            connect_timeout=settings.ssh_timeout,
+            ssh_user=settings.ssh_default_user,
+            ssh_port=22,
+        )
+    except Exception as exc:
+        logger.error("Guest probe batch VMID=%s 連線失敗：%s", vmid, exc)
+        return {
+            probe.name: ProbeResult(
+                name=probe.name, error_code=ERROR_CODE_CONNECTION_FAILED
+            )
+            for probe in probes
+        }
+
+
+# ---------------------------------------------------------------------------
 # 內部 VM 資訊解析（主後端內嵌模組用，不經 HTTP 回呼）
 # ---------------------------------------------------------------------------
 
@@ -298,6 +497,27 @@ def _resolve_vm_info_from_db(session: Session, vmid: int) -> tuple[str, str]:
     if not resource.ssh_private_key_encrypted:
         raise RuntimeError(t("pveLog.sshKeyNotRegistered", vmid=vmid))
     private_key = decrypt_value(resource.ssh_private_key_encrypted)
+    return host, private_key
+
+
+# ---------------------------------------------------------------------------
+# 共用 VM 認證解析（DB 路徑 / HTTP 回呼路徑）
+# ---------------------------------------------------------------------------
+
+async def _resolve_vm_credentials(vmid: int, *, session: Session | None) -> tuple[str, str]:
+    """取得 VM 的 (host_ip, private_key_pem)。
+
+    session 傳入時走內部 DB 查詢路徑（主後端內嵌模組用）；
+    未傳入時走 HTTP 回呼路徑（獨立 ai-pve-log 子服務用）。
+    """
+    if session is not None:
+        return _resolve_vm_info_from_db(session, vmid)
+    if not settings.skylab_api_user or not settings.skylab_api_password:
+        raise RuntimeError(t("pveLog.skylabCredentialsMissing"))
+    async with httpx.AsyncClient(timeout=settings.ssh_timeout) as client:
+        token = await _get_campus_token(client)
+        host = await _get_vm_ip(client, token, vmid)
+        private_key = await _get_ssh_private_key(client, token, vmid)
     return host, private_key
 
 
@@ -420,15 +640,19 @@ async def confirm_exec(
         )
     allowed_vmids = stored_vmids
 
+    def _completed(result: SSHExecResult) -> SSHExecResult:
+        _store_completed(token, entry=entry, result=result)
+        return result
+
     if not confirm_req.approved:
         logger.info("使用者拒絕執行 vmid=%d cmd=%r", req.vmid, req.command)
-        return SSHExecResult(
+        return _completed(SSHExecResult(
             vmid=req.vmid,
             host="",
             ssh_user=req.ssh_user,
             command=req.command,
             error=t("pveLog.userRejected"),
-        )
+        ))
 
     override_command = (confirm_req.command or "").strip()
     if override_command:
@@ -440,17 +664,18 @@ async def confirm_exec(
                 override_command,
                 guard.reason,
             )
-            return SSHExecResult(
+            return _completed(SSHExecResult(
                 vmid=req.vmid,
                 host="",
                 ssh_user=req.ssh_user,
                 command=override_command,
                 blocked=True,
                 block_reason=guard.reason,
-            )
+            ))
         req = req.model_copy(update={"command": override_command})
 
-    return await _do_exec(req, session=session, allowed_vmids=allowed_vmids)
+    result = await _do_exec(req, session=session, allowed_vmids=allowed_vmids)
+    return _completed(result)
 
 
 async def _do_exec(
@@ -478,21 +703,9 @@ async def _do_exec(
                 block_reason=t("pveLog.scopeRestricted"),
             )
 
-        if session is not None:
-            host, private_key = _resolve_vm_info_from_db(session, req.vmid)
-        else:
-            if not settings.skylab_api_user or not settings.skylab_api_password:
-                return SSHExecResult(
-                    vmid=req.vmid,
-                    host="",
-                    ssh_user=req.ssh_user,
-                    command=req.command,
-                    error=t("pveLog.skylabCredentialsMissing"),
-                )
-            async with httpx.AsyncClient(timeout=timeout) as client:
-                token = await _get_campus_token(client)
-                host = await _get_vm_ip(client, token, req.vmid)
-                private_key = await _get_ssh_private_key(client, token, req.vmid)
+        host, private_key = await _resolve_vm_credentials(
+            req.vmid, session=session
+        )
 
         # 4. SSH 連線執行（同步操作放進 thread）
         logger.info(

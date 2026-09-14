@@ -7,5 +7,8 @@
   "scripts": {
     "dev": "bun run --filter frontend dev",
     "test": "bun run --filter frontend test"
+  },
+  "overrides": {
+    "dompurify": "^3.4.14"
   }
 }

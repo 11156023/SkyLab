@@ -68,18 +68,14 @@
   }
 }
 
-.notice,
-.loadingState {
+.notice {
   @include glass-surface($shadow: none);
   display: flex;
   align-items: center;
   gap: 12px;
   padding: $spacing-16;
   border-radius: $radius-12;
-}
-
-.notice {
-  color: var(--color-warning);
+  color: var(--color-danger);
 
   div {
     @include flex-column;
@@ -90,27 +86,6 @@
     color: var(--color-text-secondary);
     font-size: $font-size-12;
   }
-}
-
-.loadingState {
-  min-height: 180px;
-  justify-content: center;
-  color: var(--color-text-primary);
-
-  p {
-    margin-top: 4px;
-    color: var(--color-text-secondary);
-    font-size: $font-size-14;
-  }
-}
-
-.loadingIcon {
-  @include flex-center;
-  width: 52px;
-  height: 52px;
-  border-radius: $radius-16;
-  background: color-mix(in srgb, var(--color-primary) 12%, transparent);
-  color: var(--color-primary);
 }
 
 .mainGrid {
@@ -182,7 +157,7 @@
 
 .success { color: var(--color-success); }
 .info { color: var(--color-info); }
-.warning { color: var(--color-warning); }
+.warning { color: var(--color-danger); }
 .danger { color: var(--color-danger); }
 .muted { color: var(--color-text-muted); }
 
@@ -370,12 +345,6 @@
   padding: 8px;
   background: none;
   color: var(--color-primary);
-}
-
-.needIcon {
-  @include flex-center;
-  flex-shrink: 0;
-  border-radius: $radius-12;
 }
 
 .machinePicker {
@@ -959,8 +928,8 @@
   }
 
   &.manual {
-    background: color-mix(in srgb, var(--color-warning) 10%, transparent);
-    color: var(--color-warning);
+    background: color-mix(in srgb, var(--color-danger) 10%, transparent);
+    color: var(--color-danger);
   }
 }
 
@@ -1151,7 +1120,7 @@
   padding: 24px;
   align-items: center;
   justify-content: center;
-  background: rgb(4 10 22 / 76%);
+  background: var(--color-overlay);
   backdrop-filter: blur(4px);
 }
 
@@ -1274,20 +1243,6 @@
   gap: 12px;
 }
 
-.quickTemplateSkeleton {
-  min-height: 142px;
-  border: 1px solid var(--color-border);
-  border-radius: $radius-12;
-  background: linear-gradient(
-    100deg,
-    var(--color-surface) 25%,
-    var(--color-hover) 42%,
-    var(--color-surface) 60%
-  );
-  background-size: 220% 100%;
-  animation: templateLoading 1.25s ease-in-out infinite;
-}
-
 .quickTemplateEmpty {
   display: flex;
   align-items: center;
@@ -1318,10 +1273,6 @@
   }
 }
 
-@keyframes templateLoading {
-  to { background-position-x: -220%; }
-}
-
 /* ── Template card ── */
 .templateCard {
   display: flex;
@@ -1345,7 +1296,7 @@
     height: 120px;
     background: radial-gradient(
       circle at top right,
-      color-mix(in srgb, var(--accent-color) 12%, transparent),
+      color-mix(in srgb, var(--color-primary) 12%, transparent),
       transparent 70%
     );
     pointer-events: none;
@@ -1355,16 +1306,16 @@
 
   &:hover {
     transform: translateY(-3px);
-    border-color: color-mix(in srgb, var(--accent-color) 50%, var(--color-border));
-    box-shadow: 0 8px 20px color-mix(in srgb, var(--accent-color) 18%, transparent);
+    border-color: color-mix(in srgb, var(--color-primary) 50%, var(--color-border));
+    box-shadow: 0 8px 20px color-mix(in srgb, var(--color-primary) 18%, transparent);
 
     &::before { opacity: 1; }
     .templateLogo {
       transform: scale(1.05);
-      border-color: color-mix(in srgb, var(--accent-color) 40%, var(--color-border));
+      border-color: color-mix(in srgb, var(--color-primary) 40%, var(--color-border));
     }
     .templateAction {
-      color: var(--accent-color);
+      color: var(--color-primary);
       gap: 8px;
     }
   }
@@ -1386,7 +1337,7 @@
   border-radius: $radius-12;
   background: var(--color-surface);
   border: 1px solid var(--color-border);
-  color: var(--accent-color);
+  color: var(--color-primary);
   flex-shrink: 0;
   overflow: hidden;
   transition: transform $transition-base, border-color $transition-base;
@@ -1401,8 +1352,8 @@
 .templateCategoryChip {
   @include badge-base;
   padding: 2px 8px;
-  background: color-mix(in srgb, var(--accent-color) 12%, transparent);
-  color: var(--accent-color);
+  background: color-mix(in srgb, var(--color-primary) 12%, transparent);
+  color: var(--color-primary);
   font-size: 11px;
   white-space: nowrap;
 }
@@ -1447,16 +1398,17 @@
   transition: color $transition-base, gap $transition-base;
 }
 
+/* auto-fit 的欄數是用 minmax 的「最大值」估的，之前上限 520px 導致
+   一般頁寬只算得出一欄、卡片永遠疊直排；改 1fr 讓兩張卡並排填滿 */
 .needGrid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 520px));
-  justify-content: start;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr));
   gap: 12px;
 }
 
 .needCard {
   display: grid;
-  grid-template-columns: auto 1fr;
+  grid-template-rows: 1fr auto;
   gap: 12px;
   padding: $spacing-16;
 
@@ -1475,24 +1427,8 @@
   }
 
   .secondaryButton {
-    grid-column: 1 / -1;
     justify-self: start;
   }
-}
-
-.needIcon {
-  width: 42px;
-  height: 42px;
-}
-
-.needIcon_primary {
-  background: color-mix(in srgb, var(--color-primary) 12%, transparent);
-  color: var(--color-primary);
-}
-
-.needIcon_info {
-  background: color-mix(in srgb, var(--color-info) 12%, transparent);
-  color: var(--color-info);
 }
 
 .needBadge {
@@ -1768,7 +1704,7 @@
   border-radius: 20px;
   box-shadow:
     0 0 0 5px color-mix(in srgb, var(--color-primary) 22%, transparent),
-    0 0 0 9999px rgb(7 12 24 / 0.64);
+    0 0 0 9999px var(--color-overlay);
   pointer-events: none;
   transition:
     top $transition-slow,
@@ -1862,8 +1798,8 @@
   gap: 7px;
   padding: 9px 10px;
   border-radius: $radius-8;
-  background: color-mix(in srgb, var(--color-warning) 9%, transparent);
-  color: var(--color-warning);
+  background: color-mix(in srgb, var(--color-danger) 9%, transparent);
+  color: var(--color-danger);
 
   span {
     color: var(--color-text-secondary);

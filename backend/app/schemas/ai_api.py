@@ -67,6 +67,7 @@ class AIAPICredentialAdminPublic(BaseModel):
     user_id: uuid.UUID
     user_email: str | None = None
     user_full_name: str | None = None
+    user_role: str | None = None
     request_id: uuid.UUID
     base_url: str
     api_key_prefix: str
@@ -77,11 +78,19 @@ class AIAPICredentialAdminPublic(BaseModel):
     expires_at: datetime | None = None
     revoked_at: datetime | None = None
     created_at: datetime
+    request_purpose: str | None = None
+    reviewer_email: str | None = None
+    reviewer_full_name: str | None = None
+    reviewed_at: datetime | None = None
+    last_used_at: datetime | None = None
 
 
 class AIAPICredentialsAdminPublic(BaseModel):
     data: list[AIAPICredentialAdminPublic]
     count: int
+    total_count: int = 0
+    active_count: int = 0
+    inactive_count: int = 0
 
 
 class AIAPICredentialUpdate(BaseModel):

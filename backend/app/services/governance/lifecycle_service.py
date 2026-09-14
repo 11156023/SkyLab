@@ -14,6 +14,7 @@ from typing import Any, Literal
 from sqlmodel import Session
 
 from app.core.db import engine
+from app.infrastructure.proxmox.rrd import timeframe_for_window
 from app.models import Resource
 from app.repositories import governance as governance_repo
 from app.repositories import resource as resource_repo
@@ -220,12 +221,24 @@ def _fetch_avg_cpu(
     )
     if not node:
         return None
+    timeframe = timeframe_for_window(window_hours)
     try:
-        rrd = proxmox_service.get_rrd_data(node, resource.vmid, rtype, "day")
+        rrd = proxmox_service.get_rrd_data(node, resource.vmid, rtype, timeframe)
     except Exception:
         logger.warning("Failed to fetch RRD for vmid=%s", resource.vmid)
         return None
     return average_cpu_percent(rrd, window_hours=window_hours, now=now)
+
+
+def _uptime_seconds(pve_info: dict[str, Any]) -> int | None:
+    """cluster/resources 條目的本次開機秒數；缺欄位或非數字回 None。"""
+    raw = pve_info.get("uptime")
+    if raw is None:
+        return None
+    try:
+        return int(raw)
+    except (TypeError, ValueError):
+        return None
 
 
 def _apply_idle_action(
@@ -233,22 +246,36 @@ def _apply_idle_action(
     resource: Resource,
     action: IdleAction,
     now: datetime,
+    *,
+    grace_hours: int,
 ) -> None:
     if action is IdleAction.mark:
+        # 靜默標記：通知留到持續閒置達 idle_notify_after_hours 時再寄
         resource.idle_since = now
+        resource.idle_notified_at = None
+        session.add(resource)
+        logger.info("Idle detected: vmid=%s marked (silent)", resource.vmid)
+    elif action is IdleAction.notify:
+        idle_hours = 0
+        if resource.idle_since is not None:
+            idle_hours = int((now - resource.idle_since).total_seconds() // 3600)
+        remaining_hours = max(grace_hours - idle_hours, 0)
         resource.idle_notified_at = now
         session.add(resource)
         _send_owner_email(
             resource,
             f"[SkyLab] 資源 VMID {resource.vmid} 疑似閒置",
             (
-                f"<p>您的資源（VMID {resource.vmid}）CPU 使用率已長時間低於閾值，"
-                "被判定為閒置。</p>"
-                "<p>若持續閒置，系統將自動關機（資料保留，可隨時重新開機）。"
+                f"<p>您的資源（VMID {resource.vmid}）CPU 使用率已持續約 "
+                f"{idle_hours} 小時低於閾值，被判定為閒置。</p>"
+                f"<p>若持續閒置，系統將在約 {remaining_hours} 小時後自動關機"
+                "（資料保留，可隨時重新開機）。"
                 "若您仍在使用，請忽略此信 — 有實際負載後標記會自動解除。</p>"
             ),
         )
-        logger.info("Idle detected: vmid=%s marked", resource.vmid)
+        logger.info(
+            "Idle persisted %sh: vmid=%s owner notified", idle_hours, resource.vmid
+        )
     elif action is IdleAction.stop:
         resource_repo.set_auto_stop(
             session=session,
@@ -270,11 +297,16 @@ def _apply_idle_action(
         resource.idle_since = None
         resource.idle_notified_at = None
         session.add(resource)
-        logger.info("Idle cleared: vmid=%s active again", resource.vmid)
+        logger.info("Idle cleared: vmid=%s (active again or rebooted)", resource.vmid)
 
 
 def process_idle_detection() -> int:
-    """Scheduler tick：閒置偵測（每 tick 至多掃 idle_scan_batch_size 台）。"""
+    """Scheduler tick：閒置偵測（每 tick 至多掃 idle_scan_batch_size 台）。
+
+    狀態機（皆從 ``idle_since`` 起算）：連續開機滿觀察視窗且平均 CPU 低於閾值
+    → 靜默標記 → 持續 ``idle_notify_after_hours`` 通知擁有者
+    → 持續 ``idle_grace_hours`` 排程自動關機。有負載或重開機即清除標記。
+    """
     try:
         actions = 0
         now = _utc_now()
@@ -310,12 +342,22 @@ def process_idle_detection() -> int:
                     action = decide_idle_action(
                         avg_cpu=avg_cpu,
                         idle_since=resource.idle_since,
+                        idle_notified_at=resource.idle_notified_at,
                         now=now,
                         threshold_percent=config.idle_cpu_threshold_percent,
+                        notify_after_hours=config.idle_notify_after_hours,
                         grace_hours=config.idle_grace_hours,
+                        window_hours=config.idle_window_hours,
+                        uptime_seconds=_uptime_seconds(pve_info),
                     )
                     if action is not IdleAction.none:
-                        _apply_idle_action(session, resource, action, now)
+                        _apply_idle_action(
+                            session,
+                            resource,
+                            action,
+                            now,
+                            grace_hours=config.idle_grace_hours,
+                        )
                         actions += 1
                 except Exception:
                     session.rollback()

@@ -5,7 +5,7 @@ import logging
 import uuid
 from datetime import UTC, datetime
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Query
 from pydantic import BaseModel, Field
 from sqlmodel import select
 
@@ -209,6 +209,19 @@ def list_pending_review(
 ) -> list[BatchProvisionJobPublic]:
     _ = current_user  # admin guard via dependency
     jobs = bp_repo.list_pending_review_jobs(session=session)
+    return [_build_job_public(session, job) for job in jobs]
+
+
+@router.get("/", response_model=list[BatchProvisionJobPublic])
+def list_review_jobs(
+    session: SessionDep,
+    current_user: AdminUser,
+    status: BatchProvisionJobStatus | None = None,
+    limit: int = Query(default=100, ge=1, le=200),
+) -> list[BatchProvisionJobPublic]:
+    """審核頁的完整列表：待審核之外也要看得到已核准 / 已駁回的批次。"""
+    _ = current_user  # admin guard via dependency
+    jobs = bp_repo.list_review_jobs(session=session, status=status, limit=limit)
     return [_build_job_public(session, job) for job in jobs]
 
 

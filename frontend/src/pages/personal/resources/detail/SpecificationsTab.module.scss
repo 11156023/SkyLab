@@ -1,0 +1,144 @@
+/* SpecificationsTab — 規格拉桿。
+   不套共用的 .field，因為它把 input 一律加上邊框與內距，會連 range 一起套到。
+   拉桿本身走 accent-color 跟主題色，與申請表單／範本克隆的拉桿一致。 */
+
+.grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: $spacing-24 $spacing-24;
+
+  @include respond-to(md) {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  @include respond-to(lg) {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+/* 兩欄時第三條（磁碟）獨佔一列，三欄時回到自己的格子 */
+.gridWide {
+  @include respond-to(md) {
+    grid-column: 1 / -1;
+  }
+
+  @include respond-to(lg) {
+    grid-column: auto;
+  }
+}
+
+.field {
+  @include flex-column;
+  gap: $spacing-8;
+  min-width: 0;
+}
+
+.fieldDisabled {
+  opacity: 0.55;
+}
+
+.labelRow {
+  @include flex-between;
+  gap: $spacing-16;
+}
+
+.label {
+  font-size: $font-size-14;
+  font-weight: $font-weight-500;
+  color: var(--color-text);
+}
+
+.valueBox {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.numInput {
+  @include form-control;
+  width: 84px;
+  min-height: 32px;
+  padding: 4px $spacing-8;
+  text-align: right;
+  font-weight: $font-weight-700;
+  color: var(--color-text-primary);
+  font-variant-numeric: tabular-nums;
+}
+
+.unit {
+  font-size: $font-size-12;
+  color: var(--color-text-muted);
+}
+
+/* 拉桿上方留 6px 放「目前值」標記 */
+.track {
+  position: relative;
+  padding-top: 6px;
+}
+
+.currentMark {
+  position: absolute;
+  top: 0;
+  width: 2px;
+  height: 6px;
+  transform: translateX(-50%);
+  border-radius: 1px;
+  background: var(--color-text-muted);
+}
+
+.slider {
+  display: block;
+  width: 100%;
+  margin: 0;
+  accent-color: var(--color-primary);
+  cursor: pointer;
+
+  &:disabled {
+    cursor: not-allowed;
+  }
+}
+
+.ticks {
+  position: relative;
+  height: 16px;
+  margin-top: -2px;
+  font-size: $font-size-12;
+  color: var(--color-text-muted);
+
+  span {
+    position: absolute;
+    transform: translateX(-50%);
+    white-space: nowrap;
+
+    &:first-child { transform: translateX(0); }
+    &:last-child  { transform: translateX(-100%); }
+  }
+}
+
+.meta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: $spacing-8;
+  font-size: $font-size-12;
+  color: var(--color-text-muted);
+}
+
+.delta {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px $spacing-8;
+  border-radius: $radius-pill;
+  font-weight: $font-weight-500;
+  font-variant-numeric: tabular-nums;
+}
+
+.deltaUp {
+  background: color-mix(in srgb, var(--color-success) 12%, transparent);
+  color: var(--color-success);
+}
+
+.deltaDown {
+  background: color-mix(in srgb, var(--color-info) 12%, transparent);
+  color: var(--color-info);
+}

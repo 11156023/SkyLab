@@ -14,8 +14,8 @@ OpenAI-compatible client 負責。
 | 模式 | 指令 | 用途 |
 | --- | --- | --- |
 | Single | `python main.py single` | 啟動單一 vLLM instance，供內部 AI 直接呼叫 |
-| Gateway | `python main.py gateway` | 啟動多個 vLLM instance 與 FastAPI Gateway |
-| Cluster | `python main.py cluster` | `gateway` 的相容別名 |
+| Cluster | `python main.py cluster`（預設模式） | 目前 canonical 的多模型模式：啟動多個 vLLM instance。正式路徑加 `--no-gateway` 只跑 instance、路由交給 LiteLLM（`start_multi_model_cluster.sh` 即此用法） |
+| Gateway | `python main.py gateway` | 遷移觀察期的回滾路徑：多個 vLLM instance 加舊 FastAPI Gateway。`main.py` 對 `gateway` 與未加 `--no-gateway` 的 `cluster` 行為相同，此模式名只為舊版相容保留 |
 
 ## 主要端點
 

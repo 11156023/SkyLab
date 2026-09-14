@@ -1,7 +1,9 @@
-import { useState, useRef, useEffect, useCallback } from "react";
+import { useState, useRef, useEffect, useCallback, useLayoutEffect } from "react";
+import { createPortal } from "react-dom";
 import { useLocation, useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { useAuth }  from "../../contexts/AuthContext";
+import { useUnsavedChanges } from "../../contexts/UnsavedChangesContext";
 import { SUPPORTED_LANGUAGES, setLanguage } from "../../i18n";
 import styles from "./Sidebar.module.scss";
 import MIcon from "../MIcon";
@@ -10,6 +12,7 @@ import JobsButton from "../Jobs/JobsButton";
 
 const topItems = [
   { key: "dashboard", labelKey: "Sidebar.topDashboard", icon: "dashboard" },
+  { key: "courses", labelKey: "Sidebar.topCourses", icon: "school", studentOnly: true },
 ];
 
 const navGroups = [
@@ -32,6 +35,7 @@ const navGroups = [
     items: [
       { key: "request-review", labelKey: "Sidebar.itemRequestReview", icon: "fact_check", adminOnly: true },
       { key: "batch-review",   labelKey: "Sidebar.itemBatchReview", icon: "library_add_check", adminOnly: true },
+      { key: "ai-api-review",  labelKey: "Sidebar.itemAiApiReview", icon: "rate_review", adminOnly: true },
     ],
   },
   {
@@ -40,7 +44,7 @@ const navGroups = [
     icon: "router",
     items: [
       { key: "firewall",      labelKey: "Sidebar.itemFirewall",     icon: "security" },
-      { key: "reverse-proxy", labelKey: "Sidebar.itemReverseProxy",   icon: "swap_horiz" },
+      /* 對外網址已併入「網域管理」（管理員）；使用者從防火牆拓撲頁或資源詳情「進階設定 › 防火牆」的連線對話框發布 */
     ],
   },
   {
@@ -49,7 +53,6 @@ const navGroups = [
     icon: "smart_toy",
     items: [
       { key: "ai-api",        labelKey: "Sidebar.itemAiApi",   icon: "psychology" },
-      { key: "ai-api-review", labelKey: "Sidebar.itemAiApiReview", icon: "rate_review", adminOnly: true },
       { key: "ai-api-keys",   labelKey: "Sidebar.itemAiApiKeys", icon: "vpn_key", adminOnly: true },
       { key: "ai-monitoring", labelKey: "Sidebar.itemAiMonitoring", icon: "monitor_heart", adminOnly: true },
       /* PVE 維運助手不放側欄：管理者首頁就是它的入口，那裡同時看得到待處理的問題 */
@@ -65,19 +68,6 @@ const navGroups = [
     ],
   },
   {
-    key: "system",
-    labelKey: "Sidebar.groupSystem",
-    icon: "tune",
-    items: [
-      { key: "admin",         labelKey: "Sidebar.itemAdmin", icon: "admin_panel_settings", adminOnly: true },
-      { key: "quotas",        labelKey: "Sidebar.itemQuotas",   icon: "data_usage", adminOnly: true },
-      { key: "ip-management", labelKey: "Sidebar.itemIpManagement",    icon: "lan", adminOnly: true },
-      { key: "domain",        labelKey: "Sidebar.itemDomain",   icon: "domain", adminOnly: true },
-      { key: "gateway",       labelKey: "Sidebar.itemGateway",    icon: "dns", adminOnly: true },
-      { key: "settings",      labelKey: "Sidebar.itemSettings",   icon: "settings", adminOnly: true },
-    ],
-  },
-  {
     key: "monitoring",
     labelKey: "Sidebar.groupMonitoring",
     icon: "insights",
@@ -89,7 +79,43 @@ const navGroups = [
   },
 ];
 
-function NavGroup({ group, active, onSelect, collapsed, onExpand }) {
+/* 系統管理已移出主導覽分類：由底部「管理員設定」進入專屬核心側欄（僅管理員），路由沿用原本的網址 */
+const adminSettingsItems = [
+  { key: "admin",           labelKey: "Sidebar.itemAdmin",          icon: "admin_panel_settings" },
+  { key: "ip-management",   labelKey: "Sidebar.itemIpManagement",   icon: "lan" },
+  { key: "domain",          labelKey: "Sidebar.itemDomain",         icon: "domain" },
+  { key: "gateway",         labelKey: "Sidebar.itemGateway",        icon: "dns" },
+  /* 原「系統設定」的七個分頁，2026-09 各自升格為獨立頁面 */
+  { key: "pve-connections", labelKey: "Sidebar.itemPveConnections", icon: "device_hub" },
+  { key: "scheduler",       labelKey: "Sidebar.itemScheduler",      icon: "settings_input_component" },
+  { key: "governance",      labelKey: "Sidebar.itemGovernance",     icon: "policy" },
+  { key: "quotas",          labelKey: "Sidebar.itemQuotas",         icon: "data_usage" },
+  { key: "ldap",            labelKey: "Sidebar.itemLdap",           icon: "badge" },
+  { key: "nodes",           labelKey: "Sidebar.itemNodes",          icon: "lock" },
+  { key: "storage",         labelKey: "Sidebar.itemStorage",        icon: "storage" },
+];
+
+/** 釘選狀態存 localStorage，跨 session 保留（不可用時僅本次瀏覽生效） */
+const PIN_STORAGE_KEY = "skylab.sidebarPins";
+
+function loadPinnedKeys() {
+  try {
+    const stored = JSON.parse(window.localStorage.getItem(PIN_STORAGE_KEY) ?? "[]");
+    return Array.isArray(stored) ? stored : [];
+  } catch {
+    return [];
+  }
+}
+
+function savePinnedKeys(keys) {
+  try {
+    window.localStorage.setItem(PIN_STORAGE_KEY, JSON.stringify(keys));
+  } catch {
+    // localStorage 不可用時釘選僅本次瀏覽生效
+  }
+}
+
+function NavGroup({ group, active, onSelect, collapsed, onExpand, pinnedKeys, onTogglePin }) {
   const { t } = useTranslation("common");
   const [open, setOpen] = useState(
     group.items.some((i) => i.key === active)
@@ -131,17 +157,31 @@ function NavGroup({ group, active, onSelect, collapsed, onExpand }) {
         className={`${styles.groupItems} ${!collapsed && open ? styles.groupItemsOpen : ""}`}
       >
         <div className={styles.groupItemsInner}>
-          {group.items.map((item) => (
-            <button
-              key={item.key}
-              type="button"
-              className={`${styles.navItem} ${active === item.key ? styles.active : ""}`}
-              onClick={() => onSelect(item.key)}
-              aria-label={t(item.labelKey)}
-            >
-              <span className={styles.navLabel}>{t(item.labelKey)}</span>
-            </button>
-          ))}
+          {group.items.map((item) => {
+            const pinned = pinnedKeys.includes(item.key);
+            return (
+              <div key={item.key} className={styles.navItemRow}>
+                <button
+                  type="button"
+                  className={`${styles.navItem} ${active === item.key ? styles.active : ""}`}
+                  onClick={() => onSelect(item.key)}
+                  aria-label={t(item.labelKey)}
+                >
+                  <span className={styles.navLabel}>{t(item.labelKey)}</span>
+                </button>
+                <button
+                  type="button"
+                  className={`${styles.pinBtn} ${pinned ? styles.pinBtnPinned : ""}`}
+                  onClick={() => onTogglePin(item.key)}
+                  title={pinned ? t("Sidebar.unpin") : t("Sidebar.pin")}
+                  aria-label={pinned ? t("Sidebar.unpin") : t("Sidebar.pin")}
+                  aria-pressed={pinned}
+                >
+                  <MIcon name="push_pin" size={14} filled={pinned} />
+                </button>
+              </div>
+            );
+          })}
         </div>
       </div>
     </div>
@@ -177,9 +217,36 @@ function usePopup(DURATION = 150) {
   return { open, closing, toggle, close };
 }
 
+/* 側欄有 overflow 裁切，彈窗一律 portal 到 body 再依觸發鈕定位：
+   展開時蓋在觸發鈕上方同寬，收合時貼著側欄右緣飛出、底部對齊觸發鈕 */
+function usePopupPosition(triggerRef, collapsed) {
+  const [pos, setPos] = useState(null);
+
+  const updatePos = useCallback(() => {
+    const btn = triggerRef?.current;
+    const rect = btn?.getBoundingClientRect();
+    if (!rect) return;
+    if (collapsed) {
+      const anchorRight = btn.closest("aside")?.getBoundingClientRect().right ?? rect.right;
+      setPos({ left: anchorRight + 8, bottom: window.innerHeight - rect.bottom, width: "max-content", minWidth: 190 });
+    } else {
+      setPos({ left: rect.left, bottom: window.innerHeight - rect.top + 8, width: rect.width });
+    }
+  }, [collapsed, triggerRef]);
+
+  useLayoutEffect(() => {
+    updatePos();
+    window.addEventListener("resize", updatePos);
+    return () => window.removeEventListener("resize", updatePos);
+  }, [updatePos]);
+
+  return pos;
+}
+
 /** 通用彈出選單，供外觀與語言共用 */
-function SelectPopup({ options, value, onSelect, onClose, triggerRef, closing }) {
+function SelectPopup({ options, value, onSelect, onClose, triggerRef, closing, collapsed }) {
   const ref = useRef(null);
+  const pos = usePopupPosition(triggerRef, collapsed);
 
   useEffect(() => {
     const handler = (e) => {
@@ -191,8 +258,9 @@ function SelectPopup({ options, value, onSelect, onClose, triggerRef, closing })
     return () => document.removeEventListener("mousedown", handler);
   }, [onClose, triggerRef]);
 
-  return (
-    <div className={`${styles.appearancePopup} ${closing ? styles.popupClosing : styles.popupOpening}`} ref={ref}>
+  if (!pos) return null;
+  return createPortal(
+    <div className={`${styles.appearancePopup} ${closing ? styles.popupClosing : styles.popupOpening}`} ref={ref} style={pos}>
       {options.map((opt) => (
         <button
           key={opt.key}
@@ -209,13 +277,15 @@ function SelectPopup({ options, value, onSelect, onClose, triggerRef, closing })
           {opt.hint && <span className={styles.optionHint}>{opt.hint}</span>}
         </button>
       ))}
-    </div>
+    </div>,
+    document.body
   );
 }
 
-function UserPopup({ user, onLogout, onSettings, onClose, triggerRef, closing }) {
+function UserPopup({ user, onLogout, onSettings, onClose, triggerRef, closing, collapsed }) {
   const { t } = useTranslation("common");
   const ref = useRef(null);
+  const pos = usePopupPosition(triggerRef, collapsed);
 
   useEffect(() => {
     const handler = (e) => {
@@ -227,8 +297,9 @@ function UserPopup({ user, onLogout, onSettings, onClose, triggerRef, closing })
     return () => document.removeEventListener("mousedown", handler);
   }, [onClose, triggerRef]);
 
-  return (
-    <div className={`${styles.userPopup} ${closing ? styles.popupClosing : styles.popupOpening}`} ref={ref}>
+  if (!pos) return null;
+  return createPortal(
+    <div className={`${styles.userPopup} ${closing ? styles.popupClosing : styles.popupOpening}`} ref={ref} style={pos}>
       <div className={styles.userPopupHeader}>
         <Avatar user={user} size={32} />
         <div className={styles.userPopupInfo}>
@@ -249,7 +320,8 @@ function UserPopup({ user, onLogout, onSettings, onClose, triggerRef, closing })
         <MIcon name="logout" size={18} />
         <span>{t("Sidebar.logOut")}</span>
       </button>
-    </div>
+    </div>,
+    document.body
   );
 }
 
@@ -270,8 +342,12 @@ export default function Sidebar({ collapsed, mobileOpen, onToggle, onClose }) {
   const langBtnRef = useRef(null);
   const userBtnRef = useRef(null);
   const { user, logout } = useAuth();
+  const { confirmLeave } = useUnsavedChanges();
   const isAdmin = Boolean(user?.is_superuser || user?.role === "admin");
   const canTeach = isAdmin || user?.role === "teacher";
+  /* 身在系統管理頁面時，整支側欄切換成「管理員設定」核心側欄 */
+  const inAdminSettings = isAdmin && adminSettingsItems.some((item) => item.key === active);
+  const visibleTopItems = topItems.filter((item) => !item.studentOnly || !canTeach);
   const visibleNavGroups = navGroups
     .map((group) => ({
       ...group,
@@ -281,6 +357,20 @@ export default function Sidebar({ collapsed, mobileOpen, onToggle, onClose }) {
     }))
     .filter((group) => group.items.length > 0);
 
+  const [pinnedKeys, setPinnedKeys] = useState(loadPinnedKeys);
+  const togglePin = useCallback((key) => {
+    setPinnedKeys((prev) => {
+      const next = prev.includes(key) ? prev.filter((k) => k !== key) : [...prev, key];
+      savePinnedKeys(next);
+      return next;
+    });
+  }, []);
+  // 只留權限內看得到的項目；沒權限的釘選保留在 storage，換帳號登入不會消失
+  const visibleItems = visibleNavGroups.flatMap((group) => group.items);
+  const pinnedItems = pinnedKeys
+    .map((key) => visibleItems.find((item) => item.key === key))
+    .filter(Boolean);
+
   const cls = [
     styles.sidebar,
     collapsed && styles.collapsed,
@@ -289,10 +379,18 @@ export default function Sidebar({ collapsed, mobileOpen, onToggle, onClose }) {
     .filter(Boolean)
     .join(" ");
 
-  const handleNav = (key) => {
+  const handleNav = async (key) => {
+    if (!(await confirmLeave())) return;
     navigate(`/${key}`);
     onClose?.();
   };
+
+  /* 收合／展開有寬度動畫，portal 彈窗的定位會跑掉，切換時直接收起 */
+  useEffect(() => {
+    if (langPopup.open) langPopup.close();
+    if (userPopup.open) userPopup.close();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [collapsed]);
 
   return (
     <aside className={cls}>
@@ -311,8 +409,38 @@ export default function Sidebar({ collapsed, mobileOpen, onToggle, onClose }) {
       <div className={styles.brandDivider} />
 
       {/* ===== Main nav ===== */}
+      {inAdminSettings ? (
+        <nav className={styles.nav}>
+          <button
+            type="button"
+            className={styles.navItem}
+            onClick={() => handleNav("dashboard")}
+            title={collapsed ? t("Sidebar.backToConsole") : undefined}
+            aria-label={t("Sidebar.backToConsole")}
+          >
+            <MIcon name="arrow_back" size={20} />
+            {!collapsed && <span className={styles.navLabel}>{t("Sidebar.backToConsole")}</span>}
+          </button>
+          {!collapsed && (
+            <div className={styles.sectionTitle}>{t("Sidebar.adminSettings")}</div>
+          )}
+          {adminSettingsItems.map((item) => (
+            <button
+              key={item.key}
+              type="button"
+              className={`${styles.navItem} ${active === item.key ? styles.active : ""}`}
+              onClick={() => handleNav(item.key)}
+              title={collapsed ? t(item.labelKey) : undefined}
+              aria-label={t(item.labelKey)}
+            >
+              <MIcon name={item.icon} size={20} />
+              {!collapsed && <span className={styles.navLabel}>{t(item.labelKey)}</span>}
+            </button>
+          ))}
+        </nav>
+      ) : (
       <nav className={styles.nav}>
-        {topItems.map((item) => (
+        {visibleTopItems.map((item) => (
           <button
             key={item.key}
             type="button"
@@ -325,6 +453,32 @@ export default function Sidebar({ collapsed, mobileOpen, onToggle, onClose }) {
             {!collapsed && <span className={styles.navLabel}>{t(item.labelKey)}</span>}
           </button>
         ))}
+        {/* 釘選的快速捷徑（保留釘選順序） */}
+        {pinnedItems.map((item) => (
+          <div key={`pinned-${item.key}`} className={styles.navItemRow}>
+            <button
+              type="button"
+              className={`${styles.navItem} ${active === item.key ? styles.active : ""}`}
+              onClick={() => handleNav(item.key)}
+              title={collapsed ? t(item.labelKey) : undefined}
+              aria-label={t(item.labelKey)}
+            >
+              <MIcon name={item.icon} size={20} />
+              {!collapsed && <span className={styles.navLabel}>{t(item.labelKey)}</span>}
+            </button>
+            {!collapsed && (
+              <button
+                type="button"
+                className={styles.pinBtn}
+                onClick={() => togglePin(item.key)}
+                title={t("Sidebar.unpin")}
+                aria-label={t("Sidebar.unpin")}
+              >
+                <MIcon name="push_pin" size={14} filled />
+              </button>
+            )}
+          </div>
+        ))}
         {visibleNavGroups.map((group) => (
           <NavGroup
             key={group.key}
@@ -333,12 +487,29 @@ export default function Sidebar({ collapsed, mobileOpen, onToggle, onClose }) {
             onSelect={handleNav}
             collapsed={collapsed}
             onExpand={onToggle}
+            pinnedKeys={pinnedKeys}
+            onTogglePin={togglePin}
           />
         ))}
       </nav>
+      )}
 
       {/* ===== Bottom section ===== */}
       <div className={styles.bottom}>
+        {/* 管理員設定：系統管理頁面的入口，進入後側欄切換成核心側欄 */}
+        {isAdmin && (
+          <button
+            type="button"
+            className={`${styles.navItem} ${inAdminSettings ? styles.active : ""}`}
+            onClick={() => handleNav("admin")}
+            title={collapsed ? t("Sidebar.adminSettings") : undefined}
+            aria-label={t("Sidebar.adminSettings")}
+          >
+            <MIcon name="admin_panel_settings" size={20} />
+            {!collapsed && <span className={styles.navLabel}>{t("Sidebar.adminSettings")}</span>}
+          </button>
+        )}
+
         {/* 背景任務（全站入口，狀態由 DashboardLayout 的 JobsProvider 提供） */}
         <JobsButton collapsed={collapsed} />
 
@@ -352,6 +523,7 @@ export default function Sidebar({ collapsed, mobileOpen, onToggle, onClose }) {
               onClose={langPopup.close}
               triggerRef={langBtnRef}
               closing={langPopup.closing}
+              collapsed={collapsed}
             />
           )}
           <button
@@ -379,6 +551,7 @@ export default function Sidebar({ collapsed, mobileOpen, onToggle, onClose }) {
               onClose={userPopup.close}
               triggerRef={userBtnRef}
               closing={userPopup.closing}
+              collapsed={collapsed}
             />
           )}
           <button

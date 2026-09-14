@@ -433,12 +433,14 @@
 }
 
 .modalTitle {
+  overflow-wrap: anywhere;
   font-size: $font-size-16;
   font-weight: $font-weight-700;
   color: var(--color-text-primary);
 }
 
 .modalDesc {
+  overflow-wrap: anywhere;
   font-size: $font-size-14;
   color: var(--color-text-secondary);
   line-height: $line-height-base;

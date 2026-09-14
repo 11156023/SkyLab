@@ -4,13 +4,21 @@ from __future__ import annotations
 
 RESULT_SCHEMA_VERSION = "teacher_judge_result.v1"
 RAW_OUTPUT_CHAR_LIMIT = 4000
-SCRIPT_GENERATION_MAX_ATTEMPTS = 3
+# The first generated candidate is not a retry.  A candidate may be repaired
+# at most four times overall, while the same normalized failure may trigger at
+# most two repairs before the workflow is stopped and surfaced to the teacher.
+SCRIPT_GENERATION_MAX_RETRIES = 4
+SCRIPT_GENERATION_SAME_FAILURE_MAX_RETRIES = 2
+# Keep the old name import-compatible for callers outside this module.  It is
+# now the total candidate count: the initial candidate plus four retries. New
+# orchestration code should use the explicit retry constants above.
+SCRIPT_GENERATION_MAX_ATTEMPTS = SCRIPT_GENERATION_MAX_RETRIES + 1
 
 SCRIPT_GENERATION_CONTRACT_PROMPT = f"""
 # 腳本品質契約
 - 你產生的是受管資料收集腳本，不是自由發揮的診斷腳本；可讀性、可移植性、證據品質與狀態語意都必須穩定。
 - 腳本目標是收集同學 VM/LXC 內可客觀觀察的只讀資料；rubric 與 catalog 明確引用 `system.run_command` 或其他受控執行能力時，可在指定 cwd 以有限 timeout 執行單一命令並收集 exit code/stdout/stderr。所有結果整理成單一 JSON。
-- 腳本必須定義並使用這些 helper：`truncate_output`、`command_available`、`run_command`、`record_check`。
+- 核心 helper 只有 2 個：`truncate_output`、`record_check`；僅在需要執行外部命令時才額外定義並使用 `command_available` 與 `run_command`。
 - `truncate_output(text, limit={RAW_OUTPUT_CHAR_LIMIT})` 必須將 raw 輸出截斷到固定長度。
 - `command_available(command)` 必須用 `shutil.which(command)` 檢查外部工具是否存在。
 - `run_command(argv, cwd=None, timeout=秒數)` 必須包裝 `subprocess.run([...], cwd=cwd, capture_output=True, text=True, check=False, timeout=...)`，並回傳包含未遮蔽 `stdout`、`stderr`、`returncode` 的 dict。
@@ -28,7 +36,8 @@ SCRIPT_GENERATION_CONTRACT_PROMPT = f"""
 # 可移植性與證據規則
 - 優先使用 Python 標準函式庫；若需外部工具，先 `command_available()` 再執行。
 - 若需執行外部指令，必須透過 `run_command()` 收集 stdout/stderr/returncode。
-- 不要假設一定有 `systemctl`、`ss`、`curl`、`grep`；工具缺失時回 `unknown`。
+- 不假設外部工具一定存在；工具缺失時回 `unknown`。
+- 判定條件採 rubric 要求的最小充分粒度：只有明確要求完全相等時才比較整份輸出；「有／包含／存在某行或設定」使用內容或逐行存在判定。設定行如 `web_URL=True` 可忽略行首尾及等號周圍空白，不得因 stdout 還有其他內容就判定失敗。
 - `evidence` 應是老師可讀的判斷摘要，不是原始輸出全文。
 - `raw` 應包含判斷所需的 stdout、stderr 與 returncode，不做內容遮蔽，只以 `truncate_output` 控制單一欄位大小。
 - 發生例外時不能吞錯後標成 `pass`；應記錄到 `errors` 或回 `unknown` / `fail`。

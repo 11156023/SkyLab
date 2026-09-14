@@ -1,3 +1,4 @@
+import asyncio
 import uuid
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
@@ -96,7 +97,7 @@ async def test_enqueue_uses_local_runner_when_redis_disabled(
 
     assert result is record
     assert len(scheduled) == 1
-    await scheduled[0]  # type: ignore[misc]
+    await asyncio.wait_for(scheduled[0], timeout=5)  # type: ignore[misc]
     assert executed == [
         ("template.convert", str(record.id), {"vmid": 101})
     ]

@@ -14,6 +14,7 @@ import AvailabilityPanel from "../../../components/AvailabilityPanel/Availabilit
 import MIcon from "../../../components/MIcon";
 import PageHeader from "../../../components/PageHeader/PageHeader";
 import { focusInvalidField } from "../../../utils/focusField";
+import { formatShortDateTime } from "../../../utils/formatDate";
 
 /* Hostname normalization — preserves alphanumeric, replaces others with hyphen */
 function normalizeHostname(value) {
@@ -26,6 +27,32 @@ function normalizeHostname(value) {
 }
 
 /* ── Form field primitives ── */
+/* 密碼欄附顯示/隱藏切換（同登入頁的眼睛按鈕） */
+function PasswordInput({ value, onChange, placeholder }) {
+  const { t } = useTranslation("personal");
+  const [show, setShow] = useState(false);
+  return (
+    <div className={styles.passwordWrap}>
+      <input
+        className={styles.input}
+        type={show ? "text" : "password"}
+        placeholder={placeholder}
+        value={value}
+        onChange={onChange}
+      />
+      <button
+        type="button"
+        className={styles.eyeBtn}
+        onClick={() => setShow((v) => !v)}
+        tabIndex={-1}
+        aria-label={show ? t("RequestFormPage.hidePassword") : t("RequestFormPage.showPassword")}
+      >
+        <MIcon name={show ? "visibility_off" : "visibility"} size={18} />
+      </button>
+    </div>
+  );
+}
+
 function FieldGroup({ label, hint, required, error, children, labelRight, name }) {
   return (
     <div className={`${styles.formGroup} ${error ? styles.formGroupInvalid : ""}`} data-field={name}>
@@ -36,8 +63,9 @@ function FieldGroup({ label, hint, required, error, children, labelRight, name }
         </span>
         {labelRight && <span className={styles.labelValue}>{labelRight}</span>}
       </label>
-      {children}
+      {/* 提示放在控制項前面：擺在欄位下方會被使用者直接忽略 */}
       {hint  && <p className={styles.fieldHint}>{hint}</p>}
+      {children}
       {error && <p className={styles.fieldError}>{error}</p>}
     </div>
   );
@@ -58,8 +86,7 @@ function SelectField({ value, onChange, disabled, children, placeholder }) {
 }
 
 /* ── Helpers ── */
-const DT_FMT = { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" };
-const formatDT = (iso) => new Date(iso).toLocaleString("zh-TW", DT_FMT);
+const formatDT = (iso) => formatShortDateTime(iso);
 const OS_DISPLAY_NAMES = {
   ubuntu: "Ubuntu",
   debian: "Debian",
@@ -209,7 +236,8 @@ export default function RequestFormPage({ onBack, className, initialPrefill = nu
   const { user }  = useAuth();
   const toast     = useToast();
   const isPrivileged = user?.is_superuser || user?.role === "admin" || user?.role === "teacher";
-  const { setCompactFooter, registerRequestForm } = useContext(LayoutContext);
+  const { setCompactFooter, registerRequestForm, registerSurface, reportRequestSubmission } =
+    useContext(LayoutContext);
   useEffect(() => { setCompactFooter(true); return () => setCompactFooter(false); }, [setCompactFooter]);
 
   const [closing, setClosing]   = useState(false);
@@ -706,6 +734,54 @@ export default function RequestFormPage({ onBack, className, initialPrefill = nu
     return () => registerRequestForm(null);
   }, [registerRequestForm]);
 
+  /* 畫面說明用的動態狀態：欄位當下的值與驗證錯誤。欄位的「意義」不在這裡——
+     label、說明與限制一律由後端的 surface 定義提供，這裡只回答「填了什麼」。
+     contextVersion 每次狀態變動就換一個值，助手用它丟棄過期的回答。 */
+  const surfaceState = () => ({
+    "request.hostname": { value: form.hostname, error: errors.hostname ?? null },
+    "request.os": {
+      value: resourceType === "vm" ? form.template_id : (selectedTplId || form.ostemplate),
+      error: errors.template_id ?? errors.ostemplate ?? null,
+    },
+    "request.username": { value: form.username, error: errors.username ?? null },
+    "request.password": { value: form.password, error: errors.password ?? null },
+    "request.cores": { value: String(form.cores ?? "") },
+    "request.memory": { value: String(form.memory ?? "") },
+    "request.disk": {
+      value: String(
+        (resourceType === "lxc" ? form.rootfs_size : form.disk_size) ?? "",
+      ),
+    },
+    "request.gpu": {
+      value: form.gpu_mapping_id,
+      error: errors.gpu_mapping_id ?? null,
+    },
+    "request.vgpu": { value: form.gpu_mdev_profile },
+    "request.mode": { value: mode },
+    "request.start_at": { value: form.start_at, error: errors.start_at ?? null },
+    "request.end_at": { value: form.end_at, error: errors.end_at ?? null },
+    "request.reason": { value: form.reason, error: errors.reason ?? null },
+    /* 送出鈕沒有被驗證停用——這張表單是按下去才驗證的。只有送出中才是真的停用，
+       據實回報，否則助手會解釋一個不存在的停用原因。 */
+    "request.submit": { disabled: submitting },
+  });
+  const surfaceStateRef = useRef(surfaceState);
+  surfaceStateRef.current = surfaceState;
+  /* render 期間不做副作用：版本號在 render 之後才遞增，語意一樣是「畫面又變了」。 */
+  const contextVersion = useRef(0);
+  useEffect(() => {
+    contextVersion.current += 1;
+  });
+
+  useEffect(() => {
+    if (!registerSurface) return undefined;
+    registerSurface("request-form", {
+      getState: () => surfaceStateRef.current(),
+      getVersion: () => contextVersion.current,
+    });
+    return () => registerSurface("request-form", null);
+  }, [registerSurface]);
+
   function handleBack() {
     setClosing(true);
     setTimeout(onBack, 180);
@@ -853,7 +929,8 @@ export default function RequestFormPage({ onBack, className, initialPrefill = nu
           : (!form.immediate_no_end && form.end_at ? { end_at: form.end_at } : {})),
       };
 
-      await VmRequestsService.create(body);
+      const created = await VmRequestsService.create(body);
+      reportRequestSubmission?.({ id: created.id });
       toast.success(t("RequestFormPage.submitSuccess"));
       handleBack();
     } catch (err) {
@@ -926,18 +1003,17 @@ export default function RequestFormPage({ onBack, className, initialPrefill = nu
         </button>
       </PageHeader>
 
-      {/* AI 代填一定要說出來：使用者要知道哪些值不是自己填的 */}
-      {aiPrefilled && (
-        <p className={styles.adviceBox}>
-          <MIcon name="auto_awesome" size={15} />
-          {" "}{t("RequestFormPage.aiPrefillNotice")}
-        </p>
-      )}
-
       {/* ── 主體：表單 + AI 側欄 ── */}
       <div className={styles.formPageBody}>
         <div className={styles.formScroll}>
           <div className={styles.formInner}>
+          {/* AI 代填一定要說出來：使用者要知道哪些值不是自己填的 */}
+          {aiPrefilled && (
+            <p className={styles.adviceBox}>
+              <MIcon name="auto_awesome" size={15} />
+              {" "}{t("RequestFormPage.aiPrefillNotice")}
+            </p>
+          )}
           <form id="request-form" onSubmit={handleSubmit} className={styles.form}>
             {/* ── 申請模式（管理員／老師） ── */}
             {isPrivileged && (
@@ -1081,9 +1157,7 @@ export default function RequestFormPage({ onBack, className, initialPrefill = nu
                       ? t("RequestFormPage.windowsPasswordHint")
                       : undefined}
                   >
-                    <input
-                      className={styles.input}
-                      type="password"
+                    <PasswordInput
                       placeholder={t("RequestFormPage.passwordPlaceholder")}
                       value={form.password}
                       onChange={(e) => set("password", e.target.value)}
@@ -1096,9 +1170,7 @@ export default function RequestFormPage({ onBack, className, initialPrefill = nu
                   hint={selectedTpl
                     ? t("RequestFormPage.clonedPasswordHint")
                     : t("RequestFormPage.lxcPasswordHint")}>
-                  <input
-                    className={styles.input}
-                    type="password"
+                  <PasswordInput
                     placeholder={t("RequestFormPage.passwordPlaceholder")}
                     value={form.password}
                     onChange={(e) => set("password", e.target.value)}

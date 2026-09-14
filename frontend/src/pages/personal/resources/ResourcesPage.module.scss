@@ -58,6 +58,65 @@
   }
 }
 
+/* ── 標籤篩選列 ── */
+.filterBar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.filterLabel {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-right: $spacing-4;
+  font-size: $font-size-12;
+  color: var(--color-text-muted);
+}
+
+.filterChip {
+  padding: 2px 10px;
+  border-radius: $radius-pill;
+  border: 1px solid var(--color-border);
+  font-size: $font-size-12;
+  color: var(--color-text-secondary);
+  background: var(--color-surface);
+  transition: background $transition-base, color $transition-base;
+
+  &:hover {
+    background: var(--color-hover);
+  }
+}
+
+.filterChipActive {
+  background: var(--color-text);
+  border-color: var(--color-text);
+  color: var(--color-surface);
+
+  &:hover {
+    background: var(--color-text);
+  }
+}
+
+.rowChips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 4px;
+}
+
+.tagChip {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 8px;
+  border-radius: $radius-pill;
+  background: color-mix(in srgb, var(--color-primary) 10%, transparent);
+  color: var(--color-primary-on-surface);
+  font-size: $font-size-10;
+  font-weight: $font-weight-500;
+}
+
 /* ── Content area ── */
 .content {
   flex: 1;
@@ -85,6 +144,9 @@
   min-width: 1080px;
 }
 
+/* 名稱欄也給定寬度，剩餘空間依比例分給所有欄，
+   否則寬螢幕時名稱欄會吸掉全部留白、其他欄擠在右側 */
+.colName    { width: 300px; }
 .colEnv     { width: 160px; }
 .colStatus  { width: 100px; }
 .colIp      { width: 130px; }
@@ -136,6 +198,16 @@
   }
 }
 
+.nameIcon {
+  width: 34px;
+  height: 34px;
+  border-radius: $radius-8;
+  color: var(--color-primary);
+  background: var(--color-hover);
+  @include flex-center;
+  flex: 0 0 auto;
+}
+
 .nameLink {
   padding: 0;
   border: 0;
@@ -152,6 +224,8 @@
 .envPrimary { color: var(--color-text-primary); font-size: $font-size-14; }
 .envSub, .muted { color: var(--color-text-muted); font-size: $font-size-12; }
 .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: $font-size-12; }
+.publicUrlLink { display: inline-flex; align-items: center; gap: 3px; margin-top: 3px; max-width: 100%; overflow: hidden; color: var(--color-primary); font-size: $font-size-12; text-decoration: none; text-overflow: ellipsis; white-space: nowrap; }
+.publicUrlLink:hover { text-decoration: underline; }
 /* 動作欄寬度固定，按鈕不換行也不壓縮，避免內容多寡影響版面。 */
 .rowActions { display: flex; align-items: center; gap: $spacing-8; flex-wrap: nowrap; > * { flex-shrink: 0; } }
 .pendingRow { background: color-mix(in srgb, var(--color-info) 4%, var(--color-surface)); }
@@ -316,6 +390,7 @@
   padding: 4px 10px;
   margin-left: 8px;
   flex-shrink: 0;
+  white-space: nowrap;
 }
 
 .badge_success { background: color-mix(in srgb, var(--color-success) 12%, transparent); color: var(--color-success); }
@@ -460,52 +535,6 @@
   color: var(--color-text);
 }
 
-/* ── Power action buttons (legacy, kept for skeleton) ── */
-.powerActions {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.powerBtn {
-  width: 30px;
-  height: 30px;
-  border-radius: $radius-8;
-  @include flex-center;
-  color: var(--color-text-secondary);
-  background: var(--color-surface);
-  transition: background $transition-base, color $transition-base, border-color $transition-base;
-
-  &:hover:not(:disabled) {
-    background: var(--color-hover);
-    color: var(--color-text);
-  }
-
-  &:disabled { opacity: 0.4; cursor: not-allowed; }
-}
-
-.powerBtnStart {
-  background: color-mix(in srgb, var(--color-success) 10%, transparent);
-  color: var(--color-success);
-
-  &:hover:not(:disabled) {
-    background: color-mix(in srgb, var(--color-success) 10%, var(--color-border));
-    color: var(--color-success);
-    border-color: var(--color-success);
-  }
-}
-
-.powerBtnStop {
-  color: var(--color-danger);
-  border-color: color-mix(in srgb, var(--color-danger) 30%, var(--color-border));
-
-  &:hover:not(:disabled) {
-    background: color-mix(in srgb, var(--color-danger) 10%, transparent);
-    color: var(--color-danger);
-    border-color: var(--color-danger);
-  }
-}
-
 /* ── Delete button（同申請頁撤銷鈕樣式）── */
 .deleteBtn {
   display: inline-flex;
@@ -529,30 +558,6 @@
     border-color: color-mix(in srgb, var(--color-danger) 40%, var(--color-border));
   }
 }
-
-/* ── Empty error tint ── */
-
-/* ── Skeleton ── */
-@keyframes shimmer {
-  0%   { background-position: 200% 0; }
-  100% { background-position: -200% 0; }
-}
-
-.skeleton {
-  background: linear-gradient(
-    90deg,
-    var(--color-hover) 25%,
-    color-mix(in srgb, var(--color-text-secondary) 8%, var(--color-hover)) 50%,
-    var(--color-hover) 75%
-  );
-  background-size: 200% 100%;
-  animation: shimmer 1.4s ease-in-out infinite;
-}
-
-.skRow     { border-radius: 4px; }
-.skBadge   { width: 60px; height: 22px; border-radius: $radius-pill; }
-.skChip    { width: 72px; height: 30px; border-radius: $radius-8; }
-.skInfoRow { display: flex; align-items: center; gap: $spacing-8; }
 
 /* ── Modal ── */
 .modalOverlay {
@@ -592,12 +597,15 @@
   font-size: $font-size-16;
   font-weight: $font-weight-700;
   color: var(--color-text-primary);
+  overflow-wrap: anywhere;
 }
 
+/* 內文常插入主機名稱等連續長字串，強制可斷行以免撐破彈窗 */
 .modalDesc {
   font-size: $font-size-14;
   color: var(--color-text-secondary);
   line-height: $line-height-base;
+  overflow-wrap: anywhere;
 }
 
 .modalActions {

@@ -1,8 +1,11 @@
-"""Rubric parser service - Parse DOCX and PDF documents to Markdown."""
+"""Rubric parser service - Parse text and office documents to Markdown."""
 
 from __future__ import annotations
 
 import io
+import shutil
+import subprocess
+import tempfile
 from pathlib import Path
 
 
@@ -118,10 +121,51 @@ def parse_pdf(file_bytes: bytes) -> str:
     return "\n".join(lines)
 
 
+def parse_text(file_bytes: bytes) -> str:
+    """解析 UTF-8 文字文件，保留 Markdown／純文字原貌。"""
+    try:
+        return file_bytes.decode("utf-8-sig")
+    except UnicodeDecodeError as exc:
+        raise ValueError("文字文件必須使用 UTF-8 編碼。") from exc
+
+
+def parse_doc(file_bytes: bytes) -> str:
+    """透過隔離的 LibreOffice/soffice 將舊式 .doc 轉成純文字。"""
+    converter = shutil.which("soffice") or shutil.which("libreoffice")
+    if not converter:
+        raise ValueError("解析 .doc 需要伺服器安裝 LibreOffice。")
+
+    with tempfile.TemporaryDirectory(prefix="teacher-judge-doc-") as directory:
+        input_path = Path(directory) / "source.doc"
+        input_path.write_bytes(file_bytes)
+        result = subprocess.run(
+            [
+                converter,
+                "--headless",
+                "--convert-to",
+                "txt:Text",
+                "--outdir",
+                directory,
+                str(input_path),
+            ],
+            capture_output=True,
+            check=False,
+            timeout=30,
+        )
+        output_path = Path(directory) / "source.txt"
+        if result.returncode != 0 or not output_path.exists():
+            raise ValueError("無法解析這份 .doc 文件。")
+        return parse_text(output_path.read_bytes())
+
+
 def parse_document(filename: str, file_bytes: bytes) -> str:
     """根據副檔名選擇解析器，回傳純文字（Markdown 格式）。"""
     suffix = Path(filename).suffix.lower()
-    if suffix == ".docx":
+    if suffix in {".md", ".txt"}:
+        return parse_text(file_bytes)
+    elif suffix == ".doc":
+        return parse_doc(file_bytes)
+    elif suffix == ".docx":
         return parse_docx(file_bytes)
     elif suffix == ".pdf":
         return parse_pdf(file_bytes)

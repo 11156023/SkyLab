@@ -526,7 +526,7 @@ async def test_agent_continues_from_resource_detail_to_n8n_check_and_summary(
     monkeypatch.setattr(
         pve_chat_module,
         "collect_snapshot",
-        lambda: object(),
+        object,
     )
     monkeypatch.setattr(
         pve_chat_module,

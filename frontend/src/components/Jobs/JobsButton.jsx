@@ -33,6 +33,7 @@ export default function JobsButton({ collapsed = false }) {
     refreshReminders,
     markReminderRead,
     markAllRemindersRead,
+    desktopNotifications,
   } = useJobs();
   const navigate = useNavigate();
   const [open, setOpen] = useState(false);
@@ -95,11 +96,31 @@ export default function JobsButton({ collapsed = false }) {
 
   const toggleOpen = () => {
     setOpen((v) => {
-      // 開啟當下順手刷新提醒，讓期限／審核結果保持最新
-      if (!v) refreshReminders();
+      // 開啟當下順手刷新提醒，讓期限／審核結果保持最新；
+      // 也重讀瀏覽器通知權限（使用者可能剛在網站設定改過）
+      if (!v) {
+        refreshReminders();
+        desktopNotifications.sync();
+      }
       return !v;
     });
   };
+
+  // denied：使用者在瀏覽器封鎖了；insecure：用 http://IP 之類的不安全來源開站，
+  // 瀏覽器根本不會問權限，只能改走 https 或 localhost
+  const desktopBlocked =
+    desktopNotifications.permission === "denied" || desktopNotifications.permission === "insecure";
+  const desktopBlockedKey =
+    desktopNotifications.permission === "insecure"
+      ? "JobsButton.desktopNotificationsInsecure"
+      : "JobsButton.desktopNotificationsBlocked";
+  // Web Push 狀態說明：訂閱成功代表分頁關掉也收得到；不支援／後端未啟用時提醒只有分頁開著才會通知
+  const pushHintKey = {
+    subscribed: "JobsButton.pushSubscribed",
+    unsupported: "JobsButton.pushUnsupported",
+    disabled: "JobsButton.pushDisabled",
+    unsubscribed: "JobsButton.pushUnsubscribed",
+  }[desktopNotifications.push] ?? null;
 
   return (
     <>
@@ -145,6 +166,22 @@ export default function JobsButton({ collapsed = false }) {
               />
               <span>{t("JobsButton.notifyOnlyMine")}</span>
             </label>
+          )}
+          {desktopNotifications.supported && (
+            <label className={`${styles.notifyToggle} ${desktopBlocked ? styles.notifyToggleDisabled : ""}`}>
+              <input
+                type="checkbox"
+                checked={desktopNotifications.enabled}
+                disabled={desktopBlocked}
+                onChange={(e) => (e.target.checked ? desktopNotifications.enable() : desktopNotifications.disable())}
+              />
+              <span>
+                {desktopBlocked ? t(desktopBlockedKey) : t("JobsButton.desktopNotifications")}
+              </span>
+            </label>
+          )}
+          {desktopNotifications.enabled && pushHintKey && (
+            <p className={styles.notifyHint}>{t(pushHintKey)}</p>
           )}
           <div className={styles.popoverList}>
             {items === null ? (

@@ -10,7 +10,7 @@
 import ipaddress
 import logging
 
-from sqlmodel import Session, select
+from sqlmodel import Session, func, select
 
 from app.core.i18n import t
 from app.exceptions import BadRequestError, ConflictError
@@ -422,7 +422,7 @@ def get_ip_stats(session: Session) -> dict[str, int]:
     if total < 0:
         total = 0
 
-    used = len(session.exec(select(IpAllocation)).all())
+    used = session.exec(select(func.count()).select_from(IpAllocation)).one()
     return {"total": total, "used": used, "available": max(0, total - used)}
 
 

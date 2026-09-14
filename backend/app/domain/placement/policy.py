@@ -90,10 +90,10 @@ def get_placement_strategy(session: Session) -> str:
     評分行為由 PlacementTuning 的各項權重決定（見 get_placement_tuning），
     不再由「策略」切換。過去這裡會讀取 proxmox_config.placement_strategy，
     但回傳值一律被正規化成 DEFAULT_PLACEMENT_STRATEGY —— 等於讓管理員以為
-    切換生效。設定頁的選項已移除，這裡也不再做無意義的 DB 讀取。
+    切換生效。設定頁的選項已移除，該欄位也已由 sched01 從 DB 移除。
 
-    保留此函式與 placement_strategy_used 欄位，是為了讓落點紀錄仍能標示
-    當時採用的策略名稱；日後真的支援多策略時，從這裡擴充。
+    保留此函式與 vm_requests.placement_strategy_used 欄位，是為了讓落點紀錄
+    仍能標示當時採用的策略名稱；日後真的支援多策略時，從這裡擴充。
     """
     del session
     return DEFAULT_PLACEMENT_STRATEGY

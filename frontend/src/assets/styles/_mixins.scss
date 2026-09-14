@@ -72,13 +72,71 @@
   font-weight: $font-weight-500;
 }
 
+/* ── 標準表單欄位 ──
+   全站表單一律用這組 mixin（詳見 docs/2026-09-05-frontend-style-guide.md「表單」段）：
+   .field   { @include form-field; }             標籤 + 控制項的直式容器
+   .field input, .field select, .field textarea { @include form-control; }
+   .fieldInvalid.fieldInvalid { @include form-control-invalid; }
+                                                 送出時未填的欄位，雙類名壓過巢狀選擇器
+   控制項高度刻意與 .btnPrimary / .btnSecondary 一致（36px），
+   同一列的欄位與按鈕才會對齊。欄位的排列方式（幾欄、跨欄）寫在頁面自己的
+   grid 上，不要改這裡的字級或內距。 */
+@mixin form-field {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 5px;
+  color: var(--color-text);
+  font-size: $font-size-14;
+  font-weight: $font-weight-500;
+
+  > span {
+    margin-bottom: 3px;
+    font-weight: $font-weight-500;
+  }
+}
+
+@mixin form-control {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 36px;
+  padding: 8px 12px;
+  border: 1px solid var(--color-border);
+  border-radius: $radius-8;
+  outline: 0;
+  color: var(--color-text);
+  background: color-mix(in srgb, var(--color-hover) 22%, var(--color-surface));
+  font: inherit;
+  font-size: $font-size-14;
+
+  &:focus {
+    border-color: var(--color-primary);
+    background: var(--color-surface);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-primary) 12%, transparent);
+  }
+
+  &[readonly] {
+    color: var(--color-text-muted);
+    background: var(--color-hover);
+  }
+}
+
+@mixin form-control-invalid {
+  border-color: var(--color-danger);
+
+  &:focus {
+    border-color: var(--color-danger);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-danger) 12%, transparent);
+  }
+}
+
 /* ── 標準列表表格 ──
-   全站列表頁的表格一律用這組 mixin（詳見 STYLE_GUIDE「表格」段）：
+   全站列表頁的表格一律用這組 mixin（詳見 docs/2026-09-05-frontend-style-guide.md「表格」段）：
    .tableWrap { @include table-wrap; }   外層玻璃容器＋橫向卷動
    .table     { @include table-base; }   可加 min-width 撐出卷動
    .th        { @include table-th; }
    .tr        { @include table-tr; }     整列可點時再疊 table-tr-clickable
-                                         列數會變的表格要 table-layout: fixed（見 STYLE_GUIDE 規則二）
+                                         列數會變的表格要 table-layout: fixed（見樣式規範文件規則二）
    .td        { @include table-td; }
    欄寬、對齊、特殊儲存格等頁面差異寫在 @include 之後。 */
 @mixin table-wrap {

@@ -28,17 +28,21 @@ _SECURITY_NONE = 1
 class UpstreamSocket(Protocol):
     """websockets client connection 需要的最小介面。"""
 
-    async def recv(self) -> str | bytes: ...
+    async def recv(self) -> str | bytes:
+        """接收上游（PVE）送來的一個 WebSocket 訊框。"""
 
-    async def send(self, data: bytes, /) -> None: ...
+    async def send(self, data: bytes, /) -> None:
+        """送出一個二進位訊框到上游。"""
 
 
 class DownstreamSocket(Protocol):
     """已 accept 的 FastAPI WebSocket 需要的最小介面。"""
 
-    async def receive_bytes(self) -> bytes: ...
+    async def receive_bytes(self) -> bytes:
+        """接收下游（瀏覽器）送來的二進位訊框。"""
 
-    async def send_bytes(self, data: bytes) -> None: ...
+    async def send_bytes(self, data: bytes) -> None:
+        """送出一個二進位訊框到下游。"""
 
 
 @dataclass(frozen=True)

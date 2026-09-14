@@ -198,7 +198,12 @@ def clone_with_fallback(
 
             provisioning_service.cleanup_provisioned_resource(new_vmid)
         except Exception:
-            pass
+            # 清理殘留失敗不阻擋重試克隆，僅留 debug 紀錄
+            logger.debug(
+                "Cleanup of leftover resource %s before retry failed",
+                new_vmid,
+                exc_info=True,
+            )
         clone_fn(node, template_vmid, full=1, **base_config, **(full_kwargs or {}))
         return "full"
 
@@ -478,9 +483,18 @@ def run_clone_task(task_id: uuid.UUID, payload: dict[str, Any]) -> dict[str, Any
                                 node, new_vmid, resource_type, int(pos)
                             )
                         except Exception:
-                            pass
+                            # 單條規則刪除失敗不影響其他規則的回滾
+                            logger.debug(
+                                "Rollback of firewall rule pos=%s on %s failed",
+                                pos,
+                                new_vmid,
+                                exc_info=True,
+                            )
             except Exception:
-                pass
+                # 回滾階段的清單查詢失敗只能略過，VM 隨後會被整個銷毀
+                logger.debug(
+                    "Rollback of firewall rules on %s failed", new_vmid, exc_info=True
+                )
             try:
                 from app.services.proxmox import provisioning_service
 

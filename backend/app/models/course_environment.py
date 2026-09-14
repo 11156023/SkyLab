@@ -207,6 +207,45 @@ class CourseEnvironmentNode(SQLModel, table=True):
     sort_order: int = Field(default=0)
 
 
+class CourseEnvironmentPublication(SQLModel, table=True):
+    """一條「外網 → 機器」的宣告。
+
+    每位學生都會拿到一份自己的環境，所以網址不能寫死在模板上：老師只填
+    主機名樣板（含 ``{student}``），實際網域在開課／開練習時逐人組出來。
+    """
+
+    __tablename__ = "course_environment_publications"
+    __table_args__ = (
+        UniqueConstraint(
+            "version_id",
+            "node_key",
+            "port",
+            "protocol",
+            name="uq_course_environment_publication",
+        ),
+    )
+
+    id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
+    version_id: uuid.UUID = Field(
+        sa_column=Column(
+            sa.Uuid,
+            sa.ForeignKey("course_environment_versions.id", ondelete="CASCADE"),
+            nullable=False,
+            index=True,
+        )
+    )
+    node_key: str = Field(max_length=80)
+    # domain = 給每位學生一個對外網址；firewall_only = 只開機器上的入站規則
+    mode: str = Field(default="domain", max_length=16)
+    port: int = Field(ge=1, le=65535, description="機器內部 port")
+    protocol: str = Field(default="tcp", max_length=16)
+    # 主機名樣板，例如 "{student}-n8n"；僅 mode=domain 有意義
+    hostname_prefix: str | None = Field(default=None, max_length=120)
+    zone_id: str | None = Field(default=None, max_length=64)
+    enable_https: bool = Field(default=True)
+    sort_order: int = Field(default=0)
+
+
 class CourseEnvironmentEdge(SQLModel, table=True):
     """A firewall-style connection between two nodes in one course version."""
 

@@ -19,6 +19,7 @@ from sqlmodel import Session, select
 from app.core.db import engine
 from app.core.i18n import t
 from app.exceptions import BadRequestError, NotFoundError
+from app.infrastructure.proxmox.rrd import timeframe_for_window
 from app.models import (
     AlertEvent,
     AlertMetric,
@@ -88,7 +89,9 @@ def _fetch_cpu_stats(
     rtype = _resource_type(str(pve_info.get("type") or ""))
     if not node:
         return None
-    rrd = proxmox_service.get_rrd_data(node, resource.vmid, rtype, "day")
+    rrd = proxmox_service.get_rrd_data(
+        node, resource.vmid, rtype, timeframe_for_window(window_hours)
+    )
     return cpu_stats(rrd, window_hours=window_hours, now=now)
 
 

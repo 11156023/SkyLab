@@ -1,4 +1,5 @@
 import { apiDelete, apiGet, apiPost, apiPut } from "./api";
+import { formatDate } from "../utils/formatDate";
 
 export function courseNodeHasUsableSource(node) {
   return node?.sourceType === "custom"
@@ -30,9 +31,7 @@ export function normalizeCourseEnvironment(item) {
     ...item,
     id: String(item.id),
     versionId: String(item.version_id),
-    updatedAt: item.updated_at
-      ? new Date(item.updated_at).toLocaleDateString("zh-TW")
-      : "",
+    updatedAt: formatDate(item.updated_at, ""),
     usageScope: item.usage_scope ?? "course",
     audience: item.audience ?? "class",
     audienceClassIds: (item.audience_class_ids ?? []).map(String),
@@ -46,6 +45,17 @@ export function normalizeCourseEnvironment(item) {
       direction: edge.direction ?? "one_way",
       protocol: edge.protocol ?? "tcp",
       port: edge.protocol === "any" ? null : Number(edge.port ?? 22),
+    })),
+    publications: (item.publications ?? []).map((publication, index) => ({
+      ...publication,
+      id: String(publication.id ?? `publication-${index + 1}`),
+      nodeKey: publication.node_key,
+      mode: publication.mode ?? "domain",
+      port: Number(publication.port ?? 80),
+      protocol: publication.protocol ?? "tcp",
+      hostnamePrefix: publication.hostname_prefix ?? "",
+      zoneId: publication.zone_id ?? "",
+      enableHttps: publication.enable_https !== false,
     })),
   };
 }
@@ -81,6 +91,15 @@ export function environmentPayload(item) {
       direction: edge.direction ?? "one_way",
       protocol: edge.protocol ?? "tcp",
       port: edge.protocol === "any" ? null : Number(edge.port ?? 22),
+    })),
+    publications: (item.publications ?? []).map((publication) => ({
+      node_key: String(publication.nodeKey ?? publication.node_key),
+      mode: publication.mode ?? "domain",
+      port: Number(publication.port),
+      protocol: publication.protocol ?? "tcp",
+      hostname_prefix: publication.mode === "domain" ? (publication.hostnamePrefix || "").trim() : null,
+      zone_id: publication.mode === "domain" ? (publication.zoneId || null) : null,
+      enable_https: publication.enableHttps !== false,
     })),
   };
 }

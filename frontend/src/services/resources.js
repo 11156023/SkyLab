@@ -1,4 +1,4 @@
-import { apiDelete, apiGet, apiGetBlob, apiPost, apiPut } from "./api";
+import { apiDelete, apiDeleteJson, apiGet, apiGetBlob, apiPost, apiPut } from "./api";
 
 export const ResourcesService = {
   /** 克隆機來源範本的使用手冊（資源擁有者即可，不受範本可見範圍影響） */
@@ -138,5 +138,91 @@ export const ResourcesService = {
   /** 建立初始快照（教師/管理員） */
   createInitSnapshot(vmid) {
     return apiPost(`/api/v1/resources/${vmid}/init-snapshot`, {});
+  },
+
+  /* ── 進階設定端點（resource_settings.py） ── */
+
+  /** 規格摘要 → { cpu_cores, memory_mb, disk_gb, resource_type } */
+  getSpecs(vmid) {
+    return apiGet(`/api/v1/resources/${vmid}/specs`);
+  },
+
+  /** 開機選項 → { boot_order, boot_devices, cdrom_iso, ... }（onboot 由後端隨開關機自動對齊，不在此） */
+  getBootOptions(vmid) {
+    return apiGet(`/api/v1/resources/${vmid}/boot-options`);
+  },
+
+  /** 更新開機選項（body: { boot_order?, cdrom_iso?, eject_cdrom? }） */
+  updateBootOptions(vmid, body) {
+    return apiPut(`/api/v1/resources/${vmid}/boot-options`, body);
+  },
+
+  /** 可掛載的 ISO 映像清單 */
+  listIsoImages(vmid) {
+    return apiGet(`/api/v1/resources/${vmid}/iso-images`);
+  },
+
+  /** 登入憑證狀態（使用者、授權公鑰、是否需執行中） */
+  getCredentials(vmid) {
+    return apiGet(`/api/v1/resources/${vmid}/credentials`);
+  },
+
+  /** 重設登入密碼（password 留空由系統產生）→ { password, applied_immediately, message } */
+  resetPassword(vmid, password) {
+    return apiPost(`/api/v1/resources/${vmid}/credentials/reset-password`, {
+      password: password || null,
+    });
+  },
+
+  /** 重新產生平台 SSH 金鑰 → { ssh_public_key, ssh_private_key, ... } */
+  regenerateSshKey(vmid) {
+    return apiPost(`/api/v1/resources/${vmid}/credentials/regenerate-ssh-key`, {});
+  },
+
+  /** 匯入自己的公鑰 */
+  addAuthorizedKey(vmid, publicKey) {
+    return apiPost(`/api/v1/resources/${vmid}/credentials/authorized-keys`, {
+      public_key: publicKey,
+    });
+  },
+
+  /** 移除一把授權公鑰（平台金鑰不可移除） */
+  removeAuthorizedKey(vmid, publicKey) {
+    return apiDeleteJson(`/api/v1/resources/${vmid}/credentials/authorized-keys`, {
+      public_key: publicKey,
+    });
+  },
+
+  /** 標籤與備註 → { tags, description } */
+  getMetadata(vmid) {
+    return apiGet(`/api/v1/resources/${vmid}/metadata`);
+  },
+
+  /** 更新標籤與備註（body: { tags?, description? }） */
+  updateMetadata(vmid, body) {
+    return apiPut(`/api/v1/resources/${vmid}/metadata`, body);
+  },
+
+  /** 共享名單 */
+  listShares(vmid) {
+    return apiGet(`/api/v1/resources/${vmid}/shares`);
+  },
+
+  /** 用信箱把機器共享給另一位使用者 */
+  addShare(vmid, email) {
+    return apiPost(`/api/v1/resources/${vmid}/shares`, { email });
+  },
+
+  /** 撤銷一筆共享 */
+  removeShare(vmid, shareId) {
+    return apiDelete(`/api/v1/resources/${vmid}/shares/${shareId}`);
+  },
+
+  /** 把機器轉移給另一位使用者（keepAccess 保留自己在共享名單） */
+  transferOwnership(vmid, email, keepAccess = false) {
+    return apiPost(`/api/v1/resources/${vmid}/transfer`, {
+      email,
+      keep_access: keepAccess,
+    });
   },
 };

@@ -9,12 +9,14 @@
 
 from __future__ import annotations
 
+import importlib
 from typing import Any
 
-# 任務模組 import（註冊 @queue_task handler）
-import app.services.template.tasks  # noqa: F401
 from app.infrastructure.queue.arq_client import QUEUE_NAME, get_redis_settings
 from app.infrastructure.queue.registry import registered_functions
+
+# 任務模組副作用匯入（註冊 @queue_task handler），不直接使用模組物件
+importlib.import_module("app.services.template.tasks")
 
 
 class WorkerSettings:

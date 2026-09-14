@@ -43,6 +43,7 @@ from app.infrastructure.queue import close_arq_pool, init_arq_pool
 from app.infrastructure.redis import close_redis, init_redis
 from app.infrastructure.worker import init_background_runner, shutdown_background_runner
 from app.services.network import wireguard_service
+from app.services.notification import web_push_service
 from app.services.scheduling import vm_request_schedule_service
 
 _SECURITY_HEADERS: list[tuple[str, str]] = [
@@ -122,10 +123,14 @@ async def lifespan(app: FastAPI):
     stop_event = asyncio.Event()
     scheduler_task: asyncio.Task[None] | None = None
     wireguard_task: asyncio.Task[None] | None = None
+    push_task: asyncio.Task[None] | None = None
     if settings.SCHEDULER_ENABLED:
         scheduler_task = asyncio.create_task(
             vm_request_schedule_service.run_scheduler(stop_event)
         )
+        # Web Push 走自己的短週期迴圈：任務結束後幾秒內就要推到關掉分頁的使用者，
+        # 不跟 60 秒一輪的主排程綁在一起
+        push_task = asyncio.create_task(web_push_service.run_push_notifier(stop_event))
     if (
         settings.DESKTOP_TUNNEL_MODE == "wireguard"
         and settings.WIREGUARD_RECONCILE_ENABLED
@@ -149,6 +154,14 @@ async def lifespan(app: FastAPI):
             try:
                 await wireguard_task
             except asyncio.CancelledError:
+                # 關機時主動取消 reconciler，CancelledError 是預期結果
+                pass
+        if push_task is not None:
+            push_task.cancel()
+            try:
+                await push_task
+            except asyncio.CancelledError:
+                # 推播迴圈取消屬預期的關閉流程
                 pass
         await shutdown_background_runner()
         await close_ai_clients()

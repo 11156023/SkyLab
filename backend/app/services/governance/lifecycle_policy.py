@@ -19,9 +19,10 @@ class TtlAction(str, enum.Enum):
 
 
 class IdleAction(str, enum.Enum):
-    mark = "mark"    # 首次偵測到閒置：標記 + 通知
-    stop = "stop"    # 閒置寬限期滿：排程自動關機
-    clear = "clear"  # 恢復活躍：清除閒置標記
+    mark = "mark"      # 首次偵測到閒置：只記 idle_since，不通知
+    notify = "notify"  # 持續閒置達通知時數：通知擁有者
+    stop = "stop"      # 閒置寬限期滿：排程自動關機
+    clear = "clear"    # 恢復活躍或重開機：清除閒置標記
     none = "none"
 
 
@@ -89,10 +90,31 @@ def decide_idle_action(
     *,
     avg_cpu: float | None,
     idle_since: datetime | None,
+    idle_notified_at: datetime | None,
     now: datetime,
     threshold_percent: float,
+    notify_after_hours: int,
     grace_hours: int,
+    window_hours: int,
+    uptime_seconds: int | None,
 ) -> IdleAction:
+    """閒置狀態機：mark（靜默標記）→ notify（持續 notify_after_hours）
+    → stop（持續 grace_hours）；三者都從 ``idle_since`` 起算。
+
+    ``uptime_seconds`` 為 PVE 回報的本次開機秒數（未知則傳 None）。
+    """
+    if uptime_seconds is not None:
+        # 標記閒置後曾重開機：舊標記失效，重新起算（否則重開後會因寬限期
+        # 早已過而立刻再被排關機）。
+        if idle_since is not None and now - idle_since > timedelta(
+            seconds=uptime_seconds
+        ):
+            return IdleAction.clear
+        # 開機時間還沒蓋滿觀察視窗：關機期間 RRD 沒有 cpu 值，平均只代表
+        # 這段短暫開機時間，不構成「長期」閒置，不判斷。
+        if uptime_seconds < window_hours * 3600:
+            return IdleAction.none
+
     if avg_cpu is None:
         # 無數據不做任何判斷（也不清標記 — 避免 PVE 抖動反覆清除）
         return IdleAction.none
@@ -102,6 +124,9 @@ def decide_idle_action(
 
     if idle_since is None:
         return IdleAction.mark
-    if now - idle_since >= timedelta(hours=grace_hours):
+    idle_for = now - idle_since
+    if idle_for >= timedelta(hours=grace_hours):
         return IdleAction.stop
+    if idle_notified_at is None and idle_for >= timedelta(hours=notify_after_hours):
+        return IdleAction.notify
     return IdleAction.none

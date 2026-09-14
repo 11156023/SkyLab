@@ -10,7 +10,7 @@ import pytest
 from app.exceptions import ConflictError
 from app.models import QuotaConfig
 from app.services.resource import quota_service
-from app.services.resource.quota_policy import DEFAULT_QUOTA, EffectiveQuota, QuotaUsage
+from app.services.resource.quota_policy import DEFAULT_QUOTA, QuotaUsage
 
 USER_ID = uuid.uuid4()
 

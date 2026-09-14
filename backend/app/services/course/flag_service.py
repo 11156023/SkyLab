@@ -19,12 +19,14 @@ def hash_flag(flag: str) -> str:
 
 
 def verify_flag(answer: str | None, flag_hash: str | None) -> bool:
-    """比對學生答案與儲存的 flag hash；缺答案或缺 hash 一律 False。"""
-    if not answer or not flag_hash:
+    """比對學生答案與儲存的 flag hash；缺答案、純空白答案或缺 hash 一律 False。"""
+    if answer is None or not flag_hash:
         return False
-    candidate = hashlib.sha256(
-        normalize_answer(answer).encode("utf-8")
-    ).hexdigest()
+    normalized = normalize_answer(answer)
+    if not normalized:
+        # 純空白答案 strip 後為空字串，不進入雜湊比對，直接視為錯誤
+        return False
+    candidate = hashlib.sha256(normalized.encode("utf-8")).hexdigest()
     # 常數時間比較，避免以回應時間差猜測 hash
     return hmac.compare_digest(candidate, flag_hash)
 

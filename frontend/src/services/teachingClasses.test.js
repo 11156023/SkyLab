@@ -78,6 +78,17 @@ describe("TeachingClassesService", () => {
     expect(JSON.parse(fetchMock.mock.calls[2][1].body)).toEqual({ reclaim_resources: true, force: true });
   });
 
+  test("batch review listing asks for every status, not just pending", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonRes([]));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await BatchProvisionService.listAll();
+
+    const [url] = fetchMock.mock.calls[0];
+    expect(url).toContain("/api/v1/batch-provision/?limit=100");
+    expect(url).not.toContain("status=");
+  });
+
   test("admin reviews all class nodes through one endpoint", async () => {
     const fetchMock = vi.fn().mockResolvedValue(jsonRes([]));
     vi.stubGlobal("fetch", fetchMock);

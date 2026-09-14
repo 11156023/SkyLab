@@ -3,9 +3,10 @@ from __future__ import annotations
 from importlib import import_module
 from types import ModuleType
 
-__all__ = ["lifecycle_policy", "lifecycle_service"]
+__all__ = ["config_service", "lifecycle_policy", "lifecycle_service"]
 
 _MODULES = {
+    "config_service": "app.services.governance.config_service",
     "lifecycle_policy": "app.services.governance.lifecycle_policy",
     "lifecycle_service": "app.services.governance.lifecycle_service",
 }

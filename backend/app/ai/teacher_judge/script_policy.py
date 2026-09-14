@@ -69,6 +69,16 @@ DENY_PATTERNS: tuple[tuple[str, str], ...] = (
     (r"\breset\b|\bcleanup\b|\bclean\s+up\b|\bfix\b|\brepair\b", "禁止產生修復、清理或重設類反向操作"),
 )
 
+# Pre-compiled once at import: same patterns/flags as the previous inline
+# re.search(pattern, text, re.IGNORECASE | re.DOTALL) calls. Pure optimization,
+# match verdicts and fix-hint pattern strings are unchanged.
+_COMPILED_DENY_PATTERNS: tuple[tuple[re.Pattern[str], str, str], ...] = tuple(
+    (re.compile(pattern, re.IGNORECASE | re.DOTALL), pattern, message)
+    for pattern, message in DENY_PATTERNS
+)
+
+_WHITESPACE_SPLIT = re.compile(r"\s+")
+
 SHELL_LAUNCHERS = {
     "bash",
     "cmd",
@@ -302,10 +312,10 @@ def _network_issues(call_name: str, node: ast.Call) -> list[str]:
 
 def _dangerous_command_issue(command_text: str) -> str | None:
     normalized = command_text.lower()
-    for pattern, message in DENY_PATTERNS:
-        if re.search(pattern, normalized, flags=re.IGNORECASE | re.DOTALL):
+    for compiled, _pattern, message in _COMPILED_DENY_PATTERNS:
+        if compiled.search(normalized):
             return message
-    tokens = re.split(r"\s+", normalized.strip())
+    tokens = _WHITESPACE_SPLIT.split(normalized.strip())
     if not tokens:
         return None
     command = tokens[0]
@@ -350,8 +360,8 @@ def check_script_policy(script_content: str) -> CheckResult:
     fix_hints: list[FixHint] = []
     normalized = script_content.lower()
 
-    for pattern, message in DENY_PATTERNS:
-        if re.search(pattern, normalized, flags=re.IGNORECASE | re.DOTALL):
+    for compiled, pattern, message in _COMPILED_DENY_PATTERNS:
+        if compiled.search(normalized):
             issues.append(message)
             fix_hints.append({"type": "remove_dangerous_pattern", "description": message, "pattern": pattern})
 
@@ -397,9 +407,11 @@ def check_script_policy(script_content: str) -> CheckResult:
                 fix_hints.append({"type": "replace_dangerous_call", "function": call_name, "description": DENY_AST_CALLS[call_name]})
             if call_name in {"open", "io.open", "pathlib.Path.open"}:
                 mode_arg_index = 0 if call_name == "pathlib.Path.open" else 1
-                if _is_write_mode(_open_mode(node, mode_arg_index=mode_arg_index)):
+                # Compute once and reuse for the check and the hint (was called twice).
+                mode = _open_mode(node, mode_arg_index=mode_arg_index)
+                if _is_write_mode(mode):
                     issues.append("禁止以寫入模式開啟檔案")
-                    fix_hints.append({"type": "remove_write_mode", "function": call_name, "mode": _open_mode(node, mode_arg_index=mode_arg_index)})
+                    fix_hints.append({"type": "remove_write_mode", "function": call_name, "mode": mode})
             if call_name == "subprocess.run" and _keyword_is_true(node, "shell"):
                 issues.append("禁止使用 shell=True 執行指令")
                 fix_hints.append({"type": "remove_keyword_param", "function": "subprocess.run", "param": "shell", "description": "禁止使用 shell=True 執行指令"})

@@ -44,16 +44,11 @@ def _extract_first_json_object(text: str) -> str | None:
     if start < 0:
         return None
 
-    depth = 0
-    for idx in range(start, len(text)):
-        char = text[idx]
-        if char == "{":
-            depth += 1
-        elif char == "}":
-            depth -= 1
-            if depth == 0:
-                return text[start : idx + 1]
-    return None
+    try:
+        _, end = json.JSONDecoder().raw_decode(text, start)
+    except json.JSONDecodeError:
+        return None
+    return text[start:end]
 
 
 def _clamp_confidence(value: Any) -> float:
@@ -88,26 +83,15 @@ def _normalize_action(
 # ---------------------------------------------------------------- 流程
 
 
-def _active_step_index(flow: NavigationFlow, current_path: str | None) -> int:
-    """使用者已經走到流程的哪一步，讓導覽是接續而不是從頭再來。"""
-    if not current_path:
-        return 0
-    clean = current_path.split("?")[0].rstrip("/") or "/"
-    for index, step in enumerate(flow.steps):
-        if step.path == clean:
-            return index
-    return 0
-
-
 def _flow_response(
     flow: NavigationFlow,
     *,
     intent: str,
     confidence: float,
-    current_path: str | None,
     reason: str = "",
 ) -> NavigationResolveResponse:
-    active = _active_step_index(flow, current_path)
+    # A page visit is not evidence of submission, approval or provisioning.
+    active = 0
     steps = public_steps(flow, active)
     current = flow.steps[active]
     return NavigationResolveResponse(
@@ -138,7 +122,6 @@ def _keyword_fallback(
     query: str,
     routes: list[NavigationRoute],
     flows: list[NavigationFlow] | None = None,
-    current_path: str | None = None,
 ) -> NavigationResolveResponse:
     """模型離線或回出垃圾時的確定性答案。
 
@@ -166,7 +149,6 @@ def _keyword_fallback(
             scored_flows[0][1],
             intent=query.strip(),
             confidence=0.8,
-            current_path=current_path,
         )
 
     hits = [(score, route) for score, route in scored_routes if score > 0]
@@ -222,7 +204,6 @@ def _build_response_from_payload(
     user_query: str,
     allowed_routes: list[NavigationRoute],
     allowed_flows: list[NavigationFlow],
-    current_path: str | None,
 ) -> NavigationResolveResponse:
     intent = str(payload.get("intent") or user_query).strip() or user_query
     confidence = _clamp_confidence(payload.get("confidence"))
@@ -245,7 +226,6 @@ def _build_response_from_payload(
             flow,
             intent=intent,
             confidence=confidence or 0.8,
-            current_path=current_path,
             reason=reason,
         )
     if action == "guide" and flow is None:
@@ -338,7 +318,7 @@ async def resolve_navigation(
     if not model_name:
         logger.warning("VLLM_MODEL_NAME is empty, using keyword fallback for navigation")
         return _keyword_fallback(
-            clean_query, allowed_routes, allowed_flows, current_path
+            clean_query, allowed_routes, allowed_flows
         )
 
     prompt = build_navigation_system_prompt(allowed_routes, allowed_flows, current_path)
@@ -379,6 +359,8 @@ async def resolve_navigation(
             timeout=_DEFAULT_TIMEOUT_SECONDS,
         )
         metrics = _usage_metrics(response_data, perf_counter() - started)
+        if response_data["choices"][0].get("finish_reason") == "length":
+            raise ValueError("Navigation model output was truncated")
         content = str(response_data["choices"][0]["message"]["content"] or "")
         normalized_text = strip_think_tags(content)
         raw_json = _extract_first_json_object(normalized_text)
@@ -392,7 +374,7 @@ async def resolve_navigation(
                 error_message="Navigation model returned non-JSON text.",
             )
             return _keyword_fallback(
-                clean_query, allowed_routes, allowed_flows, current_path
+                clean_query, allowed_routes, allowed_flows
             )
 
         parsed = json.loads(raw_json)
@@ -406,7 +388,7 @@ async def resolve_navigation(
                 error_message="Navigation model returned non-object JSON.",
             )
             return _keyword_fallback(
-                clean_query, allowed_routes, allowed_flows, current_path
+                clean_query, allowed_routes, allowed_flows
             )
 
         result = _build_response_from_payload(
@@ -414,7 +396,6 @@ async def resolve_navigation(
             user_query=clean_query,
             allowed_routes=allowed_routes,
             allowed_flows=allowed_flows,
-            current_path=current_path,
         )
         _log(metrics)
         return result
@@ -424,5 +405,5 @@ async def resolve_navigation(
         )
         _log(status="error", error_message=str(exc))
         return _keyword_fallback(
-            clean_query, allowed_routes, allowed_flows, current_path
+            clean_query, allowed_routes, allowed_flows
         )

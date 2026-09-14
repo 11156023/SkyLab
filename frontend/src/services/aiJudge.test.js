@@ -3,6 +3,7 @@ import {
   AiJudgeService,
   RUBRIC_POLISH_PROMPT,
   RUBRIC_REASSESS_PROMPT,
+  TEACHER_JUDGE_REQUEST_TIMEOUT_MS,
   TEMPLATE_OPTIONS,
   getTemplateLabel,
   shouldDisplayChatMessage,
@@ -32,31 +33,24 @@ beforeEach(() => {
 });
 
 describe("AiJudgeService persistent sessions", () => {
+  test("session 清單不再傳送進行中或已封存的狀態分類", async () => {
+    await AiJudgeService.listSessions("class-1");
+
+    const [url] = fetchMock.mock.calls[0];
+    expect(url).toContain("/api/v1/teaching-classes/class-1/judge/sessions/");
+    expect(url).not.toContain("status=");
+  });
+
   test("評分環境提供 PostgreSQL 模板", () => {
     expect(TEMPLATE_OPTIONS.map((option) => option.key)).toContain("postgresql");
     expect(getTemplateLabel("postgresql")).toBe("PostgreSQL");
   });
 
-  test("上傳評分表會帶上主要與候選評分環境", async () => {
-    const file = new File(["rubric"], "rubric.pdf", { type: "application/pdf" });
-    await AiJudgeService.uploadFile(
-      "class-1",
-      file,
-      "python",
-      null,
-      ["python", "linux"],
-    );
-
-    const [, init] = fetchMock.mock.calls[0];
-    expect(init.body.get("template_key")).toBe("python");
-    expect(init.body.getAll("environment_keys")).toEqual(["python", "linux"]);
-  });
-
-  test("blank 建立請求會帶上評分表名稱與多選環境", async () => {
+  test("blank 建立請求會帶上檢查表名稱與多選環境", async () => {
     await AiJudgeService.createSession("class-1", {
       title: "期中環境檢查",
       creationMode: "blank",
-      rubricName: "期中評分表",
+      rubricName: "期中檢查表",
       environmentKeys: ["python", "linux"],
       selectedFileId: null,
     });
@@ -67,7 +61,7 @@ describe("AiJudgeService persistent sessions", () => {
       title: "期中環境檢查",
       selected_file_id: null,
       creation_mode: "blank",
-      rubric_name: "期中評分表",
+      rubric_name: "期中檢查表",
       environment_keys: ["python", "linux"],
     });
   });
@@ -80,12 +74,27 @@ describe("AiJudgeService persistent sessions", () => {
       title: "未命名檢查",
       selected_file_id: null,
       creation_mode: "blank",
-      rubric_name: "空白評分表",
+      rubric_name: "空白檢查表",
       environment_keys: ["n8n"],
     });
   });
 
-  test("existing 建立請求只綁定已保存的評分表", async () => {
+  test("直接建立空白檢查會帶入指定名稱", async () => {
+    await AiJudgeService.createBlankSession("class-1", {
+      title: "期末環境檢查",
+      rubricName: "期末環境檢查",
+    });
+
+    const [, init] = fetchMock.mock.calls[0];
+    expect(JSON.parse(init.body)).toMatchObject({
+      title: "期末環境檢查",
+      creation_mode: "blank",
+      rubric_name: "期末環境檢查",
+      selected_file_id: null,
+    });
+  });
+
+  test("existing 建立請求只綁定已保存的檢查表", async () => {
     await AiJudgeService.createSession("class-1", {
       title: "既有文件檢查",
       creationMode: "existing",
@@ -120,7 +129,7 @@ describe("AiJudgeService persistent sessions", () => {
     expect(JSON.parse(init.body)).toEqual({});
   });
 
-  test("評分表保存請求會帶 optimistic revision", async () => {
+  test("檢查表保存請求會帶 optimistic revision", async () => {
     const analysis = { items: [], total_items: 0 };
     await AiJudgeService.updateFileAnalysis("class-1", "file-1", analysis, 7);
 
@@ -161,7 +170,37 @@ describe("AiJudgeService persistent sessions", () => {
     expect(JSON.parse(init.body)).toEqual({ content: "檢查 nginx" });
   });
 
-  test("AI 提案請求可攜帶目前評分表 revision", async () => {
+  test("聊天室訊息可攜帶已解析附件 ID", async () => {
+    await AiJudgeService.sendSessionMessage(
+      "class-1",
+      "session-1",
+      "請依文件補充項目",
+      4,
+      { attachmentIds: ["attachment-1"] },
+    );
+
+    const [, init] = fetchMock.mock.calls[0];
+    expect(JSON.parse(init.body)).toEqual({
+      content: "請依文件補充項目",
+      analysis_revision: 4,
+      attachment_ids: ["attachment-1"],
+    });
+  });
+
+  test("聊天室附件上傳使用 session-scoped multipart endpoint", async () => {
+    const file = new File(["# requirements"], "requirements.md", { type: "text/markdown" });
+    await AiJudgeService.uploadSessionAttachment("class-1", "session-1", file);
+
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toContain(
+      "/api/v1/teaching-classes/class-1/judge/sessions/session-1/attachments",
+    );
+    expect(init.method).toBe("POST");
+    expect(init.body).toBeInstanceOf(FormData);
+    expect(init.body.get("file").name).toBe("requirements.md");
+  });
+
+  test("AI 提案請求可攜帶目前檢查表 revision", async () => {
     await AiJudgeService.sendSessionMessage("class-1", "check-1", "補充檢查步驟", 4);
 
     const [, init] = fetchMock.mock.calls[0];
@@ -171,7 +210,7 @@ describe("AiJudgeService persistent sessions", () => {
     });
   });
 
-  test("潤飾評分表請求會沿用目前評分表 revision 並啟用 refine 模式", async () => {
+  test("潤飾檢查表請求會沿用目前檢查表 revision 並啟用 refine 模式", async () => {
     await AiJudgeService.sendSessionMessage(
       "class-1",
       "check-1",
@@ -188,8 +227,34 @@ describe("AiJudgeService persistent sessions", () => {
     });
   });
 
-  test("重新評估提示會要求 AI 更新可偵測分類與評分計劃", () => {
-    expect(RUBRIC_REASSESS_PROMPT).toContain("可自動偵測程度");
+  test("Teacher Judge session AI request 以後端 60 秒 timeout 為準", async () => {
+    vi.useFakeTimers();
+    let settled = false;
+    try {
+      fetchMock.mockImplementationOnce((_url, init) => new Promise((_resolve, reject) => {
+        init.signal.addEventListener(
+          "abort",
+          () => reject(new DOMException("aborted", "AbortError")),
+          { once: true },
+        );
+      }));
+
+      const pending = AiJudgeService.sendSessionMessage("class-1", "check-1", "補充檢查");
+      pending.catch(() => { settled = true; });
+
+      await vi.advanceTimersByTimeAsync(15_000);
+      expect(settled).toBe(false);
+
+      await vi.advanceTimersByTimeAsync(TEACHER_JUDGE_REQUEST_TIMEOUT_MS - 15_000);
+      await expect(pending).rejects.toMatchObject({ status: 408, timeout: true });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  test("重新評估提示會要求 AI 更新自動檢測支援狀態與評分計劃", () => {
+    expect(RUBRIC_REASSESS_PROMPT).toContain("自動檢測支援狀態");
+    expect(RUBRIC_REASSESS_PROMPT).toContain("缺少資訊");
     expect(RUBRIC_REASSESS_PROMPT).toContain("評分計劃書");
     expect(RUBRIC_REASSESS_PROMPT).toContain("不改變原始評分目標");
     expect(RUBRIC_REASSESS_PROMPT).toContain("工作目錄");
@@ -199,7 +264,11 @@ describe("AiJudgeService persistent sessions", () => {
 
   test("潤飾提示會保留老師目標並要求補足下一層 AI 的執行資訊", () => {
     expect(RUBRIC_POLISH_PROMPT).toContain("下一層檢查 AI");
+    expect(RUBRIC_POLISH_PROMPT).toContain("auto、partial 或 manual");
     expect(RUBRIC_POLISH_PROMPT).toContain("成功條件");
+    expect(RUBRIC_POLISH_PROMPT).toContain("fallback");
+    expect(RUBRIC_POLISH_PROMPT).toContain("check_steps");
+    expect(RUBRIC_POLISH_PROMPT).toContain("完整評分項目列表");
     expect(RUBRIC_POLISH_PROMPT).toContain("不要改成較容易但不同的檢查目標");
     expect(RUBRIC_POLISH_PROMPT).toContain("非硬性範圍");
   });
@@ -212,6 +281,13 @@ describe("AiJudgeService persistent sessions", () => {
       "/api/v1/teaching-classes/class-1/judge/sessions/session-1/scripts",
     );
     expect(JSON.parse(init.body)).toEqual({});
+  });
+
+  test("session script endpoint 可綁定目前檢查表 revision", async () => {
+    await AiJudgeService.createSessionScript("class-1", "session-1", 7);
+
+    const [, init] = fetchMock.mock.calls[0];
+    expect(JSON.parse(init.body)).toEqual({ analysis_revision: 7 });
   });
 
   test("腳本產生 request 可超過一般 15 秒 timeout", async () => {

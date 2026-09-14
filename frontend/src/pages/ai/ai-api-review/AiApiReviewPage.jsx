@@ -10,10 +10,8 @@ import { useToast } from "../../../hooks/useToast";
 import useAutoRefresh from "../../../hooks/useAutoRefresh";
 import useDialogPresence from "../../../hooks/useDialogPresence";
 import PageHeader from "../../../components/PageHeader/PageHeader";
-
-function fmtTime(iso, notReviewedLabel) {
-  return iso ? new Date(iso).toLocaleString("zh-TW") : notReviewedLabel;
-}
+import SegmentedControl from "../../../components/SegmentedControl/SegmentedControl";
+import { formatDateTime } from "../../../utils/formatDate";
 
 function EmptyState() {
   const { t } = useTranslation("ai");
@@ -74,7 +72,7 @@ function ReviewDialog({ open, onClose, request, action, onDone }) {
           <div className={styles.dialogInfo}>
             <div>{t("AiApiReviewPage.dialogApplicant", { value: request.user_full_name || request.user_email })}</div>
             <div>{t("AiApiReviewPage.dialogKeyName", { value: request.api_key_name })}</div>
-            <div>{t("AiApiReviewPage.dialogAppliedAt", { value: fmtTime(request.created_at, t("AiApiReviewPage.notReviewed")) })}</div>
+            <div>{t("AiApiReviewPage.dialogAppliedAt", { value: formatDateTime(request.created_at, t("AiApiReviewPage.notReviewed")) })}</div>
             <div className={styles.dialogPurpose}>{t("AiApiReviewPage.dialogPurpose", { value: request.purpose })}</div>
           </div>
           <textarea
@@ -215,17 +213,14 @@ export default function AiApiReviewPage() {
     <div className={styles.page}>
       <PageHeader title={t("AiApiReviewPage.pageTitle")} subtitle={t("AiApiReviewPage.pageSubtitle")} />
 
-      <div className={styles.tabs}>
-        {TABS.map((tab) => (
-          <button
-            key={tab.key}
-            type="button"
-            className={`${styles.tab} ${activeTab === tab.key ? styles.tabActive : ""}`}
-            onClick={() => setActiveTab(tab.key)}
-          >
-            {tab.label}
-          </button>
-        ))}
+      <div className={styles.tabsRow}>
+        <SegmentedControl
+          className={styles.tabsControl}
+          options={TABS.map(({ key, label }) => ({ value: key, label }))}
+          value={activeTab}
+          onChange={setActiveTab}
+          ariaLabel={t("AiApiReviewPage.tabsAriaLabel")}
+        />
       </div>
 
       <div className={styles.content}>
@@ -266,8 +261,8 @@ export default function AiApiReviewPage() {
                         {STATUS_LABELS[r.status] ?? r.status}
                       </span>
                     </td>
-                    <td className={styles.td}>{fmtTime(r.created_at, t("AiApiReviewPage.notReviewed"))}</td>
-                    <td className={styles.td}>{fmtTime(r.reviewed_at, t("AiApiReviewPage.notReviewed"))}</td>
+                    <td className={styles.td}>{formatDateTime(r.created_at, t("AiApiReviewPage.notReviewed"))}</td>
+                    <td className={styles.td}>{formatDateTime(r.reviewed_at, t("AiApiReviewPage.notReviewed"))}</td>
                     <td className={styles.td}>
                       <ReviewActions item={r} onDone={load} />
                     </td>

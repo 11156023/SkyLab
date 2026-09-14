@@ -1,8 +1,9 @@
 import uuid
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 
+from sqlalchemy import ColumnElement, and_, or_
 from sqlalchemy.orm import selectinload
-from sqlmodel import Session, func, select
+from sqlmodel import Session, col, func, select
 
 from app.models import Resource, SpecChangeRequest, SpecChangeRequestStatus
 
@@ -20,6 +21,8 @@ def create_spec_change_request(
     requested_cpu: int | None = None,
     requested_memory: int | None = None,
     requested_disk: int | None = None,
+    current_expiry_date: date | None = None,
+    requested_expiry_date: date | None = None,
     commit: bool = True,
 ) -> SpecChangeRequest:
     db_request = SpecChangeRequest(
@@ -34,6 +37,8 @@ def create_spec_change_request(
         requested_cpu=requested_cpu,
         requested_memory=requested_memory,
         requested_disk=requested_disk,
+        current_expiry_date=current_expiry_date,
+        requested_expiry_date=requested_expiry_date,
         status=SpecChangeRequestStatus.pending,
         created_at=datetime.now(timezone.utc),
     )
@@ -58,6 +63,56 @@ def get_spec_change_request_by_id(
     if for_update:
         statement = statement.with_for_update()
     return session.exec(statement).first()
+
+
+# 「處理中」＝待審核，或已核准但申請人尚未套用完成。同一台機器同時只能有一張，
+# 否則兩張以快照計算的磁碟增量會疊加（A 100→200 核准後，B 100→150 會再 +50）。
+def _open_request_filter() -> ColumnElement[bool]:
+    return or_(
+        col(SpecChangeRequest.status) == SpecChangeRequestStatus.pending,
+        and_(
+            col(SpecChangeRequest.status) == SpecChangeRequestStatus.approved,
+            col(SpecChangeRequest.applied_at).is_(None),
+        ),
+    )
+
+
+def get_open_spec_change_request_by_vmid(
+    *, session: Session, vmid: int
+) -> SpecChangeRequest | None:
+    statement = (
+        select(SpecChangeRequest)
+        .options(selectinload(SpecChangeRequest.user))
+        .where(SpecChangeRequest.vmid == vmid)
+        .where(_open_request_filter())
+        .order_by(SpecChangeRequest.created_at.desc())
+    )
+    return session.exec(statement).first()
+
+
+def cancel_open_spec_change_requests_for_vmid(
+    *, session: Session, vmid: int, comment: str, commit: bool = True
+) -> int:
+    """機器刪除時把該 vmid 的處理中申請全部標成 cancelled，避免日後 VMID 被
+    新機器回收後，舊申請被核准／套用到別人的機器上。回傳筆數。"""
+    statement = (
+        select(SpecChangeRequest)
+        .where(SpecChangeRequest.vmid == vmid)
+        .where(_open_request_filter())
+    )
+    rows = list(session.exec(statement).all())
+    now = datetime.now(timezone.utc)
+    for row in rows:
+        row.status = SpecChangeRequestStatus.cancelled
+        row.review_comment = comment
+        row.reviewed_at = now
+        session.add(row)
+    if rows:
+        if commit:
+            session.commit()
+        else:
+            session.flush()
+    return len(rows)
 
 
 def get_spec_change_requests_by_user(
@@ -142,7 +197,34 @@ def update_spec_change_request_status(
     return db_request
 
 
-def mark_spec_change_applied(
+def update_spec_change_current_specs(
+    *,
+    session: Session,
+    request_id: uuid.UUID,
+    current_cpu: int | None,
+    current_memory: int | None,
+    current_disk: int | None,
+    commit: bool = True,
+) -> SpecChangeRequest:
+    """用 Proxmox 上實際生效的值覆寫建立時的「目前規格」快照。"""
+    db_request = get_spec_change_request_by_id(
+        session=session, request_id=request_id, for_update=True
+    )
+    if not db_request:
+        raise ValueError(f"Spec change request {request_id} not found")
+    db_request.current_cpu = current_cpu
+    db_request.current_memory = current_memory
+    db_request.current_disk = current_disk
+    session.add(db_request)
+    if commit:
+        session.commit()
+    else:
+        session.flush()
+    session.refresh(db_request)
+    return db_request
+
+
+def mark_spec_change_apply_started(
     *, session: Session, request_id: uuid.UUID, commit: bool = True
 ) -> SpecChangeRequest:
     db_request = get_spec_change_request_by_id(
@@ -150,7 +232,51 @@ def mark_spec_change_applied(
     )
     if not db_request:
         raise ValueError(f"Spec change request {request_id} not found")
+    db_request.apply_started_at = datetime.now(timezone.utc)
+    db_request.apply_error = None
+    session.add(db_request)
+    if commit:
+        session.commit()
+    else:
+        session.flush()
+    session.refresh(db_request)
+    return db_request
+
+
+def mark_spec_change_applied(
+    *,
+    session: Session,
+    request_id: uuid.UUID,
+    warning: str | None = None,
+    commit: bool = True,
+) -> SpecChangeRequest:
+    """規格已寫進 Proxmox。``warning`` 用於「已套用但自動開機失敗」這類
+    不影響套用結果、但使用者必須知道的情況。"""
+    db_request = get_spec_change_request_by_id(
+        session=session, request_id=request_id, for_update=True
+    )
+    if not db_request:
+        raise ValueError(f"Spec change request {request_id} not found")
     db_request.applied_at = datetime.now(timezone.utc)
+    db_request.apply_error = warning
+    session.add(db_request)
+    if commit:
+        session.commit()
+    else:
+        session.flush()
+    session.refresh(db_request)
+    return db_request
+
+
+def mark_spec_change_apply_failed(
+    *, session: Session, request_id: uuid.UUID, error: str, commit: bool = True
+) -> SpecChangeRequest:
+    db_request = get_spec_change_request_by_id(
+        session=session, request_id=request_id, for_update=True
+    )
+    if not db_request:
+        raise ValueError(f"Spec change request {request_id} not found")
+    db_request.apply_error = error[:2000]
     session.add(db_request)
     if commit:
         session.commit()

@@ -29,9 +29,16 @@ export const JobsService = {
 /**
  * 建立 /ws/jobs 即時推送連線，每次收到後端 snapshot 時呼叫 onSnapshot。
  * 斷線後每 5 秒自動重連。回傳中止函式（供 useEffect cleanup 用）。
+ *
+ * @param {string | (() => string | null)} token access token，或每次連線時取得
+ *   最新 token 的函式（token 會被 refresh 換掉，重連時要用新的才過得了認證）。
  */
 export function connectJobsWebSocket(token, onSnapshot) {
-  const url = `${wsBaseUrl()}/ws/jobs?token=${encodeURIComponent(token)}`;
+  const resolveUrl = () => {
+    const value = typeof token === "function" ? token() : token;
+    if (!value) return null;
+    return `${wsBaseUrl()}/ws/jobs?token=${encodeURIComponent(value)}`;
+  };
 
   let ws = null;
   let stopped = false;
@@ -47,6 +54,12 @@ export function connectJobsWebSocket(token, onSnapshot) {
 
   const open = () => {
     if (stopped) return;
+    const url = resolveUrl();
+    // 尚未登入／token 剛被清掉：稍後再試，不要拿空 token 去撞後端
+    if (!url) {
+      schedule();
+      return;
+    }
     try {
       ws = new WebSocket(url);
     } catch {

@@ -6,6 +6,14 @@ export const BatchProvisionService = {
     return apiGet("/api/v1/batch-provision/pending");
   },
 
+  /** Admin: 列出批次（不限狀態），審核頁的分頁需要看得到已審核的批次 */
+  listAll(params = {}) {
+    const query = new URLSearchParams();
+    if (params.status && params.status !== "all") query.set("status", params.status);
+    query.set("limit", String(params.limit ?? 100));
+    return apiGet(`/api/v1/batch-provision/?${query.toString()}`);
+  },
+
   /** 取得單一批次任務狀態 */
   getStatus(jobId) {
     return apiGet(`/api/v1/batch-provision/${jobId}/status`);

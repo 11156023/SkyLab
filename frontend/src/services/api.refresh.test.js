@@ -1,6 +1,12 @@
 import { beforeEach, describe, expect, test, vi } from "vitest";
 import { AuthStorage } from "./auth";
-import { apiGet, apiGetBlob, apiPost, refreshTokens } from "./api";
+import {
+  apiGet,
+  apiGetBlob,
+  apiPost,
+  apiPostMultipart,
+  refreshTokens,
+} from "./api";
 
 function fakeStorage() {
   const values = new Map();
@@ -494,6 +500,20 @@ describe("request cancellation and timeout", () => {
 
     await expect(
       apiPost("/api/v1/slow", {}, { timeoutMs: 5 }),
+    ).rejects.toMatchObject({ status: 408, timeout: true });
+  });
+
+  test("apiPostMultipart 支援 per-request timeout", async () => {
+    fetchMock.mockImplementationOnce((_url, init) => new Promise((_resolve, reject) => {
+      init.signal.addEventListener(
+        "abort",
+        () => reject(new DOMException("aborted", "AbortError")),
+        { once: true },
+      );
+    }));
+
+    await expect(
+      apiPostMultipart("/api/v1/slow", new FormData(), { timeoutMs: 5 }),
     ).rejects.toMatchObject({ status: 408, timeout: true });
   });
 });

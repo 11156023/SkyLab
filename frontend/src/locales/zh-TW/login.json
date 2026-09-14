@@ -71,5 +71,12 @@
   "LoginPage.confirmPasswordLabel": "確認密碼",
   "LoginPage.confirmPasswordPlaceholder": "再次輸入密碼",
   "LoginPage.creating": "建立中…",
-  "LoginPage.createAccount": "建立帳號"
+  "LoginPage.createAccount": "建立帳號",
+  "LoginPage.deviceConsentTitle": "授權桌面 App 登入",
+  "LoginPage.deviceConsentSubtitle": "SkyLab Connect 要求以您的帳號登入",
+  "LoginPage.deviceConsentIdentity": "將以 {{email}} 的身份授權桌面 App 存取您的 VM。",
+  "LoginPage.deviceConsentCurrentAccount": "目前帳號",
+  "LoginPage.deviceConsentHelp": "只有在您剛才親自在 SkyLab Connect 按下「登入」時才按下授權；若這個連結是別人傳給您的，請按「取消」。",
+  "LoginPage.deviceConsentApprove": "授權此裝置",
+  "LoginPage.deviceConsentDecline": "取消"
 }

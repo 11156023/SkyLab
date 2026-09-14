@@ -37,7 +37,7 @@
   "run.no_ip": "VMID {vmid} has no available IP address.",
   "run.no_ssh_key": "VMID {vmid} has no available SSH key.",
   "run.manual_scope_only": "The first version only supports manually selecting machines to run on.",
-  "run.artifact_not_approved": "Only approved scripts can be executed.",
+  "run.artifact_not_approved": "Only scripts that pass static and AI checks can be executed.",
   "run.no_target_selected": "Please select at least one running VM/LXC.",
   "run.too_many_targets": "You can select up to 5 VM/LXC instances at a time.",
 

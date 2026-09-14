@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { Navigate } from "react-router-dom";
 import { Trans, useTranslation } from "react-i18next";
 import styles from "./ReverseProxyPage.module.scss";
 import useDialogPresence from "../../../hooks/useDialogPresence";
@@ -9,88 +10,9 @@ import { useAuth } from "../../../contexts/AuthContext";
 import { useToast } from "../../../hooks/useToast";
 import { ReverseProxyService } from "../../../services/reverseProxy";
 import ReverseProxyRuleModal from "../../../components/ReverseProxyRuleModal/ReverseProxyRuleModal";
-import PageHeader from "../../../components/PageHeader/PageHeader";
 
 function isAdminUser(user) {
   return user?.role === "admin" || user?.is_superuser === true;
-}
-
-/* ── How it works（靜態說明） ───────────────────────── */
-function HowItWorks() {
-  const { t } = useTranslation("network");
-  const [open, setOpen] = useState(false);
-
-  const STEPS = [
-    {
-      num: "1",
-      title: t("ReverseProxyPage.howItWorks.step1Title"),
-      desc: t("ReverseProxyPage.howItWorks.step1Desc"),
-    },
-    {
-      num: "2",
-      title: t("ReverseProxyPage.howItWorks.step2Title"),
-      desc: t("ReverseProxyPage.howItWorks.step2Desc"),
-    },
-    {
-      num: "3",
-      title: t("ReverseProxyPage.howItWorks.step3Title"),
-      desc: t("ReverseProxyPage.howItWorks.step3Desc"),
-    },
-  ];
-
-  const PREREQS = [
-    t("ReverseProxyPage.howItWorks.prereq1"),
-    t("ReverseProxyPage.howItWorks.prereq2"),
-    t("ReverseProxyPage.howItWorks.prereq3"),
-  ];
-
-  return (
-    <div className={styles.infoCard}>
-      <button
-        type="button"
-        className={styles.infoToggle}
-        onClick={() => setOpen((v) => !v)}
-        aria-expanded={open}
-        data-guide="proxy-help"
-      >
-        <span className={styles.infoToggleLeft}>
-          <MIcon name="help_outline" size={16} />
-          {t("ReverseProxyPage.howItWorks.toggle")}
-        </span>
-        <span className={`${styles.infoChevron} ${open ? styles.open : ""}`}>
-          <MIcon name="expand_more" size={18} />
-        </span>
-      </button>
-
-      {open && (
-        <div className={styles.infoBody}>
-          <div className={styles.steps}>
-            {STEPS.map((s) => (
-              <div key={s.num} className={styles.step}>
-                <div className={styles.stepNum}>{s.num}</div>
-                <div className={styles.stepContent}>
-                  <span className={styles.stepTitle}>{s.title}</span>
-                  <span className={styles.stepDesc}>{s.desc}</span>
-                </div>
-              </div>
-            ))}
-          </div>
-
-          <div className={styles.prereqBox}>
-            <span className={styles.prereqTitle}>
-              <MIcon name="checklist" size={15} />
-              {t("ReverseProxyPage.howItWorks.prereqTitle")}
-            </span>
-            <ul className={styles.prereqList}>
-              {PREREQS.map((p) => (
-                <li key={p}>{p}</li>
-              ))}
-            </ul>
-          </div>
-        </div>
-      )}
-    </div>
-  );
 }
 
 /* ── Traefik Runtime（Admin） ───────────────────────── */
@@ -202,8 +124,8 @@ function TraefikPanel() {
   );
 }
 
-/* ── Page ──────────────────────────────────────────── */
-export default function ReverseProxyPage() {
+/* ── Panel（嵌在網域管理頁的「對外網址」分頁；管理員總覽所有 VM 的對外網址） ── */
+export function ReverseProxyPanel() {
   const { t } = useTranslation("network");
   const { user } = useAuth();
   const toast = useToast();
@@ -293,23 +215,7 @@ export default function ReverseProxyPage() {
   }
 
   return (
-    <div className={styles.page}>
-      {/* Header */}
-      <PageHeader title={t("ReverseProxyPage.title")} subtitle={t("ReverseProxyPage.subtitle")}>
-        <div className={styles.headerActions}>
-          {isAdmin && (
-            <button type="button" className={styles.btnSecondary} onClick={handleSync} disabled={syncing}>
-              <MIcon name="sync" size={16} />
-              {syncing ? t("ReverseProxyPage.syncing") : t("ReverseProxyPage.resync")}
-            </button>
-          )}
-          <button type="button" className={styles.btnPrimary} onClick={openCreate} data-guide="proxy-create">
-            <MIcon name="add" size={16} />
-            {t("ReverseProxyPage.addDomain")}
-          </button>
-        </div>
-      </PageHeader>
-
+    <div className={styles.panel}>
       {setupBlocked && (
         <div className={styles.noticeDanger}>
           <p><strong>{t("ReverseProxyPage.featureDisabled")}</strong></p>
@@ -317,70 +223,89 @@ export default function ReverseProxyPage() {
         </div>
       )}
 
-      {/* How it works */}
-      <HowItWorks />
+      {/* 清單卡片：頁首由網域管理頁提供，這裡只放「標題＋筆數」與動作列，下面接網址列表 */}
+      <section className={styles.listCard}>
+        <div className={styles.listToolbar}>
+          <div className={styles.listHeading}>
+            <h2 className={styles.listTitle}>{t("ReverseProxyPage.listTitle")}</h2>
+            {!loading && (
+              <span className={styles.listCount}>
+                {t("ReverseProxyPage.listCount", { count: rules.length })}
+              </span>
+            )}
+          </div>
+          <div className={styles.headerActions}>
+            {isAdmin && (
+              <button type="button" className={styles.btnSecondary} onClick={handleSync} disabled={syncing}>
+                <MIcon name="sync" size={16} />
+                {syncing ? t("ReverseProxyPage.syncing") : t("ReverseProxyPage.resync")}
+              </button>
+            )}
+            <button type="button" className={styles.btnPrimary} onClick={openCreate} data-guide="proxy-create">
+              <MIcon name="add" size={16} />
+              {t("ReverseProxyPage.addDomain")}
+            </button>
+          </div>
+        </div>
 
-      {/* Route list / empty */}
-      <div className={styles.content} data-guide="proxy-list">
-        {loading ? (
-          <LoadingState text={t("ReverseProxyPage.loadingList")} />
-        ) : rules.length === 0 ? (
-          <EmptyState
-            icon="swap_horiz"
-            title={t("ReverseProxyPage.emptyTitle")}
-          />
-        ) : (
-          <>
+        <p className={styles.listDesc}>{t("ReverseProxyPage.listDesc")}</p>
+
+        <div className={styles.listBody} data-guide="proxy-list">
+          {loading ? (
+            <LoadingState text={t("ReverseProxyPage.loadingList")} />
+          ) : rules.length === 0 ? (
+            <EmptyState icon="swap_horiz" title={t("ReverseProxyPage.emptyTitle")} />
+          ) : (
             <div className={styles.list}>
               {rules.map((rule) => (
                 <div key={rule.id} className={styles.row}>
-                <div className={styles.rowIcon}>
-                  <MIcon name="swap_horiz" size={20} />
-                </div>
-                <div className={styles.rowMain}>
-                  <span className={styles.rowName}>{rule.domain}</span>
-                  <span className={styles.rowMeta}>
-                    {t("ReverseProxyPage.rowMeta", { vmid: rule.vmid, ip: rule.vm_ip, port: rule.internal_port })}
-                    {rule.enable_https && (
-                      <span className={styles.badge}>
-                        <MIcon name="lock" size={11} /> HTTPS
-                      </span>
-                    )}
-                  </span>
-                </div>
-                <a
-                  className={styles.rowStatus}
-                  href={`${rule.enable_https ? "https" : "http"}://${rule.domain}`}
-                  target="_blank"
-                  rel="noreferrer"
-                >
-                  <MIcon name="open_in_new" size={14} />
-                  {t("ReverseProxyPage.open")}
-                </a>
-                <div className={styles.rowActions}>
-                  <button
-                    type="button"
-                    className={styles.actionBtn}
-                    title={t("ReverseProxyPage.edit")}
-                    onClick={() => setModal({ kind: "rule", rule })}
+                  <div className={styles.rowIcon}>
+                    <MIcon name="swap_horiz" size={20} />
+                  </div>
+                  <div className={styles.rowMain}>
+                    <span className={styles.rowName}>{rule.domain}</span>
+                    <span className={styles.rowMeta}>
+                      {t("ReverseProxyPage.rowMeta", { vmid: rule.vmid, ip: rule.vm_ip, port: rule.internal_port })}
+                      {rule.enable_https && (
+                        <span className={styles.badge}>
+                          <MIcon name="lock" size={11} /> HTTPS
+                        </span>
+                      )}
+                    </span>
+                  </div>
+                  <a
+                    className={styles.rowStatus}
+                    href={`${rule.enable_https ? "https" : "http"}://${rule.domain}`}
+                    target="_blank"
+                    rel="noreferrer"
                   >
-                    <MIcon name="edit" size={16} />
-                  </button>
-                  <button
-                    type="button"
-                    className={`${styles.actionBtn} ${styles.actionBtnDanger}`}
-                    title={t("ReverseProxyPage.delete")}
-                    onClick={() => setModal({ kind: "delete", rule })}
-                  >
-                    <MIcon name="delete" size={16} />
-                  </button>
-                </div>
+                    <MIcon name="open_in_new" size={14} />
+                    {t("ReverseProxyPage.open")}
+                  </a>
+                  <div className={styles.rowActions}>
+                    <button
+                      type="button"
+                      className={styles.actionBtn}
+                      title={t("ReverseProxyPage.edit")}
+                      onClick={() => setModal({ kind: "rule", rule })}
+                    >
+                      <MIcon name="edit" size={16} />
+                    </button>
+                    <button
+                      type="button"
+                      className={`${styles.actionBtn} ${styles.actionBtnDanger}`}
+                      title={t("ReverseProxyPage.delete")}
+                      onClick={() => setModal({ kind: "delete", rule })}
+                    >
+                      <MIcon name="delete" size={16} />
+                    </button>
+                  </div>
                 </div>
               ))}
             </div>
-          </>
-        )}
-      </div>
+          )}
+        </div>
+      </section>
 
       {/* Admin: Traefik */}
       {isAdmin && <TraefikPanel />}
@@ -427,4 +352,9 @@ export default function ReverseProxyPage() {
       )}
     </div>
   );
+}
+
+/* ── 舊網址：獨立頁已併入網域管理（管理員），直接導過去 ── */
+export default function ReverseProxyPage() {
+  return <Navigate to="/domain?tab=reverse-proxy" replace />;
 }

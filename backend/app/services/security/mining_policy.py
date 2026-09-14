@@ -11,8 +11,7 @@ import enum
 from datetime import datetime, timedelta
 from typing import Any
 
-# PVE day timeframe 的取樣密度 ≈ 每 30 分鐘一點
-_DAY_TIMEFRAME_POINTS_PER_HOUR = 2.0
+from app.infrastructure.proxmox.rrd import sampling_step_seconds
 
 # 視窗內有效樣本覆蓋率下限 — 低於此值視為資料不足，不判定
 MIN_SAMPLE_COVERAGE = 2.0 / 3.0
@@ -28,8 +27,10 @@ def cpu_stats(
 ) -> tuple[float, float] | None:
     """RRD 視窗內的 (平均 CPU percent, 樣本覆蓋率)。
 
-    覆蓋率 = 視窗內有 cpu 值的點數 / 期望點數（day timeframe 每 30 分鐘
-    一點），封頂 1.0。視窗內無任何有效點回傳 None。
+    覆蓋率 = 視窗內有 cpu 值的點數 / 期望點數，封頂 1.0。期望點數由 RRD
+    自身的取樣間隔推得（day 約 30 分鐘一點、week 約 3 小時一點），
+    所以換 timeframe 或 PVE 版本都不必改這裡；推不出間隔（不足兩點）
+    時覆蓋率為 0。視窗內無任何有效點回傳 None。
     """
     window_start = (now - timedelta(hours=window_hours)).timestamp()
     values: list[float] = []
@@ -42,9 +43,12 @@ def cpu_stats(
             values.append(float(cpu) * 100.0)
     if not values:
         return None
-    expected_points = max(window_hours * _DAY_TIMEFRAME_POINTS_PER_HOUR, 1.0)
-    coverage = min(len(values) / expected_points, 1.0)
-    return sum(values) / len(values), coverage
+    avg = sum(values) / len(values)
+    step = sampling_step_seconds(rrd)
+    if step is None or step <= 0:
+        return avg, 0.0
+    expected_points = max(window_hours * 3600.0 / step, 1.0)
+    return avg, min(len(values) / expected_points, 1.0)
 
 
 def decide_mining_action(

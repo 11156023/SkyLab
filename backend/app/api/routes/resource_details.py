@@ -6,6 +6,7 @@ from fastapi.responses import FileResponse
 
 from app.api.deps import (
     AdminUser,
+    ControlResourceInfoDep,
     CurrentUser,
     InstructorUser,
     ResourceInfoDep,
@@ -83,14 +84,14 @@ def download_template_manual(
 
 
 @router.get("/{vmid}/current-stats", response_model=CurrentStatsResponse)
-def get_current_stats(vmid: int, resource_info: ResourceInfoDep):
+def get_current_stats(vmid: int, resource_info: ControlResourceInfoDep):
     stats = resource_service.get_current_stats(vmid=vmid, resource_info=resource_info)
     return CurrentStatsResponse(**stats)
 
 
 @router.get("/{vmid}/stats", response_model=RRDDataResponse)
 def get_rrd_stats(
-    vmid: int, resource_info: ResourceInfoDep, timeframe: str = "hour"
+    vmid: int, resource_info: ControlResourceInfoDep, timeframe: str = "hour"
 ):
     rrd_data = resource_service.get_rrd_stats(
         vmid=vmid, resource_info=resource_info, timeframe=timeframe

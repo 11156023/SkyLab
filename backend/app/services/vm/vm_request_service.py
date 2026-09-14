@@ -304,6 +304,35 @@ def _apply_template_floor(request_in: VMRequestCreate, template: VMTemplate) -> 
         request_in.disk_size = max(int(request_in.disk_size or 0), floor)
 
 
+def _apply_source_disk_floor(session: Session, request_in: VMRequestCreate) -> None:
+    """課程 / 快速練習路徑的磁碟下限。
+
+    這兩條路的規格來自課程模板而非公開申請表單，不會經過 ``create`` 的
+    ``_apply_template_floor``；但克隆機一樣天生就是來源範本的大小，不先拉
+    高就會發生「配額記 20 GB、實際開出 40 GB」的超賣。來源已註冊時用資料
+    庫的 default_disk，未註冊（自訂規格挑的 PVE 範本）才去問 PVE。
+    """
+    template_vmid = getattr(request_in, "template_id", None)
+    if not template_vmid:
+        return
+
+    template = vm_template_repo.get_template_by_pve_vmid(
+        session=session, pve_vmid=int(template_vmid)
+    )
+    if template is not None:
+        _apply_template_floor(request_in, template)
+        return
+
+    if request_in.resource_type == "lxc":
+        return
+    # 頂層 import 會與 provisioning_service 互相相依
+    from app.services.proxmox import provisioning_service  # noqa: PLC0415
+
+    floor = provisioning_service.template_disk_floor_gb(int(template_vmid))
+    if floor:
+        request_in.disk_size = max(int(request_in.disk_size or 0), floor)
+
+
 def _require_template_gpu(request_in: VMRequestCreate, template: VMTemplate) -> None:
     """範本政策 requires_gpu：用這個範本申請時必須配置 GPU。
 
@@ -511,6 +540,7 @@ def create_course_request(
 
     呼叫端負責 commit 與 commit 後的背景 provision 觸發。
     """
+    _apply_source_disk_floor(session, request_in)
     quota_service.check_quota(
         session,
         user.id,
@@ -561,6 +591,8 @@ def create_quick_practice_request(
     aggregate quota and active-session limits before calling this function.
     Keeping the request creation here preserves the same approval, placement,
     audit and provisioning path used by the legacy quick-template flow.
+    Disk floors are resolved by the orchestrator (``quick_practice``) so that
+    the quota it enforces and the request written here use the same value.
     """
     db_request = vm_request_repo.create_vm_request(
         session=session,

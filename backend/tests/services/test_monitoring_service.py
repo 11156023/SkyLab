@@ -5,6 +5,8 @@ import uuid
 import pytest
 
 from app.exceptions import BadRequestError, PermissionDeniedError
+from app.infrastructure.proxmox.operations import MonitoringSnapshot
+from app.schemas.monitoring import MonitoringThresholds
 from app.services.monitoring import monitoring_service
 
 NODES = [
@@ -143,6 +145,151 @@ def test_build_overview_empty() -> None:
     assert overview.nodes_total == 0
     assert overview.cpu_total == 0
     assert overview.top_cpu == []
+
+
+def test_build_overview_reports_saturation_once_per_target() -> None:
+    nodes = [
+        {"node": "pve1", "status": "online", "cpu": 0.95, "maxcpu": 8,
+         "mem": 95, "maxmem": 100, "disk": 99, "maxdisk": 100},
+        {"node": "pve2", "status": "offline", "cpu": 0, "maxcpu": 8,
+         "mem": 0, "maxmem": 100, "disk": 0, "maxdisk": 100},
+    ]
+    resources = [
+        {"vmid": 100, "name": "vm-cpu-and-memory", "node": "pve1",
+         "type": "qemu", "status": "running", "cpu": 0.95,
+         "mem": 95, "maxmem": 100},
+        {"vmid": 101, "name": "vm-memory", "node": "pve1",
+         "type": "qemu", "status": "running", "cpu": 0.1,
+         "mem": 95, "maxmem": 100},
+        {"vmid": 200, "name": "ct-cpu", "node": "pve1",
+         "type": "lxc", "status": "running", "cpu": 0.95,
+         "mem": 0, "maxmem": 0},
+        {"vmid": 201, "name": "stopped", "node": "pve1",
+         "type": "lxc", "status": "stopped", "cpu": 0.99,
+         "mem": 99, "maxmem": 100},
+        {"vmid": 900, "name": "template", "node": "pve1",
+         "type": "qemu", "status": "running", "template": 1,
+         "cpu": 0.99, "mem": 99, "maxmem": 100},
+    ]
+
+    overview = monitoring_service.build_overview(
+        nodes,
+        resources,
+        thresholds=MonitoringThresholds(cpu=90, memory=90),
+    )
+
+    assert overview.nodes_saturated == 1
+    assert overview.vms_saturated == 2
+    assert overview.lxc_saturated == 1
+    assert overview.vms_running == 2
+    assert overview.lxc_running == 1
+    assert overview.overall_status == "critical"
+
+    by_target = {issue.target: issue for issue in overview.issues}
+    assert set(by_target) == {"pve1", "pve2", "vm-cpu-and-memory", "vm-memory", "ct-cpu"}
+    assert by_target["pve2"].kind == "node_offline"
+    assert {signal.metric for signal in by_target["pve1"].signals} == {"cpu", "memory"}
+    assert by_target["vm-cpu-and-memory"].kind == "guest_overloaded"
+    assert {signal.metric for signal in by_target["vm-cpu-and-memory"].signals} == {"cpu", "memory"}
+
+
+def test_build_overview_does_not_mark_zero_capacity_as_saturated() -> None:
+    overview = monitoring_service.build_overview(
+        [{"node": "pve1", "status": "online", "cpu": 0, "maxcpu": 0,
+          "mem": 0, "maxmem": 0, "disk": 0, "maxdisk": 0}],
+        [{"vmid": 100, "name": "vm-empty", "type": "qemu", "status": "running",
+          "cpu": 0, "mem": 0, "maxmem": 0}],
+    )
+
+    assert overview.overall_status == "healthy"
+    assert overview.nodes_saturated == 0
+    assert overview.vms_saturated == 0
+    assert overview.issues == []
+
+
+def test_get_overview_uses_governance_thresholds(monkeypatch: pytest.MonkeyPatch) -> None:
+    class FakeConfig:
+        alert_cpu_threshold = 80
+        alert_memory_threshold = 85
+
+    monkeypatch.setattr(
+        monitoring_service.proxmox_service,
+        "collect_monitoring_snapshot",
+        lambda: MonitoringSnapshot([], [], 0, 1),
+    )
+    monkeypatch.setattr(monitoring_service, "_connection_names", lambda session: {})
+    monkeypatch.setattr(
+        monitoring_service.governance_repo,
+        "get_governance_config",
+        lambda *, session: FakeConfig(),
+    )
+
+    overview = monitoring_service.get_overview(session=None)  # type: ignore[arg-type]
+
+    assert overview.thresholds.cpu == 80
+    assert overview.thresholds.memory == 85
+
+
+def test_get_overview_defaults_thresholds_when_governance_unavailable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def unavailable_config(*, session: object) -> None:
+        raise RuntimeError("db unavailable")
+
+    monkeypatch.setattr(
+        monitoring_service.proxmox_service,
+        "collect_monitoring_snapshot",
+        lambda: MonitoringSnapshot([], [], 0, 1),
+    )
+    monkeypatch.setattr(monitoring_service, "_connection_names", lambda session: {})
+    monkeypatch.setattr(
+        monitoring_service.governance_repo,
+        "get_governance_config",
+        unavailable_config,
+    )
+
+    overview = monitoring_service.get_overview(session=None)  # type: ignore[arg-type]
+
+    assert overview.thresholds.cpu == 90
+    assert overview.thresholds.memory == 90
+
+
+def test_get_overview_marks_partial_pve_snapshot(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        monitoring_service.proxmox_service,
+        "collect_monitoring_snapshot",
+        lambda: MonitoringSnapshot(
+            nodes=[{
+                "node": "pve1",
+                "status": "online",
+                "cpu": 0.1,
+                "maxcpu": 4,
+                "mem": 1,
+                "maxmem": 4,
+                "disk": 1,
+                "maxdisk": 4,
+                "uptime": 60,
+            }],
+            resources=[],
+            failed_connections=1,
+            total_connections=2,
+        ),
+    )
+    monkeypatch.setattr(monitoring_service, "_connection_names", lambda session: {})
+    monkeypatch.setattr(
+        monitoring_service.governance_repo,
+        "get_governance_config",
+        lambda *, session: type(
+            "FakeConfig",
+            (),
+            {"alert_cpu_threshold": 90, "alert_memory_threshold": 90},
+        )(),
+    )
+
+    overview = monitoring_service.get_overview(session=None)  # type: ignore[arg-type]
+
+    assert overview.data_status == "partial"
+    assert overview.overall_status == "warning"
 
 
 def test_get_node_rrd_rejects_bad_timeframe() -> None:

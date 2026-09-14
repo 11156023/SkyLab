@@ -103,5 +103,15 @@
   "gateway.restartTraefikFailed": "Traefik の再起動に失敗しました",
   "gateway.applyTraefikDnsChallengeFailed": "Traefik の dnsChallenge 設定の適用に失敗しました：{error}",
   "gateway.invalidAction": "無効な操作です：{action}",
-  "gateway.noOutput": "出力なし"
+  "gateway.noOutput": "出力なし",
+  "publish.targetIpInvalid": "対象 IP アドレスの形式が不正なため、外部アクセスを作成できません: {ip}",
+  "publish.targetIpNotPublishable": "対象 IP {ip} は外部公開できないアドレスです",
+  "publish.targetIpInfrastructure": "対象 IP {ip} はプラットフォーム基盤（Gateway / PVE ノード）に属するため、外部公開できません",
+  "publish.targetIpBlocked": "対象 IP {ip} は管理者がブロックしたサブネット {network} に含まれるため、外部公開できません",
+  "publish.targetIpOutsideVmSubnet": "対象 IP {ip} はプラットフォームが割り当てた VM サブネットの範囲外のため、外部アクセスを作成できません。VM が割り当て IP を使用しているか確認してください",
+  "firewall.servicePortAlreadyPublished": "ポート {port}/{protocol} はすでに公開されています。再設定する前に公開を解除してください",
+  "firewall.serviceNotFound": "ポート {port}/{protocol} の公開サービスが見つかりません",
+  "firewall.serviceUnpublished": "公開サービスを解除しました",
+  "reverseProxy.domainConflictUnverified": "{domain} が使用中かどうかを Cloudflare で確認できませんでした。本システムの記録のみ確認しています",
+  "reverseProxy.domainInUseExternally": "ドメイン {domain} には Cloudflare 上にすでに {record_type} レコードがあります（本システム以外で作成）。別の名前を選んでください"
 }

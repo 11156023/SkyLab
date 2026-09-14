@@ -12,6 +12,7 @@ import {
   AuthSessionStatus,
   restoreStoredSession,
 } from "../services/authSession";
+import { unsubscribePush } from "../services/webPush";
 
 const AuthContext = createContext(null);
 
@@ -63,6 +64,10 @@ export function AuthProvider({ children }) {
       "/api/v1/login/logout",
       refreshToken ? { refresh_token: refreshToken } : {},
     ).catch(() => {});
+
+    // 登出後這台瀏覽器不該再收到這個帳號的推播：解除本機訂閱（fire-and-forget）。
+    // 後端那筆訂閱即使來不及刪，endpoint 失效後推播服務會回 410，後端自行清掉。
+    unsubscribePush().catch(() => {});
 
     AuthStorage.clearTokens();
     setSession({

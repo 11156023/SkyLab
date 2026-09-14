@@ -25,23 +25,27 @@ async def test_chat_forwards_session_to_service(
         history: list[dict] | None = None,
         session=None,
         allowed_vmids=None,
+        requester_id=None,
     ) -> ChatResponse:
         captured["message"] = message
         captured["history"] = history
         captured["session"] = session
         captured["allowed_vmids"] = allowed_vmids
+        captured["requester_id"] = requester_id
         return ChatResponse(reply="ok")
 
     monkeypatch.setattr(route, "pve_chat", _fake_chat)
     fake_session = object()
+    fake_user = type("UserStub", (), {"id": "user-1"})()
     result = await route.chat(
         ChatRequest(message="ping"),
-        object(),
+        fake_user,
         fake_session,
     )
     assert result.reply == "ok"
     assert captured["session"] is fake_session
     assert captured["allowed_vmids"] is None
+    assert captured["requester_id"] == "user-1"
 
 
 @pytest.mark.asyncio
@@ -50,8 +54,14 @@ async def test_post_ssh_exec_forwards_session(
 ) -> None:
     captured: dict[str, object] = {}
 
-    async def _fake_ssh_exec(req: SSHExecRequest, *, session=None) -> SSHExecResult:
+    async def _fake_ssh_exec(
+        req: SSHExecRequest,
+        *,
+        session=None,
+        requester_id=None,
+    ) -> SSHExecResult:
         captured["session"] = session
+        captured["requester_id"] = requester_id
         return SSHExecResult(
             vmid=req.vmid,
             host="127.0.0.1",
@@ -63,9 +73,11 @@ async def test_post_ssh_exec_forwards_session(
 
     fake_session = object()
     req = SSHExecRequest(vmid=157, command="python3 --version")
-    result = await route.post_ssh_exec(req, object(), fake_session)
+    fake_user = type("UserStub", (), {"id": "user-1"})()
+    result = await route.post_ssh_exec(req, fake_user, fake_session)
     assert result.vmid == 157
     assert captured["session"] is fake_session
+    assert captured["requester_id"] == "user-1"
 
 
 @pytest.mark.asyncio
@@ -78,8 +90,10 @@ async def test_post_ssh_confirm_forwards_session(
         req: SSHConfirmRequest,
         *,
         session=None,
+        requester_id=None,
     ) -> SSHExecResult:
         captured["session"] = session
+        captured["requester_id"] = requester_id
         return SSHExecResult(
             vmid=157,
             command=req.command or "python3 --version",
@@ -93,6 +107,8 @@ async def test_post_ssh_confirm_forwards_session(
         approved=True,
         command="python3 --version",
     )
-    result = await route.post_ssh_confirm(req, object(), fake_session)
+    fake_user = type("UserStub", (), {"id": "user-1"})()
+    result = await route.post_ssh_confirm(req, fake_user, fake_session)
     assert result.vmid == 157
     assert captured["session"] is fake_session
+    assert captured["requester_id"] == "user-1"

@@ -59,7 +59,8 @@ class Settings(BaseSettings):
     )
 
     # ---- 伺服器設定 ----
-    api_host: str = Field(default="0.0.0.0", description="API 監聽地址")
+    # 預設只監聽本機：vLLM 由同機的 LiteLLM 代理對外，避免以弱預設金鑰直接暴露
+    api_host: str = Field(default="127.0.0.1", description="API 監聽地址")
     api_port: int = Field(default=8000, description="API 監聽埠", ge=1, le=65535)
     api_key: str = Field(
         default="vllm-secret-key-change-me",

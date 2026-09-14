@@ -14,11 +14,16 @@ from .resource import (
     update_resource,
 )
 from .spec_change_request import (
+    cancel_open_spec_change_requests_for_vmid,
     create_spec_change_request,
     get_all_spec_change_requests,
+    get_open_spec_change_request_by_vmid,
     get_spec_change_request_by_id,
     get_spec_change_requests_by_user,
     mark_spec_change_applied,
+    mark_spec_change_apply_failed,
+    mark_spec_change_apply_started,
+    update_spec_change_current_specs,
     update_spec_change_request_status,
 )
 from .user import (

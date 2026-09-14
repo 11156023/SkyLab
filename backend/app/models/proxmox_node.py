@@ -3,7 +3,6 @@
 from datetime import datetime
 
 import sqlalchemy as sa
-from sqlalchemy import Column, DateTime
 from sqlmodel import Field, SQLModel, UniqueConstraint
 
 
@@ -18,7 +17,7 @@ class ProxmoxNode(SQLModel, table=True):
     id: int | None = Field(default=None, primary_key=True)
     connection_id: int | None = Field(
         default=None,
-        sa_column=Column(
+        sa_column=sa.Column(
             sa.Integer,
             sa.ForeignKey(
                 "proxmox_connections.id",
@@ -36,7 +35,7 @@ class ProxmoxNode(SQLModel, table=True):
     is_online: bool = Field(default=True)       # 最近一次連線結果
     last_checked: datetime | None = Field(
         default=None,
-        sa_type=DateTime(timezone=True),
+        sa_type=sa.DateTime(timezone=True),
     )
     priority: int = Field(default=5, ge=1, le=10)   # 1=最高優先, 10=最低；對應 simulator ServerInput.priority
     enabled: bool = Field(default=True)             # 停用後不接收新 VM（不參與放置）；既有 VM 不受影響

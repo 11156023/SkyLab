@@ -1,11 +1,13 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import MIcon from "../../../components/MIcon";
 import { TeachingClassesService } from "../../../services/teachingClasses";
+import { focusInvalidField } from "../../../utils/focusField";
 import {
-  CLASS_TIMEZONES,
+  BOOT_LEAD_OPTIONS,
   classSchedulePayload,
   createClassScheduleForm,
+  SHUTDOWN_GRACE_OPTIONS,
 } from "../classScheduleForm";
 import styles from "../CourseOperations.module.scss";
 
@@ -31,6 +33,8 @@ export default function ClassCreateDialog({
   const [form, setForm] = useState(() => createClassScheduleForm(item));
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
+  const [nameInvalid, setNameInvalid] = useState(false);
+  const nameInputRef = useRef(null);
 
   useEffect(() => {
     function closeOnEscape(event) {
@@ -46,7 +50,11 @@ export default function ClassCreateDialog({
 
   async function submit(event) {
     event.preventDefault();
-    if (!form.name.trim()) return;
+    if (!form.name.trim()) {
+      setNameInvalid(true);
+      focusInvalidField(nameInputRef.current);
+      return;
+    }
     setSubmitting(true);
     setError("");
     try {
@@ -104,18 +112,12 @@ export default function ClassCreateDialog({
                 <label className={`${styles.field} ${styles.createNameField}`}>
                   <span>{t("ClassCreateDialog.fieldClassName")}</span>
                   <input
+                    ref={nameInputRef}
+                    className={nameInvalid ? styles.fieldInvalid : undefined}
                     value={form.name}
-                    onChange={(event) => update("name", event.target.value)}
+                    onChange={(event) => { update("name", event.target.value); setNameInvalid(false); }}
                     placeholder={t("ClassCreateDialog.classNamePlaceholder")}
                     autoFocus
-                  />
-                </label>
-                <label className={styles.field}>
-                  <span>{t("ClassCreateDialog.fieldClassCode")}</span>
-                  <input
-                    value={form.code}
-                    onChange={(event) => update("code", event.target.value)}
-                    placeholder="CS-LINUX-1141"
                   />
                 </label>
                 <label className={styles.field}>
@@ -173,33 +175,22 @@ export default function ClassCreateDialog({
                   </select>
                 </label>
                 <label className={styles.field}>
-                  <span>{t("ClassCreateDialog.fieldStartTime")}</span>
-                  <input
-                    type="time"
-                    value={form.startTime}
-                    onChange={(event) =>
-                      update("startTime", event.target.value)
-                    }
-                  />
-                </label>
-                <label className={styles.field}>
-                  <span>{t("ClassCreateDialog.fieldEndTime")}</span>
-                  <input
-                    type="time"
-                    value={form.endTime}
-                    onChange={(event) => update("endTime", event.target.value)}
-                  />
-                </label>
-                <label className={styles.field}>
-                  <span>{t("ClassCreateDialog.fieldTimezone")}</span>
-                  <select
-                    value={form.timezone}
-                    onChange={(event) => update("timezone", event.target.value)}
-                  >
-                    {CLASS_TIMEZONES.map((timezone) => (
-                      <option key={timezone}>{timezone}</option>
-                    ))}
-                  </select>
+                  <span>{t("ClassCreateDialog.fieldClassTime")}</span>
+                  <div className={styles.timePair}>
+                    <input
+                      type="time"
+                      value={form.startTime}
+                      onChange={(event) =>
+                        update("startTime", event.target.value)
+                      }
+                    />
+                    <i>{t("ClassCreateDialog.timeRangeSeparator")}</i>
+                    <input
+                      type="time"
+                      value={form.endTime}
+                      onChange={(event) => update("endTime", event.target.value)}
+                    />
+                  </div>
                 </label>
                 <label className={styles.field}>
                   <span>{t("ClassCreateDialog.fieldBootLead")}</span>
@@ -209,11 +200,30 @@ export default function ClassCreateDialog({
                       update("bootLeadMinutes", Number(event.target.value))
                     }
                   >
-                    <option value={0}>{t("ClassCreateDialog.bootLeadOnTime")}</option>
-                    <option value={5}>{t("ClassCreateDialog.bootLeadMinutesOption", { minutes: 5 })}</option>
-                    <option value={10}>{t("ClassCreateDialog.bootLeadMinutesOption", { minutes: 10 })}</option>
-                    <option value={15}>{t("ClassCreateDialog.bootLeadMinutesOption", { minutes: 15 })}</option>
-                    <option value={30}>{t("ClassCreateDialog.bootLeadMinutesOption", { minutes: 30 })}</option>
+                    {BOOT_LEAD_OPTIONS.map((minutes) => (
+                      <option key={minutes} value={minutes}>
+                        {minutes === 0
+                          ? t("ClassCreateDialog.bootLeadOnTime")
+                          : t("ClassCreateDialog.bootLeadMinutesOption", { minutes })}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className={styles.field}>
+                  <span>{t("ClassCreateDialog.fieldShutdownGrace")}</span>
+                  <select
+                    value={form.shutdownGraceMinutes}
+                    onChange={(event) =>
+                      update("shutdownGraceMinutes", Number(event.target.value))
+                    }
+                  >
+                    {SHUTDOWN_GRACE_OPTIONS.map((minutes) => (
+                      <option key={minutes} value={minutes}>
+                        {minutes === 0
+                          ? t("ClassCreateDialog.shutdownGraceImmediate")
+                          : t("ClassCreateDialog.shutdownGraceMinutesOption", { minutes })}
+                      </option>
+                    ))}
                   </select>
                 </label>
               </div>
@@ -233,7 +243,7 @@ export default function ClassCreateDialog({
             <button
               type="submit"
               className={styles.btnPrimary}
-              disabled={!form.name.trim() || submitting}
+              disabled={submitting}
             >
               {submitting ? t("ClassCreateDialog.savingBtn") : isEdit ? t("ClassCreateDialog.saveChangesBtn") : t("ClassCreateDialog.createClassBtn")}
             </button>

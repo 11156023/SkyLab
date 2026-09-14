@@ -52,26 +52,22 @@
 }
 
 /* ── Tabs ── */
-.tabs {
+.tabsRow {
   display: flex;
-  gap: $spacing-4;
+  align-items: center;
+  gap: $spacing-16;
+  flex-wrap: wrap;
 }
 
-.tab {
-  padding: 6px $spacing-16;
-  border-radius: $radius-pill;
-  font-size: $font-size-14;
-  color: var(--color-text-secondary);
-  cursor: pointer;
-  transition: background $transition-base, color $transition-base;
+/* 窄螢幕選項放不下時讓切換器自己橫向捲動 */
+.tabsControl {
+  max-width: 100%;
+  overflow-x: auto;
+  scrollbar-width: none;
 
-  &:hover { background: var(--color-hover); color: var(--color-text); }
-}
-
-.tabActive {
-  background: var(--color-text);
-  color: var(--color-surface);
-  font-weight: $font-weight-500;
+  &::-webkit-scrollbar {
+    display: none;
+  }
 }
 
 /* ── Content ── */
@@ -84,6 +80,7 @@
 
 .table {
   @include table-base;
+  min-width: 1080px;
 }
 
 .th {
@@ -253,7 +250,7 @@
   padding: $spacing-8 12px;
   border: 1px solid var(--color-border);
   border-radius: $radius-8;
-  background: var(--color-bg);
+  background: var(--color-surface);
   color: var(--color-text-primary);
   font-size: $font-size-14;
   font-family: inherit;

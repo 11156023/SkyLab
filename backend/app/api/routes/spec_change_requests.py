@@ -5,6 +5,7 @@ from fastapi import APIRouter
 from app.api.deps import AdminUser, CurrentUser, SessionDep
 from app.models import SpecChangeRequestStatus
 from app.schemas import (
+    SpecChangeApplyAccepted,
     SpecChangeRequestCreate,
     SpecChangeRequestPublic,
     SpecChangeRequestReview,
@@ -59,9 +60,42 @@ def review_spec_change_request(
     session: SessionDep,
     current_user: AdminUser,
 ):
+    """核准只做配額檢查與狀態變更；規格由申請人之後按「套用」才寫進 Proxmox。"""
     return spec_change_service.review(
         session=session,
         request_id=request_id,
         review_data=review,
         reviewer=current_user,
+    )
+
+
+@router.post(
+    "/{request_id}/apply",
+    response_model=SpecChangeApplyAccepted,
+    status_code=202,
+)
+def apply_spec_change_request(
+    request_id: uuid.UUID,
+    session: SessionDep,
+    current_user: CurrentUser,
+):
+    """申請人套用已核准的規格（202，背景任務）。
+
+    執行中的虛擬機改 CPU／記憶體需要重開機才生效：任務會先關機、套用、
+    再自動開機。容器可線上生效，不會重開。
+    """
+    return spec_change_service.apply(
+        session=session, request_id=request_id, user=current_user
+    )
+
+
+@router.post("/{request_id}/cancel", response_model=SpecChangeRequestPublic)
+def cancel_spec_change_request(
+    request_id: uuid.UUID,
+    session: SessionDep,
+    current_user: CurrentUser,
+):
+    """申請人撤銷待審核、或已核准但尚未套用的申請。"""
+    return spec_change_service.cancel(
+        session=session, request_id=request_id, user=current_user
     )

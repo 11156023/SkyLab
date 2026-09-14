@@ -5,6 +5,7 @@ from fastapi import APIRouter
 
 from app.api.deps import (
     AdminUser,
+    ControlResourceInfoDep,
     CurrentUser,
     ResourceInfoDep,
     SessionDep,
@@ -72,9 +73,17 @@ def batch_action(
 
 
 @router.get("/{vmid}", response_model=ResourcePublic)
-def get_resource(vmid: int, resource_info: ResourceInfoDep, session: SessionDep):
-    return resource_service.get_by_vmid(
+def get_resource(
+    vmid: int,
+    resource_info: ControlResourceInfoDep,
+    session: SessionDep,
+    current_user: CurrentUser,
+):
+    public = resource_service.get_by_vmid(
         session=session, vmid=vmid, resource_info=resource_info
+    )
+    return resource_service.annotate_access_for_user(
+        session=session, public=public, user=current_user
     )
 
 
@@ -86,7 +95,7 @@ def get_resource_config(vmid: int, resource_info: ResourceInfoDep):
 @router.post("/{vmid}/start")
 def start_resource(
     vmid: int,
-    resource_info: ResourceInfoDep,
+    resource_info: ControlResourceInfoDep,
     session: SessionDep,
     current_user: CurrentUser,
 ):
@@ -102,7 +111,7 @@ def start_resource(
 @router.post("/{vmid}/stop")
 def stop_resource(
     vmid: int,
-    resource_info: ResourceInfoDep,
+    resource_info: ControlResourceInfoDep,
     session: SessionDep,
     current_user: CurrentUser,
 ):
@@ -118,7 +127,7 @@ def stop_resource(
 @router.post("/{vmid}/reboot")
 def reboot_resource(
     vmid: int,
-    resource_info: ResourceInfoDep,
+    resource_info: ControlResourceInfoDep,
     session: SessionDep,
     current_user: CurrentUser,
 ):
@@ -134,7 +143,7 @@ def reboot_resource(
 @router.post("/{vmid}/shutdown")
 def shutdown_resource(
     vmid: int,
-    resource_info: ResourceInfoDep,
+    resource_info: ControlResourceInfoDep,
     session: SessionDep,
     current_user: CurrentUser,
 ):
@@ -150,7 +159,7 @@ def shutdown_resource(
 @router.post("/{vmid}/reset")
 def reset_resource(
     vmid: int,
-    resource_info: ResourceInfoDep,
+    resource_info: ControlResourceInfoDep,
     session: SessionDep,
     current_user: CurrentUser,
 ):
@@ -258,7 +267,7 @@ def delete_resource(
 @router.get("/{vmid}/session-status", response_model=SessionStatusResponse)
 def get_session_status(
     vmid: int,
-    resource_info: ResourceInfoDep,
+    resource_info: ControlResourceInfoDep,
     session: SessionDep,
     _current_user: CurrentUser,
 ):

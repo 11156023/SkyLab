@@ -16,8 +16,15 @@
   width: clamp(380px, 31vw, 460px);
   flex-basis: clamp(380px, 31vw, 460px);
   margin-left: 20px;
+
+  /* 往右挪版面右側留白的四分之一。負邊距吃掉 workspace 的 padding，
+     不必為了這個面板去改共用的版面變數。 */
+  @media (min-width: $breakpoint-sidebar) {
+    margin-right: calc(var(--layout-px) * -0.25);
+  }
 }
 
+/* 面板底比照 style guide 卡片：玻璃卡＋radius-16 */
 .panel {
   position: sticky;
   top: var(--layout-py);
@@ -27,10 +34,8 @@
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  background: var(--color-surface);
-  border: 1px solid var(--color-border);
-  border-radius: 20px;
-  box-shadow: 0 12px 40px rgba(27, 51, 96, 0.12);
+  @include glass-surface($shadow: var(--shadow-lg));
+  border-radius: $radius-16;
   animation: panelIn 180ms ease both;
   transition: opacity 0.18s ease, transform 0.18s ease;
 }
@@ -68,19 +73,6 @@
       color: var(--color-text-primary);
     }
   }
-}
-
-.brandIcon,
-.emptyIcon {
-  color: var(--color-primary);
-  background: color-mix(in srgb, var(--color-primary) 11%, transparent);
-  @include flex-center;
-}
-
-.brandIcon {
-  width: 36px;
-  height: 36px;
-  border-radius: $radius-12;
 }
 
 .headerText {
@@ -147,12 +139,6 @@
     color: var(--color-text-primary);
     font-size: 1.1rem;
   }
-}
-
-.emptyIcon {
-  width: 52px;
-  height: 52px;
-  border-radius: $radius-16;
 }
 
 .suggestions {
@@ -342,17 +328,15 @@
 
   li {
     display: flex;
-    align-items: flex-start;
+    align-items: center;
     gap: 11px;
-    padding: 12px 14px;
+    padding: 11px 14px;
     border: 1px solid var(--color-border);
     border-radius: $radius-12;
     background: var(--color-surface);
   }
 
-  span { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
-  strong { font-size: $font-size-14; }
-  small { color: var(--color-text-muted); font-size: $font-size-12; }
+  strong { font-size: $font-size-14; min-width: 0; }
 }
 
 /* 配置模式的答案晶片：點一下就等於回答，不用打字 */
@@ -509,9 +493,10 @@
   35% { opacity: 1; transform: translateY(-3px); }
 }
 
+/* 透明底讓面板的玻璃質感延伸到底部；輸入框自己是實色卡，可讀性不受影響 */
 .composerWrap {
   padding: 12px $spacing-16 $spacing-16;
-  background: var(--color-surface);
+  background: transparent;
 
   > small {
     display: block;
@@ -530,7 +515,7 @@
   border: 1px solid var(--color-border);
   border-radius: $radius-16;
   background: var(--color-surface);
-  box-shadow: 0 3px 14px rgba(27, 51, 96, 0.08);
+  box-shadow: var(--shadow-sm);
 
   &:focus-within { border-color: var(--color-primary); }
 
@@ -568,18 +553,26 @@
   right: $spacing-24;
   bottom: $spacing-24;
   z-index: 70;
-  height: 46px;
-  display: flex;
-  align-items: center;
-  gap: $spacing-8;
-  padding: 0 $spacing-16;
+  width: 48px;
+  height: 48px;
+  @include flex-center;
+  padding: 0;
   border-radius: $radius-pill;
-  background: var(--color-primary);
+  /* 常駐在畫面右下角，稍微透一點才不會一直搶走底下內容的注意力；
+     hover 時回到不透明，表示它是活的 */
+  background: color-mix(in srgb, var(--color-primary) 88%, transparent);
+  -webkit-backdrop-filter: blur(6px);
+  backdrop-filter: blur(6px);
   color: var(--color-text-on-primary);
-  box-shadow: 0 6px 22px color-mix(in srgb, var(--color-primary) 34%, transparent);
+  box-shadow: 0 6px 22px color-mix(in srgb, var(--color-primary) 26%, transparent);
   cursor: pointer;
+  transition: background $transition-base, box-shadow $transition-base, transform $transition-base;
 
-  &:hover { transform: translateY(-1px); }
+  &:hover {
+    transform: translateY(-1px);
+    background: var(--color-primary);
+    box-shadow: 0 6px 22px color-mix(in srgb, var(--color-primary) 34%, transparent);
+  }
 }
 
 .backdrop { display: none; }
@@ -628,8 +621,6 @@
   .rootOpen { width: 100vw; }
   .panel { border: 0; border-radius: 0; }
   .fab { right: $spacing-16; bottom: $spacing-16; }
-  .fab span { display: none; }
-  .fab { width: 48px; padding: 0; justify-content: center; }
 }
 
 @keyframes fabIn {

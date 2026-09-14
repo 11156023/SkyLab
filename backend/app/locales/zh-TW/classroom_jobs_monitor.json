@@ -18,5 +18,17 @@
   "ai_gateway.connection_incomplete": "AI API connection settings are incomplete",
   "ai_gateway.credential_already_revoked": "This AI API credential has already been revoked",
   "monitoring.invalid_timeframe": "timeframe must be one of {allowed}",
-  "monitoring.resource_not_found": "Resource {vmid} not found"
+  "monitoring.resource_not_found": "Resource {vmid} not found",
+  "governance.idle_notify_after_must_precede_grace": "閒置通知時數（{notify_after} 小時）必須小於關機寬限期（{grace} 小時）",
+  "push.kind_vm_request": "開機申請",
+  "push.kind_spec_change": "規格變更",
+  "push.kind_deletion": "刪除",
+  "push.kind_template": "範本任務",
+  "push.kind_generic": "任務",
+  "push.job_completed": "{kind}已完成",
+  "push.job_failed": "{kind}失敗",
+  "push.job_blocked": "{kind}受阻",
+  "push.job_cancelled": "{kind}已取消",
+  "push.test_title": "已開啟桌面通知",
+  "push.test_body": "之後即使分頁關掉，任務完成或有新提醒時也會像這樣以系統通知提醒你"
 }

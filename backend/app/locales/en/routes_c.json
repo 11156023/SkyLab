@@ -11,6 +11,13 @@
   "course_env.template_not_ready": "The PVE template linked to machine \"{name}\" doesn't exist or isn't ready yet",
   "course_env.type_mismatch": "Machine \"{name}\"'s type doesn't match its PVE template",
   "course_env.edge_unknown_node": "The topology connection references a machine node that doesn't exist",
+  "course_env.publication_domain_tcp_only": "Public URLs only support TCP",
+  "course_env.publication_zone_required": "A public URL needs a domain (Cloudflare zone)",
+  "course_env.publication_student_placeholder": "The hostname template must contain {student}, otherwise the whole class competes for one address",
+  "course_env.duplicate_publication_hostname": "Hostname template \"{hostname}\" is used twice; one address can only point at one port, so give each public URL its own template",
+  "course_env.publication_unknown_node": "A published service points at a machine that does not exist",
+  "course_env.duplicate_publication": "Port {port} can only be published once per machine",
+  "course_env.overlapping_edge": "A connection from \"{source}\" to \"{target}\" already covers this port; a bidirectional connection already includes the reverse direction",
   "course_env.duplicate_edge": "The same topology connection cannot be duplicated",
   "course_env.class_not_found": "The specified class doesn't exist",
   "course_env.class_not_owned": "Class \"{name}\" doesn't belong to this instructor",
@@ -30,6 +37,8 @@
   "course_env.audience_class_required": "When opening this for quick practice, you must choose which classes can see this environment",
 
   "gateway.unknown_service": "Unknown service: {service}",
+  "gateway.service_config_not_exposed": "Raw configuration editing is not exposed for {service} for security reasons",
+  "gateway.wireguard_overview_failed": "Unable to retrieve the Gateway WireGuard overview",
   "gateway.install_script_missing": "Install script not found",
   "gateway.proxmox_failed": "Proxmox operation failed",
   "gateway.traefik_sync_failed": "Failed to sync Traefik certificate settings",
@@ -77,5 +86,7 @@
   "ai_api_key.invalid_or_revoked": "Invalid or revoked API key",
   "ai_api_key.api_key_expired": "API key has expired",
   "ai_api_key.user_not_found": "User not found",
-  "ai_api_key.user_inactive": "User account is inactive"
+  "ai_api_key.user_inactive": "User account is inactive",
+  "desktop.device_code_too_many": "Too many pending device codes, please try again later",
+  "desktop.device_code_already_approved": "This device code has already been approved"
 }

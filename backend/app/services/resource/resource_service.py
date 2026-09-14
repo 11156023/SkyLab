@@ -5,14 +5,18 @@ import uuid
 from datetime import UTC, datetime, timedelta
 from typing import Any, Literal
 
-from sqlmodel import Session
+from sqlmodel import Session, select
 
-from app.exceptions import BadRequestError, ProxmoxError
-from app.models import TeachingClass, TeachingClassStatus
+from app.core.authorizers import can_bypass_resource_ownership
+from app.exceptions import BadRequestError, PermissionDeniedError, ProxmoxError
+from app.models import TeachingClass, TeachingClassStatus, User
+from app.models.quick_practice import QuickPracticeSessionMachine
 from app.models.vm_request import VMProvisioningStatus, VMRequest, VMRequestStatus
 from app.repositories import audit_log as audit_log_repo
 from app.repositories import batch_provision as batch_provision_repo
 from app.repositories import resource as resource_repo
+from app.repositories import resource_share as share_repo
+from app.repositories import spec_change_request as spec_request_repo
 from app.repositories import vm_request as vm_request_repo
 from app.schemas import ResourcePublic
 from app.schemas.resource import (
@@ -24,6 +28,7 @@ from app.schemas.resource import (
 )
 from app.services.network import firewall_service
 from app.services.proxmox import proxmox_service
+from app.services.resource.access import require_resource_management
 from app.services.scheduling.recurrence import (
     get_schedule_policy,
     is_in_window,
@@ -123,13 +128,47 @@ def _placeholder_resource_status(req) -> ResourceStatus:
     return "provisioning"
 
 
+def practice_request_ids(session: Session) -> set[uuid.UUID]:
+    """快速練習機器對應的申請單 id，用來判斷規格是否已被環境版本鎖定。"""
+    return set(
+        session.exec(select(QuickPracticeSessionMachine.vm_request_id)).all()
+    )
+
+
+def _is_practice_resource(
+    session: Session | None,
+    db_resource,
+    known_ids: set[uuid.UUID] | None,
+) -> bool:
+    request_id = getattr(db_resource, "request_id", None)
+    if request_id is None:
+        return False
+    if known_ids is not None:
+        return request_id in known_ids
+    if session is None:
+        return False
+    return (
+        session.exec(
+            select(QuickPracticeSessionMachine.vm_request_id).where(
+                QuickPracticeSessionMachine.vm_request_id == request_id
+            )
+        ).first()
+        is not None
+    )
+
+
 def _build_resource_public(
     resource: dict, db_resource, node: str, vm_type: str,
     session: Session | None = None,
+    known_practice_ids: set[uuid.UUID] | None = None,
 ) -> ResourcePublic:
     vmid = resource.get("vmid")
     class_governed = bool(
         db_resource and db_resource.allocation_scope == "teaching_class"
+    )
+    # 課堂與快速練習的機器都照課程環境版本建立，規格不接受個別調整。
+    spec_fixed = class_governed or _is_practice_resource(
+        session, db_resource, known_practice_ids
     )
     class_available = not class_governed
     if class_governed and session is not None and db_resource.teaching_class_id:
@@ -139,24 +178,11 @@ def _build_resource_public(
             and teaching_class.status == TeachingClassStatus.active
         )
     ip_address = proxmox_service.get_ip_address(node, vmid, vm_type)
-    if ip_address:
-        if session is not None:
-            try:
-                resource_repo.update_ip_address(
-                    session=session, vmid=vmid, ip_address=ip_address
-                )
-            except Exception:
-                session.rollback()
-                logger.warning(
-                    "Failed to update cached IP address for vmid=%s ip_address=%s",
-                    vmid,
-                    ip_address,
-                    exc_info=True,
-                )
-    else:
-        # VM 離線時用 DB 快取
-        if session is not None:
-            ip_address = resource_repo.get_cached_ip_address(session=session, vmid=vmid)
+    if session is not None:
+        # 線上：寫回快取；離線：回退 DB 快取。DB 出錯時 sync_ip_cache 會 rollback。
+        ip_address = resource_repo.sync_ip_cache(
+            session=session, vmid=vmid, live_ip=ip_address
+        )
     quick_practice_limited = False
     if session is not None and db_resource and db_resource.request_id:
         source_request = session.get(VMRequest, db_resource.request_id)
@@ -179,7 +205,7 @@ def _build_resource_public(
         type=vm_type,
         can_control=class_available,
         can_delete=not class_governed,
-        can_request_spec_change=not class_governed,
+        can_request_spec_change=not spec_fixed,
         can_extend=class_available and not quick_practice_limited,
         environment_type=db_resource.environment_type if db_resource else None,
         os_info=db_resource.os_info if db_resource else None,
@@ -194,9 +220,73 @@ def _build_resource_public(
         mem=resource.get("mem"),
         maxmem=resource.get("maxmem"),
         uptime=resource.get("uptime"),
-        idle_since=db_resource.idle_since if db_resource else None,
+        auto_stop_at=(
+            _ensure_utc(getattr(db_resource, "auto_stop_at", None)) if db_resource else None
+        ),
+        auto_stop_reason=(
+            getattr(db_resource, "auto_stop_reason", None) if db_resource else None
+        ),
+        idle_since=_ensure_utc(db_resource.idle_since) if db_resource else None,
+        scheduled_deletion_at=(
+            _ensure_utc(getattr(db_resource, "scheduled_deletion_at", None))
+            if db_resource
+            else None
+        ),
         mining_exempt=bool(db_resource.mining_exempt) if db_resource else False,
+        tags=_parse_tags(resource.get("tags")),
     )
+
+
+def _parse_tags(raw: object) -> list[str]:
+    """cluster/resources 的 tags 是 ``;`` 分隔字串。"""
+    if not raw:
+        return []
+    return [tag for tag in str(raw).replace(",", ";").split(";") if tag]
+
+
+def _mark_shared(public: ResourcePublic, db_resource, session: Session) -> None:
+    """被分享的機器只能「用」，擁有者層級的動作全部關掉。"""
+    owner = session.get(User, db_resource.user_id)
+    public.access_role = "shared"
+    public.can_manage = False
+    public.can_delete = False
+    public.can_request_spec_change = False
+    public.can_extend = False
+    public.owner_email = owner.email if owner else None
+
+
+def annotate_access_for_user(
+    *, session: Session, public: ResourcePublic, user
+) -> ResourcePublic:
+    """替單筆資源標上目前使用者的關係（擁有者／被分享／課堂成員／管理員）與可管理與否。"""
+    if public.vmid is None:
+        return public
+    db_resource = resource_repo.get_resource_by_vmid(session=session, vmid=public.vmid)
+    if db_resource is None:
+        public.access_role = "admin" if can_bypass_resource_ownership(user) else "owner"
+        return public
+
+    if db_resource.user_id == user.id:
+        public.access_role = (
+            "class_member"
+            if db_resource.allocation_scope == "teaching_class"
+            else "owner"
+        )
+    elif can_bypass_resource_ownership(user):
+        public.access_role = "admin"
+    elif share_repo.get_share(session=session, vmid=public.vmid, user_id=user.id):
+        _mark_shared(public, db_resource, session)
+        return public
+    else:
+        # 例如課堂老師：不是擁有者但有管理權
+        public.access_role = "admin"
+
+    try:
+        require_resource_management(session=session, user=user, vmid=public.vmid)
+        public.can_manage = True
+    except PermissionDeniedError:
+        public.can_manage = False
+    return public
 
 
 def get_by_vmid(
@@ -214,6 +304,7 @@ def list_all(
 ) -> list[ResourcePublic]:
     try:
         resources = proxmox_service.list_all_resources()
+        known_practice_ids = practice_request_ids(session)
         result = []
         for r in resources:
             if (node and r.get("node") != node) or r.get("template") == 1:
@@ -225,7 +316,9 @@ def list_all(
                 session=session, vmid=vmid
             )
             result.append(
-                _build_resource_public(r, db_resource, vm_node, vm_type, session)
+                _build_resource_public(
+                    r, db_resource, vm_node, vm_type, session, known_practice_ids
+                )
             )
         return result
     except Exception as e:
@@ -285,6 +378,25 @@ def mark_linked_request_consumed(
     return snapshot
 
 
+def _cancel_open_spec_change_requests(
+    *, session: Session, vmid: int, marker: str
+) -> None:
+    """機器刪除時作廢該 vmid 處理中的規格調整申請；失敗不阻斷刪除。"""
+    try:
+        cancelled = spec_request_repo.cancel_open_spec_change_requests_for_vmid(
+            session=session, vmid=vmid, comment=marker, commit=False
+        )
+        if cancelled:
+            logger.info(
+                "Cancelled %s open spec change request(s) for vmid=%s", cancelled, vmid
+            )
+    except Exception as exc:
+        session.rollback()
+        logger.warning(
+            "Failed to cancel spec change requests for vmid=%s: %s", vmid, exc
+        )
+
+
 def restore_linked_request(
     *, session: Session, snapshot: dict[str, Any] | None
 ) -> None:
@@ -326,28 +438,45 @@ def list_by_user(
         result: list[ResourcePublic] = []
         shown_vmids: set[int] = set()
 
-        # 1. Live resources owned by the user (from Proxmox + DB join).
+        # 1. Live resources owned by the user (from Proxmox + DB join),
+        #    plus machines other owners shared with them (use-only access).
         user_resources = resource_repo.get_resources_by_user(
             session=session, user_id=user_id
         )
-        if user_resources:
-            owned_vmids = {r.vmid: r for r in user_resources}
+        owned_vmids = {r.vmid: r for r in user_resources}
+        shared_rows: dict[int, Any] = {}
+        for share in share_repo.list_shares_for_user(session=session, user_id=user_id):
+            if share.resource_vmid in owned_vmids:
+                continue
+            shared_db = resource_repo.get_resource_by_vmid(
+                session=session, vmid=share.resource_vmid
+            )
+            if shared_db is not None:
+                shared_rows[share.resource_vmid] = shared_db
+        if user_resources or shared_rows:
+            known_practice_ids = practice_request_ids(session)
             try:
                 for r in proxmox_service.list_all_resources():
                     if r.get("template") == 1:
                         continue
                     vmid = r.get("vmid")
-                    if vmid not in owned_vmids:
+                    db_row = owned_vmids.get(vmid) or shared_rows.get(vmid)
+                    if db_row is None:
                         continue
-                    result.append(
-                        _build_resource_public(
-                            r,
-                            owned_vmids[vmid],
-                            r.get("node", ""),
-                            r.get("type", ""),
-                            session,
-                        )
+                    public = _build_resource_public(
+                        r,
+                        db_row,
+                        r.get("node", ""),
+                        r.get("type", ""),
+                        session,
+                        known_practice_ids,
                     )
+                    if vmid in shared_rows:
+                        _mark_shared(public, db_row, session)
+                    elif db_row.allocation_scope == "teaching_class":
+                        public.access_role = "class_member"
+                        public.can_manage = False
+                    result.append(public)
                     shown_vmids.add(vmid)
             except Exception:
                 logger.warning("Proxmox unavailable; marking owned resources as unknown")
@@ -714,6 +843,14 @@ def delete(
         except Exception as exc:
             logger.warning("Failed to clean up reverse proxy rules for VM %s: %s", vmid, exc)
 
+        # NAT 規則的 vmid 外鍵會連帶刪除 DB 紀錄，但不會重寫 Gateway 上的
+        # haproxy 設定；不明確清一次，轉發會留在原地指向已釋放的 IP。
+        try:
+            from app.services.network import nat_service  # noqa: PLC0415
+            nat_service.remove_nat_rules_for_vmid(session, vmid)
+        except Exception as exc:
+            logger.warning("Failed to clean up NAT rules for VM %s: %s", vmid, exc)
+
         # Release IP allocation
         try:
             from app.services.network import ip_management_service  # noqa: PLC0415
@@ -742,6 +879,12 @@ def delete(
                 vmid,
                 exc,
             )
+
+        # 規格調整申請也要跟著作廢：VMID 會被新機器回收，留著會核准／套用到
+        # 別人的機器上。resource_vmid 的 SET NULL 只擋審核，這裡把狀態收掉。
+        _cancel_open_spec_change_requests(
+            session=session, vmid=vmid, marker=RESOURCE_DELETED_BY_USER_MARKER
+        )
 
         if teaching_class_id is not None:
             _mark_class_machine_reclaimed(session=session, vmid=vmid)
@@ -802,6 +945,12 @@ def delete_orphan_db_record(
         logger.warning("Orphan cleanup: failed to remove reverse proxy rules for vmid=%s: %s", vmid, exc)
 
     try:
+        from app.services.network import nat_service  # noqa: PLC0415
+        nat_service.remove_nat_rules_for_vmid(session, vmid)
+    except Exception as exc:
+        logger.warning("Orphan cleanup: failed to remove NAT rules for vmid=%s: %s", vmid, exc)
+
+    try:
         from app.services.network import ip_management_service  # noqa: PLC0415
         ip_management_service.release_ip(session, vmid)
     except Exception as exc:
@@ -815,6 +964,9 @@ def delete_orphan_db_record(
 
     if teaching_class_id is not None:
         _mark_class_machine_reclaimed(session=session, vmid=vmid)
+    _cancel_open_spec_change_requests(
+        session=session, vmid=vmid, marker=RESOURCE_DELETED_ORPHAN_MARKER
+    )
     resource_repo.delete_resource(session=session, vmid=vmid)
     audit_log_repo.delete_audit_logs_by_vmid(session=session, vmid=vmid)
     _mark_class_reclaimed_if_empty(

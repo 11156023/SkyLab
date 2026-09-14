@@ -227,9 +227,20 @@ class ResourcePublic(BaseModel):
     maxmem: int | None = None
     uptime: int | None = None
     auto_stop_at: datetime | None = None
-    auto_stop_reason: Literal["window_grace", "practice_quota"] | None = None
+    auto_stop_reason: str | None = None
     idle_since: datetime | None = None
+    scheduled_deletion_at: datetime | None = None
     mining_exempt: bool = False
+    tags: list[str] = Field(default_factory=list, description="Proxmox 標籤")
+    access_role: Literal["owner", "shared", "class_member", "admin"] = Field(
+        default="owner", description="目前使用者對這台機器的關係"
+    )
+    can_manage: bool = Field(
+        default=True, description="能否做擁有者層級的設定（憑證、快照、對外服務…）"
+    )
+    owner_email: str | None = Field(
+        default=None, description="共享給我的機器：擁有者信箱"
+    )
 
 
 class SessionStatusResponse(BaseModel):

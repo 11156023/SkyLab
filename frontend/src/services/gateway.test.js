@@ -64,3 +64,16 @@ describe("GatewayService 連線設定", () => {
     expect(JSON.parse(init.body)).toEqual({ host: "10.0.0.1", ssh_port: 22, ssh_user: "root" });
   });
 });
+
+describe("GatewayService WireGuard", () => {
+  test("getWireGuardOverview 讀取安全摘要端點", async () => {
+    fetchMock.mockResolvedValueOnce(jsonRes(200, { live_peers: 2 }));
+
+    const result = await GatewayService.getWireGuardOverview();
+
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toContain("/api/v1/gateway/wireguard/overview");
+    expect(init.method).toBe("GET");
+    expect(result.live_peers).toBe(2);
+  });
+});

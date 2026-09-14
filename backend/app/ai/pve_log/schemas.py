@@ -3,7 +3,9 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
+
+from app.core.i18n import t
 
 
 class ChatRequest(BaseModel):
@@ -12,22 +14,35 @@ class ChatRequest(BaseModel):
     message: str | None = Field(
         default=None, description="使用者輸入的自然語言問題", max_length=2000
     )
-    messages: list[dict] | None = Field(
-        default=None, description="完整的對話歷史（用於中斷與接續對話）"
+    messages: list[dict[str, Any]] | None = Field(
+        default=None,
+        description="完整的對話歷史（用於中斷與接續對話）",
+        max_length=40,
     )
+
+    @model_validator(mode="after")
+    def require_one_input_mode(self) -> ChatRequest:
+        has_message = bool(self.message and self.message.strip())
+        has_history = bool(self.messages)
+        if has_message and has_history:
+            raise ValueError(t("pveLog.messageAndMessagesExclusive"))
+        if not has_message and not has_history:
+            raise ValueError(t("pveLog.messageOrMessagesRequired"))
+        return self
 
 
 class ToolCallRecord(BaseModel):
     name: str
     args: dict[str, Any] = Field(default_factory=dict)
     result: dict[str, Any] | None = Field(default=None)
+    tool_call_id: str | None = Field(default=None)
 
 
 class ChatResponse(BaseModel):
     reply: str
     tools_called: list[ToolCallRecord] = Field(default_factory=list)
     needs_confirmation: bool = Field(default=False)
-    messages: list[dict] = Field(default_factory=list)
+    messages: list[dict[str, Any]] = Field(default_factory=list)
     error: str | None = None
 
 

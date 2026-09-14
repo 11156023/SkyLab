@@ -13,9 +13,20 @@ import PageHeader from "../../../components/PageHeader/PageHeader";
 const SERVICE_FILES = {
   haproxy: { path: "/etc/haproxy/haproxy.cfg", language: "haproxy" },
   traefik: { path: "/etc/traefik/traefik.yml", language: "yaml" },
-  frps:    { path: "/etc/frp/frps.toml",       language: "toml" },
-  frpc:    { path: "/etc/frp/frpc.toml",       language: "toml" },
 };
+
+function formatBytes(value) {
+  const bytes = Number(value) || 0;
+  if (bytes < 1024) return `${bytes} B`;
+  const units = ["KiB", "MiB", "GiB", "TiB"];
+  let amount = bytes / 1024;
+  let unit = units[0];
+  for (let index = 1; amount >= 1024 && index < units.length; index += 1) {
+    amount /= 1024;
+    unit = units[index];
+  }
+  return `${amount >= 10 ? amount.toFixed(0) : amount.toFixed(1)} ${unit}`;
+}
 
 /* ── 連線設定 Tab ───────────────────────────────────── */
 function ConnectionTab({ config, onConfigChange }) {
@@ -414,6 +425,217 @@ function ServiceTab({ service, gatewayReady, host, onDirtyChange }) {
   );
 }
 
+function WireGuardTab({ gatewayReady }) {
+  const { t } = useTranslation("system");
+  const toast = useToast();
+  const [overview, setOverview] = useState(null);
+  const [status, setStatus] = useState(null);
+  const [logs, setLogs] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [acting, setActing] = useState(null);
+  const [loadingLogs, setLoadingLogs] = useState(false);
+
+  const fetchAll = useCallback(async () => {
+    setLoading(true);
+    const [overviewRes, statusRes, logsRes] = await Promise.all([
+      GatewayService.getWireGuardOverview().catch(() => null),
+      GatewayService.getServiceStatus("wireguard").catch(() => null),
+      GatewayService.getServiceLogs("wireguard", 100).catch(() => null),
+    ]);
+    setOverview(overviewRes);
+    setStatus(statusRes);
+    setLogs(logsRes);
+    if (!overviewRes) toast.error(t("GatewayPage.wireGuardLoadFailed"));
+    setLoading(false);
+  }, [t, toast]);
+
+  useEffect(() => {
+    if (gatewayReady) fetchAll();
+    else setLoading(false);
+  }, [gatewayReady, fetchAll]);
+
+  async function handleAction(action) {
+    setActing(action);
+    try {
+      const result = await GatewayService.controlService("wireguard", action);
+      if (result.success) {
+        toast.success(t("GatewayPage.toastServiceActionSuccess", { service: "WireGuard", action }));
+      } else {
+        toast.error(result.output || t("GatewayPage.toastServiceActionFailed", { service: "WireGuard", action }));
+      }
+      const [nextOverview, nextStatus] = await Promise.all([
+        GatewayService.getWireGuardOverview().catch(() => overview),
+        GatewayService.getServiceStatus("wireguard").catch(() => null),
+      ]);
+      setOverview(nextOverview);
+      setStatus(nextStatus);
+    } catch (err) {
+      toast.error(err?.message ?? t("GatewayPage.toastActionFailed", { action }));
+    } finally {
+      setActing(null);
+    }
+  }
+
+  async function handleRefreshLogs() {
+    setLoadingLogs(true);
+    try {
+      setLogs(await GatewayService.getServiceLogs("wireguard", 100));
+    } catch (err) {
+      toast.error(err?.message ?? t("GatewayPage.toastLoadLogsFailed"));
+    } finally {
+      setLoadingLogs(false);
+    }
+  }
+
+  if (!gatewayReady) {
+    return <EmptyState icon="vpn_key" title={t("GatewayPage.emptyNotConfigured")} />;
+  }
+
+  if (loading) {
+    return <LoadingState text={t("GatewayPage.wireGuardLoading")} />;
+  }
+
+  const sessionTtlHours = overview
+    ? Math.round((overview.session_ttl_seconds / 3600) * 10) / 10
+    : null;
+
+  const details = overview ? [
+    [t("GatewayPage.wireGuardMode"), overview.mode],
+    [t("GatewayPage.wireGuardInterface"), overview.interface],
+    [t("GatewayPage.wireGuardSystemdUnit"), overview.systemd_unit],
+    [t("GatewayPage.wireGuardEndpoint"), overview.endpoint],
+    [t("GatewayPage.wireGuardClientSubnet"), overview.client_subnet],
+    [t("GatewayPage.wireGuardVmSubnet"), overview.vm_subnet],
+    [t("GatewayPage.wireGuardSessionTtl"), t("GatewayPage.wireGuardHours", { hours: sessionTtlHours })],
+    [t("GatewayPage.wireGuardReconciler"), overview.reconcile_enabled
+      ? t("GatewayPage.wireGuardEnabled")
+      : t("GatewayPage.wireGuardDisabled")],
+    [t("GatewayPage.wireGuardListenPort"), overview.listen_port ?? t("GatewayPage.wireGuardInspectionUnavailable")],
+  ] : [];
+
+  return (
+    <div className={styles.wireguardLayout}>
+      <div className={styles.card}>
+        <div className={styles.cardHead}>
+          <div>
+            <div className={styles.statusRow}>
+              <h2 className={styles.cardTitle}>WireGuard VPN</h2>
+              {status ? (
+                <span className={`${styles.badge} ${status.active ? styles.badge_success : styles.badge_muted}`}>
+                  <MIcon name={status.active ? "check_circle" : "cancel"} size={13} />
+                  {status.active ? t("GatewayPage.statusRunning") : t("GatewayPage.statusStopped")}
+                </span>
+              ) : (
+                <span className={`${styles.badge} ${styles.badge_danger}`}>
+                  {t("GatewayPage.statusUnavailable")}
+                </span>
+              )}
+            </div>
+            <p className={styles.cardHint}>{t("GatewayPage.wireGuardDescription")}</p>
+          </div>
+          <div className={styles.cardHeadActions}>
+            {[
+              { action: "start", label: t("GatewayPage.actionStart"), icon: "play_arrow" },
+              { action: "stop", label: t("GatewayPage.actionStop"), icon: "stop" },
+              { action: "restart", label: t("GatewayPage.actionRestart"), icon: "restart_alt" },
+            ].map(({ action, label, icon }) => (
+              <button
+                key={action}
+                type="button"
+                className={styles.btnSecondary}
+                disabled={acting !== null}
+                onClick={() => handleAction(action)}
+              >
+                <MIcon name={icon} size={16} />
+                {acting === action ? "..." : label}
+              </button>
+            ))}
+          </div>
+        </div>
+        {status?.status_text && <pre className={styles.statusBlock}>{status.status_text}</pre>}
+      </div>
+
+      {overview ? (
+        <>
+          <div className={styles.wireguardMetrics}>
+            <div className={styles.metricCard}>
+              <MIcon name="verified_user" size={22} />
+              <div><strong>{overview.authorized_sessions}</strong><span>{t("GatewayPage.wireGuardAuthorizedSessions")}</span></div>
+            </div>
+            <div className={styles.metricCard}>
+              <MIcon name="hub" size={22} />
+              <div><strong>{overview.live_peers}</strong><span>{t("GatewayPage.wireGuardLivePeers")}</span></div>
+            </div>
+            <div className={styles.metricCard}>
+              <MIcon name="sync_alt" size={22} />
+              <div><strong>{overview.recent_handshakes}</strong><span>{t("GatewayPage.wireGuardRecentHandshakes")}</span></div>
+            </div>
+            <div className={styles.metricCard}>
+              <MIcon name="data_usage" size={22} />
+              <div>
+                <strong>{formatBytes(overview.transfer_rx_bytes)} / {formatBytes(overview.transfer_tx_bytes)}</strong>
+                <span>{t("GatewayPage.wireGuardTraffic")}</span>
+              </div>
+            </div>
+          </div>
+
+          {overview.expired_sessions > 0 && (
+            <div className={styles.warningNote}>
+              <MIcon name="warning" size={18} />
+              {t("GatewayPage.wireGuardExpiredSessions", { count: overview.expired_sessions })}
+            </div>
+          )}
+
+          <div className={styles.card}>
+            <div className={styles.cardHead}>
+              <h2 className={styles.cardTitle}>{t("GatewayPage.wireGuardOverviewTitle")}</h2>
+              {!overview.inspection_available && (
+                <span className={`${styles.badge} ${styles.badge_muted}`}>
+                  {t("GatewayPage.wireGuardInspectionUnavailable")}
+                </span>
+              )}
+            </div>
+            <dl className={styles.detailGrid}>
+              {details.map(([label, value]) => (
+                <div className={styles.detailItem} key={label}>
+                  <dt>{label}</dt>
+                  <dd>{value}</dd>
+                </div>
+              ))}
+            </dl>
+            <div className={styles.securityNote}>
+              <MIcon name="shield" size={20} />
+              <div>
+                <strong>{t("GatewayPage.wireGuardSecurityTitle")}</strong>
+                <span>{t("GatewayPage.wireGuardSecurityHint")}</span>
+              </div>
+            </div>
+          </div>
+        </>
+      ) : (
+        <EmptyState icon="vpn_key_off" title={t("GatewayPage.wireGuardLoadFailed")} />
+      )}
+
+      <div className={styles.card}>
+        <div className={styles.cardHead}>
+          <h2 className={styles.cardTitle}>{t("GatewayPage.serviceLogsTitle")}</h2>
+          <button type="button" className={styles.btnSecondary} onClick={handleRefreshLogs} disabled={loadingLogs}>
+            <MIcon name="refresh" size={16} />
+            {loadingLogs ? t("GatewayPage.loadingLogs") : t("GatewayPage.refresh")}
+          </button>
+        </div>
+        <pre className={styles.logBlock}>
+          {loadingLogs
+            ? t("GatewayPage.loadingLogs")
+            : logs === null
+              ? t("GatewayPage.logsLoadFailed")
+              : logs || t("GatewayPage.noLogOutput")}
+        </pre>
+      </div>
+    </div>
+  );
+}
+
 /* ── Page ──────────────────────────────────────────── */
 export default function GatewayPage() {
   const { t } = useTranslation("system");
@@ -428,8 +650,7 @@ export default function GatewayPage() {
     { key: "connection", label: t("GatewayPage.tabConnection") },
     { key: "haproxy",    label: "haproxy"  },
     { key: "traefik",    label: "Traefik"  },
-    { key: "frps",       label: "frps"     },
-    { key: "frpc",       label: "frpc"     },
+    { key: "wireguard",  label: t("GatewayPage.tabWireGuard") },
   ];
 
   const handleDirtyChange = useCallback((dirty) => {
@@ -480,6 +701,8 @@ export default function GatewayPage() {
           <LoadingState fullPage text={t("GatewayPage.loadingConfig")} />
         ) : activeTab === "connection" ? (
           <ConnectionTab config={config} onConfigChange={setConfig} />
+        ) : activeTab === "wireguard" ? (
+          <WireGuardTab gatewayReady={Boolean(config?.is_configured)} />
         ) : (
           <ServiceTab
             key={activeTab}

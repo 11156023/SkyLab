@@ -170,6 +170,20 @@ def list_pending_review_jobs(*, session: Session) -> list[BatchProvisionJob]:
     return list(session.exec(stmt).all())
 
 
+def list_review_jobs(
+    *,
+    session: Session,
+    status: BatchProvisionJobStatus | None = None,
+    limit: int = 100,
+) -> list[BatchProvisionJob]:
+    """審核頁用的列表：不限狀態（可選 status 過濾），最新的排前面。"""
+    stmt = select(BatchProvisionJob)
+    if status is not None:
+        stmt = stmt.where(BatchProvisionJob.status == status)
+    stmt = stmt.order_by(col(BatchProvisionJob.created_at).desc()).limit(limit)
+    return list(session.exec(stmt).all())
+
+
 def list_jobs_with_recurrence(*, session: Session) -> list[BatchProvisionJob]:
     """Jobs that the scheduler must inspect for window-based start/stop."""
     stmt = select(BatchProvisionJob).where(

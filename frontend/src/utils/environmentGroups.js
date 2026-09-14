@@ -1,12 +1,7 @@
+import { formatShortDateTime } from "./formatDate";
+
 function formatDateTime(value) {
-  if (!value) return "依環境政策";
-  return new Date(value).toLocaleString("zh-TW", {
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    hour12: false,
-  });
+  return formatShortDateTime(value, "依環境政策");
 }
 
 function machineFromResource(resource, fallback = {}) {
@@ -20,7 +15,11 @@ function machineFromResource(resource, fallback = {}) {
     os: resource.os_info ?? fallback.os ?? "—",
     status: resource.status ?? fallback.status ?? "unknown",
     ip: resource.ip_address ?? fallback.ip ?? "N/A",
+    publicUrl: fallback.publicUrl ?? null,
     node: resource.node ?? fallback.node ?? "—",
+    // 規格：讓環境內的機器也看得到 CPU/RAM，不必進詳情頁
+    cpu: resource.maxcpu ?? fallback.cpu ?? null,
+    memoryBytes: resource.maxmem ?? fallback.memoryBytes ?? null,
     resource,
   };
 }
@@ -45,6 +44,7 @@ function quickPracticeGroups(resources, sessions) {
         status: machine.status,
         ip: machine.ip,
         node: machine.node,
+        publicUrl: machine.publicUrl ?? null,
       };
       return resource ? machineFromResource(resource, fallback) : fallback;
     });

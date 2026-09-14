@@ -76,6 +76,13 @@ class CloudflareDNSRecordPublic(BaseModel):
     tags: list[str] = Field(default_factory=list)
     created_on: datetime | None = None
     modified_on: datetime | None = None
+    managed_by_system: bool = Field(
+        default=False,
+        description="是否由本系統的對外網址（反向代理規則）建立",
+    )
+    managed_vmid: int | None = Field(
+        default=None, description="由本系統建立時，對應的 VM ID"
+    )
 
 
 class CloudflareDNSRecordsPublic(BaseModel):

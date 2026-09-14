@@ -8,6 +8,7 @@ import { useAuth } from "../../../contexts/AuthContext";
 import { useToast } from "../../../hooks/useToast";
 import useDialogPresence from "../../../hooks/useDialogPresence";
 import { AccountService } from "../../../services/account";
+import { focusInvalidField } from "../../../utils/focusField";
 import { downscaleImage } from "../../../utils/image/downscaleImage";
 import AppearanceTab from "./AppearanceTab";
 import PageHeader from "../../../components/PageHeader/PageHeader";
@@ -198,18 +199,30 @@ function PasswordTab() {
   const toast = useToast();
   const [form, setForm] = useState({ current: "", next: "", confirm: "" });
   const [saving, setSaving] = useState(false);
+  const [invalid, setInvalid] = useState({});
+  const fieldRefs = { current: useRef(null), next: useRef(null), confirm: useRef(null) };
 
   function set(name, value) {
     setForm((prev) => ({ ...prev, [name]: value }));
+    setInvalid((prev) => ({ ...prev, [name]: false }));
   }
 
   const mismatch = form.confirm.length > 0 && form.next !== form.confirm;
   const tooShort = form.next.length > 0 && form.next.length < 8;
-  const canSubmit = form.current && form.next.length >= 8 && form.next === form.confirm;
 
   async function handleSubmit(e) {
     e.preventDefault();
-    if (!canSubmit) return;
+    const missing = {
+      current: !form.current,
+      next: form.next.length < 8,
+      confirm: !form.confirm || form.next !== form.confirm,
+    };
+    if (missing.current || missing.next || missing.confirm) {
+      setInvalid(missing);
+      const key = ["current", "next", "confirm"].find((name) => missing[name]);
+      focusInvalidField(fieldRefs[key].current);
+      return;
+    }
     setSaving(true);
     try {
       await AccountService.updatePassword(form.current, form.next);
@@ -230,22 +243,24 @@ function PasswordTab() {
         <label className={styles.field}>
           <span>{t("PasswordTab.currentLabel")}</span>
           <input
+            ref={fieldRefs.current}
+            className={invalid.current ? styles.fieldInvalid : undefined}
             type="password"
             value={form.current}
             onChange={(e) => set("current", e.target.value)}
             placeholder="••••••••"
-            required
           />
         </label>
 
         <label className={styles.field}>
           <span>{t("PasswordTab.newLabel")}</span>
           <input
+            ref={fieldRefs.next}
+            className={invalid.next ? styles.fieldInvalid : undefined}
             type="password"
             value={form.next}
             onChange={(e) => set("next", e.target.value)}
             placeholder={t("PasswordTab.newPlaceholder")}
-            required
           />
           {tooShort && <em className={styles.fieldError}>{t("PasswordTab.newTooShort")}</em>}
         </label>
@@ -253,17 +268,18 @@ function PasswordTab() {
         <label className={styles.field}>
           <span>{t("PasswordTab.confirmLabel")}</span>
           <input
+            ref={fieldRefs.confirm}
+            className={invalid.confirm ? styles.fieldInvalid : undefined}
             type="password"
             value={form.confirm}
             onChange={(e) => set("confirm", e.target.value)}
             placeholder={t("PasswordTab.confirmPlaceholder")}
-            required
           />
           {mismatch && <em className={styles.fieldError}>{t("PasswordTab.mismatch")}</em>}
         </label>
 
         <div className={styles.formActions}>
-          <button type="submit" className={styles.btnPrimary} disabled={!canSubmit || saving}>
+          <button type="submit" className={styles.btnPrimary} disabled={saving}>
             {saving ? t("PasswordTab.updating") : t("PasswordTab.updatePassword")}
           </button>
         </div>

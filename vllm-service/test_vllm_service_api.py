@@ -10,6 +10,7 @@
 from __future__ import annotations
 
 import json
+import os
 import sys
 import urllib.error
 import urllib.request
@@ -18,7 +19,8 @@ import urllib.request
 # =========================
 # CONFIG: 請自行填入
 # =========================
-API_KEY = "ccai_WnQnsdkdJrncfTXzhzEPFi3mgpZyYjtD"
+# 金鑰一律從環境變數讀取，不要把真實的 ccai_ 金鑰寫進 repo
+API_KEY = os.environ.get("CCAI_API_KEY", "")
 BASE_URL = "http://localhost:8000/api/v1/ai-proxy"
 MODEL = "gpt-oss-20B"
 

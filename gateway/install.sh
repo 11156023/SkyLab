@@ -227,6 +227,15 @@ log.level = "info"
 log.maxDays = 7
 FRPS_EOF
 
+# 安裝當下就換成隨機 token / dashboard 密碼：frps 會在下方 systemctl start 時
+# 對外監聽 0.0.0.0:7000，不能以預設的 CHANGE_THIS_TOKEN 上線，否則任何人
+# 都能透過這台 gateway 建立任意 tunnel。
+FRPS_TOKEN="$(openssl rand -hex 32 2>/dev/null || head -c 48 /dev/urandom | base64 | tr -dc 'A-Za-z0-9' | head -c 64)"
+FRPS_DASHBOARD_PASSWORD="$(openssl rand -hex 16 2>/dev/null || head -c 32 /dev/urandom | base64 | tr -dc 'A-Za-z0-9' | head -c 32)"
+sed -i "s|^auth.token = .*|auth.token = \"${FRPS_TOKEN}\"|" /etc/frp/frps.toml
+sed -i "s|^webServer.password = .*|webServer.password = \"${FRPS_DASHBOARD_PASSWORD}\"|" /etc/frp/frps.toml
+chmod 600 /etc/frp/frps.toml
+
 # frpc 設定（客戶端，如需連到外部 frps 時使用）
 cat > /etc/frp/frpc.toml << 'FRPC_EOF'
 # frp Client 設定（按需啟用）
@@ -341,6 +350,7 @@ cat << 'SUMMARY_EOF'
 
 SUMMARY_EOF
 
-echo "  frps Token（請立即修改）："
+echo "  frps Token（已隨機產生，請填入 SkyLab .env 的 FRP_TOKEN；之後可用下列指令查看）："
+echo "    grep auth.token /etc/frp/frps.toml"
 grep "auth.token" /etc/frp/frps.toml | head -1
 echo ""

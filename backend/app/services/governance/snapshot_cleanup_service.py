@@ -24,7 +24,13 @@ logger = logging.getLogger(__name__)
 
 SNAPSHOT_CLEANUP_BATCH_SIZE = 20
 
-_cursor_vmid: int = 0
+class _ScanCursor:
+    """跨 tick 的掃描游標（集中在物件上，避免 global 重新指派）。"""
+
+    vmid: int = 0
+
+
+_cursor = _ScanCursor()
 
 
 def _utc_now() -> datetime:
@@ -58,8 +64,7 @@ def _list_scan_batch(session: Session, cursor: int, limit: int) -> list[Resource
 
 
 def _reset_cursor() -> None:
-    global _cursor_vmid
-    _cursor_vmid = 0
+    _cursor.vmid = 0
 
 
 def _audit_and_notify(
@@ -94,7 +99,6 @@ def _audit_and_notify(
 
 def process_snapshot_cleanup() -> int:
     """Scheduler tick：回傳本 tick 刪除的快照數。"""
-    global _cursor_vmid
     try:
         deleted = 0
         now = _utc_now()
@@ -105,12 +109,12 @@ def process_snapshot_cleanup() -> int:
             if not config.snapshot_cleanup_enabled:
                 return 0
             batch = _list_scan_batch(
-                session, _cursor_vmid, SNAPSHOT_CLEANUP_BATCH_SIZE
+                session, _cursor.vmid, SNAPSHOT_CLEANUP_BATCH_SIZE
             )
             if not batch:
                 _reset_cursor()
                 return 0
-            _cursor_vmid = int(batch[-1].vmid)
+            _cursor.vmid = int(batch[-1].vmid)
             pve_map = _pve_resource_map()
 
             for resource in batch:

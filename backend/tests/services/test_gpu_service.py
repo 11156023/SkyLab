@@ -4,6 +4,9 @@ H200_MDEV 是 pve205 上 H200 SR-IOV VF 的真實 PVE 回傳格式
 （GET /nodes/{node}/hardware/pci/{path}/mdev）。
 """
 
+import threading
+import time
+
 from app.schemas.gpu import GPUDeviceMap, GPUUsageInfo
 from app.services.proxmox import gpu_service
 
@@ -419,3 +422,114 @@ class TestListGpuOptionsNodeFilter:
         self._patch(monkeypatch)
         options = gpu_service.list_gpu_options(node="unknown-node")
         assert [o.mapping_id for o in options] == ["gpu-a", "gpu-b"]
+
+
+class _FakeConfig:
+    """模擬 proxmox.nodes(node).qemu(vmid).config.get()，可記錄併發數。"""
+
+    def __init__(self, tracker, config):
+        self._tracker = tracker
+        self._config = config
+
+    def get(self):
+        self._tracker.enter()
+        try:
+            time.sleep(0.02)
+            return self._config
+        finally:
+            self._tracker.leave()
+
+
+class _Tracker:
+    def __init__(self) -> None:
+        self.lock = threading.Lock()
+        self.inflight = 0
+        self.max_inflight = 0
+        self.calls = 0
+
+    def enter(self) -> None:
+        with self.lock:
+            self.calls += 1
+            self.inflight += 1
+            self.max_inflight = max(self.max_inflight, self.inflight)
+
+    def leave(self) -> None:
+        with self.lock:
+            self.inflight -= 1
+
+
+class _FakeProxmoxVms:
+    def __init__(self, tracker, configs) -> None:
+        self._tracker = tracker
+        self._configs = configs
+
+        outer = self
+
+        class _Cluster:
+            class resources:  # noqa: N801 - mimic proxmoxer attribute style
+                @staticmethod
+                def get(type=None):  # noqa: A002 - proxmoxer kwarg name
+                    return [
+                        {"type": "qemu", "vmid": vmid, "node": "pve1",
+                         "name": f"vm{vmid}", "status": "running"}
+                        for vmid in outer._configs
+                    ]
+
+        self.cluster = _Cluster()
+
+    def nodes(self, _node):
+        outer = self
+
+        class _Node:
+            @staticmethod
+            def qemu(vmid):
+                class _Qemu:
+                    config = _FakeConfig(outer._tracker, outer._configs[vmid])
+
+                return _Qemu()
+
+        return _Node()
+
+
+class TestBuildUsageMap:
+    """掃描每台 VM 的設定是 GPU 管理頁最大的成本：必須併發且短期共用結果。"""
+
+    @staticmethod
+    def _patch(monkeypatch, vm_count: int):
+        gpu_service._usage_map_cache = None
+        tracker = _Tracker()
+        configs = {
+            1000 + i: {"hostpci0": "mapping=H200,mdev=nvidia-1436,pcie=1"}
+            for i in range(vm_count)
+        }
+        proxmox = _FakeProxmoxVms(tracker, configs)
+        monkeypatch.setattr(
+            gpu_service, "iter_connection_clients", lambda: [(None, proxmox)]
+        )
+        return tracker
+
+    def test_configs_are_fetched_concurrently(self, monkeypatch) -> None:
+        tracker = self._patch(monkeypatch, 8)
+        usage = gpu_service._build_usage_map()
+        assert len(usage["H200"]) == 8
+        assert tracker.calls == 8
+        assert tracker.max_inflight > 1
+        gpu_service._usage_map_cache = None
+
+    def test_repeated_calls_reuse_cached_scan(self, monkeypatch) -> None:
+        tracker = self._patch(monkeypatch, 4)
+        gpu_service._build_usage_map()
+        gpu_service._build_usage_map()
+        assert tracker.calls == 4
+        gpu_service._usage_map_cache = None
+
+    def test_cached_entries_are_not_mutated_by_callers(self, monkeypatch) -> None:
+        """_resolve_vram_for_mapping 會寫入 allocated_vram_mb，不可污染快取。"""
+        self._patch(monkeypatch, 2)
+        first = gpu_service._build_usage_map()
+        for entry in first["H200"]:
+            entry.allocated_vram_mb = 4096
+
+        second = gpu_service._build_usage_map()
+        assert all(entry.allocated_vram_mb == 0 for entry in second["H200"])
+        gpu_service._usage_map_cache = None

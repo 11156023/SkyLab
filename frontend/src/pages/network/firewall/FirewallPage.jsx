@@ -19,7 +19,6 @@ import "@xyflow/react/dist/style.css";
 
 import {
   getTopology,
-  createConnection,
   deleteConnection,
   saveLayout,
 } from "../../../services/firewall";
@@ -31,7 +30,9 @@ import ConnectionEdge   from "./edges/ConnectionEdge";
 import { buildFlow, portLabel } from "./utils/buildFlow";
 import { useTheme } from "../../../contexts/ThemeContext";
 import useAutoRefresh from "../../../hooks/useAutoRefresh";
+import LoadingState from "../../../components/LoadingState/LoadingState";
 import useDialogPresence from "../../../hooks/useDialogPresence";
+import { useToast } from "../../../hooks/useToast";
 import styles from "./FirewallPage.module.scss";
 import MIcon from "../../../components/MIcon";
 import PageHeader from "../../../components/PageHeader/PageHeader";
@@ -53,6 +54,7 @@ const toDialogKey = (nodeId) => (nodeId === GATEWAY_KEY ? "internet" : String(no
 export default function FirewallPage() {
   const { t } = useTranslation("network");
   const { theme } = useTheme();
+  const toast = useToast();
   const [nodes, setNodes, onNodesChange] = useNodesState([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState([]);
   const [topology,     setTopology]     = useState(null);
@@ -66,6 +68,8 @@ export default function FirewallPage() {
   const [showMiniMap,  setShowMiniMap]  = useState(true);
   const connDialog    = useDialogPresence(showDialog);
   const deleteConfirm = useDialogPresence(deleteEdge);
+  /* 關閉細項面板時先播 0.22s 滑出動畫再卸載，時長需與 SCSS 的 panelOut 一致 */
+  const rulesPanel    = useDialogPresence(selectedNode, 220);
   const rfInstance = useRef(null);
   const saveTimer  = useRef(null);
 
@@ -102,7 +106,11 @@ export default function FirewallPage() {
       handleDeleteEdge,
       showLabels
     );
-    setSelectedNode(null);
+    /* 拓撲刷新時保留仍存在的選取節點：規則面板可就地操作後，
+       不能被 30 秒自動刷新或連線變更關掉 */
+    setSelectedNode((prev) =>
+      prev ? nextNodes.find((n) => n.id === prev.id) ?? null : null
+    );
     setDeleteEdge(null);
     setNodes(nextNodes);
     setEdges(nextEdges);
@@ -192,9 +200,8 @@ export default function FirewallPage() {
     .filter((n) => n.node_type !== "gateway")
     .map((n) => ({ key: String(n.vmid), vmid: n.vmid, name: n.name }));
 
-  /* ── 建立連線 ── */
-  const handleCreateConnection = async (data) => {
-    await createConnection(data);
+  /* ── 對話框送出成功（連線或自訂規則都由對話框自己呼叫 API）── */
+  const handleDialogDone = () => {
     setShowDialog(false);
     fetchTopology();
   };
@@ -211,7 +218,7 @@ export default function FirewallPage() {
       setDeleteEdge(null);
       fetchTopology();
     } catch (err) {
-      alert(err?.message ?? t("FirewallPage.deleteFailed"));
+      toast.error(err?.message ?? t("FirewallPage.deleteFailed"));
     }
   };
 
@@ -236,12 +243,7 @@ export default function FirewallPage() {
       <div className={styles.content}>
         {loading && !topology && (
           <div className={styles.centerState}>
-            <div className={styles.topoLoader}>
-              {Array.from({ length: 9 }, (_, i) => (
-                <div key={i} className={styles.topoNode} style={{ "--i": i }} />
-              ))}
-            </div>
-            <span className={styles.loadingTitle}>{t("FirewallPage.loadingTopology")}</span>
+            <LoadingState text={t("FirewallPage.loadingTopology")} />
           </div>
         )}
 
@@ -327,24 +329,27 @@ export default function FirewallPage() {
               </Panel>
             </ReactFlow>
 
-            {selectedNode && (
+            {rulesPanel.open && (
               <RulesPanel
-                node={{ vmid: Number(selectedNode.id), name: selectedNode.data.name }}
+                node={{ vmid: Number(rulesPanel.item.id), name: rulesPanel.item.data.name }}
+                closing={rulesPanel.closing}
                 onClose={() => setSelectedNode(null)}
+                onChanged={() => fetchTopology(true)}
               />
             )}
           </div>
         )}
       </div>
 
-      {/* ── 新增連線 Dialog ── */}
+      {/* ── 新增連線／自訂規則 Dialog（與資源頁共用同一份） ── */}
       {connDialog.open && (
         <ConnectionDialog
           key={dialogPreset ? `${dialogPreset.source}->${dialogPreset.target}` : "manual"}
           nodes={vmNodes}
           initialSource={dialogPreset?.source}
           initialTarget={dialogPreset?.target}
-          onConfirm={handleCreateConnection}
+          onDone={handleDialogDone}
+          onChanged={() => fetchTopology(true)}
           onClose={() => setShowDialog(false)}
           closing={connDialog.closing}
         />

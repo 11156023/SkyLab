@@ -11,6 +11,13 @@
   "course_env.template_not_ready": "機器「{name}」綁定的 PVE 範本不存在或尚未就緒",
   "course_env.type_mismatch": "機器「{name}」類型與 PVE 範本不一致",
   "course_env.edge_unknown_node": "拓撲連線包含不存在的機器節點",
+  "course_env.publication_domain_tcp_only": "對外網址只支援 TCP",
+  "course_env.publication_zone_required": "對外網址需要指定網域（Cloudflare zone）",
+  "course_env.publication_student_placeholder": "主機名樣板必須包含 {student}，否則全班會搶同一個網址",
+  "course_env.duplicate_publication_hostname": "主機名樣板「{hostname}」重複了；一個網址只能指向一個 port，請給每條對外網址不同的樣板",
+  "course_env.publication_unknown_node": "對外服務指向了不存在的機器",
+  "course_env.duplicate_publication": "同一台機器的 port {port} 只能發布一次",
+  "course_env.overlapping_edge": "「{source}」到「{target}」已經有一條連線涵蓋這個 port；雙向連線已包含反向，不需要再畫一條",
   "course_env.duplicate_edge": "同一條拓撲連線不可重複",
   "course_env.class_not_found": "指定的班級不存在",
   "course_env.class_not_owned": "班級「{name}」不屬於這位教師",
@@ -30,6 +37,8 @@
   "course_env.audience_class_required": "開放快速練習時，必須選擇可以看到這個環境的班級",
 
   "gateway.unknown_service": "未知服務：{service}",
+  "gateway.service_config_not_exposed": "基於安全考量，不提供 {service} 原始設定檔編輯",
+  "gateway.wireguard_overview_failed": "無法取得 Gateway WireGuard 摘要",
   "gateway.install_script_missing": "安裝腳本不存在",
   "gateway.proxmox_failed": "Proxmox 操作失敗",
   "gateway.traefik_sync_failed": "同步 Traefik 憑證設定失敗",
@@ -77,5 +86,7 @@
   "ai_api_key.invalid_or_revoked": "Invalid or revoked API key",
   "ai_api_key.api_key_expired": "API key has expired",
   "ai_api_key.user_not_found": "User not found",
-  "ai_api_key.user_inactive": "User account is inactive"
+  "ai_api_key.user_inactive": "User account is inactive",
+  "desktop.device_code_too_many": "待核准的裝置代碼過多，請稍後再試",
+  "desktop.device_code_already_approved": "此裝置代碼已核准過"
 }

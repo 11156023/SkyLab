@@ -1,5 +1,5 @@
 import { lazy } from "react";
-import { Navigate, Route, Routes, useParams } from "react-router-dom";
+import { Navigate, Route, Routes, useParams, useSearchParams } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { useAuth } from "./contexts/AuthContext";
 import DashboardLayout from "./layout/DashboardLayout";
@@ -13,7 +13,9 @@ import styles from "./App.module.scss";
 const AdminDashboardPage = lazy(() => import("./pages/personal/dashboard/admin/AdminDashboardPage"));
 const TeacherDashboardPage = lazy(() => import("./pages/personal/dashboard/teacher/TeacherDashboardPage"));
 const StudentHomePage = lazy(() => import("./pages/personal/dashboard/StudentHomePage"));
+const StudentCoursesPage = lazy(() => import("./pages/personal/courses/StudentCoursesPage"));
 const StudentCoursePage = lazy(() => import("./pages/personal/dashboard/student/StudentCoursePage"));
+const StudentWeekPage = lazy(() => import("./pages/personal/courses/StudentWeekPage"));
 const QuickTemplateFormPage = lazy(() => import("./pages/personal/quick-practice/QuickTemplateFormPage"));
 const ResourcesPage = lazy(() => import("./pages/personal/resources/ResourcesPage"));
 const ResourceDetailPage = lazy(() => import("./pages/personal/resources/detail/ResourceDetailPage"));
@@ -44,9 +46,14 @@ const ClassSetupPage = lazy(() => import("./pages/course-operations/class-setup/
 
 // 系統管理
 const AdminPage = lazy(() => import("./pages/system/admin/AdminPage"));
-const SettingsPage = lazy(() => import("./pages/system/settings/SettingsPage"));
+const PveConnectionsPage = lazy(() => import("./pages/system/settings/PveConnectionsPage"));
+const SchedulerPage = lazy(() => import("./pages/system/settings/SchedulerPage"));
+const GovernancePage = lazy(() => import("./pages/system/settings/GovernancePage"));
+const QuotasPage = lazy(() => import("./pages/system/settings/QuotasPage"));
+const LdapPage = lazy(() => import("./pages/system/settings/LdapPage"));
+const NodesPage = lazy(() => import("./pages/system/settings/NodesPage"));
+const StoragePage = lazy(() => import("./pages/system/settings/StoragePage"));
 const MonitoringPage = lazy(() => import("./pages/system/monitoring/MonitoringPage"));
-const QuotasPage = lazy(() => import("./pages/system/quotas/QuotasPage"));
 const IpManagementPage = lazy(() => import("./pages/system/ip-management/IpManagementPage"));
 const AuditPage = lazy(() => import("./pages/system/audit/AuditPage"));
 const JobsPage = lazy(() => import("./pages/system/jobs/JobsPage"));
@@ -101,6 +108,28 @@ function LegacyAiJudgeEditorRedirect() {
   return <Navigate to={`/class-management/${classId}/ai${query}`} replace />;
 }
 
+function LegacyStudentCourseRedirect() {
+  const { pathId } = useParams();
+  return <Navigate to={`/courses/${encodeURIComponent(pathId)}`} replace />;
+}
+
+/** 舊「系統設定」的 ?tab= 值 → 升格後的獨立頁面；沒帶 tab 就是原本的第一個分頁（PVE 連線）。 */
+const LEGACY_SETTINGS_TABS = {
+  pve: "/pve-connections",
+  scheduler: "/scheduler",
+  governance: "/governance",
+  quotas: "/quotas",
+  ldap: "/ldap",
+  nodes: "/nodes",
+  storage: "/storage",
+};
+
+function LegacySettingsRedirect() {
+  const [searchParams] = useSearchParams();
+  const target = LEGACY_SETTINGS_TABS[searchParams.get("tab")] ?? LEGACY_SETTINGS_TABS.pve;
+  return <Navigate to={target} replace />;
+}
+
 function App() {
   const { user, loading, authStatus, retrySession } = useAuth();
   const isAdmin = Boolean(user?.is_superuser || user?.role === "admin");
@@ -150,7 +179,10 @@ function App() {
             }
           />
           {/* 單一課程總覽：課堂環境、課堂機器與截至今天的 AI 任務 */}
-          <Route path="/dashboard/course/:pathId" element={<StudentCoursePage />} />
+          <Route path="/courses" element={!canTeach ? <StudentCoursesPage /> : <Navigate to="/dashboard" replace />} />
+          <Route path="/courses/:pathId" element={!canTeach ? <StudentCoursePage /> : <Navigate to="/dashboard" replace />} />
+          <Route path="/courses/:pathId/weeks/:weekId" element={!canTeach ? <StudentWeekPage /> : <Navigate to="/dashboard" replace />} />
+          <Route path="/dashboard/course/:pathId" element={!canTeach ? <LegacyStudentCourseRedirect /> : <Navigate to="/dashboard" replace />} />
           <Route path="/quick-template/:id"   element={<QuickTemplateFormPage />} />
           <Route path="/my-resources"         element={<ResourcesPage />} />
           <Route path="/my-resources/:vmid"   element={<ResourceDetailPage backTo="/my-resources" />} />
@@ -195,7 +227,7 @@ function App() {
           <Route path="/class-management/new" element={<Navigate to={canTeach ? "/class-setup" : "/dashboard"} replace />} />
           <Route path="/class-setup" element={canTeach ? <ClassSetupPage /> : <Navigate to="/dashboard" replace />} />
           <Route path="/class-management/:classId/ai" element={canTeach ? <AiJudgePage /> : <Navigate to="/dashboard" replace />} />
-          {/* 舊評分表連結保留導回主工作頁，避免書籤落到不存在的獨立 editor。 */}
+          {/* 舊檢查表連結保留導回主工作頁，避免書籤落到不存在的獨立 editor。 */}
           <Route
             path="/class-management/:classId/ai/checks/:sessionId/edit"
             element={canTeach ? <LegacyAiJudgeEditorRedirect /> : <Navigate to="/dashboard" replace />}
@@ -207,8 +239,16 @@ function App() {
           {isAdmin && (
             <>
               <Route path="/admin"     element={<AdminPage />} />
-              <Route path="/settings"  element={<SettingsPage />} />
+              {/* 原「系統設定」的七個分頁，2026-09 各自升格為獨立頁面 */}
+              <Route path="/pve-connections" element={<PveConnectionsPage />} />
+              <Route path="/scheduler" element={<SchedulerPage />} />
+              <Route path="/governance" element={<GovernancePage />} />
               <Route path="/quotas"    element={<QuotasPage />} />
+              <Route path="/ldap"      element={<LdapPage />} />
+              <Route path="/nodes"     element={<NodesPage />} />
+              <Route path="/storage"   element={<StoragePage />} />
+              {/* 舊的 /settings?tab=… 書籤依分頁導到對應的新頁面 */}
+              <Route path="/settings"  element={<LegacySettingsRedirect />} />
               <Route path="/ip-management" element={<IpManagementPage />} />
               <Route path="/monitoring" element={<MonitoringPage />} />
               <Route path="/audit"     element={<AuditPage />} />
@@ -224,7 +264,11 @@ function App() {
               <Route path="/gateway"        element={<GatewayPage />} />
             </>
           )}
-          <Route path="/reverse-proxy"  element={<ReverseProxyPage />} />
+          {/* 反向代理頁已併入網域管理（管理員）；一般使用者請到資源詳情的進階設定 */}
+          <Route
+            path="/reverse-proxy"
+            element={<Navigate to={isAdmin ? "/domain?tab=reverse-proxy" : "/my-resources"} replace />}
+          />
 
           {/* fallback */}
           <Route path="*" element={<Navigate to="/dashboard" replace />} />

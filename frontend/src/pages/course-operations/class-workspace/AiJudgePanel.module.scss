@@ -81,25 +81,6 @@
   gap: $spacing-8;
 }
 
-.btnAssistant,
-.btnAssistantActive {
-  @extend .btnSecondary;
-  position: relative;
-}
-
-.btnAssistantActive {
-  border-color: var(--color-primary);
-  color: var(--color-primary);
-  background: color-mix(in srgb, var(--color-primary) 8%, var(--color-surface));
-}
-
-.assistantPending {
-  margin-left: 2px;
-  color: var(--color-primary);
-  font-size: $font-size-12;
-  font-weight: $font-weight-700;
-}
-
 .sectionActions {
   display: flex;
   flex-wrap: wrap;
@@ -255,45 +236,41 @@
   strong { color: var(--color-info); }
 }
 
-/* ── 已保存評分表列表 ── */
-.fileList {
-  @include flex-column;
-  gap: $spacing-8;
+.noticeProgress {
+  border-color: color-mix(in srgb, var(--color-pending) 34%, transparent);
+  background: linear-gradient(
+    110deg,
+    color-mix(in srgb, var(--color-pending) 9%, var(--color-surface)) 0%,
+    color-mix(in srgb, var(--color-pending) 18%, var(--color-surface)) 42%,
+    color-mix(in srgb, var(--color-pending) 9%, var(--color-surface)) 70%
+  );
+  background-size: 220% 100%;
+  animation: scriptButtonProgress 1.8s ease-in-out infinite;
+  overflow: hidden;
+
+  strong { color: var(--color-pending); }
 }
 
-.fileRow {
-  display: flex;
-  flex-wrap: wrap;
+.noticeProgressTitle {
+  display: inline-flex;
   align-items: center;
-  gap: $spacing-8 $spacing-16;
-  padding: $spacing-8 $spacing-16;
-  border: 1px solid var(--color-border);
-  border-radius: $radius-8;
-  transition: border-color $transition-base, background $transition-base;
-}
-
-.fileRowActive {
-  border-color: var(--color-primary);
-  background: color-mix(in srgb, var(--color-primary) 6%, transparent);
-}
-
-.fileMain {
-  @include flex-column;
-  gap: 2px;
-  flex: 1;
-  min-width: 0;
-  text-align: left;
-  cursor: pointer;
-  background: transparent;
-  border: 0;
-  padding: 0;
-}
-
-.fileName {
+  gap: 6px;
   font-size: $font-size-14;
-  font-weight: $font-weight-500;
-  color: var(--color-text-primary);
-  @include text-truncate;
+  font-weight: $font-weight-700;
+}
+
+.noticeWorkflowSuccess {
+  border-color: color-mix(in srgb, var(--color-success) 30%, transparent);
+  background: color-mix(in srgb, var(--color-success) 8%, transparent);
+
+  strong { color: var(--color-success); }
+}
+
+.noticeWorkflowError {
+  border-color: color-mix(in srgb, var(--color-danger) 30%, transparent);
+  background: color-mix(in srgb, var(--color-danger) 8%, transparent);
+
+  strong { color: var(--color-danger); }
 }
 
 .fileMeta {
@@ -301,141 +278,11 @@
   color: var(--color-text-muted);
 }
 
-.fileActions {
-  display: flex;
-  gap: $spacing-8;
-  flex-shrink: 0;
-}
-
-/* ── 上傳區 ── */
-.templateRow {
-  @include flex-column;
-  gap: $spacing-8;
-}
-
+/* ── 欄位標籤 ── */
 .fieldLabel {
   font-size: $font-size-12;
   font-weight: $font-weight-500;
   color: var(--color-text-secondary);
-}
-
-.chipBtns {
-  display: flex;
-  flex-wrap: wrap;
-  gap: $spacing-8;
-}
-
-.chipBtn,
-.chipBtnActive {
-  min-height: 32px;
-  padding: 4px $spacing-16;
-  border-radius: $radius-8;
-  font-size: $font-size-14;
-  cursor: pointer;
-  transition: background $transition-base, color $transition-base, border-color $transition-base;
-
-  &:disabled {
-    opacity: 0.5;
-    cursor: not-allowed;
-  }
-}
-
-.chipBtn {
-  background: var(--color-surface);
-  border: 1px solid var(--color-border);
-  color: var(--color-text-secondary);
-
-  &:hover:not(:disabled) {
-    background: var(--color-hover);
-    color: var(--color-text-primary);
-  }
-}
-
-.chipBtnActive {
-  background: var(--color-primary);
-  border: 1px solid var(--color-primary);
-  color: var(--color-text-on-primary);
-}
-
-.uploaderWrap {
-  @include flex-column;
-  gap: $spacing-16;
-}
-
-.dropZone {
-  position: relative;
-  @include flex-column;
-  align-items: center;
-  justify-content: center;
-  gap: $spacing-16;
-  padding: $spacing-32;
-  border: 2px dashed var(--color-border);
-  border-radius: $radius-12;
-  transition: border-color $transition-base, background $transition-base;
-
-  &:hover {
-    border-color: var(--color-text-muted);
-  }
-}
-
-.dropZoneDragging {
-  border-color: var(--color-primary);
-  background: color-mix(in srgb, var(--color-primary) 5%, transparent);
-}
-
-.dropZoneLoading {
-  pointer-events: none;
-  opacity: 0.5;
-}
-
-.dropZoneInput {
-  position: absolute;
-  inset: 0;
-  cursor: pointer;
-  opacity: 0;
-}
-
-.dropHint {
-  @include flex-column;
-  align-items: center;
-  gap: $spacing-8;
-  color: var(--color-text-muted);
-  text-align: center;
-}
-
-.dropHintTitle {
-  font-size: $font-size-14;
-  font-weight: $font-weight-500;
-  color: var(--color-text-primary);
-}
-
-.dropHintMeta {
-  font-size: $font-size-12;
-  color: var(--color-text-muted);
-}
-
-.selectedFile {
-  display: flex;
-  align-items: center;
-  gap: $spacing-16;
-  color: var(--color-primary);
-
-  /* 清除按鈕要能點到，蓋在透明 input 上層 */
-  button {
-    position: relative;
-    z-index: 1;
-  }
-}
-
-.selectedFileName {
-  font-size: $font-size-14;
-  font-weight: $font-weight-500;
-  color: var(--color-text-primary);
-}
-
-.selectedFileMeta {
-  font-size: $font-size-12;
-  color: var(--color-text-muted);
 }
 
 /* ── 分析結果版面 ── */
@@ -445,11 +292,9 @@
   gap: $spacing-24;
   align-items: start;
 
-  &.analysisGridAssistantOpen {
-    @include respond-to(xl) {
-      grid-template-columns: minmax(0, 1fr) 360px;
-      align-items: stretch;
-    }
+  @include respond-to(xl) {
+    grid-template-columns: minmax(0, 1fr) 440px;
+    align-items: stretch;
   }
 }
 
@@ -467,143 +312,14 @@
   align-self: stretch;
 }
 
-.summaryDetails {
-  border-radius: $radius-8;
-  background: var(--color-hover);
-  font-size: $font-size-14;
-  color: var(--color-text-secondary);
-
-  strong {
-    display: block;
-    padding: $spacing-8 $spacing-16;
-    font-weight: $font-weight-500;
-    color: var(--color-text-primary);
-  }
-
-  p {
-    margin: 0;
-    padding: 0 $spacing-16 $spacing-16;
-    line-height: $line-height-base;
-  }
-}
-
-.assessmentSummary {
-  @include flex-column;
-  gap: $spacing-16;
-  padding: $spacing-4;
-}
-
-.assessmentHead {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  flex-wrap: wrap;
-  gap: $spacing-16;
-
-  > div:first-child {
-    min-width: 0;
-  }
-
-  h4 {
-    margin: 0;
-    color: var(--color-text-primary);
-    font-size: $font-size-16;
-    font-weight: $font-weight-700;
-  }
-
-  p {
-    margin: 4px 0 0;
-    color: var(--color-text-secondary);
-    font-size: $font-size-12;
-    line-height: 1.5;
-  }
-}
-
-.assessmentHeadActions {
-  display: flex;
-  align-items: center;
-  flex-shrink: 0;
-  gap: $spacing-8;
-}
-
-.assessmentTitleRow {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: $spacing-8;
-}
-
-.assessmentStatus_current,
-.assessmentStatus_stale {
-  display: inline-flex;
-  align-items: center;
-  min-height: 22px;
-  padding: 2px 8px;
-  border-radius: $radius-pill;
-  font-size: $font-size-10;
-  font-weight: $font-weight-700;
-}
-
-.assessmentStatus_current {
-  color: var(--color-success);
-  background: color-mix(in srgb, var(--color-success) 12%, transparent);
-}
-
-.assessmentStatus_stale {
-  color: var(--color-pending);
-  background: color-mix(in srgb, var(--color-pending) 14%, transparent);
-}
-
-.statsBar {
-  display: flex;
-  min-height: 10px;
-  overflow: hidden;
-  border-radius: $radius-pill;
-  background: var(--color-divider);
-}
-
-.statsBar > span {
-  min-width: 2px;
-}
-
-.statsSeg_auto { background: var(--color-success); }
-.statsSeg_partial { background: var(--color-pending); }
-.statsSeg_manual { background: var(--color-danger); }
-
-.statsLegend {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: $spacing-8 $spacing-16;
-  color: var(--color-text-secondary);
-  font-size: $font-size-12;
-}
-
-.legendItem {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-}
-
-.legendItem i {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-}
-
-.legendDot_auto { background: var(--color-success); }
-.legendDot_partial { background: var(--color-pending); }
-.legendDot_manual { background: var(--color-danger); }
-.legendTotal { margin-left: auto; color: var(--color-text-muted); }
-
-.insightModal {
-  width: min(720px, 100%);
-  max-height: min(760px, 88vh);
-}
-
-/* ── 評分項目表格 ── */
+/* ── 檢查項目表格 ── */
 .rubricTableCard {
   overflow: hidden;
+
+  @include respond-to(xl) {
+    flex: 1 1 auto;
+    min-height: 0;
+  }
 }
 
 .rubricTableWrap {
@@ -793,35 +509,6 @@
 .detBadge_stale { outline: 1px dashed currentColor; outline-offset: 2px; }
 .detBadge em { font-size: $font-size-10; font-style: normal; font-weight: $font-weight-700; }
 
-.rubricField {
-  @include flex-column;
-  gap: 4px;
-  font-size: $font-size-12;
-  font-weight: $font-weight-500;
-  color: var(--color-text-secondary);
-
-  input {
-    min-height: 34px;
-    padding: 6px $spacing-16;
-    border: 1px solid var(--color-border);
-    border-radius: $radius-8;
-    background: var(--color-surface);
-    color: var(--color-text-primary);
-    outline: none;
-    font-size: $font-size-14;
-
-    &:focus {
-      border-color: var(--color-primary);
-      box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-primary) 12%, transparent);
-    }
-
-    &:disabled {
-      opacity: 0.5;
-      cursor: not-allowed;
-    }
-  }
-}
-
 .detectGrid {
   display: grid;
   grid-template-columns: 1fr;
@@ -888,6 +575,7 @@
     position: sticky;
     top: $spacing-24;
     height: 100%;
+    min-height: min(640px, calc(100vh - 48px));
     max-height: none;
     box-sizing: border-box;
   }
@@ -1017,6 +705,77 @@
   }
 }
 
+.chatSourcesPanel {
+  padding: $spacing-8;
+  border: 1px solid var(--color-border);
+  border-radius: $radius-12;
+  background: color-mix(in srgb, var(--color-hover) 45%, var(--color-surface));
+}
+
+.chatAttachmentRail {
+  display: flex;
+  gap: $spacing-8;
+  overflow-x: auto;
+  padding: 2px 0;
+  scrollbar-width: thin;
+}
+
+.chatAttachmentChip,
+.chatMessageAttachment {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  border: 1px solid var(--color-border);
+  border-radius: $radius-8;
+  background: var(--color-surface);
+  color: var(--color-text-secondary);
+}
+
+.chatAttachmentChip {
+  flex: 0 0 auto;
+  max-width: min(280px, 75vw);
+  padding: 6px 8px 6px 10px;
+  font-size: $font-size-12;
+
+  > span {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  small { color: var(--color-text-muted); white-space: nowrap; }
+}
+
+.chatAttachmentRemove {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  color: var(--color-text-muted);
+  background: transparent;
+  cursor: pointer;
+
+  &:hover { color: var(--color-danger); background: var(--color-hover); }
+}
+
+.chatMessageAttachments {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 6px;
+}
+
+.chatMessageAttachment {
+  padding: 4px 7px;
+  font-size: $font-size-12;
+}
+
 .chatForm {
   display: flex;
   gap: $spacing-8;
@@ -1104,6 +863,78 @@
   font-weight: $font-weight-500;
   color: var(--color-text-primary);
   @include text-truncate;
+}
+
+.scriptRenameForm {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  flex: 1 1 320px;
+  min-width: 0;
+  align-items: center;
+  gap: $spacing-8;
+  color: var(--color-text-primary);
+}
+
+.scriptRenameInput {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  min-height: 36px;
+  padding: 6px 10px;
+  border: 1px solid var(--color-primary);
+  border-radius: $radius-8;
+  background: var(--color-surface);
+  color: var(--color-text-primary);
+  font: inherit;
+  font-size: $font-size-16;
+  font-weight: $font-weight-700;
+  outline: none;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-primary) 12%, transparent);
+
+  &:focus {
+    border-color: var(--color-primary);
+  }
+
+  &:disabled {
+    opacity: 0.6;
+    cursor: wait;
+  }
+
+  &::selection {
+    background: color-mix(in srgb, var(--color-primary) 24%, transparent);
+    color: var(--color-text-primary);
+  }
+}
+
+@keyframes scriptButtonProgress {
+  0% { background-position: 100% 0; }
+  100% { background-position: -100% 0; }
+}
+
+.btnPrimaryProcessing {
+  position: relative;
+  overflow: hidden;
+  background: linear-gradient(
+    110deg,
+    var(--color-primary) 0%,
+    color-mix(in srgb, var(--color-primary) 76%, white) 42%,
+    var(--color-primary) 70%
+  );
+  background-size: 220% 100%;
+  animation: scriptButtonProgress 1.8s ease-in-out infinite;
+  cursor: progress;
+
+  > * {
+    position: relative;
+    z-index: 1;
+  }
+}
+
+.scriptRenameError {
+  grid-column: 2 / -1;
+  color: var(--color-danger);
+  font-size: $font-size-12;
+  font-weight: $font-weight-500;
 }
 
 .reviewGrid {
@@ -1420,11 +1251,6 @@
   font-size: $font-size-14;
 }
 
-.sessionFilters {
-  display: flex;
-  gap: $spacing-8;
-}
-
 .sessionList {
   @include flex-column;
   gap: $spacing-8;
@@ -1445,14 +1271,40 @@
   color: var(--color-text-primary);
   text-align: left;
   cursor: pointer;
+}
 
-  > strong {
-    display: block;
-    width: 100%;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
+.sessionTitleViewport {
+  display: block;
+  width: 100%;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.sessionTitle {
+  display: block;
+  width: max-content;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  transform: translateX(0);
+  transform-origin: left center;
+  transition: transform 220ms ease-out;
+}
+
+.sessionTitleViewport:hover .sessionTitleOverflowing,
+.sessionItem:focus-visible .sessionTitleOverflowing,
+.sessionItemActive:focus-visible .sessionTitleOverflowing {
+  max-width: none;
+  overflow: visible;
+  text-overflow: clip;
+  animation: sessionTitleMarquee 8s linear 1 both;
+  will-change: transform;
+}
+
+@keyframes sessionTitleMarquee {
+  0%, 18% { transform: translateX(0); }
+  82%, 100% { transform: translateX(calc(var(--session-title-shift, 0px) * -1)); }
 }
 
 .sessionRow {
@@ -1475,6 +1327,15 @@
   min-width: 0;
 }
 
+.sessionWeekLabel {
+  width: 100%;
+  overflow: hidden;
+  color: var(--color-text-muted);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .sessionRow:hover { background: var(--color-hover); }
 
 .sessionRowActions {
@@ -1486,6 +1347,38 @@
 
 .sessionRowActions .iconBtn { width: 36px; height: 36px; }
 .pinActive { color: var(--color-primary); }
+
+.sessionRowRenaming {
+  border-color: var(--color-primary);
+  background: color-mix(in srgb, var(--color-primary) 8%, transparent);
+}
+
+.sessionRenameForm {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  padding: 5px 8px;
+}
+
+.sessionRenameInput {
+  width: 100%;
+  min-width: 0;
+  min-height: 32px;
+  padding: 6px 8px;
+  border: 1px solid var(--color-primary);
+  border-radius: $radius-8;
+  background: var(--color-surface);
+  color: var(--color-text-primary);
+  font: inherit;
+  font-size: $font-size-12;
+  outline: none;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-primary) 12%, transparent);
+}
+
+.sessionRenameInput:disabled {
+  opacity: 0.6;
+  cursor: wait;
+}
 
 @keyframes menuIn {
   from { opacity: 0; transform: translateY(4px); }
@@ -1499,8 +1392,7 @@
   pointer-events: none;
 }
 
-.sessionMenu,
-.sourceMenu {
+.sessionMenu {
   animation: menuIn 0.13s ease;
   transition: opacity 0.13s ease, transform 0.13s ease;
   position: absolute;
@@ -1527,13 +1419,7 @@
   box-shadow: var(--shadow-lg);
 }
 
-.sourceMenu {
-  top: calc(100% - 2px);
-  right: 4px;
-}
-
-.sessionMenu button,
-.sourceMenu button {
+.sessionMenu button {
   display: flex;
   align-items: center;
   gap: 7px;
@@ -1550,17 +1436,13 @@
   cursor: pointer;
 }
 
-.sessionMenu button:hover:not(:disabled),
-.sourceMenu button:hover:not(:disabled) { background: var(--color-hover); }
-.sessionMenu button:disabled,
-.sourceMenu button:disabled { opacity: .5; cursor: not-allowed; }
+.sessionMenu button:hover:not(:disabled) { background: var(--color-hover); }
+.sessionMenu button:disabled { opacity: .5; cursor: not-allowed; }
 .menuDanger { color: var(--color-danger) !important; }
 .menuSeparator { display: block; height: 1px; margin: 4px 2px; background: var(--color-divider); }
 .sidebarEmpty, .mainEmpty { display: flex; flex-direction: column; align-items: center; gap: $spacing-8; padding: $spacing-16 $spacing-8; color: var(--color-text-muted); text-align: center; }
 .sidebarEmpty p, .mainEmpty p { margin: 0; font-size: $font-size-12; line-height: 1.45; }
 .mainEmpty { min-height: 240px; }.mainEmpty > .material-icons-outlined { color: var(--color-primary); }
-.archivedNotice { @include badge-base; gap: 5px; padding: 5px 8px; color: var(--color-pending); background: color-mix(in srgb, var(--color-pending) 10%, transparent); white-space: nowrap; }
-.renameDialog { width: min(420px, calc(100vw - 28px)); }
 
 .sourceRail {
   display: flex;
@@ -1595,101 +1477,65 @@
 
 .sourceRailHead h3 { margin: 0; font-size: $font-size-16; }
 .sourceRailHead p { margin: 3px 0 0; color: var(--color-text-muted); font-size: $font-size-12; }
-.sourceList { display: flex; flex-direction: column; gap: $spacing-8; }
 .sourceRow { position: relative; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 3px; align-items: start; padding: 4px; border: 1px solid transparent; border-radius: $radius-8; }
 .sourceRow:hover { background: var(--color-hover); }
 .sourceRowSelected { border-color: var(--color-primary); background: color-mix(in srgb, var(--color-primary) 7%, transparent); }
-.sourceSelect { display: flex; min-width: 0; gap: $spacing-8; padding: 7px; border: 0; color: var(--color-text-primary); background: transparent; text-align: left; cursor: pointer; }
-.sourceSelect:disabled { cursor: default; }
+.sourceSelect { display: flex; min-width: 0; gap: $spacing-8; padding: 7px; border: 0; color: var(--color-text-primary); background: transparent; text-align: left; }
 .sourceIndicator { color: var(--color-primary); }
 .sourceText { display: flex; min-width: 0; flex-direction: column; gap: 3px; }
 .sourceText b { overflow: hidden; font-size: $font-size-14; text-overflow: ellipsis; white-space: nowrap; }
 .sourceText small { color: var(--color-text-muted); font-size: $font-size-12; line-height: 1.35; }
-.sourceText em { width: max-content; padding: 2px 6px; border-radius: $radius-pill; color: var(--color-primary-on-surface); background: color-mix(in srgb, var(--color-primary) 12%, transparent); font-size: $font-size-10; font-style: normal; }
-.sourceActions { position: relative; }
-.sourceActions .iconBtn,
 .sourceRailActions .iconBtn { width: 36px; height: 36px; }
-.sourceEmpty { display: flex; flex-direction: column; align-items: center; gap: $spacing-8; padding: $spacing-16 0; color: var(--color-text-muted); text-align: center; }
-.sourceEmpty p { margin: 0; font-size: $font-size-12; }
 
 .modalHeader { display: flex; align-items: flex-start; justify-content: space-between; gap: $spacing-16; margin-bottom: $spacing-16; }
 .modalHeader h2 { margin: 0; font-size: $font-size-18; }.modalHeader p { margin: 4px 0 0; color: var(--color-text-secondary); font-size: $font-size-12; }
-.createCheckDialog { width: min(620px, calc(100vw - 28px)); max-height: min(720px, calc(100vh - 28px)); overflow-y: auto; }
-.createCheckDialog form,
-.createCheckPanel form { display: flex; flex-direction: column; gap: $spacing-16; }
-.createCheckPanel,
-.createChooser {
-  min-width: 0;
-  padding: clamp(20px, 3vw, 32px);
-  @include glass-surface($shadow: var(--shadow-sm));
-  border-radius: $radius-16;
+.createCheckNameDialog {
+  width: min(460px, calc(100vw - 28px));
 }
-.createCheckPanel { max-width: 760px; }
-.inlineBackButton {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  margin: 0 0 $spacing-16;
-  padding: 0;
-  border: 0;
-  color: var(--color-text-secondary);
-  background: transparent;
-  font: inherit;
-  font-size: $font-size-12;
-  cursor: pointer;
-}
-.inlineBackButton:hover:not(:disabled) { color: var(--color-primary); }
-.inlineBackButton:disabled { opacity: .55; cursor: not-allowed; }
-.createChooser { display: flex; min-height: 440px; flex-direction: column; justify-content: center; gap: $spacing-24; }
-.createChooserHeader { display: flex; align-items: flex-start; justify-content: space-between; gap: $spacing-16; }
-.createChooserHeading { max-width: 62ch; }
-.createChooserHeading h2 { margin: 0; color: var(--color-text-primary); font-size: clamp(20px, 2.4vw, 26px); }
-.createChooserHeading p { margin: $spacing-8 0 0; color: var(--color-text-secondary); font-size: $font-size-14; line-height: 1.55; }
-.createChoiceGrid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: $spacing-16; }
-.createChoice {
+
+.createCheckNameDialog form {
   display: flex;
-  min-width: 0;
-  min-height: 250px;
   flex-direction: column;
-  align-items: flex-start;
   gap: $spacing-16;
-  padding: clamp(20px, 3vw, 30px);
+}
+
+.createCheckBody {
+  display: flex;
+  flex-direction: column;
+  gap: $spacing-16;
+}
+
+.dialogField {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  color: var(--color-text-secondary);
+  font-size: $font-size-12;
+  font-weight: $font-weight-500;
+}
+
+.createCheckNameInput {
+  min-height: 42px;
+  padding: 9px 11px;
   border: 1px solid var(--color-border);
-  border-radius: $radius-12;
+  border-radius: $radius-8;
   color: var(--color-text-primary);
   background: var(--color-surface);
   font: inherit;
-  text-align: left;
-  cursor: pointer;
-  transition: border-color $transition-base, background $transition-base, box-shadow $transition-base, transform $transition-base;
+  font-size: $font-size-14;
+  outline: none;
 }
-.createChoice:hover {
+
+.createCheckNameInput:focus {
   border-color: var(--color-primary);
-  background: color-mix(in srgb, var(--color-primary) 4%, var(--color-surface));
-  box-shadow: var(--shadow-md);
-  transform: translateY(-2px);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-primary) 12%, transparent);
 }
-.createChoice:disabled { opacity: .65; cursor: wait; }
-.createChoice:focus-visible,
-.inlineBackButton:focus-visible { outline: 3px solid color-mix(in srgb, var(--color-primary) 28%, transparent); outline-offset: 3px; }
-.createChoiceIcon { display: grid; width: 54px; height: 54px; place-items: center; border-radius: $radius-12; color: var(--color-primary); background: color-mix(in srgb, var(--color-primary) 11%, transparent); }
-.createChoiceCopy { display: flex; flex: 1; flex-direction: column; gap: $spacing-8; }
-.createChoiceCopy strong { font-size: $font-size-18; line-height: 1.3; }
-.createChoiceCopy small { max-width: 36ch; color: var(--color-text-secondary); font-size: $font-size-14; line-height: 1.6; }
-.createChoiceAction { display: inline-flex; align-items: center; gap: 6px; color: var(--color-primary-on-surface); font-size: $font-size-14; font-weight: $font-weight-700; }
-.dialogField { display: flex; flex-direction: column; gap: 6px; color: var(--color-text-secondary); font-size: $font-size-12; font-weight: $font-weight-500; }
-.dialogField input { min-height: 38px; padding: 8px 10px; border: 1px solid var(--color-border); border-radius: $radius-8; color: var(--color-text-primary); background: var(--color-surface); font: inherit; font-size: $font-size-14; outline: none; }
-.dialogField input:focus { border-color: var(--color-primary); box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-primary) 12%, transparent); }
-.modeFieldset { margin: 0; padding: 0; border: 0; }.modeFieldset legend { margin-bottom: 8px; color: var(--color-text-secondary); font-size: $font-size-12; font-weight: $font-weight-500; }
-.modeChoices { display: grid; gap: $spacing-8; }.modeChoice, .modeChoiceActive { display: flex; gap: 9px; padding: 11px; border: 1px solid var(--color-border); border-radius: $radius-8; cursor: pointer; }.modeChoiceActive { border-color: var(--color-primary); background: color-mix(in srgb, var(--color-primary) 7%, transparent); }.modeChoice input, .modeChoiceActive input { margin-top: 3px; accent-color: var(--color-primary); }.modeChoice span, .modeChoiceActive span { display: flex; min-width: 0; flex-direction: column; gap: 3px; }.modeChoice b, .modeChoiceActive b { font-size: $font-size-14; }.modeChoice small, .modeChoiceActive small { color: var(--color-text-muted); font-size: $font-size-12; line-height: 1.4; }
-.modeFields { display: flex; flex-direction: column; gap: $spacing-16; }.dialogChips { display: flex; flex-wrap: wrap; gap: 7px; }.dialogChip, .dialogChipActive { display: inline-flex; align-items: center; gap: 5px; padding: 6px 9px; border: 1px solid var(--color-border); border-radius: $radius-pill; color: var(--color-text-secondary); background: var(--color-surface); font-size: $font-size-12; cursor: pointer; }.dialogChipActive { border-color: var(--color-primary); color: var(--color-primary-on-surface); background: color-mix(in srgb, var(--color-primary) 9%, transparent); }.dialogChip input { accent-color: var(--color-primary); }
-.existingPicker { display: flex; flex-direction: column; gap: $spacing-8; }.existingPickerHead { display: flex; align-items: center; justify-content: space-between; gap: $spacing-8; color: var(--color-text-secondary); font-size: $font-size-12; font-weight: $font-weight-500; }.existingList { display: flex; max-height: 200px; flex-direction: column; gap: 5px; overflow-y: auto; }.existingRow, .existingRowActive { display: flex; gap: 8px; padding: 8px; border: 1px solid var(--color-border); border-radius: $radius-8; cursor: pointer; }.existingRowActive { border-color: var(--color-primary); background: color-mix(in srgb, var(--color-primary) 7%, transparent); }.existingRow input, .existingRowActive input { accent-color: var(--color-primary); }.existingRow span, .existingRowActive span { display: flex; min-width: 0; flex-direction: column; gap: 2px; }.existingRow b, .existingRowActive b { overflow: hidden; font-size: $font-size-12; text-overflow: ellipsis; white-space: nowrap; }.existingRow small, .existingRowActive small { color: var(--color-text-muted); font-size: $font-size-12; }.dialogError { margin: 0; color: var(--color-danger); font-size: $font-size-12; }
-.uploadSourceBlock,
-.savedRubricBlock { display: flex; flex-direction: column; gap: $spacing-8; }
-.uploadEnvironmentHint,
-.uploadAutoHint { margin: 4px 0 0; color: var(--color-text-muted); font-size: $font-size-12; line-height: 1.45; }
-.uploadAutoHint { flex: 1; }
-.conflictActions { display: flex; align-items: center; flex-wrap: wrap; gap: $spacing-8; padding: $spacing-8; border: 1px solid color-mix(in srgb, var(--color-danger) 30%, transparent); border-radius: $radius-8; background: color-mix(in srgb, var(--color-danger) 6%, transparent); font-size: $font-size-12; color: var(--color-text-secondary); }
+
+.dialogError {
+  margin: 0;
+  color: var(--color-danger);
+  font-size: $font-size-12;
+}
 
 .sessionItem:hover {
   background: var(--color-hover);
@@ -1704,58 +1550,276 @@
   min-width: 0;
 }
 
-.sessionHeader {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
+.sessionMainFull {
+  @include flex-column;
   gap: $spacing-16;
-  margin-bottom: $spacing-16;
+  min-width: 0;
+}
 
-  h3,
-  p {
-    margin: 0;
-  }
+/* ── 檢查設定三欄同高（session／檢查表／AI 聊天室） ── */
+.checkWorkspace {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: $spacing-16;
+  align-items: start;
 
-  p {
-    margin-top: 4px;
-    color: var(--color-text-muted);
-    font-size: $font-size-12;
+  @include respond-to(xl) {
+    grid-template-columns: 230px minmax(0, 1.6fr) minmax(300px, 1fr);
+    align-items: stretch;
   }
 }
 
-.proposalCard {
-  display: grid;
+.checkSessionCol,
+.checkRubricCard,
+.checkChatCol {
+  min-width: 0;
+
+  @include respond-to(xl) {
+    // 三欄直接向下延伸到頁面底部：扣掉上方頁首＋面板標題＋間距；
+    // 超長內容仍以 max-height 截斷，改走欄內捲動
+    min-height: calc(100vh - 240px);
+    max-height: calc(100vh - 120px);
+  }
+}
+
+.checkSessionCol {
+  // 與右方兩卡共用 .card 的 24px 內距，讓三欄頂部對齊同一高度
+  @include respond-to(xl) {
+    overflow: hidden;
+  }
+
+  .newCheckButton {
+    flex: 0 0 auto;
+    min-height: 44px;
+  }
+
+  .sessionList {
+    @include respond-to(xl) {
+      flex: 1 1 auto;
+      min-height: 0;
+      max-height: none;
+      overflow-y: auto;
+    }
+  }
+}
+
+.checkRubricCol {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+}
+
+.checkRubricCard {
+  display: flex;
+  flex: 1 1 auto;
+  min-height: 0;
+  flex-direction: column;
+
+  @include respond-to(xl) {
+    overflow: hidden;
+  }
+}
+
+.checkRubricBody {
+  flex: 1 1 auto;
+  min-height: 0;
+
+  @include respond-to(xl) {
+    overflow: auto;
+  }
+
+  // 三欄模式中間欄較窄，放寬表格最小寬度以減少橫向捲動
+  @include respond-to(xl) {
+    .rubricTable {
+      min-width: 640px;
+    }
+  }
+}
+
+.rubricActionBar {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: flex-end;
   gap: $spacing-16;
-  margin-top: $spacing-16;
-  padding: $spacing-16;
-  border: 1px solid var(--color-primary);
-  border-radius: $radius-8;
-  background: color-mix(in srgb, var(--color-primary) 7%, transparent);
+  padding-top: $spacing-16;
+  border-top: 1px solid var(--color-border);
 
   p {
-    margin: 3px 0 0;
-    color: var(--color-text-muted);
+    max-width: 58ch;
+    margin: 0 auto 0 0;
+    color: var(--color-text-secondary);
     font-size: $font-size-12;
+    line-height: 1.5;
+  }
+
+  button {
+    flex: 0 0 auto;
+  }
+
+  @media (max-width: 640px) {
+    align-items: stretch;
+    flex-direction: column;
+
+    button {
+      justify-content: center;
+      width: 100%;
+    }
+  }
+}
+
+.checkChatCol {
+  @include respond-to(xl) {
+    overflow: hidden;
+  }
+}
+
+.checkChatInner {
+  display: flex;
+  flex: 1 1 auto;
+  min-height: 0;
+  flex-direction: column;
+
+  .chatPanel {
+    flex: 1 1 auto;
+    min-height: 0;
+  }
+
+  .chatMessages {
+    @include respond-to(xl) {
+      flex: 1 1 auto;
+      min-height: 240px;
+      max-height: none;
+    }
+  }
+
+}
+
+/* ── 執行結果／腳本總覽雙欄同高（沿用三欄設計語言） ── */
+.checkWorkspaceTwo {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: $spacing-16;
+  align-items: start;
+
+  @include respond-to(xl) {
+    grid-template-columns: 230px minmax(0, 1fr);
+    align-items: stretch;
+  }
+}
+
+.checkContentCol {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: $spacing-16;
+}
+
+.checkTabsCard {
+  flex: 0 0 auto;
+  padding: $spacing-8 $spacing-16;
+}
+
+/* 檢查項目卡片頂部的頁籤條：維持與其他頁籤相同的固定大小 */
+.checkTabsWrap {
+  flex: 0 0 auto;
+  margin-bottom: $spacing-8;
+}
+
+/* 三欄頂部標頭統一高度：新增檢查／檢查項目／AI 聊天室對齊 */
+.checkHead {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: space-between;
+  gap: $spacing-8;
+  min-height: 44px;
+  margin-bottom: $spacing-8;
+  padding-bottom: $spacing-8;
+  border-bottom: 1px solid var(--color-divider);
+
+  .cardTitle {
+    margin: 0;
+  }
+}
+
+.proposalPreview {
+  flex: 0 0 auto;
+  margin-bottom: $spacing-16;
+  border: 1px solid var(--color-divider);
+  border-radius: $radius-8;
+  background: transparent;
+}
+
+.proposalToggle {
+  display: flex;
+  width: 100%;
+  min-height: 44px;
+  align-items: center;
+  justify-content: space-between;
+  gap: $spacing-16;
+  padding: $spacing-8 $spacing-16;
+  border: 0;
+  border-radius: inherit;
+  color: var(--color-text-primary);
+  background: transparent;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+
+  &:hover:not(:disabled) {
+    background: var(--color-hover);
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--color-primary);
+    outline-offset: 2px;
   }
 }
 
 .proposalHeading {
   display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: $spacing-16;
+  min-width: 0;
+  align-items: center;
+  gap: $spacing-8;
+
+  small {
+    padding: 2px 7px;
+    border-radius: $radius-pill;
+    color: var(--color-primary-on-surface);
+    background: color-mix(in srgb, var(--color-primary) 10%, transparent);
+    font-size: $font-size-10;
+    font-weight: $font-weight-700;
+  }
 }
 
-.proposalHeading > span {
+.proposalToggleAction {
+  display: inline-flex;
   flex: 0 0 auto;
+  align-items: center;
+  gap: 4px;
   color: var(--color-text-secondary);
   font-size: $font-size-12;
   font-weight: $font-weight-700;
 }
 
-.proposalList {
+.proposalContent {
   display: grid;
   gap: $spacing-8;
+  padding: 0 $spacing-16 $spacing-16;
+  border-top: 1px solid var(--color-divider);
+}
+
+.proposalDescription {
+  margin: $spacing-8 0 0;
+  color: var(--color-text-muted);
+  font-size: $font-size-12;
+  line-height: 1.5;
+}
+
+.proposalList {
+  display: grid;
+  gap: 0;
   max-height: 280px;
   overflow-y: auto;
 }
@@ -1764,11 +1828,19 @@
   display: flex;
   align-items: flex-start;
   gap: $spacing-8;
-  padding: $spacing-8;
-  border: 1px solid var(--color-border);
-  border-radius: $radius-8;
-  background: var(--color-surface);
+  padding: $spacing-8 0;
+  border-bottom: 1px solid var(--color-divider);
+  background: transparent;
   cursor: pointer;
+
+  &:first-child {
+    padding-top: 0;
+  }
+
+  &:last-child {
+    padding-bottom: 0;
+    border-bottom: 0;
+  }
 
   input {
     margin-top: 3px;
@@ -1790,11 +1862,16 @@
   display: flex;
   justify-content: flex-end;
   gap: $spacing-8;
-}
 
-.settingsBody {
-  display: grid;
-  gap: $spacing-16;
+  @media (max-width: 640px) {
+    align-items: stretch;
+    flex-direction: column-reverse;
+
+    button {
+      justify-content: center;
+      width: 100%;
+    }
+  }
 }
 
 .runHistory {
@@ -1832,13 +1909,6 @@
   .sessionWorkspace { grid-template-columns: 1fr; }
   .sessionSidebar { position: static; }
   .sessionMain { min-width: 0; }
-  .createChooser { min-height: 0; padding: $spacing-16; }
-  .createChooserHeader { flex-direction: column; }
-  .createChooserHeader .btnSecondary { width: 100%; }
-  .createChoiceGrid { grid-template-columns: 1fr; }
-  .createChoice { min-height: 190px; padding: $spacing-16; }
-  .createCheckPanel { padding: $spacing-16; }
-  .existingPickerHead { align-items: flex-start; flex-direction: column; }
   .rubricTableWrap { margin-right: -$spacing-16; margin-left: -$spacing-16; }
   .rubricTable { min-width: 780px; }
   .rubricTable th,
@@ -1848,8 +1918,38 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .createChoice { transition-duration: .01ms; }
-  .createChoice:hover { transform: none; }
+  .btnPrimaryProcessing {
+    animation: none;
+  }
+
+  .noticeProgress {
+    animation: none;
+  }
+
+  .btnPrimaryProcessing .spinning,
+  .noticeProgress .spinning {
+    animation: none;
+  }
+
+  .sessionTitleViewport:hover .sessionTitleOverflowing,
+  .sessionItem:focus-visible .sessionTitleOverflowing,
+  .sessionItemActive:focus-visible .sessionTitleOverflowing {
+    animation: none;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    transform: none;
+    transition-duration: .01ms;
+    will-change: auto;
+  }
+}
+
+.chatAttachButton {
+  flex: 0 0 38px;
+  width: 38px;
+  height: 38px;
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
 }
 
 /* ── 表單欄位 ── */
@@ -1875,4 +1975,21 @@
       box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-primary) 12%, transparent);
     }
   }
+}
+
+/* 送出時未填的欄位：紅框標示並被聚焦（雙類名壓過 .dialogField input 這類巢狀選擇器） */
+.fieldInvalid.fieldInvalid {
+  border-color: var(--color-danger);
+
+  &:focus {
+    border-color: var(--color-danger);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-danger) 12%, transparent);
+  }
+}
+
+/* 群組型欄位（模式選擇、環境 chips、既有檔案清單）沒有自己的邊框，用外框標紅 */
+.groupInvalid.groupInvalid {
+  outline: 1px solid var(--color-danger);
+  outline-offset: 4px;
+  border-radius: $radius-8;
 }

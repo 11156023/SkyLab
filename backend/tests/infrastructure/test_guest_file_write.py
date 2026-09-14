@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import base64
-from types import SimpleNamespace
 
 import pytest
 
@@ -88,18 +87,19 @@ def test_write_file_lxc_pushes_and_cleans_up(
             written["path"] = path
 
             class _F:
-                def __enter__(self_inner):
-                    return self_inner
+                def __enter__(self):
+                    return self
 
-                def __exit__(self_inner, *a):
+                def __exit__(self, *a):
                     return False
 
-                def write(self_inner, data):
+                def write(self, data):
                     written["data"] = data
 
             return _F()
 
-        def close(self) -> None: ...
+        def close(self) -> None:
+            """測試替身：不需實作。"""
 
     class _Client:
         def open_sftp(self):
@@ -127,23 +127,26 @@ def test_write_file_lxc_nonzero_exit_raises(
     class _Sftp:
         def file(self, path, mode):
             class _F:
-                def __enter__(self_inner):
-                    return self_inner
+                def __enter__(self):
+                    return self
 
-                def __exit__(self_inner, *a):
+                def __exit__(self, *a):
                     return False
 
-                def write(self_inner, data): ...
+                def write(self, data):
+                    """測試替身：模擬失敗情境時不記錄內容。"""
 
             return _F()
 
-        def close(self) -> None: ...
+        def close(self) -> None:
+            """測試替身：不需實作。"""
 
     class _Client:
         def open_sftp(self):
             return _Sftp()
 
-        def close(self) -> None: ...
+        def close(self) -> None:
+            """測試替身：不需實作。"""
 
     monkeypatch.setattr(guest, "_node_ssh_client", lambda _node=None: _Client())
 

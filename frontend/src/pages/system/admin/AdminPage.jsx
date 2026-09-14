@@ -10,12 +10,15 @@ import useAutoRefresh from "../../../hooks/useAutoRefresh";
 import useDialogPresence from "../../../hooks/useDialogPresence";
 import { UsersService } from "../../../services/users";
 import PageHeader from "../../../components/PageHeader/PageHeader";
+import { formatDate } from "../../../utils/formatDate";
 
 const ROLE_ICONS = {
   student: "school",
   teacher: "co_present",
   admin: "admin_panel_settings",
 };
+
+const PAGE_SIZE = 50;
 
 function initialForm(user = null) {
   return {
@@ -29,15 +32,6 @@ function initialForm(user = null) {
 
 function userDisplayName(user) {
   return user.full_name || user.email;
-}
-
-function formatDate(value) {
-  if (!value) return "—";
-  return new Date(value).toLocaleDateString("zh-TW", {
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  });
 }
 
 function EmptyState({ hasQuery }) {
@@ -54,6 +48,8 @@ function UserModal({ mode, user, loading, closing = false, onClose, onSubmit }) 
   const { t } = useTranslation("system");
   const [form, setForm] = useState(() => initialForm(user));
   const isEdit = mode === "edit";
+  /* LDAP 帳號的密碼歸目錄管：本地密碼欄位鎖住（後端也會擋），稽核 #9 */
+  const isLdap = isEdit && user?.auth_source === "ldap";
   const ROLE_OPTIONS = [
     { value: "student", label: t("AdminPage.roleStudent") },
     { value: "teacher", label: t("AdminPage.roleTeacher") },
@@ -72,7 +68,7 @@ function UserModal({ mode, user, loading, closing = false, onClose, onSubmit }) 
       role: form.role,
       is_active: form.is_active,
     };
-    if (form.password.trim()) payload.password = form.password;
+    if (!isLdap && form.password.trim()) payload.password = form.password;
     onSubmit(payload);
   }
 
@@ -123,8 +119,14 @@ function UserModal({ mode, user, loading, closing = false, onClose, onSubmit }) 
               minLength={8}
               maxLength={128}
               required={!isEdit}
-              placeholder={isEdit ? t("AdminPage.passwordUnchangedHint") : t("AdminPage.passwordMinHint")}
+              disabled={isLdap}
+              placeholder={
+                isLdap
+                  ? t("AdminPage.ldapManagedPlaceholder")
+                  : isEdit ? t("AdminPage.passwordUnchangedHint") : t("AdminPage.passwordMinHint")
+              }
             />
+            {isLdap && <em className={styles.fieldHint}>{t("AdminPage.ldapManagedHint")}</em>}
           </label>
 
           <label className={styles.field}>
@@ -203,7 +205,12 @@ function UserRow({ user, currentUserId, onEdit, onDelete }) {
     <div className={styles.row}>
       <div className={styles.rowAvatar}>{userDisplayName(user).slice(0, 1).toUpperCase()}</div>
       <div className={styles.rowMain}>
-        <span className={styles.rowName}>{userDisplayName(user)}</span>
+        <span className={styles.rowName}>
+          {userDisplayName(user)}
+          {user.auth_source === "ldap" && (
+            <span className={styles.ldapTag} title={t("AdminPage.ldapManagedHint")}>LDAP</span>
+          )}
+        </span>
         <span className={styles.rowMeta}>{user.email}</span>
       </div>
       <span className={`${styles.badge} ${styles[`badge_${user.role}`]}`}>
@@ -247,13 +254,15 @@ export default function AdminPage() {
   const modalPresence  = useDialogPresence(modal);
   const deletePresence = useDialogPresence(deleteTarget);
 
-  /** silent = true 時不觸發 loading 與錯誤提示，供背景自動刷新使用 */
+  /** silent = true 時不觸發 loading 與錯誤提示，供背景自動刷新使用。
+      逐頁取回全部使用者（原本寫死 limit 100，第 101 位之後在這頁根本管不到）；
+      清單改由前端分頁呈現，搜尋因此能掃到全部帳號。 */
   const fetchUsers = useCallback(async (silent = false) => {
     if (!silent) setLoading(true);
     try {
-      const res = await UsersService.list({ limit: 100 });
-      setUsers(res?.data ?? []);
-      setCount(res?.count ?? 0);
+      const data = await UsersService.listAll();
+      setUsers(data);
+      setCount(data.length);
     } catch (err) {
       if (!silent) toast.error(err?.message ?? t("AdminPage.toastLoadFailed"));
     } finally {
@@ -275,6 +284,15 @@ export default function AdminPage() {
         .some((value) => String(value).toLowerCase().includes(keyword)),
     );
   }, [query, users]);
+
+  /* 前端分頁：搜尋過濾後再切頁；條件一改就回到第一頁 */
+  const [page, setPage] = useState(0);
+  useEffect(() => { setPage(0); }, [query]);
+  const totalPages = Math.max(1, Math.ceil(visibleUsers.length / PAGE_SIZE));
+  const pagedUsers = useMemo(
+    () => visibleUsers.slice(Math.min(page, totalPages - 1) * PAGE_SIZE, (Math.min(page, totalPages - 1) + 1) * PAGE_SIZE),
+    [visibleUsers, page, totalPages],
+  );
 
   const stats = useMemo(() => ({
     active: users.filter((item) => item.is_active).length,
@@ -366,17 +384,46 @@ export default function AdminPage() {
         ) : visibleUsers.length === 0 ? (
           <EmptyState hasQuery={Boolean(query.trim())} />
         ) : (
-          <div className={styles.list}>
-            {visibleUsers.map((item) => (
-              <UserRow
-                key={item.id}
-                user={item}
-                currentUserId={currentUser?.id}
-                onEdit={(target) => setModal({ mode: "edit", user: target })}
-                onDelete={setDeleteTarget}
-              />
-            ))}
-          </div>
+          <>
+            <div className={styles.list}>
+              {pagedUsers.map((item) => (
+                <UserRow
+                  key={item.id}
+                  user={item}
+                  currentUserId={currentUser?.id}
+                  onEdit={(target) => setModal({ mode: "edit", user: target })}
+                  onDelete={setDeleteTarget}
+                />
+              ))}
+            </div>
+            {totalPages > 1 && (
+              <div className={styles.pagination}>
+                <span className={styles.paginationInfo}>
+                  {t("AdminPage.paginationInfo", { count: visibleUsers.length, page: Math.min(page, totalPages - 1) + 1, totalPages })}
+                </span>
+                <div className={styles.paginationBtns}>
+                  <button
+                    type="button"
+                    className={styles.btnSecondary}
+                    disabled={page === 0}
+                    onClick={() => setPage((p) => Math.max(p - 1, 0))}
+                  >
+                    <MIcon name="chevron_left" size={16} />
+                    {t("AdminPage.prevPage")}
+                  </button>
+                  <button
+                    type="button"
+                    className={styles.btnSecondary}
+                    disabled={page + 1 >= totalPages}
+                    onClick={() => setPage((p) => p + 1)}
+                  >
+                    {t("AdminPage.nextPage")}
+                    <MIcon name="chevron_right" size={16} />
+                  </button>
+                </div>
+              </div>
+            )}
+          </>
         )}
       </div>
 

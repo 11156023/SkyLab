@@ -14,6 +14,7 @@ from app.services.llm_gateway import ai_gateway_service
 logger = logging.getLogger(__name__)
 
 CALL_AI_NAVIGATION = "ai_nav"
+CALL_AI_CONTEXTUAL_HELP = "ai_help"
 CALL_TJ_RUBRIC = "tj_rubric"
 CALL_TJ_CHAT = "tj_chat"
 CALL_TJ_SCRIPT_GENERATION = "tj_script_gen"

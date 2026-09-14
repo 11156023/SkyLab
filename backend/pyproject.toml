@@ -31,6 +31,7 @@ dependencies = [
     "prometheus-client>=0.20.0",
     "arq>=0.28.0",
     "ldap3>=2.9,<3",
+    "pywebpush>=2.5.0",
 ]
 
 [dependency-groups]
@@ -59,6 +60,11 @@ build-backend = "hatchling.build"
 [tool.mypy]
 strict = true
 exclude = ["venv", ".venv", "alembic"]
+
+[[tool.mypy.overrides]]
+# pywebpush 與 py_vapid 沒有型別標記（Web Push 推播）
+module = ["pywebpush", "py_vapid"]
+ignore_missing_imports = true
 
 [tool.ruff]
 target-version = "py310"

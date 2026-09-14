@@ -14,6 +14,7 @@ import {
 } from "../../../services/courses";
 import { TemplatesService } from "../../../services/templates";
 import { TeachingClassesService } from "../../../services/teachingClasses";
+import { focusInvalidField } from "../../../utils/focusField";
 import styles from "./CourseCmsPage.module.scss";
 import PageHeader from "../../../components/PageHeader/PageHeader";
 
@@ -30,12 +31,20 @@ function PathColumn({ paths, teachingClasses, selectedId, onSelect, onReload }) 
   const confirm = useConfirm();
   const [title, setTitle] = useState("");
   const [classId, setClassId] = useState("");
+  const [invalid, setInvalid] = useState({});
+  const classSelectRef = useRef(null);
+  const titleInputRef = useRef(null);
   const selectedPath = paths.find((path) => path.id === selectedId);
   const linkedClassIds = new Set(paths.map((path) => String(path.teaching_class_id ?? "")).filter(Boolean));
 
   async function handleCreate(e) {
     e.preventDefault();
-    if (!title.trim() || !classId) return;
+    const missing = { classId: !classId, title: !title.trim() };
+    if (missing.classId || missing.title) {
+      setInvalid(missing);
+      focusInvalidField(missing.classId ? classSelectRef.current : titleInputRef.current);
+      return;
+    }
     try {
       await CourseAdminService.createPath({
         title: title.trim(),
@@ -150,19 +159,26 @@ function PathColumn({ paths, teachingClasses, selectedId, onSelect, onReload }) 
         </label>
       )}
       <form className={styles.addForm} onSubmit={handleCreate}>
-        <select value={classId} onChange={(event) => setClassId(event.target.value)} aria-label={t("CourseCmsPage.selectClassAria")}>
+        <select
+          ref={classSelectRef}
+          className={invalid.classId ? styles.fieldInvalid : undefined}
+          value={classId}
+          onChange={(event) => { setClassId(event.target.value); setInvalid((v) => ({ ...v, classId: false })); }}
+          aria-label={t("CourseCmsPage.selectClassAria")}
+        >
           <option value="">{t("CourseCmsPage.selectClassFirstOption")}</option>
           {teachingClasses.filter((item) => !linkedClassIds.has(String(item.id))).map((item) => (
             <option key={item.id} value={item.id}>{item.name} · {item.term}</option>
           ))}
         </select>
         <input
-          className={styles.input}
+          ref={titleInputRef}
+          className={`${styles.input} ${invalid.title ? styles.fieldInvalid : ""}`}
           value={title}
-          onChange={(e) => setTitle(e.target.value)}
+          onChange={(e) => { setTitle(e.target.value); setInvalid((v) => ({ ...v, title: false })); }}
           placeholder={t("CourseCmsPage.newPathPlaceholder")}
         />
-        <button type="submit" className={styles.addBtn} disabled={!title.trim() || !classId}>
+        <button type="submit" className={styles.addBtn}>
           <MIcon name="add" size={16} />
         </button>
       </form>
@@ -176,10 +192,16 @@ function RoomColumn({ pathId, rooms, templates, selectedId, onSelect, onReload }
   const toast = useToast();
   const confirm = useConfirm();
   const [form, setForm] = useState({ title: "", difficulty: "easy", template_id: "" });
+  const [titleInvalid, setTitleInvalid] = useState(false);
+  const titleInputRef = useRef(null);
 
   async function handleCreate(e) {
     e.preventDefault();
-    if (!form.title.trim()) return;
+    if (!form.title.trim()) {
+      setTitleInvalid(true);
+      focusInvalidField(titleInputRef.current);
+      return;
+    }
     try {
       await CourseAdminService.createRoom({
         path_id: pathId,
@@ -243,9 +265,10 @@ function RoomColumn({ pathId, rooms, templates, selectedId, onSelect, onReload }
       </div>
       <form className={styles.addForm} onSubmit={handleCreate}>
         <input
-          className={styles.input}
+          ref={titleInputRef}
+          className={`${styles.input} ${titleInvalid ? styles.fieldInvalid : ""}`}
           value={form.title}
-          onChange={(e) => setForm((f) => ({ ...f, title: e.target.value }))}
+          onChange={(e) => { setForm((f) => ({ ...f, title: e.target.value })); setTitleInvalid(false); }}
           placeholder={t("CourseCmsPage.newRoomPlaceholder")}
         />
         <select
@@ -269,7 +292,7 @@ function RoomColumn({ pathId, rooms, templates, selectedId, onSelect, onReload }
             </option>
           ))}
         </select>
-        <button type="submit" className={styles.addBtn} disabled={!form.title.trim()}>
+        <button type="submit" className={styles.addBtn}>
           <MIcon name="add" size={16} />
         </button>
       </form>
@@ -284,6 +307,9 @@ function QuestionEditor({ taskId }) {
   const confirm = useConfirm();
   const [questions, setQuestions] = useState([]);
   const [form, setForm] = useState({ prompt: "", question_type: "flag", flag: "", points: 10 });
+  const [invalid, setInvalid] = useState({});
+  const promptInputRef = useRef(null);
+  const flagInputRef = useRef(null);
 
   const reload = useCallback(() => {
     CourseAdminService.listQuestions(taskId).then(setQuestions).catch(() => {});
@@ -295,9 +321,13 @@ function QuestionEditor({ taskId }) {
 
   async function handleCreate(e) {
     e.preventDefault();
-    if (!form.prompt.trim()) return;
-    if (form.question_type === "flag" && !form.flag.trim()) {
-      toast.error(t("CourseCmsPage.flagRequiresAnswer"));
+    const missing = {
+      prompt: !form.prompt.trim(),
+      flag: form.question_type === "flag" && !form.flag.trim(),
+    };
+    if (missing.prompt || missing.flag) {
+      setInvalid(missing);
+      focusInvalidField(missing.prompt ? promptInputRef.current : flagInputRef.current);
       return;
     }
     try {
@@ -349,9 +379,10 @@ function QuestionEditor({ taskId }) {
       ))}
       <form className={styles.questionForm} onSubmit={handleCreate}>
         <input
-          className={styles.input}
+          ref={promptInputRef}
+          className={`${styles.input} ${invalid.prompt ? styles.fieldInvalid : ""}`}
           value={form.prompt}
-          onChange={(e) => setForm((f) => ({ ...f, prompt: e.target.value }))}
+          onChange={(e) => { setForm((f) => ({ ...f, prompt: e.target.value })); setInvalid((v) => ({ ...v, prompt: false })); }}
           placeholder={t("CourseCmsPage.questionPromptPlaceholder")}
         />
         <select
@@ -364,9 +395,10 @@ function QuestionEditor({ taskId }) {
         </select>
         {form.question_type === "flag" && (
           <input
-            className={styles.input}
+            ref={flagInputRef}
+            className={`${styles.input} ${invalid.flag ? styles.fieldInvalid : ""}`}
             value={form.flag}
-            onChange={(e) => setForm((f) => ({ ...f, flag: e.target.value }))}
+            onChange={(e) => { setForm((f) => ({ ...f, flag: e.target.value })); setInvalid((v) => ({ ...v, flag: false })); }}
             placeholder={t("CourseCmsPage.flagAnswerPlaceholder")}
           />
         )}
@@ -378,7 +410,7 @@ function QuestionEditor({ taskId }) {
           onChange={(e) => setForm((f) => ({ ...f, points: e.target.value }))}
           title={t("CourseCmsPage.pointsFieldTitle")}
         />
-        <button type="submit" className={styles.addBtn} disabled={!form.prompt.trim()}>
+        <button type="submit" className={styles.addBtn}>
           <MIcon name="add" size={16} />
         </button>
       </form>
@@ -395,6 +427,8 @@ function TaskColumn({ roomId }) {
   const [selectedId, setSelectedId] = useState(null);
   const [draft, setDraft] = useState({ title: "", content: "" });
   const [newTitle, setNewTitle] = useState("");
+  const [newTitleInvalid, setNewTitleInvalid] = useState(false);
+  const newTitleInputRef = useRef(null);
 
   const reload = useCallback(() => {
     CourseAdminService.listTasks(roomId)
@@ -417,7 +451,11 @@ function TaskColumn({ roomId }) {
 
   async function handleCreate(e) {
     e.preventDefault();
-    if (!newTitle.trim()) return;
+    if (!newTitle.trim()) {
+      setNewTitleInvalid(true);
+      focusInvalidField(newTitleInputRef.current);
+      return;
+    }
     try {
       await CourseAdminService.createTask({
         room_id: roomId,
@@ -489,12 +527,13 @@ function TaskColumn({ roomId }) {
           {tasks.length === 0 && <EmptyState icon="playlist_add_check" iconSize={24} title={t("CourseCmsPage.noTasksTitle")} />}
           <form className={styles.addForm} onSubmit={handleCreate}>
             <input
-              className={styles.input}
+              ref={newTitleInputRef}
+              className={`${styles.input} ${newTitleInvalid ? styles.fieldInvalid : ""}`}
               value={newTitle}
-              onChange={(e) => setNewTitle(e.target.value)}
+              onChange={(e) => { setNewTitle(e.target.value); setNewTitleInvalid(false); }}
               placeholder={t("CourseCmsPage.newTaskPlaceholder")}
             />
-            <button type="submit" className={styles.addBtn} disabled={!newTitle.trim()}>
+            <button type="submit" className={styles.addBtn}>
               <MIcon name="add" size={16} />
             </button>
           </form>

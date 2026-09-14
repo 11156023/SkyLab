@@ -18,5 +18,17 @@
   "ai_gateway.connection_incomplete": "AI API 接続設定が不完全です",
   "ai_gateway.credential_already_revoked": "この AI API 認証情報はすでに失効しています",
   "monitoring.invalid_timeframe": "timeframe は {allowed} のいずれかである必要があります",
-  "monitoring.resource_not_found": "リソース {vmid} が見つかりません"
+  "monitoring.resource_not_found": "リソース {vmid} が見つかりません",
+  "governance.idle_notify_after_must_precede_grace": "アイドル通知までの時間（{notify_after} 時間）はシャットダウン猶予期間（{grace} 時間）より短く設定してください",
+  "push.kind_vm_request": "起動申請",
+  "push.kind_spec_change": "スペック変更",
+  "push.kind_deletion": "削除",
+  "push.kind_template": "テンプレートタスク",
+  "push.kind_generic": "タスク",
+  "push.job_completed": "{kind}が完了しました",
+  "push.job_failed": "{kind}が失敗しました",
+  "push.job_blocked": "{kind}がブロックされました",
+  "push.job_cancelled": "{kind}がキャンセルされました",
+  "push.test_title": "デスクトップ通知を有効にしました",
+  "push.test_body": "今後はタブを閉じていても、タスクの完了や新しいリマインダーをこのようにシステム通知でお知らせします"
 }

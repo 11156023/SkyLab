@@ -32,6 +32,9 @@ class GovernanceConfig(SQLModel, table=True):
     idle_detection_enabled: bool = Field(default=True)
     idle_cpu_threshold_percent: float = Field(default=1.0, ge=0.1, le=20)
     idle_window_hours: int = Field(default=48, ge=1, le=720)
+    # 偵測到閒置後持續達此時數才通知擁有者；必須小於 idle_grace_hours
+    # （由 config_service 在更新時檢查）。
+    idle_notify_after_hours: int = Field(default=12, ge=1, le=720)
     idle_grace_hours: int = Field(default=24, ge=1, le=720)
     idle_scan_batch_size: int = Field(default=20, ge=1, le=200)
 

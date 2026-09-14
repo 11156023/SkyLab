@@ -103,5 +103,15 @@
   "gateway.restartTraefikFailed": "重啟 Traefik 失敗",
   "gateway.applyTraefikDnsChallengeFailed": "套用 Traefik dnsChallenge 設定失敗：{error}",
   "gateway.invalidAction": "無效操作：{action}",
-  "gateway.noOutput": "無輸出"
+  "gateway.noOutput": "無輸出",
+  "publish.targetIpInvalid": "目標 IP 格式不合法，無法建立外部存取：{ip}",
+  "publish.targetIpNotPublishable": "目標 IP {ip} 不是可對外發布的位址",
+  "publish.targetIpInfrastructure": "目標 IP {ip} 屬於平台基礎設施（Gateway / PVE 節點），不可對外發布",
+  "publish.targetIpBlocked": "目標 IP {ip} 落在管理員封鎖的網段 {network}，不可對外發布",
+  "publish.targetIpOutsideVmSubnet": "目標 IP {ip} 不在平台配發的 VM 網段內，無法建立外部存取；請確認 VM 使用平台配發的 IP",
+  "firewall.servicePortAlreadyPublished": "Port {port}/{protocol} 已經發布過了，請先撤下再重新設定",
+  "firewall.serviceNotFound": "找不到 Port {port}/{protocol} 的對外服務",
+  "firewall.serviceUnpublished": "對外服務已撤下",
+  "reverseProxy.domainConflictUnverified": "暫時無法向 Cloudflare 確認 {domain} 是否已被使用，只檢查了本系統的紀錄",
+  "reverseProxy.domainInUseExternally": "網域 {domain} 在 Cloudflare 上已有 {record_type} 紀錄（非本系統建立），請換一個名稱"
 }

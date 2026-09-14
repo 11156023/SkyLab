@@ -6,6 +6,7 @@ from app.api.deps import AdminUser, SessionDep
 from app.models import AuditAction
 from app.repositories import governance as governance_repo
 from app.schemas.monitoring import GovernanceConfigPublic, GovernanceConfigUpdate
+from app.services.governance import config_service
 from app.services.user import audit_service
 
 router = APIRouter(prefix="/governance", tags=["governance"])
@@ -23,7 +24,7 @@ def update_config(
     current_user: AdminUser,
     config_in: GovernanceConfigUpdate,
 ) -> GovernanceConfigPublic:
-    config = governance_repo.update_governance_config(
+    config = config_service.update_config(
         session=session,
         data=config_in.model_dump(exclude_unset=True),
     )

@@ -14,15 +14,15 @@ from datetime import UTC, datetime, timedelta
 
 from sqlmodel import Session, select
 
+from app.core.authorizers import require_teaching_access
 from app.core.i18n import t
-from app.core.permissions import is_admin, is_teacher
 from app.exceptions import (
     BadRequestError,
     NotFoundError,
-    PermissionDeniedError,
 )
 from app.models import (
     CourseDeployment,
+    CoursePath,
     CourseRoom,
     VMProvisioningStatus,
     VMRequest,
@@ -219,8 +219,16 @@ def _get_owned_deployment(
     deployment = session.get(CourseDeployment, deployment_id)
     if deployment is None:
         raise NotFoundError(t("deployment.not_found"))
-    if deployment.user_id != user.id and not (is_teacher(user) or is_admin(user)):
-        raise PermissionDeniedError(t("deployment.not_owner"))
+    if deployment.user_id == user.id:
+        return deployment
+    # 非本人：只有該課程路徑的擁有老師（或具備 bypass 權限的管理員）可查看/終止，
+    # 不能讓任何老師都能終止其他老師學生的部署。
+    room = session.get(CourseRoom, deployment.room_id)
+    path = (
+        session.get(CoursePath, room.path_id) if room is not None else None
+    )
+    owner_id = path.created_by if path is not None else None
+    require_teaching_access(user, owner_id, detail=t("deployment.not_owner"))
     return deployment
 
 

@@ -161,6 +161,7 @@
 
 .table {
   @include table-base;
+  min-width: 1080px;
 }
 
 .th {
@@ -179,7 +180,17 @@
 .nameCell {
   display: flex;
   align-items: center;
-  gap: $spacing-16;
+  gap: $spacing-8;
+}
+
+.nameIcon {
+  width: 34px;
+  height: 34px;
+  border-radius: $radius-8;
+  background: var(--color-hover);
+  color: var(--color-primary);
+  @include flex-center;
+  flex-shrink: 0;
 }
 
 .namePrimary {

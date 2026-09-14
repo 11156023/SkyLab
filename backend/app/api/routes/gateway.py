@@ -16,6 +16,7 @@ from app.schemas.gateway import (
     GatewayConfigUpdate,
     GatewayConnectionTestResult,
     GatewayServiceVersionsResult,
+    GatewayWireGuardOverview,
     ServiceActionResult,
     ServiceConfigRead,
     ServiceConfigWrite,
@@ -28,13 +29,21 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/gateway", tags=["gateway"])
 
-_VALID_SERVICES = {"haproxy", "traefik", "frps", "frpc"}
+_VALID_SERVICES = {"haproxy", "traefik", "frps", "frpc", "wireguard"}
+_CONFIGURABLE_SERVICES = {"haproxy", "traefik", "frps", "frpc"}
 
 
 def _require_valid_service(service: str) -> None:
     if service not in _VALID_SERVICES:
         raise HTTPException(
             status_code=400, detail=t("gateway.unknown_service", service=service)
+        )
+
+
+def _require_configurable_service(service: str) -> None:
+    if service not in _CONFIGURABLE_SERVICES:
+        raise HTTPException(
+            status_code=400, detail=t("gateway.service_config_not_exposed", service=service)
         )
 
 
@@ -178,7 +187,7 @@ def download_install_script(_: AdminUser):
 @router.get("/services/{service}/config", response_model=ServiceConfigRead)
 def read_config(service: str, session: SessionDep, _: AdminUser):
     """讀取 Gateway VM 上指定服務的設定檔"""
-    _require_valid_service(service)
+    _require_configurable_service(service)
     try:
         content = gateway_service.read_service_config(session=session, service=service)
         return ServiceConfigRead(service=service, content=content)
@@ -194,7 +203,7 @@ def write_config(
     current_user: AdminUser,
 ):
     """寫入設定檔到 Gateway VM"""
-    _require_valid_service(service)
+    _require_configurable_service(service)
     try:
         gateway_service.write_service_config(
             session=session, service=service, content=body.content
@@ -259,6 +268,16 @@ def get_service_versions(session: SessionDep, _: AdminUser):
         return gateway_service.get_service_versions(session=session)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/wireguard/overview", response_model=GatewayWireGuardOverview)
+def get_wireguard_overview(session: SessionDep, _: AdminUser):
+    """取得不含私鑰與 peer 公鑰的 WireGuard 運行摘要。"""
+    try:
+        return gateway_service.get_wireguard_overview(session=session)
+    except Exception:
+        logger.exception("讀取 Gateway WireGuard 摘要失敗")
+        raise HTTPException(status_code=502, detail=t("gateway.wireguard_overview_failed"))
 
 
 @router.get("/services/{service}/logs")

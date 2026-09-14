@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseStudentEmails, templateBuilderPath, weekPayload } from "./ClassSetupPage";
+import { parseStudentEmails, templateBuilderPath, visibleWeekCount, weekPayload } from "./ClassSetupPage";
 
 describe("parseStudentEmails", () => {
   it("accepts common separators, normalizes case, and removes duplicates", () => {
@@ -23,6 +23,48 @@ describe("weekPayload", () => {
         files: [],
       },
     ]);
+  });
+});
+
+describe("weekPayload publishing", () => {
+  it("勾選發布時，有主題的週次才會變成學生看得到的狀態", () => {
+    const rows = weekPayload(
+      [
+        { week_number: 1, session_date: "2026-09-09", title: "Linux 權限" },
+        { week_number: 2, session_date: "2026-09-16", title: "   " },
+      ],
+      { publish: true },
+    );
+
+    expect(rows.map((row) => row.status)).toEqual(["published", "draft"]);
+  });
+
+  it("不勾選時維持草稿，學生看不到", () => {
+    const rows = weekPayload(
+      [{ week_number: 1, session_date: "2026-09-09", title: "Linux 權限" }],
+      { publish: false },
+    );
+
+    expect(rows[0].status).toBe("draft");
+  });
+
+  it("不把已完成的週次降級成 published", () => {
+    const rows = weekPayload(
+      [{ week_number: 1, session_date: "2026-09-09", title: "Linux 權限", status: "completed" }],
+      { publish: true },
+    );
+
+    expect(rows[0].status).toBe("completed");
+  });
+});
+
+describe("visibleWeekCount", () => {
+  it("只算學生真的看得到的週次", () => {
+    expect(visibleWeekCount([
+      { status: "draft" },
+      { status: "published" },
+      { status: "completed" },
+    ])).toBe(2);
   });
 });
 

@@ -56,7 +56,11 @@ class AIPVETemplateChatRequest(BaseModel):
 
     @model_validator(mode="after")
     def require_message_or_history(self) -> AIPVETemplateChatRequest:
-        if not self.message and not self.messages:
+        has_message = bool(self.message and self.message.strip())
+        has_history = bool(self.messages)
+        if has_message and has_history:
+            raise ValueError(t("pveTemplate.messageAndMessagesExclusive"))
+        if not has_message and not has_history:
             raise ValueError(t("pveTemplate.messageOrMessagesRequired"))
         vmids = [target.vmid for target in self.targets]
         if len(vmids) != len(set(vmids)):

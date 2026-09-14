@@ -236,10 +236,88 @@
   @include text-truncate;
 }
 
+/* ===== 釘選 ===== */
+.navItemRow {
+  position: relative;
+
+  .navItem {
+    padding-right: 30px;
+  }
+
+  &:hover {
+    .navItem:not(.active) {
+      background: var(--color-hover);
+      color: var(--color-text);
+    }
+
+    .pinBtn {
+      opacity: 1;
+    }
+  }
+
+  .collapsed & {
+    .navItem {
+      padding-right: 10px;
+    }
+
+    .pinBtn {
+      display: none;
+    }
+  }
+}
+
+.pinBtn {
+  position: absolute;
+  top: 50%;
+  right: 6px;
+  translate: 0 -50%;
+  @include flex-center;
+  width: 22px;
+  height: 22px;
+  border-radius: $radius-8;
+  color: var(--color-text-muted);
+  opacity: 0;
+  cursor: pointer;
+  transition: opacity $transition-base, color $transition-base, background $transition-base;
+
+  &:hover,
+  &:focus-visible {
+    background: color-mix(in srgb, var(--color-text-primary) 12%, transparent);
+    color: var(--color-text);
+    opacity: 1;
+  }
+
+  /* 已釘選：常駐顯示，作為狀態標記兼取消入口 */
+  &.pinBtnPinned {
+    opacity: 1;
+    color: var(--color-text-secondary);
+  }
+}
+
+/* 選中項目底色為主色，釘子改用主色上的文字色才看得見 */
+.navItem.active + .pinBtn {
+  color: color-mix(in srgb, var(--color-text-on-primary) 80%, transparent);
+
+  &:hover,
+  &:focus-visible {
+    background: color-mix(in srgb, var(--color-text-on-primary) 20%, transparent);
+    color: var(--color-text-on-primary);
+  }
+}
+
 .navHint {
   font-size: $font-size-12;
   color: var(--color-text-muted);
   flex-shrink: 0;
+}
+
+/* ===== 管理員設定核心側欄 ===== */
+.sectionTitle {
+  padding: $spacing-8 $spacing-8 2px;
+  font-size: $font-size-12;
+  font-weight: $font-weight-500;
+  color: var(--color-text-muted);
+  white-space: nowrap;
 }
 
 /* ===== Popup animations ===== */
@@ -266,24 +344,16 @@
   position: relative;
 }
 
+/* portal 到 body，位置由 usePopupPosition 以 inline style 決定
+   （側欄 overflow 裁切 + 收合時 72px 寬，彈窗留在側欄內必破版） */
 .appearancePopup {
-  position: absolute;
-  bottom: calc(100% + 8px);
-  left: 0;
-  right: 0;
+  position: fixed;
   @include glass-surface($shadow: var(--shadow-md));
   border-radius: $radius-12;
   padding: $spacing-4;
   @include flex-column;
   gap: 2px;
   z-index: 200;
-
-  .collapsed & {
-    left: 50%;
-    right: auto;
-    translate: -50% 0;
-    width: max-content;
-  }
 }
 
 .optionFlag {
@@ -342,22 +412,13 @@
 }
 
 /* ===== User Popup ===== */
+/* portal 到 body，定位同 .appearancePopup 的說明 */
 .userPopup {
-  position: absolute;
-  bottom: calc(100% + 8px);
-  left: 0;
-  right: 0;
+  position: fixed;
   @include glass-surface($shadow: var(--shadow-md));
   border-radius: $radius-12;
   padding: $spacing-4;
   z-index: 200;
-
-  .collapsed & {
-    left: 50%;
-    right: auto;
-    translate: -50% 0;
-    width: max-content;
-  }
 }
 
 /* 液態玻璃的折射濾鏡會讓彈窗被背後的側欄文字干擾，
@@ -459,7 +520,7 @@
 
     .userName { color: var(--color-text-on-primary); }
     .userEmail { color: color-mix(in srgb, var(--color-text-on-primary) 75%, transparent); }
-    .avatar    { background: rgba(255,255,255,0.25); }
+    .avatar    { background: color-mix(in srgb, var(--color-text-on-primary) 25%, transparent); }
   }
 
   .collapsed & {

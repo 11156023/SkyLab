@@ -43,7 +43,8 @@ logger = logging.getLogger(__name__)
 class _BroadcastFinder(Protocol):
     def find_broadcast_for_classes(
         self, class_ids: set[uuid.UUID]
-    ) -> ClassroomSession | None: ...
+    ) -> ClassroomSession | None:
+        """回傳這些班級目前進行中的廣播 session（無則 None）。"""
 
 
 # ---------------------------------------------------------------------------

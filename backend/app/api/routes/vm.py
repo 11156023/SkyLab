@@ -4,7 +4,7 @@ import uuid
 from fastapi import APIRouter
 from sqlmodel import Session
 
-from app.api.deps import AdminUser, CurrentUser, SessionDep, VmInfoDep
+from app.api.deps import AdminUser, ControlVmInfoDep, CurrentUser, SessionDep
 from app.api.websocket.vnc import register_vnc_session_cookie
 from app.core.i18n import t
 from app.core.permissions import Permission, has_permission
@@ -25,8 +25,8 @@ router = APIRouter(prefix="/vm", tags=["vm"])
 
 
 @router.get("/{vmid}/console", response_model=VNCInfoSchema)
-async def get_vm_console(vmid: int, vm_info: VmInfoDep):
-    """Get VNC console access for a VM (requires ownership or admin)."""
+async def get_vm_console(vmid: int, vm_info: ControlVmInfoDep):
+    """Get VNC console access for a VM (owner, admin, or shared user)."""
     try:
         if vm_info["type"] != "qemu":
             raise BadRequestError(f"Resource {vmid} is not a QEMU VM")

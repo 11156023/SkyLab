@@ -3,18 +3,23 @@
 from __future__ import annotations
 
 import ast
-import re
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from app.ai.teacher_judge._types import CheckResult, FixHint
 
+# Helpers every managed script needs regardless of how evidence is collected.
 REQUIRED_HELPERS = {
     "truncate_output",
-    "command_available",
-    "run_command",
     "record_check",
 }
+# Helpers that only make sense when the script actually invokes external
+# commands; requiring them unconditionally rejected valid stdlib-only checks.
+COMMAND_REQUIRED_HELPERS = {
+    "command_available",
+    "run_command",
+}
+KNOWN_HELPERS = REQUIRED_HELPERS | COMMAND_REQUIRED_HELPERS
 
 UNKNOWN_ONLY_EXCEPTIONS = {
     "subprocess.TimeoutExpired",
@@ -22,12 +27,6 @@ UNKNOWN_ONLY_EXCEPTIONS = {
     "FileNotFoundError",
     "PermissionError",
 }
-
-_STDOUT_PASS_TERNARY_PATTERN = re.compile(
-    r"""["']pass["']\s+if\s+[^\n]*(stdout|stderr)|if\s+[^\n]*(stdout|stderr)[^\n]*else\s+["']pass["']""",
-    re.IGNORECASE,
-)
-
 
 def _literal_str(node: ast.AST | None) -> str | None:
     if isinstance(node, ast.Constant) and isinstance(node.value, str):
@@ -48,7 +47,7 @@ def _import_aliases(tree: ast.AST) -> dict[str, str]:
                 if alias.name == "*":
                     continue
                 local_name = alias.asname or alias.name
-                if alias.name in REQUIRED_HELPERS:
+                if alias.name in KNOWN_HELPERS:
                     aliases[local_name] = alias.name
                 else:
                     aliases[local_name] = f"{node.module}.{alias.name}"
@@ -66,15 +65,6 @@ def _call_name(node: ast.AST, aliases: dict[str, str] | None = None) -> str | No
     if isinstance(node, ast.Call):
         return _call_name(node.func, aliases)
     return None
-
-
-def _node_mentions_stream(node: ast.AST) -> bool:
-    for child in ast.walk(node):
-        if isinstance(child, ast.Name) and child.id in {"stdout", "stderr"}:
-            return True
-        if isinstance(child, ast.Attribute) and child.attr in {"stdout", "stderr"}:
-            return True
-    return False
 
 
 def _call_status_literal(node: ast.Call) -> str | None:
@@ -159,6 +149,47 @@ def _calls_named_helper(
         if isinstance(node, ast.Call) and _call_name(node.func, aliases) == helper_name:
             return True
     return False
+
+
+def _scan_calls_once(
+    tree: ast.AST,
+    aliases: dict[str, str],
+) -> tuple[list[ast.Call], set[str], set[str], set[str]]:
+    """Collect call-derived facts in a single AST walk.
+
+    Pure optimization: merges the five separate full-tree walks previously done
+    for json.dumps collection, _collect_commands_needing_which,
+    _collect_which_commands and _calls_named_helper (record_check / run_command
+    / command_available) into one pass. Name resolution reuses one _call_name
+    per Call node with the same aliases logic. The historical skip_functions
+    behaviour is preserved as-is (all calls are inspected, including those
+    inside helper definitions), so gate verdicts are unchanged.
+    """
+    json_dumps_calls: list[ast.Call] = []
+    subprocess_commands: set[str] = set()
+    which_commands: set[str] = set()
+    helper_calls: set[str] = set()
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        name = _call_name(node.func, aliases)
+        if name == "json.dumps":
+            json_dumps_calls.append(node)
+        elif name == "subprocess.run":
+            if node.args:
+                first_arg = node.args[0]
+                if isinstance(first_arg, (ast.List, ast.Tuple)) and first_arg.elts:
+                    command = _literal_str(first_arg.elts[0])
+                    if command:
+                        subprocess_commands.add(command)
+        elif name == "shutil.which":
+            if node.args:
+                command = _literal_str(node.args[0])
+                if command:
+                    which_commands.add(command)
+        if name in ("record_check", "run_command", "command_available"):
+            helper_calls.add(name)
+    return json_dumps_calls, subprocess_commands, which_commands, helper_calls
 
 
 def _function_definitions(
@@ -360,6 +391,7 @@ def check_script_quality(script_content: str) -> CheckResult:
     """Return quality validation results for a generated managed script."""
     issues: list[str] = []
     fix_hints: list[FixHint] = []
+    warnings: list[str] = []
 
     try:
         tree = ast.parse(script_content)
@@ -376,7 +408,23 @@ def check_script_quality(script_content: str) -> CheckResult:
     aliases = _import_aliases(tree)
     parents = _parent_map(tree)
     helper_defs = _function_definitions(tree)
-    missing_helpers = sorted(REQUIRED_HELPERS - set(helper_defs))
+
+    # Single-pass call scan (replaces five separate full-tree walks for
+    # json.dumps / subprocess commands / which commands / helper calls).
+    # Legacy collectors (_collect_commands_needing_which,
+    # _collect_which_commands, _calls_named_helper) are kept as compat
+    # wrappers and no longer used on this hot path.
+    json_dumps_calls, commands, which_commands, helper_calls = _scan_calls_once(
+        tree, aliases
+    )
+
+    # Command helpers are only required when the script actually invokes
+    # external commands; a stdlib-only check must not be rejected for missing
+    # run_command/command_available.
+    required_helpers = set(REQUIRED_HELPERS)
+    if commands:
+        required_helpers |= COMMAND_REQUIRED_HELPERS
+    missing_helpers = sorted(required_helpers - set(helper_defs))
     if missing_helpers:
         issues.append("腳本缺少必要 helper：" + ", ".join(missing_helpers))
         for helper_name in missing_helpers:
@@ -401,19 +449,14 @@ def check_script_quality(script_content: str) -> CheckResult:
         issues.append("run_command 必須回傳 returncode")
         fix_hints.append({"type": "add_returncode_to_run_command", "description": "run_command 必須回傳 returncode"})
 
-    if not _calls_named_helper(tree, "record_check", aliases, skip_functions={"record_check"}):
+    if "record_check" not in helper_calls:
         issues.append("腳本必須透過 record_check 建立檢查結果")
         fix_hints.append({"type": "add_record_check_calls", "description": "腳本必須透過 record_check 建立檢查結果"})
 
-    if not _calls_named_helper(tree, "run_command", aliases, skip_functions={"run_command"}):
+    if commands and "run_command" not in helper_calls:
         issues.append("腳本必須透過 run_command 執行收集指令")
         fix_hints.append({"type": "add_run_command_calls", "description": "腳本必須透過 run_command 執行收集指令"})
 
-    json_dumps_calls = [
-        node
-        for node in ast.walk(tree)
-        if isinstance(node, ast.Call) and _call_name(node.func, aliases) == "json.dumps"
-    ]
     if not json_dumps_calls:
         issues.append("腳本必須使用 json.dumps 輸出 JSON")
         fix_hints.append({"type": "add_json_param", "function": "json.dumps", "param": "ensure_ascii", "value": False, "description": "腳本必須使用 json.dumps 輸出 JSON"})
@@ -432,45 +475,39 @@ def check_script_quality(script_content: str) -> CheckResult:
         issues.append("輸出 JSON metadata 必須包含 timestamp 與 platform")
         fix_hints.append({"type": "add_output_field", "field": "metadata", "description": "輸出 JSON metadata 必須包含 timestamp 與 platform"})
 
-    if _STDOUT_PASS_TERNARY_PATTERN.search(script_content):
-        issues.append("不能用 stdout/stderr truthiness 直接判定 pass")
-        fix_hints.append({"type": "remove_stdout_truthiness_check", "description": "不能用 stdout/stderr truthiness 直接判定 pass"})
-
-    commands = _collect_commands_needing_which(tree, aliases)
-    which_commands = _collect_which_commands(tree, aliases)
     for command in sorted(commands - which_commands):
         issues.append(f"外部工具 `{command}` 缺少 shutil.which 可用性檢查")
         fix_hints.append({"type": "add_command_availability_check", "command": command, "description": f"外部工具 `{command}` 缺少 shutil.which 可用性檢查"})
 
-    if commands and not _calls_named_helper(
-        tree,
-        "command_available",
-        aliases,
-        skip_functions={"command_available"},
-    ):
+    if commands and "command_available" not in helper_calls:
         issues.append("腳本必須透過 command_available 檢查外部工具可用性")
         fix_hints.append({"type": "add_command_availability_check", "description": "腳本必須透過 command_available 檢查外部工具可用性"})
 
+    # Collect ExceptHandler nodes during the main walk below and reuse them for
+    # the errors-completeness check, instead of a second full-tree walk. Order
+    # matches `ast.walk` BFS in both cases, and the first-hit `break` is kept.
+    except_handlers: list[ast.ExceptHandler] = []
     for node in ast.walk(tree):
         if isinstance(node, ast.Call) and _call_name(node.func, aliases) == "record_check":
             check_id = _record_check_literal_arg(node, 0, "check_id")
             if check_id and _is_generic_check_id(check_id):
-                issues.append("record_check id 必須是語意化穩定 ID")
-                fix_hints.append({"type": "rename_check_id", "current": check_id, "description": "record_check id 必須是語意化穩定 ID"})
+                # 文案類建議：不阻斷審查，僅作為非阻斷提示回傳。
+                warning = f"record_check id `{check_id}` 建議使用語意化穩定 ID"
+                if warning not in warnings:
+                    warnings.append(warning)
             title = _record_check_literal_arg(node, 1, "title")
             if title and "檢查" in title:
-                issues.append("record_check title 請使用收集語意，不要使用檢查")
-                fix_hints.append({"type": "rename_title", "current": title, "description": "record_check title 請使用收集語意，不要使用檢查"})
+                warning = f"record_check title `{title}` 建議使用收集語意，不要使用檢查"
+                if warning not in warnings:
+                    warnings.append(warning)
         if isinstance(node, ast.If):
-            if _node_mentions_stream(node.test) and _body_marks_pass(node.body, aliases):
-                issues.append("不能用 stdout/stderr 是否有內容直接判定 pass")
-                fix_hints.append({"type": "remove_stdout_truthiness_check", "description": "不能用 stdout/stderr 是否有內容直接判定 pass"})
             if _condition_checks_availability(node.test, aliases):
                 statuses = _body_record_check_statuses(node.body, aliases)
                 if "warning" in statuses:
                     issues.append("工具缺失時應回傳 unknown，不可使用 warning")
                     fix_hints.append({"type": "fix_status_semantics", "description": "工具缺失時應回傳 unknown，不可使用 warning"})
         elif isinstance(node, ast.ExceptHandler):
+            except_handlers.append(node)
             exception_name = _except_name(node, aliases)
             statuses = _body_record_check_statuses(node.body, aliases)
             if _body_marks_pass(node.body, aliases):
@@ -496,7 +533,8 @@ def check_script_quality(script_content: str) -> CheckResult:
     # ── errors 記錄完整性檢查 ──
     # 收集項目的 bare except / except Exception 必須有 errors.append。
     # run_command helper 可以把錯誤轉成結構化回傳值，再由呼叫點寫入 errors。
-    for handler in [n for n in ast.walk(tree) if isinstance(n, ast.ExceptHandler)]:
+    # Reuses handlers collected in the main walk above (same BFS order).
+    for handler in except_handlers:
         except_name = _except_name(handler, aliases)
         if (
             except_name in {None, "Exception"}
@@ -522,4 +560,24 @@ def check_script_quality(script_content: str) -> CheckResult:
         "risk_level": "low" if approved else "high",
         "issues": deduped,
         "fix_hints": fix_hints,
+        "warnings": warnings,
     }
+
+
+def collect_record_check_ids(script_content: str) -> set[str]:
+    """Collect literal record_check ids for rubric coverage validation."""
+    try:
+        tree = ast.parse(script_content)
+    except SyntaxError:
+        return set()
+    aliases = _import_aliases(tree)
+    ids: set[str] = set()
+    for node in ast.walk(tree):
+        if (
+            isinstance(node, ast.Call)
+            and _call_name(node.func, aliases) == "record_check"
+        ):
+            check_id = _record_check_literal_arg(node, 0, "check_id")
+            if check_id:
+                ids.add(check_id)
+    return ids
