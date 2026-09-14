@@ -999,6 +999,25 @@ def _proposal_unavailable_reply(
     return "我這次沒有成功整理出可套用的提案，請再試一次。"
 
 
+def _partial_failure_note(
+    rejected_ops: list[tuple[TeacherJudgeRubricItem, dict[str, Any], str]],
+    staged_titles: set[str],
+    template_commands: list[TeacherJudgeTemplateCommand] | None,
+) -> str:
+    """Summarize unresolved rejections when other proposals staged successfully."""
+    unresolved = [
+        (item, raw) for item, raw, _reason in rejected_ops if item.title not in staged_titles
+    ]
+    if not unresolved:
+        return ""
+    detail = _proposal_unavailable_reply(
+        [item for item, _raw in unresolved],
+        [raw for _item, raw in unresolved],
+        template_commands,
+    )
+    return f"另外，{detail}"
+
+
 def _merge_vllm_metrics(first: VLLMMetrics, second: VLLMMetrics) -> VLLMMetrics:
     """Keep usage accounting accurate when one corrective generation is required."""
     prompt_tokens = int(first.get("prompt_tokens") or 0) + int(
@@ -1244,6 +1263,7 @@ def _execute_checklist_tool(
                     "status": "rejected",
                     "item_id": item_id,
                     "title": title,
+                    "reason": rejection,
                 },
             )
             return {"error": rejection}
@@ -1347,6 +1367,7 @@ def _execute_checklist_tool(
                     "status": "rejected",
                     "item_id": item_id,
                     "title": str(candidate.title),
+                    "reason": rejection,
                 },
             )
             return {"error": rejection}
@@ -1419,6 +1440,7 @@ async def _run_proposal_tool_loop(
             if require_rubric
             else "auto"
         )
+        base_request.pop("response_format", None)
     else:
         base_request.pop("tools", None)
         base_request.pop("tool_choice", None)
@@ -1484,6 +1506,11 @@ async def _run_proposal_tool_loop(
                         )
                     },
                 }
+                logger.warning(
+                    "Teacher Judge ready claim without tools persisted; "
+                    "forcing tool_choice=%s",
+                    forced_tool_choice["function"]["name"],
+                )
                 continue
             break
 
@@ -1517,6 +1544,19 @@ async def _run_proposal_tool_loop(
                 rejected_ops=rejected_ops,
                 tool_calls=tool_outcomes,
             )
+            if isinstance(result, dict) and result.get("error"):
+                logger.warning(
+                    "Teacher Judge tool %s failed argument validation: %s",
+                    tool_name or "(missing name)",
+                    result["error"],
+                )
+            else:
+                logger.debug(
+                    "Teacher Judge tool round executed: tool=%s staged=%d rejected=%d",
+                    tool_name,
+                    len(staged_ops),
+                    len(rejected_ops),
+                )
             messages.append(
                 {
                     "role": "tool",
@@ -1527,6 +1567,13 @@ async def _run_proposal_tool_loop(
     else:
         # Round budget exhausted while the model kept calling tools; force one
         # plain reply round without tools so the teacher always gets an answer.
+        logger.warning(
+            "Teacher Judge tool round budget (%s) exhausted with staged=%d "
+            "rejected=%d; forcing plain reply",
+            max_rounds,
+            len(staged_ops),
+            len(rejected_ops),
+        )
         reply_payload = {**base_request, "messages": list(messages)}
         reply_payload.pop("tools", None)
         reply_payload.pop("tool_choice", None)
@@ -1732,6 +1779,17 @@ async def chat_with_rubric(
             f"我已把{titles}整理成提案。請先查看提案內容，確認後再套用。"
         )
 
+    # Partial success: when some proposals staged but others were rejected,
+    # the teacher must see why; the model's own reply often claims full success.
+    if not is_refine and updated_items is not None and rejected_ops:
+        failure_note = _partial_failure_note(
+            rejected_ops,
+            {entry["item"].title for entry in staged_ops},
+            template_commands,
+        )
+        if failure_note:
+            reply_text = f"{reply_text}\n{failure_note}"
+
     # Tools are the only proposal channel: a ready or prose creation claim
     # without any server-side staged/rejected outcome is false by definition,
     # so the teacher reply is replaced with the actual outcome explanation.
@@ -1739,11 +1797,21 @@ async def chat_with_rubric(
         proposal_status, reply_text
     ) or _reply_claims_created(reply_text)
     if not is_refine and updated_items is None and claims_ready:
+        logger.warning(
+            "Teacher Judge proposal fallback triggered: proposal_status=%s "
+            "prose_claim=%s staged=0 rejected=%d tool_outcomes=%d",
+            proposal_status,
+            _reply_claims_created(reply_text),
+            len(rejected_ops),
+            len(tool_outcomes),
+        )
         if rejected_ops:
             logger.warning(
                 "Teacher Judge rejected %s proposal candidates after validation: %s",
                 len(rejected_ops),
-                ", ".join(entry[0].title for entry in rejected_ops),
+                "; ".join(
+                    f"{entry[0].title}: {entry[2]}" for entry in rejected_ops
+                ),
             )
             reply_text = _proposal_unavailable_reply(
                 [entry[0] for entry in rejected_ops],

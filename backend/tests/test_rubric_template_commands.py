@@ -419,6 +419,194 @@ async def test_uncatalogued_tool_with_complete_argv_still_forms_proposal(
     ]
 
 
+@pytest.mark.asyncio
+async def test_tool_loop_requests_drop_json_response_format(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls, fake_call_vllm = _scripted_vllm(
+        [
+            _tool_call_message(
+                "create_checklist_item",
+                {
+                    "title": "檢查 jq 工具版本",
+                    "detectable": "auto",
+                    "judgement_mode": "ai",
+                    "detection_method": "執行版本查詢。",
+                    "check_steps": [
+                        {
+                            "template_key": "linux",
+                            "command_key": "system.run_command",
+                            "parameters": {
+                                "argv": ["jq", "--version"],
+                                "success_criteria": "exit code 為 0",
+                            },
+                        }
+                    ],
+                },
+            ),
+            _reply_message("已整理成提案。請確認後套用。", "ready"),
+        ]
+    )
+    monkeypatch.setattr(teacher_judge_service, "_call_vllm_message", fake_call_vllm)
+    _patch_teacher_judge_vllm_settings(monkeypatch)
+
+    reply, proposal, _metrics = await teacher_judge_service.chat_with_rubric(
+        messages=[SimpleNamespace(role="user", content="檢查 jq 工具版本")],
+        rubric_context=json.dumps({"items": []}),
+        template_key="linux",
+        template_commands=[GENERAL_COMMAND],
+        rubric_available=True,
+    )
+
+    assert calls
+    assert all("response_format" not in payload for payload in calls)
+    assert "整理成提案" in reply
+    assert proposal is not None
+    assert proposal[0]["operation"] == "add"
+
+
+@pytest.mark.asyncio
+async def test_no_rubric_chat_keeps_json_response_format(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls, fake_call_vllm = _scripted_vllm(
+        [_reply_message("請先選擇檢查表來源。", "none")]
+    )
+    monkeypatch.setattr(teacher_judge_service, "_call_vllm_message", fake_call_vllm)
+    _patch_teacher_judge_vllm_settings(monkeypatch)
+
+    reply, proposal, _metrics = await teacher_judge_service.chat_with_rubric(
+        messages=[SimpleNamespace(role="user", content="檢查 jq 工具版本")],
+        rubric_context=json.dumps({"items": []}),
+        template_key="linux",
+        template_commands=[GENERAL_COMMAND],
+        rubric_available=False,
+    )
+
+    assert calls
+    assert all(
+        payload.get("response_format") == {"type": "json_object"} for payload in calls
+    )
+    assert proposal is None
+
+
+@pytest.mark.asyncio
+async def test_partial_success_reply_summarizes_rejected_items(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls, fake_call_vllm = _scripted_vllm(
+        [
+            _tool_call_message(
+                "create_checklist_item",
+                {
+                    "title": "檢查 jq 版本",
+                    "detectable": "auto",
+                    "judgement_mode": "ai",
+                    "detection_method": "執行版本查詢。",
+                    "check_steps": [
+                        {
+                            "template_key": "linux",
+                            "command_key": "system.run_command",
+                            "parameters": {
+                                "argv": ["jq", "--version"],
+                                "success_criteria": "exit code 為 0",
+                            },
+                        }
+                    ],
+                },
+            ),
+            _tool_call_message(
+                "create_checklist_item",
+                {
+                    "title": "檢查 Web 服務",
+                    "detectable": "partial",
+                    "judgement_mode": "ai",
+                    "missing_information": ["Port 號"],
+                },
+            ),
+            _reply_message("兩個提案都已建立完成。", "ready"),
+        ]
+    )
+    monkeypatch.setattr(teacher_judge_service, "_call_vllm_message", fake_call_vllm)
+    _patch_teacher_judge_vllm_settings(monkeypatch)
+
+    result = await teacher_judge_service.chat_with_rubric(
+        messages=[SimpleNamespace(role="user", content="檢查 jq 版本與 Web 服務")],
+        rubric_context=json.dumps({"items": []}),
+        template_key="linux",
+        template_commands=[GENERAL_COMMAND],
+        rubric_available=True,
+    )
+
+    assert result.proposal is not None
+    assert len(result.proposal) == 1
+    assert result.proposal[0]["title"] == "檢查 jq 版本"
+    assert "已建立完成" in result.reply
+    assert "檢查 Web 服務" in result.reply
+    assert "還缺少" in result.reply
+    rejected = [
+        entry
+        for entry in result.tool_calls or []
+        if entry.get("status") == "rejected"
+    ]
+    assert len(rejected) == 1
+    assert rejected[0]["title"] == "檢查 Web 服務"
+    assert rejected[0]["reason"]
+
+
+@pytest.mark.asyncio
+async def test_partial_failure_note_skips_titles_staged_after_retry(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls, fake_call_vllm = _scripted_vllm(
+        [
+            _tool_call_message(
+                "create_checklist_item",
+                {
+                    "title": "檢查 Web 服務",
+                    "detectable": "partial",
+                    "judgement_mode": "ai",
+                    "missing_information": ["Port 號"],
+                },
+            ),
+            _tool_call_message(
+                "create_checklist_item",
+                {
+                    "title": "檢查 Web 服務",
+                    "detectable": "auto",
+                    "judgement_mode": "ai",
+                    "detection_method": "檢查連接埠。",
+                    "check_steps": [
+                        {
+                            "template_key": "linux",
+                            "command_key": "system.run_command",
+                            "parameters": {
+                                "argv": ["ss", "-lntp"],
+                                "success_criteria": "exit code 為 0",
+                            },
+                        }
+                    ],
+                },
+            ),
+            _reply_message("提案已建立完成。", "ready"),
+        ]
+    )
+    monkeypatch.setattr(teacher_judge_service, "_call_vllm_message", fake_call_vllm)
+    _patch_teacher_judge_vllm_settings(monkeypatch)
+
+    result = await teacher_judge_service.chat_with_rubric(
+        messages=[SimpleNamespace(role="user", content="檢查 Web 服務")],
+        rubric_context=json.dumps({"items": []}),
+        template_key="linux",
+        template_commands=[GENERAL_COMMAND],
+        rubric_available=True,
+    )
+
+    assert result.proposal is not None
+    assert len(result.proposal) == 1
+    assert "另外" not in result.reply
+
+
 def test_validate_check_steps_fills_omitted_template_from_unique_command() -> None:
     python_command = _python_version_command()
 
