@@ -4,6 +4,7 @@ import styles from "./AiApiPage.module.scss";
 import MIcon from "../../../components/MIcon";
 import LoadingState from "../../../components/LoadingState/LoadingState";
 import SharedEmptyState from "../../../components/EmptyState/EmptyState";
+import SegmentedControl from "../../../components/SegmentedControl/SegmentedControl";
 import { AiApiService } from "../../../services/aiApi";
 import { useConfirm } from "../../../components/ConfirmDialog/ConfirmProvider";
 import { useToast } from "../../../hooks/useToast";
@@ -47,20 +48,6 @@ function EmptyState({ icon, title, guideId }) {
   );
 }
 
-/* ── Stat card ── */
-function StatCard({ label, value, icon, iconCls }) {
-  return (
-    <div className={styles.statCard}>
-      <div className={`${styles.statIcon} ${iconCls ? styles[iconCls] : ""}`}>
-        <MIcon name={icon} size={20} />
-      </div>
-      <div className={styles.statInfo}>
-        <span className={styles.statLabel}>{label}</span>
-        <span className={styles.statValue}>{value}</span>
-      </div>
-    </div>
-  );
-}
 
 /* ── Credential card ── */
 function CredentialCard({ item, onRefresh }) {
@@ -702,9 +689,9 @@ export default function AiApiPage() {
   ];
 
   const TABS = [
-    { key: "keys",    label: "API Keys",                icon: "vpn_key" },
-    { key: "records", label: t("AiApiPage.tabRecords"), icon: "history" },
-    { key: "usage",   label: t("AiApiPage.tabUsage"),   icon: "trending_up" },
+    { key: "keys",    label: "API Keys" },
+    { key: "records", label: t("AiApiPage.tabRecords") },
+    { key: "usage",   label: t("AiApiPage.tabUsage") },
   ];
 
   /* ── Form state ── */
@@ -741,8 +728,6 @@ export default function AiApiPage() {
   useEffect(() => { load(); }, [load]);
 
   const activeCredentials = credentials.filter((c) => !c.revoked_at && !isExpired(c.expires_at));
-  const expiredCredentials = credentials.filter((c) => !c.revoked_at && isExpired(c.expires_at));
-  const approvedRequests = requests.filter((r) => r.status === "approved");
 
   /* ── Submit request ── */
   const handleSubmit = async () => {
@@ -779,31 +764,22 @@ export default function AiApiPage() {
         subtitle={t("AiApiPage.pageSubtitle")}
       />
 
-      {/* ── Stat cards ── */}
-      <div className={styles.statRow} data-guide="ai-stats">
-        <StatCard label={t("AiApiPage.statLabelRequests")} value={requests.length} icon="history" />
-        <StatCard label={t("AiApiPage.statLabelActiveKeys")} value={activeCredentials.length} icon="key" iconCls="statIconOk" />
-        <StatCard label={t("AiApiPage.statLabelExpiredKeys")} value={expiredCredentials.length} icon="cancel" iconCls="statIconErr" />
-        <StatCard label={t("AiApiPage.statLabelApprovedRequests")} value={approvedRequests.length} icon="check_circle" iconCls="statIconOk" />
-      </div>
-
-      {/* ── Tabs ── */}
-      <div className={styles.tabs} data-guide="ai-tabs" role="tablist" aria-label={t("AiApiPage.tabsAriaLabel")}>
-        {TABS.map((tab) => (
-          <button
-            key={tab.key}
-            type="button"
-            className={`${styles.tab} ${activeTab === tab.key ? styles.tabActive : ""}`}
-            onClick={() => setActiveTab(tab.key)}
-            data-guide-tab={tab.key}
-            data-guide-has-content={tab.key !== "keys" || credentials.length > 0 ? "true" : "false"}
-            role="tab"
-            aria-selected={activeTab === tab.key}
-          >
-            <MIcon name={tab.icon} size={16} />
-            {tab.label}
-          </button>
-        ))}
+      {/* ── Tabs：共用 SegmentedControl，樣式對齊金鑰管理的狀態切換 ── */}
+      <div data-guide="ai-tabs">
+        <SegmentedControl
+          ariaLabel={t("AiApiPage.tabsAriaLabel")}
+          value={activeTab}
+          onChange={setActiveTab}
+          options={TABS.map((tab) => ({
+            value: tab.key,
+            label: tab.label,
+            badge: tab.key === "keys" ? activeCredentials.length : tab.key === "records" ? requests.length : undefined,
+            buttonProps: {
+              "data-guide-tab": tab.key,
+              "data-guide-has-content": tab.key !== "keys" || credentials.length > 0 ? "true" : "false",
+            },
+          }))}
+        />
       </div>
 
       {/* ── Content ── */}

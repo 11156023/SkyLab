@@ -103,8 +103,6 @@
   "UserGuide.domain.step4.title": "Search or add DNS records here",
   "UserGuide.domain.step4.text": "Use the search box to find existing records; \"Add Record\" creates a mapping between a name and an IP/service. If you're unsure about the record type, don't modify a production domain directly.",
   "UserGuide.aiApi.title": "AI API",
-  "UserGuide.aiApi.step1.title": "These four numbers are your request and key counts",
-  "UserGuide.aiApi.step1.text": "\"Active keys\" is the number of keys that can currently call the API; \"Expired keys\" can no longer be used; \"Approved requests\" doesn't necessarily equal the number of currently valid keys.",
   "UserGuide.aiApi.step2.title": "Three tabs plus the \"Add Key\" dialog",
   "UserGuide.aiApi.step2.text": "Click \"+ Add Key\" on the API Keys tab to submit a request; once approved, the key appears below. Track the review in Request Records and check actual consumption in My Usage. Next, we'll walk through each step.",
   "UserGuide.aiApi.step3.title": "\"+ Add Key\": request a new API key",

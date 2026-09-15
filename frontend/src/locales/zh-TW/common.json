@@ -103,8 +103,6 @@
   "UserGuide.domain.step4.title": "在這裡搜尋或新增 DNS 紀錄",
   "UserGuide.domain.step4.text": "搜尋框用來找既有紀錄；「新增紀錄」會建立名稱與 IP／服務之間的對應。不確定紀錄類型時不要直接修改正式網域。",
   "UserGuide.aiApi.title": "AI API",
-  "UserGuide.aiApi.step1.title": "這四個數字是你的申請與金鑰數量",
-  "UserGuide.aiApi.step1.text": "「使用中金鑰」是現在可呼叫 API 的數量；「過期金鑰」已不能使用；「已通過申請」不一定等於目前有效金鑰數。",
   "UserGuide.aiApi.step2.title": "三個分頁搭配「新增金鑰」彈窗",
   "UserGuide.aiApi.step2.text": "在 API Keys 分頁按「＋ 新增金鑰」提出申請，核准後金鑰會出現在下方；「申請紀錄」追蹤審核進度，「我的用量」查看實際消耗。接下來會實際操作每個步驟。",
   "UserGuide.aiApi.step3.title": "「＋ 新增金鑰」：申請新的 API Key",
