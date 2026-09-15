@@ -318,7 +318,6 @@ function proposalOperationLabel(item) {
 function comparableItem(item) {
   return JSON.stringify({
     title: item.title ?? "",
-    description: item.description ?? "",
     checked: Boolean(item.checked),
     detectable: item.detectable ?? "manual",
     judgement_mode: item.judgement_mode ?? "ai",
@@ -508,7 +507,7 @@ export function ProposalPanel({ proposal, selectedIds, onToggle, onApply, onSkip
                         />
                         <span>
                           <b>{result.source_label ? `${result.source_label}·` : ""}{item.title || "未命名項目"}</b>
-                          <small><em>{proposalOperationLabel(item)}</em>{item.description || "AI 建議新增或調整此檢查項目"}</small>
+                          <small><em>{proposalOperationLabel(item)}</em>AI 建議新增或調整此檢查項目</small>
                         </span>
                       </label>
                     );
@@ -543,7 +542,7 @@ export function ProposalPanel({ proposal, selectedIds, onToggle, onApply, onSkip
                       />
                       <span>
                         <b>{item.title || "未命名項目"}</b>
-                        <small><em>{proposalOperationLabel(item)}</em>{item.description || "AI 建議新增或調整此檢查項目"}</small>
+                        <small><em>{proposalOperationLabel(item)}</em>AI 建議新增或調整此檢查項目</small>
                       </span>
                     </label>
                   );
@@ -619,16 +618,12 @@ function RubricTableRow({ item, index, onChange, onDelete, disabled, needsReview
           </label>
         </td>
         <td className={styles.rubricDescriptionCell}>
-          <label className={styles.tableField}>
-            <span className={styles.srOnly}>第 {index + 1} 項檢查條件</span>
-            <textarea
-              value={item.description}
-              onChange={(event) => onChange({ ...item, description: event.target.value })}
-              placeholder="寫下學生需要符合的條件"
-              rows={2}
-              disabled={disabled}
-            />
-          </label>
+          <div className={styles.tableField}>
+            <span className={styles.srOnly}>第 {index + 1} 項檢測方式</span>
+            <p className={`${styles.rubricMethodText} ${!item.detection_method ? styles.rubricMethodTextEmpty : ""}`}>
+              {item.detection_method || "尚未提供檢測方式"}
+            </p>
+          </div>
         </td>
         <td className={styles.rubricDetectabilityCell}>
           <DetectabilityBadge
@@ -672,12 +667,6 @@ function RubricTableRow({ item, index, onChange, onDelete, disabled, needsReview
                       <p>{missingInformation.length
                         ? missingInformation.join("、")
                         : "請補充完整的服務名稱、程式位置、連接埠、取證範圍或判定條件。"}</p>
-                    </div>
-                  )}
-                  {item.detection_method && (
-                    <div className={styles.detectItem}>
-                      <span>檢測方式</span>
-                      <p>{item.detection_method}</p>
                     </div>
                   )}
                   {item.fallback && (
@@ -725,7 +714,7 @@ export function RubricTable({ items, onChange, onDelete, disabled, needsReviewId
             </th>
             <th scope="col">#</th>
             <th scope="col">檢查點</th>
-            <th scope="col">檢查條件</th>
+            <th scope="col">檢測方式</th>
             <th scope="col">自動檢測支援</th>
             <th scope="col"><span className={styles.srOnly}>操作</span></th>
           </tr>
@@ -749,6 +738,38 @@ export function RubricTable({ items, onChange, onDelete, disabled, needsReviewId
 }
 
 /* ── AI 對話面板 ────────────────────────────────────────── */
+
+/**
+ * 工具呼叫結果的教師顯示文字；以後端實際執行結果為準，
+ * 覆蓋模型回覆文字可能宣稱但實際未建立的狀態。
+ */
+export function proposalToolCallLines(message) {
+  const toolCalls = Array.isArray(message?.metadata_json?.tool_calls)
+    ? message.metadata_json.tool_calls
+    : [];
+  const lines = [];
+  toolCalls.forEach((call) => {
+    if (!call || typeof call !== "object") return;
+    if (call.status === "staged") {
+      const label =
+        call.operation === "update"
+          ? "已送出修改提案"
+          : "已建立提案";
+      lines.push({ icon: "check_circle", text: `${label}：${call.title ?? ""}` });
+    } else if (call.status === "rejected") {
+      lines.push({
+        icon: "cancel",
+        text: `提案未建立：${call.title ?? ""}`,
+      });
+    } else if (call.status === "no_change") {
+      lines.push({
+        icon: "info",
+        text: `內容未變更，未建立提案：${call.title ?? ""}`,
+      });
+    }
+  });
+  return lines;
+}
 
 export function ChatPanel({
   messages,
@@ -827,6 +848,22 @@ export function ChatPanel({
                   </div>
                 )}
                 {msg.content}
+                {msg.role === "assistant" && (
+                  (() => {
+                    const toolLines = proposalToolCallLines(msg);
+                    if (!toolLines.length) return null;
+                    return (
+                      <ul className={styles.chatToolCallList} aria-label="AI 工具執行結果">
+                        {toolLines.map((line) => (
+                          <li key={line.text} className={styles.chatToolCallItem}>
+                            <MIcon name={line.icon} size={14} />
+                            <span>{line.text}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    );
+                  })()
+                )}
               </div>
               {msg.role === "user" && (
                 <span className={`${styles.chatAvatar} ${styles.chatAvatar_user}`}>
@@ -1333,6 +1370,7 @@ function RubricsTab({ classId, judgeSession, onSessionUpdated, onScriptCreated, 
       setSelectedProposalIds(new Set());
       setPendingProposalMeta(null);
       setPendingProposalIsRefine(false);
+      setPendingItemResults(null);
     }
 
     if (!judgeSession?.selected_file_id) {

@@ -11,6 +11,38 @@ from app.models.teacher_judge_template_command import TeacherJudgeTemplateComman
 
 SUPPORTED_TEMPLATE_KEYS = {"linux", "python", "n8n", "postgresql"}
 DEFAULT_SYSTEM_COMMAND_TIMEOUT_SECONDS = 30
+MAX_TIMEOUT_SECONDS = 300
+
+
+def coerce_timeout_seconds(value: Any) -> int | None:
+    """Best-effort coercion of LLM-provided timeout values to a valid int.
+
+    Accepts int (bool excluded), integral floats, and numeric strings such as
+    "5" or "5.0"; returns None for anything that is not a whole number
+    within 1-300.
+    """
+    if isinstance(value, bool):
+        return None
+    coerced: int
+    if isinstance(value, int):
+        coerced = value
+    elif isinstance(value, float) and value.is_integer():
+        coerced = int(value)
+    elif isinstance(value, str):
+        text = value.strip()
+        try:
+            coerced = int(text)
+        except ValueError:
+            try:
+                as_float = float(text)
+            except ValueError:
+                return None
+            if not as_float.is_integer():
+                return None
+            coerced = int(as_float)
+    else:
+        return None
+    return coerced if 1 <= coerced <= MAX_TIMEOUT_SECONDS else None
 
 
 @dataclass(frozen=True, slots=True)
@@ -102,8 +134,8 @@ def format_template_commands_for_prompt(
                     *(
                         [
                             "  parameters_schema: argv 是非空字串陣列；cwd 可選；"
-                            "timeout_seconds 由平台補齊；judgement_mode=ai 時需有 "
-                            "success_criteria",
+                            "timeout_seconds 由平台補齊；success_criteria 選填，"
+                            "省略時由腳本生成依需求語意推導判定條件"
                         ]
                         if command.command_key == "system.run_command"
                         else []
@@ -195,6 +227,14 @@ def validate_check_steps_with_issues(
                         parameters["timeout_seconds"] = (
                             DEFAULT_SYSTEM_COMMAND_TIMEOUT_SECONDS
                         )
+                    elif command.command_key != "system.run_command":
+                        coerced = coerce_timeout_seconds(timeout)
+                        if coerced is not None:
+                            parameters["timeout_seconds"] = coerced
+                        elif command.command_key == "python.run_entrypoint":
+                            parameters["timeout_seconds"] = (
+                                DEFAULT_SYSTEM_COMMAND_TIMEOUT_SECONDS
+                            )
                     step["parameters"] = parameters
                 if step not in valid_steps:
                     valid_steps.append(step)
@@ -207,6 +247,7 @@ __all__ = [
     "DEFAULT_SYSTEM_COMMAND_TIMEOUT_SECONDS",
     "GENERAL_COMMAND",
     "SUPPORTED_TEMPLATE_KEYS",
+    "coerce_timeout_seconds",
     "format_template_commands_for_prompt",
     "get_enabled_template_commands",
     "validate_check_steps",

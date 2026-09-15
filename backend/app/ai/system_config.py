@@ -35,6 +35,7 @@ class SystemAIVLLMConfig(BaseModel):
     min_p: float = 0.0
     max_tokens: int = 1600
     chat_max_tokens: int | None = None
+    chat_max_tool_rounds: int | None = None
     presence_penalty: float | None = None
     repetition_penalty: float = 1.0
 

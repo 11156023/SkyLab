@@ -6,6 +6,7 @@ from fastapi import HTTPException
 from app.ai.teacher_judge.automation_support import (
     ensure_script_generation_supported,
     get_script_generation_blockers,
+    missing_step_information,
 )
 from app.ai.teacher_judge.schemas import (
     TeacherJudgeRubricAnalysis,
@@ -32,7 +33,6 @@ def _item(*, detectable: str = "auto", parameters: dict | None = None) -> Teache
     return TeacherJudgeRubricItem(
         id="item-1",
         title="main.py 執行結果",
-        description="執行 main.py，確認無錯誤並輸出整數 20。",
         detectable=detectable,
         detection_method="依 exit code 與 stdout 精確判定",
         check_steps=[
@@ -96,7 +96,6 @@ def test_generic_command_timeout_is_platform_owned_not_teacher_missing_info() ->
     item = TeacherJudgeRubricItem(
         id="item-1",
         title="讀取環境設定",
-        description="在指定工作目錄讀取 .env。",
         detectable="auto",
         detection_method="以 exit code 判定檔案是否可讀",
         check_steps=[
@@ -122,7 +121,6 @@ def test_generic_command_reports_target_instead_of_internal_argv_or_timeout() ->
     item = TeacherJudgeRubricItem(
         id="item-1",
         title="讀取資料",
-        description="讀取尚未指定的資料。",
         detectable="auto",
         detection_method="以 exit code 判定",
         check_steps=[
@@ -162,3 +160,34 @@ def test_stale_automation_support_blocks_script_generation() -> None:
     blockers = get_script_generation_blockers(analysis, [_command()])
 
     assert blockers[0]["reason_code"] == "automation_support_needs_review"
+
+
+def test_step_gaps_distinguish_absent_fields_from_invalid_values() -> None:
+    entrypoint = TeacherJudgeRubricCheckStep(
+        template_key="python",
+        command_key="python.run_entrypoint",
+        parameters={"cwd": "", "argv": "python3 main.py", "timeout_seconds": 30},
+    )
+    assert missing_step_information(entrypoint) == [
+        "main.py 所在的工作目錄（cwd 必須是非空字串）",
+        "實際 Python 命令與參數（argv 必須是非空字串 list）",
+    ]
+
+    absent = TeacherJudgeRubricCheckStep(
+        template_key="python",
+        command_key="python.run_entrypoint",
+        parameters={"timeout_seconds": 30},
+    )
+    assert missing_step_information(absent) == [
+        "main.py 所在的工作目錄",
+        "實際 Python 命令與參數",
+    ]
+
+    generic = TeacherJudgeRubricCheckStep(
+        template_key="linux",
+        command_key="system.run_command",
+        parameters={"argv": "ping 192.168.24.152"},
+    )
+    assert missing_step_information(generic) == [
+        "要檢查的檔案、服務或記錄範圍（argv 必須是非空字串 list）",
+    ]

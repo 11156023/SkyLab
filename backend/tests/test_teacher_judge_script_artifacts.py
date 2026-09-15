@@ -93,7 +93,6 @@ def _analysis() -> TeacherJudgeRubricAnalysis:
             TeacherJudgeRubricItem(
                 id="item-1",
                 title="n8n Web UI",
-                description="確認 n8n 可存取",
                 checked=False,
                 detectable="auto",
                 detection_method="檢查 localhost 5678",
@@ -163,16 +162,14 @@ def test_teacher_judgement_item_is_script_ready_without_objective_answer() -> No
     ) == []
 
 
-def test_ai_judgement_item_still_requires_objective_answer() -> None:
+def test_ai_judgement_item_is_script_ready_without_success_criteria() -> None:
     analysis = _analysis()
     analysis.items[0].check_steps[0].parameters.pop("success_criteria")
 
-    blockers = automation_support.get_script_generation_blockers(
+    assert automation_support.get_script_generation_blockers(
         analysis,
         [GENERAL_COMMAND],
-    )
-
-    assert blockers[0]["missing_information"] == ["客觀成功條件"]
+    ) == []
 
 
 def _resource(*, vmid: int, user_id: uuid.UUID) -> models.Resource:

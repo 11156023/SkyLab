@@ -36,7 +36,6 @@ class TeacherJudgeRubricItem(BaseModel):
 
     id: str = Field(..., description="檢查項目唯一 ID")
     title: str = Field(..., description="檢查項目名稱")
-    description: str = Field(default="", description="檢查說明")
     checked: bool = Field(default=False, description="是否已確認")
     detectable: Literal["auto", "partial", "manual"] = Field(
         default="manual",
