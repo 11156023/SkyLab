@@ -11,6 +11,7 @@ from sqlmodel import Session, SQLModel, create_engine
 from app.ai.teacher_judge import service as teacher_judge_service
 from app.ai.teacher_judge.schemas import TeacherJudgeRubricItem
 from app.ai.teacher_judge.template_command_service import (
+    DEFAULT_SYSTEM_COMMAND_TIMEOUT_SECONDS,
     GENERAL_COMMAND,
     format_template_commands_for_prompt,
     get_enabled_template_commands,
@@ -307,7 +308,7 @@ def test_validate_python_entrypoint_coerces_numeric_timeout(
     "raw_timeout",
     ["abc", "5.5", 5.5, 0, 301, True, None],
 )
-def test_validate_python_entrypoint_keeps_uncoercible_timeout_raw(
+def test_validate_python_entrypoint_fills_platform_timeout_when_uncoercible(
     raw_timeout: object,
 ) -> None:
     items = validate_check_steps(
@@ -332,7 +333,8 @@ def test_validate_python_entrypoint_keeps_uncoercible_timeout_raw(
     )
 
     parameters = items[0]["check_steps"][0]["parameters"]
-    assert parameters["timeout_seconds"] == raw_timeout
+    assert parameters["timeout_seconds"] == DEFAULT_SYSTEM_COMMAND_TIMEOUT_SECONDS
+    assert isinstance(parameters["timeout_seconds"], int)
 
 
 def test_normalize_rubric_item_accepts_string_timeout_for_python_entrypoint() -> None:
@@ -705,7 +707,7 @@ async def test_partial_failure_note_skips_titles_staged_after_retry(
 
 
 @pytest.mark.asyncio
-async def test_parameter_gap_rejection_asks_model_to_retry_with_success_criteria(
+async def test_missing_success_criteria_no_longer_rejects_auto_proposal(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     calls, fake_call_vllm = _scripted_vllm(
@@ -729,26 +731,6 @@ async def test_parameter_gap_rejection_asks_model_to_retry_with_success_criteria
                     ],
                 },
             ),
-            _tool_call_message(
-                "create_checklist_item",
-                {
-                    "title": "必要套件安裝檢查",
-                    "detectable": "auto",
-                    "judgement_mode": "ai",
-                    "detection_method": "查詢套件安裝狀態。",
-                    "check_steps": [
-                        {
-                            "template_key": "linux",
-                            "command_key": "system.run_command",
-                            "parameters": {
-                                "argv": ["dpkg", "-l", "jq"],
-                                "timeout_seconds": 30,
-                                "success_criteria": "stdout 內含 ii jq",
-                            },
-                        }
-                    ],
-                },
-            ),
             _reply_message("提案已建立完成。", "ready"),
         ]
     )
@@ -763,22 +745,16 @@ async def test_parameter_gap_rejection_asks_model_to_retry_with_success_criteria
         rubric_available=True,
     )
 
-    assert len(calls) == 3
+    assert len(calls) == 2
     assert result.proposal is not None
+    assert len(result.proposal) == 1
     assert result.proposal[0]["detectable"] == "auto"
-    assert result.proposal[0]["check_steps"][0]["parameters"]["success_criteria"] == (
-        "stdout 內含 ii jq"
-    )
+    assert "success_criteria" not in result.proposal[0]["check_steps"][0]["parameters"]
     tool_outcomes = result.tool_calls or []
     rejected = [entry for entry in tool_outcomes if entry.get("status") == "rejected"]
     staged = [entry for entry in tool_outcomes if entry.get("status") == "staged"]
-    assert len(rejected) == 1
+    assert len(rejected) == 0
     assert len(staged) == 1
-    retry_reason = str(rejected[0]["reason"])
-    assert "可由你自行補齊" in retry_reason
-    assert "success_criteria" in retry_reason
-    assert "不需要老師" in retry_reason
-    assert "目前無法形成可套用的提案" not in retry_reason
 
 
 @pytest.mark.asyncio

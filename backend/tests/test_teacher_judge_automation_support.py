@@ -6,6 +6,7 @@ from fastapi import HTTPException
 from app.ai.teacher_judge.automation_support import (
     ensure_script_generation_supported,
     get_script_generation_blockers,
+    missing_step_information,
 )
 from app.ai.teacher_judge.schemas import (
     TeacherJudgeRubricAnalysis,
@@ -159,3 +160,34 @@ def test_stale_automation_support_blocks_script_generation() -> None:
     blockers = get_script_generation_blockers(analysis, [_command()])
 
     assert blockers[0]["reason_code"] == "automation_support_needs_review"
+
+
+def test_step_gaps_distinguish_absent_fields_from_invalid_values() -> None:
+    entrypoint = TeacherJudgeRubricCheckStep(
+        template_key="python",
+        command_key="python.run_entrypoint",
+        parameters={"cwd": "", "argv": "python3 main.py", "timeout_seconds": 30},
+    )
+    assert missing_step_information(entrypoint) == [
+        "main.py 所在的工作目錄（cwd 必須是非空字串）",
+        "實際 Python 命令與參數（argv 必須是非空字串 list）",
+    ]
+
+    absent = TeacherJudgeRubricCheckStep(
+        template_key="python",
+        command_key="python.run_entrypoint",
+        parameters={"timeout_seconds": 30},
+    )
+    assert missing_step_information(absent) == [
+        "main.py 所在的工作目錄",
+        "實際 Python 命令與參數",
+    ]
+
+    generic = TeacherJudgeRubricCheckStep(
+        template_key="linux",
+        command_key="system.run_command",
+        parameters={"argv": "ping 192.168.24.152"},
+    )
+    assert missing_step_information(generic) == [
+        "要檢查的檔案、服務或記錄範圍（argv 必須是非空字串 list）",
+    ]

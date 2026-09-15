@@ -134,8 +134,8 @@ def format_template_commands_for_prompt(
                     *(
                         [
                             "  parameters_schema: argv 是非空字串陣列；cwd 可選；"
-                            "timeout_seconds 由平台補齊；judgement_mode=ai 時需有 "
-                            "success_criteria",
+                            "timeout_seconds 由平台補齊；success_criteria 選填，"
+                            "省略時由腳本生成依需求語意推導判定條件"
                         ]
                         if command.command_key == "system.run_command"
                         else []
@@ -231,6 +231,10 @@ def validate_check_steps_with_issues(
                         coerced = coerce_timeout_seconds(timeout)
                         if coerced is not None:
                             parameters["timeout_seconds"] = coerced
+                        elif command.command_key == "python.run_entrypoint":
+                            parameters["timeout_seconds"] = (
+                                DEFAULT_SYSTEM_COMMAND_TIMEOUT_SECONDS
+                            )
                     step["parameters"] = parameters
                 if step not in valid_steps:
                     valid_steps.append(step)
