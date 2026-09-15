@@ -10,12 +10,6 @@
 }
 
 /* 節點趨勢的時間範圍切換：只影響本卡展開列的趨勢圖，放在表格上方靠右 */
-.nodeToolbar {
-  display: flex;
-  justify-content: flex-end;
-  padding: 0 $spacing-16 $spacing-8;
-}
-
 /* ── 叢集用量卡片 ── */
 .statRow {
   display: grid;

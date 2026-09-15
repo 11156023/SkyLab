@@ -1,5 +1,13 @@
 .chart {
   width: 100%;
+
+  /* recharts v3 的 a11y 層讓圖表可聚焦（聚焦的是 svg 內層的 g），Chrome 連滑鼠
+     點擊都套 :focus-visible 的預設 outline: auto，圖表被框住。唯讀圖表不需要
+     焦點框，整個收掉；鍵盤瀏覽 tooltip 的功能不受影響 */
+  :focus,
+  :focus-visible {
+    outline: none;
+  }
 }
 
 .chartTitle {
