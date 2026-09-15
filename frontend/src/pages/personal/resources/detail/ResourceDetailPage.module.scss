@@ -620,46 +620,20 @@
 }
 
 .btnPrimary {
-  @extend %btn-base;
-  background: var(--color-primary);
-  color: var(--color-text-on-primary);
+  @include btn-primary;
   align-self: flex-start;
-
-  &:hover:not(:disabled) {
-    background: var(--color-primary-dark);
-  }
 }
 
 .btnSecondary {
-  @extend %btn-base;
-  background: var(--color-surface);
-  border: 1px solid var(--color-border);
-  color: var(--color-text-secondary);
-
-  &:hover:not(:disabled) {
-    background: var(--color-hover);
-  }
+  @include btn-secondary;
 }
 
 .btnDanger {
-  @extend %btn-base;
-  background: var(--color-danger);
-  color: var(--color-text-on-primary);
-
-  &:hover:not(:disabled) {
-    background: var(--color-danger-dark);
-  }
+  @include btn-danger;
 }
 
 .btnDangerOutline {
-  @extend %btn-base;
-  background: transparent;
-  border: 1px solid color-mix(in srgb, var(--color-danger) 40%, transparent);
-  color: var(--color-danger);
-
-  &:hover:not(:disabled) {
-    background: color-mix(in srgb, var(--color-danger) 8%, transparent);
-  }
+  @include btn-danger-outline;
 }
 
 /* ── 表格 ── */
@@ -917,9 +891,10 @@
 }
 
 .rpIconBtnDanger {
-  &:hover {
+  color: var(--color-danger);
+
+  &:hover:not(:disabled) {
     background: color-mix(in srgb, var(--color-danger) 12%, transparent);
-    color: var(--color-danger);
   }
 }
 

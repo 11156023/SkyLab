@@ -9,45 +9,11 @@
   }
 }
 
-.pageActions {
+/* 節點趨勢的時間範圍切換：只影響本卡展開列的趨勢圖，放在表格上方靠右 */
+.nodeToolbar {
   display: flex;
-  align-items: center;
-  gap: $spacing-8;
-  flex-wrap: wrap;
-  flex-shrink: 0;
-}
-
-/* ── Segmented timeframe ── */
-.segment {
-  display: inline-flex;
-  padding: 3px;
-  border: 1px solid var(--color-border);
-  border-radius: $radius-8;
-  background: var(--color-surface);
-  box-shadow: var(--shadow-sm);
-}
-
-.segmentBtn {
-  padding: 5px $spacing-16;
-  font-size: $font-size-12;
-  font-weight: $font-weight-500;
-  color: var(--color-text-secondary);
-  border-radius: $radius-8;
-  cursor: pointer;
-  transition: background $transition-base, color $transition-base;
-
-  &:hover {
-    color: var(--color-text);
-  }
-}
-
-.segmentActive {
-  background: var(--color-primary);
-  color: var(--color-text-on-primary);
-
-  &:hover {
-    color: var(--color-text-on-primary);
-  }
+  justify-content: flex-end;
+  padding: 0 $spacing-16 $spacing-8;
 }
 
 /* ── 叢集用量卡片 ── */
@@ -122,30 +88,102 @@
     min-width: 0;
   }
 
+  /* 字級層級對齊旁邊三張量測卡（標籤同 overviewLabel、分母比照 overviewUnit），
+     主數字略小於單值卡的 32——三欄並排，等大會撐爆欄寬 */
   span {
-    font-size: $font-size-10;
+    font-size: $font-size-12;
+    font-weight: $font-weight-500;
     color: var(--color-text-muted);
     white-space: nowrap;
   }
 
   strong {
-    font-size: $font-size-18;
+    font-size: $font-size-24;
     font-weight: $font-weight-700;
     color: var(--color-text-primary);
     font-variant-numeric: tabular-nums;
+    line-height: 1.1;
+    white-space: nowrap;
 
     em {
-      font-size: $font-size-12;
+      font-size: $font-size-14;
       font-style: normal;
-      font-weight: $font-weight-500;
+      font-weight: $font-weight-400;
+      margin-left: 2px;
       color: var(--color-text-muted);
     }
   }
 }
 
-/* 警告／挖礦事件分頁切換列 */
-.panelTabs {
+/* 警告／挖礦事件頁籤：資料夾式——分頁本體是「頁」的形狀，選中的那頁
+   與下方卡片共用同一塊玻璃面，作用範圍一目瞭然，不會被誤讀成整頁篩選 */
+.tabbedPanels {
+  @include flex-column;
+  gap: 0;
+}
+
+.panelTabBar {
   display: flex;
+  gap: $spacing-4;
+}
+
+/* 頁籤貼齊卡片左緣：左上角改直角，第一頁才能與卡片完全密合 */
+.tabbedPanels .card {
+  border-top-left-radius: 0;
+}
+
+.panelTab {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 10px $spacing-24;
+  border: 1px solid var(--color-surface-glass-border);
+  border-bottom: 0;
+  border-radius: $radius-12 $radius-12 0 0;
+  background: color-mix(in srgb, var(--color-surface) 45%, transparent);
+  font-size: $font-size-14;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  transition: background $transition-base, color $transition-base;
+
+  &:hover {
+    color: var(--color-text);
+    background: color-mix(in srgb, var(--color-surface) 70%, transparent);
+  }
+}
+
+.panelTabActive {
+  position: relative;
+  z-index: 1;
+  /* 往下壓過卡片頂邊線，分頁與面板融為同一塊面 */
+  margin-bottom: -2px;
+  padding-bottom: 12px;
+  @include glass-surface($shadow: none);
+  border-bottom: 0;
+  color: var(--color-text-primary);
+  font-weight: $font-weight-500;
+
+  &:hover {
+    color: var(--color-text-primary);
+    background: var(--color-surface-glass);
+  }
+}
+
+.panelTabBadge {
+  min-width: 18px;
+  padding: 1px 6px;
+  border-radius: $radius-pill;
+  background: var(--color-hover);
+  color: var(--color-text-secondary);
+  font-size: $font-size-10;
+  font-weight: $font-weight-500;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+.panelTabActive .panelTabBadge {
+  background: color-mix(in srgb, var(--color-primary) 12%, transparent);
+  color: var(--color-primary);
 }
 
 /* 未選中的面板隱藏但保持掛載：輪詢與角標筆數持續更新 */
@@ -246,8 +284,13 @@
 .alertMain {
   display: flex;
   align-items: flex-start;
-  gap: $spacing-8;
+  gap: 12px;
   color: var(--color-danger);
+
+  /* 圖示對齊第一行（alertHead）的垂直中線：head 行高約 23px、圖示 16px */
+  > span:first-child {
+    margin-top: 3px;
+  }
 }
 
 .alertHead {
@@ -289,50 +332,39 @@
 
 /* ── 按鈕 ── */
 .btnSecondary {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 5px $spacing-16;
-  border-radius: $radius-8;
-  font-size: $font-size-12;
-  font-weight: $font-weight-500;
-  background: var(--color-surface);
-  color: var(--color-text);
-  border: 1px solid var(--color-border);
-  cursor: pointer;
-  white-space: nowrap;
-  transition: background $transition-base;
-
-  &:hover:not(:disabled) {
-    background: var(--color-hover);
-  }
-
-  &:disabled {
-    opacity: 0.4;
-    cursor: not-allowed;
-  }
+  @include btn-secondary;
 }
 
 /* ── 表格 ── */
-/* 「顯示全部節點／收合」切換：收在表格下方置中的細按鈕 */
-.showAllBtn {
-  display: inline-flex;
+/* 節點用量整卡收合：標題列即開關，收起時右側保留在線摘要 */
+.cardHeaderToggle {
+  display: flex;
   align-items: center;
-  gap: 4px;
-  align-self: center;
-  margin: $spacing-8 0 $spacing-16;
-  padding: 6px 14px;
-  border: 1px solid var(--color-border);
-  border-radius: $radius-pill;
-  background: var(--color-surface);
-  color: var(--color-text-secondary);
-  font-size: $font-size-12;
+  justify-content: space-between;
+  gap: $spacing-16;
+  width: 100%;
+  padding: $spacing-16;
+  border: 0;
+  background: transparent;
+  text-align: left;
+  font: inherit;
   cursor: pointer;
   transition: background $transition-base;
 
   &:hover {
     background: var(--color-hover);
   }
+}
+
+.cardHeaderMeta {
+  display: inline-flex;
+  align-items: center;
+  gap: $spacing-8;
+  flex-shrink: 0;
+  color: var(--color-text-secondary);
+  font-size: $font-size-12;
+  font-weight: $font-weight-500;
+  white-space: nowrap;
 }
 
 /* 離線列的展開箭頭佔位（與 16px 的 MIcon 同寬），名稱欄才對得齊 */
@@ -352,33 +384,10 @@
 }
 
 /* Top 5 表在半版寬的卡片內，min-width 取小值讓它卷動而非硬擠（#24 重排前的過渡） */
+/* Top 5 在半版寬的卡片內：min-width 撐出橫向卷動，欄位不互擠 */
 .topTable {
   @include table-base;
-  min-width: 380px;
-}
-
-/* Top 5 的機器欄：類型小徽章＋名稱＋VMID 合併一欄（#24） */
-.vmCell {
-  display: flex;
-  align-items: center;
-  gap: $spacing-8;
-  min-width: 0;
-}
-
-.vmCellText {
-  @include flex-column;
-  min-width: 0;
-
-  strong {
-    overflow: hidden;
-    font-weight: $font-weight-500;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-  span {
-    font-size: $font-size-10;
-  }
+  min-width: 520px;
 }
 
 .th {
@@ -495,76 +504,15 @@
 }
 
 .btnPrimary {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 5px $spacing-16;
-  border-radius: $radius-8;
-  font-size: $font-size-12;
-  font-weight: $font-weight-500;
-  background: var(--color-primary);
-  color: var(--color-text-on-primary);
-  cursor: pointer;
-  white-space: nowrap;
-  transition: background $transition-base;
-
-  &:hover:not(:disabled) {
-    background: var(--color-primary-dark);
-  }
-
-  &:disabled {
-    opacity: 0.4;
-    cursor: not-allowed;
-  }
+  @include btn-primary;
 }
 
 .btnDanger {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 5px $spacing-16;
-  border-radius: $radius-8;
-  font-size: $font-size-12;
-  font-weight: $font-weight-500;
-  background: var(--color-danger);
-  color: var(--color-text-on-primary);
-  cursor: pointer;
-  white-space: nowrap;
-  transition: background $transition-base;
-
-  &:hover:not(:disabled) {
-    background: var(--color-danger-dark);
-  }
-
-  &:disabled {
-    opacity: 0.4;
-    cursor: not-allowed;
-  }
+  @include btn-danger;
 }
 
 .btnDangerOutline {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 5px $spacing-16;
-  border-radius: $radius-8;
-  font-size: $font-size-12;
-  font-weight: $font-weight-500;
-  background: transparent;
-  border: 1px solid color-mix(in srgb, var(--color-danger) 40%, transparent);
-  color: var(--color-danger);
-  cursor: pointer;
-  white-space: nowrap;
-  transition: background $transition-base;
-
-  &:hover:not(:disabled) {
-    background: color-mix(in srgb, var(--color-danger) 8%, transparent);
-  }
-
-  &:disabled {
-    opacity: 0.4;
-    cursor: not-allowed;
-  }
+  @include btn-danger-outline;
 }
 
 /* ── Modal ── */

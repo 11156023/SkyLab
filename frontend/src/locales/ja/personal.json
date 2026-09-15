@@ -118,7 +118,7 @@
   "AdminDashboardPage.checking": "処理が必要な項目を確認中…",
   "AdminDashboardPage.allClearTitle": "現在、緊急に対応が必要な項目はありません",
   "AdminDashboardPage.allClearDesc": "障害はなく、承認待ちもありません。",
-  "AdminDashboardPage.assistantLabel": "AI PVE 運用アシスタント",
+  "AdminDashboardPage.assistantLabel": "AI 運用アシスタント",
   "AdminDashboardPage.assistantTitle": "直面している問題を説明してください",
   "AdminDashboardPage.backToOverview": "概要に戻る",
   "AdminDashboardPage.expandChat": "チャットを拡大",

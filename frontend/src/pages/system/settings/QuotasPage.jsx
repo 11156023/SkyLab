@@ -507,7 +507,7 @@ function QuotasSection() {
                       </button>
                       <button
                         type="button"
-                        className={styles.btnDanger}
+                        className={styles.btnIconDanger}
                         disabled={deleting === q.id}
                         onClick={() => handleDelete(q)}
                         title={t("QuotasTab.deleteQuotaTitle")}

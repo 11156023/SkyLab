@@ -218,8 +218,12 @@
   }
 }
 
-.ruleBtnDanger:hover:not(:disabled) {
+.ruleBtnDanger {
   color: var(--color-danger);
+}
+
+.ruleBtnDanger:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--color-danger) 9%, transparent);
 }
 
 .lockedTag {

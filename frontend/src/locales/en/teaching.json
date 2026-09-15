@@ -249,7 +249,6 @@
   "CourseTemplateEditorPage.typeContainerLxc": "Container (LXC)",
   "CourseTemplateEditorPage.typeVm": "Virtual machine",
   "CourseTemplateEditorPage.defaultMachineRole": "Environment machine",
-  "CourseTemplateEditorPage.multiMachineEnvTitle": "Learning Environment Applied Each Time",
   "CourseTemplateEditorPage.overlappingEdgeNotice": "These two machines already have a connection covering this port. A bidirectional connection already includes the reverse direction.",
   "CourseTemplateEditorPage.publicAccessLabel": "Public access",
   "CourseTemplateEditorPage.addPublicationBtn": "Add",
@@ -288,7 +287,6 @@
   "CourseTemplateEditorPage.pleaseSelectOption": "Please select",
   "CourseTemplateEditorPage.atLimitBtn": "Limit reached",
   "CourseTemplateEditorPage.addMachineBtn": "Add machine",
-  "CourseTemplateEditorPage.topologyHelpText": "Drag from the dot on the right of a source node to the dot on the left of a target node; drag a node body directly to move it.",
   "CourseTemplateEditorPage.connectionRuleTitle": "Connection rule",
   "CourseTemplateEditorPage.fieldDirection": "Direction",
   "CourseTemplateEditorPage.directionOneWay": "One-way",
@@ -331,8 +329,6 @@
   "CourseTemplateEditorPage.saveDraftBtn": "Save draft",
   "CourseTemplateEditorPage.classDraftSavedTitle": "Class draft saved.",
   "CourseTemplateEditorPage.classDraftSavedDesc": "Complete the machine configuration and \"publish\" the template; once published it will automatically return to the class creation flow.",
-  "CourseTemplateEditorPage.lockedVersionNote": "This version has been published and locked; create a new version if you need to make changes.",
-  "CourseTemplateEditorPage.reusableEnvNote": "This learning environment can be used for formal courses, quick practice, or both purposes at once.",
   "CourseTemplateEditorPage.fieldEnvName": "Environment name",
   "CourseTemplateEditorPage.nameRequiredError": "Enter an environment name before saving.",
   "CourseTemplateEditorPage.audienceClassesRequiredError": "Audience is set to specific classes - pick at least one class.",
@@ -695,9 +691,6 @@
   "ClassWorkspacePage.classNotFoundText": "Class not found",
   "ClassWorkspacePage.subtitleTemplate": "{{students}} students · {{weeks}} sessions · Every {{weekday}} {{start}}–{{end}}",
   "ClassWorkspacePage.workflowAriaLabel": "Class management workflow",
-  "ClassWorkspacePage.setupProgressLabelShort": "Ready to provision",
-  "ClassWorkspacePage.allReadyLabel": "All ready",
-  "ClassWorkspacePage.completedCountLabel": "{{count}}/2 complete",
   "ClassWorkspacePage.scheduleUpdatedMsg": "Class and fixed schedule have been updated.",
   "AiJudgePanel.aboutToUseLabel": "About to use: {{name}} v{{version}} ({{template}})",
   "AiJudgePanel.addCheckTitle": "New Check",
@@ -1020,7 +1013,5 @@
   "AiJudgePanel.waitingCollectionLabel": "Awaiting collection",
   "AiJudgePanel.weekOptionLabel": "Week {{week}} · {{title}}",
   "AiJudgePanel.whichWeekLabel": "Which week's task should this go into?",
-  "CourseTemplateEditorPage.draftRestoredMsg": "Restored your unsaved edits",
-  "CourseTemplateEditorPage.stepBasicHint": "Name, usage & audience",
-  "CourseTemplateEditorPage.stepMachinesHint": "Nodes, specs & links"
+  "CourseTemplateEditorPage.draftRestoredMsg": "Restored your unsaved edits"
 }
