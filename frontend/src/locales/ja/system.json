@@ -479,7 +479,6 @@
   "MonitoringPage.online": "オンライン",
   "MonitoringPage.pageSubtitle": "クラスタのリソース使用率、ノードのトレンド、しきい値アラート",
   "MonitoringPage.pageTitle": "リソース監視",
-  "MonitoringPage.runningStatus": "稼働状態",
   "MonitoringPage.scopeCluster": "クラスタ",
   "MonitoringPage.scopeNode": "ノード",
   "MonitoringPage.thresholdSuffix": "（しきい値 {{threshold}}%）",
@@ -703,5 +702,6 @@
   "DomainPage.managedBySystem": "本システム · VM {{vmid}}",
   "DomainPage.managedBySystemHint": "本システムの公開 URL 機能が作成（VM {{vmid}}）",
   "DomainPage.externalRecord": "外部で作成",
-  "DomainPage.externalRecordHint": "本システム以外で作成されたレコード（Cloudflare などで手動追加）"
+  "DomainPage.externalRecordHint": "本システム以外で作成されたレコード（Cloudflare などで手動追加）",
+  "MonitoringPage.timeframeAria": "トレンドの期間"
 }

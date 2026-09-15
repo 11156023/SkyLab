@@ -479,7 +479,6 @@
   "MonitoringPage.online": "在線",
   "MonitoringPage.pageSubtitle": "叢集資源使用、節點趨勢與閾值警告",
   "MonitoringPage.pageTitle": "資源監控",
-  "MonitoringPage.runningStatus": "運行狀態",
   "MonitoringPage.scopeCluster": "叢集",
   "MonitoringPage.scopeNode": "節點",
   "MonitoringPage.thresholdSuffix": "（閾值 {{threshold}}%）",
@@ -703,5 +702,6 @@
   "DomainPage.managedBySystem": "本系統 · VM {{vmid}}",
   "DomainPage.managedBySystemHint": "由本系統的對外網址功能建立（VM {{vmid}}）",
   "DomainPage.externalRecord": "外部建立",
-  "DomainPage.externalRecordHint": "不是本系統建立的紀錄（在 Cloudflare 或其他地方手動加的）"
+  "DomainPage.externalRecordHint": "不是本系統建立的紀錄（在 Cloudflare 或其他地方手動加的）",
+  "MonitoringPage.timeframeAria": "趨勢時間範圍"
 }

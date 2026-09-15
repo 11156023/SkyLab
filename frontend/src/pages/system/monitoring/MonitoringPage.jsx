@@ -4,6 +4,7 @@ import styles from "./MonitoringPage.module.scss";
 import MIcon from "../../../components/MIcon";
 import LoadingState from "../../../components/LoadingState/LoadingState";
 import EmptyState from "../../../components/EmptyState/EmptyState";
+import SegmentedControl from "../../../components/SegmentedControl/SegmentedControl";
 import RrdChart from "../../../components/RrdChart/RrdChart";
 import MiningIncidentsPanel from "./MiningIncidentsPanel";
 import { MonitoringService } from "../../../services/monitoring";
@@ -359,22 +360,7 @@ export default function MonitoringPage() {
 
   return (
     <div className={styles.page}>
-      <PageHeader title={t("MonitoringPage.pageTitle")} subtitle={t("MonitoringPage.pageSubtitle")}>
-        <div className={styles.pageActions}>
-          <div className={styles.segment}>
-            {TIMEFRAMES.map((t) => (
-              <button
-                key={t.value}
-                type="button"
-                className={`${styles.segmentBtn} ${timeframe === t.value ? styles.segmentActive : ""}`}
-                onClick={() => setTimeframe(t.value)}
-              >
-                {t.label}
-              </button>
-            ))}
-          </div>
-        </div>
-      </PageHeader>
+      <PageHeader title={t("MonitoringPage.pageTitle")} subtitle={t("MonitoringPage.pageSubtitle")} />
 
       {/* 叢集用量卡片 */}
       <div className={styles.statRow}>
@@ -395,11 +381,13 @@ export default function MonitoringPage() {
         />
         {/* 運行狀態：三個數字排三欄，不再擠成三行小字（#24） */}
         <div className={styles.overviewCard}>
-          <span className={styles.overviewLabel}>{t("MonitoringPage.runningStatus")}</span>
           <div className={styles.statusGrid}>
             <div>
               <span>{t("MonitoringPage.nodesOnline")}</span>
-              <strong>{overview.nodes_online}/{overview.nodes_total}</strong>
+              <strong>
+                {overview.nodes_online}
+                <em>/{overview.nodes_total}</em>
+              </strong>
             </div>
             <div>
               <span>{t("MonitoringPage.vmRunning")}</span>
@@ -419,9 +407,7 @@ export default function MonitoringPage() {
         </div>
       </div>
 
-      {/* 警告與挖礦事件收進分頁（#24）；改底線頁籤緊貼面板，與右上的膠囊
-          時間切換器區隔——避免被誤讀成整頁（含節點用量、Top 5）的篩選器。
-          兩個面板保持掛載，輪詢與角標持續更新 */}
+      {/* 警告與挖礦事件收進分頁（#24）；兩個面板保持掛載，輪詢與角標持續更新 */}
       <div className={styles.tabbedPanels}>
         <div className={styles.panelTabBar} role="tablist" aria-label={t("MonitoringPage.panelTabsAria")}>
           <button
@@ -473,7 +459,16 @@ export default function MonitoringPage() {
             <MIcon name={nodesOpen ? "expand_less" : "expand_more"} size={18} />
           </span>
         </button>
-        {nodesOpen && (
+        {nodesOpen && (<>
+        {/* 時間範圍只影響展開列的趨勢圖，跟著本卡走、不放頁首（會被誤讀成整頁篩選器） */}
+        <div className={styles.nodeToolbar}>
+          <SegmentedControl
+            ariaLabel={t("MonitoringPage.timeframeAria")}
+            options={TIMEFRAMES}
+            value={timeframe}
+            onChange={setTimeframe}
+          />
+        </div>
         <div className={styles.tableScroll}>
         <table className={styles.table}>
           <thead>
@@ -572,7 +567,7 @@ export default function MonitoringPage() {
           </tbody>
         </table>
         </div>
-        )}
+        </>)}
       </div>
 
       {/* Top VMs */}

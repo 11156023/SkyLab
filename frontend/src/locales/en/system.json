@@ -479,7 +479,6 @@
   "MonitoringPage.online": "Online",
   "MonitoringPage.pageSubtitle": "Cluster resource usage, node trends, and threshold alerts",
   "MonitoringPage.pageTitle": "Resource Monitoring",
-  "MonitoringPage.runningStatus": "Status",
   "MonitoringPage.scopeCluster": "Cluster",
   "MonitoringPage.scopeNode": "Node",
   "MonitoringPage.thresholdSuffix": " (threshold {{threshold}}%)",
@@ -703,5 +702,6 @@
   "DomainPage.managedBySystem": "This system · VM {{vmid}}",
   "DomainPage.managedBySystemHint": "Created by this system's published URL feature (VM {{vmid}})",
   "DomainPage.externalRecord": "External",
-  "DomainPage.externalRecordHint": "Not created by this system (added manually on Cloudflare or elsewhere)"
+  "DomainPage.externalRecordHint": "Not created by this system (added manually on Cloudflare or elsewhere)",
+  "MonitoringPage.timeframeAria": "Trend timeframe"
 }
