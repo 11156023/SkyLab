@@ -138,11 +138,22 @@ def test_get_topology_survives_poisoned_ip_cache_write(
     user = SimpleNamespace(id="u1")
     enrich_calls: list[int] = []
 
-    monkeypatch.setattr(fw, "can_bypass_resource_ownership", lambda user: True)
+    # 拓撲的可見範圍由 resource_access 決定（師生關係），這裡固定給兩台自己的機器
     monkeypatch.setattr(
-        fw.resource_repo,
-        "get_all_resources",
-        lambda *, session: [SimpleNamespace(vmid=150), SimpleNamespace(vmid=151)],
+        fw.resource_access,
+        "list_reachable_resources",
+        lambda *, session, user: [
+            SimpleNamespace(vmid=150, user_id="u1", teaching_class_id=None),
+            SimpleNamespace(vmid=151, user_id="u1", teaching_class_id=None),
+        ],
+    )
+    monkeypatch.setattr(
+        fw.resource_access, "list_owned_teaching_class_ids", lambda *, session, user: set()
+    )
+    monkeypatch.setattr(
+        fw.resource_access,
+        "can_manage_resource",
+        lambda *, resource, user, owned_class_ids: True,
     )
     monkeypatch.setattr(fw.layout_repo, "get_layout", lambda *, session, user_id: [])
     monkeypatch.setattr(

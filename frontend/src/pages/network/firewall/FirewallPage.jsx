@@ -24,6 +24,7 @@ import {
 } from "../../../services/firewall";
 import RulesPanel       from "../../../components/RulesPanel/RulesPanel";
 import ConnectionDialog from "../../../components/ConnectionDialog/ConnectionDialog";
+import { canManageNode, toDialogNodes } from "../../../components/ConnectionDialog/topologyNodes";
 import GatewayNode      from "./nodes/GatewayNode";
 import VMNode           from "./nodes/VMNode";
 import ConnectionEdge   from "./edges/ConnectionEdge";
@@ -212,17 +213,25 @@ export default function FirewallPage() {
     []
   );
 
-  /* ── 拉線完成：帶入來源/目標，開啟新增連線對話框 ── */
+  /* ── 拉線完成：帶入來源/目標，開啟新增連線對話框 ──
+     連線會同時寫兩端的規則，任一端是唯讀的課堂機（學生視角）就擋在這裡，
+     不讓人填完表單才吃 403 */
   const onConnect = useCallback((conn) => {
     if (!conn?.source || !conn?.target || conn.source === conn.target) return;
+    const byId = new Map((topology?.nodes ?? []).map((n) => [String(n.vmid), n]));
+    const readOnly = [conn.source, conn.target]
+      .map((id) => byId.get(id))
+      .find((n) => n && !canManageNode(n));
+    if (readOnly) {
+      toast.error(t("FirewallPage.readOnlyNode", { name: readOnly.name }));
+      return;
+    }
     setDialogPreset({ source: toDialogKey(conn.source), target: toDialogKey(conn.target) });
     setShowDialog(true);
-  }, []);
+  }, [topology, toast, t]);
 
-  /* ── VM 節點列表（供 ConnectionDialog 使用） ── */
-  const vmNodes = (topology?.nodes ?? [])
-    .filter((n) => n.node_type !== "gateway")
-    .map((n) => ({ key: String(n.vmid), vmid: n.vmid, name: n.name }));
+  /* ── VM 節點列表（供 ConnectionDialog 使用）：只有可管理的機器 ── */
+  const vmNodes = toDialogNodes(topology?.nodes);
 
   /* ── 依目前節點位置決定每條線走哪一側：拖動節點時線會即時改走最短路徑 ── */
   const routedEdges = useMemo(() => routeEdges(edges, nodes), [edges, nodes]);
@@ -392,6 +401,7 @@ export default function FirewallPage() {
             {rulesPanel.open && (
               <RulesPanel
                 node={{ vmid: Number(rulesPanel.item.id), name: rulesPanel.item.data.name }}
+                canManage={canManageNode(rulesPanel.item.data)}
                 closing={rulesPanel.closing}
                 onClose={() => setSelectedNode(null)}
                 onChanged={() => fetchTopology(true)}

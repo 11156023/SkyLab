@@ -461,6 +461,7 @@
   "RulesPanel.loadFailed": "載入失敗",
   "RulesPanel.loading": "載入中…",
   "RulesPanel.noRules": "目前沒有防火牆規則",
+  "RulesPanel.readOnlyHint": "這是課堂機器，規則只能查看；要調整防火牆請找班級老師",
   "RulesPanel.ruleListTitle": "規則清單（{{count}}）",
   "RulesPanel.status": "狀態",
   "TakeoverOverlay.description": "你的鍵盤與滑鼠操作暫時停用",

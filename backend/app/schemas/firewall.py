@@ -265,6 +265,15 @@ class TopologyNode(BaseModel):
     firewall_enabled: bool = False
     position_x: float = 100.0
     position_y: float = 100.0
+    # 師生關係：老師會看到班級底下學生的機器，學生看到自己的課堂機但不能管。
+    # can_manage 與 require_resource_management 同一套規則，前端據此決定能否拉線／改規則。
+    can_manage: bool = True
+    owner_name: str | None = Field(
+        default=None, description="機器不是自己的時才帶（老師／管理員視角）"
+    )
+    teaching_class_name: str | None = Field(
+        default=None, description="課堂機所屬班級名稱"
+    )
 
 
 class TopologyEdge(BaseModel):

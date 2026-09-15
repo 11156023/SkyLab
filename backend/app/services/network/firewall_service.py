@@ -12,13 +12,13 @@ import logging
 import re
 from typing import Any
 
-from sqlmodel import Session
+from sqlmodel import Session, col, select
 
-from app.core.authorizers import can_bypass_resource_ownership
 from app.core.i18n import t
 from app.exceptions import BadRequestError, NotFoundError, ProxmoxError
 from app.infrastructure.proxmox import get_proxmox_api_for_node
 from app.infrastructure.proxmox.operations import ResourceType
+from app.models.teaching_class import TeachingClass
 from app.models.user import User
 from app.repositories import firewall_layout as layout_repo
 from app.repositories import resource as resource_repo
@@ -32,6 +32,7 @@ from app.schemas.firewall import (
     TopologyResponse,
 )
 from app.services.proxmox import proxmox_service
+from app.services.resource import access as resource_access
 
 logger = logging.getLogger(__name__)
 
@@ -1069,22 +1070,47 @@ def _enrich_edges_from_db(
                 port_spec.external_port = nat_rule.external_port
 
 
+def _describe_resource_origins(
+    *, session: Session, resources: list[Any], viewer_id: Any
+) -> tuple[dict[Any, str], dict[Any, str]]:
+    """批次查出節點要標示的班級名稱與擁有者名稱（不是自己的機器才帶擁有者）。"""
+    class_ids = {r.teaching_class_id for r in resources if r.teaching_class_id}
+    owner_ids = {r.user_id for r in resources if r.user_id != viewer_id}
+    class_names: dict[Any, str] = {}
+    owner_names: dict[Any, str] = {}
+    if class_ids:
+        class_stmt = select(TeachingClass.id, TeachingClass.name).where(
+            col(TeachingClass.id).in_(list(class_ids))
+        )
+        class_names = dict(session.exec(class_stmt).all())
+    if owner_ids:
+        owner_stmt = select(User.id, User.full_name, User.email).where(
+            col(User.id).in_(list(owner_ids))
+        )
+        owner_names = {
+            uid: (full_name or email)
+            for uid, full_name, email in session.exec(owner_stmt).all()
+        }
+    return class_names, owner_names
+
+
 def get_topology(user: User, session: Session) -> TopologyResponse:
     """取得使用者的防火牆拓撲（節點 + 連線）
 
-    權限邏輯：
-    - superuser: 所有 VM
-    - 一般使用者: 只看自己的 VM
+    可見範圍（resource_access.list_reachable_resources）：
+    - admin: 所有 VM
+    - 老師: 自己的 VM + 自己班級底下所有學生機器（可管理）
+    - 學生: 自己的 VM，其中課堂機唯讀（can_manage=False）
     """
-    # 取得有權限的 user_id 清單
-    if can_bypass_resource_ownership(user):
-        all_resources = resource_repo.get_all_resources(session=session)
-        target_vmids = [r.vmid for r in all_resources]
-    else:
-        own_resources = resource_repo.get_resources_by_user(
-            session=session, user_id=user.id
-        )
-        target_vmids = [r.vmid for r in own_resources]
+    reachable = resource_access.list_reachable_resources(session=session, user=user)
+    owned_class_ids = resource_access.list_owned_teaching_class_ids(
+        session=session, user=user
+    )
+    target_vmids = [r.vmid for r in reachable]
+    resource_by_vmid = {r.vmid: r for r in reachable}
+    class_names, owner_names = _describe_resource_origins(
+        session=session, resources=reachable, viewer_id=user.id
+    )
 
     # 取得使用者的佈局記錄
     layout_records = layout_repo.get_layout(session=session, user_id=user.id)
@@ -1145,6 +1171,7 @@ def get_topology(user: User, session: Session) -> TopologyResponse:
             px = col_x
             py = 100.0 + i * row_y_step
 
+        db_resource = resource_by_vmid[vmid]
         nodes.append(
             TopologyNode(
                 vmid=vmid,
@@ -1156,6 +1183,11 @@ def get_topology(user: User, session: Session) -> TopologyResponse:
                 firewall_enabled=firewall_enabled,
                 position_x=px,
                 position_y=py,
+                can_manage=resource_access.can_manage_resource(
+                    resource=db_resource, user=user, owned_class_ids=owned_class_ids
+                ),
+                owner_name=owner_names.get(db_resource.user_id),
+                teaching_class_name=class_names.get(db_resource.teaching_class_id),
             )
         )
         valid_vmids.append(vmid)

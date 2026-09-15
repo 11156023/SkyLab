@@ -1,9 +1,10 @@
 import logging
 import uuid
+from collections.abc import Iterable
 from datetime import date, datetime, timezone
 from typing import Any
 
-from sqlmodel import Session, select
+from sqlmodel import Session, col, select
 
 from app.models import IpAllocation, Resource, ResourceNetwork
 
@@ -77,6 +78,20 @@ def get_resources_by_teaching_class(
             select(Resource).where(
                 Resource.teaching_class_id == teaching_class_id
             )
+        ).all()
+    )
+
+
+def get_resources_by_teaching_classes(
+    *, session: Session, teaching_class_ids: Iterable[uuid.UUID]
+) -> list[Resource]:
+    """一次撈多個班級底下的所有機器（老師視角的防火牆／網路清單用）。"""
+    ids = list(teaching_class_ids)
+    if not ids:
+        return []
+    return list(
+        session.exec(
+            select(Resource).where(col(Resource.teaching_class_id).in_(ids))
         ).all()
     )
 

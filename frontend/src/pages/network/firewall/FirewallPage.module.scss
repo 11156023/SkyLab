@@ -334,6 +334,38 @@
   box-shadow: var(--shadow-sm);
 }
 
+/* 歸屬徽章：掛在節點左上角，與右上角的對外暴露數對稱 */
+.originBadge {
+  position: absolute;
+  top: -8px;
+  left: -8px;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  max-width: 120px;
+  padding: 1px 6px;
+  border-radius: $radius-pill;
+  background: var(--color-primary);
+  color: var(--color-text-on-primary);
+  font-size: 11px;
+  font-weight: $font-weight-500;
+  line-height: 1.5;
+  box-shadow: var(--shadow-sm);
+  @include text-truncate;
+}
+
+.originReadOnly {
+  background: var(--color-status-neutral);
+}
+
+/* 唯讀的課堂機：學生看得到、不能拉線改規則 */
+.nodeReadOnly {
+  border-style: dashed;
+  cursor: default;
+
+  &:active { cursor: default; }
+}
+
 /* ── Edge label ── */
 .edgeLabelWrap {
   position: absolute;

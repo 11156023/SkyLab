@@ -34,6 +34,7 @@ import styles from "./ConnectionDialog.module.scss";
 import MIcon from "../MIcon";
 import { focusInvalidField } from "../../utils/focusField";
 import { getTopology } from "../../services/firewall";
+import { toDialogNodes } from "./topologyNodes";
 import { ReverseProxyService } from "../../services/reverseProxy";
 import {
   COMMON_PORTS,
@@ -244,11 +245,7 @@ export default function ConnectionDialog({
     getTopology()
       .then((topo) => {
         if (cancelled) return;
-        setFetchedNodes(
-          (topo?.nodes ?? [])
-            .filter((n) => n.node_type !== "gateway" && n.vmid != null)
-            .map((n) => ({ key: String(n.vmid), vmid: n.vmid, name: n.name })),
-        );
+        setFetchedNodes(toDialogNodes(topo?.nodes));
       })
       .catch(() => !cancelled && setFetchedNodes([]));
     return () => { cancelled = true; };

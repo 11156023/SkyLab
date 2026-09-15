@@ -28,7 +28,7 @@ function Badge({ label, variant }) {
   return <span className={`${styles.badge} ${styles[`badge_${variant}`]}`}>{label}</span>;
 }
 
-export default function RulesPanel({ node, onClose, onChanged, closing = false }) {
+export default function RulesPanel({ node, onClose, onChanged, closing = false, canManage = true }) {
   const { t } = useTranslation("components");
   const toast = useToast();
   const confirm = useConfirm();
@@ -113,20 +113,30 @@ export default function RulesPanel({ node, onClose, onChanged, closing = false }
           <span className={styles.vmName}>{node.name}</span>
         </div>
         <div className={styles.headerActions}>
-          <button
-            type="button"
-            className={styles.addBtn}
-            onClick={() => setShowAdd(true)}
-            disabled={busy}
-          >
-            <MIcon name="add" size={14} />
-            {t("RulesPanel.addRule")}
-          </button>
+          {canManage && (
+            <button
+              type="button"
+              className={styles.addBtn}
+              onClick={() => setShowAdd(true)}
+              disabled={busy}
+            >
+              <MIcon name="add" size={14} />
+              {t("RulesPanel.addRule")}
+            </button>
+          )}
           <button type="button" className={styles.closeBtn} onClick={onClose} aria-label={t("RulesPanel.closeAriaLabel")}>
             <MIcon name="close" size={20} />
           </button>
         </div>
       </div>
+
+      {/* 學生的課堂機：規則看得到，但只有班級老師能改 */}
+      {!canManage && (
+        <p className={styles.readOnlyHint}>
+          <MIcon name="lock" size={14} />
+          {t("RulesPanel.readOnlyHint")}
+        </p>
+      )}
 
       {loading && <LoadingState text={t("RulesPanel.loading")} />}
       {error   && <p className={styles.errorMsg}>{error}</p>}
@@ -180,7 +190,7 @@ export default function RulesPanel({ node, onClose, onChanged, closing = false }
                       )}
                     </div>
                     <div className={styles.ruleActions}>
-                      {rule.is_managed ? (
+                      {!canManage ? null : rule.is_managed ? (
                         <span className={styles.lockedTag} title={t("RulesPanel.managedHint")}>
                           <MIcon name="lock" size={12} />
                         </span>

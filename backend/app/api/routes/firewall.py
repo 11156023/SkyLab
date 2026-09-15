@@ -343,18 +343,20 @@ def list_nat_rules(
     session: SessionDep,
     current_user: CurrentUser,
 ):
-    """列出所有 NAT 端口轉發規則（僅 superuser 可查看所有；一般使用者只看自己的 VM）"""
-    from app.repositories import resource as resource_repo  # noqa: PLC0415
+    """列出 NAT 端口轉發規則。
+
+    可見範圍與拓撲一致：admin 全部；老師含自己班級的學生機器；其餘只看自己的 VM。
+    """
+    from app.services.resource import access as resource_access  # noqa: PLC0415
 
     rules = nat_repo.list_rules(session)
     if can_bypass_resource_ownership(current_user):
         visible_rules = rules
     else:
-        own_resources = resource_repo.get_resources_by_user(
-            session=session, user_id=current_user.id
+        visible_vmids = resource_access.list_reachable_vmids(
+            session=session, user=current_user
         )
-        own_vmids = {r.vmid for r in own_resources}
-        visible_rules = [r for r in rules if r.vmid in own_vmids]
+        visible_rules = [r for r in rules if r.vmid in visible_vmids]
 
     return [
         NATRulePublic(

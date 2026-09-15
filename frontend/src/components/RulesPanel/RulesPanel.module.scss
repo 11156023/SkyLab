@@ -268,6 +268,19 @@
   padding: $spacing-8 0;
 }
 
+/* 唯讀提示：學生看課堂機時放在面板最上方 */
+.readOnlyHint {
+  display: flex;
+  align-items: center;
+  gap: $spacing-8;
+  margin: 0 0 $spacing-8;
+  padding: $spacing-8 $spacing-16;
+  border-radius: $radius-8;
+  background: var(--color-bg-base);
+  color: var(--color-text-secondary);
+  font-size: $font-size-14;
+}
+
 .errorMsg {
   font-size: $font-size-14;
   color: var(--color-danger);

@@ -461,6 +461,7 @@
   "RulesPanel.loadFailed": "Failed to load",
   "RulesPanel.loading": "Loading…",
   "RulesPanel.noRules": "No firewall rules yet",
+  "RulesPanel.readOnlyHint": "This is a class machine. Rules are view-only here; ask your class teacher to change the firewall.",
   "RulesPanel.ruleListTitle": "Rules ({{count}})",
   "RulesPanel.status": "Status",
   "TakeoverOverlay.description": "Your keyboard and mouse input is temporarily disabled",
