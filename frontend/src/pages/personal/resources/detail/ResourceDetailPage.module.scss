@@ -9,52 +9,45 @@
   }
 }
 
+/* 頁首返回鍵：與「申請虛擬機 / 容器」頁的 .backBtn 一致（btnSecondary + 陰影） */
 .backBtn {
-  @include flex-center;
-  width: 36px;
-  height: 36px;
-  border-radius: $radius-8;
-  color: var(--color-text-secondary);
-  cursor: pointer;
-  transition: background $transition-base, color $transition-base;
-
-  &:hover {
-    background: var(--color-hover);
-    color: var(--color-text);
-  }
+  box-shadow: var(--shadow-sm);
+  white-space: nowrap;
 }
 
 .vmidText {
   color: var(--color-primary);
 }
 
-/* ── Tabs（pill 樣式，同 SettingsPage） ── */
-.tabs {
-  display: flex;
-  gap: $spacing-4;
+/* ── Tabs（共用 SegmentedControl）──
+   左側分頁切換器＋右側工具槽同列；分頁元件把自己的控制項 portal 進工具槽 */
+.tabsRow {
+  @include flex-between;
+  gap: $spacing-8 $spacing-16;
   flex-wrap: wrap;
 }
 
-.tab {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 6px $spacing-16;
-  border-radius: $radius-pill;
-  font-size: $font-size-14;
-  color: var(--color-text-secondary);
-  cursor: pointer;
-  transition: background $transition-base, color $transition-base;
+/* 6 段窄螢幕放不下時讓切換器自己橫向捲動 */
+.tabs {
+  max-width: 100%;
+  overflow-x: auto;
+  scrollbar-width: none;
 
-  &:hover {
-    background: var(--color-hover);
-    color: var(--color-text);
+  &::-webkit-scrollbar {
+    display: none;
   }
+}
 
-  &.tabActive {
-    background: var(--color-text);
-    color: var(--color-surface);
-    font-weight: $font-weight-500;
+/* 同列時靠右由 .tabsRow 的 space-between 負責；
+   不加 margin-left: auto，窄螢幕折行後才會靠左對齊 */
+.tabsToolbar {
+  display: flex;
+  align-items: center;
+  gap: $spacing-8;
+
+  /* 分頁沒有工具時不佔位 */
+  &:empty {
+    display: none;
   }
 }
 
@@ -81,10 +74,6 @@
   @include glass-surface($shadow: var(--shadow-sm));
   border-radius: $radius-16;
   overflow: hidden;
-}
-
-.cardAccent {
-  border-color: color-mix(in srgb, var(--color-primary) 35%, transparent);
 }
 
 .cardHeader {
@@ -122,63 +111,6 @@
   flex-wrap: wrap;
 }
 
-/* ── 模板卡 ── */
-.tplHead {
-  display: flex;
-  align-items: flex-start;
-  gap: $spacing-16;
-}
-
-.tplLogo {
-  width: 40px;
-  height: 40px;
-  border-radius: $radius-8;
-  object-fit: contain;
-  background: #fff;
-}
-
-.tplLogoFallback {
-  @include flex-center;
-  width: 40px;
-  height: 40px;
-  border-radius: $radius-8;
-  background: var(--color-hover);
-  color: var(--color-primary);
-}
-
-.portChip {
-  margin-left: $spacing-8;
-  padding: 1px $spacing-8;
-  border-radius: $radius-pill;
-  background: var(--color-hover);
-  color: var(--color-text-secondary);
-  font-size: $font-size-12;
-  font-weight: $font-weight-400;
-}
-
-.linkRow {
-  display: flex;
-  gap: $spacing-8;
-  flex-wrap: wrap;
-}
-
-.linkBtn {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 5px $spacing-16;
-  border: 1px solid var(--color-border);
-  border-radius: $radius-8;
-  font-size: $font-size-12;
-  color: var(--color-text);
-  background: var(--color-surface);
-  transition: background $transition-base;
-
-  &:hover {
-    background: var(--color-hover);
-  }
-}
-
 .noteBox {
   @include flex-column;
   gap: $spacing-4;
@@ -211,18 +143,6 @@
 
   code {
     font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
-  }
-}
-
-.noteList {
-  margin-top: $spacing-4;
-  padding-left: $spacing-24;
-  font-size: $font-size-14;
-  color: var(--color-text-primary);
-  list-style: disc;
-
-  li + li {
-    margin-top: $spacing-4;
   }
 }
 
@@ -267,26 +187,6 @@
 }
 
 /* ── 規格 ── */
-.specGrid {
-  display: grid;
-  grid-template-columns: 1fr;
-  gap: $spacing-16;
-
-  @include respond-to(md) {
-    grid-template-columns: 1fr 1fr;
-  }
-}
-
-.specTile {
-  display: flex;
-  align-items: flex-start;
-  gap: $spacing-16;
-  padding: $spacing-16;
-  border: 1px solid var(--color-border);
-  border-radius: $radius-12;
-  background: var(--color-hover);
-}
-
 .specIcon {
   @include flex-center;
   width: 40px;
@@ -297,45 +197,14 @@
   flex-shrink: 0;
 }
 
-.specValue {
-  display: block;
-  font-size: $font-size-28;
-  font-weight: $font-weight-700;
-  color: var(--color-text-primary);
-  line-height: 1.2;
-}
-
 /* ── SSH 金鑰 ── */
-.keyBlock {
-  @include flex-column;
-  gap: $spacing-4;
-}
-
-.keyHead {
-  @include flex-between;
-  gap: $spacing-8;
-}
-
 .keyActions {
   display: flex;
   gap: $spacing-4;
 }
 
 .ghostBtn {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 3px $spacing-8;
-  border-radius: $radius-8;
-  font-size: $font-size-12;
-  color: var(--color-text-secondary);
-  cursor: pointer;
-  transition: background $transition-base, color $transition-base;
-
-  &:hover {
-    background: var(--color-hover);
-    color: var(--color-text);
-  }
+  @include btn-ghost;
 }
 
 .keyPre {
@@ -350,53 +219,15 @@
   color: var(--color-text-primary);
 }
 
-.keyHidden {
-  padding: $spacing-8 $spacing-16;
-  border: 1px solid var(--color-border);
-  border-radius: $radius-8;
-  background: var(--color-hover);
-  font-size: $font-size-12;
-  font-style: italic;
-  color: var(--color-text-muted);
-}
-
 /* ── 監控 ── */
-.monHead {
-  @include flex-between;
-  gap: $spacing-8;
-  flex-wrap: wrap;
-}
+/* 5 段時間範圍在窄螢幕放不下時，讓共用切換器自己橫向捲動 */
+.segmentScroll {
+  max-width: 100%;
+  overflow-x: auto;
+  scrollbar-width: none;
 
-.segment {
-  display: inline-flex;
-  padding: 3px;
-  border: 1px solid var(--color-border);
-  border-radius: $radius-8;
-  background: var(--color-surface);
-  box-shadow: var(--shadow-sm);
-  flex-wrap: wrap;
-}
-
-.segmentBtn {
-  padding: 5px $spacing-8;
-  font-size: $font-size-12;
-  font-weight: $font-weight-500;
-  color: var(--color-text-secondary);
-  border-radius: $radius-8;
-  cursor: pointer;
-  transition: background $transition-base, color $transition-base;
-
-  &:hover {
-    color: var(--color-text);
-  }
-}
-
-.segmentActive {
-  background: var(--color-primary);
-  color: var(--color-text-on-primary);
-
-  &:hover {
-    color: var(--color-text-on-primary);
+  &::-webkit-scrollbar {
+    display: none;
   }
 }
 
@@ -465,45 +296,21 @@
   background: var(--color-danger);
 }
 
-/* ── 表單 ── */
-.formGrid {
-  display: grid;
-  grid-template-columns: 1fr;
-  gap: $spacing-16;
-
-  @include respond-to(md) {
-    grid-template-columns: 1fr 1fr;
-  }
-}
-
+/* ── 表單 ──
+   欄位一律走共用 form mixin；本頁標籤是 <label htmlFor>（配控制項 id），
+   對齊 mixin 給 > span 的間距處理 */
 .field {
-  @include flex-column;
-  gap: $spacing-4;
+  @include form-field;
 
-  label {
-    font-size: $font-size-14;
+  > label {
+    margin-bottom: 3px;
     font-weight: $font-weight-500;
-    color: var(--color-text);
   }
 
   input,
+  select,
   textarea {
-    width: 100%;
-    padding: $spacing-8 $spacing-16;
-    border: 1px solid var(--color-border);
-    border-radius: $radius-8;
-    font-size: $font-size-14;
-    background: var(--color-surface);
-    color: var(--color-text);
-    transition: border-color $transition-base;
-
-    &::placeholder {
-      color: var(--color-text-muted);
-    }
-
-    &:focus {
-      border-color: var(--color-primary);
-    }
+    @include form-control;
   }
 
   textarea {
@@ -528,24 +335,6 @@
 }
 
 /* ── 按鈕 ── */
-%btn-base {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 6px $spacing-16;
-  border-radius: $radius-8;
-  font-size: $font-size-14;
-  font-weight: $font-weight-500;
-  cursor: pointer;
-  white-space: nowrap;
-  transition: background $transition-base;
-
-  &:disabled {
-    opacity: 0.4;
-    cursor: not-allowed;
-  }
-}
-
 .btnPrimary {
   @include btn-primary;
   align-self: flex-start;
@@ -646,10 +435,10 @@
   font-weight: $font-weight-500;
 }
 
-.badge_ok    { background: color-mix(in srgb, var(--color-success) 12%, transparent); color: var(--color-success); }
-.badge_err   { background: color-mix(in srgb, var(--color-danger)  12%, transparent); color: var(--color-danger); }
-.badge_info  { background: color-mix(in srgb, var(--color-info)    12%, transparent); color: var(--color-info); }
-.badge_muted { background: var(--color-hover); color: var(--color-status-neutral); }
+.badge_success { background: color-mix(in srgb, var(--color-success) 12%, transparent); color: var(--color-success); }
+.badge_danger  { background: color-mix(in srgb, var(--color-danger)  12%, transparent); color: var(--color-danger); }
+.badge_info    { background: color-mix(in srgb, var(--color-info)    12%, transparent); color: var(--color-info); }
+.badge_muted   { background: var(--color-hover); color: var(--color-status-neutral); }
 
 /* ── Modal ── */
 .modalOverlay {
@@ -675,15 +464,15 @@
   to   { opacity: 1; }
 }
 
+/* 表單型 modal 與全站確認彈窗同基準：毛玻璃卡、四級寬度制的 400px 檔 */
 .modal {
   @include flex-column;
   gap: $spacing-16;
   width: 100%;
-  max-width: 440px;
+  max-width: 400px;
   padding: $spacing-24;
-  background: var(--color-surface);
+  @include glass-surface;
   border-radius: $radius-16;
-  box-shadow: var(--shadow-lg);
   animation: slideUp 0.18s cubic-bezier(0.25, 0.8, 0.25, 1);
 }
 
@@ -694,7 +483,7 @@
 
 .modalTitle {
   overflow-wrap: anywhere;
-  font-size: $font-size-18;
+  font-size: $font-size-16;
   font-weight: $font-weight-700;
   color: var(--color-text-primary);
 }
@@ -709,60 +498,6 @@
   display: flex;
   justify-content: flex-end;
   gap: $spacing-8;
-}
-
-/* ── 進階設定 ── */
-.comingSoon {
-  align-items: center;
-  padding: $spacing-32 $spacing-16 $spacing-32;
-  text-align: center;
-  color: var(--color-text-secondary);
-  gap: $spacing-8;
-
-  p {
-    font-size: $font-size-16;
-    font-weight: $font-weight-500;
-  }
-}
-
-/* ── 使用手冊（來源範本附件） ── */
-.manualList {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.manualItem {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 6px 10px;
-  border: 1px solid var(--color-border);
-  border-radius: 8px;
-  font-size: $font-size-12;
-}
-
-.manualName {
-  flex: 1;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.manualBtn {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  border: none;
-  background: none;
-  color: var(--color-primary);
-  cursor: pointer;
-  padding: 2px 4px;
-  border-radius: 6px;
-  flex-shrink: 0;
-
-  &:hover { background: var(--color-hover); }
-  &:disabled { opacity: 0.5; cursor: default; }
 }
 
 /* ── 進階設定卡片共用的列表小元件（rp 前綴是歷史遺留，對外服務卡片已移除） ── */
@@ -802,57 +537,28 @@
 }
 
 .rpIconBtn {
-  width: 30px;
-  height: 30px;
-  border-radius: $radius-8;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  color: var(--color-text-secondary);
-  transition: background $transition-base, color $transition-base;
-
-  &:hover {
-    background: var(--color-hover);
-    color: var(--color-text-primary);
-  }
+  @include btn-icon;
 }
 
+/* 修飾類：未 hover 前文字即為紅色 */
 .rpIconBtnDanger {
   color: var(--color-danger);
 
   &:hover:not(:disabled) {
-    background: color-mix(in srgb, var(--color-danger) 12%, transparent);
+    color: var(--color-danger);
+    background: color-mix(in srgb, var(--color-danger) 9%, transparent);
   }
 }
 
-/* ── 未填欄位：紅框 ── */
+/* ── 未填欄位：紅框（fieldInvalid 標在 .field 容器上） ── */
 .fieldInvalid {
   input,
   textarea {
-    border-color: var(--color-danger);
-
-    &:focus {
-      border-color: var(--color-danger);
-      box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-danger) 18%, transparent);
-    }
+    @include form-control-invalid;
   }
 }
 
 /* ── 進階設定：共用元素 ── */
-.field select {
-  width: 100%;
-  padding: $spacing-8 $spacing-16;
-  border: 1px solid var(--color-border);
-  border-radius: $radius-8;
-  font-size: $font-size-14;
-  background: var(--color-surface);
-  color: var(--color-text);
-
-  &:focus {
-    border-color: var(--color-primary);
-  }
-}
-
 .inlineForm {
   display: flex;
   gap: $spacing-8;
@@ -861,18 +567,9 @@
 
   input,
   textarea {
+    @include form-control;
     flex: 1;
     min-width: 200px;
-    padding: $spacing-8 $spacing-16;
-    border: 1px solid var(--color-border);
-    border-radius: $radius-8;
-    font-size: $font-size-14;
-    background: var(--color-surface);
-    color: var(--color-text);
-
-    &:focus {
-      border-color: var(--color-primary);
-    }
   }
 }
 
@@ -1153,10 +850,6 @@
   gap: $spacing-8;
   align-items: center;
   flex-wrap: wrap;
-}
-
-.modalWide {
-  max-width: 560px;
 }
 
 .checkRow {

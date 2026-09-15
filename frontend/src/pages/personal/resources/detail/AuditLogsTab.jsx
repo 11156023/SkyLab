@@ -8,8 +8,8 @@ import { formatDateTime } from "../../../../utils/formatDate";
 
 /** 依動作類型決定 badge 色系（僅使用四種語意色） */
 function actionBadgeClass(action) {
-  if (action.includes("create")) return "badge_ok";
-  if (action.includes("delete")) return "badge_err";
+  if (action.includes("create")) return "badge_success";
+  if (action.includes("delete")) return "badge_danger";
   return "badge_info";
 }
 
@@ -34,12 +34,6 @@ export default function AuditLogsTab({ vmid }) {
   return (
     <div className={styles.tabStack}>
       <div className={styles.card}>
-        <div className={styles.cardHeader}>
-          <div>
-            <h2 className={styles.cardTitle}>{t("AuditLogsTab.title")}</h2>
-            <p className={styles.cardDesc}>{t("AuditLogsTab.desc", { count: logs.count })}</p>
-          </div>
-        </div>
         {logs.data.length === 0 ? (
           <EmptyState icon="receipt_long" title={t("AuditLogsTab.empty")} />
         ) : (

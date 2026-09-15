@@ -57,8 +57,6 @@
 .numInput {
   @include form-control;
   width: 84px;
-  min-height: 32px;
-  padding: 4px $spacing-8;
   text-align: right;
   font-weight: $font-weight-700;
   color: var(--color-text-primary);

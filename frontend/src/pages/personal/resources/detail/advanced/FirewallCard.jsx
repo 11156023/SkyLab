@@ -110,7 +110,7 @@ export default function FirewallCard({ vmid, canManage }) {
         <div className={styles.headerActions}>
           {options && (
             <>
-              <span className={`${styles.badge} ${options.enable ? styles.badge_ok : styles.badge_muted}`}>
+              <span className={`${styles.badge} ${options.enable ? styles.badge_success : styles.badge_muted}`}>
                 {options.enable ? t("FirewallCard.enabled") : t("FirewallCard.disabled")}
               </span>
               <span className={`${styles.badge} ${styles.badge_muted}`} title={t("FirewallCard.policyHint")}>
@@ -174,7 +174,7 @@ export default function FirewallCard({ vmid, canManage }) {
                           {rule.type === "in" ? (rule.source ?? t("FirewallCard.anySource")) : (rule.dest ?? t("FirewallCard.anySource"))}
                         </td>
                         <td className={styles.td}>
-                          <span className={`${styles.badge} ${rule.action === "ACCEPT" ? styles.badge_ok : styles.badge_err}`}>
+                          <span className={`${styles.badge} ${rule.action === "ACCEPT" ? styles.badge_success : styles.badge_danger}`}>
                             {rule.action}
                           </span>
                           {rule.enable === 0 && (

@@ -11,6 +11,7 @@ import SnapshotsTab from "./SnapshotsTab";
 import AuditLogsTab from "./AuditLogsTab";
 import AdvancedSettingsTab from "./AdvancedSettingsTab";
 import PageHeader from "../../../../components/PageHeader/PageHeader";
+import SegmentedControl from "../../../../components/SegmentedControl/SegmentedControl";
 
 /* sharedOnly=false 的分頁只有擁有者／管理員看得到；被分享的使用者只能看總覽、監控與進階設定裡的唯讀卡片 */
 const TABS = [
@@ -31,6 +32,9 @@ export default function ResourceDetailPage({ backTo = "/my-resources" }) {
   const params = useParams();
   const vmid = Number.parseInt(params.vmid, 10);
   const [tab, setTab] = useState("overview");
+  /* 分頁列右側的工具槽：分頁元件把自己的控制項（時間範圍、快照按鈕）portal 進來，
+     與分頁切換器同列；用 state 存節點，掛載完成後子元件才拿得到 portal 目標 */
+  const [tabToolbar, setTabToolbar] = useState(null);
   const [access, setAccess] = useState(null); // { access_role, can_manage, owner_email }
 
   useEffect(() => {
@@ -51,18 +55,17 @@ export default function ResourceDetailPage({ backTo = "/my-resources" }) {
   return (
     <div className={styles.page}>
       <PageHeader
-        leading={
-          <button
-            type="button"
-            className={styles.backBtn}
-            onClick={() => navigate(backTo)}
-            title={t("ResourceDetailPage.backToList")}
-          >
-            <MIcon name="arrow_back" size={20} />
-          </button>
-        }
         title={<>{t("ResourceDetailPage.title")} <span className={styles.vmidText}>#{vmid}</span></>}
-      />
+      >
+        <button
+          type="button"
+          className={`${styles.btnSecondary} ${styles.backBtn}`}
+          onClick={() => navigate(backTo)}
+        >
+          <MIcon name="arrow_back" size={18} />
+          {t("ResourceDetailPage.backToList")}
+        </button>
+      </PageHeader>
 
       {isShared && (
         <p className={styles.rpHint}>
@@ -71,25 +74,26 @@ export default function ResourceDetailPage({ backTo = "/my-resources" }) {
         </p>
       )}
 
-      <div className={styles.tabs}>
-        {visibleTabs.map((tabDef) => (
-          <button
-            key={tabDef.key}
-            type="button"
-            className={`${styles.tab} ${tab === tabDef.key ? styles.tabActive : ""}`}
-            onClick={() => setTab(tabDef.key)}
-          >
-            <MIcon name={tabDef.icon} size={16} />
-            {t(tabDef.labelKey)}
-          </button>
-        ))}
+      <div className={styles.tabsRow}>
+        <SegmentedControl
+          className={styles.tabs}
+          options={visibleTabs.map((tabDef) => ({
+            value: tabDef.key,
+            label: t(tabDef.labelKey),
+            icon: tabDef.icon,
+          }))}
+          value={tab}
+          onChange={setTab}
+          ariaLabel={t("ResourceDetailPage.tabsAriaLabel")}
+        />
+        <div className={styles.tabsToolbar} ref={setTabToolbar} />
       </div>
 
       <div className={styles.content}>
         {tab === "overview"       && <OverviewTab vmid={vmid} />}
-        {tab === "monitoring"     && <MonitoringTab vmid={vmid} />}
+        {tab === "monitoring"     && <MonitoringTab vmid={vmid} toolbar={tabToolbar} />}
         {tab === "specifications" && <SpecificationsTab vmid={vmid} />}
-        {tab === "snapshots"      && <SnapshotsTab vmid={vmid} />}
+        {tab === "snapshots"      && <SnapshotsTab vmid={vmid} toolbar={tabToolbar} />}
         {tab === "auditLogs"      && <AuditLogsTab vmid={vmid} />}
         {tab === "advanced"       && <AdvancedSettingsTab vmid={vmid} backTo={backTo} />}
       </div>
