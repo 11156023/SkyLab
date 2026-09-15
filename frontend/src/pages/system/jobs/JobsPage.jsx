@@ -150,7 +150,6 @@ export default function JobsPage() {
 
       <div className={styles.toolbar}>
         <div className={styles.filterGroup}>
-          <span className={styles.selectLabel}>{t("JobsPage.filterKind")}</span>
           <SegmentedControl
             className={styles.filterTabs}
             options={KIND_OPTIONS}
@@ -160,7 +159,6 @@ export default function JobsPage() {
           />
         </div>
         <div className={styles.filterGroup}>
-          <span className={styles.selectLabel}>{t("JobsPage.filterStatus")}</span>
           <SegmentedControl
             className={styles.filterTabs}
             options={STATUS_OPTIONS}
@@ -199,12 +197,12 @@ export default function JobsPage() {
                           <MIcon name="task" size={18} />
                         </div>
                         <div>
-                          <div className={styles.namePrimary}>{j.title ?? j.id}</div>
+                          <div className={styles.namePrimary} title={j.title ?? j.id}>{j.title ?? j.id}</div>
                           <div className={styles.nameSub}>{j.id}</div>
                         </div>
                       </div>
                     </td>
-                    <td className={styles.td}>{KIND_LABELS[j.kind] ?? j.kind}</td>
+                    <td className={`${styles.td} ${styles.tdNowrap}`}>{KIND_LABELS[j.kind] ?? j.kind}</td>
                     <td className={styles.td}>
                       <StatusBadge status={j.status} />
                     </td>

@@ -70,6 +70,8 @@
   border-radius: $radius-pill;
   font-size: $font-size-12;
   font-weight: $font-weight-500;
+  /* 標籤永不換行：窄欄裡逐字直排會不可讀，寬度交給容器捲動 */
+  white-space: nowrap;
 }
 
 /* ── 標準表單欄位 ──
