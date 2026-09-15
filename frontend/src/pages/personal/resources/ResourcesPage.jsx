@@ -243,15 +243,24 @@ function ResourceRow({ resource, onUpdated, onDeleted }) {
     }
   }
 
+  const canOpenDetail = resource.vmid > 0;
+  /* 整列可點進詳情；列內按鈕／連結／選單的點擊不觸發導頁 */
+  const openDetail = (event) => {
+    if (event.target.closest("button, a, input, select, label")) return;
+    navigate(`/my-resources/${resource.vmid}`);
+  };
+
   return <>
-    <tr className={styles.tr} data-guide="resource-card">
+    <tr
+      className={`${styles.tr} ${canOpenDetail ? styles.trClickable : ""}`}
+      onClick={canOpenDetail ? openDetail : undefined}
+      data-guide="resource-card"
+    >
       <td className={styles.td}>
         <div className={styles.nameCell}>
           <span className={styles.nameIcon}><MIcon name={type.icon} size={18} /></span>
           <div>
-            {resource.vmid > 0
-              ? <button type="button" className={styles.nameLink} onClick={() => navigate(`/my-resources/${resource.vmid}`)}>{resource.name}</button>
-              : <strong>{resource.name}</strong>}
+            <strong>{resource.name}</strong>
             <small>{t(type.labelKey)}{showVmid && resource.vmid > 0 ? t("ResourceRow.vmidSuffix", { vmid: resource.vmid }) : ""}</small>
             {(resource.access_role === "shared" || (resource.tags ?? []).length > 0) && (
               <div className={styles.rowChips}>
@@ -338,11 +347,19 @@ function EnvironmentMachineRow({ machine, groupStatus, onUpdated }) {
     }
   }
 
+  const canOpenDetail = resource?.vmid > 0;
+  /* 整列可點進詳情；列內按鈕／連結／選單的點擊不觸發導頁 */
+  const openDetail = (event) => {
+    if (event.target.closest("button, a, input, select, label")) return;
+    navigate(`/my-resources/${resource.vmid}`);
+  };
+
   return <>
-    <tr className={`${styles.tr} ${styles.environmentMachineRow}`}>
-    <td className={styles.td}><div className={`${styles.nameCell} ${styles.environmentMachineName}`}><span className={styles.machineBranch}>└</span><div>{resource?.vmid > 0
-      ? <button type="button" className={styles.nameLink} onClick={() => navigate(`/my-resources/${resource.vmid}`)}>{machine.name}</button>
-      : <strong>{machine.name}</strong>}<small>{machine.role} · {t(type.labelKey ?? type.label)}{specLabel ? ` · ${specLabel}` : ""}</small></div></div></td>
+    <tr
+      className={`${styles.tr} ${styles.environmentMachineRow} ${canOpenDetail ? styles.trClickable : ""}`}
+      onClick={canOpenDetail ? openDetail : undefined}
+    >
+    <td className={styles.td}><div className={`${styles.nameCell} ${styles.environmentMachineName}`}><span className={styles.machineBranch}>└</span><div><strong>{machine.name}</strong><small>{machine.role} · {t(type.labelKey ?? type.label)}{specLabel ? ` · ${specLabel}` : ""}</small></div></div></td>
     <td className={styles.td}><div className={styles.envPrimary}>{machine.os}</div><div className={styles.envSub}>{machine.resource ? t("EnvironmentMachineRow.resourceConnected") : t("EnvironmentMachineRow.creating")}</div></td>
     <td className={styles.td}><StatusBadge status={machine.status} /></td>
     <td className={styles.td}><span className={styles.mono}>{machine.ip}</span>

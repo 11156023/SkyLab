@@ -147,6 +147,11 @@
   @include table-tr;
 }
 
+/* 整列可點進詳情頁（tr 自帶 onClick 才疊，規範表格規則一） */
+.trClickable {
+  @include table-tr-clickable;
+}
+
 .td {
   @include table-td;
 
@@ -193,18 +198,6 @@
   flex: 0 0 auto;
 }
 
-.nameLink {
-  padding: 0;
-  border: 0;
-  background: transparent;
-  text-align: left;
-  cursor: pointer;
-
-  &:hover {
-    color: var(--color-primary);
-    text-decoration: underline;
-  }
-}
 
 .envPrimary { color: var(--color-text-primary); font-size: $font-size-14; }
 .envSub, .muted { color: var(--color-text-muted); font-size: $font-size-12; }
