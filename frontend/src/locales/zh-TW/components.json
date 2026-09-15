@@ -531,5 +531,19 @@
   "AiFloatingChat.planFailed": "這次無法產生可填入表單的配置。已保留你的需求，請按「直接產生配置」重試，或輸入「幫我填」。",
   "AiFloatingChat.publishAfterApproval": "網站上線的目標會保留；送出申請後，可按「查看申請進度」，機器建立完成就接回網站部署與對外網址設定。",
   "AiFloatingChat.defaultAssumptions": "先以一般網站的需求規劃：{{assumptions}}。若有不同需求，直接告訴我即可。",
-  "AiFloatingChat.taskCancelled": "已停止這次任務。"
+  "AiFloatingChat.taskCancelled": "已停止這次任務。",
+  "MachineKind.personal": "個人申請",
+  "MachineKind.personalHint": "你自己申請的機器",
+  "MachineKind.shared": "共享給我",
+  "MachineKind.sharedHint": "{{owner}} 共享給你的機器，可以使用但不能改設定",
+  "MachineKind.classMine": "班級機器",
+  "MachineKind.classMineHint": "課堂分配給你的機器（{{cls}}），防火牆等設定由老師管理",
+  "MachineKind.classStudent": "學生機器",
+  "MachineKind.classStudentHint": "{{cls}} 學生 {{owner}} 的班級機器；你是這班的老師，可以管理",
+  "MachineKind.quickPractice": "快速練習",
+  "MachineKind.quickPracticeHint": "快速練習環境的機器，到期自動回收",
+  "MachineKind.course": "課程實驗",
+  "MachineKind.courseHint": "課程實驗環境的機器",
+  "MachineKind.teacherOpen": "老師開放",
+  "MachineKind.teacherOpenHint": "老師 {{owner}} 開放給班級的機器，可以從自己的機器連過去"
 }

@@ -5,6 +5,7 @@ import { useTranslation } from "react-i18next";
 import { useAuth } from "../../../contexts/AuthContext";
 import styles from "./ResourcesPage.module.scss";
 import MIcon from "../../../components/MIcon";
+import MachineKindBadge from "../../../components/MachineKindBadge/MachineKindBadge";
 import PowerMenu from "../../../components/PowerMenu/PowerMenu";
 import TemplateConvertDialog from "../../../components/TemplateConvertDialog/TemplateConvertDialog";
 import useDialogPresence from "../../../hooks/useDialogPresence";
@@ -253,18 +254,19 @@ function ResourceRow({ resource, onUpdated, onDeleted }) {
               ? <button type="button" className={styles.nameLink} onClick={() => navigate(`/my-resources/${resource.vmid}`)}>{resource.name}</button>
               : <strong>{resource.name}</strong>}
             <small>{t(type.labelKey)}{showVmid && resource.vmid > 0 ? t("ResourceRow.vmidSuffix", { vmid: resource.vmid }) : ""}</small>
-            {(resource.access_role === "shared" || (resource.tags ?? []).length > 0) && (
-              <div className={styles.rowChips}>
-                {resource.access_role === "shared" && (
-                  <span className={`${styles.badge} ${styles.badge_info}`} title={t("ResourceRow.sharedByHint", { email: resource.owner_email ?? "—" })}>
-                    <MIcon name="group" size={11} /> {t("ResourceRow.sharedBadge")}
-                  </span>
-                )}
-                {(resource.tags ?? []).map((tag) => (
-                  <span key={tag} className={styles.tagChip}>{tag}</span>
-                ))}
-              </div>
-            )}
+            <div className={styles.rowChips}>
+              {/* 機器來源一律標示：個人申請／共享／班級／快速練習／課程 */}
+              <MachineKindBadge
+                kind={resource.machine_kind}
+                classRelation={resource.class_relation}
+                ownerName={resource.owner_name ?? resource.owner_email}
+                teachingClassName={resource.teaching_class_name}
+                size="sm"
+              />
+              {(resource.tags ?? []).map((tag) => (
+                <span key={tag} className={styles.tagChip}>{tag}</span>
+              ))}
+            </div>
           </div>
         </div>
       </td>
@@ -342,7 +344,7 @@ function EnvironmentMachineRow({ machine, groupStatus, onUpdated }) {
     <tr className={`${styles.tr} ${styles.environmentMachineRow}`}>
     <td className={styles.td}><div className={`${styles.nameCell} ${styles.environmentMachineName}`}><span className={styles.machineBranch}>└</span><div>{resource?.vmid > 0
       ? <button type="button" className={styles.nameLink} onClick={() => navigate(`/my-resources/${resource.vmid}`)}>{machine.name}</button>
-      : <strong>{machine.name}</strong>}<small>{machine.role} · {t(type.labelKey ?? type.label)}{specLabel ? ` · ${specLabel}` : ""}</small></div></div></td>
+      : <strong>{machine.name}</strong>}<small>{machine.ownerName ? <><span className={styles.machineOwner}><MIcon name="person" size={11} />{machine.ownerName}</span> · </> : null}{machine.role} · {t(type.labelKey ?? type.label)}{specLabel ? ` · ${specLabel}` : ""}</small></div></div></td>
     <td className={styles.td}><div className={styles.envPrimary}>{machine.os}</div><div className={styles.envSub}>{machine.resource ? t("EnvironmentMachineRow.resourceConnected") : t("EnvironmentMachineRow.creating")}</div></td>
     <td className={styles.td}><StatusBadge status={machine.status} /></td>
     <td className={styles.td}><span className={styles.mono}>{machine.ip}</span>
@@ -419,7 +421,7 @@ function EnvironmentGroupRows({ group, onUpdated, onEnded }) {
         setExpanded((value) => !value);
       }}
     >
-      <td className={styles.td}><button type="button" className={styles.environmentToggle} aria-expanded={expanded} onClick={() => setExpanded((value) => !value)}><MIcon name={expanded ? "expand_more" : "chevron_right"} size={20} /><span><strong>{group.kindLabel}｜{group.title}</strong><small>{t("EnvironmentGroupRows.machineCount", { count: group.machines.length })}</small></span></button></td>
+      <td className={styles.td}><button type="button" className={styles.environmentToggle} aria-expanded={expanded} onClick={() => setExpanded((value) => !value)}><MIcon name={expanded ? "expand_more" : "chevron_right"} size={20} /><span><strong className={styles.groupTitle}><MachineKindBadge kind={group.kind === "quick_practice" ? "quick_practice" : "teaching_class"} classRelation={group.classRelation} size="sm" />{group.title}</strong><small>{t("EnvironmentGroupRows.machineCount", { count: group.machines.length })}</small></span></button></td>
       <td className={styles.td}><div className={styles.envPrimary}>{group.kind === "course" ? t("EnvironmentGroupRows.courseEnv") : t("EnvironmentGroupRows.quickPracticeEnv")}</div><div className={styles.envSub}>{t("EnvironmentGroupRows.groupOverview")}</div></td>
       <td className={styles.td}><StatusBadge status={group.status} /></td>
       <td className={styles.td}><span className={styles.muted}>{t("EnvironmentGroupRows.runningCount", { running: runningCount, total: group.machines.length })}</span></td>

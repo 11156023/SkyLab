@@ -28,6 +28,12 @@
   color: var(--color-primary);
 }
 
+/* 標題旁的機器來源徽章 */
+.titleKind {
+  margin-left: 10px;
+  vertical-align: middle;
+}
+
 /* ── Tabs（pill 樣式，同 SettingsPage） ── */
 .tabs {
   display: flex;

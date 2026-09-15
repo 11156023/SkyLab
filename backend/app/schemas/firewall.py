@@ -303,6 +303,12 @@ class TopologyNode(BaseModel):
     teaching_class_name: str | None = Field(
         default=None, description="課堂機所屬班級名稱，或老師機器經由哪個班級開放"
     )
+    machine_kind: Literal[
+        "personal", "shared", "teaching_class", "quick_practice", "course"
+    ] = Field(default="personal", description="機器來源，與 ResourcePublic 同一套")
+    class_relation: Literal["student", "teacher"] | None = Field(
+        default=None, description="班級機：我是這班的學生或老師"
+    )
 
 
 class TopologyEdge(BaseModel):

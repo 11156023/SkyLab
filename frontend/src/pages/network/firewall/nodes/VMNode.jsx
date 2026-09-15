@@ -2,6 +2,7 @@ import { useTranslation } from "react-i18next";
 import styles from "../FirewallPage.module.scss";
 import MIcon from "../../../../components/MIcon";
 import NodeHandles from "./NodeHandles";
+import MachineKindBadge from "../../../../components/MachineKindBadge/MachineKindBadge";
 
 const STATUS_COLOR = { running: "var(--color-success)", stopped: "var(--color-danger)" };
 
@@ -34,30 +35,28 @@ export default function VMNode({ data, selected }) {
   const readOnly = data.can_manage === false;
   /* 老師開放給班級的機器：不能管、但可以當連線目標 */
   const peer = readOnly && data.can_connect !== false;
-  const origin = peer
-    ? (data.owner_name || data.teaching_class_name)
-    : (data.teaching_class_name || data.owner_name);
   const nodeClass = [
     styles.vmNode,
     selected ? styles.nodeSelected : "",
     peer ? styles.nodePeer : readOnly ? styles.nodeReadOnly : "",
   ].join(" ");
-  const badgeClass = [
-    styles.originBadge,
-    peer ? styles.originPeer : readOnly ? styles.originReadOnly : "",
-  ].join(" ");
 
   return (
     <div className={nodeClass}>
       <NodeHandles />
-      {/* 師生關係一眼可辨：不是自己的機器標班級／擁有者，唯讀的課堂機掛鎖，
-          老師開放的機器標老師名字 */}
-      {origin && (
-        <span className={badgeClass} title={originHint(t, data, peer)}>
-          <MIcon name={peer ? "school" : readOnly ? "lock" : "school"} size={11} />
-          {origin}
-        </span>
-      )}
+      {/* 機器來源徽章與我的資源同一套：學生機器帶學生名、老師開放帶老師名、
+          唯讀的課堂機掛鎖 */}
+      <MachineKindBadge
+        kind={peer ? "teacher_open" : data.machine_kind}
+        classRelation={data.class_relation}
+        ownerName={data.owner_name}
+        teachingClassName={data.teaching_class_name}
+        readOnly={readOnly && !peer}
+        solid
+        size="sm"
+        className={styles.originBadge}
+        title={originHint(t, data, peer)}
+      />
       <div className={styles.vmStatus} style={{ background: statusColor }} />
       <div className={styles.vmInfo}>
         <span className={styles.vmName}>{data.name}</span>

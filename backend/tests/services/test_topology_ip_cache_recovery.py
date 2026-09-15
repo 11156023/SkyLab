@@ -160,6 +160,9 @@ def test_get_topology_survives_poisoned_ip_cache_write(
         "list_peer_targets",
         lambda *, session, user, exclude_vmids: [],
     )
+    monkeypatch.setattr(
+        fw.resource_kind, "classify_many", lambda session, resources: {}
+    )
     monkeypatch.setattr(fw.layout_repo, "get_layout", lambda *, session, user_id: [])
     monkeypatch.setattr(
         fw,

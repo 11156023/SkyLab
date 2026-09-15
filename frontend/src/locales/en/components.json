@@ -531,5 +531,19 @@
   "AiFloatingChat.planFailed": "I could not generate a configuration to fill the form. Your requirements are saved. Retry with “Generate configuration now” or ask me to fill the form.",
   "AiFloatingChat.publishAfterApproval": "Your website goal is saved. After submitting, select “Check request progress”; once the machine is provisioned, we will return to deployment and the public URL.",
   "AiFloatingChat.defaultAssumptions": "For an ordinary website, I will start with: {{assumptions}}. Tell me if your requirements differ.",
-  "AiFloatingChat.taskCancelled": "This task has been stopped."
+  "AiFloatingChat.taskCancelled": "This task has been stopped.",
+  "MachineKind.personal": "Personal",
+  "MachineKind.personalHint": "A machine you requested yourself",
+  "MachineKind.shared": "Shared with me",
+  "MachineKind.sharedHint": "Shared with you by {{owner}}. You can use it but not change its settings.",
+  "MachineKind.classMine": "Class machine",
+  "MachineKind.classMineHint": "Assigned to you by the class ({{cls}}); firewall and other settings are managed by the teacher",
+  "MachineKind.classStudent": "Student machine",
+  "MachineKind.classStudentHint": "Class machine of student {{owner}} in {{cls}}; you teach this class and can manage it",
+  "MachineKind.quickPractice": "Quick practice",
+  "MachineKind.quickPracticeHint": "A quick-practice machine, reclaimed automatically when it expires",
+  "MachineKind.course": "Course lab",
+  "MachineKind.courseHint": "A machine from a course lab environment",
+  "MachineKind.teacherOpen": "Opened by teacher",
+  "MachineKind.teacherOpenHint": "Opened to the class by {{owner}}. You can connect to it from your own machine."
 }

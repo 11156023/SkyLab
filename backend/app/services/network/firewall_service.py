@@ -35,6 +35,7 @@ from app.schemas.firewall import (
 from app.services.network import class_exposure_service
 from app.services.proxmox import proxmox_service
 from app.services.resource import access as resource_access
+from app.services.resource import kind as resource_kind
 
 logger = logging.getLogger(__name__)
 
@@ -1106,6 +1107,8 @@ class _NodeSpec:
     allowed_ports: list[PortSpec] | None
     owner_name: str | None
     class_name: str | None
+    machine_kind: str = "personal"
+    class_relation: str | None = None
 
 
 def get_topology(user: User, session: Session) -> TopologyResponse:
@@ -1123,6 +1126,7 @@ def get_topology(user: User, session: Session) -> TopologyResponse:
     class_names, owner_names = _describe_resource_origins(
         session=session, resources=reachable, viewer_id=user.id
     )
+    kinds = resource_kind.classify_many(session, reachable)
     specs: list[_NodeSpec] = []
     for r in reachable:
         manageable = resource_access.can_manage_resource(
@@ -1137,12 +1141,17 @@ def get_topology(user: User, session: Session) -> TopologyResponse:
                 allowed_ports=None,
                 owner_name=owner_names.get(r.user_id),
                 class_name=class_names.get(r.teaching_class_id),
+                machine_kind=kinds.get(r.vmid, "personal"),
+                class_relation=resource_kind.class_relation_for(
+                    r, viewer_id=user.id, owned_class_ids=owned_class_ids
+                ),
             )
         )
     # 老師開放給我班級的機器：可以當連線目標，但看不到規則、不能管
     peers = class_exposure_service.list_peer_targets(
         session=session, user=user, exclude_vmids={s.vmid for s in specs}
     )
+    peer_kinds = resource_kind.classify_many(session, [p.resource for p in peers])
     for peer in peers:
         specs.append(
             _NodeSpec(
@@ -1152,6 +1161,7 @@ def get_topology(user: User, session: Session) -> TopologyResponse:
                 allowed_ports=peer.allowed_ports,
                 owner_name=peer.owner_name,
                 class_name=" / ".join(peer.class_names) or None,
+                machine_kind=peer_kinds.get(peer.resource.vmid, "personal"),
             )
         )
     spec_by_vmid = {s.vmid: s for s in specs}
@@ -1233,6 +1243,8 @@ def get_topology(user: User, session: Session) -> TopologyResponse:
                 allowed_ports=spec.allowed_ports,
                 owner_name=spec.owner_name,
                 teaching_class_name=spec.class_name,
+                machine_kind=spec.machine_kind,  # type: ignore[arg-type]
+                class_relation=spec.class_relation,  # type: ignore[arg-type]
             )
         )
         # 連線只從自己看得到規則的機器解析；老師開放的機器上還有別人的

@@ -28,7 +28,11 @@ from app.schemas.resource import (
 )
 from app.services.network import firewall_service
 from app.services.proxmox import proxmox_service
-from app.services.resource.access import require_resource_management
+from app.services.resource import kind as resource_kind
+from app.services.resource.access import (
+    list_owned_teaching_class_ids,
+    require_resource_management,
+)
 from app.services.scheduling.recurrence import (
     get_schedule_policy,
     is_in_window,
@@ -167,16 +171,17 @@ def _build_resource_public(
         db_resource and db_resource.allocation_scope == "teaching_class"
     )
     # 課堂與快速練習的機器都照課程環境版本建立，規格不接受個別調整。
-    spec_fixed = class_governed or _is_practice_resource(
-        session, db_resource, known_practice_ids
-    )
+    is_practice = _is_practice_resource(session, db_resource, known_practice_ids)
+    spec_fixed = class_governed or is_practice
     class_available = not class_governed
+    teaching_class_name: str | None = None
     if class_governed and session is not None and db_resource.teaching_class_id:
         teaching_class = session.get(TeachingClass, db_resource.teaching_class_id)
         class_available = bool(
             teaching_class
             and teaching_class.status == TeachingClassStatus.active
         )
+        teaching_class_name = teaching_class.name if teaching_class else None
     ip_address = proxmox_service.get_ip_address(node, vmid, vm_type)
     if session is not None:
         # 線上：寫回快取；離線：回退 DB 快取。DB 出錯時 sync_ip_cache 會 rollback。
@@ -184,11 +189,11 @@ def _build_resource_public(
             session=session, vmid=vmid, live_ip=ip_address
         )
     quick_practice_limited = False
+    source_kind: str | None = None
     if session is not None and db_resource and db_resource.request_id:
         source_request = session.get(VMRequest, db_resource.request_id)
-        quick_practice_limited = bool(
-            source_request and source_request.request_kind == "quick_template"
-        )
+        source_kind = source_request.request_kind if source_request else None
+        quick_practice_limited = source_kind == "quick_template"
     return ResourcePublic(
         vmid=resource.get("vmid"),
         request_id=db_resource.request_id if db_resource else None,
@@ -234,6 +239,10 @@ def _build_resource_public(
         ),
         mining_exempt=bool(db_resource.mining_exempt) if db_resource else False,
         tags=_parse_tags(resource.get("tags")),
+        machine_kind=resource_kind.classify(
+            db_resource, is_practice=is_practice, request_kind=source_kind
+        ),
+        teaching_class_name=teaching_class_name,
     )
 
 
@@ -248,11 +257,13 @@ def _mark_shared(public: ResourcePublic, db_resource, session: Session) -> None:
     """被分享的機器只能「用」，擁有者層級的動作全部關掉。"""
     owner = session.get(User, db_resource.user_id)
     public.access_role = "shared"
+    public.machine_kind = "shared"
     public.can_manage = False
     public.can_delete = False
     public.can_request_spec_change = False
     public.can_extend = False
     public.owner_email = owner.email if owner else None
+    public.owner_name = (owner.full_name or owner.email) if owner else None
 
 
 def annotate_access_for_user(
@@ -266,19 +277,29 @@ def annotate_access_for_user(
         public.access_role = "admin" if can_bypass_resource_ownership(user) else "owner"
         return public
 
+    owned_class_ids = list_owned_teaching_class_ids(session=session, user=user)
+    public.class_relation = resource_kind.class_relation_for(
+        db_resource, viewer_id=user.id, owned_class_ids=owned_class_ids
+    )
+    if db_resource.user_id != user.id:
+        public.owner_name = resource_kind.user_display_names(
+            session, [db_resource.user_id]
+        ).get(db_resource.user_id)
+
     if db_resource.user_id == user.id:
         public.access_role = (
             "class_member"
             if db_resource.allocation_scope == "teaching_class"
             else "owner"
         )
+    elif public.class_relation == "teacher":
+        public.access_role = "class_teacher"
     elif can_bypass_resource_ownership(user):
         public.access_role = "admin"
     elif share_repo.get_share(session=session, vmid=public.vmid, user_id=user.id):
         _mark_shared(public, db_resource, session)
         return public
     else:
-        # 例如課堂老師：不是擁有者但有管理權
         public.access_role = "admin"
 
     try:
@@ -306,6 +327,7 @@ def list_all(
         resources = proxmox_service.list_all_resources()
         known_practice_ids = practice_request_ids(session)
         result = []
+        owner_ids: dict[int, uuid.UUID] = {}
         for r in resources:
             if (node and r.get("node") != node) or r.get("template") == 1:
                 continue
@@ -320,6 +342,13 @@ def list_all(
                     r, db_resource, vm_node, vm_type, session, known_practice_ids
                 )
             )
+            if db_resource is not None:
+                owner_ids[vmid] = db_resource.user_id
+        # 管理員視角：每台機器都標擁有者
+        names = resource_kind.user_display_names(session, owner_ids.values())
+        for public in result:
+            if public.vmid in owner_ids:
+                public.owner_name = names.get(owner_ids[public.vmid])
         return result
     except Exception as e:
         logger.error(f"Failed to get resources: {e}")
@@ -453,14 +482,34 @@ def list_by_user(
             )
             if shared_db is not None:
                 shared_rows[share.resource_vmid] = shared_db
-        if user_resources or shared_rows:
+        # 老師：所帶班級底下學生的機器也列進來（有管理權，標示為「學生機器」）
+        taught_rows: dict[int, Any] = {}
+        owned_class_ids = set(
+            session.exec(
+                select(TeachingClass.id).where(TeachingClass.owner_id == user_id)
+            ).all()
+        )
+        if owned_class_ids:
+            for taught in resource_repo.get_resources_by_teaching_classes(
+                session=session, teaching_class_ids=owned_class_ids
+            ):
+                if taught.vmid not in owned_vmids and taught.vmid not in shared_rows:
+                    taught_rows[taught.vmid] = taught
+        taught_owner_names = resource_kind.user_display_names(
+            session, [row.user_id for row in taught_rows.values()]
+        )
+        if user_resources or shared_rows or taught_rows:
             known_practice_ids = practice_request_ids(session)
             try:
                 for r in proxmox_service.list_all_resources():
                     if r.get("template") == 1:
                         continue
                     vmid = r.get("vmid")
-                    db_row = owned_vmids.get(vmid) or shared_rows.get(vmid)
+                    db_row = (
+                        owned_vmids.get(vmid)
+                        or shared_rows.get(vmid)
+                        or taught_rows.get(vmid)
+                    )
                     if db_row is None:
                         continue
                     public = _build_resource_public(
@@ -473,8 +522,14 @@ def list_by_user(
                     )
                     if vmid in shared_rows:
                         _mark_shared(public, db_row, session)
+                    elif vmid in taught_rows:
+                        public.access_role = "class_teacher"
+                        public.class_relation = "teacher"
+                        public.can_manage = True
+                        public.owner_name = taught_owner_names.get(db_row.user_id)
                     elif db_row.allocation_scope == "teaching_class":
                         public.access_role = "class_member"
+                        public.class_relation = "student"
                         public.can_manage = False
                     result.append(public)
                     shown_vmids.add(vmid)

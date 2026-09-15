@@ -3,6 +3,7 @@ import { useNavigate, useParams } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import styles from "./ResourceDetailPage.module.scss";
 import MIcon from "../../../../components/MIcon";
+import MachineKindBadge from "../../../../components/MachineKindBadge/MachineKindBadge";
 import { ResourcesService } from "../../../../services/resources";
 import OverviewTab from "./OverviewTab";
 import MonitoringTab from "./MonitoringTab";
@@ -40,6 +41,10 @@ export default function ResourceDetailPage({ backTo = "/my-resources" }) {
         access_role: r?.access_role ?? "owner",
         can_manage: r?.can_manage !== false,
         owner_email: r?.owner_email ?? null,
+        machine_kind: r?.machine_kind ?? "personal",
+        class_relation: r?.class_relation ?? null,
+        owner_name: r?.owner_name ?? null,
+        teaching_class_name: r?.teaching_class_name ?? null,
       }))
       .catch(() => !cancelled && setAccess({ access_role: "owner", can_manage: true, owner_email: null }));
     return () => { cancelled = true; };
@@ -61,7 +66,18 @@ export default function ResourceDetailPage({ backTo = "/my-resources" }) {
             <MIcon name="arrow_back" size={20} />
           </button>
         }
-        title={<>{t("ResourceDetailPage.title")} <span className={styles.vmidText}>#{vmid}</span></>}
+        title={<>
+          {t("ResourceDetailPage.title")} <span className={styles.vmidText}>#{vmid}</span>
+          {access && (
+            <MachineKindBadge
+              kind={access.machine_kind}
+              classRelation={access.class_relation}
+              ownerName={access.owner_name ?? access.owner_email}
+              teachingClassName={access.teaching_class_name}
+              className={styles.titleKind}
+            />
+          )}
+        </>}
       />
 
       {isShared && (

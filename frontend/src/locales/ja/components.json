@@ -531,5 +531,19 @@
   "AiFloatingChat.planFailed": "フォームに入力できる構成を生成できませんでした。要件は保持しています。「今すぐ構成を生成」で再試行してください。",
   "AiFloatingChat.publishAfterApproval": "サイト公開の目的は保持されます。申請後に「申請の進捗を確認」を選択すると、マシンの作成完了後にデプロイと公開 URL 設定へ戻ります。",
   "AiFloatingChat.defaultAssumptions": "一般的なサイトとして、まず {{assumptions}} を想定します。異なる要件があれば教えてください。",
-  "AiFloatingChat.taskCancelled": "このタスクを停止しました。"
+  "AiFloatingChat.taskCancelled": "このタスクを停止しました。",
+  "MachineKind.personal": "個人申請",
+  "MachineKind.personalHint": "自分で申請したマシン",
+  "MachineKind.shared": "共有されたマシン",
+  "MachineKind.sharedHint": "{{owner}} から共有されたマシンです。利用はできますが設定は変更できません",
+  "MachineKind.classMine": "クラスのマシン",
+  "MachineKind.classMineHint": "クラス（{{cls}}）から割り当てられたマシンです。ファイアウォールなどの設定は教員が管理します",
+  "MachineKind.classStudent": "学生のマシン",
+  "MachineKind.classStudentHint": "{{cls}} の学生 {{owner}} のクラスマシンです。担当教員として管理できます",
+  "MachineKind.quickPractice": "クイック練習",
+  "MachineKind.quickPracticeHint": "クイック練習環境のマシンで、期限が来ると自動的に回収されます",
+  "MachineKind.course": "コース実習",
+  "MachineKind.courseHint": "コース実習環境のマシン",
+  "MachineKind.teacherOpen": "教員が公開",
+  "MachineKind.teacherOpenHint": "教員 {{owner}} がクラスに公開しているマシンです。自分のマシンから接続できます"
 }

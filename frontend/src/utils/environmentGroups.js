@@ -20,6 +20,8 @@ function machineFromResource(resource, fallback = {}) {
     // 規格：讓環境內的機器也看得到 CPU/RAM，不必進詳情頁
     cpu: resource.maxcpu ?? fallback.cpu ?? null,
     memoryBytes: resource.maxmem ?? fallback.memoryBytes ?? null,
+    /* 老師看學生的班級機：一列一位學生，名字放在機器名旁邊 */
+    ownerName: resource.owner_name ?? null,
     resource,
   };
 }
@@ -52,7 +54,6 @@ function quickPracticeGroups(resources, sessions) {
     return {
       id: session.id,
       kind: "quick_practice",
-      kindLabel: session.kindLabel ?? "快速練習",
       title: session.title,
       status: session.status,
       timingLabel: `${formatDateTime(session.expiresAt)} 到期`,
@@ -74,11 +75,14 @@ function courseGroups(resources, excludedRequestIds) {
   return [...grouped.entries()].map(([classId, rows]) => {
     const machines = rows.map((resource) => machineFromResource(resource));
     const nodes = new Set(machines.map((machine) => machine.node).filter(Boolean));
-    const title = rows.find((resource) => resource.environment_type)?.environment_type ?? `課程 ${classId.slice(0, 8)}`;
+    const title = rows.find((resource) => resource.teaching_class_name)?.teaching_class_name
+      ?? rows.find((resource) => resource.environment_type)?.environment_type
+      ?? `#${classId.slice(0, 8)}`;
     return {
       id: `course-${classId}`,
       kind: "course",
-      kindLabel: "課堂機器",
+      /* 這組是「我的班級機器」還是「我教的班的學生機器」，徽章據此換色 */
+      classRelation: rows.find((resource) => resource.class_relation)?.class_relation ?? null,
       title,
       status: machines.every((machine) => machine.status === "running") ? "running" : "active",
       timingLabel: "依課程時段管理",

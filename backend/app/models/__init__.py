@@ -21,6 +21,7 @@ from .batch_provision import (
     BatchProvisionTask,
     BatchProvisionTaskStatus,
 )
+from .class_exposure import ResourceClassExposure
 from .cloudflare_config import CloudflareConfig
 from .course import (
     CourseDeployment,
@@ -62,7 +63,6 @@ from .resource import Resource
 from .resource_network import ResourceNetwork
 from .resource_quota import ResourceQuota
 from .resource_share import ResourceShare
-from .class_exposure import ResourceClassExposure
 from .reverse_proxy_rule import ReverseProxyRule
 from .spec_change_request import (
     SpecChangeRequest,

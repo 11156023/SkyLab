@@ -232,14 +232,31 @@ class ResourcePublic(BaseModel):
     scheduled_deletion_at: datetime | None = None
     mining_exempt: bool = False
     tags: list[str] = Field(default_factory=list, description="Proxmox 標籤")
-    access_role: Literal["owner", "shared", "class_member", "admin"] = Field(
-        default="owner", description="目前使用者對這台機器的關係"
-    )
+    access_role: Literal[
+        "owner", "shared", "class_member", "class_teacher", "admin"
+    ] = Field(default="owner", description="目前使用者對這台機器的關係")
     can_manage: bool = Field(
         default=True, description="能否做擁有者層級的設定（憑證、快照、對外服務…）"
     )
     owner_email: str | None = Field(
         default=None, description="共享給我的機器：擁有者信箱"
+    )
+    # ── 機器來源標示（UI 徽章用）──
+    machine_kind: Literal[
+        "personal", "shared", "teaching_class", "quick_practice", "course"
+    ] = Field(
+        default="personal",
+        description="個人申請／共享給我／班級機器／快速練習／課程實驗",
+    )
+    class_relation: Literal["student", "teacher"] | None = Field(
+        default=None,
+        description="班級機：我是這班的學生（機器分給我）或這班的老師（機器是學生的）",
+    )
+    owner_name: str | None = Field(
+        default=None, description="機器不是自己的時：擁有者姓名（沒有姓名用信箱）"
+    )
+    teaching_class_name: str | None = Field(
+        default=None, description="班級機所屬班級名稱"
     )
 
 

@@ -334,32 +334,12 @@
   box-shadow: var(--shadow-sm);
 }
 
-/* 歸屬徽章：掛在節點左上角，與右上角的對外暴露數對稱 */
+/* 來源徽章（MachineKindBadge 實心版）：掛在節點左上角，與右上角的對外暴露數對稱 */
 .originBadge {
   position: absolute;
-  top: -8px;
+  top: -9px;
   left: -8px;
-  display: inline-flex;
-  align-items: center;
-  gap: 3px;
-  max-width: 120px;
-  padding: 1px 6px;
-  border-radius: $radius-pill;
-  background: var(--color-primary);
-  color: var(--color-text-on-primary);
-  font-size: 11px;
-  font-weight: $font-weight-500;
-  line-height: 1.5;
-  box-shadow: var(--shadow-sm);
-  @include text-truncate;
-}
-
-.originReadOnly {
-  background: var(--color-status-neutral);
-}
-
-.originPeer {
-  background: var(--color-info);
+  max-width: 150px;
 }
 
 /* 老師開放給班級的機器：可以拉線連過去，但不是自己的 */

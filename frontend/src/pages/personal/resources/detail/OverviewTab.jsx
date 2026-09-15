@@ -31,6 +31,7 @@ const ROLE_KEYS = {
   owner: "OverviewTab.roleOwner",
   shared: "OverviewTab.roleShared",
   class_member: "OverviewTab.roleClassMember",
+  class_teacher: "OverviewTab.roleClassTeacher",
   admin: "OverviewTab.roleAdmin",
 };
 
