@@ -204,6 +204,32 @@ _TOOL_CALL_MARKER_RE = re.compile(
     re.DOTALL,
 )
 
+_CHECKLIST_STEP_PARAMETERS_PROPERTIES: dict[str, Any] = {
+    "argv": {
+        "type": "array",
+        "items": {"type": "string"},
+        "description": "單一非空的命令字串 list，例如 [\"ping\", \"192.168.24.152\"]",
+    },
+    "cwd": {
+        "type": "string",
+        "description": (
+            "工作目錄；python.run_entrypoint 必填（main.py 所在目錄），"
+            "system.run_command 選填"
+        ),
+    },
+        "timeout_seconds": {
+            "type": "integer",
+            "description": "1 至 300 的整數；省略或無效時由平台補預設值",
+        },
+    "success_criteria": {
+        "type": "string",
+        "description": (
+            "選填；依需求語意寫成可比對的客觀輸出條件。"
+            "省略時腳本生成會依需求自動推導判定條件"
+        ),
+    },
+}
+
 _CHECKLIST_STEP_TOOL_SCHEMA: dict[str, Any] = {
     "type": "object",
     "properties": {
@@ -218,7 +244,8 @@ _CHECKLIST_STEP_TOOL_SCHEMA: dict[str, Any] = {
         "command_label": {"type": "string", "description": "顯示名稱；可省略"},
         "parameters": {
             "type": "object",
-            "description": "受控腳本執行參數（argv、cwd、timeout_seconds、success_criteria）",
+            "description": "受控腳本執行參數（argv、cwd、timeout_seconds、選填 success_criteria）",
+            "properties": _CHECKLIST_STEP_PARAMETERS_PROPERTIES,
         },
     },
     "required": ["command_key"],
@@ -557,9 +584,7 @@ def _normalize_rubric_items(
         ]
         if system_command_steps:
             for step in system_command_steps:
-                missing_information.extend(
-                    missing_step_information(step, judgement_mode=judgement_mode)
-                )
+                missing_information.extend(missing_step_information(step))
         if template_commands is not None and detectable == "auto" and not check_steps:
             detectable = "manual"
             missing_information = []
@@ -576,9 +601,7 @@ def _normalize_rubric_items(
             missing_information.append("腳本取證方式")
         if detectable == "auto":
             for step in check_steps:
-                missing_information.extend(
-                    missing_step_information(step, judgement_mode=judgement_mode)
-                )
+                missing_information.extend(missing_step_information(step))
             if missing_information:
                 detectable = "partial"
         if detectable == "partial" and not missing_information:
@@ -683,11 +706,9 @@ def _allowed_command_text(
 
 
 _PARAMETER_GAP_FIELD_HINTS: dict[str, str] = {
-    "客觀成功條件": "success_criteria（依需求語意寫成可比對的客觀輸出條件）",
     "要檢查的檔案、服務或記錄範圍": "argv（單一非空的命令字串 list）",
     "實際 Python 命令與參數": "argv（python.run_entrypoint 的完整命令 list）",
     "main.py 所在的工作目錄": "cwd（main.py 所在的工作目錄）",
-    "1 至 300 秒的逾時限制": "timeout_seconds（1 至 300 的整數）",
 }
 
 
@@ -695,9 +716,7 @@ def _recoverable_parameter_gaps(item: TeacherJudgeRubricItem) -> list[str]:
     """Return step-parameter gaps the model can fix itself by re-calling the tool."""
     gaps: list[str] = []
     for step in item.check_steps:
-        gaps.extend(
-            missing_step_information(step, judgement_mode=item.judgement_mode)
-        )
+        gaps.extend(missing_step_information(step))
     return list(dict.fromkeys(gaps))
 
 
@@ -842,7 +861,13 @@ def _recovered_catalog_item_titles(
     normalized_items: list[TeacherJudgeRubricItem],
     raw_items: Any,
 ) -> list[str]:
-    """Return items whose executable step was normalized server-side."""
+    """Return items whose executable step was coerced server-side.
+
+    Only a command_key the model did not submit (invalid reference recovered
+    into ``system.run_command``) counts. Backfilling an omitted
+    ``template_key`` is documented prompt behavior (後端會依唯一的
+    command_key 補齊) and must not replace the model's teacher-facing reply.
+    """
     raw_by_id = (
         {
             str(raw.get("id") or f"item-{index + 1}"): raw
@@ -857,18 +882,13 @@ def _recovered_catalog_item_titles(
         if item.detectable != "auto" or not item.check_steps:
             continue
         raw = raw_by_id.get(item.id, {})
-        raw_references = {
-            (
-                str(step.get("template_key") or "").strip(),
-                str(step.get("command_key") or "").strip(),
-            )
+        raw_command_keys = {
+            str(step.get("command_key") or "").strip()
             for step in raw.get("check_steps") or []
             if isinstance(step, dict)
         }
-        normalized_references = {
-            (step.template_key, step.command_key) for step in item.check_steps
-        }
-        if not normalized_references.issubset(raw_references):
+        normalized_command_keys = {step.command_key for step in item.check_steps}
+        if not normalized_command_keys.issubset(raw_command_keys):
             recovered.append(item.title)
     return recovered
 
