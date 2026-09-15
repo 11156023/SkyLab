@@ -529,8 +529,17 @@ def _normalize_rubric_items(
     template_key: str | None = None,
     template_commands: list[TeacherJudgeTemplateCommand] | None = None,
     strip_auto_fallback: bool = True,
+    refresh_missing_information: bool = False,
 ) -> list[TeacherJudgeRubricItem]:
-    """Best-effort normalization for AI-returned item payloads."""
+    """Best-effort normalization for AI-returned item payloads.
+
+    ``refresh_missing_information`` marks an edit patch that re-declares the
+    evidence plan (``detectable`` or ``check_steps``) without an explicit
+    ``missing_information`` list. The persisted item's stale prose gaps are
+    then dropped and recomputed from the validated check_steps, so a patch
+    that supplies the previously missing execution info can stage cleanly
+    instead of being rejected by its own historical gap text.
+    """
     if not isinstance(raw_items, list):
         return []
 
@@ -574,6 +583,8 @@ def _normalize_rubric_items(
             if isinstance(raw_missing_information, list)
             else []
         )
+        if refresh_missing_information:
+            missing_information = []
         check_steps = _normalize_check_steps(
             raw.get("check_steps"),
             template_key=template_key,
@@ -584,6 +595,9 @@ def _normalize_rubric_items(
         ]
         if system_command_steps:
             for step in system_command_steps:
+                missing_information.extend(missing_step_information(step))
+        if refresh_missing_information:
+            for step in check_steps:
                 missing_information.extend(missing_step_information(step))
         if template_commands is not None and detectable == "auto" and not check_steps:
             detectable = "manual"
@@ -1590,6 +1604,10 @@ def _execute_checklist_tool(
             [{**current_raw, **patch}],
             template_key=template_key,
             template_commands=template_commands,
+            refresh_missing_information=(
+                ("detectable" in arguments or "check_steps" in arguments)
+                and "missing_information" not in arguments
+            ),
         )
         if not candidate_list:
             return {"error": "無法解析 edit_checklist_item 的欄位，請重新呼叫。"}

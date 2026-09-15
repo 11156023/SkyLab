@@ -1941,6 +1941,171 @@ async def test_existing_item_update_loads_current_rubric_tool(
 
 
 @pytest.mark.asyncio
+async def test_edit_patch_supplying_execution_info_clears_stale_missing_information(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls, fake_call_vllm = _scripted_vllm(
+        [
+            _tool_call_message("get_checklist_item", {"id": "item-python"}),
+            _tool_call_message(
+                "edit_checklist_item",
+                {
+                    "id": "item-python",
+                    "detectable": "auto",
+                    "judgement_mode": "ai",
+                    "detection_method": "執行 main.py 並檢查 stdout",
+                    "check_steps": [
+                        {
+                            "template_key": "python",
+                            "command_key": "python.run_entrypoint",
+                            "parameters": {
+                                "cwd": "/home/owo",
+                                "argv": ["python3", "main.py"],
+                                "timeout_seconds": 30,
+                                "success_criteria": "exit code 為 0",
+                            },
+                        }
+                    ],
+                },
+            ),
+            _reply_message("已補上路徑並整理成提案。", "ready"),
+        ],
+    )
+
+    monkeypatch.setattr(teacher_judge_service, "_call_vllm_message", fake_call_vllm)
+    _patch_teacher_judge_vllm_settings(monkeypatch)
+
+    current = {
+        "items": [
+            {
+                "id": "item-python",
+                "title": "main.py 執行檢查",
+                "detectable": "partial",
+                "judgement_mode": "ai",
+                "detection_method": None,
+                "missing_information": [
+                    "Python 執行檔的完整路徑（若非預設路徑）",
+                    "main.py 所在的完整工作目錄路徑",
+                ],
+                "check_steps": [],
+            }
+        ]
+    }
+
+    _reply, proposal, _metrics = await teacher_judge_service.chat_with_rubric(
+        messages=[SimpleNamespace(role="user", content="工作目錄是 /home/owo")],
+        rubric_context=json.dumps(current, ensure_ascii=False),
+        template_key="python",
+        template_commands=[_python_entrypoint_command()],
+        analysis_revision=3,
+        rubric_available=True,
+    )
+
+    assert len(calls) == 3
+    staged_result = json.loads(calls[2]["messages"][-1]["content"])
+    assert staged_result["staged"] == "update"
+    assert proposal is not None
+    assert proposal[0]["id"] == "item-python"
+    assert proposal[0]["operation"] == "update"
+    assert proposal[0]["detectable"] == "auto"
+    assert proposal[0]["missing_information"] == []
+
+
+@pytest.mark.asyncio
+async def test_edit_patch_with_incomplete_parameters_returns_retry_hint(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls, fake_call_vllm = _scripted_vllm(
+        [
+            _tool_call_message("get_checklist_item", {"id": "item-env"}),
+            _tool_call_message(
+                "edit_checklist_item",
+                {
+                    "id": "item-env",
+                    "detectable": "auto",
+                    "judgement_mode": "ai",
+                    "detection_method": "讀取 .env 並比對內容",
+                    "check_steps": [
+                        {
+                            "template_key": "linux",
+                            "command_key": "system.run_command",
+                            "parameters": {
+                                "cwd": "/home/owo",
+                                "success_criteria": "exit code 為 0",
+                            },
+                        }
+                    ],
+                },
+            ),
+            _tool_call_message(
+                "edit_checklist_item",
+                {
+                    "id": "item-env",
+                    "detectable": "auto",
+                    "judgement_mode": "ai",
+                    "detection_method": "讀取 .env 並比對內容",
+                    "check_steps": [
+                        {
+                            "template_key": "linux",
+                            "command_key": "system.run_command",
+                            "parameters": {
+                                "cwd": "/home/owo",
+                                "argv": ["cat", ".env"],
+                                "timeout_seconds": 30,
+                                "success_criteria": "exit code 為 0",
+                            },
+                        }
+                    ],
+                },
+            ),
+            _reply_message("已補上 argv 並整理成提案。", "ready"),
+        ],
+    )
+
+    monkeypatch.setattr(teacher_judge_service, "_call_vllm_message", fake_call_vllm)
+    _patch_teacher_judge_vllm_settings(monkeypatch)
+
+    current = {
+        "items": [
+            {
+                "id": "item-env",
+                "title": "學生 .env 內容收集",
+                "detectable": "partial",
+                "judgement_mode": "ai",
+                "detection_method": None,
+                "missing_information": [
+                    ".env 檔案所在的完整工作目錄路徑",
+                    "唯讀命令與參數",
+                ],
+                "check_steps": [],
+            }
+        ]
+    }
+
+    _reply, proposal, _metrics = await teacher_judge_service.chat_with_rubric(
+        messages=[SimpleNamespace(role="user", content="路徑是 /home/owo")],
+        rubric_context=json.dumps(current, ensure_ascii=False),
+        template_key="linux",
+        template_commands=[GENERAL_COMMAND],
+        analysis_revision=3,
+        rubric_available=True,
+    )
+
+    assert len(calls) == 4
+    rejected_result = json.loads(calls[2]["messages"][-1]["content"])
+    assert "可由你自行補齊" in rejected_result["error"]
+    assert "argv" in rejected_result["error"]
+    assert "請改在 reply 中說明缺少的內容" not in rejected_result["error"]
+    staged_result = json.loads(calls[3]["messages"][-1]["content"])
+    assert staged_result["staged"] == "update"
+    assert proposal is not None
+    assert proposal[0]["id"] == "item-env"
+    assert proposal[0]["operation"] == "update"
+    assert proposal[0]["detectable"] == "auto"
+    assert proposal[0]["missing_information"] == []
+
+
+@pytest.mark.asyncio
 async def test_existing_item_proposal_without_tool_is_retried_with_forced_read(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
