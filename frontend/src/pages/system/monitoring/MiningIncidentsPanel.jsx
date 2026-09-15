@@ -97,16 +97,9 @@ export default function MiningIncidentsPanel({ onCountChange }) {
 
   return (
     <div className={styles.card}>
+      {/* 標題由外層頁籤承擔，卡內只留說明 */}
       <div className={styles.cardHeader}>
-        <div>
-          <h2 className={styles.cardTitle}>
-            <MIcon name="gavel" size={18} />
-            {t("MiningIncidentsPanel.title")}
-          </h2>
-          <p className={styles.cardDesc}>
-            {t("MiningIncidentsPanel.desc")}
-          </p>
-        </div>
+        <p className={styles.cardDesc}>{t("MiningIncidentsPanel.desc")}</p>
         {open.length > 0 && <span className={styles.alertCount}>{t("MiningIncidentsPanel.pendingCount", { count: open.length })}</span>}
       </div>
 

@@ -2,11 +2,6 @@
   @include flex-center;
   min-height: 100vh;
   min-height: 100dvh;
-  background: linear-gradient(
-    135deg,
-    var(--color-primary) 0%,
-    var(--color-primary-dark) 100%
-  );
   padding: $spacing-16;
 
   @include respond-to(sm) {
@@ -14,29 +9,92 @@
   }
 }
 
+/* 暈染加強層：沿用主題色票畫出較飽和的光暈，讓玻璃卡片有內容可透
+   （全站 body::before 的淡色暈染仍在，同色系疊加）。
+   fixed + overflow hidden 讓超出視窗的光暈不產生卷軸。 */
+.glow {
+  position: fixed;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+
+  span {
+    position: absolute;
+    border-radius: 50%;
+    filter: blur(72px);
+  }
+
+  span:nth-child(1) {
+    top: -18%;
+    right: -10%;
+    width: 560px;
+    height: 560px;
+    background: color-mix(in srgb, var(--color-primary) 32%, transparent);
+    animation: orb-drift 26s ease-in-out infinite alternate;
+  }
+
+  span:nth-child(2) {
+    bottom: -22%;
+    left: -12%;
+    width: 480px;
+    height: 480px;
+    background: color-mix(in srgb, var(--color-primary-light) 26%, transparent);
+    animation: orb-drift 32s ease-in-out infinite alternate-reverse;
+  }
+
+  span:nth-child(3) {
+    right: 8%;
+    bottom: -6%;
+    width: 360px;
+    height: 360px;
+    background: color-mix(in srgb, var(--color-bg-gradient-green) 85%, transparent);
+    animation: orb-drift 22s ease-in-out infinite alternate;
+  }
+}
+
+@keyframes orb-drift {
+  from {
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+  to {
+    transform: translate3d(-48px, 32px, 0) scale(1.06);
+  }
+}
+
 .card {
   width: 100%;
   max-width: 420px;
-  background: var(--color-surface-glass);
-  backdrop-filter: var(--glass-backdrop-filter);
-  -webkit-backdrop-filter: var(--glass-backdrop-filter);
+  @include glass-surface;
   border-radius: $radius-16;
-  box-shadow: var(--shadow-lg);
-  padding: $spacing-24 $spacing-16;
+  padding: $spacing-32 $spacing-24;
   text-align: center;
+  animation: card-in 0.4s cubic-bezier(0.25, 0.8, 0.25, 1);
 
   @include respond-to(sm) {
     padding: $spacing-48 $spacing-32;
   }
 }
 
+@keyframes card-in {
+  from {
+    opacity: 0;
+    transform: translateY(16px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
 .title {
   font-size: $font-size-24;
-  color: var(--color-primary);
+  font-weight: $font-weight-700;
+  letter-spacing: 0.5px;
+  color: var(--color-text-primary);
   margin-bottom: $spacing-4;
 
   @include respond-to(sm) {
-    font-size: $font-size-32;
+    font-size: $font-size-28;
   }
 }
 
@@ -50,41 +108,18 @@
   }
 }
 
-/* 登入方式切換（Email / 校園帳號），配色同各頁 pill tabs */
-.loginTabs {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: $spacing-4;
-  padding: $spacing-4;
-  border: 1px solid var(--color-border);
-  border-radius: $radius-8;
+/* 登入方式切換：共用 SegmentedControl 撐滿卡片寬。
+   雙類名壓過元件自身的 .segment（bundle 順序不定） */
+.modeSwitch.modeSwitch {
+  display: flex;
+  width: 100%;
   margin-bottom: $spacing-16;
-}
 
-.loginTab {
-  padding: 6px $spacing-8;
-  border-radius: $radius-8;
-  font-size: $font-size-14;
-  color: var(--color-text-secondary);
-  cursor: pointer;
-  transition:
-    background $transition-base,
-    color $transition-base;
-
-  &:hover {
-    background: var(--color-hover);
-    color: var(--color-text);
-  }
-}
-
-.loginTabActive {
-  background: var(--color-text);
-  color: var(--color-surface);
-  font-weight: $font-weight-500;
-
-  &:hover {
-    background: var(--color-text);
-    color: var(--color-surface);
+  > button {
+    flex: 1;
+    justify-content: center;
+    padding-block: $spacing-8;
+    font-size: $font-size-14;
   }
 }
 
@@ -109,28 +144,11 @@
   }
 
   input {
-    width: 100%;
-    padding: $spacing-8 $spacing-16;
-    border: 1px solid var(--color-border);
-    border-radius: $radius-8;
+    @include form-control;
+    /* 入口頁欄位加高（無站內表單的同列按鈕對齊需求）；
+       字級 ≥16px 防 iOS 聚焦自動縮放 */
+    min-height: 44px;
     font-size: 16px;
-    background: var(--color-surface);
-    color: var(--color-text);
-    transition: border-color $transition-base;
-
-    &::placeholder {
-      color: var(--color-text-muted);
-    }
-
-    &:focus {
-      border-color: var(--color-primary);
-      box-shadow: 0 0 0 3px
-        color-mix(in srgb, var(--color-primary) 15%, transparent);
-    }
-
-    @include respond-to(sm) {
-      font-size: $font-size-16;
-    }
   }
 }
 
@@ -166,9 +184,10 @@
   padding: $spacing-8 $spacing-16;
 }
 
-/* 返回按鈕（忘記密碼 / 註冊頁頂部） */
+/* 返回按鈕（忘記密碼 / 註冊頁頂部）：靠左，不吃卡片的置中 */
 .backBtn {
-  display: inline-flex;
+  display: flex;
+  width: fit-content;
   align-items: center;
   gap: $spacing-4;
   font-size: $font-size-14;
@@ -270,9 +289,10 @@
 }
 
 .btnLink {
-  display: block;
+  @include flex-center;
   width: 100%;
-  padding: 10px $spacing-16;
+  min-height: 44px;
+  padding: $spacing-8 $spacing-16;
   border-radius: $radius-8;
   background: var(--color-primary);
   color: var(--color-text-on-primary);
@@ -335,7 +355,8 @@
 
 .btn {
   width: 100%;
-  padding: 10px $spacing-16;
+  min-height: 44px;
+  padding: $spacing-8 $spacing-16;
   margin-top: $spacing-8;
   background: var(--color-primary);
   color: var(--color-text-on-primary);
@@ -358,5 +379,12 @@
   &:disabled {
     opacity: 0.6;
     cursor: not-allowed;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .card,
+  .glow span {
+    animation: none;
   }
 }

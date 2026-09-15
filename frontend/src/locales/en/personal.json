@@ -108,7 +108,7 @@
   "AdminDashboardPage.checking": "Checking for items that need attention…",
   "AdminDashboardPage.allClearTitle": "Nothing needs immediate attention",
   "AdminDashboardPage.allClearDesc": "Nothing broken, nobody waiting on your approval.",
-  "AdminDashboardPage.assistantLabel": "AI PVE Operations Assistant",
+  "AdminDashboardPage.assistantLabel": "AI Operations Assistant",
   "AdminDashboardPage.assistantTitle": "Describe the issue you're seeing",
   "AdminDashboardPage.backToOverview": "Back to Overview",
   "AdminDashboardPage.expandChat": "Expand Chat",

@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
 import MIcon from "../../../components/MIcon";
 import { TeachingClassesService } from "../../../services/teachingClasses";
@@ -75,7 +76,8 @@ export default function ClassCreateDialog({
     }
   }
 
-  return (
+  /* 玻璃卡祖先的 backdrop-filter 會困住 fixed 遮罩，portal 到 body 才能全頁覆蓋 */
+  return createPortal(
     <div
       className={`${styles.createDialogOverlay} ${closing ? styles.createDialogOverlayOut : ""}`}
       role="presentation"
@@ -250,6 +252,7 @@ export default function ClassCreateDialog({
           </footer>
         </form>
       </section>
-    </div>
+    </div>,
+    document.body,
   );
 }

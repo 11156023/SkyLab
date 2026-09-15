@@ -108,7 +108,7 @@
   "AdminDashboardPage.checking": "正在確認需要處理的項目…",
   "AdminDashboardPage.allClearTitle": "目前沒有需要立即處理的項目",
   "AdminDashboardPage.allClearDesc": "沒有故障，也沒有等我放行的申請。",
-  "AdminDashboardPage.assistantLabel": "AI PVE 維運助手",
+  "AdminDashboardPage.assistantLabel": "AI 維運助手",
   "AdminDashboardPage.assistantTitle": "直接描述你遇到的問題",
   "AdminDashboardPage.backToOverview": "回到總覽",
   "AdminDashboardPage.expandChat": "放大對話",
