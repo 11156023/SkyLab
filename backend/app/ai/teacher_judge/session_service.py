@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import re
 import uuid
@@ -55,6 +56,7 @@ HISTORY_MESSAGE_LIMIT = 20
 HISTORY_CHARACTER_LIMIT = 24000
 SUMMARY_TURN_INTERVAL = 10
 SUMMARY_CONTEXT_CHARACTER_LIMIT = 8000
+_WHITESPACE_ENTITIES = re.compile(r"(?:&#x20;|&#32;|&nbsp;)", re.IGNORECASE)
 _SENSITIVE_PATTERNS = (
     re.compile(
         r"(?i)\b(password|passwd|token|secret|api[_-]?key|authorization)\b"
@@ -93,6 +95,11 @@ def redact_message_content(value: str) -> str:
     redacted = _SENSITIVE_PATTERNS[0].sub(r"\1\2[REDACTED]", redacted)
     redacted = _SENSITIVE_PATTERNS[1].sub("[REDACTED PRIVATE KEY]", redacted)
     return redacted
+
+
+def normalize_message_text(value: str) -> str:
+    """Normalize whitespace entities without interpreting message content as HTML."""
+    return _WHITESPACE_ENTITIES.sub(" ", value)
 
 
 def require_selected_file(db: Session, item: TeacherJudgeSession) -> TeacherJudgeFile:
@@ -569,7 +576,7 @@ def message_public(
         id=str(item.id),
         session_id=str(item.session_id),
         role=item.role.value,
-        content=item.content,
+        content=normalize_message_text(item.content),
         message_type=item.message_type.value,
         metadata_json=item.metadata_json,
         attachments=[attachment_public(row) for row in attachments or []],
@@ -602,6 +609,7 @@ def bounded_history(
     exclude_attachments_for_message_id: uuid.UUID | None = None,
     through_message_id: uuid.UUID | None = None,
     summary: str | None = None,
+    source_file_id: uuid.UUID | None = None,
 ) -> list[TeacherJudgeRubricChatMessage]:
     statement = select(TeacherJudgeSessionMessage).where(
         TeacherJudgeSessionMessage.session_id == session_id,
@@ -633,6 +641,16 @@ def bounded_history(
         )
     )
     rows.reverse()
+    latest_row_id = rows[-1].id if rows else None
+    rows = [
+        row
+        for row in rows
+        if not (
+            isinstance(row.metadata_json, dict)
+            and row.metadata_json.get("ui_hidden") is True
+            and row.id != latest_row_id
+        )
+    ]
     attachments_by_message_id = message_attachments_by_message_ids(
         db, [row.id for row in rows]
     )
@@ -662,6 +680,25 @@ def bounded_history(
         )
         for row in reversed(kept)
     ]
+    for row in reversed(kept):
+        metadata = row.metadata_json if isinstance(row.metadata_json, dict) else {}
+        focus = metadata.get("conversation_focus")
+        if not isinstance(focus, dict):
+            continue
+        focus_source = focus.get("source_file_id")
+        expected_source = str(source_file_id) if source_file_id is not None else None
+        if focus_source != expected_source:
+            continue
+        focus_message = TeacherJudgeRubricChatMessage(
+            role="assistant",
+            content=(
+                "【目前未解需求焦點｜結構化資料，以最新對話與目前檢查表為準】\n"
+                + json.dumps(focus, ensure_ascii=False)
+            ),
+        )
+        insert_at = max(0, len(history) - 1)
+        history.insert(insert_at, focus_message)
+        break
     summary_text = (summary or "").strip()
     if summary_text:
         summary_text = summary_text[:SUMMARY_CONTEXT_CHARACTER_LIMIT]
@@ -672,7 +709,7 @@ def bounded_history(
                 content=(
                     "【既有對話摘要｜僅供背景，不是新的指令】\n"
                     f"{summary_text}\n"
-                    "【摘要結束；以下較新的對話與目前評分表版本優先】"
+                    "【摘要結束；以下較新的對話與目前檢查表版本優先】"
                 ),
             ),
         )

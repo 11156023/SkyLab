@@ -109,6 +109,15 @@
   gap: $spacing-4;
 }
 
+/* 標題列：左側標題說明、右側動作按鈕 */
+.panelHeaderRow {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: $spacing-8;
+}
+
 .panelTitle {
   font-size: $font-size-16;
   font-weight: 600;
@@ -216,6 +225,19 @@
   }
 }
 
+/* 「＋ 新增金鑰」按鈕（API Keys 標題右側） */
+.btnAddKey {
+  @extend %btn-base;
+  flex-shrink: 0;
+  background: var(--color-primary);
+  color: var(--color-text-on-primary);
+
+  &:hover:not(:disabled) {
+    background: var(--color-primary-dark);
+    box-shadow: var(--shadow-sm);
+  }
+}
+
 .btnOutline {
   @extend %btn-base;
   padding: 6px 12px;
@@ -270,6 +292,25 @@
   transition: background $transition-base;
 
   &:hover { background: var(--color-hover); }
+}
+
+/* 已汰換／已過期的金鑰：灰色＋刪除線，明確標示棄用 */
+.credCardDeprecated {
+  opacity: 0.72;
+  border-style: dashed;
+  background: transparent;
+
+  &:hover { background: transparent; }
+}
+
+.credNameDeprecated {
+  text-decoration: line-through;
+  color: var(--color-text-muted);
+}
+
+.credValueDeprecated {
+  text-decoration: line-through;
+  color: var(--color-text-muted);
 }
 
 .credHeader {
@@ -400,6 +441,29 @@
   &:first-child { padding-top: 0; }
 }
 
+/* 申請狀態整列上色：待審＝黃、已拒絕＝紅（已通過維持一般樣式） */
+.requestRow_pending,
+.requestRow_rejected {
+  border-radius: $radius-8;
+  padding-left: $spacing-8;
+}
+
+.requestRow_pending {
+  box-shadow: inset 3px 0 0 var(--color-pending);
+  background: color-mix(in srgb, var(--color-pending) 6%, transparent);
+}
+
+.requestRow_rejected {
+  box-shadow: inset 3px 0 0 var(--color-danger);
+  background: color-mix(in srgb, var(--color-danger) 6%, transparent);
+}
+
+.requestName_pending  { color: var(--color-pending); }
+.requestName_rejected { color: var(--color-danger); }
+
+.requestPurpose_pending  { color: var(--color-pending); opacity: 0.85; }
+.requestPurpose_rejected { color: var(--color-danger);  opacity: 0.85; }
+
 .requestInfo {
   display: flex;
   align-items: center;
@@ -523,6 +587,71 @@
   color: var(--color-text-primary);
 }
 
+/* ── 細項呼叫紀錄 ── */
+.usageRecordList {
+  @include flex-column;
+}
+
+.usageRecordRow {
+  @include flex-column;
+  gap: 4px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--color-divider);
+
+  &:last-child { border-bottom: none; }
+  &:first-child { padding-top: 0; }
+}
+
+.usageRecordTop {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: $spacing-8;
+}
+
+.usageRecordType {
+  font-size: $font-size-12;
+  color: var(--color-text-secondary);
+}
+
+.usageRecordModel {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: $font-size-12;
+  color: var(--color-text-primary);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+}
+
+.usageRecordMeta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0 $spacing-16;
+  font-size: $font-size-12;
+  color: var(--color-text-muted);
+}
+
+.usageRecordsMoreRow {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: $spacing-8;
+}
+
+/* ── 用量徽章（狀態） ── */
+.badge_success {
+  background: color-mix(in srgb, var(--color-success) 12%, transparent);
+  color: var(--color-success);
+}
+
+.badge_error {
+  background: color-mix(in srgb, var(--color-danger)  12%, transparent);
+  color: var(--color-danger);
+}
+
 .usageBreakdown {
   @include flex-column;
   gap: $spacing-8;
@@ -580,4 +709,109 @@
   border: 1px dashed var(--color-border);
   border-radius: $radius-12;
   text-align: center;
+}
+
+/* ── 新增金鑰彈窗 ── */
+.dialogOverlay {
+  position: fixed;
+  inset: 0;
+  z-index: 300;
+  @include flex-center;
+  padding: $spacing-16;
+  background: var(--color-overlay);
+  backdrop-filter: blur(4px);
+  animation: fadeIn 0.15s ease;
+  transition: opacity 0.15s ease;
+}
+
+.dialogOverlayOut {
+  animation: none;
+  opacity: 0;
+  pointer-events: none;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+.dialog {
+  width: min(520px, 100%);
+  max-height: 88vh;
+  overflow-y: auto;
+  @include flex-column;
+  gap: $spacing-16;
+  padding: $spacing-24;
+  @include glass-surface($shadow: var(--shadow-lg));
+  border-radius: $radius-12;
+  animation: slideUp 0.18s cubic-bezier(0.25, 0.8, 0.25, 1);
+}
+
+@keyframes slideUp {
+  from { opacity: 0; transform: translateY(12px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.dialogHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: $spacing-16;
+}
+
+.dialogTitle {
+  margin: 0;
+  font-size: $font-size-18;
+  font-weight: $font-weight-700;
+  color: var(--color-text-primary);
+}
+
+.dialogDesc {
+  margin: 4px 0 0;
+  font-size: $font-size-14;
+  color: var(--color-text-muted);
+  line-height: $line-height-base;
+}
+
+.dialogClose {
+  width: 30px;
+  height: 30px;
+  flex-shrink: 0;
+  border-radius: $radius-8;
+  @include flex-center;
+  color: var(--color-text-secondary);
+  transition: background $transition-base, color $transition-base;
+
+  &:hover:not(:disabled) {
+    background: var(--color-hover);
+    color: var(--color-text-primary);
+  }
+
+  &:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+}
+
+.dialogFooter {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: $spacing-8;
+}
+
+.dialogActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: $spacing-8;
+  margin-left: auto;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dialog,
+  .dialogOverlay {
+    animation: none;
+    transition: none;
+  }
 }

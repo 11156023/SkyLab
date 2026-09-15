@@ -28,6 +28,11 @@ from .ai_proxy import (
     ModelsResponse,
     RateLimitStatusResponse,
     TemplateUsageStatsResponse,
+    UnifiedRouteUsage,
+    UnifiedUsageByModel,
+    UnifiedUsageStatsResponse,
+    UsageRecordPublic,
+    UsageRecordsPublic,
     UsageStatsResponse,
 )
 from .audit_log import (
@@ -209,6 +214,11 @@ __all__ = [
     "ModelsResponse",
     "UsageStatsResponse",
     "TemplateUsageStatsResponse",
+    "UnifiedRouteUsage",
+    "UnifiedUsageByModel",
+    "UnifiedUsageStatsResponse",
+    "UsageRecordPublic",
+    "UsageRecordsPublic",
     "RateLimitStatusResponse",
     # User
     "UserCreate",

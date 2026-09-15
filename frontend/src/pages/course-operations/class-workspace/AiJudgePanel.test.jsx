@@ -2,14 +2,21 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, test } from "vitest";
 import {
   ChatPanel,
-  CreateCheckChooser,
+  CreateCheckDialog,
   RubricTable,
+  ProposalPanel,
+  SaveAndCreateAction,
+  ScriptGenerationNotice,
   SessionTitle,
+  applyProposalOperations,
   buildProposalDiff,
   getRubricDisplayName,
   getRubricCheckTitle,
   getRubricItemsValue,
+  getRubricReviewItemIds,
   getPendingRubricItemIds,
+  resolveDetectabilityNeedsReview,
+  getScriptCreationBlocker,
   getSessionMenuPosition,
   getSelectedRubricSource,
   getScriptCreationDestination,
@@ -37,7 +44,7 @@ describe("ChatPanel", () => {
     expect(html).toContain("清除內容");
   });
 
-  test("在聊天室提供 AI 一鍵整理與資料來源入口，並在停留時說明用途", () => {
+  test("聊天室只保留對話相關操作，不提供整理或製作入口", () => {
     const html = renderToStaticMarkup(
       <ChatPanel
         messages={[]}
@@ -48,11 +55,14 @@ describe("ChatPanel", () => {
       />,
     );
 
-    expect(html).toContain(">AI一鍵整理</button>");
-    expect(html).toContain('title="(好用) AI幫助你把評分表規則化，後續方便腳本生成"');
+    expect(html).not.toContain("AI一鍵整理");
+    expect(html).not.toContain("儲存並製作");
+    expect(html).not.toContain("製作檢查腳本");
     expect(html).toContain("資料來源");
     expect(html).toContain('aria-controls="ai-chat-data-sources"');
-    expect(html).not.toContain("評分表來源");
+    expect(html).toContain("描述想檢查的需求");
+    expect(html).toContain("同意提案後才會正式保存");
+    expect(html).not.toContain("檢查表來源");
     expect(html).not.toContain("自動檢測支援");
   });
 
@@ -95,40 +105,7 @@ describe("ChatPanel", () => {
     expect(html).toContain("已讀取");
   });
 
-  test("聊天室整合製作檢查腳本按鈕，有評分表時才可點擊", () => {
-    const withScript = renderToStaticMarkup(
-      <ChatPanel
-        messages={[]}
-        onSendMessage={() => {}}
-        isLoading={false}
-        hasRubric
-        onCreateScript={() => {}}
-        canCreateScript
-      />,
-    );
-
-    expect(withScript).toContain("製作檢查腳本");
-    expect(withScript).not.toContain("匯出 Excel");
-    expect(withScript).not.toContain("匯出中");
-
-    const withoutItems = renderToStaticMarkup(
-      <ChatPanel
-        messages={[]}
-        onSendMessage={() => {}}
-        isLoading={false}
-        hasRubric
-        onCreateScript={() => {}}
-        canCreateScript={false}
-        createScriptHint="請先新增至少一個檢查項目"
-      />,
-    );
-
-    expect(withoutItems).toContain("製作檢查腳本");
-    expect(withoutItems).toContain("disabled");
-    expect(withoutItems).toContain('title="請先新增至少一個檢查項目"');
-  });
-
-  test("沒有評分表時不提供製作檢查腳本入口", () => {
+  test("沒有檢查表時仍不提供任何腳本操作入口", () => {
     const html = renderToStaticMarkup(
       <ChatPanel
         messages={[]}
@@ -141,32 +118,108 @@ describe("ChatPanel", () => {
     expect(html).not.toContain("匯出 Excel");
   });
 
-  test("製作中時顯示製作中狀態", () => {
+  test("腳本製作失敗會留下可辨識的頁面狀態，不只依賴 toast", () => {
     const html = renderToStaticMarkup(
-      <ChatPanel
-        messages={[]}
-        onSendMessage={() => {}}
-        isLoading={false}
-        hasRubric
-        onCreateScript={() => {}}
-        isCreatingScript
-        canCreateScript
+      <ScriptGenerationNotice
+        notice={{
+          status: "error",
+          message: "上游服務逾時。可再次按「儲存並製作」重試。",
+        }}
       />,
     );
 
-    expect(html).toContain("製作中...");
+    expect(html).toContain('role="alert"');
+    expect(html).toContain('data-workflow-status="error"');
+    expect(html).toContain("上游服務逾時");
+    expect(html).toContain("再次按");
+  });
+
+  test("腳本製作中的橙色橫幅沿用旋轉圖示與忙碌狀態", () => {
+    const html = renderToStaticMarkup(
+      <ScriptGenerationNotice isCreatingScript status="generating" />,
+    );
+
+    expect(html).toContain("正在製作檢查腳本");
+    expect(html).toContain('aria-busy="true"');
+    expect(html).toContain('data-workflow-status="generating"');
+    expect(html).toContain("spinning");
   });
 });
 
-describe("CreateCheckChooser", () => {
-  test("新增檢查提供從零建立與已有文件兩條入口", () => {
+describe("CreateCheckDialog", () => {
+  test("新增檢查直接詢問名稱並說明會建立空白檢查表", () => {
     const html = renderToStaticMarkup(
-      <CreateCheckChooser onChoose={() => {}} onCancel={() => {}} />,
+      <CreateCheckDialog onClose={() => {}} onSubmit={() => {}} />,
     );
 
-    expect(html).toContain("從零開始建立");
-    expect(html).toContain("使用已有評分文件");
-    expect(html).toContain("選擇文件");
+    expect(html).toContain('role="dialog"');
+    expect(html).toContain('aria-modal="true"');
+    expect(html).toContain('id="create-check-name-input"');
+    expect(html).toContain("輸入名稱後，會直接建立一份空白檢查表");
+    expect(html).toContain("建立空白檢查");
+    expect(html).not.toContain("使用已有評分文件");
+    expect(html).not.toContain("選擇建立方式");
+  });
+});
+
+describe("ProposalPanel", () => {
+  test("以可展開透明預覽呈現 Ready 操作與正式套用文案", () => {
+    const html = renderToStaticMarkup(
+      <ProposalPanel
+        proposal={[
+          { id: "item-add", title: "main.py 輸出檢查", operation: "add" },
+          { id: "item-update", title: "資料庫健康檢查", operation: "update" },
+          { id: "item-delete", title: "舊版 Port 檢查", operation: "delete" },
+        ]}
+        selectedIds={new Set(["item-add", "item-update", "item-delete"])}
+        onToggle={() => {}}
+        onApply={() => {}}
+        onSkip={() => {}}
+        disabled={false}
+      />,
+    );
+
+    expect(html).toContain('aria-label="AI 提案"');
+    expect(html).toContain('aria-live="polite"');
+    expect(html).toContain('aria-expanded="true"');
+    expect(html).toContain("Ready 3");
+    expect(html).toContain("新增");
+    expect(html).toContain("修改");
+    expect(html).toContain("刪除");
+    expect(html).toContain("忽略");
+    expect(html).toContain("同意套用");
+    expect(html).not.toContain("略過");
+    expect(html).not.toContain("套用選取");
+  });
+});
+
+describe("SaveAndCreateAction", () => {
+  test("顯示於檢查表操作區並說明全綠後才製作", () => {
+    const html = renderToStaticMarkup(<SaveAndCreateAction onClick={() => {}} />);
+
+    expect(html).toContain("儲存並製作");
+    expect(html).toContain("AI 核對全部項目；全綠後會直接製作腳本");
+    expect(html).toContain("save");
+  });
+
+  test("核對期間停用按鈕並提供可辨識的忙碌狀態", () => {
+    const html = renderToStaticMarkup(
+      <SaveAndCreateAction onClick={() => {}} isProcessing status="reviewing" />,
+    );
+
+    expect(html).toContain("核對項目中…");
+    expect(html).toContain("disabled");
+    expect(html).toContain('aria-busy="true"');
+    expect(html).toContain('data-generation-status="reviewing"');
+  });
+
+  test("有待處理提案時停用並顯示原因", () => {
+    const html = renderToStaticMarkup(
+      <SaveAndCreateAction onClick={() => {}} blocker="請先套用目前提案" />,
+    );
+
+    expect(html).toContain("disabled");
+    expect(html).toContain('title="請先套用目前提案"');
   });
 });
 
@@ -177,6 +230,7 @@ describe("RubricTable", () => {
       title: "Python 版本檢查",
       description: "Python 需要至少 3.11",
       detectable: "auto",
+      judgement_mode: "ai",
       detection_method: "執行 python --version",
       fallback: "無法執行時由老師確認",
       check_steps: [{ template_key: "python", command_key: "python_version", command_label: "Python 版本" }],
@@ -187,8 +241,18 @@ describe("RubricTable", () => {
       description: "回傳內容符合規格",
       detectable: "partial",
       detection_method: null,
-      fallback: null,
+      fallback: "請補充實際輸出格式",
+      missing_information: ["預期輸出格式"],
       check_steps: [],
+    },
+    {
+      id: "teacher-review",
+      title: "程式架構品質",
+      description: "收集原始碼供老師判斷",
+      detectable: "auto",
+      judgement_mode: "teacher",
+      detection_method: "讀取 main.py 內容",
+      check_steps: [{ template_key: "linux", command_key: "system.run_command" }],
     },
     {
       id: "manual-review",
@@ -207,12 +271,19 @@ describe("RubricTable", () => {
     );
 
     expect(html).toContain("檢查點");
-    expect(html).toContain("評分標準");
+    expect(html).toContain("檢查條件");
     expect(html).toContain("自動檢測支援");
     expect(html).toContain('value="Python 版本檢查"');
-    expect(html).toContain("可自動");
-    expect(html).toContain("部分自動");
-    expect(html).toContain("不行");
+    expect(html).toContain("可以");
+    expect(html).toContain("缺少資訊");
+    expect(html).toContain("導師檢查");
+    expect(html).toContain("導師核查／無法執行");
+    expect(html).toContain("check_circle");
+    expect(html).toContain("warning_amber");
+    expect(html.match(/cancel/g)).toHaveLength(2);
+    expect(html.match(/detBadge_manual/g)).toHaveLength(2);
+    expect(html).not.toContain("可執行取證");
+    expect(html).not.toContain("導師人工審核");
     expect(html).toContain('aria-expanded="false"');
     expect(html).toContain('aria-label="展開第 1 項檢查設定"');
     expect(html.indexOf('aria-label="展開第 1 項檢查設定"')).toBeLessThan(html.indexOf('value="Python 版本檢查"'));
@@ -232,9 +303,106 @@ describe("RubricTable", () => {
     );
 
     expect(html).toContain("待更新");
-    expect(html).toContain('title="可自動（待更新）"');
-    expect(html).not.toContain('title="部分自動（待更新）"');
-    expect(html).not.toContain('title="不行（待更新）"');
+    expect(html).toContain('title="缺少資訊（自動檢測支援待更新）"');
+    expect(html).toContain("warning_amber");
+  });
+});
+
+describe("getScriptCreationBlocker", () => {
+  const completeItem = {
+    id: "python-run",
+    title: "執行 main.py",
+    detectable: "auto",
+    detection_method: "依 exit code 與 stdout 判定",
+    check_steps: [{
+      template_key: "python",
+      command_key: "python.run_entrypoint",
+      parameters: {
+        cwd: "/home/student/project",
+        argv: ["python3", "main.py"],
+        timeout_seconds: 30,
+        success_criteria: "exit code 為 0 且 stdout 等於 20",
+      },
+    }],
+  };
+
+  test("所有項目都可以執行時允許製作腳本", () => {
+    expect(getScriptCreationBlocker({ analysis: { items: [completeItem] } })).toBeNull();
+  });
+
+  test("後端導師判定模式不受客觀答案攔截", () => {
+    const teacherReviewItem = {
+      ...completeItem,
+      judgement_mode: "teacher",
+      check_steps: [{
+        ...completeItem.check_steps[0],
+        parameters: {
+          cwd: "/home/student/project",
+          argv: ["python3", "main.py"],
+          timeout_seconds: 30,
+        },
+      }],
+    };
+
+    expect(getScriptCreationBlocker({ analysis: { items: [teacherReviewItem] } })).toBeNull();
+  });
+
+  test("缺少資訊或需要人工審核時阻擋整份腳本", () => {
+    const blocker = getScriptCreationBlocker({
+      analysis: {
+        items: [
+          { ...completeItem, id: "missing", detectable: "partial" },
+          { ...completeItem, id: "manual", detectable: "manual" },
+        ],
+      },
+    });
+
+    expect(blocker).toContain("1 項缺少資訊");
+    expect(blocker).toContain("1 項需要導師核查或無法執行");
+  });
+
+  test("異動後尚未重新確認時阻擋腳本", () => {
+    expect(getScriptCreationBlocker({
+      analysis: { items: [completeItem], detectability_needs_review: true },
+    })).toContain("待更新");
+  });
+
+  test("待重新確認項目會從檢查表狀態還原，讓提示與列標籤一致", () => {
+    const analysis = {
+      items: [completeItem],
+      detectability_needs_review: true,
+    };
+    expect([...getRubricReviewItemIds(analysis)]).toEqual(["python-run"]);
+
+    const html = renderToStaticMarkup(
+      <RubricTable
+        items={analysis.items}
+        needsReviewIds={getRubricReviewItemIds(analysis)}
+        onChange={() => {}}
+        onDelete={() => {}}
+      />,
+    );
+    expect(html).toContain("待更新");
+    expect(html).toContain('title="缺少資訊（自動檢測支援待更新）"');
+  });
+
+  test("保存的待更新項目只標示對應列，不讓整張表變成待確認", () => {
+    const secondItem = { ...completeItem, id: "second-item", title: "第二項" };
+    const analysis = {
+      items: [completeItem, secondItem],
+      detectability_needs_review: true,
+      pending_review_item_ids: ["python-run"],
+    };
+
+    const html = renderToStaticMarkup(
+      <RubricTable
+        items={analysis.items}
+        needsReviewIds={getRubricReviewItemIds(analysis)}
+        onChange={() => {}}
+        onDelete={() => {}}
+      />,
+    );
+    expect(html.match(/自動檢測支援待更新/g)).toHaveLength(1);
   });
 });
 
@@ -269,6 +437,88 @@ describe("rubric item change detection", () => {
   });
 });
 
+describe("detectability review state", () => {
+  test("待確認清單為空時不得保存整表待更新旗標，避免未編輯項目全變待更新", () => {
+    expect(resolveDetectabilityNeedsReview({
+      requested: true,
+      reviewItemIds: new Set(),
+      hasActualChange: true,
+      lastSavedNeedsReview: false,
+    })).toBe(false);
+
+    expect(resolveDetectabilityNeedsReview({
+      requested: true,
+      reviewItemIds: new Set(["item-2"]),
+      hasActualChange: true,
+      lastSavedNeedsReview: false,
+    })).toBe(true);
+
+    expect(resolveDetectabilityNeedsReview({
+      requested: true,
+      reviewItemIds: new Set(),
+      hasActualChange: false,
+      lastSavedNeedsReview: true,
+    })).toBe(false);
+
+    expect(resolveDetectabilityNeedsReview({
+      requested: false,
+      reviewItemIds: new Set(["item-2"]),
+      hasActualChange: true,
+    })).toBe(false);
+  });
+
+  test("未指定意圖時沿用分析結果既有旗標", () => {
+    expect(resolveDetectabilityNeedsReview({
+      requested: null,
+      reviewItemIds: new Set(["item-1"]),
+      fallbackNeedsReview: true,
+    })).toBe(true);
+    expect(resolveDetectabilityNeedsReview({
+      requested: null,
+      reviewItemIds: new Set(),
+      fallbackNeedsReview: false,
+    })).toBe(false);
+  });
+
+  test("刪除單一項目不會把其他未編輯項目算進待確認清單", () => {
+    const savedItems = [
+      { id: "item-1", title: "檢查版本", description: "至少 3.11", detectable: "auto" },
+      { id: "item-2", title: "檢查輸出", description: "符合格式", detectable: "auto" },
+    ];
+    const nextItems = [savedItems[1]];
+
+    expect([...getPendingRubricItemIds(nextItems, savedItems)]).toEqual([]);
+  });
+
+  test("套用提案期間尚未保存完成的內容，會以排程中的分析為基準，不把 AI 套用結果誤判成待更新", () => {
+    const savedItems = [
+      { id: "item-1", title: "檢查版本", description: "至少 3.11", detectable: "auto" },
+      { id: "item-2", title: "檢查輸出", description: "符合格式", detectable: "auto" },
+    ];
+    // AI 提案已套用 item-1（尚未保存完成），使用者此時編輯 item-2
+    const pendingSaveAnalysis = {
+      items: [
+        { ...savedItems[0], description: "至少 3.11（AI 補充）" },
+        savedItems[1],
+      ],
+      detectability_needs_review: false,
+      pending_review_item_ids: [],
+    };
+    const nextItems = [
+      pendingSaveAnalysis.items[0],
+      { ...savedItems[1], description: "符合格式（教師微調）" },
+    ];
+
+    expect([...getPendingRubricItemIds(
+      nextItems,
+      savedItems,
+      [],
+      false,
+      pendingSaveAnalysis,
+    )]).toEqual(["item-2"]);
+  });
+});
+
 describe("buildProposalDiff", () => {
   test("將 AI 修改轉成可確認差異，且未回傳項目不會被默認刪除", () => {
     const current = [
@@ -287,14 +537,34 @@ describe("buildProposalDiff", () => {
       ["remove", "delete"],
     ]);
   });
+
+  test("候選檢查表只套用選定差異並保留未提及項目", () => {
+    const result = applyProposalOperations(
+      [
+        { id: "keep", title: "保留", description: "原內容" },
+        { id: "remove", title: "移除", description: "舊內容" },
+      ],
+      [
+        { id: "keep", title: "保留", description: "新內容", operation: "update" },
+        { id: "remove", operation: "delete" },
+      ],
+      new Set(["keep"]),
+    );
+
+    expect(result.items).toEqual([
+      { id: "keep", title: "保留", description: "新內容" },
+      { id: "remove", title: "移除", description: "舊內容" },
+    ]);
+    expect([...result.evaluatedIds]).toEqual(["keep"]);
+  });
 });
 
 describe("uploaded rubric naming", () => {
   test("匯入檔名移除副檔名，且檢查名稱保留檔名主體並限制長度", () => {
-    expect(getRubricDisplayName({ name: "AI評分表審核系統_Python服務Running狀態檢測_簡短版.docx" }))
-      .toBe("AI評分表審核系統_Python服務Running狀態檢測_簡短版");
-    expect(getRubricCheckTitle({ original_filename: "保存的評分表.docx" })).toBe("保存的評分表");
-    expect(getRubricCheckTitle({ display_name: "自訂評分表", original_filename: "保存的評分表.docx" })).toBe("自訂評分表");
+    expect(getRubricDisplayName({ name: "AI檢查表審核系統_Python服務Running狀態檢測_簡短版.docx" }))
+      .toBe("AI檢查表審核系統_Python服務Running狀態檢測_簡短版");
+    expect(getRubricCheckTitle({ original_filename: "保存的檢查表.docx" })).toBe("保存的檢查表");
+    expect(getRubricCheckTitle({ display_name: "自訂檢查表", original_filename: "保存的檢查表.docx" })).toBe("自訂檢查表");
     expect(getRubricCheckTitle({ name: "  " })).toBe("未命名檢查");
     expect(getRubricCheckTitle({ name: "a".repeat(300) })).toHaveLength(255);
   });

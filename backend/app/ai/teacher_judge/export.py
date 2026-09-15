@@ -7,9 +7,14 @@ import io
 from app.ai.teacher_judge.schemas import TeacherJudgeRubricItem
 
 _DETECTABLE_LABELS = {
-    "auto": "✅ 可自動偵測",
-    "partial": "⚠️ 部分可偵測",
-    "manual": "❌ 需人工評閱",
+    "auto": "✅ 可執行檢查",
+    "partial": "⚠️ 缺少資訊",
+    "manual": "❌ 無法執行",
+}
+
+_JUDGEMENT_MODE_LABELS = {
+    "ai": "系統自動核對",
+    "teacher": "導師核查",
 }
 
 _DETECTABLE_COLORS = {
@@ -19,8 +24,8 @@ _DETECTABLE_COLORS = {
 }
 
 _CHECKED_LABELS = {
-    True: "✅ 已達成",
-    False: "⬜ 未達成",
+    True: "✅ 已確認",
+    False: "⬜ 未確認",
 }
 
 
@@ -32,19 +37,20 @@ def export_to_excel(items: list[TeacherJudgeRubricItem], summary: str = "") -> b
 
     wb = Workbook()
     ws = wb.active
-    ws.title = "評分表"
+    ws.title = "檢查表"
 
     header_font = Font(bold=True, size=11)
     headers = [
         "項目編號",
-        "評分項目",
+        "檢查項目",
         "說明",
-        "是否達成",
-        "可偵測性",
-        "自動偵測方式",
+        "確認狀態",
+        "執行狀態",
+        "核對方式",
+        "證據收集方式",
         "替代建議",
     ]
-    col_widths = [10, 25, 40, 12, 18, 35, 35]
+    col_widths = [10, 25, 40, 12, 18, 18, 35, 35]
 
     for col_idx, (h, w) in enumerate(zip(headers, col_widths, strict=True), start=1):
         cell = ws.cell(row=1, column=col_idx, value=h)
@@ -67,8 +73,13 @@ def export_to_excel(items: list[TeacherJudgeRubricItem], summary: str = "") -> b
             item.id,
             item.title,
             item.description,
-            _CHECKED_LABELS.get(bool(item.checked), "⬜ 未達成"),
+            _CHECKED_LABELS.get(bool(item.checked), "⬜ 未確認"),
             label,
+            (
+                _JUDGEMENT_MODE_LABELS.get(item.judgement_mode, item.judgement_mode)
+                if detectable == "auto"
+                else ""
+            ),
             item.detection_method or "",
             item.fallback or "",
         ]

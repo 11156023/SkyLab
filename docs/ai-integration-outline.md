@@ -237,3 +237,4 @@ Proxy 呼叫流程：
 ## 9. 待確認整合點
 
 - `frontend/src/services/aiMonitoring.ts` 的 proxy 個人用量路徑寫為 `/api/v1/ai-api/usage/proxy/my`，但目前後端可見的 proxy 個人用量 API 是 `/api/v1/ai-proxy/usage/my`，且該路由走 AI API key 驗證。若報告要展示個人 proxy 用量頁，建議先確認此路徑是否已有其他未掃到的轉接或仍待整合。
+  - 已確認：`backend/app/api/routes/ai_api.py` 有 `GET /api/v1/ai-api/usage/proxy/my`（JWT 驗證）。ai-api 頁「我的用量」現已改用統一端點 `GET /api/v1/ai-api/usage/my`（整合 AI 模型路由與 AI 系統路由）與 `GET /api/v1/ai-api/usage/records/my`（細項紀錄）。
