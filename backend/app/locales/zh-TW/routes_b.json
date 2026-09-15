@@ -39,13 +39,13 @@
   "teacherJudgeScripts.classNotFound": "找不到班級",
   "teacherJudgeScripts.unknownTemplate": "未知的評分環境 template。",
 
-  "teacherJudgeSessions.selectedFileInUse": "這份評分表已被其他檢查使用；請使用「重構」建立獨立副本，或上傳新的評分表。",
+  "teacherJudgeSessions.selectedFileInUse": "這份檢查表已被其他檢查使用；請使用「重構」建立獨立副本，或上傳新的檢查表。",
   "teacherJudgeSessions.classNotFound": "找不到班級。",
   "teacherJudgeSessions.weekNotInClass": "選擇的週次不屬於這個班級。",
   "teacherJudgeSessions.archivedReadOnly": "已封存的檢查為唯讀。",
   "teacherJudgeSessions.archivedCannotPin": "已封存的檢查不能釘選。",
   "teacherJudgeSessions.invalidMessageCursor": "訊息游標無效。",
-  "teacherJudgeSessions.analysisRevisionConflict": "評分表已被其他變更更新，請重新載入後再請 AI 提案。",
+  "teacherJudgeSessions.analysisRevisionConflict": "檢查表已被其他變更更新，請重新載入後再請 AI 提案。",
   "teacherJudgeSessions.runResultNotFound": "找不到這項檢查的執行結果。",
   "teacherJudgeSessions.scriptNotFound": "找不到這項檢查的腳本。",
 

@@ -14,6 +14,7 @@ from app.ai.teacher_judge.schemas import (
     TeacherJudgeRubricAnalysis,
     TeacherJudgeSessionCreateRequest,
     TeacherJudgeSessionMessageCreateRequest,
+    TeacherJudgeSessionScriptCreateRequest,
     TeacherJudgeSessionUpdateRequest,
 )
 from app.api.routes import teacher_judge_sessions
@@ -281,7 +282,7 @@ def test_fork_created_session_clones_rubric_without_history() -> None:
         session=db,
         teaching_class_id=class_id,
         created_by=owner_id,
-        display_name="原始評分表",
+        display_name="原始檢查表",
         environment_keys=["python"],
     )
     db.commit()
@@ -386,6 +387,141 @@ async def test_message_without_rubric_is_saved_and_uses_general_chat(
 
 
 @pytest.mark.asyncio
+async def test_message_without_rubric_does_not_claim_proposal_was_created(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    db = _session()
+    class_id = uuid.uuid4()
+    item = TeacherJudgeSession(teaching_class_id=class_id, title="Chat first")
+    db.add(item)
+    db.commit()
+    db.refresh(item)
+
+    async def fake_chat(*args, **kwargs):
+        return (
+            "檔案格式檢查：Ready，已放入提案。",
+            [
+                {
+                    "id": "item-file-format",
+                    "title": "檔案格式檢查",
+                    "operation": "add",
+                }
+            ],
+            {},
+        )
+
+    monkeypatch.setattr(teacher_judge_sessions, "_access", lambda *args: None)
+    monkeypatch.setattr(teacher_judge_sessions, "chat_with_rubric", fake_chat)
+    monkeypatch.setattr(
+        teacher_judge_sessions, "get_enabled_template_commands", lambda *args, **kwargs: []
+    )
+
+    result = await teacher_judge_sessions.create_message(
+        class_id,
+        item.id,
+        TeacherJudgeSessionMessageCreateRequest(content="檢查檔案格式"),
+        db,
+        SimpleNamespace(id=uuid.uuid4()),
+    )
+
+    assert result.rubric_proposal is None
+    assert "尚未選擇檢查表來源" in result.assistant_message.content
+    assert "已放入提案" not in result.assistant_message.content
+
+
+@pytest.mark.asyncio
+async def test_message_does_not_enable_script_creation_workflow(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    db = _session()
+    class_id = uuid.uuid4()
+    rubric_file = _file(db, class_id)
+    rubric_file.analysis_json = {
+        "items": [
+            {
+                "id": "item-1",
+                "title": "程式可執行",
+                "description": "",
+                "checked": False,
+                "detectable": "auto",
+                "detection_method": "exit code",
+                "check_steps": [],
+                "fallback": None,
+            }
+        ]
+    }
+    db.add(rubric_file)
+    db.commit()
+    db.refresh(rubric_file)
+    item = TeacherJudgeSession(
+        teaching_class_id=class_id,
+        title="Create script from chat",
+        selected_file_id=rubric_file.id,
+    )
+    db.add(item)
+    db.commit()
+    db.refresh(item)
+
+    async def fake_chat(messages, rubric_context, **kwargs):
+        assert "enable_workflow_tools" not in kwargs
+        assert "ready_proposals_only" not in kwargs
+        return (
+            "請使用檢查表右下角的儲存並製作按鈕。",
+            None,
+            {},
+        )
+
+    monkeypatch.setattr(teacher_judge_sessions, "_access", lambda *args: None)
+    monkeypatch.setattr(teacher_judge_sessions, "chat_with_rubric", fake_chat)
+    monkeypatch.setattr(
+        teacher_judge_sessions,
+        "get_enabled_template_commands",
+        lambda *args, **kwargs: [],
+    )
+
+    result = await teacher_judge_sessions.create_message(
+        class_id,
+        item.id,
+        TeacherJudgeSessionMessageCreateRequest(content="可以幫我製作檢查腳本嗎"),
+        db,
+        SimpleNamespace(id=uuid.uuid4()),
+    )
+
+    assert result.assistant_message.content == "請使用檢查表右下角的儲存並製作按鈕。"
+    assert "workflow_action" not in result.assistant_message.metadata_json
+
+
+@pytest.mark.asyncio
+async def test_session_script_rejects_stale_analysis_revision(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    db = _session()
+    class_id = uuid.uuid4()
+    rubric_file = _file(db, class_id)
+    item = TeacherJudgeSession(
+        teaching_class_id=class_id,
+        title="Stale script revision",
+        selected_file_id=rubric_file.id,
+    )
+    db.add(item)
+    db.commit()
+    db.refresh(item)
+    monkeypatch.setattr(teacher_judge_sessions, "_access", lambda *args: None)
+
+    with pytest.raises(HTTPException) as exc_info:
+        await teacher_judge_sessions.create_session_script(
+            class_id,
+            item.id,
+            db,
+            SimpleNamespace(id=uuid.uuid4()),
+            TeacherJudgeSessionScriptCreateRequest(analysis_revision=99),
+        )
+
+    assert exc_info.value.status_code == 409
+    assert exc_info.value.detail["code"] == "teacher_judge_analysis_revision_conflict"
+
+
+@pytest.mark.asyncio
 async def test_message_can_send_parsed_attachment_without_text(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path,
@@ -435,6 +571,74 @@ async def test_message_can_send_parsed_attachment_without_text(
 
 
 @pytest.mark.asyncio
+async def test_attachment_proposal_is_ephemeral_until_explicit_apply(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    db = _session()
+    class_id = uuid.uuid4()
+    rubric_file = _file(db, class_id)
+    item = TeacherJudgeSession(
+        teaching_class_id=class_id,
+        title="Attachment proposal",
+        selected_file_id=rubric_file.id,
+    )
+    db.add(item)
+    db.commit()
+    db.refresh(item)
+    original_analysis = dict(rubric_file.analysis_json)
+    original_revision = rubric_file.analysis_revision
+    proposal = [
+        {
+            "op": "add",
+            "item": {
+                "id": "item-1",
+                "title": "檢查 Port 8080",
+                "description": "確認服務監聽 8080",
+                "checked": False,
+                "detectable": "auto",
+                "detection_method": "檢查 listening socket",
+                "missing_information": [],
+                "check_steps": [],
+                "fallback": None,
+            },
+        }
+    ]
+    captured_chat_kwargs = {}
+
+    async def fake_chat(*_args, **kwargs):
+        captured_chat_kwargs.update(kwargs)
+        return "已建立一項可確認的提案。", proposal, {"total_tokens": 1}
+
+    monkeypatch.setattr(teacher_judge_sessions, "_access", lambda *args: None)
+    monkeypatch.setattr(teacher_judge_sessions, "chat_with_rubric", fake_chat)
+    monkeypatch.setattr(
+        teacher_judge_sessions, "get_enabled_template_commands", lambda *args, **kwargs: []
+    )
+
+    result = await teacher_judge_sessions.create_message(
+        class_id,
+        item.id,
+        TeacherJudgeSessionMessageCreateRequest(
+            content="請從附件加入 Port 8080 檢查",
+            analysis_revision=original_revision,
+        ),
+        db,
+        SimpleNamespace(id=uuid.uuid4()),
+    )
+
+    assert result.rubric_proposal == proposal
+    assert result.base_revision == original_revision
+    assert captured_chat_kwargs["analysis_revision"] == original_revision
+    assert captured_chat_kwargs["rubric_available"] is True
+    assert "rubric_proposal" not in result.assistant_message.metadata_json
+    assert "base_revision" not in result.assistant_message.metadata_json
+    assert result.assistant_message.message_type == "chat"
+    db.refresh(rubric_file)
+    assert rubric_file.analysis_revision == original_revision
+    assert rubric_file.analysis_json == original_analysis
+
+
+@pytest.mark.asyncio
 async def test_refine_message_uses_the_rubric_polish_prompt_mode(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -451,10 +655,11 @@ async def test_refine_message_uses_the_rubric_polish_prompt_mode(
     db.refresh(item)
 
     async def fake_chat(messages, rubric_context, **kwargs):
-        assert messages[-1].content == "請審核並潤飾目前的評分表"
+        assert messages[-1].content == "請審核並潤飾目前的檢查表"
         assert '"items": []' in rubric_context
         assert kwargs["is_refine"] is True
-        return "檢查完畢，評分表目前狀態良好。", None, {}
+        assert "ready_proposals_only" not in kwargs
+        return "檢查完畢，檢查表目前狀態良好。", None, {}
 
     monkeypatch.setattr(teacher_judge_sessions, "_access", lambda *args: None)
     monkeypatch.setattr(teacher_judge_sessions, "chat_with_rubric", fake_chat)
@@ -466,16 +671,17 @@ async def test_refine_message_uses_the_rubric_polish_prompt_mode(
         class_id,
         item.id,
         TeacherJudgeSessionMessageCreateRequest(
-            content="請審核並潤飾目前的評分表",
+            content="請審核並潤飾目前的檢查表",
             is_refine=True,
         ),
         db,
         SimpleNamespace(id=uuid.uuid4()),
     )
 
-    assert result.assistant_message.content == "檢查完畢，評分表目前狀態良好。"
+    assert result.assistant_message.content == "檢查完畢，檢查表目前狀態良好。"
     assert result.rubric_proposal is None
     assert result.user_message.metadata_json["ui_hidden"] is True
+    assert result.assistant_message.metadata_json["ui_hidden"] is True
 
 
 @pytest.mark.asyncio
@@ -505,7 +711,7 @@ async def test_message_rejects_stale_rubric_revision_before_ai_call(
             class_id,
             item.id,
             TeacherJudgeSessionMessageCreateRequest(
-                content="請更新評分表",
+                content="請更新檢查表",
                 analysis_revision=99,
             ),
             db,
@@ -584,6 +790,18 @@ def test_message_content_redacts_common_secrets() -> None:
     assert content.count("[REDACTED]") == 2
 
 
+def test_message_public_normalizes_only_whitespace_entities() -> None:
+    item = TeacherJudgeSessionMessage(
+        session_id=uuid.uuid4(),
+        role=TeacherJudgeMessageRole.assistant,
+        content="CPU&#x20;資訊&#32;&nbsp;<b>純文字</b>",
+    )
+
+    public = session_service.message_public(item)
+
+    assert public.content == "CPU 資訊  <b>純文字</b>"
+
+
 def test_bounded_history_keeps_latest_messages_in_stable_order() -> None:
     db = _session()
     item = TeacherJudgeSession(teaching_class_id=uuid.uuid4(), title="History")
@@ -646,6 +864,54 @@ def test_bounded_history_includes_summary_before_newer_messages() -> None:
     assert history[0].role == "assistant"
     assert "只檢查 Python 執行結果" in history[0].content
     assert history[-1].content == "好的，會保留。"
+
+
+def test_bounded_history_injects_latest_focus_for_same_source_only() -> None:
+    db = _session()
+    source_id = uuid.uuid4()
+    item = TeacherJudgeSession(teaching_class_id=uuid.uuid4(), title="Focus")
+    db.add(item)
+    db.commit()
+    db.refresh(item)
+    db.add_all(
+        [
+            TeacherJudgeSessionMessage(
+                session_id=item.id,
+                role=TeacherJudgeMessageRole.assistant,
+                content="請補充範圍。",
+                metadata_json={
+                    "conversation_focus": {
+                        "source_file_id": str(source_id),
+                        "turn_kind": "requirement",
+                        "requirements": [
+                            {
+                                "focus_key": "resource-usage",
+                                "status": "needs_information",
+                                "known_information": ["整台 VM"],
+                                "missing_information": ["目前或一段期間"],
+                            }
+                        ],
+                    }
+                },
+            ),
+            TeacherJudgeSessionMessage(
+                session_id=item.id,
+                role=TeacherJudgeMessageRole.user,
+                content="看目前就好",
+            ),
+        ]
+    )
+    db.commit()
+
+    same_source = session_service.bounded_history(
+        db, item.id, source_file_id=source_id
+    )
+    other_source = session_service.bounded_history(
+        db, item.id, source_file_id=uuid.uuid4()
+    )
+
+    assert any("resource-usage" in message.content for message in same_source)
+    assert not any("resource-usage" in message.content for message in other_source)
 
 
 def test_summary_persistence_is_monotonic_for_out_of_order_workers() -> None:

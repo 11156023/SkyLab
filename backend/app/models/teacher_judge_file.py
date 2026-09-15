@@ -65,7 +65,7 @@ class TeacherJudgeFile(SQLModel, table=True):
     file_hash: str | None = Field(default=None, max_length=64, index=True)
     template_key: str = Field(max_length=50, index=True)
     source_type: str = Field(default="uploaded", max_length=20, index=True)
-    display_name: str = Field(default="評分表", max_length=255)
+    display_name: str = Field(default="檢查表", max_length=255)
     environment_keys: list[str] = Field(
         default_factory=list,
         sa_column=Column(sa.JSON, nullable=False),
