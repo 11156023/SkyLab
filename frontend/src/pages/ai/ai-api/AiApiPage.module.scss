@@ -228,7 +228,7 @@
   &:hover:not(:disabled) { background: var(--color-hover); }
 }
 
-.btnDanger {
+.btnOutlineDanger {
   color: var(--color-danger);
   border-color: color-mix(in srgb, var(--color-danger) 30%, transparent);
 
