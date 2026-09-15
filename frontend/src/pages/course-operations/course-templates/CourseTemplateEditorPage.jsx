@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import {
   Background,
   Handle,
+  Panel,
   Position,
   ReactFlow,
   useNodesState,
@@ -17,6 +19,7 @@ import { TeachingClassesService } from "../../../services/teachingClasses";
 import { apiGet } from "../../../services/api";
 import { focusInvalidField } from "../../../utils/focusField";
 import { useToast } from "../../../hooks/useToast";
+import useDialogPresence from "../../../hooks/useDialogPresence";
 import EmptyState from "../../../components/EmptyState/EmptyState";
 import { TemplatesService } from "../../../services/templates";
 import ConnectionEdge from "../../network/firewall/edges/ConnectionEdge";
@@ -25,8 +28,8 @@ import PageHeader from "../../../components/PageHeader/PageHeader";
 import i18n from "../../../i18n";
 
 const TABS = [
-  ["basic", "CourseTemplateEditorPage.tabBasicLabel", "CourseTemplateEditorPage.stepBasicHint"],
-  ["machines", "CourseTemplateEditorPage.tabMachinesLabel", "CourseTemplateEditorPage.stepMachinesHint"],
+  ["basic", "CourseTemplateEditorPage.tabBasicLabel"],
+  ["machines", "CourseTemplateEditorPage.tabMachinesLabel"],
 ];
 
 function makeEmptyTemplate() {
@@ -93,8 +96,17 @@ const TOPOLOGY_NODE_TYPES = { courseMachine: TopologyMachineNode };
 const TOPOLOGY_EDGE_TYPES = { connection: ConnectionEdge };
 
 /** 對外服務的設定對話框：欄位放這裡，側欄只留一行摘要。 */
-function PublicationDialog({ draft, zones, siblings, onChange, onSave, onClose }) {
+function PublicationDialog({ draft, zones, siblings, closing = false, onChange, onSave, onClose }) {
   const { t } = useTranslation("teaching");
+
+  useEffect(() => {
+    const onKeyDown = (event) => {
+      if (event.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [onClose]);
+
   const isDomain = draft.mode === "domain";
   const duplicated = isDomain && siblings.some((item) => (
     item.id !== draft.id && item.mode === "domain" && item.hostnamePrefix === draft.hostnamePrefix
@@ -107,7 +119,8 @@ function PublicationDialog({ draft, zones, siblings, onChange, onSave, onClose }
   const zone = zones.find((item) => item.id === draft.zoneId);
   const preview = `${String(draft.hostnamePrefix || "").replace("{class}", "linux101-a1b2c3").replace("{student}", "s8f21c4a2")}${zone ? `.${zone.name}` : ""}`;
 
-  return <div className={styles.createDialogOverlay} role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
+  /* 玻璃卡工作區的 backdrop-filter 會困住 fixed 遮罩，portal 到 body 才能全頁覆蓋 */
+  return createPortal(<div className={`${styles.createDialogOverlay} ${closing ? styles.createDialogOverlayOut : ""}`} role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
     <section className={`${styles.createDialog} ${styles.publicationDialog}`} role="dialog" aria-modal="true" aria-labelledby="publication-dialog-title">
       <header className={styles.createDialogHeader}>
         <h2 id="publication-dialog-title">{t("CourseTemplateEditorPage.publicAccessLabel")}</h2>
@@ -130,7 +143,7 @@ function PublicationDialog({ draft, zones, siblings, onChange, onSave, onClose }
         <button type="button" className={styles.btnPrimary} disabled={!hostnameValid} onClick={() => onSave(draft)}>{t("CourseTemplateEditorPage.confirmBtn")}</button>
       </footer>
     </section>
-  </div>;
+  </div>, document.body);
 }
 
 function MachineEditor({ value, edges, publications, onChange, onEdgesChange, onPublicationsChange, pveTemplates, vmImages, lxcImages, zones, sourceNotice, locked = false, actions = null }) {
@@ -143,6 +156,8 @@ function MachineEditor({ value, edges, publications, onChange, onEdgesChange, on
   const [flowNodes, setFlowNodes, onFlowNodesChange] = useNodesState([]);
   const [topologyNotice, setTopologyNotice] = useState("");
   const [publicationDraft, setPublicationDraft] = useState(null);
+  /* 關閉時先播離場動畫再卸載（樣式規範的標準作法） */
+  const publicationPresence = useDialogPresence(publicationDraft);
   const sourceOptions = sourceMode === "template" ? pveTemplates : (customType === "lxc" ? lxcImages : vmImages);
   const atLimit = value.length >= 3;
 
@@ -335,10 +350,6 @@ function MachineEditor({ value, edges, publications, onChange, onEdgesChange, on
   })), [edges, locked, t]);
 
   return <section className={`${styles.card} ${styles.templateMachineWorkspace}`}>
-      <div className={styles.machineWorkspaceHeader}>
-        <div><h2>{t("CourseTemplateEditorPage.multiMachineEnvTitle")}</h2><p>{t("CourseTemplateEditorPage.topologyHelpText")}</p></div>
-        <span className={styles.nodeLimit}>{t("CourseTemplateEditorPage.nodeLimitLabel", { count: value.length })}</span>
-      </div>
       {sourceNotice && <p className={styles.persistentFeedback}><MIcon name="info" size={17} />{sourceNotice}</p>}
       {topologyNotice && <p className={styles.persistentFeedback}><MIcon name="info" size={17} />{topologyNotice}</p>}
       <div className={styles.machineAddBar}>
@@ -368,7 +379,7 @@ function MachineEditor({ value, edges, publications, onChange, onEdgesChange, on
             fitView
             fitViewOptions={{ padding: 0.22, maxZoom: 1.1 }}
             proOptions={{ hideAttribution: true }}
-          ><Background gap={20} size={1} /></ReactFlow></div>
+          ><Background gap={20} size={1} /><Panel position="top-right"><span className={styles.nodeLimit}>{t("CourseTemplateEditorPage.nodeLimitLabel", { count: value.length })}</span></Panel></ReactFlow></div>
           <aside className={styles.topologyInspector}>
             {selectedEdge ? <>
               <div className={styles.inspectorTitle}><MIcon name="link" size={18} /><div><strong>{t("CourseTemplateEditorPage.connectionRuleTitle")}</strong><small>{value.find((node) => node.id === selectedEdge.source)?.name} → {value.find((node) => node.id === selectedEdge.target)?.name}</small></div></div>
@@ -379,7 +390,11 @@ function MachineEditor({ value, edges, publications, onChange, onEdgesChange, on
               </div>
               {!locked && <button type="button" className={styles.inspectorDanger} onClick={() => removeEdge(selectedEdge.id)}><MIcon name="delete_outline" size={16} />{t("CourseTemplateEditorPage.deleteConnectionBtn")}</button>}
             </> : selectedNode ? <>
-              <div className={styles.inspectorTitle}><MIcon name="dns" size={18} /><div><strong>{selectedNode.sourceType === "custom" ? t("CourseTemplateEditorPage.sourceCustomSpec") : t("CourseTemplateEditorPage.sourceExistingTemplate")}</strong><small>{selectedNode.type === "lxc" ? t("CourseTemplateEditorPage.typeContainerLxc") : t("CourseTemplateEditorPage.typeVm")}</small></div></div>
+              <div className={styles.inspectorTitle}>
+                <MIcon name="dns" size={18} />
+                <div><strong>{selectedNode.sourceType === "custom" ? t("CourseTemplateEditorPage.sourceCustomSpec") : t("CourseTemplateEditorPage.sourceExistingTemplate")}</strong><small>{selectedNode.type === "lxc" ? t("CourseTemplateEditorPage.typeContainerLxc") : t("CourseTemplateEditorPage.typeVm")}</small></div>
+                {!locked && <button type="button" className={styles.inspectorTitleAction} onClick={() => removeMachine(selectedNode.id)}>{t("CourseTemplateEditorPage.removeNodeBtn")}</button>}
+              </div>
               <label>{t("CourseTemplateEditorPage.fieldName")}<input disabled={locked} value={selectedNode.name} onChange={(event) => patchNode(selectedNode.id, { name: event.target.value })} /></label>
               <label>{t("CourseTemplateEditorPage.fieldRole")}<input disabled={locked} value={selectedNode.role} onChange={(event) => patchNode(selectedNode.id, { role: event.target.value })} /></label>
               <div className={styles.inspectorSliders}>
@@ -402,13 +417,13 @@ function MachineEditor({ value, edges, publications, onChange, onEdgesChange, on
                       {!locked && <button type="button" className={styles.iconBtnDanger} aria-label={t("CourseTemplateEditorPage.removePublicationBtn")} onClick={() => removePublication(publication.id)}><MIcon name="close" size={15} /></button>}
                     </li>)}</ul>}
               </div>
-              {!locked && <button type="button" className={styles.inspectorDanger} onClick={() => removeMachine(selectedNode.id)}><MIcon name="delete_outline" size={16} />{t("CourseTemplateEditorPage.removeNodeBtn")}</button>}
             </> : null}
           </aside>
         </div>
       </> : <EmptyState icon="dns" title={t("CourseTemplateEditorPage.emptyNodesTitle")} />}
-      {publicationDraft && <PublicationDialog
-        draft={publicationDraft}
+      {publicationPresence.open && <PublicationDialog
+        draft={publicationPresence.item}
+        closing={publicationPresence.closing}
         zones={zones}
         siblings={publications}
         onChange={(patch) => setPublicationDraft((current) => ({ ...current, ...patch }))}
@@ -658,7 +673,7 @@ export default function CourseTemplateEditorPage() {
     <PageHeader title={isNew ? t("CourseTemplateEditorPage.createTemplateTitle") : template.name} subtitle={isNew ? t("CourseTemplateEditorPage.createTemplateSubtitle") : `v${template.version} · ${template.updatedAt}`}><div className={styles.pageActions}>{locked && <button type="button" className={styles.btnPrimary} disabled={saving} onClick={newVersion}><MIcon name="content_copy" size={16} />{t("CourseTemplateEditorPage.createNewVersionBtn")}</button>}<button type="button" className={`${styles.btnSecondary} ${styles.backBtn}`} onClick={() => leaveTo(returnTo ?? "/course-template-management")}><MIcon name="arrow_back" size={18} />{t("CourseTemplateEditorPage.backBtn")}</button></div></PageHeader>
     {returnTo && <p className={styles.persistentFeedback}><MIcon name="bookmark_added" size={17} /><span><strong>{t("CourseTemplateEditorPage.classDraftSavedTitle")}</strong>{t("CourseTemplateEditorPage.classDraftSavedDesc")}</span></p>}
     <nav className={styles.envStepper}>
-        {TABS.map(([key, labelKey, hintKey], index) => {
+        {TABS.map(([key, labelKey], index) => {
           const activeIndex = TABS.findIndex(([k]) => k === tab);
           const done = index < activeIndex;
           const isActive = key === tab;
@@ -670,13 +685,17 @@ export default function CourseTemplateEditorPage() {
               aria-current={isActive ? "step" : undefined}
               onClick={() => changeTab(key)}
             >
-              <span className={styles.envStepCircle}>{done ? <MIcon name="check" size={16} /> : String(index + 1).padStart(2, "0")}</span>
-              <span className={styles.envStepText}><strong>{t(labelKey)}</strong><small>{t(hintKey)}</small></span>
+              <span className={styles.envStepText}>
+                <strong>
+                  <span className={styles.envStepNum}>{done ? <MIcon name="check" size={14} /> : String(index + 1).padStart(2, "0")}</span>
+                  {t(labelKey)}
+                </strong>
+              </span>
             </button>
           );
         })}
     </nav>
-    {tab === "basic" && <section className={styles.card}><div className={styles.cardHeader}><div><h2>{t("CourseTemplateEditorPage.tabBasicLabel")}</h2><p>{locked ? t("CourseTemplateEditorPage.lockedVersionNote") : t("CourseTemplateEditorPage.reusableEnvNote")}</p></div></div><div className={styles.formGrid}><label className={styles.field}><span>{t("CourseTemplateEditorPage.fieldEnvName")}</span><input ref={nameRef} className={invalidField === "name" ? styles.fieldInvalid : undefined} aria-invalid={invalidField === "name"} aria-errormessage={invalidField === "name" ? "env-name-error" : undefined} disabled={locked} value={template.name} onChange={(event) => { update({ name: event.target.value }); if (invalidField === "name") setInvalidField(""); }} placeholder={t("CourseTemplateEditorPage.envNamePlaceholder")} />{invalidField === "name" && <em id="env-name-error" className={styles.fieldError}>{t("CourseTemplateEditorPage.nameRequiredError")}</em>}</label><label className={styles.field}><span>{t("CourseTemplateEditorPage.fieldUsageScope")}</span><select disabled={locked} value={template.usageScope ?? "course"} onChange={(event) => update({ usageScope: event.target.value })}><option value="course">{t("CourseTemplateEditorPage.usageScopeCourseOnly")}</option><option value="quick_practice">{t("CourseTemplateEditorPage.usageScopeQuickPracticeOnly")}</option><option value="both">{t("CourseTemplateEditorPage.usageScopeBoth")}</option></select></label>{offersPractice && <label className={styles.field}><span>{t("CourseTemplateEditorPage.fieldMaxConcurrent")}</span><input disabled={locked} type="number" min={1} max={500} placeholder={t("CourseTemplateEditorPage.maxConcurrentPlaceholder")} value={template.maxConcurrentSessions ?? ""} onChange={(event) => update({ maxConcurrentSessions: event.target.value === "" ? null : Number(event.target.value) })} /></label>}{offersPractice && <label className={styles.field}><span>{t("CourseTemplateEditorPage.fieldAudience")}</span><select disabled={locked} value={audience} onChange={(event) => update({ audience: event.target.value })}><option value="class">{t("CourseTemplateEditorPage.audienceOptClass")}</option><option value="campus">{t("CourseTemplateEditorPage.audienceOptCampus")}</option><option value="owner">{t("CourseTemplateEditorPage.audienceOptOwner")}</option></select></label>}{offersPractice && audience === "class" && <div ref={audienceRef} tabIndex={-1} className={`${styles.field} ${styles.fieldFull} ${invalidField === "audienceClasses" ? styles.fieldInvalid : ""}`} aria-invalid={invalidField === "audienceClasses" || undefined} aria-errormessage={invalidField === "audienceClasses" ? "audience-classes-error" : undefined}><span>{t("CourseTemplateEditorPage.fieldAudienceClasses")}</span>{invalidField === "audienceClasses" && <em id="audience-classes-error" className={styles.fieldError}>{t("CourseTemplateEditorPage.audienceClassesRequiredError")}</em>}{classes.length === 0 ? <p className={styles.inspectorHint}>{t("CourseTemplateEditorPage.noClassesHint")}</p> : <div className={styles.audienceClassList}>{classes.map((item) => <label key={item.id} className={styles.audienceClassItem}><input type="checkbox" disabled={locked} checked={(template.audienceClassIds ?? []).includes(String(item.id))} onChange={(event) => { update({ audienceClassIds: event.target.checked ? [...(template.audienceClassIds ?? []), String(item.id)] : (template.audienceClassIds ?? []).filter((id) => id !== String(item.id)) }); if (invalidField === "audienceClasses") setInvalidField(""); }} /><span>{item.name}<small>{item.code} · {item.term}</small></span></label>)}</div>}</div>}<label className={`${styles.field} ${styles.fieldFull}`}><span>{t("CourseTemplateEditorPage.fieldEnvDescription")}</span><textarea disabled={locked} rows={3} value={template.description ?? ""} onChange={(event) => update({ description: event.target.value })} /></label></div><div className={styles.actionFooter}><button type="button" className={styles.btnPrimary} onClick={() => changeTab("machines")}>{t("CourseTemplateEditorPage.viewMachineConfigBtn")}<MIcon name="arrow_forward" size={16} /></button></div></section>}
+    {tab === "basic" && <section className={styles.card}><div className={styles.formGrid}><label className={styles.field}><span>{t("CourseTemplateEditorPage.fieldEnvName")}</span><input ref={nameRef} className={invalidField === "name" ? styles.fieldInvalid : undefined} aria-invalid={invalidField === "name"} aria-errormessage={invalidField === "name" ? "env-name-error" : undefined} disabled={locked} value={template.name} onChange={(event) => { update({ name: event.target.value }); if (invalidField === "name") setInvalidField(""); }} placeholder={t("CourseTemplateEditorPage.envNamePlaceholder")} />{invalidField === "name" && <em id="env-name-error" className={styles.fieldError}>{t("CourseTemplateEditorPage.nameRequiredError")}</em>}</label><label className={styles.field}><span>{t("CourseTemplateEditorPage.fieldUsageScope")}</span><select disabled={locked} value={template.usageScope ?? "course"} onChange={(event) => update({ usageScope: event.target.value })}><option value="course">{t("CourseTemplateEditorPage.usageScopeCourseOnly")}</option><option value="quick_practice">{t("CourseTemplateEditorPage.usageScopeQuickPracticeOnly")}</option><option value="both">{t("CourseTemplateEditorPage.usageScopeBoth")}</option></select></label>{offersPractice && <label className={styles.field}><span>{t("CourseTemplateEditorPage.fieldMaxConcurrent")}</span><input disabled={locked} type="number" min={1} max={500} placeholder={t("CourseTemplateEditorPage.maxConcurrentPlaceholder")} value={template.maxConcurrentSessions ?? ""} onChange={(event) => update({ maxConcurrentSessions: event.target.value === "" ? null : Number(event.target.value) })} /></label>}{offersPractice && <label className={styles.field}><span>{t("CourseTemplateEditorPage.fieldAudience")}</span><select disabled={locked} value={audience} onChange={(event) => update({ audience: event.target.value })}><option value="class">{t("CourseTemplateEditorPage.audienceOptClass")}</option><option value="campus">{t("CourseTemplateEditorPage.audienceOptCampus")}</option><option value="owner">{t("CourseTemplateEditorPage.audienceOptOwner")}</option></select></label>}{offersPractice && audience === "class" && <div ref={audienceRef} tabIndex={-1} className={`${styles.field} ${styles.fieldFull} ${invalidField === "audienceClasses" ? styles.fieldInvalid : ""}`} aria-invalid={invalidField === "audienceClasses" || undefined} aria-errormessage={invalidField === "audienceClasses" ? "audience-classes-error" : undefined}><span>{t("CourseTemplateEditorPage.fieldAudienceClasses")}</span>{invalidField === "audienceClasses" && <em id="audience-classes-error" className={styles.fieldError}>{t("CourseTemplateEditorPage.audienceClassesRequiredError")}</em>}{classes.length === 0 ? <p className={styles.inspectorHint}>{t("CourseTemplateEditorPage.noClassesHint")}</p> : <div className={styles.audienceClassList}>{classes.map((item) => <label key={item.id} className={styles.audienceClassItem}><input type="checkbox" disabled={locked} checked={(template.audienceClassIds ?? []).includes(String(item.id))} onChange={(event) => { update({ audienceClassIds: event.target.checked ? [...(template.audienceClassIds ?? []), String(item.id)] : (template.audienceClassIds ?? []).filter((id) => id !== String(item.id)) }); if (invalidField === "audienceClasses") setInvalidField(""); }} /><span>{item.name}<small>{item.code} · {item.term}</small></span></label>)}</div>}</div>}<label className={`${styles.field} ${styles.fieldFull}`}><span>{t("CourseTemplateEditorPage.fieldEnvDescription")}</span><textarea disabled={locked} rows={3} value={template.description ?? ""} onChange={(event) => update({ description: event.target.value })} /></label></div><div className={styles.actionFooter}><button type="button" className={styles.btnPrimary} onClick={() => changeTab("machines")}>{t("CourseTemplateEditorPage.viewMachineConfigBtn")}<MIcon name="arrow_forward" size={16} /></button></div></section>}
     {tab === "machines" && <MachineEditor value={template.nodes} edges={template.edges ?? []} publications={template.publications ?? []} onChange={(nodes) => update({ nodes })} onEdgesChange={(edges) => update({ edges })} onPublicationsChange={(publications) => update({ publications })} pveTemplates={pveTemplates} vmImages={vmImages} lxcImages={lxcImages} zones={zones} sourceNotice={sourceNotice} locked={locked} actions={!locked && <><button type="button" className={styles.btnSecondary} disabled={saving} onClick={save}><MIcon name="save" size={16} />{saving ? t("CourseTemplateEditorPage.savingEllipsis") : t("CourseTemplateEditorPage.saveDraftBtn")}</button><button type="button" className={styles.btnPrimary} disabled={isNew || saving} onClick={publish}><MIcon name="publish" size={16} />{t("CourseTemplateEditorPage.publishLabel")}</button></>} />}
   </div>;
 }
