@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Any
 
 from sqlmodel import Session, select
@@ -9,6 +10,21 @@ from sqlmodel import Session, select
 from app.models.teacher_judge_template_command import TeacherJudgeTemplateCommand
 
 SUPPORTED_TEMPLATE_KEYS = {"linux", "python", "n8n", "postgresql"}
+DEFAULT_SYSTEM_COMMAND_TIMEOUT_SECONDS = 30
+
+
+@dataclass(frozen=True, slots=True)
+class CheckStepIssue:
+    owner: str
+    item_id: str
+    code: str
+    detail: str
+
+
+@dataclass(frozen=True, slots=True)
+class CheckStepValidationResult:
+    items: list[dict[str, Any]]
+    issues: list[CheckStepIssue]
 
 GENERAL_COMMAND = TeacherJudgeTemplateCommand(
     template_key="linux",
@@ -17,10 +33,10 @@ GENERAL_COMMAND = TeacherJudgeTemplateCommand(
     category="inspection",
     command_template="argv + cwd + timeout",
     description=(
-        "在指定工作目錄以 argv list 與有限 timeout 執行單一唯讀／診斷指令，"
-        "可使用 cat、pwd、echo、唯讀 git 子命令、有限次數 ping 等一般工具，"
-        "並原樣收集 exit code、stdout、stderr。cd 請以 cwd 表示；"
-        "不得使用 shell、pipe、redirect、寫入、安裝、修復或破壞性操作。"
+        "平台已登錄的通用唯讀診斷能力。依檢查目的選擇 Linux 或 Windows "
+        "常見 CLI，以單一 argv 在指定工作目錄執行，並收集 exit code、stdout、"
+        "stderr。禁止修改系統狀態、高風險或破壞性操作；能以低權限取得資訊時"
+        "不得要求提權。平台會套用安全逾時，老師不需指定技術參數或新增權限。"
     ),
     risk_level="executes_command",
     requires_confirmation=True,
@@ -83,6 +99,15 @@ def format_template_commands_for_prompt(
                     f"  description: {command.description}",
                     f"  risk_level: {command.risk_level}",
                     f"  requires_confirmation: {command.requires_confirmation}",
+                    *(
+                        [
+                            "  parameters_schema: argv 是非空字串陣列；cwd 可選；"
+                            "timeout_seconds 由平台補齊；judgement_mode=ai 時需有 "
+                            "success_criteria",
+                        ]
+                        if command.command_key == "system.run_command"
+                        else []
+                    ),
                 ]
             )
         )
@@ -95,41 +120,91 @@ def validate_check_steps(
     commands: list[TeacherJudgeTemplateCommand],
 ) -> list[dict[str, Any]]:
     """
-    Keep only check steps that reference enabled commands for the selected template.
+    Resolve enabled commands without making ``template_key`` a proposal gate.
 
     This helper accepts item-shaped dictionaries so tests and callers can validate
-    raw LLM payloads without needing to instantiate Pydantic schemas first.
+    raw LLM payloads without needing to instantiate Pydantic schemas first. The
+    template key is a preferred environment hint; an omitted or mismatched hint is
+    repaired when the command key identifies exactly one enabled capability.
     """
+    return validate_check_steps_with_issues(template_key, items, commands).items
+
+
+def validate_check_steps_with_issues(
+    template_key: str,
+    items: list[dict[str, Any]],
+    commands: list[TeacherJudgeTemplateCommand],
+) -> CheckStepValidationResult:
+    """Normalize command references and retain why a model candidate was rejected."""
     valid_commands = {
         (command.template_key, command.command_key): command for command in commands
     }
     normalized_items: list[dict[str, Any]] = []
+    issues: list[CheckStepIssue] = []
     for item in items:
         next_item = dict(item)
-        valid_steps: list[dict[str, str]] = []
+        item_id = str(item.get("id") or "")
+        valid_steps: list[dict[str, Any]] = []
         raw_steps = item.get("check_steps")
         if isinstance(raw_steps, list):
             for raw_step in raw_steps:
                 if not isinstance(raw_step, dict):
+                    issues.append(
+                        CheckStepIssue("model", item_id, "invalid_step", "檢查步驟不是物件")
+                    )
                     continue
                 step_template_key = str(raw_step.get("template_key") or template_key).strip()
                 command_key = str(raw_step.get("command_key") or "").strip()
                 command = valid_commands.get((step_template_key, command_key))
+                if command is None and command_key:
+                    matching_commands = [
+                        candidate
+                        for (_, candidate_key), candidate in valid_commands.items()
+                        if candidate_key == command_key
+                    ]
+                    if len(matching_commands) == 1:
+                        command = matching_commands[0]
                 if command is None:
+                    issues.append(
+                        CheckStepIssue(
+                            "model",
+                            item_id,
+                            "unknown_command",
+                            f"未啟用的 command_key: {command_key or '(empty)'}",
+                        )
+                    )
                     continue
-                valid_steps.append(
-                    {
-                        "template_key": command.template_key,
-                        "command_key": command.command_key,
-                        "command_label": command.command_label,
-                    }
-                )
+                step: dict[str, Any] = {
+                    "template_key": command.template_key,
+                    "command_key": command.command_key,
+                    "command_label": command.command_label,
+                }
+                raw_parameters = raw_step.get("parameters")
+                if isinstance(raw_parameters, dict) or (
+                    command.command_key == "system.run_command"
+                ):
+                    parameters = (
+                        dict(raw_parameters) if isinstance(raw_parameters, dict) else {}
+                    )
+                    timeout = parameters.get("timeout_seconds")
+                    if command.command_key == "system.run_command" and (
+                        not isinstance(timeout, int)
+                        or isinstance(timeout, bool)
+                        or not 1 <= timeout <= 300
+                    ):
+                        parameters["timeout_seconds"] = (
+                            DEFAULT_SYSTEM_COMMAND_TIMEOUT_SECONDS
+                        )
+                    step["parameters"] = parameters
+                if step not in valid_steps:
+                    valid_steps.append(step)
         next_item["check_steps"] = valid_steps
         normalized_items.append(next_item)
-    return normalized_items
+    return CheckStepValidationResult(items=normalized_items, issues=issues)
 
 
 __all__ = [
+    "DEFAULT_SYSTEM_COMMAND_TIMEOUT_SECONDS",
     "GENERAL_COMMAND",
     "SUPPORTED_TEMPLATE_KEYS",
     "format_template_commands_for_prompt",

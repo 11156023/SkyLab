@@ -169,7 +169,7 @@ const PAGE_GUIDES = {
   },
   "/ai-api": {
     id: "ai-api",
-    guideVersion: "v6",
+    guideVersion: "v7",
     titleKey: "UserGuide.aiApi.title",
     icon: "psychology",
     steps: [
@@ -184,32 +184,36 @@ const PAGE_GUIDES = {
         textKey: "UserGuide.aiApi.step2.text",
       },
       {
-        selector: '[data-guide-tab="apply"]',
-        activateSelector: '[data-guide-tab="apply"]',
+        selector: '[data-guide="ai-add-key"]',
+        activateSelector: '[data-guide-tab="keys"]',
         titleKey: "UserGuide.aiApi.step3.title",
         textKey: "UserGuide.aiApi.step3.text",
       },
       {
         selector: '[data-guide="ai-apply-name"]',
-        activateSelector: '[data-guide-tab="apply"]',
+        activateSelector: '[data-guide="ai-add-key"]',
+        deactivateSelector: '[data-guide="ai-apply-close"]',
         titleKey: "UserGuide.aiApi.step4.title",
         textKey: "UserGuide.aiApi.step4.text",
       },
       {
         selector: '[data-guide="ai-apply-purpose"]',
-        activateSelector: '[data-guide-tab="apply"]',
+        activateSelector: '[data-guide="ai-add-key"]',
+        deactivateSelector: '[data-guide="ai-apply-close"]',
         titleKey: "UserGuide.aiApi.step5.title",
         textKey: "UserGuide.aiApi.step5.text",
       },
       {
         selector: '[data-guide="ai-apply-duration"]',
-        activateSelector: '[data-guide-tab="apply"]',
+        activateSelector: '[data-guide="ai-add-key"]',
+        deactivateSelector: '[data-guide="ai-apply-close"]',
         titleKey: "UserGuide.aiApi.step6.title",
         textKey: "UserGuide.aiApi.step6.text",
       },
       {
         selector: '[data-guide="ai-submit"]',
-        activateSelector: '[data-guide-tab="apply"]',
+        activateSelector: '[data-guide="ai-add-key"]',
+        deactivateSelector: '[data-guide="ai-apply-close"]',
         titleKey: "UserGuide.aiApi.step7.title",
         textKey: "UserGuide.aiApi.step7.text",
       },
@@ -257,13 +261,13 @@ const PAGE_GUIDES = {
         textKey: "UserGuide.aiApi.step14.text",
       },
       {
-        selector: '[data-guide="ai-proxy-usage"]',
+        selector: '[data-guide="ai-route-usage"]',
         activateSelector: '[data-guide-tab="usage"]',
         titleKey: "UserGuide.aiApi.step15.title",
         textKey: "UserGuide.aiApi.step15.text",
       },
       {
-        selector: '[data-guide="ai-template-usage"]',
+        selector: '[data-guide="ai-usage-records"]',
         activateSelector: '[data-guide-tab="usage"]',
         titleKey: "UserGuide.aiApi.step16.title",
         textKey: "UserGuide.aiApi.step16.text",
@@ -335,6 +339,7 @@ export default function UserGuide() {
   const [targetRect, setTargetRect] = useState(null);
   const [slot, setSlot] = useState(null);
   const originalAiTab = useRef(null);
+  const prevStepRef = useRef(null);
 
   useEffect(() => {
     if (!guide) {
@@ -409,6 +414,13 @@ export default function UserGuide() {
       return undefined;
     }
 
+    // 離開上一步時，若該步有 deactivateSelector（例如關閉導覽開啟的彈窗），先點擊關閉
+    const prevStep = prevStepRef.current;
+    if (prevStep && prevStep !== current && prevStep.deactivateSelector) {
+      document.querySelector(prevStep.deactivateSelector)?.click();
+    }
+    prevStepRef.current = current;
+
     setTargetRect(null);
     let target = null;
     let observer = null;
@@ -473,8 +485,13 @@ export default function UserGuide() {
     } catch {
       // 儲存空間不可用時，只關閉本次導覽。
     }
+    const activeStep = availableSteps[step] ?? availableSteps[0];
     setOpen(false);
     setStep(0);
+    prevStepRef.current = null;
+    if (activeStep?.deactivateSelector) {
+      document.querySelector(activeStep.deactivateSelector)?.click();
+    }
     if (guide.id === "ai-api" && originalAiTab.current) {
       document.querySelector(`[data-guide-tab="${originalAiTab.current}"]`)?.click();
       originalAiTab.current = null;

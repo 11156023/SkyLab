@@ -8,12 +8,18 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from app.ai.teacher_judge._types import CheckResult, FixHint
 
+# Helpers every managed script needs regardless of how evidence is collected.
 REQUIRED_HELPERS = {
     "truncate_output",
-    "command_available",
-    "run_command",
     "record_check",
 }
+# Helpers that only make sense when the script actually invokes external
+# commands; requiring them unconditionally rejected valid stdlib-only checks.
+COMMAND_REQUIRED_HELPERS = {
+    "command_available",
+    "run_command",
+}
+KNOWN_HELPERS = REQUIRED_HELPERS | COMMAND_REQUIRED_HELPERS
 
 UNKNOWN_ONLY_EXCEPTIONS = {
     "subprocess.TimeoutExpired",
@@ -41,7 +47,7 @@ def _import_aliases(tree: ast.AST) -> dict[str, str]:
                 if alias.name == "*":
                     continue
                 local_name = alias.asname or alias.name
-                if alias.name in REQUIRED_HELPERS:
+                if alias.name in KNOWN_HELPERS:
                     aliases[local_name] = alias.name
                 else:
                     aliases[local_name] = f"{node.module}.{alias.name}"
@@ -385,6 +391,7 @@ def check_script_quality(script_content: str) -> CheckResult:
     """Return quality validation results for a generated managed script."""
     issues: list[str] = []
     fix_hints: list[FixHint] = []
+    warnings: list[str] = []
 
     try:
         tree = ast.parse(script_content)
@@ -401,7 +408,23 @@ def check_script_quality(script_content: str) -> CheckResult:
     aliases = _import_aliases(tree)
     parents = _parent_map(tree)
     helper_defs = _function_definitions(tree)
-    missing_helpers = sorted(REQUIRED_HELPERS - set(helper_defs))
+
+    # Single-pass call scan (replaces five separate full-tree walks for
+    # json.dumps / subprocess commands / which commands / helper calls).
+    # Legacy collectors (_collect_commands_needing_which,
+    # _collect_which_commands, _calls_named_helper) are kept as compat
+    # wrappers and no longer used on this hot path.
+    json_dumps_calls, commands, which_commands, helper_calls = _scan_calls_once(
+        tree, aliases
+    )
+
+    # Command helpers are only required when the script actually invokes
+    # external commands; a stdlib-only check must not be rejected for missing
+    # run_command/command_available.
+    required_helpers = set(REQUIRED_HELPERS)
+    if commands:
+        required_helpers |= COMMAND_REQUIRED_HELPERS
+    missing_helpers = sorted(required_helpers - set(helper_defs))
     if missing_helpers:
         issues.append("腳本缺少必要 helper：" + ", ".join(missing_helpers))
         for helper_name in missing_helpers:
@@ -426,20 +449,11 @@ def check_script_quality(script_content: str) -> CheckResult:
         issues.append("run_command 必須回傳 returncode")
         fix_hints.append({"type": "add_returncode_to_run_command", "description": "run_command 必須回傳 returncode"})
 
-    # Single-pass call scan (replaces five separate full-tree walks for
-    # json.dumps / subprocess commands / which commands / helper calls).
-    # Legacy collectors (_collect_commands_needing_which,
-    # _collect_which_commands, _calls_named_helper) are kept as compat
-    # wrappers and no longer used on this hot path.
-    json_dumps_calls, commands, which_commands, helper_calls = _scan_calls_once(
-        tree, aliases
-    )
-
     if "record_check" not in helper_calls:
         issues.append("腳本必須透過 record_check 建立檢查結果")
         fix_hints.append({"type": "add_record_check_calls", "description": "腳本必須透過 record_check 建立檢查結果"})
 
-    if "run_command" not in helper_calls:
+    if commands and "run_command" not in helper_calls:
         issues.append("腳本必須透過 run_command 執行收集指令")
         fix_hints.append({"type": "add_run_command_calls", "description": "腳本必須透過 run_command 執行收集指令"})
 
@@ -477,12 +491,15 @@ def check_script_quality(script_content: str) -> CheckResult:
         if isinstance(node, ast.Call) and _call_name(node.func, aliases) == "record_check":
             check_id = _record_check_literal_arg(node, 0, "check_id")
             if check_id and _is_generic_check_id(check_id):
-                issues.append("record_check id 必須是語意化穩定 ID")
-                fix_hints.append({"type": "rename_check_id", "current": check_id, "description": "record_check id 必須是語意化穩定 ID"})
+                # 文案類建議：不阻斷審查，僅作為非阻斷提示回傳。
+                warning = f"record_check id `{check_id}` 建議使用語意化穩定 ID"
+                if warning not in warnings:
+                    warnings.append(warning)
             title = _record_check_literal_arg(node, 1, "title")
             if title and "檢查" in title:
-                issues.append("record_check title 請使用收集語意，不要使用檢查")
-                fix_hints.append({"type": "rename_title", "current": title, "description": "record_check title 請使用收集語意，不要使用檢查"})
+                warning = f"record_check title `{title}` 建議使用收集語意，不要使用檢查"
+                if warning not in warnings:
+                    warnings.append(warning)
         if isinstance(node, ast.If):
             if _condition_checks_availability(node.test, aliases):
                 statuses = _body_record_check_statuses(node.body, aliases)
@@ -543,4 +560,24 @@ def check_script_quality(script_content: str) -> CheckResult:
         "risk_level": "low" if approved else "high",
         "issues": deduped,
         "fix_hints": fix_hints,
+        "warnings": warnings,
     }
+
+
+def collect_record_check_ids(script_content: str) -> set[str]:
+    """Collect literal record_check ids for rubric coverage validation."""
+    try:
+        tree = ast.parse(script_content)
+    except SyntaxError:
+        return set()
+    aliases = _import_aliases(tree)
+    ids: set[str] = set()
+    for node in ast.walk(tree):
+        if (
+            isinstance(node, ast.Call)
+            and _call_name(node.func, aliases) == "record_check"
+        ):
+            check_id = _record_check_literal_arg(node, 0, "check_id")
+            if check_id:
+                ids.add(check_id)
+    return ids
