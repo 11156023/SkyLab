@@ -104,6 +104,16 @@ export function buildPeerPortsPayload(rows = []) {
   return { ports };
 }
 
+/**
+ * 連到老師開放的機器：埠必須都在老師允許的清單內（後端也會擋，這裡先提示）。
+ * 回傳不在清單內的埠，空陣列代表全部允許。
+ */
+export function disallowedPeerPorts(ports = [], allowed = []) {
+  return ports.filter(
+    (p) => !allowed.some((a) => a.port === p.port && a.protocol === p.protocol),
+  );
+}
+
 /** 自訂規則：直接寫一條 Proxmox 原始規則 */
 export function buildRulePayload(rule) {
   const body = { type: rule.type, action: rule.action, enable: 1 };

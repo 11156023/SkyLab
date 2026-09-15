@@ -5,8 +5,19 @@ import NodeHandles from "./NodeHandles";
 
 const STATUS_COLOR = { running: "var(--color-success)", stopped: "var(--color-danger)" };
 
-/* 歸屬徽章的說明：老師看學生機器、學生看自己的課堂機、管理員看別人的個人機 */
-function originHint(t, data) {
+const formatPorts = (ports) =>
+  (ports ?? []).map((p) => (p.port === 0 ? p.protocol : `${p.port}/${p.protocol}`)).join(", ");
+
+/* 歸屬徽章的說明：老師看學生機器、學生看自己的課堂機、學生看老師開放的機器、
+   管理員看別人的個人機 */
+function originHint(t, data, peer) {
+  if (peer) {
+    return t("VMNode.originPeer", {
+      owner: data.owner_name ?? "",
+      cls: data.teaching_class_name ?? "",
+      ports: formatPorts(data.allowed_ports),
+    });
+  }
   if (data.teaching_class_name && data.owner_name) {
     return t("VMNode.originStudent", { owner: data.owner_name, cls: data.teaching_class_name });
   }
@@ -21,18 +32,29 @@ export default function VMNode({ data, selected }) {
   const statusColor = STATUS_COLOR[data.status] ?? "var(--color-status-neutral)";
   const exposed = data.exposed_count ?? 0;
   const readOnly = data.can_manage === false;
-  const origin = data.teaching_class_name || data.owner_name;
+  /* 老師開放給班級的機器：不能管、但可以當連線目標 */
+  const peer = readOnly && data.can_connect !== false;
+  const origin = peer
+    ? (data.owner_name || data.teaching_class_name)
+    : (data.teaching_class_name || data.owner_name);
+  const nodeClass = [
+    styles.vmNode,
+    selected ? styles.nodeSelected : "",
+    peer ? styles.nodePeer : readOnly ? styles.nodeReadOnly : "",
+  ].join(" ");
+  const badgeClass = [
+    styles.originBadge,
+    peer ? styles.originPeer : readOnly ? styles.originReadOnly : "",
+  ].join(" ");
 
   return (
-    <div className={`${styles.vmNode} ${selected ? styles.nodeSelected : ""} ${readOnly ? styles.nodeReadOnly : ""}`}>
+    <div className={nodeClass}>
       <NodeHandles />
-      {/* 師生關係一眼可辨：不是自己的機器標班級／擁有者，唯讀的課堂機掛鎖 */}
+      {/* 師生關係一眼可辨：不是自己的機器標班級／擁有者，唯讀的課堂機掛鎖，
+          老師開放的機器標老師名字 */}
       {origin && (
-        <span
-          className={`${styles.originBadge} ${readOnly ? styles.originReadOnly : ""}`}
-          title={originHint(t, data)}
-        >
-          <MIcon name={readOnly ? "lock" : "school"} size={11} />
+        <span className={badgeClass} title={originHint(t, data, peer)}>
+          <MIcon name={peer ? "school" : readOnly ? "lock" : "school"} size={11} />
           {origin}
         </span>
       )}

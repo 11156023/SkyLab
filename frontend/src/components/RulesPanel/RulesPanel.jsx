@@ -23,17 +23,30 @@ import useDialogPresence from "../../hooks/useDialogPresence";
 import { useToast } from "../../hooks/useToast";
 import { useConfirm } from "../ConfirmDialog/ConfirmProvider";
 import { useAuth } from "../../contexts/AuthContext";
+import ClassExposureSection from "./ClassExposureSection";
+import { formatPortList } from "./classExposurePorts";
 
 function Badge({ label, variant }) {
   return <span className={`${styles.badge} ${styles[`badge_${variant}`]}`}>{label}</span>;
 }
 
-export default function RulesPanel({ node, onClose, onChanged, closing = false, canManage = true }) {
+export default function RulesPanel({
+  node,
+  onClose,
+  onChanged,
+  closing = false,
+  canManage = true,
+  peer = false,
+  allowedPorts = [],
+  ownerName = null,
+}) {
   const { t } = useTranslation("components");
   const toast = useToast();
   const confirm = useConfirm();
   const { user } = useAuth();
   const isAdmin = Boolean(user?.is_superuser || user?.role === "admin");
+  /* 只有老師（或管理員）才有班級可以開放 */
+  const canExpose = canManage && (isAdmin || user?.role === "teacher");
   const [rules,   setRules]   = useState([]);
   const [options, setOptions] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -44,6 +57,8 @@ export default function RulesPanel({ node, onClose, onChanged, closing = false, 
 
   const load = useCallback(async (silent = false) => {
     if (!node?.vmid) return;
+    /* 老師開放的機器：看不到規則，也不用去撈（撈了只會 403） */
+    if (peer) { setLoading(false); return; }
     if (!silent) {
       setLoading(true);
       setError("");
@@ -57,7 +72,7 @@ export default function RulesPanel({ node, onClose, onChanged, closing = false, 
     } finally {
       if (!silent) setLoading(false);
     }
-  }, [node?.vmid, t]);
+  }, [node?.vmid, peer, t]);
 
   useEffect(() => {
     load();
@@ -103,6 +118,42 @@ export default function RulesPanel({ node, onClose, onChanged, closing = false, 
   }
 
   if (!node) return null;
+
+  /* 老師開放給班級的機器：只說明能連什麼，規則與設定都不是自己的 */
+  if (peer) {
+    return (
+      <div className={`${styles.panel} ${closing ? styles.panelOut : ""}`}>
+        <div className={styles.header}>
+          <div className={styles.headerInfo}>
+            <MIcon name="school" size={18} />
+            <span className={styles.vmName}>{node.name}</span>
+          </div>
+          <div className={styles.headerActions}>
+            <button type="button" className={styles.closeBtn} onClick={onClose} aria-label={t("RulesPanel.closeAriaLabel")}>
+              <MIcon name="close" size={20} />
+            </button>
+          </div>
+        </div>
+        <p className={styles.readOnlyHint}>
+          <MIcon name="school" size={14} />
+          {t("RulesPanel.peerHint", { owner: ownerName ?? "" })}
+        </p>
+        <div className={styles.section}>
+          <h3 className={styles.sectionTitle}>{t("RulesPanel.peerPortsTitle")}</h3>
+          {allowedPorts.length === 0 ? (
+            <p className={styles.hint}>{t("RulesPanel.peerNoPorts")}</p>
+          ) : (
+            <div className={styles.peerPorts}>
+              {allowedPorts.map((p) => (
+                <Badge key={`${p.port}/${p.protocol}`} label={formatPortList([p])} variant="blue" />
+              ))}
+            </div>
+          )}
+          <p className={styles.hint}>{t("RulesPanel.peerHowTo")}</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className={`${styles.panel} ${closing ? styles.panelOut : ""}`}>
@@ -222,6 +273,9 @@ export default function RulesPanel({ node, onClose, onChanged, closing = false, 
               </div>
             )}
           </div>
+
+          {/* 老師：把這台機器開放給自己的班級 */}
+          {canExpose && <ClassExposureSection vmid={node.vmid} />}
 
           {/* 單機深度資訊（迷你拓撲、對外服務）在資源詳情的進階設定 */}
           <div className={styles.section}>

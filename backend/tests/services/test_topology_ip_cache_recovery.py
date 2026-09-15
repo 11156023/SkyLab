@@ -155,6 +155,11 @@ def test_get_topology_survives_poisoned_ip_cache_write(
         "can_manage_resource",
         lambda *, resource, user, owned_class_ids: True,
     )
+    monkeypatch.setattr(
+        fw.class_exposure_service,
+        "list_peer_targets",
+        lambda *, session, user, exclude_vmids: [],
+    )
     monkeypatch.setattr(fw.layout_repo, "get_layout", lambda *, session, user_id: [])
     monkeypatch.setattr(
         fw,
