@@ -9,6 +9,7 @@ import uuid
 from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from typing import Any, TypedDict
 
 import sqlalchemy as sa
 from fastapi import HTTPException
@@ -18,6 +19,9 @@ from app.ai.teacher_judge.attachment_service import (
     attachment_context,
     attachment_public,
     storage_path,
+)
+from app.ai.teacher_judge.automation_support import (
+    AutomationSupportBlocker,
 )
 from app.ai.teacher_judge.file_service import (
     FileDeleteStage,
@@ -29,7 +33,9 @@ from app.ai.teacher_judge.file_service import (
     stage_file_delete,
 )
 from app.ai.teacher_judge.schemas import (
+    TeacherJudgeRubricAnalysis,
     TeacherJudgeRubricChatMessage,
+    TeacherJudgeRubricItem,
     TeacherJudgeSessionMessagePublic,
     TeacherJudgeSessionPublic,
 )
@@ -56,6 +62,11 @@ HISTORY_MESSAGE_LIMIT = 20
 HISTORY_CHARACTER_LIMIT = 24000
 SUMMARY_TURN_INTERVAL = 10
 SUMMARY_CONTEXT_CHARACTER_LIMIT = 8000
+WORKFLOW_ITEM_LIMIT = 50
+WORKFLOW_FOCUS_LIMIT = 8
+WORKFLOW_TEXT_LIMIT = 240
+WORKFLOW_CONTENT_LIMIT = 4000
+_FOCUS_RESOLVED_STATUSES = frozenset({"ready", "teacher_review", "none", "resolved"})
 _WHITESPACE_ENTITIES = re.compile(r"(?:&#x20;|&#32;|&nbsp;)", re.IGNORECASE)
 _SENSITIVE_PATTERNS = (
     re.compile(
@@ -95,6 +106,633 @@ def redact_message_content(value: str) -> str:
     redacted = _SENSITIVE_PATTERNS[0].sub(r"\1\2[REDACTED]", redacted)
     redacted = _SENSITIVE_PATTERNS[1].sub("[REDACTED PRIVATE KEY]", redacted)
     return redacted
+
+
+class WorkflowMessage(TypedDict):
+    """Safe teacher-facing projection of a workflow result."""
+
+    content: str
+    metadata: dict[str, Any]
+
+
+def _workflow_text(value: Any, limit: int = WORKFLOW_TEXT_LIMIT) -> str:
+    """Normalize a value before placing it in a teacher-facing projection."""
+    if isinstance(value, (dict, list, tuple, set)):
+        return ""
+    text = " ".join(str(value or "").split())
+    return redact_message_content(text)[:limit]
+
+
+def _workflow_issue_text(value: Any) -> str:
+    """Keep review summaries readable without copying code or raw output."""
+    if not isinstance(value, str):
+        return ""
+    lowered = value.lower()
+    if (
+        "```" in value
+        or "traceback" in lowered
+        or "script_content" in lowered
+        or "stdout:" in lowered
+        or "stderr:" in lowered
+    ):
+        return "審查回報含詳細內容，已省略原文。"
+    return _workflow_text(value, WORKFLOW_TEXT_LIMIT)
+
+
+def _workflow_source_revision(
+    source_file_id: uuid.UUID | str | None,
+    analysis_revision: int | None,
+) -> tuple[str | None, int | None]:
+    source = str(source_file_id) if source_file_id is not None else None
+    return source, analysis_revision
+
+
+def _workflow_item_id(row: dict[str, Any]) -> str | None:
+    item_id = row.get("item_id") or row.get("target_item_id") or row.get("id")
+    operation = row.get("operation")
+    if item_id is None and isinstance(operation, dict):
+        item_id = operation.get("id")
+    if isinstance(operation, dict) and isinstance(operation.get("item"), dict):
+        item_id = item_id or operation["item"].get("id")
+    if item_id is None and isinstance(row.get("source_index"), int):
+        item_id = f"attachment-item-{row['source_index']}"
+    value = _workflow_text(item_id, 120)
+    return value or None
+
+
+def _workflow_status(status: Any) -> str:
+    normalized = str(status or "").strip().lower()
+    if normalized in {"missing_info", "partial", "needs_information"}:
+        return "needs_information"
+    if normalized in {"manual", "unsupported"}:
+        return "unsupported"
+    if normalized in {"analysis_error", "failed", "error"}:
+        return "analysis_error"
+    if normalized in {"ready", "teacher_review", "none", "resolved"}:
+        return normalized
+    return "analysis_error"
+
+
+def _workflow_item_result(row: Any) -> dict[str, Any] | None:
+    if not isinstance(row, dict):
+        return None
+    status = _workflow_status(row.get("status"))
+    title = (
+        _workflow_text(row.get("title") or row.get("source_label"))
+        or "未命名項目"
+    )
+    item_id = _workflow_item_id(row)
+    missing = row.get("missing_information")
+    missing_information = [
+        _workflow_text(value, 120)
+        for value in (missing if isinstance(missing, list) else [])
+        if _workflow_text(value, 120)
+    ][:5]
+    detail = _workflow_issue_text(row.get("detail"))
+    reason_code = _workflow_text(
+        row.get("reason_code")
+        or (
+            "automatic_detection_information_missing"
+            if status == "needs_information"
+            else "automatic_detection_unsupported"
+            if status == "unsupported"
+            else "teacher_judge_analysis_failed"
+            if status == "analysis_error"
+            else ""
+        ),
+        100,
+    )
+    known = row.get("known_information")
+    known_information = [
+        _workflow_text(value, 120)
+        for value in (known if isinstance(known, list) else [])
+        if _workflow_text(value, 120)
+    ][:3]
+    description = _workflow_text(row.get("description"), WORKFLOW_TEXT_LIMIT)
+    if description and not known_information:
+        known_information = [description]
+
+    result: dict[str, Any] = {
+        "item_id": item_id,
+        "title": title,
+        "status": status,
+        "missing_information": missing_information,
+        "reason_code": reason_code,
+    }
+    source_index = row.get("source_index")
+    if isinstance(source_index, int) and source_index > 0:
+        result["source_index"] = source_index
+    source_label = _workflow_text(row.get("source_label"), 80)
+    if source_label:
+        result["source_label"] = source_label
+    if known_information:
+        result["known_information"] = known_information
+    if detail:
+        result["detail"] = detail
+    # ProposalPanel uses the operation to match a row back to a staged item.
+    # Keep only the normalized item identity and operation, never arbitrary model
+    # payloads or raw attachment text in the compact workflow projection.
+    operation = row.get("operation")
+    if isinstance(operation, dict):
+        operation_id = _workflow_item_id({"operation": operation})
+        if operation_id:
+            result["operation"] = {"id": operation_id}
+    return result
+
+
+def normalize_workflow_item_results(
+    item_results: list[Any] | None,
+) -> list[dict[str, Any]]:
+    """Return the bounded, teacher-safe rows shared by UI and history metadata."""
+    return [
+        result
+        for row in (item_results or [])[:WORKFLOW_ITEM_LIMIT]
+        if (result := _workflow_item_result(row)) is not None
+    ]
+
+
+def conversation_focus_from_item_results(
+    item_results: list[Any] | None,
+    *,
+    source_file_id: uuid.UUID | str | None = None,
+    analysis_revision: int | None = None,
+    turn_kind: str = "follow_up",
+) -> dict[str, Any]:
+    """Project itemwise or server blocker rows into compact next-turn memory."""
+    source, revision = _workflow_source_revision(source_file_id, analysis_revision)
+    normalized_rows = normalize_workflow_item_results(item_results)
+    unresolved: list[dict[str, Any]] = []
+    for index, row in enumerate(normalized_rows):
+        status = row["status"]
+        if status in _FOCUS_RESOLVED_STATUSES:
+            continue
+        focus_key = row.get("item_id") or f"workflow-item-{index + 1}"
+        requirement: dict[str, Any] = {
+            "focus_key": _workflow_text(focus_key, 80),
+            "status": status,
+            "known_information": row.get("known_information", []),
+            "missing_information": row.get("missing_information", []),
+            "reason_code": row.get("reason_code", ""),
+        }
+        if row.get("item_id"):
+            requirement["target_item_id"] = row["item_id"]
+        unresolved.append(requirement)
+        if len(unresolved) >= WORKFLOW_FOCUS_LIMIT:
+            break
+
+    # A resolved snapshot is intentional: it prevents bounded_history from
+    # reviving an older unresolved turn for the same source/revision.
+    if not unresolved:
+        unresolved = [
+            {
+                "focus_key": "workflow",
+                "status": "none",
+                "known_information": [],
+                "missing_information": [],
+                "reason_code": "",
+            }
+        ]
+    safe_turn_kind = turn_kind if turn_kind in {"question", "requirement", "follow_up"} else "follow_up"
+    return {
+        "turn_kind": safe_turn_kind,
+        "source_file_id": source,
+        "analysis_revision": revision,
+        "requirements": unresolved[:WORKFLOW_FOCUS_LIMIT],
+    }
+
+
+def _workflow_metadata(
+    *,
+    status: str,
+    stage: str,
+    source_file_id: uuid.UUID | str | None,
+    analysis_revision: int | None,
+    item_results: list[dict[str, Any]] | None = None,
+    conversation_focus: dict[str, Any] | None = None,
+    reason_code: str | None = None,
+    script_ready: bool | None = None,
+    artifact_id: uuid.UUID | str | None = None,
+    issue_summary: list[str] | None = None,
+) -> dict[str, Any]:
+    source, revision = _workflow_source_revision(source_file_id, analysis_revision)
+    metadata: dict[str, Any] = {
+        "status": status,
+        "stage": stage,
+        "source_file_id": source,
+        "analysis_revision": revision,
+    }
+    if item_results is not None:
+        metadata["item_results"] = [
+            row for row in item_results[:WORKFLOW_ITEM_LIMIT] if isinstance(row, dict)
+        ]
+    if conversation_focus is not None:
+        metadata["conversation_focus"] = conversation_focus
+    if reason_code:
+        metadata["reason_code"] = _workflow_text(reason_code, 100)
+    if script_ready is not None:
+        metadata["script_ready"] = script_ready
+    if artifact_id is not None:
+        metadata["artifact_id"] = str(artifact_id)
+    if issue_summary:
+        metadata["issue_summary"] = [
+            _workflow_text(issue, WORKFLOW_TEXT_LIMIT)
+            for issue in issue_summary[:3]
+            if _workflow_text(issue, WORKFLOW_TEXT_LIMIT)
+        ]
+    return metadata
+
+
+def reanalysis_workflow_message(
+    blockers: list[AutomationSupportBlocker] | None,
+    *,
+    source_file_id: uuid.UUID | str | None,
+    analysis_revision: int | None,
+    proposal: list[dict[str, Any]] | None = None,
+) -> WorkflowMessage:
+    """Build the single safe projection used by refine Chat and page notices."""
+    blocker_rows = normalize_workflow_item_results(
+        [dict(blocker) for blocker in (blockers or [])]
+    )
+    proposal_rows: list[dict[str, Any]] = []
+    for raw in (proposal or [])[:WORKFLOW_ITEM_LIMIT]:
+        if not isinstance(raw, dict):
+            continue
+        candidate = raw.get("item")
+        candidate = dict(candidate) if isinstance(candidate, dict) else dict(raw)
+        operation = str(
+            raw.get("operation") or raw.get("action") or raw.get("op") or ""
+        ).lower()
+        item_id = _workflow_item_id(candidate)
+        if not item_id:
+            continue
+        candidate["item_id"] = item_id
+        candidate["operation"] = {"id": item_id}
+        candidate["status"] = "ready" if operation in {"delete", "remove"} else raw.get("status")
+        if not candidate["status"]:
+            detectable = str(candidate.get("detectable") or "").strip().lower()
+            candidate["status"] = (
+                "unsupported"
+                if detectable == "manual"
+                else "needs_information"
+                if (
+                    detectable == "partial"
+                    or not _workflow_text(candidate.get("detection_method"), 1)
+                    or not isinstance(candidate.get("check_steps"), list)
+                    or not candidate.get("check_steps")
+                )
+                else "teacher_review"
+                if str(candidate.get("judgement_mode") or "ai") == "teacher"
+                else "ready"
+            )
+        if (result := _workflow_item_result(candidate)) is not None:
+            proposal_rows.append(result)
+
+    rows_by_item_id = {
+        row["item_id"]: row
+        for row in proposal_rows
+        if row.get("item_id")
+    }
+    for blocker in blocker_rows:
+        item_id = blocker.get("item_id")
+        if item_id and item_id in rows_by_item_id:
+            proposal_row = rows_by_item_id[item_id]
+            proposal_row.update(blocker)
+            if "operation" in rows_by_item_id[item_id]:
+                proposal_row["operation"] = rows_by_item_id[item_id]["operation"]
+        else:
+            proposal_rows.append(blocker)
+    workflow_rows = proposal_rows
+    focus = conversation_focus_from_item_results(
+        workflow_rows,
+        source_file_id=source_file_id,
+        analysis_revision=analysis_revision,
+        turn_kind="follow_up",
+    )
+    if blocker_rows:
+        lines = ["重新核對後，以下項目還需要處理："]
+        for row in blocker_rows[:WORKFLOW_FOCUS_LIMIT]:
+            title = row["title"]
+            if row["status"] == "needs_information":
+                gap = "、".join(row["missing_information"]) or "必要的取證資訊"
+                lines.append(f"「{title}」還缺少：{gap}。")
+            elif row["status"] == "unsupported":
+                lines.append(f"「{title}」目前無法安全取證，需改由導師核查或調整檢查方式。")
+            else:
+                lines.append(f"「{title}」這次核對沒有完成，請稍後重試。")
+        lines.append("目前檢查表已保留，腳本尚未開始製作；詳細項目已列在 AI 聊天室。")
+        status = (
+            "needs_information"
+            if any(row["status"] == "needs_information" for row in blocker_rows)
+            else "unsupported"
+        )
+        return {
+            "content": "\n".join(lines)[:WORKFLOW_CONTENT_LIMIT],
+            "metadata": _workflow_metadata(
+                status=status,
+                stage="reanalysis",
+                source_file_id=source_file_id,
+                analysis_revision=analysis_revision,
+                item_results=workflow_rows,
+                conversation_focus=focus,
+                reason_code=(
+                    "automatic_detection_information_missing"
+                    if status == "needs_information"
+                    else "automatic_detection_unsupported"
+                ),
+                script_ready=False,
+            ),
+        }
+
+    return {
+        "content": (
+            "重新核對已完成，所有檢查項目都具備腳本所需的取證資訊；"
+            "目前檢查表已保留，可開始製作檢查腳本。"
+        ),
+        "metadata": _workflow_metadata(
+            status="resolved",
+            stage="reanalysis",
+            source_file_id=source_file_id,
+            analysis_revision=analysis_revision,
+            item_results=workflow_rows,
+            conversation_focus=focus,
+            reason_code="reanalysis_ready",
+            script_ready=True,
+        ),
+    }
+
+
+def script_blocker_workflow_message(
+    blockers: list[AutomationSupportBlocker] | list[dict[str, Any]] | None,
+    *,
+    source_file_id: uuid.UUID | str | None,
+    analysis_revision: int | None,
+) -> WorkflowMessage:
+    """Format deterministic script preflight blockers for Chat persistence."""
+    rows = [
+        result
+        for blocker in (blockers or [])
+        if isinstance(blocker, dict)
+        and (result := _workflow_item_result(blocker)) is not None
+    ]
+    focus = conversation_focus_from_item_results(
+        rows,
+        source_file_id=source_file_id,
+        analysis_revision=analysis_revision,
+        turn_kind="follow_up",
+    )
+    lines = ["目前檢查表尚未具備製作檢查腳本的條件："]
+    for row in rows[:WORKFLOW_FOCUS_LIMIT]:
+        title = row["title"]
+        if row["status"] == "needs_information":
+            gap = "、".join(row["missing_information"]) or "必要的取證資訊"
+            lines.append(f"「{title}」還缺少：{gap}。")
+        elif row["status"] == "unsupported":
+            lines.append(f"「{title}」目前無法安全取證，需由導師核查或調整檢查方式。")
+        else:
+            lines.append(f"「{title}」的處理沒有完成，請稍後重試。")
+    lines.append("腳本尚未開始製作；可直接在 AI 聊天室補充缺口或調整檢查方式。")
+    status = (
+        "needs_information"
+        if any(row["status"] == "needs_information" for row in rows)
+        else "unsupported"
+        if rows
+        else "analysis_error"
+    )
+    return {
+        "content": "\n".join(lines)[:WORKFLOW_CONTENT_LIMIT],
+        "metadata": _workflow_metadata(
+            status=status,
+            stage="script_preflight",
+            source_file_id=source_file_id,
+            analysis_revision=analysis_revision,
+            item_results=rows,
+            conversation_focus=focus,
+            reason_code="teacher_judge_script_not_ready",
+            script_ready=False,
+        ),
+    }
+
+
+def workflow_error_message(
+    *,
+    stage: str,
+    status_code: int | None = None,
+    source_file_id: uuid.UUID | str | None = None,
+    analysis_revision: int | None = None,
+    reason_code: str | None = None,
+) -> WorkflowMessage:
+    """Return a sanitized processing failure without blaming the teacher."""
+    code = reason_code
+    if not code:
+        code = (
+            f"{stage}_timeout"
+            if status_code == 504
+            else f"{stage}_unavailable"
+            if status_code in {502, 503}
+            else f"{stage}_failed"
+        )
+    stage_labels = {
+        "reanalysis": "AI 重新核對",
+        "script_generation": "腳本製作",
+        "script_review": "腳本審查",
+        "persistence": "檢查表保存",
+    }
+    label = stage_labels.get(stage, "系統處理")
+    focus = conversation_focus_from_item_results(
+        [
+            {
+                "item_id": f"workflow-{stage}",
+                "title": label,
+                "status": "analysis_error",
+                "known_information": ["目前檢查表已保留"],
+                "missing_information": [],
+                "reason_code": code,
+            }
+        ],
+        source_file_id=source_file_id,
+        analysis_revision=analysis_revision,
+        turn_kind="follow_up",
+    )
+    if code == "analysis_revision_conflict":
+        content = (
+            "目前檢查表已有較新的保存版本，這次結果沒有覆蓋它。"
+            "現有檢查表已保留，未核准的腳本不會開放執行；請重新載入後再試一次。"
+        )
+    else:
+        content = (
+            f"這次{label}在處理階段沒有成功。現有檢查表已保留，"
+            "未核准的腳本不會開放執行。這不是缺少你的資料；可以稍後重試，"
+            "或在聊天室詢問目前已知的處理階段。"
+        )
+    return {
+        "content": content[:WORKFLOW_CONTENT_LIMIT],
+        "metadata": _workflow_metadata(
+            status="analysis_error",
+            stage=stage,
+            source_file_id=source_file_id,
+            analysis_revision=analysis_revision,
+            conversation_focus=focus,
+            reason_code=code,
+            script_ready=False,
+        ),
+    }
+
+
+def script_review_workflow_message(
+    artifact: Any,
+    *,
+    source_file_id: uuid.UUID | str | None,
+    analysis_revision: int | None,
+) -> WorkflowMessage:
+    """Project a script artifact's terminal state without exposing its body."""
+    status = getattr(artifact, "status", None)
+    status = getattr(status, "value", status)
+    artifact_id = getattr(artifact, "id", None)
+    if status == "approved":
+        focus = conversation_focus_from_item_results(
+            [],
+            source_file_id=source_file_id,
+            analysis_revision=analysis_revision,
+            turn_kind="follow_up",
+        )
+        return {
+            "content": "檢查腳本已通過安全與 AI 審查，可開始執行。",
+            "metadata": _workflow_metadata(
+                status="resolved",
+                stage="script_review",
+                source_file_id=source_file_id,
+                analysis_revision=analysis_revision,
+                conversation_focus=focus,
+                reason_code="script_approved",
+                script_ready=True,
+                artifact_id=artifact_id,
+            ),
+        }
+
+    policy = getattr(artifact, "policy_check_result_json", None) or {}
+    ai_review = getattr(artifact, "ai_review_result_json", None) or {}
+    coverage = policy.get("coverage") if isinstance(policy, dict) else None
+    generation_error = policy.get("generation_error") if isinstance(policy, dict) else None
+    issues: Any = []
+    if generation_error:
+        safe_stage = "腳本產生"
+        issues = [generation_error]
+    elif isinstance(policy, dict) and (
+        policy.get("safety_approved") is False or policy.get("safety_issues")
+    ):
+        safe_stage = "安全檢查"
+        issues = policy.get("safety_issues")
+    elif isinstance(policy, dict) and (
+        policy.get("quality_approved") is False or policy.get("quality_issues")
+    ):
+        safe_stage = "品質檢查"
+        issues = policy.get("quality_issues")
+    elif isinstance(coverage, dict) and (
+        coverage.get("approved") is False or coverage.get("uncovered_items")
+    ):
+        safe_stage = "覆蓋檢查"
+        issues = coverage.get("issues") or coverage.get("uncovered_items")
+    elif isinstance(ai_review, dict) and (
+        ai_review.get("approved") is False or ai_review.get("issues")
+    ):
+        safe_stage = "AI 複核"
+        issues = ai_review.get("issues")
+    else:
+        safe_stage = "腳本審查"
+        issues = policy.get("issues") if isinstance(policy, dict) else []
+    issue_list = [
+        _workflow_issue_text(issue)
+        for issue in (issues if isinstance(issues, list) else [])
+        if _workflow_issue_text(issue)
+    ][:3]
+    issue_note = f"目前階段：{safe_stage}。" if safe_stage else ""
+    if issue_list:
+        issue_note += f"審查摘要：{'；'.join(issue_list)}"
+    focus = conversation_focus_from_item_results(
+        [
+            {
+                "item_id": "workflow-script-review",
+                "title": "腳本審查",
+                "status": "analysis_error",
+                "known_information": [safe_stage],
+                "missing_information": [],
+                "reason_code": "script_review_failed",
+            }
+        ],
+        source_file_id=source_file_id,
+        analysis_revision=analysis_revision,
+        turn_kind="follow_up",
+    )
+    content = (
+        f"檢查表已儲存，但產生的腳本未通過{safe_stage}，因此沒有開放執行。"
+        "失敗版本已保留在腳本紀錄中，可查看詳細審查結果後重試。"
+        f"{issue_note}"
+    )
+    return {
+        "content": content[:WORKFLOW_CONTENT_LIMIT],
+        "metadata": _workflow_metadata(
+            status="analysis_error",
+            stage="script_review",
+            source_file_id=source_file_id,
+            analysis_revision=analysis_revision,
+            conversation_focus=focus,
+            reason_code="script_review_failed",
+            script_ready=False,
+            artifact_id=artifact_id,
+            issue_summary=issue_list,
+        ),
+    }
+
+
+def apply_proposal_operations_to_analysis(
+    analysis: TeacherJudgeRubricAnalysis,
+    proposal: list[dict[str, Any]] | None,
+) -> TeacherJudgeRubricAnalysis:
+    """Apply server proposal semantics for readiness checks without persistence."""
+    by_id: dict[str, dict[str, Any]] = {
+        item.id: item.model_dump(mode="python") for item in analysis.items
+    }
+    for raw in proposal or []:
+        if not isinstance(raw, dict):
+            continue
+        nested = raw.get("item")
+        candidate = dict(nested) if isinstance(nested, dict) else dict(raw)
+        operation = str(
+            raw.get("operation") or raw.get("action") or raw.get("op") or ""
+        ).lower()
+        item_id = str(candidate.get("id") or "").strip()
+        if operation in {"delete", "remove"}:
+            if item_id:
+                by_id.pop(item_id, None)
+            continue
+        if not item_id:
+            continue
+        candidate.pop("operation", None)
+        candidate.pop("action", None)
+        if item_id in by_id:
+            merged = {**by_id[item_id], **candidate}
+        else:
+            merged = candidate
+        try:
+            normalized = TeacherJudgeRubricItem.model_validate(merged)
+        except Exception:
+            # The proposal validator is the source of truth; malformed rows are
+            # ignored here and remain blocked by the existing persisted rubric.
+            continue
+        by_id[item_id] = normalized.model_dump(mode="python")
+    items = [TeacherJudgeRubricItem.model_validate(value) for value in by_id.values()]
+    return analysis.model_copy(
+        update={
+            "items": items,
+            "total_items": len(items),
+            "checked_count": sum(1 for item in items if item.checked),
+            "auto_count": sum(1 for item in items if item.detectable == "auto"),
+            "partial_count": sum(1 for item in items if item.detectable == "partial"),
+            "manual_count": sum(1 for item in items if item.detectable == "manual"),
+            "detectability_needs_review": False,
+            "pending_review_item_ids": [],
+        }
+    )
 
 
 def normalize_message_text(value: str) -> str:
@@ -610,6 +1248,7 @@ def bounded_history(
     through_message_id: uuid.UUID | None = None,
     summary: str | None = None,
     source_file_id: uuid.UUID | None = None,
+    analysis_revision: int | None = None,
 ) -> list[TeacherJudgeRubricChatMessage]:
     statement = select(TeacherJudgeSessionMessage).where(
         TeacherJudgeSessionMessage.session_id == session_id,
@@ -680,14 +1319,26 @@ def bounded_history(
         )
         for row in reversed(kept)
     ]
-    for row in reversed(kept):
+    # ``kept`` is newest-first.  The first matching focus is the authoritative
+    # snapshot for this source; never revive an older unresolved requirement
+    # after a newer resolved turn.
+    for row in kept:
         metadata = row.metadata_json if isinstance(row.metadata_json, dict) else {}
         focus = metadata.get("conversation_focus")
         if not isinstance(focus, dict):
             continue
         focus_source = focus.get("source_file_id")
         expected_source = str(source_file_id) if source_file_id is not None else None
+        if focus_source is not None:
+            focus_source = str(focus_source)
         if focus_source != expected_source:
+            continue
+        focus_revision = focus.get("analysis_revision")
+        if (
+            analysis_revision is not None
+            and focus_revision is not None
+            and str(focus_revision) != str(analysis_revision)
+        ):
             continue
         # The snapshot is labelled "unresolved"; ready requirements were already
         # turned into a proposal and none/empty ones need no action, so
@@ -696,10 +1347,10 @@ def bounded_history(
             requirement
             for requirement in focus.get("requirements") or []
             if isinstance(requirement, dict)
-            and requirement.get("status") not in {"ready", "none"}
+            and requirement.get("status") not in _FOCUS_RESOLVED_STATUSES
         ]
         if not unresolved:
-            continue
+            break
         focus_message = TeacherJudgeRubricChatMessage(
             role="assistant",
             content=(

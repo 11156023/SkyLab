@@ -105,6 +105,7 @@ CHAT_SYSTEM_TEMPLATE = """
 - 檢查項目提案只能透過 `create_checklist_item`（新增）或 `edit_checklist_item`（修改）建立；不得自行輸出完整項目 JSON。
 - `create_checklist_item` 填入 `title` 與已知欄位：`detectable`、`judgement_mode`、`detection_method`、`missing_information`、`check_steps`、`fallback`。留空欄位使用系統預設，不需要補滿整份規格。
 - `edit_checklist_item` 必須帶既有項目 `id`，只填有變動的欄位；省略的欄位維持原值，要清空時明確填 `null` 或 `[]`。
+- 除非老師本輪明確要求變更核對方式，`edit_checklist_item` 不得包含 `judgement_mode`；老師確實要求時，只送出 `id` 與 `judgement_mode`，與內容修改分開送出，不得順手改動。
 - `detectable`、`judgement_mode`、`detection_method`、`check_steps` 必須一致；不得把能以腳本取得 stdout、檔案或系統資訊但需導師判斷的項目標成 manual。
 - `auto` 項目不得提供 `fallback` 與 `missing_information`；partial 必須列出腳本產生或執行所缺資訊，manual 才提供無法安全取證時的替代建議。
 - 工具驗證失敗時，依錯誤訊息修正參數後重新呼叫同一個工具；同一需求最多重試一次，仍失敗時改在 reply 說明原因，不得宣稱已建立提案。
@@ -229,7 +230,7 @@ SITUATION_REFINE = """
 
 ### 1.1 可驗證性決策順序（必須逐項套用）
 1. 找出要判定的成功條件，以及後續可取得的證據。
-2. 平台有對應取證能力且執行資訊完整時標為 auto；`judgement_mode` 預設為 `ai`，把成功條件整理成可客觀比對的形式，引導完成自動檢查。只有老師明確表示想自己檢查時才使用 `judgement_mode=teacher`；不得自行把 `ai` 改成 `teacher`，也不要在老師未要求時更動既有 `teacher` 項目。現在沒有實際結果不影響判斷。
+2. 平台有對應取證能力且執行資訊完整時標為 auto；`judgement_mode` 預設為 `ai`，把成功條件整理成可客觀比對的形式，引導完成自動檢查。`judgement_mode` 只有老師本輪明確指示時才能變更：老師明確表示想自己檢查才改用 `teacher`，明確要求改回系統自動判定才改用 `ai`；除此之外不得把既有 `ai` 改成 `teacher`，也不得把既有 `teacher` 改成 `ai`。現在沒有實際結果不影響判斷。
 3. 若可由老師補齊服務名稱、工作目錄、Port、命令或取證範圍後產生可執行腳本，標為 partial 並逐項列出 missing_information；不得把客觀答案列為 `teacher` 模式的必要缺口。
 4. 只有平台沒有安全取證能力時標為 manual；核心條件主觀但可取得答案、檔案或系統資訊時仍標為 auto，`judgement_mode` 依規則 2 決定。
 5. 從 catalog 選擇能取得證據的 command_key；不得發明 command，也不得以無關且較容易的檢查替換原目標。

@@ -159,6 +159,18 @@ describe("AiJudgeService persistent sessions", () => {
     expect(shouldDisplayChatMessage({ role: "user", content: RUBRIC_REASSESS_PROMPT })).toBe(false);
   });
 
+  test("refine assistant 結果保留為一般可見 Chat 訊息", () => {
+    expect(shouldDisplayChatMessage({
+      role: "assistant",
+      content: "重新核對後還缺少服務 Port。",
+      message_type: "chat",
+      metadata_json: {
+        status: "needs_information",
+        script_ready: false,
+      },
+    })).toBe(true);
+  });
+
   test("只送出一則新訊息，不回傳 client history", async () => {
     await AiJudgeService.sendSessionMessage("class-1", "session-1", "檢查 nginx");
 

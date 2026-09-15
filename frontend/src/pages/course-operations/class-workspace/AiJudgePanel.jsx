@@ -18,6 +18,39 @@ import {
   shouldDisplayChatMessage,
 } from "../../../services/aiJudge";
 
+/**
+ * Merge server messages by id while retaining chronological server order.
+ * Identical content with different ids is valid (for example, a retry), so
+ * content is deliberately never used as a de-duplication key.
+ */
+export function mergeSessionMessages(current = [], incoming = []) {
+  const merged = new Map();
+  const anonymous = [];
+  [...(Array.isArray(current) ? current : []), ...(Array.isArray(incoming) ? incoming : [])]
+    .forEach((message, index) => {
+      if (!message || typeof message !== "object") return;
+      const id = message.id;
+      if (id) {
+        merged.set(String(id), { message, index });
+      } else {
+        anonymous.push({ message, index });
+      }
+    });
+  return [
+    ...[...merged.values(), ...anonymous]
+      .sort((a, b) => {
+        const aTime = a.message.created_at ?? "";
+        const bTime = b.message.created_at ?? "";
+        if (aTime !== bTime) return aTime < bTime ? -1 : 1;
+        const aId = a.message.id ? String(a.message.id) : "";
+        const bId = b.message.id ? String(b.message.id) : "";
+        if (aId !== bId) return aId < bId ? -1 : 1;
+        return a.index - b.index;
+      })
+      .map(({ message }) => message),
+  ];
+}
+
 /* ── 共用小元件 ─────────────────────────────────────────── */
 
 function Spinner({ size = 16 }) {
@@ -420,6 +453,29 @@ export function buildProposalDiff(currentItems, proposedItems) {
   return changes;
 }
 
+/** 只有後端明確標為 Ready／導師檢查的操作可進入套用選取。 */
+export function getSelectableProposalIds(proposalItems, itemResults = null) {
+  const proposal = Array.isArray(proposalItems) ? proposalItems : [];
+  if (!Array.isArray(itemResults)) {
+    return new Set(proposal.map((item, index) => item?.id ?? `proposal-${index}`));
+  }
+  if (itemResults.length === 0) return new Set();
+  const resultByOperationId = new Map(
+    itemResults
+      .filter((result) => result?.operation?.id)
+      .map((result) => [String(result.operation.id), result]),
+  );
+  return new Set(
+    proposal
+      .map((item, index) => ({ item, id: item?.id ?? `proposal-${index}` }))
+      .filter(({ id }) => {
+        const result = resultByOperationId.get(String(id));
+        return result?.status === "ready" || result?.status === "teacher_review";
+      })
+      .map(({ id }) => id),
+  );
+}
+
 /** 將選定的 AI 差異套用成候選項目；未明確刪除的既有項目一律保留。 */
 export function applyProposalOperations(currentItems, proposalItems, selectedIds = null) {
   const byId = new Map((Array.isArray(currentItems) ? currentItems : []).map((item) => [item.id, item]));
@@ -561,7 +617,7 @@ export function ProposalPanel({ proposal, selectedIds, onToggle, onApply, onSkip
 /* ── 可編輯檢查項目表格 ───────────────────────────────── */
 
 function DetectabilityBadge({ detectable, judgementMode = "ai", needsReview = false }) {
-  const detectableInfo = needsReview
+  const detectableInfo = needsReview || detectable === "partial"
     ? DETECTABLE_INFO.partial
     : judgementMode === "teacher"
       ? TEACHER_REVIEW_INFO
@@ -1217,7 +1273,7 @@ function RubricSourceRail({ classId, file, onClose, embedded = false }) {
 
 /* ── Tab 1：檢查表 ──────────────────────────────────────── */
 
-function RubricsTab({ classId, judgeSession, onSessionUpdated, onScriptCreated, sidebar = null, tabsBar = null }) {
+export function RubricsTab({ classId, judgeSession, onSessionUpdated, onScriptCreated, sidebar = null, tabsBar = null }) {
   const toast = useToast();
 
   const [files, setFiles] = useState([]);
@@ -1263,6 +1319,18 @@ function RubricsTab({ classId, judgeSession, onSessionUpdated, onScriptCreated, 
     setPendingProposalMeta(null);
     setPendingProposalIsRefine(false);
     setPendingItemResults(null);
+  }
+
+  async function refreshSessionMessages({ silent = false, replace = false } = {}) {
+    if (!judgeSession?.id) return false;
+    try {
+      const rows = await AiJudgeService.listSessionMessages(classId, judgeSession.id);
+      setMessages((current) => (replace ? rows : mergeSessionMessages(current, rows)));
+      return true;
+    } catch (err) {
+      if (!silent) toast.error(err?.message ?? "載入檢查對話失敗");
+      return false;
+    }
   }
 
   useEffect(() => {
@@ -1533,18 +1601,17 @@ function RubricsTab({ classId, judgeSession, onSessionUpdated, onScriptCreated, 
       );
       setMessages((current) => {
         const baseMessages = isRefine ? current : current.slice(0, -1);
-        return [
-          ...baseMessages,
-          response.user_message,
-          response.assistant_message,
-        ].filter(shouldDisplayChatMessage);
+        return mergeSessionMessages(
+          baseMessages,
+          [response.user_message, response.assistant_message].filter(Boolean),
+        ).filter(shouldDisplayChatMessage);
       });
       setPendingAttachments([]);
       const proposal = buildProposalDiff(analysis?.items ?? [], response.rubric_proposal);
       const itemResults = response.assistant_message?.metadata_json?.item_results;
       setPendingItemResults(Array.isArray(itemResults) && itemResults.length ? itemResults : null);
       setPendingProposal(proposal.length ? proposal : null);
-      setSelectedProposalIds(new Set(proposal.map((item, index) => item.id ?? `proposal-${index}`)));
+      setSelectedProposalIds(getSelectableProposalIds(proposal, itemResults));
       setPendingProposalMeta(proposal.length ? { baseRevision: response.base_revision ?? analysisRevisionsRef.current.get(sourceFileId) } : null);
       setPendingProposalIsRefine(Boolean(proposal.length && isRefine));
       if (isRefine && !Array.isArray(response.rubric_proposal)) {
@@ -1563,8 +1630,14 @@ function RubricsTab({ classId, judgeSession, onSessionUpdated, onScriptCreated, 
         }
       }
     } catch (err) {
-      toast.error(err?.message ?? "對話失敗");
-      setMessages(messages);
+      const message = err?.message ?? "對話失敗";
+      const synced = await refreshSessionMessages({ silent: true, replace: true });
+      if (!synced) {
+        setMessages(messages);
+        toast.error(`${message} 無法確認 Chat 紀錄是否已同步。`);
+      } else {
+        toast.error(message);
+      }
     } finally {
       setIsChatting(false);
       setIsItemwiseAnalysis(false);
@@ -1581,10 +1654,17 @@ function RubricsTab({ classId, judgeSession, onSessionUpdated, onScriptCreated, 
       return;
     }
     const previousAnalysis = analysis;
+    const safeSelectedIds = getSelectableProposalIds(
+      pendingProposal,
+      pendingItemResults,
+    );
+    const selectedIds = new Set(
+      [...selectedProposalIds].filter((id) => safeSelectedIds.has(id)),
+    );
     const { items: nextItems, evaluatedIds } = applyProposalOperations(
       analysis?.items ?? [],
       pendingProposal,
-      selectedProposalIds,
+      selectedIds,
     );
     const currentPendingIds = sourceFileId
       ? pendingReviewIdsByFileRef.current.get(sourceFileId) ?? pendingReviewIds
@@ -1677,31 +1757,54 @@ function RubricsTab({ classId, judgeSession, onSessionUpdated, onScriptCreated, 
         baseRevision,
         { isRefine: true },
       );
+      const assistantMessage = response?.assistant_message;
+      setMessages((current) => mergeSessionMessages(
+        current,
+        [response?.user_message, assistantMessage].filter(Boolean),
+      ).filter(shouldDisplayChatMessage));
+      const assistantMetadata = assistantMessage?.metadata_json ?? {};
       if (!Array.isArray(response.rubric_proposal)) {
-        throw new Error("AI 未回傳完整檢查項目列表，尚未變更目前檢查表");
+        const message = "AI 核對結果格式不完整，尚未變更目前檢查表；請稍後重試。";
+        setScriptGenerationNotice({ status: "error", message });
+        toast.error(message);
+        return;
       }
       const proposal = buildProposalDiff(analysis.items ?? [], response.rubric_proposal);
-      const { items: candidateItems } = applyProposalOperations(analysis.items ?? [], proposal);
+      const itemResults = assistantMetadata.item_results;
+      setPendingItemResults(
+        Array.isArray(itemResults) && itemResults.length ? itemResults : null,
+      );
+      setPendingProposal(proposal.length ? proposal : null);
+      setSelectedProposalIds(getSelectableProposalIds(proposal, itemResults));
+      setPendingProposalMeta(proposal.length ? { baseRevision } : null);
+      setPendingProposalIsRefine(Boolean(proposal.length));
+      if (assistantMetadata.script_ready === false) {
+        const message = assistantMetadata.status === "unsupported"
+          ? "部分項目目前無法安全取證，詳細內容已列在 AI 聊天室。"
+          : assistantMetadata.status === "analysis_error"
+            ? "AI 重新核對未完成，檢查表尚未變更；處理階段已列在 AI 聊天室。"
+            : "尚有項目需要補充，詳細內容已列在 AI 聊天室。";
+        setScriptGenerationNotice({ status: "error", message });
+        toast.error(message);
+        return;
+      }
+      if (assistantMetadata.script_ready !== true) {
+        const message = "AI 核對結果缺少安全狀態，尚未開始製作檢查腳本；請稍後重試。";
+        setScriptGenerationNotice({ status: "error", message });
+        toast.error(message);
+        return;
+      }
+      const safeSelectedIds = getSelectableProposalIds(proposal, itemResults);
+      const { items: candidateItems } = applyProposalOperations(
+        analysis.items ?? [],
+        proposal,
+        safeSelectedIds,
+      );
       const candidateAnalysis = {
         ...applyItems(analysis, candidateItems),
         detectability_needs_review: false,
         pending_review_item_ids: [],
       };
-      const blocker = getScriptCreationBlocker({
-        analysis: candidateAnalysis,
-        pendingProposal: null,
-        pendingReviewIds: new Set(),
-      });
-      if (blocker) {
-        setPendingProposal(proposal.length ? proposal : null);
-        setSelectedProposalIds(new Set(proposal.map((item, index) => item.id ?? `proposal-${index}`)));
-        setPendingProposalMeta(proposal.length ? { baseRevision } : null);
-        setPendingProposalIsRefine(Boolean(proposal.length));
-        const message = `${blocker}。請確認問題項目後再試一次。`;
-        setScriptGenerationNotice({ status: "error", message });
-        toast.error(message);
-        return;
-      }
       const saved = await applyAnalysis(candidateAnalysis, {
         persist: true,
         immediate: true,
@@ -1744,13 +1847,23 @@ function RubricsTab({ classId, judgeSession, onSessionUpdated, onScriptCreated, 
         toast.success(message);
         onScriptCreated?.(artifact);
       }
+      const synced = await refreshSessionMessages({ silent: true });
+      if (!synced) {
+        const warning = "無法確認 Chat 紀錄是否已同步。";
+        setScriptGenerationNotice((current) => current
+          ? { ...current, message: `${current.message} ${warning}` }
+          : { status: "error", message: warning });
+        toast.error(warning);
+      }
     } catch (err) {
       const message = err?.message ?? "儲存並製作檢查腳本失敗";
+      const synced = await refreshSessionMessages({ silent: true, replace: true });
+      const syncNotice = synced ? "" : "無法確認 Chat 紀錄是否已同步。";
       setScriptGenerationNotice({
         status: "error",
-        message: `${message}。目前檢查表已保留，可再次按「儲存並製作」重試。`,
+        message: `${message}。目前檢查表已保留，可再次按「儲存並製作」重試。${syncNotice ? ` ${syncNotice}` : ""}`,
       });
-      toast.error(message);
+      toast.error(syncNotice ? `${message} ${syncNotice}` : message);
     } finally {
       setIsCreatingScript(false);
       setScriptGenerationStatus(null);

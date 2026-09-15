@@ -1,5 +1,11 @@
+// @vitest-environment happy-dom
+
+globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+
 import { renderToStaticMarkup } from "react-dom/server";
-import { describe, expect, test } from "vitest";
+import { act } from "react";
+import { createRoot } from "react-dom/client";
+import { afterEach, describe, expect, test, vi } from "vitest";
 import {
   ChatPanel,
   CreateCheckDialog,
@@ -20,10 +26,57 @@ import {
   getSessionMenuPosition,
   getSelectedRubricSource,
   getScriptCreationDestination,
+  getSelectableProposalIds,
+  mergeSessionMessages,
   resolveActiveSessionId,
   proposalToolCallLines,
+  RubricsTab,
 } from "./AiJudgePanel";
-import { RUBRIC_POLISH_PROMPT } from "../../../services/aiJudge";
+import {
+  AiJudgeService,
+  RUBRIC_POLISH_PROMPT,
+} from "../../../services/aiJudge";
+
+const originalScrollIntoView = Element.prototype.scrollIntoView;
+
+afterEach(() => {
+  Element.prototype.scrollIntoView = originalScrollIntoView;
+  vi.restoreAllMocks();
+});
+
+describe("mergeSessionMessages", () => {
+  test("依 server id 去重排序，但相同內容的不同訊息仍保留", () => {
+    expect(mergeSessionMessages(
+      [
+        { id: "assistant-1", content: "相同結果", created_at: "2026-09-15T00:00:02Z" },
+        { id: "retry-1", content: "相同結果", created_at: "2026-09-15T00:00:03Z" },
+      ],
+      [
+        { id: "assistant-1", content: "更新後結果", created_at: "2026-09-15T00:00:02Z" },
+        { id: "user-1", content: "問題", created_at: "2026-09-15T00:00:01Z" },
+      ],
+    )).toEqual([
+      { id: "user-1", content: "問題", created_at: "2026-09-15T00:00:01Z" },
+      { id: "assistant-1", content: "更新後結果", created_at: "2026-09-15T00:00:02Z" },
+      { id: "retry-1", content: "相同結果", created_at: "2026-09-15T00:00:03Z" },
+    ]);
+  });
+});
+
+describe("getSelectableProposalIds", () => {
+  test("混合結果只預選 Ready／導師檢查操作，不會套用 unresolved candidate", () => {
+    expect([...getSelectableProposalIds(
+      [
+        { id: "ready", operation: "update" },
+        { id: "gap", operation: "update" },
+      ],
+      [
+        { operation: { id: "ready" }, status: "ready" },
+        { operation: { id: "gap" }, status: "needs_information" },
+      ],
+    )]).toEqual(["ready"]);
+  });
+});
 
 describe("ChatPanel", () => {
   test("refine 內部提示詞不會出現在聊天室，並提供清除內容按鈕", () => {
@@ -158,6 +211,115 @@ describe("ChatPanel", () => {
 
     expect(html).toContain("正在拆解評分表並逐項核查");
     expect(html).not.toContain("%");
+  });
+});
+
+describe("RubricsTab 儲存並製作流程", () => {
+  test("重新核對缺少資訊時把 server assistant 結果加入 Chat，且不啟動腳本", async () => {
+    Element.prototype.scrollIntoView = vi.fn();
+    const file = {
+      id: "file-1",
+      template_key: "linux",
+      environment_keys: ["linux"],
+      analysis_revision: 3,
+      source_type: "created",
+      display_name: "測試檢查表",
+      original_filename: null,
+      updated_at: "2026-09-15T00:00:00Z",
+      analysis_json: {
+        items: [{
+          id: "item-port",
+          title: "確認服務 Port",
+          checked: false,
+          detectable: "partial",
+          judgement_mode: "ai",
+          detection_method: "檢查服務",
+          missing_information: ["服務 Port"],
+          check_steps: [],
+          fallback: null,
+        }],
+        total_items: 1,
+        checked_count: 0,
+        auto_count: 0,
+        partial_count: 1,
+        manual_count: 0,
+      },
+    };
+    const assistantMessage = {
+      id: "assistant-1",
+      session_id: "session-1",
+      role: "assistant",
+      message_type: "chat",
+      content: "重新核對後，「確認服務 Port」還缺少：服務 Port。",
+      metadata_json: {
+        status: "needs_information",
+        stage: "reanalysis",
+        script_ready: false,
+        item_results: [{
+          item_id: "item-port",
+          title: "確認服務 Port",
+          status: "needs_information",
+          missing_information: ["服務 Port"],
+        }],
+      },
+      created_at: "2026-09-15T00:00:02Z",
+    };
+    vi.spyOn(AiJudgeService, "listFiles").mockResolvedValue([file]);
+    vi.spyOn(AiJudgeService, "listSessionMessages").mockResolvedValue([]);
+    const sendMessage = vi.spyOn(AiJudgeService, "sendSessionMessage").mockResolvedValue({
+      user_message: {
+        id: "user-1",
+        session_id: "session-1",
+        role: "user",
+        message_type: "chat",
+        content: RUBRIC_POLISH_PROMPT,
+        metadata_json: { ui_hidden: true },
+        created_at: "2026-09-15T00:00:01Z",
+      },
+      assistant_message: assistantMessage,
+      rubric_proposal: [],
+      base_revision: 3,
+    });
+    const createScript = vi.spyOn(AiJudgeService, "createSessionScript").mockResolvedValue({
+      status: "approved",
+    });
+
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    await act(async () => {
+      root.render(
+        <RubricsTab
+          classId="class-1"
+          judgeSession={{ id: "session-1", selected_file_id: "file-1" }}
+        />,
+      );
+      await new Promise((resolve) => setTimeout(resolve, 30));
+    });
+
+    const saveButton = [...container.querySelectorAll("button")]
+      .find((button) => button.textContent.includes("儲存並製作"));
+    expect(saveButton).toBeTruthy();
+    expect(saveButton.disabled).toBe(false);
+    await act(async () => {
+      saveButton.click();
+      await new Promise((resolve) => setTimeout(resolve, 30));
+    });
+
+    expect(sendMessage).toHaveBeenCalledWith(
+      "class-1",
+      "session-1",
+      RUBRIC_POLISH_PROMPT,
+      3,
+      { isRefine: true },
+    );
+    expect(container.textContent).toContain("確認服務 Port");
+    expect(container.textContent).toContain("尚有項目需要補充");
+    expect(createScript).not.toHaveBeenCalled();
+    await act(async () => {
+      root.unmount();
+    });
+    container.remove();
   });
 });
 
@@ -372,6 +534,28 @@ describe("RubricTable", () => {
     expect(html).toContain("待更新");
     expect(html).toContain('title="缺少資訊（自動檢測支援待更新）"');
     expect(html).toContain("warning_amber");
+  });
+
+  test("缺少資訊的導師核查項目仍優先顯示缺少資訊", () => {
+    const html = renderToStaticMarkup(
+      <RubricTable
+        items={[{
+          id: "partial-teacher",
+          title: "程式風格檢查",
+          detectable: "partial",
+          judgement_mode: "teacher",
+          detection_method: null,
+          fallback: null,
+          missing_information: ["預期輸出格式"],
+          check_steps: [],
+        }]}
+        onChange={() => {}}
+        onDelete={() => {}}
+      />,
+    );
+
+    expect(html).toContain("缺少資訊");
+    expect(html).not.toContain("導師檢查");
   });
 });
 

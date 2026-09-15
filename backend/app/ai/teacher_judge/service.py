@@ -69,6 +69,7 @@ class TeacherJudgeItemwiseResult:
     proposal: list[dict[str, Any]] | None
     metrics: VLLMMetrics
     item_results: list[dict[str, Any]]
+    error: str | None = None
 
 
 def _conversation_focus_from_content(
@@ -2370,6 +2371,7 @@ async def analyze_attachments_itemwise(
             proposal=None,
             metrics=metrics,
             item_results=[],
+            error=extraction_error,
         )
     if not sources:
         return TeacherJudgeItemwiseResult(

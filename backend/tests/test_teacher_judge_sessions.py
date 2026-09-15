@@ -13,6 +13,8 @@ from app.ai.teacher_judge import attachment_service, file_service, session_servi
 from app.ai.teacher_judge import service as teacher_judge_service
 from app.ai.teacher_judge.schemas import (
     TeacherJudgeRubricAnalysis,
+    TeacherJudgeRubricCheckStep,
+    TeacherJudgeRubricItem,
     TeacherJudgeSessionCreateRequest,
     TeacherJudgeSessionMessageCreateRequest,
     TeacherJudgeSessionScriptCreateRequest,
@@ -24,10 +26,12 @@ from app.models.teacher_judge_script_artifact import TeacherJudgeScriptArtifact
 from app.models.teacher_judge_script_run import TeacherJudgeScriptRun
 from app.models.teacher_judge_session import (
     TeacherJudgeMessageRole,
+    TeacherJudgeMessageType,
     TeacherJudgeSession,
     TeacherJudgeSessionMessage,
     TeacherJudgeSessionStatus,
 )
+from app.models.teacher_judge_template_command import TeacherJudgeTemplateCommand
 
 
 def _session() -> Session:
@@ -520,6 +524,175 @@ async def test_session_script_rejects_stale_analysis_revision(
     assert exc_info.value.status_code == 409
     assert exc_info.value.detail["code"] == "teacher_judge_analysis_revision_conflict"
 
+    outcome = db.exec(
+        select(TeacherJudgeSessionMessage).where(
+            TeacherJudgeSessionMessage.role == TeacherJudgeMessageRole.assistant
+        )
+    ).all()
+    assert len(outcome) == 1
+    assert outcome[0].message_type == TeacherJudgeMessageType.chat
+    assert outcome[0].metadata_json["status"] == "analysis_error"
+    assert "沒有覆蓋" in outcome[0].content
+
+
+@pytest.mark.asyncio
+async def test_session_script_preflight_failure_is_saved_with_item_blockers(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    db = _session()
+    class_id = uuid.uuid4()
+    rubric_file = _file(db, class_id)
+    rubric_file.analysis_json = {
+        "items": [
+            {
+                "id": "item-port",
+                "title": "確認服務 Port",
+                "checked": False,
+                "detectable": "partial",
+                "detection_method": "檢查服務",
+                "missing_information": ["服務 Port"],
+                "check_steps": [],
+                "fallback": None,
+            }
+        ]
+    }
+    db.add(rubric_file)
+    db.commit()
+    db.refresh(rubric_file)
+    item = TeacherJudgeSession(
+        teaching_class_id=class_id,
+        title="Script preflight",
+        selected_file_id=rubric_file.id,
+    )
+    db.add(item)
+    db.commit()
+    db.refresh(item)
+
+    async def blocked_artifact(**kwargs):
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "code": "teacher_judge_script_not_ready",
+                "items": [
+                    {
+                        "item_id": "item-port",
+                        "title": "確認服務 Port",
+                        "status": "missing_info",
+                        "missing_information": ["服務 Port"],
+                        "reason_code": "automatic_detection_information_missing",
+                    }
+                ],
+            },
+        )
+
+    monkeypatch.setattr(teacher_judge_sessions, "_access", lambda *args: None)
+    monkeypatch.setattr(teacher_judge_sessions, "create_artifact", blocked_artifact)
+
+    with pytest.raises(HTTPException) as exc_info:
+        await teacher_judge_sessions.create_session_script(
+            class_id,
+            item.id,
+            db,
+            SimpleNamespace(id=uuid.uuid4()),
+            TeacherJudgeSessionScriptCreateRequest(
+                analysis_revision=rubric_file.analysis_revision
+            ),
+        )
+
+    assert exc_info.value.status_code == 422
+    outcome = db.exec(
+        select(TeacherJudgeSessionMessage).where(
+            TeacherJudgeSessionMessage.role == TeacherJudgeMessageRole.assistant
+        )
+    ).one()
+    assert outcome.message_type == TeacherJudgeMessageType.chat
+    assert outcome.metadata_json["status"] == "needs_information"
+    assert outcome.metadata_json["stage"] == "script_preflight"
+    assert outcome.metadata_json["conversation_focus"]["requirements"][0]["target_item_id"] == "item-port"
+    assert "服務 Port" in outcome.content
+
+
+@pytest.mark.asyncio
+async def test_session_script_review_failed_saves_safe_chat_outcome(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    db = _session()
+    class_id = uuid.uuid4()
+    rubric_file = _file(db, class_id)
+    rubric_file.analysis_json = {
+        "items": [
+            {
+                "id": "item-port",
+                "title": "確認服務 Port",
+                "checked": False,
+                "detectable": "auto",
+                "detection_method": "檢查 listening socket",
+                "missing_information": [],
+                "check_steps": [
+                    {
+                        "template_key": "linux",
+                        "command_key": "system.run_command",
+                        "parameters": {
+                            "argv": ["ss", "-lnt"],
+                            "timeout_seconds": 10,
+                            "success_criteria": "exit code 為 0",
+                        },
+                    }
+                ],
+                "fallback": None,
+            }
+        ]
+    }
+    db.add(rubric_file)
+    db.commit()
+    db.refresh(rubric_file)
+    item = TeacherJudgeSession(
+        teaching_class_id=class_id,
+        title="Review failed",
+        selected_file_id=rubric_file.id,
+    )
+    db.add(item)
+    db.commit()
+    db.refresh(item)
+    artifact_id = uuid.uuid4()
+
+    async def fake_artifact(**kwargs):
+        return SimpleNamespace(
+            id=artifact_id,
+            status="review_failed",
+            policy_check_result_json={
+                "safety_approved": True,
+                "quality_approved": True,
+                "coverage": {"approved": False, "uncovered_items": ["item-port"]},
+            },
+            ai_review_result_json={"approved": False, "issues": ["coverage mismatch"]},
+        )
+
+    monkeypatch.setattr(teacher_judge_sessions, "_access", lambda *args: None)
+    monkeypatch.setattr(teacher_judge_sessions, "create_artifact", fake_artifact)
+
+    result = await teacher_judge_sessions.create_session_script(
+        class_id,
+        item.id,
+        db,
+        SimpleNamespace(id=uuid.uuid4()),
+        TeacherJudgeSessionScriptCreateRequest(
+            analysis_revision=rubric_file.analysis_revision
+        ),
+    )
+
+    assert result.status == "review_failed"
+    outcome = db.exec(
+        select(TeacherJudgeSessionMessage).where(
+            TeacherJudgeSessionMessage.role == TeacherJudgeMessageRole.assistant
+        )
+    ).one()
+    assert outcome.metadata_json["status"] == "analysis_error"
+    assert outcome.metadata_json["stage"] == "script_review"
+    assert outcome.metadata_json["artifact_id"] == str(artifact_id)
+    assert "coverage mismatch" not in outcome.content
+    assert "腳本未通過覆蓋檢查" in outcome.content
+
 
 @pytest.mark.asyncio
 async def test_message_can_send_parsed_attachment_without_text(
@@ -737,6 +910,12 @@ async def test_attachment_message_runs_itemwise_analysis_and_records_results(
     assert result.rubric_proposal == [ready_operation]
     item_results = result.assistant_message.metadata_json["item_results"]
     assert [row["status"] for row in item_results] == ["ready", "needs_information"]
+    assert item_results[1]["item_id"] == "attachment-item-2"
+    focus = result.assistant_message.metadata_json["conversation_focus"]
+    assert focus["source_file_id"] == str(rubric_file.id)
+    assert focus["analysis_revision"] == original_revision
+    assert focus["requirements"][0]["target_item_id"] == "attachment-item-2"
+    assert focus["requirements"][0]["missing_information"] == ["連接埠"]
     assert "rubric_proposal" not in result.assistant_message.metadata_json
     assert result.assistant_message.message_type == "chat"
     db.refresh(rubric_file)
@@ -783,10 +962,262 @@ async def test_refine_message_uses_the_rubric_polish_prompt_mode(
         SimpleNamespace(id=uuid.uuid4()),
     )
 
-    assert result.assistant_message.content == "檢查完畢，檢查表目前狀態良好。"
-    assert result.rubric_proposal is None
+    assert result.assistant_message.content.startswith("重新核對後")
+    assert result.rubric_proposal == []
     assert result.user_message.metadata_json["ui_hidden"] is True
-    assert result.assistant_message.metadata_json["ui_hidden"] is True
+    assert result.assistant_message.message_type == "chat"
+    assert "ui_hidden" not in result.assistant_message.metadata_json
+    assert result.assistant_message.metadata_json["status"] == "needs_information"
+    assert result.assistant_message.metadata_json["script_ready"] is False
+    assert result.assistant_message.metadata_json["conversation_focus"]["source_file_id"] == str(rubric_file.id)
+    assert result.assistant_message.metadata_json["conversation_focus"]["requirements"][0]["status"] == "needs_information"
+
+
+@pytest.mark.asyncio
+async def test_refine_message_uses_server_readiness_and_saves_resolved_chat(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    db = _session()
+    class_id = uuid.uuid4()
+    rubric_file = _file(db, class_id)
+    rubric_file.analysis_json = {
+        "items": [
+            {
+                "id": "item-port",
+                "title": "確認服務 Port",
+                "checked": False,
+                "detectable": "auto",
+                "detection_method": "檢查 listening socket",
+                "missing_information": [],
+                "check_steps": [
+                    {
+                        "template_key": "linux",
+                        "command_key": "system.run_command",
+                        "parameters": {
+                            "argv": ["ss", "-lnt"],
+                            "timeout_seconds": 10,
+                            "success_criteria": "stdout 包含 listening socket",
+                        },
+                    }
+                ],
+                "fallback": None,
+            }
+        ]
+    }
+    db.add(rubric_file)
+    db.commit()
+    db.refresh(rubric_file)
+    item = TeacherJudgeSession(
+        teaching_class_id=class_id,
+        title="Resolved refine",
+        selected_file_id=rubric_file.id,
+    )
+    db.add(item)
+    db.commit()
+    db.refresh(item)
+
+    async def fake_chat(messages, rubric_context, **kwargs):
+        assert kwargs["is_refine"] is True
+        return "模型回覆不作為安全閘門。", [], {}
+
+    command = TeacherJudgeTemplateCommand(
+        template_key="linux",
+        command_key="system.run_command",
+        command_label="執行唯讀命令",
+        category="diagnostic",
+        command_template="argv + timeout",
+        description="受控唯讀命令",
+        risk_level="read_only",
+        requires_confirmation=False,
+    )
+    monkeypatch.setattr(teacher_judge_sessions, "_access", lambda *args: None)
+    monkeypatch.setattr(teacher_judge_sessions, "chat_with_rubric", fake_chat)
+    monkeypatch.setattr(
+        teacher_judge_sessions,
+        "get_enabled_template_commands",
+        lambda *args, **kwargs: [command],
+    )
+
+    result = await teacher_judge_sessions.create_message(
+        class_id,
+        item.id,
+        TeacherJudgeSessionMessageCreateRequest(
+            content="請審核並潤飾目前的檢查表",
+            is_refine=True,
+        ),
+        db,
+        SimpleNamespace(id=uuid.uuid4()),
+    )
+
+    assert result.rubric_proposal == []
+    assert "可開始製作" in result.assistant_message.content
+    assert result.assistant_message.metadata_json["status"] == "resolved"
+    assert result.assistant_message.metadata_json["script_ready"] is True
+    assert result.assistant_message.metadata_json["conversation_focus"]["requirements"] == [
+        {
+            "focus_key": "workflow",
+            "status": "none",
+            "known_information": [],
+            "missing_information": [],
+            "reason_code": "",
+        }
+    ]
+
+
+@pytest.mark.asyncio
+async def test_refine_message_preserves_ready_proposal_rows_alongside_blockers(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    db = _session()
+    class_id = uuid.uuid4()
+    rubric_file = _file(db, class_id)
+    rubric_file.analysis_json = {
+        "items": [
+            {
+                "id": "existing",
+                "title": "既有服務",
+                "checked": False,
+                "detectable": "partial",
+                "detection_method": "檢查服務",
+                "missing_information": ["服務 Port"],
+                "check_steps": [
+                    {
+                        "template_key": "linux",
+                        "command_key": "system.run_command",
+                        "parameters": {
+                            "argv": ["systemctl", "is-active", "api"],
+                            "timeout_seconds": 10,
+                            "success_criteria": "exit code 為 0",
+                        },
+                    }
+                ],
+                "fallback": None,
+            }
+        ]
+    }
+    db.add(rubric_file)
+    db.commit()
+    db.refresh(rubric_file)
+    item = TeacherJudgeSession(
+        teaching_class_id=class_id,
+        title="Mixed refine",
+        selected_file_id=rubric_file.id,
+    )
+    db.add(item)
+    db.commit()
+    db.refresh(item)
+
+    proposal = [
+        {
+            "id": "ready-new",
+            "title": "確認 Python 版本",
+            "operation": "add",
+            "checked": False,
+            "detectable": "auto",
+            "detection_method": "執行 python --version",
+            "missing_information": [],
+            "check_steps": [
+                {
+                    "template_key": "linux",
+                    "command_key": "system.run_command",
+                    "parameters": {
+                        "argv": ["python", "--version"],
+                        "timeout_seconds": 10,
+                        "success_criteria": "exit code 為 0",
+                    },
+                }
+            ],
+            "fallback": None,
+        }
+    ]
+
+    async def fake_chat(*args, **kwargs):
+        return "模型回覆不作為安全閘門。", proposal, {}
+
+    command = TeacherJudgeTemplateCommand(
+        template_key="linux",
+        command_key="system.run_command",
+        command_label="執行唯讀命令",
+        category="diagnostic",
+        command_template="argv + timeout",
+        description="受控唯讀命令",
+        risk_level="read_only",
+        requires_confirmation=False,
+    )
+    monkeypatch.setattr(teacher_judge_sessions, "_access", lambda *args: None)
+    monkeypatch.setattr(teacher_judge_sessions, "chat_with_rubric", fake_chat)
+    monkeypatch.setattr(
+        teacher_judge_sessions,
+        "get_enabled_template_commands",
+        lambda *args, **kwargs: [command],
+    )
+
+    result = await teacher_judge_sessions.create_message(
+        class_id,
+        item.id,
+        TeacherJudgeSessionMessageCreateRequest(
+            content="請審核並潤飾目前的檢查表",
+            is_refine=True,
+        ),
+        db,
+        SimpleNamespace(id=uuid.uuid4()),
+    )
+
+    assert result.rubric_proposal == proposal
+    rows = result.assistant_message.metadata_json["item_results"]
+    assert any(row["item_id"] == "ready-new" and row["status"] == "ready" for row in rows)
+    assert any(row["status"] == "needs_information" for row in rows)
+    assert result.assistant_message.metadata_json["script_ready"] is False
+
+
+@pytest.mark.asyncio
+async def test_message_failure_is_saved_as_visible_processing_outcome(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    db = _session()
+    class_id = uuid.uuid4()
+    rubric_file = _file(db, class_id)
+    item = TeacherJudgeSession(
+        teaching_class_id=class_id,
+        title="Failure outcome",
+        selected_file_id=rubric_file.id,
+    )
+    db.add(item)
+    db.commit()
+    db.refresh(item)
+
+    async def fail_chat(*args, **kwargs):
+        raise HTTPException(status_code=503, detail="upstream secret detail")
+
+    monkeypatch.setattr(teacher_judge_sessions, "_access", lambda *args: None)
+    monkeypatch.setattr(teacher_judge_sessions, "chat_with_rubric", fail_chat)
+    monkeypatch.setattr(
+        teacher_judge_sessions, "get_enabled_template_commands", lambda *args, **kwargs: []
+    )
+
+    with pytest.raises(HTTPException) as exc_info:
+        await teacher_judge_sessions.create_message(
+            class_id,
+            item.id,
+            TeacherJudgeSessionMessageCreateRequest(content="請重新核對"),
+            db,
+            SimpleNamespace(id=uuid.uuid4()),
+        )
+
+    assert exc_info.value.status_code == 503
+    assert "upstream secret detail" not in str(exc_info.value.detail)
+    rows = db.exec(
+        select(TeacherJudgeSessionMessage).order_by(
+            TeacherJudgeSessionMessage.created_at,
+            TeacherJudgeSessionMessage.id,
+        )
+    ).all()
+    assert rows[-1].role == TeacherJudgeMessageRole.assistant
+    assert rows[-1].message_type == TeacherJudgeMessageType.chat
+    assert rows[-1].metadata_json["status"] == "analysis_error"
+    assert rows[-1].metadata_json["stage"] == "reanalysis"
+    assert "upstream secret detail" not in rows[-1].content
+    assert "這不是缺少你的資料" in rows[-1].content
 
 
 @pytest.mark.asyncio
@@ -1100,6 +1531,118 @@ def test_bounded_history_skips_focus_when_all_requirements_resolved() -> None:
     db.commit()
 
     history = session_service.bounded_history(db, item.id, source_file_id=source_id)
+
+    assert not any("目前未解需求焦點" in message.content for message in history)
+
+
+def test_bounded_history_latest_resolved_focus_does_not_revive_older_gap() -> None:
+    db = _session()
+    source_id = uuid.uuid4()
+    item = TeacherJudgeSession(
+        teaching_class_id=uuid.uuid4(), title="Focus latest snapshot"
+    )
+    db.add(item)
+    db.commit()
+    db.refresh(item)
+    started_at = datetime(2026, 8, 3, tzinfo=timezone.utc)
+    db.add_all(
+        [
+            TeacherJudgeSessionMessage(
+                session_id=item.id,
+                role=TeacherJudgeMessageRole.assistant,
+                content="舊缺口",
+                created_at=started_at,
+                metadata_json={
+                    "conversation_focus": {
+                        "source_file_id": str(source_id),
+                        "analysis_revision": 4,
+                        "requirements": [
+                            {
+                                "focus_key": "port",
+                                "status": "needs_information",
+                                "missing_information": ["Port"],
+                            }
+                        ],
+                    }
+                },
+            ),
+            TeacherJudgeSessionMessage(
+                session_id=item.id,
+                role=TeacherJudgeMessageRole.assistant,
+                content="已完成",
+                created_at=started_at + timedelta(seconds=1),
+                metadata_json={
+                    "conversation_focus": {
+                        "source_file_id": str(source_id),
+                        "analysis_revision": 4,
+                        "requirements": [
+                            {
+                                "focus_key": "workflow",
+                                "status": "none",
+                                "missing_information": [],
+                            }
+                        ],
+                    }
+                },
+            ),
+            TeacherJudgeSessionMessage(
+                session_id=item.id,
+                role=TeacherJudgeMessageRole.user,
+                content="請繼續",
+                created_at=started_at + timedelta(seconds=2),
+            ),
+        ]
+    )
+    db.commit()
+
+    history = session_service.bounded_history(
+        db,
+        item.id,
+        source_file_id=source_id,
+        analysis_revision=4,
+    )
+
+    assert not any("目前未解需求焦點" in message.content for message in history)
+    assert not any('"focus_key": "port"' in message.content for message in history)
+
+
+def test_bounded_history_ignores_focus_from_another_revision() -> None:
+    db = _session()
+    source_id = uuid.uuid4()
+    item = TeacherJudgeSession(
+        teaching_class_id=uuid.uuid4(), title="Focus revision"
+    )
+    db.add(item)
+    db.commit()
+    db.refresh(item)
+    db.add(
+        TeacherJudgeSessionMessage(
+            session_id=item.id,
+            role=TeacherJudgeMessageRole.assistant,
+            content="舊版本缺口",
+            metadata_json={
+                "conversation_focus": {
+                    "source_file_id": str(source_id),
+                    "analysis_revision": "3",
+                    "requirements": [
+                        {
+                            "focus_key": "old",
+                            "status": "needs_information",
+                            "missing_information": ["舊資料"],
+                        }
+                    ],
+                }
+            },
+        )
+    )
+    db.commit()
+
+    history = session_service.bounded_history(
+        db,
+        item.id,
+        source_file_id=source_id,
+        analysis_revision=4,
+    )
 
     assert not any("目前未解需求焦點" in message.content for message in history)
 
