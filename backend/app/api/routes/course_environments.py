@@ -6,7 +6,7 @@ import uuid
 from typing import Any, Literal
 
 from fastapi import APIRouter
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, ValidationError, model_validator
 from sqlmodel import col, delete, func, select
 
 from app.api.deps import InstructorUser, SessionDep
@@ -157,6 +157,20 @@ class EnvironmentUpdate(EnvironmentCreate):
     pass
 
 
+class EnvironmentDraftIn(BaseModel):
+    # The editor may contain empty fields or unfinished numeric input. Only
+    # publication turns this into a validated, deployable configuration.
+    configuration: dict[str, Any]
+    editor: dict[str, Any]
+    draft_id: uuid.UUID | None = None
+
+    @model_validator(mode="after")
+    def validate_size(self) -> "EnvironmentDraftIn":
+        if len(self.model_dump_json().encode()) > 262144:
+            raise ValueError("Draft exceeds 256 KiB")
+        return self
+
+
 def _get_environment(
     session: SessionDep, current_user: User, environment_id: uuid.UUID
 ) -> CourseEnvironment:
@@ -224,9 +238,7 @@ def _validate_configuration(
             continue
         template = session.get(VMTemplate, node.source_template_id)
         if template is None or template.status != VMTemplateStatus.ready:
-            raise BadRequestError(
-                t("course_env.template_not_ready", name=node.name)
-            )
+            raise BadRequestError(t("course_env.template_not_ready", name=node.name))
         expected = "lxc" if template.resource_type.lower() == "lxc" else "qemu"
         if node.resource_type != expected:
             raise BadRequestError(t("course_env.type_mismatch", name=node.name))
@@ -275,7 +287,10 @@ def _validate_configuration(
         seen_publications.add(signature)
         if publication.mode != "domain":
             continue
-        hostname = (str(publication.zone_id or ""), str(publication.hostname_prefix or ""))
+        hostname = (
+            str(publication.zone_id or ""),
+            str(publication.hostname_prefix or ""),
+        )
         if hostname in seen_hostnames:
             raise BadRequestError(
                 t(
@@ -325,9 +340,7 @@ def _replace_audience(
     )
     for class_id in class_ids:
         session.add(
-            CourseEnvironmentAudience(
-                environment_id=environment.id, class_id=class_id
-            )
+            CourseEnvironmentAudience(environment_id=environment.id, class_id=class_id)
         )
 
 
@@ -400,6 +413,7 @@ def _serialize_version(
         "version": version.version,
         "status": version.status,
         "configuration_hash": version.configuration_hash,
+        "draft_data": json.loads(version.draft_data) if version.draft_data else None,
         "created_at": environment.created_at,
         "updated_at": environment.updated_at,
         "published_at": version.published_at,
@@ -476,6 +490,43 @@ def list_published_environments(
     return result
 
 
+@router.post("/drafts", status_code=201)
+def create_environment_draft(
+    body: EnvironmentDraftIn, session: SessionDep, current_user: InstructorUser
+) -> dict[str, Any]:
+    if body.draft_id and session.get(CourseEnvironment, body.draft_id) is not None:
+        return save_environment_draft(body.draft_id, body, session, current_user)
+    environment = CourseEnvironment(
+        id=body.draft_id or uuid.uuid4(), owner_id=current_user.id, name=""
+    )
+    version = CourseEnvironmentVersion(
+        environment_id=environment.id, version=1, draft_data=body.model_dump_json()
+    )
+    session.add(environment)
+    session.add(version)
+    session.commit()
+    return _serialize_version(session, environment, version)
+
+
+@router.put("/{environment_id}/draft")
+def save_environment_draft(
+    environment_id: uuid.UUID,
+    body: EnvironmentDraftIn,
+    session: SessionDep,
+    current_user: InstructorUser,
+) -> dict[str, Any]:
+    environment = _get_environment(session, current_user, environment_id)
+    version = _latest(session, environment)
+    if version.status != CourseEnvironmentVersionStatus.draft:
+        raise BadRequestError(t("course_env.published_immutable"))
+    version.draft_data = body.model_dump_json()
+    environment.updated_at = get_datetime_utc()
+    session.add(version)
+    session.add(environment)
+    session.commit()
+    return _serialize_version(session, environment, version)
+
+
 @router.get("/{environment_id}")
 def get_environment(
     environment_id: uuid.UUID,
@@ -539,6 +590,8 @@ def update_environment(
         class_ids=body.audience_class_ids,
     )
     _replace_nodes(session, version, body.nodes, body.edges, body.publications)
+    version.draft_data = None
+    session.add(version)
     session.add(environment)
     session.commit()
     return _serialize_version(session, environment, version)
@@ -554,6 +607,28 @@ def publish_environment(
     version = _latest(session, environment)
     if version.status != CourseEnvironmentVersionStatus.draft:
         raise BadRequestError(t("course_env.only_draft_publishable"))
+    if version.draft_data:
+        draft = EnvironmentDraftIn.model_validate_json(version.draft_data)
+        try:
+            body = EnvironmentCreate.model_validate(draft.configuration)
+            if not body.name.strip():
+                raise ValueError("Environment name is required")
+        except (ValidationError, ValueError) as exc:
+            raise BadRequestError(str(exc)) from exc
+        environment.name = body.name.strip()
+        environment.description = body.description
+        environment.usage_scope = body.usage_scope
+        environment.audience = body.audience
+        environment.max_concurrent_sessions = body.max_concurrent_sessions
+        _replace_audience(
+            session,
+            environment=environment,
+            owner_id=None if is_admin(current_user) else environment.owner_id,
+            class_ids=body.audience_class_ids,
+        )
+        _replace_nodes(session, version, body.nodes, body.edges, body.publications)
+        session.flush()
+        version.draft_data = None
     nodes = _nodes(session, version.id)
     edges = _edges(session, version.id)
     publications = _publications(session, version.id)
@@ -681,18 +756,14 @@ def _environment_references(
         )
     ).one()
     if int(class_count or 0):
-        reasons.append(
-            t("course_env.reason_classes_using", count=int(class_count))
-        )
+        reasons.append(t("course_env.reason_classes_using", count=int(class_count)))
     session_count = session.exec(
         select(func.count(col(QuickPracticeSession.id))).where(
             col(QuickPracticeSession.environment_version_id).in_(version_ids)
         )
     ).one()
     if int(session_count or 0):
-        reasons.append(
-            t("course_env.reason_sessions_using", count=int(session_count))
-        )
+        reasons.append(t("course_env.reason_sessions_using", count=int(session_count)))
     return reasons
 
 
