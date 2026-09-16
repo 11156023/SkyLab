@@ -63,6 +63,11 @@
   }
 }
 
+.guideDemoCard {
+  border-style: dashed;
+  border-color: color-mix(in srgb, var(--color-primary) 55%, var(--color-border));
+  background: color-mix(in srgb, var(--color-primary) 5%, var(--color-surface));
+}
 .courseIcon {
   @include flex-center;
   width: 46px;

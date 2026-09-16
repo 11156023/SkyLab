@@ -43,6 +43,7 @@ def get_overview(
     end_date: datetime | None = None,
     bucket: Literal["hour", "day"] = "hour",
     compare: bool = True,
+    source: Literal["all", "api_key"] = "all",
 ):
     """提供管理員首頁使用的時間序列與模型聚合資料。"""
     return ai_gateway_service.get_monitoring_overview(
@@ -51,6 +52,7 @@ def get_overview(
         end_date=end_date,
         bucket=bucket,
         compare=compare,
+        include_template=source == "all",
     )
 
 
@@ -145,6 +147,7 @@ def list_users_usage(
     end_date: datetime | None = None,
     skip: int = Query(default=0, ge=0),
     limit: int = Query(default=50, ge=1, le=200),
+    source: Literal["all", "api_key"] = "all",
 ):
     """每個使用者的 AI 用量彙總（Admin only）"""
     return ai_gateway_service.list_users_usage(
@@ -153,6 +156,7 @@ def list_users_usage(
         end_date=end_date,
         skip=skip,
         limit=limit,
+        include_template=source == "all",
     )
 
 
@@ -178,6 +182,7 @@ async def get_litellm_runtime_snapshot(_current_user: AIAPIViewAllUser):
     headers = {"Authorization": f"Bearer {api_key}"}
     try:
         async with httpx.AsyncClient(timeout=5.0) as client:
+
             async def _get_probe(
                 path: str, *, authenticated: bool = False
             ) -> httpx.Response | None:
@@ -276,7 +281,9 @@ async def get_litellm_runtime_snapshot(_current_user: AIAPIViewAllUser):
             models_payload = models_response.json()
         except ValueError:
             models_payload = {}
-        model_entries = models_payload.get("data", []) if isinstance(models_payload, dict) else []
+        model_entries = (
+            models_payload.get("data", []) if isinstance(models_payload, dict) else []
+        )
         if not isinstance(model_entries, list):
             model_entries = []
         for entry in model_entries:
@@ -309,8 +316,11 @@ async def get_litellm_runtime_snapshot(_current_user: AIAPIViewAllUser):
     liveliness_ok = liveliness.is_success
     readiness_ok = readiness.is_success
     gateway_status = (
-        "available" if liveliness_ok and readiness_ok else
-        "degraded" if liveliness_ok else "unavailable"
+        "available"
+        if liveliness_ok and readiness_ok
+        else "degraded"
+        if liveliness_ok
+        else "unavailable"
     )
     model_summary = {
         "online": sum(1 for model in models if model["status"] == "online"),
@@ -331,6 +341,8 @@ async def get_litellm_runtime_snapshot(_current_user: AIAPIViewAllUser):
         "models": models,
         "model_discovery": "available" if discovered_names else "unavailable",
         "healthy_deployment_count": len(healthy) if isinstance(healthy, list) else 0,
-        "unhealthy_deployment_count": len(unhealthy) if isinstance(unhealthy, list) else 0,
+        "unhealthy_deployment_count": len(unhealthy)
+        if isinstance(unhealthy, list)
+        else 0,
         "deployment_status_code": deployments.status_code,
     }

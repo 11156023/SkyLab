@@ -50,6 +50,29 @@ class PortSpec(BaseModel):
         return value
 
 
+# ─── 開放給班級（老師機器 → 學生可連） ─────────────────────────────────────────
+
+
+class ClassExposureCreate(BaseModel):
+    """老師把自己的機器開放給一個班級：班級 + 允許學生連的埠"""
+
+    class_id: uuid.UUID
+    ports: list[PortSpec] = Field(min_length=1)
+
+
+class ClassExposureUpdate(BaseModel):
+    ports: list[PortSpec] = Field(min_length=1)
+
+
+class ClassExposurePublic(BaseModel):
+    id: uuid.UUID
+    vmid: int
+    class_id: uuid.UUID
+    class_name: str | None = None
+    ports: list[PortSpec]
+    created_at: datetime
+
+
 # ─── 連線管理 ──────────────────────────────────────────────────────────────────
 
 
@@ -265,6 +288,27 @@ class TopologyNode(BaseModel):
     firewall_enabled: bool = False
     position_x: float = 100.0
     position_y: float = 100.0
+    # 師生關係：老師會看到班級底下學生的機器，學生看到自己的課堂機但不能管。
+    # can_manage 與 require_resource_management 同一套規則，前端據此決定能否拉線／改規則。
+    can_manage: bool = True
+    # 學生視角的老師機器：不能管、但可以當連線目標（老師事先開放給班級）。
+    # allowed_ports 是老師允許的埠；can_manage=False 且 can_connect=True 就是這種節點。
+    can_connect: bool = True
+    allowed_ports: list[PortSpec] | None = Field(
+        default=None, description="老師開放給班級的埠；只有可連線不可管理的節點才帶"
+    )
+    owner_name: str | None = Field(
+        default=None, description="機器不是自己的時才帶（老師／管理員視角）"
+    )
+    teaching_class_name: str | None = Field(
+        default=None, description="課堂機所屬班級名稱，或老師機器經由哪個班級開放"
+    )
+    machine_kind: Literal[
+        "personal", "shared", "teaching_class", "quick_practice", "course"
+    ] = Field(default="personal", description="機器來源，與 ResourcePublic 同一套")
+    class_relation: Literal["student", "teacher"] | None = Field(
+        default=None, description="班級機：我是這班的學生或老師"
+    )
 
 
 class TopologyEdge(BaseModel):

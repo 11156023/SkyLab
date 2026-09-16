@@ -263,6 +263,18 @@
   color: var(--color-text-muted);
 }
 
+.nameKind {
+  margin-top: 4px;
+}
+
+/* 群組列標題：來源徽章 + 名稱 */
+.groupTitle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
 /* ── Env cell ── */
 .envPrimary {
   font-size: $font-size-14;
@@ -278,6 +290,31 @@
 .mono {
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   font-size: $font-size-12;
+}
+
+/* 反向代理的對外網址：直向排在 IP 底下，與「我的資源」同一種樣式 */
+.publicUrlList {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+}
+
+.publicUrlLink {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  margin-top: 3px;
+  max-width: 100%;
+  overflow: hidden;
+  color: var(--color-primary);
+  font-size: $font-size-12;
+  text-decoration: none;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+
+  &:hover {
+    text-decoration: underline;
+  }
 }
 
 .noExpiry {

@@ -131,7 +131,7 @@ export default function AdminDashboardPage() {
   ];
 
   return <div className={`${styles.page} ${focusMode ? styles.pageFocused : ""}`}>
-    <PageHeader title={t("AdminDashboardPage.greeting", { name })} subtitle={t("AdminDashboardPage.subtitle")}>
+    <PageHeader title={t("AdminDashboardPage.greeting", { name })}>
       {!focusMode && <div className={styles.refreshControls}>
         <span className={styles.checkedAt}>
           {overview

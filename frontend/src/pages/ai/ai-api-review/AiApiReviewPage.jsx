@@ -211,7 +211,7 @@ export default function AiApiReviewPage() {
 
   return (
     <div className={styles.page}>
-      <PageHeader title={t("AiApiReviewPage.pageTitle")} subtitle={t("AiApiReviewPage.pageSubtitle")} />
+      <PageHeader title={t("AiApiReviewPage.pageTitle")} />
 
       <div className={styles.tabsRow}>
         <SegmentedControl

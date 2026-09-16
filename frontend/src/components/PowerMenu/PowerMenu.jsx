@@ -95,6 +95,7 @@ export default function PowerMenu({
     <div
       ref={ref}
       className={className}
+      data-guide="resource-power-menu"
       style={pos ? { top: pos.top, left: pos.left } : { top: 0, left: 0, visibility: "hidden" }}
     >
       <div className={styles.powerMenuTitle}>{t("PowerMenu.title")}</div>

@@ -148,6 +148,52 @@
   }
 }
 
+/* ── 圖例 + 操作提示（畫布左下） ── */
+.bottomStack {
+  @include flex-column;
+  align-items: flex-start;
+  gap: 6px;
+}
+
+.legend {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  font-size: 12px;
+  color: var(--color-text-secondary);
+  background: color-mix(in srgb, var(--color-surface) 85%, transparent);
+  border: 1px solid var(--color-border);
+  border-radius: $radius-8;
+  padding: 5px 12px;
+  backdrop-filter: blur(4px);
+}
+
+.legendItem {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  white-space: nowrap;
+  transition: opacity 0.2s ease;
+
+  /* 對應的線目前沒畫在圖上（上網線被藏起來） */
+  &.legendItemHidden {
+    opacity: 0.4;
+  }
+}
+
+/* 與邊同樣式的短虛線，對得上圖上的線 */
+.legendLine {
+  width: 16px;
+  height: 0;
+  border-top: 2px dashed currentColor;
+  flex-shrink: 0;
+}
+
+.legendInbound  { color: var(--color-info); }
+.legendOutbound { color: var(--color-success); }
+.legendInternal { color: var(--color-status-neutral); }
+
 /* ── Hint ── */
 .hint {
   font-size: 12px;
@@ -159,19 +205,93 @@
   backdrop-filter: blur(4px);
 }
 
-/* ── Handle（節點連接點） ── */
-.handleIn {
+/* ── Handle（節點連接點） ──
+   四面各一組（source 疊在 target 上），線從哪一側走由相對位置決定。
+   平常隱形以免畫布佈滿小圓點，滑到節點上或正在拉線時才浮現；
+   透明時仍保有 pointer-events，配合 connectionRadius 一樣拉得到。 */
+.nodeHandle {
   background: var(--color-primary) !important;
   border-color: var(--color-primary) !important;
-  width: 12px !important;
-  height: 12px !important;
+  width: 10px !important;
+  height: 10px !important;
+  opacity: 0;
+  transition: opacity $transition-base;
 }
 
-.handleOut {
-  background: var(--color-success) !important;
-  border-color: var(--color-success) !important;
-  width: 12px !important;
-  height: 12px !important;
+.vmNode:hover .nodeHandle,
+.gwNode:hover .nodeHandle {
+  opacity: 1;
+}
+
+/* 拉線途中所有節點都要看得到可放的位置（class 由 onConnectStart/End 掛在畫布上）；
+   導覽進行中也套同一個 class，讓步驟聚光的連接點看得見 */
+.connecting .nodeHandle {
+  opacity: 1;
+}
+
+/* ── 導覽用的示範拓撲：畫布沒有機器時，用兩台假節點示範拖曳 ── */
+.guideTopologyDemo {
+  position: absolute;
+  inset: 0;
+  z-index: 4;
+  pointer-events: none;
+}
+
+.guideDemoNode {
+  position: absolute;
+  display: flex;
+  width: 150px;
+  min-height: 92px;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  border: 2px solid color-mix(in srgb, var(--color-primary) 55%, var(--color-border));
+  border-radius: $radius-16;
+  background: var(--color-surface);
+  color: var(--color-primary);
+  box-shadow: var(--shadow-md);
+
+  strong { color: var(--color-text-primary); font-size: $font-size-14; }
+  small { color: var(--color-text-muted); font-size: $font-size-12; }
+}
+
+.guideDemoNodeA { top: 34%; left: 20%; }
+.guideDemoNodeB { top: 34%; right: 20%; }
+
+.guideDemoHandleIn,
+.guideDemoHandleOut {
+  position: absolute;
+  top: 50%;
+  width: 14px;
+  height: 14px;
+  border: 3px solid var(--color-primary);
+  border-radius: 50%;
+  background: white;
+  transform: translateY(-50%);
+}
+
+.guideDemoHandleIn { left: -8px; }
+.guideDemoHandleOut { right: -8px; border-color: var(--color-success); }
+
+.guideDemoBadge {
+  position: absolute;
+  bottom: $spacing-16;
+  left: 50%;
+  padding: 5px 10px;
+  border: 1px dashed var(--color-primary);
+  border-radius: $radius-pill;
+  background: var(--color-surface);
+  color: var(--color-primary-on-surface);
+  font-size: $font-size-12;
+  font-weight: $font-weight-700;
+  transform: translateX(-50%);
+}
+
+@media (max-width: 700px) {
+  .guideDemoNode { width: 120px; }
+  .guideDemoNodeA { left: 8%; }
+  .guideDemoNodeB { right: 8%; }
 }
 
 /* ── Gateway 節點 ── */
@@ -207,6 +327,7 @@
 
 /* ── VM 節點 ── */
 .vmNode {
+  position: relative;
   display: flex;
   align-items: center;
   gap: $spacing-8;
@@ -255,6 +376,46 @@
   @include text-truncate;
 }
 
+/* 對外暴露數：掛在節點右上角，不佔節點內既有的三欄空間 */
+.exposedBadge {
+  position: absolute;
+  top: -8px;
+  right: -8px;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 1px 6px;
+  border-radius: $radius-pill;
+  background: var(--color-info);
+  color: var(--color-text-on-primary);
+  font-size: 11px;
+  font-weight: $font-weight-700;
+  line-height: 1.5;
+  box-shadow: var(--shadow-sm);
+}
+
+/* 來源徽章（MachineKindBadge 實心版）：掛在節點左上角，與右上角的對外暴露數對稱 */
+.originBadge {
+  position: absolute;
+  top: -9px;
+  left: -8px;
+  max-width: 150px;
+}
+
+/* 老師開放給班級的機器：可以拉線連過去，但不是自己的 */
+.nodePeer {
+  border-style: dotted;
+  border-color: var(--color-info);
+}
+
+/* 唯讀的課堂機：學生看得到、不能拉線改規則 */
+.nodeReadOnly {
+  border-style: dashed;
+  cursor: default;
+
+  &:active { cursor: default; }
+}
+
 /* ── Edge label ── */
 .edgeLabelWrap {
   position: absolute;
@@ -264,34 +425,28 @@
   pointer-events: all;
 }
 
+/* 標籤本身就是開啟連線細節的按鈕，取代原本掛在線上的刪除叉叉 */
 .edgeLabel {
   font-size: 11px;
   font-weight: $font-weight-500;
   background: var(--color-surface);
   border: 1px solid var(--color-border);
   border-radius: $radius-pill;
-  padding: 1px 7px;
+  padding: 2px 8px;
   white-space: nowrap;
-  pointer-events: none;
-  box-shadow: var(--shadow-sm);
-}
-
-.edgeDeleteBtn {
-  @include flex-center;
-  width: 18px;
-  height: 18px;
-  border-radius: 50%;
-  background: var(--color-surface);
-  border: 1px solid var(--color-border);
-  color: var(--color-text-muted);
+  /* 長網域不要撐出一條橫貫畫布的標籤；完整內容留在 title 與細節面板 */
+  max-width: 170px;
+  overflow: hidden;
+  text-overflow: ellipsis;
   cursor: pointer;
-  transition: background $transition-base;
   box-shadow: var(--shadow-sm);
+  transition: border-color $transition-base, box-shadow $transition-base;
 
-  &:hover {
-    background: var(--color-danger);
-    border-color: var(--color-danger);
-    color: var(--color-text-on-primary);
+  &:hover { border-color: currentColor; }
+
+  &.edgeLabelActive {
+    border-color: currentColor;
+    box-shadow: 0 0 0 3px color-mix(in srgb, currentColor 18%, transparent);
   }
 }
 

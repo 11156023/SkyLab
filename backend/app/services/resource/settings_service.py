@@ -1,4 +1,4 @@
-"""資源進階設定：規格摘要、開機選項（開機順序 / ISO）、標籤。
+"""資源進階設定：規格摘要、開機選項（開機順序 / ISO）。
 
 Proxmox 的 guest config 是這些設定的 source of truth，這裡只做讀寫與驗證，
 不在 DB 另存副本。
@@ -24,8 +24,6 @@ from app.schemas.resource_settings import (
     BootOptionsPublic,
     BootOptionsUpdate,
     IsoImagePublic,
-    ResourceMetadataPublic,
-    ResourceMetadataUpdate,
     ResourceSpecsPublic,
 )
 from app.services.proxmox import proxmox_service
@@ -287,68 +285,9 @@ def update_boot_options(
     return get_boot_options(vmid=vmid, resource_info=resource_info)
 
 
-# ─── 標籤 ─────────────────────────────────────────────────────────────────────
-
-
-def parse_tags(raw: Any) -> list[str]:
-    """Proxmox 的 tags 欄位是 ``;`` 分隔字串（cluster/resources 與 guest config 皆同）。"""
-    if not raw:
-        return []
-    return [tag for tag in str(raw).replace(",", ";").split(";") if tag]
-
-
-def get_metadata(*, vmid: int, resource_info: dict[str, Any]) -> ResourceMetadataPublic:
-    rtype = _rtype(resource_info)
-    try:
-        config = proxmox_service.get_config(resource_info["node"], vmid, rtype)
-    except Exception as exc:
-        logger.error("Failed to read config for %s: %s", vmid, exc)
-        raise ProxmoxError(t("resource_settings.readConfigFailed", vmid=vmid))
-    return ResourceMetadataPublic(vmid=vmid, tags=parse_tags(config.get("tags")))
-
-
-def update_metadata(
-    *,
-    session: Session,
-    vmid: int,
-    resource_info: dict[str, Any],
-    user_id: uuid.UUID,
-    data: ResourceMetadataUpdate,
-) -> ResourceMetadataPublic:
-    rtype = _rtype(resource_info)
-    node = resource_info["node"]
-    params: dict[str, Any] = {}
-    if data.tags:
-        params["tags"] = ";".join(data.tags)
-        changes = f"tags={params['tags']}"
-    else:
-        params["delete"] = "tags"
-        changes = "tags=(none)"
-
-    try:
-        proxmox_service.update_config(node, vmid, rtype, **params)
-    except Exception as exc:
-        logger.error("Failed to update metadata for %s: %s", vmid, exc)
-        raise ProxmoxError(
-            t("resource_settings.updateConfigFailed", vmid=vmid, error=exc)
-        )
-
-    audit_service.log_action(
-        session=session,
-        user_id=user_id,
-        vmid=vmid,
-        action="config_update",
-        details=f"Tags updated on {rtype} {vmid}: {changes}",
-    )
-    return get_metadata(vmid=vmid, resource_info=resource_info)
-
-
 __all__ = [
     "get_boot_options",
-    "get_metadata",
     "get_specs",
     "list_iso_images",
-    "parse_tags",
     "update_boot_options",
-    "update_metadata",
 ]

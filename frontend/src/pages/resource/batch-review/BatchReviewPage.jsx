@@ -363,7 +363,6 @@ export default function BatchReviewPage() {
     <div className={styles.page}>
       <PageHeader
         title={t("BatchReviewPage.pageTitle")}
-        subtitle={t("BatchReviewPage.pageSubtitle")}
       />
 
       <div className={styles.tabsRow}>

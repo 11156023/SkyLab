@@ -31,6 +31,7 @@ const ROLE_KEYS = {
   owner: "OverviewTab.roleOwner",
   shared: "OverviewTab.roleShared",
   class_member: "OverviewTab.roleClassMember",
+  class_teacher: "OverviewTab.roleClassTeacher",
   admin: "OverviewTab.roleAdmin",
 };
 
@@ -377,6 +378,20 @@ export default function OverviewTab({ vmid }) {
               {t("OverviewTab.noIp")}
             </span>
           )}
+          {/* 反向代理發布的對外網址：直接可點，和列表頁看到的是同一份 */}
+          {(resource.public_urls ?? []).map((url) => (
+            <a
+              key={url}
+              className={`${ov.chip} ${ov.chipBtn} ${ov.chipLink}`}
+              href={url}
+              target="_blank"
+              rel="noreferrer"
+              title={url}
+            >
+              <MIcon name="open_in_new" size={14} />
+              {url.replace(/^https?:\/\//, "")}
+            </a>
+          ))}
           {resource.os_info && (
             <span className={ov.chip}>
               <MIcon name="album" size={14} />
@@ -389,12 +404,6 @@ export default function OverviewTab({ vmid }) {
               {resource.environment_type}
             </span>
           )}
-          {(resource.tags ?? []).map((tag) => (
-            <span key={tag} className={`${ov.chip} ${ov.chipTag}`}>
-              <MIcon name="label" size={14} />
-              {tag}
-            </span>
-          ))}
         </div>
       </section>
 
@@ -482,7 +491,6 @@ export default function OverviewTab({ vmid }) {
                 <MIcon name="info" size={18} />
                 {t("OverviewTab.envInfoTitle")}
               </h2>
-              <p className={styles.cardDesc}>{t("OverviewTab.envInfoDesc")}</p>
             </div>
           </div>
           <div className={styles.cardBody}>
@@ -544,7 +552,6 @@ export default function OverviewTab({ vmid }) {
                 <MIcon name="vpn_key" size={18} />
                 {t("OverviewTab.accessTitle")}
               </h2>
-              <p className={styles.cardDesc}>{t("OverviewTab.accessDesc")}</p>
             </div>
           </div>
           <div className={styles.cardBody}>
@@ -562,6 +569,22 @@ export default function OverviewTab({ vmid }) {
                   <span className={ov.muted}>{t("OverviewTab.noIp")}</span>
                 )}
               </InfoRow>
+              {(resource.public_urls ?? []).length > 0 && (
+                <InfoRow label={t("OverviewTab.publicUrlsLabel")}>
+                  {resource.public_urls.map((url) => (
+                    <span key={url} className={ov.urlItem}>
+                      <a className={ov.urlLink} href={url} target="_blank" rel="noreferrer" title={url}>
+                        <MIcon name="open_in_new" size={14} />
+                        {url}
+                      </a>
+                      <button type="button" className={styles.ghostBtn} onClick={() => copy(url, `url:${url}`)}>
+                        <MIcon name={copied === `url:${url}` ? "check" : "content_copy"} size={14} />
+                        {copied === `url:${url}` ? t("OverviewTab.copied") : t("OverviewTab.copy")}
+                      </button>
+                    </span>
+                  ))}
+                </InfoRow>
+              )}
               {sshKey?.login_password && (
                 <SecretRow
                   label={t("OverviewTab.passwordLabel")}

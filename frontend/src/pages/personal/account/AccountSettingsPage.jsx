@@ -384,7 +384,7 @@ export default function AccountSettingsPage() {
 
   return (
     <div className={styles.page}>
-      <PageHeader title={t("AccountSettingsPage.title")} subtitle={t("AccountSettingsPage.subtitle")} />
+      <PageHeader title={t("AccountSettingsPage.title")} />
 
       <div className={styles.tabs}>
         {TABS.map((tab) => (

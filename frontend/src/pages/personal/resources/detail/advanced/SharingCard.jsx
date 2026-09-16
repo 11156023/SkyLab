@@ -144,7 +144,6 @@ export default function SharingCard({ vmid, resource, canManage, backTo }) {
             <MIcon name="group" size={18} />
             {t("SharingCard.title")}
           </h2>
-          <p className={styles.cardDesc}>{t("SharingCard.desc")}</p>
         </div>
         {canManage && !classGoverned && (
           <div className={styles.headerActions}>

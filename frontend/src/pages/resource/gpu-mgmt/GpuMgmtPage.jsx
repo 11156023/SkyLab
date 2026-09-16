@@ -241,7 +241,7 @@ export default function GpuMgmtPage() {
 
   return (
     <div className={styles.page}>
-      <PageHeader title={t("GpuMgmtPage.pageTitle")} subtitle={t("GpuMgmtPage.pageSubtitle")} />
+      <PageHeader title={t("GpuMgmtPage.pageTitle")} />
 
       <div className={styles.toolbar}>
         <div className={styles.search}>

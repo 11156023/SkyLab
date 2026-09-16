@@ -1,4 +1,4 @@
-"""開機選項與標籤：Proxmox config 的解析與寫回。"""
+"""開機選項：Proxmox config 的解析與寫回。"""
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ from typing import Any
 import pytest
 
 from app.exceptions import BadRequestError
-from app.schemas.resource_settings import BootOptionsUpdate, ResourceMetadataUpdate
+from app.schemas.resource_settings import BootOptionsUpdate
 from app.services.resource import settings_service as svc
 
 _QEMU_CONFIG = {
@@ -20,7 +20,6 @@ _QEMU_CONFIG = {
     "ide2": "local-lvm:vm-150-cloudinit,media=cdrom",
     "ide0": "local:iso/ubuntu.iso,media=cdrom",
     "net0": "virtio=AA:BB,bridge=vmbr1,firewall=1",
-    "tags": "db;final",
     "description": "期末專題",
 }
 
@@ -110,31 +109,3 @@ def test_lxc_has_no_boot_order(fake_proxmox: SimpleNamespace) -> None:
             user_id=None,
             data=BootOptionsUpdate(boot_order=[]),
         )
-
-
-def test_metadata_roundtrip(fake_proxmox: SimpleNamespace) -> None:
-    meta = svc.get_metadata(vmid=150, resource_info=_info())
-    assert meta.tags == ["db", "final"]
-
-    svc.update_metadata(
-        session=None,
-        vmid=150,
-        resource_info=_info(),
-        user_id=None,
-        data=ResourceMetadataUpdate(tags=["Web", "web", "db"]),
-    )
-    svc.update_metadata(
-        session=None,
-        vmid=150,
-        resource_info=_info(),
-        user_id=None,
-        data=ResourceMetadataUpdate(tags=[]),
-    )
-    assert fake_proxmox.updates == [{"tags": "web;db"}, {"delete": "tags"}]
-
-
-def test_metadata_tag_validation() -> None:
-    with pytest.raises(ValueError):
-        ResourceMetadataUpdate(tags=["bad tag"])
-    with pytest.raises(ValueError):
-        ResourceMetadataUpdate()

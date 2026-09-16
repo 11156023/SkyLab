@@ -669,7 +669,7 @@ export default function RequestsPage() {
       className={`${styles.page} ${returning ? styles.animSlideInLeft : ""}`}
       onAnimationEnd={returning ? () => setReturning(false) : undefined}
     >
-      <PageHeader title={t("RequestsPage.title")} subtitle={t("RequestsPage.subtitle")}>
+      <PageHeader title={t("RequestsPage.title")}>
         <button type="button" className={styles.btnPrimary} onClick={() => setView(VIEW_CREATE)} data-guide="request-create">
           <MIcon name="add" size={16} />
           {t("RequestsPage.requestResource")}

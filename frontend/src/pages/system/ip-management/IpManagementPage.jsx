@@ -182,7 +182,7 @@ export default function IpManagementPage() {
 
   return (
     <div className={styles.page}>
-      <PageHeader title={t("IpManagementPage.pageTitle")} subtitle={t("IpManagementPage.pageSubtitle")}>
+      <PageHeader title={t("IpManagementPage.pageTitle")}>
         {isAdmin && (
           <div className={styles.pageActions}>
             <button
