@@ -1,6 +1,7 @@
 """Launch and inspect fixed, multi-machine quick-practice environments."""
 
 import logging
+import re
 import secrets
 import uuid
 from datetime import UTC, datetime, timedelta
@@ -507,6 +508,17 @@ def _node_disk_gb(session: Session, node: CourseEnvironmentNode) -> int:
     return provisioning_service.clone_source_disk_gb(session, node)
 
 
+def _hostname_label(node: CourseEnvironmentNode) -> str:
+    """機器名轉成合法的主機名片段。
+
+    用 ``name`` 而不是 ``node_key``：後者是編輯器產生的 ``node-<timestamp>``，
+    放進主機名比流水號更難讀。名稱是老師自己取的，才帶得出「哪台是哪台」。
+    """
+    cleaned = re.sub(r"[^a-z0-9]+", "-", (node.name or "").lower()).strip("-")
+    # 截斷後可能斷在連字號上，再修一次尾巴；純中文名會清空，退回流水號
+    return cleaned[:24].strip("-") or f"m{node.sort_order + 1}"
+
+
 def _machine_request(
     *,
     session: Session,
@@ -549,7 +561,7 @@ def _machine_request(
     return VMRequestCreate(
         reason=f"Quick practice environment: {environment.name[:120]}",
         resource_type="lxc" if is_lxc else "vm",
-        hostname=f"practice-{practice_session_id.hex[:6]}-{node.sort_order + 1}",
+        hostname=f"practice-{practice_session_id.hex[:6]}-{_hostname_label(node)}",
         cores=node.cpu,
         memory=node.memory_mb,
         password=secrets.token_urlsafe(24),

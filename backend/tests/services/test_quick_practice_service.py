@@ -616,3 +616,36 @@ def test_another_student_cannot_end_someone_elses_session(quick_db: Session) -> 
         quick_practice.end_session(
             quick_db, user=intruder, practice_id=practice.id
         )
+
+
+def test_hostname_carries_the_machine_name_so_students_can_tell_them_apart() -> None:
+    """流水號分不出哪台是哪台，多機環境互連時學生要打的正是這個名字。"""
+    label = quick_practice._hostname_label
+
+    assert label(CourseEnvironmentNode(
+        version_id=uuid.uuid4(), node_key="node-1", name="n8n", role="server",
+        resource_type="lxc", cpu=1, memory_mb=1024, disk_gb=8, sort_order=0,
+    )) == "n8n"
+    assert label(CourseEnvironmentNode(
+        version_id=uuid.uuid4(), node_key="node-2", name="Web Server", role="server",
+        resource_type="lxc", cpu=1, memory_mb=1024, disk_gb=8, sort_order=1,
+    )) == "web-server"
+
+
+def test_hostname_label_stays_valid_when_the_name_cannot_be_used() -> None:
+    label = quick_practice._hostname_label
+
+    # 截斷不能斷在連字號上，否則是不合法的主機名
+    long_name = label(CourseEnvironmentNode(
+        version_id=uuid.uuid4(), node_key="node-3",
+        name="debian-11-standard_11.7-1_amd64.tar.zst", role="server",
+        resource_type="lxc", cpu=1, memory_mb=1024, disk_gb=8, sort_order=2,
+    ))
+    assert len(long_name) <= 24
+    assert not long_name.endswith("-")
+
+    # 純中文名清空後退回流水號，不會產生空字串主機名
+    assert label(CourseEnvironmentNode(
+        version_id=uuid.uuid4(), node_key="node-4", name="資料庫", role="server",
+        resource_type="lxc", cpu=1, memory_mb=1024, disk_gb=8, sort_order=4,
+    )) == "m5"
