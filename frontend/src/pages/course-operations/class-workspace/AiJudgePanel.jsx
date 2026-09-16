@@ -2060,11 +2060,47 @@ function ReviewPanel({ title, result }) {
   );
 }
 
+export function getScriptReviewAttemptIssues(attempt) {
+  const uncoveredIssues = Array.isArray(attempt?.uncovered_rubric_items)
+    ? attempt.uncovered_rubric_items.map((item) => {
+      if (typeof item === "string") return `未覆蓋檢查項目：${item}`;
+      if (!item || typeof item !== "object") return "";
+      const label = item.title || item.id;
+      return label ? `未覆蓋檢查項目：${label}` : "";
+    })
+    : [];
+  return [...new Set([
+    ...(Array.isArray(attempt?.safety_issues) ? attempt.safety_issues : []),
+    ...(Array.isArray(attempt?.quality_issues) ? attempt.quality_issues : []),
+    ...(Array.isArray(attempt?.coverage_issues) ? attempt.coverage_issues : []),
+    ...uncoveredIssues,
+    ...(Array.isArray(attempt?.ai_review_issues) ? attempt.ai_review_issues : []),
+    ...(Array.isArray(attempt?.generation_issues) ? attempt.generation_issues : []),
+  ].filter(Boolean).map((issue) => String(issue)))];
+}
+
 function RetrySummary({ script }) {
   const summary = script?.policy_check_result_json?.retry_summary;
   const attempts = Array.isArray(script?.policy_check_result_json?.review_attempts)
     ? script.policy_check_result_json.review_attempts
     : [];
+  const coverage = script?.policy_check_result_json?.coverage;
+  const coverageFallback = {
+    phase: "coverage",
+    coverage_issues: Array.isArray(coverage?.issues) ? coverage.issues : [],
+    uncovered_rubric_items: Array.isArray(coverage?.uncovered_items)
+      ? coverage.uncovered_items
+      : [],
+  };
+  const hasCoverageAttempt = attempts.some(
+    (attempt) => attempt?.phase === "coverage"
+      || Array.isArray(attempt?.coverage_issues)
+      || Array.isArray(attempt?.uncovered_rubric_items),
+  );
+  const displayedAttempts = !hasCoverageAttempt
+    && getScriptReviewAttemptIssues(coverageFallback).length > 0
+    ? [...attempts, coverageFallback]
+    : attempts;
   if (script?.status !== "review_failed") return null;
 
   const retryCount = Number(summary?.retry_count ?? 0);
@@ -2077,15 +2113,10 @@ function RetrySummary({ script }) {
       <p>
         Agent 已自動重試 {retryCount} 次；仍未通過時，請檢查下列原因，回到檢查表調整後重新製作檢查腳本。
       </p>
-      {attempts.length > 0 && (
+      {displayedAttempts.length > 0 && (
         <ul className={styles.reviewIssues}>
-          {attempts.slice(-3).map((attempt, index) => {
-            const issues = [
-              ...(Array.isArray(attempt?.safety_issues) ? attempt.safety_issues : []),
-              ...(Array.isArray(attempt?.quality_issues) ? attempt.quality_issues : []),
-              ...(Array.isArray(attempt?.ai_review_issues) ? attempt.ai_review_issues : []),
-              ...(Array.isArray(attempt?.generation_issues) ? attempt.generation_issues : []),
-            ].filter(Boolean);
+          {displayedAttempts.slice(-3).map((attempt, index) => {
+            const issues = getScriptReviewAttemptIssues(attempt);
             return (
               <li key={`${attempt?.attempt ?? index}-${attempt?.failure_signature ?? "failure"}`}>
                 第 {attempt?.attempt ?? index + 1} 次（{attempt?.phase ?? "審查"}）：

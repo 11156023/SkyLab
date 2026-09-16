@@ -224,11 +224,188 @@ def _function_mentions_returncode(
     return False
 
 
+def _record_check_raw_parameter_names(
+    function_def: ast.FunctionDef | ast.AsyncFunctionDef,
+) -> list[str]:
+    """Return the canonical raw evidence parameter, if present.
+
+    ``record_check`` has one stable contract.  Supporting split payload
+    parameters here made the repair hint ambiguous and allowed a helper that
+    could never be reconciled with the coverage/ID call contract.
+    """
+
+    parameters = [
+        argument.arg
+        for argument in (
+            *function_def.args.posonlyargs,
+            *function_def.args.args,
+            *function_def.args.kwonlyargs,
+        )
+    ]
+    return ["raw"] if "raw" in parameters else []
+
+
+def _record_check_has_result_return(
+    function_def: ast.FunctionDef | ast.AsyncFunctionDef,
+) -> bool:
+    """Return whether ``record_check`` returns a result mapping.
+
+    A side-effect helper such as ``checks.append({...})`` is deliberately not
+    canonical: the caller must own list assembly so static coverage can use
+    the same positional contract as every other check.
+    """
+
+    returned_names: set[str] = set()
+    saw_return = False
+    for node in ast.walk(function_def):
+        if not isinstance(node, ast.Return):
+            continue
+        saw_return = True
+        if node.value is None:
+            return False
+        if isinstance(node.value, ast.Dict):
+            continue
+        if isinstance(node.value, ast.Name):
+            returned_names.add(node.value.id)
+            continue
+        return False
+
+    if not saw_return or any(
+        isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and node.func.attr == "append"
+        for node in ast.walk(function_def)
+    ):
+        return False
+
+    if not returned_names:
+        return True
+    return any(
+        isinstance(node, (ast.Assign, ast.AnnAssign))
+        and isinstance(node.value, ast.Dict)
+        and any(
+            isinstance(target, ast.Name) and target.id in returned_names
+            for target in (
+                node.targets if isinstance(node, ast.Assign) else [node.target]
+            )
+        )
+        for node in ast.walk(function_def)
+    )
+
+
 def _record_check_has_bounded_raw(
     function_def: ast.FunctionDef | ast.AsyncFunctionDef,
     aliases: dict[str, str],
 ) -> bool:
-    return _function_uses_helper(function_def, "truncate_output", aliases)
+    """Return whether record_check's returned raw field is bounded.
+
+    The quality contract belongs to the ``record_check`` helper definition,
+    not to each call site.  Looking only for any ``truncate_output`` call in
+    the function lets an unrelated call satisfy the contract while the
+    returned ``raw`` value remains unbounded.  Keep this intentionally small
+    and predictable: generated scripts may use a local alias for the bounded
+    value, but the returned mapping must be statically visible.
+    """
+
+    raw_parameter_names = set(_record_check_raw_parameter_names(function_def))
+    if not raw_parameter_names:
+        return False
+
+    derived_raw_names = set(raw_parameter_names)
+
+    def mentions_raw(node: ast.AST) -> bool:
+        return any(
+            isinstance(child, ast.Name) and child.id in derived_raw_names
+            for child in ast.walk(node)
+        )
+
+    # Permit a short local alias such as ``raw_payload = json.dumps(...)``
+    # before the final truncate call, while keeping the data-flow source-bound.
+    for _ in range(len(list(ast.walk(function_def))) + 1):
+        changed = False
+        for node in ast.walk(function_def):
+            if not isinstance(node, (ast.Assign, ast.AnnAssign)):
+                continue
+            if node.value is None:
+                continue
+            if not mentions_raw(node.value):
+                continue
+            targets = node.targets if isinstance(node, ast.Assign) else [node.target]
+            for target in targets:
+                if isinstance(target, ast.Name) and target.id not in derived_raw_names:
+                    derived_raw_names.add(target.id)
+                    changed = True
+        if not changed:
+            break
+
+    bounded_names: set[str] = set()
+    for node in ast.walk(function_def):
+        if not isinstance(node, (ast.Assign, ast.AnnAssign)):
+            continue
+        value = node.value
+        if not isinstance(value, ast.Call):
+            continue
+        if _call_name(value.func, aliases) != "truncate_output":
+            continue
+        if not value.args and not any(keyword.arg == "text" for keyword in value.keywords):
+            continue
+        source = value.args[0] if value.args else next(
+            keyword.value for keyword in value.keywords if keyword.arg == "text"
+        )
+        if not mentions_raw(source):
+            continue
+        targets = node.targets if isinstance(node, ast.Assign) else [node.target]
+        bounded_names.update(
+            target.id for target in targets if isinstance(target, ast.Name)
+        )
+
+    def is_bounded_raw(node: ast.AST) -> bool:
+        if isinstance(node, ast.Call) and _call_name(node.func, aliases) == "truncate_output":
+            if node.args:
+                return mentions_raw(node.args[0])
+            return any(
+                keyword.arg == "text" and mentions_raw(keyword.value)
+                for keyword in node.keywords
+            )
+        return isinstance(node, ast.Name) and node.id in bounded_names
+
+    returned_mappings: list[ast.Dict] = []
+    returned_names: set[str] = set()
+    for node in ast.walk(function_def):
+        if not isinstance(node, ast.Return) or node.value is None:
+            continue
+        if isinstance(node.value, ast.Dict):
+            returned_mappings.append(node.value)
+        elif isinstance(node.value, ast.Name):
+            returned_names.add(node.value.id)
+
+    for node in ast.walk(function_def):
+        if not isinstance(node, (ast.Assign, ast.AnnAssign)):
+            continue
+        value = node.value
+        if not isinstance(value, ast.Dict):
+            continue
+        targets = node.targets if isinstance(node, ast.Assign) else [node.target]
+        if any(
+            isinstance(target, ast.Name) and target.id in returned_names
+            for target in targets
+        ):
+            returned_mappings.append(value)
+
+    if not returned_mappings:
+        return False
+
+    saw_raw_field = False
+    for mapping in returned_mappings:
+        raw_values = [
+            value
+            for key, value in zip(mapping.keys, mapping.values, strict=True)
+            if _literal_str(key) == "raw"
+        ]
+        if not raw_values or any(not is_bounded_raw(value) for value in raw_values):
+            return False
+        saw_raw_field = True
+    return saw_raw_field
 
 
 def _body_record_check_statuses(
@@ -275,6 +452,214 @@ def _record_check_literal_arg(
         if keyword.arg == keyword_name:
             return _literal_str(keyword.value)
     return None
+
+
+_CHECK_ID_CONTROL_NODES = (
+    ast.If,
+    ast.For,
+    ast.AsyncFor,
+    ast.While,
+    ast.Try,
+    ast.With,
+    ast.AsyncWith,
+    ast.Match,
+    ast.ExceptHandler,
+    ast.comprehension,
+)
+
+
+def _lexical_scope(node: ast.AST, parents: dict[ast.AST, ast.AST]) -> ast.AST | None:
+    """Return the nearest lexical scope containing ``node``.
+
+    Coverage collection must not resolve a local name from another function or
+    class.  ``None`` represents module scope because the module itself has no
+    parent entry in the AST parent map.
+    """
+
+    current = parents.get(node)
+    while current is not None:
+        if isinstance(
+            current,
+            (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda, ast.ClassDef),
+        ):
+            return current
+        current = parents.get(current)
+    return None
+
+
+def _control_context(
+    node: ast.AST,
+    parents: dict[ast.AST, ast.AST],
+) -> set[tuple[int, str]]:
+    """Return branch/control containers on the path from scope to ``node``.
+
+    The role (``body``, ``orelse``, ``handlers`` ...) matters: an assignment in
+    an ``if`` branch cannot be used to resolve a call after that branch, and an
+    assignment in a ``try`` body cannot resolve a call in its ``except`` block.
+    """
+
+    context: set[tuple[int, str]] = set()
+    current = node
+    if isinstance(current, _CHECK_ID_CONTROL_NODES):
+        context.add((id(current), "self"))
+    while (parent := parents.get(current)) is not None:
+        if isinstance(parent, _CHECK_ID_CONTROL_NODES):
+            role = ""
+            for field_name, value in ast.iter_fields(parent):
+                if value is current:
+                    role = field_name
+                    break
+                if isinstance(value, list) and any(item is current for item in value):
+                    role = field_name
+                    break
+            context.add((id(parent), role))
+        current = parent
+    return context
+
+
+def _assignment_target_names(target: ast.AST) -> set[str]:
+    """Return names written by a simple assignment target."""
+
+    if isinstance(target, ast.Name):
+        return {target.id}
+    if isinstance(target, (ast.Tuple, ast.List)):
+        names: set[str] = set()
+        for element in target.elts:
+            names.update(_assignment_target_names(element))
+        return names
+    return set()
+
+
+def _binding_writes(
+    scope: ast.AST | None,
+    tree: ast.AST,
+    parents: dict[ast.AST, ast.AST],
+    name: str,
+) -> list[tuple[ast.AST, str | None]]:
+    """Return writes to ``name`` in one lexical scope, in source order.
+
+    Only a direct string assignment is a usable binding.  Other writes are
+    retained as an explicit unknown write so a later call cannot accidentally
+    fall back to an older, no-longer-proven value.
+    """
+
+    writes: list[tuple[ast.AST, str | None]] = []
+    for node in ast.walk(tree):
+        if _lexical_scope(node, parents) is not scope:
+            continue
+        target_names: set[str] = set()
+        value: ast.AST | None = None
+        if isinstance(node, ast.Assign):
+            for target in node.targets:
+                target_names.update(_assignment_target_names(target))
+            if len(node.targets) == 1 and target_names == {name}:
+                value = node.value
+        elif isinstance(node, ast.AnnAssign):
+            target_names = _assignment_target_names(node.target)
+            value = node.value if target_names == {name} else None
+        elif isinstance(node, (ast.AugAssign, ast.NamedExpr)):
+            target = node.target
+            target_names = _assignment_target_names(target)
+        elif isinstance(node, (ast.Import, ast.ImportFrom)):
+            for imported in node.names:
+                imported_name = imported.asname or imported.name.split(".", 1)[0]
+                if imported_name == name:
+                    writes.append((node, None))
+            continue
+        elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            if node.name == name:
+                writes.append((node, None))
+            continue
+        elif isinstance(node, ast.Delete):
+            for target in node.targets:
+                target_names.update(_assignment_target_names(target))
+        elif isinstance(node, (ast.For, ast.AsyncFor)):
+            target = node.target
+            target_names = _assignment_target_names(target)
+            if name in target_names:
+                writes.append((target, None))
+                continue
+        elif isinstance(node, (ast.With, ast.AsyncWith)):
+            for item in node.items:
+                optional_target = item.optional_vars
+                if (
+                    optional_target is None
+                    or name not in _assignment_target_names(optional_target)
+                ):
+                    continue
+                writes.append((optional_target, None))
+            continue
+        elif isinstance(node, ast.ExceptHandler):
+            if node.name == name:
+                writes.append((node, None))
+            continue
+        elif isinstance(node, ast.comprehension):
+            target_names = _assignment_target_names(node.target)
+            if name in target_names:
+                writes.append((node.target, None))
+                continue
+        if name not in target_names:
+            continue
+        writes.append((node, _literal_str(value)))
+    writes.sort(
+        key=lambda entry: (
+            getattr(entry[0], "lineno", -1),
+            getattr(entry[0], "col_offset", -1),
+        )
+    )
+    return writes
+
+
+def _resolve_record_check_name(
+    call: ast.Call,
+    name: str,
+    *,
+    tree: ast.AST,
+    parents: dict[ast.AST, ast.AST],
+) -> str | None:
+    """Resolve a record-check ID through a conservative local constant binding.
+
+    Generated scripts commonly assign ``check_id = "..."`` immediately before
+    calling ``record_check``.  Accept that equivalent form while rejecting
+    dynamic values, ambiguous writes, and bindings from a different branch.
+    """
+
+    scope = _lexical_scope(call, parents)
+    current: ast.AST = call
+    while (parent := parents.get(current)) is not None:
+        if isinstance(
+            parent,
+            (ast.ListComp, ast.SetComp, ast.DictComp, ast.GeneratorExp),
+        ):
+            for generator in parent.generators:
+                if name in _assignment_target_names(generator.target):
+                    return None
+        current = parent
+    writes = _binding_writes(scope, tree, parents, name)
+    call_position = (
+        getattr(call, "lineno", -1),
+        getattr(call, "col_offset", -1),
+    )
+    preceding = [
+        (node, value)
+        for node, value in writes
+        if (
+            getattr(node, "lineno", -1),
+            getattr(node, "col_offset", -1),
+        )
+        < call_position
+    ]
+    if not preceding:
+        return None
+
+    assignment, value = preceding[-1]
+    if value is None:
+        return None
+    if not _control_context(assignment, parents).issubset(
+        _control_context(call, parents)
+    ):
+        return None
+    return value
 
 
 def _except_handler_appends_errors(handler: ast.ExceptHandler, aliases: dict[str, str]) -> bool:
@@ -431,11 +816,58 @@ def check_script_quality(script_content: str) -> CheckResult:
             fix_hints.append({"type": "add_helper_function", "name": helper_name, "description": f"腳本缺少必要 helper：{helper_name}"})
 
     record_check_def = helper_defs.get("record_check")
-    if record_check_def and not _record_check_has_bounded_raw(record_check_def, aliases):
-        issues.append(
-            "record_check 必須統一透過 truncate_output 控制 raw 大小"
-        )
-        fix_hints.append({"type": "add_truncate_in_record_check", "description": "record_check 必須統一透過 truncate_output 控制 raw 大小"})
+    if record_check_def:
+        lineno = getattr(record_check_def, "lineno", None)
+        end_lineno = getattr(record_check_def, "end_lineno", None)
+        snippet = _line_span_snippet(script_lines, record_check_def)
+        if not _record_check_has_result_return(record_check_def) or not _record_check_raw_parameter_names(record_check_def):
+            issues.append(
+                "record_check 必須使用單一 raw 參數回傳結果物件；呼叫端以 checks.append(record_check(...)) 收集"
+            )
+            hint: FixHint = {
+                "type": "normalize_record_check_contract",
+                "function": "record_check",
+                "target": "record_check_contract",
+                "description": (
+                    "record_check 必須使用 check_id、title、status、evidence、raw 參數，"
+                    "回傳單一結果 dict；不得接收 checks_list 後直接 append"
+                ),
+                "required_pattern": (
+                    'def record_check(check_id, title, status, evidence, raw="") -> dict: '
+                    '... return {"raw": truncate_output(raw_text)}; '
+                    "呼叫端使用 checks.append(record_check(...))"
+                ),
+                "snippet": snippet,
+            }
+            if isinstance(lineno, int):
+                hint["lineno"] = lineno
+            if isinstance(end_lineno, int):
+                hint["end_lineno"] = end_lineno
+            fix_hints.append(hint)
+        elif not _record_check_has_bounded_raw(record_check_def, aliases):
+            issue = "record_check 必須統一透過 truncate_output 控制 raw 大小"
+            issues.append(issue)
+            hint = {
+                "type": "add_truncate_in_record_check",
+                "function": "record_check",
+                "field": "raw",
+                "target": "record_check_definition",
+                "description": (
+                    "record_check 的 raw 欄位必須在函式定義內先轉成單一字串，"
+                    "再由一次 truncate_output 控制大小；呼叫端只傳入原始 raw payload"
+                ),
+                "required_pattern": (
+                    'raw_text = raw if isinstance(raw, str) else '
+                    'json.dumps(raw, ensure_ascii=False, default=str); '
+                    '"raw": truncate_output(raw_text)'
+                ),
+                "snippet": snippet,
+            }
+            if isinstance(lineno, int):
+                hint["lineno"] = lineno
+            if isinstance(end_lineno, int):
+                hint["end_lineno"] = end_lineno
+            fix_hints.append(hint)
 
     command_available_def = helper_defs.get("command_available")
     if command_available_def and not _function_uses_helper(
@@ -565,12 +997,18 @@ def check_script_quality(script_content: str) -> CheckResult:
 
 
 def collect_record_check_ids(script_content: str) -> set[str]:
-    """Collect literal record_check ids for rubric coverage validation."""
+    """Collect statically provable ``record_check`` IDs.
+
+    A direct string literal and a simple local constant binding are equivalent
+    for coverage purposes.  Values that cannot be proven at the call site are
+    intentionally omitted so coverage never approves a guessed or dynamic ID.
+    """
     try:
         tree = ast.parse(script_content)
     except SyntaxError:
         return set()
     aliases = _import_aliases(tree)
+    parents = _parent_map(tree)
     ids: set[str] = set()
     for node in ast.walk(tree):
         if (
@@ -578,6 +1016,26 @@ def collect_record_check_ids(script_content: str) -> set[str]:
             and _call_name(node.func, aliases) == "record_check"
         ):
             check_id = _record_check_literal_arg(node, 0, "check_id")
+            if check_id is None:
+                id_node: ast.AST | None = None
+                if len(node.args) > 0:
+                    id_node = node.args[0]
+                else:
+                    id_node = next(
+                        (
+                            keyword.value
+                            for keyword in node.keywords
+                            if keyword.arg == "check_id"
+                        ),
+                        None,
+                    )
+                if isinstance(id_node, ast.Name):
+                    check_id = _resolve_record_check_name(
+                        node,
+                        id_node.id,
+                        tree=tree,
+                        parents=parents,
+                    )
             if check_id:
                 ids.add(check_id)
     return ids

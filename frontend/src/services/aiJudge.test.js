@@ -239,7 +239,7 @@ describe("AiJudgeService persistent sessions", () => {
     });
   });
 
-  test("Teacher Judge session AI request 以後端 60 秒 timeout 為準", async () => {
+  test("Teacher Judge session AI request 以後端 120 秒 timeout 為準", async () => {
     vi.useFakeTimers();
     let settled = false;
     try {

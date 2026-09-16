@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import uuid
 from datetime import datetime, timezone
+from textwrap import dedent
 from types import SimpleNamespace
 
 import pytest
@@ -258,6 +259,7 @@ async def test_generate_script_content_sends_commands_feedback_and_safety_prompt
             "previous_review_feedback": {
                 "policy_issues": ["禁止使用 shell=True 執行指令"],
                 "quality_issues": ["工具缺失時應回傳 unknown，不可使用 warning"],
+                "available_check_ids": ["service.n8n_port"],
             },
         },
         template_key="n8n",
@@ -296,6 +298,9 @@ async def test_generate_script_content_sends_commands_feedback_and_safety_prompt
     ]
     assert user_payload["previous_review_feedback"]["quality_issues"] == [
         "工具缺失時應回傳 unknown，不可使用 warning"
+    ]
+    assert user_payload["previous_review_feedback"]["available_check_ids"] == [
+        "service.n8n_port"
     ]
 
 
@@ -509,6 +514,109 @@ async def test_fix_script_content_applies_line_replacements(
     assert "    collect()" in fixed
 
 
+def test_truncate_repair_instruction_targets_record_check_definition() -> None:
+    instructions = script_artifact_service._repair_instructions(
+        [
+            {
+                "type": "add_truncate_in_record_check",
+                "function": "record_check",
+                "field": "raw",
+                "target": "record_check_definition",
+                "lineno": 3,
+                "end_lineno": 8,
+                "snippet": "0003|def record_check(...):",
+                "required_pattern": (
+                    'raw_text = raw if isinstance(raw, str) else json.dumps(raw, '
+                    'ensure_ascii=False, default=str); "raw": truncate_output(raw_text)'
+                ),
+                "description": "raw 必須在 helper 定義內截斷",
+            }
+        ]
+    )
+
+    assert instructions == [
+        {
+            "issue": "raw 必須在 helper 定義內截斷",
+            "fix_goal": "只修改 record_check 函式定義；將非字串 raw payload 先序列化，再將回傳物件的 \"raw\" 欄位交給一次 truncate_output(raw_text)，呼叫端保持傳入原始 raw，不要只修改呼叫端。",
+            "target": "record_check_definition",
+            "line_range": [3, 8],
+            "snippet": "0003|def record_check(...):",
+            "required_pattern": (
+                'raw_text = raw if isinstance(raw, str) else json.dumps(raw, '
+                'ensure_ascii=False, default=str); "raw": truncate_output(raw_text)'
+            ),
+        }
+    ]
+
+
+@pytest.mark.asyncio
+async def test_build_reviewed_script_stops_on_noncanonical_record_check_contract(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    source = dedent(
+        """
+        import json
+        import platform
+
+        def truncate_output(text: str, limit: int = 400) -> str:
+            return text[:limit]
+
+        def record_check(check_id: str, title: str, status: str, evidence: str,
+                         raw_stdout: str, raw_stderr: str,
+                         returncode: int | None) -> dict[str, object]:
+            return {
+                "id": check_id,
+                "title": title,
+                "status": status,
+                "evidence": evidence,
+                "raw": {
+                    "stdout": truncate_output(raw_stdout),
+                    "stderr": truncate_output(raw_stderr),
+                    "returncode": returncode,
+                },
+            }
+
+        checks = [record_check("runtime.python", "收集 Python", "unknown", "n/a", "", "", None)]
+        print(json.dumps({
+            "schema_version": "teacher_judge_result.v1",
+            "metadata": {"timestamp": "now", "platform": platform.platform()},
+            "summary": "checked",
+            "checks": checks,
+            "errors": [],
+        }, ensure_ascii=False))
+        """
+    ).strip()
+
+    async def fake_generate_script_content(*, rubric_snapshot, template_key):
+        return source, [], {}
+
+    async def fake_review_script_with_ai(*, script_content, rubric_snapshot):
+        return {"approved": True, "risk_level": "low", "issues": []}
+
+    monkeypatch.setattr(
+        script_artifact_service, "generate_script_content", fake_generate_script_content
+    )
+    monkeypatch.setattr(
+        script_artifact_service, "review_script_with_ai", fake_review_script_with_ai
+    )
+
+    script_content, policy_check, ai_review, status = (
+        await script_artifact_service.build_reviewed_script(
+            rubric_snapshot={"template_key": "linux", "items": []},
+            template_key="linux",
+        )
+    )
+
+    assert status == TeacherJudgeScriptStatus.review_failed
+    assert policy_check["approved"] is False
+    assert policy_check["retry_summary"]["stop_reason"] == "same_failure_limit"
+    assert policy_check["review_attempts"][0]["repair_mode"] == "fresh_generation"
+    assert policy_check["review_attempts"][0]["fix_hints"][0]["type"] == (
+        "normalize_record_check_contract"
+    )
+    assert ai_review["approved"] is False
+
+
 @pytest.mark.asyncio
 async def test_build_reviewed_script_re_reviews_after_ai_feedback_fix(
     monkeypatch: pytest.MonkeyPatch,
@@ -599,9 +707,13 @@ async def test_build_reviewed_script_stops_after_two_retries_of_same_failure(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     fix_calls = [0]
+    generate_calls = [0]
+    generate_snapshots = []
     review_calls = [0]
 
     async def fake_generate_script_content(*, rubric_snapshot, template_key):
+        generate_calls[0] += 1
+        generate_snapshots.append(rubric_snapshot)
         return "same-error"
 
     async def fake_fix_script_content(*, script_content, fix_hints):
@@ -644,11 +756,18 @@ async def test_build_reviewed_script_stops_after_two_retries_of_same_failure(
     )
 
     assert status == TeacherJudgeScriptStatus.review_failed
-    assert fix_calls[0] == 2
+    assert generate_calls[0] == 2
+    assert fix_calls[0] == 1
     assert review_calls[0] == 0
     assert policy_check["retry_summary"]["retry_count"] == 2
     assert policy_check["retry_summary"]["stop_reason"] == "same_failure_limit"
     assert len(policy_check["review_attempts"]) == 3
+    assert [attempt["repair_mode"] for attempt in policy_check["review_attempts"]] == [
+        "line_patch",
+        "fresh_generation",
+        "stop",
+    ]
+    assert generate_snapshots[1]["previous_review_feedback"]["repair_guidance"]
 
 
 @pytest.mark.asyncio
@@ -1297,6 +1416,141 @@ async def test_build_reviewed_script_blocks_uncovered_rubric_item(
 
 
 @pytest.mark.asyncio
+async def test_build_reviewed_script_persists_terminal_coverage_details(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    generate_calls = [0]
+    review_calls = [0]
+
+    async def fake_generate_script_content(*, rubric_snapshot, template_key):
+        generate_calls[0] += 1
+        return SAFE_SCRIPT, [
+            {"check_id": "missing.check", "rubric_item_ids": ["item-1"]}
+        ], {}
+
+    async def fake_review_script_with_ai(*, script_content, rubric_snapshot):
+        review_calls[0] += 1
+        return {"approved": True, "risk_level": "low", "issues": []}
+
+    monkeypatch.setattr(
+        script_artifact_service, "generate_script_content", fake_generate_script_content
+    )
+    monkeypatch.setattr(
+        script_artifact_service, "review_script_with_ai", fake_review_script_with_ai
+    )
+    monkeypatch.setattr(
+        script_artifact_service,
+        "check_script_policy",
+        lambda script_content: {
+            "approved": True,
+            "blocked": False,
+            "risk_level": "low",
+            "issues": [],
+            "fix_hints": [],
+        },
+    )
+    monkeypatch.setattr(
+        script_artifact_service,
+        "check_script_quality",
+        lambda script_content: {
+            "approved": True,
+            "blocked": False,
+            "risk_level": "low",
+            "issues": [],
+            "fix_hints": [],
+        },
+    )
+
+    _script, policy_check, _ai_review, status = (
+        await script_artifact_service.build_reviewed_script(
+            rubric_snapshot={
+                "template_key": "linux",
+                "items": [{"id": "item-1", "title": "收集 Python 版本"}],
+            },
+            template_key="linux",
+        )
+    )
+
+    assert status == TeacherJudgeScriptStatus.review_failed
+    assert generate_calls[0] == 3
+    assert review_calls[0] == 0
+    assert policy_check["approved"] is False
+    assert policy_check["blocked"] is True
+    assert policy_check["coverage"]["approved"] is False
+    assert any("missing.check" in issue for issue in policy_check["coverage"]["issues"])
+    assert len(policy_check["review_attempts"]) == 3
+
+
+@pytest.mark.asyncio
+async def test_build_reviewed_script_stabilizes_changing_coverage_ids(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    generate_calls = [0]
+    snapshots: list[dict[str, object]] = []
+
+    async def fake_generate_script_content(*, rubric_snapshot, template_key):
+        generate_calls[0] += 1
+        snapshots.append(rubric_snapshot)
+        return SAFE_SCRIPT, [
+            {
+                "check_id": f"model-invented-{generate_calls[0]}",
+                "rubric_item_ids": ["item-1"],
+            }
+        ], {}
+
+    monkeypatch.setattr(
+        script_artifact_service, "generate_script_content", fake_generate_script_content
+    )
+    monkeypatch.setattr(
+        script_artifact_service,
+        "check_script_policy",
+        lambda script_content: {
+            "approved": True,
+            "blocked": False,
+            "risk_level": "low",
+            "issues": [],
+            "fix_hints": [],
+        },
+    )
+    monkeypatch.setattr(
+        script_artifact_service,
+        "check_script_quality",
+        lambda script_content: {
+            "approved": True,
+            "blocked": False,
+            "risk_level": "low",
+            "issues": [],
+            "fix_hints": [],
+        },
+    )
+
+    _script, policy_check, _ai_review, status = (
+        await script_artifact_service.build_reviewed_script(
+            rubric_snapshot={
+                "template_key": "linux",
+                "items": [{"id": "item-1", "title": "收集 Python 版本"}],
+            },
+            template_key="linux",
+        )
+    )
+
+    assert status == TeacherJudgeScriptStatus.review_failed
+    assert generate_calls[0] == 3
+    assert [attempt["same_failure_count"] for attempt in policy_check["review_attempts"]] == [
+        1,
+        2,
+        3,
+    ]
+    assert all(
+        attempt["available_check_ids"] == []
+        for attempt in policy_check["review_attempts"]
+    )
+    feedback = snapshots[1]["previous_review_feedback"]
+    assert feedback["available_check_ids"] == []
+    assert feedback["repair_guidance"][0]["target"] == "fix_coverage_refs"
+
+
+@pytest.mark.asyncio
 async def test_build_reviewed_script_realigns_coverage_after_patch(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -1522,6 +1776,27 @@ async def test_regenerate_failed_artifact_passes_previous_review_feedback(
             "safety_issues": [],
             "quality_approved": False,
             "quality_issues": ["工具缺失時應回傳 unknown，不可使用 warning"],
+            "coverage": {
+                "approved": False,
+                "issues": ["以下檢查項目沒有任何 check 證據覆蓋：item-1（n8n Web UI）"],
+                "uncovered_items": [{"id": "item-1", "title": "n8n Web UI"}],
+                "available_check_ids": ["service.n8n_port"],
+            },
+            "review_attempts": [
+                {
+                    "phase": "static",
+                    "fix_hints": [
+                        {
+                            "type": "add_truncate_in_record_check",
+                            "target": "record_check_definition",
+                            "lineno": 3,
+                            "end_lineno": 8,
+                            "required_pattern": '"raw": truncate_output(raw)',
+                            "description": "record_check 的 raw 欄位必須在函式定義內截斷",
+                        }
+                    ],
+                }
+            ],
         },
         ai_review_result_json={
             "approved": False,
@@ -1541,6 +1816,17 @@ async def test_regenerate_failed_artifact_passes_previous_review_feedback(
         assert feedback["quality_issues"] == [
             "工具缺失時應回傳 unknown，不可使用 warning"
         ]
+        assert feedback["coverage_approved"] is False
+        assert feedback["coverage_issues"] == [
+            "以下檢查項目沒有任何 check 證據覆蓋：item-1（n8n Web UI）"
+        ]
+        assert feedback["uncovered_rubric_items"] == [
+            {"id": "item-1", "title": "n8n Web UI"}
+        ]
+        assert feedback["available_check_ids"] == ["service.n8n_port"]
+        assert feedback["repair_guidance"][0]["target"] == "record_check_definition"
+        assert feedback["repair_guidance"][0]["line_range"] == [3, 8]
+        assert feedback["repair_guidance"][0]["required_pattern"] == '"raw": truncate_output(raw)'
         assert feedback["ai_review_issues"] == ["指令執行方式不符合規範"]
         assert feedback["ai_review_suggested_fix"] == "改用 argv list 與 timeout"
         return (
@@ -1575,6 +1861,49 @@ async def test_regenerate_failed_artifact_passes_previous_review_feedback(
 
     assert regenerated.status == "approved"
     assert "previous_review_feedback" not in regenerated.rubric_snapshot_json
+
+
+def test_previous_review_feedback_keeps_coverage_repair_guidance() -> None:
+    artifact = models.TeacherJudgeScriptArtifact(
+        teaching_class_id=uuid.uuid4(),
+        name="coverage-failed.pdf",
+        template_key="linux",
+        script_content="print('candidate')",
+        policy_check_result_json={
+            "safety_approved": True,
+            "safety_issues": [],
+            "quality_approved": True,
+            "quality_issues": [],
+            "coverage": {
+                "approved": False,
+                "issues": ["coverage 引用不存在的 check id：model.id"],
+                "uncovered_items": [],
+                "available_check_ids": ["runtime.python_version"],
+            },
+            "review_attempts": [
+                {
+                    "phase": "coverage",
+                    "fix_hints": [
+                        {
+                            "type": "fix_coverage_refs",
+                            "description": "coverage check_id 必須使用實際 ID",
+                        }
+                    ],
+                }
+            ],
+        },
+        ai_review_result_json={
+            "approved": True,
+            "issues": [],
+            "suggested_fix": None,
+        },
+    )
+
+    feedback = script_artifact_service._previous_review_feedback(artifact)
+
+    assert feedback is not None
+    assert feedback["available_check_ids"] == ["runtime.python_version"]
+    assert feedback["repair_guidance"][0]["target"] == "fix_coverage_refs"
 
 
 @pytest.mark.asyncio

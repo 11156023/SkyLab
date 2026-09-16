@@ -26,6 +26,7 @@ import {
   getSessionMenuPosition,
   getSelectedRubricSource,
   getScriptCreationDestination,
+  getScriptReviewAttemptIssues,
   getSelectableProposalIds,
   mergeSessionMessages,
   resolveActiveSessionId,
@@ -917,6 +918,17 @@ describe("resolveActiveSessionId", () => {
 });
 
 describe("script creation workflow", () => {
+  test("重試摘要會保留 coverage 錯誤與未覆蓋項目", () => {
+    expect(getScriptReviewAttemptIssues({
+      phase: "coverage",
+      coverage_issues: ["coverage 引用不存在的 check id：missing"],
+      uncovered_rubric_items: [{ id: "item-1", title: "收集 Python 版本" }],
+    })).toEqual([
+      "coverage 引用不存在的 check id：missing",
+      "未覆蓋檢查項目：收集 Python 版本",
+    ]);
+  });
+
   test("通過自動檢查後進入執行結果，失敗時進入腳本總覽", () => {
     expect(getScriptCreationDestination({ status: "approved" })).toBe("execution");
     expect(getScriptCreationDestination({ status: "review_failed", id: "script-1" })).toBe("scripts");

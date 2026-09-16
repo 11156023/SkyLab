@@ -145,6 +145,7 @@ def validate_coverage(
             {"id": item_id, "title": titles.get(item_id) or ""}
             for item_id in uncovered
         ],
+        "available_check_ids": sorted(script_check_ids),
     }
 
 

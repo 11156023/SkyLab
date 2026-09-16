@@ -663,7 +663,11 @@ async def test_session_script_review_failed_saves_safe_chat_outcome(
             policy_check_result_json={
                 "safety_approved": True,
                 "quality_approved": True,
-                "coverage": {"approved": False, "uncovered_items": ["item-port"]},
+                "coverage": {
+                    "approved": False,
+                    "issues": ["coverage 引用不存在的 check id：missing"],
+                    "uncovered_items": ["item-port"],
+                },
             },
             ai_review_result_json={"approved": False, "issues": ["coverage mismatch"]},
         )
@@ -692,6 +696,7 @@ async def test_session_script_review_failed_saves_safe_chat_outcome(
     assert outcome.metadata_json["artifact_id"] == str(artifact_id)
     assert "coverage mismatch" not in outcome.content
     assert "腳本未通過覆蓋檢查" in outcome.content
+    assert "coverage 引用不存在的 check id：missing" in outcome.content
 
 
 @pytest.mark.asyncio

@@ -188,6 +188,255 @@ def test_quality_validator_requires_record_check_to_truncate_raw() -> None:
     )
 
 
+def test_quality_validator_rejects_unrelated_truncate_call_inside_record_check() -> None:
+    result = _check(
+        """
+        import json
+        import platform
+
+        def truncate_output(text: str, limit: int = 400) -> str:
+            return text[:limit]
+
+        def record_check(check_id: str, title: str, status: str, evidence: str, raw: str = "") -> dict[str, str]:
+            _ = truncate_output("unrelated")
+            return {
+                "id": check_id,
+                "title": title,
+                "status": status,
+                "evidence": evidence,
+                "raw": raw,
+            }
+
+        checks = [record_check("runtime.python_version", "收集 Python 版本", "unknown", "n/a", raw="raw")]
+        print(json.dumps({
+            "schema_version": "teacher_judge_result.v1",
+            "metadata": {"timestamp": "now", "platform": platform.platform()},
+            "summary": "checked",
+            "checks": checks,
+            "errors": [],
+        }, ensure_ascii=False))
+        """
+    )
+
+    assert result["approved"] is False
+    assert "record_check 必須統一透過 truncate_output 控制 raw 大小" in result["issues"]
+
+
+def test_quality_validator_rejects_noncanonical_split_raw_parameters() -> None:
+    result = _check(
+        """
+        import json
+
+        def truncate_output(text: str, limit: int = 400) -> str:
+            return text[:limit]
+
+        def record_check(check_id: str, title: str, status: str, evidence: str,
+                         raw_stdout: str, raw_stderr: str,
+                         returncode: int | None) -> dict[str, object]:
+            return {
+                "id": check_id,
+                "title": title,
+                "status": status,
+                "evidence": evidence,
+                "raw": {
+                    "stdout": truncate_output(raw_stdout),
+                    "stderr": truncate_output(raw_stderr),
+                    "returncode": returncode,
+                },
+            }
+
+        checks = [record_check("runtime.python", "收集 Python", "unknown", "n/a", "", "", None)]
+        print(json.dumps({
+            "schema_version": "teacher_judge_result.v1",
+            "metadata": {"timestamp": "now", "platform": "test"},
+            "checks": checks,
+            "errors": [],
+        }, ensure_ascii=False))
+        """
+    )
+
+    assert result["approved"] is False
+    assert any(
+        "record_check 必須使用單一 raw 參數回傳結果物件" in issue
+        for issue in result["issues"]
+    )
+    hint = next(
+        hint for hint in result["fix_hints"]
+        if hint["type"] == "normalize_record_check_contract"
+    )
+    assert hint["target"] == "record_check_contract"
+    assert "checks.append(record_check(...))" in hint["required_pattern"]
+
+
+def test_quality_validator_rejects_record_check_side_effect_even_when_raw_is_bounded() -> None:
+    result = _check(
+        """
+        import json
+
+        def truncate_output(text: str, limit: int = 400) -> str:
+            return text[:limit]
+
+        def record_check(checks_list, check_id, title, status, evidence, raw_str=""):
+            checks_list.append({
+                "id": check_id,
+                "title": title,
+                "status": status,
+                "evidence": evidence,
+                "raw": truncate_output(raw_str),
+            })
+
+        checks = []
+        record_check(checks, "runtime.python", "收集 Python", "unknown", "n/a", {})
+        print(json.dumps({
+            "schema_version": "teacher_judge_result.v1",
+            "metadata": {"timestamp": "now", "platform": "test"},
+            "checks": checks,
+            "errors": [],
+        }, ensure_ascii=False))
+        """
+    )
+
+    assert result["approved"] is False
+    assert any(
+        "record_check 必須使用單一 raw 參數回傳結果物件" in issue
+        for issue in result["issues"]
+    )
+    assert any(
+        hint["type"] == "normalize_record_check_contract"
+        for hint in result["fix_hints"]
+    )
+
+
+def test_quality_validator_reports_record_check_definition_repair_target() -> None:
+    result = _check(
+        """
+        import json
+        import platform
+
+        def truncate_output(text: str, limit: int = 400) -> str:
+            return text[:limit]
+
+        def record_check(check_id: str, title: str, status: str, evidence: str, raw: str = "") -> dict[str, str]:
+            return {"id": check_id, "title": title, "status": status, "evidence": evidence, "raw": raw}
+
+        checks = [record_check("runtime.python_version", "收集 Python 版本", "unknown", "n/a", raw="raw")]
+        print(json.dumps({
+            "schema_version": "teacher_judge_result.v1",
+            "metadata": {"timestamp": "now", "platform": platform.platform()},
+            "summary": "checked",
+            "checks": checks,
+            "errors": [],
+        }, ensure_ascii=False))
+        """
+    )
+
+    hint = next(
+        hint for hint in result["fix_hints"]
+        if hint["type"] == "add_truncate_in_record_check"
+    )
+    assert hint["target"] == "record_check_definition"
+    assert hint["function"] == "record_check"
+    assert hint["field"] == "raw"
+    assert hint["lineno"] < hint["end_lineno"]
+    assert "raw_text = raw if isinstance(raw, str)" in hint["required_pattern"]
+    assert "呼叫端" in hint["description"]
+
+
+def test_quality_validator_accepts_bounded_raw_alias_in_record_check() -> None:
+    result = _check(
+        """
+        import json
+        import platform
+
+        def truncate_output(text: str, limit: int = 400) -> str:
+            return text[:limit]
+
+        def record_check(check_id: str, title: str, status: str, evidence: str, raw: str = "") -> dict[str, str]:
+            bounded_raw = truncate_output(raw)
+            return {"id": check_id, "title": title, "status": status, "evidence": evidence, "raw": bounded_raw}
+
+        checks = [record_check("runtime.python_version", "收集 Python 版本", "unknown", "n/a", raw="raw")]
+        print(json.dumps({
+            "schema_version": "teacher_judge_result.v1",
+            "metadata": {"timestamp": "now", "platform": platform.platform()},
+            "summary": "checked",
+            "checks": checks,
+            "errors": [],
+        }, ensure_ascii=False))
+        """
+    )
+
+    assert result["approved"] is True
+
+
+def test_quality_validator_accepts_canonical_raw_payload_dict() -> None:
+    result = _check(
+        """
+        import json
+        import platform
+
+        def truncate_output(text: str, limit: int = 4000) -> str:
+            return text[:limit]
+
+        def record_check(check_id: str, title: str, status: str, evidence: str, raw="") -> dict[str, str]:
+            raw_text = raw if isinstance(raw, str) else json.dumps(raw, ensure_ascii=False, default=str)
+            return {
+                "id": check_id,
+                "title": title,
+                "status": status,
+                "evidence": evidence,
+                "raw": truncate_output(raw_text),
+            }
+
+        checks = [record_check(
+            "runtime.python_version",
+            "收集 Python 版本",
+            "unknown",
+            "待核查",
+            {"stdout": "Python 3", "stderr": "", "returncode": 0},
+        )]
+        print(json.dumps({
+            "schema_version": "teacher_judge_result.v1",
+            "metadata": {"timestamp": "now", "platform": platform.platform()},
+            "checks": checks,
+            "errors": [],
+        }, ensure_ascii=False))
+        """
+    )
+
+    assert result["approved"] is True
+    assert result["issues"] == []
+
+
+def test_quality_validator_rejects_unbounded_record_check_return_branch() -> None:
+    result = _check(
+        """
+        import json
+        import platform
+
+        def truncate_output(text: str, limit: int = 400) -> str:
+            return text[:limit]
+
+        def record_check(check_id: str, title: str, status: str, evidence: str, raw: str = "", bounded: bool = True) -> dict[str, str]:
+            if bounded:
+                return {"id": check_id, "title": title, "status": status, "evidence": evidence, "raw": truncate_output(raw)}
+            return {"id": check_id, "title": title, "status": status, "evidence": evidence, "raw": raw}
+
+        checks = [record_check("runtime.python_version", "收集 Python 版本", "unknown", "n/a", raw="raw")]
+        print(json.dumps({
+            "schema_version": "teacher_judge_result.v1",
+            "metadata": {"timestamp": "now", "platform": platform.platform()},
+            "summary": "checked",
+            "checks": checks,
+            "errors": [],
+        }, ensure_ascii=False))
+        """
+    )
+
+    assert result["approved"] is False
+    assert "record_check 必須統一透過 truncate_output 控制 raw 大小" in result["issues"]
+
+
 def test_quality_validator_blocks_external_tool_without_fallback() -> None:
     _assert_blocked(
         """

@@ -1152,7 +1152,7 @@ def _merge_vllm_metrics(first: VLLMMetrics, second: VLLMMetrics) -> VLLMMetrics:
 
 
 async def _call_vllm_message(
-    payload: dict[str, Any], timeout: float = 60.0
+    payload: dict[str, Any], timeout: float = 120.0
 ) -> tuple[dict[str, Any], VLLMMetrics]:
     """Call vLLM chat/completions and preserve structured assistant data."""
     url = f"{settings.VLLM_BASE_URL}/chat/completions"
@@ -1219,7 +1219,7 @@ async def _call_vllm_message(
 
 
 async def _call_vllm(
-    payload: dict[str, Any], timeout: float = 60.0
+    payload: dict[str, Any], timeout: float = 120.0
 ) -> tuple[str, VLLMMetrics]:
     """Call vLLM chat/completions and return text for non-agent callers."""
     message, metrics = await _call_vllm_message(payload, timeout=timeout)
