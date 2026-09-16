@@ -669,7 +669,7 @@ export default function ResourceMgmtPage() {
   return (
     <div className={styles.page}>
       {/* ── 頁首 ── */}
-      <PageHeader title={t("ResourceMgmtPage.pageTitle")} subtitle={t("ResourceMgmtPage.pageSubtitle")}>
+      <PageHeader title={t("ResourceMgmtPage.pageTitle")}>
         <div className={styles.pageActions}>
           <button type="button" className={styles.btnPrimary} onClick={() => navigate("/my-requests")}>
             <MIcon name="add" size={16} />

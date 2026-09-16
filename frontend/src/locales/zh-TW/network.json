@@ -1,6 +1,5 @@
 {
   "FirewallPage.title": "防火牆",
-  "FirewallPage.subtitle": "管理 VM 之間與對外的網路連線規則",
   "FirewallPage.addConnection": "新增連線",
   "FirewallPage.loadTopologyFailed": "載入拓撲失敗",
   "FirewallPage.loadingTopology": "載入拓撲中…",

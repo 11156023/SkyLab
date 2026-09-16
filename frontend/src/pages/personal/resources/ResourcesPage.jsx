@@ -555,7 +555,7 @@ export default function ResourcesPage() {
 
   return (
     <div className={styles.page}>
-      <PageHeader title={t("ResourcesPage.title")} subtitle={t("ResourcesPage.subtitle")}>
+      <PageHeader title={t("ResourcesPage.title")}>
         <div className={styles.pageActions}>
           <a
             className={styles.btnSecondary}

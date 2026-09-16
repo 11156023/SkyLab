@@ -1,6 +1,5 @@
 {
   "FirewallPage.title": "ファイアウォール",
-  "FirewallPage.subtitle": "VM 間および外部との通信ルールを管理します",
   "FirewallPage.addConnection": "接続を追加",
   "FirewallPage.loadTopologyFailed": "トポロジーの読み込みに失敗しました",
   "FirewallPage.loadingTopology": "トポロジーを読み込み中…",

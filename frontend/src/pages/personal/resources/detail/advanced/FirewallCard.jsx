@@ -111,7 +111,6 @@ export default function FirewallCard({ vmid, canManage, publicUrls = [], onChang
             <MIcon name="security" size={18} />
             {t("FirewallCard.title")}
           </h2>
-          <p className={styles.cardDesc}>{t("FirewallCard.desc")}</p>
         </div>
         <div className={styles.headerActions}>
           {options && (

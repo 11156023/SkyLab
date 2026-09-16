@@ -298,7 +298,7 @@ export default function FirewallPage() {
   return (
     <div className={styles.page}>
       {/* ── Header ── */}
-      <PageHeader title={t("FirewallPage.title")} subtitle={t("FirewallPage.subtitle")}>
+      <PageHeader title={t("FirewallPage.title")}>
         <div className={styles.headerActions}>
           <button
             type="button"

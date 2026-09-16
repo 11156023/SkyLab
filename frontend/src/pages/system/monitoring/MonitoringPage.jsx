@@ -381,7 +381,7 @@ export default function MonitoringPage() {
 
   return (
     <div className={styles.page}>
-      <PageHeader title={t("MonitoringPage.pageTitle")} subtitle={t("MonitoringPage.pageSubtitle")}>
+      <PageHeader title={t("MonitoringPage.pageTitle")}>
         <div className={styles.pageActions}>
           <div className={styles.segment}>
             {TIMEFRAMES.map((t) => (

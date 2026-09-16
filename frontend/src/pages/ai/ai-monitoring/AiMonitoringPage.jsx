@@ -325,7 +325,6 @@ function CompactHealthPanel({ overview, runtime, overviewError, error, loading, 
             <MIcon name="health_and_safety" size={18} />
             {t("AiMonitoringPage.healthTitle")}
           </h2>
-          <p className={styles.panelDescription}>{t("AiMonitoringPage.healthDescription")}</p>
         </div>
         {runtime?.checked_at ? (
           <span className={styles.checkedAt}>
@@ -402,7 +401,7 @@ function AttentionPanel({ items, onOpen, t }) {
   }[target] ?? t("AiMonitoringPage.viewDetail"));
   return <section className={styles.attentionPanel} aria-labelledby="attention-heading">
     <div className={styles.attentionHeader}>
-      <div><h2 id="attention-heading">{t("AiMonitoringPage.attentionTitle")}</h2><p>{t("AiMonitoringPage.attentionDescription")}</p></div>
+      <div><h2 id="attention-heading">{t("AiMonitoringPage.attentionTitle")}</h2></div>
       <span>{items.length}</span>
     </div>
     {items.length ? <div className={styles.attentionList}>{items.map((item) => <button type="button" key={item.key} className={`${styles.attentionRow} ${styles[`attentionRow_${item.tone}`]}`} onClick={() => onOpen(item.target)}>
@@ -710,7 +709,7 @@ export default function AiMonitoringPage() {
 
   return (
     <div className={styles.page}>
-      <PageHeader title={t("AiMonitoringPage.pageTitle")} subtitle={t("AiMonitoringPage.pageSubtitle")}>
+      <PageHeader title={t("AiMonitoringPage.pageTitle")}>
         <div className={styles.pageActions}>
           <div className={styles.refreshMeta}>
             <span className={styles.refreshDot} />
@@ -769,7 +768,6 @@ export default function AiMonitoringPage() {
           <div className={styles.panelHeader}>
             <div>
               <h2 className={styles.panelTitle}><MIcon name="timeline" size={18} />{t("AiMonitoringPage.trendTitle")}</h2>
-              <p className={styles.panelDescription}>{t("AiMonitoringPage.trendDescription")}</p>
             </div>
             <div className={styles.trendMeta}>
               <SegmentedControl options={TREND_OPTIONS} value={trendMetric} onChange={setTrendMetric} ariaLabel={t("AiMonitoringPage.trendMetricLabel")} />
@@ -786,7 +784,6 @@ export default function AiMonitoringPage() {
         <div className={styles.detailHeader}>
           <div>
             <h2 id="detail-heading" className={styles.detailTitle}>{t("AiMonitoringPage.detailTitle")}</h2>
-            <p className={styles.detailDescription}>{t("AiMonitoringPage.detailDescription")}</p>
           </div>
           <div className={styles.detailToolbar}>
             {detailTab === "proxy" || detailTab === "template" ? (

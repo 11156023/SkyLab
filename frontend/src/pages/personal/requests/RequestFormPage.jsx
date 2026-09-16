@@ -996,7 +996,7 @@ export default function RequestFormPage({ onBack, className, initialPrefill = nu
   return (
     <div className={`${styles.formPage} ${animCls}`}>
       {/* ── 頁首 ── */}
-      <PageHeader title={t("RequestFormPage.title")} subtitle={t("RequestFormPage.subtitle")}>
+      <PageHeader title={t("RequestFormPage.title")}>
         <button type="button" className={styles.backBtn} onClick={handleBack}>
           <MIcon name="arrow_back" size={18} />
           {t("RequestFormPage.back")}

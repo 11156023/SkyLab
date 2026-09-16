@@ -242,7 +242,7 @@ export default function AiApiKeysPage() {
 
   return (
     <div className={styles.page}>
-      <PageHeader title={t("AiApiKeysPage.pageTitle")} subtitle={t("AiApiKeysPage.pageSubtitle")} />
+      <PageHeader title={t("AiApiKeysPage.pageTitle")} />
 
       <div className={styles.controlsRow}>
         <div className={styles.segmentGroup}>

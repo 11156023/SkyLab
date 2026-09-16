@@ -477,7 +477,6 @@ export default function OverviewTab({ vmid }) {
                 <MIcon name="info" size={18} />
                 {t("OverviewTab.envInfoTitle")}
               </h2>
-              <p className={styles.cardDesc}>{t("OverviewTab.envInfoDesc")}</p>
             </div>
           </div>
           <div className={styles.cardBody}>
@@ -539,7 +538,6 @@ export default function OverviewTab({ vmid }) {
                 <MIcon name="vpn_key" size={18} />
                 {t("OverviewTab.accessTitle")}
               </h2>
-              <p className={styles.cardDesc}>{t("OverviewTab.accessDesc")}</p>
             </div>
           </div>
           <div className={styles.cardBody}>

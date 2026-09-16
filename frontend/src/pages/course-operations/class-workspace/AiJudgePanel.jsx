@@ -3128,7 +3128,6 @@ function TeacherWorkspacePanel({ classId, members, weeks = [] }) {
     <div className={styles.panel}>
       <div className={styles.panelHeading}>
         <h2 className={styles.panelTitle}><MIcon name="checklist" size={20} />AI 檢查</h2>
-        <p className={styles.panelDesc}>建立檢查表、準備檢查腳本，並查看班級機器的執行結果。</p>
       </div>
 
       {activeSession ? (

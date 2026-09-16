@@ -1,6 +1,5 @@
 {
   "FirewallPage.title": "Firewall",
-  "FirewallPage.subtitle": "Manage network connection rules between VMs and to the internet",
   "FirewallPage.addConnection": "Add Connection",
   "FirewallPage.loadTopologyFailed": "Failed to load topology",
   "FirewallPage.loadingTopology": "Loading topology…",
