@@ -5,6 +5,7 @@ import styles from "./ResourceDetailPage.module.scss";
 import MIcon from "../../../../components/MIcon";
 import MachineKindBadge from "../../../../components/MachineKindBadge/MachineKindBadge";
 import { ResourcesService } from "../../../../services/resources";
+import { AuditLogsService } from "../../../../services/auditLogs";
 import OverviewTab from "./OverviewTab";
 import MonitoringTab from "./MonitoringTab";
 import SpecificationsTab from "./SpecificationsTab";
@@ -62,6 +63,18 @@ export default function ResourceDetailPage({ backTo = "/my-resources" }) {
   const isShared = access?.access_role === "shared";
   const visibleTabs = TABS.filter((tabDef) => !isShared || tabDef.sharedOnly);
 
+  /* 操作紀錄分頁的筆數 badge；count 是後端獨立的總數查詢，limit 1 只為省流量。
+     被分享的使用者看不到這個分頁，等 access 回來確認身分後才抓 */
+  const [auditCount, setAuditCount] = useState(null);
+  useEffect(() => {
+    if (isGuideDemo || !access || isShared) return undefined;
+    let cancelled = false;
+    AuditLogsService.listForResource(vmid, { skip: 0, limit: 1 })
+      .then((res) => !cancelled && setAuditCount(res?.count ?? null))
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [isGuideDemo, access, isShared, vmid]);
+
   return (
     <div className={styles.page}>
       <PageHeader
@@ -109,6 +122,7 @@ export default function ResourceDetailPage({ backTo = "/my-resources" }) {
             value: tabDef.key,
             label: t(tabDef.labelKey),
             icon: tabDef.icon,
+            badge: tabDef.key === "auditLogs" ? auditCount ?? undefined : undefined,
             buttonProps: { "data-guide-tab": `resource-${tabDef.key}` },
           }))}
           value={tab}
