@@ -472,59 +472,39 @@ def _enrol(db: Session, *, teacher: User, student: User, status: str = "active")
     return teaching_class.id
 
 
-def test_campus_audience_is_visible_to_any_signed_in_user(quick_db: Session) -> None:
-    environment, _teacher, student = _audience_fixture(quick_db, "campus")
-
-    assert quick_practice.is_visible_to(
-        quick_db, environment=environment, user=student
+def _publish(db: Session, environment: CourseEnvironment) -> None:
+    db.add(
+        CourseEnvironmentVersion(
+            environment_id=environment.id,
+            version=1,
+            status=CourseEnvironmentVersionStatus.published,
+        )
     )
+    db.commit()
 
 
-def test_owner_audience_hides_the_environment_from_students(quick_db: Session) -> None:
-    environment, teacher, student = _audience_fixture(quick_db, "owner")
+def test_a_practice_environment_reaches_every_signed_in_user(quick_db: Session) -> None:
+    # 開放對象已經沒有介面，套用方式是唯一的閘門：提供為快速練習就是誰都看得到。
+    environment, _teacher, _student = _audience_fixture(quick_db, "class")
+    _publish(quick_db, environment)
 
-    assert quick_practice.is_visible_to(
-        quick_db, environment=environment, user=teacher
-    )
-    assert not quick_practice.is_visible_to(
-        quick_db, environment=environment, user=student
-    )
+    listed = quick_practice.list_published_templates(quick_db)
 
-
-def test_class_audience_only_reaches_enrolled_students(quick_db: Session) -> None:
-    environment, teacher, student = _audience_fixture(quick_db, "class")
-    outsider = User(
-        email=f"outsider-{uuid.uuid4()}@example.edu",
-        hashed_password="hash",
-        role=UserRole.student,
-    )
-    quick_db.add(outsider)
-    quick_db.flush()
-    class_id = _enrol(quick_db, teacher=teacher, student=student)
-    quick_db.add(
-        CourseEnvironmentAudience(environment_id=environment.id, class_id=class_id)
-    )
-    quick_db.commit()
-
-    assert quick_practice.is_visible_to(
-        quick_db, environment=environment, user=student
-    )
-    assert not quick_practice.is_visible_to(
-        quick_db, environment=environment, user=outsider
-    )
+    assert [item[0].id for item in listed] == [environment.id]
 
 
-def test_class_audience_ignores_dropped_students(quick_db: Session) -> None:
-    environment, teacher, student = _audience_fixture(quick_db, "class")
-    class_id = _enrol(quick_db, teacher=teacher, student=student, status="removed")
-    quick_db.add(
-        CourseEnvironmentAudience(environment_id=environment.id, class_id=class_id)
-    )
-    quick_db.commit()
+def test_a_course_only_environment_never_reaches_the_practice_list(
+    quick_db: Session,
+) -> None:
+    environment, _teacher, _student = _audience_fixture(quick_db, "campus")
+    environment.usage_scope = "course"
+    _publish(quick_db, environment)
 
-    assert not quick_practice.is_visible_to(
-        quick_db, environment=environment, user=student
-    )
+    assert quick_practice.list_published_templates(quick_db) == []
+    with pytest.raises(NotFoundError):
+        quick_practice.get_published_template(
+            quick_db, environment_id=environment.id
+        )
 
 
 def test_environment_cap_blocks_a_launch_when_it_is_full(
