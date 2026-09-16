@@ -182,7 +182,6 @@ export default function CredentialsCard({ vmid, canManage }) {
             <MIcon name="key" size={18} />
             {t("CredentialsCard.title")}
           </h2>
-          <p className={styles.cardDesc}>{t("CredentialsCard.desc")}</p>
         </div>
         {canManage && info && (
           <div className={styles.headerActions}>

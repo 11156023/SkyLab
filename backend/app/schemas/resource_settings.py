@@ -180,34 +180,6 @@ class AuthorizedKeysResponse(BaseModel):
     message: str
 
 
-# ===== 標籤 =====
-
-_TAG_RE = re.compile(r"^[A-Za-z0-9_][A-Za-z0-9_\-\+\.]{0,31}$")
-
-
-class ResourceMetadataPublic(BaseModel):
-    vmid: int
-    tags: list[str] = Field(default_factory=list)
-
-
-class ResourceMetadataUpdate(BaseModel):
-    tags: list[str] = Field(max_length=16)
-
-    @field_validator("tags")
-    @classmethod
-    def _validate_tags(cls, value: list[str]) -> list[str]:
-        cleaned: list[str] = []
-        for raw in value:
-            tag = str(raw).strip().lower()
-            if not tag:
-                continue
-            if not _TAG_RE.match(tag):
-                raise ValueError(f"invalid tag: {raw}")
-            if tag not in cleaned:
-                cleaned.append(tag)
-        return cleaned
-
-
 # ===== 共享與轉移 =====
 
 
@@ -249,8 +221,6 @@ __all__ = [
     "IsoImagePublic",
     "PasswordResetRequest",
     "PasswordResetResponse",
-    "ResourceMetadataPublic",
-    "ResourceMetadataUpdate",
     "ResourceShareCreate",
     "ResourceSharePublic",
     "ResourceSpecsPublic",

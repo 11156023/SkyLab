@@ -86,3 +86,28 @@ export function replacePublishedService(vmid, current, replacement) {
 export function unpublishService(vmid, { port, protocol = "tcp" }) {
   return apiDeleteJson(`/api/v1/firewall/${vmid}/services`, { port, protocol });
 }
+
+/* ── 開放給班級（老師機器 → 學生可連） ── */
+
+/** 這台機器開放給哪些班級（只有能管這台機器的人看得到） */
+export function listClassExposures(vmid) {
+  return apiGet(`/api/v1/firewall/${vmid}/class-exposures`);
+}
+
+/**
+ * 把這台機器開放給一個班級
+ * @param {{ class_id:string, ports:Array<{port:number, protocol:string}> }} data
+ */
+export function createClassExposure(vmid, data) {
+  return apiPost(`/api/v1/firewall/${vmid}/class-exposures`, data);
+}
+
+/** 改允許的埠；被拿掉的埠，學生已連上的規則會一併清掉 */
+export function updateClassExposure(vmid, exposureId, data) {
+  return apiPut(`/api/v1/firewall/${vmid}/class-exposures/${exposureId}`, data);
+}
+
+/** 關閉開放，並拆掉班上學生連進來的連線 */
+export function deleteClassExposure(vmid, exposureId) {
+  return apiDelete(`/api/v1/firewall/${vmid}/class-exposures/${exposureId}`);
+}

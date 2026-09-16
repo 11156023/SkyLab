@@ -272,6 +272,115 @@
   padding: $spacing-8 0;
 }
 
+/* 唯讀提示：學生看課堂機時放在面板最上方 */
+.readOnlyHint {
+  display: flex;
+  align-items: center;
+  gap: $spacing-8;
+  margin: 0 0 $spacing-8;
+  padding: $spacing-8 $spacing-16;
+  border-radius: $radius-8;
+  background: var(--color-bg-base);
+  color: var(--color-text-secondary);
+  font-size: $font-size-14;
+}
+
+/* 老師開放的機器：允許的埠列成一排 */
+.peerPorts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: $spacing-4;
+  margin-bottom: $spacing-8;
+}
+
+/* ── 開放給班級 ── */
+.sectionHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: $spacing-8;
+
+  .sectionTitle { margin: 0; }
+}
+
+.linkBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px $spacing-4;
+  border: none;
+  background: none;
+  color: var(--color-primary);
+  font-size: $font-size-14;
+  cursor: pointer;
+
+  &:hover:not(:disabled) { text-decoration: underline; }
+  &:disabled { opacity: 0.5; cursor: default; }
+}
+
+.exposureRow {
+  display: flex;
+  align-items: center;
+  gap: $spacing-8;
+  padding: $spacing-8 0;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.exposureInfo {
+  @include flex-column;
+  gap: 2px;
+  min-width: 0;
+  flex: 1;
+}
+
+.exposureClass {
+  display: inline-flex;
+  align-items: center;
+  gap: $spacing-4;
+  font-size: $font-size-14;
+  color: var(--color-text);
+  @include text-truncate;
+}
+
+.exposurePorts {
+  font-size: $font-size-14;
+  color: var(--color-text-secondary);
+  @include text-truncate;
+}
+
+.exposureForm {
+  @include flex-column;
+  gap: $spacing-4;
+  margin-top: $spacing-8;
+  padding: $spacing-8;
+  border-radius: $radius-8;
+  background: var(--color-bg-base);
+}
+
+.exposureLabel {
+  font-size: $font-size-14;
+  color: var(--color-text-secondary);
+}
+
+.exposureInput {
+  width: 100%;
+  padding: 6px $spacing-8;
+  border: 1px solid var(--color-border);
+  border-radius: $radius-8;
+  background: var(--color-surface);
+  color: var(--color-text);
+  font-size: $font-size-14;
+
+  &:focus { outline: none; border-color: var(--color-primary); }
+}
+
+.exposureActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: $spacing-8;
+  margin-top: $spacing-4;
+}
+
 .errorMsg {
   font-size: $font-size-14;
   color: var(--color-danger);

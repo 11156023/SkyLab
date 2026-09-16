@@ -193,16 +193,6 @@ export const ResourcesService = {
     });
   },
 
-  /** 標籤與備註 → { tags, description } */
-  getMetadata(vmid) {
-    return apiGet(`/api/v1/resources/${vmid}/metadata`);
-  },
-
-  /** 更新標籤與備註（body: { tags?, description? }） */
-  updateMetadata(vmid, body) {
-    return apiPut(`/api/v1/resources/${vmid}/metadata`, body);
-  },
-
   /** 共享名單 */
   listShares(vmid) {
     return apiGet(`/api/v1/resources/${vmid}/shares`);

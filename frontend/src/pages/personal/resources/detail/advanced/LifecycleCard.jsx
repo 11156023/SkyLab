@@ -164,7 +164,6 @@ export default function LifecycleCard({ vmid, resource, canManage, onChanged }) 
             <MIcon name="schedule" size={18} />
             {t("LifecycleCard.title")}
           </h2>
-          <p className={styles.cardDesc}>{t("LifecycleCard.desc")}</p>
         </div>
         {canExtend && (
           <div className={styles.headerActions}>

@@ -360,7 +360,7 @@ export default function MonitoringPage() {
 
   return (
     <div className={styles.page}>
-      <PageHeader title={t("MonitoringPage.pageTitle")} subtitle={t("MonitoringPage.pageSubtitle")} />
+      <PageHeader title={t("MonitoringPage.pageTitle")} />
 
       {/* 叢集用量卡片 */}
       <div className={styles.statRow}>

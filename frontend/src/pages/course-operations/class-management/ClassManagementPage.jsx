@@ -158,7 +158,7 @@ export default function ClassManagementPage() {
   }, [visible, query, status]);
 
   return <div className={`${styles.page} ${styles.listPage}`}>
-    <PageHeader title={t("ClassManagementPage.title")} subtitle={t("ClassManagementPage.subtitle")}>
+    <PageHeader title={t("ClassManagementPage.title")}>
       <button type="button" className={styles.btnPrimary} onClick={() => navigate("/class-setup")}>
         <MIcon name="add" size={17} />{t("ClassManagementPage.createClass")}
       </button>

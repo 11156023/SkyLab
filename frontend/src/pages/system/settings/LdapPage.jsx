@@ -283,7 +283,7 @@ export default function LdapPage() {
   const { t } = useTranslation("system");
   return (
     <div className={styles.page}>
-      <PageHeader title={t("SettingsPage.ldapTitle")} subtitle={t("SettingsPage.ldapSubtitle")} />
+      <PageHeader title={t("SettingsPage.ldapTitle")} />
       <div className={styles.content}>
         <LdapForm />
       </div>

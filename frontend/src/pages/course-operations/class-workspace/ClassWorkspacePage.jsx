@@ -31,12 +31,12 @@ import styles from "../CourseOperations.module.scss";
 const POST_ACTIVE_TABS = ["progress", "ai"];
 
 const TABS = [
-  ["overview", "dashboard", "ClassWorkspacePage.tabOverviewLabel", "ClassWorkspacePage.tabOverviewHint"],
-  ["students", "groups", "ClassWorkspacePage.tabStudentsLabel", "ClassWorkspacePage.tabStudentsHint"],
-  ["machines", "account_tree", "ClassWorkspacePage.tabMachinesLabel", "ClassWorkspacePage.tabMachinesHint"],
-  ["weekly", "calendar_view_week", "ClassWorkspacePage.tabWeeklyLabel", "ClassWorkspacePage.tabWeeklyHint"],
-  ["progress", "cast_for_education", "ClassWorkspacePage.tabProgressLabel", "ClassWorkspacePage.tabProgressHint"],
-  ["ai", "auto_awesome", "ClassWorkspacePage.tabAiLabel", "ClassWorkspacePage.tabAiHint"],
+  ["overview", "dashboard", "ClassWorkspacePage.tabOverviewLabel"],
+  ["students", "groups", "ClassWorkspacePage.tabStudentsLabel"],
+  ["machines", "account_tree", "ClassWorkspacePage.tabMachinesLabel"],
+  ["weekly", "calendar_view_week", "ClassWorkspacePage.tabWeeklyLabel"],
+  ["progress", "cast_for_education", "ClassWorkspacePage.tabProgressLabel"],
+  ["ai", "auto_awesome", "ClassWorkspacePage.tabAiLabel"],
 ];
 
 const JOB_STATUS_KEYS = {

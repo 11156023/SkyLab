@@ -4,6 +4,7 @@ import { useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import styles from "./ResourceMgmtPage.module.scss";
 import MIcon from "../../../components/MIcon";
+import MachineKindBadge from "../../../components/MachineKindBadge/MachineKindBadge";
 import PowerMenu from "../../../components/PowerMenu/PowerMenu";
 import TemplateConvertDialog from "../../../components/TemplateConvertDialog/TemplateConvertDialog";
 import useDialogPresence from "../../../hooks/useDialogPresence";
@@ -169,7 +170,16 @@ function EnvironmentMachineRow({ machine, onUpdated }) {
         <div className={styles.envSub}>{machine.resource ? t("ResourceMgmtPage.envConnected") : t("ResourceMgmtPage.envProvisioning")}</div>
       </td>
       <td className={styles.td}><StatusBadge status={machine.status} /></td>
-      <td className={styles.td}><span className={styles.mono}>{machine.ip}</span></td>
+      <td className={styles.td}>
+        <span className={styles.mono}>{machine.ip}</span>
+        {machine.publicUrl && (
+          <div className={styles.publicUrlList}>
+            <a className={styles.publicUrlLink} href={machine.publicUrl} target="_blank" rel="noreferrer" title={machine.publicUrl}>
+              <MIcon name="open_in_new" size={13} />{machine.publicUrl.replace(/^https?:\/\//, "")}
+            </a>
+          </div>
+        )}
+      </td>
       <td className={styles.td}><span className={styles.noAction}>{t("ResourceMgmtPage.unifiedManagement")}</span></td>
       <td className={styles.td}>{machine.node}</td>
       <td className={styles.td}><div className={styles.actions}>
@@ -232,7 +242,7 @@ function EnvironmentGroupRows({ group, onUpdated, onRefresh }) {
             onClick={() => setExpanded((value) => !value)}
           >
             <MIcon name={expanded ? "expand_more" : "chevron_right"} size={20} />
-            <span><strong>{group.kindLabel}｜{group.title}</strong><small>{t("ResourceMgmtPage.machineCountLabel", { count: group.machines.length })}</small></span>
+            <span><strong className={styles.groupTitle}><MachineKindBadge kind={group.kind === "quick_practice" ? "quick_practice" : "teaching_class"} classRelation={group.classRelation} size="sm" />{group.title}</strong><small>{t("ResourceMgmtPage.machineCountLabel", { count: group.machines.length })}</small></span>
           </button>
         </td>
         <td className={styles.td}>
@@ -438,6 +448,17 @@ function ResourceRow({ resource, onUpdated, onDeleted, selected = false, onToggl
                 {type.label}
                 {resource.vmid > 0 && t("ResourceMgmtPage.vmidSuffix", { vmid: resource.vmid })}
               </div>
+              {/* 管理員：每台都標來源與擁有者 */}
+              <div className={styles.nameKind}>
+                <MachineKindBadge
+                  kind={resource.machine_kind}
+                  classRelation={resource.class_relation}
+                  ownerName={resource.owner_name}
+                  teachingClassName={resource.teaching_class_name}
+                  showOwner
+                  size="sm"
+                />
+              </div>
             </div>
           </div>
         </td>
@@ -453,9 +474,18 @@ function ResourceRow({ resource, onUpdated, onDeleted, selected = false, onToggl
           <StatusBadge status={resource.status} />
         </td>
 
-        {/* IP */}
+        {/* IP；底下列出反向代理發布的對外網址，管理員不必進詳情頁就能點 */}
         <td className={styles.td}>
           <span className={styles.mono}>{resource.ip_address ?? "N/A"}</span>
+          {(resource.public_urls ?? []).length > 0 && (
+            <div className={styles.publicUrlList}>
+              {resource.public_urls.map((url) => (
+                <a key={url} className={styles.publicUrlLink} href={url} target="_blank" rel="noreferrer" title={url}>
+                  <MIcon name="open_in_new" size={13} />{url.replace(/^https?:\/\//, "")}
+                </a>
+              ))}
+            </div>
+          )}
         </td>
 
         {/* 到期日 */}
@@ -639,7 +669,7 @@ export default function ResourceMgmtPage() {
   return (
     <div className={styles.page}>
       {/* ── 頁首 ── */}
-      <PageHeader title={t("ResourceMgmtPage.pageTitle")} subtitle={t("ResourceMgmtPage.pageSubtitle")}>
+      <PageHeader title={t("ResourceMgmtPage.pageTitle")}>
         <div className={styles.pageActions}>
           <button type="button" className={styles.btnPrimary} onClick={() => navigate("/my-requests")}>
             <MIcon name="add" size={16} />

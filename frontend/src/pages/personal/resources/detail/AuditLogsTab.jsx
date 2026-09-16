@@ -36,8 +36,10 @@ export default function AuditLogsTab({ vmid }) {
       <div className={styles.card}>
         <div className={styles.cardHeader}>
           <div>
-            <h2 className={styles.cardTitle}>{t("AuditLogsTab.title")}</h2>
-            <p className={styles.cardDesc}>{t("AuditLogsTab.desc", { count: logs.count })}</p>
+            <h2 className={styles.cardTitle}>
+              {t("AuditLogsTab.title")}
+              <span className={`${styles.badge} ${styles.badge_muted}`}>{logs.count}</span>
+            </h2>
           </div>
         </div>
         {logs.data.length === 0 ? (

@@ -181,7 +181,7 @@ export default function AuditPage() {
 
   return (
     <div className={styles.page}>
-      <PageHeader title={t("AuditPage.pageTitle")} subtitle={t("AuditPage.pageSubtitle")}>
+      <PageHeader title={t("AuditPage.pageTitle")}>
         <button
           type="button"
           className={styles.btnSecondary}

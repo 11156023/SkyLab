@@ -95,7 +95,7 @@ export default function CourseTemplateManagementPage() {
     className={`${styles.page} ${styles.listPage} ${returning ? styles.animSlideInLeft : ""}`}
     onAnimationEnd={returning ? () => setReturning(false) : undefined}
   >
-    <PageHeader title={t("CourseTemplateManagementPage.pageTitle")} subtitle={t("CourseTemplateManagementPage.pageSubtitle")}>
+    <PageHeader title={t("CourseTemplateManagementPage.pageTitle")}>
       <button type="button" className={styles.btnPrimary} onClick={() => navigate("/course-template-management/new")}><MIcon name="add" size={16} />{t("CourseTemplateManagementPage.createEnvBtn")}</button>
     </PageHeader>
 

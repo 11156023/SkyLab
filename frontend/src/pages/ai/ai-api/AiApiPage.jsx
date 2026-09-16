@@ -496,7 +496,6 @@ function MyUsageTab() {
           <div className={styles.usagePanel} data-guide="ai-route-usage">
             <div className={styles.usagePanelHeader}>
               <h3 className={styles.usagePanelTitle}>{t("AiApiPage.usageTitle")}</h3>
-              <p className={styles.usagePanelDesc}>{t("AiApiPage.usageDesc")}</p>
             </div>
             {usageError ? (
               <p className={styles.textDanger}>{t("AiApiPage.usageError")}</p>
@@ -525,7 +524,6 @@ function MyUsageTab() {
           <div className={styles.usagePanel} data-guide="ai-usage-records">
             <div className={styles.usagePanelHeader}>
               <h3 className={styles.usagePanelTitle}>{t("AiApiPage.usageRecordsTitle")}</h3>
-              <p className={styles.usagePanelDesc}>{t("AiApiPage.usageRecordsDesc")}</p>
             </div>
             {recordsError ? (
               <p className={styles.textDanger}>{t("AiApiPage.usageRecordsError")}</p>
@@ -612,7 +610,6 @@ function ApplyKeyModal({
         <div className={styles.dialogHeader}>
           <div>
             <h2 id="ai-apply-dialog-title" className={styles.dialogTitle} data-guide="ai-form">{t("AiApiPage.applyPanelTitle")}</h2>
-            <p className={styles.dialogDesc}>{t("AiApiPage.applyPanelDesc")}</p>
           </div>
           <button
             type="button"
@@ -776,7 +773,6 @@ export default function AiApiPage() {
       {/* ── Header ── */}
       <PageHeader
         title="AI API"
-        subtitle={t("AiApiPage.pageSubtitle")}
       />
 
       {/* ── Stat cards ── */}
@@ -814,7 +810,6 @@ export default function AiApiPage() {
             <div className={styles.panelHeaderRow}>
               <div className={styles.panelHeader}>
                 <h2 className={styles.panelTitle} data-guide="ai-keys-panel">{t("AiApiPage.keysPanelTitle")}</h2>
-                <p className={styles.panelDesc}>{t("AiApiPage.keysPanelDesc")}</p>
               </div>
               <button
                 type="button"
@@ -849,7 +844,6 @@ export default function AiApiPage() {
           <div className={styles.panel}>
             <div className={styles.panelHeader}>
               <h2 className={styles.panelTitle} data-guide="ai-records-panel">{t("AiApiPage.recordsPanelTitle")}</h2>
-              <p className={styles.panelDesc}>{t("AiApiPage.recordsPanelDesc")}</p>
             </div>
             {loading ? (
               <LoadingState />

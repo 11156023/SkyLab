@@ -1,14 +1,13 @@
 @use "../../assets/styles/variables" as *;
 @use "../../assets/styles/mixins" as *;
 
-/* 導覽入口：portal 到頁首副標前的 [data-user-guide-slot]，行內小圖示鈕 */
+/* 導覽入口：portal 到頁首 h1 旁的 [data-user-guide-slot]，行內小圖示鈕 */
 .helpButton {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: 5px;
   min-height: 26px;
-  margin-right: $spacing-8;
   padding: 3px 9px;
   vertical-align: middle;
   border: 1px solid color-mix(in srgb, var(--color-primary) 24%, var(--color-border));

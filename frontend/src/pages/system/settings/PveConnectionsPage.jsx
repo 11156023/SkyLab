@@ -388,7 +388,7 @@ export default function PveConnectionsPage() {
 
   return (
     <div className={styles.page}>
-      <PageHeader title={t("SettingsPage.pveConnectionsTitle")} subtitle={t("SettingsPage.pveConnectionsSubtitle")} />
+      <PageHeader title={t("SettingsPage.pveConnectionsTitle")} />
       <div className={styles.content}>
         <ConnectionsSection connections={connections} loading={loading} onRefresh={fetchConnections} />
       </div>

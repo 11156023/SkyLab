@@ -274,9 +274,8 @@ function CompactHealthPanel({ items, loading, t, onOpen }) {
             <MIcon name="health_and_safety" size={18} />
             {t("AiMonitoringPage.healthTitle")}
           </h2>
-          <p className={styles.panelDescription}>{t("AiMonitoringPage.healthDescription")}</p>
         </div>
-        {!loading && <span className={styles.healthIssueCount} aria-label={t("AiMonitoringPage.healthIssueSummary", { count: items.length })}>{items.length}</span>}
+        {!loading && <span className={styles.healthIssueCount} aria-label={t("AiMonitoringPage.healthIssueCount", { count: items.length })}>{items.length}</span>}
       </div>
 
       {loading ? (
@@ -592,7 +591,7 @@ export default function AiMonitoringPage() {
 
   return (
     <div className={styles.page}>
-      <PageHeader title={t("AiMonitoringPage.pageTitle")} subtitle={t("AiMonitoringPage.pageSubtitle")}>
+      <PageHeader title={t("AiMonitoringPage.pageTitle")}>
         <div className={styles.pageActions}>
           <div className={styles.refreshMeta}>
             <span className={styles.refreshDot} />
@@ -640,7 +639,6 @@ export default function AiMonitoringPage() {
           <div className={styles.panelHeader}>
             <div>
               <h2 className={styles.panelTitle}><MIcon name="timeline" size={18} />{t("AiMonitoringPage.trendTitle")}</h2>
-              <p className={styles.panelDescription}>{t("AiMonitoringPage.trendDescription")}</p>
             </div>
             <div className={styles.trendMeta}>
               <SegmentedControl options={TREND_OPTIONS} value={trendMetric} onChange={setTrendMetric} ariaLabel={t("AiMonitoringPage.trendMetricLabel")} />
@@ -657,7 +655,6 @@ export default function AiMonitoringPage() {
         <div className={styles.detailHeader}>
           <div>
             <h2 id="detail-heading" className={styles.detailTitle}>{t("AiMonitoringPage.detailTitle")}</h2>
-            <p className={styles.detailDescription}>{t("AiMonitoringPage.detailDescription")}</p>
           </div>
           <div className={styles.detailToolbar}>
             {detailTab === "proxy" ? (

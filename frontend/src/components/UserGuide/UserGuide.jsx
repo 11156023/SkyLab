@@ -220,12 +220,6 @@ const PAGE_GUIDES = {
         textKey: "UserGuide.firewall.endpoints.text",
       },
       {
-        selector: '[data-guide="connection-dialog-tabs"]',
-        deferred: true,
-        titleKey: "UserGuide.firewall.dialogTabs.title",
-        textKey: "UserGuide.firewall.dialogTabs.text",
-      },
-      {
         selector: '[data-guide="connection-dialog-actions"]',
         deferred: true,
         titleKey: "UserGuide.firewall.dialogActions.title",
@@ -446,7 +440,6 @@ const RESOURCE_DETAIL_GUIDE = {
     { selector: '[data-guide="resource-setting-firewall"]', deferred: true, titleKey: "UserGuide.resourceDetail.step9.title", textKey: "UserGuide.resourceDetail.step9.text" },
     { selector: '[data-guide="resource-setting-boot"]', deferred: true, titleKey: "UserGuide.resourceDetail.step10.title", textKey: "UserGuide.resourceDetail.step10.text" },
     { selector: '[data-guide="resource-setting-credentials"]', deferred: true, titleKey: "UserGuide.resourceDetail.step11.title", textKey: "UserGuide.resourceDetail.step11.text" },
-    { selector: '[data-guide="resource-setting-metadata"]', deferred: true, titleKey: "UserGuide.resourceDetail.step12.title", textKey: "UserGuide.resourceDetail.step12.text" },
     { selector: '[data-guide="resource-setting-sharing"]', deferred: true, titleKey: "UserGuide.resourceDetail.step13.title", textKey: "UserGuide.resourceDetail.step13.text" },
   ],
 };

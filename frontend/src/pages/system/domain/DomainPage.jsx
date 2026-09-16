@@ -383,7 +383,7 @@ export default function DomainPage() {
 
   return (
     <div className={styles.page}>
-      <PageHeader title={t("DomainPage.pageTitle")} subtitle={t("DomainPage.pageSubtitle")}>
+      <PageHeader title={t("DomainPage.pageTitle")}>
         <div className={styles.headerActions} data-guide="domain-connect">
           <button
             type="button"

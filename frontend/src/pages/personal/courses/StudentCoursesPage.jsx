@@ -71,7 +71,6 @@ export default function StudentCoursesPage() {
       <PageHeader
         eyebrow={t("StudentCoursesPage.eyebrow")}
         title={t("StudentCoursesPage.title")}
-        subtitle={t("StudentCoursesPage.subtitle")}
       />
 
       {view.hasError && (
