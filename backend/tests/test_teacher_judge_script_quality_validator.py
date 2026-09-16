@@ -1380,6 +1380,83 @@ def test_allows_run_command_generic_exception_with_structured_error_return() -> 
     assert result["issues"] == []
 
 
+def test_run_command_reraise_gets_structured_error_repair_hint() -> None:
+    result = _check(
+        """
+        import json
+        import platform
+        import shutil
+        import subprocess
+        from datetime import datetime, timezone
+
+        errors: list[str] = []
+
+        def truncate_output(text: str, limit: int = 400) -> str:
+            return text[:limit]
+
+        def command_available(command: str) -> bool:
+            return shutil.which(command) is not None
+
+        def run_command(argv: list[str], timeout: int = 5) -> dict[str, object]:
+            try:
+                completed = subprocess.run(
+                    argv,
+                    capture_output=True,
+                    text=True,
+                    timeout=timeout,
+                    check=False,
+                )
+            except Exception as exc:
+                raise Exception(f"未預期錯誤: {str(exc)[:200]}")
+            return {
+                "stdout": completed.stdout,
+                "stderr": completed.stderr,
+                "returncode": completed.returncode,
+            }
+
+        def record_check(check_id: str, title: str, status: str, evidence: str, raw: str = "") -> dict[str, str]:
+            return {
+                "id": check_id,
+                "title": title,
+                "status": status,
+                "evidence": evidence,
+                "raw": truncate_output(raw),
+            }
+
+        checks = []
+        check_id = "runtime.python_version"
+        try:
+            result = run_command(["python", "--version"])
+        except Exception as exc:
+            errors.append(f"{check_id}: 未預期錯誤: {str(exc)[:200]}")
+            checks.append(record_check(check_id, "收集 Python 版本", "unknown", "未預期錯誤"))
+        else:
+            checks.append(record_check(check_id, "收集 Python 版本", "unknown", "已收集", result))
+
+        print(json.dumps({
+            "schema_version": "teacher_judge_result.v1",
+            "metadata": {
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "platform": platform.platform(),
+            },
+            "checks": checks,
+            "errors": errors,
+        }, ensure_ascii=False))
+        """
+    )
+
+    assert result["approved"] is False
+    assert result["issues"] == ["bare except / except Exception 後未將錯誤記錄到 errors"]
+    hint = next(
+        hint
+        for hint in result["fix_hints"]
+        if hint["type"] == "normalize_run_command_error_contract"
+    )
+    assert hint["function"] == "run_command"
+    assert hint["target"] == "run_command_exception_handler"
+    assert '"returncode": None' in hint["required_pattern"]
+
+
 def test_allows_import_aliases_for_quality_call_detection() -> None:
     result = _check(
         """

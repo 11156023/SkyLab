@@ -278,6 +278,8 @@ async def test_generate_script_content_sends_commands_feedback_and_safety_prompt
     assert "簡潔程式碼骨架" in system_prompt
     assert "run_command()" in system_prompt
     assert "只負責" in system_prompt
+    assert '{"stdout": "", "stderr": str(exc), "returncode": None}' in system_prompt
+    assert "不要在 helper 內操作 `errors` 或 `checks`" in system_prompt
     assert "不要建立 class" in system_prompt
     assert "python.run_entrypoint" in system_prompt
     assert "不得搜尋檔案系統或猜路徑" in system_prompt
@@ -504,11 +506,14 @@ async def test_fix_script_content_applies_line_replacements(
     )
 
     user_payload = json.loads(captured_payload["messages"][1]["content"])
+    repair_system_prompt = captured_payload["messages"][0]["content"]
     repair_instruction = user_payload["repair_instructions"][0]
     assert repair_instruction["line_range"] == [4, 5]
     assert repair_instruction["snippet"] == "0004|except Exception:\n0005|    pass"
     assert "errors.append" in repair_instruction["required_pattern"]
     assert "fix_instructions" in user_payload
+    assert '{"stdout": "", "stderr": str(exc), "returncode": None}' in repair_system_prompt
+    assert "target 是 `run_command_exception_handler`" in repair_system_prompt
     assert "except Exception as exc:" in fixed
     assert "errors.append" in fixed
     assert "    collect()" in fixed
@@ -544,6 +549,44 @@ def test_truncate_repair_instruction_targets_record_check_definition() -> None:
             "required_pattern": (
                 'raw_text = raw if isinstance(raw, str) else json.dumps(raw, '
                 'ensure_ascii=False, default=str); "raw": truncate_output(raw_text)'
+            ),
+        }
+    ]
+
+
+def test_run_command_repair_instruction_preserves_helper_boundary() -> None:
+    instructions = script_artifact_service._repair_instructions(
+        [
+            {
+                "type": "normalize_run_command_error_contract",
+                "function": "run_command",
+                "target": "run_command_exception_handler",
+                "lineno": 48,
+                "end_lineno": 49,
+                "snippet": "0048|except Exception as exc:\n0049|    raise Exception(str(exc))",
+                "required_pattern": (
+                    'except Exception as exc:\n'
+                    '    return {"stdout": "", "stderr": str(exc), "returncode": None}'
+                ),
+                "description": "run_command 例外應回傳結構化錯誤",
+            }
+        ]
+    )
+
+    assert instructions == [
+        {
+            "issue": "run_command 例外應回傳結構化錯誤",
+            "fix_goal": (
+                '只替換 run_command 指定 except 區塊；回傳 '
+                '{"stdout": "", "stderr": str(exc), "returncode": None}，'
+                "不要在 helper 內操作 errors 或 checks，由呼叫端處理 returncode=None。"
+            ),
+            "target": "run_command_exception_handler",
+            "line_range": [48, 49],
+            "snippet": "0048|except Exception as exc:\n0049|    raise Exception(str(exc))",
+            "required_pattern": (
+                'except Exception as exc:\n'
+                '    return {"stdout": "", "stderr": str(exc), "returncode": None}'
             ),
         }
     ]

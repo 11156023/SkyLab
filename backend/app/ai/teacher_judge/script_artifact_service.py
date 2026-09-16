@@ -174,7 +174,7 @@ SCRIPT_GENERATION_SYSTEM_PROMPT = f"""
 - 產生單檔 Python script；不要建立 class、plugin 架構、retry framework 或多層抽象。
 - 核心 helper 只有 2 個：`truncate_output`、`record_check`；僅在需要執行外部命令時才額外定義並使用 `command_available` 與 `run_command`，標準函式庫即可完成的檢查不需要外部命令 helper。
 - `record_check` 必須照品質契約的固定 skeleton 使用單一 `raw` 參數並回傳 dict；呼叫端直接傳入原始 raw payload，禁止使用 `checks_list` side effect、分離的 `raw_stdout`／`raw_stderr` 參數、巢狀 raw dict，或只在呼叫端逐欄截斷。
-- `run_command()` 只負責接受 argv list、cwd 與 timeout，並回傳未遮蔽的 `stdout`、`stderr`、`returncode`；若捕捉例外，回傳 `returncode=None` 與錯誤文字，不要在 helper 內吞掉資訊。
+- `run_command()` 只負責接受 argv list、cwd 與 timeout，並回傳未遮蔽的 `stdout`、`stderr`、`returncode`；若捕捉例外，回傳 `returncode=None` 與錯誤文字，不要在 helper 內操作 `errors` 或 `checks`，由呼叫端依 `returncode is None` 記錄錯誤。
 - 每個收集項目使用同一個簡潔模式：
   1. 先決定 `check_id`
   2. 需要外部命令時，先檢查工具是否存在；缺工具時 `record_check(..., "unknown", ...)`
@@ -220,7 +220,7 @@ AI_REVIEWER_SYSTEM_PROMPT = """
 若 rubric 只要求內容、行或設定存在，腳本不得擅自改成整份 stdout 完全相等；這種過度收緊應列為 issues。
 
 ## 錯誤記錄完整性
-- 檢查腳本有 subprocess.run / HTTP 請求等外部呼叫時，是否有對應的 try/except 並在 except 中 call errors.append()。
+- 檢查腳本有 subprocess.run / HTTP 請求等外部呼叫時，是否有對應的 try/except 並在 except 中 call errors.append()；但 `run_command` helper 可將未預期例外轉成含 `returncode=None` 的結構化結果，由呼叫端記錄 errors 與 unknown/fail 狀態。
 - 若腳本有例外處理但 errors 始終為空陣列，應列為 issues。
 - 檢查 bare except / except Exception 後是否有將錯誤記錄到 errors。
 - 確認 `record_check` 使用單一 `raw` 參數並回傳結果 dict，呼叫端以 `checks.append(record_check(...))` 收集；helper 必須把非字串 raw payload 序列化後，將整個 `raw` 欄位交給一次 `truncate_output`，且最終值是字串。`checks_list` side effect、巢狀 raw dict、分離 stdout/stderr 參數、只截斷子欄位，或只有呼叫端截斷，都應列為 issues。
@@ -251,7 +251,8 @@ FIX_SCRIPT_SYSTEM_PROMPT = """
 - 對 `normalize_record_check_contract`，這是 helper 與呼叫端的契約錯誤，不能只替換 raw 欄位：重新生成完整腳本，固定使用 `record_check(check_id, title, status, evidence, raw="") -> dict` 並由呼叫端 `checks.append(record_check(...))` 收集。不得保留 `checks_list`、`errors` 或分離 stdout/stderr 參數。
 - 對 `add_truncate_in_record_check`，只修改 `record_check` 函式定義；將非字串 raw payload 先以 `json.dumps(raw, ensure_ascii=False, default=str)` 序列化，再改成 `"raw": truncate_output(raw_text)`，不可回傳巢狀 dict，也不得以呼叫端的 `truncate_output(...)` 取代。
 - 正確形狀：helper 回傳的 `raw` 是一次外層 `truncate_output(...)` 的字串；錯誤形狀：只截斷 `stdout`／`stderr` 子欄位、回傳 dict，或只在呼叫端截斷。
-- 對 `bare except / except Exception 後未將錯誤記錄到 errors`，必須在同一個 except 區塊加入 `errors.append(...)`，並確保對應 `record_check` 狀態不是 `pass`
+- 對 `normalize_run_command_error_contract`，只替換 `run_command` 的指定 except 區塊；回傳 `{"stdout": "", "stderr": str(exc), "returncode": None}`，不要在 helper 內加入 `errors.append` 或 `checks.append`。
+- 對一般收集流程的 `bare except / except Exception 後未將錯誤記錄到 errors`，必須在同一個 except 區塊加入 `errors.append(...)`，並確保對應 `record_check` 狀態不是 `pass`；若 target 是 `run_command_exception_handler`，遵守上一條結構化回傳契約，不要在 helper 內 append。
 
 # 輸出格式
 只能輸出一個 JSON：
@@ -729,6 +730,12 @@ def _fix_goal_for_hint(hint: FixHint) -> str:
             '只修改 record_check 函式定義；將非字串 raw payload 先序列化，'
             '再將回傳物件的 "raw" 欄位交給一次 truncate_output(raw_text)，'
             "呼叫端保持傳入原始 raw，不要只修改呼叫端。"
+        )
+    if hint_type == "normalize_run_command_error_contract":
+        return (
+            '只替換 run_command 指定 except 區塊；回傳 '
+            '{"stdout": "", "stderr": str(exc), "returncode": None}，'
+            "不要在 helper 內操作 errors 或 checks，由呼叫端處理 returncode=None。"
         )
     if hint_type == "add_errors_append_in_except":
         return (

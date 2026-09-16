@@ -740,22 +740,40 @@ def _exception_fix_hint(
     lines: list[str],
     *,
     target: str,
+    function_name: str | None = None,
 ) -> FixHint:
     lineno = getattr(handler, "lineno", None)
     end_lineno = getattr(handler, "end_lineno", None)
-    required_pattern = (
-        'except Exception as exc:\n'
-        '    errors.append(f"<check_id>: 未預期錯誤: {str(exc)[:200]}")\n'
-        '    checks.append(record_check("<check_id>", "收集 ...", "unknown", "未預期錯誤"))'
-    )
+    is_run_command = function_name == "run_command"
+    if is_run_command:
+        hint_type = "normalize_run_command_error_contract"
+        description = (
+            "run_command 捕捉未預期例外時應回傳結構化錯誤，"
+            "不要在 helper 內操作 errors 或 checks"
+        )
+        required_pattern = (
+            'except Exception as exc:\n'
+            '    return {"stdout": "", "stderr": str(exc), "returncode": None}'
+        )
+        target = "run_command_exception_handler"
+    else:
+        hint_type = "add_errors_append_in_except"
+        description = "bare except / except Exception 應追加 errors 條目"
+        required_pattern = (
+            'except Exception as exc:\n'
+            '    errors.append(f"<check_id>: 未預期錯誤: {str(exc)[:200]}")\n'
+            '    checks.append(record_check("<check_id>", "收集 ...", "unknown", "未預期錯誤"))'
+        )
     hint: FixHint = {
-        "type": "add_errors_append_in_except",
+        "type": hint_type,
         "exception": exception_name or "bare except",
-        "description": "bare except / except Exception 應追加 errors 條目",
+        "description": description,
         "target": target,
         "snippet": _line_span_snippet(lines, handler),
         "required_pattern": required_pattern,
     }
+    if is_run_command:
+        hint["function"] = "run_command"
     if isinstance(lineno, int):
         hint["lineno"] = lineno
     if isinstance(end_lineno, int):
@@ -979,8 +997,15 @@ def check_script_quality(script_content: str) -> CheckResult:
                 if _enclosing_function_name(handler, parents)
                 else "collection_exception_handler"
             )
+            function_name = _enclosing_function_name(handler, parents)
             fix_hints.append(
-                _exception_fix_hint(handler, except_name, script_lines, target=target)
+                _exception_fix_hint(
+                    handler,
+                    except_name,
+                    script_lines,
+                    target=target,
+                    function_name=function_name,
+                )
             )
             break
 
