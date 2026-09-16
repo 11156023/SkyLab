@@ -996,5 +996,12 @@
   "AiJudgePanel.waitingCollectionLabel": "回収待ち",
   "AiJudgePanel.weekOptionLabel": "第 {{week}} 週 ・{{title}}",
   "AiJudgePanel.whichWeekLabel": "どの週のタスクに入れますか？",
-  "CourseTemplateEditorPage.draftRestoredMsg": "保存されていない編集内容を復元しました"
+  "CourseTemplateEditorPage.draftRestoredMsg": "保存されていない編集内容を復元しました",
+  "CourseTemplateEditorPage.autosave.idle": "編集すると下書きが自動保存されます",
+  "CourseTemplateEditorPage.autosave.pending": "変更を保存待ち",
+  "CourseTemplateEditorPage.autosave.saving": "下書きを保存中…",
+  "CourseTemplateEditorPage.autosave.saved": "下書きをサーバーに保存しました",
+  "CourseTemplateEditorPage.autosave.error": "下書きが未同期です。再試行してください。編集内容はこのタブに保持されます。",
+  "CourseTemplateEditorPage.retryAutosave": "再試行",
+  "CourseTemplateEditorPage.publishing": "公開中…"
 }

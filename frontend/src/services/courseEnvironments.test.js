@@ -21,6 +21,29 @@ beforeEach(() => {
 });
 
 describe("CourseEnvironmentsService", () => {
+  test("unfinished drafts round-trip without changing input or server identity", async () => {
+    const draft = { name: "", nodes: [{ id: "web", name: "", role: "", cpu: "", memory: "", disk: "", type: "lxc" }], edges: [] };
+    const fetchMock = vi.fn().mockResolvedValue(jsonRes({
+      id: "env-1", version_id: "v1", status: "draft",
+      draft_data: { editor: { ...draft, id: "untrusted", status: "published" } },
+    }));
+    vi.stubGlobal("fetch", fetchMock);
+    const saved = await CourseEnvironmentsService.saveDraft(null, draft);
+    expect(fetchMock.mock.calls[0][0]).toContain("/course-environments/drafts");
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body).editor).toEqual(draft);
+    expect(saved.nodes).toEqual(draft.nodes);
+    expect(saved.id).toBe("env-1");
+    expect(saved.status).toBe("draft");
+  });
+
+  test("existing drafts update their own endpoint and preserve creation retry identity", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonRes({ id: "env-1", version_id: "v1", status: "draft" }));
+    vi.stubGlobal("fetch", fetchMock);
+    await CourseEnvironmentsService.saveDraft("env-1", { name: "", nodes: [], draftRequestId: "request-1" });
+    expect(fetchMock.mock.calls[0][0]).toContain("/course-environments/env-1/draft");
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body).draft_id).toBe("request-1");
+  });
+
   test("published list uses the classroom selection endpoint", async () => {
     const fetchMock = vi.fn().mockResolvedValue(jsonRes([]));
     vi.stubGlobal("fetch", fetchMock);

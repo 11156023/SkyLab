@@ -996,5 +996,12 @@
   "AiJudgePanel.waitingCollectionLabel": "等待回收",
   "AiJudgePanel.weekOptionLabel": "第 {{week}} 週 · {{title}}",
   "AiJudgePanel.whichWeekLabel": "放到哪一週任務？",
-  "CourseTemplateEditorPage.draftRestoredMsg": "已還原上次未儲存的編輯"
+  "CourseTemplateEditorPage.draftRestoredMsg": "已還原上次未儲存的編輯",
+  "CourseTemplateEditorPage.autosave.idle": "開始編輯後將自動儲存草稿",
+  "CourseTemplateEditorPage.autosave.pending": "變更待儲存",
+  "CourseTemplateEditorPage.autosave.saving": "草稿儲存中…",
+  "CourseTemplateEditorPage.autosave.saved": "草稿已儲存至伺服器",
+  "CourseTemplateEditorPage.autosave.error": "草稿尚未同步，請重試；此分頁會保留編輯內容。",
+  "CourseTemplateEditorPage.retryAutosave": "重試",
+  "CourseTemplateEditorPage.publishing": "發布中…"
 }
