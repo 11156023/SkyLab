@@ -31,10 +31,10 @@
   @include glass-surface;
   display: grid;
   min-width: 0;
-  min-height: 210px;
+  min-height: 290px;
   padding: $spacing-24;
-  grid-template-columns: 46px minmax(0, 1fr) 22px;
-  align-items: start;
+  grid-template-rows: auto 1fr auto;
+  align-items: stretch;
   gap: $spacing-16;
   border-radius: $radius-16;
   color: var(--color-text-primary);
@@ -54,10 +54,6 @@
     outline-offset: 3px;
   }
 
-  > :last-child {
-    align-self: center;
-    color: var(--color-primary);
-  }
 }
 
 .guideDemoCard {
@@ -101,12 +97,14 @@
 .courseTitle {
   margin-top: 2px;
   font-size: $font-size-18;
-  line-height: 1.35;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
 }
 
 .courseDescription {
   display: -webkit-box;
   min-height: 42px;
+  overflow-wrap: anywhere;
   overflow: hidden;
   color: var(--color-text-secondary);
   font-size: $font-size-14;
@@ -135,13 +133,60 @@
 
 @media (max-width: $breakpoint-sm) {
   .courseCard {
-    min-height: 190px;
+    min-height: 270px;
     padding: $spacing-16;
-    grid-template-columns: 40px minmax(0, 1fr) 20px;
+
   }
 
   .courseIcon {
     width: 40px;
     height: 40px;
   }
+}
+
+.cardHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.courseStatus, .liveStatus {
+  padding: 5px 10px;
+  border-radius: $radius-pill;
+  font-size: $font-size-12;
+  background: color-mix(in srgb, var(--color-primary) 8%, transparent);
+}
+.liveStatus { background: color-mix(in srgb, var(--color-success) 10%, transparent); }
+.activeCard { border-color: color-mix(in srgb, var(--color-success) 40%, var(--color-border)); }
+
+.courseMeta, .scheduleTime {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 16px;
+  color: var(--color-text-secondary);
+  font-size: $font-size-12;
+  overflow-wrap: anywhere;
+  > span { display: inline-flex; align-items: center; gap: 5px; min-width: 0; }
+}
+.courseMeta { margin-top: 4px; }
+.scheduleTime { gap: 5px; }
+.cardFooter {
+  display: grid;
+  gap: 10px;
+  padding-top: 16px;
+  border-top: 1px solid var(--color-border);
+}
+.cardAction {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 4px;
+  color: var(--color-primary);
+  font-size: $font-size-14;
+  font-weight: $font-weight-700;
+}
+@media (prefers-reduced-motion: reduce) {
+  .courseCard { transition: none; &:hover { transform: none; } }
 }
