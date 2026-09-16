@@ -722,39 +722,6 @@ def publish_environment(
     return _serialize_version(session, environment, version)
 
 
-@router.post("/{environment_id}/versions", status_code=201)
-def create_environment_version(
-    environment_id: uuid.UUID,
-    session: SessionDep,
-    current_user: InstructorUser,
-) -> dict[str, Any]:
-    environment = _get_environment(session, current_user, environment_id)
-    latest = _latest(session, environment)
-    if latest.status == CourseEnvironmentVersionStatus.draft:
-        raise BadRequestError(t("course_env.draft_exists"))
-    version = CourseEnvironmentVersion(
-        environment_id=environment.id,
-        version=latest.version + 1,
-    )
-    session.add(version)
-    session.flush()
-    for node in _nodes(session, latest.id):
-        values = node.model_dump(
-            exclude={"id", "version_id"},
-        )
-        session.add(CourseEnvironmentNode(version_id=version.id, **values))
-    for edge in _edges(session, latest.id):
-        values = edge.model_dump(exclude={"id", "version_id"})
-        session.add(CourseEnvironmentEdge(version_id=version.id, **values))
-    for publication in _publications(session, latest.id):
-        values = publication.model_dump(exclude={"id", "version_id"})
-        session.add(CourseEnvironmentPublication(version_id=version.id, **values))
-    environment.updated_at = get_datetime_utc()
-    session.add(environment)
-    session.commit()
-    return _serialize_version(session, environment, version)
-
-
 def _environment_references(
     session: SessionDep, environment_id: uuid.UUID
 ) -> list[str]:

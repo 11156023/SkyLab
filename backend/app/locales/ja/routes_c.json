@@ -22,7 +22,6 @@
   "course_env.version_not_found": "コース環境のバージョンが見つかりません",
   "course_env.published_immutable": "公開済みのコースバージョンは変更できません。新しいバージョンを作成してください",
   "course_env.only_draft_publishable": "下書きバージョンのみ公開できます",
-  "course_env.draft_exists": "編集可能な下書きバージョンが既に存在します",
   "course_env.delete_blocked": "削除できません：{reasons}。新規起動を止めるには「廃止」をご利用ください。",
   "course_env.reason_classes_using": "{count} 件のクラスが使用中",
   "course_env.reason_sessions_using": "{count} 件のクイック練習記録が参照中",

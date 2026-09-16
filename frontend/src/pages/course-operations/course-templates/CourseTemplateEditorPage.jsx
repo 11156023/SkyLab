@@ -704,20 +704,9 @@ export default function CourseTemplateEditorPage() {
     } catch (reason) { toast.error(reason?.message ?? t("CourseTemplateEditorPage.publishFailed")); }
     finally { publishingRef.current = false; setSaving(false); }
   }
-  async function newVersion() {
-    setSaving(true);
-    try {
-      const version = await CourseEnvironmentsService.createVersion(template.id);
-      templateRef.current = version;
-      setTemplate(version);
-      setSaveState("saved");
-    }
-    catch (reason) { toast.error(reason?.message ?? t("CourseTemplateEditorPage.newVersionFailed")); }
-    finally { setSaving(false); }
-  }
   if (loading) return <LoadingState fullPage text={t("CourseTemplateEditorPage.loadingTemplateText")} />;
   return <div className={`${styles.page} ${tab === "machines" ? styles.editorPageLocked : ""} ${closing ? styles.animSlideOutRight : styles.animSlideInRight}`}>
-    <PageHeader title={isNew ? t("CourseTemplateEditorPage.createTemplateTitle") : template.name} subtitle={isNew ? undefined : `v${template.version} · ${template.updatedAt}`}><div className={styles.pageActions}>{template.status !== "draft" && <button type="button" className={styles.btnPrimary} disabled={saving} onClick={newVersion}><MIcon name="content_copy" size={16} />{t("CourseTemplateEditorPage.createNewVersionBtn")}</button>}<button type="button" className={`${styles.btnSecondary} ${styles.backBtn}`} onClick={() => leaveTo(returnTo ?? "/course-template-management")}><MIcon name="arrow_back" size={18} />{t("CourseTemplateEditorPage.backBtn")}</button></div></PageHeader>
+    <PageHeader title={isNew ? t("CourseTemplateEditorPage.createTemplateTitle") : template.name} subtitle={isNew ? undefined : `v${template.version} · ${template.updatedAt}`}><div className={styles.pageActions}><button type="button" className={`${styles.btnSecondary} ${styles.backBtn}`} onClick={() => leaveTo(returnTo ?? "/course-template-management")}><MIcon name="arrow_back" size={18} />{t("CourseTemplateEditorPage.backBtn")}</button></div></PageHeader>
     {template.status === "draft" && <p className={styles.persistentFeedback} role="status" aria-live="polite">
       <MIcon name={saveState === "error" ? "cloud_off" : saveState === "saved" ? "cloud_done" : "cloud_sync"} size={17} />
       <span>{t(`CourseTemplateEditorPage.autosave.${saveState}`)}{saveError && ` ${saveError}`}</span>

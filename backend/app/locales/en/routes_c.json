@@ -22,7 +22,6 @@
   "course_env.version_not_found": "Course environment version not found",
   "course_env.published_immutable": "A published course version cannot be modified; please create a new version",
   "course_env.only_draft_publishable": "Only a draft version can be published",
-  "course_env.draft_exists": "There's already an editable draft version",
   "course_env.delete_blocked": "Cannot delete: {reasons}. Use \"Retire\" instead to stop new launches.",
   "course_env.reason_classes_using": "in use by {count} class(es)",
   "course_env.reason_sessions_using": "referenced by {count} quick-practice record(s)",

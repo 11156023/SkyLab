@@ -22,7 +22,6 @@
   "course_env.version_not_found": "Course environment version not found",
   "course_env.published_immutable": "已發布的課程版本不可修改，請建立新版本",
   "course_env.only_draft_publishable": "只有草稿版本可以發布",
-  "course_env.draft_exists": "目前已有可編輯的草稿版本",
   "course_env.delete_blocked": "無法刪除：{reasons}。請改用「下架」停止新的啟動。",
   "course_env.reason_classes_using": "{count} 個班級正在使用",
   "course_env.reason_sessions_using": "{count} 筆快速練習紀錄引用",

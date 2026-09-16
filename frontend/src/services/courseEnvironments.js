@@ -142,7 +142,4 @@ export const CourseEnvironmentsService = {
   async remove(environmentId) {
     return apiDelete(`/api/v1/course-environments/${environmentId}`);
   },
-  async createVersion(environmentId) {
-    return normalizeCourseEnvironment(await apiPost(`/api/v1/course-environments/${environmentId}/versions`, {}));
-  },
 };
