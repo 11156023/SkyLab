@@ -4,6 +4,7 @@ import { useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import styles from "./ResourceMgmtPage.module.scss";
 import MIcon from "../../../components/MIcon";
+import MachineKindBadge from "../../../components/MachineKindBadge/MachineKindBadge";
 import PowerMenu from "../../../components/PowerMenu/PowerMenu";
 import TemplateConvertDialog from "../../../components/TemplateConvertDialog/TemplateConvertDialog";
 import useDialogPresence from "../../../hooks/useDialogPresence";
@@ -241,7 +242,7 @@ function EnvironmentGroupRows({ group, onUpdated, onRefresh }) {
             onClick={() => setExpanded((value) => !value)}
           >
             <MIcon name={expanded ? "expand_more" : "chevron_right"} size={20} />
-            <span><strong>{group.title}</strong><small>{t("ResourceMgmtPage.machineCountLabel", { count: group.machines.length })}</small></span>
+            <span><strong className={styles.groupTitle}><MachineKindBadge kind={group.kind === "quick_practice" ? "quick_practice" : "teaching_class"} classRelation={group.classRelation} size="sm" />{group.title}</strong><small>{t("ResourceMgmtPage.machineCountLabel", { count: group.machines.length })}</small></span>
           </button>
         </td>
         <td className={styles.td}>
@@ -446,6 +447,17 @@ function ResourceRow({ resource, onUpdated, onDeleted, selected = false, onToggl
               <div className={styles.nameSub}>
                 {type.label}
                 {resource.vmid > 0 && t("ResourceMgmtPage.vmidSuffix", { vmid: resource.vmid })}
+              </div>
+              {/* 管理員：每台都標來源與擁有者 */}
+              <div className={styles.nameKind}>
+                <MachineKindBadge
+                  kind={resource.machine_kind}
+                  classRelation={resource.class_relation}
+                  ownerName={resource.owner_name}
+                  teachingClassName={resource.teaching_class_name}
+                  showOwner
+                  size="sm"
+                />
               </div>
             </div>
           </div>
