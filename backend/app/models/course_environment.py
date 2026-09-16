@@ -138,6 +138,10 @@ class CourseEnvironmentVersion(SQLModel, table=True):
         ),
     )
     configuration_hash: str | None = Field(default=None, max_length=64)
+    # Unfinished editor content is kept apart from deployable configuration.
+    draft_data: str | None = Field(
+        default=None, sa_column=Column(sa.Text, nullable=True)
+    )
     created_at: datetime = Field(
         default_factory=get_datetime_utc,
         sa_column=Column(DateTime(timezone=True), nullable=False),

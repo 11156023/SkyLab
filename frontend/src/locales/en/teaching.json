@@ -996,5 +996,12 @@
   "AiJudgePanel.waitingCollectionLabel": "Awaiting collection",
   "AiJudgePanel.weekOptionLabel": "Week {{week}} · {{title}}",
   "AiJudgePanel.whichWeekLabel": "Which week's task should this go into?",
-  "CourseTemplateEditorPage.draftRestoredMsg": "Restored your unsaved edits"
+  "CourseTemplateEditorPage.draftRestoredMsg": "Restored your unsaved edits",
+  "CourseTemplateEditorPage.autosave.idle": "Drafts save automatically when you edit",
+  "CourseTemplateEditorPage.autosave.pending": "Changes waiting to save",
+  "CourseTemplateEditorPage.autosave.saving": "Saving draft?",
+  "CourseTemplateEditorPage.autosave.saved": "Draft saved to server",
+  "CourseTemplateEditorPage.autosave.error": "Draft not synced. Retry; edits are retained in this tab.",
+  "CourseTemplateEditorPage.retryAutosave": "Retry",
+  "CourseTemplateEditorPage.publishing": "Publishing?"
 }

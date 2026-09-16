@@ -1,6 +1,11 @@
 import { apiDelete, apiGet, apiPost, apiPut } from "./api";
 import { formatDate } from "../utils/formatDate";
 
+const EDITOR_FIELDS = ["name", "description", "usageScope", "audience", "audienceClassIds", "maxConcurrentSessions", "nodes", "edges", "publications"];
+function editorFields(item) {
+  return Object.fromEntries(EDITOR_FIELDS.filter((key) => key in item).map((key) => [key, item[key]]));
+}
+
 export function courseNodeHasUsableSource(node) {
   return node?.sourceType === "custom"
     ? Boolean(node.customImageRef)
@@ -57,6 +62,7 @@ export function normalizeCourseEnvironment(item) {
       zoneId: publication.zone_id ?? "",
       enableHttps: publication.enable_https !== false,
     })),
+    ...(item.status === "draft" && item.draft_data?.editor ? editorFields(item.draft_data.editor) : {}),
   };
 }
 
@@ -105,6 +111,12 @@ export function environmentPayload(item) {
 }
 
 export const CourseEnvironmentsService = {
+  async saveDraft(environmentId, item) {
+    const body = { configuration: environmentPayload(item), editor: editorFields(item), draft_id: item.draftRequestId ?? null };
+    return normalizeCourseEnvironment(await (environmentId
+      ? apiPut(`/api/v1/course-environments/${environmentId}/draft`, body)
+      : apiPost("/api/v1/course-environments/drafts", body)));
+  },
   async list() {
     return (await apiGet("/api/v1/course-environments")).map(normalizeCourseEnvironment);
   },
