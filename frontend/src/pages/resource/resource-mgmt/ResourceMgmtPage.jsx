@@ -169,7 +169,16 @@ function EnvironmentMachineRow({ machine, onUpdated }) {
         <div className={styles.envSub}>{machine.resource ? t("ResourceMgmtPage.envConnected") : t("ResourceMgmtPage.envProvisioning")}</div>
       </td>
       <td className={styles.td}><StatusBadge status={machine.status} /></td>
-      <td className={styles.td}><span className={styles.mono}>{machine.ip}</span></td>
+      <td className={styles.td}>
+        <span className={styles.mono}>{machine.ip}</span>
+        {machine.publicUrl && (
+          <div className={styles.publicUrlList}>
+            <a className={styles.publicUrlLink} href={machine.publicUrl} target="_blank" rel="noreferrer" title={machine.publicUrl}>
+              <MIcon name="open_in_new" size={13} />{machine.publicUrl.replace(/^https?:\/\//, "")}
+            </a>
+          </div>
+        )}
+      </td>
       <td className={styles.td}><span className={styles.noAction}>{t("ResourceMgmtPage.unifiedManagement")}</span></td>
       <td className={styles.td}>{machine.node}</td>
       <td className={styles.td}><div className={styles.actions}>
@@ -453,9 +462,18 @@ function ResourceRow({ resource, onUpdated, onDeleted, selected = false, onToggl
           <StatusBadge status={resource.status} />
         </td>
 
-        {/* IP */}
+        {/* IP；底下列出反向代理發布的對外網址，管理員不必進詳情頁就能點 */}
         <td className={styles.td}>
           <span className={styles.mono}>{resource.ip_address ?? "N/A"}</span>
+          {(resource.public_urls ?? []).length > 0 && (
+            <div className={styles.publicUrlList}>
+              {resource.public_urls.map((url) => (
+                <a key={url} className={styles.publicUrlLink} href={url} target="_blank" rel="noreferrer" title={url}>
+                  <MIcon name="open_in_new" size={13} />{url.replace(/^https?:\/\//, "")}
+                </a>
+              ))}
+            </div>
+          )}
         </td>
 
         {/* 到期日 */}
