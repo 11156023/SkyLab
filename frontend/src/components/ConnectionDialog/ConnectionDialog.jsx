@@ -556,7 +556,12 @@ export default function ConnectionDialog({
             onChange={(e) => onPick(e.target.value)}
             disabled={nodesLoading}
           >
-            {options.map((n) => <option key={n.key} value={n.key}>{n.name}</option>)}
+            {/* 名稱（含擁有者）後面補機器來源，同名機器與老師開放的機器一眼可辨 */}
+            {options.map((n) => (
+              <option key={n.key} value={n.key}>
+                {n.kindLabelKey ? `${n.name} · ${t(n.kindLabelKey)}` : n.name}
+              </option>
+            ))}
           </select>
         )}
         {nodesLoading && <span className={styles.fieldHint}>{t("ConnectionDialog.loadingNodes")}</span>}
