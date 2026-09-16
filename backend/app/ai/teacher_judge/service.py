@@ -1058,7 +1058,17 @@ def _proposal_unavailable_reply(
     """Give the teacher a short, actionable reason why no proposal was created."""
     incomplete = [item for item in normalized_items if item.detectable == "partial"]
     if incomplete:
-        return " ".join(_teacher_missing_gap_reply(item) for item in incomplete)
+        seen: set[str] = set()
+        deduped_incomplete: list[TeacherJudgeRubricItem] = []
+        for item in reversed(incomplete):
+            key = _normalized_title_key(item.title)
+            if key and key in seen:
+                continue
+            if key:
+                seen.add(key)
+            deduped_incomplete.append(item)
+        deduped_incomplete.reverse()
+        return " ".join(_teacher_missing_gap_reply(item) for item in deduped_incomplete)
 
     invalid_auto_items = _invalid_auto_item_titles(normalized_items, raw_items)
     if invalid_auto_items:
@@ -1105,15 +1115,110 @@ def _proposal_unavailable_reply(
     return "我這次沒有成功整理出可套用的提案，請再試一次。"
 
 
+def _dedupe_rejected_ops_keep_latest(
+    rejected_ops: list[tuple[TeacherJudgeRubricItem, dict[str, Any], str]],
+) -> list[tuple[TeacherJudgeRubricItem, dict[str, Any], str]]:
+    """Deduplicate retry rejections by normalized title, keeping the latest.
+
+    The model is instructed to retry a failed tool call once, so the same
+    requirement can appear twice in ``rejected_ops`` with different minted
+    item ids. Without dedup the teacher sees one error line and one reply
+    sentence per retry. Keep the last occurrence and preserve its order.
+    """
+    latest_by_key: dict[str, tuple[TeacherJudgeRubricItem, dict[str, Any], str]] = {}
+    order: list[str] = []
+    for entry in rejected_ops:
+        key = _normalized_title_key(entry[0].title)
+        if not key:
+            # Untitled entries cannot be matched; keep them as-is with a unique key.
+            key = f"__untitled__{len(order)}:{id(entry)}"
+        if key not in latest_by_key:
+            order.append(key)
+        else:
+            # Move the key to the end so order reflects the latest retry.
+            order.remove(key)
+            order.append(key)
+        latest_by_key[key] = entry
+    return [latest_by_key[key] for key in order]
+
+
+def _dedupe_tool_outcomes_keep_latest(
+    tool_outcomes: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Collapse duplicate tool outcome lines, keeping the latest per title.
+
+    Only ``rejected``/``duplicate`` entries are collapsed; ``staged``/``read``
+    entries keep their original order because they represent distinct outcomes.
+    """
+    latest_index_by_key: dict[str, int] = {}
+    result: list[dict[str, Any]] = []
+    for entry in tool_outcomes:
+        if not isinstance(entry, dict):
+            result.append(entry)
+            continue
+        status = str(entry.get("status") or "")
+        if status not in {"rejected", "duplicate"}:
+            result.append(entry)
+            continue
+        key = _normalized_title_key(entry.get("title"))
+        if not key:
+            result.append(entry)
+            continue
+        key = f"{status}:{key}"
+        if key in latest_index_by_key:
+            result[latest_index_by_key[key]] = entry
+        else:
+            latest_index_by_key[key] = len(result)
+            result.append(entry)
+    return result
+
+
+def _title_covered_by_reply(reply_text: str, title: str) -> bool:
+    """Check whether the model reply already explains this rejected title.
+
+    Exact title match is the common case. Retry/paraphrase cases such as
+    「取得 main.log 檔案內容」 vs 「要查看 main.log 的部分」 share only a
+    distinctive token (``main.log``), so also match on long tokens or on at
+    least two short tokens to avoid appending a duplicate server note.
+    """
+    reply_key = _normalized_title_key(reply_text)
+    title_key = _normalized_title_key(title)
+    if not title_key:
+        return False
+    if title_key and title_key in reply_key:
+        return True
+    title_tokens = [
+        token
+        for token in re.split(r"[\s\-_/：:「」『』（）()，。、,.;!?]+", title_key)
+        if token
+    ]
+    if not title_tokens:
+        return False
+    if any(len(token) >= 4 and token in reply_key for token in title_tokens):
+        return True
+    matched_short = sum(
+        1 for token in title_tokens if len(token) >= 2 and token in reply_key
+    )
+    return matched_short >= 2
+
+
 def _partial_failure_note(
     rejected_ops: list[tuple[TeacherJudgeRubricItem, dict[str, Any], str]],
     staged_titles: set[str],
     template_commands: list[TeacherJudgeTemplateCommand] | None,
+    reply_text: str = "",
 ) -> str:
     """Summarize unresolved rejections when other proposals staged successfully."""
+    deduped = _dedupe_rejected_ops_keep_latest(rejected_ops)
     unresolved = [
-        (item, raw) for item, raw, _reason in rejected_ops if item.title not in staged_titles
+        (item, raw) for item, raw, _reason in deduped if item.title not in staged_titles
     ]
+    if reply_text.strip():
+        unresolved = [
+            (item, raw)
+            for item, raw in unresolved
+            if not _title_covered_by_reply(reply_text, item.title)
+        ]
     if not unresolved:
         return ""
     detail = _proposal_unavailable_reply(
@@ -2070,11 +2175,16 @@ async def chat_with_rubric(
 
     # Partial success: when some proposals staged but others were rejected,
     # the teacher must see why; the model's own reply often claims full success.
+    # Deduplicate retries (keep latest) and skip titles the model reply already
+    # explains, so one retry does not produce one extra error line + one extra
+    # reply sentence.
     if not is_refine and updated_items is not None and rejected_ops:
+        rejected_ops = _dedupe_rejected_ops_keep_latest(rejected_ops)
         failure_note = _partial_failure_note(
             rejected_ops,
             {entry["item"].title for entry in staged_ops},
             template_commands,
+            reply_text,
         )
         if failure_note:
             reply_text = f"{reply_text}\n{failure_note}"
@@ -2095,6 +2205,7 @@ async def chat_with_rubric(
             len(tool_outcomes),
         )
         if rejected_ops:
+            rejected_ops = _dedupe_rejected_ops_keep_latest(rejected_ops)
             logger.warning(
                 "Teacher Judge rejected %s proposal candidates after validation: %s",
                 len(rejected_ops),
@@ -2124,7 +2235,7 @@ async def chat_with_rubric(
             proposal=updated_items,
         ),
         proposal_status=proposal_status,
-        tool_calls=tool_outcomes or None,
+        tool_calls=_dedupe_tool_outcomes_keep_latest(tool_outcomes) or None,
     )
 
 

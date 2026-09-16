@@ -875,7 +875,16 @@ export function proposalToolCallLines(message) {
       });
     }
   });
-  return lines;
+  // 去重保留最新：同一文字只保留最後一次（重試只顯示一次錯誤）。
+  const seen = new Set();
+  const dedupedReversed = [];
+  for (let i = lines.length - 1; i >= 0; i -= 1) {
+    const line = lines[i];
+    if (seen.has(line.text)) continue;
+    seen.add(line.text);
+    dedupedReversed.push(line);
+  }
+  return dedupedReversed.reverse();
 }
 
 export function ChatPanel({
@@ -961,8 +970,8 @@ export function ChatPanel({
                     if (!toolLines.length) return null;
                     return (
                       <ul className={styles.chatToolCallList} aria-label="AI 工具執行結果">
-                        {toolLines.map((line) => (
-                          <li key={line.text} className={styles.chatToolCallItem}>
+                        {toolLines.map((line, idx) => (
+                          <li key={`${line.text}-${idx}`} className={styles.chatToolCallItem}>
                             <MIcon name={line.icon} size={14} />
                             <span>{line.text}</span>
                           </li>
