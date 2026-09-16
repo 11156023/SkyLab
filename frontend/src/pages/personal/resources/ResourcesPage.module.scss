@@ -243,6 +243,8 @@
 .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: $font-size-12; }
 .publicUrlLink { display: inline-flex; align-items: center; gap: 3px; margin-top: 3px; max-width: 100%; overflow: hidden; color: var(--color-primary); font-size: $font-size-12; text-decoration: none; text-overflow: ellipsis; white-space: nowrap; }
 .publicUrlLink:hover { text-decoration: underline; }
+/* 一台機器可能有多個對外網址，直向排在 IP 底下 */
+.publicUrlList { display: flex; flex-direction: column; align-items: flex-start; }
 /* 動作欄寬度固定，按鈕不換行也不壓縮，避免內容多寡影響版面。 */
 .rowActions { display: flex; align-items: center; gap: $spacing-8; flex-wrap: nowrap; > * { flex-shrink: 0; } }
 .pendingRow { background: color-mix(in srgb, var(--color-info) 4%, var(--color-surface)); }

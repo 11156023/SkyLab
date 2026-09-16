@@ -2,6 +2,7 @@ import logging
 import math
 import time
 import uuid
+from collections.abc import Iterable
 from datetime import UTC, datetime, timedelta
 from typing import Any, Literal
 
@@ -16,6 +17,7 @@ from app.repositories import audit_log as audit_log_repo
 from app.repositories import batch_provision as batch_provision_repo
 from app.repositories import resource as resource_repo
 from app.repositories import resource_share as share_repo
+from app.repositories import reverse_proxy as rp_repo
 from app.repositories import spec_change_request as spec_request_repo
 from app.repositories import vm_request as vm_request_repo
 from app.schemas import ResourcePublic
@@ -161,12 +163,50 @@ def _is_practice_resource(
     )
 
 
+def _public_url(rule) -> str:
+    scheme = "https" if rule.enable_https else "http"
+    return f"{scheme}://{rule.domain}"
+
+
+def public_urls_by_vmid(
+    session: Session, vmids: Iterable[int | None]
+) -> dict[int, list[str]]:
+    """每台機器的對外網址（反向代理規則組出的 URL）。
+
+    清單頁一次查完所有機器，沒有網址的機器不會出現在結果裡。
+    只讀 DB 的反向代理紀錄，不打 Proxmox；查不到（DB 出錯）時回空，
+    不讓「我的資源」整頁掛掉。
+    """
+    wanted = sorted({int(vmid) for vmid in vmids if vmid is not None})
+    if not wanted:
+        return {}
+    try:
+        rules = rp_repo.list_rules_by_vmids(session, wanted)
+    except Exception as exc:
+        logger.warning(
+            "Failed to load reverse proxy rules for %s vmid(s): %s", len(wanted), exc
+        )
+        try:
+            session.rollback()
+        except Exception:
+            pass
+        return {}
+    urls: dict[int, list[str]] = {}
+    for rule in sorted(rules, key=lambda r: (r.vmid, r.internal_port, r.domain)):
+        urls.setdefault(rule.vmid, []).append(_public_url(rule))
+    return urls
+
+
 def _build_resource_public(
     resource: dict, db_resource, node: str, vm_type: str,
     session: Session | None = None,
     known_practice_ids: set[uuid.UUID] | None = None,
+    public_urls: dict[int, list[str]] | None = None,
 ) -> ResourcePublic:
     vmid = resource.get("vmid")
+    # 清單頁會先把所有機器的對外網址批次查好傳進來；單筆查詢就現查這一台。
+    if public_urls is None and session is not None and vmid is not None:
+        public_urls = public_urls_by_vmid(session, [vmid])
     class_governed = bool(
         db_resource and db_resource.allocation_scope == "teaching_class"
     )
@@ -243,6 +283,7 @@ def _build_resource_public(
             db_resource, is_practice=is_practice, request_kind=source_kind
         ),
         teaching_class_name=teaching_class_name,
+        public_urls=list((public_urls or {}).get(vmid, [])) if vmid is not None else [],
     )
 
 
@@ -326,6 +367,10 @@ def list_all(
     try:
         resources = proxmox_service.list_all_resources()
         known_practice_ids = practice_request_ids(session)
+        public_urls = public_urls_by_vmid(
+            session,
+            [r.get("vmid") for r in resources if r.get("template") != 1],
+        )
         result = []
         owner_ids: dict[int, uuid.UUID] = {}
         for r in resources:
@@ -339,7 +384,8 @@ def list_all(
             )
             result.append(
                 _build_resource_public(
-                    r, db_resource, vm_node, vm_type, session, known_practice_ids
+                    r, db_resource, vm_node, vm_type, session, known_practice_ids,
+                    public_urls=public_urls,
                 )
             )
             if db_resource is not None:
@@ -500,6 +546,9 @@ def list_by_user(
         )
         if user_resources or shared_rows or taught_rows:
             known_practice_ids = practice_request_ids(session)
+            public_urls = public_urls_by_vmid(
+                session, [*owned_vmids, *shared_rows, *taught_rows]
+            )
             try:
                 for r in proxmox_service.list_all_resources():
                     if r.get("template") == 1:
@@ -519,6 +568,7 @@ def list_by_user(
                         r.get("type", ""),
                         session,
                         known_practice_ids,
+                        public_urls=public_urls,
                     )
                     if vmid in shared_rows:
                         _mark_shared(public, db_row, session)

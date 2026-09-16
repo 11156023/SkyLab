@@ -1002,6 +1002,7 @@
   "LifecycleCard.cancelFailed": "撤銷失敗",
   "FirewallCard.title": "防火牆",
   "FirewallCard.desc": "這台機器的連線關係與 Proxmox 防火牆規則；由連線建立的規則會上鎖",
+  "FirewallCard.publicUrls": "對外網址",
   "FirewallCard.enabled": "防火牆已啟用",
   "FirewallCard.disabled": "防火牆未啟用",
   "FirewallCard.policyHint": "預設策略：IN 為進站、OUT 為出站",

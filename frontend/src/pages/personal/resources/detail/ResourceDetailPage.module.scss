@@ -185,6 +185,22 @@
   }
 }
 
+/* 防火牆卡片頂端的對外網址（反向代理），唯讀，改動走「新增規則 › 連線」 */
+.publicUrlBlock {
+  @include flex-column;
+  gap: $spacing-8;
+  margin-bottom: $spacing-16;
+}
+
+.publicUrlLabel {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--color-text-secondary);
+  font-size: $font-size-12;
+  font-weight: $font-weight-500;
+}
+
 .noteBox {
   @include flex-column;
   gap: $spacing-4;

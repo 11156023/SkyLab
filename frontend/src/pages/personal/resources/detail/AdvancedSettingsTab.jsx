@@ -47,7 +47,12 @@ export default function AdvancedSettingsTab({ vmid, backTo }) {
     <div className={styles.tabStack}>
       <LifecycleCard vmid={vmid} resource={resource} canManage={canManage} onChanged={loadResource} />
 
-      <FirewallCard vmid={vmid} canManage={canManage} />
+      <FirewallCard
+        vmid={vmid}
+        canManage={canManage}
+        publicUrls={resource.public_urls ?? []}
+        onChanged={loadResource}
+      />
 
       {!isShared && <BootOptionsCard vmid={vmid} canManage={canManage} />}
 

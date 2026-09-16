@@ -258,6 +258,10 @@ class ResourcePublic(BaseModel):
     teaching_class_name: str | None = Field(
         default=None, description="班級機所屬班級名稱"
     )
+    public_urls: list[str] = Field(
+        default_factory=list,
+        description="這台機器的對外網址（反向代理規則組出的 URL），可能有多個",
+    )
 
 
 class SessionStatusResponse(BaseModel):

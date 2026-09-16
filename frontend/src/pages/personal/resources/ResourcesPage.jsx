@@ -272,7 +272,19 @@ function ResourceRow({ resource, onUpdated, onDeleted }) {
       </td>
       <td className={styles.td}><div className={styles.envPrimary}>{resource.environment_type || "Custom"}</div><div className={styles.envSub}>{resource.os_info || "—"}</div></td>
       <td className={styles.td}><StatusBadge status={resource.status} /></td>
-      <td className={styles.td}><span className={styles.mono}>{resource.ip_address ?? "N/A"}</span></td>
+      <td className={styles.td}>
+        <span className={styles.mono}>{resource.ip_address ?? "N/A"}</span>
+        {/* 反向代理發布的對外網址：和環境機器列一樣直接可點，不必進詳情頁 */}
+        {(resource.public_urls ?? []).length > 0 && (
+          <div className={styles.publicUrlList}>
+            {resource.public_urls.map((url) => (
+              <a key={url} className={styles.publicUrlLink} href={url} target="_blank" rel="noreferrer" title={url}>
+                <MIcon name="open_in_new" size={13} />{url.replace(/^https?:\/\//, "")}
+              </a>
+            ))}
+          </div>
+        )}
+      </td>
       <td className={styles.td}>{resource.expiry_date ? formatDate(resource.expiry_date) : <span className={styles.cardPeriodUnlimited}>{t("ResourceRow.unlimited")}</span>}</td>
       <td className={styles.td}>{resource.node ?? "—"}</td>
       <td className={styles.td}>

@@ -1002,6 +1002,7 @@
   "LifecycleCard.cancelFailed": "取り下げに失敗しました",
   "FirewallCard.title": "ファイアウォール",
   "FirewallCard.desc": "このマシンの接続関係と Proxmox のファイアウォール規則。接続が作成した規則はロックされます",
+  "FirewallCard.publicUrls": "公開 URL",
   "FirewallCard.enabled": "ファイアウォール有効",
   "FirewallCard.disabled": "ファイアウォール無効",
   "FirewallCard.policyHint": "既定ポリシー：IN は受信、OUT は送信",

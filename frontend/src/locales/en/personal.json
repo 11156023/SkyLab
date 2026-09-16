@@ -1004,6 +1004,7 @@
   "LifecycleCard.cancelFailed": "Failed to withdraw the request",
   "FirewallCard.title": "Firewall",
   "FirewallCard.desc": "This machine's connections and its Proxmox firewall rules; rules created by connections are locked",
+  "FirewallCard.publicUrls": "Public URLs",
   "FirewallCard.enabled": "Firewall on",
   "FirewallCard.disabled": "Firewall off",
   "FirewallCard.policyHint": "Default policy: IN for inbound, OUT for outbound",
