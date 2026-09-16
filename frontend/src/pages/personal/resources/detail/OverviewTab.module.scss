@@ -348,6 +348,34 @@
   @extend %mono;
 }
 
+/* 對外網址：身分卡上是可點的 chip，連線卡裡是一列網址＋複製 */
+.chipLink {
+  color: var(--color-primary);
+  text-decoration: none;
+}
+
+.urlItem {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: $spacing-8;
+  max-width: 100%;
+}
+
+.urlLink {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  color: var(--color-primary);
+  text-decoration: none;
+  overflow-wrap: anywhere;
+
+  &:hover {
+    text-decoration: underline;
+  }
+}
+
 .muted {
   font-weight: $font-weight-400;
   color: var(--color-text-muted);

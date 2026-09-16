@@ -885,6 +885,7 @@
   "OverviewTab.nodeLabel": "節點",
   "OverviewTab.ipLabel": "IP 位址",
   "OverviewTab.noIp": "尚未取得 IP",
+  "OverviewTab.publicUrlsLabel": "對外網址",
   "OverviewTab.copyIp": "複製 IP 位址",
   "OverviewTab.coresUnit": "核心",
   "OverviewTab.allocated": "已配置",

@@ -885,6 +885,7 @@
   "OverviewTab.nodeLabel": "Node",
   "OverviewTab.ipLabel": "IP Address",
   "OverviewTab.noIp": "No IP address yet",
+  "OverviewTab.publicUrlsLabel": "Public URLs",
   "OverviewTab.copyIp": "Copy IP address",
   "OverviewTab.coresUnit": "cores",
   "OverviewTab.allocated": "Allocated",

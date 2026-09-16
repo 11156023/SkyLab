@@ -885,6 +885,7 @@
   "OverviewTab.nodeLabel": "ノード",
   "OverviewTab.ipLabel": "IPアドレス",
   "OverviewTab.noIp": "IPアドレスは未取得",
+  "OverviewTab.publicUrlsLabel": "公開 URL",
   "OverviewTab.copyIp": "IPアドレスをコピー",
   "OverviewTab.coresUnit": "コア",
   "OverviewTab.allocated": "割り当て済み",
