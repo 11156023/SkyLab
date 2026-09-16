@@ -30,7 +30,7 @@ export default function IntentPicker({ value, onChange, locked = false }) {
 
   return (
     <div className={styles.field} data-guide="connection-dialog-endpoints">
-      <span className={styles.fieldLabel}>{t("ConnectionDialog.intentPrompt")}</span>
+      {/* 視覺上不放「你要做什麼？」標題，卡片自己會說話；提示留在 aria-label */}
       <div className={styles.intentGrid} role="group" aria-label={t("ConnectionDialog.intentPrompt")}>
         {INTENT_ORDER.map((intent) => {
           const meta = INTENT_META[intent];
