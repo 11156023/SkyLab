@@ -16,7 +16,6 @@ from app.schemas import (
     AIAPIRequestReview,
     AIAPIRequestsPublic,
     Message,
-    UnifiedUsageStatsResponse,
     UsageRecordsPublic,
     UsageStatsResponse,
 )
@@ -119,20 +118,20 @@ def get_my_proxy_usage(
     )
 
 
-@router.get("/usage/my", response_model=UnifiedUsageStatsResponse)
-def get_my_unified_usage(
+@router.get("/usage/my", response_model=UsageStatsResponse)
+def get_my_usage(
     session: SessionDep,
     current_user: CurrentUser,
     start_date: datetime | None = None,
     end_date: datetime | None = None,
 ) -> Any:
-    """統一 API 用量統計（整合 AI 模型路由與 AI 系統路由）"""
+    """申請金鑰的 API 用量統計；不包含平台 Template 功能用量。"""
     if not end_date:
         end_date = datetime.now(timezone.utc)
     if not start_date:
         start_date = end_date - timedelta(days=30)
 
-    return ai_gateway_service.get_user_unified_usage_stats(
+    return ai_gateway_service.get_user_usage_stats(
         session=session,
         user_id=current_user.id,
         start_date=start_date,
@@ -149,7 +148,7 @@ def get_my_usage_records(
     skip: int = Query(default=0, ge=0),
     limit: int = Query(default=50, ge=1, le=200),
 ) -> Any:
-    """統一細項呼叫紀錄（依時間新→舊排序）"""
+    """申請金鑰的逐筆 API 呼叫紀錄（依時間新→舊排序）。"""
     if not end_date:
         end_date = datetime.now(timezone.utc)
     if not start_date:
