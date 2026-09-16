@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { buildFlow, isInternetEdge } from "./buildFlow";
+import { buildFlow, isOutboundEdge } from "./buildFlow";
 
 /* 三台機器：一條對外開放、一條對外連線、一條內部互通 */
 const topology = {
@@ -15,14 +15,22 @@ const topology = {
   ],
 };
 
-describe("isInternetEdge", () => {
-  it("任一端是網際網路就算上網線", () => {
-    expect(isInternetEdge({ source_vmid: null, target_vmid: 101 })).toBe(true);
-    expect(isInternetEdge({ source_vmid: 101, target_vmid: null })).toBe(true);
+describe("isOutboundEdge", () => {
+  it("機器連出去到網際網路才是上網線", () => {
+    expect(isOutboundEdge({ source_vmid: 101, target_vmid: null })).toBe(true);
+  });
+
+  it("網際網路連進機器是對外開放，不是上網線", () => {
+    expect(isOutboundEdge({ source_vmid: null, target_vmid: 101 })).toBe(false);
   });
 
   it("兩台機器之間的線不是上網線", () => {
-    expect(isInternetEdge({ source_vmid: 101, target_vmid: 102 })).toBe(false);
+    expect(isOutboundEdge({ source_vmid: 101, target_vmid: 102 })).toBe(false);
+  });
+
+  it("欄位缺漏時不會誤判成上網線", () => {
+    expect(isOutboundEdge({})).toBe(false);
+    expect(isOutboundEdge(null)).toBe(false);
   });
 });
 
@@ -32,16 +40,16 @@ describe("buildFlow 上網線開關", () => {
     expect(edges.map((e) => e.hidden)).toEqual([false, false, false]);
   });
 
-  it("關掉時只藏上網線，內部互通照畫", () => {
+  it("關掉時只藏出站線，對外開放與內部互通照畫", () => {
     const { edges } = buildFlow(topology, { showInternet: false });
-    expect(edges.map((e) => e.hidden)).toEqual([true, true, false]);
+    expect(edges.map((e) => e.hidden)).toEqual([false, true, false]);
   });
 
   it("藏起來的邊仍保留原本的 id 與資料，開回來時選取狀態不會斷", () => {
     const shown = buildFlow(topology, { showInternet: true });
     const hidden = buildFlow(topology, { showInternet: false });
     expect(hidden.edges.map((e) => e.id)).toEqual(shown.edges.map((e) => e.id));
-    expect(hidden.edges[0].data.edge).toEqual(topology.edges[0]);
+    expect(hidden.edges[1].data.edge).toEqual(topology.edges[1]);
   });
 
   it("對外暴露量不受開關影響：徽章講的是規則，不是畫不畫線", () => {

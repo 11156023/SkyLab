@@ -34,7 +34,7 @@ import GatewayNode      from "./nodes/GatewayNode";
 import VMNode           from "./nodes/VMNode";
 import ConnectionEdge   from "./edges/ConnectionEdge";
 import ConnectionDetailPanel from "./ConnectionDetailPanel";
-import { buildFlow, isInternetEdge, portLabel, routeEdges } from "./utils/buildFlow";
+import { buildFlow, isOutboundEdge, portLabel, routeEdges } from "./utils/buildFlow";
 import { useTheme } from "../../../contexts/ThemeContext";
 import useAutoRefresh from "../../../hooks/useAutoRefresh";
 import LoadingState from "../../../components/LoadingState/LoadingState";
@@ -75,7 +75,8 @@ export default function FirewallPage() {
   /* 預設開啟：標籤本身就是「這條線在開什麼」的答案，不該要使用者自己去翻開 */
   const [showLabels,   setShowLabels]   = useState(true);
   const [showMiniMap,  setShowMiniMap]  = useState(true);
-  /* 上網線預設隱藏：幾乎每台機器都有對外線，全畫出來會蓋掉內部互通 */
+  /* 上網線（機器 → 網際網路的出站線）預設隱藏：幾乎每台機器都有一條，
+     全畫出來會蓋掉內部互通與對外開放；對外開放是暴露面，不藏 */
   const [showInternet, setShowInternet] = useState(false);
   const [connecting,   setConnecting]   = useState(false);
   const connDialog    = useDialogPresence(showDialog);
@@ -103,7 +104,7 @@ export default function FirewallPage() {
     setEdges((prev) =>
       prev.map((e) => ({
         ...e,
-        hidden: !showInternet && isInternetEdge(e.data.edge),
+        hidden: !showInternet && isOutboundEdge(e.data.edge),
         data: { ...e.data, showLabel: showLabels, selected: e.id === selectedEdge?.id },
       }))
     );
@@ -114,7 +115,7 @@ export default function FirewallPage() {
     const next = !showInternet;
     setShowInternet(next);
     if (!next) {
-      setSelectedEdge((sel) => (sel && isInternetEdge(sel.edge) ? null : sel));
+      setSelectedEdge((sel) => (sel && isOutboundEdge(sel.edge) ? null : sel));
     }
   }, [showInternet]);
 
@@ -411,11 +412,11 @@ export default function FirewallPage() {
                 <div className={styles.bottomStack}>
                   {/* 線的顏色本來只寫在程式碼註解裡，圖上沒有任何地方解釋 */}
                   <div className={styles.legend}>
-                    {/* 上網線藏起來時，圖例的對外兩項一起變淡，提醒圖上少了這兩種線 */}
-                    <span className={`${styles.legendItem} ${showInternet ? "" : styles.legendItemHidden}`}>
+                    <span className={styles.legendItem}>
                       <i className={`${styles.legendLine} ${styles.legendInbound}`} />
                       {t("FirewallPage.legendInbound")}
                     </span>
+                    {/* 上網線藏起來時，圖例的「對外連線」變淡，提醒圖上少了這種線 */}
                     <span className={`${styles.legendItem} ${showInternet ? "" : styles.legendItemHidden}`}>
                       <i className={`${styles.legendLine} ${styles.legendOutbound}`} />
                       {t("FirewallPage.legendOutbound")}

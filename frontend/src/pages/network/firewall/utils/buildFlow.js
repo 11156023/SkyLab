@@ -163,12 +163,14 @@ function parallelLanes(edges) {
 }
 
 /**
- * 上網線：任一端是網際網路的邊（對外開放或對外連線）。
- * 這類線幾乎每台機器都有一條，全畫出來會把機器之間的內部互通淹掉，
- * 所以頁面預設把它們藏起來，只留內部互通；要看再開。
+ * 上網線：從機器連出去到網際網路的邊（對外連線）。
+ * 幾乎每台機器都有一條，全畫出來會把內部互通與對外開放淹掉，
+ * 所以頁面預設把它們藏起來；要看再開。
+ * 反方向「網際網路 → 機器」是對外開放，那是暴露面，一律照畫。
  */
-export function isInternetEdge(edge) {
-  return edge?.source_vmid === null || edge?.target_vmid === null;
+export function isOutboundEdge(edge) {
+  return edge?.source_vmid !== null && edge?.source_vmid !== undefined
+    && edge?.target_vmid === null;
 }
 
 /** 每台 VM 的對外暴露量：以網際網路為來源、指向該 VM 的 port 數 */
@@ -215,7 +217,7 @@ export function buildFlow(
       sourceHandle,
       targetHandle,
       type: "connection",
-      hidden: !showInternet && isInternetEdge(edge),
+      hidden: !showInternet && isOutboundEdge(edge),
       data: {
         label: edgeLabel(edge.ports),
         showLabel,
