@@ -155,7 +155,6 @@ def test_teacher_judgement_item_is_script_ready_without_objective_answer() -> No
     analysis = _analysis()
     item = analysis.items[0]
     item.judgement_mode = "teacher"
-    item.check_steps[0].parameters.pop("success_criteria")
 
     assert automation_support.get_script_generation_blockers(
         analysis,
@@ -165,7 +164,6 @@ def test_teacher_judgement_item_is_script_ready_without_objective_answer() -> No
 
 def test_ai_judgement_item_is_script_ready_without_success_criteria() -> None:
     analysis = _analysis()
-    analysis.items[0].check_steps[0].parameters.pop("success_criteria")
 
     assert automation_support.get_script_generation_blockers(
         analysis,

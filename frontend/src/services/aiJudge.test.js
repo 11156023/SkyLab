@@ -277,12 +277,13 @@ describe("AiJudgeService persistent sessions", () => {
   test("潤飾提示會保留老師目標並要求補足下一層 AI 的執行資訊", () => {
     expect(RUBRIC_POLISH_PROMPT).toContain("下一層檢查 AI");
     expect(RUBRIC_POLISH_PROMPT).toContain("auto、partial 或 manual");
-    expect(RUBRIC_POLISH_PROMPT).toContain("成功條件");
+    expect(RUBRIC_POLISH_PROMPT).toContain("檢查目標與描述");
+    expect(RUBRIC_POLISH_PROMPT).not.toContain("success_criteria");
     expect(RUBRIC_POLISH_PROMPT).toContain("fallback");
     expect(RUBRIC_POLISH_PROMPT).toContain("check_steps");
     expect(RUBRIC_POLISH_PROMPT).toContain("完整評分項目列表");
-    expect(RUBRIC_POLISH_PROMPT).toContain("不要改成較容易但不同的檢查目標");
-    expect(RUBRIC_POLISH_PROMPT).toContain("非硬性範圍");
+    expect(RUBRIC_POLISH_PROMPT).toContain("不要猜測或改變檢查目標");
+    expect(RUBRIC_POLISH_PROMPT).toContain("視為主要情境");
   });
 
   test("session script endpoint 不接受 client rubric snapshot", async () => {

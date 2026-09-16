@@ -146,10 +146,10 @@ SCRIPT_GENERATION_SYSTEM_PROMPT = f"""
 - 腳本最後必須 print 單一 JSON，schema_version 固定為 {RESULT_SCHEMA_VERSION}，並使用 json.dumps(..., ensure_ascii=False)。
 - 輸出 JSON 的 metadata 必須包含 timestamp 與 platform。
 - 優先根據 rubric item 的 check_steps.command_key 對應 template_commands 產生收集項目。
-- `python.run_entrypoint` 是執行觀察能力，不是原始碼審查：只使用 check_steps.parameters 中已驗證的 cwd、argv、timeout_seconds 與可選 success_criteria，不得從自然語言猜測或補值。
-- `system.run_command` 使用 check_steps.parameters 中已驗證的 argv、cwd、timeout_seconds 與可選 success_criteria，不得自行替換或擴張檢查範圍。
+- `python.run_entrypoint` 是執行觀察能力，不是原始碼審查：只使用 check_steps.parameters 中已驗證的 cwd、argv、timeout_seconds，不得從自然語言猜測或補值。
+- `system.run_command` 使用 check_steps.parameters 中已驗證的 argv、cwd、timeout_seconds，不得自行替換或擴張檢查範圍。
 - 你熟悉 Linux、Windows 系統管理與常見 CLI 工具。外部指令只用於取得 rubric 所需的唯讀診斷資訊；不得修改系統狀態、執行高風險或破壞性操作，也不得要求提權。只收集足以回答問題的資訊，並在 evidence 解讀結果，不要只複製 raw 輸出。
-- `judgement_mode=ai` 時，success_criteria 必須照 rubric 的語意粒度實作。只有明確要求完全相等時才比較整份 stdout；「有／包含／存在某行或設定」應檢查內容或逐行存在，不得要求整份輸出只有該字串。設定行如 `web_URL=True` 可忽略行首尾及等號周圍空白，但 key 與值仍須相符。
+- `judgement_mode=ai` 時，依 rubric item 的 title 與 detection_method 實作最小充分的判定。只有明確要求完全相等時才比較整份 stdout；「有／包含／存在某行或設定」應檢查內容或逐行存在，不得要求整份輸出只有該字串。設定行如 `web_URL=True` 可忽略行首尾及等號周圍空白，但 key 與值仍須相符。
 - `judgement_mode=teacher` 時，腳本只負責完整收集指定答案／檔案／系統資訊；不得發明客觀答案或代替導師判定內容正確性。成功收集證據的 check 使用 `unknown` 並清楚標示「待導師核查」，evidence/raw 帶回可讀證據；執行或收集失敗仍依事實使用 fail/unknown 並記錄 errors。
 - `system.run_command` 只允許單一唯讀／診斷 argv；禁止 pipe、redirect、寫入型 Git 子命令及其他會改變環境的操作。
 - 執行 Python 入口時，必須使用 argv list、明確 `cwd`、有限 timeout，並把 exit code、stdout、stderr、未捕捉例外與 timeout 寫成該 check 的證據。
@@ -215,8 +215,8 @@ AI_REVIEWER_SYSTEM_PROMPT = """
 
 ## 安全審查
 若腳本可能刪除、修改、修復、安裝、重啟或對外傳資料，approved 必須是 false。讀取檔案與原樣回傳受控命令的 stdout/stderr 本身不是拒絕理由。
-若腳本使用 `python.run_entrypoint`，確認它只採用 rubric check_steps.parameters 的 cwd、argv、timeout_seconds 與可選 success_criteria，且程式只收集 exit code/stdout/stderr、沒有安裝或修復動作；risk_level 至少為 medium。`judgement_mode=teacher` 不得因沒有客觀答案而拒絕，但必須確認腳本能執行並帶回證據。只有靜態政策與本 AI reviewer 都核准時，腳本才會進入可執行狀態。
-若腳本使用 `system.run_command`，確認它只採用 check_steps 中已驗證的 argv、cwd、有限 timeout 與可選 success_criteria，無 shell/pipe/redirect、提權或範圍擴張，且只做唯讀／診斷操作；stdout/stderr 不需遮蔽。
+若腳本使用 `python.run_entrypoint`，確認它只採用 rubric check_steps.parameters 的 cwd、argv、timeout_seconds，且程式只收集 exit code/stdout/stderr、沒有安裝或修復動作；risk_level 至少為 medium。`judgement_mode=teacher` 不得因沒有客觀答案而拒絕，但必須確認腳本能執行並帶回證據。只有靜態政策與本 AI reviewer 都核准時，腳本才會進入可執行狀態。
+若腳本使用 `system.run_command`，確認它只採用 check_steps 中已驗證的 argv、cwd、有限 timeout，無 shell/pipe/redirect、提權或範圍擴張，且只做唯讀／診斷操作；stdout/stderr 不需遮蔽。
 若 rubric 只要求內容、行或設定存在，腳本不得擅自改成整份 stdout 完全相等；這種過度收緊應列為 issues。
 
 ## 錯誤記錄完整性

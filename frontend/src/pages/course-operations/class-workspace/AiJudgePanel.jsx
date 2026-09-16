@@ -215,7 +215,7 @@ function getDetectableInfo(detectable) {
   return DETECTABLE_INFO[detectable] ?? DETECTABLE_INFO.manual;
 }
 
-function hasCompleteParameterizedStep(step, judgementMode = "ai") {
+function hasCompleteParameterizedStep(step) {
   const parameters = step?.parameters ?? {};
   const hasArgv = Array.isArray(parameters.argv)
     && parameters.argv.length > 0
@@ -223,20 +223,48 @@ function hasCompleteParameterizedStep(step, judgementMode = "ai") {
   const hasTimeout = Number.isInteger(parameters.timeout_seconds)
     && parameters.timeout_seconds >= 1
     && parameters.timeout_seconds <= 300;
-  const hasSuccessCriteria = judgementMode === "teacher"
-    || (typeof parameters.success_criteria === "string"
-      && parameters.success_criteria.trim());
   if (step?.command_key === "python.run_entrypoint") {
     return Boolean(typeof parameters.cwd === "string"
       && parameters.cwd.trim()
       && hasArgv
-      && hasTimeout
-      && hasSuccessCriteria);
+      && hasTimeout);
   }
   if (step?.command_key === "system.run_command") {
-    return Boolean(hasArgv && hasTimeout && hasSuccessCriteria);
+    return Boolean(hasArgv && hasTimeout);
   }
   return true;
+}
+
+/** 把單一 check step 的 parameters 轉成老師可讀的唯讀 chip 資料。 */
+function stepParameterChips(step) {
+  const parameters = step?.parameters ?? {};
+  const chips = [];
+  const argv = Array.isArray(parameters.argv)
+    ? parameters.argv.filter((part) => typeof part === "string" && part.trim())
+    : [];
+  if (argv.length > 0) {
+    chips.push({ key: "argv", label: "指令", mono: true, parts: argv });
+  }
+  if (typeof parameters.cwd === "string" && parameters.cwd.trim()) {
+    chips.push({ key: "cwd", label: "工作目錄", mono: true, parts: [parameters.cwd.trim()] });
+  }
+  if (Number.isInteger(parameters.timeout_seconds)
+    && parameters.timeout_seconds >= 1
+    && parameters.timeout_seconds <= 300) {
+    chips.push({ key: "timeout_seconds", label: "逾時", mono: false, parts: [`${parameters.timeout_seconds} 秒`] });
+  }
+  return chips;
+}
+
+/** 提案列的唯讀指令預覽；以分號串接多個步驟的 argv。 */
+function proposalCommandPreview(item) {
+  const steps = Array.isArray(item?.check_steps) ? item.check_steps : [];
+  return steps
+    .map((step) => (Array.isArray(step?.parameters?.argv)
+      ? step.parameters.argv.filter((part) => typeof part === "string" && part.trim()).join(" ")
+      : ""))
+    .filter(Boolean)
+    .join("；");
 }
 
 /**
@@ -277,7 +305,7 @@ export function getScriptCreationBlocker({ analysis, pendingProposal = null, pen
       || !Array.isArray(item.check_steps)
       || item.check_steps.length === 0
       || item.check_steps.some((step) => (
-        !hasCompleteParameterizedStep(step, item.judgement_mode ?? "ai")
+        !hasCompleteParameterizedStep(step)
       ))
     ))
   )).length;
@@ -553,6 +581,7 @@ export function ProposalPanel({ proposal, selectedIds, onToggle, onApply, onSkip
                   const selectable = (result.status === "ready" || result.status === "teacher_review") && operationId && proposalById.has(operationId);
                   if (selectable) {
                     const item = proposalById.get(operationId);
+                    const commandPreview = proposalCommandPreview(item);
                     return (
                       <label className={styles.proposalRow} key={operationId}>
                         <input
@@ -564,6 +593,9 @@ export function ProposalPanel({ proposal, selectedIds, onToggle, onApply, onSkip
                         <span>
                           <b>{result.source_label ? `${result.source_label}·` : ""}{item.title || "未命名項目"}</b>
                           <small><em>{proposalOperationLabel(item)}</em>AI 建議新增或調整此檢查項目</small>
+                          {commandPreview && (
+                            <code className={styles.proposalCommandPreview}>{commandPreview}</code>
+                          )}
                         </span>
                       </label>
                     );
@@ -588,6 +620,7 @@ export function ProposalPanel({ proposal, selectedIds, onToggle, onApply, onSkip
                 })
               : proposal.map((item, index) => {
                   const id = item.id ?? `proposal-${index}`;
+                  const commandPreview = proposalCommandPreview(item);
                   return (
                     <label className={styles.proposalRow} key={id}>
                       <input
@@ -599,6 +632,9 @@ export function ProposalPanel({ proposal, selectedIds, onToggle, onApply, onSkip
                       <span>
                         <b>{item.title || "未命名項目"}</b>
                         <small><em>{proposalOperationLabel(item)}</em>AI 建議新增或調整此檢查項目</small>
+                        {commandPreview && (
+                          <code className={styles.proposalCommandPreview}>{commandPreview}</code>
+                        )}
                       </span>
                     </label>
                   );
@@ -722,7 +758,7 @@ function RubricTableRow({ item, index, onChange, onDelete, disabled, needsReview
                       <span>缺少資訊</span>
                       <p>{missingInformation.length
                         ? missingInformation.join("、")
-                        : "請補充完整的服務名稱、程式位置、連接埠、取證範圍或判定條件。"}</p>
+                        : "請補充完整的服務名稱、程式位置、連接埠或取證範圍。"}</p>
                     </div>
                   )}
                   {item.fallback && (
@@ -734,13 +770,28 @@ function RubricTableRow({ item, index, onChange, onDelete, disabled, needsReview
                   {checkSteps.length > 0 && (
                     <div className={`${styles.detectItem} ${styles.detectItemWide}`}>
                       <span>預計檢查步驟（尚未執行）</span>
-                      <div className={styles.chipRow}>
-                        {checkSteps.map((step) => (
-                          <span key={`${step.template_key}-${step.command_key}`} className={styles.chip}>
-                            {getTemplateLabel(step.template_key)} /{" "}
-                            {step.command_label ?? step.command_key}
-                            <code>{step.command_key}</code>
-                          </span>
+                      <div className={styles.stepPlanList}>
+                        {checkSteps.map((step, stepIndex) => (
+                          <div
+                            key={`${step.template_key}-${step.command_key}-${stepIndex}`}
+                            className={styles.stepPlanRow}
+                          >
+                            <span className={styles.chip}>
+                              {getTemplateLabel(step.template_key)} /{" "}
+                              {step.command_label ?? step.command_key}
+                              <code>{step.command_key}</code>
+                            </span>
+                            {stepParameterChips(step).map((chip) => (
+                              <span key={chip.key} className={styles.chip}>
+                                <span className={styles.chipLabel}>{chip.label}</span>
+                                {chip.mono
+                                  ? chip.parts.map((part, partIndex) => (
+                                    <code key={partIndex}>{part}</code>
+                                  ))
+                                  : <span className={styles.chipText}>{chip.parts.join(" ")}</span>}
+                              </span>
+                            ))}
+                          </div>
                         ))}
                       </div>
                     </div>

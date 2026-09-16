@@ -12,6 +12,18 @@ from app.models.teacher_judge_template_command import TeacherJudgeTemplateComman
 SUPPORTED_TEMPLATE_KEYS = {"linux", "python", "n8n", "postgresql"}
 DEFAULT_SYSTEM_COMMAND_TIMEOUT_SECONDS = 30
 MAX_TIMEOUT_SECONDS = 300
+_RETIRED_CHECK_STEP_PARAMETER_KEYS = frozenset({"success_criteria"})
+
+
+def sanitize_check_step_parameters(value: Any) -> Any:
+    """Drop retired rubric fields while keeping unknown future parameters readable."""
+    if not isinstance(value, dict):
+        return value
+    return {
+        key: parameter
+        for key, parameter in value.items()
+        if key not in _RETIRED_CHECK_STEP_PARAMETER_KEYS
+    }
 
 
 def coerce_timeout_seconds(value: Any) -> int | None:
@@ -134,8 +146,7 @@ def format_template_commands_for_prompt(
                     *(
                         [
                             "  parameters_schema: argv 是非空字串陣列；cwd 可選；"
-                            "timeout_seconds 由平台補齊；success_criteria 選填，"
-                            "省略時由腳本生成依需求語意推導判定條件"
+                            "timeout_seconds 由平台補齊"
                         ]
                         if command.command_key == "system.run_command"
                         else []
@@ -218,6 +229,7 @@ def validate_check_steps_with_issues(
                     parameters = (
                         dict(raw_parameters) if isinstance(raw_parameters, dict) else {}
                     )
+                    parameters = sanitize_check_step_parameters(parameters)
                     timeout = parameters.get("timeout_seconds")
                     if command.command_key == "system.run_command" and (
                         not isinstance(timeout, int)
@@ -250,5 +262,6 @@ __all__ = [
     "coerce_timeout_seconds",
     "format_template_commands_for_prompt",
     "get_enabled_template_commands",
+    "sanitize_check_step_parameters",
     "validate_check_steps",
 ]

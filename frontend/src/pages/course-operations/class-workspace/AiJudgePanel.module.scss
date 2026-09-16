@@ -579,6 +579,29 @@
   }
 }
 
+/* 檢查步驟的唯讀參數顯示：每個步驟一列，後接 argv／cwd 等參數 chip。 */
+.stepPlanList {
+  display: grid;
+  gap: 6px;
+}
+
+.stepPlanRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.chipLabel,
+.chipText {
+  font-size: $font-size-10;
+  color: var(--color-text-muted);
+}
+
+.stepPlanRow .chip code {
+  color: var(--color-text-primary);
+}
+
 /* ── AI 對話 ── */
 .chatCard {
   padding: $spacing-16 $spacing-24;
@@ -1894,6 +1917,20 @@
   b { font-size: $font-size-14; }
   small { color: var(--color-text-secondary); font-size: $font-size-12; line-height: 1.45; }
   em { margin-right: 6px; color: var(--color-primary-on-surface); font-style: normal; font-weight: $font-weight-700; }
+}
+
+/* 提案列的唯讀指令預覽；只顯示 argv，不提供編輯。 */
+.proposalCommandPreview {
+  justify-self: start;
+  max-width: 100%;
+  padding: 2px 8px;
+  border: 1px solid var(--color-divider);
+  border-radius: $radius-8;
+  background: var(--color-hover);
+  font-family: monospace;
+  font-size: $font-size-10;
+  color: var(--color-text-primary);
+  overflow-wrap: anywhere;
 }
 
 .proposalActions {

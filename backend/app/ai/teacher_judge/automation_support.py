@@ -88,7 +88,7 @@ def _item_missing_information(
 ) -> list[str]:
     missing = list(item.missing_information)
     if not item.detection_method or not item.detection_method.strip():
-        missing.append("檢測方式與判定條件")
+        missing.append("檢測方式與結果解讀")
     if not item.check_steps:
         missing.append("平台支援的檢查步驟")
     for step in item.check_steps:
@@ -149,7 +149,7 @@ def get_script_generation_blockers(
                 missing = [
                     item.fallback.strip()
                     if item.fallback and item.fallback.strip()
-                    else "完整的服務名稱、程式位置、連接埠或成功條件"
+                    else "完整的服務名稱、程式位置、連接埠或取證範圍"
                 ]
             blockers.append(
                 {

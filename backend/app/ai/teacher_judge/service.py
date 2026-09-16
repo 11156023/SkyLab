@@ -33,9 +33,11 @@ from app.ai.teacher_judge.schemas import (
     TeacherJudgeRubricChatMessage,
     TeacherJudgeRubricCheckStep,
     TeacherJudgeRubricItem,
+    sanitize_rubric_missing_information,
 )
 from app.ai.teacher_judge.template_command_service import (
     format_template_commands_for_prompt,
+    sanitize_check_step_parameters,
     validate_check_steps,
 )
 from app.ai.utils import apply_thinking_control, safe_bool, strip_think_tags
@@ -218,16 +220,9 @@ _CHECKLIST_STEP_PARAMETERS_PROPERTIES: dict[str, Any] = {
             "system.run_command 選填"
         ),
     },
-        "timeout_seconds": {
-            "type": "integer",
-            "description": "1 至 300 的整數；省略或無效時由平台補預設值",
-        },
-    "success_criteria": {
-        "type": "string",
-        "description": (
-            "選填；依需求語意寫成可比對的客觀輸出條件。"
-            "省略時腳本生成會依需求自動推導判定條件"
-        ),
+    "timeout_seconds": {
+        "type": "integer",
+        "description": "1 至 300 的整數；省略或無效時由平台補預設值",
     },
 }
 
@@ -245,8 +240,9 @@ _CHECKLIST_STEP_TOOL_SCHEMA: dict[str, Any] = {
         "command_label": {"type": "string", "description": "顯示名稱；可省略"},
         "parameters": {
             "type": "object",
-            "description": "受控腳本執行參數（argv、cwd、timeout_seconds、選填 success_criteria）",
+            "description": "受控腳本執行參數（argv、cwd、timeout_seconds）",
             "properties": _CHECKLIST_STEP_PARAMETERS_PROPERTIES,
+            "additionalProperties": False,
         },
     },
     "required": ["command_key"],
@@ -429,7 +425,7 @@ def _normalize_check_steps(
                 parameters = (
                     dict(raw_parameters) if isinstance(raw_parameters, dict) else {}
                 )
-                for key in ("argv", "cwd", "timeout_seconds", "success_criteria"):
+                for key in ("argv", "cwd", "timeout_seconds"):
                     if key not in parameters and key in raw_step:
                         parameters[key] = raw_step[key]
                 canonical_step["parameters"] = parameters
@@ -477,7 +473,7 @@ def _normalize_check_steps(
             recovered_parameters = {
                 key: value
                 for key, value in recovered_parameters.items()
-                if key in {"argv", "cwd", "timeout_seconds", "success_criteria"}
+                if key in {"argv", "cwd", "timeout_seconds"}
             }
             recovered_steps.append(
                 {
@@ -512,6 +508,7 @@ def _normalize_check_steps(
         command_label = raw_step.get("command_label")
         raw_parameters = raw_step.get("parameters")
         parameters = raw_parameters if isinstance(raw_parameters, dict) else {}
+        parameters = sanitize_check_step_parameters(parameters)
 
         normalized.append(
             TeacherJudgeRubricCheckStep(
@@ -584,6 +581,7 @@ def _normalize_rubric_items(
             if isinstance(raw_missing_information, list)
             else []
         )
+        missing_information = sanitize_rubric_missing_information(missing_information)
         if refresh_missing_information:
             missing_information = []
         check_steps = _normalize_check_steps(
@@ -621,7 +619,7 @@ def _normalize_rubric_items(
                 detectable = "partial"
         if detectable == "partial" and not missing_information:
             missing_information.append(
-                "完整的服務名稱、程式位置、連接埠、取證範圍或判定條件"
+                "完整的服務名稱、程式位置、連接埠或取證範圍"
             )
         missing_information = list(dict.fromkeys(missing_information))
         if strip_auto_fallback and detectable == "auto":
@@ -754,7 +752,7 @@ def _proposal_candidate_rejection(
             f"環境已確認可優先使用的 template_key/command_key 為："
             f"{_allowed_command_text(template_commands)}。"
             "這份清單不是提案限制；若要使用其他唯讀診斷工具，請改用"
-            " system.run_command，提供單一非空 argv list，並補齊工作目錄與判定條件。"
+            " system.run_command，提供單一非空 argv list，並補齊必要執行參數。"
         )
     if (
         capability_declared
@@ -924,8 +922,6 @@ _TEACHER_LOCATION_GAP_MARKERS = (
     "對象",
 )
 _TEACHER_RESULT_GAP_MARKERS = (
-    "成功條件",
-    "判定條件",
     "預期答案",
     "預期結果",
     "預期內容",

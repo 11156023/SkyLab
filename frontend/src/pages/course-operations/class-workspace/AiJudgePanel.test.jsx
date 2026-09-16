@@ -685,7 +685,6 @@ describe("getScriptCreationBlocker", () => {
         cwd: "/home/student/project",
         argv: ["python3", "main.py"],
         timeout_seconds: 30,
-        success_criteria: "exit code 為 0 且 stdout 等於 20",
       },
     }],
   };

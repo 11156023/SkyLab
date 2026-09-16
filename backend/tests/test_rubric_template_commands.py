@@ -260,7 +260,6 @@ def test_validate_generic_command_applies_platform_timeout_default() -> None:
     assert parameters == {
         "cwd": r"C:\Users\陳洋\Desktop\Campus-Cloud",
         "argv": ["cat", ".env"],
-        "success_criteria": "exit code 為 0",
         "timeout_seconds": 30,
     }
 
@@ -423,7 +422,6 @@ def test_normalize_repairs_flattened_system_command_shape() -> None:
     assert items[0].check_steps[0].parameters == {
         "argv": ["grep", "successful", "/home/student/main.log"],
         "cwd": "/home/student",
-        "success_criteria": "exit_code == 0",
         "timeout_seconds": 30,
     }
 
@@ -460,7 +458,6 @@ def test_normalize_converges_uncatalogued_readonly_argv_to_general_command() -> 
     assert items[0].check_steps[0].command_key == "system.run_command"
     assert items[0].check_steps[0].parameters == {
         "argv": ["jq", "--version"],
-        "success_criteria": "exit code 為 0",
         "timeout_seconds": 30,
     }
 
@@ -915,8 +912,7 @@ def test_backend_does_not_infer_config_semantics_from_teacher_text() -> None:
     item = normalized[0]
     assert item.detectable == "partial"
     assert item.missing_information == [
-        "客觀成功條件",
-        "「成功條件」尚未定義為「包含 web_URL=True 字樣」",
+        "完整的服務名稱、程式位置、連接埠或取證範圍",
     ]
     assert "success_criteria" not in item.check_steps[0].parameters
     assert item.check_steps[0].parameters["timeout_seconds"] == 30
@@ -1285,9 +1281,7 @@ async def test_follow_up_natural_answer_is_audited_before_repeating_question(
     assert proposal is not None
     assert proposal[0]["detectable"] == "auto"
     assert proposal[0]["missing_information"] == []
-    assert proposal[0]["check_steps"][0]["parameters"]["success_criteria"] == (
-        "每一行都是整數，且總行數至少為 20"
-    )
+    assert "success_criteria" not in proposal[0]["check_steps"][0]["parameters"]
 
 
 @pytest.mark.asyncio
@@ -1879,6 +1873,7 @@ async def test_existing_item_update_loads_current_rubric_tool(
                 "edit_checklist_item",
                 {
                     "id": "item-port",
+                    "detection_method": "檢查指定 Port 8080。",
                     "check_steps": [
                         {
                             "template_key": "linux",
@@ -1886,7 +1881,6 @@ async def test_existing_item_update_loads_current_rubric_tool(
                             "parameters": {
                                 "argv": ["ss", "-ltn"],
                                 "timeout_seconds": 30,
-                                "success_criteria": "存在 8080 監聽 Port",
                             },
                         }
                     ],
@@ -2979,7 +2973,7 @@ def test_unavailable_reply_explains_invalid_catalog_reference() -> None:
     assert "不是老師需要補充答案" in reply
 
 
-def test_unavailable_reply_explains_missing_result_in_plain_language() -> None:
+def test_unavailable_reply_ignores_retired_result_gap() -> None:
     item = TeacherJudgeRubricItem(
         id="item-answer",
         title="檢查 answer.txt 內容",
@@ -2992,11 +2986,9 @@ def test_unavailable_reply_explains_missing_result_in_plain_language() -> None:
     reply = teacher_judge_service._proposal_unavailable_reply([item], [item.model_dump()])
 
     assert "「檢查 answer.txt 內容」" in reply
-    assert "目前還缺少通過方式" in reply
-    assert "請補充預期文字或內容" in reply
-    assert "沒有固定答案時，也可以先收集結果讓你查看" in reply
-    assert "檢查位置" not in reply
-    assert "完整路徑" not in reply
+    assert "目前還缺少" in reply
+    assert "成功條件" not in reply
+    assert "判定條件" not in reply
     assert "我還不知道怎樣才算通過" not in reply
     assert "補充後，我會重新確認並建立提案給你查看" not in reply
     assert "客觀成功條件" not in reply

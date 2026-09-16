@@ -25,7 +25,10 @@ from app.ai.teacher_judge.prompt import (
     CHAT_SYSTEM_TEMPLATE,
     SITUATION_NORMAL,
 )
-from app.ai.teacher_judge.schemas import TeacherJudgeRubricChatMessage
+from app.ai.teacher_judge.schemas import (
+    TeacherJudgeRubricChatMessage,
+    TeacherJudgeRubricCheckStep,
+)
 from app.models.teacher_judge_script_artifact import (
     TeacherJudgeScriptArtifact,
     TeacherJudgeScriptStatus,
@@ -107,7 +110,31 @@ def test_teacher_judge_chat_prompt_is_scoped_and_clarifies_missing_information()
     assert '"proposal_status": "ready | needs_information | unsupported | none"' in (
         CHAT_SYSTEM_TEMPLATE
     )
+    assert "success_criteria" not in CHAT_SYSTEM_TEMPLATE
+    assert "成功條件" not in CHAT_SYSTEM_TEMPLATE
     assert "你覺得...如何" not in SITUATION_NORMAL
+
+
+def test_retired_success_criteria_is_not_in_new_step_contract() -> None:
+    assert "success_criteria" not in service._CHECKLIST_STEP_PARAMETERS_PROPERTIES
+    assert "success_criteria" not in json.dumps(
+        service._CHECKLIST_STEP_TOOL_SCHEMA,
+        ensure_ascii=False,
+    )
+
+    step = TeacherJudgeRubricCheckStep(
+        template_key="linux",
+        command_key="system.run_command",
+        parameters={
+            "argv": ["cat", "answer.txt"],
+            "timeout_seconds": 30,
+            "success_criteria": "stdout 包含 OK",
+        },
+    )
+    assert step.parameters == {
+        "argv": ["cat", "answer.txt"],
+        "timeout_seconds": 30,
+    }
 
 
 def test_structured_proposal_status_overrides_reply_wording() -> None:
@@ -814,7 +841,6 @@ async def test_teacher_judge_recovers_read_file_alias_as_generic_command(
             "parameters": {
                 "argv": ["cat", "answer.txt"],
                 "timeout_seconds": 30,
-                "success_criteria": "內容格式正確",
             },
         }
     ]
