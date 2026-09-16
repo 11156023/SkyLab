@@ -196,10 +196,6 @@
   @include form-control;
 }
 
-.field textarea {
-  resize: vertical;
-}
-
 /* 上課時間是一個「起—迄」控制項，不是兩個獨立欄位；精靈與編輯對話框共用。 */
 .timePair {
   display: grid;

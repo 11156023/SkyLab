@@ -398,6 +398,11 @@ if (!(await confirm({ title, message, confirmText, danger: true }))) return;
 > **規則三**：一組「起—迄」的值是**一個**欄位，不是兩個。用 `.timePair` 這種
 > 成對控制項，標籤寫「上課時間」，不要拆成「開始時間」「結束時間」兩個 `.field`。
 
+> **規則四**：textarea 一律**固定高**——`_reset.scss` 已全域設 `resize: none`，
+> 高度由 JSX 的 `rows` 或頁面 CSS 的 `height` / `min-height` 決定，元件內**不要再寫
+> `resize`**。特殊情況（真的需要讓使用者拖高的長文編輯區）才在該頁明確寫回
+> `resize: vertical`，讓例外看得見。
+
 ### 表格（Table）
 
 列表頁表格一律使用 `_mixins.scss` 的表格 mixin 組，**不要在頁面內重抄整組樣式**：

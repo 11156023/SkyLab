@@ -600,7 +600,6 @@
     font-size: $font-size-14;
     background: var(--color-surface);
     color: var(--color-text);
-    resize: vertical;
 
     &::placeholder {
       color: var(--color-text-muted);

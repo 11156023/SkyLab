@@ -357,7 +357,6 @@
     font: inherit;
     line-height: 1.45;
     outline: none;
-    resize: vertical;
     transition: border-color $transition-base, background $transition-base, box-shadow $transition-base;
   }
 
@@ -751,7 +750,6 @@
     color: var(--color-text-primary);
     outline: none;
     font-size: $font-size-14;
-    resize: none;
 
     &:focus {
       border-color: var(--color-primary);
