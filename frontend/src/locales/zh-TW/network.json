@@ -1,4 +1,6 @@
 {
+  "FirewallPage.guideDemoAriaLabel": "防火牆操作模擬拓撲",
+  "FirewallPage.guideDemoBadge": "導覽模擬節點 · 不會建立資源",
   "FirewallPage.title": "防火牆",
   "FirewallPage.addConnection": "新增連線",
   "FirewallPage.loadTopologyFailed": "載入拓撲失敗",

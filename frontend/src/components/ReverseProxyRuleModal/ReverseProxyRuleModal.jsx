@@ -124,13 +124,13 @@ export default function ReverseProxyRuleModal({
       className={`${styles.modalOverlay} ${closing ? styles.modalOverlayOut : ""}`}
       onMouseDown={onClose}
     >
-      <form className={styles.modal} onSubmit={submit} onMouseDown={(e) => e.stopPropagation()}>
+      <form className={styles.modal} onSubmit={submit} onMouseDown={(e) => e.stopPropagation()} data-guide="proxy-rule-form">
         <div className={styles.modalHeader}>
           <div>
             <h2>{rule ? t("ReverseProxyRuleModal.editTitle") : t("ReverseProxyRuleModal.createTitle")}</h2>
             <p>{t("ReverseProxyRuleModal.headerDescription")}</p>
           </div>
-          <button type="button" className={styles.iconBtn} onClick={onClose} aria-label={t("ReverseProxyRuleModal.closeAriaLabel")}>
+          <button type="button" className={styles.iconBtn} onClick={onClose} aria-label={t("ReverseProxyRuleModal.closeAriaLabel")} data-guide="proxy-rule-close">
             <MIcon name="close" size={18} />
           </button>
         </div>
@@ -147,6 +147,7 @@ export default function ReverseProxyRuleModal({
           </div>
         )}
 
+        <div data-guide="proxy-rule-resource">
         {fixedResource ? (
           <div className={styles.field}>
             <span>{t("ReverseProxyRuleModal.boundVm")}</span>
@@ -173,8 +174,9 @@ export default function ReverseProxyRuleModal({
             )}
           </label>
         )}
+        </div>
 
-        <div className={styles.fieldRow}>
+        <div className={styles.fieldRow} data-guide="proxy-rule-domain">
           <label className={styles.field}>
             <span>{t("ReverseProxyRuleModal.hostnamePrefixLabel")}</span>
             <input
@@ -194,7 +196,7 @@ export default function ReverseProxyRuleModal({
           </label>
         </div>
 
-        <label className={styles.field}>
+        <label className={styles.field} data-guide="proxy-rule-port">
           <span>{t("ReverseProxyRuleModal.portLabel")}</span>
           {!form.useCustomPort ? (
             <select value={form.port} onChange={(e) => set("port", e.target.value)}>
@@ -244,7 +246,7 @@ export default function ReverseProxyRuleModal({
           </div>
         )}
 
-        <div className={styles.modalActions}>
+        <div className={styles.modalActions} data-guide="proxy-rule-actions">
           <button type="button" className={styles.btnSecondary} onClick={onClose} disabled={loading}>
             {t("ReverseProxyRuleModal.cancel")}
           </button>

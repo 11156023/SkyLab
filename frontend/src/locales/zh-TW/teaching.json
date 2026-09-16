@@ -241,7 +241,6 @@
   "CourseTemplateEditorPage.typeContainerLxc": "容器 (LXC)",
   "CourseTemplateEditorPage.typeVm": "虛擬機",
   "CourseTemplateEditorPage.defaultMachineRole": "環境機器",
-  "CourseTemplateEditorPage.multiMachineEnvTitle": "每次套用的學習環境",
   "CourseTemplateEditorPage.overlappingEdgeNotice": "這兩台之間已經有一條連線涵蓋這個 port。雙向連線已包含反向，不需要再畫一條。",
   "CourseTemplateEditorPage.publicAccessLabel": "對外服務",
   "CourseTemplateEditorPage.addPublicationBtn": "新增",
@@ -280,7 +279,6 @@
   "CourseTemplateEditorPage.pleaseSelectOption": "請選擇",
   "CourseTemplateEditorPage.atLimitBtn": "已達上限",
   "CourseTemplateEditorPage.addMachineBtn": "加入機器",
-  "CourseTemplateEditorPage.topologyHelpText": "從來源節點右側圓點拖到目標節點左側圓點；節點本體可直接拖曳移動。",
   "CourseTemplateEditorPage.connectionRuleTitle": "連線規則",
   "CourseTemplateEditorPage.fieldDirection": "方向",
   "CourseTemplateEditorPage.directionOneWay": "單向",
@@ -322,8 +320,6 @@
   "CourseTemplateEditorPage.saveDraftBtn": "儲存草稿",
   "CourseTemplateEditorPage.classDraftSavedTitle": "班級草稿已保存。",
   "CourseTemplateEditorPage.classDraftSavedDesc": "請完成機器配置並「發布」模板；發布後會自動回到班級建立流程。",
-  "CourseTemplateEditorPage.lockedVersionNote": "這個版本已發布並鎖定；需要調整時請建立新版本。",
-  "CourseTemplateEditorPage.reusableEnvNote": "同一份學習環境可用於正式課程、快速練習，或同時提供兩種用途。",
   "CourseTemplateEditorPage.fieldEnvName": "環境名稱",
   "CourseTemplateEditorPage.nameRequiredError": "請先輸入環境名稱才能儲存。",
   "CourseTemplateEditorPage.audienceClassesRequiredError": "開放對象選了指定班級，請至少勾選一個班級。",
@@ -679,9 +675,6 @@
   "ClassWorkspacePage.classNotFoundText": "找不到班級",
   "ClassWorkspacePage.subtitleTemplate": "{{students}} 位學生 · {{weeks}} 個課次 · 每週{{weekday}} {{start}}–{{end}}",
   "ClassWorkspacePage.workflowAriaLabel": "班級管理流程",
-  "ClassWorkspacePage.setupProgressLabelShort": "建機準備",
-  "ClassWorkspacePage.allReadyLabel": "全部就緒",
-  "ClassWorkspacePage.completedCountLabel": "{{count}}/2 已完成",
   "ClassWorkspacePage.scheduleUpdatedMsg": "班級與固定課表已更新。",
   "AiJudgePanel.aboutToUseLabel": "即將使用：{{name}} v{{version}}（{{template}}）",
   "AiJudgePanel.addCheckTitle": "新增檢查",
@@ -1003,7 +996,5 @@
   "AiJudgePanel.waitingCollectionLabel": "等待回收",
   "AiJudgePanel.weekOptionLabel": "第 {{week}} 週 · {{title}}",
   "AiJudgePanel.whichWeekLabel": "放到哪一週任務？",
-  "CourseTemplateEditorPage.draftRestoredMsg": "已還原上次未儲存的編輯",
-  "CourseTemplateEditorPage.stepBasicHint": "名稱、用途與對象",
-  "CourseTemplateEditorPage.stepMachinesHint": "節點規格與連線"
+  "CourseTemplateEditorPage.draftRestoredMsg": "已還原上次未儲存的編輯"
 }

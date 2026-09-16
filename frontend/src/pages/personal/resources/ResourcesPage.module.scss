@@ -36,26 +36,11 @@
 }
 
 .btnPrimary {
-  @extend %btn-base;
-  background: var(--color-primary);
-  color: var(--color-text-on-primary);
-
-  &:hover {
-    background: var(--color-primary-dark);
-    box-shadow: var(--shadow-sm);
-  }
+  @include btn-primary;
 }
 
 .btnSecondary {
-  @extend %btn-base;
-  background: var(--color-surface);
-  color: var(--color-text);
-  border: 1px solid var(--color-border);
-  box-shadow: var(--shadow-sm);
-
-  &:hover {
-    background: var(--color-hover);
-  }
+  @include btn-secondary;
 }
 
 .rowChips {
@@ -502,6 +487,62 @@
   color: var(--color-text);
 }
 
+.guideDemo {
+  @include flex-column;
+  gap: $spacing-8;
+}
+
+.guideDemoNotice {
+  display: flex;
+  align-items: center;
+  gap: $spacing-8;
+  padding: 10px $spacing-16;
+  border: 1px dashed color-mix(in srgb, var(--color-primary) 45%, var(--color-border));
+  border-radius: $radius-8;
+  background: color-mix(in srgb, var(--color-primary) 7%, var(--color-surface));
+  color: var(--color-primary-on-surface);
+  font-size: $font-size-12;
+
+  span { display: flex; gap: 6px; flex-wrap: wrap; }
+}
+
+.guideDemoRow {
+  background: color-mix(in srgb, var(--color-primary) 4%, var(--color-surface));
+}
+
+.guideDemoMenu {
+  position: absolute;
+  z-index: 5;
+  right: 14px;
+  margin-top: 36px;
+  width: 176px;
+  padding: $spacing-8;
+  border: 1px solid var(--color-border);
+  border-radius: $radius-12;
+  background: var(--color-surface);
+  box-shadow: var(--shadow-md);
+
+  span {
+    display: block;
+    padding: 4px $spacing-8 8px;
+    color: var(--color-text-muted);
+    font-size: $font-size-10;
+  }
+
+  button {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    width: 100%;
+    padding: 7px $spacing-8;
+    border-radius: $radius-8;
+    color: var(--color-text-secondary);
+    font-size: $font-size-12;
+
+    &:hover { background: var(--color-hover); }
+  }
+}
+
 /* ── Delete button（同申請頁撤銷鈕樣式）── */
 .deleteBtn {
   display: inline-flex;
@@ -582,20 +623,5 @@
 }
 
 .btnDanger {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 8px $spacing-16;
-  border-radius: $radius-8;
-  font-size: $font-size-14;
-  font-weight: $font-weight-500;
-  cursor: pointer;
-  white-space: nowrap;
-  background: var(--color-danger);
-  color: var(--color-text-on-primary);
-  border: 1px solid var(--color-danger);
-  transition: background $transition-base;
-
-  &:hover:not(:disabled) { background: var(--color-danger-dark); border-color: var(--color-danger-dark); }
-  &:disabled { opacity: 0.5; cursor: not-allowed; }
+  @include btn-danger;
 }

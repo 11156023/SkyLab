@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import MIcon from "../../components/MIcon";
+import SegmentedControl from "../../components/SegmentedControl/SegmentedControl";
 import { useAuth } from "../../contexts/AuthContext";
 import { apiPost } from "../../services/api";
 import { getLoginMethods } from "../../services/auth";
@@ -68,6 +69,20 @@ function clearDeviceCodeFromUrl() {
 }
 
 /* ─── 共用元件 ─────────────────────────────────────────── */
+
+/* 頁面外框：三色暈染上的光暈層 + 毛玻璃卡片，各 view 共用 */
+function PageShell({ children }) {
+  return (
+    <div className={styles.page}>
+      <div className={styles.glow} aria-hidden="true">
+        <span />
+        <span />
+        <span />
+      </div>
+      <div className={styles.card}>{children}</div>
+    </div>
+  );
+}
 
 function PasswordField({ id, label, value, onChange, disabled, placeholder }) {
   const { t } = useTranslation("login");
@@ -340,30 +355,16 @@ function LoginView({ onForgot, onRegister, deviceApproval = false }) {
       )}
 
       {ldapEnabled && (
-        <div
-          className={styles.loginTabs}
-          role="tablist"
-          aria-label={t("LoginPage.loginMethodsAriaLabel")}
-        >
-          <button
-            type="button"
-            role="tab"
-            aria-selected={mode === "password"}
-            className={`${styles.loginTab} ${mode === "password" ? styles.loginTabActive : ""}`}
-            onClick={() => switchMode("password")}
-          >
-            {t("LoginPage.emailTab")}
-          </button>
-          <button
-            type="button"
-            role="tab"
-            aria-selected={mode === "ldap"}
-            className={`${styles.loginTab} ${mode === "ldap" ? styles.loginTabActive : ""}`}
-            onClick={() => switchMode("ldap")}
-          >
-            {t("LoginPage.campusAccount")}
-          </button>
-        </div>
+        <SegmentedControl
+          className={styles.modeSwitch}
+          ariaLabel={t("LoginPage.loginMethodsAriaLabel")}
+          value={mode}
+          onChange={switchMode}
+          options={[
+            { value: "password", label: t("LoginPage.emailTab") },
+            { value: "ldap", label: t("LoginPage.campusAccount") },
+          ]}
+        />
       )}
 
       {mode === "ldap" && ldapEnabled ? ldapForm : passwordForm}
@@ -812,41 +813,37 @@ export default function LoginPage() {
 
   if (deviceCode && user) {
     return (
-      <div className={styles.page}>
-        <div className={styles.card}>
-          <DeviceApprovalView
-            status={deviceApproval.status}
-            error={deviceApproval.error}
-            user={user}
-            onApprove={approveDevice}
-            onDecline={declineDevice}
-          />
-        </div>
-      </div>
+      <PageShell>
+        <DeviceApprovalView
+          status={deviceApproval.status}
+          error={deviceApproval.error}
+          user={user}
+          onApprove={approveDevice}
+          onDecline={declineDevice}
+        />
+      </PageShell>
     );
   }
 
   return (
-    <div className={styles.page}>
-      <div className={styles.card}>
-        {view === "login" && (
-          <LoginView
-            deviceApproval={Boolean(deviceCode)}
-            onForgot={() => setView("forgot")}
-            onRegister={() => setView("register")}
-          />
-        )}
-        {view === "forgot" && <ForgotView onBack={() => setView("login")} />}
-        {showRegister && <RegisterView onBack={() => setView("login")} />}
-        {view === "reset" && <ResetView token={resetToken} onDone={goLogin} />}
-        {view === "register" && !ENABLE_SIGNUP && (
-          <LoginView
-            deviceApproval={Boolean(deviceCode)}
-            onForgot={() => setView("forgot")}
-            onRegister={() => setView("login")}
-          />
-        )}
-      </div>
-    </div>
+    <PageShell>
+      {view === "login" && (
+        <LoginView
+          deviceApproval={Boolean(deviceCode)}
+          onForgot={() => setView("forgot")}
+          onRegister={() => setView("register")}
+        />
+      )}
+      {view === "forgot" && <ForgotView onBack={() => setView("login")} />}
+      {showRegister && <RegisterView onBack={() => setView("login")} />}
+      {view === "reset" && <ResetView token={resetToken} onDone={goLogin} />}
+      {view === "register" && !ENABLE_SIGNUP && (
+        <LoginView
+          deviceApproval={Boolean(deviceCode)}
+          onForgot={() => setView("forgot")}
+          onRegister={() => setView("login")}
+        />
+      )}
+    </PageShell>
   );
 }

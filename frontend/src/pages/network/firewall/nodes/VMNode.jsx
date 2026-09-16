@@ -43,7 +43,7 @@ export default function VMNode({ data, selected }) {
 
   return (
     <div className={nodeClass}>
-      <NodeHandles />
+      <NodeHandles dragStartSide="right" />
       {/* 機器來源徽章與我的資源同一套：學生機器帶學生名、老師開放帶老師名、
           唯讀的課堂機掛鎖 */}
       <MachineKindBadge

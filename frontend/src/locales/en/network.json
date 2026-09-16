@@ -1,4 +1,6 @@
 {
+  "FirewallPage.guideDemoAriaLabel": "Simulated firewall topology",
+  "FirewallPage.guideDemoBadge": "Guide-only nodes · no resources created",
   "FirewallPage.title": "Firewall",
   "FirewallPage.addConnection": "Add Connection",
   "FirewallPage.loadTopologyFailed": "Failed to load topology",

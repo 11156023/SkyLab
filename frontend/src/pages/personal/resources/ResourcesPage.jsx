@@ -251,7 +251,7 @@ function ResourceRow({ resource, onUpdated, onDeleted }) {
           <span className={styles.nameIcon}><MIcon name={type.icon} size={18} /></span>
           <div>
             {resource.vmid > 0
-              ? <button type="button" className={styles.nameLink} onClick={() => navigate(`/my-resources/${resource.vmid}`)}>{resource.name}</button>
+              ? <button type="button" className={styles.nameLink} onClick={() => navigate(`/my-resources/${resource.vmid}`)} data-guide="resource-open-detail">{resource.name}</button>
               : <strong>{resource.name}</strong>}
             <small>{t(type.labelKey)}{showVmid && resource.vmid > 0 ? t("ResourceRow.vmidSuffix", { vmid: resource.vmid }) : ""}</small>
             <div className={styles.rowChips}>
@@ -292,7 +292,7 @@ function ResourceRow({ resource, onUpdated, onDeleted }) {
           {actionLoading && <MIcon name="hourglass_empty" size={16} />}
           <div className={styles.menuWrap}>
             {menuOpen && <PowerMenu resource={resource} actionLoading={actionLoading} onControl={handleControl} onDeleteClick={resource.can_delete === false ? undefined : () => { closeMenu(); handleDelete(); }} onConvertTemplate={canConvertTemplate ? () => { closeMenu(); setConvertOpen(true); } : undefined} onClose={closeMenu} anchorRef={menuBtnRef} closing={menuClosing} />}
-            <button ref={menuBtnRef} type="button" className={`${styles.menuBtn} ${menuOpen ? styles.menuBtnActive : ""}`} onClick={() => menuOpen ? closeMenu() : setMenuOpen(true)} title={t("ResourceRow.moreActions")}><MIcon name="more_vert" size={18} /></button>
+            <button ref={menuBtnRef} type="button" className={`${styles.menuBtn} ${menuOpen ? styles.menuBtnActive : ""}`} onClick={() => menuOpen ? closeMenu() : setMenuOpen(true)} title={t("ResourceRow.moreActions")} data-guide="resource-more-actions"><MIcon name="more_vert" size={18} /></button>
           </div>
         </div> : <span className={styles.deletedNote}>{STATUS_MAP[resource.status]?.labelKey ? t(STATUS_MAP[resource.status].labelKey) : resource.status}</span>}
       </td>
@@ -352,7 +352,7 @@ function EnvironmentMachineRow({ machine, groupStatus, onUpdated }) {
   return <>
     <tr className={`${styles.tr} ${styles.environmentMachineRow}`}>
     <td className={styles.td}><div className={`${styles.nameCell} ${styles.environmentMachineName}`}><span className={styles.machineBranch}>└</span><div>{resource?.vmid > 0
-      ? <button type="button" className={styles.nameLink} onClick={() => navigate(`/my-resources/${resource.vmid}`)}>{machine.name}</button>
+      ? <button type="button" className={styles.nameLink} onClick={() => navigate(`/my-resources/${resource.vmid}`)} data-guide="resource-open-detail">{machine.name}</button>
       : <strong>{machine.name}</strong>}<small>{machine.ownerName ? <><span className={styles.machineOwner}><MIcon name="person" size={11} />{machine.ownerName}</span> · </> : null}{machine.role} · {t(type.labelKey ?? type.label)}{specLabel ? ` · ${specLabel}` : ""}</small></div></div></td>
     <td className={styles.td}><div className={styles.envPrimary}>{machine.os}</div><div className={styles.envSub}>{machine.resource ? t("EnvironmentMachineRow.resourceConnected") : t("EnvironmentMachineRow.creating")}</div></td>
     <td className={styles.td}><StatusBadge status={machine.status} /></td>
@@ -361,11 +361,11 @@ function EnvironmentMachineRow({ machine, groupStatus, onUpdated }) {
     <td className={styles.td}><span className={styles.muted}>{t("EnvironmentMachineRow.managedByEnvironment")}</span></td>
     <td className={styles.td}>{machine.node}</td>
     <td className={styles.td}><div className={styles.rowActions}>
-      <button type="button" className={styles.terminalBtn} disabled={!canOpen} title={canOpen ? (isLxc ? t("EnvironmentMachineRow.terminal") : t("EnvironmentMachineRow.console")) : t("EnvironmentMachineRow.notReadyTitle")} onClick={() => setConsoleOpen(true)}><MIcon name={isLxc ? "terminal" : "desktop_windows"} size={14} />{isLxc ? t("EnvironmentMachineRow.terminal") : t("EnvironmentMachineRow.console")}</button>
+      <button type="button" className={styles.terminalBtn} disabled={!canOpen} title={canOpen ? (isLxc ? t("EnvironmentMachineRow.terminal") : t("EnvironmentMachineRow.console")) : t("EnvironmentMachineRow.notReadyTitle")} onClick={() => setConsoleOpen(true)} data-guide="resource-console"><MIcon name={isLxc ? "terminal" : "desktop_windows"} size={14} />{isLxc ? t("EnvironmentMachineRow.terminal") : t("EnvironmentMachineRow.console")}</button>
       {actionLoading && <MIcon name="hourglass_empty" size={16} />}
       {canControl && <div className={styles.menuWrap}>
         {menuOpen && <PowerMenu resource={resource} actionLoading={actionLoading} onControl={handleControl} onClose={closeMenu} anchorRef={menuBtnRef} closing={menuClosing} />}
-        <button ref={menuBtnRef} type="button" className={`${styles.menuBtn} ${menuOpen ? styles.menuBtnActive : ""}`} onClick={() => menuOpen ? closeMenu() : setMenuOpen(true)} title={t("ResourceRow.moreActions")}><MIcon name="more_vert" size={18} /></button>
+        <button ref={menuBtnRef} type="button" className={`${styles.menuBtn} ${menuOpen ? styles.menuBtnActive : ""}`} onClick={() => menuOpen ? closeMenu() : setMenuOpen(true)} title={t("ResourceRow.moreActions")} data-guide="resource-more-actions"><MIcon name="more_vert" size={18} /></button>
       </div>}
     </div></td>
     </tr>
@@ -454,6 +454,52 @@ function EmptyState() {
   return <SharedEmptyState icon="dns" title={t("ResourcesPage.emptyTitle")} />;
 }
 
+function ResourceGuideDemoRow() {
+  const { t } = useTranslation("personal");
+  const navigate = useNavigate();
+  const [menuOpen, setMenuOpen] = useState(false);
+
+  return (
+    <>
+      <tr className={`${styles.tr} ${styles.guideDemoRow}`} data-guide="resource-card">
+        <td className={styles.td}>
+          <div className={styles.nameCell}>
+            <span className={styles.nameIcon}><MIcon name="terminal" size={18} /></span>
+            <div>
+              <button type="button" className={styles.nameLink} onClick={() => navigate("/my-resources/demo")} data-guide="resource-open-detail">demo-web-01</button>
+              <small>{t("ResourcesPage.guideDemoMachineType")}</small>
+            </div>
+          </div>
+        </td>
+        <td className={styles.td}><div className={styles.envPrimary}>Ubuntu 24.04</div><div className={styles.envSub}>Docker / Nginx</div></td>
+        <td className={styles.td}><StatusBadge status="running" /></td>
+        <td className={styles.td}><span className={styles.mono}>10.20.0.24</span></td>
+        <td className={styles.td}>2026/12/31</td>
+        <td className={styles.td}>pve-01</td>
+        <td className={styles.td}>
+          <div className={styles.rowActions}>
+            <button type="button" className={styles.terminalBtn} data-guide="resource-console">
+              <MIcon name="terminal" size={14} />{t("ResourceRow.terminal")}
+            </button>
+            <div className={styles.menuWrap}>
+              <button type="button" className={`${styles.menuBtn} ${menuOpen ? styles.menuBtnActive : ""}`} onClick={() => setMenuOpen((value) => !value)} data-guide="resource-more-actions" title={t("ResourceRow.moreActions")}>
+                <MIcon name="more_vert" size={18} />
+              </button>
+              {menuOpen && (
+                <div className={styles.guideDemoMenu} data-guide="resource-power-menu">
+                  <span>{t("ResourcesPage.guideDemoPowerMenu")}</span>
+                  <button type="button"><MIcon name="replay" size={14} />{t("ResourcesPage.guideDemoRestart")}</button>
+                  <button type="button"><MIcon name="power_settings_new" size={14} />{t("ResourcesPage.guideDemoShutdown")}</button>
+                </div>
+              )}
+            </div>
+          </div>
+        </td>
+      </tr>
+    </>
+  );
+}
+
 function ErrorState({ onRetry }) {
   const { t } = useTranslation("personal");
   return (
@@ -479,6 +525,7 @@ export default function ResourcesPage() {
   const [pending, setPending]     = useState([]);
   const [loading, setLoading]     = useState(true);
   const [error, setError]         = useState(false);
+  const [guideDemo, setGuideDemo] = useState(false);
   const pendingSigRef = useRef(null);
 
   /** silent = true 時不觸發 skeleton / error state，供背景同步使用 */
@@ -530,6 +577,14 @@ export default function ResourcesPage() {
 
   useAutoRefresh(() => fetchResources(true));
 
+  useEffect(() => {
+    const handleGuideState = (event) => {
+      setGuideDemo(Boolean(event.detail?.open && event.detail?.id === "my-resources"));
+    };
+    window.addEventListener("skylab:user-guide-state", handleGuideState);
+    return () => window.removeEventListener("skylab:user-guide-state", handleGuideState);
+  }, []);
+
   function handleUpdated(updated) {
     setResources((prev) => prev.map((r) => r.vmid === updated.vmid ? updated : r));
   }
@@ -552,6 +607,7 @@ export default function ResourcesPage() {
     && !grouped.requestIds.has(String(resource.request_id))
   ));
   const visiblePending = pending.filter((request) => !grouped.requestIds.has(String(request.id)));
+  const resourceListEmpty = visibleResources.length === 0 && visiblePending.length === 0 && environmentGroups.length === 0;
 
   return (
     <div className={styles.page}>
@@ -568,6 +624,7 @@ export default function ResourcesPage() {
             type="button"
             className={styles.btnPrimary}
             onClick={() => navigate("/my-requests", { state: { create: true } })}
+            data-guide="resource-request"
           >
             <MIcon name="add" size={16} />
             {t("ResourcesPage.requestResource")}
@@ -583,8 +640,25 @@ export default function ResourcesPage() {
           <ErrorState onRetry={() => fetchResources()} />
         ) : loading ? (
           <LoadingState fullPage />
-        ) : visibleResources.length === 0 && visiblePending.length === 0 && environmentGroups.length === 0 ? (
-          <EmptyState />
+        ) : resourceListEmpty ? (
+          guideDemo ? (
+            <div className={styles.guideDemo}>
+              <div className={styles.guideDemoNotice}>
+                <MIcon name="visibility" size={17} />
+                <span><strong>{t("ResourcesPage.guideDemoTitle")}</strong>{t("ResourcesPage.guideDemoDesc")}</span>
+              </div>
+              <div className={styles.tableWrap}>
+                <table className={styles.table}>
+                  <colgroup>
+                    <col className={styles.colName} /><col className={styles.colEnv} /><col className={styles.colStatus} />
+                    <col className={styles.colIp} /><col className={styles.colExpiry} /><col className={styles.colNode} /><col className={styles.colActions} />
+                  </colgroup>
+                  <thead><tr><th className={styles.th}>{t("ResourcesPage.colName")}</th><th className={styles.th}>{t("ResourcesPage.colEnvironment")}</th><th className={styles.th}>{t("ResourcesPage.colStatus")}</th><th className={styles.th}>{t("ResourcesPage.colIp")}</th><th className={styles.th}>{t("ResourcesPage.colExpiry")}</th><th className={styles.th}>{t("ResourcesPage.colNode")}</th><th className={styles.th}>{t("ResourcesPage.colActions")}</th></tr></thead>
+                  <tbody><ResourceGuideDemoRow /></tbody>
+                </table>
+              </div>
+            </div>
+          ) : <EmptyState />
         ) : (
           <div className={styles.tableWrap}>
             <table className={styles.table}>

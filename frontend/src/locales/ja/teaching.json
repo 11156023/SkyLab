@@ -241,7 +241,6 @@
   "CourseTemplateEditorPage.typeContainerLxc": "コンテナ (LXC)",
   "CourseTemplateEditorPage.typeVm": "仮想マシン",
   "CourseTemplateEditorPage.defaultMachineRole": "環境マシン",
-  "CourseTemplateEditorPage.multiMachineEnvTitle": "毎回適用される学習環境",
   "CourseTemplateEditorPage.overlappingEdgeNotice": "この 2 台の間には、このポートを含む接続がすでにあります。双方向接続には逆方向も含まれます。",
   "CourseTemplateEditorPage.publicAccessLabel": "対外サービス",
   "CourseTemplateEditorPage.addPublicationBtn": "追加",
@@ -280,7 +279,6 @@
   "CourseTemplateEditorPage.pleaseSelectOption": "選択してください",
   "CourseTemplateEditorPage.atLimitBtn": "上限に達しました",
   "CourseTemplateEditorPage.addMachineBtn": "マシンを追加",
-  "CourseTemplateEditorPage.topologyHelpText": "ソースノード右側の丸から、ターゲットノード左側の丸へドラッグします。ノード本体を直接ドラッグして移動することもできます。",
   "CourseTemplateEditorPage.connectionRuleTitle": "接続ルール",
   "CourseTemplateEditorPage.fieldDirection": "方向",
   "CourseTemplateEditorPage.directionOneWay": "一方向",
@@ -322,8 +320,6 @@
   "CourseTemplateEditorPage.saveDraftBtn": "下書きを保存",
   "CourseTemplateEditorPage.classDraftSavedTitle": "クラスの下書きを保存しました。",
   "CourseTemplateEditorPage.classDraftSavedDesc": "マシン構成を完了し、テンプレートを「公開」してください。公開すると自動的にクラス作成の流れに戻ります。",
-  "CourseTemplateEditorPage.lockedVersionNote": "このバージョンはすでに公開・ロックされています。変更が必要な場合は新しいバージョンを作成してください。",
-  "CourseTemplateEditorPage.reusableEnvNote": "この学習環境は正規コース、クイック演習、または両方の用途に同時に使用できます。",
   "CourseTemplateEditorPage.fieldEnvName": "環境名",
   "CourseTemplateEditorPage.nameRequiredError": "保存する前に環境名を入力してください。",
   "CourseTemplateEditorPage.audienceClassesRequiredError": "公開対象が特定クラスに設定されています。少なくとも 1 つのクラスを選択してください。",
@@ -679,9 +675,6 @@
   "ClassWorkspacePage.classNotFoundText": "クラスが見つかりません",
   "ClassWorkspacePage.subtitleTemplate": "学生 {{students}} 名 ・{{weeks}} 回の授業 ・毎週{{weekday}} {{start}}–{{end}}",
   "ClassWorkspacePage.workflowAriaLabel": "クラス管理の流れ",
-  "ClassWorkspacePage.setupProgressLabelShort": "構築準備",
-  "ClassWorkspacePage.allReadyLabel": "すべて準備完了",
-  "ClassWorkspacePage.completedCountLabel": "{{count}}/2 完了",
   "ClassWorkspacePage.scheduleUpdatedMsg": "クラスと固定時間割を更新しました。",
   "AiJudgePanel.aboutToUseLabel": "使用予定：{{name}} v{{version}}（{{template}}）",
   "AiJudgePanel.addCheckTitle": "新しいチェック",
@@ -1003,7 +996,5 @@
   "AiJudgePanel.waitingCollectionLabel": "回収待ち",
   "AiJudgePanel.weekOptionLabel": "第 {{week}} 週 ・{{title}}",
   "AiJudgePanel.whichWeekLabel": "どの週のタスクに入れますか？",
-  "CourseTemplateEditorPage.draftRestoredMsg": "保存されていない編集内容を復元しました",
-  "CourseTemplateEditorPage.stepBasicHint": "名称・用途・対象",
-  "CourseTemplateEditorPage.stepMachinesHint": "ノードと接続設定"
+  "CourseTemplateEditorPage.draftRestoredMsg": "保存されていない編集内容を復元しました"
 }

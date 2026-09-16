@@ -168,7 +168,7 @@
   "AiMonitoringPage.preset7d": "Last 7 days",
   "AiMonitoringPage.preset30d": "Last 30 days",
   "AiMonitoringPage.preset90d": "Last 90 days",
-  "AiMonitoringPage.tabProxy": "Proxy Calls",
+  "AiMonitoringPage.tabProxy": "API Key Calls",
   "AiMonitoringPage.tabTemplate": "Template Calls",
   "AiMonitoringPage.tabUsers": "User Usage",
   "AiMonitoringPage.colTime": "Time",

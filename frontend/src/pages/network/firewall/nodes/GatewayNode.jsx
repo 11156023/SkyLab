@@ -7,7 +7,7 @@ export default function GatewayNode({ selected }) {
   const { t } = useTranslation("network");
   return (
     <div className={`${styles.gwNode} ${selected ? styles.nodeSelected : ""}`}>
-      <NodeHandles />
+      <NodeHandles dragEndSide="left" />
       <MIcon name="public" size={30} />
       <span className={styles.gwLabel}>{t("GatewayNode.internet")}</span>
     </div>

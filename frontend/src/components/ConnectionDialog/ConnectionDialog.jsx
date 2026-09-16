@@ -572,10 +572,10 @@ export default function ConnectionDialog({
       className={`${styles.overlay} ${closing ? styles.overlayOut : ""}`}
       onMouseDown={(e) => e.target === e.currentTarget && onClose()}
     >
-      <div className={styles.dialog} role="dialog" aria-modal="true" aria-label={title}>
+      <div className={styles.dialog} role="dialog" aria-modal="true" aria-label={title} data-guide="connection-dialog">
         <div className={styles.dialogHeader}>
           <h2 className={styles.dialogTitle}>{title}</h2>
-          <button type="button" className={styles.closeBtn} onClick={onClose} aria-label={t("ConnectionDialog.cancel")}>
+          <button type="button" className={styles.closeBtn} onClick={onClose} aria-label={t("ConnectionDialog.cancel")} data-guide="connection-dialog-close">
             <MIcon name="close" size={20} />
           </button>
         </div>
@@ -831,7 +831,7 @@ export default function ConnectionDialog({
 
           {error && <p className={styles.errorMsg}>{error}</p>}
 
-          <div className={styles.actions}>
+          <div className={styles.actions} data-guide="connection-dialog-actions">
             <button type="button" className={styles.cancelBtn} onClick={onClose} disabled={submitting}>
               {t("ConnectionDialog.cancel")}
             </button>

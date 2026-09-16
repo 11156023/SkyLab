@@ -168,7 +168,7 @@
   "AiMonitoringPage.preset7d": "近 7 天",
   "AiMonitoringPage.preset30d": "近 30 天",
   "AiMonitoringPage.preset90d": "近 90 天",
-  "AiMonitoringPage.tabProxy": "Proxy 呼叫",
+  "AiMonitoringPage.tabProxy": "金鑰 API 呼叫",
   "AiMonitoringPage.tabTemplate": "Template 呼叫",
   "AiMonitoringPage.tabUsers": "使用者用量",
   "AiMonitoringPage.colTime": "時間",
