@@ -15,7 +15,6 @@ import LoadingState from "../../../components/LoadingState/LoadingState";
 import MIcon from "../../../components/MIcon";
 import { useConfirm } from "../../../components/ConfirmDialog/ConfirmProvider";
 import { CourseEnvironmentsService } from "../../../services/courseEnvironments";
-import { TeachingClassesService } from "../../../services/teachingClasses";
 import { apiGet } from "../../../services/api";
 import { focusInvalidField } from "../../../utils/focusField";
 import { useToast } from "../../../hooks/useToast";
@@ -35,7 +34,7 @@ const TABS = [
 ];
 
 function makeEmptyTemplate() {
-  return { id: "new", name: "", description: "", usageScope: "course", audience: "class", audienceClassIds: [], maxConcurrentSessions: null, status: "draft", classes: 0, updatedAt: i18n.t("CourseTemplateEditorPage.notSavedYet", { ns: "teaching" }), nodes: [], edges: [], publications: [] };
+  return { id: "new", name: "", description: "", usageScope: "course", status: "draft", classes: 0, updatedAt: i18n.t("CourseTemplateEditorPage.notSavedYet", { ns: "teaching" }), nodes: [], edges: [], publications: [] };
 }
 
 const FIREWALL_PROTOCOLS = ["tcp", "udp", "icmp", "icmpv6", "sctp"];
@@ -467,7 +466,6 @@ export default function CourseTemplateEditorPage() {
   const [lxcImages, setLxcImages] = useState([]);
   const [zones, setZones] = useState([]);
   const [sourceNotice, setSourceNotice] = useState("");
-  const [classes, setClasses] = useState([]);
   const [loading, setLoading] = useState(Boolean(templateId));
   const [saving, setSaving] = useState(false);
   const [saveState, setSaveState] = useState("idle");
@@ -480,7 +478,8 @@ export default function CourseTemplateEditorPage() {
   /* 儲存檢查：未填欄位反紅＋聚焦 */
   const [invalidField, setInvalidField] = useState("");
   const nameRef = useRef(null);
-  const audienceRef = useRef(null);
+  /* 已發布的環境不能自動儲存，提供方式這組欄位改完要按按鈕才送出 */
+  const [offeringDirty, setOfferingDirty] = useState(false);
   async function leaveTo(path) {
     if (publishingRef.current) return;
     await autosaveRef.current?.flush();
@@ -502,9 +501,6 @@ export default function CourseTemplateEditorPage() {
     edge.protocol !== "any"
     && (!Number.isInteger(Number(edge.port)) || Number(edge.port) < 1 || Number(edge.port) > 65535)
   ));
-  const offersPractice = template.usageScope === "quick_practice" || template.usageScope === "both";
-  const audience = template.audience ?? "class";
-  const missingAudienceClass = offersPractice && audience === "class" && (template.audienceClassIds ?? []).length === 0;
   /* 不小心跳離（點側欄、重新整理）時保留未儲存的編輯：
      每次編輯寫入 sessionStorage，進頁還原，成功儲存／發布才清除 */
   const draftKey = `courseTemplateEditorDraft:${AuthStorage.getSnapshot().sessionId ?? "anonymous"}:${templateId ?? "new"}`;
@@ -578,13 +574,6 @@ export default function CourseTemplateEditorPage() {
   }, [templateId]);
   useEffect(() => {
     let active = true;
-    TeachingClassesService.list()
-      .then((result) => active && setClasses(result?.data ?? result ?? []))
-      .catch(() => {});
-    return () => { active = false; };
-  }, []);
-  useEffect(() => {
-    let active = true;
     TemplatesService.list()
       .then((result) => {
         if (!active) return;
@@ -642,6 +631,33 @@ export default function CourseTemplateEditorPage() {
     try { sessionStorage.setItem(draftKey, JSON.stringify(next)); } catch { /* Autosave still persists to the server. */ }
     autosaveRef.current?.schedule(next);
   }
+  /* 套用方式、開放對象、開放班級與同時上限存在環境身分上，不在版本裡：發布凍結
+     的是機器設定，不是「誰拿得到」。草稿照原本的自動儲存走；已發布的先改在本地，
+     按「儲存開放設定」才送出，免得每動一下就打一次 API。 */
+  function updateOffering(patch) {
+    if (publishingRef.current || saving) return;
+    if (template.status === "draft") { update(patch); return; }
+    const next = { ...templateRef.current, ...patch };
+    templateRef.current = next;
+    setTemplate(next);
+    setOfferingDirty(true);
+  }
+
+  async function saveOffering() {
+    if (publishingRef.current) return;
+    const next = templateRef.current;
+    setSaving(true);
+    try {
+      const saved = await CourseEnvironmentsService.setVisibility(next.id, next);
+      templateRef.current = saved;
+      setTemplate(saved);
+      setOfferingDirty(false);
+      toast.success(t("CourseTemplateEditorPage.offeringSaved"));
+    } catch (reason) {
+      toast.error(reason?.message ?? t("CourseTemplateEditorPage.offeringSaveFailed"));
+    } finally { setSaving(false); }
+  }
+
   function changeTab(nextTab) { setParams(returnTo ? { tab: nextTab, returnTo } : { tab: nextTab }); }
 
   /* 儲存前檢查：欄位類問題直接反紅＋聚焦（比照 ClassSetupPage），
@@ -651,12 +667,6 @@ export default function CourseTemplateEditorPage() {
       setInvalidField("name");
       changeTab("basic");
       setTimeout(() => focusInvalidField(nameRef.current), 60);
-      return false;
-    }
-    if (missingAudienceClass) {
-      setInvalidField("audienceClasses");
-      changeTab("basic");
-      setTimeout(() => focusInvalidField(audienceRef.current), 60);
       return false;
     }
     if (template.nodes.length === 0) { changeTab("machines"); toast.error(t("CourseTemplateEditorPage.needAtLeastOneMachineReason")); return false; }
@@ -737,7 +747,7 @@ export default function CourseTemplateEditorPage() {
           );
         })}
     </nav>
-    {tab === "basic" && <section className={styles.card}><div className={styles.formGrid}><label className={styles.field}><span>{t("CourseTemplateEditorPage.fieldEnvName")}</span><input ref={nameRef} className={invalidField === "name" ? styles.fieldInvalid : undefined} aria-invalid={invalidField === "name"} aria-errormessage={invalidField === "name" ? "env-name-error" : undefined} disabled={locked} value={template.name} onChange={(event) => { update({ name: event.target.value }); if (invalidField === "name") setInvalidField(""); }} placeholder={t("CourseTemplateEditorPage.envNamePlaceholder")} />{invalidField === "name" && <em id="env-name-error" className={styles.fieldError}>{t("CourseTemplateEditorPage.nameRequiredError")}</em>}</label><label className={styles.field}><span>{t("CourseTemplateEditorPage.fieldUsageScope")}</span><select disabled={locked} value={template.usageScope ?? "course"} onChange={(event) => update({ usageScope: event.target.value })}><option value="course">{t("CourseTemplateEditorPage.usageScopeCourseOnly")}</option><option value="quick_practice">{t("CourseTemplateEditorPage.usageScopeQuickPracticeOnly")}</option><option value="both">{t("CourseTemplateEditorPage.usageScopeBoth")}</option></select></label>{offersPractice && <label className={styles.field}><span>{t("CourseTemplateEditorPage.fieldMaxConcurrent")}</span><input disabled={locked} type="number" min={1} max={500} placeholder={t("CourseTemplateEditorPage.maxConcurrentPlaceholder")} value={template.maxConcurrentSessions ?? ""} onChange={(event) => update({ maxConcurrentSessions: event.target.value === "" ? null : Number(event.target.value) })} /></label>}{offersPractice && <label className={styles.field}><span>{t("CourseTemplateEditorPage.fieldAudience")}</span><select disabled={locked} value={audience} onChange={(event) => update({ audience: event.target.value })}><option value="class">{t("CourseTemplateEditorPage.audienceOptClass")}</option><option value="campus">{t("CourseTemplateEditorPage.audienceOptCampus")}</option><option value="owner">{t("CourseTemplateEditorPage.audienceOptOwner")}</option></select></label>}{offersPractice && audience === "class" && <div ref={audienceRef} tabIndex={-1} className={`${styles.field} ${styles.fieldFull} ${invalidField === "audienceClasses" ? styles.fieldInvalid : ""}`} aria-invalid={invalidField === "audienceClasses" || undefined} aria-errormessage={invalidField === "audienceClasses" ? "audience-classes-error" : undefined}><span>{t("CourseTemplateEditorPage.fieldAudienceClasses")}</span>{invalidField === "audienceClasses" && <em id="audience-classes-error" className={styles.fieldError}>{t("CourseTemplateEditorPage.audienceClassesRequiredError")}</em>}{classes.length === 0 ? <p className={styles.inspectorHint}>{t("CourseTemplateEditorPage.noClassesHint")}</p> : <div className={styles.audienceClassList}>{classes.map((item) => <label key={item.id} className={styles.audienceClassItem}><input type="checkbox" disabled={locked} checked={(template.audienceClassIds ?? []).includes(String(item.id))} onChange={(event) => { update({ audienceClassIds: event.target.checked ? [...(template.audienceClassIds ?? []), String(item.id)] : (template.audienceClassIds ?? []).filter((id) => id !== String(item.id)) }); if (invalidField === "audienceClasses") setInvalidField(""); }} /><span>{item.name}<small>{item.code} · {item.term}</small></span></label>)}</div>}</div>}<label className={`${styles.field} ${styles.fieldFull}`}><span>{t("CourseTemplateEditorPage.fieldEnvDescription")}</span><textarea disabled={locked} rows={3} value={template.description ?? ""} onChange={(event) => update({ description: event.target.value })} /></label></div><div className={styles.actionFooter}><button type="button" className={styles.btnPrimary} onClick={() => changeTab("machines")}>{t("CourseTemplateEditorPage.viewMachineConfigBtn")}<MIcon name="arrow_forward" size={16} /></button></div></section>}
+    {tab === "basic" && <section className={styles.card}><div className={styles.formGrid}><label className={styles.field}><span>{t("CourseTemplateEditorPage.fieldEnvName")}</span><input ref={nameRef} className={invalidField === "name" ? styles.fieldInvalid : undefined} aria-invalid={invalidField === "name"} aria-errormessage={invalidField === "name" ? "env-name-error" : undefined} disabled={locked} value={template.name} onChange={(event) => { update({ name: event.target.value }); if (invalidField === "name") setInvalidField(""); }} placeholder={t("CourseTemplateEditorPage.envNamePlaceholder")} />{invalidField === "name" && <em id="env-name-error" className={styles.fieldError}>{t("CourseTemplateEditorPage.nameRequiredError")}</em>}</label><label className={styles.field}><span>{t("CourseTemplateEditorPage.fieldUsageScope")}</span><select disabled={saving} value={template.usageScope ?? "course"} onChange={(event) => updateOffering({ usageScope: event.target.value })}><option value="course">{t("CourseTemplateEditorPage.usageScopeCourseOnly")}</option><option value="quick_practice">{t("CourseTemplateEditorPage.usageScopeQuickPracticeOnly")}</option><option value="both">{t("CourseTemplateEditorPage.usageScopeBoth")}</option></select></label><label className={`${styles.field} ${styles.fieldFull}`}><span>{t("CourseTemplateEditorPage.fieldEnvDescription")}</span><textarea disabled={locked} rows={3} value={template.description ?? ""} onChange={(event) => update({ description: event.target.value })} /></label></div>{template.status !== "draft" && <p className={styles.inspectorHint}>{t("CourseTemplateEditorPage.offeringEditableHint")}</p>}<div className={styles.actionFooter}>{template.status !== "draft" && <button type="button" className={styles.btnPrimary} disabled={saving || !offeringDirty} onClick={saveOffering}><MIcon name="save" size={16} />{t("CourseTemplateEditorPage.saveOfferingBtn")}</button>}<button type="button" className={template.status === "draft" ? styles.btnPrimary : styles.btnSecondary} onClick={() => changeTab("machines")}>{t("CourseTemplateEditorPage.viewMachineConfigBtn")}<MIcon name="arrow_forward" size={16} /></button></div></section>}
     {tab === "machines" && <MachineEditor value={template.nodes} edges={template.edges ?? []} publications={template.publications ?? []} onChange={(nodes) => update({ nodes })} onEdgesChange={(edges) => update({ edges })} onPublicationsChange={(publications) => update({ publications })} pveTemplates={pveTemplates} vmImages={vmImages} lxcImages={lxcImages} zones={zones} sourceNotice={sourceNotice} locked={locked} actions={template.status === "draft" && <button type="button" className={styles.btnPrimary} disabled={saving || closing} onClick={publish}><MIcon name="publish" size={16} />{saving ? t("CourseTemplateEditorPage.publishing") : t("CourseTemplateEditorPage.publishLabel")}</button>} />}
   </div>;
 }

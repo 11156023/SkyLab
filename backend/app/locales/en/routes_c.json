@@ -2,10 +2,8 @@
   "desktop.device_code_not_found": "Device code not found or expired",
   "desktop.device_code_expired": "Device code expired",
   "desktop.installer_not_found": "Desktop client installer not found. Build desktop-client or set DESKTOP_CLIENT_DOWNLOAD_URL.",
-
   "course_admin.class_not_found": "Teaching class not found",
   "course_admin.owner_mismatch": "Course path and teaching class must have the same owner",
-
   "course_env.not_found": "Course environment not found",
   "course_env.duplicate_node_key": "Machine codes within the same course version must be unique",
   "course_env.template_not_ready": "The PVE template linked to machine \"{name}\" doesn't exist or isn't ready yet",
@@ -25,7 +23,6 @@
   "course_env.published_immutable": "A published course version cannot be modified; please create a new version",
   "course_env.only_draft_publishable": "Only a draft version can be published",
   "course_env.draft_exists": "There's already an editable draft version",
-  "course_env.no_published_version": "This environment has no published version to retire",
   "course_env.delete_blocked": "Cannot delete: {reasons}. Use \"Retire\" instead to stop new launches.",
   "course_env.reason_classes_using": "in use by {count} class(es)",
   "course_env.reason_sessions_using": "referenced by {count} quick-practice record(s)",
@@ -35,7 +32,6 @@
   "course_env.edge_same_node": "A connection's source and target cannot be the same",
   "course_env.edge_port_required": "A firewall connection must specify a port",
   "course_env.audience_class_required": "When opening this for quick practice, you must choose which classes can see this environment",
-
   "gateway.unknown_service": "Unknown service: {service}",
   "gateway.service_config_not_exposed": "Raw configuration editing is not exposed for {service} for security reasons",
   "gateway.wireguard_overview_failed": "Unable to retrieve the Gateway WireGuard overview",
@@ -48,7 +44,6 @@
   "gateway.service_config_saved": "{service} configuration saved",
   "gateway.traefik_dns_synced": "Traefik has been updated with the Cloudflare DNS Challenge settings",
   "gateway.ssh_not_configured": "Gateway VM IP or SSH key hasn't been configured yet",
-
   "firewall.proxmox_unavailable": "Proxmox service is unavailable",
   "firewall.get_topology_failed": "Failed to get the topology",
   "firewall.rule_managed_no_modify": "This rule is managed by SkyLab and cannot be modified",
@@ -66,21 +61,17 @@
   "firewall.rule_deleted": "Rule deleted",
   "firewall.nat_rule_deleted": "NAT rule deleted",
   "firewall.nat_rules_synced": "NAT rules synced to the Gateway VM",
-
   "auth.invalid_credentials": "Could not validate credentials",
   "auth.access_token_only": "Only access tokens can be used for API access",
   "auth.token_revoked": "Token has been revoked",
   "auth.user_not_found": "User not found",
   "auth.user_inactive": "Inactive user",
-
   "resource_access.no_permission": "You don't have permission to access this resource",
   "resource_access.teaching_class_unassigned": "This teaching-class resource is no longer assigned",
   "resource_access.teaching_class_inactive": "This teaching-class resource is not available to students",
   "resource_access.teaching_class_scope_lost": "This teaching-class resource has lost its class assignment; an administrator must reclaim it",
-
   "rate_limit.ip_too_many_requests": "Too many requests from {ip}. Retry after {retry_after} seconds.",
   "rate_limit.user_too_many_requests": "Too many requests. Retry after {retry_after} seconds.",
-
   "ai_api_key.invalid_auth_format": "Invalid authorization header format. Expected: Bearer <api_key>",
   "ai_api_key.api_key_required": "API key is required",
   "ai_api_key.invalid_or_revoked": "Invalid or revoked API key",

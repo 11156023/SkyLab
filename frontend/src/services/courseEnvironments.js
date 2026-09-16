@@ -1,7 +1,7 @@
-import { apiDelete, apiGet, apiPost, apiPut } from "./api";
+import { apiDelete, apiGet, apiPatch, apiPost, apiPut } from "./api";
 import { formatDate } from "../utils/formatDate";
 
-const EDITOR_FIELDS = ["name", "description", "usageScope", "audience", "audienceClassIds", "maxConcurrentSessions", "nodes", "edges", "publications"];
+const EDITOR_FIELDS = ["name", "description", "usageScope", "nodes", "edges", "publications"];
 function editorFields(item) {
   return Object.fromEntries(EDITOR_FIELDS.filter((key) => key in item).map((key) => [key, item[key]]));
 }
@@ -38,9 +38,6 @@ export function normalizeCourseEnvironment(item) {
     versionId: String(item.version_id),
     updatedAt: formatDate(item.updated_at, ""),
     usageScope: item.usage_scope ?? "course",
-    audience: item.audience ?? "class",
-    audienceClassIds: (item.audience_class_ids ?? []).map(String),
-    maxConcurrentSessions: item.max_concurrent_sessions ?? null,
     nodes: (item.nodes ?? []).map(normalizeNode),
     edges: (item.edges ?? []).map((edge) => ({
       ...edge,
@@ -71,9 +68,11 @@ export function environmentPayload(item) {
     name: item.name.trim(),
     description: item.description?.trim() || null,
     usage_scope: item.usageScope ?? "course",
-    audience: item.audience ?? "class",
-    audience_class_ids: (item.audience ?? "class") === "class" ? (item.audienceClassIds ?? []) : [],
-    max_concurrent_sessions: Number(item.maxConcurrentSessions) > 0 ? Number(item.maxConcurrentSessions) : null,
+    /* 沒有「學生可見對象」這個欄位了：提供為快速練習就代表全校學生都拿得到，
+       名額仍由每人同時一組與 24 小時上限擋著。 */
+    audience: "campus",
+    audience_class_ids: [],
+    max_concurrent_sessions: null,
     nodes: item.nodes.map((node, index) => ({
       node_key: String(node.id || `node-${index + 1}`),
       source_type: node.sourceType ?? "template",
@@ -135,8 +134,10 @@ export const CourseEnvironmentsService = {
   async publish(environmentId) {
     return normalizeCourseEnvironment(await apiPost(`/api/v1/course-environments/${environmentId}/publish`, {}));
   },
-  async retire(environmentId) {
-    return normalizeCourseEnvironment(await apiPost(`/api/v1/course-environments/${environmentId}/retire`, {}));
+  async setVisibility(environmentId, item) {
+    return normalizeCourseEnvironment(await apiPatch(`/api/v1/course-environments/${environmentId}/visibility`, {
+      usage_scope: item.usageScope ?? "course",
+    }));
   },
   async remove(environmentId) {
     return apiDelete(`/api/v1/course-environments/${environmentId}`);

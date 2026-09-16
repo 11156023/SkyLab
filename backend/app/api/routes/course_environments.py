@@ -157,6 +157,19 @@ class EnvironmentUpdate(EnvironmentCreate):
     pass
 
 
+class EnvironmentVisibilityIn(BaseModel):
+    """How the environment is offered, at any version status.
+
+    ``usage_scope`` lives on the environment row rather than on a version: it
+    decides whether students meet the environment at all and never reaches a
+    provisioned machine. Publication freezes the configuration, not who may
+    use it, so the teacher can reopen or close it without cutting a new
+    version.
+    """
+
+    usage_scope: Literal["course", "quick_practice", "both"]
+
+
 class EnvironmentDraftIn(BaseModel):
     # The editor may contain empty fields or unfinished numeric input. Only
     # publication turns this into a validated, deployable configuration.
@@ -597,6 +610,36 @@ def update_environment(
     return _serialize_version(session, environment, version)
 
 
+@router.patch("/{environment_id}/visibility")
+def update_environment_visibility(
+    environment_id: uuid.UUID,
+    body: EnvironmentVisibilityIn,
+    session: SessionDep,
+    current_user: InstructorUser,
+) -> dict[str, Any]:
+    """調整環境的提供方式，不需要開新版本。
+
+    改成不提供給學生只影響「還沒啟動」的人：已經在跑的練習 Session 照自己的
+    期限走完。若最新版本還帶著草稿快照，連草稿一起改，免得之後發布又把這次
+    的調整蓋回去。
+    """
+    environment = _get_environment(session, current_user, environment_id)
+    environment.usage_scope = body.usage_scope
+    version = _latest(session, environment)
+    if version.draft_data:
+        draft = json.loads(version.draft_data)
+        if isinstance(draft.get("configuration"), dict):
+            draft["configuration"]["usage_scope"] = body.usage_scope
+        if isinstance(draft.get("editor"), dict):
+            draft["editor"]["usageScope"] = body.usage_scope
+        version.draft_data = json.dumps(draft)
+        session.add(version)
+    environment.updated_at = get_datetime_utc()
+    session.add(environment)
+    session.commit()
+    return _serialize_version(session, environment, version)
+
+
 @router.post("/{environment_id}/publish")
 def publish_environment(
     environment_id: uuid.UUID,
@@ -712,40 +755,10 @@ def create_environment_version(
     return _serialize_version(session, environment, version)
 
 
-@router.post("/{environment_id}/retire")
-def retire_environment(
-    environment_id: uuid.UUID,
-    session: SessionDep,
-    current_user: InstructorUser,
-) -> dict[str, Any]:
-    """下架：停止新的啟動與套用，既有 Session 與班級不受影響。
-
-    退役是版本層的動作，因為班級與練習 Session 都鎖在某一個版本上；把已發布
-    版本改為 `retired` 之後，它就不再出現在學生清單與班級可選清單，但既有
-    Session 仍照自己的期限走完。
-    """
-    environment = _get_environment(session, current_user, environment_id)
-    versions = _versions(session, environment.id)
-    published = [
-        version
-        for version in versions
-        if version.status == CourseEnvironmentVersionStatus.published
-    ]
-    if not published:
-        raise BadRequestError(t("course_env.no_published_version"))
-    for version in published:
-        version.status = CourseEnvironmentVersionStatus.retired
-        session.add(version)
-    environment.updated_at = get_datetime_utc()
-    session.add(environment)
-    session.commit()
-    return _serialize_version(session, environment, _latest(session, environment))
-
-
 def _environment_references(
     session: SessionDep, environment_id: uuid.UUID
 ) -> list[str]:
-    """刪除前的引用盤點：有引用就不能硬刪，只能下架。"""
+    """刪除前的引用盤點：有引用就不能硬刪，只能把提供方式收起來。"""
     version_ids = [version.id for version in _versions(session, environment_id)]
     if not version_ids:
         return []
