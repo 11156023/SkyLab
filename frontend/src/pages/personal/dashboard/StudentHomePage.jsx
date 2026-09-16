@@ -603,7 +603,7 @@ export default function StudentHomePage({ courseView = false }) {
             onClick={() => navigate(location.state?.from ?? "/dashboard")}
           >
             <MIcon name="arrow_back" size={18} />
-            {t("StudentHomePage.backToMyCourses")}
+            {t("StudentHomePage.back")}
           </button>
           <div className={styles.coursePageTitle}>
             <p className={styles.eyebrow}>{t("StudentHomePage.courseOverview")}</p>
@@ -626,7 +626,7 @@ export default function StudentHomePage({ courseView = false }) {
       {!courseView && (
         <>
           <PageHeader
-            title={t("StudentHomePage.myCourses")}
+            title={t("StudentHomePage.title")}
             subtitle={view.paths.length > 0 ? t("StudentHomePage.subtitleWithCourses", { today: todayLabel, count: view.paths.length }) : t("StudentHomePage.subtitleNoCourses", { today: todayLabel })}
           >
             {view.paths.some((path) => path.schedule?.state === "now") && (
@@ -754,7 +754,7 @@ export default function StudentHomePage({ courseView = false }) {
           {practiceMachines.length > 0 && (
             <section className={styles.machinePicker} aria-label={t("StudentHomePage.classMachinesAria")} data-guide="home-start">
               <header>
-                <div><strong>{t("StudentHomePage.yourClassMachines")}</strong><span>{t("StudentHomePage.classMachinesHint")}</span></div>
+                <div><strong>{t("StudentHomePage.yourClassMachines")}</strong></div>
               </header>
               <div className={styles.machineGrid}>
                 {practiceMachines.map((machine) => (
@@ -803,10 +803,7 @@ export default function StudentHomePage({ courseView = false }) {
 
       <section className={styles.taskSection} aria-labelledby="task-title" data-student-tour="tasks" data-guide="home-tasks">
         <div className={styles.sectionHeading}>
-          <div>
-            <p className={styles.eyebrow}>{t("StudentHomePage.publishedByTeacher")}</p>
-            <h2 id="task-title">{t("StudentHomePage.courseTasks")}</h2>
-          </div>
+          <h2 id="task-title">{t("StudentHomePage.courseTasks")}</h2>
           {(view.weeklyTasks.length > 0 || aiRequirementCount > 0) && <span>{t("StudentHomePage.taskSummary", { taskCount: view.weeklyTasks.length, checkpointCount: weeklyCheckpointCount + standaloneAiAssignments.reduce((count, assignment) => count + (assignment.items?.length ?? 0), 0) })}</span>}
         </div>
 
@@ -1005,9 +1002,7 @@ export default function StudentHomePage({ courseView = false }) {
       {!courseView && (
       <section className={styles.otherNeeds} aria-labelledby="other-needs-title" data-guide="home-other-needs">
         <div className={styles.sectionHeading}>
-          <div>
-            <h2 id="other-needs-title">{t("StudentHomePage.otherUseCases")}</h2>
-          </div>
+          <h2 id="other-needs-title">{t("StudentHomePage.otherUseCases")}</h2>
         </div>
 
         <div className={styles.needGrid}>
@@ -1015,7 +1010,6 @@ export default function StudentHomePage({ courseView = false }) {
             <div>
               <span className={styles.needBadge}>{t("StudentHomePage.afterClassBadge")}</span>
               <h3>{t("StudentHomePage.continueLastProgress")}</h3>
-              <p>{t("StudentHomePage.continueLastProgressDesc")}</p>
             </div>
             <button type="button" className={styles.secondaryButton} onClick={() => openCourseOverview()}>
               {t("StudentHomePage.continuePractice")}
@@ -1027,7 +1021,6 @@ export default function StudentHomePage({ courseView = false }) {
             <div>
               <span className={`${styles.needBadge} ${styles.needBadge_info}`}>{t("StudentHomePage.researchBadge")}</span>
               <h3>{t("StudentHomePage.buildResearchEnv")}</h3>
-              <p>{t("StudentHomePage.buildResearchEnvDesc")}</p>
             </div>
             <button type="button" className={styles.secondaryButton} onClick={() => navigate("/my-requests")}>
               {t("StudentHomePage.goToMyRequests")}
@@ -1035,57 +1028,56 @@ export default function StudentHomePage({ courseView = false }) {
             </button>
           </article>
         </div>
+      </section>
+      )}
 
-        <section className={styles.quickTemplateSection} aria-labelledby="quick-template-title" data-guide="home-quick-templates">
-          <div className={styles.sectionHeading}>
-            <div>
-              <h2 id="quick-template-title">{t("StudentHomePage.quickPracticeEnv")}</h2>
-            </div>
-            <span>{t("StudentHomePage.quickPracticeEnvDesc")}</span>
+      {!courseView && (
+      <section className={styles.quickTemplateSection} aria-labelledby="quick-template-title" data-guide="home-quick-templates">
+        <div className={styles.sectionHeading}>
+          <h2 id="quick-template-title">{t("StudentHomePage.quickPracticeEnv")}</h2>
+        </div>
+
+        {templatesLoading ? (
+          <LoadingState />
+        ) : displayedQuickTemplates.length > 0 ? (
+          <div className={styles.quickTemplateGrid}>
+            {displayedQuickTemplates.map((template) => (
+              <button
+                type="button"
+                key={template.id}
+                className={styles.templateCard}
+                onClick={() => navigate(`/quick-template/${template.id}`, { state: { from: "/dashboard" } })}
+              >
+                <div className={styles.templateHeader}>
+                  <span className={styles.templateLogo}><MIcon name="layers" size={22} /></span>
+                  <span className={styles.templateCategoryChip}>
+                    {t("StudentHomePage.noManualReviewChip")}
+                  </span>
+                </div>
+                <div className={styles.templateBody}>
+                  <h4 className={styles.templateName}>{template.name}</h4>
+                  <p className={styles.templateDesc}>
+                    {template.description || t("StudentHomePage.templateDescFallback", { count: template.nodes.length })}
+                  </p>
+                </div>
+                <div className={styles.templateFooter}>
+                  <span className={styles.templateAction}>
+                    {t("StudentHomePage.createNow")}
+                    <MIcon name="arrow_forward" size={14} />
+                  </span>
+                </div>
+              </button>
+            ))}
           </div>
-
-          {templatesLoading ? (
-            <LoadingState />
-          ) : displayedQuickTemplates.length > 0 ? (
-            <div className={styles.quickTemplateGrid}>
-              {displayedQuickTemplates.map((template) => (
-                <button
-                  type="button"
-                  key={template.id}
-                  className={styles.templateCard}
-                  onClick={() => navigate(`/quick-template/${template.id}`, { state: { from: "/dashboard" } })}
-                >
-                  <div className={styles.templateHeader}>
-                    <span className={styles.templateLogo}><MIcon name="layers" size={22} /></span>
-                    <span className={styles.templateCategoryChip}>
-                      {t("StudentHomePage.noManualReviewChip")}
-                    </span>
-                  </div>
-                  <div className={styles.templateBody}>
-                    <h4 className={styles.templateName}>{template.name}</h4>
-                    <p className={styles.templateDesc}>
-                      {template.description || t("StudentHomePage.templateDescFallback", { count: template.nodes.length })}
-                    </p>
-                  </div>
-                  <div className={styles.templateFooter}>
-                    <span className={styles.templateAction}>
-                      {t("StudentHomePage.createNow")}
-                      <MIcon name="arrow_forward" size={14} />
-                    </span>
-                  </div>
-                </button>
-              ))}
+        ) : (
+          <div className={styles.quickTemplateEmpty}>
+            <span><MIcon name="inventory_2" size={23} /></span>
+            <div>
+              <strong>{t("StudentHomePage.noQuickTemplatesTitle")}</strong>
+              <p>{t("StudentHomePage.noQuickTemplatesDesc")}</p>
             </div>
-          ) : (
-            <div className={styles.quickTemplateEmpty}>
-              <span><MIcon name="inventory_2" size={23} /></span>
-              <div>
-                <strong>{t("StudentHomePage.noQuickTemplatesTitle")}</strong>
-                <p>{t("StudentHomePage.noQuickTemplatesDesc")}</p>
-              </div>
-            </div>
-          )}
-        </section>
+          </div>
+        )}
       </section>
       )}
 

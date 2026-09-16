@@ -68,10 +68,7 @@ export default function StudentCoursesPage() {
 
   return (
     <div className={styles.page}>
-      <PageHeader
-        eyebrow={t("StudentCoursesPage.eyebrow")}
-        title={t("StudentCoursesPage.title")}
-      />
+      <PageHeader title={t("StudentCoursesPage.title")} />
 
       {view.hasError && (
         <div className={styles.notice} role="alert">
@@ -129,9 +126,7 @@ export default function StudentCoursesPage() {
                     <span>{t("StudentCoursesPage.roomCount", { count: path.room_count })}</span>
                   </span>
                   <strong className={styles.courseTitle}>{path.title}</strong>
-                  <span className={styles.courseDescription}>
-                    {path.description || t("StudentCoursesPage.noDescription")}
-                  </span>
+                  {path.description && <span className={styles.courseDescription}>{path.description}</span>}
                   <span className={styles.progressMeta}>
                     <span>{t("StudentCoursesPage.progress", { percent: Math.round(progress) })}</span>
                     <span>{t("StudentCoursesPage.questions", { completed: path.completed_questions, total: path.total_questions })}</span>
