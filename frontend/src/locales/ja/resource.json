@@ -188,6 +188,7 @@
   "ResourceMgmtPage.actionReset": "強制リセット",
   "ResourceMgmtPage.actionReboot": "再起動",
   "ResourceMgmtPage.columnName": "名前",
+  "ResourceMgmtPage.columnKind": "提供元",
   "ResourceMgmtPage.columnEnvOs": "環境 / OS",
   "ResourceMgmtPage.columnStatus": "状態",
   "ResourceMgmtPage.columnIp": "IP アドレス",
@@ -381,5 +382,7 @@
   "TemplatesPage.deleting": "削除中…",
   "TemplatesPage.confirmDelete": "削除を確認",
   "RequestReviewPage.specChangeExpiry": "有効期限 {{from}} → {{to}}",
-  "RequestReviewPage.expiryUnlimited": "無期限"
+  "RequestReviewPage.expiryUnlimited": "無期限",
+  "ResourceMgmtPage.toggleGroupAria": "{{name}} を展開または折りたたむ",
+  "ResourceMgmtPage.groupPowerTitle": "グループ電源"
 }

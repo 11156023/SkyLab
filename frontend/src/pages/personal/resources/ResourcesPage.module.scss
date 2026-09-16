@@ -43,20 +43,6 @@
   @include btn-secondary;
 }
 
-.rowChips {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px;
-  margin-top: 4px;
-}
-
-/* 群組列標題：來源徽章 + 班級／練習名稱 */
-.groupTitle {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  min-width: 0;
-}
 
 /* 老師看學生機器：機器名下方的學生姓名 */
 .machineOwner {
@@ -87,22 +73,23 @@
 
 /* 欄寬由 <colgroup> 固定。auto layout 會依內容重算每一欄，
    展開群組時多出的動作按鈕（終端機／啟動）會讓整張表的欄寬跳動，
-   所以改成 fixed；名稱欄不指定寬度，吸收剩下的空間。 */
+   所以改成 fixed。每一欄都給定寬度，兩張資源表才會是同一組比例。 */
 .table {
   @include table-base;
   table-layout: fixed;
-  min-width: 1080px;
+  min-width: 1305px;
 }
 
 /* 名稱欄也給定寬度，剩餘空間依比例分給所有欄，
    否則寬螢幕時名稱欄會吸掉全部留白、其他欄擠在右側 */
-.colName    { width: 300px; }
+.colName    { width: 260px; }
+.colKind    { width: 190px; }
 .colEnv     { width: 160px; }
-.colStatus  { width: 100px; }
-.colIp      { width: 130px; }
+.colStatus  { width: 110px; }
+.colIp      { width: 190px; }
 .colExpiry  { width: 150px; }
-.colNode    { width: 80px; }
-.colActions { width: 220px; }
+.colNode    { width:  85px; }
+.colActions { width: 160px; }
 
 .th {
   @include table-th;
@@ -174,12 +161,23 @@
 .envPrimary { color: var(--color-text-primary); font-size: $font-size-14; }
 .envSub, .muted { color: var(--color-text-muted); font-size: $font-size-12; }
 .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: $font-size-12; }
+.publicUrlText {
+  @include text-truncate;
+}
+
 .publicUrlLink { display: inline-flex; align-items: center; gap: 3px; margin-top: 3px; max-width: 100%; overflow: hidden; color: var(--color-primary); font-size: $font-size-12; text-decoration: none; text-overflow: ellipsis; white-space: nowrap; }
 .publicUrlLink:hover { text-decoration: underline; }
 /* 一台機器可能有多個對外網址，直向排在 IP 底下 */
 .publicUrlList { display: flex; flex-direction: column; align-items: flex-start; }
 /* 動作欄寬度固定，按鈕不換行也不壓縮，避免內容多寡影響版面。 */
-.rowActions { display: flex; align-items: center; gap: $spacing-8; flex-wrap: nowrap; > * { flex-shrink: 0; } }
+.rowActions { display: flex; align-items: center; justify-content: flex-end; gap: $spacing-8; flex-wrap: nowrap; > * { flex-shrink: 0; } }
+
+/* 只有動作欄的內容靠右（讓 ⋮ 對齊），表頭位置維持不動；
+   右側留白比其他欄多一階，⋮ 才不會貼著表格邊緣 */
+.td:last-child {
+  padding-right: $spacing-24;
+  text-align: right;
+}
 .pendingRow { background: color-mix(in srgb, var(--color-info) 4%, var(--color-surface)); }
 
 /* 群組列整列可開合，是這張表唯一可點的列。
@@ -197,27 +195,30 @@
 .environmentMachineRow { background: var(--color-surface); }
 
 .environmentToggle {
-  display: flex;
-  width: 100%;
-  min-width: 0;
-  align-items: center;
-  gap: $spacing-8;
+  @include flex-center;
+  width: 34px;
+  height: 34px;
+  flex: 0 0 auto;
   padding: 0;
   border: 0;
-  color: var(--color-text-primary);
+  border-radius: $radius-8;
+  color: var(--color-text-muted);
   background: transparent;
-  text-align: left;
   cursor: pointer;
 
-  > :first-child { flex: 0 0 auto; color: var(--color-text-muted); }
-  > span:last-child { display: flex; min-width: 0; flex-direction: column; gap: 2px; }
-  strong { overflow: hidden; font-size: $font-size-14; font-weight: $font-weight-500; text-overflow: ellipsis; white-space: nowrap; }
-  small { color: var(--color-text-muted); font-size: $font-size-12; }
+  &:hover { background: var(--color-hover); }
 }
 
 .environmentMachineName { padding-left: $spacing-24; }
 /* 拿掉機器列圖示後，階層全靠這個字元表達，顏色要看得見。 */
-.machineBranch { color: var(--color-text-muted); font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: $font-size-18; }
+.machineBranch {
+  width: 34px;
+  flex: 0 0 34px;
+  color: var(--color-text-muted);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: $font-size-18;
+  text-align: center;
+}
 .environmentTiming { color: var(--color-primary); font-size: $font-size-12; font-weight: $font-weight-500; white-space: nowrap; }
 
 /* ── Resource card ── */
@@ -436,7 +437,6 @@
 }
 
 /* ── Terminal / Console button ── */
-.groupActions { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 .terminalBtn {
   display: inline-flex;
   align-items: center;

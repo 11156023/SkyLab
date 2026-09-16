@@ -160,6 +160,7 @@
   "ResourcesPage.requestResource": "リソースを申請",
   "ResourcesPage.downloadDesktopClient": "接続アプリをダウンロード",
   "ResourcesPage.colName": "名前",
+  "ResourcesPage.colKind": "提供元",
   "ResourcesPage.colEnvironment": "環境／OS",
   "ResourcesPage.colStatus": "状態",
   "ResourcesPage.colIp": "IPアドレス",
@@ -1151,5 +1152,7 @@
   "ResourceDetailPage.guideDemoCredentials": "認証情報と SSH キー",
   "ResourceDetailPage.guideDemoCredentialsDesc": "パスワード変更と SSH 公開鍵の管理",
   "ResourceDetailPage.guideDemoSharing": "共有と所有権",
-  "ResourceDetailPage.guideDemoSharingDesc": "現在このマシンにアクセスできるのはあなただけです"
+  "ResourceDetailPage.guideDemoSharingDesc": "現在このマシンにアクセスできるのはあなただけです",
+  "EnvironmentGroupRows.toggleAria": "{{name}} を展開または折りたたむ",
+  "EnvironmentGroupRows.groupPowerTitle": "グループ電源"
 }

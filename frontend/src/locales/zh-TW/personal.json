@@ -160,6 +160,7 @@
   "ResourcesPage.requestResource": "申請資源",
   "ResourcesPage.downloadDesktopClient": "下載連線 App",
   "ResourcesPage.colName": "名稱",
+  "ResourcesPage.colKind": "來源",
   "ResourcesPage.colEnvironment": "環境／系統",
   "ResourcesPage.colStatus": "狀態",
   "ResourcesPage.colIp": "IP 位址",
@@ -1151,5 +1152,7 @@
   "ResourceDetailPage.guideDemoCredentials": "登入憑證與 SSH 金鑰",
   "ResourceDetailPage.guideDemoCredentialsDesc": "變更密碼、更新或新增 SSH 公鑰",
   "ResourceDetailPage.guideDemoSharing": "共享與所有權",
-  "ResourceDetailPage.guideDemoSharingDesc": "目前只有你可以存取這台機器"
+  "ResourceDetailPage.guideDemoSharingDesc": "目前只有你可以存取這台機器",
+  "EnvironmentGroupRows.toggleAria": "展開或收合 {{name}}",
+  "EnvironmentGroupRows.groupPowerTitle": "整組電源"
 }

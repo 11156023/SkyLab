@@ -160,6 +160,7 @@
   "ResourcesPage.requestResource": "Request Resource",
   "ResourcesPage.downloadDesktopClient": "Download Connection App",
   "ResourcesPage.colName": "Name",
+  "ResourcesPage.colKind": "Source",
   "ResourcesPage.colEnvironment": "Environment / OS",
   "ResourcesPage.colStatus": "Status",
   "ResourcesPage.colIp": "IP Address",
@@ -1153,5 +1154,7 @@
   "ResourceDetailPage.guideDemoCredentials": "Credentials and SSH keys",
   "ResourceDetailPage.guideDemoCredentialsDesc": "Change the password or manage SSH public keys",
   "ResourceDetailPage.guideDemoSharing": "Sharing and ownership",
-  "ResourceDetailPage.guideDemoSharingDesc": "Only you can currently access this machine"
+  "ResourceDetailPage.guideDemoSharingDesc": "Only you can currently access this machine",
+  "EnvironmentGroupRows.toggleAria": "Expand or collapse {{name}}",
+  "EnvironmentGroupRows.groupPowerTitle": "Group power"
 }
