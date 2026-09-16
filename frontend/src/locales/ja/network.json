@@ -10,6 +10,7 @@
   "FirewallPage.autoArrange": "自動整列",
   "FirewallPage.connectionLabels": "接続ラベル",
   "FirewallPage.miniMap": "ミニマップ",
+  "FirewallPage.internetLines": "インターネット回線",
   "FirewallPage.hint": "ノードをドラッグして移動、ノード右側から別のノードへドラッグして接続を作成、ノードをクリックしてファイアウォールルールを表示、接続をクリックして公開内容を表示",
   "FirewallPage.legendInbound": "外部公開",
   "FirewallPage.legendOutbound": "外部接続",

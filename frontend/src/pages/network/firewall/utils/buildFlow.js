@@ -162,6 +162,15 @@ function parallelLanes(edges) {
   return assigned.map(({ key, index }) => ({ index, count: counts.get(key) ?? 1 }));
 }
 
+/**
+ * 上網線：任一端是網際網路的邊（對外開放或對外連線）。
+ * 這類線幾乎每台機器都有一條，全畫出來會把機器之間的內部互通淹掉，
+ * 所以頁面預設把它們藏起來，只留內部互通；要看再開。
+ */
+export function isInternetEdge(edge) {
+  return edge?.source_vmid === null || edge?.target_vmid === null;
+}
+
 /** 每台 VM 的對外暴露量：以網際網路為來源、指向該 VM 的 port 數 */
 function exposureByVmid(edges) {
   const counts = new Map();
@@ -174,7 +183,10 @@ function exposureByVmid(edges) {
   return counts;
 }
 
-export function buildFlow(topology, { onSelectEdge, showLabel, selectedEdgeId } = {}) {
+export function buildFlow(
+  topology,
+  { onSelectEdge, showLabel, showInternet = true, selectedEdgeId } = {},
+) {
   const rawEdges = topology.edges ?? [];
   const exposure = exposureByVmid(rawEdges);
 
@@ -203,6 +215,7 @@ export function buildFlow(topology, { onSelectEdge, showLabel, selectedEdgeId } 
       sourceHandle,
       targetHandle,
       type: "connection",
+      hidden: !showInternet && isInternetEdge(edge),
       data: {
         label: edgeLabel(edge.ports),
         showLabel,

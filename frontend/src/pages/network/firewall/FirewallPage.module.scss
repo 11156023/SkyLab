@@ -186,6 +186,12 @@
   align-items: center;
   gap: 5px;
   white-space: nowrap;
+  transition: opacity 0.2s ease;
+
+  /* 對應的線目前沒畫在圖上（上網線被藏起來） */
+  &.legendItemHidden {
+    opacity: 0.4;
+  }
 }
 
 /* 與邊同樣式的短虛線，對得上圖上的線 */

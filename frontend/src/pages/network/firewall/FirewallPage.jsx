@@ -34,7 +34,7 @@ import GatewayNode      from "./nodes/GatewayNode";
 import VMNode           from "./nodes/VMNode";
 import ConnectionEdge   from "./edges/ConnectionEdge";
 import ConnectionDetailPanel from "./ConnectionDetailPanel";
-import { buildFlow, portLabel, routeEdges } from "./utils/buildFlow";
+import { buildFlow, isInternetEdge, portLabel, routeEdges } from "./utils/buildFlow";
 import { useTheme } from "../../../contexts/ThemeContext";
 import useAutoRefresh from "../../../hooks/useAutoRefresh";
 import LoadingState from "../../../components/LoadingState/LoadingState";
@@ -75,6 +75,8 @@ export default function FirewallPage() {
   /* 預設開啟：標籤本身就是「這條線在開什麼」的答案，不該要使用者自己去翻開 */
   const [showLabels,   setShowLabels]   = useState(true);
   const [showMiniMap,  setShowMiniMap]  = useState(true);
+  /* 上網線預設隱藏：幾乎每台機器都有對外線，全畫出來會蓋掉內部互通 */
+  const [showInternet, setShowInternet] = useState(false);
   const [connecting,   setConnecting]   = useState(false);
   const connDialog    = useDialogPresence(showDialog);
   const deleteConfirm = useDialogPresence(deleteEdge);
@@ -86,6 +88,9 @@ export default function FirewallPage() {
   /* 重建拓撲時要沿用目前選取的邊，但選取本身不該讓整張圖重排，所以走 ref */
   const selectedEdgeIdRef = useRef(null);
   selectedEdgeIdRef.current = selectedEdge?.id ?? null;
+  /* 上網線開關同理：切換由下方的同步 effect 就地套用，不重排、不 fitView */
+  const showInternetRef = useRef(showInternet);
+  showInternetRef.current = showInternet;
 
   /* ── 點選邊：開啟連線細節面板（與節點面板互斥） ── */
   const handleSelectEdge = useCallback((edge, id) => {
@@ -93,15 +98,25 @@ export default function FirewallPage() {
     setSelectedEdge((prev) => (prev?.id === id ? null : { id, edge }));
   }, []);
 
-  /* ── 標籤開關／選取狀態變更時同步更新所有邊 ── */
+  /* ── 標籤／上網線開關、選取狀態變更時同步更新所有邊 ── */
   useEffect(() => {
     setEdges((prev) =>
       prev.map((e) => ({
         ...e,
+        hidden: !showInternet && isInternetEdge(e.data.edge),
         data: { ...e.data, showLabel: showLabels, selected: e.id === selectedEdge?.id },
       }))
     );
-  }, [showLabels, selectedEdge, setEdges]);
+  }, [showLabels, showInternet, selectedEdge, setEdges]);
+
+  /* ── 切換上網線：藏起來時，若正開著某條上網線的細節面板，一併關掉 ── */
+  const toggleInternet = useCallback(() => {
+    const next = !showInternet;
+    setShowInternet(next);
+    if (!next) {
+      setSelectedEdge((sel) => (sel && isInternetEdge(sel.edge) ? null : sel));
+    }
+  }, [showInternet]);
 
   /* ── 載入拓撲（silent = true 時不觸發 loading / error state，供背景自動刷新使用） ── */
   const fetchTopology = useCallback(async (silent = false, signal) => {
@@ -124,6 +139,7 @@ export default function FirewallPage() {
     const { nodes: nextNodes, edges: nextEdges } = buildFlow(topology, {
       onSelectEdge: handleSelectEdge,
       showLabel: showLabels,
+      showInternet: showInternetRef.current,
       selectedEdgeId: selectedEdgeIdRef.current,
     });
     /* 拓撲刷新時保留仍存在的選取節點：規則面板可就地操作後，
@@ -374,6 +390,14 @@ export default function FirewallPage() {
                   </button>
                   <button
                     type="button"
+                    className={`${styles.toolbarBtn} ${showInternet ? styles.toolbarBtnActive : ""}`}
+                    onClick={toggleInternet}
+                  >
+                    <MIcon name={showInternet ? "public" : "public_off"} size={16} />
+                    {t("FirewallPage.internetLines")}
+                  </button>
+                  <button
+                    type="button"
                     className={`${styles.toolbarBtn} ${showMiniMap ? styles.toolbarBtnActive : ""}`}
                     onClick={() => setShowMiniMap((v) => !v)}
                   >
@@ -387,11 +411,12 @@ export default function FirewallPage() {
                 <div className={styles.bottomStack}>
                   {/* 線的顏色本來只寫在程式碼註解裡，圖上沒有任何地方解釋 */}
                   <div className={styles.legend}>
-                    <span className={styles.legendItem}>
+                    {/* 上網線藏起來時，圖例的對外兩項一起變淡，提醒圖上少了這兩種線 */}
+                    <span className={`${styles.legendItem} ${showInternet ? "" : styles.legendItemHidden}`}>
                       <i className={`${styles.legendLine} ${styles.legendInbound}`} />
                       {t("FirewallPage.legendInbound")}
                     </span>
-                    <span className={styles.legendItem}>
+                    <span className={`${styles.legendItem} ${showInternet ? "" : styles.legendItemHidden}`}>
                       <i className={`${styles.legendLine} ${styles.legendOutbound}`} />
                       {t("FirewallPage.legendOutbound")}
                     </span>

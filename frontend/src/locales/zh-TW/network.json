@@ -10,6 +10,7 @@
   "FirewallPage.autoArrange": "自動排列",
   "FirewallPage.connectionLabels": "連線標籤",
   "FirewallPage.miniMap": "地圖",
+  "FirewallPage.internetLines": "上網線",
   "FirewallPage.hint": "拖拉節點移動位置；從節點右側拖拉到另一個節點建立連線；點擊節點查看防火牆規則；點擊連線查看開放內容",
   "FirewallPage.legendInbound": "對外開放",
   "FirewallPage.legendOutbound": "對外連線",
