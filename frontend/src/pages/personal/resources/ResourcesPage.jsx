@@ -263,9 +263,6 @@ function ResourceRow({ resource, onUpdated, onDeleted }) {
                 teachingClassName={resource.teaching_class_name}
                 size="sm"
               />
-              {(resource.tags ?? []).map((tag) => (
-                <span key={tag} className={styles.tagChip}>{tag}</span>
-              ))}
             </div>
           </div>
         </div>
@@ -482,7 +479,6 @@ export default function ResourcesPage() {
   const [pending, setPending]     = useState([]);
   const [loading, setLoading]     = useState(true);
   const [error, setError]         = useState(false);
-  const [tagFilter, setTagFilter] = useState("");
   const pendingSigRef = useRef(null);
 
   /** silent = true 時不觸發 skeleton / error state，供背景同步使用 */
@@ -544,14 +540,11 @@ export default function ResourcesPage() {
 
   // 建立中申請會同時出現在 pending 與資源 API；先移除 placeholder，避免重複列。
   const pendingRequestIds = new Set(pending.map((request) => String(request.id)));
-  // 標籤篩選：Proxmox 上的 tags，由資源詳情的「標籤與備註」設定
-  const allTags = [...new Set(resources.flatMap((resource) => resource.tags ?? []))].sort();
-  const activeTag = allTags.includes(tagFilter) ? tagFilter : "";
   const resourcesForDisplay = resources.filter((resource) => !(
     resource.is_placeholder
     && resource.request_id != null
     && pendingRequestIds.has(String(resource.request_id))
-  )).filter((resource) => !activeTag || (resource.tags ?? []).includes(activeTag));
+  ));
   const environmentGroups = buildEnvironmentGroups(resourcesForDisplay, quickSessions);
   const grouped = groupedResourceKeys(environmentGroups);
   const visibleResources = resourcesForDisplay.filter((resource) => (
@@ -584,32 +577,6 @@ export default function ResourcesPage() {
 
       {/* 我的配額用量（模組 E） */}
       <QuotaUsageBar />
-
-      {allTags.length > 0 && (
-        <div className={styles.filterBar} data-guide="resource-tag-filter">
-          <span className={styles.filterLabel}>
-            <MIcon name="label" size={14} />
-            {t("ResourcesPage.tagFilterLabel")}
-          </span>
-          <button
-            type="button"
-            className={`${styles.filterChip} ${!activeTag ? styles.filterChipActive : ""}`}
-            onClick={() => setTagFilter("")}
-          >
-            {t("ResourcesPage.tagFilterAll")}
-          </button>
-          {allTags.map((tag) => (
-            <button
-              key={tag}
-              type="button"
-              className={`${styles.filterChip} ${activeTag === tag ? styles.filterChipActive : ""}`}
-              onClick={() => setTagFilter(activeTag === tag ? "" : tag)}
-            >
-              {tag}
-            </button>
-          ))}
-        </div>
-      )}
 
       <div className={styles.content}>
         {error ? (

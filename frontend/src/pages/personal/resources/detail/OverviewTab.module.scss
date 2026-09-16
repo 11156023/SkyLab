@@ -192,13 +192,6 @@
   @extend %mono;
 }
 
-.chipTag {
-  border-color: transparent;
-  background: color-mix(in srgb, var(--color-primary) 10%, transparent);
-  color: var(--color-primary-on-surface);
-  font-weight: $font-weight-500;
-}
-
 /* ── 指標格 ── */
 .kpiGrid {
   display: grid;

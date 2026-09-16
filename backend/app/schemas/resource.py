@@ -231,7 +231,6 @@ class ResourcePublic(BaseModel):
     idle_since: datetime | None = None
     scheduled_deletion_at: datetime | None = None
     mining_exempt: bool = False
-    tags: list[str] = Field(default_factory=list, description="Proxmox 標籤")
     access_role: Literal[
         "owner", "shared", "class_member", "class_teacher", "admin"
     ] = Field(default="owner", description="目前使用者對這台機器的關係")

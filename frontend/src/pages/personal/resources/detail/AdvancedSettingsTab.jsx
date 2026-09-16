@@ -16,7 +16,6 @@ import LifecycleCard from "./advanced/LifecycleCard";
 import FirewallCard from "./advanced/FirewallCard";
 import BootOptionsCard from "./advanced/BootOptionsCard";
 import CredentialsCard from "./advanced/CredentialsCard";
-import MetadataCard from "./advanced/MetadataCard";
 import SharingCard from "./advanced/SharingCard";
 
 export default function AdvancedSettingsTab({ vmid, backTo }) {
@@ -57,8 +56,6 @@ export default function AdvancedSettingsTab({ vmid, backTo }) {
       {!isShared && <BootOptionsCard vmid={vmid} canManage={canManage} />}
 
       {canManage && <CredentialsCard vmid={vmid} canManage={canManage} />}
-
-      {!isShared && <MetadataCard vmid={vmid} canManage={canManage} onChanged={loadResource} />}
 
       {canManage && resource.allocation_scope !== "teaching_class" && (
         <SharingCard vmid={vmid} resource={resource} canManage={canManage} backTo={backTo} />

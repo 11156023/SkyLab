@@ -20,8 +20,6 @@ from app.schemas.resource_settings import (
     IsoImagePublic,
     PasswordResetRequest,
     PasswordResetResponse,
-    ResourceMetadataPublic,
-    ResourceMetadataUpdate,
     ResourceShareCreate,
     ResourceSharePublic,
     ResourceSpecsPublic,
@@ -171,32 +169,6 @@ def remove_authorized_key(
         resource_info=resource_info,
         user_id=current_user.id,
         public_key=body.public_key,
-    )
-
-
-# ─── 標籤與備註 ───────────────────────────────────────────────────────────────
-
-
-@router.get("/{vmid}/metadata", response_model=ResourceMetadataPublic)
-def get_metadata(vmid: int, resource_info: ResourceInfoDep):
-    return settings_service.get_metadata(vmid=vmid, resource_info=resource_info)
-
-
-@router.put("/{vmid}/metadata", response_model=ResourceMetadataPublic)
-def update_metadata(
-    vmid: int,
-    body: ResourceMetadataUpdate,
-    resource_info: ResourceInfoDep,
-    session: SessionDep,
-    current_user: CurrentUser,
-):
-    require_resource_management(session=session, user=current_user, vmid=vmid)
-    return settings_service.update_metadata(
-        session=session,
-        vmid=vmid,
-        resource_info=resource_info,
-        user_id=current_user.id,
-        data=body,
     )
 
 

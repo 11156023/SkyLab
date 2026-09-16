@@ -278,20 +278,12 @@ def _build_resource_public(
             else None
         ),
         mining_exempt=bool(db_resource.mining_exempt) if db_resource else False,
-        tags=_parse_tags(resource.get("tags")),
         machine_kind=resource_kind.classify(
             db_resource, is_practice=is_practice, request_kind=source_kind
         ),
         teaching_class_name=teaching_class_name,
         public_urls=list((public_urls or {}).get(vmid, [])) if vmid is not None else [],
     )
-
-
-def _parse_tags(raw: object) -> list[str]:
-    """cluster/resources 的 tags 是 ``;`` 分隔字串。"""
-    if not raw:
-        return []
-    return [tag for tag in str(raw).replace(",", ";").split(";") if tag]
 
 
 def _mark_shared(public: ResourcePublic, db_resource, session: Session) -> None:

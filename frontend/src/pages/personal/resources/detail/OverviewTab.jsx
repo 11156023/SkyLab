@@ -390,12 +390,6 @@ export default function OverviewTab({ vmid }) {
               {resource.environment_type}
             </span>
           )}
-          {(resource.tags ?? []).map((tag) => (
-            <span key={tag} className={`${ov.chip} ${ov.chipTag}`}>
-              <MIcon name="label" size={14} />
-              {tag}
-            </span>
-          ))}
         </div>
       </section>
 

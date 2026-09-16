@@ -962,18 +962,6 @@
   font-weight: $font-weight-500;
 }
 
-.chipRemove {
-  display: inline-flex;
-  align-items: center;
-  border-radius: 50%;
-  color: inherit;
-  opacity: 0.7;
-
-  &:hover {
-    opacity: 1;
-  }
-}
-
 .switchRow {
   display: flex;
   align-items: center;
