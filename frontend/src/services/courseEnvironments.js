@@ -1,4 +1,4 @@
-import { apiDelete, apiGet, apiPatch, apiPost, apiPut } from "./api";
+import { apiDelete, apiGet, apiPatch, apiPost, apiPostMultipart, apiPut } from "./api";
 import { formatDate } from "../utils/formatDate";
 
 const EDITOR_FIELDS = ["name", "description", "usageScope", "nodes", "edges", "publications"];
@@ -36,6 +36,11 @@ export function normalizeCourseEnvironment(item) {
     ...item,
     id: String(item.id),
     versionId: String(item.version_id),
+    files: (item.files ?? []).map((file) => ({
+      ...file,
+      id: String(file.id),
+      sizeBytes: Number(file.size_bytes ?? 0),
+    })),
     updatedAt: formatDate(item.updated_at, ""),
     usageScope: item.usage_scope ?? "course",
     nodes: (item.nodes ?? []).map(normalizeNode),
@@ -134,10 +139,23 @@ export const CourseEnvironmentsService = {
   async publish(environmentId) {
     return normalizeCourseEnvironment(await apiPost(`/api/v1/course-environments/${environmentId}/publish`, {}));
   },
-  async setVisibility(environmentId, item) {
-    return normalizeCourseEnvironment(await apiPatch(`/api/v1/course-environments/${environmentId}/visibility`, {
+  async saveBasics(environmentId, item) {
+    return normalizeCourseEnvironment(await apiPatch(`/api/v1/course-environments/${environmentId}/basics`, {
+      name: item.name.trim(),
+      description: item.description?.trim() || null,
       usage_scope: item.usageScope ?? "course",
     }));
+  },
+  async uploadFile(environmentId, file) {
+    const form = new FormData();
+    form.append("file", file);
+    return normalizeCourseEnvironment(await apiPostMultipart(`/api/v1/course-environments/${environmentId}/files`, form));
+  },
+  async removeFile(environmentId, fileId) {
+    return normalizeCourseEnvironment(await apiDelete(`/api/v1/course-environments/${environmentId}/files/${fileId}`));
+  },
+  fileUrl(environmentId, fileId) {
+    return `/api/v1/course-environments/${environmentId}/files/${fileId}`;
   },
   async remove(environmentId) {
     return apiDelete(`/api/v1/course-environments/${environmentId}`);

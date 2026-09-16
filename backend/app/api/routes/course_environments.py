@@ -3,9 +3,11 @@
 import hashlib
 import json
 import uuid
+from pathlib import Path
 from typing import Any, Literal
 
-from fastapi import APIRouter
+from fastapi import APIRouter, File, UploadFile
+from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field, ValidationError, model_validator
 from sqlmodel import col, delete, func, select
 
@@ -18,6 +20,7 @@ from app.models import (
     CourseEnvironment,
     CourseEnvironmentAudience,
     CourseEnvironmentEdge,
+    CourseEnvironmentFile,
     CourseEnvironmentNode,
     CourseEnvironmentPublication,
     CourseEnvironmentVersion,
@@ -31,6 +34,12 @@ from app.models import (
 from app.models.base import get_datetime_utc
 
 router = APIRouter(prefix="/course-environments", tags=["course-environments"])
+
+# 與班級任務檔同一套做法：檔案落在 data/ 底下，資料庫只存 storage_key
+ENVIRONMENT_FILE_ROOT = (
+    Path(__file__).resolve().parents[3] / "data" / "course-environment-files"
+)
+MAX_ENVIRONMENT_FILE_BYTES = 50 * 1024 * 1024
 
 
 class EnvironmentNodeIn(BaseModel):
@@ -157,16 +166,17 @@ class EnvironmentUpdate(EnvironmentCreate):
     pass
 
 
-class EnvironmentVisibilityIn(BaseModel):
-    """How the environment is offered, at any version status.
+class EnvironmentBasicsIn(BaseModel):
+    """Name, purpose and offering — editable at any version status.
 
-    ``usage_scope`` lives on the environment row rather than on a version: it
-    decides whether students meet the environment at all and never reaches a
-    provisioned machine. Publication freezes the configuration, not who may
-    use it, so the teacher can reopen or close it without cutting a new
-    version.
+    These live on the environment row rather than on a version. Publication
+    freezes the machine configuration, not what the environment is called or
+    who it is offered to, so the teacher can keep them current without cutting
+    a new version.
     """
 
+    name: str = Field(min_length=1, max_length=255)
+    description: str | None = Field(default=None, max_length=2000)
     usage_scope: Literal["course", "quick_practice", "both"]
 
 
@@ -314,6 +324,16 @@ def _validate_configuration(
         seen_hostnames.add(hostname)
 
 
+def _files(session: SessionDep, environment_id: uuid.UUID) -> list[CourseEnvironmentFile]:
+    return list(
+        session.exec(
+            select(CourseEnvironmentFile)
+            .where(CourseEnvironmentFile.environment_id == environment_id)
+            .order_by(col(CourseEnvironmentFile.created_at))
+        ).all()
+    )
+
+
 def _audience_class_ids(
     session: SessionDep, environment_id: uuid.UUID
 ) -> list[uuid.UUID]:
@@ -423,6 +443,15 @@ def _serialize_version(
         "audience": environment.audience,
         "max_concurrent_sessions": environment.max_concurrent_sessions,
         "audience_class_ids": _audience_class_ids(session, environment.id),
+        "files": [
+            {
+                "id": item.id,
+                "filename": item.filename,
+                "size_bytes": item.size_bytes,
+                "created_at": item.created_at,
+            }
+            for item in _files(session, environment.id)
+        ],
         "version": version.version,
         "status": version.status,
         "configuration_hash": version.configuration_hash,
@@ -610,34 +639,149 @@ def update_environment(
     return _serialize_version(session, environment, version)
 
 
-@router.patch("/{environment_id}/visibility")
-def update_environment_visibility(
+@router.patch("/{environment_id}/basics")
+def update_environment_basics(
     environment_id: uuid.UUID,
-    body: EnvironmentVisibilityIn,
+    body: EnvironmentBasicsIn,
     session: SessionDep,
     current_user: InstructorUser,
 ) -> dict[str, Any]:
-    """調整環境的提供方式，不需要開新版本。
+    """調整名稱、用途與提供方式，不需要開新版本。
 
     改成不提供給學生只影響「還沒啟動」的人：已經在跑的練習 Session 照自己的
     期限走完。若最新版本還帶著草稿快照，連草稿一起改，免得之後發布又把這次
     的調整蓋回去。
     """
     environment = _get_environment(session, current_user, environment_id)
+    environment.name = body.name.strip()
+    environment.description = body.description
     environment.usage_scope = body.usage_scope
     version = _latest(session, environment)
     if version.draft_data:
         draft = json.loads(version.draft_data)
+        fields = {
+            "name": environment.name,
+            "description": environment.description,
+            "usage_scope": body.usage_scope,
+        }
         if isinstance(draft.get("configuration"), dict):
-            draft["configuration"]["usage_scope"] = body.usage_scope
+            draft["configuration"].update(fields)
         if isinstance(draft.get("editor"), dict):
-            draft["editor"]["usageScope"] = body.usage_scope
+            draft["editor"].update(
+                {
+                    "name": environment.name,
+                    "description": environment.description,
+                    "usageScope": body.usage_scope,
+                }
+            )
         version.draft_data = json.dumps(draft)
         session.add(version)
     environment.updated_at = get_datetime_utc()
     session.add(environment)
     session.commit()
     return _serialize_version(session, environment, version)
+
+
+@router.post("/{environment_id}/files", status_code=201)
+async def upload_environment_file(
+    environment_id: uuid.UUID,
+    session: SessionDep,
+    current_user: InstructorUser,
+    file: UploadFile = File(...),
+) -> dict[str, Any]:
+    """文件掛在環境身分上，換版本不會讓講義跟著消失。"""
+    environment = _get_environment(session, current_user, environment_id)
+    filename = (file.filename or "file").replace("\\", "/").split("/")[-1].strip()
+    if not filename or filename in {".", ".."}:
+        raise BadRequestError(t("course_env.file_name_invalid"))
+    if len(filename) > 255:
+        raise BadRequestError(t("course_env.file_name_too_long"))
+
+    file_id = uuid.uuid4()
+    storage_key = f"{file_id.hex}.bin"
+    destination = ENVIRONMENT_FILE_ROOT / storage_key
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    written = 0
+    try:
+        with destination.open("wb") as output:
+            while chunk := await file.read(1024 * 1024):
+                written += len(chunk)
+                if written > MAX_ENVIRONMENT_FILE_BYTES:
+                    raise BadRequestError(t("course_env.file_too_large"))
+                output.write(chunk)
+    except Exception:
+        destination.unlink(missing_ok=True)
+        raise
+    finally:
+        await file.close()
+
+    session.add(
+        CourseEnvironmentFile(
+            id=file_id,
+            environment_id=environment.id,
+            filename=filename,
+            storage_key=storage_key,
+            size_bytes=written,
+            uploaded_by=current_user.id,
+        )
+    )
+    environment.updated_at = get_datetime_utc()
+    session.add(environment)
+    session.commit()
+    return _serialize_version(session, environment, _latest(session, environment))
+
+
+def _environment_file(
+    session: SessionDep,
+    current_user: User,
+    environment_id: uuid.UUID,
+    file_id: uuid.UUID,
+) -> tuple[CourseEnvironment, CourseEnvironmentFile]:
+    environment = _get_environment(session, current_user, environment_id)
+    item = session.get(CourseEnvironmentFile, file_id)
+    if item is None or item.environment_id != environment.id:
+        raise NotFoundError(t("course_env.file_not_found"))
+    return environment, item
+
+
+@router.get("/{environment_id}/files/{file_id}", response_class=FileResponse)
+def download_environment_file(
+    environment_id: uuid.UUID,
+    file_id: uuid.UUID,
+    session: SessionDep,
+    current_user: InstructorUser,
+) -> FileResponse:
+    _environment, item = _environment_file(
+        session, current_user, environment_id, file_id
+    )
+    root = ENVIRONMENT_FILE_ROOT.resolve()
+    stored = (root / item.storage_key).resolve()
+    # storage_key 由伺服器產生，但仍然擋一次路徑跳脫，免得日後有人改成沿用檔名
+    if not stored.is_relative_to(root) or not stored.is_file():
+        raise NotFoundError(t("course_env.file_not_found"))
+    return FileResponse(stored, filename=item.filename)
+
+
+@router.delete("/{environment_id}/files/{file_id}")
+def delete_environment_file(
+    environment_id: uuid.UUID,
+    file_id: uuid.UUID,
+    session: SessionDep,
+    current_user: InstructorUser,
+) -> dict[str, Any]:
+    environment, item = _environment_file(
+        session, current_user, environment_id, file_id
+    )
+    storage_key = item.storage_key
+    session.delete(item)
+    environment.updated_at = get_datetime_utc()
+    session.add(environment)
+    session.commit()
+    root = ENVIRONMENT_FILE_ROOT.resolve()
+    stored = (root / storage_key).resolve()
+    if stored.is_relative_to(root):
+        stored.unlink(missing_ok=True)
+    return _serialize_version(session, environment, _latest(session, environment))
 
 
 @router.post("/{environment_id}/publish")

@@ -6,13 +6,13 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import CourseTemplateEditorPage from "./CourseTemplateEditorPage";
 
 const mocks = vi.hoisted(() => ({
-  saveDraft: vi.fn(), publish: vi.fn(), get: vi.fn(), setVisibility: vi.fn(), confirm: vi.fn(),
+  saveDraft: vi.fn(), publish: vi.fn(), get: vi.fn(), saveBasics: vi.fn(), uploadFile: vi.fn(), removeFile: vi.fn(), confirm: vi.fn(),
   toast: { success: vi.fn(), error: vi.fn() },
   t: (key) => key,
 }));
 vi.mock("../../../services/courseEnvironments", () => ({
   courseNodeHasUsableSource: () => true,
-  CourseEnvironmentsService: { saveDraft: mocks.saveDraft, publish: mocks.publish, get: mocks.get, setVisibility: mocks.setVisibility },
+  CourseEnvironmentsService: { saveDraft: mocks.saveDraft, publish: mocks.publish, get: mocks.get, saveBasics: mocks.saveBasics, uploadFile: mocks.uploadFile, removeFile: mocks.removeFile, fileUrl: () => "#" },
 }));
 vi.mock("../../../services/teachingClasses", () => ({ TeachingClassesService: { list: async () => [] } }));
 vi.mock("../../../services/templates", () => ({ TemplatesService: { list: async () => [] } }));
@@ -115,17 +115,17 @@ it("does not publish on save failure, and retry keeps the edits", async () => {
   expect(host.textContent).toContain("CourseTemplateEditorPage.autosave.saved");
 });
 
-it("lets a published environment change how it is offered without a new version", async () => {
-  mocks.setVisibility.mockImplementation(async (_id, item) => ({ ...item, status: "published" }));
+it("lets a published environment change its basics without a new version", async () => {
+  mocks.saveBasics.mockImplementation(async (_id, item) => ({ ...item, status: "published" }));
   await renderPublished({ usageScope: "both" });
   const [usageScope] = [...host.querySelectorAll("select")];
-  /* 機器設定仍然凍結，只有提供方式這組欄位解鎖 */
-  expect(host.querySelector("input").disabled).toBe(true);
+  /* 基本資訊這一整組都能改，機器設定才是凍結的 */
+  expect(host.querySelector("input").disabled).toBe(false);
   expect(usageScope.disabled).toBe(false);
-  const save = () => [...host.querySelectorAll("button")].find((button) => button.textContent.includes("CourseTemplateEditorPage.saveOfferingBtn"));
+  const save = () => [...host.querySelectorAll("button")].find((button) => button.textContent.includes("CourseTemplateEditorPage.saveBasicsBtn"));
   expect(save().disabled).toBe(true);
   await act(async () => setSelect(usageScope, "course"));
   await act(async () => save().click());
-  expect(mocks.setVisibility).toHaveBeenCalledWith("env-1", expect.objectContaining({ usageScope: "course" }));
+  expect(mocks.saveBasics).toHaveBeenCalledWith("env-1", expect.objectContaining({ usageScope: "course" }));
   expect(mocks.saveDraft).not.toHaveBeenCalled();
 });

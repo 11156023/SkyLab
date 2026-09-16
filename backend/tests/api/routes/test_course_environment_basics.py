@@ -1,4 +1,4 @@
-"""套用方式發布後仍可調整；機器設定不行。"""
+"""基本資訊發布後仍可調整；機器設定不行。"""
 
 import json
 import uuid
@@ -31,9 +31,9 @@ def workspace(monkeypatch):
 
 def test_usage_scope_is_editable_after_publication(workspace):
     user, environment, version, session = workspace
-    routes.update_environment_visibility(
+    routes.update_environment_basics(
         environment.id,
-        routes.EnvironmentVisibilityIn(usage_scope="both"),
+        routes.EnvironmentBasicsIn(name="lab", usage_scope="both"),
         session,
         user,
     )
@@ -47,9 +47,9 @@ def test_usage_scope_is_editable_after_publication(workspace):
 def test_environment_can_be_taken_out_of_the_student_list(workspace):
     user, environment, version, session = workspace
     environment.usage_scope = "both"
-    routes.update_environment_visibility(
+    routes.update_environment_basics(
         environment.id,
-        routes.EnvironmentVisibilityIn(usage_scope="course"),
+        routes.EnvironmentBasicsIn(name="lab", usage_scope="course"),
         session,
         user,
     )
@@ -63,9 +63,9 @@ def test_draft_snapshot_follows_so_publishing_does_not_revert_the_change(workspa
     version.draft_data = json.dumps(
         {"configuration": {"usage_scope": "course"}, "editor": {"usageScope": "course"}}
     )
-    routes.update_environment_visibility(
+    routes.update_environment_basics(
         environment.id,
-        routes.EnvironmentVisibilityIn(usage_scope="quick_practice"),
+        routes.EnvironmentBasicsIn(name="lab", usage_scope="quick_practice"),
         session,
         user,
     )
@@ -76,3 +76,18 @@ def test_draft_snapshot_follows_so_publishing_does_not_revert_the_change(workspa
 
 def test_retire_is_gone_in_favour_of_the_usage_scope_switch():
     assert not hasattr(routes, "retire_environment")
+
+
+def test_name_and_description_are_editable_after_publication(workspace):
+    user, environment, version, session = workspace
+    routes.update_environment_basics(
+        environment.id,
+        routes.EnvironmentBasicsIn(
+            name="  n8n 練習  ", description="給課後練習用", usage_scope="both"
+        ),
+        session,
+        user,
+    )
+    assert environment.name == "n8n 練習"
+    assert environment.description == "給課後練習用"
+    assert version.status == "published"

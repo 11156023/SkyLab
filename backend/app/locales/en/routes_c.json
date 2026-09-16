@@ -78,5 +78,9 @@
   "ai_api_key.user_not_found": "User not found",
   "ai_api_key.user_inactive": "User account is inactive",
   "desktop.device_code_too_many": "Too many pending device codes, please try again later",
-  "desktop.device_code_already_approved": "This device code has already been approved"
+  "desktop.device_code_already_approved": "This device code has already been approved",
+  "course_env.file_name_invalid": "Invalid file name",
+  "course_env.file_name_too_long": "File name is too long",
+  "course_env.file_too_large": "File exceeds the 50 MB limit",
+  "course_env.file_not_found": "This file no longer exists"
 }

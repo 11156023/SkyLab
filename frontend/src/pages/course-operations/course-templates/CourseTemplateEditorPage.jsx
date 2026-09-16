@@ -147,6 +147,13 @@ function PublicationDialog({ draft, zones, siblings, closing = false, onChange, 
   </div>, document.body);
 }
 
+function formatFileSize(bytes) {
+  const size = Number(bytes ?? 0);
+  if (size < 1024) return `${size} B`;
+  if (size < 1024 * 1024) return `${Math.round(size / 1024)} KB`;
+  return `${(size / (1024 * 1024)).toFixed(1)} MB`;
+}
+
 function MachineEditor({ value, edges, publications, onChange, onEdgesChange, onPublicationsChange, pveTemplates, vmImages, lxcImages, zones, sourceNotice, locked = false, actions = null }) {
   const { t } = useTranslation("teaching");
   const [sourceMode, setSourceMode] = useState("template");
@@ -478,8 +485,9 @@ export default function CourseTemplateEditorPage() {
   /* 儲存檢查：未填欄位反紅＋聚焦 */
   const [invalidField, setInvalidField] = useState("");
   const nameRef = useRef(null);
-  /* 已發布的環境不能自動儲存，提供方式這組欄位改完要按按鈕才送出 */
-  const [offeringDirty, setOfferingDirty] = useState(false);
+  /* 已發布的環境不能自動儲存，基本資訊改完要按按鈕才送出 */
+  const [basicsDirty, setBasicsDirty] = useState(false);
+  const fileInputRef = useRef(null);
   async function leaveTo(path) {
     if (publishingRef.current) return;
     await autosaveRef.current?.flush();
@@ -487,6 +495,8 @@ export default function CourseTemplateEditorPage() {
     setTimeout(() => navigate(path, { state: { returning: true } }), 180);
   }
   const isNew = !templateId;
+  /* 草稿第一次自動儲存後就有真正的 id，那時候就能掛文件了 */
+  const hasEnvironmentId = Boolean(template.id) && template.id !== "new";
   const locked = template.status !== "draft" || saving;
   const duplicatedHostname = (() => {
     const seen = new Set();
@@ -631,31 +641,68 @@ export default function CourseTemplateEditorPage() {
     try { sessionStorage.setItem(draftKey, JSON.stringify(next)); } catch { /* Autosave still persists to the server. */ }
     autosaveRef.current?.schedule(next);
   }
-  /* 套用方式、開放對象、開放班級與同時上限存在環境身分上，不在版本裡：發布凍結
-     的是機器設定，不是「誰拿得到」。草稿照原本的自動儲存走；已發布的先改在本地，
-     按「儲存開放設定」才送出，免得每動一下就打一次 API。 */
-  function updateOffering(patch) {
+  /* 名稱、用途與套用方式存在環境身分上，不在版本裡：發布凍結的是機器設定，不是
+     這組環境叫什麼、提供給誰。草稿照原本的自動儲存走；已發布的先改在本地，按
+     「儲存基本資訊」才送出，免得每打一個字就打一次 API。 */
+  function updateBasics(patch) {
     if (publishingRef.current || saving) return;
     if (template.status === "draft") { update(patch); return; }
     const next = { ...templateRef.current, ...patch };
     templateRef.current = next;
     setTemplate(next);
-    setOfferingDirty(true);
+    setBasicsDirty(true);
   }
 
-  async function saveOffering() {
+  async function saveBasics() {
     if (publishingRef.current) return;
     const next = templateRef.current;
+    if (!next.name.trim()) {
+      setInvalidField("name");
+      setTimeout(() => focusInvalidField(nameRef.current), 60);
+      return;
+    }
     setSaving(true);
     try {
-      const saved = await CourseEnvironmentsService.setVisibility(next.id, next);
+      const saved = await CourseEnvironmentsService.saveBasics(next.id, next);
       templateRef.current = saved;
       setTemplate(saved);
-      setOfferingDirty(false);
-      toast.success(t("CourseTemplateEditorPage.offeringSaved"));
+      setBasicsDirty(false);
+      toast.success(t("CourseTemplateEditorPage.basicsSaved"));
     } catch (reason) {
-      toast.error(reason?.message ?? t("CourseTemplateEditorPage.offeringSaveFailed"));
+      toast.error(reason?.message ?? t("CourseTemplateEditorPage.basicsSaveFailed"));
     } finally { setSaving(false); }
+  }
+
+  /* 文件掛在環境身分上，上傳與刪除立即生效，不跟著基本資訊那顆儲存鈕走。
+     環境還沒建立（草稿沒有 id）時不給上傳，否則檔案會沒有歸屬。 */
+  async function uploadFile(file) {
+    if (!file || saving) return;
+    setSaving(true);
+    try {
+      const saved = await CourseEnvironmentsService.uploadFile(template.id, file);
+      templateRef.current = { ...templateRef.current, files: saved.files };
+      setTemplate(templateRef.current);
+      toast.success(t("CourseTemplateEditorPage.fileUploaded", { name: file.name }));
+    } catch (reason) {
+      toast.error(reason?.message ?? t("CourseTemplateEditorPage.fileUploadFailed"));
+    } finally {
+      setSaving(false);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    }
+  }
+
+  async function removeFile(file) {
+    if (saving) return;
+    setSaving(true);
+    try {
+      const saved = await CourseEnvironmentsService.removeFile(template.id, file.id);
+      templateRef.current = { ...templateRef.current, files: saved.files };
+      setTemplate(templateRef.current);
+    } catch (reason) {
+      toast.error(reason?.message ?? t("CourseTemplateEditorPage.fileDeleteFailed"));
+    } finally {
+      setSaving(false);
+    }
   }
 
   function changeTab(nextTab) { setParams(returnTo ? { tab: nextTab, returnTo } : { tab: nextTab }); }
@@ -736,7 +783,28 @@ export default function CourseTemplateEditorPage() {
           );
         })}
     </nav>
-    {tab === "basic" && <section className={styles.card}><div className={styles.formGrid}><label className={styles.field}><span>{t("CourseTemplateEditorPage.fieldEnvName")}</span><input ref={nameRef} className={invalidField === "name" ? styles.fieldInvalid : undefined} aria-invalid={invalidField === "name"} aria-errormessage={invalidField === "name" ? "env-name-error" : undefined} disabled={locked} value={template.name} onChange={(event) => { update({ name: event.target.value }); if (invalidField === "name") setInvalidField(""); }} placeholder={t("CourseTemplateEditorPage.envNamePlaceholder")} />{invalidField === "name" && <em id="env-name-error" className={styles.fieldError}>{t("CourseTemplateEditorPage.nameRequiredError")}</em>}</label><label className={styles.field}><span>{t("CourseTemplateEditorPage.fieldUsageScope")}</span><select disabled={saving} value={template.usageScope ?? "course"} onChange={(event) => updateOffering({ usageScope: event.target.value })}><option value="course">{t("CourseTemplateEditorPage.usageScopeCourseOnly")}</option><option value="quick_practice">{t("CourseTemplateEditorPage.usageScopeQuickPracticeOnly")}</option><option value="both">{t("CourseTemplateEditorPage.usageScopeBoth")}</option></select></label><label className={`${styles.field} ${styles.fieldFull}`}><span>{t("CourseTemplateEditorPage.fieldEnvDescription")}</span><textarea disabled={locked} rows={3} value={template.description ?? ""} onChange={(event) => update({ description: event.target.value })} /></label></div>{template.status !== "draft" && <p className={styles.inspectorHint}>{t("CourseTemplateEditorPage.offeringEditableHint")}</p>}<div className={styles.actionFooter}>{template.status !== "draft" && <button type="button" className={styles.btnPrimary} disabled={saving || !offeringDirty} onClick={saveOffering}><MIcon name="save" size={16} />{t("CourseTemplateEditorPage.saveOfferingBtn")}</button>}<button type="button" className={template.status === "draft" ? styles.btnPrimary : styles.btnSecondary} onClick={() => changeTab("machines")}>{t("CourseTemplateEditorPage.viewMachineConfigBtn")}<MIcon name="arrow_forward" size={16} /></button></div></section>}
+    {tab === "basic" && <section className={styles.card}><div className={styles.formGrid}><label className={styles.field}><span>{t("CourseTemplateEditorPage.fieldEnvName")}</span><input ref={nameRef} className={invalidField === "name" ? styles.fieldInvalid : undefined} aria-invalid={invalidField === "name"} aria-errormessage={invalidField === "name" ? "env-name-error" : undefined} disabled={saving} value={template.name} onChange={(event) => { updateBasics({ name: event.target.value }); if (invalidField === "name") setInvalidField(""); }} placeholder={t("CourseTemplateEditorPage.envNamePlaceholder")} />{invalidField === "name" && <em id="env-name-error" className={styles.fieldError}>{t("CourseTemplateEditorPage.nameRequiredError")}</em>}</label><label className={styles.field}><span>{t("CourseTemplateEditorPage.fieldUsageScope")}</span><select disabled={saving} value={template.usageScope ?? "course"} onChange={(event) => updateBasics({ usageScope: event.target.value })}><option value="course">{t("CourseTemplateEditorPage.usageScopeCourseOnly")}</option><option value="quick_practice">{t("CourseTemplateEditorPage.usageScopeQuickPracticeOnly")}</option><option value="both">{t("CourseTemplateEditorPage.usageScopeBoth")}</option></select></label><label className={`${styles.field} ${styles.fieldFull}`}><span>{t("CourseTemplateEditorPage.fieldEnvDescription")}</span><textarea disabled={saving} rows={3} value={template.description ?? ""} onChange={(event) => updateBasics({ description: event.target.value })} /></label></div>
+
+      <div className={styles.fileSection}>
+        <div className={styles.fileHeading}>
+          <span>{t("CourseTemplateEditorPage.fieldFiles")}</span>
+          <button type="button" className={styles.btnSecondary} disabled={saving || !hasEnvironmentId} onClick={() => fileInputRef.current?.click()}><MIcon name="upload_file" size={16} />{t("CourseTemplateEditorPage.uploadFileBtn")}</button>
+          <input ref={fileInputRef} type="file" hidden onChange={(event) => uploadFile(event.target.files?.[0])} />
+        </div>
+        {!hasEnvironmentId
+          ? <p className={styles.inspectorHint}>{t("CourseTemplateEditorPage.filesNeedSaveHint")}</p>
+          : (template.files ?? []).length === 0
+            ? <p className={styles.inspectorHint}>{t("CourseTemplateEditorPage.noFilesHint")}</p>
+            : <ul className={styles.fileList}>
+                {(template.files ?? []).map((file) => <li key={file.id}>
+                  <MIcon name="description" size={16} />
+                  <a href={CourseEnvironmentsService.fileUrl(template.id, file.id)} target="_blank" rel="noreferrer">{file.filename}</a>
+                  <small>{formatFileSize(file.sizeBytes)}</small>
+                  <button type="button" className={styles.fileRemove} disabled={saving} aria-label={t("CourseTemplateEditorPage.removeFileAria", { name: file.filename })} onClick={() => removeFile(file)}><MIcon name="close" size={15} /></button>
+                </li>)}
+              </ul>}
+      </div>
+{template.status !== "draft" && <p className={styles.inspectorHint}>{t("CourseTemplateEditorPage.basicsEditableHint")}</p>}<div className={styles.actionFooter}>{template.status !== "draft" && <button type="button" className={styles.btnPrimary} disabled={saving || !basicsDirty} onClick={saveBasics}><MIcon name="save" size={16} />{t("CourseTemplateEditorPage.saveBasicsBtn")}</button>}<button type="button" className={template.status === "draft" ? styles.btnPrimary : styles.btnSecondary} onClick={() => changeTab("machines")}>{t("CourseTemplateEditorPage.viewMachineConfigBtn")}<MIcon name="arrow_forward" size={16} /></button></div></section>}
     {tab === "machines" && <MachineEditor value={template.nodes} edges={template.edges ?? []} publications={template.publications ?? []} onChange={(nodes) => update({ nodes })} onEdgesChange={(edges) => update({ edges })} onPublicationsChange={(publications) => update({ publications })} pveTemplates={pveTemplates} vmImages={vmImages} lxcImages={lxcImages} zones={zones} sourceNotice={sourceNotice} locked={locked} actions={template.status === "draft" && <button type="button" className={styles.btnPrimary} disabled={saving || closing} onClick={publish}><MIcon name="publish" size={16} />{saving ? t("CourseTemplateEditorPage.publishing") : t("CourseTemplateEditorPage.publishLabel")}</button>} />}
   </div>;
 }

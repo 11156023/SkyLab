@@ -78,5 +78,9 @@
   "ai_api_key.user_not_found": "User not found",
   "ai_api_key.user_inactive": "User account is inactive",
   "desktop.device_code_too_many": "待核准的裝置代碼過多，請稍後再試",
-  "desktop.device_code_already_approved": "此裝置代碼已核准過"
+  "desktop.device_code_already_approved": "此裝置代碼已核准過",
+  "course_env.file_name_invalid": "檔名不合法",
+  "course_env.file_name_too_long": "檔名過長",
+  "course_env.file_too_large": "檔案超過 50 MB 上限",
+  "course_env.file_not_found": "找不到這份文件"
 }

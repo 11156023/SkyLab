@@ -78,5 +78,9 @@
   "ai_api_key.user_not_found": "ユーザーが見つかりません",
   "ai_api_key.user_inactive": "ユーザーアカウントが無効化されています",
   "desktop.device_code_too_many": "承認待ちのデバイスコードが多すぎます。しばらくしてから再試行してください",
-  "desktop.device_code_already_approved": "このデバイスコードはすでに承認されています"
+  "desktop.device_code_already_approved": "このデバイスコードはすでに承認されています",
+  "course_env.file_name_invalid": "ファイル名が不正です",
+  "course_env.file_name_too_long": "ファイル名が長すぎます",
+  "course_env.file_too_large": "ファイルが 50 MB の上限を超えています",
+  "course_env.file_not_found": "このファイルが見つかりません"
 }
