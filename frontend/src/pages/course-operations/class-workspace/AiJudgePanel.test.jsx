@@ -322,6 +322,118 @@ describe("RubricsTab 儲存並製作流程", () => {
     });
     container.remove();
   });
+
+  test("重新核對全部不可套用時不顯示提案面板，只保留 Chat 回覆", async () => {
+    Element.prototype.scrollIntoView = vi.fn();
+    const file = {
+      id: "file-1",
+      template_key: "linux",
+      environment_keys: ["linux"],
+      analysis_revision: 3,
+      source_type: "created",
+      display_name: "測試檢查表",
+      original_filename: null,
+      updated_at: "2026-09-15T00:00:00Z",
+      analysis_json: {
+        items: [{
+          id: "item-port",
+          title: "確認服務 Port",
+          checked: false,
+          detectable: "partial",
+          judgement_mode: "ai",
+          detection_method: "檢查服務",
+          missing_information: ["服務 Port"],
+          check_steps: [],
+          fallback: null,
+        }],
+        total_items: 1,
+        checked_count: 0,
+        auto_count: 0,
+        partial_count: 1,
+        manual_count: 0,
+      },
+    };
+    const assistantMessage = {
+      id: "assistant-1",
+      session_id: "session-1",
+      role: "assistant",
+      message_type: "chat",
+      content: "重新核對後，「確認服務 Port」還缺少：服務 Port。",
+      metadata_json: {
+        status: "needs_information",
+        stage: "reanalysis",
+        script_ready: false,
+        item_results: [{
+          item_id: "item-port",
+          title: "確認服務 Port",
+          status: "needs_information",
+          missing_information: ["服務 Port"],
+        }],
+      },
+      created_at: "2026-09-15T00:00:02Z",
+    };
+    vi.spyOn(AiJudgeService, "listFiles").mockResolvedValue([file]);
+    vi.spyOn(AiJudgeService, "listSessionMessages").mockResolvedValue([]);
+    vi.spyOn(AiJudgeService, "sendSessionMessage").mockResolvedValue({
+      user_message: {
+        id: "user-1",
+        session_id: "session-1",
+        role: "user",
+        message_type: "chat",
+        content: RUBRIC_POLISH_PROMPT,
+        metadata_json: { ui_hidden: true },
+        created_at: "2026-09-15T00:00:01Z",
+      },
+      assistant_message: assistantMessage,
+      rubric_proposal: [{
+        id: "item-port",
+        title: "確認服務 Port",
+        checked: false,
+        detectable: "partial",
+        judgement_mode: "ai",
+        detection_method: "檢查服務 Port",
+        missing_information: ["服務 Port"],
+        check_steps: [],
+        fallback: null,
+        operation: "update",
+      }],
+      base_revision: 3,
+    });
+    const createScript = vi.spyOn(AiJudgeService, "createSessionScript").mockResolvedValue({
+      status: "approved",
+    });
+
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    await act(async () => {
+      root.render(
+        <RubricsTab
+          classId="class-1"
+          judgeSession={{ id: "session-1", selected_file_id: "file-1" }}
+        />,
+      );
+      await new Promise((resolve) => setTimeout(resolve, 30));
+    });
+
+    const saveButton = [...container.querySelectorAll("button")]
+      .find((button) => button.textContent.includes("儲存並製作"));
+    expect(saveButton).toBeTruthy();
+    await act(async () => {
+      saveButton.click();
+      await new Promise((resolve) => setTimeout(resolve, 30));
+    });
+
+    expect(container.textContent).not.toContain("AI 核對提案");
+    expect(container.textContent).not.toContain("同意套用");
+    expect(container.textContent).toContain("重新核對後，「確認服務 Port」還缺少：服務 Port。");
+    expect(container.textContent).toContain("尚有項目需要補充");
+    expect(createScript).not.toHaveBeenCalled();
+    await act(async () => {
+      root.unmount();
+    });
+    container.remove();
+  });
 });
 
 describe("CreateCheckDialog", () => {

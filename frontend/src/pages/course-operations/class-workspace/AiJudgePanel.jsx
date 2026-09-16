@@ -1771,13 +1771,15 @@ export function RubricsTab({ classId, judgeSession, onSessionUpdated, onScriptCr
       }
       const proposal = buildProposalDiff(analysis.items ?? [], response.rubric_proposal);
       const itemResults = assistantMetadata.item_results;
+      const selectableIds = getSelectableProposalIds(proposal, itemResults);
+      const hasSelectable = selectableIds.size > 0;
       setPendingItemResults(
-        Array.isArray(itemResults) && itemResults.length ? itemResults : null,
+        hasSelectable && Array.isArray(itemResults) && itemResults.length ? itemResults : null,
       );
-      setPendingProposal(proposal.length ? proposal : null);
-      setSelectedProposalIds(getSelectableProposalIds(proposal, itemResults));
-      setPendingProposalMeta(proposal.length ? { baseRevision } : null);
-      setPendingProposalIsRefine(Boolean(proposal.length));
+      setPendingProposal(hasSelectable ? proposal : null);
+      setSelectedProposalIds(selectableIds);
+      setPendingProposalMeta(hasSelectable ? { baseRevision } : null);
+      setPendingProposalIsRefine(hasSelectable);
       if (assistantMetadata.script_ready === false) {
         const message = assistantMetadata.status === "unsupported"
           ? "部分項目目前無法安全取證，詳細內容已列在 AI 聊天室。"
