@@ -1,4 +1,6 @@
 {
+  "HomeOverview.noMachines": "マシンがありません。作成して始めましょう。",
+  "HomeOverview.createMachine": "マシンを作成",
   "StudentCoursesPage.openCourse": "コースを開く",
   "HomeOverview.subtitle": "{{today}} · 学習と練習を再開しましょう",
   "HomeOverview.allResources": "マイリソース",

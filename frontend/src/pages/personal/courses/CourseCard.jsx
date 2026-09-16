@@ -14,18 +14,18 @@ export default function CourseCard({ path, onOpen, demo = false }) {
       data-guide-demo={demo ? "true" : undefined}>
       <span className={styles.cardHeader}>
         <span className={styles.courseIcon}><MIcon name={demo ? "terminal" : "school"} size={24} /></span>
+        <strong className={styles.courseTitle}>{path.title}</strong>
         <span className={inClass || demo ? styles.liveStatus : styles.courseStatus}>
           {demo ? t("StudentCoursesPage.guideDemoBadge") : inClass ? t("StudentCoursesPage.inClass") : path.schedule?.label ?? t("StudentCoursesPage.available")}
         </span>
       </span>
       <span className={styles.courseBody}>
-        <strong className={styles.courseTitle}>{path.title}</strong>
-        <span className={styles.courseDescription}>{path.description}</span>
         <span className={styles.courseMeta}>
           <span><MIcon name="menu_book" size={16} />{t("StudentCoursesPage.roomCount", { count: path.room_count ?? 0 })}</span>
           {path.schedule?.teacher && <span><MIcon name="person" size={16} />{path.schedule.teacher}</span>}
+          {path.schedule?.time && <span><MIcon name="schedule" size={16} />{path.schedule.time}</span>}
+          {path.schedule?.place && <span><MIcon name="location_on" size={16} />{path.schedule.place}</span>}
         </span>
-        {path.schedule?.time && <span className={styles.scheduleTime}><MIcon name="schedule" size={16} />{path.schedule.time}</span>}
       </span>
       <span className={styles.cardFooter}>
         <span className={styles.progressMeta}>

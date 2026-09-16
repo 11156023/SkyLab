@@ -326,7 +326,7 @@ export default function StudentHomePage({ courseView = false }) {
     setTemplatesLoading(true);
     setTemplatesError(false);
     QuickPracticeService.listTemplates({ signal: controller.signal })
-      .then((available) => setQuickTemplates(available.slice(0, 3)))
+      .then((available) => setQuickTemplates(available))
       .catch((error) => {
         if (!error?.cancelled) { setQuickTemplates([]); setTemplatesError(true); }
       })

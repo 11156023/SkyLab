@@ -1,4 +1,6 @@
 {
+  "HomeOverview.noMachines": "No machines yet. Create one to get started.",
+  "HomeOverview.createMachine": "Create machine",
   "StudentCoursesPage.openCourse": "Open course",
   "HomeOverview.subtitle": "{{today}} · Pick up your learning and practice",
   "HomeOverview.allResources": "My resources",

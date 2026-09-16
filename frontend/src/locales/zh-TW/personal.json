@@ -1,4 +1,6 @@
 {
+  "HomeOverview.noMachines": "目前沒有機器，建立一台開始使用。",
+  "HomeOverview.createMachine": "建立機器",
   "StudentCoursesPage.openCourse": "進入課程",
   "HomeOverview.subtitle": "{{today}} · 從這裡接續你的學習與練習",
   "HomeOverview.allResources": "我的資源",

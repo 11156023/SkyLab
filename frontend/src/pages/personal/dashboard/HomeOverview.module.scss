@@ -1,12 +1,9 @@
 .section {
   display: flex;
   flex-direction: column;
-  gap: 18px;
+  gap: 10px;
   min-width: 0;
-  padding: 24px;
-  border: 1px solid var(--color-border);
-  border-radius: $radius-16;
-  background: color-mix(in srgb, var(--color-surface) 55%, transparent);
+
 }
 
 .sectionHeading, .headingCopy, .machineTop, .templateTop, .templateFooter,
@@ -19,27 +16,27 @@
 .sectionHeading { flex-wrap: wrap; }
 .headingCopy {
   min-width: 0;
-  h2 { margin: 0; color: var(--color-text-primary); font-size: $font-size-18; line-height: 1.5; }
-  p { margin: 4px 0 0; color: var(--color-text-secondary); font-size: $font-size-12; line-height: 1.6; }
+  h2 { margin: 0; color: var(--color-text-primary); font-size: $font-size-16; line-height: 1.5; }
+
 }
 .sectionIcon, .machineIcon {
   @include flex-center;
   flex-shrink: 0;
-  width: 42px;
-  height: 42px;
+  width: 30px;
+  height: 30px;
   border-radius: $radius-12;
   color: var(--color-primary);
   background: color-mix(in srgb, var(--color-primary) 9%, transparent);
 }
-.sectionIcon { width: 38px; height: 38px; background: transparent; }
+.sectionIcon { width: 24px; height: 24px; background: transparent; }
 
 .textButton, .headerButton, .launchButton, .detailButton {
   display: inline-flex;
   justify-content: center;
   align-items: center;
   gap: 6px;
-  min-height: 40px;
-  padding: 8px 12px;
+  min-height: 34px;
+  padding: 6px 10px;
   border: 1px solid transparent;
   border-radius: $radius-8;
   background: transparent;
@@ -53,18 +50,19 @@
   &:disabled { opacity: 0.55; cursor: not-allowed; }
 }
 .headerButton { border-color: var(--color-border); background: var(--color-surface); font-size: $font-size-14; }
-.machineGrid, .courseGrid, .templateGrid { display: grid; gap: 16px; min-width: 0; }
-.machineGrid { grid-template-columns: repeat(auto-fill, minmax(min(100%, 230px), 1fr)); }
-.courseGrid, .templateGrid { grid-template-columns: repeat(auto-fill, minmax(min(100%, 280px), 1fr)); }
+.machineGrid, .courseGrid, .templateGrid { display: grid; gap: 12px; min-width: 0; }
+.machineGrid { grid-template-columns: repeat(auto-fill, minmax(min(100%, 300px), 1fr)); }
+.courseGrid, .templateGrid { grid-template-columns: repeat(auto-fill, minmax(min(100%, 320px), 1fr)); }
 
 .machineCard, .templateCard {
   @include glass-surface($shadow: none);
   display: flex;
   flex-direction: column;
   min-width: 0;
-  padding: 20px;
+  padding: 12px 14px;
+  gap: 10px;
   border-radius: $radius-12;
-  h3 { margin: 16px 0 4px; font-size: $font-size-16; color: var(--color-text-primary); overflow-wrap: anywhere; }
+  h3 { margin: 0; flex: 1; min-width: 0; font-size: $font-size-16; color: var(--color-text-primary); overflow-wrap: anywhere; }
 }
 .machineStatus, .templateBadge {
   padding: 4px 8px;
@@ -74,49 +72,48 @@
   background: var(--color-hover);
 }
 .running { color: var(--color-success); background: color-mix(in srgb, var(--color-success) 10%, transparent); }
-.machineMeta, .lastUsed { margin: 0; font-size: $font-size-12; color: var(--color-text-secondary); line-height: 1.6; }
-.lastUsed { margin: 10px 0 18px; }
-.machineActions { margin-top: auto; padding-top: 14px; border-top: 1px solid var(--color-border); gap: 8px; }
+.machineMeta { display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: $font-size-12; color: var(--color-text-secondary); line-height: 1.6; }
+.machineActions { margin-top: auto;  gap: 8px; }
 .launchButton { flex: 1; background: color-mix(in srgb, var(--color-primary) 9%, transparent); }
 .detailButton { padding: 8px; color: var(--color-text-secondary); }
 
 .templateCard {
-  gap: 14px;
+  min-height: 160px;
+  padding: 20px;
+  gap: 16px;
   text-align: left;
   font: inherit;
   cursor: pointer;
   transition: border-color $transition-base, box-shadow $transition-base;
-  > strong { font-size: $font-size-16; color: var(--color-text-primary); overflow-wrap: anywhere; }
+
   &:hover { border-color: var(--color-primary); box-shadow: var(--shadow-sm); }
   &:focus-visible { outline: 3px solid var(--color-primary); outline-offset: 3px; }
 }
 .templateBadge { color: var(--color-primary); background: color-mix(in srgb, var(--color-primary) 9%, transparent); }
-.templateDescription { @include text-clamp(2); color: var(--color-text-secondary); font-size: $font-size-14; line-height: 1.6; overflow-wrap: anywhere; }
+.templateTop > strong { flex: 1; min-width: 0; font-size: $font-size-14; color: var(--color-text-primary); overflow-wrap: anywhere; }
 .templateFooter {
   flex-wrap: wrap;
   margin-top: auto;
-  padding-top: 16px;
-  border-top: 1px solid var(--color-border);
+
   color: var(--color-text-secondary);
   font-size: $font-size-12;
   > span:last-child { display: inline-flex; align-items: center; gap: 6px; color: var(--color-primary); font-weight: $font-weight-700; }
 }
 .emptyPanel {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 16px;
-  padding: 28px 20px;
-  border: 1px dashed var(--color-border);
-  border-radius: $radius-12;
+  gap: 8px;
+  padding: 8px 0;
+  font-size: $font-size-12;
   color: var(--color-text-muted);
-  strong { color: var(--color-text-primary); font-size: $font-size-14; }
-  p { margin: 6px 0 0; color: var(--color-text-secondary); font-size: $font-size-12; line-height: 1.7; }
+
 }
 .researchLink { flex-wrap: wrap; padding: 0 8px; color: var(--color-text-secondary); font-size: $font-size-14; }
 @media (max-width: $breakpoint-sm) {
-  .section { padding: 16px; }
   .sectionHeading { gap: 8px; }
   .headingCopy { align-items: flex-start; gap: 8px; }
   .sectionIcon { width: 28px; }
-  .machineCard, .templateCard { padding: 16px; }
+  .machineCard, .templateCard { padding: 12px; }
+  .templateCard { min-height: 144px; padding: 16px; }
 }

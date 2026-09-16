@@ -4,16 +4,14 @@ import { createRoot } from "react-dom/client";
 import { MemoryRouter, useLocation } from "react-router-dom";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import HomeOverview from "./HomeOverview";
-import { recordMachineUse } from "../../../services/recentMachines";
 
-vi.mock("../../../contexts/AuthContext", () => ({ useAuth: () => ({ user: { id: "student" } }) }));
 vi.mock("react-i18next", async (original) => ({ ...await original(),
   useTranslation: () => ({ t: (key) => key, i18n: { language: "zh-TW" } }),
 }));
 let host, root;
 const defaults = { paths: [], resources: [], templates: [], templatesLoading: false,
   openingMachineId: null, onOpenMachine: vi.fn(), todayLabel: "9/17" };
-function Location() { const location = useLocation(); return <output>{location.pathname}</output>; }
+function Location() { const location = useLocation(); return <output data-create={Boolean(location.state?.create)}>{location.pathname}</output>; }
 async function render(props = {}) {
   await act(async () => root.render(<MemoryRouter><HomeOverview {...defaults} {...props} /><Location /></MemoryRouter>));
 }
@@ -29,7 +27,7 @@ afterEach(async () => { await act(async () => root.unmount()); host.remove(); })
 
 it("shows real empty states and keeps all courses reachable", async () => {
   await render();
-  expect(host.textContent).toContain("HomeOverview.noRecentMachines");
+  expect(host.textContent).toContain("HomeOverview.noMachines");
   expect(host.textContent).toContain("StudentHomePage.noPublishedCoursesTitle");
   expect(host.textContent).toContain("StudentHomePage.noQuickTemplatesTitle");
   const allCourses = [...host.querySelectorAll("button")].find((button) => button.textContent.includes("HomeOverview.allCourses"));
@@ -37,24 +35,43 @@ it("shows real empty states and keeps all courses reachable", async () => {
   expect(host.querySelector("output").textContent).toBe("/courses");
 });
 
-it("refreshes recent connections and passes the actual resource to the launch action", async () => {
+it("shows existing machines without connection history and launches the selected resource", async () => {
   const machine = { vmid: 101, name: "Linux lab", type: "lxc", status: "running" };
   await render({ resources: [machine] });
-  await act(async () => recordMachineUse("student", machine.vmid));
   expect(host.textContent).toContain("Linux lab");
+  expect(host.textContent).not.toContain("HomeOverview.noMachines");
+  expect(host.textContent).not.toContain("HomeOverview.lastUsed");
   const launch = [...host.querySelectorAll("button")].find((button) => button.textContent.includes("StudentHomePage.actionEnter"));
   await act(async () => launch.click());
   expect(defaults.onOpenMachine).toHaveBeenCalledWith(expect.objectContaining(machine));
 });
 
 it("disables unavailable machines and distinguishes failed loads from empty data", async () => {
-  recordMachineUse("student", 101);
   await render({ resources: [{ vmid: 101, name: "Expired lab", status: "expired" }], coursesError: true, templatesError: true });
   const launch = [...host.querySelectorAll("button")].find((button) => button.textContent.includes("HomeOverview.unavailable"));
   expect(launch.disabled).toBe(true);
   expect(host.textContent).toContain("StudentHomePage.errorTitle");
   expect(host.textContent).toContain("HomeOverview.templatesFailed");
   expect(host.textContent).not.toContain("StudentHomePage.noPublishedCoursesTitle");
+});
+
+it("shows only the first four machines in resource order", async () => {
+  await render({ resources: Array.from({ length: 6 }, (_, index) => ({
+    vmid: 101 + index, name: `Machine ${index + 1}`, type: "lxc", status: "running",
+  })) });
+  expect([...host.querySelectorAll("article h3")].map((heading) => heading.textContent))
+    .toEqual(["Machine 1", "Machine 2", "Machine 3", "Machine 4"]);
+});
+
+it("offers creation only when no machines exist, opening the request form", async () => {
+  await render({ resourcesError: true });
+  expect(host.textContent).toContain("HomeOverview.resourcesFailed");
+  expect(host.textContent).not.toContain("HomeOverview.createMachine");
+  await render();
+  const create = [...host.querySelectorAll("button")].find((button) => button.textContent.includes("HomeOverview.createMachine"));
+  await act(async () => create.click());
+  expect(host.querySelector("output").textContent).toBe("/my-requests");
+  expect(host.querySelector("output").getAttribute("data-create")).toBe("true");
 });
 
 it.each([
