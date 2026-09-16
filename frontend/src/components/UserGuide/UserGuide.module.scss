@@ -6,22 +6,159 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 24px;
-  height: 24px;
-  margin-right: $spacing-4;
-  padding: 0;
+  gap: 5px;
+  min-height: 26px;
+  margin-right: $spacing-8;
+  padding: 3px 9px;
   vertical-align: middle;
-  border: 0;
+  border: 1px solid color-mix(in srgb, var(--color-primary) 24%, var(--color-border));
   border-radius: $radius-pill;
-  background: transparent;
-  color: var(--color-text-secondary);
+  background: color-mix(in srgb, var(--color-primary) 7%, var(--color-surface));
+  color: var(--color-primary-on-surface);
+  font: inherit;
+  font-size: $font-size-12;
+  font-weight: $font-weight-700;
+  white-space: nowrap;
   cursor: pointer;
-  transition: color $transition-base, background $transition-base;
+  transition: color $transition-base, background $transition-base, transform $transition-base;
 
   &:hover {
-    background: var(--color-hover);
+    background: color-mix(in srgb, var(--color-primary) 13%, var(--color-surface));
     color: var(--color-primary-on-surface);
+    transform: translateY(-1px);
   }
+}
+
+.helpButtonFloating {
+  position: fixed;
+  right: $spacing-16;
+  bottom: 76px;
+  z-index: 90;
+  margin: 0;
+  min-height: 36px;
+  box-shadow: var(--shadow-sm);
+}
+
+.emptySimulation {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  z-index: 3099;
+  width: min(760px, calc(100vw - 48px));
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+}
+
+.emptySimulationNotice {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: $spacing-8;
+  padding: 5px 10px;
+  border: 1px solid color-mix(in srgb, var(--color-primary) 42%, var(--color-border));
+  border-radius: $radius-pill;
+  background: var(--color-surface);
+  color: var(--color-primary-on-surface);
+  font-size: $font-size-12;
+  font-weight: $font-weight-700;
+  box-shadow: var(--shadow-sm);
+}
+
+.emptySimulationWindow {
+  overflow: hidden;
+  border: 1px solid var(--color-border);
+  border-radius: $radius-16;
+  background: var(--color-surface);
+  box-shadow: var(--shadow-lg);
+}
+
+.emptySimulationBar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 40px;
+  padding: 0 $spacing-16;
+  border-bottom: 1px solid var(--color-border);
+  background: var(--color-hover);
+
+  i { width: 8px; height: 8px; border-radius: 50%; background: var(--color-border); }
+  strong { flex: 1; text-align: center; color: var(--color-text-secondary); font-size: $font-size-12; }
+}
+
+.emptySimulationBody {
+  display: grid;
+  grid-template-columns: minmax(210px, 0.8fr) minmax(320px, 1.2fr);
+  min-height: 300px;
+}
+
+.emptySimulationList {
+  display: flex;
+  flex-direction: column;
+  gap: $spacing-8;
+  padding: $spacing-16;
+  border-right: 1px solid var(--color-border);
+
+  > span { height: 54px; border-radius: $radius-8; background: var(--color-hover); opacity: 0.55; }
+}
+
+.emptySimulationRow {
+  display: flex;
+  align-items: center;
+  gap: $spacing-8;
+  width: 100%;
+  padding: 12px;
+  border: 2px solid var(--color-primary);
+  border-radius: $radius-8;
+  background: color-mix(in srgb, var(--color-primary) 7%, var(--color-surface));
+  color: var(--color-primary-on-surface);
+  text-align: left;
+  animation: emptySimulationClick 2.4s ease 0.4s 1 both;
+
+  > span { display: flex; flex: 1; min-width: 0; flex-direction: column; gap: 2px; }
+  strong { overflow: hidden; color: var(--color-text-primary); font-size: $font-size-14; text-overflow: ellipsis; white-space: nowrap; }
+  small { color: var(--color-text-muted); font-size: $font-size-12; }
+}
+
+.emptySimulationDetail {
+  padding: $spacing-16;
+  opacity: 0;
+  transform: translateX(12px);
+  animation: emptySimulationOpen 0.45s ease 1.45s 1 forwards;
+
+  h3 { margin: $spacing-24 0 $spacing-8; color: var(--color-text-primary); font-size: $font-size-18; }
+  p { margin: 0; color: var(--color-text-secondary); font-size: $font-size-14; }
+  > button { margin-top: $spacing-24; padding: 8px $spacing-16; border-radius: $radius-8; background: var(--color-primary); color: var(--color-text-on-primary); }
+}
+
+.emptySimulationTabs {
+  display: flex;
+  gap: $spacing-16;
+  border-bottom: 1px solid var(--color-border);
+  color: var(--color-text-muted);
+  font-size: $font-size-12;
+
+  > * { padding-bottom: $spacing-8; }
+  b { border-bottom: 2px solid var(--color-primary); color: var(--color-primary-on-surface); }
+}
+
+.emptySimulationFields {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: $spacing-8;
+  margin-top: $spacing-24;
+
+  i { height: 44px; border: 1px solid var(--color-border); border-radius: $radius-8; background: var(--color-hover); }
+  i:last-child { grid-column: 1 / -1; }
+}
+
+@keyframes emptySimulationClick {
+  0%, 45% { transform: scale(1); box-shadow: 0 0 0 0 color-mix(in srgb, var(--color-primary) 30%, transparent); }
+  58% { transform: scale(0.97); box-shadow: 0 0 0 7px color-mix(in srgb, var(--color-primary) 0%, transparent); }
+  72%, 100% { transform: scale(1); }
+}
+
+@keyframes emptySimulationOpen {
+  to { opacity: 1; transform: translateX(0); }
 }
 
 .layer {
@@ -81,6 +218,70 @@
   pointer-events: auto;
 }
 
+.gestureDemo {
+  position: fixed;
+  inset: 0;
+  z-index: 2;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.gestureSvg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+
+.gestureLineBase,
+.gestureLine {
+  fill: none;
+  stroke-linecap: round;
+}
+
+.gestureLineBase {
+  stroke: color-mix(in srgb, white 32%, var(--color-primary));
+  stroke-width: 7;
+  opacity: 0.28;
+}
+
+.gestureLine {
+  stroke: white;
+  stroke-width: 3;
+  stroke-dasharray: 1;
+  stroke-dashoffset: 1;
+  filter: drop-shadow(0 0 5px color-mix(in srgb, var(--color-primary) 78%, transparent));
+  animation: guideDrawConnection 3.2s ease-in-out 0.35s infinite both;
+}
+
+.gesturePoint {
+  position: absolute;
+  width: 18px;
+  height: 18px;
+  border: 3px solid var(--color-primary);
+  border-radius: 50%;
+  background: white;
+  box-shadow: 0 0 0 5px color-mix(in srgb, var(--color-primary) 25%, transparent);
+  transform: translate(-50%, -50%);
+  animation: guidePointPulse 1s ease-in-out infinite;
+}
+
+.gesturePointEnd {
+  border-color: var(--color-success, #22c55e);
+  box-shadow: 0 0 0 5px color-mix(in srgb, var(--color-success, #22c55e) 25%, transparent);
+}
+
+.gestureCursor {
+  position: absolute;
+  z-index: 1;
+  color: white;
+  filter: drop-shadow(0 2px 3px rgb(0 0 0 / 65%));
+  transform: translate(-25%, -20%);
+  transform-origin: 25% 20%;
+  animation: guideDragCursor 3.2s ease-in-out 0.35s infinite both;
+}
+
 .panel {
   @include flex-column;
   position: fixed;
@@ -125,6 +326,10 @@
     bottom: -7px;
     left: 28px;
     border-width: 0 1px 1px 0;
+  }
+
+  &[data-side="pinned"]::before {
+    display: none;
   }
 }
 
@@ -288,11 +493,58 @@
       display: none;
     }
   }
+
+  .helpButton:not(.helpButtonFloating) span { display: none; }
+
+  .emptySimulationBody { grid-template-columns: 1fr; }
+  .emptySimulationList { display: none; }
+}
+
+@keyframes guideDrawConnection {
+  0%, 18% { stroke-dashoffset: 1; }
+  76%, 100% { stroke-dashoffset: 0; }
+}
+
+@keyframes guideDragCursor {
+  0%, 12% {
+    transform: translate(-25%, -20%) scale(1);
+  }
+
+  18% {
+    transform: translate(-25%, -20%) scale(0.78);
+  }
+
+  76% {
+    transform: translate(calc(var(--guide-drag-x) - 25%), calc(var(--guide-drag-y) - 20%)) scale(0.78);
+  }
+
+  84%, 100% {
+    transform: translate(calc(var(--guide-drag-x) - 25%), calc(var(--guide-drag-y) - 20%)) scale(1);
+  }
+}
+
+@keyframes guidePointPulse {
+  0%, 100% { transform: translate(-50%, -50%) scale(1); }
+  50% { transform: translate(-50%, -50%) scale(1.28); }
 }
 
 @media (prefers-reduced-motion: reduce) {
   .panel,
-  .spotlight {
+  .spotlight,
+  .gestureLine,
+  .gesturePoint,
+  .gestureCursor {
     animation: none;
+  }
+
+  .emptySimulationRow,
+  .emptySimulationDetail { animation: none; opacity: 1; transform: none; }
+
+  .gestureLine {
+    stroke-dashoffset: 0;
+  }
+
+  .gestureCursor {
+    transform: translate(calc(var(--guide-drag-x) - 25%), calc(var(--guide-drag-y) - 20%));
   }
 }

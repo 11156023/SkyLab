@@ -13,6 +13,15 @@
   min-width: 0;
 }
 
+/* 統一承接各頁操作區，也提供導覽元件穩定的定位目標。 */
+.pageActions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: $spacing-8;
+  margin-left: auto;
+}
+
 /* leading（返回鍵等）與標題區同排靠左 */
 .headingRow {
   display: flex;

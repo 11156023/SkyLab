@@ -162,18 +162,6 @@ function UserCell({ email, fullName, fallback }) {
   );
 }
 
-function CallTypeCell({ callType, formatCallType }) {
-  const label = formatCallType(callType);
-  return (
-    <div className={styles.callTypeCell}>
-      <div className={styles.callTypeLabel}>{label}</div>
-      {callType && label !== callType ? (
-        <div className={styles.callTypeKey}>{callType}</div>
-      ) : null}
-    </div>
-  );
-}
-
 function MetricCard({ icon, tone, label, value, detail, delta, deltaTone }) {
   return (
     <div className={styles.metricCard}>
@@ -277,46 +265,7 @@ function TrendChart({ series, bucket, loading, metric, t }) {
   );
 }
 
-function CompactHealthPanel({ overview, runtime, overviewError, error, loading, t, onOpen }) {
-  const gateway = runtime?.gateway;
-  const gatewayStatus = error ? "unavailable" : gateway?.status ?? "unknown";
-  const gatewayLabel = {
-    available: t("AiMonitoringPage.runtimeAvailable"),
-    degraded: t("AiMonitoringPage.runtimeDegraded"),
-    unavailable: t("AiMonitoringPage.runtimeUnavailable"),
-    not_configured: t("AiMonitoringPage.runtimeNotConfigured"),
-    unknown: t("AiMonitoringPage.runtimeUnknown"),
-  }[gatewayStatus] ?? t("AiMonitoringPage.runtimeUnknown");
-  const readinessLabel = !error && gateway?.readiness
-    ? t("AiMonitoringPage.readinessReady")
-    : t("AiMonitoringPage.readinessNotReady");
-  const offline = runtime?.summary?.offline ?? 0;
-  const degraded = runtime?.summary?.degraded ?? 0;
-  const modelTone = offline > 0 ? "danger" : degraded > 0 ? "warning" : runtime?.models?.length ? "success" : "neutral";
-  const healthItems = [
-    {
-      key: "usage",
-      label: t("AiMonitoringPage.healthUsage"),
-      value: overviewError ? t("AiMonitoringPage.healthUnavailable") : overview ? t("AiMonitoringPage.healthNormal") : t("AiMonitoringPage.healthWaiting"),
-      tone: overviewError ? "danger" : overview ? "success" : "neutral",
-      target: "api",
-    },
-    {
-      key: "gateway",
-      label: t("AiMonitoringPage.healthGateway"),
-      value: `${gatewayLabel} · ${readinessLabel}`,
-      tone: gatewayStatus === "available" && gateway?.readiness ? "success" : gatewayStatus === "degraded" ? "warning" : "danger",
-      target: "runtime",
-    },
-    {
-      key: "models",
-      label: t("AiMonitoringPage.healthModels"),
-      value: runtime?.models?.length ? t("AiMonitoringPage.healthModelCount", { count: runtime.models.length, problem: offline + degraded }) : t("AiMonitoringPage.healthWaiting"),
-      tone: modelTone,
-      target: "models",
-    },
-  ];
-
+function CompactHealthPanel({ items, loading, t, onOpen }) {
   return (
     <section className={`${styles.panel} ${styles.healthPanel}`} aria-labelledby="runtime-heading">
       <div className={styles.panelHeader}>
@@ -327,23 +276,26 @@ function CompactHealthPanel({ overview, runtime, overviewError, error, loading, 
           </h2>
           <p className={styles.panelDescription}>{t("AiMonitoringPage.healthDescription")}</p>
         </div>
-        {runtime?.checked_at ? (
-          <span className={styles.checkedAt}>
-            {t("AiMonitoringPage.checkedAt", { time: formatTime(runtime.checked_at, "—", { seconds: true }) })}
-          </span>
-        ) : null}
+        {!loading && <span className={styles.healthIssueCount} aria-label={t("AiMonitoringPage.healthIssueSummary", { count: items.length })}>{items.length}</span>}
       </div>
 
       {loading ? (
         <LoadingState text={t("AiMonitoringPage.loadingRuntime")} />
       ) : (
         <div className={styles.healthList}>
-          {healthItems.map((item) => <button type="button" key={item.key} className={styles.healthRow} onClick={() => onOpen(item.target)}>
-            <span className={`${styles.healthDot} ${styles[`healthDot_${item.tone}`]}`} />
-            <span>{item.label}</span>
-            <strong className={styles[`healthValue_${item.tone}`]}>{item.value}</strong>
-            <MIcon name="chevron_right" size={17} />
-          </button>)}
+          {items.map((item) => {
+            const tone = item.tone === "critical" ? "danger" : item.tone;
+            return (
+              <button type="button" key={item.key} className={styles.healthRow} onClick={() => onOpen(item.target)}>
+                <span className={`${styles.healthDot} ${styles[`healthDot_${tone}`]}`} />
+                <span className={styles.healthCopy}>
+                  <strong>{item.title}</strong>
+                  <small>{item.detail}</small>
+                </span>
+                <MIcon name="chevron_right" size={17} />
+              </button>
+            );
+          })}
         </div>
       )}
     </section>
@@ -379,40 +331,6 @@ export function buildAttentionItems({ overview, runtime, overviewError, runtimeE
   return rows;
 }
 
-function HealthSummary({ items, loading, t }) {
-  const critical = items.some((item) => item.tone === "critical");
-  const tone = loading ? "neutral" : critical ? "danger" : items.length ? "warning" : "success";
-  const icon = loading ? "sync" : critical ? "report_problem" : items.length ? "warning" : "check_circle";
-  return <section className={`${styles.healthSummary} ${styles[`healthSummary_${tone}`]}`} role="status">
-    <span className={styles.healthSummaryIcon}><MIcon name={icon} size={28} /></span>
-    <div>
-      <span className={styles.healthEyebrow}>{t("AiMonitoringPage.systemHealth")}</span>
-      <h2>{loading ? t("AiMonitoringPage.healthChecking") : items.length ? t("AiMonitoringPage.healthDegraded") : t("AiMonitoringPage.healthHealthy")}</h2>
-      <p>{loading ? t("AiMonitoringPage.healthCheckingDesc") : items.length ? t("AiMonitoringPage.healthIssueCount", { count: items.length }) : t("AiMonitoringPage.healthHealthyDesc")}</p>
-    </div>
-  </section>;
-}
-
-function AttentionPanel({ items, onOpen, t }) {
-  const actionLabel = (target) => ({
-    runtime: t("AiMonitoringPage.openGateway"),
-    models: t("AiMonitoringPage.viewModels"),
-    "api-errors": t("AiMonitoringPage.viewFailedCalls"),
-    api: t("AiMonitoringPage.viewApiCalls"),
-  }[target] ?? t("AiMonitoringPage.viewDetail"));
-  return <section className={styles.attentionPanel} aria-labelledby="attention-heading">
-    <div className={styles.attentionHeader}>
-      <div><h2 id="attention-heading">{t("AiMonitoringPage.attentionTitle")}</h2><p>{t("AiMonitoringPage.attentionDescription")}</p></div>
-      <span>{items.length}</span>
-    </div>
-    {items.length ? <div className={styles.attentionList}>{items.map((item) => <button type="button" key={item.key} className={`${styles.attentionRow} ${styles[`attentionRow_${item.tone}`]}`} onClick={() => onOpen(item.target)}>
-      <span className={styles.attentionIcon}><MIcon name={item.icon} size={19} /></span>
-      <span className={styles.attentionCopy}><strong>{item.title}</strong><small>{item.detail}</small></span>
-      <span className={styles.attentionAction}>{actionLabel(item.target)}<MIcon name="arrow_forward" size={16} /></span>
-    </button>)}</div> : <div className={styles.attentionClear}><MIcon name="task_alt" size={20} /><span>{t("AiMonitoringPage.attentionClear")}</span></div>}
-  </section>;
-}
-
 function DetailSummary({ summary, t }) {
   const items = [
     { key: "success", icon: "check_circle", tone: "success", label: t("AiMonitoringPage.successfulCalls"), value: formatNumber(summary?.successful_calls) },
@@ -432,17 +350,6 @@ function DetailSummary({ summary, t }) {
 }
 
 function DetailTable({ tab, calls, users, models, runtimeModels, query, statusFilter, onModelSelect, t }) {
-  const CALL_TYPE_LABELS = {
-    recommend: t("AiMonitoringPage.callTypeRecommend"),
-    chat: t("AiMonitoringPage.callTypeChat"),
-    ai_nav: t("AiMonitoringPage.callTypeAiNav"),
-    tj_rubric: t("AiMonitoringPage.callTypeTjRubric"),
-    tj_chat: t("AiMonitoringPage.callTypeTjChat"),
-    tj_script_gen: t("AiMonitoringPage.callTypeTjScriptGen"),
-    tj_script_review: t("AiMonitoringPage.callTypeTjScriptReview"),
-    tj_result_ai: t("AiMonitoringPage.callTypeTjResultAi"),
-  };
-  const formatCallType = (callType) => callType ? CALL_TYPE_LABELS[callType] ?? callType : "—";
   const q = query.trim().toLowerCase();
 
   if (tab === "models") {
@@ -477,9 +384,8 @@ function DetailTable({ tab, calls, users, models, runtimeModels, query, statusFi
             <th className={`${styles.th} ${styles.thRight}`}>{t("AiMonitoringPage.colFailRate")}</th>
           </tr></thead>
           <tbody>{visibleUsers.map((user) => {
-            const totalCalls = (user.proxy_calls ?? 0) + (user.template_calls ?? 0);
-            const totalTokens = (user.proxy_input_tokens ?? 0) + (user.proxy_output_tokens ?? 0)
-              + (user.template_input_tokens ?? 0) + (user.template_output_tokens ?? 0);
+            const totalCalls = user.proxy_calls ?? 0;
+            const totalTokens = (user.proxy_input_tokens ?? 0) + (user.proxy_output_tokens ?? 0);
             return <tr key={user.user_id} className={styles.tr}>
               <td className={styles.td}><UserCell email={user.user_email} fullName={user.user_full_name} fallback={user.user_id} /></td>
               <td className={`${styles.td} ${styles.numericCell}`}>{formatNumber(totalCalls)}</td>
@@ -493,18 +399,14 @@ function DetailTable({ tab, calls, users, models, runtimeModels, query, statusFi
     );
   }
 
-  const source = tab === "proxy" ? calls.proxy : calls.template;
-  const visibleCalls = (source ?? []).filter((call) => {
+  const visibleCalls = (calls ?? []).filter((call) => {
     if (statusFilter === "success" && !isOkStatus(call.status)) return false;
     if (statusFilter === "error" && isOkStatus(call.status)) return false;
     if (!q) return true;
     return (call.user_email ?? "").toLowerCase().includes(q)
       || (call.user_full_name ?? "").toLowerCase().includes(q)
       || (call.model_name ?? "").toLowerCase().includes(q)
-      || (call.call_type ?? "").toLowerCase().includes(q)
-      || formatCallType(call.call_type).toLowerCase().includes(q)
-      || (call.request_type ?? "").toLowerCase().includes(q)
-      || (call.preset ?? "").toLowerCase().includes(q);
+      || (call.request_type ?? "").toLowerCase().includes(q);
   });
 
   if (!visibleCalls.length) return <EmptyState icon="analytics" title={t("AiMonitoringPage.emptyCallsTitle")} />;
@@ -514,14 +416,8 @@ function DetailTable({ tab, calls, users, models, runtimeModels, query, statusFi
         <thead><tr>
           <th className={styles.th}>{t("AiMonitoringPage.colTime")}</th>
           <th className={styles.th}>{t("AiMonitoringPage.colUser")}</th>
-          {tab === "proxy" ? <>
-            <th className={styles.th}>{t("AiMonitoringPage.colModel")}</th>
-            <th className={styles.th}>{t("AiMonitoringPage.colType")}</th>
-          </> : <>
-            <th className={styles.th}>{t("AiMonitoringPage.colCallType")}</th>
-            <th className={styles.th}>{t("AiMonitoringPage.colModel")}</th>
-            <th className={styles.th}>{t("AiMonitoringPage.colPreset")}</th>
-          </>}
+          <th className={styles.th}>{t("AiMonitoringPage.colModel")}</th>
+          <th className={styles.th}>{t("AiMonitoringPage.colType")}</th>
           <th className={`${styles.th} ${styles.thRight}`}>{t("AiMonitoringPage.colInput")}</th>
           <th className={`${styles.th} ${styles.thRight}`}>{t("AiMonitoringPage.colOutput")}</th>
           <th className={`${styles.th} ${styles.thRight}`}>{t("AiMonitoringPage.colDuration")}</th>
@@ -530,14 +426,8 @@ function DetailTable({ tab, calls, users, models, runtimeModels, query, statusFi
         <tbody>{visibleCalls.map((call) => <tr key={call.id} className={styles.tr}>
           <td className={styles.td}>{formatDateTime(call.created_at)}</td>
           <td className={styles.td}><UserCell email={call.user_email} fullName={call.user_full_name} fallback={call.user_id} /></td>
-          {tab === "proxy" ? <>
-            <td className={`${styles.td} ${styles.monoCell}`} title={call.model_name}>{formatModelDisplay(call.model_name)}</td>
-            <td className={styles.td}>{call.request_type ?? "—"}</td>
-          </> : <>
-            <td className={styles.td}><CallTypeCell callType={call.call_type} formatCallType={formatCallType} /></td>
-            <td className={`${styles.td} ${styles.monoCell}`} title={call.model_name}>{formatModelDisplay(call.model_name)}</td>
-            <td className={styles.td}>{call.preset ?? "—"}</td>
-          </>}
+          <td className={`${styles.td} ${styles.monoCell}`} title={call.model_name}>{formatModelDisplay(call.model_name)}</td>
+          <td className={styles.td}>{call.request_type ?? "—"}</td>
           <td className={`${styles.td} ${styles.numericCell}`}>{formatTokens(call.input_tokens ?? 0)}</td>
           <td className={`${styles.td} ${styles.numericCell}`}>{formatTokens(call.output_tokens ?? 0)}</td>
           <td className={`${styles.td} ${styles.numericCell}`}>{formatDuration(call.request_duration_ms)}</td>
@@ -560,9 +450,8 @@ export default function AiMonitoringPage() {
   const [overview, setOverview] = useState(null);
   const [runtime, setRuntime] = useState(null);
   const [proxyCalls, setProxyCalls] = useState([]);
-  const [templateCalls, setTemplateCalls] = useState([]);
   const [users, setUsers] = useState([]);
-  const [counts, setCounts] = useState({ proxy: 0, template: 0, users: 0 });
+  const [counts, setCounts] = useState({ proxy: 0, users: 0 });
   const [overviewLoading, setOverviewLoading] = useState(true);
   const [runtimeLoading, setRuntimeLoading] = useState(true);
   const [detailLoading, setDetailLoading] = useState(true);
@@ -584,7 +473,6 @@ export default function AiMonitoringPage() {
   const DETAIL_TABS = [
     { key: "models", label: t("AiMonitoringPage.tabModels"), icon: "model_training", count: modelRows.length },
     { key: "proxy", label: t("AiMonitoringPage.tabProxy"), icon: "swap_horiz", count: counts.proxy },
-    { key: "template", label: t("AiMonitoringPage.tabTemplate"), icon: "auto_awesome", count: counts.template },
     { key: "users", label: t("AiMonitoringPage.tabUsers"), icon: "groups", count: counts.users },
   ];
   const STATUS_FILTERS = [
@@ -616,6 +504,7 @@ export default function AiMonitoringPage() {
       ...range,
       bucket: presetToBucket(preset),
       compare: true,
+      source: "api_key",
     })
       .then((value) => {
         setOverview(value);
@@ -639,16 +528,11 @@ export default function AiMonitoringPage() {
 
     const detailRequest = Promise.allSettled([
       AiMonitoringService.listProxyCalls(shared),
-      AiMonitoringService.listTemplateCalls(shared),
-      AiMonitoringService.listUsersUsage(shared),
-    ]).then(([proxyResult, templateResult, usersResult]) => {
+      AiMonitoringService.listUsersUsage({ ...shared, source: "api_key" }),
+    ]).then(([proxyResult, usersResult]) => {
       if (proxyResult.status === "fulfilled") {
         setProxyCalls(proxyResult.value?.data ?? []);
         setCounts((current) => ({ ...current, proxy: proxyResult.value?.count ?? proxyResult.value?.data?.length ?? 0 }));
-      }
-      if (templateResult.status === "fulfilled") {
-        setTemplateCalls(templateResult.value?.data ?? []);
-        setCounts((current) => ({ ...current, template: templateResult.value?.count ?? templateResult.value?.data?.length ?? 0 }));
       }
       if (usersResult.status === "fulfilled") {
         setUsers(usersResult.value?.data ?? []);
@@ -685,9 +569,7 @@ export default function AiMonitoringPage() {
     : detailTab === "models" ? t("AiMonitoringPage.searchPlaceholderModels") : t("AiMonitoringPage.searchPlaceholderCalls");
 
   const selectModel = (modelName) => {
-    const hasProxyCalls = proxyCalls.some((call) => modelKey(call.model_name) === modelKey(modelName));
-    const hasTemplateCalls = templateCalls.some((call) => modelKey(call.model_name) === modelKey(modelName));
-    setDetailTab(hasProxyCalls || !hasTemplateCalls ? "proxy" : "template");
+    setDetailTab("proxy");
     setStatusFilter("all");
     setQuery(modelName);
   };
@@ -725,8 +607,6 @@ export default function AiMonitoringPage() {
         </div>
       </PageHeader>
 
-      <HealthSummary items={attentionItems} loading={overviewLoading || runtimeLoading} t={t} />
-
       <section className={styles.metricRow} aria-label={t("AiMonitoringPage.summaryTitle")}>
         <MetricCard
           icon="swap_calls"
@@ -753,18 +633,9 @@ export default function AiMonitoringPage() {
           delta={comparison ? formatDelta(comparison.error_rate_delta, "pp") : null}
           deltaTone={comparison?.error_rate_delta > 0 ? "danger" : "positive"}
         />
-        <MetricCard
-          icon="speed"
-          tone="info"
-          label={t("AiMonitoringPage.statAvgLatency")}
-          value={formatDuration(summary?.avg_latency_ms)}
-          detail={t("AiMonitoringPage.previousPeriod")}
-          delta={comparison?.avg_latency_ms_delta != null ? formatDelta(comparison.avg_latency_ms_delta, "ms") : null}
-          deltaTone={comparison?.avg_latency_ms_delta > 0 ? "danger" : "positive"}
-        />
       </section>
 
-      <section className={styles.primaryGrid}>
+      <section className={`${styles.primaryGrid} ${!overviewLoading && !runtimeLoading && attentionItems.length === 0 ? styles.primaryGridSingle : ""}`}>
         <div className={`${styles.panel} ${styles.trendPanel}`}>
           <div className={styles.panelHeader}>
             <div>
@@ -777,10 +648,10 @@ export default function AiMonitoringPage() {
           </div>
           <TrendChart series={overview?.series} bucket={overview?.bucket ?? presetToBucket(preset)} loading={overviewLoading} metric={trendMetric} t={t} />
         </div>
-        <CompactHealthPanel overview={overview} runtime={runtime} overviewError={overviewError} error={runtimeError} loading={runtimeLoading} t={t} onOpen={openAttention} />
+        {(overviewLoading || runtimeLoading || attentionItems.length > 0) && (
+          <CompactHealthPanel items={attentionItems} loading={overviewLoading || runtimeLoading} t={t} onOpen={openAttention} />
+        )}
       </section>
-
-      <AttentionPanel items={attentionItems} onOpen={openAttention} t={t} />
 
       <section ref={detailSectionRef} id="monitoring-details" className={styles.detailSection} aria-labelledby="detail-heading">
         <div className={styles.detailHeader}>
@@ -789,7 +660,7 @@ export default function AiMonitoringPage() {
             <p className={styles.detailDescription}>{t("AiMonitoringPage.detailDescription")}</p>
           </div>
           <div className={styles.detailToolbar}>
-            {detailTab === "proxy" || detailTab === "template" ? (
+            {detailTab === "proxy" ? (
               <SegmentedControl
                 options={STATUS_FILTERS}
                 value={statusFilter}
@@ -820,7 +691,7 @@ export default function AiMonitoringPage() {
           ))}
         </div>
         <div className={styles.detailContent}>
-          {detailLoading ? <LoadingState /> : <DetailTable tab={detailTab} calls={{ proxy: proxyCalls, template: templateCalls }} users={users} models={overview?.model_breakdown} runtimeModels={runtime?.models} query={detailQuery} statusFilter={statusFilter} onModelSelect={selectModel} t={t} />}
+          {detailLoading ? <LoadingState /> : <DetailTable tab={detailTab} calls={proxyCalls} users={users} models={overview?.model_breakdown} runtimeModels={runtime?.models} query={detailQuery} statusFilter={statusFilter} onModelSelect={selectModel} t={t} />}
         </div>
       </section>
     </div>

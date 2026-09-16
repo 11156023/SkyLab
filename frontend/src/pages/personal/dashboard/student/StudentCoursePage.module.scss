@@ -55,6 +55,20 @@
   letter-spacing: 0.04em;
 }
 
+.guideDemoNotice {
+  display: flex;
+  align-items: center;
+  gap: $spacing-8;
+  padding: 10px 12px;
+  border: 1px dashed color-mix(in srgb, var(--color-primary) 55%, var(--color-border));
+  border-radius: $radius-12;
+  background: color-mix(in srgb, var(--color-primary) 6%, var(--color-surface));
+  color: var(--color-primary-on-surface);
+  font-size: 13px;
+
+  span { display: flex; flex-wrap: wrap; gap: 4px; }
+}
+
 /* ── 課堂卡片 ── */
 
 .mainGrid {

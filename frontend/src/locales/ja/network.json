@@ -1,4 +1,6 @@
 {
+  "FirewallPage.guideDemoAriaLabel": "ファイアウォール操作の模擬トポロジー",
+  "FirewallPage.guideDemoBadge": "ガイド用ノード・リソースは作成されません",
   "FirewallPage.title": "ファイアウォール",
   "FirewallPage.subtitle": "VM 間および外部との通信ルールを管理します",
   "FirewallPage.addConnection": "接続を追加",

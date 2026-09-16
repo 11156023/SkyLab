@@ -13,6 +13,7 @@ export default function StudentCoursesPage() {
   const { t } = useTranslation("personal");
   const navigate = useNavigate();
   const [view, setView] = useState({ loading: true, hasError: false, paths: [] });
+  const [guideDemo, setGuideDemo] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -50,6 +51,13 @@ export default function StudentCoursesPage() {
     };
   }, []);
 
+  useEffect(() => {
+    const handleGuideState = (event) => {
+      setGuideDemo(Boolean(event.detail?.open && event.detail?.id === "courses"));
+    };
+    window.addEventListener("skylab:user-guide-state", handleGuideState);
+    return () => window.removeEventListener("skylab:user-guide-state", handleGuideState);
+  }, []);
   if (view.loading) {
     return (
       <div className={styles.page}>
@@ -73,8 +81,33 @@ export default function StudentCoursesPage() {
         </div>
       )}
 
-      {view.paths.length > 0 ? (
+      {view.paths.length > 0 || guideDemo ? (
         <section className={styles.courseGrid} aria-label={t("StudentCoursesPage.listAria")}>
+          {guideDemo && (
+            <button
+              type="button"
+              className={`${styles.courseCard} ${styles.guideDemoCard}`}
+              onClick={() => navigate("/courses/demo", { state: { from: "/courses" } })}
+              data-guide="course-demo-card"
+              data-guide-demo="true"
+            >
+              <span className={styles.courseIcon}><MIcon name="terminal" size={25} /></span>
+              <span className={styles.courseBody}>
+                <span className={styles.courseTopline}>
+                  <span className={styles.liveStatus}>{t("StudentCoursesPage.guideDemoBadge")}</span>
+                  <span>{t("StudentCoursesPage.roomCount", { count: 8 })}</span>
+                </span>
+                <strong className={styles.courseTitle}>{t("StudentCoursesPage.guideDemoTitle")}</strong>
+                <span className={styles.courseDescription}>{t("StudentCoursesPage.guideDemoDescription")}</span>
+                <span className={styles.progressMeta}>
+                  <span>{t("StudentCoursesPage.progress", { percent: 50 })}</span>
+                  <span>4 / 8</span>
+                </span>
+                <span className={styles.progressTrack} aria-hidden="true"><span style={{ width: "50%" }} /></span>
+              </span>
+              <span data-guide="course-demo-open"><MIcon name="arrow_forward" size={20} /></span>
+            </button>
+          )}
           {view.paths.map((path) => {
             const progress = toPercent(path.progress_percent);
             const inClass = path.schedule?.state === "now";
@@ -84,6 +117,7 @@ export default function StudentCoursesPage() {
                 className={styles.courseCard}
                 key={path.id}
                 onClick={() => navigate(`/courses/${path.id}`, { state: { from: "/courses" } })}
+                data-guide="course-card"
               >
                 <span className={styles.courseIcon}>
                   <MIcon name="school" size={25} />

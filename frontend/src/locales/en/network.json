@@ -1,4 +1,6 @@
 {
+  "FirewallPage.guideDemoAriaLabel": "Simulated firewall topology",
+  "FirewallPage.guideDemoBadge": "Guide-only nodes · no resources created",
   "FirewallPage.title": "Firewall",
   "FirewallPage.subtitle": "Manage network connection rules between VMs and to the internet",
   "FirewallPage.addConnection": "Add Connection",
