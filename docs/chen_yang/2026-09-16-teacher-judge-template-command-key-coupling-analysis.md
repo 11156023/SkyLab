@@ -198,3 +198,65 @@ command_key。**
   （如 argv 換成另一個查更廣的指令），需靠 AI reviewer 補位。
 - 假設：`ai_pve_templates.system_prompt` 的角色描述可作為生成 prompt 的角色
   來源（目前兩表沒有連接，需新加查表）。
+
+---
+
+## 5. 附帶改動：班級機器對照系統範本名稱（2026-09-17 追加）
+
+> 背景：追查「班級管理 → 這堂課固定使用什麼機器 → 把系統資訊撈回對照」時，
+> 發現 `machine_nodes` 只回 `source_template_id`（UUID），要對照回系統範本
+> 名稱得再多一次請求。以下改動讓單一請求就能撈回對照資訊。
+
+### 5.1 改動內容
+
+`backend/app/api/routes/teaching_classes.py`：
+
+- 新增 `_template_names_for_nodes()`（批次把節點的 `source_template_id`
+  查成 `vm_templates.name`）與 `_machine_node_dump()`（節點序列化統一補欄位）
+- `_serialize`（詳情頁 `GET /teaching-classes/{class_id}`）與
+  `_serialize_list`（列表頁 `GET /teaching-classes`）的 `machine_nodes`
+  每筆新增 **`template_name`** 欄位
+- 列表頁整頁只多 1 次 template 查詢（無範本節點時 0 次），
+  `test_query_count_does_not_grow_with_classes_or_weeks` 的常數查詢保證不受影響
+
+### 5.2 對照規則
+
+| 節點來源 | template_name | 來源識別 |
+| --- | --- | --- |
+| `source_type="template"` | `vm_templates.name`（由 `source_template_id` 查） | `source_template_id`（UUID，FK） |
+| `source_type="custom"` | `null` | `custom_image_ref`（自訂 LXC=vztmpl volid；自訂 VM=PVE 範本 VMID） |
+
+回傳範例：
+
+```json
+{
+  "node_key": "web-server",
+  "name": "Web 伺服器",
+  "resource_type": "qemu",
+  "source_type": "template",
+  "template_name": "Ubuntu 24.04 教學母機",
+  "source_template_id": "uuid-..."
+}
+```
+
+### 5.3 相關事實（本次追查確認）
+
+- 班級機器規格鎖定：`spec_change_service._reject_fixed_resource`（:194-206）
+  對 `allocation_scope="teaching_class"` 的機器直接拒絕規格變更
+  （`spec_change.class_machine_spec_fixed`）；手動改機器清單也被
+  `PUT /{class_id}/machines` 擋下（`machinesManagedByCourseEnvironment`）
+- 機器 ↔ 範本的真正連結是 `pve_vmid`／`resources.template_id`，
+  不是顯示名稱；`vm_templates` 的 `pve_vmid/node/storage/resource_type/
+  default_disk` 不可更新，有克隆子機時不可刪除
+- 建機當下的規格快照在 `BatchProvisionJob.template_params`
+  （`GET /batch-provision/{job_id}/status` 的 `BatchProvisionJobSpec`：
+  `vm_template_id` / `ostemplate` / `template_id` / `os_info`）
+
+### 5.4 驗證
+
+- `tests/api/routes/test_teaching_class_list_serializer.py`、
+  `tests/test_teaching_class_resource_usage.py`、
+  `tests/services/test_teaching_class_orchestration.py`、
+  `tests/services/test_class_resource_governance.py` 全數通過（32 tests）
+- `ruff check` 通過（檔內既有未格式化段落非本次改動）
+- 前端 `normalizeClass` 以展開傳遞節點欄位，不需改動即可取得 `template_name`
