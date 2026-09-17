@@ -1,0 +1,230 @@
+@use "../../../assets/styles/variables" as *;
+@use "../../../assets/styles/mixins" as *;
+
+/* 與 RulesPanel 共用同一個右側位置與滑入動畫，兩者互斥顯示 */
+.panel {
+  position: absolute;
+  top: $spacing-16;
+  right: $spacing-16;
+  max-height: calc(100% - #{$spacing-16 * 2});
+  width: 300px;
+  @include glass-surface($shadow: var(--shadow-sm));
+  border-radius: $radius-16;
+  @include flex-column;
+  overflow: hidden;
+  overflow-y: auto;
+  animation: panelIn 0.22s cubic-bezier(0.25, 0.8, 0.25, 1);
+}
+
+@keyframes panelIn {
+  from { opacity: 0; transform: translateX(calc(100% + #{$spacing-16})); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+
+/* 關閉時滑出：fill forwards 讓面板停在畫面外直到卸載 */
+.panelOut {
+  animation: panelOut 0.22s cubic-bezier(0.25, 0.8, 0.25, 1) forwards;
+}
+
+@keyframes panelOut {
+  from { opacity: 1; transform: translateX(0); }
+  to   { opacity: 0; transform: translateX(calc(100% + #{$spacing-16})); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .panel,
+  .panelOut { animation: none; }
+}
+
+/* ── Header ── */
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: $spacing-16;
+  border-bottom: 1px solid var(--color-border);
+  gap: $spacing-8;
+  flex-shrink: 0;
+}
+
+.headerInfo {
+  display: flex;
+  align-items: center;
+  gap: $spacing-8;
+  min-width: 0;
+  color: var(--color-text-secondary);
+}
+
+.title {
+  font-size: $font-size-14;
+  font-weight: $font-weight-700;
+  color: var(--color-text-primary);
+  @include text-truncate;
+}
+
+.closeBtn {
+  @include flex-center;
+  width: 28px;
+  height: 28px;
+  border-radius: $radius-8;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background $transition-base, color $transition-base;
+
+  &:hover {
+    background: var(--color-hover);
+    color: var(--color-text-primary);
+  }
+}
+
+/* ── Sections ── */
+.section {
+  padding: $spacing-16;
+  border-bottom: 1px solid var(--color-border);
+  @include flex-column;
+  gap: $spacing-8;
+}
+
+.sectionTitle {
+  font-size: $font-size-12;
+  font-weight: $font-weight-700;
+  color: var(--color-text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+/* ── 兩端與方向 ── */
+.endpoints {
+  display: flex;
+  align-items: center;
+  gap: $spacing-8;
+  color: var(--color-text-muted);
+  flex-wrap: wrap;
+}
+
+.endpoint {
+  font-size: $font-size-14;
+  font-weight: $font-weight-500;
+  color: var(--color-text-primary);
+  min-width: 0;
+  @include text-truncate;
+}
+
+.badgeRow {
+  display: flex;
+  align-items: center;
+  gap: $spacing-4;
+  flex-wrap: wrap;
+}
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: $radius-pill;
+  font-size: $font-size-12;
+  font-weight: $font-weight-500;
+  background: var(--color-hover);
+  color: var(--color-text-secondary);
+}
+
+.toneInfo {
+  background: color-mix(in srgb, var(--color-info) 14%, transparent);
+  color: var(--color-info);
+}
+
+.toneSuccess {
+  background: color-mix(in srgb, var(--color-success) 14%, transparent);
+  color: var(--color-success);
+}
+
+.toneNeutral {
+  background: color-mix(in srgb, var(--color-status-neutral) 16%, transparent);
+  color: var(--color-text-secondary);
+}
+
+/* ── 開放內容 ── */
+.hint {
+  font-size: $font-size-12;
+  color: var(--color-text-muted);
+  line-height: 1.6;
+}
+
+.portList {
+  @include flex-column;
+  gap: $spacing-4;
+  list-style: none;
+}
+
+.portRow {
+  display: flex;
+  align-items: center;
+  gap: $spacing-8;
+  padding: 6px $spacing-8;
+  border-radius: $radius-8;
+  background: color-mix(in srgb, var(--color-surface) 70%, transparent);
+  color: var(--color-text-muted);
+}
+
+.portInfo {
+  @include flex-column;
+  min-width: 0;
+  flex: 1;
+}
+
+.portText {
+  font-size: $font-size-12;
+  font-weight: $font-weight-500;
+  color: var(--color-text-primary);
+  @include text-truncate;
+}
+
+.portMode {
+  font-size: 11px;
+  color: var(--color-text-muted);
+  @include text-truncate;
+}
+
+.openLink {
+  @include flex-center;
+  width: 28px;
+  height: 28px;
+  border-radius: $radius-8;
+  color: var(--color-text-muted);
+  flex-shrink: 0;
+  transition: background $transition-base, color $transition-base;
+
+  &:hover {
+    background: var(--color-hover);
+    color: var(--color-primary);
+  }
+}
+
+/* ── Footer ── */
+.footer {
+  padding: $spacing-16;
+  flex-shrink: 0;
+}
+
+.deleteBtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  width: 100%;
+  padding: 8px $spacing-16;
+  border-radius: $radius-8;
+  border: 1px solid color-mix(in srgb, var(--color-danger) 40%, transparent);
+  background: transparent;
+  color: var(--color-danger);
+  font-size: $font-size-14;
+  font-weight: $font-weight-500;
+  cursor: pointer;
+  transition: background $transition-base, color $transition-base;
+
+  &:hover {
+    background: var(--color-danger);
+    color: var(--color-text-on-primary);
+  }
+}

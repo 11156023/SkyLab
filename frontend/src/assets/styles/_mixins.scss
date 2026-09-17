@@ -188,6 +188,134 @@
   vertical-align: middle;
 }
 
+/* ── 標準按鈕（六款）──
+   全站按鈕一律用這組 mixin，不要在頁面內重抄整組樣式：
+   .btnPrimary       { @include btn-primary; }        每畫面至多一顆的主要動作
+   .btnSecondary     { @include btn-secondary; }      並列的一般動作、返回
+   .btnDanger        { @include btn-danger; }         只用在確認彈窗／最終確認步驟
+   .btnDangerOutline { @include btn-danger-outline; } 頁面內破壞性動作的「入口」
+   .btnGhost         { @include btn-ghost; }          低強調輔助動作（淡底文字鈕）
+                       @include btn-ghost($danger: true) 為紅字淡紅底變體
+   .iconBtn          { @include btn-icon; }           32×32 圖示鈕，JSX 必帶 aria-label
+                       @include btn-icon($danger: true) 未 hover 即紅字
+   共用基底：高 36px、圓角 8、字級 14/500、hover 一律 :not(:disabled)、
+   disabled 一律 opacity .5 + not-allowed。頁面差異（寬度、margin、grid 位置）
+   寫在 @include 之後；要改高度字級請先問是不是真的需要。 */
+@mixin btn-base {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 36px;
+  padding: 7px 16px;
+  border: 0;
+  border-radius: $radius-8;
+  font: inherit;
+  font-size: $font-size-14;
+  font-weight: $font-weight-500;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background $transition-base, border-color $transition-base, color $transition-base;
+
+  &:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+}
+
+@mixin btn-primary {
+  @include btn-base;
+  color: var(--color-text-on-primary);
+  background: var(--color-primary);
+
+  &:hover:not(:disabled) {
+    background: var(--color-primary-dark);
+  }
+}
+
+@mixin btn-secondary {
+  @include btn-base;
+  border: 1px solid var(--color-border);
+  color: var(--color-text);
+  background: var(--color-surface);
+
+  &:hover:not(:disabled) {
+    background: var(--color-hover);
+  }
+}
+
+@mixin btn-danger {
+  @include btn-base;
+  border: 1px solid var(--color-danger);
+  color: var(--color-text-on-primary);
+  background: var(--color-danger);
+
+  &:hover:not(:disabled) {
+    border-color: var(--color-danger-dark);
+    background: var(--color-danger-dark);
+  }
+}
+
+@mixin btn-danger-outline {
+  @include btn-base;
+  border: 1px solid color-mix(in srgb, var(--color-danger) 35%, var(--color-border));
+  color: var(--color-danger);
+  background: var(--color-surface);
+
+  &:hover:not(:disabled) {
+    border-color: var(--color-danger-dark);
+    background: color-mix(in srgb, var(--color-danger) 10%, var(--color-surface));
+  }
+}
+
+/* 淡底文字鈕：平常就有一層淡底（一般款吃 --color-hover、危險款淡紅），
+   hover 再深一階（一般款吃 --color-row-hover 並加深文字） */
+@mixin btn-ghost($danger: false) {
+  @include btn-base;
+  padding: 7px 12px;
+
+  @if $danger {
+    color: var(--color-danger);
+    background: color-mix(in srgb, var(--color-danger) 8%, transparent);
+
+    &:hover:not(:disabled) {
+      background: color-mix(in srgb, var(--color-danger) 15%, transparent);
+    }
+  } @else {
+    color: var(--color-text-secondary);
+    background: var(--color-hover);
+
+    &:hover:not(:disabled) {
+      color: var(--color-text-primary);
+      background: var(--color-row-hover);
+    }
+  }
+}
+
+@mixin btn-icon($danger: false) {
+  @include btn-base;
+  width: 32px;
+  height: 32px;
+  min-height: 32px;
+  padding: 0;
+  background: transparent;
+
+  @if $danger {
+    color: var(--color-danger);
+
+    &:hover:not(:disabled) {
+      background: color-mix(in srgb, var(--color-danger) 9%, transparent);
+    }
+  } @else {
+    color: var(--color-text-secondary);
+
+    &:hover:not(:disabled) {
+      color: var(--color-text);
+      background: var(--color-hover);
+    }
+  }
+}
+
 /* 玻璃表面基本組：背景塗層＋backdrop 濾鏡＋亮邊框＋陰影。
    - 未帶 $blur 時濾鏡吃 --glass-backdrop-filter，跟隨風格切換
      （液態玻璃等），有特殊需求才傳 $blur / $saturate 固定值

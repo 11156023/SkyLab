@@ -33,14 +33,57 @@ function feedbackFor(checkpoint) {
   };
 }
 
+function createGuideDemoWeek(t) {
+  const checkpointId = "demo-checkpoint";
+  return {
+    loading: false,
+    failed: false,
+    path: { id: "demo", title: t("StudentWeekPage.guideDemoCourseTitle") },
+    week: {
+      id: "demo-week-1",
+      teaching_class_name: t("StudentWeekPage.guideDemoCourseTitle"),
+      title: t("StudentWeekPage.guideDemoWeekTitle"),
+      week_number: 1,
+      session_date: "2026-09-09",
+      target_node_key: "main",
+      checkpoints: [{
+        id: checkpointId,
+        title: t("StudentWeekPage.guideDemoCheckpointTitle"),
+        description: t("StudentWeekPage.guideDemoCheckpointDescription"),
+        latest_check: {
+          status: "passed",
+          score: 3,
+          max_score: 3,
+          summary: t("StudentWeekPage.guideDemoFeedback"),
+          items: [{ item_id: checkpointId, status: "passed", score: 3, max_score: 3, comment: t("StudentWeekPage.guideDemoFeedback") }],
+        },
+      }],
+      files: [{ id: "demo-file", filename: "linux-week-01.pdf" }],
+    },
+    machines: [{
+      machine_node_id: "demo-machine",
+      node_key: "main",
+      name: t("StudentWeekPage.guideDemoMachineName"),
+      role: t("StudentWeekPage.guideDemoMachineRole"),
+      resource_type: "lxc",
+      vmid: null,
+      public_url: null,
+    }],
+  };
+}
 export default function StudentWeekPage() {
   const { t, i18n } = useTranslation("personal");
   const navigate = useNavigate();
   const { pathId, weekId } = useParams();
+  const isGuideDemo = pathId === "demo" || weekId === "demo-week-1";
   const [view, setView] = useState({ loading: true, failed: false, path: null, week: null, machines: [] });
   const [openingFileId, setOpeningFileId] = useState(null);
 
   useEffect(() => {
+    if (isGuideDemo) {
+      setView(createGuideDemoWeek(t));
+      return undefined;
+    }
     let cancelled = false;
     async function load() {
       const [pathResult, weeksResult, machinesResult] = await Promise.allSettled([
@@ -62,7 +105,7 @@ export default function StudentWeekPage() {
     }
     load();
     return () => { cancelled = true; };
-  }, [pathId, weekId]);
+  }, [isGuideDemo, pathId, t, weekId]);
 
   const machines = useMemo(() => {
     if (!view.week?.target_node_key) return view.machines;
@@ -70,6 +113,7 @@ export default function StudentWeekPage() {
   }, [view.machines, view.week]);
 
   async function openDocument(file) {
+    if (isGuideDemo) return;
     setOpeningFileId(file.id);
     const preview = window.open("", "_blank");
     try {
@@ -96,7 +140,7 @@ export default function StudentWeekPage() {
   }
 
   return <div className={styles.page}>
-    <header className={styles.header}>
+    <header className={styles.header} data-guide="course-week-header">
       <button type="button" className={styles.backButton} onClick={() => navigate(`/courses/${pathId}`)}><MIcon name="arrow_back" size={18} />{t("StudentWeekPage.back")}</button>
       <div>
         <p>{view.path?.title ?? view.week.teaching_class_name}</p>
@@ -105,8 +149,15 @@ export default function StudentWeekPage() {
       </div>
     </header>
 
+    {isGuideDemo && (
+      <div className={styles.guideDemoNotice}>
+        <MIcon name="visibility" size={17} />
+        <span><strong>{t("StudentWeekPage.guideDemoNoticeTitle")}</strong>{t("StudentWeekPage.guideDemoNoticeDescription")}</span>
+      </div>
+    )}
+
     <main className={styles.grid}>
-      <section className={styles.panel}>
+      <section className={styles.panel} data-guide="course-week-feedback">
         <div className={styles.panelHeading}><span><MIcon name="rate_review" size={20} /></span><div><h2>{t("StudentWeekPage.feedbackTitle")}</h2><p>{t("StudentWeekPage.feedbackHint")}</p></div></div>
         {view.week.checkpoints.length ? <div className={styles.feedbackList}>
           {view.week.checkpoints.map((checkpoint, index) => {
@@ -127,7 +178,7 @@ export default function StudentWeekPage() {
       </section>
 
       <aside className={styles.side}>
-        <section className={styles.panel}>
+        <section className={styles.panel} data-guide="course-week-machine">
           <div className={styles.panelHeading}><span><MIcon name="dns" size={20} /></span><div><h2>{t("StudentWeekPage.machineTitle")}</h2><p>{view.week.target_node_key ? t("StudentWeekPage.machineSelectedHint") : t("StudentWeekPage.machineAllHint")}</p></div></div>
           {machines.length ? <div className={styles.machineList}>{machines.map((machine) => <article className={styles.machineCard} key={machine.machine_node_id}>
             <div className={styles.machineCopy}><span><MIcon name={machine.resource_type === "lxc" ? "terminal" : "desktop_windows"} size={20} /></span><div><strong>{machine.name}</strong><small>{machine.role}{machine.vmid ? ` · VMID ${machine.vmid}` : ""}</small></div></div>
@@ -138,9 +189,9 @@ export default function StudentWeekPage() {
           </article>)}</div> : <EmptyState icon="dns" title={t("StudentWeekPage.noMachineTitle")} description={t("StudentWeekPage.noMachineDesc")} />}
         </section>
 
-        {view.week.files.length > 0 && <section className={styles.panel}>
+        {view.week.files.length > 0 && <section className={styles.panel} data-guide="course-week-materials">
           <div className={styles.panelHeading}><span><MIcon name="description" size={20} /></span><div><h2>{t("StudentWeekPage.filesTitle")}</h2></div></div>
-          <div className={styles.fileList}>{view.week.files.map((file) => <button type="button" key={file.id} disabled={openingFileId !== null} onClick={() => openDocument(file)}><MIcon name="picture_as_pdf" size={19} /><span>{file.filename}</span><MIcon name={openingFileId === file.id ? "sync" : "open_in_new"} size={17} /></button>)}</div>
+          <div className={styles.fileList}>{view.week.files.map((file) => <button type="button" key={file.id} disabled={isGuideDemo || openingFileId !== null} onClick={() => openDocument(file)}><MIcon name="picture_as_pdf" size={19} /><span>{file.filename}</span><MIcon name={openingFileId === file.id ? "sync" : "open_in_new"} size={17} /></button>)}</div>
         </section>}
       </aside>
     </main>

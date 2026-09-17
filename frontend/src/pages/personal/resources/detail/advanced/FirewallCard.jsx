@@ -23,7 +23,12 @@ import {
 } from "../../../../../services/firewall";
 import MiniTopology from "./MiniTopology";
 
-export default function FirewallCard({ vmid, canManage }) {
+/**
+ * @param {string[]} publicUrls 這台機器的對外網址（來自 ResourcePublic.public_urls），唯讀顯示；
+ *   要改網址從「新增規則 › 連線」或拓撲頁做。
+ * @param {() => void} [onChanged] 對話框建了連線後通知上層重載資源（網址才會更新）。
+ */
+export default function FirewallCard({ vmid, canManage, publicUrls = [], onChanged }) {
   const { t } = useTranslation("personal");
   const toast = useToast();
   const confirm = useConfirm();
@@ -64,6 +69,7 @@ export default function FirewallCard({ vmid, canManage }) {
     toast.success(result?.kind === "rule" ? t("FirewallCard.ruleAdded") : t("FirewallCard.connectionAdded"));
     setShowAdd(false);
     load();
+    if (result?.kind !== "rule") onChanged?.();
   }
 
   async function handleToggle(rule) {
@@ -105,7 +111,6 @@ export default function FirewallCard({ vmid, canManage }) {
             <MIcon name="security" size={18} />
             {t("FirewallCard.title")}
           </h2>
-          <p className={styles.cardDesc}>{t("FirewallCard.desc")}</p>
         </div>
         <div className={styles.headerActions}>
           {options && (
@@ -127,6 +132,22 @@ export default function FirewallCard({ vmid, canManage }) {
         </div>
       </div>
       <div className={styles.cardBody}>
+        {publicUrls.length > 0 && (
+          <div className={styles.publicUrlBlock}>
+            <span className={styles.publicUrlLabel}>
+              <MIcon name="language" size={14} />
+              {t("FirewallCard.publicUrls")}
+            </span>
+            <div className={styles.linkRow}>
+              {publicUrls.map((url) => (
+                <a key={url} className={styles.linkBtn} href={url} target="_blank" rel="noreferrer" title={url}>
+                  {url.replace(/^https?:\/\//, "")}
+                  <MIcon name="open_in_new" size={13} />
+                </a>
+              ))}
+            </div>
+          </div>
+        )}
         {loading ? (
           <LoadingState text={t("FirewallCard.loading")} />
         ) : (

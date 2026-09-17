@@ -172,15 +172,8 @@
   }
 }
 
-.btnDanger {
-  @extend %btn-base;
-  padding: 4px 8px;
-  background: transparent;
-  color: var(--color-danger);
-
-  &:hover:not(:disabled) {
-    background: color-mix(in srgb, var(--color-danger) 10%, transparent);
-  }
+.btnIconDanger {
+  @include btn-icon($danger: true);
 }
 
 .btnIcon {

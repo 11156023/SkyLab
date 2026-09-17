@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import UTC, date, datetime, time, timedelta
 
-from sqlmodel import Session, SQLModel, create_engine
+from sqlmodel import Session, SQLModel, create_engine, select
 
 from app.models import (
     CoursePath,
@@ -25,7 +25,11 @@ from app.models.teacher_judge_script_artifact import (
 )
 from app.models.teacher_judge_session import TeacherJudgeSession
 from app.services.course import weekly_task_service
-from app.services.course.course_service import ensure_class_path, list_student_schedule
+from app.services.course.course_service import (
+    ensure_class_path,
+    list_published_paths,
+    list_student_schedule,
+)
 from app.services.course.reminder_service import list_student_reminders
 
 
@@ -79,6 +83,54 @@ def _linked_class(
     session.add(TeachingClassStudent(class_id=teaching_class.id, user_id=student.id))
     session.commit()
     return teaching_class, path
+
+
+def test_course_list_only_includes_published_courses_for_active_enrollments() -> None:
+    with _session() as session:
+        teacher = _user("teacher@example.edu", UserRole.teacher)
+        student = _user("student@example.edu", UserRole.student)
+        other_student = _user("other@example.edu", UserRole.student)
+        teaching_class, own_path = _linked_class(
+            session, teacher=teacher, student=student, session_date=date(2026, 8, 25)
+        )
+        session.refresh(teaching_class)
+        other_class = TeachingClass(**{
+            **teaching_class.model_dump(exclude={"id", "code"}), "code": "other-class",
+        })
+        session.add(other_class)
+        session.add(other_student)
+        session.flush()
+        session.add(TeachingClassStudent(class_id=other_class.id, user_id=other_student.id))
+        other_path = CoursePath(
+            title="Other student's course", created_by=teacher.id,
+            teaching_class_id=other_class.id, status=CoursePathStatus.published,
+        )
+        session.add(other_path)
+        session.add(CoursePath(
+            title="Unassigned published course", created_by=teacher.id,
+            status=CoursePathStatus.published,
+        ))
+        session.commit()
+
+        assert [row.id for row in list_published_paths(session, user_id=student.id)] == [own_path.id]
+        assert [row.id for row in list_published_paths(session, user_id=other_student.id)] == [other_path.id]
+        assert list_published_paths(session, user_id=teacher.id) == []
+
+        own_path.status = CoursePathStatus.draft
+        session.add(own_path)
+        session.commit()
+        assert list_published_paths(session, user_id=student.id) == []
+        own_path.status = CoursePathStatus.published
+        session.add(own_path)
+        session.commit()
+
+        enrollment = session.exec(select(TeachingClassStudent).where(
+            TeachingClassStudent.user_id == student.id,
+        )).one()
+        enrollment.status = "removed"
+        session.add(enrollment)
+        session.commit()
+        assert list_published_paths(session, user_id=student.id) == []
 
 
 def test_schedule_uses_real_class_time_teacher_and_location() -> None:

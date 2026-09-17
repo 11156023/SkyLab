@@ -237,10 +237,10 @@ function CredentialCard({ item, onRefresh }) {
           <MIcon name="content_copy" size={16} /> API Key
         </button>
         {/* 重新產生金鑰是破壞性動作（舊金鑰立即失效），不叫「刷新」也不長得像刷新 */}
-        <button type="button" className={`${styles.btnOutline} ${styles.btnDanger}`} onClick={doRotate} disabled={inactive || busy}>
+        <button type="button" className={`${styles.btnOutline} ${styles.btnOutlineDanger}`} onClick={doRotate} disabled={inactive || busy}>
           <MIcon name="autorenew" size={16} /> {t("AiApiPage.actionRotate")}
         </button>
-        <button type="button" className={`${styles.btnOutline} ${styles.btnDanger}`} onClick={doDelete} disabled={busy}>
+        <button type="button" className={`${styles.btnOutline} ${styles.btnOutlineDanger}`} onClick={doDelete} disabled={busy}>
           <MIcon name="delete" size={16} /> {t("AiApiPage.actionDelete")}
         </button>
       </div>
@@ -497,7 +497,6 @@ function MyUsageTab() {
           <div className={styles.usagePanel} data-guide="ai-route-usage">
             <div className={styles.usagePanelHeader}>
               <h3 className={styles.usagePanelTitle}>{t("AiApiPage.usageTitle")}</h3>
-              <p className={styles.usagePanelDesc}>{t("AiApiPage.usageDesc")}</p>
             </div>
             {usageError ? (
               <p className={styles.textDanger}>{t("AiApiPage.usageError")}</p>
@@ -526,7 +525,6 @@ function MyUsageTab() {
           <div className={styles.usagePanel} data-guide="ai-usage-records">
             <div className={styles.usagePanelHeader}>
               <h3 className={styles.usagePanelTitle}>{t("AiApiPage.usageRecordsTitle")}</h3>
-              <p className={styles.usagePanelDesc}>{t("AiApiPage.usageRecordsDesc")}</p>
             </div>
             {recordsError ? (
               <p className={styles.textDanger}>{t("AiApiPage.usageRecordsError")}</p>
@@ -613,7 +611,6 @@ function ApplyKeyModal({
         <div className={styles.dialogHeader}>
           <div>
             <h2 id="ai-apply-dialog-title" className={styles.dialogTitle} data-guide="ai-form">{t("AiApiPage.applyPanelTitle")}</h2>
-            <p className={styles.dialogDesc}>{t("AiApiPage.applyPanelDesc")}</p>
           </div>
           <button
             type="button"
@@ -777,7 +774,6 @@ export default function AiApiPage() {
       {/* ── Header ── */}
       <PageHeader
         title="AI API"
-        subtitle={t("AiApiPage.pageSubtitle")}
       />
 
       {/* ── Stat cards ── */}
@@ -815,7 +811,6 @@ export default function AiApiPage() {
             <div className={styles.panelHeaderRow}>
               <div className={styles.panelHeader}>
                 <h2 className={styles.panelTitle} data-guide="ai-keys-panel">{t("AiApiPage.keysPanelTitle")}</h2>
-                <p className={styles.panelDesc}>{t("AiApiPage.keysPanelDesc")}</p>
               </div>
               <button
                 type="button"
@@ -850,7 +845,6 @@ export default function AiApiPage() {
           <div className={styles.panel}>
             <div className={styles.panelHeader}>
               <h2 className={styles.panelTitle} data-guide="ai-records-panel">{t("AiApiPage.recordsPanelTitle")}</h2>
-              <p className={styles.panelDesc}>{t("AiApiPage.recordsPanelDesc")}</p>
             </div>
             {loading ? (
               <LoadingState />

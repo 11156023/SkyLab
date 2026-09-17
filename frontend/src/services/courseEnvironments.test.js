@@ -21,6 +21,29 @@ beforeEach(() => {
 });
 
 describe("CourseEnvironmentsService", () => {
+  test("unfinished drafts round-trip without changing input or server identity", async () => {
+    const draft = { name: "", nodes: [{ id: "web", name: "", role: "", cpu: "", memory: "", disk: "", type: "lxc" }], edges: [] };
+    const fetchMock = vi.fn().mockResolvedValue(jsonRes({
+      id: "env-1", version_id: "v1", status: "draft",
+      draft_data: { editor: { ...draft, id: "untrusted", status: "published" } },
+    }));
+    vi.stubGlobal("fetch", fetchMock);
+    const saved = await CourseEnvironmentsService.saveDraft(null, draft);
+    expect(fetchMock.mock.calls[0][0]).toContain("/course-environments/drafts");
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body).editor).toEqual(draft);
+    expect(saved.nodes).toEqual(draft.nodes);
+    expect(saved.id).toBe("env-1");
+    expect(saved.status).toBe("draft");
+  });
+
+  test("existing drafts update their own endpoint and preserve creation retry identity", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonRes({ id: "env-1", version_id: "v1", status: "draft" }));
+    vi.stubGlobal("fetch", fetchMock);
+    await CourseEnvironmentsService.saveDraft("env-1", { name: "", nodes: [], draftRequestId: "request-1" });
+    expect(fetchMock.mock.calls[0][0]).toContain("/course-environments/env-1/draft");
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body).draft_id).toBe("request-1");
+  });
+
   test("published list uses the classroom selection endpoint", async () => {
     const fetchMock = vi.fn().mockResolvedValue(jsonRes([]));
     vi.stubGlobal("fetch", fetchMock);
@@ -91,31 +114,18 @@ describe("CourseEnvironmentsService", () => {
     });
   });
 
-  test("payload keeps the class allow-list only for a class audience", () => {
-    const base = {
+  test("an environment offered as practice is open to every student", () => {
+    const payload = environmentPayload({
       name: "Firewall Lab",
       usageScope: "quick_practice",
-      audienceClassIds: ["class-a", "class-b"],
       nodes: [{ id: "fw", sourceTemplateId: "tpl-id", name: "FW", role: "gateway", type: "lxc", cpu: 1, memory: 1, disk: 8 }],
-    };
-
-    expect(environmentPayload({ ...base, audience: "class" }).audience_class_ids)
-      .toEqual(["class-a", "class-b"]);
-    expect(environmentPayload({ ...base, audience: "campus" }).audience_class_ids)
-      .toEqual([]);
-    expect(environmentPayload({ ...base, audience: "campus" }).audience).toBe("campus");
-  });
-
-  test("normalize defaults an environment without an audience to class scope", () => {
-    const normalized = normalizeCourseEnvironment({
-      id: "env-1",
-      version_id: "ver-1",
-      nodes: [],
-      edges: [],
     });
 
-    expect(normalized.audience).toBe("class");
-    expect(normalized.audienceClassIds).toEqual([]);
+    // 套用方式是唯一的閘門，所以不再有班級白名單或同時上限要送。
+    expect(payload.usage_scope).toBe("quick_practice");
+    expect(payload.audience).toBe("campus");
+    expect(payload.audience_class_ids).toEqual([]);
+    expect(payload.max_concurrent_sessions).toBeNull();
   });
 
   test("classroom selection accepts both machine templates and custom images", () => {

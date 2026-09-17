@@ -1,145 +1,109 @@
-@use "../../../assets/styles/variables" as *;
-@use "../../../assets/styles/mixins" as *;
-
 .page {
   @include flex-column;
   width: 100%;
   min-width: 0;
   gap: $spacing-24;
   padding: $spacing-8 $spacing-16 $spacing-32;
-
-  @include respond-to(md) {
-    padding: 0 0 $spacing-32;
-  }
+  @include respond-to(md) { padding: 0 0 $spacing-32; }
 }
-
 .notice {
-  @include glass-surface($shadow: none);
   display: flex;
   align-items: center;
   gap: $spacing-8;
-  padding: 12px $spacing-16;
-  border-radius: $radius-12;
   color: var(--color-danger);
   font-size: $font-size-14;
 }
-
 .courseGrid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(min(100%, 330px), 1fr));
-  gap: $spacing-16;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 320px), 1fr));
+  gap: 12px;
 }
-
 .courseCard {
-  @include glass-surface;
+  @include glass-surface($shadow: none);
   display: grid;
+  grid-template-rows: auto 1fr auto;
   min-width: 0;
-  min-height: 210px;
-  padding: $spacing-24;
-  grid-template-columns: 46px minmax(0, 1fr) 22px;
-  align-items: start;
-  gap: 14px;
-  border-radius: $radius-16;
+  min-height: 180px;
+  padding: 20px;
+  gap: 16px;
+  border-radius: $radius-12;
   color: var(--color-text-primary);
   font: inherit;
   text-align: left;
   cursor: pointer;
-  transition: border-color $transition-base, box-shadow $transition-base, transform $transition-base;
-
-  &:hover {
-    border-color: color-mix(in srgb, var(--color-primary) 45%, var(--color-border));
-    box-shadow: var(--shadow-md);
-    transform: translateY(-2px);
-  }
-
-  &:focus-visible {
-    outline: 3px solid color-mix(in srgb, var(--color-primary) 28%, transparent);
-    outline-offset: 3px;
-  }
-
-  > :last-child {
-    align-self: center;
-    color: var(--color-primary);
-  }
+  transition: border-color $transition-base, background $transition-base;
+  &:hover { border-color: var(--color-primary); background: var(--color-hover); }
+  &:focus-visible { outline: 3px solid var(--color-primary); outline-offset: 3px; }
 }
-
-.courseIcon {
-  @include flex-center;
-  width: 46px;
-  height: 46px;
-  border-radius: $radius-12;
-  background: color-mix(in srgb, var(--color-primary) 12%, var(--color-surface));
-  color: var(--color-primary);
-}
-
-.courseBody {
-  @include flex-column;
-  min-width: 0;
+.cardHeader {
+  display: grid;
+  grid-template-columns: 30px minmax(0, 1fr) auto;
+  align-items: center;
   gap: 8px;
 }
-
-.courseTopline,
+.courseIcon {
+  @include flex-center;
+  width: 30px;
+  height: 30px;
+  color: var(--color-primary);
+}
+.courseTitle { font-size: $font-size-16; line-height: 1.4; overflow-wrap: anywhere; }
+.courseStatus, .liveStatus {
+  padding: 3px 7px;
+  border-radius: $radius-pill;
+  font-size: $font-size-12;
+  font-weight: $font-weight-700;
+  color: var(--color-primary);
+  background: color-mix(in srgb, var(--color-primary) 8%, transparent);
+}
+.liveStatus { color: var(--color-success); background: color-mix(in srgb, var(--color-success) 10%, transparent); }
+.activeCard { border-color: color-mix(in srgb, var(--color-success) 40%, var(--color-border)); }
+.guideDemoCard { border-style: dashed; }
+.courseBody { min-width: 0; }
+.courseMeta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 12px;
+  color: var(--color-text-secondary);
+  font-size: $font-size-12;
+  overflow-wrap: anywhere;
+  > span { display: inline-flex; align-items: center; gap: 4px; min-width: 0; }
+}
+.cardFooter {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 6px 16px;
+}
 .progressMeta {
   display: flex;
-  align-items: center;
   justify-content: space-between;
-  gap: $spacing-8;
+  gap: 8px;
   color: var(--color-text-muted);
   font-size: $font-size-12;
 }
-
-.courseStatus,
-.liveStatus {
-  font-weight: $font-weight-700;
-}
-
-.courseStatus { color: var(--color-primary); }
-.liveStatus { color: var(--color-success); }
-
-.courseTitle {
-  margin-top: 2px;
-  font-size: $font-size-18;
-  line-height: 1.35;
-}
-
-.courseDescription {
-  display: -webkit-box;
-  min-height: 42px;
-  overflow: hidden;
-  color: var(--color-text-secondary);
-  font-size: $font-size-14;
-  line-height: 1.5;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
-}
-
-.progressMeta {
-  margin-top: auto;
-}
-
 .progressTrack {
-  height: 6px;
+  grid-column: 1;
+  height: 4px;
   overflow: hidden;
   border-radius: $radius-pill;
   background: color-mix(in srgb, var(--color-primary) 12%, var(--color-surface));
-
-  > span {
-    display: block;
-    height: 100%;
-    border-radius: inherit;
-    background: var(--color-primary);
-  }
+  > span { display: block; height: 100%; border-radius: inherit; background: var(--color-primary); }
 }
-
+.cardAction {
+  grid-column: 2;
+  grid-row: 1 / 3;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--color-primary);
+  font-size: $font-size-12;
+  font-weight: $font-weight-700;
+}
 @media (max-width: $breakpoint-sm) {
-  .courseCard {
-    min-height: 190px;
-    padding: $spacing-16;
-    grid-template-columns: 40px minmax(0, 1fr) 20px;
-  }
-
-  .courseIcon {
-    width: 40px;
-    height: 40px;
-  }
+  .courseCard { min-height: 160px; padding: 16px; }
+  .cardHeader { grid-template-columns: 24px minmax(0, 1fr) auto; }
+  .courseIcon { width: 24px; }
 }
+@media (prefers-reduced-motion: reduce) { .courseCard { transition: none; } }

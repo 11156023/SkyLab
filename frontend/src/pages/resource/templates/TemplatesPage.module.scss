@@ -231,35 +231,15 @@
 }
 
 .btnPrimary {
-  @extend %btn-base;
-  background: var(--color-primary);
-  color: var(--color-text-on-primary);
-
-  &:hover:not(:disabled) {
-    background: var(--color-primary-dark);
-  }
+  @include btn-primary;
 }
 
 .btnSecondary {
-  @extend %btn-base;
-  background: var(--color-surface);
-  border: 1px solid var(--color-border);
-  color: var(--color-text);
-  box-shadow: var(--shadow-sm);
-
-  &:hover:not(:disabled) {
-    background: var(--color-hover);
-  }
+  @include btn-secondary;
 }
 
 .btnDanger {
-  @extend %btn-base;
-  background: var(--color-danger);
-  color: var(--color-text-on-primary);
-
-  &:hover:not(:disabled) {
-    background: var(--color-danger-dark);
-  }
+  @include btn-danger;
 }
 
 /* ── Modal ── */

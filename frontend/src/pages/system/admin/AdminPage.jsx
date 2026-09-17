@@ -341,7 +341,7 @@ export default function AdminPage() {
 
   return (
     <div className={styles.page}>
-      <PageHeader title={t("AdminPage.pageTitle")} subtitle={t("AdminPage.pageSubtitle")}>
+      <PageHeader title={t("AdminPage.pageTitle")}>
         <button type="button" className={styles.btnPrimary} onClick={() => setModal({ mode: "create" })}>
           <MIcon name="person_add" size={16} />
           {t("AdminPage.addUser")}

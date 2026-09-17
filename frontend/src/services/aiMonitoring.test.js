@@ -20,10 +20,11 @@ describe("AiMonitoringService", () => {
       endDate: "2026-09-08T00:00:00.000Z",
       bucket: "hour",
       compare: true,
+      source: "api_key",
     });
 
     expect(apiGetMock).toHaveBeenCalledWith(
-      "/api/v1/ai-api/monitoring/overview?start_date=2026-09-01T00%3A00%3A00.000Z&end_date=2026-09-08T00%3A00%3A00.000Z&bucket=hour&compare=true",
+      "/api/v1/ai-api/monitoring/overview?start_date=2026-09-01T00%3A00%3A00.000Z&end_date=2026-09-08T00%3A00%3A00.000Z&bucket=hour&compare=true&source=api_key",
     );
   });
 
@@ -32,6 +33,19 @@ describe("AiMonitoringService", () => {
 
     expect(apiGetMock).toHaveBeenCalledWith(
       "/api/v1/ai-api/monitoring/litellm-runtime",
+    );
+  });
+
+  test("使用者用量可以限定為申請金鑰呼叫", async () => {
+    await AiMonitoringService.listUsersUsage({
+      startDate: "2026-09-01T00:00:00.000Z",
+      endDate: "2026-09-08T00:00:00.000Z",
+      limit: 100,
+      source: "api_key",
+    });
+
+    expect(apiGetMock).toHaveBeenCalledWith(
+      "/api/v1/ai-api/monitoring/users?start_date=2026-09-01T00%3A00%3A00.000Z&end_date=2026-09-08T00%3A00%3A00.000Z&limit=100&source=api_key",
     );
   });
 });

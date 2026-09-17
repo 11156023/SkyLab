@@ -7,6 +7,8 @@
 .header h1 { margin: 0 0 4px; color: var(--color-text-primary); font-size: $font-size-24; }
 .header div > span { color: var(--color-text-secondary); font-size: $font-size-14; }
 .backButton { display: inline-flex; min-height: 40px; align-items: center; gap: 7px; padding: 8px 12px; border: 1px solid var(--color-border); border-radius: $radius-8; color: var(--color-text-primary); background: var(--color-hover); font: inherit; font-size: $font-size-14; font-weight: $font-weight-700; cursor: pointer; }
+.guideDemoNotice { display: flex; align-items: center; gap: $spacing-8; padding: 10px 12px; border: 1px dashed color-mix(in srgb, var(--color-primary) 55%, var(--color-border)); border-radius: $radius-12; background: color-mix(in srgb, var(--color-primary) 6%, var(--color-surface)); color: var(--color-primary-on-surface); font-size: $font-size-12; }
+.guideDemoNotice span { display: flex; flex-wrap: wrap; gap: 4px; }
 .grid { display: grid; grid-template-columns: minmax(0, 1.45fr) minmax(300px, .75fr); align-items: start; gap: $spacing-16; }
 .side { display: grid; gap: $spacing-16; }
 .panel { @include glass-surface; display: grid; gap: $spacing-16; padding: $spacing-24; border-radius: $radius-16; }

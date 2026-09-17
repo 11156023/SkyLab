@@ -53,15 +53,7 @@
 }
 
 .btnSecondary {
-  @extend %btn-base;
-  background: var(--color-surface);
-  color: var(--color-text);
-  border: 1px solid var(--color-border);
-  box-shadow: var(--shadow-sm);
-
-  &:hover {
-    background: var(--color-hover);
-  }
+  @include btn-secondary;
 }
 
 /* ── Tabs ── */
