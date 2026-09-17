@@ -2605,11 +2605,6 @@ function JudgementItemBadge({ item }) {
   return <span className={`${styles.badge} ${info.className}`}>{info.label}</span>;
 }
 
-function formatUsage(value) {
-  if (typeof value !== "number" || Number.isNaN(value)) return "--";
-  return `${Math.round(value)}%`;
-}
-
 function ExecutionTab({ classId, sessionId, members }) {
   const toast = useToast();
   const [selectedVmids, setSelectedVmids] = useState([]);
@@ -2620,7 +2615,6 @@ function ExecutionTab({ classId, sessionId, members }) {
   const [activeRunRef, setActiveRunRef] = useState(null); // { scriptId, runId }
   const [activeRun, setActiveRun] = useState(null);
   const [scripts, setScripts] = useState([]);
-  const [runHistory, setRunHistory] = useState([]);
 
   useEffect(() => {
     AiJudgeService.listScripts(classId, sessionId)
@@ -2632,12 +2626,10 @@ function ExecutionTab({ classId, sessionId, members }) {
     let cancelled = false;
     setActiveRun(null);
     setActiveRunRef(null);
-    setRunHistory([]);
     if (!sessionId) return undefined;
     AiJudgeService.listSessionRuns(classId, sessionId)
       .then(async (runs) => {
         if (cancelled) return;
-        setRunHistory(runs);
         const latest = runs[0];
         if (latest) {
           const detail = await AiJudgeService.getSessionRun(classId, sessionId, latest.id);
@@ -2722,7 +2714,6 @@ function ExecutionTab({ classId, sessionId, members }) {
         `已建立腳本執行任務（${run.progress_json?.total ?? selectedVmids.length} 台）`,
       );
       setActiveRun(run);
-      setRunHistory((current) => [run, ...current.filter((item) => item.id !== run.id)]);
       setActiveRunRef({ scriptId: effectiveScriptId, runId: run.id });
       setDialogOpen(false);
       setSelectedScriptId(null);
@@ -2779,13 +2770,12 @@ function ExecutionTab({ classId, sessionId, members }) {
               <th>成員</th>
               <th>類型</th>
               <th>狀態</th>
-              <th>資源摘要</th>
             </tr>
           </thead>
           <tbody>
             {runningMembers.length === 0 ? (
               <tr>
-                <td colSpan={6} className={styles.tableEmpty}>
+                <td colSpan={5} className={styles.tableEmpty}>
                   目前沒有可執行的運行中 VM/LXC。
                 </td>
               </tr>
@@ -2808,11 +2798,6 @@ function ExecutionTab({ classId, sessionId, members }) {
                   <td className={styles.typeCell}>{member.vm_type ? (member.vm_type === "lxc" ? "LXC" : "VM") : "-"}</td>
                   <td>
                     <span className={`${styles.badge} ${styles.badge_success}`}>運行中</span>
-                  </td>
-                  <td className={styles.fileMeta}>
-                    CPU {formatUsage(member.vm_cpu_usage_pct)} · RAM{" "}
-                    {formatUsage(member.vm_ram_usage_pct)} · 碟{" "}
-                    {formatUsage(member.vm_disk_usage_pct)}
                   </td>
                 </tr>
               ))
@@ -2925,41 +2910,6 @@ function ExecutionTab({ classId, sessionId, members }) {
                 })}
               </tbody>
             </table>
-          </div>
-        </div>
-      )}
-
-      {sessionId && runHistory.length > 0 && (
-        <div className={styles.card}>
-          <h4 className={styles.cardTitle}>歷次執行</h4>
-          <div className={styles.runHistory}>
-            {runHistory.map((run) => (
-              <button
-                key={run.id}
-                type="button"
-                className={styles.runHistoryItem}
-                onClick={async () => {
-                  try {
-                    const detail = await AiJudgeService.getSessionRun(
-                      classId,
-                      sessionId,
-                      run.id,
-                    );
-                    setActiveRun(detail);
-                    setActiveRunRef(
-                      runIsTerminal(run.status)
-                        ? null
-                        : { scriptId: run.artifact_id, runId: run.id },
-                    );
-                  } catch (err) {
-                    toast.error(err?.message ?? "載入執行結果失敗");
-                  }
-                }}
-              >
-                <span>{formatDateTime(run.created_at)}</span>
-                <StatusBadge map={RUN_STATUS} status={run.status} />
-              </button>
-            ))}
           </div>
         </div>
       )}

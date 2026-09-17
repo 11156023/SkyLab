@@ -1949,25 +1949,6 @@
   }
 }
 
-.runHistory {
-  display: grid;
-  gap: $spacing-8;
-  margin-top: $spacing-16;
-}
-
-.runHistoryItem {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: $spacing-16;
-  padding: 8px 10px;
-  border: 1px solid var(--color-border);
-  border-radius: $radius-8;
-  background: var(--color-surface);
-  color: var(--color-text-primary);
-  cursor: pointer;
-}
-
 @include respond-below(lg) {
   .sessionWorkspace {
     grid-template-columns: minmax(220px, 260px) minmax(0, 1fr);
