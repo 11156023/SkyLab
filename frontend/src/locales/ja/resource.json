@@ -28,7 +28,6 @@
   "BatchReviewPage.rejectedToast": "却下しました",
   "BatchReviewPage.actionFailed": "操作に失敗しました",
   "BatchReviewPage.pageTitle": "クラス審査",
-  "BatchReviewPage.statPending": "審査待ち",
   "BatchReviewPage.searchPlaceholder": "バッチ、申請者、コースで検索",
   "BatchReviewPage.tabPending": "審査待ち",
   "BatchReviewPage.tabApproved": "承認済み",
@@ -50,9 +49,6 @@
   "BatchReviewPage.rootfsLabel": "{{size}} GB Rootfs",
   "BatchReviewPage.specSummary": "{{cores}} CPU / {{memory}} GB RAM / {{disk}}",
   "BatchReviewPage.rowMeta": "{{count}} 台・{{applicant}}",
-  "BatchReviewPage.statTotal": "総バッチ数",
-  "BatchReviewPage.statApproved": "承認済み",
-  "BatchReviewPage.statRejected": "却下",
   "BatchReviewPage.loadingBatches": "バッチを読み込み中...",
   "BatchReviewPage.retry": "再試行",
   "BatchReviewPage.selectABatch": "一括申請を選択してください",
@@ -188,6 +184,7 @@
   "ResourceMgmtPage.actionReset": "強制リセット",
   "ResourceMgmtPage.actionReboot": "再起動",
   "ResourceMgmtPage.columnName": "名前",
+  "ResourceMgmtPage.columnKind": "提供元",
   "ResourceMgmtPage.columnEnvOs": "環境 / OS",
   "ResourceMgmtPage.columnStatus": "状態",
   "ResourceMgmtPage.columnIp": "IP アドレス",
@@ -381,5 +378,7 @@
   "TemplatesPage.deleting": "削除中…",
   "TemplatesPage.confirmDelete": "削除を確認",
   "RequestReviewPage.specChangeExpiry": "有効期限 {{from}} → {{to}}",
-  "RequestReviewPage.expiryUnlimited": "無期限"
+  "RequestReviewPage.expiryUnlimited": "無期限",
+  "ResourceMgmtPage.toggleGroupAria": "{{name}} を展開または折りたたむ",
+  "ResourceMgmtPage.groupPowerTitle": "グループ電源"
 }

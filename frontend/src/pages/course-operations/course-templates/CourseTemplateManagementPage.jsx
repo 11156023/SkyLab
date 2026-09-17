@@ -13,15 +13,6 @@ import SegmentedControl from "../../../components/SegmentedControl/SegmentedCont
 
 const STATUS_LABEL_KEYS = { published: "CourseTemplateManagementPage.statusPublished", draft: "CourseTemplateManagementPage.statusDraft", retired: "CourseTemplateManagementPage.statusRetired" };
 const USAGE_LABEL_KEYS = { course: "CourseTemplateManagementPage.usageCourse", quick_practice: "CourseTemplateManagementPage.usageQuickPractice", both: "CourseTemplateManagementPage.usageBoth" };
-const AUDIENCE_LABEL_KEYS = { owner: "CourseTemplateManagementPage.audienceOwner", class: "CourseTemplateManagementPage.audienceClass", campus: "CourseTemplateManagementPage.audienceCampus" };
-
-function audienceNote(template, t) {
-  if (template.usageScope === "course") return t("CourseTemplateManagementPage.notInStudentList");
-  const label = t(AUDIENCE_LABEL_KEYS[template.audience] ?? AUDIENCE_LABEL_KEYS.class);
-  return template.audience === "class"
-    ? t("CourseTemplateManagementPage.audienceClassCount", { label, count: (template.audienceClassIds ?? []).length })
-    : label;
-}
 
 export default function CourseTemplateManagementPage() {
   const { t } = useTranslation("teaching");
@@ -44,24 +35,6 @@ export default function CourseTemplateManagementPage() {
       .finally(() => active && setLoading(false));
     return () => { active = false; };
   }, [toast, t]);
-  async function retire(template) {
-    const ok = await confirm({
-      title: t("CourseTemplateManagementPage.retireConfirmTitle", { name: template.name }),
-      message: t("CourseTemplateManagementPage.retireConfirmMessage"),
-      confirmText: t("CourseTemplateManagementPage.retireLabel"),
-    });
-    if (!ok) return;
-    setBusyId(template.id);
-    try {
-      const updated = await CourseEnvironmentsService.retire(template.id);
-      setTemplates((prev) => prev.map((row) => (row.id === updated.id ? updated : row)));
-    } catch (reason) {
-      toast.error(reason?.message ?? t("CourseTemplateManagementPage.retireFailed"));
-    } finally {
-      setBusyId("");
-    }
-  }
-
   async function remove(template) {
     const ok = await confirm({
       title: t("CourseTemplateManagementPage.removeConfirmTitle", { name: template.name }),
@@ -102,7 +75,7 @@ export default function CourseTemplateManagementPage() {
     <div className={styles.envControls}>
       <SegmentedControl
         className={styles.envTabs}
-        options={[["all", "CourseTemplateManagementPage.filterAll"], ["published", "CourseTemplateManagementPage.statusPublished"], ["draft", "CourseTemplateManagementPage.statusDraft"], ["retired", "CourseTemplateManagementPage.statusRetired"]].map(([key, labelKey]) => ({ value: key, label: t(labelKey), badge: statusCounts[key] ?? 0 }))}
+        options={[["all", "CourseTemplateManagementPage.filterAll"], ["published", "CourseTemplateManagementPage.statusPublished"], ["draft", "CourseTemplateManagementPage.statusDraft"]].map(([key, labelKey]) => ({ value: key, label: t(labelKey), badge: statusCounts[key] ?? 0 }))}
         value={status}
         onChange={setStatus}
         ariaLabel={t("CourseTemplateManagementPage.thStatus")}
@@ -114,10 +87,9 @@ export default function CourseTemplateManagementPage() {
       {loading ? <LoadingState /> : !rows.length ? <EmptyState icon="view_quilt" title={t("CourseTemplateManagementPage.emptyTitle")} /> : <div className={styles.envTableWrap}><table className={styles.envTable}><thead><tr><th>{t("CourseTemplateManagementPage.thName")}</th><th>{t("CourseTemplateManagementPage.thMachinesPerStudent")}</th><th>{t("CourseTemplateManagementPage.thResourceTotal")}</th><th>{t("CourseTemplateManagementPage.thVersion")}</th><th>{t("CourseTemplateManagementPage.thProvideMode")}</th><th>{t("CourseTemplateManagementPage.thUsingClasses")}</th><th>{t("CourseTemplateManagementPage.thStatus")}</th><th /></tr></thead><tbody>{rows.map((template) => <tr key={template.id} onClick={() => navigate(`/course-template-management/${template.id}`)}>
         <td><strong>{template.name}</strong><small>{template.description}</small></td>
         <td><strong>{t("CourseTemplateManagementPage.machinesPerStudentUnit", { count: template.nodes.length })}</strong><small>{template.nodes.map((node) => node.name).join("、")}</small></td>
-        <td>{t("CourseTemplateManagementPage.resourceSummary", { cpu: template.nodes.reduce((sum, node) => sum + node.cpu, 0), memory: template.nodes.reduce((sum, node) => sum + node.memory, 0) })}</td><td>v{template.version}</td><td><strong>{template.usageScope ? t(USAGE_LABEL_KEYS[template.usageScope] ?? USAGE_LABEL_KEYS.course) : t(USAGE_LABEL_KEYS.course)}</strong><small>{audienceNote(template, t)}</small></td><td>{t("CourseTemplateManagementPage.classesCount", { count: template.classes })}</td>
+        <td>{t("CourseTemplateManagementPage.resourceSummary", { cpu: template.nodes.reduce((sum, node) => sum + node.cpu, 0), memory: template.nodes.reduce((sum, node) => sum + node.memory, 0) })}</td><td>v{template.version}</td><td><strong>{t(USAGE_LABEL_KEYS[template.usageScope] ?? USAGE_LABEL_KEYS.course)}</strong>{(template.usageScope ?? "course") === "course" && <small>{t("CourseTemplateManagementPage.notInStudentList")}</small>}</td><td>{t("CourseTemplateManagementPage.classesCount", { count: template.classes })}</td>
         <td><span className={`${styles.statusBadge} ${styles[`status_${template.status}`]}`}>{t(STATUS_LABEL_KEYS[template.status])}</span></td>
         <td onClick={(event) => event.stopPropagation()}><div className={styles.rowActions}>
-          {template.status === "published" && <button type="button" className={styles.iconBtn} title={t("CourseTemplateManagementPage.retireLabel")} aria-label={t("CourseTemplateManagementPage.retireLabel")} disabled={busyId === template.id} onClick={() => retire(template)}><MIcon name="unpublished" size={18} /></button>}
           <button type="button" className={`${styles.iconBtn} ${styles.iconBtnDanger}`} title={t("CourseTemplateManagementPage.deleteLabel")} aria-label={t("CourseTemplateManagementPage.deleteLabel")} disabled={busyId === template.id} onClick={() => remove(template)}><MIcon name="delete" size={18} /></button>
           <button type="button" className={styles.iconBtn} aria-label={t("CourseTemplateManagementPage.openTemplateAria")} onClick={() => navigate(`/course-template-management/${template.id}`)}><MIcon name="chevron_right" size={19} /></button>
         </div></td>

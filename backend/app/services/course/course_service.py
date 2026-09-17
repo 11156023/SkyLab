@@ -506,9 +506,18 @@ def delete_question(session: Session, *, question_id: uuid.UUID) -> None:
 def list_published_paths(
     session: Session, *, user_id: uuid.UUID
 ) -> list[CoursePathSummary]:
+    """List published courses belonging to the student's active enrollments."""
     paths = session.exec(
         select(CoursePath)
-        .where(CoursePath.status == CoursePathStatus.published)
+        .join(
+            TeachingClassStudent,
+            TeachingClassStudent.class_id == CoursePath.teaching_class_id,
+        )
+        .where(
+            CoursePath.status == CoursePathStatus.published,
+            TeachingClassStudent.user_id == user_id,
+            TeachingClassStudent.status == "active",
+        )
         .order_by(CoursePath.created_at.desc())
     ).all()
     summaries: list[CoursePathSummary] = []

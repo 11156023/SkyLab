@@ -36,13 +36,11 @@ def _serialize_template(session: SessionDep, environment, version) -> dict:
 
 
 @router.get("/templates")
-def list_templates(
-    session: SessionDep, current_user: CurrentUser
-) -> list[dict]:
+def list_templates(session: SessionDep, _current_user: CurrentUser) -> list[dict]:
     return [
         _serialize_template(session, environment, version)
         for environment, version in quick_practice_service.list_published_templates(
-            session, user=current_user
+            session
         )
     ]
 
@@ -51,10 +49,10 @@ def list_templates(
 def get_template(
     environment_id: uuid.UUID,
     session: SessionDep,
-    current_user: CurrentUser,
+    _current_user: CurrentUser,
 ) -> dict:
     environment, version = quick_practice_service.get_published_template(
-        session, environment_id=environment_id, user=current_user
+        session, environment_id=environment_id
     )
     return _serialize_template(session, environment, version)
 
