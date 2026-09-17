@@ -88,9 +88,10 @@
 }
 .metricGrid p {
   @include text-truncate;
-  margin: 0;
+  margin: 2px 0 0;
   color: var(--color-text-secondary);
-  font-size: $font-size-10;
+  font-size: $font-size-12;
+  line-height: 1.45;
 }
 
 .mainGrid {
