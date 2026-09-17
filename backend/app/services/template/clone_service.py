@@ -257,7 +257,7 @@ def _reconfigure_lxc(
 ) -> None:
     # LXC 無 cloud-init：PVE config API 無法在克隆後注入 SSH 金鑰，root 密碼
     # 亦只能於開機後以 pct exec 設定（見 _set_lxc_root_password）；平台公鑰
-    # 於開機後以 pct exec 寫入 authorized_keys（見 _inject_lxc_platform_key）。
+    # 於開機後以 pct exec 寫入 authorized_keys（見 inject_lxc_platform_key）。
     config_updates: dict[str, Any] = {
         "hostname": hostname,
         "net0": (
@@ -338,6 +338,11 @@ def _inject_lxc_platform_key(node: str, vmid: int, public_key: str) -> bool:
         "Failed to inject platform SSH key for CT %d: %s", vmid, last_error[:300]
     )
     return False
+
+
+def inject_lxc_platform_key(node: str, vmid: int, public_key: str) -> bool:
+    """Public entry point for start paths that need to sync a guest key."""
+    return _inject_lxc_platform_key(node, vmid, public_key)
 
 
 def _parse_expiry(raw: Any) -> date | None:
@@ -482,7 +487,7 @@ def run_clone_task(task_id: uuid.UUID, payload: dict[str, Any]) -> dict[str, Any
         elif resource_type == "lxc":
             logger.warning(
                 "CT %s not started at clone time; platform SSH key recorded in DB "
-                "only, guest authorized_keys must be synced after first boot",
+                "only; a later LXC start must sync guest authorized_keys",
                 new_vmid,
             )
         report_progress(task_id, 90)
@@ -564,6 +569,7 @@ __all__ = [
     "TASK_CLONE",
     "clone_with_fallback",
     "generate_login_password",
+    "inject_lxc_platform_key",
     "request_clone",
     "run_clone_task",
 ]

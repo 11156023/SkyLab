@@ -78,6 +78,30 @@ def test_boot_one_starts_vm_and_sets_grace_stop(fake_env: dict[str, Any]) -> Non
     ]
 
 
+def test_boot_one_lxc_syncs_platform_key(
+    fake_env: dict[str, Any], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from app.services.resource import resource_service
+
+    sync_calls: list[dict[str, Any]] = []
+    monkeypatch.setattr(
+        resource_service,
+        "ensure_lxc_platform_key",
+        lambda **kwargs: sync_calls.append(kwargs) or True,
+    )
+
+    rs._boot_one(
+        spec=_spec(resource_type="lxc"),
+        grace=timedelta(minutes=30),
+    )
+
+    assert fake_env["proxmox"].control_calls == [("pve1", 150, "lxc", "start")]
+    assert len(sync_calls) == 1
+    assert sync_calls[0]["node"] == "pve1"
+    assert sync_calls[0]["vmid"] == 150
+    assert "session" in sync_calls[0]
+
+
 def test_boot_one_without_node_does_nothing(fake_env: dict[str, Any]) -> None:
     rs._boot_one(spec=_spec(node=None), grace=timedelta(minutes=30))
 
