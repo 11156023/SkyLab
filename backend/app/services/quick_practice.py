@@ -1,6 +1,7 @@
 """Launch and inspect fixed, multi-machine quick-practice environments."""
 
 import logging
+import re
 import uuid
 from datetime import UTC, datetime, timedelta
 
@@ -13,7 +14,6 @@ from app.exceptions import BadRequestError, NotFoundError
 from app.infrastructure.worker import submit_sync
 from app.models import (
     CourseEnvironment,
-    CourseEnvironmentAudience,
     CourseEnvironmentEdge,
     CourseEnvironmentNode,
     CourseEnvironmentVersion,
@@ -21,7 +21,6 @@ from app.models import (
     QuickPracticeSession,
     QuickPracticeSessionMachine,
     Resource,
-    TeachingClassStudent,
     User,
     VMProvisioningStatus,
     VMRequest,
@@ -69,45 +68,17 @@ def _environment_for_version(
     return environment
 
 
-def is_visible_to(session: Session, *, environment: CourseEnvironment, user) -> bool:
-    """Audience check for the student-facing list and for launch.
-
-    ``campus`` is open to every signed-in user, ``class`` only to students of
-    the linked classes, and ``owner`` to nobody but the teacher who owns it.
-    The owner always sees their own environment so they can rehearse it.
-    """
-    if environment.owner_id == user.id or is_admin(user):
-        return True
-    if environment.audience == "campus":
-        return True
-    if environment.audience != "class":
-        return False
-    return (
-        session.exec(
-            select(CourseEnvironmentAudience.id)
-            .join(
-                TeachingClassStudent,
-                col(TeachingClassStudent.class_id)
-                == col(CourseEnvironmentAudience.class_id),
-            )
-            .where(
-                CourseEnvironmentAudience.environment_id == environment.id,
-                TeachingClassStudent.user_id == user.id,
-                TeachingClassStudent.status == "active",
-            )
-        ).first()
-        is not None
-    )
-
-
 def get_published_template(
-    session: Session, *, environment_id: uuid.UUID, user
+    session: Session, *, environment_id: uuid.UUID
 ) -> tuple[CourseEnvironment, CourseEnvironmentVersion]:
+    """提供為快速練習就代表任何登入者都拿得到。
+
+    開放對象的介面已經移除，``audience`` 與 ``course_environment_audiences``
+    只剩舊資料；再拿它們判斷，停在沒掛班級的 ``class`` 會變成誰都看不到，而
+    且沒有介面能改回來。
+    """
     environment = session.get(CourseEnvironment, environment_id)
     if environment is None or environment.usage_scope not in {"quick_practice", "both"}:
-        raise NotFoundError(t("quick_practice.template_not_found"))
-    if not is_visible_to(session, environment=environment, user=user):
-        # Same error as "does not exist": the audience must not be probeable.
         raise NotFoundError(t("quick_practice.template_not_found"))
     version = session.exec(
         select(CourseEnvironmentVersion)
@@ -123,7 +94,7 @@ def get_published_template(
 
 
 def list_published_templates(
-    session: Session, *, user
+    session: Session,
 ) -> list[tuple[CourseEnvironment, CourseEnvironmentVersion]]:
     environments = session.exec(
         select(CourseEnvironment)
@@ -132,8 +103,6 @@ def list_published_templates(
     ).all()
     result: list[tuple[CourseEnvironment, CourseEnvironmentVersion]] = []
     for environment in environments:
-        if not is_visible_to(session, environment=environment, user=user):
-            continue
         version = session.exec(
             select(CourseEnvironmentVersion)
             .where(
@@ -539,6 +508,17 @@ def _node_disk_gb(session: Session, node: CourseEnvironmentNode) -> int:
     return provisioning_service.clone_source_disk_gb(session, node)
 
 
+def _hostname_label(node: CourseEnvironmentNode) -> str:
+    """機器名轉成合法的主機名片段。
+
+    用 ``name`` 而不是 ``node_key``：後者是編輯器產生的 ``node-<timestamp>``，
+    放進主機名比流水號更難讀。名稱是老師自己取的，才帶得出「哪台是哪台」。
+    """
+    cleaned = re.sub(r"[^a-z0-9]+", "-", (node.name or "").lower()).strip("-")
+    # 截斷後可能斷在連字號上，再修一次尾巴；純中文名會清空，退回流水號
+    return cleaned[:24].strip("-") or f"m{node.sort_order + 1}"
+
+
 def _machine_request(
     *,
     session: Session,
@@ -581,7 +561,7 @@ def _machine_request(
     return VMRequestCreate(
         reason=f"Quick practice environment: {environment.name[:120]}",
         resource_type="lxc" if is_lxc else "vm",
-        hostname=f"practice-{practice_session_id.hex[:6]}-{node.sort_order + 1}",
+        hostname=f"practice-{practice_session_id.hex[:6]}-{_hostname_label(node)}",
         cores=node.cpu,
         memory=node.memory_mb,
         # 練習機的密碼會真的套用並存進 resources 憑證卡片，要給人打得出來的
@@ -625,7 +605,7 @@ def launch(
     session: Session, *, user, environment_id: uuid.UUID
 ) -> QuickPracticeSession:
     environment, version = get_published_template(
-        session, environment_id=environment_id, user=user
+        session, environment_id=environment_id
     )
     nodes = nodes_for_version(session, version_id=version.id)
     if not nodes:
