@@ -260,3 +260,74 @@ command_key。**
   `tests/services/test_class_resource_governance.py` 全數通過（32 tests）
 - `ruff check` 通過（檔內既有未格式化段落非本次改動）
 - 前端 `normalizeClass` 以展開傳遞節點欄位，不需改動即可取得 `template_name`
+
+### 5.5 補充：詳情回應的完整形式（多台機器 + 連結圖譜，2026-09-17）
+
+`GET /teaching-classes/{class_id}`（`_serialize`）**單一呼叫**同時帶回
+機器清單、機器類型與連結圖譜：
+
+```jsonc
+{
+  "...班級本體 (TeachingClass 欄位全量)": "...",
+  "member_count": 30,
+
+  "machine_nodes": [            // 多台允許；unique (class_id, node_key)
+    {
+      "node_key": "web-server",
+      "source_type": "template",
+      "source_template_id": "uuid-...",
+      "template_name": "Ubuntu 24.04 母機",   // 本次新加（custom 節點為 null）
+      "name": "Web 伺服器",                    // 老師取的機器名
+      "resource_type": "qemu",                 // 機器類型：qemu=VM / lxc=LXC
+      "cpu": 2, "memory_mb": 2048, "disk_gb": 20,
+      "network": "lab-net", "sort_order": 0, "batch_job_id": null
+    }
+  ],
+  "students": [               // 每位學生實際開出的機器（多台 × 多人）
+    { "email": "...", "full_name": "...",
+      "machines": [ { "machine_node_id": "...", "vmid": 1013,
+                      "status": "completed", "error": null } ] }
+  ],
+  "ready_machines": 28,
+  "total_machines": 90,        // = 學生數 × 機器數
+  "provision_jobs": [ { "id": "...", "status": "...", "total": 90,
+                        "done": 88, "failed_count": 2 } ],
+
+  "course_environment": { "id": "...", "version_id": "...",
+                          "name": "...", "version": 3, "status": "published" },
+  "topology_edges": [          // CourseEnvironmentEdge：防火牆式連線
+    { "source_node_key": "web-server", "target_node_key": "db-server",
+      "direction": "one_way|bidirectional",
+      "protocol": "tcp", "port": 22 }
+  ],
+  "node_positions": { "web-server": { "x": 120.0, "y": 80.0 } },
+  "publications": [            // 對外服務：外網 → 機器（逐生組網域）
+    { "node_key": "n8n", "mode": "domain|firewall_only",
+      "port": 5678, "protocol": "tcp",
+      "hostname_prefix": "{student}-n8n", "enable_https": true }
+  ],
+
+  "capacity_preview": { "...": "..." },
+  "capacity_reservation": {    // ClassCapacityReservation：送審時凍結
+    "student_count": 30, "machine_count": 90,
+    "cpu_cores": 180, "memory_mb": 184320, "disk_gb": 1800,
+    "ip_count": 90, "network_count": 2,
+    "placement_plan": "{...}",       // 整班釘定的叢集/節點計畫
+    "student_placements": "{...}",   // {machine_node_id: {user_id: 節點名}}
+    "status": "reserved"
+  }
+}
+```
+
+重點：
+
+- 機器類型在 `machine_nodes[].resource_type`（`qemu`/`lxc`），系統範本
+  名稱用本次新加的 `template_name` 對照
+- 圖譜三件套 `topology_edges`（誰連誰、方向/協定/port）+
+  `node_positions`（老師在課程編輯器排的座標，班級複本沿用）+
+  `publications`（對外服務，`hostname_prefix` 含 `{student}` 樣板）
+- 列表頁 `GET /teaching-classes` 走輕量 `_serialize_list`：
+  只有 `machine_nodes`（含 `template_name`）與摘要計數，**沒有**圖譜；
+  圖譜只在詳情呼叫
+- 週次 `weeks[]`（week_number/session_date/title/target_node_key/
+  files）也在詳情回應內
