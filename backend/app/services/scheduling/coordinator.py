@@ -256,6 +256,9 @@ def _provision_new_resource(
             template_id=request_template_id,
             ssh_private_key_encrypted=plan.get("ssh_private_key_encrypted"),
             ssh_public_key=plan.get("ssh_public_key"),
+            login_password_encrypted=(
+                provisioning_service.applied_login_password_encrypted(plan)
+            ),
             request_id=req.id,
             commit=False,
         )
@@ -271,6 +274,9 @@ def _provision_new_resource(
             provisioning_error=None,
             commit=False,
         )
+        # 密碼已隨機器存進 resources.login_password_encrypted，
+        # 申請單不再保留一份可逆加密的副本
+        req.password = None
         finish_session.add(req)
 
         audit_service.log_action(

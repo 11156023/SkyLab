@@ -53,9 +53,14 @@ from app.services.vm import (
     workload_advisor,
 )
 from app.services.vm.placement_service import CurrentPlacementSelection
+from app.utils.login_password import generate_login_password
 
 logger = logging.getLogger(__name__)
 
+
+def _encrypt_login_password(password: str | None) -> str | None:
+    """None（Course Lab 沿用範本憑證）就不加密、直接存 None。"""
+    return encrypt_value(password) if password else None
 
 
 def _utc_now() -> datetime:
@@ -474,7 +479,9 @@ def create(
         session=session,
         vm_request_in=request_in,
         user_id=user.id,
-        encrypted_password=encrypt_value(request_in.password),
+        encrypted_password=encrypt_value(
+            request_in.password or generate_login_password()
+        ),
         auto_decision_reason=auto_decision_reason,
         commit=False,
     )
@@ -554,7 +561,7 @@ def create_course_request(
         session=session,
         vm_request_in=request_in,
         user_id=user.id,
-        encrypted_password=encrypt_value(request_in.password),
+        encrypted_password=_encrypt_login_password(request_in.password),
         request_kind="course",
         placement_group_id=placement_group_id,
         commit=False,
@@ -598,7 +605,7 @@ def create_quick_practice_request(
         session=session,
         vm_request_in=request_in,
         user_id=user.id,
-        encrypted_password=encrypt_value(request_in.password),
+        encrypted_password=_encrypt_login_password(request_in.password),
         request_kind="quick_template",
         placement_group_id=placement_group_id,
         commit=False,
