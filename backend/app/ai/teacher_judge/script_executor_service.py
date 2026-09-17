@@ -8,19 +8,13 @@ import logging
 import shlex
 import uuid
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from copy import deepcopy
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, TypeVar
 
 from sqlmodel import Session
 
-from app.ai.monitoring import CALL_TJ_RESULT_ANALYSIS, record_ai_template_call
 from app.ai.teacher_judge.script_policy import validate_managed_script_output
-from app.ai.teacher_judge.script_result_analysis_service import (
-    analyze_target_results,
-    pending_judgement,
-)
 from app.ai.teacher_judge.target_ip_resolver import resolve_target_ip_address
 from app.core.db import engine
 from app.core.security import decrypt_value
@@ -402,39 +396,6 @@ def _summary(results: list[dict[str, Any]]) -> dict[str, Any]:
     }
 
 
-def _ai_summary(results: list[dict[str, Any]]) -> dict[str, Any]:
-    completed = 0
-    failed = 0
-    skipped = 0
-    for result in results:
-        judgement = result.get("ai_judgement")
-        if not isinstance(judgement, dict):
-            continue
-        status = judgement.get("status")
-        if status == "completed":
-            completed += 1
-        elif status == "failed":
-            failed += 1
-        elif status == "skipped":
-            skipped += 1
-    return {
-        "ai_completed": completed,
-        "ai_failed": failed,
-        "ai_skipped": skipped,
-    }
-
-
-def _with_pending_ai_judgement(results: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    prepared: list[dict[str, Any]] = []
-    for result in results:
-        next_result = dict(result)
-        validation = next_result.get("validation")
-        if isinstance(validation, dict) and validation.get("valid") is True:
-            next_result["ai_judgement"] = pending_judgement()
-        prepared.append(next_result)
-    return prepared
-
-
 def _mark_run_executor_failed(run_id: uuid.UUID, message: str) -> None:
     with Session(engine) as session:
         run = session.get(TeacherJudgeScriptRun, run_id)
@@ -473,37 +434,8 @@ def _touch_judge_session(
     session.add(judge_session)
 
 
-def _record_result_ai_usage(
-    *,
-    session: Session,
-    user_id: uuid.UUID | None,
-    template_key: str,
-    results: list[dict[str, Any]],
-) -> None:
-    for result in results:
-        judgement = result.get("ai_judgement")
-        if not isinstance(judgement, dict):
-            continue
-        judgement_status = str(judgement.get("status") or "")
-        if judgement_status in {"", "pending", "skipped"}:
-            continue
-        metrics = judgement.get("metrics")
-        record_ai_template_call(
-            session=session,
-            user_id=user_id,
-            call_type=CALL_TJ_RESULT_ANALYSIS,
-            model_name=str(judgement.get("model") or ""),
-            preset=template_key,
-            metrics=metrics if isinstance(metrics, dict) else None,
-            status="success" if judgement_status == "completed" else "error",
-            error_message=str(judgement.get("error") or "") or None,
-        )
-
-
 @dataclass(frozen=True)
 class _ExecutedTargets:
-    rubric_snapshot: dict[str, Any]
-    script_metadata: dict[str, Any]
     results: list[dict[str, Any]]
 
 
@@ -620,37 +552,25 @@ def _execute_targets(run_id: uuid.UUID) -> _ExecutedTargets | None:
         results.sort(key=lambda item: int(item.get("vmid") or 0))
         _save_run_progress(
             run_id=run.id,
-            stage="analyzing",
+            stage="finalizing",
             targets=targets,
             statuses=statuses,
             done=len(results),
         )
-        return _ExecutedTargets(
-            rubric_snapshot=deepcopy(artifact.rubric_snapshot_json),
-            script_metadata={
-                "id": str(artifact.id),
-                "name": artifact.name,
-                "version": artifact.version,
-                "template_key": artifact.template_key,
-            },
-            results=_with_pending_ai_judgement(results),
-        )
+        return _ExecutedTargets(results=results)
 
 
-def _save_analyzed_results(run_id: uuid.UUID, results: list[dict[str, Any]]) -> None:
+def _save_results(run_id: uuid.UUID, results: list[dict[str, Any]]) -> None:
     with Session(engine) as session:
         run, artifact = _load_run_and_artifact(session=session, run_id=run_id)
         targets = list(run.target_snapshot_json.get("targets") or [])
         statuses = {_target_vmid(result): str(result["status"]) for result in results}
         results.sort(key=lambda item: int(item.get("vmid") or 0))
         run.target_results_json = {
-            "schema_version": "teacher_judge_run_results.v1",
+            "schema_version": "teacher_judge_run_results.v2",
             "targets": results,
         }
-        run.result_summary_json = {
-            **_summary(results),
-            **_ai_summary(results),
-        }
+        run.result_summary_json = _summary(results)
         run.progress_json = {
             "stage": "completed",
             "total": len(targets),
@@ -663,12 +583,6 @@ def _save_analyzed_results(run_id: uuid.UUID, results: list[dict[str, Any]]) -> 
         session.add(run)
         _touch_judge_session(session, artifact)
         session.commit()
-        _record_result_ai_usage(
-            session=session,
-            user_id=run.started_by,
-            template_key=artifact.template_key,
-            results=results,
-        )
 
 
 async def _await_worker(worker: asyncio.Task[_WorkerResult]) -> _WorkerResult:
@@ -695,13 +609,8 @@ async def _execute_script_run(run_id: uuid.UUID) -> None:
     )
     if collected is None:
         return
-    results = await analyze_target_results(
-        rubric_snapshot=collected.rubric_snapshot,
-        script_metadata=collected.script_metadata,
-        target_results=collected.results,
-    )
     await _await_worker(
-        asyncio.create_task(asyncio.to_thread(_save_analyzed_results, run_id, results))
+        asyncio.create_task(asyncio.to_thread(_save_results, run_id, collected.results))
     )
 
 

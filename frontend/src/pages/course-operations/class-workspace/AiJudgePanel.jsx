@@ -2559,48 +2559,49 @@ function StatusBadge({ map, status }) {
   return <span className={`${styles.badge} ${info.className}`}>{info.label}</span>;
 }
 
-function AiJudgementBadge({ result }) {
+function ScriptResultBadge({ result }) {
   if (!result) return <span className={`${styles.badge} ${styles.badge_muted}`}>等待回收</span>;
   if (result.validation?.valid === false) {
-    return <span className={`${styles.badge} ${styles.badge_danger}`}>JSON 格式錯誤</span>;
+    return <span className={`${styles.badge} ${styles.badge_danger}`}>收集失敗</span>;
   }
-  const judgement = result.ai_judgement;
-  if (!judgement) return <span className={`${styles.badge} ${styles.badge_muted}`}>分析中</span>;
-  if (judgement.status === "completed") {
-    if (judgement.requires_teacher_review) {
-      return <span className={`${styles.badge} ${styles.badge_info}`}>待導師核查</span>;
-    }
-    return <span className={`${styles.badge} ${styles.badge_success}`}>已核對</span>;
+  if (result.status === "failed") {
+    return <span className={`${styles.badge} ${styles.badge_danger}`}>執行失敗</span>;
   }
-  if (judgement.status === "failed") {
-    return <span className={`${styles.badge} ${styles.badge_danger}`}>AI 核對失敗</span>;
+  const statuses = (result.parsed_result?.checks ?? []).map((check) => check?.status);
+  if (statuses.includes("fail")) {
+    return <span className={`${styles.badge} ${styles.badge_danger}`}>有未通過檢查</span>;
   }
-  if (judgement.status === "skipped") {
-    return <span className={`${styles.badge} ${styles.badge_muted}`}>略過</span>;
+  if (statuses.some((status) => ["warning", "unknown"].includes(status))) {
+    return <span className={`${styles.badge} ${styles.badge_info}`}>需導師核查</span>;
   }
-  return <span className={`${styles.badge} ${styles.badge_info}`}>分析中</span>;
+  if (statuses.length > 0 && statuses.every((status) => status === "pass")) {
+    return <span className={`${styles.badge} ${styles.badge_success}`}>全部通過</span>;
+  }
+  return <span className={`${styles.badge} ${styles.badge_success}`}>已完成</span>;
 }
 
-function aiJudgementSummary(result) {
+function scriptResultSummary(result) {
   if (!result) return null;
   if (result.validation?.valid === false) {
-    return result.validation.error ?? "JSON 驗證未通過，未進入 AI 核對。";
+    return result.validation.error ?? "結果格式驗證未通過。";
   }
-  const judgement = result.ai_judgement;
-  if (!judgement) return "AI 核對尚未完成。";
-  return judgement.error ?? judgement.summary ?? null;
+  const errors = result.parsed_result?.errors;
+  if (Array.isArray(errors) && errors.length > 0) return errors.join("；");
+  return result.parsed_result?.summary ?? result.stderr_excerpt ?? null;
 }
 
-function JudgementItemBadge({ item }) {
+function CheckStatusBadge({ status }) {
   let info = { label: "未判定", className: styles.badge_muted };
-  if (item?.judgement_mode === "teacher") {
-    info = { label: "待導師核查", className: styles.badge_info };
-  } else if (item?.status === "pass") {
+  if (status === "pass") {
     info = { label: "通過", className: styles.badge_success };
-  } else if (item?.status === "fail") {
+  } else if (status === "fail") {
     info = { label: "未通過", className: styles.badge_danger };
-  } else if (item?.status === "warning") {
+  } else if (status === "warning") {
     info = { label: "需注意", className: styles.badge_info };
+  } else if (status === "unknown") {
+    info = { label: "待導師核查", className: styles.badge_info };
+  } else if (status === "skipped") {
+    info = { label: "略過", className: styles.badge_muted };
   }
   return <span className={`${styles.badge} ${info.className}`}>{info.label}</span>;
 }
@@ -2834,7 +2835,7 @@ function ExecutionTab({ classId, sessionId, members }) {
                   <th>成員</th>
                   <th>來源節點</th>
                   <th>執行狀態</th>
-                  <th>系統核對／導師核查</th>
+                  <th>腳本執行結果</th>
                 </tr>
               </thead>
               <tbody>
@@ -2844,10 +2845,10 @@ function ExecutionTab({ classId, sessionId, members }) {
                   const proxmoxNode = result?.proxmox_node ?? target.proxmox_node;
                   const resourceType = result?.resource_type ?? target.resource_type;
                   const targetReason = reasonLabel(result?.reason_code ?? target.reason_code);
-                  const summary = aiJudgementSummary(result);
+                  const summary = scriptResultSummary(result);
                   const summaryIsError =
                     result?.validation?.valid === false ||
-                    result?.ai_judgement?.status === "failed";
+                    result?.status === "failed";
                   return (
                     <tr key={target.vmid}>
                       <td className={styles.monoCell}>{target.name ?? target.vmid}</td>
@@ -2868,32 +2869,26 @@ function ExecutionTab({ classId, sessionId, members }) {
                         )}
                       </td>
                       <td>
-                        <AiJudgementBadge result={result} />
+                        <ScriptResultBadge result={result} />
                         {result ? (
                           <details className={styles.judgeDetails}>
-                            <summary>查看檢查結果說明</summary>
+                            <summary>查看腳本結果</summary>
                             {summary && (
                               <p className={summaryIsError ? styles.dangerText : styles.mutedText}>
                                 {summary}
                               </p>
                             )}
-                            {(result.ai_judgement?.item_judgements ?? []).map((item, index) => (
-                              <div key={`${item.item_id ?? "item"}-${index}`} className={styles.judgeItem}>
-                                <div className={styles.judgeItemHead}>
-                                  <span>{item.title ?? item.item_id ?? "檢查項目"}</span>
-                                  <JudgementItemBadge item={item} />
-                                </div>
-                                {item.comment && <p>{item.comment}</p>}
-                              </div>
-                            ))}
                             {(result.parsed_result?.checks ?? []).length > 0 && (
                               <div className={styles.judgeItem}>
                                 <div className={styles.judgeItemHead}>
-                                  <span>腳本收集證據</span>
+                                  <span>檢查點</span>
                                 </div>
                                 {(result.parsed_result.checks ?? []).map((check, index) => (
-                                  <div key={`${check.id ?? "check"}-${index}`}>
-                                    <strong>{check.title ?? check.id ?? "收集項目"}</strong>
+                                  <div key={`${check.id ?? "check"}-${index}`} className={styles.judgeItem}>
+                                    <div className={styles.judgeItemHead}>
+                                      <strong>{check.title ?? check.id ?? "收集項目"}</strong>
+                                      <CheckStatusBadge status={check.status} />
+                                    </div>
                                     {check.evidence && <p>{check.evidence}</p>}
                                     {check.raw && <pre>{check.raw}</pre>}
                                   </div>

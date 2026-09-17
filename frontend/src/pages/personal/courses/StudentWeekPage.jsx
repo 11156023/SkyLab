@@ -19,12 +19,22 @@ const STATUS_ICONS = {
   pending: "schedule",
 };
 
+const SCRIPT_CHECK_STATUS = {
+  pass: "passed",
+  fail: "failed",
+  warning: "partial",
+  unknown: "needs_review",
+  skipped: "needs_review",
+};
+
 function feedbackFor(checkpoint) {
   const check = checkpoint.latest_check;
   if (!check) return { score: null, maxScore: null, text: "", status: "none" };
   const item = (check.items ?? []).find((entry) => entry.item_id === checkpoint.id);
-  const itemStatus = ["passed", "failed", "partial", "needs_review"].includes(item?.status)
-    ? item.status : null;
+  const itemStatus = SCRIPT_CHECK_STATUS[item?.status]
+    ?? (["passed", "failed", "partial", "needs_review"].includes(item?.status)
+      ? item.status
+      : null);
   return {
     score: item?.score ?? check.score,
     maxScore: item?.max_score ?? check.max_score,

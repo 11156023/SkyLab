@@ -1,4 +1,4 @@
-"""Split from tests/test_teacher_judge_script_artifacts.py: script runs (snapshot/execute/analyse)."""
+"""Split from tests/test_teacher_judge_script_artifacts.py: script runs (snapshot/execute/save)."""
 
 from __future__ import annotations
 
@@ -18,7 +18,6 @@ from app.ai.teacher_judge import (
     automation_support,
     script_artifact_service,
     script_executor_service,
-    script_result_analysis_service,
     script_run_service,
     target_ip_resolver,
 )
@@ -385,40 +384,6 @@ async def test_execute_script_run_saves_valid_target_result(
             stderr_text="",
         ),
     )
-    analysis_calls = []
-
-    async def fake_analyze_target_results(
-        *,
-        rubric_snapshot,
-        script_metadata,
-        target_results,
-    ):
-        analysis_calls.append(
-            {
-                "rubric_snapshot": rubric_snapshot,
-                "script_metadata": script_metadata,
-                "target_results": target_results,
-            }
-        )
-        return [
-            {
-                **result,
-                "ai_judgement": {
-                    "schema_version": "teacher_judge_ai_judgement.v1",
-                    "status": "completed",
-                    "summary": "符合檢查表要求。",
-                    "item_judgements": [],
-                },
-            }
-            for result in target_results
-        ]
-
-    monkeypatch.setattr(
-        script_executor_service,
-        "analyze_target_results",
-        fake_analyze_target_results,
-    )
-
     run = script_run_service.create_script_run(
         session=session,
         teaching_class_id=teaching_class_id,
@@ -436,7 +401,7 @@ async def test_execute_script_run_saves_valid_target_result(
     assert stored_run.status.value == "completed"
     assert stored_run.progress_json["stage"] == "completed"
     assert stored_run.result_summary_json["valid_json"] == 1
-    assert stored_run.result_summary_json["ai_completed"] == 1
+    assert stored_run.target_results_json["schema_version"] == "teacher_judge_run_results.v2"
     assert stored_run.target_results_json["targets"][0]["status"] == "completed"
     assert stored_run.target_results_json["targets"][0]["reason_code"] == "success"
     assert stored_run.target_results_json["targets"][0]["proxmox_node"] == "pve1"
@@ -447,13 +412,15 @@ async def test_execute_script_run_saves_valid_target_result(
         stored_run.target_results_json["targets"][0]["parsed_result"]["schema_version"]
         == "teacher_judge_result.v1"
     )
-    assert "score" not in stored_run.target_results_json["targets"][0]["ai_judgement"]
-    assert analysis_calls[0]["script_metadata"]["id"] == str(artifact.id)
-    assert analysis_calls[0]["target_results"][0]["ai_judgement"]["status"] == "pending"
+    check = stored_run.target_results_json["targets"][0]["parsed_result"]["checks"][0]
+    assert check["title"] == "Python runtime"
+    assert check["status"] == "pass"
+    assert check["raw"] == "Python 3.11"
+    assert "ai_judgement" not in stored_run.target_results_json["targets"][0]
 
 
 @pytest.mark.asyncio
-async def test_execute_script_run_does_not_commit_partial_results_before_analysis(
+async def test_execute_script_run_records_save_failure_without_partial_results(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     session = make_session()
@@ -507,13 +474,10 @@ async def test_execute_script_run_does_not_commit_partial_results_before_analysi
         ),
     )
 
-    async def raise_analysis_error(**_kwargs):
-        raise RuntimeError("analysis unavailable")
-
     monkeypatch.setattr(
         script_executor_service,
-        "analyze_target_results",
-        raise_analysis_error,
+        "_save_results",
+        lambda *_args: (_ for _ in ()).throw(RuntimeError("save unavailable")),
     )
 
     run = script_run_service.create_script_run(
@@ -531,7 +495,7 @@ async def test_execute_script_run_does_not_commit_partial_results_before_analysi
     stored_run = session.get(models.TeacherJudgeScriptRun, uuid.UUID(run.id))
     assert stored_run is not None
     assert stored_run.status.value == "failed"
-    assert stored_run.result_summary_json["executor_error"] == "analysis unavailable"
+    assert stored_run.result_summary_json["executor_error"] == "save unavailable"
     assert stored_run.target_results_json == {}
 
 
@@ -645,93 +609,12 @@ async def test_execute_script_run_saves_invalid_json_result(
     result = stored_run.target_results_json["targets"][0]
     assert stored_run.status.value == "completed"
     assert stored_run.result_summary_json["invalid_json"] == 1
-    assert stored_run.result_summary_json["ai_skipped"] == 1
+    assert stored_run.target_results_json["schema_version"] == "teacher_judge_run_results.v2"
     assert result["status"] == "failed"
     assert result["reason_code"] == "invalid_json"
     assert result["proxmox_node"] == "pve1"
     assert result["user"]["email"] == "s@example.com"
     assert result["validation"]["valid"] is False
-    assert result["ai_judgement"]["status"] == "skipped"
-
-
-@pytest.mark.asyncio
-async def test_ai_analysis_skips_invalid_target_without_calling_vllm(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    called = False
-
-    async def fake_call_ai_judgement(payload):
-        nonlocal called
-        called = True
-        return {"status": "completed"}
-
-    monkeypatch.setattr(
-        script_result_analysis_service,
-        "_call_ai_judgement",
-        fake_call_ai_judgement,
-    )
-
-    results = await script_result_analysis_service.analyze_target_results(
-        rubric_snapshot={},
-        script_metadata={"id": "script-1"},
-        target_results=[
-            {
-                "vmid": 101,
-                "status": "failed",
-                "validation": {
-                    "valid": False,
-                    "error": "invalid json",
-                },
-                "parsed_result": None,
-            }
-        ],
-    )
-
-    assert called is False
-    assert results[0]["ai_judgement"]["status"] == "skipped"
-    assert results[0]["ai_judgement"]["summary"] == "invalid json"
-
-
-@pytest.mark.asyncio
-async def test_ai_analysis_uses_valid_json_even_when_execution_failed(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    captured_payload = {}
-
-    async def fake_call_ai_judgement(payload):
-        captured_payload.update(payload)
-        return {
-            "schema_version": "teacher_judge_ai_judgement.v1",
-            "status": "completed",
-            "summary": "部分符合。",
-            "item_judgements": [],
-        }
-
-    monkeypatch.setattr(
-        script_result_analysis_service,
-        "_call_ai_judgement",
-        fake_call_ai_judgement,
-    )
-
-    results = await script_result_analysis_service.analyze_target_results(
-        rubric_snapshot={},
-        script_metadata={"id": "script-1"},
-        target_results=[
-            {
-                "vmid": 101,
-                "status": "failed",
-                "reason_code": "execution_nonzero",
-                "exit_code": 1,
-                "validation": {"valid": True},
-                "parsed_result": json.loads(_valid_result_json()),
-            }
-        ],
-    )
-
-    assert captured_payload["target"]["execution_status"] == "failed"
-    assert captured_payload["target"]["reason_code"] == "execution_nonzero"
-    assert results[0]["ai_judgement"]["status"] == "completed"
-    assert "score" not in results[0]["ai_judgement"]
 
 
 @pytest.mark.asyncio

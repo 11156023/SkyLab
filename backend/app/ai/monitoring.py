@@ -19,7 +19,6 @@ CALL_TJ_RUBRIC = "tj_rubric"
 CALL_TJ_CHAT = "tj_chat"
 CALL_TJ_SCRIPT_GENERATION = "tj_script_gen"
 CALL_TJ_SCRIPT_REVIEW = "tj_script_review"
-CALL_TJ_RESULT_ANALYSIS = "tj_result_ai"
 
 
 def _token_count(metrics: Mapping[str, Any], key: str) -> int:

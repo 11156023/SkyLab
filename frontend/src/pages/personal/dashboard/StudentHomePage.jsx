@@ -941,7 +941,7 @@ export default function StudentHomePage({ courseView = false }) {
                             <div className={styles.aiReplyItems}>
                               {check.items.map((item, itemIndex) => (
                                 <div key={`${item.item_id}-${itemIndex}`}>
-                                  <MIcon name={item.status === "passed" ? "check_circle" : "tips_and_updates"} size={17} />
+                                  <MIcon name={["passed", "pass"].includes(item.status) ? "check_circle" : item.status === "fail" || item.status === "failed" ? "error_outline" : "tips_and_updates"} size={17} />
                                   <span><strong>{item.title || t("StudentHomePage.scoringItem")}</strong>{item.comment && <small>{item.comment}</small>}</span>
                                   {typeof item.score === "number" && <em>{item.score}/{item.max_score ?? 1}</em>}
                                 </div>
