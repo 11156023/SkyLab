@@ -1063,13 +1063,19 @@ _COURSE_TPL_ELEMENTS: tuple[ElementSpec, ...] = (
         id="coursetpl.status_retired", role="readonly", label="已停用",
         section="模板清單",
     ),
-    ElementSpec(
-        id="coursetpl.retire", role="button", label="下架", section="模板清單",
-        help="下架後不再提供給新的課程或練習選用。",
-    ),
     ElementSpec(id="coursetpl.delete", role="button", label="刪除", section="模板清單"),
     ElementSpec(
         id="coursetpl.tab_basic", role="list", label="基本資料", section="基本資料",
+    ),
+    ElementSpec(
+        id="coursetpl.usage_scope", role="select", label="套用方式",
+        section="基本資料",
+        help=(
+            "決定這組環境提供給正式課程、快速練習或兩者。已發布也能改，"
+            "改完按「儲存開放設定」；機器配置才需要建立新版本。"
+            "選到含快速練習就是全校學生都拿得到。"
+        ),
+        constraints=("只用於正式課程／只用於快速練習／兩者皆可",),
     ),
     ElementSpec(
         id="coursetpl.tab_machines", role="list", label="機器配置", section="機器配置",

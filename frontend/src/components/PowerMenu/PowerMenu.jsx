@@ -17,8 +17,12 @@ const ITEMS = [
   { action: "reboot",   labelKey: "PowerMenu.reboot",   icon: "replay",             needs: "running"               },
 ];
 
+/* items 讓呼叫端自帶動作清單（例如整組機器只有開機／關機／結束練習）。
+   定位、外點關閉、Esc、portal 這些難的部分共用同一份，選單外觀才會一致。 */
 export default function PowerMenu({
   resource,
+  items,
+  title,
   actionLoading,
   onControl,
   onDeleteClick,
@@ -81,9 +85,13 @@ export default function PowerMenu({
   }, [onClose, anchorRef]);
 
   const enabled = {
-    running: resource.status === "running",
-    stopped: resource.status === "stopped" || resource.status === "paused",
+    running: resource?.status === "running",
+    stopped: resource?.status === "stopped" || resource?.status === "paused",
   };
+  const entries = items ?? ITEMS.map((item) => ({
+    ...item,
+    disabled: !enabled[item.needs],
+  }));
 
   const className = [
     styles.powerMenu,
@@ -98,20 +106,20 @@ export default function PowerMenu({
       data-guide="resource-power-menu"
       style={pos ? { top: pos.top, left: pos.left } : { top: 0, left: 0, visibility: "hidden" }}
     >
-      <div className={styles.powerMenuTitle}>{t("PowerMenu.title")}</div>
+      <div className={styles.powerMenuTitle}>{title ?? t("PowerMenu.title")}</div>
       <div className={styles.powerMenuGrid}>
-        {ITEMS.map(({ action, labelKey, icon, needs, tone }) => (
+        {entries.map(({ action, label, labelKey, icon, tone, disabled }) => (
           <button
             key={action}
             type="button"
-            className={`${styles.powerMenuItem} ${tone === "warn" ? styles.powerMenuItemWarn : ""}`}
-            disabled={!enabled[needs] || !!actionLoading}
+            className={`${styles.powerMenuItem} ${tone === "warn" ? styles.powerMenuItemWarn : ""} ${tone === "danger" ? styles.powerMenuItemDanger : ""}`}
+            disabled={disabled || !!actionLoading}
             onClick={() => { onClose(); onControl(action); }}
           >
             <span className={tone === "ok" ? styles.powerMenuIconOk : styles.powerMenuIcon}>
               <MIcon name={icon} size={15} />
             </span>
-            {t(labelKey)}
+            {label ?? t(labelKey)}
           </button>
         ))}
         {/* 老師／管理員把調好的機器轉成範本；沒有 onConvertTemplate 就不顯示 */}

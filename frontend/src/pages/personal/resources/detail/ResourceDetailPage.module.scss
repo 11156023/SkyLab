@@ -28,6 +28,12 @@
   color: var(--color-primary);
 }
 
+/* 標題旁的機器來源徽章 */
+.titleKind {
+  margin-left: 10px;
+  vertical-align: middle;
+}
+
 /* ── Tabs（pill 樣式，同 SettingsPage） ── */
 .tabs {
   display: flex;
@@ -250,6 +256,22 @@
   &:hover {
     background: var(--color-hover);
   }
+}
+
+/* 防火牆卡片頂端的對外網址（反向代理），唯讀，改動走「新增規則 › 連線」 */
+.publicUrlBlock {
+  @include flex-column;
+  gap: $spacing-8;
+  margin-bottom: $spacing-16;
+}
+
+.publicUrlLabel {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--color-text-secondary);
+  font-size: $font-size-12;
+  font-weight: $font-weight-500;
 }
 
 .noteBox {
@@ -986,18 +1008,6 @@
   color: var(--color-primary-on-surface);
   font-size: $font-size-12;
   font-weight: $font-weight-500;
-}
-
-.chipRemove {
-  display: inline-flex;
-  align-items: center;
-  border-radius: 50%;
-  color: inherit;
-  opacity: 0.7;
-
-  &:hover {
-    opacity: 1;
-  }
 }
 
 .switchRow {

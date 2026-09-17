@@ -3,10 +3,12 @@
 import hashlib
 import json
 import uuid
+from pathlib import Path
 from typing import Any, Literal
 
-from fastapi import APIRouter
-from pydantic import BaseModel, Field, model_validator
+from fastapi import APIRouter, File, UploadFile
+from fastapi.responses import FileResponse
+from pydantic import BaseModel, Field, ValidationError, model_validator
 from sqlmodel import col, delete, func, select
 
 from app.api.deps import InstructorUser, SessionDep
@@ -18,6 +20,7 @@ from app.models import (
     CourseEnvironment,
     CourseEnvironmentAudience,
     CourseEnvironmentEdge,
+    CourseEnvironmentFile,
     CourseEnvironmentNode,
     CourseEnvironmentPublication,
     CourseEnvironmentVersion,
@@ -31,6 +34,12 @@ from app.models import (
 from app.models.base import get_datetime_utc
 
 router = APIRouter(prefix="/course-environments", tags=["course-environments"])
+
+# 與班級任務檔同一套做法：檔案落在 data/ 底下，資料庫只存 storage_key
+ENVIRONMENT_FILE_ROOT = (
+    Path(__file__).resolve().parents[3] / "data" / "course-environment-files"
+)
+MAX_ENVIRONMENT_FILE_BYTES = 50 * 1024 * 1024
 
 
 class EnvironmentNodeIn(BaseModel):
@@ -157,6 +166,34 @@ class EnvironmentUpdate(EnvironmentCreate):
     pass
 
 
+class EnvironmentBasicsIn(BaseModel):
+    """Name, purpose and offering — editable at any version status.
+
+    These live on the environment row rather than on a version. Publication
+    freezes the machine configuration, not what the environment is called or
+    who it is offered to, so the teacher can keep them current without cutting
+    a new version.
+    """
+
+    name: str = Field(min_length=1, max_length=255)
+    description: str | None = Field(default=None, max_length=2000)
+    usage_scope: Literal["course", "quick_practice", "both"]
+
+
+class EnvironmentDraftIn(BaseModel):
+    # The editor may contain empty fields or unfinished numeric input. Only
+    # publication turns this into a validated, deployable configuration.
+    configuration: dict[str, Any]
+    editor: dict[str, Any]
+    draft_id: uuid.UUID | None = None
+
+    @model_validator(mode="after")
+    def validate_size(self) -> "EnvironmentDraftIn":
+        if len(self.model_dump_json().encode()) > 262144:
+            raise ValueError("Draft exceeds 256 KiB")
+        return self
+
+
 def _get_environment(
     session: SessionDep, current_user: User, environment_id: uuid.UUID
 ) -> CourseEnvironment:
@@ -224,9 +261,7 @@ def _validate_configuration(
             continue
         template = session.get(VMTemplate, node.source_template_id)
         if template is None or template.status != VMTemplateStatus.ready:
-            raise BadRequestError(
-                t("course_env.template_not_ready", name=node.name)
-            )
+            raise BadRequestError(t("course_env.template_not_ready", name=node.name))
         expected = "lxc" if template.resource_type.lower() == "lxc" else "qemu"
         if node.resource_type != expected:
             raise BadRequestError(t("course_env.type_mismatch", name=node.name))
@@ -275,7 +310,10 @@ def _validate_configuration(
         seen_publications.add(signature)
         if publication.mode != "domain":
             continue
-        hostname = (str(publication.zone_id or ""), str(publication.hostname_prefix or ""))
+        hostname = (
+            str(publication.zone_id or ""),
+            str(publication.hostname_prefix or ""),
+        )
         if hostname in seen_hostnames:
             raise BadRequestError(
                 t(
@@ -284,6 +322,16 @@ def _validate_configuration(
                 )
             )
         seen_hostnames.add(hostname)
+
+
+def _files(session: SessionDep, environment_id: uuid.UUID) -> list[CourseEnvironmentFile]:
+    return list(
+        session.exec(
+            select(CourseEnvironmentFile)
+            .where(CourseEnvironmentFile.environment_id == environment_id)
+            .order_by(col(CourseEnvironmentFile.created_at))
+        ).all()
+    )
 
 
 def _audience_class_ids(
@@ -325,9 +373,7 @@ def _replace_audience(
     )
     for class_id in class_ids:
         session.add(
-            CourseEnvironmentAudience(
-                environment_id=environment.id, class_id=class_id
-            )
+            CourseEnvironmentAudience(environment_id=environment.id, class_id=class_id)
         )
 
 
@@ -397,9 +443,19 @@ def _serialize_version(
         "audience": environment.audience,
         "max_concurrent_sessions": environment.max_concurrent_sessions,
         "audience_class_ids": _audience_class_ids(session, environment.id),
+        "files": [
+            {
+                "id": item.id,
+                "filename": item.filename,
+                "size_bytes": item.size_bytes,
+                "created_at": item.created_at,
+            }
+            for item in _files(session, environment.id)
+        ],
         "version": version.version,
         "status": version.status,
         "configuration_hash": version.configuration_hash,
+        "draft_data": json.loads(version.draft_data) if version.draft_data else None,
         "created_at": environment.created_at,
         "updated_at": environment.updated_at,
         "published_at": version.published_at,
@@ -476,6 +532,43 @@ def list_published_environments(
     return result
 
 
+@router.post("/drafts", status_code=201)
+def create_environment_draft(
+    body: EnvironmentDraftIn, session: SessionDep, current_user: InstructorUser
+) -> dict[str, Any]:
+    if body.draft_id and session.get(CourseEnvironment, body.draft_id) is not None:
+        return save_environment_draft(body.draft_id, body, session, current_user)
+    environment = CourseEnvironment(
+        id=body.draft_id or uuid.uuid4(), owner_id=current_user.id, name=""
+    )
+    version = CourseEnvironmentVersion(
+        environment_id=environment.id, version=1, draft_data=body.model_dump_json()
+    )
+    session.add(environment)
+    session.add(version)
+    session.commit()
+    return _serialize_version(session, environment, version)
+
+
+@router.put("/{environment_id}/draft")
+def save_environment_draft(
+    environment_id: uuid.UUID,
+    body: EnvironmentDraftIn,
+    session: SessionDep,
+    current_user: InstructorUser,
+) -> dict[str, Any]:
+    environment = _get_environment(session, current_user, environment_id)
+    version = _latest(session, environment)
+    if version.status != CourseEnvironmentVersionStatus.draft:
+        raise BadRequestError(t("course_env.published_immutable"))
+    version.draft_data = body.model_dump_json()
+    environment.updated_at = get_datetime_utc()
+    session.add(version)
+    session.add(environment)
+    session.commit()
+    return _serialize_version(session, environment, version)
+
+
 @router.get("/{environment_id}")
 def get_environment(
     environment_id: uuid.UUID,
@@ -539,9 +632,156 @@ def update_environment(
         class_ids=body.audience_class_ids,
     )
     _replace_nodes(session, version, body.nodes, body.edges, body.publications)
+    version.draft_data = None
+    session.add(version)
     session.add(environment)
     session.commit()
     return _serialize_version(session, environment, version)
+
+
+@router.patch("/{environment_id}/basics")
+def update_environment_basics(
+    environment_id: uuid.UUID,
+    body: EnvironmentBasicsIn,
+    session: SessionDep,
+    current_user: InstructorUser,
+) -> dict[str, Any]:
+    """調整名稱、用途與提供方式，不需要開新版本。
+
+    改成不提供給學生只影響「還沒啟動」的人：已經在跑的練習 Session 照自己的
+    期限走完。若最新版本還帶著草稿快照，連草稿一起改，免得之後發布又把這次
+    的調整蓋回去。
+    """
+    environment = _get_environment(session, current_user, environment_id)
+    environment.name = body.name.strip()
+    environment.description = body.description
+    environment.usage_scope = body.usage_scope
+    version = _latest(session, environment)
+    if version.draft_data:
+        draft = json.loads(version.draft_data)
+        fields = {
+            "name": environment.name,
+            "description": environment.description,
+            "usage_scope": body.usage_scope,
+        }
+        if isinstance(draft.get("configuration"), dict):
+            draft["configuration"].update(fields)
+        if isinstance(draft.get("editor"), dict):
+            draft["editor"].update(
+                {
+                    "name": environment.name,
+                    "description": environment.description,
+                    "usageScope": body.usage_scope,
+                }
+            )
+        version.draft_data = json.dumps(draft)
+        session.add(version)
+    environment.updated_at = get_datetime_utc()
+    session.add(environment)
+    session.commit()
+    return _serialize_version(session, environment, version)
+
+
+@router.post("/{environment_id}/files", status_code=201)
+async def upload_environment_file(
+    environment_id: uuid.UUID,
+    session: SessionDep,
+    current_user: InstructorUser,
+    file: UploadFile = File(...),
+) -> dict[str, Any]:
+    """文件掛在環境身分上，換版本不會讓講義跟著消失。"""
+    environment = _get_environment(session, current_user, environment_id)
+    filename = (file.filename or "file").replace("\\", "/").split("/")[-1].strip()
+    if not filename or filename in {".", ".."}:
+        raise BadRequestError(t("course_env.file_name_invalid"))
+    if len(filename) > 255:
+        raise BadRequestError(t("course_env.file_name_too_long"))
+
+    file_id = uuid.uuid4()
+    storage_key = f"{file_id.hex}.bin"
+    destination = ENVIRONMENT_FILE_ROOT / storage_key
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    written = 0
+    try:
+        with destination.open("wb") as output:
+            while chunk := await file.read(1024 * 1024):
+                written += len(chunk)
+                if written > MAX_ENVIRONMENT_FILE_BYTES:
+                    raise BadRequestError(t("course_env.file_too_large"))
+                output.write(chunk)
+    except Exception:
+        destination.unlink(missing_ok=True)
+        raise
+    finally:
+        await file.close()
+
+    session.add(
+        CourseEnvironmentFile(
+            id=file_id,
+            environment_id=environment.id,
+            filename=filename,
+            storage_key=storage_key,
+            size_bytes=written,
+            uploaded_by=current_user.id,
+        )
+    )
+    environment.updated_at = get_datetime_utc()
+    session.add(environment)
+    session.commit()
+    return _serialize_version(session, environment, _latest(session, environment))
+
+
+def _environment_file(
+    session: SessionDep,
+    current_user: User,
+    environment_id: uuid.UUID,
+    file_id: uuid.UUID,
+) -> tuple[CourseEnvironment, CourseEnvironmentFile]:
+    environment = _get_environment(session, current_user, environment_id)
+    item = session.get(CourseEnvironmentFile, file_id)
+    if item is None or item.environment_id != environment.id:
+        raise NotFoundError(t("course_env.file_not_found"))
+    return environment, item
+
+
+@router.get("/{environment_id}/files/{file_id}", response_class=FileResponse)
+def download_environment_file(
+    environment_id: uuid.UUID,
+    file_id: uuid.UUID,
+    session: SessionDep,
+    current_user: InstructorUser,
+) -> FileResponse:
+    _environment, item = _environment_file(
+        session, current_user, environment_id, file_id
+    )
+    root = ENVIRONMENT_FILE_ROOT.resolve()
+    stored = (root / item.storage_key).resolve()
+    # storage_key 由伺服器產生，但仍然擋一次路徑跳脫，免得日後有人改成沿用檔名
+    if not stored.is_relative_to(root) or not stored.is_file():
+        raise NotFoundError(t("course_env.file_not_found"))
+    return FileResponse(stored, filename=item.filename)
+
+
+@router.delete("/{environment_id}/files/{file_id}")
+def delete_environment_file(
+    environment_id: uuid.UUID,
+    file_id: uuid.UUID,
+    session: SessionDep,
+    current_user: InstructorUser,
+) -> dict[str, Any]:
+    environment, item = _environment_file(
+        session, current_user, environment_id, file_id
+    )
+    storage_key = item.storage_key
+    session.delete(item)
+    environment.updated_at = get_datetime_utc()
+    session.add(environment)
+    session.commit()
+    root = ENVIRONMENT_FILE_ROOT.resolve()
+    stored = (root / storage_key).resolve()
+    if stored.is_relative_to(root):
+        stored.unlink(missing_ok=True)
+    return _serialize_version(session, environment, _latest(session, environment))
 
 
 @router.post("/{environment_id}/publish")
@@ -554,6 +794,28 @@ def publish_environment(
     version = _latest(session, environment)
     if version.status != CourseEnvironmentVersionStatus.draft:
         raise BadRequestError(t("course_env.only_draft_publishable"))
+    if version.draft_data:
+        draft = EnvironmentDraftIn.model_validate_json(version.draft_data)
+        try:
+            body = EnvironmentCreate.model_validate(draft.configuration)
+            if not body.name.strip():
+                raise ValueError("Environment name is required")
+        except (ValidationError, ValueError) as exc:
+            raise BadRequestError(str(exc)) from exc
+        environment.name = body.name.strip()
+        environment.description = body.description
+        environment.usage_scope = body.usage_scope
+        environment.audience = body.audience
+        environment.max_concurrent_sessions = body.max_concurrent_sessions
+        _replace_audience(
+            session,
+            environment=environment,
+            owner_id=None if is_admin(current_user) else environment.owner_id,
+            class_ids=body.audience_class_ids,
+        )
+        _replace_nodes(session, version, body.nodes, body.edges, body.publications)
+        session.flush()
+        version.draft_data = None
     nodes = _nodes(session, version.id)
     edges = _edges(session, version.id)
     publications = _publications(session, version.id)
@@ -604,73 +866,10 @@ def publish_environment(
     return _serialize_version(session, environment, version)
 
 
-@router.post("/{environment_id}/versions", status_code=201)
-def create_environment_version(
-    environment_id: uuid.UUID,
-    session: SessionDep,
-    current_user: InstructorUser,
-) -> dict[str, Any]:
-    environment = _get_environment(session, current_user, environment_id)
-    latest = _latest(session, environment)
-    if latest.status == CourseEnvironmentVersionStatus.draft:
-        raise BadRequestError(t("course_env.draft_exists"))
-    version = CourseEnvironmentVersion(
-        environment_id=environment.id,
-        version=latest.version + 1,
-    )
-    session.add(version)
-    session.flush()
-    for node in _nodes(session, latest.id):
-        values = node.model_dump(
-            exclude={"id", "version_id"},
-        )
-        session.add(CourseEnvironmentNode(version_id=version.id, **values))
-    for edge in _edges(session, latest.id):
-        values = edge.model_dump(exclude={"id", "version_id"})
-        session.add(CourseEnvironmentEdge(version_id=version.id, **values))
-    for publication in _publications(session, latest.id):
-        values = publication.model_dump(exclude={"id", "version_id"})
-        session.add(CourseEnvironmentPublication(version_id=version.id, **values))
-    environment.updated_at = get_datetime_utc()
-    session.add(environment)
-    session.commit()
-    return _serialize_version(session, environment, version)
-
-
-@router.post("/{environment_id}/retire")
-def retire_environment(
-    environment_id: uuid.UUID,
-    session: SessionDep,
-    current_user: InstructorUser,
-) -> dict[str, Any]:
-    """下架：停止新的啟動與套用，既有 Session 與班級不受影響。
-
-    退役是版本層的動作，因為班級與練習 Session 都鎖在某一個版本上；把已發布
-    版本改為 `retired` 之後，它就不再出現在學生清單與班級可選清單，但既有
-    Session 仍照自己的期限走完。
-    """
-    environment = _get_environment(session, current_user, environment_id)
-    versions = _versions(session, environment.id)
-    published = [
-        version
-        for version in versions
-        if version.status == CourseEnvironmentVersionStatus.published
-    ]
-    if not published:
-        raise BadRequestError(t("course_env.no_published_version"))
-    for version in published:
-        version.status = CourseEnvironmentVersionStatus.retired
-        session.add(version)
-    environment.updated_at = get_datetime_utc()
-    session.add(environment)
-    session.commit()
-    return _serialize_version(session, environment, _latest(session, environment))
-
-
 def _environment_references(
     session: SessionDep, environment_id: uuid.UUID
 ) -> list[str]:
-    """刪除前的引用盤點：有引用就不能硬刪，只能下架。"""
+    """刪除前的引用盤點：有引用就不能硬刪，只能把提供方式收起來。"""
     version_ids = [version.id for version in _versions(session, environment_id)]
     if not version_ids:
         return []
@@ -681,18 +880,14 @@ def _environment_references(
         )
     ).one()
     if int(class_count or 0):
-        reasons.append(
-            t("course_env.reason_classes_using", count=int(class_count))
-        )
+        reasons.append(t("course_env.reason_classes_using", count=int(class_count)))
     session_count = session.exec(
         select(func.count(col(QuickPracticeSession.id))).where(
             col(QuickPracticeSession.environment_version_id).in_(version_ids)
         )
     ).one()
     if int(session_count or 0):
-        reasons.append(
-            t("course_env.reason_sessions_using", count=int(session_count))
-        )
+        reasons.append(t("course_env.reason_sessions_using", count=int(session_count)))
     return reasons
 
 

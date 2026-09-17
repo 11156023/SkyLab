@@ -16,7 +16,6 @@ import LifecycleCard from "./advanced/LifecycleCard";
 import FirewallCard from "./advanced/FirewallCard";
 import BootOptionsCard from "./advanced/BootOptionsCard";
 import CredentialsCard from "./advanced/CredentialsCard";
-import MetadataCard from "./advanced/MetadataCard";
 import SharingCard from "./advanced/SharingCard";
 
 export default function AdvancedSettingsTab({ vmid, backTo }) {
@@ -47,13 +46,18 @@ export default function AdvancedSettingsTab({ vmid, backTo }) {
     <div className={styles.tabStack}>
       <div data-guide="resource-setting-lifecycle"><LifecycleCard vmid={vmid} resource={resource} canManage={canManage} onChanged={loadResource} /></div>
 
-      <div data-guide="resource-setting-firewall"><FirewallCard vmid={vmid} canManage={canManage} /></div>
+      <div data-guide="resource-setting-firewall">
+        <FirewallCard
+          vmid={vmid}
+          canManage={canManage}
+          publicUrls={resource.public_urls ?? []}
+          onChanged={loadResource}
+        />
+      </div>
 
       {!isShared && <div data-guide="resource-setting-boot"><BootOptionsCard vmid={vmid} canManage={canManage} /></div>}
 
       {canManage && <div data-guide="resource-setting-credentials"><CredentialsCard vmid={vmid} canManage={canManage} /></div>}
-
-      {!isShared && <div data-guide="resource-setting-metadata"><MetadataCard vmid={vmid} canManage={canManage} onChanged={loadResource} /></div>}
 
       {canManage && resource.allocation_scope !== "teaching_class" && (
         <div data-guide="resource-setting-sharing"><SharingCard vmid={vmid} resource={resource} canManage={canManage} backTo={backTo} /></div>

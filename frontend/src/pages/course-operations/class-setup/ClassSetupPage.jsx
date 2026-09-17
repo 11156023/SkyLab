@@ -19,11 +19,11 @@ import {
 import styles from "./ClassSetupPage.module.scss";
 
 const STEPS = [
-  ["basic", "ClassSetupPage.stepBasicLabel", "ClassSetupPage.stepBasicHint"],
-  ["students", "ClassSetupPage.stepStudentsLabel", "ClassSetupPage.stepStudentsHint"],
-  ["environment", "ClassSetupPage.stepEnvironmentLabel", "ClassSetupPage.stepEnvironmentHint"],
-  ["tasks", "ClassSetupPage.stepTasksLabel", "ClassSetupPage.stepTasksHint"],
-  ["review", "ClassSetupPage.stepReviewLabel", "ClassSetupPage.stepReviewHint"],
+  ["basic", "ClassSetupPage.stepBasicLabel"],
+  ["students", "ClassSetupPage.stepStudentsLabel"],
+  ["environment", "ClassSetupPage.stepEnvironmentLabel"],
+  ["tasks", "ClassSetupPage.stepTasksLabel"],
+  ["review", "ClassSetupPage.stepReviewLabel"],
 ];
 
 const WEEKDAY_FULL_KEYS = [
@@ -246,7 +246,7 @@ export default function ClassSetupPage() {
   if (loading) return <LoadingState fullPage text={t("ClassSetupPage.restoringText")} />;
 
   return <div className={styles.page}>
-    <PageHeader title={item?.name || t("ClassSetupPage.defaultPageTitle")} subtitle={t("ClassSetupPage.pageSubtitle")}>
+    <PageHeader title={item?.name || t("ClassSetupPage.defaultPageTitle")}>
       <button type="button" className={styles.backBtn} onClick={() => navigate("/class-management")}><MIcon name="arrow_back" size={18} />{t("ClassSetupPage.backToClassManagement")}</button>
     </PageHeader>
 

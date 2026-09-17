@@ -98,7 +98,6 @@ export default function BootOptionsCard({ vmid, canManage }) {
             <MIcon name="power_settings_new" size={18} />
             {t("BootOptionsCard.title")}
           </h2>
-          <p className={styles.cardDesc}>{t("BootOptionsCard.desc")}</p>
         </div>
       </div>
       <div className={styles.cardBody}>

@@ -71,7 +71,7 @@ export default function QuickTemplateFormPage() {
   const totalDisk = template.nodes.reduce((sum, node) => sum + Number(node.disk || 0), 0);
 
   return <div className={styles.page}>
-    <PageHeader title={t("QuickTemplateFormPage.title")} subtitle={t("QuickTemplateFormPage.subtitle")}>
+    <PageHeader title={t("QuickTemplateFormPage.title")}>
       <button type="button" className={styles.backBtn} onClick={onBack}><MIcon name="arrow_back" size={18} />{t("QuickTemplateFormPage.back")}</button>
     </PageHeader>
 
@@ -104,9 +104,9 @@ export default function QuickTemplateFormPage() {
           <section className={`${styles.section} ${styles.sectionPadded}`}>
             <h3 className={styles.sectionTitle}>{t("QuickTemplateFormPage.usageRules")}</h3>
             <div className={styles.ruleList}>
-              <p><MIcon name="verified" size={17} /><span><strong>{t("QuickTemplateFormPage.ruleNoReviewTitle")}</strong>{t("QuickTemplateFormPage.ruleNoReviewDesc")}</span></p>
-              <p><MIcon name="tune" size={17} /><span><strong>{t("QuickTemplateFormPage.ruleFixedConfigTitle")}</strong>{t("QuickTemplateFormPage.ruleFixedConfigDesc")}</span></p>
-              <p><MIcon name="timer" size={17} /><span><strong>{t("QuickTemplateFormPage.ruleDurationTitle", { hours: template.duration_hours })}</strong>{t("QuickTemplateFormPage.ruleDurationDesc")}</span></p>
+              <p><MIcon name="verified" size={17} /><span><strong>{t("QuickTemplateFormPage.ruleNoReviewTitle")}</strong></span></p>
+              <p><MIcon name="tune" size={17} /><span><strong>{t("QuickTemplateFormPage.ruleFixedConfigTitle")}</strong></span></p>
+              <p><MIcon name="timer" size={17} /><span><strong>{t("QuickTemplateFormPage.ruleDurationTitle", { hours: template.duration_hours })}</strong></span></p>
             </div>
           </section>
         </div>

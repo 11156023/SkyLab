@@ -13,7 +13,6 @@ from app.core.authorizers import can_bypass_resource_ownership
 from app.core.i18n import t
 from app.exceptions import BadRequestError, NotFoundError, ProxmoxError
 from app.models import AuditAction
-from app.repositories import resource as resource_repo
 from app.repositories import reverse_proxy as rp_repo
 from app.schemas import Message
 from app.schemas.firewall import (
@@ -34,6 +33,7 @@ from app.services.network import (
     reverse_proxy_service,
     traefik_runtime_service,
 )
+from app.services.resource import access as resource_access
 from app.services.user import audit_service
 
 logger = logging.getLogger(__name__)
@@ -42,16 +42,15 @@ router = APIRouter(prefix="/reverse-proxy", tags=["reverse-proxy"])
 
 
 def _get_visible_rules(session: SessionDep, current_user: CurrentUser):
+    """可見範圍與防火牆拓撲一致：老師看得到自己班級學生機器上的規則。"""
     rules = rp_repo.list_rules(session)
     if can_bypass_resource_ownership(current_user):
         return rules
 
-    own_resources = resource_repo.get_resources_by_user(
-        session=session,
-        user_id=current_user.id,
+    visible_vmids = resource_access.list_reachable_vmids(
+        session=session, user=current_user
     )
-    own_vmids = {resource.vmid for resource in own_resources}
-    return [rule for rule in rules if rule.vmid in own_vmids]
+    return [rule for rule in rules if rule.vmid in visible_vmids]
 
 
 def _serialize_rule(rule) -> ReverseProxyRulePublic:

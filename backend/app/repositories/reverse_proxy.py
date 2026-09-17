@@ -2,7 +2,7 @@
 
 import uuid
 
-from sqlmodel import Session, select
+from sqlmodel import Session, col, select
 
 from app.models.reverse_proxy_rule import ReverseProxyRule
 
@@ -14,6 +14,19 @@ def list_rules(session: Session) -> list[ReverseProxyRule]:
 def list_rules_by_vmid(session: Session, vmid: int) -> list[ReverseProxyRule]:
     return list(
         session.exec(select(ReverseProxyRule).where(ReverseProxyRule.vmid == vmid)).all()
+    )
+
+
+def list_rules_by_vmids(
+    session: Session, vmids: list[int]
+) -> list[ReverseProxyRule]:
+    """一次撈多台機器的反向代理規則（清單頁用，避免逐台查詢）。"""
+    if not vmids:
+        return []
+    return list(
+        session.exec(
+            select(ReverseProxyRule).where(col(ReverseProxyRule.vmid).in_(vmids))
+        ).all()
     )
 
 

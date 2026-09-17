@@ -1,0 +1,59 @@
+/* 機器來源徽章：底色是該類型顏色淡染，邊框略深，文字用原色；實心版給拓撲節點。
+   顏色在 _themes.scss 的 --color-kind-*，深淺主題各一組。 */
+
+.badge {
+  --kind: var(--color-kind-personal);
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 100%;
+  padding: 2px 8px 2px 6px;
+  border-radius: $radius-pill;
+  border: 1px solid color-mix(in srgb, var(--kind) 30%, transparent);
+  background: color-mix(in srgb, var(--kind) 12%, transparent);
+  color: var(--kind);
+  font-size: $font-size-12;
+  font-weight: $font-weight-500;
+  line-height: 1.5;
+  white-space: nowrap;
+  vertical-align: middle;
+}
+
+.label { flex-shrink: 0; }
+
+.owner {
+  min-width: 0;
+  font-weight: 400;
+  opacity: 0.85;
+  @include text-truncate;
+}
+
+.lock {
+  flex-shrink: 0;
+  opacity: 0.8;
+}
+
+.sm {
+  gap: 3px;
+  padding: 1px 6px 1px 5px;
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+/* 拓撲節點：實心，掛在畫布上要一眼看到 */
+.solid {
+  background: var(--kind);
+  border-color: transparent;
+  color: #fff;
+  box-shadow: var(--shadow-sm);
+
+  .owner { opacity: 0.9; }
+}
+
+.personal { --kind: var(--color-kind-personal); }
+.shared   { --kind: var(--color-kind-shared); }
+.class    { --kind: var(--color-kind-class); }
+.student  { --kind: var(--color-kind-student); }
+.practice { --kind: var(--color-kind-practice); }
+.course   { --kind: var(--color-kind-course); }
+.open     { --kind: var(--color-kind-open); }

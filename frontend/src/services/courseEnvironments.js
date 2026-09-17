@@ -1,5 +1,10 @@
-import { apiDelete, apiGet, apiPost, apiPut } from "./api";
+import { apiDelete, apiGet, apiPatch, apiPost, apiPostMultipart, apiPut } from "./api";
 import { formatDate } from "../utils/formatDate";
+
+const EDITOR_FIELDS = ["name", "description", "usageScope", "nodes", "edges", "publications"];
+function editorFields(item) {
+  return Object.fromEntries(EDITOR_FIELDS.filter((key) => key in item).map((key) => [key, item[key]]));
+}
 
 export function courseNodeHasUsableSource(node) {
   return node?.sourceType === "custom"
@@ -31,11 +36,13 @@ export function normalizeCourseEnvironment(item) {
     ...item,
     id: String(item.id),
     versionId: String(item.version_id),
+    files: (item.files ?? []).map((file) => ({
+      ...file,
+      id: String(file.id),
+      sizeBytes: Number(file.size_bytes ?? 0),
+    })),
     updatedAt: formatDate(item.updated_at, ""),
     usageScope: item.usage_scope ?? "course",
-    audience: item.audience ?? "class",
-    audienceClassIds: (item.audience_class_ids ?? []).map(String),
-    maxConcurrentSessions: item.max_concurrent_sessions ?? null,
     nodes: (item.nodes ?? []).map(normalizeNode),
     edges: (item.edges ?? []).map((edge) => ({
       ...edge,
@@ -57,6 +64,7 @@ export function normalizeCourseEnvironment(item) {
       zoneId: publication.zone_id ?? "",
       enableHttps: publication.enable_https !== false,
     })),
+    ...(item.status === "draft" && item.draft_data?.editor ? editorFields(item.draft_data.editor) : {}),
   };
 }
 
@@ -65,9 +73,11 @@ export function environmentPayload(item) {
     name: item.name.trim(),
     description: item.description?.trim() || null,
     usage_scope: item.usageScope ?? "course",
-    audience: item.audience ?? "class",
-    audience_class_ids: (item.audience ?? "class") === "class" ? (item.audienceClassIds ?? []) : [],
-    max_concurrent_sessions: Number(item.maxConcurrentSessions) > 0 ? Number(item.maxConcurrentSessions) : null,
+    /* 沒有「學生可見對象」這個欄位了：提供為快速練習就代表全校學生都拿得到，
+       名額仍由每人同時一組與 24 小時上限擋著。 */
+    audience: "campus",
+    audience_class_ids: [],
+    max_concurrent_sessions: null,
     nodes: item.nodes.map((node, index) => ({
       node_key: String(node.id || `node-${index + 1}`),
       source_type: node.sourceType ?? "template",
@@ -105,6 +115,12 @@ export function environmentPayload(item) {
 }
 
 export const CourseEnvironmentsService = {
+  async saveDraft(environmentId, item) {
+    const body = { configuration: environmentPayload(item), editor: editorFields(item), draft_id: item.draftRequestId ?? null };
+    return normalizeCourseEnvironment(await (environmentId
+      ? apiPut(`/api/v1/course-environments/${environmentId}/draft`, body)
+      : apiPost("/api/v1/course-environments/drafts", body)));
+  },
   async list() {
     return (await apiGet("/api/v1/course-environments")).map(normalizeCourseEnvironment);
   },
@@ -123,13 +139,25 @@ export const CourseEnvironmentsService = {
   async publish(environmentId) {
     return normalizeCourseEnvironment(await apiPost(`/api/v1/course-environments/${environmentId}/publish`, {}));
   },
-  async retire(environmentId) {
-    return normalizeCourseEnvironment(await apiPost(`/api/v1/course-environments/${environmentId}/retire`, {}));
+  async saveBasics(environmentId, item) {
+    return normalizeCourseEnvironment(await apiPatch(`/api/v1/course-environments/${environmentId}/basics`, {
+      name: item.name.trim(),
+      description: item.description?.trim() || null,
+      usage_scope: item.usageScope ?? "course",
+    }));
+  },
+  async uploadFile(environmentId, file) {
+    const form = new FormData();
+    form.append("file", file);
+    return normalizeCourseEnvironment(await apiPostMultipart(`/api/v1/course-environments/${environmentId}/files`, form));
+  },
+  async removeFile(environmentId, fileId) {
+    return normalizeCourseEnvironment(await apiDelete(`/api/v1/course-environments/${environmentId}/files/${fileId}`));
+  },
+  fileUrl(environmentId, fileId) {
+    return `/api/v1/course-environments/${environmentId}/files/${fileId}`;
   },
   async remove(environmentId) {
     return apiDelete(`/api/v1/course-environments/${environmentId}`);
-  },
-  async createVersion(environmentId) {
-    return normalizeCourseEnvironment(await apiPost(`/api/v1/course-environments/${environmentId}/versions`, {}));
   },
 };

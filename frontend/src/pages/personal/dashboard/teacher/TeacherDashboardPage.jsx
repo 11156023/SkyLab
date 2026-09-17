@@ -256,7 +256,7 @@ export default function TeacherDashboardPage() {
   const firstName = user?.full_name?.trim()?.split(/\s+/)[0] ?? user?.email?.split("@")[0] ?? t("TeacherDashboardPage.defaultTeacherName");
 
   return <div className={styles.page}>
-    <PageHeader title={t("TeacherDashboardPage.greeting", { name: firstName })} subtitle={t("TeacherDashboardPage.subtitle")}>
+    <PageHeader title={t("TeacherDashboardPage.greeting", { name: firstName })}>
       <button type="button" className={styles.btnPrimary} onClick={() => navigate("/class-setup")}><MIcon name="add" size={18} />{t("TeacherDashboardPage.createClass")}</button>
     </PageHeader>
 

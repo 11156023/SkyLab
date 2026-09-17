@@ -2,6 +2,8 @@ import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { VncScreen } from "react-vnc";
 import { AuthStorage } from "../../../services/auth";
+import { useAuth } from "../../../contexts/AuthContext";
+import { recordMachineUse } from "../../../services/recentMachines";
 import { ResourcesService } from "../../../services/resources";
 import MIcon from "../../../components/MIcon";
 import { useClassroomTakeover } from "../../../components/Classroom/ClassroomStudentLayer";
@@ -12,6 +14,7 @@ import styles from "./ConsoleDialog.module.scss";
 const CONSOLE_INFO_TIMEOUT_MS = 15000;
 
 export default function VncDialog({ resource, onClose }) {
+  const { user } = useAuth();
   const { t } = useTranslation("personal");
   const vncRef      = useRef(null);
   const dialogRef   = useRef(null);
@@ -161,7 +164,11 @@ export default function VncDialog({ resource, onClose }) {
                 },
               }}
               style={{ width: "100%", height: "100%" }}
-              onConnect={() => mountedRef.current && setConnected(true)}
+              onConnect={() => {
+                if (!mountedRef.current) return;
+                setConnected(true);
+                recordMachineUse(user?.id, resource.vmid);
+              }}
               onDisconnect={() => mountedRef.current && setConnected(false)}
               scaleViewport
               background="#1e1e1e"

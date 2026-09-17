@@ -277,13 +277,6 @@ export default function BatchReviewPage() {
     [visibleRows, selectedId],
   );
 
-  const stats = useMemo(() => {
-    const pending = reviewRows.filter((row) => row.reviewStatus === "pending").length;
-    const approved = reviewRows.filter((row) => row.reviewStatus === "approved").length;
-    const rejected = reviewRows.filter((row) => row.reviewStatus === "rejected").length;
-    return { total: reviewRows.length, pending, approved, rejected };
-  }, [reviewRows]);
-
   const togglePreview = async (jobId) => {
     if (openPreviews[jobId]) {
       setOpenPreviews((p) => ({ ...p, [jobId]: false }));
@@ -363,47 +356,7 @@ export default function BatchReviewPage() {
     <div className={styles.page}>
       <PageHeader
         title={t("BatchReviewPage.pageTitle")}
-        subtitle={t("BatchReviewPage.pageSubtitle")}
       />
-
-      <div className={styles.statRow}>
-        <div className={styles.statCard}>
-          <div className={styles.statIcon}>
-            <MIcon name="library_add_check" size={20} />
-          </div>
-          <div className={styles.statInfo}>
-            <span className={styles.statLabel}>{t("BatchReviewPage.statTotal")}</span>
-            <span className={styles.statValue}>{stats.total}</span>
-          </div>
-        </div>
-        <div className={styles.statCard}>
-          <div className={`${styles.statIcon} ${styles.statIconBusy}`}>
-            <MIcon name="pending_actions" size={20} />
-          </div>
-          <div className={styles.statInfo}>
-            <span className={styles.statLabel}>{t("BatchReviewPage.statPending")}</span>
-            <span className={styles.statValue}>{stats.pending}</span>
-          </div>
-        </div>
-        <div className={styles.statCard}>
-          <div className={`${styles.statIcon} ${styles.statIconOk}`}>
-            <MIcon name="task_alt" size={20} />
-          </div>
-          <div className={styles.statInfo}>
-            <span className={styles.statLabel}>{t("BatchReviewPage.statApproved")}</span>
-            <span className={styles.statValue}>{stats.approved}</span>
-          </div>
-        </div>
-        <div className={styles.statCard}>
-          <div className={`${styles.statIcon} ${styles.statIconDanger}`}>
-            <MIcon name="block" size={20} />
-          </div>
-          <div className={styles.statInfo}>
-            <span className={styles.statLabel}>{t("BatchReviewPage.statRejected")}</span>
-            <span className={styles.statValue}>{stats.rejected}</span>
-          </div>
-        </div>
-      </div>
 
       <div className={styles.tabsRow}>
         <SegmentedControl

@@ -453,9 +453,6 @@ function QuotasSection() {
               <MIcon name="manage_accounts" size={18} />
               {t("QuotasTab.overridesTitle")}
             </span>
-            <p className={styles.cardSubtitle}>
-              {t("QuotasTab.overridesDesc")}
-            </p>
           </div>
           <button
             type="button"

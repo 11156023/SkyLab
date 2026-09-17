@@ -1,41 +1,38 @@
 @use "../../assets/styles/variables" as *;
 @use "../../assets/styles/mixins" as *;
 
-/* 導覽入口：portal 到頁首副標前的 [data-user-guide-slot]，行內小圖示鈕 */
+/* 導覽入口：portal 到頁首 h1 旁的 [data-user-guide-slot]，行內小圖示鈕 */
 .helpButton {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 5px;
-  min-height: 26px;
-  margin-right: $spacing-8;
-  padding: 3px 9px;
+  width: 24px;
+  height: 24px;
+  padding: 0;
   vertical-align: middle;
-  border: 1px solid color-mix(in srgb, var(--color-primary) 24%, var(--color-border));
+  border: 0;
   border-radius: $radius-pill;
-  background: color-mix(in srgb, var(--color-primary) 7%, var(--color-surface));
-  color: var(--color-primary-on-surface);
-  font: inherit;
-  font-size: $font-size-12;
-  font-weight: $font-weight-700;
-  white-space: nowrap;
+  background: transparent;
+  color: var(--color-text-secondary);
   cursor: pointer;
-  transition: color $transition-base, background $transition-base, transform $transition-base;
+  transition: color $transition-base, background $transition-base;
 
   &:hover {
-    background: color-mix(in srgb, var(--color-primary) 13%, var(--color-surface));
+    background: var(--color-hover);
     color: var(--color-primary-on-surface);
-    transform: translateY(-1px);
   }
 }
 
+/* 沒有頁首可以掛的時候才浮在角落；圖示鈕本身是透明的，浮起來要自帶底色 */
 .helpButtonFloating {
   position: fixed;
   right: $spacing-16;
   bottom: 76px;
   z-index: 90;
-  margin: 0;
-  min-height: 36px;
+  width: 36px;
+  height: 36px;
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
   box-shadow: var(--shadow-sm);
 }
 
