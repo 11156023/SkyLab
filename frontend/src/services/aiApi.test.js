@@ -33,13 +33,13 @@ describe("AiApiService.listAllCredentials", () => {
   });
 });
 
-describe("AiApiService 統一用量", () => {
+describe("AiApiService 金鑰 API 用量", () => {
   beforeEach(() => {
     apiGetMock.mockReset();
     apiGetMock.mockResolvedValue({});
   });
 
-  test("getMyUsage 帶上日期範圍查詢統一用量", async () => {
+  test("getMyUsage 帶上日期範圍且只查詢申請金鑰用量", async () => {
     await AiApiService.getMyUsage({
       start_date: "2026-09-01",
       end_date: "2026-09-11",

@@ -55,7 +55,7 @@ function useSchedulerGroups(t) {
   return useMemo(() => [
     {
       title: t("SettingsPage.placementOvercommitTitle"),
-      desc: t("SettingsPage.placementOvercommitDesc"),
+      effect: "immediate",
       fields: [
         { key: "cpu_overcommit_ratio", label: t("SettingsPage.cpuOvercommitRatio"), step: 0.1 },
         { key: "disk_overcommit_ratio", label: t("SettingsPage.diskOvercommitRatio"), step: 0.1 },
@@ -64,7 +64,7 @@ function useSchedulerGroups(t) {
     },
     {
       title: t("SettingsPage.resourceThresholdsTitle"),
-      desc: t("SettingsPage.resourceThresholdsDesc"),
+      effect: "immediate",
       fields: [
         { key: "placement_peak_cpu_margin", label: t("SettingsPage.placementPeakCpuMargin"), step: 0.01 },
         { key: "placement_peak_memory_margin", label: t("SettingsPage.placementPeakMemoryMargin"), step: 0.01 },
@@ -85,7 +85,7 @@ function useSchedulerGroups(t) {
     },
     {
       title: t("SettingsPage.scheduledBootTitle"),
-      desc: t("SettingsPage.scheduledBootDesc"),
+      effect: "nextCycle",
       fields: [
         { key: "scheduled_boot_batch_size", label: t("SettingsPage.scheduledBootBatchSize") },
         { key: "scheduled_boot_batch_interval_seconds", label: t("SettingsPage.scheduledBootBatchIntervalSeconds") },
@@ -95,7 +95,6 @@ function useSchedulerGroups(t) {
     },
     {
       title: t("SettingsPage.practiceExpiryTitle"),
-      desc: t("SettingsPage.practiceExpiryDesc"),
       fields: [
         { key: "practice_session_hours", label: t("SettingsPage.practiceSessionHours") },
         { key: "practice_warning_minutes", label: t("SettingsPage.practiceWarningMinutes") },
@@ -112,8 +111,14 @@ function SchedulerForm({ form, setField, onSave, saving, dirty, onRestore }) {
     <form className={styles.panelStack} onSubmit={onSave}>
       {SCHEDULER_GROUPS.map((group) => (
         <div key={group.title} className={styles.card}>
-          <h2 className={styles.cardTitle}>{group.title}</h2>
-          <p className={styles.cardDesc}>{group.desc}</p>
+          <div className={styles.cardHead}>
+            <h2 className={styles.cardTitle}>{group.title}</h2>
+            {group.effect && (
+              <span className={`${styles.badge} ${group.effect === "immediate" ? styles.badge_success : styles.badge_info}`}>
+                {group.effect === "immediate" ? t("SettingsPage.effectImmediate") : t("SettingsPage.effectNextCycle")}
+              </span>
+            )}
+          </div>
           <div className={styles.formGrid}>
             {group.fields.map((f) => (
               <label key={f.key} className={styles.field}>

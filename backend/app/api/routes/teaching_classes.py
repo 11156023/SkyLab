@@ -1032,6 +1032,9 @@ def _submit_node_job(
             "disk_size": node.disk_gb,
             "rootfs_size": node.disk_gb,
             "environment_type": f"{item.name}-{node.role}",
+            # 老師取的機器名：和快速練習走同一個欄位，學生在清單上才會看到
+            # 「n8n」而不是 cls-973465c8-1-1 這種產生出來的主機名
+            "os_info": node.name,
             "expiry_date": item.end_date.isoformat(),
             "ip_reservation_prefix": f"{item.id}:{node.node_key}",
         },

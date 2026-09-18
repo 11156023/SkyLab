@@ -116,7 +116,7 @@ export default function JobsPage() {
 
   return (
     <div className={styles.page}>
-      <PageHeader title={t("JobsPage.pageTitle")} subtitle={t("JobsPage.pageSubtitle")} />
+      <PageHeader title={t("JobsPage.pageTitle")} />
 
       <div className={styles.statRow}>
         <div className={styles.statCard}>

@@ -73,6 +73,61 @@ def test_sync_ip_cache_falls_back_to_cache_when_offline(
     assert session.rollbacks == 0
 
 
+def test_sync_ip_cache_falls_back_to_allocation_when_never_observed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """關機且從未被觀測過的機器：快取空、但 ip_allocation 有佈建時分配的 IP。"""
+    monkeypatch.setattr(
+        resource_repo, "get_cached_ip_address", lambda *, session, vmid: None
+    )
+    monkeypatch.setattr(
+        resource_repo, "get_allocated_ip_address", lambda *, session, vmid: "10.0.0.20"
+    )
+    session = _Session()
+
+    ip = resource_repo.sync_ip_cache(session=session, vmid=150, live_ip=None)  # type: ignore[arg-type]
+
+    assert ip == "10.0.0.20"
+    assert session.rollbacks == 0
+
+
+def test_sync_ip_cache_prefers_observed_cache_over_allocation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """快取是實際觀測到的位址，優先於分配紀錄。"""
+    monkeypatch.setattr(
+        resource_repo, "get_cached_ip_address", lambda *, session, vmid: "10.0.0.9"
+    )
+    monkeypatch.setattr(
+        resource_repo, "get_allocated_ip_address", lambda *, session, vmid: "10.0.0.20"
+    )
+    session = _Session()
+
+    ip = resource_repo.sync_ip_cache(session=session, vmid=150, live_ip=None)  # type: ignore[arg-type]
+
+    assert ip == "10.0.0.9"
+
+
+def test_sync_ip_cache_rolls_back_when_allocation_read_fails(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        resource_repo, "get_cached_ip_address", lambda *, session, vmid: None
+    )
+    monkeypatch.setattr(resource_repo, "get_allocated_ip_address", _db_down)
+    session = _Session()
+
+    ip = resource_repo.sync_ip_cache(session=session, vmid=150, live_ip=None)  # type: ignore[arg-type]
+
+    assert ip is None
+    assert session.rollbacks == 1
+
+
+def test_get_allocated_ip_address_ignores_sessions_without_exec() -> None:
+    """拓撲測試用的假 session 沒有 exec，不能炸。"""
+    assert resource_repo.get_allocated_ip_address(session=_Session(), vmid=150) is None  # type: ignore[arg-type]
+
+
 # ─── get_topology ────────────────────────────────────────────────────────────
 
 
@@ -83,11 +138,30 @@ def test_get_topology_survives_poisoned_ip_cache_write(
     user = SimpleNamespace(id="u1")
     enrich_calls: list[int] = []
 
-    monkeypatch.setattr(fw, "can_bypass_resource_ownership", lambda user: True)
+    # 拓撲的可見範圍由 resource_access 決定（師生關係），這裡固定給兩台自己的機器
     monkeypatch.setattr(
-        fw.resource_repo,
-        "get_all_resources",
-        lambda *, session: [SimpleNamespace(vmid=150), SimpleNamespace(vmid=151)],
+        fw.resource_access,
+        "list_reachable_resources",
+        lambda *, session, user: [
+            SimpleNamespace(vmid=150, user_id="u1", teaching_class_id=None),
+            SimpleNamespace(vmid=151, user_id="u1", teaching_class_id=None),
+        ],
+    )
+    monkeypatch.setattr(
+        fw.resource_access, "list_owned_teaching_class_ids", lambda *, session, user: set()
+    )
+    monkeypatch.setattr(
+        fw.resource_access,
+        "can_manage_resource",
+        lambda *, resource, user, owned_class_ids: True,
+    )
+    monkeypatch.setattr(
+        fw.class_exposure_service,
+        "list_peer_targets",
+        lambda *, session, user, exclude_vmids: [],
+    )
+    monkeypatch.setattr(
+        fw.resource_kind, "classify_many", lambda session, resources: {}
     )
     monkeypatch.setattr(fw.layout_repo, "get_layout", lambda *, session, user_id: [])
     monkeypatch.setattr(

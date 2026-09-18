@@ -5,10 +5,13 @@ import { FitAddon } from "@xterm/addon-fit";
 import { WebLinksAddon } from "@xterm/addon-web-links";
 import "@xterm/xterm/css/xterm.css";
 import { AuthStorage } from "../../../services/auth";
+import { useAuth } from "../../../contexts/AuthContext";
+import { recordMachineUse } from "../../../services/recentMachines";
 import MIcon from "../../../components/MIcon";
 import styles from "./ConsoleDialog.module.scss";
 
 export default function TerminalDialog({ resource, onClose }) {
+  const { user } = useAuth();
   const { t } = useTranslation("personal");
   const [status, setStatus]       = useState("connecting");
   const [error, setError]         = useState("");
@@ -90,6 +93,7 @@ export default function TerminalDialog({ resource, onClose }) {
       if (!isReady && isOK) {
         isReady = true;
         setStatus("connected");
+        recordMachineUse(user?.id, resource.vmid);
         const rest = typeof data === "string" ? data.slice(2) : data.slice(2);
         if (rest.length) term.write(rest);
         requestAnimationFrame(() => requestAnimationFrame(() => {

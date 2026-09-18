@@ -132,7 +132,7 @@ export default function StoragePage() {
   const { t } = useTranslation("system");
   return (
     <div className={styles.page}>
-      <PageHeader title={t("SettingsPage.storageTitle")} subtitle={t("SettingsPage.storageSubtitle")} />
+      <PageHeader title={t("SettingsPage.storageTitle")} />
       <div className={styles.content}>
         <p className={styles.listHint}>{t("SettingsPage.storageHint")}</p>
         <StorageList />

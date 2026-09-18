@@ -1,11 +1,12 @@
 import logging
 import uuid
+from collections.abc import Iterable
 from datetime import date, datetime, timezone
 from typing import Any
 
-from sqlmodel import Session, select
+from sqlmodel import Session, col, select
 
-from app.models import Resource, ResourceNetwork
+from app.models import IpAllocation, Resource, ResourceNetwork
 
 logger = logging.getLogger(__name__)
 
@@ -77,6 +78,20 @@ def get_resources_by_teaching_class(
             select(Resource).where(
                 Resource.teaching_class_id == teaching_class_id
             )
+        ).all()
+    )
+
+
+def get_resources_by_teaching_classes(
+    *, session: Session, teaching_class_ids: Iterable[uuid.UUID]
+) -> list[Resource]:
+    """一次撈多個班級底下的所有機器（老師視角的防火牆／網路清單用）。"""
+    ids = list(teaching_class_ids)
+    if not ids:
+        return []
+    return list(
+        session.exec(
+            select(Resource).where(col(Resource.teaching_class_id).in_(ids))
         ).all()
     )
 
@@ -157,6 +172,19 @@ def get_cached_ip_address(*, session: Session, vmid: int) -> str | None:
     return network.ip_address if network else None
 
 
+def get_allocated_ip_address(*, session: Session, vmid: int) -> str | None:
+    """IP 管理分配給此 VMID 的位址，也就是佈建時寫進 ipconfig0／net0 的那個。
+
+    ip_allocation.resource_vmid 在分配當下多半還是 None（分配先於 create_resource），
+    所以和 release_ip 一樣用 vmid 欄位比對。
+    """
+    if not hasattr(session, "exec"):
+        return None
+    return session.exec(
+        select(IpAllocation.ip_address).where(IpAllocation.vmid == vmid)
+    ).first()
+
+
 def _rollback_quietly(session: Session) -> None:
     rollback = getattr(session, "rollback", None)
     if rollback is not None:
@@ -164,7 +192,10 @@ def _rollback_quietly(session: Session) -> None:
 
 
 def sync_ip_cache(*, session: Session, vmid: int, live_ip: str | None) -> str | None:
-    """有即時 IP 就順手寫回快取並回傳它；沒有就回退 DB 快取。
+    """有即時 IP 就順手寫回快取並回傳它；沒有就回退 DB 快取，再沒有就回退 IP 分配紀錄。
+
+    關機的機器 Proxmox 查不到 IP；若它從未在開機狀態下被觀測過，快取也是空的，
+    但佈建時分配的固定 IP 就在 ip_allocation 裡，拿來顯示不會錯。
 
     快取讀寫是唯讀流程裡的順手動作，失敗一律不往外拋。但 flush／查詢一旦出錯
     （連線中斷、約束衝突），session 會停在無效交易，之後同一個 session 的任何查詢
@@ -184,10 +215,19 @@ def sync_ip_cache(*, session: Session, vmid: int, live_ip: str | None) -> str | 
         return live_ip
 
     try:
-        return get_cached_ip_address(session=session, vmid=vmid)
+        cached_ip = get_cached_ip_address(session=session, vmid=vmid)
     except Exception:
         _rollback_quietly(session)
         logger.warning("VMID=%s IP 快取讀取失敗，已 rollback", vmid, exc_info=True)
+        return None
+    if cached_ip:
+        return cached_ip
+
+    try:
+        return get_allocated_ip_address(session=session, vmid=vmid)
+    except Exception:
+        _rollback_quietly(session)
+        logger.warning("VMID=%s IP 分配紀錄讀取失敗，已 rollback", vmid, exc_info=True)
         return None
 
 

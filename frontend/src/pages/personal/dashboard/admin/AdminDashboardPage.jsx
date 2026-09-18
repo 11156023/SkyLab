@@ -131,7 +131,7 @@ export default function AdminDashboardPage() {
   ];
 
   return <div className={`${styles.page} ${focusMode ? styles.pageFocused : ""}`}>
-    <PageHeader title={t("AdminDashboardPage.greeting", { name })} subtitle={t("AdminDashboardPage.subtitle")}>
+    <PageHeader title={t("AdminDashboardPage.greeting", { name })}>
       {!focusMode && <div className={styles.refreshControls}>
         <span className={styles.checkedAt}>
           {overview
@@ -157,6 +157,45 @@ export default function AdminDashboardPage() {
         <MIcon name="chevron_right" size={17} className={styles.statArrow} />
       </button>)}
     </section>}
+
+    {/* AI 助手：沒開始對話前只是一條輸入列，不要先佔掉整片高度 */}
+    <section className={`${styles.assistant} ${focusMode ? styles.assistantFocused : ""}`} aria-labelledby="admin-assistant-title">
+      {/* 閒置時不出現整條標頭，助手身份直接放在輸入列上 */}
+      {conversationPrompt && <div className={styles.assistantHead}>
+        <div className={styles.assistantIdentity}>
+          <span className={styles.assistantIcon}><MIcon name="support_agent" size={24} /></span>
+          <h2 id="admin-assistant-title">{t("AdminDashboardPage.assistantLabel")}</h2>
+        </div>
+        <div className={styles.assistantActions}>
+          <button type="button" onClick={() => setFocusMode((value) => !value)}>
+            <MIcon name={focusMode ? "close_fullscreen" : "open_in_full"} size={15} />
+            {focusMode ? t("AdminDashboardPage.backToOverview") : t("AdminDashboardPage.expandChat")}
+          </button>
+          <button type="button" onClick={resetAssistant}>
+            <MIcon name="refresh" size={15} />
+            {t("AdminDashboardPage.askAgain")}
+          </button>
+        </div>
+      </div>}
+
+      {conversationPrompt ? <AiPveChat initialPrompt={conversationPrompt} compact={!focusMode} fill={focusMode} />
+        : <form className={styles.assistantForm} onSubmit={openAssistant}>
+          <div className={styles.assistantIdentity}>
+            <span className={styles.assistantIcon}><MIcon name="support_agent" size={20} /></span>
+            <span id="admin-assistant-title" className={styles.assistantName}>{t("AdminDashboardPage.assistantLabel")}</span>
+          </div>
+          <div className={styles.assistantInput}>
+            <input ref={assistantInputRef} aria-label={t("AdminDashboardPage.assistantLabel")} value={assistantPrompt} onChange={(event) => setAssistantPrompt(event.target.value)} placeholder={t("AdminDashboardPage.promptPlaceholder")} autoComplete="off" />
+            <button type="submit" disabled={!assistantPrompt.trim()}>{t("AdminDashboardPage.startAsking")}<MIcon name="arrow_forward" size={16} /></button>
+          </div>
+          <div className={styles.suggestionButtons}>
+            {suggestions.map((suggestion) => <button type="button" key={suggestion} onClick={() => {
+              setAssistantPrompt(suggestion);
+              assistantInputRef.current?.focus();
+            }}>{suggestion}</button>)}
+          </div>
+        </form>}
+    </section>
 
     <section className={styles.attention} aria-label={t("AdminDashboardPage.attentionTitle")} aria-busy={busy}>
       {busy ? <div className={styles.checking} role="status"><MIcon name="sync" size={18} className={styles.spin} />{t("AdminDashboardPage.checking")}</div> : <>
@@ -214,40 +253,5 @@ export default function AdminDashboardPage() {
       </div>}
     </section>
     </>}
-
-    {/* AI 助手：沒開始對話前只是一條輸入列，不要先佔掉整片高度 */}
-    <section className={`${styles.assistant} ${focusMode ? styles.assistantFocused : ""}`} aria-labelledby="admin-assistant-title">
-      <div className={styles.assistantHead}>
-        <div className={styles.assistantIdentity}>
-          <span className={styles.assistantIcon}><MIcon name="support_agent" size={24} /></span>
-          <h2 id="admin-assistant-title">{t("AdminDashboardPage.assistantLabel")}</h2>
-        </div>
-        {conversationPrompt && <div className={styles.assistantActions}>
-          <button type="button" onClick={() => setFocusMode((value) => !value)}>
-            <MIcon name={focusMode ? "close_fullscreen" : "open_in_full"} size={15} />
-            {focusMode ? t("AdminDashboardPage.backToOverview") : t("AdminDashboardPage.expandChat")}
-          </button>
-          <button type="button" onClick={resetAssistant}>
-            <MIcon name="refresh" size={15} />
-            {t("AdminDashboardPage.askAgain")}
-          </button>
-        </div>}
-      </div>
-
-      {conversationPrompt ? <AiPveChat initialPrompt={conversationPrompt} compact={!focusMode} fill={focusMode} />
-        : <form className={styles.assistantForm} onSubmit={openAssistant}>
-          <div className={styles.assistantInput}>
-            <MIcon name="terminal" size={19} />
-            <input ref={assistantInputRef} aria-label={t("AdminDashboardPage.assistantLabel")} value={assistantPrompt} onChange={(event) => setAssistantPrompt(event.target.value)} placeholder={t("AdminDashboardPage.promptPlaceholder")} autoComplete="off" />
-            <button type="submit" disabled={!assistantPrompt.trim()}>{t("AdminDashboardPage.startAsking")}<MIcon name="arrow_forward" size={16} /></button>
-          </div>
-          <div className={styles.suggestionButtons}>
-            {suggestions.map((suggestion) => <button type="button" key={suggestion} onClick={() => {
-              setAssistantPrompt(suggestion);
-              assistantInputRef.current?.focus();
-            }}>{suggestion}</button>)}
-          </div>
-        </form>}
-    </section>
   </div>;
 }

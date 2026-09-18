@@ -186,11 +186,15 @@
 }
 .assistantActions { display: flex; flex-wrap: wrap; margin-left: auto; gap: $spacing-8; }
 .assistantForm { display: grid; grid-template-columns: minmax(0, 1fr) fit-content(40%); align-items: center; min-width: 0; gap: $spacing-16; }
+/* 閒置狀態：標頭移除，輸入框上方放一行精簡的助手識別（icon＋名稱） */
+.assistantForm .assistantIdentity { grid-column: 1 / -1; gap: $spacing-8; }
+.assistantForm .assistantIcon { width: 32px; height: 32px; border-radius: $radius-8; }
+.assistantName { color: var(--color-text-primary); font-size: $font-size-14; font-weight: $font-weight-700; white-space: nowrap; }
 .assistantInput {
   display: grid;
   min-width: 0;
   padding: 6px 6px 6px 12px;
-  grid-template-columns: 19px minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
   gap: $spacing-8;
   border: 1px solid var(--color-border);
@@ -199,7 +203,6 @@
   transition: border-color $transition-base, box-shadow $transition-base;
 }
 .assistantInput:focus-within { border-color: var(--color-primary-on-surface); box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-primary) 12%, transparent); }
-.assistantInput > :global(.material-icons-outlined) { color: var(--color-text-muted); }
 .assistantInput input { width: 100%; min-width: 0; padding: $spacing-8 0; border: 0; outline: none; color: var(--color-text-primary); background: transparent; font-family: inherit; font-size: $font-size-14; }
 .assistantInput input::placeholder { color: var(--color-text-muted); }
 .assistantInput button {
@@ -260,7 +263,8 @@
   .assistantActions { margin-left: 0; }
 }
 @media (max-width: $breakpoint-sm) {
-  .assistantInput { grid-template-columns: 19px minmax(0, 1fr); }
+  /* 窄幅：輸入框獨佔一行，按鈕換行滿寬 */
+  .assistantInput { grid-template-columns: minmax(0, 1fr); }
   .assistantInput button { grid-column: 1 / -1; width: 100%; }
   .refreshControls > button, .assistantActions button, .suggestionButtons button { min-height: 44px; }
 }

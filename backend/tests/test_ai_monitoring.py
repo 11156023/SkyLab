@@ -64,7 +64,9 @@ def test_monitoring_overview_aggregates_total_tokens_per_model(
 
     monkeypatch.setattr(ai_gateway_service, "_monitoring_model_rows", model_rows)
 
-    overview = ai_gateway_service.get_monitoring_overview(session=object(), compare=False)
+    overview = ai_gateway_service.get_monitoring_overview(
+        session=object(), compare=False
+    )
 
     assert overview["model_breakdown"] == [
         {
@@ -103,13 +105,55 @@ def test_monitoring_overview_aggregates_total_tokens_per_bucket(
         return [(bucket_start, 1, 1, 30, 40, 1, 100)]
 
     monkeypatch.setattr(ai_gateway_service, "_monitoring_bucket_rows", bucket_rows)
-    monkeypatch.setattr(ai_gateway_service, "_monitoring_model_rows", lambda **_kwargs: [])
+    monkeypatch.setattr(
+        ai_gateway_service, "_monitoring_model_rows", lambda **_kwargs: []
+    )
 
-    overview = ai_gateway_service.get_monitoring_overview(session=object(), compare=False)
+    overview = ai_gateway_service.get_monitoring_overview(
+        session=object(), compare=False
+    )
 
     assert len(overview["series"]) == 1
     assert overview["series"][0]["total_tokens"] == 100
     assert overview["series"][0]["failed_calls"] == 1
+
+
+def test_monitoring_overview_can_exclude_template_usage(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    stats = {
+        "proxy_total_calls": 2,
+        "proxy_total_input_tokens": 10,
+        "proxy_total_output_tokens": 20,
+        "template_total_calls": 0,
+        "template_total_input_tokens": 0,
+        "template_total_output_tokens": 0,
+        "successful_calls": 2,
+        "active_users": 1,
+        "avg_latency_ms": 100,
+    }
+    monkeypatch.setattr(
+        ai_gateway_service, "get_monitoring_stats", lambda **_kwargs: stats
+    )
+
+    def bucket_rows(**kwargs):
+        assert kwargs["model"] is AIAPIUsage
+        return [("2026-09-11 10:00:00", 2, 2, 10, 20, 2, 200)]
+
+    def model_rows(**kwargs):
+        assert kwargs["model"] is AIAPIUsage
+        return [("key-model", 2, 2, 10, 20, 2, 200)]
+
+    monkeypatch.setattr(ai_gateway_service, "_monitoring_bucket_rows", bucket_rows)
+    monkeypatch.setattr(ai_gateway_service, "_monitoring_model_rows", model_rows)
+
+    overview = ai_gateway_service.get_monitoring_overview(
+        session=object(), compare=False, include_template=False
+    )
+
+    assert overview["summary"]["total_calls"] == 2
+    assert overview["series"][0]["template_calls"] == 0
+    assert overview["model_breakdown"][0]["model_name"] == "key-model"
 
 
 @pytest.mark.asyncio
@@ -128,7 +172,13 @@ async def test_runtime_snapshot_normalizes_model_health_without_leaking_upstream
         ),
         "/v1/models": httpx.Response(
             200,
-            json={"data": [{"id": "public-model"}, {"id": "broken-model"}, {"id": "unknown-model"}]},
+            json={
+                "data": [
+                    {"id": "public-model"},
+                    {"id": "broken-model"},
+                    {"id": "unknown-model"},
+                ]
+            },
         ),
     }
 
@@ -150,13 +200,20 @@ async def test_runtime_snapshot_normalizes_model_health_without_leaking_upstream
             litellm_runtime_base_url="http://litellm.internal",
         ),
     )
-    monkeypatch.setattr(ai_monitoring.httpx, "AsyncClient", lambda **_kwargs: FakeClient())
+    monkeypatch.setattr(
+        ai_monitoring.httpx, "AsyncClient", lambda **_kwargs: FakeClient()
+    )
 
     snapshot = await ai_monitoring.get_litellm_runtime_snapshot(object())
 
     assert snapshot["gateway"]["status"] == "available"
     assert snapshot["liveliness"] is True and snapshot["readiness"] is True
-    assert snapshot["summary"] == {"online": 1, "degraded": 0, "offline": 1, "unknown": 1}
+    assert snapshot["summary"] == {
+        "online": 1,
+        "degraded": 0,
+        "offline": 1,
+        "unknown": 1,
+    }
     assert [(model["name"], model["status"]) for model in snapshot["models"]] == [
         ("broken-model", "offline"),
         ("public-model", "online"),
@@ -223,7 +280,9 @@ async def test_runtime_snapshot_runs_independent_probes_concurrently(
             litellm_runtime_base_url="http://litellm.internal",
         ),
     )
-    monkeypatch.setattr(ai_monitoring.httpx, "AsyncClient", lambda **_kwargs: FakeClient())
+    monkeypatch.setattr(
+        ai_monitoring.httpx, "AsyncClient", lambda **_kwargs: FakeClient()
+    )
 
     snapshot = await ai_monitoring.get_litellm_runtime_snapshot(object())
 

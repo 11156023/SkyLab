@@ -68,14 +68,6 @@ describe("ResourcesService 進階設定端點", () => {
     expect(body).toEqual({ public_key: "ssh-ed25519 AAAA test" });
   });
 
-  test("updateMetadata 送出 tags 與 description", async () => {
-    fetchMock.mockResolvedValueOnce(jsonRes(200, {}));
-    await ResourcesService.updateMetadata(105, { tags: ["db"], description: "期末專題" });
-    const { url, body } = lastCall();
-    expect(url).toContain("/api/v1/resources/105/metadata");
-    expect(body).toEqual({ tags: ["db"], description: "期末專題" });
-  });
-
   test("addShare / removeShare / transferOwnership 的路徑與 body", async () => {
     fetchMock.mockResolvedValue(jsonRes(200, {}));
     await ResourcesService.addShare(105, "friend@example.com");

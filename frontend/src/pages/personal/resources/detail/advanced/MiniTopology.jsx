@@ -18,8 +18,9 @@ const EDGE_TYPES = { connection: ConnectionEdge };
 
 export default function MiniTopology({ topology }) {
   const rfInstance = useRef(null);
+  /* 唯讀檢視：標籤常駐，但不接選取（沒有可滑入的細節面板） */
   const { nodes, edges } = useMemo(
-    () => buildFlow(topology ?? { nodes: [], edges: [] }, undefined, true),
+    () => buildFlow(topology ?? { nodes: [], edges: [] }, { showLabel: true }),
     [topology],
   );
 

@@ -204,7 +204,7 @@ export default function NodesPage() {
   const { t } = useTranslation("system");
   return (
     <div className={styles.page}>
-      <PageHeader title={t("SettingsPage.nodesTitle")} subtitle={t("SettingsPage.nodesSubtitle")} />
+      <PageHeader title={t("SettingsPage.nodesTitle")} />
       <div className={styles.content}>
         <p className={styles.listHint}>{t("SettingsPage.nodesHint")}</p>
         <NodeList />

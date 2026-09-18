@@ -20,6 +20,11 @@ const CLASS_STATUS_KEYS = {
   archived: "TeacherDashboardPage.statusArchived",
 };
 
+const DEMO_STUDENT_NAMES = [
+  "王小明", "陳怡君", "林志豪", "張雅婷", "劉冠廷", "黃郁雯", "郭家豪", "李欣儒",
+  "周柏翰", "吳思妤", "許庭瑋", "鄭凱文", "蔡佳蓉", "楊承恩", "謝宜庭", "何俊傑",
+];
+
 function dateKey(date) {
   return new Intl.DateTimeFormat("en-CA", {
     timeZone: "Asia/Taipei", year: "numeric", month: "2-digit", day: "2-digit",
@@ -39,6 +44,95 @@ function addDaysToDateKey(value, days) {
 
 function taipeiDateTime(date, time = "00:00") {
   return new Date(`${date}T${time.slice(0, 5)}:00+08:00`);
+}
+
+function demoStudents(prefix, count, totalQuestions, fullyCompleted, inProgress) {
+  return Array.from({ length: count }, (_, index) => {
+    const completedQuestions = index < fullyCompleted
+      ? totalQuestions
+      : index < fullyCompleted + inProgress
+        ? Math.max(1, totalQuestions - 1 - (index % Math.max(1, totalQuestions - 1)))
+        : 0;
+    const name = DEMO_STUDENT_NAMES[index % DEMO_STUDENT_NAMES.length];
+    return {
+      user_id: `${prefix}-student-${index + 1}`,
+      user_name: index < DEMO_STUDENT_NAMES.length ? name : `${name}${Math.floor(index / DEMO_STUDENT_NAMES.length) + 1}`,
+      user_email: `${prefix}.student${String(index + 1).padStart(2, "0")}@example.com`,
+      completed_questions: completedQuestions,
+      total_questions: totalQuestions,
+      progress_percent: Math.round(completedQuestions / totalQuestions * 100),
+    };
+  });
+}
+
+export function buildTeacherDashboardDemo(now = new Date()) {
+  const today = dateKey(now);
+  const endDate = addDaysToDateKey(today, 120);
+  const classRows = [
+    {
+      id: "demo-class-linux-a",
+      name: "Linux 系統管理－資工二甲",
+      status: "active",
+      start_date: today,
+      end_date: endDate,
+      weekday: weekdayFromDateKey(addDaysToDateKey(today, 1)),
+      start_time: "13:10:00",
+      member_count: 28,
+      machine_nodes: [{ node_key: "linux" }],
+      ready_machines: 26,
+      total_machines: 28,
+    },
+    {
+      id: "demo-class-linux-b",
+      name: "Linux 系統管理－資工二乙",
+      status: "active",
+      start_date: today,
+      end_date: endDate,
+      weekday: weekdayFromDateKey(addDaysToDateKey(today, 2)),
+      start_time: "09:10:00",
+      member_count: 30,
+      machine_nodes: [{ node_key: "linux" }],
+      ready_machines: 30,
+      total_machines: 30,
+    },
+    {
+      id: "demo-class-container",
+      name: "容器與自動化－夜間班",
+      status: "planning",
+      start_date: today,
+      end_date: endDate,
+      weekday: weekdayFromDateKey(addDaysToDateKey(today, 4)),
+      start_time: "18:30:00",
+      member_count: 20,
+      machine_nodes: [{ node_key: "docker" }, { node_key: "gateway" }],
+      ready_machines: 36,
+      total_machines: 40,
+    },
+  ];
+  const reportRows = [
+    {
+      path: { id: "demo-path-linux-a", title: "資工二甲｜第 4 週：使用者與權限" },
+      report: {
+        total_questions: 3,
+        students: demoStudents("linux-a", 28, 3, 16, 8),
+      },
+    },
+    {
+      path: { id: "demo-path-linux-b", title: "資工二乙｜第 5 週：網路診斷" },
+      report: {
+        total_questions: 4,
+        students: demoStudents("linux-b", 30, 4, 21, 6),
+      },
+    },
+    {
+      path: { id: "demo-path-container", title: "夜間班｜第 3 週：Docker 基礎" },
+      report: {
+        total_questions: 2,
+        students: demoStudents("container", 20, 2, 12, 5),
+      },
+    },
+  ];
+  return { classes: classRows, reports: reportRows };
 }
 
 export function nextClassSession(item, now = new Date()) {
@@ -111,12 +205,21 @@ export default function TeacherDashboardPage() {
   const [reports, setReports] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const demoMode = import.meta.env.DEV
+    && new URLSearchParams(window.location.search).get("teacherDemo") === "1";
 
   useEffect(() => {
     let active = true;
     async function load() {
       setLoading(true);
       setError("");
+      if (demoMode) {
+        const demo = buildTeacherDashboardDemo();
+        setClasses(demo.classes.map(normalizeClass));
+        setReports(demo.reports);
+        setLoading(false);
+        return;
+      }
       try {
         const [classRows, pathRows] = await Promise.all([
           TeachingClassesService.list(),
@@ -137,7 +240,7 @@ export default function TeacherDashboardPage() {
     }
     load();
     return () => { active = false; };
-  }, [user?.id]);
+  }, [demoMode, user?.id]);
 
   const checkpointSummary = useMemo(() => summarizeCheckpointReports(reports), [reports]);
   const upcoming = useMemo(() => classes
@@ -153,7 +256,7 @@ export default function TeacherDashboardPage() {
   const firstName = user?.full_name?.trim()?.split(/\s+/)[0] ?? user?.email?.split("@")[0] ?? t("TeacherDashboardPage.defaultTeacherName");
 
   return <div className={styles.page}>
-    <PageHeader title={t("TeacherDashboardPage.greeting", { name: firstName })} subtitle={t("TeacherDashboardPage.subtitle")}>
+    <PageHeader title={t("TeacherDashboardPage.greeting", { name: firstName })}>
       <button type="button" className={styles.btnPrimary} onClick={() => navigate("/class-setup")}><MIcon name="add" size={18} />{t("TeacherDashboardPage.createClass")}</button>
     </PageHeader>
 

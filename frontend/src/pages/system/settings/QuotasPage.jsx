@@ -453,9 +453,6 @@ function QuotasSection() {
               <MIcon name="manage_accounts" size={18} />
               {t("QuotasTab.overridesTitle")}
             </span>
-            <p className={styles.cardSubtitle}>
-              {t("QuotasTab.overridesDesc")}
-            </p>
           </div>
           <button
             type="button"
@@ -507,7 +504,7 @@ function QuotasSection() {
                       </button>
                       <button
                         type="button"
-                        className={styles.btnDanger}
+                        className={styles.btnIconDanger}
                         disabled={deleting === q.id}
                         onClick={() => handleDelete(q)}
                         title={t("QuotasTab.deleteQuotaTitle")}

@@ -82,57 +82,12 @@
 
 /* ── 按鈕 ── */
 .btnPrimary {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 8px $spacing-16;
-  border-radius: $radius-8;
-  font-size: $font-size-14;
-  font-weight: $font-weight-500;
-  cursor: pointer;
-  white-space: nowrap;
-  background: var(--color-primary);
-  color: var(--color-text-on-primary);
-  border: none;
-  box-shadow: var(--shadow-sm);
+  @include btn-primary;
   flex-shrink: 0;
-  transition: opacity $transition-base;
-
-  &:hover:not(:disabled) {
-    opacity: 0.88;
-  }
-
-  &:disabled {
-    opacity: 0.55;
-    cursor: not-allowed;
-  }
 }
 
 .btnSecondary {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  min-height: 36px;
-  padding: 8px $spacing-16;
-  border-radius: $radius-8;
-  font-size: $font-size-14;
-  font-weight: $font-weight-500;
-  cursor: pointer;
-  white-space: nowrap;
-  background: var(--color-surface);
-  color: var(--color-text-primary);
-  border: 1px solid var(--color-border);
-  transition: background $transition-base, box-shadow $transition-base;
-
-  &:hover:not(:disabled) {
-    background: var(--color-hover);
-  }
-
-  &:disabled {
-    opacity: 0.55;
-    cursor: not-allowed;
-  }
+  @include btn-secondary;
 }
 
 /* ── 表單 ── */

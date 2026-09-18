@@ -38,40 +38,17 @@
 }
 
 .btnPrimary {
-  @extend %btn-base;
-  background: var(--color-primary);
-  color: var(--color-text-on-primary);
-
-  &:hover:not(:disabled) {
-    background: var(--color-primary-dark);
-    box-shadow: var(--shadow-sm);
-  }
+  @include btn-primary;
 }
 
 .btnSecondary {
-  @extend %btn-base;
-  background: var(--color-surface);
-  color: var(--color-text);
-  border: 1px solid var(--color-border);
-  box-shadow: var(--shadow-sm);
-
-  &:hover:not(:disabled) {
-    background: var(--color-hover);
-  }
+  @include btn-secondary;
 }
 
 .btnDanger {
-  @extend %btn-base;
+  @include btn-danger;
   /* 危險操作靠左，與右側的取消／儲存分開 */
   margin-right: auto;
-  background: var(--color-danger);
-  color: var(--color-text-on-primary);
-  border: 1px solid var(--color-danger);
-
-  &:hover:not(:disabled) {
-    background: var(--color-danger-dark);
-    border-color: var(--color-danger-dark);
-  }
 }
 
 .statRow {
@@ -349,7 +326,7 @@
 
   &.actionBtnDanger {
     color: var(--color-danger);
-    &:hover { background: color-mix(in srgb, var(--color-danger) 10%, transparent); }
+    &:hover:not(:disabled) { background: color-mix(in srgb, var(--color-danger) 10%, transparent); }
   }
 }
 

@@ -27,11 +27,7 @@
 }
 
 .btnPrimary {
-  @extend %btn-base;
-  background: var(--color-primary);
-  color: var(--color-text-on-primary);
-
-  &:hover:not(:disabled) { background: var(--color-primary-dark); box-shadow: var(--shadow-sm); }
+  @include btn-primary;
 }
 
 .btnOutline {
@@ -44,11 +40,7 @@
 }
 
 .btnDanger {
-  @extend %btn-base;
-  background: var(--color-danger);
-  color: var(--color-text-on-primary);
-
-  &:hover:not(:disabled) { opacity: 0.9; }
+  @include btn-danger;
 }
 
 /* ── Tabs ── */
@@ -167,7 +159,7 @@
   background: color-mix(in srgb, var(--color-danger) 10%, transparent);
   color: var(--color-danger);
 
-  &:hover { background: color-mix(in srgb, var(--color-danger) 18%, transparent); }
+  &:hover:not(:disabled) { background: color-mix(in srgb, var(--color-danger) 18%, transparent); }
 }
 
 .reviewComment {

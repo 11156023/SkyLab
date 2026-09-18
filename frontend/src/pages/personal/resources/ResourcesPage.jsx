@@ -5,6 +5,7 @@ import { useTranslation } from "react-i18next";
 import { useAuth } from "../../../contexts/AuthContext";
 import styles from "./ResourcesPage.module.scss";
 import MIcon from "../../../components/MIcon";
+import MachineKindBadge from "../../../components/MachineKindBadge/MachineKindBadge";
 import PowerMenu from "../../../components/PowerMenu/PowerMenu";
 import TemplateConvertDialog from "../../../components/TemplateConvertDialog/TemplateConvertDialog";
 import useDialogPresence from "../../../hooks/useDialogPresence";
@@ -151,6 +152,7 @@ function CreatingRow({ request, onCancelled }) {
           <div><strong>{request.hostname}</strong><small>{t(type.labelKey)} · {specs || t("CreatingRow.specsPending")}</small></div>
         </div>
       </td>
+      <td className={styles.td}><span className={styles.muted}>—</span></td>
       <td className={styles.td}><div className={styles.envPrimary}>{t("CreatingRow.resourceRequestLabel")}</div><div className={styles.envSub}>{t("CreatingRow.creating")}</div></td>
       <td className={styles.td}>
         <span className={`${styles.badge} ${styles[`badge_${display.color}`]} ${styles.creatingBadge}`}>
@@ -250,27 +252,37 @@ function ResourceRow({ resource, onUpdated, onDeleted }) {
           <span className={styles.nameIcon}><MIcon name={type.icon} size={18} /></span>
           <div>
             {resource.vmid > 0
-              ? <button type="button" className={styles.nameLink} onClick={() => navigate(`/my-resources/${resource.vmid}`)}>{resource.name}</button>
+              ? <button type="button" className={styles.nameLink} onClick={() => navigate(`/my-resources/${resource.vmid}`)} data-guide="resource-open-detail">{resource.name}</button>
               : <strong>{resource.name}</strong>}
             <small>{t(type.labelKey)}{showVmid && resource.vmid > 0 ? t("ResourceRow.vmidSuffix", { vmid: resource.vmid }) : ""}</small>
-            {(resource.access_role === "shared" || (resource.tags ?? []).length > 0) && (
-              <div className={styles.rowChips}>
-                {resource.access_role === "shared" && (
-                  <span className={`${styles.badge} ${styles.badge_info}`} title={t("ResourceRow.sharedByHint", { email: resource.owner_email ?? "—" })}>
-                    <MIcon name="group" size={11} /> {t("ResourceRow.sharedBadge")}
-                  </span>
-                )}
-                {(resource.tags ?? []).map((tag) => (
-                  <span key={tag} className={styles.tagChip}>{tag}</span>
-                ))}
-              </div>
-            )}
           </div>
         </div>
       </td>
+      {/* 來源：個人申請／共享／班級／快速練習／課程 */}
+      <td className={styles.td}>
+        <MachineKindBadge
+          kind={resource.machine_kind}
+          classRelation={resource.class_relation}
+          ownerName={resource.owner_name ?? resource.owner_email}
+          teachingClassName={resource.teaching_class_name}
+          size="sm"
+        />
+      </td>
       <td className={styles.td}><div className={styles.envPrimary}>{resource.environment_type || "Custom"}</div><div className={styles.envSub}>{resource.os_info || "—"}</div></td>
       <td className={styles.td}><StatusBadge status={resource.status} /></td>
-      <td className={styles.td}><span className={styles.mono}>{resource.ip_address ?? "N/A"}</span></td>
+      <td className={styles.td}>
+        <span className={styles.mono}>{resource.ip_address ?? "N/A"}</span>
+        {/* 反向代理發布的對外網址：和環境機器列一樣直接可點，不必進詳情頁 */}
+        {(resource.public_urls ?? []).length > 0 && (
+          <div className={styles.publicUrlList}>
+            {resource.public_urls.map((url) => (
+              <a key={url} className={styles.publicUrlLink} href={url} target="_blank" rel="noreferrer" title={url}>
+                <MIcon name="open_in_new" size={13} /><span className={styles.publicUrlText}>{url.replace(/^https?:\/\//, "")}</span>
+              </a>
+            ))}
+          </div>
+        )}
+      </td>
       <td className={styles.td}>{resource.expiry_date ? formatDate(resource.expiry_date) : <span className={styles.cardPeriodUnlimited}>{t("ResourceRow.unlimited")}</span>}</td>
       <td className={styles.td}>{resource.node ?? "—"}</td>
       <td className={styles.td}>
@@ -281,7 +293,7 @@ function ResourceRow({ resource, onUpdated, onDeleted }) {
           {actionLoading && <MIcon name="hourglass_empty" size={16} />}
           <div className={styles.menuWrap}>
             {menuOpen && <PowerMenu resource={resource} actionLoading={actionLoading} onControl={handleControl} onDeleteClick={resource.can_delete === false ? undefined : () => { closeMenu(); handleDelete(); }} onConvertTemplate={canConvertTemplate ? () => { closeMenu(); setConvertOpen(true); } : undefined} onClose={closeMenu} anchorRef={menuBtnRef} closing={menuClosing} />}
-            <button ref={menuBtnRef} type="button" className={`${styles.menuBtn} ${menuOpen ? styles.menuBtnActive : ""}`} onClick={() => menuOpen ? closeMenu() : setMenuOpen(true)} title={t("ResourceRow.moreActions")}><MIcon name="more_vert" size={18} /></button>
+            <button ref={menuBtnRef} type="button" className={`${styles.menuBtn} ${menuOpen ? styles.menuBtnActive : ""}`} onClick={() => menuOpen ? closeMenu() : setMenuOpen(true)} title={t("ResourceRow.moreActions")} data-guide="resource-more-actions"><MIcon name="more_vert" size={18} /></button>
           </div>
         </div> : <span className={styles.deletedNote}>{STATUS_MAP[resource.status]?.labelKey ? t(STATUS_MAP[resource.status].labelKey) : resource.status}</span>}
       </td>
@@ -341,20 +353,21 @@ function EnvironmentMachineRow({ machine, groupStatus, onUpdated }) {
   return <>
     <tr className={`${styles.tr} ${styles.environmentMachineRow}`}>
     <td className={styles.td}><div className={`${styles.nameCell} ${styles.environmentMachineName}`}><span className={styles.machineBranch}>└</span><div>{resource?.vmid > 0
-      ? <button type="button" className={styles.nameLink} onClick={() => navigate(`/my-resources/${resource.vmid}`)}>{machine.name}</button>
-      : <strong>{machine.name}</strong>}<small>{machine.role} · {t(type.labelKey ?? type.label)}{specLabel ? ` · ${specLabel}` : ""}</small></div></div></td>
+      ? <button type="button" className={styles.nameLink} onClick={() => navigate(`/my-resources/${resource.vmid}`)} data-guide="resource-open-detail">{machine.name}</button>
+      : <strong>{machine.name}</strong>}<small>{machine.ownerName ? <><span className={styles.machineOwner}><MIcon name="person" size={11} />{machine.ownerName}</span> · </> : null}{machine.role} · {t(type.labelKey ?? type.label)}{specLabel ? ` · ${specLabel}` : ""}</small></div></div></td>
+    <td className={styles.td}><span className={styles.muted}>—</span></td>
     <td className={styles.td}><div className={styles.envPrimary}>{machine.os}</div><div className={styles.envSub}>{machine.resource ? t("EnvironmentMachineRow.resourceConnected") : t("EnvironmentMachineRow.creating")}</div></td>
     <td className={styles.td}><StatusBadge status={machine.status} /></td>
     <td className={styles.td}><span className={styles.mono}>{machine.ip}</span>
-      {machine.publicUrl && <a className={styles.publicUrlLink} href={machine.publicUrl} target="_blank" rel="noreferrer"><MIcon name="open_in_new" size={13} />{machine.publicUrl.replace(/^https?:\/\//, "")}</a>}</td>
+      {machine.publicUrl && <a className={styles.publicUrlLink} href={machine.publicUrl} target="_blank" rel="noreferrer" title={machine.publicUrl}><MIcon name="open_in_new" size={13} /><span className={styles.publicUrlText}>{machine.publicUrl.replace(/^https?:\/\//, "")}</span></a>}</td>
     <td className={styles.td}><span className={styles.muted}>{t("EnvironmentMachineRow.managedByEnvironment")}</span></td>
     <td className={styles.td}>{machine.node}</td>
     <td className={styles.td}><div className={styles.rowActions}>
-      <button type="button" className={styles.terminalBtn} disabled={!canOpen} title={canOpen ? (isLxc ? t("EnvironmentMachineRow.terminal") : t("EnvironmentMachineRow.console")) : t("EnvironmentMachineRow.notReadyTitle")} onClick={() => setConsoleOpen(true)}><MIcon name={isLxc ? "terminal" : "desktop_windows"} size={14} />{isLxc ? t("EnvironmentMachineRow.terminal") : t("EnvironmentMachineRow.console")}</button>
+      <button type="button" className={styles.terminalBtn} disabled={!canOpen} title={canOpen ? (isLxc ? t("EnvironmentMachineRow.terminal") : t("EnvironmentMachineRow.console")) : t("EnvironmentMachineRow.notReadyTitle")} onClick={() => setConsoleOpen(true)} data-guide="resource-console"><MIcon name={isLxc ? "terminal" : "desktop_windows"} size={14} />{isLxc ? t("EnvironmentMachineRow.terminal") : t("EnvironmentMachineRow.console")}</button>
       {actionLoading && <MIcon name="hourglass_empty" size={16} />}
       {canControl && <div className={styles.menuWrap}>
         {menuOpen && <PowerMenu resource={resource} actionLoading={actionLoading} onControl={handleControl} onClose={closeMenu} anchorRef={menuBtnRef} closing={menuClosing} />}
-        <button ref={menuBtnRef} type="button" className={`${styles.menuBtn} ${menuOpen ? styles.menuBtnActive : ""}`} onClick={() => menuOpen ? closeMenu() : setMenuOpen(true)} title={t("ResourceRow.moreActions")}><MIcon name="more_vert" size={18} /></button>
+        <button ref={menuBtnRef} type="button" className={`${styles.menuBtn} ${menuOpen ? styles.menuBtnActive : ""}`} onClick={() => menuOpen ? closeMenu() : setMenuOpen(true)} title={t("ResourceRow.moreActions")} data-guide="resource-more-actions"><MIcon name="more_vert" size={18} /></button>
       </div>}
     </div></td>
     </tr>
@@ -369,7 +382,15 @@ function EnvironmentGroupRows({ group, onUpdated, onEnded }) {
   const [expanded, setExpanded] = useState(true);
   const [ending, setEnding] = useState(false);
   const [groupAction, setGroupAction] = useState(null);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [menuClosing, setMenuClosing] = useState(false);
+  const menuBtnRef = useRef(null);
   const toast = useToast();
+
+  function closeGroupMenu() {
+    setMenuClosing(true);
+    setTimeout(() => { setMenuOpen(false); setMenuClosing(false); }, 130);
+  }
   const canEnd = group.kind === "quick_practice" && !["reclaiming", "reclaimed"].includes(group.status);
   const controllableVmids = group.machines
     .filter((machine) => machine.resource?.vmid && machine.resource.can_control !== false)
@@ -419,18 +440,38 @@ function EnvironmentGroupRows({ group, onUpdated, onEnded }) {
         setExpanded((value) => !value);
       }}
     >
-      <td className={styles.td}><button type="button" className={styles.environmentToggle} aria-expanded={expanded} onClick={() => setExpanded((value) => !value)}><MIcon name={expanded ? "expand_more" : "chevron_right"} size={20} /><span><strong>{group.kindLabel}｜{group.title}</strong><small>{t("EnvironmentGroupRows.machineCount", { count: group.machines.length })}</small></span></button></td>
+      <td className={styles.td}>
+        <div className={styles.nameCell}>
+          <button type="button" className={styles.environmentToggle} aria-expanded={expanded} aria-label={t("EnvironmentGroupRows.toggleAria", { name: group.title })} onClick={() => setExpanded((value) => !value)}><MIcon name={expanded ? "expand_more" : "chevron_right"} size={20} /></button>
+          <div><strong>{group.title}</strong><small>{t("EnvironmentGroupRows.machineCount", { count: group.machines.length })}</small></div>
+        </div>
+      </td>
+      <td className={styles.td}><MachineKindBadge kind={group.kind === "quick_practice" ? "quick_practice" : "teaching_class"} classRelation={group.classRelation} size="sm" /></td>
       <td className={styles.td}><div className={styles.envPrimary}>{group.kind === "course" ? t("EnvironmentGroupRows.courseEnv") : t("EnvironmentGroupRows.quickPracticeEnv")}</div><div className={styles.envSub}>{t("EnvironmentGroupRows.groupOverview")}</div></td>
       <td className={styles.td}><StatusBadge status={group.status} /></td>
       <td className={styles.td}><span className={styles.muted}>{t("EnvironmentGroupRows.runningCount", { running: runningCount, total: group.machines.length })}</span></td>
       <td className={styles.td}><strong className={styles.environmentTiming}>{group.timingLabel}</strong></td>
       <td className={styles.td}>{group.nodeLabel}</td>
-      <td className={styles.td}><div className={styles.groupActions}>
-        {controllableVmids.length > 0 && <>
-          <button type="button" className={styles.terminalBtn} disabled={Boolean(groupAction) || runningCount === group.machines.length} onClick={() => runGroupAction("start")}><MIcon name={groupAction === "start" ? "hourglass_empty" : "play_arrow"} size={14} />{t("EnvironmentGroupRows.startAll")}</button>
-          <button type="button" className={styles.terminalBtn} disabled={Boolean(groupAction) || runningCount === 0} onClick={() => runGroupAction("shutdown")}><MIcon name={groupAction === "shutdown" ? "hourglass_empty" : "power_settings_new"} size={14} />{t("EnvironmentGroupRows.shutdownAll")}</button>
-        </>}
-        {canEnd && <button type="button" className={styles.terminalBtn} disabled={ending} onClick={endPractice}><MIcon name="stop_circle" size={14} />{ending ? t("EnvironmentGroupRows.ending") : t("EnvironmentGroupRows.endPractice")}</button>}
+      <td className={styles.td}><div className={styles.rowActions}>
+        {(groupAction || ending) && <MIcon name="hourglass_empty" size={16} />}
+        {(controllableVmids.length > 0 || canEnd) && <div className={styles.menuWrap}>
+          {menuOpen && <PowerMenu
+            title={t("EnvironmentGroupRows.groupPowerTitle")}
+            items={[
+              ...(controllableVmids.length > 0 ? [
+                { action: "start", label: t("EnvironmentGroupRows.startAll"), icon: "play_arrow", tone: "ok", disabled: runningCount === group.machines.length },
+                { action: "shutdown", label: t("EnvironmentGroupRows.shutdownAll"), icon: "power_settings_new", disabled: runningCount === 0 },
+              ] : []),
+              ...(canEnd ? [{ action: "end", label: t("EnvironmentGroupRows.endPractice"), icon: "stop_circle", tone: "danger" }] : []),
+            ]}
+            actionLoading={groupAction || (ending ? "end" : null)}
+            onControl={(action) => action === "end" ? endPractice() : runGroupAction(action)}
+            onClose={closeGroupMenu}
+            anchorRef={menuBtnRef}
+            closing={menuClosing}
+          />}
+          <button ref={menuBtnRef} type="button" className={`${styles.menuBtn} ${menuOpen ? styles.menuBtnActive : ""}`} onClick={() => menuOpen ? closeGroupMenu() : setMenuOpen(true)} title={t("EnvironmentGroupRows.groupPowerTitle")}><MIcon name="more_vert" size={18} /></button>
+        </div>}
       </div></td>
     </tr>
     {expanded && group.machines.map((machine) => <EnvironmentMachineRow key={machine.id} machine={machine} groupStatus={group.status} onUpdated={onUpdated} />)}
@@ -441,6 +482,53 @@ function EnvironmentGroupRows({ group, onUpdated, onEnded }) {
 function EmptyState() {
   const { t } = useTranslation("personal");
   return <SharedEmptyState icon="dns" title={t("ResourcesPage.emptyTitle")} />;
+}
+
+function ResourceGuideDemoRow() {
+  const { t } = useTranslation("personal");
+  const navigate = useNavigate();
+  const [menuOpen, setMenuOpen] = useState(false);
+
+  return (
+    <>
+      <tr className={`${styles.tr} ${styles.guideDemoRow}`} data-guide="resource-card">
+        <td className={styles.td}>
+          <div className={styles.nameCell}>
+            <span className={styles.nameIcon}><MIcon name="terminal" size={18} /></span>
+            <div>
+              <button type="button" className={styles.nameLink} onClick={() => navigate("/my-resources/demo")} data-guide="resource-open-detail">demo-web-01</button>
+              <small>{t("ResourcesPage.guideDemoMachineType")}</small>
+            </div>
+          </div>
+        </td>
+        <td className={styles.td}><span className={styles.muted}>—</span></td>
+        <td className={styles.td}><div className={styles.envPrimary}>Ubuntu 24.04</div><div className={styles.envSub}>Docker / Nginx</div></td>
+        <td className={styles.td}><StatusBadge status="running" /></td>
+        <td className={styles.td}><span className={styles.mono}>10.20.0.24</span></td>
+        <td className={styles.td}>2026/12/31</td>
+        <td className={styles.td}>pve-01</td>
+        <td className={styles.td}>
+          <div className={styles.rowActions}>
+            <button type="button" className={styles.terminalBtn} data-guide="resource-console">
+              <MIcon name="terminal" size={14} />{t("ResourceRow.terminal")}
+            </button>
+            <div className={styles.menuWrap}>
+              <button type="button" className={`${styles.menuBtn} ${menuOpen ? styles.menuBtnActive : ""}`} onClick={() => setMenuOpen((value) => !value)} data-guide="resource-more-actions" title={t("ResourceRow.moreActions")}>
+                <MIcon name="more_vert" size={18} />
+              </button>
+              {menuOpen && (
+                <div className={styles.guideDemoMenu} data-guide="resource-power-menu">
+                  <span>{t("ResourcesPage.guideDemoPowerMenu")}</span>
+                  <button type="button"><MIcon name="replay" size={14} />{t("ResourcesPage.guideDemoRestart")}</button>
+                  <button type="button"><MIcon name="power_settings_new" size={14} />{t("ResourcesPage.guideDemoShutdown")}</button>
+                </div>
+              )}
+            </div>
+          </div>
+        </td>
+      </tr>
+    </>
+  );
 }
 
 function ErrorState({ onRetry }) {
@@ -468,7 +556,7 @@ export default function ResourcesPage() {
   const [pending, setPending]     = useState([]);
   const [loading, setLoading]     = useState(true);
   const [error, setError]         = useState(false);
-  const [tagFilter, setTagFilter] = useState("");
+  const [guideDemo, setGuideDemo] = useState(false);
   const pendingSigRef = useRef(null);
 
   /** silent = true 時不觸發 skeleton / error state，供背景同步使用 */
@@ -520,6 +608,14 @@ export default function ResourcesPage() {
 
   useAutoRefresh(() => fetchResources(true));
 
+  useEffect(() => {
+    const handleGuideState = (event) => {
+      setGuideDemo(Boolean(event.detail?.open && event.detail?.id === "my-resources"));
+    };
+    window.addEventListener("skylab:user-guide-state", handleGuideState);
+    return () => window.removeEventListener("skylab:user-guide-state", handleGuideState);
+  }, []);
+
   function handleUpdated(updated) {
     setResources((prev) => prev.map((r) => r.vmid === updated.vmid ? updated : r));
   }
@@ -530,14 +626,11 @@ export default function ResourcesPage() {
 
   // 建立中申請會同時出現在 pending 與資源 API；先移除 placeholder，避免重複列。
   const pendingRequestIds = new Set(pending.map((request) => String(request.id)));
-  // 標籤篩選：Proxmox 上的 tags，由資源詳情的「標籤與備註」設定
-  const allTags = [...new Set(resources.flatMap((resource) => resource.tags ?? []))].sort();
-  const activeTag = allTags.includes(tagFilter) ? tagFilter : "";
   const resourcesForDisplay = resources.filter((resource) => !(
     resource.is_placeholder
     && resource.request_id != null
     && pendingRequestIds.has(String(resource.request_id))
-  )).filter((resource) => !activeTag || (resource.tags ?? []).includes(activeTag));
+  ));
   const environmentGroups = buildEnvironmentGroups(resourcesForDisplay, quickSessions);
   const grouped = groupedResourceKeys(environmentGroups);
   const visibleResources = resourcesForDisplay.filter((resource) => (
@@ -545,10 +638,11 @@ export default function ResourcesPage() {
     && !grouped.requestIds.has(String(resource.request_id))
   ));
   const visiblePending = pending.filter((request) => !grouped.requestIds.has(String(request.id)));
+  const resourceListEmpty = visibleResources.length === 0 && visiblePending.length === 0 && environmentGroups.length === 0;
 
   return (
     <div className={styles.page}>
-      <PageHeader title={t("ResourcesPage.title")} subtitle={t("ResourcesPage.subtitle")}>
+      <PageHeader title={t("ResourcesPage.title")}>
         <div className={styles.pageActions}>
           <a
             className={styles.btnSecondary}
@@ -561,6 +655,7 @@ export default function ResourcesPage() {
             type="button"
             className={styles.btnPrimary}
             onClick={() => navigate("/my-requests", { state: { create: true } })}
+            data-guide="resource-request"
           >
             <MIcon name="add" size={16} />
             {t("ResourcesPage.requestResource")}
@@ -571,44 +666,36 @@ export default function ResourcesPage() {
       {/* 我的配額用量（模組 E） */}
       <QuotaUsageBar />
 
-      {allTags.length > 0 && (
-        <div className={styles.filterBar} data-guide="resource-tag-filter">
-          <span className={styles.filterLabel}>
-            <MIcon name="label" size={14} />
-            {t("ResourcesPage.tagFilterLabel")}
-          </span>
-          <button
-            type="button"
-            className={`${styles.filterChip} ${!activeTag ? styles.filterChipActive : ""}`}
-            onClick={() => setTagFilter("")}
-          >
-            {t("ResourcesPage.tagFilterAll")}
-          </button>
-          {allTags.map((tag) => (
-            <button
-              key={tag}
-              type="button"
-              className={`${styles.filterChip} ${activeTag === tag ? styles.filterChipActive : ""}`}
-              onClick={() => setTagFilter(activeTag === tag ? "" : tag)}
-            >
-              {tag}
-            </button>
-          ))}
-        </div>
-      )}
-
       <div className={styles.content}>
         {error ? (
           <ErrorState onRetry={() => fetchResources()} />
         ) : loading ? (
           <LoadingState fullPage />
-        ) : visibleResources.length === 0 && visiblePending.length === 0 && environmentGroups.length === 0 ? (
-          <EmptyState />
+        ) : resourceListEmpty ? (
+          guideDemo ? (
+            <div className={styles.guideDemo}>
+              <div className={styles.guideDemoNotice}>
+                <MIcon name="visibility" size={17} />
+                <span><strong>{t("ResourcesPage.guideDemoTitle")}</strong>{t("ResourcesPage.guideDemoDesc")}</span>
+              </div>
+              <div className={styles.tableWrap}>
+                <table className={styles.table}>
+                  <colgroup>
+                    <col className={styles.colName} /><col className={styles.colKind} /><col className={styles.colEnv} /><col className={styles.colStatus} />
+                    <col className={styles.colIp} /><col className={styles.colExpiry} /><col className={styles.colNode} /><col className={styles.colActions} />
+                  </colgroup>
+                  <thead><tr><th className={styles.th}>{t("ResourcesPage.colName")}</th><th className={styles.th}>{t("ResourcesPage.colKind")}</th><th className={styles.th}>{t("ResourcesPage.colEnvironment")}</th><th className={styles.th}>{t("ResourcesPage.colStatus")}</th><th className={styles.th}>{t("ResourcesPage.colIp")}</th><th className={styles.th}>{t("ResourcesPage.colExpiry")}</th><th className={styles.th}>{t("ResourcesPage.colNode")}</th><th className={styles.th}>{t("ResourcesPage.colActions")}</th></tr></thead>
+                  <tbody><ResourceGuideDemoRow /></tbody>
+                </table>
+              </div>
+            </div>
+          ) : <EmptyState />
         ) : (
           <div className={styles.tableWrap}>
             <table className={styles.table}>
               <colgroup>
                 <col className={styles.colName} />
+                <col className={styles.colKind} />
                 <col className={styles.colEnv} />
                 <col className={styles.colStatus} />
                 <col className={styles.colIp} />
@@ -617,7 +704,7 @@ export default function ResourcesPage() {
                 <col className={styles.colActions} />
               </colgroup>
               <thead>
-                <tr><th className={styles.th}>{t("ResourcesPage.colName")}</th><th className={styles.th}>{t("ResourcesPage.colEnvironment")}</th><th className={styles.th}>{t("ResourcesPage.colStatus")}</th><th className={styles.th}>{t("ResourcesPage.colIp")}</th><th className={styles.th}>{t("ResourcesPage.colExpiry")}</th><th className={styles.th}>{t("ResourcesPage.colNode")}</th><th className={styles.th}>{t("ResourcesPage.colActions")}</th></tr>
+                <tr><th className={styles.th}>{t("ResourcesPage.colName")}</th><th className={styles.th}>{t("ResourcesPage.colKind")}</th><th className={styles.th}>{t("ResourcesPage.colEnvironment")}</th><th className={styles.th}>{t("ResourcesPage.colStatus")}</th><th className={styles.th}>{t("ResourcesPage.colIp")}</th><th className={styles.th}>{t("ResourcesPage.colExpiry")}</th><th className={styles.th}>{t("ResourcesPage.colNode")}</th><th className={styles.th}>{t("ResourcesPage.colActions")}</th></tr>
               </thead>
               <tbody>
                 {environmentGroups.map((group) => <EnvironmentGroupRows key={group.id} group={group} onUpdated={handleUpdated} onEnded={() => fetchResources(true)} />)}
