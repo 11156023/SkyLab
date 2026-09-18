@@ -141,6 +141,8 @@ class EnvironmentCreate(BaseModel):
     publications: list[EnvironmentPublicationIn] = Field(
         default_factory=list, max_length=6
     )
+    # explicit：只開畫出的連線，沒畫就隔離；segment：同網段全部互通（舊行為）
+    peer_policy: Literal["explicit", "segment"] = "explicit"
 
     @model_validator(mode="after")
     def validate_audience(self) -> "EnvironmentCreate":
@@ -460,6 +462,7 @@ def _serialize_version(
         "updated_at": environment.updated_at,
         "published_at": version.published_at,
         "classes": int(class_count or 0),
+        "peer_policy": version.peer_policy,
         "nodes": [node.model_dump() for node in nodes],
         "edges": [edge.model_dump() for edge in edges],
         "publications": [item.model_dump() for item in publications],
@@ -604,6 +607,7 @@ def create_environment(
         class_ids=body.audience_class_ids,
     )
     _replace_nodes(session, version, body.nodes, body.edges, body.publications)
+    version.peer_policy = body.peer_policy
     session.commit()
     return _serialize_version(session, environment, version)
 
@@ -632,6 +636,7 @@ def update_environment(
         class_ids=body.audience_class_ids,
     )
     _replace_nodes(session, version, body.nodes, body.edges, body.publications)
+    version.peer_policy = body.peer_policy
     version.draft_data = None
     session.add(version)
     session.add(environment)
@@ -814,6 +819,7 @@ def publish_environment(
             class_ids=body.audience_class_ids,
         )
         _replace_nodes(session, version, body.nodes, body.edges, body.publications)
+        version.peer_policy = body.peer_policy
         session.flush()
         version.draft_data = None
     nodes = _nodes(session, version.id)
@@ -829,6 +835,7 @@ def publish_environment(
         ],
     )
     payload: dict[str, Any] = {
+        "peer_policy": version.peer_policy,
         "nodes": [
             {
                 key: value

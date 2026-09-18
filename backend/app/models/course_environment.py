@@ -172,6 +172,12 @@ class CourseEnvironmentVersion(SQLModel, table=True):
         ),
     )
     configuration_hash: str | None = Field(default=None, max_length=64)
+    # 機器之間怎麼互通：
+    # - explicit：只開老師在拓撲圖上畫的連線；一條都沒畫就是完全隔離。
+    # - segment：舊行為，共用邏輯網段的機器全協定全埠互通，畫的線視為多餘。
+    # 以前是「沒畫線就全通、畫了第一條就變白名單」，老師以為沒連線等於隔離，
+    # 實際上是全開；改成顯式欄位讓兩種意圖分開表達。
+    peer_policy: str = Field(default="explicit", max_length=16)
     # Unfinished editor content is kept apart from deployable configuration.
     draft_data: str | None = Field(
         default=None, sa_column=Column(sa.Text, nullable=True)
