@@ -534,6 +534,7 @@
   "AiFloatingChat.taskCancelled": "已停止這次任務。",
   "MachineKind.personal": "個人申請",
   "MachineKind.personalHint": "你自己申請的機器",
+  "MachineKind.otherOwnerHint": "{{owner}} 的機器",
   "MachineKind.shared": "共享給我",
   "MachineKind.sharedHint": "{{owner}} 共享給你的機器，可以使用但不能改設定",
   "MachineKind.classMine": "班級機器",

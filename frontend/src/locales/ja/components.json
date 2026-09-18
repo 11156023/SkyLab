@@ -534,6 +534,7 @@
   "AiFloatingChat.taskCancelled": "このタスクを停止しました。",
   "MachineKind.personal": "個人申請",
   "MachineKind.personalHint": "自分で申請したマシン",
+  "MachineKind.otherOwnerHint": "{{owner}} のマシン",
   "MachineKind.shared": "共有されたマシン",
   "MachineKind.sharedHint": "{{owner}} から共有されたマシンです。利用はできますが設定は変更できません",
   "MachineKind.classMine": "クラスのマシン",

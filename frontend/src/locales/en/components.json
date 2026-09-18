@@ -534,6 +534,7 @@
   "AiFloatingChat.taskCancelled": "This task has been stopped.",
   "MachineKind.personal": "Personal",
   "MachineKind.personalHint": "A machine you requested yourself",
+  "MachineKind.otherOwnerHint": "Machine owned by {{owner}}",
   "MachineKind.shared": "Shared with me",
   "MachineKind.sharedHint": "Shared with you by {{owner}}. You can use it but not change its settings.",
   "MachineKind.classMine": "Class machine",

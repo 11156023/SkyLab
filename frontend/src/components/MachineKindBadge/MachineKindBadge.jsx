@@ -35,7 +35,11 @@ export default function MachineKindBadge({
   const key = resolveKind({ kind, classRelation });
   const meta = KIND_META[key];
   const owner = (showOwner ?? meta.showOwner) ? ownerName : null;
-  const hint = title ?? t(meta.hintKey, { owner: ownerName ?? "", cls: teachingClassName ?? "" });
+  /* 「我的」類（個人申請／班級機／練習／課程）的 hint 是自己視角的文案；
+     機器其實是別人的（有 ownerName）時換成擁有者敘述，別對管理員說「你自己申請的機器」 */
+  const hint = title ?? (ownerName && meta.variant === "mine"
+    ? t("MachineKind.otherOwnerHint", { owner: ownerName })
+    : t(meta.hintKey, { owner: ownerName ?? "", cls: teachingClassName ?? "" }));
   /* 顏色編碼「所有權」：後端只在機器不屬於觀看者時才填 owner_name，
      所以有擁有者名一律歸「別人的」群——管理員／老師看別人的個人機也會是紫 */
   const variant = ownerName ? "other" : meta.variant;
