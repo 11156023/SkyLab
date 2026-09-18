@@ -1,9 +1,10 @@
 """把課程環境的「外網 → 機器」宣告，逐位學生實體化成對外服務。
 
-課程模板是一份規格、每位學生各拿一份，但網域是全域唯一的資源——模板上
-不可能填一個所有人共用的網址。所以老師只宣告主機名樣板（含 ``{student}``），
-這裡負責把它組成每位學生自己的網域，再交給統一的發布路徑
-（``firewall_service.publish_vm_service``）建立 Traefik、DNS 與入站規則。
+課程模板是一份規格、每位學生各拿一份，但網域與對外 port 都是全域唯一的
+資源——模板上不可能填一個所有人共用的網址或 port。所以老師只宣告主機名
+樣板（含 ``{student}``）或「要一個對外 port」，這裡負責逐人組網域、逐人從
+配號池挑 port，再交給統一的發布路徑（``firewall_service.publish_vm_service``）
+建立 Traefik / haproxy、DNS 與入站規則。
 """
 
 from __future__ import annotations
@@ -15,15 +16,20 @@ import uuid
 
 from sqlmodel import Session, col, select
 
+from app.exceptions import BadRequestError
 from app.models import CourseEnvironmentPublication, User
 from app.schemas.firewall import PublishedServiceCreate
 from app.services.network import (
     cloudflare_service,
     firewall_service,
+    ip_management_service,
+    nat_service,
     reverse_proxy_service,
 )
 
 logger = logging.getLogger(__name__)
+# 兩個班同時開課可能挑到同一個 port：唯一約束會擋下第二個，換號再試
+_FORWARD_ATTEMPTS = 3
 
 STUDENT_PLACEHOLDER = "{student}"
 CLASS_PLACEHOLDER = "{class}"
@@ -108,6 +114,39 @@ def resolve_domain(
     )
 
 
+def publish_forward(
+    session: Session, *, vmid: int, publication: CourseEnvironmentPublication
+) -> int:
+    """配一個對外 port 發布；撞號就排除它再挑一次。回傳配到的 port。"""
+    tried: set[int] = set()
+    last_error: BadRequestError | None = None
+    for _ in range(_FORWARD_ATTEMPTS):
+        external_port = nat_service.allocate_external_port(
+            session, publication.protocol, exclude=frozenset(tried)
+        )
+        create = PublishedServiceCreate(
+            port=publication.port,
+            protocol=publication.protocol,
+            mode="port_forward",
+            external_port=external_port,
+        )
+        try:
+            firewall_service.publish_vm_service(vmid, create, session)
+        except BadRequestError as exc:
+            tried.add(external_port)
+            last_error = exc
+            logger.info(
+                "External port %s rejected while publishing vmid %s, retrying: %s",
+                external_port,
+                vmid,
+                exc,
+            )
+            continue
+        return external_port
+    assert last_error is not None
+    raise last_error
+
+
 def apply_for_machines(
     session: Session,
     *,
@@ -155,13 +194,9 @@ def apply_for_machines(
                     ),
                     enable_https=publication.enable_https,
                 )
+                firewall_service.publish_vm_service(vmid, create, session)
             else:
-                create = PublishedServiceCreate(
-                    port=publication.port,
-                    protocol=publication.protocol,
-                    mode="firewall_only",
-                )
-            firewall_service.publish_vm_service(vmid, create, session)
+                publish_forward(session, vmid=vmid, publication=publication)
         except Exception:
             logger.exception(
                 "Failed to publish %s:%s for vmid %s",
@@ -171,6 +206,37 @@ def apply_for_machines(
             )
             errors.append(f"{vmid}: publishing port {publication.port} failed")
     return errors
+
+
+def forward_endpoints_by_vmid(
+    session: Session, vmids: list[int]
+) -> dict[int, list[dict[str, object]]]:
+    """每台機器配到的對外 port（沒有就不會出現）。
+
+    host 是管理員設定的入口主機，沒設就是 None，前端只顯示 port。
+    跟 ``public_urls_by_vmid`` 一樣只讀 DB，不打 Proxmox。
+    """
+    from app.repositories import nat_rule as nat_repo  # noqa: PLC0415
+
+    wanted = sorted({int(vmid) for vmid in vmids if vmid is not None})
+    if not wanted:
+        return {}
+    config = ip_management_service.get_subnet_config(session)
+    host = (getattr(config, "forward_public_host", None) or "").strip() or None
+    endpoints: dict[int, list[dict[str, object]]] = {}
+    for rule in sorted(
+        nat_repo.list_rules_by_vmids(session, wanted),
+        key=lambda r: (r.vmid, r.internal_port, r.protocol),
+    ):
+        endpoints.setdefault(rule.vmid, []).append(
+            {
+                "host": host,
+                "external_port": rule.external_port,
+                "internal_port": rule.internal_port,
+                "protocol": rule.protocol,
+            }
+        )
+    return endpoints
 
 
 def public_urls_by_vmid(session: Session, vmids: list[int]) -> dict[int, str]:

@@ -803,8 +803,10 @@ def serialize_session(session: Session, item: QuickPracticeSession) -> dict:
     # 對外網址直接讀反向代理紀錄，清單頁不打 Proxmox
     from app.services.teaching import course_publication_service  # noqa: PLC0415
 
-    public_urls = course_publication_service.public_urls_by_vmid(
-        session, [request.vmid for _machine, request in rows if request.vmid is not None]
+    vmids = [request.vmid for _machine, request in rows if request.vmid is not None]
+    public_urls = course_publication_service.public_urls_by_vmid(session, vmids)
+    forward_endpoints = course_publication_service.forward_endpoints_by_vmid(
+        session, vmids
     )
     machines = []
     for machine, request in rows:
@@ -832,6 +834,9 @@ def serialize_session(session: Session, item: QuickPracticeSession) -> dict:
                 ),
                 "os_info": request.os_info,
                 "public_url": public_urls.get(request.vmid) if request.vmid else None,
+                "forward_endpoints": (
+                    forward_endpoints.get(request.vmid, []) if request.vmid else []
+                ),
             }
         )
     statuses = {machine["status"] for machine in machines}

@@ -99,12 +99,13 @@ class EnvironmentEdgeIn(BaseModel):
 class EnvironmentPublicationIn(BaseModel):
     """一條「外網 → 機器」的宣告。
 
-    網域是全域唯一的資源，而每位學生都會拿到一份自己的環境，所以模板上
-    只能填主機名樣板；實際網址在開課／開練習時逐人組出來。
+    網域與對外 port 都是全域唯一的資源，而每位學生都會拿到一份自己的環境，
+    所以模板上只能填主機名樣板、或只說「要一個對外 port」；實際網址與 port
+    在開課／開練習時逐人組出來、配出來。
     """
 
     node_key: str = Field(min_length=1, max_length=80)
-    mode: Literal["domain", "firewall_only"] = "domain"
+    mode: Literal["domain", "port_forward"] = "domain"
     port: int = Field(ge=1, le=65535)
     protocol: Literal["tcp", "udp"] = "tcp"
     hostname_prefix: str | None = Field(default=None, max_length=120)

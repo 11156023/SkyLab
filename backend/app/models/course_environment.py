@@ -279,7 +279,11 @@ class CourseEnvironmentPublication(SQLModel, table=True):
         )
     )
     node_key: str = Field(max_length=80)
-    # domain = 給每位學生一個對外網址；firewall_only = 只開機器上的入站規則
+    # domain = 給每位學生一個對外網址；port_forward = 開課時逐人從池子配一個
+    # 對外 port（見 nat_service.allocate_external_port）。
+    # 以前還有 firewall_only（只開入站規則）：那條規則沒有 source 限制，等於對
+    # 整個實驗室子網敞開，而 Gateway VM 本來就有全埠 ACCEPT，正當用途已被涵蓋，
+    # 所以拿掉了；舊資料由 migration 轉成 port_forward。
     mode: str = Field(default="domain", max_length=16)
     port: int = Field(ge=1, le=65535, description="機器內部 port")
     protocol: str = Field(default="tcp", max_length=16)
