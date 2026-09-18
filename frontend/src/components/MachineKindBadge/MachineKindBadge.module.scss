@@ -2,21 +2,16 @@
    顏色只分兩群——我的（--color-info）／別人的（--color-kind-shared），
    類別辨識交給 icon＋文字。 */
 
+/* 尺寸對齊狀態標籤（badge-base ＋ 同款 4px 10px 內距），全站單一大小 */
 .badge {
   --kind: var(--color-info);
-  display: inline-flex;
-  align-items: center;
+  @include badge-base;
   gap: 4px;
   max-width: 100%;
-  padding: 2px 8px 2px 6px;
-  border-radius: $radius-pill;
+  padding: 4px 10px;
   /* 無框、底色刻意淡（8%）讓列表安靜；文字保持全濃——12px 小字再混淡會破 AA */
   background: color-mix(in srgb, var(--kind) 8%, transparent);
   color: var(--kind);
-  font-size: $font-size-12;
-  font-weight: $font-weight-500;
-  line-height: 1.5;
-  white-space: nowrap;
   vertical-align: middle;
 }
 
@@ -32,13 +27,6 @@
 .lock {
   flex-shrink: 0;
   opacity: 0.8;
-}
-
-.sm {
-  gap: 3px;
-  padding: 1px 6px 1px 5px;
-  font-size: 11px;
-  line-height: 1.45;
 }
 
 /* 拓撲節點：實心，掛在畫布上要一眼看到。
