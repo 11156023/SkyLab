@@ -322,10 +322,268 @@
   white-space: nowrap;
 }
 
+.credFieldValueRow {
+  display: flex;
+  align-items: center;
+  gap: $spacing-8;
+  min-width: 0;
+
+  .credFieldValue { flex: 1; }
+}
+
+.credCopyButton {
+  width: 30px;
+  height: 30px;
+  flex: 0 0 auto;
+  border: 1px solid var(--color-border);
+  border-radius: $radius-8;
+  color: var(--color-text-secondary);
+  background: var(--color-surface);
+  @include flex-center;
+  transition: color $transition-base, background $transition-base;
+
+  &:hover {
+    color: var(--color-primary);
+    background: var(--color-hover);
+  }
+}
+
 .credActions {
   display: flex;
   flex-wrap: wrap;
   gap: $spacing-8;
+}
+
+/* ── API 文件 ── */
+.docsLayout {
+  display: grid;
+  gap: $spacing-16;
+  grid-template-columns: minmax(0, 0.85fr) minmax(0, 1.15fr);
+
+  @media (max-width: $breakpoint-lg) {
+    grid-template-columns: 1fr;
+  }
+}
+
+.docsPanel,
+.codePanel {
+  min-width: 0;
+  padding: $spacing-24;
+  border-radius: $radius-16;
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+  box-shadow: var(--shadow-sm);
+}
+
+.docsPanel {
+  @include flex-column;
+  gap: $spacing-24;
+}
+
+.docsIntro {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.docsEyebrow {
+  padding: 4px 9px;
+  border-radius: $radius-8;
+  color: var(--color-success);
+  background: color-mix(in srgb, var(--color-success) 12%, transparent);
+  font: 700 11px/1.4 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  letter-spacing: 0.08em;
+}
+
+.docsTitle {
+  margin: 0;
+  color: var(--color-text-primary);
+  font-size: $font-size-18;
+  font-weight: $font-weight-700;
+}
+
+.docsDescription {
+  margin: 6px 0 0;
+  color: var(--color-text-muted);
+  font-size: $font-size-14;
+  line-height: 1.65;
+}
+
+.docsEndpointBlock {
+  @include flex-column;
+  gap: 7px;
+}
+
+.docsFieldLabel {
+  color: var(--color-text-muted);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.docsEndpointRow,
+.docsRequestLine {
+  display: flex;
+  align-items: center;
+  gap: $spacing-8;
+  min-width: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--color-border);
+  border-radius: $radius-8;
+  background: var(--color-surface-raised, var(--color-hover));
+
+  code {
+    min-width: 0;
+    overflow: hidden;
+    color: var(--color-text-primary);
+    font: 12px/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+}
+
+.docsEndpointRow code { flex: 1; }
+
+.docsCopyButton,
+.codeCopyButton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  flex: 0 0 auto;
+  padding: 7px 10px;
+  border: 1px solid var(--color-border);
+  border-radius: $radius-8;
+  background: var(--color-surface);
+  color: var(--color-text-secondary);
+  font-size: $font-size-12;
+  font-weight: 600;
+
+  &:hover:not(:disabled) {
+    color: var(--color-primary);
+    background: var(--color-hover);
+  }
+
+  &:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+  }
+}
+
+.docsRequestLine {
+  span {
+    flex: 0 0 auto;
+    color: var(--color-success);
+    font: 700 11px/1.4 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  }
+}
+
+.docsParameters {
+  display: grid;
+  gap: $spacing-8;
+
+  > div {
+    display: grid;
+    grid-template-columns: minmax(110px, auto) 1fr;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 0;
+    border-bottom: 1px solid var(--color-divider);
+
+    &:last-child { border-bottom: 0; }
+  }
+
+  code {
+    color: var(--color-primary);
+    font: 600 12px/1.4 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  }
+
+  span {
+    color: var(--color-text-secondary);
+    font-size: $font-size-14;
+    line-height: 1.55;
+  }
+}
+
+.codePanel {
+  @include flex-column;
+  gap: 12px;
+  color: var(--color-text-primary);
+}
+
+.codePanelHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: $spacing-16;
+
+  h3 {
+    margin: 0;
+    font-size: $font-size-16;
+  }
+
+  p {
+    margin: 4px 0 0;
+    color: var(--color-text-muted);
+    font-size: $font-size-12;
+  }
+}
+
+.codeTabs {
+  display: flex;
+  gap: 3px;
+  padding: 3px;
+  width: fit-content;
+  max-width: 100%;
+  border: 1px solid var(--color-border);
+  border-radius: $radius-8;
+  background: var(--color-hover);
+  overflow-x: auto;
+}
+
+.codeTab,
+.codeTabActive {
+  flex: 0 0 auto;
+  padding: 7px 12px;
+  border-radius: 6px;
+  color: var(--color-text-secondary);
+  font-size: $font-size-12;
+  font-weight: 600;
+}
+
+.codeTab:hover {
+  color: var(--color-text-primary);
+  background: var(--color-surface);
+}
+
+.codeTabActive {
+  color: var(--color-primary);
+  background: var(--color-surface);
+  box-shadow: var(--shadow-sm);
+}
+
+.codeBlock {
+  min-height: 310px;
+  margin: 0;
+  padding: $spacing-16;
+  border: 1px solid var(--color-border);
+  border-radius: $radius-12;
+  background: var(--color-hover);
+  overflow: auto;
+
+  code {
+    color: var(--color-text-primary);
+    font: 13px/1.75 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    white-space: pre;
+  }
+}
+
+.codeHint {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: $font-size-12;
+  line-height: 1.6;
 }
 
 /* ── Badge ── */
@@ -517,19 +775,43 @@
 
 .usageRecordRow {
   @include flex-column;
-  gap: 4px;
-  padding: 10px 0;
+  gap: 12px;
+  padding: $spacing-16;
+  border: 1px solid var(--color-border);
+  border-radius: $radius-12;
+  background: var(--color-surface);
   border-bottom: 1px solid var(--color-divider);
 
-  &:last-child { border-bottom: none; }
-  &:first-child { padding-top: 0; }
+  & + & { margin-top: $spacing-8; }
 }
 
 .usageRecordTop {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
+  justify-content: space-between;
   gap: $spacing-8;
+}
+
+.usageRecordHeading {
+  @include flex-column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.usageRecordTime {
+  color: var(--color-text-primary);
+  font-size: $font-size-14;
+  font-weight: 600;
+}
+
+.usageRecordId {
+  max-width: 100%;
+  overflow: hidden;
+  color: var(--color-text-muted);
+  font: 11px/1.4 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .usageRecordType {
@@ -545,15 +827,54 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  flex: 1;
+  display: block;
 }
 
-.usageRecordMeta {
+.usageRecordDetails {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px $spacing-16;
+
+  @media (max-width: $breakpoint-lg) { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  @media (max-width: $breakpoint-sm) { grid-template-columns: 1fr; }
+
+  > div {
+    @include flex-column;
+    gap: 3px;
+    min-width: 0;
+  }
+
+  span {
+    color: var(--color-text-muted);
+    font-size: 11px;
+  }
+
+  strong {
+    min-width: 0;
+    overflow: hidden;
+    color: var(--color-text-primary);
+    font-size: $font-size-14;
+    font-weight: 600;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  small {
+    color: var(--color-text-muted);
+    font: 10px/1.4 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  }
+}
+
+.usageRecordError {
   display: flex;
-  flex-wrap: wrap;
-  gap: 0 $spacing-16;
+  align-items: flex-start;
+  gap: $spacing-8;
+  padding: 10px 12px;
+  border-radius: $radius-8;
+  color: var(--color-danger);
+  background: color-mix(in srgb, var(--color-danger) 8%, transparent);
   font-size: $font-size-12;
-  color: var(--color-text-muted);
+  overflow-wrap: anywhere;
 }
 
 .usageRecordsMoreRow {

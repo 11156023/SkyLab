@@ -6,13 +6,13 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import CourseTemplateEditorPage from "./CourseTemplateEditorPage";
 
 const mocks = vi.hoisted(() => ({
-  saveDraft: vi.fn(), publish: vi.fn(), get: vi.fn(), confirm: vi.fn(),
+  saveDraft: vi.fn(), publish: vi.fn(), get: vi.fn(), saveBasics: vi.fn(), uploadFile: vi.fn(), removeFile: vi.fn(), confirm: vi.fn(),
   toast: { success: vi.fn(), error: vi.fn() },
   t: (key) => key,
 }));
 vi.mock("../../../services/courseEnvironments", () => ({
   courseNodeHasUsableSource: () => true,
-  CourseEnvironmentsService: { saveDraft: mocks.saveDraft, publish: mocks.publish, get: mocks.get },
+  CourseEnvironmentsService: { saveDraft: mocks.saveDraft, publish: mocks.publish, get: mocks.get, saveBasics: mocks.saveBasics, uploadFile: mocks.uploadFile, removeFile: mocks.removeFile, fileUrl: () => "#" },
 }));
 vi.mock("../../../services/teachingClasses", () => ({ TeachingClassesService: { list: async () => [] } }));
 vi.mock("../../../services/templates", () => ({ TemplatesService: { list: async () => [] } }));
@@ -33,7 +33,7 @@ vi.mock("@xyflow/react", async () => {
 
 const initial = {
   id: "new", name: "Linux", description: "", status: "draft", usageScope: "course",
-  audience: "class", audienceClassIds: [], nodes: [{ id: "web", name: "Web", role: "server", type: "lxc", sourceType: "custom", customImageRef: "debian", cpu: 1, memory: 1, disk: 8 }], edges: [], publications: [],
+  nodes: [{ id: "web", name: "Web", role: "server", type: "lxc", sourceType: "custom", customImageRef: "debian", cpu: 1, memory: 1, disk: 8 }], edges: [], publications: [],
 };
 let host, root;
 beforeEach(() => {
@@ -59,6 +59,20 @@ async function renderNew(draft = initial, tab = "machines") {
       <Routes><Route path="/course-template-management/new" element={<CourseTemplateEditorPage />} /><Route path="/done" element={<p>Published</p>} /></Routes>
     </MemoryRouter>);
   });
+}
+
+async function renderPublished(overrides = {}) {
+  mocks.get.mockResolvedValue({ ...initial, id: "env-1", status: "published", version: 2, updatedAt: "2026-09-16", ...overrides });
+  await act(async () => {
+    root.render(<MemoryRouter initialEntries={["/course-template-management/env-1?tab=basic"]}>
+      <Routes><Route path="/course-template-management/:templateId" element={<CourseTemplateEditorPage />} /></Routes>
+    </MemoryRouter>);
+  });
+}
+
+function setSelect(select, value) {
+  Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, "value").set.call(select, value);
+  select.dispatchEvent(new Event("change", { bubbles: true }));
 }
 
 it("automatically saves basic input even before any machine is configured", async () => {
@@ -99,4 +113,19 @@ it("does not publish on save failure, and retry keeps the edits", async () => {
   await act(async () => retry.click());
   expect(mocks.saveDraft).toHaveBeenLastCalledWith(null, expect.objectContaining({ name: "Linux" }));
   expect(host.textContent).toContain("CourseTemplateEditorPage.autosave.saved");
+});
+
+it("lets a published environment change its basics without a new version", async () => {
+  mocks.saveBasics.mockImplementation(async (_id, item) => ({ ...item, status: "published" }));
+  await renderPublished({ usageScope: "both" });
+  const [usageScope] = [...host.querySelectorAll("select")];
+  /* 基本資訊這一整組都能改，機器設定才是凍結的 */
+  expect(host.querySelector("input").disabled).toBe(false);
+  expect(usageScope.disabled).toBe(false);
+  const save = () => [...host.querySelectorAll("button")].find((button) => button.textContent.includes("CourseTemplateEditorPage.saveBasicsBtn"));
+  expect(save().disabled).toBe(true);
+  await act(async () => setSelect(usageScope, "course"));
+  await act(async () => save().click());
+  expect(mocks.saveBasics).toHaveBeenCalledWith("env-1", expect.objectContaining({ usageScope: "course" }));
+  expect(mocks.saveDraft).not.toHaveBeenCalled();
 });

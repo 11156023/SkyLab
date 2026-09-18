@@ -862,7 +862,7 @@ _AI_API_ELEMENTS: tuple[ElementSpec, ...] = (
     ),
     ElementSpec(id="aiapi.action_hide", role="button", label="隱藏", section="申請紀錄"),
     ElementSpec(
-        id="aiapi.action_refresh", role="button", label="刷新", section="申請紀錄",
+        id="aiapi.action_refresh", role="button", label="重新產生金鑰", section="申請紀錄",
         help="重新產生這把 API Key；舊的會失效。",
     ),
     ElementSpec(
@@ -871,8 +871,12 @@ _AI_API_ELEMENTS: tuple[ElementSpec, ...] = (
     ),
     ElementSpec(
         id="aiapi.usage_overview", role="chart", label="API 用量", section="我的用量",
-        help="整合 AI 模型路由與 AI 系統路由的 Token 用量統計，"
-             "可按模型與呼叫類型查看明細。",
+        help="只統計使用申請金鑰發出的 API 呼叫，可查看 Token、模型、金鑰與逐筆明細；"
+             "不包含平台 Template 功能用量。",
+    ),
+    ElementSpec(
+        id="aiapi.docs", role="list", label="API 文件", section="API 文件",
+        help="提供 Responses API 的 POST 端點，以及 JavaScript、Python、CMD / cURL 範例。",
     ),
 )
 
@@ -1059,13 +1063,19 @@ _COURSE_TPL_ELEMENTS: tuple[ElementSpec, ...] = (
         id="coursetpl.status_retired", role="readonly", label="已停用",
         section="模板清單",
     ),
-    ElementSpec(
-        id="coursetpl.retire", role="button", label="下架", section="模板清單",
-        help="下架後不再提供給新的課程或練習選用。",
-    ),
     ElementSpec(id="coursetpl.delete", role="button", label="刪除", section="模板清單"),
     ElementSpec(
         id="coursetpl.tab_basic", role="list", label="基本資料", section="基本資料",
+    ),
+    ElementSpec(
+        id="coursetpl.usage_scope", role="select", label="套用方式",
+        section="基本資料",
+        help=(
+            "決定這組環境提供給正式課程、快速練習或兩者。已發布也能改，"
+            "改完按「儲存開放設定」；機器配置才需要建立新版本。"
+            "選到含快速練習就是全校學生都拿得到。"
+        ),
+        constraints=("只用於正式課程／只用於快速練習／兩者皆可",),
     ),
     ElementSpec(
         id="coursetpl.tab_machines", role="list", label="機器配置", section="機器配置",
@@ -1498,8 +1508,8 @@ _SURFACES: tuple[SurfaceSpec, ...] = (
         id="ai-api",
         path="/ai-api",
         title="AI API",
-        purpose="申請 AI API 金鑰、查詢申請紀錄與個人 token 用量。",
-        sections=("申請", "申請紀錄", "我的用量"),
+        purpose="申請 AI API 金鑰、查詢申請紀錄、閱讀串接文件與查看個人 token 用量。",
+        sections=("申請", "API 文件", "申請紀錄", "我的用量"),
         elements=_AI_API_ELEMENTS,
     ),
     # ── 教師與管理者 ──

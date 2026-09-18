@@ -73,7 +73,11 @@ function courseGroups(resources, excludedRequestIds) {
     grouped.get(id).push(resource);
   }
   return [...grouped.entries()].map(([classId, rows]) => {
-    const machines = rows.map((resource) => machineFromResource(resource));
+    /* 老師取的機器名沿 os_info 帶出來（與快速練習同一個欄位）。舊機器沒有這個
+       值，退回主機名——總比顯示空白好。 */
+    const machines = rows.map((resource) => machineFromResource(resource, {
+      name: resource.os_info || undefined,
+    }));
     const nodes = new Set(machines.map((machine) => machine.node).filter(Boolean));
     const title = rows.find((resource) => resource.teaching_class_name)?.teaching_class_name
       ?? rows.find((resource) => resource.environment_type)?.environment_type

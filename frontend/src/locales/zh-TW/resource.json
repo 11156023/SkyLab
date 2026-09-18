@@ -181,6 +181,7 @@
   "ResourceMgmtPage.actionReset": "強制重置",
   "ResourceMgmtPage.actionReboot": "重新啟動",
   "ResourceMgmtPage.columnName": "名稱",
+  "ResourceMgmtPage.columnKind": "來源",
   "ResourceMgmtPage.columnEnvOs": "環境 / 系統",
   "ResourceMgmtPage.columnStatus": "狀態",
   "ResourceMgmtPage.columnIp": "IP 位址",
@@ -373,5 +374,7 @@
   "TemplatesPage.deleting": "刪除中…",
   "TemplatesPage.confirmDelete": "確認刪除",
   "RequestReviewPage.specChangeExpiry": "到期日 {{from}} → {{to}}",
-  "RequestReviewPage.expiryUnlimited": "不限期"
+  "RequestReviewPage.expiryUnlimited": "不限期",
+  "ResourceMgmtPage.toggleGroupAria": "展開或收合 {{name}}",
+  "ResourceMgmtPage.groupPowerTitle": "整組電源"
 }

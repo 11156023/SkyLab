@@ -106,6 +106,40 @@ class CourseEnvironmentAudience(SQLModel, table=True):
     )
 
 
+class CourseEnvironmentFile(SQLModel, table=True):
+    """老師掛在環境上的說明文件。
+
+    綁在環境身分而不是版本上：換版本是機器設定改了，講義不該跟著消失。
+    """
+
+    __tablename__ = "course_environment_files"
+
+    id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
+    environment_id: uuid.UUID = Field(
+        sa_column=Column(
+            sa.Uuid,
+            sa.ForeignKey("course_environments.id", ondelete="CASCADE"),
+            nullable=False,
+            index=True,
+        )
+    )
+    filename: str = Field(max_length=255)
+    storage_key: str = Field(max_length=255, unique=True)
+    size_bytes: int = Field(default=0, ge=0)
+    uploaded_by: uuid.UUID | None = Field(
+        default=None,
+        sa_column=Column(
+            sa.Uuid,
+            sa.ForeignKey("user.id", ondelete="SET NULL"),
+            nullable=True,
+        ),
+    )
+    created_at: datetime = Field(
+        default_factory=get_datetime_utc,
+        sa_column=Column(DateTime(timezone=True), nullable=False),
+    )
+
+
 class CourseEnvironmentVersion(SQLModel, table=True):
     """Immutable after publication; a class pins exactly one published version."""
 
@@ -337,6 +371,7 @@ __all__ = [
     "ClassCapacityReservation",
     "CourseEnvironment",
     "CourseEnvironmentEdge",
+    "CourseEnvironmentFile",
     "CourseEnvironmentNode",
     "CourseEnvironmentVersion",
     "CourseEnvironmentVersionStatus",

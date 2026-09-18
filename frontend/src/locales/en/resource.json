@@ -181,6 +181,7 @@
   "ResourceMgmtPage.actionReset": "Force Reset",
   "ResourceMgmtPage.actionReboot": "Reboot",
   "ResourceMgmtPage.columnName": "Name",
+  "ResourceMgmtPage.columnKind": "Source",
   "ResourceMgmtPage.columnEnvOs": "Environment / OS",
   "ResourceMgmtPage.columnStatus": "Status",
   "ResourceMgmtPage.columnIp": "IP Address",
@@ -373,5 +374,7 @@
   "TemplatesPage.deleting": "Deleting…",
   "TemplatesPage.confirmDelete": "Confirm Delete",
   "RequestReviewPage.specChangeExpiry": "Expiry {{from}} → {{to}}",
-  "RequestReviewPage.expiryUnlimited": "unlimited"
+  "RequestReviewPage.expiryUnlimited": "unlimited",
+  "ResourceMgmtPage.toggleGroupAria": "Expand or collapse {{name}}",
+  "ResourceMgmtPage.groupPowerTitle": "Group power"
 }

@@ -21,4 +21,21 @@ describe("environment group builders", () => {
     expect(groups[0]).toMatchObject({ kind: "course", title: "網頁課" });
     expect(groups[0].machines).toHaveLength(2);
   });
+
+  it("shows the teacher's machine name instead of the generated hostname", () => {
+    // 老師取的名字沿 os_info 帶出來；主機名 cls-973465c8-1-1 對學生沒有意義
+    const groups = buildEnvironmentGroups([
+      { vmid: 603, request_id: "course-3", teaching_class_id: "class-2", name: "cls-973465c8-1-1", os_info: "n8n", status: "running", type: "lxc", environment_type: "n8n(測試)-環境機器" },
+    ]);
+
+    expect(groups[0].machines[0].name).toBe("n8n");
+  });
+
+  it("falls back to the hostname for machines provisioned before the name was carried", () => {
+    const groups = buildEnvironmentGroups([
+      { vmid: 604, request_id: "course-4", teaching_class_id: "class-3", name: "cls-d54cc788-1-1", status: "running", type: "lxc", environment_type: "舊班級" },
+    ]);
+
+    expect(groups[0].machines[0].name).toBe("cls-d54cc788-1-1");
+  });
 });

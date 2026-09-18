@@ -3270,6 +3270,7 @@
   line-height: 1.35;
 }
 
+
 /* ── 學習環境編輯頁 Stepper：箭頭分段（chevron）——外框膠囊、段與段以
    斜切縫相接（縫隙色 = 外框 background 的 border 色），選中段主色填滿 ── */
 .envStepper {
@@ -3457,4 +3458,69 @@
 
 .animSlideInLeft {
   animation: envSlideInLeft 0.22s cubic-bezier(0.25, 0.8, 0.25, 1) both;
+}
+/* ── 學習環境的說明文件 ── */
+.fileSection {
+  @include flex-column;
+  gap: $spacing-8;
+  padding-top: $spacing-16;
+  border-top: 1px solid var(--color-divider);
+}
+
+.fileHeading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: $spacing-16;
+
+  > span {
+    color: var(--color-text-secondary);
+    font-size: $font-size-12;
+    font-weight: $font-weight-500;
+  }
+}
+
+.fileList {
+  @include flex-column;
+  gap: $spacing-4;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+
+  li {
+    display: flex;
+    align-items: center;
+    gap: $spacing-8;
+    padding: $spacing-8;
+    border-radius: $radius-8;
+    background: var(--color-hover);
+
+    > a {
+      @include text-truncate;
+      flex: 1;
+      color: var(--color-primary);
+      font-size: $font-size-14;
+    }
+
+    > small {
+      flex: none;
+      color: var(--color-text-muted);
+      font-size: $font-size-12;
+    }
+  }
+}
+
+.fileRemove {
+  @include flex-center;
+  flex: none;
+  width: 24px;
+  height: 24px;
+  border: 0;
+  border-radius: $radius-8;
+  color: var(--color-text-muted);
+  background: transparent;
+  cursor: pointer;
+
+  &:hover:not(:disabled) { color: var(--color-danger); background: var(--color-surface); }
+  &:disabled { opacity: 0.5; cursor: not-allowed; }
 }

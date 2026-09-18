@@ -864,8 +864,7 @@ export default function UserGuide() {
           aria-label={t("UserGuide.openGuideAriaLabel", { title: displayTitle })}
           title={t("UserGuide.guideTitleAttr", { title: displayTitle })}
         >
-          <MIcon name="play_circle" size={17} />
-          <span>{t("UserGuide.watchGuideButton")}</span>
+          <MIcon name="help_outline" size={16} />
         </button>,
         slot || document.body
       )}

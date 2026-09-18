@@ -277,13 +277,6 @@ export default function BatchReviewPage() {
     [visibleRows, selectedId],
   );
 
-  const stats = useMemo(() => {
-    const pending = reviewRows.filter((row) => row.reviewStatus === "pending").length;
-    const approved = reviewRows.filter((row) => row.reviewStatus === "approved").length;
-    const rejected = reviewRows.filter((row) => row.reviewStatus === "rejected").length;
-    return { total: reviewRows.length, pending, approved, rejected };
-  }, [reviewRows]);
-
   const togglePreview = async (jobId) => {
     if (openPreviews[jobId]) {
       setOpenPreviews((p) => ({ ...p, [jobId]: false }));

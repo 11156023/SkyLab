@@ -33,6 +33,56 @@ function formatTokens(n) {
   return String(n);
 }
 
+export function buildAiProxyBaseUrl(baseUrl) {
+  const root = String(baseUrl ?? "").trim().replace(/\/+$/, "");
+  if (!root) return "";
+  if (root.endsWith("/api/v1/ai-proxy")) return root;
+  if (root.endsWith("/api/v1")) return `${root}/ai-proxy`;
+  return `${root}/api/v1/ai-proxy`;
+}
+
+export function buildApiExample(language, baseUrl) {
+  const proxyBaseUrl = buildAiProxyBaseUrl(baseUrl) || "BASE_URL";
+  const endpoint = `${proxyBaseUrl}/responses`;
+
+  if (language === "python") {
+    return `from openai import OpenAI
+
+client = OpenAI(
+    api_key="YOUR_API_KEY",
+    base_url="${proxyBaseUrl}",
+)
+
+response = client.responses.create(
+    model="MODEL_NAME",
+    input="INPUT",
+)
+
+print(response.output_text)`;
+  }
+
+  if (language === "cmd") {
+    return `curl -X POST "${endpoint}" ^
+  -H "Authorization: Bearer YOUR_API_KEY" ^
+  -H "Content-Type: application/json" ^
+  -d "{\"model\":\"MODEL_NAME\",\"input\":\"INPUT\"}"`;
+  }
+
+  return `import OpenAI from "openai";
+
+const client = new OpenAI({
+  apiKey: "YOUR_API_KEY",
+  baseURL: "${proxyBaseUrl}",
+});
+
+const response = await client.responses.create({
+  model: "MODEL_NAME",
+  input: "INPUT",
+});
+
+console.log(response.output_text);`;
+}
+
 function statusStyle(status) {
   if (status === "approved") return "approved";
   if (status === "rejected") return "rejected";
@@ -75,6 +125,7 @@ function CredentialCard({ item, onRefresh }) {
   const inactive = Boolean(item.revoked_at);
   const expired = isExpired(item.expires_at);
   const deprecated = inactive || expired;
+  const proxyBaseUrl = buildAiProxyBaseUrl(item.base_url);
 
   const copy = async (label, value) => {
     try {
@@ -198,7 +249,18 @@ function CredentialCard({ item, onRefresh }) {
           <div className={styles.credFieldLabel}>
             <MIcon name="link" size={14} /> Base URL
           </div>
-          <div className={styles.credFieldValue}>{item.base_url}</div>
+          <div className={styles.credFieldValueRow}>
+            <div className={styles.credFieldValue} title={proxyBaseUrl}>{proxyBaseUrl}</div>
+            <button
+              type="button"
+              className={styles.credCopyButton}
+              onClick={() => copy("Base URL", proxyBaseUrl)}
+              aria-label={t("AiApiPage.copyBaseUrl")}
+              title={t("AiApiPage.copyBaseUrl")}
+            >
+              <MIcon name="content_copy" size={15} />
+            </button>
+          </div>
         </div>
         <div className={styles.credField}>
           <div className={styles.credFieldLabel}>
@@ -216,9 +278,6 @@ function CredentialCard({ item, onRefresh }) {
           <MIcon name={showKey ? "visibility_off" : "visibility"} size={16} />
           {showKey ? t("AiApiPage.actionHide") : t("AiApiPage.actionShow")}
         </button>
-        <button type="button" className={styles.btnOutline} onClick={() => copy("Base URL", item.base_url)}>
-          <MIcon name="content_copy" size={16} /> Base URL
-        </button>
         <button type="button" className={styles.btnOutline} onClick={() => copy("API Key", item.api_key)}>
           <MIcon name="content_copy" size={16} /> API Key
         </button>
@@ -230,6 +289,117 @@ function CredentialCard({ item, onRefresh }) {
           <MIcon name="delete" size={16} /> {t("AiApiPage.actionDelete")}
         </button>
       </div>
+    </div>
+  );
+}
+
+/* ── API documentation ── */
+function ApiDocsTab({ credentials }) {
+  const { t } = useTranslation("ai");
+  const toast = useToast();
+  const [language, setLanguage] = useState("javascript");
+  const credential = credentials.find((item) => !item.revoked_at && !isExpired(item.expires_at))
+    ?? credentials[0];
+  const baseUrl = buildAiProxyBaseUrl(credential?.base_url);
+  const endpoint = baseUrl ? `${baseUrl}/responses` : "BASE_URL/responses";
+  const code = buildApiExample(language, credential?.base_url);
+  const languages = [
+    { key: "javascript", label: "JavaScript" },
+    { key: "python", label: "Python" },
+    { key: "cmd", label: "CMD / cURL" },
+  ];
+
+  const copy = async (label, value) => {
+    try {
+      await navigator.clipboard.writeText(value);
+      toast.success(t("AiApiPage.copiedSuccess", { label }));
+    } catch {
+      toast.error(t("AiApiPage.copiedError", { label }));
+    }
+  };
+
+  return (
+    <div className={styles.docsLayout}>
+      <section className={styles.docsPanel}>
+        <div className={styles.docsIntro}>
+          <span className={styles.docsEyebrow}>POST</span>
+          <div>
+            <h2 className={styles.docsTitle}>{t("AiApiPage.docsTitle")}</h2>
+            <p className={styles.docsDescription}>{t("AiApiPage.docsDescription")}</p>
+          </div>
+        </div>
+
+        <div className={styles.docsEndpointBlock}>
+          <span className={styles.docsFieldLabel}>Base URL</span>
+          <div className={styles.docsEndpointRow}>
+            <code>{baseUrl || t("AiApiPage.docsBaseUrlUnavailable")}</code>
+            <button
+              type="button"
+              className={styles.docsCopyButton}
+              onClick={() => copy("Base URL", baseUrl)}
+              disabled={!baseUrl}
+            >
+              <MIcon name="content_copy" size={16} />
+              {t("AiApiPage.copy")}
+            </button>
+          </div>
+        </div>
+
+        <div className={styles.docsRequestLine}>
+          <span>POST</span>
+          <code>{endpoint}</code>
+        </div>
+
+        <div className={styles.docsParameters}>
+          <div>
+            <code>MODEL_NAME</code>
+            <span>{t("AiApiPage.docsModelNameHelp")}</span>
+          </div>
+          <div>
+            <code>INPUT</code>
+            <span>{t("AiApiPage.docsInputHelp")}</span>
+          </div>
+        </div>
+      </section>
+
+      <section className={styles.codePanel}>
+        <div className={styles.codePanelHeader}>
+          <div>
+            <h3>{t("AiApiPage.docsExampleTitle")}</h3>
+            <p>{t("AiApiPage.docsExampleDescription")}</p>
+          </div>
+          <button
+            type="button"
+            className={styles.codeCopyButton}
+            onClick={() => copy(t("AiApiPage.docsCode"), code)}
+          >
+            <MIcon name="content_copy" size={16} />
+            {t("AiApiPage.copyCode")}
+          </button>
+        </div>
+        <div className={styles.codeTabs} role="tablist" aria-label={t("AiApiPage.docsLanguageLabel")}>
+          {languages.map((item) => (
+            <button
+              key={item.key}
+              type="button"
+              role="tab"
+              aria-selected={language === item.key}
+              className={language === item.key ? styles.codeTabActive : styles.codeTab}
+              onClick={() => setLanguage(item.key)}
+            >
+              {item.label}
+            </button>
+          ))}
+        </div>
+        <pre className={styles.codeBlock}><code>{code}</code></pre>
+        <p className={styles.codeHint}>
+          {language === "javascript"
+            ? t("AiApiPage.docsJavascriptHint")
+            : language === "python"
+              ? t("AiApiPage.docsPythonHint")
+              : t("AiApiPage.docsCmdHint")}
+        </p>
+      </section>
     </div>
   );
 }
@@ -341,9 +511,10 @@ function formatModelDisplay(modelName) {
 function UsageRecordRow({ item }) {
   const { t } = useTranslation("ai");
 
-  const statusCls = item.status === "success" ? "success" : "error";
+  const succeeded = ["success", "ok", "200", 200].includes(item.status);
+  const statusCls = succeeded ? "success" : "error";
   const statusLabel =
-    item.status === "success"
+    succeeded
       ? t("AiApiPage.recordStatusSuccess")
       : t("AiApiPage.recordStatusError");
 
@@ -357,29 +528,51 @@ function UsageRecordRow({ item }) {
   return (
     <div className={styles.usageRecordRow}>
       <div className={styles.usageRecordTop}>
-        {item.call_type && (
-          <span className={styles.usageRecordType}>
-            {callTypeKey ? t(callTypeKey) : item.call_type}
-            {item.preset ? ` · ${item.preset}` : ""}
-          </span>
-        )}
-        <span className={styles.usageRecordModel}>{formatModelDisplay(item.model_name)}</span>
+        <div className={styles.usageRecordHeading}>
+          <span className={styles.usageRecordTime}>{formatDateTime(item.created_at)}</span>
+          <span className={styles.usageRecordId}>ID {item.id}</span>
+        </div>
         <span className={`${styles.badge} ${styles[`badge_${statusCls}`]}`}>
           <span className={styles.dot} />
           {statusLabel}
         </span>
       </div>
-      <div className={styles.usageRecordMeta}>
-        <span>{new Date(item.created_at).toLocaleString("zh-TW")}</span>
-        <span>↑ {formatTokens(item.input_tokens)}</span>
-        <span>↓ {formatTokens(item.output_tokens)}</span>
-        {item.request_duration_ms != null && (
-          <span>
-            {t("AiApiPage.recordDuration", { seconds: (item.request_duration_ms / 1000).toFixed(1) })}
-          </span>
-        )}
-        {item.error_message && <span className={styles.textDanger}>{item.error_message}</span>}
+      <div className={styles.usageRecordDetails}>
+        <div>
+          <span>{t("AiApiPage.recordKey")}</span>
+          <strong>{item.api_key_name} <small>{item.api_key_prefix}…</small></strong>
+        </div>
+        <div>
+          <span>{t("AiApiPage.recordModel")}</span>
+          <strong className={styles.usageRecordModel}>{formatModelDisplay(item.model_name)}</strong>
+        </div>
+        <div>
+          <span>{t("AiApiPage.recordRequestType")}</span>
+          <strong className={styles.usageRecordType}>{callTypeKey ? t(callTypeKey) : item.call_type || "—"}</strong>
+        </div>
+        <div>
+          <span>{t("AiApiPage.recordInputTokens")}</span>
+          <strong>{formatTokens(item.input_tokens)}</strong>
+        </div>
+        <div>
+          <span>{t("AiApiPage.recordOutputTokens")}</span>
+          <strong>{formatTokens(item.output_tokens)}</strong>
+        </div>
+        <div>
+          <span>{t("AiApiPage.recordTotalTokens")}</span>
+          <strong>{formatTokens(item.total_tokens ?? ((item.input_tokens ?? 0) + (item.output_tokens ?? 0)))}</strong>
+        </div>
+        <div>
+          <span>{t("AiApiPage.recordLatency")}</span>
+          <strong>{item.request_duration_ms == null ? "—" : t("AiApiPage.recordDuration", { seconds: (item.request_duration_ms / 1000).toFixed(1) })}</strong>
+        </div>
       </div>
+      {item.error_message && (
+        <div className={styles.usageRecordError}>
+          <MIcon name="error_outline" size={15} />
+          <span>{item.error_message}</span>
+        </div>
+      )}
     </div>
   );
 }
@@ -400,12 +593,11 @@ function MyUsageTab() {
 
   const { start, end } = useMemo(() => {
     const now = new Date();
-    const e = now.toISOString().split("T")[0];
     const s = new Date(now);
     if (preset === "7d") s.setDate(s.getDate() - 7);
     else if (preset === "30d") s.setDate(s.getDate() - 30);
     else s.setDate(s.getDate() - 90);
-    return { start: s.toISOString().split("T")[0], end: e };
+    return { start: s.toISOString(), end: now.toISOString() };
   }, [preset]);
 
   const load = useCallback(async () => {
@@ -457,7 +649,7 @@ function MyUsageTab() {
     { value: "90d", label: t("AiApiPage.preset90d") },
   ];
 
-  const hasAnyUsage = (usageData?.total_calls ?? 0) > 0;
+  const hasAnyUsage = (usageData?.total_requests ?? 0) > 0;
 
   return (
     <div className={styles.usageTab}>
@@ -472,14 +664,14 @@ function MyUsageTab() {
             {p.label}
           </button>
         ))}
-        <span className={styles.usageDateRange}>{start} ~ {end}</span>
+        <span className={styles.usageDateRange}>{start.slice(0, 10)} ~ {end.slice(0, 10)}</span>
       </div>
 
       {loading ? (
         <LoadingState />
       ) : (
         <>
-          {/* ── 統一用量總覽 ── */}
+          {/* ── 申請金鑰 API 用量總覽 ── */}
           <div className={styles.usagePanel} data-guide="ai-route-usage">
             <div className={styles.usagePanelHeader}>
               <h3 className={styles.usagePanelTitle}>{t("AiApiPage.usageTitle")}</h3>
@@ -489,7 +681,7 @@ function MyUsageTab() {
             ) : (
               <>
                 <div className={styles.usageStatsGrid}>
-                  <UsageStatCard label={t("AiApiPage.usageStatTotalCalls")} value={usageData?.total_calls ?? 0} />
+                  <UsageStatCard label={t("AiApiPage.usageStatTotalCalls")} value={usageData?.total_requests ?? 0} />
                   <UsageStatCard label={t("AiApiPage.usageStatInputTokens")} value={formatTokens(usageData?.total_input_tokens)} />
                   <UsageStatCard label={t("AiApiPage.usageStatOutputTokens")} value={formatTokens(usageData?.total_output_tokens)} />
                 </div>
@@ -687,6 +879,7 @@ export default function AiApiPage() {
 
   const TABS = [
     { key: "keys",    label: "API Keys" },
+    { key: "docs",    label: t("AiApiPage.tabDocs") },
     { key: "records", label: t("AiApiPage.tabRecords") },
     { key: "usage",   label: t("AiApiPage.tabUsage") },
   ];
@@ -814,6 +1007,9 @@ export default function AiApiPage() {
             )}
           </div>
         )}
+
+        {/* ---- Tab: API 文件 ---- */}
+        {activeTab === "docs" && <ApiDocsTab credentials={credentials} />}
 
         {/* ---- Tab: 申請紀錄 ---- */}
         {activeTab === "records" && (
