@@ -9,7 +9,6 @@
  * - classRelation   班級機：student / teacher
  * - ownerName       不是自己的機器時的擁有者（共享、學生機器、老師開放會顯示）
  * - teachingClassName  班級名稱，只進 tooltip
- * - size            "md"（預設）| "sm"（表格次行、拓撲節點）
  * - solid           實心版（拓撲節點掛在畫布上要夠醒目）
  * - readOnly        另掛鎖頭，表示看得到但不能改
  * - showOwner       強制顯示擁有者（管理員清單每台都標）
@@ -26,7 +25,6 @@ export default function MachineKindBadge({
   classRelation = null,
   ownerName = null,
   teachingClassName = null,
-  size = "md",
   solid = false,
   readOnly = false,
   showOwner,
@@ -44,17 +42,16 @@ export default function MachineKindBadge({
   const classes = [
     styles.badge,
     styles[variant],
-    size === "sm" ? styles.sm : "",
     solid ? styles.solid : "",
     className,
   ].filter(Boolean).join(" ");
 
   return (
     <span className={classes} title={hint}>
-      <MIcon name={meta.icon} size={size === "sm" ? 11 : 13} />
+      <MIcon name={meta.icon} size={12} />
       <span className={styles.label}>{t(meta.labelKey)}</span>
       {owner && <span className={styles.owner}>· {owner}</span>}
-      {readOnly && <MIcon name="lock" size={size === "sm" ? 10 : 12} className={styles.lock} />}
+      {readOnly && <MIcon name="lock" size={11} className={styles.lock} />}
     </span>
   );
 }

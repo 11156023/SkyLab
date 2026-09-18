@@ -275,7 +275,6 @@ function ResourceRow({ resource, onUpdated, onDeleted }) {
           classRelation={resource.class_relation}
           ownerName={resource.owner_name ?? resource.owner_email}
           teachingClassName={resource.teaching_class_name}
-          size="sm"
         />
       </td>
       <td className={styles.td}><div className={styles.envPrimary}>{resource.environment_type || "Custom"}</div><div className={styles.envSub}>{resource.os_info || "—"}</div></td>
@@ -465,7 +464,7 @@ function EnvironmentGroupRows({ group, onUpdated, onEnded }) {
           <div><strong>{group.title}</strong><small>{t("EnvironmentGroupRows.machineCount", { count: group.machines.length })}</small></div>
         </div>
       </td>
-      <td className={styles.td}><MachineKindBadge kind={group.kind === "quick_practice" ? "quick_practice" : "teaching_class"} classRelation={group.classRelation} size="sm" /></td>
+      <td className={styles.td}><MachineKindBadge kind={group.kind === "quick_practice" ? "quick_practice" : "teaching_class"} classRelation={group.classRelation} /></td>
       <td className={styles.td}><div className={styles.envPrimary}>{group.kind === "course" ? t("EnvironmentGroupRows.courseEnv") : t("EnvironmentGroupRows.quickPracticeEnv")}</div><div className={styles.envSub}>{t("EnvironmentGroupRows.groupOverview")}</div></td>
       <td className={styles.td}><StatusBadge status={group.status} /></td>
       <td className={styles.td}><span className={styles.muted}>{t("EnvironmentGroupRows.runningCount", { running: runningCount, total: group.machines.length })}</span></td>
