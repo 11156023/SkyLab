@@ -677,7 +677,7 @@ export default function ConnectionDialog({
               {mode === "domain" && (
                 <>
                   <div className={styles.formGrid}>
-                    <div className={styles.field}>
+                    <div className={`${styles.field} ${styles.fieldNarrow}`}>
                       <label className={styles.fieldLabel} htmlFor="cd-domain-port">{t("ConnectionDialog.portLabel")}</label>
                       <input
                         id="cd-domain-port"
@@ -776,7 +776,7 @@ export default function ConnectionDialog({
                     className={`${styles.modeBtn} ${direction === "one_way" ? styles.modeBtnActive : ""}`}
                     onClick={() => setDirection("one_way")}
                   >
-                    {labelOf(peerSourceKey)} → {labelOf(peerTargetKey)}
+                    {t("ConnectionDialog.oneWay")}
                   </button>
                   {/* 老師的機器只能單向連過去，雙向按鈕整顆不顯示 */}
                   {!peerLimited && (
@@ -790,17 +790,13 @@ export default function ConnectionDialog({
                   )}
                 </div>
               </div>
-              {peerLimited ? (
+              {peerLimited && (
                 <p className={styles.infoBox}>
                   <MIcon name="school" size={16} />
                   {t("ConnectionDialog.peerOnlyHint", {
                     target: labelOf(peerTargetKey),
                     ports: formatPorts(peerAllowedPorts),
                   })}
-                </p>
-              ) : (
-                <p className={styles.fieldHint}>
-                  {t("ConnectionDialog.vmToVmHint", { source: labelOf(peerSourceKey), target: labelOf(peerTargetKey) })}
                 </p>
               )}
               <PortRows rows={vmRows} setRows={editRows(setVmRows)} protocols={CONNECTION_PROTOCOLS} invalid={portsInvalid} />

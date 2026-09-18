@@ -479,3 +479,17 @@
   &:hover:not(:disabled) { background: var(--color-primary-dark); }
   &:disabled { opacity: 0.6; cursor: not-allowed; }
 }
+
+/* ── port 欄位不需要整列寬：固定寬度、靠左排 ── */
+.portRow {
+  grid-template-columns: 128px 104px 28px;
+}
+
+.forwardRowHeader,
+.forwardRow {
+  grid-template-columns: 128px 128px 104px 28px;
+}
+
+.fieldNarrow {
+  max-width: 160px;
+}
