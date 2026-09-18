@@ -78,9 +78,9 @@ const newPortRow = (init = {}) => ({ id: uid(), port: "", protocol: "tcp", ...in
 const newForwardRow = (init = {}) => ({ id: uid(), externalPort: "", internalPort: "", protocol: "tcp", ...init });
 
 function modeMeta(mode) {
-  if (mode === "domain") return { icon: "language", labelKey: "ConnectionDialog.modeDomain", descKey: "ConnectionDialog.modeDomainDesc" };
-  if (mode === "port_forward") return { icon: "swap_horiz", labelKey: "ConnectionDialog.modePortForward", descKey: "ConnectionDialog.modePortForwardDesc" };
-  return { icon: "shield", labelKey: "ConnectionDialog.modeFirewallOnly", descKey: "ConnectionDialog.modeFirewallOnlyDesc" };
+  if (mode === "domain") return { icon: "language", labelKey: "ConnectionDialog.modeDomain" };
+  if (mode === "port_forward") return { icon: "swap_horiz", labelKey: "ConnectionDialog.modePortForward" };
+  return { icon: "shield", labelKey: "ConnectionDialog.modeFirewallOnly" };
 }
 
 /* ── 一列一個 port：僅開放防火牆、VM→VM 共用 ── */
@@ -646,7 +646,8 @@ export default function ConnectionDialog({
 
               <div className={styles.field}>
                 <label className={styles.fieldLabel}>{t("ConnectionDialog.publishMethod")}</label>
-                <div className={styles.modeCards}>
+                {/* 跟「方向」同一種分段切換：只有圖示＋標題，高度一致、不會因說明長短跑版 */}
+                <div className={styles.modeToggle}>
                   {modeCards.map((m) => {
                     const meta = modeMeta(m);
                     const active = mode === m;
@@ -654,13 +655,11 @@ export default function ConnectionDialog({
                       <button
                         key={m}
                         type="button"
-                        className={`${styles.modeCard} ${active ? styles.modeCardActive : ""}`}
+                        className={`${styles.modeBtn} ${active ? styles.modeBtnActive : ""}`}
                         onClick={() => setMode(m)}
                         aria-pressed={active}
                       >
-                        <strong><MIcon name={meta.icon} size={14} /> {t(meta.labelKey)}</strong>
-                        {/* 只有選中的那張展開說明，其餘留標題就好 */}
-                        {active && <span>{t(meta.descKey)}</span>}
+                        <MIcon name={meta.icon} size={14} /> {t(meta.labelKey)}
                       </button>
                     );
                   })}
