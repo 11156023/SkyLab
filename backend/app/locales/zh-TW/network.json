@@ -5,6 +5,8 @@
   "nat.haproxySyncCommandFailed": "haproxy 設定同步失敗：{out}{err}",
   "nat.haproxySyncFailed": "haproxy 同步失敗：{error}",
   "nat.ruleNotFound": "NAT 規則 {ruleId} 不存在",
+  "nat.poolNotConfigured": "尚未設定 IP 管理網段，無法自動配置對外 port",
+  "nat.poolExhausted": "對外 port 配號池 {start}–{end} 已用完，請管理員擴大範圍或釋放不用的轉發",
 
   "reverseProxy.zoneNameInvalid": "Zone 名稱格式不正確",
   "reverseProxy.subdomainInvalid": "子網域格式不正確",

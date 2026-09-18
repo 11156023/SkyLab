@@ -34,6 +34,20 @@ def is_external_port_taken(
     return existing is not None
 
 
+def taken_external_ports(
+    session: Session, protocol: str, start: int, end: int
+) -> set[int]:
+    """配號池範圍內已被佔用的對外 port（配號用，一次查完不逐一問）。"""
+    rows = session.exec(
+        select(NatRule.external_port).where(
+            NatRule.protocol == protocol,
+            NatRule.external_port >= start,
+            NatRule.external_port <= end,
+        )
+    ).all()
+    return {int(port) for port in rows}
+
+
 def create_rule(session: Session, rule: NatRule) -> NatRule:
     session.add(rule)
     session.commit()
@@ -79,6 +93,7 @@ __all__ = [
     "list_rules_by_vmid",
     "get_rule",
     "is_external_port_taken",
+    "taken_external_ports",
     "create_rule",
     "delete_rule",
     "delete_rules_by_vmid",

@@ -45,6 +45,13 @@ def get_extra_blocked_subnets(config: SubnetConfig | None) -> list[str]:
     return out
 
 
+def get_forward_port_range(config: SubnetConfig | None) -> tuple[int, int] | None:
+    """對外 port 自動配號池；沒有子網設定就沒有池子。"""
+    if config is None:
+        return None
+    return int(config.forward_port_start), int(config.forward_port_end)
+
+
 def upsert_subnet_config(
     session: Session,
     *,
@@ -54,6 +61,9 @@ def upsert_subnet_config(
     gateway_vm_ip: str,
     dns_servers: str | None = None,
     extra_blocked_subnets: list[str] | None = None,
+    forward_port_start: int | None = None,
+    forward_port_end: int | None = None,
+    forward_public_host: str | None = None,
 ) -> SubnetConfig:
     """設定或更新子網配置，並保留系統 IP。
 
@@ -101,6 +111,11 @@ def upsert_subnet_config(
             existing.extra_blocked_subnets = (
                 ",".join(extra_blocked_subnets) if extra_blocked_subnets else None
             )
+        if forward_port_start is not None:
+            existing.forward_port_start = forward_port_start
+        if forward_port_end is not None:
+            existing.forward_port_end = forward_port_end
+        existing.forward_public_host = forward_public_host
         existing.updated_at = get_datetime_utc()
         session.add(existing)
         config = existing
@@ -117,6 +132,9 @@ def upsert_subnet_config(
                 if extra_blocked_subnets
                 else None
             ),
+            forward_port_start=forward_port_start or 30000,
+            forward_port_end=forward_port_end or 39999,
+            forward_public_host=forward_public_host,
         )
         session.add(config)
 

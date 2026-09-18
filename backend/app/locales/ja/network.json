@@ -5,6 +5,8 @@
   "nat.haproxySyncCommandFailed": "haproxy 設定の同期に失敗しました：{out}{err}",
   "nat.haproxySyncFailed": "haproxy の同期に失敗しました：{error}",
   "nat.ruleNotFound": "NAT ルール {ruleId} は存在しません",
+  "nat.poolNotConfigured": "IP 管理サブネットが未設定のため、外部ポートを自動割り当てできません",
+  "nat.poolExhausted": "外部ポートのプール {start}–{end} を使い切りました。管理者に範囲の拡大か未使用転送の解放を依頼してください",
 
   "reverseProxy.zoneNameInvalid": "ゾーン名の形式が正しくありません",
   "reverseProxy.subdomainInvalid": "サブドメインの形式が正しくありません",

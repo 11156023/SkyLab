@@ -3,6 +3,8 @@
   "ip.cidr_no_slash32": "Subnet mask cannot be /32",
   "ip.invalid_ip": "Invalid IP address: {error}",
   "ip.invalid_blocked_subnet": "Invalid blocked subnet/IP '{item}': {error}",
+  "ip.forward_port_range_invalid": "The external port pool must lie within 1024–65535 and start must not exceed end",
+  "ip.forward_public_host_too_long": "Entry host is too long (255 characters max)",
   "cloudflare.decrypt_token_failed": "Failed to decrypt the stored Cloudflare API Token: the encryption key has changed, please re-save the Cloudflare settings",
   "gateway.decrypt_private_key_failed": "Failed to decrypt the stored SSH private key: the encryption key has changed, please regenerate and save the Gateway SSH key pair",
   "proxmox.decrypt_password_failed": "Failed to decrypt the stored Proxmox password: the encryption key has changed, please re-save the Proxmox settings",
