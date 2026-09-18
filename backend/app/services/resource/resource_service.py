@@ -354,7 +354,7 @@ def get_by_vmid(
 
 
 def list_all(
-    *, session: Session, node: str | None = None
+    *, session: Session, node: str | None = None, viewer_id: uuid.UUID | None = None
 ) -> list[ResourcePublic]:
     try:
         resources = proxmox_service.list_all_resources()
@@ -382,10 +382,11 @@ def list_all(
             )
             if db_resource is not None:
                 owner_ids[vmid] = db_resource.user_id
-        # 管理員視角：每台機器都標擁有者
+        # 管理員視角：別人的機器都標擁有者；自己的跳過，
+        # 維持 owner_name「機器不是自己的時才有值」的合約（前端徽章靠它分我的／別人的）
         names = resource_kind.user_display_names(session, owner_ids.values())
         for public in result:
-            if public.vmid in owner_ids:
+            if public.vmid in owner_ids and owner_ids[public.vmid] != viewer_id:
                 public.owner_name = names.get(owner_ids[public.vmid])
         return result
     except Exception as e:
