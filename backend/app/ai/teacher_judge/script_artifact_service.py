@@ -146,29 +146,35 @@ SCRIPT_GENERATION_SYSTEM_PROMPT = f"""
 - 腳本最後必須 print 單一 JSON，schema_version 固定為 {RESULT_SCHEMA_VERSION}，並使用 json.dumps(..., ensure_ascii=False)。
 - 輸出 JSON 的 metadata 必須包含 timestamp 與 platform。
 - 優先根據 rubric item 的 check_steps.command_key 對應 template_commands 產生收集項目。
-- `python.run_entrypoint` 是執行觀察能力，不是原始碼審查：只使用 check_steps.parameters 中已驗證的 cwd、argv、timeout_seconds 與可選 success_criteria，不得從自然語言猜測或補值。
-- `system.run_command` 使用 check_steps.parameters 中已驗證的 argv、cwd、timeout_seconds 與可選 success_criteria，不得自行替換或擴張檢查範圍。
+- `python.run_entrypoint` 是執行觀察能力，不是原始碼審查：只使用 check_steps.parameters 中已驗證的 cwd、argv、timeout_seconds，不得從自然語言猜測或補值。
+- `system.run_command` 使用 check_steps.parameters 中已驗證的 argv、cwd、timeout_seconds，不得自行替換或擴張檢查範圍。
 - 你熟悉 Linux、Windows 系統管理與常見 CLI 工具。外部指令只用於取得 rubric 所需的唯讀診斷資訊；不得修改系統狀態、執行高風險或破壞性操作，也不得要求提權。只收集足以回答問題的資訊，並在 evidence 解讀結果，不要只複製 raw 輸出。
-- `judgement_mode=ai` 時，success_criteria 必須照 rubric 的語意粒度實作。只有明確要求完全相等時才比較整份 stdout；「有／包含／存在某行或設定」應檢查內容或逐行存在，不得要求整份輸出只有該字串。設定行如 `web_URL=True` 可忽略行首尾及等號周圍空白，但 key 與值仍須相符。
+- `judgement_mode=ai` 時，依 rubric item 的 title 與 detection_method 實作最小充分的判定。只有明確要求完全相等時才比較整份 stdout；「有／包含／存在某行或設定」應檢查內容或逐行存在，不得要求整份輸出只有該字串。設定行如 `web_URL=True` 可忽略行首尾及等號周圍空白，但 key 與值仍須相符。
 - `judgement_mode=teacher` 時，腳本只負責完整收集指定答案／檔案／系統資訊；不得發明客觀答案或代替導師判定內容正確性。成功收集證據的 check 使用 `unknown` 並清楚標示「待導師核查」，evidence/raw 帶回可讀證據；執行或收集失敗仍依事實使用 fail/unknown 並記錄 errors。
 - `system.run_command` 只允許單一唯讀／診斷 argv；禁止 pipe、redirect、寫入型 Git 子命令及其他會改變環境的操作。
 - 執行 Python 入口時，必須使用 argv list、明確 `cwd`、有限 timeout，並把 exit code、stdout、stderr、未捕捉例外與 timeout 寫成該 check 的證據。
 - 若 rubric 缺少工作目錄、命令或「正常結束／常駐服務」判準，不得搜尋檔案系統或猜路徑；該 check 必須回傳 `unknown`，清楚寫出缺少的資訊。
 - 不得把 Python 執行檢查替換成 n8n、Port 或程序存在檢查；這些只能在 rubric 本來就要求時使用。
 - 若 previous_review_feedback 有內容，代表上一輪腳本審查未通過；必須修正其中所有 policy、quality validator、coverage 覆蓋與 AI reviewer 問題。
+- 若 previous_review_feedback 含 `repair_guidance`，必須先依其中的 `target`、`line_range` 與 `required_pattern` 修正指定責任邊界；`record_check` 的 raw 截斷永遠由 helper 定義負責，不能改成逐一修正呼叫端。
+- `record_check` 必須使用唯一的 pure-return 形狀：`record_check(check_id, title, status, evidence, raw="")` 回傳單一結果 dict；呼叫端固定使用 `checks.append(record_check(...))`，不得把 `checks_list` 或 `errors` 傳入 helper 後由 helper 直接 append。
+- `record_check` 的 raw 參數可接收字串或 `run_command()` 回傳的 payload dict，但 helper 必須先在函式定義內以 `json.dumps(raw, ensure_ascii=False, default=str)` 將非字串 payload 序列化，再由一次 `truncate_output(raw_text)` 控制整個 raw 欄位；不得回傳巢狀 dict，也不得只在呼叫端截斷。
+- 若 previous_review_feedback 含 available_check_ids，這是後端已從腳本靜態解析出的可用 check ID；coverage 只能使用其中的值，不能自行創造或改寫 ID。
 - 腳本頂層必須定義 `errors: list[str] = []`。每個收集項目的例外處理區塊（try/except）必須使用 `errors.append(f"{{check_id}}: {{錯誤說明}}")` 記錄錯誤原因，讓老師看到執行時的收集品質。所有收集成功時 errors 輸出空陣列。
 
 # rubric 覆蓋映射（coverage）
 - coverage 列出 script_content 中每個 record_check 與其支持的 rubric item id 對應；沒有對應 rubric item 的輔助收集可不列入。
 - 一個 check 可支持多個 rubric item；一個 rubric item 也可由多個 check 支持。
-- check_id 必須與 script_content 中 record_check 使用的 id 完全一致。
+- check_id 必須與 script_content 中 record_check 使用的 id 完全一致；可直接傳字串，或使用在該次呼叫前明確指定的字串常數變數。
+- 不要使用動態、分支不明、重新指定或由外部輸入產生的 check_id；coverage 只會接受後端能靜態證明的值。
 - rubric_item_ids 必須是 rubric snapshot 中真實存在的 item id。
 - 每個 rubric item 都必須至少被一個 check 覆蓋；若某項目真的無法取證，仍不得虛構映射，讓驗證明確回報缺口。
 
 # 簡潔程式碼骨架
 - 產生單檔 Python script；不要建立 class、plugin 架構、retry framework 或多層抽象。
 - 核心 helper 只有 2 個：`truncate_output`、`record_check`；僅在需要執行外部命令時才額外定義並使用 `command_available` 與 `run_command`，標準函式庫即可完成的檢查不需要外部命令 helper。
-- `run_command()` 只負責接受 argv list、cwd 與 timeout，並回傳未遮蔽的 `stdout`、`stderr`、`returncode`；若捕捉例外，回傳 `returncode=None` 與錯誤文字，不要在 helper 內吞掉資訊。
+- `record_check` 必須照品質契約的固定 skeleton 使用單一 `raw` 參數並回傳 dict；呼叫端直接傳入原始 raw payload，禁止使用 `checks_list` side effect、分離的 `raw_stdout`／`raw_stderr` 參數、巢狀 raw dict，或只在呼叫端逐欄截斷。
+- `run_command()` 只負責接受 argv list、cwd 與 timeout，並回傳未遮蔽的 `stdout`、`stderr`、`returncode`；若捕捉例外，回傳 `returncode=None` 與錯誤文字，不要在 helper 內操作 `errors` 或 `checks`，由呼叫端依 `returncode is None` 記錄錯誤。
 - 每個收集項目使用同一個簡潔模式：
   1. 先決定 `check_id`
   2. 需要外部命令時，先檢查工具是否存在；缺工具時 `record_check(..., "unknown", ...)`
@@ -209,14 +215,15 @@ AI_REVIEWER_SYSTEM_PROMPT = """
 
 ## 安全審查
 若腳本可能刪除、修改、修復、安裝、重啟或對外傳資料，approved 必須是 false。讀取檔案與原樣回傳受控命令的 stdout/stderr 本身不是拒絕理由。
-若腳本使用 `python.run_entrypoint`，確認它只採用 rubric check_steps.parameters 的 cwd、argv、timeout_seconds 與可選 success_criteria，且程式只收集 exit code/stdout/stderr、沒有安裝或修復動作；risk_level 至少為 medium。`judgement_mode=teacher` 不得因沒有客觀答案而拒絕，但必須確認腳本能執行並帶回證據。只有靜態政策與本 AI reviewer 都核准時，腳本才會進入可執行狀態。
-若腳本使用 `system.run_command`，確認它只採用 check_steps 中已驗證的 argv、cwd、有限 timeout 與可選 success_criteria，無 shell/pipe/redirect、提權或範圍擴張，且只做唯讀／診斷操作；stdout/stderr 不需遮蔽。
+若腳本使用 `python.run_entrypoint`，確認它只採用 rubric check_steps.parameters 的 cwd、argv、timeout_seconds，且程式只收集 exit code/stdout/stderr、沒有安裝或修復動作；risk_level 至少為 medium。`judgement_mode=teacher` 不得因沒有客觀答案而拒絕，但必須確認腳本能執行並帶回證據。只有靜態政策與本 AI reviewer 都核准時，腳本才會進入可執行狀態。
+若腳本使用 `system.run_command`，確認它只採用 check_steps 中已驗證的 argv、cwd、有限 timeout，無 shell/pipe/redirect、提權或範圍擴張，且只做唯讀／診斷操作；stdout/stderr 不需遮蔽。
 若 rubric 只要求內容、行或設定存在，腳本不得擅自改成整份 stdout 完全相等；這種過度收緊應列為 issues。
 
 ## 錯誤記錄完整性
-- 檢查腳本有 subprocess.run / HTTP 請求等外部呼叫時，是否有對應的 try/except 並在 except 中 call errors.append()。
+- 檢查腳本有 subprocess.run / HTTP 請求等外部呼叫時，是否有對應的 try/except 並在 except 中 call errors.append()；但 `run_command` helper 可將未預期例外轉成含 `returncode=None` 的結構化結果，由呼叫端記錄 errors 與 unknown/fail 狀態。
 - 若腳本有例外處理但 errors 始終為空陣列，應列為 issues。
 - 檢查 bare except / except Exception 後是否有將錯誤記錄到 errors。
+- 確認 `record_check` 使用單一 `raw` 參數並回傳結果 dict，呼叫端以 `checks.append(record_check(...))` 收集；helper 必須把非字串 raw payload 序列化後，將整個 `raw` 欄位交給一次 `truncate_output`，且最終值是字串。`checks_list` side effect、巢狀 raw dict、分離 stdout/stderr 參數、只截斷子欄位，或只有呼叫端截斷，都應列為 issues。
 
 只輸出 JSON：
 {
@@ -241,7 +248,11 @@ FIX_SCRIPT_SYSTEM_PROMPT = """
 - fix_instructions 是原始 validator hint；repair_instructions 是精簡後的修正指令，優先依 repair_instructions 行動
 - replacement 只能包含替換後的 Python 程式碼，不要包含 `0001|` 行號前綴
 - 若只需新增一行，請把該 except 區塊整段以相同縮排替換，不要重排其他區塊
-- 對 `bare except / except Exception 後未將錯誤記錄到 errors`，必須在同一個 except 區塊加入 `errors.append(...)`，並確保對應 `record_check` 狀態不是 `pass`
+- 對 `normalize_record_check_contract`，這是 helper 與呼叫端的契約錯誤，不能只替換 raw 欄位：重新生成完整腳本，固定使用 `record_check(check_id, title, status, evidence, raw="") -> dict` 並由呼叫端 `checks.append(record_check(...))` 收集。不得保留 `checks_list`、`errors` 或分離 stdout/stderr 參數。
+- 對 `add_truncate_in_record_check`，只修改 `record_check` 函式定義；將非字串 raw payload 先以 `json.dumps(raw, ensure_ascii=False, default=str)` 序列化，再改成 `"raw": truncate_output(raw_text)`，不可回傳巢狀 dict，也不得以呼叫端的 `truncate_output(...)` 取代。
+- 正確形狀：helper 回傳的 `raw` 是一次外層 `truncate_output(...)` 的字串；錯誤形狀：只截斷 `stdout`／`stderr` 子欄位、回傳 dict，或只在呼叫端截斷。
+- 對 `normalize_run_command_error_contract`，只替換 `run_command` 的指定 except 區塊；回傳 `{"stdout": "", "stderr": str(exc), "returncode": None}`，不要在 helper 內加入 `errors.append` 或 `checks.append`。
+- 對一般收集流程的 `bare except / except Exception 後未將錯誤記錄到 errors`，必須在同一個 except 區塊加入 `errors.append(...)`，並確保對應 `record_check` 狀態不是 `pass`；若 target 是 `run_command_exception_handler`，遵守上一條結構化回傳契約，不要在 helper 內 append。
 
 # 輸出格式
 只能輸出一個 JSON：
@@ -367,6 +378,8 @@ def _previous_review_feedback(
         safety_issues if isinstance(safety_issues, list) else policy_check.get("issues")
     )
     quality_issues = policy_check.get("quality_issues")
+    coverage = policy_check.get("coverage")
+    review_attempts = policy_check.get("review_attempts")
     ai_issues = ai_review.get("issues")
     feedback = {
         "policy_approved": (
@@ -381,12 +394,53 @@ def _previous_review_feedback(
         "ai_review_issues": ai_issues if isinstance(ai_issues, list) else [],
         "ai_review_suggested_fix": ai_review.get("suggested_fix"),
     }
+    if isinstance(coverage, dict):
+        coverage_issues = coverage.get("issues")
+        uncovered_items = coverage.get("uncovered_items")
+        available_check_ids = coverage.get("available_check_ids")
+        feedback.update(
+            {
+                "coverage_approved": coverage.get("approved"),
+                "coverage_issues": (
+                    coverage_issues if isinstance(coverage_issues, list) else []
+                ),
+                "uncovered_rubric_items": (
+                    uncovered_items if isinstance(uncovered_items, list) else []
+                ),
+                "available_check_ids": (
+                    available_check_ids
+                    if isinstance(available_check_ids, list)
+                    else []
+                ),
+            }
+        )
+    if isinstance(review_attempts, list):
+        for attempt in reversed(review_attempts):
+            if not isinstance(attempt, dict) or attempt.get("phase") not in {
+                "static",
+                "coverage",
+            }:
+                continue
+            raw_hints = attempt.get("fix_hints")
+            if not isinstance(raw_hints, list):
+                continue
+            repair_hints = [
+                cast("FixHint", hint)
+                for hint in raw_hints
+                if isinstance(hint, dict)
+            ]
+            if repair_hints:
+                feedback["repair_guidance"] = _repair_instructions(repair_hints)[:5]
+            break
     has_failed_review = (
         feedback["policy_approved"] is False
         or feedback["quality_approved"] is False
+        or feedback.get("coverage_approved") is False
         or feedback["ai_review_approved"] is False
         or bool(feedback["policy_issues"])
         or bool(feedback["quality_issues"])
+        or bool(feedback.get("coverage_issues"))
+        or bool(feedback.get("uncovered_rubric_items"))
         or bool(feedback["ai_review_issues"])
         or bool(feedback["ai_review_suggested_fix"])
     )
@@ -399,7 +453,17 @@ def _resolve_status(
     policy_check: GateResult,
     ai_review: AIReviewResult,
 ) -> TeacherJudgeScriptStatus:
-    if policy_check.get("approved") is True and ai_review.get("approved") is True:
+    coverage = policy_check.get("coverage")
+    coverage_approved = (
+        coverage.get("approved") is True
+        if isinstance(coverage, dict)
+        else True
+    )
+    if (
+        policy_check.get("approved") is True
+        and coverage_approved
+        and ai_review.get("approved") is True
+    ):
         return TeacherJudgeScriptStatus.approved
     return TeacherJudgeScriptStatus.review_failed
 
@@ -499,7 +563,14 @@ def _failure_signature(
         _cached_hint_fingerprint(
             ":".join(
                 str(hint.get(key) or "")
-                for key in ("type", "target", "field", "function", "command")
+                for key in (
+                    "type",
+                    "target",
+                    "field",
+                    "function",
+                    "command",
+                    "required_pattern",
+                )
             )
         )
         for hint in fix_hints
@@ -519,6 +590,30 @@ def _failure_signature(
     if not parts:
         parts = ["unclassified"]
     return f"{phase}:{'|'.join(dict.fromkeys(parts))[:300]}"
+
+
+def _coverage_failure_signature(coverage: CoverageResult) -> str:
+    """Keep repeated coverage failures stable across changing ID examples.
+
+    The concrete unknown IDs are useful feedback, but they are not a useful
+    retry identity: a model can rename the same invalid IDs on every call and
+    otherwise evade the repeated-error guard until the global retry limit.
+    Coverage failure kinds remain distinct so a genuinely different repair
+    opportunity can still receive another attempt.
+    """
+
+    failure_kinds = sorted(
+        {
+            str(hint.get("type") or "unknown")
+            for hint in coverage.get("fix_hints", [])
+            if isinstance(hint, dict)
+        }
+    )
+    return _failure_signature(
+        phase="coverage",
+        issues=failure_kinds or ["unclassified"],
+        fix_hints=[],
+    )
 
 
 def _retry_summary(
@@ -555,6 +650,7 @@ def _feedback_snapshot(
     gate_result: GateResult,
     ai_review: AIReviewResult | None = None,
     coverage: CoverageResult | None = None,
+    fix_hints: list[FixHint] | None = None,
 ) -> dict[str, Any]:
     feedback: dict[str, Any] = {
         "attempt": attempt,
@@ -569,6 +665,7 @@ def _feedback_snapshot(
                 "coverage_approved": coverage.get("approved"),
                 "coverage_issues": coverage.get("issues", []),
                 "uncovered_rubric_items": coverage.get("uncovered_items", []),
+                "available_check_ids": coverage.get("available_check_ids", []),
             }
         )
     if ai_review is not None:
@@ -579,6 +676,10 @@ def _feedback_snapshot(
                 "ai_review_suggested_fix": ai_review.get("suggested_fix"),
             }
         )
+    if fix_hints:
+        # Keep the fresh-generation feedback bounded and focused on the
+        # validator-owned repair target; do not copy the script or raw output.
+        feedback["repair_guidance"] = _repair_instructions(fix_hints)[:5]
     next_snapshot = dict(rubric_snapshot)
     next_snapshot["previous_review_feedback"] = feedback
     return next_snapshot
@@ -618,6 +719,24 @@ def _repair_instructions(fix_hints: list[FixHint]) -> list[dict[str, object]]:
 
 def _fix_goal_for_hint(hint: FixHint) -> str:
     hint_type = hint.get("type")
+    if hint_type == "normalize_record_check_contract":
+        return (
+            "此錯誤需要重新生成完整腳本：record_check 必須使用 "
+            "(check_id, title, status, evidence, raw=\"\") 並回傳單一結果 dict，"
+            "呼叫端使用 checks.append(record_check(...))；不得只修改 helper 保留 checks_list side effect。"
+        )
+    if hint_type == "add_truncate_in_record_check":
+        return (
+            '只修改 record_check 函式定義；將非字串 raw payload 先序列化，'
+            '再將回傳物件的 "raw" 欄位交給一次 truncate_output(raw_text)，'
+            "呼叫端保持傳入原始 raw，不要只修改呼叫端。"
+        )
+    if hint_type == "normalize_run_command_error_contract":
+        return (
+            '只替換 run_command 指定 except 區塊；回傳 '
+            '{"stdout": "", "stderr": str(exc), "returncode": None}，'
+            "不要在 helper 內操作 errors 或 checks，由呼叫端處理 returncode=None。"
+        )
     if hint_type == "add_errors_append_in_except":
         return (
             '只替換指定 except 區塊；加入 errors.append(f"<check_id>: ...")，'
@@ -625,6 +744,18 @@ def _fix_goal_for_hint(hint: FixHint) -> str:
         )
     if hint_type == "ai_reviewer_feedback":
         return "依 AI reviewer issues 做最小行區間替換，不要重寫整份腳本。"
+    if hint_type == "fix_coverage_refs":
+        return (
+            "coverage 的 check_id 只能使用 previous_review_feedback."
+            "available_check_ids 中已由後端解析出的值；不要自行創造或改寫 ID。"
+        )
+    if hint_type == "cover_rubric_items":
+        return (
+            "為每個 uncovered rubric item 補上真實的 record_check 證據；"
+            "若目前無法安全取證，保留缺口，不要虛構 coverage 映射。"
+        )
+    if hint_type == "provide_coverage_mapping":
+        return "補上 coverage，且 check_id 必須與腳本實際可解析的 record_check ID 完全一致。"
     return "依 issue 做最小行區間替換，保持未相關程式碼不變。"
 
 
@@ -883,13 +1014,11 @@ async def fix_script_content(
         _line_replacement_log_summary(parsed.get("line_replacements")),
         parsed.get("changes_summary"),
     )
-    return (
-        _apply_line_replacements(
-            script_content,
-            parsed.get("line_replacements"),
-        ),
-        dict(metrics),
+    fixed_content = _apply_line_replacements(
+        script_content,
+        parsed.get("line_replacements"),
     )
+    return fixed_content, dict(metrics)
 
 
 async def build_reviewed_script(
@@ -1020,7 +1149,23 @@ async def build_reviewed_script(
                 issues=gate_result["issues"],
                 fix_hints=fix_hints,
             )
-            failure_counts[signature] = failure_counts.get(signature, 0) + 1
+            same_failure_count = failure_counts.get(signature, 0) + 1
+            failure_counts[signature] = same_failure_count
+            repair_mode = (
+                "stop"
+                if same_failure_count > SCRIPT_GENERATION_SAME_FAILURE_MAX_RETRIES
+                or retry_count >= SCRIPT_GENERATION_MAX_RETRIES
+                else (
+                    "fresh_generation"
+                    if same_failure_count >= 2
+                    or not fix_hints
+                    or any(
+                        hint.get("type") == "normalize_record_check_contract"
+                        for hint in fix_hints
+                    )
+                    else "line_patch"
+                )
+            )
             attempt_record = _gate_attempt_record(
                 attempt=len(attempt_records) + 1,
                 safety_check=safety_check,
@@ -1032,7 +1177,8 @@ async def build_reviewed_script(
                     "phase": "static",
                     "failure_signature": signature,
                     "retry_count": retry_count,
-                    "same_failure_count": failure_counts[signature],
+                    "same_failure_count": same_failure_count,
+                    "repair_mode": repair_mode,
                 }
             )
             attempt_records.append(attempt_record)
@@ -1040,13 +1186,13 @@ async def build_reviewed_script(
                 "Teacher Judge script gate failed retry=%s/%s same_failure=%s/%s signature=%s hints=%s",
                 retry_count,
                 SCRIPT_GENERATION_MAX_RETRIES,
-                failure_counts[signature],
+                same_failure_count,
                 SCRIPT_GENERATION_SAME_FAILURE_MAX_RETRIES,
                 signature,
                 _fix_hint_log_summary(fix_hints),
             )
 
-            if failure_counts[signature] > SCRIPT_GENERATION_SAME_FAILURE_MAX_RETRIES:
+            if same_failure_count > SCRIPT_GENERATION_SAME_FAILURE_MAX_RETRIES:
                 stop_reason = "same_failure_limit"
                 break
             if retry_count >= SCRIPT_GENERATION_MAX_RETRIES:
@@ -1058,8 +1204,14 @@ async def build_reviewed_script(
                 rubric_snapshot=rubric_snapshot,
                 attempt=len(attempt_records),
                 gate_result=gate_result,
+                fix_hints=fix_hints,
             )
-            if fix_hints:
+            if repair_mode == "fresh_generation" or not fix_hints:
+                script_content = None
+                coverage = None
+                coverage_needs_realign = False
+                continue
+            if repair_mode == "line_patch":
                 try:
                     script_content, metrics = _script_result(
                         await fix_script_content(
@@ -1073,10 +1225,9 @@ async def build_reviewed_script(
                         exc.detail,
                     )
                     script_content = None
+                    coverage = None
+                    coverage_needs_realign = False
                     continue
-            else:
-                script_content = None
-                continue
             usage_records.append(
                 {
                     "call_type": CALL_TJ_SCRIPT_GENERATION,
@@ -1103,6 +1254,7 @@ async def build_reviewed_script(
                 ],
                 "mappings": [],
                 "uncovered_items": [],
+                "available_check_ids": [],
             }
             effective_coverage: list[CoverageMapping] | None = None
         else:
@@ -1120,8 +1272,10 @@ async def build_reviewed_script(
             )
         coverage_state = {
             "approved": coverage_check["approved"],
+            "issues": coverage_check["issues"],
             "mappings": coverage_check["mappings"],
             "uncovered_items": coverage_check["uncovered_items"],
+            "available_check_ids": coverage_check["available_check_ids"],
         }
         if effective_coverage is not None:
             coverage = effective_coverage
@@ -1132,11 +1286,7 @@ async def build_reviewed_script(
             for issue in coverage_issues:
                 if issue not in gate_result["issues"]:
                     gate_result["issues"].append(issue)
-            signature = _failure_signature(
-                phase="coverage",
-                issues=coverage_issues,
-                fix_hints=coverage_check["fix_hints"],
-            )
+            signature = _coverage_failure_signature(coverage_check)
             failure_counts[signature] = failure_counts.get(signature, 0) + 1
             attempt_records.append(
                 {
@@ -1147,6 +1297,7 @@ async def build_reviewed_script(
                     "same_failure_count": failure_counts[signature],
                     "coverage_issues": coverage_issues,
                     "uncovered_rubric_items": coverage_check["uncovered_items"],
+                    "available_check_ids": coverage_check["available_check_ids"],
                     "fix_hints": coverage_check["fix_hints"],
                 }
             )
@@ -1171,6 +1322,7 @@ async def build_reviewed_script(
                 attempt=len(attempt_records),
                 gate_result=gate_result,
                 coverage=coverage_check,
+                fix_hints=coverage_check["fix_hints"],
             )
             # 補一個缺失的收集項目不適合行區間 patch，直接重新生成。
             script_content = None
@@ -1323,6 +1475,10 @@ async def build_reviewed_script(
 
     if coverage_state is not None:
         gate_result["coverage"] = coverage_state
+        if coverage_state.get("approved") is not True:
+            gate_result["approved"] = False
+            gate_result["blocked"] = True
+            gate_result["risk_level"] = "high"
 
     gate_result["review_attempts"] = attempt_records
     gate_result["retry_summary"] = _retry_summary(

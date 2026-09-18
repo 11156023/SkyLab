@@ -69,6 +69,20 @@ def _resource_type_for_request(request: VMRequest) -> str:
     return scheduling_policy.resource_type_for_request(request)
 
 
+def _sync_lxc_platform_key(
+    *, session: Session, node: str, vmid: int, resource_type: str
+) -> None:
+    if resource_type != "lxc":
+        return
+    from app.services.resource import resource_service  # noqa: PLC0415
+
+    resource_service.ensure_lxc_platform_key(
+        session=session,
+        node=node,
+        vmid=vmid,
+    )
+
+
 def _find_existing_resource_for_request(
     *,
     session: Session,
@@ -133,6 +147,12 @@ def _adopt_existing_resource(
     if str(status.get("status") or "").lower() != "running":
         proxmox_service.control(actual_node, vmid, resource_type, "start")
         started = True
+    _sync_lxc_platform_key(
+        session=session,
+        node=actual_node,
+        vmid=vmid,
+        resource_type=resource_type,
+    )
     audit_service.log_action(
         session=session,
         user_id=None,
@@ -497,6 +517,14 @@ def _ensure_request_running(
                 "Auto-start task still running for request %s (VMID %s): %s",
                 request.id, request.vmid, exc,
             )
+
+    if not is_running:
+        _sync_lxc_platform_key(
+            session=session,
+            node=actual_node,
+            vmid=int(request.vmid),
+            resource_type=resource_type,
+        )
 
     # 成功開機（或已在跑）代表 GPU 已擠得進去，清掉先前的等待警示
     if request.resource_warning == GPU_WAIT_WARNING:

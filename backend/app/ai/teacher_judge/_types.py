@@ -92,6 +92,7 @@ class CoverageResult(TypedDict):
     fix_hints: list[FixHint]
     mappings: list[CoverageMapping]
     uncovered_items: list[dict[str, str]]
+    available_check_ids: list[str]
 
 
 # ── Previous Review Feedback ──────────────────────────────────────────────────
@@ -106,6 +107,8 @@ class PreviousReviewFeedback(TypedDict, total=False):
     coverage_approved: bool | None
     coverage_issues: list[str]
     uncovered_rubric_items: list[dict[str, str]]
+    available_check_ids: list[str]
+    repair_guidance: list[dict[str, object]]
     ai_review_approved: bool | None
     ai_review_issues: list[str]
     ai_review_suggested_fix: str | None

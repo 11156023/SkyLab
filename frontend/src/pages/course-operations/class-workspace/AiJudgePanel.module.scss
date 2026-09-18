@@ -382,6 +382,19 @@
 }
 
 .rubricDescriptionCell { min-width: 260px; }
+.rubricMethodText {
+  min-height: 36px;
+  margin: 0;
+  padding: 7px 9px;
+  border-radius: $radius-8;
+  color: var(--color-text-primary);
+  line-height: 1.45;
+  white-space: pre-wrap;
+}
+.rubricMethodTextEmpty {
+  color: var(--color-text-muted);
+  font-style: italic;
+}
 .rubricDetailToggleCell { vertical-align: middle !important; }
 .rubricDetectabilityCell { vertical-align: middle !important; }
 .rubricActionsCell { vertical-align: middle !important; }
@@ -527,6 +540,29 @@
   }
 }
 
+/* 檢查步驟的唯讀參數顯示：每個步驟一列，後接 argv／cwd 等參數 chip。 */
+.stepPlanList {
+  display: grid;
+  gap: 6px;
+}
+
+.stepPlanRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.chipLabel,
+.chipText {
+  font-size: $font-size-10;
+  color: var(--color-text-muted);
+}
+
+.stepPlanRow .chip code {
+  color: var(--color-text-primary);
+}
+
 /* ── AI 對話 ── */
 .chatCard {
   padding: $spacing-16 $spacing-24;
@@ -623,6 +659,12 @@
 .chatBubble_user {
   background: var(--color-primary);
   color: var(--color-text-on-primary);
+}
+
+.chatLoadingText {
+  margin: 0 0 6px;
+  font-size: $font-size-14;
+  color: var(--color-text-secondary);
 }
 
 @keyframes typingPulse {
@@ -735,6 +777,25 @@
 .chatMessageAttachment {
   padding: 4px 7px;
   font-size: $font-size-12;
+}
+
+.chatToolCallList {
+  margin: 6px 0 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.chatToolCallItem {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: $font-size-12;
+  color: var(--color-text-muted);
+
+  svg { flex-shrink: 0; }
 }
 
 .chatForm {
@@ -1055,6 +1116,176 @@
   gap: $spacing-8;
   font-weight: $font-weight-500;
   color: var(--color-text-primary);
+}
+
+/* ── 檢查項目表格（執行結果） ── */
+.checkTable {
+  @include flex-column;
+  gap: 2px;
+  margin-top: $spacing-8;
+  border: 1px solid var(--color-border);
+  border-radius: $radius-8;
+  overflow: hidden;
+  font-size: $font-size-12;
+}
+
+.checkRow {
+  display: grid;
+  grid-template-columns: 20px 24px minmax(120px, 1.2fr) 2fr;
+  align-items: center;
+  gap: $spacing-8;
+  width: 100%;
+  padding: $spacing-8 $spacing-8;
+  text-align: left;
+  border: none;
+  background: transparent;
+  color: var(--color-text-primary);
+  font-size: $font-size-12;
+}
+
+.checkRowHead {
+  padding: $spacing-8 $spacing-8;
+  background: var(--color-hover);
+  font-weight: $font-weight-500;
+  color: var(--color-text-muted);
+}
+
+.checkRowBtn {
+  cursor: pointer;
+
+  &:hover:not(:disabled) {
+    background: var(--color-hover);
+  }
+
+  &:disabled {
+    cursor: default;
+  }
+}
+
+.checkItem {
+  border-top: 1px solid var(--color-border);
+
+  &:first-of-type {
+    border-top: none;
+  }
+}
+
+.checkIconCol {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.checkIconPass { color: var(--color-success); }
+.checkIconFail { color: var(--color-danger); }
+.checkIconWarn { color: var(--color-pending); }
+.checkIconSkip { color: var(--color-text-muted); }
+
+.checkTitle {
+  font-weight: $font-weight-500;
+  overflow-wrap: anywhere;
+}
+
+.checkEvidence {
+  color: var(--color-text-secondary);
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow-wrap: anywhere;
+}
+
+.checkToggleCol {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--color-text-muted);
+}
+
+.checkDetail {
+  padding: $spacing-8 $spacing-8 $spacing-16
+    calc(#{$spacing-8} + 20px + #{$spacing-8} + 24px + #{$spacing-8});
+  background: var(--color-hover);
+
+  p {
+    margin: 0 0 $spacing-8;
+    color: var(--color-text-secondary);
+  }
+}
+
+/* ── 指令 log（stdout / stderr / returncode） ── */
+.cmdLog {
+  @include flex-column;
+  gap: $spacing-8;
+  margin-top: $spacing-8;
+}
+
+.cmdHead {
+  @include flex-between;
+  gap: $spacing-8;
+}
+
+.cmdBlock {
+  @include flex-column;
+  gap: 2px;
+}
+
+.cmdLabel {
+  font-size: $font-size-12;
+  color: var(--color-text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.cmdStdout,
+.cmdStderr {
+  margin: 0;
+  padding: $spacing-8 $spacing-8;
+  border-radius: $radius-8;
+  font-family: monospace;
+  font-size: $font-size-14;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: 240px;
+  overflow-y: auto;
+}
+
+.cmdStdout {
+  background: var(--color-hover);
+  border: 1px solid var(--color-border);
+  color: var(--color-text-primary);
+}
+
+.cmdStderr {
+  background: color-mix(in srgb, var(--color-danger) 8%, transparent);
+  border: 1px solid color-mix(in srgb, var(--color-danger) 30%, transparent);
+  color: var(--color-text-primary);
+}
+
+.cmdBadge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: $font-size-12;
+  font-family: monospace;
+}
+
+.cmdBadgeOk {
+  background: color-mix(in srgb, var(--color-success) 12%, transparent);
+  color: var(--color-success);
+}
+
+.cmdBadgeError {
+  background: color-mix(in srgb, var(--color-danger) 12%, transparent);
+  color: var(--color-danger);
+}
+
+.cmdEmpty {
+  color: var(--color-text-muted);
+  font-size: $font-size-12;
 }
 
 .vmidBox {
@@ -1819,6 +2050,20 @@
   em { margin-right: 6px; color: var(--color-primary-on-surface); font-style: normal; font-weight: $font-weight-700; }
 }
 
+/* 提案列的唯讀指令預覽；只顯示 argv，不提供編輯。 */
+.proposalCommandPreview {
+  justify-self: start;
+  max-width: 100%;
+  padding: 2px 8px;
+  border: 1px solid var(--color-divider);
+  border-radius: $radius-8;
+  background: var(--color-hover);
+  font-family: monospace;
+  font-size: $font-size-10;
+  color: var(--color-text-primary);
+  overflow-wrap: anywhere;
+}
+
 .proposalActions {
   display: flex;
   justify-content: flex-end;
@@ -1833,25 +2078,6 @@
       width: 100%;
     }
   }
-}
-
-.runHistory {
-  display: grid;
-  gap: $spacing-8;
-  margin-top: $spacing-16;
-}
-
-.runHistoryItem {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: $spacing-16;
-  padding: 8px 10px;
-  border: 1px solid var(--color-border);
-  border-radius: $radius-8;
-  background: var(--color-surface);
-  color: var(--color-text-primary);
-  cursor: pointer;
 }
 
 @include respond-below(lg) {

@@ -1,5 +1,11 @@
+// @vitest-environment happy-dom
+
+globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+
 import { renderToStaticMarkup } from "react-dom/server";
-import { describe, expect, test } from "vitest";
+import { act } from "react";
+import { createRoot } from "react-dom/client";
+import { afterEach, describe, expect, test, vi } from "vitest";
 import {
   ChatPanel,
   CreateCheckDialog,
@@ -20,9 +26,58 @@ import {
   getSessionMenuPosition,
   getSelectedRubricSource,
   getScriptCreationDestination,
+  getScriptReviewAttemptIssues,
+  getSelectableProposalIds,
+  mergeSessionMessages,
   resolveActiveSessionId,
+  proposalToolCallLines,
+  RubricsTab,
 } from "./AiJudgePanel";
-import { RUBRIC_POLISH_PROMPT } from "../../../services/aiJudge";
+import {
+  AiJudgeService,
+  RUBRIC_POLISH_PROMPT,
+} from "../../../services/aiJudge";
+
+const originalScrollIntoView = Element.prototype.scrollIntoView;
+
+afterEach(() => {
+  Element.prototype.scrollIntoView = originalScrollIntoView;
+  vi.restoreAllMocks();
+});
+
+describe("mergeSessionMessages", () => {
+  test("依 server id 去重排序，但相同內容的不同訊息仍保留", () => {
+    expect(mergeSessionMessages(
+      [
+        { id: "assistant-1", content: "相同結果", created_at: "2026-09-15T00:00:02Z" },
+        { id: "retry-1", content: "相同結果", created_at: "2026-09-15T00:00:03Z" },
+      ],
+      [
+        { id: "assistant-1", content: "更新後結果", created_at: "2026-09-15T00:00:02Z" },
+        { id: "user-1", content: "問題", created_at: "2026-09-15T00:00:01Z" },
+      ],
+    )).toEqual([
+      { id: "user-1", content: "問題", created_at: "2026-09-15T00:00:01Z" },
+      { id: "assistant-1", content: "更新後結果", created_at: "2026-09-15T00:00:02Z" },
+      { id: "retry-1", content: "相同結果", created_at: "2026-09-15T00:00:03Z" },
+    ]);
+  });
+});
+
+describe("getSelectableProposalIds", () => {
+  test("混合結果只預選 Ready／導師檢查操作，不會套用 unresolved candidate", () => {
+    expect([...getSelectableProposalIds(
+      [
+        { id: "ready", operation: "update" },
+        { id: "gap", operation: "update" },
+      ],
+      [
+        { operation: { id: "ready" }, status: "ready" },
+        { operation: { id: "gap" }, status: "needs_information" },
+      ],
+    )]).toEqual(["ready"]);
+  });
+});
 
 describe("ChatPanel", () => {
   test("refine 內部提示詞不會出現在聊天室，並提供清除內容按鈕", () => {
@@ -144,6 +199,241 @@ describe("ChatPanel", () => {
     expect(html).toContain('data-workflow-status="generating"');
     expect(html).toContain("spinning");
   });
+  test("附件逐項核查期間顯示階段文案，不偽造進度百分比", () => {
+    const html = renderToStaticMarkup(
+      <ChatPanel
+        messages={[]}
+        onSendMessage={() => {}}
+        isLoading
+        loadingText="正在拆解評分表並逐項核查…"
+        hasRubric
+      />,
+    );
+
+    expect(html).toContain("正在拆解評分表並逐項核查");
+    expect(html).not.toContain("%");
+  });
+});
+
+describe("RubricsTab 儲存並製作流程", () => {
+  test("重新核對缺少資訊時把 server assistant 結果加入 Chat，且不啟動腳本", async () => {
+    Element.prototype.scrollIntoView = vi.fn();
+    const file = {
+      id: "file-1",
+      template_key: "linux",
+      environment_keys: ["linux"],
+      analysis_revision: 3,
+      source_type: "created",
+      display_name: "測試檢查表",
+      original_filename: null,
+      updated_at: "2026-09-15T00:00:00Z",
+      analysis_json: {
+        items: [{
+          id: "item-port",
+          title: "確認服務 Port",
+          checked: false,
+          detectable: "partial",
+          judgement_mode: "ai",
+          detection_method: "檢查服務",
+          missing_information: ["服務 Port"],
+          check_steps: [],
+          fallback: null,
+        }],
+        total_items: 1,
+        checked_count: 0,
+        auto_count: 0,
+        partial_count: 1,
+        manual_count: 0,
+      },
+    };
+    const assistantMessage = {
+      id: "assistant-1",
+      session_id: "session-1",
+      role: "assistant",
+      message_type: "chat",
+      content: "重新核對後，「確認服務 Port」還缺少：服務 Port。",
+      metadata_json: {
+        status: "needs_information",
+        stage: "reanalysis",
+        script_ready: false,
+        item_results: [{
+          item_id: "item-port",
+          title: "確認服務 Port",
+          status: "needs_information",
+          missing_information: ["服務 Port"],
+        }],
+      },
+      created_at: "2026-09-15T00:00:02Z",
+    };
+    vi.spyOn(AiJudgeService, "listFiles").mockResolvedValue([file]);
+    vi.spyOn(AiJudgeService, "listSessionMessages").mockResolvedValue([]);
+    const sendMessage = vi.spyOn(AiJudgeService, "sendSessionMessage").mockResolvedValue({
+      user_message: {
+        id: "user-1",
+        session_id: "session-1",
+        role: "user",
+        message_type: "chat",
+        content: RUBRIC_POLISH_PROMPT,
+        metadata_json: { ui_hidden: true },
+        created_at: "2026-09-15T00:00:01Z",
+      },
+      assistant_message: assistantMessage,
+      rubric_proposal: [],
+      base_revision: 3,
+    });
+    const createScript = vi.spyOn(AiJudgeService, "createSessionScript").mockResolvedValue({
+      status: "approved",
+    });
+
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    await act(async () => {
+      root.render(
+        <RubricsTab
+          classId="class-1"
+          judgeSession={{ id: "session-1", selected_file_id: "file-1" }}
+        />,
+      );
+      await new Promise((resolve) => setTimeout(resolve, 30));
+    });
+
+    const saveButton = [...container.querySelectorAll("button")]
+      .find((button) => button.textContent.includes("儲存並製作"));
+    expect(saveButton).toBeTruthy();
+    expect(saveButton.disabled).toBe(false);
+    await act(async () => {
+      saveButton.click();
+      await new Promise((resolve) => setTimeout(resolve, 30));
+    });
+
+    expect(sendMessage).toHaveBeenCalledWith(
+      "class-1",
+      "session-1",
+      RUBRIC_POLISH_PROMPT,
+      3,
+      { isRefine: true },
+    );
+    expect(container.textContent).toContain("確認服務 Port");
+    expect(container.textContent).toContain("尚有項目需要補充");
+    expect(createScript).not.toHaveBeenCalled();
+    await act(async () => {
+      root.unmount();
+    });
+    container.remove();
+  });
+
+  test("重新核對全部不可套用時不顯示提案面板，只保留 Chat 回覆", async () => {
+    Element.prototype.scrollIntoView = vi.fn();
+    const file = {
+      id: "file-1",
+      template_key: "linux",
+      environment_keys: ["linux"],
+      analysis_revision: 3,
+      source_type: "created",
+      display_name: "測試檢查表",
+      original_filename: null,
+      updated_at: "2026-09-15T00:00:00Z",
+      analysis_json: {
+        items: [{
+          id: "item-port",
+          title: "確認服務 Port",
+          checked: false,
+          detectable: "partial",
+          judgement_mode: "ai",
+          detection_method: "檢查服務",
+          missing_information: ["服務 Port"],
+          check_steps: [],
+          fallback: null,
+        }],
+        total_items: 1,
+        checked_count: 0,
+        auto_count: 0,
+        partial_count: 1,
+        manual_count: 0,
+      },
+    };
+    const assistantMessage = {
+      id: "assistant-1",
+      session_id: "session-1",
+      role: "assistant",
+      message_type: "chat",
+      content: "重新核對後，「確認服務 Port」還缺少：服務 Port。",
+      metadata_json: {
+        status: "needs_information",
+        stage: "reanalysis",
+        script_ready: false,
+        item_results: [{
+          item_id: "item-port",
+          title: "確認服務 Port",
+          status: "needs_information",
+          missing_information: ["服務 Port"],
+        }],
+      },
+      created_at: "2026-09-15T00:00:02Z",
+    };
+    vi.spyOn(AiJudgeService, "listFiles").mockResolvedValue([file]);
+    vi.spyOn(AiJudgeService, "listSessionMessages").mockResolvedValue([]);
+    vi.spyOn(AiJudgeService, "sendSessionMessage").mockResolvedValue({
+      user_message: {
+        id: "user-1",
+        session_id: "session-1",
+        role: "user",
+        message_type: "chat",
+        content: RUBRIC_POLISH_PROMPT,
+        metadata_json: { ui_hidden: true },
+        created_at: "2026-09-15T00:00:01Z",
+      },
+      assistant_message: assistantMessage,
+      rubric_proposal: [{
+        id: "item-port",
+        title: "確認服務 Port",
+        checked: false,
+        detectable: "partial",
+        judgement_mode: "ai",
+        detection_method: "檢查服務 Port",
+        missing_information: ["服務 Port"],
+        check_steps: [],
+        fallback: null,
+        operation: "update",
+      }],
+      base_revision: 3,
+    });
+    const createScript = vi.spyOn(AiJudgeService, "createSessionScript").mockResolvedValue({
+      status: "approved",
+    });
+
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    await act(async () => {
+      root.render(
+        <RubricsTab
+          classId="class-1"
+          judgeSession={{ id: "session-1", selected_file_id: "file-1" }}
+        />,
+      );
+      await new Promise((resolve) => setTimeout(resolve, 30));
+    });
+
+    const saveButton = [...container.querySelectorAll("button")]
+      .find((button) => button.textContent.includes("儲存並製作"));
+    expect(saveButton).toBeTruthy();
+    await act(async () => {
+      saveButton.click();
+      await new Promise((resolve) => setTimeout(resolve, 30));
+    });
+
+    expect(container.textContent).not.toContain("AI 核對提案");
+    expect(container.textContent).not.toContain("同意套用");
+    expect(container.textContent).toContain("重新核對後，「確認服務 Port」還缺少：服務 Port。");
+    expect(container.textContent).toContain("尚有項目需要補充");
+    expect(createScript).not.toHaveBeenCalled();
+    await act(async () => {
+      root.unmount();
+    });
+    container.remove();
+  });
 });
 
 describe("CreateCheckDialog", () => {
@@ -191,6 +481,60 @@ describe("ProposalPanel", () => {
     expect(html).not.toContain("略過");
     expect(html).not.toContain("套用選取");
   });
+
+  test("附件逐項結果依來源順序顯示，不可套用項目不提供勾選框", () => {
+    const itemResults = [
+      {
+        source_index: 1,
+        source_label: "第 1 列",
+        title: "確認 Python 版本",
+        status: "ready",
+        operation: { id: "item-attachment-1", operation: "add", title: "確認 Python 版本" },
+        missing_information: [],
+        detail: "",
+      },
+      {
+        source_index: 2,
+        source_label: "第 2 列",
+        title: "檢查 Port 8080",
+        status: "needs_information",
+        operation: null,
+        missing_information: ["要檢查的服務或連接埠範圍"],
+        detail: "",
+      },
+      {
+        source_index: 3,
+        source_label: "第 3 列",
+        title: "程式架構品質",
+        status: "teacher_review",
+        operation: { id: "item-attachment-3", operation: "add", title: "程式架構品質" },
+        missing_information: [],
+        detail: "",
+      },
+    ];
+
+    const html = renderToStaticMarkup(
+      <ProposalPanel
+        proposal={[
+          { id: "item-attachment-1", operation: "add", title: "確認 Python 版本" },
+          { id: "item-attachment-3", operation: "add", title: "程式架構品質" },
+        ]}
+        selectedIds={new Set(["item-attachment-1", "item-attachment-3"])}
+        onToggle={() => {}}
+        onApply={() => {}}
+        onSkip={() => {}}
+        disabled={false}
+        itemResults={itemResults}
+      />,
+    );
+
+    expect(html.indexOf("第 1 列")).toBeLessThan(html.indexOf("第 2 列"));
+    expect(html.indexOf("第 2 列")).toBeLessThan(html.indexOf("第 3 列"));
+    expect(html).toContain("缺少資訊");
+    expect(html).toContain("要檢查的服務或連接埠範圍");
+    expect(html.match(/type="checkbox"/g)).toHaveLength(2);
+    expect(html).toContain("同意套用");
+  });
 });
 
 describe("SaveAndCreateAction", () => {
@@ -228,7 +572,6 @@ describe("RubricTable", () => {
     {
       id: "python-version",
       title: "Python 版本檢查",
-      description: "Python 需要至少 3.11",
       detectable: "auto",
       judgement_mode: "ai",
       detection_method: "執行 python --version",
@@ -238,7 +581,6 @@ describe("RubricTable", () => {
     {
       id: "response-quality",
       title: "回傳內容品質",
-      description: "回傳內容符合規格",
       detectable: "partial",
       detection_method: null,
       fallback: "請補充實際輸出格式",
@@ -248,7 +590,6 @@ describe("RubricTable", () => {
     {
       id: "teacher-review",
       title: "程式架構品質",
-      description: "收集原始碼供老師判斷",
       detectable: "auto",
       judgement_mode: "teacher",
       detection_method: "讀取 main.py 內容",
@@ -257,7 +598,6 @@ describe("RubricTable", () => {
     {
       id: "manual-review",
       title: "主觀設計品質",
-      description: "需要老師依作品判斷",
       detectable: "manual",
       detection_method: null,
       fallback: null,
@@ -271,7 +611,8 @@ describe("RubricTable", () => {
     );
 
     expect(html).toContain("檢查點");
-    expect(html).toContain("檢查條件");
+    expect(html).toContain("檢測方式");
+    expect(html).not.toContain("檢查條件");
     expect(html).toContain("自動檢測支援");
     expect(html).toContain('value="Python 版本檢查"');
     expect(html).toContain("可以");
@@ -288,7 +629,8 @@ describe("RubricTable", () => {
     expect(html).toContain('aria-label="展開第 1 項檢查設定"');
     expect(html.indexOf('aria-label="展開第 1 項檢查設定"')).toBeLessThan(html.indexOf('value="Python 版本檢查"'));
     expect(html).not.toContain(">詳細</button>");
-    expect(html).not.toContain("執行 python --version");
+    expect(html).toContain("執行 python --version");
+    expect(html).not.toContain('placeholder="寫下學生需要符合的條件"');
     expect(html).not.toContain("AI 偵測判斷（僅由 AI 更新）");
   });
 
@@ -306,6 +648,28 @@ describe("RubricTable", () => {
     expect(html).toContain('title="缺少資訊（自動檢測支援待更新）"');
     expect(html).toContain("warning_amber");
   });
+
+  test("缺少資訊的導師核查項目仍優先顯示缺少資訊", () => {
+    const html = renderToStaticMarkup(
+      <RubricTable
+        items={[{
+          id: "partial-teacher",
+          title: "程式風格檢查",
+          detectable: "partial",
+          judgement_mode: "teacher",
+          detection_method: null,
+          fallback: null,
+          missing_information: ["預期輸出格式"],
+          check_steps: [],
+        }]}
+        onChange={() => {}}
+        onDelete={() => {}}
+      />,
+    );
+
+    expect(html).toContain("缺少資訊");
+    expect(html).not.toContain("導師檢查");
+  });
 });
 
 describe("getScriptCreationBlocker", () => {
@@ -321,7 +685,6 @@ describe("getScriptCreationBlocker", () => {
         cwd: "/home/student/project",
         argv: ["python3", "main.py"],
         timeout_seconds: 30,
-        success_criteria: "exit code 為 0 且 stdout 等於 20",
       },
     }],
   };
@@ -409,7 +772,7 @@ describe("getScriptCreationBlocker", () => {
 describe("rubric item change detection", () => {
   test("相同項目內容不視為異動，實際欄位變更才產生不同快照", () => {
     const saved = {
-      items: [{ id: "item-1", title: "檢查版本", description: "至少 3.11", detectable: "auto" }],
+      items: [{ id: "item-1", title: "檢查版本", detection_method: "執行版本檢查", detectable: "auto" }],
       detectability_needs_review: false,
     };
     const same = { ...saved, detectability_needs_review: true };
@@ -424,8 +787,8 @@ describe("rubric item change detection", () => {
 
   test("只回傳實際變動的項目 ID，不把整張表標成待更新", () => {
     const savedItems = [
-      { id: "item-1", title: "檢查版本", description: "至少 3.11", detectable: "auto" },
-      { id: "item-2", title: "檢查輸出", description: "符合格式", detectable: "partial" },
+      { id: "item-1", title: "檢查版本", detection_method: "執行版本檢查", detectable: "auto" },
+      { id: "item-2", title: "檢查輸出", detection_method: "讀取輸出內容", detectable: "partial" },
     ];
     const currentItems = [
       { ...savedItems[0], title: "檢查 Python 版本" },
@@ -482,8 +845,8 @@ describe("detectability review state", () => {
 
   test("刪除單一項目不會把其他未編輯項目算進待確認清單", () => {
     const savedItems = [
-      { id: "item-1", title: "檢查版本", description: "至少 3.11", detectable: "auto" },
-      { id: "item-2", title: "檢查輸出", description: "符合格式", detectable: "auto" },
+      { id: "item-1", title: "檢查版本", detection_method: "執行版本檢查", detectable: "auto" },
+      { id: "item-2", title: "檢查輸出", detection_method: "讀取輸出內容", detectable: "auto" },
     ];
     const nextItems = [savedItems[1]];
 
@@ -492,13 +855,13 @@ describe("detectability review state", () => {
 
   test("套用提案期間尚未保存完成的內容，會以排程中的分析為基準，不把 AI 套用結果誤判成待更新", () => {
     const savedItems = [
-      { id: "item-1", title: "檢查版本", description: "至少 3.11", detectable: "auto" },
-      { id: "item-2", title: "檢查輸出", description: "符合格式", detectable: "auto" },
+      { id: "item-1", title: "檢查版本", detection_method: "執行版本檢查", detectable: "auto" },
+      { id: "item-2", title: "檢查輸出", detection_method: "讀取輸出內容", detectable: "auto" },
     ];
     // AI 提案已套用 item-1（尚未保存完成），使用者此時編輯 item-2
     const pendingSaveAnalysis = {
       items: [
-        { ...savedItems[0], description: "至少 3.11（AI 補充）" },
+        { ...savedItems[0], detection_method: "執行版本檢查（AI 補充）" },
         savedItems[1],
       ],
       detectability_needs_review: false,
@@ -506,7 +869,7 @@ describe("detectability review state", () => {
     };
     const nextItems = [
       pendingSaveAnalysis.items[0],
-      { ...savedItems[1], description: "符合格式（教師微調）" },
+      { ...savedItems[1], detection_method: "讀取輸出內容（教師微調）" },
     ];
 
     expect([...getPendingRubricItemIds(
@@ -522,12 +885,12 @@ describe("detectability review state", () => {
 describe("buildProposalDiff", () => {
   test("將 AI 修改轉成可確認差異，且未回傳項目不會被默認刪除", () => {
     const current = [
-      { id: "keep", title: "保留", description: "原內容", detectable: "manual" },
-      { id: "remove", title: "移除", description: "舊項目", detectable: "manual" },
+      { id: "keep", title: "保留", detection_method: "原檢測方式", detectable: "manual" },
+      { id: "remove", title: "移除", detection_method: "舊檢測方式", detectable: "manual" },
     ];
     const diff = buildProposalDiff(current, [
-      { id: "keep", title: "保留", description: "新內容", detectable: "manual" },
-      { id: "new", title: "新增", description: "新項目", detectable: "auto" },
+      { id: "keep", title: "保留", detection_method: "新檢測方式", detectable: "manual" },
+      { id: "new", title: "新增", detection_method: "新檢測方式", detectable: "auto" },
       { id: "remove", operation: "delete", title: "移除" },
     ]);
 
@@ -541,21 +904,61 @@ describe("buildProposalDiff", () => {
   test("候選檢查表只套用選定差異並保留未提及項目", () => {
     const result = applyProposalOperations(
       [
-        { id: "keep", title: "保留", description: "原內容" },
-        { id: "remove", title: "移除", description: "舊內容" },
+        { id: "keep", title: "保留", detection_method: "原檢測方式" },
+        { id: "remove", title: "移除", detection_method: "舊檢測方式" },
       ],
       [
-        { id: "keep", title: "保留", description: "新內容", operation: "update" },
+        { id: "keep", title: "保留", detection_method: "新檢測方式", operation: "update" },
         { id: "remove", operation: "delete" },
       ],
       new Set(["keep"]),
     );
 
     expect(result.items).toEqual([
-      { id: "keep", title: "保留", description: "新內容" },
-      { id: "remove", title: "移除", description: "舊內容" },
+      { id: "keep", title: "保留", detection_method: "新檢測方式" },
+      { id: "remove", title: "移除", detection_method: "舊檢測方式" },
     ]);
     expect([...result.evaluatedIds]).toEqual(["keep"]);
+  });
+});
+
+describe("proposalToolCallLines", () => {
+  test("以工具實際結果顯示建立／修改提案狀態，read 事件不顯示", () => {
+    const message = {
+      metadata_json: {
+        tool_calls: [
+          { tool: "list_checklist", status: "read", item_count: 2 },
+          {
+            tool: "create_checklist_item",
+            status: "staged",
+            operation: "add",
+            title: "檢查 Python 版本",
+          },
+          {
+            tool: "edit_checklist_item",
+            status: "staged",
+            operation: "update",
+            title: "既有 Port 檢查",
+          },
+          {
+            tool: "edit_checklist_item",
+            status: "rejected",
+            title: "未讀取項目",
+          },
+        ],
+      },
+    };
+
+    expect(proposalToolCallLines(message)).toEqual([
+      { icon: "check_circle", text: "已建立提案：檢查 Python 版本" },
+      { icon: "check_circle", text: "已送出修改提案：既有 Port 檢查" },
+      { icon: "cancel", text: "提案未建立：未讀取項目" },
+    ]);
+  });
+
+  test("沒有 tool_calls metadata 時回傳空陣列", () => {
+    expect(proposalToolCallLines({ metadata_json: {} })).toEqual([]);
+    expect(proposalToolCallLines(null)).toEqual([]);
   });
 });
 
@@ -626,6 +1029,17 @@ describe("resolveActiveSessionId", () => {
 });
 
 describe("script creation workflow", () => {
+  test("重試摘要會保留 coverage 錯誤與未覆蓋項目", () => {
+    expect(getScriptReviewAttemptIssues({
+      phase: "coverage",
+      coverage_issues: ["coverage 引用不存在的 check id：missing"],
+      uncovered_rubric_items: [{ id: "item-1", title: "收集 Python 版本" }],
+    })).toEqual([
+      "coverage 引用不存在的 check id：missing",
+      "未覆蓋檢查項目：收集 Python 版本",
+    ]);
+  });
+
   test("通過自動檢查後進入執行結果，失敗時進入腳本總覽", () => {
     expect(getScriptCreationDestination({ status: "approved" })).toBe("execution");
     expect(getScriptCreationDestination({ status: "review_failed", id: "script-1" })).toBe("scripts");

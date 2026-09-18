@@ -30,41 +30,53 @@ def _non_empty_argv(value: Any) -> bool:
     )
 
 
-def _valid_timeout(value: Any) -> bool:
-    return isinstance(value, int) and not isinstance(value, bool) and 1 <= value <= 300
+def _gap_text(
+    parameters: dict[str, Any],
+    key: str,
+    missing_text: str,
+    invalid_text: str,
+) -> str:
+    """Distinguish an absent field from one present with an unusable value."""
+    return invalid_text if parameters.get(key) is not None else missing_text
 
 
 def missing_step_information(
     step: TeacherJudgeRubricCheckStep,
-    *,
-    judgement_mode: str = "ai",
 ) -> list[str]:
     """Return required structured inputs missing from a parameterized command step."""
     parameters = step.parameters
     missing: list[str] = []
 
     if step.command_key == "python.run_entrypoint":
-        if not isinstance(parameters.get("cwd"), str) or not str(
-            parameters.get("cwd")
-        ).strip():
-            missing.append("main.py 所在的工作目錄")
+        cwd = parameters.get("cwd")
+        if not isinstance(cwd, str) or not cwd.strip():
+            missing.append(
+                _gap_text(
+                    parameters,
+                    "cwd",
+                    "main.py 所在的工作目錄",
+                    "main.py 所在的工作目錄（cwd 必須是非空字串）",
+                )
+            )
         if not _non_empty_argv(parameters.get("argv")):
-            missing.append("實際 Python 命令與參數")
-        if not _valid_timeout(parameters.get("timeout_seconds")):
-            missing.append("1 至 300 秒的逾時限制")
-        if judgement_mode == "ai" and (
-            not isinstance(parameters.get("success_criteria"), str)
-            or not str(parameters.get("success_criteria")).strip()
-        ):
-            missing.append("客觀成功條件")
+            missing.append(
+                _gap_text(
+                    parameters,
+                    "argv",
+                    "實際 Python 命令與參數",
+                    "實際 Python 命令與參數（argv 必須是非空字串 list）",
+                )
+            )
     elif step.command_key == "system.run_command":
         if not _non_empty_argv(parameters.get("argv")):
-            missing.append("要檢查的檔案、服務或記錄範圍")
-        if judgement_mode == "ai" and (
-            not isinstance(parameters.get("success_criteria"), str)
-            or not str(parameters.get("success_criteria")).strip()
-        ):
-            missing.append("客觀成功條件")
+            missing.append(
+                _gap_text(
+                    parameters,
+                    "argv",
+                    "要檢查的檔案、服務或記錄範圍",
+                    "要檢查的檔案、服務或記錄範圍（argv 必須是非空字串 list）",
+                )
+            )
 
     return missing
 
@@ -76,15 +88,13 @@ def _item_missing_information(
 ) -> list[str]:
     missing = list(item.missing_information)
     if not item.detection_method or not item.detection_method.strip():
-        missing.append("檢測方式與判定條件")
+        missing.append("檢測方式與結果解讀")
     if not item.check_steps:
         missing.append("平台支援的檢查步驟")
     for step in item.check_steps:
         if (step.template_key, step.command_key) not in valid_commands:
             missing.append(f"有效的檢查能力：{step.command_key}")
-        missing.extend(
-            missing_step_information(step, judgement_mode=item.judgement_mode)
-        )
+        missing.extend(missing_step_information(step))
     return list(dict.fromkeys(value for value in missing if value))
 
 
@@ -139,7 +149,7 @@ def get_script_generation_blockers(
                 missing = [
                     item.fallback.strip()
                     if item.fallback and item.fallback.strip()
-                    else "完整的服務名稱、程式位置、連接埠或成功條件"
+                    else "完整的服務名稱、程式位置、連接埠或取證範圍"
                 ]
             blockers.append(
                 {

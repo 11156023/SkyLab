@@ -249,7 +249,6 @@ function CredentialCard({ item, onRefresh }) {
           </span>
         </div>
         <div className={styles.credMeta}>
-          <span>{t("AiApiPage.metaPrefix", { value: item.api_key_prefix })}</span>
           <span>{t("AiApiPage.metaCreated", { value: formatDateTime(item.created_at) })}</span>
           <span className={expired ? styles.textDanger : ""}>{t("AiApiPage.metaExpiry", { value: fmtExpiry(item.expires_at) })}</span>
           {item.revoked_at && <span>{t("AiApiPage.metaRevoked", { value: formatDateTime(item.revoked_at) })}</span>}

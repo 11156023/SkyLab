@@ -21,8 +21,25 @@ SCRIPT_GENERATION_CONTRACT_PROMPT = f"""
 - 核心 helper 只有 2 個：`truncate_output`、`record_check`；僅在需要執行外部命令時才額外定義並使用 `command_available` 與 `run_command`。
 - `truncate_output(text, limit={RAW_OUTPUT_CHAR_LIMIT})` 必須將 raw 輸出截斷到固定長度。
 - `command_available(command)` 必須用 `shutil.which(command)` 檢查外部工具是否存在。
-- `run_command(argv, cwd=None, timeout=秒數)` 必須包裝 `subprocess.run([...], cwd=cwd, capture_output=True, text=True, check=False, timeout=...)`，並回傳包含未遮蔽 `stdout`、`stderr`、`returncode` 的 dict。
-- `record_check(...)` 必須統一建立檢查結果，`raw` 保留未遮蔽的 stdout/stderr/returncode，並只經過 `truncate_output` 控制結果大小。
+- `run_command(argv, cwd=None, timeout=秒數)` 必須包裝 `subprocess.run([...], cwd=cwd, capture_output=True, text=True, check=False, timeout=...)`，並回傳包含未遮蔽 `stdout`、`stderr`、`returncode` 的 dict；若捕捉未預期例外，回傳 `{{"stdout": "", "stderr": str(exc), "returncode": None}}`，不要在 helper 內操作 `errors` 或 `checks`，由呼叫端記錄錯誤。
+- `record_check(...)` 必須使用唯一的 pure-return 形狀：`record_check(check_id, title, status, evidence, raw="")` 回傳單一結果 dict；呼叫端固定使用 `checks.append(record_check(...))`，不得把 `checks_list` 或 `errors` 傳入 helper 後由 helper 直接 append。
+- `record_check` 的 raw 參數可接收字串或 `run_command()` 回傳的 payload dict，但 helper 必須先在函式定義內將非字串 payload 以 `json.dumps(raw, ensure_ascii=False, default=str)` 序列化，再由一次 `truncate_output(raw_text)` 控制整個 `raw` 欄位；不可回傳巢狀 dict，也不可只在呼叫端截斷。
+- 產生 helper 時必須遵守以下固定骨架（可加型別註記，但不得改變參數順序、回傳與呼叫責任）：
+  ```python
+  def record_check(check_id, title, status, evidence, raw=""):
+      raw_text = raw if isinstance(raw, str) else json.dumps(
+          raw, ensure_ascii=False, default=str
+      )
+      return {{
+          "id": check_id,
+          "title": title,
+          "status": status,
+          "evidence": evidence,
+          "raw": truncate_output(raw_text),
+      }}
+
+  checks.append(record_check(check_id, "收集 ...", "unknown", "...", raw_payload))
+  ```
 
 # 狀態語意
 - `pass`：只有在必要條件被明確驗證成立時才能使用。
@@ -63,6 +80,7 @@ SCRIPT_GENERATION_CONTRACT_PROMPT = f"""
 - 頂層 `metadata` 必須包含 `timestamp` 與 `platform`。
 - 每個 check 需包含 `id`, `title`, `status`, `evidence`, `raw`。
 - `id` 必須是語意化穩定 ID，例如 `runtime.python_version`、`service.n8n_port`，不可使用 `check-1`、`item-1`、`stable_check_id`。
+- coverage 的 check_id 必須與實際 record_check ID 完全一致；可直接傳字串，或使用在該次呼叫前明確指定的字串常數。不要使用動態或分支不明的 ID。
 - `title` 使用「收集」語意，例如「收集 Python 版本」、「收集 n8n 連接埠」，不要用「檢查」開頭。
 - 允許狀態只有 `pass`, `fail`, `warning`, `unknown`, `skipped`。
 """.strip()
