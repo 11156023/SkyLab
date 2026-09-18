@@ -173,7 +173,10 @@ def _apply_session_topology(
         ).all()
     )
     directions: list[tuple[VMRequest, VMRequest, str, int | None]] = []
-    if edges:
+    peer_policy = class_network_service.peer_policy_for_version(
+        session, practice.environment_version_id
+    )
+    if peer_policy != class_network_service.PEER_POLICY_SEGMENT:
         for edge in edges:
             source = machines_by_key.get(edge.source_node_key)
             target = machines_by_key.get(edge.target_node_key)
@@ -183,8 +186,7 @@ def _apply_session_topology(
             if edge.direction == "bidirectional":
                 directions.append((target, source, edge.protocol, edge.port))
     else:
-        # An environment without explicit edges retains the existing logical
-        # segment behaviour used by formal classes.
+        # segment：共用邏輯網段的機器全協定全埠互通（舊行為，與正式班級一致）
         for source_key, source in machines_by_key.items():
             source_node = nodes_by_key.get(source_key)
             if source_node is None:
@@ -801,8 +803,10 @@ def serialize_session(session: Session, item: QuickPracticeSession) -> dict:
     # 對外網址直接讀反向代理紀錄，清單頁不打 Proxmox
     from app.services.teaching import course_publication_service  # noqa: PLC0415
 
-    public_urls = course_publication_service.public_urls_by_vmid(
-        session, [request.vmid for _machine, request in rows if request.vmid is not None]
+    vmids = [request.vmid for _machine, request in rows if request.vmid is not None]
+    public_urls = course_publication_service.public_urls_by_vmid(session, vmids)
+    forward_endpoints = course_publication_service.forward_endpoints_by_vmid(
+        session, vmids
     )
     machines = []
     for machine, request in rows:
@@ -830,6 +834,9 @@ def serialize_session(session: Session, item: QuickPracticeSession) -> dict:
                 ),
                 "os_info": request.os_info,
                 "public_url": public_urls.get(request.vmid) if request.vmid else None,
+                "forward_endpoints": (
+                    forward_endpoints.get(request.vmid, []) if request.vmid else []
+                ),
             }
         )
     statuses = {machine["status"] for machine in machines}

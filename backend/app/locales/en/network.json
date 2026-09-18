@@ -5,6 +5,8 @@
   "nat.haproxySyncCommandFailed": "Failed to synchronize haproxy configuration: {out}{err}",
   "nat.haproxySyncFailed": "haproxy synchronization failed: {error}",
   "nat.ruleNotFound": "NAT rule {ruleId} does not exist",
+  "nat.poolNotConfigured": "The managed subnet is not configured, so external ports cannot be allocated automatically",
+  "nat.poolExhausted": "The external port pool {start}–{end} is exhausted; ask an administrator to widen the range or release unused forwards",
 
   "reverseProxy.zoneNameInvalid": "Zone name format is invalid",
   "reverseProxy.subdomainInvalid": "Subdomain format is invalid",

@@ -99,7 +99,7 @@
   }
 }
 
-/* 選定的意圖列：與 modeCardActive 同一套「選中＝不透明主色淡染」語言 */
+/* 選定的意圖列：「選中＝不透明主色淡染」語言（混 surface，不混 transparent 以免在玻璃上透底） */
 .intentChip {
   display: flex;
   align-items: center;
@@ -238,59 +238,9 @@
 .hintBad  { color: var(--color-danger); }
 .hintWarn { color: var(--color-pending); }
 
-/* ── 發布方式卡片 ── */
-.modeCards {
-  display: grid;
-  grid-template-columns: 1fr;
-  gap: $spacing-8;
-
-  @include respond-to(md) {
-    grid-template-columns: repeat(3, 1fr);
-  }
-}
-
-/* 與第一步的 intentCard 同一套無框卡：白磁磚底、hover 淡染；
-   active 用較深的不透明淡染＋標題轉主色（混 surface，不能混 transparent 以免在玻璃上透底）。
-   active 放在 hover 之後，特異度打平時後者贏，hover 才不會蓋掉選中態 */
-.modeCard {
-  @include flex-column;
-  gap: 2px;
-  padding: $spacing-8 $spacing-16;
-  border-radius: $radius-8;
-  background: var(--color-surface);
-  text-align: left;
-  color: var(--color-text-secondary);
-  cursor: pointer;
-  transition: background $transition-base;
-
-  strong {
-    display: inline-flex;
-    align-items: center;
-    gap: 4px;
-    font-size: $font-size-14;
-    font-weight: $font-weight-500;
-    color: var(--color-text-primary);
-  }
-
-  span {
-    font-size: $font-size-12;
-    line-height: 1.4;
-  }
-
-  &:hover:not(:disabled) {
-    background: color-mix(in srgb, var(--color-primary) 6%, var(--color-surface));
-  }
-
-  &.modeCardActive {
-    background: color-mix(in srgb, var(--color-primary) 10%, var(--color-surface));
-
-    strong { color: var(--color-primary-on-surface); }
-  }
-}
-
-/* ── 方向切換（VM→VM）：共用 SegmentedControl ──
-   機器名很長，讓兩段平分寬度；改 display 讓 text-overflow 對純文字生效
-   （此處無 icon／badge，蓋掉 inline-flex 不影響排版） */
+/* ── 分段切換（發布方式、VM→VM 方向共用）：共用 SegmentedControl ──
+   各段平分寬度、等高不因文案長短跑版；機器名可能很長，
+   改 display 讓 text-overflow 對純文字生效（icon 為 inline 元素不受影響） */
 .dirToggle {
   display: flex;
   width: 100%;
@@ -430,4 +380,18 @@
 
 .confirmBtn {
   @include btn-primary;
+}
+
+/* ── port 欄位不需要整列寬：固定寬度、靠左排 ── */
+.portRow {
+  grid-template-columns: 128px 104px 28px;
+}
+
+.forwardRowHeader,
+.forwardRow {
+  grid-template-columns: 128px 128px 104px 28px;
+}
+
+.fieldNarrow {
+  max-width: 160px;
 }

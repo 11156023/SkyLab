@@ -3,6 +3,8 @@
  * 點選拓撲圖上的連線後滑入的細節面板：講清楚這條線「開了什麼、往哪個方向」，
  * 並把刪除收在這裡，取代原本掛在線上的小叉叉。
  * 與 RulesPanel 互斥顯示（同一個右側位置）。
+ * 課程環境編輯器也用它看模板上的線：那裡的網址是樣板（allowOpen=false），
+ * 已發布的版本不能改（不給 onDelete 就沒有刪除鈕）。
  */
 
 import { useTranslation } from "react-i18next";
@@ -16,7 +18,7 @@ const MODE_META = {
   [PORT_MODE.FIREWALL]: { icon: "shield",     labelKey: "ConnectionPanel.modeFirewallOnly" },
 };
 
-export default function ConnectionDetailPanel({ edge, resolveName, onClose, onDelete, closing = false }) {
+export default function ConnectionDetailPanel({ edge, resolveName, onClose, onDelete, closing = false, allowOpen = true }) {
   const { t } = useTranslation("network");
   if (!edge) return null;
 
@@ -85,7 +87,7 @@ export default function ConnectionDetailPanel({ edge, resolveName, onClose, onDe
                       {port.protocol ? ` · ${port.protocol}` : ""}
                     </span>
                   </div>
-                  {mode === PORT_MODE.DOMAIN && (
+                  {mode === PORT_MODE.DOMAIN && allowOpen && (
                     <a
                       className={styles.openLink}
                       href={`https://${port.domain}`}
@@ -103,12 +105,12 @@ export default function ConnectionDetailPanel({ edge, resolveName, onClose, onDe
         )}
       </div>
 
-      <div className={styles.footer}>
+      {onDelete && <div className={styles.footer}>
         <button type="button" className={styles.deleteBtn} onClick={() => onDelete(edge)}>
           <MIcon name="delete" size={15} />
           {t("ConnectionPanel.delete")}
         </button>
-      </div>
+      </div>}
     </div>
   );
 }

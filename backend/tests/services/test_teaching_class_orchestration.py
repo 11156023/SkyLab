@@ -403,6 +403,22 @@ def test_class_jobs_are_approved_as_one_decision(monkeypatch):
     assert started == job_ids
 
 
+def test_peer_policy_defaults_to_explicit_when_the_version_is_unknown():
+    """找不到版本就當隔離，不能因為查不到而把整段網路打通。"""
+    session = SimpleNamespace(get=lambda *_args: None)
+
+    assert class_network_service.peer_policy_for_version(session, uuid.uuid4()) == "explicit"
+    assert class_network_service.peer_policy_for_version(session, None) == "explicit"
+
+
+def test_peer_policy_only_honours_an_explicit_segment_choice():
+    session = SimpleNamespace(get=lambda *_args: SimpleNamespace(peer_policy="segment"))
+    assert class_network_service.peer_policy_for_version(session, uuid.uuid4()) == "segment"
+
+    session = SimpleNamespace(get=lambda *_args: SimpleNamespace(peer_policy="whatever"))
+    assert class_network_service.peer_policy_for_version(session, uuid.uuid4()) == "explicit"
+
+
 def test_network_labels_accept_ui_slash_or_comma_notation():
     assert class_network_service._segments("lab-net / backend-net, management") == {
         "lab-net",

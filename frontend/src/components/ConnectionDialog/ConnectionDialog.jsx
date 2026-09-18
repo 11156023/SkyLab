@@ -15,6 +15,12 @@
  *
  * props：
  * - nodes            可選，[{ key, vmid, name }]；沒給就自己抓 getTopology()
+ * - intents          可選，要出現哪些意圖（預設四種）；課程環境模板只留「開放服務」與「互通」
+ * - templateMode     課程環境模板：機器沒有 vmid、網址是含 {student} 的樣板、對外 port 開課時才配、
+ *                    不做網域即時檢查；送出一律交給 onSubmit，不打 API
+ * - onSubmit(req)    可選，取代預設的送出（submitRequest）；收到 { kind: "rule"|"inbound"|"edge", ... }，
+ *                    回傳 { ok, result } 或 { ok:false, error }
+ * - zones            可選，反向代理的 zone 清單；給了就不再自己抓 setupContext
  * - fixedVmid        鎖定機器為這台 VM（資源詳情頁用）；fixedName 為顯示名稱備援
  * - initialSource / initialTarget  拉線帶入的兩端（"internet" 或 vmid 字串），能推導出意圖就直接跳過選意圖
  * - initialTab       "rule" 時預選「自己寫規則」（仍可更改）
@@ -50,13 +56,16 @@ import {
   disallowedPeerPorts,
   isPortless,
 } from "./connectionPayload";
-import { submitEdge, submitInbound, submitRule } from "./submitConnection";
-import { INTENT, INTERNET_KEY, deriveInitialState, endsOf, isVmKey } from "./intents";
+import { submitRequest } from "./submitConnection";
+import { INTENT, INTENT_ORDER, INTERNET_KEY, deriveInitialState, endsOf, isVmKey } from "./intents";
 import IntentPicker from "./IntentPicker";
+import { previewTemplateHostname } from "./connectionPayload";
 
 export { INTERNET_KEY };
 
 const INBOUND_MODES = ["domain", "port_forward", "firewall_only"];
+/* 課程環境模板沒有「僅開放防火牆」：那條規則不限來源，等於對整個實驗室子網開洞 */
+const TEMPLATE_INBOUND_MODES = ["domain", "port_forward"];
 const CONNECTION_PROTOCOLS = ["tcp", "udp", "icmp", "icmpv6", "sctp"];
 const FORWARD_PROTOCOLS = ["tcp", "udp"];
 const RULE_PROTOCOLS = ["tcp", "udp", "icmp"];
@@ -70,9 +79,9 @@ const newPortRow = (init = {}) => ({ id: uid(), port: "", protocol: "tcp", ...in
 const newForwardRow = (init = {}) => ({ id: uid(), externalPort: "", internalPort: "", protocol: "tcp", ...init });
 
 function modeMeta(mode) {
-  if (mode === "domain") return { icon: "language", labelKey: "ConnectionDialog.modeDomain", descKey: "ConnectionDialog.modeDomainDesc" };
-  if (mode === "port_forward") return { icon: "swap_horiz", labelKey: "ConnectionDialog.modePortForward", descKey: "ConnectionDialog.modePortForwardDesc" };
-  return { icon: "shield", labelKey: "ConnectionDialog.modeFirewallOnly", descKey: "ConnectionDialog.modeFirewallOnlyDesc" };
+  if (mode === "domain") return { icon: "language", labelKey: "ConnectionDialog.modeDomain" };
+  if (mode === "port_forward") return { icon: "swap_horiz", labelKey: "ConnectionDialog.modePortForward" };
+  return { icon: "shield", labelKey: "ConnectionDialog.modeFirewallOnly" };
 }
 
 /* ── 一列一個 port：僅開放防火牆、VM→VM 共用 ── */
@@ -213,10 +222,15 @@ export default function ConnectionDialog({
   onChanged,
   onClose,
   closing = false,
+  intents = INTENT_ORDER,
+  templateMode = false,
+  onSubmit,
+  zones: zonesProp,
 }) {
   const { t } = useTranslation("components");
   const fixedKey = fixedVmid != null ? String(fixedVmid) : null;
   const editing = Boolean(service);
+  const submit = onSubmit ?? submitRequest;
 
   /* ── 送出狀態（放前面，換意圖時要一起清） ── */
   const [submitting, setSubmitting] = useState(false);
@@ -307,37 +321,43 @@ export default function ConnectionDialog({
   /* ── 入站：發布方式 ── */
   const [setupContext, setSetupContext] = useState(null);
   useEffect(() => {
+    /* 呼叫端已經有 zones（課程編輯器）就不再抓一次 */
+    if (zonesProp) return undefined;
     let cancelled = false;
     ReverseProxyService.setupContext()
       .then((ctx) => !cancelled && setSetupContext(ctx ?? { enabled: false, zones: [] }))
       .catch(() => !cancelled && setSetupContext({ enabled: false, zones: [] }));
     return () => { cancelled = true; };
-  }, []);
-  const zones = useMemo(() => setupContext?.zones ?? EMPTY, [setupContext]);
-  const domainReady = Boolean(setupContext) && setupContext.enabled !== false && zones.length > 0;
+  }, [zonesProp]);
+  const zones = useMemo(() => zonesProp ?? setupContext?.zones ?? EMPTY, [zonesProp, setupContext]);
+  const domainReady = zonesProp
+    ? zones.length > 0
+    : Boolean(setupContext) && setupContext.enabled !== false && zones.length > 0;
 
   const [mode, setModeState] = useState(service?.mode ?? initialMode ?? "port_forward");
   const modeTouched = useRef(editing || Boolean(initialMode));
   const setMode = (m) => { modeTouched.current = true; setModeState(m); };
   /* 網址可用時預設用網址（使用者或呼叫端還沒指定過才改）；呼叫端指定網址但環境不支援就退回對外 port */
   useEffect(() => {
-    if (!setupContext) return;
+    if (!setupContext && !zonesProp) return;
     if (domainReady && !modeTouched.current) setModeState("domain");
     if (!domainReady && !editing) setModeState((m) => (m === "domain" ? "port_forward" : m));
-  }, [setupContext, domainReady, editing]);
-  const modeCards = INBOUND_MODES.filter((m) => m !== "domain" || domainReady || service?.mode === "domain");
+  }, [setupContext, zonesProp, domainReady, editing]);
+  const modeCards = (templateMode ? TEMPLATE_INBOUND_MODES : INBOUND_MODES)
+    .filter((m) => m !== "domain" || domainReady || service?.mode === "domain");
 
   /* 網址模式：port 直接輸入，常用埠由 datalist 提示 */
   const [domainPort, setDomainPort] = useState(editing ? String(service.port) : "80");
-  const [zoneId, setZoneId] = useState("");
-  const [prefix, setPrefix] = useState(service?.domain ?? "");
+  const [zoneId, setZoneId] = useState(templateMode ? (service?.zone_id ?? "") : "");
+  /* 模板模式的「開頭」是主機名樣板（含 {student}），不是實際網址 */
+  const [prefix, setPrefix] = useState(templateMode ? (service?.hostname_prefix ?? "") : (service?.domain ?? ""));
   const [enableHttps, setEnableHttps] = useState(service?.enable_https ?? true);
   const [availability, setAvailability] = useState(null); // { available, reason, message, checking }
 
   /* zones 抓回來後：編輯時還原 zone + 開頭，新增時預設第一個 zone */
   useEffect(() => {
     if (!zones.length) return;
-    if (service?.domain) {
+    if (!templateMode && service?.domain) {
       const z = findZoneByDomain(service.domain, zones);
       if (z) {
         setZoneId(z.id);
@@ -345,17 +365,20 @@ export default function ConnectionDialog({
         return;
       }
     }
-    setZoneId((cur) => cur || zones[0].id);
-  }, [zones, service?.domain]);
+    setZoneId((cur) => (cur && zones.some((z) => z.id === cur) ? cur : zones[0].id));
+  }, [zones, service?.domain, templateMode]);
 
   const selectedZone = zones.find((z) => z.id === zoneId);
   const cleanPrefix = prefix.trim().toLowerCase().replace(/^\.+|\.+$/g, "");
-  const fullDomain = selectedZone ? (cleanPrefix ? `${cleanPrefix}.${selectedZone.name}` : selectedZone.name) : "";
-  const domainUnchanged = Boolean(service?.domain) && fullDomain === service.domain;
+  const fullDomain = templateMode
+    ? (selectedZone && cleanPrefix ? previewTemplateHostname(cleanPrefix, selectedZone.name) : "")
+    : selectedZone ? (cleanPrefix ? `${cleanPrefix}.${selectedZone.name}` : selectedZone.name) : "";
+  const domainUnchanged = !templateMode && Boolean(service?.domain) && fullDomain === service.domain;
 
-  /* 網域即時檢查：本系統建的或 Cloudflare 上原本就有的，撞名都提醒 */
+  /* 網域即時檢查：本系統建的或 Cloudflare 上原本就有的，撞名都提醒。
+     模板模式的網址是樣板，開課時才逐人組出來，這裡沒有東西可查 */
   useEffect(() => {
-    if (!isInbound || mode !== "domain" || !fullDomain || domainUnchanged) {
+    if (templateMode || !isInbound || mode !== "domain" || !fullDomain || domainUnchanged) {
       setAvailability(null);
       return undefined;
     }
@@ -367,9 +390,15 @@ export default function ConnectionDialog({
         .catch(() => !cancelled && setAvailability(null));
     }, AVAILABILITY_DEBOUNCE_MS);
     return () => { cancelled = true; clearTimeout(timer); };
-  }, [isInbound, mode, fullDomain, domainUnchanged]);
+  }, [templateMode, isInbound, mode, fullDomain, domainUnchanged]);
 
   /* port 列 */
+  /* 模板模式的對外 port 只填內部 port 與協定：對外 port 開課時逐位學生配號 */
+  const [tplFwdRows, setTplFwdRows] = useState(() => [
+    newPortRow(templateMode && service?.mode === "port_forward"
+      ? { port: String(service.port), protocol: service.protocol }
+      : {}),
+  ]);
   const [fwdRows, setFwdRows] = useState(() => [
     newForwardRow(service?.mode === "port_forward"
       ? { externalPort: String(service.external_port ?? ""), internalPort: String(service.port), protocol: service.protocol }
@@ -410,13 +439,16 @@ export default function ConnectionDialog({
     setError("");
     if (!intent) return;
 
+    /* 模板模式的機器沒有 vmid（開課時才會有），只認 key */
+    const needVmid = (key) => !templateMode && isVmKey(key) && getVmid(key) == null;
+
     if (isRule) {
       const vmid = getVmid(vmKey);
-      if (vmid == null) { setError(t("ConnectionDialog.noNodes")); return; }
+      if (needVmid(vmKey) || !isVmKey(vmKey)) { setError(t("ConnectionDialog.noNodes")); return; }
       const built = buildRulePayload(rule);
       if (built.error) { setError(describeError(built.error)); return; }
       setSubmitting(true);
-      const res = await submitRule({ vmid, body: built.body });
+      const res = await submit({ kind: "rule", vmKey, vmid, body: built.body });
       setSubmitting(false);
       if (res.ok) onDone?.(res.result);
       else setError(describeError(res.error));
@@ -425,7 +457,7 @@ export default function ConnectionDialog({
 
     if (isInbound) {
       const vmid = getVmid(vmKey);
-      if (vmid == null) { setError(t("ConnectionDialog.noNodes")); return; }
+      if (needVmid(vmKey) || !isVmKey(vmKey)) { setError(t("ConnectionDialog.noNodes")); return; }
       const built = buildInboundPayload({
         mode,
         domainPort,
@@ -435,6 +467,10 @@ export default function ConnectionDialog({
         domainTakenText: availability?.message ?? null,
         forwardRows: fwdRows,
         firewallRows: fwRows,
+        templateMode,
+        hostnamePrefix: prefix,
+        zoneId,
+        templateForwardRows: tplFwdRows,
       });
       if (built.error) {
         setError(describeError(built.error));
@@ -445,7 +481,7 @@ export default function ConnectionDialog({
         return;
       }
       setSubmitting(true);
-      const res = await submitInbound({ vmid, publish: built.publish, raw: built.raw, service });
+      const res = await submit({ kind: "inbound", vmKey, vmid, publish: built.publish, raw: built.raw, service });
       setSubmitting(false);
       if (res.ok) { onDone?.(res.result); return; }
       /* 已經成功的那幾條要先讓呼叫端刷新，否則畫面上看不到它們 */
@@ -483,13 +519,16 @@ export default function ConnectionDialog({
     }
     const sourceVmid = getVmid(sourceKey);
     const targetVmid = getVmid(targetKey);
-    if ((isVmKey(sourceKey) && sourceVmid == null) || (isVmKey(targetKey) && targetVmid == null)) {
+    if (needVmid(sourceKey) || needVmid(targetKey)) {
       setError(t("ConnectionDialog.noNodes"));
       return;
     }
 
     setSubmitting(true);
-    const res = await submitEdge({
+    const res = await submit({
+      kind: "edge",
+      sourceKey,
+      targetKey,
       sourceVmid,
       targetVmid,
       ports,
@@ -510,14 +549,16 @@ export default function ConnectionDialog({
       ? t("ConnectionDialog.addRule")
       : editing
         ? t("ConnectionDialog.saveChanges")
-        : isInbound
-          ? t("ConnectionDialog.publish")
-          : t("ConnectionDialog.createConnection");
+        : templateMode
+          ? t("ConnectionDialog.addToTemplate")
+          : isInbound
+            ? t("ConnectionDialog.publish")
+            : t("ConnectionDialog.createConnection");
   const machineReady = isVmToVm
     ? isVmKey(peerSourceKey) && isVmKey(peerTargetKey)
     : isVmKey(vmKey);
   const submitDisabled = submitting || nodesLoading || !intent || !machineReady
-    || (isInbound && mode === "domain" && (availability?.checking || availability?.available === false));
+    || (!templateMode && isInbound && mode === "domain" && (availability?.checking || availability?.available === false));
 
   const availabilityTone = availability?.checking
     ? ""
@@ -600,7 +641,7 @@ export default function ConnectionDialog({
             {COMMON_PORTS.map((p) => <option key={p.value} value={p.value}>{t(p.labelKey)}</option>)}
           </datalist>
 
-          <IntentPicker value={intent} onChange={setIntent} locked={editing} />
+          <IntentPicker value={intent} onChange={setIntent} locked={editing} intents={intents} />
 
           {/* 讓機器能上網：選好機器就能送 */}
           {isOutbound && (
@@ -620,28 +661,22 @@ export default function ConnectionDialog({
 
               <div className={styles.field}>
                 <label className={styles.fieldLabel}>{t("ConnectionDialog.publishMethod")}</label>
-                <div className={styles.modeCards}>
-                  {modeCards.map((m) => {
+                {/* 跟「方向」同一顆共用 SegmentedControl：圖示＋標題等高，不因說明長短跑版 */}
+                <SegmentedControl
+                  className={styles.dirToggle}
+                  options={modeCards.map((m) => {
                     const meta = modeMeta(m);
-                    const active = mode === m;
-                    return (
-                      <button
-                        key={m}
-                        type="button"
-                        className={`${styles.modeCard} ${active ? styles.modeCardActive : ""}`}
-                        onClick={() => setMode(m)}
-                        aria-pressed={active}
-                      >
-                        <strong><MIcon name={meta.icon} size={14} /> {t(meta.labelKey)}</strong>
-                        {/* 只有選中的那張展開說明，其餘留標題就好 */}
-                        {active && <span>{t(meta.descKey)}</span>}
-                      </button>
-                    );
+                    return { value: m, label: t(meta.labelKey), icon: meta.icon };
                   })}
-                </div>
-                {setupContext && !domainReady && (
+                  value={mode}
+                  onChange={setMode}
+                  ariaLabel={t("ConnectionDialog.publishMethod")}
+                />
+                {(setupContext || zonesProp) && !domainReady && (
                   <span className={styles.fieldHint}>
-                    {setupContext?.reasons?.[0] ?? t("ConnectionDialog.domainUnavailable")}
+                    {templateMode
+                      ? t("ConnectionDialog.templateNoZoneHint")
+                      : (setupContext?.reasons?.[0] ?? t("ConnectionDialog.domainUnavailable"))}
                   </span>
                 )}
               </div>
@@ -649,7 +684,7 @@ export default function ConnectionDialog({
               {mode === "domain" && (
                 <>
                   <div className={styles.formGrid}>
-                    <div className={styles.field}>
+                    <div className={`${styles.field} ${styles.fieldNarrow}`}>
                       <label className={styles.fieldLabel} htmlFor="cd-domain-port">{t("ConnectionDialog.portLabel")}</label>
                       <input
                         id="cd-domain-port"
@@ -670,13 +705,15 @@ export default function ConnectionDialog({
                   </div>
                   <div className={styles.formGrid}>
                     <div className={styles.field}>
-                      <label className={styles.fieldLabel} htmlFor="cd-prefix">{t("ConnectionDialog.prefixLabel")}</label>
+                      <label className={styles.fieldLabel} htmlFor="cd-prefix">
+                        {templateMode ? t("ConnectionDialog.templateHostnameLabel") : t("ConnectionDialog.prefixLabel")}
+                      </label>
                       <input
                         id="cd-prefix"
                         className={styles.textInput}
                         value={prefix}
                         onChange={(e) => { setError(""); setPrefix(e.target.value); }}
-                        placeholder={t("ConnectionDialog.prefixPlaceholder")}
+                        placeholder={templateMode ? t("ConnectionDialog.templateHostnamePlaceholder") : t("ConnectionDialog.prefixPlaceholder")}
                       />
                     </div>
                     <div className={styles.field}>
@@ -686,7 +723,11 @@ export default function ConnectionDialog({
                       </select>
                     </div>
                   </div>
-                  {fullDomain && (
+                  {templateMode ? (
+                    <span className={styles.fieldHint}>
+                      {t("ConnectionDialog.templateHostnameHint", { example: fullDomain || previewTemplateHostname("{class}-{student}-app", selectedZone?.name) })}
+                    </span>
+                  ) : fullDomain && (
                     <span className={`${styles.hintLine} ${availabilityTone}`}>
                       <MIcon name={availabilityIcon} size={14} />
                       {availabilityText}
@@ -695,7 +736,20 @@ export default function ConnectionDialog({
                 </>
               )}
 
-              {mode === "port_forward" && (
+              {mode === "port_forward" && templateMode && (
+                <>
+                  <p className={styles.fieldHint}>{t("ConnectionDialog.templateForwardHint")}</p>
+                  <PortRows
+                    rows={tplFwdRows}
+                    setRows={editRows(setTplFwdRows)}
+                    protocols={FORWARD_PROTOCOLS}
+                    invalid={portsInvalid}
+                    single={editing}
+                  />
+                </>
+              )}
+
+              {mode === "port_forward" && !templateMode && (
                 <ForwardRows rows={fwdRows} setRows={editRows(setFwdRows)} invalid={portsInvalid} single={editing} />
               )}
 
@@ -735,17 +789,13 @@ export default function ConnectionDialog({
                   ariaLabel={t("ConnectionDialog.direction")}
                 />
               </div>
-              {peerLimited ? (
+              {peerLimited && (
                 <p className={styles.infoBox}>
                   <MIcon name="school" size={16} />
                   {t("ConnectionDialog.peerOnlyHint", {
                     target: labelOf(peerTargetKey),
                     ports: formatPorts(peerAllowedPorts),
                   })}
-                </p>
-              ) : (
-                <p className={styles.fieldHint}>
-                  {t("ConnectionDialog.vmToVmHint", { source: labelOf(peerSourceKey), target: labelOf(peerTargetKey) })}
                 </p>
               )}
               <PortRows rows={vmRows} setRows={editRows(setVmRows)} protocols={CONNECTION_PROTOCOLS} invalid={portsInvalid} />

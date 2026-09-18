@@ -67,12 +67,23 @@ TASK_UPDATE_CANCEL = "template.update_cancel"
 def _to_public(
     template: VMTemplate,
     *,
-    pve_vmids: set[int] | None = None,
+    pve_raw: dict[int, dict[str, Any]] | None = None,
     attachment_count: int | None = None,
 ) -> VMTemplatePublic:
     public = VMTemplatePublic.model_validate(template)
-    if pve_vmids is not None:
-        public.pve_exists = template.pve_vmid in pve_vmids
+    if pve_raw is not None:
+        public.pve_exists = template.pve_vmid in pve_raw
+        # 建範本時「自訂規格」是選填，未填的欄位以 PVE 母機實際規格回填，
+        # 讓前端規格控制項一律有範本基準可錨定（沒有基準就只能寫死假值）。
+        raw_cores, raw_memory, raw_disk = _spec_from_raw(
+            pve_raw.get(template.pve_vmid)
+        )
+        if public.default_cores is None:
+            public.default_cores = raw_cores
+        if public.default_memory is None:
+            public.default_memory = raw_memory
+        if public.default_disk is None:
+            public.default_disk = raw_disk
     if attachment_count is not None:
         public.attachment_count = attachment_count
     return public
@@ -99,12 +110,64 @@ def _attachment_counts(
         return {}
 
 
-def _pve_template_vmids() -> set[int] | None:
-    """PVE 端實際存在的範本 VMID（對帳用）；PVE 連不上時回 None 不阻擋列表。"""
+def _pve_template_raw() -> dict[int, dict[str, Any]] | None:
+    """PVE 端實際存在的範本（vmid → pool 原始紀錄）；連不上回 None 不阻擋列表。
+
+    對帳（範本還在不在）與規格回填共用同一次查詢，避免逐筆打 PVE。
+    """
     try:
-        return {int(t["vmid"]) for t in proxmox_ops.get_vm_templates()}
+        return {int(t["vmid"]): t for t in proxmox_ops.get_vm_templates()}
     except Exception:
         return None
+
+
+def _spec_from_raw(
+    raw: dict[str, Any] | None,
+) -> tuple[int | None, int | None, int | None]:
+    """PVE 原始紀錄 → (cores, memory_mb, disk_gb)；缺值一律回 None。"""
+    if not raw:
+        return None, None, None
+    from app.services.proxmox.provisioning_service import (  # noqa: PLC0415
+        _template_disk_gb,
+    )
+
+    max_cpu = raw.get("maxcpu")
+    max_memory = raw.get("maxmem")
+    return (
+        int(max_cpu) if max_cpu else None,
+        int(max_memory) // (1024 * 1024) if max_memory else None,
+        _template_disk_gb(raw) or None,
+    )
+
+
+def resolve_effective_spec(
+    template: VMTemplate,
+) -> tuple[int | None, int | None, int | None]:
+    """單一範本的有效規格 (cores, memory_mb, disk_gb)。
+
+    DB 自訂值優先；未填的欄位以 PVE 母機實際規格補上（建範本時「自訂規格」
+    是選填，配額執法與前端錨點都不能因為沒填就失去基準）。
+    """
+    if (
+        template.default_cores is not None
+        and template.default_memory is not None
+        and template.default_disk is not None
+    ):
+        return (
+            template.default_cores,
+            template.default_memory,
+            template.default_disk,
+        )
+    raw_cores, raw_memory, raw_disk = _spec_from_raw(
+        (_pve_template_raw() or {}).get(template.pve_vmid)
+    )
+    return (
+        template.default_cores if template.default_cores is not None else raw_cores,
+        template.default_memory
+        if template.default_memory is not None
+        else raw_memory,
+        template.default_disk if template.default_disk is not None else raw_disk,
+    )
 
 
 def list_templates(*, session: Session, user: User) -> list[VMTemplatePublic]:
@@ -118,12 +181,12 @@ def list_templates(*, session: Session, user: User) -> list[VMTemplatePublic]:
             only_ready=not _can_manage(user),
         )
     _reconcile_failed_template_tasks(session, templates)
-    pve_vmids = _pve_template_vmids()
+    pve_raw = _pve_template_raw()
     counts = _attachment_counts(session, [t.id for t in templates])
     return [
         _to_public(
             t,
-            pve_vmids=pve_vmids,
+            pve_raw=pve_raw,
             attachment_count=counts.get(t.id, 0),
         )
         for t in templates
@@ -138,7 +201,6 @@ def list_student_catalog(*, session: Session) -> list[TemplateCatalogItem]:
     machine's own spec, which is the clone's floor).
     """
     from app.services.proxmox.provisioning_service import (  # noqa: PLC0415
-        _template_disk_gb,
         is_windows_template,
     )
 
@@ -155,7 +217,7 @@ def list_student_catalog(*, session: Session) -> list[TemplateCatalogItem]:
         if raw is None:
             # PVE 已經找不到的範本會在建立時失敗，不該出現在目錄裡
             continue
-        max_memory = raw.get("maxmem")
+        raw_cores, raw_memory, raw_disk = _spec_from_raw(raw)
         is_lxc = template.resource_type.lower() == "lxc"
         catalog.append(
             TemplateCatalogItem(
@@ -170,10 +232,9 @@ def list_student_catalog(*, session: Session) -> list[TemplateCatalogItem]:
                 # 所以只對目錄裡的 VM 逐筆確認
                 is_windows=(not is_lxc) and is_windows_template(template.pve_vmid),
                 requires_gpu=bool(template.requires_gpu),
-                cores=template.default_cores or (raw.get("maxcpu") or None),
-                memory_mb=template.default_memory
-                or (int(max_memory) // (1024 * 1024) if max_memory else None),
-                disk_gb=template.default_disk or (_template_disk_gb(raw) or None),
+                cores=template.default_cores or raw_cores,
+                memory_mb=template.default_memory or raw_memory,
+                disk_gb=template.default_disk or raw_disk,
             )
         )
     return catalog
@@ -188,7 +249,7 @@ def get_template_for_user(
     counts = _attachment_counts(session, [template.id])
     return _to_public(
         template,
-        pve_vmids=_pve_template_vmids(),
+        pve_raw=_pve_template_raw(),
         attachment_count=counts.get(template.id, 0),
     )
 

@@ -84,6 +84,30 @@ export async function submitInbound({ vmid, publish, raw = [], service = null })
   return { ok: true, result: { kind: "publish", vmid, count: done + raw.length } };
 }
 
+/**
+ * 對話框送出的統一入口：依 request.kind 分派到上面三個函式。
+ * 課程環境模板不打這裡——它把同樣的 request 收進規格陣列（見 onSubmit prop）。
+ */
+export async function submitRequest(request) {
+  if (request.kind === "rule") {
+    return submitRule({ vmid: request.vmid, body: request.body });
+  }
+  if (request.kind === "inbound") {
+    return submitInbound({
+      vmid: request.vmid,
+      publish: request.publish,
+      raw: request.raw,
+      service: request.service,
+    });
+  }
+  return submitEdge({
+    sourceVmid: request.sourceVmid,
+    targetVmid: request.targetVmid,
+    ports: request.ports,
+    direction: request.direction,
+  });
+}
+
 export async function submitEdge({ sourceVmid, targetVmid, ports, direction }) {
   try {
     await createConnection({

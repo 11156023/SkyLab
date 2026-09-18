@@ -3,7 +3,7 @@
 import ipaddress
 from datetime import datetime
 
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, field_validator, model_validator
 
 from app.core.i18n import t
 
@@ -17,6 +17,27 @@ class SubnetConfigCreate(BaseModel):
     gateway_vm_ip: str
     dns_servers: str | None = None
     extra_blocked_subnets: list[str] = []
+    # 課程環境 port_forward 的自動配號池；1024 以下留給系統服務
+    forward_port_start: int = 30000
+    forward_port_end: int = 39999
+    forward_public_host: str | None = None
+
+    @field_validator("forward_public_host", mode="before")
+    @classmethod
+    def normalize_public_host(cls, v):
+        if v is None:
+            return None
+        cleaned = str(v).strip()
+        if len(cleaned) > 255:
+            raise ValueError(t("ip.forward_public_host_too_long"))
+        return cleaned or None
+
+    @model_validator(mode="after")
+    def validate_forward_port_range(self) -> "SubnetConfigCreate":
+        start, end = self.forward_port_start, self.forward_port_end
+        if not (1024 <= start <= end <= 65535):
+            raise ValueError(t("ip.forward_port_range_invalid"))
+        return self
 
     @field_validator("cidr")
     @classmethod
@@ -80,6 +101,9 @@ class SubnetConfigPublic(BaseModel):
     gateway_vm_ip: str
     dns_servers: str | None
     extra_blocked_subnets: list[str] = []
+    forward_port_start: int = 30000
+    forward_port_end: int = 39999
+    forward_public_host: str | None = None
     updated_at: datetime
     total_ips: int
     used_ips: int

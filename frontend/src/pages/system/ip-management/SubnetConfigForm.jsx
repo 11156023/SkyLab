@@ -20,6 +20,9 @@ function buildInitialForm(config) {
     gateway_vm_ip: config?.gateway_vm_ip ?? "",
     dns_servers:   config?.dns_servers ?? "",
     extra_blocked_subnets: (config?.extra_blocked_subnets ?? []).join("\n"),
+    forward_port_start: String(config?.forward_port_start ?? 30000),
+    forward_port_end:   String(config?.forward_port_end ?? 39999),
+    forward_public_host: config?.forward_public_host ?? "",
   };
 }
 
@@ -52,6 +55,9 @@ export default function SubnetConfigForm({
       gateway_vm_ip: form.gateway_vm_ip.trim(),
       dns_servers:   form.dns_servers.trim() || null,
       extra_blocked_subnets: parseBlockedList(form.extra_blocked_subnets),
+      forward_port_start: Number(form.forward_port_start),
+      forward_port_end:   Number(form.forward_port_end),
+      forward_public_host: form.forward_public_host.trim() || null,
     });
   }
 
@@ -125,6 +131,39 @@ export default function SubnetConfigForm({
             onChange={(e) => set("dns_servers", e.target.value)}
             placeholder={t("SubnetConfigForm.dnsServersPlaceholder")}
           />
+        </label>
+      </div>
+
+      {/* 課程環境的 port_forward 是逐位學生配號的：模板不能寫死對外 port，
+          開課時從這段池子挑；入口主機是學生看到的「host:port」裡的 host */}
+      <div className={styles.modalFormGrid}>
+        <label className={styles.field}>
+          <span>{t("SubnetConfigForm.forwardPortStart")}</span>
+          <input
+            type="number" min="1024" max="65535"
+            value={form.forward_port_start}
+            onChange={(e) => set("forward_port_start", e.target.value)}
+            required
+          />
+        </label>
+        <label className={styles.field}>
+          <span>{t("SubnetConfigForm.forwardPortEnd")}</span>
+          <input
+            type="number" min="1024" max="65535"
+            value={form.forward_port_end}
+            onChange={(e) => set("forward_port_end", e.target.value)}
+            required
+          />
+          <span className={styles.fieldHint}>{t("SubnetConfigForm.forwardPortRangeHint")}</span>
+        </label>
+        <label className={styles.field}>
+          <span>{t("SubnetConfigForm.forwardPublicHost")}</span>
+          <input
+            value={form.forward_public_host}
+            onChange={(e) => set("forward_public_host", e.target.value)}
+            placeholder={t("SubnetConfigForm.forwardPublicHostPlaceholder")}
+          />
+          <span className={styles.fieldHint}>{t("SubnetConfigForm.forwardPublicHostHint")}</span>
         </label>
       </div>
 

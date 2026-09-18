@@ -55,6 +55,42 @@ def check_port_available(external_port: int, protocol: str, session: object) -> 
         )
 
 
+def allocate_external_port(
+    session: object, protocol: str, *, exclude: frozenset[int] = frozenset()
+) -> int:
+    """從管理員設定的配號池挑一個沒用過的對外 port。
+
+    給「一份規格、逐位學生實體化」的課程發布用：模板上不能寫死對外 port，
+    只能在開課時配。這裡只挑號、不寫入；真正的佔用由 apply_nat_rule 的
+    唯一約束把關，兩個班同時開課撞號時呼叫端重挑一次即可。``exclude`` 是
+    同一輪已經挑出去、還沒寫進 DB 的 port。
+    """
+    from app.repositories import nat_rule as nat_repo  # noqa: PLC0415
+    from app.services.network import ip_management_service  # noqa: PLC0415
+
+    pool = ip_management_service.get_forward_port_range(
+        ip_management_service.get_subnet_config(session)  # type: ignore[arg-type]
+    )
+    if pool is None:
+        raise BadRequestError(t("nat.poolNotConfigured"))
+    start, end = pool
+    taken = nat_repo.taken_external_ports(session, protocol, start, end)  # type: ignore[arg-type]
+    for candidate in range(start, end + 1):
+        if candidate in RESERVED_PORTS or candidate in taken or candidate in exclude:
+            continue
+        return candidate
+    raise BadRequestError(t("nat.poolExhausted", start=start, end=end))
+
+
+def forward_endpoint(session: object, external_port: int) -> str | None:
+    """學生要連的入口：``host:port``；管理員沒填入口主機就回 None。"""
+    from app.services.network import ip_management_service  # noqa: PLC0415
+
+    config = ip_management_service.get_subnet_config(session)  # type: ignore[arg-type]
+    host = (getattr(config, "forward_public_host", None) or "").strip()
+    return f"{host}:{external_port}" if host else None
+
+
 # ─── haproxy config 產生 ───────────────────────────────────────────────────────
 
 

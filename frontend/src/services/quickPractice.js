@@ -36,6 +36,7 @@ function normalizeSession(item) {
       type: machine.resource_type,
       ip: machine.ip_address,
       publicUrl: machine.public_url ?? null,
+      forwardEndpoints: machine.forward_endpoints ?? [],
     })),
   };
 }

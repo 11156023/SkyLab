@@ -10,6 +10,7 @@ from sqlmodel import Session, select
 from app.infrastructure.proxmox.operations import ResourceType
 from app.models import (
     CourseEnvironmentEdge,
+    CourseEnvironmentVersion,
     IpAllocation,
     TeachingClass,
     TeachingClassMachineNode,
@@ -22,6 +23,9 @@ from app.services.proxmox import proxmox_service
 from app.services.teaching import course_publication_service
 
 COMMENT_PREFIX = "SkyLab:class-net:"
+# 版本上的機器互通策略（見 CourseEnvironmentVersion.peer_policy）
+PEER_POLICY_EXPLICIT = "explicit"
+PEER_POLICY_SEGMENT = "segment"
 logger = logging.getLogger(__name__)
 
 
@@ -31,6 +35,16 @@ def _segments(value: str | None) -> set[str]:
         for item in (value or "lab-net").replace("/", ",").split(",")
         if item.strip()
     }
+
+
+def peer_policy_for_version(session: Session, version_id: uuid.UUID | None) -> str:
+    """版本找不到時視為 explicit：寧可少開，也不要把整段網路打通。"""
+    if version_id is None:
+        return PEER_POLICY_EXPLICIT
+    version = session.get(CourseEnvironmentVersion, version_id)
+    if version is None or version.peer_policy != PEER_POLICY_SEGMENT:
+        return PEER_POLICY_EXPLICIT
+    return PEER_POLICY_SEGMENT
 
 
 def _ip_by_vmid(session: Session, vmid: int) -> str | None:
@@ -248,10 +262,12 @@ def _allow_one_way(
 
 
 def apply_class_topology(session: Session, *, class_id: uuid.UUID) -> list[str]:
-    """Allow peers sharing a logical segment inside each student environment.
+    """把版本的機器互通策略實體化成每位學生自己那組機器上的規則。
 
-    Default VM firewall rules continue to block the managed local subnet, so
-    machines owned by different students remain isolated.
+    explicit：只開老師畫的連線，沒畫就完全隔離。
+    segment：共用邏輯網段的機器全協定全埠互通（舊行為）。
+
+    不同學生的機器之間靠各自的 policy_in=DROP 隔離，這裡不會跨學生開通。
     """
     nodes = {
         row.id: row
@@ -262,17 +278,19 @@ def apply_class_topology(session: Session, *, class_id: uuid.UUID) -> list[str]:
         ).all()
     }
     teaching_class = session.get(TeachingClass, class_id)
+    version_id = teaching_class.course_version_id if teaching_class else None
     edges = (
         list(
             session.exec(
                 select(CourseEnvironmentEdge).where(
-                    CourseEnvironmentEdge.version_id == teaching_class.course_version_id
+                    CourseEnvironmentEdge.version_id == version_id
                 )
             ).all()
         )
-        if teaching_class and teaching_class.course_version_id
+        if version_id
         else []
     )
+    peer_policy = peer_policy_for_version(session, version_id)
     enrollments = session.exec(
         select(TeachingClassStudent).where(TeachingClassStudent.class_id == class_id)
     ).all()
@@ -335,7 +353,7 @@ def apply_class_topology(session: Session, *, class_id: uuid.UUID) -> list[str]:
                     scope=f"{teaching_class.code[:12]}-{teaching_class.id.hex[:6]}",
                 )
             )
-        if edges:
+        if peer_policy != PEER_POLICY_SEGMENT:
             for edge in edges:
                 source = machines_by_key.get(edge.source_node_key)
                 target = machines_by_key.get(edge.target_node_key)

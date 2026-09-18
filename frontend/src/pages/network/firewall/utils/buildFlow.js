@@ -106,6 +106,8 @@ export const PORT_MODE = {
 };
 
 export function portMode(port) {
+  /* 課程模板的對外 port 在開課前沒有 external_port，只能靠明講的 mode */
+  if (port?.mode) return port.mode;
   if (port?.domain) return PORT_MODE.DOMAIN;
   if (port?.external_port) return PORT_MODE.FORWARD;
   return PORT_MODE.FIREWALL;
