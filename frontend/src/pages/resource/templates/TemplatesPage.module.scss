@@ -128,7 +128,7 @@
 .badge_ok    { background: color-mix(in srgb, var(--color-success) 12%, transparent); color: var(--color-success); }
 .badge_err   { background: color-mix(in srgb, var(--color-danger)  12%, transparent); color: var(--color-danger); }
 .badge_info  { background: color-mix(in srgb, var(--color-info)    12%, transparent); color: var(--color-info); }
-.badge_muted { background: var(--color-hover); color: var(--color-status-neutral); }
+.badge_muted { background: color-mix(in srgb, var(--color-status-neutral) 12%, transparent); color: var(--color-status-neutral); }
 
 /* ── 列操作選單 ── */
 .menuWrap {

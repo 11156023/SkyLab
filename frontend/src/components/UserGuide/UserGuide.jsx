@@ -960,8 +960,9 @@ export default function UserGuide() {
             </div>
 
             <div className={styles.progress} aria-label={t("UserGuide.progressAriaLabel", { current: step + 1, total: availableSteps.length })}>
+              {/* 進度點順序固定，用索引當 key；selector 會重複（如防火牆導覽兩步都指 firewall-map） */}
               {availableSteps.map((item, index) => (
-                <span key={item.selector} className={index <= step ? styles.progressActive : ""} />
+                <span key={index} className={index <= step ? styles.progressActive : ""} />
               ))}
             </div>
 

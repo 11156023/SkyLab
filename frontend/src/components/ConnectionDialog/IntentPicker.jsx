@@ -15,16 +15,27 @@ export default function IntentPicker({ value, onChange, locked = false }) {
 
   if (value) {
     const meta = INTENT_META[value];
+    /* 編輯既有發布：意圖鎖死，維持不可點的說明列 */
+    if (locked) {
+      return (
+        <div className={styles.intentChip} data-guide="connection-dialog-endpoints">
+          <MIcon name={meta.icon} size={18} />
+          <strong>{t(meta.labelKey)}</strong>
+        </div>
+      );
+    }
+    /* 整條 chip 都可點回四卡選擇；右側藥丸是視覺提示不是獨立按鈕（button 不能巢狀） */
     return (
-      <div className={styles.intentChip} data-guide="connection-dialog-endpoints">
+      <button
+        type="button"
+        className={`${styles.intentChip} ${styles.intentChipClickable}`}
+        onClick={() => onChange(null)}
+        data-guide="connection-dialog-endpoints"
+      >
         <MIcon name={meta.icon} size={18} />
         <strong>{t(meta.labelKey)}</strong>
-        {!locked && (
-          <button type="button" className={styles.intentChange} onClick={() => onChange(null)}>
-            {t("ConnectionDialog.changeIntent")}
-          </button>
-        )}
-      </div>
+        <span className={styles.intentChange}>{t("ConnectionDialog.changeIntent")}</span>
+      </button>
     );
   }
 

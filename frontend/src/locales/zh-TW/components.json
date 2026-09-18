@@ -202,7 +202,7 @@
   "ConnectionDialog.anyProtocol": "任意",
   "ConnectionDialog.bidirectional": "雙向",
   "ConnectionDialog.cancel": "取消",
-  "ConnectionDialog.changeIntent": "更改",
+  "ConnectionDialog.changeIntent": "更改連線方式",
   "ConnectionDialog.checkingDomain": "正在確認 {{domain}} 是否可用…",
   "ConnectionDialog.createConnection": "建立連線",
   "ConnectionDialog.createFailed": "建立失敗",

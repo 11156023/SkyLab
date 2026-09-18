@@ -1018,23 +1018,8 @@
 }
 
 .dialogClose {
-  width: 30px;
-  height: 30px;
+  @include btn-dialog-close;
   flex-shrink: 0;
-  border-radius: $radius-8;
-  @include flex-center;
-  color: var(--color-text-secondary);
-  transition: background $transition-base, color $transition-base;
-
-  &:hover:not(:disabled) {
-    background: var(--color-hover);
-    color: var(--color-text-primary);
-  }
-
-  &:disabled {
-    opacity: 0.5;
-    cursor: not-allowed;
-  }
 }
 
 .dialogFooter {

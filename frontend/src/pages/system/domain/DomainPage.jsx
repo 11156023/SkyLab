@@ -60,7 +60,7 @@ function ConfigModal({ config, loading, closing = false, onClose, onSubmit }) {
               </a>
             </p>
           </div>
-          <button type="button" className={styles.iconBtn} onClick={onClose} aria-label={t("DomainPage.close")} data-guide="domain-modal-close">
+          <button type="button" className={styles.dialogClose} onClick={onClose} aria-label={t("DomainPage.close")} data-guide="domain-modal-close">
             <MIcon name="close" size={18} />
           </button>
         </div>
@@ -163,7 +163,7 @@ function RecordModal({ record, loading, closing = false, onClose, onSubmit }) {
             <h2>{isEdit ? t("DomainPage.recordModalEditTitle") : t("DomainPage.recordModalCreateTitle")}</h2>
             <p>{t("DomainPage.ttlHint")}</p>
           </div>
-          <button type="button" className={styles.iconBtn} onClick={onClose} aria-label={t("DomainPage.close")} data-guide="domain-modal-close">
+          <button type="button" className={styles.dialogClose} onClick={onClose} aria-label={t("DomainPage.close")} data-guide="domain-modal-close">
             <MIcon name="close" size={18} />
           </button>
         </div>

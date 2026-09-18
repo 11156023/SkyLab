@@ -60,20 +60,9 @@
   }
 }
 
-.iconBtn {
-  width: 30px;
-  height: 30px;
+.dialogClose {
+  @include btn-dialog-close;
   flex-shrink: 0;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: $radius-8;
-  color: var(--color-text-secondary);
-  transition: background $transition-base;
-
-  &:hover {
-    background: var(--color-hover);
-  }
 }
 
 .stepList {

@@ -300,7 +300,7 @@
 }
 
 .badge_muted {
-  background: var(--color-hover);
+  background: color-mix(in srgb, var(--color-status-neutral) 12%, transparent);
   color: var(--color-status-neutral);
 }
 

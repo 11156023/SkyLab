@@ -94,7 +94,7 @@
 .status_success { background: color-mix(in srgb, var(--color-success) 12%, transparent); color: var(--color-success); }
 .status_info    { background: color-mix(in srgb, var(--color-info)    12%, transparent); color: var(--color-info); }
 .status_danger  { background: color-mix(in srgb, var(--color-danger)  12%, transparent); color: var(--color-danger); }
-.status_muted   { background: var(--color-hover); color: var(--color-status-neutral); }
+.status_muted   { background: color-mix(in srgb, var(--color-status-neutral) 12%, transparent); color: var(--color-status-neutral); }
 
 .statusDot {
   position: relative;

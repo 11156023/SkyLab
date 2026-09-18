@@ -202,7 +202,7 @@
   "ConnectionDialog.anyProtocol": "Any",
   "ConnectionDialog.bidirectional": "Bidirectional",
   "ConnectionDialog.cancel": "Cancel",
-  "ConnectionDialog.changeIntent": "Change",
+  "ConnectionDialog.changeIntent": "Change connection type",
   "ConnectionDialog.checkingDomain": "Checking whether {{domain}} is available…",
   "ConnectionDialog.createConnection": "Create connection",
   "ConnectionDialog.createFailed": "Failed to create",

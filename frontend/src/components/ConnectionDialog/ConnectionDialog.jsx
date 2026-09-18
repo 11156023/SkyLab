@@ -32,6 +32,7 @@ import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
 import styles from "./ConnectionDialog.module.scss";
 import MIcon from "../MIcon";
+import SegmentedControl from "../SegmentedControl/SegmentedControl";
 import { focusInvalidField } from "../../utils/focusField";
 import { getTopology } from "../../services/firewall";
 import { toDialogNodes } from "./topologyNodes";
@@ -237,6 +238,15 @@ export default function ConnectionDialog({
   const isOutbound = intent === INTENT.OUTBOUND;
   const isVmToVm   = intent === INTENT.PEER;
   const isRule     = intent === INTENT.RULE;
+
+  /* Esc 關閉（Dialog 標準行為）；送出中不關，跟取消鈕的 disabled 一致 */
+  useEffect(() => {
+    const onKeyDown = (e) => {
+      if (e.key === "Escape" && !submitting) onClose();
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [onClose, submitting]);
 
   /* ── 節點清單：沒給就自己抓 ── */
   const [fetchedNodes, setFetchedNodes] = useState(null);
@@ -713,25 +723,17 @@ export default function ConnectionDialog({
               </div>
               <div className={styles.field}>
                 <label className={styles.fieldLabel}>{t("ConnectionDialog.direction")}</label>
-                <div className={styles.modeToggle}>
-                  <button
-                    type="button"
-                    className={`${styles.modeBtn} ${direction === "one_way" ? styles.modeBtnActive : ""}`}
-                    onClick={() => setDirection("one_way")}
-                  >
-                    {labelOf(peerSourceKey)} → {labelOf(peerTargetKey)}
-                  </button>
-                  {/* 老師的機器只能單向連過去，雙向按鈕整顆不顯示 */}
-                  {!peerLimited && (
-                    <button
-                      type="button"
-                      className={`${styles.modeBtn} ${direction === "bidirectional" ? styles.modeBtnActive : ""}`}
-                      onClick={() => setDirection("bidirectional")}
-                    >
-                      {t("ConnectionDialog.bidirectional")}
-                    </button>
-                  )}
-                </div>
+                {/* 老師的機器只能單向連過去，雙向選項整段不顯示 */}
+                <SegmentedControl
+                  className={styles.dirToggle}
+                  options={[
+                    { value: "one_way", label: `${labelOf(peerSourceKey)} → ${labelOf(peerTargetKey)}` },
+                    ...(peerLimited ? [] : [{ value: "bidirectional", label: t("ConnectionDialog.bidirectional") }]),
+                  ]}
+                  value={direction}
+                  onChange={setDirection}
+                  ariaLabel={t("ConnectionDialog.direction")}
+                />
               </div>
               {peerLimited ? (
                 <p className={styles.infoBox}>

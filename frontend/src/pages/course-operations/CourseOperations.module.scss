@@ -42,6 +42,11 @@
   @include btn-icon;
 }
 
+.dialogClose {
+  @include btn-dialog-close;
+  flex-shrink: 0;
+}
+
 .card {
   display: flex;
   flex-direction: column;

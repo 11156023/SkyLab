@@ -202,7 +202,7 @@
   "ConnectionDialog.anyProtocol": "すべて",
   "ConnectionDialog.bidirectional": "双方向",
   "ConnectionDialog.cancel": "キャンセル",
-  "ConnectionDialog.changeIntent": "変更",
+  "ConnectionDialog.changeIntent": "接続方法を変更",
   "ConnectionDialog.checkingDomain": "{{domain}} が利用可能か確認中…",
   "ConnectionDialog.createConnection": "接続を作成",
   "ConnectionDialog.createFailed": "作成に失敗しました",

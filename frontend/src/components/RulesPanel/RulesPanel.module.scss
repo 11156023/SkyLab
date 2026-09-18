@@ -263,7 +263,7 @@
 .badge_blue    { background: color-mix(in srgb, var(--color-info)    15%, transparent); color: var(--color-info); }
 .badge_orange  { background: color-mix(in srgb, var(--color-danger)  15%, transparent); color: var(--color-danger); }
 .badge_neutral { background: var(--color-hover); color: var(--color-text-secondary); }
-.badge_muted   { background: var(--color-hover); color: var(--color-status-neutral); }
+.badge_muted   { background: color-mix(in srgb, var(--color-status-neutral) 12%, transparent); color: var(--color-status-neutral); }
 
 /* ── States ── */
 .hint {

@@ -104,6 +104,11 @@
   width: 100%;
 }
 
+.dialogClose {
+  @include btn-dialog-close;
+  flex-shrink: 0;
+}
+
 .iconBtn {
   width: 36px;
   height: 36px;
@@ -1077,7 +1082,7 @@
 .badge_success { background: color-mix(in srgb, var(--color-success) 12%, transparent); color: var(--color-success); }
 .badge_info { background: color-mix(in srgb, var(--color-info) 12%, transparent); color: var(--color-info); }
 .badge_danger { background: color-mix(in srgb, var(--color-danger) 12%, transparent); color: var(--color-danger); }
-.badge_muted { background: var(--color-hover); color: var(--color-status-neutral); }
+.badge_muted { background: color-mix(in srgb, var(--color-status-neutral) 12%, transparent); color: var(--color-status-neutral); }
 
 /* ── Modal ── */
 .modalOverlay {

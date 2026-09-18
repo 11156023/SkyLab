@@ -125,7 +125,7 @@ function PublicationDialog({ draft, zones, siblings, closing = false, onChange, 
     <section className={`${styles.createDialog} ${styles.publicationDialog}`} role="dialog" aria-modal="true" aria-labelledby="publication-dialog-title">
       <header className={styles.createDialogHeader}>
         <h2 id="publication-dialog-title">{t("CourseTemplateEditorPage.publicAccessLabel")}</h2>
-        <button type="button" className={styles.iconBtn} aria-label={t("CourseTemplateEditorPage.closeAriaLabel")} onClick={onClose}><MIcon name="close" size={19} /></button>
+        <button type="button" className={styles.dialogClose} aria-label={t("CourseTemplateEditorPage.closeAriaLabel")} onClick={onClose}><MIcon name="close" size={19} /></button>
       </header>
       <div className={styles.publicationDialogBody}>
         <div className={styles.inspectorSplit}>

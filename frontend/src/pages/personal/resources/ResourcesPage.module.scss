@@ -44,12 +44,12 @@
 }
 
 
-/* 老師看學生機器：機器名下方的學生姓名 */
+/* 老師看學生機器：機器名下方的學生姓名，用「別人的機器」群色 */
 .machineOwner {
   display: inline-flex;
   align-items: center;
   gap: 2px;
-  color: var(--color-kind-student);
+  color: var(--color-kind-shared);
   font-weight: $font-weight-500;
 }
 
@@ -342,7 +342,7 @@
 .badge_success { background: color-mix(in srgb, var(--color-success) 12%, transparent); color: var(--color-success); }
 .badge_danger  { background: color-mix(in srgb, var(--color-danger)  12%, transparent); color: var(--color-danger); }
 .badge_info    { background: color-mix(in srgb, var(--color-info)    12%, transparent); color: var(--color-info); }
-.badge_muted   { background: var(--color-hover); color: var(--color-status-neutral); }
+.badge_muted   { background: color-mix(in srgb, var(--color-status-neutral) 12%, transparent); color: var(--color-status-neutral); }
 
 /* ── Type / VMID chips ── */
 .cardChips {

@@ -1,6 +1,3 @@
-@use "../../assets/styles/variables" as *;
-@use "../../assets/styles/mixins" as *;
-
 /* ── Overlay ── */
 .overlay {
   position: fixed;
@@ -29,7 +26,7 @@
   @include glass-surface($shadow: var(--shadow-lg));
   border-radius: $radius-16;
   width: 100%;
-  max-width: 560px;
+  max-width: 640px; /* 規範 Dialog 寬度級距：小型單欄表單款 */
   @include flex-column;
   max-height: 90vh;
   overflow: hidden;
@@ -58,14 +55,7 @@
 }
 
 .closeBtn {
-  color: var(--color-text-secondary);
-  cursor: pointer;
-  @include flex-center;
-  border-radius: $radius-8;
-  padding: 2px;
-  transition: background $transition-base;
-
-  &:hover { background: var(--color-hover); }
+  @include btn-dialog-close;
 }
 
 /* ── 分頁：連線 / 自訂規則 ── */
@@ -83,15 +73,14 @@
 .intentCard {
   @include flex-column;
   align-items: flex-start;
-  gap: 4px;
+  gap: $spacing-4;
   padding: $spacing-16;
-  border: 1px solid var(--color-border);
   border-radius: $radius-12;
   background: var(--color-surface);
   color: var(--color-text-secondary);
   text-align: left;
   cursor: pointer;
-  transition: border-color $transition-base, background $transition-base;
+  transition: background $transition-base;
 
   strong {
     font-size: $font-size-14;
@@ -104,38 +93,47 @@
     line-height: 1.4;
   }
 
-  &:hover {
-    border-color: var(--color-primary);
-    background: color-mix(in srgb, var(--color-primary) 6%, transparent);
+  /* 無框卡：hover 只上主色淡染（混 surface 保持不透明，不能混 transparent） */
+  &:hover:not(:disabled) {
+    background: color-mix(in srgb, var(--color-primary) 6%, var(--color-surface));
   }
 }
 
+/* 選定的意圖列：與 modeCardActive 同一套「選中＝不透明主色淡染」語言 */
 .intentChip {
   display: flex;
   align-items: center;
   gap: $spacing-8;
+  width: 100%;
   padding: $spacing-8 $spacing-16;
   border-radius: $radius-8;
-  background: color-mix(in srgb, var(--color-primary) 8%, transparent);
+  background: color-mix(in srgb, var(--color-primary) 10%, var(--color-surface));
   color: var(--color-primary);
 
   strong {
     flex: 1;
+    text-align: left;
     font-size: $font-size-14;
     font-weight: $font-weight-500;
-    color: var(--color-text-primary);
+    color: var(--color-primary-on-surface);
   }
 }
 
-.intentChange {
-  padding: 3px $spacing-8;
-  border-radius: $radius-8;
-  font-size: $font-size-12;
-  color: var(--color-primary);
+/* 整條可點回四卡選擇（編輯既有發布時鎖定，不套這個） */
+.intentChipClickable {
   cursor: pointer;
   transition: background $transition-base;
 
-  &:hover { background: color-mix(in srgb, var(--color-primary) 12%, transparent); }
+  &:hover:not(:disabled) {
+    background: color-mix(in srgb, var(--color-primary) 16%, var(--color-surface));
+  }
+}
+
+/* 右側視覺提示：純文字，點擊行為在整條 chip 上 */
+.intentChange {
+  font-size: $font-size-12;
+  color: var(--color-primary-on-surface);
+  white-space: nowrap;
 }
 
 /* ── Body ── */
@@ -163,16 +161,8 @@
 
 .select,
 .textInput {
-  width: 100%;
-  padding: 8px $spacing-16;
-  border: 1px solid var(--color-border);
-  border-radius: $radius-8;
-  font-size: $font-size-14;
-  background: var(--color-surface);
-  color: var(--color-text);
-  transition: border-color $transition-base;
+  @include form-control;
 
-  &:focus { border-color: var(--color-primary); }
   &:disabled { opacity: 0.6; cursor: not-allowed; }
   &::placeholder { color: var(--color-text-muted); }
 }
@@ -191,9 +181,7 @@
 }
 
 .field {
-  @include flex-column;
-  gap: $spacing-4;
-  min-width: 0;
+  @include form-field;
 }
 
 /* 沒有標題的欄位（例如與 port 並排的 HTTPS 勾選框）貼齊底部，和旁邊的輸入框對齊 */
@@ -201,14 +189,14 @@
   justify-content: flex-end;
 }
 
+/* 字級／字重／顏色由 .field 的 form-field mixin 繼承；只補 mixin 給 > span 的標籤節奏 */
 .fieldLabel {
-  font-size: $font-size-14;
-  font-weight: $font-weight-500;
-  color: var(--color-text);
+  margin-bottom: 3px;
 }
 
 .fieldHint {
   font-size: $font-size-12;
+  font-weight: $font-weight-400; /* 蓋掉 form-field 容器繼承的 500 */
   color: var(--color-text-muted);
   line-height: 1.5;
 }
@@ -227,6 +215,7 @@
   align-items: center;
   gap: $spacing-8;
   font-size: $font-size-14;
+  font-weight: $font-weight-400; /* 蓋掉 form-field 容器繼承的 500 */
   color: var(--color-text);
   cursor: pointer;
 
@@ -260,16 +249,19 @@
   }
 }
 
+/* 與第一步的 intentCard 同一套無框卡：白磁磚底、hover 淡染；
+   active 用較深的不透明淡染＋標題轉主色（混 surface，不能混 transparent 以免在玻璃上透底）。
+   active 放在 hover 之後，特異度打平時後者贏，hover 才不會蓋掉選中態 */
 .modeCard {
   @include flex-column;
   gap: 2px;
   padding: $spacing-8 $spacing-16;
-  border: 1px solid var(--color-border);
   border-radius: $radius-8;
+  background: var(--color-surface);
   text-align: left;
   color: var(--color-text-secondary);
   cursor: pointer;
-  transition: border-color $transition-base, background $transition-base;
+  transition: background $transition-base;
 
   strong {
     display: inline-flex;
@@ -285,40 +277,31 @@
     line-height: 1.4;
   }
 
-  &:hover { background: var(--color-hover); }
+  &:hover:not(:disabled) {
+    background: color-mix(in srgb, var(--color-primary) 6%, var(--color-surface));
+  }
+
+  &.modeCardActive {
+    background: color-mix(in srgb, var(--color-primary) 10%, var(--color-surface));
+
+    strong { color: var(--color-primary-on-surface); }
+  }
 }
 
-.modeCardActive {
-  border-color: var(--color-primary);
-  background: color-mix(in srgb, var(--color-primary) 8%, transparent);
-}
-
-/* ── Segmented toggle（VM→VM 方向） ── */
-.modeToggle {
+/* ── 方向切換（VM→VM）：共用 SegmentedControl ──
+   機器名很長，讓兩段平分寬度；改 display 讓 text-overflow 對純文字生效
+   （此處無 icon／badge，蓋掉 inline-flex 不影響排版） */
+.dirToggle {
   display: flex;
-  gap: $spacing-4;
-  background: var(--color-hover);
-  padding: 3px;
-  border-radius: $radius-8;
-}
+  width: 100%;
 
-.modeBtn {
-  flex: 1;
-  padding: 5px $spacing-8;
-  border-radius: 6px;
-  font-size: $font-size-14;
-  color: var(--color-text-secondary);
-  cursor: pointer;
-  transition: background $transition-base, color $transition-base;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-
-  &.modeBtnActive {
-    background: var(--color-surface);
-    color: var(--color-text);
-    font-weight: $font-weight-500;
-    box-shadow: var(--shadow-sm);
+  button {
+    flex: 1 1 0;
+    min-width: 0;
+    display: block;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    text-align: center;
   }
 }
 
@@ -328,79 +311,73 @@
   gap: $spacing-8;
 }
 
+/* 協定欄兩處統一 96px；移除鈕欄寬 = btn-icon 的 32px，不再溢出 */
 .portRow {
   display: grid;
-  grid-template-columns: 1fr 96px 28px;
+  grid-template-columns: 1fr 96px 32px;
   gap: $spacing-8;
   align-items: center;
 }
 
 .forwardRowHeader {
   display: grid;
-  grid-template-columns: 1fr 1fr 80px 28px;
+  grid-template-columns: 1fr 1fr 96px 32px;
   gap: $spacing-8;
   font-size: $font-size-12;
   color: var(--color-text-secondary);
   font-weight: $font-weight-500;
-  padding: 0 2px;
+
+  /* 標籤對齊 form-control 的 12px 文字內距 */
+  span { padding-left: 12px; }
 }
 
 .forwardRow {
   display: grid;
-  grid-template-columns: 1fr 1fr 80px 28px;
+  grid-template-columns: 1fr 1fr 96px 32px;
   gap: $spacing-8;
   align-items: center;
 }
 
 .portInput {
-  width: 100%;
-  padding: 6px $spacing-8;
-  border: 1px solid var(--color-border);
-  border-radius: $radius-8;
-  font-size: $font-size-14;
-  background: var(--color-surface);
-  color: var(--color-text);
-  transition: border-color $transition-base;
+  @include form-control;
 
-  &:focus { border-color: var(--color-primary); }
-  &:disabled { opacity: 0.6; }
+  &:disabled { opacity: 0.6; cursor: not-allowed; }
   &::placeholder { color: var(--color-text-muted); }
 }
 
-.portInputInvalid {
-  border-color: var(--color-danger);
+/* type=number 疊 datalist 會同時出現捲軸鈕與下拉箭頭；
+   port 是編號不是數量，藏掉捲軸鈕、留 datalist 的建議下拉 */
+.textInput,
+.portInput {
+  appearance: textfield;
 
-  &:focus {
-    border-color: var(--color-danger);
-    box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-danger) 18%, transparent);
+  &::-webkit-inner-spin-button,
+  &::-webkit-outer-spin-button {
+    appearance: none;
+    margin: 0;
   }
 }
 
+/* 疊兩次類名壓過 form-control 的 focus 樣式（同 style guide 的 .fieldInvalid 寫法） */
+.portInputInvalid.portInputInvalid {
+  @include form-control-invalid;
+}
+
 .protoSelect {
-  width: 100%;
-  padding: 6px $spacing-4;
-  border: 1px solid var(--color-border);
-  border-radius: $radius-8;
-  font-size: $font-size-14;
-  background: var(--color-surface);
-  color: var(--color-text);
+  @include form-control;
+  cursor: pointer;
 }
 
 /* 移除列：平常隱形，滑到那一列或列內有焦點才出現，表單不會排滿小叉叉；
    只剩一列時整顆收起（那列本來就不能刪） */
 .removeBtn {
-  @include flex-center;
-  width: 32px;
-  height: 32px;
-  border-radius: $radius-8;
-  color: var(--color-danger);
-  cursor: pointer;
+  @include btn-icon($danger: true);
   opacity: 0;
   transition: background $transition-base, opacity $transition-base;
   flex-shrink: 0;
 
-  &:hover:not(:disabled) { background: color-mix(in srgb, var(--color-danger) 15%, transparent); }
-  &:disabled { pointer-events: none; }
+  /* 蓋掉 btn-base 的 disabled 半透明：不能刪的列整顆隱形，不是淡出 */
+  &:disabled { opacity: 0; pointer-events: none; }
 }
 
 .portRow:hover .removeBtn:not(:disabled),
@@ -411,16 +388,8 @@
 }
 
 .addBtn {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  font-size: $font-size-14;
-  color: var(--color-primary);
-  cursor: pointer;
-  transition: opacity $transition-base;
+  @include btn-ghost;
   align-self: flex-start;
-
-  &:hover { opacity: 0.75; }
 }
 
 /* ── 說明框（出站說明、自訂規則提示） ── */
@@ -440,7 +409,7 @@
 .errorMsg {
   font-size: $font-size-14;
   color: var(--color-danger);
-  background: color-mix(in srgb, var(--color-danger) 10%, transparent);
+  background: color-mix(in srgb, var(--color-danger) 10%, var(--color-surface));
   border-radius: $radius-8;
   padding: $spacing-8 $spacing-16;
 }
@@ -454,28 +423,11 @@
   border-top: 1px solid var(--color-border);
 }
 
+/* 取消／確認：與全站確認彈窗（ConfirmDialog 基準）同款 */
 .cancelBtn {
-  padding: 8px $spacing-16;
-  border-radius: $radius-8;
-  font-size: $font-size-14;
-  color: var(--color-text-secondary);
-  cursor: pointer;
-  transition: background $transition-base;
-
-  &:hover:not(:disabled) { background: var(--color-hover); }
-  &:disabled { opacity: 0.6; cursor: not-allowed; }
+  @include btn-secondary;
 }
 
 .confirmBtn {
-  padding: 8px $spacing-24;
-  border-radius: $radius-8;
-  font-size: $font-size-14;
-  font-weight: $font-weight-500;
-  background: var(--color-primary);
-  color: var(--color-text-on-primary);
-  cursor: pointer;
-  transition: background $transition-base, opacity $transition-base;
-
-  &:hover:not(:disabled) { background: var(--color-primary-dark); }
-  &:disabled { opacity: 0.6; cursor: not-allowed; }
+  @include btn-primary;
 }
