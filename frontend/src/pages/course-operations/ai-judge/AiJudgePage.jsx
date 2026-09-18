@@ -43,9 +43,6 @@ export function toAiJudgeMembers(students) {
       node_name: vm.name,
       vm_status: vm.status,
       vm_type: vm.vm_type,
-      vm_cpu_usage_pct: null,
-      vm_ram_usage_pct: null,
-      vm_disk_usage_pct: null,
     })),
   );
 }

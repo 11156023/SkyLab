@@ -121,7 +121,9 @@ def test_qemu_machine_request_uses_environment_template_and_time_limit() -> None
     assert request.end_at == expires_at
 
 
-def _session_graph(db: Session) -> tuple[QuickPracticeSession, list[VMRequest]]:
+def _session_graph(
+    db: Session, *, with_edge: bool = True, peer_policy: str = "explicit"
+) -> tuple[QuickPracticeSession, list[VMRequest]]:
     now = datetime.now(UTC)
     teacher = User(
         email=f"teacher-{uuid.uuid4()}@example.edu",
@@ -145,6 +147,7 @@ def _session_graph(db: Session) -> tuple[QuickPracticeSession, list[VMRequest]]:
         version=1,
         status=CourseEnvironmentVersionStatus.published,
         published_at=now,
+        peer_policy=peer_policy,
     )
     db.add_all([environment, version])
     db.flush()
@@ -192,7 +195,7 @@ def _session_graph(db: Session) -> tuple[QuickPracticeSession, list[VMRequest]]:
         expires_at=now + timedelta(hours=3),
         status="creating",
     )
-    db.add_all([*nodes, edge, practice])
+    db.add_all([*nodes, *([edge] if with_edge else []), practice])
     db.flush()
     requests: list[VMRequest] = []
     for index, node in enumerate(nodes):
@@ -274,6 +277,110 @@ def test_reconcile_session_applies_topology_before_ready(
     assert len(synced) == 1
     assert synced[0]["comment_prefix"] == quick_practice.QUICK_NETWORK_COMMENT_PREFIX
     assert synced[0]["scope_vmids"] == {requests[0].vmid, requests[1].vmid}
+
+
+def _capture_topology(monkeypatch: pytest.MonkeyPatch) -> list[dict]:
+    from app.services.teaching import class_network_service
+
+    calls: list[dict] = []
+    monkeypatch.setattr(
+        class_network_service,
+        "plan_one_way",
+        lambda session, **kwargs: (calls.append(kwargs) or []),
+    )
+    monkeypatch.setattr(class_network_service, "sync_scope_rules", lambda **_kwargs: [])
+    return calls
+
+
+def test_an_environment_without_edges_keeps_the_machines_isolated(
+    quick_db: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """沒畫線就是隔離：以前會退回「同網段全通」，老師以為沒連線其實是全開。"""
+    practice, _requests = _session_graph(quick_db, with_edge=False)
+    calls = _capture_topology(monkeypatch)
+
+    result = quick_practice.reconcile_session(quick_db, practice_id=practice.id)
+    quick_db.commit()
+
+    assert result is not None and result.status == "ready"
+    assert calls == []
+
+
+def test_segment_policy_opens_every_port_between_segment_peers(
+    quick_db: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """舊行為留給明確選擇它的版本：共用網段的機器雙向全協定互通。"""
+    practice, requests = _session_graph(quick_db, with_edge=False, peer_policy="segment")
+    calls = _capture_topology(monkeypatch)
+
+    quick_practice.reconcile_session(quick_db, practice_id=practice.id)
+    quick_db.commit()
+
+    pairs = {(call["source_vmid"], call["target_vmid"]) for call in calls}
+    assert pairs == {
+        (requests[0].vmid, requests[1].vmid),
+        (requests[1].vmid, requests[0].vmid),
+    }
+    assert all(call["protocol"] == "any" and call["port"] is None for call in calls)
+
+
+def test_segment_policy_ignores_drawn_edges(
+    quick_db: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    practice, _requests = _session_graph(quick_db, with_edge=True, peer_policy="segment")
+    calls = _capture_topology(monkeypatch)
+
+    quick_practice.reconcile_session(quick_db, practice_id=practice.id)
+    quick_db.commit()
+
+    assert all(call["protocol"] == "any" for call in calls)
+
+
+def test_legacy_open_ports_are_replaced_or_removed(
+    quick_db: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """舊的「只開防火牆」規則：版本還宣告的換成 port_forward，不宣告的撤下。"""
+    from app.models import CourseEnvironmentPublication
+    from app.schemas.firewall import PublishedService
+    from app.services.teaching import course_publication_service as cps
+
+    practice, requests = _session_graph(quick_db, with_edge=False)
+    web, db = requests[0].vmid, requests[1].vmid
+    quick_db.add(
+        CourseEnvironmentPublication(
+            version_id=practice.environment_version_id,
+            node_key="web",
+            mode="port_forward",
+            port=22,
+            protocol="tcp",
+        )
+    )
+    quick_db.commit()
+
+    def services(vmid, _session):
+        if vmid == web:
+            return [
+                PublishedService(port=22, protocol="tcp", mode="firewall_only"),
+                PublishedService(port=443, protocol="tcp", mode="domain", domain="x.example.edu"),
+            ]
+        return [PublishedService(port=3306, protocol="tcp", mode="firewall_only")]
+
+    unpublished: list[tuple[int, int, str]] = []
+    monkeypatch.setattr(cps.firewall_service, "list_vm_published_services", services)
+    monkeypatch.setattr(
+        cps.firewall_service,
+        "unpublish_vm_service",
+        lambda vmid, ref, _session: unpublished.append((vmid, ref.port, ref.protocol)),
+    )
+    monkeypatch.setattr(cps, "publish_forward", lambda _session, *, vmid, publication: 30000)
+
+    stats = cps.reconcile_legacy_open_ports(quick_db)
+
+    assert stats["scanned"] == 2
+    assert unpublished == [(web, 22, "tcp"), (db, 3306, "tcp")]
+    assert stats["replaced"] == [{"vmid": web, "port": 22, "protocol": "tcp", "external_port": 30000}]
+    assert stats["removed"] == [{"vmid": db, "port": 3306, "protocol": "tcp"}]
+    assert stats["errors"] == []
 
 
 def test_reconcile_session_keeps_topology_failure_retryable(

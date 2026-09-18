@@ -24,6 +24,12 @@ class SubnetConfig(SQLModel, table=True):
     gateway_vm_ip: str = Field(max_length=50)
     dns_servers: str | None = Field(default=None, max_length=255)
     extra_blocked_subnets: str | None = Field(default=None, sa_type=sa.Text())
+    # 對外 port 轉發的自動配號池：課程環境逐位學生發布時從這段挑沒用過的。
+    # 使用者在拓撲圖上自己填的對外 port 不受此範圍限制。
+    forward_port_start: int = Field(default=30000)
+    forward_port_end: int = Field(default=39999)
+    # 學生看到的入口主機（Gateway 的對外 IP 或網域）；沒設就只給 port
+    forward_public_host: str | None = Field(default=None, max_length=255)
     updated_at: datetime = Field(
         default_factory=get_datetime_utc,
         sa_type=sa.DateTime(timezone=True),

@@ -985,6 +985,11 @@ def execute_provision(plan: dict) -> tuple[int, str]:
                                 actual_node, new_vmid, plan["password"]
                             )
                         )
+                    public_key = str(plan.get("ssh_public_key") or "").strip()
+                    if public_key:
+                        clone_service.inject_lxc_platform_key(
+                            actual_node, new_vmid, public_key
+                        )
                 elif apply_password:
                     logger.warning(
                         "CT %s not started at provision time; custom root "

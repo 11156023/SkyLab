@@ -716,7 +716,7 @@ def create_script_run(
         result_summary_json={"preflight_failed": len(preflight_results)},
         target_results_json=(
             {
-                "schema_version": "teacher_judge_run_results.v1",
+                "schema_version": "teacher_judge_run_results.v2",
                 "targets": preflight_results,
             }
             if preflight_results

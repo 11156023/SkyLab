@@ -1,7 +1,12 @@
 import { apiDelete, apiGet, apiPatch, apiPost, apiPostMultipart, apiPut } from "./api";
 import { formatDate } from "../utils/formatDate";
 
-const EDITOR_FIELDS = ["name", "description", "usageScope", "nodes", "edges", "publications"];
+const EDITOR_FIELDS = ["name", "description", "usageScope", "nodes", "edges", "publications", "peerPolicy"];
+
+/* firewall_only 已移除（對整個子網開洞）；舊草稿殘留的值視為對外 port */
+function publicationMode(mode) {
+  return mode === "domain" ? "domain" : "port_forward";
+}
 function editorFields(item) {
   return Object.fromEntries(EDITOR_FIELDS.filter((key) => key in item).map((key) => [key, item[key]]));
 }
@@ -43,6 +48,7 @@ export function normalizeCourseEnvironment(item) {
     })),
     updatedAt: formatDate(item.updated_at, ""),
     usageScope: item.usage_scope ?? "course",
+    peerPolicy: item.peer_policy ?? "explicit",
     nodes: (item.nodes ?? []).map(normalizeNode),
     edges: (item.edges ?? []).map((edge) => ({
       ...edge,
@@ -57,7 +63,7 @@ export function normalizeCourseEnvironment(item) {
       ...publication,
       id: String(publication.id ?? `publication-${index + 1}`),
       nodeKey: publication.node_key,
-      mode: publication.mode ?? "domain",
+      mode: publicationMode(publication.mode ?? "domain"),
       port: Number(publication.port ?? 80),
       protocol: publication.protocol ?? "tcp",
       hostnamePrefix: publication.hostname_prefix ?? "",
@@ -78,6 +84,7 @@ export function environmentPayload(item) {
     audience: "campus",
     audience_class_ids: [],
     max_concurrent_sessions: null,
+    peer_policy: item.peerPolicy === "segment" ? "segment" : "explicit",
     nodes: item.nodes.map((node, index) => ({
       node_key: String(node.id || `node-${index + 1}`),
       source_type: node.sourceType ?? "template",
@@ -102,15 +109,18 @@ export function environmentPayload(item) {
       protocol: edge.protocol ?? "tcp",
       port: edge.protocol === "any" ? null : Number(edge.port ?? 22),
     })),
-    publications: (item.publications ?? []).map((publication) => ({
-      node_key: String(publication.nodeKey ?? publication.node_key),
-      mode: publication.mode ?? "domain",
-      port: Number(publication.port),
-      protocol: publication.protocol ?? "tcp",
-      hostname_prefix: publication.mode === "domain" ? (publication.hostnamePrefix || "").trim() : null,
-      zone_id: publication.mode === "domain" ? (publication.zoneId || null) : null,
-      enable_https: publication.enableHttps !== false,
-    })),
+    publications: (item.publications ?? []).map((publication) => {
+      const mode = publicationMode(publication.mode ?? "domain");
+      return {
+        node_key: String(publication.nodeKey ?? publication.node_key),
+        mode,
+        port: Number(publication.port),
+        protocol: publication.protocol ?? "tcp",
+        hostname_prefix: mode === "domain" ? (publication.hostnamePrefix || "").trim() : null,
+        zone_id: mode === "domain" ? (publication.zoneId || null) : null,
+        enable_https: publication.enableHttps !== false,
+      };
+    }),
   };
 }
 

@@ -182,9 +182,10 @@ def list_practice_machines(
         )
         .order_by(TeachingClass.name, TeachingClassMachineNode.sort_order)
     ).all()
-    public_urls = course_publication_service.public_urls_by_vmid(
-        session,
-        [machine.vmid for _teaching_class, machine, _node in rows if machine.vmid],
+    vmids = [machine.vmid for _teaching_class, machine, _node in rows if machine.vmid]
+    public_urls = course_publication_service.public_urls_by_vmid(session, vmids)
+    forward_endpoints = course_publication_service.forward_endpoints_by_vmid(
+        session, vmids
     )
     return [
         CoursePracticeMachineStudent(
@@ -198,6 +199,9 @@ def list_practice_machines(
             vmid=machine.vmid,
             status=machine.status,
             public_url=public_urls.get(machine.vmid) if machine.vmid else None,
+            forward_endpoints=(
+                forward_endpoints.get(machine.vmid, []) if machine.vmid else []
+            ),
         )
         for teaching_class, machine, node in rows
     ]

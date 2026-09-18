@@ -250,50 +250,7 @@
 .hintWarn { color: var(--color-pending); }
 
 /* ── 發布方式卡片 ── */
-.modeCards {
-  display: grid;
-  grid-template-columns: 1fr;
-  gap: $spacing-8;
-
-  @include respond-to(md) {
-    grid-template-columns: repeat(3, 1fr);
-  }
-}
-
-.modeCard {
-  @include flex-column;
-  gap: 2px;
-  padding: $spacing-8 $spacing-16;
-  border: 1px solid var(--color-border);
-  border-radius: $radius-8;
-  text-align: left;
-  color: var(--color-text-secondary);
-  cursor: pointer;
-  transition: border-color $transition-base, background $transition-base;
-
-  strong {
-    display: inline-flex;
-    align-items: center;
-    gap: 4px;
-    font-size: $font-size-14;
-    font-weight: $font-weight-500;
-    color: var(--color-text-primary);
-  }
-
-  span {
-    font-size: $font-size-12;
-    line-height: 1.4;
-  }
-
-  &:hover { background: var(--color-hover); }
-}
-
-.modeCardActive {
-  border-color: var(--color-primary);
-  background: color-mix(in srgb, var(--color-primary) 8%, transparent);
-}
-
-/* ── Segmented toggle（VM→VM 方向） ── */
+/* ── Segmented toggle（發布方式、VM→VM 方向共用） ── */
 .modeToggle {
   display: flex;
   gap: $spacing-4;
@@ -304,7 +261,11 @@
 
 .modeBtn {
   flex: 1;
-  padding: 5px $spacing-8;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 6px $spacing-8;
   border-radius: 6px;
   font-size: $font-size-14;
   color: var(--color-text-secondary);
@@ -478,4 +439,18 @@
 
   &:hover:not(:disabled) { background: var(--color-primary-dark); }
   &:disabled { opacity: 0.6; cursor: not-allowed; }
+}
+
+/* ── port 欄位不需要整列寬：固定寬度、靠左排 ── */
+.portRow {
+  grid-template-columns: 128px 104px 28px;
+}
+
+.forwardRowHeader,
+.forwardRow {
+  grid-template-columns: 128px 128px 104px 28px;
+}
+
+.fieldNarrow {
+  max-width: 160px;
 }

@@ -12,6 +12,7 @@ import pytest
 
 from app.api.routes.course_environments import EnvironmentPublicationIn
 from app.models import CourseEnvironmentPublication
+from app.schemas.firewall import PublishedServiceCreate
 from app.services.teaching import course_publication_service as cps
 
 
@@ -129,10 +130,158 @@ def test_domain_mode_rejects_udp() -> None:
         EnvironmentPublicationIn(**_publication_in(protocol="udp"))
 
 
-def test_firewall_only_mode_drops_domain_fields() -> None:
+def test_port_forward_mode_drops_domain_fields() -> None:
     publication = EnvironmentPublicationIn(
-        **_publication_in(mode="firewall_only", protocol="udp")
+        **_publication_in(mode="port_forward", protocol="udp")
     )
 
     assert publication.hostname_prefix is None
     assert publication.zone_id is None
+
+
+# ── 對外 port：逐位學生配號 ───────────────────────────────────────────────
+
+
+@pytest.fixture
+def forward_stack(monkeypatch):
+    """把配號與發布都換成可觀察的假件；allocate 依 exclude 往上挑。"""
+    published: list[PublishedServiceCreate] = []
+    allocations: list[frozenset[int]] = []
+
+    def allocate(_session, _protocol, *, exclude=frozenset()):
+        allocations.append(exclude)
+        return next(p for p in range(30000, 30010) if p not in exclude)
+
+    monkeypatch.setattr(cps.nat_service, "allocate_external_port", allocate)
+    monkeypatch.setattr(
+        cps.firewall_service, "list_vm_published_services", lambda *_a, **_k: []
+    )
+    return published, allocations
+
+
+def test_port_forward_publication_allocates_an_external_port(forward_stack, monkeypatch):
+    published, _allocations = forward_stack
+    monkeypatch.setattr(
+        cps.firewall_service,
+        "publish_vm_service",
+        lambda _vmid, create, _session: published.append(create),
+    )
+
+    external = cps.publish_forward(
+        Mock(), vmid=101, publication=_publication(mode="port_forward", port=22)
+    )
+
+    assert external == 30000
+    assert [(c.mode, c.port, c.external_port) for c in published] == [
+        ("port_forward", 22, 30000)
+    ]
+
+
+def test_a_contended_port_is_skipped_and_the_next_one_used(forward_stack, monkeypatch):
+    """兩個班同時開課挑到同一個 port：唯一約束擋下第二個，換號再試。"""
+    from app.exceptions import BadRequestError
+
+    published, allocations = forward_stack
+    attempts = {"n": 0}
+
+    def publish(_vmid, create, _session):
+        attempts["n"] += 1
+        if attempts["n"] == 1:
+            raise BadRequestError("port taken")
+        published.append(create)
+
+    monkeypatch.setattr(cps.firewall_service, "publish_vm_service", publish)
+
+    external = cps.publish_forward(
+        Mock(), vmid=101, publication=_publication(mode="port_forward", port=22)
+    )
+
+    assert external == 30001
+    assert allocations == [frozenset(), frozenset({30000})]
+
+
+def test_publishing_gives_up_after_repeated_contention(forward_stack, monkeypatch):
+    from app.exceptions import BadRequestError
+
+    def always_taken(_vmid, _create, _session):
+        raise BadRequestError("port taken")
+
+    monkeypatch.setattr(cps.firewall_service, "publish_vm_service", always_taken)
+
+    with pytest.raises(BadRequestError):
+        cps.publish_forward(
+            Mock(), vmid=101, publication=_publication(mode="port_forward", port=22)
+        )
+
+
+def test_apply_routes_port_forward_declarations_through_the_allocator(
+    forward_stack, monkeypatch
+):
+    published, _allocations = forward_stack
+    monkeypatch.setattr(
+        cps.firewall_service,
+        "publish_vm_service",
+        lambda _vmid, create, _session: published.append(create),
+    )
+    monkeypatch.setattr(
+        cps,
+        "list_for_version",
+        lambda _session, *, version_id: [
+            _publication(version_id=version_id, mode="port_forward", node_key="ssh", port=22)
+        ],
+    )
+
+    errors = cps.apply_for_machines(
+        Mock(),
+        version_id=uuid.uuid4(),
+        vmid_by_key={"ssh": 101},
+        owner=_user("alice@school.edu"),
+    )
+
+    assert errors == []
+    assert [(c.mode, c.external_port) for c in published] == [("port_forward", 30000)]
+
+
+# ── 學生端：對外入口 ──────────────────────────────────────────────────────
+
+
+def test_forward_endpoints_carry_the_entry_host_when_configured(monkeypatch):
+    from app.repositories import nat_rule as nat_repo
+
+    monkeypatch.setattr(
+        cps.ip_management_service,
+        "get_subnet_config",
+        lambda _session: SimpleNamespace(forward_public_host="gw.example.edu"),
+    )
+    monkeypatch.setattr(
+        nat_repo,
+        "list_rules_by_vmids",
+        lambda _session, _vmids: [
+            SimpleNamespace(vmid=101, external_port=30001, internal_port=22, protocol="tcp"),
+            SimpleNamespace(vmid=101, external_port=30000, internal_port=3306, protocol="tcp"),
+        ],
+    )
+
+    endpoints = cps.forward_endpoints_by_vmid(Mock(), [101, None])
+
+    assert endpoints == {
+        101: [
+            {"host": "gw.example.edu", "external_port": 30001, "internal_port": 22, "protocol": "tcp"},
+            {"host": "gw.example.edu", "external_port": 30000, "internal_port": 3306, "protocol": "tcp"},
+        ]
+    }
+
+
+def test_forward_endpoints_have_no_host_until_the_admin_sets_one(monkeypatch):
+    from app.repositories import nat_rule as nat_repo
+
+    monkeypatch.setattr(cps.ip_management_service, "get_subnet_config", lambda _s: None)
+    monkeypatch.setattr(
+        nat_repo,
+        "list_rules_by_vmids",
+        lambda _session, _vmids: [
+            SimpleNamespace(vmid=101, external_port=30001, internal_port=22, protocol="tcp")
+        ],
+    )
+
+    assert cps.forward_endpoints_by_vmid(Mock(), [101])[101][0]["host"] is None

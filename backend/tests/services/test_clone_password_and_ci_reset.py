@@ -120,6 +120,34 @@ def test_set_lxc_root_password_gives_up_and_returns_false(
     assert len(calls) == clone_service._LXC_PASSWORD_ATTEMPTS
 
 
+def test_inject_lxc_platform_key_retries_until_success(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(clone_service.time, "sleep", lambda s: None)
+    attempts: list[str] = []
+    outcomes: list[Any] = [
+        RuntimeError("container not running"),
+        (1, "", "pct exec failed"),
+        (0, "", ""),
+    ]
+
+    def fake_exec_lxc(node: str, vmid: int, command: str, **kw: Any) -> Any:
+        attempts.append(command)
+        outcome = outcomes[len(attempts) - 1]
+        if isinstance(outcome, Exception):
+            raise outcome
+        return outcome
+
+    monkeypatch.setattr(guest, "exec_lxc", fake_exec_lxc)
+
+    assert clone_service.inject_lxc_platform_key(
+        "pve1", 203, "ssh-ed25519 AAAA platform"
+    )
+    assert len(attempts) == 3
+    assert "ssh-ed25519 AAAA platform" in attempts[0]
+    assert "/root/.ssh/authorized_keys" in attempts[0]
+
+
 # ---------------------------------------------------------------------------
 # _reset_cloud_init_state
 # ---------------------------------------------------------------------------
@@ -501,6 +529,7 @@ def _lxc_clone_plan(**overrides: Any) -> dict[str, Any]:
         "cores": 2,
         "memory": 2048,
         "password": "MyCustomPw1",
+        "ssh_public_key": "ssh-ed25519 AAAA platform",
         "start_immediately": True,
         "apply_login_password": True,
         "allocated_ip": "10.0.0.60",
@@ -520,7 +549,7 @@ def _patched_lxc_clone_provision(
 ) -> dict[str, Any]:
     from app.services.proxmox import provisioning_service
 
-    calls: dict[str, Any] = {"set_password": [], "control": []}
+    calls: dict[str, Any] = {"set_password": [], "inject_key": [], "control": []}
 
     monkeypatch.setattr(
         provisioning_service,
@@ -535,6 +564,14 @@ def _patched_lxc_clone_provision(
         "_set_lxc_root_password",
         lambda node, vmid, password: calls["set_password"].append(
             (node, vmid, password)
+        )
+        or True,
+    )
+    monkeypatch.setattr(
+        clone_service,
+        "inject_lxc_platform_key",
+        lambda node, vmid, public_key: calls["inject_key"].append(
+            (node, vmid, public_key)
         )
         or True,
     )
@@ -567,6 +604,9 @@ def test_execute_provision_lxc_clone_applies_custom_password(
     assert _patched_lxc_clone_provision["set_password"] == [
         ("pve1", 300, "MyCustomPw1")
     ]
+    assert _patched_lxc_clone_provision["inject_key"] == [
+        ("pve1", 300, "ssh-ed25519 AAAA platform")
+    ]
 
 
 def test_execute_provision_lxc_clone_course_keeps_template_credentials(
@@ -579,6 +619,9 @@ def test_execute_provision_lxc_clone_course_keeps_template_credentials(
     )
 
     assert _patched_lxc_clone_provision["set_password"] == []
+    assert _patched_lxc_clone_provision["inject_key"] == [
+        ("pve1", 300, "ssh-ed25519 AAAA platform")
+    ]
 
 
 def test_execute_provision_lxc_clone_no_start_skips_password(
@@ -592,4 +635,5 @@ def test_execute_provision_lxc_clone_no_start_skips_password(
 
     # 未啟動無法 pct exec，不得誤呼叫（憑證沿用範本，僅記 warning）
     assert _patched_lxc_clone_provision["set_password"] == []
+    assert _patched_lxc_clone_provision["inject_key"] == []
     assert _patched_lxc_clone_provision["control"] == []

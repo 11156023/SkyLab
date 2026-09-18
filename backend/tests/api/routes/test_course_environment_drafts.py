@@ -101,6 +101,70 @@ def test_publish_materializes_latest_draft_and_clears_snapshot(workspace, monkey
     session.commit.assert_called_once()
 
 
+def test_publish_records_the_peer_policy_from_the_draft(workspace, monkeypatch):
+    """互通策略是規格的一部分：跟著版本走，也進 configuration_hash。"""
+    user, environment, version, session = workspace
+    node = dict(
+        node_key="web",
+        source_type="custom",
+        custom_image_ref="local:vztmpl/debian.tar.zst",
+        name="web",
+        role="server",
+        resource_type="lxc",
+        cpu=1,
+        memory_mb=1024,
+        disk_gb=8,
+    )
+    version.draft_data = routes.EnvironmentDraftIn(
+        configuration={"name": "Mesh", "nodes": [node], "peer_policy": "segment"},
+        editor={},
+    ).model_dump_json()
+    monkeypatch.setattr(routes, "_replace_nodes", Mock())
+    monkeypatch.setattr(routes, "_replace_audience", Mock())
+    monkeypatch.setattr(routes, "is_admin", lambda _: False)
+    monkeypatch.setattr(
+        routes, "_nodes", lambda *args: [routes.EnvironmentNodeIn(**node)]
+    )
+    monkeypatch.setattr(routes, "_edges", lambda *args: [])
+    monkeypatch.setattr(routes, "_publications", lambda *args: [])
+
+    routes.publish_environment(environment.id, session, user)
+
+    assert version.peer_policy == "segment"
+
+
+def test_a_draft_without_a_policy_publishes_as_explicit(workspace, monkeypatch):
+    """舊草稿沒有這個欄位：預設隔離，寧可少開也不要把整段網路打通。"""
+    user, environment, version, session = workspace
+    node = dict(
+        node_key="web",
+        source_type="custom",
+        custom_image_ref="local:vztmpl/debian.tar.zst",
+        name="web",
+        role="server",
+        resource_type="lxc",
+        cpu=1,
+        memory_mb=1024,
+        disk_gb=8,
+    )
+    version.peer_policy = "segment"
+    version.draft_data = routes.EnvironmentDraftIn(
+        configuration={"name": "Old", "nodes": [node]}, editor={}
+    ).model_dump_json()
+    monkeypatch.setattr(routes, "_replace_nodes", Mock())
+    monkeypatch.setattr(routes, "_replace_audience", Mock())
+    monkeypatch.setattr(routes, "is_admin", lambda _: False)
+    monkeypatch.setattr(
+        routes, "_nodes", lambda *args: [routes.EnvironmentNodeIn(**node)]
+    )
+    monkeypatch.setattr(routes, "_edges", lambda *args: [])
+    monkeypatch.setattr(routes, "_publications", lambda *args: [])
+
+    routes.publish_environment(environment.id, session, user)
+
+    assert version.peer_policy == "explicit"
+
+
 def test_retry_creation_reuses_id_and_checks_access(workspace, monkeypatch):
     user, environment, version, session = workspace
     session.get.return_value = environment

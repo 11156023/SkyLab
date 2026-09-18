@@ -60,10 +60,6 @@
   "artifact.policy_check_failed": "The script did not pass the safety/quality check.",
   "artifact.ai_review_failed": "The script did not pass the AI reviewer.",
 
-  "analysis.model_not_configured": "VLLM_MODEL_NAME is not configured.",
-  "analysis.not_json": "The AI analysis response is not JSON.",
-  "analysis.invalid_format": "The AI analysis response has an invalid format.",
-
   "file.name_conflict": "A rubric with the same name already exists.",
   "file.copy_name_exhausted": "Unable to create a copy with the same name. Please rename the file.",
   "file.not_found": "The rubric source was not found.",
