@@ -4,6 +4,7 @@ import { toast } from "sonner";
 const TOAST_API = Object.freeze({
   success: (message) => toast.success(message),
   error:   (message) => toast.error(message),
+  warning: (message) => toast.warning(message),
   info:    (message) => toast.info(message),
 });
 
