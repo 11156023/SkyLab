@@ -1,7 +1,10 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import {
   Background,
+  BackgroundVariant,
+  Controls,
+  MiniMap,
   Panel,
   ReactFlow,
   useNodesState,
@@ -21,6 +24,8 @@ import EmptyState from "../../../components/EmptyState/EmptyState";
 import { TemplatesService } from "../../../services/templates";
 import ConnectionEdge from "../../network/firewall/edges/ConnectionEdge";
 import GatewayNode from "../../network/firewall/nodes/GatewayNode";
+import fwStyles from "../../network/firewall/FirewallPage.module.scss";
+import { ThemeContext } from "../../../contexts/ThemeContext";
 import NodeHandles from "../../network/firewall/nodes/NodeHandles";
 import { describePort, routeEdges } from "../../network/firewall/utils/buildFlow";
 import ConnectionDialog, { INTERNET_KEY } from "../../../components/ConnectionDialog/ConnectionDialog";
@@ -46,7 +51,6 @@ const FIREWALL_PROTOCOLS = ["tcp", "udp", "icmp", "icmpv6", "sctp"];
 const COURSE_INTENTS = [INTENT.PUBLISH, INTENT.PEER];
 /* 網際網路節點沒有存到版本裡，位置放元件內；預設在三台機器的右側 */
 const INTERNET_POSITION = { x: 60 + 3 * 260, y: 120 };
-const DEFAULT_STUDENT_COUNT = 30;
 
 /** 規格滑桿範圍；後端上限為 64 核 / 128 GB RAM / 2000 GB Disk，這裡取教學情境的保守值。 */
 const CPU_RANGE = [1, 32];
@@ -81,18 +85,20 @@ function stripImageExtension(name) {
   return String(name).replace(/\.tar(\.(gz|xz|zst|bz2|lzo))?$/i, "");
 }
 
+/* 節點長得跟防火牆拓撲的 VMNode 一樣：狀態點、名稱、副標、型別圖示、右上角對外數。
+   模板機器還沒開出來，狀態點用中性色；副標放規格取代 IP。 */
 function TopologyMachineNode({ data, selected }) {
-  const { t } = useTranslation("teaching");
   const node = data.node;
-  return <div className={`${styles.flowMachineNode} ${selected ? styles.flowMachineNodeSelected : ""}`}>
-    {/* 四面連接點與防火牆拓撲同一套：線走哪一側由 routeEdges 依相對位置決定 */}
+  const exposed = data.exposedCount ?? 0;
+  return <div className={`${fwStyles.vmNode} ${selected ? fwStyles.nodeSelected : ""}`}>
     <NodeHandles dragStartSide="right" />
-    <div className={styles.flowNodeIcon}><MIcon name={node.type === "lxc" ? "terminal" : "dns"} size={18} /></div>
-    <div className={styles.flowNodeLabel}>
-      <strong title={node.name}>{node.name}</strong>
-      <span>{node.sourceType === "custom" ? t("CourseTemplateEditorPage.sourceCustomShort") : t("CourseTemplateEditorPage.sourceTemplateShort")} · {node.type === "lxc" ? t("CourseTemplateEditorPage.typeContainerLxc") : t("CourseTemplateEditorPage.typeVm")}</span>
-      <small>{node.cpu} CPU · {node.memory} GB RAM · {node.disk} GB</small>
+    <div className={fwStyles.vmStatus} style={{ background: "var(--color-status-neutral)" }} />
+    <div className={fwStyles.vmInfo}>
+      <span className={fwStyles.vmName} title={node.name}>{node.name}</span>
+      <span className={fwStyles.vmMeta}>{node.cpu} CPU · {node.memory} GB · {node.disk} GB</span>
     </div>
+    <MIcon name={node.type === "lxc" ? "terminal" : "dns"} size={15} />
+    {exposed > 0 && <span className={fwStyles.exposedBadge}><MIcon name="public" size={11} />{exposed}</span>}
   </div>;
 }
 
@@ -110,11 +116,7 @@ function publicationLabel(t, publication, zones) {
   });
 }
 
-/** 每位學生的規格合計，乘上人數就是開課要吃掉的配額 */
-function specTotals(nodes, students = 1) {
-  const sum = (key) => nodes.reduce((acc, node) => acc + (Number(node[key]) || 0), 0);
-  return { cpu: sum("cpu") * students, memory: sum("memory") * students, disk: sum("disk") * students };
-}
+
 
 function formatFileSize(bytes) {
   const size = Number(bytes ?? 0);
@@ -137,7 +139,8 @@ function MachineEditor({ value, edges, publications, peerPolicy = "explicit", on
   /* 與防火牆頁同一個連線對話框：拉線帶入兩端，或按「新增連線」從選意圖開始 */
   const [dialog, setDialog] = useState(null); // { initialSource, initialTarget, service, publicationId }
   const dialogPresence = useDialogPresence(dialog);
-  const [studentCount, setStudentCount] = useState(DEFAULT_STUDENT_COUNT);
+  /* 畫布配色跟防火牆頁一樣跟著主題；沒有 provider（測試）就當淺色 */
+  const theme = useContext(ThemeContext)?.theme ?? "light";
   const sourceOptions = sourceMode === "template" ? pveTemplates : (customType === "lxc" ? lxcImages : vmImages);
   const atLimit = value.length >= 3;
   /* 對話框的機器清單：模板沒有 vmid，只認 node key */
@@ -290,8 +293,6 @@ function MachineEditor({ value, edges, publications, peerPolicy = "explicit", on
   const selectedEdge = edges.find((edge) => edge.id === selectedEdgeId);
   const selectedPublication = publications.find((item) => item.id === selectedPublicationId);
   const selectedNode = value.find((node) => node.id === selectedNodeId) ?? (!selectedEdge && !selectedPublication ? value[0] : null);
-  const perStudent = specTotals(value);
-  const wholeClass = specTotals(value, Math.max(1, Number(studentCount) || 1));
   // 規格只在草稿可調：已發布版本不可變（班級釘住版本，要改規格得開新版本）。
   const specLocked = locked;
   // 規格基準：範本來源以範本自身規格為錨，自訂 VM 以來源映像為錨。
@@ -334,6 +335,10 @@ function MachineEditor({ value, edges, publications, peerPolicy = "explicit", on
   useEffect(() => {
     setFlowNodes((previous) => {
       const placed = new Map(previous.map((item) => [item.id, item.position]));
+      const exposure = new Map();
+      for (const publication of publications) {
+        exposure.set(publication.nodeKey, (exposure.get(publication.nodeKey) ?? 0) + 1);
+      }
       const machines = value.map((node, index) => ({
         id: String(node.id),
         type: "courseMachine",
@@ -341,7 +346,7 @@ function MachineEditor({ value, edges, publications, peerPolicy = "explicit", on
           x: Number(node.positionX ?? (60 + index * 260)),
           y: Number(node.positionY ?? (120 + (index % 2) * 45)),
         },
-        data: { node },
+        data: { node, exposedCount: exposure.get(node.id) ?? 0 },
         selected: selectedNode?.id === node.id,
       }));
       /* 網際網路節點跟防火牆頁一樣常駐：拖線到它就是「開放服務給外部」，
@@ -354,7 +359,7 @@ function MachineEditor({ value, edges, publications, peerPolicy = "explicit", on
         selected: false,
       }];
     });
-  }, [value, selectedNode?.id, setFlowNodes, internetPosition]);
+  }, [value, publications, selectedNode?.id, setFlowNodes, internetPosition]);
 
   // 位置只在放開滑鼠時回寫，一次拖曳只產生一筆變更。
   const commitNodePositions = useCallback((_event, _node, draggedNodes) => {
@@ -421,19 +426,10 @@ function MachineEditor({ value, edges, publications, peerPolicy = "explicit", on
         <button type="button" className={styles.btnPrimary} disabled={locked || atLimit || !sourceId} onClick={addMachine}><MIcon name={atLimit ? "check" : "add"} size={16} />{atLimit ? t("CourseTemplateEditorPage.atLimitBtn") : t("CourseTemplateEditorPage.addMachineBtn")}</button>
         <button type="button" className={styles.btnSecondary} disabled={locked || value.length === 0} onClick={() => setDialog({})}><MIcon name="add_link" size={16} />{t("CourseTemplateEditorPage.addConnectionBtn")}</button>
       </div>
-      {/* 機器互通策略：以前「沒畫線」會退回全部互通，老師以為隔離其實全開；改成顯式選擇 */}
-      <div className={styles.envPolicyRow}>
-        <label className={styles.field}><span>{t("CourseTemplateEditorPage.peerPolicyLabel")}</span><select value={peerPolicy} disabled={locked} onChange={(event) => onPeerPolicyChange?.(event.target.value)}><option value="explicit">{t("CourseTemplateEditorPage.peerPolicyExplicit")}</option><option value="segment">{t("CourseTemplateEditorPage.peerPolicySegment")}</option></select></label>
-        <div className={styles.envEstimate}>
-          <span>{t("CourseTemplateEditorPage.estimatePerStudent", perStudent)}</span>
-          <label><span>{t("CourseTemplateEditorPage.estimateStudents")}</span><input type="number" min="1" max="500" value={studentCount} onChange={(event) => setStudentCount(event.target.value)} /></label>
-          <strong>{t("CourseTemplateEditorPage.estimateTotal", wholeClass)}</strong>
-        </div>
-      </div>
-      {peerPolicy === "segment" && <p className={styles.persistentFeedback}><MIcon name="warning" size={17} />{t("CourseTemplateEditorPage.peerPolicySegmentWarning")}</p>}
       {value.length ? <>
         <div className={styles.topologyWorkspace}>
-          <div className={styles.topologyCanvas}><ReactFlow
+          {/* 畫布外觀比照防火牆頁：點狀底、Controls、MiniMap、左上工具列、左下圖例 */}
+          <div className={`${styles.topologyCanvas} ${fwStyles.flowWrap}`}><ReactFlow
             nodes={flowNodes}
             edges={graphEdges}
             nodeTypes={TOPOLOGY_NODE_TYPES}
@@ -443,16 +439,38 @@ function MachineEditor({ value, edges, publications, peerPolicy = "explicit", on
             onNodeDragStop={commitNodePositions}
             onNodeClick={(_, node) => { if (node.id !== INTERNET_KEY) selectNode(node.id); }}
             onEdgeClick={(_, edge) => edge.data?.onSelect?.()}
+            onPaneClick={() => selectNode("")}
+            isValidConnection={(connection) => Boolean(connection?.source && connection?.target && connection.source !== connection.target)}
+            connectionRadius={36}
             nodesDraggable={!locked}
             nodesConnectable={!locked}
-            connectionLineStyle={{ stroke: "var(--color-primary)", strokeWidth: 3 }}
             elementsSelectable
-            minZoom={0.7}
-            maxZoom={1.4}
+            deleteKeyCode={null}
+            minZoom={0.5}
+            maxZoom={1.5}
             fitView
-            fitViewOptions={{ padding: 0.22, maxZoom: 1.1 }}
+            fitViewOptions={{ padding: 0.2 }}
+            colorMode={theme}
             proOptions={{ hideAttribution: true }}
-          ><Background gap={20} size={1} /><Panel position="top-right"><span className={styles.nodeLimit}>{t("CourseTemplateEditorPage.nodeLimitLabel", { count: value.length })}</span></Panel></ReactFlow></div>
+          >
+            <Background variant={BackgroundVariant.Dots} gap={20} size={1} />
+            <Controls />
+            <MiniMap zoomable pannable />
+            <Panel position="top-left">
+              {/* 機器互通策略：以前「沒畫線」會退回全部互通，老師以為隔離其實全開；改成顯式選擇 */}
+              <div className={fwStyles.toolbar}>
+                <label className={fwStyles.toolbarBtn} htmlFor="course-peer-policy"><MIcon name={peerPolicy === "segment" ? "hub" : "lan"} size={16} />{t("CourseTemplateEditorPage.peerPolicyLabel")}</label>
+                <select id="course-peer-policy" className={fwStyles.toolbarBtn} value={peerPolicy} disabled={locked} onChange={(event) => onPeerPolicyChange?.(event.target.value)}><option value="explicit">{t("CourseTemplateEditorPage.peerPolicyExplicit")}</option><option value="segment">{t("CourseTemplateEditorPage.peerPolicySegment")}</option></select>
+              </div>
+            </Panel>
+            <Panel position="top-right"><span className={styles.nodeLimit}>{t("CourseTemplateEditorPage.nodeLimitLabel", { count: value.length })}</span></Panel>
+            <Panel position="bottom-left" style={{ marginLeft: 60 }}>
+              <div className={fwStyles.legend}>
+                <span className={fwStyles.legendItem}><i className={`${fwStyles.legendLine} ${fwStyles.legendInbound}`} />{t("FirewallPage.legendInbound", { ns: "network" })}</span>
+                <span className={fwStyles.legendItem}><i className={`${fwStyles.legendLine} ${fwStyles.legendInternal}`} />{t("FirewallPage.legendInternal", { ns: "network" })}</span>
+              </div>
+            </Panel>
+          </ReactFlow></div>
           <aside className={styles.topologyInspector}>
             {selectedPublication ? <>
               <div className={styles.inspectorTitle}><MIcon name={selectedPublication.mode === "domain" ? "public" : "swap_horiz"} size={18} /><div><strong>{t("CourseTemplateEditorPage.publicAccessLabel")}</strong><small>{value.find((node) => node.id === selectedPublication.nodeKey)?.name} · Port {selectedPublication.port}/{selectedPublication.protocol}</small></div></div>

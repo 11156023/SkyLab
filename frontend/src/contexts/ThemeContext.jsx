@@ -6,7 +6,7 @@ import {
   derivePrimaryTheme,
 } from "../utils/theme/derivePrimaryShades";
 
-const ThemeContext = createContext(null);
+export const ThemeContext = createContext(null);
 
 /** 明暗模式選項（統一在此 export，供 Sidebar / AppearanceTab 等共用） */
 export const THEME_OPTIONS = [

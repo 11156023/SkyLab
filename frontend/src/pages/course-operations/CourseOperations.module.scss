@@ -2072,87 +2072,6 @@
   stroke: var(--color-primary);
 }
 
-/* 節點外觀對齊防火牆頁的 .vmNode：flow token 邊框陰影、grab 游標、
-   選中 3px 主色外圈；把手同防火牆＝入口主色、出口綠色 */
-.flowMachineNode {
-  position: relative;
-  display: grid;
-  width: 236px;
-  grid-template-columns: 34px minmax(0, 1fr);
-  align-items: center;
-  gap: 9px;
-  box-sizing: border-box;
-  padding: 12px 14px;
-  border: 1.5px solid var(--color-flow-border);
-  border-radius: $radius-12;
-  background: var(--color-surface);
-  box-shadow: 0 2px 12px var(--color-flow-shadow);
-  transition: border-color $transition-base, box-shadow $transition-base;
-  cursor: grab;
-}
-
-.flowMachineNode:active {
-  cursor: grabbing;
-}
-
-.flowMachineNodeSelected {
-  border-color: var(--color-primary);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-primary) 20%, transparent);
-}
-
-.flowMachineNode :global(.react-flow__handle) {
-  width: 12px;
-  height: 12px;
-}
-
-.flowMachineNode :global(.react-flow__handle-left) {
-  left: -7px;
-  border-color: var(--color-primary);
-  background: var(--color-primary);
-}
-
-.flowMachineNode :global(.react-flow__handle-right) {
-  right: -7px;
-  border-color: var(--color-success);
-  background: var(--color-success);
-}
-
-.flowNodeIcon {
-  display: grid;
-  width: 34px;
-  height: 34px;
-  place-items: center;
-  border-radius: $radius-8;
-  color: var(--color-primary);
-  background: color-mix(in srgb, var(--color-primary) 9%, var(--color-surface));
-}
-
-.flowNodeLabel {
-  display: flex;
-  min-width: 0;
-  flex-direction: column;
-  gap: 3px;
-  padding: 3px 1px;
-  text-align: left;
-}
-
-.flowNodeLabel strong {
-  display: -webkit-box;
-  overflow: hidden;
-  color: var(--color-text-primary);
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
-  font-size: $font-size-12;
-  line-height: 1.35;
-  overflow-wrap: break-word;
-}
-
-.flowNodeLabel span,
-.flowNodeLabel small {
-  color: var(--color-text-muted);
-  font-size: $font-size-10;
-}
-
 .topologyInspector {
   display: flex;
   min-width: 0;
@@ -3527,44 +3446,6 @@
 
   &:hover:not(:disabled) { color: var(--color-danger); background: var(--color-surface); }
   &:disabled { opacity: 0.5; cursor: not-allowed; }
-}
-
-/* 機器配置工具列第二排：互通策略 + 開課配額預估 */
-.envPolicyRow {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: flex-end;
-  justify-content: space-between;
-  gap: 12px 20px;
-  margin-bottom: 12px;
-
-  > .field { min-width: 260px; }
-}
-
-.envEstimate {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px 14px;
-  color: var(--color-text-muted);
-  font-size: $font-size-12;
-
-  label {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-  }
-
-  input {
-    width: 72px;
-    padding: 4px 8px;
-    border: 1px solid var(--color-border);
-    border-radius: $radius-8;
-    background: var(--color-surface);
-    color: var(--color-text);
-  }
-
-  strong { color: var(--color-text); }
 }
 
 /* 學生看到的對外入口（host:port） */

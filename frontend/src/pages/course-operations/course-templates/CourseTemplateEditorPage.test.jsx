@@ -28,6 +28,7 @@ vi.mock("@xyflow/react", async () => {
   return {
     ReactFlow: ({ children }) => <div>{children}</div>,
     Panel: ({ children }) => <div>{children}</div>, Background: () => null, Handle: () => null,
+    BackgroundVariant: { Dots: "dots" }, Controls: () => null, MiniMap: () => null,
     Position: { Top: "top", Right: "right", Bottom: "bottom", Left: "left" }, useNodesState: (nodes) => [...useState(nodes), () => {}],
     BaseEdge: () => null, EdgeLabelRenderer: ({ children }) => <div>{children}</div>, getBezierPath: () => ["", 0, 0],
   };
