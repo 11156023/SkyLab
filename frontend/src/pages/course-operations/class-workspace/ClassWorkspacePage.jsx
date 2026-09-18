@@ -27,6 +27,7 @@ import {
   usageForMetric,
 } from "./classHeatmapUsage";
 import styles from "../CourseOperations.module.scss";
+import fwStyles from "../../network/firewall/FirewallPage.module.scss";
 
 const POST_ACTIVE_TABS = ["progress", "ai"];
 
@@ -412,24 +413,23 @@ function WeeklyContent({ item, onRefresh }) {
   </div>;
 }
 
-/* 唯讀拓撲節點：外觀與課程環境編輯器的 TopologyMachineNode 一致（同一份
-   .flowMachineNode 樣式），差別只在不能拖曳連線。角色與對外服務是課程環境
-   宣告的內容，這裡一併顯示，老師才對得起來。 */
+/* 唯讀拓撲節點：外觀與防火牆拓撲、課程環境編輯器同一套 .vmNode，差別只在
+   不能拖曳連線。角色與對外服務是課程環境宣告的內容，這裡一併顯示。 */
 function ReadonlyMachineNode({ data }) {
   const { t } = useTranslation("teaching");
   const { node, publicationCount } = data;
-  return <div className={`${styles.flowMachineNode} ${styles.flowMachineNodeStatic}`}>
+  const spec = `${node.cpu} CPU · ${Math.round(node.memory_mb / 1024)} GB · ${node.disk_gb} GB`;
+  return <div className={`${fwStyles.vmNode} ${styles.flowMachineNodeStatic}`}>
     <Handle type="target" position={Position.Left} isConnectable={false} />
-    <div className={styles.flowNodeIcon}><MIcon name={node.resource_type === "lxc" ? "terminal" : "dns"} size={18} /></div>
-    <div className={styles.flowNodeLabel}>
-      <strong title={node.name}>{node.name}</strong>
-      <span>{node.role ? `${node.role} · ` : ""}{node.source_type === "custom" ? t("ClassWorkspacePage.sourceCustomSpecLabel") : t("ClassWorkspacePage.machineTemplateLabel")} · {node.resource_type === "lxc" ? t("ClassWorkspacePage.typeContainerLxc") : t("ClassWorkspacePage.typeVm")}</span>
-      <small>{node.cpu} CPU · {Math.round(node.memory_mb / 1024)} GB RAM · {node.disk_gb} GB</small>
-      {publicationCount > 0 && <em className={styles.flowNodePublic}>
-        <MIcon name="public" size={12} />
-        {t("ClassWorkspacePage.nodePublicCount", { count: publicationCount })}
-      </em>}
+    <div className={fwStyles.vmStatus} style={{ background: "var(--color-status-neutral)" }} />
+    <div className={fwStyles.vmInfo}>
+      <span className={fwStyles.vmName} title={node.name}>{node.name}</span>
+      <span className={fwStyles.vmMeta} title={spec}>{node.role ? `${node.role} · ` : ""}{spec}</span>
     </div>
+    <MIcon name={node.resource_type === "lxc" ? "terminal" : "dns"} size={15} />
+    {publicationCount > 0 && <span className={fwStyles.exposedBadge} title={t("ClassWorkspacePage.nodePublicCount", { count: publicationCount })}>
+      <MIcon name="public" size={11} />{publicationCount}
+    </span>}
     <Handle type="source" position={Position.Right} isConnectable={false} />
   </div>;
 }

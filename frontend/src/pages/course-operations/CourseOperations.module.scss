@@ -2159,7 +2159,7 @@
   stroke-opacity: 1 !important;
 }
 
-/* 上課環境的唯讀拓撲：沿用 .flowMachineNode 的外觀，只是不能拖曳 */
+/* 上課環境的唯讀拓撲：外觀是防火牆頁的 .vmNode，只是不能拖曳 */
 .flowMachineNodeStatic {
   cursor: default;
 }
@@ -2170,15 +2170,6 @@
 
 .flowMachineNodeStatic :global(.react-flow__handle) {
   opacity: 0.45;
-}
-
-.flowNodePublic {
-  display: inline-flex;
-  align-items: center;
-  gap: 3px;
-  color: var(--color-primary);
-  font-size: $font-size-10;
-  font-style: normal;
 }
 
 /* 對外服務清單（上課環境）：一行一條，與課程環境側欄的摘要同一套說法 */
