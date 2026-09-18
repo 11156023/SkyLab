@@ -4,7 +4,6 @@ import {
   Background,
   BackgroundVariant,
   Controls,
-  MiniMap,
   Panel,
   ReactFlow,
   useNodesState,
@@ -125,7 +124,7 @@ function formatFileSize(bytes) {
   return `${(size / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-function MachineEditor({ value, edges, publications, peerPolicy = "explicit", onChange, onEdgesChange, onPublicationsChange, onPeerPolicyChange, pveTemplates, vmImages, lxcImages, zones, sourceNotice, locked = false, actions = null }) {
+function MachineEditor({ value, edges, publications, onChange, onEdgesChange, onPublicationsChange, pveTemplates, vmImages, lxcImages, zones, sourceNotice, locked = false, actions = null }) {
   const { t } = useTranslation("teaching");
   const [sourceMode, setSourceMode] = useState("template");
   const [sourceId, setSourceId] = useState("");
@@ -318,12 +317,6 @@ function MachineEditor({ value, edges, publications, peerPolicy = "explicit", on
   const diskCeiling = isLxcNode ? LXC_DISK_RANGE[1] : VM_DISK_RANGE[1];
   const diskRange = [diskFloor, Math.max(diskCeiling, diskFloor)];
 
-  const nodePublications = publications.filter((item) => item.nodeKey === selectedNode?.id);
-
-  /** 給老師看的示範網址：使用課堂代號與匿名學生識別碼。 */
-  function previewDomain(publication) {
-    return publicationLabel(t, publication, zones);
-  }
 
   // 範本清單是非同步載入的，既有節點可能存著低於下限的磁碟值，補正一次。
   useEffect(() => {
@@ -455,14 +448,6 @@ function MachineEditor({ value, edges, publications, peerPolicy = "explicit", on
           >
             <Background variant={BackgroundVariant.Dots} gap={20} size={1} />
             <Controls />
-            <MiniMap zoomable pannable />
-            <Panel position="top-left">
-              {/* 機器互通策略：以前「沒畫線」會退回全部互通，老師以為隔離其實全開；改成顯式選擇 */}
-              <div className={fwStyles.toolbar}>
-                <label className={fwStyles.toolbarBtn} htmlFor="course-peer-policy"><MIcon name={peerPolicy === "segment" ? "hub" : "lan"} size={16} />{t("CourseTemplateEditorPage.peerPolicyLabel")}</label>
-                <select id="course-peer-policy" className={fwStyles.toolbarBtn} value={peerPolicy} disabled={locked} onChange={(event) => onPeerPolicyChange?.(event.target.value)}><option value="explicit">{t("CourseTemplateEditorPage.peerPolicyExplicit")}</option><option value="segment">{t("CourseTemplateEditorPage.peerPolicySegment")}</option></select>
-              </div>
-            </Panel>
             <Panel position="top-right"><span className={styles.nodeLimit}>{t("CourseTemplateEditorPage.nodeLimitLabel", { count: value.length })}</span></Panel>
             <Panel position="bottom-left" style={{ marginLeft: 60 }}>
               <div className={fwStyles.legend}>
@@ -499,21 +484,6 @@ function MachineEditor({ value, edges, publications, peerPolicy = "explicit", on
                 <label><span className={styles.sliderLabel}>CPU<em>{t("CourseTemplateEditorPage.cpuValue", { count: selectedNode.cpu })}</em></span><input disabled={specLocked} type="range" step="1" min={Math.min(cpuRange[0], selectedNode.cpu)} max={Math.max(cpuRange[1], selectedNode.cpu)} value={selectedNode.cpu} onChange={(event) => patchNode(selectedNode.id, { cpu: Number(event.target.value) })} /></label>
                 <label><span className={styles.sliderLabel}>RAM<em>{t("CourseTemplateEditorPage.memoryValue", { count: selectedNode.memory })}</em></span><input disabled={specLocked} type="range" step="1" min={Math.min(memoryRange[0], selectedNode.memory)} max={Math.max(memoryRange[1], selectedNode.memory)} value={selectedNode.memory} onChange={(event) => patchNode(selectedNode.id, { memory: Number(event.target.value) })} /></label>
                 <label><span className={styles.sliderLabel}>Disk<em>{t("CourseTemplateEditorPage.diskValue", { count: selectedNode.disk })}</em></span><input disabled={specLocked} type="range" step="1" min={Math.min(diskRange[0], selectedNode.disk)} max={Math.max(diskRange[1], selectedNode.disk)} value={selectedNode.disk} onChange={(event) => patchNode(selectedNode.id, { disk: Number(event.target.value) })} /></label>
-              </div>
-              <div className={styles.publicationSection}>
-                <div className={styles.publicationHead}>
-                  <span>{t("CourseTemplateEditorPage.publicAccessLabel")}</span>
-                  {!locked && <button type="button" className={styles.publicationAddBtn} onClick={() => setDialog({ initialSource: INTERNET_KEY, initialTarget: String(selectedNode.id) })}><MIcon name="add" size={14} />{t("CourseTemplateEditorPage.addPublicationBtn")}</button>}
-                </div>
-                {nodePublications.length === 0
-                  ? <p className={styles.inspectorHint}>{t("CourseTemplateEditorPage.noPublicationHint")}</p>
-                  : <ul className={styles.publicationList}>{nodePublications.map((publication) => <li key={publication.id}>
-                      <button type="button" className={styles.publicationItem} disabled={locked} onClick={() => editPublication(publication)}>
-                        <strong>{t(publication.mode === "domain" ? "CourseTemplateEditorPage.publicationSummaryDomain" : "CourseTemplateEditorPage.publicationSummaryForward", { port: publication.port })}</strong>
-                        <small>{publication.mode === "domain" ? previewDomain(publication) : t("CourseTemplateEditorPage.publicationForwardDesc")}</small>
-                      </button>
-                      {!locked && <button type="button" className={styles.iconBtnDanger} aria-label={t("CourseTemplateEditorPage.removePublicationBtn")} onClick={() => removePublication(publication.id)}><MIcon name="close" size={15} /></button>}
-                    </li>)}</ul>}
               </div>
             </> : null}
           </aside>
@@ -849,10 +819,10 @@ export default function CourseTemplateEditorPage() {
   if (loading) return <LoadingState fullPage text={t("CourseTemplateEditorPage.loadingTemplateText")} />;
   return <div className={`${styles.page} ${tab === "machines" ? styles.editorPageLocked : ""} ${closing ? styles.animSlideOutRight : styles.animSlideInRight}`}>
     <PageHeader title={isNew ? t("CourseTemplateEditorPage.createTemplateTitle") : template.name} subtitle={isNew ? undefined : `v${template.version} · ${template.updatedAt}`}><div className={styles.pageActions}><button type="button" className={`${styles.btnSecondary} ${styles.backBtn}`} onClick={() => leaveTo(returnTo ?? "/course-template-management")}><MIcon name="arrow_back" size={18} />{t("CourseTemplateEditorPage.backBtn")}</button></div></PageHeader>
-    {template.status === "draft" && <p className={styles.persistentFeedback} role="status" aria-live="polite">
-      <MIcon name={saveState === "error" ? "cloud_off" : saveState === "saved" ? "cloud_done" : "cloud_sync"} size={17} />
-      <span>{t(`CourseTemplateEditorPage.autosave.${saveState}`)}{saveError && ` ${saveError}`}</span>
-      {saveState === "error" && <button type="button" className={styles.btnSecondary} disabled={saving} onClick={() => autosaveRef.current?.flush()}>{t("CourseTemplateEditorPage.retryAutosave")}</button>}
+    {template.status === "draft" && saveState === "error" && <p className={styles.persistentFeedback} role="alert">
+      <MIcon name="cloud_off" size={17} />
+      <span>{t("CourseTemplateEditorPage.autosave.error")}{saveError && ` ${saveError}`}</span>
+      <button type="button" className={styles.btnSecondary} disabled={saving} onClick={() => autosaveRef.current?.flush()}>{t("CourseTemplateEditorPage.retryAutosave")}</button>
     </p>}
     {returnTo && <p className={styles.persistentFeedback}><MIcon name="bookmark_added" size={17} /><span><strong>{t("CourseTemplateEditorPage.classDraftSavedTitle")}</strong>{t("CourseTemplateEditorPage.classDraftSavedDesc")}</span></p>}
     <nav className={styles.envStepper}>
@@ -900,6 +870,6 @@ export default function CourseTemplateEditorPage() {
               </ul>}
       </div>
 {template.status !== "draft" && <p className={styles.inspectorHint}>{t("CourseTemplateEditorPage.basicsEditableHint")}</p>}<div className={styles.actionFooter}>{template.status !== "draft" && <button type="button" className={styles.btnPrimary} disabled={saving || !basicsDirty} onClick={saveBasics}><MIcon name="save" size={16} />{t("CourseTemplateEditorPage.saveBasicsBtn")}</button>}<button type="button" className={template.status === "draft" ? styles.btnPrimary : styles.btnSecondary} onClick={() => changeTab("machines")}>{t("CourseTemplateEditorPage.viewMachineConfigBtn")}<MIcon name="arrow_forward" size={16} /></button></div></section>}
-    {tab === "machines" && <MachineEditor value={template.nodes} edges={template.edges ?? []} publications={template.publications ?? []} peerPolicy={template.peerPolicy ?? "explicit"} onChange={(nodes) => update({ nodes })} onEdgesChange={(edges) => update({ edges })} onPublicationsChange={(publications) => update({ publications })} onPeerPolicyChange={(peerPolicy) => update({ peerPolicy })} pveTemplates={pveTemplates} vmImages={vmImages} lxcImages={lxcImages} zones={zones} sourceNotice={sourceNotice} locked={locked} actions={template.status === "draft" && <button type="button" className={styles.btnPrimary} disabled={saving || closing} onClick={publish}><MIcon name="publish" size={16} />{saving ? t("CourseTemplateEditorPage.publishing") : t("CourseTemplateEditorPage.publishLabel")}</button>} />}
+    {tab === "machines" && <MachineEditor value={template.nodes} edges={template.edges ?? []} publications={template.publications ?? []} onChange={(nodes) => update({ nodes })} onEdgesChange={(edges) => update({ edges })} onPublicationsChange={(publications) => update({ publications })} pveTemplates={pveTemplates} vmImages={vmImages} lxcImages={lxcImages} zones={zones} sourceNotice={sourceNotice} locked={locked} actions={template.status === "draft" && <button type="button" className={styles.btnPrimary} disabled={saving || closing} onClick={publish}><MIcon name="publish" size={16} />{saving ? t("CourseTemplateEditorPage.publishing") : t("CourseTemplateEditorPage.publishLabel")}</button>} />}
   </div>;
 }

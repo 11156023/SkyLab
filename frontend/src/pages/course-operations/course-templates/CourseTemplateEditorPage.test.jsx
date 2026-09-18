@@ -90,7 +90,8 @@ it("automatically saves basic input even before any machine is configured", asyn
     });
     await act(async () => vi.advanceTimersByTimeAsync(700));
     expect(mocks.saveDraft).toHaveBeenCalledWith(null, expect.objectContaining({ name: "New lab", nodes: [] }));
-    expect(host.textContent).toContain("CourseTemplateEditorPage.autosave.saved");
+    /* 存好了就安靜：不再常駐「已儲存」橫幅 */
+    expect(host.textContent).not.toContain("CourseTemplateEditorPage.autosave.");
   } finally { vi.useRealTimers(); }
 });
 
@@ -147,7 +148,7 @@ it("does not publish on save failure, and retry keeps the edits", async () => {
   const retry = [...host.querySelectorAll("button")].find((button) => button.textContent.includes("CourseTemplateEditorPage.retryAutosave"));
   await act(async () => retry.click());
   expect(mocks.saveDraft).toHaveBeenLastCalledWith(null, expect.objectContaining({ name: "Linux" }));
-  expect(host.textContent).toContain("CourseTemplateEditorPage.autosave.saved");
+  expect(host.textContent).not.toContain("CourseTemplateEditorPage.autosave.error");
 });
 
 it("lets a published environment change its basics without a new version", async () => {
