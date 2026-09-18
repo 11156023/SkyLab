@@ -85,42 +85,174 @@ def _requested_item_id(run: TeacherJudgeScriptRun) -> str | None:
     return str(value) if value else None
 
 
+def _first_target(run: TeacherJudgeScriptRun) -> dict[str, Any]:
+    raw_targets = run.target_results_json.get("targets")
+    target = raw_targets[0] if isinstance(raw_targets, list) and raw_targets else {}
+    return target if isinstance(target, dict) else {}
+
+
+def _coverage_mappings(
+    artifact: TeacherJudgeScriptArtifact | None,
+) -> list[dict[str, Any]]:
+    if artifact is None:
+        return []
+    coverage = (artifact.policy_check_result_json or {}).get("coverage")
+    mappings = coverage.get("mappings") if isinstance(coverage, dict) else None
+    if not isinstance(mappings, list):
+        return []
+    return [
+        mapping
+        for mapping in mappings
+        if isinstance(mapping, dict)
+        and isinstance(mapping.get("check_id"), str)
+        and isinstance(mapping.get("rubric_item_ids"), list)
+    ]
+
+
+def _script_checks(
+    target: dict[str, Any],
+    *,
+    artifact: TeacherJudgeScriptArtifact | None,
+    item_id: str | None,
+) -> list[CourseAICheckItemStudent]:
+    parsed_result = target.get("parsed_result")
+    raw_checks = parsed_result.get("checks") if isinstance(parsed_result, dict) else None
+    if not isinstance(raw_checks, list):
+        return []
+
+    check_by_id: dict[str, dict[str, Any]] = {}
+    for raw in raw_checks:
+        if not isinstance(raw, dict):
+            continue
+        check_id = str(raw.get("id") or "").strip()
+        if check_id:
+            check_by_id[check_id] = raw
+
+    if item_id:
+        mapped_ids: list[str] = []
+        for mapping in _coverage_mappings(artifact):
+            if item_id not in {str(value) for value in mapping["rubric_item_ids"]}:
+                continue
+            check_id = str(mapping["check_id"])
+            if check_id not in mapped_ids:
+                mapped_ids.append(check_id)
+        if not mapped_ids and item_id in check_by_id:
+            mapped_ids = [item_id]
+        selected = [
+            check_by_id[check_id]
+            for check_id in mapped_ids
+            if check_id in check_by_id
+        ]
+        if not selected:
+            return []
+        rubric_title = ""
+        if artifact is not None:
+            for rubric_item in (artifact.rubric_snapshot_json or {}).get("items", []):
+                if isinstance(rubric_item, dict) and str(rubric_item.get("id") or "") == item_id:
+                    rubric_title = str(rubric_item.get("title") or "")
+                    break
+        statuses = [str(check.get("status") or "unknown") for check in selected]
+        status = "fail" if "fail" in statuses else (
+            "warning" if "warning" in statuses else (
+                "unknown" if "unknown" in statuses else (
+                    "skipped" if "skipped" in statuses else "pass"
+                )
+            )
+        )
+        evidence = "\n".join(
+            str(check.get("evidence") or "").strip()
+            for check in selected
+            if str(check.get("evidence") or "").strip()
+        )
+        return [
+            CourseAICheckItemStudent(
+                item_id=item_id,
+                title=rubric_title or str(selected[0].get("title") or item_id),
+                status=status,
+                comment=evidence,
+            )
+        ]
+
+    return [
+        CourseAICheckItemStudent(
+            item_id=check_id,
+            title=str(check.get("title") or check_id),
+            status=str(check.get("status") or "unknown"),
+            comment=str(check.get("evidence") or ""),
+        )
+        for check_id, check in check_by_id.items()
+    ]
+
+
+def _legacy_judgement_items(
+    judgement: dict[str, Any], *, item_id: str | None
+) -> list[CourseAICheckItemStudent]:
+    raw_items = judgement.get("item_judgements")
+    if not isinstance(raw_items, list):
+        return []
+    items: list[CourseAICheckItemStudent] = []
+    for raw in raw_items:
+        if not isinstance(raw, dict):
+            continue
+        if item_id and str(raw.get("item_id") or "") != item_id:
+            continue
+        items.append(
+            CourseAICheckItemStudent(
+                item_id=str(raw.get("item_id") or ""),
+                title=str(raw.get("title") or ""),
+                status=str(raw.get("status") or "unknown"),
+                score=raw.get("score") if isinstance(raw.get("score"), int) else None,
+                max_score=(
+                    raw.get("max_score")
+                    if isinstance(raw.get("max_score"), int)
+                    else None
+                ),
+                comment=str(raw.get("comment") or ""),
+            )
+        )
+    return items
+
+
 def _check_to_student(
-    run: TeacherJudgeScriptRun, *, item_id: str | None = None
+    run: TeacherJudgeScriptRun,
+    *,
+    artifact: TeacherJudgeScriptArtifact | None = None,
+    item_id: str | None = None,
 ) -> CourseAICheckStudent:
     """Project one run down to the feedback that belongs on a student page."""
 
-    raw_targets = run.target_results_json.get("targets")
-    target = raw_targets[0] if isinstance(raw_targets, list) and raw_targets else {}
+    target = _first_target(run)
     judgement = target.get("ai_judgement") if isinstance(target, dict) else {}
     if not isinstance(judgement, dict):
         judgement = {}
-    raw_items = judgement.get("item_judgements")
-    items = []
-    if isinstance(raw_items, list):
-        for raw in raw_items:
-            if not isinstance(raw, dict):
-                continue
-            items.append(
-                CourseAICheckItemStudent(
-                    item_id=str(raw.get("item_id") or ""),
-                    title=str(raw.get("title") or ""),
-                    status=str(raw.get("status") or "unknown"),
-                    score=raw.get("score") if isinstance(raw.get("score"), int) else None,
-                    max_score=(
-                        raw.get("max_score")
-                        if isinstance(raw.get("max_score"), int)
-                        else None
-                    ),
-                    comment=str(raw.get("comment") or ""),
-                )
-            )
+    items = _script_checks(target, artifact=artifact, item_id=item_id)
+    if not items:
+        items = _legacy_judgement_items(judgement, item_id=item_id)
 
-    if item_id:
-        items = [item for item in items if item.item_id == item_id]
-    target_error = target.get("error") if isinstance(target, dict) else ""
+    parsed_result = target.get("parsed_result")
+    parsed_summary = (
+        str(parsed_result.get("summary") or "")
+        if isinstance(parsed_result, dict)
+        else ""
+    )
+    parsed_errors = (
+        parsed_result.get("errors")
+        if isinstance(parsed_result, dict)
+        else []
+    )
+    target_validation = target.get("validation")
+    target_error = (
+        str(
+            (target_validation.get("error") if isinstance(target_validation, dict) else "")
+            or target.get("error")
+            or ""
+        )
+    )
+    if not target_error and isinstance(parsed_errors, list):
+        target_error = "; ".join(str(error) for error in parsed_errors if error)
     item_score = items[0].score if item_id and items else None
     item_max_score = items[0].max_score if item_id and items else None
+    has_script_result = isinstance(parsed_result, dict)
     return CourseAICheckStudent(
         run_id=run.id,
         status=run.status.value,
@@ -128,15 +260,15 @@ def _check_to_student(
         finished_at=run.finished_at,
         score=item_score if item_id else (
             judgement.get("score")
-            if isinstance(judgement.get("score"), int)
+            if not has_script_result and isinstance(judgement.get("score"), int)
             else None
         ),
         max_score=item_max_score if item_id else (
             judgement.get("max_score")
-            if isinstance(judgement.get("max_score"), int)
+            if not has_script_result and isinstance(judgement.get("max_score"), int)
             else None
         ),
-        summary=str(judgement.get("summary") or ""),
+        summary=parsed_summary or str(judgement.get("summary") or ""),
         error=str(judgement.get("error") or target_error or ""),
         items=items,
     )
@@ -156,7 +288,8 @@ def _latest_student_check(
         )
         .order_by(desc(TeacherJudgeScriptRun.created_at))
     ).first()
-    return _check_to_student(run) if run else None
+    artifact = session.get(TeacherJudgeScriptArtifact, artifact_id)
+    return _check_to_student(run, artifact=artifact) if run else None
 
 
 def _latest_student_checkpoint_checks(
@@ -168,6 +301,7 @@ def _latest_student_checkpoint_checks(
 ) -> dict[str, CourseAICheckStudent]:
     wanted = set(item_ids)
     checks: dict[str, CourseAICheckStudent] = {}
+    artifact = session.get(TeacherJudgeScriptArtifact, artifact_id)
     runs = session.exec(
         select(TeacherJudgeScriptRun)
         .where(
@@ -182,7 +316,7 @@ def _latest_student_checkpoint_checks(
         for checkpoint_id in candidates:
             if checkpoint_id in wanted and checkpoint_id not in checks:
                 checks[checkpoint_id] = _check_to_student(
-                    run, item_id=checkpoint_id
+                    run, artifact=artifact, item_id=checkpoint_id
                 )
         if len(checks) == len(wanted):
             break
@@ -443,7 +577,12 @@ def get_student_ai_check(
         or run.started_by != user_id
     ):
         raise HTTPException(status_code=404, detail=t("ai_assignment.check_not_found"))
-    return _check_to_student(run, item_id=_requested_item_id(run))
+    artifact = session.get(TeacherJudgeScriptArtifact, assignment.id)
+    return _check_to_student(
+        run,
+        artifact=artifact,
+        item_id=_requested_item_id(run),
+    )
 
 
 def update_student_completion(

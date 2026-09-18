@@ -467,6 +467,16 @@ def _boot_one(
     proxmox_service.control(spec.node, spec.vmid, spec.resource_type, "start")
     logger.info("Scheduled boot triggered: vmid=%s node=%s", spec.vmid, spec.node)
 
+    if spec.resource_type == "lxc":
+        from app.services.resource import resource_service  # noqa: PLC0415
+
+        with Session(engine) as session:
+            resource_service.ensure_lxc_platform_key(
+                session=session,
+                node=spec.node,
+                vmid=spec.vmid,
+            )
+
     if spec.window_end is None:
         return
     auto_stop_at = (

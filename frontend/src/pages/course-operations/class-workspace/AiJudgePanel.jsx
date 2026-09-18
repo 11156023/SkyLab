@@ -18,6 +18,39 @@ import {
   shouldDisplayChatMessage,
 } from "../../../services/aiJudge";
 
+/**
+ * Merge server messages by id while retaining chronological server order.
+ * Identical content with different ids is valid (for example, a retry), so
+ * content is deliberately never used as a de-duplication key.
+ */
+export function mergeSessionMessages(current = [], incoming = []) {
+  const merged = new Map();
+  const anonymous = [];
+  [...(Array.isArray(current) ? current : []), ...(Array.isArray(incoming) ? incoming : [])]
+    .forEach((message, index) => {
+      if (!message || typeof message !== "object") return;
+      const id = message.id;
+      if (id) {
+        merged.set(String(id), { message, index });
+      } else {
+        anonymous.push({ message, index });
+      }
+    });
+  return [
+    ...[...merged.values(), ...anonymous]
+      .sort((a, b) => {
+        const aTime = a.message.created_at ?? "";
+        const bTime = b.message.created_at ?? "";
+        if (aTime !== bTime) return aTime < bTime ? -1 : 1;
+        const aId = a.message.id ? String(a.message.id) : "";
+        const bId = b.message.id ? String(b.message.id) : "";
+        if (aId !== bId) return aId < bId ? -1 : 1;
+        return a.index - b.index;
+      })
+      .map(({ message }) => message),
+  ];
+}
+
 /* ── 共用小元件 ─────────────────────────────────────────── */
 
 function Spinner({ size = 16 }) {
@@ -182,7 +215,7 @@ function getDetectableInfo(detectable) {
   return DETECTABLE_INFO[detectable] ?? DETECTABLE_INFO.manual;
 }
 
-function hasCompleteParameterizedStep(step, judgementMode = "ai") {
+function hasCompleteParameterizedStep(step) {
   const parameters = step?.parameters ?? {};
   const hasArgv = Array.isArray(parameters.argv)
     && parameters.argv.length > 0
@@ -190,20 +223,48 @@ function hasCompleteParameterizedStep(step, judgementMode = "ai") {
   const hasTimeout = Number.isInteger(parameters.timeout_seconds)
     && parameters.timeout_seconds >= 1
     && parameters.timeout_seconds <= 300;
-  const hasSuccessCriteria = judgementMode === "teacher"
-    || (typeof parameters.success_criteria === "string"
-      && parameters.success_criteria.trim());
   if (step?.command_key === "python.run_entrypoint") {
     return Boolean(typeof parameters.cwd === "string"
       && parameters.cwd.trim()
       && hasArgv
-      && hasTimeout
-      && hasSuccessCriteria);
+      && hasTimeout);
   }
   if (step?.command_key === "system.run_command") {
-    return Boolean(hasArgv && hasTimeout && hasSuccessCriteria);
+    return Boolean(hasArgv && hasTimeout);
   }
   return true;
+}
+
+/** 把單一 check step 的 parameters 轉成老師可讀的唯讀 chip 資料。 */
+function stepParameterChips(step) {
+  const parameters = step?.parameters ?? {};
+  const chips = [];
+  const argv = Array.isArray(parameters.argv)
+    ? parameters.argv.filter((part) => typeof part === "string" && part.trim())
+    : [];
+  if (argv.length > 0) {
+    chips.push({ key: "argv", label: "指令", mono: true, parts: argv });
+  }
+  if (typeof parameters.cwd === "string" && parameters.cwd.trim()) {
+    chips.push({ key: "cwd", label: "工作目錄", mono: true, parts: [parameters.cwd.trim()] });
+  }
+  if (Number.isInteger(parameters.timeout_seconds)
+    && parameters.timeout_seconds >= 1
+    && parameters.timeout_seconds <= 300) {
+    chips.push({ key: "timeout_seconds", label: "逾時", mono: false, parts: [`${parameters.timeout_seconds} 秒`] });
+  }
+  return chips;
+}
+
+/** 提案列的唯讀指令預覽；以分號串接多個步驟的 argv。 */
+function proposalCommandPreview(item) {
+  const steps = Array.isArray(item?.check_steps) ? item.check_steps : [];
+  return steps
+    .map((step) => (Array.isArray(step?.parameters?.argv)
+      ? step.parameters.argv.filter((part) => typeof part === "string" && part.trim()).join(" ")
+      : ""))
+    .filter(Boolean)
+    .join("；");
 }
 
 /**
@@ -244,7 +305,7 @@ export function getScriptCreationBlocker({ analysis, pendingProposal = null, pen
       || !Array.isArray(item.check_steps)
       || item.check_steps.length === 0
       || item.check_steps.some((step) => (
-        !hasCompleteParameterizedStep(step, item.judgement_mode ?? "ai")
+        !hasCompleteParameterizedStep(step)
       ))
     ))
   )).length;
@@ -318,7 +379,6 @@ function proposalOperationLabel(item) {
 function comparableItem(item) {
   return JSON.stringify({
     title: item.title ?? "",
-    description: item.description ?? "",
     checked: Boolean(item.checked),
     detectable: item.detectable ?? "manual",
     judgement_mode: item.judgement_mode ?? "ai",
@@ -421,6 +481,29 @@ export function buildProposalDiff(currentItems, proposedItems) {
   return changes;
 }
 
+/** 只有後端明確標為 Ready／導師檢查的操作可進入套用選取。 */
+export function getSelectableProposalIds(proposalItems, itemResults = null) {
+  const proposal = Array.isArray(proposalItems) ? proposalItems : [];
+  if (!Array.isArray(itemResults)) {
+    return new Set(proposal.map((item, index) => item?.id ?? `proposal-${index}`));
+  }
+  if (itemResults.length === 0) return new Set();
+  const resultByOperationId = new Map(
+    itemResults
+      .filter((result) => result?.operation?.id)
+      .map((result) => [String(result.operation.id), result]),
+  );
+  return new Set(
+    proposal
+      .map((item, index) => ({ item, id: item?.id ?? `proposal-${index}` }))
+      .filter(({ id }) => {
+        const result = resultByOperationId.get(String(id));
+        return result?.status === "ready" || result?.status === "teacher_review";
+      })
+      .map(({ id }) => id),
+  );
+}
+
 /** 將選定的 AI 差異套用成候選項目；未明確刪除的既有項目一律保留。 */
 export function applyProposalOperations(currentItems, proposalItems, selectedIds = null) {
   const byId = new Map((Array.isArray(currentItems) ? currentItems : []).map((item) => [item.id, item]));
@@ -447,15 +530,23 @@ export function applyProposalOperations(currentItems, proposalItems, selectedIds
   return { items: [...byId.values()], evaluatedIds };
 }
 
-export function ProposalPanel({ proposal, selectedIds, onToggle, onApply, onSkip, disabled, isRefine = false }) {
+const ITEMWISE_STATUS_INFO = {
+  needs_information: { label: "缺少資訊", className: styles.detBadge_partial },
+  unsupported: { label: "無法自動檢查", className: styles.detBadge_manual },
+  analysis_error: { label: "分析失敗", className: styles.detBadge_manual },
+};
+
+export function ProposalPanel({ proposal, selectedIds, onToggle, onApply, onSkip, disabled, isRefine = false, itemResults = null }) {
   const contentId = useId();
   const [expanded, setExpanded] = useState(true);
 
   useEffect(() => {
     setExpanded(true);
-  }, [proposal]);
+  }, [proposal, itemResults]);
 
   if (!proposal?.length) return null;
+  const results = Array.isArray(itemResults) && itemResults.length ? itemResults : null;
+  const proposalById = new Map(proposal.map((item, index) => [item.id ?? `proposal-${index}`, item]));
   return (
     <section className={styles.proposalPreview} aria-label="AI 提案" aria-live="polite">
       <button
@@ -484,23 +575,70 @@ export function ProposalPanel({ proposal, selectedIds, onToggle, onApply, onSkip
               : "只有同意套用的項目才會正式保存到目前檢查表。"}
           </p>
           <div className={styles.proposalList}>
-            {proposal.map((item, index) => {
-              const id = item.id ?? `proposal-${index}`;
-              return (
-                <label className={styles.proposalRow} key={id}>
-                  <input
-                    type="checkbox"
-                    checked={selectedIds.has(id)}
-                    disabled={disabled}
-                    onChange={() => onToggle(id)}
-                  />
-                  <span>
-                    <b>{item.title || "未命名項目"}</b>
-                    <small><em>{proposalOperationLabel(item)}</em>{item.description || "AI 建議新增或調整此檢查項目"}</small>
-                  </span>
-                </label>
-              );
-            })}
+            {results
+              ? results.map((result, index) => {
+                  const operationId = result.operation?.id;
+                  const selectable = (result.status === "ready" || result.status === "teacher_review") && operationId && proposalById.has(operationId);
+                  if (selectable) {
+                    const item = proposalById.get(operationId);
+                    const commandPreview = proposalCommandPreview(item);
+                    return (
+                      <label className={styles.proposalRow} key={operationId}>
+                        <input
+                          type="checkbox"
+                          checked={selectedIds.has(operationId)}
+                          disabled={disabled}
+                          onChange={() => onToggle(operationId)}
+                        />
+                        <span>
+                          <b>{result.source_label ? `${result.source_label}·` : ""}{item.title || "未命名項目"}</b>
+                          <small><em>{proposalOperationLabel(item)}</em>AI 建議新增或調整此檢查項目</small>
+                          {commandPreview && (
+                            <code className={styles.proposalCommandPreview}>{commandPreview}</code>
+                          )}
+                        </span>
+                      </label>
+                    );
+                  }
+                  const info = ITEMWISE_STATUS_INFO[result.status] ?? ITEMWISE_STATUS_INFO.analysis_error;
+                  const gaps = Array.isArray(result.missing_information) ? result.missing_information.filter(Boolean) : [];
+                  const reason = gaps.length
+                    ? gaps.join("、")
+                    : (result.status === "unsupported" ? result.detail || "" : "");
+                  return (
+                    <div className={styles.proposalRow} key={`${result.source_index ?? index}-${result.title ?? ""}`}>
+                      <span className={`${styles.detBadge} ${styles[info.className]}`}>
+                        <MIcon name={result.status === "needs_information" ? "warning_amber" : "cancel"} size={16} aria-hidden="true" />
+                        <span>{info.label}</span>
+                      </span>
+                      <span>
+                        <b>{result.source_label ? `${result.source_label}·` : ""}{result.title || "未命名項目"}</b>
+                        {reason && <small><em>{reason}</em></small>}
+                      </span>
+                    </div>
+                  );
+                })
+              : proposal.map((item, index) => {
+                  const id = item.id ?? `proposal-${index}`;
+                  const commandPreview = proposalCommandPreview(item);
+                  return (
+                    <label className={styles.proposalRow} key={id}>
+                      <input
+                        type="checkbox"
+                        checked={selectedIds.has(id)}
+                        disabled={disabled}
+                        onChange={() => onToggle(id)}
+                      />
+                      <span>
+                        <b>{item.title || "未命名項目"}</b>
+                        <small><em>{proposalOperationLabel(item)}</em>AI 建議新增或調整此檢查項目</small>
+                        {commandPreview && (
+                          <code className={styles.proposalCommandPreview}>{commandPreview}</code>
+                        )}
+                      </span>
+                    </label>
+                  );
+                })}
           </div>
           <div className={styles.proposalActions}>
             <button type="button" className={styles.btnSecondary} disabled={disabled} onClick={onSkip}>忽略</button>
@@ -515,7 +653,7 @@ export function ProposalPanel({ proposal, selectedIds, onToggle, onApply, onSkip
 /* ── 可編輯檢查項目表格 ───────────────────────────────── */
 
 function DetectabilityBadge({ detectable, judgementMode = "ai", needsReview = false }) {
-  const detectableInfo = needsReview
+  const detectableInfo = needsReview || detectable === "partial"
     ? DETECTABLE_INFO.partial
     : judgementMode === "teacher"
       ? TEACHER_REVIEW_INFO
@@ -572,16 +710,12 @@ function RubricTableRow({ item, index, onChange, onDelete, disabled, needsReview
           </label>
         </td>
         <td className={styles.rubricDescriptionCell}>
-          <label className={styles.tableField}>
-            <span className={styles.srOnly}>第 {index + 1} 項檢查條件</span>
-            <textarea
-              value={item.description}
-              onChange={(event) => onChange({ ...item, description: event.target.value })}
-              placeholder="寫下學生需要符合的條件"
-              rows={2}
-              disabled={disabled}
-            />
-          </label>
+          <div className={styles.tableField}>
+            <span className={styles.srOnly}>第 {index + 1} 項檢測方式</span>
+            <p className={`${styles.rubricMethodText} ${!item.detection_method ? styles.rubricMethodTextEmpty : ""}`}>
+              {item.detection_method || "尚未提供檢測方式"}
+            </p>
+          </div>
         </td>
         <td className={styles.rubricDetectabilityCell}>
           <DetectabilityBadge
@@ -624,13 +758,7 @@ function RubricTableRow({ item, index, onChange, onDelete, disabled, needsReview
                       <span>缺少資訊</span>
                       <p>{missingInformation.length
                         ? missingInformation.join("、")
-                        : "請補充完整的服務名稱、程式位置、連接埠、取證範圍或判定條件。"}</p>
-                    </div>
-                  )}
-                  {item.detection_method && (
-                    <div className={styles.detectItem}>
-                      <span>檢測方式</span>
-                      <p>{item.detection_method}</p>
+                        : "請補充完整的服務名稱、程式位置、連接埠或取證範圍。"}</p>
                     </div>
                   )}
                   {item.fallback && (
@@ -642,13 +770,28 @@ function RubricTableRow({ item, index, onChange, onDelete, disabled, needsReview
                   {checkSteps.length > 0 && (
                     <div className={`${styles.detectItem} ${styles.detectItemWide}`}>
                       <span>預計檢查步驟（尚未執行）</span>
-                      <div className={styles.chipRow}>
-                        {checkSteps.map((step) => (
-                          <span key={`${step.template_key}-${step.command_key}`} className={styles.chip}>
-                            {getTemplateLabel(step.template_key)} /{" "}
-                            {step.command_label ?? step.command_key}
-                            <code>{step.command_key}</code>
-                          </span>
+                      <div className={styles.stepPlanList}>
+                        {checkSteps.map((step, stepIndex) => (
+                          <div
+                            key={`${step.template_key}-${step.command_key}-${stepIndex}`}
+                            className={styles.stepPlanRow}
+                          >
+                            <span className={styles.chip}>
+                              {getTemplateLabel(step.template_key)} /{" "}
+                              {step.command_label ?? step.command_key}
+                              <code>{step.command_key}</code>
+                            </span>
+                            {stepParameterChips(step).map((chip) => (
+                              <span key={chip.key} className={styles.chip}>
+                                <span className={styles.chipLabel}>{chip.label}</span>
+                                {chip.mono
+                                  ? chip.parts.map((part, partIndex) => (
+                                    <code key={partIndex}>{part}</code>
+                                  ))
+                                  : <span className={styles.chipText}>{chip.parts.join(" ")}</span>}
+                              </span>
+                            ))}
+                          </div>
                         ))}
                       </div>
                     </div>
@@ -678,7 +821,7 @@ export function RubricTable({ items, onChange, onDelete, disabled, needsReviewId
             </th>
             <th scope="col">#</th>
             <th scope="col">檢查點</th>
-            <th scope="col">檢查條件</th>
+            <th scope="col">檢測方式</th>
             <th scope="col">自動檢測支援</th>
             <th scope="col"><span className={styles.srOnly}>操作</span></th>
           </tr>
@@ -703,6 +846,47 @@ export function RubricTable({ items, onChange, onDelete, disabled, needsReviewId
 
 /* ── AI 對話面板 ────────────────────────────────────────── */
 
+/**
+ * 工具呼叫結果的教師顯示文字；以後端實際執行結果為準，
+ * 覆蓋模型回覆文字可能宣稱但實際未建立的狀態。
+ */
+export function proposalToolCallLines(message) {
+  const toolCalls = Array.isArray(message?.metadata_json?.tool_calls)
+    ? message.metadata_json.tool_calls
+    : [];
+  const lines = [];
+  toolCalls.forEach((call) => {
+    if (!call || typeof call !== "object") return;
+    if (call.status === "staged") {
+      const label =
+        call.operation === "update"
+          ? "已送出修改提案"
+          : "已建立提案";
+      lines.push({ icon: "check_circle", text: `${label}：${call.title ?? ""}` });
+    } else if (call.status === "rejected") {
+      lines.push({
+        icon: "cancel",
+        text: `提案未建立：${call.title ?? ""}`,
+      });
+    } else if (call.status === "no_change") {
+      lines.push({
+        icon: "info",
+        text: `內容未變更，未建立提案：${call.title ?? ""}`,
+      });
+    }
+  });
+  // 去重保留最新：同一文字只保留最後一次（重試只顯示一次錯誤）。
+  const seen = new Set();
+  const dedupedReversed = [];
+  for (let i = lines.length - 1; i >= 0; i -= 1) {
+    const line = lines[i];
+    if (seen.has(line.text)) continue;
+    seen.add(line.text);
+    dedupedReversed.push(line);
+  }
+  return dedupedReversed.reverse();
+}
+
 export function ChatPanel({
   messages,
   onSendMessage,
@@ -718,6 +902,7 @@ export function ChatPanel({
   onRemoveAttachment,
   onUploadFile,
   isUploading = false,
+  loadingText = "",
 }) {
   const [input, setInput] = useState("");
   const fileInputRef = useRef(null);
@@ -779,6 +964,22 @@ export function ChatPanel({
                   </div>
                 )}
                 {msg.content}
+                {msg.role === "assistant" && (
+                  (() => {
+                    const toolLines = proposalToolCallLines(msg);
+                    if (!toolLines.length) return null;
+                    return (
+                      <ul className={styles.chatToolCallList} aria-label="AI 工具執行結果">
+                        {toolLines.map((line, idx) => (
+                          <li key={`${line.text}-${idx}`} className={styles.chatToolCallItem}>
+                            <MIcon name={line.icon} size={14} />
+                            <span>{line.text}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    );
+                  })()
+                )}
               </div>
               {msg.role === "user" && (
                 <span className={`${styles.chatAvatar} ${styles.chatAvatar_user}`}>
@@ -795,6 +996,7 @@ export function ChatPanel({
               <MIcon name="smart_toy" size={16} />
             </span>
             <div className={styles.chatBubble}>
+              {loadingText ? <p className={styles.chatLoadingText}>{loadingText}</p> : null}
               <span className={styles.typing}>
                 <span />
                 <span />
@@ -1131,7 +1333,7 @@ function RubricSourceRail({ classId, file, onClose, embedded = false }) {
 
 /* ── Tab 1：檢查表 ──────────────────────────────────────── */
 
-function RubricsTab({ classId, judgeSession, onSessionUpdated, onScriptCreated, sidebar = null, tabsBar = null }) {
+export function RubricsTab({ classId, judgeSession, onSessionUpdated, onScriptCreated, sidebar = null, tabsBar = null }) {
   const toast = useToast();
 
   const [files, setFiles] = useState([]);
@@ -1152,6 +1354,8 @@ function RubricsTab({ classId, judgeSession, onSessionUpdated, onScriptCreated, 
   const [sourcesOpen, setSourcesOpen] = useState(false);
   const [pendingProposalMeta, setPendingProposalMeta] = useState(null);
   const [pendingProposalIsRefine, setPendingProposalIsRefine] = useState(false);
+  const [pendingItemResults, setPendingItemResults] = useState(null);
+  const [isItemwiseAnalysis, setIsItemwiseAnalysis] = useState(false);
   const [environmentKeys, setEnvironmentKeys] = useState([]);
   const analysisRevisionsRef = useRef(new Map());
   const lastSavedValuesRef = useRef(new Map());
@@ -1174,6 +1378,19 @@ function RubricsTab({ classId, judgeSession, onSessionUpdated, onScriptCreated, 
     setSelectedProposalIds(new Set());
     setPendingProposalMeta(null);
     setPendingProposalIsRefine(false);
+    setPendingItemResults(null);
+  }
+
+  async function refreshSessionMessages({ silent = false, replace = false } = {}) {
+    if (!judgeSession?.id) return false;
+    try {
+      const rows = await AiJudgeService.listSessionMessages(classId, judgeSession.id);
+      setMessages((current) => (replace ? rows : mergeSessionMessages(current, rows)));
+      return true;
+    } catch (err) {
+      if (!silent) toast.error(err?.message ?? "載入檢查對話失敗");
+      return false;
+    }
   }
 
   useEffect(() => {
@@ -1281,6 +1498,7 @@ function RubricsTab({ classId, judgeSession, onSessionUpdated, onScriptCreated, 
       setSelectedProposalIds(new Set());
       setPendingProposalMeta(null);
       setPendingProposalIsRefine(false);
+      setPendingItemResults(null);
     }
 
     if (!judgeSession?.selected_file_id) {
@@ -1431,6 +1649,8 @@ function RubricsTab({ classId, judgeSession, onSessionUpdated, onScriptCreated, 
     const newMessages = isRefine ? messages : requestMessages;
     setMessages(newMessages);
     setIsChatting(true);
+    const itemwise = !isRefine && attachments.length > 0;
+    setIsItemwiseAnalysis(itemwise);
     try {
       const response = await AiJudgeService.sendSessionMessage(
         classId,
@@ -1441,16 +1661,17 @@ function RubricsTab({ classId, judgeSession, onSessionUpdated, onScriptCreated, 
       );
       setMessages((current) => {
         const baseMessages = isRefine ? current : current.slice(0, -1);
-        return [
-          ...baseMessages,
-          response.user_message,
-          response.assistant_message,
-        ].filter(shouldDisplayChatMessage);
+        return mergeSessionMessages(
+          baseMessages,
+          [response.user_message, response.assistant_message].filter(Boolean),
+        ).filter(shouldDisplayChatMessage);
       });
       setPendingAttachments([]);
       const proposal = buildProposalDiff(analysis?.items ?? [], response.rubric_proposal);
+      const itemResults = response.assistant_message?.metadata_json?.item_results;
+      setPendingItemResults(Array.isArray(itemResults) && itemResults.length ? itemResults : null);
       setPendingProposal(proposal.length ? proposal : null);
-      setSelectedProposalIds(new Set(proposal.map((item, index) => item.id ?? `proposal-${index}`)));
+      setSelectedProposalIds(getSelectableProposalIds(proposal, itemResults));
       setPendingProposalMeta(proposal.length ? { baseRevision: response.base_revision ?? analysisRevisionsRef.current.get(sourceFileId) } : null);
       setPendingProposalIsRefine(Boolean(proposal.length && isRefine));
       if (isRefine && !Array.isArray(response.rubric_proposal)) {
@@ -1469,10 +1690,17 @@ function RubricsTab({ classId, judgeSession, onSessionUpdated, onScriptCreated, 
         }
       }
     } catch (err) {
-      toast.error(err?.message ?? "對話失敗");
-      setMessages(messages);
+      const message = err?.message ?? "對話失敗";
+      const synced = await refreshSessionMessages({ silent: true, replace: true });
+      if (!synced) {
+        setMessages(messages);
+        toast.error(`${message} 無法確認 Chat 紀錄是否已同步。`);
+      } else {
+        toast.error(message);
+      }
     } finally {
       setIsChatting(false);
+      setIsItemwiseAnalysis(false);
     }
   }
 
@@ -1486,10 +1714,17 @@ function RubricsTab({ classId, judgeSession, onSessionUpdated, onScriptCreated, 
       return;
     }
     const previousAnalysis = analysis;
+    const safeSelectedIds = getSelectableProposalIds(
+      pendingProposal,
+      pendingItemResults,
+    );
+    const selectedIds = new Set(
+      [...selectedProposalIds].filter((id) => safeSelectedIds.has(id)),
+    );
     const { items: nextItems, evaluatedIds } = applyProposalOperations(
       analysis?.items ?? [],
       pendingProposal,
-      selectedProposalIds,
+      selectedIds,
     );
     const currentPendingIds = sourceFileId
       ? pendingReviewIdsByFileRef.current.get(sourceFileId) ?? pendingReviewIds
@@ -1547,6 +1782,7 @@ function RubricsTab({ classId, judgeSession, onSessionUpdated, onScriptCreated, 
       setSelectedProposalIds(new Set());
       setPendingProposalMeta(null);
       setPendingProposalIsRefine(false);
+      setPendingItemResults(null);
       setScriptGenerationNotice(null);
       toast.success("對話內容已清除");
     } catch (err) {
@@ -1581,31 +1817,56 @@ function RubricsTab({ classId, judgeSession, onSessionUpdated, onScriptCreated, 
         baseRevision,
         { isRefine: true },
       );
+      const assistantMessage = response?.assistant_message;
+      setMessages((current) => mergeSessionMessages(
+        current,
+        [response?.user_message, assistantMessage].filter(Boolean),
+      ).filter(shouldDisplayChatMessage));
+      const assistantMetadata = assistantMessage?.metadata_json ?? {};
       if (!Array.isArray(response.rubric_proposal)) {
-        throw new Error("AI 未回傳完整檢查項目列表，尚未變更目前檢查表");
+        const message = "AI 核對結果格式不完整，尚未變更目前檢查表；請稍後重試。";
+        setScriptGenerationNotice({ status: "error", message });
+        toast.error(message);
+        return;
       }
       const proposal = buildProposalDiff(analysis.items ?? [], response.rubric_proposal);
-      const { items: candidateItems } = applyProposalOperations(analysis.items ?? [], proposal);
+      const itemResults = assistantMetadata.item_results;
+      const selectableIds = getSelectableProposalIds(proposal, itemResults);
+      const hasSelectable = selectableIds.size > 0;
+      setPendingItemResults(
+        hasSelectable && Array.isArray(itemResults) && itemResults.length ? itemResults : null,
+      );
+      setPendingProposal(hasSelectable ? proposal : null);
+      setSelectedProposalIds(selectableIds);
+      setPendingProposalMeta(hasSelectable ? { baseRevision } : null);
+      setPendingProposalIsRefine(hasSelectable);
+      if (assistantMetadata.script_ready === false) {
+        const message = assistantMetadata.status === "unsupported"
+          ? "部分項目目前無法安全取證，詳細內容已列在 AI 聊天室。"
+          : assistantMetadata.status === "analysis_error"
+            ? "AI 重新核對未完成，檢查表尚未變更；處理階段已列在 AI 聊天室。"
+            : "尚有項目需要補充，詳細內容已列在 AI 聊天室。";
+        setScriptGenerationNotice({ status: "error", message });
+        toast.error(message);
+        return;
+      }
+      if (assistantMetadata.script_ready !== true) {
+        const message = "AI 核對結果缺少安全狀態，尚未開始製作檢查腳本；請稍後重試。";
+        setScriptGenerationNotice({ status: "error", message });
+        toast.error(message);
+        return;
+      }
+      const safeSelectedIds = getSelectableProposalIds(proposal, itemResults);
+      const { items: candidateItems } = applyProposalOperations(
+        analysis.items ?? [],
+        proposal,
+        safeSelectedIds,
+      );
       const candidateAnalysis = {
         ...applyItems(analysis, candidateItems),
         detectability_needs_review: false,
         pending_review_item_ids: [],
       };
-      const blocker = getScriptCreationBlocker({
-        analysis: candidateAnalysis,
-        pendingProposal: null,
-        pendingReviewIds: new Set(),
-      });
-      if (blocker) {
-        setPendingProposal(proposal.length ? proposal : null);
-        setSelectedProposalIds(new Set(proposal.map((item, index) => item.id ?? `proposal-${index}`)));
-        setPendingProposalMeta(proposal.length ? { baseRevision } : null);
-        setPendingProposalIsRefine(Boolean(proposal.length));
-        const message = `${blocker}。請確認問題項目後再試一次。`;
-        setScriptGenerationNotice({ status: "error", message });
-        toast.error(message);
-        return;
-      }
       const saved = await applyAnalysis(candidateAnalysis, {
         persist: true,
         immediate: true,
@@ -1648,13 +1909,23 @@ function RubricsTab({ classId, judgeSession, onSessionUpdated, onScriptCreated, 
         toast.success(message);
         onScriptCreated?.(artifact);
       }
+      const synced = await refreshSessionMessages({ silent: true });
+      if (!synced) {
+        const warning = "無法確認 Chat 紀錄是否已同步。";
+        setScriptGenerationNotice((current) => current
+          ? { ...current, message: `${current.message} ${warning}` }
+          : { status: "error", message: warning });
+        toast.error(warning);
+      }
     } catch (err) {
       const message = err?.message ?? "儲存並製作檢查腳本失敗";
+      const synced = await refreshSessionMessages({ silent: true, replace: true });
+      const syncNotice = synced ? "" : "無法確認 Chat 紀錄是否已同步。";
       setScriptGenerationNotice({
         status: "error",
-        message: `${message}。目前檢查表已保留，可再次按「儲存並製作」重試。`,
+        message: `${message}。目前檢查表已保留，可再次按「儲存並製作」重試。${syncNotice ? ` ${syncNotice}` : ""}`,
       });
-      toast.error(message);
+      toast.error(syncNotice ? `${message} ${syncNotice}` : message);
     } finally {
       setIsCreatingScript(false);
       setScriptGenerationStatus(null);
@@ -1720,6 +1991,7 @@ function RubricsTab({ classId, judgeSession, onSessionUpdated, onScriptCreated, 
                   onApply={applyPendingProposal}
                   onSkip={clearPendingProposal}
                   isRefine={pendingProposalIsRefine}
+                  itemResults={pendingItemResults}
                   disabled={isChatting || isClearingMessages}
                 />}
                 <div className={sidebar ? styles.checkRubricBody : undefined}>
@@ -1767,6 +2039,7 @@ function RubricsTab({ classId, judgeSession, onSessionUpdated, onScriptCreated, 
               onSendMessage={handleSendMessage}
               onClearMessages={handleClearMessages}
               isLoading={isChatting}
+              loadingText={isItemwiseAnalysis ? "正在拆解評分表並逐項核查…" : ""}
               isClearing={isClearingMessages}
               disabled={isCreatingScript}
               hasRubric={Boolean(analysis)}
@@ -1849,11 +2122,47 @@ function ReviewPanel({ title, result }) {
   );
 }
 
+export function getScriptReviewAttemptIssues(attempt) {
+  const uncoveredIssues = Array.isArray(attempt?.uncovered_rubric_items)
+    ? attempt.uncovered_rubric_items.map((item) => {
+      if (typeof item === "string") return `未覆蓋檢查項目：${item}`;
+      if (!item || typeof item !== "object") return "";
+      const label = item.title || item.id;
+      return label ? `未覆蓋檢查項目：${label}` : "";
+    })
+    : [];
+  return [...new Set([
+    ...(Array.isArray(attempt?.safety_issues) ? attempt.safety_issues : []),
+    ...(Array.isArray(attempt?.quality_issues) ? attempt.quality_issues : []),
+    ...(Array.isArray(attempt?.coverage_issues) ? attempt.coverage_issues : []),
+    ...uncoveredIssues,
+    ...(Array.isArray(attempt?.ai_review_issues) ? attempt.ai_review_issues : []),
+    ...(Array.isArray(attempt?.generation_issues) ? attempt.generation_issues : []),
+  ].filter(Boolean).map((issue) => String(issue)))];
+}
+
 function RetrySummary({ script }) {
   const summary = script?.policy_check_result_json?.retry_summary;
   const attempts = Array.isArray(script?.policy_check_result_json?.review_attempts)
     ? script.policy_check_result_json.review_attempts
     : [];
+  const coverage = script?.policy_check_result_json?.coverage;
+  const coverageFallback = {
+    phase: "coverage",
+    coverage_issues: Array.isArray(coverage?.issues) ? coverage.issues : [],
+    uncovered_rubric_items: Array.isArray(coverage?.uncovered_items)
+      ? coverage.uncovered_items
+      : [],
+  };
+  const hasCoverageAttempt = attempts.some(
+    (attempt) => attempt?.phase === "coverage"
+      || Array.isArray(attempt?.coverage_issues)
+      || Array.isArray(attempt?.uncovered_rubric_items),
+  );
+  const displayedAttempts = !hasCoverageAttempt
+    && getScriptReviewAttemptIssues(coverageFallback).length > 0
+    ? [...attempts, coverageFallback]
+    : attempts;
   if (script?.status !== "review_failed") return null;
 
   const retryCount = Number(summary?.retry_count ?? 0);
@@ -1866,15 +2175,10 @@ function RetrySummary({ script }) {
       <p>
         Agent 已自動重試 {retryCount} 次；仍未通過時，請檢查下列原因，回到檢查表調整後重新製作檢查腳本。
       </p>
-      {attempts.length > 0 && (
+      {displayedAttempts.length > 0 && (
         <ul className={styles.reviewIssues}>
-          {attempts.slice(-3).map((attempt, index) => {
-            const issues = [
-              ...(Array.isArray(attempt?.safety_issues) ? attempt.safety_issues : []),
-              ...(Array.isArray(attempt?.quality_issues) ? attempt.quality_issues : []),
-              ...(Array.isArray(attempt?.ai_review_issues) ? attempt.ai_review_issues : []),
-              ...(Array.isArray(attempt?.generation_issues) ? attempt.generation_issues : []),
-            ].filter(Boolean);
+          {displayedAttempts.slice(-3).map((attempt, index) => {
+            const issues = getScriptReviewAttemptIssues(attempt);
             return (
               <li key={`${attempt?.attempt ?? index}-${attempt?.failure_signature ?? "failure"}`}>
                 第 {attempt?.attempt ?? index + 1} 次（{attempt?.phase ?? "審查"}）：
@@ -2255,55 +2559,181 @@ function StatusBadge({ map, status }) {
   return <span className={`${styles.badge} ${info.className}`}>{info.label}</span>;
 }
 
-function AiJudgementBadge({ result }) {
+const CHECK_STATUS_META = {
+  pass: { icon: "check_circle", label: "通過", className: styles.checkIconPass },
+  fail: { icon: "cancel", label: "未通過", className: styles.checkIconFail },
+  warning: { icon: "warning", label: "需注意", className: styles.checkIconWarn },
+  unknown: { icon: "help", label: "待導師核查", className: styles.checkIconWarn },
+  skipped: { icon: "remove_circle_outline", label: "略過", className: styles.checkIconSkip },
+};
+
+function checkStatusMeta(status) {
+  return CHECK_STATUS_META[status] ?? {
+    icon: "help",
+    label: "未判定",
+    className: styles.checkIconSkip,
+  };
+}
+
+function parseCheckRaw(raw) {
+  if (typeof raw !== "string" || !raw) return null;
+  try {
+    const parsed = JSON.parse(raw);
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+      return parsed;
+    }
+  } catch {
+    // raw 不一定是 JSON（契約允許普通字串），fallback 顯示原文
+  }
+  return null;
+}
+
+function ReturnCodeBadge({ returncode }) {
+  if (returncode === null || returncode === undefined) {
+    return <span className={`${styles.cmdBadge} ${styles.cmdBadgeError}`}>執行例外</span>;
+  }
+  const ok = returncode === 0;
+  return (
+    <span className={`${styles.cmdBadge} ${ok ? styles.cmdBadgeOk : styles.cmdBadgeError}`}>
+      returncode {returncode}{ok ? " ✓" : " ✗"}
+    </span>
+  );
+}
+
+function CommandOutput({ label, text, isError = false }) {
+  const content = typeof text === "string" ? text : String(text ?? "");
+  if (!content) return null;
+  return (
+    <div className={styles.cmdBlock}>
+      <span className={styles.cmdLabel}>{label}</span>
+      <pre className={isError ? styles.cmdStderr : styles.cmdStdout}>{content}</pre>
+    </div>
+  );
+}
+
+function CommandLog({ raw, fallbackText }) {
+  const parsed = parseCheckRaw(raw);
+  if (!parsed) {
+    if (!raw && !fallbackText) return null;
+    return (
+      <div className={styles.cmdLog}>
+        {raw ? <pre className={styles.cmdStdout}>{raw}</pre> : null}
+        {fallbackText ? <pre className={styles.cmdStderr}>{fallbackText}</pre> : null}
+      </div>
+    );
+  }
+  const empty = !parsed.stdout && !parsed.stderr && parsed.returncode == null;
+  return (
+    <div className={styles.cmdLog}>
+      <div className={styles.cmdHead}>
+        <span className={styles.cmdLabel}>指令輸出</span>
+        <ReturnCodeBadge returncode={parsed.returncode} />
+      </div>
+      {empty ? <span className={styles.cmdEmpty}>（無輸出）</span> : null}
+      <CommandOutput label="stdout" text={parsed.stdout} />
+      <CommandOutput label="stderr" text={parsed.stderr} isError />
+      {Array.isArray(parsed.errors) && parsed.errors.length > 0 && (
+        <CommandOutput label="errors" text={parsed.errors.join("\n")} isError />
+      )}
+    </div>
+  );
+}
+
+function CheckResultsTable({ checks }) {
+  const [expanded, setExpanded] = useState(() => new Set());
+  const toggle = (id) => {
+    setExpanded((current) => {
+      const next = new Set(current);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
+  };
+
+  return (
+    <div className={styles.checkTable}>
+      <div className={`${styles.checkRow} ${styles.checkRowHead}`}>
+        <span className={styles.checkToggleCol} />
+        <span className={styles.checkIconCol} />
+        <span>檢查項目</span>
+        <span>摘要</span>
+      </div>
+      {checks.map((check, index) => {
+        const id = check?.id ?? `check-${index}`;
+        const meta = checkStatusMeta(check?.status);
+        const detailId = `${id}-${index}`;
+        const hasDetail = Boolean(
+          check?.evidence || check?.raw || (Array.isArray(check?.errors) && check.errors.length),
+        );
+        const isOpen = hasDetail && expanded.has(detailId);
+        return (
+          <div key={detailId} className={styles.checkItem}>
+            <button
+              type="button"
+              className={`${styles.checkRow} ${styles.checkRowBtn}`}
+              onClick={() => hasDetail && toggle(detailId)}
+              disabled={!hasDetail}
+              aria-expanded={hasDetail ? isOpen : undefined}
+            >
+              <span className={styles.checkToggleCol}>
+                {hasDetail && (
+                  <MIcon name={isOpen ? "expand_less" : "expand_more"} size={16} />
+                )}
+              </span>
+              <span className={`${styles.checkIconCol} ${meta.className}`}>
+                <MIcon name={meta.icon} size={16} />
+              </span>
+              <span className={styles.checkTitle}>{check?.title ?? check?.id ?? "收集項目"}</span>
+              <span className={styles.checkEvidence}>{check?.evidence || "—"}</span>
+            </button>
+            {isOpen && (
+              <div className={styles.checkDetail}>
+                {check?.evidence && <p>{check.evidence}</p>}
+                <CommandLog
+                  raw={check?.raw}
+                  fallbackText={Array.isArray(check?.errors) ? check.errors.join("\n") : ""}
+                />
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function ScriptResultBadge({ result }) {
   if (!result) return <span className={`${styles.badge} ${styles.badge_muted}`}>等待回收</span>;
   if (result.validation?.valid === false) {
-    return <span className={`${styles.badge} ${styles.badge_danger}`}>JSON 格式錯誤</span>;
+    return <span className={`${styles.badge} ${styles.badge_danger}`}>收集失敗</span>;
   }
-  const judgement = result.ai_judgement;
-  if (!judgement) return <span className={`${styles.badge} ${styles.badge_muted}`}>分析中</span>;
-  if (judgement.status === "completed") {
-    if (judgement.requires_teacher_review) {
-      return <span className={`${styles.badge} ${styles.badge_info}`}>待導師核查</span>;
-    }
-    return <span className={`${styles.badge} ${styles.badge_success}`}>已核對</span>;
+  if (result.status === "failed") {
+    return <span className={`${styles.badge} ${styles.badge_danger}`}>執行失敗</span>;
   }
-  if (judgement.status === "failed") {
-    return <span className={`${styles.badge} ${styles.badge_danger}`}>AI 核對失敗</span>;
+  const statuses = (result.parsed_result?.checks ?? []).map((check) => check?.status);
+  if (statuses.includes("fail")) {
+    return <span className={`${styles.badge} ${styles.badge_danger}`}>有未通過檢查</span>;
   }
-  if (judgement.status === "skipped") {
-    return <span className={`${styles.badge} ${styles.badge_muted}`}>略過</span>;
+  if (statuses.some((status) => ["warning", "unknown"].includes(status))) {
+    return <span className={`${styles.badge} ${styles.badge_info}`}>需導師核查</span>;
   }
-  return <span className={`${styles.badge} ${styles.badge_info}`}>分析中</span>;
+  if (statuses.length > 0 && statuses.every((status) => status === "pass")) {
+    return <span className={`${styles.badge} ${styles.badge_success}`}>全部通過</span>;
+  }
+  return <span className={`${styles.badge} ${styles.badge_success}`}>已完成</span>;
 }
 
-function aiJudgementSummary(result) {
+function scriptResultSummary(result) {
   if (!result) return null;
   if (result.validation?.valid === false) {
-    return result.validation.error ?? "JSON 驗證未通過，未進入 AI 核對。";
+    return result.validation.error ?? "結果格式驗證未通過。";
   }
-  const judgement = result.ai_judgement;
-  if (!judgement) return "AI 核對尚未完成。";
-  return judgement.error ?? judgement.summary ?? null;
-}
-
-function JudgementItemBadge({ item }) {
-  let info = { label: "未判定", className: styles.badge_muted };
-  if (item?.judgement_mode === "teacher") {
-    info = { label: "待導師核查", className: styles.badge_info };
-  } else if (item?.status === "pass") {
-    info = { label: "通過", className: styles.badge_success };
-  } else if (item?.status === "fail") {
-    info = { label: "未通過", className: styles.badge_danger };
-  } else if (item?.status === "warning") {
-    info = { label: "需注意", className: styles.badge_info };
-  }
-  return <span className={`${styles.badge} ${info.className}`}>{info.label}</span>;
-}
-
-function formatUsage(value) {
-  if (typeof value !== "number" || Number.isNaN(value)) return "--";
-  return `${Math.round(value)}%`;
+  const errors = result.parsed_result?.errors;
+  if (Array.isArray(errors) && errors.length > 0) return errors.join("；");
+  return result.parsed_result?.summary ?? result.stderr_excerpt ?? null;
 }
 
 function ExecutionTab({ classId, sessionId, members }) {
@@ -2316,7 +2746,6 @@ function ExecutionTab({ classId, sessionId, members }) {
   const [activeRunRef, setActiveRunRef] = useState(null); // { scriptId, runId }
   const [activeRun, setActiveRun] = useState(null);
   const [scripts, setScripts] = useState([]);
-  const [runHistory, setRunHistory] = useState([]);
 
   useEffect(() => {
     AiJudgeService.listScripts(classId, sessionId)
@@ -2328,12 +2757,10 @@ function ExecutionTab({ classId, sessionId, members }) {
     let cancelled = false;
     setActiveRun(null);
     setActiveRunRef(null);
-    setRunHistory([]);
     if (!sessionId) return undefined;
     AiJudgeService.listSessionRuns(classId, sessionId)
       .then(async (runs) => {
         if (cancelled) return;
-        setRunHistory(runs);
         const latest = runs[0];
         if (latest) {
           const detail = await AiJudgeService.getSessionRun(classId, sessionId, latest.id);
@@ -2418,7 +2845,6 @@ function ExecutionTab({ classId, sessionId, members }) {
         `已建立腳本執行任務（${run.progress_json?.total ?? selectedVmids.length} 台）`,
       );
       setActiveRun(run);
-      setRunHistory((current) => [run, ...current.filter((item) => item.id !== run.id)]);
       setActiveRunRef({ scriptId: effectiveScriptId, runId: run.id });
       setDialogOpen(false);
       setSelectedScriptId(null);
@@ -2475,13 +2901,12 @@ function ExecutionTab({ classId, sessionId, members }) {
               <th>成員</th>
               <th>類型</th>
               <th>狀態</th>
-              <th>資源摘要</th>
             </tr>
           </thead>
           <tbody>
             {runningMembers.length === 0 ? (
               <tr>
-                <td colSpan={6} className={styles.tableEmpty}>
+                <td colSpan={5} className={styles.tableEmpty}>
                   目前沒有可執行的運行中 VM/LXC。
                 </td>
               </tr>
@@ -2504,11 +2929,6 @@ function ExecutionTab({ classId, sessionId, members }) {
                   <td className={styles.typeCell}>{member.vm_type ? (member.vm_type === "lxc" ? "LXC" : "VM") : "-"}</td>
                   <td>
                     <span className={`${styles.badge} ${styles.badge_success}`}>運行中</span>
-                  </td>
-                  <td className={styles.fileMeta}>
-                    CPU {formatUsage(member.vm_cpu_usage_pct)} · RAM{" "}
-                    {formatUsage(member.vm_ram_usage_pct)} · 碟{" "}
-                    {formatUsage(member.vm_disk_usage_pct)}
                   </td>
                 </tr>
               ))
@@ -2545,7 +2965,7 @@ function ExecutionTab({ classId, sessionId, members }) {
                   <th>成員</th>
                   <th>來源節點</th>
                   <th>執行狀態</th>
-                  <th>系統核對／導師核查</th>
+                  <th>腳本執行結果</th>
                 </tr>
               </thead>
               <tbody>
@@ -2555,10 +2975,10 @@ function ExecutionTab({ classId, sessionId, members }) {
                   const proxmoxNode = result?.proxmox_node ?? target.proxmox_node;
                   const resourceType = result?.resource_type ?? target.resource_type;
                   const targetReason = reasonLabel(result?.reason_code ?? target.reason_code);
-                  const summary = aiJudgementSummary(result);
+                  const summary = scriptResultSummary(result);
                   const summaryIsError =
                     result?.validation?.valid === false ||
-                    result?.ai_judgement?.status === "failed";
+                    result?.status === "failed";
                   return (
                     <tr key={target.vmid}>
                       <td className={styles.monoCell}>{target.name ?? target.vmid}</td>
@@ -2579,37 +2999,32 @@ function ExecutionTab({ classId, sessionId, members }) {
                         )}
                       </td>
                       <td>
-                        <AiJudgementBadge result={result} />
+                        <ScriptResultBadge result={result} />
                         {result ? (
                           <details className={styles.judgeDetails}>
-                            <summary>查看檢查結果說明</summary>
+                            <summary>查看腳本結果</summary>
                             {summary && (
                               <p className={summaryIsError ? styles.dangerText : styles.mutedText}>
                                 {summary}
                               </p>
                             )}
-                            {(result.ai_judgement?.item_judgements ?? []).map((item, index) => (
-                              <div key={`${item.item_id ?? "item"}-${index}`} className={styles.judgeItem}>
-                                <div className={styles.judgeItemHead}>
-                                  <span>{item.title ?? item.item_id ?? "檢查項目"}</span>
-                                  <JudgementItemBadge item={item} />
-                                </div>
-                                {item.comment && <p>{item.comment}</p>}
-                              </div>
-                            ))}
                             {(result.parsed_result?.checks ?? []).length > 0 && (
-                              <div className={styles.judgeItem}>
-                                <div className={styles.judgeItemHead}>
-                                  <span>腳本收集證據</span>
-                                </div>
-                                {(result.parsed_result.checks ?? []).map((check, index) => (
-                                  <div key={`${check.id ?? "check"}-${index}`}>
-                                    <strong>{check.title ?? check.id ?? "收集項目"}</strong>
-                                    {check.evidence && <p>{check.evidence}</p>}
-                                    {check.raw && <pre>{check.raw}</pre>}
-                                  </div>
-                                ))}
-                              </div>
+                              <CheckResultsTable checks={result.parsed_result.checks} />
+                            )}
+                            {(result.stdout_excerpt || result.stderr_excerpt) && (
+                              <details className={styles.judgeDetails}>
+                                <summary>原始腳本輸出</summary>
+                                {result.stdout_excerpt && (
+                                  <CommandOutput label="腳本 stdout" text={result.stdout_excerpt} />
+                                )}
+                                {result.stderr_excerpt && (
+                                  <CommandOutput
+                                    label="腳本 stderr"
+                                    text={result.stderr_excerpt}
+                                    isError
+                                  />
+                                )}
+                              </details>
                             )}
                           </details>
                         ) : (
@@ -2621,41 +3036,6 @@ function ExecutionTab({ classId, sessionId, members }) {
                 })}
               </tbody>
             </table>
-          </div>
-        </div>
-      )}
-
-      {sessionId && runHistory.length > 0 && (
-        <div className={styles.card}>
-          <h4 className={styles.cardTitle}>歷次執行</h4>
-          <div className={styles.runHistory}>
-            {runHistory.map((run) => (
-              <button
-                key={run.id}
-                type="button"
-                className={styles.runHistoryItem}
-                onClick={async () => {
-                  try {
-                    const detail = await AiJudgeService.getSessionRun(
-                      classId,
-                      sessionId,
-                      run.id,
-                    );
-                    setActiveRun(detail);
-                    setActiveRunRef(
-                      runIsTerminal(run.status)
-                        ? null
-                        : { scriptId: run.artifact_id, runId: run.id },
-                    );
-                  } catch (err) {
-                    toast.error(err?.message ?? "載入執行結果失敗");
-                  }
-                }}
-              >
-                <span>{formatDateTime(run.created_at)}</span>
-                <StatusBadge map={RUN_STATUS} status={run.status} />
-              </button>
-            ))}
           </div>
         </div>
       )}

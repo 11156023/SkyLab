@@ -83,6 +83,40 @@ def _enforce_start_window(*, session: Session, vmid: int) -> None:
         raise BadRequestError("This resource can no longer be started because its approved time window has ended.")
 
 
+def ensure_lxc_platform_key(*, session: Session, node: str, vmid: int) -> bool:
+    """Ensure the DB-managed platform key is present after an LXC start.
+
+    LXC template clones may be created while stopped, so the clone worker cannot
+    use ``pct exec`` to write ``authorized_keys``.  Managed start and reset
+    paths call this helper; the underlying write is idempotent and has its own
+    startup retry window.  Failure is logged but does not undo a successful PVE
+    start.
+    """
+    try:
+        resource = resource_repo.get_resource_by_vmid(session=session, vmid=vmid)
+        public_key = str(getattr(resource, "ssh_public_key", None) or "").strip()
+        if not public_key:
+            logger.warning(
+                "Cannot sync platform SSH key for LXC %s: DB public key missing",
+                vmid,
+            )
+            return False
+
+        from app.services.template.clone_service import (  # noqa: PLC0415
+            inject_lxc_platform_key,
+        )
+
+        synced = inject_lxc_platform_key(node, vmid, public_key)
+        if not synced:
+            logger.warning("Platform SSH key sync did not complete for LXC %s", vmid)
+        return synced
+    except Exception:
+        logger.warning(
+            "Platform SSH key sync failed for LXC %s", vmid, exc_info=True
+        )
+        return False
+
+
 def _from_punycode_hostname(hostname: str) -> str:
     """將 Punycode hostname 解碼回 Unicode 顯示給使用者。"""
     result_labels = []
@@ -752,6 +786,9 @@ def control(
             _enforce_start_window(session=session, vmid=vmid)
 
         proxmox_service.control(node, vmid, resource_type, action)
+
+        if action == "start" and resource_type == "lxc":
+            ensure_lxc_platform_key(session=session, node=node, vmid=vmid)
 
         # 啟動時確保防火牆仍為啟用狀態
         if action == "start":

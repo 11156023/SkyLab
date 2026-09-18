@@ -501,3 +501,62 @@ def test_student_assignment_includes_only_safe_latest_ai_feedback() -> None:
     assert [item.item_id for item in checkpoint_check.items] == ["permissions"]
     assert not hasattr(check, "target_snapshot_json")
     assert not hasattr(check.items[0], "evidence_refs")
+
+
+def test_student_script_result_projection_uses_checks_and_coverage() -> None:
+    teaching_class_id = uuid.uuid4()
+    artifact = _artifact(
+        teaching_class_id=teaching_class_id,
+        status=TeacherJudgeScriptStatus.approved,
+        name="Linux 權限任務",
+    )
+    artifact.policy_check_result_json = {
+        "coverage": {
+            "mappings": [
+                {
+                    "check_id": "permissions.command",
+                    "rubric_item_ids": ["permissions"],
+                }
+            ]
+        }
+    }
+    run = TeacherJudgeScriptRun(
+        teaching_class_id=teaching_class_id,
+        artifact_id=artifact.id,
+        status=TeacherJudgeScriptRunStatus.completed,
+        target_results_json={
+            "schema_version": "teacher_judge_run_results.v2",
+            "targets": [
+                {
+                    "stdout_excerpt": "must not be returned",
+                    "parsed_result": {
+                        "summary": "腳本完成收集。",
+                        "checks": [
+                            {
+                                "id": "permissions.command",
+                                "title": "收集檔案權限",
+                                "status": "pass",
+                                "evidence": "chmod 結果符合要求。",
+                                "raw": "secret command output",
+                            }
+                        ],
+                        "errors": [],
+                    },
+                }
+            ],
+        },
+    )
+
+    check = ai_assignment_service._check_to_student(
+        run,
+        artifact=artifact,
+        item_id="permissions",
+    )
+
+    assert check.score is None
+    assert check.max_score is None
+    assert check.summary == "腳本完成收集。"
+    assert check.items[0].item_id == "permissions"
+    assert check.items[0].status == "pass"
+    assert check.items[0].comment == "chmod 結果符合要求。"
+    assert "secret command output" not in check.items[0].comment

@@ -12,8 +12,8 @@ import i18n from "../i18n";
 // 腳本產生會依序執行 generation、policy/quality 修正與 AI reviewer，
 // 不能沿用一般 API 的 15 秒 request budget。後端每次 vLLM 呼叫仍有自己的 timeout。
 const SCRIPT_GENERATION_TIMEOUT_MS = 7 * 60 * 1000;
-// Teacher Judge 的 AI 分析／對話以 backend/config/system-ai.json 的 60 秒為準。
-export const TEACHER_JUDGE_REQUEST_TIMEOUT_MS = 60 * 1000;
+// Teacher Judge 的 AI 分析／對話以 backend/config/system-ai.json 的 120 秒為準。
+export const TEACHER_JUDGE_REQUEST_TIMEOUT_MS = 120 * 1000;
 
 /** 評分環境模板選項 */
 export const TEMPLATE_OPTIONS = [
@@ -25,11 +25,11 @@ export const TEMPLATE_OPTIONS = [
 
 /** 正式工作區與獨立編輯頁共用的整表潤飾動作。 */
 export const RUBRIC_POLISH_PROMPT =
-  "請在不改變原始評分目標的前提下潤飾目前檢查表：檢查每個項目的描述與成功條件，將自動檢測支援狀態判定為 auto、partial 或 manual，並補充檢測方式、missing_information、fallback、check_steps 與必要 parameters，讓下一層檢查 AI 能理解。只有客觀判準、平台能力與完整執行資訊都具備時才能標為 auto；若缺少服務名稱、工作目錄、執行命令、Port 或成功條件，請標為 partial 並明確列出缺口，不要猜測。不要改成較容易但不同的檢查目標。即使內容不需修改，也請回傳完整評分項目列表。將目前評分環境視為主要情境而非硬性範圍，個別項目仍可使用平台其他已啟用的受控能力。";
+  "請在不改變原始評分目標的前提下潤飾目前檢查表：保留每項檢查目標與描述，補充檢測方式、missing_information、fallback、check_steps 與必要 parameters，並將自動檢測支援狀態判定為 auto、partial 或 manual，讓下一層檢查 AI 能理解。只有平台能安全取得證據且執行資訊完整時才標為 auto；缺少服務名稱、工作目錄、執行命令、Port 或資料範圍時標為 partial 並列出缺口，不要猜測或改變檢查目標。即使不需修改，也請回傳完整評分項目列表。將目前評分環境視為主要情境，個別項目仍可使用其他已啟用的受控能力。";
 
 /** 評分項目異動後，重新判斷目前環境能自動檢查到什麼程度。 */
 export const RUBRIC_REASSESS_PROMPT =
-  "請在不改變原始評分目標的前提下重新評估各項目的自動檢測支援狀態，更新檢測分類、檢測方式、缺少資訊、替代建議與評分計劃書。只有具備客觀判準、平台能力與完整執行資訊時才能標為能自動檢測；若缺少服務名稱、工作目錄、執行命令、Port 或成功條件，請明確向我詢問，不要猜測，也不要改成不同的檢查目標。將目前評分環境視為主要情境，個別項目仍可使用平台其他已啟用的受控能力。";
+  "請在不改變原始評分目標的前提下重新評估各項目的自動檢測支援狀態，更新檢測分類、檢測方式、缺少資訊、替代建議與評分計劃書。只有平台能安全取得證據且執行資訊完整時才能標為能自動檢測；若缺少服務名稱、工作目錄、執行命令、Port 或資料範圍，請只詢問真正缺少的內容，不要猜測或改變檢查目標。將目前評分環境視為主要情境，個別項目仍可使用其他已啟用的受控能力。";
 
 export function getTemplateLabel(templateKey) {
   return (

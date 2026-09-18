@@ -12,8 +12,35 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field, field_validator
 
-from app.ai.teacher_judge.template_command_service import SUPPORTED_TEMPLATE_KEYS
+from app.ai.teacher_judge.template_command_service import (
+    SUPPORTED_TEMPLATE_KEYS,
+    sanitize_check_step_parameters,
+)
 from app.core.i18n import t
+
+_RETIRED_RUBRIC_GAP_MARKERS = (
+    "success_criteria",
+    "成功條件",
+    "客觀成功條件",
+    "判定條件",
+)
+
+
+def sanitize_rubric_missing_information(value: Any) -> Any:
+    """Ignore obsolete standalone result-condition gaps from old rubrics."""
+    if not isinstance(value, list):
+        return value
+    return [
+        entry
+        for entry in value
+        if not (
+            isinstance(entry, str)
+            and any(
+                marker.casefold() in entry.casefold()
+                for marker in _RETIRED_RUBRIC_GAP_MARKERS
+            )
+        )
+    ]
 
 
 class TeacherJudgeRubricCheckStep(BaseModel):
@@ -30,13 +57,17 @@ class TeacherJudgeRubricCheckStep(BaseModel):
         description="產生受管腳本所需的結構化執行參數，不得由腳本生成器猜測。",
     )
 
+    @field_validator("parameters", mode="before")
+    @classmethod
+    def _drop_retired_parameters(cls, value: Any) -> Any:
+        return sanitize_check_step_parameters(value)
+
 
 class TeacherJudgeRubricItem(BaseModel):
     """單一檢查項目。"""
 
     id: str = Field(..., description="檢查項目唯一 ID")
     title: str = Field(..., description="檢查項目名稱")
-    description: str = Field(default="", description="檢查說明")
     checked: bool = Field(default=False, description="是否已確認")
     detectable: Literal["auto", "partial", "manual"] = Field(
         default="manual",
@@ -58,6 +89,11 @@ class TeacherJudgeRubricItem(BaseModel):
         default_factory=list,
         description="目前尚缺、補齊後才可能產生並執行取證腳本的資訊。",
     )
+
+    @field_validator("missing_information", mode="before")
+    @classmethod
+    def _drop_retired_gaps(cls, value: Any) -> Any:
+        return sanitize_rubric_missing_information(value)
     check_steps: list[TeacherJudgeRubricCheckStep] = Field(
         default_factory=list,
         description="本階段只產生計劃書，僅引用既有 command_key，不代表已執行。",

@@ -49,4 +49,5 @@ vllm-API/
 vllm-inference/
 data/template_files/
 .venv/
+.codebase-memory/
 ai-template-recommendation/

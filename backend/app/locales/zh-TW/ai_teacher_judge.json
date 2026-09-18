@@ -57,10 +57,6 @@
   "artifact.policy_check_failed": "腳本未通過安全/品質檢查。",
   "artifact.ai_review_failed": "腳本未通過 AI reviewer。",
 
-  "analysis.model_not_configured": "VLLM_MODEL_NAME 未設定。",
-  "analysis.not_json": "AI 核對回傳不是 JSON。",
-  "analysis.invalid_format": "AI 核對回傳格式不正確。",
-
   "file.name_conflict": "已有同名檢查表。",
   "file.copy_name_exhausted": "無法建立同名副本，請重新命名檔案。",
   "file.not_found": "找不到檢查表來源。",

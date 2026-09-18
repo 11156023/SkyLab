@@ -27,7 +27,6 @@ def _analysis(summary: str = "rubric") -> TeacherJudgeRubricAnalysis:
             TeacherJudgeRubricItem(
                 id="item-1",
                 title="Web UI",
-                description="確認服務可存取",
                 checked=False,
                 detectable="auto",
                 detection_method="檢查 listening sockets",
