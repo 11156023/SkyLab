@@ -444,3 +444,30 @@ class TeacherJudgeScriptRunSummary(BaseModel):
     finished_at: str | None
     created_at: str
     updated_at: str
+
+
+class TeacherJudgeTargetReviewUpdate(BaseModel):
+    """Teacher-owned decisions and optional feedback for one run target."""
+
+    feedback: str = Field(default="", max_length=4000)
+    decisions: dict[str, Literal["pass", "fail"]] = Field(default_factory=dict)
+
+    @field_validator("feedback")
+    @classmethod
+    def normalize_feedback(cls, value: str) -> str:
+        return value.strip()
+
+    @field_validator("decisions")
+    @classmethod
+    def validate_decisions(
+        cls, value: dict[str, Literal["pass", "fail"]]
+    ) -> dict[str, Literal["pass", "fail"]]:
+        if len(value) > 100:
+            raise ValueError("A target review cannot contain more than 100 decisions")
+        normalized: dict[str, Literal["pass", "fail"]] = {}
+        for raw_check_id, decision in value.items():
+            check_id = raw_check_id.strip()
+            if not check_id or len(check_id) > 255:
+                raise ValueError("Review check ids must contain 1 to 255 characters")
+            normalized[check_id] = decision
+        return normalized

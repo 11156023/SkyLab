@@ -38,6 +38,7 @@ from app.ai.teacher_judge.schemas import (
     TeacherJudgeSessionPublic,
     TeacherJudgeSessionScriptCreateRequest,
     TeacherJudgeSessionUpdateRequest,
+    TeacherJudgeTargetReviewUpdate,
 )
 from app.ai.teacher_judge.script_artifact_service import create_artifact
 from app.ai.teacher_judge.script_executor_service import execute_script_run
@@ -961,6 +962,91 @@ def get_session_run(
         raise HTTPException(
             status_code=404, detail=t("teacherJudgeSessions.runResultNotFound")
         )
+    return _run_to_public(run)
+
+
+@router.patch(
+    "/{session_id}/runs/{run_id}/targets/{vmid}/review",
+    response_model=TeacherJudgeScriptRunPublic,
+)
+def update_target_review(
+    teaching_class_id: uuid.UUID,
+    session_id: uuid.UUID,
+    run_id: uuid.UUID,
+    vmid: int,
+    payload: TeacherJudgeTargetReviewUpdate,
+    session: SessionDep,
+    current_user: InstructorUser,
+) -> TeacherJudgeScriptRunPublic:
+    """Save the teacher's decisions and optional weekly feedback for one student."""
+
+    _access(session, teaching_class_id, current_user)
+    get_session(session, teaching_class_id, session_id)
+    run = session.exec(
+        select(TeacherJudgeScriptRun)
+        .join(TeacherJudgeScriptArtifact)
+        .where(
+            TeacherJudgeScriptRun.id == run_id,
+            TeacherJudgeScriptRun.teaching_class_id == teaching_class_id,
+            TeacherJudgeScriptArtifact.session_id == session_id,
+        )
+    ).first()
+    if run is None:
+        raise HTTPException(
+            status_code=404, detail=t("teacherJudgeSessions.runResultNotFound")
+        )
+    if run.status.value != "completed":
+        raise HTTPException(status_code=409, detail="只能核查已完成的執行結果。")
+
+    result_document = dict(run.target_results_json or {})
+    raw_targets = result_document.get("targets")
+    targets = [dict(target) for target in raw_targets] if isinstance(raw_targets, list) else []
+    target_index = next(
+        (
+            index
+            for index, target in enumerate(targets)
+            if isinstance(target, dict) and str(target.get("vmid")) == str(vmid)
+        ),
+        None,
+    )
+    if target_index is None:
+        raise HTTPException(status_code=404, detail="找不到這位學生的執行結果。")
+
+    target = targets[target_index]
+    parsed_result = target.get("parsed_result")
+    raw_checks = parsed_result.get("checks") if isinstance(parsed_result, dict) else []
+    reviewable_ids = {
+        str(check.get("id") or "")
+        for check in raw_checks
+        if isinstance(check, dict)
+        and str(check.get("status") or "") in {"warning", "unknown"}
+    }
+    invalid_ids = sorted(set(payload.decisions) - reviewable_ids)
+    if invalid_ids:
+        raise HTTPException(
+            status_code=400,
+            detail="只能人工判定待導師核查或需注意的項目：" + "、".join(invalid_ids),
+        )
+
+    from app.models.base import get_datetime_utc
+
+    now = get_datetime_utc()
+    if payload.feedback or payload.decisions:
+        target["teacher_review"] = {
+            "feedback": payload.feedback,
+            "decisions": dict(payload.decisions),
+            "reviewed_by": str(current_user.id),
+            "updated_at": now.isoformat(),
+        }
+    else:
+        target.pop("teacher_review", None)
+    targets[target_index] = target
+    result_document["targets"] = targets
+    run.target_results_json = result_document
+    run.updated_at = now
+    session.add(run)
+    session.commit()
+    session.refresh(run)
     return _run_to_public(run)
 
 

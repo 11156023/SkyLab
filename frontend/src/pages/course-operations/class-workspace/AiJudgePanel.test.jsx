@@ -22,11 +22,13 @@ import {
   getRubricReviewItemIds,
   getPendingRubricItemIds,
   resolveDetectabilityNeedsReview,
+  sortTeacherReviewRows,
   getScriptCreationBlocker,
   getSessionMenuPosition,
   getSelectedRubricSource,
   getScriptCreationDestination,
   getScriptReviewAttemptIssues,
+  getTargetReviewSummary,
   getSelectableProposalIds,
   mergeSessionMessages,
   resolveActiveSessionId,
@@ -1043,5 +1045,54 @@ describe("script creation workflow", () => {
   test("通過自動檢查後進入執行結果，失敗時進入腳本總覽", () => {
     expect(getScriptCreationDestination({ status: "approved" })).toBe("execution");
     expect(getScriptCreationDestination({ status: "review_failed", id: "script-1" })).toBe("scripts");
+  });
+});
+
+describe("teacher review summary", () => {
+  test("只把 warning 與 unknown 視為待導師核查", () => {
+    const target = {
+      status: "completed",
+      validation: { valid: true },
+      parsed_result: {
+        checks: [
+          { id: "auto-pass", status: "pass" },
+          { id: "manual", status: "unknown" },
+          { id: "risk", status: "warning" },
+        ],
+      },
+    };
+
+    expect(getTargetReviewSummary(target)).toMatchObject({
+      kind: "pending",
+      pending: 2,
+      reviewable: 2,
+    });
+    target.teacher_review = { decisions: { manual: "pass", risk: "fail" } };
+    expect(getTargetReviewSummary(target)).toMatchObject({
+      kind: "reviewed",
+      pending: 0,
+      reviewable: 2,
+    });
+  });
+
+  test("沒有結果與執行失敗會清楚分開", () => {
+    expect(getTargetReviewSummary(null).kind).toBe("missing");
+    expect(getTargetReviewSummary({ status: "failed" }).kind).toBe("failed");
+  });
+
+  test("可依待處理或學號帳號排序", () => {
+    const rows = [
+      {
+        member: { full_name: "Zoe", email: "s10@example.edu", vmid: 310 },
+        target: { vmid: 310, parsed_result: { checks: [{ id: "a", status: "pass" }] } },
+      },
+      {
+        member: { full_name: "Amy", email: "s2@example.edu", vmid: 302 },
+        target: { vmid: 302, parsed_result: { checks: [{ id: "b", status: "unknown" }] } },
+      },
+    ];
+
+    expect(sortTeacherReviewRows(rows, "pending")[0].member.email).toBe("s2@example.edu");
+    expect(sortTeacherReviewRows(rows, "student-number")[0].member.email).toBe("s2@example.edu");
   });
 });

@@ -3123,12 +3123,352 @@ function ExecutionTab({ classId, sessionId, members }) {
   );
 }
 
+/* ── Tab 4：導師核查 ────────────────────────────────────── */
+
+const TEACHER_REVIEW_STATUSES = new Set(["warning", "unknown"]);
+
+function targetChecks(target) {
+  const checks = target?.parsed_result?.checks;
+  return Array.isArray(checks) ? checks : [];
+}
+
+function targetTeacherReview(target) {
+  const review = target?.teacher_review;
+  return review && typeof review === "object"
+    ? {
+        feedback: typeof review.feedback === "string" ? review.feedback : "",
+        decisions: review.decisions && typeof review.decisions === "object"
+          ? review.decisions
+          : {},
+      }
+    : { feedback: "", decisions: {} };
+}
+
+export function getTargetReviewSummary(target) {
+  if (!target) return { kind: "missing", label: "尚未執行", pending: 0, reviewable: 0 };
+  if (target.status === "failed" || target.validation?.valid === false) {
+    return { kind: "failed", label: "執行失敗", pending: 0, reviewable: 0 };
+  }
+  const reviewable = targetChecks(target).filter((check) => (
+    TEACHER_REVIEW_STATUSES.has(check?.status)
+  ));
+  const decisions = targetTeacherReview(target).decisions;
+  const pending = reviewable.filter((check) => !decisions[check?.id]).length;
+  if (pending > 0) {
+    return {
+      kind: "pending",
+      label: `待核查 ${pending} 項`,
+      pending,
+      reviewable: reviewable.length,
+    };
+  }
+  if (reviewable.length > 0) {
+    return { kind: "reviewed", label: "核查完成", pending: 0, reviewable: reviewable.length };
+  }
+  if (targetTeacherReview(target).feedback) {
+    return { kind: "reviewed", label: "已留言", pending: 0, reviewable: 0 };
+  }
+  return { kind: "automatic", label: "AI 已判定", pending: 0, reviewable: 0 };
+}
+
+function reviewDraft(target) {
+  const review = targetTeacherReview(target);
+  return { feedback: review.feedback, decisions: { ...review.decisions } };
+}
+
+function reviewBadgeClass(kind) {
+  if (kind === "pending") return styles.badge_info;
+  if (kind === "failed") return styles.badge_danger;
+  if (kind === "reviewed") return styles.badge_success;
+  return styles.badge_muted;
+}
+
+function reviewRowUser(row) {
+  return row?.target?.user ?? row?.member ?? {};
+}
+
+function reviewStudentNumber(row) {
+  const user = reviewRowUser(row);
+  const email = String(user.email ?? "");
+  return String(
+    user.student_number
+    ?? user.student_no
+    ?? user.account
+    ?? email.split("@")[0]
+    ?? "",
+  );
+}
+
+export function sortTeacherReviewRows(rows, sortMode = "pending") {
+  const collator = new Intl.Collator("zh-Hant", { numeric: true, sensitivity: "base" });
+  const byAccount = (left, right) => collator.compare(
+    reviewStudentNumber(left),
+    reviewStudentNumber(right),
+  );
+
+  return [...rows].sort((left, right) => {
+    if (sortMode === "student-number") return byAccount(left, right);
+
+    const rank = { pending: 0, failed: 1, reviewed: 2, automatic: 3, missing: 4 };
+    const statusDelta = rank[getTargetReviewSummary(left.target).kind]
+      - rank[getTargetReviewSummary(right.target).kind];
+    return statusDelta || byAccount(left, right);
+  });
+}
+
+export function TeacherReviewTab({ classId, sessionId, members }) {
+  const toast = useToast();
+  const [run, setRun] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState("");
+  const [expandedVmid, setExpandedVmid] = useState(null);
+  const [drafts, setDrafts] = useState({});
+  const [savingVmid, setSavingVmid] = useState(null);
+  const [sortMode, setSortMode] = useState("pending");
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    setLoadError("");
+    setRun(null);
+    setExpandedVmid(null);
+    AiJudgeService.listSessionRuns(classId, sessionId)
+      .then(async (runs) => {
+        const latest = runs.find((item) => item.status === "completed") ?? runs[0];
+        if (!latest) return null;
+        return AiJudgeService.getSessionRun(classId, sessionId, latest.id);
+      })
+      .then((detail) => {
+        if (cancelled) return;
+        setRun(detail);
+        const nextDrafts = {};
+        for (const target of detail?.target_results_json?.targets ?? []) {
+          nextDrafts[String(target.vmid)] = reviewDraft(target);
+        }
+        setDrafts(nextDrafts);
+      })
+      .catch((error) => {
+        if (!cancelled) setLoadError(error?.message ?? "無法載入導師核查資料。");
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [classId, sessionId]);
+
+  const rows = useMemo(() => {
+    const targets = run?.target_results_json?.targets ?? [];
+    const targetsByVmid = new Map(targets.map((target) => [String(target.vmid), target]));
+    const matchedVmids = new Set();
+    const memberRows = members.map((member) => {
+      const target = targetsByVmid.get(String(member.vmid));
+      if (target) matchedVmids.add(String(target.vmid));
+      return { member, target };
+    });
+    const unmatched = targets
+      .filter((target) => !matchedVmids.has(String(target.vmid)))
+      .map((target) => ({ member: target.user ?? {}, target }));
+    return sortTeacherReviewRows([...memberRows, ...unmatched], sortMode);
+  }, [members, run, sortMode]);
+
+  const summary = useMemo(() => rows.reduce((counts, row) => {
+    const item = getTargetReviewSummary(row.target);
+    counts.total += 1;
+    if (item.kind === "pending") counts.pending += 1;
+    if (item.kind === "reviewed") counts.reviewed += 1;
+    if (item.kind === "automatic") counts.automatic += 1;
+    if (item.kind === "missing" || item.kind === "failed") counts.unavailable += 1;
+    return counts;
+  }, { total: 0, pending: 0, reviewed: 0, automatic: 0, unavailable: 0 }), [rows]);
+
+  function updateDraft(vmid, updater) {
+    const key = String(vmid);
+    setDrafts((current) => ({
+      ...current,
+      [key]: updater(current[key] ?? { feedback: "", decisions: {} }),
+    }));
+  }
+
+  function toggleDecision(vmid, checkId, decision) {
+    updateDraft(vmid, (current) => {
+      const decisions = { ...current.decisions };
+      if (decisions[checkId] === decision) delete decisions[checkId];
+      else decisions[checkId] = decision;
+      return { ...current, decisions };
+    });
+  }
+
+  async function saveReview(target) {
+    const key = String(target.vmid);
+    const draft = drafts[key] ?? reviewDraft(target);
+    setSavingVmid(key);
+    try {
+      const updated = await AiJudgeService.updateTargetReview(
+        classId,
+        sessionId,
+        run.id,
+        target.vmid,
+        draft,
+      );
+      setRun(updated);
+      const savedTarget = (updated.target_results_json?.targets ?? [])
+        .find((item) => String(item.vmid) === key);
+      setDrafts((current) => ({ ...current, [key]: reviewDraft(savedTarget) }));
+      toast.success("導師核查已儲存。");
+    } catch (error) {
+      toast.error(error?.message ?? "導師核查儲存失敗。");
+    } finally {
+      setSavingVmid(null);
+    }
+  }
+
+  if (loading) return <LoadingState text="正在整理學生檢查結果…" />;
+  if (loadError) return <div className={styles.noticeDanger}>{loadError}</div>;
+  if (!run) {
+    return (
+      <div className={`${styles.card} ${styles.reviewEmpty}`}>
+        <MIcon name="rate_review" size={30} />
+        <h4>還沒有可核查的結果</h4>
+        <p>請先到「執行結果」選擇學生並執行檢查，完成後會在這裡集中顯示。</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className={styles.tabBody}>
+      <div className={`${styles.card} ${styles.reviewOverview}`}>
+        <h4 className={styles.cardTitle}><MIcon name="rate_review" size={19} />導師核查</h4>
+        <div className={styles.reviewMetrics} aria-label="核查進度">
+          <span><strong>{summary.pending}</strong><small>待核查</small></span>
+          <span><strong>{summary.reviewed}</strong><small>已核查／留言</small></span>
+          <span><strong>{summary.automatic}</strong><small>AI 已判定</small></span>
+          <span><strong>{summary.total}</strong><small>學生總數</small></span>
+        </div>
+      </div>
+
+      <div className={styles.reviewListSection}>
+        <div className={styles.reviewListToolbar}>
+          <label className={styles.reviewSort}>
+            <MIcon name="sort" size={16} />
+            <span>排序</span>
+            <select value={sortMode} onChange={(event) => setSortMode(event.target.value)}>
+              <option value="pending">待處理優先</option>
+              <option value="student-number">學號／帳號</option>
+            </select>
+          </label>
+        </div>
+        <div className={styles.reviewStudentList}>
+          {rows.map(({ member, target }) => {
+          const vmid = target?.vmid ?? member?.vmid;
+          const key = String(vmid ?? member?.user_id ?? member?.email);
+          const user = target?.user ?? member ?? {};
+          const itemSummary = getTargetReviewSummary(target);
+          const isOpen = expandedVmid === key;
+          const checks = targetChecks(target);
+          const counts = checks.reduce((result, check) => {
+            const status = check?.status;
+            if (status === "pass") result.pass += 1;
+            else if (status === "fail") result.fail += 1;
+            else if (TEACHER_REVIEW_STATUSES.has(status)) result.review += 1;
+            return result;
+          }, { pass: 0, fail: 0, review: 0 });
+          const draft = drafts[String(vmid)] ?? reviewDraft(target);
+          const saved = targetTeacherReview(target);
+          const isDirty = Boolean(target) && (
+            draft.feedback !== saved.feedback
+            || JSON.stringify(draft.decisions) !== JSON.stringify(saved.decisions)
+          );
+          return (
+            <article className={`${styles.reviewStudent} ${isOpen ? styles.reviewStudentOpen : ""}`} key={key}>
+              <button
+                type="button"
+                className={styles.reviewStudentToggle}
+                onClick={() => setExpandedVmid(isOpen ? null : key)}
+                aria-expanded={isOpen}
+              >
+                <span className={styles.reviewStudentIdentity}>
+                  <span className={styles.reviewAvatar}><MIcon name="person" size={18} /></span>
+                  <span>
+                    <strong>{user.full_name ?? "未命名學生"}</strong>
+                    <small>{user.email ?? ""}{vmid ? ` · VMID ${vmid}` : ""}</small>
+                  </span>
+                </span>
+                <span className={styles.reviewAiCounts} aria-label="AI 檢查摘要">
+                  {target && <><em className={styles.reviewCountPass}>{counts.pass} 通過</em><em className={styles.reviewCountFail}>{counts.fail} 未通過</em><em className={styles.reviewCountPending}>{counts.review} 待確認</em></>}
+                </span>
+                <span className={`${styles.badge} ${reviewBadgeClass(itemSummary.kind)}`}>{itemSummary.label}</span>
+                <MIcon name={isOpen ? "expand_less" : "expand_more"} size={20} />
+              </button>
+
+              {isOpen && (
+                <div className={styles.reviewStudentBody}>
+                  {!target ? (
+                    <div className={styles.reviewNoResult}>這位學生不在最近一次執行範圍內，尚無 AI 檢查結果。</div>
+                  ) : (
+                    <>
+                      <div className={styles.reviewCheckList}>
+                        {checks.length === 0 ? <p className={styles.mutedText}>腳本沒有回傳可顯示的檢查項目。</p> : checks.map((check, index) => {
+                          const meta = checkStatusMeta(check?.status);
+                          const reviewable = TEACHER_REVIEW_STATUSES.has(check?.status);
+                          const decision = draft.decisions[check?.id];
+                          return (
+                            <div className={styles.reviewCheck} key={`${check?.id ?? "check"}-${index}`}>
+                              <span className={`${styles.reviewCheckIcon} ${meta.className}`}><MIcon name={meta.icon} size={17} /></span>
+                              <div className={styles.reviewCheckContent}>
+                                <div><strong>{check?.title ?? check?.id ?? "收集項目"}</strong><span>{meta.label}</span></div>
+                                <p>{check?.evidence || "沒有摘要"}</p>
+                                {(check?.raw || (Array.isArray(check?.errors) && check.errors.length > 0)) && (
+                                  <details><summary>查看原始證據</summary><CommandLog raw={check?.raw} fallbackText={(check?.errors ?? []).join("\n")} /></details>
+                                )}
+                              </div>
+                              {reviewable && (
+                                <div className={styles.reviewDecision} aria-label={`${check?.title ?? check?.id}人工判定`}>
+                                  <button type="button" className={decision === "pass" ? styles.reviewPassActive : ""} aria-pressed={decision === "pass"} onClick={() => toggleDecision(vmid, check.id, "pass")}><MIcon name="check" size={16} />通過</button>
+                                  <button type="button" className={decision === "fail" ? styles.reviewFailActive : ""} aria-pressed={decision === "fail"} onClick={() => toggleDecision(vmid, check.id, "fail")}><MIcon name="close" size={16} />未通過</button>
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+
+                      <label className={styles.reviewFeedbackField}>
+                        <span>給學生的本週回饋 <small>選填</small></span>
+                        <textarea
+                          value={draft.feedback}
+                          maxLength={4000}
+                          rows={3}
+                          placeholder="例如：服務已能啟動，接下來請補上錯誤處理並重新確認日誌。"
+                          onChange={(event) => updateDraft(vmid, (current) => ({ ...current, feedback: event.target.value }))}
+                        />
+                        <small>{draft.feedback.length} / 4000</small>
+                      </label>
+                      <div className={styles.reviewSaveRow}>
+                        <span>{isDirty ? "有尚未儲存的變更" : saved.feedback || Object.keys(saved.decisions).length ? `上次儲存：${target.teacher_review?.updated_at ? formatDateTime(target.teacher_review.updated_at) : "已儲存"}` : "可只判定、不留言；也可以只留言。"}</span>
+                        <button type="button" className={styles.btnPrimary} disabled={!isDirty || savingVmid === String(vmid)} onClick={() => saveReview(target)}>{savingVmid === String(vmid) ? <><Spinner size={15} />儲存中…</> : <><MIcon name="save" size={16} />儲存核查</>}</button>
+                      </div>
+                    </>
+                  )}
+                </div>
+              )}
+            </article>
+          );
+          })}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 /* ── 導師工作區 ─────────────────────────────────────────── */
 
 const TEACHER_JUDGE_TABS = [
   { key: "rubrics", label: "檢查設定", icon: "description" },
   { key: "execution", label: "執行結果", icon: "play_circle_outline" },
   { key: "scripts", label: "腳本總覽", icon: "terminal" },
+  { key: "review", label: "導師核查", icon: "rate_review" },
 ];
 
 function TeacherWorkspacePanel({ classId, members, weeks = [] }) {
@@ -3525,6 +3865,7 @@ function TeacherWorkspacePanel({ classId, members, weeks = [] }) {
                 <div className={`${styles.card} ${styles.checkTabsCard}`}>{subTabsBar}</div>
                 {activeTab === "scripts" && <ScriptsTab classId={classId} sessionId={activeSession.id} initialSelectedId={focusedScriptId} onScriptApproved={() => setActiveTab("execution")} />}
                 {activeTab === "execution" && <ExecutionTab classId={classId} sessionId={activeSession.id} members={members} />}
+                {activeTab === "review" && <TeacherReviewTab classId={classId} sessionId={activeSession.id} members={members} />}
               </div>
             </div>
           </section>
