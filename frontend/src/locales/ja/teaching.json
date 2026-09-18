@@ -236,7 +236,6 @@
   "CourseTemplateEditorPage.overlappingEdgeNotice": "この 2 台の間には、このポートを含む接続がすでにあります。双方向接続には逆方向も含まれます。",
   "CourseTemplateEditorPage.publicationEdgeForward": "{{service}} · 外部ポート",
   "CourseTemplateEditorPage.addConnectionBtn": "接続を追加",
-  "CourseTemplateEditorPage.canvasHint": "マシンは既定でインターネットに出られるので線は不要です。マシン同士をドラッグで接続、「インターネット」へドラッグでサービスを公開、線をクリックで内容確認・削除できます。",
   "CourseTemplateEditorPage.duplicatePublicationPort": "Port {{port}} はすでに公開されています",
   "CourseTemplateEditorPage.portlessUnsupported": "コースの接続にはポートが必要です（icmp などポートのないプロトコルは未対応）",
   "CourseTemplateEditorPage.dialogUnsupported": "この設定は学習環境では利用できません",

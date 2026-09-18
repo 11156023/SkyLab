@@ -236,7 +236,6 @@
   "CourseTemplateEditorPage.overlappingEdgeNotice": "這兩台之間已經有一條連線涵蓋這個 port。雙向連線已包含反向，不需要再畫一條。",
   "CourseTemplateEditorPage.publicationEdgeForward": "{{service}} · 對外 port",
   "CourseTemplateEditorPage.addConnectionBtn": "新增連線",
-  "CourseTemplateEditorPage.canvasHint": "機器預設就能上網，不用畫線。拖一台到另一台建立互通；拖到「網際網路」開放服務給外部；點線查看內容或刪除。",
   "CourseTemplateEditorPage.duplicatePublicationPort": "Port {{port}} 已經有一條對外服務了",
   "CourseTemplateEditorPage.portlessUnsupported": "課程環境的連線必須指定 port（不支援 icmp 這類無埠協定）",
   "CourseTemplateEditorPage.dialogUnsupported": "課程環境不支援這種設定",

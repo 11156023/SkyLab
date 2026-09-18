@@ -236,7 +236,6 @@
   "CourseTemplateEditorPage.overlappingEdgeNotice": "These two machines already have a connection covering this port. A bidirectional connection already includes the reverse direction.",
   "CourseTemplateEditorPage.publicationEdgeForward": "{{service}} · external port",
   "CourseTemplateEditorPage.addConnectionBtn": "Add connection",
-  "CourseTemplateEditorPage.canvasHint": "Machines can reach the internet by default — no line needed. Drag one machine to another to connect them; drag to \"Internet\" to publish a service; click a line to inspect or delete it.",
   "CourseTemplateEditorPage.duplicatePublicationPort": "Port {{port}} is already published",
   "CourseTemplateEditorPage.portlessUnsupported": "Course connections need a port (portless protocols such as icmp are not supported)",
   "CourseTemplateEditorPage.dialogUnsupported": "This setting is not supported in a course environment",

@@ -132,6 +132,10 @@ function MachineEditor({ value, edges, publications, onChange, onEdgesChange, on
   const [selectedNodeId, setSelectedNodeId] = useState("");
   const [selectedEdgeId, setSelectedEdgeId] = useState("");
   const [selectedPublicationId, setSelectedPublicationId] = useState("");
+  /* 上網線（機器 → 網際網路）是預設策略，不是規則：每台都有一條，全畫出來會淹掉
+     互通與對外服務，所以跟防火牆頁一樣預設藏起來，要看再開 */
+  const [selectedOutboundKey, setSelectedOutboundKey] = useState("");
+  const [showInternet, setShowInternet] = useState(false);
   const [flowNodes, setFlowNodes, onFlowNodesChange] = useNodesState([]);
   const [internetPosition, setInternetPosition] = useState(INTERNET_POSITION);
   const [topologyNotice, setTopologyNotice] = useState("");
@@ -145,9 +149,15 @@ function MachineEditor({ value, edges, publications, onChange, onEdgesChange, on
   /* 對話框的機器清單：模板沒有 vmid，只認 node key */
   const dialogNodes = useMemo(() => value.map((node) => ({ key: String(node.id), vmid: null, name: node.name })), [value]);
 
-  function selectNode(nodeId) { setSelectedNodeId(nodeId); setSelectedEdgeId(""); setSelectedPublicationId(""); }
-  function selectEdge(edgeId) { setSelectedEdgeId(edgeId); setSelectedNodeId(""); setSelectedPublicationId(""); }
-  function selectPublication(publicationId) { setSelectedPublicationId(publicationId); setSelectedNodeId(""); setSelectedEdgeId(""); }
+  function selectNode(nodeId) { setSelectedNodeId(nodeId); setSelectedEdgeId(""); setSelectedPublicationId(""); setSelectedOutboundKey(""); }
+  function selectEdge(edgeId) { setSelectedEdgeId(edgeId); setSelectedNodeId(""); setSelectedPublicationId(""); setSelectedOutboundKey(""); }
+  function selectPublication(publicationId) { setSelectedPublicationId(publicationId); setSelectedNodeId(""); setSelectedEdgeId(""); setSelectedOutboundKey(""); }
+  function selectOutbound(nodeKey) { setSelectedOutboundKey(nodeKey); setSelectedNodeId(""); setSelectedEdgeId(""); setSelectedPublicationId(""); }
+  function toggleInternet() {
+    const next = !showInternet;
+    setShowInternet(next);
+    if (!next && selectedOutboundKey) selectNode("");
+  }
 
   function addMachine() {
     if (atLimit || !sourceId) return;
@@ -269,6 +279,13 @@ function MachineEditor({ value, edges, publications, onChange, onEdgesChange, on
   /* 點線就用防火牆頁同一個細節面板：講清楚開了什麼、往哪個方向，刪除收在裡面。
      模板上的線沒有東西可「編輯」——要改就刪掉重拉，跟防火牆頁一樣。 */
   const detail = useMemo(() => {
+    if (selectedOutboundKey) {
+      return {
+        id: `outbound-${selectedOutboundKey}`,
+        edge: { source_vmid: String(selectedOutboundKey), target_vmid: null, direction: "one_way", ports: [] },
+        remove: null,
+      };
+    }
     if (selectedEdge) {
       return {
         id: `edge-${selectedEdge.id}`,
@@ -298,7 +315,7 @@ function MachineEditor({ value, edges, publications, onChange, onEdgesChange, on
     }
     return null;
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedEdge, selectedPublication, zones]);
+  }, [selectedEdge, selectedPublication, selectedOutboundKey, zones]);
   const detailPanel = useDialogPresence(detail, 220);
   // 規格只在草稿可調：已發布版本不可變（班級釘住版本，要改規格得開新版本）。
   const specLocked = locked;
@@ -413,9 +430,25 @@ function MachineEditor({ value, edges, publications, onChange, onEdgesChange, on
       },
       zIndex: 5,
     }));
-    return routeEdges([...peerEdges, ...publicationEdges], flowNodes);
+    /* 上網線：出站綠線、不限通訊埠（標籤留空由 ConnectionEdge 補「不限通訊埠」） */
+    const outboundEdges = value.map((node) => ({
+      id: `outbound-${node.id}`,
+      source: String(node.id),
+      target: INTERNET_KEY,
+      type: "connection",
+      hidden: !showInternet,
+      data: {
+        edge: { course_outbound: String(node.id), source_vmid: String(node.id), target_vmid: null, direction: "one_way" },
+        label: "",
+        showLabel: true,
+        selected: String(node.id) === selectedOutboundKey,
+        onSelect: () => selectOutbound(String(node.id)),
+      },
+      zIndex: 4,
+    }));
+    return routeEdges([...peerEdges, ...publicationEdges, ...outboundEdges], flowNodes);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [edges, publications, zones, locked, t, selectedEdgeId, selectedPublicationId, flowNodes]);
+  }, [value, edges, publications, zones, locked, t, selectedEdgeId, selectedPublicationId, selectedOutboundKey, showInternet, flowNodes]);
 
   return <section className={`${styles.card} ${styles.templateMachineWorkspace}`}>
       {sourceNotice && <p className={styles.persistentFeedback}><MIcon name="info" size={17} />{sourceNotice}</p>}
@@ -456,15 +489,21 @@ function MachineEditor({ value, edges, publications, onChange, onEdgesChange, on
           >
             <Background variant={BackgroundVariant.Dots} gap={20} size={1} />
             <Controls />
+            <Panel position="top-left">
+              <div className={fwStyles.toolbar}>
+                <button type="button" className={`${fwStyles.toolbarBtn} ${showInternet ? fwStyles.toolbarBtnActive : ""}`} onClick={toggleInternet}>
+                  <MIcon name={showInternet ? "public" : "public_off"} size={16} />
+                  {t("FirewallPage.internetLines", { ns: "network" })}
+                </button>
+              </div>
+            </Panel>
             <Panel position="top-right"><span className={styles.nodeLimit}>{t("CourseTemplateEditorPage.nodeLimitLabel", { count: value.length })}</span></Panel>
             <Panel position="bottom-left" style={{ marginLeft: 60 }}>
-              <div className={fwStyles.bottomStack}>
-                <div className={fwStyles.legend}>
-                  <span className={fwStyles.legendItem}><i className={`${fwStyles.legendLine} ${fwStyles.legendInbound}`} />{t("FirewallPage.legendInbound", { ns: "network" })}</span>
-                  <span className={fwStyles.legendItem}><i className={`${fwStyles.legendLine} ${fwStyles.legendInternal}`} />{t("FirewallPage.legendInternal", { ns: "network" })}</span>
-                </div>
-                {/* 上網不用畫線：每台機器預設就能出去 */}
-                <p className={fwStyles.hint}>{t("CourseTemplateEditorPage.canvasHint")}</p>
+              <div className={fwStyles.legend}>
+                <span className={fwStyles.legendItem}><i className={`${fwStyles.legendLine} ${fwStyles.legendInbound}`} />{t("FirewallPage.legendInbound", { ns: "network" })}</span>
+                {/* 上網線藏起來時圖例變淡，提醒圖上少了這種線（與防火牆頁相同） */}
+                <span className={`${fwStyles.legendItem} ${showInternet ? "" : fwStyles.legendItemHidden}`}><i className={`${fwStyles.legendLine} ${fwStyles.legendOutbound}`} />{t("FirewallPage.legendOutbound", { ns: "network" })}</span>
+                <span className={fwStyles.legendItem}><i className={`${fwStyles.legendLine} ${fwStyles.legendInternal}`} />{t("FirewallPage.legendInternal", { ns: "network" })}</span>
               </div>
             </Panel>
           </ReactFlow>
@@ -474,7 +513,7 @@ function MachineEditor({ value, edges, publications, onChange, onEdgesChange, on
             allowOpen={false}
             closing={detailPanel.closing}
             onClose={() => selectNode("")}
-            onDelete={locked ? undefined : () => detailPanel.item.remove()}
+            onDelete={locked || !detailPanel.item.remove ? undefined : () => detailPanel.item.remove()}
           />}
           </div>
           <aside className={styles.topologyInspector}>
