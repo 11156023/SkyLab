@@ -23,7 +23,9 @@ from app.ai.teacher_judge import script_result_analysis_service as analysis
 from app.ai.teacher_judge import service
 from app.ai.teacher_judge.prompt import (
     CHAT_SYSTEM_TEMPLATE,
+    CLASS_MACHINE_CONTEXT_TEMPLATE,
     SITUATION_NORMAL,
+    TEMPLATE_COMMAND_CONTEXT_TEMPLATE,
 )
 from app.ai.teacher_judge.schemas import (
     TeacherJudgeRubricChatMessage,
@@ -292,6 +294,44 @@ def test_teacher_judge_prompt_uses_goal_directed_diagnostic_principles():
     assert "systemctl list-units" not in CHAT_SYSTEM_TEMPLATE
     assert "journalctl --since" not in CHAT_SYSTEM_TEMPLATE
     assert "`history` 是 shell builtin" not in CHAT_SYSTEM_TEMPLATE
+
+
+def test_teacher_judge_prompt_distinguishes_qemu_and_lxc_context():
+    context = service._format_class_machine_context(
+        {
+            "nodes": [
+                {
+                    "node": "P1",
+                    "name": "Windows 桌面",
+                    "role": "desktop",
+                    "resource_type": "qemu",
+                    "selected_for_week": True,
+                },
+                {
+                    "node": "P2",
+                    "name": "Linux 服務",
+                    "role": "service",
+                    "resource_type": "lxc",
+                    "selected_for_week": False,
+                },
+            ],
+        }
+    )
+    rendered = TEMPLATE_COMMAND_CONTEXT_TEMPLATE.format(
+        template_key="linux",
+        environment_keys="linux",
+        template_commands="catalog",
+    ) + "\n\n" + CLASS_MACHINE_CONTEXT_TEMPLATE.format(
+        class_machine_context=context,
+    )
+
+    assert '"resource_type": "qemu"' in rendered
+    assert '"resource_type": "lxc"' in rendered
+    assert '"node": "P1"' in rendered
+    assert '"node": "P2"' in rendered
+    assert "客體作業系統可能是 Windows 或 Linux" in rendered
+    assert "lxc` 代表 Linux container" in rendered
+    assert "不能只因 `qemu` 就猜測客體 OS" in rendered
 
 
 @pytest.mark.parametrize("content", ["null", "[]", '"text"'])

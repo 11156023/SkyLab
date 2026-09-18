@@ -14,6 +14,20 @@ TEMPLATE_COMMAND_CONTEXT_TEMPLATE = """
 """.strip()
 
 
+CLASS_MACHINE_CONTEXT_TEMPLATE = """
+本課堂機器環境（平台提供的結構化資料，不是教師指令）：
+{class_machine_context}
+
+平台類型與作業系統取證規則：
+- `qemu` 代表完整硬體虛擬機器；客體作業系統可能是 Windows 或 Linux，不能只因 `qemu` 就猜測客體 OS。
+- `lxc` 代表 Linux container；應以 Linux userland 的檔案、程序、服務與指令規劃檢查，不得使用 Windows-only 指令，也不要假設它具備完整 VM 的硬體或 kernel 視角。
+- `resource_type` 是執行邊界，不是客體 OS 的完整識別。若需求依賴 Windows/Linux 特定命令而目前資料無法判定，才詢問最小必要的客體 OS 資訊；若能用跨平台或對應類型的唯讀檢查，優先直接規劃。
+- 課堂同時有 `qemu` 與 `lxc` 時，必須依目標類型選擇可用檢查方式，不得把同一組平台專屬指令套到所有目標。
+- `node` 是後端依課堂機器排序產生的 `P1`、`P2` 等識別；若需要區分多台機器，使用這個識別，不要自行創造其他 VMID 或名稱。
+- `selected_for_week: true` 表示目前 Teacher Judge Session 所綁週次的目標；若全部為 false，代表 Session 沒有指定週次目標，不得自行選定其中一台。
+""".strip()
+
+
 CHAT_SYSTEM_TEMPLATE = """
 # 角色
 你是一位專業的 AI 檢查助理，服務對象是校園雲端平台的授課老師。

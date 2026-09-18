@@ -79,7 +79,7 @@ from app.api.deps import InstructorUser, SessionDep
 from app.core.authorizers import require_teaching_access
 from app.core.i18n import t
 from app.infrastructure.worker import submit
-from app.models import TeachingClass, TeachingClassWeek
+from app.models import TeachingClass, TeachingClassMachineNode, TeachingClassWeek
 from app.models.teacher_judge_attachment import TeacherJudgeSessionAttachment
 from app.models.teacher_judge_script_artifact import TeacherJudgeScriptArtifact
 from app.models.teacher_judge_script_run import (
@@ -178,6 +178,37 @@ def _validate_week(
         raise HTTPException(
             status_code=400, detail=t("teacherJudgeSessions.weekNotInClass")
         )
+
+
+def _class_machine_context(
+    session: SessionDep,
+    class_id: uuid.UUID,
+    week_id: uuid.UUID | None,
+) -> dict[str, Any]:
+    """Build non-sensitive class machine facts for Teacher Judge chat context."""
+    week = session.get(TeachingClassWeek, week_id) if week_id else None
+    target_node_key = (
+        week.target_node_key
+        if week is not None and week.class_id == class_id
+        else None
+    )
+    nodes = session.exec(
+        select(TeachingClassMachineNode)
+        .where(TeachingClassMachineNode.class_id == class_id)
+        .order_by(TeachingClassMachineNode.sort_order, TeachingClassMachineNode.node_key)
+    ).all()
+    return {
+        "nodes": [
+            {
+                "node": f"P{index}",
+                "name": node.name,
+                "role": node.role,
+                "resource_type": str(node.resource_type).lower(),
+                "selected_for_week": node.node_key == target_node_key,
+            }
+            for index, node in enumerate(nodes, start=1)
+        ],
+    }
 
 
 @router.get("/", response_model=list[TeacherJudgeSessionPublic])
@@ -513,6 +544,11 @@ async def create_message(
     item = get_session(session, teaching_class_id, session_id)
     ensure_active(item)
     file = selected_file_for_chat(session, item)
+    class_machine_context = _class_machine_context(
+        session,
+        teaching_class_id,
+        item.teaching_class_week_id,
+    )
     base_revision = file.analysis_revision if file else None
     if (
         file
@@ -566,6 +602,7 @@ async def create_message(
                 template_key=file.template_key if file else "linux",
                 template_commands=template_commands,
                 environment_keys=file.environment_keys if file else None,
+                class_machine_context=class_machine_context,
                 attachment_context=attachment_context(attachments),
                 analysis_revision=base_revision,
                 rubric_available=file is not None,
@@ -590,6 +627,7 @@ async def create_message(
                 template_key=file.template_key if file else "linux",
                 template_commands=template_commands,
                 environment_keys=file.environment_keys if file else None,
+                class_machine_context=class_machine_context,
                 attachment_context=attachment_context(attachments),
                 analysis_revision=base_revision,
                 rubric_available=file is not None,

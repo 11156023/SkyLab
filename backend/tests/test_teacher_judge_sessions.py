@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from types import SimpleNamespace
 
 import pytest
@@ -32,6 +32,7 @@ from app.models.teacher_judge_session import (
     TeacherJudgeSessionStatus,
 )
 from app.models.teacher_judge_template_command import TeacherJudgeTemplateCommand
+from app.models.teaching_class import TeachingClassMachineNode, TeachingClassWeek
 
 
 def _session() -> Session:
@@ -52,6 +53,56 @@ def _file(db: Session, class_id: uuid.UUID) -> TeacherJudgeFile:
     db.commit()
     db.refresh(item)
     return item
+
+
+def test_class_machine_context_marks_week_target_and_keeps_platform_context() -> None:
+    db = _session()
+    class_id = uuid.uuid4()
+    week = TeachingClassWeek(
+        class_id=class_id,
+        week_number=1,
+        session_date=date(2026, 9, 18),
+        target_node_key="desktop",
+    )
+    db.add_all(
+        [
+            week,
+            TeachingClassMachineNode(
+                class_id=class_id,
+                node_key="desktop",
+                name="Windows 桌面",
+                role="desktop",
+                resource_type="qemu",
+                cpu=4,
+                memory_mb=8192,
+                disk_gb=80,
+                network="lab",
+                sort_order=1,
+            ),
+            TeachingClassMachineNode(
+                class_id=class_id,
+                node_key="service",
+                name="Linux 服務",
+                role="service",
+                resource_type="lxc",
+                cpu=2,
+                memory_mb=2048,
+                disk_gb=20,
+                network="lab",
+                sort_order=2,
+            ),
+        ]
+    )
+    db.commit()
+    db.refresh(week)
+
+    context = teacher_judge_sessions._class_machine_context(db, class_id, week.id)
+
+    assert [node["resource_type"] for node in context["nodes"]] == ["qemu", "lxc"]
+    assert [node["node"] for node in context["nodes"]] == ["P1", "P2"]
+    assert context["nodes"][0]["selected_for_week"] is True
+    assert context["nodes"][0]["name"] == "Windows 桌面"
+    assert context["nodes"][1]["selected_for_week"] is False
 
 
 def test_selected_file_must_belong_to_same_teaching_class() -> None:
@@ -369,6 +420,7 @@ async def test_message_without_rubric_is_saved_and_uses_general_chat(
         assert rubric_context == "{}"
         assert kwargs["is_refine"] is False
         assert kwargs["template_key"] == "linux"
+        assert kwargs["class_machine_context"] == {"nodes": []}
         return "可以，先描述目標環境。", None, {}
 
     monkeypatch.setattr(teacher_judge_sessions, "_access", lambda *args: None)

@@ -21,6 +21,7 @@ from app.ai.teacher_judge.config import settings
 from app.ai.teacher_judge.prompt import (
     ATTACHMENT_EXTRACTION_SYSTEM_TEMPLATE,
     CHAT_SYSTEM_TEMPLATE,
+    CLASS_MACHINE_CONTEXT_TEMPLATE,
     DIRECT_RUBRIC_UPDATE_INSTRUCTION,
     SESSION_NO_RUBRIC_INSTRUCTION,
     SESSION_REQUIREMENT_PROPOSAL_INSTRUCTION,
@@ -72,6 +73,39 @@ class TeacherJudgeItemwiseResult:
     metrics: VLLMMetrics
     item_results: list[dict[str, Any]]
     error: str | None = None
+
+
+def _format_class_machine_context(
+    context: dict[str, Any] | None,
+) -> str:
+    """Serialize server-owned class machine facts for the chat system prompt."""
+    if not isinstance(context, dict):
+        return json.dumps(
+            {"nodes": []},
+            ensure_ascii=False,
+        )
+
+    raw_nodes = context.get("nodes")
+    nodes: list[dict[str, Any]] = []
+    if isinstance(raw_nodes, list):
+        for raw_node in raw_nodes:
+            if not isinstance(raw_node, dict):
+                continue
+            resource_type = str(raw_node.get("resource_type") or "").strip().lower()
+            nodes.append(
+                {
+                    "node": str(raw_node.get("node") or "").strip(),
+                    "name": str(raw_node.get("name") or "").strip(),
+                    "role": str(raw_node.get("role") or "").strip(),
+                    "resource_type": resource_type or "unknown",
+                    "selected_for_week": bool(raw_node.get("selected_for_week")),
+                }
+            )
+
+    return json.dumps(
+        {"nodes": nodes},
+        ensure_ascii=False,
+    )
 
 
 def _conversation_focus_from_content(
@@ -2045,6 +2079,7 @@ async def chat_with_rubric(
     attachment_context: str | None = None,
     analysis_revision: int | None = None,
     rubric_available: bool | None = None,
+    class_machine_context: dict[str, Any] | None = None,
 ) -> TeacherJudgeChatResult:
     """
     Multi-turn chat with a request-scoped rubric exposed through tools.
@@ -2075,6 +2110,16 @@ async def chat_with_rubric(
         if rubric_available
         else SESSION_NO_RUBRIC_INSTRUCTION
     )
+    template_command_context = TEMPLATE_COMMAND_CONTEXT_TEMPLATE.format(
+        template_key=template_key,
+        environment_keys=", ".join(environment_keys or [template_key]),
+        template_commands=format_template_commands_for_prompt(
+            template_commands or []
+        ),
+    )
+    class_machine_context_prompt = CLASS_MACHINE_CONTEXT_TEMPLATE.format(
+        class_machine_context=_format_class_machine_context(class_machine_context),
+    )
     system_prompt = (
         CHAT_SYSTEM_TEMPLATE.replace(
             "{attachment_context}",
@@ -2087,13 +2132,7 @@ async def chat_with_rubric(
         )
         .replace(
             "{template_command_context}",
-            TEMPLATE_COMMAND_CONTEXT_TEMPLATE.format(
-                template_key=template_key,
-                environment_keys=", ".join(environment_keys or [template_key]),
-                template_commands=format_template_commands_for_prompt(
-                    template_commands or []
-                ),
-            ),
+            f"{template_command_context}\n\n{class_machine_context_prompt}",
         )
     )
 
@@ -2328,6 +2367,7 @@ async def analyze_requirement_item(
     template_key: str = "linux",
     template_commands: list[TeacherJudgeTemplateCommand] | None = None,
     environment_keys: list[str] | None = None,
+    class_machine_context: dict[str, Any] | None = None,
     analysis_revision: int | None = None,
     rubric_available: bool = False,
 ) -> TeacherJudgeChatResult:
@@ -2347,6 +2387,7 @@ async def analyze_requirement_item(
         template_key=template_key,
         template_commands=template_commands,
         environment_keys=environment_keys,
+        class_machine_context=class_machine_context,
         attachment_context=None,
         analysis_revision=analysis_revision,
         rubric_available=rubric_available,
@@ -2461,6 +2502,7 @@ async def analyze_attachments_itemwise(
     template_key: str = "linux",
     template_commands: list[TeacherJudgeTemplateCommand] | None = None,
     environment_keys: list[str] | None = None,
+    class_machine_context: dict[str, Any] | None = None,
     attachment_context: str,
     analysis_revision: int | None = None,
     rubric_available: bool = False,
@@ -2505,6 +2547,7 @@ async def analyze_attachments_itemwise(
                     template_key=template_key,
                     template_commands=template_commands,
                     environment_keys=environment_keys,
+                    class_machine_context=class_machine_context,
                     analysis_revision=analysis_revision,
                     rubric_available=rubric_available,
                 )
