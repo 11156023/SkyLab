@@ -91,19 +91,14 @@ def _compact_rubric_item(item: dict[str, Any]) -> dict[str, Any]:
     return {
         "id": str(item.get("id") or "").strip(),
         "title": str(item.get("title") or "")[:240],
+        "target_node_key": item.get("target_node_key"),
         "detectable": item.get("detectable"),
         "judgement_mode": item.get("judgement_mode") or "ai",
         "detection_method": _truncate(item.get("detection_method")),
         "fallback": _truncate(item.get("fallback")),
-        "check_steps": [
-            {
-                "template_key": step.get("template_key"),
-                "command_key": step.get("command_key"),
-                "command_label": step.get("command_label"),
-            }
-            for step in item.get("check_steps") or []
-            if isinstance(step, dict)
-        ],
+        # Execution details (argv/cwd/timeout and legacy catalog identities)
+        # are server-side generation inputs, not result-judgement context.
+        "has_check_steps": bool(item.get("check_steps")),
     }
 
 
@@ -354,11 +349,10 @@ async def _analyze_one_target(
         "rubric_items": _rubric_excerpt(rubric_snapshot),
         "script_metadata": script_metadata,
         "target": {
-            "vmid": result.get("vmid"),
-            "name": result.get("name"),
-            "proxmox_node": result.get("proxmox_node"),
+            "node_key": result.get("node_key"),
+            "display_label": result.get("display_label"),
+            "node_role": result.get("node_role"),
             "resource_type": result.get("resource_type"),
-            "user": result.get("user"),
             "execution_status": result.get("status"),
             "reason_code": result.get("reason_code"),
             "exit_code": result.get("exit_code"),

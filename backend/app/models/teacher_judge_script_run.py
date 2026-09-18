@@ -12,6 +12,7 @@ from .base import get_datetime_utc
 
 
 class TeacherJudgeScriptRunTargetScope(str, enum.Enum):
+    all_students_on_node = "all_students_on_node"
     all_with_vm = "all_with_vm"
     running_only = "running_only"
     manual = "manual"

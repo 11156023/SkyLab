@@ -183,10 +183,16 @@ export const AiJudgeService = {
     );
   },
 
-  createSessionRun(classId, sessionId, scriptId, targetVmids) {
+  createSessionRun(classId, sessionId, scriptId, target, targetNodeKey = null) {
+    const payload = Array.isArray(target)
+      ? { target_scope: "manual", target_vmids: target }
+      : {
+          target_scope: target?.target_scope ?? "all_students_on_node",
+          target_node_key: target?.target_node_key ?? targetNodeKey,
+        };
     return apiPost(
       `/api/v1/teaching-classes/${classId}/judge/sessions/${sessionId}/scripts/${scriptId}/runs`,
-      { target_scope: "manual", target_vmids: targetVmids },
+      payload,
     );
   },
 
@@ -272,10 +278,15 @@ export const AiJudgeService = {
   /* ── 腳本執行 ── */
 
   /** 對指定 VMID 建立腳本執行任務 */
-  createScriptRun(classId, scriptId, targetVmids) {
+  createScriptRun(classId, scriptId, target, targetNodeKey = null) {
+    const payload = Array.isArray(target)
+      ? { target_scope: "manual", target_vmids: target }
+      : {
+          target_scope: target?.target_scope ?? "all_students_on_node",
+          target_node_key: target?.target_node_key ?? targetNodeKey,
+        };
     return apiPost(`/api/v1/teaching-classes/${classId}/judge/scripts/${scriptId}/runs`, {
-      target_scope: "manual",
-      target_vmids: targetVmids,
+      ...payload,
     });
   },
 

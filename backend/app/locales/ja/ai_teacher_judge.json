@@ -18,6 +18,8 @@
   "schemas.environment_keys_must_contain_supported": "environment_keys にはサポートされている環境を含める必要があります",
   "schemas.template_key_unsupported": "template_key にサポートされていない環境が含まれています",
   "schemas.target_vmids_empty": "target_vmids を空にすることはできません",
+  "schemas.target_node_key_required": "ノード単位の実行には論理 target_node_key が必要です",
+  "schemas.target_vmids_not_allowed": "target_vmids は旧式の手動実行でのみ使用できます",
 
   "session.no_rubric_selected": "このチェックはまだ評価表を選択していません。",
   "session.selected_file_unavailable": "このチェックで選択された評価表は使用できなくなりました。",
@@ -36,6 +38,7 @@
   "run.owner_mismatch": "VMID {vmid} のリソースの現在の所有者がクラスの学生と一致しません。",
   "run.no_ip": "VMID {vmid} に利用可能な IP アドレスがありません。",
   "run.no_ssh_key": "VMID {vmid} に利用可能な SSH 鍵がありません。",
+  "run.unsupported_os": "VMID {vmid} の OS（{os_info}）は現在の Linux SSH/python3 実行器ではサポートされていません。",
   "run.manual_scope_only": "第一版では実行対象マシンの手動選択のみサポートされています。",
   "run.artifact_not_approved": "静的チェックと AI チェックに合格したスクリプトのみ実行できます。",
   "run.no_target_selected": "実行中の VM/LXC を少なくとも1台選択してください。",

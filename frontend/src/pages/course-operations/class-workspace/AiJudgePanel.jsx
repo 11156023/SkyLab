@@ -215,8 +215,14 @@ function getDetectableInfo(detectable) {
   return DETECTABLE_INFO[detectable] ?? DETECTABLE_INFO.manual;
 }
 
+function getStepParameters(step) {
+  return step?.parameters && typeof step.parameters === "object"
+    ? step.parameters
+    : (step ?? {});
+}
+
 function hasCompleteParameterizedStep(step) {
-  const parameters = step?.parameters ?? {};
+  const parameters = getStepParameters(step);
   const hasArgv = Array.isArray(parameters.argv)
     && parameters.argv.length > 0
     && parameters.argv.every((part) => typeof part === "string" && part.trim());
@@ -232,12 +238,12 @@ function hasCompleteParameterizedStep(step) {
   if (step?.command_key === "system.run_command") {
     return Boolean(hasArgv && hasTimeout);
   }
-  return true;
+  return Boolean(hasArgv && hasTimeout);
 }
 
 /** 把單一 check step 的 parameters 轉成老師可讀的唯讀 chip 資料。 */
 function stepParameterChips(step) {
-  const parameters = step?.parameters ?? {};
+  const parameters = getStepParameters(step);
   const chips = [];
   const argv = Array.isArray(parameters.argv)
     ? parameters.argv.filter((part) => typeof part === "string" && part.trim())
@@ -260,8 +266,8 @@ function stepParameterChips(step) {
 function proposalCommandPreview(item) {
   const steps = Array.isArray(item?.check_steps) ? item.check_steps : [];
   return steps
-    .map((step) => (Array.isArray(step?.parameters?.argv)
-      ? step.parameters.argv.filter((part) => typeof part === "string" && part.trim()).join(" ")
+    .map((step) => (Array.isArray(getStepParameters(step).argv)
+      ? getStepParameters(step).argv.filter((part) => typeof part === "string" && part.trim()).join(" ")
       : ""))
     .filter(Boolean)
     .join("；");
@@ -379,6 +385,7 @@ function proposalOperationLabel(item) {
 function comparableItem(item) {
   return JSON.stringify({
     title: item.title ?? "",
+    target_node_key: item.target_node_key ?? null,
     checked: Boolean(item.checked),
     detectable: item.detectable ?? "manual",
     judgement_mode: item.judgement_mode ?? "ai",
@@ -678,7 +685,11 @@ function RubricTableRow({ item, index, onChange, onDelete, disabled, needsReview
     ? item.missing_information.filter(Boolean)
     : [];
   const hasDetails = Boolean(
-    item.detection_method || item.fallback || checkSteps.length || missingInformation.length,
+    item.target_node_key
+      || item.detection_method
+      || item.fallback
+      || checkSteps.length
+      || missingInformation.length,
   );
 
   return (
@@ -753,6 +764,12 @@ function RubricTableRow({ item, index, onChange, onDelete, disabled, needsReview
                 <p className={styles.rubricDetailEmpty}>AI 尚未提供檢測方式，這一項目前以人工確認為主。</p>
               ) : (
                 <div className={styles.detectGrid}>
+                  {item.target_node_key && (
+                    <div className={styles.detectItem}>
+                      <span>執行節點</span>
+                      <p className={styles.monoCell}>{item.target_node_key}</p>
+                    </div>
+                  )}
                   {item.detectable === "partial" && (
                     <div className={`${styles.detectItem} ${styles.detectItemWide}`}>
                       <span>缺少資訊</span>
@@ -773,13 +790,14 @@ function RubricTableRow({ item, index, onChange, onDelete, disabled, needsReview
                       <div className={styles.stepPlanList}>
                         {checkSteps.map((step, stepIndex) => (
                           <div
-                            key={`${step.template_key}-${step.command_key}-${stepIndex}`}
+                            key={`${step.template_key ?? "flat"}-${step.command_key ?? step.argv?.join("-") ?? "step"}-${stepIndex}`}
                             className={styles.stepPlanRow}
                           >
                             <span className={styles.chip}>
-                              {getTemplateLabel(step.template_key)} /{" "}
-                              {step.command_label ?? step.command_key}
-                              <code>{step.command_key}</code>
+                              {step.command_key
+                                ? `${getTemplateLabel(step.template_key)} / ${step.command_label ?? step.command_key}`
+                                : "受控命令"}
+                              <code>{step.command_key ?? "argv"}</code>
                             </span>
                             {stepParameterChips(step).map((chip) => (
                               <span key={chip.key} className={styles.chip}>
@@ -1356,7 +1374,6 @@ export function RubricsTab({ classId, judgeSession, onSessionUpdated, onScriptCr
   const [pendingProposalIsRefine, setPendingProposalIsRefine] = useState(false);
   const [pendingItemResults, setPendingItemResults] = useState(null);
   const [isItemwiseAnalysis, setIsItemwiseAnalysis] = useState(false);
-  const [environmentKeys, setEnvironmentKeys] = useState([]);
   const analysisRevisionsRef = useRef(new Map());
   const lastSavedValuesRef = useRef(new Map());
   const lastSavedItemsRef = useRef(new Map());
@@ -1492,7 +1509,6 @@ export function RubricsTab({ classId, judgeSession, onSessionUpdated, onScriptCr
       setAnalysis(null);
       setScriptGenerationNotice(null);
       setSourceFileId(null);
-      setEnvironmentKeys([]);
       setPendingReviewIds(new Set());
       setPendingProposal(null);
       setSelectedProposalIds(new Set());
@@ -1515,7 +1531,6 @@ export function RubricsTab({ classId, judgeSession, onSessionUpdated, onScriptCr
     if (sourceFileId === file.id && autosaveRef.current?.isPending()) return;
     setAnalysis(file.analysis_json);
     setSourceFileId(file.id);
-    setEnvironmentKeys(file.environment_keys?.length ? file.environment_keys : [file.template_key]);
     analysisRevisionsRef.current.set(file.id, file.analysis_revision);
     lastSavedValuesRef.current.set(file.id, getRubricItemsValue(file.analysis_json));
     lastSavedItemsRef.current.set(file.id, Array.isArray(file.analysis_json.items) ? file.analysis_json.items : []);
@@ -2539,6 +2554,13 @@ function runIsTerminal(status) {
   return status === "completed" || status === "failed" || status === "cancelled";
 }
 
+function targetResultKey(target) {
+  return [
+    target?.student_id ?? target?.user?.id ?? target?.user_id ?? "student",
+    target?.node_key ?? "node",
+  ].join("|");
+}
+
 const RUN_STATUS = {
   completed: { label: "已完成", className: styles.badge_success },
   running: { label: "執行中", className: styles.badge_info },
@@ -2610,9 +2632,10 @@ function formatUsage(value) {
   return `${Math.round(value)}%`;
 }
 
-function ExecutionTab({ classId, sessionId, members }) {
+function ExecutionTab({ classId, sessionId, members, machineNodes = [] }) {
   const toast = useToast();
   const [selectedVmids, setSelectedVmids] = useState([]);
+  const [selectedNodeKey, setSelectedNodeKey] = useState("");
   const [dialogOpen, setDialogOpen] = useState(false);
   const runDialog = useDialogPresence(dialogOpen);
   const [selectedScriptId, setSelectedScriptId] = useState(null);
@@ -2695,11 +2718,37 @@ function ExecutionTab({ classId, sessionId, members }) {
       member.vm_status === "running" &&
       (member.vm_type === "qemu" || member.vm_type === "lxc"),
   );
+  const nodeOptions = useMemo(() => {
+    const byKey = new Map();
+    machineNodes.forEach((node) => {
+      const nodeKey = String(node.node_key ?? "").trim();
+      if (!nodeKey || byKey.has(nodeKey)) return;
+      const sortOrder = Number(node.sort_order);
+      byKey.set(nodeKey, {
+        node_key: nodeKey,
+        display_label: node.display_label
+          ?? (Number.isFinite(sortOrder) ? `P${sortOrder + 1}` : null),
+        node_name: node.name ?? null,
+      });
+    });
+    members.forEach((member) => {
+      const nodeKey = String(member.node_key ?? "").trim();
+      if (!nodeKey || byKey.has(nodeKey)) return;
+      byKey.set(nodeKey, {
+        node_key: nodeKey,
+        display_label: member.display_label ?? null,
+        node_name: member.node_name ?? null,
+      });
+    });
+    return [...byKey.values()];
+  }, [machineNodes, members]);
+  const selectedNode = nodeOptions.find((node) => node.node_key === selectedNodeKey);
+  const nodeScopedRun = Boolean(selectedNodeKey);
   const selectedSet = new Set(selectedVmids);
 
   const progressTargets = activeRun?.progress_json?.targets ?? [];
   const resultTargets = activeRun?.target_results_json?.targets ?? [];
-  const resultByVmid = new Map(resultTargets.map((result) => [result.vmid, result]));
+  const resultByTarget = new Map(resultTargets.map((result) => [targetResultKey(result), result]));
 
   function toggleVmid(vmid, checked) {
     setSelectedVmids((current) =>
@@ -2710,14 +2759,20 @@ function ExecutionTab({ classId, sessionId, members }) {
   async function handleCreateRun() {
     setCreatingRun(true);
     try {
+      const target = nodeScopedRun
+        ? {
+            target_scope: "all_students_on_node",
+            target_node_key: selectedNodeKey,
+          }
+        : selectedVmids;
       const run = sessionId
         ? await AiJudgeService.createSessionRun(
             classId,
             sessionId,
             effectiveScriptId,
-            selectedVmids,
+            target,
           )
-        : await AiJudgeService.createScriptRun(classId, effectiveScriptId, selectedVmids);
+        : await AiJudgeService.createScriptRun(classId, effectiveScriptId, target);
       toast.success(
         `已建立腳本執行任務（${run.progress_json?.total ?? selectedVmids.length} 台）`,
       );
@@ -2727,6 +2782,7 @@ function ExecutionTab({ classId, sessionId, members }) {
       setDialogOpen(false);
       setSelectedScriptId(null);
       setSelectedVmids([]);
+      setSelectedNodeKey("");
     } catch (err) {
       toast.error(err?.message ?? "建立執行任務失敗");
     } finally {
@@ -2739,13 +2795,44 @@ function ExecutionTab({ classId, sessionId, members }) {
       <div className={styles.execToolbar}>
         <span className={styles.mutedText}>
           可執行 {runningMembers.length} / 全部 {members.length} 台，已選{" "}
-          <strong>{selectedVmids.length}</strong> 台
+          <strong>{nodeScopedRun ? `${selectedNode?.display_label ?? "節點"}` : `${selectedVmids.length} 台`}</strong>
         </span>
         <div className={styles.sectionActions}>
+          {nodeOptions.length > 0 && (
+            <label className={styles.field}>
+              <span>執行節點</span>
+              <select
+                value={selectedNodeKey}
+                onChange={(event) => {
+                  const nextNodeKey = event.target.value;
+                  setSelectedNodeKey(nextNodeKey);
+                  setSelectedVmids(
+                    nextNodeKey
+                      ? runningMembers
+                        .filter((member) => member.node_key === nextNodeKey)
+                        .map((member) => member.vmid)
+                        .filter(Boolean)
+                      : [],
+                  );
+                }}
+              >
+                <option value="">手動選擇（相容模式）</option>
+                {nodeOptions.map((node) => (
+                  <option key={node.node_key} value={node.node_key}>
+                    {node.display_label ? `${node.display_label} · ` : ""}
+                    {node.node_name || node.node_key}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
           <button
             type="button"
             className={styles.btnSecondary}
-            onClick={() => setSelectedVmids(runningMembers.map((m) => m.vmid).filter(Boolean))}
+            onClick={() => {
+              setSelectedNodeKey("");
+              setSelectedVmids(runningMembers.map((m) => m.vmid).filter(Boolean));
+            }}
             disabled={runningMembers.length === 0}
           >
             選取運行中
@@ -2753,7 +2840,10 @@ function ExecutionTab({ classId, sessionId, members }) {
           <button
             type="button"
             className={styles.btnSecondary}
-            onClick={() => setSelectedVmids([])}
+            onClick={() => {
+              setSelectedNodeKey("");
+              setSelectedVmids([]);
+            }}
             disabled={selectedVmids.length === 0}
           >
             清除
@@ -2762,7 +2852,7 @@ function ExecutionTab({ classId, sessionId, members }) {
             type="button"
             className={styles.btnPrimary}
             onClick={() => setDialogOpen(true)}
-            disabled={selectedVmids.length === 0 || approvedScripts.length === 0}
+            disabled={(!nodeScopedRun && selectedVmids.length === 0) || approvedScripts.length === 0}
           >
             <MIcon name="play_circle_outline" size={16} />
             執行腳本
@@ -2775,7 +2865,7 @@ function ExecutionTab({ classId, sessionId, members }) {
           <thead>
             <tr>
               <th className={styles.checkCol} />
-              <th>機器編號</th>
+              <th>邏輯節點</th>
               <th>成員</th>
               <th>類型</th>
               <th>狀態</th>
@@ -2791,7 +2881,7 @@ function ExecutionTab({ classId, sessionId, members }) {
               </tr>
             ) : (
               runningMembers.map((member) => (
-                <tr key={member.user_id}>
+                <tr key={`${member.user_id}-${member.node_key ?? "node"}-${member.vmid ?? "no-vmid"}`}>
                   <td>
                     <input
                       type="checkbox"
@@ -2800,7 +2890,10 @@ function ExecutionTab({ classId, sessionId, members }) {
                       onChange={(e) => toggleVmid(member.vmid, e.target.checked)}
                     />
                   </td>
-                  <td className={styles.monoCell}>{member.vmid ?? "-"}</td>
+                  <td>
+                    <div className={styles.monoCell}>{member.display_label ?? member.node_key ?? "-"}</div>
+                    <div className={styles.fileMeta}>{member.node_name ?? member.node_key ?? ""}</div>
+                  </td>
                   <td>
                     <div>{member.full_name ?? "-"}</div>
                     <div className={styles.fileMeta}>{member.email}</div>
@@ -2847,16 +2940,16 @@ function ExecutionTab({ classId, sessionId, members }) {
                 <tr>
                   <th>編號</th>
                   <th>成員</th>
-                  <th>來源節點</th>
+              <th>邏輯節點</th>
                   <th>執行狀態</th>
                   <th>系統核對／導師核查</th>
                 </tr>
               </thead>
               <tbody>
                 {progressTargets.map((target) => {
-                  const result = resultByVmid.get(target.vmid);
+                  const result = resultByTarget.get(targetResultKey(target));
                   const user = result?.user ?? target.user;
-                  const proxmoxNode = result?.proxmox_node ?? target.proxmox_node;
+                  const nodeName = result?.node_name ?? target.node_name;
                   const resourceType = result?.resource_type ?? target.resource_type;
                   const targetReason = reasonLabel(result?.reason_code ?? target.reason_code);
                   const summary = aiJudgementSummary(result);
@@ -2864,14 +2957,17 @@ function ExecutionTab({ classId, sessionId, members }) {
                     result?.validation?.valid === false ||
                     result?.ai_judgement?.status === "failed";
                   return (
-                    <tr key={target.vmid}>
-                      <td className={styles.monoCell}>{target.name ?? target.vmid}</td>
+                    <tr key={targetResultKey(target)}>
+                      <td className={styles.monoCell}>
+                        {target.display_label ?? target.node_key ?? target.name ?? "-"}
+                        {target.node_key && <div className={styles.fileMeta}>{target.node_key}</div>}
+                      </td>
                       <td>
                         <div>{user?.full_name ?? "-"}</div>
                         {user?.email && <div className={styles.fileMeta}>{user.email}</div>}
                       </td>
                       <td>
-                        <div className={styles.monoCell}>{proxmoxNode ?? "-"}</div>
+                        <div className={styles.monoCell}>{nodeName ?? target.node_key ?? "-"}</div>
                         <div className={`${styles.fileMeta} ${styles.typeCell}`}>
                           {resourceType ? (resourceType === "lxc" ? "LXC" : "VM") : "-"}
                         </div>
@@ -2973,7 +3069,7 @@ function ExecutionTab({ classId, sessionId, members }) {
             <div className={styles.modalHeader}>
               <div>
                 <h2>確認執行腳本</h2>
-                <p>後端會在送出時再次確認這些 VM/LXC 仍屬於此班級且正在運行。</p>
+                <p>後端會依邏輯節點解析每位學生的對應機器，送出時再次確認仍屬於此班級且正在運行。</p>
               </div>
               <button
                 type="button"
@@ -3005,12 +3101,18 @@ function ExecutionTab({ classId, sessionId, members }) {
             </label>
 
             <div className={styles.vmidBox}>
-              <span className={styles.fieldLabel}>執行機器（{selectedVmids.length} 台）</span>
+              <span className={styles.fieldLabel}>
+                {nodeScopedRun
+                  ? `執行節點（${selectedNode?.display_label ?? selectedNodeKey}）`
+                  : `執行機器（${selectedVmids.length} 台）`}
+              </span>
               <div className={styles.chipRow}>
-                {selectedVmids.map((vmid) => (
-                  <span key={vmid} className={styles.chip}>
-                    {vmid}
+                {nodeScopedRun ? (
+                  <span className={styles.chip}>
+                    {selectedNode?.node_name ?? selectedNodeKey} · {selectedNodeKey}
                   </span>
+                ) : selectedVmids.map((vmid) => (
+                  <span key={vmid} className={styles.chip}>{vmid}</span>
                 ))}
               </div>
             </div>
@@ -3035,7 +3137,7 @@ function ExecutionTab({ classId, sessionId, members }) {
                 type="button"
                 className={styles.btnPrimary}
                 onClick={handleCreateRun}
-                disabled={creatingRun || selectedVmids.length === 0 || !effectiveScriptId}
+                disabled={creatingRun || ((!nodeScopedRun && selectedVmids.length === 0) || !effectiveScriptId)}
               >
                 {creatingRun ? "建立中..." : "確認執行"}
               </button>
@@ -3055,7 +3157,7 @@ const TEACHER_JUDGE_TABS = [
   { key: "scripts", label: "腳本總覽", icon: "terminal" },
 ];
 
-function TeacherWorkspacePanel({ classId, members, weeks = [] }) {
+function TeacherWorkspacePanel({ classId, members, machineNodes = [], weeks = [] }) {
   const toast = useToast();
   const [searchParams] = useSearchParams();
   const requestedSessionId = searchParams.get("check");
@@ -3448,7 +3550,7 @@ function TeacherWorkspacePanel({ classId, members, weeks = [] }) {
               <div className={styles.checkContentCol}>
                 <div className={`${styles.card} ${styles.checkTabsCard}`}>{subTabsBar}</div>
                 {activeTab === "scripts" && <ScriptsTab classId={classId} sessionId={activeSession.id} initialSelectedId={focusedScriptId} onScriptApproved={() => setActiveTab("execution")} />}
-                {activeTab === "execution" && <ExecutionTab classId={classId} sessionId={activeSession.id} members={members} />}
+                {activeTab === "execution" && <ExecutionTab classId={classId} sessionId={activeSession.id} members={members} machineNodes={machineNodes} />}
               </div>
             </div>
           </section>
@@ -3512,6 +3614,6 @@ function TeacherWorkspacePanel({ classId, members, weeks = [] }) {
   );
 }
 
-export default function AiJudgePanel({ classId, members, weeks = [] }) {
-  return <TeacherWorkspacePanel classId={classId} members={members} weeks={weeks} />;
+export default function AiJudgePanel({ classId, members, machineNodes = [], weeks = [] }) {
+  return <TeacherWorkspacePanel classId={classId} members={members} machineNodes={machineNodes} weeks={weeks} />;
 }
