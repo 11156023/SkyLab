@@ -336,6 +336,53 @@ def test_segment_policy_ignores_drawn_edges(
     assert all(call["protocol"] == "any" for call in calls)
 
 
+def test_legacy_open_ports_are_replaced_or_removed(
+    quick_db: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """舊的「只開防火牆」規則：版本還宣告的換成 port_forward，不宣告的撤下。"""
+    from app.models import CourseEnvironmentPublication
+    from app.schemas.firewall import PublishedService
+    from app.services.teaching import course_publication_service as cps
+
+    practice, requests = _session_graph(quick_db, with_edge=False)
+    web, db = requests[0].vmid, requests[1].vmid
+    quick_db.add(
+        CourseEnvironmentPublication(
+            version_id=practice.environment_version_id,
+            node_key="web",
+            mode="port_forward",
+            port=22,
+            protocol="tcp",
+        )
+    )
+    quick_db.commit()
+
+    def services(vmid, _session):
+        if vmid == web:
+            return [
+                PublishedService(port=22, protocol="tcp", mode="firewall_only"),
+                PublishedService(port=443, protocol="tcp", mode="domain", domain="x.example.edu"),
+            ]
+        return [PublishedService(port=3306, protocol="tcp", mode="firewall_only")]
+
+    unpublished: list[tuple[int, int, str]] = []
+    monkeypatch.setattr(cps.firewall_service, "list_vm_published_services", services)
+    monkeypatch.setattr(
+        cps.firewall_service,
+        "unpublish_vm_service",
+        lambda vmid, ref, _session: unpublished.append((vmid, ref.port, ref.protocol)),
+    )
+    monkeypatch.setattr(cps, "publish_forward", lambda _session, *, vmid, publication: 30000)
+
+    stats = cps.reconcile_legacy_open_ports(quick_db)
+
+    assert stats["scanned"] == 2
+    assert unpublished == [(web, 22, "tcp"), (db, 3306, "tcp")]
+    assert stats["replaced"] == [{"vmid": web, "port": 22, "protocol": "tcp", "external_port": 30000}]
+    assert stats["removed"] == [{"vmid": db, "port": 3306, "protocol": "tcp"}]
+    assert stats["errors"] == []
+
+
 def test_reconcile_session_keeps_topology_failure_retryable(
     quick_db: Session, monkeypatch: pytest.MonkeyPatch
 ) -> None:
