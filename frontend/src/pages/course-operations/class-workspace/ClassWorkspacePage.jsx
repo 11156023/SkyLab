@@ -447,13 +447,13 @@ function PublicationSummary({ item }) {
   return <div className={styles.classPublicationList}>
     {item.publications.map((publication) => <div key={publication.id} className={styles.classPublicationRow}>
       <span className={styles.classPublicationIcon}>
-        <MIcon name={publication.mode === "domain" ? "public" : "lock"} size={16} />
+        <MIcon name={publication.mode === "domain" ? "public" : "swap_horiz"} size={16} />
       </span>
       <div>
         <strong>{nameByKey[publication.node_key] ?? publication.node_key} · Port {publication.port}</strong>
         <small>{publication.mode === "domain"
           ? t("ClassWorkspacePage.publicationDomainHint", { hostname: `${publication.hostname_prefix ?? ""}` })
-          : t("ClassWorkspacePage.publicationFirewallHint")}</small>
+          : t("ClassWorkspacePage.publicationForwardHint")}</small>
       </div>
     </div>)}
   </div>;

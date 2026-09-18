@@ -17,6 +17,8 @@ vi.mock("../../../services/courseEnvironments", () => ({
 vi.mock("../../../services/teachingClasses", () => ({ TeachingClassesService: { list: async () => [] } }));
 vi.mock("../../../services/templates", () => ({ TemplatesService: { list: async () => [] } }));
 vi.mock("../../../services/api", () => ({ apiGet: async () => [] }));
+vi.mock("../../../services/reverseProxy", () => ({ ReverseProxyService: { setupContext: async () => ({ enabled: false, zones: [] }), checkDomainAvailability: async () => ({ available: true }) } }));
+vi.mock("../../../services/firewall", () => ({ getTopology: async () => ({ nodes: [] }), createConnection: vi.fn(), createVmRule: vi.fn(), publishService: vi.fn(), replacePublishedService: vi.fn() }));
 vi.mock("../../../services/auth", () => ({ AuthStorage: { getSnapshot: () => ({ sessionId: "test" }) } }));
 vi.mock("../../../hooks/useToast", () => ({ useToast: () => mocks.toast }));
 vi.mock("../../../components/ConfirmDialog/ConfirmProvider", () => ({ useConfirm: () => mocks.confirm }));
@@ -26,7 +28,7 @@ vi.mock("@xyflow/react", async () => {
   return {
     ReactFlow: ({ children }) => <div>{children}</div>,
     Panel: ({ children }) => <div>{children}</div>, Background: () => null, Handle: () => null,
-    Position: { Left: "left", Right: "right" }, useNodesState: (nodes) => [...useState(nodes), () => {}],
+    Position: { Top: "top", Right: "right", Bottom: "bottom", Left: "left" }, useNodesState: (nodes) => [...useState(nodes), () => {}],
     BaseEdge: () => null, EdgeLabelRenderer: ({ children }) => <div>{children}</div>, getBezierPath: () => ["", 0, 0],
   };
 });
@@ -88,6 +90,38 @@ it("automatically saves basic input even before any machine is configured", asyn
     await act(async () => vi.advanceTimersByTimeAsync(700));
     expect(mocks.saveDraft).toHaveBeenCalledWith(null, expect.objectContaining({ name: "New lab", nodes: [] }));
     expect(host.textContent).toContain("CourseTemplateEditorPage.autosave.saved");
+  } finally { vi.useRealTimers(); }
+});
+
+it("draws a connection between two machines through the shared connection dialog", async () => {
+  vi.useFakeTimers();
+  try {
+    await renderNew({
+      ...initial,
+      nodes: [
+        ...initial.nodes,
+        { id: "db", name: "DB", role: "database", type: "lxc", sourceType: "custom", customImageRef: "debian", cpu: 1, memory: 1, disk: 8 },
+      ],
+    });
+    const addConnection = [...host.querySelectorAll("button")].find((button) => button.textContent.includes("CourseTemplateEditorPage.addConnectionBtn"));
+    await act(async () => addConnection.click());
+    /* 課程模板只有兩個意圖：開放服務、互通；沒有上網與自己寫規則 */
+    const intents = [...document.querySelectorAll("[data-guide='connection-dialog-endpoints'] button")].map((button) => button.textContent);
+    expect(intents.some((text) => text.includes("ConnectionDialog.intentPeer"))).toBe(true);
+    expect(intents.some((text) => text.includes("ConnectionDialog.intentOutbound"))).toBe(false);
+    expect(intents.some((text) => text.includes("ConnectionDialog.intentRule"))).toBe(false);
+    const peer = [...document.querySelectorAll("[data-guide='connection-dialog-endpoints'] button")].find((button) => button.textContent.includes("ConnectionDialog.intentPeer"));
+    await act(async () => peer.click());
+    const port = document.querySelector("[data-guide='connection-dialog'] input[type='number']");
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set.call(port, "3306");
+      port.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    const submit = document.querySelector("[data-guide='connection-dialog'] button[type='submit']");
+    await act(async () => submit.click());
+    await act(async () => vi.advanceTimersByTimeAsync(700));
+    const saved = mocks.saveDraft.mock.calls.at(-1)[1];
+    expect(saved.edges).toEqual([expect.objectContaining({ source: "web", target: "db", protocol: "tcp", port: 3306, direction: "one_way" })]);
   } finally { vi.useRealTimers(); }
 });
 

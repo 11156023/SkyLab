@@ -183,7 +183,9 @@ export default function StudentWeekPage() {
           {machines.length ? <div className={styles.machineList}>{machines.map((machine) => <article className={styles.machineCard} key={machine.machine_node_id}>
             <div className={styles.machineCopy}><span><MIcon name={machine.resource_type === "lxc" ? "terminal" : "desktop_windows"} size={20} /></span><div><strong>{machine.name}</strong><small>{machine.role}{machine.vmid ? ` · VMID ${machine.vmid}` : ""}</small></div></div>
             <div className={styles.machineActions}>
-              {machine.public_url ? <a href={machine.public_url} target="_blank" rel="noreferrer"><MIcon name="language" size={17} />{t("StudentWeekPage.openWebsite")}</a> : <span className={styles.urlPending}><MIcon name="link_off" size={16} />{t("StudentWeekPage.urlPending")}</span>}
+              {machine.public_url ? <a href={machine.public_url} target="_blank" rel="noreferrer"><MIcon name="language" size={17} />{t("StudentWeekPage.openWebsite")}</a> : (machine.forward_endpoints ?? []).length === 0 && <span className={styles.urlPending}><MIcon name="link_off" size={16} />{t("StudentWeekPage.urlPending")}</span>}
+              {/* 對外 port：SSH / 資料庫這類不是網頁的服務，學生用 host:port 連 */}
+              {(machine.forward_endpoints ?? []).map((endpoint) => <code key={`${endpoint.protocol}-${endpoint.external_port}`} title={t("StudentWeekPage.forwardEndpointTitle", { port: endpoint.internal_port, protocol: endpoint.protocol })}><MIcon name="swap_horiz" size={15} />{endpoint.host ? `${endpoint.host}:${endpoint.external_port}` : t("StudentWeekPage.forwardPortOnly", { port: endpoint.external_port })}</code>)}
               {machine.vmid && <button type="button" onClick={() => navigate(`/my-resources/${machine.vmid}`)}><MIcon name="tune" size={17} />{t("StudentWeekPage.openMachine")}</button>}
             </div>
           </article>)}</div> : <EmptyState icon="dns" title={t("StudentWeekPage.noMachineTitle")} description={t("StudentWeekPage.noMachineDesc")} />}
