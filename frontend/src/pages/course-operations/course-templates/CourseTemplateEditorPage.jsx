@@ -1,10 +1,9 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { createPortal } from "react-dom";
+import { useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import {
   Background,
-  Handle,
+  BackgroundVariant,
+  Controls,
   Panel,
-  Position,
   ReactFlow,
   useNodesState,
 } from "@xyflow/react";
@@ -22,6 +21,16 @@ import useDialogPresence from "../../../hooks/useDialogPresence";
 import EmptyState from "../../../components/EmptyState/EmptyState";
 import { TemplatesService } from "../../../services/templates";
 import ConnectionEdge from "../../network/firewall/edges/ConnectionEdge";
+import GatewayNode from "../../network/firewall/nodes/GatewayNode";
+import ConnectionDetailPanel from "../../network/firewall/ConnectionDetailPanel";
+import fwStyles from "../../network/firewall/FirewallPage.module.scss";
+import { ThemeContext } from "../../../contexts/ThemeContext";
+import NodeHandles from "../../network/firewall/nodes/NodeHandles";
+import { describePort, routeEdges } from "../../network/firewall/utils/buildFlow";
+import ConnectionDialog, { INTERNET_KEY } from "../../../components/ConnectionDialog/ConnectionDialog";
+import { INTENT } from "../../../components/ConnectionDialog/intents";
+import { previewTemplateHostname } from "../../../components/ConnectionDialog/connectionPayload";
+import { publicationLabel } from "../courseTopology";
 import styles from "../CourseOperations.module.scss";
 import PageHeader from "../../../components/PageHeader/PageHeader";
 import i18n from "../../../i18n";
@@ -34,10 +43,13 @@ const TABS = [
 ];
 
 function makeEmptyTemplate() {
-  return { id: "new", name: "", description: "", usageScope: "course", status: "draft", classes: 0, updatedAt: i18n.t("CourseTemplateEditorPage.notSavedYet", { ns: "teaching" }), nodes: [], edges: [], publications: [] };
+  return { id: "new", name: "", description: "", usageScope: "course", status: "draft", classes: 0, updatedAt: i18n.t("CourseTemplateEditorPage.notSavedYet", { ns: "teaching" }), nodes: [], edges: [], publications: [], peerPolicy: "explicit" };
 }
 
-const FIREWALL_PROTOCOLS = ["tcp", "udp", "icmp", "icmpv6", "sctp"];
+/* 課程環境只有「開放服務」與「互通」：上網預設全開、自己寫規則沒有可樣板化的語意 */
+const COURSE_INTENTS = [INTENT.PUBLISH, INTENT.PEER];
+/* 網際網路節點沒有存到版本裡，位置放元件內；預設在三台機器的右側 */
+const INTERNET_POSITION = { x: 60 + 3 * 260, y: 120 };
 
 /** 規格滑桿範圍；後端上限為 64 核 / 128 GB RAM / 2000 GB Disk，這裡取教學情境的保守值。 */
 const CPU_RANGE = [1, 32];
@@ -67,85 +79,34 @@ function overlapsExistingEdge(candidate, existingEdges) {
   ))));
 }
 
-/** 主機名樣板用的機器代稱：取名稱的前兩段，避免整串映像檔名進網址。 */
-function hostnameSlug(name) {
-  const parts = String(name).toLowerCase().replace(/[^a-z0-9]+/g, "-").split("-").filter(Boolean);
-  return parts.slice(0, 2).join("-").slice(0, 20).replace(/-$/, "") || "app";
-}
-
 /** LXC 映像是 tarball，檔名直接當機器名稱又臭又長，去掉封裝副檔名。 */
 function stripImageExtension(name) {
   return String(name).replace(/\.tar(\.(gz|xz|zst|bz2|lzo))?$/i, "");
 }
 
-function TopologyMachineNode({ data, selected, isConnectable }) {
-  const { t } = useTranslation("teaching");
+/* 節點長得跟防火牆拓撲的 VMNode 一樣：狀態點、名稱、副標、型別圖示、右上角對外數。
+   模板機器還沒開出來，狀態點用中性色；副標放規格取代 IP。 */
+function TopologyMachineNode({ data, selected }) {
   const node = data.node;
-  return <div className={`${styles.flowMachineNode} ${selected ? styles.flowMachineNodeSelected : ""}`}>
-    <Handle type="target" position={Position.Left} isConnectable={isConnectable} />
-    <div className={styles.flowNodeIcon}><MIcon name={node.type === "lxc" ? "terminal" : "dns"} size={18} /></div>
-    <div className={styles.flowNodeLabel}>
-      <strong title={node.name}>{node.name}</strong>
-      <span>{node.sourceType === "custom" ? t("CourseTemplateEditorPage.sourceCustomShort") : t("CourseTemplateEditorPage.sourceTemplateShort")} · {node.type === "lxc" ? t("CourseTemplateEditorPage.typeContainerLxc") : t("CourseTemplateEditorPage.typeVm")}</span>
-      <small>{node.cpu} CPU · {node.memory} GB RAM · {node.disk} GB</small>
+  const exposed = data.exposedCount ?? 0;
+  return <div className={`${fwStyles.vmNode} ${selected ? fwStyles.nodeSelected : ""}`}>
+    <NodeHandles dragStartSide="right" />
+    <div className={fwStyles.vmStatus} style={{ background: "var(--color-status-neutral)" }} />
+    <div className={fwStyles.vmInfo}>
+      <span className={fwStyles.vmName} title={node.name}>{node.name}</span>
+      <span className={fwStyles.vmMeta}>{node.cpu} CPU · {node.memory} GB · {node.disk} GB</span>
     </div>
-    <Handle type="source" position={Position.Right} isConnectable={isConnectable} />
+    <MIcon name={node.type === "lxc" ? "terminal" : "dns"} size={15} />
+    {exposed > 0 && <span className={fwStyles.exposedBadge}><MIcon name="public" size={11} />{exposed}</span>}
   </div>;
 }
 
-const TOPOLOGY_NODE_TYPES = { courseMachine: TopologyMachineNode };
+const TOPOLOGY_NODE_TYPES = { courseMachine: TopologyMachineNode, gateway: GatewayNode };
 const TOPOLOGY_EDGE_TYPES = { connection: ConnectionEdge };
 
-/** 對外服務的設定對話框：欄位放這裡，側欄只留一行摘要。 */
-function PublicationDialog({ draft, zones, siblings, closing = false, onChange, onSave, onClose }) {
-  const { t } = useTranslation("teaching");
 
-  useEffect(() => {
-    const onKeyDown = (event) => {
-      if (event.key === "Escape") onClose();
-    };
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [onClose]);
 
-  const isDomain = draft.mode === "domain";
-  const duplicated = isDomain && siblings.some((item) => (
-    item.id !== draft.id && item.mode === "domain" && item.hostnamePrefix === draft.hostnamePrefix
-  ));
-  const missingPlaceholder = isDomain && (
-    !draft.hostnamePrefix.includes("{class}") || !draft.hostnamePrefix.includes("{student}")
-  );
-  const hostnameValid = !isDomain
-    || (!missingPlaceholder && Boolean(draft.zoneId) && !duplicated);
-  const zone = zones.find((item) => item.id === draft.zoneId);
-  const preview = `${String(draft.hostnamePrefix || "").replace("{class}", "linux101-a1b2c3").replace("{student}", "s8f21c4a2")}${zone ? `.${zone.name}` : ""}`;
 
-  /* 玻璃卡工作區的 backdrop-filter 會困住 fixed 遮罩，portal 到 body 才能全頁覆蓋 */
-  return createPortal(<div className={`${styles.createDialogOverlay} ${closing ? styles.createDialogOverlayOut : ""}`} role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
-    <section className={`${styles.createDialog} ${styles.publicationDialog}`} role="dialog" aria-modal="true" aria-labelledby="publication-dialog-title">
-      <header className={styles.createDialogHeader}>
-        <h2 id="publication-dialog-title">{t("CourseTemplateEditorPage.publicAccessLabel")}</h2>
-        <button type="button" className={styles.iconBtn} aria-label={t("CourseTemplateEditorPage.closeAriaLabel")} onClick={onClose}><MIcon name="close" size={19} /></button>
-      </header>
-      <div className={styles.publicationDialogBody}>
-        <div className={styles.inspectorSplit}>
-          <label className={styles.field}><span>{t("CourseTemplateEditorPage.fieldInternalPort")}</span><input type="number" min="1" max="65535" value={draft.port} onChange={(event) => onChange({ port: Number(event.target.value) })} /></label>
-          <label className={styles.field}><span>{t("CourseTemplateEditorPage.fieldPublishMode")}</span><select value={draft.mode} onChange={(event) => onChange({ mode: event.target.value })}><option value="domain" disabled={!zones.length}>{t("CourseTemplateEditorPage.publishModeDomain")}</option><option value="firewall_only">{t("CourseTemplateEditorPage.publishModeFirewallOnly")}</option></select></label>
-        </div>
-        {!zones.length && <p className={styles.inspectorHint}>{t("CourseTemplateEditorPage.noZoneHint")}</p>}
-        {isDomain && <>
-          <label className={styles.field}><span>{t("CourseTemplateEditorPage.fieldHostnameTemplate")}</span><input value={draft.hostnamePrefix} onChange={(event) => onChange({ hostnamePrefix: event.target.value })} placeholder="{class}-{student}-app" /></label>
-          <label className={styles.field}><span>{t("CourseTemplateEditorPage.fieldZone")}</span><select value={draft.zoneId} onChange={(event) => onChange({ zoneId: event.target.value })}>{zones.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
-          <p className={styles.inspectorHint}>{missingPlaceholder ? t("CourseTemplateEditorPage.hostnamePlaceholderRequired") : duplicated ? t("CourseTemplateEditorPage.duplicateHostnameHint") : t("CourseTemplateEditorPage.hostnameTemplateHint", { example: preview })}</p>
-        </>}
-      </div>
-      <footer className={styles.createDialogFooter}>
-        <button type="button" className={styles.btnSecondary} onClick={onClose}>{t("CourseTemplateEditorPage.cancelBtn")}</button>
-        <button type="button" className={styles.btnPrimary} disabled={!hostnameValid} onClick={() => onSave(draft)}>{t("CourseTemplateEditorPage.confirmBtn")}</button>
-      </footer>
-    </section>
-  </div>, document.body);
-}
 
 function formatFileSize(bytes) {
   const size = Number(bytes ?? 0);
@@ -161,13 +122,33 @@ function MachineEditor({ value, edges, publications, onChange, onEdgesChange, on
   const [customType, setCustomType] = useState("qemu");
   const [selectedNodeId, setSelectedNodeId] = useState("");
   const [selectedEdgeId, setSelectedEdgeId] = useState("");
+  const [selectedPublicationId, setSelectedPublicationId] = useState("");
+  /* 上網線（機器 → 網際網路）是預設策略，不是規則：每台都有一條，全畫出來會淹掉
+     互通與對外服務，所以跟防火牆頁一樣預設藏起來，要看再開 */
+  const [selectedOutboundKey, setSelectedOutboundKey] = useState("");
+  const [showInternet, setShowInternet] = useState(false);
   const [flowNodes, setFlowNodes, onFlowNodesChange] = useNodesState([]);
+  const [internetPosition, setInternetPosition] = useState(INTERNET_POSITION);
   const [topologyNotice, setTopologyNotice] = useState("");
-  const [publicationDraft, setPublicationDraft] = useState(null);
-  /* 關閉時先播離場動畫再卸載（樣式規範的標準作法） */
-  const publicationPresence = useDialogPresence(publicationDraft);
+  /* 與防火牆頁同一個連線對話框：拉線帶入兩端，或按「新增連線」從選意圖開始 */
+  const [dialog, setDialog] = useState(null); // { initialSource, initialTarget, service, publicationId }
+  const dialogPresence = useDialogPresence(dialog);
+  /* 畫布配色跟防火牆頁一樣跟著主題；沒有 provider（測試）就當淺色 */
+  const theme = useContext(ThemeContext)?.theme ?? "light";
   const sourceOptions = sourceMode === "template" ? pveTemplates : (customType === "lxc" ? lxcImages : vmImages);
   const atLimit = value.length >= 3;
+  /* 對話框的機器清單：模板沒有 vmid，只認 node key */
+  const dialogNodes = useMemo(() => value.map((node) => ({ key: String(node.id), vmid: null, name: node.name })), [value]);
+
+  function selectNode(nodeId) { setSelectedNodeId(nodeId); setSelectedEdgeId(""); setSelectedPublicationId(""); setSelectedOutboundKey(""); }
+  function selectEdge(edgeId) { setSelectedEdgeId(edgeId); setSelectedNodeId(""); setSelectedPublicationId(""); setSelectedOutboundKey(""); }
+  function selectPublication(publicationId) { setSelectedPublicationId(publicationId); setSelectedNodeId(""); setSelectedEdgeId(""); setSelectedOutboundKey(""); }
+  function selectOutbound(nodeKey) { setSelectedOutboundKey(nodeKey); setSelectedNodeId(""); setSelectedEdgeId(""); setSelectedPublicationId(""); }
+  function toggleInternet() {
+    const next = !showInternet;
+    setShowInternet(next);
+    if (!next && selectedOutboundKey) selectNode("");
+  }
 
   function addMachine() {
     if (atLimit || !sourceId) return;
@@ -195,8 +176,7 @@ function MachineEditor({ value, edges, publications, onChange, onEdgesChange, on
         positionX: 60 + value.length * 260, positionY: 120,
       }]);
     }
-    setSelectedNodeId(nodeId);
-    setSelectedEdgeId("");
+    selectNode(nodeId);
     setSourceId("");
   }
 
@@ -204,107 +184,155 @@ function MachineEditor({ value, edges, publications, onChange, onEdgesChange, on
     onChange(value.filter((item) => item.id !== nodeId));
     onEdgesChange(edges.filter((edge) => edge.source !== nodeId && edge.target !== nodeId));
     onPublicationsChange(publications.filter((item) => item.nodeKey !== nodeId));
-    setSelectedNodeId("");
-  }
-
-  function newPublication(node) {
-    const used = new Set(publications.filter((item) => item.nodeKey === node.id).map((item) => `${item.port}/${item.protocol}`));
-    const port = [80, 443, 8080, 3000, 5678].find((candidate) => !used.has(`${candidate}/tcp`)) ?? 8000;
-    return {
-      id: `publication-${Date.now()}`,
-      nodeKey: node.id,
-      mode: zones.length ? "domain" : "firewall_only",
-      port,
-      protocol: "tcp",
-      // 樣板必須帶 {student}，否則全班會搶同一個網址；同一份環境裡也不能重複，
-      // 一個網址只能指向一個 port
-      hostnamePrefix: uniqueHostnamePrefix(`{class}-{student}-${hostnameSlug(node.name)}`, port),
-      zoneId: zones[0]?.id ?? "",
-      enableHttps: true,
-    };
-  }
-
-  /** 樣板撞到既有的就補上 port，避免多條網址指向同一個位址。 */
-  function uniqueHostnamePrefix(base, port) {
-    const taken = new Set(publications.filter((item) => item.mode === "domain").map((item) => item.hostnamePrefix));
-    return taken.has(base) ? `${base}-${port}` : base;
-  }
-
-  function savePublication(draft) {
-    const exists = publications.some((item) => item.id === draft.id);
-    onPublicationsChange(exists
-      ? publications.map((item) => item.id === draft.id ? draft : item)
-      : [...publications, draft]);
-    setPublicationDraft(null);
+    selectNode("");
   }
 
   function removePublication(publicationId) {
     onPublicationsChange(publications.filter((item) => item.id !== publicationId));
+    if (selectedPublicationId === publicationId) selectNode("");
   }
 
+
+  /** 拉線：機器 → 機器是互通；碰到網際網路（不管哪個方向）都是開放服務。 */
   function connect(connection) {
     if (locked || connection.source === connection.target) return;
-    const edge = {
-      id: `edge-${Date.now()}`,
-      source: connection.source,
-      target: connection.target,
-      direction: "one_way",
-      protocol: "tcp",
-      port: 22,
-    };
-    if (overlapsExistingEdge(edge, edges)) {
-      setTopologyNotice(t("CourseTemplateEditorPage.overlappingEdgeNotice"));
-      return;
+    const touchesInternet = connection.source === INTERNET_KEY || connection.target === INTERNET_KEY;
+    const machine = connection.source === INTERNET_KEY ? connection.target : connection.source;
+    setDialog(touchesInternet
+      ? { initialSource: INTERNET_KEY, initialTarget: String(machine) }
+      : { initialSource: String(connection.source), initialTarget: String(connection.target) });
+  }
+
+  /** 對話框送出：不打 API，收進規格陣列；錯誤用對話框自己的訊息列顯示。 */
+  function handleDialogSubmit(request) {
+    if (request.kind === "inbound") {
+      const nodeKey = String(request.vmKey);
+      const editingId = dialog?.publicationId ?? null;
+      const others = publications.filter((item) => item.id !== editingId);
+      const items = request.publish.map((item, index) => ({
+        id: editingId ?? `publication-${Date.now()}-${index}`,
+        nodeKey,
+        mode: item.mode,
+        port: item.port,
+        protocol: item.protocol,
+        hostnamePrefix: item.hostname_prefix ?? "",
+        zoneId: item.zone_id ?? "",
+        enableHttps: item.enable_https !== false,
+      }));
+      const duplicatePort = items.find((item) => others.some((other) => other.nodeKey === item.nodeKey && Number(other.port) === Number(item.port) && other.protocol === item.protocol));
+      if (duplicatePort) return { ok: false, error: { text: t("CourseTemplateEditorPage.duplicatePublicationPort", { port: duplicatePort.port }) } };
+      /* 一個網址只能指向一個 port：同一份環境裡的樣板不能重複 */
+      const duplicateHostname = items.find((item) => item.mode === "domain" && others.some((other) => other.mode === "domain" && other.hostnamePrefix === item.hostnamePrefix));
+      if (duplicateHostname) return { ok: false, error: { text: t("CourseTemplateEditorPage.duplicateHostnameHint") } };
+      onPublicationsChange([...others, ...items]);
+      selectPublication(items[0].id);
+      return { ok: true, result: { kind: "publish" } };
     }
-    setTopologyNotice("");
-    onEdgesChange([...edges, edge]);
-    setSelectedEdgeId(edge.id);
-    setSelectedNodeId("");
+    if (request.kind === "edge") {
+      /* 課程連線一條一個 port；沒有 port 的協定（icmp）後端不收 */
+      if (request.ports.some((port) => !port.port)) {
+        return { ok: false, error: { text: t("CourseTemplateEditorPage.portlessUnsupported") } };
+      }
+      const added = request.ports.map((port, index) => ({
+        id: `edge-${Date.now()}-${index}`,
+        source: String(request.sourceKey),
+        target: String(request.targetKey),
+        direction: request.direction,
+        protocol: port.protocol,
+        port: port.port,
+      }));
+      const overlapping = added.find((edge, index) => overlapsExistingEdge(edge, [...edges, ...added.slice(0, index)]));
+      if (overlapping) return { ok: false, error: { text: t("CourseTemplateEditorPage.overlappingEdgeNotice") } };
+      setTopologyNotice("");
+      onEdgesChange([...edges, ...added]);
+      selectEdge(added[0].id);
+      return { ok: true, result: { kind: "connection" } };
+    }
+    return { ok: false, error: { text: t("CourseTemplateEditorPage.dialogUnsupported") } };
   }
 
   function patchNode(nodeId, patch) {
     onChange(value.map((item) => item.id === nodeId ? { ...item, ...patch } : item));
   }
 
-  function patchEdge(patch) {
-    const current = edges.find((edge) => edge.id === selectedEdgeId);
-    if (!current) return;
-    const next = { ...current, ...patch };
-    // 改成雙向或換 port 都可能撞到既有連線，改之前先擋，別等存檔才失敗。
-    if (overlapsExistingEdge(next, edges)) {
-      setTopologyNotice(t("CourseTemplateEditorPage.overlappingEdgeNotice"));
-      return;
-    }
-    setTopologyNotice("");
-    onEdgesChange(edges.map((edge) => edge.id === selectedEdgeId ? next : edge));
-  }
 
   function removeEdge(edgeId) {
     onEdgesChange(edges.filter((edge) => edge.id !== edgeId));
-    setSelectedEdgeId("");
+    selectNode("");
   }
 
   const selectedEdge = edges.find((edge) => edge.id === selectedEdgeId);
-  const selectedNode = value.find((node) => node.id === selectedNodeId) ?? (!selectedEdge ? value[0] : null);
-  // 來自 PVE 範本的機器沿用範本規格，只有自訂規格可調整。
-  const specLocked = locked || selectedNode?.sourceType !== "custom";
-  // 自訂規格的 VM 其實也是克隆一台 PVE 範本機，磁碟不可小於該範本。
+  const selectedPublication = publications.find((item) => item.id === selectedPublicationId);
+  const selectedNode = value.find((node) => node.id === selectedNodeId) ?? value[0];
+  const nameOf = (key) => (key === null || key === undefined || key === INTERNET_KEY
+    ? t("GatewayNode.internet", { ns: "network" })
+    : (value.find((node) => String(node.id) === String(key))?.name ?? String(key)));
+  /* 點線就用防火牆頁同一個細節面板：講清楚開了什麼、往哪個方向，刪除收在裡面。
+     模板上的線沒有東西可「編輯」——要改就刪掉重拉，跟防火牆頁一樣。 */
+  const detail = useMemo(() => {
+    if (selectedOutboundKey) {
+      return {
+        id: `outbound-${selectedOutboundKey}`,
+        edge: { source_vmid: String(selectedOutboundKey), target_vmid: null, direction: "one_way", ports: [] },
+        remove: null,
+      };
+    }
+    if (selectedEdge) {
+      return {
+        id: `edge-${selectedEdge.id}`,
+        edge: {
+          source_vmid: String(selectedEdge.source),
+          target_vmid: String(selectedEdge.target),
+          direction: selectedEdge.direction,
+          ports: [{ port: selectedEdge.protocol === "any" ? 0 : Number(selectedEdge.port), protocol: selectedEdge.protocol }],
+        },
+        remove: () => removeEdge(selectedEdge.id),
+      };
+    }
+    if (selectedPublication) {
+      const zone = zones.find((item) => item.id === selectedPublication.zoneId);
+      return {
+        id: `publication-${selectedPublication.id}`,
+        edge: {
+          source_vmid: null,
+          target_vmid: String(selectedPublication.nodeKey),
+          direction: "one_way",
+          ports: [selectedPublication.mode === "domain"
+            ? { port: selectedPublication.port, protocol: "tcp", mode: "domain", domain: previewTemplateHostname(selectedPublication.hostnamePrefix, zone?.name) }
+            : { port: selectedPublication.port, protocol: selectedPublication.protocol, mode: "port_forward" }],
+        },
+        remove: () => removePublication(selectedPublication.id),
+      };
+    }
+    return null;
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedEdge, selectedPublication, selectedOutboundKey, zones]);
+  const detailPanel = useDialogPresence(detail, 220);
+  // 規格只在草稿可調：已發布版本不可變（班級釘住版本，要改規格得開新版本）。
+  const specLocked = locked;
+  // 規格基準：範本來源以範本自身規格為錨，自訂 VM 以來源映像為錨。
+  const sourceTemplate = selectedNode?.sourceType === "template"
+    ? pveTemplates.find((item) => String(item.id) === String(selectedNode.sourceTemplateId))
+    : null;
   const customVmImage = selectedNode?.sourceType === "custom" && selectedNode?.type !== "lxc"
     ? vmImages.find((item) => item.value === String(selectedNode.customImageRef))
     : null;
-  const vmDiskFloor = Math.max(VM_DISK_RANGE[0], Number(customVmImage?.diskGb) || 0);
-  const diskRange = selectedNode?.type === "lxc"
-    ? LXC_DISK_RANGE
-    : [vmDiskFloor, Math.max(VM_DISK_RANGE[1], vmDiskFloor)];
+  // CPU/RAM 上下皆可調；基準值高於預設上限時把上限撐開，以免拉不回原規格。
+  const baseCpu = Number(sourceTemplate?.default_cores) || 0;
+  const baseMemoryGb = sourceTemplate?.default_memory
+    ? Math.max(1, Math.round(Number(sourceTemplate.default_memory) / 1024))
+    : 0;
+  const cpuRange = [CPU_RANGE[0], Math.max(CPU_RANGE[1], baseCpu)];
+  const memoryRange = [MEMORY_RANGE[0], Math.max(MEMORY_RANGE[1], baseMemoryGb)];
+  // 磁碟只能往上：克隆機天生就是來源大小，PVE resize 不支援縮小。
+  const isLxcNode = selectedNode?.type === "lxc";
+  const diskFloor = Math.max(
+    isLxcNode ? LXC_DISK_RANGE[0] : VM_DISK_RANGE[0],
+    Number(sourceTemplate?.default_disk) || Number(customVmImage?.diskGb) || 0,
+  );
+  const diskCeiling = isLxcNode ? LXC_DISK_RANGE[1] : VM_DISK_RANGE[1];
+  const diskRange = [diskFloor, Math.max(diskCeiling, diskFloor)];
 
-  const nodePublications = publications.filter((item) => item.nodeKey === selectedNode?.id);
-
-  /** 給老師看的示範網址：使用課堂代號與匿名學生識別碼。 */
-  function previewDomain(publication) {
-    const zone = zones.find((item) => item.id === publication.zoneId);
-    const hostname = String(publication.hostnamePrefix || "").replace("{class}", "linux101-a1b2c3").replace("{student}", "s8f21c4a2");
-    return zone ? `${hostname}.${zone.name}` : hostname;
-  }
 
   // 範本清單是非同步載入的，既有節點可能存著低於下限的磁碟值，補正一次。
   useEffect(() => {
@@ -316,22 +344,38 @@ function MachineEditor({ value, edges, publications, onChange, onEdgesChange, on
   useEffect(() => {
     setFlowNodes((previous) => {
       const placed = new Map(previous.map((item) => [item.id, item.position]));
-      return value.map((node, index) => ({
+      const exposure = new Map();
+      for (const publication of publications) {
+        exposure.set(publication.nodeKey, (exposure.get(publication.nodeKey) ?? 0) + 1);
+      }
+      const machines = value.map((node, index) => ({
         id: String(node.id),
         type: "courseMachine",
         position: placed.get(String(node.id)) ?? {
           x: Number(node.positionX ?? (60 + index * 260)),
           y: Number(node.positionY ?? (120 + (index % 2) * 45)),
         },
-        data: { node },
+        data: { node, exposedCount: exposure.get(node.id) ?? 0 },
         selected: selectedNode?.id === node.id,
       }));
+      /* 網際網路節點跟防火牆頁一樣常駐：拖線到它就是「開放服務給外部」，
+         也讓拓撲圖一眼看得出哪幾台對外 */
+      return [...machines, {
+        id: INTERNET_KEY,
+        type: "gateway",
+        position: placed.get(INTERNET_KEY) ?? internetPosition,
+        data: {},
+        selected: false,
+      }];
     });
-  }, [value, selectedNode?.id, setFlowNodes]);
+  }, [value, publications, selectedNode?.id, setFlowNodes, internetPosition]);
 
   // 位置只在放開滑鼠時回寫，一次拖曳只產生一筆變更。
   const commitNodePositions = useCallback((_event, _node, draggedNodes) => {
     const moved = new Map(draggedNodes.map((item) => [item.id, item.position]));
+    const internet = moved.get(INTERNET_KEY);
+    if (internet) setInternetPosition({ x: Math.round(internet.x), y: Math.round(internet.y) });
+    if ([...moved.keys()].every((id) => id === INTERNET_KEY)) return;
     onChange(value.map((node) => {
       const position = moved.get(String(node.id));
       return position
@@ -340,22 +384,62 @@ function MachineEditor({ value, edges, publications, onChange, onEdgesChange, on
     }));
   }, [onChange, value]);
 
-  const graphEdges = useMemo(() => edges.map((edge) => ({
-    ...edge,
-    type: "connection",
-    data: {
-      edge: {
-        course_edge_id: edge.id,
-        source_vmid: edge.source,
-        target_vmid: edge.target,
+  const graphEdges = useMemo(() => {
+    const peerEdges = edges.map((edge) => ({
+      id: edge.id,
+      source: String(edge.source),
+      target: String(edge.target),
+      type: "connection",
+      data: {
+        edge: {
+          course_edge_id: edge.id,
+          source_vmid: String(edge.source),
+          target_vmid: String(edge.target),
+          direction: edge.direction,
+        },
+        label: `${edge.direction === "bidirectional" ? t("CourseTemplateEditorPage.directionBidirectional") : t("CourseTemplateEditorPage.directionOneWay")} · ${describePort({ port: edge.port, protocol: edge.protocol })}`,
+        showLabel: true,
+        selected: edge.id === selectedEdgeId,
+        onSelect: () => selectEdge(edge.id),
+        onDelete: locked ? null : () => removeEdge(edge.id),
       },
-      label: `${edge.direction === "bidirectional" ? t("CourseTemplateEditorPage.directionBidirectional") : t("CourseTemplateEditorPage.directionOneWay")} · ${edge.protocol}${edge.port ? `/${edge.port}` : ""}`,
-      showLabel: true,
-      onSelect: () => { setSelectedEdgeId(edge.id); setSelectedNodeId(""); },
-      onDelete: locked ? null : () => removeEdge(edge.id),
-    },
-    zIndex: 5,
-  })), [edges, locked, t]);
+      zIndex: 5,
+    }));
+    /* 對外服務畫成「網際網路 → 機器」的入站線，與防火牆拓撲同一種語言 */
+    const publicationEdges = publications.map((publication) => ({
+      id: `publication-edge-${publication.id}`,
+      source: INTERNET_KEY,
+      target: String(publication.nodeKey),
+      type: "connection",
+      data: {
+        edge: { course_publication_id: publication.id, source_vmid: null, target_vmid: String(publication.nodeKey) },
+        label: publicationLabel(t, publication, zones),
+        showLabel: true,
+        selected: publication.id === selectedPublicationId,
+        onSelect: () => selectPublication(publication.id),
+        onDelete: locked ? null : () => removePublication(publication.id),
+      },
+      zIndex: 5,
+    }));
+    /* 上網線：出站綠線、不限通訊埠（標籤留空由 ConnectionEdge 補「不限通訊埠」） */
+    const outboundEdges = value.map((node) => ({
+      id: `outbound-${node.id}`,
+      source: String(node.id),
+      target: INTERNET_KEY,
+      type: "connection",
+      hidden: !showInternet,
+      data: {
+        edge: { course_outbound: String(node.id), source_vmid: String(node.id), target_vmid: null, direction: "one_way" },
+        label: "",
+        showLabel: true,
+        selected: String(node.id) === selectedOutboundKey,
+        onSelect: () => selectOutbound(String(node.id)),
+      },
+      zIndex: 4,
+    }));
+    return routeEdges([...peerEdges, ...publicationEdges, ...outboundEdges], flowNodes);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [value, edges, publications, zones, locked, t, selectedEdgeId, selectedPublicationId, selectedOutboundKey, showInternet, flowNodes]);
 
   return <section className={`${styles.card} ${styles.templateMachineWorkspace}`}>
       {sourceNotice && <p className={styles.persistentFeedback}><MIcon name="info" size={17} />{sourceNotice}</p>}
@@ -365,10 +449,12 @@ function MachineEditor({ value, edges, publications, onChange, onEdgesChange, on
         {sourceMode === "custom" && <label className={styles.field}><span>{t("CourseTemplateEditorPage.fieldMachineType")}</span><select value={customType} disabled={locked || atLimit} onChange={(event) => { setCustomType(event.target.value); setSourceId(""); }}><option value="qemu">VM</option><option value="lxc">LXC</option></select></label>}
         <label className={styles.field}><span>{sourceMode === "template" ? t("CourseTemplateEditorPage.sourceExistingTemplate") : t("CourseTemplateEditorPage.fieldBaseImage")}</span><select value={sourceId} disabled={locked || atLimit} onChange={(event) => setSourceId(event.target.value)}><option value="">{locked ? t("CourseTemplateEditorPage.publishedLockedOption") : atLimit ? t("CourseTemplateEditorPage.atLimitOption") : sourceOptions.length === 0 ? t("CourseTemplateEditorPage.noSourceOption") : t("CourseTemplateEditorPage.pleaseSelectOption")}</option>{sourceMode === "template" ? sourceOptions.map((source) => <option key={source.id} value={source.id}>{source.name} · {source.resource_type ?? "VM"}</option>) : sourceOptions.map((source) => <option key={source.value} value={source.value}>{source.label}</option>)}</select></label>
         <button type="button" className={styles.btnPrimary} disabled={locked || atLimit || !sourceId} onClick={addMachine}><MIcon name={atLimit ? "check" : "add"} size={16} />{atLimit ? t("CourseTemplateEditorPage.atLimitBtn") : t("CourseTemplateEditorPage.addMachineBtn")}</button>
+        <button type="button" className={styles.btnSecondary} disabled={locked || value.length === 0} onClick={() => setDialog({})}><MIcon name="add_link" size={16} />{t("CourseTemplateEditorPage.addConnectionBtn")}</button>
       </div>
       {value.length ? <>
         <div className={styles.topologyWorkspace}>
-          <div className={styles.topologyCanvas}><ReactFlow
+          {/* 畫布外觀比照防火牆頁：點狀底、Controls、左下圖例 */}
+          <div className={`${styles.topologyCanvas} ${fwStyles.flowWrap}`}><ReactFlow
             nodes={flowNodes}
             edges={graphEdges}
             nodeTypes={TOPOLOGY_NODE_TYPES}
@@ -376,28 +462,53 @@ function MachineEditor({ value, edges, publications, onChange, onEdgesChange, on
             onConnect={connect}
             onNodesChange={onFlowNodesChange}
             onNodeDragStop={commitNodePositions}
-            onNodeClick={(_, node) => { setSelectedNodeId(node.id); setSelectedEdgeId(""); }}
-            onEdgeClick={(_, edge) => { setSelectedEdgeId(edge.id); setSelectedNodeId(""); }}
+            onNodeClick={(_, node) => { if (node.id !== INTERNET_KEY) selectNode(node.id); }}
+            onEdgeClick={(_, edge) => edge.data?.onSelect?.()}
+            onPaneClick={() => selectNode("")}
+            isValidConnection={(connection) => Boolean(connection?.source && connection?.target && connection.source !== connection.target)}
+            connectionRadius={36}
             nodesDraggable={!locked}
             nodesConnectable={!locked}
-            connectionLineStyle={{ stroke: "var(--color-primary)", strokeWidth: 3 }}
             elementsSelectable
-            minZoom={0.7}
-            maxZoom={1.4}
+            deleteKeyCode={null}
+            minZoom={0.5}
+            maxZoom={1.5}
             fitView
-            fitViewOptions={{ padding: 0.22, maxZoom: 1.1 }}
+            fitViewOptions={{ padding: 0.2 }}
+            colorMode={theme}
             proOptions={{ hideAttribution: true }}
-          ><Background gap={20} size={1} /><Panel position="top-right"><span className={styles.nodeLimit}>{t("CourseTemplateEditorPage.nodeLimitLabel", { count: value.length })}</span></Panel></ReactFlow></div>
-          <aside className={styles.topologyInspector}>
-            {selectedEdge ? <>
-              <div className={styles.inspectorTitle}><MIcon name="link" size={18} /><div><strong>{t("CourseTemplateEditorPage.connectionRuleTitle")}</strong><small>{value.find((node) => node.id === selectedEdge.source)?.name} → {value.find((node) => node.id === selectedEdge.target)?.name}</small></div></div>
-              <label>{t("CourseTemplateEditorPage.fieldDirection")}<select disabled={locked} value={selectedEdge.direction} onChange={(event) => patchEdge({ direction: event.target.value })}><option value="one_way">{t("CourseTemplateEditorPage.directionOneWay")}</option><option value="bidirectional">{t("CourseTemplateEditorPage.directionBidirectional")}</option></select></label>
-              <div className={styles.inspectorSplit}>
-                <label>{t("CourseTemplateEditorPage.fieldProtocol")}<select disabled={locked} value={selectedEdge.protocol} onChange={(event) => patchEdge({ protocol: event.target.value })}>{selectedEdge.protocol === "any" && <option value="any">{t("CourseTemplateEditorPage.protocolAnyLegacy")}</option>}{FIREWALL_PROTOCOLS.map((protocol) => <option key={protocol} value={protocol}>{protocol.toUpperCase()}</option>)}</select></label>
-                <label>{t("CourseTemplateEditorPage.fieldPort")}<input disabled={locked || selectedEdge.protocol === "any"} type="number" min="1" max="65535" value={selectedEdge.port ?? ""} onChange={(event) => patchEdge({ port: event.target.value })} /></label>
+          >
+            <Background variant={BackgroundVariant.Dots} gap={20} size={1} />
+            <Controls />
+            <Panel position="top-left">
+              <div className={fwStyles.toolbar}>
+                <button type="button" className={`${fwStyles.toolbarBtn} ${showInternet ? fwStyles.toolbarBtnActive : ""}`} onClick={toggleInternet}>
+                  <MIcon name={showInternet ? "public" : "public_off"} size={16} />
+                  {t("FirewallPage.internetLines", { ns: "network" })}
+                </button>
               </div>
-              {!locked && <button type="button" className={styles.inspectorDanger} onClick={() => removeEdge(selectedEdge.id)}><MIcon name="delete_outline" size={16} />{t("CourseTemplateEditorPage.deleteConnectionBtn")}</button>}
-            </> : selectedNode ? <>
+            </Panel>
+            <Panel position="top-right"><span className={styles.nodeLimit}>{t("CourseTemplateEditorPage.nodeLimitLabel", { count: value.length })}</span></Panel>
+            <Panel position="bottom-left" style={{ marginLeft: 60 }}>
+              <div className={fwStyles.legend}>
+                <span className={fwStyles.legendItem}><i className={`${fwStyles.legendLine} ${fwStyles.legendInbound}`} />{t("FirewallPage.legendInbound", { ns: "network" })}</span>
+                {/* 上網線藏起來時圖例變淡，提醒圖上少了這種線（與防火牆頁相同） */}
+                <span className={`${fwStyles.legendItem} ${showInternet ? "" : fwStyles.legendItemHidden}`}><i className={`${fwStyles.legendLine} ${fwStyles.legendOutbound}`} />{t("FirewallPage.legendOutbound", { ns: "network" })}</span>
+                <span className={fwStyles.legendItem}><i className={`${fwStyles.legendLine} ${fwStyles.legendInternal}`} />{t("FirewallPage.legendInternal", { ns: "network" })}</span>
+              </div>
+            </Panel>
+          </ReactFlow>
+          {detailPanel.item && <ConnectionDetailPanel
+            edge={detailPanel.item.edge}
+            resolveName={nameOf}
+            allowOpen={false}
+            closing={detailPanel.closing}
+            onClose={() => selectNode("")}
+            onDelete={locked || !detailPanel.item.remove ? undefined : () => detailPanel.item.remove()}
+          />}
+          </div>
+          <aside className={styles.topologyInspector}>
+            {selectedNode ? <>
               <div className={styles.inspectorTitle}>
                 <MIcon name="dns" size={18} />
                 <div><strong>{selectedNode.sourceType === "custom" ? t("CourseTemplateEditorPage.sourceCustomSpec") : t("CourseTemplateEditorPage.sourceExistingTemplate")}</strong><small>{selectedNode.type === "lxc" ? t("CourseTemplateEditorPage.typeContainerLxc") : t("CourseTemplateEditorPage.typeVm")}</small></div>
@@ -406,37 +517,27 @@ function MachineEditor({ value, edges, publications, onChange, onEdgesChange, on
               <label>{t("CourseTemplateEditorPage.fieldName")}<input disabled={locked} value={selectedNode.name} onChange={(event) => patchNode(selectedNode.id, { name: event.target.value })} /></label>
               <label>{t("CourseTemplateEditorPage.fieldRole")}<input disabled={locked} value={selectedNode.role} onChange={(event) => patchNode(selectedNode.id, { role: event.target.value })} /></label>
               <div className={styles.inspectorSliders}>
-                <label><span className={styles.sliderLabel}>CPU<em>{t("CourseTemplateEditorPage.cpuValue", { count: selectedNode.cpu })}</em></span><input disabled={specLocked} type="range" step="1" min={Math.min(CPU_RANGE[0], selectedNode.cpu)} max={Math.max(CPU_RANGE[1], selectedNode.cpu)} value={selectedNode.cpu} onChange={(event) => patchNode(selectedNode.id, { cpu: Number(event.target.value) })} /></label>
-                <label><span className={styles.sliderLabel}>RAM<em>{t("CourseTemplateEditorPage.memoryValue", { count: selectedNode.memory })}</em></span><input disabled={specLocked} type="range" step="1" min={Math.min(MEMORY_RANGE[0], selectedNode.memory)} max={Math.max(MEMORY_RANGE[1], selectedNode.memory)} value={selectedNode.memory} onChange={(event) => patchNode(selectedNode.id, { memory: Number(event.target.value) })} /></label>
+                <label><span className={styles.sliderLabel}>CPU<em>{t("CourseTemplateEditorPage.cpuValue", { count: selectedNode.cpu })}</em></span><input disabled={specLocked} type="range" step="1" min={Math.min(cpuRange[0], selectedNode.cpu)} max={Math.max(cpuRange[1], selectedNode.cpu)} value={selectedNode.cpu} onChange={(event) => patchNode(selectedNode.id, { cpu: Number(event.target.value) })} /></label>
+                <label><span className={styles.sliderLabel}>RAM<em>{t("CourseTemplateEditorPage.memoryValue", { count: selectedNode.memory })}</em></span><input disabled={specLocked} type="range" step="1" min={Math.min(memoryRange[0], selectedNode.memory)} max={Math.max(memoryRange[1], selectedNode.memory)} value={selectedNode.memory} onChange={(event) => patchNode(selectedNode.id, { memory: Number(event.target.value) })} /></label>
                 <label><span className={styles.sliderLabel}>Disk<em>{t("CourseTemplateEditorPage.diskValue", { count: selectedNode.disk })}</em></span><input disabled={specLocked} type="range" step="1" min={Math.min(diskRange[0], selectedNode.disk)} max={Math.max(diskRange[1], selectedNode.disk)} value={selectedNode.disk} onChange={(event) => patchNode(selectedNode.id, { disk: Number(event.target.value) })} /></label>
-              </div>
-              <div className={styles.publicationSection}>
-                <div className={styles.publicationHead}>
-                  <span>{t("CourseTemplateEditorPage.publicAccessLabel")}</span>
-                  {!locked && <button type="button" className={styles.publicationAddBtn} onClick={() => setPublicationDraft(newPublication(selectedNode))}><MIcon name="add" size={14} />{t("CourseTemplateEditorPage.addPublicationBtn")}</button>}
-                </div>
-                {nodePublications.length === 0
-                  ? <p className={styles.inspectorHint}>{t("CourseTemplateEditorPage.noPublicationHint")}</p>
-                  : <ul className={styles.publicationList}>{nodePublications.map((publication) => <li key={publication.id}>
-                      <button type="button" className={styles.publicationItem} disabled={locked} onClick={() => setPublicationDraft({ ...publication })}>
-                        <strong>{t(publication.mode === "domain" ? "CourseTemplateEditorPage.publicationSummaryDomain" : "CourseTemplateEditorPage.publicationSummaryFirewall", { port: publication.port })}</strong>
-                        <small>{publication.mode === "domain" ? previewDomain(publication) : t("CourseTemplateEditorPage.publicationInternalOnly")}</small>
-                      </button>
-                      {!locked && <button type="button" className={styles.iconBtnDanger} aria-label={t("CourseTemplateEditorPage.removePublicationBtn")} onClick={() => removePublication(publication.id)}><MIcon name="close" size={15} /></button>}
-                    </li>)}</ul>}
               </div>
             </> : null}
           </aside>
         </div>
       </> : <EmptyState icon="dns" title={t("CourseTemplateEditorPage.emptyNodesTitle")} />}
-      {publicationPresence.open && <PublicationDialog
-        draft={publicationPresence.item}
-        closing={publicationPresence.closing}
+      {dialogPresence.open && <ConnectionDialog
+        key={dialogPresence.item?.publicationId ?? `${dialogPresence.item?.initialSource ?? ""}-${dialogPresence.item?.initialTarget ?? ""}`}
+        templateMode
+        intents={COURSE_INTENTS}
+        nodes={dialogNodes}
         zones={zones}
-        siblings={publications}
-        onChange={(patch) => setPublicationDraft((current) => ({ ...current, ...patch }))}
-        onSave={savePublication}
-        onClose={() => setPublicationDraft(null)}
+        initialSource={dialogPresence.item?.initialSource}
+        initialTarget={dialogPresence.item?.initialTarget}
+        service={dialogPresence.item?.service}
+        onSubmit={handleDialogSubmit}
+        onDone={() => setDialog(null)}
+        onClose={() => setDialog(null)}
+        closing={dialogPresence.closing}
       />}
       {actions && <div className={styles.actionFooter}>{actions}</div>}
   </section>;
@@ -754,10 +855,10 @@ export default function CourseTemplateEditorPage() {
   if (loading) return <LoadingState fullPage text={t("CourseTemplateEditorPage.loadingTemplateText")} />;
   return <div className={`${styles.page} ${tab === "machines" ? styles.editorPageLocked : ""} ${closing ? styles.animSlideOutRight : styles.animSlideInRight}`}>
     <PageHeader title={isNew ? t("CourseTemplateEditorPage.createTemplateTitle") : template.name} subtitle={isNew ? undefined : `v${template.version} · ${template.updatedAt}`}><div className={styles.pageActions}><button type="button" className={`${styles.btnSecondary} ${styles.backBtn}`} onClick={() => leaveTo(returnTo ?? "/course-template-management")}><MIcon name="arrow_back" size={18} />{t("CourseTemplateEditorPage.backBtn")}</button></div></PageHeader>
-    {template.status === "draft" && <p className={styles.persistentFeedback} role="status" aria-live="polite">
-      <MIcon name={saveState === "error" ? "cloud_off" : saveState === "saved" ? "cloud_done" : "cloud_sync"} size={17} />
-      <span>{t(`CourseTemplateEditorPage.autosave.${saveState}`)}{saveError && ` ${saveError}`}</span>
-      {saveState === "error" && <button type="button" className={styles.btnSecondary} disabled={saving} onClick={() => autosaveRef.current?.flush()}>{t("CourseTemplateEditorPage.retryAutosave")}</button>}
+    {template.status === "draft" && saveState === "error" && <p className={styles.persistentFeedback} role="alert">
+      <MIcon name="cloud_off" size={17} />
+      <span>{t("CourseTemplateEditorPage.autosave.error")}{saveError && ` ${saveError}`}</span>
+      <button type="button" className={styles.btnSecondary} disabled={saving} onClick={() => autosaveRef.current?.flush()}>{t("CourseTemplateEditorPage.retryAutosave")}</button>
     </p>}
     {returnTo && <p className={styles.persistentFeedback}><MIcon name="bookmark_added" size={17} /><span><strong>{t("CourseTemplateEditorPage.classDraftSavedTitle")}</strong>{t("CourseTemplateEditorPage.classDraftSavedDesc")}</span></p>}
     <nav className={styles.envStepper}>

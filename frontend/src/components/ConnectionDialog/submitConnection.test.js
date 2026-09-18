@@ -19,7 +19,7 @@ import {
   publishService,
   replacePublishedService,
 } from "../../services/firewall";
-import { submitEdge, submitInbound, submitRule } from "./submitConnection";
+import { submitEdge, submitInbound, submitRequest, submitRule } from "./submitConnection";
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -165,5 +165,34 @@ describe("submitEdge", () => {
     const res = await submitEdge({ sourceVmid: 101, targetVmid: 102, ports: [], direction: "one_way" });
     expect(res.ok).toBe(false);
     expect(res.error.text).toBe("nope");
+  });
+});
+
+/* ── submitRequest：對話框只組描述物件，送去哪由這裡分派 ── */
+describe("submitRequest", () => {
+  test("rule 交給 createVmRule", async () => {
+    const res = await submitRequest({ kind: "rule", vmKey: "101", vmid: 101, body: { type: "in", action: "ACCEPT" } });
+    expect(res.ok).toBe(true);
+    expect(createVmRule).toHaveBeenCalledWith(101, { type: "in", action: "ACCEPT" });
+  });
+
+  test("inbound 逐筆 publishService", async () => {
+    const res = await submitRequest({
+      kind: "inbound", vmKey: "101", vmid: 101, raw: [],
+      publish: [{ port: 80, protocol: "tcp", mode: "port_forward", external_port: 8080 }],
+    });
+    expect(res.ok).toBe(true);
+    expect(publishService).toHaveBeenCalledWith(101, { port: 80, protocol: "tcp", mode: "port_forward", external_port: 8080 });
+  });
+
+  test("edge 交給 createConnection，帶方向", async () => {
+    const res = await submitRequest({
+      kind: "edge", sourceKey: "101", targetKey: "102", sourceVmid: 101, targetVmid: 102,
+      ports: [{ port: 22, protocol: "tcp" }], direction: "bidirectional",
+    });
+    expect(res.ok).toBe(true);
+    expect(createConnection).toHaveBeenCalledWith({
+      source_vmid: 101, target_vmid: 102, ports: [{ port: 22, protocol: "tcp" }], direction: "bidirectional",
+    });
   });
 });

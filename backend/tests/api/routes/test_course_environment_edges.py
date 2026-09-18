@@ -139,9 +139,16 @@ def test_publication_pointing_at_an_unknown_node_is_rejected() -> None:
         _validate([], [_publication("cache")])
 
 
-def test_firewall_only_publications_do_not_need_distinct_hostnames() -> None:
-    firewall_only = [
-        EnvironmentPublicationIn(node_key="web", mode="firewall_only", port=port)
+def test_port_forward_publications_do_not_need_distinct_hostnames() -> None:
+    """對外 port 在開課時才配號，模板上沒有可撞的名字。"""
+    forwards = [
+        EnvironmentPublicationIn(node_key="web", mode="port_forward", port=port)
         for port in (80, 443)
     ]
-    _validate([], firewall_only)
+    _validate([], forwards)
+
+
+def test_firewall_only_is_no_longer_a_publication_mode() -> None:
+    """無 source 限制的入站 ACCEPT 會對整個實驗室子網開洞，不再提供。"""
+    with pytest.raises(ValueError):
+        EnvironmentPublicationIn(node_key="web", mode="firewall_only", port=80)

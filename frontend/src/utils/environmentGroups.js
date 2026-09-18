@@ -16,6 +16,7 @@ function machineFromResource(resource, fallback = {}) {
     status: resource.status ?? fallback.status ?? "unknown",
     ip: resource.ip_address ?? fallback.ip ?? "N/A",
     publicUrl: fallback.publicUrl ?? resource.public_urls?.[0] ?? null,
+    forwardEndpoints: fallback.forwardEndpoints ?? [],
     node: resource.node ?? fallback.node ?? "—",
     // 規格：讓環境內的機器也看得到 CPU/RAM，不必進詳情頁
     cpu: resource.maxcpu ?? fallback.cpu ?? null,
@@ -47,6 +48,7 @@ function quickPracticeGroups(resources, sessions) {
         ip: machine.ip,
         node: machine.node,
         publicUrl: machine.publicUrl ?? null,
+        forwardEndpoints: machine.forwardEndpoints ?? [],
       };
       return resource ? machineFromResource(resource, fallback) : fallback;
     });

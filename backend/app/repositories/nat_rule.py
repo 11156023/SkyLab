@@ -2,7 +2,7 @@
 
 import uuid
 
-from sqlmodel import Session, select
+from sqlmodel import Session, col, select
 
 from app.models.nat_rule import NatRule
 
@@ -15,6 +15,15 @@ def list_rules(session: Session) -> list[NatRule]:
 def list_rules_by_vmid(session: Session, vmid: int) -> list[NatRule]:
     """列出指定 VM 的 NAT 規則"""
     return list(session.exec(select(NatRule).where(NatRule.vmid == vmid)).all())
+
+
+def list_rules_by_vmids(session: Session, vmids: list[int]) -> list[NatRule]:
+    """一次列出多台 VM 的 NAT 規則（清單頁用，不逐台查）。"""
+    if not vmids:
+        return []
+    return list(
+        session.exec(select(NatRule).where(col(NatRule.vmid).in_(vmids))).all()
+    )
 
 
 def get_rule(session: Session, rule_id: uuid.UUID) -> NatRule | None:
@@ -32,6 +41,20 @@ def is_external_port_taken(
         )
     ).first()
     return existing is not None
+
+
+def taken_external_ports(
+    session: Session, protocol: str, start: int, end: int
+) -> set[int]:
+    """配號池範圍內已被佔用的對外 port（配號用，一次查完不逐一問）。"""
+    rows = session.exec(
+        select(NatRule.external_port).where(
+            NatRule.protocol == protocol,
+            NatRule.external_port >= start,
+            NatRule.external_port <= end,
+        )
+    ).all()
+    return {int(port) for port in rows}
 
 
 def create_rule(session: Session, rule: NatRule) -> NatRule:
@@ -77,8 +100,10 @@ def delete_rules_by_vmid_and_port(
 __all__ = [
     "list_rules",
     "list_rules_by_vmid",
+    "list_rules_by_vmids",
     "get_rule",
     "is_external_port_taken",
+    "taken_external_ports",
     "create_rule",
     "delete_rule",
     "delete_rules_by_vmid",

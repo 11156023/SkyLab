@@ -3,6 +3,8 @@
   "ip.cidr_no_slash32": "子網遮罩不可為 /32",
   "ip.invalid_ip": "無效的 IP 位址: {error}",
   "ip.invalid_blocked_subnet": "無效的封鎖網段/IP '{item}': {error}",
+  "ip.forward_port_range_invalid": "對外 port 配號池必須落在 1024–65535，且起始不可大於結束",
+  "ip.forward_public_host_too_long": "入口主機名稱過長（最多 255 字元）",
   "cloudflare.decrypt_token_failed": "無法解密儲存的 Cloudflare API Token：加密金鑰已變更，請重新儲存 Cloudflare 設定",
   "gateway.decrypt_private_key_failed": "無法解密儲存的 SSH 私鑰：加密金鑰已變更，請重新產生並儲存 Gateway SSH 金鑰對",
   "proxmox.decrypt_password_failed": "無法解密儲存的 Proxmox 密碼：加密金鑰已變更，請重新儲存 Proxmox 設定",

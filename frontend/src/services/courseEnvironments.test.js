@@ -128,6 +128,29 @@ describe("CourseEnvironmentsService", () => {
     expect(payload.max_concurrent_sessions).toBeNull();
   });
 
+  test("payload carries the peer policy and never sends the removed firewall_only mode", () => {
+    const payload = environmentPayload({
+      name: "SSH Lab",
+      peerPolicy: "segment",
+      nodes: [{ id: "ssh", sourceType: "custom", customImageRef: "9000", name: "SSH", role: "server", type: "qemu", cpu: 1, memory: 1, disk: 10 }],
+      edges: [],
+      publications: [
+        { nodeKey: "ssh", mode: "firewall_only", port: 22, protocol: "tcp" },
+        { nodeKey: "ssh", mode: "domain", port: 80, protocol: "tcp", hostnamePrefix: "{student}-web", zoneId: "zone-1" },
+      ],
+    });
+
+    expect(payload.peer_policy).toBe("segment");
+    expect(payload.publications[0]).toEqual({ node_key: "ssh", mode: "port_forward", port: 22, protocol: "tcp", hostname_prefix: null, zone_id: null, enable_https: true });
+    expect(payload.publications[1].mode).toBe("domain");
+    expect(environmentPayload({ name: "x", nodes: [], edges: [] }).peer_policy).toBe("explicit");
+  });
+
+  test("a version without a policy normalizes to explicit isolation", () => {
+    expect(normalizeCourseEnvironment({ id: "e", version_id: "v" }).peerPolicy).toBe("explicit");
+    expect(normalizeCourseEnvironment({ id: "e", version_id: "v", peer_policy: "segment" }).peerPolicy).toBe("segment");
+  });
+
   test("classroom selection accepts both machine templates and custom images", () => {
     expect(courseNodeHasUsableSource({
       sourceType: "template",

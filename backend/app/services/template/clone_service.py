@@ -23,17 +23,11 @@ from urllib.parse import quote
 
 from sqlmodel import Session
 
-from app.core.config import settings
+from app.core.authorizers import require_template_manage
 from app.core.db import engine
 from app.core.i18n import t
-from app.core.permissions import is_admin
 from app.core.security import decrypt_value, encrypt_value
-from app.exceptions import (
-    BadRequestError,
-    ConflictError,
-    NotFoundError,
-    PermissionDeniedError,
-)
+from app.exceptions import BadRequestError, ConflictError, NotFoundError
 from app.infrastructure.proxmox import get_proxmox_settings_for_node
 from app.infrastructure.proxmox import operations as proxmox_ops
 from app.infrastructure.queue import enqueue_task, report_progress
@@ -42,6 +36,7 @@ from app.models import TaskRecord, User, VMTemplate, VMTemplateStatus
 from app.repositories import resource as resource_repo
 from app.schemas.template import TemplateCloneRequest
 from app.services.network import firewall_service, ip_management_service
+from app.services.resource import quota_service
 from app.services.template import template_service
 from app.utils.hostname import to_punycode_hostname
 
@@ -87,14 +82,12 @@ async def request_clone(
 ) -> list[TaskRecord]:
     template = template_service._get_or_404(session, template_id)
     template_service._require_view(session, user, template)
+    # 克隆開通僅限教師與管理員；學生要機器一律走申請審核流程。
+    require_template_manage(user)
     if template.status != VMTemplateStatus.ready:
         raise ConflictError(
             t("clone.templateNotReady", status=template.status.value)
         )
-
-    can_manage = template_service._can_manage(user)
-    if data.count > 1 and not can_manage:
-        raise PermissionDeniedError(t("clone.batchRequiresManager"))
 
     if data.login_password and not template.allow_password_change:
         raise BadRequestError(t("clone.passwordChangeNotAllowed"))
@@ -113,15 +106,19 @@ async def request_clone(
                 t("clone.gpuNodeMismatch", node=template.node)
             )
 
-    if not can_manage and not is_admin(user):
-        owned = len(
-            resource_repo.get_resources_by_user(session=session, user_id=user.id)
-        )
-        limit = settings.TEMPLATE_CLONE_STUDENT_MAX_INSTANCES
-        if owned + data.count > limit:
-            raise ConflictError(
-                t("clone.quotaExceeded", owned=owned, limit=limit)
-            )
+    # 配額與其他開通路徑走同一個執法點。cores/memory 未指定時沿用範本規格，
+    # 所以配額要以「實際會開出來的規格」計算，不能只看使用者填了什麼。
+    spec_cores, spec_memory, spec_disk = template_service.resolve_effective_spec(
+        template
+    )
+    quota_service.check_quota(
+        session,
+        user.id,
+        delta_cores=(data.cores or spec_cores or 0) * data.count,
+        delta_memory_mb=(data.memory or spec_memory or 0) * data.count,
+        delta_disk_gb=(spec_disk or 0) * data.count,
+        delta_instances=data.count,
+    )
 
     hostnames = _build_hostnames(data.hostname, template.name, data.count)
     records: list[TaskRecord] = []
