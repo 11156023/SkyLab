@@ -2,24 +2,22 @@
  * machineKind.js
  * 機器來源徽章的純邏輯：後端的 machine_kind + class_relation → 要顯示哪一種徽章。
  *
- * 七種徽章，每種有自己的圖示與顏色（色票在 _themes.scss 的 --color-kind-*）：
- * - personal       個人申請機器
- * - shared         共享給我的機器（帶擁有者）
- * - class_student  班級機器，我是這班的學生（機器分給我）
- * - class_teacher  學生機器，我是這班的老師（帶學生姓名）
- * - quick_practice 快速練習機器
- * - course         課程實驗機器
- * - teacher_open   老師開放給班級的機器（防火牆拓撲的可連線節點，帶老師姓名）
+ * 七種徽章各有圖示與文字，但顏色只編碼「跟我的關係」兩群（類別辨識交給 icon＋label，
+ * 七個色相既記不住又跟語意色打架）：
+ * - mine  我的機器：personal（個人申請）、class_student（班級機，我是學生）、
+ *         quick_practice（快速練習）、course（課程實驗）
+ * - other 別人的機器：shared（共享給我，帶擁有者）、class_teacher（學生機器，
+ *         我是老師，帶學生姓名）、teacher_open（老師開放，拓撲可連線節點，帶老師姓名）
  */
 
 export const KIND_META = {
-  personal:       { icon: "person",     variant: "personal", labelKey: "MachineKind.personal",      hintKey: "MachineKind.personalHint" },
-  shared:         { icon: "group",      variant: "shared",   labelKey: "MachineKind.shared",        hintKey: "MachineKind.sharedHint",       showOwner: true },
-  class_student:  { icon: "school",     variant: "class",    labelKey: "MachineKind.classMine",     hintKey: "MachineKind.classMineHint" },
-  class_teacher:  { icon: "co_present", variant: "student",  labelKey: "MachineKind.classStudent",  hintKey: "MachineKind.classStudentHint", showOwner: true },
-  quick_practice: { icon: "bolt",       variant: "practice", labelKey: "MachineKind.quickPractice", hintKey: "MachineKind.quickPracticeHint" },
-  course:         { icon: "menu_book",  variant: "course",   labelKey: "MachineKind.course",        hintKey: "MachineKind.courseHint" },
-  teacher_open:   { icon: "lock_open",  variant: "open",     labelKey: "MachineKind.teacherOpen",   hintKey: "MachineKind.teacherOpenHint",  showOwner: true },
+  personal:       { icon: "person",     variant: "mine",  labelKey: "MachineKind.personal",      hintKey: "MachineKind.personalHint" },
+  shared:         { icon: "group",      variant: "other", labelKey: "MachineKind.shared",        hintKey: "MachineKind.sharedHint",       showOwner: true },
+  class_student:  { icon: "school",     variant: "mine",  labelKey: "MachineKind.classMine",     hintKey: "MachineKind.classMineHint" },
+  class_teacher:  { icon: "co_present", variant: "other", labelKey: "MachineKind.classStudent",  hintKey: "MachineKind.classStudentHint", showOwner: true },
+  quick_practice: { icon: "bolt",       variant: "mine",  labelKey: "MachineKind.quickPractice", hintKey: "MachineKind.quickPracticeHint" },
+  course:         { icon: "menu_book",  variant: "mine",  labelKey: "MachineKind.course",        hintKey: "MachineKind.courseHint" },
+  teacher_open:   { icon: "lock_open",  variant: "other", labelKey: "MachineKind.teacherOpen",   hintKey: "MachineKind.teacherOpenHint",  showOwner: true },
 };
 
 /**

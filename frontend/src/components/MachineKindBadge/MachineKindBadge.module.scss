@@ -1,16 +1,17 @@
-/* 機器來源徽章：底色是該類型顏色淡染，邊框略深，文字用原色；實心版給拓撲節點。
-   顏色在 _themes.scss 的 --color-kind-*，深淺主題各一組。 */
+/* 機器來源徽章：底色淡染、邊框略深、文字用原色；實心版給拓撲節點。
+   顏色只分兩群——我的（--color-info）／別人的（--color-kind-shared），
+   類別辨識交給 icon＋文字。 */
 
 .badge {
-  --kind: var(--color-kind-personal);
+  --kind: var(--color-info);
   display: inline-flex;
   align-items: center;
   gap: 4px;
   max-width: 100%;
   padding: 2px 8px 2px 6px;
   border-radius: $radius-pill;
-  border: 1px solid color-mix(in srgb, var(--kind) 30%, transparent);
-  background: color-mix(in srgb, var(--kind) 12%, transparent);
+  /* 無框、底色刻意淡（8%）讓列表安靜；文字保持全濃——12px 小字再混淡會破 AA */
+  background: color-mix(in srgb, var(--kind) 8%, transparent);
   color: var(--kind);
   font-size: $font-size-12;
   font-weight: $font-weight-500;
@@ -40,20 +41,16 @@
   line-height: 1.45;
 }
 
-/* 拓撲節點：實心，掛在畫布上要一眼看到 */
+/* 拓撲節點：實心，掛在畫布上要一眼看到。
+   文字用 --color-surface 而非寫死白色：深色模式的群色是亮值，
+   surface 會翻成深色文字，兩種主題對比都夠 */
 .solid {
   background: var(--kind);
-  border-color: transparent;
-  color: #fff;
+  color: var(--color-surface);
   box-shadow: var(--shadow-sm);
 
   .owner { opacity: 0.9; }
 }
 
-.personal { --kind: var(--color-kind-personal); }
-.shared   { --kind: var(--color-kind-shared); }
-.class    { --kind: var(--color-kind-class); }
-.student  { --kind: var(--color-kind-student); }
-.practice { --kind: var(--color-kind-practice); }
-.course   { --kind: var(--color-kind-course); }
-.open     { --kind: var(--color-kind-open); }
+.mine  { --kind: var(--color-info); }
+.other { --kind: var(--color-kind-shared); }

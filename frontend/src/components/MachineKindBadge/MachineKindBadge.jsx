@@ -1,7 +1,8 @@
 /**
  * MachineKindBadge
  * 機器來源徽章：個人申請／共享給我／班級機器／學生機器／快速練習／課程實驗／老師開放。
- * 我的資源、資源管理、資源詳情、防火牆拓撲共用同一個元件，看到同一種顏色就是同一種機器。
+ * 我的資源、資源管理、資源詳情、防火牆拓撲共用同一個元件。
+ * 顏色編碼「所有權」：藍＝我的機器、紫＝別人的機器（有擁有者名即歸紫），類別靠 icon＋文字分辨。
  *
  * props
  * - kind            後端 machine_kind（或 teacher_open）
@@ -37,9 +38,12 @@ export default function MachineKindBadge({
   const meta = KIND_META[key];
   const owner = (showOwner ?? meta.showOwner) ? ownerName : null;
   const hint = title ?? t(meta.hintKey, { owner: ownerName ?? "", cls: teachingClassName ?? "" });
+  /* 顏色編碼「所有權」：後端只在機器不屬於觀看者時才填 owner_name，
+     所以有擁有者名一律歸「別人的」群——管理員／老師看別人的個人機也會是紫 */
+  const variant = ownerName ? "other" : meta.variant;
   const classes = [
     styles.badge,
-    styles[meta.variant],
+    styles[variant],
     size === "sm" ? styles.sm : "",
     solid ? styles.solid : "",
     className,
