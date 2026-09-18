@@ -361,7 +361,11 @@ export default function BatchReviewPage() {
       <div className={styles.tabsRow}>
         <SegmentedControl
           className={styles.tabsControl}
-          options={tabs.map(({ key, label }) => ({ value: key, label }))}
+          options={tabs.map(({ key, label }) => ({
+            value: key,
+            label,
+            badge: key === "all" ? stats.total : stats[key],
+          }))}
           value={activeTab}
           onChange={setActiveTab}
           ariaLabel={t("BatchReviewPage.tabsAriaLabel")}

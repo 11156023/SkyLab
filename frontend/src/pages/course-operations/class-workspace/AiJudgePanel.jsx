@@ -1235,7 +1235,7 @@ export function CreateCheckDialog({
           </div>
           <button
             type="button"
-            className={styles.iconBtn}
+            className={styles.dialogClose}
             aria-label="關閉"
             disabled={busy}
             onClick={onClose}
@@ -3053,7 +3053,7 @@ function ExecutionTab({ classId, sessionId, members }) {
               </div>
               <button
                 type="button"
-                className={styles.iconBtn}
+                className={styles.dialogClose}
                 onClick={() => setDialogOpen(false)}
                 aria-label="關閉"
               >
@@ -3566,7 +3566,7 @@ function TeacherWorkspacePanel({ classId, members, weeks = [] }) {
                 <h2>調整檢查週次</h2>
                 <p>「{moveWeekTarget.title}」只會出現在所選週次，學生端不會再混到其他週。</p>
               </div>
-              <button type="button" className={styles.iconBtn} aria-label="關閉" onClick={() => setMoveWeekTarget(null)}><MIcon name="close" size={18} /></button>
+              <button type="button" className={styles.dialogClose} aria-label="關閉" onClick={() => setMoveWeekTarget(null)}><MIcon name="close" size={18} /></button>
             </div>
             <label className={styles.dialogField}>
               <span>所屬週任務</span>

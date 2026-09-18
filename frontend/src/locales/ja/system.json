@@ -465,7 +465,7 @@
   "MonitoringPage.memoryLabel": "メモリ",
   "MonitoringPage.memoryPercentLabel": "メモリ %",
   "MonitoringPage.memoryUsage": "メモリ使用率",
-  "MonitoringPage.nodeUsageDesc": "ノードの行をクリックすると使用率トレンドグラフが展開されます",
+  "MonitoringPage.nodeUsageDesc": "ノードの行をクリックすると過去 1 日の使用率トレンドグラフが展開されます",
   "MonitoringPage.nodeUsageTitle": "ノード使用率",
   "MonitoringPage.nodesSummary": "{{online}}/{{total}} オンライン",
   "MonitoringPage.noTrendData": "このノードのトレンドデータはまだありません",
@@ -475,9 +475,6 @@
   "MonitoringPage.scopeCluster": "クラスタ",
   "MonitoringPage.scopeNode": "ノード",
   "MonitoringPage.thresholdSuffix": "（しきい値 {{threshold}}%）",
-  "MonitoringPage.timeframeDay": "過去 1 日",
-  "MonitoringPage.timeframeHour": "過去 1 時間",
-  "MonitoringPage.timeframeWeek": "過去 1 週間",
   "MonitoringPage.toastAckFailed": "アラートの確認に失敗しました",
   "MonitoringPage.topCpuTitle": "CPU 使用率トップ 5",
   "MonitoringPage.topMemTitle": "メモリ使用率トップ 5",
@@ -694,6 +691,5 @@
   "DomainPage.managedBySystem": "本システム · VM {{vmid}}",
   "DomainPage.managedBySystemHint": "本システムの公開 URL 機能が作成（VM {{vmid}}）",
   "DomainPage.externalRecord": "外部で作成",
-  "DomainPage.externalRecordHint": "本システム以外で作成されたレコード（Cloudflare などで手動追加）",
-  "MonitoringPage.timeframeAria": "トレンドの期間"
+  "DomainPage.externalRecordHint": "本システム以外で作成されたレコード（Cloudflare などで手動追加）"
 }

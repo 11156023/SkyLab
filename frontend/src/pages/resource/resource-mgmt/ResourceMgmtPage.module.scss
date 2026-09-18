@@ -171,20 +171,19 @@
   @include table-tr;
 }
 
+/* 整列可點進詳情頁（tr 自帶 onClick 才疊，規範表格規則一） */
+.trClickable {
+  @include table-tr-clickable;
+}
+
 .td {
   @include table-td;
 }
 
 /* 群組列整列可開合，是這張表唯一可點的列。
-   hover 用比自身底色更深的主色調，和不可點的一般列（完全沒有 hover）明確區分；
-   游標與 hover 一起給，兩者不會各自漂移。 */
+   底色與一般列一致（不再套主色調），可點性交給游標與標準列 hover 表達 */
 .environmentGroupRow {
-  background: color-mix(in srgb, var(--color-primary) 5%, var(--color-surface));
-  cursor: pointer;
-
-  &:hover {
-    background: color-mix(in srgb, var(--color-primary) 13%, var(--color-surface));
-  }
+  @include table-tr-clickable;
 }
 
 .environmentMachineRow {
@@ -234,18 +233,6 @@
   font-size: $font-size-14;
   font-weight: $font-weight-500;
   color: var(--color-text-primary);
-}
-
-/* 可點擊導向詳情頁的名稱 */
-.nameLink {
-  text-align: left;
-  cursor: pointer;
-  transition: color $transition-base;
-
-  &:hover {
-    color: var(--color-primary);
-    text-decoration: underline;
-  }
 }
 
 .nameSub {
@@ -325,7 +312,7 @@
 .badge_success { background: color-mix(in srgb, var(--color-success) 12%, transparent); color: var(--color-success); }
 .badge_info    { background: color-mix(in srgb, var(--color-info)    12%, transparent); color: var(--color-info); }
 .badge_danger  { background: color-mix(in srgb, var(--color-danger)  12%, transparent); color: var(--color-danger); }
-.badge_muted   { background: var(--color-hover); color: var(--color-status-neutral); }
+.badge_muted   { background: color-mix(in srgb, var(--color-status-neutral) 12%, transparent); color: var(--color-status-neutral); }
 
 /* ── Row actions ── */
 /* 動作欄寬度固定，按鈕不換行也不壓縮，避免內容多寡影響版面。 */

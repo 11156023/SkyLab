@@ -131,7 +131,7 @@ src/pages/personal/resources/
 .badge_info    { background: color-mix(in srgb, var(--color-info)    12%, transparent); color: var(--color-info); }
 .badge_pending { background: color-mix(in srgb, var(--color-pending) 12%, transparent); color: var(--color-pending); }
 .badge_danger  { background: color-mix(in srgb, var(--color-danger)  12%, transparent); color: var(--color-danger); }
-.badge_muted   { background: var(--color-hover); color: var(--color-status-neutral); }
+.badge_muted   { background: color-mix(in srgb, var(--color-status-neutral) 12%, transparent); color: var(--color-status-neutral); }
 ```
 
 > 一律用 `var(--color-*)`，不要把狀態色寫死成 HEX——深色模式的 info / pending 亮色值才吃得到。
@@ -231,16 +231,17 @@ $breakpoint-lg: 992px   $breakpoint-xl: 1200px
 
 ## Icon 使用規範
 
-**所有 Icon 一律使用 `material-icons`（filled 風格），透過 `MIcon` 元件呼叫。**
+**所有 Icon 一律透過 `MIcon` 元件呼叫，預設為 outlined 風格**；需要實心（filled）時傳 `filled` prop，不要自己換 class。
 
 ```jsx
 import MIcon from "../components/MIcon";
 
-<MIcon name="search" size={16} />
+<MIcon name="search" size={16} />          {/* material-icons-outlined（預設） */}
+<MIcon name="star" size={16} filled />     {/* material-icons（filled，特別強調時才用） */}
 ```
 
-- Icon 名稱請至 [Material Symbols](https://fonts.google.com/icons) 查詢，使用 **filled** 風格的名稱
-- 禁止直接使用 `<span className="material-icons">` 或其他 Icon 庫
+- Icon 名稱請至 [Material Symbols](https://fonts.google.com/icons) 查詢（outlined 與 filled 同名）
+- 禁止直接使用 `<span className="material-icons">`、`material-icons-outlined` 或其他 Icon 庫
 - 禁止使用 SVG inline、emoji、或其他圖示系統混搭
 
 ---
@@ -362,6 +363,7 @@ if (!(await confirm({ title, message, confirmText, danger: true }))) return;
 .btnGhostDanger   { @include btn-ghost($danger: true); }  // 淡紅底紅字變體（窄空間的刪除）
 .iconBtn          { @include btn-icon; }           // 32×32 圖示鈕，JSX 必帶 aria-label
 .iconBtnDanger    { @include btn-icon($danger: true); }   // 未 hover 前文字即為紅色
+.dialogClose      { @include btn-dialog-close; }   // Dialog 專用右上關閉鈕：同 btn-icon($danger: true)，僅未 hover 無底色
 ```
 
 - 共用基底（mixin 內建）：高 36px、圓角 `$radius-8`、字級 14／500、
@@ -397,6 +399,11 @@ if (!(await confirm({ title, message, confirmText, danger: true }))) return;
 
 > **規則三**：一組「起—迄」的值是**一個**欄位，不是兩個。用 `.timePair` 這種
 > 成對控制項，標籤寫「上課時間」，不要拆成「開始時間」「結束時間」兩個 `.field`。
+
+> **規則四**：textarea 一律**固定高**——`_reset.scss` 已全域設 `resize: none`，
+> 高度由 JSX 的 `rows` 或頁面 CSS 的 `height` / `min-height` 決定，元件內**不要再寫
+> `resize`**。特殊情況（真的需要讓使用者拖高的長文編輯區）才在該頁明確寫回
+> `resize: vertical`，讓例外看得見。
 
 ### 表格（Table）
 

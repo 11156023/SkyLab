@@ -83,7 +83,7 @@ function UserModal({ mode, user, loading, closing = false, onClose, onSubmit }) 
             <h2>{isEdit ? t("AdminPage.modalEditTitle") : t("AdminPage.modalCreateTitle")}</h2>
             <p>{isEdit ? t("AdminPage.modalEditSubtitle") : t("AdminPage.modalCreateSubtitle")}</p>
           </div>
-          <button type="button" className={styles.iconBtn} onClick={onClose} aria-label={t("AdminPage.close")}>
+          <button type="button" className={styles.dialogClose} onClick={onClose} aria-label={t("AdminPage.close")}>
             <MIcon name="close" size={18} />
           </button>
         </div>

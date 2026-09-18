@@ -8,6 +8,70 @@
   @include flex-column;
 }
 
+/* ===== sonner toast 按鈕 =====
+   對齊全站按鈕 mixin：action = primary、cancel = ghost 淡底。
+   多疊 [data-styled] 是為了蓋過 sonner 以屬性選擇器輸出的預設樣式
+   （黑底 24px 小鈕）；height 交還給 btn-base 的 min-height */
+[data-sonner-toast][data-styled] [data-button][data-action] {
+  @include btn-primary;
+  height: auto;
+}
+
+[data-sonner-toast][data-styled] [data-button][data-cancel] {
+  @include btn-ghost;
+  height: auto;
+}
+
+/* ===== sonner toast 色票對齊主題 =====
+   五種 toast（success／error／warning／info／無型別）不用 sonner 內建
+   richColors 色票，改由 _themes.scss 的語意色衍生：文字＝語意色本體、
+   淡底與邊框＝語意色混 --color-surface（跟著 body.dark 自動切換，
+   warning 對應主題的 --color-pending 琥珀）。變數設在 toast 元素上，
+   元素層級的 custom property 必定蓋過 sonner 設在 toaster 上的預設值 */
+[data-sonner-toast][data-styled] {
+  --success-bg: color-mix(in srgb, var(--color-success) 10%, var(--color-surface));
+  --success-border: color-mix(in srgb, var(--color-success) 30%, var(--color-surface));
+  --success-text: var(--color-success);
+  --error-bg: color-mix(in srgb, var(--color-danger) 10%, var(--color-surface));
+  --error-border: color-mix(in srgb, var(--color-danger) 30%, var(--color-surface));
+  --error-text: var(--color-danger);
+  --warning-bg: color-mix(in srgb, var(--color-pending) 10%, var(--color-surface));
+  --warning-border: color-mix(in srgb, var(--color-pending) 30%, var(--color-surface));
+  --warning-text: var(--color-pending);
+  --info-bg: color-mix(in srgb, var(--color-info) 10%, var(--color-surface));
+  --info-border: color-mix(in srgb, var(--color-info) 30%, var(--color-surface));
+  --info-text: var(--color-info);
+}
+
+/* 無型別（default）toast 收斂為 info 淡藍底藍字（同上主題化的 info 色）。
+   無型別 toast 不帶 data-type 屬性，所以用 :not([data-type]) 選取 */
+[data-sonner-toast][data-styled]:not([data-type]) {
+  --normal-bg: var(--info-bg);
+  --normal-border: var(--info-border);
+  --normal-text: var(--info-text);
+}
+
+/* 詢問型 toast（掛 .toast-stacked）：sonner 預設把按鈕排在內文右側，
+   描述較長時會擠成一團；這裡讓內文獨佔一行、按鈕列換行靠右。
+   sonner 給每顆按鈕 margin-start: auto，兩顆都 auto 會被拉開，
+   先歸零再只讓第一顆 auto 整組靠右，按鈕間距回到 li 的 6px gap */
+[data-sonner-toast][data-styled].toast-stacked {
+  flex-wrap: wrap;
+  row-gap: $spacing-8;
+
+  [data-content] {
+    flex: 1 0 100%;
+  }
+
+  [data-button] {
+    margin-left: 0;
+  }
+
+  [data-button][data-cancel] {
+    margin-left: auto;
+  }
+}
+
 /* ===== 全頁背景層 =====
    預設畫三色暈染，掛上 data-style / data-bg 後
    由 _backgrounds.scss 的花色覆寫 background */

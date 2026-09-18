@@ -104,6 +104,11 @@
   width: 100%;
 }
 
+.dialogClose {
+  @include btn-dialog-close;
+  flex-shrink: 0;
+}
+
 .iconBtn {
   width: 36px;
   height: 36px;
@@ -357,7 +362,6 @@
     font: inherit;
     line-height: 1.45;
     outline: none;
-    resize: vertical;
     transition: border-color $transition-base, background $transition-base, box-shadow $transition-base;
   }
 
@@ -812,7 +816,6 @@
     color: var(--color-text-primary);
     outline: none;
     font-size: $font-size-14;
-    resize: none;
 
     &:focus {
       border-color: var(--color-primary);
@@ -1310,7 +1313,7 @@
 .badge_success { background: color-mix(in srgb, var(--color-success) 12%, transparent); color: var(--color-success); }
 .badge_info { background: color-mix(in srgb, var(--color-info) 12%, transparent); color: var(--color-info); }
 .badge_danger { background: color-mix(in srgb, var(--color-danger) 12%, transparent); color: var(--color-danger); }
-.badge_muted { background: var(--color-hover); color: var(--color-status-neutral); }
+.badge_muted { background: color-mix(in srgb, var(--color-status-neutral) 12%, transparent); color: var(--color-status-neutral); }
 
 /* ── Modal ── */
 .modalOverlay {

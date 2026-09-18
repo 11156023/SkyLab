@@ -222,13 +222,6 @@ export default function GpuMgmtPage() {
     }
   };
 
-  const stats = useMemo(() => {
-    const total = rows.reduce((s, n) => s + (n.capacity_count ?? n.device_count ?? 0), 0);
-    const used = rows.reduce((s, n) => s + (n.used_count ?? 0), 0);
-    const avail = Math.max(0, total - used);
-    return { total, used, avail };
-  }, [rows]);
-
   const visible = useMemo(() => {
     const q = filter.trim().toLowerCase();
     if (!q) return rows;
@@ -249,36 +242,6 @@ export default function GpuMgmtPage() {
   return (
     <div className={styles.page}>
       <PageHeader title={t("GpuMgmtPage.pageTitle")} />
-
-      <div className={styles.statRow}>
-        <div className={styles.statCard}>
-          <div className={styles.statIcon}>
-            <MIcon name="developer_board" size={20} />
-          </div>
-          <div className={styles.statInfo}>
-            <span className={styles.statLabel}>{t("GpuMgmtPage.statTotal")}</span>
-            <span className={styles.statValue}>{stats.total}</span>
-          </div>
-        </div>
-        <div className={styles.statCard}>
-          <div className={`${styles.statIcon} ${styles.statIconOk}`}>
-            <MIcon name="check_circle" size={20} />
-          </div>
-          <div className={styles.statInfo}>
-            <span className={styles.statLabel}>{t("GpuMgmtPage.statAvailable")}</span>
-            <span className={styles.statValue}>{stats.avail}</span>
-          </div>
-        </div>
-        <div className={styles.statCard}>
-          <div className={`${styles.statIcon} ${styles.statIconBusy}`}>
-            <MIcon name="monitor_heart" size={20} />
-          </div>
-          <div className={styles.statInfo}>
-            <span className={styles.statLabel}>{t("GpuMgmtPage.statInUse")}</span>
-            <span className={styles.statValue}>{stats.used}</span>
-          </div>
-        </div>
-      </div>
 
       <div className={styles.toolbar}>
         <div className={styles.search}>

@@ -421,11 +421,9 @@ export default function SpecificationsTab({ vmid }) {
       )}
 
       <div className={styles.card}>
+        {/* 標題由外層分頁承擔，卡內只留說明 */}
         <div className={styles.cardHeader}>
-          <div>
-            <h2 className={styles.cardTitle}>{t("SpecificationsTab.title")}</h2>
-            <p className={styles.cardDesc}>{desc}</p>
-          </div>
+          <p className={styles.cardDesc}>{desc}</p>
         </div>
         <div className={styles.cardBody}>
           <div className={sl.grid}>

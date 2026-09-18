@@ -465,7 +465,7 @@
   "MonitoringPage.memoryLabel": "記憶體",
   "MonitoringPage.memoryPercentLabel": "記憶體 %",
   "MonitoringPage.memoryUsage": "記憶體用量",
-  "MonitoringPage.nodeUsageDesc": "點擊節點列展開使用趨勢圖",
+  "MonitoringPage.nodeUsageDesc": "點擊節點列展開最近 1 天使用趨勢圖",
   "MonitoringPage.nodeUsageTitle": "節點用量",
   "MonitoringPage.nodesSummary": "{{online}}/{{total}} 在線",
   "MonitoringPage.noTrendData": "此節點目前沒有趨勢資料",
@@ -475,9 +475,6 @@
   "MonitoringPage.scopeCluster": "叢集",
   "MonitoringPage.scopeNode": "節點",
   "MonitoringPage.thresholdSuffix": "（閾值 {{threshold}}%）",
-  "MonitoringPage.timeframeDay": "最近 1 天",
-  "MonitoringPage.timeframeHour": "最近 1 小時",
-  "MonitoringPage.timeframeWeek": "最近 1 週",
   "MonitoringPage.toastAckFailed": "確認警告失敗",
   "MonitoringPage.topCpuTitle": "CPU 用量 Top 5",
   "MonitoringPage.topMemTitle": "記憶體用量 Top 5",
@@ -694,6 +691,5 @@
   "DomainPage.managedBySystem": "本系統 · VM {{vmid}}",
   "DomainPage.managedBySystemHint": "由本系統的對外網址功能建立（VM {{vmid}}）",
   "DomainPage.externalRecord": "外部建立",
-  "DomainPage.externalRecordHint": "不是本系統建立的紀錄（在 Cloudflare 或其他地方手動加的）",
-  "MonitoringPage.timeframeAria": "趨勢時間範圍"
+  "DomainPage.externalRecordHint": "不是本系統建立的紀錄（在 Cloudflare 或其他地方手動加的）"
 }

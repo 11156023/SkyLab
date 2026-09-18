@@ -245,15 +245,25 @@ function ResourceRow({ resource, onUpdated, onDeleted }) {
     }
   }
 
+  const canOpenDetail = resource.vmid > 0;
+  /* 整列可點進詳情；列內按鈕／連結／選單的點擊不觸發導頁 */
+  const openDetail = (event) => {
+    if (event.target.closest("button, a, input, select, label")) return;
+    navigate(`/my-resources/${resource.vmid}`);
+  };
+
   return <>
-    <tr className={styles.tr} data-guide="resource-card">
+    <tr
+      className={`${styles.tr} ${canOpenDetail ? styles.trClickable : ""}`}
+      onClick={canOpenDetail ? openDetail : undefined}
+      data-guide="resource-card"
+    >
       <td className={styles.td}>
         <div className={styles.nameCell}>
           <span className={styles.nameIcon}><MIcon name={type.icon} size={18} /></span>
           <div>
-            {resource.vmid > 0
-              ? <button type="button" className={styles.nameLink} onClick={() => navigate(`/my-resources/${resource.vmid}`)} data-guide="resource-open-detail">{resource.name}</button>
-              : <strong>{resource.name}</strong>}
+            {/* 導覽的 performSelector 會點這裡；點擊沿用整列點擊的 openDetail */}
+            <strong data-guide="resource-open-detail">{resource.name}</strong>
             <small>{t(type.labelKey)}{showVmid && resource.vmid > 0 ? t("ResourceRow.vmidSuffix", { vmid: resource.vmid }) : ""}</small>
           </div>
         </div>
@@ -265,7 +275,6 @@ function ResourceRow({ resource, onUpdated, onDeleted }) {
           classRelation={resource.class_relation}
           ownerName={resource.owner_name ?? resource.owner_email}
           teachingClassName={resource.teaching_class_name}
-          size="sm"
         />
       </td>
       <td className={styles.td}><div className={styles.envPrimary}>{resource.environment_type || "Custom"}</div><div className={styles.envSub}>{resource.os_info || "—"}</div></td>
@@ -350,11 +359,20 @@ function EnvironmentMachineRow({ machine, groupStatus, onUpdated }) {
     }
   }
 
+  const canOpenDetail = resource?.vmid > 0;
+  /* 整列可點進詳情；列內按鈕／連結／選單的點擊不觸發導頁 */
+  const openDetail = (event) => {
+    if (event.target.closest("button, a, input, select, label")) return;
+    navigate(`/my-resources/${resource.vmid}`);
+  };
+
   return <>
-    <tr className={`${styles.tr} ${styles.environmentMachineRow}`}>
-    <td className={styles.td}><div className={`${styles.nameCell} ${styles.environmentMachineName}`}><span className={styles.machineBranch}>└</span><div>{resource?.vmid > 0
-      ? <button type="button" className={styles.nameLink} onClick={() => navigate(`/my-resources/${resource.vmid}`)} data-guide="resource-open-detail">{machine.name}</button>
-      : <strong>{machine.name}</strong>}<small>{machine.ownerName ? <><span className={styles.machineOwner}><MIcon name="person" size={11} />{machine.ownerName}</span> · </> : null}{machine.role} · {t(type.labelKey ?? type.label)}{specLabel ? ` · ${specLabel}` : ""}</small></div></div></td>
+    <tr
+      className={`${styles.tr} ${styles.environmentMachineRow} ${canOpenDetail ? styles.trClickable : ""}`}
+      onClick={canOpenDetail ? openDetail : undefined}
+    >
+    <td className={styles.td}><div className={`${styles.nameCell} ${styles.environmentMachineName}`}><span className={styles.machineBranch}>└</span><div><strong>{machine.name}</strong><small>{machine.ownerName ? <><span className={styles.machineOwner}><MIcon name="person" size={11} />{machine.ownerName}</span> · </> : null}{machine.role} · {t(type.labelKey ?? type.label)}{specLabel ? ` · ${specLabel}` : ""}</small></div></div></td>
+    {/* 「來源」欄佔位：群組標題列已標示來源，環境內機器不重複 */}
     <td className={styles.td}><span className={styles.muted}>—</span></td>
     <td className={styles.td}><div className={styles.envPrimary}>{machine.os}</div><div className={styles.envSub}>{machine.resource ? t("EnvironmentMachineRow.resourceConnected") : t("EnvironmentMachineRow.creating")}</div></td>
     <td className={styles.td}><StatusBadge status={machine.status} /></td>
@@ -448,7 +466,7 @@ function EnvironmentGroupRows({ group, onUpdated, onEnded }) {
           <div><strong>{group.title}</strong><small>{t("EnvironmentGroupRows.machineCount", { count: group.machines.length })}</small></div>
         </div>
       </td>
-      <td className={styles.td}><MachineKindBadge kind={group.kind === "quick_practice" ? "quick_practice" : "teaching_class"} classRelation={group.classRelation} size="sm" /></td>
+      <td className={styles.td}><MachineKindBadge kind={group.kind === "quick_practice" ? "quick_practice" : "teaching_class"} classRelation={group.classRelation} teachingClassName={group.title} /></td>
       <td className={styles.td}><div className={styles.envPrimary}>{group.kind === "course" ? t("EnvironmentGroupRows.courseEnv") : t("EnvironmentGroupRows.quickPracticeEnv")}</div><div className={styles.envSub}>{t("EnvironmentGroupRows.groupOverview")}</div></td>
       <td className={styles.td}><StatusBadge status={group.status} /></td>
       <td className={styles.td}><span className={styles.muted}>{t("EnvironmentGroupRows.runningCount", { running: runningCount, total: group.machines.length })}</span></td>

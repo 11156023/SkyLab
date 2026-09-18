@@ -17,7 +17,7 @@ import { downloadBlob } from "../../../../services/api";
 import { useToast } from "../../../../hooks/useToast";
 
 const STATUS_META = {
-  running: { labelKey: "OverviewTab.statusRunning", tone: "ok" },
+  running: { labelKey: "OverviewTab.statusRunning", tone: "success" },
   stopped: { labelKey: "OverviewTab.statusStopped", tone: "muted" },
   paused:  { labelKey: "OverviewTab.statusPaused",  tone: "muted" },
 };
