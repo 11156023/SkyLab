@@ -580,7 +580,7 @@ function TopologyPreview({ item }) {
     if (!next && selectedKey.startsWith("outbound-")) setSelectedKey("");
   }
   // 高度跟著節點數走，一台機器不該撐出一整片空網格。
-  const canvasHeight = Math.min(420, 280 + Math.max(0, item.nodes.length - 1) * 70);
+  const canvasHeight = Math.min(600, 420 + Math.max(0, item.nodes.length - 1) * 80);
   /* .card 是 flex column：.flowWrap 的 flex:1（basis 0）+ min-height:0 會把畫布壓成 0 高，
      inline 的 flex:none 才壓得過兩個 class */
   return <div className={`${styles.readonlyTopology} ${fwStyles.flowWrap}`} style={{ height: canvasHeight, flex: "none" }}>
