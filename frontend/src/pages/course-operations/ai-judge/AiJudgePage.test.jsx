@@ -28,9 +28,6 @@ describe("AiJudgePage data boundary", () => {
       vmid: 101,
       vm_status: "running",
       vm_type: "qemu",
-      vm_cpu_usage_pct: null,
-      vm_ram_usage_pct: null,
-      vm_disk_usage_pct: null,
     }]);
   });
 });

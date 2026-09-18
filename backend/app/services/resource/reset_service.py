@@ -132,6 +132,33 @@ def _audit_reset(vmid: int, user_id: uuid.UUID, *, ok: bool, detail: str) -> Non
         logger.warning("Failed to audit reset for vmid=%s", vmid, exc_info=True)
 
 
+def _sync_lxc_platform_key_after_start(
+    node: str, vmid: int, rtype: Literal["qemu", "lxc"]
+) -> None:
+    """Best-effort key repair after a snapshot rollback restarts an LXC."""
+    if rtype != "lxc":
+        return
+
+    try:
+        from app.core.db import engine  # noqa: PLC0415 — background task session
+        from app.services.resource import resource_service  # noqa: PLC0415
+
+        with Session(engine) as session:
+            resource_service.ensure_lxc_platform_key(
+                session=session,
+                node=node,
+                vmid=vmid,
+            )
+    except Exception:
+        # Reset success must not be turned into a failure because a repair
+        # attempt could not reach the guest or the database.
+        logger.warning(
+            "Failed to sync platform SSH key after LXC reset for vmid=%s",
+            vmid,
+            exc_info=True,
+        )
+
+
 def _run_reset(
     vmid: int, node: str, rtype: Literal["qemu", "lxc"], user_id: uuid.UUID
 ) -> None:
@@ -144,6 +171,7 @@ def _run_reset(
         proxmox_service.rollback_snapshot(node, vmid, rtype, INIT_SNAPSHOT_NAME)
         if was_running:
             proxmox_service.control(node, vmid, rtype, "start")
+            _sync_lxc_platform_key_after_start(node, vmid, rtype)
         _audit_reset(
             vmid, user_id, ok=True,
             detail=f"Reset to {INIT_SNAPSHOT_NAME} (was_running={was_running})",

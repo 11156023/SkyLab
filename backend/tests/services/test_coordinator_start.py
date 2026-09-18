@@ -155,6 +155,29 @@ class TestEnsureRequestRunningStart:
         assert started is True
         assert req.resource_warning is None
 
+    def test_lxc_start_syncs_platform_key(self, monkeypatch) -> None:
+        req = _request(resource_type="lxc")
+        session = _FakeSession()
+        _patch_provisioned_vm(monkeypatch, req, status="stopped")
+        sync_calls: list[tuple[str, int, str]] = []
+        monkeypatch.setattr(
+            coordinator,
+            "_sync_lxc_platform_key",
+            lambda *, session, node, vmid, resource_type: sync_calls.append(
+                (node, vmid, resource_type)
+            ),
+        )
+        monkeypatch.setattr(
+            coordinator.proxmox_service,
+            "control",
+            lambda node, vmid, rtype, action, **kwargs: None,
+        )
+
+        assert coordinator._ensure_request_running(
+            session=session, request=req, now=coordinator._utc_now()
+        )
+        assert sync_calls == [("pve205", 480, "lxc")]
+
     def test_already_running_clears_gpu_warning(self, monkeypatch) -> None:
         req = _request(resource_warning=coordinator.GPU_WAIT_WARNING)
         session = _FakeSession()

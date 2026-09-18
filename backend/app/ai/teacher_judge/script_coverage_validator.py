@@ -4,7 +4,7 @@ The generation model must return a ``coverage`` payload mapping every
 ``record_check`` id in the produced script to the rubric item ids it collects
 evidence for. Validation here is purely mechanical: reference existence and
 per-item completeness. Semantic relevance is re-checked later by the AI
-reviewer and the result analysis stage.
+reviewer before the script can be approved for execution.
 """
 
 from __future__ import annotations
@@ -145,6 +145,7 @@ def validate_coverage(
             {"id": item_id, "title": titles.get(item_id) or ""}
             for item_id in uncovered
         ],
+        "available_check_ids": sorted(script_check_ids),
     }
 
 

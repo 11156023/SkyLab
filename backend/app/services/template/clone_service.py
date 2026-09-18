@@ -255,8 +255,9 @@ def _reconfigure_lxc(
     net_cfg: dict[str, Any],
     allocated_ip: str,
 ) -> None:
-    # LXC 無 cloud-init：SSH 金鑰無法在克隆後注入；root 密碼於開機後
-    # 以 pct exec 設定（見 _set_lxc_root_password），失敗才沿用範本內建憑證
+    # LXC 無 cloud-init：PVE config API 無法在克隆後注入 SSH 金鑰，root 密碼
+    # 亦只能於開機後以 pct exec 設定（見 _set_lxc_root_password）；平台公鑰
+    # 於開機後以 pct exec 寫入 authorized_keys（見 inject_lxc_platform_key）。
     config_updates: dict[str, Any] = {
         "hostname": hostname,
         "net0": (
@@ -299,6 +300,49 @@ def _set_lxc_root_password(node: str, vmid: int, password: str) -> bool:
         "Failed to set root password for CT %d: %s", vmid, last_error[:300]
     )
     return False
+
+
+def _inject_lxc_platform_key(node: str, vmid: int, public_key: str) -> bool:
+    """開機後以 ``pct exec`` 寫入平台公鑰（容器啟動需時，重試等待）。
+
+    LXC 無 cloud-init，PVE config API 無法在克隆後注入 ``ssh-public-keys``，
+    故在此沿用 credentials_service 的 authorized_keys 寫法直接寫檔。
+    已存在則不重複追加；回傳是否成功，失敗由呼叫端記 warning（DB 仍落庫，
+    管理員可用 regenerate-ssh-key 補救）。
+    """
+    from app.infrastructure.proxmox import guest
+
+    key = public_key.strip()
+    if not key:
+        return False
+    script = (
+        "mkdir -p /root/.ssh && chmod 700 /root/.ssh && "
+        "touch /root/.ssh/authorized_keys && "
+        f"grep -qxF {shlex.quote(key)} /root/.ssh/authorized_keys 2>/dev/null || "
+        f"printf %s {shlex.quote(key + chr(10))} >> /root/.ssh/authorized_keys; "
+        "chmod 600 /root/.ssh/authorized_keys"
+    )
+    last_error: str = ""
+    for attempt in range(_LXC_PASSWORD_ATTEMPTS):
+        if attempt:
+            time.sleep(_LXC_PASSWORD_RETRY_SECONDS)
+        try:
+            code, _out, err = guest.exec_lxc(node, vmid, script)
+        except Exception as exc:
+            last_error = str(exc)
+            continue
+        if code == 0:
+            return True
+        last_error = (err or "").strip()
+    logger.warning(
+        "Failed to inject platform SSH key for CT %d: %s", vmid, last_error[:300]
+    )
+    return False
+
+
+def inject_lxc_platform_key(node: str, vmid: int, public_key: str) -> bool:
+    """Public entry point for start paths that need to sync a guest key."""
+    return _inject_lxc_platform_key(node, vmid, public_key)
 
 
 def _parse_expiry(raw: Any) -> date | None:
@@ -433,6 +477,19 @@ def run_clone_task(task_id: uuid.UUID, payload: dict[str, Any]) -> dict[str, Any
                 password_applied = _set_lxc_root_password(
                     node, new_vmid, login_password
                 )
+            if resource_type == "lxc":
+                # 範本 LXC 無 cloud-init：開機後以 pct exec 注入平台公鑰。
+                # 注入失敗僅警告（DB 仍落庫，Teacher Judge 的缺 key 檢查會過，
+                # 後續可用 regenerate-ssh-key 補寫 guest 內 authorized_keys）。
+                _inject_lxc_platform_key(
+                    node, new_vmid, public_key
+                )
+        elif resource_type == "lxc":
+            logger.warning(
+                "CT %s not started at clone time; platform SSH key recorded in DB "
+                "only; a later LXC start must sync guest authorized_keys",
+                new_vmid,
+            )
         report_progress(task_id, 90)
 
         with Session(engine) as session:
@@ -443,12 +500,8 @@ def run_clone_task(task_id: uuid.UUID, payload: dict[str, Any]) -> dict[str, Any
                 environment_type=environment_type or f"範本 {template_name}",
                 expiry_date=expiry_date,
                 template_id=template_vmid,
-                ssh_private_key_encrypted=(
-                    encrypt_value(private_key_pem)
-                    if resource_type == "qemu"
-                    else None
-                ),
-                ssh_public_key=public_key if resource_type == "qemu" else None,
+                ssh_private_key_encrypted=encrypt_value(private_key_pem),
+                ssh_public_key=public_key,
                 login_password_encrypted=(
                     encrypt_value(login_password)
                     if password_applied and login_password is not None
@@ -516,6 +569,7 @@ __all__ = [
     "TASK_CLONE",
     "clone_with_fallback",
     "generate_login_password",
+    "inject_lxc_platform_key",
     "request_clone",
     "run_clone_task",
 ]

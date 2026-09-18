@@ -159,6 +159,18 @@ describe("AiJudgeService persistent sessions", () => {
     expect(shouldDisplayChatMessage({ role: "user", content: RUBRIC_REASSESS_PROMPT })).toBe(false);
   });
 
+  test("refine assistant 結果保留為一般可見 Chat 訊息", () => {
+    expect(shouldDisplayChatMessage({
+      role: "assistant",
+      content: "重新核對後還缺少服務 Port。",
+      message_type: "chat",
+      metadata_json: {
+        status: "needs_information",
+        script_ready: false,
+      },
+    })).toBe(true);
+  });
+
   test("只送出一則新訊息，不回傳 client history", async () => {
     await AiJudgeService.sendSessionMessage("class-1", "session-1", "檢查 nginx");
 
@@ -227,7 +239,7 @@ describe("AiJudgeService persistent sessions", () => {
     });
   });
 
-  test("Teacher Judge session AI request 以後端 60 秒 timeout 為準", async () => {
+  test("Teacher Judge session AI request 以後端 120 秒 timeout 為準", async () => {
     vi.useFakeTimers();
     let settled = false;
     try {
@@ -265,12 +277,13 @@ describe("AiJudgeService persistent sessions", () => {
   test("潤飾提示會保留老師目標並要求補足下一層 AI 的執行資訊", () => {
     expect(RUBRIC_POLISH_PROMPT).toContain("下一層檢查 AI");
     expect(RUBRIC_POLISH_PROMPT).toContain("auto、partial 或 manual");
-    expect(RUBRIC_POLISH_PROMPT).toContain("成功條件");
+    expect(RUBRIC_POLISH_PROMPT).toContain("檢查目標與描述");
+    expect(RUBRIC_POLISH_PROMPT).not.toContain("success_criteria");
     expect(RUBRIC_POLISH_PROMPT).toContain("fallback");
     expect(RUBRIC_POLISH_PROMPT).toContain("check_steps");
     expect(RUBRIC_POLISH_PROMPT).toContain("完整評分項目列表");
-    expect(RUBRIC_POLISH_PROMPT).toContain("不要改成較容易但不同的檢查目標");
-    expect(RUBRIC_POLISH_PROMPT).toContain("非硬性範圍");
+    expect(RUBRIC_POLISH_PROMPT).toContain("不要猜測或改變檢查目標");
+    expect(RUBRIC_POLISH_PROMPT).toContain("視為主要情境");
   });
 
   test("session script endpoint 不接受 client rubric snapshot", async () => {

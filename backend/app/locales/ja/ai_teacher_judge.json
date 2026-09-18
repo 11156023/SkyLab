@@ -57,10 +57,6 @@
   "artifact.policy_check_failed": "スクリプトが安全性・品質チェックに合格しませんでした。",
   "artifact.ai_review_failed": "スクリプトが AI レビューアーに合格しませんでした。",
 
-  "analysis.model_not_configured": "VLLM_MODEL_NAME が設定されていません。",
-  "analysis.not_json": "AI分析の応答が JSON ではありません。",
-  "analysis.invalid_format": "AI分析の応答形式が正しくありません。",
-
   "file.name_conflict": "同じ名前の評価表がすでに存在します。",
   "file.copy_name_exhausted": "同名のコピーを作成できません。ファイル名を変更してください。",
   "file.not_found": "評価表のソースが見つかりません。",

@@ -46,7 +46,6 @@
   "AiApiPage.deleteError": "削除に失敗しました",
   "AiApiPage.renameSuccess": "名前を更新しました",
   "AiApiPage.renameError": "更新に失敗しました",
-  "AiApiPage.metaPrefix": "Prefix：{{value}}",
   "AiApiPage.metaCreated": "作成：{{value}}",
   "AiApiPage.metaExpiry": "有効期限：{{value}}",
   "AiApiPage.metaRevoked": "失効：{{value}}",
