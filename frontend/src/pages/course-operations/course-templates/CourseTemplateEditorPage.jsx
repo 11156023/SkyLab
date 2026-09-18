@@ -31,6 +31,7 @@ import { describePort, routeEdges } from "../../network/firewall/utils/buildFlow
 import ConnectionDialog, { INTERNET_KEY } from "../../../components/ConnectionDialog/ConnectionDialog";
 import { INTENT } from "../../../components/ConnectionDialog/intents";
 import { previewTemplateHostname } from "../../../components/ConnectionDialog/connectionPayload";
+import { publicationLabel } from "../courseTopology";
 import styles from "../CourseOperations.module.scss";
 import PageHeader from "../../../components/PageHeader/PageHeader";
 import i18n from "../../../i18n";
@@ -104,16 +105,7 @@ function TopologyMachineNode({ data, selected }) {
 const TOPOLOGY_NODE_TYPES = { courseMachine: TopologyMachineNode, gateway: GatewayNode };
 const TOPOLOGY_EDGE_TYPES = { connection: ConnectionEdge };
 
-/** 對外服務在畫布上的標籤：網址顯示範例網域，對外 port 顯示服務名與「開課時配號」 */
-function publicationLabel(t, publication, zones) {
-  if (publication.mode === "domain") {
-    const zone = zones.find((item) => item.id === publication.zoneId);
-    return previewTemplateHostname(publication.hostnamePrefix, zone?.name);
-  }
-  return t("CourseTemplateEditorPage.publicationEdgeForward", {
-    service: describePort({ port: publication.port, protocol: publication.protocol }),
-  });
-}
+
 
 
 

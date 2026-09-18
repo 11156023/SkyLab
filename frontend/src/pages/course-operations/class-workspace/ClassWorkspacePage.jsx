@@ -1,6 +1,6 @@
-import { memo, startTransition, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { memo, startTransition, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { Background, Handle, MarkerType, Position, ReactFlow } from "@xyflow/react";
+import { Background, BackgroundVariant, Controls, Panel, ReactFlow } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
 import { useTranslation } from "react-i18next";
@@ -28,6 +28,14 @@ import {
 } from "./classHeatmapUsage";
 import styles from "../CourseOperations.module.scss";
 import fwStyles from "../../network/firewall/FirewallPage.module.scss";
+import GatewayNode from "../../network/firewall/nodes/GatewayNode";
+import NodeHandles from "../../network/firewall/nodes/NodeHandles";
+import ConnectionEdge from "../../network/firewall/edges/ConnectionEdge";
+import ConnectionDetailPanel from "../../network/firewall/ConnectionDetailPanel";
+import { routeEdges } from "../../network/firewall/utils/buildFlow";
+import { INTERNET_KEY } from "../../../components/ConnectionDialog/intents";
+import { ThemeContext } from "../../../contexts/ThemeContext";
+import { normalizePublication, peerDetailPort, peerEdgeLabel, publicationDetailPort, publicationLabel } from "../courseTopology";
 
 const POST_ACTIVE_TABS = ["progress", "ai"];
 
@@ -420,7 +428,7 @@ function ReadonlyMachineNode({ data }) {
   const { node, publicationCount } = data;
   const spec = `${node.cpu} CPU · ${Math.round(node.memory_mb / 1024)} GB · ${node.disk_gb} GB`;
   return <div className={`${fwStyles.vmNode} ${styles.flowMachineNodeStatic}`}>
-    <Handle type="target" position={Position.Left} isConnectable={false} />
+    <NodeHandles />
     <div className={fwStyles.vmStatus} style={{ background: "var(--color-status-neutral)" }} />
     <div className={fwStyles.vmInfo}>
       <span className={fwStyles.vmName} title={node.name}>{node.name}</span>
@@ -430,11 +438,11 @@ function ReadonlyMachineNode({ data }) {
     {publicationCount > 0 && <span className={fwStyles.exposedBadge} title={t("ClassWorkspacePage.nodePublicCount", { count: publicationCount })}>
       <MIcon name="public" size={11} />{publicationCount}
     </span>}
-    <Handle type="source" position={Position.Right} isConnectable={false} />
   </div>;
 }
 
-const READONLY_NODE_TYPES = { classMachine: ReadonlyMachineNode };
+const READONLY_NODE_TYPES = { classMachine: ReadonlyMachineNode, gateway: GatewayNode };
+const READONLY_EDGE_TYPES = { connection: ConnectionEdge };
 
 /* 對外服務清單：與課程環境編輯器側欄的摘要同一套說法。網址是每位學生各一個，
    模板只存主機名樣板，所以這裡顯示的是樣板而不是實際網址。 */
@@ -461,59 +469,153 @@ function PublicationSummary({ item }) {
 
 function TopologyPreview({ item }) {
   const { t } = useTranslation("teaching");
+  /* 畫布配色跟防火牆頁一樣跟著主題；沒有 provider 就當淺色 */
+  const theme = useContext(ThemeContext)?.theme ?? "light";
+  const [showInternet, setShowInternet] = useState(false);
+  const [selectedKey, setSelectedKey] = useState("");
+  const publications = useMemo(
+    () => (item.publications ?? []).map((publication, index) => normalizePublication(publication, index)),
+    [item.publications],
+  );
   const publicationCounts = useMemo(() => {
     const counts = {};
-    for (const publication of item.publications ?? []) {
-      counts[publication.node_key] = (counts[publication.node_key] ?? 0) + 1;
-    }
+    for (const publication of publications) counts[publication.nodeKey] = (counts[publication.nodeKey] ?? 0) + 1;
     return counts;
-  }, [item.publications]);
-  const nodes = item.nodes.map((node, index) => {
-    // 老師在課程環境排好的座標優先；環境版本查不到才退回依序排開
-    const saved = item.nodePositions?.[node.node_key];
-    return {
-      id: String(node.node_key),
-      type: "classMachine",
-      position: saved
-        ? { x: Number(saved.x), y: Number(saved.y) }
-        : { x: 70 + index * 250, y: 95 + (index % 2) * 35 },
-      data: { node, publicationCount: publicationCounts[node.node_key] ?? 0 },
-    };
-  });
-  const edges = item.topologyEdges.map((edge, index) => {
-    const bidirectional = edge.direction === "bidirectional";
-    return {
-      id: String(edge.id ?? `topology-${index}`),
-      source: edge.source_node_key,
-      target: edge.target_node_key,
-      type: "smoothstep",
-      animated: true,
-      label: `${bidirectional ? t("ClassWorkspacePage.directionBidirectional") : t("ClassWorkspacePage.directionOneWay")} · ${String(edge.protocol).toUpperCase()}${edge.port ? `/${edge.port}` : ""}`,
-      markerEnd: { type: MarkerType.ArrowClosed, color: "var(--color-primary)" },
-      markerStart: bidirectional ? { type: MarkerType.ArrowClosed, color: "var(--color-primary)" } : undefined,
-      style: { stroke: "var(--color-primary)", strokeWidth: 2 },
-      labelStyle: { fill: "var(--color-text-secondary)", fontSize: 10, fontWeight: 600 },
-      labelBgStyle: { fill: "var(--color-surface)", fillOpacity: 0.95 },
-    };
-  });
+  }, [publications]);
+  const nameOf = (key) => (key === null || key === undefined || key === INTERNET_KEY
+    ? t("GatewayNode.internet", { ns: "network" })
+    : (item.nodes.find((node) => String(node.node_key) === String(key))?.name ?? String(key)));
+
+  const nodes = useMemo(() => {
+    const machines = item.nodes.map((node, index) => {
+      // 老師在課程環境排好的座標優先；環境版本查不到才退回依序排開
+      const saved = item.nodePositions?.[node.node_key];
+      return {
+        id: String(node.node_key),
+        type: "classMachine",
+        position: saved
+          ? { x: Number(saved.x), y: Number(saved.y) }
+          : { x: 70 + index * 250, y: 95 + (index % 2) * 35 },
+        data: { node, publicationCount: publicationCounts[node.node_key] ?? 0 },
+      };
+    });
+    /* 網際網路節點放在最右邊那台機器的右側 */
+    const rightmost = Math.max(0, ...machines.map((node) => node.position.x));
+    return [...machines, { id: INTERNET_KEY, type: "gateway", position: { x: rightmost + 260, y: 95 }, data: {} }];
+  }, [item.nodes, item.nodePositions, publicationCounts]);
+
+  const edges = useMemo(() => {
+    const peers = item.topologyEdges.map((edge, index) => {
+      const id = `peer-${edge.id ?? index}`;
+      const bidirectional = edge.direction === "bidirectional";
+      return {
+        id,
+        source: String(edge.source_node_key),
+        target: String(edge.target_node_key),
+        type: "connection",
+        data: {
+          edge: { source_vmid: String(edge.source_node_key), target_vmid: String(edge.target_node_key), direction: edge.direction, ports: [peerDetailPort(edge)] },
+          label: peerEdgeLabel(bidirectional ? t("ClassWorkspacePage.directionBidirectional") : t("ClassWorkspacePage.directionOneWay"), edge),
+          showLabel: true,
+          selected: selectedKey === id,
+          onSelect: () => setSelectedKey((current) => (current === id ? "" : id)),
+        },
+        zIndex: 5,
+      };
+    });
+    const inbound = publications.map((publication) => {
+      const id = `publication-${publication.id}`;
+      return {
+        id,
+        source: INTERNET_KEY,
+        target: String(publication.nodeKey),
+        type: "connection",
+        data: {
+          edge: { source_vmid: null, target_vmid: String(publication.nodeKey), direction: "one_way", ports: [publicationDetailPort(publication)] },
+          label: publicationLabel(t, publication),
+          showLabel: true,
+          selected: selectedKey === id,
+          onSelect: () => setSelectedKey((current) => (current === id ? "" : id)),
+        },
+        zIndex: 5,
+      };
+    });
+    /* 上網線是預設策略：每台都有，預設藏起來、要看再開（與防火牆頁相同） */
+    const outbound = item.nodes.map((node) => {
+      const id = `outbound-${node.node_key}`;
+      return {
+        id,
+        source: String(node.node_key),
+        target: INTERNET_KEY,
+        type: "connection",
+        hidden: !showInternet,
+        data: {
+          edge: { source_vmid: String(node.node_key), target_vmid: null, direction: "one_way", ports: [] },
+          label: "",
+          showLabel: true,
+          selected: selectedKey === id,
+          onSelect: () => setSelectedKey((current) => (current === id ? "" : id)),
+        },
+        zIndex: 4,
+      };
+    });
+    return routeEdges([...peers, ...inbound, ...outbound], nodes);
+  }, [item.topologyEdges, item.nodes, publications, nodes, selectedKey, showInternet, t]);
+
+  const detail = useMemo(() => edges.find((edge) => edge.id === selectedKey)?.data.edge ?? null, [edges, selectedKey]);
+  const detailPanel = useDialogPresence(detail, 220);
+  function toggleInternet() {
+    const next = !showInternet;
+    setShowInternet(next);
+    if (!next && selectedKey.startsWith("outbound-")) setSelectedKey("");
+  }
   // 高度跟著節點數走，一台機器不該撐出一整片空網格。
-  const canvasHeight = Math.min(400, 260 + Math.max(0, item.nodes.length - 1) * 70);
-  return <div className={styles.readonlyTopology} style={{ height: canvasHeight }}>
+  const canvasHeight = Math.min(420, 280 + Math.max(0, item.nodes.length - 1) * 70);
+  return <div className={`${styles.readonlyTopology} ${fwStyles.flowWrap}`} style={{ height: canvasHeight }}>
     <ReactFlow
       nodes={nodes}
       edges={edges}
       nodeTypes={READONLY_NODE_TYPES}
+      edgeTypes={READONLY_EDGE_TYPES}
       nodesDraggable={false}
       nodesConnectable={false}
       elementsSelectable={false}
+      onEdgeClick={(_, edge) => edge.data?.onSelect?.()}
+      onPaneClick={() => setSelectedKey("")}
+      deleteKeyCode={null}
       fitView
-      fitViewOptions={{ padding: 0.25, maxZoom: 1.1 }}
-      minZoom={0.65}
-      maxZoom={1.2}
+      fitViewOptions={{ padding: 0.2 }}
+      minZoom={0.5}
+      maxZoom={1.5}
+      colorMode={theme}
       proOptions={{ hideAttribution: true }}
     >
-      <Background gap={20} size={1} />
+      <Background variant={BackgroundVariant.Dots} gap={20} size={1} />
+      <Controls showInteractive={false} />
+      <Panel position="top-left">
+        <div className={fwStyles.toolbar}>
+          <button type="button" className={`${fwStyles.toolbarBtn} ${showInternet ? fwStyles.toolbarBtnActive : ""}`} onClick={toggleInternet}>
+            <MIcon name={showInternet ? "public" : "public_off"} size={16} />
+            {t("FirewallPage.internetLines", { ns: "network" })}
+          </button>
+        </div>
+      </Panel>
+      <Panel position="bottom-left" style={{ marginLeft: 60 }}>
+        <div className={fwStyles.legend}>
+          <span className={fwStyles.legendItem}><i className={`${fwStyles.legendLine} ${fwStyles.legendInbound}`} />{t("FirewallPage.legendInbound", { ns: "network" })}</span>
+          <span className={`${fwStyles.legendItem} ${showInternet ? "" : fwStyles.legendItemHidden}`}><i className={`${fwStyles.legendLine} ${fwStyles.legendOutbound}`} />{t("FirewallPage.legendOutbound", { ns: "network" })}</span>
+          <span className={fwStyles.legendItem}><i className={`${fwStyles.legendLine} ${fwStyles.legendInternal}`} />{t("FirewallPage.legendInternal", { ns: "network" })}</span>
+        </div>
+      </Panel>
     </ReactFlow>
+    {/* 只看不改：同一個細節面板，但沒有刪除鈕 */}
+    {detailPanel.item && <ConnectionDetailPanel
+      edge={detailPanel.item}
+      resolveName={nameOf}
+      allowOpen={false}
+      closing={detailPanel.closing}
+      onClose={() => setSelectedKey("")}
+    />}
   </div>;
 }
 
