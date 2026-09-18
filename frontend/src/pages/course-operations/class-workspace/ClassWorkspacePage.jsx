@@ -467,6 +467,16 @@ function PublicationSummary({ item }) {
   </div>;
 }
 
+/** 課程機器的規格合計；students 給幾就乘幾（memory_mb 換算成 GB） */
+function specTotals(nodes, students = 1) {
+  const sum = (pick) => nodes.reduce((acc, node) => acc + (Number(pick(node)) || 0), 0);
+  return {
+    cpu: sum((node) => node.cpu) * students,
+    memory: Math.round(sum((node) => (node.memory_mb ?? 0) / 1024) * students),
+    disk: sum((node) => node.disk_gb) * students,
+  };
+}
+
 function TopologyPreview({ item }) {
   const { t } = useTranslation("teaching");
   /* 畫布配色跟防火牆頁一樣跟著主題；沒有 provider 就當淺色 */
@@ -571,7 +581,9 @@ function TopologyPreview({ item }) {
   }
   // 高度跟著節點數走，一台機器不該撐出一整片空網格。
   const canvasHeight = Math.min(420, 280 + Math.max(0, item.nodes.length - 1) * 70);
-  return <div className={`${styles.readonlyTopology} ${fwStyles.flowWrap}`} style={{ height: canvasHeight }}>
+  /* .card 是 flex column：.flowWrap 的 flex:1（basis 0）+ min-height:0 會把畫布壓成 0 高，
+     inline 的 flex:none 才壓得過兩個 class */
+  return <div className={`${styles.readonlyTopology} ${fwStyles.flowWrap}`} style={{ height: canvasHeight, flex: "none" }}>
     <ReactFlow
       nodes={nodes}
       edges={edges}
@@ -643,6 +655,9 @@ function Machines({ item, templates, template, onRefresh, onTemplate, createdTem
   }
   // 鎖定後不該再擺一份選不了的清單：直接呈現已套用的環境與它的拓撲。
   if (locked) {
+    /* 每位學生的規格合計 × 人數 = 開課要吃掉的配額 */
+    const perStudentSpec = specTotals(item.nodes);
+    const classSpec = specTotals(item.nodes, Math.max(1, item.students.length));
     return <div className={styles.stack}>
       <section className={styles.card}>
         <div className={styles.cardHeader}>
@@ -652,9 +667,9 @@ function Machines({ item, templates, template, onRefresh, onTemplate, createdTem
         <div className={styles.envFacts}>
           <div><span>{t("ClassWorkspacePage.envFactPerStudent")}</span><strong>{t("ClassWorkspacePage.machineCountUnit", { count: item.nodes.length })}</strong></div>
           <div><span>{t("ClassWorkspacePage.envFactStudents")}</span><strong>{t("ClassWorkspacePage.peopleCountUnit", { count: item.students.length })}</strong></div>
-          <div><span>{t("ClassWorkspacePage.envFactTotal")}</span><strong>{t("ClassWorkspacePage.machineCountUnit", { count: item.students.length * item.nodes.length })}</strong></div>
-          <div><span>{t("ClassWorkspacePage.envFactTopology")}</span><strong>{item.topologyEdges.length ? t("ClassWorkspacePage.envFactLinkCount", { count: item.topologyEdges.length }) : t("ClassWorkspacePage.envFactNoLink")}</strong></div>
-          <div><span>{t("ClassWorkspacePage.envFactPublic")}</span><strong>{item.publications.length ? t("ClassWorkspacePage.envFactPublicCount", { count: item.publications.length }) : t("ClassWorkspacePage.envFactNoPublic")}</strong></div>
+          {/* 拓撲與對外服務在下面的畫布看得到，這裡只講開課會吃掉多少資源 */}
+          <div><span>{t("ClassWorkspacePage.envFactPerStudentSpec")}</span><strong title={t("ClassWorkspacePage.envFactSpecValue", perStudentSpec)}>{t("ClassWorkspacePage.envFactSpecValue", perStudentSpec)}</strong></div>
+          <div><span>{t("ClassWorkspacePage.envFactClassSpec")}</span><strong title={t("ClassWorkspacePage.envFactSpecValue", classSpec)}>{t("ClassWorkspacePage.envFactSpecValue", classSpec)}</strong></div>
         </div>
         {item.publications.length > 0 && <PublicationSummary item={item} />}
         {item.nodes.length > 0 && <TopologyPreview item={item} />}
