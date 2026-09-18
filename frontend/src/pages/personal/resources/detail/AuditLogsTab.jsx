@@ -4,6 +4,7 @@ import styles from "./ResourceDetailPage.module.scss";
 import LoadingState from "../../../../components/LoadingState/LoadingState";
 import EmptyState from "../../../../components/EmptyState/EmptyState";
 import { AuditLogsService } from "../../../../services/auditLogs";
+import { formatDateTime } from "../../../../utils/formatDate";
 
 /** 依動作類型決定 badge 色系（僅使用四種語意色） */
 function actionBadgeClass(action) {
@@ -35,13 +36,16 @@ export default function AuditLogsTab({ vmid }) {
       <div className={styles.card}>
         <div className={styles.cardHeader}>
           <div>
-            <h2 className={styles.cardTitle}>{t("AuditLogsTab.title")}</h2>
-            <p className={styles.cardDesc}>{t("AuditLogsTab.desc", { count: logs.count })}</p>
+            <h2 className={styles.cardTitle}>
+              {t("AuditLogsTab.title")}
+              <span className={`${styles.badge} ${styles.badge_muted}`}>{logs.count}</span>
+            </h2>
           </div>
         </div>
         {logs.data.length === 0 ? (
           <EmptyState icon="receipt_long" title={t("AuditLogsTab.empty")} />
         ) : (
+          <div className={styles.tableScroll}>
           <table className={styles.table}>
             <thead>
               <tr>
@@ -55,7 +59,7 @@ export default function AuditLogsTab({ vmid }) {
               {logs.data.map((log) => (
                 <tr key={log.id} className={styles.tr}>
                   <td className={`${styles.td} ${styles.nowrapCell}`}>
-                    {new Date(log.created_at).toLocaleString("zh-TW")}
+                    {formatDateTime(log.created_at)}
                   </td>
                   <td className={styles.td}>
                     <div className={styles.userCell}>
@@ -77,6 +81,7 @@ export default function AuditLogsTab({ vmid }) {
               ))}
             </tbody>
           </table>
+          </div>
         )}
       </div>
     </div>

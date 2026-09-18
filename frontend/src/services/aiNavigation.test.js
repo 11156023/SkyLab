@@ -85,12 +85,12 @@ describe("AiNavigationService.resolve", () => {
     expect(body.history[0].content).toHaveLength(2000);
   });
 
-  test("配置模式帶上對話與問過的欄位", async () => {
+  test("配置模式帶上獨立保存的需求與正在回答的欄位", async () => {
     fetchMock.mockResolvedValueOnce(jsonRes(200, { ready: false }));
 
     await AiNavigationService.intake(
       [{ role: "user", content: "我要架網站" }, { role: "system", content: "略過" }],
-      ["purpose", "gpu"],
+      { facts: { purpose: "Node.js 網站", gpu: "不需要 GPU" }, pendingKey: "duration", goal: "Node.js 網站上線" },
     );
 
     const [url, init] = fetchMock.mock.calls[0];
@@ -98,7 +98,9 @@ describe("AiNavigationService.resolve", () => {
     expect(init.method).toBe("POST");
     expect(JSON.parse(init.body)).toEqual({
       history: [{ role: "user", content: "我要架網站" }],
-      asked: ["purpose", "gpu"],
+      facts: { purpose: "Node.js 網站", gpu: "不需要 GPU" },
+      pending_key: "duration",
+      goal: "Node.js 網站上線",
     });
   });
 

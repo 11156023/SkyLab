@@ -1,12 +1,7 @@
+import { formatShortDateTime } from "./formatDate";
+
 function formatDateTime(value) {
-  if (!value) return "依環境政策";
-  return new Date(value).toLocaleString("zh-TW", {
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    hour12: false,
-  });
+  return formatShortDateTime(value, "依環境政策");
 }
 
 function machineFromResource(resource, fallback = {}) {
@@ -20,11 +15,13 @@ function machineFromResource(resource, fallback = {}) {
     os: resource.os_info ?? fallback.os ?? "—",
     status: resource.status ?? fallback.status ?? "unknown",
     ip: resource.ip_address ?? fallback.ip ?? "N/A",
-    publicUrl: fallback.publicUrl ?? null,
+    publicUrl: fallback.publicUrl ?? resource.public_urls?.[0] ?? null,
     node: resource.node ?? fallback.node ?? "—",
     // 規格：讓環境內的機器也看得到 CPU/RAM，不必進詳情頁
     cpu: resource.maxcpu ?? fallback.cpu ?? null,
     memoryBytes: resource.maxmem ?? fallback.memoryBytes ?? null,
+    /* 老師看學生的班級機：一列一位學生，名字放在機器名旁邊 */
+    ownerName: resource.owner_name ?? null,
     resource,
   };
 }
@@ -57,7 +54,6 @@ function quickPracticeGroups(resources, sessions) {
     return {
       id: session.id,
       kind: "quick_practice",
-      kindLabel: session.kindLabel ?? "快速練習",
       title: session.title,
       status: session.status,
       timingLabel: `${formatDateTime(session.expiresAt)} 到期`,
@@ -77,13 +73,20 @@ function courseGroups(resources, excludedRequestIds) {
     grouped.get(id).push(resource);
   }
   return [...grouped.entries()].map(([classId, rows]) => {
-    const machines = rows.map((resource) => machineFromResource(resource));
+    /* 老師取的機器名沿 os_info 帶出來（與快速練習同一個欄位）。舊機器沒有這個
+       值，退回主機名——總比顯示空白好。 */
+    const machines = rows.map((resource) => machineFromResource(resource, {
+      name: resource.os_info || undefined,
+    }));
     const nodes = new Set(machines.map((machine) => machine.node).filter(Boolean));
-    const title = rows.find((resource) => resource.environment_type)?.environment_type ?? `課程 ${classId.slice(0, 8)}`;
+    const title = rows.find((resource) => resource.teaching_class_name)?.teaching_class_name
+      ?? rows.find((resource) => resource.environment_type)?.environment_type
+      ?? `#${classId.slice(0, 8)}`;
     return {
       id: `course-${classId}`,
       kind: "course",
-      kindLabel: "課堂機器",
+      /* 這組是「我的班級機器」還是「我教的班的學生機器」，徽章據此換色 */
+      classRelation: rows.find((resource) => resource.class_relation)?.class_relation ?? null,
       title,
       status: machines.every((machine) => machine.status === "running") ? "running" : "active",
       timingLabel: "依課程時段管理",

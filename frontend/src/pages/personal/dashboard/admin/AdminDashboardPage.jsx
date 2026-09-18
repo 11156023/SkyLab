@@ -8,6 +8,7 @@ import { useAuth } from "../../../../contexts/AuthContext";
 import { AiApiService } from "../../../../services/aiApi";
 import { BatchProvisionService } from "../../../../services/batchProvision";
 import { JobsService } from "../../../../services/jobs";
+import { MiningIncidentsService } from "../../../../services/miningIncidents";
 import { MonitoringService } from "../../../../services/monitoring";
 import { SpecChangeRequestsService } from "../../../../services/specChangeRequests";
 import { VmRequestsService } from "../../../../services/vmRequests";
@@ -44,7 +45,7 @@ export default function AdminDashboardPage() {
   const [conversationPrompt, setConversationPrompt] = useState("");
   /* 放大模式：對話佔滿版面，上面的待辦暫時收起來 */
   const [focusMode, setFocusMode] = useState(false);
-  const [checks, setChecks] = useState({ alerts: [], failedJobs: 0, requests: 0, batches: 0, aiRequests: 0, unavailable: 0 });
+  const [checks, setChecks] = useState({ alerts: [], failedJobs: 0, requests: 0, batches: 0, aiRequests: 0, miningIncidents: 0, unavailable: 0 });
   const [loading, setLoading] = useState(true);
   const [checkVersion, setCheckVersion] = useState(0);
 
@@ -59,17 +60,23 @@ export default function AdminDashboardPage() {
         AiApiService.listAllRequests(),
         JobsService.list({ statuses: ["failed", "blocked"], historyDays: 7, limit: 50 }),
         MonitoringService.listAlerts({ active: true, limit: 100 }),
+        MiningIncidentsService.list({ limit: 200 }),
       ]);
       if (!active) return;
       const value = (index) => settled[index].status === "fulfilled" ? settled[index].value : null;
       const aiPending = value(3)?.data?.filter((request) => request.status === "pending").length ?? 0;
       const alertRows = value(5);
+      /* 只算還沒被管理員定奪的事件（detected 待判斷、suspended 已凍結待處置） */
+      const miningRows = value(6);
+      const miningActive = (Array.isArray(miningRows) ? miningRows : miningRows?.data ?? [])
+        .filter((incident) => incident.status === "detected" || incident.status === "suspended").length;
       setChecks({
         requests: countRows(value(0)) + countRows(value(1)),
         batches: countRows(value(2)),
         aiRequests: aiPending,
         failedJobs: countRows(value(4)),
         alerts: Array.isArray(alertRows) ? alertRows : alertRows?.data ?? [],
+        miningIncidents: miningActive,
         unavailable: settled.filter((result) => result.status === "rejected").length,
       });
       setLoading(false);
@@ -85,8 +92,8 @@ export default function AdminDashboardPage() {
     [overview?.issues, checks.alerts],
   );
   const urgent = useMemo(
-    () => buildUrgentRows({ infraProblems, failedJobs: checks.failedJobs }, t),
-    [infraProblems, checks.failedJobs, t],
+    () => buildUrgentRows({ infraProblems, failedJobs: checks.failedJobs, miningIncidents: checks.miningIncidents }, t),
+    [infraProblems, checks.failedJobs, checks.miningIncidents, t],
   );
   const today = useMemo(() => buildTodayRows(checks, t), [checks, t]);
   const stats = useMemo(() => buildFyiStats(overview, t), [overview, t]);
@@ -124,7 +131,7 @@ export default function AdminDashboardPage() {
   ];
 
   return <div className={`${styles.page} ${focusMode ? styles.pageFocused : ""}`}>
-    <PageHeader title={t("AdminDashboardPage.greeting", { name })} subtitle={t("AdminDashboardPage.subtitle")}>
+    <PageHeader title={t("AdminDashboardPage.greeting", { name })}>
       {!focusMode && <div className={styles.refreshControls}>
         <span className={styles.checkedAt}>
           {overview
@@ -150,6 +157,45 @@ export default function AdminDashboardPage() {
         <MIcon name="chevron_right" size={17} className={styles.statArrow} />
       </button>)}
     </section>}
+
+    {/* AI 助手：沒開始對話前只是一條輸入列，不要先佔掉整片高度 */}
+    <section className={`${styles.assistant} ${focusMode ? styles.assistantFocused : ""}`} aria-labelledby="admin-assistant-title">
+      {/* 閒置時不出現整條標頭，助手身份直接放在輸入列上 */}
+      {conversationPrompt && <div className={styles.assistantHead}>
+        <div className={styles.assistantIdentity}>
+          <span className={styles.assistantIcon}><MIcon name="support_agent" size={24} /></span>
+          <h2 id="admin-assistant-title">{t("AdminDashboardPage.assistantLabel")}</h2>
+        </div>
+        <div className={styles.assistantActions}>
+          <button type="button" onClick={() => setFocusMode((value) => !value)}>
+            <MIcon name={focusMode ? "close_fullscreen" : "open_in_full"} size={15} />
+            {focusMode ? t("AdminDashboardPage.backToOverview") : t("AdminDashboardPage.expandChat")}
+          </button>
+          <button type="button" onClick={resetAssistant}>
+            <MIcon name="refresh" size={15} />
+            {t("AdminDashboardPage.askAgain")}
+          </button>
+        </div>
+      </div>}
+
+      {conversationPrompt ? <AiPveChat initialPrompt={conversationPrompt} compact={!focusMode} fill={focusMode} />
+        : <form className={styles.assistantForm} onSubmit={openAssistant}>
+          <div className={styles.assistantIdentity}>
+            <span className={styles.assistantIcon}><MIcon name="support_agent" size={20} /></span>
+            <span id="admin-assistant-title" className={styles.assistantName}>{t("AdminDashboardPage.assistantLabel")}</span>
+          </div>
+          <div className={styles.assistantInput}>
+            <input ref={assistantInputRef} aria-label={t("AdminDashboardPage.assistantLabel")} value={assistantPrompt} onChange={(event) => setAssistantPrompt(event.target.value)} placeholder={t("AdminDashboardPage.promptPlaceholder")} autoComplete="off" />
+            <button type="submit" disabled={!assistantPrompt.trim()}>{t("AdminDashboardPage.startAsking")}<MIcon name="arrow_forward" size={16} /></button>
+          </div>
+          <div className={styles.suggestionButtons}>
+            {suggestions.map((suggestion) => <button type="button" key={suggestion} onClick={() => {
+              setAssistantPrompt(suggestion);
+              assistantInputRef.current?.focus();
+            }}>{suggestion}</button>)}
+          </div>
+        </form>}
+    </section>
 
     <section className={styles.attention} aria-label={t("AdminDashboardPage.attentionTitle")} aria-busy={busy}>
       {busy ? <div className={styles.checking} role="status"><MIcon name="sync" size={18} className={styles.spin} />{t("AdminDashboardPage.checking")}</div> : <>
@@ -207,40 +253,5 @@ export default function AdminDashboardPage() {
       </div>}
     </section>
     </>}
-
-    {/* AI 助手：沒開始對話前只是一條輸入列，不要先佔掉整片高度 */}
-    <section className={`${styles.assistant} ${focusMode ? styles.assistantFocused : ""}`} aria-labelledby="admin-assistant-title">
-      <div className={styles.assistantHead}>
-        <div className={styles.assistantIdentity}>
-          <span className={styles.assistantIcon}><MIcon name="support_agent" size={24} /></span>
-          <h2 id="admin-assistant-title">{t("AdminDashboardPage.assistantLabel")}</h2>
-        </div>
-        {conversationPrompt && <div className={styles.assistantActions}>
-          <button type="button" onClick={() => setFocusMode((value) => !value)}>
-            <MIcon name={focusMode ? "close_fullscreen" : "open_in_full"} size={15} />
-            {focusMode ? t("AdminDashboardPage.backToOverview") : t("AdminDashboardPage.expandChat")}
-          </button>
-          <button type="button" onClick={resetAssistant}>
-            <MIcon name="refresh" size={15} />
-            {t("AdminDashboardPage.askAgain")}
-          </button>
-        </div>}
-      </div>
-
-      {conversationPrompt ? <AiPveChat initialPrompt={conversationPrompt} compact={!focusMode} fill={focusMode} />
-        : <form className={styles.assistantForm} onSubmit={openAssistant}>
-          <div className={styles.assistantInput}>
-            <MIcon name="terminal" size={19} />
-            <input ref={assistantInputRef} aria-label={t("AdminDashboardPage.assistantLabel")} value={assistantPrompt} onChange={(event) => setAssistantPrompt(event.target.value)} placeholder={t("AdminDashboardPage.promptPlaceholder")} autoComplete="off" />
-            <button type="submit" disabled={!assistantPrompt.trim()}>{t("AdminDashboardPage.startAsking")}<MIcon name="arrow_forward" size={16} /></button>
-          </div>
-          <div className={styles.suggestionButtons}>
-            {suggestions.map((suggestion) => <button type="button" key={suggestion} onClick={() => {
-              setAssistantPrompt(suggestion);
-              assistantInputRef.current?.focus();
-            }}>{suggestion}</button>)}
-          </div>
-        </form>}
-    </section>
   </div>;
 }

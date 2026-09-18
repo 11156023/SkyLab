@@ -3,6 +3,7 @@ import { createPortal } from "react-dom";
 import { useLocation, useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { useAuth }  from "../../contexts/AuthContext";
+import { useUnsavedChanges } from "../../contexts/UnsavedChangesContext";
 import { SUPPORTED_LANGUAGES, setLanguage } from "../../i18n";
 import styles from "./Sidebar.module.scss";
 import MIcon from "../MIcon";
@@ -67,25 +68,6 @@ const navGroups = [
     ],
   },
   {
-    key: "system",
-    labelKey: "Sidebar.groupSystem",
-    icon: "tune",
-    items: [
-      { key: "admin",         labelKey: "Sidebar.itemAdmin", icon: "admin_panel_settings", adminOnly: true },
-      { key: "ip-management", labelKey: "Sidebar.itemIpManagement",    icon: "lan", adminOnly: true },
-      { key: "domain",        labelKey: "Sidebar.itemDomain",   icon: "domain", adminOnly: true },
-      { key: "gateway",       labelKey: "Sidebar.itemGateway",    icon: "dns", adminOnly: true },
-      /* 原「系統設定」的七個分頁，2026-09 各自升格為獨立頁面 */
-      { key: "pve-connections", labelKey: "Sidebar.itemPveConnections", icon: "device_hub", adminOnly: true },
-      { key: "scheduler",     labelKey: "Sidebar.itemScheduler",  icon: "settings_input_component", adminOnly: true },
-      { key: "governance",    labelKey: "Sidebar.itemGovernance", icon: "policy", adminOnly: true },
-      { key: "quotas",        labelKey: "Sidebar.itemQuotas",     icon: "data_usage", adminOnly: true },
-      { key: "ldap",          labelKey: "Sidebar.itemLdap",       icon: "badge", adminOnly: true },
-      { key: "nodes",         labelKey: "Sidebar.itemNodes",      icon: "lock", adminOnly: true },
-      { key: "storage",       labelKey: "Sidebar.itemStorage",    icon: "storage", adminOnly: true },
-    ],
-  },
-  {
     key: "monitoring",
     labelKey: "Sidebar.groupMonitoring",
     icon: "insights",
@@ -95,6 +77,22 @@ const navGroups = [
       { key: "audit",         labelKey: "Sidebar.itemAudit",     icon: "receipt_long", adminOnly: true },
     ],
   },
+];
+
+/* 系統管理已移出主導覽分類：由底部「管理員設定」進入專屬核心側欄（僅管理員），路由沿用原本的網址 */
+const adminSettingsItems = [
+  { key: "admin",           labelKey: "Sidebar.itemAdmin",          icon: "admin_panel_settings" },
+  { key: "ip-management",   labelKey: "Sidebar.itemIpManagement",   icon: "lan" },
+  { key: "domain",          labelKey: "Sidebar.itemDomain",         icon: "domain" },
+  { key: "gateway",         labelKey: "Sidebar.itemGateway",        icon: "dns" },
+  /* 原「系統設定」的七個分頁，2026-09 各自升格為獨立頁面 */
+  { key: "pve-connections", labelKey: "Sidebar.itemPveConnections", icon: "device_hub" },
+  { key: "scheduler",       labelKey: "Sidebar.itemScheduler",      icon: "settings_input_component" },
+  { key: "governance",      labelKey: "Sidebar.itemGovernance",     icon: "policy" },
+  { key: "quotas",          labelKey: "Sidebar.itemQuotas",         icon: "data_usage" },
+  { key: "ldap",            labelKey: "Sidebar.itemLdap",           icon: "badge" },
+  { key: "nodes",           labelKey: "Sidebar.itemNodes",          icon: "lock" },
+  { key: "storage",         labelKey: "Sidebar.itemStorage",        icon: "storage" },
 ];
 
 /** 釘選狀態存 localStorage，跨 session 保留（不可用時僅本次瀏覽生效） */
@@ -344,8 +342,11 @@ export default function Sidebar({ collapsed, mobileOpen, onToggle, onClose }) {
   const langBtnRef = useRef(null);
   const userBtnRef = useRef(null);
   const { user, logout } = useAuth();
+  const { confirmLeave } = useUnsavedChanges();
   const isAdmin = Boolean(user?.is_superuser || user?.role === "admin");
   const canTeach = isAdmin || user?.role === "teacher";
+  /* 身在系統管理頁面時，整支側欄切換成「管理員設定」核心側欄 */
+  const inAdminSettings = isAdmin && adminSettingsItems.some((item) => item.key === active);
   const visibleTopItems = topItems.filter((item) => !item.studentOnly || !canTeach);
   const visibleNavGroups = navGroups
     .map((group) => ({
@@ -378,7 +379,8 @@ export default function Sidebar({ collapsed, mobileOpen, onToggle, onClose }) {
     .filter(Boolean)
     .join(" ");
 
-  const handleNav = (key) => {
+  const handleNav = async (key) => {
+    if (!(await confirmLeave())) return;
     navigate(`/${key}`);
     onClose?.();
   };
@@ -407,6 +409,36 @@ export default function Sidebar({ collapsed, mobileOpen, onToggle, onClose }) {
       <div className={styles.brandDivider} />
 
       {/* ===== Main nav ===== */}
+      {inAdminSettings ? (
+        <nav className={styles.nav}>
+          <button
+            type="button"
+            className={styles.navItem}
+            onClick={() => handleNav("dashboard")}
+            title={collapsed ? t("Sidebar.backToConsole") : undefined}
+            aria-label={t("Sidebar.backToConsole")}
+          >
+            <MIcon name="arrow_back" size={20} />
+            {!collapsed && <span className={styles.navLabel}>{t("Sidebar.backToConsole")}</span>}
+          </button>
+          {!collapsed && (
+            <div className={styles.sectionTitle}>{t("Sidebar.adminSettings")}</div>
+          )}
+          {adminSettingsItems.map((item) => (
+            <button
+              key={item.key}
+              type="button"
+              className={`${styles.navItem} ${active === item.key ? styles.active : ""}`}
+              onClick={() => handleNav(item.key)}
+              title={collapsed ? t(item.labelKey) : undefined}
+              aria-label={t(item.labelKey)}
+            >
+              <MIcon name={item.icon} size={20} />
+              {!collapsed && <span className={styles.navLabel}>{t(item.labelKey)}</span>}
+            </button>
+          ))}
+        </nav>
+      ) : (
       <nav className={styles.nav}>
         {visibleTopItems.map((item) => (
           <button
@@ -460,9 +492,24 @@ export default function Sidebar({ collapsed, mobileOpen, onToggle, onClose }) {
           />
         ))}
       </nav>
+      )}
 
       {/* ===== Bottom section ===== */}
       <div className={styles.bottom}>
+        {/* 管理員設定：系統管理頁面的入口，進入後側欄切換成核心側欄 */}
+        {isAdmin && (
+          <button
+            type="button"
+            className={`${styles.navItem} ${inAdminSettings ? styles.active : ""}`}
+            onClick={() => handleNav("admin")}
+            title={collapsed ? t("Sidebar.adminSettings") : undefined}
+            aria-label={t("Sidebar.adminSettings")}
+          >
+            <MIcon name="admin_panel_settings" size={20} />
+            {!collapsed && <span className={styles.navLabel}>{t("Sidebar.adminSettings")}</span>}
+          </button>
+        )}
+
         {/* 背景任務（全站入口，狀態由 DashboardLayout 的 JobsProvider 提供） */}
         <JobsButton collapsed={collapsed} />
 

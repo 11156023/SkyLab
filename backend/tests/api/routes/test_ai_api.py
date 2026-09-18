@@ -6,7 +6,7 @@ from sqlmodel import Session
 
 from app.core.config import settings
 from app.features.ai.config import settings as ai_api_settings
-from app.models import AIAPIUsage, get_datetime_utc
+from app.models import AIAPIUsage, AITemplateCallLog, get_datetime_utc
 from app.repositories import user as user_repo
 from app.schemas import UserCreate
 from tests.utils.user import user_authentication_headers
@@ -177,6 +177,136 @@ def test_ai_api_proxy_usage_my_uses_jwt_auth(
         "input_tokens": 123,
         "output_tokens": 45,
     }
+
+
+def test_ai_api_my_usage_and_records_only_include_key_calls(
+    client: TestClient,
+    superuser_token_headers: dict[str, str],
+    db: Session,
+) -> None:
+    email = _unique_email("ai-api-unified-usage@example.com")
+    password = random_lower_string()
+    user = user_repo.create_user(
+        session=db,
+        user_create=UserCreate(email=email, password=password),
+    )
+    db.commit()
+    db.refresh(user)
+    user_headers = user_authentication_headers(
+        client=client,
+        email=email,
+        password=password,
+    )
+
+    _create_and_approve_ai_api_request(
+        client=client,
+        user_headers=user_headers,
+        superuser_token_headers=superuser_token_headers,
+        purpose="Track unified AI usage across model and system routes.",
+        api_key_name="unified-key",
+    )
+    credentials_response = client.get(
+        f"{settings.API_V1_STR}/ai-api/credentials/my",
+        headers=user_headers,
+    )
+    assert credentials_response.status_code == 200
+    credential_id = uuid.UUID(credentials_response.json()["data"][0]["id"])
+
+    now = get_datetime_utc()
+    db.add(
+        AIAPIUsage(
+            user_id=user.id,
+            credential_id=credential_id,
+            model_name="Qwen/Qwen3-14B-FP8",
+            request_type="chat_completion",
+            input_tokens=100,
+            output_tokens=50,
+            request_duration_ms=800,
+            status="success",
+            created_at=now - timedelta(hours=3),
+        )
+    )
+    db.add(
+        AITemplateCallLog(
+            user_id=user.id,
+            call_type="recommend",
+            model_name="Qwen/Qwen3-14B-FP8",
+            preset="pve-ai",
+            input_tokens=30,
+            output_tokens=20,
+            request_duration_ms=500,
+            status="success",
+            created_at=now - timedelta(hours=2),
+        )
+    )
+    db.add(
+        AITemplateCallLog(
+            user_id=user.id,
+            call_type="chat",
+            model_name="openai/gpt-oss-20B",
+            input_tokens=10,
+            output_tokens=5,
+            status="error",
+            error_message="upstream error",
+            created_at=now - timedelta(hours=1),
+        )
+    )
+    db.commit()
+
+    stats_response = client.get(
+        f"{settings.API_V1_STR}/ai-api/usage/my",
+        headers=user_headers,
+        params={
+            "start_date": (now - timedelta(days=2)).isoformat(),
+            "end_date": now.isoformat(),
+        },
+    )
+    assert stats_response.status_code == 200
+    stats = stats_response.json()
+    assert stats["total_requests"] == 1
+    assert stats["total_input_tokens"] == 100
+    assert stats["total_output_tokens"] == 50
+    assert stats["by_model"]["Qwen/Qwen3-14B-FP8"] == {
+        "requests": 1,
+        "input_tokens": 100,
+        "output_tokens": 50,
+    }
+    assert "openai/gpt-oss-20B" not in stats["by_model"]
+
+    records_response = client.get(
+        f"{settings.API_V1_STR}/ai-api/usage/records/my",
+        headers=user_headers,
+        params={
+            "start_date": (now - timedelta(days=2)).isoformat(),
+            "end_date": now.isoformat(),
+        },
+    )
+    assert records_response.status_code == 200
+    payload = records_response.json()
+    assert payload["count"] == 1
+    assert len(payload["data"]) == 1
+    record = payload["data"][0]
+    assert record["route"] == "model"
+    assert record["credential_id"] == str(credential_id)
+    assert record["api_key_name"] == "unified-key"
+    assert record["api_key_prefix"].startswith("ccai_")
+    assert record["call_type"] == "chat_completion"
+    assert record["preset"] is None
+    assert record["input_tokens"] == 100
+    assert record["output_tokens"] == 50
+    assert record["total_tokens"] == 150
+    assert record["request_duration_ms"] == 800
+
+    paged_response = client.get(
+        f"{settings.API_V1_STR}/ai-api/usage/records/my",
+        headers=user_headers,
+        params={"skip": 0, "limit": 1},
+    )
+    assert paged_response.status_code == 200
+    paged = paged_response.json()
+    assert paged["count"] == 1
+    assert len(paged["data"]) == 1
+    assert paged["data"][0]["route"] == "model"
 
 
 def test_ai_api_requests_require_admin_for_review(

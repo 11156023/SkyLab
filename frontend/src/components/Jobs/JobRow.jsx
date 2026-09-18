@@ -1,6 +1,7 @@
 import { useTranslation } from "react-i18next";
 import MIcon from "../MIcon";
 import styles from "./Jobs.module.scss";
+import { formatShortDateTime } from "../../utils/formatDate";
 
 /** 任務類型顯示名稱（與 JobsPage 的 KIND_LABELS 對齊，popover 用短版） */
 export const JOB_KIND_LABEL_KEYS = {
@@ -20,19 +21,6 @@ export const JOB_STATUS_META_KEYS = {
   blocked:   { labelKey: "JobRow.statusBlocked",   icon: "error_outline", tone: "tonePending" },
   cancelled: { labelKey: "JobRow.statusCancelled", icon: "cancel",        tone: "toneMuted" },
 };
-
-function fmtTime(iso) {
-  try {
-    return new Intl.DateTimeFormat("zh-TW", {
-      month: "2-digit",
-      day: "2-digit",
-      hour: "2-digit",
-      minute: "2-digit",
-    }).format(new Date(iso));
-  } catch {
-    return iso;
-  }
-}
 
 export function JobRow({ job, onClick }) {
   const { t } = useTranslation("components");
@@ -72,7 +60,7 @@ export function JobRow({ job, onClick }) {
         )}
         <span className={styles.jobRowFoot}>
           <span>{t(meta.labelKey)}</span>
-          <span>{fmtTime(job.updated_at)}</span>
+          <span>{formatShortDateTime(job.updated_at)}</span>
         </span>
       </span>
     </button>

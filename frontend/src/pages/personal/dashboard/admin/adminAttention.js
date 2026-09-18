@@ -118,7 +118,7 @@ export function describeInfraProblem(row, t) {
  * 現在就處理：服務已經受影響，看到就該動手。
  * 基礎設施異常放前面，因為它會連帶讓其他東西壞掉。
  */
-export function buildUrgentRows({ infraProblems = [], failedJobs = 0 }, t) {
+export function buildUrgentRows({ infraProblems = [], failedJobs = 0, miningIncidents = 0 }, t) {
   const rows = infraProblems.map((row) => ({
     key: row.key,
     tone: row.severity === "critical" ? "critical" : "warning",
@@ -127,6 +127,18 @@ export function buildUrgentRows({ infraProblems = [], failedJobs = 0 }, t) {
     detail: describeInfraProblem(row, t),
     path: resourcePath(row),
   }));
+  /* 挖礦事件卡著一台被凍結的機器與一個等著被定奪的帳號，急迫度等同基礎設施問題 */
+  if (miningIncidents > 0) {
+    rows.push({
+      key: "mining-incidents",
+      tone: "critical",
+      icon: "report",
+      title: t("AdminDashboardPage.issueMiningTitle"),
+      detail: t("AdminDashboardPage.issueMiningDesc"),
+      count: miningIncidents,
+      path: "/monitoring",
+    });
+  }
   if (failedJobs > 0) {
     rows.push({
       key: "failed-jobs",

@@ -27,37 +27,33 @@ _RAW_LIMIT = 4000
 
 AI_JUDGEMENT_SYSTEM_PROMPT = """
 # 角色
-你是 Teacher Judge 的 AI 分析評分員。
+你是 Teacher Judge 的 AI 檢查助理。
 
 # 任務
-根據節錄後的評分表項目與 managed script 執行結果，產生老師可讀的評分建議。
+根據節錄後的檢查項目與 managed script 執行結果，產生老師可讀的核對結果與證據摘要。
 
 # 規則
 - 只能輸出 JSON，不要 markdown。
 - 你不能發明事實，只能根據 script_result.checks、errors、summary 與 metadata 判斷。
-- script check status 是事實證據；你的工作是把 evidence 對齊 rubric item，產生分數與心得。
-- 總分固定使用 5 分制，score 必須是 0 到 5 的整數，max_score 固定為 5。
+- script check status 是事實證據；你的工作是把 evidence 對齊檢查項目，說明核對狀態。
 - item_judgements 必須涵蓋每個 rubric item id；沒有 rubric_items 時才使用 script check id。
 - evidence_refs 放 script_result.checks[].id。
-- 所有 rubric_items 都是本次評量範圍，不可只回答前幾題；保留 rubric item id。
+- 所有 rubric_items 都是本次檢查範圍，不可只回答前幾題；保留 item id。
 - evidence_refs 只能引用本次 checks 已存在的 id，不得自行發明。
 - 工具缺失、timeout、skipped 或其他缺乏證據的情況使用 unknown/skipped，不得當成 pass/fail。
 - 工具成功不等於 rubric 條件成立；只有直接證據支持判定時才能使用 pass/fail。
+- `judgement_mode=teacher` 的項目只交由導師核查：必須使用 unknown，comment 說明待導師核查；可引用已收集的 evidence，但不得替導師判定 pass/fail。
 
 # 輸出格式
 {
-  "score": 0,
-  "max_score": 5,
-  "summary": "繁體中文整體心得",
+  "summary": "繁體中文檢查結果說明",
   "item_judgements": [
     {
       "item_id": "rubric 或 check id",
       "title": "項目名稱",
       "status": "pass | fail | warning | unknown | skipped",
-      "score": 0,
-      "max_score": 1,
       "evidence_refs": ["check.id"],
-      "comment": "繁體中文分析心得"
+      "comment": "繁體中文核對說明"
     }
   ]
 }
@@ -97,6 +93,7 @@ def _compact_rubric_item(item: dict[str, Any]) -> dict[str, Any]:
         "title": str(item.get("title") or "")[:240],
         "description": _truncate(item.get("description")),
         "detectable": item.get("detectable"),
+        "judgement_mode": item.get("judgement_mode") or "ai",
         "detection_method": _truncate(item.get("detection_method")),
         "fallback": _truncate(item.get("fallback")),
         "check_steps": [
@@ -124,15 +121,13 @@ def _rubric_excerpt(
 
 
 def _validate_ai_judgement(parsed: dict[str, Any], payload: dict[str, Any]) -> None:
-    """Reject structurally valid JSON whose references cannot support a grade."""
+    """Reject structurally valid JSON whose references cannot support a check result."""
 
     def invalid() -> NoReturn:
         raise HTTPException(status_code=502, detail=t("analysis.invalid_format"))
 
     if (
-        type(parsed.get("score")) is not int
-        or parsed.get("max_score") != 5
-        or not isinstance(parsed.get("summary"), str)
+        not isinstance(parsed.get("summary"), str)
         or not parsed["summary"].strip()
         or not isinstance(parsed.get("item_judgements"), list)
     ):
@@ -154,6 +149,9 @@ def _validate_ai_judgement(parsed: dict[str, Any], payload: dict[str, Any]) -> N
         invalid()
     checks_by_id = {check["id"]: check for check in checks}
     rubric_ids = {item["id"] for item in rubric_items}
+    judgement_modes = {
+        item["id"]: str(item.get("judgement_mode") or "ai") for item in rubric_items
+    }
     allowed_ids = rubric_ids or set(checks_by_id)
     items = parsed["item_judgements"]
     if allowed_ids and not items:
@@ -175,15 +173,14 @@ def _validate_ai_judgement(parsed: dict[str, Any], payload: dict[str, Any]) -> N
             or any(not isinstance(ref, str) or ref not in checks_by_id for ref in refs)
             or not isinstance(status, str)
             or status not in {"pass", "fail", "warning", "unknown", "skipped"}
-            or type(item.get("score")) is not int
-            or type(item.get("max_score")) is not int
-            or item["max_score"] < 1
         ):
             invalid()
         if status in {"pass", "fail"} and (
             not refs
             or all(checks_by_id[ref].get("status") in {"unknown", "skipped"} for ref in refs)
         ):
+            invalid()
+        if judgement_modes.get(item_id) == "teacher" and status != "unknown":
             invalid()
         seen.add(item_id)
     if rubric_ids - seen:
@@ -197,13 +194,6 @@ def _normalize_item_judgements(raw_items: Any) -> list[dict[str, Any]]:
     for raw in raw_items:
         if not isinstance(raw, dict):
             continue
-        try:
-            score = int(raw.get("score") or 0)
-            max_score = int(raw.get("max_score") or 1)
-        except (TypeError, ValueError):
-            score = 0
-            max_score = 1
-        max_score = max(1, max_score)
         evidence_refs = raw.get("evidence_refs")
         if isinstance(evidence_refs, str):
             evidence_refs = [evidence_refs]
@@ -214,8 +204,6 @@ def _normalize_item_judgements(raw_items: Any) -> list[dict[str, Any]]:
                 "item_id": str(raw.get("item_id") or raw.get("id") or ""),
                 "title": str(raw.get("title") or "")[:240],
                 "status": str(raw.get("status") or "unknown"),
-                "score": max(0, min(max_score, score)),
-                "max_score": max_score,
                 "evidence_refs": [str(ref) for ref in evidence_refs if ref is not None],
                 "comment": _truncate(raw.get("comment")),
             }
@@ -227,20 +215,27 @@ def _normalize_ai_judgement(
     parsed: dict[str, Any],
     *,
     metrics: dict[str, Any],
+    payload: dict[str, Any],
 ) -> dict[str, Any]:
-    try:
-        score = int(parsed.get("score") or 0)
-    except (TypeError, ValueError):
-        score = 0
+    rubric_items = payload.get("rubric_items")
+    judgement_modes = {
+        str(item.get("id") or ""): str(item.get("judgement_mode") or "ai")
+        for item in rubric_items or []
+        if isinstance(item, dict)
+    }
+    item_judgements = _normalize_item_judgements(parsed.get("item_judgements"))
+    for item in item_judgements:
+        item["judgement_mode"] = judgement_modes.get(item["item_id"], "ai")
+    teacher_review_item_ids = [
+        item_id for item_id, mode in judgement_modes.items() if mode == "teacher"
+    ]
     return {
         "schema_version": "teacher_judge_ai_judgement.v1",
         "status": "completed",
-        "score": max(0, min(5, score)),
-        "max_score": 5,
         "summary": _truncate(parsed.get("summary"), 2000),
-        "item_judgements": _normalize_item_judgements(
-            parsed.get("item_judgements")
-        ),
+        "item_judgements": item_judgements,
+        "requires_teacher_review": bool(teacher_review_item_ids),
+        "teacher_review_item_ids": teacher_review_item_ids,
         "metrics": metrics,
         "model": settings.VLLM_MODEL_NAME,
         "analyzed_at": _now_iso(),
@@ -251,8 +246,6 @@ def _skipped_judgement(reason: str) -> dict[str, Any]:
     return {
         "schema_version": "teacher_judge_ai_judgement.v1",
         "status": "skipped",
-        "score": None,
-        "max_score": 5,
         "summary": reason,
         "item_judgements": [],
         "analyzed_at": _now_iso(),
@@ -263,9 +256,7 @@ def _failed_judgement(message: str) -> dict[str, Any]:
     return {
         "schema_version": "teacher_judge_ai_judgement.v1",
         "status": "failed",
-        "score": None,
-        "max_score": 5,
-        "summary": "AI 分析失敗。",
+        "summary": "AI 核對失敗。",
         "error": _truncate(message, 1000),
         "item_judgements": [],
         "analyzed_at": _now_iso(),
@@ -276,9 +267,7 @@ def pending_judgement() -> dict[str, Any]:
     return {
         "schema_version": "teacher_judge_ai_judgement.v1",
         "status": "pending",
-        "score": None,
-        "max_score": 5,
-        "summary": "AI 分析排隊中。",
+        "summary": "AI 核對排隊中。",
         "item_judgements": [],
         "analyzed_at": None,
     }
@@ -333,7 +322,7 @@ async def _call_ai_judgement(payload: dict[str, Any]) -> dict[str, Any]:
     if not isinstance(parsed, dict):
         raise HTTPException(status_code=502, detail=t("analysis.invalid_format"))
     _validate_ai_judgement(parsed, payload)
-    return _normalize_ai_judgement(parsed, metrics=dict(metrics))
+    return _normalize_ai_judgement(parsed, metrics=dict(metrics), payload=payload)
 
 
 async def _analyze_one_target(
@@ -349,7 +338,7 @@ async def _analyze_one_target(
         error = (
             str(validation.get("error"))
             if isinstance(validation, dict) and validation.get("error")
-            else "JSON 驗證未通過，略過 AI 分析。"
+            else "JSON 驗證未通過，略過 AI 核對。"
         )
         result["ai_judgement"] = _skipped_judgement(error)
         return result

@@ -33,6 +33,7 @@ from app.ai.teacher_judge.schemas import (
     TeacherJudgeSessionMessageCreateRequest,
     TeacherJudgeSessionMessagePublic,
     TeacherJudgeSessionPublic,
+    TeacherJudgeSessionScriptCreateRequest,
     TeacherJudgeSessionUpdateRequest,
 )
 from app.ai.teacher_judge.script_artifact_service import create_artifact
@@ -166,7 +167,7 @@ def create_session(
                 session=session,
                 teaching_class_id=teaching_class_id,
                 created_by=current_user.id,
-                display_name=payload.rubric_name or "評分表",
+                display_name=payload.rubric_name or "檢查表",
                 environment_keys=payload.environment_keys or [],
             )
             selected_file_id = rubric.id
@@ -492,12 +493,13 @@ async def create_message(
             file.template_key if file else "linux",
             include_cross_template=True,
         )
-        reply, proposal, metrics = await chat_with_rubric(
+        chat_result = await chat_with_rubric(
             bounded_history(
                 session,
                 item.id,
                 exclude_attachments_for_message_id=user_message.id,
                 summary=item.summary,
+                source_file_id=file.id if file else None,
             ),
             json.dumps(file.analysis_json, ensure_ascii=False) if file else "{}",
             is_refine=payload.is_refine,
@@ -505,31 +507,44 @@ async def create_message(
             template_commands=template_commands,
             environment_keys=file.environment_keys if file else None,
             attachment_context=attachment_context(attachments),
+            analysis_revision=base_revision,
+            rubric_available=file is not None,
         )
+        reply, proposal, metrics = chat_result
         # Without a selected rubric the conversation is general assistance only;
         # do not let an unconstrained model response create an unreviewed proposal.
-        if file is None:
+        if file is None and proposal:
+            reply = (
+                "這項需求已具備自動檢查條件，但目前尚未選擇檢查表來源，"
+                "因此無法建立可套用提案。請先選擇來源後再送出需求。"
+            )
             proposal = None
+        message_metadata: dict[str, object] = {"metrics": metrics}
+        conversation_focus = getattr(chat_result, "conversation_focus", None)
+        if isinstance(conversation_focus, dict):
+            message_metadata["conversation_focus"] = {
+                **conversation_focus,
+                "source_file_id": str(file.id) if file else None,
+            }
+        if payload.is_refine:
+            message_metadata["ui_hidden"] = True
         assistant = TeacherJudgeSessionMessage(
             session_id=item.id,
             role=TeacherJudgeMessageRole.assistant,
             content=redact_message_content(reply),
-            message_type=TeacherJudgeMessageType.rubric_proposal
-            if proposal
-            else TeacherJudgeMessageType.chat,
-            metadata_json={
-                "metrics": metrics,
-                "rubric_proposal": proposal,
-                "base_revision": base_revision,
-            }
-            if proposal
-            else {"metrics": metrics, "base_revision": base_revision},
+            message_type=TeacherJudgeMessageType.chat,
+            metadata_json=message_metadata,
         )
     except HTTPException as exc:
+        error_detail = (
+            exc.detail.get("message", exc.detail)
+            if isinstance(exc.detail, dict)
+            else exc.detail
+        )
         assistant = TeacherJudgeSessionMessage(
             session_id=item.id,
             role=TeacherJudgeMessageRole.assistant,
-            content=f"AI 回覆失敗：{exc.detail}",
+            content=f"AI 回覆失敗：{error_detail}",
             message_type=TeacherJudgeMessageType.system_notice,
             metadata_json={"status": "failed"},
         )
@@ -581,17 +596,34 @@ async def create_session_script(
     session_id: uuid.UUID,
     session: SessionDep,
     current_user: InstructorUser,
+    payload: TeacherJudgeSessionScriptCreateRequest | None = None,
 ) -> TeacherJudgeScriptArtifactPublic:
     _access(session, teaching_class_id, current_user)
     item = get_session(session, teaching_class_id, session_id)
     ensure_active(item)
     file = require_selected_file(session, item)
+    expected_revision = payload.analysis_revision if payload else None
+    if expected_revision is not None and expected_revision != file.analysis_revision:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "teacher_judge_analysis_revision_conflict",
+                "message": t("teacherJudgeSessions.analysisRevisionConflict"),
+                "analysis_revision": file.analysis_revision,
+            },
+        )
+    rubric_analysis = TeacherJudgeRubricAnalysis.model_validate(file.analysis_json)
+    if not rubric_analysis.items:
+        raise HTTPException(
+            status_code=422,
+            detail="目前檢查表沒有檢查項目，請先新增至少一個項目。",
+        )
     artifact = await create_artifact(
         session=session,
         teaching_class_id=teaching_class_id,
         name=item.title,
         template_key=file.template_key,
-        rubric_analysis=TeacherJudgeRubricAnalysis.model_validate(file.analysis_json),
+        rubric_analysis=rubric_analysis,
         created_by=current_user.id,
         source_file_id=file.id,
         session_id=item.id,

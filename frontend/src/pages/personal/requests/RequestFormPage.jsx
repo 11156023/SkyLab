@@ -14,6 +14,7 @@ import AvailabilityPanel from "../../../components/AvailabilityPanel/Availabilit
 import MIcon from "../../../components/MIcon";
 import PageHeader from "../../../components/PageHeader/PageHeader";
 import { focusInvalidField } from "../../../utils/focusField";
+import { formatShortDateTime } from "../../../utils/formatDate";
 
 /* Hostname normalization — preserves alphanumeric, replaces others with hyphen */
 function normalizeHostname(value) {
@@ -85,8 +86,7 @@ function SelectField({ value, onChange, disabled, children, placeholder }) {
 }
 
 /* ── Helpers ── */
-const DT_FMT = { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" };
-const formatDT = (iso) => new Date(iso).toLocaleString("zh-TW", DT_FMT);
+const formatDT = (iso) => formatShortDateTime(iso);
 const OS_DISPLAY_NAMES = {
   ubuntu: "Ubuntu",
   debian: "Debian",
@@ -236,7 +236,7 @@ export default function RequestFormPage({ onBack, className, initialPrefill = nu
   const { user }  = useAuth();
   const toast     = useToast();
   const isPrivileged = user?.is_superuser || user?.role === "admin" || user?.role === "teacher";
-  const { setCompactFooter, registerRequestForm, registerSurface } =
+  const { setCompactFooter, registerRequestForm, registerSurface, reportRequestSubmission } =
     useContext(LayoutContext);
   useEffect(() => { setCompactFooter(true); return () => setCompactFooter(false); }, [setCompactFooter]);
 
@@ -929,7 +929,8 @@ export default function RequestFormPage({ onBack, className, initialPrefill = nu
           : (!form.immediate_no_end && form.end_at ? { end_at: form.end_at } : {})),
       };
 
-      await VmRequestsService.create(body);
+      const created = await VmRequestsService.create(body);
+      reportRequestSubmission?.({ id: created.id });
       toast.success(t("RequestFormPage.submitSuccess"));
       handleBack();
     } catch (err) {
@@ -995,7 +996,7 @@ export default function RequestFormPage({ onBack, className, initialPrefill = nu
   return (
     <div className={`${styles.formPage} ${animCls}`}>
       {/* ── 頁首 ── */}
-      <PageHeader title={t("RequestFormPage.title")} subtitle={t("RequestFormPage.subtitle")}>
+      <PageHeader title={t("RequestFormPage.title")}>
         <button type="button" className={styles.backBtn} onClick={handleBack}>
           <MIcon name="arrow_back" size={18} />
           {t("RequestFormPage.back")}
@@ -1038,7 +1039,7 @@ export default function RequestFormPage({ onBack, className, initialPrefill = nu
             )}
 
             {/* ── 資源設定（型別由作業系統選擇 + 規則引擎自動決定，學生免選 QEMU/LXC） ── */}
-            <div className={styles.formSection}>
+            <div className={styles.formSection} data-guide="request-resource-settings">
               <h2 className={styles.sectionTitle}>{t("RequestFormPage.resourceSettingsTitle")}</h2>
 
               <p className={styles.adviceBox}>
@@ -1179,7 +1180,7 @@ export default function RequestFormPage({ onBack, className, initialPrefill = nu
             </div>
 
             {/* ── 硬體資源配置 ── */}
-            <div className={styles.formSection}>
+            <div className={styles.formSection} data-guide="request-hardware">
               <h2 className={styles.sectionTitle}>{t("RequestFormPage.hardwareConfigTitle")}</h2>
 
               {selectedCatalogItem && (
@@ -1315,7 +1316,7 @@ export default function RequestFormPage({ onBack, className, initialPrefill = nu
             )}
 
             {/* ── 租借時段 ── */}
-            <div className={styles.formSection}>
+            <div className={styles.formSection} data-guide="request-schedule">
               <div className={styles.sectionTitleRow}>
                 <h2 className={styles.sectionTitle}>
                   {mode === "immediate" ? t("RequestFormPage.immediateModeSettingsTitle") : t("RequestFormPage.scheduleTitle")}
@@ -1407,7 +1408,7 @@ export default function RequestFormPage({ onBack, className, initialPrefill = nu
             </div>
 
             {/* ── 申請原因 ── */}
-            <div className={styles.formSection}>
+            <div className={styles.formSection} data-guide="request-reason">
               <h2 className={styles.sectionTitle}>{t("RequestFormPage.reasonTitle")}<span className={styles.required}> *</span></h2>
               <FieldGroup error={errors.reason} name="reason">
                 <textarea
@@ -1422,7 +1423,7 @@ export default function RequestFormPage({ onBack, className, initialPrefill = nu
 
           </form>
 
-          <div className={styles.formActions}>
+          <div className={styles.formActions} data-guide="request-submit">
             <button type="button" className={styles.btnSecondary} onClick={handleBack}>
               {t("RequestFormPage.cancel")}
             </button>
@@ -1442,7 +1443,7 @@ export default function RequestFormPage({ onBack, className, initialPrefill = nu
         </div>
 
         {/* Desktop 右側面板（摘要 + AI）*/}
-        <div className={styles.rightPanel}>
+        <div className={styles.rightPanel} data-guide="request-summary">
           <div className={styles.summaryBody}>
               {/* Type / mode chips */}
               <div className={styles.summaryChips}>

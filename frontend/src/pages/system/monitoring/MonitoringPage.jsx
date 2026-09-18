@@ -4,11 +4,13 @@ import styles from "./MonitoringPage.module.scss";
 import MIcon from "../../../components/MIcon";
 import LoadingState from "../../../components/LoadingState/LoadingState";
 import EmptyState from "../../../components/EmptyState/EmptyState";
+import SegmentedControl from "../../../components/SegmentedControl/SegmentedControl";
 import RrdChart from "../../../components/RrdChart/RrdChart";
 import MiningIncidentsPanel from "./MiningIncidentsPanel";
 import { MonitoringService } from "../../../services/monitoring";
 import { useToast } from "../../../hooks/useToast";
 import PageHeader from "../../../components/PageHeader/PageHeader";
+import { formatDateTime, formatTime } from "../../../utils/formatDate";
 
 function formatBytes(bytes) {
   if (!bytes) return "0 B";
@@ -34,16 +36,32 @@ function mapNodeRrd(points) {
   return (points ?? [])
     .filter((p) => typeof p.time === "number")
     .map((p) => ({
-      time: new Date(p.time * 1000).toLocaleTimeString("zh-TW", {
-        hour: "2-digit",
-        minute: "2-digit",
-      }),
+      time: formatTime(p.time * 1000),
       cpu: typeof p.cpu === "number" ? Number((p.cpu * 100).toFixed(2)) : null,
       memory:
         typeof p.memused === "number" && typeof p.memtotal === "number" && p.memtotal > 0
           ? Number(((p.memused / p.memtotal) * 100).toFixed(2))
           : null,
     }));
+}
+
+/* 節點用量整卡收合的偏好記在本機，重整後維持使用者的選擇 */
+const NODES_OPEN_STORAGE_KEY = "skylab.monitoringNodesOpen";
+
+function loadNodesOpen() {
+  try {
+    return window.localStorage.getItem(NODES_OPEN_STORAGE_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
+function saveNodesOpen(open) {
+  try {
+    window.localStorage.setItem(NODES_OPEN_STORAGE_KEY, open ? "1" : "0");
+  } catch {
+    // localStorage 不可用時偏好僅本次瀏覽生效
+  }
 }
 
 function UsageBar({ pct }) {
@@ -106,6 +124,13 @@ function NodeTrends({ node, timeframe }) {
     return <LoadingState text={t("MonitoringPage.loadingTrends")} />;
   }
 
+  /* RRD 可能回傳只有時間戳、指標全 null 的點位（節點剛離線／剛加入）：
+     畫出來是兩張只有座標軸的空圖，不如直接說沒資料 */
+  const hasValues = data.some((point) => point.cpu != null || point.memory != null);
+  if (data.length === 0 || !hasValues) {
+    return <EmptyState icon="show_chart" title={t("MonitoringPage.noTrendData")} />;
+  }
+
   return (
     <div className={styles.trendGrid}>
       {RRD_SERIES.map((s) => (
@@ -122,7 +147,7 @@ function NodeTrends({ node, timeframe }) {
   );
 }
 
-function AlertsCard() {
+function AlertsCard({ onCountChange }) {
   const { t } = useTranslation("system");
   const toast = useToast();
   const METRIC_LABELS = { cpu: "CPU", memory: t("MonitoringPage.memoryLabel"), disk: t("MonitoringPage.diskLabel") };
@@ -144,6 +169,11 @@ function AlertsCard() {
     return () => clearInterval(timer);
   }, [load]);
 
+  /* 分頁角標要顯示筆數，載入後回報給頁面 */
+  useEffect(() => {
+    if (alerts !== null) onCountChange?.(alerts.length);
+  }, [alerts, onCountChange]);
+
   const handleAck = async (alertId) => {
     setAckBusy(alertId);
     try {
@@ -158,14 +188,9 @@ function AlertsCard() {
 
   return (
     <div className={styles.card}>
+      {/* 標題由外層頁籤承擔，卡內只留說明 */}
       <div className={styles.cardHeader}>
-        <div>
-          <h2 className={styles.cardTitle}>
-            <MIcon name="notifications" size={18} />
-            {t("MonitoringPage.activeAlertsTitle")}
-          </h2>
-          <p className={styles.cardDesc}>{t("MonitoringPage.activeAlertsDesc")}</p>
-        </div>
+        <p className={styles.cardDesc}>{t("MonitoringPage.activeAlertsDesc")}</p>
         {alerts && alerts.length > 0 && (
           <span className={styles.alertCount}>{alerts.length}</span>
         )}
@@ -195,7 +220,7 @@ function AlertsCard() {
                     </span>
                   </div>
                   <p className={styles.alertTime}>
-                    {new Date(alert.created_at).toLocaleString("zh-TW")}
+                    {formatDateTime(alert.created_at)}
                     {alert.acknowledged_at && ` · ${t("MonitoringPage.acknowledged")}`}
                   </p>
                 </div>
@@ -229,7 +254,8 @@ function TopVmTable({ title, entries, metric }) {
       {entries.length === 0 ? (
         <EmptyState icon="dns" title={t("MonitoringPage.emptyNoRunningResources")} />
       ) : (
-        <table className={styles.table}>
+        <div className={styles.tableScroll}>
+        <table className={styles.topTable}>
           <thead>
             <tr>
               <th className={styles.th}>VMID</th>
@@ -259,6 +285,7 @@ function TopVmTable({ title, entries, metric }) {
             ))}
           </tbody>
         </table>
+        </div>
       )}
     </div>
   );
@@ -276,6 +303,12 @@ export default function MonitoringPage() {
   const [overview, setOverview] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
+  /* 警告與挖礦事件收進分頁（#24）；筆數由面板載入後回報 */
+  const [panelTab, setPanelTab] = useState("alerts");
+  const [alertCount, setAlertCount] = useState(null);
+  const [miningCount, setMiningCount] = useState(null);
+  /* 節點用量整卡收合：預設收起省版面，標題列保留在線摘要 */
+  const [nodesOpen, setNodesOpen] = useState(loadNodesOpen);
 
   const load = useCallback(async (signal) => {
     try {
@@ -313,6 +346,13 @@ export default function MonitoringPage() {
     );
   }
 
+  function toggleNodesOpen() {
+    setNodesOpen((open) => {
+      saveNodesOpen(!open);
+      return !open;
+    });
+  }
+
   const cpuPct = overview.cpu_total > 0 ? (overview.cpu_used / overview.cpu_total) * 100 : 0;
   const memPct = overview.mem_total > 0 ? (overview.mem_used / overview.mem_total) * 100 : 0;
   const diskPct =
@@ -320,22 +360,7 @@ export default function MonitoringPage() {
 
   return (
     <div className={styles.page}>
-      <PageHeader title={t("MonitoringPage.pageTitle")} subtitle={t("MonitoringPage.pageSubtitle")}>
-        <div className={styles.pageActions}>
-          <div className={styles.segment}>
-            {TIMEFRAMES.map((t) => (
-              <button
-                key={t.value}
-                type="button"
-                className={`${styles.segmentBtn} ${timeframe === t.value ? styles.segmentActive : ""}`}
-                onClick={() => setTimeframe(t.value)}
-              >
-                {t.label}
-              </button>
-            ))}
-          </div>
-        </div>
-      </PageHeader>
+      <PageHeader title={t("MonitoringPage.pageTitle")} />
 
       {/* 叢集用量卡片 */}
       <div className={styles.statRow}>
@@ -354,50 +379,97 @@ export default function MonitoringPage() {
           pct={diskPct}
           detail={`${formatBytes(overview.disk_used)} / ${formatBytes(overview.disk_total)}`}
         />
+        {/* 運行狀態：三個數字排三欄，不再擠成三行小字（#24） */}
         <div className={styles.overviewCard}>
-          <div className={styles.overviewTop}>
-            <div className={styles.overviewInfo}>
-              <span className={styles.overviewLabel}>{t("MonitoringPage.runningStatus")}</span>
-              <span className={styles.statusLine}>
-                {t("MonitoringPage.nodesOnline")}{" "}
-                <strong>
-                  {overview.nodes_online}/{overview.nodes_total}
-                </strong>
-              </span>
-              <span className={styles.statusLine}>
-                {t("MonitoringPage.vmRunning")} <strong>{overview.vms_running}</strong>
-                <span className={styles.mutedText}>
-                  /{overview.vms_running + overview.vms_stopped}
-                </span>
-              </span>
-              <span className={styles.statusLine}>
-                {t("MonitoringPage.lxcRunning")} <strong>{overview.lxc_running}</strong>
-                <span className={styles.mutedText}>
-                  /{overview.lxc_running + overview.lxc_stopped}
-                </span>
-              </span>
+          <div className={styles.statusGrid}>
+            <div>
+              <span>{t("MonitoringPage.nodesOnline")}</span>
+              <strong>
+                {overview.nodes_online}
+                <em>/{overview.nodes_total}</em>
+              </strong>
             </div>
-            <div className={styles.overviewIcon}>
-              <MIcon name="monitor_heart" size={20} />
+            <div>
+              <span>{t("MonitoringPage.vmRunning")}</span>
+              <strong>
+                {overview.vms_running}
+                <em>/{overview.vms_running + overview.vms_stopped}</em>
+              </strong>
+            </div>
+            <div>
+              <span>{t("MonitoringPage.lxcRunning")}</span>
+              <strong>
+                {overview.lxc_running}
+                <em>/{overview.lxc_running + overview.lxc_stopped}</em>
+              </strong>
             </div>
           </div>
         </div>
       </div>
 
-      {/* 活動警告 */}
-      <AlertsCard />
+      {/* 警告與挖礦事件收進分頁（#24）；兩個面板保持掛載，輪詢與角標持續更新 */}
+      <div className={styles.tabbedPanels}>
+        <div className={styles.panelTabBar} role="tablist" aria-label={t("MonitoringPage.panelTabsAria")}>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={panelTab === "alerts"}
+            className={`${styles.panelTab} ${panelTab === "alerts" ? styles.panelTabActive : ""}`}
+            onClick={() => setPanelTab("alerts")}
+          >
+            {t("MonitoringPage.tabAlerts")}
+            {alertCount != null && <span className={styles.panelTabBadge}>{alertCount}</span>}
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={panelTab === "mining"}
+            className={`${styles.panelTab} ${panelTab === "mining" ? styles.panelTabActive : ""}`}
+            onClick={() => setPanelTab("mining")}
+          >
+            {t("MonitoringPage.tabMining")}
+            {miningCount != null && <span className={styles.panelTabBadge}>{miningCount}</span>}
+          </button>
+        </div>
+        <div className={panelTab === "alerts" ? undefined : styles.tabHidden}>
+          <AlertsCard onCountChange={setAlertCount} />
+        </div>
+        <div className={panelTab === "mining" ? undefined : styles.tabHidden}>
+          <MiningIncidentsPanel onCountChange={setMiningCount} />
+        </div>
+      </div>
 
-      {/* 挖礦事件（模組 D，位置比照舊版監控頁） */}
-      <MiningIncidentsPanel />
-
-      {/* 節點用量 */}
+      {/* 節點用量：整卡收合，收起時標題列仍看得到在線摘要 */}
       <div className={styles.card}>
-        <div className={styles.cardHeader}>
+        <button
+          type="button"
+          className={styles.cardHeaderToggle}
+          onClick={toggleNodesOpen}
+          aria-expanded={nodesOpen}
+        >
           <div>
             <h2 className={styles.cardTitle}>{t("MonitoringPage.nodeUsageTitle")}</h2>
             <p className={styles.cardDesc}>{t("MonitoringPage.nodeUsageDesc")}</p>
           </div>
+          <span className={styles.cardHeaderMeta}>
+            {t("MonitoringPage.nodesSummary", {
+              online: overview.nodes_online,
+              total: overview.nodes_total,
+            })}
+            <MIcon name={nodesOpen ? "expand_less" : "expand_more"} size={18} />
+          </span>
+        </button>
+        {nodesOpen && (<>
+        {/* 時間範圍只影響展開列的趨勢圖，跟著本卡走、不放頁首（會被誤讀成整頁篩選器） */}
+        <div className={styles.nodeToolbar}>
+          <SegmentedControl
+            ariaLabel={t("MonitoringPage.timeframeAria")}
+            options={TIMEFRAMES}
+            value={timeframe}
+            onChange={setTimeframe}
+          />
         </div>
+        <div className={styles.tableScroll}>
         <table className={styles.table}>
           <thead>
             <tr>
@@ -416,16 +488,20 @@ export default function MonitoringPage() {
               const nodeCpu = node.maxcpu > 0 ? node.cpu * 100 : 0;
               const nodeMem = node.maxmem > 0 ? (node.mem / node.maxmem) * 100 : 0;
               const nodeDisk = node.maxdisk > 0 ? (node.disk / node.maxdisk) * 100 : 0;
-              const expanded = expandedNode === node.node;
+              /* 離線節點沒有趨勢可看：列不可展開，也不給可點的 hover 暗示 */
+              const expanded = online && expandedNode === node.node;
               return (
                 <Fragment key={node.node}>
                   <tr
-                    className={`${styles.tr} ${styles.trClickable}`}
-                    onClick={() => setExpandedNode(expanded ? null : node.node)}
+                    className={`${styles.tr} ${online ? styles.trClickable : ""}`}
+                    onClick={online ? () => setExpandedNode(expanded ? null : node.node) : undefined}
                   >
                     <td className={styles.td}>
                       <span className={styles.nodeCell}>
-                        <MIcon name={expanded ? "expand_more" : "chevron_right"} size={16} />
+                        {/* 離線列沒有展開箭頭，補同寬佔位讓圖示與名稱跟其他列對齊 */}
+                        {online
+                          ? <MIcon name={expanded ? "expand_more" : "chevron_right"} size={16} />
+                          : <span className={styles.chevronSpacer} />}
                         <MIcon name="dns" size={16} />
                         <strong>{node.node}</strong>
                         {node.connection_name && (
@@ -490,6 +566,8 @@ export default function MonitoringPage() {
             })}
           </tbody>
         </table>
+        </div>
+        </>)}
       </div>
 
       {/* Top VMs */}

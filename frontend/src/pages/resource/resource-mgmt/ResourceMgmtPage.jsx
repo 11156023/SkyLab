@@ -4,6 +4,7 @@ import { useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import styles from "./ResourceMgmtPage.module.scss";
 import MIcon from "../../../components/MIcon";
+import MachineKindBadge from "../../../components/MachineKindBadge/MachineKindBadge";
 import PowerMenu from "../../../components/PowerMenu/PowerMenu";
 import TemplateConvertDialog from "../../../components/TemplateConvertDialog/TemplateConvertDialog";
 import useDialogPresence from "../../../hooks/useDialogPresence";
@@ -18,6 +19,7 @@ import PageHeader from "../../../components/PageHeader/PageHeader";
 import { useConfirm } from "../../../components/ConfirmDialog/ConfirmProvider";
 import { QuickPracticeService } from "../../../services/quickPractice";
 import { buildEnvironmentGroups, groupedResourceKeys } from "../../../utils/environmentGroups";
+import { formatDate } from "../../../utils/formatDate";
 
 /* ── Constants ── */
 function useStatusMap() {
@@ -57,6 +59,7 @@ function useColumns() {
   const { t } = useTranslation("resource");
   return [
     t("ResourceMgmtPage.columnName"),
+    t("ResourceMgmtPage.columnKind"),
     t("ResourceMgmtPage.columnEnvOs"),
     t("ResourceMgmtPage.columnStatus"),
     t("ResourceMgmtPage.columnIp"),
@@ -80,13 +83,6 @@ function useBatchActions() {
 const LIVE_STATUSES = new Set(["running", "stopped", "paused"]);
 
 /* ── Helpers ── */
-function formatDate(isoStr) {
-  if (!isoStr) return null;
-  return new Date(isoStr).toLocaleDateString("zh-TW", {
-    year: "numeric", month: "2-digit", day: "2-digit",
-  });
-}
-
 function resourceRowKey(resource, index) {
   const parts = [
     resource.type || "resource",
@@ -170,12 +166,22 @@ function EnvironmentMachineRow({ machine, onUpdated }) {
           </div>
         </div>
       </td>
+      <td className={styles.td}><span className={styles.noAction}>—</span></td>
       <td className={styles.td}>
         <div className={styles.envPrimary}>{machine.os}</div>
         <div className={styles.envSub}>{machine.resource ? t("ResourceMgmtPage.envConnected") : t("ResourceMgmtPage.envProvisioning")}</div>
       </td>
       <td className={styles.td}><StatusBadge status={machine.status} /></td>
-      <td className={styles.td}><span className={styles.mono}>{machine.ip}</span></td>
+      <td className={styles.td}>
+        <span className={styles.mono}>{machine.ip}</span>
+        {machine.publicUrl && (
+          <div className={styles.publicUrlList}>
+            <a className={styles.publicUrlLink} href={machine.publicUrl} target="_blank" rel="noreferrer" title={machine.publicUrl}>
+              <MIcon name="open_in_new" size={13} /><span className={styles.publicUrlText}>{machine.publicUrl.replace(/^https?:\/\//, "")}</span>
+            </a>
+          </div>
+        )}
+      </td>
       <td className={styles.td}><span className={styles.noAction}>{t("ResourceMgmtPage.unifiedManagement")}</span></td>
       <td className={styles.td}>{machine.node}</td>
       <td className={styles.td}><div className={styles.actions}>
@@ -200,11 +206,19 @@ function EnvironmentGroupRows({ group, onUpdated, onRefresh }) {
   const toast = useToast();
   const [expanded, setExpanded] = useState(true);
   const [groupAction, setGroupAction] = useState(null);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [menuClosing, setMenuClosing] = useState(false);
+  const menuBtnRef = useRef(null);
   const running = group.machines.filter((machine) => machine.status === "running").length;
   const allRunning = running === group.machines.length;
   const controllableVmids = group.machines
     .filter((machine) => machine.resource?.vmid && machine.resource.can_control !== false)
     .map((machine) => machine.resource.vmid);
+
+  function closeGroupMenu() {
+    setMenuClosing(true);
+    setTimeout(() => { setMenuOpen(false); setMenuClosing(false); }, 130);
+  }
 
   async function runGroupAction(action) {
     if (!controllableVmids.length || groupAction) return;
@@ -229,17 +243,27 @@ function EnvironmentGroupRows({ group, onUpdated, onRefresh }) {
           setExpanded((value) => !value);
         }}
       >
-        <td className={`${styles.td} ${styles.checkCell}`} />
-        <td className={styles.td}>
+        <td className={`${styles.td} ${styles.checkCell}`}>
           <button
             type="button"
             className={styles.environmentToggle}
             aria-expanded={expanded}
+            aria-label={t("ResourceMgmtPage.toggleGroupAria", { name: group.title })}
             onClick={() => setExpanded((value) => !value)}
           >
             <MIcon name={expanded ? "expand_more" : "chevron_right"} size={20} />
-            <span><strong>{group.kindLabel}｜{group.title}</strong><small>{t("ResourceMgmtPage.machineCountLabel", { count: group.machines.length })}</small></span>
           </button>
+        </td>
+        <td className={styles.td}>
+          <div className={styles.nameCell}>
+            <div>
+              <div className={styles.namePrimary}>{group.title}</div>
+              <div className={styles.nameSub}>{t("ResourceMgmtPage.machineCountLabel", { count: group.machines.length })}</div>
+            </div>
+          </div>
+        </td>
+        <td className={styles.td}>
+          <MachineKindBadge kind={group.kind === "quick_practice" ? "quick_practice" : "teaching_class"} classRelation={group.classRelation} size="sm" />
         </td>
         <td className={styles.td}>
           <div className={styles.envPrimary}>{group.kind === "course" ? t("ResourceMgmtPage.courseEnvironment") : t("ResourceMgmtPage.quickPracticeEnvironment")}</div>
@@ -253,8 +277,22 @@ function EnvironmentGroupRows({ group, onUpdated, onRefresh }) {
         <td className={styles.td}>{group.nodeLabel}</td>
         <td className={styles.td}>{controllableVmids.length > 0
           ? <div className={styles.actions}>
-              <button type="button" className={styles.consoleBtn} disabled={Boolean(groupAction) || allRunning} onClick={() => runGroupAction("start")}><MIcon name={groupAction === "start" ? "hourglass_empty" : "play_arrow"} size={14} />{t("ResourceMgmtPage.startAll")}</button>
-              <button type="button" className={styles.consoleBtn} disabled={Boolean(groupAction) || running === 0} onClick={() => runGroupAction("shutdown")}><MIcon name={groupAction === "shutdown" ? "hourglass_empty" : "power_settings_new"} size={14} />{t("ResourceMgmtPage.shutdownAll")}</button>
+              {groupAction && <MIcon name="hourglass_empty" size={16} />}
+              <div className={styles.menuWrap}>
+                {menuOpen && <PowerMenu
+                  title={t("ResourceMgmtPage.groupPowerTitle")}
+                  items={[
+                    { action: "start", label: t("ResourceMgmtPage.startAll"), icon: "play_arrow", tone: "ok", disabled: allRunning },
+                    { action: "shutdown", label: t("ResourceMgmtPage.shutdownAll"), icon: "power_settings_new", disabled: running === 0 },
+                  ]}
+                  actionLoading={groupAction}
+                  onControl={runGroupAction}
+                  onClose={closeGroupMenu}
+                  anchorRef={menuBtnRef}
+                  closing={menuClosing}
+                />}
+                <button ref={menuBtnRef} type="button" className={`${styles.menuBtn} ${menuOpen ? styles.menuBtnActive : ""}`} onClick={() => menuOpen ? closeGroupMenu() : setMenuOpen(true)} title={t("ResourceMgmtPage.groupPowerTitle")}><MIcon name="more_vert" size={18} /></button>
+              </div>
             </div>
           : <span className={styles.noAction}>—</span>}</td>
       </tr>
@@ -448,6 +486,18 @@ function ResourceRow({ resource, onUpdated, onDeleted, selected = false, onToggl
           </div>
         </td>
 
+        {/* 來源：管理員清單每台都標擁有者 */}
+        <td className={styles.td}>
+          <MachineKindBadge
+            kind={resource.machine_kind}
+            classRelation={resource.class_relation}
+            ownerName={resource.owner_name}
+            teachingClassName={resource.teaching_class_name}
+            showOwner
+            size="sm"
+          />
+        </td>
+
         {/* 環境 / 系統 */}
         <td className={styles.td}>
           <div className={styles.envPrimary}>{resource.environment_type ?? "—"}</div>
@@ -459,9 +509,18 @@ function ResourceRow({ resource, onUpdated, onDeleted, selected = false, onToggl
           <StatusBadge status={resource.status} />
         </td>
 
-        {/* IP */}
+        {/* IP；底下列出反向代理發布的對外網址，管理員不必進詳情頁就能點 */}
         <td className={styles.td}>
           <span className={styles.mono}>{resource.ip_address ?? "N/A"}</span>
+          {(resource.public_urls ?? []).length > 0 && (
+            <div className={styles.publicUrlList}>
+              {resource.public_urls.map((url) => (
+                <a key={url} className={styles.publicUrlLink} href={url} target="_blank" rel="noreferrer" title={url}>
+                  <MIcon name="open_in_new" size={13} /><span className={styles.publicUrlText}>{url.replace(/^https?:\/\//, "")}</span>
+                </a>
+              ))}
+            </div>
+          )}
         </td>
 
         {/* 到期日 */}
@@ -645,7 +704,7 @@ export default function ResourceMgmtPage() {
   return (
     <div className={styles.page}>
       {/* ── 頁首 ── */}
-      <PageHeader title={t("ResourceMgmtPage.pageTitle")} subtitle={t("ResourceMgmtPage.pageSubtitle")}>
+      <PageHeader title={t("ResourceMgmtPage.pageTitle")}>
         <div className={styles.pageActions}>
           <button type="button" className={styles.btnPrimary} onClick={() => navigate("/my-requests")}>
             <MIcon name="add" size={16} />
@@ -677,7 +736,8 @@ export default function ResourceMgmtPage() {
             <table className={styles.table}>
               <colgroup>
                 <col className={styles.colCheck} />
-                <col />
+                <col className={styles.colName} />
+                <col className={styles.colKind} />
                 <col className={styles.colEnv} />
                 <col className={styles.colStatus} />
                 <col className={styles.colIp} />

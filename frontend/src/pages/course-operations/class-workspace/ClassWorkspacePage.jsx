@@ -1,4 +1,5 @@
 import { memo, startTransition, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { Background, Handle, MarkerType, Position, ReactFlow } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
@@ -14,6 +15,7 @@ import { useToast } from "../../../hooks/useToast";
 import { ClassroomService } from "../../../services/classroom";
 import { courseNodeHasUsableSource, CourseEnvironmentsService } from "../../../services/courseEnvironments";
 import { TeachingClassesService } from "../../../services/teachingClasses";
+import { formatDate, formatTime } from "../../../utils/formatDate";
 import ClassCreateDialog from "./ClassCreateDialog";
 import EnvironmentChoice from "../EnvironmentChoice";
 import useDialogPresence from "../../../hooks/useDialogPresence";
@@ -29,12 +31,12 @@ import styles from "../CourseOperations.module.scss";
 const POST_ACTIVE_TABS = ["progress", "ai"];
 
 const TABS = [
-  ["overview", "dashboard", "ClassWorkspacePage.tabOverviewLabel", "ClassWorkspacePage.tabOverviewHint"],
-  ["students", "groups", "ClassWorkspacePage.tabStudentsLabel", "ClassWorkspacePage.tabStudentsHint"],
-  ["machines", "account_tree", "ClassWorkspacePage.tabMachinesLabel", "ClassWorkspacePage.tabMachinesHint"],
-  ["weekly", "calendar_view_week", "ClassWorkspacePage.tabWeeklyLabel", "ClassWorkspacePage.tabWeeklyHint"],
-  ["progress", "cast_for_education", "ClassWorkspacePage.tabProgressLabel", "ClassWorkspacePage.tabProgressHint"],
-  ["ai", "auto_awesome", "ClassWorkspacePage.tabAiLabel", "ClassWorkspacePage.tabAiHint"],
+  ["overview", "dashboard", "ClassWorkspacePage.tabOverviewLabel"],
+  ["students", "groups", "ClassWorkspacePage.tabStudentsLabel"],
+  ["machines", "account_tree", "ClassWorkspacePage.tabMachinesLabel"],
+  ["weekly", "calendar_view_week", "ClassWorkspacePage.tabWeeklyLabel"],
+  ["progress", "cast_for_education", "ClassWorkspacePage.tabProgressLabel"],
+  ["ai", "auto_awesome", "ClassWorkspacePage.tabAiLabel"],
 ];
 
 const JOB_STATUS_KEYS = {
@@ -78,8 +80,16 @@ function normalizeClass(item) {
 function ExtendDialog({ item, closing, busy, onClose, onExtend }) {
   const { t } = useTranslation("teaching");
   const [endDate, setEndDate] = useState(item.endDate);
-  return <div className={`${styles.createDialogOverlay} ${closing ? styles.createDialogOverlayOut : ""}`} role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget && !busy) onClose(); }}>
-    <section className={styles.createDialog} role="dialog" aria-modal="true" aria-labelledby="extend-class-title">
+  useEffect(() => {
+    function closeOnEscape(event) {
+      if (event.key === "Escape" && !busy) onClose();
+    }
+    window.addEventListener("keydown", closeOnEscape);
+    return () => window.removeEventListener("keydown", closeOnEscape);
+  }, [onClose, busy]);
+  /* 玻璃卡祖先的 backdrop-filter 會困住 fixed 遮罩，portal 到 body 才能全頁覆蓋 */
+  return createPortal(<div className={`${styles.createDialogOverlay} ${closing ? styles.createDialogOverlayOut : ""}`} role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget && !busy) onClose(); }}>
+    <section className={`${styles.createDialog} ${styles.extendDialog}`} role="dialog" aria-modal="true" aria-labelledby="extend-class-title">
       <header className={styles.createDialogHeader}>
         <h2 id="extend-class-title">{t("ClassWorkspacePage.extendDialogTitle")}</h2>
         <button type="button" className={styles.iconBtn} aria-label={t("ClassWorkspacePage.closeAriaLabel")} disabled={busy} onClick={onClose}><MIcon name="close" size={19} /></button>
@@ -100,7 +110,7 @@ function ExtendDialog({ item, closing, busy, onClose, onExtend }) {
         </footer>
       </form>
     </section>
-  </div>;
+  </div>, document.body);
 }
 
 function machineSummary(item, t) {
@@ -253,6 +263,14 @@ function Students({ item, onRefresh }) {
   const [emailsInvalid, setEmailsInvalid] = useState(false);
   const emailsInputRef = useRef(null);
   const locked = item.status !== "planning";
+  useEffect(() => {
+    if (!showAdd) return undefined;
+    function closeOnEscape(event) {
+      if (event.key === "Escape" && !busy) setShowAdd(false);
+    }
+    window.addEventListener("keydown", closeOnEscape);
+    return () => window.removeEventListener("keydown", closeOnEscape);
+  }, [showAdd, busy]);
   async function add(event) {
     event.preventDefault();
     const values = emails.split(/[\n,;]/).map((value) => value.trim()).filter(Boolean);
@@ -317,13 +335,13 @@ function Students({ item, onRefresh }) {
           <div className={styles.memberIdentity}><strong>{student.full_name || student.email}</strong><span>{student.email}</span></div>
           <span>{student.machines.length ? student.machines.map((machine) => machine.vmid ?? "—").join("、") : "—"}</span>
           <span className={`${styles.memberMachineState} ${ready === item.nodes.length && item.nodes.length ? styles.memberReady : ""}`}>{item.nodes.length ? t("ClassWorkspacePage.readyCountLabel", { ready, total: item.nodes.length }) : t("ClassWorkspacePage.notBuiltLabel")}</span>
-          <span>{student.joined_at ? new Date(student.joined_at).toLocaleDateString("zh-TW") : "—"}</span>
+          <span>{formatDate(student.joined_at)}</span>
           {!locked ? <button type="button" className={styles.memberRemove} aria-label={t("ClassWorkspacePage.removeStudentAriaLabel")} onClick={() => remove(student.id)}><MIcon name="person_remove" size={17} /></button> : <span />}
         </article>;
       })}</div> : <EmptyState icon="group_add" title={t("ClassWorkspacePage.emptyStudentsTitle")} />}
     </section>
 
-    {addDialog.open && <div className={`${styles.createDialogOverlay} ${addDialog.closing ? styles.createDialogOverlayOut : ""}`} role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget && !busy) setShowAdd(false); }}><section className={`${styles.createDialog} ${styles.studentDialog}`} role="dialog" aria-modal="true" aria-labelledby="add-student-title"><header className={styles.createDialogHeader}><h2 id="add-student-title">{t("ClassWorkspacePage.addStudentsBtn")}</h2><button type="button" className={styles.iconBtn} aria-label={t("ClassWorkspacePage.closeAriaLabel")} onClick={() => setShowAdd(false)}><MIcon name="close" size={19} /></button></header><form onSubmit={add}><div className={styles.studentDialogBody}><label className={styles.field}><span>{t("ClassWorkspacePage.emailFieldLabel")}</span><textarea ref={emailsInputRef} className={emailsInvalid ? styles.fieldInvalid : undefined} rows={6} value={emails} onChange={(event) => { setEmails(event.target.value); setEmailsInvalid(false); }} placeholder="student01@example.edu&#10;student02@example.edu" autoFocus /></label></div><footer className={styles.createDialogFooter}><button type="button" className={styles.btnSecondary} onClick={() => setShowAdd(false)}>{t("ClassWorkspacePage.cancelBtn")}</button><button type="submit" className={styles.btnPrimary} disabled={busy}>{busy ? t("ClassWorkspacePage.addingLabel") : t("ClassWorkspacePage.addStudentsBtn")}</button></footer></form></section></div>}
+    {addDialog.open && createPortal(<div className={`${styles.createDialogOverlay} ${addDialog.closing ? styles.createDialogOverlayOut : ""}`} role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget && !busy) setShowAdd(false); }}><section className={`${styles.createDialog} ${styles.studentDialog}`} role="dialog" aria-modal="true" aria-labelledby="add-student-title"><header className={styles.createDialogHeader}><h2 id="add-student-title">{t("ClassWorkspacePage.addStudentsBtn")}</h2><button type="button" className={styles.iconBtn} aria-label={t("ClassWorkspacePage.closeAriaLabel")} onClick={() => setShowAdd(false)}><MIcon name="close" size={19} /></button></header><form onSubmit={add}><div className={styles.studentDialogBody}><label className={styles.field}><span>{t("ClassWorkspacePage.emailFieldLabel")}</span><textarea ref={emailsInputRef} className={emailsInvalid ? styles.fieldInvalid : undefined} rows={6} value={emails} onChange={(event) => { setEmails(event.target.value); setEmailsInvalid(false); }} placeholder="student01@example.edu&#10;student02@example.edu" autoFocus /></label></div><footer className={styles.createDialogFooter}><button type="button" className={styles.btnSecondary} onClick={() => setShowAdd(false)}>{t("ClassWorkspacePage.cancelBtn")}</button><button type="submit" className={styles.btnPrimary} disabled={busy}>{busy ? t("ClassWorkspacePage.addingLabel") : t("ClassWorkspacePage.addStudentsBtn")}</button></footer></form></section></div>, document.body)}
   </div>;
 }
 
@@ -774,7 +792,7 @@ function StudentMachines({ item }) {
 
       {selectedNode && item.students.length ? <>
         <div className={styles.heatmapSummary}>
-          <div><span className={styles.selectedMachineIcon}><MIcon name={selectedNode.resource_type === "lxc" ? "terminal" : "dns"} size={20} /></span><div><strong>{selectedNode.name}</strong><small>{t("ClassWorkspacePage.heatmapMachineSubtitle", { role: selectedNode.role || t("ClassWorkspacePage.classroomMachineFallback"), metric: metricInfo.label, updatedSuffix: collectedAt ? t("ClassWorkspacePage.updatedAtSuffix", { time: collectedAt.toLocaleTimeString("zh-TW", { hour: "2-digit", minute: "2-digit", second: "2-digit" }) }) : "" })}</small></div></div>
+          <div><span className={styles.selectedMachineIcon}><MIcon name={selectedNode.resource_type === "lxc" ? "terminal" : "dns"} size={20} /></span><div><strong>{selectedNode.name}</strong><small>{t("ClassWorkspacePage.heatmapMachineSubtitle", { role: selectedNode.role || t("ClassWorkspacePage.classroomMachineFallback"), metric: metricInfo.label, updatedSuffix: collectedAt ? t("ClassWorkspacePage.updatedAtSuffix", { time: formatTime(collectedAt, "", { seconds: true }) }) : "" })}</small></div></div>
           <dl><div><dt>{t("ClassWorkspacePage.poweredOnLabel")}</dt><dd>{activeCells.length}<small>/{cells.length}</small></dd></div><div><dt>{t("ClassWorkspacePage.averageLabel")}</dt><dd>{average ?? "—"}{average !== null && <small>%</small>}</dd></div><div><dt>{t("ClassWorkspacePage.highLoadLabel")}</dt><dd>{highUsage}<small>{t("ClassWorkspacePage.highLoadPeopleUnit")}</small></dd></div></dl>
         </div>
 
@@ -959,7 +977,6 @@ export default function ClassWorkspacePage() {
   // 「重試回收」已經是狀態面板的行動。
   const canEditSchedule = item.status === "planning";
   const canManageLifecycle = item.status !== "archived";
-  const completed = [item.students.length > 0, Boolean(item.course_environment) && item.nodes.length > 0].filter(Boolean).length;
 
   return <div className={styles.page}>
     <PageHeader
@@ -980,12 +997,11 @@ export default function ClassWorkspacePage() {
       </div>
     </PageHeader>
     <section className={styles.workflowTabsBar} aria-label={t("ClassWorkspacePage.workflowAriaLabel")}>
-      <nav className={styles.workspaceTabs}>{visibleTabs.map(([key, icon, labelKey]) => {
+      <nav className={styles.workspaceTabs}>{visibleTabs.map(([key, , labelKey], index) => {
         const done = key === "students" ? item.students.length > 0 : key === "weekly" ? item.weeks.some((week) => week.title.trim()) : key === "machines" ? Boolean(item.course_environment) && item.nodes.length > 0 : false;
         const target = key === "overview" ? `/class-management/${classId}` : key === "ai" ? `/class-management/${classId}/ai` : `/class-management/${classId}/${key}`;
-        return <button type="button" key={key} className={tab === key ? styles.workspaceTabActive : ""} onClick={() => navigate(target)}><MIcon name={done ? "check" : icon} size={17} /><strong>{t(labelKey)}</strong></button>;
+        return <button type="button" key={key} className={`${tab === key ? styles.workspaceTabActive : ""} ${done ? styles.workspaceTabDone : ""}`} onClick={() => navigate(target)}><strong><span className={styles.envStepNum}>{done ? <MIcon name="check" size={14} /> : String(index + 1).padStart(2, "0")}</span>{t(labelKey)}</strong></button>;
       })}</nav>
-      <div className={styles.workflowProgress}><span>{t("ClassWorkspacePage.setupProgressLabelShort")}</span><strong>{item.status === "active" ? t("ClassWorkspacePage.allReadyLabel") : t("ClassWorkspacePage.completedCountLabel", { count: completed })}</strong></div>
     </section>
     <main className={styles.workspaceContent}>
       {tab === "overview" && <Overview item={item} template={template} onProvision={provision} onNavigate={(target) => navigate(`/class-management/${classId}/${target}`)} onRetry={retryFailed} onReset={resetFailed} onReclaim={reclaimClass} provisioning={provisioning} recovering={recovering} lifecycleBusy={lifecycleBusy} />}

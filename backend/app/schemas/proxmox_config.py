@@ -53,10 +53,16 @@ class ProxmoxConfigPublic(BaseModel):
 
 
 class ProxmoxConfigUpdate(BaseModel):
-    """更新 Proxmox 設定的請求 schema"""
+    """更新 Proxmox 設定的請求 schema。
 
-    host: str
-    user: str
+    PUT / 為**部分更新**：route 以 ``model_dump(exclude_unset=True)`` 判斷
+    payload 實際帶了哪些欄位，沒出現的欄位維持 DB 現值（尚無設定列時
+    退回此 schema 的預設值）。呼叫端只需送自己管的欄位——資源排程頁
+    因此不必回送連線欄位。欄位預設值僅在「初次建立且未帶該欄位」時生效。
+    """
+
+    host: str = ""
+    user: str = ""
     password: str | None = None  # None 表示不更新密碼
     verify_ssl: bool = False
     iso_storage: str = "local"

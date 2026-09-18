@@ -3,5 +3,5 @@
   "api.sessionChangedIgnored": "登入狀態已變更，已忽略舊 session 的回應",
   "aiJudge.linuxTemplateLabel": "一般 Linux/LXC",
   "aiJudge.defaultBlankSessionTitle": "未命名檢查",
-  "aiJudge.defaultBlankRubricName": "空白評分表"
+  "aiJudge.defaultBlankRubricName": "空白檢查表"
 }

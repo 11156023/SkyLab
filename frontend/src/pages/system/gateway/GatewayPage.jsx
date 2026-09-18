@@ -680,7 +680,7 @@ export default function GatewayPage() {
 
   return (
     <div className={styles.page}>
-      <PageHeader title={t("GatewayPage.pageTitle")} subtitle={t("GatewayPage.pageSubtitle")}>
+      <PageHeader title={t("GatewayPage.pageTitle")}>
 
         <div className={styles.tabs}>
           {TABS.map((tab) => (

@@ -1,455 +1,2158 @@
-.page { display: flex; flex: 1; flex-direction: column; gap: 24px; min-width: 0; padding: 8px 16px; color: var(--color-text-primary); }
+/* ── 通用版面與控制元件（8 個課程營運頁共用） ── */
+.page {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 24px;
+  width: 100%;
+  min-width: 0;
+  padding: 8px 16px;
+  color: var(--color-text-primary);
+}
 
-.pageActions { display: flex; align-items: center; justify-content: flex-end; gap: 8px; flex-wrap: wrap; }
+.pageActions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  flex-wrap: wrap;
+}
 
-.btnPrimary, .btnSecondary, .backLink, .iconBtn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; border: 0; border-radius: $radius-8; font: inherit; font-size: $font-size-14; cursor: pointer; transition: background $transition-base, border-color $transition-base, color $transition-base; }
-.btnPrimary, .btnSecondary { min-height: 36px; padding: 7px 16px; font-weight: $font-weight-500; }
-.btnPrimary { color: var(--color-text-on-primary); background: var(--color-primary); }
-.btnPrimary:hover:not(:disabled) { background: var(--color-primary-dark); }
-.btnPrimary:disabled { opacity: 0.5; cursor: not-allowed; }
-.btnSecondary { border: 1px solid var(--color-border); color: var(--color-text); background: var(--color-surface); }
-.btnSecondary:hover:not(:disabled) { background: var(--color-hover); }
-.btnSecondary:disabled { opacity: 0.5; cursor: not-allowed; }
+.btnPrimary {
+  @include btn-primary;
+}
+
+.btnSecondary {
+  @include btn-secondary;
+}
+
 /* 頁首返回鍵：與「申請虛擬機 / 容器」頁的 .backBtn 一致 */
-.backBtn { box-shadow: var(--shadow-sm); white-space: nowrap; }
-.backLink { align-self: flex-start; padding: 5px 4px; color: var(--color-text-secondary); background: transparent; }
-.backLink:hover { color: var(--color-primary); }
-.iconBtn { width: 32px; height: 32px; padding: 0; color: var(--color-text-secondary); background: transparent; }
-.iconBtn:hover { color: var(--color-text); background: var(--color-hover); }
+.backBtn {
+  box-shadow: var(--shadow-sm);
+  white-space: nowrap;
+}
 
-.card { display: flex; flex-direction: column; min-width: 0; overflow: hidden; @include glass-surface($shadow: var(--shadow-sm)); border-radius: $radius-16; }
-.cardHeader { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; padding: 16px; }
-.cardHeader > div:first-child { min-width: 0; }
-.cardHeader h2 { display: inline; margin: 0; color: var(--color-text-primary); font-size: $font-size-16; font-weight: $font-weight-700; }
-.cardHeader p { margin: 4px 0 0; color: var(--color-text-secondary); font-size: $font-size-14; line-height: 1.5; }
-.stack { display: flex; flex-direction: column; gap: 16px; }
+/* 低強調返回連結：標準 ghost 款 */
+.backLink {
+  @include btn-ghost;
+  align-self: flex-start;
+}
 
-.toolbar { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 16px; border-bottom: 1px solid var(--color-border); }
-.searchInput { display: flex; align-items: center; gap: 8px; width: min(360px, 100%); padding: 0 12px; border: 1px solid var(--color-border); border-radius: $radius-8; color: var(--color-text-muted); background: var(--color-surface); }
-.searchInput:focus-within { border-color: var(--color-primary); }
-.searchInput input { width: 100%; height: 38px; border: 0; outline: 0; color: var(--color-text); background: transparent; font: inherit; font-size: $font-size-14; }
-.pillTabs { display: flex; gap: 4px; flex-wrap: wrap; }
-.pillTabs button { padding: 6px 16px; border: 0; border-radius: $radius-pill; color: var(--color-text-secondary); background: transparent; font: inherit; font-size: $font-size-14; cursor: pointer; }
-.pillTabs button:hover { color: var(--color-text); background: var(--color-hover); }
-.pillTabs button.pillActive { color: var(--color-surface); background: var(--color-text); font-weight: $font-weight-500; }
+.iconBtn {
+  @include btn-icon;
+}
 
-.tableWrap { min-width: 0; overflow-x: auto; }
-.table { width: 100%; border-collapse: collapse; }
-.table th { padding: $spacing-8 $spacing-16; border-bottom: 1px solid var(--color-border); color: var(--color-text-muted); background: var(--color-hover); font-size: $font-size-12; font-weight: $font-weight-500; text-align: left; white-space: nowrap; }
-.table td { padding: 12px 16px; border-bottom: 1px solid var(--color-divider); color: var(--color-text-secondary); font-size: $font-size-14; vertical-align: middle; }
-.table tbody tr:last-child td { border-bottom: 0; }
-.table td strong { color: var(--color-text-primary); font-weight: $font-weight-500; }
-.table td small { display: block; max-width: 420px; margin-top: 3px; color: var(--color-text-muted); font-size: $font-size-12; line-height: 1.35; }
-.rowLink { cursor: pointer; transition: background $transition-base; }
-.rowLink:hover { background: var(--color-hover); }
-.statusBadge, .lockBadge { @include badge-base; gap: 4px; padding: 2px 10px; white-space: nowrap; }
-.status_active, .status_published { color: var(--color-success); background: color-mix(in srgb, var(--color-success) 12%, transparent); }
-.status_planning, .status_draft { color: var(--color-status-neutral); background: color-mix(in srgb, var(--color-status-neutral) 12%, transparent); }
-.status_pending_review { color: var(--color-pending); background: color-mix(in srgb, var(--color-pending) 12%, transparent); }
-.status_provisioning { color: var(--color-info); background: color-mix(in srgb, var(--color-info) 12%, transparent); }
-.status_partial_failed { color: var(--color-danger); background: color-mix(in srgb, var(--color-danger) 12%, transparent); }
-.status_archived, .status_retired { color: var(--color-text-muted); background: var(--color-hover); }
+.card {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  overflow: hidden;
+  @include glass-surface($shadow: var(--shadow-sm));
+  border-radius: $radius-16;
+}
 
-.emptyState { display: flex; min-height: 180px; flex-direction: column; align-items: center; justify-content: center; gap: 8px; padding: 24px; color: var(--color-text-muted); text-align: center; }
-.emptyState p { margin: 0; font-size: $font-size-14; }
+.cardHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 20px 22px 16px;
+}
 
-/* 環境模板編輯器的分頁列，與班級頁、一鍵建立精靈同一套外觀 */
-.stepTabsBar { display: flex; align-items: stretch; min-width: 0; overflow: hidden; @include glass-surface($shadow: var(--shadow-sm)); border-radius: $radius-12; }
-.stepTabs, .workspaceTabs { display: flex; gap: 4px; flex-wrap: wrap; }
-.stepTabs { flex: 1; min-width: 0; flex-wrap: nowrap; overflow-x: auto; overflow-y: hidden; gap: 0; padding: 5px; scrollbar-width: thin; }
-.stepTabs button, .workspaceTabs button { display: inline-flex; align-items: center; gap: 7px; padding: 8px 14px; border: 0; border-radius: $radius-8; color: var(--color-text-secondary); background: transparent; font: inherit; font-size: $font-size-14; cursor: pointer; }
-.stepTabs button { position: relative; flex: 1 0 max-content; justify-content: center; min-width: 126px; height: 44px; padding: 0 15px; }
-.stepTabs button::after { position: absolute; right: 0; bottom: -5px; left: 0; height: 2px; border-radius: 2px 2px 0 0; background: transparent; content: ""; }
-.stepTabs button > span { display: grid; width: 22px; height: 22px; place-items: center; border-radius: 50%; color: var(--color-text-muted); background: var(--color-hover); font-size: $font-size-10; font-weight: $font-weight-700; }
-.stepTabs button > strong { color: inherit; font-size: $font-size-14; font-weight: $font-weight-500; white-space: nowrap; }
-.stepTabs button:hover, .workspaceTabs button:hover { color: var(--color-text); background: var(--color-hover); }
-.stepTabs button.stepActive { color: var(--color-primary); background: color-mix(in srgb, var(--color-primary) 8%, var(--color-surface)); }
-.stepTabs button.stepActive::after { background: var(--color-primary); }
-.stepTabs button.stepActive > span { color: var(--color-text-on-primary); background: var(--color-primary); }
-.workspaceTabs button.workspaceTabActive { color: var(--color-surface); background: var(--color-text); font-weight: $font-weight-500; }
+.cardHeader>div:first-child {
+  min-width: 0;
+}
 
-.formGrid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; padding: 0 16px 16px; }
-.field { @include form-field; }
-.fieldFull { grid-column: 1 / -1; }
-.field input, .field textarea, .field select { @include form-control; }
-.field textarea { resize: vertical; }
+.cardHeader h2 {
+  display: inline;
+  margin: 0;
+  color: var(--color-text-primary);
+  font-size: $font-size-16;
+  font-weight: $font-weight-700;
+  letter-spacing: -.01em;
+}
+
+.cardHeader p {
+  margin: 4px 0 0;
+  color: var(--color-text-secondary);
+  font-size: $font-size-14;
+  line-height: 1.5;
+}
+
+.stack {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.searchInput {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: min(360px, 100%);
+  padding: 0 12px;
+  border: 1px solid var(--color-border);
+  border-radius: $radius-8;
+  color: var(--color-text-muted);
+  background: var(--color-surface);
+}
+
+.searchInput:focus-within {
+  border-color: var(--color-primary);
+}
+
+.searchInput input {
+  width: 100%;
+  height: 38px;
+  border: 0;
+  outline: 0;
+  color: var(--color-text);
+  background: transparent;
+  font: inherit;
+  font-size: $font-size-14;
+}
+
+.statusBadge,
+.lockBadge {
+  @include badge-base;
+  gap: 4px;
+  padding: 2px 10px;
+  white-space: nowrap;
+}
+
+.status_active,
+.status_published {
+  color: var(--color-success);
+  background: color-mix(in srgb, var(--color-success) 12%, transparent);
+}
+
+.status_planning,
+.status_draft {
+  color: var(--color-status-neutral);
+  background: color-mix(in srgb, var(--color-status-neutral) 12%, transparent);
+}
+
+.status_pending_review {
+  color: var(--color-pending);
+  background: color-mix(in srgb, var(--color-pending) 12%, transparent);
+}
+
+.status_provisioning {
+  color: var(--color-info);
+  background: color-mix(in srgb, var(--color-info) 12%, transparent);
+}
+
+.status_partial_failed {
+  color: var(--color-danger);
+  background: color-mix(in srgb, var(--color-danger) 12%, transparent);
+}
+
+.status_archived,
+.status_retired {
+  color: var(--color-text-muted);
+  background: var(--color-hover);
+}
+
+.emptyState {
+  display: flex;
+  min-height: 180px;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 24px;
+  color: var(--color-text-muted);
+  text-align: center;
+}
+
+.emptyState p {
+  margin: 0;
+  font-size: $font-size-14;
+}
+
+.formGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 20px;
+  padding: 4px 22px 22px;
+}
+
+/* 卡片標頭移除後 formGrid 直接起頭：補回頂部內距 */
+.card>.formGrid:first-child {
+  padding-top: 22px;
+}
+
+.field {
+  @include form-field;
+}
+
+.fieldFull {
+  grid-column: 1 / -1;
+}
+
+.field input,
+.field textarea,
+.field select {
+  @include form-control;
+}
+
+.field textarea {
+  resize: vertical;
+}
+
 /* 上課時間是一個「起—迄」控制項，不是兩個獨立欄位；精靈與編輯對話框共用。 */
-.timePair { display: grid; grid-template-columns: 1fr 22px 1fr; align-items: center; gap: 4px; }
-.timePair i { color: var(--color-text-muted); font-size: $font-size-10; font-style: normal; text-align: center; }
+.timePair {
+  display: grid;
+  grid-template-columns: 1fr 22px 1fr;
+  align-items: center;
+  gap: 4px;
+}
 
-.actionFooter { display: flex; justify-content: flex-end; gap: 8px; padding: 16px; border-top: 1px solid var(--color-border); }
+.timePair i {
+  color: var(--color-text-muted);
+  font-size: $font-size-10;
+  font-style: normal;
+  text-align: center;
+}
 
-.templateChoices { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; padding: 0 16px 16px; }
-.templateChoices label, .templateChoices button { display: flex; align-items: flex-start; width: 100%; gap: 11px; padding: 14px; border: 1px solid var(--color-border); border-radius: $radius-12; color: inherit; text-align: left; background: var(--color-surface); font: inherit; cursor: pointer; transition: border-color $transition-base, background $transition-base; }
-.templateChoices label:hover, .templateChoices label.templateSelected, .templateChoices button:hover:not(:disabled), .templateChoices button.templateSelected { border-color: var(--color-primary); background: color-mix(in srgb, var(--color-primary) 5%, var(--color-surface)); }
-.templateChoices button:disabled { opacity: 0.5; cursor: not-allowed; }
-.templateChoices input { position: absolute; opacity: 0; }
-.templateChoices label > span, .templateChoices button > span { display: grid; flex: 0 0 auto; width: 38px; height: 38px; place-items: center; border-radius: $radius-8; color: var(--color-primary); background: color-mix(in srgb, var(--color-primary) 10%, transparent); }
-.templateChoices label > div, .templateChoices button > div { min-width: 0; }
-.templateChoices strong { color: var(--color-text-primary); font-size: $font-size-14; }
-.templateChoices p { margin: 4px 0; color: var(--color-text-secondary); font-size: $font-size-12; line-height: 1.4; }
-.templateChoices small { color: var(--color-text-muted); font-size: $font-size-10; }
+.actionFooter {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 16px;
+  border-top: 1px solid var(--color-border);
+}
 
-.lockBadge { color: var(--color-pending); background: color-mix(in srgb, var(--color-pending) 12%, transparent); }
-.workspaceTabs { padding-bottom: 8px; border-bottom: 1px solid var(--color-border); }
-.workspaceTabs button.workspaceTabActive { color: var(--color-surface); background: var(--color-text); }
+.lockBadge {
+  color: var(--color-pending);
+  background: color-mix(in srgb, var(--color-pending) 12%, transparent);
+}
 
-.errorMessage { margin: 0; padding: 10px 12px; border: 1px solid color-mix(in srgb, var(--color-danger) 30%, var(--color-border)); border-radius: $radius-8; color: var(--color-danger); background: color-mix(in srgb, var(--color-danger) 7%, var(--color-surface)); font-size: $font-size-14; }
+.errorMessage {
+  margin: 0;
+  padding: 10px 12px;
+  border: 1px solid color-mix(in srgb, var(--color-danger) 30%, var(--color-border));
+  border-radius: $radius-8;
+  color: var(--color-danger);
+  background: color-mix(in srgb, var(--color-danger) 7%, var(--color-surface));
+  font-size: $font-size-14;
+}
 
-.memberPageHeader { display: flex; align-items: center; justify-content: space-between; gap: 18px; min-height: 54px; }
-.memberPageHeader > div:first-child { display: flex; align-items: baseline; gap: 8px; }
-.memberPageHeader h2 { margin: 0; font-size: $font-size-18; font-weight: $font-weight-700; }
-.memberPageHeader > div:first-child span { color: var(--color-text-muted); font-size: $font-size-12; }
-.memberActions { display: flex; align-items: center; gap: 8px; }
-.hiddenFileInput { position: fixed; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
-.memberPanel { overflow: hidden; @include glass-surface($shadow: var(--shadow-sm)); border-radius: $radius-16; }
-.memberPanelHead { display: flex; align-items: center; justify-content: space-between; min-height: 56px; padding: 12px 20px; border-bottom: 1px solid var(--color-border); }
-.memberPanelHead strong { font-size: $font-size-14; font-weight: $font-weight-700; }
-.memberPanelHead span { color: var(--color-text-muted); font-size: $font-size-10; font-variant-numeric: tabular-nums; }
-.memberList { display: flex; flex-direction: column; gap: 8px; padding: 12px 20px 18px; }
-.memberRow { display: grid; grid-template-columns: minmax(220px, 1.5fr) minmax(120px, .8fr) 110px 110px 34px; align-items: center; gap: 16px; min-height: 60px; padding: 10px 14px; border: 1px solid var(--color-border); border-radius: $radius-8; background: color-mix(in srgb, var(--color-hover) 22%, var(--color-surface)); }
-.memberIdentity { display: flex; min-width: 0; flex-direction: column; gap: 4px; }
-.memberIdentity strong { overflow: hidden; font-size: $font-size-14; font-weight: $font-weight-500; text-overflow: ellipsis; white-space: nowrap; }
-.memberIdentity span, .memberRow > span { overflow: hidden; color: var(--color-text-muted); font-size: $font-size-10; text-overflow: ellipsis; white-space: nowrap; }
-.memberMachineState { justify-self: start; padding: 4px 8px; border-radius: $radius-pill; background: var(--color-hover); }
-.memberReady { color: var(--color-success) !important; background: color-mix(in srgb, var(--color-success) 8%, var(--color-surface)); }
-.memberRemove { display: grid; width: 30px; height: 30px; place-items: center; padding: 0; border: 0; border-radius: $radius-8; color: var(--color-danger); background: transparent; cursor: pointer; }
-.memberRemove:hover { background: color-mix(in srgb, var(--color-danger) 8%, transparent); }
-.studentDialog { width: min(640px, 100%); }
-.studentDialogBody { padding: 20px 22px; }
-.classroomPanel { overflow: hidden; @include glass-surface($shadow: var(--shadow-sm)); border-radius: $radius-16; }
-.classroomHeader { display: flex; align-items: center; justify-content: space-between; gap: 18px; padding: 18px 20px; border-bottom: 1px solid var(--color-border); }
-.classroomHeader h2 { margin: 0; font-size: $font-size-18; font-weight: $font-weight-700; }
-.classroomHeader p { margin: 4px 0 0; color: var(--color-text-secondary); font-size: $font-size-12; }
-.classroomStats { display: flex; overflow: hidden; border: 1px solid var(--color-border); border-radius: $radius-8; }
-.classroomStats span { padding: 7px 11px; color: var(--color-text-muted); font-size: $font-size-10; white-space: nowrap; }
-.classroomStats span + span { border-left: 1px solid var(--color-border); }
-.classroomStats strong { color: var(--color-text-primary); font-size: $font-size-12; font-variant-numeric: tabular-nums; }
-.broadcastTools { display: flex; min-height: 52px; align-items: center; gap: 9px; padding: 8px 20px; border-bottom: 1px solid var(--color-border); color: var(--color-primary); background: color-mix(in srgb, var(--color-primary) 4%, var(--color-surface)); }
-.broadcastTools strong { color: var(--color-text-primary); font-size: $font-size-12; }
-.broadcastTools > span { color: var(--color-text-secondary); font-size: $font-size-12; }
-.broadcastTools select { width: min(360px, 100%); min-height: 34px; margin-left: 8px; padding: 5px 9px; border: 1px solid var(--color-border); border-radius: $radius-8; color: var(--color-text); background: var(--color-surface); font: inherit; font-size: $font-size-12; }
-.broadcastTools .btnSecondary { margin-left: auto; }
-.classroomList { display: flex; flex-direction: column; }
-.classroomStudentRow { display: grid; grid-template-columns: minmax(180px, .8fr) 70px minmax(0, 2fr); align-items: center; gap: 16px; min-height: 76px; padding: 10px 20px; border-bottom: 1px solid var(--color-divider); }
-.classroomStudentRow:last-child { border-bottom: 0; }
-.classroomStudentIdentity { display: flex; min-width: 0; flex-direction: column; gap: 3px; }
-.classroomStudentIdentity strong, .classroomStudentIdentity span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.classroomStudentIdentity strong { font-size: $font-size-14; font-weight: $font-weight-500; }
-.classroomStudentIdentity span { color: var(--color-text-muted); font-size: $font-size-10; }
-.classroomPresence { display: inline-flex; align-items: center; gap: 5px; color: var(--color-text-muted); font-size: $font-size-10; }
-.classroomPresence i { width: 7px; height: 7px; border-radius: 50%; background: var(--color-text-muted); }
-.classroomOnline { color: var(--color-success); }
-.classroomOnline i { background: var(--color-success); }
-.classroomMachines { display: grid; grid-template-columns: repeat(3, minmax(130px, 1fr)); gap: 7px; }
-.classroomMachine { display: flex; min-width: 0; align-items: center; justify-content: space-between; gap: 8px; padding: 7px 8px; border: 1px solid var(--color-border); border-radius: $radius-8; background: color-mix(in srgb, var(--color-hover) 22%, var(--color-surface)); }
-.classroomMachine > span { display: flex; min-width: 0; flex-direction: column; gap: 2px; }
-.classroomMachine strong, .classroomMachine small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.classroomMachine strong { font-size: $font-size-12; font-weight: $font-weight-500; }
-.classroomMachine small { color: var(--color-text-muted); font-size: $font-size-10; }
-.classroomMachine button { flex: 0 0 auto; padding: 4px 7px; border: 1px solid var(--color-border); border-radius: $radius-8; color: var(--color-primary); background: var(--color-surface); font: inherit; font-size: $font-size-10; font-weight: $font-weight-500; cursor: pointer; }
-.classroomMachine button:disabled { color: var(--color-text-muted); opacity: 0.5; cursor: not-allowed; }
-.classroomNoMachine { color: var(--color-text-muted); font-size: $font-size-12; }
+.memberPageHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  min-height: 54px;
+}
 
-@media (min-width: $breakpoint-sidebar) { .page { padding: 0; } }
-@include respond-below(lg) { .templateChoices { grid-template-columns: 1fr; } }
-@include respond-below(md) { .cardHeader, .toolbar { align-items: flex-start; flex-direction: column; } .formGrid { grid-template-columns: 1fr; } }
+.memberPageHeader>div:first-child {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
 
-/* Product-design pass: calm, task-led teacher workspace. */
-.page { width: 100%; }
-.btnPrimary, .btnSecondary { min-height: 40px; border-radius: $radius-8; }
-.btnPrimary { box-shadow: 0 1px 2px color-mix(in srgb, var(--color-text-primary) 18%, transparent); }
-.cardHeader { padding: 20px 22px 16px; }
-.cardHeader h2 { letter-spacing: -.01em; }
+.memberPageHeader h2 {
+  margin: 0;
+  font-size: $font-size-18;
+  font-weight: $font-weight-700;
+}
 
-.toolbar { padding: 14px 16px; background: color-mix(in srgb, var(--color-hover) 35%, var(--color-surface)); }
-.toolbar .pillTabs button { display: inline-flex; align-items: center; gap: 6px; }
-.toolbar .pillTabs i { min-width: 17px; box-sizing: border-box; padding: 1px 5px; border-radius: $radius-pill; color: var(--color-text-muted); background: var(--color-hover); font-size: $font-size-10; font-style: normal; font-weight: $font-weight-500; font-variant-numeric: tabular-nums; text-align: center; }
-.toolbar .pillTabs button.pillActive i { color: var(--color-surface); background: color-mix(in srgb, var(--color-surface) 24%, transparent); }
-.table th { height: 38px; padding-inline: $spacing-16; background: color-mix(in srgb, var(--color-hover) 58%, var(--color-surface)); font-size: $font-size-12; letter-spacing: .035em; text-transform: uppercase; }
-.table td { height: 62px; padding-inline: $spacing-16; }
-.rowLink:hover { background: color-mix(in srgb, var(--color-primary) 3.5%, var(--color-surface)); }
-.classToolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px 18px; flex-wrap: wrap; padding: 2px 0; }
-.archivedToggle { display: inline-flex; align-items: center; gap: 6px; margin-left: auto; color: var(--color-text-muted); font-size: $font-size-12; cursor: pointer; user-select: none; }
-.archivedToggle input { width: 13px; height: 13px; margin: 0; accent-color: var(--color-primary); cursor: pointer; }
-.classToolbar .searchInput { flex: 0 1 320px; border: 1px solid var(--color-border); border-radius: $radius-8; background: var(--color-surface); }
-.classToolbar .pillTabs { justify-content: flex-end; }
-.classToolbar .pillTabs button { display: inline-flex; align-items: center; gap: 6px; }
-.classToolbar .pillTabs i { min-width: 17px; box-sizing: border-box; padding: 1px 5px; border-radius: $radius-pill; color: var(--color-text-muted); background: var(--color-hover); font-size: $font-size-10; font-style: normal; font-weight: $font-weight-500; font-variant-numeric: tabular-nums; text-align: center; }
-.classToolbar .pillTabs button.pillActive i { color: var(--color-surface); background: color-mix(in srgb, var(--color-surface) 24%, transparent); }
-.pillTabs button.pillAlert { color: var(--color-danger); background: color-mix(in srgb, var(--color-danger) 10%, transparent); font-weight: $font-weight-500; }
-.pillTabs button.pillAlert:hover { color: var(--color-danger); background: color-mix(in srgb, var(--color-danger) 17%, transparent); }
-.pillTabs button.pillAlert.pillActive { color: var(--color-surface); background: var(--color-danger); }
-.classToolbar .pillTabs button.pillAlert i { color: var(--color-danger); background: color-mix(in srgb, var(--color-danger) 17%, transparent); }
-.classToolbar .pillTabs button.pillAlert.pillActive i { color: var(--color-surface); background: color-mix(in srgb, var(--color-surface) 24%, transparent); }
-.classCardGrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(330px, 1fr)); gap: 16px; align-items: stretch; }
-.classCard { display: flex; min-width: 0; flex-direction: column; overflow: hidden; @include glass-surface($shadow: var(--shadow-sm)); border-radius: $radius-16; transition: border-color $transition-base, box-shadow $transition-base, transform $transition-base; }
-.classCard:hover { border-color: color-mix(in srgb, var(--color-primary) 28%, var(--color-border)); box-shadow: 0 7px 24px color-mix(in srgb, var(--color-text-primary) 8%, transparent); transform: translateY(-1px); }
-.classCardAlert { border-color: color-mix(in srgb, var(--color-danger) 30%, var(--color-border)); }
-.classCardAlert:hover { border-color: color-mix(in srgb, var(--color-danger) 45%, var(--color-border)); }
-.classCardMain { display: flex; flex: 1; width: 100%; flex-direction: column; gap: 14px; padding: 18px 18px 16px; border: 0; color: inherit; text-align: left; background: transparent; font: inherit; cursor: pointer; }
-.classCardTop { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
-.classCardTop > div { min-width: 0; }
-.classCardTop > div > span { color: var(--color-text-muted); font-size: $font-size-12; font-weight: $font-weight-500; letter-spacing: .04em; }
-.classCardTop h2 { overflow: hidden; margin: 4px 0 0; font-size: $font-size-18; font-weight: $font-weight-700; letter-spacing: -.015em; text-overflow: ellipsis; white-space: nowrap; }
-.classMeta { display: flex; flex-direction: column; gap: 7px; }
-.classMeta > strong, .classMeta > span { display: flex; align-items: center; gap: 8px; min-width: 0; white-space: nowrap; }
-.classMeta > strong { color: var(--color-text-primary); font-size: $font-size-14; font-weight: $font-weight-500; }
-.classMeta > span { overflow: hidden; color: var(--color-text-secondary); font-size: $font-size-12; text-overflow: ellipsis; }
-.classMeta > strong > span:first-child { color: var(--color-primary); }
-.classMeta > span > span:first-child { color: var(--color-text-muted); }
-.classProgress { display: flex; flex-direction: column; gap: 6px; margin-top: auto; }
-.classProgress > div { display: flex; justify-content: space-between; color: var(--color-text-secondary); font-size: $font-size-12; }
-.classProgress > div strong { color: var(--color-text-primary); font-weight: $font-weight-500; font-variant-numeric: tabular-nums; }
-.classProgress > i { height: 5px; overflow: hidden; border-radius: $radius-pill; background: var(--color-hover); }
-.classProgress > i > b { display: block; height: 100%; border-radius: inherit; background: var(--color-primary); transition: width $transition-slow; }
-.classCardAlert .classProgress > i > b { background: var(--color-danger); }
-.classStats { display: grid; grid-template-columns: repeat(3, 1fr); border-top: 1px solid var(--color-divider); }
-.classStats > div { display: flex; align-items: baseline; justify-content: center; gap: 5px; min-height: 42px; padding: 9px 6px; }
-.classStats > div + div { border-left: 1px solid var(--color-divider); }
-.classStats strong { color: var(--color-text-primary); font-size: $font-size-16; font-weight: $font-weight-700; font-variant-numeric: tabular-nums; }
-.classStats span { color: var(--color-text-muted); font-size: $font-size-12; white-space: nowrap; }
-.classCardAction { display: flex; align-items: center; justify-content: space-between; min-height: 52px; gap: 12px; padding: 8px 10px 8px 18px; border-top: 1px solid var(--color-border); background: color-mix(in srgb, var(--color-hover) 35%, var(--color-surface)); }
-.classCardAction > span { overflow: hidden; color: var(--color-text-muted); font-size: $font-size-12; text-overflow: ellipsis; white-space: nowrap; }
-.classCardAction button { display: inline-flex; flex: 0 0 auto; align-items: center; gap: 5px; min-height: 34px; padding: 0 12px; border: 0; border-radius: $radius-8; color: var(--color-primary); background: color-mix(in srgb, var(--color-primary) 9%, transparent); font: inherit; font-size: $font-size-12; font-weight: $font-weight-500; cursor: pointer; transition: background $transition-base; }
-.classCardAction button:hover { background: color-mix(in srgb, var(--color-primary) 16%, transparent); }
-.classCardAlert .classCardAction { background: color-mix(in srgb, var(--color-danger) 5%, var(--color-surface)); }
-.classCardAlert .classCardAction > span { color: var(--color-danger); }
-.classCardAlert .classCardAction button { color: var(--color-danger); background: color-mix(in srgb, var(--color-danger) 9%, transparent); }
-.classCardAlert .classCardAction button:hover { background: color-mix(in srgb, var(--color-danger) 16%, transparent); }
+.memberPageHeader>div:first-child span {
+  color: var(--color-text-muted);
+  font-size: $font-size-12;
+}
 
-.heatmapCard { overflow: hidden; }
-.heatmapHeader { display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; padding: 22px 22px 18px; }
-.heatmapHeader h2 { margin: 3px 0 0; color: var(--color-text-primary); font-size: $font-size-18; letter-spacing: -.02em; }
-.heatmapHeader p { margin: 6px 0 0; color: var(--color-text-secondary); font-size: $font-size-14; line-height: 1.5; }
-.heatmapEyebrow { color: var(--color-primary); font-size: $font-size-10; font-weight: $font-weight-700; letter-spacing: .12em; }
-.prototypeBadge { display: inline-flex; align-items: center; gap: 5px; flex: 0 0 auto; padding: 5px 9px; border: 1px solid color-mix(in srgb, var(--color-pending) 24%, var(--color-border)); border-radius: $radius-pill; color: var(--color-pending); background: color-mix(in srgb, var(--color-pending) 7%, var(--color-surface)); font-size: $font-size-12; font-weight: $font-weight-500; }
-.liveBadge { display: inline-flex; align-items: center; gap: 5px; flex: 0 0 auto; padding: 5px 9px; border: 1px solid color-mix(in srgb, var(--color-success) 28%, var(--color-border)); border-radius: $radius-pill; color: var(--color-success); background: color-mix(in srgb, var(--color-success) 7%, var(--color-surface)); font-size: $font-size-12; font-weight: $font-weight-500; }
-.heatmapToolbar { display: flex; align-items: flex-end; justify-content: space-between; gap: 12px 16px; flex-wrap: wrap; padding: 0 22px 18px; border-bottom: 1px solid var(--color-border); }
-.machineTabs { display: flex; flex: 1 1 360px; gap: 7px; min-width: 0; max-width: 100%; overflow-x: auto; scrollbar-width: none; }
-.machineTabs::-webkit-scrollbar { display: none; }
-.machineTabs > button { display: flex; width: 220px; max-width: 100%; align-items: center; gap: 9px; flex: 0 0 auto; box-sizing: border-box; padding: 9px 12px; border: 1px solid var(--color-border); border-radius: $radius-8; color: var(--color-text-secondary); background: var(--color-surface); text-align: left; transition: border-color $transition-base, background $transition-base, color $transition-base; }
-.machineTabs > button:hover { border-color: color-mix(in srgb, var(--color-primary) 35%, var(--color-border)); background: var(--color-hover); }
-.machineTabs > button > span:first-child { display: grid; width: 30px; height: 30px; flex: 0 0 auto; place-items: center; overflow: hidden; border-radius: $radius-8; background: var(--color-hover); }
-.machineTabs > button > span:last-child { display: flex; flex-direction: column; min-width: 0; }
-.machineTabs small { color: var(--color-text-muted); font-size: $font-size-10; letter-spacing: .06em; text-transform: uppercase; }
-.machineTabs strong { overflow: hidden; font-size: $font-size-12; font-weight: $font-weight-500; text-overflow: ellipsis; white-space: nowrap; }
-.machineTabs > button.machineTabActive { border-color: color-mix(in srgb, var(--color-primary) 50%, var(--color-border)); color: var(--color-primary); background: color-mix(in srgb, var(--color-primary) 8%, var(--color-surface)); box-shadow: inset 0 -2px 0 var(--color-primary); }
-.machineTabs > button.machineTabActive > span:first-child { background: color-mix(in srgb, var(--color-primary) 13%, var(--color-surface)); }
-.metricTabs { display: flex; flex: 0 0 auto; gap: 3px; margin-left: auto; padding: 3px; border: 1px solid var(--color-border); border-radius: $radius-8; background: var(--color-hover); }
-.metricTabs button { display: inline-flex; align-items: center; gap: 5px; min-height: 32px; padding: 0 13px; border: 0; border-radius: $radius-8; color: var(--color-text-secondary); background: transparent; font-size: $font-size-12; font-weight: $font-weight-500; }
-.metricTabs button.metricTabActive { color: var(--color-text-primary); background: var(--color-surface); box-shadow: 0 1px 3px color-mix(in srgb, var(--color-text-primary) 12%, transparent); }
-.heatmapSummary { display: flex; align-items: center; justify-content: space-between; gap: 14px 20px; flex-wrap: wrap; padding: 16px 22px; }
-.heatmapSummary > div:first-child { display: flex; flex: 1 1 260px; align-items: center; gap: 10px; min-width: 0; overflow: hidden; }
-.heatmapSummary > div:first-child > div { display: flex; min-width: 0; flex-direction: column; overflow: hidden; }
-.heatmapSummary strong { overflow: hidden; color: var(--color-text-primary); font-size: $font-size-14; text-overflow: ellipsis; white-space: nowrap; }
-.heatmapSummary small { overflow: hidden; color: var(--color-text-muted); font-size: $font-size-10; text-overflow: ellipsis; white-space: nowrap; }
-.selectedMachineIcon { display: grid; width: 36px; height: 36px; flex: 0 0 auto; place-items: center; overflow: hidden; border-radius: $radius-8; color: var(--color-primary); background: color-mix(in srgb, var(--color-primary) 10%, var(--color-surface)); }
-.heatmapSummary dl { display: flex; gap: 0; margin: 0; }
-.heatmapSummary dl > div { min-width: 78px; padding: 0 14px; border-left: 1px solid var(--color-divider); }
-.heatmapSummary dt { color: var(--color-text-muted); font-size: $font-size-10; }
-.heatmapSummary dd { margin: 2px 0 0; color: var(--color-text-primary); font-size: $font-size-18; font-weight: $font-weight-700; }
-.heatmapSummary dd small { margin-left: 2px; font-weight: $font-weight-500; }
-.heatGrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(126px, 1fr)); gap: 7px; padding: 0 22px 18px; }
-.heatCell { position: relative; display: grid; width: 100%; grid-template-columns: auto minmax(0, 1fr); grid-template-rows: auto auto; gap: 12px 9px; min-height: 92px; padding: 12px; overflow: hidden; contain: layout paint; border: 1px solid transparent; border-radius: $radius-8; color: inherit; text-align: left; font: inherit; appearance: none; transition: transform $transition-base, box-shadow $transition-base, border-color $transition-base; }
-.heatCell:disabled { opacity: 1; cursor: default; }
-.heatCellClickable { cursor: pointer; }
-.heatCellClickable:hover:not(:disabled) { z-index: 1; border-color: color-mix(in srgb, currentColor 50%, transparent); transform: translateY(-2px); box-shadow: 0 5px 16px color-mix(in srgb, var(--color-text-primary) 16%, transparent); }
-.heatCellClickable:focus-visible { z-index: 1; outline: 3px solid color-mix(in srgb, var(--color-primary) 35%, transparent); outline-offset: 2px; }
-.studentNumber { display: grid; grid-row: 1; width: 24px; height: 24px; place-items: center; border-radius: $radius-8; background: color-mix(in srgb, currentColor 9%, transparent); font-size: $font-size-10; font-weight: $font-weight-700; }
-.heatCell > div { display: flex; flex-direction: column; min-width: 0; }
-.heatCell > div strong { overflow: hidden; font-size: $font-size-12; font-weight: $font-weight-500; text-overflow: ellipsis; white-space: nowrap; }
-.heatCell > div small { margin-top: 2px; font-size: $font-size-10; opacity: .72; }
-.heatCell > b { grid-column: 1 / -1; font-size: $font-size-18; line-height: 1; }
-.heatCellClickable > b { padding-right: 58px; }
-.heatWatchCue { position: absolute; right: 11px; bottom: 10px; display: inline-flex; align-items: center; gap: 4px; padding: 3px 6px; border-radius: $radius-pill; background: color-mix(in srgb, currentColor 10%, transparent); font-size: $font-size-10; font-weight: $font-weight-700; }
-.heatOff { border-color: var(--color-border); color: var(--color-text-muted); background: transparent; }
-.heatOff.heatCell { border-style: dashed; }
-.heatUnavailable { border-color: var(--color-border); color: var(--color-text-muted); background: repeating-linear-gradient(135deg, color-mix(in srgb, var(--color-hover) 70%, var(--color-surface)) 0 7px, var(--color-surface) 7px 14px); }
-.heat_1 { border-color: color-mix(in srgb, #2f9e44 22%, var(--color-border)); color: var(--color-text-primary); background: color-mix(in srgb, #2f9e44 18%, var(--color-surface)); }
-.heat_2 { border-color: color-mix(in srgb, #82c91e 36%, var(--color-border)); color: var(--color-text-primary); background: color-mix(in srgb, #82c91e 34%, var(--color-surface)); }
-.heat_3 { border-color: color-mix(in srgb, #f5b301 58%, var(--color-border)); color: var(--color-text-primary); background: color-mix(in srgb, #f5b301 52%, var(--color-surface)); }
-.heat_4 { border-color: #d9480f; color: var(--color-text-on-primary); background: #e8590c; }
-.heat_5 { border-color: #8f1d1d; color: var(--color-text-on-primary); background: #c92a2a; }
-.heatLegend { display: flex; align-items: center; justify-content: flex-end; gap: 13px; padding: 12px 22px 16px; border-top: 1px solid var(--color-divider); color: var(--color-text-muted); font-size: $font-size-10; }
-.heatLegend span { display: inline-flex; align-items: center; gap: 5px; }
-.heatLegend i { display: inline-block; width: 15px; height: 15px; border: 1px solid var(--color-border); border-radius: 4px; }
-.legendScale { gap: 3px !important; }
-.stepTabs { align-self: flex-start; padding: 4px; }
-.stepTabs button { min-width: 170px; justify-content: flex-start; }
+.memberActions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
 
-.compactFormSection { padding: 20px 22px 22px; }
-.compactFormSection + .compactFormSection { border-top: 1px solid var(--color-border); }
-.compactFormSection h2, .compactFormSection h3 { margin: 0 0 16px; font-size: $font-size-14; font-weight: $font-weight-700; }
-.dialogNote { margin: 0 0 16px; color: var(--color-text-secondary); font-size: $font-size-12; line-height: 1.6; }
-.createFormGrid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
-.createNameField { grid-column: span 2; }
+.hiddenFileInput {
+  position: fixed;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
+}
 
-.createDialogOverlay { position: fixed; z-index: 300; inset: 0; display: grid; padding: 24px; place-items: center; background: var(--color-overlay); backdrop-filter: blur(4px); animation: fadeIn 0.15s ease; transition: opacity 0.15s ease; }
-.createDialogOverlayOut { animation: none; opacity: 0; pointer-events: none; }
-@keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
-@keyframes slideUp { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: translateY(0); } }
-.createDialog { animation: slideUp 0.18s cubic-bezier(0.25, 0.8, 0.25, 1); width: min(820px, 100%); max-height: min(820px, calc(100vh - 48px)); overflow: hidden; border: 1px solid var(--color-border); border-radius: $radius-16; background: var(--color-surface); box-shadow: var(--shadow-lg); }
-.createDialogHeader { display: flex; align-items: center; justify-content: space-between; min-height: 58px; padding: 12px 18px 12px 22px; border-bottom: 1px solid var(--color-border); }
-.createDialogHeader h2 { margin: 0; font-size: $font-size-18; font-weight: $font-weight-700; }
-.createDialog form { display: flex; min-height: 0; flex-direction: column; }
-.createDialogBody { max-height: calc(100vh - 190px); overflow-y: auto; }
-.createDialogBody .errorMessage { margin: 0 22px 18px; }
-.createDialogFooter { display: flex; align-items: center; justify-content: flex-end; gap: 9px; min-height: 66px; padding: 12px 18px; border-top: 1px solid var(--color-border); background: color-mix(in srgb, var(--color-hover) 38%, var(--color-surface)); }
-.formGrid { gap: 20px; padding: 4px 22px 22px; }
+.memberPanel {
+  overflow: hidden;
+  @include glass-surface($shadow: var(--shadow-sm));
+  border-radius: $radius-16;
+}
 
-.workspaceContent { min-width: 0; overflow: hidden; }
-.workflowTabsBar { display: flex; align-items: stretch; min-width: 0; overflow: hidden; @include glass-surface($shadow: var(--shadow-sm)); border-radius: $radius-12; }
-.workflowTabsBar .workspaceTabs { display: flex; flex: 1; min-width: 0; overflow-x: auto; overflow-y: hidden; padding: 5px; border: 0; scrollbar-width: thin; }
-.workflowTabsBar .workspaceTabs button { position: relative; display: flex; flex: 1 0 max-content; align-items: center; justify-content: center; gap: 7px; min-width: 126px; height: 44px; padding: 0 15px; border: 0; border-radius: $radius-8; color: var(--color-text-secondary); background: transparent; cursor: pointer; }
-.workflowTabsBar .workspaceTabs button::after { position: absolute; right: 0; bottom: -5px; left: 0; height: 2px; border-radius: 2px 2px 0 0; background: transparent; content: ""; }
-.workflowTabsBar .workspaceTabs button:hover:not(:disabled) { color: var(--color-text-primary); background: var(--color-hover); }
-.workflowTabsBar .workspaceTabs button strong { color: inherit; font-size: $font-size-14; font-weight: $font-weight-500; white-space: nowrap; }
-.workflowTabsBar .workspaceTabs button.workspaceTabActive { color: var(--color-primary); background: color-mix(in srgb, var(--color-primary) 8%, var(--color-surface)); }
-.workflowTabsBar .workspaceTabs button.workspaceTabActive::after { background: var(--color-primary); }
-.workflowTabsBar .workspaceTabs button.workspaceTabLocked { opacity: .42; cursor: not-allowed; }
-.workflowProgress { display: flex; flex: 0 0 auto; min-width: 120px; flex-direction: column; justify-content: center; gap: 2px; padding: 0 18px; border-left: 1px solid var(--color-border); background: color-mix(in srgb, var(--color-hover) 34%, var(--color-surface)); }
-.workflowProgress span { color: var(--color-text-muted); font-size: $font-size-10; }
-.workflowProgress strong { font-size: $font-size-12; font-weight: $font-weight-500; white-space: nowrap; }
+.memberPanelHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 56px;
+  padding: 12px 20px;
+  border-bottom: 1px solid var(--color-border);
+}
 
-.readinessPanel { overflow: hidden; @include glass-surface($shadow: var(--shadow-sm)); border-radius: $radius-16; }
-.setupSummary { display: grid; grid-template-columns: 42px minmax(0, 1fr) auto; align-items: center; gap: 14px; padding: 22px 24px; }
-.setupSummaryIcon { display: grid; width: 42px; height: 42px; place-items: center; border-radius: $radius-12; color: var(--color-primary); background: color-mix(in srgb, var(--color-primary) 9%, var(--color-surface)); }
-.setupSummary > div { min-width: 0; }
-.setupSummary > div > span { color: var(--color-text-muted); font-size: $font-size-12; font-weight: $font-weight-500; }
-.setupSummary h2 { margin: 3px 0 2px; font-size: $font-size-18; font-weight: $font-weight-700; letter-spacing: -.015em; }
-.setupSummary p { margin: 0; color: var(--color-text-secondary); font-size: $font-size-14; line-height: 1.5; }
-.setupChecklist { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); border-top: 1px solid var(--color-border); }
-.setupChecklist > div { display: grid; grid-template-columns: 28px minmax(0, 1fr) auto; align-items: center; gap: 10px; min-height: 66px; padding: 11px 20px; }
-.setupChecklist > div + div { border-left: 1px solid var(--color-border); }
-.setupChecklist > div > span { display: grid; width: 28px; height: 28px; place-items: center; border-radius: $radius-8; }
-.setupChecklist > div > div { display: flex; min-width: 0; flex-direction: column; gap: 2px; }
-.setupChecklist strong { font-size: $font-size-14; font-weight: $font-weight-500; }
-.setupChecklist small { overflow: hidden; color: var(--color-text-muted); font-size: $font-size-12; text-overflow: ellipsis; white-space: nowrap; }
-.setupChecklist em { padding: 3px 7px; border-radius: $radius-pill; font-size: $font-size-10; font-style: normal; font-weight: $font-weight-500; white-space: nowrap; }
-.setupItemDone > span { color: var(--color-success); background: color-mix(in srgb, var(--color-success) 9%, var(--color-surface)); }
-.setupItemDone em { color: var(--color-text-muted); background: var(--color-hover); }
-.setupItemTodo { background: color-mix(in srgb, var(--color-primary) 3%, var(--color-surface)); }
-.setupItemTodo > span, .setupItemTodo em { color: var(--color-primary); background: color-mix(in srgb, var(--color-primary) 9%, var(--color-surface)); }
-.overviewDetailGrid { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(320px, .85fr); gap: 16px; align-items: start; }
+.memberPanelHead strong {
+  font-size: $font-size-14;
+  font-weight: $font-weight-700;
+}
+
+.memberPanelHead span {
+  color: var(--color-text-muted);
+  font-size: $font-size-10;
+  font-variant-numeric: tabular-nums;
+}
+
+.memberList {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 20px 18px;
+}
+
+.memberRow {
+  display: grid;
+  grid-template-columns: minmax(220px, 1.5fr) minmax(120px, .8fr) 110px 110px 34px;
+  align-items: center;
+  gap: 16px;
+  min-height: 60px;
+  padding: 10px 14px;
+  border: 1px solid var(--color-border);
+  border-radius: $radius-8;
+  background: color-mix(in srgb, var(--color-hover) 22%, var(--color-surface));
+}
+
+.memberIdentity {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.memberIdentity strong {
+  overflow: hidden;
+  font-size: $font-size-14;
+  font-weight: $font-weight-500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.memberIdentity span,
+.memberRow>span {
+  overflow: hidden;
+  color: var(--color-text-muted);
+  font-size: $font-size-10;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.memberMachineState {
+  justify-self: start;
+  padding: 4px 8px;
+  border-radius: $radius-pill;
+  background: var(--color-hover);
+}
+
+.memberReady {
+  color: var(--color-success) !important;
+  background: color-mix(in srgb, var(--color-success) 8%, var(--color-surface));
+}
+
+.memberRemove {
+  @include btn-icon($danger: true);
+}
+
+/* 寬度級距（規範四級制）：雙類名壓過檔案後方的 .createDialog 基底 820 寬。
+   加入學生＝小型單欄表單 640；延長課堂＝單一日期欄位，確認框級 400 */
+.studentDialog.studentDialog {
+  width: min(640px, 100%);
+}
+
+.extendDialog.extendDialog {
+  width: min(400px, 100%);
+}
+
+.studentDialogBody {
+  padding: 20px 22px;
+}
+
+.broadcastTools {
+  display: flex;
+  min-height: 52px;
+  align-items: center;
+  gap: 9px;
+  padding: 8px 20px;
+  border-bottom: 1px solid var(--color-border);
+  color: var(--color-primary);
+  background: color-mix(in srgb, var(--color-primary) 4%, var(--color-surface));
+}
+
+.broadcastTools strong {
+  color: var(--color-text-primary);
+  font-size: $font-size-12;
+}
+
+.broadcastTools>span {
+  color: var(--color-text-secondary);
+  font-size: $font-size-12;
+}
+
+.broadcastTools select {
+  width: min(360px, 100%);
+  min-height: 34px;
+  margin-left: 8px;
+  padding: 5px 9px;
+  border: 1px solid var(--color-border);
+  border-radius: $radius-8;
+  color: var(--color-text);
+  background: var(--color-surface);
+  font: inherit;
+  font-size: $font-size-12;
+}
+
+.broadcastTools .btnSecondary {
+  margin-left: auto;
+}
+
+@media (min-width: $breakpoint-sidebar) {
+  .page {
+    padding: 0;
+  }
+}
+
+@include respond-below(md) {
+  .cardHeader {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .formGrid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* ── 班級管理列表：卡片牆與熱力圖 ── */
+.classToolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px 18px;
+  flex-wrap: wrap;
+  padding: 2px 0;
+}
+
+.archivedToggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+  color: var(--color-text-muted);
+  font-size: $font-size-12;
+  cursor: pointer;
+  user-select: none;
+}
+
+.archivedToggle input {
+  width: 13px;
+  height: 13px;
+  margin: 0;
+  accent-color: var(--color-primary);
+  cursor: pointer;
+}
+
+.classToolbar .searchInput {
+  flex: 0 1 320px;
+  border: 1px solid var(--color-border);
+  border-radius: $radius-8;
+  background: var(--color-surface);
+}
+
+.classCardGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(330px, 1fr));
+  gap: 16px;
+  align-items: stretch;
+}
+
+.classCard {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  overflow: hidden;
+  @include glass-surface($shadow: var(--shadow-sm));
+  border-radius: $radius-16;
+  transition: border-color $transition-base, box-shadow $transition-base, transform $transition-base;
+}
+
+.classCard:hover {
+  border-color: color-mix(in srgb, var(--color-primary) 28%, var(--color-border));
+  box-shadow: 0 7px 24px color-mix(in srgb, var(--color-text-primary) 8%, transparent);
+  transform: translateY(-1px);
+}
+
+.classCardAlert {
+  border-color: color-mix(in srgb, var(--color-danger) 30%, var(--color-border));
+}
+
+.classCardAlert:hover {
+  border-color: color-mix(in srgb, var(--color-danger) 45%, var(--color-border));
+}
+
+.classCardMain {
+  display: flex;
+  flex: 1;
+  width: 100%;
+  flex-direction: column;
+  gap: 14px;
+  padding: 18px 18px 16px;
+  border: 0;
+  color: inherit;
+  text-align: left;
+  background: transparent;
+  font: inherit;
+  cursor: pointer;
+}
+
+.classCardTop {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.classCardTop>div {
+  min-width: 0;
+}
+
+.classCardTop>div>span {
+  color: var(--color-text-muted);
+  font-size: $font-size-12;
+  font-weight: $font-weight-500;
+  letter-spacing: .04em;
+}
+
+.classCardTop h2 {
+  overflow: hidden;
+  margin: 4px 0 0;
+  font-size: $font-size-18;
+  font-weight: $font-weight-700;
+  letter-spacing: -.015em;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.classMeta {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
+.classMeta>strong,
+.classMeta>span {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  white-space: nowrap;
+}
+
+.classMeta>strong {
+  color: var(--color-text-primary);
+  font-size: $font-size-14;
+  font-weight: $font-weight-500;
+}
+
+.classMeta>span {
+  overflow: hidden;
+  color: var(--color-text-secondary);
+  font-size: $font-size-12;
+  text-overflow: ellipsis;
+}
+
+.classMeta>strong>span:first-child {
+  color: var(--color-primary);
+}
+
+.classMeta>span>span:first-child {
+  color: var(--color-text-muted);
+}
+
+.classProgress {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: auto;
+}
+
+.classProgress>div {
+  display: flex;
+  justify-content: space-between;
+  color: var(--color-text-secondary);
+  font-size: $font-size-12;
+}
+
+.classProgress>div strong {
+  color: var(--color-text-primary);
+  font-weight: $font-weight-500;
+  font-variant-numeric: tabular-nums;
+}
+
+.classProgress>i {
+  height: 5px;
+  overflow: hidden;
+  border-radius: $radius-pill;
+  background: var(--color-hover);
+}
+
+.classProgress>i>b {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--color-primary);
+  transition: width $transition-slow;
+}
+
+.classCardAlert .classProgress>i>b {
+  background: var(--color-danger);
+}
+
+.classStats {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  border-top: 1px solid var(--color-divider);
+}
+
+.classStats>div {
+  display: flex;
+  align-items: baseline;
+  justify-content: center;
+  gap: 5px;
+  min-height: 42px;
+  padding: 9px 6px;
+}
+
+.classStats>div+div {
+  border-left: 1px solid var(--color-divider);
+}
+
+.classStats strong {
+  color: var(--color-text-primary);
+  font-size: $font-size-16;
+  font-weight: $font-weight-700;
+  font-variant-numeric: tabular-nums;
+}
+
+.classStats span {
+  color: var(--color-text-muted);
+  font-size: $font-size-12;
+  white-space: nowrap;
+}
+
+.classCardAction {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 52px;
+  gap: 12px;
+  padding: 8px 10px 8px 18px;
+  border-top: 1px solid var(--color-border);
+  background: color-mix(in srgb, var(--color-hover) 35%, var(--color-surface));
+}
+
+.classCardAction>span {
+  overflow: hidden;
+  color: var(--color-text-muted);
+  font-size: $font-size-12;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.classCardAction button {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 5px;
+  min-height: 34px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: $radius-8;
+  color: var(--color-primary);
+  background: color-mix(in srgb, var(--color-primary) 9%, transparent);
+  font: inherit;
+  font-size: $font-size-12;
+  font-weight: $font-weight-500;
+  cursor: pointer;
+  transition: background $transition-base;
+}
+
+.classCardAction button:hover {
+  background: color-mix(in srgb, var(--color-primary) 16%, transparent);
+}
+
+.classCardAlert .classCardAction {
+  background: color-mix(in srgb, var(--color-danger) 5%, var(--color-surface));
+}
+
+.classCardAlert .classCardAction>span {
+  color: var(--color-danger);
+}
+
+.classCardAlert .classCardAction button {
+  color: var(--color-danger);
+  background: color-mix(in srgb, var(--color-danger) 9%, transparent);
+}
+
+.classCardAlert .classCardAction button:hover {
+  background: color-mix(in srgb, var(--color-danger) 16%, transparent);
+}
+
+.heatmapCard {
+  overflow: hidden;
+}
+
+.heatmapHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 20px;
+  padding: 22px 22px 18px;
+}
+
+.heatmapHeader h2 {
+  margin: 3px 0 0;
+  color: var(--color-text-primary);
+  font-size: $font-size-18;
+  letter-spacing: -.02em;
+}
+
+.heatmapHeader p {
+  margin: 6px 0 0;
+  color: var(--color-text-secondary);
+  font-size: $font-size-14;
+  line-height: 1.5;
+}
+
+.heatmapEyebrow {
+  color: var(--color-primary);
+  font-size: $font-size-10;
+  font-weight: $font-weight-700;
+  letter-spacing: .12em;
+}
+
+.prototypeBadge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  flex: 0 0 auto;
+  padding: 5px 9px;
+  border: 1px solid color-mix(in srgb, var(--color-pending) 24%, var(--color-border));
+  border-radius: $radius-pill;
+  color: var(--color-pending);
+  background: color-mix(in srgb, var(--color-pending) 7%, var(--color-surface));
+  font-size: $font-size-12;
+  font-weight: $font-weight-500;
+}
+
+.liveBadge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  flex: 0 0 auto;
+  padding: 5px 9px;
+  border: 1px solid color-mix(in srgb, var(--color-success) 28%, var(--color-border));
+  border-radius: $radius-pill;
+  color: var(--color-success);
+  background: color-mix(in srgb, var(--color-success) 7%, var(--color-surface));
+  font-size: $font-size-12;
+  font-weight: $font-weight-500;
+}
+
+.heatmapToolbar {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 12px 16px;
+  flex-wrap: wrap;
+  padding: 0 22px 18px;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.machineTabs {
+  display: flex;
+  flex: 1 1 360px;
+  gap: 7px;
+  min-width: 0;
+  max-width: 100%;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.machineTabs::-webkit-scrollbar {
+  display: none;
+}
+
+.machineTabs>button {
+  display: flex;
+  width: 220px;
+  max-width: 100%;
+  align-items: center;
+  gap: 9px;
+  flex: 0 0 auto;
+  box-sizing: border-box;
+  padding: 9px 12px;
+  border: 1px solid var(--color-border);
+  border-radius: $radius-8;
+  color: var(--color-text-secondary);
+  background: var(--color-surface);
+  text-align: left;
+  transition: border-color $transition-base, background $transition-base, color $transition-base;
+}
+
+.machineTabs>button:hover {
+  border-color: color-mix(in srgb, var(--color-primary) 35%, var(--color-border));
+  background: var(--color-hover);
+}
+
+.machineTabs>button>span:first-child {
+  display: grid;
+  width: 30px;
+  height: 30px;
+  flex: 0 0 auto;
+  place-items: center;
+  overflow: hidden;
+  border-radius: $radius-8;
+  background: var(--color-hover);
+}
+
+.machineTabs>button>span:last-child {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.machineTabs small {
+  color: var(--color-text-muted);
+  font-size: $font-size-10;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+}
+
+.machineTabs strong {
+  overflow: hidden;
+  font-size: $font-size-12;
+  font-weight: $font-weight-500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.machineTabs>button.machineTabActive {
+  border-color: color-mix(in srgb, var(--color-primary) 50%, var(--color-border));
+  color: var(--color-primary);
+  background: color-mix(in srgb, var(--color-primary) 8%, var(--color-surface));
+  box-shadow: inset 0 -2px 0 var(--color-primary);
+}
+
+.machineTabs>button.machineTabActive>span:first-child {
+  background: color-mix(in srgb, var(--color-primary) 13%, var(--color-surface));
+}
+
+.metricTabs {
+  display: flex;
+  flex: 0 0 auto;
+  gap: 3px;
+  margin-left: auto;
+  padding: 3px;
+  border: 1px solid var(--color-border);
+  border-radius: $radius-8;
+  background: var(--color-hover);
+}
+
+.metricTabs button {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 32px;
+  padding: 0 13px;
+  border: 0;
+  border-radius: $radius-8;
+  color: var(--color-text-secondary);
+  background: transparent;
+  font-size: $font-size-12;
+  font-weight: $font-weight-500;
+}
+
+.metricTabs button.metricTabActive {
+  color: var(--color-text-primary);
+  background: var(--color-surface);
+  box-shadow: 0 1px 3px color-mix(in srgb, var(--color-text-primary) 12%, transparent);
+}
+
+.heatmapSummary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px 20px;
+  flex-wrap: wrap;
+  padding: 16px 22px;
+}
+
+.heatmapSummary>div:first-child {
+  display: flex;
+  flex: 1 1 260px;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.heatmapSummary>div:first-child>div {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.heatmapSummary strong {
+  overflow: hidden;
+  color: var(--color-text-primary);
+  font-size: $font-size-14;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.heatmapSummary small {
+  overflow: hidden;
+  color: var(--color-text-muted);
+  font-size: $font-size-10;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.selectedMachineIcon {
+  display: grid;
+  width: 36px;
+  height: 36px;
+  flex: 0 0 auto;
+  place-items: center;
+  overflow: hidden;
+  border-radius: $radius-8;
+  color: var(--color-primary);
+  background: color-mix(in srgb, var(--color-primary) 10%, var(--color-surface));
+}
+
+.heatmapSummary dl {
+  display: flex;
+  gap: 0;
+  margin: 0;
+}
+
+.heatmapSummary dl>div {
+  min-width: 78px;
+  padding: 0 14px;
+  border-left: 1px solid var(--color-divider);
+}
+
+.heatmapSummary dt {
+  color: var(--color-text-muted);
+  font-size: $font-size-10;
+}
+
+.heatmapSummary dd {
+  margin: 2px 0 0;
+  color: var(--color-text-primary);
+  font-size: $font-size-18;
+  font-weight: $font-weight-700;
+}
+
+.heatmapSummary dd small {
+  margin-left: 2px;
+  font-weight: $font-weight-500;
+}
+
+.heatGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(126px, 1fr));
+  gap: 7px;
+  padding: 0 22px 18px;
+}
+
+.heatCell {
+  position: relative;
+  display: grid;
+  width: 100%;
+  grid-template-columns: auto minmax(0, 1fr);
+  grid-template-rows: auto auto;
+  gap: 12px 9px;
+  min-height: 92px;
+  padding: 12px;
+  overflow: hidden;
+  contain: layout paint;
+  border: 1px solid transparent;
+  border-radius: $radius-8;
+  color: inherit;
+  text-align: left;
+  font: inherit;
+  appearance: none;
+  transition: transform $transition-base, box-shadow $transition-base, border-color $transition-base;
+}
+
+.heatCell:disabled {
+  opacity: 1;
+  cursor: default;
+}
+
+.heatCellClickable {
+  cursor: pointer;
+}
+
+.heatCellClickable:hover:not(:disabled) {
+  z-index: 1;
+  border-color: color-mix(in srgb, currentColor 50%, transparent);
+  transform: translateY(-2px);
+  box-shadow: 0 5px 16px color-mix(in srgb, var(--color-text-primary) 16%, transparent);
+}
+
+.heatCellClickable:focus-visible {
+  z-index: 1;
+  outline: 3px solid color-mix(in srgb, var(--color-primary) 35%, transparent);
+  outline-offset: 2px;
+}
+
+.studentNumber {
+  display: grid;
+  grid-row: 1;
+  width: 24px;
+  height: 24px;
+  place-items: center;
+  border-radius: $radius-8;
+  background: color-mix(in srgb, currentColor 9%, transparent);
+  font-size: $font-size-10;
+  font-weight: $font-weight-700;
+}
+
+.heatCell>div {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.heatCell>div strong {
+  overflow: hidden;
+  font-size: $font-size-12;
+  font-weight: $font-weight-500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.heatCell>div small {
+  margin-top: 2px;
+  font-size: $font-size-10;
+  opacity: .72;
+}
+
+.heatCell>b {
+  grid-column: 1 / -1;
+  font-size: $font-size-18;
+  line-height: 1;
+}
+
+.heatCellClickable>b {
+  padding-right: 58px;
+}
+
+.heatWatchCue {
+  position: absolute;
+  right: 11px;
+  bottom: 10px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 6px;
+  border-radius: $radius-pill;
+  background: color-mix(in srgb, currentColor 10%, transparent);
+  font-size: $font-size-10;
+  font-weight: $font-weight-700;
+}
+
+.heatOff {
+  border-color: var(--color-border);
+  color: var(--color-text-muted);
+  background: transparent;
+}
+
+.heatOff.heatCell {
+  border-style: dashed;
+}
+
+.heatUnavailable {
+  border-color: var(--color-border);
+  color: var(--color-text-muted);
+  background: repeating-linear-gradient(135deg, color-mix(in srgb, var(--color-hover) 70%, var(--color-surface)) 0 7px, var(--color-surface) 7px 14px);
+}
+
+.heat_1 {
+  border-color: color-mix(in srgb, #2f9e44 22%, var(--color-border));
+  color: var(--color-text-primary);
+  background: color-mix(in srgb, #2f9e44 18%, var(--color-surface));
+}
+
+.heat_2 {
+  border-color: color-mix(in srgb, #82c91e 36%, var(--color-border));
+  color: var(--color-text-primary);
+  background: color-mix(in srgb, #82c91e 34%, var(--color-surface));
+}
+
+.heat_3 {
+  border-color: color-mix(in srgb, #f5b301 58%, var(--color-border));
+  color: var(--color-text-primary);
+  background: color-mix(in srgb, #f5b301 52%, var(--color-surface));
+}
+
+.heat_4 {
+  border-color: #d9480f;
+  color: var(--color-text-on-primary);
+  background: #e8590c;
+}
+
+.heat_5 {
+  border-color: #8f1d1d;
+  color: var(--color-text-on-primary);
+  background: #c92a2a;
+}
+
+.heatLegend {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 13px;
+  padding: 12px 22px 16px;
+  border-top: 1px solid var(--color-divider);
+  color: var(--color-text-muted);
+  font-size: $font-size-10;
+}
+
+.heatLegend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.heatLegend i {
+  display: inline-block;
+  width: 15px;
+  height: 15px;
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+}
+
+.legendScale {
+  gap: 3px !important;
+}
+
+/* ── 建立／編輯彈窗（ClassCreateDialog、延長課堂、加入學生、對外服務共用基底） ── */
+.compactFormSection {
+  padding: 20px 22px 22px;
+}
+
+.compactFormSection+.compactFormSection {
+  border-top: 1px solid var(--color-border);
+}
+
+.compactFormSection h2,
+.compactFormSection h3 {
+  margin: 0 0 16px;
+  font-size: $font-size-14;
+  font-weight: $font-weight-700;
+}
+
+.dialogNote {
+  margin: 0 0 16px;
+  color: var(--color-text-secondary);
+  font-size: $font-size-12;
+  line-height: 1.6;
+}
+
+.createFormGrid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.createNameField {
+  grid-column: span 2;
+}
+
+.createDialogOverlay {
+  position: fixed;
+  z-index: 300;
+  inset: 0;
+  display: grid;
+  padding: 24px;
+  place-items: center;
+  background: var(--color-overlay);
+  backdrop-filter: blur(4px);
+  animation: fadeIn 0.15s ease;
+  transition: opacity 0.15s ease;
+}
+
+.createDialogOverlayOut {
+  animation: none;
+  opacity: 0;
+  pointer-events: none;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes slideUp {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Dialog 基底對齊樣式規範：毛玻璃卡（不用實色 surface + 邊框）、標題 16/700 */
+.createDialog {
+  animation: slideUp 0.18s cubic-bezier(0.25, 0.8, 0.25, 1);
+  width: min(820px, 100%);
+  max-height: min(820px, calc(100vh - 48px));
+  overflow: hidden;
+  @include glass-surface($shadow: var(--shadow-lg));
+  border-radius: $radius-16;
+}
+
+.createDialogHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 58px;
+  padding: 12px 18px 12px 22px;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.createDialogHeader h2 {
+  margin: 0;
+  font-size: $font-size-16;
+  font-weight: $font-weight-700;
+}
+
+.createDialog form {
+  display: flex;
+  min-height: 0;
+  flex-direction: column;
+}
+
+.createDialogBody {
+  max-height: calc(100vh - 190px);
+  overflow-y: auto;
+}
+
+.createDialogBody .errorMessage {
+  margin: 0 22px 18px;
+}
+
+/* footer 不再鋪實色帶（會蓋掉玻璃底），分隔交給 border-top */
+.createDialogFooter {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 9px;
+  min-height: 66px;
+  padding: 12px 18px;
+  border-top: 1px solid var(--color-border);
+}
+
+/* ── 班級工作區：流程分頁列與概覽 ── */
+.workspaceContent {
+  min-width: 0;
+  overflow: hidden;
+}
+
+/* 班級管理流程列：對齊學習環境 stepper 的箭頭分段（chevron）樣式——
+   外框膠囊、段與段以斜切縫相接（縫隙色 = 外框 background 的 border 色）、
+   選中分頁主色填滿；首末段各留平邊，外圓角交給外框 overflow */
+.workflowTabsBar {
+  display: flex;
+  align-items: stretch;
+  min-width: 0;
+  overflow: hidden;
+  padding: 2px;
+  gap: 2px;
+  border: 1px solid var(--color-border);
+  border-radius: $radius-pill;
+  background: var(--color-border);
+  box-shadow: var(--shadow-sm);
+}
+
+.workflowTabsBar .workspaceTabs {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  flex-wrap: nowrap;
+  gap: 2px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding: 0;
+  border: 0;
+  scrollbar-width: thin;
+}
+
+.workflowTabsBar .workspaceTabs button {
+  display: flex;
+  flex: 1 0 max-content;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  min-width: 126px;
+  min-height: 48px;
+  padding: 0 $spacing-24;
+  border: 0;
+  border-radius: 0;
+  color: var(--color-text-secondary);
+  background: var(--color-surface);
+  font: inherit;
+  cursor: pointer;
+  transition: background $transition-base, color $transition-base;
+  clip-path: polygon(0 0, calc(100% - 14px) 0, 100% 50%, calc(100% - 14px) 100%, 0 100%, 14px 50%);
+}
+
+/* 首末段的外側圓角畫在自己身上（背景先被 border-radius 圓角、再與 clip-path 取交集），
+   不依賴外框的 overflow 圓角裁切——內層是捲動容器時 Chromium 會漏裁，方角會蓋到灰框上 */
+.workflowTabsBar .workspaceTabs button:first-child {
+  padding-left: $spacing-16;
+  border-radius: $radius-pill 0 0 $radius-pill;
+  clip-path: polygon(0 0, calc(100% - 14px) 0, 100% 50%, calc(100% - 14px) 100%, 0 100%);
+}
+
+.workflowTabsBar .workspaceTabs button:last-child {
+  padding-right: $spacing-16;
+  border-radius: 0 $radius-pill $radius-pill 0;
+  clip-path: polygon(0 0, 100% 0, 100% 100%, 0 100%, 14px 50%);
+}
+
+/* clip-path 會裁掉 outline，鍵盤焦點與 hover 一律以底色呈現 */
+.workflowTabsBar .workspaceTabs button:hover:not(:disabled),
+.workflowTabsBar .workspaceTabs button:focus-visible {
+  color: var(--color-text-primary);
+  background: var(--color-hover);
+}
+
+.workflowTabsBar .workspaceTabs button strong {
+  display: inline-flex;
+  align-items: center;
+  gap: $spacing-4;
+  color: inherit;
+  font-size: $font-size-14;
+  font-weight: $font-weight-500;
+  white-space: nowrap;
+}
+
+/* 完成的分頁：編號換 ✓，配色同 envStepDone；選中規則在後，選中時仍反白 */
+.workflowTabsBar .workspaceTabs button.workspaceTabDone .envStepNum {
+  color: var(--color-primary-on-surface);
+}
+
+.workflowTabsBar .workspaceTabs button.workspaceTabActive,
+.workflowTabsBar .workspaceTabs button.workspaceTabActive:hover {
+  color: var(--color-text-on-primary);
+  background: var(--color-primary);
+}
+
+.workflowTabsBar .workspaceTabs button.workspaceTabActive .envStepNum {
+  color: var(--color-text-on-primary);
+}
+
+.readinessPanel {
+  overflow: hidden;
+  @include glass-surface($shadow: var(--shadow-sm));
+  border-radius: $radius-16;
+}
+
+.setupSummary {
+  display: grid;
+  grid-template-columns: 42px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 14px;
+  padding: 22px 24px;
+}
+
+.setupSummaryIcon {
+  display: grid;
+  width: 42px;
+  height: 42px;
+  place-items: center;
+  border-radius: $radius-12;
+  color: var(--color-primary);
+  background: color-mix(in srgb, var(--color-primary) 9%, var(--color-surface));
+}
+
+.setupSummary>div {
+  min-width: 0;
+}
+
+.setupSummary>div>span {
+  color: var(--color-text-muted);
+  font-size: $font-size-12;
+  font-weight: $font-weight-500;
+}
+
+.setupSummary h2 {
+  margin: 3px 0 2px;
+  font-size: $font-size-18;
+  font-weight: $font-weight-700;
+  letter-spacing: -.015em;
+}
+
+.setupSummary p {
+  margin: 0;
+  color: var(--color-text-secondary);
+  font-size: $font-size-14;
+  line-height: 1.5;
+}
+
+.setupChecklist {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  border-top: 1px solid var(--color-border);
+}
+
+.setupChecklist>div {
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  min-height: 66px;
+  padding: 11px 20px;
+}
+
+.setupChecklist>div+div {
+  border-left: 1px solid var(--color-border);
+}
+
+.setupChecklist>div>span {
+  display: grid;
+  width: 28px;
+  height: 28px;
+  place-items: center;
+  border-radius: $radius-8;
+}
+
+.setupChecklist>div>div {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.setupChecklist strong {
+  font-size: $font-size-14;
+  font-weight: $font-weight-500;
+}
+
+.setupChecklist small {
+  overflow: hidden;
+  color: var(--color-text-muted);
+  font-size: $font-size-12;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.setupChecklist em {
+  padding: 3px 7px;
+  border-radius: $radius-pill;
+  font-size: $font-size-10;
+  font-style: normal;
+  font-weight: $font-weight-500;
+  white-space: nowrap;
+}
+
+.setupItemDone>span {
+  color: var(--color-success);
+  background: color-mix(in srgb, var(--color-success) 9%, var(--color-surface));
+}
+
+.setupItemDone em {
+  color: var(--color-text-muted);
+  background: var(--color-hover);
+}
+
+.setupItemTodo {
+  background: color-mix(in srgb, var(--color-primary) 3%, var(--color-surface));
+}
+
+.setupItemTodo>span,
+.setupItemTodo em {
+  color: var(--color-primary);
+  background: color-mix(in srgb, var(--color-primary) 9%, var(--color-surface));
+}
+
+.overviewDetailGrid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.15fr) minmax(320px, .85fr);
+  gap: 16px;
+  align-items: start;
+}
 
 /* 概覽只留三塊：現在該做什麼、本週、一行摘要（機器與班級資訊）。 */
-.summaryRow { display: flex; width: 100%; align-items: center; justify-content: space-between; gap: 12px; min-height: 56px; padding: 14px 18px; border: 0; color: inherit; background: transparent; font: inherit; text-align: left; cursor: pointer; }
-.summaryRow > span { display: flex; min-width: 0; align-items: center; gap: 9px; overflow: hidden; color: var(--color-text-primary); font-size: $font-size-12; font-weight: $font-weight-500; text-overflow: ellipsis; white-space: nowrap; }
-.summaryRow > span > span:first-child { flex: 0 0 auto; color: var(--color-text-muted); }
-.summaryRow > em { display: inline-flex; flex: 0 0 auto; align-items: center; gap: 4px; color: var(--color-primary); font-size: $font-size-12; font-style: normal; font-weight: $font-weight-500; }
-.summaryRow:hover { background: color-mix(in srgb, var(--color-hover) 45%, transparent); }
+.summaryRow {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 56px;
+  padding: 14px 18px;
+  border: 0;
+  color: inherit;
+  background: transparent;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.summaryRow>span {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 9px;
+  overflow: hidden;
+  color: var(--color-text-primary);
+  font-size: $font-size-12;
+  font-weight: $font-weight-500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.summaryRow>span>span:first-child {
+  flex: 0 0 auto;
+  color: var(--color-text-muted);
+}
+
+.summaryRow>em {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 4px;
+  color: var(--color-primary);
+  font-size: $font-size-12;
+  font-style: normal;
+  font-weight: $font-weight-500;
+}
+
+.summaryRow:hover {
+  background: color-mix(in srgb, var(--color-hover) 45%, transparent);
+}
 
 /* 班級資訊預設收起：大部分時候不必看，收起時仍露出最常用的課表、地點、開機。 */
-.classInfoFold > summary { display: flex; align-items: center; gap: 12px; min-height: 56px; padding: 14px 18px; list-style: none; cursor: pointer; }
-.classInfoFold > summary > b { flex: 0 0 auto; color: var(--color-text-muted); font-size: $font-size-10; font-weight: $font-weight-700; letter-spacing: .04em; }
-.classInfoFold > summary::-webkit-details-marker { display: none; }
-.classInfoFold > summary:hover { background: color-mix(in srgb, var(--color-hover) 45%, transparent); }
-.classInfoFold > summary > span { flex: 1; min-width: 0; overflow: hidden; color: var(--color-text-primary); font-size: $font-size-12; font-weight: $font-weight-500; text-align: right; text-overflow: ellipsis; white-space: nowrap; }
-.classInfoFold > summary > span:last-child { flex: 0 0 auto; color: var(--color-primary); transition: transform $transition-base; }
-.classInfoFold[open] > summary { border-bottom: 1px solid var(--color-border); }
-.classInfoFold[open] > summary > span:last-child { transform: rotate(180deg); }
+.classInfoFold>summary {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 56px;
+  padding: 14px 18px;
+  list-style: none;
+  cursor: pointer;
+}
+
+.classInfoFold>summary>b {
+  flex: 0 0 auto;
+  color: var(--color-text-muted);
+  font-size: $font-size-10;
+  font-weight: $font-weight-700;
+  letter-spacing: .04em;
+}
+
+.classInfoFold>summary::-webkit-details-marker {
+  display: none;
+}
+
+.classInfoFold>summary:hover {
+  background: color-mix(in srgb, var(--color-hover) 45%, transparent);
+}
+
+.classInfoFold>summary>span {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--color-text-primary);
+  font-size: $font-size-12;
+  font-weight: $font-weight-500;
+  text-align: right;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.classInfoFold>summary>span:last-child {
+  flex: 0 0 auto;
+  color: var(--color-primary);
+  transition: transform $transition-base;
+}
+
+.classInfoFold[open]>summary {
+  border-bottom: 1px solid var(--color-border);
+}
+
+.classInfoFold[open]>summary>span:last-child {
+  transform: rotate(180deg);
+}
 
 /* 頁首的 ⋯ 選單：低頻、不可逆的操作收在這裡，不與日常資訊並排。 */
-.headerMenuWrap { position: relative; }
-.headerMenuBtn { width: 36px; height: 36px; border: 1px solid var(--color-border); color: var(--color-text); background: var(--color-surface); box-shadow: var(--shadow-sm); }
-.headerMenuBtn:hover { background: var(--color-hover); }
-.headerMenu { position: absolute; top: calc(100% + 8px); right: 0; z-index: 60; width: 236px; padding: 6px; border: 1px solid var(--color-border); border-radius: $radius-12; background: var(--color-surface); box-shadow: var(--shadow-lg); }
-.headerMenu button { display: flex; width: 100%; align-items: center; gap: 9px; min-height: 38px; padding: 0 10px; border: 0; border-radius: $radius-8; color: var(--color-text-primary); background: transparent; font: inherit; font-size: $font-size-12; font-weight: $font-weight-500; text-align: left; cursor: pointer; }
-.headerMenu button:hover:not(:disabled) { background: var(--color-hover); }
-.headerMenu button:disabled { opacity: .5; cursor: not-allowed; }
-.headerMenu hr { height: 1px; margin: 5px 8px; border: 0; background: var(--color-divider); }
-.headerMenuRisky { color: var(--color-danger) !important; }
-.headerMenuRisky:hover:not(:disabled) { background: color-mix(in srgb, var(--color-danger) 8%, transparent) !important; }
-.overviewInfoCard { overflow: hidden; @include glass-surface($shadow: var(--shadow-sm)); border-radius: $radius-16; }
-.overviewCardHeader { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 48px; padding: 10px 18px; border-bottom: 1px solid var(--color-border); }
-.overviewCardHeader h2 { margin: 0; font-size: $font-size-14; font-weight: $font-weight-700; }
-.overviewCardHeader button { display: inline-flex; align-items: center; gap: 4px; padding: 5px 0; border: 0; color: var(--color-primary); background: transparent; font: inherit; font-size: $font-size-12; font-weight: $font-weight-500; cursor: pointer; }
+.headerMenuWrap {
+  position: relative;
+}
 
-.classFacts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
-.classFacts > div { display: flex; min-width: 0; flex-direction: column; gap: 3px; padding: 12px 18px; border-bottom: 1px solid var(--color-divider); }
-.classFacts > div:nth-child(odd) { border-right: 1px solid var(--color-divider); }
-.classFacts > div:nth-last-child(-n + 2) { border-bottom: 0; }
-.classFacts span { color: var(--color-text-muted); font-size: $font-size-10; }
-.classFacts strong { overflow: hidden; font-size: $font-size-12; font-weight: $font-weight-500; text-overflow: ellipsis; white-space: nowrap; }
-.currentWeekSummary { display: flex; min-height: 130px; align-items: center; justify-content: space-between; gap: 18px; padding: 18px; }
-.currentWeekSummary > div { display: flex; min-width: 0; flex-direction: column; gap: 5px; }
-.currentWeekSummary > div > span { color: var(--color-primary); font-size: $font-size-12; font-weight: $font-weight-500; }
-.currentWeekSummary > div > strong { overflow: hidden; font-size: $font-size-16; font-weight: $font-weight-700; text-overflow: ellipsis; white-space: nowrap; }
-.currentWeekSummary small { color: var(--color-text-secondary); font-size: $font-size-12; }
-.weekFileCount { display: inline-flex; flex: 0 0 auto; align-items: center; gap: 4px; padding: 5px 8px; border-radius: $radius-8; color: var(--color-text-secondary); background: var(--color-hover); font-size: $font-size-10; white-space: nowrap; }
+.headerMenuBtn {
+  width: 36px;
+  height: 36px;
+  border: 1px solid var(--color-border);
+  color: var(--color-text);
+  background: var(--color-surface);
+  box-shadow: var(--shadow-sm);
+}
 
-.persistentFeedback { display: flex; align-items: flex-start; gap: 8px; margin: 0 28px 18px; padding: 10px 12px; border-radius: $radius-8; color: var(--color-primary); background: color-mix(in srgb, var(--color-primary) 7%, var(--color-surface)); font-size: $font-size-12; line-height: 1.5; }
-.lockedFeature { display: flex; align-items: flex-start; gap: 16px; padding: 28px; border: 1px dashed var(--color-border); border-radius: $radius-12; background: color-mix(in srgb, var(--color-hover) 35%, var(--color-surface)); }
-.lockedFeature > span { display: grid; flex: 0 0 auto; width: 42px; height: 42px; place-items: center; border: 1px solid var(--color-border); border-radius: $radius-12; color: var(--color-text-muted); background: var(--color-surface); }
-.lockedFeature h2 { margin: 6px 0; font-size: $font-size-18; }
-.lockedFeature p { max-width: 620px; margin: 0; color: var(--color-text-secondary); font-size: $font-size-14; line-height: 1.6; }
+.headerMenuBtn:hover {
+  background: var(--color-hover);
+}
 
-.templateChoices { grid-template-columns: 1fr; gap: 0; padding: 0; border-top: 1px solid var(--color-border); }
-.templateChoices label, .templateChoices button { align-items: center; min-height: 82px; padding: 14px 20px; border: 0; border-bottom: 1px solid var(--color-divider); border-radius: 0; }
-.templateChoices label:last-child, .templateChoices button:last-child { border-bottom: 0; }
-.templateChoices label:hover, .templateChoices label.templateSelected, .templateChoices button:hover:not(:disabled), .templateChoices button.templateSelected { border-color: var(--color-divider); background: color-mix(in srgb, var(--color-primary) 5%, var(--color-surface)); }
-.templateChoices label.templateSelected, .templateChoices button.templateSelected { box-shadow: inset 3px 0 var(--color-primary); }
-.templateChoices button.templateSuggested { background: color-mix(in srgb, var(--color-primary) 7%, var(--color-surface)); box-shadow: inset 3px 0 var(--color-primary); }
-.templateChoices label > span, .templateChoices button > span { width: 34px; height: 34px; border: 1px solid var(--color-border); color: var(--color-text-secondary); background: var(--color-surface); }
-.templateChoices strong { font-size: $font-size-14; }
+.headerMenu {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  z-index: 60;
+  width: 236px;
+  padding: 6px;
+  border: 1px solid var(--color-border);
+  border-radius: $radius-12;
+  background: var(--color-surface);
+  box-shadow: var(--shadow-lg);
+}
+
+.headerMenu button {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  gap: 9px;
+  min-height: 38px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: $radius-8;
+  color: var(--color-text-primary);
+  background: transparent;
+  font: inherit;
+  font-size: $font-size-12;
+  font-weight: $font-weight-500;
+  text-align: left;
+  cursor: pointer;
+}
+
+.headerMenu button:hover:not(:disabled) {
+  background: var(--color-hover);
+}
+
+.headerMenu button:disabled {
+  opacity: .5;
+  cursor: not-allowed;
+}
+
+.headerMenu hr {
+  height: 1px;
+  margin: 5px 8px;
+  border: 0;
+  background: var(--color-divider);
+}
+
+.headerMenuRisky {
+  color: var(--color-danger) !important;
+}
+
+.headerMenuRisky:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--color-danger) 8%, transparent) !important;
+}
+
+.overviewInfoCard {
+  overflow: hidden;
+  @include glass-surface($shadow: var(--shadow-sm));
+  border-radius: $radius-16;
+}
+
+.overviewCardHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 48px;
+  padding: 10px 18px;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.overviewCardHeader h2 {
+  margin: 0;
+  font-size: $font-size-14;
+  font-weight: $font-weight-700;
+}
+
+.overviewCardHeader button {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 5px 0;
+  border: 0;
+  color: var(--color-primary);
+  background: transparent;
+  font: inherit;
+  font-size: $font-size-12;
+  font-weight: $font-weight-500;
+  cursor: pointer;
+}
+
+.classFacts {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.classFacts>div {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 3px;
+  padding: 12px 18px;
+  border-bottom: 1px solid var(--color-divider);
+}
+
+.classFacts>div:nth-child(odd) {
+  border-right: 1px solid var(--color-divider);
+}
+
+.classFacts>div:nth-last-child(-n + 2) {
+  border-bottom: 0;
+}
+
+.classFacts span {
+  color: var(--color-text-muted);
+  font-size: $font-size-10;
+}
+
+.classFacts strong {
+  overflow: hidden;
+  font-size: $font-size-12;
+  font-weight: $font-weight-500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.currentWeekSummary {
+  display: flex;
+  min-height: 130px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  padding: 18px;
+}
+
+.currentWeekSummary>div {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.currentWeekSummary>div>span {
+  color: var(--color-primary);
+  font-size: $font-size-12;
+  font-weight: $font-weight-500;
+}
+
+.currentWeekSummary>div>strong {
+  overflow: hidden;
+  font-size: $font-size-16;
+  font-weight: $font-weight-700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.currentWeekSummary small {
+  color: var(--color-text-secondary);
+  font-size: $font-size-12;
+}
+
+.weekFileCount {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 4px;
+  padding: 5px 8px;
+  border-radius: $radius-8;
+  color: var(--color-text-secondary);
+  background: var(--color-hover);
+  font-size: $font-size-10;
+  white-space: nowrap;
+}
+
+.persistentFeedback {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 0 28px 18px;
+  padding: 10px 12px;
+  border-radius: $radius-8;
+  color: var(--color-primary);
+  background: color-mix(in srgb, var(--color-primary) 7%, var(--color-surface));
+  font-size: $font-size-12;
+  line-height: 1.5;
+}
+
+.lockedFeature {
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+  padding: 28px;
+  border: 1px dashed var(--color-border);
+  border-radius: $radius-12;
+  background: color-mix(in srgb, var(--color-hover) 35%, var(--color-surface));
+}
+
+.lockedFeature>span {
+  display: grid;
+  flex: 0 0 auto;
+  width: 42px;
+  height: 42px;
+  place-items: center;
+  border: 1px solid var(--color-border);
+  border-radius: $radius-12;
+  color: var(--color-text-muted);
+  background: var(--color-surface);
+}
+
+.lockedFeature h2 {
+  margin: 6px 0;
+  font-size: $font-size-18;
+}
+
+.lockedFeature p {
+  max-width: 620px;
+  margin: 0;
+  color: var(--color-text-secondary);
+  font-size: $font-size-14;
+  line-height: 1.6;
+}
 
 /* ── 課程環境選擇器 ──
    班級頁與一鍵建立精靈共用同一份長相。整列把規格攤開，範本只有一個時
    右半邊才不會空著；規格是選擇時真正要比較的東西。 */
-.envChoices { display: flex; flex-direction: column; border-top: 1px solid var(--color-border); }
-.envChoices > button { display: grid; width: 100%; grid-template-columns: 40px minmax(0, 1fr) auto 84px; align-items: center; gap: 16px; min-height: 76px; padding: 14px 20px; border: 0; border-bottom: 1px solid var(--color-divider); color: inherit; background: transparent; font: inherit; text-align: left; cursor: pointer; transition: background $transition-base; }
-.envChoices > button:last-child { border-bottom: 0; }
-.envChoices > button:hover { background: color-mix(in srgb, var(--color-primary) 4%, transparent); }
-.envChoiceSuggested { background: color-mix(in srgb, var(--color-primary) 7%, var(--color-surface)); box-shadow: inset 3px 0 var(--color-primary); }
-.envChoiceSelected { background: color-mix(in srgb, var(--color-primary) 6%, var(--color-surface)) !important; box-shadow: inset 3px 0 var(--color-primary); }
-.envChoiceIcon { display: grid; width: 40px; height: 40px; place-items: center; border-radius: $radius-12; color: var(--color-primary); background: color-mix(in srgb, var(--color-primary) 9%, var(--color-surface)); }
-.envChoices > button > div:nth-child(2) { display: flex; min-width: 0; flex-direction: column; gap: 3px; }
-.envChoices strong { display: flex; align-items: baseline; gap: 7px; min-width: 0; color: var(--color-text-primary); font-size: $font-size-14; font-weight: $font-weight-700; }
-.envChoices strong > span { @include text-truncate; }
-.envChoices strong > i { flex: 0 0 auto; padding: 1px 7px; border-radius: $radius-pill; color: var(--color-text-muted); background: var(--color-hover); font-size: $font-size-10; font-style: normal; font-weight: $font-weight-500; }
-.envChoices p { @include text-truncate; margin: 0; color: var(--color-text-secondary); font-size: $font-size-12; }
-.envChoiceSpecs { display: flex; flex: 0 0 auto; align-items: center; gap: 6px; }
-.envChoiceSpecs > span { display: inline-flex; align-items: center; gap: 5px; padding: 4px 9px; border-radius: $radius-8; color: var(--color-text-secondary); background: color-mix(in srgb, var(--color-hover) 55%, transparent); font-size: $font-size-10; font-weight: $font-weight-500; white-space: nowrap; font-variant-numeric: tabular-nums; }
-.envChoiceSpecs > span:first-child { color: var(--color-primary); background: color-mix(in srgb, var(--color-primary) 9%, transparent); }
-.envChoices em { display: inline-flex; align-items: center; justify-content: center; gap: 4px; min-height: 30px; padding: 0 11px; border: 1px solid var(--color-border); border-radius: $radius-pill; color: var(--color-text-secondary); background: var(--color-surface); font-size: $font-size-12; font-style: normal; font-weight: $font-weight-500; white-space: nowrap; }
-.envChoiceSelected em { border-color: color-mix(in srgb, var(--color-primary) 40%, var(--color-border)); color: var(--color-primary); background: color-mix(in srgb, var(--color-primary) 8%, var(--color-surface)); }
+.envChoices {
+  display: flex;
+  flex-direction: column;
+  border-top: 1px solid var(--color-border);
+}
 
-.templateMachineWorkspace { min-height: 430px; }
-.machineWorkspaceHeader { display: flex; align-items: center; justify-content: space-between; gap: 20px; padding: 20px 22px; border-bottom: 1px solid var(--color-border); }
-.machineWorkspaceHeader h2 { margin: 0; font-size: $font-size-18; font-weight: $font-weight-700; }
-.machineWorkspaceHeader p { margin: 4px 0 0; color: var(--color-text-secondary); font-size: $font-size-14; }
+.envChoices>button {
+  display: grid;
+  width: 100%;
+  grid-template-columns: 40px minmax(0, 1fr) auto 84px;
+  align-items: center;
+  gap: 16px;
+  min-height: 76px;
+  padding: 14px 20px;
+  border: 0;
+  border-bottom: 1px solid var(--color-divider);
+  color: inherit;
+  background: transparent;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: background $transition-base;
+}
 
-.nodeLimit { padding: 7px 10px; border: 1px solid var(--color-border); border-radius: $radius-pill; color: var(--color-primary); background: color-mix(in srgb, var(--color-primary) 5%, var(--color-surface)); font-size: $font-size-12; font-weight: $font-weight-500; white-space: nowrap; }
-.machineAddBar { display: flex; align-items: flex-end; flex-wrap: wrap; gap: 12px; padding: 14px 22px; border-bottom: 1px solid var(--color-border); background: color-mix(in srgb, var(--color-hover) 24%, var(--color-surface)); }
-.machineAddBar .field { flex: 1 1 210px; min-width: 0; }
-.machineAddBar .btnPrimary { flex: 0 0 auto; min-width: 138px; }
+.envChoices>button:last-child {
+  border-bottom: 0;
+}
 
-.topologyWorkspace { display: grid; grid-template-columns: minmax(0, 1fr) 312px; gap: 16px; padding: 16px 22px 22px; }
+.envChoices>button:hover {
+  background: color-mix(in srgb, var(--color-primary) 4%, transparent);
+}
+
+.envChoiceSuggested {
+  background: color-mix(in srgb, var(--color-primary) 7%, var(--color-surface));
+  box-shadow: inset 3px 0 var(--color-primary);
+}
+
+.envChoiceSelected {
+  background: color-mix(in srgb, var(--color-primary) 6%, var(--color-surface)) !important;
+  box-shadow: inset 3px 0 var(--color-primary);
+}
+
+.envChoiceIcon {
+  display: grid;
+  width: 40px;
+  height: 40px;
+  place-items: center;
+  border-radius: $radius-12;
+  color: var(--color-primary);
+  background: color-mix(in srgb, var(--color-primary) 9%, var(--color-surface));
+}
+
+.envChoices>button>div:nth-child(2) {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.envChoices strong {
+  display: flex;
+  align-items: baseline;
+  gap: 7px;
+  min-width: 0;
+  color: var(--color-text-primary);
+  font-size: $font-size-14;
+  font-weight: $font-weight-700;
+}
+
+.envChoices strong>span {
+  @include text-truncate;
+}
+
+.envChoices strong>i {
+  flex: 0 0 auto;
+  padding: 1px 7px;
+  border-radius: $radius-pill;
+  color: var(--color-text-muted);
+  background: var(--color-hover);
+  font-size: $font-size-10;
+  font-style: normal;
+  font-weight: $font-weight-500;
+}
+
+.envChoices p {
+  @include text-truncate;
+  margin: 0;
+  color: var(--color-text-secondary);
+  font-size: $font-size-12;
+}
+
+.envChoiceSpecs {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 6px;
+}
+
+.envChoiceSpecs>span {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 9px;
+  border-radius: $radius-8;
+  color: var(--color-text-secondary);
+  background: color-mix(in srgb, var(--color-hover) 55%, transparent);
+  font-size: $font-size-10;
+  font-weight: $font-weight-500;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.envChoiceSpecs>span:first-child {
+  color: var(--color-primary);
+  background: color-mix(in srgb, var(--color-primary) 9%, transparent);
+}
+
+.envChoices em {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  min-height: 30px;
+  padding: 0 11px;
+  border: 1px solid var(--color-border);
+  border-radius: $radius-pill;
+  color: var(--color-text-secondary);
+  background: var(--color-surface);
+  font-size: $font-size-12;
+  font-style: normal;
+  font-weight: $font-weight-500;
+  white-space: nowrap;
+}
+
+.envChoiceSelected em {
+  border-color: color-mix(in srgb, var(--color-primary) 40%, var(--color-border));
+  color: var(--color-primary);
+  background: color-mix(in srgb, var(--color-primary) 8%, var(--color-surface));
+}
+
+.templateMachineWorkspace {
+  min-height: 430px;
+}
+
+.nodeLimit {
+  padding: 7px 10px;
+  border: 1px solid var(--color-border);
+  border-radius: $radius-pill;
+  color: var(--color-primary);
+  background: color-mix(in srgb, var(--color-primary) 5%, var(--color-surface));
+  font-size: $font-size-12;
+  font-weight: $font-weight-500;
+  white-space: nowrap;
+}
+
+.machineAddBar {
+  display: flex;
+  align-items: flex-end;
+  flex-wrap: wrap;
+  gap: 12px;
+  padding: 14px 22px;
+  border-bottom: 1px solid var(--color-border);
+  background: color-mix(in srgb, var(--color-hover) 24%, var(--color-surface));
+}
+
+.machineAddBar .field {
+  flex: 1 1 210px;
+  min-width: 0;
+}
+
+.machineAddBar .btnPrimary {
+  flex: 0 0 auto;
+  min-width: 138px;
+}
+
+.topologyWorkspace {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 312px;
+  gap: 16px;
+  padding: 16px 22px 22px;
+}
+
 /* 畫布底色比照防火牆頁的 flow token。不加 backdrop-filter：
    拖曳節點經過 backdrop-filter 表面時 Chromium 會重繪閃爍 */
-.topologyCanvas { height: 420px; overflow: hidden; border: 1px solid var(--color-flow-border); border-radius: $radius-12; background: var(--color-flow-bg); box-shadow: 0 4px 24px var(--color-flow-shadow); }
+.topologyCanvas {
+  height: 420px;
+  overflow: hidden;
+  border: 1px solid var(--color-flow-border);
+  border-radius: $radius-12;
+  background: var(--color-flow-bg);
+  box-shadow: 0 4px 24px var(--color-flow-shadow);
+}
+
 /* 自訂節點已畫自己的選中外圈，壓掉 xyflow 預設在 wrapper 上的那層 2px 框 */
 .topologyCanvas :global(.react-flow__node.selected),
 .topologyCanvas :global(.react-flow__node:focus),
-.topologyCanvas :global(.react-flow__node:focus-visible) { outline: none !important; box-shadow: none !important; }
-.topologyCanvas :global(.react-flow) { background: transparent; }
-.topologyCanvas :global(.react-flow) svg { max-width: none; }
-.topologyCanvas :global(.react-flow__edge path) { stroke-opacity: 1 !important; }
-.topologyCanvas :global(.react-flow__node.selected) { box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-primary) 35%, transparent); }
-.topologyCanvas :global(.react-flow__edge.selected path) { stroke: var(--color-primary); }
+.topologyCanvas :global(.react-flow__node:focus-visible) {
+  outline: none !important;
+  box-shadow: none !important;
+}
+
+.topologyCanvas :global(.react-flow) {
+  background: transparent;
+}
+
+.topologyCanvas :global(.react-flow) svg {
+  max-width: none;
+}
+
+.topologyCanvas :global(.react-flow__edge path) {
+  stroke-opacity: 1 !important;
+}
+
+.topologyCanvas :global(.react-flow__node.selected) {
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-primary) 35%, transparent);
+}
+
+.topologyCanvas :global(.react-flow__edge.selected path) {
+  stroke: var(--color-primary);
+}
+
 /* 節點外觀對齊防火牆頁的 .vmNode：flow token 邊框陰影、grab 游標、
    選中 3px 主色外圈；把手同防火牆＝入口主色、出口綠色 */
-.flowMachineNode { position: relative; display: grid; width: 236px; grid-template-columns: 34px minmax(0, 1fr); align-items: center; gap: 9px; box-sizing: border-box; padding: 12px 14px; border: 1.5px solid var(--color-flow-border); border-radius: $radius-12; background: var(--color-surface); box-shadow: 0 2px 12px var(--color-flow-shadow); transition: border-color $transition-base, box-shadow $transition-base; cursor: grab; }
-.flowMachineNode:active { cursor: grabbing; }
-.flowMachineNodeSelected { border-color: var(--color-primary); box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-primary) 20%, transparent); }
-.flowMachineNode :global(.react-flow__handle) { width: 12px; height: 12px; }
-.flowMachineNode :global(.react-flow__handle-left) { left: -7px; border-color: var(--color-primary); background: var(--color-primary); }
-.flowMachineNode :global(.react-flow__handle-right) { right: -7px; border-color: var(--color-success); background: var(--color-success); }
-.flowNodeIcon { display: grid; width: 34px; height: 34px; place-items: center; border-radius: $radius-8; color: var(--color-primary); background: color-mix(in srgb, var(--color-primary) 9%, var(--color-surface)); }
-.flowNodeLabel { display: flex; min-width: 0; flex-direction: column; gap: 3px; padding: 3px 1px; text-align: left; }
-.flowNodeLabel strong { display: -webkit-box; overflow: hidden; color: var(--color-text-primary); -webkit-box-orient: vertical; -webkit-line-clamp: 2; font-size: $font-size-12; line-height: 1.35; overflow-wrap: break-word; }
-.flowNodeLabel span, .flowNodeLabel small { color: var(--color-text-muted); font-size: $font-size-10; }
+.flowMachineNode {
+  position: relative;
+  display: grid;
+  width: 236px;
+  grid-template-columns: 34px minmax(0, 1fr);
+  align-items: center;
+  gap: 9px;
+  box-sizing: border-box;
+  padding: 12px 14px;
+  border: 1.5px solid var(--color-flow-border);
+  border-radius: $radius-12;
+  background: var(--color-surface);
+  box-shadow: 0 2px 12px var(--color-flow-shadow);
+  transition: border-color $transition-base, box-shadow $transition-base;
+  cursor: grab;
+}
+
+.flowMachineNode:active {
+  cursor: grabbing;
+}
+
+.flowMachineNodeSelected {
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-primary) 20%, transparent);
+}
+
+.flowMachineNode :global(.react-flow__handle) {
+  width: 12px;
+  height: 12px;
+}
+
+.flowMachineNode :global(.react-flow__handle-left) {
+  left: -7px;
+  border-color: var(--color-primary);
+  background: var(--color-primary);
+}
+
+.flowMachineNode :global(.react-flow__handle-right) {
+  right: -7px;
+  border-color: var(--color-success);
+  background: var(--color-success);
+}
+
+.flowNodeIcon {
+  display: grid;
+  width: 34px;
+  height: 34px;
+  place-items: center;
+  border-radius: $radius-8;
+  color: var(--color-primary);
+  background: color-mix(in srgb, var(--color-primary) 9%, var(--color-surface));
+}
+
+.flowNodeLabel {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 3px;
+  padding: 3px 1px;
+  text-align: left;
+}
+
+.flowNodeLabel strong {
+  display: -webkit-box;
+  overflow: hidden;
+  color: var(--color-text-primary);
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  font-size: $font-size-12;
+  line-height: 1.35;
+  overflow-wrap: break-word;
+}
+
+.flowNodeLabel span,
+.flowNodeLabel small {
+  color: var(--color-text-muted);
+  font-size: $font-size-10;
+}
+
 .topologyInspector {
   display: flex;
   min-width: 0;
@@ -467,271 +2170,1214 @@
   scrollbar-width: thin;
   scrollbar-color: var(--color-border) transparent;
 
-  &::-webkit-scrollbar { width: 8px; }
-  &::-webkit-scrollbar-track { margin: 6px 0; background: transparent; }
+  &::-webkit-scrollbar {
+    width: 8px;
+  }
+
+  &::-webkit-scrollbar-track {
+    margin: 6px 0;
+    background: transparent;
+  }
+
   &::-webkit-scrollbar-thumb {
     border: 2px solid transparent;
     border-radius: $radius-pill;
     background: var(--color-border);
     background-clip: content-box;
   }
-  &::-webkit-scrollbar-thumb:hover { background: var(--color-text-muted); background-clip: content-box; }
+
+  &::-webkit-scrollbar-thumb:hover {
+    background: var(--color-text-muted);
+    background-clip: content-box;
+  }
 }
+
 /* 已鎖定的班級：環境是既成事實，攤成四格摘要就好，不用一整份選單。 */
-.envFacts { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); border-top: 1px solid var(--color-border); border-bottom: 1px solid var(--color-border); }
-.envFacts > div { display: flex; min-width: 0; flex-direction: column; gap: 3px; padding: 13px 20px; }
-.envFacts > div + div { border-left: 1px solid var(--color-divider); }
-.envFacts span { color: var(--color-text-muted); font-size: $font-size-10; }
-.envFacts strong { @include text-truncate; color: var(--color-text-primary); font-size: $font-size-14; font-weight: $font-weight-700; }
-.readonlyTopology { margin: 16px; overflow: hidden; border: 1px solid var(--color-border); border-radius: $radius-12; background: color-mix(in srgb, var(--color-hover) 24%, var(--color-surface)); }
-.readonlyTopology :global(.react-flow) svg { max-width: none; }
-.readonlyTopology :global(.react-flow__edge path) { stroke-opacity: 1 !important; }
+.envFacts {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  border-top: 1px solid var(--color-border);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.envFacts>div {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 3px;
+  padding: 13px 20px;
+}
+
+.envFacts>div+div {
+  border-left: 1px solid var(--color-divider);
+}
+
+.envFacts span {
+  color: var(--color-text-muted);
+  font-size: $font-size-10;
+}
+
+.envFacts strong {
+  @include text-truncate;
+  color: var(--color-text-primary);
+  font-size: $font-size-14;
+  font-weight: $font-weight-700;
+}
+
+.readonlyTopology {
+  margin: 16px;
+  overflow: hidden;
+  border: 1px solid var(--color-border);
+  border-radius: $radius-12;
+  background: color-mix(in srgb, var(--color-hover) 24%, var(--color-surface));
+}
+
+.readonlyTopology :global(.react-flow) svg {
+  max-width: none;
+}
+
+.readonlyTopology :global(.react-flow__edge path) {
+  stroke-opacity: 1 !important;
+}
+
 /* 上課環境的唯讀拓撲：沿用 .flowMachineNode 的外觀，只是不能拖曳 */
-.flowMachineNodeStatic { cursor: default; }
-.flowMachineNodeStatic:active { cursor: default; }
-.flowMachineNodeStatic :global(.react-flow__handle) { opacity: 0.45; }
-.flowNodePublic { display: inline-flex; align-items: center; gap: 3px; color: var(--color-primary); font-size: $font-size-10; font-style: normal; }
+.flowMachineNodeStatic {
+  cursor: default;
+}
+
+.flowMachineNodeStatic:active {
+  cursor: default;
+}
+
+.flowMachineNodeStatic :global(.react-flow__handle) {
+  opacity: 0.45;
+}
+
+.flowNodePublic {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  color: var(--color-primary);
+  font-size: $font-size-10;
+  font-style: normal;
+}
 
 /* 對外服務清單（上課環境）：一行一條，與課程環境側欄的摘要同一套說法 */
-.classPublicationList { display: flex; flex-direction: column; gap: 8px; margin: 0 16px 16px; }
-.classPublicationRow { display: grid; grid-template-columns: 28px minmax(0, 1fr); align-items: center; gap: 10px; padding: 10px 12px; border: 1px solid var(--color-border); border-radius: $radius-8; background: var(--color-surface); }
-.classPublicationIcon { display: grid; width: 28px; height: 28px; place-items: center; border-radius: $radius-8; color: var(--color-primary); background: color-mix(in srgb, var(--color-primary) 9%, var(--color-surface)); }
-.classPublicationRow div { display: flex; min-width: 0; flex-direction: column; gap: 2px; }
-.classPublicationRow strong { color: var(--color-text-primary); font-size: $font-size-12; overflow-wrap: break-word; }
-.classPublicationRow small { color: var(--color-text-muted); font-size: $font-size-10; overflow-wrap: break-word; }
+.classPublicationList {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0 16px 16px;
+}
 
-.topologySummary { flex: 0 0 auto; padding: 4px 11px; border-radius: $radius-pill; color: var(--color-text-secondary); background: color-mix(in srgb, var(--color-hover) 55%, transparent); font-size: $font-size-12; font-weight: $font-weight-500; white-space: nowrap; }
-.setupActions { display: flex; align-items: center; justify-content: flex-end; gap: 8px; flex-wrap: wrap; }
-.topologyInspector label { @include form-field; }
-.topologyInspector select, .topologyInspector input { @include form-control; }
-.inspectorTitle { display: grid; grid-template-columns: 26px minmax(0, 1fr); align-items: start; gap: 8px; padding-bottom: 3px; }
-.inspectorTitle > :first-child { color: var(--color-primary); }
-.inspectorTitle div { display: flex; min-width: 0; flex-direction: column; gap: 2px; }
-.inspectorTitle strong { font-size: $font-size-14; line-height: 1.4; overflow-wrap: break-word; }
-.inspectorTitle small { color: var(--color-text-muted); font-size: $font-size-12; line-height: 1.4; overflow-wrap: break-word; }
-.inspectorSplit { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
-.inspectorSliders { display: flex; flex-direction: column; gap: 12px; }
-.sliderLabel { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
-.sliderLabel em { color: var(--color-primary); font-size: $font-size-12; font-style: normal; font-variant-numeric: tabular-nums; }
-.topologyInspector input[type="range"] { min-height: 0; padding: 0; border: 0; border-radius: 0; background: transparent; accent-color: var(--color-primary); cursor: pointer; }
-.topologyInspector input[type="range"]:focus { background: transparent; box-shadow: none; }
-.topologyInspector input[type="range"]:disabled { cursor: default; opacity: 0.55; }
-.inspectorHint { margin: 0; color: var(--color-text-muted); font-size: $font-size-12; line-height: 1.5; }
-.publicationSection { display: flex; flex-direction: column; gap: 10px; padding-top: 12px; border-top: 1px solid var(--color-border); }
-.publicationHead { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
-.publicationHead > span { color: var(--color-text); font-size: $font-size-12; font-weight: $font-weight-500; }
-.publicationAddBtn { display: inline-flex; align-items: center; gap: 3px; padding: 4px 9px; border: 1px solid var(--color-border); border-radius: $radius-pill; color: var(--color-primary); background: var(--color-surface); font-size: $font-size-12; cursor: pointer; }
-.publicationAddBtn:hover { background: color-mix(in srgb, var(--color-primary) 7%, var(--color-surface)); }
-.publicationList { display: flex; flex-direction: column; gap: 6px; margin: 0; padding: 0; list-style: none; }
-.publicationList li { display: grid; grid-template-columns: minmax(0, 1fr) 28px; align-items: center; gap: 4px; }
-.publicationItem { display: flex; min-width: 0; flex-direction: column; gap: 2px; padding: 8px 10px; border: 1px solid var(--color-border); border-radius: $radius-8; color: inherit; background: color-mix(in srgb, var(--color-hover) 26%, var(--color-surface)); font: inherit; text-align: left; cursor: pointer; }
-.publicationItem:hover:not(:disabled) { border-color: color-mix(in srgb, var(--color-primary) 40%, var(--color-border)); }
-.publicationItem:disabled { cursor: default; }
-.publicationItem strong { font-size: $font-size-12; font-weight: $font-weight-500; }
-.publicationItem small { overflow: hidden; color: var(--color-text-muted); font-size: $font-size-10; text-overflow: ellipsis; white-space: nowrap; }
-.publicationDialog { width: min(460px, 100%); }
-.publicationDialogBody { display: flex; flex-direction: column; gap: 14px; padding: 18px 22px; }
-.rowActions { display: flex; align-items: center; justify-content: flex-end; gap: 6px; }
-.iconBtnDanger:hover { color: var(--color-danger); background: color-mix(in srgb, var(--color-danger) 9%, transparent); }
-.rowActions button { white-space: nowrap; }
-.audienceClassList { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 8px; }
-.audienceClassItem { display: flex; align-items: flex-start; gap: 8px; padding: 9px 11px; border: 1px solid var(--color-border); border-radius: $radius-8; background: var(--color-surface); font-weight: $font-weight-400; cursor: pointer; }
-.audienceClassItem input { width: auto; margin-top: 2px; }
-.audienceClassItem span { display: flex; min-width: 0; flex-direction: column; gap: 2px; font-size: $font-size-14; }
-.audienceClassItem small { color: var(--color-text-muted); font-size: $font-size-10; }
-.inspectorDanger { display: inline-flex; min-height: 36px; align-items: center; justify-content: center; gap: 5px; margin-top: auto; padding: 0 10px; border: 1px solid color-mix(in srgb, var(--color-danger) 35%, var(--color-border)); border-radius: $radius-8; color: var(--color-danger); background: var(--color-surface); cursor: pointer; transition: background $transition-base, border-color $transition-base; }
-.inspectorDanger:hover:not(:disabled) { background: color-mix(in srgb, var(--color-danger) 10%, var(--color-surface)); border-color: var(--color-danger-dark); }
-.inspectorDanger:disabled { opacity: 0.5; cursor: not-allowed; }
-.table { min-width: 720px; }
+.classPublicationRow {
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--color-border);
+  border-radius: $radius-8;
+  background: var(--color-surface);
+}
 
-.jobGrid span { color: var(--color-text-muted); font-size: $font-size-10; }
-.jobGrid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 8px; padding: 16px 28px; border-bottom: 1px solid var(--color-border); background: color-mix(in srgb, var(--color-hover) 34%, var(--color-surface)); }
-.jobGrid article { display: flex; flex-direction: column; gap: 3px; padding: 10px 12px; border: 1px solid var(--color-border); border-radius: $radius-8; background: var(--color-surface); }
-.jobGrid strong { font-size: $font-size-12; }
-.jobGrid small { color: var(--color-text-secondary); font-size: $font-size-10; }
+.classPublicationIcon {
+  display: grid;
+  width: 28px;
+  height: 28px;
+  place-items: center;
+  border-radius: $radius-8;
+  color: var(--color-primary);
+  background: color-mix(in srgb, var(--color-primary) 9%, var(--color-surface));
+}
+
+.classPublicationRow div {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.classPublicationRow strong {
+  color: var(--color-text-primary);
+  font-size: $font-size-12;
+  overflow-wrap: break-word;
+}
+
+.classPublicationRow small {
+  color: var(--color-text-muted);
+  font-size: $font-size-10;
+  overflow-wrap: break-word;
+}
+
+.topologySummary {
+  flex: 0 0 auto;
+  padding: 4px 11px;
+  border-radius: $radius-pill;
+  color: var(--color-text-secondary);
+  background: color-mix(in srgb, var(--color-hover) 55%, transparent);
+  font-size: $font-size-12;
+  font-weight: $font-weight-500;
+  white-space: nowrap;
+}
+
+.setupActions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.topologyInspector label {
+  @include form-field;
+}
+
+.topologyInspector select,
+.topologyInspector input {
+  @include form-control;
+}
+
+/* 第三欄放標題列右側的動作鈕（如移除節點）；只有兩個子元素時 auto 欄自然為空 */
+.inspectorTitle {
+  display: grid;
+  grid-template-columns: 26px minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 8px;
+  padding-bottom: 3px;
+}
+
+.inspectorTitle> :first-child {
+  color: var(--color-primary);
+}
+
+.inspectorTitle div {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.inspectorTitle strong {
+  font-size: $font-size-14;
+  line-height: 1.4;
+  overflow-wrap: break-word;
+}
+
+.inspectorTitle small {
+  color: var(--color-text-muted);
+  font-size: $font-size-12;
+  line-height: 1.4;
+  overflow-wrap: break-word;
+}
+
+/* 標題列右側的文字刪除鈕（如移除節點）：無框危險色文字，hover 淡紅底 */
+/* 標題列右側的文字刪除鈕（如移除節點）：標準 ghost 危險款，縮小配窄側欄 */
+.inspectorTitleAction {
+  @include btn-ghost($danger: true);
+  min-height: 28px;
+  padding: 4px 8px;
+  font-size: $font-size-12;
+}
+
+.inspectorSplit {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.inspectorSliders {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.sliderLabel {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.sliderLabel em {
+  color: var(--color-primary);
+  font-size: $font-size-12;
+  font-style: normal;
+  font-variant-numeric: tabular-nums;
+}
+
+.topologyInspector input[type="range"] {
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  accent-color: var(--color-primary);
+  cursor: pointer;
+}
+
+.topologyInspector input[type="range"]:focus {
+  background: transparent;
+  box-shadow: none;
+}
+
+.topologyInspector input[type="range"]:disabled {
+  cursor: default;
+  opacity: 0.55;
+}
+
+.inspectorHint {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: $font-size-12;
+  line-height: 1.5;
+}
+
+.publicationSection {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding-top: 12px;
+  border-top: 1px solid var(--color-border);
+}
+
+.publicationHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.publicationHead>span {
+  color: var(--color-text);
+  font-size: $font-size-14;
+  font-weight: $font-weight-500;
+}
+
+.publicationAddBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 4px 9px;
+  border: 1px solid var(--color-border);
+  border-radius: $radius-pill;
+  color: var(--color-primary);
+  background: var(--color-surface);
+  font-size: $font-size-12;
+  cursor: pointer;
+}
+
+.publicationAddBtn:hover {
+  background: color-mix(in srgb, var(--color-primary) 7%, var(--color-surface));
+}
+
+.publicationList {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.publicationList li {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 28px;
+  align-items: center;
+  gap: 4px;
+}
+
+.publicationItem {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 10px;
+  border: 1px solid var(--color-border);
+  border-radius: $radius-8;
+  color: inherit;
+  background: color-mix(in srgb, var(--color-hover) 26%, var(--color-surface));
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.publicationItem:hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--color-primary) 40%, var(--color-border));
+}
+
+.publicationItem:disabled {
+  cursor: default;
+}
+
+.publicationItem strong {
+  font-size: $font-size-12;
+  font-weight: $font-weight-500;
+}
+
+.publicationItem small {
+  overflow: hidden;
+  color: var(--color-text-muted);
+  font-size: $font-size-10;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 對外服務彈窗：規範的簡易卡款——padding 24 + 間距交給 gap、
+   小型單欄表單寬 640，去掉 header/footer 分隔帶（玻璃底繼承 .createDialog） */
+.publicationDialog {
+  display: flex;
+  flex-direction: column;
+  gap: $spacing-16;
+  width: 100%;
+  max-width: 640px;
+  padding: $spacing-24;
+}
+
+.publicationDialog .createDialogHeader {
+  min-height: 0;
+  padding: 0;
+  border-bottom: 0;
+}
+
+.publicationDialog .createDialogHeader h2 {
+  font-size: $font-size-16;
+}
+
+.publicationDialog .createDialogFooter {
+  min-height: 0;
+  padding: 0;
+  border-top: 0;
+  background: none;
+}
+
+/* 內文含主機名等連續長字串，規範要求 overflow-wrap: anywhere */
+.publicationDialogBody {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 0;
+  overflow-wrap: anywhere;
+}
+
+.rowActions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.iconBtnDanger {
+  @include btn-icon($danger: true);
+}
+
+.rowActions button {
+  white-space: nowrap;
+}
+
+.audienceClassList {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 8px;
+}
+
+.audienceClassItem {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 9px 11px;
+  border: 1px solid var(--color-border);
+  border-radius: $radius-8;
+  background: var(--color-surface);
+  font-weight: $font-weight-400;
+  cursor: pointer;
+}
+
+.audienceClassItem input {
+  width: auto;
+  margin-top: 2px;
+}
+
+.audienceClassItem span {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 2px;
+  font-size: $font-size-14;
+}
+
+.audienceClassItem small {
+  color: var(--color-text-muted);
+  font-size: $font-size-10;
+}
+
+.inspectorDanger {
+  @include btn-danger-outline;
+  margin-top: auto;
+}
+
+/* ── 每週內容列表 ── */
+.jobGrid span {
+  color: var(--color-text-muted);
+  font-size: $font-size-10;
+}
+
+.jobGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 8px;
+  padding: 16px 28px;
+  border-bottom: 1px solid var(--color-border);
+  background: color-mix(in srgb, var(--color-hover) 34%, var(--color-surface));
+}
+
+.jobGrid article {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 10px 12px;
+  border: 1px solid var(--color-border);
+  border-radius: $radius-8;
+  background: var(--color-surface);
+}
+
+.jobGrid strong {
+  font-size: $font-size-12;
+}
+
+.jobGrid small {
+  color: var(--color-text-secondary);
+  font-size: $font-size-10;
+}
+
 /* 18 列共用一份欄位標題，不要每一列都重印一次「主題／任務」「任務檔案」。 */
-.weekRows { display: flex; flex-direction: column; border-top: 1px solid var(--color-border); }
-.weekRows article, .weekRowsHead { display: grid; grid-template-columns: 116px minmax(210px, 1.1fr) minmax(150px, .65fr) minmax(220px, 1fr) 124px; align-items: center; gap: 18px; padding: 14px 22px; border-bottom: 1px solid var(--color-divider); }
-.weekRowsHead { padding-block: 9px; border-bottom: 1px solid var(--color-border); background: color-mix(in srgb, var(--color-hover) 40%, var(--color-surface)); }
-.weekRowsHead span { color: var(--color-text-muted); font-size: $font-size-10; font-weight: $font-weight-700; letter-spacing: .04em; }
-.weekRowsHead span:last-child { text-align: center; }
-.weekRows article:last-child { border-bottom: 0; }
-.weekDate { display: flex; flex-direction: column; gap: 3px; }
-.weekDate strong { color: var(--color-primary); font-size: $font-size-12; }
-.weekDate span { color: var(--color-text-secondary); font-size: $font-size-12; font-variant-numeric: tabular-nums; }
-.weekTitleInput { @include form-control; }
-.weekMachineSelect { @include form-control; min-width: 0; }
-.weekFileList { display: flex; min-width: 0; align-items: center; flex-wrap: wrap; gap: 6px; }
+.weekRows {
+  display: flex;
+  flex-direction: column;
+  border-top: 1px solid var(--color-border);
+}
+
+.weekRows article,
+.weekRowsHead {
+  display: grid;
+  grid-template-columns: 116px minmax(210px, 1.1fr) minmax(150px, .65fr) minmax(220px, 1fr) 124px;
+  align-items: center;
+  gap: 18px;
+  padding: 14px 22px;
+  border-bottom: 1px solid var(--color-divider);
+}
+
+.weekRowsHead {
+  padding-block: 9px;
+  border-bottom: 1px solid var(--color-border);
+  background: color-mix(in srgb, var(--color-hover) 40%, var(--color-surface));
+}
+
+.weekRowsHead span {
+  color: var(--color-text-muted);
+  font-size: $font-size-10;
+  font-weight: $font-weight-700;
+  letter-spacing: .04em;
+}
+
+.weekRowsHead span:last-child {
+  text-align: center;
+}
+
+.weekRows article:last-child {
+  border-bottom: 0;
+}
+
+.weekDate {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.weekDate strong {
+  color: var(--color-primary);
+  font-size: $font-size-12;
+}
+
+.weekDate span {
+  color: var(--color-text-secondary);
+  font-size: $font-size-12;
+  font-variant-numeric: tabular-nums;
+}
+
+.weekTitleInput {
+  @include form-control;
+}
+
+.weekMachineSelect {
+  @include form-control;
+  min-width: 0;
+}
+
+.weekFileList {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
 /* 學生可見與否的切換：草稿是安靜的中性色，已發布才亮起來。 */
-.weekPublishButton { display: inline-flex; width: 100%; height: 32px; align-items: center; justify-content: center; gap: 5px; padding: 0 10px; border: 1px solid var(--color-border); border-radius: $radius-pill; color: var(--color-text-muted); background: var(--color-surface); font: inherit; font-size: $font-size-12; font-weight: $font-weight-500; white-space: nowrap; cursor: pointer; transition: color $transition-base, border-color $transition-base, background $transition-base; }
-.weekPublishButton:hover:not(:disabled) { color: var(--color-text-primary); background: var(--color-hover); }
-.weekPublishButton:disabled { opacity: .5; cursor: not-allowed; }
-.weekPublished { border-color: color-mix(in srgb, var(--color-success) 35%, var(--color-border)); color: var(--color-success); background: color-mix(in srgb, var(--color-success) 9%, var(--color-surface)); }
-.weekPublished:hover:not(:disabled) { color: var(--color-success); background: color-mix(in srgb, var(--color-success) 15%, var(--color-surface)); }
-.weekVisibleCount { flex: 0 0 auto; padding: 4px 11px; border-radius: $radius-pill; color: var(--color-success); background: color-mix(in srgb, var(--color-success) 11%, transparent); font-size: $font-size-12; font-weight: $font-weight-500; white-space: nowrap; }
-.weekFileChip { display: inline-flex; min-width: 0; max-width: 220px; align-items: center; gap: 5px; height: 32px; padding: 0 7px 0 9px; border: 1px solid var(--color-border); border-radius: $radius-8; color: var(--color-text-secondary); background: color-mix(in srgb, var(--color-hover) 32%, var(--color-surface)); }
-.weekFileChip b { overflow: hidden; font-size: $font-size-12; font-weight: $font-weight-500; text-overflow: ellipsis; white-space: nowrap; }
-.weekFileChip button { display: grid; flex: 0 0 auto; width: 20px; height: 20px; place-items: center; padding: 0; border: 0; border-radius: 5px; color: var(--color-text-muted); background: transparent; cursor: pointer; }
-.weekFileChip button:hover { color: var(--color-danger); background: var(--color-hover); }
-.weekUploadButton { display: inline-flex; width: max-content; height: 32px; align-items: center; gap: 6px; padding: 0 10px; border: 1px dashed color-mix(in srgb, var(--color-primary) 45%, var(--color-border)); border-radius: $radius-8; color: var(--color-primary); font-size: $font-size-12; font-weight: $font-weight-500; cursor: pointer; }
-.weekUploadButton:hover { background: color-mix(in srgb, var(--color-primary) 6%, var(--color-surface)); }
-.weekUploadButton input { position: absolute; width: 1px; height: 1px; overflow: hidden; opacity: 0; pointer-events: none; }
+.weekPublishButton {
+  display: inline-flex;
+  width: 100%;
+  height: 32px;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  padding: 0 10px;
+  border: 1px solid var(--color-border);
+  border-radius: $radius-pill;
+  color: var(--color-text-muted);
+  background: var(--color-surface);
+  font: inherit;
+  font-size: $font-size-12;
+  font-weight: $font-weight-500;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: color $transition-base, border-color $transition-base, background $transition-base;
+}
+
+.weekPublishButton:hover:not(:disabled) {
+  color: var(--color-text-primary);
+  background: var(--color-hover);
+}
+
+.weekPublishButton:disabled {
+  opacity: .5;
+  cursor: not-allowed;
+}
+
+.weekPublished {
+  border-color: color-mix(in srgb, var(--color-success) 35%, var(--color-border));
+  color: var(--color-success);
+  background: color-mix(in srgb, var(--color-success) 9%, var(--color-surface));
+}
+
+.weekPublished:hover:not(:disabled) {
+  color: var(--color-success);
+  background: color-mix(in srgb, var(--color-success) 15%, var(--color-surface));
+}
+
+.weekVisibleCount {
+  flex: 0 0 auto;
+  padding: 4px 11px;
+  border-radius: $radius-pill;
+  color: var(--color-success);
+  background: color-mix(in srgb, var(--color-success) 11%, transparent);
+  font-size: $font-size-12;
+  font-weight: $font-weight-500;
+  white-space: nowrap;
+}
+
+.weekFileChip {
+  display: inline-flex;
+  min-width: 0;
+  max-width: 220px;
+  align-items: center;
+  gap: 5px;
+  height: 32px;
+  padding: 0 7px 0 9px;
+  border: 1px solid var(--color-border);
+  border-radius: $radius-8;
+  color: var(--color-text-secondary);
+  background: color-mix(in srgb, var(--color-hover) 32%, var(--color-surface));
+}
+
+.weekFileChip b {
+  overflow: hidden;
+  font-size: $font-size-12;
+  font-weight: $font-weight-500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.weekFileChip button {
+  display: grid;
+  flex: 0 0 auto;
+  width: 20px;
+  height: 20px;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 5px;
+  color: var(--color-text-muted);
+  background: transparent;
+  cursor: pointer;
+}
+
+.weekFileChip button:hover {
+  color: var(--color-danger);
+  background: var(--color-hover);
+}
+
+.weekUploadButton {
+  display: inline-flex;
+  width: max-content;
+  height: 32px;
+  align-items: center;
+  gap: 6px;
+  padding: 0 10px;
+  border: 1px dashed color-mix(in srgb, var(--color-primary) 45%, var(--color-border));
+  border-radius: $radius-8;
+  color: var(--color-primary);
+  font-size: $font-size-12;
+  font-weight: $font-weight-500;
+  cursor: pointer;
+}
+
+.weekUploadButton:hover {
+  background: color-mix(in srgb, var(--color-primary) 6%, var(--color-surface));
+}
+
+.weekUploadButton input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  opacity: 0;
+  pointer-events: none;
+}
 
 @include respond-below(lg) {
-  .workflowTabsBar .workspaceTabs button { flex: 0 0 auto; }
-  .overviewDetailGrid { grid-template-columns: 1fr; }
-  .classroomStudentRow { grid-template-columns: minmax(180px, .8fr) 70px minmax(0, 1.5fr); }
-  .classroomMachines { grid-template-columns: repeat(2, minmax(130px, 1fr)); }
-  .machineWorkspaceHeader { align-items: flex-start; flex-direction: column; }
-  .topologyWorkspace { grid-template-columns: minmax(0, 1fr) 268px; }
+  .overviewDetailGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .topologyWorkspace {
+    grid-template-columns: minmax(0, 1fr) 268px;
+  }
+
   /* 窄一點時檔案列換到第二行，週次／主題／可見度仍然同一排 */
-  .weekRows article, .weekRowsHead { grid-template-columns: 100px minmax(220px, 1fr) minmax(150px, .6fr) 124px; }
-  .weekRowsHead span:nth-child(4) { display: none; }
-  .weekRows article > .weekDate { grid-area: 1 / 1; }
-  .weekRows article > .weekTitleInput { grid-area: 1 / 2; }
-  .weekRows article > .weekMachineSelect { grid-area: 1 / 3; }
-  .weekRows article > .weekPublishButton { grid-area: 1 / 4; }
-  .weekRows article > .weekFileList { grid-area: 2 / 2 / auto / -1; }
-  .memberRow { grid-template-columns: minmax(200px, 1.3fr) minmax(100px, .7fr) 100px 34px; }
-  .memberRow > span:nth-of-type(3) { display: none; }
+  .weekRows article,
+  .weekRowsHead {
+    grid-template-columns: 100px minmax(220px, 1fr) minmax(150px, .6fr) 124px;
+  }
+
+  .weekRowsHead span:nth-child(4) {
+    display: none;
+  }
+
+  .weekRows article>.weekDate {
+    grid-area: 1 / 1;
+  }
+
+  .weekRows article>.weekTitleInput {
+    grid-area: 1 / 2;
+  }
+
+  .weekRows article>.weekMachineSelect {
+    grid-area: 1 / 3;
+  }
+
+  .weekRows article>.weekPublishButton {
+    grid-area: 1 / 4;
+  }
+
+  .weekRows article>.weekFileList {
+    grid-area: 2 / 2 / auto / -1;
+  }
+
+  .memberRow {
+    grid-template-columns: minmax(200px, 1.3fr) minmax(100px, .7fr) 100px 34px;
+  }
+
+  .memberRow>span:nth-of-type(3) {
+    display: none;
+  }
 }
 
 @include respond-below(md) {
-  .page { gap: 16px; }
-  .workflowTabsBar { align-items: stretch; flex-direction: column-reverse; }
-  .workflowProgress { min-height: 48px; flex-direction: row; align-items: center; justify-content: space-between; padding: 0 14px; border-bottom: 1px solid var(--color-border); border-left: 0; }
-  .workflowTabsBar .workspaceTabs button { min-width: 112px; padding-inline: 12px; }
-  .setupSummary { grid-template-columns: 38px minmax(0, 1fr); padding: 18px; }
-  .setupSummaryIcon { width: 38px; height: 38px; }
-  .setupSummary .btnPrimary { grid-column: 1 / -1; width: 100%; }
-  .setupChecklist { grid-template-columns: 1fr; }
-  .setupChecklist > div + div { border-top: 1px solid var(--color-border); border-left: 0; }
-  .persistentFeedback { margin-inline: 18px; }
-  .stepTabs { align-self: stretch; }
-  .stepTabs button { flex: 1; min-width: 0; }
-  .memberPageHeader { align-items: stretch; flex-direction: column; }
-  .memberActions { display: grid; grid-template-columns: 1fr 1fr; }
-  .classroomHeader { align-items: flex-start; flex-direction: column; }
-  .heatmapHeader, .heatmapToolbar, .heatmapSummary { align-items: stretch; flex-direction: column; }
-  .machineTabs { display: grid; width: 100%; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); overflow: visible; }
-  .machineTabs > button { width: 100%; min-width: 0; }
-  .metricTabs { align-self: flex-start; }
-  .heatmapSummary dl { width: 100%; }
-  .heatmapSummary dl > div { flex: 1; min-width: 0; padding-left: 10px; }
-  .heatGrid { grid-template-columns: repeat(auto-fill, minmax(112px, 1fr)); }
-  .broadcastTools { align-items: stretch; flex-wrap: wrap; }
-  .broadcastTools select { width: 100%; margin-left: 0; }
-  .classroomStudentRow { grid-template-columns: minmax(0, 1fr) auto; gap: 7px 12px; }
-  .classroomMachines { grid-column: 1 / -1; grid-template-columns: 1fr; }
-  .memberList { padding: 10px 12px 14px; }
-  .memberRow { grid-template-columns: minmax(0, 1fr) auto 30px; gap: 8px 12px; }
-  .memberIdentity { grid-column: 1 / -1; }
-  .memberRow > span:first-of-type { display: none; }
-  .memberRow > span:nth-of-type(3) { display: block; }
-  .listSummary { align-items: flex-start; flex-direction: column; }
-  .classToolbar { align-items: stretch; flex-direction: column; gap: 10px; }
-  .classToolbar .searchInput { flex-basis: auto; width: 100%; }
-  .classToolbar .pillTabs { justify-content: flex-start; }
-  .classCardGrid { grid-template-columns: 1fr; }
-  .classCardTop h2 { white-space: normal; }
-  .classCardMain { padding: 16px 16px 14px; }
-  .classCardAction { padding-left: 16px; }
-  .classFacts { grid-template-columns: 1fr; }
-  .classFacts > div, .classFacts > div:nth-child(odd), .classFacts > div:nth-last-child(-n + 2) { border-right: 0; border-bottom: 1px solid var(--color-divider); }
-  .classFacts > div:last-child { border-bottom: 0; }
-  .currentWeekSummary { align-items: flex-start; flex-direction: column; }
-  .createFormGrid { grid-template-columns: 1fr; }
-  .createNameField { grid-column: auto; }
-  .compactFormSection { padding: 18px; }
-  .createDialogOverlay { align-items: end; padding: 0; }
-  .createDialog { width: 100%; max-height: calc(100vh - 24px); border-radius: $radius-16 $radius-16 0 0; }
-  .createDialogBody { max-height: calc(100vh - 156px); }
-  .machineWorkspaceHeader { padding: 18px; }
-  .machineAddBar { padding: 14px 18px; }
-  .machineAddBar .field { flex-basis: 100%; }
-  .machineAddBar .btnPrimary { width: 100%; }
-  .topologyWorkspace { grid-template-columns: 1fr; padding-inline: $spacing-16; }
-  .topologyCanvas { height: 280px; }
-  .topologyInspector { height: auto; max-height: 70vh; }
-  .weekRows article { grid-template-columns: 1fr; align-items: stretch; gap: 10px; padding: 16px 18px; }
-  .weekRowsHead { display: none; }
-  .weekRows article > .weekFileList { grid-column: auto; }
+  .page {
+    gap: 16px;
+  }
+
+  .workflowTabsBar .workspaceTabs button {
+    min-width: 112px;
+    padding-inline: 12px 20px;
+  }
+
+  .setupSummary {
+    grid-template-columns: 38px minmax(0, 1fr);
+    padding: 18px;
+  }
+
+  .setupSummaryIcon {
+    width: 38px;
+    height: 38px;
+  }
+
+  .setupSummary .btnPrimary {
+    grid-column: 1 / -1;
+    width: 100%;
+  }
+
+  .setupChecklist {
+    grid-template-columns: 1fr;
+  }
+
+  .setupChecklist>div+div {
+    border-top: 1px solid var(--color-border);
+    border-left: 0;
+  }
+
+  .persistentFeedback {
+    margin-inline: 18px;
+  }
+
+  .memberPageHeader {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .memberActions {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .heatmapHeader,
+  .heatmapToolbar,
+  .heatmapSummary {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .machineTabs {
+    display: grid;
+    width: 100%;
+    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+    overflow: visible;
+  }
+
+  .machineTabs>button {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .metricTabs {
+    align-self: flex-start;
+  }
+
+  .heatmapSummary dl {
+    width: 100%;
+  }
+
+  .heatmapSummary dl>div {
+    flex: 1;
+    min-width: 0;
+    padding-left: 10px;
+  }
+
+  .heatGrid {
+    grid-template-columns: repeat(auto-fill, minmax(112px, 1fr));
+  }
+
+  .broadcastTools {
+    align-items: stretch;
+    flex-wrap: wrap;
+  }
+
+  .broadcastTools select {
+    width: 100%;
+    margin-left: 0;
+  }
+
+  .memberList {
+    padding: 10px 12px 14px;
+  }
+
+  .memberRow {
+    grid-template-columns: minmax(0, 1fr) auto 30px;
+    gap: 8px 12px;
+  }
+
+  .memberIdentity {
+    grid-column: 1 / -1;
+  }
+
+  .memberRow>span:first-of-type {
+    display: none;
+  }
+
+  .memberRow>span:nth-of-type(3) {
+    display: block;
+  }
+
+  .classToolbar {
+    align-items: stretch;
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .classToolbar .searchInput {
+    flex-basis: auto;
+    width: 100%;
+  }
+
+  .classCardGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .classCardTop h2 {
+    white-space: normal;
+  }
+
+  .classCardMain {
+    padding: 16px 16px 14px;
+  }
+
+  .classCardAction {
+    padding-left: 16px;
+  }
+
+  .classFacts {
+    grid-template-columns: 1fr;
+  }
+
+  .classFacts>div,
+  .classFacts>div:nth-child(odd),
+  .classFacts>div:nth-last-child(-n + 2) {
+    border-right: 0;
+    border-bottom: 1px solid var(--color-divider);
+  }
+
+  .classFacts>div:last-child {
+    border-bottom: 0;
+  }
+
+  .currentWeekSummary {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .createFormGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .createNameField {
+    grid-column: auto;
+  }
+
+  .compactFormSection {
+    padding: 18px;
+  }
+
+  .createDialogOverlay {
+    align-items: end;
+    padding: 0;
+  }
+
+  .createDialog {
+    width: 100%;
+    max-height: calc(100vh - 24px);
+    border-radius: $radius-16 $radius-16 0 0;
+  }
+
+  .createDialogBody {
+    max-height: calc(100vh - 156px);
+  }
+
+  .machineAddBar {
+    padding: 14px 18px;
+  }
+
+  .machineAddBar .field {
+    flex-basis: 100%;
+  }
+
+  .machineAddBar .btnPrimary {
+    width: 100%;
+  }
+
+  .topologyWorkspace {
+    grid-template-columns: 1fr;
+    padding-inline: $spacing-16;
+  }
+
+  .topologyCanvas {
+    height: 280px;
+  }
+
+  .topologyInspector {
+    height: auto;
+    max-height: 70vh;
+  }
+
+  .weekRows article {
+    grid-template-columns: 1fr;
+    align-items: stretch;
+    gap: 10px;
+    padding: 16px 18px;
+  }
+
+  .weekRowsHead {
+    display: none;
+  }
+
+  .weekRows article>.weekFileList {
+    grid-column: auto;
+  }
 }
 
 @include respond-below(sm) {
-  .heatmapHeader, .heatmapToolbar, .heatmapSummary { padding-right: 16px; padding-left: 16px; }
-  .prototypeBadge, .liveBadge { align-self: flex-start; }
-  .machineTabs { grid-template-columns: 1fr; }
-  .heatGrid { grid-template-columns: repeat(2, minmax(0, 1fr)); padding-right: 16px; padding-left: 16px; }
-  .heatCell { min-height: 86px; padding: 10px; }
-  .heatLegend { flex-wrap: wrap; justify-content: flex-start; padding-right: 16px; padding-left: 16px; }
+
+  .heatmapHeader,
+  .heatmapToolbar,
+  .heatmapSummary {
+    padding-right: 16px;
+    padding-left: 16px;
+  }
+
+  .prototypeBadge,
+  .liveBadge {
+    align-self: flex-start;
+  }
+
+  .machineTabs {
+    grid-template-columns: 1fr;
+  }
+
+  .heatGrid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    padding-right: 16px;
+    padding-left: 16px;
+  }
+
+  .heatCell {
+    min-height: 86px;
+    padding: 10px;
+  }
+
+  .heatLegend {
+    flex-wrap: wrap;
+    justify-content: flex-start;
+    padding-right: 16px;
+    padding-left: 16px;
+  }
 }
 
 /* .listPage：歷史遺留的列表頁 modifier——標準標題與玻璃卡片已是本檔預設，保留 class 供 JSX 引用 */
-.page.listPage { max-width: none; margin: 0; }
+.page.listPage {
+  max-width: none;
+  margin: 0;
+}
 
 /* 送出時未填的欄位：紅框標示並被聚焦（雙類名壓過 .field input 這類巢狀選擇器） */
-.fieldInvalid.fieldInvalid { @include form-control-invalid; }
+.fieldInvalid.fieldInvalid {
+  @include form-control-invalid;
+}
+
+/* 反紅欄位下的一行 inline 錯誤說明：儲存鈕與必填欄位分屬不同分頁，
+   被傳送過來的使用者要看得到「為什麼」（#26），紅框本身不夠 */
+.fieldError {
+  color: var(--color-danger);
+  font-size: $font-size-12;
+  font-style: normal;
+}
 
 /* ── 學習環境列表：篩選與搜尋比照「申請審核」、表格比照「我的申請」 ── */
-.envControls { display: flex; align-items: center; gap: $spacing-16; flex-wrap: wrap; }
+.envControls {
+  display: flex;
+  align-items: center;
+  gap: $spacing-16;
+  flex-wrap: wrap;
+}
+
 .envTabs {
   height: 38px;
   max-width: 100%;
   overflow-x: auto;
   scrollbar-width: none;
 }
-.envTabs::-webkit-scrollbar { display: none; }
-.envSearch {
-  display: inline-flex; align-items: center; gap: 6px;
-  min-height: 38px; padding: 0 $spacing-8 0 10px;
-  border: 1px solid var(--color-border); border-radius: $radius-8;
-  background: var(--color-surface); color: var(--color-text-muted);
-  flex: 0 1 280px; min-width: 200px; box-shadow: var(--shadow-sm);
-}
-.envSearch:focus-within { border-color: var(--color-primary); }
-.envSearch input { flex: 1; min-width: 0; border: 0; outline: 0; background: transparent; color: var(--color-text-primary); font: inherit; font-size: $font-size-14; }
-.envSearch input::placeholder { color: var(--color-text-muted); }
-.envTableWrap { @include table-wrap; }
-.envTable { @include table-base; min-width: 880px; }
-.envTable th { @include table-th; }
-.envTable td { @include table-td; padding-block: 12px; }
-.envTable tbody tr { @include table-tr; cursor: pointer; }
-.envTable tbody tr:hover { background: var(--color-hover); }
-.envTable td strong { color: var(--color-text-primary); font-weight: $font-weight-500; }
-.envTable td small { display: block; max-width: 420px; margin-top: 3px; color: var(--color-text-muted); font-size: $font-size-12; line-height: 1.35; }
 
-/* ── 學習環境編輯頁 Stepper：圓圈節點＋連接線（完成打勾／進行中高亮／未來灰圈） ── */
-/* flex: none：直欄版面裡不撐高；寬度收斂置中，連接線才不會拉過長 */
-.envStepper { display: flex; flex: none; width: min(560px, 100%); min-width: 0; margin-inline: auto; padding: 4px 0; }
-.envStep {
-  position: relative;
-  display: flex; flex: 1; min-width: 0; flex-direction: column; align-items: center; gap: 6px;
-  padding: 0 8px; border: 0; background: none; font: inherit; cursor: pointer;
+.envTabs::-webkit-scrollbar {
+  display: none;
 }
-/* 與前一步的連接線：畫在自己身上、往左跨到前一顆圓的邊緣 */
-.envStep::before {
-  content: ""; position: absolute; top: 15px; height: 2px; border-radius: 1px;
-  left: calc(-50% + 26px); right: calc(50% + 26px);
-  background: var(--color-border);
-  transition: background $transition-base;
-}
-.envStep:first-child::before { display: none; }
-.envStepActive::before, .envStepDone::before { background: var(--color-primary); }
-.envStepCircle {
-  display: grid; place-items: center; width: 32px; height: 32px; border-radius: 50%;
-  border: 2px solid var(--color-border); color: var(--color-text-muted);
+
+.envSearch {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 38px;
+  padding: 0 $spacing-8 0 10px;
+  border: 1px solid var(--color-border);
+  border-radius: $radius-8;
   background: var(--color-surface);
-  font-size: $font-size-12; font-weight: $font-weight-700; font-variant-numeric: tabular-nums;
-  transition: border-color $transition-base, background $transition-base, color $transition-base, box-shadow $transition-base;
+  color: var(--color-text-muted);
+  flex: 0 1 280px;
+  min-width: 200px;
+  box-shadow: var(--shadow-sm);
 }
-.envStep:hover .envStepCircle { border-color: color-mix(in srgb, var(--color-primary) 45%, var(--color-border)); }
-.envStepActive .envStepCircle { border-color: var(--color-primary); color: var(--color-primary); box-shadow: 0 0 0 4px color-mix(in srgb, var(--color-primary) 14%, transparent); }
-.envStepDone .envStepCircle { border-color: var(--color-primary); color: var(--color-text-on-primary); background: var(--color-primary); }
-.envStepText { display: flex; min-width: 0; flex-direction: column; align-items: center; gap: 1px; }
-.envStepText strong { color: var(--color-text-secondary); font-size: $font-size-14; font-weight: $font-weight-500; white-space: nowrap; }
-.envStepActive .envStepText strong { color: var(--color-text-primary); font-weight: $font-weight-700; }
-.envStepText small { color: var(--color-text-muted); font-size: $font-size-12; white-space: nowrap; }
+
+.envSearch:focus-within {
+  border-color: var(--color-primary);
+}
+
+.envSearch input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--color-text-primary);
+  font: inherit;
+  font-size: $font-size-14;
+}
+
+.envSearch input::placeholder {
+  color: var(--color-text-muted);
+}
+
+.envTableWrap {
+  @include table-wrap;
+}
+
+.envTable {
+  @include table-base;
+  min-width: 880px;
+}
+
+.envTable th {
+  @include table-th;
+}
+
+.envTable td {
+  @include table-td;
+  padding-block: 12px;
+}
+
+.envTable tbody tr {
+  @include table-tr;
+  cursor: pointer;
+}
+
+.envTable tbody tr:hover {
+  background: var(--color-hover);
+}
+
+.envTable td strong {
+  color: var(--color-text-primary);
+  font-weight: $font-weight-500;
+}
+
+.envTable td small {
+  display: block;
+  max-width: 420px;
+  margin-top: 3px;
+  color: var(--color-text-muted);
+  font-size: $font-size-12;
+  line-height: 1.35;
+}
+
+
+/* ── 學習環境編輯頁 Stepper：箭頭分段（chevron）——外框膠囊、段與段以
+   斜切縫相接（縫隙色 = 外框 background 的 border 色），選中段主色填滿 ── */
+.envStepper {
+  display: flex;
+  flex: none;
+  width: 100%;
+  min-width: 0;
+  padding: 2px;
+  gap: 2px;
+  border: 1px solid var(--color-border);
+  border-radius: $radius-pill;
+  background: var(--color-border);
+  box-shadow: var(--shadow-sm);
+  overflow: hidden;
+}
+
+.envStep {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1px;
+  min-height: 48px;
+  padding: $spacing-8 $spacing-16 $spacing-8 $spacing-24;
+  border: 0;
+  background: var(--color-surface);
+  font: inherit;
+  cursor: pointer;
+  transition: background $transition-base;
+  /* 中段：右尖角 + 左凹口（14px 斜切）；首末段各留平邊，外圓角交給外框 overflow */
+  clip-path: polygon(0 0, calc(100% - 14px) 0, 100% 50%, calc(100% - 14px) 100%, 0 100%, 14px 50%);
+
+  /* 首末段的外側圓角畫在自己身上（背景先圓角、再與 clip-path 取交集），
+     確保外框灰底完整包住內容，不依賴外框的 overflow 圓角裁切 */
+  &:first-child {
+    padding-left: $spacing-16;
+    border-radius: $radius-pill 0 0 $radius-pill;
+    clip-path: polygon(0 0, calc(100% - 14px) 0, 100% 50%, calc(100% - 14px) 100%, 0 100%);
+  }
+
+  &:last-child {
+    padding-right: $spacing-16;
+    border-radius: 0 $radius-pill $radius-pill 0;
+    clip-path: polygon(0 0, 100% 0, 100% 100%, 0 100%, 14px 50%);
+  }
+
+  /* clip-path 會裁掉 outline，鍵盤焦點改以底色呈現 */
+  &:hover,
+  &:focus-visible {
+    background: var(--color-hover);
+  }
+}
+
+.envStepActive,
+.envStepActive:hover,
+.envStepActive:focus-visible {
+  background: var(--color-primary);
+  cursor: default;
+}
+
+.envStepNum {
+  display: inline-flex;
+  align-items: center;
+  color: var(--color-text-muted);
+  font-size: $font-size-12;
+  font-weight: $font-weight-700;
+  font-variant-numeric: tabular-nums;
+}
+
+.envStepDone .envStepNum {
+  color: var(--color-primary-on-surface);
+}
+
+.envStepText {
+  display: flex;
+  min-width: 0;
+  max-width: 100%;
+  flex-direction: column;
+  align-items: center;
+  gap: 1px;
+}
+
+.envStepText strong {
+  display: inline-flex;
+  align-items: center;
+  gap: $spacing-4;
+  color: var(--color-text-secondary);
+  font-size: $font-size-14;
+  font-weight: $font-weight-500;
+  white-space: nowrap;
+}
+
+.envStepDone .envStepText strong {
+  color: var(--color-text);
+}
+
+.envStepActive .envStepText strong,
+.envStepActive .envStepNum {
+  color: var(--color-text-on-primary);
+  font-weight: $font-weight-700;
+}
 
 /* ── 機器配置步驟鎖定視口高度：stepper 固定、工作區吃滿剩餘、畫布自適應，
    儲存列不必捲動就看得到；視窗太矮退回自然捲動（比照申請審核頁的鎖高條件） ── */
@@ -742,19 +3388,143 @@
       height: calc(100dvh - var(--layout-py) * 2 - var(--footer-h) - #{$spacing-16});
       overflow: hidden;
 
-      .templateMachineWorkspace { flex: 1; min-height: 0; }
-      .templateMachineWorkspace .actionFooter { margin-top: auto; }
-      .topologyWorkspace { flex: 1; min-height: 0; }
-      .topologyCanvas { height: auto; min-height: 240px; }
-      .topologyInspector { height: auto; max-height: none; }
+      .templateMachineWorkspace {
+        flex: 1;
+        min-height: 0;
+      }
+
+      .templateMachineWorkspace .actionFooter {
+        margin-top: auto;
+      }
+
+      .topologyWorkspace {
+        flex: 1;
+        min-height: 0;
+      }
+
+      .topologyCanvas {
+        height: auto;
+        min-height: 240px;
+      }
+
+      .topologyInspector {
+        height: auto;
+        max-height: none;
+      }
     }
   }
 }
 
 /* ── 列表 ↔ 編輯頁換頁動畫（比照「我的申請」的表單開合） ── */
-@keyframes envSlideInRight  { from { opacity: 0; transform: translateX(40px); }  to { opacity: 1; transform: translateX(0); } }
-@keyframes envSlideOutRight { from { opacity: 1; transform: translateX(0); }     to { opacity: 0; transform: translateX(40px); } }
-@keyframes envSlideInLeft   { from { opacity: 0; transform: translateX(-40px); } to { opacity: 1; transform: translateX(0); } }
-.animSlideInRight  { animation: envSlideInRight  0.22s cubic-bezier(0.25, 0.8, 0.25, 1) both; }
-.animSlideOutRight { animation: envSlideOutRight 0.18s ease both; }
-.animSlideInLeft   { animation: envSlideInLeft   0.22s cubic-bezier(0.25, 0.8, 0.25, 1) both; }
+@keyframes envSlideInRight {
+  from {
+    opacity: 0;
+    transform: translateX(40px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes envSlideOutRight {
+  from {
+    opacity: 1;
+    transform: translateX(0);
+  }
+
+  to {
+    opacity: 0;
+    transform: translateX(40px);
+  }
+}
+
+@keyframes envSlideInLeft {
+  from {
+    opacity: 0;
+    transform: translateX(-40px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+.animSlideInRight {
+  animation: envSlideInRight 0.22s cubic-bezier(0.25, 0.8, 0.25, 1) both;
+}
+
+.animSlideOutRight {
+  animation: envSlideOutRight 0.18s ease both;
+}
+
+.animSlideInLeft {
+  animation: envSlideInLeft 0.22s cubic-bezier(0.25, 0.8, 0.25, 1) both;
+}
+/* ── 學習環境的說明文件 ── */
+.fileSection {
+  @include flex-column;
+  gap: $spacing-8;
+  padding-top: $spacing-16;
+  border-top: 1px solid var(--color-divider);
+}
+
+.fileHeading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: $spacing-16;
+
+  > span {
+    color: var(--color-text-secondary);
+    font-size: $font-size-12;
+    font-weight: $font-weight-500;
+  }
+}
+
+.fileList {
+  @include flex-column;
+  gap: $spacing-4;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+
+  li {
+    display: flex;
+    align-items: center;
+    gap: $spacing-8;
+    padding: $spacing-8;
+    border-radius: $radius-8;
+    background: var(--color-hover);
+
+    > a {
+      @include text-truncate;
+      flex: 1;
+      color: var(--color-primary);
+      font-size: $font-size-14;
+    }
+
+    > small {
+      flex: none;
+      color: var(--color-text-muted);
+      font-size: $font-size-12;
+    }
+  }
+}
+
+.fileRemove {
+  @include flex-center;
+  flex: none;
+  width: 24px;
+  height: 24px;
+  border: 0;
+  border-radius: $radius-8;
+  color: var(--color-text-muted);
+  background: transparent;
+  cursor: pointer;
+
+  &:hover:not(:disabled) { color: var(--color-danger); background: var(--color-surface); }
+  &:disabled { opacity: 0.5; cursor: not-allowed; }
+}

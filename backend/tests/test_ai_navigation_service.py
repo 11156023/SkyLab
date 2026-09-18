@@ -108,7 +108,7 @@ async def test_whole_task_falls_back_to_a_step_by_step_flow(
 
 
 @pytest.mark.asyncio
-async def test_flow_resumes_from_the_page_the_user_is_already_on(
+async def test_visiting_a_page_does_not_complete_previous_steps(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(navigation_service.system_ai_env, "vllm_model_name", "")
@@ -121,8 +121,8 @@ async def test_flow_resumes_from_the_page_the_user_is_already_on(
 
     assert result.action == "guide"
     assert result.flow_id == "publish_service"
-    assert result.active_step == 1
-    assert [step.status for step in result.steps] == ["done", "current", "todo"]
+    assert result.active_step == 0
+    assert [step.status for step in result.steps] == ["current", "todo", "todo"]
 
 
 @pytest.mark.asyncio

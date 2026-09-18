@@ -7,13 +7,14 @@ import EmptyState from "../../../components/EmptyState/EmptyState";
 import { MiningIncidentsService } from "../../../services/miningIncidents";
 import { useToast } from "../../../hooks/useToast";
 import useDialogPresence from "../../../hooks/useDialogPresence";
+import { formatDateTime } from "../../../utils/formatDate";
 
 /** detected/suspended 視為待處理（紅），其餘中性 */
 function statusBadgeClass(status) {
   return status === "detected" || status === "suspended" ? "badge_err" : "badge_muted";
 }
 
-export default function MiningIncidentsPanel() {
+export default function MiningIncidentsPanel({ onCountChange }) {
   const { t } = useTranslation("system");
   const toast = useToast();
   const STATUS_LABELS = {
@@ -51,6 +52,11 @@ export default function MiningIncidentsPanel() {
   const closed = (incidents ?? []).filter(
     (i) => i.status === "banned" || i.status === "dismissed",
   );
+
+  /* 分頁角標顯示「待處理」筆數，載入後回報給監控頁 */
+  useEffect(() => {
+    if (incidents !== null) onCountChange?.(open.length);
+  }, [incidents, open.length, onCountChange]);
 
   const handleBan = async () => {
     setBusy(true);
@@ -91,16 +97,9 @@ export default function MiningIncidentsPanel() {
 
   return (
     <div className={styles.card}>
+      {/* 標題由外層頁籤承擔，卡內只留說明 */}
       <div className={styles.cardHeader}>
-        <div>
-          <h2 className={styles.cardTitle}>
-            <MIcon name="gavel" size={18} />
-            {t("MiningIncidentsPanel.title")}
-          </h2>
-          <p className={styles.cardDesc}>
-            {t("MiningIncidentsPanel.desc")}
-          </p>
-        </div>
+        <p className={styles.cardDesc}>{t("MiningIncidentsPanel.desc")}</p>
         {open.length > 0 && <span className={styles.alertCount}>{t("MiningIncidentsPanel.pendingCount", { count: open.length })}</span>}
       </div>
 
@@ -147,7 +146,7 @@ export default function MiningIncidentsPanel() {
                   </span>
                 </td>
                 <td className={`${styles.td} ${styles.mutedCell}`}>
-                  {new Date(incident.detected_at).toLocaleString("zh-TW")}
+                  {formatDateTime(incident.detected_at)}
                 </td>
                 <td className={`${styles.td} ${styles.tdRight}`}>
                   {(incident.status === "detected" || incident.status === "suspended") && (

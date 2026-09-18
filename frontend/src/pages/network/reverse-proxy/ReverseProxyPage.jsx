@@ -136,6 +136,7 @@ export function ReverseProxyPanel() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [syncing, setSyncing] = useState(false);
+  const [guideActive, setGuideActive] = useState(false);
   const [modal, setModal] = useState(null); // { kind: "rule", rule? } | { kind: "delete", rule }
   const modalPresence = useDialogPresence(modal);
 
@@ -158,6 +159,12 @@ export function ReverseProxyPanel() {
   useEffect(() => {
     fetchData();
   }, [fetchData]);
+
+  useEffect(() => {
+    const handleGuideState = (event) => setGuideActive(Boolean(event.detail?.open && event.detail?.id === "reverse-proxy"));
+    window.addEventListener("skylab:user-guide-state", handleGuideState);
+    return () => window.removeEventListener("skylab:user-guide-state", handleGuideState);
+  }, []);
 
   const setupBlocked = setupContext?.enabled === false;
   async function handleSubmitRule(payload) {
@@ -207,7 +214,7 @@ export function ReverseProxyPanel() {
   }
 
   function openCreate() {
-    if (setupBlocked) {
+    if (setupBlocked && !guideActive) {
       toast.error(setupContext?.reasons?.[0] ?? t("ReverseProxyPage.featureDisabled"));
       return;
     }
@@ -247,6 +254,8 @@ export function ReverseProxyPanel() {
             </button>
           </div>
         </div>
+
+        <p className={styles.listDesc}>{t("ReverseProxyPage.listDesc")}</p>
 
         <div className={styles.listBody} data-guide="proxy-list">
           {loading ? (

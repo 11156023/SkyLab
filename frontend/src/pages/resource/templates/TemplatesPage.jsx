@@ -396,7 +396,7 @@ export default function TemplatesPage() {
 
   return (
     <div className={styles.page}>
-      <PageHeader title={t("TemplatesPage.pageTitle")} subtitle={t("TemplatesPage.pageSubtitle")}>
+      <PageHeader title={t("TemplatesPage.pageTitle")}>
         <div className={styles.pageActions}>
           <button
             type="button"
@@ -429,6 +429,7 @@ export default function TemplatesPage() {
         </div>
       ) : (
         <div className={styles.card}>
+          <div className={styles.tableScroll}>
           <table className={styles.table}>
             <thead>
               <tr>
@@ -457,6 +458,7 @@ export default function TemplatesPage() {
               ))}
             </tbody>
           </table>
+          </div>
         </div>
       )}
 

@@ -10,21 +10,11 @@ import useDialogPresence from "../../../hooks/useDialogPresence";
 import { CloudflareService } from "../../../services/cloudflare";
 import PageHeader from "../../../components/PageHeader/PageHeader";
 import { ReverseProxyPanel } from "../../network/reverse-proxy/ReverseProxyPage";
+import { formatDateTime } from "../../../utils/formatDate";
 
 const TAB_KEYS = ["dns", "reverse-proxy"];
 
 const DNS_TYPES = ["A", "AAAA", "CNAME", "TXT", "MX", "NS", "SRV"];
-
-function formatDate(value) {
-  if (!value) return "—";
-  return new Date(value).toLocaleString("zh-TW", {
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
-}
 
 /* ── 供應商設定 Modal ───────────────────────────────────── */
 
@@ -57,18 +47,25 @@ function ConfigModal({ config, loading, closing = false, onClose, onSubmit }) {
       className={`${styles.modalOverlay} ${closing ? styles.modalOverlayOut : ""}`}
       onMouseDown={onClose}
     >
-      <form className={styles.modal} onSubmit={submit} onMouseDown={(e) => e.stopPropagation()}>
+      <form className={styles.modal} onSubmit={submit} onMouseDown={(e) => e.stopPropagation()} data-guide="domain-config-form">
         <div className={styles.modalHeader}>
           <div>
             <h2>{t("DomainPage.configModalTitle")}</h2>
             <p>{t("DomainPage.configModalDesc")}</p>
+            <p className={styles.modalGuide}>
+              {t("DomainPage.tokenGuideText")}{" "}
+              <a href="https://dash.cloudflare.com/profile/api-tokens" target="_blank" rel="noreferrer">
+                {t("DomainPage.tokenGuideLink")}
+                <MIcon name="open_in_new" size={13} />
+              </a>
+            </p>
           </div>
-          <button type="button" className={styles.iconBtn} onClick={onClose} aria-label={t("DomainPage.close")}>
+          <button type="button" className={styles.iconBtn} onClick={onClose} aria-label={t("DomainPage.close")} data-guide="domain-modal-close">
             <MIcon name="close" size={18} />
           </button>
         </div>
 
-        <label className={styles.field}>
+        <label className={styles.field} data-guide="domain-config-credentials">
           <span>Account ID</span>
           <input
             value={form.account_id}
@@ -109,6 +106,7 @@ function ConfigModal({ config, loading, closing = false, onClose, onSubmit }) {
             />
           </label>
         </div>
+        <p className={styles.fieldHint}>{t("DomainPage.dnsTargetHint")}</p>
 
         <div className={styles.modalActions}>
           <button type="button" className={styles.btnSecondary} onClick={onClose} disabled={loading}>
@@ -159,13 +157,13 @@ function RecordModal({ record, loading, closing = false, onClose, onSubmit }) {
       className={`${styles.modalOverlay} ${closing ? styles.modalOverlayOut : ""}`}
       onMouseDown={onClose}
     >
-      <form className={styles.modal} onSubmit={submit} onMouseDown={(e) => e.stopPropagation()}>
+      <form className={styles.modal} onSubmit={submit} onMouseDown={(e) => e.stopPropagation()} data-guide="domain-record-form">
         <div className={styles.modalHeader}>
           <div>
             <h2>{isEdit ? t("DomainPage.recordModalEditTitle") : t("DomainPage.recordModalCreateTitle")}</h2>
             <p>{t("DomainPage.ttlHint")}</p>
           </div>
-          <button type="button" className={styles.iconBtn} onClick={onClose} aria-label={t("DomainPage.close")}>
+          <button type="button" className={styles.iconBtn} onClick={onClose} aria-label={t("DomainPage.close")} data-guide="domain-modal-close">
             <MIcon name="close" size={18} />
           </button>
         </div>
@@ -385,7 +383,7 @@ export default function DomainPage() {
 
   return (
     <div className={styles.page}>
-      <PageHeader title={t("DomainPage.pageTitle")} subtitle={t("DomainPage.pageSubtitle")}>
+      <PageHeader title={t("DomainPage.pageTitle")}>
         <div className={styles.headerActions} data-guide="domain-connect">
           <button
             type="button"
@@ -399,7 +397,7 @@ export default function DomainPage() {
             <MIcon name="wifi_tethering" size={16} />
             {testing ? t("DomainPage.testing") : t("DomainPage.testConnection")}
           </button>
-          <button type="button" className={styles.btnPrimary} onClick={() => setModal({ kind: "config" })}>
+          <button type="button" className={styles.btnPrimary} onClick={() => setModal({ kind: "config" })} data-guide="domain-settings-open">
             <MIcon name="settings" size={16} />
             {t("DomainPage.connectionSettings")}
           </button>
@@ -414,12 +412,12 @@ export default function DomainPage() {
           </span>
           {config.account_id && <span className={styles.configMeta}>{t("DomainPage.accountLabel")}{config.account_id}</span>}
           {config.last_verified_at && (
-            <span className={styles.configMeta}>{t("DomainPage.lastVerifiedLabel")}{formatDate(config.last_verified_at)}</span>
+            <span className={styles.configMeta}>{t("DomainPage.lastVerifiedLabel")}{formatDateTime(config.last_verified_at)}</span>
           )}
         </div>
       )}
 
-      <div className={styles.tabs}>
+      <div className={styles.tabs} data-guide="domain-tabs">
         <button
           type="button"
           className={`${styles.tab} ${activeTab === "dns" ? styles.tabActive : ""}`}
@@ -495,6 +493,7 @@ export default function DomainPage() {
                 className={styles.btnPrimary}
                 onClick={() => setModal({ kind: "record" })}
                 disabled={!selectedZone}
+                data-guide="domain-record-open"
               >
                 <MIcon name="add" size={16} />
                 {t("DomainPage.addRecord")}

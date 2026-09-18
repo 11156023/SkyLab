@@ -1,5 +1,6 @@
 import { ResourcesService } from "../../../../services/resources";
 import i18n from "../../../../i18n";
+import { formatTime } from "../../../../utils/formatDate";
 
 /* 學生首頁與課程總覽共用的純邏輯；不含任何畫面，方便單獨測試。 */
 
@@ -64,14 +65,7 @@ export function formatAssignmentDate(value, t = defaultT) {
 
 /** 課表時間（HH:MM，24 小時制）；無法解析時回空字串。 */
 export function formatScheduleTime(value) {
-  if (!value) return "";
-  const parsed = new Date(value);
-  if (Number.isNaN(parsed.getTime())) return "";
-  return new Intl.DateTimeFormat("zh-TW", {
-    hour: "2-digit",
-    minute: "2-digit",
-    hour12: false,
-  }).format(parsed);
+  return formatTime(value, "");
 }
 
 /** 把課表 API 的扁平欄位收進 schedule 物件，讓兩個頁面用同一組欄位名。 */

@@ -34,6 +34,7 @@ export default function DashboardLayout() {
   const [compactFooter, setCompactFooter] = useState(false);
   const [assistantOpen, setAssistantOpen] = useState(false);
   const [requestForm, setRequestForm] = useState(null);
+  const [requestSubmission, reportRequestSubmission] = useState(null);
   const registerRequestForm = useCallback((api) => setRequestForm(api ?? null), []);
   /* 一次只有一個畫面被問：使用者問的一定是眼前這個。取消註冊時比對 id，
      免得後掛載的頁面先卸載時把還在畫面上的那個清掉。 */
@@ -49,10 +50,12 @@ export default function DashboardLayout() {
       setCompactFooter,
       registerRequestForm,
       requestForm,
+      requestSubmission,
+      reportRequestSubmission,
       registerSurface,
       surface,
     }),
-    [registerRequestForm, requestForm, registerSurface, surface],
+    [registerRequestForm, requestForm, registerSurface, surface, requestSubmission],
   );
   const { active: sessionWarning, dismiss, dismissPermanent } = useSessionWarning();
   const mobileOverlay = useDialogPresence(mobileOpen);

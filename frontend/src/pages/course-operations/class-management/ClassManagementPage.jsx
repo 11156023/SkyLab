@@ -8,6 +8,7 @@ import { TeachingClassesService } from "../../../services/teachingClasses";
 import { useToast } from "../../../hooks/useToast";
 import styles from "../CourseOperations.module.scss";
 import PageHeader from "../../../components/PageHeader/PageHeader";
+import SegmentedControl from "../../../components/SegmentedControl/SegmentedControl";
 
 const STATUS_KEYS = {
   planning: "ClassManagementPage.statusPlanning",
@@ -157,15 +158,25 @@ export default function ClassManagementPage() {
   }, [visible, query, status]);
 
   return <div className={`${styles.page} ${styles.listPage}`}>
-    <PageHeader title={t("ClassManagementPage.title")} subtitle={t("ClassManagementPage.subtitle")}>
+    <PageHeader title={t("ClassManagementPage.title")}>
       <button type="button" className={styles.btnPrimary} onClick={() => navigate("/class-setup")}>
         <MIcon name="add" size={17} />{t("ClassManagementPage.createClass")}
       </button>
     </PageHeader>
 
     <div className={styles.classToolbar}>
+      <SegmentedControl
+        options={tabs.map((group) => ({
+          value: group.key,
+          label: t(group.labelKey),
+          icon: group.alertOnly ? "warning" : undefined,
+          badge: statusCounts[group.key] ?? 0,
+        }))}
+        value={status}
+        onChange={setStatus}
+        ariaLabel={t("ClassManagementPage.filterAriaLabel")}
+      />
       <label className={styles.searchInput}><MIcon name="search" size={18} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={t("ClassManagementPage.searchPlaceholder")} /></label>
-      <div className={styles.pillTabs}>{tabs.map((group) => <button type="button" key={group.key} className={`${status === group.key ? styles.pillActive : ""}${group.alertOnly ? ` ${styles.pillAlert}` : ""}`} onClick={() => setStatus(group.key)}>{t(group.labelKey)}<i>{statusCounts[group.key] ?? 0}</i></button>)}</div>
       {archivedCount > 0 && <label className={styles.archivedToggle}><input type="checkbox" checked={showArchived} onChange={(event) => { setShowArchived(event.target.checked); if (!event.target.checked) setStatus("all"); }} />{t("ClassManagementPage.showArchived", { count: archivedCount })}</label>}
     </div>
 

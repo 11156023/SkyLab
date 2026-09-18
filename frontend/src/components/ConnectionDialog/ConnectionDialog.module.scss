@@ -69,39 +69,73 @@
 }
 
 /* ── 分頁：連線 / 自訂規則 ── */
-.tabs {
-  display: flex;
-  gap: $spacing-4;
-  padding: $spacing-8 $spacing-24 0;
-  border-bottom: 1px solid var(--color-border);
-  flex-shrink: 0;
+/* ── 意圖：第一步四張卡，選定後收合成一行 ── */
+.intentGrid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: $spacing-8;
+
+  @include respond-to(md) {
+    grid-template-columns: repeat(2, 1fr);
+  }
 }
 
-.tab {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: $spacing-8 $spacing-16;
-  margin-bottom: -1px;
-  border-bottom: 2px solid transparent;
-  font-size: $font-size-14;
+.intentCard {
+  @include flex-column;
+  align-items: flex-start;
+  gap: 4px;
+  padding: $spacing-16;
+  border: 1px solid var(--color-border);
+  border-radius: $radius-12;
+  background: var(--color-surface);
   color: var(--color-text-secondary);
+  text-align: left;
   cursor: pointer;
-  transition: color $transition-base, border-color $transition-base;
+  transition: border-color $transition-base, background $transition-base;
 
-  &:hover { color: var(--color-text); }
+  strong {
+    font-size: $font-size-14;
+    font-weight: $font-weight-500;
+    color: var(--color-text-primary);
+  }
+
+  span {
+    font-size: $font-size-12;
+    line-height: 1.4;
+  }
+
+  &:hover {
+    border-color: var(--color-primary);
+    background: color-mix(in srgb, var(--color-primary) 6%, transparent);
+  }
 }
 
-.tabActive {
+.intentChip {
+  display: flex;
+  align-items: center;
+  gap: $spacing-8;
+  padding: $spacing-8 $spacing-16;
+  border-radius: $radius-8;
+  background: color-mix(in srgb, var(--color-primary) 8%, transparent);
   color: var(--color-primary);
-  border-bottom-color: var(--color-primary);
-  font-weight: $font-weight-500;
+
+  strong {
+    flex: 1;
+    font-size: $font-size-14;
+    font-weight: $font-weight-500;
+    color: var(--color-text-primary);
+  }
 }
 
-.tabDesc {
-  font-size: $font-size-14;
-  color: var(--color-text-secondary);
-  line-height: 1.5;
+.intentChange {
+  padding: 3px $spacing-8;
+  border-radius: $radius-8;
+  font-size: $font-size-12;
+  color: var(--color-primary);
+  cursor: pointer;
+  transition: background $transition-base;
+
+  &:hover { background: color-mix(in srgb, var(--color-primary) 12%, transparent); }
 }
 
 /* ── Body ── */
@@ -112,46 +146,19 @@
   overflow-y: auto;
 }
 
-/* ── 來源 ⇄ 目標 ── */
-.nodeRow {
+/* ── 鎖定的機器（資源頁入口、編輯既有發布）：顯示名稱，不放只有一個選項的下拉 ── */
+.lockedMachine {
   display: flex;
-  align-items: flex-end;
-  gap: $spacing-8;
-}
-
-.nodeSelect {
-  @include flex-column;
-  gap: $spacing-4;
-  flex: 1;
-  min-width: 0;
-}
-
-.nodeLabel {
-  font-size: $font-size-12;
-  font-weight: $font-weight-500;
-  color: var(--color-text-secondary);
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-}
-
-.swapBtn {
-  @include flex-center;
-  flex-shrink: 0;
-  width: 32px;
-  height: 32px;
-  margin-bottom: 4px;
+  align-items: center;
+  gap: 6px;
+  padding: 8px $spacing-8;
   border: 1px solid var(--color-border);
   border-radius: $radius-8;
-  background: var(--color-surface);
+  background: var(--color-hover);
   color: var(--color-text-secondary);
-  cursor: pointer;
-  transition: color $transition-base, border-color $transition-base;
+  font-size: $font-size-14;
 
-  &:hover:not(:disabled) {
-    color: var(--color-primary);
-    border-color: var(--color-primary);
-  }
-  &:disabled { opacity: 0.5; cursor: not-allowed; }
+  span { color: var(--color-text-primary); }
 }
 
 .select,
@@ -189,6 +196,11 @@
   min-width: 0;
 }
 
+/* 沒有標題的欄位（例如與 port 並排的 HTTPS 勾選框）貼齊底部，和旁邊的輸入框對齊 */
+.fieldAlignEnd {
+  justify-content: flex-end;
+}
+
 .fieldLabel {
   font-size: $font-size-14;
   font-weight: $font-weight-500;
@@ -199,24 +211,6 @@
   font-size: $font-size-12;
   color: var(--color-text-muted);
   line-height: 1.5;
-}
-
-.ghostBtn {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  align-self: flex-start;
-  padding: 3px $spacing-8;
-  border-radius: $radius-8;
-  font-size: $font-size-12;
-  color: var(--color-text-secondary);
-  cursor: pointer;
-  transition: background $transition-base, color $transition-base;
-
-  &:hover {
-    background: var(--color-hover);
-    color: var(--color-text);
-  }
 }
 
 .linkBtn {
@@ -392,18 +386,28 @@
   color: var(--color-text);
 }
 
+/* 移除列：平常隱形，滑到那一列或列內有焦點才出現，表單不會排滿小叉叉；
+   只剩一列時整顆收起（那列本來就不能刪） */
 .removeBtn {
   @include flex-center;
-  width: 28px;
-  height: 28px;
+  width: 32px;
+  height: 32px;
   border-radius: $radius-8;
   color: var(--color-danger);
   cursor: pointer;
-  transition: background $transition-base, color $transition-base;
+  opacity: 0;
+  transition: background $transition-base, opacity $transition-base;
   flex-shrink: 0;
 
   &:hover:not(:disabled) { background: color-mix(in srgb, var(--color-danger) 15%, transparent); }
-  &:disabled { opacity: 0.35; cursor: not-allowed; }
+  &:disabled { pointer-events: none; }
+}
+
+.portRow:hover .removeBtn:not(:disabled),
+.portRow:focus-within .removeBtn:not(:disabled),
+.forwardRow:hover .removeBtn:not(:disabled),
+.forwardRow:focus-within .removeBtn:not(:disabled) {
+  opacity: 1;
 }
 
 .addBtn {

@@ -8,6 +8,7 @@ import App from "./App";
 import { ThemeProvider } from "./contexts/ThemeContext";
 import { AuthProvider }  from "./contexts/AuthContext";
 import { ConfirmProvider } from "./components/ConfirmDialog/ConfirmProvider";
+import { UnsavedChangesProvider } from "./contexts/UnsavedChangesContext";
 import "./assets/styles/global.scss";
 import "./i18n";
 
@@ -16,7 +17,9 @@ ReactDOM.createRoot(document.getElementById("root")).render(
     <AuthProvider>
       <ConfirmProvider>
         <BrowserRouter>
-          <App />
+          <UnsavedChangesProvider>
+            <App />
+          </UnsavedChangesProvider>
           <Toaster
             position="top-right"
             richColors

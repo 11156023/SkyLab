@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import hashlib
 import logging
 import os
 import shutil
@@ -11,14 +10,12 @@ from copy import deepcopy
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Literal, cast
+from typing import Any, cast
 
 from fastapi import HTTPException
-from sqlalchemy.exc import IntegrityError
-from sqlmodel import Session, desc, func, select
+from sqlmodel import Session, desc, select
 
 from app.ai.teacher_judge.schemas import (
-    TeacherJudgeFileMetadataUpdateRequest,
     TeacherJudgeFilePublic,
     TeacherJudgeFileSourceTypeLiteral,
     TeacherJudgeRubricAnalysis,
@@ -28,9 +25,6 @@ from app.core.i18n import t
 from app.models.teacher_judge_file import TeacherJudgeFile, TeacherJudgeFileStatus
 from app.models.teacher_judge_script_artifact import TeacherJudgeScriptArtifact
 from app.models.teacher_judge_session import TeacherJudgeSession
-from app.services.rubric_parser import parse_document
-
-ConflictStrategy = Literal["overwrite", "copy"]
 
 DATA_ROOT = Path(__file__).resolve().parents[4] / "data" / "teacher-judge" / "files"
 logger = logging.getLogger(__name__)
@@ -50,20 +44,6 @@ def _now() -> datetime:
     return get_datetime_utc()
 
 
-def _safe_filename(filename: str) -> str:
-    # 去掉路徑片段後，再移除控制字元（CR/LF 等），避免之後作為
-    # Content-Disposition 檔名或寫入日誌時被夾帶額外內容
-    name = Path(filename or "rubric").name
-    name = "".join(ch for ch in name if ch.isprintable()).strip()
-    return name or "rubric"
-
-
-def _display_name_from_filename(filename: str) -> str:
-    """Return a readable rubric name while keeping the original filename separate."""
-    stem = Path(filename or "").stem.strip()
-    return stem or "評分表"
-
-
 def _suffix(filename: str) -> str:
     return Path(filename).suffix.lower()
 
@@ -74,10 +54,6 @@ def _stored_path(file_id: uuid.UUID, original_filename: str) -> Path:
 
 def _temp_path(file_id: uuid.UUID, original_filename: str) -> Path:
     return DATA_ROOT / f"{file_id}{_suffix(original_filename)}.tmp"
-
-
-def _backup_path(file_id: uuid.UUID, original_filename: str) -> Path:
-    return DATA_ROOT / f"{file_id}{_suffix(original_filename)}.bak"
 
 
 def _deleted_path(file_id: uuid.UUID, original_filename: str) -> Path:
@@ -92,20 +68,6 @@ def _unlink_if_exists(path: Path) -> None:
         logger.warning("Failed to remove Teacher Judge file path: %s", path)
 
 
-def _raise_name_conflict(existing: TeacherJudgeFile | None = None) -> None:
-    detail: dict[str, str] = {
-        "code": "teacher_judge_file_name_conflict",
-        "message": t("file.name_conflict"),
-    }
-    if existing is not None:
-        detail["file_id"] = str(existing.id)
-        detail["original_filename"] = existing.original_filename or ""
-    raise HTTPException(
-        status_code=409,
-        detail=detail,
-    )
-
-
 def _file_to_public(file: TeacherJudgeFile) -> TeacherJudgeFilePublic:
     return TeacherJudgeFilePublic(
         id=str(file.id),
@@ -115,7 +77,7 @@ def _file_to_public(file: TeacherJudgeFile) -> TeacherJudgeFilePublic:
         file_hash=file.file_hash,
         template_key=file.template_key,
         source_type=cast(TeacherJudgeFileSourceTypeLiteral, file.source_type),
-        display_name=file.display_name or file.original_filename or "評分表",
+        display_name=file.display_name or file.original_filename or "檢查表",
         environment_keys=list(file.environment_keys or [file.template_key]),
         analysis_revision=file.analysis_revision,
         analysis_json=file.analysis_json,
@@ -123,51 +85,6 @@ def _file_to_public(file: TeacherJudgeFile) -> TeacherJudgeFilePublic:
         created_at=file.created_at.isoformat(),
         updated_at=file.updated_at.isoformat(),
     )
-
-
-def _active_file_by_name(
-    *,
-    session: Session,
-    teaching_class_id: uuid.UUID,
-    original_filename: str,
-    for_update: bool = False,
-) -> TeacherJudgeFile | None:
-    statement = select(TeacherJudgeFile).where(
-        TeacherJudgeFile.teaching_class_id == teaching_class_id,
-        TeacherJudgeFile.original_filename == original_filename,
-        TeacherJudgeFile.status == TeacherJudgeFileStatus.active,
-    )
-    if for_update:
-        statement = statement.with_for_update()
-    return session.exec(statement).first()
-
-
-def raise_if_file_name_conflict(
-    *,
-    session: Session,
-    teaching_class_id: uuid.UUID,
-    original_filename: str,
-    conflict_strategy: ConflictStrategy | None,
-) -> None:
-    if conflict_strategy is not None:
-        return
-    existing = _active_file_by_name(
-        session=session,
-        teaching_class_id=teaching_class_id,
-        original_filename=original_filename,
-    )
-    if existing is None:
-        return
-    _raise_name_conflict(existing)
-
-
-def _linked_script_count(*, session: Session, file_id: uuid.UUID) -> int:
-    count = session.exec(
-        select(func.count()).select_from(TeacherJudgeScriptArtifact).where(
-            TeacherJudgeScriptArtifact.source_file_id == file_id
-        )
-    ).one()
-    return int(count or 0)
 
 
 def _copy_filename(
@@ -249,161 +166,6 @@ def get_file_download(
     return path, file.original_filename
 
 
-def prepare_file_payload(
-    *,
-    filename: str,
-    file_bytes: bytes,
-    allowed_suffixes: set[str],
-    max_upload_size_bytes: int,
-) -> tuple[str, str, str]:
-    original_filename = _safe_filename(filename)
-    suffix = _suffix(original_filename)
-    if suffix not in allowed_suffixes:
-        raise HTTPException(
-            status_code=415,
-            detail=t(
-                "file.unsupported_format",
-                suffix=suffix,
-                allowed=", ".join(sorted(allowed_suffixes)),
-            ),
-        )
-    if len(file_bytes) > max_upload_size_bytes:
-        file_size_mb = len(file_bytes) / (1024 * 1024)
-        max_size_mb = max_upload_size_bytes / (1024 * 1024)
-        raise HTTPException(
-            status_code=413,
-            detail=t(
-                "file.size_exceeded",
-                size=f"{file_size_mb:.1f}",
-                max_size=f"{max_size_mb:.0f}",
-            ),
-        )
-    if not file_bytes:
-        raise HTTPException(status_code=400, detail=t("file.empty_upload"))
-    file_hash = hashlib.sha256(file_bytes).hexdigest()
-    raw_text = parse_document(original_filename, file_bytes)
-    if not raw_text.strip():
-        raise HTTPException(
-            status_code=422,
-            detail=t("file.no_extractable_text"),
-        )
-    return original_filename, file_hash, raw_text
-
-
-def save_analyzed_file(
-    *,
-    session: Session,
-    teaching_class_id: uuid.UUID,
-    uploaded_by: uuid.UUID | None,
-    original_filename: str,
-    file_hash: str,
-    template_key: str,
-    file_bytes: bytes,
-    analysis: TeacherJudgeRubricAnalysis,
-    conflict_strategy: ConflictStrategy | None,
-    environment_keys: list[str] | None = None,
-    display_name: str | None = None,
-) -> TeacherJudgeFilePublic:
-    existing = _active_file_by_name(
-        session=session,
-        teaching_class_id=teaching_class_id,
-        original_filename=original_filename,
-        for_update=conflict_strategy == "overwrite",
-    )
-    target_filename = original_filename
-    target_file: TeacherJudgeFile | None = None
-    now = _now()
-
-    if existing is not None and conflict_strategy is None:
-        # `existing` already proves the active-name conflict; reuse it instead
-        # of a second identical `_active_file_by_name` SELECT via
-        # `raise_if_file_name_conflict` (same 409 payload, one fewer query).
-        _raise_name_conflict(existing)
-
-    # Single Pydantic serialization / env normalization shared by the create
-    # and overwrite-reuse branches below (only one branch runs per call).
-    analysis_json = analysis.model_dump(mode="json")
-    normalized_environment_keys = list(dict.fromkeys(environment_keys or [template_key]))
-
-    if existing is not None and conflict_strategy == "copy":
-        target_filename = _copy_filename(
-            session=session,
-            teaching_class_id=teaching_class_id,
-            original_filename=original_filename,
-        )
-    elif existing is not None and conflict_strategy == "overwrite":
-        if _linked_script_count(session=session, file_id=existing.id) > 0:
-            existing.status = TeacherJudgeFileStatus.replaced
-            existing.updated_at = now
-            session.add(existing)
-        else:
-            target_file = existing
-
-    if target_file is None:
-        target_file = TeacherJudgeFile(
-            teaching_class_id=teaching_class_id,
-            uploaded_by=uploaded_by,
-            original_filename=target_filename,
-            file_hash=file_hash,
-            template_key=template_key,
-            source_type="uploaded",
-            display_name=display_name or _display_name_from_filename(original_filename),
-            environment_keys=list(normalized_environment_keys),
-            analysis_revision=1,
-            analysis_json=dict(analysis_json),
-            status=TeacherJudgeFileStatus.active,
-            updated_at=now,
-        )
-    else:
-        target_file.uploaded_by = uploaded_by
-        target_file.file_hash = file_hash
-        target_file.template_key = template_key
-        target_file.source_type = "uploaded"
-        target_file.display_name = display_name or _display_name_from_filename(target_filename)
-        target_file.environment_keys = list(normalized_environment_keys)
-        target_file.analysis_revision = int(target_file.analysis_revision or 1) + 1
-        target_file.analysis_json = dict(analysis_json)
-        target_file.status = TeacherJudgeFileStatus.active
-        target_file.updated_at = now
-        target_file.original_filename = target_filename
-
-    session.add(target_file)
-    DATA_ROOT.mkdir(parents=True, exist_ok=True)
-    session.flush()
-
-    assert target_file.original_filename is not None
-    final_path = _stored_path(target_file.id, target_file.original_filename)
-    temp_path = _temp_path(target_file.id, target_file.original_filename)
-    backup_path = _backup_path(target_file.id, target_file.original_filename)
-    backed_up_existing = False
-    try:
-        temp_path.write_bytes(file_bytes)
-        if final_path.exists():
-            _unlink_if_exists(backup_path)
-            os.replace(final_path, backup_path)
-            backed_up_existing = True
-        os.replace(temp_path, final_path)
-        session.commit()
-    except IntegrityError as exc:
-        session.rollback()
-        _unlink_if_exists(final_path)
-        if backed_up_existing and backup_path.exists():
-            os.replace(backup_path, final_path)
-        _raise_name_conflict()
-        raise AssertionError("unreachable") from exc
-    except Exception:
-        session.rollback()
-        _unlink_if_exists(temp_path)
-        _unlink_if_exists(final_path)
-        if backed_up_existing and backup_path.exists():
-            os.replace(backup_path, final_path)
-        raise
-    else:
-        _unlink_if_exists(backup_path)
-    session.refresh(target_file)
-    return _file_to_public(target_file)
-
-
 def update_file_analysis(
     *,
     session: Session,
@@ -477,37 +239,6 @@ def create_blank_file(
     return item
 
 
-def update_file_metadata(
-    *,
-    session: Session,
-    teaching_class_id: uuid.UUID,
-    file_id: uuid.UUID,
-    payload: TeacherJudgeFileMetadataUpdateRequest,
-) -> TeacherJudgeFilePublic:
-    file = get_file(session=session, teaching_class_id=teaching_class_id, file_id=file_id)
-    if file.status != TeacherJudgeFileStatus.active:
-        raise HTTPException(
-            status_code=409, detail=t("file.replaced_cannot_edit")
-        )
-    if payload.display_name is not None:
-        file.display_name = payload.display_name
-    if payload.environment_keys is not None:
-        file.environment_keys = payload.environment_keys
-        if payload.template_key is None:
-            file.template_key = payload.environment_keys[0]
-    if payload.template_key is not None:
-        if payload.template_key not in (file.environment_keys or [payload.template_key]):
-            raise HTTPException(
-                status_code=422, detail=t("file.template_key_not_in_candidates")
-            )
-        file.template_key = payload.template_key
-    file.updated_at = _now()
-    session.add(file)
-    session.commit()
-    session.refresh(file)
-    return _file_to_public(file)
-
-
 def clone_file_asset(
     *,
     session: Session,
@@ -539,7 +270,7 @@ def clone_file_asset(
             teaching_class_id=teaching_class_id,
             original_filename=source.original_filename,
         )
-    display_name = source.display_name or source.original_filename or "評分表"
+    display_name = source.display_name or source.original_filename or "檢查表"
     clone = TeacherJudgeFile(
         teaching_class_id=teaching_class_id,
         uploaded_by=created_by,
@@ -648,24 +379,6 @@ def restore_file_delete(stage: FileDeleteStage | None) -> None:
     os.replace(stage.deleted_path, stage.path)
 
 
-def delete_file(
-    *,
-    session: Session,
-    teaching_class_id: uuid.UUID,
-    file_id: uuid.UUID,
-) -> None:
-    file = get_file(session=session, teaching_class_id=teaching_class_id, file_id=file_id)
-    stage: FileDeleteStage | None = None
-    try:
-        stage = stage_file_delete(session=session, file=file)
-        session.commit()
-    except Exception:
-        session.rollback()
-        restore_file_delete(stage)
-        raise
-    finalize_file_delete(stage)
-
-
 def source_file_snapshot(
     *,
     session: Session,
@@ -676,14 +389,3 @@ def source_file_snapshot(
         return None, {}
     file = get_file(session=session, teaching_class_id=teaching_class_id, file_id=file_id)
     return file, _file_snapshot(file)
-
-
-def parse_conflict_strategy(value: str | None) -> ConflictStrategy | None:
-    if value is None or not value.strip():
-        return None
-    normalized = value.strip().lower()
-    if normalized not in {"overwrite", "copy"}:
-        raise HTTPException(
-            status_code=400, detail=t("file.unknown_conflict_strategy")
-        )
-    return cast("ConflictStrategy", normalized)

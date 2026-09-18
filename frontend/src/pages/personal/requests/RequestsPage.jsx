@@ -22,6 +22,7 @@ import SharedEmptyState from "../../../components/EmptyState/EmptyState";
 import LoadingState from "../../../components/LoadingState/LoadingState";
 import PageHeader from "../../../components/PageHeader/PageHeader";
 import { useConfirm } from "../../../components/ConfirmDialog/ConfirmProvider";
+import * as fmt from "../../../utils/formatDate";
 
 /* ── Constants ── */
 const defaultT = (key) => i18n.t(key, { ns: "personal" });
@@ -123,18 +124,11 @@ const SPEC_CANCEL_MARKERS = ["Cancelled by requester", "Cancelled by admin"];
 
 /* ── Helpers ── */
 function formatDatetime(isoStr) {
-  if (!isoStr) return null;
-  return new Date(isoStr).toLocaleString("zh-TW", {
-    year: "numeric", month: "2-digit", day: "2-digit",
-    hour: "2-digit", minute: "2-digit", hour12: false,
-  });
+  return fmt.formatDateTime(isoStr, null);
 }
 
 function formatDate(isoStr) {
-  if (!isoStr) return "—";
-  return new Date(isoStr).toLocaleDateString("zh-TW", {
-    year: "numeric", month: "2-digit", day: "2-digit",
-  });
+  return fmt.formatDate(isoStr);
 }
 
 function getOsDisplay(req) {
@@ -675,7 +669,7 @@ export default function RequestsPage() {
       className={`${styles.page} ${returning ? styles.animSlideInLeft : ""}`}
       onAnimationEnd={returning ? () => setReturning(false) : undefined}
     >
-      <PageHeader title={t("RequestsPage.title")} subtitle={t("RequestsPage.subtitle")}>
+      <PageHeader title={t("RequestsPage.title")}>
         <button type="button" className={styles.btnPrimary} onClick={() => setView(VIEW_CREATE)} data-guide="request-create">
           <MIcon name="add" size={16} />
           {t("RequestsPage.requestResource")}

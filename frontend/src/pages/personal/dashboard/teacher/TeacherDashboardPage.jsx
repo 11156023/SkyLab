@@ -9,6 +9,7 @@ import styles from "./TeacherDashboardPage.module.scss";
 import PageHeader from "../../../../components/PageHeader/PageHeader";
 import EmptyState from "../../../../components/EmptyState/EmptyState";
 import LoadingState from "../../../../components/LoadingState/LoadingState";
+import { formatMonthDay } from "../../../../utils/formatDate";
 
 const CLASS_STATUS_KEYS = {
   planning: "TeacherDashboardPage.statusPlanning",
@@ -18,6 +19,11 @@ const CLASS_STATUS_KEYS = {
   active: "TeacherDashboardPage.statusActive",
   archived: "TeacherDashboardPage.statusArchived",
 };
+
+const DEMO_STUDENT_NAMES = [
+  "王小明", "陳怡君", "林志豪", "張雅婷", "劉冠廷", "黃郁雯", "郭家豪", "李欣儒",
+  "周柏翰", "吳思妤", "許庭瑋", "鄭凱文", "蔡佳蓉", "楊承恩", "謝宜庭", "何俊傑",
+];
 
 function dateKey(date) {
   return new Intl.DateTimeFormat("en-CA", {
@@ -38,6 +44,95 @@ function addDaysToDateKey(value, days) {
 
 function taipeiDateTime(date, time = "00:00") {
   return new Date(`${date}T${time.slice(0, 5)}:00+08:00`);
+}
+
+function demoStudents(prefix, count, totalQuestions, fullyCompleted, inProgress) {
+  return Array.from({ length: count }, (_, index) => {
+    const completedQuestions = index < fullyCompleted
+      ? totalQuestions
+      : index < fullyCompleted + inProgress
+        ? Math.max(1, totalQuestions - 1 - (index % Math.max(1, totalQuestions - 1)))
+        : 0;
+    const name = DEMO_STUDENT_NAMES[index % DEMO_STUDENT_NAMES.length];
+    return {
+      user_id: `${prefix}-student-${index + 1}`,
+      user_name: index < DEMO_STUDENT_NAMES.length ? name : `${name}${Math.floor(index / DEMO_STUDENT_NAMES.length) + 1}`,
+      user_email: `${prefix}.student${String(index + 1).padStart(2, "0")}@example.com`,
+      completed_questions: completedQuestions,
+      total_questions: totalQuestions,
+      progress_percent: Math.round(completedQuestions / totalQuestions * 100),
+    };
+  });
+}
+
+export function buildTeacherDashboardDemo(now = new Date()) {
+  const today = dateKey(now);
+  const endDate = addDaysToDateKey(today, 120);
+  const classRows = [
+    {
+      id: "demo-class-linux-a",
+      name: "Linux 系統管理－資工二甲",
+      status: "active",
+      start_date: today,
+      end_date: endDate,
+      weekday: weekdayFromDateKey(addDaysToDateKey(today, 1)),
+      start_time: "13:10:00",
+      member_count: 28,
+      machine_nodes: [{ node_key: "linux" }],
+      ready_machines: 26,
+      total_machines: 28,
+    },
+    {
+      id: "demo-class-linux-b",
+      name: "Linux 系統管理－資工二乙",
+      status: "active",
+      start_date: today,
+      end_date: endDate,
+      weekday: weekdayFromDateKey(addDaysToDateKey(today, 2)),
+      start_time: "09:10:00",
+      member_count: 30,
+      machine_nodes: [{ node_key: "linux" }],
+      ready_machines: 30,
+      total_machines: 30,
+    },
+    {
+      id: "demo-class-container",
+      name: "容器與自動化－夜間班",
+      status: "planning",
+      start_date: today,
+      end_date: endDate,
+      weekday: weekdayFromDateKey(addDaysToDateKey(today, 4)),
+      start_time: "18:30:00",
+      member_count: 20,
+      machine_nodes: [{ node_key: "docker" }, { node_key: "gateway" }],
+      ready_machines: 36,
+      total_machines: 40,
+    },
+  ];
+  const reportRows = [
+    {
+      path: { id: "demo-path-linux-a", title: "資工二甲｜第 4 週：使用者與權限" },
+      report: {
+        total_questions: 3,
+        students: demoStudents("linux-a", 28, 3, 16, 8),
+      },
+    },
+    {
+      path: { id: "demo-path-linux-b", title: "資工二乙｜第 5 週：網路診斷" },
+      report: {
+        total_questions: 4,
+        students: demoStudents("linux-b", 30, 4, 21, 6),
+      },
+    },
+    {
+      path: { id: "demo-path-container", title: "夜間班｜第 3 週：Docker 基礎" },
+      report: {
+        total_questions: 2,
+        students: demoStudents("container", 20, 2, 12, 5),
+      },
+    },
+  ];
+  return { classes: classRows, reports: reportRows };
 }
 
 export function nextClassSession(item, now = new Date()) {
@@ -110,12 +205,21 @@ export default function TeacherDashboardPage() {
   const [reports, setReports] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const demoMode = import.meta.env.DEV
+    && new URLSearchParams(window.location.search).get("teacherDemo") === "1";
 
   useEffect(() => {
     let active = true;
     async function load() {
       setLoading(true);
       setError("");
+      if (demoMode) {
+        const demo = buildTeacherDashboardDemo();
+        setClasses(demo.classes.map(normalizeClass));
+        setReports(demo.reports);
+        setLoading(false);
+        return;
+      }
       try {
         const [classRows, pathRows] = await Promise.all([
           TeachingClassesService.list(),
@@ -136,7 +240,7 @@ export default function TeacherDashboardPage() {
     }
     load();
     return () => { active = false; };
-  }, [user?.id]);
+  }, [demoMode, user?.id]);
 
   const checkpointSummary = useMemo(() => summarizeCheckpointReports(reports), [reports]);
   const upcoming = useMemo(() => classes
@@ -152,7 +256,7 @@ export default function TeacherDashboardPage() {
   const firstName = user?.full_name?.trim()?.split(/\s+/)[0] ?? user?.email?.split("@")[0] ?? t("TeacherDashboardPage.defaultTeacherName");
 
   return <div className={styles.page}>
-    <PageHeader title={t("TeacherDashboardPage.greeting", { name: firstName })} subtitle={t("TeacherDashboardPage.subtitle")}>
+    <PageHeader title={t("TeacherDashboardPage.greeting", { name: firstName })}>
       <button type="button" className={styles.btnPrimary} onClick={() => navigate("/class-setup")}><MIcon name="add" size={18} />{t("TeacherDashboardPage.createClass")}</button>
     </PageHeader>
 
@@ -162,7 +266,7 @@ export default function TeacherDashboardPage() {
       <article><span className={styles.metricIcon}><MIcon name="task_alt" size={20} /></span><div><small>{t("TeacherDashboardPage.metricCheckpointRate")}</small><strong>{loading ? "—" : `${checkpointSummary.percent}%`}</strong><p>{t("TeacherDashboardPage.metricCheckpointDetail", { completed: checkpointSummary.completed, possible: checkpointSummary.possible })}</p></div></article>
       <article><span className={styles.metricIcon}><MIcon name="groups" size={20} /></span><div><small>{t("TeacherDashboardPage.metricHasRecords")}</small><strong>{loading ? "—" : checkpointSummary.students}</strong><p>{t("TeacherDashboardPage.metricAcrossPaths", { count: reports.length })}</p></div></article>
       <article><span className={styles.metricIcon}><MIcon name="school" size={20} /></span><div><small>{t("TeacherDashboardPage.metricActiveClasses")}</small><strong>{loading ? "—" : classes.filter((item) => item.status !== "archived").length}</strong><p>{t("TeacherDashboardPage.metricStillPreparing", { count: classes.filter((item) => item.status === "planning").length })}</p></div></article>
-      <article><span className={styles.metricIcon}><MIcon name="calendar_today" size={20} /></span><div><small>{t("TeacherDashboardPage.metricNextClass")}</small><strong>{upcoming[0] ? upcoming[0].session.toLocaleDateString("zh-TW", { month: "numeric", day: "numeric" }) : "—"}</strong><p>{upcoming[0]?.item.name ?? t("TeacherDashboardPage.noUpcomingClasses")}</p></div></article>
+      <article><span className={styles.metricIcon}><MIcon name="calendar_today" size={20} /></span><div><small>{t("TeacherDashboardPage.metricNextClass")}</small><strong>{upcoming[0] ? formatMonthDay(upcoming[0].session) : "—"}</strong><p>{upcoming[0]?.item.name ?? t("TeacherDashboardPage.noUpcomingClasses")}</p></div></article>
     </section>
 
     <div className={styles.mainGrid}>
@@ -181,7 +285,7 @@ export default function TeacherDashboardPage() {
       <div className={styles.panelHeader}><div><span className={styles.eyebrow}>{t("TeacherDashboardPage.eyebrowClassSchedule")}</span><h2>{t("TeacherDashboardPage.upcomingClassesTitle")}</h2><p>{t("TeacherDashboardPage.upcomingClassesDesc")}</p></div><button type="button" className={styles.textButton} onClick={() => navigate("/class-management")}>{t("TeacherDashboardPage.allClasses")}<MIcon name="arrow_forward" size={16} /></button></div>
       <div className={styles.classList}>{loading ? <LoadingState text={t("TeacherDashboardPage.loadingClasses")} /> : upcoming.length ? upcoming.map(({ item, session }) => {
         const ready = item.totalMachines ? Math.round(item.readyMachines / item.totalMachines * 100) : 0;
-        return <button type="button" key={item.id} className={styles.classRow} onClick={() => navigate(`/class-management/${item.id}`)}><span className={styles.classDate}><strong>{session.toLocaleDateString("zh-TW", { month: "numeric", day: "numeric" })}</strong><small>{String(item.start_time ?? "").slice(0, 5)}</small></span><span className={styles.classMain}><strong>{item.name}</strong><small>{t("TeacherDashboardPage.classMemberSummary", { count: item.students, nodes: item.nodes.length })}</small></span><span className={styles.classState}><em className={styles[`status_${item.status}`]}>{t(CLASS_STATUS_KEYS[item.status] ?? item.status)}</em><small>{item.status === "active" ? t("TeacherDashboardPage.machinesReady", { percent: ready }) : item.status === "planning" ? t("TeacherDashboardPage.continueClassSetup") : t("TeacherDashboardPage.viewProgress")}</small></span><MIcon name="chevron_right" size={19} /></button>;
+        return <button type="button" key={item.id} className={styles.classRow} onClick={() => navigate(`/class-management/${item.id}`)}><span className={styles.classDate}><strong>{formatMonthDay(session)}</strong><small>{String(item.start_time ?? "").slice(0, 5)}</small></span><span className={styles.classMain}><strong>{item.name}</strong><small>{t("TeacherDashboardPage.classMemberSummary", { count: item.students, nodes: item.nodes.length })}</small></span><span className={styles.classState}><em className={styles[`status_${item.status}`]}>{t(CLASS_STATUS_KEYS[item.status] ?? item.status)}</em><small>{item.status === "active" ? t("TeacherDashboardPage.machinesReady", { percent: ready }) : item.status === "planning" ? t("TeacherDashboardPage.continueClassSetup") : t("TeacherDashboardPage.viewProgress")}</small></span><MIcon name="chevron_right" size={19} /></button>;
       }) : <EmptyState icon="event_available" title={t("TeacherDashboardPage.noUpcomingClasses")} action={<button type="button" className={styles.btnPrimary} onClick={() => navigate("/class-setup")}>{t("TeacherDashboardPage.createClass")}</button>} />}</div>
     </section>
   </div>;

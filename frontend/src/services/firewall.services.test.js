@@ -5,11 +5,15 @@
 
 import { beforeEach, describe, expect, test, vi } from "vitest";
 import {
+  createClassExposure,
+  deleteClassExposure,
   getVmTopology,
+  listClassExposures,
   listPublishedServices,
   publishService,
   replacePublishedService,
   unpublishService,
+  updateClassExposure,
 } from "./firewall";
 import { ReverseProxyService } from "./reverseProxy";
 
@@ -40,6 +44,42 @@ function lastCall() {
   const [url, init] = fetchMock.mock.calls.at(-1);
   return { url, init, body: init?.body ? JSON.parse(init.body) : undefined };
 }
+
+describe("firewall 開放給班級端點", () => {
+  test("listClassExposures 打 GET", async () => {
+    fetchMock.mockResolvedValueOnce(jsonRes(200, []));
+    await listClassExposures(100);
+    const { url, init } = lastCall();
+    expect(url).toContain("/api/v1/firewall/100/class-exposures");
+    expect(init.method ?? "GET").toBe("GET");
+  });
+
+  test("createClassExposure 送 class_id 與埠清單", async () => {
+    fetchMock.mockResolvedValueOnce(jsonRes(201, {}));
+    await createClassExposure(100, { class_id: "c1", ports: [{ port: 80, protocol: "tcp" }] });
+    const { url, init, body } = lastCall();
+    expect(url).toContain("/api/v1/firewall/100/class-exposures");
+    expect(init.method).toBe("POST");
+    expect(body).toEqual({ class_id: "c1", ports: [{ port: 80, protocol: "tcp" }] });
+  });
+
+  test("updateClassExposure 用 PUT 帶 exposure id", async () => {
+    fetchMock.mockResolvedValueOnce(jsonRes(200, {}));
+    await updateClassExposure(100, "e1", { ports: [{ port: 443, protocol: "tcp" }] });
+    const { url, init, body } = lastCall();
+    expect(url).toContain("/api/v1/firewall/100/class-exposures/e1");
+    expect(init.method).toBe("PUT");
+    expect(body).toEqual({ ports: [{ port: 443, protocol: "tcp" }] });
+  });
+
+  test("deleteClassExposure 用 DELETE", async () => {
+    fetchMock.mockResolvedValueOnce(jsonRes(200, { message: "ok" }));
+    await deleteClassExposure(100, "e1");
+    const { url, init } = lastCall();
+    expect(url).toContain("/api/v1/firewall/100/class-exposures/e1");
+    expect(init.method).toBe("DELETE");
+  });
+});
 
 describe("firewall 單台 VM 端點", () => {
   test("getVmTopology 與 listPublishedServices 的路徑", async () => {
