@@ -421,7 +421,7 @@ function MachineEditor({ value, edges, publications, onChange, onEdgesChange, on
       </div>
       {value.length ? <>
         <div className={styles.topologyWorkspace}>
-          {/* 畫布外觀比照防火牆頁：點狀底、Controls、MiniMap、左上工具列、左下圖例 */}
+          {/* 畫布外觀比照防火牆頁：點狀底、Controls、左下圖例 */}
           <div className={`${styles.topologyCanvas} ${fwStyles.flowWrap}`}><ReactFlow
             nodes={flowNodes}
             edges={graphEdges}
