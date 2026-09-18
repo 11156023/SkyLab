@@ -2559,6 +2559,152 @@ function StatusBadge({ map, status }) {
   return <span className={`${styles.badge} ${info.className}`}>{info.label}</span>;
 }
 
+const CHECK_STATUS_META = {
+  pass: { icon: "check_circle", label: "通過", className: styles.checkIconPass },
+  fail: { icon: "cancel", label: "未通過", className: styles.checkIconFail },
+  warning: { icon: "warning", label: "需注意", className: styles.checkIconWarn },
+  unknown: { icon: "help", label: "待導師核查", className: styles.checkIconWarn },
+  skipped: { icon: "remove_circle_outline", label: "略過", className: styles.checkIconSkip },
+};
+
+function checkStatusMeta(status) {
+  return CHECK_STATUS_META[status] ?? {
+    icon: "help",
+    label: "未判定",
+    className: styles.checkIconSkip,
+  };
+}
+
+function parseCheckRaw(raw) {
+  if (typeof raw !== "string" || !raw) return null;
+  try {
+    const parsed = JSON.parse(raw);
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+      return parsed;
+    }
+  } catch {
+    // raw 不一定是 JSON（契約允許普通字串），fallback 顯示原文
+  }
+  return null;
+}
+
+function ReturnCodeBadge({ returncode }) {
+  if (returncode === null || returncode === undefined) {
+    return <span className={`${styles.cmdBadge} ${styles.cmdBadgeError}`}>執行例外</span>;
+  }
+  const ok = returncode === 0;
+  return (
+    <span className={`${styles.cmdBadge} ${ok ? styles.cmdBadgeOk : styles.cmdBadgeError}`}>
+      returncode {returncode}{ok ? " ✓" : " ✗"}
+    </span>
+  );
+}
+
+function CommandOutput({ label, text, isError = false }) {
+  const content = typeof text === "string" ? text : String(text ?? "");
+  if (!content) return null;
+  return (
+    <div className={styles.cmdBlock}>
+      <span className={styles.cmdLabel}>{label}</span>
+      <pre className={isError ? styles.cmdStderr : styles.cmdStdout}>{content}</pre>
+    </div>
+  );
+}
+
+function CommandLog({ raw, fallbackText }) {
+  const parsed = parseCheckRaw(raw);
+  if (!parsed) {
+    if (!raw && !fallbackText) return null;
+    return (
+      <div className={styles.cmdLog}>
+        {raw ? <pre className={styles.cmdStdout}>{raw}</pre> : null}
+        {fallbackText ? <pre className={styles.cmdStderr}>{fallbackText}</pre> : null}
+      </div>
+    );
+  }
+  const empty = !parsed.stdout && !parsed.stderr && parsed.returncode == null;
+  return (
+    <div className={styles.cmdLog}>
+      <div className={styles.cmdHead}>
+        <span className={styles.cmdLabel}>指令輸出</span>
+        <ReturnCodeBadge returncode={parsed.returncode} />
+      </div>
+      {empty ? <span className={styles.cmdEmpty}>（無輸出）</span> : null}
+      <CommandOutput label="stdout" text={parsed.stdout} />
+      <CommandOutput label="stderr" text={parsed.stderr} isError />
+      {Array.isArray(parsed.errors) && parsed.errors.length > 0 && (
+        <CommandOutput label="errors" text={parsed.errors.join("\n")} isError />
+      )}
+    </div>
+  );
+}
+
+function CheckResultsTable({ checks }) {
+  const [expanded, setExpanded] = useState(() => new Set());
+  const toggle = (id) => {
+    setExpanded((current) => {
+      const next = new Set(current);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
+  };
+
+  return (
+    <div className={styles.checkTable}>
+      <div className={`${styles.checkRow} ${styles.checkRowHead}`}>
+        <span className={styles.checkToggleCol} />
+        <span className={styles.checkIconCol} />
+        <span>檢查項目</span>
+        <span>摘要</span>
+      </div>
+      {checks.map((check, index) => {
+        const id = check?.id ?? `check-${index}`;
+        const meta = checkStatusMeta(check?.status);
+        const detailId = `${id}-${index}`;
+        const hasDetail = Boolean(
+          check?.evidence || check?.raw || (Array.isArray(check?.errors) && check.errors.length),
+        );
+        const isOpen = hasDetail && expanded.has(detailId);
+        return (
+          <div key={detailId} className={styles.checkItem}>
+            <button
+              type="button"
+              className={`${styles.checkRow} ${styles.checkRowBtn}`}
+              onClick={() => hasDetail && toggle(detailId)}
+              disabled={!hasDetail}
+              aria-expanded={hasDetail ? isOpen : undefined}
+            >
+              <span className={styles.checkToggleCol}>
+                {hasDetail && (
+                  <MIcon name={isOpen ? "expand_less" : "expand_more"} size={16} />
+                )}
+              </span>
+              <span className={`${styles.checkIconCol} ${meta.className}`}>
+                <MIcon name={meta.icon} size={16} />
+              </span>
+              <span className={styles.checkTitle}>{check?.title ?? check?.id ?? "收集項目"}</span>
+              <span className={styles.checkEvidence}>{check?.evidence || "—"}</span>
+            </button>
+            {isOpen && (
+              <div className={styles.checkDetail}>
+                {check?.evidence && <p>{check.evidence}</p>}
+                <CommandLog
+                  raw={check?.raw}
+                  fallbackText={Array.isArray(check?.errors) ? check.errors.join("\n") : ""}
+                />
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 function ScriptResultBadge({ result }) {
   if (!result) return <span className={`${styles.badge} ${styles.badge_muted}`}>等待回收</span>;
   if (result.validation?.valid === false) {
@@ -2588,22 +2734,6 @@ function scriptResultSummary(result) {
   const errors = result.parsed_result?.errors;
   if (Array.isArray(errors) && errors.length > 0) return errors.join("；");
   return result.parsed_result?.summary ?? result.stderr_excerpt ?? null;
-}
-
-function CheckStatusBadge({ status }) {
-  let info = { label: "未判定", className: styles.badge_muted };
-  if (status === "pass") {
-    info = { label: "通過", className: styles.badge_success };
-  } else if (status === "fail") {
-    info = { label: "未通過", className: styles.badge_danger };
-  } else if (status === "warning") {
-    info = { label: "需注意", className: styles.badge_info };
-  } else if (status === "unknown") {
-    info = { label: "待導師核查", className: styles.badge_info };
-  } else if (status === "skipped") {
-    info = { label: "略過", className: styles.badge_muted };
-  }
-  return <span className={`${styles.badge} ${info.className}`}>{info.label}</span>;
 }
 
 function ExecutionTab({ classId, sessionId, members }) {
@@ -2879,21 +3009,22 @@ function ExecutionTab({ classId, sessionId, members }) {
                               </p>
                             )}
                             {(result.parsed_result?.checks ?? []).length > 0 && (
-                              <div className={styles.judgeItem}>
-                                <div className={styles.judgeItemHead}>
-                                  <span>檢查點</span>
-                                </div>
-                                {(result.parsed_result.checks ?? []).map((check, index) => (
-                                  <div key={`${check.id ?? "check"}-${index}`} className={styles.judgeItem}>
-                                    <div className={styles.judgeItemHead}>
-                                      <strong>{check.title ?? check.id ?? "收集項目"}</strong>
-                                      <CheckStatusBadge status={check.status} />
-                                    </div>
-                                    {check.evidence && <p>{check.evidence}</p>}
-                                    {check.raw && <pre>{check.raw}</pre>}
-                                  </div>
-                                ))}
-                              </div>
+                              <CheckResultsTable checks={result.parsed_result.checks} />
+                            )}
+                            {(result.stdout_excerpt || result.stderr_excerpt) && (
+                              <details className={styles.judgeDetails}>
+                                <summary>原始腳本輸出</summary>
+                                {result.stdout_excerpt && (
+                                  <CommandOutput label="腳本 stdout" text={result.stdout_excerpt} />
+                                )}
+                                {result.stderr_excerpt && (
+                                  <CommandOutput
+                                    label="腳本 stderr"
+                                    text={result.stderr_excerpt}
+                                    isError
+                                  />
+                                )}
+                              </details>
                             )}
                           </details>
                         ) : (
