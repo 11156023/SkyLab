@@ -271,7 +271,7 @@ function EnvironmentGroupRows({ group, onUpdated, onRefresh }) {
           </div>
         </td>
         <td className={styles.td}>
-          <MachineKindBadge kind={group.kind === "quick_practice" ? "quick_practice" : "teaching_class"} classRelation={group.classRelation} />
+          <MachineKindBadge kind={group.kind === "quick_practice" ? "quick_practice" : "teaching_class"} classRelation={group.classRelation} title={group.title} />
         </td>
         <td className={styles.td}>
           <div className={styles.envPrimary}>{group.kind === "course" ? t("ResourceMgmtPage.courseEnvironment") : t("ResourceMgmtPage.quickPracticeEnvironment")}</div>
