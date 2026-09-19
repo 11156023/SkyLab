@@ -387,8 +387,9 @@
   gap: 2px;
   padding: 1px 6px;
   border-radius: $radius-pill;
-  background: var(--color-info);
-  color: var(--color-text-on-primary);
+  /* 對外開放語意與連線同色；文字用 surface，深色模式亮底時自動翻成深字 */
+  background: var(--color-flow-inbound);
+  color: var(--color-surface);
   font-size: 11px;
   font-weight: $font-weight-700;
   line-height: 1.5;
@@ -403,10 +404,11 @@
   max-width: 150px;
 }
 
-/* 老師開放給班級的機器：可以拉線連過去，但不是自己的 */
+/* 老師開放給班級的機器：可以拉線連過去，但不是自己的；
+   框色跟徽章同一套「別人的機器」群色 */
 .nodePeer {
   border-style: dotted;
-  border-color: var(--color-info);
+  border-color: var(--color-kind-shared);
 }
 
 /* 唯讀的課堂機：學生看得到、不能拉線改規則 */
