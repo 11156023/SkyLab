@@ -585,7 +585,7 @@ export default function OverviewTab({ vmid }) {
                   ))}
                 </InfoRow>
               )}
-              {sshKey?.login_password && (
+              {sshKey?.login_password ? (
                 <SecretRow
                   label={t("OverviewTab.passwordLabel")}
                   value={sshKey.login_password}
@@ -596,6 +596,19 @@ export default function OverviewTab({ vmid }) {
                   onCopy={copy}
                   t={t}
                 />
+              ) : sshKey && (
+                /* 功能上線前開通的機器沒有密碼記錄：留提示列指出補救路徑，不讓整列無聲消失 */
+                <div className={ov.secret}>
+                  <div className={ov.secretHead}>
+                    <span className={ov.secretLabel}>{t("OverviewTab.passwordLabel")}</span>
+                    <span className={`${ov.secretValue} ${ov.secretEmpty}`}>
+                      {t("OverviewTab.passwordNotRecorded")}
+                    </span>
+                  </div>
+                  <span className={`${ov.rowNote} ${ov.secretNote}`}>
+                    {t("OverviewTab.passwordNotRecordedHint")}
+                  </span>
+                </div>
               )}
               {resource.ssh_public_key && (
                 <SecretRow

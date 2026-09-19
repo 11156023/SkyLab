@@ -944,6 +944,8 @@
   "OverviewTab.noCredentials": "このマシンにはシステム管理のパスワードや鍵がありません",
   "OverviewTab.loginPasswordDesc": "クローン時にこのマシン用に生成された初期パスワード（VMはテンプレートの既定ユーザー、コンテナはroot）",
   "OverviewTab.passwordLabel": "パスワード",
+  "OverviewTab.passwordNotRecorded": "未記録",
+  "OverviewTab.passwordNotRecordedHint": "このマシンはパスワード記録対応前に作成されました。詳細設定でパスワードをリセットするとここに表示されます",
   "OverviewTab.hide": "隠す",
   "OverviewTab.show": "表示",
   "OverviewTab.expand": "展開",

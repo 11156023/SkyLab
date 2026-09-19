@@ -413,6 +413,12 @@
   @include text-truncate;
 }
 
+/* 尚未記錄密碼的提示列：淡化、非等寬字 */
+.secretEmpty {
+  font-family: $font-family-base;
+  color: var(--color-text-muted);
+}
+
 .secretMasked {
   letter-spacing: 0.18em;
   color: var(--color-text-muted);

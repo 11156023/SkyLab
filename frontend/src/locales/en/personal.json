@@ -946,6 +946,8 @@
   "OverviewTab.noCredentials": "This machine has no system-managed password or key",
   "OverviewTab.loginPasswordDesc": "The initial password generated for this machine when cloned (the template's default user for VMs, root for containers)",
   "OverviewTab.passwordLabel": "Password",
+  "OverviewTab.passwordNotRecorded": "Not recorded",
+  "OverviewTab.passwordNotRecordedHint": "This machine was provisioned before password recording was supported; reset the password in Advanced Settings and it will appear here",
   "OverviewTab.hide": "Hide",
   "OverviewTab.show": "Show",
   "OverviewTab.expand": "Expand",

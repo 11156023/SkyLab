@@ -944,6 +944,8 @@
   "OverviewTab.noCredentials": "這台機器沒有由系統代管的密碼或金鑰",
   "OverviewTab.loginPasswordDesc": "克隆時為此機器產生的初始密碼（VM 為範本預設使用者、容器為 root）",
   "OverviewTab.passwordLabel": "密碼",
+  "OverviewTab.passwordNotRecorded": "尚未記錄",
+  "OverviewTab.passwordNotRecordedHint": "這台機器開通時尚未支援密碼記錄；到進階設定重設密碼後會顯示在這裡",
   "OverviewTab.hide": "隱藏",
   "OverviewTab.show": "顯示",
   "OverviewTab.expand": "展開",
