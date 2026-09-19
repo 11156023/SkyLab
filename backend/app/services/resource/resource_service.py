@@ -1,3 +1,4 @@
+import json
 import logging
 import math
 import time
@@ -6,11 +7,18 @@ from collections.abc import Iterable
 from datetime import UTC, datetime, timedelta
 from typing import Any, Literal
 
-from sqlmodel import Session, select
+from sqlmodel import Session, col, select
 
 from app.core.authorizers import can_bypass_resource_ownership
 from app.exceptions import BadRequestError, PermissionDeniedError, ProxmoxError
-from app.models import TeachingClass, TeachingClassStatus, User
+from app.models import (
+    BatchProvisionJob,
+    TeachingClass,
+    TeachingClassMachineNode,
+    TeachingClassStatus,
+    User,
+    VMTemplate,
+)
 from app.models.quick_practice import QuickPracticeSessionMachine
 from app.models.vm_request import VMProvisioningStatus, VMRequest, VMRequestStatus
 from app.repositories import audit_log as audit_log_repo
@@ -231,11 +239,123 @@ def public_urls_by_vmid(
     return urls
 
 
+def _teaching_display_names(
+    *, session: Session, db_resources: Iterable[Any]
+) -> dict[int, str]:
+    """幫沒有 os_info 的舊班級機器，關聯回老師拓撲的顯示名。
+
+    commit 87bd0880 之前供裝的機器 DB 沒有 os_info，清單只能退回
+    cls-xxx-2-1 這種主機名。這裡沿既有外鍵關聯回查，只讀不寫：
+
+    1. Resource.batch_job_id → TeachingClassMachineNode.batch_job_id，
+       直接對上老師拓撲的那台機器（node.name）。
+    2. 節點被重新佈建後 batch_job_id 會指向新 job，對不上的 job 改由
+       template_params 的 ip_reservation_prefix（``{class_id}:{node_key}``，
+       node_key 跨重試穩定）反查。
+    3. 最後以 source_template_id / Resource.template_id → VMTemplate.name
+       的範本名收尾。
+
+    查不到的機器不補名，呼叫端維持原本的主機名顯示。
+    """
+    targets = [
+        r
+        for r in db_resources
+        if r is not None
+        and not (r.os_info or "").strip()
+        and r.teaching_class_id
+        and (r.batch_job_id or r.template_id)
+    ]
+    if not targets:
+        return {}
+
+    class_ids = {r.teaching_class_id for r in targets}
+    nodes = list(
+        session.exec(
+            select(TeachingClassMachineNode).where(
+                col(TeachingClassMachineNode.class_id).in_(class_ids)
+            )
+        ).all()
+    )
+    node_by_job = {n.batch_job_id: n for n in nodes if n.batch_job_id}
+    node_by_class_key = {(n.class_id, n.node_key): n for n in nodes}
+
+    # 重新佈建過的節點：batch_job_id 對不上時，用 job 的 node_key 反查
+    params_by_job: dict[uuid.UUID, dict[str, Any]] = {}
+    jobs_needed = [
+        job_id
+        for job_id in {r.batch_job_id for r in targets if r.batch_job_id}
+        if job_id not in node_by_job
+    ]
+    if jobs_needed:
+        for job in session.exec(
+            select(BatchProvisionJob).where(
+                col(BatchProvisionJob.id).in_(jobs_needed)
+            )
+        ).all():
+            try:
+                params = json.loads(job.template_params)
+            except (TypeError, ValueError):
+                continue
+            prefix = params.get("ip_reservation_prefix")
+            if isinstance(prefix, str) and ":" in prefix:
+                params_by_job[job.id] = params
+
+    def _node_for(resource: Any) -> TeachingClassMachineNode | None:
+        if not resource.batch_job_id:
+            return None
+        node = node_by_job.get(resource.batch_job_id)
+        if node is not None:
+            return node
+        prefix = (params_by_job.get(resource.batch_job_id) or {}).get(
+            "ip_reservation_prefix"
+        )
+        if not isinstance(prefix, str) or ":" not in prefix:
+            return None
+        node_key = prefix.split(":", 1)[1]
+        return node_by_class_key.get((resource.teaching_class_id, node_key))
+
+    # 範本名：節點綁定的系統範本（老師拓撲選的）＋ qemu 克隆來源範本
+    template_ids = {
+        n.source_template_id for n in nodes if n.source_template_id is not None
+    }
+    pve_vmids = {r.template_id for r in targets if r.template_id}
+    tpl_name_by_id: dict[uuid.UUID, str] = {}
+    tpl_name_by_pve: dict[int, str] = {}
+    if template_ids:
+        for template in session.exec(
+            select(VMTemplate).where(col(VMTemplate.id).in_(template_ids))
+        ).all():
+            tpl_name_by_id[template.id] = template.name
+    if pve_vmids:
+        for template in session.exec(
+            select(VMTemplate).where(col(VMTemplate.pve_vmid).in_(pve_vmids))
+        ).all():
+            tpl_name_by_pve[template.pve_vmid] = template.name
+
+    display: dict[int, str] = {}
+    for r in targets:
+        node = _node_for(r)
+        name = None
+        if node is not None:
+            name = (node.name or "").strip() or None
+            if name is None and node.source_template_id:
+                name = tpl_name_by_id.get(node.source_template_id)
+        if name is None and r.template_id:
+            name = tpl_name_by_pve.get(r.template_id)
+        if name:
+            display[r.vmid] = name
+    return display
+
+
 def _build_resource_public(
-    resource: dict, db_resource, node: str, vm_type: str,
+    resource: dict,
+    db_resource,
+    node: str,
+    vm_type: str,
     session: Session | None = None,
     known_practice_ids: set[uuid.UUID] | None = None,
     public_urls: dict[int, list[str]] | None = None,
+    display_names: dict[int, str] | None = None,
 ) -> ResourcePublic:
     vmid = resource.get("vmid")
     # 清單頁會先把所有機器的對外網址批次查好傳進來；單筆查詢就現查這一台。
@@ -287,7 +407,11 @@ def _build_resource_public(
         can_request_spec_change=not spec_fixed,
         can_extend=class_available and not quick_practice_limited,
         environment_type=db_resource.environment_type if db_resource else None,
-        os_info=db_resource.os_info if db_resource else None,
+        os_info=(
+            (db_resource.os_info or (display_names or {}).get(vmid))
+            if db_resource
+            else None
+        ),
         expiry_date=db_resource.expiry_date if db_resource else None,
         ip_address=ip_address,
         ssh_public_key=db_resource.ssh_public_key if db_resource else None,
@@ -384,7 +508,15 @@ def get_by_vmid(
     vm_type = resource_info.get("type", "")
     vm_node = resource_info.get("node", "")
     db_resource = resource_repo.get_resource_by_vmid(session=session, vmid=vmid)
-    return _build_resource_public(resource_info, db_resource, vm_node, vm_type, session)
+    display_names = (
+        _teaching_display_names(session=session, db_resources=[db_resource])
+        if db_resource is not None
+        else {}
+    )
+    return _build_resource_public(
+        resource_info, db_resource, vm_node, vm_type, session,
+        display_names=display_names,
+    )
 
 
 def list_all(
@@ -399,23 +531,29 @@ def list_all(
         )
         result = []
         owner_ids: dict[int, uuid.UUID] = {}
+        pairs: list[tuple[dict, Any]] = []
         for r in resources:
             if (node and r.get("node") != node) or r.get("template") == 1:
                 continue
             vmid = r.get("vmid")
-            vm_type = r.get("type")
-            vm_node = r.get("node")
             db_resource = resource_repo.get_resource_by_vmid(
                 session=session, vmid=vmid
             )
-            result.append(
-                _build_resource_public(
-                    r, db_resource, vm_node, vm_type, session, known_practice_ids,
-                    public_urls=public_urls,
-                )
-            )
+            pairs.append((r, db_resource))
             if db_resource is not None:
                 owner_ids[vmid] = db_resource.user_id
+        display_names = _teaching_display_names(
+            session=session, db_resources=[db for _, db in pairs]
+        )
+        for r, db_resource in pairs:
+            result.append(
+                _build_resource_public(
+                    r, db_resource, r.get("node", ""), r.get("type", ""),
+                    session, known_practice_ids,
+                    public_urls=public_urls,
+                    display_names=display_names,
+                )
+            )
         # 管理員視角：每台機器都標擁有者
         names = resource_kind.user_display_names(session, owner_ids.values())
         for public in result:
@@ -575,6 +713,10 @@ def list_by_user(
             public_urls = public_urls_by_vmid(
                 session, [*owned_vmids, *shared_rows, *taught_rows]
             )
+            display_names = _teaching_display_names(
+                session=session,
+                db_resources=[*owned_vmids.values(), *shared_rows.values(), *taught_rows.values()],
+            )
             try:
                 for r in proxmox_service.list_all_resources():
                     if r.get("template") == 1:
@@ -595,6 +737,7 @@ def list_by_user(
                         session,
                         known_practice_ids,
                         public_urls=public_urls,
+                        display_names=display_names,
                     )
                     if vmid in shared_rows:
                         _mark_shared(public, db_row, session)
@@ -644,7 +787,7 @@ def list_by_user(
                                 can_request_spec_change=False,
                                 can_extend=False,
                                 environment_type=db_r.environment_type,
-                                os_info=db_r.os_info,
+                                os_info=db_r.os_info or display_names.get(db_r.vmid),
                                 expiry_date=db_r.expiry_date,
                                 ssh_public_key=db_r.ssh_public_key,
                                 has_login_password=bool(
