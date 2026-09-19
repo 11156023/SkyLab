@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useSearchParams } from "react-router-dom";
 import styles from "./AiJudgePanel.module.scss";
@@ -705,6 +705,16 @@ function MachineNodeReference({ nodeKey, machineNodes = [], prefix = "" }) {
       )}
     </span>
   );
+}
+
+function batchMachineDisplayName(nodeKey, machineNodes = [], fallbackLabel = null) {
+  const reference = machineNodeReference(nodeKey, machineNodes);
+  if (reference.displayLabel) {
+    return reference.name
+      ? `${reference.displayLabel} · ${reference.name}`
+      : reference.displayLabel;
+  }
+  return fallbackLabel ?? null;
 }
 
 function RubricTableRow({ item, index, onChange, onDelete, disabled, needsReview, machineNodes = [] }) {
@@ -3529,6 +3539,97 @@ function BatchItemResult({ item }) {
   );
 }
 
+const BATCH_CHECK_ORDER = ["pass", "fail", "warning", "unknown", "skipped"];
+
+function BatchCheckpointSummary({ items = [] }) {
+  const counts = { pass: 0, fail: 0, warning: 0, unknown: 0, skipped: 0 };
+  let total = 0;
+  items.forEach((item) => {
+    (Array.isArray(item?.checks) ? item.checks : []).forEach((check) => {
+      const status = check?.status in counts ? check.status : "unknown";
+      counts[status] += 1;
+      total += 1;
+    });
+  });
+  if (total === 0) {
+    return <span className={styles.fileMeta}>尚無檢查點結果</span>;
+  }
+  return (
+    <span className={styles.checkpointSummary}>
+      {BATCH_CHECK_ORDER.map((status) => counts[status] > 0 && (
+        <span key={status} className={`${styles.badge} ${ITEM_STATUS[status].className}`}>
+          {ITEM_STATUS[status].label} {counts[status]}
+        </span>
+      ))}
+    </span>
+  );
+}
+
+function BatchMachineResultRow({ node, member, machineName }) {
+  const [expanded, setExpanded] = useState(false);
+  const reason = reasonLabel(node?.reason_code);
+  const items = Array.isArray(node?.items) ? node.items : [];
+  const unmapped = Array.isArray(node?.unmapped_checks) ? node.unmapped_checks : [];
+  const hasDetail = items.length > 0 || unmapped.length > 0;
+  return (
+    <Fragment>
+      <tr>
+        <td>
+          <div className={styles.monoCell}>{machineName ?? "—"}</div>
+          {member?.vm_type && (
+            <div className={styles.fileMeta}>{member.vm_type === "lxc" ? "LXC" : "VM"}</div>
+          )}
+        </td>
+        <td>
+          <div>{member?.full_name ?? "-"}</div>
+          {member?.email && <div className={styles.fileMeta}>{member.email}</div>}
+        </td>
+        <td>
+          <StatusBadge map={TARGET_STATUS} status={node?.execution_status} />
+          {reason && reason !== "成功" && <div className={styles.fileMeta}>{reason}</div>}
+        </td>
+        <td><BatchCheckpointSummary items={items} /></td>
+        <td>
+          <button
+            type="button"
+            className={styles.btnSecondary}
+            onClick={() => hasDetail && setExpanded((current) => !current)}
+            disabled={!hasDetail}
+            aria-expanded={hasDetail ? expanded : undefined}
+          >
+            <MIcon name={expanded ? "expand_less" : "expand_more"} size={16} />
+            詳細資料
+          </button>
+        </td>
+      </tr>
+      {expanded && (
+        <tr>
+          <td colSpan={5}>
+            <div className={styles.reviewPanel}>
+              <p className={styles.fileMeta}>
+                機器 {machineName ?? "—"}
+                {member?.full_name ? ` · ${member.full_name}` : ""}
+                {member?.email ? `（${member.email}）` : ""}
+              </p>
+              {items.map((item) => (
+                <BatchItemResult key={item.rubric_item_id} item={item} />
+              ))}
+              {unmapped.length > 0 && (
+                <div className={styles.reviewPanel}>
+                  <div className={styles.reviewPanelHead}>
+                    <strong>未對應檢查點</strong>
+                  </div>
+                  <CheckResultsTable checks={unmapped} />
+                </div>
+              )}
+            </div>
+          </td>
+        </tr>
+      )}
+    </Fragment>
+  );
+}
+
 function BatchExecutionTab({ classId, sessionId, members, machineNodes = [] }) {
   const toast = useToast();
   const [scriptSets, setScriptSets] = useState([]);
@@ -3542,6 +3643,23 @@ function BatchExecutionTab({ classId, sessionId, members, machineNodes = [] }) {
   const selectedSet = scriptSets.find((scriptSet) => scriptSet.artifact_set_id === selectedSetId)
     ?? scriptSets[0]
     ?? null;
+  const membersByStudentNode = useMemo(() => {
+    const byStudentNode = new Map();
+    const byStudent = new Map();
+    (Array.isArray(members) ? members : []).forEach((member) => {
+      const studentId = String(member.user_id ?? "");
+      const nodeKey = String(member.node_key ?? "");
+      byStudentNode.set(`${studentId}|${nodeKey}`, member);
+      if (!byStudent.has(studentId)) byStudent.set(studentId, member);
+    });
+    return { byStudentNode, byStudent };
+  }, [members]);
+  const memberForStudentNode = (studentId, nodeKey) => {
+    const id = String(studentId ?? "");
+    return membersByStudentNode.byStudentNode.get(`${id}|${String(nodeKey ?? "")}`)
+      ?? membersByStudentNode.byStudent.get(id)
+      ?? null;
+  };
 
   const loadExecutionState = useCallback(async () => {
     const requestId = requestRef.current + 1;
@@ -3687,7 +3805,9 @@ function BatchExecutionTab({ classId, sessionId, members, machineNodes = [] }) {
           {children.map((child) => (
             <div key={child.id} className={styles.scriptItem}>
               <span className={styles.scriptItemHead}>
-                <span className={styles.scriptName}>{child.target_node_key ?? "未指定節點"}</span>
+                <span className={styles.scriptName}>
+                  {batchMachineDisplayName(child.target_node_key, machineNodes) ?? "未指定節點"}
+                </span>
                 <span className={`${styles.badge} ${scriptStatusBadgeClass(child.status)}`}>
                   {SCRIPT_STATUS_LABELS[child.status] ?? child.status}
                 </span>
@@ -3717,7 +3837,7 @@ function BatchExecutionTab({ classId, sessionId, members, machineNodes = [] }) {
               {batch.nodes.map((node) => (
                 <div key={node.run_id} className={styles.scriptItem}>
                   <span className={styles.scriptItemHead}>
-                    <span className={styles.scriptName}>{node.display_label ?? node.target_node_key}</span>
+                    <span className={styles.scriptName}>{batchMachineDisplayName(node.target_node_key, machineNodes, node.display_label) ?? "—"}</span>
                     <StatusBadge map={RUN_STATUS} status={node.status} />
                   </span>
                   <span className={styles.fileMeta}>完成 {node.progress_json?.done ?? 0} / {node.progress_json?.total ?? 0} · run {node.run_id}</span>
@@ -3726,27 +3846,40 @@ function BatchExecutionTab({ classId, sessionId, members, machineNodes = [] }) {
             </div>
           )}
           {studentResults.length === 0 ? (
-            <p className={styles.mutedText}>執行器正在準備目標；完成後會在學生與邏輯節點下顯示 rubric item 證據。</p>
+            <p className={styles.mutedText}>執行器正在準備目標；完成後會在每台機器列顯示檢查點結果與輸出詳情。</p>
           ) : (
-            <div className={styles.scriptList}>
-              {studentResults.map((student) => (
-                <details key={student.student_id} className={styles.judgeDetails} open>
-                  <summary>學生 {student.student_id}</summary>
-                  <div className={styles.reviewGrid}>
-                    {(student.nodes ?? []).map((node) => (
-                      <div key={`${student.student_id}-${node.node_key}`} className={styles.reviewPanel}>
-                        <div className={styles.reviewPanelHead}>
-                          <span><strong>{node.display_label ?? node.node_key}</strong><span className={styles.fileMeta}> · executor {node.node_key}</span></span>
-                          <StatusBadge map={TARGET_STATUS} status={node.execution_status} />
-                        </div>
-                        {(node.items ?? []).map((item) => (
-                          <BatchItemResult key={item.rubric_item_id} item={item} />
-                        ))}
-                      </div>
-                    ))}
-                  </div>
-                </details>
-              ))}
+            <div className={styles.tableWrap}>
+              <table className={styles.table}>
+                <thead>
+                  <tr>
+                    <th>機器</th>
+                    <th>成員</th>
+                    <th>執行狀態</th>
+                    <th>檢查點</th>
+                    <th />
+                  </tr>
+                </thead>
+                <tbody>
+                  {studentResults.flatMap((student) => {
+                    const nodes = Array.isArray(student.nodes) ? student.nodes : [];
+                    return nodes.map((node, index) => {
+                      const member = memberForStudentNode(student.student_id, node.node_key);
+                      return (
+                        <BatchMachineResultRow
+                          key={`${student.student_id}-${node.node_key ?? index}`}
+                          node={node}
+                          member={member}
+                          machineName={batchMachineDisplayName(
+                            node.node_key,
+                            machineNodes,
+                            node.display_label ?? member?.display_label,
+                          )}
+                        />
+                      );
+                    });
+                  })}
+                </tbody>
+              </table>
             </div>
           )}
         </div>

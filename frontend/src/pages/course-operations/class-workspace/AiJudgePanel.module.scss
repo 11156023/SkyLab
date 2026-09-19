@@ -1312,6 +1312,12 @@
 .badge_danger { background: color-mix(in srgb, var(--color-danger) 12%, transparent); color: var(--color-danger); }
 .badge_muted { background: var(--color-hover); color: var(--color-status-neutral); }
 
+.checkpointSummary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
 /* ── Modal ── */
 .modalOverlay {
   position: fixed;
