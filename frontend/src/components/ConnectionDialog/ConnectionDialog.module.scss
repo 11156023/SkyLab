@@ -232,6 +232,9 @@
   font-size: $font-size-12;
   color: var(--color-text-muted);
   line-height: 1.5;
+
+  /* icon 對齊文字首行置中（同 ResourceDetailPage 的 .hintLine） */
+  > span[aria-hidden="true"] { margin-top: 2px; }
 }
 
 .hintOk   { color: var(--color-success); }
@@ -348,6 +351,8 @@
   align-items: flex-start;
   gap: $spacing-8;
   font-size: $font-size-14;
+  /* icon 對齊文字首行置中：16px icon 在 21px 行高旁往下推 2px */
+  > span[aria-hidden="true"] { margin-top: 2px; }
   line-height: 1.5;
   color: var(--color-text-secondary);
   background: var(--color-hover);
