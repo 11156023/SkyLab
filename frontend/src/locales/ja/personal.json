@@ -952,7 +952,6 @@
   "OverviewTab.collapse": "折りたたむ",
   "OverviewTab.copied": "コピーしました",
   "OverviewTab.copy": "コピー",
-  "OverviewTab.sshKeyDesc": "このリソースへのパスワードなしログインに使用します",
   "OverviewTab.publicKeyLabel": "公開鍵",
   "OverviewTab.privateKeyLabel": "秘密鍵",
   "SnapshotsTab.loadFailed": "スナップショット一覧を読み込めません",

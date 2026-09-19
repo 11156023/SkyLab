@@ -165,24 +165,24 @@ function SecretRow({ label, value, secret = false, note, copyId, copied, onCopy,
           </span>
         )}
         <div className={ov.secretActions}>
-          <button type="button" className={styles.ghostBtn} onClick={() => setOpen((v) => !v)}>
+          <button type="button" className={styles.btnSecondary} onClick={() => setOpen((v) => !v)}>
             <MIcon name={toggleIcon} size={14} />
             {toggleLabel}
-          </button>
-          <button type="button" className={styles.ghostBtn} onClick={() => onCopy(value, copyId)}>
-            <MIcon name={copied === copyId ? "check" : "content_copy"} size={14} />
-            {copied === copyId ? t("OverviewTab.copied") : t("OverviewTab.copy")}
           </button>
           {downloadName && (
             <button
               type="button"
-              className={styles.ghostBtn}
+              className={styles.btnSecondary}
               onClick={() => downloadBlob(new Blob([value], { type: "text/plain" }), downloadName)}
             >
               <MIcon name="download" size={14} />
               {t("OverviewTab.download")}
             </button>
           )}
+          <button type="button" className={styles.btnSecondary} onClick={() => onCopy(value, copyId)}>
+            <MIcon name={copied === copyId ? "check" : "content_copy"} size={14} />
+            {copied === copyId ? t("OverviewTab.copied") : t("OverviewTab.copy")}
+          </button>
         </div>
       </div>
       {open && <pre className={ov.secretPre}>{value}</pre>}
@@ -560,7 +560,7 @@ export default function OverviewTab({ vmid }) {
                 {resource.ip_address ? (
                   <>
                     <span className={ov.mono}>{resource.ip_address}</span>
-                    <button type="button" className={styles.ghostBtn} onClick={() => copy(resource.ip_address, "ip-row")}>
+                    <button type="button" className={styles.btnSecondary} onClick={() => copy(resource.ip_address, "ip-row")}>
                       <MIcon name={copied === "ip-row" ? "check" : "content_copy"} size={14} />
                       {copied === "ip-row" ? t("OverviewTab.copied") : t("OverviewTab.copy")}
                     </button>
@@ -577,7 +577,7 @@ export default function OverviewTab({ vmid }) {
                         <MIcon name="open_in_new" size={14} />
                         {url}
                       </a>
-                      <button type="button" className={styles.ghostBtn} onClick={() => copy(url, `url:${url}`)}>
+                      <button type="button" className={styles.btnSecondary} onClick={() => copy(url, `url:${url}`)}>
                         <MIcon name={copied === `url:${url}` ? "check" : "content_copy"} size={14} />
                         {copied === `url:${url}` ? t("OverviewTab.copied") : t("OverviewTab.copy")}
                       </button>
@@ -614,7 +614,6 @@ export default function OverviewTab({ vmid }) {
                 <SecretRow
                   label={t("OverviewTab.publicKeyLabel")}
                   value={resource.ssh_public_key}
-                  note={t("OverviewTab.sshKeyDesc")}
                   copyId="public"
                   copied={copied}
                   onCopy={copy}

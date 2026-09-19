@@ -954,7 +954,6 @@
   "OverviewTab.collapse": "Collapse",
   "OverviewTab.copied": "Copied",
   "OverviewTab.copy": "Copy",
-  "OverviewTab.sshKeyDesc": "Used for passwordless login to this resource",
   "OverviewTab.publicKeyLabel": "Public Key",
   "OverviewTab.privateKeyLabel": "Private Key",
   "SnapshotsTab.loadFailed": "Failed to load snapshot list",

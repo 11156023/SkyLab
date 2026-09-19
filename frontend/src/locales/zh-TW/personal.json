@@ -952,7 +952,6 @@
   "OverviewTab.collapse": "收合",
   "OverviewTab.copied": "已複製",
   "OverviewTab.copy": "複製",
-  "OverviewTab.sshKeyDesc": "用於免密碼登入此資源",
   "OverviewTab.publicKeyLabel": "公鑰",
   "OverviewTab.privateKeyLabel": "私鑰",
   "SnapshotsTab.loadFailed": "無法載入快照列表",
