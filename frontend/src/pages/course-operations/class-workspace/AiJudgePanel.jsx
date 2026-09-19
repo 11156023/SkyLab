@@ -677,7 +677,37 @@ function DetectabilityBadge({ detectable, judgementMode = "ai", needsReview = fa
   );
 }
 
-function RubricTableRow({ item, index, onChange, onDelete, disabled, needsReview }) {
+function machineNodeReference(nodeKey, machineNodes = []) {
+  const key = String(nodeKey ?? "").trim();
+  const node = Array.isArray(machineNodes)
+    ? machineNodes.find((entry) => String(entry?.node_key ?? "").trim() === key)
+    : null;
+  const sortOrder = Number(node?.sort_order);
+  const displayLabel = node?.display_label
+    ?? (Number.isFinite(sortOrder) ? `P${sortOrder + 1}` : null);
+  const name = node?.name ?? node?.node_name ?? null;
+  return {
+    key,
+    display: [displayLabel, name].filter(Boolean).join(" · ") || key || "未指定節點",
+    displayLabel,
+    name,
+  };
+}
+
+function MachineNodeReference({ nodeKey, machineNodes = [], prefix = "" }) {
+  const reference = machineNodeReference(nodeKey, machineNodes);
+  if (!reference.key) return null;
+  return (
+    <span>
+      {prefix}{reference.display}
+      {reference.display !== reference.key && (
+        <code className={styles.fileMeta}>（{reference.key}）</code>
+      )}
+    </span>
+  );
+}
+
+function RubricTableRow({ item, index, onChange, onDelete, disabled, needsReview, machineNodes = [] }) {
   const [expanded, setExpanded] = useState(false);
   const checkSteps = item.check_steps ?? [];
   const detailId = `rubric-detail-${index}`;
@@ -686,6 +716,7 @@ function RubricTableRow({ item, index, onChange, onDelete, disabled, needsReview
     : [];
   const hasDetails = Boolean(
     item.target_node_key
+      || item.peer_node_key
       || item.detection_method
       || item.fallback
       || checkSteps.length
@@ -718,6 +749,16 @@ function RubricTableRow({ item, index, onChange, onDelete, disabled, needsReview
               placeholder="例如：Python 版本檢查"
               disabled={disabled}
             />
+            {item.target_node_key && (
+              <small className={styles.fileMeta}>
+                <MachineNodeReference nodeKey={item.target_node_key} machineNodes={machineNodes} prefix="執行 " />
+              </small>
+            )}
+            {item.peer_node_key && (
+              <small className={styles.fileMeta}>
+                <MachineNodeReference nodeKey={item.peer_node_key} machineNodes={machineNodes} prefix="觀察 " />
+              </small>
+            )}
           </label>
         </td>
         <td className={styles.rubricDescriptionCell}>
@@ -767,7 +808,17 @@ function RubricTableRow({ item, index, onChange, onDelete, disabled, needsReview
                   {item.target_node_key && (
                     <div className={styles.detectItem}>
                       <span>執行節點</span>
-                      <p className={styles.monoCell}>{item.target_node_key}</p>
+                      <p className={styles.monoCell}>
+                        <MachineNodeReference nodeKey={item.target_node_key} machineNodes={machineNodes} />
+                      </p>
+                    </div>
+                  )}
+                  {item.peer_node_key && (
+                    <div className={styles.detectItem}>
+                      <span>觀察節點</span>
+                      <p className={styles.monoCell}>
+                        <MachineNodeReference nodeKey={item.peer_node_key} machineNodes={machineNodes} />
+                      </p>
                     </div>
                   )}
                   {item.detectable === "partial" && (
@@ -824,7 +875,7 @@ function RubricTableRow({ item, index, onChange, onDelete, disabled, needsReview
   );
 }
 
-export function RubricTable({ items, onChange, onDelete, disabled, needsReviewIds }) {
+export function RubricTable({ items, onChange, onDelete, disabled, needsReviewIds, machineNodes = [] }) {
   const reviewIds = needsReviewIds instanceof Set
     ? needsReviewIds
     : new Set(Array.isArray(needsReviewIds) ? needsReviewIds : []);
@@ -854,6 +905,7 @@ export function RubricTable({ items, onChange, onDelete, disabled, needsReviewId
               onDelete={() => onDelete(index)}
               disabled={disabled}
               needsReview={reviewIds.has(item.id)}
+              machineNodes={machineNodes}
             />
           ))}
         </tbody>
@@ -1351,7 +1403,7 @@ function RubricSourceRail({ classId, file, onClose, embedded = false }) {
 
 /* ── Tab 1：檢查表 ──────────────────────────────────────── */
 
-export function RubricsTab({ classId, judgeSession, onSessionUpdated, onScriptCreated, sidebar = null, tabsBar = null }) {
+export function RubricsTab({ classId, judgeSession, onSessionUpdated, onScriptCreated, sidebar = null, tabsBar = null, machineNodes = [] }) {
   const toast = useToast();
 
   const [files, setFiles] = useState([]);
@@ -1904,25 +1956,25 @@ export function RubricsTab({ classId, judgeSession, onSessionUpdated, onScriptCr
         message: "所有檢查項目皆已通過核對，正在準備建立檢查腳本。",
       });
       setScriptGenerationStatus("generating");
-      const artifact = await AiJudgeService.createSessionScript(
+      const scriptSet = await AiJudgeService.createSessionScriptSet(
         classId,
         judgeSession.id,
         savedRevision,
       );
-      if (artifact.status === "approved") {
-        const message = "檢查腳本已通過靜態與 AI 檢查，可開始執行。";
+      if (scriptSet.status === "approved") {
+        const message = "所有邏輯節點腳本已通過靜態與 AI 檢查，可開始執行全部對應機器。";
         setScriptGenerationNotice({ status: "success", message });
         toast.success(message);
-        onScriptCreated?.(artifact);
-      } else if (artifact.status === "review_failed") {
-        const message = "腳本自動修正後仍未通過審查；已保留目前檢查表，請確認問題後再試一次。";
+        onScriptCreated?.(scriptSet);
+      } else if (scriptSet.status === "review_failed" || scriptSet.status === "mixed") {
+        const message = "部分邏輯節點腳本尚未通過審查；已保留目前檢查表，請到腳本總覽逐節點確認。";
         setScriptGenerationNotice({ status: "error", message });
         toast.error(message);
       } else {
-        const message = "檢查腳本已產生，請到腳本總覽查看審查結果。";
+        const message = "多機器腳本集已產生，請到腳本總覽查看各節點審查結果。";
         setScriptGenerationNotice({ status: "success", message });
         toast.success(message);
-        onScriptCreated?.(artifact);
+        onScriptCreated?.(scriptSet);
       }
       const synced = await refreshSessionMessages({ silent: true });
       if (!synced) {
@@ -2016,6 +2068,7 @@ export function RubricsTab({ classId, judgeSession, onSessionUpdated, onScriptCr
                     onDelete={handleItemDelete}
                     disabled={isChatting || isCreatingScript}
                     needsReviewIds={pendingReviewIds}
+                    machineNodes={machineNodes}
                   />
                 </div>
                 <SaveAndCreateAction
@@ -2100,6 +2153,10 @@ const RETRY_STOP_REASON_LABELS = {
 
 export function getScriptCreationDestination(artifact) {
   return artifact?.status === "approved" ? "execution" : "scripts";
+}
+
+function createdScriptFocusId(artifact) {
+  return artifact?.id ?? artifact?.children?.[0]?.id ?? null;
 }
 
 function scriptStatusBadgeClass(status) {
@@ -2207,7 +2264,7 @@ function RetrySummary({ script }) {
   );
 }
 
-function ScriptsTab({
+function LegacyScriptsTab({
   classId,
   sessionId,
   initialSelectedId = null,
@@ -2528,6 +2585,208 @@ function ScriptsTab({
   );
 }
 
+function ScriptSetReview({ scriptSet, onRefresh, onScriptApproved, machineNodes = [] }) {
+  const toast = useToast();
+  const [selectedId, setSelectedId] = useState(null);
+  const [actionPending, setActionPending] = useState(null);
+  const children = Array.isArray(scriptSet?.children) ? scriptSet.children : [];
+  const selected = children.find((child) => child.id === selectedId) ?? children[0] ?? null;
+
+  useEffect(() => {
+    if (selected && !children.some((child) => child.id === selectedId)) {
+      setSelectedId(selected.id);
+    }
+  }, [children, selected, selectedId]);
+
+  async function approveChild(child) {
+    if (!child || actionPending) return;
+    setActionPending(`approve:${child.id}`);
+    try {
+      await AiJudgeService.approveScript(child.teaching_class_id, child.id);
+      toast.success(`${child.target_node_key ?? "節點"} 腳本已核准`);
+      await onRefresh?.();
+      onScriptApproved?.();
+    } catch (err) {
+      toast.error(err?.message ?? "核准腳本失敗");
+    } finally {
+      setActionPending(null);
+    }
+  }
+
+  async function regenerateSet() {
+    if (!scriptSet?.artifact_set_id || actionPending) return;
+    setActionPending("regenerate");
+    try {
+      await AiJudgeService.regenerateSessionScriptSet(
+        scriptSet.teaching_class_id,
+        scriptSet.session_id,
+        scriptSet.artifact_set_id,
+        scriptSet.source_analysis_revision,
+      );
+      toast.success("已重新製作所有邏輯節點腳本");
+      await onRefresh?.();
+    } catch (err) {
+      toast.error(err?.message ?? "重新製作腳本集失敗");
+    } finally {
+      setActionPending(null);
+    }
+  }
+
+  return (
+    <div className={styles.card}>
+      <div className={styles.cardHead}>
+        <div>
+          <h4 className={styles.cardTitle}>
+            <MIcon name="account_tree" size={18} />
+            {children[0]?.name?.split(" · ")[0] || "多機器腳本集"}
+          </h4>
+          <p className={styles.fileMeta}>
+            {children.length} 個邏輯節點 · rubric revision {scriptSet.source_analysis_revision ?? "—"}
+          </p>
+        </div>
+        <div className={styles.sectionActions}>
+          <span className={`${styles.badge} ${scriptStatusBadgeClass(scriptSet.status === "approved" ? "approved" : scriptSet.status === "review_failed" ? "review_failed" : "reviewed")}`}>
+            {scriptSet.status === "approved" ? "全部已核准" : scriptSet.status === "mixed" ? "部分待處理" : "審查未通過"}
+          </span>
+          <button
+            type="button"
+            className={styles.btnSecondary}
+            onClick={regenerateSet}
+            disabled={Boolean(actionPending)}
+          >
+            {actionPending === "regenerate" ? <Spinner size={16} /> : <MIcon name="autorenew" size={16} />}
+            重新製作整組
+          </button>
+        </div>
+      </div>
+
+      <div className={styles.scriptsGrid}>
+        <div className={styles.scriptList}>
+          {children.map((child) => (
+            <button
+              key={child.id}
+              type="button"
+              className={`${styles.scriptItem} ${selected?.id === child.id ? styles.scriptItemActive : ""}`}
+              onClick={() => setSelectedId(child.id)}
+              disabled={Boolean(actionPending)}
+            >
+              <span className={styles.scriptItemHead}>
+                <span className={styles.scriptName}>
+                  <MachineNodeReference nodeKey={child.target_node_key} machineNodes={machineNodes} />
+                  {child.rubric_snapshot_json?.items?.some((item) => item.peer_node_key) ? " · 含 peer 檢查" : ""}
+                </span>
+                <span className={`${styles.badge} ${scriptStatusBadgeClass(child.status)}`}>
+                  {SCRIPT_STATUS_LABELS[child.status] ?? child.status}
+                </span>
+              </span>
+              <span className={styles.fileMeta}>
+                {child.name} · {formatDateTime(child.updated_at)}
+              </span>
+            </button>
+          ))}
+        </div>
+
+        {selected && (
+          <div className={styles.card}>
+            <div className={styles.cardHead}>
+              <div>
+                <h4 className={styles.cardTitle}>
+                  <MachineNodeReference nodeKey={selected.target_node_key} machineNodes={machineNodes} /> 腳本
+                </h4>
+                <p className={styles.fileMeta}>
+                  此腳本只會送到指定 executor；peer 只作為受控觀察目標。
+                </p>
+              </div>
+              {selected.status === "reviewed" && (
+                <button
+                  type="button"
+                  className={styles.btnPrimary}
+                  onClick={() => approveChild(selected)}
+                  disabled={Boolean(actionPending)}
+                >
+                  {actionPending === `approve:${selected.id}` ? <Spinner size={16} /> : <MIcon name="check_circle" size={16} />}
+                  核准此節點
+                </button>
+              )}
+            </div>
+            <div className={styles.reviewGrid}>
+              <ReviewPanel title="規則檢查（靜態）" result={selected.policy_check_result_json} />
+              <ReviewPanel title="AI 檢查" result={selected.ai_review_result_json} />
+            </div>
+            <RetrySummary script={selected} />
+            <pre className={styles.codeBlock}>{selected.script_content}</pre>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function ScriptsTab({
+  classId,
+  sessionId,
+  initialSelectedId = null,
+  onScriptApproved,
+  machineNodes = [],
+}) {
+  const [scriptSets, setScriptSets] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(false);
+
+  const fetchSets = useCallback(async () => {
+    setLoading(true);
+    setError(false);
+    try {
+      setScriptSets(await AiJudgeService.listSessionScriptSets(classId, sessionId));
+    } catch {
+      setError(true);
+    } finally {
+      setLoading(false);
+    }
+  }, [classId, sessionId]);
+
+  useEffect(() => {
+    fetchSets();
+  }, [fetchSets]);
+
+  if (loading) return <div className={styles.tabBody}><LoadingState text="載入多機器腳本集..." /></div>;
+  if (error) {
+    return (
+      <div className={styles.tabBody}>
+        <div className={styles.card}>
+          <div className={styles.cardHead}>
+            <span className={styles.dangerText}>載入多機器腳本集失敗，請稍後再試。</span>
+            <button type="button" className={styles.btnSecondary} onClick={fetchSets}>重新載入</button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+  if (scriptSets.length === 0) {
+    return (
+      <LegacyScriptsTab
+        classId={classId}
+        sessionId={sessionId}
+        initialSelectedId={initialSelectedId}
+        onScriptApproved={onScriptApproved}
+      />
+    );
+  }
+  return (
+    <div className={styles.tabBody}>
+      {scriptSets.map((scriptSet) => (
+        <ScriptSetReview
+          key={scriptSet.artifact_set_id}
+          scriptSet={scriptSet}
+          machineNodes={machineNodes}
+          onRefresh={fetchSets}
+          onScriptApproved={onScriptApproved}
+        />
+      ))}
+    </div>
+  );
+}
+
 /* ── Tab 2：執行結果 ────────────────────────────────────── */
 
 const REASON_LABELS = {
@@ -2543,6 +2802,13 @@ const REASON_LABELS = {
   result_too_large: "結果過大",
   invalid_json: "JSON 格式錯誤",
   executor_error: "執行器錯誤",
+  peer_machine_missing: "同學缺少對應 peer 機器",
+  peer_vmid_missing: "peer 尚未配置 VM/LXC",
+  peer_not_running: "peer 尚未運行",
+  peer_resource_missing: "找不到 peer 資源",
+  peer_owner_mismatch: "peer 資源擁有者不一致",
+  peer_ip_unavailable: "peer 位址暫不可用",
+  peer_unavailable: "peer 證據不可用",
 };
 
 function reasonLabel(reasonCode) {
@@ -2551,7 +2817,10 @@ function reasonLabel(reasonCode) {
 }
 
 function runIsTerminal(status) {
-  return status === "completed" || status === "failed" || status === "cancelled";
+  return status === "completed"
+    || status === "completed_with_failures"
+    || status === "failed"
+    || status === "cancelled";
 }
 
 function targetResultKey(target) {
@@ -2563,6 +2832,7 @@ function targetResultKey(target) {
 
 const RUN_STATUS = {
   completed: { label: "已完成", className: styles.badge_success },
+  completed_with_failures: { label: "部分完成", className: styles.badge_info },
   running: { label: "執行中", className: styles.badge_info },
   failed: { label: "失敗", className: styles.badge_danger },
   cancelled: { label: "已取消", className: styles.badge_muted },
@@ -2758,7 +3028,7 @@ function scriptResultSummary(result) {
   return result.parsed_result?.summary ?? result.stderr_excerpt ?? null;
 }
 
-function ExecutionTab({ classId, sessionId, members, machineNodes = [] }) {
+function LegacyExecutionTab({ classId, sessionId, members, machineNodes = [] }) {
   const toast = useToast();
   const [selectedVmids, setSelectedVmids] = useState([]);
   const [selectedNodeKey, setSelectedNodeKey] = useState("");
@@ -3225,6 +3495,273 @@ function ExecutionTab({ classId, sessionId, members, machineNodes = [] }) {
   );
 }
 
+const ITEM_STATUS = {
+  pass: { label: "通過", className: styles.badge_success },
+  fail: { label: "未通過", className: styles.badge_danger },
+  warning: { label: "需注意", className: styles.badge_info },
+  unknown: { label: "待導師核查", className: styles.badge_info },
+  skipped: { label: "略過", className: styles.badge_muted },
+};
+
+function BatchItemResult({ item }) {
+  if (!item) return null;
+  return (
+    <div className={styles.reviewPanel}>
+      <div className={styles.reviewPanelHead}>
+        <span>
+          <strong>{item.title ?? item.rubric_item_id}</strong>
+          {item.peer_display_label && (
+            <span className={styles.fileMeta}> · 觀察 {item.peer_display_label}</span>
+          )}
+        </span>
+        <StatusBadge map={ITEM_STATUS} status={item.status} />
+      </div>
+      {item.evidence_state === "unavailable" && (
+        <p className={styles.fileMeta}>peer 目前不可用；本項保留 unknown，不影響同節點其他檢查。</p>
+      )}
+      {Array.isArray(item.checks) && item.checks.length > 0 && (
+        <CheckResultsTable checks={item.checks} />
+      )}
+      {Array.isArray(item.missing_check_ids) && item.missing_check_ids.length > 0 && (
+        <p className={styles.dangerText}>缺少 runtime check：{item.missing_check_ids.join("、")}</p>
+      )}
+    </div>
+  );
+}
+
+function BatchExecutionTab({ classId, sessionId, members, machineNodes = [] }) {
+  const toast = useToast();
+  const [scriptSets, setScriptSets] = useState([]);
+  const [selectedSetId, setSelectedSetId] = useState(null);
+  const [batch, setBatch] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const [creatingRun, setCreatingRun] = useState(false);
+  const requestRef = useRef(0);
+
+  const selectedSet = scriptSets.find((scriptSet) => scriptSet.artifact_set_id === selectedSetId)
+    ?? scriptSets[0]
+    ?? null;
+
+  const loadExecutionState = useCallback(async () => {
+    const requestId = requestRef.current + 1;
+    requestRef.current = requestId;
+    setLoading(true);
+    setError(null);
+    try {
+      const [sets, runs] = await Promise.all([
+        AiJudgeService.listSessionScriptSets(classId, sessionId),
+        AiJudgeService.listSessionRuns(classId, sessionId),
+      ]);
+      if (requestRef.current !== requestId) return;
+      const nextSets = Array.isArray(sets) ? sets : [];
+      setScriptSets(nextSets);
+      const latestBatchSummary = (Array.isArray(runs) ? runs : [])
+        .find((run) => run?.run_batch_id);
+      if (latestBatchSummary?.run_batch_id) {
+        const latestBatch = await AiJudgeService.getSessionRunBatch(
+          classId,
+          sessionId,
+          latestBatchSummary.run_batch_id,
+        );
+        if (requestRef.current === requestId) setBatch(latestBatch);
+      } else if (requestRef.current === requestId) {
+        setBatch(null);
+      }
+    } catch (err) {
+      if (requestRef.current === requestId) setError(err?.message ?? "載入執行狀態失敗");
+    } finally {
+      if (requestRef.current === requestId) setLoading(false);
+    }
+  }, [classId, sessionId]);
+
+  useEffect(() => {
+    loadExecutionState();
+    return () => {
+      requestRef.current += 1;
+    };
+  }, [loadExecutionState]);
+
+  useEffect(() => {
+    if (!batch?.run_batch_id || runIsTerminal(batch.status)) return undefined;
+    let cancelled = false;
+    let timer = null;
+    async function poll() {
+      try {
+        const next = await AiJudgeService.getSessionRunBatch(
+          classId,
+          sessionId,
+          batch.run_batch_id,
+        );
+        if (cancelled) return;
+        setBatch(next);
+        if (!runIsTerminal(next.status)) timer = setTimeout(poll, 2000);
+      } catch {
+        if (!cancelled) timer = setTimeout(poll, 5000);
+      }
+    }
+    timer = setTimeout(poll, 1200);
+    return () => {
+      cancelled = true;
+      if (timer) clearTimeout(timer);
+    };
+  }, [batch?.run_batch_id, batch?.status, classId, sessionId]);
+
+  async function handleRunAll() {
+    if (!selectedSet || selectedSet.status !== "approved" || creatingRun) return;
+    setCreatingRun(true);
+    try {
+      const next = await AiJudgeService.createSessionScriptSetRun(
+        classId,
+        sessionId,
+        selectedSet.artifact_set_id,
+      );
+      setBatch(next);
+      toast.success(`已建立全部對應機器執行批次（${next.summary?.targets ?? 0} 台）`);
+    } catch (err) {
+      toast.error(err?.message ?? "建立多機器執行批次失敗");
+    } finally {
+      setCreatingRun(false);
+    }
+  }
+
+  if (loading) return <div className={styles.tabBody}><LoadingState text="載入多機器執行狀態..." /></div>;
+  if (error) {
+    return (
+      <div className={styles.tabBody}>
+        <div className={styles.card} role="alert">
+          <div className={styles.cardHead}>
+            <span className={styles.dangerText}>{error}</span>
+            <button type="button" className={styles.btnSecondary} onClick={loadExecutionState}>重新載入</button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+  if (scriptSets.length === 0) {
+    return <LegacyExecutionTab classId={classId} sessionId={sessionId} members={members} machineNodes={machineNodes} />;
+  }
+
+  const children = Array.isArray(selectedSet?.children) ? selectedSet.children : [];
+  const studentResults = Array.isArray(batch?.students) ? batch.students : [];
+  return (
+    <div className={styles.tabBody}>
+      <div className={styles.card}>
+        <div className={styles.cardHead}>
+          <div>
+            <h4 className={styles.cardTitle}><MIcon name="play_circle_outline" size={18} />全部對應機器</h4>
+            <p className={styles.fileMeta}>後端依每份 child artifact 的 executor node 對應每位學生機器；老師不需要重新選節點或輸入 VMID。</p>
+          </div>
+          <div className={styles.sectionActions}>
+            {scriptSets.length > 1 && (
+              <label className={styles.field}>
+                <span className={styles.srOnly}>選擇腳本集</span>
+                <select value={selectedSet?.artifact_set_id ?? ""} onChange={(event) => setSelectedSetId(event.target.value)}>
+                  {scriptSets.map((scriptSet) => (
+                    <option key={scriptSet.artifact_set_id} value={scriptSet.artifact_set_id}>
+                      revision {scriptSet.source_analysis_revision ?? "—"} · {scriptSet.children?.length ?? 0} 節點
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
+            <button
+              type="button"
+              className={styles.btnPrimary}
+              onClick={handleRunAll}
+              disabled={creatingRun || selectedSet?.status !== "approved"}
+              title={selectedSet?.status === "approved" ? "執行此腳本集的所有對應機器" : "所有節點腳本通過審查後才能執行"}
+            >
+              {creatingRun ? <Spinner size={16} /> : <MIcon name="play_arrow" size={16} />}
+              執行全部對應機器
+            </button>
+          </div>
+        </div>
+        {selectedSet?.status !== "approved" && (
+          <div className={styles.noticeInfo} role="status">
+            <strong>尚未可執行</strong>
+            <span>請先在腳本總覽讓每個邏輯節點 child 都通過審查；部分核准不會啟動整批執行。</span>
+          </div>
+        )}
+        <div className={styles.scriptList}>
+          {children.map((child) => (
+            <div key={child.id} className={styles.scriptItem}>
+              <span className={styles.scriptItemHead}>
+                <span className={styles.scriptName}>{child.target_node_key ?? "未指定節點"}</span>
+                <span className={`${styles.badge} ${scriptStatusBadgeClass(child.status)}`}>
+                  {SCRIPT_STATUS_LABELS[child.status] ?? child.status}
+                </span>
+              </span>
+              <span className={styles.fileMeta}>{child.rubric_snapshot_json?.items?.length ?? 0} 個 rubric item · {child.name}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {batch && (
+        <div className={styles.card} aria-live="polite">
+          <div className={styles.cardHead}>
+            <div>
+              <h4 className={styles.cardTitle}>執行批次</h4>
+              <p className={styles.fileMeta}>Batch {batch.run_batch_id}</p>
+            </div>
+            <StatusBadge map={RUN_STATUS} status={batch.status} />
+          </div>
+          <div className={styles.execToolbar}>
+            <span className={styles.mutedText}>
+              節點 {batch.summary?.nodes ?? 0} · 學生 {batch.summary?.students ?? 0} · 目標 {batch.summary?.targets ?? 0} · 完成 {batch.summary?.completed ?? 0} · 失敗 {batch.summary?.failed ?? 0}
+            </span>
+          </div>
+          {Array.isArray(batch.nodes) && batch.nodes.length > 0 && (
+            <div className={styles.scriptList}>
+              {batch.nodes.map((node) => (
+                <div key={node.run_id} className={styles.scriptItem}>
+                  <span className={styles.scriptItemHead}>
+                    <span className={styles.scriptName}>{node.display_label ?? node.target_node_key}</span>
+                    <StatusBadge map={RUN_STATUS} status={node.status} />
+                  </span>
+                  <span className={styles.fileMeta}>完成 {node.progress_json?.done ?? 0} / {node.progress_json?.total ?? 0} · run {node.run_id}</span>
+                </div>
+              ))}
+            </div>
+          )}
+          {studentResults.length === 0 ? (
+            <p className={styles.mutedText}>執行器正在準備目標；完成後會在學生與邏輯節點下顯示 rubric item 證據。</p>
+          ) : (
+            <div className={styles.scriptList}>
+              {studentResults.map((student) => (
+                <details key={student.student_id} className={styles.judgeDetails} open>
+                  <summary>學生 {student.student_id}</summary>
+                  <div className={styles.reviewGrid}>
+                    {(student.nodes ?? []).map((node) => (
+                      <div key={`${student.student_id}-${node.node_key}`} className={styles.reviewPanel}>
+                        <div className={styles.reviewPanelHead}>
+                          <span><strong>{node.display_label ?? node.node_key}</strong><span className={styles.fileMeta}> · executor {node.node_key}</span></span>
+                          <StatusBadge map={TARGET_STATUS} status={node.execution_status} />
+                        </div>
+                        {(node.items ?? []).map((item) => (
+                          <BatchItemResult key={item.rubric_item_id} item={item} />
+                        ))}
+                      </div>
+                    ))}
+                  </div>
+                </details>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ExecutionTab(props) {
+  if (!props.sessionId) {
+    return <LegacyExecutionTab {...props} />;
+  }
+  return <BatchExecutionTab {...props} />;
+}
+
 /* ── 導師工作區 ─────────────────────────────────────────── */
 
 const TEACHER_JUDGE_TABS = [
@@ -3615,7 +4152,7 @@ function TeacherWorkspacePanel({ classId, members, machineNodes = [], weeks = []
       {activeSession ? (
         activeTab === "rubrics" ? (
           <section className={styles.sessionMainFull} aria-label="檢查設定工作區">
-            <RubricsTab key={activeSession.id} classId={classId} judgeSession={activeSession} onSessionUpdated={updateSessionInList} sidebar={sessionSidebarInner} tabsBar={subTabsBar} onScriptCreated={(artifact) => { loadSessions(); const destination = getScriptCreationDestination(artifact); setFocusedScriptId(destination === "scripts" ? (artifact?.id ?? null) : null); setActiveTab(destination); }} />
+            <RubricsTab key={activeSession.id} classId={classId} judgeSession={activeSession} onSessionUpdated={updateSessionInList} machineNodes={machineNodes} sidebar={sessionSidebarInner} tabsBar={subTabsBar} onScriptCreated={(artifact) => { loadSessions(); const destination = getScriptCreationDestination(artifact); setFocusedScriptId(destination === "scripts" ? createdScriptFocusId(artifact) : null); setActiveTab(destination); }} />
           </section>
         ) : (
           <section className={styles.sessionMainFull} aria-label="檢查工作區">
@@ -3625,7 +4162,7 @@ function TeacherWorkspacePanel({ classId, members, machineNodes = [], weeks = []
               </aside>
               <div className={styles.checkContentCol}>
                 <div className={`${styles.card} ${styles.checkTabsCard}`}>{subTabsBar}</div>
-                {activeTab === "scripts" && <ScriptsTab classId={classId} sessionId={activeSession.id} initialSelectedId={focusedScriptId} onScriptApproved={() => setActiveTab("execution")} />}
+                {activeTab === "scripts" && <ScriptsTab classId={classId} sessionId={activeSession.id} initialSelectedId={focusedScriptId} machineNodes={machineNodes} onScriptApproved={() => setActiveTab("execution")} />}
                 {activeTab === "execution" && <ExecutionTab classId={classId} sessionId={activeSession.id} members={members} machineNodes={machineNodes} />}
               </div>
             </div>

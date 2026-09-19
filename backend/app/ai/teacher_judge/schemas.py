@@ -8,7 +8,7 @@ for older import paths and generated-client compatibility during migration.
 from __future__ import annotations
 
 import uuid
-from typing import Any, Literal
+from typing import Any, Literal, cast
 
 from pydantic import (
     BaseModel,
@@ -166,7 +166,7 @@ class TeacherJudgeRubricCheckStep(BaseModel):
             ):
                 properties.pop(legacy_key, None)
             schema["required"] = ["argv"]
-        return schema
+        return cast("dict[str, Any]", schema)
 
 
 class TeacherJudgeRubricItem(BaseModel):
@@ -200,6 +200,14 @@ class TeacherJudgeRubricItem(BaseModel):
         max_length=80,
         description=(
             "班級內的邏輯機器身份；P1/P2/P3 僅為顯示標籤，不能取代 node_key。"
+        ),
+    )
+    peer_node_key: str | None = Field(
+        default=None,
+        max_length=80,
+        description=(
+            "選填；由 target_node_key 執行節點觀察的同班級邏輯機器身份。"
+            "P1/P2/P3 僅為輸入與顯示別名。"
         ),
     )
 
@@ -455,6 +463,9 @@ class TeacherJudgeScriptUpdateRequest(BaseModel):
 
 class TeacherJudgeScriptArtifactPublic(BaseModel):
     id: str
+    artifact_set_id: str | None = None
+    target_node_key: str | None = None
+    source_analysis_revision: int | None = None
     teaching_class_id: str
     session_id: str | None = None
     name: str
@@ -556,6 +567,7 @@ class TeacherJudgeScriptRunCreateRequest(BaseModel):
 
 class TeacherJudgeScriptRunPublic(BaseModel):
     id: str
+    run_batch_id: str | None = None
     teaching_class_id: str
     artifact_id: str
     target_scope: TeacherJudgeScriptRunTargetScopeLiteral
@@ -573,6 +585,7 @@ class TeacherJudgeScriptRunPublic(BaseModel):
 
 class TeacherJudgeScriptRunSummary(BaseModel):
     id: str
+    run_batch_id: str | None = None
     teaching_class_id: str
     artifact_id: str
     status: TeacherJudgeScriptRunStatusLiteral
@@ -582,3 +595,37 @@ class TeacherJudgeScriptRunSummary(BaseModel):
     finished_at: str | None
     created_at: str
     updated_at: str
+
+
+class TeacherJudgeScriptSetPublic(BaseModel):
+    artifact_set_id: str
+    teaching_class_id: str
+    session_id: str | None = None
+    source_file_id: str | None = None
+    source_analysis_revision: int | None = None
+    status: Literal["approved", "review_failed", "mixed"]
+    children: list[TeacherJudgeScriptArtifactPublic]
+
+
+class TeacherJudgeScriptSetRunRequest(BaseModel):
+    target_scope: Literal["all_students_in_set"] = "all_students_in_set"
+
+
+class TeacherJudgeRunBatchNodePublic(BaseModel):
+    target_node_key: str
+    display_label: str | None = None
+    artifact_id: str
+    run_id: str
+    status: TeacherJudgeScriptRunStatusLiteral
+    progress_json: dict[str, Any]
+    result_summary_json: dict[str, Any]
+
+
+class TeacherJudgeRunBatchPublic(BaseModel):
+    run_batch_id: str
+    teaching_class_id: str
+    session_id: str | None = None
+    status: Literal["pending", "running", "completed", "completed_with_failures", "failed"]
+    summary: dict[str, int]
+    nodes: list[TeacherJudgeRunBatchNodePublic]
+    students: list[dict[str, Any]] = Field(default_factory=list)

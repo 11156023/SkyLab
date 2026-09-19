@@ -171,6 +171,55 @@ export const AiJudgeService = {
     );
   },
 
+  createSessionScriptSet(classId, sessionId, analysisRevision = null) {
+    const payload = {};
+    if (analysisRevision !== null && analysisRevision !== undefined) {
+      payload.analysis_revision = analysisRevision;
+    }
+    return apiPost(
+      `/api/v1/teaching-classes/${classId}/judge/sessions/${sessionId}/script-sets`,
+      payload,
+      { timeoutMs: SCRIPT_GENERATION_TIMEOUT_MS },
+    );
+  },
+
+  listSessionScriptSets(classId, sessionId) {
+    return apiGet(
+      `/api/v1/teaching-classes/${classId}/judge/sessions/${sessionId}/script-sets`,
+    );
+  },
+
+  getSessionScriptSet(classId, sessionId, artifactSetId) {
+    return apiGet(
+      `/api/v1/teaching-classes/${classId}/judge/sessions/${sessionId}/script-sets/${artifactSetId}`,
+    );
+  },
+
+  regenerateSessionScriptSet(classId, sessionId, artifactSetId, analysisRevision = null) {
+    const payload = {};
+    if (analysisRevision !== null && analysisRevision !== undefined) {
+      payload.analysis_revision = analysisRevision;
+    }
+    return apiPost(
+      `/api/v1/teaching-classes/${classId}/judge/sessions/${sessionId}/script-sets/${artifactSetId}/regenerate`,
+      payload,
+      { timeoutMs: SCRIPT_GENERATION_TIMEOUT_MS },
+    );
+  },
+
+  createSessionScriptSetRun(classId, sessionId, artifactSetId) {
+    return apiPost(
+      `/api/v1/teaching-classes/${classId}/judge/sessions/${sessionId}/script-sets/${artifactSetId}/runs`,
+      { target_scope: "all_students_in_set" },
+    );
+  },
+
+  getSessionRunBatch(classId, sessionId, runBatchId) {
+    return apiGet(
+      `/api/v1/teaching-classes/${classId}/judge/sessions/${sessionId}/run-batches/${runBatchId}`,
+    );
+  },
+
   listSessionRuns(classId, sessionId) {
     return apiGet(
       `/api/v1/teaching-classes/${classId}/judge/sessions/${sessionId}/runs`,

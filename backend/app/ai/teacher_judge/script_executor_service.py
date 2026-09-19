@@ -12,7 +12,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, TypeVar
 
-from sqlmodel import Session
+from sqlmodel import Session, col, select
 
 from app.ai.teacher_judge.script_policy import validate_managed_script_output
 from app.ai.teacher_judge.target_ip_resolver import resolve_target_ip_address
@@ -29,6 +29,7 @@ from app.models.teacher_judge_script_run import (
     TeacherJudgeScriptRunStatus,
 )
 from app.models.teacher_judge_session import TeacherJudgeSession
+from app.models.teaching_class import TeachingClassMachineNode
 from app.repositories import resource as resource_repo
 
 logger = logging.getLogger(__name__)
@@ -306,6 +307,20 @@ def _execute_target_script(
         try:
             with sftp.file(f"{remote_dir}/script.py", "wb") as remote_file:
                 remote_file.write(script_content.encode())
+            with sftp.file(
+                f"{remote_dir}/runtime_context.json", "wb"
+            ) as remote_context:
+                remote_context.write(
+                    json.dumps(
+                        target.get("runtime_context")
+                        or {
+                            "schema_version": "teacher_judge_runtime_context.v1",
+                            "executor": {"node_key": target.get("node_key")},
+                            "peers": {},
+                        },
+                        ensure_ascii=False,
+                    ).encode()
+                )
 
             exit_code, _, _ = exec_command(
                 client,
@@ -323,7 +338,8 @@ def _execute_target_script(
             sftp.close()
     finally:
         cleanup_command = (
-            f"rm -f -- {quoted_dir}/script.py {quoted_dir}/result.json "
+            f"rm -f -- {quoted_dir}/script.py {quoted_dir}/runtime_context.json "
+            f"{quoted_dir}/result.json "
             f"{quoted_dir}/stderr.log && rmdir -- {quoted_dir} 2>/dev/null || true"
         )
         try:
@@ -716,3 +732,52 @@ async def execute_script_run(run_id: uuid.UUID) -> None:
                 asyncio.to_thread(_mark_run_executor_failed, run_id, str(exc))
             )
         )
+
+
+def _batch_run_ids(run_batch_id: uuid.UUID) -> list[uuid.UUID]:
+    with Session(engine) as session:
+        rows = list(
+            session.exec(
+                select(TeacherJudgeScriptRun, TeacherJudgeScriptArtifact).join(
+                    TeacherJudgeScriptArtifact,
+                    col(TeacherJudgeScriptArtifact.id)
+                    == col(TeacherJudgeScriptRun.artifact_id),
+                ).where(
+                    TeacherJudgeScriptRun.run_batch_id == run_batch_id
+                )
+            ).all()
+        )
+        class_ids = {run.teaching_class_id for run, _artifact in rows}
+        node_order: dict[tuple[uuid.UUID, str], tuple[int, str]] = {}
+        for class_id in class_ids:
+            nodes = session.exec(
+                select(TeachingClassMachineNode).where(
+                    TeachingClassMachineNode.class_id == class_id
+                )
+            ).all()
+            for node in nodes:
+                node_order[(class_id, node.node_key)] = (
+                    node.sort_order,
+                    node.node_key,
+                )
+        rows.sort(
+            key=lambda row: (
+                node_order.get(
+                    (
+                        row[0].teaching_class_id,
+                        str(row[1].target_node_key or ""),
+                    ),
+                    (10**9, str(row[1].target_node_key or "")),
+                ),
+                str(row[0].artifact_id),
+            )
+        )
+        return [run.id for run, _artifact in rows]
+
+
+async def execute_script_run_batch(run_batch_id: uuid.UUID) -> None:
+    """Execute child runs sequentially so total SSH concurrency stays bounded."""
+
+    run_ids = await asyncio.to_thread(_batch_run_ids, run_batch_id)
+    for run_id in run_ids:
+        await execute_script_run(run_id)

@@ -6,6 +6,7 @@ from typing import Any, TypedDict
 
 from fastapi import HTTPException
 
+from app.ai.teacher_judge.machine_context import rubric_item_machine_issues
 from app.ai.teacher_judge.schemas import (
     TeacherJudgeRubricAnalysis,
     TeacherJudgeRubricCheckStep,
@@ -123,6 +124,7 @@ def _item_missing_information(
         and not item.target_node_key
     ):
         missing.append("target_node_key")
+    missing.extend(rubric_item_machine_issues(item.model_dump(mode="json")))
     for step in item.check_steps:
         if (step.template_key or step.command_key) and (
             step.template_key,

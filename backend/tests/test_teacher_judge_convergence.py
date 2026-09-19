@@ -1,8 +1,13 @@
 from __future__ import annotations
 
+import pytest
+
+from app.ai.teacher_judge import service as teacher_judge_service
 from app.ai.teacher_judge.automation_support import ensure_script_generation_supported
 from app.ai.teacher_judge.machine_context import (
+    canonicalize_machine_node_key,
     format_machine_context,
+    rubric_item_machine_issues,
     target_node_keys_from_snapshot,
 )
 from app.ai.teacher_judge.schemas import (
@@ -110,6 +115,55 @@ def test_machine_context_is_logical_and_target_collection_is_class_scoped() -> N
             "items": [{"target_node_key": "web"}],
         }
     ) == {"web"}
+
+
+def test_machine_aliases_canonicalize_only_keys_and_derived_p_labels() -> None:
+    entries = [
+        {"display_label": "P1", "node_key": "web", "name": "Web Server"},
+        {"display_label": "P2", "node_key": "db", "name": "Database"},
+    ]
+
+    assert canonicalize_machine_node_key("web", entries) == "web"
+    assert canonicalize_machine_node_key("p2", entries) == "db"
+    assert canonicalize_machine_node_key(None, entries) is None
+    with pytest.raises(ValueError, match="node_key"):
+        canonicalize_machine_node_key("Database", entries)
+
+
+def test_proposal_tools_are_request_scoped_to_current_class_nodes() -> None:
+    tools = teacher_judge_service._build_proposal_tools(
+        [
+            {"display_label": "P1", "node_key": "web"},
+            {"display_label": "P2", "node_key": "db"},
+        ]
+    )
+
+    for tool in tools:
+        if tool["function"]["name"] not in {
+            "create_checklist_item",
+            "edit_checklist_item",
+        }:
+            continue
+        properties = tool["function"]["parameters"]["properties"]
+        assert properties["target_node_key"]["enum"] == ["web", "db", None]
+        assert properties["peer_node_key"]["enum"] == ["web", "db", None]
+        assert "P1=web" in properties["target_node_key"]["description"]
+
+
+def test_peer_contract_requires_distinct_node_and_whole_argv_token() -> None:
+    valid = {
+        "detectable": "auto",
+        "target_node_key": "db",
+        "peer_node_key": "web",
+        "check_steps": [{"argv": ["ping", "-c", "4", "{{peer.ip}}"]}],
+    }
+    assert rubric_item_machine_issues(valid) == []
+    assert rubric_item_machine_issues(
+        {**valid, "target_node_key": "web"}
+    ) == ["peer_node_key 不得與 target_node_key 相同"]
+    assert rubric_item_machine_issues(
+        {**valid, "check_steps": [{"argv": ["ping", "host={{peer.ip}}"]}]}
+    ) == ["{{peer.ip}} 只能作為完整 argv element", "指定 peer_node_key 的 auto 項目必須在 argv 使用 {{peer.ip}}"]
 
 
 def test_node_scope_is_canonical_but_legacy_vmid_scope_remains_readable() -> None:

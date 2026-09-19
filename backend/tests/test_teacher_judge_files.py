@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import uuid
+from types import SimpleNamespace
 
 import pytest
 from fastapi import HTTPException
@@ -129,6 +130,70 @@ def test_analysis_update_requires_current_revision() -> None:
     stored_after = session.get(TeacherJudgeFile, file.id)
     assert stored_after is not None
     assert stored_after.analysis_json == before_json
+
+
+def test_analysis_update_accepts_multiple_class_machine_nodes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    session = _session()
+    teaching_class_id = uuid.uuid4()
+    file = file_service.create_blank_file(
+        session=session,
+        teaching_class_id=teaching_class_id,
+        created_by=uuid.uuid4(),
+        display_name="Multi-node rubric",
+        environment_keys=["linux"],
+    )
+    monkeypatch.setattr(
+        file_service,
+        "load_class_machine_nodes",
+        lambda *_args: [
+            SimpleNamespace(node_key="web"),
+            SimpleNamespace(node_key="db"),
+        ],
+    )
+    analysis = TeacherJudgeRubricAnalysis(
+        items=[
+            TeacherJudgeRubricItem(
+                id="web-status",
+                title="Web status",
+                detectable="auto",
+                detection_method="檢查 nginx",
+                target_node_key="web",
+                check_steps=[
+                    {
+                        "argv": ["systemctl", "is-active", "nginx"],
+                        "timeout_seconds": 30,
+                    }
+                ],
+            ),
+            TeacherJudgeRubricItem(
+                id="db-status",
+                title="DB status",
+                detectable="auto",
+                detection_method="檢查 PostgreSQL",
+                target_node_key="db",
+                check_steps=[
+                    {
+                        "argv": ["systemctl", "is-active", "postgresql"],
+                        "timeout_seconds": 30,
+                    }
+                ],
+            ),
+        ]
+    )
+
+    updated = file_service.update_file_analysis(
+        session=session,
+        teaching_class_id=teaching_class_id,
+        file_id=file.id,
+        analysis=analysis,
+        expected_revision=1,
+    )
+
+    assert {
+        item["target_node_key"] for item in updated.analysis_json["items"]
+    } == {"web", "db"}
 
 
 def test_historical_uploaded_file_can_still_be_downloaded_and_forked(

@@ -10,9 +10,11 @@ from __future__ import annotations
 import uuid
 from typing import Any
 
-from sqlmodel import Session, select
+from sqlmodel import Session, col, select
 
 from app.models.teaching_class import TeachingClassMachineNode
+
+PEER_IP_TOKEN = "{{peer.ip}}"
 
 
 def load_class_machine_nodes(
@@ -26,8 +28,8 @@ def load_class_machine_nodes(
             select(TeachingClassMachineNode)
             .where(TeachingClassMachineNode.class_id == teaching_class_id)
             .order_by(
-                TeachingClassMachineNode.sort_order,
-                TeachingClassMachineNode.node_key,
+                col(TeachingClassMachineNode.sort_order),
+                col(TeachingClassMachineNode.node_key),
             )
         ).all()
     )
@@ -82,6 +84,63 @@ def format_machine_context(entries: list[dict[str, Any]] | None) -> str:
     return "\n".join(lines)
 
 
+def canonicalize_machine_node_key(
+    raw_value: str | None,
+    entries: list[dict[str, Any]] | None,
+) -> str | None:
+    """Resolve a node key or derived P label to the stable class-local key."""
+
+    normalized = str(raw_value or "").strip()
+    if not normalized:
+        return None
+    available = entries or []
+    exact_keys = {
+        str(entry.get("node_key") or "").strip()
+        for entry in available
+        if str(entry.get("node_key") or "").strip()
+    }
+    if normalized in exact_keys:
+        return normalized
+    matching_labels = {
+        str(entry.get("node_key") or "").strip()
+        for entry in available
+        if str(entry.get("display_label") or "").strip().casefold()
+        == normalized.casefold()
+        and str(entry.get("node_key") or "").strip()
+    }
+    if len(matching_labels) == 1:
+        return next(iter(matching_labels))
+    raise ValueError(f"無法將機器標籤「{normalized}」解析為目前班級唯一的 node_key。")
+
+
+def rubric_item_machine_issues(item: dict[str, Any]) -> list[str]:
+    """Validate the executor/peer identity and reserved peer token contract."""
+
+    target_node_key = str(item.get("target_node_key") or "").strip() or None
+    peer_node_key = str(item.get("peer_node_key") or "").strip() or None
+    argv_parts: list[str] = []
+    for step in item.get("check_steps") or []:
+        if not isinstance(step, dict):
+            continue
+        raw_argv = step.get("argv")
+        if not isinstance(raw_argv, list):
+            parameters = step.get("parameters")
+            raw_argv = parameters.get("argv") if isinstance(parameters, dict) else []
+        if isinstance(raw_argv, list):
+            argv_parts.extend(part for part in raw_argv if isinstance(part, str))
+    token_parts = [part for part in argv_parts if PEER_IP_TOKEN in part]
+    issues: list[str] = []
+    if peer_node_key and peer_node_key == target_node_key:
+        issues.append("peer_node_key 不得與 target_node_key 相同")
+    if any(part != PEER_IP_TOKEN for part in token_parts):
+        issues.append(f"{PEER_IP_TOKEN} 只能作為完整 argv element")
+    if token_parts and not peer_node_key:
+        issues.append(f"使用 {PEER_IP_TOKEN} 時必須指定 peer_node_key")
+    if peer_node_key and item.get("detectable") == "auto" and PEER_IP_TOKEN not in argv_parts:
+        issues.append(f"指定 peer_node_key 的 auto 項目必須在 argv 使用 {PEER_IP_TOKEN}")
+    return issues
+
+
 def target_node_keys_from_snapshot(snapshot: dict[str, Any] | None) -> set[str]:
     """Collect logical target keys from a rubric/artifact snapshot."""
 
@@ -100,6 +159,18 @@ def target_node_keys_from_snapshot(snapshot: dict[str, Any] | None) -> set[str]:
     if top_level_key:
         keys.add(top_level_key)
     return keys
+
+
+def peer_node_keys_from_snapshot(snapshot: dict[str, Any] | None) -> set[str]:
+    """Collect explicitly declared observed peer keys from rubric items."""
+
+    if not isinstance(snapshot, dict):
+        return set()
+    return {
+        str(item.get("peer_node_key") or "").strip()
+        for item in snapshot.get("items") or []
+        if isinstance(item, dict) and str(item.get("peer_node_key") or "").strip()
+    }
 
 
 def resolve_class_machine_node(
@@ -121,10 +192,14 @@ def resolve_class_machine_node(
 
 
 __all__ = [
+    "PEER_IP_TOKEN",
+    "canonicalize_machine_node_key",
     "format_machine_context",
     "load_class_machine_nodes",
     "machine_context_entries",
     "machine_node_display_label",
+    "peer_node_keys_from_snapshot",
     "resolve_class_machine_node",
+    "rubric_item_machine_issues",
     "target_node_keys_from_snapshot",
 ]

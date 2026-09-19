@@ -12,7 +12,7 @@ from inspect import signature
 from typing import Any, Literal, cast
 
 from fastapi import HTTPException
-from sqlmodel import Session, desc, func, select
+from sqlmodel import Session, col, desc, func, select
 
 from app.ai.monitoring import (
     CALL_TJ_SCRIPT_GENERATION,
@@ -34,12 +34,15 @@ from app.ai.teacher_judge.config import settings
 from app.ai.teacher_judge.file_service import source_file_snapshot
 from app.ai.teacher_judge.machine_context import (
     load_class_machine_nodes,
+    peer_node_keys_from_snapshot,
     resolve_class_machine_node,
+    rubric_item_machine_issues,
     target_node_keys_from_snapshot,
 )
 from app.ai.teacher_judge.schemas import (
     TeacherJudgeRubricAnalysis,
     TeacherJudgeScriptArtifactPublic,
+    TeacherJudgeScriptSetPublic,
 )
 from app.ai.teacher_judge.script_coverage_validator import (
     parse_coverage_payload,
@@ -52,7 +55,10 @@ from app.ai.teacher_judge.script_generation_contract import (
     SCRIPT_GENERATION_MAX_RETRIES,
     SCRIPT_GENERATION_SAME_FAILURE_MAX_RETRIES,
 )
-from app.ai.teacher_judge.script_policy import check_script_policy
+from app.ai.teacher_judge.script_policy import (
+    check_peer_runtime_policy,
+    check_script_policy,
+)
 from app.ai.teacher_judge.script_quality_validator import check_script_quality
 from app.ai.teacher_judge.service import _call_vllm
 from app.ai.teacher_judge.template_command_service import get_enabled_template_commands
@@ -69,6 +75,19 @@ from app.models.teacher_judge_template_command import TeacherJudgeTemplateComman
 logger = logging.getLogger(__name__)
 
 ScriptUsageRecord = dict[str, Any]
+
+
+def _ensure_peer_runtime_supported(snapshot: dict[str, Any]) -> None:
+    peer_node_keys = peer_node_keys_from_snapshot(snapshot)
+    if peer_node_keys:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "teacher_judge_peer_runtime_not_ready",
+                "message": "跨機器觀察尚未完成受控 runtime context，暫時不能製作腳本。",
+                "peer_node_keys": sorted(peer_node_keys),
+            },
+        )
 
 
 def _script_result(value: Any) -> tuple[str, dict[str, Any]]:
@@ -157,6 +176,9 @@ SCRIPT_GENERATION_SYSTEM_PROMPT = f"""
 - `judgement_mode=ai` 時，依 rubric item 的 title 與 detection_method 實作最小充分的判定。只有明確要求完全相等時才比較整份 stdout；「有／包含／存在某行或設定」應檢查內容或逐行存在，不得要求整份輸出只有該字串。設定行如 `web_URL=True` 可忽略行首尾及等號周圍空白，但 key 與值仍須相符。
 - `judgement_mode=teacher` 時，腳本只負責完整收集指定答案／檔案／系統資訊；不得發明客觀答案或代替導師判定內容正確性。成功收集證據的 check 使用 `unknown` 並清楚標示「待導師核查」，evidence/raw 帶回可讀證據；執行或收集失敗仍依事實使用 fail/unknown 並記錄 errors。
 - `system.run_command` 只允許單一唯讀／診斷 argv；禁止 pipe、redirect、寫入型 Git 子命令及其他會改變環境的操作。
+- 若 rubric item 宣告 `peer_node_key` 且 check step 的 argv 含完整元素 `{{peer.ip}}`，只能用固定相對路徑 `runtime_context.json` 讀取該 item 宣告的 literal peer node key，再取 `peers[peer_node_key].ip_address`；不可列舉 peers、讀取其他 node 或把 context 當成 inventory。
+- peer context 的 `resolution_status` 不是 `ready` 或 `ip_address` 為空時，該 peer check 必須記錄 `peer_unavailable` 並使用 `unknown`，同一份腳本的其他本機檢查仍要繼續；不得把空值傳給命令，也不得把 peer IP 寫死在 source。
+- v1 peer probe 只允許把上述 context 得到的 IP 作為 `ping` 的 argv element；不得把它放入 shell、URL、CIDR、檔案路徑或其他命令。
 - 執行 Python 入口時，必須使用 argv list、明確 `cwd`、有限 timeout，並把 exit code、stdout、stderr、未捕捉例外與 timeout 寫成該 check 的證據。
 - 若 rubric 缺少工作目錄、命令或「正常結束／常駐服務」判準，不得搜尋檔案系統或猜路徑；該 check 必須回傳 `unknown`，清楚寫出缺少的資訊。
 - 不得把 Python 執行檢查替換成 n8n、Port 或程序存在檢查；這些只能在 rubric 本來就要求時使用。
@@ -228,6 +250,7 @@ executor support while the runtime remains Linux SSH/SFTP.
 若腳本可能刪除、修改、修復、安裝、重啟或對外傳資料，approved 必須是 false。讀取檔案與原樣回傳受控命令的 stdout/stderr 本身不是拒絕理由。
 若腳本使用 `python.run_entrypoint`，確認它只採用 rubric check_steps.parameters 的 cwd、argv、timeout_seconds，且程式只收集 exit code/stdout/stderr、沒有安裝或修復動作；risk_level 至少為 medium。`judgement_mode=teacher` 不得因沒有客觀答案而拒絕，但必須確認腳本能執行並帶回證據。只有靜態政策與本 AI reviewer 都核准時，腳本才會進入可執行狀態。
 若腳本使用 `system.run_command`，確認它只採用 check_steps 中已驗證的 argv、cwd、有限 timeout，無 shell/pipe/redirect、提權或範圍擴張，且只做唯讀／診斷操作；stdout/stderr 不需遮蔽。
+若 rubric 有 peer item，確認腳本從固定 `runtime_context.json` 讀取同一 item 宣告的 logical peer，處理 `resolution_status=unavailable` 後只將 IP 傳給 `ping` argv；不得接受任意輸入 IP 或列舉其他 peers。
 若 rubric 只要求內容、行或設定存在，腳本不得擅自改成整份 stdout 完全相等；這種過度收緊應列為 issues。
 
 ## 錯誤記錄完整性
@@ -316,6 +339,11 @@ def _artifact_to_public(
 ) -> TeacherJudgeScriptArtifactPublic:
     return TeacherJudgeScriptArtifactPublic(
         id=str(artifact.id),
+        artifact_set_id=(
+            str(artifact.artifact_set_id) if artifact.artifact_set_id else None
+        ),
+        target_node_key=artifact.target_node_key,
+        source_analysis_revision=artifact.source_analysis_revision,
         teaching_class_id=str(artifact.teaching_class_id),
         session_id=str(artifact.session_id) if artifact.session_id else None,
         name=artifact.name,
@@ -533,6 +561,34 @@ def _merge_gate_results(
         "quality_warnings": [str(warning) for warning in quality_warnings]
         if isinstance(quality_warnings, list)
         else [],
+    }
+
+
+def _merge_peer_policy(
+    safety_check: CheckResult,
+    peer_check: CheckResult,
+) -> CheckResult:
+    """Fold the peer-specific safety gate into the ordinary policy gate."""
+
+    if peer_check.get("approved") is True:
+        return safety_check
+    return {
+        **safety_check,
+        "approved": False,
+        "blocked": True,
+        "risk_level": "high",
+        "issues": list(
+            dict.fromkeys(
+                [
+                    *safety_check.get("issues", []),
+                    *peer_check.get("issues", []),
+                ]
+            )
+        ),
+        "fix_hints": [
+            *safety_check.get("fix_hints", []),
+            *peer_check.get("fix_hints", []),
+        ],
     }
 
 
@@ -1168,6 +1224,10 @@ async def build_reviewed_script(
 
         last_gated_content = script_content
         safety_check = check_script_policy(script_content)
+        safety_check = _merge_peer_policy(
+            safety_check,
+            check_peer_runtime_policy(script_content, attempt_snapshot),
+        )
         quality_check = check_script_quality(script_content)
         gate_result = _merge_gate_results(safety_check, quality_check)
 
@@ -1659,6 +1719,7 @@ async def create_artifact(
     # read-only: downstream only shallow-copies the top level and serializes
     # each dict to its own JSON column on commit (no in-place nested mutation).
     analysis_dump = rubric_analysis.model_dump(mode="json")
+    _ensure_peer_runtime_supported(analysis_dump)
     target_node_keys = target_node_keys_from_snapshot(analysis_dump)
     if len(target_node_keys) > 1:
         raise HTTPException(
@@ -1748,6 +1809,385 @@ async def create_artifact(
     return _artifact_to_public(artifact)
 
 
+def partition_analysis_by_target_node(
+    analysis: TeacherJudgeRubricAnalysis,
+    *,
+    node_order: list[str] | None = None,
+) -> list[tuple[str, TeacherJudgeRubricAnalysis]]:
+    """Partition executable rubric items by their canonical executor node."""
+
+    grouped: dict[str, list[Any]] = {}
+    for item in analysis.items:
+        node_key = str(item.target_node_key or "").strip()
+        if not node_key:
+            raise HTTPException(
+                status_code=422,
+                detail={
+                    "code": "teacher_judge_target_node_required",
+                    "message": "每個可執行檢查項目都必須指定 target_node_key。",
+                    "item_ids": [item.id],
+                },
+            )
+        grouped.setdefault(node_key, []).append(item)
+    ordered_keys = [key for key in node_order or [] if key in grouped]
+    ordered_keys.extend(sorted(set(grouped) - set(ordered_keys)))
+    partitions: list[tuple[str, TeacherJudgeRubricAnalysis]] = []
+    for node_key in ordered_keys:
+        items = grouped[node_key]
+        partitions.append(
+            (
+                node_key,
+                analysis.model_copy(
+                    deep=True,
+                    update={
+                        "items": items,
+                        "total_items": len(items),
+                        "checked_count": sum(1 for item in items if item.checked),
+                        "auto_count": sum(
+                            1 for item in items if item.detectable == "auto"
+                        ),
+                        "partial_count": sum(
+                            1 for item in items if item.detectable == "partial"
+                        ),
+                        "manual_count": sum(
+                            1 for item in items if item.detectable == "manual"
+                        ),
+                        "pending_review_item_ids": [
+                            item_id
+                            for item_id in analysis.pending_review_item_ids
+                            if item_id in {item.id for item in items}
+                        ],
+                    },
+                ),
+            )
+        )
+    return partitions
+
+
+def _latest_set_children(
+    rows: list[TeacherJudgeScriptArtifact],
+    *,
+    node_order: dict[str, int] | None = None,
+) -> list[TeacherJudgeScriptArtifact]:
+    """Return one current child per node, excluding archived history."""
+
+    latest: dict[str, TeacherJudgeScriptArtifact] = {}
+    for row in rows:
+        if row.status == TeacherJudgeScriptStatus.archived:
+            continue
+        node_key = str(row.target_node_key or "")
+        current = latest.get(node_key)
+        if current is None or (row.version, row.created_at) > (
+            current.version,
+            current.created_at,
+        ):
+            latest[node_key] = row
+    order = node_order or {}
+    return sorted(
+        latest.values(),
+        key=lambda row: (
+            order.get(str(row.target_node_key or ""), 10**9),
+            str(row.target_node_key or ""),
+        ),
+    )
+
+
+def _script_set_to_public(
+    rows: list[TeacherJudgeScriptArtifact],
+    *,
+    node_order: dict[str, int] | None = None,
+) -> TeacherJudgeScriptSetPublic:
+    children = _latest_set_children(rows, node_order=node_order)
+    if not children or children[0].artifact_set_id is None:
+        raise HTTPException(status_code=404, detail="Script set not found")
+    statuses = {child.status.value for child in children}
+    status: Literal["approved", "review_failed", "mixed"] = (
+        "approved"
+        if statuses == {TeacherJudgeScriptStatus.approved.value}
+        else "review_failed"
+        if statuses == {TeacherJudgeScriptStatus.review_failed.value}
+        else "mixed"
+    )
+    first = children[0]
+    return TeacherJudgeScriptSetPublic(
+        artifact_set_id=str(first.artifact_set_id),
+        teaching_class_id=str(first.teaching_class_id),
+        session_id=str(first.session_id) if first.session_id else None,
+        source_file_id=str(first.source_file_id) if first.source_file_id else None,
+        source_analysis_revision=first.source_analysis_revision,
+        status=status,
+        children=[_artifact_to_public(child) for child in children],
+    )
+
+
+def get_artifact_set(
+    *,
+    session: Session,
+    teaching_class_id: uuid.UUID,
+    artifact_set_id: uuid.UUID,
+    session_id: uuid.UUID | None = None,
+) -> TeacherJudgeScriptSetPublic:
+    statement = select(TeacherJudgeScriptArtifact).where(
+        TeacherJudgeScriptArtifact.teaching_class_id == teaching_class_id,
+        TeacherJudgeScriptArtifact.artifact_set_id == artifact_set_id,
+    )
+    if session_id is not None:
+        statement = statement.where(TeacherJudgeScriptArtifact.session_id == session_id)
+    rows = list(session.exec(statement).all())
+    if not rows:
+        raise HTTPException(status_code=404, detail="Script set not found")
+    nodes = load_class_machine_nodes(session, teaching_class_id)
+    return _script_set_to_public(
+        rows,
+        node_order={node.node_key: node.sort_order for node in nodes},
+    )
+
+
+def list_artifact_sets(
+    *,
+    session: Session,
+    teaching_class_id: uuid.UUID,
+    session_id: uuid.UUID,
+) -> list[TeacherJudgeScriptSetPublic]:
+    rows = list(
+        session.exec(
+            select(TeacherJudgeScriptArtifact)
+            .where(
+                TeacherJudgeScriptArtifact.teaching_class_id == teaching_class_id,
+                TeacherJudgeScriptArtifact.session_id == session_id,
+                col(TeacherJudgeScriptArtifact.artifact_set_id).is_not(None),
+            )
+            .order_by(desc(TeacherJudgeScriptArtifact.created_at))
+        ).all()
+    )
+    nodes = load_class_machine_nodes(session, teaching_class_id)
+    node_order = {node.node_key: node.sort_order for node in nodes}
+    grouped: dict[uuid.UUID, list[TeacherJudgeScriptArtifact]] = {}
+    order: list[uuid.UUID] = []
+    for row in rows:
+        if row.artifact_set_id is None:
+            continue
+        if row.artifact_set_id not in grouped:
+            grouped[row.artifact_set_id] = []
+            order.append(row.artifact_set_id)
+        grouped[row.artifact_set_id].append(row)
+    return [
+        _script_set_to_public(grouped[set_id], node_order=node_order)
+        for set_id in order
+    ]
+
+
+async def create_artifact_set(
+    *,
+    session: Session,
+    teaching_class_id: uuid.UUID,
+    session_id: uuid.UUID,
+    name: str,
+    template_key: str,
+    rubric_analysis: TeacherJudgeRubricAnalysis,
+    source_analysis_revision: int,
+    created_by: uuid.UUID | None,
+    source_file_id: uuid.UUID | None,
+    artifact_set_id: uuid.UUID | None = None,
+) -> TeacherJudgeScriptSetPublic:
+    artifact_name = name.strip()
+    if not artifact_name:
+        raise HTTPException(status_code=400, detail=t("artifact.name_blank"))
+    commands = get_enabled_template_commands(
+        session, template_key, include_cross_template=True
+    )
+    ensure_script_generation_supported(
+        rubric_analysis,
+        commands,
+        require_target_node=bool(
+            load_class_machine_nodes(session, teaching_class_id)
+        ),
+    )
+    nodes = load_class_machine_nodes(session, teaching_class_id)
+    valid_node_keys = {node.node_key for node in nodes}
+    partitions = partition_analysis_by_target_node(
+        rubric_analysis,
+        node_order=[node.node_key for node in nodes],
+    )
+    invalid_node_keys = {
+        key for key, _ in partitions if key not in valid_node_keys
+    }
+    invalid_node_keys.update(
+        peer_node_key
+        for peer_node_key in peer_node_keys_from_snapshot(
+            rubric_analysis.model_dump(mode="json")
+        )
+        if peer_node_key not in valid_node_keys
+    )
+    if invalid_node_keys:
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "code": "teacher_judge_target_node_not_in_class",
+                "message": "檢查項目的 target_node_key 不屬於目前班級。",
+                "target_node_keys": sorted(invalid_node_keys),
+            },
+        )
+    machine_contract_issues = {
+        item.id: issues
+        for item in rubric_analysis.items
+        if (issues := rubric_item_machine_issues(item.model_dump(mode="json")))
+    }
+    if machine_contract_issues:
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "code": "teacher_judge_machine_contract_invalid",
+                "message": "檢查項目的執行節點、觀察節點或 peer token 不一致。",
+                "items": machine_contract_issues,
+            },
+        )
+
+    build_results: list[
+        tuple[
+            str,
+            dict[str, Any],
+            str,
+            GateResult,
+            AIReviewResult,
+            TeacherJudgeScriptStatus,
+            list[ScriptUsageRecord],
+        ]
+    ] = []
+    for node_key, partition in partitions:
+        partition_dump = partition.model_dump(mode="json")
+        rubric_base: dict[str, Any] = {
+            **partition_dump,
+            "target_node_key": node_key,
+        }
+        if _snapshot_uses_legacy_command_references(partition_dump):
+            rubric_base["template_key"] = template_key
+        rubric_snapshot = _with_template_command_catalog(rubric_base, commands)
+        try:
+            script_content, policy, review, status, usage = (
+                await _build_reviewed_script_for_artifact(
+                    rubric_snapshot=rubric_snapshot,
+                    template_key=template_key,
+                )
+            )
+        except Exception as exc:
+            raise HTTPException(
+                status_code=502,
+                detail={
+                    "code": "teacher_judge_node_generation_failed",
+                    "message": f"節點 {node_key} 的腳本生成或審查失敗。",
+                    "target_node_key": node_key,
+                    "item_ids": [item.id for item in partition.items],
+                },
+            ) from exc
+        if (
+            status == TeacherJudgeScriptStatus.reviewed
+            and policy.get("approved") is True
+            and review.get("approved") is True
+        ):
+            status = TeacherJudgeScriptStatus.approved
+        build_results.append(
+            (
+                node_key,
+                rubric_snapshot,
+                script_content,
+                policy,
+                review,
+                status,
+                usage,
+            )
+        )
+
+    set_id = artifact_set_id or uuid.uuid4()
+    version_by_node: dict[str, int] = {}
+    if artifact_set_id is not None:
+        previous_rows = list(
+            session.exec(
+                select(TeacherJudgeScriptArtifact).where(
+                    TeacherJudgeScriptArtifact.teaching_class_id
+                    == teaching_class_id,
+                    TeacherJudgeScriptArtifact.artifact_set_id == set_id,
+                )
+            ).all()
+        )
+        if not previous_rows:
+            raise HTTPException(status_code=404, detail="Script set not found")
+        if any(
+            previous.session_id != session_id
+            or previous.source_file_id != source_file_id
+            for previous in previous_rows
+        ):
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "code": "teacher_judge_script_set_context_mismatch",
+                    "message": "script set 與目前 session 或檢查表來源不一致。",
+                },
+            )
+        for previous in previous_rows:
+            node_key = str(previous.target_node_key or "")
+            version_by_node[node_key] = max(
+                version_by_node.get(node_key, 0), previous.version
+            )
+            if previous.status != TeacherJudgeScriptStatus.archived:
+                previous.status = TeacherJudgeScriptStatus.archived
+                previous.updated_at = _now()
+                session.add(previous)
+    source_file, source_snapshot = source_file_snapshot(
+        session=session,
+        teaching_class_id=teaching_class_id,
+        file_id=source_file_id,
+    )
+    if source_file is not None:
+        source_file.analysis_json = rubric_analysis.model_dump(mode="json")
+        source_file.updated_at = _now()
+        session.add(source_file)
+    artifacts: list[TeacherJudgeScriptArtifact] = []
+    for node_key, snapshot, content, policy, review, status, _ in build_results:
+        artifact = TeacherJudgeScriptArtifact(
+            artifact_set_id=set_id,
+            target_node_key=node_key,
+            source_analysis_revision=source_analysis_revision,
+            teaching_class_id=teaching_class_id,
+            session_id=session_id,
+            name=f"{artifact_name} · {node_key}",
+            template_key=template_key,
+            rubric_snapshot_json=snapshot,
+            source_file_id=source_file_id,
+            source_file_snapshot_json=source_snapshot,
+            script_language=TeacherJudgeScriptLanguage.python,
+            script_content=content,
+            source=(
+                TeacherJudgeScriptSource.regenerated
+                if artifact_set_id is not None
+                else TeacherJudgeScriptSource.ai_generated
+            ),
+            version=version_by_node.get(node_key, 0) + 1,
+            status=status,
+            policy_check_result_json=cast("dict[str, Any]", policy),
+            ai_review_result_json=cast("dict[str, Any]", review),
+            created_by=created_by,
+            approved_at=_now() if status == TeacherJudgeScriptStatus.approved else None,
+            updated_at=_now(),
+        )
+        session.add(artifact)
+        artifacts.append(artifact)
+    session.commit()
+    for artifact in artifacts:
+        session.refresh(artifact)
+    for *_, usage in build_results:
+        _record_script_usage(
+            session=session,
+            user_id=created_by,
+            template_key=template_key,
+            usage_records=usage,
+        )
+    return _script_set_to_public(
+        artifacts,
+        node_order={node.node_key: node.sort_order for node in nodes},
+    )
+
+
 async def regenerate_artifact(
     *,
     session: Session,
@@ -1793,6 +2233,7 @@ async def regenerate_artifact(
             rubric_base["template_key"] = template_key
     else:
         rubric_base = artifact.rubric_snapshot_json
+    _ensure_peer_runtime_supported(rubric_base)
     target_node_keys = target_node_keys_from_snapshot(rubric_base)
     if len(target_node_keys) > 1:
         raise HTTPException(
