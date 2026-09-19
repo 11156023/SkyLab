@@ -121,6 +121,34 @@ def test_clone_with_fallback_falls_back_to_full(
     assert cleaned == [102]
 
 
+def test_clone_with_fallback_does_not_delete_on_vmid_collision(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[dict[str, Any]] = []
+
+    def fake_clone_vm(node: str, template_vmid: int, **config: Any) -> str:
+        calls.append(dict(config))
+        raise RuntimeError("500 Internal Server Error: CT 487 already exists on node 'pve'")
+
+    monkeypatch.setattr(clone_service.proxmox_ops, "clone_vm", fake_clone_vm)
+    monkeypatch.setattr(
+        provisioning_service,
+        "cleanup_provisioned_resource",
+        lambda _vmid: pytest.fail("must not delete a VM owned by another worker"),
+    )
+
+    with pytest.raises(RuntimeError, match="already exists"):
+        clone_service.clone_with_fallback(
+            node="pve1",
+            template_vmid=9001,
+            new_vmid=487,
+            hostname="stu- collision",
+            resource_type="qemu",
+        )
+
+    assert [call["full"] for call in calls] == [0]
+
+
 def test_clone_with_fallback_lxc_uses_hostname_key(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

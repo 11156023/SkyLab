@@ -9,6 +9,7 @@
 
 import ipaddress
 import logging
+import uuid
 
 from sqlmodel import Session, func, select
 
@@ -328,7 +329,8 @@ def allocate_ip(
         if reserved is None:
             raise ConflictError(t("ipManagement.reservedIpNotFound"))
         if reserved.vmid not in (None, vmid):
-            raise ConflictError(t("ipManagement.reservedIpAlreadyUsed"))
+            if not _reclaim_stale_class_reservation(session, reserved):
+                raise ConflictError(t("ipManagement.reservedIpAlreadyUsed"))
         reserved.vmid = vmid
         reserved.resource_vmid = (
             vmid if session.get(Resource, vmid) is not None else None
@@ -365,16 +367,114 @@ def allocate_ip(
     raise ConflictError(t("ipManagement.ipPoolExhausted"))
 
 
+def _reclaim_stale_class_reservation(
+    session: Session, reserved: IpAllocation
+) -> bool:
+    """回收一次已被錯誤 VMID 綁定、但沒有對應資源的課程預留列。
+
+    早期批次回滾只以 VMID 查詢，可能把 A 任務的預留列留在 B 的 VMID
+    上。這裡只在能證明該 VMID 已屬於同班同學生、但**不同邏輯節點**的
+    已登記資源時自動修復；查不到完整關係就維持原本的衝突保護，避免把
+    仍在使用的 IP 誤釋放。
+    """
+    if (
+        not reserved.reservation_key
+        or reserved.teaching_class_id is None
+        or reserved.resource_vmid is not None
+        or reserved.vmid is None
+    ):
+        return False
+
+    class_raw, separator, remainder = reserved.reservation_key.partition(":")
+    node_key, user_separator, user_raw = remainder.rpartition(":")
+    if not separator or not user_separator or not node_key:
+        return False
+    try:
+        class_id = uuid.UUID(class_raw)
+        user_id = uuid.UUID(user_raw)
+    except ValueError:
+        return False
+    if class_id != reserved.teaching_class_id:
+        return False
+
+    resource = session.get(Resource, reserved.vmid)
+    if resource is None:
+        return False
+    if (
+        resource.teaching_class_id != reserved.teaching_class_id
+        or resource.user_id != user_id
+        or resource.batch_job_id is None
+    ):
+        return False
+
+    # Local imports keep this low-level network service independent from the
+    # batch service's module import order.
+    from app.models import BatchProvisionJob, TeachingClassMachineNode
+
+    job = session.get(BatchProvisionJob, resource.batch_job_id)
+    if job is None or job.teaching_class_id != reserved.teaching_class_id:
+        return False
+    node = session.exec(
+        select(TeachingClassMachineNode).where(
+            TeachingClassMachineNode.batch_job_id == job.id,
+            TeachingClassMachineNode.node_key == node_key,
+        )
+    ).first()
+    if node is not None:
+        # The live resource belongs to this logical node; the reservation is
+        # not stale even if the batch job itself was retried.
+        return False
+
+    reserved.vmid = None
+    reserved.resource_vmid = None
+    reserved.purpose = "class_reserved"
+    reserved.description = f"班級預留 {reserved.reservation_key}"
+    session.add(reserved)
+    session.flush()
+    logger.warning(
+        "Reclaimed stale class IP reservation key=%s bound to unrelated VMID=%s",
+        reserved.reservation_key,
+        resource.vmid,
+    )
+    return True
+
+
+def link_ip_to_resource(
+    session: Session,
+    vmid: int,
+    *,
+    reservation_key: str | None = None,
+) -> bool:
+    """將成功建立的資源寫回 allocation 的正式 FK。"""
+    conditions = [IpAllocation.vmid == vmid]
+    if reservation_key is not None:
+        conditions.append(IpAllocation.reservation_key == reservation_key)
+    allocation = session.exec(select(IpAllocation).where(*conditions)).first()
+    if allocation is None:
+        return False
+    allocation.resource_vmid = vmid
+    session.add(allocation)
+    session.flush()
+    return True
+
+
 def release_ip(
     session: Session,
     vmid: int,
     *,
     restore_reservation: bool = False,
+    reservation_key: str | None = None,
 ) -> str | None:
-    """釋放指定 VMID 的 IP 分配，回傳被釋放的 IP 或 None。"""
-    alloc = session.exec(
-        select(IpAllocation).where(IpAllocation.vmid == vmid)
-    ).first()
+    """釋放指定 VMID 的 IP 分配，回傳被釋放的 IP 或 None。
+
+    批次課程會讓多個候選任務短暫使用同一個 VMID。回滾時若只用
+    ``vmid`` 查詢，可能釋放到另一個任務的預留列；有穩定預留鍵時必須
+    同時比對鍵與 VMID，讓失敗任務只能回收自己成功寫入的那一列。
+    """
+    conditions = [IpAllocation.vmid == vmid]
+    if reservation_key is not None:
+        conditions.append(IpAllocation.reservation_key == reservation_key)
+    alloc = session.exec(select(IpAllocation).where(*conditions)).first()
     if alloc is None:
         logger.debug("VMID %s 無 IP 分配記錄，跳過釋放", vmid)
         return None

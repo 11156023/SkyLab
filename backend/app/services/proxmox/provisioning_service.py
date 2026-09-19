@@ -431,7 +431,6 @@ def create_lxc(
     ``target_node`` 由呼叫端指定時優先採用 —— 課堂機器以此把整班鎖在同一個
     叢集內（預設的 pick_target_node 會在所有連線間自由挑選）。
     """
-    vmid = proxmox_service.next_vmid()
     target_node = target_node or _get_lxc_target_node()
     target_storage = _resolve_managed_storage(
         session=session,
@@ -443,41 +442,49 @@ def create_lxc(
     )
     # 取得網路配置並分配 IP
     net_cfg = ip_management_service.get_network_config_for_vm(session)
-    allocated_ip = ip_management_service.allocate_ip(
-        session, vmid, "lxc", reservation_key=ip_reservation_key
-    )
-
+    vmid: int | None = None
+    allocated_ip: str | None = None
     created = False
     try:
-        # Generate SSH key pair for platform access
-        private_key_pem, public_key = generate_ed25519_keypair()
+        # ``next_vmid`` 與第一個 create 呼叫必須在同一個跨 worker 鎖內，
+        # 否則不同批次執行緒仍可能讀到相同的 cluster.nextid。
+        with proxmox_service.vmid_allocation_lock(
+            db_engine=session.get_bind()
+        ):
+            vmid = proxmox_service.next_vmid()
+            allocated_ip = ip_management_service.allocate_ip(
+                session, vmid, "lxc", reservation_key=ip_reservation_key
+            )
 
-        net0_parts = (
-            f"name=eth0,bridge={net_cfg['bridge_name']},"
-            f"ip={allocated_ip}/{net_cfg['prefix_len']},"
-            f"gw={net_cfg['gateway']},firewall=1"
-        )
-        config = {
-            "vmid": vmid,
-            "hostname": to_punycode_hostname(lxc_data.hostname),
-            "ostemplate": lxc_data.ostemplate,
-            "cores": lxc_data.cores,
-            "memory": lxc_data.memory,
-            "swap": 512,
-            "rootfs": f"{target_storage}:{lxc_data.rootfs_size}",
-            "password": lxc_data.password,
-            "net0": net0_parts,
-            "unprivileged": int(lxc_data.unprivileged),
-            "start": int(lxc_data.start),
-            "pool": get_proxmox_settings_for_node(target_node).pool_name,
-            "features": "nesting=1",
-            "ssh-public-keys": public_key,
-        }
-        if net_cfg.get("dns_servers"):
-            config["nameserver"] = net_cfg["dns_servers"]
+            # Generate SSH key pair for platform access
+            private_key_pem, public_key = generate_ed25519_keypair()
 
-        result = proxmox_service.create_lxc(target_node, **config)
-        created = True
+            net0_parts = (
+                f"name=eth0,bridge={net_cfg['bridge_name']},"
+                f"ip={allocated_ip}/{net_cfg['prefix_len']},"
+                f"gw={net_cfg['gateway']},firewall=1"
+            )
+            config = {
+                "vmid": vmid,
+                "hostname": to_punycode_hostname(lxc_data.hostname),
+                "ostemplate": lxc_data.ostemplate,
+                "cores": lxc_data.cores,
+                "memory": lxc_data.memory,
+                "swap": 512,
+                "rootfs": f"{target_storage}:{lxc_data.rootfs_size}",
+                "password": lxc_data.password,
+                "net0": net0_parts,
+                "unprivileged": int(lxc_data.unprivileged),
+                "start": int(lxc_data.start),
+                "pool": get_proxmox_settings_for_node(target_node).pool_name,
+                "features": "nesting=1",
+                "ssh-public-keys": public_key,
+            }
+            if net_cfg.get("dns_servers"):
+                config["nameserver"] = net_cfg["dns_servers"]
+
+            result = proxmox_service.create_lxc(target_node, **config)
+            created = True
 
         firewall_service.setup_default_rules(target_node, vmid, "lxc")
 
@@ -492,6 +499,11 @@ def create_lxc(
             ssh_public_key=public_key,
             batch_job_id=batch_job_id,
             commit=False,
+        )
+        ip_management_service.link_ip_to_resource(
+            session,
+            vmid,
+            reservation_key=ip_reservation_key,
         )
 
         audit_service.log_action(
@@ -532,15 +544,17 @@ def create_lxc(
         # 釋放已分配的 IP
         try:
             with Session(session.get_bind()) as cleanup_session:
-                ip_management_service.release_ip(
-                    cleanup_session,
-                    vmid,
-                    restore_reservation=bool(ip_reservation_key),
-                )
+                if vmid is not None:
+                    ip_management_service.release_ip(
+                        cleanup_session,
+                        vmid,
+                        restore_reservation=bool(ip_reservation_key),
+                        reservation_key=ip_reservation_key,
+                    )
                 cleanup_session.commit()
         except Exception:
-            logger.warning("Failed to release IP for LXC %d during cleanup", vmid)
-        if created:
+            logger.warning("Failed to release IP for LXC %s during cleanup", vmid)
+        if created and vmid is not None:
             try:
                 rules = firewall_service.get_vm_firewall_rules(target_node, vmid, "lxc")
                 for r in sorted(rules, key=lambda x: x.get("pos", 0), reverse=True):
@@ -576,7 +590,6 @@ def create_vm(
     batch_job_id: uuid.UUID | None = None,
     ip_reservation_key: str | None = None,
 ) -> VMCreateResponse:
-    new_vmid = proxmox_service.next_vmid()
     target_node = _get_vm_target_node(vm_data.template_id)
     target_storage = _resolve_managed_storage(
         session=session,
@@ -589,27 +602,33 @@ def create_vm(
 
     # 取得網路配置並分配 IP
     net_cfg = ip_management_service.get_network_config_for_vm(session)
-    allocated_ip = ip_management_service.allocate_ip(
-        session, new_vmid, "vm", reservation_key=ip_reservation_key
-    )
-
+    new_vmid: int | None = None
+    allocated_ip: str | None = None
     created = False
     try:
-        # Generate SSH key pair for platform access
-        private_key_pem, public_key = generate_ed25519_keypair()
+        with proxmox_service.vmid_allocation_lock(
+            db_engine=session.get_bind()
+        ):
+            new_vmid = proxmox_service.next_vmid()
+            allocated_ip = ip_management_service.allocate_ip(
+                session, new_vmid, "vm", reservation_key=ip_reservation_key
+            )
 
-        clone_config = {
-            "newid": new_vmid,
-            "name": to_punycode_hostname(vm_data.hostname),
-            "full": 1,
-            "storage": target_storage,
-            "pool": get_proxmox_settings_for_node(target_node).pool_name,
-        }
+            # Generate SSH key pair for platform access
+            private_key_pem, public_key = generate_ed25519_keypair()
 
-        result = proxmox_service.clone_vm(
-            target_node, vm_data.template_id, **clone_config
-        )
-        created = True
+            clone_config = {
+                "newid": new_vmid,
+                "name": to_punycode_hostname(vm_data.hostname),
+                "full": 1,
+                "storage": target_storage,
+                "pool": get_proxmox_settings_for_node(target_node).pool_name,
+            }
+
+            result = proxmox_service.clone_vm(
+                target_node, vm_data.template_id, **clone_config
+            )
+            created = True
 
         config_updates = {
             "cores": vm_data.cores,
@@ -655,6 +674,11 @@ def create_vm(
             batch_job_id=batch_job_id,
             commit=False,
         )
+        ip_management_service.link_ip_to_resource(
+            session,
+            new_vmid,
+            reservation_key=ip_reservation_key,
+        )
 
         audit_service.log_action(
             session=session,
@@ -694,15 +718,17 @@ def create_vm(
         # 釋放已分配的 IP
         try:
             with Session(session.get_bind()) as cleanup_session:
-                ip_management_service.release_ip(
-                    cleanup_session,
-                    new_vmid,
-                    restore_reservation=bool(ip_reservation_key),
-                )
+                if new_vmid is not None:
+                    ip_management_service.release_ip(
+                        cleanup_session,
+                        new_vmid,
+                        restore_reservation=bool(ip_reservation_key),
+                        reservation_key=ip_reservation_key,
+                    )
                 cleanup_session.commit()
         except Exception:
-            logger.warning("Failed to release IP for VM %d during cleanup", new_vmid)
-        if created:
+            logger.warning("Failed to release IP for VM %s during cleanup", new_vmid)
+        if created and new_vmid is not None:
             try:
                 rules = firewall_service.get_vm_firewall_rules(
                     target_node, new_vmid, "qemu"
@@ -1193,6 +1219,11 @@ def provision_from_request(
         ),
         request_id=getattr(db_request, "id", None),
         commit=False,
+    )
+    ip_management_service.link_ip_to_resource(
+        session,
+        new_vmid,
+        reservation_key=plan.get("ip_reservation_key"),
     )
     return new_vmid, actual_node, plan["placement_strategy"]
 
