@@ -1,8 +1,9 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import {
   Background,
-  Handle,
-  Position,
+  BackgroundVariant,
+  Controls,
+  Panel,
   ReactFlow,
   useNodesState,
 } from "@xyflow/react";
@@ -13,27 +14,42 @@ import LoadingState from "../../../components/LoadingState/LoadingState";
 import MIcon from "../../../components/MIcon";
 import { useConfirm } from "../../../components/ConfirmDialog/ConfirmProvider";
 import { CourseEnvironmentsService } from "../../../services/courseEnvironments";
-import { TeachingClassesService } from "../../../services/teachingClasses";
 import { apiGet } from "../../../services/api";
 import { focusInvalidField } from "../../../utils/focusField";
 import { useToast } from "../../../hooks/useToast";
+import useDialogPresence from "../../../hooks/useDialogPresence";
 import EmptyState from "../../../components/EmptyState/EmptyState";
 import { TemplatesService } from "../../../services/templates";
 import ConnectionEdge from "../../network/firewall/edges/ConnectionEdge";
+import GatewayNode from "../../network/firewall/nodes/GatewayNode";
+import ConnectionDetailPanel from "../../network/firewall/ConnectionDetailPanel";
+import fwStyles from "../../network/firewall/FirewallPage.module.scss";
+import { ThemeContext } from "../../../contexts/ThemeContext";
+import NodeHandles from "../../network/firewall/nodes/NodeHandles";
+import { describePort, routeEdges } from "../../network/firewall/utils/buildFlow";
+import ConnectionDialog, { INTERNET_KEY } from "../../../components/ConnectionDialog/ConnectionDialog";
+import { INTENT } from "../../../components/ConnectionDialog/intents";
+import { previewTemplateHostname } from "../../../components/ConnectionDialog/connectionPayload";
+import { publicationLabel } from "../courseTopology";
 import styles from "../CourseOperations.module.scss";
 import PageHeader from "../../../components/PageHeader/PageHeader";
 import i18n from "../../../i18n";
+import { AuthStorage } from "../../../services/auth";
+import { createEnvironmentAutosave } from "./environmentAutosave";
 
 const TABS = [
-  ["basic", "CourseTemplateEditorPage.tabBasicLabel", "CourseTemplateEditorPage.stepBasicHint"],
-  ["machines", "CourseTemplateEditorPage.tabMachinesLabel", "CourseTemplateEditorPage.stepMachinesHint"],
+  ["basic", "CourseTemplateEditorPage.tabBasicLabel"],
+  ["machines", "CourseTemplateEditorPage.tabMachinesLabel"],
 ];
 
 function makeEmptyTemplate() {
-  return { id: "new", name: "", description: "", usageScope: "course", audience: "class", audienceClassIds: [], maxConcurrentSessions: null, status: "draft", classes: 0, updatedAt: i18n.t("CourseTemplateEditorPage.notSavedYet", { ns: "teaching" }), nodes: [], edges: [], publications: [] };
+  return { id: "new", name: "", description: "", usageScope: "course", status: "draft", classes: 0, updatedAt: i18n.t("CourseTemplateEditorPage.notSavedYet", { ns: "teaching" }), nodes: [], edges: [], publications: [], peerPolicy: "explicit" };
 }
 
-const FIREWALL_PROTOCOLS = ["tcp", "udp", "icmp", "icmpv6", "sctp"];
+/* 課程環境只有「開放服務」與「互通」：上網預設全開、自己寫規則沒有可樣板化的語意 */
+const COURSE_INTENTS = [INTENT.PUBLISH, INTENT.PEER];
+/* 網際網路節點沒有存到版本裡，位置放元件內；預設在三台機器的右側 */
+const INTERNET_POSITION = { x: 60 + 3 * 260, y: 120 };
 
 /** 規格滑桿範圍；後端上限為 64 核 / 128 GB RAM / 2000 GB Disk，這裡取教學情境的保守值。 */
 const CPU_RANGE = [1, 32];
@@ -63,74 +79,40 @@ function overlapsExistingEdge(candidate, existingEdges) {
   ))));
 }
 
-/** 主機名樣板用的機器代稱：取名稱的前兩段，避免整串映像檔名進網址。 */
-function hostnameSlug(name) {
-  const parts = String(name).toLowerCase().replace(/[^a-z0-9]+/g, "-").split("-").filter(Boolean);
-  return parts.slice(0, 2).join("-").slice(0, 20).replace(/-$/, "") || "app";
-}
-
 /** LXC 映像是 tarball，檔名直接當機器名稱又臭又長，去掉封裝副檔名。 */
 function stripImageExtension(name) {
   return String(name).replace(/\.tar(\.(gz|xz|zst|bz2|lzo))?$/i, "");
 }
 
-function TopologyMachineNode({ data, selected, isConnectable }) {
-  const { t } = useTranslation("teaching");
+/* 節點長得跟防火牆拓撲的 VMNode 一樣：狀態點、名稱、副標、型別圖示、右上角對外數。
+   模板機器還沒開出來，狀態點用中性色；副標放規格取代 IP。 */
+function TopologyMachineNode({ data, selected }) {
   const node = data.node;
-  return <div className={`${styles.flowMachineNode} ${selected ? styles.flowMachineNodeSelected : ""}`}>
-    <Handle type="target" position={Position.Left} isConnectable={isConnectable} />
-    <div className={styles.flowNodeIcon}><MIcon name={node.type === "lxc" ? "terminal" : "dns"} size={18} /></div>
-    <div className={styles.flowNodeLabel}>
-      <strong title={node.name}>{node.name}</strong>
-      <span>{node.sourceType === "custom" ? t("CourseTemplateEditorPage.sourceCustomShort") : t("CourseTemplateEditorPage.sourceTemplateShort")} · {node.type === "lxc" ? t("CourseTemplateEditorPage.typeContainerLxc") : t("CourseTemplateEditorPage.typeVm")}</span>
-      <small>{node.cpu} CPU · {node.memory} GB RAM · {node.disk} GB</small>
+  const exposed = data.exposedCount ?? 0;
+  return <div className={`${fwStyles.vmNode} ${selected ? fwStyles.nodeSelected : ""}`}>
+    <NodeHandles dragStartSide="right" />
+    <div className={fwStyles.vmStatus} style={{ background: "var(--color-status-neutral)" }} />
+    <div className={fwStyles.vmInfo}>
+      <span className={fwStyles.vmName} title={node.name}>{node.name}</span>
+      <span className={fwStyles.vmMeta}>{node.cpu} CPU · {node.memory} GB · {node.disk} GB</span>
     </div>
-    <Handle type="source" position={Position.Right} isConnectable={isConnectable} />
+    <MIcon name={node.type === "lxc" ? "terminal" : "dns"} size={15} />
+    {exposed > 0 && <span className={fwStyles.exposedBadge}><MIcon name="public" size={11} />{exposed}</span>}
   </div>;
 }
 
-const TOPOLOGY_NODE_TYPES = { courseMachine: TopologyMachineNode };
+const TOPOLOGY_NODE_TYPES = { courseMachine: TopologyMachineNode, gateway: GatewayNode };
 const TOPOLOGY_EDGE_TYPES = { connection: ConnectionEdge };
 
-/** 對外服務的設定對話框：欄位放這裡，側欄只留一行摘要。 */
-function PublicationDialog({ draft, zones, siblings, onChange, onSave, onClose }) {
-  const { t } = useTranslation("teaching");
-  const isDomain = draft.mode === "domain";
-  const duplicated = isDomain && siblings.some((item) => (
-    item.id !== draft.id && item.mode === "domain" && item.hostnamePrefix === draft.hostnamePrefix
-  ));
-  const missingPlaceholder = isDomain && (
-    !draft.hostnamePrefix.includes("{class}") || !draft.hostnamePrefix.includes("{student}")
-  );
-  const hostnameValid = !isDomain
-    || (!missingPlaceholder && Boolean(draft.zoneId) && !duplicated);
-  const zone = zones.find((item) => item.id === draft.zoneId);
-  const preview = `${String(draft.hostnamePrefix || "").replace("{class}", "linux101-a1b2c3").replace("{student}", "s8f21c4a2")}${zone ? `.${zone.name}` : ""}`;
 
-  return <div className={styles.createDialogOverlay} role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
-    <section className={`${styles.createDialog} ${styles.publicationDialog}`} role="dialog" aria-modal="true" aria-labelledby="publication-dialog-title">
-      <header className={styles.createDialogHeader}>
-        <h2 id="publication-dialog-title">{t("CourseTemplateEditorPage.publicAccessLabel")}</h2>
-        <button type="button" className={styles.iconBtn} aria-label={t("CourseTemplateEditorPage.closeAriaLabel")} onClick={onClose}><MIcon name="close" size={19} /></button>
-      </header>
-      <div className={styles.publicationDialogBody}>
-        <div className={styles.inspectorSplit}>
-          <label className={styles.field}><span>{t("CourseTemplateEditorPage.fieldInternalPort")}</span><input type="number" min="1" max="65535" value={draft.port} onChange={(event) => onChange({ port: Number(event.target.value) })} /></label>
-          <label className={styles.field}><span>{t("CourseTemplateEditorPage.fieldPublishMode")}</span><select value={draft.mode} onChange={(event) => onChange({ mode: event.target.value })}><option value="domain" disabled={!zones.length}>{t("CourseTemplateEditorPage.publishModeDomain")}</option><option value="firewall_only">{t("CourseTemplateEditorPage.publishModeFirewallOnly")}</option></select></label>
-        </div>
-        {!zones.length && <p className={styles.inspectorHint}>{t("CourseTemplateEditorPage.noZoneHint")}</p>}
-        {isDomain && <>
-          <label className={styles.field}><span>{t("CourseTemplateEditorPage.fieldHostnameTemplate")}</span><input value={draft.hostnamePrefix} onChange={(event) => onChange({ hostnamePrefix: event.target.value })} placeholder="{class}-{student}-app" /></label>
-          <label className={styles.field}><span>{t("CourseTemplateEditorPage.fieldZone")}</span><select value={draft.zoneId} onChange={(event) => onChange({ zoneId: event.target.value })}>{zones.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
-          <p className={styles.inspectorHint}>{missingPlaceholder ? t("CourseTemplateEditorPage.hostnamePlaceholderRequired") : duplicated ? t("CourseTemplateEditorPage.duplicateHostnameHint") : t("CourseTemplateEditorPage.hostnameTemplateHint", { example: preview })}</p>
-        </>}
-      </div>
-      <footer className={styles.createDialogFooter}>
-        <button type="button" className={styles.btnSecondary} onClick={onClose}>{t("CourseTemplateEditorPage.cancelBtn")}</button>
-        <button type="button" className={styles.btnPrimary} disabled={!hostnameValid} onClick={() => onSave(draft)}>{t("CourseTemplateEditorPage.confirmBtn")}</button>
-      </footer>
-    </section>
-  </div>;
+
+
+
+function formatFileSize(bytes) {
+  const size = Number(bytes ?? 0);
+  if (size < 1024) return `${size} B`;
+  if (size < 1024 * 1024) return `${Math.round(size / 1024)} KB`;
+  return `${(size / (1024 * 1024)).toFixed(1)} MB`;
 }
 
 function MachineEditor({ value, edges, publications, onChange, onEdgesChange, onPublicationsChange, pveTemplates, vmImages, lxcImages, zones, sourceNotice, locked = false, actions = null }) {
@@ -140,11 +122,33 @@ function MachineEditor({ value, edges, publications, onChange, onEdgesChange, on
   const [customType, setCustomType] = useState("qemu");
   const [selectedNodeId, setSelectedNodeId] = useState("");
   const [selectedEdgeId, setSelectedEdgeId] = useState("");
+  const [selectedPublicationId, setSelectedPublicationId] = useState("");
+  /* 上網線（機器 → 網際網路）是預設策略，不是規則：每台都有一條，全畫出來會淹掉
+     互通與對外服務，所以跟防火牆頁一樣預設藏起來，要看再開 */
+  const [selectedOutboundKey, setSelectedOutboundKey] = useState("");
+  const [showInternet, setShowInternet] = useState(false);
   const [flowNodes, setFlowNodes, onFlowNodesChange] = useNodesState([]);
+  const [internetPosition, setInternetPosition] = useState(INTERNET_POSITION);
   const [topologyNotice, setTopologyNotice] = useState("");
-  const [publicationDraft, setPublicationDraft] = useState(null);
+  /* 與防火牆頁同一個連線對話框：拉線帶入兩端，或按「新增連線」從選意圖開始 */
+  const [dialog, setDialog] = useState(null); // { initialSource, initialTarget, service, publicationId }
+  const dialogPresence = useDialogPresence(dialog);
+  /* 畫布配色跟防火牆頁一樣跟著主題；沒有 provider（測試）就當淺色 */
+  const theme = useContext(ThemeContext)?.theme ?? "light";
   const sourceOptions = sourceMode === "template" ? pveTemplates : (customType === "lxc" ? lxcImages : vmImages);
   const atLimit = value.length >= 3;
+  /* 對話框的機器清單：模板沒有 vmid，只認 node key */
+  const dialogNodes = useMemo(() => value.map((node) => ({ key: String(node.id), vmid: null, name: node.name })), [value]);
+
+  function selectNode(nodeId) { setSelectedNodeId(nodeId); setSelectedEdgeId(""); setSelectedPublicationId(""); setSelectedOutboundKey(""); }
+  function selectEdge(edgeId) { setSelectedEdgeId(edgeId); setSelectedNodeId(""); setSelectedPublicationId(""); setSelectedOutboundKey(""); }
+  function selectPublication(publicationId) { setSelectedPublicationId(publicationId); setSelectedNodeId(""); setSelectedEdgeId(""); setSelectedOutboundKey(""); }
+  function selectOutbound(nodeKey) { setSelectedOutboundKey(nodeKey); setSelectedNodeId(""); setSelectedEdgeId(""); setSelectedPublicationId(""); }
+  function toggleInternet() {
+    const next = !showInternet;
+    setShowInternet(next);
+    if (!next && selectedOutboundKey) selectNode("");
+  }
 
   function addMachine() {
     if (atLimit || !sourceId) return;
@@ -172,8 +176,7 @@ function MachineEditor({ value, edges, publications, onChange, onEdgesChange, on
         positionX: 60 + value.length * 260, positionY: 120,
       }]);
     }
-    setSelectedNodeId(nodeId);
-    setSelectedEdgeId("");
+    selectNode(nodeId);
     setSourceId("");
   }
 
@@ -181,107 +184,155 @@ function MachineEditor({ value, edges, publications, onChange, onEdgesChange, on
     onChange(value.filter((item) => item.id !== nodeId));
     onEdgesChange(edges.filter((edge) => edge.source !== nodeId && edge.target !== nodeId));
     onPublicationsChange(publications.filter((item) => item.nodeKey !== nodeId));
-    setSelectedNodeId("");
-  }
-
-  function newPublication(node) {
-    const used = new Set(publications.filter((item) => item.nodeKey === node.id).map((item) => `${item.port}/${item.protocol}`));
-    const port = [80, 443, 8080, 3000, 5678].find((candidate) => !used.has(`${candidate}/tcp`)) ?? 8000;
-    return {
-      id: `publication-${Date.now()}`,
-      nodeKey: node.id,
-      mode: zones.length ? "domain" : "firewall_only",
-      port,
-      protocol: "tcp",
-      // 樣板必須帶 {student}，否則全班會搶同一個網址；同一份環境裡也不能重複，
-      // 一個網址只能指向一個 port
-      hostnamePrefix: uniqueHostnamePrefix(`{class}-{student}-${hostnameSlug(node.name)}`, port),
-      zoneId: zones[0]?.id ?? "",
-      enableHttps: true,
-    };
-  }
-
-  /** 樣板撞到既有的就補上 port，避免多條網址指向同一個位址。 */
-  function uniqueHostnamePrefix(base, port) {
-    const taken = new Set(publications.filter((item) => item.mode === "domain").map((item) => item.hostnamePrefix));
-    return taken.has(base) ? `${base}-${port}` : base;
-  }
-
-  function savePublication(draft) {
-    const exists = publications.some((item) => item.id === draft.id);
-    onPublicationsChange(exists
-      ? publications.map((item) => item.id === draft.id ? draft : item)
-      : [...publications, draft]);
-    setPublicationDraft(null);
+    selectNode("");
   }
 
   function removePublication(publicationId) {
     onPublicationsChange(publications.filter((item) => item.id !== publicationId));
+    if (selectedPublicationId === publicationId) selectNode("");
   }
 
+
+  /** 拉線：機器 → 機器是互通；碰到網際網路（不管哪個方向）都是開放服務。 */
   function connect(connection) {
     if (locked || connection.source === connection.target) return;
-    const edge = {
-      id: `edge-${Date.now()}`,
-      source: connection.source,
-      target: connection.target,
-      direction: "one_way",
-      protocol: "tcp",
-      port: 22,
-    };
-    if (overlapsExistingEdge(edge, edges)) {
-      setTopologyNotice(t("CourseTemplateEditorPage.overlappingEdgeNotice"));
-      return;
+    const touchesInternet = connection.source === INTERNET_KEY || connection.target === INTERNET_KEY;
+    const machine = connection.source === INTERNET_KEY ? connection.target : connection.source;
+    setDialog(touchesInternet
+      ? { initialSource: INTERNET_KEY, initialTarget: String(machine) }
+      : { initialSource: String(connection.source), initialTarget: String(connection.target) });
+  }
+
+  /** 對話框送出：不打 API，收進規格陣列；錯誤用對話框自己的訊息列顯示。 */
+  function handleDialogSubmit(request) {
+    if (request.kind === "inbound") {
+      const nodeKey = String(request.vmKey);
+      const editingId = dialog?.publicationId ?? null;
+      const others = publications.filter((item) => item.id !== editingId);
+      const items = request.publish.map((item, index) => ({
+        id: editingId ?? `publication-${Date.now()}-${index}`,
+        nodeKey,
+        mode: item.mode,
+        port: item.port,
+        protocol: item.protocol,
+        hostnamePrefix: item.hostname_prefix ?? "",
+        zoneId: item.zone_id ?? "",
+        enableHttps: item.enable_https !== false,
+      }));
+      const duplicatePort = items.find((item) => others.some((other) => other.nodeKey === item.nodeKey && Number(other.port) === Number(item.port) && other.protocol === item.protocol));
+      if (duplicatePort) return { ok: false, error: { text: t("CourseTemplateEditorPage.duplicatePublicationPort", { port: duplicatePort.port }) } };
+      /* 一個網址只能指向一個 port：同一份環境裡的樣板不能重複 */
+      const duplicateHostname = items.find((item) => item.mode === "domain" && others.some((other) => other.mode === "domain" && other.hostnamePrefix === item.hostnamePrefix));
+      if (duplicateHostname) return { ok: false, error: { text: t("CourseTemplateEditorPage.duplicateHostnameHint") } };
+      onPublicationsChange([...others, ...items]);
+      selectPublication(items[0].id);
+      return { ok: true, result: { kind: "publish" } };
     }
-    setTopologyNotice("");
-    onEdgesChange([...edges, edge]);
-    setSelectedEdgeId(edge.id);
-    setSelectedNodeId("");
+    if (request.kind === "edge") {
+      /* 課程連線一條一個 port；沒有 port 的協定（icmp）後端不收 */
+      if (request.ports.some((port) => !port.port)) {
+        return { ok: false, error: { text: t("CourseTemplateEditorPage.portlessUnsupported") } };
+      }
+      const added = request.ports.map((port, index) => ({
+        id: `edge-${Date.now()}-${index}`,
+        source: String(request.sourceKey),
+        target: String(request.targetKey),
+        direction: request.direction,
+        protocol: port.protocol,
+        port: port.port,
+      }));
+      const overlapping = added.find((edge, index) => overlapsExistingEdge(edge, [...edges, ...added.slice(0, index)]));
+      if (overlapping) return { ok: false, error: { text: t("CourseTemplateEditorPage.overlappingEdgeNotice") } };
+      setTopologyNotice("");
+      onEdgesChange([...edges, ...added]);
+      selectEdge(added[0].id);
+      return { ok: true, result: { kind: "connection" } };
+    }
+    return { ok: false, error: { text: t("CourseTemplateEditorPage.dialogUnsupported") } };
   }
 
   function patchNode(nodeId, patch) {
     onChange(value.map((item) => item.id === nodeId ? { ...item, ...patch } : item));
   }
 
-  function patchEdge(patch) {
-    const current = edges.find((edge) => edge.id === selectedEdgeId);
-    if (!current) return;
-    const next = { ...current, ...patch };
-    // 改成雙向或換 port 都可能撞到既有連線，改之前先擋，別等存檔才失敗。
-    if (overlapsExistingEdge(next, edges)) {
-      setTopologyNotice(t("CourseTemplateEditorPage.overlappingEdgeNotice"));
-      return;
-    }
-    setTopologyNotice("");
-    onEdgesChange(edges.map((edge) => edge.id === selectedEdgeId ? next : edge));
-  }
 
   function removeEdge(edgeId) {
     onEdgesChange(edges.filter((edge) => edge.id !== edgeId));
-    setSelectedEdgeId("");
+    selectNode("");
   }
 
   const selectedEdge = edges.find((edge) => edge.id === selectedEdgeId);
-  const selectedNode = value.find((node) => node.id === selectedNodeId) ?? (!selectedEdge ? value[0] : null);
-  // 來自 PVE 範本的機器沿用範本規格，只有自訂規格可調整。
-  const specLocked = locked || selectedNode?.sourceType !== "custom";
-  // 自訂規格的 VM 其實也是克隆一台 PVE 範本機，磁碟不可小於該範本。
+  const selectedPublication = publications.find((item) => item.id === selectedPublicationId);
+  const selectedNode = value.find((node) => node.id === selectedNodeId) ?? value[0];
+  const nameOf = (key) => (key === null || key === undefined || key === INTERNET_KEY
+    ? t("GatewayNode.internet", { ns: "network" })
+    : (value.find((node) => String(node.id) === String(key))?.name ?? String(key)));
+  /* 點線就用防火牆頁同一個細節面板：講清楚開了什麼、往哪個方向，刪除收在裡面。
+     模板上的線沒有東西可「編輯」——要改就刪掉重拉，跟防火牆頁一樣。 */
+  const detail = useMemo(() => {
+    if (selectedOutboundKey) {
+      return {
+        id: `outbound-${selectedOutboundKey}`,
+        edge: { source_vmid: String(selectedOutboundKey), target_vmid: null, direction: "one_way", ports: [] },
+        remove: null,
+      };
+    }
+    if (selectedEdge) {
+      return {
+        id: `edge-${selectedEdge.id}`,
+        edge: {
+          source_vmid: String(selectedEdge.source),
+          target_vmid: String(selectedEdge.target),
+          direction: selectedEdge.direction,
+          ports: [{ port: selectedEdge.protocol === "any" ? 0 : Number(selectedEdge.port), protocol: selectedEdge.protocol }],
+        },
+        remove: () => removeEdge(selectedEdge.id),
+      };
+    }
+    if (selectedPublication) {
+      const zone = zones.find((item) => item.id === selectedPublication.zoneId);
+      return {
+        id: `publication-${selectedPublication.id}`,
+        edge: {
+          source_vmid: null,
+          target_vmid: String(selectedPublication.nodeKey),
+          direction: "one_way",
+          ports: [selectedPublication.mode === "domain"
+            ? { port: selectedPublication.port, protocol: "tcp", mode: "domain", domain: previewTemplateHostname(selectedPublication.hostnamePrefix, zone?.name) }
+            : { port: selectedPublication.port, protocol: selectedPublication.protocol, mode: "port_forward" }],
+        },
+        remove: () => removePublication(selectedPublication.id),
+      };
+    }
+    return null;
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedEdge, selectedPublication, selectedOutboundKey, zones]);
+  const detailPanel = useDialogPresence(detail, 220);
+  // 規格只在草稿可調：已發布版本不可變（班級釘住版本，要改規格得開新版本）。
+  const specLocked = locked;
+  // 規格基準：範本來源以範本自身規格為錨，自訂 VM 以來源映像為錨。
+  const sourceTemplate = selectedNode?.sourceType === "template"
+    ? pveTemplates.find((item) => String(item.id) === String(selectedNode.sourceTemplateId))
+    : null;
   const customVmImage = selectedNode?.sourceType === "custom" && selectedNode?.type !== "lxc"
     ? vmImages.find((item) => item.value === String(selectedNode.customImageRef))
     : null;
-  const vmDiskFloor = Math.max(VM_DISK_RANGE[0], Number(customVmImage?.diskGb) || 0);
-  const diskRange = selectedNode?.type === "lxc"
-    ? LXC_DISK_RANGE
-    : [vmDiskFloor, Math.max(VM_DISK_RANGE[1], vmDiskFloor)];
+  // CPU/RAM 上下皆可調；基準值高於預設上限時把上限撐開，以免拉不回原規格。
+  const baseCpu = Number(sourceTemplate?.default_cores) || 0;
+  const baseMemoryGb = sourceTemplate?.default_memory
+    ? Math.max(1, Math.round(Number(sourceTemplate.default_memory) / 1024))
+    : 0;
+  const cpuRange = [CPU_RANGE[0], Math.max(CPU_RANGE[1], baseCpu)];
+  const memoryRange = [MEMORY_RANGE[0], Math.max(MEMORY_RANGE[1], baseMemoryGb)];
+  // 磁碟只能往上：克隆機天生就是來源大小，PVE resize 不支援縮小。
+  const isLxcNode = selectedNode?.type === "lxc";
+  const diskFloor = Math.max(
+    isLxcNode ? LXC_DISK_RANGE[0] : VM_DISK_RANGE[0],
+    Number(sourceTemplate?.default_disk) || Number(customVmImage?.diskGb) || 0,
+  );
+  const diskCeiling = isLxcNode ? LXC_DISK_RANGE[1] : VM_DISK_RANGE[1];
+  const diskRange = [diskFloor, Math.max(diskCeiling, diskFloor)];
 
-  const nodePublications = publications.filter((item) => item.nodeKey === selectedNode?.id);
-
-  /** 給老師看的示範網址：使用課堂代號與匿名學生識別碼。 */
-  function previewDomain(publication) {
-    const zone = zones.find((item) => item.id === publication.zoneId);
-    const hostname = String(publication.hostnamePrefix || "").replace("{class}", "linux101-a1b2c3").replace("{student}", "s8f21c4a2");
-    return zone ? `${hostname}.${zone.name}` : hostname;
-  }
 
   // 範本清單是非同步載入的，既有節點可能存著低於下限的磁碟值，補正一次。
   useEffect(() => {
@@ -293,22 +344,38 @@ function MachineEditor({ value, edges, publications, onChange, onEdgesChange, on
   useEffect(() => {
     setFlowNodes((previous) => {
       const placed = new Map(previous.map((item) => [item.id, item.position]));
-      return value.map((node, index) => ({
+      const exposure = new Map();
+      for (const publication of publications) {
+        exposure.set(publication.nodeKey, (exposure.get(publication.nodeKey) ?? 0) + 1);
+      }
+      const machines = value.map((node, index) => ({
         id: String(node.id),
         type: "courseMachine",
         position: placed.get(String(node.id)) ?? {
           x: Number(node.positionX ?? (60 + index * 260)),
           y: Number(node.positionY ?? (120 + (index % 2) * 45)),
         },
-        data: { node },
+        data: { node, exposedCount: exposure.get(node.id) ?? 0 },
         selected: selectedNode?.id === node.id,
       }));
+      /* 網際網路節點跟防火牆頁一樣常駐：拖線到它就是「開放服務給外部」，
+         也讓拓撲圖一眼看得出哪幾台對外 */
+      return [...machines, {
+        id: INTERNET_KEY,
+        type: "gateway",
+        position: placed.get(INTERNET_KEY) ?? internetPosition,
+        data: {},
+        selected: false,
+      }];
     });
-  }, [value, selectedNode?.id, setFlowNodes]);
+  }, [value, publications, selectedNode?.id, setFlowNodes, internetPosition]);
 
   // 位置只在放開滑鼠時回寫，一次拖曳只產生一筆變更。
   const commitNodePositions = useCallback((_event, _node, draggedNodes) => {
     const moved = new Map(draggedNodes.map((item) => [item.id, item.position]));
+    const internet = moved.get(INTERNET_KEY);
+    if (internet) setInternetPosition({ x: Math.round(internet.x), y: Math.round(internet.y) });
+    if ([...moved.keys()].every((id) => id === INTERNET_KEY)) return;
     onChange(value.map((node) => {
       const position = moved.get(String(node.id));
       return position
@@ -317,28 +384,64 @@ function MachineEditor({ value, edges, publications, onChange, onEdgesChange, on
     }));
   }, [onChange, value]);
 
-  const graphEdges = useMemo(() => edges.map((edge) => ({
-    ...edge,
-    type: "connection",
-    data: {
-      edge: {
-        course_edge_id: edge.id,
-        source_vmid: edge.source,
-        target_vmid: edge.target,
+  const graphEdges = useMemo(() => {
+    const peerEdges = edges.map((edge) => ({
+      id: edge.id,
+      source: String(edge.source),
+      target: String(edge.target),
+      type: "connection",
+      data: {
+        edge: {
+          course_edge_id: edge.id,
+          source_vmid: String(edge.source),
+          target_vmid: String(edge.target),
+          direction: edge.direction,
+        },
+        label: `${edge.direction === "bidirectional" ? t("CourseTemplateEditorPage.directionBidirectional") : t("CourseTemplateEditorPage.directionOneWay")} · ${describePort({ port: edge.port, protocol: edge.protocol })}`,
+        showLabel: true,
+        selected: edge.id === selectedEdgeId,
+        onSelect: () => selectEdge(edge.id),
+        onDelete: locked ? null : () => removeEdge(edge.id),
       },
-      label: `${edge.direction === "bidirectional" ? t("CourseTemplateEditorPage.directionBidirectional") : t("CourseTemplateEditorPage.directionOneWay")} · ${edge.protocol}${edge.port ? `/${edge.port}` : ""}`,
-      showLabel: true,
-      onSelect: () => { setSelectedEdgeId(edge.id); setSelectedNodeId(""); },
-      onDelete: locked ? null : () => removeEdge(edge.id),
-    },
-    zIndex: 5,
-  })), [edges, locked, t]);
+      zIndex: 5,
+    }));
+    /* 對外服務畫成「網際網路 → 機器」的入站線，與防火牆拓撲同一種語言 */
+    const publicationEdges = publications.map((publication) => ({
+      id: `publication-edge-${publication.id}`,
+      source: INTERNET_KEY,
+      target: String(publication.nodeKey),
+      type: "connection",
+      data: {
+        edge: { course_publication_id: publication.id, source_vmid: null, target_vmid: String(publication.nodeKey) },
+        label: publicationLabel(t, publication, zones),
+        showLabel: true,
+        selected: publication.id === selectedPublicationId,
+        onSelect: () => selectPublication(publication.id),
+        onDelete: locked ? null : () => removePublication(publication.id),
+      },
+      zIndex: 5,
+    }));
+    /* 上網線：出站綠線、不限通訊埠（標籤留空由 ConnectionEdge 補「不限通訊埠」） */
+    const outboundEdges = value.map((node) => ({
+      id: `outbound-${node.id}`,
+      source: String(node.id),
+      target: INTERNET_KEY,
+      type: "connection",
+      hidden: !showInternet,
+      data: {
+        edge: { course_outbound: String(node.id), source_vmid: String(node.id), target_vmid: null, direction: "one_way" },
+        label: "",
+        showLabel: true,
+        selected: String(node.id) === selectedOutboundKey,
+        onSelect: () => selectOutbound(String(node.id)),
+      },
+      zIndex: 4,
+    }));
+    return routeEdges([...peerEdges, ...publicationEdges, ...outboundEdges], flowNodes);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [value, edges, publications, zones, locked, t, selectedEdgeId, selectedPublicationId, selectedOutboundKey, showInternet, flowNodes]);
 
   return <section className={`${styles.card} ${styles.templateMachineWorkspace}`}>
-      <div className={styles.machineWorkspaceHeader}>
-        <div><h2>{t("CourseTemplateEditorPage.multiMachineEnvTitle")}</h2><p>{t("CourseTemplateEditorPage.topologyHelpText")}</p></div>
-        <span className={styles.nodeLimit}>{t("CourseTemplateEditorPage.nodeLimitLabel", { count: value.length })}</span>
-      </div>
       {sourceNotice && <p className={styles.persistentFeedback}><MIcon name="info" size={17} />{sourceNotice}</p>}
       {topologyNotice && <p className={styles.persistentFeedback}><MIcon name="info" size={17} />{topologyNotice}</p>}
       <div className={styles.machineAddBar}>
@@ -346,10 +449,12 @@ function MachineEditor({ value, edges, publications, onChange, onEdgesChange, on
         {sourceMode === "custom" && <label className={styles.field}><span>{t("CourseTemplateEditorPage.fieldMachineType")}</span><select value={customType} disabled={locked || atLimit} onChange={(event) => { setCustomType(event.target.value); setSourceId(""); }}><option value="qemu">VM</option><option value="lxc">LXC</option></select></label>}
         <label className={styles.field}><span>{sourceMode === "template" ? t("CourseTemplateEditorPage.sourceExistingTemplate") : t("CourseTemplateEditorPage.fieldBaseImage")}</span><select value={sourceId} disabled={locked || atLimit} onChange={(event) => setSourceId(event.target.value)}><option value="">{locked ? t("CourseTemplateEditorPage.publishedLockedOption") : atLimit ? t("CourseTemplateEditorPage.atLimitOption") : sourceOptions.length === 0 ? t("CourseTemplateEditorPage.noSourceOption") : t("CourseTemplateEditorPage.pleaseSelectOption")}</option>{sourceMode === "template" ? sourceOptions.map((source) => <option key={source.id} value={source.id}>{source.name} · {source.resource_type ?? "VM"}</option>) : sourceOptions.map((source) => <option key={source.value} value={source.value}>{source.label}</option>)}</select></label>
         <button type="button" className={styles.btnPrimary} disabled={locked || atLimit || !sourceId} onClick={addMachine}><MIcon name={atLimit ? "check" : "add"} size={16} />{atLimit ? t("CourseTemplateEditorPage.atLimitBtn") : t("CourseTemplateEditorPage.addMachineBtn")}</button>
+        <button type="button" className={styles.btnSecondary} disabled={locked || value.length === 0} onClick={() => setDialog({})}><MIcon name="add_link" size={16} />{t("CourseTemplateEditorPage.addConnectionBtn")}</button>
       </div>
       {value.length ? <>
         <div className={styles.topologyWorkspace}>
-          <div className={styles.topologyCanvas}><ReactFlow
+          {/* 畫布外觀比照防火牆頁：點狀底、Controls、左下圖例 */}
+          <div className={`${styles.topologyCanvas} ${fwStyles.flowWrap}`}><ReactFlow
             nodes={flowNodes}
             edges={graphEdges}
             nodeTypes={TOPOLOGY_NODE_TYPES}
@@ -357,63 +462,82 @@ function MachineEditor({ value, edges, publications, onChange, onEdgesChange, on
             onConnect={connect}
             onNodesChange={onFlowNodesChange}
             onNodeDragStop={commitNodePositions}
-            onNodeClick={(_, node) => { setSelectedNodeId(node.id); setSelectedEdgeId(""); }}
-            onEdgeClick={(_, edge) => { setSelectedEdgeId(edge.id); setSelectedNodeId(""); }}
+            onNodeClick={(_, node) => { if (node.id !== INTERNET_KEY) selectNode(node.id); }}
+            onEdgeClick={(_, edge) => edge.data?.onSelect?.()}
+            onPaneClick={() => selectNode("")}
+            isValidConnection={(connection) => Boolean(connection?.source && connection?.target && connection.source !== connection.target)}
+            connectionRadius={36}
             nodesDraggable={!locked}
             nodesConnectable={!locked}
-            connectionLineStyle={{ stroke: "var(--color-primary)", strokeWidth: 3 }}
             elementsSelectable
-            minZoom={0.7}
-            maxZoom={1.4}
+            deleteKeyCode={null}
+            minZoom={0.5}
+            maxZoom={1.5}
             fitView
-            fitViewOptions={{ padding: 0.22, maxZoom: 1.1 }}
+            fitViewOptions={{ padding: 0.2 }}
+            colorMode={theme}
             proOptions={{ hideAttribution: true }}
-          ><Background gap={20} size={1} /></ReactFlow></div>
-          <aside className={styles.topologyInspector}>
-            {selectedEdge ? <>
-              <div className={styles.inspectorTitle}><MIcon name="link" size={18} /><div><strong>{t("CourseTemplateEditorPage.connectionRuleTitle")}</strong><small>{value.find((node) => node.id === selectedEdge.source)?.name} → {value.find((node) => node.id === selectedEdge.target)?.name}</small></div></div>
-              <label>{t("CourseTemplateEditorPage.fieldDirection")}<select disabled={locked} value={selectedEdge.direction} onChange={(event) => patchEdge({ direction: event.target.value })}><option value="one_way">{t("CourseTemplateEditorPage.directionOneWay")}</option><option value="bidirectional">{t("CourseTemplateEditorPage.directionBidirectional")}</option></select></label>
-              <div className={styles.inspectorSplit}>
-                <label>{t("CourseTemplateEditorPage.fieldProtocol")}<select disabled={locked} value={selectedEdge.protocol} onChange={(event) => patchEdge({ protocol: event.target.value })}>{selectedEdge.protocol === "any" && <option value="any">{t("CourseTemplateEditorPage.protocolAnyLegacy")}</option>}{FIREWALL_PROTOCOLS.map((protocol) => <option key={protocol} value={protocol}>{protocol.toUpperCase()}</option>)}</select></label>
-                <label>{t("CourseTemplateEditorPage.fieldPort")}<input disabled={locked || selectedEdge.protocol === "any"} type="number" min="1" max="65535" value={selectedEdge.port ?? ""} onChange={(event) => patchEdge({ port: event.target.value })} /></label>
+          >
+            <Background variant={BackgroundVariant.Dots} gap={20} size={1} />
+            <Controls />
+            <Panel position="top-left">
+              <div className={fwStyles.toolbar}>
+                <button type="button" className={`${fwStyles.toolbarBtn} ${showInternet ? fwStyles.toolbarBtnActive : ""}`} onClick={toggleInternet}>
+                  <MIcon name={showInternet ? "public" : "public_off"} size={16} />
+                  {t("FirewallPage.internetLines", { ns: "network" })}
+                </button>
               </div>
-              {!locked && <button type="button" className={styles.inspectorDanger} onClick={() => removeEdge(selectedEdge.id)}><MIcon name="delete_outline" size={16} />{t("CourseTemplateEditorPage.deleteConnectionBtn")}</button>}
-            </> : selectedNode ? <>
-              <div className={styles.inspectorTitle}><MIcon name="dns" size={18} /><div><strong>{selectedNode.sourceType === "custom" ? t("CourseTemplateEditorPage.sourceCustomSpec") : t("CourseTemplateEditorPage.sourceExistingTemplate")}</strong><small>{selectedNode.type === "lxc" ? t("CourseTemplateEditorPage.typeContainerLxc") : t("CourseTemplateEditorPage.typeVm")}</small></div></div>
+            </Panel>
+            <Panel position="top-right"><span className={styles.nodeLimit}>{t("CourseTemplateEditorPage.nodeLimitLabel", { count: value.length })}</span></Panel>
+            <Panel position="bottom-left" style={{ marginLeft: 60 }}>
+              <div className={fwStyles.legend}>
+                <span className={fwStyles.legendItem}><i className={`${fwStyles.legendLine} ${fwStyles.legendInbound}`} />{t("FirewallPage.legendInbound", { ns: "network" })}</span>
+                {/* 上網線藏起來時圖例變淡，提醒圖上少了這種線（與防火牆頁相同） */}
+                <span className={`${fwStyles.legendItem} ${showInternet ? "" : fwStyles.legendItemHidden}`}><i className={`${fwStyles.legendLine} ${fwStyles.legendOutbound}`} />{t("FirewallPage.legendOutbound", { ns: "network" })}</span>
+                <span className={fwStyles.legendItem}><i className={`${fwStyles.legendLine} ${fwStyles.legendInternal}`} />{t("FirewallPage.legendInternal", { ns: "network" })}</span>
+              </div>
+            </Panel>
+          </ReactFlow>
+          {detailPanel.item && <ConnectionDetailPanel
+            edge={detailPanel.item.edge}
+            resolveName={nameOf}
+            allowOpen={false}
+            closing={detailPanel.closing}
+            onClose={() => selectNode("")}
+            onDelete={locked || !detailPanel.item.remove ? undefined : () => detailPanel.item.remove()}
+          />}
+          </div>
+          <aside className={styles.topologyInspector}>
+            {selectedNode ? <>
+              <div className={styles.inspectorTitle}>
+                <MIcon name="dns" size={18} />
+                <div><strong>{selectedNode.sourceType === "custom" ? t("CourseTemplateEditorPage.sourceCustomSpec") : t("CourseTemplateEditorPage.sourceExistingTemplate")}</strong><small>{selectedNode.type === "lxc" ? t("CourseTemplateEditorPage.typeContainerLxc") : t("CourseTemplateEditorPage.typeVm")}</small></div>
+                {!locked && <button type="button" className={styles.inspectorTitleAction} onClick={() => removeMachine(selectedNode.id)}>{t("CourseTemplateEditorPage.removeNodeBtn")}</button>}
+              </div>
               <label>{t("CourseTemplateEditorPage.fieldName")}<input disabled={locked} value={selectedNode.name} onChange={(event) => patchNode(selectedNode.id, { name: event.target.value })} /></label>
               <label>{t("CourseTemplateEditorPage.fieldRole")}<input disabled={locked} value={selectedNode.role} onChange={(event) => patchNode(selectedNode.id, { role: event.target.value })} /></label>
               <div className={styles.inspectorSliders}>
-                <label><span className={styles.sliderLabel}>CPU<em>{t("CourseTemplateEditorPage.cpuValue", { count: selectedNode.cpu })}</em></span><input disabled={specLocked} type="range" step="1" min={Math.min(CPU_RANGE[0], selectedNode.cpu)} max={Math.max(CPU_RANGE[1], selectedNode.cpu)} value={selectedNode.cpu} onChange={(event) => patchNode(selectedNode.id, { cpu: Number(event.target.value) })} /></label>
-                <label><span className={styles.sliderLabel}>RAM<em>{t("CourseTemplateEditorPage.memoryValue", { count: selectedNode.memory })}</em></span><input disabled={specLocked} type="range" step="1" min={Math.min(MEMORY_RANGE[0], selectedNode.memory)} max={Math.max(MEMORY_RANGE[1], selectedNode.memory)} value={selectedNode.memory} onChange={(event) => patchNode(selectedNode.id, { memory: Number(event.target.value) })} /></label>
+                <label><span className={styles.sliderLabel}>CPU<em>{t("CourseTemplateEditorPage.cpuValue", { count: selectedNode.cpu })}</em></span><input disabled={specLocked} type="range" step="1" min={Math.min(cpuRange[0], selectedNode.cpu)} max={Math.max(cpuRange[1], selectedNode.cpu)} value={selectedNode.cpu} onChange={(event) => patchNode(selectedNode.id, { cpu: Number(event.target.value) })} /></label>
+                <label><span className={styles.sliderLabel}>RAM<em>{t("CourseTemplateEditorPage.memoryValue", { count: selectedNode.memory })}</em></span><input disabled={specLocked} type="range" step="1" min={Math.min(memoryRange[0], selectedNode.memory)} max={Math.max(memoryRange[1], selectedNode.memory)} value={selectedNode.memory} onChange={(event) => patchNode(selectedNode.id, { memory: Number(event.target.value) })} /></label>
                 <label><span className={styles.sliderLabel}>Disk<em>{t("CourseTemplateEditorPage.diskValue", { count: selectedNode.disk })}</em></span><input disabled={specLocked} type="range" step="1" min={Math.min(diskRange[0], selectedNode.disk)} max={Math.max(diskRange[1], selectedNode.disk)} value={selectedNode.disk} onChange={(event) => patchNode(selectedNode.id, { disk: Number(event.target.value) })} /></label>
               </div>
-              <div className={styles.publicationSection}>
-                <div className={styles.publicationHead}>
-                  <span>{t("CourseTemplateEditorPage.publicAccessLabel")}</span>
-                  {!locked && <button type="button" className={styles.publicationAddBtn} onClick={() => setPublicationDraft(newPublication(selectedNode))}><MIcon name="add" size={14} />{t("CourseTemplateEditorPage.addPublicationBtn")}</button>}
-                </div>
-                {nodePublications.length === 0
-                  ? <p className={styles.inspectorHint}>{t("CourseTemplateEditorPage.noPublicationHint")}</p>
-                  : <ul className={styles.publicationList}>{nodePublications.map((publication) => <li key={publication.id}>
-                      <button type="button" className={styles.publicationItem} disabled={locked} onClick={() => setPublicationDraft({ ...publication })}>
-                        <strong>{t(publication.mode === "domain" ? "CourseTemplateEditorPage.publicationSummaryDomain" : "CourseTemplateEditorPage.publicationSummaryFirewall", { port: publication.port })}</strong>
-                        <small>{publication.mode === "domain" ? previewDomain(publication) : t("CourseTemplateEditorPage.publicationInternalOnly")}</small>
-                      </button>
-                      {!locked && <button type="button" className={styles.iconBtnDanger} aria-label={t("CourseTemplateEditorPage.removePublicationBtn")} onClick={() => removePublication(publication.id)}><MIcon name="close" size={15} /></button>}
-                    </li>)}</ul>}
-              </div>
-              {!locked && <button type="button" className={styles.inspectorDanger} onClick={() => removeMachine(selectedNode.id)}><MIcon name="delete_outline" size={16} />{t("CourseTemplateEditorPage.removeNodeBtn")}</button>}
             </> : null}
           </aside>
         </div>
       </> : <EmptyState icon="dns" title={t("CourseTemplateEditorPage.emptyNodesTitle")} />}
-      {publicationDraft && <PublicationDialog
-        draft={publicationDraft}
+      {dialogPresence.open && <ConnectionDialog
+        key={dialogPresence.item?.publicationId ?? `${dialogPresence.item?.initialSource ?? ""}-${dialogPresence.item?.initialTarget ?? ""}`}
+        templateMode
+        intents={COURSE_INTENTS}
+        nodes={dialogNodes}
         zones={zones}
-        siblings={publications}
-        onChange={(patch) => setPublicationDraft((current) => ({ ...current, ...patch }))}
-        onSave={savePublication}
-        onClose={() => setPublicationDraft(null)}
+        initialSource={dialogPresence.item?.initialSource}
+        initialTarget={dialogPresence.item?.initialTarget}
+        service={dialogPresence.item?.service}
+        onSubmit={handleDialogSubmit}
+        onDone={() => setDialog(null)}
+        onClose={() => setDialog(null)}
+        closing={dialogPresence.closing}
       />}
       {actions && <div className={styles.actionFooter}>{actions}</div>}
   </section>;
@@ -450,21 +574,31 @@ export default function CourseTemplateEditorPage() {
   const [lxcImages, setLxcImages] = useState([]);
   const [zones, setZones] = useState([]);
   const [sourceNotice, setSourceNotice] = useState("");
-  const [classes, setClasses] = useState([]);
   const [loading, setLoading] = useState(Boolean(templateId));
   const [saving, setSaving] = useState(false);
+  const [saveState, setSaveState] = useState("idle");
+  const [saveError, setSaveError] = useState("");
+  const autosaveRef = useRef(null);
+  const templateRef = useRef(template);
+  const publishingRef = useRef(false);
   /* 返回時先播離場動畫再導航，比照「我的申請」的表單開合 */
   const [closing, setClosing] = useState(false);
   /* 儲存檢查：未填欄位反紅＋聚焦 */
   const [invalidField, setInvalidField] = useState("");
   const nameRef = useRef(null);
-  const audienceRef = useRef(null);
-  function leaveTo(path) {
+  /* 已發布的環境不能自動儲存，基本資訊改完要按按鈕才送出 */
+  const [basicsDirty, setBasicsDirty] = useState(false);
+  const fileInputRef = useRef(null);
+  async function leaveTo(path) {
+    if (publishingRef.current) return;
+    await autosaveRef.current?.flush();
     setClosing(true);
     setTimeout(() => navigate(path, { state: { returning: true } }), 180);
   }
   const isNew = !templateId;
-  const locked = template.status !== "draft";
+  /* 草稿第一次自動儲存後就有真正的 id，那時候就能掛文件了 */
+  const hasEnvironmentId = Boolean(template.id) && template.id !== "new";
+  const locked = template.status !== "draft" || saving;
   const duplicatedHostname = (() => {
     const seen = new Set();
     for (const item of template.publications ?? []) {
@@ -478,12 +612,9 @@ export default function CourseTemplateEditorPage() {
     edge.protocol !== "any"
     && (!Number.isInteger(Number(edge.port)) || Number(edge.port) < 1 || Number(edge.port) > 65535)
   ));
-  const offersPractice = template.usageScope === "quick_practice" || template.usageScope === "both";
-  const audience = template.audience ?? "class";
-  const missingAudienceClass = offersPractice && audience === "class" && (template.audienceClassIds ?? []).length === 0;
   /* 不小心跳離（點側欄、重新整理）時保留未儲存的編輯：
      每次編輯寫入 sessionStorage，進頁還原，成功儲存／發布才清除 */
-  const draftKey = `courseTemplateEditorDraft:${templateId ?? "new"}`;
+  const draftKey = `courseTemplateEditorDraft:${AuthStorage.getSnapshot().sessionId ?? "anonymous"}:${templateId ?? "new"}`;
   function readDraft() {
     try { const raw = sessionStorage.getItem(draftKey); return raw ? JSON.parse(raw) : null; }
     catch { return null; }
@@ -494,37 +625,64 @@ export default function CourseTemplateEditorPage() {
 
   useEffect(() => {
     const draft = readDraft();
-    if (!templateId) {
-      setTemplate(draft ?? makeEmptyTemplate());
-      if (draft) toast.success(t("CourseTemplateEditorPage.draftRestoredMsg"));
-      setLoading(false);
-      return undefined;
-    }
     let active = true;
-    setLoading(true);
-    CourseEnvironmentsService.get(templateId)
+    let autosave = null;
+    function initialize(value, restored) {
+      if (value.id === "new" && !value.draftRequestId) value = { ...value, draftRequestId: crypto.randomUUID() };
+      templateRef.current = value;
+      setTemplate(value);
+      setSaveState(value.id === "new" ? "idle" : "saved");
+      autosave = createEnvironmentAutosave({
+        id: value.id === "new" ? null : value.id,
+        save: (id, snapshot) => CourseEnvironmentsService.saveDraft(id, snapshot),
+        onState: (state, error) => {
+          if (active) { setSaveState(state); setSaveError(error?.message ?? ""); }
+        },
+        onSaved: (saved, snapshot) => {
+          // A response must never replace edits typed while the request ran.
+          const next = { ...(active ? templateRef.current : snapshot), id: saved.id, versionId: saved.versionId, version: saved.version, updatedAt: saved.updatedAt };
+          if (active || !autosaveRef.current) {
+            try { sessionStorage.setItem(draftKey, JSON.stringify(next)); } catch { /* Server copy is saved. */ }
+          }
+          if (active) { templateRef.current = next; setTemplate(next); }
+        },
+      });
+      autosaveRef.current = autosave;
+      if (restored && value.status === "draft") {
+        try { sessionStorage.setItem(draftKey, JSON.stringify(value)); } catch { /* Server autosave remains available. */ }
+        autosave.schedule(value);
+      }
+      setLoading(false);
+    }
+    const existingId = templateId || (draft?.id !== "new" && draft?.id);
+    if (!existingId) {
+      initialize(draft ?? makeEmptyTemplate(), Boolean(draft));
+    } else {
+      setLoading(true);
+      CourseEnvironmentsService.get(existingId)
       .then((result) => {
         if (!active) return;
         /* 只有草稿可編輯；已發布版本忽略殘留草稿 */
         if (draft && result.status === "draft") {
-          setTemplate(draft);
+          initialize({ ...draft, id: result.id }, true);
           toast.success(t("CourseTemplateEditorPage.draftRestoredMsg"));
         } else {
-          setTemplate(result);
+          initialize(result, false);
         }
       })
       .catch((reason) => active && toast.error(reason?.message ?? t("CourseTemplateEditorPage.loadTemplateFailed")))
       .finally(() => active && setLoading(false));
-    return () => { active = false; };
+    }
+    return () => {
+      active = false;
+      if (autosaveRef.current === autosave) autosaveRef.current = null;
+      if (autosave) void autosave.flush().then((saved) => {
+        if (saved && !autosaveRef.current) clearDraft();
+        autosave.dispose();
+      });
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [templateId, toast, t]);
-  useEffect(() => {
-    let active = true;
-    TeachingClassesService.list()
-      .then((result) => active && setClasses(result?.data ?? result ?? []))
-      .catch(() => {});
-    return () => { active = false; };
-  }, []);
+  }, [templateId]);
   useEffect(() => {
     let active = true;
     TemplatesService.list()
@@ -577,14 +735,77 @@ export default function CourseTemplateEditorPage() {
     return () => { active = false; };
   }, [toast, t]);
   function update(patch) {
-    setTemplate((current) => {
-      const next = { ...current, ...patch };
-      if (!locked) {
-        try { sessionStorage.setItem(draftKey, JSON.stringify(next)); } catch { /* 空間不足等狀況：放棄保留即可 */ }
-      }
-      return next;
-    });
+    if (locked || publishingRef.current) return;
+    const next = { ...templateRef.current, ...patch };
+    templateRef.current = next;
+    setTemplate(next);
+    try { sessionStorage.setItem(draftKey, JSON.stringify(next)); } catch { /* Autosave still persists to the server. */ }
+    autosaveRef.current?.schedule(next);
   }
+  /* 名稱、用途與套用方式存在環境身分上，不在版本裡：發布凍結的是機器設定，不是
+     這組環境叫什麼、提供給誰。草稿照原本的自動儲存走；已發布的先改在本地，按
+     「儲存基本資訊」才送出，免得每打一個字就打一次 API。 */
+  function updateBasics(patch) {
+    if (publishingRef.current || saving) return;
+    if (template.status === "draft") { update(patch); return; }
+    const next = { ...templateRef.current, ...patch };
+    templateRef.current = next;
+    setTemplate(next);
+    setBasicsDirty(true);
+  }
+
+  async function saveBasics() {
+    if (publishingRef.current) return;
+    const next = templateRef.current;
+    if (!next.name.trim()) {
+      setInvalidField("name");
+      setTimeout(() => focusInvalidField(nameRef.current), 60);
+      return;
+    }
+    setSaving(true);
+    try {
+      const saved = await CourseEnvironmentsService.saveBasics(next.id, next);
+      templateRef.current = saved;
+      setTemplate(saved);
+      setBasicsDirty(false);
+      toast.success(t("CourseTemplateEditorPage.basicsSaved"));
+    } catch (reason) {
+      toast.error(reason?.message ?? t("CourseTemplateEditorPage.basicsSaveFailed"));
+    } finally { setSaving(false); }
+  }
+
+  /* 文件掛在環境身分上，上傳與刪除立即生效，不跟著基本資訊那顆儲存鈕走。
+     環境還沒建立（草稿沒有 id）時不給上傳，否則檔案會沒有歸屬。 */
+  async function uploadFile(file) {
+    if (!file || saving) return;
+    setSaving(true);
+    try {
+      const saved = await CourseEnvironmentsService.uploadFile(template.id, file);
+      templateRef.current = { ...templateRef.current, files: saved.files };
+      setTemplate(templateRef.current);
+      toast.success(t("CourseTemplateEditorPage.fileUploaded", { name: file.name }));
+    } catch (reason) {
+      toast.error(reason?.message ?? t("CourseTemplateEditorPage.fileUploadFailed"));
+    } finally {
+      setSaving(false);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    }
+  }
+
+  async function removeFile(file) {
+    if (saving) return;
+    setSaving(true);
+    try {
+      const saved = await CourseEnvironmentsService.removeFile(template.id, file.id);
+      templateRef.current = { ...templateRef.current, files: saved.files };
+      setTemplate(templateRef.current);
+    } catch (reason) {
+      toast.error(reason?.message ?? t("CourseTemplateEditorPage.fileDeleteFailed"));
+    } finally {
+      setSaving(false);
+    }
+  }
+
   function changeTab(nextTab) { setParams(returnTo ? { tab: nextTab, returnTo } : { tab: nextTab }); }
 
   /* 儲存前檢查：欄位類問題直接反紅＋聚焦（比照 ClassSetupPage），
@@ -596,12 +817,6 @@ export default function CourseTemplateEditorPage() {
       setTimeout(() => focusInvalidField(nameRef.current), 60);
       return false;
     }
-    if (missingAudienceClass) {
-      setInvalidField("audienceClasses");
-      changeTab("basic");
-      setTimeout(() => focusInvalidField(audienceRef.current), 60);
-      return false;
-    }
     if (template.nodes.length === 0) { changeTab("machines"); toast.error(t("CourseTemplateEditorPage.needAtLeastOneMachineReason")); return false; }
     if (template.nodes.length > 3) { changeTab("machines"); toast.error(t("CourseTemplateEditorPage.maxThreeMachinesReason")); return false; }
     if (invalidTopology) { changeTab("machines"); toast.error(t("CourseTemplateEditorPage.fixPortReason")); return false; }
@@ -609,33 +824,22 @@ export default function CourseTemplateEditorPage() {
     return true;
   }
 
-  async function save() {
-    if (!validateBeforeSave()) return;
-    setSaving(true);
-    try {
-      const saved = isNew
-        ? await CourseEnvironmentsService.create(template)
-        : await CourseEnvironmentsService.update(template.id, template);
-      clearDraft();
-      setTemplate(saved);
-      if (isNew) navigate(`/course-template-management/${saved.id}${returnTo ? `?returnTo=${encodeURIComponent(returnTo)}` : ""}`, { replace: true });
-      else toast.success(t("CourseTemplateEditorPage.draftSavedMsg"));
-    } catch (reason) { toast.error(reason?.message ?? t("CourseTemplateEditorPage.saveFailed")); }
-    finally { setSaving(false); }
-  }
   async function publish() {
-    if (!validateBeforeSave()) return;
-    const ok = await confirm({
-      title: t("CourseTemplateEditorPage.publishConfirmTitle"),
-      message: t("CourseTemplateEditorPage.publishConfirmMessage"),
-      confirmText: t("CourseTemplateEditorPage.publishLabel"),
-    });
-    if (!ok) return;
+    if (publishingRef.current || !autosaveRef.current || !validateBeforeSave()) return;
+    publishingRef.current = true;
     setSaving(true);
     try {
-      await CourseEnvironmentsService.update(template.id, template);
-      const published = await CourseEnvironmentsService.publish(template.id);
+      const ok = await confirm({
+        title: t("CourseTemplateEditorPage.publishConfirmTitle"),
+        message: t("CourseTemplateEditorPage.publishConfirmMessage"),
+        confirmText: t("CourseTemplateEditorPage.publishLabel"),
+      });
+      if (!ok) return;
+      autosaveRef.current.schedule(templateRef.current);
+      if (!(await autosaveRef.current.flush())) return;
+      const published = await CourseEnvironmentsService.publish(autosaveRef.current.getId());
       clearDraft();
+      templateRef.current = published;
       setTemplate(published);
       const destination = template.usageScope === "quick_practice"
         ? t("CourseTemplateEditorPage.destQuickPractice")
@@ -644,21 +848,21 @@ export default function CourseTemplateEditorPage() {
           : t("CourseTemplateEditorPage.destClassManagement");
       toast.success(t("CourseTemplateEditorPage.publishedMsg", { destination }));
       if (returnTo) navigate(returnTo, { state: { createdTemplateId: published.id } });
+      else if (isNew) navigate(`/course-template-management/${published.id}`, { replace: true });
     } catch (reason) { toast.error(reason?.message ?? t("CourseTemplateEditorPage.publishFailed")); }
-    finally { setSaving(false); }
-  }
-  async function newVersion() {
-    setSaving(true);
-    try { setTemplate(await CourseEnvironmentsService.createVersion(template.id)); }
-    catch (reason) { toast.error(reason?.message ?? t("CourseTemplateEditorPage.newVersionFailed")); }
-    finally { setSaving(false); }
+    finally { publishingRef.current = false; setSaving(false); }
   }
   if (loading) return <LoadingState fullPage text={t("CourseTemplateEditorPage.loadingTemplateText")} />;
   return <div className={`${styles.page} ${tab === "machines" ? styles.editorPageLocked : ""} ${closing ? styles.animSlideOutRight : styles.animSlideInRight}`}>
-    <PageHeader title={isNew ? t("CourseTemplateEditorPage.createTemplateTitle") : template.name} subtitle={isNew ? t("CourseTemplateEditorPage.createTemplateSubtitle") : `v${template.version} · ${template.updatedAt}`}><div className={styles.pageActions}>{locked && <button type="button" className={styles.btnPrimary} disabled={saving} onClick={newVersion}><MIcon name="content_copy" size={16} />{t("CourseTemplateEditorPage.createNewVersionBtn")}</button>}<button type="button" className={`${styles.btnSecondary} ${styles.backBtn}`} onClick={() => leaveTo(returnTo ?? "/course-template-management")}><MIcon name="arrow_back" size={18} />{t("CourseTemplateEditorPage.backBtn")}</button></div></PageHeader>
+    <PageHeader title={isNew ? t("CourseTemplateEditorPage.createTemplateTitle") : template.name} subtitle={isNew ? undefined : `v${template.version} · ${template.updatedAt}`}><div className={styles.pageActions}><button type="button" className={`${styles.btnSecondary} ${styles.backBtn}`} onClick={() => leaveTo(returnTo ?? "/course-template-management")}><MIcon name="arrow_back" size={18} />{t("CourseTemplateEditorPage.backBtn")}</button></div></PageHeader>
+    {template.status === "draft" && saveState === "error" && <p className={styles.persistentFeedback} role="alert">
+      <MIcon name="cloud_off" size={17} />
+      <span>{t("CourseTemplateEditorPage.autosave.error")}{saveError && ` ${saveError}`}</span>
+      <button type="button" className={styles.btnSecondary} disabled={saving} onClick={() => autosaveRef.current?.flush()}>{t("CourseTemplateEditorPage.retryAutosave")}</button>
+    </p>}
     {returnTo && <p className={styles.persistentFeedback}><MIcon name="bookmark_added" size={17} /><span><strong>{t("CourseTemplateEditorPage.classDraftSavedTitle")}</strong>{t("CourseTemplateEditorPage.classDraftSavedDesc")}</span></p>}
     <nav className={styles.envStepper}>
-        {TABS.map(([key, labelKey, hintKey], index) => {
+        {TABS.map(([key, labelKey], index) => {
           const activeIndex = TABS.findIndex(([k]) => k === tab);
           const done = index < activeIndex;
           const isActive = key === tab;
@@ -670,13 +874,38 @@ export default function CourseTemplateEditorPage() {
               aria-current={isActive ? "step" : undefined}
               onClick={() => changeTab(key)}
             >
-              <span className={styles.envStepCircle}>{done ? <MIcon name="check" size={16} /> : String(index + 1).padStart(2, "0")}</span>
-              <span className={styles.envStepText}><strong>{t(labelKey)}</strong><small>{t(hintKey)}</small></span>
+              <span className={styles.envStepText}>
+                <strong>
+                  <span className={styles.envStepNum}>{done ? <MIcon name="check" size={14} /> : String(index + 1).padStart(2, "0")}</span>
+                  {t(labelKey)}
+                </strong>
+              </span>
             </button>
           );
         })}
     </nav>
-    {tab === "basic" && <section className={styles.card}><div className={styles.cardHeader}><div><h2>{t("CourseTemplateEditorPage.tabBasicLabel")}</h2><p>{locked ? t("CourseTemplateEditorPage.lockedVersionNote") : t("CourseTemplateEditorPage.reusableEnvNote")}</p></div></div><div className={styles.formGrid}><label className={styles.field}><span>{t("CourseTemplateEditorPage.fieldEnvName")}</span><input ref={nameRef} className={invalidField === "name" ? styles.fieldInvalid : undefined} aria-invalid={invalidField === "name"} aria-errormessage={invalidField === "name" ? "env-name-error" : undefined} disabled={locked} value={template.name} onChange={(event) => { update({ name: event.target.value }); if (invalidField === "name") setInvalidField(""); }} placeholder={t("CourseTemplateEditorPage.envNamePlaceholder")} />{invalidField === "name" && <em id="env-name-error" className={styles.fieldError}>{t("CourseTemplateEditorPage.nameRequiredError")}</em>}</label><label className={styles.field}><span>{t("CourseTemplateEditorPage.fieldUsageScope")}</span><select disabled={locked} value={template.usageScope ?? "course"} onChange={(event) => update({ usageScope: event.target.value })}><option value="course">{t("CourseTemplateEditorPage.usageScopeCourseOnly")}</option><option value="quick_practice">{t("CourseTemplateEditorPage.usageScopeQuickPracticeOnly")}</option><option value="both">{t("CourseTemplateEditorPage.usageScopeBoth")}</option></select></label>{offersPractice && <label className={styles.field}><span>{t("CourseTemplateEditorPage.fieldMaxConcurrent")}</span><input disabled={locked} type="number" min={1} max={500} placeholder={t("CourseTemplateEditorPage.maxConcurrentPlaceholder")} value={template.maxConcurrentSessions ?? ""} onChange={(event) => update({ maxConcurrentSessions: event.target.value === "" ? null : Number(event.target.value) })} /></label>}{offersPractice && <label className={styles.field}><span>{t("CourseTemplateEditorPage.fieldAudience")}</span><select disabled={locked} value={audience} onChange={(event) => update({ audience: event.target.value })}><option value="class">{t("CourseTemplateEditorPage.audienceOptClass")}</option><option value="campus">{t("CourseTemplateEditorPage.audienceOptCampus")}</option><option value="owner">{t("CourseTemplateEditorPage.audienceOptOwner")}</option></select></label>}{offersPractice && audience === "class" && <div ref={audienceRef} tabIndex={-1} className={`${styles.field} ${styles.fieldFull} ${invalidField === "audienceClasses" ? styles.fieldInvalid : ""}`} aria-invalid={invalidField === "audienceClasses" || undefined} aria-errormessage={invalidField === "audienceClasses" ? "audience-classes-error" : undefined}><span>{t("CourseTemplateEditorPage.fieldAudienceClasses")}</span>{invalidField === "audienceClasses" && <em id="audience-classes-error" className={styles.fieldError}>{t("CourseTemplateEditorPage.audienceClassesRequiredError")}</em>}{classes.length === 0 ? <p className={styles.inspectorHint}>{t("CourseTemplateEditorPage.noClassesHint")}</p> : <div className={styles.audienceClassList}>{classes.map((item) => <label key={item.id} className={styles.audienceClassItem}><input type="checkbox" disabled={locked} checked={(template.audienceClassIds ?? []).includes(String(item.id))} onChange={(event) => { update({ audienceClassIds: event.target.checked ? [...(template.audienceClassIds ?? []), String(item.id)] : (template.audienceClassIds ?? []).filter((id) => id !== String(item.id)) }); if (invalidField === "audienceClasses") setInvalidField(""); }} /><span>{item.name}<small>{item.code} · {item.term}</small></span></label>)}</div>}</div>}<label className={`${styles.field} ${styles.fieldFull}`}><span>{t("CourseTemplateEditorPage.fieldEnvDescription")}</span><textarea disabled={locked} rows={3} value={template.description ?? ""} onChange={(event) => update({ description: event.target.value })} /></label></div><div className={styles.actionFooter}><button type="button" className={styles.btnPrimary} onClick={() => changeTab("machines")}>{t("CourseTemplateEditorPage.viewMachineConfigBtn")}<MIcon name="arrow_forward" size={16} /></button></div></section>}
-    {tab === "machines" && <MachineEditor value={template.nodes} edges={template.edges ?? []} publications={template.publications ?? []} onChange={(nodes) => update({ nodes })} onEdgesChange={(edges) => update({ edges })} onPublicationsChange={(publications) => update({ publications })} pveTemplates={pveTemplates} vmImages={vmImages} lxcImages={lxcImages} zones={zones} sourceNotice={sourceNotice} locked={locked} actions={!locked && <><button type="button" className={styles.btnSecondary} disabled={saving} onClick={save}><MIcon name="save" size={16} />{saving ? t("CourseTemplateEditorPage.savingEllipsis") : t("CourseTemplateEditorPage.saveDraftBtn")}</button><button type="button" className={styles.btnPrimary} disabled={isNew || saving} onClick={publish}><MIcon name="publish" size={16} />{t("CourseTemplateEditorPage.publishLabel")}</button></>} />}
+    {tab === "basic" && <section className={styles.card}><div className={styles.formGrid}><label className={styles.field}><span>{t("CourseTemplateEditorPage.fieldEnvName")}</span><input ref={nameRef} className={invalidField === "name" ? styles.fieldInvalid : undefined} aria-invalid={invalidField === "name"} aria-errormessage={invalidField === "name" ? "env-name-error" : undefined} disabled={saving} value={template.name} onChange={(event) => { updateBasics({ name: event.target.value }); if (invalidField === "name") setInvalidField(""); }} placeholder={t("CourseTemplateEditorPage.envNamePlaceholder")} />{invalidField === "name" && <em id="env-name-error" className={styles.fieldError}>{t("CourseTemplateEditorPage.nameRequiredError")}</em>}</label><label className={styles.field}><span>{t("CourseTemplateEditorPage.fieldUsageScope")}</span><select disabled={saving} value={template.usageScope ?? "course"} onChange={(event) => updateBasics({ usageScope: event.target.value })}><option value="course">{t("CourseTemplateEditorPage.usageScopeCourseOnly")}</option><option value="quick_practice">{t("CourseTemplateEditorPage.usageScopeQuickPracticeOnly")}</option><option value="both">{t("CourseTemplateEditorPage.usageScopeBoth")}</option></select></label><label className={`${styles.field} ${styles.fieldFull}`}><span>{t("CourseTemplateEditorPage.fieldEnvDescription")}</span><textarea disabled={saving} rows={3} value={template.description ?? ""} onChange={(event) => updateBasics({ description: event.target.value })} /></label></div>
+
+      <div className={styles.fileSection}>
+        <div className={styles.fileHeading}>
+          <span>{t("CourseTemplateEditorPage.fieldFiles")}</span>
+          <button type="button" className={styles.btnSecondary} disabled={saving || !hasEnvironmentId} onClick={() => fileInputRef.current?.click()}><MIcon name="upload_file" size={16} />{t("CourseTemplateEditorPage.uploadFileBtn")}</button>
+          <input ref={fileInputRef} type="file" hidden onChange={(event) => uploadFile(event.target.files?.[0])} />
+        </div>
+        {!hasEnvironmentId
+          ? <p className={styles.inspectorHint}>{t("CourseTemplateEditorPage.filesNeedSaveHint")}</p>
+          : (template.files ?? []).length === 0
+            ? <p className={styles.inspectorHint}>{t("CourseTemplateEditorPage.noFilesHint")}</p>
+            : <ul className={styles.fileList}>
+                {(template.files ?? []).map((file) => <li key={file.id}>
+                  <MIcon name="description" size={16} />
+                  <a href={CourseEnvironmentsService.fileUrl(template.id, file.id)} target="_blank" rel="noreferrer">{file.filename}</a>
+                  <small>{formatFileSize(file.sizeBytes)}</small>
+                  <button type="button" className={styles.fileRemove} disabled={saving} aria-label={t("CourseTemplateEditorPage.removeFileAria", { name: file.filename })} onClick={() => removeFile(file)}><MIcon name="close" size={15} /></button>
+                </li>)}
+              </ul>}
+      </div>
+{template.status !== "draft" && <p className={styles.inspectorHint}>{t("CourseTemplateEditorPage.basicsEditableHint")}</p>}<div className={styles.actionFooter}>{template.status !== "draft" && <button type="button" className={styles.btnPrimary} disabled={saving || !basicsDirty} onClick={saveBasics}><MIcon name="save" size={16} />{t("CourseTemplateEditorPage.saveBasicsBtn")}</button>}<button type="button" className={template.status === "draft" ? styles.btnPrimary : styles.btnSecondary} onClick={() => changeTab("machines")}>{t("CourseTemplateEditorPage.viewMachineConfigBtn")}<MIcon name="arrow_forward" size={16} /></button></div></section>}
+    {tab === "machines" && <MachineEditor value={template.nodes} edges={template.edges ?? []} publications={template.publications ?? []} onChange={(nodes) => update({ nodes })} onEdgesChange={(edges) => update({ edges })} onPublicationsChange={(publications) => update({ publications })} pveTemplates={pveTemplates} vmImages={vmImages} lxcImages={lxcImages} zones={zones} sourceNotice={sourceNotice} locked={locked} actions={template.status === "draft" && <button type="button" className={styles.btnPrimary} disabled={saving || closing} onClick={publish}><MIcon name="publish" size={16} />{saving ? t("CourseTemplateEditorPage.publishing") : t("CourseTemplateEditorPage.publishLabel")}</button>} />}
   </div>;
 }

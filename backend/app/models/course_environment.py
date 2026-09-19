@@ -106,6 +106,40 @@ class CourseEnvironmentAudience(SQLModel, table=True):
     )
 
 
+class CourseEnvironmentFile(SQLModel, table=True):
+    """老師掛在環境上的說明文件。
+
+    綁在環境身分而不是版本上：換版本是機器設定改了，講義不該跟著消失。
+    """
+
+    __tablename__ = "course_environment_files"
+
+    id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
+    environment_id: uuid.UUID = Field(
+        sa_column=Column(
+            sa.Uuid,
+            sa.ForeignKey("course_environments.id", ondelete="CASCADE"),
+            nullable=False,
+            index=True,
+        )
+    )
+    filename: str = Field(max_length=255)
+    storage_key: str = Field(max_length=255, unique=True)
+    size_bytes: int = Field(default=0, ge=0)
+    uploaded_by: uuid.UUID | None = Field(
+        default=None,
+        sa_column=Column(
+            sa.Uuid,
+            sa.ForeignKey("user.id", ondelete="SET NULL"),
+            nullable=True,
+        ),
+    )
+    created_at: datetime = Field(
+        default_factory=get_datetime_utc,
+        sa_column=Column(DateTime(timezone=True), nullable=False),
+    )
+
+
 class CourseEnvironmentVersion(SQLModel, table=True):
     """Immutable after publication; a class pins exactly one published version."""
 
@@ -138,6 +172,16 @@ class CourseEnvironmentVersion(SQLModel, table=True):
         ),
     )
     configuration_hash: str | None = Field(default=None, max_length=64)
+    # 機器之間怎麼互通：
+    # - explicit：只開老師在拓撲圖上畫的連線；一條都沒畫就是完全隔離。
+    # - segment：舊行為，共用邏輯網段的機器全協定全埠互通，畫的線視為多餘。
+    # 以前是「沒畫線就全通、畫了第一條就變白名單」，老師以為沒連線等於隔離，
+    # 實際上是全開；改成顯式欄位讓兩種意圖分開表達。
+    peer_policy: str = Field(default="explicit", max_length=16)
+    # Unfinished editor content is kept apart from deployable configuration.
+    draft_data: str | None = Field(
+        default=None, sa_column=Column(sa.Text, nullable=True)
+    )
     created_at: datetime = Field(
         default_factory=get_datetime_utc,
         sa_column=Column(DateTime(timezone=True), nullable=False),
@@ -235,7 +279,11 @@ class CourseEnvironmentPublication(SQLModel, table=True):
         )
     )
     node_key: str = Field(max_length=80)
-    # domain = 給每位學生一個對外網址；firewall_only = 只開機器上的入站規則
+    # domain = 給每位學生一個對外網址；port_forward = 開課時逐人從池子配一個
+    # 對外 port（見 nat_service.allocate_external_port）。
+    # 以前還有 firewall_only（只開入站規則）：那條規則沒有 source 限制，等於對
+    # 整個實驗室子網敞開，而 Gateway VM 本來就有全埠 ACCEPT，正當用途已被涵蓋，
+    # 所以拿掉了；舊資料由 migration 轉成 port_forward。
     mode: str = Field(default="domain", max_length=16)
     port: int = Field(ge=1, le=65535, description="機器內部 port")
     protocol: str = Field(default="tcp", max_length=16)
@@ -333,6 +381,7 @@ __all__ = [
     "ClassCapacityReservation",
     "CourseEnvironment",
     "CourseEnvironmentEdge",
+    "CourseEnvironmentFile",
     "CourseEnvironmentNode",
     "CourseEnvironmentVersion",
     "CourseEnvironmentVersionStatus",

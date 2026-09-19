@@ -19,13 +19,10 @@ from app.ai.pve_log.chat import _execute_tool_sync
 from app.ai.system_config import system_ai_env
 from app.ai.teacher_judge import script_artifact_service as artifacts
 from app.ai.teacher_judge import script_executor_service as executor
-from app.ai.teacher_judge import script_result_analysis_service as analysis
 from app.ai.teacher_judge import service
 from app.ai.teacher_judge.prompt import (
     CHAT_SYSTEM_TEMPLATE,
-    CLASS_MACHINE_CONTEXT_TEMPLATE,
     SITUATION_NORMAL,
-    TEMPLATE_COMMAND_CONTEXT_TEMPLATE,
 )
 from app.ai.teacher_judge.schemas import (
     TeacherJudgeRubricChatMessage,
@@ -294,44 +291,6 @@ def test_teacher_judge_prompt_uses_goal_directed_diagnostic_principles():
     assert "systemctl list-units" not in CHAT_SYSTEM_TEMPLATE
     assert "journalctl --since" not in CHAT_SYSTEM_TEMPLATE
     assert "`history` 是 shell builtin" not in CHAT_SYSTEM_TEMPLATE
-
-
-def test_teacher_judge_prompt_distinguishes_qemu_and_lxc_context():
-    context = service._format_class_machine_context(
-        {
-            "nodes": [
-                {
-                    "node": "P1",
-                    "name": "Windows 桌面",
-                    "role": "desktop",
-                    "resource_type": "qemu",
-                    "selected_for_week": True,
-                },
-                {
-                    "node": "P2",
-                    "name": "Linux 服務",
-                    "role": "service",
-                    "resource_type": "lxc",
-                    "selected_for_week": False,
-                },
-            ],
-        }
-    )
-    rendered = TEMPLATE_COMMAND_CONTEXT_TEMPLATE.format(
-        template_key="linux",
-        environment_keys="linux",
-        template_commands="catalog",
-    ) + "\n\n" + CLASS_MACHINE_CONTEXT_TEMPLATE.format(
-        class_machine_context=context,
-    )
-
-    assert '"resource_type": "qemu"' in rendered
-    assert '"resource_type": "lxc"' in rendered
-    assert '"node": "P1"' in rendered
-    assert '"node": "P2"' in rendered
-    assert "客體作業系統可能是 Windows 或 Linux" in rendered
-    assert "lxc` 代表 Linux container" in rendered
-    assert "不能只因 `qemu` 就猜測客體 OS" in rendered
 
 
 @pytest.mark.parametrize("content", ["null", "[]", '"text"'])
@@ -1013,100 +972,6 @@ def test_collector_retries_only_transient_http_failures(
     assert snapshot.errors
 
 
-async def test_cancelled_analysis_waiter_does_not_consume_released_slot(monkeypatch):
-    slots = threading.BoundedSemaphore(1)
-    slots.acquire()
-    monkeypatch.setattr(analysis, "_AI_ANALYSIS_SLOTS", slots)
-    task = asyncio.create_task(analysis._acquire_ai_slot())
-    try:
-        await asyncio.sleep(0.05)
-        task.cancel()
-        with pytest.raises(asyncio.CancelledError):
-            await task
-        slots.release()
-        await asyncio.sleep(0.05)
-        acquired = slots.acquire(blocking=False)
-        assert acquired
-    finally:
-        # Also unblock the old implementation's worker after a regression failure.
-        slots.release()
-
-
-def test_rubric_excerpt_preserves_items_after_twenty_and_partial_id_matches():
-    items = [{"id": f"item-{i}", "title": f"題目 {i}"} for i in range(25)]
-    result = analysis._rubric_excerpt({"items": items})
-    assert [item["id"] for item in result] == [item["id"] for item in items]
-
-
-def _judgement():
-    return {
-        "score": 5,
-        "max_score": 5,
-        "summary": "符合要求",
-        "item_judgements": [
-            {
-                "item_id": "item-1",
-                "title": "服務",
-                "status": "pass",
-                "score": 1,
-                "max_score": 1,
-                "evidence_refs": ["service.http"],
-                "comment": "回應正常",
-            }
-        ],
-    }
-
-
-def _analysis_payload():
-    return {
-        "rubric_items": [{"id": "item-1", "title": "服務"}],
-        "script_result": {"checks": [{"id": "service.http", "status": "pass"}]},
-    }
-
-
-@pytest.mark.parametrize(
-    "invalid", ["empty", "item", "ref", "status", "no_refs", "unknown_evidence"]
-)
-async def test_invalid_judgements_are_rejected(monkeypatch, invalid):
-    monkeypatch.setattr(system_ai_env, "vllm_model_name", "test-model")
-    judgement = _judgement()
-    payload = _analysis_payload()
-    item = judgement["item_judgements"][0]
-    if invalid == "empty":
-        judgement = {}
-    elif invalid == "item":
-        item["item_id"] = "nonexistent"
-    elif invalid == "ref":
-        item["evidence_refs"] = ["nonexistent"]
-    elif invalid == "status":
-        item["status"] = "perfect"
-    elif invalid == "no_refs":
-        item["evidence_refs"] = []
-    else:
-        payload["script_result"]["checks"][0]["status"] = "unknown"
-
-    async def fake_call(*args, **kwargs):
-        return json.dumps(judgement), {}
-
-    monkeypatch.setattr(analysis, "_call_vllm", fake_call)
-    with pytest.raises(HTTPException) as error:
-        await analysis._call_ai_judgement(payload)
-    assert error.value.status_code == 502
-
-
-async def test_valid_judgement_accepts_different_rubric_and_check_ids(monkeypatch):
-    monkeypatch.setattr(system_ai_env, "vllm_model_name", "test-model")
-
-    async def fake_call(*args, **kwargs):
-        return json.dumps(_judgement()), {}
-
-    monkeypatch.setattr(analysis, "_call_vllm", fake_call)
-    result = await analysis._call_ai_judgement(_analysis_payload())
-    assert "score" not in result
-    assert "max_score" not in result
-    assert result["item_judgements"][0]["evidence_refs"] == ["service.http"]
-
-
 @pytest.mark.parametrize(
     "payload",
     [
@@ -1119,83 +984,6 @@ async def test_valid_judgement_accepts_different_rubric_and_check_ids(monkeypatc
 )
 def test_reviewer_invalid_or_contradictory_output_never_approves(payload):
     assert artifacts._normalize_ai_review(payload)["approved"] is False
-
-
-@pytest.mark.parametrize("status", ["unknown", "skipped"])
-async def test_unknown_judgement_preserves_status_without_fabricated_refs(
-    monkeypatch, status
-):
-    monkeypatch.setattr(system_ai_env, "vllm_model_name", "test-model")
-    result = _judgement()
-    result["score"] = 0
-    result["item_judgements"][0].update(status=status, score=0, evidence_refs=[])
-
-    async def fake_call(*args, **kwargs):
-        return json.dumps(result), {}
-
-    monkeypatch.setattr(analysis, "_call_vllm", fake_call)
-    judgement = await analysis._call_ai_judgement(_analysis_payload())
-    assert judgement["item_judgements"][0]["status"] == status
-
-
-async def test_teacher_judgement_never_becomes_ai_pass(monkeypatch):
-    monkeypatch.setattr(system_ai_env, "vllm_model_name", "test-model")
-    payload = _analysis_payload()
-    payload["rubric_items"][0]["judgement_mode"] = "teacher"
-    result = _judgement()
-    result["score"] = 0
-    result["item_judgements"][0].update(status="unknown", score=0)
-
-    async def fake_call(*args, **kwargs):
-        return json.dumps(result), {}
-
-    monkeypatch.setattr(analysis, "_call_vllm", fake_call)
-    judgement = await analysis._call_ai_judgement(payload)
-
-    assert judgement["requires_teacher_review"] is True
-    assert judgement["teacher_review_item_ids"] == ["item-1"]
-    assert judgement["item_judgements"][0]["judgement_mode"] == "teacher"
-
-
-async def test_teacher_judgement_rejects_ai_pass(monkeypatch):
-    monkeypatch.setattr(system_ai_env, "vllm_model_name", "test-model")
-    payload = _analysis_payload()
-    payload["rubric_items"][0]["judgement_mode"] = "teacher"
-
-    async def fake_call(*args, **kwargs):
-        return json.dumps(_judgement()), {}
-
-    monkeypatch.setattr(analysis, "_call_vllm", fake_call)
-    with pytest.raises(HTTPException):
-        await analysis._call_ai_judgement(payload)
-
-
-async def test_judgement_cannot_silently_omit_rubric_items(monkeypatch):
-    monkeypatch.setattr(system_ai_env, "vllm_model_name", "test-model")
-    payload = _analysis_payload()
-    payload["rubric_items"].append({"id": "item-2", "title": "another item"})
-
-    async def fake_call(*args, **kwargs):
-        return json.dumps(_judgement()), {}
-
-    monkeypatch.setattr(analysis, "_call_vllm", fake_call)
-    with pytest.raises(HTTPException):
-        await analysis._call_ai_judgement(payload)
-
-
-async def test_analysis_slot_released_after_http_failure(monkeypatch):
-    monkeypatch.setattr(system_ai_env, "vllm_model_name", "test-model")
-    slots = threading.BoundedSemaphore(1)
-    monkeypatch.setattr(analysis, "_AI_ANALYSIS_SLOTS", slots)
-
-    async def unavailable(*args, **kwargs):
-        raise HTTPException(status_code=504, detail="synthetic timeout")
-
-    monkeypatch.setattr(analysis, "_call_vllm", unavailable)
-    with pytest.raises(HTTPException):
-        await analysis._call_ai_judgement(_analysis_payload())
-    assert slots.acquire(blocking=False)
-    slots.release()
 
 
 async def test_executor_sync_stage_does_not_block_loop(monkeypatch):
@@ -1246,18 +1034,14 @@ async def test_executor_cancellation_drains_worker_before_recording_failure(
     def execute_targets(run_id):
         if stage == "execute":
             block()
-        return executor._ExecutedTargets({}, {}, [])
+        return executor._ExecutedTargets([])
 
     def save(run_id, results):
         assert stage == "save"
         block()
 
-    async def analyze(**kwargs):
-        return []
-
     monkeypatch.setattr(executor, "_execute_targets", execute_targets)
-    monkeypatch.setattr(executor, "analyze_target_results", analyze)
-    monkeypatch.setattr(executor, "_save_analyzed_results", save)
+    monkeypatch.setattr(executor, "_save_results", save)
     monkeypatch.setattr(
         executor, "_mark_run_executor_failed", lambda *args: events.append("failed")
     )
@@ -1333,10 +1117,6 @@ async def test_executor_sessions_and_ssh_wait_stay_off_loop(monkeypatch, tmp_pat
             "",
         )
 
-    async def fake_analysis(**kwargs):
-        assert threading.get_ident() == loop_thread
-        return kwargs["target_results"]
-
     monkeypatch.setattr(executor, "engine", db_engine)
     monkeypatch.setattr(executor, "Session", owned_session)
     monkeypatch.setattr(executor, "_live_running_by_vmid", lambda: {})
@@ -1344,7 +1124,6 @@ async def test_executor_sessions_and_ssh_wait_stay_off_loop(monkeypatch, tmp_pat
         executor, "_resolve_runtime_target", lambda **kwargs: dict(kwargs["target"])
     )
     monkeypatch.setattr(executor, "_execute_target_script", fake_ssh)
-    monkeypatch.setattr(executor, "analyze_target_results", fake_analysis)
     task = asyncio.create_task(executor.execute_script_run(run_id))
     try:
         for _ in range(100):

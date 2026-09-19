@@ -251,7 +251,7 @@ def rbac_repo(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
     monkeypatch.setattr(
         template_service.template_repo, "list_visible_templates", fake_list_visible
     )
-    monkeypatch.setattr(template_service, "_pve_template_vmids", lambda: None)
+    monkeypatch.setattr(template_service, "_pve_template_raw", lambda: None)
     return calls
 
 
@@ -314,45 +314,67 @@ def visible_template(monkeypatch: pytest.MonkeyPatch) -> VMTemplate:
     monkeypatch.setattr(
         template_service, "_require_view", lambda session, user, template: None
     )
+    # 配額執法另有專屬測試；其餘案例預設放行，避免碰到真的 DB。
+    monkeypatch.setattr(
+        template_service, "resolve_effective_spec", lambda template: (2, 2048, 20)
+    )
+    monkeypatch.setattr(
+        clone_service.quota_service,
+        "check_quota",
+        lambda session, user_id, **deltas: None,
+    )
     return template
 
 
-async def test_request_clone_student_batch_denied(
-    visible_template: VMTemplate,
+@pytest.mark.parametrize("count", [1, 2])
+async def test_request_clone_denied_for_student(
+    visible_template: VMTemplate, count: int
 ) -> None:
+    """學生完全不能克隆（單台也不行）；取得機器一律走申請審核流程。"""
     from app.schemas.template import TemplateCloneRequest
 
-    with pytest.raises(PermissionDeniedError, match="批次"):
+    with pytest.raises(PermissionDeniedError):
         await clone_service.request_clone(
             session=None,  # type: ignore[arg-type]
             user=make_user("student"),
+            template_id=visible_template.id,
+            data=TemplateCloneRequest(count=count),
+        )
+
+
+async def test_request_clone_enforces_quota_with_template_spec(
+    visible_template: VMTemplate, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """未指定 cores/memory 時，配額要以範本規格 x 台數計算。"""
+    from app.schemas.template import TemplateCloneRequest
+
+    monkeypatch.setattr(
+        template_service,
+        "resolve_effective_spec",
+        lambda template: (4, 8192, 32),
+    )
+    seen: dict[str, Any] = {}
+
+    def fake_check_quota(session: Any, user_id: Any, **deltas: int) -> None:
+        seen.update(deltas)
+        raise ConflictError("配額不足")
+
+    monkeypatch.setattr(clone_service.quota_service, "check_quota", fake_check_quota)
+
+    with pytest.raises(ConflictError):
+        await clone_service.request_clone(
+            session=None,  # type: ignore[arg-type]
+            user=make_user("teacher"),
             template_id=visible_template.id,
             data=TemplateCloneRequest(count=2),
         )
 
-
-async def test_request_clone_student_quota_exceeded(
-    visible_template: VMTemplate, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    from app.core.config import settings
-    from app.schemas.template import TemplateCloneRequest
-
-    monkeypatch.setattr(
-        clone_service.resource_repo,
-        "get_resources_by_user",
-        lambda *, session, user_id: [
-            SimpleNamespace(vmid=i)
-            for i in range(settings.TEMPLATE_CLONE_STUDENT_MAX_INSTANCES)
-        ],
-    )
-
-    with pytest.raises(ConflictError, match="配額"):
-        await clone_service.request_clone(
-            session=None,  # type: ignore[arg-type]
-            user=make_user("student"),
-            template_id=visible_template.id,
-            data=TemplateCloneRequest(count=1),
-        )
+    assert seen == {
+        "delta_cores": 8,
+        "delta_memory_mb": 16384,
+        "delta_disk_gb": 64,
+        "delta_instances": 2,
+    }
 
 
 async def test_request_clone_teacher_batch_enqueues_numbered_hostnames(

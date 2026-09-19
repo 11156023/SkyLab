@@ -32,6 +32,11 @@ from app.ai.teacher_judge._types import (
 from app.ai.teacher_judge.automation_support import ensure_script_generation_supported
 from app.ai.teacher_judge.config import settings
 from app.ai.teacher_judge.file_service import source_file_snapshot
+from app.ai.teacher_judge.machine_context import (
+    load_class_machine_nodes,
+    resolve_class_machine_node,
+    target_node_keys_from_snapshot,
+)
 from app.ai.teacher_judge.schemas import (
     TeacherJudgeRubricAnalysis,
     TeacherJudgeScriptArtifactPublic,
@@ -210,6 +215,12 @@ SCRIPT_GENERATION_SYSTEM_PROMPT = f"""
 
 
 AI_REVIEWER_SYSTEM_PROMPT = """
+Canonical migration boundary: new rubric steps are flat argv/cwd/timeout data;
+legacy template_key/command_key/parameters may only be read from old snapshots.
+The logical target is target_node_key. Never require or expose VMID, IP, SSH,
+or Proxmox details to the model, and do not treat a Windows prompt claim as
+executor support while the runtime remains Linux SSH/SFTP.
+
 你是 Teacher Judge managed data collection script 的安全審查員。
 只審查腳本，不執行腳本。請依 policy 判斷它是否只做 read-only inspection，或只執行 rubric 與 catalog 明確授權的受控程式入口。
 
@@ -357,13 +368,29 @@ def _template_commands_snapshot(
     ]
 
 
+def _snapshot_uses_legacy_command_references(
+    rubric_snapshot: dict[str, Any],
+) -> bool:
+    """Return whether a snapshot still needs the legacy command catalog."""
+    raw_items = rubric_snapshot.get("items")
+    if not isinstance(raw_items, list):
+        return False
+    return any(
+        isinstance(step, dict)
+        and (step.get("template_key") or step.get("command_key"))
+        for item in raw_items
+        if isinstance(item, dict)
+        for step in (item.get("check_steps") or [])
+    )
+
+
 def _with_template_command_catalog(
     rubric_snapshot: dict[str, Any],
     template_commands: list[TeacherJudgeTemplateCommand] | None,
 ) -> dict[str, Any]:
     snapshot = dict(rubric_snapshot)
     command_catalog = _template_commands_snapshot(template_commands)
-    if command_catalog:
+    if command_catalog and _snapshot_uses_legacy_command_references(snapshot):
         snapshot["template_commands"] = command_catalog
     return snapshot
 
@@ -805,6 +832,22 @@ async def generate_script_content(
             status_code=503, detail=t("artifact.model_not_configured")
         )
 
+    user_payload: dict[str, Any] = {
+        "rubric_snapshot": rubric_snapshot,
+        "previous_review_feedback": rubric_snapshot.get(
+            "previous_review_feedback"
+        ),
+    }
+    if rubric_snapshot.get("template_commands") or _snapshot_uses_legacy_command_references(
+        rubric_snapshot
+    ):
+        # Legacy snapshots retain their catalog context until conversion has
+        # completed. New flat snapshots deliberately omit these fields.
+        user_payload["template_key"] = template_key
+        user_payload["template_commands"] = rubric_snapshot.get(
+            "template_commands", []
+        )
+
     payload = apply_thinking_control(
         {
             "model": settings.VLLM_MODEL_NAME,
@@ -812,19 +855,7 @@ async def generate_script_content(
                 {"role": "system", "content": SCRIPT_GENERATION_SYSTEM_PROMPT},
                 {
                     "role": "user",
-                    "content": json.dumps(
-                        {
-                            "template_key": template_key,
-                            "rubric_snapshot": rubric_snapshot,
-                            "template_commands": rubric_snapshot.get(
-                                "template_commands", []
-                            ),
-                            "previous_review_feedback": rubric_snapshot.get(
-                                "previous_review_feedback"
-                            ),
-                        },
-                        ensure_ascii=False,
-                    ),
+                    "content": json.dumps(user_payload, ensure_ascii=False),
                 },
             ],
             "max_tokens": settings.VLLM_CHAT_MAX_TOKENS,
@@ -1613,7 +1644,13 @@ async def create_artifact(
         template_commands = get_enabled_template_commands(
             session, template_key, include_cross_template=True
         )
-    ensure_script_generation_supported(rubric_analysis, template_commands)
+    ensure_script_generation_supported(
+        rubric_analysis,
+        template_commands,
+        require_target_node=bool(
+            load_class_machine_nodes(session, teaching_class_id)
+        ),
+    )
 
     # Single model_dump reused for both the artifact rubric snapshot and the
     # source file analysis_json (previously dumped twice with equal content).
@@ -1622,10 +1659,35 @@ async def create_artifact(
     # read-only: downstream only shallow-copies the top level and serializes
     # each dict to its own JSON column on commit (no in-place nested mutation).
     analysis_dump = rubric_analysis.model_dump(mode="json")
-    rubric_snapshot = _with_template_command_catalog(
-        {**analysis_dump, "template_key": template_key},
-        template_commands,
-    )
+    target_node_keys = target_node_keys_from_snapshot(analysis_dump)
+    if len(target_node_keys) > 1:
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "code": "teacher_judge_mixed_target_nodes",
+                "message": "同一份 Teacher Judge 腳本目前只能對應一個 target_node_key。",
+                "target_node_keys": sorted(target_node_keys),
+            },
+        )
+    target_node_key = next(iter(target_node_keys), None)
+    if target_node_key and resolve_class_machine_node(
+        session, teaching_class_id, target_node_key
+    ) is None:
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "code": "teacher_judge_target_node_not_in_class",
+                "message": "檢查項目的 target_node_key 不屬於目前班級。",
+                "target_node_key": target_node_key,
+            },
+        )
+    rubric_base: dict[str, Any] = {
+        **analysis_dump,
+        **({"target_node_key": target_node_key} if target_node_key else {}),
+    }
+    if _snapshot_uses_legacy_command_references(analysis_dump):
+        rubric_base["template_key"] = template_key
+    rubric_snapshot = _with_template_command_catalog(rubric_base, template_commands)
     source_file, source_file_snapshot_json = source_file_snapshot(
         session=session,
         teaching_class_id=teaching_class_id,
@@ -1713,16 +1775,48 @@ async def regenerate_artifact(
     automation_analysis = rubric_analysis or TeacherJudgeRubricAnalysis.model_validate(
         artifact.rubric_snapshot_json
     )
-    ensure_script_generation_supported(automation_analysis, template_commands)
+    ensure_script_generation_supported(
+        automation_analysis,
+        template_commands,
+        require_target_node=bool(
+            load_class_machine_nodes(session, teaching_class_id)
+        ),
+    )
 
     # Reuse a single model_dump for snapshot + source analysis_json when a fresh
     # analysis is provided (same sharing rationale as create_artifact above).
     analysis_dump: dict[str, Any] | None = None
     if rubric_analysis is not None:
         analysis_dump = rubric_analysis.model_dump(mode="json")
-        rubric_base: dict[str, Any] = {**analysis_dump, "template_key": template_key}
+        rubric_base = dict(analysis_dump)
+        if _snapshot_uses_legacy_command_references(analysis_dump):
+            rubric_base["template_key"] = template_key
     else:
         rubric_base = artifact.rubric_snapshot_json
+    target_node_keys = target_node_keys_from_snapshot(rubric_base)
+    if len(target_node_keys) > 1:
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "code": "teacher_judge_mixed_target_nodes",
+                "message": "同一份 Teacher Judge 腳本目前只能對應一個 target_node_key。",
+                "target_node_keys": sorted(target_node_keys),
+            },
+        )
+    target_node_key = next(iter(target_node_keys), None)
+    if target_node_key and resolve_class_machine_node(
+        session, teaching_class_id, target_node_key
+    ) is None:
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "code": "teacher_judge_target_node_not_in_class",
+                "message": "檢查項目的 target_node_key 不屬於目前班級。",
+                "target_node_key": target_node_key,
+            },
+        )
+    if target_node_key:
+        rubric_base["target_node_key"] = target_node_key
     rubric_snapshot = _with_template_command_catalog(
         rubric_base,
         template_commands,

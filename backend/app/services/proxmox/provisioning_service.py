@@ -980,8 +980,15 @@ def execute_provision(plan: dict) -> tuple[int, str]:
                 if plan["start_immediately"]:
                     proxmox_service.control(actual_node, new_vmid, "lxc", "start")
                     if apply_password:
-                        clone_service._set_lxc_root_password(
-                            actual_node, new_vmid, plan["password"]
+                        plan["login_password_applied"] = (
+                            clone_service._set_lxc_root_password(
+                                actual_node, new_vmid, plan["password"]
+                            )
+                        )
+                    public_key = str(plan.get("ssh_public_key") or "").strip()
+                    if public_key:
+                        clone_service.inject_lxc_platform_key(
+                            actual_node, new_vmid, public_key
                         )
                 elif apply_password:
                     logger.warning(
@@ -1012,6 +1019,7 @@ def execute_provision(plan: dict) -> tuple[int, str]:
                 config["nameserver"] = net_cfg["dns_servers"]
             proxmox_service.create_lxc(target_node, **config)
             created = True
+            plan["login_password_applied"] = bool(plan.get("password"))
             firewall_service.setup_default_rules(target_node, new_vmid, "lxc")
         else:
             template_node = plan["template_node"]
@@ -1085,6 +1093,7 @@ def execute_provision(plan: dict) -> tuple[int, str]:
                 "sshkeys": quote(plan.get("ssh_public_key", ""), safe=""),
                 "ciupgrade": 0,
             }
+            plan["login_password_applied"] = bool(plan.get("password"))
             # Windows 範本不帶 username（帳號由 cloudbase-init 設定檔固定）
             if plan.get("username"):
                 config_updates["ciuser"] = plan["username"]
@@ -1176,6 +1185,12 @@ def provision_from_request(
         template_id=getattr(db_request, "template_id", None),
         ssh_private_key_encrypted=plan.get("ssh_private_key_encrypted"),
         ssh_public_key=plan.get("ssh_public_key"),
+        # 未生效的密碼一律不記錄，否則詳情頁會顯示一組登不進去的密碼
+        login_password_encrypted=(
+            encrypt_value(plan["password"])
+            if plan.get("login_password_applied") and plan.get("password")
+            else None
+        ),
         request_id=getattr(db_request, "id", None),
         commit=False,
     )

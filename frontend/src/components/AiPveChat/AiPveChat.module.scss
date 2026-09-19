@@ -481,30 +481,19 @@
 .composer textarea:disabled { cursor: not-allowed; opacity: .55; }
 .composerActions { display: flex; }
 
-.btnPrimary,
-.btnSecondary,
-.btnAllow {
-  display: inline-flex;
-  min-height: 34px;
-  padding: 6px $spacing-16;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  border-radius: $radius-pill;
-  font-size: $font-size-14;
-  font-weight: $font-weight-500;
-  white-space: nowrap;
-  cursor: pointer;
-  transition: background $transition-base, border-color $transition-base, box-shadow $transition-base, color $transition-base;
+.btnPrimary {
+  @include btn-primary;
 }
-
-.btnPrimary { color: var(--color-text-on-primary); background: var(--color-primary); }
-.btnPrimary:hover:not(:disabled) { background: var(--color-primary-dark); box-shadow: var(--shadow-sm); }
-.btnSecondary { border: 1px solid var(--color-border); color: var(--color-text-primary); background: var(--color-surface); }
-.btnSecondary:hover:not(:disabled) { background: var(--color-hover); }
-.btnAllow { color: var(--color-text-on-primary); background: var(--color-success); }
+.btnSecondary {
+  @include btn-secondary;
+}
+/* 允許執行：成功色填滿的頁面專屬款，基底同標準按鈕 */
+.btnAllow {
+  @include btn-base;
+  color: var(--color-text-on-primary);
+  background: var(--color-success);
+}
 .btnAllow:hover:not(:disabled) { box-shadow: var(--shadow-sm); }
-.btnPrimary:disabled, .btnSecondary:disabled, .btnAllow:disabled { cursor: not-allowed; opacity: .55; }
 
 @media (max-width: $breakpoint-md) {
   .chatCard,

@@ -18,6 +18,8 @@
   "schemas.environment_keys_must_contain_supported": "environment_keys must contain supported environments",
   "schemas.template_key_unsupported": "template_key contains an unsupported environment",
   "schemas.target_vmids_empty": "target_vmids must not be empty",
+  "schemas.target_node_key_required": "logical target_node_key is required for node-scoped execution",
+  "schemas.target_vmids_not_allowed": "target_vmids is only allowed for legacy manual execution",
 
   "session.no_rubric_selected": "This check has not selected a rubric yet.",
   "session.selected_file_unavailable": "The rubric selected for this check is no longer available.",
@@ -36,6 +38,7 @@
   "run.owner_mismatch": "The current owner of VMID {vmid}'s resource does not match the class student.",
   "run.no_ip": "VMID {vmid} has no available IP address.",
   "run.no_ssh_key": "VMID {vmid} has no available SSH key.",
+  "run.unsupported_os": "VMID {vmid} uses an operating system ({os_info}) unsupported by the current Linux SSH/python3 executor.",
   "run.manual_scope_only": "The first version only supports manually selecting machines to run on.",
   "run.artifact_not_approved": "Only scripts that pass static and AI checks can be executed.",
   "run.no_target_selected": "Please select at least one running VM/LXC.",
@@ -56,10 +59,6 @@
   "artifact.not_reviewed": "Only scripts that have passed review can be approved.",
   "artifact.policy_check_failed": "The script did not pass the safety/quality check.",
   "artifact.ai_review_failed": "The script did not pass the AI reviewer.",
-
-  "analysis.model_not_configured": "VLLM_MODEL_NAME is not configured.",
-  "analysis.not_json": "The AI analysis response is not JSON.",
-  "analysis.invalid_format": "The AI analysis response has an invalid format.",
 
   "file.name_conflict": "A rubric with the same name already exists.",
   "file.copy_name_exhausted": "Unable to create a copy with the same name. Please rename the file.",

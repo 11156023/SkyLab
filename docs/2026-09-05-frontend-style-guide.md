@@ -350,35 +350,26 @@ if (!(await confirm({ title, message, confirmText, danger: true }))) return;
 
 ### 按鈕
 
+按鈕一律使用 `_mixins.scss` 的按鈕 mixin 組（六款），**不要在頁面內重抄整組樣式**
+（2026-09-15 已全站收斂，舊的手抄複製體不要再回來）：
+
 ```scss
-// 主要按鈕
-.btnPrimary {
-  background: var(--color-primary);
-  color: var(--color-text-on-primary);
-  border-radius: $radius-8;
-  transition: background $transition-base;
-  &:hover:not(:disabled) { background: var(--color-primary-dark); }
-  &:disabled { opacity: 0.5; cursor: not-allowed; }
-}
-
-// 次要按鈕
-.btnSecondary {
-  background: var(--color-surface);
-  border: 1px solid var(--color-border);
-  color: var(--color-text-secondary);
-  &:hover:not(:disabled) { background: var(--color-hover); }
-}
-
-// 危險按鈕
-.btnDanger {
-  background: var(--color-danger);
-  color: var(--color-text-on-primary);
-  border: 1px solid var(--color-danger);
-  &:hover:not(:disabled) { background: var(--color-danger-dark); }
-}
+.btnPrimary       { @include btn-primary; }        // 主要動作：每個畫面至多一顆
+.btnSecondary     { @include btn-secondary; }      // 並列的一般動作、返回
+.btnDanger        { @include btn-danger; }         // 只用在確認彈窗／最終確認步驟
+.btnDangerOutline { @include btn-danger-outline; } // 頁面內破壞性動作的「入口」，點了才進 useConfirm
+.btnGhost         { @include btn-ghost; }          // 低強調輔助動作：淡底文字鈕（平常即有 --color-hover 淡底，hover 深一階）
+.btnGhostDanger   { @include btn-ghost($danger: true); }  // 淡紅底紅字變體（窄空間的刪除）
+.iconBtn          { @include btn-icon; }           // 32×32 圖示鈕，JSX 必帶 aria-label
+.iconBtnDanger    { @include btn-icon($danger: true); }   // 未 hover 前文字即為紅色
 ```
 
-> **規則**：所有按鈕 hover 都必須加 `:not(:disabled)`，disabled 狀態一律 `opacity: 0.5; cursor: not-allowed`。
+- 共用基底（mixin 內建）：高 36px、圓角 `$radius-8`、字級 14／500、
+  hover 一律 `:not(:disabled)`、disabled 一律 `opacity: 0.5; cursor: not-allowed`
+- 頁面差異（寬度、margin、grid 位置）寫在 `@include` 之後；要更矮更小請先問是不是真的需要
+- 既有頁面的「修飾類」家族（如表格列的 `.actionBtn.actionBtnDanger`）維持基類＋修飾寫法，
+  但危險修飾類**未 hover 前文字就要是紅色**，且 hover 同樣必加 `:not(:disabled)`
+- 下拉選單裡的危險項（PowerMenu、頁首 ⋯ 選單）屬選單樣式，不在此六款之列
 
 ### 表單（Form）
 

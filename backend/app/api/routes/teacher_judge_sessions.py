@@ -23,6 +23,11 @@ from app.ai.teacher_judge.attachment_service import (
 from app.ai.teacher_judge.automation_support import get_script_generation_blockers
 from app.ai.teacher_judge.config import settings as teacher_judge_settings
 from app.ai.teacher_judge.file_service import create_blank_file
+from app.ai.teacher_judge.machine_context import (
+    format_machine_context,
+    load_class_machine_nodes,
+    machine_context_entries,
+)
 from app.ai.teacher_judge.schemas import (
     TeacherJudgeRubricAnalysis,
     TeacherJudgeScriptArtifactPublic,
@@ -41,7 +46,11 @@ from app.ai.teacher_judge.schemas import (
 )
 from app.ai.teacher_judge.script_artifact_service import create_artifact
 from app.ai.teacher_judge.script_executor_service import execute_script_run
-from app.ai.teacher_judge.script_run_service import _run_to_public, create_script_run
+from app.ai.teacher_judge.script_run_service import (
+    _run_to_public,
+    create_script_run,
+    get_script_run_public,
+)
 from app.ai.teacher_judge.service import (
     TeacherJudgeChatResult,
     analyze_attachments_itemwise,
@@ -79,7 +88,7 @@ from app.api.deps import InstructorUser, SessionDep
 from app.core.authorizers import require_teaching_access
 from app.core.i18n import t
 from app.infrastructure.worker import submit
-from app.models import TeachingClass, TeachingClassMachineNode, TeachingClassWeek
+from app.models import TeachingClass, TeachingClassWeek
 from app.models.teacher_judge_attachment import TeacherJudgeSessionAttachment
 from app.models.teacher_judge_script_artifact import TeacherJudgeScriptArtifact
 from app.models.teacher_judge_script_run import (
@@ -178,37 +187,6 @@ def _validate_week(
         raise HTTPException(
             status_code=400, detail=t("teacherJudgeSessions.weekNotInClass")
         )
-
-
-def _class_machine_context(
-    session: SessionDep,
-    class_id: uuid.UUID,
-    week_id: uuid.UUID | None,
-) -> dict[str, Any]:
-    """Build non-sensitive class machine facts for Teacher Judge chat context."""
-    week = session.get(TeachingClassWeek, week_id) if week_id else None
-    target_node_key = (
-        week.target_node_key
-        if week is not None and week.class_id == class_id
-        else None
-    )
-    nodes = session.exec(
-        select(TeachingClassMachineNode)
-        .where(TeachingClassMachineNode.class_id == class_id)
-        .order_by(TeachingClassMachineNode.sort_order, TeachingClassMachineNode.node_key)
-    ).all()
-    return {
-        "nodes": [
-            {
-                "node": f"P{index}",
-                "name": node.name,
-                "role": node.role,
-                "resource_type": str(node.resource_type).lower(),
-                "selected_for_week": node.node_key == target_node_key,
-            }
-            for index, node in enumerate(nodes, start=1)
-        ],
-    }
 
 
 @router.get("/", response_model=list[TeacherJudgeSessionPublic])
@@ -544,11 +522,6 @@ async def create_message(
     item = get_session(session, teaching_class_id, session_id)
     ensure_active(item)
     file = selected_file_for_chat(session, item)
-    class_machine_context = _class_machine_context(
-        session,
-        teaching_class_id,
-        item.teaching_class_week_id,
-    )
     base_revision = file.analysis_revision if file else None
     if (
         file
@@ -581,13 +554,28 @@ async def create_message(
     session.commit()
     session.refresh(user_message)
     try:
-        template_commands = get_enabled_template_commands(
-            session,
-            file.template_key if file else "linux",
-            include_cross_template=True,
+        raw_analysis = file.analysis_json if file else {}
+        legacy_command_context = any(
+            isinstance(step, dict)
+            and (step.get("template_key") or step.get("command_key"))
+            for raw_item in (raw_analysis.get("items") or [])
+            if isinstance(raw_item, dict)
+            for step in (raw_item.get("check_steps") or [])
+        )
+        template_commands = (
+            get_enabled_template_commands(
+                session,
+                file.template_key if file else "linux",
+                include_cross_template=True,
+            )
+            if legacy_command_context
+            else []
         )
         rubric_context = (
             json.dumps(file.analysis_json, ensure_ascii=False) if file else "{}"
+        )
+        machine_context = format_machine_context(
+            machine_context_entries(session, teaching_class_id)
         )
         item_results: list[dict[str, Any]] | None = None
         conversation_focus: dict[str, Any] | None = None
@@ -599,10 +587,14 @@ async def create_message(
             # one row's Ready reasoning cannot leak into the other rows.
             itemwise = await analyze_attachments_itemwise(
                 rubric_context=rubric_context,
-                template_key=file.template_key if file else "linux",
+                template_key=(file.template_key if legacy_command_context else "linux")
+                if file
+                else "linux",
                 template_commands=template_commands,
-                environment_keys=file.environment_keys if file else None,
-                class_machine_context=class_machine_context,
+                environment_keys=(file.environment_keys if legacy_command_context else None)
+                if file
+                else None,
+                machine_context=machine_context,
                 attachment_context=attachment_context(attachments),
                 analysis_revision=base_revision,
                 rubric_available=file is not None,
@@ -624,10 +616,14 @@ async def create_message(
                 ),
                 rubric_context,
                 is_refine=payload.is_refine,
-                template_key=file.template_key if file else "linux",
+                template_key=(file.template_key if legacy_command_context else "linux")
+                if file
+                else "linux",
                 template_commands=template_commands,
-                environment_keys=file.environment_keys if file else None,
-                class_machine_context=class_machine_context,
+                environment_keys=(file.environment_keys if legacy_command_context else None)
+                if file
+                else None,
+                machine_context=machine_context,
                 attachment_context=attachment_context(attachments),
                 analysis_revision=base_revision,
                 rubric_available=file is not None,
@@ -644,6 +640,45 @@ async def create_message(
                 "因此無法建立可套用提案。請先選擇來源後再送出需求。"
             )
             proposal = None
+        if proposal and file is not None:
+            class_nodes = load_class_machine_nodes(session, teaching_class_id)
+            valid_node_keys = {node.node_key for node in class_nodes}
+            invalid_node_keys: set[str] = set()
+            missing_target_item_ids: list[str] = []
+            for raw in proposal:
+                if not isinstance(raw, dict):
+                    continue
+                candidate = raw.get("item")
+                candidate = candidate if isinstance(candidate, dict) else raw
+                node_key = str(candidate.get("target_node_key") or "").strip()
+                if node_key and node_key not in valid_node_keys:
+                    invalid_node_keys.add(node_key)
+                if (
+                    class_nodes
+                    and str(candidate.get("detectable") or "").strip().lower() == "auto"
+                    and not node_key
+                ):
+                    missing_target_item_ids.append(
+                        str(candidate.get("id") or candidate.get("title") or "未命名項目")
+                    )
+            if invalid_node_keys:
+                raise HTTPException(
+                    status_code=422,
+                    detail={
+                        "code": "teacher_judge_target_node_not_in_class",
+                        "message": "提案中的 target_node_key 不屬於目前班級。",
+                        "target_node_keys": sorted(invalid_node_keys),
+                    },
+                )
+            if missing_target_item_ids:
+                raise HTTPException(
+                    status_code=422,
+                    detail={
+                        "code": "teacher_judge_target_node_required",
+                        "message": "可執行的提案項目必須指定 target_node_key。",
+                        "item_ids": list(dict.fromkeys(missing_target_item_ids)),
+                    },
+                )
         workflow: WorkflowMessage | None = None
         if payload.is_refine and file is not None:
             # Readiness is determined from the effective server-side candidate,
@@ -654,7 +689,13 @@ async def create_message(
                 proposal,
             )
             workflow = reanalysis_workflow_message(
-                get_script_generation_blockers(candidate_analysis, template_commands),
+                get_script_generation_blockers(
+                    candidate_analysis,
+                    template_commands,
+                    require_target_node=bool(
+                        load_class_machine_nodes(session, teaching_class_id)
+                    ),
+                ),
                 source_file_id=file.id,
                 analysis_revision=base_revision,
                 proposal=proposal,
@@ -1033,6 +1074,7 @@ def create_session_run(
         target_scope=TeacherJudgeScriptRunTargetScope(payload.target_scope),
         target_vmids=payload.target_vmids,
         started_by=current_user.id,
+        target_node_key=payload.target_node_key,
     )
     from app.models.base import get_datetime_utc
 
@@ -1045,4 +1087,9 @@ def create_session_run(
         name=f"teacher_judge_script_run:{run.id}",
         task_id=f"teacher_judge_script_run:{run.id}",
     )
-    return run
+    return get_script_run_public(
+        session=session,
+        teaching_class_id=teaching_class_id,
+        artifact_id=artifact_id,
+        run_id=uuid.UUID(run.id),
+    )

@@ -394,7 +394,7 @@ export default function RequestReviewPage() {
 
   return (
     <div className={styles.page}>
-      <PageHeader title={t("RequestReviewPage.pageTitle")} subtitle={t("RequestReviewPage.pageSubtitle")} />
+      <PageHeader title={t("RequestReviewPage.pageTitle")} />
 
       <div className={styles.tabsRow}>
         <SegmentedControl

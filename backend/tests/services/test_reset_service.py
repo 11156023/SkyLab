@@ -86,6 +86,22 @@ def test_run_reset_stops_rolls_back_and_restarts(pve: dict) -> None:
     assert pve["rollback"] == [reset_service.INIT_SNAPSHOT_NAME]
 
 
+def test_run_reset_lxc_syncs_platform_key_after_restart(
+    pve: dict, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    sync_calls: list[tuple[str, int, str]] = []
+    monkeypatch.setattr(
+        reset_service,
+        "_sync_lxc_platform_key_after_start",
+        lambda node, vmid, rtype: sync_calls.append((node, vmid, rtype)),
+    )
+
+    reset_service._run_reset(102, "pve1", "lxc", USER.id)
+
+    assert sync_calls == [("pve1", 102, "lxc")]
+    assert pve["control"] == ["stop", "start"]
+
+
 def test_run_reset_stopped_vm_stays_stopped(pve: dict) -> None:
     pve["status"] = "stopped"
     reset_service._run_reset(101, "pve1", "qemu", USER.id)

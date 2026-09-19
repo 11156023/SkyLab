@@ -396,7 +396,7 @@ export default function TemplatesPage() {
 
   return (
     <div className={styles.page}>
-      <PageHeader title={t("TemplatesPage.pageTitle")} subtitle={t("TemplatesPage.pageSubtitle")}>
+      <PageHeader title={t("TemplatesPage.pageTitle")}>
         <div className={styles.pageActions}>
           <button
             type="button"

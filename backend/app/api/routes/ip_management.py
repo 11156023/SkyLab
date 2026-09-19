@@ -23,12 +23,7 @@ router = APIRouter(prefix="/ip-management", tags=["ip-management"])
 # ─── 子網配置 ──────────────────────────────────────────────────────────────────
 
 
-@router.get("/subnet", response_model=SubnetConfigPublic | None)
-def get_subnet_config(session: SessionDep, _: AdminUser):
-    """取得子網配置"""
-    config = ip_management_service.get_subnet_config(session)
-    if config is None:
-        return None
+def _subnet_public(session: SessionDep, config) -> SubnetConfigPublic:
     stats = ip_management_service.get_ip_stats(session)
     return SubnetConfigPublic(
         cidr=config.cidr,
@@ -37,11 +32,23 @@ def get_subnet_config(session: SessionDep, _: AdminUser):
         gateway_vm_ip=config.gateway_vm_ip,
         dns_servers=config.dns_servers,
         extra_blocked_subnets=ip_management_service.get_extra_blocked_subnets(config),
+        forward_port_start=config.forward_port_start,
+        forward_port_end=config.forward_port_end,
+        forward_public_host=config.forward_public_host,
         updated_at=config.updated_at,
         total_ips=stats["total"],
         used_ips=stats["used"],
         available_ips=stats["available"],
     )
+
+
+@router.get("/subnet", response_model=SubnetConfigPublic | None)
+def get_subnet_config(session: SessionDep, _: AdminUser):
+    """取得子網配置"""
+    config = ip_management_service.get_subnet_config(session)
+    if config is None:
+        return None
+    return _subnet_public(session, config)
 
 
 @router.put("/subnet", response_model=SubnetConfigPublic)
@@ -59,6 +66,9 @@ def upsert_subnet_config(
         gateway_vm_ip=body.gateway_vm_ip,
         dns_servers=body.dns_servers,
         extra_blocked_subnets=body.extra_blocked_subnets,
+        forward_port_start=body.forward_port_start,
+        forward_port_end=body.forward_port_end,
+        forward_public_host=body.forward_public_host,
     )
     # 同步所有 VM/LXC 的封鎖規則 dest 為新子網與額外封鎖網段
     try:
@@ -66,19 +76,7 @@ def upsert_subnet_config(
         firewall_service.sync_block_local_subnet_rules()
     except Exception as e:
         logger.warning("同步預設封鎖防火牆規則失敗（非致命）: %s", e)
-    stats = ip_management_service.get_ip_stats(session)
-    return SubnetConfigPublic(
-        cidr=config.cidr,
-        gateway=config.gateway,
-        bridge_name=config.bridge_name,
-        gateway_vm_ip=config.gateway_vm_ip,
-        dns_servers=config.dns_servers,
-        extra_blocked_subnets=ip_management_service.get_extra_blocked_subnets(config),
-        updated_at=config.updated_at,
-        total_ips=stats["total"],
-        used_ips=stats["used"],
-        available_ips=stats["available"],
-    )
+    return _subnet_public(session, config)
 
 
 @router.delete("/subnet", response_model=Message)

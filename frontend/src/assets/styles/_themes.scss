@@ -48,6 +48,16 @@
   --color-danger-dark:    #b91c1c;
   --color-info:           #2b4d98;
   --color-pending:        #d97706;
+
+  /* ----- Machine kind（機器來源徽章，MachineKindBadge）-----
+     個人申請／共享給我／班級機器／學生機器／快速練習／課程實驗／老師開放 */
+  --color-kind-personal: #4f6fbf;
+  --color-kind-shared:   #7c5cbf;
+  --color-kind-class:    #1f8a5b;
+  --color-kind-student:  #c2620a;
+  --color-kind-practice: #0e8f9a;
+  --color-kind-course:   #b04a8c;
+  --color-kind-open:     #2b7de0;
   --color-status-neutral: #6b7280;
 
   /* ----- Glass backdrop filters -----
@@ -117,6 +127,15 @@ body.dark {
   --color-info:           #89a5e0;
   --color-pending:        #f59e0b;
   --color-status-neutral: #9ca3af;
+
+  /* ----- Machine kind：深色底用較亮的值 ----- */
+  --color-kind-personal: #8fa6e6;
+  --color-kind-shared:   #b39ce8;
+  --color-kind-class:    #5fc492;
+  --color-kind-student:  #f0a04b;
+  --color-kind-practice: #4fc7d1;
+  --color-kind-course:   #e08ac6;
+  --color-kind-open:     #7db8ff;
 
   /* ----- Shadows ----- */
   --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.3);

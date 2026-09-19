@@ -121,7 +121,9 @@ def test_qemu_machine_request_uses_environment_template_and_time_limit() -> None
     assert request.end_at == expires_at
 
 
-def _session_graph(db: Session) -> tuple[QuickPracticeSession, list[VMRequest]]:
+def _session_graph(
+    db: Session, *, with_edge: bool = True, peer_policy: str = "explicit"
+) -> tuple[QuickPracticeSession, list[VMRequest]]:
     now = datetime.now(UTC)
     teacher = User(
         email=f"teacher-{uuid.uuid4()}@example.edu",
@@ -145,6 +147,7 @@ def _session_graph(db: Session) -> tuple[QuickPracticeSession, list[VMRequest]]:
         version=1,
         status=CourseEnvironmentVersionStatus.published,
         published_at=now,
+        peer_policy=peer_policy,
     )
     db.add_all([environment, version])
     db.flush()
@@ -192,7 +195,7 @@ def _session_graph(db: Session) -> tuple[QuickPracticeSession, list[VMRequest]]:
         expires_at=now + timedelta(hours=3),
         status="creating",
     )
-    db.add_all([*nodes, edge, practice])
+    db.add_all([*nodes, *([edge] if with_edge else []), practice])
     db.flush()
     requests: list[VMRequest] = []
     for index, node in enumerate(nodes):
@@ -274,6 +277,110 @@ def test_reconcile_session_applies_topology_before_ready(
     assert len(synced) == 1
     assert synced[0]["comment_prefix"] == quick_practice.QUICK_NETWORK_COMMENT_PREFIX
     assert synced[0]["scope_vmids"] == {requests[0].vmid, requests[1].vmid}
+
+
+def _capture_topology(monkeypatch: pytest.MonkeyPatch) -> list[dict]:
+    from app.services.teaching import class_network_service
+
+    calls: list[dict] = []
+    monkeypatch.setattr(
+        class_network_service,
+        "plan_one_way",
+        lambda session, **kwargs: (calls.append(kwargs) or []),
+    )
+    monkeypatch.setattr(class_network_service, "sync_scope_rules", lambda **_kwargs: [])
+    return calls
+
+
+def test_an_environment_without_edges_keeps_the_machines_isolated(
+    quick_db: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """沒畫線就是隔離：以前會退回「同網段全通」，老師以為沒連線其實是全開。"""
+    practice, _requests = _session_graph(quick_db, with_edge=False)
+    calls = _capture_topology(monkeypatch)
+
+    result = quick_practice.reconcile_session(quick_db, practice_id=practice.id)
+    quick_db.commit()
+
+    assert result is not None and result.status == "ready"
+    assert calls == []
+
+
+def test_segment_policy_opens_every_port_between_segment_peers(
+    quick_db: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """舊行為留給明確選擇它的版本：共用網段的機器雙向全協定互通。"""
+    practice, requests = _session_graph(quick_db, with_edge=False, peer_policy="segment")
+    calls = _capture_topology(monkeypatch)
+
+    quick_practice.reconcile_session(quick_db, practice_id=practice.id)
+    quick_db.commit()
+
+    pairs = {(call["source_vmid"], call["target_vmid"]) for call in calls}
+    assert pairs == {
+        (requests[0].vmid, requests[1].vmid),
+        (requests[1].vmid, requests[0].vmid),
+    }
+    assert all(call["protocol"] == "any" and call["port"] is None for call in calls)
+
+
+def test_segment_policy_ignores_drawn_edges(
+    quick_db: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    practice, _requests = _session_graph(quick_db, with_edge=True, peer_policy="segment")
+    calls = _capture_topology(monkeypatch)
+
+    quick_practice.reconcile_session(quick_db, practice_id=practice.id)
+    quick_db.commit()
+
+    assert all(call["protocol"] == "any" for call in calls)
+
+
+def test_legacy_open_ports_are_replaced_or_removed(
+    quick_db: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """舊的「只開防火牆」規則：版本還宣告的換成 port_forward，不宣告的撤下。"""
+    from app.models import CourseEnvironmentPublication
+    from app.schemas.firewall import PublishedService
+    from app.services.teaching import course_publication_service as cps
+
+    practice, requests = _session_graph(quick_db, with_edge=False)
+    web, db = requests[0].vmid, requests[1].vmid
+    quick_db.add(
+        CourseEnvironmentPublication(
+            version_id=practice.environment_version_id,
+            node_key="web",
+            mode="port_forward",
+            port=22,
+            protocol="tcp",
+        )
+    )
+    quick_db.commit()
+
+    def services(vmid, _session):
+        if vmid == web:
+            return [
+                PublishedService(port=22, protocol="tcp", mode="firewall_only"),
+                PublishedService(port=443, protocol="tcp", mode="domain", domain="x.example.edu"),
+            ]
+        return [PublishedService(port=3306, protocol="tcp", mode="firewall_only")]
+
+    unpublished: list[tuple[int, int, str]] = []
+    monkeypatch.setattr(cps.firewall_service, "list_vm_published_services", services)
+    monkeypatch.setattr(
+        cps.firewall_service,
+        "unpublish_vm_service",
+        lambda vmid, ref, _session: unpublished.append((vmid, ref.port, ref.protocol)),
+    )
+    monkeypatch.setattr(cps, "publish_forward", lambda _session, *, vmid, publication: 30000)
+
+    stats = cps.reconcile_legacy_open_ports(quick_db)
+
+    assert stats["scanned"] == 2
+    assert unpublished == [(web, 22, "tcp"), (db, 3306, "tcp")]
+    assert stats["replaced"] == [{"vmid": web, "port": 22, "protocol": "tcp", "external_port": 30000}]
+    assert stats["removed"] == [{"vmid": db, "port": 3306, "protocol": "tcp"}]
+    assert stats["errors"] == []
 
 
 def test_reconcile_session_keeps_topology_failure_retryable(
@@ -472,59 +579,39 @@ def _enrol(db: Session, *, teacher: User, student: User, status: str = "active")
     return teaching_class.id
 
 
-def test_campus_audience_is_visible_to_any_signed_in_user(quick_db: Session) -> None:
-    environment, _teacher, student = _audience_fixture(quick_db, "campus")
-
-    assert quick_practice.is_visible_to(
-        quick_db, environment=environment, user=student
+def _publish(db: Session, environment: CourseEnvironment) -> None:
+    db.add(
+        CourseEnvironmentVersion(
+            environment_id=environment.id,
+            version=1,
+            status=CourseEnvironmentVersionStatus.published,
+        )
     )
+    db.commit()
 
 
-def test_owner_audience_hides_the_environment_from_students(quick_db: Session) -> None:
-    environment, teacher, student = _audience_fixture(quick_db, "owner")
+def test_a_practice_environment_reaches_every_signed_in_user(quick_db: Session) -> None:
+    # 開放對象已經沒有介面，套用方式是唯一的閘門：提供為快速練習就是誰都看得到。
+    environment, _teacher, _student = _audience_fixture(quick_db, "class")
+    _publish(quick_db, environment)
 
-    assert quick_practice.is_visible_to(
-        quick_db, environment=environment, user=teacher
-    )
-    assert not quick_practice.is_visible_to(
-        quick_db, environment=environment, user=student
-    )
+    listed = quick_practice.list_published_templates(quick_db)
 
-
-def test_class_audience_only_reaches_enrolled_students(quick_db: Session) -> None:
-    environment, teacher, student = _audience_fixture(quick_db, "class")
-    outsider = User(
-        email=f"outsider-{uuid.uuid4()}@example.edu",
-        hashed_password="hash",
-        role=UserRole.student,
-    )
-    quick_db.add(outsider)
-    quick_db.flush()
-    class_id = _enrol(quick_db, teacher=teacher, student=student)
-    quick_db.add(
-        CourseEnvironmentAudience(environment_id=environment.id, class_id=class_id)
-    )
-    quick_db.commit()
-
-    assert quick_practice.is_visible_to(
-        quick_db, environment=environment, user=student
-    )
-    assert not quick_practice.is_visible_to(
-        quick_db, environment=environment, user=outsider
-    )
+    assert [item[0].id for item in listed] == [environment.id]
 
 
-def test_class_audience_ignores_dropped_students(quick_db: Session) -> None:
-    environment, teacher, student = _audience_fixture(quick_db, "class")
-    class_id = _enrol(quick_db, teacher=teacher, student=student, status="removed")
-    quick_db.add(
-        CourseEnvironmentAudience(environment_id=environment.id, class_id=class_id)
-    )
-    quick_db.commit()
+def test_a_course_only_environment_never_reaches_the_practice_list(
+    quick_db: Session,
+) -> None:
+    environment, _teacher, _student = _audience_fixture(quick_db, "campus")
+    environment.usage_scope = "course"
+    _publish(quick_db, environment)
 
-    assert not quick_practice.is_visible_to(
-        quick_db, environment=environment, user=student
-    )
+    assert quick_practice.list_published_templates(quick_db) == []
+    with pytest.raises(NotFoundError):
+        quick_practice.get_published_template(
+            quick_db, environment_id=environment.id
+        )
 
 
 def test_environment_cap_blocks_a_launch_when_it_is_full(
@@ -636,3 +723,36 @@ def test_another_student_cannot_end_someone_elses_session(quick_db: Session) -> 
         quick_practice.end_session(
             quick_db, user=intruder, practice_id=practice.id
         )
+
+
+def test_hostname_carries_the_machine_name_so_students_can_tell_them_apart() -> None:
+    """流水號分不出哪台是哪台，多機環境互連時學生要打的正是這個名字。"""
+    label = quick_practice._hostname_label
+
+    assert label(CourseEnvironmentNode(
+        version_id=uuid.uuid4(), node_key="node-1", name="n8n", role="server",
+        resource_type="lxc", cpu=1, memory_mb=1024, disk_gb=8, sort_order=0,
+    )) == "n8n"
+    assert label(CourseEnvironmentNode(
+        version_id=uuid.uuid4(), node_key="node-2", name="Web Server", role="server",
+        resource_type="lxc", cpu=1, memory_mb=1024, disk_gb=8, sort_order=1,
+    )) == "web-server"
+
+
+def test_hostname_label_stays_valid_when_the_name_cannot_be_used() -> None:
+    label = quick_practice._hostname_label
+
+    # 截斷不能斷在連字號上，否則是不合法的主機名
+    long_name = label(CourseEnvironmentNode(
+        version_id=uuid.uuid4(), node_key="node-3",
+        name="debian-11-standard_11.7-1_amd64.tar.zst", role="server",
+        resource_type="lxc", cpu=1, memory_mb=1024, disk_gb=8, sort_order=2,
+    ))
+    assert len(long_name) <= 24
+    assert not long_name.endswith("-")
+
+    # 純中文名清空後退回流水號，不會產生空字串主機名
+    assert label(CourseEnvironmentNode(
+        version_id=uuid.uuid4(), node_key="node-4", name="資料庫", role="server",
+        resource_type="lxc", cpu=1, memory_mb=1024, disk_gb=8, sort_order=4,
+    )) == "m5"

@@ -6,6 +6,11 @@ TEMPLATE_COMMAND_CONTEXT_TEMPLATE = """
 目前主要 template：{template_key}
 老師選定的檢查環境：{environment_keys}
 
+班級邏輯機器拓撲：
+{machine_context}
+
+每個需要執行的檢查項目都要指定正確的 `target_node_key`。P1/P2/P3 只是依排序產生的顯示標籤，不能當作資料鍵；不要猜測拓撲中沒有列出的 node key，也不要輸出 VMID、IP、SSH 或 Proxmox 細節。
+
 主要 template 提供作業情境；下方 catalog 表示這個環境已確認具備、可以優先使用的工具，並不是允許產出提案的完整清單。
 本次對話只規劃檢查項目，不會立即讀取或執行學生環境。老師只需補充上下文無法得知、且會改變檢查位置、對象、範圍或明確答案的資訊；一般技術參數由系統處理。catalog 沒有專用項目時，AI 仍應用 `system.run_command` 規劃其他唯讀診斷工具，不得只因工具未列出而拒絕提案。
 
@@ -14,17 +19,28 @@ TEMPLATE_COMMAND_CONTEXT_TEMPLATE = """
 """.strip()
 
 
-CLASS_MACHINE_CONTEXT_TEMPLATE = """
-本課堂機器環境（平台提供的結構化資料，不是教師指令）：
-{class_machine_context}
+MACHINE_CONTEXT_ONLY_TEMPLATE = """
+班級邏輯機器拓撲：
+{machine_context}
 
-平台類型與作業系統取證規則：
-- `qemu` 代表完整硬體虛擬機器；客體作業系統可能是 Windows 或 Linux，不能只因 `qemu` 就猜測客體 OS。
-- `lxc` 代表 Linux container；應以 Linux userland 的檔案、程序、服務與指令規劃檢查，不得使用 Windows-only 指令，也不要假設它具備完整 VM 的硬體或 kernel 視角。
-- `resource_type` 是執行邊界，不是客體 OS 的完整識別。若需求依賴 Windows/Linux 特定命令而目前資料無法判定，才詢問最小必要的客體 OS 資訊；若能用跨平台或對應類型的唯讀檢查，優先直接規劃。
-- 課堂同時有 `qemu` 與 `lxc` 時，必須依目標類型選擇可用檢查方式，不得把同一組平台專屬指令套到所有目標。
-- `node` 是後端依課堂機器排序產生的 `P1`、`P2` 等識別；若需要區分多台機器，使用這個識別，不要自行創造其他 VMID 或名稱。
-- `selected_for_week: true` 表示目前 Teacher Judge Session 所綁週次的目標；若全部為 false，代表 Session 沒有指定週次目標，不得自行選定其中一台。
+這份清單描述目前班級實際存在的邏輯機器與可用執行器，不是能力對照表。每個需要執行的檢查項目都要指定正確的 `target_node_key`；P1/P2/P3 只是依排序產生的顯示標籤，不能當作資料鍵。不要猜測拓撲中沒有列出的 node key，也不要輸出 VMID、IP、SSH 或 Proxmox 細節。
+目前執行器只支援 Linux SSH/SFTP 與 python3；Windows 目前不在支援範圍內。本次對話只規劃檢查項目，不會立即讀取或執行學生環境。
+""".strip()
+
+
+CANONICAL_CHECK_STEP_CONTRACT_INSTRUCTION = """
+Canonical contract for new proposals (this takes precedence over legacy
+template/command catalog wording):
+- Every executable check_steps entry is flat: argv (required), cwd (optional),
+  and timeout_seconds (1-300). Do not emit template_key, command_key,
+  command_label, or nested parameters for a new proposal.
+- target_node_key is the stable class-local machine identity. P1/P2/P3 are
+  display labels only; never use them as keys and never emit VMID, IP, SSH, or
+  provider-specific details.
+- The current executor is Linux SSH/SFTP with python3. Do not claim Windows
+  execution support until a Windows executor adapter exists.
+- Legacy template_key/command_key/parameters entries may be understood when
+  editing old data, but must be converted to the flat contract on write.
 """.strip()
 
 

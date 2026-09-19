@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { nextClassSession, summarizeCheckpointReports } from "./TeacherDashboardPage";
+import {
+  buildTeacherDashboardDemo,
+  nextClassSession,
+  summarizeCheckpointReports,
+} from "./TeacherDashboardPage";
 
 describe("teacher dashboard checkpoint summary", () => {
   it("aggregates completed checkpoints and students", () => {
@@ -33,5 +37,19 @@ describe("nextClassSession", () => {
     }, now);
 
     expect(next.toISOString()).toBe("2026-08-12T05:10:00.000Z");
+  });
+});
+
+describe("teacher dashboard demo data", () => {
+  it("fills every existing dashboard section without changing production data", () => {
+    const now = new Date("2026-09-17T10:00:00+08:00");
+    const demo = buildTeacherDashboardDemo(now);
+    const summary = summarizeCheckpointReports(demo.reports);
+
+    expect(demo.classes).toHaveLength(3);
+    expect(demo.reports).toHaveLength(3);
+    expect(summary.students).toBe(78);
+    expect(summary.completed).toBeGreaterThan(0);
+    expect(nextClassSession(demo.classes[0], now)).not.toBeNull();
   });
 });

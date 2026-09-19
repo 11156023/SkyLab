@@ -116,7 +116,6 @@ export default function SnapshotsTab({ vmid }) {
         <div className={styles.cardHeader}>
           <div>
             <h2 className={styles.cardTitle}>{t("SnapshotsTab.title")}</h2>
-            <p className={styles.cardDesc}>{t("SnapshotsTab.desc")}</p>
           </div>
           <div className={styles.headerActions}>
             <button

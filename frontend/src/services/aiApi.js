@@ -47,7 +47,7 @@ export const AiApiService = {
     return apiPatch(`${BASE}/credentials/${credentialId}`, body);
   },
 
-  /* ── User 端: 我的用量（統一兩種計算路由） ── */
+  /* ── User 端: 我的用量（只計算申請金鑰的 API 呼叫） ── */
   getMyUsage({ start_date, end_date }) {
     const q = new URLSearchParams();
     if (start_date) q.set("start_date", start_date);

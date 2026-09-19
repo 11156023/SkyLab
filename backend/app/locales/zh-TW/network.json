@@ -5,6 +5,8 @@
   "nat.haproxySyncCommandFailed": "haproxy 設定同步失敗：{out}{err}",
   "nat.haproxySyncFailed": "haproxy 同步失敗：{error}",
   "nat.ruleNotFound": "NAT 規則 {ruleId} 不存在",
+  "nat.poolNotConfigured": "尚未設定 IP 管理網段，無法自動配置對外 port",
+  "nat.poolExhausted": "對外 port 配號池 {start}–{end} 已用完，請管理員擴大範圍或釋放不用的轉發",
 
   "reverseProxy.zoneNameInvalid": "Zone 名稱格式不正確",
   "reverseProxy.subdomainInvalid": "子網域格式不正確",
@@ -113,5 +115,15 @@
   "firewall.serviceNotFound": "找不到 Port {port}/{protocol} 的對外服務",
   "firewall.serviceUnpublished": "對外服務已撤下",
   "reverseProxy.domainConflictUnverified": "暫時無法向 Cloudflare 確認 {domain} 是否已被使用，只檢查了本系統的紀錄",
-  "reverseProxy.domainInUseExternally": "網域 {domain} 在 Cloudflare 上已有 {record_type} 紀錄（非本系統建立），請換一個名稱"
+  "reverseProxy.domainInUseExternally": "網域 {domain} 在 Cloudflare 上已有 {record_type} 紀錄（非本系統建立），請換一個名稱",
+  "firewall.exposure_class_not_found": "班級不存在",
+  "firewall.exposure_not_class_owner": "只能開放給自己擔任老師的班級",
+  "firewall.exposure_ports_required": "至少要開放一個埠",
+  "firewall.exposure_exists": "這台機器已經開放給該班級，請直接修改允許的埠",
+  "firewall.exposure_not_found": "找不到這筆開放設定",
+  "firewall.exposure_deleted": "已關閉開放，拆掉 {count} 條學生的連線",
+  "firewall.peer_not_allowed": "目標機器沒有開放給你所屬的班級",
+  "firewall.peer_one_way_only": "連到老師的機器只能單向，不能雙向",
+  "firewall.peer_port_not_allowed": "老師沒有開放這些埠：{ports}",
+  "firewall.connection_delete_denied": "你沒有權限拆這條連線（至少要能管理其中一端）"
 }

@@ -30,6 +30,58 @@ const AI_DETECTABLE_META = {
 
 const NO_COURSE_STATUS = { labelKey: "StudentCoursePage.noCourseStatus", tone: "muted", icon: "event_busy" };
 
+function createGuideDemoCourse(t) {
+  const weekId = "demo-week-1";
+  return {
+    loading: false,
+    hasError: false,
+    resources: [],
+    activePath: {
+      id: "demo",
+      title: t("StudentCoursePage.guideDemoCourseTitle"),
+      description: t("StudentCoursePage.guideDemoCourseDescription"),
+      progress_percent: 50,
+    },
+    pathDetail: {
+      rooms: [{
+        id: "demo-room",
+        title: t("StudentCoursePage.guideDemoWeekTitle"),
+        progress_percent: 50,
+        has_lab: true,
+      }],
+    },
+    roomDetail: { title: t("StudentCoursePage.guideDemoWeekTitle"), my_deployment: null },
+    aiAssignments: [{
+      id: "demo-assignment",
+      teaching_class_week_id: weekId,
+      approved_at: "2026-01-01T00:00:00Z",
+      title: t("StudentCoursePage.guideDemoAssignmentTitle"),
+      summary: t("StudentCoursePage.guideDemoAssignmentSummary"),
+      completion: { completed: false },
+      items: [
+        { id: "demo-check-1", title: t("StudentCoursePage.guideDemoCheck1"), description: t("StudentCoursePage.guideDemoCheck1Desc"), detectable: "auto" },
+        { id: "demo-check-2", title: t("StudentCoursePage.guideDemoCheck2"), description: t("StudentCoursePage.guideDemoCheck2Desc"), detectable: "partial" },
+      ],
+    }],
+    weeklyTasks: [{
+      id: weekId,
+      week_number: 1,
+      session_date: "2026-09-09",
+      title: t("StudentCoursePage.guideDemoWeekTitle"),
+      target_node_key: "main",
+    }],
+    practiceMachines: [{
+      machine_node_id: "demo-machine",
+      node_key: "main",
+      name: t("StudentCoursePage.guideDemoMachineName"),
+      role: t("StudentCoursePage.guideDemoMachineRole"),
+      resource_type: "lxc",
+      vmid: 100,
+      status: "running",
+    }],
+  };
+}
+
 function StatusBadge({ meta }) {
   const { t } = useTranslation("personal");
   return (
@@ -49,6 +101,7 @@ export default function StudentCoursePage() {
   const navigate = useNavigate();
   const location = useLocation();
   const { pathId } = useParams();
+  const isGuideDemo = pathId === "demo";
 
   const [view, setView] = useState({
     loading: true,
@@ -67,6 +120,10 @@ export default function StudentCoursePage() {
   const [openingMachineId, setOpeningMachineId] = useState(null);
 
   useEffect(() => {
+    if (isGuideDemo) {
+      setView(createGuideDemoCourse(t));
+      return undefined;
+    }
     let cancelled = false;
 
     async function loadCourse() {
@@ -154,7 +211,7 @@ export default function StudentCoursePage() {
     return () => {
       cancelled = true;
     };
-  }, [pathId]);
+  }, [isGuideDemo, pathId, t]);
 
   const nextRoom = pickInProgress(view.pathDetail?.rooms);
   const roomProgress = toPercent(nextRoom?.progress_percent);
@@ -202,6 +259,7 @@ export default function StudentCoursePage() {
     : NO_COURSE_STATUS;
 
   async function openPracticeMachine(machine) {
+    if (isGuideDemo) return;
     if (!machine?.vmid) {
       toast.error(t("StudentCoursePage.machineNotReady"));
       return;
@@ -229,6 +287,7 @@ export default function StudentCoursePage() {
   }
 
   function openMachineInformation(machine) {
+    if (isGuideDemo) return;
     if (!machine?.vmid) {
       toast.info(t("StudentCoursePage.machineNotReadyInfo"));
       return;
@@ -310,6 +369,13 @@ export default function StudentCoursePage() {
           </p>
         </div>
       </header>
+
+      {isGuideDemo && (
+        <div className={styles.guideDemoNotice}>
+          <MIcon name="visibility" size={17} />
+          <span><strong>{t("StudentCoursePage.guideDemoNoticeTitle")}</strong>{t("StudentCoursePage.guideDemoNoticeDescription")}</span>
+        </div>
+      )}
 
       {view.hasError && (
         <div className={styles.notice} role="status">
@@ -406,7 +472,7 @@ export default function StudentCoursePage() {
                         type="button"
                         className={styles.machineLaunchButton}
                         onClick={() => openPracticeMachine(machine)}
-                        disabled={openingMachineId !== null || machine.vmid == null}
+                        disabled={isGuideDemo || openingMachineId !== null || machine.vmid == null}
                         aria-label={t("StudentCoursePage.machineLaunchAria", { action: actionLabel, name: machineName })}
                       >
                         <span className={styles.machineIcon}>
@@ -428,7 +494,7 @@ export default function StudentCoursePage() {
                         type="button"
                         className={styles.machineInfoButton}
                         onClick={() => openMachineInformation(machine)}
-                        disabled={machine.vmid == null}
+                        disabled={isGuideDemo || machine.vmid == null}
                         aria-label={t("StudentCoursePage.viewFullInfoAria", { name: machineName })}
                         title={t("StudentCoursePage.viewFullSettingsTitle")}
                       >
@@ -477,7 +543,7 @@ export default function StudentCoursePage() {
                         type="checkbox"
                         checked={completionReported}
                         onChange={() => updateCompletion(group)}
-                        disabled={reportingAssignmentId !== null}
+                        disabled={isGuideDemo || reportingAssignmentId !== null}
                         aria-label={t(completionReported ? "StudentCoursePage.uncheckWeekAria" : "StudentCoursePage.checkWeekAria", { title: group.week?.title ?? firstAssignment?.title })}
                       />
                       {reportingAssignmentId === group.id && <MIcon name="sync" size={15} />}
@@ -490,6 +556,7 @@ export default function StudentCoursePage() {
                         : toggleAssignment(group.id)}
                       aria-expanded={expanded}
                       aria-controls={`assignment-detail-${group.id}`}
+                      data-guide={group.week ? "course-week-open" : undefined}
                     >
                       <span className={styles.taskNumber}>{group.week?.week_number ?? index + 1}</span>
                       <span className={styles.assignmentTitle}>

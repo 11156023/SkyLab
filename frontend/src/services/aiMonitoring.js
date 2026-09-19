@@ -14,6 +14,7 @@ export const AiMonitoringService = {
     buildRange(q, params);
     if (params?.bucket) q.set("bucket", params.bucket);
     if (params?.compare != null) q.set("compare", String(params.compare));
+    if (params?.source) q.set("source", params.source);
     const qs = q.toString();
     return apiGet(`${BASE}/overview${qs ? `?${qs}` : ""}`);
   },
@@ -59,6 +60,7 @@ export const AiMonitoringService = {
     buildRange(q, params);
     if (params?.skip != null)  q.set("skip",  String(params.skip));
     if (params?.limit != null) q.set("limit", String(params.limit));
+    if (params?.source) q.set("source", params.source);
     const qs = q.toString();
     return apiGet(`${BASE}/users${qs ? `?${qs}` : ""}`);
   },

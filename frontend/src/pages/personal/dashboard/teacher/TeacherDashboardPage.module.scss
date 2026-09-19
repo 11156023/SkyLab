@@ -25,51 +25,16 @@
   letter-spacing: 0.08em;
   text-transform: uppercase;
 }
-.btnPrimary,
-.btnSecondary,
-.textButton {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: $spacing-8;
-  min-height: 40px;
-  padding: 0 $spacing-16;
-  border-radius: $radius-8;
-  font-size: $font-size-12;
-  font-weight: $font-weight-700;
-  cursor: pointer;
-}
 .btnPrimary {
-  border: 1px solid var(--color-primary);
-  color: var(--color-text-on-primary);
-  background: var(--color-primary);
-}
-.btnPrimary:hover:not(:disabled) {
-  background: var(--color-primary-dark);
+  @include btn-primary;
 }
 .btnSecondary {
-  border: 1px solid var(--color-border);
-  color: var(--color-text-secondary);
-  background: var(--color-surface);
+  @include btn-secondary;
 }
-.btnSecondary:hover:not(:disabled) {
-  background: var(--color-hover);
-}
+/* 低強調文字動作：標準 ghost 款，保留主色文字識別 */
 .textButton {
-  min-height: 34px;
-  padding-inline: $spacing-8;
-  border: 0;
-  color: var(--color-primary);
-  background: transparent;
-}
-.textButton:hover:not(:disabled) {
-  background: var(--color-hover);
-}
-.btnPrimary:disabled,
-.btnSecondary:disabled,
-.textButton:disabled {
-  cursor: not-allowed;
-  opacity: 0.4;
+  @include btn-ghost;
+  color: var(--color-primary-on-surface);
 }
 .error {
   display: flex;
@@ -123,9 +88,10 @@
 }
 .metricGrid p {
   @include text-truncate;
-  margin: 0;
+  margin: 2px 0 0;
   color: var(--color-text-secondary);
-  font-size: $font-size-10;
+  font-size: $font-size-12;
+  line-height: 1.45;
 }
 
 .mainGrid {

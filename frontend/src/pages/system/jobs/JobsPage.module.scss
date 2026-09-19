@@ -33,15 +33,7 @@
 }
 
 .btnSecondary {
-  @extend %btn-base;
-  background: var(--color-surface);
-  color: var(--color-text);
-  border: 1px solid var(--color-border);
-  box-shadow: var(--shadow-sm);
-
-  &:hover {
-    background: var(--color-hover);
-  }
+  @include btn-secondary;
 }
 
 .statRow {
@@ -261,6 +253,6 @@
 
   &.actionBtnDanger {
     color: var(--color-danger);
-    &:hover { background: color-mix(in srgb, var(--color-danger) 10%, transparent); }
+    &:hover:not(:disabled) { background: color-mix(in srgb, var(--color-danger) 10%, transparent); }
   }
 }

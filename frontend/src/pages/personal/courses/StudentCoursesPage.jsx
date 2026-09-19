@@ -6,13 +6,15 @@ import LoadingState from "../../../components/LoadingState/LoadingState";
 import MIcon from "../../../components/MIcon";
 import PageHeader from "../../../components/PageHeader/PageHeader";
 import { CoursesService } from "../../../services/courses";
-import { normalizeSchedule, toPercent } from "../dashboard/student/studentDashboard";
+import CourseCard from "./CourseCard";
+import { normalizeSchedule } from "../dashboard/student/studentDashboard";
 import styles from "./StudentCoursesPage.module.scss";
 
 export default function StudentCoursesPage() {
   const { t } = useTranslation("personal");
   const navigate = useNavigate();
   const [view, setView] = useState({ loading: true, hasError: false, paths: [] });
+  const [guideDemo, setGuideDemo] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -50,6 +52,13 @@ export default function StudentCoursesPage() {
     };
   }, []);
 
+  useEffect(() => {
+    const handleGuideState = (event) => {
+      setGuideDemo(Boolean(event.detail?.open && event.detail?.id === "courses"));
+    };
+    window.addEventListener("skylab:user-guide-state", handleGuideState);
+    return () => window.removeEventListener("skylab:user-guide-state", handleGuideState);
+  }, []);
   if (view.loading) {
     return (
       <div className={styles.page}>
@@ -60,11 +69,7 @@ export default function StudentCoursesPage() {
 
   return (
     <div className={styles.page}>
-      <PageHeader
-        eyebrow={t("StudentCoursesPage.eyebrow")}
-        title={t("StudentCoursesPage.title")}
-        subtitle={t("StudentCoursesPage.subtitle")}
-      />
+      <PageHeader title={t("StudentCoursesPage.title")} />
 
       {view.hasError && (
         <div className={styles.notice} role="alert">
@@ -73,44 +78,19 @@ export default function StudentCoursesPage() {
         </div>
       )}
 
-      {view.paths.length > 0 ? (
+      {view.paths.length > 0 || guideDemo ? (
         <section className={styles.courseGrid} aria-label={t("StudentCoursesPage.listAria")}>
-          {view.paths.map((path) => {
-            const progress = toPercent(path.progress_percent);
-            const inClass = path.schedule?.state === "now";
-            return (
-              <button
-                type="button"
-                className={styles.courseCard}
-                key={path.id}
-                onClick={() => navigate(`/courses/${path.id}`, { state: { from: "/courses" } })}
-              >
-                <span className={styles.courseIcon}>
-                  <MIcon name="school" size={25} />
-                </span>
-                <span className={styles.courseBody}>
-                  <span className={styles.courseTopline}>
-                    <span className={inClass ? styles.liveStatus : styles.courseStatus}>
-                      {inClass ? t("StudentCoursesPage.inClass") : path.schedule?.label ?? t("StudentCoursesPage.available")}
-                    </span>
-                    <span>{t("StudentCoursesPage.roomCount", { count: path.room_count })}</span>
-                  </span>
-                  <strong className={styles.courseTitle}>{path.title}</strong>
-                  <span className={styles.courseDescription}>
-                    {path.description || t("StudentCoursesPage.noDescription")}
-                  </span>
-                  <span className={styles.progressMeta}>
-                    <span>{t("StudentCoursesPage.progress", { percent: Math.round(progress) })}</span>
-                    <span>{t("StudentCoursesPage.questions", { completed: path.completed_questions, total: path.total_questions })}</span>
-                  </span>
-                  <span className={styles.progressTrack} aria-hidden="true">
-                    <span style={{ width: `${progress}%` }} />
-                  </span>
-                </span>
-                <MIcon name="arrow_forward" size={20} />
-              </button>
-            );
-          })}
+          {guideDemo && (
+            <CourseCard demo path={{
+              title: t("StudentCoursesPage.guideDemoTitle"),
+              description: t("StudentCoursesPage.guideDemoDescription"),
+              room_count: 8, progress_percent: 50, completed_questions: 4, total_questions: 8,
+            }} onOpen={() => navigate("/courses/demo", { state: { from: "/courses" } })} />
+          )}
+          {view.paths.map((path) => (
+            <CourseCard key={path.id} path={path}
+              onOpen={() => navigate(`/courses/${path.id}`, { state: { from: "/courses" } })} />
+          ))}
         </section>
       ) : (
         <EmptyState

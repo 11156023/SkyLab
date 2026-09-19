@@ -38,11 +38,11 @@ export function toAiJudgeMembers(students) {
       email: student.email,
       full_name: student.full_name,
       vmid: vm.vmid,
+      node_key: vm.node_key,
+      display_label: vm.display_label,
+      node_name: vm.name,
       vm_status: vm.status,
       vm_type: vm.vm_type,
-      vm_cpu_usage_pct: null,
-      vm_ram_usage_pct: null,
-      vm_disk_usage_pct: null,
     })),
   );
 }
@@ -122,7 +122,7 @@ export default function AiJudgePage() {
         </div>
       </PageHeader>
       <main className={styles.workspaceContent}>
-        {item.status !== "active" ? <LockedFeature /> : membersLoading ? <LoadingState text="正在讀取班級機器…" /> : <AiJudgePanel classId={item.id} members={members} weeks={item.weeks} />}
+        {item.status !== "active" ? <LockedFeature /> : membersLoading ? <LoadingState text="正在讀取班級機器…" /> : <AiJudgePanel classId={item.id} members={members} machineNodes={item.machine_nodes ?? []} weeks={item.weeks} />}
       </main>
     </div>
   );

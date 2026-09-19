@@ -18,6 +18,8 @@
   "schemas.environment_keys_must_contain_supported": "environment_keys must contain supported environments",
   "schemas.template_key_unsupported": "template_key contains an unsupported environment",
   "schemas.target_vmids_empty": "target_vmids must not be empty",
+  "schemas.target_node_key_required": "logical target_node_key is required for node-scoped execution",
+  "schemas.target_vmids_not_allowed": "target_vmids is only allowed for legacy manual execution",
 
   "session.no_rubric_selected": "這項檢查尚未選擇檢查表。",
   "session.selected_file_unavailable": "這項檢查選定的檢查表已無法使用。",
@@ -36,6 +38,7 @@
   "run.owner_mismatch": "VMID {vmid} 目前資源擁有者與班級學生不一致。",
   "run.no_ip": "VMID {vmid} 沒有可用 IP。",
   "run.no_ssh_key": "VMID {vmid} 沒有可用 SSH 金鑰。",
+  "run.unsupported_os": "VMID {vmid} 的作業系統（{os_info}）不在目前 Linux SSH/python3 執行器支援範圍。",
   "run.manual_scope_only": "第一版只支援手動選擇執行機器。",
   "run.artifact_not_approved": "只有通過靜態與 AI 檢查的腳本可以執行。",
   "run.no_target_selected": "請至少選擇一台運行中的 VM/LXC。",
@@ -56,10 +59,6 @@
   "artifact.not_reviewed": "只有審查通過的腳本可以核准。",
   "artifact.policy_check_failed": "腳本未通過安全/品質檢查。",
   "artifact.ai_review_failed": "腳本未通過 AI reviewer。",
-
-  "analysis.model_not_configured": "VLLM_MODEL_NAME 未設定。",
-  "analysis.not_json": "AI 核對回傳不是 JSON。",
-  "analysis.invalid_format": "AI 核對回傳格式不正確。",
 
   "file.name_conflict": "已有同名檢查表。",
   "file.copy_name_exhausted": "無法建立同名副本，請重新命名檔案。",
