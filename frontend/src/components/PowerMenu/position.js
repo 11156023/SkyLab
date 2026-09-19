@@ -15,15 +15,15 @@ export const EDGE_MARGIN = 8;
  * @param {number} menuHeight 選單實際高度
  * @param {{width: number, height: number}} viewport 視窗尺寸
  */
-export function computePosition(rect, menuHeight, viewport) {
+export function computePosition(rect, menuHeight, viewport, menuWidth = MENU_WIDTH) {
   const spaceBelow = viewport.height - rect.bottom - EDGE_MARGIN;
   const spaceAbove = rect.top - EDGE_MARGIN;
   const openUp = spaceBelow < menuHeight + ANCHOR_GAP && spaceAbove > spaceBelow;
 
   const rawTop  = openUp ? rect.top - ANCHOR_GAP - menuHeight : rect.bottom + ANCHOR_GAP;
-  const rawLeft = rect.right - MENU_WIDTH; // 右緣對齊按鈕
+  const rawLeft = rect.right - menuWidth; // 右緣對齊按鈕
   const maxTop  = viewport.height - menuHeight - EDGE_MARGIN;
-  const maxLeft = viewport.width - MENU_WIDTH - EDGE_MARGIN;
+  const maxLeft = viewport.width - menuWidth - EDGE_MARGIN;
 
   return {
     top:  Math.max(EDGE_MARGIN, Math.min(rawTop, maxTop)),

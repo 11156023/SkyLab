@@ -345,8 +345,6 @@
   "TemplatesPage.pveMissingLabel": "Missing on PVE",
   "TemplatesPage.versionLabel": "v{{version}}",
   "TemplatesPage.moreActionsTitle": "More Actions",
-  "TemplatesPage.refresh": "Refresh",
-  "TemplatesPage.refreshing": "Loading…",
   "TemplatesPage.createFromVm": "Create from VM",
   "TemplatesPage.pageTitle": "Templates",
   "TemplatesPage.loadingTemplates": "Loading templates…",
