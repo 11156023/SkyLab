@@ -345,8 +345,6 @@
   "TemplatesPage.pveMissingLabel": "PVE に存在しません",
   "TemplatesPage.versionLabel": "v{{version}}",
   "TemplatesPage.moreActionsTitle": "その他の操作",
-  "TemplatesPage.refresh": "更新",
-  "TemplatesPage.refreshing": "読み込み中…",
   "TemplatesPage.createFromVm": "VM からテンプレートを作成",
   "TemplatesPage.pageTitle": "マシンテンプレート",
   "TemplatesPage.loadingTemplates": "テンプレートを読み込み中…",

@@ -140,3 +140,8 @@
   background: color-mix(in srgb, var(--color-info) 12%, transparent);
   color: var(--color-info);
 }
+
+/* 套用變更：靠卡片右側 */
+.applyBtn {
+  align-self: flex-end;
+}

@@ -363,6 +363,7 @@ if (!(await confirm({ title, message, confirmText, danger: true }))) return;
 .btnGhostDanger   { @include btn-ghost($danger: true); }  // 淡紅底紅字變體（窄空間的刪除）
 .iconBtn          { @include btn-icon; }           // 32×32 圖示鈕，JSX 必帶 aria-label
 .iconBtnDanger    { @include btn-icon($danger: true); }   // 未 hover 前文字即為紅色
+.menuBtn          { @include btn-icon-secondary; } // 表格列的動作選單鈕（白底描邊），icon 一律 more_vert（⋮）
 .dialogClose      { @include btn-dialog-close; }   // Dialog 專用右上關閉鈕：同 btn-icon($danger: true)，僅未 hover 無底色
 ```
 
@@ -578,6 +579,7 @@ function closeMenu() {
 | Portal 浮層選單 | 150 | portal 到 body 的 Dropdown（如 `components/PowerMenu`） |
 | Dialog / Modal | 300 | 全頁覆蓋 Dialog |
 | Toast / Tooltip | 400 | 通知、提示 |
+| 導覽 UserGuide | 3000–3199 | 導覽聚光層必須壓過含 Dialog 在內的一切（overlay 3100、示範視窗 3099；另有浮動求助鈕 90，介於選單與 Sticky Header 之間）。此區段保留給 UserGuide，一般元件勿用 |
 
 > ⚠️ 注意：使用 `backdrop-filter` 或 `transform` 的元素會建立新的 stacking context，子元素的 `z-index` 無法穿透至外層。若發現 Dropdown 被其他卡片遮住，請確認父元素是否有這類屬性。
 >

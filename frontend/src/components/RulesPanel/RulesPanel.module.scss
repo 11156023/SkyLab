@@ -362,16 +362,9 @@
   color: var(--color-text-secondary);
 }
 
+/* 班級與 port 的輸入／下拉共用；focus 光暈與 36px 高度由 form-control 提供 */
 .exposureInput {
-  width: 100%;
-  padding: 6px $spacing-8;
-  border: 1px solid var(--color-border);
-  border-radius: $radius-8;
-  background: var(--color-surface);
-  color: var(--color-text);
-  font-size: $font-size-14;
-
-  &:focus { outline: none; border-color: var(--color-primary); }
+  @include form-control;
 }
 
 .exposureActions {

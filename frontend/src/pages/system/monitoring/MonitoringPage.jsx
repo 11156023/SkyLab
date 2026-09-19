@@ -495,7 +495,7 @@ export default function MonitoringPage() {
                     </td>
                     <td className={styles.td}>
                       <span
-                        className={`${styles.badge} ${online ? styles.badge_ok : styles.badge_err}`}
+                        className={`${styles.badge} ${online ? styles.badge_success : styles.badge_danger}`}
                       >
                         {online ? t("MonitoringPage.online") : node.status}
                       </span>
