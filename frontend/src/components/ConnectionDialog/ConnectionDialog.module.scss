@@ -277,8 +277,8 @@
   color: var(--color-text-secondary);
   font-weight: $font-weight-500;
 
-  /* 標籤對齊 form-control 的 12px 文字內距 */
-  span { padding-left: 12px; }
+  /* 標籤對齊 form-control 的文字內距（同一個變數來源，mixin 改了這裡跟著動） */
+  span { padding-left: $form-control-padding-x; }
 }
 
 .forwardRow {

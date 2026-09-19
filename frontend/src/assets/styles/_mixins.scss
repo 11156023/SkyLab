@@ -102,7 +102,7 @@
   box-sizing: border-box;
   width: 100%;
   min-height: 36px;
-  padding: 8px 12px;
+  padding: 8px $form-control-padding-x;
   border: 1px solid var(--color-border);
   border-radius: $radius-8;
   outline: 0;
