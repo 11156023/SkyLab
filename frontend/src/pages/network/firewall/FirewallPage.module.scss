@@ -332,9 +332,10 @@
   display: flex;
   align-items: center;
   gap: $spacing-8;
-  padding: $spacing-8 $spacing-16;
+  /* 上內距加高：來源徽章騎在上緣置中，下半顆伸進卡內不壓到機器名 */
+  padding: $spacing-16 $spacing-16 $spacing-8;
   width: 180px;
-  height: 60px;
+  height: 68px;
   border-radius: $radius-12;
   border: 1.5px solid var(--color-flow-border);
   background: var(--color-surface);
@@ -396,12 +397,14 @@
   box-shadow: var(--shadow-sm);
 }
 
-/* 來源徽章（MachineKindBadge 實心版）：掛在節點左上角，與右上角的對外暴露數對稱 */
+/* 來源徽章：垂直置中騎在卡片上緣（上半在外、下半在內），
+   卡片上內距已加高避開機器名；與右上角的對外暴露數對稱 */
 .originBadge {
   position: absolute;
-  top: -9px;
+  top: 0;
   left: -8px;
   max-width: 150px;
+  transform: translateY(-50%);
 }
 
 /* 老師開放給班級的機器：可以拉線連過去，但不是自己的；

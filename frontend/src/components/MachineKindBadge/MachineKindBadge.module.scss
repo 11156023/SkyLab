@@ -36,16 +36,14 @@
   opacity: 0.8;
 }
 
-/* 拓撲節點：實心，掛在畫布上要一眼看到。
-   文字用 --color-surface 而非寫死白色：深色模式的群色是亮值，
-   surface 會翻成深色文字，兩種主題對比都夠。
-   放在 .mine／.other 之後，同特異度時實心底色蓋過淡染 */
+/* 拓撲節點版：群色深底＋透明度打淡（80%），文字用 surface——
+   深色模式群色轉亮時自動翻成深字，兩種主題對比都成立 */
 .solid {
   color: var(--color-surface);
   box-shadow: var(--shadow-sm);
 
-  &.mine  { background: var(--color-info); }
-  &.other { background: var(--color-kind-shared); }
+  &.mine  { background: color-mix(in srgb, var(--color-info) 80%, transparent); }
+  &.other { background: color-mix(in srgb, var(--color-kind-shared) 80%, transparent); }
 
   .owner { opacity: 0.9; }
 }
