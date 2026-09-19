@@ -522,7 +522,7 @@ export default function SpecificationsTab({ vmid }) {
           {!specFixed && (
             <button
               type="button"
-              className={styles.btnPrimary}
+              className={`${styles.btnPrimary} ${sl.applyBtn}`}
               disabled={busy || formLocked}
               onClick={handleSubmit}
             >
