@@ -302,7 +302,7 @@ function ResourceRow({ resource, onUpdated, onDeleted }) {
           {actionLoading && <MIcon name="hourglass_empty" size={16} />}
           <div className={styles.menuWrap}>
             {menuOpen && <PowerMenu resource={resource} actionLoading={actionLoading} onControl={handleControl} onDeleteClick={resource.can_delete === false ? undefined : () => { closeMenu(); handleDelete(); }} onConvertTemplate={canConvertTemplate ? () => { closeMenu(); setConvertOpen(true); } : undefined} onClose={closeMenu} anchorRef={menuBtnRef} closing={menuClosing} />}
-            <button ref={menuBtnRef} type="button" className={`${styles.menuBtn} ${menuOpen ? styles.menuBtnActive : ""}`} onClick={() => menuOpen ? closeMenu() : setMenuOpen(true)} title={t("ResourceRow.moreActions")} data-guide="resource-more-actions"><MIcon name="more_vert" size={18} /></button>
+            <button ref={menuBtnRef} type="button" className={`${styles.menuBtn} ${menuOpen ? styles.menuBtnActive : ""}`} onClick={() => menuOpen ? closeMenu() : setMenuOpen(true)} title={t("ResourceRow.moreActions")} aria-label={t("ResourceRow.moreActions")} data-guide="resource-more-actions"><MIcon name="more_vert" size={18} /></button>
           </div>
         </div> : <span className={styles.deletedNote}>{STATUS_MAP[resource.status]?.labelKey ? t(STATUS_MAP[resource.status].labelKey) : resource.status}</span>}
       </td>
@@ -387,7 +387,7 @@ function EnvironmentMachineRow({ machine, groupStatus, onUpdated }) {
       {actionLoading && <MIcon name="hourglass_empty" size={16} />}
       {canControl && <div className={styles.menuWrap}>
         {menuOpen && <PowerMenu resource={resource} actionLoading={actionLoading} onControl={handleControl} onClose={closeMenu} anchorRef={menuBtnRef} closing={menuClosing} />}
-        <button ref={menuBtnRef} type="button" className={`${styles.menuBtn} ${menuOpen ? styles.menuBtnActive : ""}`} onClick={() => menuOpen ? closeMenu() : setMenuOpen(true)} title={t("ResourceRow.moreActions")} data-guide="resource-more-actions"><MIcon name="more_vert" size={18} /></button>
+        <button ref={menuBtnRef} type="button" className={`${styles.menuBtn} ${menuOpen ? styles.menuBtnActive : ""}`} onClick={() => menuOpen ? closeMenu() : setMenuOpen(true)} title={t("ResourceRow.moreActions")} aria-label={t("ResourceRow.moreActions")} data-guide="resource-more-actions"><MIcon name="more_vert" size={18} /></button>
       </div>}
     </div></td>
     </tr>
@@ -490,7 +490,7 @@ function EnvironmentGroupRows({ group, onUpdated, onEnded }) {
             anchorRef={menuBtnRef}
             closing={menuClosing}
           />}
-          <button ref={menuBtnRef} type="button" className={`${styles.menuBtn} ${menuOpen ? styles.menuBtnActive : ""}`} onClick={() => menuOpen ? closeGroupMenu() : setMenuOpen(true)} title={t("EnvironmentGroupRows.groupPowerTitle")}><MIcon name="more_vert" size={18} /></button>
+          <button ref={menuBtnRef} type="button" className={`${styles.menuBtn} ${menuOpen ? styles.menuBtnActive : ""}`} onClick={() => menuOpen ? closeGroupMenu() : setMenuOpen(true)} title={t("EnvironmentGroupRows.groupPowerTitle")} aria-label={t("EnvironmentGroupRows.groupPowerTitle")}><MIcon name="more_vert" size={18} /></button>
         </div>}
       </div></td>
     </tr>
@@ -533,7 +533,7 @@ function ResourceGuideDemoRow() {
               <MIcon name="terminal" size={14} />{t("ResourceRow.terminal")}
             </button>
             <div className={styles.menuWrap}>
-              <button type="button" className={`${styles.menuBtn} ${menuOpen ? styles.menuBtnActive : ""}`} onClick={() => setMenuOpen((value) => !value)} data-guide="resource-more-actions" title={t("ResourceRow.moreActions")}>
+              <button type="button" className={`${styles.menuBtn} ${menuOpen ? styles.menuBtnActive : ""}`} onClick={() => setMenuOpen((value) => !value)} data-guide="resource-more-actions" title={t("ResourceRow.moreActions")} aria-label={t("ResourceRow.moreActions")}>
                 <MIcon name="more_vert" size={18} />
               </button>
               {menuOpen && (

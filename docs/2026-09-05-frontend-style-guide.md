@@ -363,6 +363,7 @@ if (!(await confirm({ title, message, confirmText, danger: true }))) return;
 .btnGhostDanger   { @include btn-ghost($danger: true); }  // 淡紅底紅字變體（窄空間的刪除）
 .iconBtn          { @include btn-icon; }           // 32×32 圖示鈕，JSX 必帶 aria-label
 .iconBtnDanger    { @include btn-icon($danger: true); }   // 未 hover 前文字即為紅色
+.menuBtn          { @include btn-icon-secondary; } // 表格列的動作選單鈕（白底描邊），icon 一律 more_vert（⋮）
 .dialogClose      { @include btn-dialog-close; }   // Dialog 專用右上關閉鈕：同 btn-icon($danger: true)，僅未 hover 無底色
 ```
 
