@@ -20,8 +20,10 @@ from app.ai.teacher_judge.automation_support import missing_step_information
 from app.ai.teacher_judge.config import settings
 from app.ai.teacher_judge.prompt import (
     ATTACHMENT_EXTRACTION_SYSTEM_TEMPLATE,
+    CANONICAL_CHECK_STEP_CONTRACT_INSTRUCTION,
     CHAT_SYSTEM_TEMPLATE,
     DIRECT_RUBRIC_UPDATE_INSTRUCTION,
+    MACHINE_CONTEXT_ONLY_TEMPLATE,
     SESSION_NO_RUBRIC_INSTRUCTION,
     SESSION_REQUIREMENT_PROPOSAL_INSTRUCTION,
     SITUATION_NORMAL,
@@ -36,6 +38,8 @@ from app.ai.teacher_judge.schemas import (
     sanitize_rubric_missing_information,
 )
 from app.ai.teacher_judge.template_command_service import (
+    DEFAULT_SYSTEM_COMMAND_TIMEOUT_SECONDS,
+    coerce_timeout_seconds,
     format_template_commands_for_prompt,
     sanitize_check_step_parameters,
     validate_check_steps,
@@ -211,46 +215,33 @@ _CHECKLIST_STEP_PARAMETERS_PROPERTIES: dict[str, Any] = {
     "argv": {
         "type": "array",
         "items": {"type": "string"},
-        "description": "單一非空的命令字串 list，例如 [\"ping\", \"192.168.24.152\"]",
+        "description": "單一非空、由字串組成的唯讀命令 argv；目標身份由 target_node_key 指定，不要用 VMID、IP 或 SSH 取代",
     },
     "cwd": {
         "type": "string",
-        "description": (
-            "工作目錄；python.run_entrypoint 必填（main.py 所在目錄），"
-            "system.run_command 選填"
-        ),
+        "description": "可選的受控工作目錄；若 rubric 未提供真實路徑則省略",
     },
     "timeout_seconds": {
         "type": "integer",
-        "description": "1 至 300 的整數；省略或無效時由平台補預設值",
+        "description": "1-300 的整數；省略時由平台補齊安全預設值",
     },
 }
 
+# New writes use a flat executable-step contract. Legacy fields are accepted by
+# the read/normalize path but are intentionally absent from the proposal tool.
 _CHECKLIST_STEP_TOOL_SCHEMA: dict[str, Any] = {
     "type": "object",
-    "properties": {
-        "template_key": {
-            "type": "string",
-            "description": "檢查環境 template key；可省略，系統會依 command_key 補齊",
-        },
-        "command_key": {
-            "type": "string",
-            "description": "template command catalog 的穩定 ID",
-        },
-        "command_label": {"type": "string", "description": "顯示名稱；可省略"},
-        "parameters": {
-            "type": "object",
-            "description": "受控腳本執行參數（argv、cwd、timeout_seconds）",
-            "properties": _CHECKLIST_STEP_PARAMETERS_PROPERTIES,
-            "additionalProperties": False,
-        },
-    },
-    "required": ["command_key"],
+    "properties": _CHECKLIST_STEP_PARAMETERS_PROPERTIES,
+    "required": ["argv"],
     "additionalProperties": False,
 }
 
 _PROPOSAL_FILL_PROPERTIES: dict[str, Any] = {
     "title": {"type": "string", "description": "檢查項目名稱"},
+    "target_node_key": {
+        "type": ["string", "null"],
+        "description": "班級拓撲中要執行檢查的邏輯 node_key；不要填 P1/P2 顯示標籤或 VMID",
+    },
     "checked": {
         "type": "boolean",
         "description": "是否已達成；只有老師明確要求或已有直接證據時才能改，新項目為 false",
@@ -281,7 +272,7 @@ _PROPOSAL_FILL_PROPERTIES: dict[str, Any] = {
     "check_steps": {
         "type": "array",
         "items": _CHECKLIST_STEP_TOOL_SCHEMA,
-        "description": "auto 項目的受控檢查步驟，只能引用既有 command_key",
+        "description": "auto 項目的受控唯讀檢查步驟；每步提供單一 argv，可選 cwd 與 timeout_seconds",
     },
 }
 
@@ -502,13 +493,42 @@ def _normalize_check_steps(
 
         command_key = str(raw_step.get("command_key") or "").strip()
         step_template_key = str(raw_step.get("template_key") or template_key or "").strip()
+        raw_parameters = raw_step.get("parameters")
+        parameters = dict(raw_parameters) if isinstance(raw_parameters, dict) else {}
+        for key in ("argv", "cwd", "timeout_seconds"):
+            if key not in parameters and key in raw_step:
+                parameters[key] = raw_step[key]
+        parameters = sanitize_check_step_parameters(parameters)
+
+        if not command_key and "argv" in parameters:
+            argv = parameters.get("argv")
+            if not (
+                isinstance(argv, list)
+                and bool(argv)
+                and all(isinstance(part, str) and part.strip() for part in argv)
+            ):
+                continue
+            timeout = coerce_timeout_seconds(parameters.get("timeout_seconds"))
+            normalized.append(
+                TeacherJudgeRubricCheckStep(
+                    argv=argv,
+                    cwd=(
+                        parameters.get("cwd").strip()
+                        if isinstance(parameters.get("cwd"), str)
+                        and parameters.get("cwd").strip()
+                        else None
+                    ),
+                    timeout_seconds=(
+                        timeout or DEFAULT_SYSTEM_COMMAND_TIMEOUT_SECONDS
+                    ),
+                )
+            )
+            continue
+
         if not command_key or not step_template_key:
             continue
 
         command_label = raw_step.get("command_label")
-        raw_parameters = raw_step.get("parameters")
-        parameters = raw_parameters if isinstance(raw_parameters, dict) else {}
-        parameters = sanitize_check_step_parameters(parameters)
 
         normalized.append(
             TeacherJudgeRubricCheckStep(
@@ -637,6 +657,9 @@ def _normalize_rubric_items(
                 else None,
                 fallback=str(fallback) if fallback is not None else None,
                 missing_information=missing_information,
+                target_node_key=(
+                    str(raw.get("target_node_key") or "").strip() or None
+                ),
                 check_steps=check_steps,
             )
         )
@@ -791,6 +814,7 @@ def _proposal_candidate_rejection(
 
 _PROPOSAL_COMPARE_FIELDS = (
     "title",
+    "target_node_key",
     "checked",
     "detectable",
     "judgement_mode",
@@ -2042,6 +2066,7 @@ async def chat_with_rubric(
     template_key: str = "linux",
     template_commands: list[TeacherJudgeTemplateCommand] | None = None,
     environment_keys: list[str] | None = None,
+    machine_context: str | None = None,
     attachment_context: str | None = None,
     analysis_revision: int | None = None,
     rubric_available: bool | None = None,
@@ -2075,6 +2100,11 @@ async def chat_with_rubric(
         if rubric_available
         else SESSION_NO_RUBRIC_INSTRUCTION
     )
+    context_template = (
+        TEMPLATE_COMMAND_CONTEXT_TEMPLATE
+        if template_commands
+        else MACHINE_CONTEXT_ONLY_TEMPLATE
+    )
     system_prompt = (
         CHAT_SYSTEM_TEMPLATE.replace(
             "{attachment_context}",
@@ -2087,15 +2117,18 @@ async def chat_with_rubric(
         )
         .replace(
             "{template_command_context}",
-            TEMPLATE_COMMAND_CONTEXT_TEMPLATE.format(
+            context_template.format(
                 template_key=template_key,
                 environment_keys=", ".join(environment_keys or [template_key]),
+                machine_context=machine_context
+                or "（目前未提供班級機器拓撲；不要猜測 target_node_key。）",
                 template_commands=format_template_commands_for_prompt(
                     template_commands or []
                 ),
             ),
         )
     )
+    system_prompt += "\n\n" + CANONICAL_CHECK_STEP_CONTRACT_INSTRUCTION
 
     formatted = [{"role": "system", "content": system_prompt}]
     for msg in messages:
@@ -2328,6 +2361,7 @@ async def analyze_requirement_item(
     template_key: str = "linux",
     template_commands: list[TeacherJudgeTemplateCommand] | None = None,
     environment_keys: list[str] | None = None,
+    machine_context: str | None = None,
     analysis_revision: int | None = None,
     rubric_available: bool = False,
 ) -> TeacherJudgeChatResult:
@@ -2347,6 +2381,7 @@ async def analyze_requirement_item(
         template_key=template_key,
         template_commands=template_commands,
         environment_keys=environment_keys,
+        machine_context=machine_context,
         attachment_context=None,
         analysis_revision=analysis_revision,
         rubric_available=rubric_available,
@@ -2461,6 +2496,7 @@ async def analyze_attachments_itemwise(
     template_key: str = "linux",
     template_commands: list[TeacherJudgeTemplateCommand] | None = None,
     environment_keys: list[str] | None = None,
+    machine_context: str | None = None,
     attachment_context: str,
     analysis_revision: int | None = None,
     rubric_available: bool = False,
@@ -2505,6 +2541,7 @@ async def analyze_attachments_itemwise(
                     template_key=template_key,
                     template_commands=template_commands,
                     environment_keys=environment_keys,
+                    machine_context=machine_context,
                     analysis_revision=analysis_revision,
                     rubric_available=rubric_available,
                 )

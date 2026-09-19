@@ -91,7 +91,16 @@ async def create_class_teacher_judge_script(
     _ensure_class_access(
         session=session, teaching_class_id=teaching_class_id, current_user=current_user
     )
-    template_key = _normalize_supported_template_key(payload.template_key)
+    has_legacy_command_references = any(
+        step.template_key or step.command_key
+        for item in payload.rubric_snapshot.items
+        for step in item.check_steps
+    )
+    template_key = (
+        _normalize_supported_template_key(payload.template_key)
+        if has_legacy_command_references
+        else "linux"
+    )
     return await create_artifact(
         session=session,
         teaching_class_id=teaching_class_id,
@@ -195,13 +204,19 @@ def create_class_teacher_judge_script_run(
         target_scope=TeacherJudgeScriptRunTargetScope(payload.target_scope),
         target_vmids=payload.target_vmids,
         started_by=current_user.id,
+        target_node_key=payload.target_node_key,
     )
     submit(
         execute_script_run(uuid.UUID(run.id)),
         name=f"teacher_judge_script_run:{run.id}",
         task_id=f"teacher_judge_script_run:{run.id}",
     )
-    return run
+    return get_script_run_public(
+        session=session,
+        teaching_class_id=teaching_class_id,
+        artifact_id=script_id,
+        run_id=uuid.UUID(run.id),
+    )
 
 
 @router.get("/{script_id}/runs/{run_id}", response_model=TeacherJudgeScriptRunPublic)

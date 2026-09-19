@@ -38,6 +38,7 @@ from app.models import (
     TeachingClassWeek,
     User,
     UserRole,
+    VMTemplate,
 )
 from app.models.base import get_datetime_utc
 from app.repositories import resource as resource_repo
@@ -179,6 +180,30 @@ def _public_machine_dump(row: TeachingClassStudentMachine) -> dict:
     if data.get("error"):
         data["error"] = PUBLIC_PROVISION_ERROR
     return data
+
+
+def _machine_node_dump(
+    row: TeachingClassMachineNode, template_names: dict[uuid.UUID, str]
+) -> dict:
+    # 對照用：範本來源的節點補上 vm_templates.name（自訂節點為 None，
+    # 來源本來就記在 custom_image_ref）。
+    data = row.model_dump()
+    data["template_name"] = template_names.get(row.source_template_id)
+    return data
+
+
+def _template_names_for_nodes(
+    session: SessionDep, nodes: list[TeachingClassMachineNode]
+) -> dict[uuid.UUID, str]:
+    template_ids = {row.source_template_id for row in nodes if row.source_template_id}
+    if not template_ids:
+        return {}
+    return {
+        row.id: row.name
+        for row in session.exec(
+            select(VMTemplate).where(col(VMTemplate.id).in_(template_ids))
+        ).all()
+    }
 
 
 def _finite_float(value) -> float | None:
@@ -361,10 +386,11 @@ def _serialize(session: SessionDep, item: TeachingClass) -> dict:
             ClassCapacityReservation.class_id == item.id
         )
     ).first()
+    template_names = _template_names_for_nodes(session, nodes)
     return {
         **item.model_dump(),
         "member_count": len(enrollments),
-        "machine_nodes": [row.model_dump() for row in nodes],
+        "machine_nodes": [_machine_node_dump(row, template_names) for row in nodes],
         "weeks": week_rows,
         "students": student_rows,
         "ready_machines": ready,
@@ -397,13 +423,16 @@ def _serialize_list(session: SessionDep, items: list[TeachingClass]) -> list[dic
         return []
     class_ids = [item.id for item in items]
 
-    nodes_by_class: dict[uuid.UUID, list[dict]] = {}
+    nodes_by_class: dict[uuid.UUID, list[TeachingClassMachineNode]] = {}
+    node_rows: list[TeachingClassMachineNode] = []
     for row in session.exec(
         select(TeachingClassMachineNode)
         .where(col(TeachingClassMachineNode.class_id).in_(class_ids))
         .order_by(TeachingClassMachineNode.sort_order)
     ).all():
-        nodes_by_class.setdefault(row.class_id, []).append(row.model_dump())
+        nodes_by_class.setdefault(row.class_id, []).append(row)
+        node_rows.append(row)
+    template_names = _template_names_for_nodes(session, node_rows)
 
     weeks_by_class: dict[uuid.UUID, list[dict]] = {}
     for row in session.exec(
@@ -464,7 +493,9 @@ def _serialize_list(session: SessionDep, items: list[TeachingClass]) -> list[dic
             {
                 **item.model_dump(),
                 "member_count": members,
-                "machine_nodes": nodes,
+                "machine_nodes": [
+                    _machine_node_dump(row, template_names) for row in nodes
+                ],
                 "weeks": weeks_by_class.get(item.id, []),
                 "ready_machines": ready_counts.get(item.id, 0),
                 "total_machines": members * len(nodes),

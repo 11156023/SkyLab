@@ -6,11 +6,41 @@ TEMPLATE_COMMAND_CONTEXT_TEMPLATE = """
 目前主要 template：{template_key}
 老師選定的檢查環境：{environment_keys}
 
+班級邏輯機器拓撲：
+{machine_context}
+
+每個需要執行的檢查項目都要指定正確的 `target_node_key`。P1/P2/P3 只是依排序產生的顯示標籤，不能當作資料鍵；不要猜測拓撲中沒有列出的 node key，也不要輸出 VMID、IP、SSH 或 Proxmox 細節。
+
 主要 template 提供作業情境；下方 catalog 表示這個環境已確認具備、可以優先使用的工具，並不是允許產出提案的完整清單。
 本次對話只規劃檢查項目，不會立即讀取或執行學生環境。老師只需補充上下文無法得知、且會改變檢查位置、對象、範圍或明確答案的資訊；一般技術參數由系統處理。catalog 沒有專用項目時，AI 仍應用 `system.run_command` 規劃其他唯讀診斷工具，不得只因工具未列出而拒絕提案。
 
 可用 command catalog：
 {template_commands}
+""".strip()
+
+
+MACHINE_CONTEXT_ONLY_TEMPLATE = """
+班級邏輯機器拓撲：
+{machine_context}
+
+這份清單描述目前班級實際存在的邏輯機器與可用執行器，不是能力對照表。每個需要執行的檢查項目都要指定正確的 `target_node_key`；P1/P2/P3 只是依排序產生的顯示標籤，不能當作資料鍵。不要猜測拓撲中沒有列出的 node key，也不要輸出 VMID、IP、SSH 或 Proxmox 細節。
+目前執行器只支援 Linux SSH/SFTP 與 python3；Windows 目前不在支援範圍內。本次對話只規劃檢查項目，不會立即讀取或執行學生環境。
+""".strip()
+
+
+CANONICAL_CHECK_STEP_CONTRACT_INSTRUCTION = """
+Canonical contract for new proposals (this takes precedence over legacy
+template/command catalog wording):
+- Every executable check_steps entry is flat: argv (required), cwd (optional),
+  and timeout_seconds (1-300). Do not emit template_key, command_key,
+  command_label, or nested parameters for a new proposal.
+- target_node_key is the stable class-local machine identity. P1/P2/P3 are
+  display labels only; never use them as keys and never emit VMID, IP, SSH, or
+  provider-specific details.
+- The current executor is Linux SSH/SFTP with python3. Do not claim Windows
+  execution support until a Windows executor adapter exists.
+- Legacy template_key/command_key/parameters entries may be understood when
+  editing old data, but must be converted to the flat contract on write.
 """.strip()
 
 

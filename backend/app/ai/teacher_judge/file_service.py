@@ -15,6 +15,10 @@ from typing import Any, cast
 from fastapi import HTTPException
 from sqlmodel import Session, desc, select
 
+from app.ai.teacher_judge.machine_context import (
+    load_class_machine_nodes,
+    target_node_keys_from_snapshot,
+)
 from app.ai.teacher_judge.schemas import (
     TeacherJudgeFilePublic,
     TeacherJudgeFileSourceTypeLiteral,
@@ -188,7 +192,47 @@ def update_file_analysis(
                 "analysis_revision": file.analysis_revision,
             },
         )
-    file.analysis_json = analysis.model_dump(mode="json")
+    analysis_dump = analysis.model_dump(mode="json")
+    class_nodes = load_class_machine_nodes(session, teaching_class_id)
+    target_node_keys = target_node_keys_from_snapshot(analysis_dump)
+    if len(target_node_keys) > 1:
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "code": "teacher_judge_mixed_target_nodes",
+                "message": "同一份 rubric 目前只能包含一個 target_node_key。",
+                "target_node_keys": sorted(target_node_keys),
+            },
+        )
+    valid_node_keys = {node.node_key for node in class_nodes}
+    invalid_node_keys = sorted(target_node_keys - valid_node_keys)
+    if invalid_node_keys:
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "code": "teacher_judge_target_node_not_in_class",
+                "message": "rubric 的 target_node_key 不屬於目前班級。",
+                "target_node_keys": invalid_node_keys,
+            },
+        )
+    if class_nodes:
+        missing_target_item_ids = [
+            item.get("id")
+            for item in analysis_dump.get("items", [])
+            if isinstance(item, dict)
+            and item.get("detectable") == "auto"
+            and not str(item.get("target_node_key") or "").strip()
+        ]
+        if missing_target_item_ids:
+            raise HTTPException(
+                status_code=422,
+                detail={
+                    "code": "teacher_judge_target_node_required",
+                    "message": "可執行的 rubric 項目必須指定 target_node_key。",
+                    "item_ids": missing_target_item_ids,
+                },
+            )
+    file.analysis_json = analysis_dump
     file.analysis_revision = int(file.analysis_revision or 1) + 1
     file.updated_at = _now()
     session.add(file)
@@ -212,10 +256,12 @@ def create_blank_file(
     roll back together.
     """
     name = display_name.strip()
-    normalized = list(dict.fromkeys(key.strip().lower() for key in environment_keys if key.strip()))
+    normalized = list(
+        dict.fromkeys(key.strip().lower() for key in environment_keys if key.strip())
+    ) or ["linux"]
     if not name:
         raise HTTPException(status_code=422, detail=t("file.blank_name"))
-    if not normalized or any(key not in SUPPORTED_TEMPLATE_KEYS for key in normalized):
+    if any(key not in SUPPORTED_TEMPLATE_KEYS for key in normalized):
         raise HTTPException(
             status_code=422, detail=t("file.no_environment_selected")
         )

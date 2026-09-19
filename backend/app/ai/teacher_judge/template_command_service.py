@@ -196,8 +196,52 @@ def validate_check_steps_with_issues(
                         CheckStepIssue("model", item_id, "invalid_step", "檢查步驟不是物件")
                     )
                     continue
+                raw_parameters = raw_step.get("parameters")
+                parameters = (
+                    dict(raw_parameters) if isinstance(raw_parameters, dict) else {}
+                )
+                for key in ("argv", "cwd", "timeout_seconds"):
+                    if key not in parameters and key in raw_step:
+                        parameters[key] = raw_step[key]
+                parameters = sanitize_check_step_parameters(parameters)
+                raw_command_key = str(raw_step.get("command_key") or "").strip()
+
+                # New contract: an executable step is a platform-neutral,
+                # flat command description. Catalog-backed legacy payloads
+                # continue through the command resolution below.
+                if not raw_command_key and "argv" in parameters:
+                    argv = parameters.get("argv")
+                    if not (
+                        isinstance(argv, list)
+                        and bool(argv)
+                        and all(
+                            isinstance(part, str) and part.strip() for part in argv
+                        )
+                    ):
+                        issues.append(
+                            CheckStepIssue(
+                                "model",
+                                item_id,
+                                "invalid_argv",
+                                "argv must be a non-empty string array",
+                            )
+                        )
+                        continue
+                    timeout = coerce_timeout_seconds(parameters.get("timeout_seconds"))
+                    flat_step: dict[str, Any] = {
+                        "argv": argv,
+                        "timeout_seconds": timeout
+                        or DEFAULT_SYSTEM_COMMAND_TIMEOUT_SECONDS,
+                    }
+                    cwd = parameters.get("cwd")
+                    if isinstance(cwd, str) and cwd.strip():
+                        flat_step["cwd"] = cwd.strip()
+                    if flat_step not in valid_steps:
+                        valid_steps.append(flat_step)
+                    continue
+
                 step_template_key = str(raw_step.get("template_key") or template_key).strip()
-                command_key = str(raw_step.get("command_key") or "").strip()
+                command_key = raw_command_key
                 command = valid_commands.get((step_template_key, command_key))
                 if command is None and command_key:
                     matching_commands = [
@@ -222,14 +266,9 @@ def validate_check_steps_with_issues(
                     "command_key": command.command_key,
                     "command_label": command.command_label,
                 }
-                raw_parameters = raw_step.get("parameters")
                 if isinstance(raw_parameters, dict) or (
                     command.command_key == "system.run_command"
                 ):
-                    parameters = (
-                        dict(raw_parameters) if isinstance(raw_parameters, dict) else {}
-                    )
-                    parameters = sanitize_check_step_parameters(parameters)
                     timeout = parameters.get("timeout_seconds")
                     if command.command_key == "system.run_command" and (
                         not isinstance(timeout, int)
