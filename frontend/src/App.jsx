@@ -1,4 +1,4 @@
-import { lazy } from "react";
+import { Suspense, lazy } from "react";
 import { Navigate, Route, Routes, useParams, useSearchParams } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { useAuth } from "./contexts/AuthContext";
@@ -8,6 +8,9 @@ import MIcon from "./components/MIcon";
 import { LoadingSpinner } from "./components/LoadingState/LoadingState";
 import { AuthSessionStatus } from "./services/authSession";
 import styles from "./App.module.scss";
+
+// 導入介紹首頁（未登入的 /；獨立 chunk，gsap 只在這裡載入）
+const LandingPage = lazy(() => import("./pages/landing/LandingPage"));
 
 // 個人
 const AdminDashboardPage = lazy(() => import("./pages/personal/dashboard/admin/AdminDashboardPage"));
@@ -138,16 +141,39 @@ function App() {
     new URLSearchParams(window.location.search).get("device_code"),
   );
 
+  /* 導入頁是純靜態內容，不依賴 session 檢查：
+     後端連不上或 session 驗證中時，/ 照樣直接呈現，其餘路徑維持原本的啟動畫面。 */
+  const landingElement = (
+    <Suspense fallback={null}>
+      <LandingPage />
+    </Suspense>
+  );
+
   if (authStatus === AuthSessionStatus.UNAVAILABLE && !user) {
     return (
-      <AuthBootstrapState
-        unavailable
-        retrying={loading}
-        onRetry={retrySession}
-      />
+      <Routes>
+        <Route path="/" element={landingElement} />
+        <Route
+          path="*"
+          element={
+            <AuthBootstrapState
+              unavailable
+              retrying={loading}
+              onRetry={retrySession}
+            />
+          }
+        />
+      </Routes>
     );
   }
-  if (loading && !user) return <AuthBootstrapState />;
+  if (loading && !user) {
+    return (
+      <Routes>
+        <Route path="/" element={landingElement} />
+        <Route path="*" element={<AuthBootstrapState />} />
+      </Routes>
+    );
+  }
 
   return (
     <Routes>
@@ -274,7 +300,11 @@ function App() {
           <Route path="*" element={<Navigate to="/dashboard" replace />} />
         </Route>
       ) : (
-        <Route path="*" element={<Navigate to="/login" replace />} />
+        <>
+          {/* 未登入的 / 是導入介紹首頁,其餘路徑照舊導向登入 */}
+          <Route path="/" element={landingElement} />
+          <Route path="*" element={<Navigate to="/login" replace />} />
+        </>
       )}
     </Routes>
   );
