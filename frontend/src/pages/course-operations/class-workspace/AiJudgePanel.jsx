@@ -2824,6 +2824,117 @@ export function sortTeacherReviewRows(rows, sortMode = "pending") {
   });
 }
 
+/* ── 以學生為單位的執行總覽（導師核查） ──
+ * v1 為純前端聚合：輸入沿用 buildBatchReviewRows / buildLegacyReviewRows
+ * 產出的 per-machine rows，按 studentId 分組；儲存仍以 machine row.key
+ *（runId + vmid / student_id|node_key|vmid）為單位，不新增後端 API。
+ */
+
+function studentGroupKey(row, index = 0) {
+  const id = row?.studentId ?? row?.member?.user_id ?? row?.member?.email ?? row?.target?.user?.id;
+  if (id !== undefined && id !== null && String(id).trim() !== "") return String(id);
+  return `__row-${index}`;
+}
+
+function studentDisplayUser(machines) {
+  for (const row of machines) {
+    const user = reviewRowUser(row);
+    if (user?.full_name || user?.email) return user;
+  }
+  return machines[0]?.member ?? {};
+}
+
+/** 學生層 check 有效計數：已存導師判定覆蓋 raw status，未判定才計待確認。 */
+export function aggregateStudentCheckTotals(machines) {
+  const totals = { pass: 0, fail: 0, pending: 0, skipped: 0, total: 0 };
+  for (const row of Array.isArray(machines) ? machines : []) {
+    const savedDecisions = targetTeacherReview(row?.target).decisions ?? {};
+    for (const check of targetChecks(row?.target)) {
+      const decision = savedDecisions[check?.id];
+      if (decision === "pass") {
+        totals.pass += 1;
+        totals.total += 1;
+        continue;
+      }
+      if (decision === "fail") {
+        totals.fail += 1;
+        totals.total += 1;
+        continue;
+      }
+      const status = check?.status;
+      if (status === "pass") totals.pass += 1;
+      else if (status === "fail") totals.fail += 1;
+      else if (TEACHER_REVIEW_STATUSES.has(status)) totals.pending += 1;
+      else if (status === "skipped") totals.skipped += 1;
+      totals.total += 1;
+    }
+  }
+  return totals;
+}
+
+/** 學生層狀態：取所屬機器中最緊急者（pending > failed > reviewed > automatic > missing）。 */
+export function getStudentOverviewStatus(machines) {
+  const list = Array.isArray(machines) ? machines : [];
+  if (list.length === 0) return { kind: "missing", label: "尚未執行", pending: 0, reviewable: 0 };
+  const summaries = list.map((row) => getTargetReviewSummary(row?.target));
+  const pending = summaries.reduce((sum, item) => sum + (item.pending || 0), 0);
+  const reviewable = summaries.reduce((sum, item) => sum + (item.reviewable || 0), 0);
+  const kinds = new Set(summaries.map((item) => item.kind));
+  if (kinds.has("pending")) return { kind: "pending", label: `待確認 ${pending} 項`, pending, reviewable };
+  if (kinds.has("failed")) return { kind: "failed", label: "部分機器執行失敗", pending: 0, reviewable };
+  if (kinds.has("reviewed") && ![...kinds].some((kind) => kind === "automatic" || kind === "missing")) {
+    return { kind: "reviewed", label: "核查完成", pending: 0, reviewable };
+  }
+  if (kinds.has("reviewed")) return { kind: "reviewed", label: "核查完成", pending: 0, reviewable };
+  if (kinds.has("automatic") && kinds.size === 1) return { kind: "automatic", label: "AI 已判定", pending: 0, reviewable };
+  if (kinds.has("missing") && kinds.size === 1) return { kind: "missing", label: "尚未執行", pending: 0, reviewable };
+  return { kind: "automatic", label: "AI 已判定", pending: 0, reviewable };
+}
+
+export function buildStudentOverviewRows(machineRows) {
+  const groups = new Map();
+  (Array.isArray(machineRows) ? machineRows : []).forEach((row, index) => {
+    const key = studentGroupKey(row, index);
+    if (!groups.has(key)) groups.set(key, { studentId: key, machines: [] });
+    groups.get(key).machines.push(row);
+  });
+  return [...groups.values()].map((group) => {
+    const user = studentDisplayUser(group.machines);
+    const totals = aggregateStudentCheckTotals(group.machines);
+    const status = getStudentOverviewStatus(group.machines);
+    return { ...group, user, totals, status };
+  });
+}
+
+function studentOverviewNumber(student) {
+  const user = student?.user ?? {};
+  const email = String(user.email ?? "");
+  return String(
+    user.student_number
+    ?? user.student_no
+    ?? user.account
+    ?? email.split("@")[0]
+    ?? student?.studentId
+    ?? "",
+  );
+}
+
+export function sortStudentOverviewRows(students, sortMode = "pending") {
+  const collator = new Intl.Collator("zh-Hant", { numeric: true, sensitivity: "base" });
+  const byAccount = (left, right) => collator.compare(
+    studentOverviewNumber(left),
+    studentOverviewNumber(right),
+  );
+  return [...students].sort((left, right) => {
+    if (sortMode === "student-number") return byAccount(left, right);
+    const rank = { pending: 0, failed: 1, reviewed: 2, automatic: 3, missing: 4 };
+    const statusDelta = (rank[left?.status?.kind] ?? 9) - (rank[right?.status?.kind] ?? 9);
+    if (statusDelta !== 0) return statusDelta;
+    const pendingDelta = (right?.status?.pending ?? 0) - (left?.status?.pending ?? 0);
+    return pendingDelta || byAccount(left, right);
+  });
+}
+
 /* ── 檢查點腳本集（run batch）投影 → 核查資料 ── */
 
 function machineNodeReference(nodeKey, machineNodes = []) {
@@ -2987,6 +3098,116 @@ export function buildLegacyReviewRows(run, members = []) {
   return [...memberRows, ...unmatched];
 }
 
+/* 單台機器的核查內容（檢查點 → checks、回饋、儲存）；由學生總覽展開後逐台渲染。 */
+function MachineReviewDetail({
+  row,
+  machineNodes = [],
+  draft,
+  saved,
+  isDirty,
+  saving,
+  onToggleDecision,
+  onUpdateFeedback,
+  onSave,
+}) {
+  const { target } = row;
+  const checks = targetChecks(target);
+  const nodeLabel = row.nodeKey
+    ? batchMachineDisplayName(row.nodeKey, machineNodes, row.node?.display_label) ?? row.nodeKey
+    : null;
+  if (!target) {
+    return <div className={styles.reviewNoResult}>這台機器不在最近一次執行範圍內，尚無 AI 檢查結果。</div>;
+  }
+  return (
+    <>
+      <div className={styles.reviewMachineHead}>
+        <strong>{nodeLabel ?? `VMID ${row.vmid ?? "—"}`}</strong>
+        {row.vmid ? <small>{`VMID ${row.vmid}`}</small> : null}
+        <span className={`${styles.badge} ${reviewBadgeClass(getTargetReviewSummary(target).kind)}`}>
+          {getTargetReviewSummary(target).label}
+        </span>
+      </div>
+      {row.items ? (
+        <div className={styles.reviewCheckList}>
+          {row.items.length === 0 && (
+            <p className={styles.mutedText}>此機器沒有回傳可顯示的檢查點。</p>
+          )}
+          {row.items.map((item, itemIndex) => {
+            const itemMeta = checkStatusMeta(item?.status);
+            const itemChecks = Array.isArray(item?.checks) ? item.checks : [];
+            const peerText = item?.peer_node_key
+              ? `觀察 ${item?.peer_display_label ?? item.peer_node_key}`
+              : null;
+            return (
+              <div
+                className={styles.reviewCheckGroup}
+                key={`${row.key}-item-${item?.rubric_item_id ?? itemIndex}`}
+              >
+                <div className={styles.reviewCheckGroupHead}>
+                  <span className={`${styles.reviewCheckIcon} ${itemMeta.className}`}>
+                    <MIcon name={itemMeta.icon} size={17} />
+                  </span>
+                  <div className={styles.reviewCheckGroupTitle}>
+                    <strong>{item?.title ?? item?.rubric_item_id ?? "檢查點"}</strong>
+                    <span>{itemMeta.label}{peerText ? ` · ${peerText}` : ""}</span>
+                  </div>
+                </div>
+                {itemChecks.length === 0 ? (
+                  <p className={styles.mutedText}>
+                    {item?.reason_code === "peer_unavailable"
+                      ? "對應的受控機器目前無法連線，此檢查點暫時無法自動判定。"
+                      : "此檢查點沒有回傳可顯示的結果。"}
+                  </p>
+                ) : itemChecks.map((check, checkIndex) => (
+                  <ReviewCheckRow
+                    key={`${item?.rubric_item_id ?? "item"}-${check?.id ?? "check"}-${checkIndex}`}
+                    check={check}
+                    decision={draft.decisions[check?.id]}
+                    onDecide={(value) => onToggleDecision(row.key, check?.id, value)}
+                  />
+                ))}
+              </div>
+            );
+          })}
+          {(row.unmappedChecks ?? []).length > 0 && (
+            <details className={styles.judgeDetails}>
+              <summary>未對應檢查點</summary>
+              <CheckResultsTable checks={row.unmappedChecks} />
+            </details>
+          )}
+        </div>
+      ) : (
+        <div className={styles.reviewCheckList}>
+          {checks.length === 0 ? <p className={styles.mutedText}>腳本沒有回傳可顯示的檢查項目。</p> : checks.map((check, index) => (
+            <ReviewCheckRow
+              key={`${check?.id ?? "check"}-${index}`}
+              check={check}
+              decision={draft.decisions[check?.id]}
+              onDecide={(value) => onToggleDecision(row.key, check?.id, value)}
+            />
+          ))}
+        </div>
+      )}
+
+      <label className={styles.reviewFeedbackField}>
+        <span>給學生的本週回饋 <small>選填</small></span>
+        <textarea
+          value={draft.feedback}
+          maxLength={4000}
+          rows={3}
+          placeholder="例如：服務已能啟動，接下來請補上錯誤處理並重新確認日誌。"
+          onChange={(event) => onUpdateFeedback(row.key, event.target.value)}
+        />
+        <small>{draft.feedback.length} / 4000</small>
+      </label>
+      <div className={styles.reviewSaveRow}>
+        <span>{isDirty ? "有尚未儲存的變更" : saved.feedback || Object.keys(saved.decisions).length ? `上次儲存：${target.teacher_review?.updated_at ? formatDateTime(target.teacher_review.updated_at) : "已儲存"}` : "可只判定、不留言；也可以只留言。"}</span>
+        <button type="button" className={styles.btnPrimary} disabled={!isDirty || saving} onClick={() => onSave(row)}>{saving ? <><Spinner size={15} />儲存中…</> : <><MIcon name="save" size={16} />儲存核查</>}</button>
+      </div>
+    </>
+  );
+}
+
 export function TeacherReviewTab({ classId, sessionId, members, machineNodes = [] }) {
   const toast = useToast();
   const [reviewState, setReviewState] = useState(null); // { mode: "batch", batch } | { mode: "run", run }
@@ -3119,23 +3340,27 @@ export function TeacherReviewTab({ classId, sessionId, members, machineNodes = [
   );
   const batchRunning = Boolean(activeBatch && !runIsTerminal(activeBatch.status));
 
-  const rows = useMemo(() => {
+  const machineRows = useMemo(() => {
     if (!reviewState) return [];
-    const built = reviewState.mode === "batch"
+    return reviewState.mode === "batch"
       ? buildBatchReviewRows(reviewState.batch, members)
       : buildLegacyReviewRows(reviewState.run, members);
-    return sortTeacherReviewRows(built, sortMode);
-  }, [reviewState, members, sortMode]);
+  }, [reviewState, members]);
 
-  const summary = useMemo(() => rows.reduce((counts, row) => {
-    const item = getTargetReviewSummary(row.target);
+  /* 以學生為單位的總覽：machine rows 按 studentId 分組，排序以學生狀態為準。 */
+  const studentRows = useMemo(
+    () => sortStudentOverviewRows(buildStudentOverviewRows(machineRows), sortMode),
+    [machineRows, sortMode],
+  );
+
+  const summary = useMemo(() => studentRows.reduce((counts, student) => {
     counts.total += 1;
-    if (item.kind === "pending") counts.pending += 1;
-    if (item.kind === "reviewed") counts.reviewed += 1;
-    if (item.kind === "automatic") counts.automatic += 1;
-    if (item.kind === "missing" || item.kind === "failed") counts.unavailable += 1;
+    if (student.status.kind === "pending") counts.pending += 1;
+    if (student.status.kind === "reviewed") counts.reviewed += 1;
+    if (student.status.kind === "automatic") counts.automatic += 1;
+    if (student.status.kind === "missing" || student.status.kind === "failed") counts.unavailable += 1;
     return counts;
-  }, { total: 0, pending: 0, reviewed: 0, automatic: 0, unavailable: 0 }), [rows]);
+  }, { total: 0, pending: 0, reviewed: 0, automatic: 0, unavailable: 0 }), [studentRows]);
 
   function updateDraft(key, updater) {
     setDrafts((current) => ({
@@ -3344,7 +3569,7 @@ export function TeacherReviewTab({ classId, sessionId, members, machineNodes = [
           <span><strong>{summary.pending}</strong><small>待核查</small></span>
           <span><strong>{summary.reviewed}</strong><small>已核查／留言</small></span>
           <span><strong>{summary.automatic}</strong><small>AI 已判定</small></span>
-          <span><strong>{summary.total}</strong><small>{reviewState.mode === "batch" ? "機器總數" : "學生總數"}</small></span>
+          <span><strong>{summary.total}</strong><small>學生總數</small></span>
         </div>
         {activeBatch && (
           <div className={styles.runOnceProgress} aria-live="polite">
@@ -3371,35 +3596,16 @@ export function TeacherReviewTab({ classId, sessionId, members, machineNodes = [
           </label>
         </div>
         <div className={styles.reviewStudentList}>
-          {rows.map((row) => {
-          const { member, target } = row;
-          const vmid = row.vmid ?? target?.vmid ?? member?.vmid;
-          const user = target?.user ?? member ?? {};
-          const itemSummary = getTargetReviewSummary(target);
-          const isOpen = expandedKey === row.key;
-          const checks = targetChecks(target);
-          const counts = checks.reduce((result, check) => {
-            const status = check?.status;
-            if (status === "pass") result.pass += 1;
-            else if (status === "fail") result.fail += 1;
-            else if (TEACHER_REVIEW_STATUSES.has(status)) result.review += 1;
-            return result;
-          }, { pass: 0, fail: 0, review: 0 });
-          const draft = drafts[row.key] ?? reviewDraft(target);
-          const saved = targetTeacherReview(target);
-          const isDirty = Boolean(target) && (
-            draft.feedback !== saved.feedback
-            || JSON.stringify(draft.decisions) !== JSON.stringify(saved.decisions)
-          );
-          const nodeLabel = row.nodeKey
-            ? batchMachineDisplayName(row.nodeKey, machineNodes, row.node?.display_label) ?? row.nodeKey
-            : null;
+          {studentRows.map((student) => {
+          const user = student.user ?? {};
+          const isOpen = expandedKey === student.studentId;
+          const { totals } = student;
           return (
-            <article className={`${styles.reviewStudent} ${isOpen ? styles.reviewStudentOpen : ""}`} key={row.key}>
+            <article className={`${styles.reviewStudent} ${isOpen ? styles.reviewStudentOpen : ""}`} key={student.studentId}>
               <button
                 type="button"
                 className={styles.reviewStudentToggle}
-                onClick={() => setExpandedKey(isOpen ? null : row.key)}
+                onClick={() => setExpandedKey(isOpen ? null : student.studentId)}
                 aria-expanded={isOpen}
               >
                 <span className={styles.reviewStudentIdentity}>
@@ -3407,103 +3613,43 @@ export function TeacherReviewTab({ classId, sessionId, members, machineNodes = [
                   <span>
                     <strong>{user.full_name ?? "未命名學生"}</strong>
                     <small>
-                      {user.email ?? ""}{vmid ? ` · VMID ${vmid}` : ""}
-                      {nodeLabel ? ` · ${nodeLabel}` : ""}
+                      {user.email ?? ""}
+                      {` · ${student.machines.length} 台機器`}
                     </small>
                   </span>
                 </span>
-                <span className={styles.reviewAiCounts} aria-label="AI 檢查摘要">
-                  {target && <><em className={styles.reviewCountPass}>{counts.pass} 通過</em><em className={styles.reviewCountFail}>{counts.fail} 未通過</em><em className={styles.reviewCountPending}>{counts.review} 待確認</em></>}
+                <span className={styles.reviewAiCounts} aria-label="學生執行總覽">
+                  <><em className={styles.reviewCountPass}>{totals.pass} 通過</em><em className={styles.reviewCountFail}>{totals.fail} 未通過</em><em className={styles.reviewCountPending}>{totals.pending} 待確認</em></>
                 </span>
-                <span className={`${styles.badge} ${reviewBadgeClass(itemSummary.kind)}`}>{itemSummary.label}</span>
+                <span className={`${styles.badge} ${reviewBadgeClass(student.status.kind)}`}>{student.status.label}</span>
                 <MIcon name={isOpen ? "expand_less" : "expand_more"} size={20} />
               </button>
 
               {isOpen && (
                 <div className={styles.reviewStudentBody}>
-                  {!target ? (
-                    <div className={styles.reviewNoResult}>這位學生不在最近一次執行範圍內，尚無 AI 檢查結果。</div>
-                  ) : (
-                    <>
-                      {row.items ? (
-                        <div className={styles.reviewCheckList}>
-                          {row.items.length === 0 && (
-                            <p className={styles.mutedText}>此機器沒有回傳可顯示的檢查點。</p>
-                          )}
-                          {row.items.map((item, itemIndex) => {
-                            const itemMeta = checkStatusMeta(item?.status);
-                            const itemChecks = Array.isArray(item?.checks) ? item.checks : [];
-                            const peerText = item?.peer_node_key
-                              ? `觀察 ${item?.peer_display_label ?? item.peer_node_key}`
-                              : null;
-                            return (
-                              <div
-                                className={styles.reviewCheckGroup}
-                                key={`${row.key}-item-${item?.rubric_item_id ?? itemIndex}`}
-                              >
-                                <div className={styles.reviewCheckGroupHead}>
-                                  <span className={`${styles.reviewCheckIcon} ${itemMeta.className}`}>
-                                    <MIcon name={itemMeta.icon} size={17} />
-                                  </span>
-                                  <div className={styles.reviewCheckGroupTitle}>
-                                    <strong>{item?.title ?? item?.rubric_item_id ?? "檢查點"}</strong>
-                                    <span>{itemMeta.label}{peerText ? ` · ${peerText}` : ""}</span>
-                                  </div>
-                                </div>
-                                {itemChecks.length === 0 ? (
-                                  <p className={styles.mutedText}>
-                                    {item?.reason_code === "peer_unavailable"
-                                      ? "對應的受控機器目前無法連線，此檢查點暫時無法自動判定。"
-                                      : "此檢查點沒有回傳可顯示的結果。"}
-                                  </p>
-                                ) : itemChecks.map((check, checkIndex) => (
-                                  <ReviewCheckRow
-                                    key={`${item?.rubric_item_id ?? "item"}-${check?.id ?? "check"}-${checkIndex}`}
-                                    check={check}
-                                    decision={draft.decisions[check?.id]}
-                                    onDecide={(value) => toggleDecision(row.key, check?.id, value)}
-                                  />
-                                ))}
-                              </div>
-                            );
-                          })}
-                          {(row.unmappedChecks ?? []).length > 0 && (
-                            <details className={styles.judgeDetails}>
-                              <summary>未對應檢查點</summary>
-                              <CheckResultsTable checks={row.unmappedChecks} />
-                            </details>
-                          )}
-                        </div>
-                      ) : (
-                        <div className={styles.reviewCheckList}>
-                          {checks.length === 0 ? <p className={styles.mutedText}>腳本沒有回傳可顯示的檢查項目。</p> : checks.map((check, index) => (
-                            <ReviewCheckRow
-                              key={`${check?.id ?? "check"}-${index}`}
-                              check={check}
-                              decision={draft.decisions[check?.id]}
-                              onDecide={(value) => toggleDecision(row.key, check?.id, value)}
-                            />
-                          ))}
-                        </div>
-                      )}
-
-                      <label className={styles.reviewFeedbackField}>
-                        <span>給學生的本週回饋 <small>選填</small></span>
-                        <textarea
-                          value={draft.feedback}
-                          maxLength={4000}
-                          rows={3}
-                          placeholder="例如：服務已能啟動，接下來請補上錯誤處理並重新確認日誌。"
-                          onChange={(event) => updateDraft(row.key, (current) => ({ ...current, feedback: event.target.value }))}
+                  {student.machines.map((row) => {
+                    const draft = drafts[row.key] ?? reviewDraft(row.target);
+                    const saved = targetTeacherReview(row.target);
+                    const isDirty = Boolean(row.target) && (
+                      draft.feedback !== saved.feedback
+                      || JSON.stringify(draft.decisions) !== JSON.stringify(saved.decisions)
+                    );
+                    return (
+                      <section className={styles.reviewMachineCard} key={row.key} aria-label={row.nodeKey ?? `VMID ${row.vmid ?? ""}`}>
+                        <MachineReviewDetail
+                          row={row}
+                          machineNodes={machineNodes}
+                          draft={draft}
+                          saved={saved}
+                          isDirty={isDirty}
+                          saving={savingKey === row.key}
+                          onToggleDecision={toggleDecision}
+                          onUpdateFeedback={(key, feedback) => updateDraft(key, (current) => ({ ...current, feedback }))}
+                          onSave={saveRow}
                         />
-                        <small>{draft.feedback.length} / 4000</small>
-                      </label>
-                      <div className={styles.reviewSaveRow}>
-                        <span>{isDirty ? "有尚未儲存的變更" : saved.feedback || Object.keys(saved.decisions).length ? `上次儲存：${target.teacher_review?.updated_at ? formatDateTime(target.teacher_review.updated_at) : "已儲存"}` : "可只判定、不留言；也可以只留言。"}</span>
-                        <button type="button" className={styles.btnPrimary} disabled={!isDirty || savingKey === row.key} onClick={() => saveRow(row)}>{savingKey === row.key ? <><Spinner size={15} />儲存中…</> : <><MIcon name="save" size={16} />儲存核查</>}</button>
-                      </div>
-                    </>
-                  )}
+                      </section>
+                    );
+                  })}
                 </div>
               )}
             </article>

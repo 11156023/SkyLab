@@ -15,16 +15,20 @@ import {
   ScriptGenerationNotice,
   SessionTitle,
   TeacherReviewTab,
+  aggregateStudentCheckTotals,
   applyProposalOperations,
   buildBatchReviewRows,
   buildLegacyReviewRows,
   buildProposalDiff,
+  buildStudentOverviewRows,
   getRubricDisplayName,
   getRubricCheckTitle,
   getRubricItemsValue,
   getRubricReviewItemIds,
   getPendingRubricItemIds,
+  getStudentOverviewStatus,
   resolveDetectabilityNeedsReview,
+  sortStudentOverviewRows,
   sortTeacherReviewRows,
   getScriptCreationBlocker,
   getSessionMenuPosition,
@@ -1288,7 +1292,7 @@ describe("teacher review run-once（整組檢查點）", () => {
 
     expect(getBatch).toHaveBeenCalledWith("class-1", "session-1", "batch-1");
     expect(container.textContent).toContain("一次執行");
-    expect(container.textContent).toContain("機器總數");
+    expect(container.textContent).toContain("學生總數");
 
     const toggle = [...container.querySelectorAll("button")]
       .find((button) => button.textContent.includes("王小明"));
@@ -1387,6 +1391,120 @@ describe("teacher review run-once（整組檢查點）", () => {
       root.unmount();
     });
     container.remove();
+  });
+
+  test("學生總覽以學生分組並彙總跨機器通過/未通過/待確認", () => {
+    const rows = buildBatchReviewRows(
+      {
+        students: [
+          {
+            student_id: "enrollment-1",
+            nodes: [
+              {
+                node_key: "web",
+                run_id: "run-web",
+                execution_status: "completed",
+                vmid: 101,
+                teacher_review: { feedback: "", decisions: {} },
+                items: [
+                  {
+                    rubric_item_id: "item-web",
+                    title: "確認 nginx",
+                    status: "pass",
+                    checks: [{ id: "check-web", title: "nginx", status: "pass" }],
+                  },
+                ],
+                unmapped_checks: [],
+              },
+              {
+                node_key: "db",
+                run_id: "run-db",
+                execution_status: "completed",
+                vmid: 102,
+                teacher_review: { feedback: "", decisions: {} },
+                items: [
+                  {
+                    rubric_item_id: "item-db",
+                    title: "確認 PostgreSQL",
+                    status: "warning",
+                    checks: [{ id: "check-db", title: "pg_isready", status: "warning" }],
+                  },
+                  {
+                    rubric_item_id: "item-db-fail",
+                    title: "確認連線",
+                    status: "fail",
+                    checks: [{ id: "check-fail", title: "ping", status: "fail" }],
+                  },
+                ],
+                unmapped_checks: [],
+              },
+            ],
+          },
+          {
+            student_id: "enrollment-2",
+            nodes: [
+              {
+                node_key: "web",
+                run_id: "run-web",
+                execution_status: "completed",
+                vmid: 201,
+                teacher_review: { feedback: "", decisions: {} },
+                items: [
+                  {
+                    rubric_item_id: "item-web",
+                    title: "確認 nginx",
+                    status: "pass",
+                    checks: [{ id: "check-web", title: "nginx", status: "pass" }],
+                  },
+                ],
+                unmapped_checks: [],
+              },
+            ],
+          },
+        ],
+      },
+      [
+        { user_id: "user-1", full_name: "王小明", email: "s1@example.edu", vmid: 101, node_key: "web" },
+        { user_id: "user-1", full_name: "王小明", email: "s1@example.edu", vmid: 102, node_key: "db" },
+        { user_id: "user-2", full_name: "李小華", email: "s2@example.edu", vmid: 201, node_key: "web" },
+      ],
+    );
+    const students = buildStudentOverviewRows(rows);
+    expect(students).toHaveLength(2);
+    const first = students.find((item) => item.studentId === "enrollment-1");
+    expect(first.machines).toHaveLength(2);
+    expect(aggregateStudentCheckTotals(first.machines)).toMatchObject({
+      pass: 1,
+      fail: 1,
+      pending: 1,
+    });
+    expect(getStudentOverviewStatus(first.machines)).toMatchObject({
+      kind: "pending",
+      pending: 1,
+    });
+    const sorted = sortStudentOverviewRows(students, "pending");
+    expect(sorted[0].studentId).toBe("enrollment-1");
+    const byNumber = sortStudentOverviewRows(students, "student-number");
+    expect(byNumber[0].user.email).toBe("s1@example.edu");
+  });
+
+  test("已儲存的導師判定會從待確認移到通過/未通過", () => {
+    const machines = [
+      {
+        key: "enrollment-1|db|101",
+        member: { email: "s1@example.edu", full_name: "王小明" },
+        target: {
+          status: "completed",
+          teacher_review: { feedback: "", decisions: { "check-db": "pass" } },
+          parsed_result: { checks: [{ id: "check-db", status: "warning" }] },
+        },
+      },
+    ];
+    expect(aggregateStudentCheckTotals(machines)).toMatchObject({
+      pass: 1,
+      pending: 0,
+    });
+    expect(getStudentOverviewStatus(machines).kind).toBe("reviewed");
   });
 
   test("有已核准腳本集但尚未執行時，空狀態也能直接一次執行", async () => {

@@ -33,7 +33,9 @@
 /* ── 子分頁 ── */
 .subTabs {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  // TEACHER_JUDGE_TABS 只剩 3 個頁籤（檢查設定／導師核查／腳本總覽），
+  // 執行結果頁移除後 4 欄會在右側多出一格空藍底，改回 3 欄。
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: $spacing-4;
   padding: $spacing-4;
   border-radius: $radius-8;
@@ -2515,4 +2517,24 @@
   outline: 1px solid var(--color-danger);
   outline-offset: 4px;
   border-radius: $radius-8;
+}
+
+/* ── 學生總覽展開後的單台機器卡 ── */
+.reviewMachineCard {
+  display: grid;
+  gap: $spacing-8;
+  padding: $spacing-16;
+  border: 1px solid var(--color-divider);
+  border-radius: $radius-8;
+  background: var(--color-surface);
+}
+
+.reviewMachineHead {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: $spacing-8;
+
+  strong { color: var(--color-text-primary); font-size: $font-size-14; }
+  small { color: var(--color-text-muted); font-size: $font-size-12; }
 }
