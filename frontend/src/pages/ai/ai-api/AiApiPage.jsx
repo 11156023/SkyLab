@@ -43,12 +43,29 @@ export function buildAiProxyBaseUrl(baseUrl) {
   return `${root}/api/v1/ai-proxy`;
 }
 
-export function buildApiExample(language, baseUrl) {
+/* endpoint："responses"（預設）或 "chat"（Chat Completions）。代理兩種都支援，
+   網路上多數教學用的是 Chat Completions，所以兩種範例都給 */
+export function buildApiExample(language, baseUrl, endpoint = "responses") {
   const proxyBaseUrl = buildAiProxyBaseUrl(baseUrl) || "BASE_URL";
-  const endpoint = `${proxyBaseUrl}/responses`;
+  const chat = endpoint === "chat";
+  const url = `${proxyBaseUrl}/${chat ? "chat/completions" : "responses"}`;
 
   if (language === "python") {
-    return `from openai import OpenAI
+    return chat
+      ? `from openai import OpenAI
+
+client = OpenAI(
+    api_key="YOUR_API_KEY",
+    base_url="${proxyBaseUrl}",
+)
+
+response = client.chat.completions.create(
+    model="MODEL_NAME",
+    messages=[{"role": "user", "content": "INPUT"}],
+)
+
+print(response.choices[0].message.content)`
+      : `from openai import OpenAI
 
 client = OpenAI(
     api_key="YOUR_API_KEY",
@@ -64,13 +81,31 @@ print(response.output_text)`;
   }
 
   if (language === "cmd") {
-    return `curl -X POST "${endpoint}" ^
+    /* CMD 的 JSON 內層引號要寫成 \"，模板字串裡就得是 \\" */
+    const body = chat
+      ? `{\\"model\\":\\"MODEL_NAME\\",\\"messages\\":[{\\"role\\":\\"user\\",\\"content\\":\\"INPUT\\"}]}`
+      : `{\\"model\\":\\"MODEL_NAME\\",\\"input\\":\\"INPUT\\"}`;
+    return `curl -X POST "${url}" ^
   -H "Authorization: Bearer YOUR_API_KEY" ^
   -H "Content-Type: application/json" ^
-  -d "{\"model\":\"MODEL_NAME\",\"input\":\"INPUT\"}"`;
+  -d "${body}"`;
   }
 
-  return `import OpenAI from "openai";
+  return chat
+    ? `import OpenAI from "openai";
+
+const client = new OpenAI({
+  apiKey: "YOUR_API_KEY",
+  baseURL: "${proxyBaseUrl}",
+});
+
+const response = await client.chat.completions.create({
+  model: "MODEL_NAME",
+  messages: [{ role: "user", content: "INPUT" }],
+});
+
+console.log(response.choices[0].message.content);`
+    : `import OpenAI from "openai";
 
 const client = new OpenAI({
   apiKey: "YOUR_API_KEY",
@@ -83,6 +118,12 @@ const response = await client.responses.create({
 });
 
 console.log(response.output_text);`;
+}
+
+/* 查可用模型的指令；回傳清單的 id 就是範例裡的 MODEL_NAME */
+export function buildModelsCommand(baseUrl) {
+  const proxyBaseUrl = buildAiProxyBaseUrl(baseUrl) || "BASE_URL";
+  return `curl "${proxyBaseUrl}/models" -H "Authorization: Bearer YOUR_API_KEY"`;
 }
 
 function statusStyle(status) {
@@ -389,20 +430,28 @@ function CredentialRow({ item, onRefresh }) {
   );
 }
 
-/* ── API 快速開始的內容（Base URL、端點與各語言範例） ── */
+/* ── API 快速開始的內容：對象是學生，只留「複製連線資訊 → 查模型 → 貼範例執行」三步，
+   出錯才需要的對照表收在最下面 ── */
 function ApiDocsContent({ credentials }) {
   const { t } = useTranslation("ai");
   const toast = useToast();
   const [language, setLanguage] = useState("javascript");
-  const credential = credentials.find((item) => !item.revoked_at && !isExpired(item.expires_at))
-    ?? credentials[0];
-  const baseUrl = buildAiProxyBaseUrl(credential?.base_url);
-  const endpoint = baseUrl ? `${baseUrl}/responses` : "BASE_URL/responses";
-  const code = buildApiExample(language, credential?.base_url);
+  const [endpointKind, setEndpointKind] = useState("responses");
+  const usable = credentials.filter((item) => !item.revoked_at && !isExpired(item.expires_at));
+  const [credentialId, setCredentialId] = useState(null);
+  const credential = usable.find((item) => item.id === credentialId) ?? usable[0] ?? null;
+  /* 沒有可用金鑰時仍拿得到 Base URL（舊金鑰上也帶著），範例才不會整段變成 BASE_URL */
+  const baseUrl = buildAiProxyBaseUrl((credential ?? credentials[0])?.base_url);
+  const code = buildApiExample(language, baseUrl, endpointKind);
+  const modelsCommand = buildModelsCommand(baseUrl);
   const languages = [
     { key: "javascript", label: "JavaScript" },
     { key: "python", label: "Python" },
     { key: "cmd", label: "CMD / cURL" },
+  ];
+  const endpointKinds = [
+    { key: "responses", label: "Responses" },
+    { key: "chat", label: "Chat Completions" },
   ];
 
   const copy = async (label, value) => {
@@ -416,94 +465,156 @@ function ApiDocsContent({ credentials }) {
 
   return (
     <div className={styles.docsLayout}>
-      <div className={styles.docsStep}>
-          <span className={styles.docsStepNumber}>1</span>
-          <div className={styles.docsStepBody}>
-            <span className={styles.docsFieldLabel}>Base URL</span>
-            <div className={styles.docsEndpointRow}>
-              <code title={baseUrl || undefined}>{baseUrl || t("AiApiPage.docsBaseUrlUnavailable")}</code>
-              <button
-                type="button"
-                className={styles.docsCopyButton}
-                onClick={() => copy("Base URL", baseUrl)}
-                disabled={!baseUrl}
-              >
-                <MIcon name="content_copy" size={16} />
-                {t("AiApiPage.copy")}
-              </button>
-            </div>
-          </div>
-        </div>
-
-        <div className={styles.docsStep}>
-          <span className={styles.docsStepNumber}>2</span>
-          <div className={styles.docsStepBody}>
-            <span className={styles.docsFieldLabel}>{t("AiApiPage.docsEndpointLabel")}</span>
-            <div className={styles.docsRequestLine}>
-              <span>POST</span>
-              <code title={endpoint}>{endpoint}</code>
-            </div>
-          </div>
-        </div>
-
-        <div className={styles.docsStep}>
-          <span className={styles.docsStepNumber}>3</span>
-          <div className={styles.docsStepBody}>
-            <span className={styles.docsFieldLabel}>{t("AiApiPage.docsReplaceLabel")}</span>
-            <div className={styles.docsParameters}>
-              <div>
-                <code>MODEL_NAME</code>
-                <span>{t("AiApiPage.docsModelNameHelp")}</span>
-              </div>
-              <div>
-                <code>INPUT</code>
-                <span>{t("AiApiPage.docsInputHelp")}</span>
-              </div>
-            </div>
-          </div>
-        </div>
-
-      <div className={styles.docsStep}>
-        <span className={styles.docsStepNumber}>4</span>
+      {/* 1. 連線資訊：呼叫 API 只需要這兩個值，寬螢幕並排 */}
+      <section className={styles.docsStep}>
+        <span className={styles.docsStepNumber}>1</span>
         <div className={styles.docsStepBody}>
-          <span className={styles.docsFieldLabel}>{t("AiApiPage.docsExampleTitle")}</span>
-          <div className={styles.codePanelHeader}>
-          <div className={styles.codeTabs} role="tablist" aria-label={t("AiApiPage.docsLanguageLabel")}>
-            {languages.map((item) => (
-              <button
-                key={item.key}
-                type="button"
-                role="tab"
-                aria-selected={language === item.key}
-                className={language === item.key ? styles.codeTabActive : styles.codeTab}
-                onClick={() => setLanguage(item.key)}
-              >
-                {item.label}
-              </button>
-            ))}
+          <h3 className={styles.docsStepTitle}>{t("AiApiPage.docsConnTitle")}</h3>
+          <div className={styles.docsConnGrid}>
+            <div className={styles.docsField}>
+              <span className={styles.docsFieldLabel}>Base URL</span>
+              <div className={styles.docsEndpointRow}>
+                <code title={baseUrl || undefined}>{baseUrl || t("AiApiPage.docsBaseUrlUnavailable")}</code>
+                <button type="button" className={styles.docsCopyButton} onClick={() => copy("Base URL", baseUrl)} disabled={!baseUrl} aria-label={t("AiApiPage.copyBaseUrl")} title={t("AiApiPage.copyBaseUrl")}>
+                  <MIcon name="content_copy" size={16} />
+                </button>
+              </div>
+            </div>
+            <div className={styles.docsField}>
+              <span className={styles.docsFieldLabel}>API Key</span>
+              {credential ? (
+                <div className={styles.docsEndpointRow}>
+                  {usable.length > 1 && (
+                    <select
+                      className={styles.docsKeySelect}
+                      value={credential.id}
+                      onChange={(event) => setCredentialId(event.target.value)}
+                      aria-label={t("AiApiPage.docsKeySelectLabel")}
+                    >
+                      {usable.map((item) => <option key={item.id} value={item.id}>{item.api_key_name}</option>)}
+                    </select>
+                  )}
+                  <code>{maskKey(credential.api_key)}</code>
+                  <button type="button" className={styles.docsCopyButton} onClick={() => copy("API Key", credential.api_key)} aria-label={t("AiApiPage.actionCopyKey")} title={t("AiApiPage.actionCopyKey")}>
+                    <MIcon name="content_copy" size={16} />
+                  </button>
+                </div>
+              ) : (
+                <p className={styles.docsNotice}>
+                  <MIcon name="vpn_key_off" size={16} />
+                  <span>{t("AiApiPage.docsNoActiveKey")}</span>
+                </p>
+              )}
+            </div>
           </div>
-          <button
-            type="button"
-            className={styles.codeCopyButton}
-            onClick={() => copy(t("AiApiPage.docsCode"), code)}
-          >
-            <MIcon name="content_copy" size={16} />
-            {t("AiApiPage.copyCode")}
-          </button>
         </div>
-        <pre className={styles.codeBlock}><code>{code}</code></pre>
-        <p className={styles.codeHint}>
-          <MIcon name="info" size={14} />
-          <span>
-            {language === "javascript"
-              ? t("AiApiPage.docsJavascriptHint")
-              : language === "python"
-                ? t("AiApiPage.docsPythonHint")
-                : t("AiApiPage.docsCmdHint")}
-          </span>
-        </p>
+      </section>
+
+      {/* 2. 查模型：MODEL_NAME 從這裡拿 */}
+      <section className={styles.docsStep}>
+        <span className={styles.docsStepNumber}>2</span>
+        <div className={styles.docsStepBody}>
+          <h3 className={styles.docsStepTitle}>
+            {t("AiApiPage.docsModelsTitle")}
+            <small>{t("AiApiPage.docsModelsNote")}</small>
+          </h3>
+          <div className={styles.docsEndpointRow}>
+            <code title={modelsCommand}>{modelsCommand}</code>
+            <button type="button" className={styles.docsCopyButton} onClick={() => copy(t("AiApiPage.docsCommand"), modelsCommand)} aria-label={t("AiApiPage.copy")} title={t("AiApiPage.copy")}>
+              <MIcon name="content_copy" size={16} />
+            </button>
+          </div>
         </div>
-      </div>
+      </section>
+
+      {/* 3. 送出第一個請求 */}
+      <section className={styles.docsStep}>
+        <span className={styles.docsStepNumber}>3</span>
+        <div className={styles.docsStepBody}>
+          <h3 className={styles.docsStepTitle}>{t("AiApiPage.docsExampleTitle")}</h3>
+          <div className={styles.codeCard}>
+            <div className={styles.codePanelHeader}>
+              <div className={styles.codeToolbar}>
+                <div className={styles.codeTabs} role="tablist" aria-label={t("AiApiPage.docsLanguageLabel")}>
+                  {languages.map((item) => (
+                    <button
+                      key={item.key}
+                      type="button"
+                      role="tab"
+                      aria-selected={language === item.key}
+                      className={language === item.key ? styles.codeTabActive : styles.codeTab}
+                      onClick={() => setLanguage(item.key)}
+                    >
+                      {item.label}
+                    </button>
+                  ))}
+                </div>
+                <div className={styles.codeTabs} role="tablist" aria-label={t("AiApiPage.docsEndpointKindLabel")}>
+                  {endpointKinds.map((item) => (
+                    <button
+                      key={item.key}
+                      type="button"
+                      role="tab"
+                      aria-selected={endpointKind === item.key}
+                      className={endpointKind === item.key ? styles.codeTabActive : styles.codeTab}
+                      onClick={() => setEndpointKind(item.key)}
+                    >
+                      {item.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <button type="button" className={styles.codeCopyButton} onClick={() => copy(t("AiApiPage.docsCode"), code)}>
+                <MIcon name="content_copy" size={16} />
+                {t("AiApiPage.copyCode")}
+              </button>
+            </div>
+            <pre className={styles.codeBlock}><code>{code}</code></pre>
+          </div>
+          {/* 要替換的三個值直接用標籤列出來，名字本身就說明了要填什麼 */}
+          <p className={styles.docsReplace}>
+            <span>{t("AiApiPage.docsReplaceLabel")}</span>
+            <code>YOUR_API_KEY</code><code>MODEL_NAME</code><code>INPUT</code>
+          </p>
+          <p className={styles.codeHint}>
+            <MIcon name="terminal" size={14} />
+            <span>
+              {language === "javascript"
+                ? t("AiApiPage.docsJavascriptHint")
+                : language === "python"
+                  ? t("AiApiPage.docsPythonHint")
+                  : t("AiApiPage.docsCmdHint")}
+            </span>
+          </p>
+        </div>
+      </section>
+
+      {/* 出錯時才需要看，預設收合，不佔主流程的版面 */}
+      <details className={styles.docsErrors}>
+        <summary>
+          <MIcon name="help_outline" size={18} />
+          {t("AiApiPage.docsLimitsTitle")}
+          <MIcon name="expand_more" size={18} className={styles.docsErrorsChevron} />
+        </summary>
+        <div className={styles.docsErrorList}>
+          <div><span className={styles.statusCode}>401</span><span>{t("AiApiPage.docsErr401")}</span></div>
+          <div>
+            <span className={styles.statusCode}>429</span>
+            <span>
+              {credential?.rate_limit
+                ? t("AiApiPage.docsErr429WithLimit", { limit: credential.rate_limit })
+                : t("AiApiPage.docsErr429")}
+            </span>
+          </div>
+          <div><span className={styles.statusCode}>413</span><span>{t("AiApiPage.docsErr413")}</span></div>
+          <div><span className={styles.statusCode}>502</span><span>{t("AiApiPage.docsErr502")}</span></div>
+        </div>
+      </details>
+
+      <p className={styles.docsSecurity}>
+        <MIcon name="shield" size={16} />
+        <span>{t("AiApiPage.docsSecurityNote")}</span>
+      </p>
     </div>
   );
 }
@@ -537,7 +648,6 @@ function QuickStartModal({ closing = false, credentials, onClose }) {
           <div className={styles.quickStartIcon}><MIcon name="rocket_launch" size={20} /></div>
           <div className={styles.quickStartHeading}>
             <h2 id="ai-quick-start-title" className={styles.dialogTitle}>{t("AiApiPage.quickStartButton")}</h2>
-            <p className={styles.dialogDesc}>{t("AiApiPage.docsDescription")}</p>
           </div>
           <button type="button" className={styles.dialogClose} onClick={onClose} aria-label={t("AiApiPage.close")}>
             <MIcon name="close" size={18} />

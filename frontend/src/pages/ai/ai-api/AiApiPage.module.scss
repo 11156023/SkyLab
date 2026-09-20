@@ -431,7 +431,7 @@
    彈窗本身就是面板，內層不再包卡片 ── */
 .docsLayout {
   @include flex-column;
-  gap: $spacing-24;
+  gap: 20px;
   min-width: 0;
 }
 
@@ -461,15 +461,184 @@
   min-width: 0;
 }
 
-.docsFieldLabel {
-  color: var(--color-text-secondary);
-  font-size: $font-size-12;
-  font-weight: 600;
+/* 步驟標題跟編號圓點同一條基線；後面的小字是一句話補充 */
+.docsStepTitle {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 2px $spacing-8;
+  margin: 0 0 2px;
+  color: var(--color-text-primary);
+  font-size: $font-size-14;
+  font-weight: $font-weight-700;
   line-height: 22px;
+
+  small {
+    color: var(--color-text-muted);
+    font-size: $font-size-12;
+    font-weight: $font-weight-400;
+  }
 }
 
-.docsEndpointRow,
-.docsRequestLine {
+/* Base URL 與 API Key 是一組：寬螢幕並排，窄螢幕上下 */
+.docsConnGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+
+  @media (max-width: $breakpoint-sm) {
+    grid-template-columns: 1fr;
+  }
+}
+
+.docsField {
+  @include flex-column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.docsFieldLabel {
+  color: var(--color-text-muted);
+  font-size: $font-size-12;
+  font-weight: 600;
+}
+
+/* 沒有可用金鑰時的提示：比一般說明醒目，但不到錯誤的程度 */
+.docsNotice {
+  display: flex;
+  align-items: flex-start;
+  gap: $spacing-8;
+  margin: 0;
+  padding: 10px 12px;
+  border: 1px solid color-mix(in srgb, var(--color-pending) 35%, transparent);
+  border-radius: $radius-8;
+  color: var(--color-text-secondary);
+  background: color-mix(in srgb, var(--color-pending) 10%, transparent);
+  font-size: $font-size-12;
+  line-height: 1.6;
+
+  > :first-child { flex: 0 0 auto; margin-top: 1px; color: var(--color-pending); }
+}
+
+.docsKeySelect {
+  flex: 0 1 140px;
+  min-width: 0;
+  height: 32px;
+  padding: 0 $spacing-8;
+  border: 1px solid var(--color-border);
+  border-radius: $radius-8;
+  background: var(--color-surface);
+  color: var(--color-text-primary);
+  font-size: $font-size-12;
+}
+
+.docsErrorList {
+  display: grid;
+  margin-top: $spacing-8;
+  border: 1px solid var(--color-border);
+  border-radius: $radius-8;
+
+  > div {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    align-items: center;
+    gap: 12px;
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--color-divider);
+
+    &:last-child { border-bottom: 0; }
+  }
+
+  span:last-child {
+    color: var(--color-text-secondary);
+    font-size: $font-size-12;
+    line-height: 1.55;
+  }
+}
+
+/* 要替換的值：一行標籤，不逐項解釋 */
+.docsReplace {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: $font-size-12;
+
+  code {
+    padding: 2px 7px;
+    border-radius: 6px;
+    color: var(--color-primary);
+    background: color-mix(in srgb, var(--color-primary) 10%, transparent);
+    font: 600 11px/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  }
+}
+
+.codeHint {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: $font-size-12;
+  line-height: 1.6;
+
+  > :first-child { flex: 0 0 auto; margin-top: 2px; }
+}
+
+/* 常見錯誤：預設收合，出錯才點開 */
+.docsErrors {
+  min-width: 0;
+  padding-top: $spacing-16;
+  border-top: 1px solid var(--color-divider);
+
+  summary {
+    display: flex;
+    align-items: center;
+    gap: $spacing-8;
+    color: var(--color-text-secondary);
+    font-size: $font-size-14;
+    font-weight: 600;
+    cursor: pointer;
+    list-style: none;
+
+    &::-webkit-details-marker { display: none; }
+    &:hover { color: var(--color-text-primary); }
+    &:focus-visible { outline: 2px solid var(--color-primary); outline-offset: 2px; border-radius: 4px; }
+  }
+
+  &[open] .docsErrorsChevron { transform: rotate(180deg); }
+}
+
+.docsErrorsChevron {
+  margin-left: auto;
+  transition: transform $transition-base;
+}
+
+.docsSecurity {
+  display: flex;
+  align-items: flex-start;
+  gap: $spacing-8;
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: $font-size-12;
+  line-height: 1.6;
+
+  > :first-child { flex: 0 0 auto; margin-top: 1px; }
+}
+
+.statusCode {
+  min-width: 40px;
+  padding: 2px 7px;
+  border-radius: 6px;
+  text-align: center;
+  color: var(--color-danger);
+  background: color-mix(in srgb, var(--color-danger) 10%, transparent);
+  font: 700 11px/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+.docsEndpointRow {
   display: flex;
   align-items: center;
   gap: $spacing-8;
@@ -488,20 +657,6 @@
     font: 12px/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
     text-overflow: ellipsis;
     white-space: nowrap;
-  }
-}
-
-.docsRequestLine {
-  padding-right: 12px;
-
-  span {
-    flex: 0 0 auto;
-    padding: 2px 7px;
-    border-radius: 6px;
-    color: var(--color-success);
-    background: color-mix(in srgb, var(--color-success) 12%, transparent);
-    font: 700 11px/1.4 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-    letter-spacing: 0.06em;
   }
 }
 
@@ -532,33 +687,42 @@
   }
 }
 
-.docsParameters {
-  display: grid;
+/* 值旁邊的複製鈕只留圖示，欄位才放得下完整的值 */
+.docsCopyButton {
+  width: 32px;
+  height: 32px;
+  padding: 0;
+}
+
+/* 範例程式：工具列與程式碼包成同一張卡，切換、複製和內容視覺上是一體的 */
+.codeCard {
+  min-width: 0;
   border: 1px solid var(--color-border);
-  border-radius: $radius-8;
+  border-radius: $radius-12;
+  overflow: hidden;
 
-  > div {
-    @include flex-column;
-    gap: 2px;
-    padding: 10px 12px;
-    border-bottom: 1px solid var(--color-divider);
-
-    &:last-child { border-bottom: 0; }
+  .codePanelHeader {
+    padding: $spacing-8;
+    border-bottom: 1px solid var(--color-border);
+    background: var(--color-surface);
   }
 
-  code {
-    color: var(--color-primary);
-    font: 600 12px/1.4 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  }
-
-  span {
-    color: var(--color-text-secondary);
-    font-size: $font-size-12;
-    line-height: 1.55;
+  .codeBlock {
+    border: 0;
+    border-radius: 0;
   }
 }
 
-/* 語言切換與「複製程式碼」同一列：切換在左、複製在右 */
+/* 語言與 API 類型兩組切換排在一起 */
+.codeToolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: $spacing-8;
+  min-width: 0;
+}
+
+/* 切換與「複製程式碼」同一列：切換在左、複製在右 */
 .codePanelHeader {
   display: flex;
   align-items: center;
@@ -615,18 +779,6 @@
     font: 13px/1.7 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
     white-space: pre;
   }
-}
-
-.codeHint {
-  display: flex;
-  align-items: flex-start;
-  gap: 6px;
-  margin: 0;
-  color: var(--color-text-muted);
-  font-size: $font-size-12;
-  line-height: 1.6;
-
-  > :first-child { flex: 0 0 auto; margin-top: 2px; }
 }
 
 /* ── Badge ── */
@@ -977,7 +1129,7 @@
 
 .quickStartHeader {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   gap: 12px;
   padding: $spacing-24 $spacing-24 $spacing-16;
   border-bottom: 1px solid var(--color-divider);
@@ -1021,13 +1173,6 @@
   font-size: $font-size-18;
   font-weight: $font-weight-700;
   color: var(--color-text-primary);
-}
-
-.dialogDesc {
-  margin: 4px 0 0;
-  font-size: $font-size-14;
-  color: var(--color-text-muted);
-  line-height: $line-height-base;
 }
 
 .dialogClose {
