@@ -1,8 +1,8 @@
-﻿"""Provisioned resource metadata."""
+"""Provisioned resource metadata."""
 
 import uuid
 from datetime import date, datetime
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, Any, Optional
 
 import sqlalchemy as sa
 from sqlmodel import Column, DateTime, Field, Relationship, SQLModel
@@ -60,6 +60,15 @@ class Resource(SQLModel, table=True):
     )
     environment_type: str = Field(description="Environment type")
     os_info: str | None = Field(default=None, description="Operating system info")
+    guest_os: dict[str, Any] | None = Field(
+        default=None,
+        sa_column=Column(sa.JSON, nullable=True),
+        description=(
+            "結構化 Guest OS 身份（os_detection 契約：family/id/version/"
+            "pretty_name/source/confidence/detected_at）；偵測一次後保存，"
+            " Teacher Judge 與資源頁一律讀此欄位"
+        ),
+    )
     expiry_date: date | None = Field(default=None, description="Expiration date")
     template_id: int | None = Field(default=None, description="Proxmox template ID")
     ssh_private_key_encrypted: str | None = Field(

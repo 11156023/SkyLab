@@ -129,9 +129,11 @@
   color: var(--color-text-secondary);
 }
 
+/* 對外開放：與拓撲連線同色（亮藍）；語意一致優先，
+   小字對比略低於 AA，文字本身已把方向講明 */
 .toneInfo {
-  background: color-mix(in srgb, var(--color-info) 14%, transparent);
-  color: var(--color-info);
+  background: color-mix(in srgb, var(--color-flow-inbound) 14%, transparent);
+  color: var(--color-flow-inbound);
 }
 
 .toneSuccess {

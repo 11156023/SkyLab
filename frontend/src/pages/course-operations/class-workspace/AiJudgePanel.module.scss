@@ -33,12 +33,12 @@
 /* ── 子分頁 ── */
 .subTabs {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: $spacing-4;
   padding: $spacing-4;
   border-radius: $radius-8;
   background: var(--color-hover);
-  max-width: 520px;
+  max-width: 700px;
 }
 
 .subTab,
@@ -73,6 +73,339 @@
   gap: $spacing-16;
 }
 
+/* ── 導師核查 ── */
+.reviewOverview {
+  display: flex;
+  align-items: stretch;
+  flex-direction: column;
+  gap: $spacing-16;
+}
+
+.reviewOverviewHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: $spacing-16;
+
+  h4 { margin: 0; }
+}
+
+.runOnceProgress {
+  display: grid;
+  gap: $spacing-8;
+  padding: $spacing-8 $spacing-16;
+  border: 1px dashed var(--color-divider);
+  border-radius: $radius-8;
+}
+
+.runOnceProgressLine {
+  display: flex;
+  align-items: center;
+  gap: $spacing-8;
+
+  > span { min-width: 0; color: var(--color-text-primary); font-size: $font-size-12; font-weight: $font-weight-700; }
+  > small { color: var(--color-text-muted); font-size: $font-size-10; }
+}
+
+.reviewCheckGroup {
+  display: grid;
+  gap: $spacing-8;
+  padding: $spacing-8 0;
+  border-bottom: 1px solid var(--color-divider);
+
+  &:last-child { border-bottom: 0; }
+}
+
+.reviewCheckGroupHead {
+  display: flex;
+  align-items: center;
+  gap: $spacing-8;
+}
+
+.reviewCheckGroupTitle {
+  display: grid;
+  gap: 2px;
+
+  strong { color: var(--color-text-primary); font-size: $font-size-12; }
+  > span { color: var(--color-text-muted); font-size: $font-size-10; }
+}
+
+.reviewSort {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--color-text-muted);
+  font-size: $font-size-12;
+
+  select {
+    min-height: 32px;
+    padding: 4px 30px 4px 10px;
+    border: 1px solid var(--color-border);
+    border-radius: $radius-8;
+    color: var(--color-text-primary);
+    background: var(--color-surface);
+    font: inherit;
+    cursor: pointer;
+  }
+
+  select:focus {
+    border-color: var(--color-primary);
+    outline: none;
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-primary) 12%, transparent);
+  }
+}
+
+.reviewListSection {
+  display: grid;
+  gap: $spacing-8;
+}
+
+.reviewListToolbar {
+  display: flex;
+  min-height: 34px;
+  align-items: center;
+  justify-content: flex-end;
+  padding: 0 2px;
+}
+
+.reviewMetrics {
+  display: grid;
+  flex: 0 0 auto;
+  grid-template-columns: repeat(4, minmax(76px, 1fr));
+  gap: $spacing-8;
+  align-self: center;
+
+  > span {
+    display: grid;
+    gap: 2px;
+    min-width: 76px;
+    padding: $spacing-8 $spacing-16;
+    border: 1px solid var(--color-divider);
+    border-radius: $radius-8;
+    background: var(--color-hover);
+    text-align: center;
+  }
+
+  strong { color: var(--color-text-primary); font-size: $font-size-18; }
+  small { color: var(--color-text-muted); font-size: $font-size-10; white-space: nowrap; }
+}
+
+.reviewStudentList {
+  display: grid;
+  gap: $spacing-8;
+}
+
+.reviewStudent {
+  overflow: hidden;
+  border: 1px solid var(--color-divider);
+  border-radius: $radius-12;
+  background: var(--color-surface);
+  box-shadow: var(--shadow-sm);
+  transition: border-color $transition-base, box-shadow $transition-base;
+}
+
+.reviewStudentOpen {
+  border-color: color-mix(in srgb, var(--color-primary) 30%, var(--color-divider));
+  box-shadow: var(--shadow-md);
+}
+
+.reviewStudentToggle {
+  display: grid;
+  width: 100%;
+  min-height: 72px;
+  align-items: center;
+  grid-template-columns: minmax(190px, 1fr) auto auto auto;
+  gap: $spacing-16;
+  padding: $spacing-16;
+  color: var(--color-text-primary);
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+
+  &:hover { background: var(--color-hover); }
+  &:focus-visible { outline: 2px solid var(--color-primary); outline-offset: -2px; }
+}
+
+.reviewStudentIdentity {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: $spacing-8;
+
+  > span:last-child { display: grid; min-width: 0; gap: 3px; }
+  strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  small { overflow: hidden; color: var(--color-text-muted); font-size: $font-size-12; text-overflow: ellipsis; white-space: nowrap; }
+}
+
+.reviewAvatar {
+  display: inline-flex;
+  width: 36px;
+  height: 36px;
+  flex: 0 0 36px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  color: var(--color-primary);
+  background: color-mix(in srgb, var(--color-primary) 12%, transparent);
+}
+
+.reviewAiCounts {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+
+  em {
+    padding: 2px 7px;
+    border-radius: $radius-pill;
+    font-size: $font-size-10;
+    font-style: normal;
+    font-weight: $font-weight-700;
+    white-space: nowrap;
+  }
+}
+
+.reviewCountPass { color: var(--color-success); background: color-mix(in srgb, var(--color-success) 9%, transparent); }
+.reviewCountFail { color: var(--color-danger); background: color-mix(in srgb, var(--color-danger) 9%, transparent); }
+.reviewCountPending { color: var(--color-info); background: color-mix(in srgb, var(--color-info) 9%, transparent); }
+
+.reviewStudentBody {
+  display: grid;
+  gap: $spacing-16;
+  padding: 0 $spacing-16 $spacing-16;
+  border-top: 1px solid var(--color-divider);
+}
+
+.reviewCheckList { display: grid; }
+
+.reviewCheck {
+  display: grid;
+  align-items: start;
+  grid-template-columns: 24px minmax(0, 1fr) auto;
+  gap: $spacing-8;
+  padding: $spacing-16 0;
+  border-bottom: 1px solid var(--color-divider);
+}
+
+.reviewCheckIcon {
+  display: inline-flex;
+  padding-top: 2px;
+}
+
+.reviewCheckContent {
+  display: grid;
+  gap: 5px;
+
+  > div { display: flex; flex-wrap: wrap; align-items: center; gap: $spacing-8; }
+  > div span { color: var(--color-text-muted); font-size: $font-size-10; }
+  p { margin: 0; color: var(--color-text-secondary); font-size: $font-size-12; line-height: 1.5; }
+  details { font-size: $font-size-12; }
+  summary { color: var(--color-primary); cursor: pointer; }
+}
+
+.reviewDecision {
+  display: flex;
+  gap: 4px;
+
+  button {
+    display: inline-flex;
+    min-height: 34px;
+    align-items: center;
+    gap: 4px;
+    padding: 5px 10px;
+    border: 1px solid var(--color-border);
+    border-radius: $radius-8;
+    color: var(--color-text-secondary);
+    background: transparent;
+    font-size: $font-size-12;
+    cursor: pointer;
+  }
+}
+
+.reviewPassActive.reviewPassActive {
+  border-color: color-mix(in srgb, var(--color-success) 45%, transparent);
+  color: var(--color-success);
+  background: color-mix(in srgb, var(--color-success) 10%, transparent);
+}
+
+.reviewFailActive.reviewFailActive {
+  border-color: color-mix(in srgb, var(--color-danger) 45%, transparent);
+  color: var(--color-danger);
+  background: color-mix(in srgb, var(--color-danger) 10%, transparent);
+}
+
+.reviewFeedbackField {
+  display: grid;
+  gap: 6px;
+  padding-top: $spacing-8;
+  color: var(--color-text-primary);
+  font-size: $font-size-12;
+  font-weight: $font-weight-700;
+
+  > span small { margin-left: 4px; color: var(--color-text-muted); font-weight: $font-weight-500; }
+  > small { justify-self: end; color: var(--color-text-muted); font-weight: $font-weight-500; }
+  textarea {
+    width: 100%;
+    min-height: 86px;
+    resize: vertical;
+    padding: 10px 12px;
+    border: 1px solid var(--color-border);
+    border-radius: $radius-8;
+    color: var(--color-text-primary);
+    background: var(--color-surface);
+    font: inherit;
+    line-height: 1.5;
+  }
+  textarea:focus { border-color: var(--color-primary); outline: none; box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-primary) 12%, transparent); }
+}
+
+.reviewSaveRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: $spacing-16;
+
+  > span { color: var(--color-text-muted); font-size: $font-size-12; }
+}
+
+.reviewNoResult,
+.reviewEmpty {
+  color: var(--color-text-muted);
+  text-align: center;
+}
+
+.reviewNoResult { padding: $spacing-24 0 $spacing-8; }
+.reviewEmpty { align-items: center; padding: $spacing-24; }
+.reviewEmpty h4,
+.reviewEmpty p { margin: 0; }
+
+.noticeDanger {
+  padding: $spacing-16;
+  border: 1px solid color-mix(in srgb, var(--color-danger) 30%, transparent);
+  border-radius: $radius-8;
+  color: var(--color-danger);
+  background: color-mix(in srgb, var(--color-danger) 8%, transparent);
+}
+
+@media (max-width: 900px) {
+  .reviewMetrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .reviewStudentToggle { grid-template-columns: minmax(0, 1fr) auto auto; }
+  .reviewAiCounts { display: none; }
+  .reviewCheck { grid-template-columns: 24px minmax(0, 1fr); }
+  .reviewDecision { grid-column: 2; }
+}
+
+@media (max-width: 620px) {
+  .subTabs { grid-template-columns: repeat(2, minmax(0, 1fr)); max-width: none; }
+  .reviewStudentToggle { grid-template-columns: minmax(0, 1fr) auto; }
+  .reviewStudentToggle > .badge { display: none; }
+  .reviewDecision { flex-wrap: wrap; }
+  .reviewListToolbar { justify-content: stretch; }
+  .reviewSort { width: 100%; justify-content: space-between; }
+  .reviewSaveRow { align-items: stretch; flex-direction: column; }
+  .reviewSaveRow button { justify-content: center; width: 100%; }
+}
+
 .tabToolbar {
   display: flex;
   align-items: center;
@@ -102,6 +435,11 @@
 
 .btnBlock {
   width: 100%;
+}
+
+.dialogClose {
+  @include btn-dialog-close;
+  flex-shrink: 0;
 }
 
 .iconBtn {
@@ -357,7 +695,6 @@
     font: inherit;
     line-height: 1.45;
     outline: none;
-    resize: vertical;
     transition: border-color $transition-base, background $transition-base, box-shadow $transition-base;
   }
 
@@ -382,6 +719,19 @@
 }
 
 .rubricDescriptionCell { min-width: 260px; }
+.rubricMethodText {
+  min-height: 36px;
+  margin: 0;
+  padding: 7px 9px;
+  border-radius: $radius-8;
+  color: var(--color-text-primary);
+  line-height: 1.45;
+  white-space: pre-wrap;
+}
+.rubricMethodTextEmpty {
+  color: var(--color-text-muted);
+  font-style: italic;
+}
 .rubricDetailToggleCell { vertical-align: middle !important; }
 .rubricDetectabilityCell { vertical-align: middle !important; }
 .rubricActionsCell { vertical-align: middle !important; }
@@ -527,6 +877,29 @@
   }
 }
 
+/* 檢查步驟的唯讀參數顯示：每個步驟一列，後接 argv／cwd 等參數 chip。 */
+.stepPlanList {
+  display: grid;
+  gap: 6px;
+}
+
+.stepPlanRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.chipLabel,
+.chipText {
+  font-size: $font-size-10;
+  color: var(--color-text-muted);
+}
+
+.stepPlanRow .chip code {
+  color: var(--color-text-primary);
+}
+
 /* ── AI 對話 ── */
 .chatCard {
   padding: $spacing-16 $spacing-24;
@@ -623,6 +996,12 @@
 .chatBubble_user {
   background: var(--color-primary);
   color: var(--color-text-on-primary);
+}
+
+.chatLoadingText {
+  margin: 0 0 6px;
+  font-size: $font-size-14;
+  color: var(--color-text-secondary);
 }
 
 @keyframes typingPulse {
@@ -737,6 +1116,25 @@
   font-size: $font-size-12;
 }
 
+.chatToolCallList {
+  margin: 6px 0 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.chatToolCallItem {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: $font-size-12;
+  color: var(--color-text-muted);
+
+  svg { flex-shrink: 0; }
+}
+
 .chatForm {
   display: flex;
   gap: $spacing-8;
@@ -751,7 +1149,6 @@
     color: var(--color-text-primary);
     outline: none;
     font-size: $font-size-14;
-    resize: none;
 
     &:focus {
       border-color: var(--color-primary);
@@ -1057,6 +1454,176 @@
   color: var(--color-text-primary);
 }
 
+/* ── 檢查項目表格（執行結果） ── */
+.checkTable {
+  @include flex-column;
+  gap: 2px;
+  margin-top: $spacing-8;
+  border: 1px solid var(--color-border);
+  border-radius: $radius-8;
+  overflow: hidden;
+  font-size: $font-size-12;
+}
+
+.checkRow {
+  display: grid;
+  grid-template-columns: 20px 24px minmax(120px, 1.2fr) 2fr;
+  align-items: center;
+  gap: $spacing-8;
+  width: 100%;
+  padding: $spacing-8 $spacing-8;
+  text-align: left;
+  border: none;
+  background: transparent;
+  color: var(--color-text-primary);
+  font-size: $font-size-12;
+}
+
+.checkRowHead {
+  padding: $spacing-8 $spacing-8;
+  background: var(--color-hover);
+  font-weight: $font-weight-500;
+  color: var(--color-text-muted);
+}
+
+.checkRowBtn {
+  cursor: pointer;
+
+  &:hover:not(:disabled) {
+    background: var(--color-hover);
+  }
+
+  &:disabled {
+    cursor: default;
+  }
+}
+
+.checkItem {
+  border-top: 1px solid var(--color-border);
+
+  &:first-of-type {
+    border-top: none;
+  }
+}
+
+.checkIconCol {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.checkIconPass { color: var(--color-success); }
+.checkIconFail { color: var(--color-danger); }
+.checkIconWarn { color: var(--color-pending); }
+.checkIconSkip { color: var(--color-text-muted); }
+
+.checkTitle {
+  font-weight: $font-weight-500;
+  overflow-wrap: anywhere;
+}
+
+.checkEvidence {
+  color: var(--color-text-secondary);
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow-wrap: anywhere;
+}
+
+.checkToggleCol {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--color-text-muted);
+}
+
+.checkDetail {
+  padding: $spacing-8 $spacing-8 $spacing-16
+    calc(#{$spacing-8} + 20px + #{$spacing-8} + 24px + #{$spacing-8});
+  background: var(--color-hover);
+
+  p {
+    margin: 0 0 $spacing-8;
+    color: var(--color-text-secondary);
+  }
+}
+
+/* ── 指令 log（stdout / stderr / returncode） ── */
+.cmdLog {
+  @include flex-column;
+  gap: $spacing-8;
+  margin-top: $spacing-8;
+}
+
+.cmdHead {
+  @include flex-between;
+  gap: $spacing-8;
+}
+
+.cmdBlock {
+  @include flex-column;
+  gap: 2px;
+}
+
+.cmdLabel {
+  font-size: $font-size-12;
+  color: var(--color-text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.cmdStdout,
+.cmdStderr {
+  margin: 0;
+  padding: $spacing-8 $spacing-8;
+  border-radius: $radius-8;
+  font-family: monospace;
+  font-size: $font-size-14;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: 240px;
+  overflow-y: auto;
+}
+
+.cmdStdout {
+  background: var(--color-hover);
+  border: 1px solid var(--color-border);
+  color: var(--color-text-primary);
+}
+
+.cmdStderr {
+  background: color-mix(in srgb, var(--color-danger) 8%, transparent);
+  border: 1px solid color-mix(in srgb, var(--color-danger) 30%, transparent);
+  color: var(--color-text-primary);
+}
+
+.cmdBadge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: $font-size-12;
+  font-family: monospace;
+}
+
+.cmdBadgeOk {
+  background: color-mix(in srgb, var(--color-success) 12%, transparent);
+  color: var(--color-success);
+}
+
+.cmdBadgeError {
+  background: color-mix(in srgb, var(--color-danger) 12%, transparent);
+  color: var(--color-danger);
+}
+
+.cmdEmpty {
+  color: var(--color-text-muted);
+  font-size: $font-size-12;
+}
+
 .vmidBox {
   @include flex-column;
   gap: $spacing-8;
@@ -1079,7 +1646,7 @@
 .badge_success { background: color-mix(in srgb, var(--color-success) 12%, transparent); color: var(--color-success); }
 .badge_info { background: color-mix(in srgb, var(--color-info) 12%, transparent); color: var(--color-info); }
 .badge_danger { background: color-mix(in srgb, var(--color-danger) 12%, transparent); color: var(--color-danger); }
-.badge_muted { background: var(--color-hover); color: var(--color-status-neutral); }
+.badge_muted { background: color-mix(in srgb, var(--color-status-neutral) 12%, transparent); color: var(--color-status-neutral); }
 
 /* ── Modal ── */
 .modalOverlay {
@@ -1819,6 +2386,20 @@
   em { margin-right: 6px; color: var(--color-primary-on-surface); font-style: normal; font-weight: $font-weight-700; }
 }
 
+/* 提案列的唯讀指令預覽；只顯示 argv，不提供編輯。 */
+.proposalCommandPreview {
+  justify-self: start;
+  max-width: 100%;
+  padding: 2px 8px;
+  border: 1px solid var(--color-divider);
+  border-radius: $radius-8;
+  background: var(--color-hover);
+  font-family: monospace;
+  font-size: $font-size-10;
+  color: var(--color-text-primary);
+  overflow-wrap: anywhere;
+}
+
 .proposalActions {
   display: flex;
   justify-content: flex-end;
@@ -1833,25 +2414,6 @@
       width: 100%;
     }
   }
-}
-
-.runHistory {
-  display: grid;
-  gap: $spacing-8;
-  margin-top: $spacing-16;
-}
-
-.runHistoryItem {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: $spacing-16;
-  padding: 8px 10px;
-  border: 1px solid var(--color-border);
-  border-radius: $radius-8;
-  background: var(--color-surface);
-  color: var(--color-text-primary);
-  cursor: pointer;
 }
 
 @include respond-below(lg) {

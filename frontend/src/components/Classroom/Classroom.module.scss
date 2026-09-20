@@ -120,19 +120,8 @@
 }
 
 .closeBtn {
-  width: 28px;
-  height: 28px;
-  border-radius: $radius-8;
-  @include flex-center;
-  color: var(--color-text-secondary);
-  cursor: pointer;
-  transition: background $transition-base;
+  @include btn-dialog-close;
   flex-shrink: 0;
-
-  &:hover {
-    background: var(--color-hover);
-    color: var(--color-text);
-  }
 }
 
 /* ── VNC 區 ── */

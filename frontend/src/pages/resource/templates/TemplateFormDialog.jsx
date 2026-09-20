@@ -339,7 +339,10 @@ export default function TemplateFormDialog({ template, onClose, onSaved }) {
             checked={allowPasswordChange}
             onChange={(e) => setAllowPasswordChange(e.target.checked)}
           />
-          {t("TemplateFormDialog.allowPasswordChangeLabel")}
+          <span className={styles.checkText}>
+            <span>{t("TemplateFormDialog.allowPasswordChangeLabel")}</span>
+            <small>{t("TemplateFormDialog.allowPasswordChangeHint")}</small>
+          </span>
         </label>
 
         <label className={styles.checkLine} title={gpuSelectable ? undefined : t("TemplateFormDialog.gpuNotSupportedTitle")}>
@@ -349,7 +352,10 @@ export default function TemplateFormDialog({ template, onClose, onSaved }) {
             disabled={!gpuSelectable}
             onChange={(e) => setRequiresGpu(e.target.checked)}
           />
-          {t("TemplateFormDialog.requiresGpuLabel")}
+          <span className={styles.checkText}>
+            <span>{t("TemplateFormDialog.requiresGpuLabel")}</span>
+            <small>{t("TemplateFormDialog.requiresGpuHint")}</small>
+          </span>
         </label>
 
         <label className={styles.checkLine}>
@@ -358,7 +364,10 @@ export default function TemplateFormDialog({ template, onClose, onSaved }) {
             checked={useCustomSpec}
             onChange={(e) => setUseCustomSpec(e.target.checked)}
           />
-          {t("TemplateFormDialog.customSpecLabel")}
+          <span className={styles.checkText}>
+            <span>{t("TemplateFormDialog.customSpecLabel")}</span>
+            <small>{t("TemplateFormDialog.customSpecHint")}</small>
+          </span>
         </label>
 
         {useCustomSpec && (

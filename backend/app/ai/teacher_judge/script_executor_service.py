@@ -8,23 +8,18 @@ import logging
 import shlex
 import uuid
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from copy import deepcopy
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, TypeVar
 
-from sqlmodel import Session
+from sqlmodel import Session, col, select
 
-from app.ai.monitoring import CALL_TJ_RESULT_ANALYSIS, record_ai_template_call
 from app.ai.teacher_judge.script_policy import validate_managed_script_output
-from app.ai.teacher_judge.script_result_analysis_service import (
-    analyze_target_results,
-    pending_judgement,
-)
 from app.ai.teacher_judge.target_ip_resolver import resolve_target_ip_address
 from app.core.db import engine
 from app.core.security import decrypt_value
 from app.infrastructure.proxmox import operations as proxmox_ops
+from app.infrastructure.proxmox.os_detection import is_windows_guest_identity
 from app.infrastructure.ssh import create_key_client, exec_command
 from app.models.teacher_judge_script_artifact import (
     TeacherJudgeScriptArtifact,
@@ -35,12 +30,16 @@ from app.models.teacher_judge_script_run import (
     TeacherJudgeScriptRunStatus,
 )
 from app.models.teacher_judge_session import TeacherJudgeSession
+from app.models.teaching_class import TeachingClassMachineNode
 from app.repositories import resource as resource_repo
+from app.services import os_identity_service
 
 logger = logging.getLogger(__name__)
 _WorkerResult = TypeVar("_WorkerResult")
 
-MAX_RUN_TARGETS = 5
+# Class-wide node fan-out may contain more targets than the SSH concurrency
+# limit. Keep concurrency bounded, but do not silently cap a run at five VMs.
+MAX_RUN_TARGETS: int | None = None
 MAX_SSH_CONCURRENCY = 5
 STDOUT_LIMIT = 16 * 1024
 STDERR_LIMIT = 16 * 1024
@@ -103,9 +102,54 @@ def _target_user(target: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _resource_os_context(resource: Any) -> str:
+    identity = getattr(resource, "guest_os", None)
+    if isinstance(identity, dict):
+        structured = (
+            str(identity.get("pretty_name") or "").strip()
+            or str(identity.get("id") or "").strip()
+        )
+        if structured:
+            return structured
+    return " ".join(
+        str(value).strip()
+        for value in (
+            getattr(resource, "os_info", None),
+            getattr(resource, "environment_type", None),
+        )
+        if value is not None and str(value).strip()
+    )
+
+
+def _is_windows_target(resource: Any) -> bool:
+    """結構化 guest_os 為準；無結構資料時退回舊的字串判斷。"""
+
+    structured = is_windows_guest_identity(getattr(resource, "guest_os", None))
+    if structured is not None:
+        return structured
+    os_context = _resource_os_context(resource)
+    normalized = os_context.casefold()
+    windows_markers = ("windows", "win32", "win64", "win10", "win11", "microsoft")
+    return any(marker in normalized for marker in windows_markers)
+
+
+def _ensure_linux_executor_capability(resource: Any, vmid: int) -> None:
+    if _is_windows_target(resource):
+        os_context = _resource_os_context(resource)
+        raise TargetExecutionError(
+            f"VMID {vmid} 的作業系統（{os_context or 'unknown'}）不在目前 Linux SSH/python3 執行器支援範圍。",
+            "unsupported_os",
+        )
+
+
 def _target_metadata(target: dict[str, Any]) -> dict[str, Any]:
     return {
         "vmid": _target_vmid(target),
+        "student_id": target.get("student_id"),
+        "node_key": target.get("node_key"),
+        "node_name": target.get("node_name"),
+        "node_role": target.get("node_role"),
+        "display_label": target.get("display_label"),
         "proxmox_node": _target_proxmox_node(target),
         "resource_type": _target_resource_type(target),
         "user": _target_user(target),
@@ -127,6 +171,25 @@ def _target_progress(
     ]
 
 
+def _preflight_progress(results: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return [
+        {
+            "vmid": result.get("vmid"),
+            "name": result.get("name"),
+            "student_id": result.get("student_id"),
+            "node_key": result.get("node_key"),
+            "node_name": result.get("node_name"),
+            "display_label": result.get("display_label"),
+            "proxmox_node": result.get("proxmox_node"),
+            "resource_type": result.get("resource_type"),
+            "user": result.get("user"),
+            "status": result.get("status", "failed"),
+            "reason_code": result.get("reason_code"),
+        }
+        for result in results
+    ]
+
+
 def _save_run_progress(
     *,
     run_id: uuid.UUID,
@@ -134,6 +197,7 @@ def _save_run_progress(
     targets: list[dict[str, Any]],
     statuses: dict[int, str],
     done: int,
+    preflight_results: list[dict[str, Any]] | None = None,
 ) -> None:
     with Session(engine) as session:
         run = session.get(TeacherJudgeScriptRun, run_id)
@@ -141,9 +205,10 @@ def _save_run_progress(
             return
         run.progress_json = {
             "stage": stage,
-            "total": len(targets),
+            "total": len(targets) + len(preflight_results or []),
             "done": done,
-            "targets": _target_progress(targets, statuses),
+            "targets": _target_progress(targets, statuses)
+            + _preflight_progress(preflight_results or []),
         }
         run.updated_at = _now()
         session.add(run)
@@ -199,8 +264,16 @@ def _resolve_runtime_target(
             f"VMID {vmid} 目前資源擁有者與 run target snapshot 不一致。",
             "owner_mismatch",
         )
-
     live = live_by_vmid.get(vmid)
+    # Guest OS 身份補偵測（僅欄位為空時探測一次並回寫；best-effort）
+    os_identity_service.ensure_guest_os(
+        session=session,
+        resource=resource,
+        node=str(live.get("node") or "") if live else "",
+        resource_type=str(live.get("type") or "") if live else "",
+    )
+    _ensure_linux_executor_capability(resource, vmid)
+
     if not live or str(live.get("status") or "") != "running":
         raise TargetExecutionError(f"VMID {vmid} 目前不是運行中。", "not_running")
     if str(live.get("type") or "") not in {"qemu", "lxc"}:
@@ -261,6 +334,20 @@ def _execute_target_script(
         try:
             with sftp.file(f"{remote_dir}/script.py", "wb") as remote_file:
                 remote_file.write(script_content.encode())
+            with sftp.file(
+                f"{remote_dir}/runtime_context.json", "wb"
+            ) as remote_context:
+                remote_context.write(
+                    json.dumps(
+                        target.get("runtime_context")
+                        or {
+                            "schema_version": "teacher_judge_runtime_context.v1",
+                            "executor": {"node_key": target.get("node_key")},
+                            "peers": {},
+                        },
+                        ensure_ascii=False,
+                    ).encode()
+                )
 
             exit_code, _, _ = exec_command(
                 client,
@@ -278,7 +365,8 @@ def _execute_target_script(
             sftp.close()
     finally:
         cleanup_command = (
-            f"rm -f -- {quoted_dir}/script.py {quoted_dir}/result.json "
+            f"rm -f -- {quoted_dir}/script.py {quoted_dir}/runtime_context.json "
+            f"{quoted_dir}/result.json "
             f"{quoted_dir}/stderr.log && rmdir -- {quoted_dir} 2>/dev/null || true"
         )
         try:
@@ -402,54 +490,33 @@ def _summary(results: list[dict[str, Any]]) -> dict[str, Any]:
     }
 
 
-def _ai_summary(results: list[dict[str, Any]]) -> dict[str, Any]:
-    completed = 0
-    failed = 0
-    skipped = 0
-    for result in results:
-        judgement = result.get("ai_judgement")
-        if not isinstance(judgement, dict):
-            continue
-        status = judgement.get("status")
-        if status == "completed":
-            completed += 1
-        elif status == "failed":
-            failed += 1
-        elif status == "skipped":
-            skipped += 1
-    return {
-        "ai_completed": completed,
-        "ai_failed": failed,
-        "ai_skipped": skipped,
-    }
-
-
-def _with_pending_ai_judgement(results: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    prepared: list[dict[str, Any]] = []
-    for result in results:
-        next_result = dict(result)
-        validation = next_result.get("validation")
-        if isinstance(validation, dict) and validation.get("valid") is True:
-            next_result["ai_judgement"] = pending_judgement()
-        prepared.append(next_result)
-    return prepared
-
-
 def _mark_run_executor_failed(run_id: uuid.UUID, message: str) -> None:
     with Session(engine) as session:
         run = session.get(TeacherJudgeScriptRun, run_id)
         if run is None or run.status == TeacherJudgeScriptRunStatus.completed:
             return
         targets = list(run.target_snapshot_json.get("targets") or [])
+        preflight_results = list(
+            run.target_snapshot_json.get("preflight_results") or []
+        )
         statuses = {_target_vmid(target): "failed" for target in targets}
         run.status = TeacherJudgeScriptRunStatus.failed
         run.progress_json = {
             "stage": "failed",
-            "total": len(targets),
-            "done": 0,
-            "targets": _target_progress(targets, statuses),
+            "total": len(targets) + len(preflight_results),
+            "done": len(preflight_results),
+            "targets": _target_progress(targets, statuses)
+            + _preflight_progress(preflight_results),
         }
-        run.result_summary_json = {"executor_error": message}
+        run.result_summary_json = {
+            "executor_error": message,
+            "preflight_failed": len(preflight_results),
+        }
+        if preflight_results:
+            run.target_results_json = {
+                "schema_version": "teacher_judge_run_results.v2",
+                "targets": preflight_results,
+            }
         run.finished_at = _now()
         run.updated_at = _now()
         session.add(run)
@@ -473,37 +540,8 @@ def _touch_judge_session(
     session.add(judge_session)
 
 
-def _record_result_ai_usage(
-    *,
-    session: Session,
-    user_id: uuid.UUID | None,
-    template_key: str,
-    results: list[dict[str, Any]],
-) -> None:
-    for result in results:
-        judgement = result.get("ai_judgement")
-        if not isinstance(judgement, dict):
-            continue
-        judgement_status = str(judgement.get("status") or "")
-        if judgement_status in {"", "pending", "skipped"}:
-            continue
-        metrics = judgement.get("metrics")
-        record_ai_template_call(
-            session=session,
-            user_id=user_id,
-            call_type=CALL_TJ_RESULT_ANALYSIS,
-            model_name=str(judgement.get("model") or ""),
-            preset=template_key,
-            metrics=metrics if isinstance(metrics, dict) else None,
-            status="success" if judgement_status == "completed" else "error",
-            error_message=str(judgement.get("error") or "") or None,
-        )
-
-
 @dataclass(frozen=True)
 class _ExecutedTargets:
-    rubric_snapshot: dict[str, Any]
-    script_metadata: dict[str, Any]
     results: list[dict[str, Any]]
 
 
@@ -522,7 +560,12 @@ def _execute_targets(run_id: uuid.UUID) -> _ExecutedTargets | None:
             return None
 
         targets = list(run.target_snapshot_json.get("targets") or [])
-        if not targets or len(targets) > MAX_RUN_TARGETS:
+        preflight_results = list(
+            run.target_snapshot_json.get("preflight_results") or []
+        )
+        if (not targets and not preflight_results) or (
+            MAX_RUN_TARGETS is not None and len(targets) > MAX_RUN_TARGETS
+        ):
             run.status = TeacherJudgeScriptRunStatus.failed
             run.result_summary_json = {"error": "執行目標數量不合法。"}
             run.finished_at = _now()
@@ -532,7 +575,7 @@ def _execute_targets(run_id: uuid.UUID) -> _ExecutedTargets | None:
             session.commit()
             return None
 
-        live_by_vmid = _live_running_by_vmid()
+        live_by_vmid = _live_running_by_vmid() if targets else {}
         statuses = {_target_vmid(target): "queued" for target in targets}
         run.status = TeacherJudgeScriptRunStatus.running
         run.started_at = run.started_at or _now()
@@ -544,7 +587,8 @@ def _execute_targets(run_id: uuid.UUID) -> _ExecutedTargets | None:
             stage="executing",
             targets=targets,
             statuses=statuses,
-            done=0,
+            done=len(preflight_results),
+            preflight_results=preflight_results,
         )
 
         runtime_targets: list[dict[str, Any]] = []
@@ -575,10 +619,11 @@ def _execute_targets(run_id: uuid.UUID) -> _ExecutedTargets | None:
             stage="executing",
             targets=targets,
             statuses=statuses,
-            done=len(early_results),
+            done=len(preflight_results) + len(early_results),
+            preflight_results=preflight_results,
         )
 
-        results = list(early_results)
+        results = list(preflight_results) + early_results
         workers = min(MAX_SSH_CONCURRENCY, len(runtime_targets))
         if workers:
             with ThreadPoolExecutor(max_workers=workers) as executor:
@@ -615,47 +660,45 @@ def _execute_targets(run_id: uuid.UUID) -> _ExecutedTargets | None:
                         targets=targets,
                         statuses=statuses,
                         done=len(results),
+                        preflight_results=preflight_results,
                     )
 
         results.sort(key=lambda item: int(item.get("vmid") or 0))
         _save_run_progress(
             run_id=run.id,
-            stage="analyzing",
+            stage="finalizing",
             targets=targets,
             statuses=statuses,
             done=len(results),
+            preflight_results=preflight_results,
         )
-        return _ExecutedTargets(
-            rubric_snapshot=deepcopy(artifact.rubric_snapshot_json),
-            script_metadata={
-                "id": str(artifact.id),
-                "name": artifact.name,
-                "version": artifact.version,
-                "template_key": artifact.template_key,
-            },
-            results=_with_pending_ai_judgement(results),
-        )
+        return _ExecutedTargets(results=results)
 
 
-def _save_analyzed_results(run_id: uuid.UUID, results: list[dict[str, Any]]) -> None:
+def _save_results(run_id: uuid.UUID, results: list[dict[str, Any]]) -> None:
     with Session(engine) as session:
         run, artifact = _load_run_and_artifact(session=session, run_id=run_id)
         targets = list(run.target_snapshot_json.get("targets") or [])
-        statuses = {_target_vmid(result): str(result["status"]) for result in results}
+        preflight_results = list(
+            run.target_snapshot_json.get("preflight_results") or []
+        )
+        statuses = {
+            _target_vmid(result): str(result["status"])
+            for result in results
+            if result.get("vmid") is not None
+        }
         results.sort(key=lambda item: int(item.get("vmid") or 0))
         run.target_results_json = {
-            "schema_version": "teacher_judge_run_results.v1",
+            "schema_version": "teacher_judge_run_results.v2",
             "targets": results,
         }
-        run.result_summary_json = {
-            **_summary(results),
-            **_ai_summary(results),
-        }
+        run.result_summary_json = _summary(results)
         run.progress_json = {
             "stage": "completed",
-            "total": len(targets),
+            "total": len(targets) + len(preflight_results),
             "done": len(results),
-            "targets": _target_progress(targets, statuses),
+            "targets": _target_progress(targets, statuses)
+            + _preflight_progress(preflight_results),
         }
         run.status = TeacherJudgeScriptRunStatus.completed
         run.finished_at = _now()
@@ -663,12 +706,6 @@ def _save_analyzed_results(run_id: uuid.UUID, results: list[dict[str, Any]]) -> 
         session.add(run)
         _touch_judge_session(session, artifact)
         session.commit()
-        _record_result_ai_usage(
-            session=session,
-            user_id=run.started_by,
-            template_key=artifact.template_key,
-            results=results,
-        )
 
 
 async def _await_worker(worker: asyncio.Task[_WorkerResult]) -> _WorkerResult:
@@ -695,13 +732,8 @@ async def _execute_script_run(run_id: uuid.UUID) -> None:
     )
     if collected is None:
         return
-    results = await analyze_target_results(
-        rubric_snapshot=collected.rubric_snapshot,
-        script_metadata=collected.script_metadata,
-        target_results=collected.results,
-    )
     await _await_worker(
-        asyncio.create_task(asyncio.to_thread(_save_analyzed_results, run_id, results))
+        asyncio.create_task(asyncio.to_thread(_save_results, run_id, collected.results))
     )
 
 
@@ -727,3 +759,52 @@ async def execute_script_run(run_id: uuid.UUID) -> None:
                 asyncio.to_thread(_mark_run_executor_failed, run_id, str(exc))
             )
         )
+
+
+def _batch_run_ids(run_batch_id: uuid.UUID) -> list[uuid.UUID]:
+    with Session(engine) as session:
+        rows = list(
+            session.exec(
+                select(TeacherJudgeScriptRun, TeacherJudgeScriptArtifact).join(
+                    TeacherJudgeScriptArtifact,
+                    col(TeacherJudgeScriptArtifact.id)
+                    == col(TeacherJudgeScriptRun.artifact_id),
+                ).where(
+                    TeacherJudgeScriptRun.run_batch_id == run_batch_id
+                )
+            ).all()
+        )
+        class_ids = {run.teaching_class_id for run, _artifact in rows}
+        node_order: dict[tuple[uuid.UUID, str], tuple[int, str]] = {}
+        for class_id in class_ids:
+            nodes = session.exec(
+                select(TeachingClassMachineNode).where(
+                    TeachingClassMachineNode.class_id == class_id
+                )
+            ).all()
+            for node in nodes:
+                node_order[(class_id, node.node_key)] = (
+                    node.sort_order,
+                    node.node_key,
+                )
+        rows.sort(
+            key=lambda row: (
+                node_order.get(
+                    (
+                        row[0].teaching_class_id,
+                        str(row[1].target_node_key or ""),
+                    ),
+                    (10**9, str(row[1].target_node_key or "")),
+                ),
+                str(row[0].artifact_id),
+            )
+        )
+        return [run.id for run, _artifact in rows]
+
+
+async def execute_script_run_batch(run_batch_id: uuid.UUID) -> None:
+    """Execute child runs sequentially so total SSH concurrency stays bounded."""
+
+    run_ids = await asyncio.to_thread(_batch_run_ids, run_batch_id)
+    for run_id in run_ids:
+        await execute_script_run(run_id)

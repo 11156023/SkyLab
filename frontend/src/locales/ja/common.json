@@ -154,8 +154,6 @@
   "UserGuide.domain.step4.title": "ここで DNS レコードを検索・追加できます",
   "UserGuide.domain.step4.text": "検索ボックスで既存のレコードを検索できます。「レコードを追加」で名前と IP／サービスの対応関係を作成します。レコードの種類がわからない場合は、本番ドメインを直接変更しないでください。",
   "UserGuide.aiApi.title": "AI API",
-  "UserGuide.aiApi.step1.title": "これら4つの数字は申請とキーの数を表します",
-  "UserGuide.aiApi.step1.text": "「使用中のキー」は現在 API を呼び出せるキーの数です。「期限切れのキー」はすでに使用できません。「承認済み申請」は必ずしも現在有効なキー数と一致しません。",
   "UserGuide.aiApi.step2.title": "3つのタブと「キーを追加」ダイアログ",
   "UserGuide.aiApi.step2.text": "API Keys タブで「＋ キーを追加」を押して申請すると、承認後にキーが下に表示されます。「申請履歴」で審査状況を追跡し、「自分の使用状況」で実際の消費量を確認できます。次に各ステップを実際に操作していきます。",
   "UserGuide.aiApi.step3.title": "「＋ キーを追加」：新しい API Key を申請します",

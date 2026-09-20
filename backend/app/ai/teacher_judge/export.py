@@ -43,14 +43,13 @@ def export_to_excel(items: list[TeacherJudgeRubricItem], summary: str = "") -> b
     headers = [
         "項目編號",
         "檢查項目",
-        "說明",
         "確認狀態",
         "執行狀態",
         "核對方式",
         "證據收集方式",
         "替代建議",
     ]
-    col_widths = [10, 25, 40, 12, 18, 18, 35, 35]
+    col_widths = [10, 25, 12, 18, 18, 35, 35]
 
     for col_idx, (h, w) in enumerate(zip(headers, col_widths, strict=True), start=1):
         cell = ws.cell(row=1, column=col_idx, value=h)
@@ -72,7 +71,6 @@ def export_to_excel(items: list[TeacherJudgeRubricItem], summary: str = "") -> b
         values = [
             item.id,
             item.title,
-            item.description,
             _CHECKED_LABELS.get(bool(item.checked), "⬜ 未確認"),
             label,
             (

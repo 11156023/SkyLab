@@ -1,3 +1,4 @@
+import json
 import logging
 import math
 import time
@@ -6,11 +7,18 @@ from collections.abc import Iterable
 from datetime import UTC, datetime, timedelta
 from typing import Any, Literal
 
-from sqlmodel import Session, select
+from sqlmodel import Session, col, select
 
 from app.core.authorizers import can_bypass_resource_ownership
 from app.exceptions import BadRequestError, PermissionDeniedError, ProxmoxError
-from app.models import TeachingClass, TeachingClassStatus, User
+from app.models import (
+    BatchProvisionJob,
+    TeachingClass,
+    TeachingClassMachineNode,
+    TeachingClassStatus,
+    User,
+    VMTemplate,
+)
 from app.models.quick_practice import QuickPracticeSessionMachine
 from app.models.vm_request import VMProvisioningStatus, VMRequest, VMRequestStatus
 from app.repositories import audit_log as audit_log_repo
@@ -81,6 +89,40 @@ def _enforce_start_window(*, session: Session, vmid: int) -> None:
         raise BadRequestError("This resource can only be started when its approved time window begins.")
     if now >= end_at:
         raise BadRequestError("This resource can no longer be started because its approved time window has ended.")
+
+
+def ensure_lxc_platform_key(*, session: Session, node: str, vmid: int) -> bool:
+    """Ensure the DB-managed platform key is present after an LXC start.
+
+    LXC template clones may be created while stopped, so the clone worker cannot
+    use ``pct exec`` to write ``authorized_keys``.  Managed start and reset
+    paths call this helper; the underlying write is idempotent and has its own
+    startup retry window.  Failure is logged but does not undo a successful PVE
+    start.
+    """
+    try:
+        resource = resource_repo.get_resource_by_vmid(session=session, vmid=vmid)
+        public_key = str(getattr(resource, "ssh_public_key", None) or "").strip()
+        if not public_key:
+            logger.warning(
+                "Cannot sync platform SSH key for LXC %s: DB public key missing",
+                vmid,
+            )
+            return False
+
+        from app.services.template.clone_service import (  # noqa: PLC0415
+            inject_lxc_platform_key,
+        )
+
+        synced = inject_lxc_platform_key(node, vmid, public_key)
+        if not synced:
+            logger.warning("Platform SSH key sync did not complete for LXC %s", vmid)
+        return synced
+    except Exception:
+        logger.warning(
+            "Platform SSH key sync failed for LXC %s", vmid, exc_info=True
+        )
+        return False
 
 
 def _from_punycode_hostname(hostname: str) -> str:
@@ -197,11 +239,135 @@ def public_urls_by_vmid(
     return urls
 
 
+def _teaching_display_names(
+    *, session: Session, db_resources: Iterable[Any]
+) -> dict[int, str]:
+    """幫沒有 os_info 的舊班級機器，關聯回老師拓撲的顯示名。
+
+    commit 87bd0880 之前供裝的機器 DB 沒有 os_info，清單只能退回
+    cls-xxx-2-1 這種主機名。這裡沿既有外鍵關聯回查，只讀不寫：
+
+    1. Resource.batch_job_id → TeachingClassMachineNode.batch_job_id，
+       直接對上老師拓撲的那台機器（node.name）。
+    2. 節點被重新佈建後 batch_job_id 會指向新 job，對不上的 job 改由
+       template_params 的 ip_reservation_prefix（``{class_id}:{node_key}``，
+       node_key 跨重試穩定）反查。
+    3. 最後以 source_template_id / Resource.template_id → VMTemplate.name
+       的範本名收尾。
+
+    查不到的機器不補名，呼叫端維持原本的主機名顯示。
+    """
+    targets = [
+        r
+        for r in db_resources
+        if r is not None
+        and not ((getattr(r, "os_info", None) or "").strip())
+        and getattr(r, "teaching_class_id", None)
+        and (
+            getattr(r, "batch_job_id", None) or getattr(r, "template_id", None)
+        )
+    ]
+    if not targets:
+        return {}
+
+    class_ids = {getattr(r, "teaching_class_id", None) for r in targets}
+    nodes = list(
+        session.exec(
+            select(TeachingClassMachineNode).where(
+                col(TeachingClassMachineNode.class_id).in_(class_ids)
+            )
+        ).all()
+    )
+    node_by_job = {n.batch_job_id: n for n in nodes if n.batch_job_id}
+    node_by_class_key = {(n.class_id, n.node_key): n for n in nodes}
+
+    # 重新佈建過的節點：batch_job_id 對不上時，用 job 的 node_key 反查
+    params_by_job: dict[uuid.UUID, dict[str, Any]] = {}
+    jobs_needed = [
+        job_id
+        for job_id in {
+            getattr(r, "batch_job_id", None) for r in targets
+            if getattr(r, "batch_job_id", None)
+        }
+        if job_id not in node_by_job
+    ]
+    if jobs_needed:
+        for job in session.exec(
+            select(BatchProvisionJob).where(
+                col(BatchProvisionJob.id).in_(jobs_needed)
+            )
+        ).all():
+            try:
+                params = json.loads(job.template_params)
+            except (TypeError, ValueError):
+                continue
+            prefix = params.get("ip_reservation_prefix")
+            if isinstance(prefix, str) and ":" in prefix:
+                params_by_job[job.id] = params
+
+    def _node_for(resource: Any) -> TeachingClassMachineNode | None:
+        batch_job_id = getattr(resource, "batch_job_id", None)
+        if not batch_job_id:
+            return None
+        node = node_by_job.get(batch_job_id)
+        if node is not None:
+            return node
+        prefix = (params_by_job.get(batch_job_id) or {}).get(
+            "ip_reservation_prefix"
+        )
+        if not isinstance(prefix, str) or ":" not in prefix:
+            return None
+        node_key = prefix.split(":", 1)[1]
+        return node_by_class_key.get(
+            (getattr(resource, "teaching_class_id", None), node_key)
+        )
+
+    # 範本名：節點綁定的系統範本（老師拓撲選的）＋ qemu 克隆來源範本
+    template_ids = {
+        n.source_template_id for n in nodes if n.source_template_id is not None
+    }
+    pve_vmids = {
+        getattr(r, "template_id", None) for r in targets
+        if getattr(r, "template_id", None)
+    }
+    tpl_name_by_id: dict[uuid.UUID, str] = {}
+    tpl_name_by_pve: dict[int, str] = {}
+    if template_ids:
+        for template in session.exec(
+            select(VMTemplate).where(col(VMTemplate.id).in_(template_ids))
+        ).all():
+            tpl_name_by_id[template.id] = template.name
+    if pve_vmids:
+        for template in session.exec(
+            select(VMTemplate).where(col(VMTemplate.pve_vmid).in_(pve_vmids))
+        ).all():
+            tpl_name_by_pve[template.pve_vmid] = template.name
+
+    display: dict[int, str] = {}
+    for r in targets:
+        node = _node_for(r)
+        name = None
+        if node is not None:
+            name = (node.name or "").strip() or None
+            if name is None and node.source_template_id:
+                name = tpl_name_by_id.get(node.source_template_id)
+        template_id = getattr(r, "template_id", None)
+        if name is None and template_id:
+            name = tpl_name_by_pve.get(template_id)
+        if name:
+            display[getattr(r, "vmid", None)] = name
+    return display
+
+
 def _build_resource_public(
-    resource: dict, db_resource, node: str, vm_type: str,
+    resource: dict,
+    db_resource,
+    node: str,
+    vm_type: str,
     session: Session | None = None,
     known_practice_ids: set[uuid.UUID] | None = None,
     public_urls: dict[int, list[str]] | None = None,
+    display_names: dict[int, str] | None = None,
 ) -> ResourcePublic:
     vmid = resource.get("vmid")
     # 清單頁會先把所有機器的對外網址批次查好傳進來；單筆查詢就現查這一台。
@@ -253,7 +419,12 @@ def _build_resource_public(
         can_request_spec_change=not spec_fixed,
         can_extend=class_available and not quick_practice_limited,
         environment_type=db_resource.environment_type if db_resource else None,
-        os_info=db_resource.os_info if db_resource else None,
+        os_info=(
+            (db_resource.os_info or (display_names or {}).get(vmid))
+            if db_resource
+            else None
+        ),
+        guest_os=getattr(db_resource, "guest_os", None) if db_resource else None,
         expiry_date=db_resource.expiry_date if db_resource else None,
         ip_address=ip_address,
         ssh_public_key=db_resource.ssh_public_key if db_resource else None,
@@ -350,11 +521,19 @@ def get_by_vmid(
     vm_type = resource_info.get("type", "")
     vm_node = resource_info.get("node", "")
     db_resource = resource_repo.get_resource_by_vmid(session=session, vmid=vmid)
-    return _build_resource_public(resource_info, db_resource, vm_node, vm_type, session)
+    display_names = (
+        _teaching_display_names(session=session, db_resources=[db_resource])
+        if db_resource is not None
+        else {}
+    )
+    return _build_resource_public(
+        resource_info, db_resource, vm_node, vm_type, session,
+        display_names=display_names,
+    )
 
 
 def list_all(
-    *, session: Session, node: str | None = None
+    *, session: Session, node: str | None = None, viewer_id: uuid.UUID | None = None
 ) -> list[ResourcePublic]:
     try:
         resources = proxmox_service.list_all_resources()
@@ -365,27 +544,34 @@ def list_all(
         )
         result = []
         owner_ids: dict[int, uuid.UUID] = {}
+        pairs: list[tuple[dict, Any]] = []
         for r in resources:
             if (node and r.get("node") != node) or r.get("template") == 1:
                 continue
             vmid = r.get("vmid")
-            vm_type = r.get("type")
-            vm_node = r.get("node")
             db_resource = resource_repo.get_resource_by_vmid(
                 session=session, vmid=vmid
             )
-            result.append(
-                _build_resource_public(
-                    r, db_resource, vm_node, vm_type, session, known_practice_ids,
-                    public_urls=public_urls,
-                )
-            )
+            pairs.append((r, db_resource))
             if db_resource is not None:
                 owner_ids[vmid] = db_resource.user_id
-        # 管理員視角：每台機器都標擁有者
+        display_names = _teaching_display_names(
+            session=session, db_resources=[db for _, db in pairs]
+        )
+        for r, db_resource in pairs:
+            result.append(
+                _build_resource_public(
+                    r, db_resource, r.get("node", ""), r.get("type", ""),
+                    session, known_practice_ids,
+                    public_urls=public_urls,
+                    display_names=display_names,
+                )
+            )
+        # 管理員視角：別人的機器都標擁有者；自己的跳過，
+        # 維持 owner_name「機器不是自己的時才有值」的合約（前端徽章靠它分我的／別人的）
         names = resource_kind.user_display_names(session, owner_ids.values())
         for public in result:
-            if public.vmid in owner_ids:
+            if public.vmid in owner_ids and owner_ids[public.vmid] != viewer_id:
                 public.owner_name = names.get(owner_ids[public.vmid])
         return result
     except Exception as e:
@@ -541,6 +727,10 @@ def list_by_user(
             public_urls = public_urls_by_vmid(
                 session, [*owned_vmids, *shared_rows, *taught_rows]
             )
+            display_names = _teaching_display_names(
+                session=session,
+                db_resources=[*owned_vmids.values(), *shared_rows.values(), *taught_rows.values()],
+            )
             try:
                 for r in proxmox_service.list_all_resources():
                     if r.get("template") == 1:
@@ -561,6 +751,7 @@ def list_by_user(
                         session,
                         known_practice_ids,
                         public_urls=public_urls,
+                        display_names=display_names,
                     )
                     if vmid in shared_rows:
                         _mark_shared(public, db_row, session)
@@ -610,7 +801,8 @@ def list_by_user(
                                 can_request_spec_change=False,
                                 can_extend=False,
                                 environment_type=db_r.environment_type,
-                                os_info=db_r.os_info,
+                                os_info=db_r.os_info or display_names.get(db_r.vmid),
+                                guest_os=getattr(db_r, "guest_os", None),
                                 expiry_date=db_r.expiry_date,
                                 ssh_public_key=db_r.ssh_public_key,
                                 has_login_password=bool(
@@ -752,6 +944,9 @@ def control(
             _enforce_start_window(session=session, vmid=vmid)
 
         proxmox_service.control(node, vmid, resource_type, action)
+
+        if action == "start" and resource_type == "lxc":
+            ensure_lxc_platform_key(session=session, node=node, vmid=vmid)
 
         # 啟動時確保防火牆仍為啟用狀態
         if action == "start":

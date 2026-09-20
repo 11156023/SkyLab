@@ -293,6 +293,11 @@ def _drive_provision(monkeypatch, *, applied: bool) -> tuple[VMRequest, dict]:
         lambda **kw: captured.update(kw),
     )
     monkeypatch.setattr(coordinator.audit_service, "log_action", lambda **kw: None)
+    monkeypatch.setattr(
+        coordinator.ip_management_service,
+        "link_ip_to_resource",
+        lambda *a, **kw: False,
+    )
     from app.services.resource import reset_service
 
     monkeypatch.setattr(reset_service, "ensure_init_snapshot", lambda vmid: True)

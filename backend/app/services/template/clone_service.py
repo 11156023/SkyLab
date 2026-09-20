@@ -13,6 +13,7 @@ LXC 無 cloud-init，開機後 best-effort 以 ``pct exec chpasswd`` 設定 root
 from __future__ import annotations
 
 import logging
+import re
 import shlex
 import time
 import uuid
@@ -22,17 +23,11 @@ from urllib.parse import quote
 
 from sqlmodel import Session
 
-from app.core.config import settings
+from app.core.authorizers import require_template_manage
 from app.core.db import engine
 from app.core.i18n import t
-from app.core.permissions import is_admin
 from app.core.security import decrypt_value, encrypt_value
-from app.exceptions import (
-    BadRequestError,
-    ConflictError,
-    NotFoundError,
-    PermissionDeniedError,
-)
+from app.exceptions import BadRequestError, ConflictError, NotFoundError
 from app.infrastructure.proxmox import get_proxmox_settings_for_node
 from app.infrastructure.proxmox import operations as proxmox_ops
 from app.infrastructure.queue import enqueue_task, report_progress
@@ -41,6 +36,7 @@ from app.models import TaskRecord, User, VMTemplate, VMTemplateStatus
 from app.repositories import resource as resource_repo
 from app.schemas.template import TemplateCloneRequest
 from app.services.network import firewall_service, ip_management_service
+from app.services.resource import quota_service
 from app.services.template import template_service
 from app.utils.hostname import to_punycode_hostname
 from app.utils.login_password import (
@@ -86,14 +82,12 @@ async def request_clone(
 ) -> list[TaskRecord]:
     template = template_service._get_or_404(session, template_id)
     template_service._require_view(session, user, template)
+    # 克隆開通僅限教師與管理員；學生要機器一律走申請審核流程。
+    require_template_manage(user)
     if template.status != VMTemplateStatus.ready:
         raise ConflictError(
             t("clone.templateNotReady", status=template.status.value)
         )
-
-    can_manage = template_service._can_manage(user)
-    if data.count > 1 and not can_manage:
-        raise PermissionDeniedError(t("clone.batchRequiresManager"))
 
     if data.login_password and not template.allow_password_change:
         raise BadRequestError(t("clone.passwordChangeNotAllowed"))
@@ -112,15 +106,19 @@ async def request_clone(
                 t("clone.gpuNodeMismatch", node=template.node)
             )
 
-    if not can_manage and not is_admin(user):
-        owned = len(
-            resource_repo.get_resources_by_user(session=session, user_id=user.id)
-        )
-        limit = settings.TEMPLATE_CLONE_STUDENT_MAX_INSTANCES
-        if owned + data.count > limit:
-            raise ConflictError(
-                t("clone.quotaExceeded", owned=owned, limit=limit)
-            )
+    # 配額與其他開通路徑走同一個執法點。cores/memory 未指定時沿用範本規格，
+    # 所以配額要以「實際會開出來的規格」計算，不能只看使用者填了什麼。
+    spec_cores, spec_memory, spec_disk = template_service.resolve_effective_spec(
+        template
+    )
+    quota_service.check_quota(
+        session,
+        user.id,
+        delta_cores=(data.cores or spec_cores or 0) * data.count,
+        delta_memory_mb=(data.memory or spec_memory or 0) * data.count,
+        delta_disk_gb=(spec_disk or 0) * data.count,
+        delta_instances=data.count,
+    )
 
     hostnames = _build_hostnames(data.hostname, template.name, data.count)
     records: list[TaskRecord] = []
@@ -185,6 +183,17 @@ def clone_with_fallback(
         clone_fn(node, template_vmid, full=0, **base_config)
         return "linked"
     except Exception as exc:
+        # A VMID collision is not a linked-clone capability failure.  Retrying
+        # full clone with the same ID would fail again, and the old cleanup
+        # path could delete the other worker's already-created machine.
+        if _is_vmid_collision(exc):
+            logger.error(
+                "Proxmox rejected clone %s -> %s because the VMID already exists; "
+                "skip fallback/cleanup and let the caller roll back its own reservation",
+                template_vmid,
+                new_vmid,
+            )
+            raise
         logger.warning(
             "Linked clone of template %s -> %s failed (%s); falling back to full clone",
             template_vmid,
@@ -205,6 +214,17 @@ def clone_with_fallback(
             )
         clone_fn(node, template_vmid, full=1, **base_config, **(full_kwargs or {}))
         return "full"
+
+
+def _is_vmid_collision(exc: Exception) -> bool:
+    """判斷 PVE 的「CT/VM <id> already exists」而非一般克隆失敗。"""
+    return bool(
+        re.search(
+            r"\b(?:ct|vm)\s+\d+\s+already\s+exists\b",
+            str(exc),
+            flags=re.IGNORECASE,
+        )
+    )
 
 
 def _reconfigure_qemu(
@@ -254,8 +274,9 @@ def _reconfigure_lxc(
     net_cfg: dict[str, Any],
     allocated_ip: str,
 ) -> None:
-    # LXC 無 cloud-init：SSH 金鑰無法在克隆後注入；root 密碼於開機後
-    # 以 pct exec 設定（見 _set_lxc_root_password），失敗才沿用範本內建憑證
+    # LXC 無 cloud-init：PVE config API 無法在克隆後注入 SSH 金鑰，root 密碼
+    # 亦只能於開機後以 pct exec 設定（見 _set_lxc_root_password）；平台公鑰
+    # 於開機後以 pct exec 寫入 authorized_keys（見 inject_lxc_platform_key）。
     config_updates: dict[str, Any] = {
         "hostname": hostname,
         "net0": (
@@ -298,6 +319,49 @@ def _set_lxc_root_password(node: str, vmid: int, password: str) -> bool:
         "Failed to set root password for CT %d: %s", vmid, last_error[:300]
     )
     return False
+
+
+def _inject_lxc_platform_key(node: str, vmid: int, public_key: str) -> bool:
+    """開機後以 ``pct exec`` 寫入平台公鑰（容器啟動需時，重試等待）。
+
+    LXC 無 cloud-init，PVE config API 無法在克隆後注入 ``ssh-public-keys``，
+    故在此沿用 credentials_service 的 authorized_keys 寫法直接寫檔。
+    已存在則不重複追加；回傳是否成功，失敗由呼叫端記 warning（DB 仍落庫，
+    管理員可用 regenerate-ssh-key 補救）。
+    """
+    from app.infrastructure.proxmox import guest
+
+    key = public_key.strip()
+    if not key:
+        return False
+    script = (
+        "mkdir -p /root/.ssh && chmod 700 /root/.ssh && "
+        "touch /root/.ssh/authorized_keys && "
+        f"grep -qxF {shlex.quote(key)} /root/.ssh/authorized_keys 2>/dev/null || "
+        f"printf %s {shlex.quote(key + chr(10))} >> /root/.ssh/authorized_keys; "
+        "chmod 600 /root/.ssh/authorized_keys"
+    )
+    last_error: str = ""
+    for attempt in range(_LXC_PASSWORD_ATTEMPTS):
+        if attempt:
+            time.sleep(_LXC_PASSWORD_RETRY_SECONDS)
+        try:
+            code, _out, err = guest.exec_lxc(node, vmid, script)
+        except Exception as exc:
+            last_error = str(exc)
+            continue
+        if code == 0:
+            return True
+        last_error = (err or "").strip()
+    logger.warning(
+        "Failed to inject platform SSH key for CT %d: %s", vmid, last_error[:300]
+    )
+    return False
+
+
+def inject_lxc_platform_key(node: str, vmid: int, public_key: str) -> bool:
+    """Public entry point for start paths that need to sync a guest key."""
+    return _inject_lxc_platform_key(node, vmid, public_key)
 
 
 def _parse_expiry(raw: Any) -> date | None:
@@ -346,30 +410,40 @@ def run_clone_task(task_id: uuid.UUID, payload: dict[str, Any]) -> dict[str, Any
         memory = memory or template.default_memory
         disk = disk or template.default_disk
 
-        new_vmid = proxmox_ops.next_vmid()
-        net_cfg = ip_management_service.get_network_config_for_vm(session)
-        purpose = "lxc" if resource_type == "lxc" else "vm"
-        allocated_ip = ip_management_service.allocate_ip(
-            session,
-            new_vmid,
-            purpose,
-            reservation_key=ip_reservation_key,
-        )
-        # 先提交 IP 分配，避免克隆期間（可能數分鐘）併發任務撞 IP
-        session.commit()
-
+    new_vmid: int | None = None
+    allocated_ip: str | None = None
     created = False
     clone_mode = "linked"
     try:
-        report_progress(task_id, 10)
-        clone_mode = clone_with_fallback(
-            node=node,
-            template_vmid=template_vmid,
-            new_vmid=new_vmid,
-            hostname=hostname,
-            resource_type=resource_type,
-        )
-        created = True
+        # ``next_vmid`` 只是讀取 PVE 的 nextid；把鎖一路持有到 clone
+        # 完成，才能避免不同 backend worker 在 PVE 尚未反映新 CT 前拿到
+        # 同一個 VMID。IP 預留也放在同一個臨界區，失敗時再用 reservation
+        # key 精準回滾。
+        with proxmox_ops.vmid_allocation_lock():
+            with Session(engine) as session:
+                new_vmid = proxmox_ops.next_vmid()
+                net_cfg = ip_management_service.get_network_config_for_vm(session)
+                purpose = "lxc" if resource_type == "lxc" else "vm"
+                allocated_ip = ip_management_service.allocate_ip(
+                    session,
+                    new_vmid,
+                    purpose,
+                    reservation_key=ip_reservation_key,
+                )
+                # 先提交 IP 分配，避免克隆期間（可能數分鐘）併發任務撞 IP
+                session.commit()
+
+            report_progress(task_id, 10)
+            clone_mode = clone_with_fallback(
+                node=node,
+                template_vmid=template_vmid,
+                new_vmid=new_vmid,
+                hostname=hostname,
+                resource_type=resource_type,
+            )
+            created = True
+
+        # clone 已由鎖保護完成；後續 guest 重配置不再阻塞其他 VMID。
         report_progress(task_id, 60)
 
         private_key_pem, public_key = generate_ed25519_keypair()
@@ -432,6 +506,19 @@ def run_clone_task(task_id: uuid.UUID, payload: dict[str, Any]) -> dict[str, Any
                 password_applied = _set_lxc_root_password(
                     node, new_vmid, login_password
                 )
+            if resource_type == "lxc":
+                # 範本 LXC 無 cloud-init：開機後以 pct exec 注入平台公鑰。
+                # 注入失敗僅警告（DB 仍落庫，Teacher Judge 的缺 key 檢查會過，
+                # 後續可用 regenerate-ssh-key 補寫 guest 內 authorized_keys）。
+                _inject_lxc_platform_key(
+                    node, new_vmid, public_key
+                )
+        elif resource_type == "lxc":
+            logger.warning(
+                "CT %s not started at clone time; platform SSH key recorded in DB "
+                "only; a later LXC start must sync guest authorized_keys",
+                new_vmid,
+            )
         report_progress(task_id, 90)
 
         with Session(engine) as session:
@@ -442,32 +529,37 @@ def run_clone_task(task_id: uuid.UUID, payload: dict[str, Any]) -> dict[str, Any
                 environment_type=environment_type or f"範本 {template_name}",
                 expiry_date=expiry_date,
                 template_id=template_vmid,
-                ssh_private_key_encrypted=(
-                    encrypt_value(private_key_pem)
-                    if resource_type == "qemu"
-                    else None
-                ),
-                ssh_public_key=public_key if resource_type == "qemu" else None,
+                ssh_private_key_encrypted=encrypt_value(private_key_pem),
+                ssh_public_key=public_key,
                 login_password_encrypted=(
                     encrypt_value(login_password)
                     if password_applied and login_password is not None
                     else None
                 ),
                 batch_job_id=batch_job_id,
+                commit=False,
             )
+            ip_management_service.link_ip_to_resource(
+                session,
+                new_vmid,
+                reservation_key=ip_reservation_key,
+            )
+            session.commit()
     except Exception:
         # 失敗清理：釋放 IP → 撤防火牆規則 → 刪除半成品
-        try:
-            with Session(engine) as cleanup_session:
-                ip_management_service.release_ip(
-                    cleanup_session,
-                    new_vmid,
-                    restore_reservation=bool(ip_reservation_key),
-                )
-                cleanup_session.commit()
-        except Exception:
-            logger.warning("Failed to release IP for VMID %d", new_vmid)
-        if created:
+        if new_vmid is not None:
+            try:
+                with Session(engine) as cleanup_session:
+                    ip_management_service.release_ip(
+                        cleanup_session,
+                        new_vmid,
+                        restore_reservation=bool(ip_reservation_key),
+                        reservation_key=ip_reservation_key,
+                    )
+                    cleanup_session.commit()
+            except Exception:
+                logger.warning("Failed to release IP for VMID %d", new_vmid)
+        if created and new_vmid is not None:
             try:
                 rules = firewall_service.get_vm_firewall_rules(
                     node, new_vmid, resource_type
@@ -515,6 +607,7 @@ __all__ = [
     "TASK_CLONE",
     "clone_with_fallback",
     "generate_login_password",
+    "inject_lxc_platform_key",
     "request_clone",
     "run_clone_task",
 ]

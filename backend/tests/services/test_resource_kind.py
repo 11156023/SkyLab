@@ -50,11 +50,13 @@ def test_everything_else_is_personal() -> None:
     assert kind.classify(None) == "personal"
 
 
-def test_class_relation_teacher_beats_student() -> None:
+def test_class_relation_ownership_beats_class_owner() -> None:
     r = _res(teaching_class_id=CLASS, allocation_scope="teaching_class", user_id=OTHER)
     assert kind.class_relation_for(r, viewer_id=ME, owned_class_ids={CLASS}) == "teacher"
     mine = _res(teaching_class_id=CLASS, allocation_scope="teaching_class", user_id=ME)
     assert kind.class_relation_for(mine, viewer_id=ME, owned_class_ids=set()) == "student"
+    # 老師擁有自己班上的機器：是「分配給我的班級機」，不是學生機器
+    assert kind.class_relation_for(mine, viewer_id=ME, owned_class_ids={CLASS}) == "student"
     assert kind.class_relation_for(mine, viewer_id=OTHER, owned_class_ids=set()) is None
     assert kind.class_relation_for(_res(), viewer_id=ME, owned_class_ids={CLASS}) is None
 

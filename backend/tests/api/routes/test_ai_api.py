@@ -179,7 +179,7 @@ def test_ai_api_proxy_usage_my_uses_jwt_auth(
     }
 
 
-def test_ai_api_unified_usage_and_records_merge_both_routes(
+def test_ai_api_my_usage_and_records_only_include_key_calls(
     client: TestClient,
     superuser_token_headers: dict[str, str],
     db: Session,
@@ -263,26 +263,15 @@ def test_ai_api_unified_usage_and_records_merge_both_routes(
     )
     assert stats_response.status_code == 200
     stats = stats_response.json()
-    assert stats["total_calls"] == 3
-    assert stats["total_input_tokens"] == 140
-    assert stats["total_output_tokens"] == 75
-    assert stats["routes"]["model"] == {
-        "calls": 1,
+    assert stats["total_requests"] == 1
+    assert stats["total_input_tokens"] == 100
+    assert stats["total_output_tokens"] == 50
+    assert stats["by_model"]["Qwen/Qwen3-14B-FP8"] == {
+        "requests": 1,
         "input_tokens": 100,
         "output_tokens": 50,
     }
-    assert stats["routes"]["system"] == {
-        "calls": 2,
-        "input_tokens": 40,
-        "output_tokens": 25,
-    }
-    assert stats["by_model"]["Qwen/Qwen3-14B-FP8"] == {
-        "calls": 2,
-        "input_tokens": 130,
-        "output_tokens": 70,
-        "routes": {"model": 1, "system": 1},
-    }
-    assert stats["by_model"]["openai/gpt-oss-20B"]["routes"] == {"system": 1}
+    assert "openai/gpt-oss-20B" not in stats["by_model"]
 
     records_response = client.get(
         f"{settings.API_V1_STR}/ai-api/usage/records/my",
@@ -294,30 +283,30 @@ def test_ai_api_unified_usage_and_records_merge_both_routes(
     )
     assert records_response.status_code == 200
     payload = records_response.json()
-    assert payload["count"] == 3
-    assert len(payload["data"]) == 3
-    # 依時間新→舊排序：最新的 chat 錯誤紀錄在最前面
-    newest = payload["data"][0]
-    assert newest["route"] == "system"
-    assert newest["call_type"] == "chat"
-    assert newest["status"] == "error"
-    assert newest["error_message"] == "upstream error"
-    oldest = payload["data"][2]
-    assert oldest["route"] == "model"
-    assert oldest["call_type"] == "chat_completion"
-    assert oldest["preset"] is None
+    assert payload["count"] == 1
+    assert len(payload["data"]) == 1
+    record = payload["data"][0]
+    assert record["route"] == "model"
+    assert record["credential_id"] == str(credential_id)
+    assert record["api_key_name"] == "unified-key"
+    assert record["api_key_prefix"].startswith("ccai_")
+    assert record["call_type"] == "chat_completion"
+    assert record["preset"] is None
+    assert record["input_tokens"] == 100
+    assert record["output_tokens"] == 50
+    assert record["total_tokens"] == 150
+    assert record["request_duration_ms"] == 800
 
     paged_response = client.get(
         f"{settings.API_V1_STR}/ai-api/usage/records/my",
         headers=user_headers,
-        params={"skip": 1, "limit": 1},
+        params={"skip": 0, "limit": 1},
     )
     assert paged_response.status_code == 200
     paged = paged_response.json()
-    assert paged["count"] == 3
+    assert paged["count"] == 1
     assert len(paged["data"]) == 1
-    assert paged["data"][0]["route"] == "system"
-    assert paged["data"][0]["preset"] == "pve-ai"
+    assert paged["data"][0]["route"] == "model"
 
 
 def test_ai_api_requests_require_admin_for_review(

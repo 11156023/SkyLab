@@ -12,6 +12,7 @@ import {
   buildPeerPortsPayload,
   buildRulePayload,
   isPortless,
+  previewTemplateHostname,
   validPort,
 } from "./connectionPayload";
 
@@ -221,5 +222,58 @@ describe("buildRulePayload", () => {
     expect(body.source).toBe("10.0.0.1");
     expect(body.comment).toBe("note");
     expect(buildRulePayload(rule({ comment: "   " })).body.comment).toBeUndefined();
+  });
+});
+
+/* ── 課程環境模板：網址是樣板、對外 port 開課時才配 ── */
+describe("buildInboundPayload：templateMode", () => {
+  test("網址模式送出主機名樣板與 zone，不組完整網域", () => {
+    const out = buildInboundPayload({
+      mode: "domain", domainPort: "5678", enableHttps: true,
+      templateMode: true, hostnamePrefix: " {Class}-{student}-N8N ", zoneId: "zone-1",
+    });
+    expect(out.publish).toEqual([
+      { port: 5678, protocol: "tcp", mode: "domain", hostname_prefix: "{class}-{student}-n8n", zone_id: "zone-1", enable_https: true },
+    ]);
+    expect(out.raw).toEqual([]);
+  });
+
+  test("樣板少了 {student} 會被擋下：全班會搶同一個網址", () => {
+    const out = buildInboundPayload({
+      mode: "domain", domainPort: "80", enableHttps: true,
+      templateMode: true, hostnamePrefix: "n8n", zoneId: "zone-1",
+    });
+    expect(out.error.key).toBe("ConnectionDialog.templateStudentPlaceholder");
+  });
+
+  test("沒有 zone 就不能用網址", () => {
+    const out = buildInboundPayload({
+      mode: "domain", domainPort: "80", enableHttps: true,
+      templateMode: true, hostnamePrefix: "{student}-app", zoneId: "",
+    });
+    expect(out.error.key).toBe("ConnectionDialog.domainRequired");
+  });
+
+  test("對外 port 模式只帶內部 port 與協定，對外 port 留給開課時配號", () => {
+    const out = buildInboundPayload({
+      mode: "port_forward", templateMode: true,
+      templateForwardRows: [{ port: "22", protocol: "tcp" }, { port: "", protocol: "udp" }, { port: "53", protocol: "udp" }],
+    });
+    expect(out.publish).toEqual([
+      { port: 22, protocol: "tcp", mode: "port_forward" },
+      { port: 53, protocol: "udp", mode: "port_forward" },
+    ]);
+    expect(out.publish.every((p) => !("external_port" in p))).toBe(true);
+  });
+
+  test("對外 port 模式一列都沒填就是錯", () => {
+    const out = buildInboundPayload({ mode: "port_forward", templateMode: true, templateForwardRows: [{ port: "", protocol: "tcp" }] });
+    expect(out.invalid).toBe(true);
+    expect(out.error.key).toBe("ConnectionDialog.portsRequired");
+  });
+
+  test("預覽網址把兩個占位符換成範例值", () => {
+    expect(previewTemplateHostname("{class}-{student}-app", "lab.example.edu")).toBe("linux101-a1b2c3-s8f21c4a2-app.lab.example.edu");
+    expect(previewTemplateHostname("{student}", undefined)).toBe("s8f21c4a2");
   });
 });

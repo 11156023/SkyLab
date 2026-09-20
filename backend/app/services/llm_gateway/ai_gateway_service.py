@@ -965,60 +965,49 @@ def list_user_usage_records(
     skip: int = 0,
     limit: int = 50,
 ) -> dict[str, Any]:
-    """
-    查詢使用者的統一細項呼叫紀錄（依時間新→舊排序）
-    """
-    proxy_records = session.exec(
-        select(AIAPIUsage)
-        .where(AIAPIUsage.user_id == user_id)
-        .where(AIAPIUsage.created_at >= start_date)
-        .where(AIAPIUsage.created_at <= end_date)
+    """查詢使用者透過申請金鑰發出的逐筆 API 呼叫紀錄。"""
+    filters = (
+        AIAPIUsage.user_id == user_id,
+        AIAPIUsage.created_at >= start_date,
+        AIAPIUsage.created_at <= end_date,
+    )
+    count = int(
+        session.exec(
+            select(func.count()).select_from(AIAPIUsage).where(*filters)
+        ).one()
+        or 0
+    )
+    rows = session.exec(
+        select(AIAPIUsage, AIAPICredential)
+        .join(AIAPICredential, AIAPICredential.id == AIAPIUsage.credential_id)
+        .where(*filters)
         .order_by(AIAPIUsage.created_at.desc())
+        .offset(skip)
+        .limit(limit)
     ).all()
-    template_records = session.exec(
-        select(AITemplateCallLog)
-        .where(AITemplateCallLog.user_id == user_id)
-        .where(AITemplateCallLog.created_at >= start_date)
-        .where(AITemplateCallLog.created_at <= end_date)
-        .order_by(AITemplateCallLog.created_at.desc())
-    ).all()
-
-    merged: list[dict[str, Any]] = [
-        {
-            "id": r.id,
-            "route": ROUTE_MODEL,
-            "model_name": r.model_name,
-            "call_type": r.request_type,
-            "preset": None,
-            "input_tokens": r.input_tokens,
-            "output_tokens": r.output_tokens,
-            "request_duration_ms": r.request_duration_ms,
-            "status": r.status,
-            "error_message": r.error_message,
-            "created_at": r.created_at,
-        }
-        for r in proxy_records
-    ] + [
-        {
-            "id": r.id,
-            "route": ROUTE_SYSTEM,
-            "model_name": r.model_name,
-            "call_type": r.call_type,
-            "preset": r.preset,
-            "input_tokens": r.input_tokens,
-            "output_tokens": r.output_tokens,
-            "request_duration_ms": r.request_duration_ms,
-            "status": r.status,
-            "error_message": r.error_message,
-            "created_at": r.created_at,
-        }
-        for r in template_records
-    ]
-    merged.sort(key=lambda item: item["created_at"], reverse=True)
 
     return {
-        "data": merged[skip : skip + limit],
-        "count": len(merged),
+        "data": [
+            {
+                "id": usage.id,
+                "route": ROUTE_MODEL,
+                "credential_id": credential.id,
+                "api_key_name": credential.api_key_name,
+                "api_key_prefix": credential.api_key_prefix,
+                "model_name": usage.model_name,
+                "call_type": usage.request_type,
+                "preset": None,
+                "input_tokens": usage.input_tokens,
+                "output_tokens": usage.output_tokens,
+                "total_tokens": usage.input_tokens + usage.output_tokens,
+                "request_duration_ms": usage.request_duration_ms,
+                "status": usage.status,
+                "error_message": usage.error_message,
+                "created_at": usage.created_at,
+            }
+            for usage, credential in rows
+        ],
+        "count": count,
     }
 
 

@@ -57,6 +57,12 @@ class TeacherJudgeSettings:
         return self.VLLM_MAX_TOKENS
 
     @property
+    def VLLM_CHAT_MAX_TOOL_ROUNDS(self) -> int:
+        if self.section.vllm.chat_max_tool_rounds is not None:
+            return int(self.section.vllm.chat_max_tool_rounds)
+        return 6
+
+    @property
     def VLLM_REPETITION_PENALTY(self) -> float:
         return float(self.section.vllm.repetition_penalty)
 

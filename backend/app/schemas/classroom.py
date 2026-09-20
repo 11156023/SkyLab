@@ -29,6 +29,8 @@ class ClassroomVm(BaseModel):
     """學生的 VM 摘要"""
 
     vmid: int
+    node_key: str | None = None
+    display_label: str | None = None
     name: str | None = None
     status: str | None = None  # "running" | "stopped" | None（叢集查不到）
     vm_type: str | None = None  # "qemu" | "lxc"（教室觀看僅支援 qemu）

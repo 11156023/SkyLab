@@ -1,0 +1,70 @@
+{
+  "brand": "SkyLab",
+  "topLogin": "Sign in",
+  "modeToDay": "Switch to day mode",
+  "modeToNight": "Switch to night mode",
+  "scrollHint": "Scroll to explore",
+  "hero": {
+    "tagline": "The campus's own private cloud",
+    "sub": "One platform for every compute resource on campus — from request to running VM"
+  },
+  "condition": {
+    "title": "Campus status",
+    "nodes": "Nodes",
+    "vms": "Virtual machines",
+    "users": "Users",
+    "courses": "Courses this term"
+  },
+  "overview": {
+    "title": "One platform for the whole campus",
+    "instances": "VM / LXC instances",
+    "snapshots": "Snapshots",
+    "pending": "Pending requests"
+  },
+  "lifecycle": {
+    "title": "From template to running VM in minutes",
+    "desc": "Create, snapshot, resize and reclaim — the full lifecycle lives on the platform.",
+    "steps": ["Create from template", "Snapshot backup", "Resize specs", "Reclaim on expiry"],
+    "templates": "Machine templates"
+  },
+  "workflow": {
+    "title": "Request, review, auto-provision",
+    "desc": "Students submit a request; review, capacity checks and provisioning take over automatically.",
+    "steps": ["Student submits", "Teacher/admin reviews", "Scheduler provisions"],
+    "capacity": "Lease-slot capacity"
+  },
+  "classroom": {
+    "title": "A whole class, provisioned in one go",
+    "desc": "Rosters, fixed timetables, multi-machine environments — identical machines for everyone.",
+    "monitor": "Classroom monitor",
+    "online": "{{online}} / {{seats}} machines online",
+    "aiJudge": "AI-assisted grading checks"
+  },
+  "network": {
+    "title": "Firewall, NAT and gateway — all visible",
+    "desc": "Every connection in and out of campus has a topology to see and rules to manage.",
+    "topology": "Firewall topology",
+    "nodeInternet": "Internet",
+    "nodeFirewall": "Firewall",
+    "legendAllow": "Allowed",
+    "legendBlock": "Blocked",
+    "firewall": "Firewall rules",
+    "nat": "NAT rules",
+    "proxy": "Reverse proxy routes"
+  },
+  "ai": {
+    "title": "AI decides where to place and what to run",
+    "desc": "Placement advice scores node load; template recommendations understand course needs.",
+    "placement": "Placement advice",
+    "recommendation": "\"For this course, use the Ubuntu 24.04 template with 2 vCPU / 4 GB RAM.\"",
+    "proxyCard": "OpenAI-compatible AI proxy with built-in credentials and rate limits"
+  },
+  "terminal": {
+    "title": "Open it — it's a real machine",
+    "desc": "VNC desktops and terminals run right in the browser. Nothing to install.",
+    "cta": "Ready to move your lab to the cloud?",
+    "loginCta": "Sign in to SkyLab",
+    "docsCta": "Deployment guide"
+  },
+  "footer": "© 2026 SkyLab — Campus resource management platform"
+}

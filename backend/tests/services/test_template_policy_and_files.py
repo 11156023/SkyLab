@@ -59,6 +59,15 @@ def clone_target(monkeypatch: pytest.MonkeyPatch) -> VMTemplate:
     monkeypatch.setattr(
         template_service, "_require_view", lambda session, user, template: None
     )
+    # 配額執法在 test_template_system 有專屬測試；這裡只驗政策與 payload。
+    monkeypatch.setattr(
+        template_service, "resolve_effective_spec", lambda template: (2, 2048, 20)
+    )
+    monkeypatch.setattr(
+        clone_service.quota_service,
+        "check_quota",
+        lambda session, user_id, **deltas: None,
+    )
     return template
 
 

@@ -115,7 +115,7 @@ SkyLab 的 AI 功能定位不是單一聊天機器人，而是「嵌入校園雲
 
 功能定位：
 
-這是給老師在正式班級內使用的 AI 評分輔助。它不直接任意操作學生機器，而是先把評分表變成結構化項目，再產生受管的只讀收集腳本，最後根據腳本結果產生老師可讀的評分建議。
+這是給老師在正式班級內使用的 AI 檢查輔助。它不直接任意操作學生機器，而是先把評分表變成結構化項目，再產生受管的只讀收集腳本，最後保存可供老師核對的腳本證據。
 
 AI PVE 維運助手則是獨立的管理員工具，查詢全站 PVE 節點與 VM/LXC 狀態，不綁定群組或正式班級，也不出現在教學工作區。涉及 SSH 指令時仍須由管理員明確確認。
 
@@ -123,7 +123,7 @@ AI PVE 維運助手則是獨立的管理員工具，查詢全站 PVE 節點與 V
 
 - 評分表：上傳 `.docx` / `.pdf`，AI 解析成評分項目，可聊天修正並匯出 Excel。
 - 收集腳本：由目前評分表產生 Python 收集腳本，經政策與 AI reviewer 檢查後才能核准。
-- 腳本執行：選擇正式班級學生機器，執行已核准腳本，顯示執行狀態與 AI 分析分數。
+- 腳本執行：選擇正式班級學生機器或邏輯節點，執行已核准腳本，顯示執行狀態與結構化證據。
 
 後端流程：
 
@@ -133,7 +133,7 @@ AI PVE 維運助手則是獨立的管理員工具，查詢全站 PVE 節點與 V
 4. 老師建立收集腳本時，AI 產生只讀 Python 腳本。
 5. 腳本必須通過 `script_policy`、`script_quality_validator` 與 AI reviewer。
 6. 核准後才能建立 script run，背景任務對目標 VM/LXC 執行。
-7. 執行結果通過 JSON 驗證後，AI 將 evidence 對齊 rubric item，產生 5 分制評分建議與項目說明。
+7. 執行結果通過 JSON 驗證後，直接保存為 `teacher_judge_run_results.v2`；老師依 checks、errors、summary 與 metadata 核對結果。
 
 主要 API：
 
@@ -151,15 +151,16 @@ AI PVE 維運助手則是獨立的管理員工具，查詢全站 PVE 節點與 V
 - `backend/app/api/routes/teacher_judge_scripts.py`
 - `backend/app/ai/teacher_judge/service.py`
 - `backend/app/ai/teacher_judge/script_artifact_service.py`
+- `backend/app/ai/teacher_judge/script_run_service.py`
 - `backend/app/ai/teacher_judge/script_executor_service.py`
-- `backend/app/ai/teacher_judge/script_result_analysis_service.py`
-- `frontend/src/features/ai-judge/components/AiJudgeManagementContent.tsx`
+- `frontend/src/pages/course-operations/ai-judge/AiJudgePage.jsx`
+- `frontend/src/pages/course-operations/class-workspace/AiJudgePanel.jsx`
 
 可強調重點：
 
-- 老師仍保有主控權：AI 先做分析與建議，老師可修改、核准腳本、選擇執行目標。
+- 老師仍保有主控權：AI 協助分析與產生腳本，老師可修改、核准腳本、選擇執行目標並核對證據。
 - 腳本設計是只讀資料收集，限制不得刪除、修改、安裝、重啟、讀取敏感檔或對外傳送資料。
-- AI 評分依據來自 script result 的 checks、errors、summary 與 metadata，不能憑空編造證據。
+- 結果核對依據來自 script result 的 checks、errors、summary 與 metadata，不額外產生執行期 AI 評分。
 
 ## 6. AI API 金鑰與 Proxy
 

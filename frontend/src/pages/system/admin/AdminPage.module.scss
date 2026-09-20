@@ -238,6 +238,11 @@
 }
 
 .actionBtn,
+.dialogClose {
+  @include btn-dialog-close;
+  flex-shrink: 0;
+}
+
 .iconBtn {
   width: 30px;
   height: 30px;

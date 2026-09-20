@@ -188,15 +188,19 @@ class UnifiedUsageStatsResponse(BaseModel):
 
 
 class UsageRecordPublic(BaseModel):
-    """統一細項呼叫紀錄"""
+    """使用申請金鑰發出的單筆 API 呼叫紀錄。"""
 
     id: uuid.UUID
-    route: Literal["model", "system"]
+    route: Literal["model"]
+    credential_id: uuid.UUID
+    api_key_name: str
+    api_key_prefix: str
     model_name: str
     call_type: str | None = None
     preset: str | None = None
     input_tokens: int
     output_tokens: int
+    total_tokens: int
     request_duration_ms: int | None = None
     status: str
     error_message: str | None = None
@@ -204,7 +208,7 @@ class UsageRecordPublic(BaseModel):
 
 
 class UsageRecordsPublic(BaseModel):
-    """統一細項呼叫紀錄列表"""
+    """使用申請金鑰發出的 API 呼叫紀錄列表。"""
 
     data: list[UsageRecordPublic]
     count: int

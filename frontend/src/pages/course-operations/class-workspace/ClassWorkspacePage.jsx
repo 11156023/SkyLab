@@ -1,6 +1,6 @@
-import { memo, startTransition, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { memo, startTransition, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { Background, Handle, MarkerType, Position, ReactFlow } from "@xyflow/react";
+import { Background, BackgroundVariant, Controls, Panel, ReactFlow } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
 import { useTranslation } from "react-i18next";
@@ -27,6 +27,15 @@ import {
   usageForMetric,
 } from "./classHeatmapUsage";
 import styles from "../CourseOperations.module.scss";
+import fwStyles from "../../network/firewall/FirewallPage.module.scss";
+import GatewayNode from "../../network/firewall/nodes/GatewayNode";
+import NodeHandles from "../../network/firewall/nodes/NodeHandles";
+import ConnectionEdge from "../../network/firewall/edges/ConnectionEdge";
+import ConnectionDetailPanel from "../../network/firewall/ConnectionDetailPanel";
+import { routeEdges } from "../../network/firewall/utils/buildFlow";
+import { INTERNET_KEY } from "../../../components/ConnectionDialog/intents";
+import { ThemeContext } from "../../../contexts/ThemeContext";
+import { normalizePublication, peerDetailPort, peerEdgeLabel, publicationDetailPort, publicationLabel } from "../courseTopology";
 
 const POST_ACTIVE_TABS = ["progress", "ai"];
 
@@ -92,7 +101,7 @@ function ExtendDialog({ item, closing, busy, onClose, onExtend }) {
     <section className={`${styles.createDialog} ${styles.extendDialog}`} role="dialog" aria-modal="true" aria-labelledby="extend-class-title">
       <header className={styles.createDialogHeader}>
         <h2 id="extend-class-title">{t("ClassWorkspacePage.extendDialogTitle")}</h2>
-        <button type="button" className={styles.iconBtn} aria-label={t("ClassWorkspacePage.closeAriaLabel")} disabled={busy} onClick={onClose}><MIcon name="close" size={19} /></button>
+        <button type="button" className={styles.dialogClose} aria-label={t("ClassWorkspacePage.closeAriaLabel")} disabled={busy} onClick={onClose}><MIcon name="close" size={19} /></button>
       </header>
       <form onSubmit={(event) => { event.preventDefault(); onExtend(endDate); }}>
         <div className={styles.createDialogBody}>
@@ -412,29 +421,28 @@ function WeeklyContent({ item, onRefresh }) {
   </div>;
 }
 
-/* 唯讀拓撲節點：外觀與課程環境編輯器的 TopologyMachineNode 一致（同一份
-   .flowMachineNode 樣式），差別只在不能拖曳連線。角色與對外服務是課程環境
-   宣告的內容，這裡一併顯示，老師才對得起來。 */
+/* 唯讀拓撲節點：外觀與防火牆拓撲、課程環境編輯器同一套 .vmNode，差別只在
+   不能拖曳連線。角色與對外服務是課程環境宣告的內容，這裡一併顯示。 */
 function ReadonlyMachineNode({ data }) {
   const { t } = useTranslation("teaching");
   const { node, publicationCount } = data;
-  return <div className={`${styles.flowMachineNode} ${styles.flowMachineNodeStatic}`}>
-    <Handle type="target" position={Position.Left} isConnectable={false} />
-    <div className={styles.flowNodeIcon}><MIcon name={node.resource_type === "lxc" ? "terminal" : "dns"} size={18} /></div>
-    <div className={styles.flowNodeLabel}>
-      <strong title={node.name}>{node.name}</strong>
-      <span>{node.role ? `${node.role} · ` : ""}{node.source_type === "custom" ? t("ClassWorkspacePage.sourceCustomSpecLabel") : t("ClassWorkspacePage.machineTemplateLabel")} · {node.resource_type === "lxc" ? t("ClassWorkspacePage.typeContainerLxc") : t("ClassWorkspacePage.typeVm")}</span>
-      <small>{node.cpu} CPU · {Math.round(node.memory_mb / 1024)} GB RAM · {node.disk_gb} GB</small>
-      {publicationCount > 0 && <em className={styles.flowNodePublic}>
-        <MIcon name="public" size={12} />
-        {t("ClassWorkspacePage.nodePublicCount", { count: publicationCount })}
-      </em>}
+  const spec = `${node.cpu} CPU · ${Math.round(node.memory_mb / 1024)} GB · ${node.disk_gb} GB`;
+  return <div className={`${fwStyles.vmNode} ${styles.flowMachineNodeStatic}`}>
+    <NodeHandles />
+    <div className={fwStyles.vmStatus} style={{ background: "var(--color-status-neutral)" }} />
+    <div className={fwStyles.vmInfo}>
+      <span className={fwStyles.vmName} title={node.name}>{node.name}</span>
+      <span className={fwStyles.vmMeta} title={spec}>{node.role ? `${node.role} · ` : ""}{spec}</span>
     </div>
-    <Handle type="source" position={Position.Right} isConnectable={false} />
+    <MIcon name={node.resource_type === "lxc" ? "terminal" : "dns"} size={15} />
+    {publicationCount > 0 && <span className={fwStyles.exposedBadge} title={t("ClassWorkspacePage.nodePublicCount", { count: publicationCount })}>
+      <MIcon name="public" size={11} />{publicationCount}
+    </span>}
   </div>;
 }
 
-const READONLY_NODE_TYPES = { classMachine: ReadonlyMachineNode };
+const READONLY_NODE_TYPES = { classMachine: ReadonlyMachineNode, gateway: GatewayNode };
+const READONLY_EDGE_TYPES = { connection: ConnectionEdge };
 
 /* 對外服務清單：與課程環境編輯器側欄的摘要同一套說法。網址是每位學生各一個，
    模板只存主機名樣板，所以這裡顯示的是樣板而不是實際網址。 */
@@ -447,73 +455,179 @@ function PublicationSummary({ item }) {
   return <div className={styles.classPublicationList}>
     {item.publications.map((publication) => <div key={publication.id} className={styles.classPublicationRow}>
       <span className={styles.classPublicationIcon}>
-        <MIcon name={publication.mode === "domain" ? "public" : "lock"} size={16} />
+        <MIcon name={publication.mode === "domain" ? "public" : "swap_horiz"} size={16} />
       </span>
       <div>
         <strong>{nameByKey[publication.node_key] ?? publication.node_key} · Port {publication.port}</strong>
         <small>{publication.mode === "domain"
           ? t("ClassWorkspacePage.publicationDomainHint", { hostname: `${publication.hostname_prefix ?? ""}` })
-          : t("ClassWorkspacePage.publicationFirewallHint")}</small>
+          : t("ClassWorkspacePage.publicationForwardHint")}</small>
       </div>
     </div>)}
   </div>;
 }
 
+/** 課程機器的規格合計；students 給幾就乘幾（memory_mb 換算成 GB） */
+function specTotals(nodes, students = 1) {
+  const sum = (pick) => nodes.reduce((acc, node) => acc + (Number(pick(node)) || 0), 0);
+  return {
+    cpu: sum((node) => node.cpu) * students,
+    memory: Math.round(sum((node) => (node.memory_mb ?? 0) / 1024) * students),
+    disk: sum((node) => node.disk_gb) * students,
+  };
+}
+
 function TopologyPreview({ item }) {
   const { t } = useTranslation("teaching");
+  /* 畫布配色跟防火牆頁一樣跟著主題；沒有 provider 就當淺色 */
+  const theme = useContext(ThemeContext)?.theme ?? "light";
+  const [showInternet, setShowInternet] = useState(false);
+  const [selectedKey, setSelectedKey] = useState("");
+  const publications = useMemo(
+    () => (item.publications ?? []).map((publication, index) => normalizePublication(publication, index)),
+    [item.publications],
+  );
   const publicationCounts = useMemo(() => {
     const counts = {};
-    for (const publication of item.publications ?? []) {
-      counts[publication.node_key] = (counts[publication.node_key] ?? 0) + 1;
-    }
+    for (const publication of publications) counts[publication.nodeKey] = (counts[publication.nodeKey] ?? 0) + 1;
     return counts;
-  }, [item.publications]);
-  const nodes = item.nodes.map((node, index) => {
-    // 老師在課程環境排好的座標優先；環境版本查不到才退回依序排開
-    const saved = item.nodePositions?.[node.node_key];
-    return {
-      id: String(node.node_key),
-      type: "classMachine",
-      position: saved
-        ? { x: Number(saved.x), y: Number(saved.y) }
-        : { x: 70 + index * 250, y: 95 + (index % 2) * 35 },
-      data: { node, publicationCount: publicationCounts[node.node_key] ?? 0 },
-    };
-  });
-  const edges = item.topologyEdges.map((edge, index) => {
-    const bidirectional = edge.direction === "bidirectional";
-    return {
-      id: String(edge.id ?? `topology-${index}`),
-      source: edge.source_node_key,
-      target: edge.target_node_key,
-      type: "smoothstep",
-      animated: true,
-      label: `${bidirectional ? t("ClassWorkspacePage.directionBidirectional") : t("ClassWorkspacePage.directionOneWay")} · ${String(edge.protocol).toUpperCase()}${edge.port ? `/${edge.port}` : ""}`,
-      markerEnd: { type: MarkerType.ArrowClosed, color: "var(--color-primary)" },
-      markerStart: bidirectional ? { type: MarkerType.ArrowClosed, color: "var(--color-primary)" } : undefined,
-      style: { stroke: "var(--color-primary)", strokeWidth: 2 },
-      labelStyle: { fill: "var(--color-text-secondary)", fontSize: 10, fontWeight: 600 },
-      labelBgStyle: { fill: "var(--color-surface)", fillOpacity: 0.95 },
-    };
-  });
+  }, [publications]);
+  const nameOf = (key) => (key === null || key === undefined || key === INTERNET_KEY
+    ? t("GatewayNode.internet", { ns: "network" })
+    : (item.nodes.find((node) => String(node.node_key) === String(key))?.name ?? String(key)));
+
+  const nodes = useMemo(() => {
+    const machines = item.nodes.map((node, index) => {
+      // 老師在課程環境排好的座標優先；環境版本查不到才退回依序排開
+      const saved = item.nodePositions?.[node.node_key];
+      return {
+        id: String(node.node_key),
+        type: "classMachine",
+        position: saved
+          ? { x: Number(saved.x), y: Number(saved.y) }
+          : { x: 70 + index * 250, y: 95 + (index % 2) * 35 },
+        data: { node, publicationCount: publicationCounts[node.node_key] ?? 0 },
+      };
+    });
+    /* 網際網路節點放在最右邊那台機器的右側 */
+    const rightmost = Math.max(0, ...machines.map((node) => node.position.x));
+    return [...machines, { id: INTERNET_KEY, type: "gateway", position: { x: rightmost + 260, y: 95 }, data: {} }];
+  }, [item.nodes, item.nodePositions, publicationCounts]);
+
+  const edges = useMemo(() => {
+    const peers = item.topologyEdges.map((edge, index) => {
+      const id = `peer-${edge.id ?? index}`;
+      const bidirectional = edge.direction === "bidirectional";
+      return {
+        id,
+        source: String(edge.source_node_key),
+        target: String(edge.target_node_key),
+        type: "connection",
+        data: {
+          edge: { source_vmid: String(edge.source_node_key), target_vmid: String(edge.target_node_key), direction: edge.direction, ports: [peerDetailPort(edge)] },
+          label: peerEdgeLabel(bidirectional ? t("ClassWorkspacePage.directionBidirectional") : t("ClassWorkspacePage.directionOneWay"), edge),
+          showLabel: true,
+          selected: selectedKey === id,
+          onSelect: () => setSelectedKey((current) => (current === id ? "" : id)),
+        },
+        zIndex: 5,
+      };
+    });
+    const inbound = publications.map((publication) => {
+      const id = `publication-${publication.id}`;
+      return {
+        id,
+        source: INTERNET_KEY,
+        target: String(publication.nodeKey),
+        type: "connection",
+        data: {
+          edge: { source_vmid: null, target_vmid: String(publication.nodeKey), direction: "one_way", ports: [publicationDetailPort(publication)] },
+          label: publicationLabel(t, publication),
+          showLabel: true,
+          selected: selectedKey === id,
+          onSelect: () => setSelectedKey((current) => (current === id ? "" : id)),
+        },
+        zIndex: 5,
+      };
+    });
+    /* 上網線是預設策略：每台都有，預設藏起來、要看再開（與防火牆頁相同） */
+    const outbound = item.nodes.map((node) => {
+      const id = `outbound-${node.node_key}`;
+      return {
+        id,
+        source: String(node.node_key),
+        target: INTERNET_KEY,
+        type: "connection",
+        hidden: !showInternet,
+        data: {
+          edge: { source_vmid: String(node.node_key), target_vmid: null, direction: "one_way", ports: [] },
+          label: "",
+          showLabel: true,
+          selected: selectedKey === id,
+          onSelect: () => setSelectedKey((current) => (current === id ? "" : id)),
+        },
+        zIndex: 4,
+      };
+    });
+    return routeEdges([...peers, ...inbound, ...outbound], nodes);
+  }, [item.topologyEdges, item.nodes, publications, nodes, selectedKey, showInternet, t]);
+
+  const detail = useMemo(() => edges.find((edge) => edge.id === selectedKey)?.data.edge ?? null, [edges, selectedKey]);
+  const detailPanel = useDialogPresence(detail, 220);
+  function toggleInternet() {
+    const next = !showInternet;
+    setShowInternet(next);
+    if (!next && selectedKey.startsWith("outbound-")) setSelectedKey("");
+  }
   // 高度跟著節點數走，一台機器不該撐出一整片空網格。
-  const canvasHeight = Math.min(400, 260 + Math.max(0, item.nodes.length - 1) * 70);
-  return <div className={styles.readonlyTopology} style={{ height: canvasHeight }}>
+  const canvasHeight = Math.min(520, 360 + Math.max(0, item.nodes.length - 1) * 80);
+  /* .card 是 flex column：.flowWrap 的 flex:1（basis 0）+ min-height:0 會把畫布壓成 0 高，
+     inline 的 flex:none 才壓得過兩個 class */
+  return <div className={`${styles.readonlyTopology} ${fwStyles.flowWrap}`} style={{ height: canvasHeight, flex: "none" }}>
     <ReactFlow
       nodes={nodes}
       edges={edges}
       nodeTypes={READONLY_NODE_TYPES}
+      edgeTypes={READONLY_EDGE_TYPES}
       nodesDraggable={false}
       nodesConnectable={false}
       elementsSelectable={false}
+      onEdgeClick={(_, edge) => edge.data?.onSelect?.()}
+      onPaneClick={() => setSelectedKey("")}
+      deleteKeyCode={null}
       fitView
-      fitViewOptions={{ padding: 0.25, maxZoom: 1.1 }}
-      minZoom={0.65}
-      maxZoom={1.2}
+      fitViewOptions={{ padding: 0.2 }}
+      minZoom={0.5}
+      maxZoom={1.5}
+      colorMode={theme}
       proOptions={{ hideAttribution: true }}
     >
-      <Background gap={20} size={1} />
+      <Background variant={BackgroundVariant.Dots} gap={20} size={1} />
+      <Controls showInteractive={false} />
+      <Panel position="top-left">
+        <div className={fwStyles.toolbar}>
+          <button type="button" className={`${fwStyles.toolbarBtn} ${showInternet ? fwStyles.toolbarBtnActive : ""}`} onClick={toggleInternet}>
+            <MIcon name={showInternet ? "public" : "public_off"} size={16} />
+            {t("FirewallPage.internetLines", { ns: "network" })}
+          </button>
+        </div>
+      </Panel>
+      <Panel position="bottom-left" style={{ marginLeft: 60 }}>
+        <div className={fwStyles.legend}>
+          <span className={fwStyles.legendItem}><i className={`${fwStyles.legendLine} ${fwStyles.legendInbound}`} />{t("FirewallPage.legendInbound", { ns: "network" })}</span>
+          <span className={`${fwStyles.legendItem} ${showInternet ? "" : fwStyles.legendItemHidden}`}><i className={`${fwStyles.legendLine} ${fwStyles.legendOutbound}`} />{t("FirewallPage.legendOutbound", { ns: "network" })}</span>
+          <span className={fwStyles.legendItem}><i className={`${fwStyles.legendLine} ${fwStyles.legendInternal}`} />{t("FirewallPage.legendInternal", { ns: "network" })}</span>
+        </div>
+      </Panel>
     </ReactFlow>
+    {/* 只看不改：同一個細節面板，但沒有刪除鈕 */}
+    {detailPanel.item && <ConnectionDetailPanel
+      edge={detailPanel.item}
+      resolveName={nameOf}
+      allowOpen={false}
+      closing={detailPanel.closing}
+      onClose={() => setSelectedKey("")}
+    />}
   </div>;
 }
 
@@ -541,6 +655,9 @@ function Machines({ item, templates, template, onRefresh, onTemplate, createdTem
   }
   // 鎖定後不該再擺一份選不了的清單：直接呈現已套用的環境與它的拓撲。
   if (locked) {
+    /* 每位學生的規格合計 × 人數 = 開課要吃掉的配額 */
+    const perStudentSpec = specTotals(item.nodes);
+    const classSpec = specTotals(item.nodes, Math.max(1, item.students.length));
     return <div className={styles.stack}>
       <section className={styles.card}>
         <div className={styles.cardHeader}>
@@ -550,9 +667,9 @@ function Machines({ item, templates, template, onRefresh, onTemplate, createdTem
         <div className={styles.envFacts}>
           <div><span>{t("ClassWorkspacePage.envFactPerStudent")}</span><strong>{t("ClassWorkspacePage.machineCountUnit", { count: item.nodes.length })}</strong></div>
           <div><span>{t("ClassWorkspacePage.envFactStudents")}</span><strong>{t("ClassWorkspacePage.peopleCountUnit", { count: item.students.length })}</strong></div>
-          <div><span>{t("ClassWorkspacePage.envFactTotal")}</span><strong>{t("ClassWorkspacePage.machineCountUnit", { count: item.students.length * item.nodes.length })}</strong></div>
-          <div><span>{t("ClassWorkspacePage.envFactTopology")}</span><strong>{item.topologyEdges.length ? t("ClassWorkspacePage.envFactLinkCount", { count: item.topologyEdges.length }) : t("ClassWorkspacePage.envFactNoLink")}</strong></div>
-          <div><span>{t("ClassWorkspacePage.envFactPublic")}</span><strong>{item.publications.length ? t("ClassWorkspacePage.envFactPublicCount", { count: item.publications.length }) : t("ClassWorkspacePage.envFactNoPublic")}</strong></div>
+          {/* 拓撲與對外服務在下面的畫布看得到，這裡只講開課會吃掉多少資源 */}
+          <div><span>{t("ClassWorkspacePage.envFactPerStudentSpec")}</span><strong title={t("ClassWorkspacePage.envFactSpecValue", perStudentSpec)}>{t("ClassWorkspacePage.envFactSpecValue", perStudentSpec)}</strong></div>
+          <div><span>{t("ClassWorkspacePage.envFactClassSpec")}</span><strong title={t("ClassWorkspacePage.envFactSpecValue", classSpec)}>{t("ClassWorkspacePage.envFactSpecValue", classSpec)}</strong></div>
         </div>
         {item.publications.length > 0 && <PublicationSummary item={item} />}
         {item.nodes.length > 0 && <TopologyPreview item={item} />}

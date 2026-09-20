@@ -66,18 +66,9 @@
   gap: $spacing-8;
 }
 
-.iconBtn {
-  width: 30px;
-  height: 30px;
-  border-radius: $radius-8;
-  @include flex-center;
-  color: var(--color-text-secondary);
-  transition: background $transition-base, color $transition-base;
-
-  &:hover:not(:disabled) {
-    background: var(--color-hover);
-    color: var(--color-text-primary);
-  }
+.dialogClose {
+  @include btn-dialog-close;
+  flex-shrink: 0;
 }
 
 /* ── 按鈕 ── */

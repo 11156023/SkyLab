@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import json
+import logging
 import uuid
+from typing import Any
 
 from fastapi import APIRouter, File, HTTPException, Query, UploadFile
 from sqlalchemy import case, func
@@ -18,14 +20,24 @@ from app.ai.teacher_judge.attachment_service import (
     delete_attachment,
     get_pending_attachments,
 )
+from app.ai.teacher_judge.automation_support import get_script_generation_blockers
 from app.ai.teacher_judge.config import settings as teacher_judge_settings
 from app.ai.teacher_judge.file_service import create_blank_file
+from app.ai.teacher_judge.machine_context import (
+    format_machine_context,
+    load_class_machine_nodes,
+    machine_context_entries,
+    rubric_item_machine_issues,
+)
 from app.ai.teacher_judge.schemas import (
     TeacherJudgeRubricAnalysis,
+    TeacherJudgeRunBatchPublic,
     TeacherJudgeScriptArtifactPublic,
     TeacherJudgeScriptRunCreateRequest,
     TeacherJudgeScriptRunPublic,
     TeacherJudgeScriptRunSummary,
+    TeacherJudgeScriptSetPublic,
+    TeacherJudgeScriptSetRunRequest,
     TeacherJudgeSessionAttachmentUploadResponse,
     TeacherJudgeSessionChatResponse,
     TeacherJudgeSessionCreateRequest,
@@ -35,14 +47,36 @@ from app.ai.teacher_judge.schemas import (
     TeacherJudgeSessionPublic,
     TeacherJudgeSessionScriptCreateRequest,
     TeacherJudgeSessionUpdateRequest,
+    TeacherJudgeTargetReviewUpdate,
 )
-from app.ai.teacher_judge.script_artifact_service import create_artifact
-from app.ai.teacher_judge.script_executor_service import execute_script_run
-from app.ai.teacher_judge.script_run_service import _run_to_public, create_script_run
-from app.ai.teacher_judge.service import chat_with_rubric
+from app.ai.teacher_judge.script_artifact_service import (
+    create_artifact,
+    create_artifact_set,
+    get_artifact_set,
+    list_artifact_sets,
+)
+from app.ai.teacher_judge.script_executor_service import (
+    execute_script_run,
+    execute_script_run_batch,
+)
+from app.ai.teacher_judge.script_run_service import (
+    _run_to_public,
+    create_script_run,
+    create_script_run_batch,
+    get_script_run_batch_public,
+    get_script_run_public,
+)
+from app.ai.teacher_judge.service import (
+    TeacherJudgeChatResult,
+    analyze_attachments_itemwise,
+    chat_with_rubric,
+)
 from app.ai.teacher_judge.session_service import (
+    WorkflowMessage,
+    apply_proposal_operations_to_analysis,
     bounded_history,
     clear_session_messages,
+    conversation_focus_from_item_results,
     delete_session_data,
     ensure_active,
     ensure_selected_file_available,
@@ -51,13 +85,18 @@ from app.ai.teacher_judge.session_service import (
     get_session,
     message_attachments_by_message_ids,
     message_public,
+    normalize_workflow_item_results,
+    reanalysis_workflow_message,
     redact_message_content,
     require_selected_file,
     schedule_summary,
+    script_blocker_workflow_message,
+    script_review_workflow_message,
     selected_file_for_chat,
     session_public,
     session_public_many,
     validate_selected_file,
+    workflow_error_message,
 )
 from app.ai.teacher_judge.template_command_service import get_enabled_template_commands
 from app.api.deps import InstructorUser, SessionDep
@@ -84,6 +123,8 @@ router = APIRouter(
     tags=["teacher-judge"],
 )
 
+logger = logging.getLogger(__name__)
+
 
 def _is_selected_file_conflict(exc: IntegrityError) -> bool:
     message = str(exc.orig or exc).lower()
@@ -100,6 +141,46 @@ def _selected_file_conflict() -> HTTPException:
             "message": t("teacherJudgeSessions.selectedFileInUse"),
         },
     )
+
+
+def _save_workflow_message(
+    session: SessionDep,
+    item: TeacherJudgeSession,
+    *,
+    content: str,
+    metadata: dict[str, Any],
+    created_by: uuid.UUID | None = None,
+) -> TeacherJudgeSessionMessage | None:
+    """Best-effort persistence for a safe, teacher-facing workflow outcome."""
+    assistant = TeacherJudgeSessionMessage(
+        session_id=item.id,
+        role=TeacherJudgeMessageRole.assistant,
+        content=redact_message_content(content),
+        message_type=TeacherJudgeMessageType.chat,
+        metadata_json=metadata,
+        created_by=created_by,
+    )
+    try:
+        session.add(assistant)
+        session.commit()
+        session.refresh(assistant)
+    except Exception:
+        session.rollback()
+        logger.exception(
+            "Unable to persist Teacher Judge workflow message for session %s",
+            item.id,
+        )
+        return None
+    try:
+        schedule_summary(session, item, boundary_message_id=assistant.id)
+    except Exception:
+        # The message is already durable; a summary scheduling failure must not
+        # turn a successful workflow response into an API error.
+        logger.exception(
+            "Unable to schedule Teacher Judge summary for workflow message %s",
+            assistant.id,
+        )
+    return assistant
 
 
 def _access(db: SessionDep, class_id: uuid.UUID, user: InstructorUser) -> None:
@@ -488,29 +569,85 @@ async def create_message(
     session.commit()
     session.refresh(user_message)
     try:
-        template_commands = get_enabled_template_commands(
-            session,
-            file.template_key if file else "linux",
-            include_cross_template=True,
+        raw_analysis = file.analysis_json if file else {}
+        legacy_command_context = any(
+            isinstance(step, dict)
+            and (step.get("template_key") or step.get("command_key"))
+            for raw_item in (raw_analysis.get("items") or [])
+            if isinstance(raw_item, dict)
+            for step in (raw_item.get("check_steps") or [])
         )
-        chat_result = await chat_with_rubric(
-            bounded_history(
+        template_commands = (
+            get_enabled_template_commands(
                 session,
-                item.id,
-                exclude_attachments_for_message_id=user_message.id,
-                summary=item.summary,
-                source_file_id=file.id if file else None,
-            ),
-            json.dumps(file.analysis_json, ensure_ascii=False) if file else "{}",
-            is_refine=payload.is_refine,
-            template_key=file.template_key if file else "linux",
-            template_commands=template_commands,
-            environment_keys=file.environment_keys if file else None,
-            attachment_context=attachment_context(attachments),
-            analysis_revision=base_revision,
-            rubric_available=file is not None,
+                file.template_key if file else "linux",
+                include_cross_template=True,
+            )
+            if legacy_command_context
+            else []
         )
-        reply, proposal, metrics = chat_result
+        rubric_context = (
+            json.dumps(file.analysis_json, ensure_ascii=False) if file else "{}"
+        )
+        machine_entries = machine_context_entries(session, teaching_class_id)
+        machine_context = format_machine_context(machine_entries)
+        item_results: list[dict[str, Any]] | None = None
+        conversation_focus: dict[str, Any] | None = None
+        itemwise_error: str | None = None
+        chat_result: TeacherJudgeChatResult | None = None
+        if attachments and not payload.is_refine:
+            # Attachment analysis runs itemwise: extract source rows first, then
+            # judge each row through the same isolated single-item chat core so
+            # one row's Ready reasoning cannot leak into the other rows.
+            itemwise = await analyze_attachments_itemwise(
+                rubric_context=rubric_context,
+                template_key=(file.template_key if legacy_command_context else "linux")
+                if file
+                else "linux",
+                template_commands=template_commands,
+                environment_keys=(file.environment_keys if legacy_command_context else None)
+                if file
+                else None,
+                machine_context=machine_context,
+                machine_entries=machine_entries,
+                attachment_context=attachment_context(attachments),
+                analysis_revision=base_revision,
+                rubric_available=file is not None,
+            )
+            reply, proposal, metrics = itemwise.reply, itemwise.proposal, itemwise.metrics
+            item_results = itemwise.item_results
+            itemwise_error = getattr(itemwise, "error", None)
+            if itemwise_error:
+                reply = "這次無法逐項核查附件，處理階段沒有完成；請確認附件內容後再試一次。"
+        else:
+            chat_result = await chat_with_rubric(
+                bounded_history(
+                    session,
+                    item.id,
+                    exclude_attachments_for_message_id=user_message.id,
+                    summary=item.summary,
+                    source_file_id=file.id if file else None,
+                    analysis_revision=base_revision,
+                ),
+                rubric_context,
+                is_refine=payload.is_refine,
+                template_key=(file.template_key if legacy_command_context else "linux")
+                if file
+                else "linux",
+                template_commands=template_commands,
+                environment_keys=(file.environment_keys if legacy_command_context else None)
+                if file
+                else None,
+                machine_context=machine_context,
+                machine_entries=machine_entries,
+                attachment_context=attachment_context(attachments),
+                analysis_revision=base_revision,
+                rubric_available=file is not None,
+            )
+            reply, proposal, metrics = chat_result
+            focus = getattr(chat_result, "conversation_focus", None)
+            if isinstance(focus, dict):
+                conversation_focus = focus
         # Without a selected rubric the conversation is general assistance only;
         # do not let an unconstrained model response create an unreviewed proposal.
         if file is None and proposal:
@@ -519,15 +656,137 @@ async def create_message(
                 "因此無法建立可套用提案。請先選擇來源後再送出需求。"
             )
             proposal = None
-        message_metadata: dict[str, object] = {"metrics": metrics}
-        conversation_focus = getattr(chat_result, "conversation_focus", None)
-        if isinstance(conversation_focus, dict):
+        if proposal and file is not None:
+            class_nodes = load_class_machine_nodes(session, teaching_class_id)
+            valid_node_keys = {node.node_key for node in class_nodes}
+            invalid_node_keys: set[str] = set()
+            missing_target_item_ids: list[str] = []
+            machine_contract_issues: dict[str, list[str]] = {}
+            for raw in proposal:
+                if not isinstance(raw, dict):
+                    continue
+                candidate = raw.get("item")
+                candidate = candidate if isinstance(candidate, dict) else raw
+                node_key = str(candidate.get("target_node_key") or "").strip()
+                if node_key and node_key not in valid_node_keys:
+                    invalid_node_keys.add(node_key)
+                peer_node_key = str(candidate.get("peer_node_key") or "").strip()
+                if peer_node_key and peer_node_key not in valid_node_keys:
+                    invalid_node_keys.add(peer_node_key)
+                item_issues = rubric_item_machine_issues(candidate)
+                if item_issues:
+                    machine_contract_issues[
+                        str(candidate.get("id") or candidate.get("title") or "未命名項目")
+                    ] = item_issues
+                if (
+                    class_nodes
+                    and str(candidate.get("detectable") or "").strip().lower() == "auto"
+                    and not node_key
+                ):
+                    missing_target_item_ids.append(
+                        str(candidate.get("id") or candidate.get("title") or "未命名項目")
+                    )
+            if invalid_node_keys:
+                raise HTTPException(
+                    status_code=422,
+                    detail={
+                        "code": "teacher_judge_target_node_not_in_class",
+                        "message": "提案中的 target_node_key 不屬於目前班級。",
+                        "target_node_keys": sorted(invalid_node_keys),
+                    },
+                )
+            if missing_target_item_ids:
+                raise HTTPException(
+                    status_code=422,
+                    detail={
+                        "code": "teacher_judge_target_node_required",
+                        "message": "可執行的提案項目必須指定 target_node_key。",
+                        "item_ids": list(dict.fromkeys(missing_target_item_ids)),
+                    },
+                )
+            if machine_contract_issues:
+                raise HTTPException(
+                    status_code=422,
+                    detail={
+                        "code": "teacher_judge_machine_contract_invalid",
+                        "message": "提案中的執行節點、觀察節點或 peer token 不一致。",
+                        "items": machine_contract_issues,
+                    },
+                )
+        workflow: WorkflowMessage | None = None
+        if payload.is_refine and file is not None:
+            # Readiness is determined from the effective server-side candidate,
+            # not from model prose or a duplicated frontend approximation.
+            base_analysis = TeacherJudgeRubricAnalysis.model_validate(file.analysis_json)
+            candidate_analysis = apply_proposal_operations_to_analysis(
+                base_analysis,
+                proposal,
+            )
+            workflow = reanalysis_workflow_message(
+                get_script_generation_blockers(
+                    candidate_analysis,
+                    template_commands,
+                    require_target_node=bool(
+                        load_class_machine_nodes(session, teaching_class_id)
+                    ),
+                ),
+                source_file_id=file.id,
+                analysis_revision=base_revision,
+                proposal=proposal,
+            )
+            reply = workflow["content"]
+            item_results = workflow["metadata"].get("item_results")
+            conversation_focus = workflow["metadata"].get("conversation_focus")
+
+        message_metadata: dict[str, Any] = {"metrics": metrics}
+        if workflow is not None:
+            message_metadata.update(workflow["metadata"])
+        elif item_results is not None:
+            item_results = normalize_workflow_item_results(item_results)
+            if itemwise_error:
+                item_results = [
+                    {
+                        "item_id": "attachment-analysis",
+                        "title": "附件逐項核查",
+                        "status": "analysis_error",
+                        "missing_information": [],
+                        "reason_code": "teacher_judge_attachment_analysis_failed",
+                        "detail": itemwise_error,
+                    }
+                ]
+            message_metadata["item_results"] = item_results
+            message_metadata["conversation_focus"] = conversation_focus_from_item_results(
+                item_results,
+                source_file_id=file.id if file else None,
+                analysis_revision=base_revision,
+                turn_kind="follow_up",
+            )
+            message_metadata.update(
+                {
+                    "status": (
+                        "analysis_error"
+                        if any(row.get("status") == "analysis_error" for row in item_results)
+                        else "needs_information"
+                        if any(row.get("status") == "needs_information" for row in item_results)
+                        else "unsupported"
+                        if any(row.get("status") == "unsupported" for row in item_results)
+                        else "resolved"
+                    ),
+                    "stage": "attachment_analysis",
+                    "source_file_id": str(file.id) if file else None,
+                    "analysis_revision": base_revision,
+                }
+            )
+        elif conversation_focus is not None:
             message_metadata["conversation_focus"] = {
                 **conversation_focus,
                 "source_file_id": str(file.id) if file else None,
+                "analysis_revision": base_revision,
             }
-        if payload.is_refine:
-            message_metadata["ui_hidden"] = True
+        if chat_result is not None:
+            chat_tool_calls = getattr(chat_result, "tool_calls", None)
+            if chat_tool_calls:
+                message_metadata["tool_calls"] = chat_tool_calls
         assistant = TeacherJudgeSessionMessage(
             session_id=item.id,
             role=TeacherJudgeMessageRole.assistant,
@@ -536,20 +795,38 @@ async def create_message(
             metadata_json=message_metadata,
         )
     except HTTPException as exc:
-        error_detail = (
-            exc.detail.get("message", exc.detail)
-            if isinstance(exc.detail, dict)
-            else exc.detail
+        failure = workflow_error_message(
+            stage="reanalysis",
+            status_code=exc.status_code,
+            source_file_id=file.id if file else None,
+            analysis_revision=base_revision,
         )
-        assistant = TeacherJudgeSessionMessage(
-            session_id=item.id,
-            role=TeacherJudgeMessageRole.assistant,
-            content=f"AI 回覆失敗：{error_detail}",
-            message_type=TeacherJudgeMessageType.system_notice,
-            metadata_json={"status": "failed"},
+        _save_workflow_message(
+            session,
+            item,
+            content=failure["content"],
+            metadata=failure["metadata"],
+            created_by=current_user.id,
         )
-        session.add(assistant)
-        session.commit()
+        raise HTTPException(
+            status_code=exc.status_code,
+            detail=failure["content"],
+            headers=exc.headers,
+        ) from exc
+    except Exception:
+        logger.exception("Teacher Judge message processing failed for session %s", item.id)
+        failure = workflow_error_message(
+            stage="reanalysis",
+            source_file_id=file.id if file else None,
+            analysis_revision=base_revision,
+        )
+        _save_workflow_message(
+            session,
+            item,
+            content=failure["content"],
+            metadata=failure["metadata"],
+            created_by=current_user.id,
+        )
         raise
     # Source changes clear the conversation while this request may still be
     # waiting on the model.  Revalidate before saving the generated answer so
@@ -585,7 +862,7 @@ async def create_message(
     return TeacherJudgeSessionChatResponse(
         user_message=message_public(user_message, attachments),
         assistant_message=message_public(assistant),
-        rubric_proposal=proposal,
+        rubric_proposal=([] if payload.is_refine and proposal is None else proposal),
         base_revision=base_revision,
     )
 
@@ -602,7 +879,151 @@ async def create_session_script(
     item = get_session(session, teaching_class_id, session_id)
     ensure_active(item)
     file = require_selected_file(session, item)
+    source_file_id = file.id
+    base_revision = file.analysis_revision
     expected_revision = payload.analysis_revision if payload else None
+    if expected_revision is not None and expected_revision != file.analysis_revision:
+        conflict = HTTPException(
+            status_code=409,
+            detail={
+                "code": "teacher_judge_analysis_revision_conflict",
+                "message": t("teacherJudgeSessions.analysisRevisionConflict"),
+                "analysis_revision": file.analysis_revision,
+            },
+        )
+        failure = workflow_error_message(
+            stage="persistence",
+            status_code=409,
+            source_file_id=source_file_id,
+            analysis_revision=base_revision,
+            reason_code="analysis_revision_conflict",
+        )
+        _save_workflow_message(
+            session,
+            item,
+            content=failure["content"],
+            metadata=failure["metadata"],
+            created_by=current_user.id,
+        )
+        raise conflict
+    rubric_analysis = TeacherJudgeRubricAnalysis.model_validate(file.analysis_json)
+    if not rubric_analysis.items:
+        commands = get_enabled_template_commands(
+            session,
+            file.template_key,
+            include_cross_template=True,
+        )
+        blockers = get_script_generation_blockers(rubric_analysis, commands)
+        blocker_message = script_blocker_workflow_message(
+            blockers,
+            source_file_id=source_file_id,
+            analysis_revision=base_revision,
+        )
+        _save_workflow_message(
+            session,
+            item,
+            content=blocker_message["content"],
+            metadata=blocker_message["metadata"],
+            created_by=current_user.id,
+        )
+        raise HTTPException(
+            status_code=422,
+            detail="目前檢查表沒有檢查項目，請先新增至少一個項目。",
+        )
+    try:
+        artifact = await create_artifact(
+            session=session,
+            teaching_class_id=teaching_class_id,
+            name=item.title,
+            template_key=file.template_key,
+            rubric_analysis=rubric_analysis,
+            created_by=current_user.id,
+            source_file_id=source_file_id,
+            session_id=item.id,
+        )
+    except HTTPException as exc:
+        # ``create_artifact`` may have staged source-file changes before a model
+        # failure.  Do not commit those changes merely while recording the
+        # failure projection.
+        session.rollback()
+        detail: dict[str, Any] = exc.detail if isinstance(exc.detail, dict) else {}
+        if isinstance(detail.get("items"), list):
+            outcome = script_blocker_workflow_message(
+                detail["items"],
+                source_file_id=source_file_id,
+                analysis_revision=base_revision,
+            )
+        else:
+            outcome = workflow_error_message(
+                stage="persistence" if exc.status_code == 409 else "script_generation",
+                status_code=exc.status_code,
+                source_file_id=source_file_id,
+                analysis_revision=base_revision,
+            )
+        _save_workflow_message(
+            session,
+            item,
+            content=outcome["content"],
+            metadata=outcome["metadata"],
+            created_by=current_user.id,
+        )
+        if isinstance(detail.get("items"), list):
+            raise
+        raise HTTPException(
+            status_code=exc.status_code,
+            detail=outcome["content"],
+            headers=exc.headers,
+        ) from exc
+    except Exception:
+        session.rollback()
+        logger.exception("Teacher Judge script creation failed for session %s", item.id)
+        outcome = workflow_error_message(
+            stage="script_generation",
+            source_file_id=source_file_id,
+            analysis_revision=base_revision,
+        )
+        _save_workflow_message(
+            session,
+            item,
+            content=outcome["content"],
+            metadata=outcome["metadata"],
+            created_by=current_user.id,
+        )
+        raise
+    from app.models.base import get_datetime_utc
+
+    item.last_activity_at = get_datetime_utc()
+    item.updated_at = item.last_activity_at
+    session.add(item)
+    session.commit()
+    if artifact.status in {"approved", "review_failed"}:
+        outcome = script_review_workflow_message(
+            artifact,
+            source_file_id=source_file_id,
+            analysis_revision=base_revision,
+        )
+        _save_workflow_message(
+            session,
+            item,
+            content=outcome["content"],
+            metadata=outcome["metadata"],
+            created_by=current_user.id,
+        )
+    return artifact
+
+
+def _session_rubric_for_script_set(
+    *,
+    teaching_class_id: uuid.UUID,
+    session_id: uuid.UUID,
+    session: SessionDep,
+    current_user: InstructorUser,
+    expected_revision: int | None,
+) -> tuple[TeacherJudgeSession, Any, TeacherJudgeRubricAnalysis]:
+    _access(session, teaching_class_id, current_user)
+    item = get_session(session, teaching_class_id, session_id)
+    ensure_active(item)
+    file = require_selected_file(session, item)
     if expected_revision is not None and expected_revision != file.analysis_revision:
         raise HTTPException(
             status_code=409,
@@ -614,19 +1035,197 @@ async def create_session_script(
         )
     rubric_analysis = TeacherJudgeRubricAnalysis.model_validate(file.analysis_json)
     if not rubric_analysis.items:
+        commands = get_enabled_template_commands(
+            session,
+            file.template_key,
+            include_cross_template=True,
+        )
         raise HTTPException(
             status_code=422,
-            detail="目前檢查表沒有檢查項目，請先新增至少一個項目。",
+            detail={
+                "code": "teacher_judge_script_not_ready",
+                "message": "目前檢查表沒有可製作腳本的檢查項目。",
+                "items": get_script_generation_blockers(
+                    rubric_analysis,
+                    commands,
+                    require_target_node=bool(
+                        load_class_machine_nodes(session, teaching_class_id)
+                    ),
+                ),
+            },
         )
-    artifact = await create_artifact(
+    return item, file, rubric_analysis
+
+
+@router.post(
+    "/{session_id}/script-sets",
+    response_model=TeacherJudgeScriptSetPublic,
+)
+async def create_session_script_set(
+    teaching_class_id: uuid.UUID,
+    session_id: uuid.UUID,
+    session: SessionDep,
+    current_user: InstructorUser,
+    payload: TeacherJudgeSessionScriptCreateRequest | None = None,
+) -> TeacherJudgeScriptSetPublic:
+    item, file, rubric_analysis = _session_rubric_for_script_set(
+        teaching_class_id=teaching_class_id,
+        session_id=session_id,
+        session=session,
+        current_user=current_user,
+        expected_revision=payload.analysis_revision if payload else None,
+    )
+    try:
+        script_set = await create_artifact_set(
+            session=session,
+            teaching_class_id=teaching_class_id,
+            session_id=session_id,
+            name=item.title,
+            template_key=file.template_key,
+            rubric_analysis=rubric_analysis,
+            source_analysis_revision=file.analysis_revision,
+            created_by=current_user.id,
+            source_file_id=file.id,
+        )
+    except Exception:
+        session.rollback()
+        raise
+    from app.models.base import get_datetime_utc
+
+    item.last_activity_at = get_datetime_utc()
+    item.updated_at = item.last_activity_at
+    session.add(item)
+    session.commit()
+    return script_set
+
+
+@router.get(
+    "/{session_id}/script-sets",
+    response_model=list[TeacherJudgeScriptSetPublic],
+)
+def list_session_script_sets(
+    teaching_class_id: uuid.UUID,
+    session_id: uuid.UUID,
+    session: SessionDep,
+    current_user: InstructorUser,
+) -> list[TeacherJudgeScriptSetPublic]:
+    _access(session, teaching_class_id, current_user)
+    get_session(session, teaching_class_id, session_id)
+    return list_artifact_sets(
         session=session,
         teaching_class_id=teaching_class_id,
-        name=item.title,
-        template_key=file.template_key,
-        rubric_analysis=rubric_analysis,
-        created_by=current_user.id,
-        source_file_id=file.id,
-        session_id=item.id,
+        session_id=session_id,
+    )
+
+
+@router.get(
+    "/{session_id}/script-sets/{artifact_set_id}",
+    response_model=TeacherJudgeScriptSetPublic,
+)
+def get_session_script_set(
+    teaching_class_id: uuid.UUID,
+    session_id: uuid.UUID,
+    artifact_set_id: uuid.UUID,
+    session: SessionDep,
+    current_user: InstructorUser,
+) -> TeacherJudgeScriptSetPublic:
+    _access(session, teaching_class_id, current_user)
+    get_session(session, teaching_class_id, session_id)
+    return get_artifact_set(
+        session=session,
+        teaching_class_id=teaching_class_id,
+        artifact_set_id=artifact_set_id,
+        session_id=session_id,
+    )
+
+
+@router.post(
+    "/{session_id}/script-sets/{artifact_set_id}/regenerate",
+    response_model=TeacherJudgeScriptSetPublic,
+)
+async def regenerate_session_script_set(
+    teaching_class_id: uuid.UUID,
+    session_id: uuid.UUID,
+    artifact_set_id: uuid.UUID,
+    session: SessionDep,
+    current_user: InstructorUser,
+    payload: TeacherJudgeSessionScriptCreateRequest | None = None,
+) -> TeacherJudgeScriptSetPublic:
+    item, file, rubric_analysis = _session_rubric_for_script_set(
+        teaching_class_id=teaching_class_id,
+        session_id=session_id,
+        session=session,
+        current_user=current_user,
+        expected_revision=payload.analysis_revision if payload else None,
+    )
+    existing = get_artifact_set(
+        session=session,
+        teaching_class_id=teaching_class_id,
+        artifact_set_id=artifact_set_id,
+        session_id=session_id,
+    )
+    if existing.source_file_id != str(file.id):
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "teacher_judge_script_set_source_mismatch",
+                "message": "目前選取的檢查表不是此 script set 的來源。",
+            },
+        )
+    try:
+        script_set = await create_artifact_set(
+            session=session,
+            teaching_class_id=teaching_class_id,
+            session_id=session_id,
+            name=item.title,
+            template_key=file.template_key,
+            rubric_analysis=rubric_analysis,
+            source_analysis_revision=file.analysis_revision,
+            created_by=current_user.id,
+            source_file_id=file.id,
+            artifact_set_id=artifact_set_id,
+        )
+    except Exception:
+        session.rollback()
+        raise
+    from app.models.base import get_datetime_utc
+
+    item.last_activity_at = get_datetime_utc()
+    item.updated_at = item.last_activity_at
+    session.add(item)
+    session.commit()
+    return script_set
+
+
+@router.post(
+    "/{session_id}/script-sets/{artifact_set_id}/runs",
+    response_model=TeacherJudgeRunBatchPublic,
+)
+def create_session_script_set_run(
+    teaching_class_id: uuid.UUID,
+    session_id: uuid.UUID,
+    artifact_set_id: uuid.UUID,
+    payload: TeacherJudgeScriptSetRunRequest,
+    session: SessionDep,
+    current_user: InstructorUser,
+) -> TeacherJudgeRunBatchPublic:
+    _access(session, teaching_class_id, current_user)
+    item = get_session(session, teaching_class_id, session_id)
+    ensure_active(item)
+    get_artifact_set(
+        session=session,
+        teaching_class_id=teaching_class_id,
+        artifact_set_id=artifact_set_id,
+        session_id=session_id,
+    )
+    if payload.target_scope != "all_students_in_set":
+        raise HTTPException(status_code=422, detail="不支援的 script set 執行範圍。")
+    batch = create_script_run_batch(
+        session=session,
+        teaching_class_id=teaching_class_id,
+        artifact_set_id=artifact_set_id,
+        started_by=current_user.id,
+        session_id=session_id,
     )
     from app.models.base import get_datetime_utc
 
@@ -634,7 +1233,38 @@ async def create_session_script(
     item.updated_at = item.last_activity_at
     session.add(item)
     session.commit()
-    return artifact
+    submit(
+        execute_script_run_batch(uuid.UUID(batch.run_batch_id)),
+        name=f"teacher_judge_script_run_batch:{batch.run_batch_id}",
+        task_id=f"teacher_judge_script_run_batch:{batch.run_batch_id}",
+    )
+    return get_script_run_batch_public(
+        session=session,
+        teaching_class_id=teaching_class_id,
+        run_batch_id=uuid.UUID(batch.run_batch_id),
+        session_id=session_id,
+    )
+
+
+@router.get(
+    "/{session_id}/run-batches/{run_batch_id}",
+    response_model=TeacherJudgeRunBatchPublic,
+)
+def get_session_script_run_batch(
+    teaching_class_id: uuid.UUID,
+    session_id: uuid.UUID,
+    run_batch_id: uuid.UUID,
+    session: SessionDep,
+    current_user: InstructorUser,
+) -> TeacherJudgeRunBatchPublic:
+    _access(session, teaching_class_id, current_user)
+    get_session(session, teaching_class_id, session_id)
+    return get_script_run_batch_public(
+        session=session,
+        teaching_class_id=teaching_class_id,
+        run_batch_id=run_batch_id,
+        session_id=session_id,
+    )
 
 
 @router.get("/{session_id}/runs", response_model=list[TeacherJudgeScriptRunSummary])
@@ -662,6 +1292,7 @@ def list_session_runs(
     return [
         TeacherJudgeScriptRunSummary(
             id=str(row.id),
+            run_batch_id=str(row.run_batch_id) if row.run_batch_id else None,
             teaching_class_id=str(row.teaching_class_id),
             artifact_id=str(row.artifact_id),
             status=row.status.value,
@@ -702,6 +1333,91 @@ def get_session_run(
     return _run_to_public(run)
 
 
+@router.patch(
+    "/{session_id}/runs/{run_id}/targets/{vmid}/review",
+    response_model=TeacherJudgeScriptRunPublic,
+)
+def update_target_review(
+    teaching_class_id: uuid.UUID,
+    session_id: uuid.UUID,
+    run_id: uuid.UUID,
+    vmid: int,
+    payload: TeacherJudgeTargetReviewUpdate,
+    session: SessionDep,
+    current_user: InstructorUser,
+) -> TeacherJudgeScriptRunPublic:
+    """Save the teacher's decisions and optional weekly feedback for one student."""
+
+    _access(session, teaching_class_id, current_user)
+    get_session(session, teaching_class_id, session_id)
+    run = session.exec(
+        select(TeacherJudgeScriptRun)
+        .join(TeacherJudgeScriptArtifact)
+        .where(
+            TeacherJudgeScriptRun.id == run_id,
+            TeacherJudgeScriptRun.teaching_class_id == teaching_class_id,
+            TeacherJudgeScriptArtifact.session_id == session_id,
+        )
+    ).first()
+    if run is None:
+        raise HTTPException(
+            status_code=404, detail=t("teacherJudgeSessions.runResultNotFound")
+        )
+    if run.status.value != "completed":
+        raise HTTPException(status_code=409, detail="只能核查已完成的執行結果。")
+
+    result_document = dict(run.target_results_json or {})
+    raw_targets = result_document.get("targets")
+    targets = [dict(target) for target in raw_targets] if isinstance(raw_targets, list) else []
+    target_index = next(
+        (
+            index
+            for index, target in enumerate(targets)
+            if isinstance(target, dict) and str(target.get("vmid")) == str(vmid)
+        ),
+        None,
+    )
+    if target_index is None:
+        raise HTTPException(status_code=404, detail="找不到這位學生的執行結果。")
+
+    target = targets[target_index]
+    parsed_result = target.get("parsed_result")
+    raw_checks = parsed_result.get("checks") if isinstance(parsed_result, dict) else []
+    reviewable_ids = {
+        str(check.get("id") or "")
+        for check in raw_checks
+        if isinstance(check, dict)
+        and str(check.get("status") or "") in {"warning", "unknown"}
+    }
+    invalid_ids = sorted(set(payload.decisions) - reviewable_ids)
+    if invalid_ids:
+        raise HTTPException(
+            status_code=400,
+            detail="只能人工判定待導師核查或需注意的項目：" + "、".join(invalid_ids),
+        )
+
+    from app.models.base import get_datetime_utc
+
+    now = get_datetime_utc()
+    if payload.feedback or payload.decisions:
+        target["teacher_review"] = {
+            "feedback": payload.feedback,
+            "decisions": dict(payload.decisions),
+            "reviewed_by": str(current_user.id),
+            "updated_at": now.isoformat(),
+        }
+    else:
+        target.pop("teacher_review", None)
+    targets[target_index] = target
+    result_document["targets"] = targets
+    run.target_results_json = result_document
+    run.updated_at = now
+    session.add(run)
+    session.commit()
+    session.refresh(run)
+    return _run_to_public(run)
+
+
 @router.post(
     "/{session_id}/scripts/{artifact_id}/runs",
     response_model=TeacherJudgeScriptRunPublic,
@@ -733,6 +1449,7 @@ def create_session_run(
         target_scope=TeacherJudgeScriptRunTargetScope(payload.target_scope),
         target_vmids=payload.target_vmids,
         started_by=current_user.id,
+        target_node_key=payload.target_node_key,
     )
     from app.models.base import get_datetime_utc
 
@@ -745,4 +1462,9 @@ def create_session_run(
         name=f"teacher_judge_script_run:{run.id}",
         task_id=f"teacher_judge_script_run:{run.id}",
     )
-    return run
+    return get_script_run_public(
+        session=session,
+        teaching_class_id=teaching_class_id,
+        artifact_id=artifact_id,
+        run_id=uuid.UUID(run.id),
+    )

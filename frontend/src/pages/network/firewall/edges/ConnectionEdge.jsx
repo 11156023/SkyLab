@@ -132,9 +132,9 @@ export default function ConnectionEdge(props) {
   const isOutbound = edge.target_vmid === null;
   const isBidirectional = edge.direction === "bidirectional";
   const isSelected = Boolean(data?.selected);
-  // 入站藍 / 出站綠 / 內部灰，走主題語意色；hover 用 color-mix 提亮，深淺色模式都跟著換
+  // 入站亮藍 / 出站綠 / 內部灰，走主題語意色；hover 用 color-mix 提亮，深淺色模式都跟著換
   const baseColor = isInbound
-    ? "var(--color-info)"
+    ? "var(--color-flow-inbound)"
     : isOutbound
     ? "var(--color-success)"
     : "var(--color-status-neutral)";

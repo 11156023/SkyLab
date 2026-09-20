@@ -11,6 +11,50 @@ from app.models.teacher_judge_template_command import TeacherJudgeTemplateComman
 
 SUPPORTED_TEMPLATE_KEYS = {"linux", "python", "n8n", "postgresql"}
 DEFAULT_SYSTEM_COMMAND_TIMEOUT_SECONDS = 30
+MAX_TIMEOUT_SECONDS = 300
+_RETIRED_CHECK_STEP_PARAMETER_KEYS = frozenset({"success_criteria"})
+
+
+def sanitize_check_step_parameters(value: Any) -> Any:
+    """Drop retired rubric fields while keeping unknown future parameters readable."""
+    if not isinstance(value, dict):
+        return value
+    return {
+        key: parameter
+        for key, parameter in value.items()
+        if key not in _RETIRED_CHECK_STEP_PARAMETER_KEYS
+    }
+
+
+def coerce_timeout_seconds(value: Any) -> int | None:
+    """Best-effort coercion of LLM-provided timeout values to a valid int.
+
+    Accepts int (bool excluded), integral floats, and numeric strings such as
+    "5" or "5.0"; returns None for anything that is not a whole number
+    within 1-300.
+    """
+    if isinstance(value, bool):
+        return None
+    coerced: int
+    if isinstance(value, int):
+        coerced = value
+    elif isinstance(value, float) and value.is_integer():
+        coerced = int(value)
+    elif isinstance(value, str):
+        text = value.strip()
+        try:
+            coerced = int(text)
+        except ValueError:
+            try:
+                as_float = float(text)
+            except ValueError:
+                return None
+            if not as_float.is_integer():
+                return None
+            coerced = int(as_float)
+    else:
+        return None
+    return coerced if 1 <= coerced <= MAX_TIMEOUT_SECONDS else None
 
 
 @dataclass(frozen=True, slots=True)
@@ -102,8 +146,7 @@ def format_template_commands_for_prompt(
                     *(
                         [
                             "  parameters_schema: argv 是非空字串陣列；cwd 可選；"
-                            "timeout_seconds 由平台補齊；judgement_mode=ai 時需有 "
-                            "success_criteria",
+                            "timeout_seconds 由平台補齊"
                         ]
                         if command.command_key == "system.run_command"
                         else []
@@ -153,8 +196,52 @@ def validate_check_steps_with_issues(
                         CheckStepIssue("model", item_id, "invalid_step", "檢查步驟不是物件")
                     )
                     continue
+                raw_parameters = raw_step.get("parameters")
+                parameters = (
+                    dict(raw_parameters) if isinstance(raw_parameters, dict) else {}
+                )
+                for key in ("argv", "cwd", "timeout_seconds"):
+                    if key not in parameters and key in raw_step:
+                        parameters[key] = raw_step[key]
+                parameters = sanitize_check_step_parameters(parameters)
+                raw_command_key = str(raw_step.get("command_key") or "").strip()
+
+                # New contract: an executable step is a platform-neutral,
+                # flat command description. Catalog-backed legacy payloads
+                # continue through the command resolution below.
+                if not raw_command_key and "argv" in parameters:
+                    argv = parameters.get("argv")
+                    if not (
+                        isinstance(argv, list)
+                        and bool(argv)
+                        and all(
+                            isinstance(part, str) and part.strip() for part in argv
+                        )
+                    ):
+                        issues.append(
+                            CheckStepIssue(
+                                "model",
+                                item_id,
+                                "invalid_argv",
+                                "argv must be a non-empty string array",
+                            )
+                        )
+                        continue
+                    timeout = coerce_timeout_seconds(parameters.get("timeout_seconds"))
+                    flat_step: dict[str, Any] = {
+                        "argv": argv,
+                        "timeout_seconds": timeout
+                        or DEFAULT_SYSTEM_COMMAND_TIMEOUT_SECONDS,
+                    }
+                    cwd = parameters.get("cwd")
+                    if isinstance(cwd, str) and cwd.strip():
+                        flat_step["cwd"] = cwd.strip()
+                    if flat_step not in valid_steps:
+                        valid_steps.append(flat_step)
+                    continue
+
                 step_template_key = str(raw_step.get("template_key") or template_key).strip()
-                command_key = str(raw_step.get("command_key") or "").strip()
+                command_key = raw_command_key
                 command = valid_commands.get((step_template_key, command_key))
                 if command is None and command_key:
                     matching_commands = [
@@ -179,13 +266,9 @@ def validate_check_steps_with_issues(
                     "command_key": command.command_key,
                     "command_label": command.command_label,
                 }
-                raw_parameters = raw_step.get("parameters")
                 if isinstance(raw_parameters, dict) or (
                     command.command_key == "system.run_command"
                 ):
-                    parameters = (
-                        dict(raw_parameters) if isinstance(raw_parameters, dict) else {}
-                    )
                     timeout = parameters.get("timeout_seconds")
                     if command.command_key == "system.run_command" and (
                         not isinstance(timeout, int)
@@ -195,6 +278,14 @@ def validate_check_steps_with_issues(
                         parameters["timeout_seconds"] = (
                             DEFAULT_SYSTEM_COMMAND_TIMEOUT_SECONDS
                         )
+                    elif command.command_key != "system.run_command":
+                        coerced = coerce_timeout_seconds(timeout)
+                        if coerced is not None:
+                            parameters["timeout_seconds"] = coerced
+                        elif command.command_key == "python.run_entrypoint":
+                            parameters["timeout_seconds"] = (
+                                DEFAULT_SYSTEM_COMMAND_TIMEOUT_SECONDS
+                            )
                     step["parameters"] = parameters
                 if step not in valid_steps:
                     valid_steps.append(step)
@@ -207,7 +298,9 @@ __all__ = [
     "DEFAULT_SYSTEM_COMMAND_TIMEOUT_SECONDS",
     "GENERAL_COMMAND",
     "SUPPORTED_TEMPLATE_KEYS",
+    "coerce_timeout_seconds",
     "format_template_commands_for_prompt",
     "get_enabled_template_commands",
+    "sanitize_check_step_parameters",
     "validate_check_steps",
 ]

@@ -16,6 +16,67 @@ checks = [
 ]
 """
 
+VARIABLE_ID_SCRIPT = """
+def record_check(check_id, title, status, evidence, raw=""):
+    return {"id": check_id}
+
+check_id = "python.version"
+checks = [
+    record_check(check_id=check_id, title="Python 版本", status="unknown", evidence="n/a"),
+]
+"""
+
+SEQUENTIAL_VARIABLE_ID_SCRIPT = """
+def record_check(check_id, title, status, evidence, raw=""):
+    return {"id": check_id}
+
+check_id = "python.version"
+checks = [record_check(check_id, "Python 版本", "unknown", "n/a")]
+check_id = "python.pip_list"
+checks.append(record_check(check_id, "必要套件", "unknown", "n/a"))
+check_id = "python.run_entrypoint"
+checks.append(record_check(check_id, "執行入口", "unknown", "n/a"))
+"""
+
+AMBIGUOUS_VARIABLE_ID_SCRIPT = """
+def record_check(check_id, title, status, evidence, raw=""):
+    return {"id": check_id}
+
+check_id = "python.version"
+check_id = get_check_id()
+checks = [record_check(check_id, "Python 版本", "unknown", "n/a")]
+"""
+
+BRANCHED_VARIABLE_ID_SCRIPT = """
+def record_check(check_id, title, status, evidence, raw=""):
+    return {"id": check_id}
+
+check_id = "python.version"
+if should_use_other_id:
+    check_id = "python.pip_list"
+checks = [record_check(check_id, "檢查", "unknown", "n/a")]
+"""
+
+LOOP_VARIABLE_ID_SCRIPT = """
+def record_check(check_id, title, status, evidence, raw=""):
+    return {"id": check_id}
+
+check_id = "python.version"
+for check_id in requested_ids:
+    checks = [record_check(check_id, "檢查", "unknown", "n/a")]
+"""
+
+COMPREHENSION_VARIABLE_ID_SCRIPT = """
+def record_check(check_id, title, status, evidence, raw=""):
+    return {"id": check_id}
+
+check_id = "python.version"
+checks = [
+    record_check(check_id, "檢查", "unknown", "n/a")
+    for check_id in requested_ids
+]
+"""
+
 RUBRIC_ITEMS = [
     {"id": "item-1", "title": "程式正常結束"},
     {"id": "item-2", "title": "輸出整數 20"},
@@ -35,6 +96,63 @@ def test_validate_coverage_approves_complete_mapping() -> None:
     assert result["approved"] is True
     assert result["issues"] == []
     assert result["uncovered_items"] == []
+    assert result["available_check_ids"] == ["runtime.python_version", "service.port"]
+
+
+def test_validate_coverage_accepts_literal_constant_ids_and_keyword_arguments() -> None:
+    result = validate_coverage(
+        coverage=[
+            {"check_id": "python.version", "rubric_item_ids": ["item-1"]},
+        ],
+        script_content=VARIABLE_ID_SCRIPT,
+        rubric_items=[{"id": "item-1", "title": "Python 版本"}],
+    )
+
+    assert result["approved"] is True
+    assert result["available_check_ids"] == ["python.version"]
+
+
+def test_validate_coverage_resolves_sequential_constant_ids() -> None:
+    result = validate_coverage(
+        coverage=[
+            {"check_id": "python.version", "rubric_item_ids": ["item-1"]},
+            {"check_id": "python.pip_list", "rubric_item_ids": ["item-2"]},
+            {"check_id": "python.run_entrypoint", "rubric_item_ids": ["item-3"]},
+        ],
+        script_content=SEQUENTIAL_VARIABLE_ID_SCRIPT,
+        rubric_items=[
+            {"id": "item-1", "title": "Python 版本"},
+            {"id": "item-2", "title": "必要套件"},
+            {"id": "item-3", "title": "執行入口"},
+        ],
+    )
+
+    assert result["approved"] is True
+    assert result["available_check_ids"] == [
+        "python.pip_list",
+        "python.run_entrypoint",
+        "python.version",
+    ]
+
+
+def test_validate_coverage_does_not_resolve_dynamic_or_ambiguous_ids() -> None:
+    for script_content in (
+        AMBIGUOUS_VARIABLE_ID_SCRIPT,
+        BRANCHED_VARIABLE_ID_SCRIPT,
+        LOOP_VARIABLE_ID_SCRIPT,
+        COMPREHENSION_VARIABLE_ID_SCRIPT,
+    ):
+        result = validate_coverage(
+            coverage=[
+                {"check_id": "python.version", "rubric_item_ids": ["item-1"]},
+            ],
+            script_content=script_content,
+            rubric_items=[{"id": "item-1", "title": "Python 版本"}],
+        )
+
+        assert result["approved"] is False
+        assert "python.version" not in result["available_check_ids"]
+        assert any("python.version" in issue for issue in result["issues"])
 
 
 def test_validate_coverage_merges_duplicate_check_entries() -> None:

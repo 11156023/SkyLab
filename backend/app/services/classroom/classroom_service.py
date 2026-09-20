@@ -193,6 +193,8 @@ def list_class_students(
             vms.append(
                 ClassroomVm(
                     vmid=machine.vmid,
+                    node_key=node.node_key,
+                    display_label=f"P{int(node.sort_order) + 1}",
                     name=node.name,
                     status=info.get("status") or machine.status,
                     vm_type=node.resource_type.lower(),

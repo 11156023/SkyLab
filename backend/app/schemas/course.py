@@ -253,6 +253,7 @@ class CourseAICheckStudent(BaseModel):
     score: int | None = None
     max_score: int | None = None
     summary: str = ""
+    teacher_feedback: str = ""
     error: str = ""
     items: list[CourseAICheckItemStudent] = Field(default_factory=list)
 
@@ -339,6 +340,15 @@ class CourseWeeklyTaskStudent(BaseModel):
     checkpoints: list[CourseWeeklyCheckpointStudent] = Field(default_factory=list)
 
 
+class ForwardEndpoint(BaseModel):
+    """學生要連的對外入口：管理員沒設入口主機時 host 為 None，只給 port。"""
+
+    host: str | None = None
+    external_port: int
+    internal_port: int
+    protocol: str = "tcp"
+
+
 class CoursePracticeMachineStudent(BaseModel):
     """學生在該課程可直接操作的班級機器。"""
 
@@ -352,6 +362,7 @@ class CoursePracticeMachineStudent(BaseModel):
     vmid: int | None = None
     status: str
     public_url: str | None = None
+    forward_endpoints: list[ForwardEndpoint] = Field(default_factory=list)
 
 
 DeploymentStatus = Literal["provisioning", "running", "failed", "expired"]

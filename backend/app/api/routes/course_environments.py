@@ -11,7 +11,7 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field, ValidationError, model_validator
 from sqlmodel import col, delete, func, select
 
-from app.api.deps import InstructorUser, SessionDep
+from app.api.deps import AdminUser, InstructorUser, SessionDep
 from app.core.authorizers import require_teaching_access
 from app.core.i18n import t
 from app.core.permissions import is_admin
@@ -99,12 +99,13 @@ class EnvironmentEdgeIn(BaseModel):
 class EnvironmentPublicationIn(BaseModel):
     """一條「外網 → 機器」的宣告。
 
-    網域是全域唯一的資源，而每位學生都會拿到一份自己的環境，所以模板上
-    只能填主機名樣板；實際網址在開課／開練習時逐人組出來。
+    網域與對外 port 都是全域唯一的資源，而每位學生都會拿到一份自己的環境，
+    所以模板上只能填主機名樣板、或只說「要一個對外 port」；實際網址與 port
+    在開課／開練習時逐人組出來、配出來。
     """
 
     node_key: str = Field(min_length=1, max_length=80)
-    mode: Literal["domain", "firewall_only"] = "domain"
+    mode: Literal["domain", "port_forward"] = "domain"
     port: int = Field(ge=1, le=65535)
     protocol: Literal["tcp", "udp"] = "tcp"
     hostname_prefix: str | None = Field(default=None, max_length=120)
@@ -141,6 +142,8 @@ class EnvironmentCreate(BaseModel):
     publications: list[EnvironmentPublicationIn] = Field(
         default_factory=list, max_length=6
     )
+    # explicit：只開畫出的連線，沒畫就隔離；segment：同網段全部互通（舊行為）
+    peer_policy: Literal["explicit", "segment"] = "explicit"
 
     @model_validator(mode="after")
     def validate_audience(self) -> "EnvironmentCreate":
@@ -460,6 +463,7 @@ def _serialize_version(
         "updated_at": environment.updated_at,
         "published_at": version.published_at,
         "classes": int(class_count or 0),
+        "peer_policy": version.peer_policy,
         "nodes": [node.model_dump() for node in nodes],
         "edges": [edge.model_dump() for edge in edges],
         "publications": [item.model_dump() for item in publications],
@@ -530,6 +534,18 @@ def list_published_environments(
         if published:
             result.append(_serialize_version(session, environment, published))
     return result
+
+
+@router.post("/reconcile-open-ports")
+def reconcile_open_ports(session: SessionDep, _: AdminUser) -> dict[str, Any]:
+    """一次性維護：把課程機器上舊的「只開防火牆」入站規則換成 port_forward。
+
+    firewall_only 已從課程環境移除，migration 只轉了宣告；這支把已經套在
+    學生機器上的規則換掉。可重複執行，回傳掃描／替換／撤下／失敗的清單。
+    """
+    from app.services.teaching import course_publication_service  # noqa: PLC0415
+
+    return course_publication_service.reconcile_legacy_open_ports(session)
 
 
 @router.post("/drafts", status_code=201)
@@ -604,6 +620,7 @@ def create_environment(
         class_ids=body.audience_class_ids,
     )
     _replace_nodes(session, version, body.nodes, body.edges, body.publications)
+    version.peer_policy = body.peer_policy
     session.commit()
     return _serialize_version(session, environment, version)
 
@@ -632,6 +649,7 @@ def update_environment(
         class_ids=body.audience_class_ids,
     )
     _replace_nodes(session, version, body.nodes, body.edges, body.publications)
+    version.peer_policy = body.peer_policy
     version.draft_data = None
     session.add(version)
     session.add(environment)
@@ -814,6 +832,7 @@ def publish_environment(
             class_ids=body.audience_class_ids,
         )
         _replace_nodes(session, version, body.nodes, body.edges, body.publications)
+        version.peer_policy = body.peer_policy
         session.flush()
         version.draft_data = None
     nodes = _nodes(session, version.id)
@@ -829,6 +848,7 @@ def publish_environment(
         ],
     )
     payload: dict[str, Any] = {
+        "peer_policy": version.peer_policy,
         "nodes": [
             {
                 key: value

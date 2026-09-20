@@ -8,26 +8,8 @@
 
 /* ── 身分卡 ── */
 .hero {
-  position: relative;
   gap: $spacing-16;
   padding: $spacing-24;
-
-  /* 左上角一抹主色暈染，讓身分卡從其他卡片裡跳出來 */
-  &::before {
-    content: "";
-    position: absolute;
-    inset: 0;
-    pointer-events: none;
-    background: radial-gradient(
-      640px 260px at 0% 0%,
-      color-mix(in srgb, var(--color-primary) 14%, transparent),
-      transparent 70%
-    );
-  }
-
-  > * {
-    position: relative;
-  }
 }
 
 .heroTop {
@@ -53,7 +35,6 @@
   flex-shrink: 0;
   border-radius: $radius-16;
   background: color-mix(in srgb, var(--color-primary) 12%, transparent);
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-primary) 18%, transparent);
   color: var(--color-primary-on-surface);
 }
 
@@ -110,10 +91,10 @@
   font-weight: $font-weight-500;
 }
 
-.status_ok    { background: color-mix(in srgb, var(--color-success) 12%, transparent); color: var(--color-success); }
-.status_info  { background: color-mix(in srgb, var(--color-info)    12%, transparent); color: var(--color-info); }
-.status_err   { background: color-mix(in srgb, var(--color-danger)  12%, transparent); color: var(--color-danger); }
-.status_muted { background: var(--color-hover); color: var(--color-status-neutral); }
+.status_success { background: color-mix(in srgb, var(--color-success) 12%, transparent); color: var(--color-success); }
+.status_info    { background: color-mix(in srgb, var(--color-info)    12%, transparent); color: var(--color-info); }
+.status_danger  { background: color-mix(in srgb, var(--color-danger)  12%, transparent); color: var(--color-danger); }
+.status_muted   { background: color-mix(in srgb, var(--color-status-neutral) 12%, transparent); color: var(--color-status-neutral); }
 
 .statusDot {
   position: relative;
@@ -291,9 +272,9 @@
   grid-template-columns: 1fr;
   gap: $spacing-16;
 
+  /* 兩欄時讓左右卡片等高（grid 預設 stretch），矮的那張撐到同高 */
   @include respond-to(lg) {
     grid-template-columns: repeat(2, minmax(0, 1fr));
-    align-items: start;
   }
 }
 
@@ -334,6 +315,9 @@
   font-size: $font-size-14;
   font-weight: $font-weight-500;
   color: var(--color-text-primary);
+
+  /* 列尾的複製鈕靠右，與下方憑證列的動作區對齊 */
+  > button:last-child { margin-left: auto; }
   word-break: break-word;
 }
 
@@ -432,6 +416,12 @@
   @include text-truncate;
 }
 
+/* 尚未記錄密碼的提示列：淡化、非等寬字 */
+.secretEmpty {
+  font-family: $font-family-base;
+  color: var(--color-text-muted);
+}
+
 .secretMasked {
   letter-spacing: 0.18em;
   color: var(--color-text-muted);
@@ -439,7 +429,7 @@
 
 .secretActions {
   display: flex;
-  gap: 2px;
+  gap: $spacing-8;
   flex-shrink: 0;
   margin-left: auto;
 }
@@ -509,24 +499,5 @@
 }
 
 .manualDl {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 5px 10px;
-  border-radius: $radius-8;
-  background: var(--color-primary);
-  color: var(--color-text-on-primary);
-  font-size: $font-size-12;
-  font-weight: $font-weight-500;
-  cursor: pointer;
-  transition: background $transition-base;
-
-  &:hover:not(:disabled) {
-    background: var(--color-primary-dark);
-  }
-
-  &:disabled {
-    opacity: 0.5;
-    cursor: default;
-  }
+  @include btn-primary;
 }

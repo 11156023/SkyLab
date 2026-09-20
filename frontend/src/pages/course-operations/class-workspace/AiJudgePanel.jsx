@@ -18,6 +18,39 @@ import {
   shouldDisplayChatMessage,
 } from "../../../services/aiJudge";
 
+/**
+ * Merge server messages by id while retaining chronological server order.
+ * Identical content with different ids is valid (for example, a retry), so
+ * content is deliberately never used as a de-duplication key.
+ */
+export function mergeSessionMessages(current = [], incoming = []) {
+  const merged = new Map();
+  const anonymous = [];
+  [...(Array.isArray(current) ? current : []), ...(Array.isArray(incoming) ? incoming : [])]
+    .forEach((message, index) => {
+      if (!message || typeof message !== "object") return;
+      const id = message.id;
+      if (id) {
+        merged.set(String(id), { message, index });
+      } else {
+        anonymous.push({ message, index });
+      }
+    });
+  return [
+    ...[...merged.values(), ...anonymous]
+      .sort((a, b) => {
+        const aTime = a.message.created_at ?? "";
+        const bTime = b.message.created_at ?? "";
+        if (aTime !== bTime) return aTime < bTime ? -1 : 1;
+        const aId = a.message.id ? String(a.message.id) : "";
+        const bId = b.message.id ? String(b.message.id) : "";
+        if (aId !== bId) return aId < bId ? -1 : 1;
+        return a.index - b.index;
+      })
+      .map(({ message }) => message),
+  ];
+}
+
 /* ── 共用小元件 ─────────────────────────────────────────── */
 
 function Spinner({ size = 16 }) {
@@ -182,7 +215,7 @@ function getDetectableInfo(detectable) {
   return DETECTABLE_INFO[detectable] ?? DETECTABLE_INFO.manual;
 }
 
-function hasCompleteParameterizedStep(step, judgementMode = "ai") {
+function hasCompleteParameterizedStep(step) {
   const parameters = step?.parameters ?? {};
   const hasArgv = Array.isArray(parameters.argv)
     && parameters.argv.length > 0
@@ -190,20 +223,48 @@ function hasCompleteParameterizedStep(step, judgementMode = "ai") {
   const hasTimeout = Number.isInteger(parameters.timeout_seconds)
     && parameters.timeout_seconds >= 1
     && parameters.timeout_seconds <= 300;
-  const hasSuccessCriteria = judgementMode === "teacher"
-    || (typeof parameters.success_criteria === "string"
-      && parameters.success_criteria.trim());
   if (step?.command_key === "python.run_entrypoint") {
     return Boolean(typeof parameters.cwd === "string"
       && parameters.cwd.trim()
       && hasArgv
-      && hasTimeout
-      && hasSuccessCriteria);
+      && hasTimeout);
   }
   if (step?.command_key === "system.run_command") {
-    return Boolean(hasArgv && hasTimeout && hasSuccessCriteria);
+    return Boolean(hasArgv && hasTimeout);
   }
   return true;
+}
+
+/** 把單一 check step 的 parameters 轉成老師可讀的唯讀 chip 資料。 */
+function stepParameterChips(step) {
+  const parameters = step?.parameters ?? {};
+  const chips = [];
+  const argv = Array.isArray(parameters.argv)
+    ? parameters.argv.filter((part) => typeof part === "string" && part.trim())
+    : [];
+  if (argv.length > 0) {
+    chips.push({ key: "argv", label: "指令", mono: true, parts: argv });
+  }
+  if (typeof parameters.cwd === "string" && parameters.cwd.trim()) {
+    chips.push({ key: "cwd", label: "工作目錄", mono: true, parts: [parameters.cwd.trim()] });
+  }
+  if (Number.isInteger(parameters.timeout_seconds)
+    && parameters.timeout_seconds >= 1
+    && parameters.timeout_seconds <= 300) {
+    chips.push({ key: "timeout_seconds", label: "逾時", mono: false, parts: [`${parameters.timeout_seconds} 秒`] });
+  }
+  return chips;
+}
+
+/** 提案列的唯讀指令預覽；以分號串接多個步驟的 argv。 */
+function proposalCommandPreview(item) {
+  const steps = Array.isArray(item?.check_steps) ? item.check_steps : [];
+  return steps
+    .map((step) => (Array.isArray(step?.parameters?.argv)
+      ? step.parameters.argv.filter((part) => typeof part === "string" && part.trim()).join(" ")
+      : ""))
+    .filter(Boolean)
+    .join("；");
 }
 
 /**
@@ -244,7 +305,7 @@ export function getScriptCreationBlocker({ analysis, pendingProposal = null, pen
       || !Array.isArray(item.check_steps)
       || item.check_steps.length === 0
       || item.check_steps.some((step) => (
-        !hasCompleteParameterizedStep(step, item.judgement_mode ?? "ai")
+        !hasCompleteParameterizedStep(step)
       ))
     ))
   )).length;
@@ -318,7 +379,6 @@ function proposalOperationLabel(item) {
 function comparableItem(item) {
   return JSON.stringify({
     title: item.title ?? "",
-    description: item.description ?? "",
     checked: Boolean(item.checked),
     detectable: item.detectable ?? "manual",
     judgement_mode: item.judgement_mode ?? "ai",
@@ -421,6 +481,29 @@ export function buildProposalDiff(currentItems, proposedItems) {
   return changes;
 }
 
+/** 只有後端明確標為 Ready／導師檢查的操作可進入套用選取。 */
+export function getSelectableProposalIds(proposalItems, itemResults = null) {
+  const proposal = Array.isArray(proposalItems) ? proposalItems : [];
+  if (!Array.isArray(itemResults)) {
+    return new Set(proposal.map((item, index) => item?.id ?? `proposal-${index}`));
+  }
+  if (itemResults.length === 0) return new Set();
+  const resultByOperationId = new Map(
+    itemResults
+      .filter((result) => result?.operation?.id)
+      .map((result) => [String(result.operation.id), result]),
+  );
+  return new Set(
+    proposal
+      .map((item, index) => ({ item, id: item?.id ?? `proposal-${index}` }))
+      .filter(({ id }) => {
+        const result = resultByOperationId.get(String(id));
+        return result?.status === "ready" || result?.status === "teacher_review";
+      })
+      .map(({ id }) => id),
+  );
+}
+
 /** 將選定的 AI 差異套用成候選項目；未明確刪除的既有項目一律保留。 */
 export function applyProposalOperations(currentItems, proposalItems, selectedIds = null) {
   const byId = new Map((Array.isArray(currentItems) ? currentItems : []).map((item) => [item.id, item]));
@@ -447,15 +530,23 @@ export function applyProposalOperations(currentItems, proposalItems, selectedIds
   return { items: [...byId.values()], evaluatedIds };
 }
 
-export function ProposalPanel({ proposal, selectedIds, onToggle, onApply, onSkip, disabled, isRefine = false }) {
+const ITEMWISE_STATUS_INFO = {
+  needs_information: { label: "缺少資訊", className: styles.detBadge_partial },
+  unsupported: { label: "無法自動檢查", className: styles.detBadge_manual },
+  analysis_error: { label: "分析失敗", className: styles.detBadge_manual },
+};
+
+export function ProposalPanel({ proposal, selectedIds, onToggle, onApply, onSkip, disabled, isRefine = false, itemResults = null }) {
   const contentId = useId();
   const [expanded, setExpanded] = useState(true);
 
   useEffect(() => {
     setExpanded(true);
-  }, [proposal]);
+  }, [proposal, itemResults]);
 
   if (!proposal?.length) return null;
+  const results = Array.isArray(itemResults) && itemResults.length ? itemResults : null;
+  const proposalById = new Map(proposal.map((item, index) => [item.id ?? `proposal-${index}`, item]));
   return (
     <section className={styles.proposalPreview} aria-label="AI 提案" aria-live="polite">
       <button
@@ -484,23 +575,70 @@ export function ProposalPanel({ proposal, selectedIds, onToggle, onApply, onSkip
               : "只有同意套用的項目才會正式保存到目前檢查表。"}
           </p>
           <div className={styles.proposalList}>
-            {proposal.map((item, index) => {
-              const id = item.id ?? `proposal-${index}`;
-              return (
-                <label className={styles.proposalRow} key={id}>
-                  <input
-                    type="checkbox"
-                    checked={selectedIds.has(id)}
-                    disabled={disabled}
-                    onChange={() => onToggle(id)}
-                  />
-                  <span>
-                    <b>{item.title || "未命名項目"}</b>
-                    <small><em>{proposalOperationLabel(item)}</em>{item.description || "AI 建議新增或調整此檢查項目"}</small>
-                  </span>
-                </label>
-              );
-            })}
+            {results
+              ? results.map((result, index) => {
+                  const operationId = result.operation?.id;
+                  const selectable = (result.status === "ready" || result.status === "teacher_review") && operationId && proposalById.has(operationId);
+                  if (selectable) {
+                    const item = proposalById.get(operationId);
+                    const commandPreview = proposalCommandPreview(item);
+                    return (
+                      <label className={styles.proposalRow} key={operationId}>
+                        <input
+                          type="checkbox"
+                          checked={selectedIds.has(operationId)}
+                          disabled={disabled}
+                          onChange={() => onToggle(operationId)}
+                        />
+                        <span>
+                          <b>{result.source_label ? `${result.source_label}·` : ""}{item.title || "未命名項目"}</b>
+                          <small><em>{proposalOperationLabel(item)}</em>AI 建議新增或調整此檢查項目</small>
+                          {commandPreview && (
+                            <code className={styles.proposalCommandPreview}>{commandPreview}</code>
+                          )}
+                        </span>
+                      </label>
+                    );
+                  }
+                  const info = ITEMWISE_STATUS_INFO[result.status] ?? ITEMWISE_STATUS_INFO.analysis_error;
+                  const gaps = Array.isArray(result.missing_information) ? result.missing_information.filter(Boolean) : [];
+                  const reason = gaps.length
+                    ? gaps.join("、")
+                    : (result.status === "unsupported" ? result.detail || "" : "");
+                  return (
+                    <div className={styles.proposalRow} key={`${result.source_index ?? index}-${result.title ?? ""}`}>
+                      <span className={`${styles.detBadge} ${styles[info.className]}`}>
+                        <MIcon name={result.status === "needs_information" ? "warning_amber" : "cancel"} size={16} aria-hidden="true" />
+                        <span>{info.label}</span>
+                      </span>
+                      <span>
+                        <b>{result.source_label ? `${result.source_label}·` : ""}{result.title || "未命名項目"}</b>
+                        {reason && <small><em>{reason}</em></small>}
+                      </span>
+                    </div>
+                  );
+                })
+              : proposal.map((item, index) => {
+                  const id = item.id ?? `proposal-${index}`;
+                  const commandPreview = proposalCommandPreview(item);
+                  return (
+                    <label className={styles.proposalRow} key={id}>
+                      <input
+                        type="checkbox"
+                        checked={selectedIds.has(id)}
+                        disabled={disabled}
+                        onChange={() => onToggle(id)}
+                      />
+                      <span>
+                        <b>{item.title || "未命名項目"}</b>
+                        <small><em>{proposalOperationLabel(item)}</em>AI 建議新增或調整此檢查項目</small>
+                        {commandPreview && (
+                          <code className={styles.proposalCommandPreview}>{commandPreview}</code>
+                        )}
+                      </span>
+                    </label>
+                  );
+                })}
           </div>
           <div className={styles.proposalActions}>
             <button type="button" className={styles.btnSecondary} disabled={disabled} onClick={onSkip}>忽略</button>
@@ -515,7 +653,7 @@ export function ProposalPanel({ proposal, selectedIds, onToggle, onApply, onSkip
 /* ── 可編輯檢查項目表格 ───────────────────────────────── */
 
 function DetectabilityBadge({ detectable, judgementMode = "ai", needsReview = false }) {
-  const detectableInfo = needsReview
+  const detectableInfo = needsReview || detectable === "partial"
     ? DETECTABLE_INFO.partial
     : judgementMode === "teacher"
       ? TEACHER_REVIEW_INFO
@@ -572,16 +710,12 @@ function RubricTableRow({ item, index, onChange, onDelete, disabled, needsReview
           </label>
         </td>
         <td className={styles.rubricDescriptionCell}>
-          <label className={styles.tableField}>
-            <span className={styles.srOnly}>第 {index + 1} 項檢查條件</span>
-            <textarea
-              value={item.description}
-              onChange={(event) => onChange({ ...item, description: event.target.value })}
-              placeholder="寫下學生需要符合的條件"
-              rows={2}
-              disabled={disabled}
-            />
-          </label>
+          <div className={styles.tableField}>
+            <span className={styles.srOnly}>第 {index + 1} 項檢測方式</span>
+            <p className={`${styles.rubricMethodText} ${!item.detection_method ? styles.rubricMethodTextEmpty : ""}`}>
+              {item.detection_method || "尚未提供檢測方式"}
+            </p>
+          </div>
         </td>
         <td className={styles.rubricDetectabilityCell}>
           <DetectabilityBadge
@@ -624,13 +758,7 @@ function RubricTableRow({ item, index, onChange, onDelete, disabled, needsReview
                       <span>缺少資訊</span>
                       <p>{missingInformation.length
                         ? missingInformation.join("、")
-                        : "請補充完整的服務名稱、程式位置、連接埠、取證範圍或判定條件。"}</p>
-                    </div>
-                  )}
-                  {item.detection_method && (
-                    <div className={styles.detectItem}>
-                      <span>檢測方式</span>
-                      <p>{item.detection_method}</p>
+                        : "請補充完整的服務名稱、程式位置、連接埠或取證範圍。"}</p>
                     </div>
                   )}
                   {item.fallback && (
@@ -642,13 +770,28 @@ function RubricTableRow({ item, index, onChange, onDelete, disabled, needsReview
                   {checkSteps.length > 0 && (
                     <div className={`${styles.detectItem} ${styles.detectItemWide}`}>
                       <span>預計檢查步驟（尚未執行）</span>
-                      <div className={styles.chipRow}>
-                        {checkSteps.map((step) => (
-                          <span key={`${step.template_key}-${step.command_key}`} className={styles.chip}>
-                            {getTemplateLabel(step.template_key)} /{" "}
-                            {step.command_label ?? step.command_key}
-                            <code>{step.command_key}</code>
-                          </span>
+                      <div className={styles.stepPlanList}>
+                        {checkSteps.map((step, stepIndex) => (
+                          <div
+                            key={`${step.template_key}-${step.command_key}-${stepIndex}`}
+                            className={styles.stepPlanRow}
+                          >
+                            <span className={styles.chip}>
+                              {getTemplateLabel(step.template_key)} /{" "}
+                              {step.command_label ?? step.command_key}
+                              <code>{step.command_key}</code>
+                            </span>
+                            {stepParameterChips(step).map((chip) => (
+                              <span key={chip.key} className={styles.chip}>
+                                <span className={styles.chipLabel}>{chip.label}</span>
+                                {chip.mono
+                                  ? chip.parts.map((part, partIndex) => (
+                                    <code key={partIndex}>{part}</code>
+                                  ))
+                                  : <span className={styles.chipText}>{chip.parts.join(" ")}</span>}
+                              </span>
+                            ))}
+                          </div>
                         ))}
                       </div>
                     </div>
@@ -678,7 +821,7 @@ export function RubricTable({ items, onChange, onDelete, disabled, needsReviewId
             </th>
             <th scope="col">#</th>
             <th scope="col">檢查點</th>
-            <th scope="col">檢查條件</th>
+            <th scope="col">檢測方式</th>
             <th scope="col">自動檢測支援</th>
             <th scope="col"><span className={styles.srOnly}>操作</span></th>
           </tr>
@@ -703,6 +846,47 @@ export function RubricTable({ items, onChange, onDelete, disabled, needsReviewId
 
 /* ── AI 對話面板 ────────────────────────────────────────── */
 
+/**
+ * 工具呼叫結果的教師顯示文字；以後端實際執行結果為準，
+ * 覆蓋模型回覆文字可能宣稱但實際未建立的狀態。
+ */
+export function proposalToolCallLines(message) {
+  const toolCalls = Array.isArray(message?.metadata_json?.tool_calls)
+    ? message.metadata_json.tool_calls
+    : [];
+  const lines = [];
+  toolCalls.forEach((call) => {
+    if (!call || typeof call !== "object") return;
+    if (call.status === "staged") {
+      const label =
+        call.operation === "update"
+          ? "已送出修改提案"
+          : "已建立提案";
+      lines.push({ icon: "check_circle", text: `${label}：${call.title ?? ""}` });
+    } else if (call.status === "rejected") {
+      lines.push({
+        icon: "cancel",
+        text: `提案未建立：${call.title ?? ""}`,
+      });
+    } else if (call.status === "no_change") {
+      lines.push({
+        icon: "info",
+        text: `內容未變更，未建立提案：${call.title ?? ""}`,
+      });
+    }
+  });
+  // 去重保留最新：同一文字只保留最後一次（重試只顯示一次錯誤）。
+  const seen = new Set();
+  const dedupedReversed = [];
+  for (let i = lines.length - 1; i >= 0; i -= 1) {
+    const line = lines[i];
+    if (seen.has(line.text)) continue;
+    seen.add(line.text);
+    dedupedReversed.push(line);
+  }
+  return dedupedReversed.reverse();
+}
+
 export function ChatPanel({
   messages,
   onSendMessage,
@@ -718,6 +902,7 @@ export function ChatPanel({
   onRemoveAttachment,
   onUploadFile,
   isUploading = false,
+  loadingText = "",
 }) {
   const [input, setInput] = useState("");
   const fileInputRef = useRef(null);
@@ -779,6 +964,22 @@ export function ChatPanel({
                   </div>
                 )}
                 {msg.content}
+                {msg.role === "assistant" && (
+                  (() => {
+                    const toolLines = proposalToolCallLines(msg);
+                    if (!toolLines.length) return null;
+                    return (
+                      <ul className={styles.chatToolCallList} aria-label="AI 工具執行結果">
+                        {toolLines.map((line, idx) => (
+                          <li key={`${line.text}-${idx}`} className={styles.chatToolCallItem}>
+                            <MIcon name={line.icon} size={14} />
+                            <span>{line.text}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    );
+                  })()
+                )}
               </div>
               {msg.role === "user" && (
                 <span className={`${styles.chatAvatar} ${styles.chatAvatar_user}`}>
@@ -795,6 +996,7 @@ export function ChatPanel({
               <MIcon name="smart_toy" size={16} />
             </span>
             <div className={styles.chatBubble}>
+              {loadingText ? <p className={styles.chatLoadingText}>{loadingText}</p> : null}
               <span className={styles.typing}>
                 <span />
                 <span />
@@ -1033,7 +1235,7 @@ export function CreateCheckDialog({
           </div>
           <button
             type="button"
-            className={styles.iconBtn}
+            className={styles.dialogClose}
             aria-label="關閉"
             disabled={busy}
             onClick={onClose}
@@ -1131,7 +1333,7 @@ function RubricSourceRail({ classId, file, onClose, embedded = false }) {
 
 /* ── Tab 1：檢查表 ──────────────────────────────────────── */
 
-function RubricsTab({ classId, judgeSession, onSessionUpdated, onScriptCreated, sidebar = null, tabsBar = null }) {
+export function RubricsTab({ classId, judgeSession, onSessionUpdated, onScriptCreated, sidebar = null, tabsBar = null }) {
   const toast = useToast();
 
   const [files, setFiles] = useState([]);
@@ -1152,6 +1354,8 @@ function RubricsTab({ classId, judgeSession, onSessionUpdated, onScriptCreated, 
   const [sourcesOpen, setSourcesOpen] = useState(false);
   const [pendingProposalMeta, setPendingProposalMeta] = useState(null);
   const [pendingProposalIsRefine, setPendingProposalIsRefine] = useState(false);
+  const [pendingItemResults, setPendingItemResults] = useState(null);
+  const [isItemwiseAnalysis, setIsItemwiseAnalysis] = useState(false);
   const [environmentKeys, setEnvironmentKeys] = useState([]);
   const analysisRevisionsRef = useRef(new Map());
   const lastSavedValuesRef = useRef(new Map());
@@ -1174,6 +1378,19 @@ function RubricsTab({ classId, judgeSession, onSessionUpdated, onScriptCreated, 
     setSelectedProposalIds(new Set());
     setPendingProposalMeta(null);
     setPendingProposalIsRefine(false);
+    setPendingItemResults(null);
+  }
+
+  async function refreshSessionMessages({ silent = false, replace = false } = {}) {
+    if (!judgeSession?.id) return false;
+    try {
+      const rows = await AiJudgeService.listSessionMessages(classId, judgeSession.id);
+      setMessages((current) => (replace ? rows : mergeSessionMessages(current, rows)));
+      return true;
+    } catch (err) {
+      if (!silent) toast.error(err?.message ?? "載入檢查對話失敗");
+      return false;
+    }
   }
 
   useEffect(() => {
@@ -1281,6 +1498,7 @@ function RubricsTab({ classId, judgeSession, onSessionUpdated, onScriptCreated, 
       setSelectedProposalIds(new Set());
       setPendingProposalMeta(null);
       setPendingProposalIsRefine(false);
+      setPendingItemResults(null);
     }
 
     if (!judgeSession?.selected_file_id) {
@@ -1431,6 +1649,8 @@ function RubricsTab({ classId, judgeSession, onSessionUpdated, onScriptCreated, 
     const newMessages = isRefine ? messages : requestMessages;
     setMessages(newMessages);
     setIsChatting(true);
+    const itemwise = !isRefine && attachments.length > 0;
+    setIsItemwiseAnalysis(itemwise);
     try {
       const response = await AiJudgeService.sendSessionMessage(
         classId,
@@ -1441,16 +1661,17 @@ function RubricsTab({ classId, judgeSession, onSessionUpdated, onScriptCreated, 
       );
       setMessages((current) => {
         const baseMessages = isRefine ? current : current.slice(0, -1);
-        return [
-          ...baseMessages,
-          response.user_message,
-          response.assistant_message,
-        ].filter(shouldDisplayChatMessage);
+        return mergeSessionMessages(
+          baseMessages,
+          [response.user_message, response.assistant_message].filter(Boolean),
+        ).filter(shouldDisplayChatMessage);
       });
       setPendingAttachments([]);
       const proposal = buildProposalDiff(analysis?.items ?? [], response.rubric_proposal);
+      const itemResults = response.assistant_message?.metadata_json?.item_results;
+      setPendingItemResults(Array.isArray(itemResults) && itemResults.length ? itemResults : null);
       setPendingProposal(proposal.length ? proposal : null);
-      setSelectedProposalIds(new Set(proposal.map((item, index) => item.id ?? `proposal-${index}`)));
+      setSelectedProposalIds(getSelectableProposalIds(proposal, itemResults));
       setPendingProposalMeta(proposal.length ? { baseRevision: response.base_revision ?? analysisRevisionsRef.current.get(sourceFileId) } : null);
       setPendingProposalIsRefine(Boolean(proposal.length && isRefine));
       if (isRefine && !Array.isArray(response.rubric_proposal)) {
@@ -1469,10 +1690,17 @@ function RubricsTab({ classId, judgeSession, onSessionUpdated, onScriptCreated, 
         }
       }
     } catch (err) {
-      toast.error(err?.message ?? "對話失敗");
-      setMessages(messages);
+      const message = err?.message ?? "對話失敗";
+      const synced = await refreshSessionMessages({ silent: true, replace: true });
+      if (!synced) {
+        setMessages(messages);
+        toast.error(`${message} 無法確認 Chat 紀錄是否已同步。`);
+      } else {
+        toast.error(message);
+      }
     } finally {
       setIsChatting(false);
+      setIsItemwiseAnalysis(false);
     }
   }
 
@@ -1486,10 +1714,17 @@ function RubricsTab({ classId, judgeSession, onSessionUpdated, onScriptCreated, 
       return;
     }
     const previousAnalysis = analysis;
+    const safeSelectedIds = getSelectableProposalIds(
+      pendingProposal,
+      pendingItemResults,
+    );
+    const selectedIds = new Set(
+      [...selectedProposalIds].filter((id) => safeSelectedIds.has(id)),
+    );
     const { items: nextItems, evaluatedIds } = applyProposalOperations(
       analysis?.items ?? [],
       pendingProposal,
-      selectedProposalIds,
+      selectedIds,
     );
     const currentPendingIds = sourceFileId
       ? pendingReviewIdsByFileRef.current.get(sourceFileId) ?? pendingReviewIds
@@ -1547,6 +1782,7 @@ function RubricsTab({ classId, judgeSession, onSessionUpdated, onScriptCreated, 
       setSelectedProposalIds(new Set());
       setPendingProposalMeta(null);
       setPendingProposalIsRefine(false);
+      setPendingItemResults(null);
       setScriptGenerationNotice(null);
       toast.success("對話內容已清除");
     } catch (err) {
@@ -1581,31 +1817,56 @@ function RubricsTab({ classId, judgeSession, onSessionUpdated, onScriptCreated, 
         baseRevision,
         { isRefine: true },
       );
+      const assistantMessage = response?.assistant_message;
+      setMessages((current) => mergeSessionMessages(
+        current,
+        [response?.user_message, assistantMessage].filter(Boolean),
+      ).filter(shouldDisplayChatMessage));
+      const assistantMetadata = assistantMessage?.metadata_json ?? {};
       if (!Array.isArray(response.rubric_proposal)) {
-        throw new Error("AI 未回傳完整檢查項目列表，尚未變更目前檢查表");
+        const message = "AI 核對結果格式不完整，尚未變更目前檢查表；請稍後重試。";
+        setScriptGenerationNotice({ status: "error", message });
+        toast.error(message);
+        return;
       }
       const proposal = buildProposalDiff(analysis.items ?? [], response.rubric_proposal);
-      const { items: candidateItems } = applyProposalOperations(analysis.items ?? [], proposal);
+      const itemResults = assistantMetadata.item_results;
+      const selectableIds = getSelectableProposalIds(proposal, itemResults);
+      const hasSelectable = selectableIds.size > 0;
+      setPendingItemResults(
+        hasSelectable && Array.isArray(itemResults) && itemResults.length ? itemResults : null,
+      );
+      setPendingProposal(hasSelectable ? proposal : null);
+      setSelectedProposalIds(selectableIds);
+      setPendingProposalMeta(hasSelectable ? { baseRevision } : null);
+      setPendingProposalIsRefine(hasSelectable);
+      if (assistantMetadata.script_ready === false) {
+        const message = assistantMetadata.status === "unsupported"
+          ? "部分項目目前無法安全取證，詳細內容已列在 AI 聊天室。"
+          : assistantMetadata.status === "analysis_error"
+            ? "AI 重新核對未完成，檢查表尚未變更；處理階段已列在 AI 聊天室。"
+            : "尚有項目需要補充，詳細內容已列在 AI 聊天室。";
+        setScriptGenerationNotice({ status: "error", message });
+        toast.error(message);
+        return;
+      }
+      if (assistantMetadata.script_ready !== true) {
+        const message = "AI 核對結果缺少安全狀態，尚未開始製作檢查腳本；請稍後重試。";
+        setScriptGenerationNotice({ status: "error", message });
+        toast.error(message);
+        return;
+      }
+      const safeSelectedIds = getSelectableProposalIds(proposal, itemResults);
+      const { items: candidateItems } = applyProposalOperations(
+        analysis.items ?? [],
+        proposal,
+        safeSelectedIds,
+      );
       const candidateAnalysis = {
         ...applyItems(analysis, candidateItems),
         detectability_needs_review: false,
         pending_review_item_ids: [],
       };
-      const blocker = getScriptCreationBlocker({
-        analysis: candidateAnalysis,
-        pendingProposal: null,
-        pendingReviewIds: new Set(),
-      });
-      if (blocker) {
-        setPendingProposal(proposal.length ? proposal : null);
-        setSelectedProposalIds(new Set(proposal.map((item, index) => item.id ?? `proposal-${index}`)));
-        setPendingProposalMeta(proposal.length ? { baseRevision } : null);
-        setPendingProposalIsRefine(Boolean(proposal.length));
-        const message = `${blocker}。請確認問題項目後再試一次。`;
-        setScriptGenerationNotice({ status: "error", message });
-        toast.error(message);
-        return;
-      }
       const saved = await applyAnalysis(candidateAnalysis, {
         persist: true,
         immediate: true,
@@ -1648,13 +1909,23 @@ function RubricsTab({ classId, judgeSession, onSessionUpdated, onScriptCreated, 
         toast.success(message);
         onScriptCreated?.(artifact);
       }
+      const synced = await refreshSessionMessages({ silent: true });
+      if (!synced) {
+        const warning = "無法確認 Chat 紀錄是否已同步。";
+        setScriptGenerationNotice((current) => current
+          ? { ...current, message: `${current.message} ${warning}` }
+          : { status: "error", message: warning });
+        toast.error(warning);
+      }
     } catch (err) {
       const message = err?.message ?? "儲存並製作檢查腳本失敗";
+      const synced = await refreshSessionMessages({ silent: true, replace: true });
+      const syncNotice = synced ? "" : "無法確認 Chat 紀錄是否已同步。";
       setScriptGenerationNotice({
         status: "error",
-        message: `${message}。目前檢查表已保留，可再次按「儲存並製作」重試。`,
+        message: `${message}。目前檢查表已保留，可再次按「儲存並製作」重試。${syncNotice ? ` ${syncNotice}` : ""}`,
       });
-      toast.error(message);
+      toast.error(syncNotice ? `${message} ${syncNotice}` : message);
     } finally {
       setIsCreatingScript(false);
       setScriptGenerationStatus(null);
@@ -1720,6 +1991,7 @@ function RubricsTab({ classId, judgeSession, onSessionUpdated, onScriptCreated, 
                   onApply={applyPendingProposal}
                   onSkip={clearPendingProposal}
                   isRefine={pendingProposalIsRefine}
+                  itemResults={pendingItemResults}
                   disabled={isChatting || isClearingMessages}
                 />}
                 <div className={sidebar ? styles.checkRubricBody : undefined}>
@@ -1767,6 +2039,7 @@ function RubricsTab({ classId, judgeSession, onSessionUpdated, onScriptCreated, 
               onSendMessage={handleSendMessage}
               onClearMessages={handleClearMessages}
               isLoading={isChatting}
+              loadingText={isItemwiseAnalysis ? "正在拆解評分表並逐項核查…" : ""}
               isClearing={isClearingMessages}
               disabled={isCreatingScript}
               hasRubric={Boolean(analysis)}
@@ -1811,7 +2084,7 @@ const RETRY_STOP_REASON_LABELS = {
 };
 
 export function getScriptCreationDestination(artifact) {
-  return artifact?.status === "approved" ? "execution" : "scripts";
+  return artifact?.status === "approved" ? "review" : "scripts";
 }
 
 function scriptStatusBadgeClass(status) {
@@ -1849,11 +2122,47 @@ function ReviewPanel({ title, result }) {
   );
 }
 
+export function getScriptReviewAttemptIssues(attempt) {
+  const uncoveredIssues = Array.isArray(attempt?.uncovered_rubric_items)
+    ? attempt.uncovered_rubric_items.map((item) => {
+      if (typeof item === "string") return `未覆蓋檢查項目：${item}`;
+      if (!item || typeof item !== "object") return "";
+      const label = item.title || item.id;
+      return label ? `未覆蓋檢查項目：${label}` : "";
+    })
+    : [];
+  return [...new Set([
+    ...(Array.isArray(attempt?.safety_issues) ? attempt.safety_issues : []),
+    ...(Array.isArray(attempt?.quality_issues) ? attempt.quality_issues : []),
+    ...(Array.isArray(attempt?.coverage_issues) ? attempt.coverage_issues : []),
+    ...uncoveredIssues,
+    ...(Array.isArray(attempt?.ai_review_issues) ? attempt.ai_review_issues : []),
+    ...(Array.isArray(attempt?.generation_issues) ? attempt.generation_issues : []),
+  ].filter(Boolean).map((issue) => String(issue)))];
+}
+
 function RetrySummary({ script }) {
   const summary = script?.policy_check_result_json?.retry_summary;
   const attempts = Array.isArray(script?.policy_check_result_json?.review_attempts)
     ? script.policy_check_result_json.review_attempts
     : [];
+  const coverage = script?.policy_check_result_json?.coverage;
+  const coverageFallback = {
+    phase: "coverage",
+    coverage_issues: Array.isArray(coverage?.issues) ? coverage.issues : [],
+    uncovered_rubric_items: Array.isArray(coverage?.uncovered_items)
+      ? coverage.uncovered_items
+      : [],
+  };
+  const hasCoverageAttempt = attempts.some(
+    (attempt) => attempt?.phase === "coverage"
+      || Array.isArray(attempt?.coverage_issues)
+      || Array.isArray(attempt?.uncovered_rubric_items),
+  );
+  const displayedAttempts = !hasCoverageAttempt
+    && getScriptReviewAttemptIssues(coverageFallback).length > 0
+    ? [...attempts, coverageFallback]
+    : attempts;
   if (script?.status !== "review_failed") return null;
 
   const retryCount = Number(summary?.retry_count ?? 0);
@@ -1866,15 +2175,10 @@ function RetrySummary({ script }) {
       <p>
         Agent 已自動重試 {retryCount} 次；仍未通過時，請檢查下列原因，回到檢查表調整後重新製作檢查腳本。
       </p>
-      {attempts.length > 0 && (
+      {displayedAttempts.length > 0 && (
         <ul className={styles.reviewIssues}>
-          {attempts.slice(-3).map((attempt, index) => {
-            const issues = [
-              ...(Array.isArray(attempt?.safety_issues) ? attempt.safety_issues : []),
-              ...(Array.isArray(attempt?.quality_issues) ? attempt.quality_issues : []),
-              ...(Array.isArray(attempt?.ai_review_issues) ? attempt.ai_review_issues : []),
-              ...(Array.isArray(attempt?.generation_issues) ? attempt.generation_issues : []),
-            ].filter(Boolean);
+          {displayedAttempts.slice(-3).map((attempt, index) => {
+            const issues = getScriptReviewAttemptIssues(attempt);
             return (
               <li key={`${attempt?.attempt ?? index}-${attempt?.failure_signature ?? "failure"}`}>
                 第 {attempt?.attempt ?? index + 1} 次（{attempt?.phase ?? "審查"}）：
@@ -2209,27 +2513,7 @@ function ScriptsTab({
   );
 }
 
-/* ── Tab 2：執行結果 ────────────────────────────────────── */
-
-const REASON_LABELS = {
-  success: "成功",
-  not_running: "未運行",
-  missing_ip: "缺少 IP",
-  missing_ssh_key: "缺少 SSH 金鑰",
-  owner_mismatch: "資源擁有者不一致",
-  missing_db_resource: "找不到對應資源",
-  invalid_resource_type: "類型不可執行",
-  python_missing: "機器缺少腳本執行環境",
-  execution_nonzero: "腳本執行失敗",
-  result_too_large: "結果過大",
-  invalid_json: "JSON 格式錯誤",
-  executor_error: "執行器錯誤",
-};
-
-function reasonLabel(reasonCode) {
-  if (!reasonCode) return null;
-  return REASON_LABELS[reasonCode] ?? reasonCode;
-}
+/* ── 執行結果／核查共用的結果顯示元件 ───────────────────── */
 
 function runIsTerminal(status) {
   return status === "completed" || status === "failed" || status === "cancelled";
@@ -2243,502 +2527,961 @@ const RUN_STATUS = {
   pending: { label: "等待中", className: styles.badge_muted },
 };
 
-const TARGET_STATUS = {
-  completed: { label: "完成", className: styles.badge_success },
-  running: { label: "執行中", className: styles.badge_info },
-  failed: { label: "失敗", className: styles.badge_danger },
-  queued: { label: "排隊中", className: styles.badge_muted },
-};
-
 function StatusBadge({ map, status }) {
   const info = map[status] ?? { label: status ?? "—", className: styles.badge_muted };
   return <span className={`${styles.badge} ${info.className}`}>{info.label}</span>;
 }
 
-function AiJudgementBadge({ result }) {
-  if (!result) return <span className={`${styles.badge} ${styles.badge_muted}`}>等待回收</span>;
-  if (result.validation?.valid === false) {
-    return <span className={`${styles.badge} ${styles.badge_danger}`}>JSON 格式錯誤</span>;
-  }
-  const judgement = result.ai_judgement;
-  if (!judgement) return <span className={`${styles.badge} ${styles.badge_muted}`}>分析中</span>;
-  if (judgement.status === "completed") {
-    if (judgement.requires_teacher_review) {
-      return <span className={`${styles.badge} ${styles.badge_info}`}>待導師核查</span>;
+const CHECK_STATUS_META = {
+  pass: { icon: "check_circle", label: "通過", className: styles.checkIconPass },
+  fail: { icon: "cancel", label: "未通過", className: styles.checkIconFail },
+  warning: { icon: "warning", label: "需注意", className: styles.checkIconWarn },
+  unknown: { icon: "help", label: "待導師核查", className: styles.checkIconWarn },
+  skipped: { icon: "remove_circle_outline", label: "略過", className: styles.checkIconSkip },
+};
+
+function checkStatusMeta(status) {
+  return CHECK_STATUS_META[status] ?? {
+    icon: "help",
+    label: "未判定",
+    className: styles.checkIconSkip,
+  };
+}
+
+function parseCheckRaw(raw) {
+  if (typeof raw !== "string" || !raw) return null;
+  try {
+    const parsed = JSON.parse(raw);
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+      return parsed;
     }
-    return <span className={`${styles.badge} ${styles.badge_success}`}>已核對</span>;
+  } catch {
+    // raw 不一定是 JSON（契約允許普通字串），fallback 顯示原文
   }
-  if (judgement.status === "failed") {
-    return <span className={`${styles.badge} ${styles.badge_danger}`}>AI 核對失敗</span>;
-  }
-  if (judgement.status === "skipped") {
-    return <span className={`${styles.badge} ${styles.badge_muted}`}>略過</span>;
-  }
-  return <span className={`${styles.badge} ${styles.badge_info}`}>分析中</span>;
+  return null;
 }
 
-function aiJudgementSummary(result) {
-  if (!result) return null;
-  if (result.validation?.valid === false) {
-    return result.validation.error ?? "JSON 驗證未通過，未進入 AI 核對。";
+function ReturnCodeBadge({ returncode }) {
+  if (returncode === null || returncode === undefined) {
+    return <span className={`${styles.cmdBadge} ${styles.cmdBadgeError}`}>執行例外</span>;
   }
-  const judgement = result.ai_judgement;
-  if (!judgement) return "AI 核對尚未完成。";
-  return judgement.error ?? judgement.summary ?? null;
+  const ok = returncode === 0;
+  return (
+    <span className={`${styles.cmdBadge} ${ok ? styles.cmdBadgeOk : styles.cmdBadgeError}`}>
+      returncode {returncode}{ok ? " ✓" : " ✗"}
+    </span>
+  );
 }
 
-function JudgementItemBadge({ item }) {
-  let info = { label: "未判定", className: styles.badge_muted };
-  if (item?.judgement_mode === "teacher") {
-    info = { label: "待導師核查", className: styles.badge_info };
-  } else if (item?.status === "pass") {
-    info = { label: "通過", className: styles.badge_success };
-  } else if (item?.status === "fail") {
-    info = { label: "未通過", className: styles.badge_danger };
-  } else if (item?.status === "warning") {
-    info = { label: "需注意", className: styles.badge_info };
+function CommandOutput({ label, text, isError = false }) {
+  const content = typeof text === "string" ? text : String(text ?? "");
+  if (!content) return null;
+  return (
+    <div className={styles.cmdBlock}>
+      <span className={styles.cmdLabel}>{label}</span>
+      <pre className={isError ? styles.cmdStderr : styles.cmdStdout}>{content}</pre>
+    </div>
+  );
+}
+
+function CommandLog({ raw, fallbackText }) {
+  const parsed = parseCheckRaw(raw);
+  if (!parsed) {
+    if (!raw && !fallbackText) return null;
+    return (
+      <div className={styles.cmdLog}>
+        {raw ? <pre className={styles.cmdStdout}>{raw}</pre> : null}
+        {fallbackText ? <pre className={styles.cmdStderr}>{fallbackText}</pre> : null}
+      </div>
+    );
   }
-  return <span className={`${styles.badge} ${info.className}`}>{info.label}</span>;
+  const empty = !parsed.stdout && !parsed.stderr && parsed.returncode == null;
+  return (
+    <div className={styles.cmdLog}>
+      <div className={styles.cmdHead}>
+        <span className={styles.cmdLabel}>指令輸出</span>
+        <ReturnCodeBadge returncode={parsed.returncode} />
+      </div>
+      {empty ? <span className={styles.cmdEmpty}>（無輸出）</span> : null}
+      <CommandOutput label="stdout" text={parsed.stdout} />
+      <CommandOutput label="stderr" text={parsed.stderr} isError />
+      {Array.isArray(parsed.errors) && parsed.errors.length > 0 && (
+        <CommandOutput label="errors" text={parsed.errors.join("\n")} isError />
+      )}
+    </div>
+  );
 }
 
-function formatUsage(value) {
-  if (typeof value !== "number" || Number.isNaN(value)) return "--";
-  return `${Math.round(value)}%`;
+function CheckResultsTable({ checks }) {
+  const [expanded, setExpanded] = useState(() => new Set());
+  const toggle = (id) => {
+    setExpanded((current) => {
+      const next = new Set(current);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
+  };
+
+  return (
+    <div className={styles.checkTable}>
+      <div className={`${styles.checkRow} ${styles.checkRowHead}`}>
+        <span className={styles.checkToggleCol} />
+        <span className={styles.checkIconCol} />
+        <span>檢查項目</span>
+        <span>摘要</span>
+      </div>
+      {checks.map((check, index) => {
+        const id = check?.id ?? `check-${index}`;
+        const meta = checkStatusMeta(check?.status);
+        const detailId = `${id}-${index}`;
+        const hasDetail = Boolean(
+          check?.evidence || check?.raw || (Array.isArray(check?.errors) && check.errors.length),
+        );
+        const isOpen = hasDetail && expanded.has(detailId);
+        return (
+          <div key={detailId} className={styles.checkItem}>
+            <button
+              type="button"
+              className={`${styles.checkRow} ${styles.checkRowBtn}`}
+              onClick={() => hasDetail && toggle(detailId)}
+              disabled={!hasDetail}
+              aria-expanded={hasDetail ? isOpen : undefined}
+            >
+              <span className={styles.checkToggleCol}>
+                {hasDetail && (
+                  <MIcon name={isOpen ? "expand_less" : "expand_more"} size={16} />
+                )}
+              </span>
+              <span className={`${styles.checkIconCol} ${meta.className}`}>
+                <MIcon name={meta.icon} size={16} />
+              </span>
+              <span className={styles.checkTitle}>{check?.title ?? check?.id ?? "收集項目"}</span>
+              <span className={styles.checkEvidence}>{check?.evidence || "—"}</span>
+            </button>
+            {isOpen && (
+              <div className={styles.checkDetail}>
+                {check?.evidence && <p>{check.evidence}</p>}
+                <CommandLog
+                  raw={check?.raw}
+                  fallbackText={Array.isArray(check?.errors) ? check.errors.join("\n") : ""}
+                />
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
 }
 
-function ExecutionTab({ classId, sessionId, members }) {
-  const toast = useToast();
-  const [selectedVmids, setSelectedVmids] = useState([]);
-  const [dialogOpen, setDialogOpen] = useState(false);
-  const runDialog = useDialogPresence(dialogOpen);
-  const [selectedScriptId, setSelectedScriptId] = useState(null);
-  const [creatingRun, setCreatingRun] = useState(false);
-  const [activeRunRef, setActiveRunRef] = useState(null); // { scriptId, runId }
-  const [activeRun, setActiveRun] = useState(null);
-  const [scripts, setScripts] = useState([]);
-  const [runHistory, setRunHistory] = useState([]);
+/* ── Tab 2：導師核查 ────────────────────────────────────── */
 
-  useEffect(() => {
-    AiJudgeService.listScripts(classId, sessionId)
-      .then(setScripts)
-      .catch(() => {});
-  }, [classId, sessionId]);
+const TEACHER_REVIEW_STATUSES = new Set(["warning", "unknown"]);
 
-  useEffect(() => {
-    let cancelled = false;
-    setActiveRun(null);
-    setActiveRunRef(null);
-    setRunHistory([]);
-    if (!sessionId) return undefined;
-    AiJudgeService.listSessionRuns(classId, sessionId)
-      .then(async (runs) => {
-        if (cancelled) return;
-        setRunHistory(runs);
-        const latest = runs[0];
-        if (latest) {
-          const detail = await AiJudgeService.getSessionRun(classId, sessionId, latest.id);
-          if (cancelled) return;
-          setActiveRun(detail);
-          if (!runIsTerminal(latest.status)) {
-            setActiveRunRef({ scriptId: latest.artifact_id, runId: latest.id });
-          }
-        }
-      })
-      .catch(() => {});
-    return () => {
-      cancelled = true;
+function targetChecks(target) {
+  const checks = target?.parsed_result?.checks;
+  return Array.isArray(checks) ? checks : [];
+}
+
+function targetTeacherReview(target) {
+  const review = target?.teacher_review;
+  return review && typeof review === "object"
+    ? {
+        feedback: typeof review.feedback === "string" ? review.feedback : "",
+        decisions: review.decisions && typeof review.decisions === "object"
+          ? review.decisions
+          : {},
+      }
+    : { feedback: "", decisions: {} };
+}
+
+export function getTargetReviewSummary(target) {
+  if (!target) return { kind: "missing", label: "尚未執行", pending: 0, reviewable: 0 };
+  if (target.status === "failed" || target.validation?.valid === false) {
+    return { kind: "failed", label: "執行失敗", pending: 0, reviewable: 0 };
+  }
+  const reviewable = targetChecks(target).filter((check) => (
+    TEACHER_REVIEW_STATUSES.has(check?.status)
+  ));
+  const decisions = targetTeacherReview(target).decisions;
+  const pending = reviewable.filter((check) => !decisions[check?.id]).length;
+  if (pending > 0) {
+    return {
+      kind: "pending",
+      label: `待核查 ${pending} 項`,
+      pending,
+      reviewable: reviewable.length,
     };
+  }
+  if (reviewable.length > 0) {
+    return { kind: "reviewed", label: "核查完成", pending: 0, reviewable: reviewable.length };
+  }
+  if (targetTeacherReview(target).feedback) {
+    return { kind: "reviewed", label: "已留言", pending: 0, reviewable: 0 };
+  }
+  return { kind: "automatic", label: "AI 已判定", pending: 0, reviewable: 0 };
+}
+
+function reviewDraft(target) {
+  const review = targetTeacherReview(target);
+  return { feedback: review.feedback, decisions: { ...review.decisions } };
+}
+
+function reviewBadgeClass(kind) {
+  if (kind === "pending") return styles.badge_info;
+  if (kind === "failed") return styles.badge_danger;
+  if (kind === "reviewed") return styles.badge_success;
+  return styles.badge_muted;
+}
+
+function ReviewCheckRow({ check, decision, onDecide }) {
+  const meta = checkStatusMeta(check?.status);
+  const reviewable = TEACHER_REVIEW_STATUSES.has(check?.status);
+  return (
+    <div className={styles.reviewCheck}>
+      <span className={`${styles.reviewCheckIcon} ${meta.className}`}><MIcon name={meta.icon} size={17} /></span>
+      <div className={styles.reviewCheckContent}>
+        <div><strong>{check?.title ?? check?.id ?? "收集項目"}</strong><span>{meta.label}</span></div>
+        <p>{check?.evidence || "沒有摘要"}</p>
+        {(check?.raw || (Array.isArray(check?.errors) && check.errors.length > 0)) && (
+          <details><summary>查看原始證據</summary><CommandLog raw={check?.raw} fallbackText={(check?.errors ?? []).join("\n")} /></details>
+        )}
+      </div>
+      {reviewable && (
+        <div className={styles.reviewDecision} aria-label={`${check?.title ?? check?.id}人工判定`}>
+          <button type="button" className={decision === "pass" ? styles.reviewPassActive : ""} aria-pressed={decision === "pass"} onClick={() => onDecide("pass")}><MIcon name="check" size={16} />通過</button>
+          <button type="button" className={decision === "fail" ? styles.reviewFailActive : ""} aria-pressed={decision === "fail"} onClick={() => onDecide("fail")}><MIcon name="close" size={16} />未通過</button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function reviewRowUser(row) {
+  return row?.target?.user ?? row?.member ?? {};
+}
+
+function reviewStudentNumber(row) {
+  const user = reviewRowUser(row);
+  const email = String(user.email ?? "");
+  return String(
+    user.student_number
+    ?? user.student_no
+    ?? user.account
+    ?? email.split("@")[0]
+    ?? "",
+  );
+}
+
+export function sortTeacherReviewRows(rows, sortMode = "pending") {
+  const collator = new Intl.Collator("zh-Hant", { numeric: true, sensitivity: "base" });
+  const byAccount = (left, right) => collator.compare(
+    reviewStudentNumber(left),
+    reviewStudentNumber(right),
+  );
+
+  return [...rows].sort((left, right) => {
+    if (sortMode === "student-number") return byAccount(left, right);
+
+    const rank = { pending: 0, failed: 1, reviewed: 2, automatic: 3, missing: 4 };
+    const statusDelta = rank[getTargetReviewSummary(left.target).kind]
+      - rank[getTargetReviewSummary(right.target).kind];
+    return statusDelta || byAccount(left, right);
+  });
+}
+
+/* ── 檢查點腳本集（run batch）投影 → 核查資料 ── */
+
+function machineNodeReference(nodeKey, machineNodes = []) {
+  const key = String(nodeKey ?? "").trim();
+  const node = Array.isArray(machineNodes)
+    ? machineNodes.find((entry) => String(entry?.node_key ?? "").trim() === key)
+    : null;
+  const sortOrder = Number(node?.sort_order);
+  const displayLabel = node?.display_label
+    ?? (Number.isFinite(sortOrder) ? `P${sortOrder + 1}` : null);
+  const name = node?.name ?? node?.node_name ?? null;
+  return {
+    key,
+    display: [displayLabel, name].filter(Boolean).join(" · ") || key || "未指定節點",
+    displayLabel,
+    name,
+  };
+}
+
+function batchMachineDisplayName(nodeKey, machineNodes = [], fallbackLabel = null) {
+  const reference = machineNodeReference(nodeKey, machineNodes);
+  if (reference.displayLabel) {
+    return reference.name
+      ? `${reference.displayLabel} · ${reference.name}`
+      : reference.displayLabel;
+  }
+  return fallbackLabel ?? null;
+}
+
+function batchNodeItems(node) {
+  return Array.isArray(node?.items) ? node.items : [];
+}
+
+function batchItemChecks(item) {
+  return Array.isArray(item?.checks) ? item.checks : [];
+}
+
+function batchNodeChecks(node) {
+  const checks = [];
+  for (const item of batchNodeItems(node)) {
+    checks.push(...batchItemChecks(item));
+  }
+  return checks;
+}
+
+/** 把批次投影 node 轉成與 legacy run target 相容的核查顯示物件。 */
+export function buildBatchReviewTarget(node, member = null) {
+  const checks = batchNodeChecks(node);
+  return {
+    vmid: node?.vmid ?? member?.vmid ?? null,
+    status: node?.execution_status,
+    reason_code: node?.reason_code ?? null,
+    user: member ?? {},
+    teacher_review: node?.teacher_review ?? undefined,
+    parsed_result: { checks },
+  };
+}
+
+export function mergeNodeTeacherReview(batch, row, teacherReview) {
+  const students = Array.isArray(batch?.students) ? batch.students : [];
+  return {
+    ...batch,
+    students: students.map((student) => {
+      if (String(student?.student_id ?? "") !== String(row.studentId ?? "")) return student;
+      return {
+        ...student,
+        nodes: (Array.isArray(student.nodes) ? student.nodes : []).map((node) => (
+          String(node?.node_key ?? "") === String(row.nodeKey ?? "")
+            ? { ...node, teacher_review: teacherReview ?? undefined }
+            : node
+        )),
+      };
+    }),
+  };
+}
+
+function batchRowKey(studentId, nodeKey, vmid) {
+  return `${String(studentId ?? "")}|${String(nodeKey ?? "")}|${String(vmid ?? "x")}`;
+}
+
+function draftsFromBatch(batch) {
+  const nextDrafts = {};
+  for (const student of Array.isArray(batch?.students) ? batch.students : []) {
+    for (const node of Array.isArray(student?.nodes) ? student.nodes : []) {
+      nextDrafts[batchRowKey(student?.student_id, node?.node_key, node?.vmid)] =
+        reviewDraftFromTeacherReview(node?.teacher_review);
+    }
+  }
+  return nextDrafts;
+}
+
+function reviewDraftFromTeacherReview(review) {
+  return {
+    feedback: typeof review?.feedback === "string" ? review.feedback : "",
+    decisions: review?.decisions && typeof review.decisions === "object"
+      ? { ...review.decisions }
+      : {},
+  };
+}
+
+export function buildBatchReviewRows(batch, members = []) {
+  const memberByVmidNode = new Map();
+  const memberByVmid = new Map();
+  for (const member of Array.isArray(members) ? members : []) {
+    if (member?.vmid == null) continue;
+    const vmid = String(member.vmid);
+    memberByVmidNode.set(`${vmid}|${String(member?.node_key ?? "")}`, member);
+    if (!memberByVmid.has(vmid)) memberByVmid.set(vmid, member);
+  }
+  const rows = [];
+  for (const student of Array.isArray(batch?.students) ? batch.students : []) {
+    for (const node of Array.isArray(student?.nodes) ? student.nodes : []) {
+      const nodeKey = String(node?.node_key ?? "");
+      const member = memberByVmidNode.get(`${String(node?.vmid ?? "")}|${nodeKey}`)
+        ?? memberByVmid.get(String(node?.vmid ?? ""))
+        ?? null;
+      const vmid = node?.vmid ?? member?.vmid ?? null;
+      rows.push({
+        key: batchRowKey(student?.student_id, nodeKey, vmid),
+        member: member ?? { user_id: student?.student_id ?? null },
+        target: buildBatchReviewTarget(node, member),
+        node,
+        runId: node?.run_id ?? null,
+        vmid,
+        studentId: student?.student_id ?? null,
+        nodeKey,
+        items: batchNodeItems(node),
+        unmappedChecks: Array.isArray(node?.unmapped_checks) ? node.unmapped_checks : [],
+      });
+    }
+  }
+  return rows;
+}
+
+export function buildLegacyReviewRows(run, members = []) {
+  const targets = run?.target_results_json?.targets ?? [];
+  const targetsByVmid = new Map(targets.map((target) => [String(target.vmid), target]));
+  const matchedVmids = new Set();
+  const memberRows = (Array.isArray(members) ? members : []).map((member) => {
+    const target = targetsByVmid.get(String(member.vmid));
+    if (target) matchedVmids.add(String(target.vmid));
+    return {
+      key: String(member.vmid ?? member.user_id ?? member.email),
+      member,
+      target: target ?? null,
+      runId: run?.id ?? null,
+      vmid: member.vmid ?? target?.vmid ?? null,
+      items: null,
+    };
+  });
+  const unmatched = targets
+    .filter((target) => !matchedVmids.has(String(target.vmid)))
+    .map((target) => ({
+      key: String(target.vmid ?? target.user?.user_id ?? target.user?.email),
+      member: target.user ?? {},
+      target,
+      runId: run?.id ?? null,
+      vmid: target.vmid ?? null,
+      items: null,
+    }));
+  return [...memberRows, ...unmatched];
+}
+
+export function TeacherReviewTab({ classId, sessionId, members, machineNodes = [] }) {
+  const toast = useToast();
+  const [reviewState, setReviewState] = useState(null); // { mode: "batch", batch } | { mode: "run", run }
+  const [scriptSets, setScriptSets] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState("");
+  const [expandedKey, setExpandedKey] = useState(null);
+  const [drafts, setDrafts] = useState({});
+  const [savingKey, setSavingKey] = useState(null);
+  const [sortMode, setSortMode] = useState("pending");
+  const [runOnceOpen, setRunOnceOpen] = useState(false);
+  const [creatingBatch, setCreatingBatch] = useState(false);
+  const [activeBatch, setActiveBatch] = useState(null);
+  const [selectedSetId, setSelectedSetId] = useState(null);
+  const loadRequestRef = useRef(0);
+  const runOnceDialog = useDialogPresence(runOnceOpen);
+  const batchStatusRef = useRef(null);
+
+  const loadReview = useCallback(async () => {
+    const requestId = ++loadRequestRef.current;
+    setLoading(true);
+    setLoadError("");
+    try {
+      const [sets, runs] = await Promise.all([
+        AiJudgeService.listSessionScriptSets(classId, sessionId).catch(() => []),
+        AiJudgeService.listSessionRuns(classId, sessionId),
+      ]);
+      if (loadRequestRef.current !== requestId) return;
+      setScriptSets(Array.isArray(sets) ? sets : []);
+      const orderedRuns = Array.isArray(runs) ? runs : [];
+      const latest = orderedRuns[0] ?? null;
+      if (latest?.run_batch_id) {
+        const batch = await AiJudgeService.getSessionRunBatch(
+          classId,
+          sessionId,
+          latest.run_batch_id,
+        );
+        if (loadRequestRef.current !== requestId) return;
+        setReviewState({ mode: "batch", batch });
+        setDrafts(draftsFromBatch(batch));
+        return;
+      }
+      const preferred = orderedRuns.find((item) => item.status === "completed") ?? latest;
+      if (!preferred) {
+        setReviewState(null);
+        setDrafts({});
+        return;
+      }
+      const detail = await AiJudgeService.getSessionRun(classId, sessionId, preferred.id);
+      if (loadRequestRef.current !== requestId) return;
+      setReviewState({ mode: "run", run: detail });
+      const nextDrafts = {};
+      for (const target of detail?.target_results_json?.targets ?? []) {
+        nextDrafts[String(target.vmid)] = reviewDraft(target);
+      }
+      setDrafts(nextDrafts);
+    } catch (error) {
+      if (loadRequestRef.current === requestId) {
+        setLoadError(error?.message ?? "無法載入導師核查資料。");
+      }
+    } finally {
+      if (loadRequestRef.current === requestId) setLoading(false);
+    }
   }, [classId, sessionId]);
 
-  /* 執行任務輪詢：每 2 秒直到終態；失敗放慢到 5 秒重試 */
   useEffect(() => {
-    if (!activeRunRef) return undefined;
+    setReviewState(null);
+    setScriptSets([]);
+    setExpandedKey(null);
+    setActiveBatch(null);
+    setSelectedSetId(null);
+    batchStatusRef.current = null;
+    loadReview();
+    return () => {
+      loadRequestRef.current += 1;
+    };
+  }, [loadReview]);
+
+  /* 「一次執行」輪詢：整批到終態後重新載入核查資料 */
+  useEffect(() => {
+    if (!activeBatch?.run_batch_id || runIsTerminal(activeBatch.status)) return undefined;
     let cancelled = false;
     let timer = null;
 
     async function poll() {
       try {
-        const run = await AiJudgeService.getScriptRun(
+        const next = await AiJudgeService.getSessionRunBatch(
           classId,
-          activeRunRef.scriptId,
-          activeRunRef.runId,
+          sessionId,
+          activeBatch.run_batch_id,
         );
         if (cancelled) return;
-        setActiveRun(run);
-        if (!runIsTerminal(run.status)) timer = setTimeout(poll, 2000);
+        setActiveBatch(next);
+        if (!runIsTerminal(next.status)) timer = setTimeout(poll, 2000);
       } catch {
         if (!cancelled) timer = setTimeout(poll, 5000);
       }
     }
 
-    poll();
+    timer = setTimeout(poll, 1500);
     return () => {
       cancelled = true;
       if (timer) clearTimeout(timer);
     };
-  }, [classId, activeRunRef]);
+  }, [classId, sessionId, activeBatch?.run_batch_id, activeBatch?.status]);
 
-  const approvedScripts = useMemo(
-    () => scripts.filter((script) => script.status === "approved"),
-    [scripts],
+  useEffect(() => {
+    const previous = batchStatusRef.current;
+    batchStatusRef.current = activeBatch?.status ?? null;
+    if (
+      activeBatch
+      && previous
+      && previous !== activeBatch.status
+      && runIsTerminal(activeBatch.status)
+    ) {
+      setActiveBatch(null);
+      loadReview();
+    }
+  }, [activeBatch, loadReview]);
+
+  const approvedSets = useMemo(
+    () => scriptSets.filter((set) => set?.status === "approved"),
+    [scriptSets],
   );
-  const effectiveScriptId = selectedScriptId ?? approvedScripts[0]?.id ?? "";
-  const effectiveScript = approvedScripts.find((script) => script.id === effectiveScriptId);
-
-  const runningMembers = members.filter(
-    (member) =>
-      member.vmid &&
-      member.vm_status === "running" &&
-      (member.vm_type === "qemu" || member.vm_type === "lxc"),
+  const selectedSet = useMemo(
+    () => approvedSets.find((set) => set.artifact_set_id === selectedSetId)
+      ?? approvedSets[0]
+      ?? null,
+    [approvedSets, selectedSetId],
   );
-  const selectedSet = new Set(selectedVmids);
+  const batchRunning = Boolean(activeBatch && !runIsTerminal(activeBatch.status));
 
-  const progressTargets = activeRun?.progress_json?.targets ?? [];
-  const resultTargets = activeRun?.target_results_json?.targets ?? [];
-  const resultByVmid = new Map(resultTargets.map((result) => [result.vmid, result]));
+  const rows = useMemo(() => {
+    if (!reviewState) return [];
+    const built = reviewState.mode === "batch"
+      ? buildBatchReviewRows(reviewState.batch, members)
+      : buildLegacyReviewRows(reviewState.run, members);
+    return sortTeacherReviewRows(built, sortMode);
+  }, [reviewState, members, sortMode]);
 
-  function toggleVmid(vmid, checked) {
-    setSelectedVmids((current) =>
-      checked ? Array.from(new Set([...current, vmid])) : current.filter((item) => item !== vmid),
+  const summary = useMemo(() => rows.reduce((counts, row) => {
+    const item = getTargetReviewSummary(row.target);
+    counts.total += 1;
+    if (item.kind === "pending") counts.pending += 1;
+    if (item.kind === "reviewed") counts.reviewed += 1;
+    if (item.kind === "automatic") counts.automatic += 1;
+    if (item.kind === "missing" || item.kind === "failed") counts.unavailable += 1;
+    return counts;
+  }, { total: 0, pending: 0, reviewed: 0, automatic: 0, unavailable: 0 }), [rows]);
+
+  function updateDraft(key, updater) {
+    setDrafts((current) => ({
+      ...current,
+      [key]: updater(current[key] ?? { feedback: "", decisions: {} }),
+    }));
+  }
+
+  function toggleDecision(key, checkId, decision) {
+    updateDraft(key, (current) => {
+      const decisions = { ...current.decisions };
+      if (decisions[checkId] === decision) delete decisions[checkId];
+      else decisions[checkId] = decision;
+      return { ...current, decisions };
+    });
+  }
+
+  async function saveRow(row) {
+    const draft = drafts[row.key] ?? reviewDraft(row.target);
+    setSavingKey(row.key);
+    try {
+      const updated = await AiJudgeService.updateTargetReview(
+        classId,
+        sessionId,
+        row.runId,
+        row.vmid,
+        draft,
+      );
+      const savedTarget = (updated?.target_results_json?.targets ?? [])
+        .find((item) => String(item?.vmid) === String(row.vmid));
+      if (reviewState?.mode === "batch") {
+        const savedReview = savedTarget?.teacher_review;
+        setReviewState((current) => (
+          current?.mode === "batch"
+            ? { mode: "batch", batch: mergeNodeTeacherReview(current.batch, row, savedReview) }
+            : current
+        ));
+        setDrafts((current) => ({
+          ...current,
+          [row.key]: reviewDraftFromTeacherReview(savedReview),
+        }));
+      } else if (reviewState?.mode === "run") {
+        setReviewState({ mode: "run", run: updated });
+        setDrafts((current) => ({ ...current, [row.key]: reviewDraft(savedTarget) }));
+      }
+      toast.success("導師核查已儲存。");
+    } catch (error) {
+      toast.error(error?.message ?? "導師核查儲存失敗。");
+    } finally {
+      setSavingKey(null);
+    }
+  }
+
+  async function handleRunOnce() {
+    if (!selectedSet || creatingBatch || batchRunning) return;
+    setCreatingBatch(true);
+    try {
+      const next = await AiJudgeService.createSessionScriptSetRun(
+        classId,
+        sessionId,
+        selectedSet.artifact_set_id,
+      );
+      batchStatusRef.current = next?.status ?? null;
+      setActiveBatch(next);
+      setRunOnceOpen(false);
+      setSelectedSetId(null);
+      toast.success(`已建立整批執行（${next?.summary?.targets ?? 0} 台機器）`);
+    } catch (error) {
+      toast.error(error?.message ?? "建立整批執行失敗");
+    } finally {
+      setCreatingBatch(false);
+    }
+  }
+
+  function renderRunOnceDialog() {
+    if (!runOnceDialog.open) return null;
+    const children = Array.isArray(selectedSet?.children) ? selectedSet.children : [];
+    return (
+      <div
+        className={`${styles.modalOverlay} ${runOnceDialog.closing ? styles.modalOverlayOut : ""}`}
+        onMouseDown={() => setRunOnceOpen(false)}
+      >
+        <div className={styles.modal} onMouseDown={(event) => event.stopPropagation()}>
+          <div className={styles.modalHeader}>
+            <div>
+              <h2>一次執行整組檢查點</h2>
+              <p>後端會把每個檢查點腳本送到每位學生對應的邏輯機器；目標機器必須正在運行且已登記 SSH 金鑰。</p>
+            </div>
+            <button
+              type="button"
+              className={styles.dialogClose}
+              onClick={() => setRunOnceOpen(false)}
+              aria-label="關閉"
+            >
+              <MIcon name="close" size={18} />
+            </button>
+          </div>
+
+          {approvedSets.length > 1 && (
+            <label className={styles.field}>
+              <span>選擇腳本集</span>
+              <select
+                value={selectedSet?.artifact_set_id ?? ""}
+                onChange={(event) => setSelectedSetId(event.target.value)}
+              >
+                {approvedSets.map((set) => (
+                  <option key={set.artifact_set_id} value={set.artifact_set_id}>
+                    revision {set.source_analysis_revision ?? "—"} · {set.children?.length ?? 0} 台機器
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
+
+          <div className={styles.vmidBox}>
+            <span className={styles.fieldLabel}>執行範圍（{children.length} 個邏輯機器）</span>
+            <div className={styles.chipRow}>
+              {children.map((child) => (
+                <span key={child.id} className={styles.chip}>
+                  {batchMachineDisplayName(child.target_node_key, machineNodes, child.name) ?? "未指定節點"}
+                </span>
+              ))}
+            </div>
+          </div>
+
+          <div className={styles.modalActions}>
+            <button
+              type="button"
+              className={styles.btnSecondary}
+              onClick={() => setRunOnceOpen(false)}
+              disabled={creatingBatch}
+            >
+              取消
+            </button>
+            <button
+              type="button"
+              className={styles.btnPrimary}
+              onClick={handleRunOnce}
+              disabled={creatingBatch || !selectedSet}
+            >
+              {creatingBatch ? "建立中..." : "確認執行"}
+            </button>
+          </div>
+        </div>
+      </div>
     );
   }
 
-  async function handleCreateRun() {
-    setCreatingRun(true);
-    try {
-      const run = sessionId
-        ? await AiJudgeService.createSessionRun(
-            classId,
-            sessionId,
-            effectiveScriptId,
-            selectedVmids,
-          )
-        : await AiJudgeService.createScriptRun(classId, effectiveScriptId, selectedVmids);
-      toast.success(
-        `已建立腳本執行任務（${run.progress_json?.total ?? selectedVmids.length} 台）`,
-      );
-      setActiveRun(run);
-      setRunHistory((current) => [run, ...current.filter((item) => item.id !== run.id)]);
-      setActiveRunRef({ scriptId: effectiveScriptId, runId: run.id });
-      setDialogOpen(false);
-      setSelectedScriptId(null);
-      setSelectedVmids([]);
-    } catch (err) {
-      toast.error(err?.message ?? "建立執行任務失敗");
-    } finally {
-      setCreatingRun(false);
-    }
+  if (loading) return <LoadingState text="正在整理學生檢查結果…" />;
+  if (loadError) return <div className={styles.noticeDanger}>{loadError}</div>;
+  if (!reviewState) {
+    return (
+      <div className={styles.tabBody}>
+        <div className={`${styles.card} ${styles.reviewEmpty}`}>
+          <MIcon name="rate_review" size={30} />
+          <h4>還沒有可核查的結果</h4>
+          {approvedSets.length > 0 ? (
+            <>
+              <p>整組檢查點腳本已就緒；可以立即一次執行，後端會把每份腳本分散到每位學生的對應機器。</p>
+              <button
+                type="button"
+                className={styles.btnPrimary}
+                onClick={() => setRunOnceOpen(true)}
+                disabled={creatingBatch}
+              >
+                {creatingBatch ? <Spinner size={15} /> : <MIcon name="bolt" size={16} />}
+                一次執行整組檢查點
+              </button>
+            </>
+          ) : (
+            <p>尚未建立可執行的檢查腳本集。請先在「檢查設定」製作腳本並通過審查。</p>
+          )}
+        </div>
+        {renderRunOnceDialog()}
+      </div>
+    );
   }
 
   return (
     <div className={styles.tabBody}>
-      <div className={styles.execToolbar}>
-        <span className={styles.mutedText}>
-          可執行 {runningMembers.length} / 全部 {members.length} 台，已選{" "}
-          <strong>{selectedVmids.length}</strong> 台
-        </span>
-        <div className={styles.sectionActions}>
-          <button
-            type="button"
-            className={styles.btnSecondary}
-            onClick={() => setSelectedVmids(runningMembers.map((m) => m.vmid).filter(Boolean))}
-            disabled={runningMembers.length === 0}
-          >
-            選取運行中
-          </button>
-          <button
-            type="button"
-            className={styles.btnSecondary}
-            onClick={() => setSelectedVmids([])}
-            disabled={selectedVmids.length === 0}
-          >
-            清除
-          </button>
-          <button
-            type="button"
-            className={styles.btnPrimary}
-            onClick={() => setDialogOpen(true)}
-            disabled={selectedVmids.length === 0 || approvedScripts.length === 0}
-          >
-            <MIcon name="play_circle_outline" size={16} />
-            執行腳本
-          </button>
-        </div>
-      </div>
-
-      <div className={styles.tableWrap}>
-        <table className={styles.table}>
-          <thead>
-            <tr>
-              <th className={styles.checkCol} />
-              <th>機器編號</th>
-              <th>成員</th>
-              <th>類型</th>
-              <th>狀態</th>
-              <th>資源摘要</th>
-            </tr>
-          </thead>
-          <tbody>
-            {runningMembers.length === 0 ? (
-              <tr>
-                <td colSpan={6} className={styles.tableEmpty}>
-                  目前沒有可執行的運行中 VM/LXC。
-                </td>
-              </tr>
-            ) : (
-              runningMembers.map((member) => (
-                <tr key={member.user_id}>
-                  <td>
-                    <input
-                      type="checkbox"
-                      className={styles.checkbox}
-                      checked={selectedSet.has(member.vmid)}
-                      onChange={(e) => toggleVmid(member.vmid, e.target.checked)}
-                    />
-                  </td>
-                  <td className={styles.monoCell}>{member.vmid ?? "-"}</td>
-                  <td>
-                    <div>{member.full_name ?? "-"}</div>
-                    <div className={styles.fileMeta}>{member.email}</div>
-                  </td>
-                  <td className={styles.typeCell}>{member.vm_type ? (member.vm_type === "lxc" ? "LXC" : "VM") : "-"}</td>
-                  <td>
-                    <span className={`${styles.badge} ${styles.badge_success}`}>運行中</span>
-                  </td>
-                  <td className={styles.fileMeta}>
-                    CPU {formatUsage(member.vm_cpu_usage_pct)} · RAM{" "}
-                    {formatUsage(member.vm_ram_usage_pct)} · 碟{" "}
-                    {formatUsage(member.vm_disk_usage_pct)}
-                  </td>
-                </tr>
-              ))
-            )}
-          </tbody>
-        </table>
-      </div>
-
-      {activeRun && (
-        <div className={styles.card}>
-          <div className={styles.cardHead}>
-            <div>
-              <h4 className={styles.cardTitle}>
-                最近一次執行結果
-                <StatusBadge map={RUN_STATUS} status={activeRun.status} />
-              </h4>
-              <p className={styles.fileMeta}>
-                進度 {activeRun.progress_json?.done ?? 0} /{" "}
-                {activeRun.progress_json?.total ?? progressTargets.length} 台
-              </p>
-            </div>
-            {!runIsTerminal(activeRun.status) && (
+      <div className={`${styles.card} ${styles.reviewOverview}`}>
+        <div className={styles.reviewOverviewHead}>
+          <h4 className={styles.cardTitle}><MIcon name="rate_review" size={19} />導師核查</h4>
+          <div className={styles.sectionActions}>
+            {batchRunning && (
               <span className={styles.mutedText}>
-                <Spinner size={14} /> 更新中...
+                <Spinner size={14} />
+                執行中 {activeBatch.summary?.completed ?? 0} / {activeBatch.summary?.targets ?? 0} 台…
               </span>
             )}
-          </div>
-
-          <div className={styles.tableWrap}>
-            <table className={styles.table}>
-              <thead>
-                <tr>
-                  <th>編號</th>
-                  <th>成員</th>
-                  <th>來源節點</th>
-                  <th>執行狀態</th>
-                  <th>系統核對／導師核查</th>
-                </tr>
-              </thead>
-              <tbody>
-                {progressTargets.map((target) => {
-                  const result = resultByVmid.get(target.vmid);
-                  const user = result?.user ?? target.user;
-                  const proxmoxNode = result?.proxmox_node ?? target.proxmox_node;
-                  const resourceType = result?.resource_type ?? target.resource_type;
-                  const targetReason = reasonLabel(result?.reason_code ?? target.reason_code);
-                  const summary = aiJudgementSummary(result);
-                  const summaryIsError =
-                    result?.validation?.valid === false ||
-                    result?.ai_judgement?.status === "failed";
-                  return (
-                    <tr key={target.vmid}>
-                      <td className={styles.monoCell}>{target.name ?? target.vmid}</td>
-                      <td>
-                        <div>{user?.full_name ?? "-"}</div>
-                        {user?.email && <div className={styles.fileMeta}>{user.email}</div>}
-                      </td>
-                      <td>
-                        <div className={styles.monoCell}>{proxmoxNode ?? "-"}</div>
-                        <div className={`${styles.fileMeta} ${styles.typeCell}`}>
-                          {resourceType ? (resourceType === "lxc" ? "LXC" : "VM") : "-"}
-                        </div>
-                      </td>
-                      <td>
-                        <StatusBadge map={TARGET_STATUS} status={target.status} />
-                        {targetReason && targetReason !== "成功" && (
-                          <div className={styles.fileMeta}>{targetReason}</div>
-                        )}
-                      </td>
-                      <td>
-                        <AiJudgementBadge result={result} />
-                        {result ? (
-                          <details className={styles.judgeDetails}>
-                            <summary>查看檢查結果說明</summary>
-                            {summary && (
-                              <p className={summaryIsError ? styles.dangerText : styles.mutedText}>
-                                {summary}
-                              </p>
-                            )}
-                            {(result.ai_judgement?.item_judgements ?? []).map((item, index) => (
-                              <div key={`${item.item_id ?? "item"}-${index}`} className={styles.judgeItem}>
-                                <div className={styles.judgeItemHead}>
-                                  <span>{item.title ?? item.item_id ?? "檢查項目"}</span>
-                                  <JudgementItemBadge item={item} />
-                                </div>
-                                {item.comment && <p>{item.comment}</p>}
-                              </div>
-                            ))}
-                            {(result.parsed_result?.checks ?? []).length > 0 && (
-                              <div className={styles.judgeItem}>
-                                <div className={styles.judgeItemHead}>
-                                  <span>腳本收集證據</span>
-                                </div>
-                                {(result.parsed_result.checks ?? []).map((check, index) => (
-                                  <div key={`${check.id ?? "check"}-${index}`}>
-                                    <strong>{check.title ?? check.id ?? "收集項目"}</strong>
-                                    {check.evidence && <p>{check.evidence}</p>}
-                                    {check.raw && <pre>{check.raw}</pre>}
-                                  </div>
-                                ))}
-                              </div>
-                            )}
-                          </details>
-                        ) : (
-                          <div className={styles.fileMeta}>等待回收</div>
-                        )}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+            <button
+              type="button"
+              className={styles.btnPrimary}
+              onClick={() => setRunOnceOpen(true)}
+              disabled={creatingBatch || batchRunning || approvedSets.length === 0}
+              title={approvedSets.length === 0
+                ? "此檢查還沒有已通過審查的腳本集"
+                : "把整組檢查點腳本分散到對應機器執行"}
+            >
+              {creatingBatch ? <Spinner size={15} /> : <MIcon name="bolt" size={16} />}
+              一次執行
+            </button>
           </div>
         </div>
-      )}
-
-      {sessionId && runHistory.length > 0 && (
-        <div className={styles.card}>
-          <h4 className={styles.cardTitle}>歷次執行</h4>
-          <div className={styles.runHistory}>
-            {runHistory.map((run) => (
-              <button
-                key={run.id}
-                type="button"
-                className={styles.runHistoryItem}
-                onClick={async () => {
-                  try {
-                    const detail = await AiJudgeService.getSessionRun(
-                      classId,
-                      sessionId,
-                      run.id,
-                    );
-                    setActiveRun(detail);
-                    setActiveRunRef(
-                      runIsTerminal(run.status)
-                        ? null
-                        : { scriptId: run.artifact_id, runId: run.id },
-                    );
-                  } catch (err) {
-                    toast.error(err?.message ?? "載入執行結果失敗");
-                  }
-                }}
-              >
-                <span>{formatDateTime(run.created_at)}</span>
-                <StatusBadge map={RUN_STATUS} status={run.status} />
-              </button>
+        <div className={styles.reviewMetrics} aria-label="核查進度">
+          <span><strong>{summary.pending}</strong><small>待核查</small></span>
+          <span><strong>{summary.reviewed}</strong><small>已核查／留言</small></span>
+          <span><strong>{summary.automatic}</strong><small>AI 已判定</small></span>
+          <span><strong>{summary.total}</strong><small>{reviewState.mode === "batch" ? "機器總數" : "學生總數"}</small></span>
+        </div>
+        {activeBatch && (
+          <div className={styles.runOnceProgress} aria-live="polite">
+            {(activeBatch.nodes ?? []).map((node) => (
+              <div className={styles.runOnceProgressLine} key={node.run_id}>
+                <span>{batchMachineDisplayName(node.target_node_key, machineNodes, node.display_label) ?? "—"}</span>
+                <StatusBadge map={RUN_STATUS} status={node.status} />
+                <small>完成 {node.progress_json?.done ?? 0} / {node.progress_json?.total ?? 0}</small>
+              </div>
             ))}
           </div>
-        </div>
-      )}
+        )}
+      </div>
 
-      {runDialog.open && (
-        <div
-          className={`${styles.modalOverlay} ${runDialog.closing ? styles.modalOverlayOut : ""}`}
-          onMouseDown={() => setDialogOpen(false)}
-        >
-          <div className={styles.modal} onMouseDown={(e) => e.stopPropagation()}>
-            <div className={styles.modalHeader}>
-              <div>
-                <h2>確認執行腳本</h2>
-                <p>後端會在送出時再次確認這些 VM/LXC 仍屬於此班級且正在運行。</p>
-              </div>
+      <div className={styles.reviewListSection}>
+        <div className={styles.reviewListToolbar}>
+          <label className={styles.reviewSort}>
+            <MIcon name="sort" size={16} />
+            <span>排序</span>
+            <select value={sortMode} onChange={(event) => setSortMode(event.target.value)}>
+              <option value="pending">待處理優先</option>
+              <option value="student-number">學號／帳號</option>
+            </select>
+          </label>
+        </div>
+        <div className={styles.reviewStudentList}>
+          {rows.map((row) => {
+          const { member, target } = row;
+          const vmid = row.vmid ?? target?.vmid ?? member?.vmid;
+          const user = target?.user ?? member ?? {};
+          const itemSummary = getTargetReviewSummary(target);
+          const isOpen = expandedKey === row.key;
+          const checks = targetChecks(target);
+          const counts = checks.reduce((result, check) => {
+            const status = check?.status;
+            if (status === "pass") result.pass += 1;
+            else if (status === "fail") result.fail += 1;
+            else if (TEACHER_REVIEW_STATUSES.has(status)) result.review += 1;
+            return result;
+          }, { pass: 0, fail: 0, review: 0 });
+          const draft = drafts[row.key] ?? reviewDraft(target);
+          const saved = targetTeacherReview(target);
+          const isDirty = Boolean(target) && (
+            draft.feedback !== saved.feedback
+            || JSON.stringify(draft.decisions) !== JSON.stringify(saved.decisions)
+          );
+          const nodeLabel = row.nodeKey
+            ? batchMachineDisplayName(row.nodeKey, machineNodes, row.node?.display_label) ?? row.nodeKey
+            : null;
+          return (
+            <article className={`${styles.reviewStudent} ${isOpen ? styles.reviewStudentOpen : ""}`} key={row.key}>
               <button
                 type="button"
-                className={styles.iconBtn}
-                onClick={() => setDialogOpen(false)}
-                aria-label="關閉"
+                className={styles.reviewStudentToggle}
+                onClick={() => setExpandedKey(isOpen ? null : row.key)}
+                aria-expanded={isOpen}
               >
-                <MIcon name="close" size={18} />
-              </button>
-            </div>
-
-            <label className={styles.field}>
-              <span>選擇腳本</span>
-              <select
-                value={effectiveScriptId}
-                onChange={(e) => setSelectedScriptId(e.target.value)}
-              >
-                {approvedScripts.map((script) => (
-                  <option key={script.id} value={script.id}>
-                    {script.name}
-                  </option>
-                ))}
-              </select>
-              {approvedScripts.length === 0 && (
-                <span className={styles.fileMeta}>
-                  目前沒有已通過自動檢查的腳本，請先完成檢查腳本產生。
-                </span>
-              )}
-            </label>
-
-            <div className={styles.vmidBox}>
-              <span className={styles.fieldLabel}>執行機器（{selectedVmids.length} 台）</span>
-              <div className={styles.chipRow}>
-                {selectedVmids.map((vmid) => (
-                  <span key={vmid} className={styles.chip}>
-                    {vmid}
+                <span className={styles.reviewStudentIdentity}>
+                  <span className={styles.reviewAvatar}><MIcon name="person" size={18} /></span>
+                  <span>
+                    <strong>{user.full_name ?? "未命名學生"}</strong>
+                    <small>
+                      {user.email ?? ""}{vmid ? ` · VMID ${vmid}` : ""}
+                      {nodeLabel ? ` · ${nodeLabel}` : ""}
+                    </small>
                   </span>
-                ))}
-              </div>
-            </div>
-
-            {effectiveScript && (
-              <p className={styles.fileMeta}>
-                即將使用：{effectiveScript.name}（
-                {getTemplateLabel(effectiveScript.template_key)}）
-              </p>
-            )}
-
-            <div className={styles.modalActions}>
-              <button
-                type="button"
-                className={styles.btnSecondary}
-                onClick={() => setDialogOpen(false)}
-                disabled={creatingRun}
-              >
-                取消
+                </span>
+                <span className={styles.reviewAiCounts} aria-label="AI 檢查摘要">
+                  {target && <><em className={styles.reviewCountPass}>{counts.pass} 通過</em><em className={styles.reviewCountFail}>{counts.fail} 未通過</em><em className={styles.reviewCountPending}>{counts.review} 待確認</em></>}
+                </span>
+                <span className={`${styles.badge} ${reviewBadgeClass(itemSummary.kind)}`}>{itemSummary.label}</span>
+                <MIcon name={isOpen ? "expand_less" : "expand_more"} size={20} />
               </button>
-              <button
-                type="button"
-                className={styles.btnPrimary}
-                onClick={handleCreateRun}
-                disabled={creatingRun || selectedVmids.length === 0 || !effectiveScriptId}
-              >
-                {creatingRun ? "建立中..." : "確認執行"}
-              </button>
-            </div>
-          </div>
+
+              {isOpen && (
+                <div className={styles.reviewStudentBody}>
+                  {!target ? (
+                    <div className={styles.reviewNoResult}>這位學生不在最近一次執行範圍內，尚無 AI 檢查結果。</div>
+                  ) : (
+                    <>
+                      {row.items ? (
+                        <div className={styles.reviewCheckList}>
+                          {row.items.length === 0 && (
+                            <p className={styles.mutedText}>此機器沒有回傳可顯示的檢查點。</p>
+                          )}
+                          {row.items.map((item, itemIndex) => {
+                            const itemMeta = checkStatusMeta(item?.status);
+                            const itemChecks = Array.isArray(item?.checks) ? item.checks : [];
+                            const peerText = item?.peer_node_key
+                              ? `觀察 ${item?.peer_display_label ?? item.peer_node_key}`
+                              : null;
+                            return (
+                              <div
+                                className={styles.reviewCheckGroup}
+                                key={`${row.key}-item-${item?.rubric_item_id ?? itemIndex}`}
+                              >
+                                <div className={styles.reviewCheckGroupHead}>
+                                  <span className={`${styles.reviewCheckIcon} ${itemMeta.className}`}>
+                                    <MIcon name={itemMeta.icon} size={17} />
+                                  </span>
+                                  <div className={styles.reviewCheckGroupTitle}>
+                                    <strong>{item?.title ?? item?.rubric_item_id ?? "檢查點"}</strong>
+                                    <span>{itemMeta.label}{peerText ? ` · ${peerText}` : ""}</span>
+                                  </div>
+                                </div>
+                                {itemChecks.length === 0 ? (
+                                  <p className={styles.mutedText}>
+                                    {item?.reason_code === "peer_unavailable"
+                                      ? "對應的受控機器目前無法連線，此檢查點暫時無法自動判定。"
+                                      : "此檢查點沒有回傳可顯示的結果。"}
+                                  </p>
+                                ) : itemChecks.map((check, checkIndex) => (
+                                  <ReviewCheckRow
+                                    key={`${item?.rubric_item_id ?? "item"}-${check?.id ?? "check"}-${checkIndex}`}
+                                    check={check}
+                                    decision={draft.decisions[check?.id]}
+                                    onDecide={(value) => toggleDecision(row.key, check?.id, value)}
+                                  />
+                                ))}
+                              </div>
+                            );
+                          })}
+                          {(row.unmappedChecks ?? []).length > 0 && (
+                            <details className={styles.judgeDetails}>
+                              <summary>未對應檢查點</summary>
+                              <CheckResultsTable checks={row.unmappedChecks} />
+                            </details>
+                          )}
+                        </div>
+                      ) : (
+                        <div className={styles.reviewCheckList}>
+                          {checks.length === 0 ? <p className={styles.mutedText}>腳本沒有回傳可顯示的檢查項目。</p> : checks.map((check, index) => (
+                            <ReviewCheckRow
+                              key={`${check?.id ?? "check"}-${index}`}
+                              check={check}
+                              decision={draft.decisions[check?.id]}
+                              onDecide={(value) => toggleDecision(row.key, check?.id, value)}
+                            />
+                          ))}
+                        </div>
+                      )}
+
+                      <label className={styles.reviewFeedbackField}>
+                        <span>給學生的本週回饋 <small>選填</small></span>
+                        <textarea
+                          value={draft.feedback}
+                          maxLength={4000}
+                          rows={3}
+                          placeholder="例如：服務已能啟動，接下來請補上錯誤處理並重新確認日誌。"
+                          onChange={(event) => updateDraft(row.key, (current) => ({ ...current, feedback: event.target.value }))}
+                        />
+                        <small>{draft.feedback.length} / 4000</small>
+                      </label>
+                      <div className={styles.reviewSaveRow}>
+                        <span>{isDirty ? "有尚未儲存的變更" : saved.feedback || Object.keys(saved.decisions).length ? `上次儲存：${target.teacher_review?.updated_at ? formatDateTime(target.teacher_review.updated_at) : "已儲存"}` : "可只判定、不留言；也可以只留言。"}</span>
+                        <button type="button" className={styles.btnPrimary} disabled={!isDirty || savingKey === row.key} onClick={() => saveRow(row)}>{savingKey === row.key ? <><Spinner size={15} />儲存中…</> : <><MIcon name="save" size={16} />儲存核查</>}</button>
+                      </div>
+                    </>
+                  )}
+                </div>
+              )}
+            </article>
+          );
+          })}
         </div>
-      )}
+      </div>
+      {renderRunOnceDialog()}
     </div>
   );
 }
@@ -2747,11 +3490,11 @@ function ExecutionTab({ classId, sessionId, members }) {
 
 const TEACHER_JUDGE_TABS = [
   { key: "rubrics", label: "檢查設定", icon: "description" },
-  { key: "execution", label: "執行結果", icon: "play_circle_outline" },
+  { key: "review", label: "導師核查", icon: "rate_review" },
   { key: "scripts", label: "腳本總覽", icon: "terminal" },
 ];
 
-function TeacherWorkspacePanel({ classId, members, weeks = [] }) {
+function TeacherWorkspacePanel({ classId, members, weeks = [], machineNodes = [] }) {
   const toast = useToast();
   const [searchParams] = useSearchParams();
   const requestedSessionId = searchParams.get("check");
@@ -3143,8 +3886,8 @@ function TeacherWorkspacePanel({ classId, members, weeks = [] }) {
               </aside>
               <div className={styles.checkContentCol}>
                 <div className={`${styles.card} ${styles.checkTabsCard}`}>{subTabsBar}</div>
-                {activeTab === "scripts" && <ScriptsTab classId={classId} sessionId={activeSession.id} initialSelectedId={focusedScriptId} onScriptApproved={() => setActiveTab("execution")} />}
-                {activeTab === "execution" && <ExecutionTab classId={classId} sessionId={activeSession.id} members={members} />}
+                {activeTab === "scripts" && <ScriptsTab classId={classId} sessionId={activeSession.id} initialSelectedId={focusedScriptId} onScriptApproved={() => setActiveTab("review")} />}
+                {activeTab === "review" && <TeacherReviewTab classId={classId} sessionId={activeSession.id} members={members} machineNodes={machineNodes} />}
               </div>
             </div>
           </section>
@@ -3186,7 +3929,7 @@ function TeacherWorkspacePanel({ classId, members, weeks = [] }) {
                 <h2>調整檢查週次</h2>
                 <p>「{moveWeekTarget.title}」只會出現在所選週次，學生端不會再混到其他週。</p>
               </div>
-              <button type="button" className={styles.iconBtn} aria-label="關閉" onClick={() => setMoveWeekTarget(null)}><MIcon name="close" size={18} /></button>
+              <button type="button" className={styles.dialogClose} aria-label="關閉" onClick={() => setMoveWeekTarget(null)}><MIcon name="close" size={18} /></button>
             </div>
             <label className={styles.dialogField}>
               <span>所屬週任務</span>
@@ -3208,6 +3951,6 @@ function TeacherWorkspacePanel({ classId, members, weeks = [] }) {
   );
 }
 
-export default function AiJudgePanel({ classId, members, weeks = [] }) {
-  return <TeacherWorkspacePanel classId={classId} members={members} weeks={weeks} />;
+export default function AiJudgePanel({ classId, members, weeks = [], machineNodes = [] }) {
+  return <TeacherWorkspacePanel classId={classId} members={members} weeks={weeks} machineNodes={machineNodes} />;
 }
