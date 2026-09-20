@@ -172,6 +172,10 @@ async def test_create_artifact_set_writes_one_child_per_executor_node(
 
     assert result.status == "approved"
     assert [child.target_node_key for child in result.children] == ["web", "db"]
+    assert [child.name for child in result.children] == [
+        "network rubric · Web",
+        "network rubric · Database",
+    ]
     assert len({child.artifact_set_id for child in result.children}) == 1
     assert all(child.source_analysis_revision == 3 for child in result.children)
     assert [
@@ -180,6 +184,151 @@ async def test_create_artifact_set_writes_one_child_per_executor_node(
     ] == ["db-to-web"]
     rows = list(session.exec(select(TeacherJudgeScriptArtifact)).all())
     assert len(rows) == 2
+
+
+@pytest.mark.asyncio
+async def test_create_artifact_set_child_name_falls_back_and_truncates(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    session = make_session()
+    class_id = uuid.uuid4()
+    session.add_all(
+        [
+            TeachingClassMachineNode(
+                class_id=class_id,
+                node_key="node-1727412345678",
+                name="",
+                role="frontend",
+                resource_type="lxc",
+                cpu=1,
+                memory_mb=512,
+                disk_gb=8,
+                sort_order=0,
+            ),
+            TeachingClassMachineNode(
+                class_id=class_id,
+                node_key="db",
+                name="機" * 250,
+                role="database",
+                resource_type="lxc",
+                cpu=1,
+                memory_mb=512,
+                disk_gb=8,
+                sort_order=1,
+            ),
+        ]
+    )
+    session.commit()
+
+    monkeypatch.setattr(
+        script_artifact_service,
+        "get_enabled_template_commands",
+        lambda *_args, **_kwargs: [],
+    )
+    monkeypatch.setattr(
+        script_artifact_service,
+        "ensure_script_generation_supported",
+        lambda *_args, **_kwargs: None,
+    )
+    monkeypatch.setattr(
+        script_artifact_service,
+        "source_file_snapshot",
+        lambda **_kwargs: (None, {}),
+    )
+
+    async def fake_build(
+        *, rubric_snapshot: dict[str, Any], template_key: str
+    ) -> tuple[Any, ...]:
+        return (
+            "print('ok')",
+            {"approved": True, "issues": []},
+            {"approved": True, "issues": []},
+            TeacherJudgeScriptStatus.reviewed,
+            [],
+        )
+
+    monkeypatch.setattr(
+        script_artifact_service,
+        "_build_reviewed_script_for_artifact",
+        fake_build,
+    )
+
+    result = await script_artifact_service.create_artifact_set(
+        session=session,
+        teaching_class_id=class_id,
+        session_id=uuid.uuid4(),
+        name="checklist",
+        template_key="linux",
+        rubric_analysis=TeacherJudgeRubricAnalysis(
+            items=[
+                _item("fallback-check", "node-1727412345678"),
+                _item("db-health", "db"),
+            ]
+        ),
+        source_analysis_revision=1,
+        created_by=uuid.uuid4(),
+        source_file_id=None,
+    )
+
+    assert [child.name for child in result.children] == [
+        "checklist · node-1727412345678",
+        ("checklist · " + "機" * 250)[:255],
+    ]
+    assert all(len(child.name) <= 255 for child in result.children)
+
+
+def test_list_artifacts_maps_legacy_node_key_suffix_to_machine_name() -> None:
+    session = make_session()
+    class_id = uuid.uuid4()
+    session.add(
+        TeachingClassMachineNode(
+            class_id=class_id,
+            node_key="web",
+            name="Web",
+            role="frontend",
+            resource_type="lxc",
+            cpu=1,
+            memory_mb=512,
+            disk_gb=8,
+            sort_order=0,
+        )
+    )
+    session.add_all(
+        [
+            TeacherJudgeScriptArtifact(
+                teaching_class_id=class_id,
+                target_node_key="web",
+                name="network rubric · web",
+                template_key="linux",
+                script_content="print('ok')",
+            ),
+            TeacherJudgeScriptArtifact(
+                teaching_class_id=class_id,
+                name="自訂名稱",
+                template_key="linux",
+                script_content="print('ok')",
+            ),
+            TeacherJudgeScriptArtifact(
+                teaching_class_id=class_id,
+                target_node_key="ghost",
+                name="network rubric · ghost",
+                template_key="linux",
+                script_content="print('ok')",
+            ),
+        ]
+    )
+    session.commit()
+
+    scripts = script_artifact_service.list_artifacts(
+        session=session, teaching_class_id=class_id
+    )
+    names_by_node = {
+        str(script.target_node_key): script.name for script in scripts
+    }
+
+    assert names_by_node["web"] == "network rubric · Web"
+    assert names_by_node["None"] == "自訂名稱"
+    assert names_by_node["ghost"] == "network rubric · ghost"
 
 
 def _peer_script(command: str = "ping") -> str:

@@ -334,8 +334,39 @@ def _normalize_ai_review(payload: Any) -> AIReviewResult:
     }
 
 
+def _class_machine_display_names(
+    session: Session,
+    teaching_class_id: uuid.UUID,
+) -> dict[str, str]:
+    return {
+        node.node_key: (node.name or "").strip() or node.node_key
+        for node in load_class_machine_nodes(session, teaching_class_id)
+    }
+
+
+def _artifact_public_name(
+    artifact: TeacherJudgeScriptArtifact,
+    node_display_names: dict[str, str] | None,
+) -> str:
+    """Map a legacy `· {node_key}` name suffix to the teacher's machine name."""
+
+    if not node_display_names:
+        return artifact.name
+    node_key = str(artifact.target_node_key or "")
+    if not node_key:
+        return artifact.name
+    suffix = f" · {node_key}"
+    if not artifact.name.endswith(suffix):
+        return artifact.name
+    machine_name = node_display_names.get(node_key)
+    if not machine_name or machine_name == node_key:
+        return artifact.name
+    return f"{artifact.name[: -len(suffix)]} · {machine_name}"[:255]
+
+
 def _artifact_to_public(
     artifact: TeacherJudgeScriptArtifact,
+    node_display_names: dict[str, str] | None = None,
 ) -> TeacherJudgeScriptArtifactPublic:
     return TeacherJudgeScriptArtifactPublic(
         id=str(artifact.id),
@@ -346,7 +377,7 @@ def _artifact_to_public(
         source_analysis_revision=artifact.source_analysis_revision,
         teaching_class_id=str(artifact.teaching_class_id),
         session_id=str(artifact.session_id) if artifact.session_id else None,
-        name=artifact.name,
+        name=_artifact_public_name(artifact, node_display_names),
         template_key=artifact.template_key,
         rubric_snapshot_json=artifact.rubric_snapshot_json,
         source_file_id=str(artifact.source_file_id)
@@ -1601,7 +1632,8 @@ def list_artifacts(
     artifacts = session.exec(
         query.order_by(desc(TeacherJudgeScriptArtifact.created_at))
     ).all()
-    return [_artifact_to_public(artifact) for artifact in artifacts]
+    node_display_names = _class_machine_display_names(session, teaching_class_id)
+    return [_artifact_to_public(artifact, node_display_names) for artifact in artifacts]
 
 
 def get_artifact(
@@ -1627,7 +1659,8 @@ def get_artifact_public(
             session=session,
             teaching_class_id=teaching_class_id,
             artifact_id=artifact_id,
-        )
+        ),
+        _class_machine_display_names(session, teaching_class_id),
     )
 
 
@@ -1806,7 +1839,10 @@ async def create_artifact(
         template_key=template_key,
         usage_records=usage_records,
     )
-    return _artifact_to_public(artifact)
+    return _artifact_to_public(
+        artifact,
+        _class_machine_display_names(session, teaching_class_id),
+    )
 
 
 def partition_analysis_by_target_node(
@@ -1896,6 +1932,7 @@ def _script_set_to_public(
     rows: list[TeacherJudgeScriptArtifact],
     *,
     node_order: dict[str, int] | None = None,
+    node_display_names: dict[str, str] | None = None,
 ) -> TeacherJudgeScriptSetPublic:
     children = _latest_set_children(rows, node_order=node_order)
     if not children or children[0].artifact_set_id is None:
@@ -1916,7 +1953,7 @@ def _script_set_to_public(
         source_file_id=str(first.source_file_id) if first.source_file_id else None,
         source_analysis_revision=first.source_analysis_revision,
         status=status,
-        children=[_artifact_to_public(child) for child in children],
+        children=[_artifact_to_public(child, node_display_names) for child in children],
     )
 
 
@@ -1940,6 +1977,7 @@ def get_artifact_set(
     return _script_set_to_public(
         rows,
         node_order={node.node_key: node.sort_order for node in nodes},
+        node_display_names=_class_machine_display_names(session, teaching_class_id),
     )
 
 
@@ -2005,6 +2043,9 @@ async def create_artifact_set(
     )
     nodes = load_class_machine_nodes(session, teaching_class_id)
     valid_node_keys = {node.node_key for node in nodes}
+    node_display_names = {
+        node.node_key: (node.name or "").strip() or node.node_key for node in nodes
+    }
     partitions = partition_analysis_by_target_node(
         rubric_analysis,
         node_order=[node.node_key for node in nodes],
@@ -2150,7 +2191,7 @@ async def create_artifact_set(
             source_analysis_revision=source_analysis_revision,
             teaching_class_id=teaching_class_id,
             session_id=session_id,
-            name=f"{artifact_name} · {node_key}",
+            name=f"{artifact_name} · {node_display_names.get(node_key, node_key)}"[:255],
             template_key=template_key,
             rubric_snapshot_json=snapshot,
             source_file_id=source_file_id,
@@ -2185,6 +2226,7 @@ async def create_artifact_set(
     return _script_set_to_public(
         artifacts,
         node_order={node.node_key: node.sort_order for node in nodes},
+        node_display_names=node_display_names,
     )
 
 
@@ -2325,7 +2367,10 @@ async def regenerate_artifact(
             template_key=template_key,
             usage_records=usage_records,
         )
-        return _artifact_to_public(next_artifact)
+        return _artifact_to_public(
+            next_artifact,
+            _class_machine_display_names(session, teaching_class_id),
+        )
 
     artifact.rubric_snapshot_json = rubric_snapshot
     artifact.source_file_snapshot_json = source_file_snapshot_json
@@ -2348,7 +2393,10 @@ async def regenerate_artifact(
         template_key=template_key,
         usage_records=usage_records,
     )
-    return _artifact_to_public(artifact)
+    return _artifact_to_public(
+        artifact,
+        _class_machine_display_names(session, teaching_class_id),
+    )
 
 
 def approve_artifact(
@@ -2379,7 +2427,10 @@ def approve_artifact(
     session.add(artifact)
     session.commit()
     session.refresh(artifact)
-    return _artifact_to_public(artifact)
+    return _artifact_to_public(
+        artifact,
+        _class_machine_display_names(session, teaching_class_id),
+    )
 
 
 def archive_artifact(
@@ -2398,7 +2449,10 @@ def archive_artifact(
     session.add(artifact)
     session.commit()
     session.refresh(artifact)
-    return _artifact_to_public(artifact)
+    return _artifact_to_public(
+        artifact,
+        _class_machine_display_names(session, teaching_class_id),
+    )
 
 
 def rename_artifact(
@@ -2423,7 +2477,10 @@ def rename_artifact(
     session.add(artifact)
     session.commit()
     session.refresh(artifact)
-    return _artifact_to_public(artifact)
+    return _artifact_to_public(
+        artifact,
+        _class_machine_display_names(session, teaching_class_id),
+    )
 
 
 def delete_artifact(
