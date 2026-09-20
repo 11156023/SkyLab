@@ -20,6 +20,7 @@ const StudentCoursesPage = lazy(() => import("./pages/personal/courses/StudentCo
 const StudentCoursePage = lazy(() => import("./pages/personal/dashboard/student/StudentCoursePage"));
 const StudentWeekPage = lazy(() => import("./pages/personal/courses/StudentWeekPage"));
 const QuickTemplateFormPage = lazy(() => import("./pages/personal/quick-practice/QuickTemplateFormPage"));
+const QuickCreatePage = lazy(() => import("./pages/personal/quick-practice/QuickCreatePage"));
 const ResourcesPage = lazy(() => import("./pages/personal/resources/ResourcesPage"));
 const ResourceDetailPage = lazy(() => import("./pages/personal/resources/detail/ResourceDetailPage"));
 const RequestsPage = lazy(() => import("./pages/personal/requests/RequestsPage"));
@@ -209,6 +210,8 @@ function App() {
           <Route path="/courses/:pathId" element={!canTeach ? <StudentCoursePage /> : <Navigate to="/dashboard" replace />} />
           <Route path="/courses/:pathId/weeks/:weekId" element={!canTeach ? <StudentWeekPage /> : <Navigate to="/dashboard" replace />} />
           <Route path="/dashboard/course/:pathId" element={!canTeach ? <LegacyStudentCourseRedirect /> : <Navigate to="/dashboard" replace />} />
+          {/* 快速練習：學生、老師、管理者共用，側欄「教學」群組的入口 */}
+          <Route path="/quick-create"         element={<QuickCreatePage />} />
           <Route path="/quick-template/:id"   element={<QuickTemplateFormPage />} />
           <Route path="/my-resources"         element={<ResourcesPage />} />
           <Route path="/my-resources/:vmid"   element={<ResourceDetailPage backTo="/my-resources" />} />

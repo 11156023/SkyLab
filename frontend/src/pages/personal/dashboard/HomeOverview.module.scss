@@ -6,13 +6,13 @@
 
 }
 
-.sectionHeading, .headingCopy, .machineTop, .templateTop, .templateFooter,
+.sectionHeading, .headingCopy, .machineTop,
 .machineActions, .researchLink, .researchLink > div {
   display: flex;
   align-items: center;
   gap: 12px;
 }
-.sectionHeading, .machineTop, .templateTop, .templateFooter, .researchLink { justify-content: space-between; }
+.sectionHeading, .machineTop, .researchLink { justify-content: space-between; }
 .sectionHeading { flex-wrap: wrap; }
 .headingCopy {
   min-width: 0;
@@ -50,11 +50,11 @@
   &:disabled { opacity: 0.55; cursor: not-allowed; }
 }
 .headerButton { border-color: var(--color-border); background: var(--color-surface); font-size: $font-size-14; }
-.machineGrid, .courseGrid, .templateGrid { display: grid; gap: 12px; min-width: 0; }
+.machineGrid, .courseGrid { display: grid; gap: 12px; min-width: 0; }
 .machineGrid { grid-template-columns: repeat(auto-fill, minmax(min(100%, 300px), 1fr)); }
-.courseGrid, .templateGrid { grid-template-columns: repeat(auto-fill, minmax(min(100%, 320px), 1fr)); }
+.courseGrid { grid-template-columns: repeat(auto-fill, minmax(min(100%, 320px), 1fr)); }
 
-.machineCard, .templateCard {
+.machineCard {
   @include glass-surface($shadow: none);
   display: flex;
   flex-direction: column;
@@ -64,7 +64,7 @@
   border-radius: $radius-12;
   h3 { margin: 0; flex: 1; min-width: 0; font-size: $font-size-16; color: var(--color-text-primary); overflow-wrap: anywhere; }
 }
-.machineStatus, .templateBadge {
+.machineStatus {
   padding: 4px 8px;
   border-radius: $radius-pill;
   font-size: $font-size-12;
@@ -77,28 +77,6 @@
 .launchButton { flex: 1; background: color-mix(in srgb, var(--color-primary) 9%, transparent); }
 .detailButton { padding: 8px; color: var(--color-text-secondary); }
 
-.templateCard {
-  min-height: 160px;
-  padding: 20px;
-  gap: 16px;
-  text-align: left;
-  font: inherit;
-  cursor: pointer;
-  transition: border-color $transition-base, box-shadow $transition-base;
-
-  &:hover { border-color: var(--color-primary); box-shadow: var(--shadow-sm); }
-  &:focus-visible { outline: 3px solid var(--color-primary); outline-offset: 3px; }
-}
-.templateBadge { color: var(--color-primary); background: color-mix(in srgb, var(--color-primary) 9%, transparent); }
-.templateTop > strong { flex: 1; min-width: 0; font-size: $font-size-14; color: var(--color-text-primary); overflow-wrap: anywhere; }
-.templateFooter {
-  flex-wrap: wrap;
-  margin-top: auto;
-
-  color: var(--color-text-secondary);
-  font-size: $font-size-12;
-  > span:last-child { display: inline-flex; align-items: center; gap: 6px; color: var(--color-primary); font-weight: $font-weight-700; }
-}
 .emptyPanel {
   display: flex;
   flex-wrap: wrap;
@@ -114,6 +92,5 @@
   .sectionHeading { gap: 8px; }
   .headingCopy { align-items: flex-start; gap: 8px; }
   .sectionIcon { width: 28px; }
-  .machineCard, .templateCard { padding: 12px; }
-  .templateCard { min-height: 144px; padding: 16px; }
+  .machineCard { padding: 12px; }
 }

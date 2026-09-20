@@ -10,6 +10,7 @@ const ROUTE_GUIDES = [
   { match: /^\/courses\/[^/]+$/, id: "course", icon: "menu_book", profile: "learning" },
   { match: /^\/courses\/[^/]+\/weeks\/[^/]+$/, id: "course-week", icon: "event_note", profile: "learning" },
   { match: /^\/dashboard\/course\/[^/]+$/, id: "student-course", icon: "menu_book", profile: "learning" },
+  { match: /^\/quick-create$/, id: "quick-create", icon: "bolt", profile: "explore" },
   { match: /^\/quick-template\/[^/]+$/, id: "quick-practice", icon: "bolt", profile: "configure" },
   { match: /^\/my-resources$/, id: "my-resources", icon: "computer", profile: "resource" },
   { match: /^\/my-resources\/[^/]+$/, id: "resource-detail", icon: "dns", profile: "resource" },
