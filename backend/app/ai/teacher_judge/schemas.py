@@ -8,9 +8,15 @@ for older import paths and generated-client compatibility during migration.
 from __future__ import annotations
 
 import uuid
-from typing import Any, Literal
+from typing import Any, Literal, cast
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import (
+    BaseModel,
+    Field,
+    field_validator,
+    model_serializer,
+    model_validator,
+)
 
 from app.ai.teacher_judge.template_command_service import (
     SUPPORTED_TEMPLATE_KEYS,
@@ -44,23 +50,123 @@ def sanitize_rubric_missing_information(value: Any) -> Any:
 
 
 class TeacherJudgeRubricCheckStep(BaseModel):
-    """檢查計劃中的 command catalog 引用。"""
+    """Canonical executable step with a read-compatible legacy shape.
 
-    template_key: str = Field(..., description="檢查環境 template key")
-    command_key: str = Field(..., description="template command catalog 的穩定 ID")
+    New data uses ``argv``/``cwd``/``timeout_seconds`` directly. The old
+    template/command catalog fields remain optional so persisted rubrics can be
+    read and converted without making the retired keys part of new writes.
+    """
+
+    template_key: str | None = Field(
+        default=None,
+        description="Legacy template key; read/convert only",
+    )
+    command_key: str | None = Field(
+        default=None,
+        description="Legacy command catalog key; read/convert only",
+    )
     command_label: str | None = Field(
         default=None,
-        description="template command catalog 的顯示名稱",
+        description="Legacy command display name",
     )
     parameters: dict[str, Any] = Field(
         default_factory=dict,
-        description="產生受管腳本所需的結構化執行參數，不得由腳本生成器猜測。",
+        description="Legacy nested execution parameters",
     )
+    argv: list[str] | None = Field(
+        default=None,
+        min_length=1,
+        description="單一受控命令的 argv；新 contract 的必要執行資料",
+    )
+    cwd: str | None = Field(
+        default=None,
+        description="受控命令的工作目錄；需要時填寫",
+    )
+    timeout_seconds: int | None = Field(
+        default=None,
+        ge=1,
+        le=300,
+        description="受控命令逾時秒數",
+    )
+
+    @model_validator(mode="before")
+    @classmethod
+    def _normalize_flat_parameters(cls, value: Any) -> Any:
+        if not isinstance(value, dict):
+            return value
+        data = dict(value)
+        raw_parameters = data.get("parameters")
+        parameters = dict(raw_parameters) if isinstance(raw_parameters, dict) else {}
+        for key in ("argv", "cwd", "timeout_seconds"):
+            if key in data and data[key] is not None:
+                parameters.setdefault(key, data[key])
+        if parameters:
+            data["parameters"] = parameters
+        if not data.get("template_key") and not data.get("command_key"):
+            for key in ("argv", "cwd", "timeout_seconds"):
+                if key not in data:
+                    data[key] = parameters.get(key)
+        return data
 
     @field_validator("parameters", mode="before")
     @classmethod
     def _drop_retired_parameters(cls, value: Any) -> Any:
         return sanitize_check_step_parameters(value)
+
+    @field_validator("argv")
+    @classmethod
+    def validate_flat_argv(cls, value: list[str] | None) -> list[str] | None:
+        if value is None:
+            return None
+        if any(not part.strip() for part in value):
+            raise ValueError("argv 必須只包含非空字串")
+        return value
+
+    @model_validator(mode="after")
+    def require_legacy_identity_or_flat_argv(self) -> TeacherJudgeRubricCheckStep:
+        if not self.template_key and not self.command_key and self.argv is None:
+            raise ValueError("flat check step requires argv")
+        return self
+
+    @model_serializer(mode="plain")
+    def _serialize_contract(self) -> dict[str, Any]:
+        if self.template_key or self.command_key:
+            result: dict[str, Any] = {
+                "template_key": self.template_key,
+                "command_key": self.command_key,
+                "parameters": self.parameters,
+            }
+            if self.command_label is not None:
+                result["command_label"] = self.command_label
+            return result
+        result = {}
+        if self.argv is not None:
+            result["argv"] = self.argv
+        if self.cwd is not None:
+            result["cwd"] = self.cwd
+        if self.timeout_seconds is not None:
+            result["timeout_seconds"] = self.timeout_seconds
+        return result
+
+    @classmethod
+    def __get_pydantic_json_schema__(
+        cls,
+        core_schema: Any,
+        handler: Any,
+    ) -> dict[str, Any]:
+        """Expose only the flat write contract in generated API schemas."""
+        schema = handler(core_schema)
+        properties = schema.get("properties")
+        if isinstance(properties, dict):
+            for legacy_key in (
+                "template_key",
+                "command_key",
+                "command_label",
+                "parameters",
+            ):
+                properties.pop(legacy_key, None)
+            schema["required"] = ["argv"]
+        return cast("dict[str, Any]", schema)
 
 
 class TeacherJudgeRubricItem(BaseModel):
@@ -89,6 +195,21 @@ class TeacherJudgeRubricItem(BaseModel):
         default_factory=list,
         description="目前尚缺、補齊後才可能產生並執行取證腳本的資訊。",
     )
+    target_node_key: str | None = Field(
+        default=None,
+        max_length=80,
+        description=(
+            "班級內的邏輯機器身份；P1/P2/P3 僅為顯示標籤，不能取代 node_key。"
+        ),
+    )
+    peer_node_key: str | None = Field(
+        default=None,
+        max_length=80,
+        description=(
+            "選填；由 target_node_key 執行節點觀察的同班級邏輯機器身份。"
+            "P1/P2/P3 僅為輸入與顯示別名。"
+        ),
+    )
 
     @field_validator("missing_information", mode="before")
     @classmethod
@@ -96,7 +217,7 @@ class TeacherJudgeRubricItem(BaseModel):
         return sanitize_rubric_missing_information(value)
     check_steps: list[TeacherJudgeRubricCheckStep] = Field(
         default_factory=list,
-        description="本階段只產生計劃書，僅引用既有 command_key，不代表已執行。",
+        description="本階段只產生計劃書；新資料使用扁平 argv/cwd/timeout，不代表已執行。",
     )
 
 
@@ -141,7 +262,7 @@ TeacherJudgeScriptStatusLiteral = Literal[
     "draft", "review_failed", "reviewed", "approved", "archived"
 ]
 TeacherJudgeScriptRunTargetScopeLiteral = Literal[
-    "all_with_vm", "running_only", "manual"
+    "all_students_on_node", "all_with_vm", "running_only", "manual"
 ]
 TeacherJudgeScriptRunStatusLiteral = Literal[
     "pending", "running", "completed", "failed", "cancelled"
@@ -200,8 +321,6 @@ class TeacherJudgeSessionCreateRequest(BaseModel):
                 raise ValueError(t("schemas.blank_creation_no_file"))
             if not self.rubric_name:
                 raise ValueError(t("schemas.blank_creation_requires_rubric_name"))
-            if not self.environment_keys:
-                raise ValueError(t("schemas.blank_creation_requires_environment_keys"))
         elif self.creation_mode == "existing":
             if self.selected_file_id is None:
                 raise ValueError(t("schemas.existing_creation_requires_file"))
@@ -344,6 +463,9 @@ class TeacherJudgeScriptUpdateRequest(BaseModel):
 
 class TeacherJudgeScriptArtifactPublic(BaseModel):
     id: str
+    artifact_set_id: str | None = None
+    target_node_key: str | None = None
+    source_analysis_revision: int | None = None
     teaching_class_id: str
     session_id: str | None = None
     name: str
@@ -405,19 +527,47 @@ class TeacherJudgeScriptRunCreateRequest(BaseModel):
     """Create an execution run for an approved managed script."""
 
     target_scope: TeacherJudgeScriptRunTargetScopeLiteral = "manual"
+    target_node_key: str | None = Field(default=None, max_length=80)
     target_vmids: list[int] = Field(default_factory=list)
+
+    @field_validator("target_node_key")
+    @classmethod
+    def normalize_target_node_key(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        normalized = value.strip()
+        return normalized or None
 
     @field_validator("target_vmids")
     @classmethod
     def validate_target_vmids(cls, value: list[int]) -> list[int]:
         unique_vmids = list(dict.fromkeys(value))
-        if not unique_vmids:
-            raise ValueError(t("schemas.target_vmids_empty"))
         return unique_vmids
+
+    @model_validator(mode="after")
+    def validate_target_selector(self) -> TeacherJudgeScriptRunCreateRequest:
+        if self.target_scope == "manual":
+            if not self.target_vmids:
+                raise ValueError(t("schemas.target_vmids_empty"))
+            return self
+        if self.target_scope == "all_students_on_node":
+            if not self.target_node_key:
+                raise ValueError(t("schemas.target_node_key_required"))
+            if self.target_vmids:
+                raise ValueError(t("schemas.target_vmids_not_allowed"))
+            return self
+        # Keep the pre-node-selector API usable while old callers migrate. The
+        # service still resolves these scopes from the explicitly supplied VMIDs.
+        if not self.target_node_key and not self.target_vmids:
+            raise ValueError(t("schemas.target_node_key_required"))
+        if self.target_node_key and self.target_vmids:
+            raise ValueError(t("schemas.target_vmids_not_allowed"))
+        return self
 
 
 class TeacherJudgeScriptRunPublic(BaseModel):
     id: str
+    run_batch_id: str | None = None
     teaching_class_id: str
     artifact_id: str
     target_scope: TeacherJudgeScriptRunTargetScopeLiteral
@@ -435,6 +585,7 @@ class TeacherJudgeScriptRunPublic(BaseModel):
 
 class TeacherJudgeScriptRunSummary(BaseModel):
     id: str
+    run_batch_id: str | None = None
     teaching_class_id: str
     artifact_id: str
     status: TeacherJudgeScriptRunStatusLiteral
@@ -444,6 +595,40 @@ class TeacherJudgeScriptRunSummary(BaseModel):
     finished_at: str | None
     created_at: str
     updated_at: str
+
+
+class TeacherJudgeScriptSetPublic(BaseModel):
+    artifact_set_id: str
+    teaching_class_id: str
+    session_id: str | None = None
+    source_file_id: str | None = None
+    source_analysis_revision: int | None = None
+    status: Literal["approved", "review_failed", "mixed"]
+    children: list[TeacherJudgeScriptArtifactPublic]
+
+
+class TeacherJudgeScriptSetRunRequest(BaseModel):
+    target_scope: Literal["all_students_in_set"] = "all_students_in_set"
+
+
+class TeacherJudgeRunBatchNodePublic(BaseModel):
+    target_node_key: str
+    display_label: str | None = None
+    artifact_id: str
+    run_id: str
+    status: TeacherJudgeScriptRunStatusLiteral
+    progress_json: dict[str, Any]
+    result_summary_json: dict[str, Any]
+
+
+class TeacherJudgeRunBatchPublic(BaseModel):
+    run_batch_id: str
+    teaching_class_id: str
+    session_id: str | None = None
+    status: Literal["pending", "running", "completed", "completed_with_failures", "failed"]
+    summary: dict[str, int]
+    nodes: list[TeacherJudgeRunBatchNodePublic]
+    students: list[dict[str, Any]] = Field(default_factory=list)
 
 
 class TeacherJudgeTargetReviewUpdate(BaseModel):

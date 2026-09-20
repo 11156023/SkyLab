@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import ast
+import ipaddress
 import json
 import re
 from typing import TYPE_CHECKING, Any, Literal
@@ -283,7 +284,7 @@ def _network_method_and_url(call_name: str, node: ast.Call) -> tuple[str, str | 
     elif call_name.endswith(".delete"):
         method = "DELETE"
     elif call_name.endswith(".request"):
-        method = _literal_str(node.args[0]).upper() if node.args else ""
+        method = (_literal_str(node.args[0]) or "").upper() if node.args else ""
         url_arg_index = 1
 
     url = _literal_str(node.args[url_arg_index]) if len(node.args) > url_arg_index else None
@@ -442,6 +443,369 @@ def check_script_policy(script_content: str) -> CheckResult:
         "approved": approved,
         "blocked": not approved,
         "risk_level": "low" if approved else "high",
+        "issues": deduped,
+        "fix_hints": fix_hints,
+    }
+
+
+def check_peer_runtime_policy(
+    script_content: str,
+    rubric_snapshot: dict[str, Any],
+) -> CheckResult:
+    """Validate the reserved peer-IP data flow for a generated child script.
+
+    A peer address is never substituted into approved source. The script must
+    read the per-target ``runtime_context.json`` file, select the declared
+    logical peer's ``ip_address`` and pass that value only to a literal
+    ``ping`` argv. This is intentionally conservative: unsupported peer
+    primitives remain a review blocker instead of silently widening network
+    access.
+    """
+
+    issues: list[str] = []
+    fix_hints: list[FixHint] = []
+    peer_items = [
+        item
+        for item in rubric_snapshot.get("items") or []
+        if isinstance(item, dict) and str(item.get("peer_node_key") or "").strip()
+    ]
+    if not peer_items:
+        return {
+            "approved": True,
+            "blocked": False,
+            "risk_level": "low",
+            "issues": [],
+            "fix_hints": [],
+        }
+
+    expected_peers = {
+        str(item.get("peer_node_key") or "").strip() for item in peer_items
+    }
+    peer_token = "{{peer.ip}}"
+    for item in peer_items:
+        steps = item.get("check_steps") or []
+        argv_with_token: list[list[str]] = []
+        for step in steps:
+            if not isinstance(step, dict):
+                continue
+            argv = step.get("argv")
+            if not isinstance(argv, list):
+                parameters = step.get("parameters")
+                argv = parameters.get("argv") if isinstance(parameters, dict) else None
+            if isinstance(argv, list) and peer_token in argv:
+                argv_with_token.append([str(part) for part in argv])
+        if not argv_with_token:
+            issues.append(
+                f"peer 項目 {item.get('id') or item.get('title') or '未命名'} 必須使用 {peer_token}"
+            )
+        elif any(argv[0].strip().lower() != "ping" for argv in argv_with_token):
+            issues.append("目前只允許將 peer IP 傳給 ping 的 argv")
+
+    try:
+        tree = ast.parse(script_content)
+    except SyntaxError:
+        issues.append("peer runtime 腳本不是有效的 Python")
+        tree = None
+
+    if tree is not None:
+        literal_strings = {
+            node.value
+            for node in ast.walk(tree)
+            if isinstance(node, ast.Constant) and isinstance(node.value, str)
+        }
+        if "runtime_context.json" not in literal_strings:
+            issues.append("peer 檢查必須從固定的 runtime_context.json 讀取 context")
+        if "peers" not in literal_strings or "ip_address" not in literal_strings:
+            issues.append("peer runtime context 必須只讀取 peers/<node_key>/ip_address")
+        handles_non_ready_status = any(
+            isinstance(node, ast.Compare)
+            and isinstance(node.left, ast.Name)
+            and node.left.id in {"resolution_status", "status"}
+            and any(
+                isinstance(operator, ast.NotEq)
+                for operator in node.ops
+            )
+            for node in ast.walk(tree)
+        )
+        if "resolution_status" not in literal_strings or (
+            "unavailable" not in literal_strings and not handles_non_ready_status
+        ):
+            issues.append("peer runtime 必須處理 resolution_status=unavailable")
+
+        aliases = _import_aliases(tree)
+        peer_context_names: set[str] = set()
+        peer_names: set[str] = set()
+        assignments = [
+            node
+            for node in ast.walk(tree)
+            if isinstance(node, (ast.Assign, ast.AnnAssign))
+        ]
+
+        def targets(node: ast.Assign | ast.AnnAssign) -> list[str]:
+            raw_targets = node.targets if isinstance(node, ast.Assign) else [node.target]
+            return [target.id for target in raw_targets if isinstance(target, ast.Name)]
+
+        context_names: set[str] = set()
+        for assignment in assignments:
+            value = assignment.value
+            if value is None:
+                continue
+            values = {
+                child.value
+                for child in ast.walk(value)
+                if isinstance(child, ast.Constant) and isinstance(child.value, str)
+            }
+            if "runtime_context.json" in values:
+                context_names.update(targets(assignment))
+
+        for _ in range(len(assignments) + 1):
+            changed = False
+            for assignment in assignments:
+                value = assignment.value
+                if value is None:
+                    continue
+                names = {
+                    child.id
+                    for child in ast.walk(value)
+                    if isinstance(child, ast.Name)
+                }
+                if names & context_names:
+                    for target in targets(assignment):
+                        if target not in context_names:
+                            context_names.add(target)
+                            changed = True
+            if not changed:
+                break
+
+        for assignment in assignments:
+            value = assignment.value
+            if value is None:
+                continue
+            values = {
+                child.value
+                for child in ast.walk(value)
+                if isinstance(child, ast.Constant) and isinstance(child.value, str)
+            }
+            if "peers" in values:
+                peer_context_names.update(targets(assignment))
+
+        for _ in range(len(assignments) + 1):
+            changed = False
+            for assignment in assignments:
+                value = assignment.value
+                if value is None:
+                    continue
+                names = {
+                    child.id
+                    for child in ast.walk(value)
+                    if isinstance(child, ast.Name)
+                }
+                if names & peer_context_names:
+                    for target in targets(assignment):
+                        if target not in peer_context_names:
+                            peer_context_names.add(target)
+                            changed = True
+            if not changed:
+                break
+
+        for assignment in assignments:
+            value = assignment.value
+            if value is None:
+                continue
+            values = {
+                child.value
+                for child in ast.walk(value)
+                if isinstance(child, ast.Constant) and isinstance(child.value, str)
+            }
+            names = {
+                child.id
+                for child in ast.walk(value)
+                if isinstance(child, ast.Name)
+            }
+            if "ip_address" in values and names & peer_context_names:
+                peer_names.update(targets(assignment))
+
+        # Propagate simple list/alias assignments so ``argv = ["ping", peer_ip]``
+        # and ``run_command(argv, ...)`` can be checked without interpreting code.
+        for _ in range(len(assignments) + 1):
+            changed = False
+            for assignment in assignments:
+                value = assignment.value
+                if value is None:
+                    continue
+                names = {
+                    child.id
+                    for child in ast.walk(value)
+                    if isinstance(child, ast.Name)
+                }
+                if names & peer_names:
+                    for target in targets(assignment):
+                        if target not in peer_names:
+                            peer_names.add(target)
+                            changed = True
+            if not changed:
+                break
+
+        def contains_peer_name(node: ast.AST) -> bool:
+            return any(
+                isinstance(child, ast.Name) and child.id in peer_names
+                for child in ast.walk(node)
+            )
+
+        def contains_context_name(node: ast.AST) -> bool:
+            return any(
+                isinstance(child, ast.Name) and child.id in context_names
+                for child in ast.walk(node)
+            )
+
+        def literal_subscript_key(node: ast.AST | None) -> str | None:
+            if not isinstance(node, ast.Subscript):
+                return None
+            return _literal_str(node.slice)
+
+        def has_declared_peer_context_path(peer_key: str) -> bool:
+            for candidate in ast.walk(tree):
+                if isinstance(candidate, ast.Subscript):
+                    if literal_subscript_key(candidate) != peer_key:
+                        continue
+                    parent = candidate.value
+                    if (
+                        isinstance(parent, ast.Subscript)
+                        and literal_subscript_key(parent) == "peers"
+                        and contains_context_name(parent.value)
+                    ):
+                        return True
+                if not isinstance(candidate, ast.Call):
+                    continue
+                if not (
+                    isinstance(candidate.func, ast.Attribute)
+                    and candidate.func.attr == "get"
+                    and candidate.args
+                    and _literal_str(candidate.args[0]) == peer_key
+                ):
+                    continue
+                parent = candidate.func.value
+                if not isinstance(parent, ast.Call):
+                    continue
+                if not (
+                    isinstance(parent.func, ast.Attribute)
+                    and parent.func.attr == "get"
+                    and parent.args
+                    and _literal_str(parent.args[0]) == "peers"
+                    and contains_context_name(parent.func.value)
+                ):
+                    continue
+                return True
+            return False
+
+        def looks_like_ip_or_cidr(value: str) -> bool:
+            try:
+                ipaddress.ip_interface(value)
+            except ValueError:
+                return False
+            return True
+
+        argv_command_by_name: dict[str, str] = {}
+        for assignment in assignments:
+            value = assignment.value
+            if not isinstance(value, (ast.List, ast.Tuple)) or not value.elts:
+                continue
+            if contains_peer_name(value):
+                for literal in value.elts[1:]:
+                    if (
+                        isinstance(literal, ast.Constant)
+                        and isinstance(literal.value, str)
+                        and looks_like_ip_or_cidr(literal.value)
+                    ):
+                        issues.append("peer ping 不得寫死其他 IP 或 CIDR")
+            first = value.elts[0]
+            if not isinstance(first, ast.Constant) or not isinstance(first.value, str):
+                continue
+            for target in targets(assignment):
+                argv_command_by_name[target] = first.value.strip().lower()
+
+        peer_command_calls = 0
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call):
+                continue
+            call_name = _call_name(node.func, aliases)
+            if call_name not in {"run_command", "subprocess.run"}:
+                continue
+            if not any(contains_peer_name(argument) for argument in node.args):
+                continue
+            peer_command_calls += 1
+            first_argument = node.args[0] if node.args else None
+            valid_ping_argv = False
+            if isinstance(first_argument, ast.Name):
+                if argv_command_by_name.get(first_argument.id) == "ping":
+                    valid_ping_argv = True
+                else:
+                    issues.append("peer IP 只能流入 ping argv，不得流向其他命令")
+            elif not isinstance(first_argument, (ast.List, ast.Tuple)):
+                issues.append("peer IP 必須流入可靜態確認的 ping argv list")
+                continue
+            else:
+                first_argv_element = (
+                    first_argument.elts[0] if first_argument.elts else None
+                )
+                valid_ping_argv = (
+                    isinstance(first_argv_element, ast.Constant)
+                    and str(first_argv_element.value).lower() == "ping"
+                )
+                if not valid_ping_argv:
+                    issues.append("peer IP 只能流入 ping argv，不得流向其他命令")
+                for literal in first_argument.elts[1:]:
+                    if (
+                        isinstance(literal, ast.Constant)
+                        and isinstance(literal.value, str)
+                        and looks_like_ip_or_cidr(literal.value)
+                    ):
+                        issues.append("peer ping 不得寫死其他 IP 或 CIDR")
+            if any(contains_peer_name(keyword.value) for keyword in node.keywords):
+                issues.append("peer IP 只能出現在 ping 的第一個 argv 參數")
+            if not valid_ping_argv:
+                continue
+
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call) or not contains_peer_name(node):
+                continue
+            call_name = _call_name(node.func, aliases)
+            if call_name in {"run_command", "subprocess.run"}:
+                argument_nodes = list(node.args) + [
+                    keyword.value for keyword in node.keywords
+                ]
+                if any(
+                    contains_peer_name(argument) for argument in argument_nodes[1:]
+                ):
+                    issues.append("peer IP 只能流入 ping argv，不得流向其他參數")
+                continue
+            issues.append("peer IP 不得流向 ping 以外的 API、檔案或輸出")
+
+        if not peer_names or peer_command_calls == 0:
+            issues.append("找不到從 runtime context 到 ping argv 的 peer IP dataflow")
+
+        for peer_key in expected_peers:
+            if peer_key not in literal_strings:
+                issues.append(f"腳本未限定宣告的 peer node_key：{peer_key}")
+            if not has_declared_peer_context_path(peer_key):
+                issues.append(
+                    f"腳本未從 runtime_context.peers 讀取宣告的 peer node_key：{peer_key}"
+                )
+
+    deduped = list(dict.fromkeys(issues))
+    for issue in deduped:
+        fix_hints.append(
+            {
+                "type": "fix_peer_runtime_contract",
+                "description": issue,
+                "target": "peer_runtime_context",
+                "required_pattern": "runtime_context.json -> peers[node_key].ip_address -> ping argv",
+            }
+        )
+    return {
+        "approved": not deduped,
+        "blocked": bool(deduped),
+        "risk_level": "high" if deduped else "low",
         "issues": deduped,
         "fix_hints": fix_hints,
     }

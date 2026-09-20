@@ -1181,21 +1181,22 @@ def run_update_clone_task(
     resource_type = _as_resource_type(payload["resource_type"])
     node = str(payload["node"])
     try:
-        new_vmid = proxmox_ops.next_vmid()
-        report_progress(task_id, 10)
-        clone_name = f"tpl-{pve_vmid}-edit"
-        pool = get_proxmox_settings_for_node(node).pool_name
-        # 範本更新需要可獨立寫入的完整副本，一律 full clone
-        if resource_type == "lxc":
-            proxmox_ops.clone_lxc(
-                node, pve_vmid, newid=new_vmid, hostname=clone_name,
-                full=1, pool=pool,
-            )
-        else:
-            proxmox_ops.clone_vm(
-                node, pve_vmid, newid=new_vmid, name=clone_name,
-                full=1, pool=pool,
-            )
+        with proxmox_ops.vmid_allocation_lock():
+            new_vmid = proxmox_ops.next_vmid()
+            report_progress(task_id, 10)
+            clone_name = f"tpl-{pve_vmid}-edit"
+            pool = get_proxmox_settings_for_node(node).pool_name
+            # 範本更新需要可獨立寫入的完整副本，一律 full clone
+            if resource_type == "lxc":
+                proxmox_ops.clone_lxc(
+                    node, pve_vmid, newid=new_vmid, hostname=clone_name,
+                    full=1, pool=pool,
+                )
+            else:
+                proxmox_ops.clone_vm(
+                    node, pve_vmid, newid=new_vmid, name=clone_name,
+                    full=1, pool=pool,
+                )
         report_progress(task_id, 80)
     except Exception as exc:
         # 克隆失敗 → 回復 ready，讓使用者可重新發起

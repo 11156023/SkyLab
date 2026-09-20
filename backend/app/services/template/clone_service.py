@@ -13,6 +13,7 @@ LXC 無 cloud-init，開機後 best-effort 以 ``pct exec chpasswd`` 設定 root
 from __future__ import annotations
 
 import logging
+import re
 import secrets
 import shlex
 import time
@@ -183,6 +184,17 @@ def clone_with_fallback(
         clone_fn(node, template_vmid, full=0, **base_config)
         return "linked"
     except Exception as exc:
+        # A VMID collision is not a linked-clone capability failure.  Retrying
+        # full clone with the same ID would fail again, and the old cleanup
+        # path could delete the other worker's already-created machine.
+        if _is_vmid_collision(exc):
+            logger.error(
+                "Proxmox rejected clone %s -> %s because the VMID already exists; "
+                "skip fallback/cleanup and let the caller roll back its own reservation",
+                template_vmid,
+                new_vmid,
+            )
+            raise
         logger.warning(
             "Linked clone of template %s -> %s failed (%s); falling back to full clone",
             template_vmid,
@@ -203,6 +215,17 @@ def clone_with_fallback(
             )
         clone_fn(node, template_vmid, full=1, **base_config, **(full_kwargs or {}))
         return "full"
+
+
+def _is_vmid_collision(exc: Exception) -> bool:
+    """判斷 PVE 的「CT/VM <id> already exists」而非一般克隆失敗。"""
+    return bool(
+        re.search(
+            r"\b(?:ct|vm)\s+\d+\s+already\s+exists\b",
+            str(exc),
+            flags=re.IGNORECASE,
+        )
+    )
 
 
 def _reconfigure_qemu(
@@ -388,30 +411,40 @@ def run_clone_task(task_id: uuid.UUID, payload: dict[str, Any]) -> dict[str, Any
         memory = memory or template.default_memory
         disk = disk or template.default_disk
 
-        new_vmid = proxmox_ops.next_vmid()
-        net_cfg = ip_management_service.get_network_config_for_vm(session)
-        purpose = "lxc" if resource_type == "lxc" else "vm"
-        allocated_ip = ip_management_service.allocate_ip(
-            session,
-            new_vmid,
-            purpose,
-            reservation_key=ip_reservation_key,
-        )
-        # 先提交 IP 分配，避免克隆期間（可能數分鐘）併發任務撞 IP
-        session.commit()
-
+    new_vmid: int | None = None
+    allocated_ip: str | None = None
     created = False
     clone_mode = "linked"
     try:
-        report_progress(task_id, 10)
-        clone_mode = clone_with_fallback(
-            node=node,
-            template_vmid=template_vmid,
-            new_vmid=new_vmid,
-            hostname=hostname,
-            resource_type=resource_type,
-        )
-        created = True
+        # ``next_vmid`` 只是讀取 PVE 的 nextid；把鎖一路持有到 clone
+        # 完成，才能避免不同 backend worker 在 PVE 尚未反映新 CT 前拿到
+        # 同一個 VMID。IP 預留也放在同一個臨界區，失敗時再用 reservation
+        # key 精準回滾。
+        with proxmox_ops.vmid_allocation_lock():
+            with Session(engine) as session:
+                new_vmid = proxmox_ops.next_vmid()
+                net_cfg = ip_management_service.get_network_config_for_vm(session)
+                purpose = "lxc" if resource_type == "lxc" else "vm"
+                allocated_ip = ip_management_service.allocate_ip(
+                    session,
+                    new_vmid,
+                    purpose,
+                    reservation_key=ip_reservation_key,
+                )
+                # 先提交 IP 分配，避免克隆期間（可能數分鐘）併發任務撞 IP
+                session.commit()
+
+            report_progress(task_id, 10)
+            clone_mode = clone_with_fallback(
+                node=node,
+                template_vmid=template_vmid,
+                new_vmid=new_vmid,
+                hostname=hostname,
+                resource_type=resource_type,
+            )
+            created = True
+
+        # clone 已由鎖保護完成；後續 guest 重配置不再阻塞其他 VMID。
         report_progress(task_id, 60)
 
         private_key_pem, public_key = generate_ed25519_keypair()
@@ -505,20 +538,29 @@ def run_clone_task(task_id: uuid.UUID, payload: dict[str, Any]) -> dict[str, Any
                     else None
                 ),
                 batch_job_id=batch_job_id,
+                commit=False,
             )
+            ip_management_service.link_ip_to_resource(
+                session,
+                new_vmid,
+                reservation_key=ip_reservation_key,
+            )
+            session.commit()
     except Exception:
         # 失敗清理：釋放 IP → 撤防火牆規則 → 刪除半成品
-        try:
-            with Session(engine) as cleanup_session:
-                ip_management_service.release_ip(
-                    cleanup_session,
-                    new_vmid,
-                    restore_reservation=bool(ip_reservation_key),
-                )
-                cleanup_session.commit()
-        except Exception:
-            logger.warning("Failed to release IP for VMID %d", new_vmid)
-        if created:
+        if new_vmid is not None:
+            try:
+                with Session(engine) as cleanup_session:
+                    ip_management_service.release_ip(
+                        cleanup_session,
+                        new_vmid,
+                        restore_reservation=bool(ip_reservation_key),
+                        reservation_key=ip_reservation_key,
+                    )
+                    cleanup_session.commit()
+            except Exception:
+                logger.warning("Failed to release IP for VMID %d", new_vmid)
+        if created and new_vmid is not None:
             try:
                 rules = firewall_service.get_vm_firewall_rules(
                     node, new_vmid, resource_type

@@ -81,6 +81,55 @@
   gap: $spacing-16;
 }
 
+.reviewOverviewHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: $spacing-16;
+
+  h4 { margin: 0; }
+}
+
+.runOnceProgress {
+  display: grid;
+  gap: $spacing-8;
+  padding: $spacing-8 $spacing-16;
+  border: 1px dashed var(--color-divider);
+  border-radius: $radius-8;
+}
+
+.runOnceProgressLine {
+  display: flex;
+  align-items: center;
+  gap: $spacing-8;
+
+  > span { min-width: 0; color: var(--color-text-primary); font-size: $font-size-12; font-weight: $font-weight-700; }
+  > small { color: var(--color-text-muted); font-size: $font-size-10; }
+}
+
+.reviewCheckGroup {
+  display: grid;
+  gap: $spacing-8;
+  padding: $spacing-8 0;
+  border-bottom: 1px solid var(--color-divider);
+
+  &:last-child { border-bottom: 0; }
+}
+
+.reviewCheckGroupHead {
+  display: flex;
+  align-items: center;
+  gap: $spacing-8;
+}
+
+.reviewCheckGroupTitle {
+  display: grid;
+  gap: 2px;
+
+  strong { color: var(--color-text-primary); font-size: $font-size-12; }
+  > span { color: var(--color-text-muted); font-size: $font-size-10; }
+}
+
 .reviewSort {
   display: inline-flex;
   align-items: center;

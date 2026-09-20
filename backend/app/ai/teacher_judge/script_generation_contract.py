@@ -15,6 +15,16 @@ SCRIPT_GENERATION_SAME_FAILURE_MAX_RETRIES = 2
 SCRIPT_GENERATION_MAX_ATTEMPTS = SCRIPT_GENERATION_MAX_RETRIES + 1
 
 SCRIPT_GENERATION_CONTRACT_PROMPT = f"""
+# Canonical input contract for new artifacts
+- New rubric check steps are flat objects with argv, optional cwd, and
+  timeout_seconds. Use those values exactly; do not infer or recreate command
+  catalog identities from them.
+- Legacy template_key/command_key/parameters fields may appear only in old
+  snapshots and are read-compatible migration input.
+- target_node_key is a class-local logical identity. It is not a VMID, IP,
+  SSH credential, or provider-specific node name.
+- The current executor is Linux SSH/SFTP with python3. Do not claim Windows
+  execution support without a Windows executor adapter.
 # 腳本品質契約
 - 你產生的是受管資料收集腳本，不是自由發揮的診斷腳本；可讀性、可移植性、證據品質與狀態語意都必須穩定。
 - 腳本目標是收集同學 VM/LXC 內可客觀觀察的只讀資料；rubric 與 catalog 明確引用 `system.run_command` 或其他受控執行能力時，可在指定 cwd 以有限 timeout 執行單一命令並收集 exit code/stdout/stderr。所有結果整理成單一 JSON。
