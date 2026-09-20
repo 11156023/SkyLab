@@ -1,5 +1,7 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { createPortal } from "react-dom";
+import { computePosition, isAnchorOffscreen } from "../../../components/PowerMenu/position";
 import styles from "./TemplatesPage.module.scss";
 import MIcon from "../../../components/MIcon";
 import EmptyState from "../../../components/EmptyState/EmptyState";
@@ -104,21 +106,62 @@ function ManualDialog({ template, closing = false, onClose }) {
   );
 }
 
-/** 單列的「⋯」操作選單 */
+/** 單列的「⋯」操作選單。
+   portal 到 body 並用 fixed 定位：選單原本絕對定位在 .tableScroll 裡，
+   overflow-x: auto 會連 y 軸一起變裁切上下文，選單被切掉還撑出捲軸（同 PowerMenu 的做法） */
+const ROW_MENU_WIDTH = 200;
+
 function RowMenu({ template, cycleBusy, onClone, onEdit, onManual, onRetry, onCycle, onDelete, onClose, anchorRef, closing = false }) {
   const { t } = useTranslation("resource");
   const ref = useRef(null);
+  const [pos, setPos] = useState(null);
+  const onCloseRef = useRef(onClose);
+  useEffect(() => { onCloseRef.current = onClose; });
+
+  const reposition = useCallback(() => {
+    const anchor = anchorRef?.current;
+    const menu = ref.current;
+    if (!anchor || !menu) return;
+    const rect = anchor.getBoundingClientRect();
+    const viewport = { width: window.innerWidth, height: window.innerHeight };
+    if (isAnchorOffscreen(rect, viewport)) {
+      onCloseRef.current();
+      return;
+    }
+    setPos(computePosition(rect, menu.offsetHeight, viewport, ROW_MENU_WIDTH));
+  }, [anchorRef]);
+
+  useLayoutEffect(() => { reposition(); }, [reposition]);
+
+  useEffect(() => {
+    const opts = { passive: true, capture: true };
+    window.addEventListener("scroll", reposition, opts);
+    window.addEventListener("resize", reposition);
+    return () => {
+      window.removeEventListener("scroll", reposition, opts);
+      window.removeEventListener("resize", reposition);
+    };
+  }, [reposition]);
 
   useEffect(() => {
     const handler = (e) => {
       if (!ref.current?.contains(e.target) && !anchorRef?.current?.contains(e.target)) onClose();
     };
+    const onKey = (e) => { if (e.key === "Escape") onClose(); };
     document.addEventListener("mousedown", handler);
-    return () => document.removeEventListener("mousedown", handler);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", handler);
+      document.removeEventListener("keydown", onKey);
+    };
   }, [onClose, anchorRef]);
 
-  return (
-    <div ref={ref} className={`${styles.rowMenu} ${closing ? styles.rowMenuOut : ""}`}>
+  return createPortal(
+    <div
+      ref={ref}
+      className={`${styles.rowMenu} ${closing ? styles.rowMenuOut : ""}`}
+      style={pos ? { top: pos.top, left: pos.left } : { top: 0, left: 0, visibility: "hidden" }}
+    >
       <button
         type="button"
         className={styles.rowMenuItem}
@@ -199,7 +242,8 @@ function RowMenu({ template, cycleBusy, onClone, onEdit, onManual, onRetry, onCy
         <MIcon name="delete_outline" size={15} />
         {t("TemplatesPage.menuDelete")}
       </button>
-    </div>
+    </div>,
+    document.body,
   );
 }
 
@@ -262,8 +306,9 @@ function ManagementRow({ template, cycleBusy, onClone, onEdit, onManual, onRetry
             className={styles.menuBtn}
             onClick={() => setMenuOpen((v) => !v)}
             title={t("TemplatesPage.moreActionsTitle")}
+            aria-label={t("TemplatesPage.moreActionsTitle")}
           >
-            <MIcon name="more_horiz" size={18} />
+            <MIcon name="more_vert" size={18} />
           </button>
         </div>
       </td>
@@ -276,7 +321,6 @@ export default function TemplatesPage() {
   const toast = useToast();
   const confirm = useConfirm();
   const [templates, setTemplates] = useState(null);
-  const [refreshing, setRefreshing] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
   const [editTarget, setEditTarget] = useState(null);
   const [cloneTarget, setCloneTarget] = useState(null);
@@ -320,12 +364,6 @@ export default function TemplatesPage() {
       clearTimeout(timerRef.current);
     };
   }, [load]);
-
-  const refresh = async () => {
-    setRefreshing(true);
-    await load();
-    setRefreshing(false);
-  };
 
   const handleCycle = async (templateId, action) => {
     if (action === "finish") {
@@ -398,15 +436,6 @@ export default function TemplatesPage() {
     <div className={styles.page}>
       <PageHeader title={t("TemplatesPage.pageTitle")}>
         <div className={styles.pageActions}>
-          <button
-            type="button"
-            className={styles.btnSecondary}
-            onClick={refresh}
-            disabled={refreshing}
-          >
-            <MIcon name="sync" size={16} />
-            {refreshing ? t("TemplatesPage.refreshing") : t("TemplatesPage.refresh")}
-          </button>
           <button
             type="button"
             className={styles.btnPrimary}

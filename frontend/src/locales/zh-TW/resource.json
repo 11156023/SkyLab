@@ -345,8 +345,6 @@
   "TemplatesPage.pveMissingLabel": "PVE 不存在",
   "TemplatesPage.versionLabel": "v{{version}}",
   "TemplatesPage.moreActionsTitle": "更多操作",
-  "TemplatesPage.refresh": "重新整理",
-  "TemplatesPage.refreshing": "載入中…",
   "TemplatesPage.createFromVm": "從 VM 建立範本",
   "TemplatesPage.pageTitle": "機器範本",
   "TemplatesPage.loadingTemplates": "載入範本中…",

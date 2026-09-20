@@ -1,0 +1,1533 @@
+/* 導入頁(Landing)專用樣式:固定深夜配色,不跟全站主題連動。
+   透過覆寫 CSS 變數,讓共用 mixin(glass-surface、btn-*)在深色底上直接可用。 */
+.landing {
+  --color-surface: #141a28;
+  --color-surface-glass: rgba(16, 22, 36, 0.6);
+  --color-surface-glass-border: rgba(137, 165, 224, 0.22);
+  --glass-backdrop-filter: blur(14px) saturate(1.2);
+  --shadow-glass: 0 12px 40px rgba(2, 6, 16, 0.55);
+  --color-primary: #5b7fd4;
+  --color-primary-dark: #3f61b4;
+  --color-text-on-primary: #ffffff;
+  --color-text: #d4deef;
+  --color-text-primary: #f0f4ff;
+  --color-text-secondary: #a9bce0;
+  --color-text-muted: #7285a8;
+  --color-border: rgba(137, 165, 224, 0.2);
+  --color-hover: rgba(137, 165, 224, 0.12);
+  --color-row-hover: rgba(137, 165, 224, 0.22);
+  --landing-bg: #0a0e18;
+  --landing-glow: #89a5e0;
+  --landing-flow-in: #7db8ff;
+  --landing-flow-out: #b18cff;
+  --landing-danger: #f27189;
+
+  position: relative;
+  background: var(--landing-bg);
+  color: var(--color-text);
+}
+
+/* ── 場景(固定底層,相機用 transform 運鏡) ── */
+.sceneViewport {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  overflow: hidden;
+  background: radial-gradient(120% 90% at 50% 0%, #17253f 0%, #0e1628 48%, var(--landing-bg) 78%);
+
+  /* 星海:四層錯位點陣(含細星塵),集中上半部、在雲海區之前淡出 */
+  &::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background-image:
+      radial-gradient(rgba(255, 255, 255, 0.6) 1px, transparent 1.6px),
+      radial-gradient(rgba(255, 255, 255, 0.4) 1px, transparent 1.4px),
+      radial-gradient(rgba(173, 199, 255, 0.5) 1.2px, transparent 1.8px),
+      radial-gradient(rgba(255, 255, 255, 0.25) 0.7px, transparent 1.1px);
+    background-size: 190px 170px, 120px 100px, 300px 260px, 90px 80px;
+    background-position: 40px 60px, 110px 20px, 220px 130px, 15px 45px;
+    mask-image: linear-gradient(to bottom, rgba(0, 0, 0, 1) 0%, rgba(0, 0, 0, 0.85) 40%, transparent 62%);
+  }
+}
+
+/* ── 夜空層(固定在視口,位於場景之後、星空點陣之上) ── */
+.skyLayer {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.starsTwinkle {
+  position: absolute;
+  inset: 0;
+  background-image: radial-gradient(rgba(255, 255, 255, 0.7) 1.1px, transparent 1.8px);
+  background-size: 200px 170px;
+  background-position: 150px 90px;
+  mask-image: linear-gradient(to bottom, rgba(0, 0, 0, 0.95), transparent 60%);
+  animation: star-twinkle 5s ease-in-out infinite alternate;
+}
+
+/* 銀河帶:斜向的星塵密帶＋藍紫星雲光暈,只鋪在上半夜空 */
+.milkyWay {
+  position: absolute;
+  top: -4%;
+  left: -10%;
+  width: 120vw;
+  height: 34vh;
+  background-image:
+    radial-gradient(rgba(255, 255, 255, 0.5) 0.8px, transparent 1.2px),
+    radial-gradient(rgba(200, 216, 255, 0.42) 1px, transparent 1.5px),
+    radial-gradient(rgba(255, 255, 255, 0.3) 0.7px, transparent 1.1px),
+    radial-gradient(60% 70% at 50% 50%, rgba(120, 150, 230, 0.16), transparent 75%),
+    radial-gradient(40% 55% at 32% 45%, rgba(160, 120, 230, 0.12), transparent 70%);
+  background-size: 70px 60px, 110px 95px, 46px 40px, 100% 100%, 100% 100%;
+  background-position: 12px 8px, 40px 30px, 5px 20px, 0 0, 0 0;
+  mask-image: radial-gradient(ellipse 55% 45% at 50% 50%, rgba(0, 0, 0, 0.9), transparent 76%);
+  transform: rotate(-14deg);
+}
+
+@keyframes star-twinkle {
+  from { opacity: 0.25; }
+  to { opacity: 0.9; }
+}
+
+/* 極光帶:大面積柔焦漸層,只動 transform(rotate 基角走 CSS 變數) */
+.aurora {
+  position: absolute;
+  width: 120vw;
+  height: 40vh;
+  filter: blur(38px);
+  opacity: 0.3;
+}
+
+.auroraA {
+  --sway-rot: -8deg;
+  top: -6%;
+  left: -20%;
+  background: linear-gradient(100deg, transparent 5%, rgba(94, 226, 200, 0.62) 30%, rgba(110, 140, 240, 0.55) 55%, rgba(160, 110, 230, 0.45) 75%, transparent 95%);
+  transform: rotate(var(--sway-rot));
+  animation: aurora-sway 46s ease-in-out infinite alternate;
+}
+
+.auroraB {
+  --sway-rot: 7deg;
+  top: 6%;
+  right: -25%;
+  height: 30vh;
+  background: linear-gradient(80deg, transparent 8%, rgba(120, 200, 255, 0.52) 40%, rgba(140, 120, 240, 0.45) 70%, transparent 92%);
+  transform: rotate(var(--sway-rot));
+  opacity: 0.22;
+  animation: aurora-sway 62s ease-in-out -20s infinite alternate-reverse;
+}
+
+@keyframes aurora-sway {
+  from { transform: rotate(var(--sway-rot)) translateX(-4%) scaleY(1); }
+  to { transform: rotate(var(--sway-rot)) translateX(5%) scaleY(1.18); }
+}
+
+/* 流星:亮頭在左(前進方向),長暫停短劃過 */
+.meteor {
+  position: absolute;
+  width: 170px;
+  height: 2px;
+  border-radius: $radius-pill;
+  background: linear-gradient(90deg, rgba(234, 242, 255, 1), rgba(255, 255, 255, 0));
+  opacity: 0;
+  transform: rotate(-32deg);
+}
+
+.meteorA {
+  top: 12%;
+  left: 58%;
+  animation: meteor-fall 7s linear 2s infinite;
+}
+
+.meteorB {
+  top: 5%;
+  left: 28%;
+  width: 120px;
+  animation: meteor-fall 11s linear 6.5s infinite;
+}
+
+@keyframes meteor-fall {
+  0% { transform: rotate(-32deg) translateX(0); opacity: 0; }
+  2% { opacity: 1; }
+  9%, 100% { transform: rotate(-32deg) translateX(-420px); opacity: 0; }
+}
+
+.sceneWorld {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 2700px;
+  height: 2000px;
+  transform-origin: 0 0;
+  will-change: transform;
+}
+
+.sceneSvg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+/* ── 夜景場景配色 ── */
+.ground {
+  fill: #0e1526;
+  stroke: rgba(137, 165, 224, 0.14);
+  stroke-width: 2;
+}
+
+.gridLine {
+  fill: none;
+  stroke: rgba(120, 150, 205, 0.06);
+  stroke-width: 1;
+}
+
+.road { fill: #151d36; }
+
+.laneLine {
+  fill: none;
+  stroke: rgba(137, 165, 224, 0.16);
+  stroke-width: 2;
+  stroke-dasharray: 18 26;
+}
+
+.isoBox polygon {
+  stroke: rgba(137, 165, 224, 0.16);
+  stroke-width: 1;
+}
+
+/* 側面吃 defs 的垂直漸層(上亮下暗),頂面保持平塗;
+   stop 顏色放這裡,日間模式(檔尾)整組換色 */
+.stGsHi { stop-color: #232e4b; }
+.stGsLo { stop-color: #131a2c; }
+.stGeHi { stop-color: #2b3759; }
+.stGeLo { stop-color: #171f36; }
+.stGskHi { stop-color: #2b3a63; }
+.stGskLo { stop-color: #182240; }
+.stGekHi { stop-color: #35466f; }
+.stGekLo { stop-color: #1d2946; }
+
+.faceTop { fill: #323f63; }
+.faceSouth { fill: url(#lp-gs); }
+.faceEast { fill: url(#lp-ge); }
+
+/* 段落焦點建築:稍亮一階、頂面帶微微天光 */
+.boxKey polygon { stroke: rgba(137, 165, 224, 0.4); }
+.boxKey .faceTop { fill: #3e4e7e; }
+.boxKey .faceSouth { fill: url(#lp-gsk); }
+.boxKey .faceEast { fill: url(#lp-gek); }
+
+/* 足底投影與頂面背光邊:立體感三件套的另外兩件 */
+.shadow {
+  fill: rgba(2, 4, 10, 0.42);
+}
+
+.rim {
+  fill: none;
+  stroke: rgba(190, 210, 255, 0.26);
+  stroke-width: 1.5;
+  stroke-linejoin: round;
+}
+
+/* 街區鋪面與步道:打破大片空地的單調 */
+.pad {
+  fill: rgba(137, 165, 224, 0.035);
+  stroke: rgba(137, 165, 224, 0.06);
+  stroke-width: 1;
+}
+
+.walkway { fill: #182036; }
+
+.roofBox polygon { stroke: rgba(137, 165, 224, 0.12); }
+.roofBox .faceTop { fill: #2a3554; }
+.roofBox .faceSouth { fill: #161d31; }
+.roofBox .faceEast { fill: #1d2640; }
+
+.wall .faceTop { fill: #29344f; }
+
+/* 窗格:多數暗窗、少數冷光、極少數暖光;terminal 段教學大樓整棟轉暖(見段落連動) */
+.winUnlit { fill: rgba(8, 12, 22, 0.55); }
+
+.winLit {
+  fill: #9cc0ff;
+  opacity: 0.66;
+  transition: fill 0.6s ease, opacity 0.6s ease;
+}
+
+.winWarm {
+  fill: #ffd9a0;
+  opacity: 0.8;
+  transition: fill 0.6s ease, opacity 0.6s ease;
+}
+
+.winSlit {
+  fill: #7fe0d0;
+  opacity: 0.28;
+}
+
+/* ── 操場、廣場、停車場、水塔:填滿象限的校園設施 ── */
+.fieldBase {
+  fill: #13262a;
+  stroke: rgba(137, 165, 224, 0.1);
+  stroke-width: 1;
+}
+
+.trackRing {
+  fill: none;
+  stroke: #4a3a48;
+  stroke-width: 20;
+  stroke-linejoin: round;
+}
+
+.trackLine {
+  fill: none;
+  stroke: rgba(255, 255, 255, 0.13);
+  stroke-width: 1.2;
+  stroke-dasharray: 6 10;
+}
+
+.infield { fill: #1a3a30; }
+
+.plazaBase {
+  fill: #1c2742;
+  stroke: rgba(137, 165, 224, 0.14);
+  stroke-width: 1;
+}
+
+.plazaRing {
+  fill: none;
+  stroke: rgba(137, 165, 224, 0.12);
+  stroke-width: 1.5;
+}
+
+.fountainWater {
+  fill: rgba(127, 224, 208, 0.32);
+}
+
+.parkBase {
+  fill: #121a2e;
+  stroke: rgba(137, 165, 224, 0.08);
+  stroke-width: 1;
+}
+
+.parkLine {
+  fill: none;
+  stroke: rgba(255, 255, 255, 0.1);
+  stroke-width: 1.5;
+}
+
+/* 車輛:平塗覆蓋側面漸層,車頂依色調變體 */
+.car polygon { stroke: rgba(10, 14, 24, 0.5); }
+.car .faceSouth { fill: #1c2438; }
+.car .faceEast { fill: #232e49; }
+.car .faceTop { fill: #56719f; }
+.carCab .faceTop { fill: #b9d0f2; }
+.carCab .faceSouth { fill: #141b2c; }
+.carCab .faceEast { fill: #1a2338; }
+.carBlue .faceTop { fill: #4d6cae; }
+.carPurple .faceTop { fill: #6d5a92; }
+.carTeal .faceTop { fill: #47797a; }
+
+/* 行駛動畫:translate 值＝iso 投影後的道路端點(世界座標見 CampusScene 車道) */
+.movingCar {
+  will-change: transform;
+}
+
+.carDriveSouth { animation: drive-south 34s linear infinite; }
+.carDriveNorth { animation: drive-north 40s linear -14s infinite; }
+.carDriveEast { animation: drive-east 28s linear -9s infinite; }
+
+@keyframes drive-south {
+  0% { transform: translate(581.9px, 376px); opacity: 0; }
+  6% { opacity: 1; }
+  94% { opacity: 1; }
+  100% { transform: translate(-561.2px, 1036px); opacity: 0; }
+}
+
+@keyframes drive-north {
+  0% { transform: translate(-581.9px, 1024px); opacity: 0; }
+  6% { opacity: 1; }
+  94% { opacity: 1; }
+  100% { transform: translate(561.2px, 364px); opacity: 0; }
+}
+
+@keyframes drive-east {
+  0% { transform: translate(-581.9px, 376px); opacity: 0; }
+  6% { opacity: 1; }
+  94% { opacity: 1; }
+  100% { transform: translate(561.2px, 1036px); opacity: 0; }
+}
+
+/* 路燈:地面光池＋燈頭假光暈(雙圈,不用 filter) */
+.lampPool { fill: rgba(255, 214, 150, 0.06); }
+
+.lampPole polygon { stroke: none; }
+.lampPole .faceTop, .lampPole .faceSouth, .lampPole .faceEast { fill: #1b2336; }
+
+.lampHalo { fill: rgba(255, 214, 150, 0.22); }
+.lampHead { fill: #ffdca6; }
+
+/* 航空障礙燈:慢速閃爍 */
+.beacon {
+  fill: #ff7b8a;
+  animation: beacon-blink 2.4s steps(1) infinite;
+}
+
+@keyframes beacon-blink {
+  0%, 55% { opacity: 1; }
+  60%, 100% { opacity: 0.15; }
+}
+
+/* 行道樹 */
+.tree polygon { stroke: rgba(137, 165, 224, 0.1); }
+
+.treeShadow { fill: rgba(2, 4, 10, 0.3); }
+.treeTrunk .faceTop, .treeTrunk .faceSouth, .treeTrunk .faceEast { fill: #121728; }
+.treeCanopy .faceTop { fill: #23425c; }
+.treeCanopy .faceSouth { fill: #14283a; }
+.treeCanopy .faceEast { fill: #1a3349; }
+.treeCanopyTop .faceTop { fill: #2b5270; }
+.treeCanopyTop .faceSouth { fill: #183043; }
+.treeCanopyTop .faceEast { fill: #1f3d55; }
+
+/* 焦點建築發光描邊:預設隱形,段落連動時亮起(規則在檔尾) */
+.glowOutline {
+  opacity: 0;
+  transition: opacity 0.5s ease;
+
+  polygon {
+    fill: none;
+    stroke: var(--landing-glow);
+    stroke-width: 2.5;
+  }
+}
+
+/* 聚焦時的地面雷達擴散圈:預設隱形,段落連動時播放 */
+.ping {
+  fill: none;
+  stroke: var(--landing-glow);
+  stroke-width: 2;
+  opacity: 0;
+  transform-box: fill-box;
+  transform-origin: center;
+}
+
+@keyframes ping-out {
+  0% { transform: scale(0.45); opacity: 0; }
+  12% { opacity: 0.5; }
+  100% { transform: scale(1.28); opacity: 0; }
+}
+
+@keyframes glow-breathe {
+  50% { opacity: 0.5; }
+}
+
+/* spotlight 淡入淡出的過渡 */
+.sceneSvg [data-b],
+.scenery {
+  transition: opacity 0.5s ease, filter 0.5s ease;
+}
+
+/* 校門進出流量光流:平時低調呼吸,network 段增亮 */
+.flowLines path {
+  fill: none;
+  stroke-width: 3;
+  stroke-linecap: round;
+  stroke-dasharray: 10 34;
+  opacity: 0.3;
+  transition: opacity 0.5s ease;
+  animation: flow-dash 1.6s linear infinite;
+}
+
+.flowIn { stroke: var(--landing-flow-in); }
+.flowOut { stroke: var(--landing-flow-out); }
+
+@keyframes flow-dash {
+  to { stroke-dashoffset: -88; }
+}
+
+/* 教室屋頂座位(=整班機器):S4 由 scrub 逐排點亮 fill */
+.seat { fill: #2c3c60; }
+
+/* ── 疊層:霧面、壓暗、雲 ── */
+.haze {
+  position: fixed;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+  /* 場景在 Hero 已整個隱藏,霧面只負責文字對比與過場氛圍,保持輕透 */
+  background: linear-gradient(180deg, rgba(8, 12, 22, 0.5), rgba(8, 12, 22, 0.28));
+}
+
+.dim {
+  position: fixed;
+  inset: 0;
+  z-index: 2;
+  pointer-events: none;
+  opacity: 0;
+  background: #05070d;
+}
+
+/* 常駐暗角:把視線往畫面中央收,場景邊緣自然沒入夜色 */
+.vignette {
+  position: fixed;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+  background: radial-gradient(ellipse 72% 68% at 50% 46%, transparent 52%, rgba(4, 6, 12, 0.62) 100%);
+}
+
+.cloudLayer {
+  position: fixed;
+  inset: 0;
+  z-index: 2;
+  pointer-events: none;
+}
+
+/* 雲:積雲團＋底部雲海帶,體積感=「亮冠(頂部受光)→雲體→底影」三層光影。
+   漂移動 background-position(size 撐到 130% 才有位移量),不動 transform,
+   避免和 GSAP 的散開動畫打架。 */
+.cloud {
+  position: absolute;
+  border-radius: 50%;
+  background-size: 130% 130%;
+  filter: blur(11px);
+  animation: cloud-drift 20s ease-in-out infinite alternate;
+}
+
+.cloudA {
+  top: 46vh;
+  left: -12vw;
+  width: 76vw;
+  height: 38vh;
+  background-image:
+    radial-gradient(18% 26% at 30% 32%, rgba(230, 240, 255, 0.78), transparent 65%),
+    radial-gradient(14% 22% at 52% 26%, rgba(216, 228, 252, 0.62), transparent 65%),
+    radial-gradient(12% 20% at 68% 40%, rgba(222, 233, 254, 0.5), transparent 65%),
+    radial-gradient(38% 42% at 36% 84%, rgba(22, 32, 56, 0.5), transparent 72%),
+    radial-gradient(30% 38% at 64% 86%, rgba(26, 36, 62, 0.42), transparent 72%),
+    radial-gradient(34% 52% at 26% 58%, rgba(198, 214, 244, 0.62), transparent 68%),
+    radial-gradient(28% 44% at 48% 38%, rgba(178, 196, 232, 0.55), transparent 70%),
+    radial-gradient(24% 40% at 66% 60%, rgba(188, 204, 238, 0.5), transparent 68%),
+    radial-gradient(42% 62% at 50% 55%, rgba(150, 170, 212, 0.35), transparent 76%);
+}
+
+.cloudB {
+  top: 52vh;
+  right: -14vw;
+  width: 80vw;
+  height: 42vh;
+  background-image:
+    radial-gradient(16% 24% at 34% 30%, rgba(228, 238, 255, 0.72), transparent 65%),
+    radial-gradient(13% 20% at 56% 36%, rgba(214, 226, 251, 0.56), transparent 65%),
+    radial-gradient(40% 40% at 42% 84%, rgba(22, 32, 56, 0.48), transparent 72%),
+    radial-gradient(28% 34% at 70% 82%, rgba(26, 36, 62, 0.4), transparent 72%),
+    radial-gradient(30% 48% at 32% 45%, rgba(196, 212, 242, 0.6), transparent 68%),
+    radial-gradient(26% 42% at 55% 60%, rgba(176, 194, 230, 0.52), transparent 70%),
+    radial-gradient(22% 38% at 74% 42%, rgba(186, 202, 236, 0.48), transparent 68%),
+    radial-gradient(44% 64% at 52% 50%, rgba(148, 168, 210, 0.32), transparent 78%);
+  animation-duration: 26s;
+}
+
+.cloudC {
+  bottom: -6vh;
+  left: 6vw;
+  width: 80vw;
+  height: 38vh;
+  background-image:
+    radial-gradient(15% 24% at 32% 28%, rgba(226, 236, 255, 0.68), transparent 65%),
+    radial-gradient(12% 20% at 58% 24%, rgba(212, 224, 250, 0.54), transparent 65%),
+    radial-gradient(38% 40% at 44% 86%, rgba(22, 32, 56, 0.45), transparent 74%),
+    radial-gradient(32% 50% at 30% 50%, rgba(192, 208, 240, 0.58), transparent 68%),
+    radial-gradient(26% 42% at 56% 40%, rgba(174, 192, 228, 0.5), transparent 70%),
+    radial-gradient(24% 40% at 76% 58%, rgba(184, 200, 234, 0.46), transparent 68%);
+  animation-duration: 23s;
+}
+
+.cloudD {
+  top: 58vh;
+  left: 20vw;
+  width: 60vw;
+  height: 30vh;
+  background-image:
+    radial-gradient(16% 24% at 40% 30%, rgba(222, 233, 254, 0.6), transparent 65%),
+    radial-gradient(34% 36% at 50% 84%, rgba(24, 34, 58, 0.42), transparent 74%),
+    radial-gradient(34% 52% at 38% 50%, rgba(180, 198, 232, 0.48), transparent 70%),
+    radial-gradient(28% 44% at 64% 46%, rgba(164, 184, 222, 0.4), transparent 72%);
+  animation-duration: 29s;
+}
+
+.cloudE {
+  top: 43vh;
+  right: 8vw;
+  width: 60vw;
+  height: 26vh;
+  background-image:
+    radial-gradient(15% 24% at 44% 32%, rgba(224, 234, 254, 0.62), transparent 65%),
+    radial-gradient(12% 20% at 64% 28%, rgba(210, 222, 248, 0.5), transparent 65%),
+    radial-gradient(34% 36% at 52% 84%, rgba(24, 34, 58, 0.4), transparent 74%),
+    radial-gradient(32% 50% at 42% 55%, rgba(186, 202, 236, 0.5), transparent 70%),
+    radial-gradient(26% 42% at 66% 44%, rgba(168, 188, 226, 0.42), transparent 72%);
+  animation-duration: 24s;
+}
+
+/* 雲床:整片連續的雲層基底,加高蓋滿下半部;個別雲團沉在上面才有整體感。
+   上緣一排亮冠、中段補雲體、往下漸深到近墨藍。 */
+.cloudSea {
+  position: absolute;
+  bottom: -12vh;
+  left: -20vw;
+  width: 140vw;
+  height: 66vh;
+  background-size: 130% 130%;
+  background-image:
+    radial-gradient(8% 14% at 16% 12%, rgba(224, 234, 255, 0.6), transparent 65%),
+    radial-gradient(7% 12% at 33% 8%, rgba(216, 228, 252, 0.55), transparent 65%),
+    radial-gradient(9% 15% at 50% 13%, rgba(226, 236, 255, 0.58), transparent 65%),
+    radial-gradient(7% 12% at 67% 9%, rgba(214, 226, 251, 0.52), transparent 65%),
+    radial-gradient(8% 14% at 84% 13%, rgba(222, 233, 254, 0.56), transparent 65%),
+    radial-gradient(26% 34% at 15% 34%, rgba(192, 208, 240, 0.5), transparent 70%),
+    radial-gradient(24% 32% at 38% 42%, rgba(176, 194, 230, 0.46), transparent 70%),
+    radial-gradient(26% 34% at 60% 34%, rgba(192, 208, 240, 0.48), transparent 70%),
+    radial-gradient(24% 32% at 82% 42%, rgba(172, 192, 228, 0.44), transparent 70%),
+    radial-gradient(30% 30% at 28% 64%, rgba(160, 180, 220, 0.4), transparent 72%),
+    radial-gradient(28% 28% at 58% 68%, rgba(156, 176, 216, 0.38), transparent 72%),
+    radial-gradient(30% 30% at 86% 62%, rgba(162, 182, 222, 0.4), transparent 72%),
+    linear-gradient(180deg, transparent 0%, rgba(150, 170, 212, 0.24) 22%, rgba(120, 140, 185, 0.4) 52%, rgba(58, 74, 110, 0.62) 100%);
+  filter: blur(16px);
+  animation: cloud-drift 30s ease-in-out infinite alternate;
+}
+
+@keyframes cloud-drift {
+  from { background-position: 0 0; }
+  to { background-position: 8% 4%; }
+}
+
+/* 運鏡關閉(行動版/reduce-motion):雲與霧面整層拿掉,場景停在全景;
+   行駛中的車依賴動畫定位,一併隱藏;夜空層留靜態(月亮/極光),流星與閃爍關閉 */
+.noMotion .cloudLayer,
+.noMotion .haze,
+.noMotion .movingCar,
+.noMotion .meteor { display: none; }
+
+.noMotion .aurora,
+.noMotion .starsTwinkle { animation: none; }
+
+/* ── 固定 UI:頂列與校園概況卡 ── */
+.topBar {
+  position: fixed;
+  top: 0;
+  right: 0;
+  left: 0;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: $spacing-16 $spacing-24;
+}
+
+.brand {
+  color: var(--color-text-primary);
+  font-size: $font-size-18;
+  font-weight: $font-weight-700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.topActions {
+  display: flex;
+  align-items: center;
+  gap: $spacing-8;
+}
+
+.langBtn {
+  @include btn-ghost;
+  min-height: 32px;
+  padding: 4px 10px;
+}
+
+.langBtnActive {
+  color: var(--color-text-primary);
+  background: var(--color-row-hover);
+}
+
+.topLogin {
+  @include btn-primary;
+  text-decoration: none;
+}
+
+.conditionCard {
+  @include glass-surface;
+  position: fixed;
+  top: 76px;
+  right: $spacing-24;
+  z-index: 10;
+  width: 220px;
+  padding: $spacing-16;
+  border-radius: $radius-16;
+  transition: opacity 0.45s ease;
+
+  h3 {
+    margin: 0 0 $spacing-8;
+    color: var(--color-text-muted);
+    font-size: $font-size-12;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+  }
+
+  dl {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: $spacing-8 $spacing-16;
+    margin: 0;
+  }
+
+  dt {
+    color: var(--color-text-secondary);
+    font-size: $font-size-12;
+  }
+
+  dd {
+    margin: 2px 0 0;
+    color: var(--color-text-primary);
+    font-size: $font-size-18;
+    font-weight: $font-weight-700;
+    font-variant-numeric: tabular-nums;
+  }
+
+  @include respond-below(lg) {
+    display: none;
+  }
+}
+
+/* ── 滾動段落 ── */
+.sections {
+  position: relative;
+  z-index: 3;
+}
+
+.section {
+  position: relative;
+}
+
+.sticky {
+  position: sticky;
+  top: 0;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  height: 100vh;
+  height: 100dvh;
+  padding: 0 6vw;
+}
+
+.alignLeft { justify-content: flex-start; }
+.alignRight { justify-content: flex-end; }
+.alignCenter { justify-content: center; }
+
+/* 垂直落位:上要讓開固定頂列,下留一段呼吸空間 */
+.valignTop {
+  align-items: flex-start;
+  padding-top: 112px;
+}
+
+.valignBottom {
+  align-items: flex-end;
+  padding-bottom: 9vh;
+}
+
+/* ── Hero ── */
+.hero {
+  max-width: 640px;
+  text-align: center;
+}
+
+/* 雲變厚後文字要壓得住:標題群統一帶暗色陰影保持對比 */
+.heroKicker {
+  margin: 0 0 $spacing-8;
+  color: var(--landing-glow);
+  font-size: $font-size-14;
+  letter-spacing: 0.3em;
+  text-transform: uppercase;
+  text-shadow: 0 2px 14px rgba(5, 9, 18, 0.65);
+}
+
+.heroTitle {
+  margin: 0;
+  color: var(--color-text-primary);
+  font-size: clamp(56px, 9vw, 104px);
+  font-weight: $font-weight-700;
+  letter-spacing: 0.08em;
+  text-shadow: 0 4px 28px rgba(5, 9, 18, 0.6);
+}
+
+.heroSub {
+  max-width: 460px;
+  margin: $spacing-16 auto 0;
+  color: var(--color-text-secondary);
+  font-size: $font-size-16;
+  line-height: $line-height-base;
+  text-shadow: 0 2px 14px rgba(5, 9, 18, 0.65);
+}
+
+.scrollHint {
+  position: absolute;
+  bottom: 40px;
+  left: 50%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: $spacing-8;
+  color: var(--color-text-secondary);
+  font-size: $font-size-12;
+  letter-spacing: 0.28em;
+  text-transform: uppercase;
+  text-shadow: 0 2px 12px rgba(5, 9, 18, 0.75);
+  transform: translateX(-50%);
+}
+
+.scrollHintBar {
+  width: 1px;
+  height: 36px;
+  background: linear-gradient(180deg, var(--landing-glow), transparent);
+  animation: hint-drop 1.8s ease-in-out infinite;
+}
+
+@keyframes hint-drop {
+  0% { transform: scaleY(0); transform-origin: top; }
+  50% { transform: scaleY(1); transform-origin: top; }
+  100% { transform: scaleY(0); transform-origin: bottom; }
+}
+
+/* ── HUD 卡 ── */
+.hudCol {
+  display: flex;
+  flex-direction: column;
+  gap: $spacing-16;
+  width: min(400px, 88vw);
+}
+
+.hudColCenter {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: $spacing-16;
+  max-width: 560px;
+  text-align: center;
+}
+
+.hudCard {
+  @include glass-surface;
+  border-radius: $radius-16;
+  padding: $spacing-24;
+}
+
+.hudCardWide {
+  width: min(560px, 88vw);
+}
+
+.hudTitle {
+  margin: 0 0 $spacing-8;
+  color: var(--color-text-muted);
+  font-size: $font-size-12;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+}
+
+.sectionTitle {
+  margin: 0 0 $spacing-8;
+  color: var(--color-text-primary);
+  font-size: $font-size-24;
+  font-weight: $font-weight-700;
+  line-height: 1.35;
+}
+
+.sectionDesc {
+  margin: 0 0 $spacing-16;
+  color: var(--color-text-secondary);
+  font-size: $font-size-14;
+  line-height: $line-height-base;
+}
+
+.hudMeta {
+  display: block;
+  margin-top: $spacing-8;
+  color: var(--color-text-secondary);
+  font-size: $font-size-12;
+}
+
+/* ── S1 統計 ── */
+.overviewBlock {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: $spacing-24;
+  text-align: center;
+}
+
+.statRow {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: $spacing-16;
+}
+
+.statCard {
+  @include glass-surface;
+  min-width: 168px;
+  padding: $spacing-16 $spacing-24;
+  border-radius: $radius-16;
+  text-align: center;
+}
+
+.statValue {
+  display: block;
+  color: var(--color-text-primary);
+  font-size: 40px;
+  font-weight: $font-weight-700;
+  font-variant-numeric: tabular-nums;
+}
+
+.statLabel {
+  display: block;
+  margin-top: 4px;
+  color: var(--color-text-secondary);
+  font-size: $font-size-12;
+}
+
+/* ── 步驟(S2 生命週期、S3 申請流程共用) ── */
+.stepper {
+  display: flex;
+  flex-direction: column;
+  gap: $spacing-8;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  counter-reset: step;
+
+  li {
+    display: flex;
+    align-items: center;
+    gap: $spacing-8;
+    color: var(--color-text);
+    font-size: $font-size-14;
+    counter-increment: step;
+
+    &::before {
+      content: counter(step);
+      @include flex-center;
+      flex-shrink: 0;
+      width: 24px;
+      height: 24px;
+      border: 1px solid var(--color-border);
+      border-radius: 50%;
+      background: var(--color-hover);
+      color: var(--landing-glow);
+      font-size: $font-size-12;
+    }
+  }
+}
+
+.miniList {
+  display: flex;
+  flex-direction: column;
+  gap: $spacing-8;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+
+  li {
+    display: flex;
+    justify-content: space-between;
+    gap: $spacing-16;
+    font-size: $font-size-14;
+  }
+}
+
+.miniTag {
+  @include badge-base;
+  padding: 2px 10px;
+  border: 1px solid var(--color-border);
+  color: var(--color-text-secondary);
+}
+
+.gaugeTrack {
+  height: 8px;
+  border-radius: $radius-pill;
+  background: var(--color-hover);
+  overflow: hidden;
+}
+
+.gaugeFill {
+  height: 100%;
+  border-radius: $radius-pill;
+  background: linear-gradient(90deg, var(--color-primary), var(--landing-glow));
+}
+
+.gaugeValue {
+  display: block;
+  margin-top: $spacing-8;
+  color: var(--color-text-primary);
+  font-size: $font-size-14;
+  font-weight: $font-weight-700;
+}
+
+/* ── S4 教室 ── */
+.chipRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: $spacing-8;
+}
+
+.chip {
+  @include badge-base;
+  padding: 4px 12px;
+  border: 1px solid var(--color-border);
+  background: var(--color-hover);
+  color: var(--color-text);
+}
+
+.seatHudGrid {
+  display: grid;
+  grid-template-columns: repeat(8, 12px);
+  gap: 6px;
+}
+
+.seatOn,
+.seatOff {
+  width: 12px;
+  height: 12px;
+  border-radius: 3px;
+}
+
+.seatOn {
+  background: var(--landing-glow);
+  box-shadow: 0 0 8px rgba(137, 165, 224, 0.8);
+}
+
+.seatOff {
+  background: var(--color-hover);
+}
+
+/* ── S5 網路 ── */
+.kvList {
+  display: flex;
+  flex-direction: column;
+  gap: $spacing-8;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+
+  li {
+    display: flex;
+    justify-content: space-between;
+    color: var(--color-text-secondary);
+    font-size: $font-size-14;
+  }
+
+  strong {
+    color: var(--color-text-primary);
+    font-variant-numeric: tabular-nums;
+  }
+}
+
+.topoMini {
+  display: block;
+  width: 100%;
+  height: auto;
+  margin-top: $spacing-8;
+}
+
+.topoNode {
+  fill: #16203a;
+  stroke: rgba(137, 165, 224, 0.35);
+  stroke-width: 1.5;
+}
+
+.topoHub {
+  fill: rgba(137, 165, 224, 0.16);
+  stroke: var(--landing-glow);
+}
+
+/* 防火牆節點的呼吸光圈 */
+.topoPulse {
+  fill: none;
+  stroke: var(--landing-glow);
+  stroke-width: 1.5;
+  opacity: 0;
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: topo-pulse 2.6s ease-out infinite;
+}
+
+@keyframes topo-pulse {
+  0% { transform: scale(0.65); opacity: 0.55; }
+  70%, 100% { transform: scale(1.55); opacity: 0; }
+}
+
+/* 節點圖示:Internet 地球、防火牆盾牌、VM 伺服器 */
+.topoGlyph {
+  circle,
+  ellipse {
+    fill: none;
+    stroke: var(--color-text-secondary);
+    stroke-width: 1.1;
+  }
+
+  line {
+    stroke: var(--color-text-secondary);
+    stroke-width: 1.1;
+  }
+}
+
+.topoShield {
+  fill: rgba(137, 165, 224, 0.2);
+  stroke: var(--landing-glow);
+  stroke-width: 1.4;
+  stroke-linejoin: round;
+}
+
+.topoShieldTick {
+  fill: none;
+  stroke: #cfe3ff;
+  stroke-width: 1.6;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.topoServer {
+  rect {
+    fill: rgba(137, 165, 224, 0.16);
+    stroke: var(--color-text-secondary);
+    stroke-width: 1;
+  }
+
+  circle { fill: var(--landing-glow); }
+}
+
+.topoLabel {
+  fill: var(--color-text-muted);
+  font-family: $font-family-base;
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  text-anchor: middle;
+}
+
+/* 放行連線:入站色流動虛線;阻擋連線:紅色斷線＋✕ 徽章 */
+.topoFlow {
+  stroke: var(--landing-flow-in);
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-dasharray: 5 9;
+  opacity: 0.85;
+  animation: topo-dash 1.1s linear infinite;
+}
+
+@keyframes topo-dash {
+  to { stroke-dashoffset: -28; }
+}
+
+.topoBlocked {
+  stroke: var(--landing-danger);
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-dasharray: 3 6;
+  opacity: 0.6;
+}
+
+.topoBlockBadge {
+  circle {
+    fill: #221523;
+    stroke: var(--landing-danger);
+    stroke-width: 1.4;
+  }
+
+  path {
+    fill: none;
+    stroke: var(--landing-danger);
+    stroke-width: 1.6;
+    stroke-linecap: round;
+  }
+}
+
+.topoLegend {
+  display: flex;
+  gap: $spacing-16;
+  margin-top: $spacing-8;
+  color: var(--color-text-muted);
+  font-size: $font-size-12;
+
+  span {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+  }
+}
+
+.legendAllow,
+.legendBlock {
+  display: inline-block;
+  width: 16px;
+  height: 0;
+  border-top: 2px solid;
+  border-radius: 1px;
+}
+
+.legendAllow { border-color: var(--landing-flow-in); }
+
+.legendBlock {
+  border-top-style: dashed;
+  border-color: var(--landing-danger);
+}
+
+/* ── S6 AI ── */
+.aiQuote {
+  margin: 0 0 $spacing-8;
+  padding: $spacing-8 $spacing-16;
+  border-left: 2px solid var(--landing-glow);
+  border-radius: 0 $radius-8 $radius-8 0;
+  background: var(--color-hover);
+  color: var(--color-text);
+  font-size: $font-size-14;
+}
+
+.scoreRow {
+  display: grid;
+  grid-template-columns: 64px 1fr 36px;
+  align-items: center;
+  gap: $spacing-8;
+  font-size: $font-size-14;
+
+  & + .scoreRow {
+    margin-top: $spacing-8;
+  }
+
+  strong {
+    color: var(--color-text-primary);
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+  }
+}
+
+.scoreTrack {
+  height: 6px;
+  border-radius: $radius-pill;
+  background: var(--color-hover);
+  overflow: hidden;
+}
+
+.scoreFill {
+  height: 100%;
+  border-radius: $radius-pill;
+  background: linear-gradient(90deg, var(--color-primary), var(--landing-glow));
+}
+
+/* ── S7 終端與 CTA ── */
+.terminal {
+  margin-top: $spacing-16;
+  border: 1px solid var(--color-border);
+  border-radius: $radius-12;
+  background: #0b0f1a;
+  overflow: hidden;
+  text-align: left;
+}
+
+.terminalBar {
+  display: flex;
+  gap: 6px;
+  padding: 10px 12px;
+  background: #101626;
+
+  span {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: var(--color-hover);
+  }
+}
+
+.terminal pre {
+  margin: 0;
+  padding: $spacing-16;
+  color: #b6c6e4;
+  font-family: "Cascadia Mono", Consolas, monospace;
+  font-size: 13px;
+  line-height: 1.7;
+  white-space: pre-wrap;
+}
+
+.tPrompt { color: var(--landing-glow); }
+
+.tCursor {
+  display: inline-block;
+  width: 8px;
+  height: 15px;
+  background: var(--landing-glow);
+  vertical-align: text-bottom;
+  animation: cursor-blink 1.1s steps(1) infinite;
+}
+
+@keyframes cursor-blink {
+  50% { opacity: 0; }
+}
+
+.ctaBlock {
+  margin-top: $spacing-24;
+}
+
+.ctaRow {
+  display: flex;
+  justify-content: center;
+  gap: $spacing-16;
+  margin-top: $spacing-16;
+}
+
+.btnPrimary {
+  @include btn-primary;
+  text-decoration: none;
+}
+
+.btnSecondary {
+  @include btn-secondary;
+  text-decoration: none;
+}
+
+.footer {
+  margin-top: $spacing-48;
+  color: var(--color-text-muted);
+  font-size: $font-size-12;
+}
+
+/* ── 段落連動(LandingPage 依滾動位置設定根節點 data-active) ── */
+.landing[data-active="lifecycle"] [data-glow="datacenter"],
+.landing[data-active="workflow"] [data-glow="teaching"],
+.landing[data-active="classroom"] [data-glow="classroom"],
+.landing[data-active="network"] [data-glow="gatehouse"],
+.landing[data-active="terminal"] [data-glow="teaching"] {
+  opacity: 0.9;
+  animation: glow-breathe 2.6s ease-in-out infinite;
+}
+
+/* 聚焦 spotlight:段落聚焦時背景景物與其他建築調暗、主角增亮＋窗全亮＋雷達圈。
+   同一 key 可能有多個群組(教室主體＋座位、機房主體＋散熱模組),attribute 選擇器一起吃到 */
+$focus-map: (
+  "lifecycle": "datacenter",
+  "workflow": "teaching",
+  "classroom": "classroom",
+  "network": "gatehouse",
+  "terminal": "teaching",
+);
+
+@each $section, $bkey in $focus-map {
+  .landing[data-active="#{$section}"] {
+    .scenery { opacity: 0.4; }
+
+    [data-b]:not([data-b="#{$bkey}"]) { opacity: 0.3; }
+
+    [data-b="#{$bkey}"] {
+      filter: brightness(1.22);
+
+      .winLit,
+      .winWarm { opacity: 1; }
+
+      .winSlit { opacity: 0.75; }
+
+      .ping { animation: ping-out 2.6s ease-out infinite; }
+    }
+  }
+}
+
+.landing[data-active="network"] .flowLines path {
+  opacity: 0.95;
+}
+
+/* HUD 落在右側的段落:右上角概況卡暫時淡出讓位 */
+.landing[data-active="workflow"] .conditionCard,
+.landing[data-active="network"] .conditionCard {
+  opacity: 0;
+  pointer-events: none;
+}
+
+/* terminal 段:教學大樓整棟窗戶轉暖,呼應「打開就是真的機器」 */
+.landing[data-active="terminal"] [data-b="teaching"] .winLit {
+  fill: #ffd9a0;
+  opacity: 0.95;
+}
+
+.landing[data-active="terminal"] [data-b="teaching"] .winUnlit {
+  fill: rgba(255, 217, 160, 0.28);
+}
+
+/* 運鏡關閉(行動版/reduce-motion):座位直接亮滿,不留未觸發的暗態 */
+.noMotion .seat {
+  fill: #b7d3ff;
+}
+
+/* ── 日間模式(data-mode="day"):晴空配色,只換顏色不動任何動效/運鏡 ── */
+.landing[data-mode="day"] {
+  --color-surface: #ffffff;
+  --color-surface-glass: rgba(255, 255, 255, 0.66);
+  --color-surface-glass-border: rgba(84, 113, 191, 0.22);
+  --glass-backdrop-filter: blur(14px) saturate(1.15);
+  --shadow-glass: 0 12px 36px rgba(43, 77, 152, 0.16);
+  --color-primary: #4f6fc4;
+  --color-primary-dark: #3a57a5;
+  --color-text: #33507e;
+  --color-text-primary: #1f3862;
+  --color-text-secondary: #4a668f;
+  --color-text-muted: #7b8dab;
+  --color-border: rgba(84, 113, 191, 0.28);
+  --color-hover: rgba(84, 113, 191, 0.1);
+  --color-row-hover: rgba(84, 113, 191, 0.18);
+  --landing-bg: #dbe7f8;
+  --landing-glow: #2f66d0;
+  --landing-flow-in: #2b7de0;
+  --landing-flow-out: #7c5cbf;
+  --landing-danger: #d4506a;
+
+  /* 天空與大氣 */
+  .sceneViewport {
+    background: linear-gradient(180deg, #9cc3f2 0%, #c3daf7 45%, #e2edfc 100%);
+
+    &::before { display: none; }
+  }
+
+  .starsTwinkle,
+  .milkyWay,
+  .aurora,
+  .meteor { display: none; }
+
+  .cloud { filter: blur(11px) brightness(1.6) saturate(0.55); }
+  .cloudSea { filter: blur(16px) brightness(1.55) saturate(0.55); }
+
+  .haze { background: linear-gradient(180deg, rgba(240, 247, 255, 0.42), rgba(240, 247, 255, 0.16)); }
+  .vignette { background: radial-gradient(ellipse 72% 68% at 50% 46%, transparent 55%, rgba(70, 96, 140, 0.26) 100%); }
+
+  /* 場景:日光配色 */
+  .ground { fill: #d3e0f2; stroke: rgba(84, 113, 191, 0.22); }
+  .gridLine { stroke: rgba(60, 90, 150, 0.08); }
+  .road { fill: #b7c6de; }
+  .laneLine { stroke: rgba(255, 255, 255, 0.55); }
+  .pad { fill: rgba(84, 113, 191, 0.06); stroke: rgba(84, 113, 191, 0.08); }
+  .walkway { fill: #c4d2e8; }
+
+  .stGsHi { stop-color: #b6c5de; }
+  .stGsLo { stop-color: #93a5c2; }
+  .stGeHi { stop-color: #d3deef; }
+  .stGeLo { stop-color: #b3c2da; }
+  .stGskHi { stop-color: #c0d0ea; }
+  .stGskLo { stop-color: #9db0d0; }
+  .stGekHi { stop-color: #dde7f7; }
+  .stGekLo { stop-color: #bccbe5; }
+
+  .isoBox polygon { stroke: rgba(50, 80, 140, 0.25); }
+  .faceTop { fill: #f2f6fd; }
+  .boxKey polygon { stroke: rgba(47, 102, 208, 0.45); }
+  .boxKey .faceTop { fill: #e6eefc; }
+  .roofBox .faceTop { fill: #cfdaec; }
+  .roofBox .faceSouth { fill: #a8b7d0; }
+  .roofBox .faceEast { fill: #bac8de; }
+  .wall .faceTop { fill: #c9d5e9; }
+
+  .shadow { fill: rgba(40, 62, 105, 0.22); }
+  .rim { stroke: rgba(255, 255, 255, 0.85); }
+
+  /* 白天窗戶=反射天光的玻璃,不發光 */
+  .winUnlit { fill: rgba(47, 72, 120, 0.28); }
+  .winLit { fill: #eaf2ff; opacity: 0.85; }
+  .winWarm { fill: #fdf3de; opacity: 0.9; }
+  .winSlit { fill: #2fa596; opacity: 0.5; }
+
+  .treeTrunk .faceTop, .treeTrunk .faceSouth, .treeTrunk .faceEast { fill: #7a604a; }
+  .treeCanopy .faceTop { fill: #63ac79; }
+  .treeCanopy .faceSouth { fill: #3f7d55; }
+  .treeCanopy .faceEast { fill: #4f9465; }
+  .treeCanopyTop .faceTop { fill: #77c08b; }
+  .treeCanopyTop .faceSouth { fill: #4c8f61; }
+  .treeCanopyTop .faceEast { fill: #5da672; }
+  .treeShadow { fill: rgba(40, 62, 105, 0.2); }
+
+  .fieldBase { fill: #8fc49b; stroke: rgba(84, 113, 191, 0.15); }
+  .trackRing { stroke: #d1826f; }
+  .trackLine { stroke: rgba(255, 255, 255, 0.6); }
+  .infield { fill: #a4d4ae; }
+
+  .plazaBase { fill: #ccd9ed; stroke: rgba(84, 113, 191, 0.2); }
+  .plazaRing { stroke: rgba(84, 113, 191, 0.25); }
+  .fountainWater { fill: rgba(47, 165, 150, 0.5); }
+
+  .parkBase { fill: #bfcde3; stroke: rgba(84, 113, 191, 0.12); }
+  .parkLine { stroke: rgba(255, 255, 255, 0.55); }
+
+  /* 白天路燈熄燈 */
+  .lampPool, .lampHalo { opacity: 0; }
+  .lampHead { fill: #93a2ba; }
+  .lampPole .faceTop, .lampPole .faceSouth, .lampPole .faceEast { fill: #8e9cb4; }
+
+  .seat { fill: #b9c9e4; }
+
+  /* 文字陰影換成淡的日光暈 */
+  .heroKicker, .heroSub, .scrollHint { text-shadow: 0 2px 12px rgba(255, 255, 255, 0.65); }
+  .heroTitle { text-shadow: 0 4px 24px rgba(255, 255, 255, 0.55); }
+
+  /* 頂列按鈕:亮底場景上淡底鈕會糊掉,改實底白讓任何段落都清楚 */
+  .langBtn {
+    background: rgba(255, 255, 255, 0.78);
+    color: #33507e;
+    box-shadow: 0 2px 10px rgba(43, 77, 152, 0.14);
+
+    &:hover:not(:disabled) {
+      background: #ffffff;
+      color: var(--color-primary-dark);
+    }
+  }
+
+  .langBtnActive {
+    background: #ffffff;
+    color: var(--color-primary-dark);
+  }
+}
+
+/* ── 行動版 ── */
+@include respond-below(md) {
+  .sticky {
+    justify-content: center;
+    padding: 0 $spacing-16;
+  }
+
+  /* 行動版直排堆疊,九宮格落位全部歸中 */
+  .valignTop,
+  .valignBottom {
+    align-items: center;
+    padding-top: 0;
+    padding-bottom: 0;
+  }
+
+  .hudCol {
+    width: 100%;
+    max-width: 420px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .scrollHintBar,
+  .tCursor,
+  .topoFlow,
+  .topoPulse,
+  .flowLines path,
+  .cloud,
+  .beacon,
+  .aurora,
+  .starsTwinkle,
+  .ping,
+  .glowOutline {
+    animation: none;
+  }
+
+  /* 行駛中的車與流星靠動畫定位/現身,停用動畫時直接隱藏 */
+  .movingCar,
+  .meteor { display: none; }
+}

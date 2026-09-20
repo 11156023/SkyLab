@@ -200,7 +200,7 @@ function EnvironmentMachineRow({ machine, onUpdated }) {
         {actionLoading && <MIcon name="hourglass_empty" size={16} />}
         {canControl && <div className={styles.menuWrap}>
           {menuOpen && <PowerMenu resource={resource} actionLoading={actionLoading} onControl={handleControl} onClose={closeMenu} anchorRef={menuBtnRef} closing={menuClosing} />}
-          <button ref={menuBtnRef} type="button" className={`${styles.menuBtn} ${menuOpen ? styles.menuBtnActive : ""}`} onClick={() => menuOpen ? closeMenu() : setMenuOpen(true)} title={t("ResourceMgmtPage.powerControlTitle")}><MIcon name="more_vert" size={18} /></button>
+          <button ref={menuBtnRef} type="button" className={`${styles.menuBtn} ${menuOpen ? styles.menuBtnActive : ""}`} onClick={() => menuOpen ? closeMenu() : setMenuOpen(true)} title={t("ResourceMgmtPage.powerControlTitle")} aria-label={t("ResourceMgmtPage.powerControlTitle")}><MIcon name="more_vert" size={18} /></button>
         </div>}
       </div></td>
     </tr>
@@ -299,7 +299,7 @@ function EnvironmentGroupRows({ group, onUpdated, onRefresh }) {
                   anchorRef={menuBtnRef}
                   closing={menuClosing}
                 />}
-                <button ref={menuBtnRef} type="button" className={`${styles.menuBtn} ${menuOpen ? styles.menuBtnActive : ""}`} onClick={() => menuOpen ? closeGroupMenu() : setMenuOpen(true)} title={t("ResourceMgmtPage.groupPowerTitle")}><MIcon name="more_vert" size={18} /></button>
+                <button ref={menuBtnRef} type="button" className={`${styles.menuBtn} ${menuOpen ? styles.menuBtnActive : ""}`} onClick={() => menuOpen ? closeGroupMenu() : setMenuOpen(true)} title={t("ResourceMgmtPage.groupPowerTitle")} aria-label={t("ResourceMgmtPage.groupPowerTitle")}><MIcon name="more_vert" size={18} /></button>
               </div>
             </div>
           : <span className={styles.noAction}>—</span>}</td>
@@ -574,6 +574,7 @@ function ResourceRow({ resource, onUpdated, onDeleted, selected = false, onToggl
                   className={`${styles.menuBtn} ${menuOpen ? styles.menuBtnActive : ""}`}
                   onClick={() => menuOpen ? closeMenu() : setMenuOpen(true)}
                   title={t("ResourceMgmtPage.powerControlTitle")}
+                  aria-label={t("ResourceMgmtPage.powerControlTitle")}
                 >
                   <MIcon name="more_vert" size={18} />
                 </button>

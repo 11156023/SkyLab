@@ -102,7 +102,7 @@
   box-sizing: border-box;
   width: 100%;
   min-height: 36px;
-  padding: 8px 12px;
+  padding: 8px $form-control-padding-x;
   border: 1px solid var(--color-border);
   border-radius: $radius-8;
   outline: 0;
@@ -293,6 +293,24 @@
       color: var(--color-text-primary);
       background: var(--color-row-hover);
     }
+  }
+}
+
+/* 表格列的動作選單鈕（⋮ more_vert）：白底描邊，與 btn-secondary 同一套視覺語言；
+   全專案表格的更多操作鈕一律用這款，icon 統一 more_vert */
+@mixin btn-icon-secondary {
+  @include btn-base;
+  width: 32px;
+  height: 32px;
+  min-height: 32px;
+  padding: 0;
+  border: 1px solid var(--color-border);
+  color: var(--color-text-secondary);
+  background: var(--color-surface);
+
+  &:hover:not(:disabled) {
+    color: var(--color-text);
+    background: var(--color-hover);
   }
 }
 

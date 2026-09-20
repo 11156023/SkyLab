@@ -361,16 +361,7 @@
 }
 
 .menuBtn {
-  width: 30px;
-  height: 30px;
-  border-radius: $radius-8;
-  @include flex-center;
-  color: var(--color-text-secondary);
-  border: 1px solid var(--color-border);
-  background: var(--color-surface);
-  transition: background $transition-base, color $transition-base;
-
-  &:hover { background: var(--color-hover); color: var(--color-text); }
+  @include btn-icon-secondary;
 }
 
 .menuBtnActive {

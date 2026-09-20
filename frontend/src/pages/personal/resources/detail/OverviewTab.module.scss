@@ -272,9 +272,9 @@
   grid-template-columns: 1fr;
   gap: $spacing-16;
 
+  /* 兩欄時讓左右卡片等高（grid 預設 stretch），矮的那張撐到同高 */
   @include respond-to(lg) {
     grid-template-columns: repeat(2, minmax(0, 1fr));
-    align-items: start;
   }
 }
 
@@ -315,6 +315,9 @@
   font-size: $font-size-14;
   font-weight: $font-weight-500;
   color: var(--color-text-primary);
+
+  /* 列尾的複製鈕靠右，與下方憑證列的動作區對齊 */
+  > button:last-child { margin-left: auto; }
   word-break: break-word;
 }
 
@@ -413,6 +416,12 @@
   @include text-truncate;
 }
 
+/* 尚未記錄密碼的提示列：淡化、非等寬字 */
+.secretEmpty {
+  font-family: $font-family-base;
+  color: var(--color-text-muted);
+}
+
 .secretMasked {
   letter-spacing: 0.18em;
   color: var(--color-text-muted);
@@ -420,7 +429,7 @@
 
 .secretActions {
   display: flex;
-  gap: 2px;
+  gap: $spacing-8;
   flex-shrink: 0;
   margin-left: auto;
 }

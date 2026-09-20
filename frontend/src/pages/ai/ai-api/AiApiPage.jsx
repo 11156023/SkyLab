@@ -511,7 +511,7 @@ function UsageRecordRow({ item }) {
   const { t } = useTranslation("ai");
 
   const succeeded = ["success", "ok", "200", 200].includes(item.status);
-  const statusCls = succeeded ? "success" : "error";
+  const statusCls = succeeded ? "success" : "danger";
   const statusLabel =
     succeeded
       ? t("AiApiPage.recordStatusSuccess")
