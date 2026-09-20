@@ -20,6 +20,7 @@ from app.ai.teacher_judge.script_artifact_service import get_artifact
 from app.ai.teacher_judge.target_ip_resolver import resolve_target_ip_address
 from app.core.i18n import t
 from app.infrastructure.proxmox import operations as proxmox_ops
+from app.infrastructure.proxmox.os_detection import is_windows_guest_identity
 from app.models.teacher_judge_script_artifact import TeacherJudgeScriptStatus
 from app.models.teacher_judge_script_run import (
     TeacherJudgeScriptRun,
@@ -33,6 +34,7 @@ from app.models.teaching_class import (
 )
 from app.models.user import User
 from app.repositories import resource as resource_repo
+from app.services import os_identity_service
 
 logger = logging.getLogger(__name__)
 
@@ -64,9 +66,7 @@ def _public_target(target: Any) -> dict[str, Any]:
     if not isinstance(target, dict):
         return {}
     return {
-        key: value
-        for key, value in target.items()
-        if key not in _INTERNAL_TARGET_KEYS
+        key: value for key, value in target.items() if key not in _INTERNAL_TARGET_KEYS
     }
 
 
@@ -242,6 +242,14 @@ def _running_resources_by_vmid() -> dict[int, dict[str, Any]]:
 
 
 def _resource_os_context(resource: Any) -> str:
+    identity = getattr(resource, "guest_os", None)
+    if isinstance(identity, dict):
+        structured = (
+            str(identity.get("pretty_name") or "").strip()
+            or str(identity.get("id") or "").strip()
+        )
+        if structured:
+            return structured
     return " ".join(
         str(value).strip()
         for value in (
@@ -252,13 +260,23 @@ def _resource_os_context(resource: Any) -> str:
     )
 
 
-def _ensure_linux_executor_capability(resource: Any, vmid: int) -> None:
-    """Reject known Windows resources until a Windows executor exists."""
+def _is_windows_target(resource: Any) -> bool:
+    """結構化 guest_os 為準；無結構資料時退回舊的字串判斷。"""
 
+    structured = is_windows_guest_identity(getattr(resource, "guest_os", None))
+    if structured is not None:
+        return structured
     os_context = _resource_os_context(resource)
     normalized = os_context.casefold()
     windows_markers = ("windows", "win32", "win64", "win10", "win11", "microsoft")
-    if any(marker in normalized for marker in windows_markers):
+    return any(marker in normalized for marker in windows_markers)
+
+
+def _ensure_linux_executor_capability(resource: Any, vmid: int) -> None:
+    """Reject known Windows resources until a Windows executor exists."""
+
+    if _is_windows_target(resource):
+        os_context = _resource_os_context(resource)
         raise HTTPException(
             status_code=400,
             detail={
@@ -341,7 +359,12 @@ def _class_member_by_node_key(
             }
         )
     for members in result.values():
-        members.sort(key=lambda member: (str(member.get("student_id") or ""), int(member.get("vmid") or 0)))
+        members.sort(
+            key=lambda member: (
+                str(member.get("student_id") or ""),
+                int(member.get("vmid") or 0),
+            )
+        )
     return result
 
 
@@ -394,6 +417,13 @@ def _resolve_running_targets(
                 status_code=400,
                 detail=t("run.owner_mismatch", vmid=vmid),
             )
+        # Guest OS 身份補偵測（僅欄位為空時探測一次並回寫；best-effort）
+        os_identity_service.ensure_guest_os(
+            session=session,
+            resource=resource,
+            node=str(live.get("node") or ""),
+            resource_type=live_type,
+        )
         _ensure_linux_executor_capability(resource, vmid)
         ip_address = resolve_target_ip_address(
             session=session,
@@ -403,9 +433,7 @@ def _resolve_running_targets(
         if not ip_address:
             raise HTTPException(status_code=400, detail=t("run.no_ip", vmid=vmid))
         if not resource.ssh_private_key_encrypted:
-            raise HTTPException(
-                status_code=400, detail=t("run.no_ssh_key", vmid=vmid)
-            )
+            raise HTTPException(status_code=400, detail=t("run.no_ssh_key", vmid=vmid))
 
         targets.append(
             {
@@ -466,7 +494,7 @@ def _node_target_failure(
             "schema_version": "teacher_judge_result.v1",
         },
         "stdout_excerpt": "",
-        "stderr_excerpt": message[:16 * 1024],
+        "stderr_excerpt": message[: 16 * 1024],
         "raw_result_json": "",
         "parsed_result": None,
     }
@@ -581,7 +609,11 @@ def create_script_run(
             },
         )
     artifact_node_key = next(iter(artifact_node_keys), None)
-    if artifact_node_key and requested_node_key and artifact_node_key != requested_node_key:
+    if (
+        artifact_node_key
+        and requested_node_key
+        and artifact_node_key != requested_node_key
+    ):
         raise HTTPException(
             status_code=400,
             detail={

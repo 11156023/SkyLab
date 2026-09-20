@@ -29,6 +29,9 @@ from app.services.network import (
     ip_management_service,
     tunnel_proxy_service,
 )
+from app.services.os_identity_service import (
+    initial_guest_os as initial_guest_os_identity,
+)
 from app.services.proxmox import gpu_service, proxmox_service
 from app.services.user import audit_service
 from app.services.vm import placement_support, vm_request_placement_service
@@ -481,7 +484,7 @@ def create_lxc(
 
         firewall_service.setup_default_rules(target_node, vmid, "lxc")
 
-        resource_repo.create_resource(
+        db_lxc_resource = resource_repo.create_resource(
             session=session,
             vmid=vmid,
             user_id=user_id,
@@ -493,6 +496,12 @@ def create_lxc(
             batch_job_id=batch_job_id,
             commit=False,
         )
+        # LXC ostype 是真實發行版欄位，建置當下立即寫入身份（medium）
+        _guest_os_hint = initial_guest_os_identity(
+            resource_type="lxc", node=target_node, vmid=vmid
+        )
+        if _guest_os_hint is not None:
+            db_lxc_resource.guest_os = _guest_os_hint
 
         audit_service.log_action(
             session=session,
@@ -642,7 +651,7 @@ def create_vm(
         if vm_data.start:
             proxmox_service.control(target_node, new_vmid, "qemu", "start")
 
-        resource_repo.create_resource(
+        db_vm_resource = resource_repo.create_resource(
             session=session,
             vmid=new_vmid,
             user_id=user_id,
@@ -655,6 +664,13 @@ def create_vm(
             batch_job_id=batch_job_id,
             commit=False,
         )
+        # Guest OS 身份首次寫入（QEMU config ostype 僅 family hint；
+        # 讀不到不阻擋建置，之後靠 lazy 補偵測）
+        _guest_os_hint = initial_guest_os_identity(
+            resource_type="qemu", node=target_node, vmid=new_vmid
+        )
+        if _guest_os_hint is not None:
+            db_vm_resource.guest_os = _guest_os_hint
 
         audit_service.log_action(
             session=session,
