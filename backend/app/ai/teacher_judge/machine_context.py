@@ -12,7 +12,12 @@ from typing import Any
 
 from sqlmodel import Session, col, select
 
-from app.models.teaching_class import TeachingClassMachineNode
+from app.infrastructure.proxmox.os_detection import format_os_token
+from app.models.resource import Resource
+from app.models.teaching_class import (
+    TeachingClassMachineNode,
+    TeachingClassStudentMachine,
+)
 
 PEER_IP_TOKEN = "{{peer.ip}}"
 
@@ -41,12 +46,51 @@ def machine_node_display_label(node: TeachingClassMachineNode) -> str:
     return f"P{int(node.sort_order) + 1}"
 
 
+def _guest_os_by_node_id(
+    session: Session,
+    node_ids: list[uuid.UUID],
+) -> dict[uuid.UUID, dict[str, Any]]:
+    """從班級學生機的 Resource 讀結構化 guest_os（純 DB 讀取，不做 PVE I/O）。
+
+    同一 node 的學生機都克隆自同一範本，取第一個有身份的 Resource 為準。
+    """
+    if not node_ids:
+        return {}
+    machines = list(
+        session.exec(
+            select(TeachingClassStudentMachine).where(
+                col(TeachingClassStudentMachine.machine_node_id).in_(node_ids)
+            )
+        ).all()
+    )
+    vmids = [machine.vmid for machine in machines if machine.vmid is not None]
+    if not vmids:
+        return {}
+    resources_by_vmid = {
+        resource.vmid: resource
+        for resource in session.exec(
+            select(Resource).where(col(Resource.vmid).in_(vmids))
+        ).all()
+    }
+    result: dict[uuid.UUID, dict[str, Any]] = {}
+    for machine in machines:
+        if machine.vmid is None or machine.machine_node_id in result:
+            continue
+        resource = resources_by_vmid.get(machine.vmid)
+        identity = getattr(resource, "guest_os", None) if resource else None
+        if isinstance(identity, dict) and identity.get("family"):
+            result[machine.machine_node_id] = identity
+    return result
+
+
 def machine_context_entries(
     session: Session,
     teaching_class_id: uuid.UUID,
 ) -> list[dict[str, Any]]:
     """Build the provider-independent machine context exposed to the model."""
 
+    nodes = load_class_machine_nodes(session, teaching_class_id)
+    os_by_node = _guest_os_by_node_id(session, [node.id for node in nodes])
     return [
         {
             "display_label": machine_node_display_label(node),
@@ -55,8 +99,9 @@ def machine_context_entries(
             "role": node.role,
             "resource_type": node.resource_type,
             "executor_capability": "linux_ssh_sftp_python3",
+            "os": format_os_token(os_by_node.get(node.id)),
         }
-        for node in load_class_machine_nodes(session, teaching_class_id)
+        for node in nodes
     ]
 
 
@@ -75,6 +120,7 @@ def format_machine_context(entries: list[dict[str, Any]] | None) -> str:
                     f"name={entry.get('name') or ''}",
                     f"role={entry.get('role') or ''}",
                     f"resource_type={entry.get('resource_type') or ''}",
+                    f"os={entry.get('os') or 'unknown'}",
                     f"executor={entry.get('executor_capability') or 'linux_ssh_sftp_python3'}",
                 ]
             )
@@ -152,8 +198,7 @@ def target_node_keys_from_snapshot(snapshot: dict[str, Any] | None) -> set[str]:
         keys = {
             str(item.get("target_node_key") or "").strip()
             for item in raw_items
-            if isinstance(item, dict)
-            and str(item.get("target_node_key") or "").strip()
+            if isinstance(item, dict) and str(item.get("target_node_key") or "").strip()
         }
     top_level_key = str(snapshot.get("target_node_key") or "").strip()
     if top_level_key:

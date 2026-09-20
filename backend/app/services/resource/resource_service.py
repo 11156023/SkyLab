@@ -412,6 +412,7 @@ def _build_resource_public(
             if db_resource
             else None
         ),
+        guest_os=db_resource.guest_os if db_resource else None,
         expiry_date=db_resource.expiry_date if db_resource else None,
         ip_address=ip_address,
         ssh_public_key=db_resource.ssh_public_key if db_resource else None,
@@ -789,6 +790,7 @@ def list_by_user(
                                 can_extend=False,
                                 environment_type=db_r.environment_type,
                                 os_info=db_r.os_info or display_names.get(db_r.vmid),
+                                guest_os=db_r.guest_os,
                                 expiry_date=db_r.expiry_date,
                                 ssh_public_key=db_r.ssh_public_key,
                                 has_login_password=bool(
