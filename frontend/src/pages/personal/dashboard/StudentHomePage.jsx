@@ -782,7 +782,7 @@ export default function StudentHomePage({ courseView = false }) {
                       const resultItem = check?.items?.[0];
                       return <li className={styles.checkpointRow} key={key}>
                         <span className={styles.aiRequirementNumber}>{checkpointIndex + 1}</span>
-                        <div className={styles.checkpointContent}><small className={styles.checkpointSource}>{t("StudentHomePage.aiCheckTaskSource", { title: checkpoint.assignment_title })}</small><strong>{checkpoint.title}</strong>{checkpoint.description && <p>{checkpoint.description}</p>}{check && !running && <div className={`${styles.checkpointResult} ${styles[`checkpointResult_${check.status}`]}`}><MIcon name={check.status === "completed" ? "task_alt" : "error_outline"} size={17} /><span><b>{resultItem?.comment || check.error || check.summary || (checkMeta && t(checkMeta.labelKey))}</b>{typeof resultItem?.score === "number" && <small>{t("StudentHomePage.scoreLine", { score: resultItem.score, max: resultItem.max_score ?? 1 })}</small>}</span></div>}</div>
+                        <div className={styles.checkpointContent}><small className={styles.checkpointSource}>{t("StudentHomePage.aiCheckTaskSource", { title: checkpoint.assignment_title })}</small><strong>{checkpoint.title}</strong>{checkpoint.description && <p>{checkpoint.description}</p>}{check && !running && <div className={`${styles.checkpointResult} ${styles[`checkpointResult_${check.status}`]}`}><MIcon name={check.status === "completed" ? "task_alt" : "error_outline"} size={17} /><span><b>{check.teacher_feedback || resultItem?.comment || check.error || check.summary || (checkMeta && t(checkMeta.labelKey))}</b>{typeof resultItem?.score === "number" && <small>{t("StudentHomePage.scoreLine", { score: resultItem.score, max: resultItem.max_score ?? 1 })}</small>}</span></div>}</div>
                         <button type="button" className={styles.checkpointCheckButton} onClick={() => submitCheckpointCheck(checkpoint)} disabled={Boolean(checkingCheckpointKey) || running || !checkpoint.check_available} title={checkpoint.check_available ? "" : t("StudentHomePage.checkpointNotApproved")}><MIcon name={running ? "sync" : checkpoint.check_available && check?.status === "completed" ? "refresh" : checkpoint.check_available ? "fact_check" : "schedule"} size={17} />{running ? t("StudentHomePage.checking") : checkingCheckpointKey === key ? t("StudentHomePage.submitting") : !checkpoint.check_available ? t("StudentHomePage.waitingForTeacherEnable") : check ? t("StudentHomePage.recheck") : t("StudentHomePage.checkThisOne")}</button>
                       </li>;
                     })}
@@ -880,7 +880,7 @@ export default function StudentHomePage({ courseView = false }) {
                               </small>
                             </div>
                           </header>
-                          {(check.summary || check.error) && <p>{check.error || check.summary}</p>}
+                          {(check.teacher_feedback || check.summary || check.error) && <p>{check.teacher_feedback || check.error || check.summary}</p>}
                           {(check.items ?? []).length > 0 && (
                             <div className={styles.aiReplyItems}>
                               {check.items.map((item, itemIndex) => (

@@ -560,3 +560,56 @@ def test_student_script_result_projection_uses_checks_and_coverage() -> None:
     assert check.items[0].status == "pass"
     assert check.items[0].comment == "chmod 結果符合要求。"
     assert "secret command output" not in check.items[0].comment
+
+
+def test_student_projection_uses_own_batch_target_and_teacher_review() -> None:
+    teaching_class_id = uuid.uuid4()
+    student_id = uuid.uuid4()
+    other_student_id = uuid.uuid4()
+    artifact = _artifact(
+        teaching_class_id=teaching_class_id,
+        status=TeacherJudgeScriptStatus.approved,
+        name="人工核查任務",
+    )
+    run = TeacherJudgeScriptRun(
+        teaching_class_id=teaching_class_id,
+        artifact_id=artifact.id,
+        status=TeacherJudgeScriptRunStatus.completed,
+        target_results_json={
+            "targets": [
+                {
+                    "vmid": 101,
+                    "user": {"user_id": str(other_student_id)},
+                    "parsed_result": {
+                        "checks": [
+                            {"id": "log", "title": "日誌", "status": "unknown", "evidence": "其他人的資料"}
+                        ]
+                    },
+                    "teacher_review": {"feedback": "其他人的回饋", "decisions": {"log": "fail"}},
+                },
+                {
+                    "vmid": 102,
+                    "user": {"user_id": str(student_id)},
+                    "parsed_result": {
+                        "summary": "已收集",
+                        "checks": [
+                            {"id": "log", "title": "日誌", "status": "unknown", "evidence": "自己的摘要", "raw": "private raw"}
+                        ],
+                    },
+                    "teacher_review": {"feedback": "請補上例外處理", "decisions": {"log": "pass"}},
+                },
+            ]
+        },
+    )
+
+    check = ai_assignment_service._check_to_student(
+        run,
+        artifact=artifact,
+        user_id=student_id,
+    )
+
+    assert check.teacher_feedback == "請補上例外處理"
+    assert check.items[0].status == "pass"
+    assert check.items[0].comment == "自己的摘要"
+    assert "其他人的" not in str(check.model_dump())
+    assert "private raw" not in str(check.model_dump())

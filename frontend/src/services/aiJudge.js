@@ -183,6 +183,13 @@ export const AiJudgeService = {
     );
   },
 
+  updateTargetReview(classId, sessionId, runId, vmid, { feedback = "", decisions = {} }) {
+    return apiPatch(
+      `/api/v1/teaching-classes/${classId}/judge/sessions/${sessionId}/runs/${runId}/targets/${vmid}/review`,
+      { feedback, decisions },
+    );
+  },
+
   createSessionRun(classId, sessionId, scriptId, targetVmids) {
     return apiPost(
       `/api/v1/teaching-classes/${classId}/judge/sessions/${sessionId}/scripts/${scriptId}/runs`,
