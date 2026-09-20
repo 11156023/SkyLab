@@ -1045,11 +1045,21 @@ def project_run_items(
                 ),
             }
         )
+    raw_teacher_review = target_result.get("teacher_review")
     return {
         "node_key": artifact.target_node_key,
         "display_label": display_labels.get(str(artifact.target_node_key or "")),
         "execution_status": target_result.get("status"),
         "reason_code": target_result.get("reason_code"),
+        "vmid": target_result.get("vmid"),
+        "teacher_review": (
+            cast(
+                "dict[str, Any]",
+                _redact_peer_ips(raw_teacher_review, peer_ips or set()),
+            )
+            if isinstance(raw_teacher_review, dict)
+            else None
+        ),
         "items": items,
         "unmapped_checks": cast(
             "list[dict[str, Any]]",

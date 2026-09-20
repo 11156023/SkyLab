@@ -14,7 +14,10 @@ import {
   SaveAndCreateAction,
   ScriptGenerationNotice,
   SessionTitle,
+  TeacherReviewTab,
   applyProposalOperations,
+  buildBatchReviewRows,
+  buildLegacyReviewRows,
   buildProposalDiff,
   getRubricDisplayName,
   getRubricCheckTitle,
@@ -30,6 +33,7 @@ import {
   getScriptReviewAttemptIssues,
   getTargetReviewSummary,
   getSelectableProposalIds,
+  mergeNodeTeacherReview,
   mergeSessionMessages,
   resolveActiveSessionId,
   proposalToolCallLines,
@@ -1042,8 +1046,8 @@ describe("script creation workflow", () => {
     ]);
   });
 
-  test("通過自動檢查後進入執行結果，失敗時進入腳本總覽", () => {
-    expect(getScriptCreationDestination({ status: "approved" })).toBe("execution");
+  test("通過自動檢查後進入導師核查，失敗時進入腳本總覽", () => {
+    expect(getScriptCreationDestination({ status: "approved" })).toBe("review");
     expect(getScriptCreationDestination({ status: "review_failed", id: "script-1" })).toBe("scripts");
   });
 });
@@ -1094,5 +1098,302 @@ describe("teacher review summary", () => {
 
     expect(sortTeacherReviewRows(rows, "pending")[0].member.email).toBe("s2@example.edu");
     expect(sortTeacherReviewRows(rows, "student-number")[0].member.email).toBe("s2@example.edu");
+  });
+});
+
+describe("teacher review run-once（整組檢查點）", () => {
+  const batchPayload = {
+    run_batch_id: "batch-1",
+    status: "completed",
+    summary: { nodes: 1, students: 1, targets: 1, completed: 1, failed: 0 },
+    nodes: [
+      {
+        target_node_key: "db",
+        display_label: "P2",
+        artifact_id: "artifact-1",
+        run_id: "run-1",
+        status: "completed",
+        progress_json: { total: 1, done: 1 },
+        result_summary_json: {},
+      },
+    ],
+    students: [
+      {
+        student_id: "enrollment-1",
+        nodes: [
+          {
+            node_key: "db",
+            display_label: "P2",
+            run_id: "run-1",
+            execution_status: "completed",
+            vmid: 101,
+            teacher_review: { feedback: "舊留言", decisions: {} },
+            items: [
+              {
+                rubric_item_id: "item-db",
+                title: "確認 PostgreSQL",
+                status: "warning",
+                checks: [
+                  { id: "check-db", title: "pg_isready", status: "warning", evidence: "延遲偏高" },
+                ],
+              },
+            ],
+            unmapped_checks: [],
+          },
+        ],
+      },
+    ],
+  };
+  const members = [
+    { user_id: "user-1", full_name: "王小明", email: "s1@example.edu", vmid: 101, node_key: "db" },
+  ];
+
+  test("批次投影以 vmid 對應成員，並把檢查點攤平成核查列", () => {
+    const rows = buildBatchReviewRows(batchPayload, members);
+    expect(rows).toHaveLength(1);
+    const row = rows[0];
+    expect(row.key).toBe("enrollment-1|db|101");
+    expect(row.runId).toBe("run-1");
+    expect(row.vmid).toBe(101);
+    expect(row.member.full_name).toBe("王小明");
+    expect(row.target.status).toBe("completed");
+    expect(row.target.parsed_result.checks).toHaveLength(1);
+    expect(row.target.teacher_review).toMatchObject({ feedback: "舊留言" });
+    expect(getTargetReviewSummary(row.target)).toMatchObject({ kind: "pending", pending: 1 });
+  });
+
+  test("成員對映不依賴 enrollment id 等於 user id 的巧合", () => {
+    const rows = buildBatchReviewRows(batchPayload, [
+      { user_id: "user-other", full_name: "王小明", email: "s1@example.edu", vmid: 101, node_key: "db" },
+    ]);
+    expect(rows[0].member.email).toBe("s1@example.edu");
+  });
+
+  test("執行失敗的機器仍會產生核查列並標記執行失敗", () => {
+    const failed = {
+      ...batchPayload,
+      students: [{
+        student_id: "enrollment-1",
+        nodes: [{
+          node_key: "db", run_id: "run-1", execution_status: "failed",
+          reason_code: "not_running", vmid: 101, items: [],
+        }],
+      }],
+    };
+    const rows = buildBatchReviewRows(failed, []);
+    expect(getTargetReviewSummary(rows[0].target).kind).toBe("failed");
+  });
+
+  test("mergeNodeTeacherReview 只更新對應節點的導師核查", () => {
+    const merged = mergeNodeTeacherReview(
+      batchPayload,
+      { studentId: "enrollment-1", nodeKey: "db" },
+      { feedback: "新留言", decisions: { "check-db": "pass" }, updated_at: "2026-09-20T00:00:00Z" },
+    );
+    const node = merged.students[0].nodes[0];
+    expect(node.teacher_review).toMatchObject({
+      feedback: "新留言",
+      decisions: { "check-db": "pass" },
+    });
+    expect(node.items).toHaveLength(1);
+  });
+
+  test("legacy 單一 run 資料仍以既有列為準", () => {
+    const run = {
+      id: "run-legacy",
+      target_results_json: {
+        targets: [
+          {
+            vmid: 101,
+            user: { email: "s1@example.edu", full_name: "王小明" },
+            status: "completed",
+            teacher_review: { feedback: "", decisions: {} },
+            parsed_result: { checks: [{ id: "check-1", status: "pass" }] },
+          },
+        ],
+      },
+    };
+    const rows = buildLegacyReviewRows(run, members);
+    expect(rows[0].runId).toBe("run-legacy");
+    expect(getTargetReviewSummary(rows[0].target).kind).toBe("automatic");
+  });
+
+  test("核查頁改用整批資料顯示逐機器檢查點並提供一次執行", async () => {
+    vi.spyOn(AiJudgeService, "listSessionRuns").mockResolvedValue([
+      { id: "run-1", artifact_id: "artifact-1", run_batch_id: "batch-1", status: "completed" },
+    ]);
+    vi.spyOn(AiJudgeService, "listSessionScriptSets").mockResolvedValue([
+      {
+        artifact_set_id: "set-1",
+        status: "approved",
+        source_analysis_revision: 3,
+        children: [{ id: "artifact-1", target_node_key: "db", name: "db 腳本", status: "approved" }],
+      },
+    ]);
+    const getBatch = vi.spyOn(AiJudgeService, "getSessionRunBatch").mockResolvedValue(batchPayload);
+
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    await act(async () => {
+      root.render(<TeacherReviewTab classId="class-1" sessionId="session-1" members={members} />);
+      await new Promise((resolve) => setTimeout(resolve, 30));
+    });
+
+    expect(getBatch).toHaveBeenCalledWith("class-1", "session-1", "batch-1");
+    expect(container.textContent).toContain("一次執行");
+    expect(container.textContent).toContain("機器總數");
+
+    const toggle = [...container.querySelectorAll("button")]
+      .find((button) => button.textContent.includes("王小明"));
+    expect(toggle).toBeTruthy();
+    await act(async () => {
+      toggle.click();
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    });
+    expect(container.textContent).toContain("確認 PostgreSQL");
+    expect(container.textContent).toContain("pg_isready");
+    await act(async () => {
+      root.unmount();
+    });
+    container.remove();
+  });
+
+  test("批次模式下判定會以對應 run 與 vmid 儲存", async () => {
+    vi.spyOn(AiJudgeService, "listSessionRuns").mockResolvedValue([
+      { id: "run-1", artifact_id: "artifact-1", run_batch_id: "batch-1", status: "completed" },
+    ]);
+    vi.spyOn(AiJudgeService, "listSessionScriptSets").mockResolvedValue([]);
+    vi.spyOn(AiJudgeService, "getSessionRunBatch").mockResolvedValue(batchPayload);
+    const updateReview = vi.spyOn(AiJudgeService, "updateTargetReview").mockResolvedValue({
+      id: "run-1",
+      target_results_json: {
+        targets: [{
+          vmid: 101,
+          status: "completed",
+          teacher_review: { feedback: "", decisions: { "check-db": "pass" }, updated_at: "2026-09-20T00:00:00Z" },
+          parsed_result: { checks: [{ id: "check-db", title: "pg_isready", status: "warning" }] },
+        }],
+      },
+    });
+
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    await act(async () => {
+      root.render(<TeacherReviewTab classId="class-1" sessionId="session-1" members={members} />);
+      await new Promise((resolve) => setTimeout(resolve, 30));
+    });
+
+    const toggle = [...container.querySelectorAll("button")]
+      .find((button) => button.textContent.includes("王小明"));
+    await act(async () => {
+      toggle.click();
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    });
+
+    const passButton = [...container.querySelectorAll("button")]
+      .find((button) => button.getAttribute("aria-pressed") !== null && button.textContent.includes("通過"));
+    expect(passButton).toBeTruthy();
+    await act(async () => {
+      passButton.click();
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    });
+
+    const saveButton = [...container.querySelectorAll("button")]
+      .find((button) => button.textContent.includes("儲存核查"));
+    expect(saveButton.disabled).toBe(false);
+    await act(async () => {
+      saveButton.click();
+      await new Promise((resolve) => setTimeout(resolve, 30));
+    });
+
+    expect(updateReview).toHaveBeenCalledWith(
+      "class-1",
+      "session-1",
+      "run-1",
+      101,
+      { feedback: "舊留言", decisions: { "check-db": "pass" } },
+    );
+    expect(container.textContent).toContain("上次儲存");
+    await act(async () => {
+      root.unmount();
+    });
+    container.remove();
+  });
+
+  test("沒有已核准腳本集時，一次執行不可用且空狀態保留舊提示", async () => {
+    vi.spyOn(AiJudgeService, "listSessionRuns").mockResolvedValue([]);
+    vi.spyOn(AiJudgeService, "listSessionScriptSets").mockResolvedValue([]);
+
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    await act(async () => {
+      root.render(<TeacherReviewTab classId="class-1" sessionId="session-1" members={members} />);
+      await new Promise((resolve) => setTimeout(resolve, 30));
+    });
+
+    expect(container.textContent).toContain("還沒有可核查的結果");
+    expect(container.textContent).toContain("請先在「檢查設定」製作腳本並通過審查");
+    expect(container.textContent).not.toContain("一次執行");
+    await act(async () => {
+      root.unmount();
+    });
+    container.remove();
+  });
+
+  test("有已核准腳本集但尚未執行時，空狀態也能直接一次執行", async () => {
+    vi.spyOn(AiJudgeService, "listSessionRuns").mockResolvedValue([]);
+    vi.spyOn(AiJudgeService, "listSessionScriptSets").mockResolvedValue([
+      {
+        artifact_set_id: "set-1",
+        status: "approved",
+        source_analysis_revision: 3,
+        children: [{ id: "artifact-1", target_node_key: "db", name: "db 腳本", status: "approved" }],
+      },
+    ]);
+    const createRun = vi.spyOn(AiJudgeService, "createSessionScriptSetRun").mockResolvedValue({
+      run_batch_id: "batch-2",
+      status: "pending",
+      summary: { nodes: 1, students: 1, targets: 1, completed: 0, failed: 0 },
+      nodes: [],
+      students: [],
+    });
+
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    await act(async () => {
+      root.render(<TeacherReviewTab classId="class-1" sessionId="session-1" members={members} />);
+      await new Promise((resolve) => setTimeout(resolve, 30));
+    });
+
+    const runOnceButton = [...container.querySelectorAll("button")]
+      .find((button) => button.textContent.includes("一次執行"));
+    expect(runOnceButton).toBeTruthy();
+    await act(async () => {
+      runOnceButton.click();
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    });
+
+    expect(container.textContent).toContain("一次執行整組檢查點");
+    const confirmButton = [...container.querySelectorAll("button")]
+      .find((button) => button.textContent.includes("確認執行"));
+    expect(confirmButton).toBeTruthy();
+    await act(async () => {
+      confirmButton.click();
+      await new Promise((resolve) => setTimeout(resolve, 30));
+    });
+
+    expect(createRun).toHaveBeenCalledWith("class-1", "session-1", "set-1");
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 200));
+    });
+    expect(container.textContent).not.toContain("確認執行");
+    await act(async () => {
+      root.unmount();
+    });
+    container.remove();
   });
 });

@@ -307,3 +307,70 @@ def test_peer_resolution_matches_vmid_across_json_number_types() -> None:
     )
 
     assert result["web"]["resolution_status"] == "ready"
+
+
+def test_item_projection_keeps_vmid_and_teacher_review() -> None:
+    artifact = TeacherJudgeScriptArtifact(
+        teaching_class_id=uuid.uuid4(),
+        target_node_key="db",
+        rubric_snapshot_json=_peer_snapshot(),
+        policy_check_result_json={
+            "coverage": {
+                "mappings": [
+                    {"check_id": "db-to-web", "rubric_item_ids": ["db-to-web"]}
+                ]
+            }
+        },
+        script_language=TeacherJudgeScriptLanguage.python,
+        script_content="print('{}')",
+        status=TeacherJudgeScriptStatus.approved,
+        name="db",
+        template_key="linux",
+    )
+    target_result = {
+        "student_id": "student-1",
+        "vmid": 101,
+        "status": "completed",
+        "teacher_review": {
+            "feedback": "請確認 192.0.2.10 連通後重跑",
+            "decisions": {"db-to-web": "pass"},
+            "reviewed_by": "teacher-1",
+            "updated_at": "2026-09-20T00:00:00+00:00",
+        },
+        "parsed_result": {
+            "checks": [
+                {
+                    "id": "db-to-web",
+                    "status": "warning",
+                    "evidence": "192.0.2.10 latency high",
+                }
+            ]
+        },
+    }
+
+    projected = project_run_items(
+        artifact=artifact,
+        target_result=target_result,
+        display_labels={"db": "P2", "web": "P1"},
+        peer_ips={"192.0.2.10"},
+        peer_resolution={
+            "web": {
+                "resolution_status": "ready",
+                "reason_code": None,
+            }
+        },
+    )
+
+    assert projected["vmid"] == 101
+    review = projected["teacher_review"]
+    assert isinstance(review, dict)
+    assert review["decisions"] == {"db-to-web": "pass"}
+    assert "192.0.2.10" not in json.dumps(projected, ensure_ascii=False)
+
+    absent = project_run_items(
+        artifact=artifact,
+        target_result={"student_id": "student-1", "status": "completed"},
+        display_labels={"db": "P2", "web": "P1"},
+    )
+    assert absent["vmid"] is None
+    assert absent["teacher_review"] is None

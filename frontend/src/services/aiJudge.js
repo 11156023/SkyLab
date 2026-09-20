@@ -190,10 +190,27 @@ export const AiJudgeService = {
     );
   },
 
-  createSessionRun(classId, sessionId, scriptId, targetVmids) {
+  /* ── 檢查點腳本集（多機器整批執行） ── */
+
+  /** 列出 session 的檢查點腳本集（每個邏輯機器一份 child artifact） */
+  listSessionScriptSets(classId, sessionId) {
+    return apiGet(
+      `/api/v1/teaching-classes/${classId}/judge/sessions/${sessionId}/script-sets`,
+    );
+  },
+
+  /** 對腳本集建立整批執行：每份 child artifact 分散到該節點的每台學生機器 */
+  createSessionScriptSetRun(classId, sessionId, artifactSetId) {
     return apiPost(
-      `/api/v1/teaching-classes/${classId}/judge/sessions/${sessionId}/scripts/${scriptId}/runs`,
-      { target_scope: "manual", target_vmids: targetVmids },
+      `/api/v1/teaching-classes/${classId}/judge/sessions/${sessionId}/script-sets/${artifactSetId}/runs`,
+      { target_scope: "all_students_in_set" },
+    );
+  },
+
+  /** 查詢整批執行進度與逐機器檢查點投影（前端輪詢用） */
+  getSessionRunBatch(classId, sessionId, runBatchId) {
+    return apiGet(
+      `/api/v1/teaching-classes/${classId}/judge/sessions/${sessionId}/run-batches/${runBatchId}`,
     );
   },
 
@@ -274,22 +291,5 @@ export const AiJudgeService = {
     return apiPatch(`/api/v1/teaching-classes/${classId}/judge/scripts/${scriptId}`, {
       name,
     });
-  },
-
-  /* ── 腳本執行 ── */
-
-  /** 對指定 VMID 建立腳本執行任務 */
-  createScriptRun(classId, scriptId, targetVmids) {
-    return apiPost(`/api/v1/teaching-classes/${classId}/judge/scripts/${scriptId}/runs`, {
-      target_scope: "manual",
-      target_vmids: targetVmids,
-    });
-  },
-
-  /** 查詢執行任務進度與結果（前端輪詢用） */
-  getScriptRun(classId, scriptId, runId) {
-    return apiGet(
-      `/api/v1/teaching-classes/${classId}/judge/scripts/${scriptId}/runs/${runId}`,
-    );
   },
 };
