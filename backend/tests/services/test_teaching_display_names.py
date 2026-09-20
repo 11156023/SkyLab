@@ -185,6 +185,7 @@ def _fake_session() -> SimpleNamespace:
     return SimpleNamespace(
         exec=lambda stmt: SimpleNamespace(all=lambda: [], first=lambda: None),
         get=lambda model, key: None,
+        rollback=lambda: None,
     )
 
 
@@ -193,12 +194,19 @@ def _patch_list_by_user_common(monkeypatch: pytest.MonkeyPatch, *, vmid: int) ->
     db_resource = SimpleNamespace(
         vmid=vmid,
         request_id=None,
+        user_id=uuid.uuid4(),
         environment_type=None,
         os_info=None,
+        guest_os=None,
         expiry_date=None,
+        template_id=None,
+        batch_job_id=None,
         ssh_public_key=None,
         login_password_encrypted=None,
         idle_since=None,
+        auto_stop_at=None,
+        auto_stop_reason=None,
+        scheduled_deletion_at=None,
         mining_exempt=False,
         teaching_class_id=class_id,
         allocation_scope="teaching_class",

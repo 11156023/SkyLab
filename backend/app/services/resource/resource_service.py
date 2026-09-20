@@ -261,14 +261,16 @@ def _teaching_display_names(
         r
         for r in db_resources
         if r is not None
-        and not (r.os_info or "").strip()
-        and r.teaching_class_id
-        and (r.batch_job_id or r.template_id)
+        and not ((getattr(r, "os_info", None) or "").strip())
+        and getattr(r, "teaching_class_id", None)
+        and (
+            getattr(r, "batch_job_id", None) or getattr(r, "template_id", None)
+        )
     ]
     if not targets:
         return {}
 
-    class_ids = {r.teaching_class_id for r in targets}
+    class_ids = {getattr(r, "teaching_class_id", None) for r in targets}
     nodes = list(
         session.exec(
             select(TeachingClassMachineNode).where(
@@ -283,7 +285,10 @@ def _teaching_display_names(
     params_by_job: dict[uuid.UUID, dict[str, Any]] = {}
     jobs_needed = [
         job_id
-        for job_id in {r.batch_job_id for r in targets if r.batch_job_id}
+        for job_id in {
+            getattr(r, "batch_job_id", None) for r in targets
+            if getattr(r, "batch_job_id", None)
+        }
         if job_id not in node_by_job
     ]
     if jobs_needed:
@@ -301,24 +306,30 @@ def _teaching_display_names(
                 params_by_job[job.id] = params
 
     def _node_for(resource: Any) -> TeachingClassMachineNode | None:
-        if not resource.batch_job_id:
+        batch_job_id = getattr(resource, "batch_job_id", None)
+        if not batch_job_id:
             return None
-        node = node_by_job.get(resource.batch_job_id)
+        node = node_by_job.get(batch_job_id)
         if node is not None:
             return node
-        prefix = (params_by_job.get(resource.batch_job_id) or {}).get(
+        prefix = (params_by_job.get(batch_job_id) or {}).get(
             "ip_reservation_prefix"
         )
         if not isinstance(prefix, str) or ":" not in prefix:
             return None
         node_key = prefix.split(":", 1)[1]
-        return node_by_class_key.get((resource.teaching_class_id, node_key))
+        return node_by_class_key.get(
+            (getattr(resource, "teaching_class_id", None), node_key)
+        )
 
     # 範本名：節點綁定的系統範本（老師拓撲選的）＋ qemu 克隆來源範本
     template_ids = {
         n.source_template_id for n in nodes if n.source_template_id is not None
     }
-    pve_vmids = {r.template_id for r in targets if r.template_id}
+    pve_vmids = {
+        getattr(r, "template_id", None) for r in targets
+        if getattr(r, "template_id", None)
+    }
     tpl_name_by_id: dict[uuid.UUID, str] = {}
     tpl_name_by_pve: dict[int, str] = {}
     if template_ids:
@@ -340,10 +351,11 @@ def _teaching_display_names(
             name = (node.name or "").strip() or None
             if name is None and node.source_template_id:
                 name = tpl_name_by_id.get(node.source_template_id)
-        if name is None and r.template_id:
-            name = tpl_name_by_pve.get(r.template_id)
+        template_id = getattr(r, "template_id", None)
+        if name is None and template_id:
+            name = tpl_name_by_pve.get(template_id)
         if name:
-            display[r.vmid] = name
+            display[getattr(r, "vmid", None)] = name
     return display
 
 
