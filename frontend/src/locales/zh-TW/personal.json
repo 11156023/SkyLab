@@ -277,6 +277,8 @@
   "VncDialog.exitFullscreen": "離開全螢幕",
   "VncDialog.fullscreen": "全螢幕",
   "VncDialog.fetchingInfo": "取得控制台資訊中…",
+  "QuickCreatePage.title": "快速建立",
+  "QuickCreatePage.subtitle": "選一個模板立即建立練習環境，免人工審核。",
   "QuickTemplateFormPage.launchSuccess": "「{{name}}」已整組送出，系統正在建立 {{count}} 台機器。",
   "QuickTemplateFormPage.launchFailed": "快速練習環境建立失敗，請稍後再試。",
   "QuickTemplateFormPage.loadingEnvironment": "載入快速練習環境中…",

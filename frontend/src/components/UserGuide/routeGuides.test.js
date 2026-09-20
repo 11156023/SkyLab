@@ -5,7 +5,7 @@ describe("route guide catalog", () => {
   it("covers every primary application route family", () => {
     const paths = [
       "/dashboard", "/courses", "/courses/linux", "/courses/linux/weeks/1",
-      "/quick-template/12", "/my-resources", "/my-resources/101", "/my-requests", "/account",
+      "/quick-create", "/quick-template/12", "/my-resources", "/my-resources/101", "/my-requests", "/account",
       "/resource-mgmt", "/resource-mgmt/101", "/request-review", "/gpu-mgmt", "/batch-review", "/templates",
       "/ai-api", "/ai-api-review", "/ai-api-keys", "/ai-monitoring",
       "/course-cms", "/course-template-management", "/course-template-management/new",

@@ -277,6 +277,8 @@
   "VncDialog.exitFullscreen": "全画面表示を終了",
   "VncDialog.fullscreen": "全画面表示",
   "VncDialog.fetchingInfo": "コンソール情報を取得中…",
+  "QuickCreatePage.title": "クイック作成",
+  "QuickCreatePage.subtitle": "テンプレートを選ぶと、審査なしですぐに演習環境を作成できます。",
   "QuickTemplateFormPage.launchSuccess": "「{{name}}」を一括送信しました。システムが{{count}}台のマシンを作成しています。",
   "QuickTemplateFormPage.launchFailed": "クイック演習環境の作成に失敗しました。しばらくしてから再試行してください。",
   "QuickTemplateFormPage.loadingEnvironment": "クイック演習環境を読み込み中…",

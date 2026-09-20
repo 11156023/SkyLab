@@ -56,6 +56,12 @@ _ROUTES: tuple[NavigationRoute, ...] = (
         keywords=("申請", "申請單", "我的申請", "request", "申請 vm", "申請 lxc", "借機器"),
     ),
     NavigationRoute(
+        path="/quick-create",
+        title="快速建立",
+        summary="從已發布的模板立即建立練習環境，免人工審核。",
+        keywords=("快速建立", "快速練習", "quick create", "quick practice", "練習環境", "免審核"),
+    ),
+    NavigationRoute(
         path="/account",
         title="帳號設定",
         summary="修改個人資料與密碼。",

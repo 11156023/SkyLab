@@ -12,8 +12,10 @@ import JobsButton from "../Jobs/JobsButton";
 
 const topItems = [
   { key: "dashboard", labelKey: "Sidebar.topDashboard", icon: "dashboard" },
-  { key: "courses", labelKey: "Sidebar.topCourses", icon: "school", studentOnly: true },
 ];
+
+/* 確認頁沿用舊網址 /quick-template/:id，側欄仍要亮在「快速建立」 */
+const activeKeyAliases = { "quick-template": "quick-create" };
 
 const navGroups = [
   {
@@ -63,8 +65,11 @@ const navGroups = [
     labelKey: "Sidebar.groupTeaching",
     icon: "school",
     items: [
+      { key: "courses", labelKey: "Sidebar.topCourses", icon: "school", studentOnly: true },
       { key: "class-management", labelKey: "Sidebar.itemClassManagement", icon: "groups_2", instructorOnly: true },
       { key: "course-template-management", labelKey: "Sidebar.itemCourseTemplateManagement", icon: "view_quilt", instructorOnly: true },
+      /* 快速建立對所有登入者開放（後端 quick-practice 沒有角色限制） */
+      { key: "quick-create", labelKey: "Sidebar.itemQuickCreate", icon: "bolt" },
     ],
   },
   {
@@ -115,10 +120,10 @@ function savePinnedKeys(keys) {
   }
 }
 
-function NavGroup({ group, active, onSelect, collapsed, onExpand, pinnedKeys, onTogglePin }) {
+function NavGroup({ group, active, onSelect, collapsed, onExpand, pinnedKeys, onTogglePin, defaultOpen = false }) {
   const { t } = useTranslation("common");
   const [open, setOpen] = useState(
-    group.items.some((i) => i.key === active)
+    defaultOpen || group.items.some((i) => i.key === active)
   );
 
   const hasActive = group.items.some((i) => i.key === active);
@@ -335,7 +340,8 @@ export default function Sidebar({ collapsed, mobileOpen, onToggle, onClose }) {
   const { t, i18n } = useTranslation("common");
   const navigate = useNavigate();
   const location = useLocation();
-  const active   = location.pathname.split("/")[1] || "dashboard";
+  const routeKey = location.pathname.split("/")[1] || "dashboard";
+  const active   = activeKeyAliases[routeKey] ?? routeKey;
   const lang = SUPPORTED_LANGUAGES.includes(i18n.language) ? i18n.language : "zh-TW";
   const langPopup  = usePopup();
   const userPopup  = usePopup();
@@ -347,12 +353,11 @@ export default function Sidebar({ collapsed, mobileOpen, onToggle, onClose }) {
   const canTeach = isAdmin || user?.role === "teacher";
   /* 身在系統管理頁面時，整支側欄切換成「管理員設定」核心側欄 */
   const inAdminSettings = isAdmin && adminSettingsItems.some((item) => item.key === active);
-  const visibleTopItems = topItems.filter((item) => !item.studentOnly || !canTeach);
   const visibleNavGroups = navGroups
     .map((group) => ({
       ...group,
       items: group.items.filter((item) =>
-        (!item.adminOnly || isAdmin) && (!item.instructorOnly || canTeach)
+        (!item.adminOnly || isAdmin) && (!item.instructorOnly || canTeach) && (!item.studentOnly || !canTeach)
       ),
     }))
     .filter((group) => group.items.length > 0);
@@ -440,7 +445,7 @@ export default function Sidebar({ collapsed, mobileOpen, onToggle, onClose }) {
         </nav>
       ) : (
       <nav className={styles.nav}>
-        {visibleTopItems.map((item) => (
+        {topItems.map((item) => (
           <button
             key={item.key}
             type="button"
@@ -489,6 +494,8 @@ export default function Sidebar({ collapsed, mobileOpen, onToggle, onClose }) {
             onExpand={onToggle}
             pinnedKeys={pinnedKeys}
             onTogglePin={togglePin}
+            /* 學生的「課程」收在教學群組裡，預設展開才不用多點一下 */
+            defaultOpen={group.key === "teaching" && !canTeach}
           />
         ))}
       </nav>
