@@ -51,3 +51,4 @@ data/template_files/
 .venv/
 .codebase-memory/
 ai-template-recommendation/
+AI_PVE_template/
