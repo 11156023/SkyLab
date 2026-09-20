@@ -17,6 +17,7 @@ from sqlmodel import Session, desc, select
 
 from app.ai.teacher_judge.machine_context import (
     load_class_machine_nodes,
+    rubric_item_machine_issues,
     target_node_keys_from_snapshot,
 )
 from app.ai.teacher_judge.schemas import (
@@ -195,17 +196,15 @@ def update_file_analysis(
     analysis_dump = analysis.model_dump(mode="json")
     class_nodes = load_class_machine_nodes(session, teaching_class_id)
     target_node_keys = target_node_keys_from_snapshot(analysis_dump)
-    if len(target_node_keys) > 1:
-        raise HTTPException(
-            status_code=422,
-            detail={
-                "code": "teacher_judge_mixed_target_nodes",
-                "message": "同一份 rubric 目前只能包含一個 target_node_key。",
-                "target_node_keys": sorted(target_node_keys),
-            },
-        )
     valid_node_keys = {node.node_key for node in class_nodes}
-    invalid_node_keys = sorted(target_node_keys - valid_node_keys)
+    peer_node_keys = {
+        str(item.get("peer_node_key") or "").strip()
+        for item in analysis_dump.get("items", [])
+        if isinstance(item, dict) and str(item.get("peer_node_key") or "").strip()
+    }
+    invalid_node_keys = sorted(
+        (target_node_keys | peer_node_keys) - valid_node_keys
+    )
     if invalid_node_keys:
         raise HTTPException(
             status_code=422,
@@ -232,6 +231,21 @@ def update_file_analysis(
                     "item_ids": missing_target_item_ids,
                 },
             )
+    machine_contract_issues = {
+        str(item.get("id") or item.get("title") or "未命名項目"): issues
+        for item in analysis_dump.get("items", [])
+        if isinstance(item, dict)
+        and (issues := rubric_item_machine_issues(item))
+    }
+    if machine_contract_issues:
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "code": "teacher_judge_machine_contract_invalid",
+                "message": "rubric 的執行節點、觀察節點或 peer token 不一致。",
+                "items": machine_contract_issues,
+            },
+        )
     file.analysis_json = analysis_dump
     file.analysis_revision = int(file.analysis_revision or 1) + 1
     file.updated_at = _now()

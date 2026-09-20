@@ -14,9 +14,9 @@ export function useTemplateStatusLabel() {
 
 const TEMPLATE_STATUS_CLASS = {
   creating: "badge_info",
-  ready: "badge_ok",
+  ready: "badge_success",
   updating: "badge_info",
-  failed: "badge_err",
+  failed: "badge_danger",
   deleted: "badge_muted",
 };
 

@@ -130,7 +130,7 @@ export default function ReverseProxyRuleModal({
             <h2>{rule ? t("ReverseProxyRuleModal.editTitle") : t("ReverseProxyRuleModal.createTitle")}</h2>
             <p>{t("ReverseProxyRuleModal.headerDescription")}</p>
           </div>
-          <button type="button" className={styles.iconBtn} onClick={onClose} aria-label={t("ReverseProxyRuleModal.closeAriaLabel")} data-guide="proxy-rule-close">
+          <button type="button" className={styles.dialogClose} onClick={onClose} aria-label={t("ReverseProxyRuleModal.closeAriaLabel")} data-guide="proxy-rule-close">
             <MIcon name="close" size={18} />
           </button>
         </div>

@@ -265,8 +265,8 @@
 }
 
 .gesturePointEnd {
-  border-color: var(--color-success, #22c55e);
-  box-shadow: 0 0 0 5px color-mix(in srgb, var(--color-success, #22c55e) 25%, transparent);
+  border-color: var(--color-success);
+  box-shadow: 0 0 0 5px color-mix(in srgb, var(--color-success) 25%, transparent);
 }
 
 .gestureCursor {

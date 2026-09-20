@@ -70,6 +70,8 @@
   border-radius: $radius-pill;
   font-size: $font-size-12;
   font-weight: $font-weight-500;
+  /* 標籤永不換行：窄欄裡逐字直排會不可讀，寬度交給容器捲動 */
+  white-space: nowrap;
 }
 
 /* ── 標準表單欄位 ──
@@ -100,7 +102,7 @@
   box-sizing: border-box;
   width: 100%;
   min-height: 36px;
-  padding: 8px 12px;
+  padding: 8px $form-control-padding-x;
   border: 1px solid var(--color-border);
   border-radius: $radius-8;
   outline: 0;
@@ -198,6 +200,8 @@
                        @include btn-ghost($danger: true) 為紅字淡紅底變體
    .iconBtn          { @include btn-icon; }           32×32 圖示鈕，JSX 必帶 aria-label
                        @include btn-icon($danger: true) 未 hover 即紅字
+   .dialogClose      { @include btn-dialog-close; }   Dialog 專用右上關閉鈕：
+                       同 btn-icon($danger: true)，僅未 hover 時無底色
    共用基底：高 36px、圓角 8、字級 14/500、hover 一律 :not(:disabled)、
    disabled 一律 opacity .5 + not-allowed。頁面差異（寬度、margin、grid 位置）
    寫在 @include 之後；要改高度字級請先問是不是真的需要。 */
@@ -292,28 +296,57 @@
   }
 }
 
+/* 表格列的動作選單鈕（⋮ more_vert）：白底描邊，與 btn-secondary 同一套視覺語言；
+   全專案表格的更多操作鈕一律用這款，icon 統一 more_vert */
+@mixin btn-icon-secondary {
+  @include btn-base;
+  width: 32px;
+  height: 32px;
+  min-height: 32px;
+  padding: 0;
+  border: 1px solid var(--color-border);
+  color: var(--color-text-secondary);
+  background: var(--color-surface);
+
+  &:hover:not(:disabled) {
+    color: var(--color-text);
+    background: var(--color-hover);
+  }
+}
+
+/* 圖示鈕與 ghost 同一套淡底邏輯：平常即有淡底（一般款 --color-hover、
+   危險款淡紅），hover 深一階，只差在 32×32 無內距 */
 @mixin btn-icon($danger: false) {
   @include btn-base;
   width: 32px;
   height: 32px;
   min-height: 32px;
   padding: 0;
-  background: transparent;
 
   @if $danger {
     color: var(--color-danger);
+    background: color-mix(in srgb, var(--color-danger) 8%, transparent);
 
     &:hover:not(:disabled) {
-      background: color-mix(in srgb, var(--color-danger) 9%, transparent);
+      background: color-mix(in srgb, var(--color-danger) 15%, transparent);
     }
   } @else {
     color: var(--color-text-secondary);
+    background: var(--color-hover);
 
     &:hover:not(:disabled) {
-      color: var(--color-text);
-      background: var(--color-hover);
+      color: var(--color-text-primary);
+      background: var(--color-row-hover);
     }
   }
+}
+
+/* Dialog 專用關閉鈕：與 btn-icon($danger: true) 同款，
+   只差未 hover 時無底色（浮在 Dialog 標題列上不搶視覺）。
+   僅用於關閉 Dialog，其他場合的圖示鈕請用 btn-icon */
+@mixin btn-dialog-close {
+  @include btn-icon($danger: true);
+  background: transparent;
 }
 
 /* 玻璃表面基本組：背景塗層＋backdrop 濾鏡＋亮邊框＋陰影。

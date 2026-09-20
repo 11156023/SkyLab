@@ -53,7 +53,6 @@ export default function VMNode({ data, selected }) {
         teachingClassName={data.teaching_class_name}
         readOnly={readOnly && !peer}
         solid
-        size="sm"
         className={styles.originBadge}
         title={originHint(t, data, peer)}
       />

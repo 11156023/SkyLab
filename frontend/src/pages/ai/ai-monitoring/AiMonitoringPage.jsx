@@ -146,7 +146,7 @@ function StatusBadge({ status }) {
   const { t } = useTranslation("ai");
   const ok = isOkStatus(status);
   return (
-    <span className={`${styles.badge} ${ok ? styles.badge_ok : styles.badge_err}`}>
+    <span className={`${styles.badge} ${ok ? styles.badge_success : styles.badge_danger}`}>
       <span className={styles.dot} />
       {ok ? t("AiMonitoringPage.statusSuccess") : t("AiMonitoringPage.statusFail")}
     </span>

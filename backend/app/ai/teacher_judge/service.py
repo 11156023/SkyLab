@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import copy
 import json
 import logging
 import re
@@ -18,6 +19,11 @@ from fastapi import HTTPException
 from app.ai.teacher_judge._types import VLLMMetrics
 from app.ai.teacher_judge.automation_support import missing_step_information
 from app.ai.teacher_judge.config import settings
+from app.ai.teacher_judge.machine_context import (
+    PEER_IP_TOKEN,
+    canonicalize_machine_node_key,
+    rubric_item_machine_issues,
+)
 from app.ai.teacher_judge.prompt import (
     ATTACHMENT_EXTRACTION_SYSTEM_TEMPLATE,
     CANONICAL_CHECK_STEP_CONTRACT_INSTRUCTION,
@@ -240,7 +246,14 @@ _PROPOSAL_FILL_PROPERTIES: dict[str, Any] = {
     "title": {"type": "string", "description": "檢查項目名稱"},
     "target_node_key": {
         "type": ["string", "null"],
-        "description": "班級拓撲中要執行檢查的邏輯 node_key；不要填 P1/P2 顯示標籤或 VMID",
+        "description": "班級拓撲中要執行檢查的邏輯機器；可依提示使用 P1/P2，後端會保存為 node_key",
+    },
+    "peer_node_key": {
+        "type": ["string", "null"],
+        "description": (
+            "選填；由執行節點觀察的同班級邏輯機器。"
+            f"只有宣告 peer 時才能將 {PEER_IP_TOKEN} 作為完整 argv element"
+        ),
     },
     "checked": {
         "type": "boolean",
@@ -357,6 +370,36 @@ _PROPOSAL_TOOLS: list[dict[str, Any]] = [
     _CREATE_CHECKLIST_ITEM_TOOL,
     _EDIT_CHECKLIST_ITEM_TOOL,
 ]
+
+
+def _build_proposal_tools(
+    machine_entries: list[dict[str, Any]] | None = None,
+) -> list[dict[str, Any]]:
+    """Build request-scoped node enums without mutating shared tool schemas."""
+
+    tools = copy.deepcopy(_PROPOSAL_TOOLS)
+    if machine_entries is None:
+        return tools
+    node_keys = [
+        str(entry.get("node_key") or "").strip()
+        for entry in machine_entries
+        if str(entry.get("node_key") or "").strip()
+    ]
+    aliases = "，".join(
+        f"{entry.get('display_label')}={entry.get('node_key')}"
+        for entry in machine_entries
+        if entry.get("display_label") and entry.get("node_key")
+    )
+    for tool in tools:
+        function = tool.get("function") or {}
+        properties = (function.get("parameters") or {}).get("properties") or {}
+        for field_name in ("target_node_key", "peer_node_key"):
+            field = properties.get(field_name)
+            if isinstance(field, dict):
+                field["enum"] = [*node_keys, None]
+                if aliases:
+                    field["description"] = f"{field.get('description', '')}；{aliases}"
+    return tools
 
 _READY_REMINDER_INSTRUCTION = (
     "你在上一則回覆宣稱 Ready 或已建立提案，但沒有成功呼叫任何提案工具。"
@@ -660,6 +703,9 @@ def _normalize_rubric_items(
                 target_node_key=(
                     str(raw.get("target_node_key") or "").strip() or None
                 ),
+                peer_node_key=(
+                    str(raw.get("peer_node_key") or "").strip() or None
+                ),
                 check_steps=check_steps,
             )
         )
@@ -765,6 +811,9 @@ def _proposal_candidate_rejection(
     template_commands: list[TeacherJudgeTemplateCommand] | None,
 ) -> str | None:
     """Return why a tool-submitted candidate cannot become a Ready proposal."""
+    machine_issues = rubric_item_machine_issues(normalized.model_dump(mode="json"))
+    if machine_issues:
+        return f"「{normalized.title}」的機器目標無效：{'；'.join(machine_issues)}。"
     if not ready_only:
         # Refine (full-table polish) may stage non-auto candidates; the polish
         # itself is the fix for downgraded detectability.
@@ -815,6 +864,7 @@ def _proposal_candidate_rejection(
 _PROPOSAL_COMPARE_FIELDS = (
     "title",
     "target_node_key",
+    "peer_node_key",
     "checked",
     "detectable",
     "judgement_mode",
@@ -1547,6 +1597,21 @@ def _parse_chat_reply_payload(content: str) -> tuple[str, str | None]:
     return reply, status
 
 
+def _canonicalize_proposal_machine_fields(
+    raw_item: dict[str, Any],
+    machine_entries: list[dict[str, Any]] | None,
+) -> dict[str, Any]:
+    if machine_entries is None:
+        return raw_item
+    result = dict(raw_item)
+    for field_name in ("target_node_key", "peer_node_key"):
+        if field_name in result:
+            result[field_name] = canonicalize_machine_node_key(
+                result.get(field_name), machine_entries
+            )
+    return result
+
+
 def _execute_checklist_tool(
     name: str,
     arguments: dict[str, Any],
@@ -1555,6 +1620,7 @@ def _execute_checklist_tool(
     analysis_revision: int | None,
     template_key: str,
     template_commands: list[TeacherJudgeTemplateCommand] | None,
+    machine_entries: list[dict[str, Any]] | None = None,
     ready_only: bool,
     read_ids: set[str],
     staged_ops: list[dict[str, Any]],
@@ -1645,7 +1711,12 @@ def _execute_checklist_tool(
             entry["item"].id for entry in staged_ops
         }
         item_id = _mint_proposal_item_id(existing_ids)
-        raw_item = {**arguments, "id": item_id, "title": title}
+        try:
+            raw_item = _canonicalize_proposal_machine_fields(
+                {**arguments, "id": item_id, "title": title}, machine_entries
+            )
+        except ValueError as exc:
+            return {"error": str(exc)}
         candidate_list = _normalize_rubric_items(
             [raw_item],
             template_key=template_key,
@@ -1726,8 +1797,14 @@ def _execute_checklist_tool(
                 "item_id": item_id,
                 "note": "沒有提供任何變更欄位，未建立修改提案。",
             }
+        try:
+            raw_candidate = _canonicalize_proposal_machine_fields(
+                {**current_raw, **patch}, machine_entries
+            )
+        except ValueError as exc:
+            return {"error": str(exc)}
         candidate_list = _normalize_rubric_items(
-            [{**current_raw, **patch}],
+            [raw_candidate],
             template_key=template_key,
             template_commands=template_commands,
             refresh_missing_information=(
@@ -1764,13 +1841,13 @@ def _execute_checklist_tool(
             }
         rejection = _proposal_candidate_rejection(
             candidate,
-            {**current_raw, **patch},
+            raw_candidate,
             capability_declared="detectable" in arguments,
             ready_only=ready_only,
             template_commands=template_commands,
         )
         if rejection is not None:
-            rejected_ops.append((candidate, {**current_raw, **patch}, rejection))
+            rejected_ops.append((candidate, raw_candidate, rejection))
             tool_calls.append(
                 {
                     "tool": name,
@@ -1785,7 +1862,7 @@ def _execute_checklist_tool(
             {
                 "item": candidate,
                 "operation": "update",
-                "raw": {**current_raw, **patch},
+                "raw": raw_candidate,
             },
         )
         tool_calls.append(
@@ -1817,6 +1894,7 @@ async def _run_proposal_tool_loop(
     rubric_context: str,
     template_key: str,
     template_commands: list[TeacherJudgeTemplateCommand] | None,
+    machine_entries: list[dict[str, Any]] | None,
     analysis_revision: int | None,
     rubric_available: bool,
     require_rubric: bool = False,
@@ -1844,7 +1922,7 @@ async def _run_proposal_tool_loop(
     base_request = dict(payload_data)
     base_request.pop("messages", None)
     if rubric_available:
-        base_request["tools"] = _PROPOSAL_TOOLS
+        base_request["tools"] = _build_proposal_tools(machine_entries)
         base_request["tool_choice"] = (
             {"type": "function", "function": {"name": _LIST_CHECKLIST_TOOL_NAME}}
             if require_rubric
@@ -1954,6 +2032,7 @@ async def _run_proposal_tool_loop(
                 analysis_revision=analysis_revision,
                 template_key=template_key,
                 template_commands=template_commands,
+                machine_entries=machine_entries,
                 ready_only=ready_only,
                 read_ids=read_ids,
                 staged_ops=staged_ops,
@@ -2067,6 +2146,7 @@ async def chat_with_rubric(
     template_commands: list[TeacherJudgeTemplateCommand] | None = None,
     environment_keys: list[str] | None = None,
     machine_context: str | None = None,
+    machine_entries: list[dict[str, Any]] | None = None,
     attachment_context: str | None = None,
     analysis_revision: int | None = None,
     rubric_available: bool | None = None,
@@ -2175,6 +2255,7 @@ async def chat_with_rubric(
         rubric_context=rubric_context,
         template_key=template_key,
         template_commands=template_commands,
+        machine_entries=machine_entries,
         analysis_revision=analysis_revision,
         rubric_available=rubric_available,
         require_rubric=is_refine,
@@ -2362,6 +2443,7 @@ async def analyze_requirement_item(
     template_commands: list[TeacherJudgeTemplateCommand] | None = None,
     environment_keys: list[str] | None = None,
     machine_context: str | None = None,
+    machine_entries: list[dict[str, Any]] | None = None,
     analysis_revision: int | None = None,
     rubric_available: bool = False,
 ) -> TeacherJudgeChatResult:
@@ -2382,6 +2464,7 @@ async def analyze_requirement_item(
         template_commands=template_commands,
         environment_keys=environment_keys,
         machine_context=machine_context,
+        machine_entries=machine_entries,
         attachment_context=None,
         analysis_revision=analysis_revision,
         rubric_available=rubric_available,
@@ -2497,6 +2580,7 @@ async def analyze_attachments_itemwise(
     template_commands: list[TeacherJudgeTemplateCommand] | None = None,
     environment_keys: list[str] | None = None,
     machine_context: str | None = None,
+    machine_entries: list[dict[str, Any]] | None = None,
     attachment_context: str,
     analysis_revision: int | None = None,
     rubric_available: bool = False,
@@ -2542,6 +2626,7 @@ async def analyze_attachments_itemwise(
                     template_commands=template_commands,
                     environment_keys=environment_keys,
                     machine_context=machine_context,
+                    machine_entries=machine_entries,
                     analysis_revision=analysis_revision,
                     rubric_available=rubric_available,
                 )

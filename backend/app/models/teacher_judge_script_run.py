@@ -44,6 +44,10 @@ class TeacherJudgeScriptRun(SQLModel, table=True):
     )
 
     id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
+    run_batch_id: uuid.UUID | None = Field(
+        default=None,
+        sa_column=Column(sa.Uuid, nullable=True, index=True),
+    )
     teaching_class_id: uuid.UUID = Field(
         sa_column=Column(
             sa.Uuid,

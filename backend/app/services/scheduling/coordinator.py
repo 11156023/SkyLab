@@ -239,6 +239,7 @@ def _provision_new_resource(
                     rollback_session,
                     plan["vmid"],
                     restore_reservation=bool(plan.get("ip_reservation_key")),
+                    reservation_key=plan.get("ip_reservation_key"),
                 )
                 rollback_session.commit()
             except Exception:
@@ -278,6 +279,11 @@ def _provision_new_resource(
             ssh_public_key=plan.get("ssh_public_key"),
             request_id=req.id,
             commit=False,
+        )
+        ip_management_service.link_ip_to_resource(
+            finish_session,
+            new_vmid,
+            reservation_key=plan.get("ip_reservation_key"),
         )
         vm_request_repo.update_vm_request_provisioning(
             session=finish_session,

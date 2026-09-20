@@ -11,7 +11,7 @@ import { formatDateTime } from "../../../utils/formatDate";
 
 /** detected/suspended 視為待處理（紅），其餘中性 */
 function statusBadgeClass(status) {
-  return status === "detected" || status === "suspended" ? "badge_err" : "badge_muted";
+  return status === "detected" || status === "suspended" ? "badge_danger" : "badge_muted";
 }
 
 export default function MiningIncidentsPanel({ onCountChange }) {

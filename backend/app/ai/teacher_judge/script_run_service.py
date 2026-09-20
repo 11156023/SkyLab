@@ -5,23 +5,32 @@ from __future__ import annotations
 import logging
 import uuid
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, Literal, cast
 
 from fastapi import HTTPException
 from sqlmodel import Session, col, select
 
 from app.ai.teacher_judge.machine_context import (
+    load_class_machine_nodes,
     machine_node_display_label,
+    peer_node_keys_from_snapshot,
     resolve_class_machine_node,
     target_node_keys_from_snapshot,
 )
-from app.ai.teacher_judge.schemas import TeacherJudgeScriptRunPublic
+from app.ai.teacher_judge.schemas import (
+    TeacherJudgeRunBatchNodePublic,
+    TeacherJudgeRunBatchPublic,
+    TeacherJudgeScriptRunPublic,
+)
 from app.ai.teacher_judge.script_artifact_service import get_artifact
 from app.ai.teacher_judge.target_ip_resolver import resolve_target_ip_address
 from app.core.i18n import t
 from app.infrastructure.proxmox import operations as proxmox_ops
 from app.infrastructure.proxmox.os_detection import is_windows_guest_identity
-from app.models.teacher_judge_script_artifact import TeacherJudgeScriptStatus
+from app.models.teacher_judge_script_artifact import (
+    TeacherJudgeScriptArtifact,
+    TeacherJudgeScriptStatus,
+)
 from app.models.teacher_judge_script_run import (
     TeacherJudgeScriptRun,
     TeacherJudgeScriptRunStatus,
@@ -57,9 +66,89 @@ _INTERNAL_TARGET_KEYS = frozenset(
         "os_info",
         "environment_type",
         "status_at_selection",
+        "runtime_context",
         "node",
     }
 )
+
+
+def _peer_ips_from_target(target: Any) -> set[str]:
+    if not isinstance(target, dict):
+        return set()
+    runtime_context = target.get("runtime_context")
+    peers = runtime_context.get("peers") if isinstance(runtime_context, dict) else None
+    if not isinstance(peers, dict):
+        return set()
+    return {
+        ip_address.strip()
+        for peer in peers.values()
+        if isinstance(peer, dict)
+        and isinstance((ip_address := peer.get("ip_address")), str)
+        and ip_address.strip()
+    }
+
+
+def _peer_ips_from_snapshot(snapshot: Any) -> set[str]:
+    if not isinstance(snapshot, dict):
+        return set()
+    raw_targets = snapshot.get("targets")
+    if not isinstance(raw_targets, list):
+        return set()
+    return {
+        ip_address
+        for target in raw_targets
+        for ip_address in _peer_ips_from_target(target)
+    }
+
+
+def _redact_peer_ips(value: Any, peer_ips: set[str]) -> Any:
+    """Remove resolved peer addresses from public evidence without mutating raw DB data."""
+
+    if not peer_ips:
+        return value
+    if isinstance(value, str):
+        redacted = value
+        for ip_address in peer_ips:
+            redacted = redacted.replace(ip_address, "<peer-ip>")
+        return redacted
+    if isinstance(value, list):
+        return [_redact_peer_ips(item, peer_ips) for item in value]
+    if isinstance(value, dict):
+        return {
+            key: _redact_peer_ips(item, peer_ips)
+            for key, item in value.items()
+        }
+    return value
+
+
+def _peer_resolution_for_target(
+    snapshot: Any,
+    target_result: dict[str, Any],
+) -> dict[str, dict[str, Any]]:
+    if not isinstance(snapshot, dict):
+        return {}
+    raw_targets = snapshot.get("targets")
+    if not isinstance(raw_targets, list):
+        return {}
+    target_student_id = str(target_result.get("student_id") or "")
+    target_vmid = target_result.get("vmid")
+    for target in raw_targets:
+        if not isinstance(target, dict):
+            continue
+        if target_student_id and str(target.get("student_id") or "") != target_student_id:
+            continue
+        if target_vmid is not None and str(target.get("vmid")) != str(target_vmid):
+            continue
+        runtime_context = target.get("runtime_context")
+        peers = runtime_context.get("peers") if isinstance(runtime_context, dict) else None
+        if not isinstance(peers, dict):
+            return {}
+        return {
+            str(node_key): dict(peer)
+            for node_key, peer in peers.items()
+            if isinstance(peer, dict)
+        }
+    return {}
 
 
 def _public_target(target: Any) -> dict[str, Any]:
@@ -101,8 +190,10 @@ def _run_to_public(
     *,
     include_internal: bool = False,
 ) -> TeacherJudgeScriptRunPublic:
+    peer_ips = _peer_ips_from_snapshot(run.target_snapshot_json)
     return TeacherJudgeScriptRunPublic(
         id=str(run.id),
+        run_batch_id=str(run.run_batch_id) if run.run_batch_id else None,
         teaching_class_id=str(run.teaching_class_id),
         artifact_id=str(run.artifact_id),
         target_scope=run.target_scope.value,
@@ -121,7 +212,9 @@ def _run_to_public(
         target_results_json=(
             run.target_results_json
             if include_internal
-            else _public_targets_payload(run.target_results_json)
+            else _public_targets_payload(
+                _redact_peer_ips(run.target_results_json, peer_ips)
+            )
         ),
         started_by=str(run.started_by) if run.started_by else None,
         started_at=run.started_at.isoformat() if run.started_at else None,
@@ -184,7 +277,7 @@ def _class_member_by_vmid(
                 col(TeachingClassStudentMachine.class_student_id).in_(
                     list(enrollments_by_id)
                 ),
-                TeachingClassStudentMachine.vmid.is_not(None),
+                col(TeachingClassStudentMachine.vmid).is_not(None),
             )
         ).all()
     )
@@ -578,6 +671,102 @@ def _resolve_node_targets(
     return targets, preflight_results
 
 
+def _attach_peer_runtime_contexts(
+    *,
+    session: Session,
+    teaching_class_id: uuid.UUID,
+    executor_node_key: str,
+    peer_node_keys: set[str],
+    targets: list[dict[str, Any]],
+) -> None:
+    """Attach only declared same-student peer addresses to internal targets."""
+
+    if not peer_node_keys:
+        for target in targets:
+            target["runtime_context"] = {
+                "schema_version": "teacher_judge_runtime_context.v1",
+                "executor": {"node_key": executor_node_key},
+                "peers": {},
+            }
+        return
+    members_by_node = _class_member_by_node_key(
+        session=session,
+        teaching_class_id=teaching_class_id,
+    )
+    try:
+        live_by_vmid = _running_resources_by_vmid()
+    except HTTPException:
+        # A peer lookup is optional evidence. Keep the executor target runnable
+        # and record peer_unavailable per declared peer instead of aborting the
+        # whole child run.
+        live_by_vmid = {}
+    peers_by_key_and_student = {
+        (node_key, str(member.get("student_id") or "")): member
+        for node_key in peer_node_keys
+        for member in members_by_node.get(node_key, [])
+    }
+    for target in targets:
+        student_id = str(target.get("student_id") or "")
+        peers: dict[str, dict[str, Any]] = {}
+        for peer_node_key in sorted(peer_node_keys):
+            member = peers_by_key_and_student.get((peer_node_key, student_id))
+            ip_address: str | None = None
+            reason_code: str | None = None
+            if member is None:
+                reason_code = "peer_machine_missing"
+            elif member.get("vmid") is None:
+                reason_code = "peer_vmid_missing"
+            else:
+                vmid = int(member["vmid"])
+                live = live_by_vmid.get(vmid)
+                try:
+                    resource = resource_repo.get_resource_by_vmid(
+                        session=session,
+                        vmid=vmid,
+                    )
+                except Exception:
+                    logger.warning(
+                        "Teacher Judge peer resource lookup failed vmid=%s",
+                        vmid,
+                        exc_info=True,
+                    )
+                    resource = None
+                if live is None or str(live.get("status") or "") != "running":
+                    reason_code = "peer_not_running"
+                elif str(live.get("type") or "") not in {"qemu", "lxc"}:
+                    reason_code = "peer_resource_type_invalid"
+                elif resource is None:
+                    reason_code = "peer_resource_missing"
+                elif str(resource.user_id) != str(member.get("user_id") or ""):
+                    reason_code = "peer_owner_mismatch"
+                else:
+                    try:
+                        ip_address = resolve_target_ip_address(
+                            session=session,
+                            vmid=vmid,
+                            live_resource=live,
+                        )
+                    except Exception:
+                        logger.warning(
+                            "Teacher Judge peer IP resolution failed vmid=%s",
+                            vmid,
+                            exc_info=True,
+                        )
+                        reason_code = "peer_ip_unavailable"
+                    if not ip_address and reason_code is None:
+                        reason_code = "peer_ip_unavailable"
+            peers[peer_node_key] = {
+                "ip_address": ip_address,
+                "resolution_status": "ready" if ip_address else "unavailable",
+                "reason_code": reason_code,
+            }
+        target["runtime_context"] = {
+            "schema_version": "teacher_judge_runtime_context.v1",
+            "executor": {"node_key": executor_node_key},
+            "peers": peers,
+        }
+
+
 def create_script_run(
     *,
     session: Session,
@@ -588,6 +777,8 @@ def create_script_run(
     started_by: uuid.UUID | None,
     target_node_key: str | None = None,
     requested_item_id: str | None = None,
+    run_batch_id: uuid.UUID | None = None,
+    commit: bool = True,
 ) -> TeacherJudgeScriptRunPublic:
     artifact = get_artifact(
         session=session,
@@ -688,6 +879,16 @@ def create_script_run(
         )
     if not targets and not preflight_results:
         raise HTTPException(status_code=400, detail=t("run.no_target_selected"))
+    if effective_node_key:
+        _attach_peer_runtime_contexts(
+            session=session,
+            teaching_class_id=teaching_class_id,
+            executor_node_key=effective_node_key,
+            peer_node_keys=peer_node_keys_from_snapshot(
+                artifact.rubric_snapshot_json
+            ),
+            targets=targets,
+        )
 
     progress_targets = [
         {
@@ -723,6 +924,7 @@ def create_script_run(
     )
 
     run = TeacherJudgeScriptRun(
+        run_batch_id=run_batch_id,
         teaching_class_id=teaching_class_id,
         artifact_id=artifact.id,
         target_scope=target_scope,
@@ -759,6 +961,336 @@ def create_script_run(
         updated_at=_now(),
     )
     session.add(run)
-    session.commit()
+    if commit:
+        session.commit()
+    else:
+        session.flush()
     session.refresh(run)
     return _run_to_public(run, include_internal=True)
+
+
+def _coverage_check_ids_by_item(
+    artifact: TeacherJudgeScriptArtifact,
+) -> dict[str, list[str]]:
+    coverage = (artifact.policy_check_result_json or {}).get("coverage")
+    mappings = coverage.get("mappings") if isinstance(coverage, dict) else []
+    result: dict[str, list[str]] = {}
+    for mapping in mappings if isinstance(mappings, list) else []:
+        if not isinstance(mapping, dict):
+            continue
+        check_id = str(mapping.get("check_id") or "").strip()
+        for raw_item_id in mapping.get("rubric_item_ids") or []:
+            item_id = str(raw_item_id).strip()
+            if item_id and check_id and check_id not in result.setdefault(item_id, []):
+                result[item_id].append(check_id)
+    return result
+
+
+def _item_result_status(checks: list[dict[str, Any]]) -> str:
+    statuses = {str(check.get("status") or "unknown") for check in checks}
+    if "fail" in statuses:
+        return "fail"
+    if "warning" in statuses:
+        return "warning"
+    if not checks or "unknown" in statuses:
+        return "unknown"
+    if statuses == {"skipped"}:
+        return "skipped"
+    return "pass"
+
+
+def project_run_items(
+    *,
+    artifact: TeacherJudgeScriptArtifact,
+    target_result: dict[str, Any],
+    display_labels: dict[str, str],
+    peer_ips: set[str] | None = None,
+    peer_resolution: dict[str, dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    """Project raw runtime checks through artifact coverage to rubric items."""
+
+    parsed = target_result.get("parsed_result")
+    raw_checks = parsed.get("checks") if isinstance(parsed, dict) else []
+    if not isinstance(raw_checks, list):
+        raw_checks = []
+    checks_by_id = {
+        str(check.get("id") or ""): check
+        for check in raw_checks
+        if isinstance(check, dict) and str(check.get("id") or "")
+    }
+    mapped_by_item = _coverage_check_ids_by_item(artifact)
+    mapped_check_ids = {
+        check_id for check_ids in mapped_by_item.values() for check_id in check_ids
+    }
+    items: list[dict[str, Any]] = []
+    execution_failed = target_result.get("status") != "completed"
+    for raw_item in (artifact.rubric_snapshot_json or {}).get("items") or []:
+        if not isinstance(raw_item, dict):
+            continue
+        item_id = str(raw_item.get("id") or "")
+        checks = [
+            checks_by_id[check_id]
+            for check_id in mapped_by_item.get(item_id, [])
+            if check_id in checks_by_id
+        ]
+        checks = cast(
+            "list[dict[str, Any]]",
+            _redact_peer_ips(checks, peer_ips or set()),
+        )
+        peer_node_key = str(raw_item.get("peer_node_key") or "") or None
+        peer_state = (peer_resolution or {}).get(peer_node_key or "")
+        peer_available = not peer_node_key or (
+            isinstance(peer_state, dict)
+            and peer_state.get("resolution_status") == "ready"
+        )
+        item_status = (
+            "unknown"
+            if execution_failed or not peer_available
+            else _item_result_status(checks)
+        )
+        items.append(
+            {
+                "rubric_item_id": item_id,
+                "title": str(raw_item.get("title") or item_id),
+                "judgement_mode": str(raw_item.get("judgement_mode") or "ai"),
+                "status": item_status,
+                "peer_node_key": peer_node_key,
+                "peer_display_label": display_labels.get(peer_node_key or ""),
+                "peer_resolution_status": (
+                    peer_state.get("resolution_status")
+                    if isinstance(peer_state, dict)
+                    else None
+                ),
+                "evidence_state": "unavailable" if not peer_available else "available",
+                "checks": checks,
+                "missing_check_ids": [
+                    check_id
+                    for check_id in mapped_by_item.get(item_id, [])
+                    if check_id not in checks_by_id
+                ],
+                "reason_code": (
+                    target_result.get("reason_code")
+                    if execution_failed
+                    else "peer_unavailable"
+                    if not peer_available
+                    else None
+                ),
+            }
+        )
+    raw_teacher_review = target_result.get("teacher_review")
+    return {
+        "node_key": artifact.target_node_key,
+        "display_label": display_labels.get(str(artifact.target_node_key or "")),
+        "execution_status": target_result.get("status"),
+        "reason_code": target_result.get("reason_code"),
+        "vmid": target_result.get("vmid"),
+        "teacher_review": (
+            cast(
+                "dict[str, Any]",
+                _redact_peer_ips(raw_teacher_review, peer_ips or set()),
+            )
+            if isinstance(raw_teacher_review, dict)
+            else None
+        ),
+        "items": items,
+        "unmapped_checks": cast(
+            "list[dict[str, Any]]",
+            _redact_peer_ips(
+                [
+                    check
+                    for check_id, check in checks_by_id.items()
+                    if check_id not in mapped_check_ids
+                ],
+                peer_ips or set(),
+            ),
+        ),
+    }
+
+
+def _batch_status(runs: list[TeacherJudgeScriptRun]) -> str:
+    statuses = {run.status for run in runs}
+    if TeacherJudgeScriptRunStatus.running in statuses:
+        return "running"
+    if TeacherJudgeScriptRunStatus.pending in statuses:
+        return "pending"
+    completed = [run for run in runs if run.status == TeacherJudgeScriptRunStatus.completed]
+    failed_targets = sum(
+        int((run.result_summary_json or {}).get("failed") or 0) for run in runs
+    )
+    if completed and (len(completed) != len(runs) or failed_targets):
+        return "completed_with_failures"
+    if completed and len(completed) == len(runs):
+        return "completed"
+    return "failed"
+
+
+def get_script_run_batch_public(
+    *,
+    session: Session,
+    teaching_class_id: uuid.UUID,
+    run_batch_id: uuid.UUID,
+    session_id: uuid.UUID | None = None,
+) -> TeacherJudgeRunBatchPublic:
+    rows = list(
+        session.exec(
+            select(TeacherJudgeScriptRun, TeacherJudgeScriptArtifact)
+            .join(
+                TeacherJudgeScriptArtifact,
+                col(TeacherJudgeScriptArtifact.id)
+                == col(TeacherJudgeScriptRun.artifact_id),
+            )
+            .where(
+                TeacherJudgeScriptRun.teaching_class_id == teaching_class_id,
+                TeacherJudgeScriptRun.run_batch_id == run_batch_id,
+            )
+        ).all()
+    )
+    if session_id is not None:
+        rows = [row for row in rows if row[1].session_id == session_id]
+    if not rows:
+        raise HTTPException(status_code=404, detail="Run batch not found")
+    nodes = load_class_machine_nodes(session, teaching_class_id)
+    labels = {node.node_key: machine_node_display_label(node) for node in nodes}
+    runs = [row[0] for row in rows]
+    student_nodes: dict[str, list[dict[str, Any]]] = {}
+    total_targets = completed_targets = failed_targets = 0
+    node_outputs: list[TeacherJudgeRunBatchNodePublic] = []
+    node_order = {node.node_key: node.sort_order for node in nodes}
+    for run, artifact in sorted(
+        rows,
+        key=lambda row: (
+            node_order.get(str(row[1].target_node_key or ""), 10**9),
+            str(row[1].target_node_key or ""),
+        ),
+    ):
+        peer_ips = _peer_ips_from_snapshot(run.target_snapshot_json)
+        raw_targets = (run.target_results_json or {}).get("targets")
+        targets = raw_targets if isinstance(raw_targets, list) else []
+        total_targets += int((run.progress_json or {}).get("total") or len(targets))
+        completed_targets += sum(
+            1 for target in targets if target.get("status") == "completed"
+        )
+        failed_targets += sum(
+            1 for target in targets if target.get("status") == "failed"
+        )
+        node_outputs.append(
+            TeacherJudgeRunBatchNodePublic(
+                target_node_key=str(artifact.target_node_key or ""),
+                display_label=labels.get(str(artifact.target_node_key or "")),
+                artifact_id=str(artifact.id),
+                run_id=str(run.id),
+                status=run.status.value,
+                progress_json=_public_targets_payload(run.progress_json),
+                result_summary_json=run.result_summary_json,
+            )
+        )
+        for target in targets:
+            if not isinstance(target, dict):
+                continue
+            student_id = str(target.get("student_id") or "")
+            if not student_id:
+                continue
+            student_nodes.setdefault(student_id, []).append(
+                project_run_items(
+                    artifact=artifact,
+                    target_result=target,
+                    display_labels=labels,
+                    peer_ips=peer_ips,
+                    peer_resolution=_peer_resolution_for_target(
+                        run.target_snapshot_json,
+                        target,
+                    ),
+                )
+            )
+    first_artifact = rows[0][1]
+    return TeacherJudgeRunBatchPublic(
+        run_batch_id=str(run_batch_id),
+        teaching_class_id=str(teaching_class_id),
+        session_id=str(first_artifact.session_id) if first_artifact.session_id else None,
+        status=cast(
+            Literal["pending", "running", "completed", "completed_with_failures", "failed"],
+            _batch_status(runs),
+        ),
+        summary={
+            "nodes": len(rows),
+            "students": len(student_nodes),
+            "targets": total_targets,
+            "completed": completed_targets,
+            "failed": failed_targets,
+        },
+        nodes=node_outputs,
+        students=[
+            {"student_id": student_id, "nodes": student_nodes[student_id]}
+            for student_id in sorted(student_nodes)
+        ],
+    )
+
+
+def create_script_run_batch(
+    *,
+    session: Session,
+    teaching_class_id: uuid.UUID,
+    artifact_set_id: uuid.UUID,
+    started_by: uuid.UUID | None,
+    session_id: uuid.UUID | None = None,
+) -> TeacherJudgeRunBatchPublic:
+    rows = list(
+        session.exec(
+            select(TeacherJudgeScriptArtifact).where(
+                TeacherJudgeScriptArtifact.teaching_class_id == teaching_class_id,
+                TeacherJudgeScriptArtifact.artifact_set_id == artifact_set_id,
+            )
+        ).all()
+    )
+    if session_id is not None:
+        rows = [row for row in rows if row.session_id == session_id]
+    if not rows:
+        raise HTTPException(status_code=404, detail="Script set not found")
+    latest: dict[str, TeacherJudgeScriptArtifact] = {}
+    for row in rows:
+        if row.status == TeacherJudgeScriptStatus.archived:
+            continue
+        node_key = str(row.target_node_key or "")
+        if node_key not in latest or row.version > latest[node_key].version:
+            latest[node_key] = row
+    nodes = load_class_machine_nodes(session, teaching_class_id)
+    node_order = {node.node_key: node.sort_order for node in nodes}
+    children = sorted(
+        latest.values(),
+        key=lambda row: (
+            node_order.get(str(row.target_node_key or ""), 10**9),
+            str(row.target_node_key or ""),
+        ),
+    )
+    if any(child.status != TeacherJudgeScriptStatus.approved for child in children):
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "teacher_judge_artifact_set_not_approved",
+                "message": "artifact set 的所有節點腳本都必須通過審查後才能執行。",
+            },
+        )
+    run_batch_id = uuid.uuid4()
+    try:
+        for child in children:
+            create_script_run(
+                session=session,
+                teaching_class_id=teaching_class_id,
+                artifact_id=child.id,
+                target_scope=TeacherJudgeScriptRunTargetScope.all_students_on_node,
+                target_vmids=None,
+                started_by=started_by,
+                target_node_key=child.target_node_key,
+                run_batch_id=run_batch_id,
+                commit=False,
+            )
+        session.commit()
+    except Exception:
+        session.rollback()
+        raise
+    return get_script_run_batch_public(
+        session=session,
+        teaching_class_id=teaching_class_id,
+        run_batch_id=run_batch_id,
+        session_id=session_id,
+    )

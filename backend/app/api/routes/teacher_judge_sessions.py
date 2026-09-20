@@ -27,13 +27,17 @@ from app.ai.teacher_judge.machine_context import (
     format_machine_context,
     load_class_machine_nodes,
     machine_context_entries,
+    rubric_item_machine_issues,
 )
 from app.ai.teacher_judge.schemas import (
     TeacherJudgeRubricAnalysis,
+    TeacherJudgeRunBatchPublic,
     TeacherJudgeScriptArtifactPublic,
     TeacherJudgeScriptRunCreateRequest,
     TeacherJudgeScriptRunPublic,
     TeacherJudgeScriptRunSummary,
+    TeacherJudgeScriptSetPublic,
+    TeacherJudgeScriptSetRunRequest,
     TeacherJudgeSessionAttachmentUploadResponse,
     TeacherJudgeSessionChatResponse,
     TeacherJudgeSessionCreateRequest,
@@ -43,12 +47,23 @@ from app.ai.teacher_judge.schemas import (
     TeacherJudgeSessionPublic,
     TeacherJudgeSessionScriptCreateRequest,
     TeacherJudgeSessionUpdateRequest,
+    TeacherJudgeTargetReviewUpdate,
 )
-from app.ai.teacher_judge.script_artifact_service import create_artifact
-from app.ai.teacher_judge.script_executor_service import execute_script_run
+from app.ai.teacher_judge.script_artifact_service import (
+    create_artifact,
+    create_artifact_set,
+    get_artifact_set,
+    list_artifact_sets,
+)
+from app.ai.teacher_judge.script_executor_service import (
+    execute_script_run,
+    execute_script_run_batch,
+)
 from app.ai.teacher_judge.script_run_service import (
     _run_to_public,
     create_script_run,
+    create_script_run_batch,
+    get_script_run_batch_public,
     get_script_run_public,
 )
 from app.ai.teacher_judge.service import (
@@ -574,9 +589,8 @@ async def create_message(
         rubric_context = (
             json.dumps(file.analysis_json, ensure_ascii=False) if file else "{}"
         )
-        machine_context = format_machine_context(
-            machine_context_entries(session, teaching_class_id)
-        )
+        machine_entries = machine_context_entries(session, teaching_class_id)
+        machine_context = format_machine_context(machine_entries)
         item_results: list[dict[str, Any]] | None = None
         conversation_focus: dict[str, Any] | None = None
         itemwise_error: str | None = None
@@ -595,6 +609,7 @@ async def create_message(
                 if file
                 else None,
                 machine_context=machine_context,
+                machine_entries=machine_entries,
                 attachment_context=attachment_context(attachments),
                 analysis_revision=base_revision,
                 rubric_available=file is not None,
@@ -624,6 +639,7 @@ async def create_message(
                 if file
                 else None,
                 machine_context=machine_context,
+                machine_entries=machine_entries,
                 attachment_context=attachment_context(attachments),
                 analysis_revision=base_revision,
                 rubric_available=file is not None,
@@ -645,6 +661,7 @@ async def create_message(
             valid_node_keys = {node.node_key for node in class_nodes}
             invalid_node_keys: set[str] = set()
             missing_target_item_ids: list[str] = []
+            machine_contract_issues: dict[str, list[str]] = {}
             for raw in proposal:
                 if not isinstance(raw, dict):
                     continue
@@ -653,6 +670,14 @@ async def create_message(
                 node_key = str(candidate.get("target_node_key") or "").strip()
                 if node_key and node_key not in valid_node_keys:
                     invalid_node_keys.add(node_key)
+                peer_node_key = str(candidate.get("peer_node_key") or "").strip()
+                if peer_node_key and peer_node_key not in valid_node_keys:
+                    invalid_node_keys.add(peer_node_key)
+                item_issues = rubric_item_machine_issues(candidate)
+                if item_issues:
+                    machine_contract_issues[
+                        str(candidate.get("id") or candidate.get("title") or "未命名項目")
+                    ] = item_issues
                 if (
                     class_nodes
                     and str(candidate.get("detectable") or "").strip().lower() == "auto"
@@ -677,6 +702,15 @@ async def create_message(
                         "code": "teacher_judge_target_node_required",
                         "message": "可執行的提案項目必須指定 target_node_key。",
                         "item_ids": list(dict.fromkeys(missing_target_item_ids)),
+                    },
+                )
+            if machine_contract_issues:
+                raise HTTPException(
+                    status_code=422,
+                    detail={
+                        "code": "teacher_judge_machine_contract_invalid",
+                        "message": "提案中的執行節點、觀察節點或 peer token 不一致。",
+                        "items": machine_contract_issues,
                     },
                 )
         workflow: WorkflowMessage | None = None
@@ -978,6 +1012,261 @@ async def create_session_script(
     return artifact
 
 
+def _session_rubric_for_script_set(
+    *,
+    teaching_class_id: uuid.UUID,
+    session_id: uuid.UUID,
+    session: SessionDep,
+    current_user: InstructorUser,
+    expected_revision: int | None,
+) -> tuple[TeacherJudgeSession, Any, TeacherJudgeRubricAnalysis]:
+    _access(session, teaching_class_id, current_user)
+    item = get_session(session, teaching_class_id, session_id)
+    ensure_active(item)
+    file = require_selected_file(session, item)
+    if expected_revision is not None and expected_revision != file.analysis_revision:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "teacher_judge_analysis_revision_conflict",
+                "message": t("teacherJudgeSessions.analysisRevisionConflict"),
+                "analysis_revision": file.analysis_revision,
+            },
+        )
+    rubric_analysis = TeacherJudgeRubricAnalysis.model_validate(file.analysis_json)
+    if not rubric_analysis.items:
+        commands = get_enabled_template_commands(
+            session,
+            file.template_key,
+            include_cross_template=True,
+        )
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "code": "teacher_judge_script_not_ready",
+                "message": "目前檢查表沒有可製作腳本的檢查項目。",
+                "items": get_script_generation_blockers(
+                    rubric_analysis,
+                    commands,
+                    require_target_node=bool(
+                        load_class_machine_nodes(session, teaching_class_id)
+                    ),
+                ),
+            },
+        )
+    return item, file, rubric_analysis
+
+
+@router.post(
+    "/{session_id}/script-sets",
+    response_model=TeacherJudgeScriptSetPublic,
+)
+async def create_session_script_set(
+    teaching_class_id: uuid.UUID,
+    session_id: uuid.UUID,
+    session: SessionDep,
+    current_user: InstructorUser,
+    payload: TeacherJudgeSessionScriptCreateRequest | None = None,
+) -> TeacherJudgeScriptSetPublic:
+    item, file, rubric_analysis = _session_rubric_for_script_set(
+        teaching_class_id=teaching_class_id,
+        session_id=session_id,
+        session=session,
+        current_user=current_user,
+        expected_revision=payload.analysis_revision if payload else None,
+    )
+    try:
+        script_set = await create_artifact_set(
+            session=session,
+            teaching_class_id=teaching_class_id,
+            session_id=session_id,
+            name=item.title,
+            template_key=file.template_key,
+            rubric_analysis=rubric_analysis,
+            source_analysis_revision=file.analysis_revision,
+            created_by=current_user.id,
+            source_file_id=file.id,
+        )
+    except Exception:
+        session.rollback()
+        raise
+    from app.models.base import get_datetime_utc
+
+    item.last_activity_at = get_datetime_utc()
+    item.updated_at = item.last_activity_at
+    session.add(item)
+    session.commit()
+    return script_set
+
+
+@router.get(
+    "/{session_id}/script-sets",
+    response_model=list[TeacherJudgeScriptSetPublic],
+)
+def list_session_script_sets(
+    teaching_class_id: uuid.UUID,
+    session_id: uuid.UUID,
+    session: SessionDep,
+    current_user: InstructorUser,
+) -> list[TeacherJudgeScriptSetPublic]:
+    _access(session, teaching_class_id, current_user)
+    get_session(session, teaching_class_id, session_id)
+    return list_artifact_sets(
+        session=session,
+        teaching_class_id=teaching_class_id,
+        session_id=session_id,
+    )
+
+
+@router.get(
+    "/{session_id}/script-sets/{artifact_set_id}",
+    response_model=TeacherJudgeScriptSetPublic,
+)
+def get_session_script_set(
+    teaching_class_id: uuid.UUID,
+    session_id: uuid.UUID,
+    artifact_set_id: uuid.UUID,
+    session: SessionDep,
+    current_user: InstructorUser,
+) -> TeacherJudgeScriptSetPublic:
+    _access(session, teaching_class_id, current_user)
+    get_session(session, teaching_class_id, session_id)
+    return get_artifact_set(
+        session=session,
+        teaching_class_id=teaching_class_id,
+        artifact_set_id=artifact_set_id,
+        session_id=session_id,
+    )
+
+
+@router.post(
+    "/{session_id}/script-sets/{artifact_set_id}/regenerate",
+    response_model=TeacherJudgeScriptSetPublic,
+)
+async def regenerate_session_script_set(
+    teaching_class_id: uuid.UUID,
+    session_id: uuid.UUID,
+    artifact_set_id: uuid.UUID,
+    session: SessionDep,
+    current_user: InstructorUser,
+    payload: TeacherJudgeSessionScriptCreateRequest | None = None,
+) -> TeacherJudgeScriptSetPublic:
+    item, file, rubric_analysis = _session_rubric_for_script_set(
+        teaching_class_id=teaching_class_id,
+        session_id=session_id,
+        session=session,
+        current_user=current_user,
+        expected_revision=payload.analysis_revision if payload else None,
+    )
+    existing = get_artifact_set(
+        session=session,
+        teaching_class_id=teaching_class_id,
+        artifact_set_id=artifact_set_id,
+        session_id=session_id,
+    )
+    if existing.source_file_id != str(file.id):
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "teacher_judge_script_set_source_mismatch",
+                "message": "目前選取的檢查表不是此 script set 的來源。",
+            },
+        )
+    try:
+        script_set = await create_artifact_set(
+            session=session,
+            teaching_class_id=teaching_class_id,
+            session_id=session_id,
+            name=item.title,
+            template_key=file.template_key,
+            rubric_analysis=rubric_analysis,
+            source_analysis_revision=file.analysis_revision,
+            created_by=current_user.id,
+            source_file_id=file.id,
+            artifact_set_id=artifact_set_id,
+        )
+    except Exception:
+        session.rollback()
+        raise
+    from app.models.base import get_datetime_utc
+
+    item.last_activity_at = get_datetime_utc()
+    item.updated_at = item.last_activity_at
+    session.add(item)
+    session.commit()
+    return script_set
+
+
+@router.post(
+    "/{session_id}/script-sets/{artifact_set_id}/runs",
+    response_model=TeacherJudgeRunBatchPublic,
+)
+def create_session_script_set_run(
+    teaching_class_id: uuid.UUID,
+    session_id: uuid.UUID,
+    artifact_set_id: uuid.UUID,
+    payload: TeacherJudgeScriptSetRunRequest,
+    session: SessionDep,
+    current_user: InstructorUser,
+) -> TeacherJudgeRunBatchPublic:
+    _access(session, teaching_class_id, current_user)
+    item = get_session(session, teaching_class_id, session_id)
+    ensure_active(item)
+    get_artifact_set(
+        session=session,
+        teaching_class_id=teaching_class_id,
+        artifact_set_id=artifact_set_id,
+        session_id=session_id,
+    )
+    if payload.target_scope != "all_students_in_set":
+        raise HTTPException(status_code=422, detail="不支援的 script set 執行範圍。")
+    batch = create_script_run_batch(
+        session=session,
+        teaching_class_id=teaching_class_id,
+        artifact_set_id=artifact_set_id,
+        started_by=current_user.id,
+        session_id=session_id,
+    )
+    from app.models.base import get_datetime_utc
+
+    item.last_activity_at = get_datetime_utc()
+    item.updated_at = item.last_activity_at
+    session.add(item)
+    session.commit()
+    submit(
+        execute_script_run_batch(uuid.UUID(batch.run_batch_id)),
+        name=f"teacher_judge_script_run_batch:{batch.run_batch_id}",
+        task_id=f"teacher_judge_script_run_batch:{batch.run_batch_id}",
+    )
+    return get_script_run_batch_public(
+        session=session,
+        teaching_class_id=teaching_class_id,
+        run_batch_id=uuid.UUID(batch.run_batch_id),
+        session_id=session_id,
+    )
+
+
+@router.get(
+    "/{session_id}/run-batches/{run_batch_id}",
+    response_model=TeacherJudgeRunBatchPublic,
+)
+def get_session_script_run_batch(
+    teaching_class_id: uuid.UUID,
+    session_id: uuid.UUID,
+    run_batch_id: uuid.UUID,
+    session: SessionDep,
+    current_user: InstructorUser,
+) -> TeacherJudgeRunBatchPublic:
+    _access(session, teaching_class_id, current_user)
+    get_session(session, teaching_class_id, session_id)
+    return get_script_run_batch_public(
+        session=session,
+        teaching_class_id=teaching_class_id,
+        run_batch_id=run_batch_id,
+        session_id=session_id,
+    )
+
+
 @router.get("/{session_id}/runs", response_model=list[TeacherJudgeScriptRunSummary])
 def list_session_runs(
     teaching_class_id: uuid.UUID,
@@ -1003,6 +1292,7 @@ def list_session_runs(
     return [
         TeacherJudgeScriptRunSummary(
             id=str(row.id),
+            run_batch_id=str(row.run_batch_id) if row.run_batch_id else None,
             teaching_class_id=str(row.teaching_class_id),
             artifact_id=str(row.artifact_id),
             status=row.status.value,
@@ -1040,6 +1330,91 @@ def get_session_run(
         raise HTTPException(
             status_code=404, detail=t("teacherJudgeSessions.runResultNotFound")
         )
+    return _run_to_public(run)
+
+
+@router.patch(
+    "/{session_id}/runs/{run_id}/targets/{vmid}/review",
+    response_model=TeacherJudgeScriptRunPublic,
+)
+def update_target_review(
+    teaching_class_id: uuid.UUID,
+    session_id: uuid.UUID,
+    run_id: uuid.UUID,
+    vmid: int,
+    payload: TeacherJudgeTargetReviewUpdate,
+    session: SessionDep,
+    current_user: InstructorUser,
+) -> TeacherJudgeScriptRunPublic:
+    """Save the teacher's decisions and optional weekly feedback for one student."""
+
+    _access(session, teaching_class_id, current_user)
+    get_session(session, teaching_class_id, session_id)
+    run = session.exec(
+        select(TeacherJudgeScriptRun)
+        .join(TeacherJudgeScriptArtifact)
+        .where(
+            TeacherJudgeScriptRun.id == run_id,
+            TeacherJudgeScriptRun.teaching_class_id == teaching_class_id,
+            TeacherJudgeScriptArtifact.session_id == session_id,
+        )
+    ).first()
+    if run is None:
+        raise HTTPException(
+            status_code=404, detail=t("teacherJudgeSessions.runResultNotFound")
+        )
+    if run.status.value != "completed":
+        raise HTTPException(status_code=409, detail="只能核查已完成的執行結果。")
+
+    result_document = dict(run.target_results_json or {})
+    raw_targets = result_document.get("targets")
+    targets = [dict(target) for target in raw_targets] if isinstance(raw_targets, list) else []
+    target_index = next(
+        (
+            index
+            for index, target in enumerate(targets)
+            if isinstance(target, dict) and str(target.get("vmid")) == str(vmid)
+        ),
+        None,
+    )
+    if target_index is None:
+        raise HTTPException(status_code=404, detail="找不到這位學生的執行結果。")
+
+    target = targets[target_index]
+    parsed_result = target.get("parsed_result")
+    raw_checks = parsed_result.get("checks") if isinstance(parsed_result, dict) else []
+    reviewable_ids = {
+        str(check.get("id") or "")
+        for check in raw_checks
+        if isinstance(check, dict)
+        and str(check.get("status") or "") in {"warning", "unknown"}
+    }
+    invalid_ids = sorted(set(payload.decisions) - reviewable_ids)
+    if invalid_ids:
+        raise HTTPException(
+            status_code=400,
+            detail="只能人工判定待導師核查或需注意的項目：" + "、".join(invalid_ids),
+        )
+
+    from app.models.base import get_datetime_utc
+
+    now = get_datetime_utc()
+    if payload.feedback or payload.decisions:
+        target["teacher_review"] = {
+            "feedback": payload.feedback,
+            "decisions": dict(payload.decisions),
+            "reviewed_by": str(current_user.id),
+            "updated_at": now.isoformat(),
+        }
+    else:
+        target.pop("teacher_review", None)
+    targets[target_index] = target
+    result_document["targets"] = targets
+    run.target_results_json = result_document
+    run.updated_at = now
+    session.add(run)
+    session.commit()
+    session.refresh(run)
     return _run_to_public(run)
 
 

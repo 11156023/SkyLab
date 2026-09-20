@@ -16,6 +16,7 @@ import i18n from "i18next";
 import { initReactI18next } from "react-i18next";
 
 import commonZhTW from "../locales/zh-TW/common.json";
+import landingZhTW from "../locales/zh-TW/landing.json";
 import componentsZhTW from "../locales/zh-TW/components.json";
 import servicesZhTW from "../locales/zh-TW/services.json";
 import loginZhTW from "../locales/zh-TW/login.json";
@@ -27,6 +28,7 @@ import systemZhTW from "../locales/zh-TW/system.json";
 import networkZhTW from "../locales/zh-TW/network.json";
 
 import commonEn from "../locales/en/common.json";
+import landingEn from "../locales/en/landing.json";
 import componentsEn from "../locales/en/components.json";
 import servicesEn from "../locales/en/services.json";
 import loginEn from "../locales/en/login.json";
@@ -38,6 +40,7 @@ import systemEn from "../locales/en/system.json";
 import networkEn from "../locales/en/network.json";
 
 import commonJa from "../locales/ja/common.json";
+import landingJa from "../locales/ja/landing.json";
 import componentsJa from "../locales/ja/components.json";
 import servicesJa from "../locales/ja/services.json";
 import loginJa from "../locales/ja/login.json";
@@ -54,6 +57,7 @@ export const LANGUAGE_STORAGE_KEY = "skylab.lang";
 
 export const NAMESPACES = [
   "common",
+  "landing",
   "components",
   "services",
   "login",
@@ -79,6 +83,7 @@ i18n.use(initReactI18next).init({
   resources: {
     "zh-TW": {
       common: commonZhTW,
+      landing: landingZhTW,
       components: componentsZhTW,
       services: servicesZhTW,
       login: loginZhTW,
@@ -91,6 +96,7 @@ i18n.use(initReactI18next).init({
     },
     en: {
       common: commonEn,
+      landing: landingEn,
       components: componentsEn,
       services: servicesEn,
       login: loginEn,
@@ -103,6 +109,7 @@ i18n.use(initReactI18next).init({
     },
     ja: {
       common: commonJa,
+      landing: landingJa,
       components: componentsJa,
       services: servicesJa,
       login: loginJa,

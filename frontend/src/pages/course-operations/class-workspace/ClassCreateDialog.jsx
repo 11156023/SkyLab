@@ -97,7 +97,7 @@ export default function ClassCreateDialog({
           </h2>
           <button
             type="button"
-            className={styles.iconBtn}
+            className={styles.dialogClose}
             aria-label={t("ClassCreateDialog.closeAria")}
             disabled={submitting}
             onClick={onClose}

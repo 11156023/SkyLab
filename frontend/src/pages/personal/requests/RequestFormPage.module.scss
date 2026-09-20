@@ -341,7 +341,7 @@
   &::placeholder { color: var(--color-text-muted); }
 }
 
-.textarea { resize: none; height: 80px; }
+.textarea { height: 80px; }
 
 /* 密碼欄的顯示/隱藏眼睛按鈕 */
 .passwordWrap {

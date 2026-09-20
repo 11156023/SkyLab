@@ -465,7 +465,7 @@
   "MonitoringPage.memoryLabel": "Memory",
   "MonitoringPage.memoryPercentLabel": "Memory %",
   "MonitoringPage.memoryUsage": "Memory Usage",
-  "MonitoringPage.nodeUsageDesc": "Click a node row to expand its usage trend chart",
+  "MonitoringPage.nodeUsageDesc": "Click a node row to expand its usage trend chart for the last 1 day",
   "MonitoringPage.nodeUsageTitle": "Node Usage",
   "MonitoringPage.nodesSummary": "{{online}}/{{total}} online",
   "MonitoringPage.noTrendData": "No trend data for this node yet",
@@ -475,9 +475,6 @@
   "MonitoringPage.scopeCluster": "Cluster",
   "MonitoringPage.scopeNode": "Node",
   "MonitoringPage.thresholdSuffix": " (threshold {{threshold}}%)",
-  "MonitoringPage.timeframeDay": "Last 1 Day",
-  "MonitoringPage.timeframeHour": "Last 1 Hour",
-  "MonitoringPage.timeframeWeek": "Last 1 Week",
   "MonitoringPage.toastAckFailed": "Failed to acknowledge alert",
   "MonitoringPage.topCpuTitle": "Top 5 CPU Usage",
   "MonitoringPage.topMemTitle": "Top 5 Memory Usage",
@@ -694,6 +691,5 @@
   "DomainPage.managedBySystem": "This system · VM {{vmid}}",
   "DomainPage.managedBySystemHint": "Created by this system's published URL feature (VM {{vmid}})",
   "DomainPage.externalRecord": "External",
-  "DomainPage.externalRecordHint": "Not created by this system (added manually on Cloudflare or elsewhere)",
-  "MonitoringPage.timeframeAria": "Trend timeframe"
+  "DomainPage.externalRecordHint": "Not created by this system (added manually on Cloudflare or elsewhere)"
 }

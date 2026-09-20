@@ -12,82 +12,6 @@
   }
 }
 
-/* ── Stat cards ── */
-.statRow {
-  display: grid;
-  grid-template-columns: 1fr;
-  gap: $spacing-16;
-
-  @include respond-to(sm) { grid-template-columns: repeat(2, 1fr); }
-  @include respond-to(lg) { grid-template-columns: repeat(4, 1fr); }
-}
-
-.statCard {
-  display: flex;
-  align-items: center;
-  gap: $spacing-16;
-  padding: $spacing-16;
-  @include glass-surface($shadow: var(--shadow-sm));
-  border-radius: $radius-16;
-}
-
-.statIcon {
-  width: 40px;
-  height: 40px;
-  border-radius: $radius-8;
-  background: var(--color-hover);
-  color: var(--color-primary);
-  @include flex-center;
-  flex-shrink: 0;
-}
-
-.statIconOk { background: color-mix(in srgb, var(--color-success) 12%, transparent); color: var(--color-success); }
-.statIconErr { background: color-mix(in srgb, var(--color-danger)  12%, transparent); color: var(--color-danger); }
-
-.statInfo {
-  @include flex-column;
-  gap: 2px;
-}
-
-.statLabel {
-  font-size: $font-size-12;
-  color: var(--color-text-muted);
-}
-
-.statValue {
-  font-size: $font-size-24;
-  font-weight: $font-weight-700;
-  color: var(--color-text-primary);
-  font-variant-numeric: tabular-nums;
-}
-
-/* ── Tabs ── */
-.tabs {
-  display: flex;
-  gap: $spacing-4;
-  border-bottom: 1px solid var(--color-border);
-}
-
-.tab {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: $spacing-8 $spacing-16;
-  font-size: $font-size-14;
-  font-weight: $font-weight-500;
-  color: var(--color-text-secondary);
-  border-bottom: 2px solid transparent;
-  cursor: pointer;
-  margin-bottom: -1px;
-  transition: color $transition-base, border-color $transition-base;
-
-  &:hover { color: var(--color-text); }
-}
-
-.tabActive {
-  color: var(--color-primary);
-  border-bottom-color: var(--color-primary);
-}
 
 /* ── Content ── */
 .content {
@@ -162,7 +86,6 @@
 }
 
 .formTextarea {
-  resize: vertical;
   min-height: 100px;
   font-family: inherit;
 }
@@ -968,7 +891,7 @@
   color: var(--color-success);
 }
 
-.badge_error {
+.badge_danger {
   background: color-mix(in srgb, var(--color-danger)  12%, transparent);
   color: var(--color-danger);
 }
@@ -1095,23 +1018,8 @@
 }
 
 .dialogClose {
-  width: 30px;
-  height: 30px;
+  @include btn-dialog-close;
   flex-shrink: 0;
-  border-radius: $radius-8;
-  @include flex-center;
-  color: var(--color-text-secondary);
-  transition: background $transition-base, color $transition-base;
-
-  &:hover:not(:disabled) {
-    background: var(--color-hover);
-    color: var(--color-text-primary);
-  }
-
-  &:disabled {
-    opacity: 0.5;
-    cursor: not-allowed;
-  }
 }
 
 .dialogFooter {

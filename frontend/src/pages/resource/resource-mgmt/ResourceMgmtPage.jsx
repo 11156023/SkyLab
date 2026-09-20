@@ -152,16 +152,24 @@ function EnvironmentMachineRow({ machine, onUpdated }) {
     }
   }
 
+  const canOpenDetail = resource?.vmid > 0;
+  /* 整列可點進詳情；列內按鈕／選單的點擊不觸發導頁 */
+  const openDetail = (event) => {
+    if (event.target.closest("button, a, input, select, label")) return;
+    navigate(`/resource-mgmt/${resource.vmid}`);
+  };
+
   return <>
-    <tr className={`${styles.tr} ${styles.environmentMachineRow}`}>
+    <tr
+      className={`${styles.tr} ${styles.environmentMachineRow} ${canOpenDetail ? styles.trClickable : ""}`}
+      onClick={canOpenDetail ? openDetail : undefined}
+    >
       <td className={`${styles.td} ${styles.checkCell}`} />
       <td className={styles.td}>
         <div className={`${styles.nameCell} ${styles.environmentMachineName}`}>
           <span className={styles.machineBranch} aria-hidden="true">└</span>
           <div>
-            {resource?.vmid > 0
-              ? <button type="button" className={`${styles.namePrimary} ${styles.nameLink}`} title={t("ResourceMgmtPage.viewDetailTitle")} onClick={() => navigate(`/resource-mgmt/${resource.vmid}`)}>{machine.name}</button>
-              : <div className={styles.namePrimary}>{machine.name}</div>}
+            <div className={styles.namePrimary}>{machine.name}</div>
             <div className={styles.nameSub}>{machine.role} · {type.label}{specLabel ? ` · ${specLabel}` : ""}</div>
           </div>
         </div>
@@ -192,7 +200,7 @@ function EnvironmentMachineRow({ machine, onUpdated }) {
         {actionLoading && <MIcon name="hourglass_empty" size={16} />}
         {canControl && <div className={styles.menuWrap}>
           {menuOpen && <PowerMenu resource={resource} actionLoading={actionLoading} onControl={handleControl} onClose={closeMenu} anchorRef={menuBtnRef} closing={menuClosing} />}
-          <button ref={menuBtnRef} type="button" className={`${styles.menuBtn} ${menuOpen ? styles.menuBtnActive : ""}`} onClick={() => menuOpen ? closeMenu() : setMenuOpen(true)} title={t("ResourceMgmtPage.powerControlTitle")}><MIcon name="more_vert" size={18} /></button>
+          <button ref={menuBtnRef} type="button" className={`${styles.menuBtn} ${menuOpen ? styles.menuBtnActive : ""}`} onClick={() => menuOpen ? closeMenu() : setMenuOpen(true)} title={t("ResourceMgmtPage.powerControlTitle")} aria-label={t("ResourceMgmtPage.powerControlTitle")}><MIcon name="more_vert" size={18} /></button>
         </div>}
       </div></td>
     </tr>
@@ -263,7 +271,7 @@ function EnvironmentGroupRows({ group, onUpdated, onRefresh }) {
           </div>
         </td>
         <td className={styles.td}>
-          <MachineKindBadge kind={group.kind === "quick_practice" ? "quick_practice" : "teaching_class"} classRelation={group.classRelation} size="sm" />
+          <MachineKindBadge kind={group.kind === "quick_practice" ? "quick_practice" : "teaching_class"} classRelation={group.classRelation} title={group.title} />
         </td>
         <td className={styles.td}>
           <div className={styles.envPrimary}>{group.kind === "course" ? t("ResourceMgmtPage.courseEnvironment") : t("ResourceMgmtPage.quickPracticeEnvironment")}</div>
@@ -291,7 +299,7 @@ function EnvironmentGroupRows({ group, onUpdated, onRefresh }) {
                   anchorRef={menuBtnRef}
                   closing={menuClosing}
                 />}
-                <button ref={menuBtnRef} type="button" className={`${styles.menuBtn} ${menuOpen ? styles.menuBtnActive : ""}`} onClick={() => menuOpen ? closeGroupMenu() : setMenuOpen(true)} title={t("ResourceMgmtPage.groupPowerTitle")}><MIcon name="more_vert" size={18} /></button>
+                <button ref={menuBtnRef} type="button" className={`${styles.menuBtn} ${menuOpen ? styles.menuBtnActive : ""}`} onClick={() => menuOpen ? closeGroupMenu() : setMenuOpen(true)} title={t("ResourceMgmtPage.groupPowerTitle")} aria-label={t("ResourceMgmtPage.groupPowerTitle")}><MIcon name="more_vert" size={18} /></button>
               </div>
             </div>
           : <span className={styles.noAction}>—</span>}</td>
@@ -447,9 +455,19 @@ function ResourceRow({ resource, onUpdated, onDeleted, selected = false, onToggl
     }
   }
 
+  const canOpenDetail = resource.vmid > 0;
+  /* 整列可點進詳情；勾選、主控台與電源選單的點擊不觸發導頁 */
+  const openDetail = (event) => {
+    if (event.target.closest("button, a, input, select, label")) return;
+    navigate(`/resource-mgmt/${resource.vmid}`);
+  };
+
   return (
     <>
-      <tr className={styles.tr}>
+      <tr
+        className={`${styles.tr} ${canOpenDetail ? styles.trClickable : ""}`}
+        onClick={canOpenDetail ? openDetail : undefined}
+      >
         {/* 勾選 */}
         <td className={`${styles.td} ${styles.checkCell}`}>
           {onToggleSelect && canControl ? (
@@ -466,18 +484,7 @@ function ResourceRow({ resource, onUpdated, onDeleted, selected = false, onToggl
         <td className={styles.td}>
           <div className={styles.nameCell}>
             <div>
-              {resource.vmid > 0 ? (
-                <button
-                  type="button"
-                  className={`${styles.namePrimary} ${styles.nameLink}`}
-                  title={t("ResourceMgmtPage.viewDetailTitle")}
-                  onClick={() => navigate(`/resource-mgmt/${resource.vmid}`)}
-                >
-                  {resource.name}
-                </button>
-              ) : (
-                <div className={styles.namePrimary}>{resource.name}</div>
-              )}
+              <div className={styles.namePrimary}>{resource.name}</div>
               <div className={styles.nameSub}>
                 {type.label}
                 {resource.vmid > 0 && t("ResourceMgmtPage.vmidSuffix", { vmid: resource.vmid })}
@@ -494,7 +501,6 @@ function ResourceRow({ resource, onUpdated, onDeleted, selected = false, onToggl
             ownerName={resource.owner_name}
             teachingClassName={resource.teaching_class_name}
             showOwner
-            size="sm"
           />
         </td>
 
@@ -568,6 +574,7 @@ function ResourceRow({ resource, onUpdated, onDeleted, selected = false, onToggl
                   className={`${styles.menuBtn} ${menuOpen ? styles.menuBtnActive : ""}`}
                   onClick={() => menuOpen ? closeMenu() : setMenuOpen(true)}
                   title={t("ResourceMgmtPage.powerControlTitle")}
+                  aria-label={t("ResourceMgmtPage.powerControlTitle")}
                 >
                   <MIcon name="more_vert" size={18} />
                 </button>

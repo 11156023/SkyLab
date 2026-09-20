@@ -37,6 +37,9 @@ template/command catalog wording):
 - target_node_key is the stable class-local machine identity. P1/P2/P3 are
   display labels only; never use them as keys and never emit VMID, IP, SSH, or
   provider-specific details.
+- For a single-hop peer observation, keep target_node_key as the executor and
+  set peer_node_key to the observed class node. Use {{peer.ip}} only as a whole
+  argv element. Never invent or emit the peer IP. A local check has no peer.
 - The current executor is Linux SSH/SFTP with python3. Do not claim Windows
   execution support until a Windows executor adapter exists.
 - Legacy template_key/command_key/parameters entries may be understood when

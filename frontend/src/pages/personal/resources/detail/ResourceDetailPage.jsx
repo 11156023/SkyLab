@@ -5,6 +5,7 @@ import styles from "./ResourceDetailPage.module.scss";
 import MIcon from "../../../../components/MIcon";
 import MachineKindBadge from "../../../../components/MachineKindBadge/MachineKindBadge";
 import { ResourcesService } from "../../../../services/resources";
+import { AuditLogsService } from "../../../../services/auditLogs";
 import OverviewTab from "./OverviewTab";
 import MonitoringTab from "./MonitoringTab";
 import SpecificationsTab from "./SpecificationsTab";
@@ -12,6 +13,7 @@ import SnapshotsTab from "./SnapshotsTab";
 import AuditLogsTab from "./AuditLogsTab";
 import AdvancedSettingsTab from "./AdvancedSettingsTab";
 import PageHeader from "../../../../components/PageHeader/PageHeader";
+import SegmentedControl from "../../../../components/SegmentedControl/SegmentedControl";
 
 /* sharedOnly=false 的分頁只有擁有者／管理員看得到；被分享的使用者只能看總覽、監控與進階設定裡的唯讀卡片 */
 const TABS = [
@@ -33,6 +35,9 @@ export default function ResourceDetailPage({ backTo = "/my-resources" }) {
   const isGuideDemo = params.vmid === "demo";
   const vmid = isGuideDemo ? 100 : Number.parseInt(params.vmid, 10);
   const [tab, setTab] = useState("overview");
+  /* 分頁列右側的工具槽：分頁元件把自己的控制項（時間範圍、快照按鈕）portal 進來，
+     與分頁切換器同列；用 state 存節點，掛載完成後子元件才拿得到 portal 目標 */
+  const [tabToolbar, setTabToolbar] = useState(null);
   const [access, setAccess] = useState(null); // { access_role, can_manage, owner_email }
 
   useEffect(() => {
@@ -58,19 +63,21 @@ export default function ResourceDetailPage({ backTo = "/my-resources" }) {
   const isShared = access?.access_role === "shared";
   const visibleTabs = TABS.filter((tabDef) => !isShared || tabDef.sharedOnly);
 
+  /* 操作紀錄分頁的筆數 badge；count 是後端獨立的總數查詢，limit 1 只為省流量。
+     被分享的使用者看不到這個分頁，等 access 回來確認身分後才抓 */
+  const [auditCount, setAuditCount] = useState(null);
+  useEffect(() => {
+    if (isGuideDemo || !access || isShared) return undefined;
+    let cancelled = false;
+    AuditLogsService.listForResource(vmid, { skip: 0, limit: 1 })
+      .then((res) => !cancelled && setAuditCount(res?.count ?? null))
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [isGuideDemo, access, isShared, vmid]);
+
   return (
     <div className={styles.page}>
       <PageHeader
-        leading={
-          <button
-            type="button"
-            className={styles.backBtn}
-            onClick={() => navigate(backTo)}
-            title={t("ResourceDetailPage.backToList")}
-          >
-            <MIcon name="arrow_back" size={20} />
-          </button>
-        }
         title={<>
           {t("ResourceDetailPage.title")} <span className={styles.vmidText}>#{isGuideDemo ? "DEMO" : vmid}</span>
           {access && (
@@ -83,7 +90,16 @@ export default function ResourceDetailPage({ backTo = "/my-resources" }) {
             />
           )}
         </>}
-      />
+      >
+        <button
+          type="button"
+          className={`${styles.btnSecondary} ${styles.backBtn}`}
+          onClick={() => navigate(backTo)}
+        >
+          <MIcon name="arrow_back" size={18} />
+          {t("ResourceDetailPage.backToList")}
+        </button>
+      </PageHeader>
 
       {isGuideDemo && (
         <div className={styles.demoNotice}>
@@ -99,29 +115,30 @@ export default function ResourceDetailPage({ backTo = "/my-resources" }) {
         </p>
       )}
 
-      <div className={styles.tabs} data-guide="resource-detail-tabs">
-        {visibleTabs.map((tabDef) => (
-          <button
-            key={tabDef.key}
-            type="button"
-            className={`${styles.tab} ${tab === tabDef.key ? styles.tabActive : ""}`}
-            onClick={() => setTab(tabDef.key)}
-            data-guide-tab={`resource-${tabDef.key}`}
-            aria-selected={tab === tabDef.key}
-          >
-            <MIcon name={tabDef.icon} size={16} />
-            {t(tabDef.labelKey)}
-          </button>
-        ))}
+      <div className={styles.tabsRow} data-guide="resource-detail-tabs">
+        <SegmentedControl
+          className={styles.tabs}
+          options={visibleTabs.map((tabDef) => ({
+            value: tabDef.key,
+            label: t(tabDef.labelKey),
+            icon: tabDef.icon,
+            badge: tabDef.key === "auditLogs" ? auditCount ?? undefined : undefined,
+            buttonProps: { "data-guide-tab": `resource-${tabDef.key}` },
+          }))}
+          value={tab}
+          onChange={setTab}
+          ariaLabel={t("ResourceDetailPage.tabsAriaLabel")}
+        />
+        <div className={styles.tabsToolbar} ref={setTabToolbar} />
       </div>
 
       <div className={styles.content} data-guide={`resource-detail-${tab}`}>
         {isGuideDemo ? <ResourceDetailGuideDemo tab={tab} /> : (
           <>
             {tab === "overview"       && <OverviewTab vmid={vmid} />}
-            {tab === "monitoring"     && <MonitoringTab vmid={vmid} />}
+            {tab === "monitoring"     && <MonitoringTab vmid={vmid} toolbar={tabToolbar} />}
             {tab === "specifications" && <SpecificationsTab vmid={vmid} />}
-            {tab === "snapshots"      && <SnapshotsTab vmid={vmid} />}
+            {tab === "snapshots"      && <SnapshotsTab vmid={vmid} toolbar={tabToolbar} />}
             {tab === "auditLogs"      && <AuditLogsTab vmid={vmid} />}
             {tab === "advanced"       && <AdvancedSettingsTab vmid={vmid} backTo={backTo} />}
           </>

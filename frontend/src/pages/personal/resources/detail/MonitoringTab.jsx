@@ -1,9 +1,11 @@
 import { useEffect, useState } from "react";
+import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
 import styles from "./ResourceDetailPage.module.scss";
 import MIcon from "../../../../components/MIcon";
 import LoadingState from "../../../../components/LoadingState/LoadingState";
 import RrdChart from "../../../../components/RrdChart/RrdChart";
+import SegmentedControl from "../../../../components/SegmentedControl/SegmentedControl";
 import { ResourcesService } from "../../../../services/resources";
 import { formatTime } from "../../../../utils/formatDate";
 
@@ -56,7 +58,7 @@ function StatCard({ title, pct, detail, icon }) {
   );
 }
 
-export default function MonitoringTab({ vmid }) {
+export default function MonitoringTab({ vmid, toolbar }) {
   const { t } = useTranslation("personal");
   const [timeframe, setTimeframe] = useState("hour");
   const [chartTab, setChartTab] = useState("cpu");
@@ -140,21 +142,17 @@ export default function MonitoringTab({ vmid }) {
 
   return (
     <div className={styles.tabStack}>
-      <div className={styles.monHead}>
-        <h2 className={styles.cardTitle}>{t("MonitoringTab.title")}</h2>
-        <div className={styles.segment}>
-          {TIMEFRAMES.map((tf) => (
-            <button
-              key={tf.value}
-              type="button"
-              className={`${styles.segmentBtn} ${timeframe === tf.value ? styles.segmentActive : ""}`}
-              onClick={() => setTimeframe(tf.value)}
-            >
-              {t(tf.labelKey)}
-            </button>
-          ))}
-        </div>
-      </div>
+      {/* 時間範圍切換 portal 到分頁列右側的工具槽，與分頁切換器同列 */}
+      {toolbar && createPortal(
+        <SegmentedControl
+          className={styles.segmentScroll}
+          options={TIMEFRAMES.map((tf) => ({ value: tf.value, label: t(tf.labelKey) }))}
+          value={timeframe}
+          onChange={setTimeframe}
+          ariaLabel={t("MonitoringTab.timeframeAria")}
+        />,
+        toolbar,
+      )}
 
       {/* 即時狀態卡片 */}
       <div className={styles.statGrid}>
@@ -197,18 +195,15 @@ export default function MonitoringTab({ vmid }) {
             <h2 className={styles.cardTitle}>{t("MonitoringTab.historyTitle")}</h2>
             <p className={styles.cardDesc}>{t("MonitoringTab.dataPointsCount", { count: chartData.length })}</p>
           </div>
-          <div className={styles.segment}>
-            {CHART_TABS.map((ct) => (
-              <button
-                key={ct.key}
-                type="button"
-                className={`${styles.segmentBtn} ${chartTab === ct.key ? styles.segmentActive : ""}`}
-                onClick={() => setChartTab(ct.key)}
-              >
-                {ct.labelKey ? t(ct.labelKey) : ct.label}
-              </button>
-            ))}
-          </div>
+          <SegmentedControl
+            options={CHART_TABS.map((ct) => ({
+              value: ct.key,
+              label: ct.labelKey ? t(ct.labelKey) : ct.label,
+            }))}
+            value={chartTab}
+            onChange={setChartTab}
+            ariaLabel={t("MonitoringTab.chartTabsAria")}
+          />
         </div>
         <div className={styles.cardBody}>
           {chartTab === "cpu" && (

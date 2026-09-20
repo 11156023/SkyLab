@@ -15,6 +15,8 @@ const studentVm = {
   node_type: "vm",
   can_manage: true,
   owner_name: "王小明",
+  machine_kind: "teaching_class",
+  class_relation: "teacher",
   teaching_class_name: "網路概論",
 };
 const readOnlyClassVm = {
@@ -67,12 +69,27 @@ describe("toDialogNodes", () => {
   test("排除網關與唯讀節點，保留可管理的學生機器與老師開放的機器", () => {
     const list = toDialogNodes([gateway, mine, studentVm, readOnlyClassVm, teacherPeer]);
     expect(list).toEqual([
-      { key: "100", vmid: 100, name: "demo", peerOnly: false, allowedPorts: null },
-      { key: "201", vmid: 201, name: "web-01 · 王小明", peerOnly: false, allowedPorts: null },
+      {
+        key: "100",
+        vmid: 100,
+        name: "demo",
+        kindLabelKey: "MachineKind.personal",
+        peerOnly: false,
+        allowedPorts: null,
+      },
+      {
+        key: "201",
+        vmid: 201,
+        name: "web-01 · 王小明",
+        kindLabelKey: "MachineKind.classStudent",
+        peerOnly: false,
+        allowedPorts: null,
+      },
       {
         key: "100",
         vmid: 100,
         name: "demo-server · 陳老師",
+        kindLabelKey: "MachineKind.teacherOpen",
         peerOnly: true,
         allowedPorts: [{ port: 80, protocol: "tcp" }],
       },

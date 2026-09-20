@@ -8,10 +8,13 @@ duplicate the same cluster.resources iteration or qemu/lxc dispatch logic.
 import logging
 import threading
 import time
+from collections.abc import Iterator
+from contextlib import contextmanager, nullcontext
 from dataclasses import dataclass
 from typing import Any, Literal
 
 import httpx
+from sqlalchemy import text
 
 from app.exceptions import BadRequestError, NotFoundError, ProxmoxError
 from app.infrastructure.proxmox import (
@@ -30,6 +33,61 @@ from app.infrastructure.proxmox import (
 logger = logging.getLogger(__name__)
 
 ResourceType = Literal["qemu", "lxc"]
+
+# ``cluster.nextid`` is a hint, not a reservation.  Every backend worker can
+# observe the same hint before the first worker's clone is visible in PVE, so
+# the lock must live outside the Python process.  PostgreSQL advisory locks
+# give us that cross-worker boundary without adding a migration or a stale
+# lease table.  The thread lock is still useful for SQLite-based tests and
+# keeps same-process callers from opening needless DB connections.
+_VMID_ALLOCATION_LOCK_KEY = 0x534B594C4142564  # stable 64-bit PostgreSQL key
+_vmid_allocation_thread_lock = threading.Lock()
+
+
+@contextmanager
+def vmid_allocation_lock(*, db_engine: Any | None = None) -> Iterator[None]:
+    """Serialize VMID selection through the first PVE clone/create call.
+
+    ``next_vmid()`` only inspects PVE and therefore must be called inside this
+    context, which must remain held until the mutating PVE request returns.
+    PostgreSQL releases the advisory lock automatically if a worker dies; the
+    SQLite/no-database path retains the process lock for unit-test callers.
+    """
+    with _vmid_allocation_thread_lock:
+        if db_engine is None:
+            from app.core.db import engine as resolved_engine
+        else:
+            resolved_engine = db_engine
+
+        if resolved_engine.dialect.name != "postgresql":
+            yield
+            return
+
+        connection_context = (
+            resolved_engine.connect()
+            if hasattr(resolved_engine, "connect")
+            else nullcontext(resolved_engine)
+        )
+        with connection_context as connection:
+            connection.execute(
+                text("SELECT pg_advisory_lock(:lock_key)"),
+                {"lock_key": _VMID_ALLOCATION_LOCK_KEY},
+            )
+            try:
+                yield
+            finally:
+                try:
+                    connection.execute(
+                        text("SELECT pg_advisory_unlock(:lock_key)"),
+                        {"lock_key": _VMID_ALLOCATION_LOCK_KEY},
+                    )
+                except Exception:
+                    # Closing the connection still releases a session-level
+                    # advisory lock; do not mask the provisioning exception.
+                    logger.warning(
+                        "Failed to explicitly release VMID allocation lock",
+                        exc_info=True,
+                    )
 
 
 @dataclass(frozen=True)

@@ -65,6 +65,24 @@ print(json.dumps({
 """.strip()
 
 
+def test_peer_artifact_generation_stays_blocked_until_runtime_context_exists() -> None:
+    with pytest.raises(HTTPException) as exc_info:
+        script_artifact_service._ensure_peer_runtime_supported(
+            {
+                "items": [
+                    {
+                        "id": "db-to-web",
+                        "target_node_key": "db",
+                        "peer_node_key": "web",
+                    }
+                ]
+            }
+        )
+
+    assert exc_info.value.status_code == 409
+    assert exc_info.value.detail["code"] == "teacher_judge_peer_runtime_not_ready"
+
+
 def _analysis() -> TeacherJudgeRubricAnalysis:
     return TeacherJudgeRubricAnalysis(
         items=[
