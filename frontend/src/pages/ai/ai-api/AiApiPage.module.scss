@@ -738,7 +738,8 @@
 }
 
 .codeViewport {
-  height: clamp(220px, 40vh, 380px);
+  // 15 lines at Monaco's 20px line height, plus 8px padding on each edge.
+  height: calc(15 * 20px + 16px);
   min-width: 0;
   overflow: hidden;
 }
