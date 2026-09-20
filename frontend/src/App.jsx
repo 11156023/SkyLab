@@ -210,7 +210,7 @@ function App() {
           <Route path="/courses/:pathId" element={!canTeach ? <StudentCoursePage /> : <Navigate to="/dashboard" replace />} />
           <Route path="/courses/:pathId/weeks/:weekId" element={!canTeach ? <StudentWeekPage /> : <Navigate to="/dashboard" replace />} />
           <Route path="/dashboard/course/:pathId" element={!canTeach ? <LegacyStudentCourseRedirect /> : <Navigate to="/dashboard" replace />} />
-          {/* 快速建立：學生、老師、管理者共用，側欄「教學」群組的入口 */}
+          {/* 快速練習：學生、老師、管理者共用，側欄「教學」群組的入口 */}
           <Route path="/quick-create"         element={<QuickCreatePage />} />
           <Route path="/quick-template/:id"   element={<QuickTemplateFormPage />} />
           <Route path="/my-resources"         element={<ResourcesPage />} />

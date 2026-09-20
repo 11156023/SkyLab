@@ -14,7 +14,7 @@ const topItems = [
   { key: "dashboard", labelKey: "Sidebar.topDashboard", icon: "dashboard" },
 ];
 
-/* 確認頁沿用舊網址 /quick-template/:id，側欄仍要亮在「快速建立」 */
+/* 確認頁沿用舊網址 /quick-template/:id，側欄仍要亮在「快速練習」 */
 const activeKeyAliases = { "quick-template": "quick-create" };
 
 const navGroups = [
@@ -68,7 +68,7 @@ const navGroups = [
       { key: "courses", labelKey: "Sidebar.topCourses", icon: "school", studentOnly: true },
       { key: "class-management", labelKey: "Sidebar.itemClassManagement", icon: "groups_2", instructorOnly: true },
       { key: "course-template-management", labelKey: "Sidebar.itemCourseTemplateManagement", icon: "view_quilt", instructorOnly: true },
-      /* 快速建立對所有登入者開放（後端 quick-practice 沒有角色限制） */
+      /* 快速練習對所有登入者開放（後端 quick-practice 沒有角色限制） */
       { key: "quick-create", labelKey: "Sidebar.itemQuickCreate", icon: "bolt" },
     ],
   },

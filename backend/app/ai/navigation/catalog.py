@@ -57,9 +57,9 @@ _ROUTES: tuple[NavigationRoute, ...] = (
     ),
     NavigationRoute(
         path="/quick-create",
-        title="快速建立",
+        title="快速練習",
         summary="從已發布的模板立即建立練習環境，免人工審核。",
-        keywords=("快速建立", "快速練習", "quick create", "quick practice", "練習環境", "免審核"),
+        keywords=("快速練習", "快速建立", "quick create", "quick practice", "練習環境", "免審核"),
     ),
     NavigationRoute(
         path="/account",

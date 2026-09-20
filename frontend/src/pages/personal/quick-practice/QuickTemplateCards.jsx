@@ -4,7 +4,7 @@ import MIcon from "../../../components/MIcon";
 import LoadingState from "../../../components/LoadingState/LoadingState";
 import styles from "./QuickTemplateCards.module.scss";
 
-/** 快速建立的模板卡片，學生首頁與「快速建立」頁共用；from 決定確認頁的返回位置 */
+/** 快速練習的模板卡片，學生首頁與「快速練習」頁共用；from 決定確認頁的返回位置 */
 export default function QuickTemplateCards({ templates, loading, error, from }) {
   const { t } = useTranslation("personal");
   const navigate = useNavigate();

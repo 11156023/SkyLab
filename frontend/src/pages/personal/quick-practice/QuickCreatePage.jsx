@@ -5,7 +5,7 @@ import { QuickPracticeService } from "../../../services/quickPractice";
 import QuickTemplateCards from "./QuickTemplateCards";
 import styles from "./QuickCreatePage.module.scss";
 
-/** 側欄「教學 › 快速建立」：學生、老師、管理者共用的快速建立入口 */
+/** 側欄「教學 › 快速練習」：學生、老師、管理者共用的快速練習入口 */
 export default function QuickCreatePage() {
   const { t } = useTranslation("personal");
   const [templates, setTemplates] = useState([]);
