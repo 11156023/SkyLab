@@ -116,8 +116,8 @@ _ROUTES: tuple[NavigationRoute, ...] = (
     NavigationRoute(
         path="/course-template-management",
         title="課程環境範本",
-        summary="設計課堂要用的學習環境並開放快速練習。",
-        keywords=("課程環境", "環境範本", "學習環境", "多機環境", "快速練習"),
+        summary="設計課堂要用的教學環境並開放快速練習。",
+        keywords=("課程環境", "環境範本", "教學環境", "學習環境", "多機環境", "快速練習"),
         access="staff",
     ),
     NavigationRoute(

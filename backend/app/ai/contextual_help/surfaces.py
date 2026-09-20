@@ -1051,10 +1051,10 @@ _CLASS_SETUP_ELEMENTS: tuple[ElementSpec, ...] = (
     ),
 )
 
-# ── 學習環境 ────────────────────────────────────────────────────
+# ── 教學環境 ────────────────────────────────────────────────────
 _COURSE_TPL_ELEMENTS: tuple[ElementSpec, ...] = (
     ElementSpec(
-        id="coursetpl.create", role="button", label="建立學習環境",
+        id="coursetpl.create", role="button", label="建立教學環境",
         section="模板清單",
     ),
     ElementSpec(id="coursetpl.status_published", role="readonly", label="已發布", section="模板清單"),
@@ -1573,7 +1573,7 @@ _SURFACES: tuple[SurfaceSpec, ...] = (
     SurfaceSpec(
         id="course-template-management",
         path="/course-template-management",
-        title="學習環境",
+        title="教學環境",
         purpose=(
             "定義一組固定的機器配置，提供給正式課程、快速練習或兩者共用。"
             "每位學生最多三台機器。"

@@ -1281,7 +1281,7 @@
   overflow: hidden;
 }
 
-/* 班級管理流程列：對齊學習環境 stepper 的箭頭分段（chevron）樣式——
+/* 班級管理流程列：對齊教學環境 stepper 的箭頭分段（chevron）樣式——
    外框膠囊、段與段以斜切縫相接（縫隙色 = 外框 background 的 border 色）、
    選中分頁主色填滿；首末段各留平邊，外圓角交給外框 overflow */
 .workflowTabsBar {
@@ -3091,7 +3091,7 @@
   font-style: normal;
 }
 
-/* ── 學習環境列表：篩選與搜尋比照「申請審核」、表格比照「我的申請」 ── */
+/* ── 教學環境列表：篩選與搜尋比照「申請審核」、表格比照「我的申請」 ── */
 .envControls {
   display: flex;
   align-items: center;
@@ -3186,7 +3186,7 @@
 }
 
 
-/* ── 學習環境編輯頁 Stepper：箭頭分段（chevron）——外框膠囊、段與段以
+/* ── 教學環境編輯頁 Stepper：箭頭分段（chevron）——外框膠囊、段與段以
    斜切縫相接（縫隙色 = 外框 background 的 border 色），選中段主色填滿 ── */
 .envStepper {
   display: flex;
@@ -3374,7 +3374,7 @@
 .animSlideInLeft {
   animation: envSlideInLeft 0.22s cubic-bezier(0.25, 0.8, 0.25, 1) both;
 }
-/* ── 學習環境的說明文件 ── */
+/* ── 教學環境的說明文件 ── */
 .fileSection {
   @include flex-column;
   gap: $spacing-8;
