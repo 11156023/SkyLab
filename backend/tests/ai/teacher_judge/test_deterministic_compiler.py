@@ -2,6 +2,11 @@
 
 from __future__ import annotations
 
+import json
+import subprocess
+import sys
+from pathlib import Path
+
 import pytest
 
 from app.ai.teacher_judge.deterministic_compiler import (
@@ -154,6 +159,43 @@ def test_each_v1_collector_compiles(
             },
         )
         assert peer_policy["approved"] is True
+
+
+def test_command_plan_without_cwd_renders_python_none_and_executes(
+    tmp_path: Path,
+) -> None:
+    """cwd 是 optional；缺漏時必須渲染成 Python None，而不是 JSON null。"""
+
+    analysis = _analysis(
+        {
+            "type": "command",
+            "argv": [sys.executable, "--version"],
+            "timeout_seconds": 30,
+        },
+        {"type": "returncode_equals", "expected": 0},
+    )
+
+    script, policy, review, _ = compile_check_plan(analysis, target_node_key="web")
+
+    assert "run_command(argv, None, 30)" in script
+    assert policy["approved"] is True
+    assert review["approved"] is True
+
+    script_path = tmp_path / "compiled_script.py"
+    script_path.write_text(script, encoding="utf-8")
+    completed = subprocess.run(
+        [sys.executable, str(script_path)],
+        capture_output=True,
+        text=True,
+        timeout=60,
+        check=False,
+    )
+
+    assert completed.returncode == 0
+    payload = json.loads(completed.stdout)
+    check = payload["checks"][0]
+    assert check["status"] == "pass"
+    assert "collection exception" not in check["evidence"]
 
 
 def test_compiler_rejects_legacy_or_inconsistent_steps() -> None:

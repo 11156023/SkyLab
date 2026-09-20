@@ -252,6 +252,12 @@ def _json_literal(value: Any) -> str:
     return json.dumps(value, ensure_ascii=False, separators=(",", ":"))
 
 
+def _python_literal(value: Any) -> str:
+    """Render a Python source literal; JSON `null` is not valid Python."""
+
+    return "None" if value is None else repr(value)
+
+
 def _render_step_function(index: int, item_index: int, step_index: int, step: dict[str, Any]) -> str:
     check_id = _json_literal(step["id"])
     title = _json_literal(step["title"])
@@ -270,7 +276,7 @@ def _render_step_function(index: int, item_index: int, step_index: int, step: di
                 "        peer_ip = None",
                 "        if '{{peer.ip}}' in argv:",
                 "            context = json.loads(Path('runtime_context.json').read_text(encoding='utf-8'))",
-                f"            peer = context['peers'][{_json_literal(peer_key)}]",
+                f"            peer = context['peers'][{_python_literal(peer_key)}]",
                 "            resolution_status = peer['resolution_status']",
                 "            ip_address = peer['ip_address']",
                 "            if resolution_status != 'ready' or not ip_address:",
@@ -280,7 +286,7 @@ def _render_step_function(index: int, item_index: int, step_index: int, step: di
                 "        if not command_available(argv[0]):",
                 f"            errors.append({_json_literal(step['id'] + ': command_missing')})",
                 f"            return record_check({check_id}, {title}, 'unknown', 'command unavailable', {{'error_code': 'command_missing'}})",
-                f"        collected = run_command(argv, {_json_literal(collector.get('cwd'))}, {int(collector.get('timeout_seconds', 30))})",
+                f"        collected = run_command(argv, {_python_literal(collector.get('cwd'))}, {int(collector.get('timeout_seconds', 30))})",
             ]
         )
     elif collector_type == "file_text":
@@ -328,7 +334,7 @@ def _render_step_function(index: int, item_index: int, step_index: int, step: di
         lines.extend(
             [
                 "        context = json.loads(Path('runtime_context.json').read_text(encoding='utf-8'))",
-                f"        peer = context['peers'][{_json_literal(peer_key)}]",
+                f"        peer = context['peers'][{_python_literal(peer_key)}]",
                 "        resolution_status = peer['resolution_status']",
                 "        ip_address = peer['ip_address']",
                 "        if resolution_status != 'ready' or not ip_address:",
