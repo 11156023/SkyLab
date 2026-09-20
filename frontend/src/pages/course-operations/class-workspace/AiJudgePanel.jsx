@@ -237,7 +237,8 @@ function hasCompleteParameterizedStep(step) {
 
 /** 把單一 check step 的 parameters 轉成老師可讀的唯讀 chip 資料。 */
 function stepParameterChips(step) {
-  const parameters = step?.parameters ?? {};
+  const collector = step?.collector ?? null;
+  const parameters = collector ?? step?.parameters ?? {};
   const chips = [];
   const argv = Array.isArray(parameters.argv)
     ? parameters.argv.filter((part) => typeof part === "string" && part.trim())
@@ -248,9 +249,19 @@ function stepParameterChips(step) {
   if (typeof parameters.cwd === "string" && parameters.cwd.trim()) {
     chips.push({ key: "cwd", label: "工作目錄", mono: true, parts: [parameters.cwd.trim()] });
   }
+  if (typeof parameters.path === "string" && parameters.path.trim()) {
+    chips.push({ key: "path", label: "路徑", mono: true, parts: [parameters.path.trim()] });
+  }
+  if (typeof parameters.url === "string" && parameters.url.trim()) {
+    chips.push({ key: "url", label: "URL", mono: true, parts: [parameters.url.trim()] });
+  }
+  if (collector?.type === "file_text") {
+    const mode = parameters.read_mode ?? "full";
+    const lineText = Number.isInteger(parameters.lines) ? `，${parameters.lines} 行` : "";
+    chips.push({ key: "read_mode", label: "讀取", mono: false, parts: [`${mode}${lineText}`] });
+  }
   if (Number.isInteger(parameters.timeout_seconds)
-    && parameters.timeout_seconds >= 1
-    && parameters.timeout_seconds <= 300) {
+    && parameters.timeout_seconds >= 1) {
     chips.push({ key: "timeout_seconds", label: "逾時", mono: false, parts: [`${parameters.timeout_seconds} 秒`] });
   }
   return chips;
@@ -260,8 +271,9 @@ function stepParameterChips(step) {
 function proposalCommandPreview(item) {
   const steps = Array.isArray(item?.check_steps) ? item.check_steps : [];
   return steps
-    .map((step) => (Array.isArray(step?.parameters?.argv)
-      ? step.parameters.argv.filter((part) => typeof part === "string" && part.trim()).join(" ")
+    .map((step) => (Array.isArray((step?.collector ?? step?.parameters)?.argv)
+      ? (step.collector ?? step.parameters).argv
+        .filter((part) => typeof part === "string" && part.trim()).join(" ")
       : ""))
     .filter(Boolean)
     .join("；");
@@ -382,6 +394,8 @@ function comparableItem(item) {
     checked: Boolean(item.checked),
     detectable: item.detectable ?? "manual",
     judgement_mode: item.judgement_mode ?? "ai",
+    target_node_key: item.target_node_key ?? null,
+    peer_node_key: item.peer_node_key ?? null,
     detection_method: item.detection_method ?? null,
     fallback: item.fallback ?? null,
     missing_information: item.missing_information ?? [],
@@ -777,9 +791,13 @@ function RubricTableRow({ item, index, onChange, onDelete, disabled, needsReview
                             className={styles.stepPlanRow}
                           >
                             <span className={styles.chip}>
-                              {getTemplateLabel(step.template_key)} /{" "}
-                              {step.command_label ?? step.command_key}
-                              <code>{step.command_key}</code>
+                              {step.collector
+                                ? `受控取證 / ${step.collector.type}`
+                                : <>
+                                  {getTemplateLabel(step.template_key)} /{" "}
+                                  {step.command_label ?? step.command_key}
+                                  <code>{step.command_key}</code>
+                                </>}
                             </span>
                             {stepParameterChips(step).map((chip) => (
                               <span key={chip.key} className={styles.chip}>
@@ -1841,17 +1859,28 @@ export function RubricsTab({ classId, judgeSession, onSessionUpdated, onScriptCr
       setPendingProposalMeta(hasSelectable ? { baseRevision } : null);
       setPendingProposalIsRefine(hasSelectable);
       if (assistantMetadata.script_ready === false) {
-        const message = assistantMetadata.status === "unsupported"
-          ? "部分項目目前無法安全取證，詳細內容已列在 AI 聊天室。"
+        const assistantSummary = typeof assistantMessage?.content === "string"
+          ? assistantMessage.content.trim()
+          : "";
+        const compactSummary = assistantSummary.length > 360
+          ? `${assistantSummary.slice(0, 357)}…`
+          : assistantSummary;
+        const message = compactSummary || (assistantMetadata.status === "unsupported"
+          ? "部分項目目前無法安全取證，請查看 AI 聊天室中的項目說明。"
           : assistantMetadata.status === "analysis_error"
-            ? "AI 重新核對未完成，檢查表尚未變更；處理階段已列在 AI 聊天室。"
-            : "尚有項目需要補充，詳細內容已列在 AI 聊天室。";
+            ? "AI 重新核對未完成，請查看 AI 聊天室中的處理階段與原因。"
+            : "尚有項目需要補充，請查看 AI 聊天室中的具體缺口。");
         setScriptGenerationNotice({ status: "error", message });
         toast.error(message);
         return;
       }
       if (assistantMetadata.script_ready !== true) {
-        const message = "AI 核對結果缺少安全狀態，尚未開始製作檢查腳本；請稍後重試。";
+        const assistantSummary = typeof assistantMessage?.content === "string"
+          ? assistantMessage.content.trim()
+          : "";
+        const message = assistantSummary.length > 360
+          ? `${assistantSummary.slice(0, 357)}…`
+          : assistantSummary || "AI 核對結果缺少安全狀態，尚未開始製作檢查腳本；請稍後重試。";
         setScriptGenerationNotice({ status: "error", message });
         toast.error(message);
         return;
@@ -1889,13 +1918,13 @@ export function RubricsTab({ classId, judgeSession, onSessionUpdated, onScriptCr
         message: "所有檢查項目皆已通過核對，正在準備建立檢查腳本。",
       });
       setScriptGenerationStatus("generating");
-      const artifact = await AiJudgeService.createSessionScript(
+      const artifact = await AiJudgeService.createSessionScriptSet(
         classId,
         judgeSession.id,
         savedRevision,
       );
       if (artifact.status === "approved") {
-        const message = "檢查腳本已通過靜態與 AI 檢查，可開始執行。";
+        const message = `檢查腳本已完成契約驗證並建立 ${artifact.children?.length ?? 0} 台機器的腳本，可開始執行。`;
         setScriptGenerationNotice({ status: "success", message });
         toast.success(message);
         onScriptCreated?.(artifact);
@@ -2537,6 +2566,7 @@ const CHECK_STATUS_META = {
   fail: { icon: "cancel", label: "未通過", className: styles.checkIconFail },
   warning: { icon: "warning", label: "需注意", className: styles.checkIconWarn },
   unknown: { icon: "help", label: "待導師核查", className: styles.checkIconWarn },
+  collected: { icon: "visibility", label: "待導師核查", className: styles.checkIconWarn },
   skipped: { icon: "remove_circle_outline", label: "略過", className: styles.checkIconSkip },
 };
 
@@ -2680,7 +2710,7 @@ function CheckResultsTable({ checks }) {
 
 /* ── Tab 2：導師核查 ────────────────────────────────────── */
 
-const TEACHER_REVIEW_STATUSES = new Set(["warning", "unknown"]);
+const TEACHER_REVIEW_STATUSES = new Set(["warning", "unknown", "collected"]);
 
 function targetChecks(target) {
   const checks = target?.parsed_result?.checks;

@@ -31,6 +31,11 @@ from app.ai.teacher_judge._types import (
 )
 from app.ai.teacher_judge.automation_support import ensure_script_generation_supported
 from app.ai.teacher_judge.config import settings
+from app.ai.teacher_judge.deterministic_compiler import (
+    CheckPlanContractError,
+    canonicalize_check_plan,
+    compile_check_plan,
+)
 from app.ai.teacher_judge.file_service import source_file_snapshot
 from app.ai.teacher_judge.machine_context import (
     load_class_machine_nodes,
@@ -222,7 +227,7 @@ SCRIPT_GENERATION_SYSTEM_PROMPT = f"""
     {{
       "id": "service.semantic_collection_id",
       "title": "收集名稱",
-      "status": "pass | fail | warning | unknown | skipped",
+      "status": "pass | fail | warning | collected | unknown | skipped",
       "evidence": "可讀證據",
       "raw": "必要時放原始片段"
     }}
@@ -2083,14 +2088,25 @@ async def create_artifact_set(
                 "items": machine_contract_issues,
             },
         )
+    try:
+        canonicalize_check_plan(rubric_analysis)
+    except CheckPlanContractError as exc:
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "code": "teacher_judge_check_plan_invalid",
+                "message": "完整 Check Plan 未通過契約驗證。",
+                "issues": exc.issues,
+            },
+        ) from exc
 
     build_results: list[
         tuple[
             str,
             dict[str, Any],
             str,
-            GateResult,
-            AIReviewResult,
+            dict[str, Any],
+            dict[str, Any],
             TeacherJudgeScriptStatus,
             list[ScriptUsageRecord],
         ]
@@ -2105,18 +2121,50 @@ async def create_artifact_set(
             rubric_base["template_key"] = template_key
         rubric_snapshot = _with_template_command_catalog(rubric_base, commands)
         try:
-            script_content, policy, review, status, usage = (
-                await _build_reviewed_script_for_artifact(
-                    rubric_snapshot=rubric_snapshot,
-                    template_key=template_key,
-                )
+            script_content, policy, review, _compiled_plan = compile_check_plan(
+                partition,
+                target_node_key=node_key,
             )
+            peer_policy = check_peer_runtime_policy(
+                script_content,
+                rubric_snapshot,
+            )
+            if peer_policy.get("approved") is not True:
+                raise CheckPlanContractError(
+                    [
+                        {
+                            "message": "peer runtime contract validation failed",
+                            "issues": peer_policy.get("issues", []),
+                        }
+                    ]
+                )
+            policy = {
+                **policy,
+                "safety_approved": True,
+                "safety_issues": [],
+                "quality_approved": True,
+                "quality_issues": [],
+                "peer_runtime_policy": peer_policy,
+                "approved": True,
+            }
+            status = TeacherJudgeScriptStatus.approved
+            usage: list[ScriptUsageRecord] = []
+        except CheckPlanContractError as exc:
+            raise HTTPException(
+                status_code=422,
+                detail={
+                    "code": "teacher_judge_check_plan_invalid",
+                    "message": f"節點 {node_key} 的 Check Plan 未通過契約驗證。",
+                    "target_node_key": node_key,
+                    "issues": exc.issues,
+                },
+            ) from exc
         except Exception as exc:
             raise HTTPException(
                 status_code=502,
                 detail={
-                    "code": "teacher_judge_node_generation_failed",
-                    "message": f"節點 {node_key} 的腳本生成或審查失敗。",
+                    "code": "teacher_judge_node_compile_failed",
+                    "message": f"節點 {node_key} 的 deterministic 腳本編譯失敗。",
                     "target_node_key": node_key,
                     "item_ids": [item.id for item in partition.items],
                 },
@@ -2205,8 +2253,8 @@ async def create_artifact_set(
             ),
             version=version_by_node.get(node_key, 0) + 1,
             status=status,
-            policy_check_result_json=cast("dict[str, Any]", policy),
-            ai_review_result_json=cast("dict[str, Any]", review),
+            policy_check_result_json=policy,
+            ai_review_result_json=review,
             created_by=created_by,
             approved_at=_now() if status == TeacherJudgeScriptStatus.approved else None,
             updated_at=_now(),

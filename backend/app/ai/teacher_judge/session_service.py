@@ -276,6 +276,8 @@ def conversation_focus_from_item_results(
         }
         if row.get("item_id"):
             requirement["target_item_id"] = row["item_id"]
+        if row.get("detail"):
+            requirement["detail"] = _workflow_text(row["detail"], 240)
         unresolved.append(requirement)
         if len(unresolved) >= WORKFLOW_FOCUS_LIMIT:
             break
@@ -299,6 +301,51 @@ def conversation_focus_from_item_results(
         "analysis_revision": revision,
         "requirements": unresolved[:WORKFLOW_FOCUS_LIMIT],
     }
+
+
+def _workflow_blocker_line(row: dict[str, Any]) -> str:
+    """Render one bounded, actionable readiness explanation for a teacher."""
+    title = _workflow_text(row.get("title")) or "未命名項目"
+    status = _workflow_status(row.get("status"))
+    if status == "needs_information":
+        missing = "、".join(row.get("missing_information") or [])
+        return f"「{title}」已確認檢查目標，但還缺少：{missing or '會影響檢查範圍或判定的資訊'}。"
+    if status == "unsupported":
+        detail = _workflow_issue_text(row.get("detail"))
+        if detail:
+            return f"「{title}」目前無法安全自動取得證據：{detail.rstrip('。')}。"
+        return (
+            f"「{title}」目前沒有可安全執行的取證方式；"
+            "請改由導師查看，或補充可讀取的檔案、服務或命令結果。"
+        )
+    if status == "analysis_error":
+        detail = _workflow_issue_text(row.get("detail"))
+        if detail:
+            return f"「{title}」這次核對未完成：{detail.rstrip('。')}。"
+        return f"「{title}」這次核對未完成，請稍後重試。"
+    return f"「{title}」目前不需要額外處理。"
+
+
+_WORKFLOW_RESOLVED_REPLY_MARKERS = (
+    "可開始製作",
+    "可以開始製作",
+    "所有檢查項目",
+    "全部檢查項目",
+    "狀態良好",
+    "已通過",
+    "ready",
+)
+
+
+def _workflow_ai_issue_summary(value: Any) -> str:
+    """Keep useful AI issue context without letting it override server gates."""
+    summary = _workflow_issue_text(value)
+    if not summary:
+        return ""
+    lowered = summary.casefold()
+    if any(marker.casefold() in lowered for marker in _WORKFLOW_RESOLVED_REPLY_MARKERS):
+        return ""
+    return summary
 
 
 def _workflow_metadata(
@@ -348,6 +395,7 @@ def reanalysis_workflow_message(
     source_file_id: uuid.UUID | str | None,
     analysis_revision: int | None,
     proposal: list[dict[str, Any]] | None = None,
+    assistant_reply: str | None = None,
 ) -> WorkflowMessage:
     """Build the single safe projection used by refine Chat and page notices."""
     blocker_rows = normalize_workflow_item_results(
@@ -410,18 +458,18 @@ def reanalysis_workflow_message(
     )
     if blocker_rows:
         lines = ["重新核對後，以下項目還需要處理："]
+        summary = _workflow_ai_issue_summary(assistant_reply)
+        if summary and "重新核對後" not in summary:
+            lines.append(summary)
         for row in blocker_rows[:WORKFLOW_FOCUS_LIMIT]:
-            title = row["title"]
-            if row["status"] == "needs_information":
-                gap = "、".join(row["missing_information"]) or "必要的取證資訊"
-                lines.append(f"「{title}」還缺少：{gap}。")
-            elif row["status"] == "unsupported":
-                lines.append(f"「{title}」目前無法安全取證，需改由導師核查或調整檢查方式。")
-            else:
-                lines.append(f"「{title}」這次核對沒有完成，請稍後重試。")
-        lines.append("目前檢查表已保留，腳本尚未開始製作；詳細項目已列在 AI 聊天室。")
+            lines.append(_workflow_blocker_line(row))
+        lines.append(
+            "檢查表已保留；請依上列缺口補充資訊或調整檢查方式後，再重新製作腳本。"
+        )
         status = (
-            "needs_information"
+            "analysis_error"
+            if any(row["status"] == "analysis_error" for row in blocker_rows)
+            else "needs_information"
             if any(row["status"] == "needs_information" for row in blocker_rows)
             else "unsupported"
         )
@@ -435,7 +483,9 @@ def reanalysis_workflow_message(
                 item_results=workflow_rows,
                 conversation_focus=focus,
                 reason_code=(
-                    "automatic_detection_information_missing"
+                    "check_plan_contract_invalid"
+                    if status == "analysis_error"
+                    else "automatic_detection_information_missing"
                     if status == "needs_information"
                     else "automatic_detection_unsupported"
                 ),
@@ -482,15 +532,10 @@ def script_blocker_workflow_message(
     )
     lines = ["目前檢查表尚未具備製作檢查腳本的條件："]
     for row in rows[:WORKFLOW_FOCUS_LIMIT]:
-        title = row["title"]
-        if row["status"] == "needs_information":
-            gap = "、".join(row["missing_information"]) or "必要的取證資訊"
-            lines.append(f"「{title}」還缺少：{gap}。")
-        elif row["status"] == "unsupported":
-            lines.append(f"「{title}」目前無法安全取證，需由導師核查或調整檢查方式。")
-        else:
-            lines.append(f"「{title}」的處理沒有完成，請稍後重試。")
-    lines.append("腳本尚未開始製作；可直接在 AI 聊天室補充缺口或調整檢查方式。")
+        lines.append(_workflow_blocker_line(row))
+    lines.append(
+        "檢查表已保留；請依上列缺口補充資訊或調整檢查方式後，再重新製作腳本。"
+    )
     status = (
         "needs_information"
         if any(row["status"] == "needs_information" for row in rows)

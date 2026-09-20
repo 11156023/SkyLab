@@ -23,6 +23,7 @@ from app.ai.teacher_judge import (
 )
 from app.ai.teacher_judge.schemas import (
     TeacherJudgeRubricAnalysis,
+    TeacherJudgeRubricCheckStep,
     TeacherJudgeRubricItem,
 )
 from app.ai.teacher_judge.script_policy import (
@@ -158,6 +159,37 @@ def test_teacher_judgement_item_is_script_ready_without_objective_answer() -> No
         )
         == []
     )
+
+
+def test_typed_auto_teacher_item_is_script_ready_for_compilation() -> None:
+    analysis = TeacherJudgeRubricAnalysis(
+        items=[
+            TeacherJudgeRubricItem(
+                id="typed-teacher",
+                title="檢查 main.py 內容",
+                detectable="auto",
+                judgement_mode="teacher",
+                detection_method="讀取 main.py 內容供導師查看",
+                missing_information=["預期結果"],
+                target_node_key="node-1",
+                check_steps=[
+                    TeacherJudgeRubricCheckStep(
+                        id="typed-teacher.read",
+                        title="讀取 main.py",
+                        collector={
+                            "type": "file_text",
+                            "path": "/srv/student/main.py",
+                            "encoding": "utf-8",
+                            "read_mode": "head",
+                            "lines": 200,
+                        },
+                    )
+                ],
+            )
+        ]
+    )
+
+    assert automation_support.get_script_generation_blockers(analysis, []) == []
 
 
 def test_ai_judgement_item_is_script_ready_without_success_criteria() -> None:

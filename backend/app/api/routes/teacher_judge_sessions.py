@@ -20,7 +20,10 @@ from app.ai.teacher_judge.attachment_service import (
     delete_attachment,
     get_pending_attachments,
 )
-from app.ai.teacher_judge.automation_support import get_script_generation_blockers
+from app.ai.teacher_judge.automation_support import (
+    ensure_script_generation_supported,
+    get_script_generation_blockers,
+)
 from app.ai.teacher_judge.config import settings as teacher_judge_settings
 from app.ai.teacher_judge.file_service import create_blank_file
 from app.ai.teacher_judge.machine_context import (
@@ -722,17 +725,35 @@ async def create_message(
                 base_analysis,
                 proposal,
             )
+            readiness_nodes = load_class_machine_nodes(session, teaching_class_id)
+            blockers = get_script_generation_blockers(
+                candidate_analysis,
+                template_commands,
+                require_target_node=bool(readiness_nodes),
+                require_typed_plan=True,
+            )
+            if blockers:
+                logger.warning(
+                    "Teacher Judge script readiness blocked: session=%s source_file=%s "
+                    "revision=%s blockers=%s",
+                    item.id,
+                    file.id,
+                    base_revision,
+                    [
+                        {
+                            "item_id": blocker.get("item_id"),
+                            "status": blocker.get("status"),
+                            "reason_code": blocker.get("reason_code"),
+                        }
+                        for blocker in blockers
+                    ],
+                )
             workflow = reanalysis_workflow_message(
-                get_script_generation_blockers(
-                    candidate_analysis,
-                    template_commands,
-                    require_target_node=bool(
-                        load_class_machine_nodes(session, teaching_class_id)
-                    ),
-                ),
+                blockers,
                 source_file_id=file.id,
                 analysis_revision=base_revision,
                 proposal=proposal,
+                assistant_reply=reply,
             )
             reply = workflow["content"]
             item_results = workflow["metadata"].get("item_results")
@@ -1034,12 +1055,12 @@ def _session_rubric_for_script_set(
             },
         )
     rubric_analysis = TeacherJudgeRubricAnalysis.model_validate(file.analysis_json)
+    commands = get_enabled_template_commands(
+        session,
+        file.template_key,
+        include_cross_template=True,
+    )
     if not rubric_analysis.items:
-        commands = get_enabled_template_commands(
-            session,
-            file.template_key,
-            include_cross_template=True,
-        )
         raise HTTPException(
             status_code=422,
             detail={
@@ -1054,6 +1075,12 @@ def _session_rubric_for_script_set(
                 ),
             },
         )
+    ensure_script_generation_supported(
+        rubric_analysis,
+        commands,
+        require_target_node=bool(load_class_machine_nodes(session, teaching_class_id)),
+        require_typed_plan=True,
+    )
     return item, file, rubric_analysis
 
 
@@ -1387,7 +1414,7 @@ def update_target_review(
         str(check.get("id") or "")
         for check in raw_checks
         if isinstance(check, dict)
-        and str(check.get("status") or "") in {"warning", "unknown"}
+        and str(check.get("status") or "") in {"warning", "unknown", "collected"}
     }
     invalid_ids = sorted(set(payload.decisions) - reviewable_ids)
     if invalid_ids:

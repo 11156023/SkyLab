@@ -257,7 +257,7 @@ describe("RubricsTab 儲存並製作流程", () => {
       session_id: "session-1",
       role: "assistant",
       message_type: "chat",
-      content: "重新核對後，「確認服務 Port」還缺少：服務 Port。",
+      content: "重新核對後，「確認服務 Port」已確認檢查目標，但還缺少：服務 Port。",
       metadata_json: {
         status: "needs_information",
         stage: "reanalysis",
@@ -321,7 +321,7 @@ describe("RubricsTab 儲存並製作流程", () => {
       { isRefine: true },
     );
     expect(container.textContent).toContain("確認服務 Port");
-    expect(container.textContent).toContain("尚有項目需要補充");
+    expect(container.textContent).toContain("重新核對後，「確認服務 Port」已確認檢查目標，但還缺少：服務 Port。");
     expect(createScript).not.toHaveBeenCalled();
     await act(async () => {
       root.unmount();
@@ -364,7 +364,7 @@ describe("RubricsTab 儲存並製作流程", () => {
       session_id: "session-1",
       role: "assistant",
       message_type: "chat",
-      content: "重新核對後，「確認服務 Port」還缺少：服務 Port。",
+      content: "重新核對後，「確認服務 Port」已確認檢查目標，但還缺少：服務 Port。",
       metadata_json: {
         status: "needs_information",
         stage: "reanalysis",
@@ -432,8 +432,7 @@ describe("RubricsTab 儲存並製作流程", () => {
 
     expect(container.textContent).not.toContain("AI 核對提案");
     expect(container.textContent).not.toContain("同意套用");
-    expect(container.textContent).toContain("重新核對後，「確認服務 Port」還缺少：服務 Port。");
-    expect(container.textContent).toContain("尚有項目需要補充");
+    expect(container.textContent).toContain("重新核對後，「確認服務 Port」已確認檢查目標，但還缺少：服務 Port。");
     expect(createScript).not.toHaveBeenCalled();
     await act(async () => {
       root.unmount();
@@ -716,6 +715,26 @@ describe("getScriptCreationBlocker", () => {
     expect(getScriptCreationBlocker({ analysis: { items: [teacherReviewItem] } })).toBeNull();
   });
 
+  test("typed auto + teacher 項目可直接製作腳本", () => {
+    const typedTeacherItem = {
+      ...completeItem,
+      judgement_mode: "teacher",
+      check_steps: [{
+        id: "read-main",
+        title: "讀取 main.py",
+        collector: {
+          type: "file_text",
+          path: "/home/student/main.py",
+          encoding: "utf-8",
+          read_mode: "head",
+          lines: 200,
+        },
+      }],
+    };
+
+    expect(getScriptCreationBlocker({ analysis: { items: [typedTeacherItem] } })).toBeNull();
+  });
+
   test("缺少資訊或需要人工審核時阻擋整份腳本", () => {
     const blocker = getScriptCreationBlocker({
       analysis: {
@@ -889,6 +908,32 @@ describe("detectability review state", () => {
 });
 
 describe("buildProposalDiff", () => {
+  test("機器執行與 peer 身分變更會形成可套用差異", () => {
+    const diff = buildProposalDiff(
+      [{
+        id: "network-check",
+        title: "檢查網路",
+        target_node_key: "web",
+        peer_node_key: "db",
+        detectable: "auto",
+      }],
+      [{
+        id: "network-check",
+        title: "檢查網路",
+        target_node_key: "db",
+        peer_node_key: "web",
+        detectable: "auto",
+      }],
+    );
+
+    expect(diff).toMatchObject([{
+      id: "network-check",
+      operation: "update",
+      target_node_key: "db",
+      peer_node_key: "web",
+    }]);
+  });
+
   test("將 AI 修改轉成可確認差異，且未回傳項目不會被默認刪除", () => {
     const current = [
       { id: "keep", title: "保留", detection_method: "原檢測方式", detectable: "manual" },
@@ -1053,7 +1098,7 @@ describe("script creation workflow", () => {
 });
 
 describe("teacher review summary", () => {
-  test("只把 warning 與 unknown 視為待導師核查", () => {
+  test("把 warning、unknown 與 collected 視為待導師核查", () => {
     const target = {
       status: "completed",
       validation: { valid: true },
@@ -1062,20 +1107,21 @@ describe("teacher review summary", () => {
           { id: "auto-pass", status: "pass" },
           { id: "manual", status: "unknown" },
           { id: "risk", status: "warning" },
+          { id: "evidence", status: "collected" },
         ],
       },
     };
 
     expect(getTargetReviewSummary(target)).toMatchObject({
       kind: "pending",
-      pending: 2,
-      reviewable: 2,
+      pending: 3,
+      reviewable: 3,
     });
-    target.teacher_review = { decisions: { manual: "pass", risk: "fail" } };
+    target.teacher_review = { decisions: { manual: "pass", risk: "fail", evidence: "pass" } };
     expect(getTargetReviewSummary(target)).toMatchObject({
       kind: "reviewed",
       pending: 0,
-      reviewable: 2,
+      reviewable: 3,
     });
   });
 

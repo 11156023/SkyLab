@@ -274,14 +274,14 @@ describe("AiJudgeService persistent sessions", () => {
     expect(RUBRIC_REASSESS_PROMPT).toContain("其他已啟用的受控能力");
   });
 
-  test("潤飾提示會保留老師目標並要求補足下一層 AI 的執行資訊", () => {
-    expect(RUBRIC_POLISH_PROMPT).toContain("下一層檢查 AI");
+  test("Finalizer 提示會保留老師目標並要求完整 typed 契約", () => {
+    expect(RUBRIC_POLISH_PROMPT).toContain("Finalizer");
     expect(RUBRIC_POLISH_PROMPT).toContain("auto、partial 或 manual");
-    expect(RUBRIC_POLISH_PROMPT).toContain("檢查目標與描述");
     expect(RUBRIC_POLISH_PROMPT).not.toContain("success_criteria");
     expect(RUBRIC_POLISH_PROMPT).toContain("fallback");
     expect(RUBRIC_POLISH_PROMPT).toContain("check_steps");
-    expect(RUBRIC_POLISH_PROMPT).toContain("完整評分項目列表");
+    expect(RUBRIC_POLISH_PROMPT).toContain("legacy flat/template");
+    expect(RUBRIC_POLISH_PROMPT).toContain("完整 typed 轉換");
     expect(RUBRIC_POLISH_PROMPT).toContain("不要猜測或改變檢查目標");
     expect(RUBRIC_POLISH_PROMPT).toContain("視為主要情境");
   });
@@ -301,6 +301,16 @@ describe("AiJudgeService persistent sessions", () => {
 
     const [, init] = fetchMock.mock.calls[0];
     expect(JSON.parse(init.body)).toEqual({ analysis_revision: 7 });
+  });
+
+  test("Save/Create 使用 script set endpoint 並只傳目前檢查表 revision", async () => {
+    await AiJudgeService.createSessionScriptSet("class-1", "session-1", 9);
+
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toContain(
+      "/api/v1/teaching-classes/class-1/judge/sessions/session-1/script-sets",
+    );
+    expect(JSON.parse(init.body)).toEqual({ analysis_revision: 9 });
   });
 
   test("腳本產生 request 可超過一般 15 秒 timeout", async () => {

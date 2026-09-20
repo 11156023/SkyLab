@@ -2,7 +2,7 @@
 
 > 版本：2026-09-20
 >
-> 狀態：架構定案、尚待實作；目前分支已具備 Artifact Set、依 node 分組與 Run Batch，但仍使用 flat `check_steps`，且每個 node 都會分別呼叫 AI 生成／審查／修補腳本。typed Check Plan、deterministic compiler 與 result v2 是本定案的目標，不是目前既有能力。
+> 狀態：第一階段已落地；目前 Save/Create 會以一次全表 Finalizer 產出 typed Check Plan，後端依 node 分組並用 deterministic compiler 產生腳本，不再對每個 node 呼叫 AI 生成／審查／修補。執行結果目前沿用受限的 `teacher_judge_result.v1` 相容格式；result v2、遠端 bounded read 與舊路徑退役仍是後續收斂項目。
 >
 > 範圍：保留目前老師詢問與聊天提案互動；收斂「儲存並製作腳本」之後的全表 Finalizer、Check Plan 驗證、按機器分割、腳本產出、執行、結果投影與導師核查。
 
@@ -22,7 +22,7 @@
 - `peer_node_key` 只表示 executor 要觀察的同一位學生之 peer，不參與 Artifact 分組，也不建立 peer SSH。
 - 一個 node 對應一個 child Artifact；同組共用 `artifact_set_id`，同批執行共用 `run_batch_id`。
 - 第一階段仍產生自足 `script.py`，沿用現有 SSH/SFTP/python3 Executor；不先引入共用 Runner 部署與版本管理。
-- `judgement_mode=system` 使用固定 Assertion 產生 `pass/fail`；`judgement_mode=teacher` 不帶 Assertion，成功取證後回 `collected`。
+- `detectable=auto` + `judgement_mode=system` 使用固定 Assertion 產生 `pass/fail`；`detectable=auto` + `judgement_mode=teacher` 同樣進入腳本，省略 Assertion，成功取證後回 `collected`，再由導師判讀。
 - 新的 Save/Create 流程只接受 Finalizer 完成且通過驗證的完整 typed plan；舊 Artifact/result 保持可讀，不讓新流程靜默退回 AI Python generation。
 
 ---
@@ -35,23 +35,23 @@
 |---|---|---|
 | Chat proposal | `prompt.py` 與 `service.py` 已讓老師以原本方式逐項提案，保存 item-level target、peer、`judgement_mode=ai/teacher` 與 flat `check_steps`（`argv/cwd/timeout_seconds`） | **互動架構保留**；平常 Chat 不負責產生最終 Python |
 | Save/Create 全表核對 | `handleSaveAndCreate()` 已先送出 `RUBRIC_POLISH_PROMPT`，取得全表重新核對結果、建立 candidate、保存最新 revision | 沿用這個既有 AI request，擴充並正式定義成唯一 Finalizer；由 server 將 proposal operations 套回 base rubric，形成完整 canonical plan |
-| Proposal validation | 現有流程已有欄位 normalization、readiness 與安全檢查，但契約仍是 flat step | 保留早期回饋；新增 typed schema 後，Finalizer 的完整 candidate 與各 node partition 都要再做 deterministic validation |
-| Script creation call | Finalizer 保存後仍呼叫 `AiJudgeService.createSessionScript()` → `POST /sessions/{id}/scripts` | **目前主要斷點**；應改接 `/script-sets`，不能建立單一 mixed-node Artifact |
+| Proposal validation | 平常 Chat 仍保留 flat proposal 相容；Save/Create Finalizer 另要求 typed Collector／Assertion | server 會在完整 candidate 與各 node partition 再做 deterministic validation，flat/mixed plan fail closed |
+| Script creation call | Finalizer 保存後呼叫 `AiJudgeService.createSessionScriptSet()` → `POST /sessions/{id}/script-sets` | **已切換**；多機主入口建立 Artifact Set，不再走單一 mixed-node Artifact |
 | Script Set API | 已有 `POST /sessions/{id}/script-sets` 與 `create_artifact_set()` | 應成為新的唯一 Save/Create 產出入口 |
 | Partition | `partition_analysis_by_target_node()` 已依 `target_node_key` 分組 | 保留，不在 AI 生成後切 Python |
-| Script generation | `create_artifact_set()` 目前在每個 node partition 內呼叫 `_build_reviewed_script_for_artifact()`，各自進行 AI generation、review，必要時 repair | **本次要替換的核心**；分組保留，迴圈內改成本地 deterministic compile |
-| Compiler | 目前分支沒有 `compile_check_plan()` 或等價 deterministic compiler | 依本文件的 typed Collector／Assertion 契約新增；新流程不得回退 AI Python generation |
-| Result | 目前仍以既有 result／evidence 契約處理執行結果 | `teacher_judge_result.v2` 與 `pass/fail/unknown/collected/skipped` 是配合 compiler 的目標契約 |
+| Script generation | `create_artifact_set()` 依 node partition 呼叫 `compile_check_plan()`；每個 child 只做本地 compile 與 static gates | **已替換**；新 `/script-sets` 路徑不回退 AI Python generation |
+| Compiler | `deterministic_compiler.py` 驗證 typed plan、產生固定腳本、coverage 與 compiler metadata | 新寫入只接受 typed Collector／Assertion；舊 flat 只保留讀取相容 |
+| Result | compiler 產生受限的 `teacher_judge_result.v1`，並支援 `pass/fail/unknown/collected` | result v2 的 evidence schema、bounded read 與完整 UI 顯示仍待後續收斂 |
 | Execution | Artifact Set 可建立 child runs，共用 `run_batch_id`，依 node 執行所有學生目標 | 保留現有 server-owned target、VM、SSH 與上限檢查 |
 | Projection | coverage 將 `checks[].id` 投影成 `student -> node -> rubric item -> checks` | 保留；peer 只作 item metadata |
-| Frontend review | 已有多機器結果與導師 review 的既有 UI／資料流 | 延續既有 hierarchy；配合 result v2 補齊 `unknown/collected` 與長 evidence 顯示 |
+| Frontend review | 已有多機器結果與導師 review 的既有 UI／資料流，並已顯示 `unknown/collected` | 延續既有 hierarchy；result v2 再補齊完整 evidence schema 與長內容顯示 |
 
 因此，這次不是重做整套多機器流程，而是保留既有外框、替換其中的腳本產生核心：
 
-1. 把既有全表重新核對正式收斂為一次 Finalizer，明確產出完整 canonical Check Plan。
-2. 定義 typed Check Plan，實作後端 deterministic compiler 與 result v2。
-3. 把 Save/Create 主入口改接 Artifact Set，並以 compiler 取代每個 node 的 AI generation/review/repair。
-4. 關閉新流程回退 AI 產 Python 的可能性，補齊安全、輸出上限與 evidence UI 驗收。
+1. 把既有全表重新核對正式收斂為一次 Finalizer，明確產出完整 canonical Check Plan。（已完成第一階段）
+2. 定義 typed Check Plan，實作後端 deterministic compiler 與既有 result v1 相容輸出。（已完成第一階段）
+3. 把 Save/Create 主入口改接 Artifact Set，並以 compiler 取代每個 node 的 AI generation/review/repair。（已完成第一階段）
+4. 持續收斂 bounded output/evidence、result v2 與舊生成路徑退役，不改變本次已建立的安全邊界。
 
 ---
 
@@ -75,7 +75,7 @@
   -> 每位學生的 executor SSH/SFTP/python3
   -> Collector 取得 observation
   -> Assertion 固定判定，或 teacher mode 回 collected
-  -> result v2 validation
+  -> result v1 compatibility validation（v2 待後續）
   -> coverage projection
   -> student -> executor node -> rubric item -> checks
   -> 老師查看證據或核查 collected/unknown 項目
@@ -106,20 +106,21 @@ Finalizer 是 Save/Create 內的一次全表 AI request，不是每個 node 一�
 - 檢查環境、必要附件摘要與最新仍未解決的 bounded conversation focus。
 - Collector／Assertion JSON schema 與安全提示。
 
-AI 可以繼續回傳既有 proposal operations，不必為了形式完整而重複輸出所有未變更 item。後端負責把 operations 套用到 base rubric，得到完整 candidate analysis，再以完整 candidate 作為唯一 Check Plan source of truth。
+AI 可以繼續回傳既有 proposal operations，不必為了形式完整而重複輸出所有**已是有效 typed 且未變更**的 item。若既有可執行 item 仍是 legacy flat/template `check_steps`，那是本次 Finalizer 必須修正的契約變更；Finalizer 必須以 `edit_checklist_item` 送出該 item 的完整 typed steps。後端負責把 operations 套用到 base rubric，得到完整 candidate analysis，再以完整 candidate 作為唯一 Check Plan source of truth。
 
 Finalizer 的責任是：
 
 - 一次檢查所有 item 的 target、peer、取證方式與判定方式是否一致。
 - 把 Chat 階段留下的方向整理成完整 typed Collector／Assertion。
+- Save/Create tool 的 `check_steps` 是 typed-only；`edit_checklist_item` 送出該欄位時代表整個陣列替換，不能只填新增或修改的單一步驟。
 - 對缺少資訊、unsupported 或內部 validation error 保留逐 item 結果；不得猜值湊成 ready。
 - 不產生 Python、不分 node 呼叫模型、不讀取任何學生 runtime evidence。
 
 Finalizer 回傳後，後端必須重新驗證；模型文字或 `proposal_status=ready` 不能直接授權腳本。
 
-這個分工不要求平常發起提案的 AI 同時完成所有腳本細節。Chat request 只需把當下需求收斂到 item；Finalizer 才在 Save/Create 時看完整 rubric 與固定 schema，一次補齊跨 item／跨 node 一致性。若某一 item 契約對不上，回報該 item 的 validation issue，最多做一次 bounded contract repair；其他已合法 item 不必重新生成 Python。
+這個分工不要求平常發起提案的 AI 同時完成所有腳本細節。Chat request 只需把當下需求收斂到 item；Finalizer 才在 Save/Create 時看完整 rubric 與固定 schema，一次補齊跨 item／跨 node 一致性。若某一 item 契約對不上，回報該 item 的 validation issue 並 fail closed；其他已合法 item 也不會分別重新生成 Python。
 
-目前資料仍是 flat `check_steps`；以下 typed 結構是新 Save/Create 的目標寫入契約。既有 rubric／Artifact 只保留讀取與執行相容，不應被誤寫成目前已完成。
+平常 Chat 與既有資料仍可讀取 flat `check_steps`；以下 typed 結構是新 Save/Create 的實際寫入契約。既有 rubric／Artifact 只保留讀取與執行相容；新流程不會靜默猜測 legacy step 的 Assertion，而是要求 Finalizer 明確轉換，未轉換就 fail closed。
 
 ### 4.2 唯一結構仍是 `items[]`
 
@@ -221,6 +222,8 @@ System 判定：
 
 `collect_only` 不作為 Assertion type。它沒有真假條件；同一語意已由 `judgement_mode=teacher + assertion 缺省` 完整表達。Collector 成功時 runtime 回 `collected`。
 
+`detectable=auto` 與 `judgement_mode=teacher` 是可執行組合，不是人工阻擋；前者代表平台能安全取得證據，後者只表示結果交由導師判讀。
+
 舊 `judgement_mode=ai` 只作 read compatibility；新 typed plan 正規化成 `system`。
 
 ### 4.4 不建立情勢模式矩陣
@@ -245,7 +248,7 @@ Judgement：固定 Assertion 或交給 teacher
 
 ---
 
-## 5. Collector 與 Assertion v1（待實作）
+## 5. Collector 與 Assertion v1（Save/Create 已實作）
 
 ### 5.1 Collector
 
@@ -358,7 +361,7 @@ Compiler 必須具備：
 - 全部 item 都成為 valid typed plan：依 node partition 後 compile。
 - 出現 mixed typed/legacy：回精準 validation error。
 - 全部是 legacy flat step：要求重新核查／轉成 typed plan，不自動呼叫舊 AI generation。
-- Finalizer 契約錯誤可以有一次 bounded repair，只傳 validation issues 與失敗 item；不得按 node 各自重試，也不得產生 Python repair。
+- Finalizer 契約錯誤目前直接回傳 validation issues 並 fail closed；不得按 node 各自重試，也不得產生 Python repair。若未來需要契約 repair，必須另案限定為一次整體 Finalizer contract repair。
 
 舊的已保存 Artifact 可繼續執行其 immutable `script_content`；這是 read/runtime compatibility，不是新寫入雙軌。
 
@@ -374,7 +377,6 @@ node 數 N ×（AI Python generation + AI review + 可能的 AI repair）
 
 ```text
 1 次全表 Finalizer AI
-+ 最多 1 次整體／失敗 item 的契約 repair
 + N 次後端本地 deterministic compile
 + 0 次 per-node AI Python request
 ```
@@ -472,19 +474,19 @@ Executor 讀取 `result.json`、stderr 與 evidence 時必須使用 bounded read
 
 ---
 
-## 10. 目前尚未完成的收斂項目
+## 10. 後續收斂項目（不阻斷第一階段）
 
-### P0：建立 deterministic 核心並接通主流程
+### P0：第一階段已完成
 
-1. 新增 typed Collector／Assertion schema、完整 plan validator、deterministic compiler 與 result v2；先用 focused tests 固定契約。
-2. 保留 `handleSaveAndCreate()` 現有的全表重新核對 request，明確命名／定位為 Finalizer；輸入完整 rubric 與 topology，輸出 proposal operations 供 server 建立完整 candidate。
-3. Finalizer 完成後改呼叫 `createSessionScriptSet()`／`POST /script-sets`，response 改用 set + children。
-4. `create_artifact_set()` 保留既有 partition／transaction 外框，但把每個 partition 的 `_build_reviewed_script_for_artifact()` 換成 deterministic compile。
-5. typed candidate 在保存後、建立 Artifact 前做完整的 full-plan／per-node validation，提前發現重複 step ID 或跨 item 契約錯誤。
-6. 新 script-set 路徑遇到 flat legacy／mixed plan fail closed，不呼叫舊 AI Python generation。
-7. UI 成功文案從「通過靜態與 AI 檢查」改成「已通過 Check Plan 與靜態安全檢查」；不得把 Finalizer 說成 AI script review。
-8. generic command 採 allow-by-shape 的後端安全驗證，並補 mutation/eval bypass 測試。
-9. 遠端 result/stderr 改為 bounded read，避免先讀完整巨大檔案。
+1. typed Collector／Assertion schema、完整 plan validator、deterministic compiler 與 focused tests 已建立；compiler 目前輸出既有 result v1 相容格式。
+2. `handleSaveAndCreate()` 保留全表重新核對 request，並由 Finalizer contract 要求完整 typed plan。
+3. Finalizer 完成後改呼叫 `createSessionScriptSet()`／`POST /script-sets`，response 使用 set + children。
+4. `create_artifact_set()` 保留 partition／transaction 外框，每個 partition 改成本地 deterministic compile。
+5. typed candidate 在建立 Artifact 前做 full-plan／per-node validation，重複 step ID、peer 與 assertion 契約會 fail closed。
+6. 新 script-set 路徑遇到 flat legacy／mixed plan 回 422，不呼叫舊 AI Python generation。
+7. UI 成功文案已改成「完成契約驗證並建立…」，不把 Finalizer 說成 AI script review。
+8. generic command 經 allow-by-shape、static policy 與 quality gates；peer IP 只允許流入 ping argv。
+9. 遠端 result/stderr bounded read、result v2 與舊 generation 路徑退役仍不在本次範圍。
 
 ### P1：修正 evidence 與 Collector 語意
 
@@ -504,21 +506,21 @@ Executor 讀取 `result.json`、stderr 與 evidence 時必須使用 bounded read
 
 ## 11. 實作順序
 
-### Phase A：契約與 deterministic compiler
+### Phase A：契約與 deterministic compiler（已完成第一階段）
 
-- 定義 typed Collector／Assertion、plan version、validation error 與 result v2 schema。
+- 定義 typed Collector／Assertion、plan version、validation error 與 result v1 相容輸出；result v2 schema 留待後續。
 - 實作固定 runtime template、canonical serialization、coverage 與 deterministic compiler。
 - 建立 compiler、每種 Collector／Assertion、result parse 與輸出上限的 focused tests。
 - 既有 flat rubric／Artifact 保持可讀；新 compiler 不從 prose 或 `detection_method` 猜命令。
 
-### Phase B：Finalizer 與入口切換
+### Phase B：Finalizer 與入口切換（已完成第一階段）
 
 - 將既有 `RUBRIC_POLISH_PROMPT` 全表核對收斂為 Finalizer contract；保留老師目前操作與 Chat UI。
 - server 將 Finalizer proposal operations 套用到 base rubric，產生完整 candidate，而不是信任模型自行重複整份 JSON。
 - 新增／使用 `AiJudgeService.createSessionScriptSet()`。
 - `handleSaveAndCreate()` 在 Finalizer 與保存成功後接 `/script-sets`，保存／刷新 set 與 children。
 - 在 `create_artifact_set()` 內以 deterministic compile 取代 per-node AI generation/review/repair。
-- typed full-plan/per-node validation；必要時只允許一次 bounded contract repair。
+- typed full-plan/per-node validation；契約不符直接回傳 validation issue，不能回退舊的 AI Python generation。
 - legacy/mixed plan 回自然、可處理的重新核查訊息，並修正 deterministic 成功／失敗文案。
 
 ### Phase C：安全與輸出邊界
@@ -544,23 +546,24 @@ Executor 讀取 `result.json`、stderr 與 evidence 時必須使用 bounded read
 
 ---
 
-## 12. 驗收條件
+## 12. 第一階段驗收條件與後續界線
 
-全部成立才算此定案真正完成：
+下列前半段是本次已驗收的 Save/Create 主流程；result v2、遠端 bounded read、完整 evidence UI 與舊路徑退役列在後續收斂，不作為本次入口切換的必要條件。
 
 - 老師詢問與 Chat proposal 維持目前互動方向，不新增腳本專用對話模式。
 - Save/Create 只呼叫一次全表 Finalizer；node 數不得增加 Finalizer request 數。
 - server 將 Finalizer operations 套用成完整 candidate，且只有 valid typed Collector／Assertion 能進 compiler。
 - Save/Create 使用 `/script-sets`，不再使用單一 `/scripts` 作為多機器主入口。
 - Plan 保存 canonical node key，不保存 P label、VMID、IP、SSH 或 credential。
-- 每個 ready item 都有 valid Collector；system 必有 valid Assertion，teacher 不得有 Assertion。
+- 每個 ready item 都有 valid Collector；`detectable=auto` 的 system 必有 valid Assertion，`detectable=auto` 的 teacher 不得有 Assertion，但兩者都可建立腳本。
 - 建立多 node Artifact Set 時不發出 script generation/review/repair vLLM request。
-- Finalizer 只輸出 Check Plan data，不輸出 Python；若需 repair，最多針對契約失敗 item 做一次 bounded repair。
+- Finalizer 只輸出 Check Plan data，不輸出 Python；契約不符直接回傳 validation issue，不啟動 Python repair。
 - 同一 compiler version + canonical node plan 可重現相同 script 與 coverage。
 - 一個 executor node 對應一個 child Artifact 與 child Run。
 - P2 測 P1 只在 P2 執行與歸類；peer unavailable 不阻斷同 child 的本機 checks。
 - command/path/network/timeout/output/secret/redaction 全由 server policy 控制，不能只信 prompt 或老師 Apply。
 - result 區分 `pass/fail/unknown/collected/skipped`，且 target completed 不等於 checks 全通過。
+- readiness 阻擋會保留 item、缺口、替代方式與 AI 核對摘要；後端另記錄 session、revision、item_id 與 reason_code，不能只回覆固定句。
 - teacher decision 不覆寫原始 evidence/status。
 - frontend 以 `student -> node -> item -> checks` 顯示，能查看 bounded evidence content 並保存到正確 child `run_id/vmid`。
 - 舊 Artifact/result 可讀；新寫入不再產生 legacy flat step 或 AI-generated Python。
@@ -572,7 +575,7 @@ Executor 讀取 `result.json`、stderr 與 evidence 時必須使用 bounded read
 
 Backend（`backend/`）：
 
-先保留現有基線測試；下列 `test_deterministic_compiler.py` 是 Phase A 應新增的驗收檔，不是目前分支已存在的測試。
+下列測試檔已納入目前分支，與既有 Teacher Judge 基線測試一起作為第一階段驗收矩陣。
 
 ```powershell
 uv run python -m pytest tests/ai/teacher_judge/test_deterministic_compiler.py -q
@@ -615,16 +618,14 @@ npm run build
 
 ## 15. 最終結論
 
-此次定案的重點不是重做老師詢問架構，也不是讓 AI 更會產 Python，而是把 Save/Create 內既有的全表重新核對收斂成一次 Finalizer，再由後端建立唯一 Check Plan：
+此次定案第一階段已落地；重點不是重做老師詢問架構，也不是讓 AI 更會產 Python，而是把 Save/Create 內既有的全表重新核對收斂成一次 Finalizer，再由後端建立唯一 Check Plan：
 
 > **平常 Chat 釐清需求；Save/Create 時 AI 一次整理整份 plan；後端驗證並按 node 分割；固定 compiler 產生 child scripts；既有 Executor 執行；固定 Assertion 或導師核查。**
 
-因此下一步最小且正確的改動順序是：
+目前後續只保留下列收斂工作：
 
-1. 先建立 typed Check Plan、deterministic compiler 與 result v2，固定可測的後端契約。
-2. 將既有全表重新核對正式定義成 Finalizer，不改老師目前詢問與操作方式。
-3. 把 Finalizer 後的 Save/Create 從單一 `/scripts` 切到 `/script-sets`，並在既有 per-node loop 內改成本地 compile。
-4. 讓新流程對 legacy/mixed plan fail closed，且不再進入 AI Python generation/review/repair。
-5. 補強安全、evidence 顯示與完整 E2E 驗收。
+1. 以 focused tests 完成 result v2、bounded remote read 與 evidence content 的收斂。
+2. 盤點舊 Artifact／result consumer 後，再退役不再使用的新建 AI generation/review/repair wrapper。
+3. 補 live VM/PVE/SSH/browser E2E；本次已完成的 deterministic contract 不因 E2E 尚未執行而回退到 per-node AI。
 
 聊天提案與詢問方式維持不變；新增的責任邊界只存在於 Save/Create：Finalizer 一次整理全表，後端確定性產出、執行並完整呈現證據。

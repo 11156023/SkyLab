@@ -47,6 +47,44 @@ template/command catalog wording):
 """.strip()
 
 
+FINALIZER_CHECK_PLAN_CONTRACT_INSTRUCTION = """
+Save/Create Finalizer contract (takes precedence over the compact Chat proposal
+shape):
+- Review the complete current rubric, but return only validated proposal
+  operations through the checklist tools. Do not output Python or runtime
+  evidence.
+- You may omit an item only when its current executable `check_steps` are
+  already typed and remain valid. Any legacy flat/template step is itself a
+  contract change: send an `edit_checklist_item` for that item and replace the
+  complete step array with typed steps, even when the rubric wording does not
+  otherwise change.
+- Every executable `check_steps` entry must use the typed shape:
+  `{"id": "stable-id", "title": "...", "collector": {...}, "assertion": {...}}`.
+  Do not mix typed fields with `template_key`, `command_key`, `parameters` or
+  flat `argv` fields in the same step.
+- `edit_checklist_item` 的 `check_steps` 是整個陣列替換；只要送出此欄位，
+  必須包含該 item 的完整 typed steps，不得只送本次修改的單一步驟。
+- Collector types are `command`, `file_text`, `file_stat`, `localhost_http`,
+  and `peer_ping`. Use only read-only operations. `command.argv` must be a
+  literal argv list; never use a shell launcher, pipe, redirect or eval.
+- Assertion types are `returncode_equals`, `text_equals`, `text_contains`,
+  `number_compare`, `json_path_equals`, and `exists`. Use an Assertion when
+  `judgement_mode=ai`; omit it when `judgement_mode=teacher`, because that
+  mode only collects evidence for the teacher.
+- `detectable=auto` with `judgement_mode=teacher` is a valid executable plan:
+  keep the Collector, omit the Assertion, and let the runtime return
+  `collected` for the teacher. Do not downgrade it to `manual` merely because
+  the result has no objective pass/fail condition.
+- A peer observation keeps the executor in `target_node_key`, puts the
+  observed node in `peer_node_key`, and uses `peer_ping` (or a command argv
+  whose complete peer element is `{{peer.ip}}`). Never emit IP, VMID, SSH or
+  provider details.
+- If an item cannot satisfy this contract, keep that item unresolved with its
+  real missing information. Do not invent paths, commands, expected values or
+  a ready status just to make the whole table pass.
+""".strip()
+
+
 CHAT_SYSTEM_TEMPLATE = """
 # 角色
 你是一位專業的 AI 檢查助理，服務對象是校園雲端平台的授課老師。
@@ -266,7 +304,8 @@ SITUATION_REFINE = """
 2. 平台有對應取證能力且執行資訊完整時標為 auto；`judgement_mode` 預設為 `ai`，依項目描述整理可客觀比對的形式，引導完成自動檢查。`judgement_mode` 只有老師本輪明確指示時才能變更：老師明確表示想自己檢查才改用 `teacher`，明確要求改回系統自動判定才改用 `ai`；除此之外不得把既有 `ai` 改成 `teacher`，也不得把既有 `teacher` 改成 `ai`。現在沒有實際結果不影響判斷。
 3. 若可由老師補齊服務名稱、工作目錄、Port、命令或取證範圍後產生可執行腳本，標為 partial 並逐項列出 missing_information；不得把客觀答案列為 `teacher` 模式的必要缺口。
 4. 只有平台沒有安全取證能力時標為 manual；核心條件主觀但可取得答案、檔案或系統資訊時仍標為 auto，`judgement_mode` 依規則 2 決定。
-5. 從 catalog 選擇能取得證據的 command_key；不得發明 command，也不得以無關且較容易的檢查替換原目標。
+5. Save/Create Finalizer 直接使用 typed Collector／Assertion 表達取證與判定；catalog
+   僅作為能力參考，不是新的寫入欄位，也不得以無關且較容易的檢查替換原目標。
 
 ### 1.2 執行結果
 - 本階段判斷的是後續能否安全取得足夠證據，不要求現在已有執行結果。

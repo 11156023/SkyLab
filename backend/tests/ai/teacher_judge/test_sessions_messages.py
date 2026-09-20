@@ -48,6 +48,105 @@ from tests.ai.teacher_judge.helpers import (
 )
 
 
+def test_reanalysis_workflow_message_keeps_actionable_ai_summary() -> None:
+    workflow = session_service.reanalysis_workflow_message(
+        [
+            {
+                "item_id": "architecture",
+                "title": "程式架構品質",
+                "status": "manual",
+                "missing_information": [],
+                "reason_code": "automatic_detection_unsupported",
+                "detail": "目前沒有可安全讀取的檔案來源",
+            }
+        ],
+        source_file_id=uuid.uuid4(),
+        analysis_revision=4,
+        assistant_reply="這項目目前缺少可讀取的程式來源，其他項目可以繼續核對。",
+    )
+
+    assert "缺少可讀取的程式來源" in workflow["content"]
+    assert "目前沒有可安全讀取的檔案來源" in workflow["content"]
+    assert workflow["metadata"]["item_results"][0]["detail"] == (
+        "目前沒有可安全讀取的檔案來源"
+    )
+    assert workflow["metadata"]["conversation_focus"]["requirements"][0][
+        "detail"
+    ] == "目前沒有可安全讀取的檔案來源"
+
+
+@pytest.mark.asyncio
+async def test_refine_auto_teacher_typed_plan_is_script_ready(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    db = make_session()
+    class_id = uuid.uuid4()
+    rubric_file = make_teacher_judge_file(db, class_id)
+    rubric_file.analysis_json = {
+        "items": [
+            {
+                "id": "teacher-evidence",
+                "title": "檢查 main.py 內容",
+                "checked": False,
+                "detectable": "auto",
+                "judgement_mode": "teacher",
+                "detection_method": "讀取 main.py 內容供導師查看",
+                "missing_information": [],
+                "check_steps": [
+                    {
+                        "id": "teacher-evidence.read",
+                        "title": "讀取 main.py",
+                        "collector": {
+                            "type": "file_text",
+                            "path": "/srv/student/main.py",
+                            "encoding": "utf-8",
+                            "read_mode": "head",
+                            "lines": 200,
+                        },
+                    }
+                ],
+            }
+        ]
+    }
+    db.add(rubric_file)
+    db.commit()
+    item = TeacherJudgeSession(
+        teaching_class_id=class_id,
+        title="Typed teacher evidence",
+        selected_file_id=rubric_file.id,
+    )
+    db.add(item)
+    db.commit()
+    db.refresh(item)
+
+    async def fake_chat(*args, **kwargs):
+        assert kwargs["is_refine"] is True
+        return "這項目會收集結果，交由導師查看。", None, {}
+
+    monkeypatch.setattr(teacher_judge_sessions, "_access", lambda *args: None)
+    monkeypatch.setattr(teacher_judge_sessions, "chat_with_rubric", fake_chat)
+    monkeypatch.setattr(
+        teacher_judge_sessions,
+        "get_enabled_template_commands",
+        lambda *args, **kwargs: [],
+    )
+
+    result = await teacher_judge_sessions.create_message(
+        class_id,
+        item.id,
+        TeacherJudgeSessionMessageCreateRequest(
+            content="請重新核對整張檢查表",
+            is_refine=True,
+        ),
+        db,
+        SimpleNamespace(id=uuid.uuid4()),
+    )
+
+    assert result.assistant_message.metadata_json["status"] == "resolved"
+    assert result.assistant_message.metadata_json["script_ready"] is True
+    assert "可開始製作檢查腳本" in result.assistant_message.content
+
+
 @pytest.mark.asyncio
 async def test_message_without_rubric_is_saved_and_uses_general_chat(
     monkeypatch: pytest.MonkeyPatch,
@@ -716,12 +815,16 @@ async def test_refine_message_uses_server_readiness_and_saves_resolved_chat(
                 "missing_information": [],
                 "check_steps": [
                     {
-                        "template_key": "linux",
-                        "command_key": "system.run_command",
-                        "parameters": {
+                        "id": "port.listen",
+                        "title": "列出 listening socket",
+                        "collector": {
+                            "type": "command",
                             "argv": ["ss", "-lnt"],
                             "timeout_seconds": 10,
-                            "success_criteria": "stdout 包含 listening socket",
+                        },
+                        "assertion": {
+                            "type": "text_contains",
+                            "expected": "LISTEN",
                         },
                     }
                 ],

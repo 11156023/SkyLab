@@ -165,9 +165,13 @@ def rubric_item_machine_issues(item: dict[str, Any]) -> list[str]:
     target_node_key = str(item.get("target_node_key") or "").strip() or None
     peer_node_key = str(item.get("peer_node_key") or "").strip() or None
     argv_parts: list[str] = []
+    has_typed_peer_collector = False
     for step in item.get("check_steps") or []:
         if not isinstance(step, dict):
             continue
+        collector = step.get("collector")
+        if isinstance(collector, dict) and collector.get("type") == "peer_ping":
+            has_typed_peer_collector = True
         raw_argv = step.get("argv")
         if not isinstance(raw_argv, list):
             parameters = step.get("parameters")
@@ -182,7 +186,14 @@ def rubric_item_machine_issues(item: dict[str, Any]) -> list[str]:
         issues.append(f"{PEER_IP_TOKEN} 只能作為完整 argv element")
     if token_parts and not peer_node_key:
         issues.append(f"使用 {PEER_IP_TOKEN} 時必須指定 peer_node_key")
-    if peer_node_key and item.get("detectable") == "auto" and PEER_IP_TOKEN not in argv_parts:
+    if has_typed_peer_collector and not peer_node_key:
+        issues.append("peer_ping collector 必須指定 peer_node_key")
+    if (
+        peer_node_key
+        and item.get("detectable") == "auto"
+        and PEER_IP_TOKEN not in argv_parts
+        and not has_typed_peer_collector
+    ):
         issues.append(f"指定 peer_node_key 的 auto 項目必須在 argv 使用 {PEER_IP_TOKEN}")
     return issues
 

@@ -92,5 +92,5 @@ SCRIPT_GENERATION_CONTRACT_PROMPT = f"""
 - `id` 必須是語意化穩定 ID，例如 `runtime.python_version`、`service.n8n_port`，不可使用 `check-1`、`item-1`、`stable_check_id`。
 - coverage 的 check_id 必須與實際 record_check ID 完全一致；可直接傳字串，或使用在該次呼叫前明確指定的字串常數。不要使用動態或分支不明的 ID。
 - `title` 使用「收集」語意，例如「收集 Python 版本」、「收集 n8n 連接埠」，不要用「檢查」開頭。
-- 允許狀態只有 `pass`, `fail`, `warning`, `unknown`, `skipped`。
+- 允許狀態只有 `pass`, `fail`, `warning`, `unknown`, `collected`, `skipped`。
 """.strip()
