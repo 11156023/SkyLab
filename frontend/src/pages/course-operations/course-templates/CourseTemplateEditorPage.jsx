@@ -36,6 +36,7 @@ import PageHeader from "../../../components/PageHeader/PageHeader";
 import i18n from "../../../i18n";
 import { AuthStorage } from "../../../services/auth";
 import { createEnvironmentAutosave } from "./environmentAutosave";
+import useAiScreen from "../../../hooks/useAiScreen";
 
 const TABS = [
   ["basic", "CourseTemplateEditorPage.tabBasicLabel"],
@@ -612,6 +613,15 @@ export default function CourseTemplateEditorPage() {
     edge.protocol !== "any"
     && (!Number.isInteger(Number(edge.port)) || Number(edge.port) < 1 || Number(edge.port) > 65535)
   ));
+  useAiScreen(templateId ? "course-template-editor" : "course-template-new", {
+    "coursetpl.tab": { value: tab },
+    "coursetpl.status": { value: loading ? "loading" : template.status },
+    "coursetpl.name": { value: template.name.slice(0, 500), error: invalidField === "name" ? t("CourseTemplateEditorPage.nameRequiredError") : null },
+    "coursetpl.usage_scope": { value: template.usageScope ?? "course" },
+    "coursetpl.node_count": { value: String(template.nodes?.length ?? 0) },
+    "coursetpl.return_to_class": { value: String(Boolean(returnTo)) },
+    "coursetpl.publish": { disabled: saving || closing || template.status !== "draft" },
+  });
   /* 不小心跳離（點側欄、重新整理）時保留未儲存的編輯：
      每次編輯寫入 sessionStorage，進頁還原，成功儲存／發布才清除 */
   const draftKey = `courseTemplateEditorDraft:${AuthStorage.getSnapshot().sessionId ?? "anonymous"}:${templateId ?? "new"}`;

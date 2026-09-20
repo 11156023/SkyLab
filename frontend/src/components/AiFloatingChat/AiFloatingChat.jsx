@@ -10,7 +10,7 @@ import { AiNavigationService } from "../../services/aiNavigation";
 import { AiTemplateRecommendationApi } from "../../services/aiTemplateRecommendation";
 import { ResourcesService } from "../../services/resources";
 import { VmRequestsService } from "../../services/vmRequests";
-import { newTask, taskRoute, withTaskMemory, markStep, requestIsReady } from "./taskState";
+import { newTask, taskRoute, withTaskMemory, markStep, requestIsReady, TEACHING_PATTERN, SIDE_QUESTION_PATTERN, shouldContinueIntake, rememberWorkflow, addWorkflows, flowOwnsPath, environmentStepPath } from "./taskState";
 import {
   AiContextualHelpService,
   matchSurface,
@@ -115,6 +115,12 @@ export function routeQuestion(text, task = newTask(), flowId = null, hasForm = f
   const contextual = taskRoute(text, task, flowId, hasForm);
   if (contextual) return contextual;
   if (isFeatureIndex(text)) return "index";
+  // Teaching questions need the relationship between screens, not a machine recommendation.
+  if (TEACHING_PATTERN.test(text)) return "navigate";
+  if (FLOW_PATTERN.test(text)) return "navigate";
+  if (/(另外|同時|接著|然後|也要|並且|以及)/.test(text) && GUIDE_PATTERN.test(text)) return "navigate";
+  if ((task.stage === "collecting" || flowId) && SIDE_QUESTION_PATTERN.test(text) && !SCREEN_SCOPE_PATTERN.test(text)
+    && !/(推薦|幫我.*配置|申請)/.test(text)) return "chat";
   if (isScreenHelp(text)) return "help";
   if (RECOMMEND_PATTERN.test(text)) return "recommend";
   if (NAVIGATION_PATTERN.test(text) || GUIDE_PATTERN.test(text)) return "navigate";
@@ -213,9 +219,10 @@ function StepList({ steps, currentPath, floor = 0, onNavigate, onRecommend }) {
           {/* action 步驟由助手就地完成，不換頁 */}
           <button
             type="button"
+            aria-current={step.path === currentPath ? "location" : undefined}
             onClick={() => (step.action === "recommend"
               ? onRecommend()
-              : onNavigate(step.path, step.state))}
+              : onNavigate(step.path, step.state, index))}
           >
             <MIcon
               name={step.action === "recommend" && statuses[index] !== "done"
@@ -224,7 +231,7 @@ function StepList({ steps, currentPath, floor = 0, onNavigate, onRecommend }) {
               size={17}
             />
             <span>
-              <strong>{index + 1}. {step.title}</strong>
+              <strong>{step.title}</strong>
               {/* 做完的步驟只留標題，說明文字佔掉的版面留給還沒做的 */}
               {step.detail && statuses[index] !== "done" && <small>{step.detail}</small>}
             </span>
@@ -276,7 +283,7 @@ function ChoiceRow({ choices, progress, onAnswer, onPlanNow, allowPlan = true })
   );
 }
 
-function Message({ message, currentPath, onNavigate, onRecommend, onAnswer, onPlanNow }) {
+function Message({ message, currentPath, onNavigate, onRecommend, onAnswer, onPlanNow, onFlowStep }) {
   const isUser = message.role === "user";
   return (
     <div className={`${styles.message} ${isUser ? styles.messageUser : styles.messageAssistant}`}>
@@ -305,6 +312,14 @@ function Message({ message, currentPath, onNavigate, onRecommend, onAnswer, onPl
             onRecommend={onRecommend}
           />
         )}
+        {message.flows?.map((flow) => (
+          <div key={flow.flow_id}>
+            <strong>{flow.flow_title}</strong>
+            <StepList steps={flow.steps} currentPath={currentPath}
+              onNavigate={(path, state, index) => onFlowStep(flow.flow_id, path, state, false, index)}
+              onRecommend={() => onFlowStep(flow.flow_id, null, null, true)} />
+          </div>
+        ))}
         {message.choices?.length > 0 && (
           <ChoiceRow
             choices={message.choices}
@@ -366,10 +381,14 @@ export default function AiFloatingChat({ open = false, onOpenChange = () => {} }
   const scrollRef = useRef(null);
   const inputRef = useRef(null);
   // 配置模式：{ answered, total }，null 代表沒在配置模式
-  const [intake, setIntake] = useState(null);
+  const [intake, updateIntake] = useState(null);
+  const intakeRef = useRef(null);
+  function setIntake(value) { intakeRef.current = value; updateIntake(value); }
   const taskRef = useRef(newTask());
   // 正在進行的流程，配置產生後要接回它的下一步，不能斷在配置卡片
   const flowRef = useRef(null);
+  const workflowsRef = useRef(new Map());
+  const [workflows, setWorkflows] = useState([]);
   const pageContext = useMemo(() => pageContextFor(location.pathname), [location.pathname]);
   const activeSurface = useMemo(() => {
     const matched = matchSurface(surfaceList, location.pathname);
@@ -377,18 +396,69 @@ export default function AiFloatingChat({ open = false, onOpenChange = () => {} }
     return surfaceList.find((item) => item.id === surface.id) ?? matched;
   }, [surface, surfaceList, location.pathname]);
   const activeSurfaceId = activeSurface?.id ?? surface?.id ?? null;
+  const screenRef = useRef(null);
+  screenRef.current = { path: location.pathname + location.search, surfaceId: activeSurfaceId, getState: surface?.getState };
+  function screenSnapshot() {
+    const screen = screenRef.current;
+    return JSON.stringify({ path: screen.path, surfaceId: screen.surfaceId, state: screen.getState?.() ?? {} });
+  }
   /* 頁名優先用畫面定義的標題：它涵蓋每一頁，PAGE_CONTEXTS 只列了一部分，
      沒列到的會落到「SkyLab」，等於沒講。 */
   const currentPageName = activeSurface?.title ?? t(pageContext.titleKey);
 
   useEffect(() => {
-    if (!requestSubmission?.id || !["planned", "filled"].includes(taskRef.current.stage)) return;
-    taskRef.current.stage = "submitted";
-    taskRef.current.requestId = requestSubmission.id;
-    const steps = markStep(flowRef.current?.steps ?? [], 2);
-    if (flowRef.current) flowRef.current.steps = steps;
+    const flow = flowRef.current;
+    if (flowOwnsPath(flow, location.pathname)) {
+      flow.resumePath = location.pathname + location.search;
+    }
+  }, [location.pathname, location.search]);
+
+  function saveWorkflow() {
+    rememberWorkflow(workflowsRef.current, flowRef.current, taskRef.current, intakeRef.current);
+    setWorkflows([...workflowsRef.current.values()].map((entry) => entry.flow));
+  }
+
+  function selectWorkflow(id) {
+    rememberWorkflow(workflowsRef.current, flowRef.current, taskRef.current, intakeRef.current);
+    const entry = workflowsRef.current.get(id);
+    if (!entry) return null;
+    flowRef.current = entry.flow;
+    if (flowOwnsPath(entry.flow, location.pathname)) {
+      entry.flow.resumePath = location.pathname + location.search;
+    }
+    taskRef.current = entry.task;
+    setIntake(entry.intake);
+    setWorkflows([...workflowsRef.current.values()].map((item) => item.flow));
+    return entry.flow;
+  }
+
+  function handleFlowStep(id, path, state, recommend = false, index = 0) {
+    if (loading) return;
+    const flow = selectWorkflow(id);
+    if (!flow) return;
+    if (recommend) { runRecommendation(); return; }
+    if (id === "prepare_environment") {
+      handleNavigate(environmentStepPath(location.pathname + location.search, flow.resumePath, flow.steps[index]?.state?.environmentTab));
+      return;
+    }
+    const resume = flow.resumePath;
+    const resumeBase = resume?.split("?")[0];
+    handleNavigate(resumeBase === path || resumeBase?.startsWith(`${path}/`) ? resume : path, state);
+  }
+
+  useEffect(() => {
+    if (!requestSubmission?.id) return;
+    const active = ["planned", "filled"].includes(taskRef.current.stage);
+    const saved = [...workflowsRef.current.values()].find((entry) => ["planned", "filled"].includes(entry.task.stage));
+    const task = active ? taskRef.current : saved?.task;
+    const flow = active ? flowRef.current : saved?.flow;
+    if (!task) return;
+    task.stage = "submitted";
+    task.requestId = requestSubmission.id;
+    const steps = markStep(flow?.steps ?? [], 2);
+    if (flow) flow.steps = steps;
     const message = {
-      role: "assistant", content: t("AiFloatingChat.requestSubmitted"), steps,
+      role: "assistant", content: t("AiFloatingChat.requestSubmitted"), steps, flowId: flow?.id,
       choices: [t("AiFloatingChat.checkRequestProgress")], allowPlan: false,
     };
     setMessages((previous) => [...previous, message]);
@@ -422,6 +492,8 @@ export default function AiFloatingChat({ open = false, onOpenChange = () => {} }
     setIntake(null);
     taskRef.current = newTask();
     flowRef.current = null;
+    workflowsRef.current.clear();
+    setWorkflows([]);
     inputRef.current?.focus();
   }
 
@@ -432,18 +504,30 @@ export default function AiFloatingChat({ open = false, onOpenChange = () => {} }
   }
 
   function appendAssistant(content, extra = {}) {
-    setMessages((previous) => [...previous, { role: "assistant", content, ...extra }]);
+    setMessages((previous) => [...previous, { role: "assistant", content, flowId: flowRef.current?.id, ...extra }]);
     setHistory((previous) => [...previous, { role: "assistant", content }]);
   }
 
   async function startIntake(nextHistory) {
+    if (flowRef.current && !["request_machine", "publish_service"].includes(flowRef.current.id)) {
+      rememberWorkflow(workflowsRef.current, flowRef.current, taskRef.current, intakeRef.current);
+      flowRef.current = null;
+      taskRef.current = { ...newTask(), goal: nextHistory.filter((item) => item.role === "user").at(-1)?.content ?? "" };
+      setIntake(null);
+    }
     if (flowRef.current?.id === "publish_service") taskRef.current.returnFlow = flowRef.current;
     taskRef.current.stage = "collecting";
     if (!requestFormRef.current) navigate("/my-requests", { state: { create: true } });
-    return advanceIntake(nextHistory);
+    const latest = nextHistory.filter((message) => message.role === "user").at(-1);
+    if (latest) taskRef.current.intakeHistory.push(latest);
+    return advanceIntake(taskRef.current.intakeHistory);
   }
 
   async function continueTask() {
+    if (["open_class", "prepare_environment", "share_template"].includes(flowRef.current?.id)) {
+      const question = "繼續目前流程，請依目前畫面與已保存狀態說明接下來要做什麼。";
+      return sendNavigation(question, [...history, { role: "user", content: question }]);
+    }
     const task = taskRef.current;
     if (task.stage === "filled" || task.stage === "planned") {
       appendAssistant(t("AiFloatingChat.reviewBeforeSubmit"), {
@@ -479,7 +563,8 @@ export default function AiFloatingChat({ open = false, onOpenChange = () => {} }
     const step = flowRef.current?.steps.find((item) => item.status === "current");
     if (step?.action === "recommend") return startIntake(history);
     if (step) {
-      navigate(step.path, step.state ? { state: step.state } : undefined);
+      const resume = flowRef.current?.resumePath;
+      navigate(resume ?? step.path, step.state ? { state: step.state } : undefined);
       appendAssistant(step.detail);
       return true;
     }
@@ -487,16 +572,40 @@ export default function AiFloatingChat({ open = false, onOpenChange = () => {} }
   }
 
   async function sendNavigation(text, nextHistory) {
+    const requestedScreen = screenSnapshot();
     const data = await AiNavigationService.resolve(text, {
       // 送出前的前文（不含這一輪），讓「然後呢」這種追問有東西可以指
       history: withTaskMemory(nextHistory.slice(0, -1), taskRef.current),
-      currentPath: location.pathname,
+      currentPath: location.pathname + location.search,
+      surfaceId: activeSurfaceId,
+      screenState: surface?.getState?.() ?? {},
+      activeFlowId: flowRef.current?.id,
+      pendingFlowIds: [...workflowsRef.current.keys()],
     });
+    if (screenSnapshot() !== requestedScreen) {
+      appendAssistant(t("AiFloatingChat.screenChanged"));
+      return true;
+    }
     const steps = data.steps ?? [];
 
+    if (data.action === "answer" && data.answer) {
+      appendAssistant(data.answer);
+      return true;
+    }
+
     if (data.action === "guide" && steps.length) {
-      flowRef.current = { id: data.flow_id, title: data.flow_title, steps };
-      if (data.flow_id === "request_machine") return startIntake(nextHistory);
+      rememberWorkflow(workflowsRef.current, flowRef.current, taskRef.current, intakeRef.current);
+      const flows = data.flows?.length ? data.flows : [{ flow_id: data.flow_id, flow_title: data.flow_title, steps }];
+      addWorkflows(workflowsRef.current, flows, text);
+      selectWorkflow(flows[0].flow_id);
+      if (flows.length > 1) {
+        appendAssistant(data.answer || t("AiFloatingChat.multipleFlowsIntro"), { flows });
+        return true;
+      }
+      if (data.flow_id === "request_machine") {
+        if (["planned", "filled", "submitted", "ready"].includes(taskRef.current.stage)) return continueTask();
+        return startIntake(nextHistory);
+      }
       if (data.flow_id === "publish_service") {
         taskRef.current.returnFlow = flowRef.current;
         let resources;
@@ -510,8 +619,8 @@ export default function AiFloatingChat({ open = false, onOpenChange = () => {} }
         }
       }
       const flowTitle = data.flow_title ?? t("AiFloatingChat.defaultFlowTitle");
-      const content = t("AiFloatingChat.flowIntro", { flowTitle });
-      const assistantMessage = { role: "assistant", content, steps };
+      const content = data.answer || t("AiFloatingChat.flowIntro", { flowTitle });
+      const assistantMessage = { role: "assistant", content, flows };
       setMessages((previous) => [...previous, assistantMessage]);
       setHistory((previous) => [...previous, {
         role: "assistant",
@@ -532,7 +641,7 @@ export default function AiFloatingChat({ open = false, onOpenChange = () => {} }
 
     const content = data.action === "clarify"
       ? (data.clarification_question || t("AiFloatingChat.defaultClarificationQuestion"))
-      : t("AiFloatingChat.foundTargetsMessage");
+      : (data.answer || t("AiFloatingChat.foundTargetsMessage"));
     const assistantMessage = { role: "assistant", content, targets };
     setMessages((previous) => [...previous, assistantMessage]);
     setHistory((previous) => [...previous, { role: "assistant", content }]);
@@ -545,7 +654,7 @@ export default function AiFloatingChat({ open = false, onOpenChange = () => {} }
     let data;
     try {
       data = await AiTemplateRecommendationApi.recommend({
-        messages: withTaskMemory(nextHistory, taskRef.current),
+        messages: withTaskMemory(taskRef.current.intakeHistory.length ? taskRef.current.intakeHistory : nextHistory, taskRef.current),
         top_k: 5,
         device_nodes: [],
         form_context: requestFormRef.current?.getContext() ?? null,
@@ -587,6 +696,7 @@ export default function AiFloatingChat({ open = false, onOpenChange = () => {} }
     const assistantMessage = {
       role: "assistant",
       content,
+      flowId: flowRef.current?.id,
       ...(filled ? {} : { plan: { prefill } }),
       ...followUp,
     };
@@ -625,10 +735,12 @@ export default function AiFloatingChat({ open = false, onOpenChange = () => {} }
       ? t("AiFloatingChat.defaultAssumptions", { assumptions: state.assumptions.join("、") })
       : "";
     const question = [assumptions, state.question.text].filter(Boolean).join("\n\n");
+    taskRef.current.intakeHistory.push({ role: "assistant", content: question });
 
     const assistantMessage = {
       role: "assistant",
       content: question,
+      flowId: flowRef.current?.id,
       choices: state.question.options,
       progress: t("AiFloatingChat.answeredProgress", { answered: state.answered, total: state.total }),
     };
@@ -640,18 +752,20 @@ export default function AiFloatingChat({ open = false, onOpenChange = () => {} }
   /* 流程裡的「讓 AI 規劃配置」那一步：從這裡進配置模式。 */
   async function runRecommendation() {
     if (loading) return;
-    const nextHistory = history.length
-      ? history
-      : [{ role: "user", content: "我想申請一台機器，請幫我規劃配置。" }];
+    const nextHistory = taskRef.current.intakeHistory.length
+      ? taskRef.current.intakeHistory
+      : [{ role: "user", content: taskRef.current.goal || "我想申請一台機器，請幫我規劃配置。" }];
     setLoading(true);
     try {
-      await startIntake(nextHistory);
+      if (taskRef.current.stage === "collecting") await advanceIntake(nextHistory);
+      else await startIntake(nextHistory);
     } catch {
       setMessages((previous) => [...previous, {
         role: "assistant",
         content: t("AiFloatingChat.planFailed"),
       }]);
     } finally {
+      saveWorkflow();
       setLoading(false);
       inputRef.current?.focus();
     }
@@ -666,6 +780,7 @@ export default function AiFloatingChat({ open = false, onOpenChange = () => {} }
     } catch (error) {
       appendAssistant(error?.message || t("AiFloatingChat.planFailed"));
     } finally {
+      saveWorkflow();
       setLoading(false);
       inputRef.current?.focus();
     }
@@ -693,6 +808,7 @@ export default function AiFloatingChat({ open = false, onOpenChange = () => {} }
      不要硬答——這個助手的價值全在「講的都有依據」。 */
   async function sendContextualHelp(text) {
     if (!activeSurfaceId) return false;
+    const requestedScreen = screenSnapshot();
     const data = await AiContextualHelpService.explain({
       question: text,
       surfaceId: activeSurfaceId,
@@ -700,6 +816,10 @@ export default function AiFloatingChat({ open = false, onOpenChange = () => {} }
       contextVersion: surface?.getVersion?.() ?? 0,
       state: surface?.getState?.() ?? {},
     });
+    if (screenSnapshot() !== requestedScreen) {
+      appendAssistant(t("AiFloatingChat.screenChanged"));
+      return true;
+    }
     const answer = data?.answer?.trim();
     if (!answer) return false;
     const assistantMessage = { role: "assistant", content: answer };
@@ -752,13 +872,11 @@ export default function AiFloatingChat({ open = false, onOpenChange = () => {} }
         taskRef.current.goal = text.slice(0, 2000);
       }
       // 配置模式進行中就繼續問，除非使用者明講要去別的地方
-      const stayInIntake = taskRef.current.stage === "collecting" && route === "chat" && !NAVIGATION_PATTERN.test(text);
-      if (!stayInIntake && intake) {
-        setIntake(null);
-      }
+      const stayInIntake = shouldContinueIntake(text, taskRef.current, route);
 
       let handled = false;
       if (route === "cancel") {
+        if (flowRef.current) workflowsRef.current.delete(flowRef.current.id);
         setIntake(null);
         taskRef.current = newTask();
         flowRef.current = null;
@@ -778,6 +896,7 @@ export default function AiFloatingChat({ open = false, onOpenChange = () => {} }
         content: error?.message || t("AiFloatingChat.genericErrorFallback"),
       }]);
     } finally {
+      saveWorkflow();
       setLoading(false);
       inputRef.current?.focus();
     }
@@ -830,6 +949,21 @@ export default function AiFloatingChat({ open = false, onOpenChange = () => {} }
             )}
           </div>
 
+          {workflows.length > 0 && (
+            <div className={styles.workflowBar} aria-label={t("AiFloatingChat.savedFlows")}>
+              {workflows.map((flow) => (
+                <button key={flow.id} type="button" disabled={loading}
+                  aria-pressed={flowRef.current?.id === flow.id}
+                  onClick={() => {
+                    const selected = selectWorkflow(flow.id);
+                    if (selected) appendAssistant(t("AiFloatingChat.resumeFlow", { title: selected.title }), {
+                      flows: [{ flow_id: selected.id, flow_title: selected.title, steps: selected.steps }],
+                    });
+                  }}>{flow.title}</button>
+              ))}
+            </div>
+          )}
+
           <div className={styles.messages} ref={scrollRef}>
             {messages.length === 0 ? (
               <div className={styles.emptyState}>
@@ -858,9 +992,10 @@ export default function AiFloatingChat({ open = false, onOpenChange = () => {} }
                   message={message}
                   currentPath={location.pathname}
                   onNavigate={handleNavigate}
-                  onRecommend={runRecommendation}
-                  onAnswer={(choice) => send(choice)}
-                  onPlanNow={planNow}
+                  onRecommend={() => { if (message.flowId) selectWorkflow(message.flowId); runRecommendation(); }}
+                  onAnswer={(choice) => { if (message.flowId) selectWorkflow(message.flowId); send(choice); }}
+                  onPlanNow={() => { if (message.flowId) selectWorkflow(message.flowId); planNow(); }}
+                  onFlowStep={handleFlowStep}
                 />
               ))
             )}

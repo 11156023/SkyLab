@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 import { act, useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
-import { MemoryRouter, useLocation } from "react-router-dom";
+import { MemoryRouter, useLocation, useNavigate } from "react-router-dom";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import AiFloatingChat from "./AiFloatingChat";
 import { LayoutContext } from "../../layout/layoutContext";
@@ -38,6 +38,7 @@ const applyPrefill = vi.fn();
 
 function Harness() {
   const location = useLocation();
+  const navigate = useNavigate();
   const [form, setForm] = useState(null);
   const [filled, setFilled] = useState(null);
   const [requestSubmission, reportRequestSubmission] = useState(null);
@@ -49,8 +50,14 @@ function Harness() {
       });
     } else setForm(null);
   }, [location.pathname, location.state]);
-  return <LayoutContext.Provider value={{ requestForm: form, surface: null, requestSubmission }}>
-    <span data-testid="path">{location.pathname}</span>
+  const surface = location.pathname === "/class-setup" ? {
+    id: "class-setup", getState: () => ({ "classsetup.current_step": { value: "3. 教學環境" } }),
+  } : null;
+  return <LayoutContext.Provider value={{ requestForm: form, surface, requestSubmission }}>
+    <span data-testid="path">{location.pathname}{location.search}</span>
+    <button onClick={() => navigate("/class-setup?classId=42&step=3")}>模擬班級第3步</button>
+    <button onClick={() => navigate("/templates")}>模擬切換到範本</button>
+    <button onClick={() => navigate("/course-template-management/env-42?tab=basic&returnTo=%2Fclass-setup%3FclassId%3D9%26step%3D3")}>模擬既有環境草稿</button>
     {filled && <input aria-label="hostname" readOnly value={filled.hostname} />}
     <button onClick={() => reportRequestSubmission({ id: "request-1" })}>模擬申請送出成功</button>
     <AiFloatingChat open />
@@ -175,4 +182,108 @@ test("an existing machine is not replaced with an unnecessary application", asyn
   expect(host.textContent).toContain("啟動網站");
   expect(AiNavigationService.intake).not.toHaveBeenCalled();
   expect(host.querySelector('[data-testid="path"]').textContent).toBe("/my-resources");
+});
+
+test("a side question is answered without consuming the pending intake answer", async () => {
+  await send("我想放 Node.js 網站並上線");
+  AiTemplateRecommendationApi.chat.mockResolvedValueOnce({ reply: "DNS 會把網域名稱對應到位址。" });
+  await send("順便問什麼是 DNS？");
+  expect(host.textContent).toContain("DNS 會把網域名稱對應到位址");
+  expect(AiNavigationService.intake).toHaveBeenCalledTimes(1);
+  await click("幾週");
+  const [transcript, options] = AiNavigationService.intake.mock.calls.at(-1);
+  expect(options.pendingKey).toBe("duration");
+  expect(transcript.some((message) => message.content.includes("DNS"))).toBe(false);
+});
+
+test("multiple flows remain selectable after a relationship question", async () => {
+  const flows = [
+    { flow_id: "open_class", flow_title: "開班流程", steps: [{ title: "填課表", path: "/class-setup", detail: "先保存班級", status: "current" }] },
+    { flow_id: "share_template", flow_title: "建立範本", steps: [{ title: "準備母機", path: "/my-resources", status: "current" }] },
+  ];
+  AiNavigationService.resolve.mockResolvedValueOnce({ action: "guide", flow_id: "open_class", steps: flows[0].steps, flows, answer: "班級可重用既有教學環境。" });
+  await send("我要開班，也要建立範本");
+  expect(host.textContent).toContain("班級可重用既有教學環境");
+  expect(AiNavigationService.intake).not.toHaveBeenCalled();
+  await click("建立範本");
+  AiNavigationService.resolve.mockResolvedValueOnce({ action: "answer", answer: "範本只提供機器來源。" });
+  await send("範本和班級的關係？");
+  const options = AiNavigationService.resolve.mock.calls.at(-1)[1];
+  expect(options.activeFlowId).toBe("share_template");
+  expect(options.pendingFlowIds).toEqual(["open_class", "share_template"]);
+  await click("開班流程");
+  expect(host.textContent).toContain("接回「開班流程」");
+  expect(AiTemplateRecommendationApi.recommend).not.toHaveBeenCalled();
+});
+
+test("class guidance includes the saved wizard step and preserves its resume URL", async () => {
+  await click("模擬班級第3步");
+  AiNavigationService.resolve.mockResolvedValueOnce({
+    action: "guide", flow_id: "open_class", flow_title: "開班流程",
+    steps: [{ title: "選用環境", path: "/class-setup", detail: "可重用已發布環境", status: "current" }],
+  });
+  await send("我要繼續建立班級");
+  expect(AiNavigationService.resolve.mock.calls.at(-1)[1]).toMatchObject({
+    currentPath: "/class-setup?classId=42&step=3", surfaceId: "class-setup",
+    screenState: { "classsetup.current_step": { value: "3. 教學環境" } },
+  });
+  await click("模擬切換到範本");
+  const step = [...host.querySelectorAll("button")].find((button) => button.querySelector("strong")?.textContent === "選用環境");
+  await act(async () => step.click());
+  expect(host.querySelector('[data-testid="path"]').textContent).toBe("/class-setup?classId=42&step=3");
+});
+
+test("an answer for a screen left during the request cannot replace current guidance", async () => {
+  let finish;
+  AiNavigationService.resolve.mockImplementationOnce(() => new Promise((resolve) => { finish = resolve; }));
+  await send("我要建立班級");
+  await click("模擬切換到範本");
+  await act(async () => finish({ action: "answer", answer: "過期的畫面說明" }));
+  expect(host.textContent).not.toContain("過期的畫面說明");
+  expect(host.textContent).toContain("畫面或資料已變更");
+});
+
+test("environment steps open actual tabs without duplicating instructions or publishing", async () => {
+  const steps = [
+    { title: "填寫基本資料", detail: "填寫環境名稱", path: "/course-template-management/new", state: { environmentTab: "basic" }, status: "current" },
+    { title: "加入機器並設定配置", detail: "加入一至三台機器", path: "/course-template-management/new", state: { environmentTab: "machines" }, status: "todo" },
+    { title: "確認並發布環境", detail: "由使用者確認發布", path: "/course-template-management/new", state: { environmentTab: "machines" }, status: "todo" },
+  ];
+  AiNavigationService.resolve.mockResolvedValueOnce({ action: "guide", flow_id: "prepare_environment", flow_title: "建立教學環境", steps });
+  await send("我要建立教學環境");
+  const buttons = [...host.querySelectorAll("ol button")];
+  expect(buttons[0].querySelector("strong").textContent).toBe("填寫基本資料");
+  await act(async () => buttons[0].click());
+  expect(host.querySelector('[data-testid="path"]').textContent).toBe("/course-template-management/new?tab=basic");
+  await click("模擬既有環境草稿");
+  await act(async () => buttons[1].click());
+  const path = host.querySelector('[data-testid="path"]').textContent;
+  expect(path.split("?")[0]).toBe("/course-template-management/env-42");
+  expect(new URLSearchParams(path.split("?")[1]).get("tab")).toBe("machines");
+  expect(new URLSearchParams(path.split("?")[1]).get("returnTo")).toBe("/class-setup?classId=9&step=3");
+  await act(async () => buttons[2].click());
+  expect(host.textContent.split("加入一至三台機器")).toHaveLength(2);
+  expect(host.textContent.split("由使用者確認發布")).toHaveLength(2);
+  expect(AiNavigationService.resolve).toHaveBeenCalledOnce();
+  expect(AiTemplateRecommendationApi.recommend).not.toHaveBeenCalled();
+});
+
+test("建立課程 starts class guidance while preserving the old environment task", async () => {
+  AiNavigationService.resolve.mockResolvedValueOnce({
+    action: "guide", flow_id: "prepare_environment", flow_title: "建立教學環境",
+    steps: [{ title: "環境基本資料", path: "/course-template-management/new", status: "current" }],
+  });
+  await send("建立教學環境");
+  AiNavigationService.resolve.mockResolvedValueOnce({
+    action: "guide", flow_id: "open_class", flow_title: "建立班級",
+    steps: [{ title: "填寫課表", path: "/class-setup", detail: "填班級名稱與上課時間。", status: "current" }],
+  });
+  await send("建立課程");
+  expect(AiNavigationService.resolve.mock.calls.at(-1)[0]).toBe("建立課程");
+  expect(host.textContent).toContain("填班級名稱與上課時間");
+  expect(AiTemplateRecommendationApi.chat).not.toHaveBeenCalled();
+  expect(AiNavigationService.intake).not.toHaveBeenCalled();
+  const selected = host.querySelector('button[aria-pressed="true"]');
+  expect(selected.textContent).toBe("建立班級");
+  expect(host.querySelectorAll('button[aria-pressed]').length).toBe(2);
 });
