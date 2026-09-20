@@ -3,7 +3,6 @@
 import json
 import logging
 import re
-import secrets
 import threading
 import uuid
 from datetime import date
@@ -35,6 +34,7 @@ from app.services.network import ip_management_service
 from app.services.proxmox import provisioning_service, proxmox_service
 from app.services.resource import quota_service
 from app.services.template import clone_service
+from app.utils.login_password import generate_login_password
 
 logger = logging.getLogger(__name__)
 
@@ -570,7 +570,7 @@ def _provision_one(
             cores=params["cores"],
             memory=params["memory"],
             rootfs_size=params.get("rootfs_size", 8),
-            password=params.get("password") or secrets.token_urlsafe(18),
+            password=params.get("password") or generate_login_password(),
             storage=params.get("storage", "local-lvm"),
             environment_type=params.get("environment_type", "批量建立"),
             os_info=params.get("os_info"),
@@ -596,7 +596,7 @@ def _provision_one(
             hostname=hostname,
             template_id=params["template_id"],
             username=params.get("username") or "student",
-            password=params.get("password") or secrets.token_urlsafe(18),
+            password=params.get("password") or generate_login_password(),
             cores=params["cores"],
             memory=params["memory"],
             disk_size=params.get("disk_size", 20),
