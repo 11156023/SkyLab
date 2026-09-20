@@ -500,6 +500,7 @@ def create_lxc(
             expiry_date=lxc_data.expiry_date,
             ssh_private_key_encrypted=encrypt_value(private_key_pem),
             ssh_public_key=public_key,
+            login_password_encrypted=encrypt_value(lxc_data.password),
             batch_job_id=batch_job_id,
             commit=False,
         )
@@ -680,6 +681,7 @@ def create_vm(
             template_id=vm_data.template_id,
             ssh_private_key_encrypted=encrypt_value(private_key_pem),
             ssh_public_key=public_key,
+            login_password_encrypted=encrypt_value(vm_data.password),
             batch_job_id=batch_job_id,
             commit=False,
         )
@@ -836,7 +838,10 @@ def plan_provision(*, session: Session, db_request) -> dict:
         "hostname": db_request.hostname,
         "cores": db_request.cores,
         "memory": db_request.memory,
-        "password": decrypt_value(db_request.password),
+        # None（Course Lab）→ 不覆寫範本憑證；其餘來源都有值
+        "password": (
+            decrypt_value(db_request.password) if db_request.password else None
+        ),
         "start_immediately": should_start_now(db_request),
         "user_id": db_request.user_id,
         "environment_type": db_request.environment_type,
@@ -868,11 +873,6 @@ def plan_provision(*, session: Session, db_request) -> dict:
         plan["lxc_clone"] = True
         plan["template_id"] = db_request.template_id
         plan["template_node"] = template_row.node
-        # Course Lab 的 password 是佔位隨機值（憑證以範本內烘焙為準），
-        # 其餘來源（申請單 / 快速範本）為使用者自訂密碼，克隆後必須套用
-        plan["apply_login_password"] = (
-            getattr(db_request, "request_kind", "") != "course"
-        )
         plan["target_storage"] = _resolve_managed_storage(
             session=session,
             node=template_row.node,
@@ -963,6 +963,9 @@ def execute_provision(plan: dict) -> tuple[int, str]:
     actual_node = target_node
     net_cfg = plan.get("net_cfg", {})
     allocated_ip = plan.get("allocated_ip")
+    # 各分支真的把密碼寫進機器後翻成 True；呼叫端據此決定要不要把密碼
+    # 存進 resources.login_password_encrypted 給憑證卡片顯示
+    plan["login_password_applied"] = False
 
     try:
         if resource_type == "lxc":
@@ -983,9 +986,9 @@ def execute_provision(plan: dict) -> tuple[int, str]:
 
             if plan.get("lxc_clone"):
                 # LXC 範本克隆（linked 優先退 full），克隆後重配置。
-                # LXC 無 cloud-init：使用者自訂密碼須待啟動後以 pct exec 設定
-                # （_set_lxc_root_password）；Course Lab 憑證以範本內烘焙為準，
-                # 不套用（plan["apply_login_password"] = False）。
+                # LXC 無 cloud-init：登入密碼須待啟動後以 pct exec 設定
+                # （_set_lxc_root_password）；plan["password"] 為 None
+                # （Course Lab）時沿用範本內烘焙的憑證。
                 from app.services.template import clone_service  # noqa: PLC0415
 
                 clone_service.clone_with_fallback(
@@ -1016,13 +1019,11 @@ def execute_provision(plan: dict) -> tuple[int, str]:
                     int(plan.get("template_disk_gb") or 0),
                 )
                 firewall_service.setup_default_rules(actual_node, new_vmid, "lxc")
-                apply_password = bool(
-                    plan.get("apply_login_password") and plan.get("password")
-                )
+                apply_password = bool(plan.get("password"))
                 if plan["start_immediately"]:
                     proxmox_service.control(actual_node, new_vmid, "lxc", "start")
                     if apply_password:
-                        plan["login_password_applied"] = (
+                        plan["login_password_applied"] = bool(
                             clone_service._set_lxc_root_password(
                                 actual_node, new_vmid, plan["password"]
                             )
@@ -1049,7 +1050,6 @@ def execute_provision(plan: dict) -> tuple[int, str]:
                 "memory": plan["memory"],
                 "swap": 512,
                 "rootfs": f"{plan['target_storage']}:{plan['rootfs_size']}",
-                "password": plan["password"],
                 "net0": net0_parts,
                 "unprivileged": int(plan["unprivileged"]),
                 "start": int(plan["start_immediately"]),
@@ -1059,9 +1059,11 @@ def execute_provision(plan: dict) -> tuple[int, str]:
             }
             if net_cfg.get("dns_servers"):
                 config["nameserver"] = net_cfg["dns_servers"]
+            if plan.get("password"):
+                config["password"] = plan["password"]
+                plan["login_password_applied"] = True
             proxmox_service.create_lxc(target_node, **config)
             created = True
-            plan["login_password_applied"] = bool(plan.get("password"))
             firewall_service.setup_default_rules(target_node, new_vmid, "lxc")
         else:
             template_node = plan["template_node"]
@@ -1131,11 +1133,13 @@ def execute_provision(plan: dict) -> tuple[int, str]:
             config_updates = {
                 "cores": plan["cores"],
                 "memory": plan["memory"],
-                "cipassword": plan["password"],
                 "sshkeys": quote(plan.get("ssh_public_key", ""), safe=""),
                 "ciupgrade": 0,
             }
-            plan["login_password_applied"] = bool(plan.get("password"))
+            if plan.get("password"):
+                # cloud-init 首次開機套用；None 時沿用範本內建帳密
+                config_updates["cipassword"] = plan["password"]
+                plan["login_password_applied"] = True
             # Windows 範本不帶 username（帳號由 cloudbase-init 設定檔固定）
             if plan.get("username"):
                 config_updates["ciuser"] = plan["username"]
@@ -1202,6 +1206,17 @@ def execute_provision(plan: dict) -> tuple[int, str]:
     return new_vmid, actual_node
 
 
+def applied_login_password_encrypted(plan: dict) -> str | None:
+    """execute_provision 已寫進機器的登入密碼（加密後），供寫入 resources。
+
+    沒套用（Course Lab 沿用範本憑證、LXC 未啟動無法 pct exec）時回 None，
+    憑證卡片就不會顯示一組其實登不進去的密碼。
+    """
+    if plan.get("login_password_applied") and plan.get("password"):
+        return encrypt_value(str(plan["password"]))
+    return None
+
+
 def provision_from_request(
     *, session: Session, db_request
 ) -> tuple[int, str | None, str | None]:
@@ -1227,15 +1242,13 @@ def provision_from_request(
         template_id=getattr(db_request, "template_id", None),
         ssh_private_key_encrypted=plan.get("ssh_private_key_encrypted"),
         ssh_public_key=plan.get("ssh_public_key"),
-        # 未生效的密碼一律不記錄，否則詳情頁會顯示一組登不進去的密碼
-        login_password_encrypted=(
-            encrypt_value(plan["password"])
-            if plan.get("login_password_applied") and plan.get("password")
-            else None
-        ),
+        login_password_encrypted=applied_login_password_encrypted(plan),
         request_id=getattr(db_request, "id", None),
         commit=False,
     )
+    # 密碼已隨機器存進 resources，申請單不再保留可逆副本
+    db_request.password = None
+    session.add(db_request)
     ip_management_service.link_ip_to_resource(
         session,
         new_vmid,

@@ -589,7 +589,7 @@ function ErrorState({ onRetry }) {
 /* ── Page ── */
 export default function RequestsPage() {
   const { t } = useTranslation("personal");
-  /* 其他頁（如快速建立的「完整設定」）可用 navigate("/my-requests", { state: { create: true } }) 直接開表單 */
+  /* 其他頁（如快速練習的「完整設定」）可用 navigate("/my-requests", { state: { create: true } }) 直接開表單 */
   const location = useLocation();
   const [requests, setRequests] = useState([]);
   const [specRequests, setSpecRequests] = useState([]);

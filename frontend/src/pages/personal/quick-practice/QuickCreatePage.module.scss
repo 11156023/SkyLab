@@ -1,0 +1,8 @@
+.page {
+  @include flex-column;
+  width: 100%;
+  min-width: 0;
+  gap: $spacing-24;
+  padding: $spacing-8 $spacing-16 $spacing-32;
+  @include respond-to(md) { padding: 0 0 $spacing-32; }
+}

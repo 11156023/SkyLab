@@ -1281,7 +1281,7 @@
   overflow: hidden;
 }
 
-/* 班級管理流程列：對齊學習環境 stepper 的箭頭分段（chevron）樣式——
+/* 班級管理流程列：對齊教學環境 stepper 的箭頭分段（chevron）樣式——
    外框膠囊、段與段以斜切縫相接（縫隙色 = 外框 background 的 border 色）、
    選中分頁主色填滿；首末段各留平邊，外圓角交給外框 overflow */
 .workflowTabsBar {
@@ -3091,7 +3091,7 @@
   font-style: normal;
 }
 
-/* ── 學習環境列表：篩選與搜尋比照「申請審核」、表格比照「我的申請」 ── */
+/* ── 教學環境列表：篩選與搜尋比照「申請審核」、表格比照「我的申請」 ── */
 .envControls {
   display: flex;
   align-items: center;
@@ -3186,7 +3186,7 @@
 }
 
 
-/* ── 學習環境編輯頁 Stepper：箭頭分段（chevron）——外框膠囊、段與段以
+/* ── 教學環境編輯頁 Stepper：箭頭分段（chevron）——外框膠囊、段與段以
    斜切縫相接（縫隙色 = 外框 background 的 border 色），選中段主色填滿 ── */
 .envStepper {
   display: flex;
@@ -3374,25 +3374,47 @@
 .animSlideInLeft {
   animation: envSlideInLeft 0.22s cubic-bezier(0.25, 0.8, 0.25, 1) both;
 }
-/* ── 學習環境的說明文件 ── */
+/* ── 教學環境的說明文件 ── */
+/* 基本資訊表單裡的一個滿寬欄位：標籤字級比照 .field，上傳鈕靠右 */
 .fileSection {
   @include flex-column;
   gap: $spacing-8;
-  padding-top: $spacing-16;
-  border-top: 1px solid var(--color-divider);
+  min-width: 0;
 }
 
 .fileHeading {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: $spacing-16;
+  flex-wrap: wrap;
+  gap: $spacing-8 $spacing-16;
 
   > span {
-    color: var(--color-text-secondary);
-    font-size: $font-size-12;
+    color: var(--color-text);
+    font-size: $font-size-14;
     font-weight: $font-weight-500;
   }
+}
+
+/* 還沒有文件時的佔位框：虛線框住，欄位才不會只剩一行小字 */
+.fileEmpty {
+  display: flex;
+  align-items: center;
+  gap: $spacing-8;
+  margin: 0;
+  padding: $spacing-16;
+  border: 1px dashed var(--color-border);
+  border-radius: $radius-8;
+  color: var(--color-text-muted);
+  font-size: $font-size-14;
+  font-weight: $font-weight-400;
+}
+
+/* 還沒取名的草稿：名稱用淡色斜體，跟真的名字分得出來 */
+.envUnnamed {
+  color: var(--color-text-muted);
+  font-style: italic;
+  font-weight: $font-weight-400;
 }
 
 .fileList {

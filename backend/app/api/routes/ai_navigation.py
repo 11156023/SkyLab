@@ -28,6 +28,10 @@ async def resolve_navigation_route(
         session=session,
         history=request.history,
         current_path=request.current_path,
+        surface_id=request.surface_id,
+        screen_state=request.screen_state,
+        active_flow_id=request.active_flow_id,
+        pending_flow_ids=request.pending_flow_ids,
     )
 
 

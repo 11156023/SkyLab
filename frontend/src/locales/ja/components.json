@@ -1,4 +1,8 @@
 {
+  "AiFloatingChat.screenChanged": "回答を待つ間に画面やデータが変わりました。現在の画面についてもう一度質問してください。手順は保存されています。",
+  "AiFloatingChat.multipleFlowsIntro": "各手順を保存しました。進める項目を選択するか、途中でも質問できます。",
+  "AiFloatingChat.savedFlows": "保存した手順",
+  "AiFloatingChat.resumeFlow": "「{{title}}」に戻ります。手順を選択するか、次の操作を質問してください。",
   "AiFloatingChat.aiDisclaimer": "AIは誤った回答をすることがあります。重要な操作はご自身でご確認ください。",
   "AiFloatingChat.aiReplyingAriaLabel": "AIが返信中",
   "AiFloatingChat.answeredProgress": "{{answered}}/{{total}} 件把握済み",

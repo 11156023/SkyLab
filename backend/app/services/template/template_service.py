@@ -675,7 +675,7 @@ def _clone_children_vmids(session: Session, pve_vmid: int) -> list[int]:
 
 
 def _environments_referencing(session: Session, template_id: uuid.UUID) -> list[str]:
-    """引用這個母範本的學習環境名稱（含草稿與已下架版本）。
+    """引用這個母範本的教學環境名稱（含草稿與已下架版本）。
 
     已發布的環境會在學生按下啟動時才用到來源範本，所以刪除前必須先盤點；
     草稿與已下架版本一樣要算，否則教師之後建立新版本會拿到空的來源。

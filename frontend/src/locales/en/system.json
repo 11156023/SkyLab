@@ -253,7 +253,7 @@
   "GovernanceTab.cloneConcurrencyDesc": "Maximum number of concurrent VM/LXC clone operations (cloning is disk I/O-intensive on PVE; too high a value can overwhelm storage). Changes take effect on the next scheduling cycle.",
   "GovernanceTab.cloneConcurrencyTitle": "Clone Concurrency",
   "GovernanceTab.courseLabDesc": "Lab machines students launch from a course room: reclaimed automatically on expiry, with a cap on how many each student can run at once. Personal resource quotas still apply.",
-  "GovernanceTab.courseLabTitle": "Course Learning Environments",
+  "GovernanceTab.courseLabTitle": "Course Teaching Environments",
   "GovernanceTab.courseMaxActivePerUser": "Max Concurrent per Student",
   "GovernanceTab.courseMaxActivePerUserHint": "Once the limit is reached, an existing environment must be terminated before launching another",
   "GovernanceTab.courseTtlHours": "Lifetime (hours)",

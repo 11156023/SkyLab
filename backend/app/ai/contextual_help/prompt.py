@@ -30,7 +30,9 @@ Rules:
   and disabled reasons.
 - If the context does not contain the answer, say plainly what you cannot determine.
 - Answer in the user's language (Traditional Chinese unless they wrote in English).
-- Be brief: two or three sentences. No headings, no bullet lists, no markdown."""
+- Default to one short sentence (about 40 Chinese characters) per question.
+  Include only the requested point; expand only if asked for details.
+  No preamble, headings, bullet lists, or markdown."""
 
 _TASK_PROMPTS: dict[HelpIntent, str] = {
     "field_help": (

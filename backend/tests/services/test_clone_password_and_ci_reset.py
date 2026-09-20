@@ -531,7 +531,6 @@ def _lxc_clone_plan(**overrides: Any) -> dict[str, Any]:
         "password": "MyCustomPw1",
         "ssh_public_key": "ssh-ed25519 AAAA platform",
         "start_immediately": True,
-        "apply_login_password": True,
         "allocated_ip": "10.0.0.60",
         "net_cfg": {
             "bridge_name": "vmbr1",
@@ -598,12 +597,15 @@ def test_execute_provision_lxc_clone_applies_custom_password(
 ) -> None:
     from app.services.proxmox import provisioning_service
 
-    vmid, node = provisioning_service.execute_provision(_lxc_clone_plan())
+    plan = _lxc_clone_plan()
+    vmid, node = provisioning_service.execute_provision(plan)
 
     assert (vmid, node) == (300, "pve1")
     assert _patched_lxc_clone_provision["set_password"] == [
         ("pve1", 300, "MyCustomPw1")
     ]
+    assert plan["login_password_applied"] is True
+    assert provisioning_service.applied_login_password_encrypted(plan)
     assert _patched_lxc_clone_provision["inject_key"] == [
         ("pve1", 300, "ssh-ed25519 AAAA platform")
     ]
@@ -614,11 +616,13 @@ def test_execute_provision_lxc_clone_course_keeps_template_credentials(
 ) -> None:
     from app.services.proxmox import provisioning_service
 
-    provisioning_service.execute_provision(
-        _lxc_clone_plan(apply_login_password=False)
-    )
+    # Course Lab：申請單不帶密碼（None），沿用範本內烘焙的憑證
+    plan = _lxc_clone_plan(password=None)
+    provisioning_service.execute_provision(plan)
 
     assert _patched_lxc_clone_provision["set_password"] == []
+    assert plan["login_password_applied"] is False
+    assert provisioning_service.applied_login_password_encrypted(plan) is None
     assert _patched_lxc_clone_provision["inject_key"] == [
         ("pve1", 300, "ssh-ed25519 AAAA platform")
     ]
@@ -629,11 +633,13 @@ def test_execute_provision_lxc_clone_no_start_skips_password(
 ) -> None:
     from app.services.proxmox import provisioning_service
 
-    provisioning_service.execute_provision(
-        _lxc_clone_plan(start_immediately=False)
-    )
+    plan = _lxc_clone_plan(start_immediately=False)
+    provisioning_service.execute_provision(plan)
 
     # 未啟動無法 pct exec，不得誤呼叫（憑證沿用範本，僅記 warning）
     assert _patched_lxc_clone_provision["set_password"] == []
     assert _patched_lxc_clone_provision["inject_key"] == []
     assert _patched_lxc_clone_provision["control"] == []
+    # 沒套用就不能存進憑證卡片，否則會顯示一組登不進去的密碼
+    assert plan["login_password_applied"] is False
+    assert provisioning_service.applied_login_password_encrypted(plan) is None
