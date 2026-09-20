@@ -447,7 +447,11 @@ def _old_explicit_teaching_flow(query: str) -> str | None:
         "建立班級", "我要開課", "幫我 建立 一個 新的 班級", "請 幫我 新增一門課程的流程？",
         "  先建立教學環境。 ", "麻煩帶我開設一堂課！！", "我想要創建個環境的步驟", "開班",
         "建立\t班級\n", "我是想 開 一個 課程環境",
+        # 客套話疊很多層、互為前綴的（我想／我想要）、句尾一串標點
+        "請麻煩幫我協助我帶我建立班級", "我想我想要我要我是要我是想開課", "請請請建立環境？！。?!",
+        "我想要開班", "我想開班", "我要先新增一個新的課程環境的步驟。",
         # 不該命中的
+        "請", "我想要", "請幫我", "我想要要建立班級", "建立班級請", "？建立班級", "建立班級？a",
         "班級", "建立", "建立班級名單", "我要建立班級然後呢", "怎麼建立班級", "刪除班級", "",
     ],
 )
@@ -494,5 +498,7 @@ def test_phrase_matching_stays_fast_on_adversarial_input() -> None:
 
     started = time.perf_counter()
     assert navigation_service._explicit_teaching_flow("開" + " " * 100_000 + "x") is None
+    assert navigation_service._explicit_teaching_flow("請" * 100_000) is None
+    assert navigation_service._explicit_teaching_flow("請" * 100_000 + "建立班級" + "！" * 100_000) == "open_class"
     assert navigation_service._asks_which_comes_first("先" * 100_000) is False
     assert time.perf_counter() - started < 1.0

@@ -140,17 +140,36 @@ def _asks_which_comes_first(text: str) -> bool:
     return False
 
 
+# 句首可以疊好幾個的客套話。長的排前面：「我想要」要先於「我想」被吃掉。
+_POLITE_PREFIXES = ("我想要", "我是要", "我是想", "協助我", "麻煩", "幫我", "帶我", "我想", "我要", "請")
+
+
+def _strip_polite_prefixes(text: str) -> str:
+    start = 0
+    while True:
+        for prefix in _POLITE_PREFIXES:
+            if text.startswith(prefix, start):
+                start += len(prefix)
+                break
+        else:
+            return text[start:]
+
+
 def _explicit_teaching_flow(query: str) -> str | None:
     """A new, explicit request takes precedence over the previous task or page."""
-    # 空白對這句話沒有意義，先整個拿掉再比對。原本在可省略的群組之間夾了好幾個
-    # ``\s*``，一長串空白會有很多種切法，回溯是多項式時間（CodeQL py/polynomial-redos）。
+    # 比對前先用一般字串操作處理掉三種「可以重複任意次」的東西：空白（對這句話沒有
+    # 意義）、句首的客套話、句尾的標點。剩下的正規表示式沒有任何 * 或 +，長度固定，
+    # 不可能多項式回溯（CodeQL py/polynomial-redos）。
+    #   - 原本群組之間夾了好幾個 ``\s*``，一長串空白是三次方時間，2000 字要 23 秒。
+    #   - 客套話原本寫成 ``(?:請|麻煩|…)*``。配 fullmatch 其實是線性的，但 CodeQL 不
+    #     區分 fullmatch 與 search，仍會標記；改成迴圈後就沒有東西可標。
     compact = "".join(query.split())
+    core = _strip_polite_prefixes(compact).rstrip("。!！?？")
     match = re.fullmatch(
-        r"(?:請|麻煩|幫我|協助我|帶我|我想要|我想|我要|我是要|我是想)*"
         r"(?:先)?(?:建立|新增|創建|開設|開)(?:一(?:個|門|堂))?(?:新的?|個)?"
         r"(班級|課程|課堂|教學環境|課程環境|環境|班|課)"
-        r"(?:的?(?:流程|步驟))?[。!！?？]*",
-        compact,
+        r"(?:的?(?:流程|步驟))?",
+        core,
     )
     if not match:
         return None
