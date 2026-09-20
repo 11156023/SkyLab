@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
 import styles from "./AiApiPage.module.scss";
@@ -15,6 +15,8 @@ import PageHeader from "../../../components/PageHeader/PageHeader";
 import RrdChart from "../../../components/RrdChart/RrdChart";
 import { formatDateTime, formatMonthDay } from "../../../utils/formatDate";
 import { computePosition, isAnchorOffscreen } from "../../../components/PowerMenu/position";
+
+const ReadOnlyCode = lazy(() => import("../../../components/ReadOnlyCode/ReadOnlyCode"));
 
 /* ── helpers ── */
 
@@ -78,6 +80,18 @@ response = client.responses.create(
 )
 
 print(response.output_text)`;
+  }
+
+  if (language === "bash") {
+    const body = JSON.stringify(chat
+      ? { model: "MODEL_NAME", messages: [{ role: "user", content: "INPUT" }] }
+      : { model: "MODEL_NAME", input: "INPUT" }, null, 2);
+    return [
+      `curl "${url}" \\`,
+      '  -H "Authorization: Bearer YOUR_API_KEY" \\',
+      '  -H "Content-Type: application/json" \\',
+      `  -d '${body}'`,
+    ].join("\n");
   }
 
   if (language === "cmd") {
@@ -447,7 +461,7 @@ function ApiDocsContent({ credentials }) {
   const languages = [
     { key: "javascript", label: "JavaScript" },
     { key: "python", label: "Python" },
-    { key: "cmd", label: "CMD / cURL" },
+    { key: "bash", label: "Bash" },
   ];
   const endpointKinds = [
     { key: "responses", label: "Responses" },
@@ -501,7 +515,6 @@ function ApiDocsContent({ credentials }) {
                 </div>
               ) : (
                 <p className={styles.docsNotice}>
-                  <MIcon name="vpn_key_off" size={16} />
                   <span>{t("AiApiPage.docsNoActiveKey")}</span>
                 </p>
               )}
@@ -516,7 +529,6 @@ function ApiDocsContent({ credentials }) {
         <div className={styles.docsStepBody}>
           <h3 className={styles.docsStepTitle}>
             {t("AiApiPage.docsModelsTitle")}
-            <small>{t("AiApiPage.docsModelsNote")}</small>
           </h3>
           <div className={styles.docsEndpointRow}>
             <code title={modelsCommand}>{modelsCommand}</code>
@@ -532,67 +544,59 @@ function ApiDocsContent({ credentials }) {
         <span className={styles.docsStepNumber}>3</span>
         <div className={styles.docsStepBody}>
           <h3 className={styles.docsStepTitle}>{t("AiApiPage.docsExampleTitle")}</h3>
+          <div className={styles.codeToolbar}>
+            <div className={styles.codeTabs} role="group" aria-label={t("AiApiPage.docsEndpointKindLabel")}>
+              {endpointKinds.map((item) => (
+                <button
+                  key={item.key}
+                  type="button"
+                  aria-pressed={endpointKind === item.key}
+                  className={endpointKind === item.key ? styles.codeTabActive : styles.codeTab}
+                  onClick={() => setEndpointKind(item.key)}
+                >
+                  {item.label}
+                </button>
+              ))}
+            </div>
+            <div className={styles.codeTabs} role="group" aria-label={t("AiApiPage.docsLanguageLabel")}>
+              {languages.map((item) => (
+                <button
+                  key={item.key}
+                  type="button"
+                  aria-pressed={language === item.key}
+                  className={language === item.key ? styles.codeTabActive : styles.codeTab}
+                  onClick={() => setLanguage(item.key)}
+                >
+                  {item.label}
+                </button>
+              ))}
+            </div>
+          </div>
           <div className={styles.codeCard}>
             <div className={styles.codePanelHeader}>
-              <div className={styles.codeToolbar}>
-                <div className={styles.codeTabs} role="tablist" aria-label={t("AiApiPage.docsLanguageLabel")}>
-                  {languages.map((item) => (
-                    <button
-                      key={item.key}
-                      type="button"
-                      role="tab"
-                      aria-selected={language === item.key}
-                      className={language === item.key ? styles.codeTabActive : styles.codeTab}
-                      onClick={() => setLanguage(item.key)}
-                    >
-                      {item.label}
-                    </button>
-                  ))}
-                </div>
-                <div className={styles.codeTabs} role="tablist" aria-label={t("AiApiPage.docsEndpointKindLabel")}>
-                  {endpointKinds.map((item) => (
-                    <button
-                      key={item.key}
-                      type="button"
-                      role="tab"
-                      aria-selected={endpointKind === item.key}
-                      className={endpointKind === item.key ? styles.codeTabActive : styles.codeTab}
-                      onClick={() => setEndpointKind(item.key)}
-                    >
-                      {item.label}
-                    </button>
-                  ))}
-                </div>
-              </div>
-              <button type="button" className={styles.codeCopyButton} onClick={() => copy(t("AiApiPage.docsCode"), code)}>
+              <span>{language}</span>
+              <button type="button" className={styles.codeCopyButton} onClick={() => copy(t("AiApiPage.docsCode"), code)} aria-label={t("AiApiPage.copyCode")} title={t("AiApiPage.copyCode")}>
                 <MIcon name="content_copy" size={16} />
-                {t("AiApiPage.copyCode")}
               </button>
             </div>
-            <pre className={styles.codeBlock}><code>{code}</code></pre>
+            <div className={styles.codeViewport}>
+              <Suspense fallback={<pre className={styles.codeBlock}><code>{code}</code></pre>}>
+                <ReadOnlyCode
+                  code={code}
+                  language={language}
+                  height="100%"
+                  label={`${t("AiApiPage.docsCode")} (${language})`}
+                  fallback={<pre className={styles.codeBlock}><code>{code}</code></pre>}
+                />
+              </Suspense>
+            </div>
           </div>
-          {/* 要替換的三個值直接用標籤列出來，名字本身就說明了要填什麼 */}
-          <p className={styles.docsReplace}>
-            <span>{t("AiApiPage.docsReplaceLabel")}</span>
-            <code>YOUR_API_KEY</code><code>MODEL_NAME</code><code>INPUT</code>
-          </p>
-          <p className={styles.codeHint}>
-            <MIcon name="terminal" size={14} />
-            <span>
-              {language === "javascript"
-                ? t("AiApiPage.docsJavascriptHint")
-                : language === "python"
-                  ? t("AiApiPage.docsPythonHint")
-                  : t("AiApiPage.docsCmdHint")}
-            </span>
-          </p>
         </div>
       </section>
 
       {/* 出錯時才需要看，預設收合，不佔主流程的版面 */}
       <details className={styles.docsErrors}>
         <summary>
-          <MIcon name="help_outline" size={18} />
           {t("AiApiPage.docsLimitsTitle")}
           <MIcon name="expand_more" size={18} className={styles.docsErrorsChevron} />
         </summary>
@@ -611,10 +615,6 @@ function ApiDocsContent({ credentials }) {
         </div>
       </details>
 
-      <p className={styles.docsSecurity}>
-        <MIcon name="shield" size={16} />
-        <span>{t("AiApiPage.docsSecurityNote")}</span>
-      </p>
     </div>
   );
 }
@@ -645,7 +645,6 @@ function QuickStartModal({ closing = false, credentials, onClose }) {
         onMouseDown={(event) => event.stopPropagation()}
       >
         <div className={styles.quickStartHeader}>
-          <div className={styles.quickStartIcon}><MIcon name="rocket_launch" size={20} /></div>
           <div className={styles.quickStartHeading}>
             <h2 id="ai-quick-start-title" className={styles.dialogTitle}>{t("AiApiPage.quickStartButton")}</h2>
           </div>

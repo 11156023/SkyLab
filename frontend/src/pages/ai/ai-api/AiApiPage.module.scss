@@ -517,11 +517,10 @@
   font-size: $font-size-12;
   line-height: 1.6;
 
-  > :first-child { flex: 0 0 auto; margin-top: 1px; color: var(--color-pending); }
 }
 
 .docsKeySelect {
-  flex: 0 1 140px;
+  flex: 0 1 45%;
   min-width: 0;
   height: 32px;
   padding: 0 $spacing-8;
@@ -556,37 +555,6 @@
   }
 }
 
-/* 要替換的值：一行標籤，不逐項解釋 */
-.docsReplace {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 6px;
-  margin: 0;
-  color: var(--color-text-muted);
-  font-size: $font-size-12;
-
-  code {
-    padding: 2px 7px;
-    border-radius: 6px;
-    color: var(--color-primary);
-    background: color-mix(in srgb, var(--color-primary) 10%, transparent);
-    font: 600 11px/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  }
-}
-
-.codeHint {
-  display: flex;
-  align-items: flex-start;
-  gap: 6px;
-  margin: 0;
-  color: var(--color-text-muted);
-  font-size: $font-size-12;
-  line-height: 1.6;
-
-  > :first-child { flex: 0 0 auto; margin-top: 2px; }
-}
-
 /* 常見錯誤：預設收合，出錯才點開 */
 .docsErrors {
   min-width: 0;
@@ -614,18 +582,6 @@
 .docsErrorsChevron {
   margin-left: auto;
   transition: transform $transition-base;
-}
-
-.docsSecurity {
-  display: flex;
-  align-items: flex-start;
-  gap: $spacing-8;
-  margin: 0;
-  color: var(--color-text-muted);
-  font-size: $font-size-12;
-  line-height: 1.6;
-
-  > :first-child { flex: 0 0 auto; margin-top: 1px; }
 }
 
 .statusCode {
@@ -685,60 +641,36 @@
     opacity: 0.45;
     cursor: not-allowed;
   }
+
+  &:focus-visible {
+    outline: 2px solid var(--color-primary);
+    outline-offset: 2px;
+  }
 }
 
 /* 值旁邊的複製鈕只留圖示，欄位才放得下完整的值 */
-.docsCopyButton {
+.docsCopyButton,
+.codeCopyButton {
   width: 32px;
   height: 32px;
   padding: 0;
 }
 
-/* 範例程式：工具列與程式碼包成同一張卡，切換、複製和內容視覺上是一體的 */
-.codeCard {
-  min-width: 0;
-  border: 1px solid var(--color-border);
-  border-radius: $radius-12;
-  overflow: hidden;
-
-  .codePanelHeader {
-    padding: $spacing-8;
-    border-bottom: 1px solid var(--color-border);
-    background: var(--color-surface);
-  }
-
-  .codeBlock {
-    border: 0;
-    border-radius: 0;
-  }
-}
-
-/* 語言與 API 類型兩組切換排在一起 */
 .codeToolbar {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: $spacing-8;
-  min-width: 0;
-}
-
-/* 切換與「複製程式碼」同一列：切換在左、複製在右 */
-.codePanelHeader {
   display: flex;
   align-items: center;
   justify-content: space-between;
   flex-wrap: wrap;
   gap: $spacing-8;
+  min-width: 0;
 }
 
 .codeTabs {
   display: flex;
-  gap: 3px;
-  padding: 3px;
+  padding: 2px;
   width: fit-content;
   max-width: 100%;
-  border: 1px solid var(--color-border);
-  border-radius: $radius-8;
+  border-radius: 6px;
   background: var(--color-hover);
   overflow-x: auto;
 }
@@ -746,12 +678,19 @@
 .codeTab,
 .codeTabActive {
   flex: 0 0 auto;
-  padding: 6px 12px;
-  border-radius: 6px;
+  padding: 5px 8px;
+  border-radius: 4px;
   color: var(--color-text-secondary);
-  font-size: $font-size-12;
+  font-size: 11px;
   font-weight: 600;
+  line-height: 18px;
+  white-space: nowrap;
   cursor: pointer;
+
+  &:focus-visible {
+    outline: 2px solid var(--color-primary);
+    outline-offset: -2px;
+  }
 }
 
 .codeTab:hover {
@@ -760,25 +699,63 @@
 }
 
 .codeTabActive {
-  color: var(--color-primary);
-  background: var(--color-surface);
+  color: var(--color-text-on-primary);
+  background: var(--color-primary);
   box-shadow: var(--shadow-sm);
 }
 
-/* 高度跟著程式碼長：捲動交給彈窗，不在框裡再包一層直向捲軸；太寬才橫向捲 */
+.codeCard {
+  min-width: 0;
+  border: 1px solid #353c46;
+  border-radius: $radius-8;
+  overflow: hidden;
+  background: #1e1e1e;
+}
+
+.codePanelHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: $spacing-8;
+  padding: 3px 6px 3px 12px;
+  background: #252526;
+  color: #bfc7d5;
+  font: 11px/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+
+  .codeCopyButton {
+    width: 28px;
+    height: 28px;
+    border: 0;
+    border-radius: 4px;
+    color: #bfc7d5;
+    background: transparent;
+
+    &:hover {
+      color: #fff;
+      background: #353c46;
+    }
+  }
+}
+
+.codeViewport {
+  height: clamp(220px, 40vh, 380px);
+  min-width: 0;
+  overflow: hidden;
+}
+
 .codeBlock {
+  width: 100%;
+  height: 100%;
+  box-sizing: border-box;
   margin: 0;
   padding: $spacing-16;
-  border: 1px solid var(--color-border);
-  border-radius: $radius-12;
-  background: var(--color-hover);
   overflow: auto;
+  color: #d4d4d4;
+  background: #1e1e1e;
+  font: 12px/20px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  tab-size: 2;
 
-  code {
-    color: var(--color-text-primary);
-    font: 13px/1.7 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-    white-space: pre;
-  }
+  code { font: inherit; white-space: pre; }
 }
 
 /* ── Badge ── */
@@ -1121,7 +1098,7 @@
 
 /* API 快速開始：標題列固定、內容區往下捲；單欄長條，寬度以程式碼一行放得下為準 */
 .quickStartDialog {
-  width: min(720px, 100%);
+  width: min(960px, 100%);
   padding: 0;
   gap: 0;
   overflow: hidden;
@@ -1133,16 +1110,6 @@
   gap: 12px;
   padding: $spacing-24 $spacing-24 $spacing-16;
   border-bottom: 1px solid var(--color-divider);
-}
-
-.quickStartIcon {
-  @include flex-center;
-  flex: 0 0 auto;
-  width: 36px;
-  height: 36px;
-  border-radius: 50%;
-  color: var(--color-primary);
-  background: color-mix(in srgb, var(--color-primary) 12%, transparent);
 }
 
 .quickStartHeading {

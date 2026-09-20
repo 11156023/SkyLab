@@ -12,7 +12,7 @@ describe("AI API 文件", () => {
       .toBe("https://api.example.edu/api/v1/ai-proxy");
   });
 
-  test.each(["javascript", "python", "cmd"])(
+  test.each(["javascript", "python", "bash", "cmd"])(
     "%s 範例包含實際端點與必要替換值",
     (language) => {
       const example = buildApiExample(language, "https://api.example.edu");
@@ -24,7 +24,7 @@ describe("AI API 文件", () => {
     },
   );
 
-  test.each(["javascript", "python", "cmd"])(
+  test.each(["javascript", "python", "bash", "cmd"])(
     "%s 的 Chat Completions 範例打到 chat 端點，替換值一樣齊全",
     (language) => {
       const example = buildApiExample(language, "https://api.example.edu", "chat");
@@ -45,6 +45,18 @@ describe("AI API 文件", () => {
       expect(body.startsWith('"{\\"model\\":')).toBe(true);
       expect(JSON.parse(body.slice(1, -1).replaceAll('\\"', '"')).model).toBe("MODEL_NAME");
     }
+  });
+
+  test.each(["responses", "chat"])("Bash %s 範例保留 JSON 與續行語法", (endpoint) => {
+    const example = buildApiExample("bash", "https://api.example.edu", endpoint);
+    const [headers, body] = example.split("  -d '");
+    expect(headers.split("\n").slice(0, -1).every((line) => line.endsWith("\\"))).toBe(true);
+    expect(example).not.toContain("^");
+    expect(body.endsWith("'")).toBe(true);
+    const payload = JSON.parse(body.slice(0, -1));
+    expect(payload).toEqual(endpoint === "chat"
+      ? { model: "MODEL_NAME", messages: [{ role: "user", content: "INPUT" }] }
+      : { model: "MODEL_NAME", input: "INPUT" });
   });
 
   test("查模型的指令指向 /models 並帶上金鑰", () => {
