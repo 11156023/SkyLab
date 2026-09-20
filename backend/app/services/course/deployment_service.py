@@ -8,7 +8,6 @@
 """
 
 import logging
-import secrets
 import uuid
 from datetime import UTC, datetime, timedelta
 
@@ -128,8 +127,9 @@ def _build_request(
         hostname=hostname,
         cores=template.default_cores or 2,
         memory=template.default_memory or 2048,
-        # 平台流程需要密碼欄位；課程機登入憑證以範本內烘焙為準
-        password=secrets.token_urlsafe(24),
+        # 課程機登入憑證以範本內烘焙為準：不另發密碼，provision 看到 None
+        # 就不會覆寫（VM 不帶 cipassword、LXC 不跑 chpasswd）
+        password=None,
         storage=template.storage or "local-lvm",
         environment_type="Course Lab",
         os_info=template.name,

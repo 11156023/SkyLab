@@ -30,6 +30,7 @@ from app.schemas.resource_settings import (
 )
 from app.services.proxmox import proxmox_service
 from app.services.user import audit_service
+from app.utils.login_password import generate_login_password
 
 logger = logging.getLogger(__name__)
 
@@ -235,10 +236,6 @@ def reset_password(
     user_id: uuid.UUID,
     password: str | None,
 ) -> PasswordResetResponse:
-    from app.services.template.clone_service import (
-        generate_login_password,  # noqa: PLC0415
-    )
-
     db_resource = _get_db_resource(session, vmid)
     rtype = _rtype(resource_info)
     new_password = password or generate_login_password()
