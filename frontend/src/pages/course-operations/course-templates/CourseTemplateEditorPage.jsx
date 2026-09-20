@@ -36,6 +36,7 @@ import PageHeader from "../../../components/PageHeader/PageHeader";
 import i18n from "../../../i18n";
 import { AuthStorage } from "../../../services/auth";
 import { createEnvironmentAutosave } from "./environmentAutosave";
+import useAiScreen from "../../../hooks/useAiScreen";
 
 const TABS = [
   ["basic", "CourseTemplateEditorPage.tabBasicLabel"],
@@ -612,6 +613,15 @@ export default function CourseTemplateEditorPage() {
     edge.protocol !== "any"
     && (!Number.isInteger(Number(edge.port)) || Number(edge.port) < 1 || Number(edge.port) > 65535)
   ));
+  useAiScreen(templateId ? "course-template-editor" : "course-template-new", {
+    "coursetpl.tab": { value: tab },
+    "coursetpl.status": { value: loading ? "loading" : template.status },
+    "coursetpl.name": { value: template.name.slice(0, 500), error: invalidField === "name" ? t("CourseTemplateEditorPage.nameRequiredError") : null },
+    "coursetpl.usage_scope": { value: template.usageScope ?? "course" },
+    "coursetpl.node_count": { value: String(template.nodes?.length ?? 0) },
+    "coursetpl.return_to_class": { value: String(Boolean(returnTo)) },
+    "coursetpl.publish": { disabled: saving || closing || template.status !== "draft" },
+  });
   /* 不小心跳離（點側欄、重新整理）時保留未儲存的編輯：
      每次編輯寫入 sessionStorage，進頁還原，成功儲存／發布才清除 */
   const draftKey = `courseTemplateEditorDraft:${AuthStorage.getSnapshot().sessionId ?? "anonymous"}:${templateId ?? "new"}`;
@@ -854,7 +864,7 @@ export default function CourseTemplateEditorPage() {
   }
   if (loading) return <LoadingState fullPage text={t("CourseTemplateEditorPage.loadingTemplateText")} />;
   return <div className={`${styles.page} ${tab === "machines" ? styles.editorPageLocked : ""} ${closing ? styles.animSlideOutRight : styles.animSlideInRight}`}>
-    <PageHeader title={isNew ? t("CourseTemplateEditorPage.createTemplateTitle") : template.name} subtitle={isNew ? undefined : `v${template.version} · ${template.updatedAt}`}><div className={styles.pageActions}><button type="button" className={`${styles.btnSecondary} ${styles.backBtn}`} onClick={() => leaveTo(returnTo ?? "/course-template-management")}><MIcon name="arrow_back" size={18} />{t("CourseTemplateEditorPage.backBtn")}</button></div></PageHeader>
+    <PageHeader title={isNew ? t("CourseTemplateEditorPage.createTemplateTitle") : (template.name.trim() || t("CourseTemplateEditorPage.unnamedEnv"))} subtitle={isNew ? undefined : `v${template.version} · ${template.updatedAt}`}><div className={styles.pageActions}><button type="button" className={`${styles.btnSecondary} ${styles.backBtn}`} onClick={() => leaveTo(returnTo ?? "/course-template-management")}><MIcon name="arrow_back" size={18} />{t("CourseTemplateEditorPage.backBtn")}</button></div></PageHeader>
     {template.status === "draft" && saveState === "error" && <p className={styles.persistentFeedback} role="alert">
       <MIcon name="cloud_off" size={17} />
       <span>{t("CourseTemplateEditorPage.autosave.error")}{saveError && ` ${saveError}`}</span>
@@ -884,18 +894,19 @@ export default function CourseTemplateEditorPage() {
           );
         })}
     </nav>
-    {tab === "basic" && <section className={styles.card}><div className={styles.formGrid}><label className={styles.field}><span>{t("CourseTemplateEditorPage.fieldEnvName")}</span><input ref={nameRef} className={invalidField === "name" ? styles.fieldInvalid : undefined} aria-invalid={invalidField === "name"} aria-errormessage={invalidField === "name" ? "env-name-error" : undefined} disabled={saving} value={template.name} onChange={(event) => { updateBasics({ name: event.target.value }); if (invalidField === "name") setInvalidField(""); }} placeholder={t("CourseTemplateEditorPage.envNamePlaceholder")} />{invalidField === "name" && <em id="env-name-error" className={styles.fieldError}>{t("CourseTemplateEditorPage.nameRequiredError")}</em>}</label><label className={styles.field}><span>{t("CourseTemplateEditorPage.fieldUsageScope")}</span><select disabled={saving} value={template.usageScope ?? "course"} onChange={(event) => updateBasics({ usageScope: event.target.value })}><option value="course">{t("CourseTemplateEditorPage.usageScopeCourseOnly")}</option><option value="quick_practice">{t("CourseTemplateEditorPage.usageScopeQuickPracticeOnly")}</option><option value="both">{t("CourseTemplateEditorPage.usageScopeBoth")}</option></select></label><label className={`${styles.field} ${styles.fieldFull}`}><span>{t("CourseTemplateEditorPage.fieldEnvDescription")}</span><textarea disabled={saving} rows={3} value={template.description ?? ""} onChange={(event) => updateBasics({ description: event.target.value })} /></label></div>
+    {tab === "basic" && <section className={styles.card}><div className={styles.formGrid}><label className={styles.field}><span>{t("CourseTemplateEditorPage.fieldEnvName")}</span><input ref={nameRef} className={invalidField === "name" ? styles.fieldInvalid : undefined} aria-invalid={invalidField === "name"} aria-errormessage={invalidField === "name" ? "env-name-error" : undefined} disabled={saving} value={template.name} onChange={(event) => { updateBasics({ name: event.target.value }); if (invalidField === "name") setInvalidField(""); }} placeholder={t("CourseTemplateEditorPage.envNamePlaceholder")} />{invalidField === "name" && <em id="env-name-error" className={styles.fieldError}>{t("CourseTemplateEditorPage.nameRequiredError")}</em>}</label><label className={styles.field}><span>{t("CourseTemplateEditorPage.fieldUsageScope")}</span><select disabled={saving} value={template.usageScope ?? "course"} onChange={(event) => updateBasics({ usageScope: event.target.value })}><option value="course">{t("CourseTemplateEditorPage.usageScopeCourseOnly")}</option><option value="quick_practice">{t("CourseTemplateEditorPage.usageScopeQuickPracticeOnly")}</option><option value="both">{t("CourseTemplateEditorPage.usageScopeBoth")}</option></select></label><label className={`${styles.field} ${styles.fieldFull}`}><span>{t("CourseTemplateEditorPage.fieldEnvDescription")}</span><textarea disabled={saving} rows={3} value={template.description ?? ""} onChange={(event) => updateBasics({ description: event.target.value })} /></label>
 
-      <div className={styles.fileSection}>
+      {/* 說明文件是基本資訊的一個滿寬欄位：放在 formGrid 裡才吃得到卡片內距、跟上面的欄位對齊 */}
+      <div className={`${styles.fileSection} ${styles.fieldFull}`}>
         <div className={styles.fileHeading}>
           <span>{t("CourseTemplateEditorPage.fieldFiles")}</span>
           <button type="button" className={styles.btnSecondary} disabled={saving || !hasEnvironmentId} onClick={() => fileInputRef.current?.click()}><MIcon name="upload_file" size={16} />{t("CourseTemplateEditorPage.uploadFileBtn")}</button>
           <input ref={fileInputRef} type="file" hidden onChange={(event) => uploadFile(event.target.files?.[0])} />
         </div>
         {!hasEnvironmentId
-          ? <p className={styles.inspectorHint}>{t("CourseTemplateEditorPage.filesNeedSaveHint")}</p>
+          ? <p className={styles.fileEmpty}><MIcon name="info" size={16} />{t("CourseTemplateEditorPage.filesNeedSaveHint")}</p>
           : (template.files ?? []).length === 0
-            ? <p className={styles.inspectorHint}>{t("CourseTemplateEditorPage.noFilesHint")}</p>
+            ? <p className={styles.fileEmpty}><MIcon name="description" size={16} />{t("CourseTemplateEditorPage.noFilesHint")}</p>
             : <ul className={styles.fileList}>
                 {(template.files ?? []).map((file) => <li key={file.id}>
                   <MIcon name="description" size={16} />
@@ -905,7 +916,9 @@ export default function CourseTemplateEditorPage() {
                 </li>)}
               </ul>}
       </div>
-{template.status !== "draft" && <p className={styles.inspectorHint}>{t("CourseTemplateEditorPage.basicsEditableHint")}</p>}<div className={styles.actionFooter}>{template.status !== "draft" && <button type="button" className={styles.btnPrimary} disabled={saving || !basicsDirty} onClick={saveBasics}><MIcon name="save" size={16} />{t("CourseTemplateEditorPage.saveBasicsBtn")}</button>}<button type="button" className={template.status === "draft" ? styles.btnPrimary : styles.btnSecondary} onClick={() => changeTab("machines")}>{t("CourseTemplateEditorPage.viewMachineConfigBtn")}<MIcon name="arrow_forward" size={16} /></button></div></section>}
+      {template.status !== "draft" && <p className={`${styles.inspectorHint} ${styles.fieldFull}`}>{t("CourseTemplateEditorPage.basicsEditableHint")}</p>}
+      </div>
+<div className={styles.actionFooter}>{template.status !== "draft" && <button type="button" className={styles.btnPrimary} disabled={saving || !basicsDirty} onClick={saveBasics}><MIcon name="save" size={16} />{t("CourseTemplateEditorPage.saveBasicsBtn")}</button>}<button type="button" className={template.status === "draft" ? styles.btnPrimary : styles.btnSecondary} onClick={() => changeTab("machines")}>{t("CourseTemplateEditorPage.viewMachineConfigBtn")}<MIcon name="arrow_forward" size={16} /></button></div></section>}
     {tab === "machines" && <MachineEditor value={template.nodes} edges={template.edges ?? []} publications={template.publications ?? []} onChange={(nodes) => update({ nodes })} onEdgesChange={(edges) => update({ edges })} onPublicationsChange={(publications) => update({ publications })} pveTemplates={pveTemplates} vmImages={vmImages} lxcImages={lxcImages} zones={zones} sourceNotice={sourceNotice} locked={locked} actions={template.status === "draft" && <button type="button" className={styles.btnPrimary} disabled={saving || closing} onClick={publish}><MIcon name="publish" size={16} />{saving ? t("CourseTemplateEditorPage.publishing") : t("CourseTemplateEditorPage.publishLabel")}</button>} />}
   </div>;
 }

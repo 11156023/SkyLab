@@ -94,7 +94,7 @@ _ROUTES: tuple[NavigationRoute, ...] = (
     # --- 教師與管理者 ---
     NavigationRoute(
         path="/templates",
-        title="範本管理",
+        title="機器範本",
         summary="把機器轉成範本，或開放範本給學生申請。",
         keywords=("範本", "模板", "template", "母範本", "轉範本"),
         access="staff",
@@ -115,9 +115,16 @@ _ROUTES: tuple[NavigationRoute, ...] = (
     ),
     NavigationRoute(
         path="/course-template-management",
-        title="課程環境範本",
-        summary="設計課堂要用的學習環境並開放快速練習。",
-        keywords=("課程環境", "環境範本", "學習環境", "多機環境", "快速練習"),
+        title="教學環境",
+        summary="設計課堂要用的教學環境並開放快速練習。",
+        keywords=("課程環境", "環境範本", "教學環境", "學習環境", "多機環境", "快速練習"),
+        access="staff",
+    ),
+    NavigationRoute(
+        path="/course-template-management/new",
+        title="建立教學環境",
+        summary="填寫基本資料與機器配置，發布供正式課程或快速練習使用的教學環境。",
+        keywords=("建立教學環境", "新增教學環境"),
         access="staff",
     ),
     NavigationRoute(

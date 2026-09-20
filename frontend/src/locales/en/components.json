@@ -1,4 +1,8 @@
 {
+  "AiFloatingChat.screenChanged": "The page or data changed while waiting. Ask again for guidance based on the current screen. Your workflows are saved.",
+  "AiFloatingChat.multipleFlowsIntro": "These workflows are saved. Choose one to work on, or ask a question at any time.",
+  "AiFloatingChat.savedFlows": "Saved workflows",
+  "AiFloatingChat.resumeFlow": "Resuming {{title}}. Choose a step or ask what to do next.",
   "AiFloatingChat.aiDisclaimer": "AI may make mistakes — please confirm important actions yourself.",
   "AiFloatingChat.aiReplyingAriaLabel": "AI is replying",
   "AiFloatingChat.answeredProgress": "{{answered}}/{{total}} answered",
