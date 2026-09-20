@@ -875,8 +875,9 @@ _AI_API_ELEMENTS: tuple[ElementSpec, ...] = (
              "不包含平台 Template 功能用量。",
     ),
     ElementSpec(
-        id="aiapi.docs", role="list", label="API 文件", section="API 文件",
-        help="提供 Responses API 的 POST 端點，以及 JavaScript、Python、CMD / cURL 範例。",
+        id="aiapi.docs", role="button", label="API 快速開始", section="申請",
+        help="在「新增金鑰」旁邊，點開會跳出視窗，提供 Base URL、Responses API 的 POST 端點，"
+             "以及 JavaScript、Python、CMD / cURL 範例。",
     ),
 )
 
@@ -1532,8 +1533,8 @@ _SURFACES: tuple[SurfaceSpec, ...] = (
         id="ai-api",
         path="/ai-api",
         title="AI API",
-        purpose="申請 AI API 金鑰、查詢申請紀錄、閱讀串接文件與查看個人 token 用量。",
-        sections=("申請", "API 文件", "申請紀錄", "我的用量"),
+        purpose="申請 AI API 金鑰、查詢申請紀錄、開啟 API 快速開始看串接範例，以及查看個人 token 用量。",
+        sections=("申請", "申請紀錄", "我的用量"),
         elements=_AI_API_ELEMENTS,
     ),
     # ── 教師與管理者 ──
