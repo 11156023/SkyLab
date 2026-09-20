@@ -14,7 +14,7 @@ export const AiNavigationService = {
    *        primary?: { title, path, reason, state? }, suggestions: [...],
    *        clarification_question?, flow_id?, flow_title?, steps: [...], active_step? }
    */
-  resolve(query, { history = [], currentPath = null } = {}) {
+  resolve(query, { history = [], currentPath = null, surfaceId, screenState, activeFlowId, pendingFlowIds } = {}) {
     return apiPost("/api/v1/ai/navigation/resolve", {
       query,
       history: history
@@ -25,6 +25,9 @@ export const AiNavigationService = {
           content: String(message.content ?? "").slice(0, 2000),
         })),
       current_path: currentPath,
+      ...(surfaceId ? { surface_id: surfaceId, screen_state: screenState ?? {} } : {}),
+      ...(activeFlowId ? { active_flow_id: activeFlowId } : {}),
+      ...(pendingFlowIds?.length ? { pending_flow_ids: pendingFlowIds.slice(0, 10) } : {}),
     });
   },
 

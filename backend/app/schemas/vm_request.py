@@ -52,7 +52,9 @@ class VMRequestCreate(BaseModel):
     # 收得比模板嚴會讓既有課程環境在開課時被自己的 schema 擋下。
     cores: int = Field(default=2, ge=1, le=64)
     memory: int = Field(default=2048, ge=128, le=131072, description="MB")
-    password: str = Field(min_length=8, max_length=128)
+    # 留空由系統產生（見 vm_request_service）；Course Lab 明確傳 None 表示
+    # 不另發密碼、沿用範本內烘焙的憑證
+    password: str | None = Field(default=None, min_length=8, max_length=128)
     storage: str = "local-lvm"
     environment_type: str = "Custom"
     os_info: str | None = None

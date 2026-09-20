@@ -2,7 +2,6 @@
 
 import logging
 import re
-import secrets
 import uuid
 from datetime import UTC, datetime, timedelta
 
@@ -34,6 +33,7 @@ from app.schemas import VMRequestCreate
 from app.services.resource import quota_service
 from app.services.scheduling.recurrence import get_schedule_policy
 from app.services.vm import vm_request_service
+from app.utils.login_password import generate_login_password
 
 MAX_ACTIVE_SESSIONS_PER_USER = 1
 MAX_SESSIONS_PER_24_HOURS = 3
@@ -566,7 +566,8 @@ def _machine_request(
         hostname=f"practice-{practice_session_id.hex[:6]}-{_hostname_label(node)}",
         cores=node.cpu,
         memory=node.memory_mb,
-        password=secrets.token_urlsafe(24),
+        # 練習機的密碼會真的套用並存進 resources 憑證卡片，要給人打得出來的
+        password=generate_login_password(),
         storage=storage,
         environment_type=f"快速練習｜{environment.name}",
         os_info=node.name,

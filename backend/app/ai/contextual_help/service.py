@@ -123,7 +123,7 @@ def _fallback_answer(
         if element:
             parts = [f"「{element.label}」"]
             if element.help:
-                parts.append(element.help)
+                parts.append(element.help.split("。", 1)[0] + "。")
             if element.constraints:
                 parts.append("限制：" + "、".join(element.constraints) + "。")
             return " ".join(parts)
@@ -137,10 +137,7 @@ def _fallback_answer(
         if labels:
             return "以下欄位還沒有通過驗證：" + "、".join(labels) + "。"
 
-    summary = f"這是「{surface.title}」。{surface.purpose}"
-    if surface.sections:
-        summary += "主要分成：" + "、".join(surface.sections) + "。"
-    return summary
+    return f"「{surface.title}」：{surface.purpose.split('。', 1)[0]}。"
 
 
 # ------------------------------------------------------------ 主流程

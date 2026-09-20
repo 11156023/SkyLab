@@ -4,9 +4,11 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
+from app.ai.contextual_help.schemas import ElementState
+
 # navigate: 直接帶去某頁；suggest: 給候選；clarify: 反問；
 # guide: 這是一段多步驟流程，回傳 steps 讓前端逐步帶著走。
-NavigationAction = Literal["navigate", "suggest", "clarify", "guide"]
+NavigationAction = Literal["navigate", "suggest", "clarify", "guide", "answer"]
 
 StepStatus = Literal["done", "current", "todo"]
 
@@ -27,6 +29,10 @@ class NavigationResolveRequest(BaseModel):
     )
     # 使用者目前所在的頁面路徑，提供脈絡但不代表工作已完成。
     current_path: str | None = Field(default=None, max_length=200)
+    surface_id: str | None = Field(default=None, max_length=100)
+    screen_state: dict[str, ElementState] = Field(default_factory=dict, max_length=60)
+    active_flow_id: str | None = Field(default=None, max_length=100)
+    pending_flow_ids: list[str] = Field(default_factory=list, max_length=10)
 
 
 class NavigationStepPublic(BaseModel):
@@ -99,6 +105,12 @@ class NavigationTarget(BaseModel):
     state: dict[str, Any] | None = None
 
 
+class NavigationFlowPublic(BaseModel):
+    flow_id: str
+    flow_title: str
+    steps: list[NavigationStepPublic] = Field(default_factory=list)
+
+
 class NavigationResolveResponse(BaseModel):
     intent: str
     confidence: float = Field(default=0.0, ge=0.0, le=1.0)
@@ -111,3 +123,5 @@ class NavigationResolveResponse(BaseModel):
     flow_title: str | None = None
     steps: list[NavigationStepPublic] = Field(default_factory=list)
     active_step: int | None = None
+    answer: str | None = None
+    flows: list[NavigationFlowPublic] = Field(default_factory=list)

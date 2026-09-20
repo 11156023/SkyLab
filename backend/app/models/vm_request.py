@@ -66,7 +66,9 @@ class VMRequest(SQLModel, table=True):
     hostname: str
     cores: int = Field(default=2)
     memory: int = Field(default=2048, description="MB")
-    password: str
+    # 加密後的登入密碼；provision 完成後清空（密碼改存 resources），
+    # Course Lab 一開始就是 None（沿用範本憑證）
+    password: str | None = Field(default=None)
     storage: str = Field(default="local-lvm")
     environment_type: str = Field(default="Custom")
     os_info: str | None = Field(default=None)

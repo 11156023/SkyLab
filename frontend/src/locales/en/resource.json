@@ -197,7 +197,7 @@
   "ResourceMgmtPage.machineActionFailed": "Machine action failed",
   "ResourceMgmtPage.machineCommandSent": "Command sent",
   "ResourceMgmtPage.machineCountLabel": "{{count}} machines · managed as a group",
-  "ResourceMgmtPage.courseEnvironment": "Course learning environment",
+  "ResourceMgmtPage.courseEnvironment": "Course teaching environment",
   "ResourceMgmtPage.quickPracticeEnvironment": "Quick practice environment",
   "ResourceMgmtPage.groupView": "Group view",
   "ResourceMgmtPage.runningCount": "{{running}}/{{total}} running",

@@ -14,7 +14,6 @@ from __future__ import annotations
 
 import logging
 import re
-import secrets
 import shlex
 import time
 import uuid
@@ -40,23 +39,23 @@ from app.services.network import firewall_service, ip_management_service
 from app.services.resource import quota_service
 from app.services.template import template_service
 from app.utils.hostname import to_punycode_hostname
+from app.utils.login_password import (
+    PASSWORD_ALPHABET,
+    PASSWORD_LENGTH,
+    generate_login_password,
+)
 
 logger = logging.getLogger(__name__)
 
 TASK_CLONE = "template.clone"
 
-# 排除易混淆字元（0O1lI）的英數字母表；密碼須可在 VNC console 徒手輸入
-_PASSWORD_ALPHABET = "abcdefghijkmnpqrstuvwxyzACDEFGHJKLMNPQRSTUVWXYZ23456789"
-_PASSWORD_LENGTH = 12
+# 產生器搬到 app.utils.login_password（批次 / 快速練習 / 重設密碼共用），
+# 這裡保留別名讓既有測試與呼叫端不用改
+_PASSWORD_ALPHABET = PASSWORD_ALPHABET
+_PASSWORD_LENGTH = PASSWORD_LENGTH
 
 _LXC_PASSWORD_ATTEMPTS = 6
 _LXC_PASSWORD_RETRY_SECONDS = 5.0
-
-
-def generate_login_password() -> str:
-    return "".join(
-        secrets.choice(_PASSWORD_ALPHABET) for _ in range(_PASSWORD_LENGTH)
-    )
 
 
 # ---------------------------------------------------------------------------

@@ -35,6 +35,18 @@ function sentBody() {
 }
 
 describe("AiNavigationService.resolve", () => {
+  test("傳遞頁面狀態及保留中的流程", async () => {
+    fetchMock.mockResolvedValueOnce(jsonRes(200, { action: "answer" }));
+    await AiNavigationService.resolve("下一步", {
+      currentPath: "/class-setup?classId=42&step=3", surfaceId: "class-setup",
+      screenState: { "classsetup.current_step": { value: "3. 教學環境" } },
+      activeFlowId: "open_class", pendingFlowIds: ["open_class", "share_template"],
+    });
+    expect(sentBody()).toMatchObject({
+      surface_id: "class-setup", screen_state: { "classsetup.current_step": { value: "3. 教學環境" } },
+      active_flow_id: "open_class", pending_flow_ids: ["open_class", "share_template"],
+    });
+  });
   test("帶上前文與目前頁面", async () => {
     fetchMock.mockResolvedValueOnce(jsonRes(200, { action: "clarify" }));
 

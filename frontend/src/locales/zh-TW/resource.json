@@ -197,7 +197,7 @@
   "ResourceMgmtPage.machineActionFailed": "機器操作失敗",
   "ResourceMgmtPage.machineCommandSent": "指令已送出",
   "ResourceMgmtPage.machineCountLabel": "{{count}} 台機器 · 整組管理",
-  "ResourceMgmtPage.courseEnvironment": "課程學習環境",
+  "ResourceMgmtPage.courseEnvironment": "課程教學環境",
   "ResourceMgmtPage.quickPracticeEnvironment": "快速練習環境",
   "ResourceMgmtPage.groupView": "整組檢視",
   "ResourceMgmtPage.runningCount": "{{running}}/{{total}} 執行中",
