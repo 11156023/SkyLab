@@ -1268,6 +1268,19 @@ _FIREWALL_ELEMENTS: tuple[ElementSpec, ...] = (
 )
 
 # ── 啟動快速練習 ────────────────────────────────────────────────────
+_QUICK_CREATE_ELEMENTS: tuple[ElementSpec, ...] = (
+    ElementSpec(
+        id="quick_create.create_now", role="button", label="立即建立",
+        section="模板清單",
+        help="每張卡片是一組老師已發布的練習環境，卡片上標著會建立幾台機器；"
+             "點下去會進到啟動確認頁，還不會真的開始建立。",
+    ),
+    ElementSpec(
+        id="quick_create.no_review", role="readonly", label="免人工審核",
+        section="模板清單", help="這組環境會自動核准，不用等管理員審核。",
+    ),
+)
+
 _QUICK_TEMPLATE_ELEMENTS: tuple[ElementSpec, ...] = (
     ElementSpec(
         id="quick.rule_fixed_config", role="readonly", label="固定配置",
@@ -1454,6 +1467,17 @@ _SURFACES: tuple[SurfaceSpec, ...] = (
         ),
         sections=("資源設定", "硬體配置", "使用時段", "申請原因"),
         elements=_REQUEST_FORM_ELEMENTS,
+    ),
+    SurfaceSpec(
+        id="quick-create",
+        path="/quick-create",
+        title="快速練習",
+        purpose=(
+            "列出目前可以直接啟動的練習環境模板，學生、教師與管理者都能用；"
+            "選一個模板後到確認頁啟動，免人工審核。"
+        ),
+        sections=("模板清單",),
+        elements=_QUICK_CREATE_ELEMENTS,
     ),
     SurfaceSpec(
         id="quick-template-form",
