@@ -171,55 +171,6 @@ export const AiJudgeService = {
     );
   },
 
-  createSessionScriptSet(classId, sessionId, analysisRevision = null) {
-    const payload = {};
-    if (analysisRevision !== null && analysisRevision !== undefined) {
-      payload.analysis_revision = analysisRevision;
-    }
-    return apiPost(
-      `/api/v1/teaching-classes/${classId}/judge/sessions/${sessionId}/script-sets`,
-      payload,
-      { timeoutMs: SCRIPT_GENERATION_TIMEOUT_MS },
-    );
-  },
-
-  listSessionScriptSets(classId, sessionId) {
-    return apiGet(
-      `/api/v1/teaching-classes/${classId}/judge/sessions/${sessionId}/script-sets`,
-    );
-  },
-
-  getSessionScriptSet(classId, sessionId, artifactSetId) {
-    return apiGet(
-      `/api/v1/teaching-classes/${classId}/judge/sessions/${sessionId}/script-sets/${artifactSetId}`,
-    );
-  },
-
-  regenerateSessionScriptSet(classId, sessionId, artifactSetId, analysisRevision = null) {
-    const payload = {};
-    if (analysisRevision !== null && analysisRevision !== undefined) {
-      payload.analysis_revision = analysisRevision;
-    }
-    return apiPost(
-      `/api/v1/teaching-classes/${classId}/judge/sessions/${sessionId}/script-sets/${artifactSetId}/regenerate`,
-      payload,
-      { timeoutMs: SCRIPT_GENERATION_TIMEOUT_MS },
-    );
-  },
-
-  createSessionScriptSetRun(classId, sessionId, artifactSetId) {
-    return apiPost(
-      `/api/v1/teaching-classes/${classId}/judge/sessions/${sessionId}/script-sets/${artifactSetId}/runs`,
-      { target_scope: "all_students_in_set" },
-    );
-  },
-
-  getSessionRunBatch(classId, sessionId, runBatchId) {
-    return apiGet(
-      `/api/v1/teaching-classes/${classId}/judge/sessions/${sessionId}/run-batches/${runBatchId}`,
-    );
-  },
-
   listSessionRuns(classId, sessionId) {
     return apiGet(
       `/api/v1/teaching-classes/${classId}/judge/sessions/${sessionId}/runs`,
@@ -232,16 +183,17 @@ export const AiJudgeService = {
     );
   },
 
-  createSessionRun(classId, sessionId, scriptId, target, targetNodeKey = null) {
-    const payload = Array.isArray(target)
-      ? { target_scope: "manual", target_vmids: target }
-      : {
-          target_scope: target?.target_scope ?? "all_students_on_node",
-          target_node_key: target?.target_node_key ?? targetNodeKey,
-        };
+  updateTargetReview(classId, sessionId, runId, vmid, { feedback = "", decisions = {} }) {
+    return apiPatch(
+      `/api/v1/teaching-classes/${classId}/judge/sessions/${sessionId}/runs/${runId}/targets/${vmid}/review`,
+      { feedback, decisions },
+    );
+  },
+
+  createSessionRun(classId, sessionId, scriptId, targetVmids) {
     return apiPost(
       `/api/v1/teaching-classes/${classId}/judge/sessions/${sessionId}/scripts/${scriptId}/runs`,
-      payload,
+      { target_scope: "manual", target_vmids: targetVmids },
     );
   },
 
@@ -327,15 +279,10 @@ export const AiJudgeService = {
   /* ── 腳本執行 ── */
 
   /** 對指定 VMID 建立腳本執行任務 */
-  createScriptRun(classId, scriptId, target, targetNodeKey = null) {
-    const payload = Array.isArray(target)
-      ? { target_scope: "manual", target_vmids: target }
-      : {
-          target_scope: target?.target_scope ?? "all_students_on_node",
-          target_node_key: target?.target_node_key ?? targetNodeKey,
-        };
+  createScriptRun(classId, scriptId, targetVmids) {
     return apiPost(`/api/v1/teaching-classes/${classId}/judge/scripts/${scriptId}/runs`, {
-      ...payload,
+      target_scope: "manual",
+      target_vmids: targetVmids,
     });
   },
 

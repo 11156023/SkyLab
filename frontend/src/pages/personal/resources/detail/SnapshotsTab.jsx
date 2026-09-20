@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
 import styles from "./ResourceDetailPage.module.scss";
 import MIcon from "../../../../components/MIcon";
@@ -13,7 +14,7 @@ import { formatDateTime } from "../../../../utils/formatDate";
 
 const INIT_SNAPSHOT_NAME = "skylab-init";
 
-export default function SnapshotsTab({ vmid }) {
+export default function SnapshotsTab({ vmid, toolbar }) {
   const { t } = useTranslation("personal");
   const toast = useToast();
   const confirm = useConfirm();
@@ -112,45 +113,43 @@ export default function SnapshotsTab({ vmid }) {
 
   return (
     <div className={styles.tabStack}>
-      <div className={styles.card}>
-        <div className={styles.cardHeader}>
-          <div>
-            <h2 className={styles.cardTitle}>{t("SnapshotsTab.title")}</h2>
-          </div>
-          <div className={styles.headerActions}>
+      {/* 操作按鈕 portal 到分頁列右側的工具槽，與分頁切換器同列 */}
+      {toolbar && createPortal(
+        <>
+          <button
+            type="button"
+            className={styles.btnSecondary}
+            disabled={!hasInitSnapshot || busy}
+            title={hasInitSnapshot ? undefined : t("SnapshotsTab.noInitSnapshotHint")}
+            onClick={handleReset}
+          >
+            <MIcon name="restart_alt" size={14} />
+            {t("SnapshotsTab.oneClickReset")}
+          </button>
+          {!hasInitSnapshot && (
             <button
               type="button"
               className={styles.btnSecondary}
-              disabled={!hasInitSnapshot || busy}
-              title={hasInitSnapshot ? undefined : t("SnapshotsTab.noInitSnapshotHint")}
-              onClick={handleReset}
+              disabled={busy}
+              onClick={() =>
+                run(() => ResourcesService.createInitSnapshot(vmid), t("SnapshotsTab.initSnapshotCreated"))
+              }
             >
-              <MIcon name="restart_alt" size={14} />
-              {t("SnapshotsTab.oneClickReset")}
+              {t("SnapshotsTab.createInitSnapshot")}
             </button>
-            {!hasInitSnapshot && (
-              <button
-                type="button"
-                className={styles.btnSecondary}
-                disabled={busy}
-                onClick={() =>
-                  run(() => ResourcesService.createInitSnapshot(vmid), t("SnapshotsTab.initSnapshotCreated"))
-                }
-              >
-                {t("SnapshotsTab.createInitSnapshot")}
-              </button>
-            )}
-            <button
-              type="button"
-              className={styles.btnPrimary}
-              onClick={() => { setNameInvalid(false); setCreateOpen(true); }}
-            >
-              <MIcon name="add" size={14} />
-              {t("SnapshotsTab.createSnapshot")}
-            </button>
-          </div>
-        </div>
-
+          )}
+          <button
+            type="button"
+            className={styles.btnPrimary}
+            onClick={() => { setNameInvalid(false); setCreateOpen(true); }}
+          >
+            <MIcon name="add" size={14} />
+            {t("SnapshotsTab.createSnapshot")}
+          </button>
+        </>,
+        toolbar,
+      )}
+      <div className={styles.card}>
         {snapshots.length === 0 ? (
           <EmptyState icon="photo_camera" title={t("SnapshotsTab.emptyTitle")} />
         ) : (

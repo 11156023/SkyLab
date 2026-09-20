@@ -73,6 +73,12 @@ select {
   background: none;
 }
 
+/* textarea 一律固定高（高度由 rows 或頁面 CSS 決定），不開放拖拉；
+   特殊情況需要調整高度時，個別頁面再明確寫回 resize: vertical */
+textarea {
+  resize: none;
+}
+
 h1, h2, h3, h4, h5, h6 {
   font-weight: $font-weight-700;
   line-height: 1.3;

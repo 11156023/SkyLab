@@ -55,7 +55,7 @@ export default function TemplateConvertDialog({ resource, closing = false, onClo
             <h2>{t("TemplateConvertDialog.title")}</h2>
             <p>{t("TemplateConvertDialog.desc")}</p>
           </div>
-          <button type="button" className={styles.iconBtn} onClick={onClose} aria-label={t("TemplateConvertDialog.close")}>
+          <button type="button" className={styles.dialogClose} onClick={onClose} aria-label={t("TemplateConvertDialog.close")}>
             <MIcon name="close" size={18} />
           </button>
         </div>

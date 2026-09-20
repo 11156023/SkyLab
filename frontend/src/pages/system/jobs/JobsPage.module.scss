@@ -111,12 +111,6 @@
   max-width: 100%;
 }
 
-.selectLabel {
-  font-size: $font-size-12;
-  color: var(--color-text-muted);
-  white-space: nowrap;
-}
-
 /* 狀態組 8 段，窄螢幕橫向卷動（SegmentedControl 慣例） */
 .filterTabs {
   max-width: 100%;
@@ -152,10 +146,21 @@
   @include table-td;
 }
 
+/* 類型等短標籤欄不換行，寬度交給 table-wrap 橫向捲動 */
+.tdNowrap {
+  white-space: nowrap;
+}
+
+/* 名稱欄過長時單行截斷＋省略號：外層上限寬、文字容器 min-width: 0 才截得住 */
 .nameCell {
   display: flex;
   align-items: center;
   gap: $spacing-8;
+  max-width: 520px;
+}
+
+.nameCell > div:last-child {
+  min-width: 0;
 }
 
 .nameIcon {
@@ -169,12 +174,14 @@
 }
 
 .namePrimary {
+  @include text-truncate;
   font-size: $font-size-14;
   font-weight: $font-weight-500;
   color: var(--color-text-primary);
 }
 
 .nameSub {
+  @include text-truncate;
   font-size: $font-size-12;
   color: var(--color-text-muted);
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;

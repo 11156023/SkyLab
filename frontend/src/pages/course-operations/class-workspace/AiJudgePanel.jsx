@@ -1,4 +1,4 @@
-import { Fragment, useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useSearchParams } from "react-router-dom";
 import styles from "./AiJudgePanel.module.scss";
@@ -215,14 +215,8 @@ function getDetectableInfo(detectable) {
   return DETECTABLE_INFO[detectable] ?? DETECTABLE_INFO.manual;
 }
 
-function getStepParameters(step) {
-  return step?.parameters && typeof step.parameters === "object"
-    ? step.parameters
-    : (step ?? {});
-}
-
 function hasCompleteParameterizedStep(step) {
-  const parameters = getStepParameters(step);
+  const parameters = step?.parameters ?? {};
   const hasArgv = Array.isArray(parameters.argv)
     && parameters.argv.length > 0
     && parameters.argv.every((part) => typeof part === "string" && part.trim());
@@ -238,12 +232,12 @@ function hasCompleteParameterizedStep(step) {
   if (step?.command_key === "system.run_command") {
     return Boolean(hasArgv && hasTimeout);
   }
-  return Boolean(hasArgv && hasTimeout);
+  return true;
 }
 
 /** 把單一 check step 的 parameters 轉成老師可讀的唯讀 chip 資料。 */
 function stepParameterChips(step) {
-  const parameters = getStepParameters(step);
+  const parameters = step?.parameters ?? {};
   const chips = [];
   const argv = Array.isArray(parameters.argv)
     ? parameters.argv.filter((part) => typeof part === "string" && part.trim())
@@ -266,8 +260,8 @@ function stepParameterChips(step) {
 function proposalCommandPreview(item) {
   const steps = Array.isArray(item?.check_steps) ? item.check_steps : [];
   return steps
-    .map((step) => (Array.isArray(getStepParameters(step).argv)
-      ? getStepParameters(step).argv.filter((part) => typeof part === "string" && part.trim()).join(" ")
+    .map((step) => (Array.isArray(step?.parameters?.argv)
+      ? step.parameters.argv.filter((part) => typeof part === "string" && part.trim()).join(" ")
       : ""))
     .filter(Boolean)
     .join("；");
@@ -385,7 +379,6 @@ function proposalOperationLabel(item) {
 function comparableItem(item) {
   return JSON.stringify({
     title: item.title ?? "",
-    target_node_key: item.target_node_key ?? null,
     checked: Boolean(item.checked),
     detectable: item.detectable ?? "manual",
     judgement_mode: item.judgement_mode ?? "ai",
@@ -677,47 +670,7 @@ function DetectabilityBadge({ detectable, judgementMode = "ai", needsReview = fa
   );
 }
 
-function machineNodeReference(nodeKey, machineNodes = []) {
-  const key = String(nodeKey ?? "").trim();
-  const node = Array.isArray(machineNodes)
-    ? machineNodes.find((entry) => String(entry?.node_key ?? "").trim() === key)
-    : null;
-  const sortOrder = Number(node?.sort_order);
-  const displayLabel = node?.display_label
-    ?? (Number.isFinite(sortOrder) ? `P${sortOrder + 1}` : null);
-  const name = node?.name ?? node?.node_name ?? null;
-  return {
-    key,
-    display: [displayLabel, name].filter(Boolean).join(" · ") || key || "未指定節點",
-    displayLabel,
-    name,
-  };
-}
-
-function MachineNodeReference({ nodeKey, machineNodes = [], prefix = "" }) {
-  const reference = machineNodeReference(nodeKey, machineNodes);
-  if (!reference.key) return null;
-  return (
-    <span>
-      {prefix}{reference.display}
-      {reference.display !== reference.key && (
-        <code className={styles.fileMeta}>（{reference.key}）</code>
-      )}
-    </span>
-  );
-}
-
-function batchMachineDisplayName(nodeKey, machineNodes = [], fallbackLabel = null) {
-  const reference = machineNodeReference(nodeKey, machineNodes);
-  if (reference.displayLabel) {
-    return reference.name
-      ? `${reference.displayLabel} · ${reference.name}`
-      : reference.displayLabel;
-  }
-  return fallbackLabel ?? null;
-}
-
-function RubricTableRow({ item, index, onChange, onDelete, disabled, needsReview, machineNodes = [] }) {
+function RubricTableRow({ item, index, onChange, onDelete, disabled, needsReview }) {
   const [expanded, setExpanded] = useState(false);
   const checkSteps = item.check_steps ?? [];
   const detailId = `rubric-detail-${index}`;
@@ -725,12 +678,7 @@ function RubricTableRow({ item, index, onChange, onDelete, disabled, needsReview
     ? item.missing_information.filter(Boolean)
     : [];
   const hasDetails = Boolean(
-    item.target_node_key
-      || item.peer_node_key
-      || item.detection_method
-      || item.fallback
-      || checkSteps.length
-      || missingInformation.length,
+    item.detection_method || item.fallback || checkSteps.length || missingInformation.length,
   );
 
   return (
@@ -759,16 +707,6 @@ function RubricTableRow({ item, index, onChange, onDelete, disabled, needsReview
               placeholder="例如：Python 版本檢查"
               disabled={disabled}
             />
-            {item.target_node_key && (
-              <small className={styles.fileMeta}>
-                <MachineNodeReference nodeKey={item.target_node_key} machineNodes={machineNodes} prefix="執行 " />
-              </small>
-            )}
-            {item.peer_node_key && (
-              <small className={styles.fileMeta}>
-                <MachineNodeReference nodeKey={item.peer_node_key} machineNodes={machineNodes} prefix="觀察 " />
-              </small>
-            )}
           </label>
         </td>
         <td className={styles.rubricDescriptionCell}>
@@ -815,22 +753,6 @@ function RubricTableRow({ item, index, onChange, onDelete, disabled, needsReview
                 <p className={styles.rubricDetailEmpty}>AI 尚未提供檢測方式，這一項目前以人工確認為主。</p>
               ) : (
                 <div className={styles.detectGrid}>
-                  {item.target_node_key && (
-                    <div className={styles.detectItem}>
-                      <span>執行節點</span>
-                      <p className={styles.monoCell}>
-                        <MachineNodeReference nodeKey={item.target_node_key} machineNodes={machineNodes} />
-                      </p>
-                    </div>
-                  )}
-                  {item.peer_node_key && (
-                    <div className={styles.detectItem}>
-                      <span>觀察節點</span>
-                      <p className={styles.monoCell}>
-                        <MachineNodeReference nodeKey={item.peer_node_key} machineNodes={machineNodes} />
-                      </p>
-                    </div>
-                  )}
                   {item.detectable === "partial" && (
                     <div className={`${styles.detectItem} ${styles.detectItemWide}`}>
                       <span>缺少資訊</span>
@@ -851,14 +773,13 @@ function RubricTableRow({ item, index, onChange, onDelete, disabled, needsReview
                       <div className={styles.stepPlanList}>
                         {checkSteps.map((step, stepIndex) => (
                           <div
-                            key={`${step.template_key ?? "flat"}-${step.command_key ?? step.argv?.join("-") ?? "step"}-${stepIndex}`}
+                            key={`${step.template_key}-${step.command_key}-${stepIndex}`}
                             className={styles.stepPlanRow}
                           >
                             <span className={styles.chip}>
-                              {step.command_key
-                                ? `${getTemplateLabel(step.template_key)} / ${step.command_label ?? step.command_key}`
-                                : "受控命令"}
-                              <code>{step.command_key ?? "argv"}</code>
+                              {getTemplateLabel(step.template_key)} /{" "}
+                              {step.command_label ?? step.command_key}
+                              <code>{step.command_key}</code>
                             </span>
                             {stepParameterChips(step).map((chip) => (
                               <span key={chip.key} className={styles.chip}>
@@ -885,7 +806,7 @@ function RubricTableRow({ item, index, onChange, onDelete, disabled, needsReview
   );
 }
 
-export function RubricTable({ items, onChange, onDelete, disabled, needsReviewIds, machineNodes = [] }) {
+export function RubricTable({ items, onChange, onDelete, disabled, needsReviewIds }) {
   const reviewIds = needsReviewIds instanceof Set
     ? needsReviewIds
     : new Set(Array.isArray(needsReviewIds) ? needsReviewIds : []);
@@ -915,7 +836,6 @@ export function RubricTable({ items, onChange, onDelete, disabled, needsReviewId
               onDelete={() => onDelete(index)}
               disabled={disabled}
               needsReview={reviewIds.has(item.id)}
-              machineNodes={machineNodes}
             />
           ))}
         </tbody>
@@ -1315,7 +1235,7 @@ export function CreateCheckDialog({
           </div>
           <button
             type="button"
-            className={styles.iconBtn}
+            className={styles.dialogClose}
             aria-label="關閉"
             disabled={busy}
             onClick={onClose}
@@ -1413,7 +1333,7 @@ function RubricSourceRail({ classId, file, onClose, embedded = false }) {
 
 /* ── Tab 1：檢查表 ──────────────────────────────────────── */
 
-export function RubricsTab({ classId, judgeSession, onSessionUpdated, onScriptCreated, sidebar = null, tabsBar = null, machineNodes = [] }) {
+export function RubricsTab({ classId, judgeSession, onSessionUpdated, onScriptCreated, sidebar = null, tabsBar = null }) {
   const toast = useToast();
 
   const [files, setFiles] = useState([]);
@@ -1436,6 +1356,7 @@ export function RubricsTab({ classId, judgeSession, onSessionUpdated, onScriptCr
   const [pendingProposalIsRefine, setPendingProposalIsRefine] = useState(false);
   const [pendingItemResults, setPendingItemResults] = useState(null);
   const [isItemwiseAnalysis, setIsItemwiseAnalysis] = useState(false);
+  const [environmentKeys, setEnvironmentKeys] = useState([]);
   const analysisRevisionsRef = useRef(new Map());
   const lastSavedValuesRef = useRef(new Map());
   const lastSavedItemsRef = useRef(new Map());
@@ -1571,6 +1492,7 @@ export function RubricsTab({ classId, judgeSession, onSessionUpdated, onScriptCr
       setAnalysis(null);
       setScriptGenerationNotice(null);
       setSourceFileId(null);
+      setEnvironmentKeys([]);
       setPendingReviewIds(new Set());
       setPendingProposal(null);
       setSelectedProposalIds(new Set());
@@ -1593,6 +1515,7 @@ export function RubricsTab({ classId, judgeSession, onSessionUpdated, onScriptCr
     if (sourceFileId === file.id && autosaveRef.current?.isPending()) return;
     setAnalysis(file.analysis_json);
     setSourceFileId(file.id);
+    setEnvironmentKeys(file.environment_keys?.length ? file.environment_keys : [file.template_key]);
     analysisRevisionsRef.current.set(file.id, file.analysis_revision);
     lastSavedValuesRef.current.set(file.id, getRubricItemsValue(file.analysis_json));
     lastSavedItemsRef.current.set(file.id, Array.isArray(file.analysis_json.items) ? file.analysis_json.items : []);
@@ -1966,25 +1889,25 @@ export function RubricsTab({ classId, judgeSession, onSessionUpdated, onScriptCr
         message: "所有檢查項目皆已通過核對，正在準備建立檢查腳本。",
       });
       setScriptGenerationStatus("generating");
-      const scriptSet = await AiJudgeService.createSessionScriptSet(
+      const artifact = await AiJudgeService.createSessionScript(
         classId,
         judgeSession.id,
         savedRevision,
       );
-      if (scriptSet.status === "approved") {
-        const message = "所有邏輯節點腳本已通過靜態與 AI 檢查，可開始執行全部對應機器。";
+      if (artifact.status === "approved") {
+        const message = "檢查腳本已通過靜態與 AI 檢查，可開始執行。";
         setScriptGenerationNotice({ status: "success", message });
         toast.success(message);
-        onScriptCreated?.(scriptSet);
-      } else if (scriptSet.status === "review_failed" || scriptSet.status === "mixed") {
-        const message = "部分邏輯節點腳本尚未通過審查；已保留目前檢查表，請到腳本總覽逐節點確認。";
+        onScriptCreated?.(artifact);
+      } else if (artifact.status === "review_failed") {
+        const message = "腳本自動修正後仍未通過審查；已保留目前檢查表，請確認問題後再試一次。";
         setScriptGenerationNotice({ status: "error", message });
         toast.error(message);
       } else {
-        const message = "多機器腳本集已產生，請到腳本總覽查看各節點審查結果。";
+        const message = "檢查腳本已產生，請到腳本總覽查看審查結果。";
         setScriptGenerationNotice({ status: "success", message });
         toast.success(message);
-        onScriptCreated?.(scriptSet);
+        onScriptCreated?.(artifact);
       }
       const synced = await refreshSessionMessages({ silent: true });
       if (!synced) {
@@ -2078,7 +2001,6 @@ export function RubricsTab({ classId, judgeSession, onSessionUpdated, onScriptCr
                     onDelete={handleItemDelete}
                     disabled={isChatting || isCreatingScript}
                     needsReviewIds={pendingReviewIds}
-                    machineNodes={machineNodes}
                   />
                 </div>
                 <SaveAndCreateAction
@@ -2163,10 +2085,6 @@ const RETRY_STOP_REASON_LABELS = {
 
 export function getScriptCreationDestination(artifact) {
   return artifact?.status === "approved" ? "execution" : "scripts";
-}
-
-function createdScriptFocusId(artifact) {
-  return artifact?.id ?? artifact?.children?.[0]?.id ?? null;
 }
 
 function scriptStatusBadgeClass(status) {
@@ -2274,7 +2192,7 @@ function RetrySummary({ script }) {
   );
 }
 
-function LegacyScriptsTab({
+function ScriptsTab({
   classId,
   sessionId,
   initialSelectedId = null,
@@ -2595,208 +2513,6 @@ function LegacyScriptsTab({
   );
 }
 
-function ScriptSetReview({ scriptSet, onRefresh, onScriptApproved, machineNodes = [] }) {
-  const toast = useToast();
-  const [selectedId, setSelectedId] = useState(null);
-  const [actionPending, setActionPending] = useState(null);
-  const children = Array.isArray(scriptSet?.children) ? scriptSet.children : [];
-  const selected = children.find((child) => child.id === selectedId) ?? children[0] ?? null;
-
-  useEffect(() => {
-    if (selected && !children.some((child) => child.id === selectedId)) {
-      setSelectedId(selected.id);
-    }
-  }, [children, selected, selectedId]);
-
-  async function approveChild(child) {
-    if (!child || actionPending) return;
-    setActionPending(`approve:${child.id}`);
-    try {
-      await AiJudgeService.approveScript(child.teaching_class_id, child.id);
-      toast.success(`${child.target_node_key ?? "節點"} 腳本已核准`);
-      await onRefresh?.();
-      onScriptApproved?.();
-    } catch (err) {
-      toast.error(err?.message ?? "核准腳本失敗");
-    } finally {
-      setActionPending(null);
-    }
-  }
-
-  async function regenerateSet() {
-    if (!scriptSet?.artifact_set_id || actionPending) return;
-    setActionPending("regenerate");
-    try {
-      await AiJudgeService.regenerateSessionScriptSet(
-        scriptSet.teaching_class_id,
-        scriptSet.session_id,
-        scriptSet.artifact_set_id,
-        scriptSet.source_analysis_revision,
-      );
-      toast.success("已重新製作所有邏輯節點腳本");
-      await onRefresh?.();
-    } catch (err) {
-      toast.error(err?.message ?? "重新製作腳本集失敗");
-    } finally {
-      setActionPending(null);
-    }
-  }
-
-  return (
-    <div className={styles.card}>
-      <div className={styles.cardHead}>
-        <div>
-          <h4 className={styles.cardTitle}>
-            <MIcon name="account_tree" size={18} />
-            {children[0]?.name?.split(" · ")[0] || "多機器腳本集"}
-          </h4>
-          <p className={styles.fileMeta}>
-            {children.length} 個邏輯節點 · rubric revision {scriptSet.source_analysis_revision ?? "—"}
-          </p>
-        </div>
-        <div className={styles.sectionActions}>
-          <span className={`${styles.badge} ${scriptStatusBadgeClass(scriptSet.status === "approved" ? "approved" : scriptSet.status === "review_failed" ? "review_failed" : "reviewed")}`}>
-            {scriptSet.status === "approved" ? "全部已核准" : scriptSet.status === "mixed" ? "部分待處理" : "審查未通過"}
-          </span>
-          <button
-            type="button"
-            className={styles.btnSecondary}
-            onClick={regenerateSet}
-            disabled={Boolean(actionPending)}
-          >
-            {actionPending === "regenerate" ? <Spinner size={16} /> : <MIcon name="autorenew" size={16} />}
-            重新製作整組
-          </button>
-        </div>
-      </div>
-
-      <div className={styles.scriptsGrid}>
-        <div className={styles.scriptList}>
-          {children.map((child) => (
-            <button
-              key={child.id}
-              type="button"
-              className={`${styles.scriptItem} ${selected?.id === child.id ? styles.scriptItemActive : ""}`}
-              onClick={() => setSelectedId(child.id)}
-              disabled={Boolean(actionPending)}
-            >
-              <span className={styles.scriptItemHead}>
-                <span className={styles.scriptName}>
-                  <MachineNodeReference nodeKey={child.target_node_key} machineNodes={machineNodes} />
-                  {child.rubric_snapshot_json?.items?.some((item) => item.peer_node_key) ? " · 含 peer 檢查" : ""}
-                </span>
-                <span className={`${styles.badge} ${scriptStatusBadgeClass(child.status)}`}>
-                  {SCRIPT_STATUS_LABELS[child.status] ?? child.status}
-                </span>
-              </span>
-              <span className={styles.fileMeta}>
-                {child.name} · {formatDateTime(child.updated_at)}
-              </span>
-            </button>
-          ))}
-        </div>
-
-        {selected && (
-          <div className={styles.card}>
-            <div className={styles.cardHead}>
-              <div>
-                <h4 className={styles.cardTitle}>
-                  <MachineNodeReference nodeKey={selected.target_node_key} machineNodes={machineNodes} /> 腳本
-                </h4>
-                <p className={styles.fileMeta}>
-                  此腳本只會送到指定 executor；peer 只作為受控觀察目標。
-                </p>
-              </div>
-              {selected.status === "reviewed" && (
-                <button
-                  type="button"
-                  className={styles.btnPrimary}
-                  onClick={() => approveChild(selected)}
-                  disabled={Boolean(actionPending)}
-                >
-                  {actionPending === `approve:${selected.id}` ? <Spinner size={16} /> : <MIcon name="check_circle" size={16} />}
-                  核准此節點
-                </button>
-              )}
-            </div>
-            <div className={styles.reviewGrid}>
-              <ReviewPanel title="規則檢查（靜態）" result={selected.policy_check_result_json} />
-              <ReviewPanel title="AI 檢查" result={selected.ai_review_result_json} />
-            </div>
-            <RetrySummary script={selected} />
-            <pre className={styles.codeBlock}>{selected.script_content}</pre>
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
-
-function ScriptsTab({
-  classId,
-  sessionId,
-  initialSelectedId = null,
-  onScriptApproved,
-  machineNodes = [],
-}) {
-  const [scriptSets, setScriptSets] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(false);
-
-  const fetchSets = useCallback(async () => {
-    setLoading(true);
-    setError(false);
-    try {
-      setScriptSets(await AiJudgeService.listSessionScriptSets(classId, sessionId));
-    } catch {
-      setError(true);
-    } finally {
-      setLoading(false);
-    }
-  }, [classId, sessionId]);
-
-  useEffect(() => {
-    fetchSets();
-  }, [fetchSets]);
-
-  if (loading) return <div className={styles.tabBody}><LoadingState text="載入多機器腳本集..." /></div>;
-  if (error) {
-    return (
-      <div className={styles.tabBody}>
-        <div className={styles.card}>
-          <div className={styles.cardHead}>
-            <span className={styles.dangerText}>載入多機器腳本集失敗，請稍後再試。</span>
-            <button type="button" className={styles.btnSecondary} onClick={fetchSets}>重新載入</button>
-          </div>
-        </div>
-      </div>
-    );
-  }
-  if (scriptSets.length === 0) {
-    return (
-      <LegacyScriptsTab
-        classId={classId}
-        sessionId={sessionId}
-        initialSelectedId={initialSelectedId}
-        onScriptApproved={onScriptApproved}
-      />
-    );
-  }
-  return (
-    <div className={styles.tabBody}>
-      {scriptSets.map((scriptSet) => (
-        <ScriptSetReview
-          key={scriptSet.artifact_set_id}
-          scriptSet={scriptSet}
-          machineNodes={machineNodes}
-          onRefresh={fetchSets}
-          onScriptApproved={onScriptApproved}
-        />
-      ))}
-    </div>
-  );
-}
-
 /* ── Tab 2：執行結果 ────────────────────────────────────── */
 
 const REASON_LABELS = {
@@ -2812,13 +2528,6 @@ const REASON_LABELS = {
   result_too_large: "結果過大",
   invalid_json: "JSON 格式錯誤",
   executor_error: "執行器錯誤",
-  peer_machine_missing: "同學缺少對應 peer 機器",
-  peer_vmid_missing: "peer 尚未配置 VM/LXC",
-  peer_not_running: "peer 尚未運行",
-  peer_resource_missing: "找不到 peer 資源",
-  peer_owner_mismatch: "peer 資源擁有者不一致",
-  peer_ip_unavailable: "peer 位址暫不可用",
-  peer_unavailable: "peer 證據不可用",
 };
 
 function reasonLabel(reasonCode) {
@@ -2827,22 +2536,11 @@ function reasonLabel(reasonCode) {
 }
 
 function runIsTerminal(status) {
-  return status === "completed"
-    || status === "completed_with_failures"
-    || status === "failed"
-    || status === "cancelled";
-}
-
-function targetResultKey(target) {
-  return [
-    target?.student_id ?? target?.user?.id ?? target?.user_id ?? "student",
-    target?.node_key ?? "node",
-  ].join("|");
+  return status === "completed" || status === "failed" || status === "cancelled";
 }
 
 const RUN_STATUS = {
   completed: { label: "已完成", className: styles.badge_success },
-  completed_with_failures: { label: "部分完成", className: styles.badge_info },
   running: { label: "執行中", className: styles.badge_info },
   failed: { label: "失敗", className: styles.badge_danger },
   cancelled: { label: "已取消", className: styles.badge_muted },
@@ -3038,10 +2736,9 @@ function scriptResultSummary(result) {
   return result.parsed_result?.summary ?? result.stderr_excerpt ?? null;
 }
 
-function LegacyExecutionTab({ classId, sessionId, members, machineNodes = [] }) {
+function ExecutionTab({ classId, sessionId, members }) {
   const toast = useToast();
   const [selectedVmids, setSelectedVmids] = useState([]);
-  const [selectedNodeKey, setSelectedNodeKey] = useState("");
   const [dialogOpen, setDialogOpen] = useState(false);
   const runDialog = useDialogPresence(dialogOpen);
   const [selectedScriptId, setSelectedScriptId] = useState(null);
@@ -3121,37 +2818,11 @@ function LegacyExecutionTab({ classId, sessionId, members, machineNodes = [] }) 
       member.vm_status === "running" &&
       (member.vm_type === "qemu" || member.vm_type === "lxc"),
   );
-  const nodeOptions = useMemo(() => {
-    const byKey = new Map();
-    machineNodes.forEach((node) => {
-      const nodeKey = String(node.node_key ?? "").trim();
-      if (!nodeKey || byKey.has(nodeKey)) return;
-      const sortOrder = Number(node.sort_order);
-      byKey.set(nodeKey, {
-        node_key: nodeKey,
-        display_label: node.display_label
-          ?? (Number.isFinite(sortOrder) ? `P${sortOrder + 1}` : null),
-        node_name: node.name ?? null,
-      });
-    });
-    members.forEach((member) => {
-      const nodeKey = String(member.node_key ?? "").trim();
-      if (!nodeKey || byKey.has(nodeKey)) return;
-      byKey.set(nodeKey, {
-        node_key: nodeKey,
-        display_label: member.display_label ?? null,
-        node_name: member.node_name ?? null,
-      });
-    });
-    return [...byKey.values()];
-  }, [machineNodes, members]);
-  const selectedNode = nodeOptions.find((node) => node.node_key === selectedNodeKey);
-  const nodeScopedRun = Boolean(selectedNodeKey);
   const selectedSet = new Set(selectedVmids);
 
   const progressTargets = activeRun?.progress_json?.targets ?? [];
   const resultTargets = activeRun?.target_results_json?.targets ?? [];
-  const resultByTarget = new Map(resultTargets.map((result) => [targetResultKey(result), result]));
+  const resultByVmid = new Map(resultTargets.map((result) => [result.vmid, result]));
 
   function toggleVmid(vmid, checked) {
     setSelectedVmids((current) =>
@@ -3162,20 +2833,14 @@ function LegacyExecutionTab({ classId, sessionId, members, machineNodes = [] }) 
   async function handleCreateRun() {
     setCreatingRun(true);
     try {
-      const target = nodeScopedRun
-        ? {
-            target_scope: "all_students_on_node",
-            target_node_key: selectedNodeKey,
-          }
-        : selectedVmids;
       const run = sessionId
         ? await AiJudgeService.createSessionRun(
             classId,
             sessionId,
             effectiveScriptId,
-            target,
+            selectedVmids,
           )
-        : await AiJudgeService.createScriptRun(classId, effectiveScriptId, target);
+        : await AiJudgeService.createScriptRun(classId, effectiveScriptId, selectedVmids);
       toast.success(
         `已建立腳本執行任務（${run.progress_json?.total ?? selectedVmids.length} 台）`,
       );
@@ -3184,7 +2849,6 @@ function LegacyExecutionTab({ classId, sessionId, members, machineNodes = [] }) 
       setDialogOpen(false);
       setSelectedScriptId(null);
       setSelectedVmids([]);
-      setSelectedNodeKey("");
     } catch (err) {
       toast.error(err?.message ?? "建立執行任務失敗");
     } finally {
@@ -3197,44 +2861,13 @@ function LegacyExecutionTab({ classId, sessionId, members, machineNodes = [] }) 
       <div className={styles.execToolbar}>
         <span className={styles.mutedText}>
           可執行 {runningMembers.length} / 全部 {members.length} 台，已選{" "}
-          <strong>{nodeScopedRun ? `${selectedNode?.display_label ?? "節點"}` : `${selectedVmids.length} 台`}</strong>
+          <strong>{selectedVmids.length}</strong> 台
         </span>
         <div className={styles.sectionActions}>
-          {nodeOptions.length > 0 && (
-            <label className={styles.field}>
-              <span>執行節點</span>
-              <select
-                value={selectedNodeKey}
-                onChange={(event) => {
-                  const nextNodeKey = event.target.value;
-                  setSelectedNodeKey(nextNodeKey);
-                  setSelectedVmids(
-                    nextNodeKey
-                      ? runningMembers
-                        .filter((member) => member.node_key === nextNodeKey)
-                        .map((member) => member.vmid)
-                        .filter(Boolean)
-                      : [],
-                  );
-                }}
-              >
-                <option value="">手動選擇（相容模式）</option>
-                {nodeOptions.map((node) => (
-                  <option key={node.node_key} value={node.node_key}>
-                    {node.display_label ? `${node.display_label} · ` : ""}
-                    {node.node_name || node.node_key}
-                  </option>
-                ))}
-              </select>
-            </label>
-          )}
           <button
             type="button"
             className={styles.btnSecondary}
-            onClick={() => {
-              setSelectedNodeKey("");
-              setSelectedVmids(runningMembers.map((m) => m.vmid).filter(Boolean));
-            }}
+            onClick={() => setSelectedVmids(runningMembers.map((m) => m.vmid).filter(Boolean))}
             disabled={runningMembers.length === 0}
           >
             選取運行中
@@ -3242,10 +2875,7 @@ function LegacyExecutionTab({ classId, sessionId, members, machineNodes = [] }) 
           <button
             type="button"
             className={styles.btnSecondary}
-            onClick={() => {
-              setSelectedNodeKey("");
-              setSelectedVmids([]);
-            }}
+            onClick={() => setSelectedVmids([])}
             disabled={selectedVmids.length === 0}
           >
             清除
@@ -3254,7 +2884,7 @@ function LegacyExecutionTab({ classId, sessionId, members, machineNodes = [] }) 
             type="button"
             className={styles.btnPrimary}
             onClick={() => setDialogOpen(true)}
-            disabled={(!nodeScopedRun && selectedVmids.length === 0) || approvedScripts.length === 0}
+            disabled={selectedVmids.length === 0 || approvedScripts.length === 0}
           >
             <MIcon name="play_circle_outline" size={16} />
             執行腳本
@@ -3267,7 +2897,7 @@ function LegacyExecutionTab({ classId, sessionId, members, machineNodes = [] }) 
           <thead>
             <tr>
               <th className={styles.checkCol} />
-              <th>邏輯節點</th>
+              <th>機器編號</th>
               <th>成員</th>
               <th>類型</th>
               <th>狀態</th>
@@ -3282,7 +2912,7 @@ function LegacyExecutionTab({ classId, sessionId, members, machineNodes = [] }) 
               </tr>
             ) : (
               runningMembers.map((member) => (
-                <tr key={`${member.user_id}-${member.node_key ?? "node"}-${member.vmid ?? "no-vmid"}`}>
+                <tr key={member.user_id}>
                   <td>
                     <input
                       type="checkbox"
@@ -3291,10 +2921,7 @@ function LegacyExecutionTab({ classId, sessionId, members, machineNodes = [] }) 
                       onChange={(e) => toggleVmid(member.vmid, e.target.checked)}
                     />
                   </td>
-                  <td>
-                    <div className={styles.monoCell}>{member.display_label ?? member.node_key ?? "-"}</div>
-                    <div className={styles.fileMeta}>{member.node_name ?? member.node_key ?? ""}</div>
-                  </td>
+                  <td className={styles.monoCell}>{member.vmid ?? "-"}</td>
                   <td>
                     <div>{member.full_name ?? "-"}</div>
                     <div className={styles.fileMeta}>{member.email}</div>
@@ -3336,16 +2963,16 @@ function LegacyExecutionTab({ classId, sessionId, members, machineNodes = [] }) 
                 <tr>
                   <th>編號</th>
                   <th>成員</th>
-              <th>邏輯節點</th>
+                  <th>來源節點</th>
                   <th>執行狀態</th>
                   <th>腳本執行結果</th>
                 </tr>
               </thead>
               <tbody>
                 {progressTargets.map((target) => {
-                  const result = resultByTarget.get(targetResultKey(target));
+                  const result = resultByVmid.get(target.vmid);
                   const user = result?.user ?? target.user;
-                  const nodeName = result?.node_name ?? target.node_name;
+                  const proxmoxNode = result?.proxmox_node ?? target.proxmox_node;
                   const resourceType = result?.resource_type ?? target.resource_type;
                   const targetReason = reasonLabel(result?.reason_code ?? target.reason_code);
                   const summary = scriptResultSummary(result);
@@ -3353,17 +2980,14 @@ function LegacyExecutionTab({ classId, sessionId, members, machineNodes = [] }) 
                     result?.validation?.valid === false ||
                     result?.status === "failed";
                   return (
-                    <tr key={targetResultKey(target)}>
-                      <td className={styles.monoCell}>
-                        {target.display_label ?? target.node_key ?? target.name ?? "-"}
-                        {target.node_key && <div className={styles.fileMeta}>{target.node_key}</div>}
-                      </td>
+                    <tr key={target.vmid}>
+                      <td className={styles.monoCell}>{target.name ?? target.vmid}</td>
                       <td>
                         <div>{user?.full_name ?? "-"}</div>
                         {user?.email && <div className={styles.fileMeta}>{user.email}</div>}
                       </td>
                       <td>
-                        <div className={styles.monoCell}>{nodeName ?? target.node_key ?? "-"}</div>
+                        <div className={styles.monoCell}>{proxmoxNode ?? "-"}</div>
                         <div className={`${styles.fileMeta} ${styles.typeCell}`}>
                           {resourceType ? (resourceType === "lxc" ? "LXC" : "VM") : "-"}
                         </div>
@@ -3425,11 +3049,11 @@ function LegacyExecutionTab({ classId, sessionId, members, machineNodes = [] }) 
             <div className={styles.modalHeader}>
               <div>
                 <h2>確認執行腳本</h2>
-                <p>後端會依邏輯節點解析每位學生的對應機器，送出時再次確認仍屬於此班級且正在運行。</p>
+                <p>後端會在送出時再次確認這些 VM/LXC 仍屬於此班級且正在運行。</p>
               </div>
               <button
                 type="button"
-                className={styles.iconBtn}
+                className={styles.dialogClose}
                 onClick={() => setDialogOpen(false)}
                 aria-label="關閉"
               >
@@ -3457,18 +3081,12 @@ function LegacyExecutionTab({ classId, sessionId, members, machineNodes = [] }) 
             </label>
 
             <div className={styles.vmidBox}>
-              <span className={styles.fieldLabel}>
-                {nodeScopedRun
-                  ? `執行節點（${selectedNode?.display_label ?? selectedNodeKey}）`
-                  : `執行機器（${selectedVmids.length} 台）`}
-              </span>
+              <span className={styles.fieldLabel}>執行機器（{selectedVmids.length} 台）</span>
               <div className={styles.chipRow}>
-                {nodeScopedRun ? (
-                  <span className={styles.chip}>
-                    {selectedNode?.node_name ?? selectedNodeKey} · {selectedNodeKey}
+                {selectedVmids.map((vmid) => (
+                  <span key={vmid} className={styles.chip}>
+                    {vmid}
                   </span>
-                ) : selectedVmids.map((vmid) => (
-                  <span key={vmid} className={styles.chip}>{vmid}</span>
                 ))}
               </div>
             </div>
@@ -3493,7 +3111,7 @@ function LegacyExecutionTab({ classId, sessionId, members, machineNodes = [] }) 
                 type="button"
                 className={styles.btnPrimary}
                 onClick={handleCreateRun}
-                disabled={creatingRun || ((!nodeScopedRun && selectedVmids.length === 0) || !effectiveScriptId)}
+                disabled={creatingRun || selectedVmids.length === 0 || !effectiveScriptId}
               >
                 {creatingRun ? "建立中..." : "確認執行"}
               </button>
@@ -3505,394 +3123,343 @@ function LegacyExecutionTab({ classId, sessionId, members, machineNodes = [] }) 
   );
 }
 
-const ITEM_STATUS = {
-  pass: { label: "通過", className: styles.badge_success },
-  fail: { label: "未通過", className: styles.badge_danger },
-  warning: { label: "需注意", className: styles.badge_info },
-  unknown: { label: "待導師核查", className: styles.badge_info },
-  skipped: { label: "略過", className: styles.badge_muted },
-};
+/* ── Tab 4：導師核查 ────────────────────────────────────── */
 
-function BatchItemResult({ item }) {
-  if (!item) return null;
-  return (
-    <div className={styles.reviewPanel}>
-      <div className={styles.reviewPanelHead}>
-        <span>
-          <strong>{item.title ?? item.rubric_item_id}</strong>
-          {item.peer_display_label && (
-            <span className={styles.fileMeta}> · 觀察 {item.peer_display_label}</span>
-          )}
-        </span>
-        <StatusBadge map={ITEM_STATUS} status={item.status} />
-      </div>
-      {item.evidence_state === "unavailable" && (
-        <p className={styles.fileMeta}>peer 目前不可用；本項保留 unknown，不影響同節點其他檢查。</p>
-      )}
-      {Array.isArray(item.checks) && item.checks.length > 0 && (
-        <CheckResultsTable checks={item.checks} />
-      )}
-      {Array.isArray(item.missing_check_ids) && item.missing_check_ids.length > 0 && (
-        <p className={styles.dangerText}>缺少 runtime check：{item.missing_check_ids.join("、")}</p>
-      )}
-    </div>
-  );
+const TEACHER_REVIEW_STATUSES = new Set(["warning", "unknown"]);
+
+function targetChecks(target) {
+  const checks = target?.parsed_result?.checks;
+  return Array.isArray(checks) ? checks : [];
 }
 
-const BATCH_CHECK_ORDER = ["pass", "fail", "warning", "unknown", "skipped"];
+function targetTeacherReview(target) {
+  const review = target?.teacher_review;
+  return review && typeof review === "object"
+    ? {
+        feedback: typeof review.feedback === "string" ? review.feedback : "",
+        decisions: review.decisions && typeof review.decisions === "object"
+          ? review.decisions
+          : {},
+      }
+    : { feedback: "", decisions: {} };
+}
 
-function BatchCheckpointSummary({ items = [] }) {
-  const counts = { pass: 0, fail: 0, warning: 0, unknown: 0, skipped: 0 };
-  let total = 0;
-  items.forEach((item) => {
-    (Array.isArray(item?.checks) ? item.checks : []).forEach((check) => {
-      const status = check?.status in counts ? check.status : "unknown";
-      counts[status] += 1;
-      total += 1;
-    });
-  });
-  if (total === 0) {
-    return <span className={styles.fileMeta}>尚無檢查點結果</span>;
+export function getTargetReviewSummary(target) {
+  if (!target) return { kind: "missing", label: "尚未執行", pending: 0, reviewable: 0 };
+  if (target.status === "failed" || target.validation?.valid === false) {
+    return { kind: "failed", label: "執行失敗", pending: 0, reviewable: 0 };
   }
-  return (
-    <span className={styles.checkpointSummary}>
-      {BATCH_CHECK_ORDER.map((status) => counts[status] > 0 && (
-        <span key={status} className={`${styles.badge} ${ITEM_STATUS[status].className}`}>
-          {ITEM_STATUS[status].label} {counts[status]}
-        </span>
-      ))}
-    </span>
-  );
-}
-
-function BatchMachineResultRow({ node, member, machineName }) {
-  const [expanded, setExpanded] = useState(false);
-  const reason = reasonLabel(node?.reason_code);
-  const items = Array.isArray(node?.items) ? node.items : [];
-  const unmapped = Array.isArray(node?.unmapped_checks) ? node.unmapped_checks : [];
-  const hasDetail = items.length > 0 || unmapped.length > 0;
-  return (
-    <Fragment>
-      <tr>
-        <td>
-          <div className={styles.monoCell}>{machineName ?? "—"}</div>
-          {member?.vm_type && (
-            <div className={styles.fileMeta}>{member.vm_type === "lxc" ? "LXC" : "VM"}</div>
-          )}
-        </td>
-        <td>
-          <div>{member?.full_name ?? "-"}</div>
-          {member?.email && <div className={styles.fileMeta}>{member.email}</div>}
-        </td>
-        <td>
-          <StatusBadge map={TARGET_STATUS} status={node?.execution_status} />
-          {reason && reason !== "成功" && <div className={styles.fileMeta}>{reason}</div>}
-        </td>
-        <td><BatchCheckpointSummary items={items} /></td>
-        <td>
-          <button
-            type="button"
-            className={styles.btnSecondary}
-            onClick={() => hasDetail && setExpanded((current) => !current)}
-            disabled={!hasDetail}
-            aria-expanded={hasDetail ? expanded : undefined}
-          >
-            <MIcon name={expanded ? "expand_less" : "expand_more"} size={16} />
-            詳細資料
-          </button>
-        </td>
-      </tr>
-      {expanded && (
-        <tr>
-          <td colSpan={5}>
-            <div className={styles.reviewPanel}>
-              <p className={styles.fileMeta}>
-                機器 {machineName ?? "—"}
-                {member?.full_name ? ` · ${member.full_name}` : ""}
-                {member?.email ? `（${member.email}）` : ""}
-              </p>
-              {items.map((item) => (
-                <BatchItemResult key={item.rubric_item_id} item={item} />
-              ))}
-              {unmapped.length > 0 && (
-                <div className={styles.reviewPanel}>
-                  <div className={styles.reviewPanelHead}>
-                    <strong>未對應檢查點</strong>
-                  </div>
-                  <CheckResultsTable checks={unmapped} />
-                </div>
-              )}
-            </div>
-          </td>
-        </tr>
-      )}
-    </Fragment>
-  );
-}
-
-function BatchExecutionTab({ classId, sessionId, members, machineNodes = [] }) {
-  const toast = useToast();
-  const [scriptSets, setScriptSets] = useState([]);
-  const [selectedSetId, setSelectedSetId] = useState(null);
-  const [batch, setBatch] = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
-  const [creatingRun, setCreatingRun] = useState(false);
-  const requestRef = useRef(0);
-
-  const selectedSet = scriptSets.find((scriptSet) => scriptSet.artifact_set_id === selectedSetId)
-    ?? scriptSets[0]
-    ?? null;
-  const membersByStudentNode = useMemo(() => {
-    const byStudentNode = new Map();
-    const byStudent = new Map();
-    (Array.isArray(members) ? members : []).forEach((member) => {
-      const studentId = String(member.user_id ?? "");
-      const nodeKey = String(member.node_key ?? "");
-      byStudentNode.set(`${studentId}|${nodeKey}`, member);
-      if (!byStudent.has(studentId)) byStudent.set(studentId, member);
-    });
-    return { byStudentNode, byStudent };
-  }, [members]);
-  const memberForStudentNode = (studentId, nodeKey) => {
-    const id = String(studentId ?? "");
-    return membersByStudentNode.byStudentNode.get(`${id}|${String(nodeKey ?? "")}`)
-      ?? membersByStudentNode.byStudent.get(id)
-      ?? null;
-  };
-
-  const loadExecutionState = useCallback(async () => {
-    const requestId = requestRef.current + 1;
-    requestRef.current = requestId;
-    setLoading(true);
-    setError(null);
-    try {
-      const [sets, runs] = await Promise.all([
-        AiJudgeService.listSessionScriptSets(classId, sessionId),
-        AiJudgeService.listSessionRuns(classId, sessionId),
-      ]);
-      if (requestRef.current !== requestId) return;
-      const nextSets = Array.isArray(sets) ? sets : [];
-      setScriptSets(nextSets);
-      const latestBatchSummary = (Array.isArray(runs) ? runs : [])
-        .find((run) => run?.run_batch_id);
-      if (latestBatchSummary?.run_batch_id) {
-        const latestBatch = await AiJudgeService.getSessionRunBatch(
-          classId,
-          sessionId,
-          latestBatchSummary.run_batch_id,
-        );
-        if (requestRef.current === requestId) setBatch(latestBatch);
-      } else if (requestRef.current === requestId) {
-        setBatch(null);
-      }
-    } catch (err) {
-      if (requestRef.current === requestId) setError(err?.message ?? "載入執行狀態失敗");
-    } finally {
-      if (requestRef.current === requestId) setLoading(false);
-    }
-  }, [classId, sessionId]);
-
-  useEffect(() => {
-    loadExecutionState();
-    return () => {
-      requestRef.current += 1;
+  const reviewable = targetChecks(target).filter((check) => (
+    TEACHER_REVIEW_STATUSES.has(check?.status)
+  ));
+  const decisions = targetTeacherReview(target).decisions;
+  const pending = reviewable.filter((check) => !decisions[check?.id]).length;
+  if (pending > 0) {
+    return {
+      kind: "pending",
+      label: `待核查 ${pending} 項`,
+      pending,
+      reviewable: reviewable.length,
     };
-  }, [loadExecutionState]);
+  }
+  if (reviewable.length > 0) {
+    return { kind: "reviewed", label: "核查完成", pending: 0, reviewable: reviewable.length };
+  }
+  if (targetTeacherReview(target).feedback) {
+    return { kind: "reviewed", label: "已留言", pending: 0, reviewable: 0 };
+  }
+  return { kind: "automatic", label: "AI 已判定", pending: 0, reviewable: 0 };
+}
+
+function reviewDraft(target) {
+  const review = targetTeacherReview(target);
+  return { feedback: review.feedback, decisions: { ...review.decisions } };
+}
+
+function reviewBadgeClass(kind) {
+  if (kind === "pending") return styles.badge_info;
+  if (kind === "failed") return styles.badge_danger;
+  if (kind === "reviewed") return styles.badge_success;
+  return styles.badge_muted;
+}
+
+function reviewRowUser(row) {
+  return row?.target?.user ?? row?.member ?? {};
+}
+
+function reviewStudentNumber(row) {
+  const user = reviewRowUser(row);
+  const email = String(user.email ?? "");
+  return String(
+    user.student_number
+    ?? user.student_no
+    ?? user.account
+    ?? email.split("@")[0]
+    ?? "",
+  );
+}
+
+export function sortTeacherReviewRows(rows, sortMode = "pending") {
+  const collator = new Intl.Collator("zh-Hant", { numeric: true, sensitivity: "base" });
+  const byAccount = (left, right) => collator.compare(
+    reviewStudentNumber(left),
+    reviewStudentNumber(right),
+  );
+
+  return [...rows].sort((left, right) => {
+    if (sortMode === "student-number") return byAccount(left, right);
+
+    const rank = { pending: 0, failed: 1, reviewed: 2, automatic: 3, missing: 4 };
+    const statusDelta = rank[getTargetReviewSummary(left.target).kind]
+      - rank[getTargetReviewSummary(right.target).kind];
+    return statusDelta || byAccount(left, right);
+  });
+}
+
+export function TeacherReviewTab({ classId, sessionId, members }) {
+  const toast = useToast();
+  const [run, setRun] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState("");
+  const [expandedVmid, setExpandedVmid] = useState(null);
+  const [drafts, setDrafts] = useState({});
+  const [savingVmid, setSavingVmid] = useState(null);
+  const [sortMode, setSortMode] = useState("pending");
 
   useEffect(() => {
-    if (!batch?.run_batch_id || runIsTerminal(batch.status)) return undefined;
     let cancelled = false;
-    let timer = null;
-    async function poll() {
-      try {
-        const next = await AiJudgeService.getSessionRunBatch(
-          classId,
-          sessionId,
-          batch.run_batch_id,
-        );
+    setLoading(true);
+    setLoadError("");
+    setRun(null);
+    setExpandedVmid(null);
+    AiJudgeService.listSessionRuns(classId, sessionId)
+      .then(async (runs) => {
+        const latest = runs.find((item) => item.status === "completed") ?? runs[0];
+        if (!latest) return null;
+        return AiJudgeService.getSessionRun(classId, sessionId, latest.id);
+      })
+      .then((detail) => {
         if (cancelled) return;
-        setBatch(next);
-        if (!runIsTerminal(next.status)) timer = setTimeout(poll, 2000);
-      } catch {
-        if (!cancelled) timer = setTimeout(poll, 5000);
-      }
-    }
-    timer = setTimeout(poll, 1200);
+        setRun(detail);
+        const nextDrafts = {};
+        for (const target of detail?.target_results_json?.targets ?? []) {
+          nextDrafts[String(target.vmid)] = reviewDraft(target);
+        }
+        setDrafts(nextDrafts);
+      })
+      .catch((error) => {
+        if (!cancelled) setLoadError(error?.message ?? "無法載入導師核查資料。");
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
     return () => {
       cancelled = true;
-      if (timer) clearTimeout(timer);
     };
-  }, [batch?.run_batch_id, batch?.status, classId, sessionId]);
+  }, [classId, sessionId]);
 
-  async function handleRunAll() {
-    if (!selectedSet || selectedSet.status !== "approved" || creatingRun) return;
-    setCreatingRun(true);
+  const rows = useMemo(() => {
+    const targets = run?.target_results_json?.targets ?? [];
+    const targetsByVmid = new Map(targets.map((target) => [String(target.vmid), target]));
+    const matchedVmids = new Set();
+    const memberRows = members.map((member) => {
+      const target = targetsByVmid.get(String(member.vmid));
+      if (target) matchedVmids.add(String(target.vmid));
+      return { member, target };
+    });
+    const unmatched = targets
+      .filter((target) => !matchedVmids.has(String(target.vmid)))
+      .map((target) => ({ member: target.user ?? {}, target }));
+    return sortTeacherReviewRows([...memberRows, ...unmatched], sortMode);
+  }, [members, run, sortMode]);
+
+  const summary = useMemo(() => rows.reduce((counts, row) => {
+    const item = getTargetReviewSummary(row.target);
+    counts.total += 1;
+    if (item.kind === "pending") counts.pending += 1;
+    if (item.kind === "reviewed") counts.reviewed += 1;
+    if (item.kind === "automatic") counts.automatic += 1;
+    if (item.kind === "missing" || item.kind === "failed") counts.unavailable += 1;
+    return counts;
+  }, { total: 0, pending: 0, reviewed: 0, automatic: 0, unavailable: 0 }), [rows]);
+
+  function updateDraft(vmid, updater) {
+    const key = String(vmid);
+    setDrafts((current) => ({
+      ...current,
+      [key]: updater(current[key] ?? { feedback: "", decisions: {} }),
+    }));
+  }
+
+  function toggleDecision(vmid, checkId, decision) {
+    updateDraft(vmid, (current) => {
+      const decisions = { ...current.decisions };
+      if (decisions[checkId] === decision) delete decisions[checkId];
+      else decisions[checkId] = decision;
+      return { ...current, decisions };
+    });
+  }
+
+  async function saveReview(target) {
+    const key = String(target.vmid);
+    const draft = drafts[key] ?? reviewDraft(target);
+    setSavingVmid(key);
     try {
-      const next = await AiJudgeService.createSessionScriptSetRun(
+      const updated = await AiJudgeService.updateTargetReview(
         classId,
         sessionId,
-        selectedSet.artifact_set_id,
+        run.id,
+        target.vmid,
+        draft,
       );
-      setBatch(next);
-      toast.success(`已建立全部對應機器執行批次（${next.summary?.targets ?? 0} 台）`);
-    } catch (err) {
-      toast.error(err?.message ?? "建立多機器執行批次失敗");
+      setRun(updated);
+      const savedTarget = (updated.target_results_json?.targets ?? [])
+        .find((item) => String(item.vmid) === key);
+      setDrafts((current) => ({ ...current, [key]: reviewDraft(savedTarget) }));
+      toast.success("導師核查已儲存。");
+    } catch (error) {
+      toast.error(error?.message ?? "導師核查儲存失敗。");
     } finally {
-      setCreatingRun(false);
+      setSavingVmid(null);
     }
   }
 
-  if (loading) return <div className={styles.tabBody}><LoadingState text="載入多機器執行狀態..." /></div>;
-  if (error) {
+  if (loading) return <LoadingState text="正在整理學生檢查結果…" />;
+  if (loadError) return <div className={styles.noticeDanger}>{loadError}</div>;
+  if (!run) {
     return (
-      <div className={styles.tabBody}>
-        <div className={styles.card} role="alert">
-          <div className={styles.cardHead}>
-            <span className={styles.dangerText}>{error}</span>
-            <button type="button" className={styles.btnSecondary} onClick={loadExecutionState}>重新載入</button>
-          </div>
-        </div>
+      <div className={`${styles.card} ${styles.reviewEmpty}`}>
+        <MIcon name="rate_review" size={30} />
+        <h4>還沒有可核查的結果</h4>
+        <p>請先到「執行結果」選擇學生並執行檢查，完成後會在這裡集中顯示。</p>
       </div>
     );
   }
-  if (scriptSets.length === 0) {
-    return <LegacyExecutionTab classId={classId} sessionId={sessionId} members={members} machineNodes={machineNodes} />;
-  }
 
-  const children = Array.isArray(selectedSet?.children) ? selectedSet.children : [];
-  const studentResults = Array.isArray(batch?.students) ? batch.students : [];
   return (
     <div className={styles.tabBody}>
-      <div className={styles.card}>
-        <div className={styles.cardHead}>
-          <div>
-            <h4 className={styles.cardTitle}><MIcon name="play_circle_outline" size={18} />全部對應機器</h4>
-            <p className={styles.fileMeta}>後端依每份 child artifact 的 executor node 對應每位學生機器；老師不需要重新選節點或輸入 VMID。</p>
-          </div>
-          <div className={styles.sectionActions}>
-            {scriptSets.length > 1 && (
-              <label className={styles.field}>
-                <span className={styles.srOnly}>選擇腳本集</span>
-                <select value={selectedSet?.artifact_set_id ?? ""} onChange={(event) => setSelectedSetId(event.target.value)}>
-                  {scriptSets.map((scriptSet) => (
-                    <option key={scriptSet.artifact_set_id} value={scriptSet.artifact_set_id}>
-                      revision {scriptSet.source_analysis_revision ?? "—"} · {scriptSet.children?.length ?? 0} 節點
-                    </option>
-                  ))}
-                </select>
-              </label>
-            )}
-            <button
-              type="button"
-              className={styles.btnPrimary}
-              onClick={handleRunAll}
-              disabled={creatingRun || selectedSet?.status !== "approved"}
-              title={selectedSet?.status === "approved" ? "執行此腳本集的所有對應機器" : "所有節點腳本通過審查後才能執行"}
-            >
-              {creatingRun ? <Spinner size={16} /> : <MIcon name="play_arrow" size={16} />}
-              執行全部對應機器
-            </button>
-          </div>
-        </div>
-        {selectedSet?.status !== "approved" && (
-          <div className={styles.noticeInfo} role="status">
-            <strong>尚未可執行</strong>
-            <span>請先在腳本總覽讓每個邏輯節點 child 都通過審查；部分核准不會啟動整批執行。</span>
-          </div>
-        )}
-        <div className={styles.scriptList}>
-          {children.map((child) => (
-            <div key={child.id} className={styles.scriptItem}>
-              <span className={styles.scriptItemHead}>
-                <span className={styles.scriptName}>
-                  {batchMachineDisplayName(child.target_node_key, machineNodes) ?? "未指定節點"}
-                </span>
-                <span className={`${styles.badge} ${scriptStatusBadgeClass(child.status)}`}>
-                  {SCRIPT_STATUS_LABELS[child.status] ?? child.status}
-                </span>
-              </span>
-              <span className={styles.fileMeta}>{child.rubric_snapshot_json?.items?.length ?? 0} 個 rubric item · {child.name}</span>
-            </div>
-          ))}
+      <div className={`${styles.card} ${styles.reviewOverview}`}>
+        <h4 className={styles.cardTitle}><MIcon name="rate_review" size={19} />導師核查</h4>
+        <div className={styles.reviewMetrics} aria-label="核查進度">
+          <span><strong>{summary.pending}</strong><small>待核查</small></span>
+          <span><strong>{summary.reviewed}</strong><small>已核查／留言</small></span>
+          <span><strong>{summary.automatic}</strong><small>AI 已判定</small></span>
+          <span><strong>{summary.total}</strong><small>學生總數</small></span>
         </div>
       </div>
 
-      {batch && (
-        <div className={styles.card} aria-live="polite">
-          <div className={styles.cardHead}>
-            <div>
-              <h4 className={styles.cardTitle}>執行批次</h4>
-              <p className={styles.fileMeta}>Batch {batch.run_batch_id}</p>
-            </div>
-            <StatusBadge map={RUN_STATUS} status={batch.status} />
-          </div>
-          <div className={styles.execToolbar}>
-            <span className={styles.mutedText}>
-              節點 {batch.summary?.nodes ?? 0} · 學生 {batch.summary?.students ?? 0} · 目標 {batch.summary?.targets ?? 0} · 完成 {batch.summary?.completed ?? 0} · 失敗 {batch.summary?.failed ?? 0}
-            </span>
-          </div>
-          {Array.isArray(batch.nodes) && batch.nodes.length > 0 && (
-            <div className={styles.scriptList}>
-              {batch.nodes.map((node) => (
-                <div key={node.run_id} className={styles.scriptItem}>
-                  <span className={styles.scriptItemHead}>
-                    <span className={styles.scriptName}>{batchMachineDisplayName(node.target_node_key, machineNodes, node.display_label) ?? "—"}</span>
-                    <StatusBadge map={RUN_STATUS} status={node.status} />
-                  </span>
-                  <span className={styles.fileMeta}>完成 {node.progress_json?.done ?? 0} / {node.progress_json?.total ?? 0} · run {node.run_id}</span>
-                </div>
-              ))}
-            </div>
-          )}
-          {studentResults.length === 0 ? (
-            <p className={styles.mutedText}>執行器正在準備目標；完成後會在每台機器列顯示檢查點結果與輸出詳情。</p>
-          ) : (
-            <div className={styles.tableWrap}>
-              <table className={styles.table}>
-                <thead>
-                  <tr>
-                    <th>機器</th>
-                    <th>成員</th>
-                    <th>執行狀態</th>
-                    <th>檢查點</th>
-                    <th />
-                  </tr>
-                </thead>
-                <tbody>
-                  {studentResults.flatMap((student) => {
-                    const nodes = Array.isArray(student.nodes) ? student.nodes : [];
-                    return nodes.map((node, index) => {
-                      const member = memberForStudentNode(student.student_id, node.node_key);
-                      return (
-                        <BatchMachineResultRow
-                          key={`${student.student_id}-${node.node_key ?? index}`}
-                          node={node}
-                          member={member}
-                          machineName={batchMachineDisplayName(
-                            node.node_key,
-                            machineNodes,
-                            node.display_label ?? member?.display_label,
-                          )}
-                        />
-                      );
-                    });
-                  })}
-                </tbody>
-              </table>
-            </div>
-          )}
+      <div className={styles.reviewListSection}>
+        <div className={styles.reviewListToolbar}>
+          <label className={styles.reviewSort}>
+            <MIcon name="sort" size={16} />
+            <span>排序</span>
+            <select value={sortMode} onChange={(event) => setSortMode(event.target.value)}>
+              <option value="pending">待處理優先</option>
+              <option value="student-number">學號／帳號</option>
+            </select>
+          </label>
         </div>
-      )}
+        <div className={styles.reviewStudentList}>
+          {rows.map(({ member, target }) => {
+          const vmid = target?.vmid ?? member?.vmid;
+          const key = String(vmid ?? member?.user_id ?? member?.email);
+          const user = target?.user ?? member ?? {};
+          const itemSummary = getTargetReviewSummary(target);
+          const isOpen = expandedVmid === key;
+          const checks = targetChecks(target);
+          const counts = checks.reduce((result, check) => {
+            const status = check?.status;
+            if (status === "pass") result.pass += 1;
+            else if (status === "fail") result.fail += 1;
+            else if (TEACHER_REVIEW_STATUSES.has(status)) result.review += 1;
+            return result;
+          }, { pass: 0, fail: 0, review: 0 });
+          const draft = drafts[String(vmid)] ?? reviewDraft(target);
+          const saved = targetTeacherReview(target);
+          const isDirty = Boolean(target) && (
+            draft.feedback !== saved.feedback
+            || JSON.stringify(draft.decisions) !== JSON.stringify(saved.decisions)
+          );
+          return (
+            <article className={`${styles.reviewStudent} ${isOpen ? styles.reviewStudentOpen : ""}`} key={key}>
+              <button
+                type="button"
+                className={styles.reviewStudentToggle}
+                onClick={() => setExpandedVmid(isOpen ? null : key)}
+                aria-expanded={isOpen}
+              >
+                <span className={styles.reviewStudentIdentity}>
+                  <span className={styles.reviewAvatar}><MIcon name="person" size={18} /></span>
+                  <span>
+                    <strong>{user.full_name ?? "未命名學生"}</strong>
+                    <small>{user.email ?? ""}{vmid ? ` · VMID ${vmid}` : ""}</small>
+                  </span>
+                </span>
+                <span className={styles.reviewAiCounts} aria-label="AI 檢查摘要">
+                  {target && <><em className={styles.reviewCountPass}>{counts.pass} 通過</em><em className={styles.reviewCountFail}>{counts.fail} 未通過</em><em className={styles.reviewCountPending}>{counts.review} 待確認</em></>}
+                </span>
+                <span className={`${styles.badge} ${reviewBadgeClass(itemSummary.kind)}`}>{itemSummary.label}</span>
+                <MIcon name={isOpen ? "expand_less" : "expand_more"} size={20} />
+              </button>
+
+              {isOpen && (
+                <div className={styles.reviewStudentBody}>
+                  {!target ? (
+                    <div className={styles.reviewNoResult}>這位學生不在最近一次執行範圍內，尚無 AI 檢查結果。</div>
+                  ) : (
+                    <>
+                      <div className={styles.reviewCheckList}>
+                        {checks.length === 0 ? <p className={styles.mutedText}>腳本沒有回傳可顯示的檢查項目。</p> : checks.map((check, index) => {
+                          const meta = checkStatusMeta(check?.status);
+                          const reviewable = TEACHER_REVIEW_STATUSES.has(check?.status);
+                          const decision = draft.decisions[check?.id];
+                          return (
+                            <div className={styles.reviewCheck} key={`${check?.id ?? "check"}-${index}`}>
+                              <span className={`${styles.reviewCheckIcon} ${meta.className}`}><MIcon name={meta.icon} size={17} /></span>
+                              <div className={styles.reviewCheckContent}>
+                                <div><strong>{check?.title ?? check?.id ?? "收集項目"}</strong><span>{meta.label}</span></div>
+                                <p>{check?.evidence || "沒有摘要"}</p>
+                                {(check?.raw || (Array.isArray(check?.errors) && check.errors.length > 0)) && (
+                                  <details><summary>查看原始證據</summary><CommandLog raw={check?.raw} fallbackText={(check?.errors ?? []).join("\n")} /></details>
+                                )}
+                              </div>
+                              {reviewable && (
+                                <div className={styles.reviewDecision} aria-label={`${check?.title ?? check?.id}人工判定`}>
+                                  <button type="button" className={decision === "pass" ? styles.reviewPassActive : ""} aria-pressed={decision === "pass"} onClick={() => toggleDecision(vmid, check.id, "pass")}><MIcon name="check" size={16} />通過</button>
+                                  <button type="button" className={decision === "fail" ? styles.reviewFailActive : ""} aria-pressed={decision === "fail"} onClick={() => toggleDecision(vmid, check.id, "fail")}><MIcon name="close" size={16} />未通過</button>
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+
+                      <label className={styles.reviewFeedbackField}>
+                        <span>給學生的本週回饋 <small>選填</small></span>
+                        <textarea
+                          value={draft.feedback}
+                          maxLength={4000}
+                          rows={3}
+                          placeholder="例如：服務已能啟動，接下來請補上錯誤處理並重新確認日誌。"
+                          onChange={(event) => updateDraft(vmid, (current) => ({ ...current, feedback: event.target.value }))}
+                        />
+                        <small>{draft.feedback.length} / 4000</small>
+                      </label>
+                      <div className={styles.reviewSaveRow}>
+                        <span>{isDirty ? "有尚未儲存的變更" : saved.feedback || Object.keys(saved.decisions).length ? `上次儲存：${target.teacher_review?.updated_at ? formatDateTime(target.teacher_review.updated_at) : "已儲存"}` : "可只判定、不留言；也可以只留言。"}</span>
+                        <button type="button" className={styles.btnPrimary} disabled={!isDirty || savingVmid === String(vmid)} onClick={() => saveReview(target)}>{savingVmid === String(vmid) ? <><Spinner size={15} />儲存中…</> : <><MIcon name="save" size={16} />儲存核查</>}</button>
+                      </div>
+                    </>
+                  )}
+                </div>
+              )}
+            </article>
+          );
+          })}
+        </div>
+      </div>
     </div>
   );
-}
-
-function ExecutionTab(props) {
-  if (!props.sessionId) {
-    return <LegacyExecutionTab {...props} />;
-  }
-  return <BatchExecutionTab {...props} />;
 }
 
 /* ── 導師工作區 ─────────────────────────────────────────── */
@@ -3901,9 +3468,10 @@ const TEACHER_JUDGE_TABS = [
   { key: "rubrics", label: "檢查設定", icon: "description" },
   { key: "execution", label: "執行結果", icon: "play_circle_outline" },
   { key: "scripts", label: "腳本總覽", icon: "terminal" },
+  { key: "review", label: "導師核查", icon: "rate_review" },
 ];
 
-function TeacherWorkspacePanel({ classId, members, machineNodes = [], weeks = [] }) {
+function TeacherWorkspacePanel({ classId, members, weeks = [] }) {
   const toast = useToast();
   const [searchParams] = useSearchParams();
   const requestedSessionId = searchParams.get("check");
@@ -4285,7 +3853,7 @@ function TeacherWorkspacePanel({ classId, members, machineNodes = [], weeks = []
       {activeSession ? (
         activeTab === "rubrics" ? (
           <section className={styles.sessionMainFull} aria-label="檢查設定工作區">
-            <RubricsTab key={activeSession.id} classId={classId} judgeSession={activeSession} onSessionUpdated={updateSessionInList} machineNodes={machineNodes} sidebar={sessionSidebarInner} tabsBar={subTabsBar} onScriptCreated={(artifact) => { loadSessions(); const destination = getScriptCreationDestination(artifact); setFocusedScriptId(destination === "scripts" ? createdScriptFocusId(artifact) : null); setActiveTab(destination); }} />
+            <RubricsTab key={activeSession.id} classId={classId} judgeSession={activeSession} onSessionUpdated={updateSessionInList} sidebar={sessionSidebarInner} tabsBar={subTabsBar} onScriptCreated={(artifact) => { loadSessions(); const destination = getScriptCreationDestination(artifact); setFocusedScriptId(destination === "scripts" ? (artifact?.id ?? null) : null); setActiveTab(destination); }} />
           </section>
         ) : (
           <section className={styles.sessionMainFull} aria-label="檢查工作區">
@@ -4295,8 +3863,9 @@ function TeacherWorkspacePanel({ classId, members, machineNodes = [], weeks = []
               </aside>
               <div className={styles.checkContentCol}>
                 <div className={`${styles.card} ${styles.checkTabsCard}`}>{subTabsBar}</div>
-                {activeTab === "scripts" && <ScriptsTab classId={classId} sessionId={activeSession.id} initialSelectedId={focusedScriptId} machineNodes={machineNodes} onScriptApproved={() => setActiveTab("execution")} />}
-                {activeTab === "execution" && <ExecutionTab classId={classId} sessionId={activeSession.id} members={members} machineNodes={machineNodes} />}
+                {activeTab === "scripts" && <ScriptsTab classId={classId} sessionId={activeSession.id} initialSelectedId={focusedScriptId} onScriptApproved={() => setActiveTab("execution")} />}
+                {activeTab === "execution" && <ExecutionTab classId={classId} sessionId={activeSession.id} members={members} />}
+                {activeTab === "review" && <TeacherReviewTab classId={classId} sessionId={activeSession.id} members={members} />}
               </div>
             </div>
           </section>
@@ -4338,7 +3907,7 @@ function TeacherWorkspacePanel({ classId, members, machineNodes = [], weeks = []
                 <h2>調整檢查週次</h2>
                 <p>「{moveWeekTarget.title}」只會出現在所選週次，學生端不會再混到其他週。</p>
               </div>
-              <button type="button" className={styles.iconBtn} aria-label="關閉" onClick={() => setMoveWeekTarget(null)}><MIcon name="close" size={18} /></button>
+              <button type="button" className={styles.dialogClose} aria-label="關閉" onClick={() => setMoveWeekTarget(null)}><MIcon name="close" size={18} /></button>
             </div>
             <label className={styles.dialogField}>
               <span>所屬週任務</span>
@@ -4360,6 +3929,6 @@ function TeacherWorkspacePanel({ classId, members, machineNodes = [], weeks = []
   );
 }
 
-export default function AiJudgePanel({ classId, members, machineNodes = [], weeks = [] }) {
-  return <TeacherWorkspacePanel classId={classId} members={members} machineNodes={machineNodes} weeks={weeks} />;
+export default function AiJudgePanel({ classId, members, weeks = [] }) {
+  return <TeacherWorkspacePanel classId={classId} members={members} weeks={weeks} />;
 }

@@ -199,6 +199,13 @@ export default function AiApiReviewPage() {
     return allRequests.filter((r) => r.status === activeTab);
   }, [allRequests, activeTab]);
 
+  const stats = useMemo(() => {
+    const pending = allRequests.filter((r) => r.status === "pending").length;
+    const approved = allRequests.filter((r) => r.status === "approved").length;
+    const rejected = allRequests.filter((r) => r.status === "rejected").length;
+    return { total: allRequests.length, pending, approved, rejected };
+  }, [allRequests]);
+
   const COLS = [
     t("AiApiReviewPage.colApplicant"),
     t("AiApiReviewPage.colKeyName"),
@@ -216,7 +223,11 @@ export default function AiApiReviewPage() {
       <div className={styles.tabsRow}>
         <SegmentedControl
           className={styles.tabsControl}
-          options={TABS.map(({ key, label }) => ({ value: key, label }))}
+          options={TABS.map(({ key, label }) => ({
+            value: key,
+            label,
+            badge: key === "all" ? stats.total : stats[key],
+          }))}
           value={activeTab}
           onChange={setActiveTab}
           ariaLabel={t("AiApiReviewPage.tabsAriaLabel")}

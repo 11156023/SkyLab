@@ -1,0 +1,19 @@
+{
+  "condition": { "nodes": 3, "vms": 128, "users": 452, "courses": 24 },
+  "counters": { "instances": 128, "snapshots": 342, "pending": 7 },
+  "templates": [
+    { "name": "Ubuntu 24.04 LTS", "kind": "VM" },
+    { "name": "Debian 13", "kind": "LXC" },
+    { "name": "Windows Server 2025", "kind": "VM" }
+  ],
+  "capacity": { "usedPercent": 62 },
+  "classroom": { "name": "NTUB-CS 3A", "seats": 40, "online": 37 },
+  "network": { "firewallRules": 86, "natRules": 19, "proxyRoutes": 12 },
+  "ai": {
+    "candidates": [
+      { "node": "pve-01", "score": 92 },
+      { "node": "pve-02", "score": 71 },
+      { "node": "pve-03", "score": 45 }
+    ]
+  }
+}

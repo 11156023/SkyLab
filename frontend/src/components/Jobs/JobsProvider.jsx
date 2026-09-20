@@ -409,6 +409,7 @@ export default function JobsProvider({ children }) {
     const timer = setTimeout(() => {
       toast(t("JobsProvider.desktopPromptTitle"), {
         id: DESKTOP_PROMPT_TOAST_ID,
+        className: "toast-stacked",
         description: t("JobsProvider.desktopPromptDescription"),
         duration: Infinity,
         action: {

@@ -101,7 +101,7 @@ function ExtendDialog({ item, closing, busy, onClose, onExtend }) {
     <section className={`${styles.createDialog} ${styles.extendDialog}`} role="dialog" aria-modal="true" aria-labelledby="extend-class-title">
       <header className={styles.createDialogHeader}>
         <h2 id="extend-class-title">{t("ClassWorkspacePage.extendDialogTitle")}</h2>
-        <button type="button" className={styles.iconBtn} aria-label={t("ClassWorkspacePage.closeAriaLabel")} disabled={busy} onClick={onClose}><MIcon name="close" size={19} /></button>
+        <button type="button" className={styles.dialogClose} aria-label={t("ClassWorkspacePage.closeAriaLabel")} disabled={busy} onClick={onClose}><MIcon name="close" size={19} /></button>
       </header>
       <form onSubmit={(event) => { event.preventDefault(); onExtend(endDate); }}>
         <div className={styles.createDialogBody}>

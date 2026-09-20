@@ -1,0 +1,70 @@
+{
+  "brand": "SkyLab",
+  "topLogin": "登入",
+  "modeToDay": "切換日間模式",
+  "modeToNight": "切換夜間模式",
+  "scrollHint": "滾動探索",
+  "hero": {
+    "tagline": "校園裡的私有雲",
+    "sub": "從申請到開機,一個平台管理整個校園的運算資源"
+  },
+  "condition": {
+    "title": "校園概況",
+    "nodes": "節點",
+    "vms": "虛擬機",
+    "users": "使用者",
+    "courses": "本學期課程"
+  },
+  "overview": {
+    "title": "一個平台,管理整個校園的運算資源",
+    "instances": "VM / LXC 實例",
+    "snapshots": "快照",
+    "pending": "審核中申請"
+  },
+  "lifecycle": {
+    "title": "從範本到可用的 VM,幾分鐘內",
+    "desc": "建立、快照、規格調整到刪除,完整生命週期都在平台上完成。",
+    "steps": ["從範本建立", "快照備份", "規格調整", "到期回收"],
+    "templates": "機器範本"
+  },
+  "workflow": {
+    "title": "申請、審核、自動供應",
+    "desc": "學生送出申請後,審核與租借時段的容量評估、開機供應全部自動接手。",
+    "steps": ["學生提交申請", "教師/管理員審核", "排程自動供應"],
+    "capacity": "租借時段容量"
+  },
+  "classroom": {
+    "title": "整班環境,一鍵建置",
+    "desc": "班級名單、固定課表、多機環境,一次為全班準備好一樣的機器。",
+    "monitor": "教室監看",
+    "online": "{{online}} / {{seats}} 台在線",
+    "aiJudge": "AI 評分檢查"
+  },
+  "network": {
+    "title": "防火牆、NAT 與閘道,全部看得見",
+    "desc": "進出校園的每一條連線都有拓撲可看、有規則可管。",
+    "topology": "防火牆拓撲",
+    "nodeInternet": "外部網路",
+    "nodeFirewall": "防火牆",
+    "legendAllow": "允許",
+    "legendBlock": "阻擋",
+    "firewall": "防火牆規則",
+    "nat": "NAT 規則",
+    "proxy": "Reverse Proxy 路由"
+  },
+  "ai": {
+    "title": "AI 幫你決定放哪、開什麼",
+    "desc": "放置建議依節點負載評分,模板推薦聽得懂課程需求。",
+    "placement": "放置建議",
+    "recommendation": "「這門課建議用 Ubuntu 24.04 範本,2 vCPU / 4GB RAM。」",
+    "proxyCard": "OpenAI 相容 AI Proxy,憑證與流量限制內建"
+  },
+  "terminal": {
+    "title": "打開就是真的機器",
+    "desc": "VNC 桌面與終端機直接在瀏覽器裡,不用另外裝任何東西。",
+    "cta": "準備好把實驗室搬上雲了嗎?",
+    "loginCta": "登入 SkyLab",
+    "docsCta": "部署指南"
+  },
+  "footer": "© 2026 SkyLab — 校園資源管理平台"
+}

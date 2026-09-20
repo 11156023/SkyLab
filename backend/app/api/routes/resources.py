@@ -46,7 +46,9 @@ def list_nodes(current_user: AdminUser):
 def list_resources(
     session: SessionDep, current_user: AdminUser, node: str | None = None
 ):
-    return resource_service.list_all(session=session, node=node)
+    return resource_service.list_all(
+        session=session, node=node, viewer_id=current_user.id
+    )
 
 
 @router.get("/my", response_model=list[ResourcePublic])

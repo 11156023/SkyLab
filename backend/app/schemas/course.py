@@ -253,6 +253,7 @@ class CourseAICheckStudent(BaseModel):
     score: int | None = None
     max_score: int | None = None
     summary: str = ""
+    teacher_feedback: str = ""
     error: str = ""
     items: list[CourseAICheckItemStudent] = Field(default_factory=list)
 
