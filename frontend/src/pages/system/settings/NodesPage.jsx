@@ -206,7 +206,6 @@ export default function NodesPage() {
     <div className={styles.page}>
       <PageHeader title={t("SettingsPage.nodesTitle")} />
       <div className={styles.content}>
-        <p className={styles.listHint}>{t("SettingsPage.nodesHint")}</p>
         <NodeList />
       </div>
     </div>
