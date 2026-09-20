@@ -277,6 +277,14 @@ export default function BatchReviewPage() {
     [visibleRows, selectedId],
   );
 
+  /* 分頁角標：各審核狀態筆數（total 含 cancelled 等 other，僅顯示於「全部」） */
+  const stats = useMemo(() => {
+    const pending = reviewRows.filter((row) => row.reviewStatus === "pending").length;
+    const approved = reviewRows.filter((row) => row.reviewStatus === "approved").length;
+    const rejected = reviewRows.filter((row) => row.reviewStatus === "rejected").length;
+    return { total: reviewRows.length, pending, approved, rejected };
+  }, [reviewRows]);
+
   const togglePreview = async (jobId) => {
     if (openPreviews[jobId]) {
       setOpenPreviews((p) => ({ ...p, [jobId]: false }));
@@ -364,7 +372,7 @@ export default function BatchReviewPage() {
           options={tabs.map(({ key, label }) => ({
             value: key,
             label,
-            badge: key === "all" ? stats.total : stats[key],
+            badge: key === "all" ? stats.total : (stats[key] ?? 0),
           }))}
           value={activeTab}
           onChange={setActiveTab}
