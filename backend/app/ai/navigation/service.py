@@ -126,14 +126,31 @@ TEACHING_RELATIONSHIP = (
 TEACHING_RELATIONSHIP_BRIEF = "範本是單機來源；環境是機器組合；班級管理課表與學生。"
 
 
+def _asks_which_comes_first(text: str) -> bool:
+    """「先 A 還是 B」的問法：同一行裡「先」後面出現「還是」。
+
+    原本寫成 ``re.search(r"先.*還是")``：一長串「先」時每個起點都要掃到行尾才知道
+    沒有「還是」，是二次方時間（CodeQL py/polynomial-redos）。只看每行第一個「先」
+    就夠了——後面的「先」能配到的「還是」，第一個「先」一定也配得到。
+    """
+    for line in text.splitlines():
+        start = line.find("先")
+        if start != -1 and "還是" in line[start + 1 :]:
+            return True
+    return False
+
+
 def _explicit_teaching_flow(query: str) -> str | None:
     """A new, explicit request takes precedence over the previous task or page."""
+    # 空白對這句話沒有意義，先整個拿掉再比對。原本在可省略的群組之間夾了好幾個
+    # ``\s*``，一長串空白會有很多種切法，回溯是多項式時間（CodeQL py/polynomial-redos）。
+    compact = "".join(query.split())
     match = re.fullmatch(
-        r"(?:(?:請|麻煩|幫我|協助我|帶我|我想要|我想|我要|我是要|我是想)\s*)*"
-        r"(?:先)?(?:建立|新增|創建|開設|開)\s*(?:一(?:個|門|堂))?\s*(?:新的?|個)?\s*"
+        r"(?:請|麻煩|幫我|協助我|帶我|我想要|我想|我要|我是要|我是想)*"
+        r"(?:先)?(?:建立|新增|創建|開設|開)(?:一(?:個|門|堂))?(?:新的?|個)?"
         r"(班級|課程|課堂|教學環境|課程環境|環境|班|課)"
-        r"\s*(?:的?(?:流程|步驟))?[。!！?？\s]*",
-        query.strip(),
+        r"(?:的?(?:流程|步驟))?[。!！?？]*",
+        compact,
     )
     if not match:
         return None
@@ -224,7 +241,10 @@ def _keyword_fallback(
     best_route_score = scored_routes[0][0] if scored_routes else 0
 
     teaching = any(word in text for word in ("班級", "課堂", "開課", "開班", "教學環境", "範本"))
-    explanation = bool(re.search(r"差別|差異|關係|是什麼|什麼是|為什麼|一定要|需要先|先.*還是", text))
+    explanation = bool(
+        re.search(r"差別|差異|關係|是什麼|什麼是|為什麼|一定要|需要先", text)
+        or _asks_which_comes_first(text)
+    )
     task_request = bool(re.search(r"我要|我想|幫我|建立|新增|流程|步驟|怎麼|如何", text))
     if teaching and explanation and not re.search(r"我要|我想|幫我|流程|步驟", text) and any(f.flow_id == "open_class" for f in flows):
         return NavigationResolveResponse(intent=query, confidence=1, action="answer", answer=TEACHING_RELATIONSHIP_BRIEF)

@@ -419,3 +419,80 @@ def test_all_workflow_cards_keep_details_short():
     for flow in all_flows():
         for step in flow.steps:
             assert len(step.detail) <= 28, (flow.flow_id, step.title)
+
+
+# --------------------------------------------------------------- 比對用語（ReDoS）
+
+# 改寫前的兩個正規表示式，只留在測試裡當對照組：舊寫法命中的句子，線性時間的新寫法一樣要命中。
+_OLD_EXPLICIT = (
+    r"(?:(?:請|麻煩|幫我|協助我|帶我|我想要|我想|我要|我是要|我是想)\s*)*"
+    r"(?:先)?(?:建立|新增|創建|開設|開)\s*(?:一(?:個|門|堂))?\s*(?:新的?|個)?\s*"
+    r"(班級|課程|課堂|教學環境|課程環境|環境|班|課)"
+    r"\s*(?:的?(?:流程|步驟))?[。!！?？\s]*"
+)
+
+
+def _old_explicit_teaching_flow(query: str) -> str | None:
+    import re
+
+    match = re.fullmatch(_OLD_EXPLICIT, query.strip())
+    if not match:
+        return None
+    return "prepare_environment" if "環境" in match[1] else "open_class"
+
+
+@pytest.mark.parametrize(
+    "query",
+    [
+        "建立班級", "我要開課", "幫我 建立 一個 新的 班級", "請 幫我 新增一門課程的流程？",
+        "  先建立教學環境。 ", "麻煩帶我開設一堂課！！", "我想要創建個環境的步驟", "開班",
+        "建立\t班級\n", "我是想 開 一個 課程環境",
+        # 不該命中的
+        "班級", "建立", "建立班級名單", "我要建立班級然後呢", "怎麼建立班級", "刪除班級", "",
+    ],
+)
+def test_explicit_teaching_flow_matches_the_same_phrases_as_before(query: str) -> None:
+    assert navigation_service._explicit_teaching_flow(query) == _old_explicit_teaching_flow(query)
+
+
+def test_explicit_teaching_flow_now_ignores_whitespace_anywhere() -> None:
+    """新寫法先去掉所有空白，所以比舊的寬鬆：舊的只允許空白出現在特定位置。
+
+    多命中的這些句子意思都還是同一個請求，屬於預期內的放寬。
+    """
+    for query in ("我想要創建個環境 的 步驟", "建 立 班 級", "幫我建立班級的 流程"):
+        assert _old_explicit_teaching_flow(query) is None
+        assert navigation_service._explicit_teaching_flow(query) is not None
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        ("要先建範本還是先開班", True),
+        ("先還是", True),
+        ("還是先開班", False),          # 「還是」在「先」前面
+        ("先建範本", False),
+        ("先建範本\n還是開班", False),  # 跨行不算，跟原本 . 不吃換行一致
+        ("開班\n先建範本還是環境", True),
+        ("", False),
+    ],
+)
+def test_asks_which_comes_first_matches_the_old_pattern(text: str, expected: bool) -> None:
+    import re
+
+    assert navigation_service._asks_which_comes_first(text) is expected
+    assert bool(re.search(r"先.*還是", text)) is expected
+
+
+def test_phrase_matching_stays_fast_on_adversarial_input() -> None:
+    """CodeQL py/polynomial-redos 指出的兩種輸入：開頭字後面接一大串重複字元。
+
+    schema 把 query 限制在 2000 字，這裡用 50 倍長度，線性寫法仍是瞬間完成；
+    舊的多項式寫法在這個長度會跑上好幾秒甚至更久。
+    """
+    import time
+
+    started = time.perf_counter()
+    assert navigation_service._explicit_teaching_flow("開" + " " * 100_000 + "x") is None
+    assert navigation_service._asks_which_comes_first("先" * 100_000) is False
+    assert time.perf_counter() - started < 1.0
