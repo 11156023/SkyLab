@@ -17,7 +17,10 @@ import httpx
 from fastapi import HTTPException
 
 from app.ai.teacher_judge._types import VLLMMetrics
-from app.ai.teacher_judge.automation_support import missing_step_information
+from app.ai.teacher_judge.automation_support import (
+    get_script_generation_blockers,
+    missing_step_information,
+)
 from app.ai.teacher_judge.config import settings
 from app.ai.teacher_judge.machine_context import (
     PEER_IP_TOKEN,
@@ -39,6 +42,7 @@ from app.ai.teacher_judge.prompt import (
     TEMPLATE_COMMAND_CONTEXT_TEMPLATE,
 )
 from app.ai.teacher_judge.schemas import (
+    TeacherJudgeRubricAnalysis,
     TeacherJudgeRubricChatMessage,
     TeacherJudgeRubricCheckStep,
     TeacherJudgeRubricItem,
@@ -953,6 +957,49 @@ def _rubric_context_data(rubric_context: str) -> dict[str, Any]:
     except (json.JSONDecodeError, TypeError):
         return {}
     return parsed if isinstance(parsed, dict) else {}
+
+
+def _finalizer_completion_blockers(
+    snapshot_items: Any,
+    staged_ops: list[dict[str, Any]],
+    *,
+    template_commands: list[TeacherJudgeTemplateCommand] | None,
+    machine_entries: list[dict[str, Any]] | None,
+) -> list[dict[str, Any]]:
+    """Validate the effective Finalizer candidate before accepting prose."""
+
+    items: list[TeacherJudgeRubricItem] = []
+    for raw in snapshot_items if isinstance(snapshot_items, list) else []:
+        if not isinstance(raw, dict):
+            continue
+        try:
+            items.append(TeacherJudgeRubricItem.model_validate(raw))
+        except ValueError:
+            # This in-loop repair gate is best-effort. The route-level
+            # readiness check remains the fail-closed source of truth.
+            continue
+    index_by_id = {item.id: index for index, item in enumerate(items)}
+    for entry in staged_ops:
+        candidate = entry.get("item")
+        if not isinstance(candidate, TeacherJudgeRubricItem):
+            continue
+        index = index_by_id.get(candidate.id)
+        if index is None:
+            index_by_id[candidate.id] = len(items)
+            items.append(candidate)
+        else:
+            items[index] = candidate
+
+    analysis = TeacherJudgeRubricAnalysis(items=items)
+    return [
+        dict(blocker)
+        for blocker in get_script_generation_blockers(
+            analysis,
+            template_commands or [],
+            require_target_node=bool(machine_entries),
+            require_typed_plan=True,
+        )
+    ]
 
 
 def _mint_proposal_item_id(existing_ids: set[str]) -> str:
@@ -2186,6 +2233,7 @@ async def _run_proposal_tool_loop(
     final_content = ""
     reminder_count = 0
     forced_tool_choice: dict[str, Any] | None = None
+    finalizer_repair_fingerprints: set[str] = set()
     for _ in range(max_rounds):
         round_payload = {**base_request, "messages": list(messages)}
         if forced_tool_choice is not None:
@@ -2211,6 +2259,54 @@ async def _run_proposal_tool_loop(
                 proposal_status == "ready"
                 or _structured_requirement_needs_candidate(final_content)
             )
+            if finalizer:
+                blockers = _finalizer_completion_blockers(
+                    snapshot_items,
+                    staged_ops,
+                    template_commands=template_commands,
+                    machine_entries=machine_entries,
+                )
+                repairable = [
+                    {
+                        "item_id": blocker.get("item_id"),
+                        "reason_code": blocker.get("reason_code"),
+                        "detail": blocker.get("detail"),
+                    }
+                    for blocker in blockers
+                    if blocker.get("reason_code") == "check_plan_contract_invalid"
+                    and blocker.get("item_id")
+                ]
+                if repairable:
+                    fingerprint = json.dumps(
+                        repairable,
+                        ensure_ascii=False,
+                        sort_keys=True,
+                    )
+                    if fingerprint not in finalizer_repair_fingerprints:
+                        finalizer_repair_fingerprints.add(fingerprint)
+                        messages = [
+                            *messages,
+                            {"role": "assistant", "content": final_content},
+                            {
+                                "role": "system",
+                                "content": (
+                                    "Finalizer 的 server-side candidate 尚未通過 typed "
+                                    "Check Plan 驗證。不要只用 reply 宣稱完成；請立即呼叫 "
+                                    "edit_checklist_item，依下列 item_id 將完整 check_steps "
+                                    "替換為 typed collector/assertion 陣列：\n"
+                                    + json.dumps(
+                                        repairable,
+                                        ensure_ascii=False,
+                                        separators=(",", ":"),
+                                    )
+                                ),
+                            },
+                        ]
+                        forced_tool_choice = {
+                            "type": "function",
+                            "function": {"name": _EDIT_CHECKLIST_ITEM_TOOL_NAME},
+                        }
+                        continue
             if (
                 claims_ready
                 and not staged_ops
