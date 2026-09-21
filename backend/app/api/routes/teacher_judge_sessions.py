@@ -670,6 +670,7 @@ async def create_message(
                     summary=item.summary,
                     source_file_id=file.id if file else None,
                     analysis_revision=base_revision,
+                    summary_through_message_id=item.summary_through_message_id,
                 ),
                 rubric_context,
                 is_refine=payload.is_refine,

@@ -16,6 +16,7 @@ from fastapi import HTTPException
 from sqlmodel import Session, col, desc, func, select
 
 from app.ai.teacher_judge.attachment_service import (
+    attachment_compact_context,
     attachment_context,
     attachment_public,
     storage_path,
@@ -1273,6 +1274,7 @@ def _message_context(
     *,
     include_attachments: bool = True,
     attachments: list[TeacherJudgeSessionAttachment] | None = None,
+    compact_attachments: bool = False,
 ) -> str:
     if not include_attachments:
         return row.content
@@ -1281,6 +1283,8 @@ def _message_context(
     )
     if not attachment_rows:
         return row.content
+    if compact_attachments:
+        return f"{row.content}\n\n{attachment_compact_context(attachment_rows)}"
     return f"{row.content}\n\n{attachment_context(attachment_rows)}"
 
 
@@ -1293,6 +1297,8 @@ def bounded_history(
     summary: str | None = None,
     source_file_id: uuid.UUID | None = None,
     analysis_revision: int | None = None,
+    summary_through_message_id: uuid.UUID | None = None,
+    compact_history_attachments: bool = True,
 ) -> list[TeacherJudgeRubricChatMessage]:
     statement = select(TeacherJudgeSessionMessage).where(
         TeacherJudgeSessionMessage.session_id == session_id,
@@ -1315,6 +1321,26 @@ def bounded_history(
                 & (TeacherJudgeSessionMessage.id <= boundary.id)
             )
         )
+    if summary_through_message_id is not None:
+        # P3: drop messages already covered by the persisted summary so the
+        # model does not receive "summary + summarized originals" twice.
+        # Invalid/stale boundaries are ignored to keep chat fail-open.
+        summary_boundary = db.get(
+            TeacherJudgeSessionMessage, summary_through_message_id
+        )
+        if (
+            summary_boundary is not None
+            and summary_boundary.session_id == session_id
+            and summary_boundary.role == TeacherJudgeMessageRole.assistant
+            and summary_boundary.message_type != TeacherJudgeMessageType.system_notice
+        ):
+            statement = statement.where(
+                (TeacherJudgeSessionMessage.created_at > summary_boundary.created_at)
+                | (
+                    (TeacherJudgeSessionMessage.created_at == summary_boundary.created_at)
+                    & (TeacherJudgeSessionMessage.id > summary_boundary.id)
+                )
+            )
     rows = list(
         db.exec(
             statement.order_by(
@@ -1345,11 +1371,18 @@ def bounded_history(
     size = 0
     for row in reversed(rows):
         if row.id not in content_by_id:
+            # P3: past attachments are already extracted into item_results;
+            # keep full text only for the newest message to avoid re-injecting
+            # the same 12k*5 chars on every turn.
+            compact = bool(
+                compact_history_attachments and row.id != latest_row_id
+            )
             content_by_id[row.id] = _message_context(
                 db,
                 row,
                 include_attachments=row.id != exclude_attachments_for_message_id,
                 attachments=attachments_by_message_id.get(row.id, []),
+                compact_attachments=compact,
             )
         content = content_by_id[row.id]
         if kept and size + len(content) > HISTORY_CHARACTER_LIMIT:
@@ -1500,6 +1533,8 @@ def _prepare_summary_job(
             db,
             session_id,
             through_message_id=boundary_message_id,
+            # Summarization needs the original text, not the P3 compact placeholder.
+            compact_history_attachments=False,
         )
     )
     if not messages:

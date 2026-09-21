@@ -2601,6 +2601,19 @@ async def chat_with_rubric(
 
 _ITEMWISE_MAX_ITEMS = 50
 _ITEMWISE_CONCURRENCY = 2
+# P3: fixed chunk size for batching multiple source items into one AI request.
+# Currently used as a pure helper + contract; orchestration still runs per-item
+# to preserve isolation, chunked execution lands in P3-b.
+_ITEMWISE_CHUNK_SIZE = 5
+
+
+def chunk_attachment_sources(
+    sources: list[dict[str, Any]],
+    chunk_size: int = _ITEMWISE_CHUNK_SIZE,
+) -> list[list[dict[str, Any]]]:
+    """Split extraction sources into fixed chunks for batched AI requests."""
+    size = max(1, int(chunk_size or _ITEMWISE_CHUNK_SIZE))
+    return [list(sources[index : index + size]) for index in range(0, len(sources), size)]
 
 
 def _parse_attachment_extraction(
@@ -2643,6 +2656,9 @@ def _parse_attachment_extraction(
     for index, source in enumerate(sources, start=1):
         source["source_index"] = index
         source["source_label"] = f"第 {index} 列"
+        # P3 server-owned stable id for this extraction run; history dedup and
+        # future chunked batching key off this instead of positional index.
+        source["source_item_id"] = f"src-{uuid.uuid4().hex[:12]}"
     return sources, None
 
 
@@ -2741,6 +2757,7 @@ def _itemwise_result_from_chat(
     base = {
         "source_index": source["source_index"],
         "source_label": source["source_label"],
+        "source_item_id": str(source.get("source_item_id") or ""),
         "title": source["title"],
         "description": str(source.get("description") or ""),
         "missing_information": [],
@@ -2787,6 +2804,7 @@ def _itemwise_error_result(source: dict[str, Any], exc: Exception) -> dict[str, 
     return {
         "source_index": source["source_index"],
         "source_label": source["source_label"],
+        "source_item_id": str(source.get("source_item_id") or ""),
         "title": source["title"],
         "description": str(source.get("description") or ""),
         "status": "analysis_error",
