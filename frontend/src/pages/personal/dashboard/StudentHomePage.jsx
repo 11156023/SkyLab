@@ -100,7 +100,7 @@ function chooseNextRoom(rooms) {
   );
 }
 
-export function buildPracticeMachines(classMachines, resources, deployment, roomTitle, t = defaultT) {
+export function buildPracticeMachines(classMachines, resources) {
   const machines = (classMachines ?? []).map((machine) => {
     const resource = (resources ?? []).find(
       (item) => machine.vmid != null && Number(item.vmid) === Number(machine.vmid),
@@ -114,21 +114,6 @@ export function buildPracticeMachines(classMachines, resources, deployment, room
       name: resource?.name ?? machine.name,
     };
   });
-
-  if (machines.length === 0 && deployment?.vmid) {
-    const fallbackResource = (resources ?? []).find(
-      (resource) => Number(resource.vmid) === Number(deployment.vmid),
-    );
-    machines.push({
-      ...fallbackResource,
-      vmid: deployment.vmid,
-      status: fallbackResource?.status ?? deployment.status,
-      type: fallbackResource?.type ?? "qemu",
-      name: fallbackResource?.name ?? roomTitle ?? t("StudentHomePage.defaultPracticeMachineName"),
-      classMachineName: roomTitle ?? t("StudentHomePage.defaultPracticeMachineName"),
-      classMachineRole: t("StudentHomePage.defaultPracticeMachineRole"),
-    });
-  }
 
   return machines;
 }
@@ -423,12 +408,9 @@ export default function StudentHomePage({ courseView = false }) {
 
   const nextRoom = chooseNextRoom(view.pathDetail?.rooms ?? []);
   const roomProgress = toPercent(nextRoom?.progress_percent);
-  const deployment = view.roomDetail?.my_deployment;
   const practiceMachines = buildPracticeMachines(
     view.practiceMachines,
     view.resources,
-    deployment,
-    view.roomDetail?.title,
   );
   const aiAssignments = assignmentsUntilToday(view.aiAssignments);
   const weeklyAssignmentIds = new Set(
@@ -673,9 +655,7 @@ export default function StudentHomePage({ courseView = false }) {
               <div className={styles.simpleCourseHint}>
                 <MIcon name="check_circle" size={18} />
                 <span>
-                  {deployment?.status === "running" || !nextRoom?.has_lab
-                    ? t("StudentHomePage.practiceReady")
-                    : t("StudentHomePage.willPrepareOnStart")}
+                  {t("StudentHomePage.practiceReady")}
                 </span>
               </div>
             </>

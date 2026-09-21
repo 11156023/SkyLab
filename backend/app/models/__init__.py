@@ -24,7 +24,6 @@ from .batch_provision import (
 from .class_exposure import ResourceClassExposure
 from .cloudflare_config import CloudflareConfig
 from .course import (
-    CourseDeployment,
     CourseDifficulty,
     CoursePath,
     CoursePathStatus,
@@ -246,5 +245,4 @@ __all__ = [
     "CourseQuestion",
     "CourseQuestionType",
     "UserCourseProgress",
-    "CourseDeployment",
 ]

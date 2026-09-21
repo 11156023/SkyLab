@@ -24,6 +24,7 @@
   "vm_request.quick_template_mode_disabled": "此模式已停用；請改用快速練習環境，或以一般申請選用開放的應用範本",
   "vm_request.end_before_start": "結束時間必須晚於開始時間",
   "vm_request.scheduled_requires_window": "排程模式必須同時提供開始時間與結束時間",
+  "vm_request.password_required": "請輸入登入密碼（至少 8 碼）",
   "vm_request.not_found": "找不到該申請",
   "vm_request.window_required_for_review": "審核內容需要排程申請時段",
   "vm_request.no_projected_node": "這個申請時段沒有可預測的節點可用",

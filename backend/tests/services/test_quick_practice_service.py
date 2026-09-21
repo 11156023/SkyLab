@@ -695,6 +695,33 @@ def test_ending_a_session_early_reclaims_it(quick_db: Session) -> None:
     assert ended.reclaimed_at is not None
 
 
+def test_lifecycle_finishes_an_early_ended_session_before_it_expires(
+    quick_db: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """提前結束後機器已刪完，但 session 還沒到期。
+
+    lifecycle 必須把它收成 reclaimed；卡在 reclaiming 的話申請單仍是
+    approved + vmid，會被當成進行中的練習，學生要等到期 + 緩衝才能重開
+    （2026-09-21 實機驗證時發現）。
+    """
+    practice, _requests = _session_graph(quick_db)
+    practice.status = "reclaiming"
+    practice.reclaim_started_at = datetime.now(UTC)
+    quick_db.add(practice)
+    quick_db.commit()
+    practice_id = practice.id
+    assert quick_practice._ensure_utc(practice.expires_at) > datetime.now(UTC)
+    monkeypatch.setattr("app.core.db.engine", quick_db.get_bind())
+
+    quick_practice.process_lifecycle()
+
+    quick_db.expire_all()
+    refreshed = quick_db.get(QuickPracticeSession, practice_id)
+    assert refreshed is not None
+    assert refreshed.status == "reclaimed"
+    assert refreshed.reclaimed_at is not None
+
+
 def test_another_student_cannot_end_someone_elses_session(quick_db: Session) -> None:
     environment, _teacher, student = _audience_fixture(quick_db, "campus")
     version = CourseEnvironmentVersion(

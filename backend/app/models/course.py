@@ -2,7 +2,6 @@
 
 學習路徑 → 房間 → 任務 → 題目 四層結構；
 進度記在 question 層（任務完成 = 該任務所有題目完成，百分比為衍生查詢）。
-CourseDeployment 是課程域與 VM 域的唯一接點（部署狀態 join vm_requests 取得）。
 """
 
 import enum
@@ -78,7 +77,7 @@ class CoursePath(SQLModel, table=True):
 
 
 class CourseRoom(SQLModel, table=True):
-    """房間：綁定範本系統 2.0 範本（NULL = 純理論房）"""
+    """房間：學習路徑底下的一章，掛任務與題目"""
 
     __tablename__ = "course_rooms"
 
@@ -102,14 +101,6 @@ class CourseRoom(SQLModel, table=True):
         ),
     )
     category: str | None = Field(default=None, max_length=100)
-    template_id: uuid.UUID | None = Field(
-        default=None,
-        sa_column=Column(
-            sa.Uuid,
-            sa.ForeignKey("vm_templates.id", ondelete="SET NULL"),
-            nullable=True,
-        ),
-    )
     order: int = Field(default=0)
 
 
@@ -191,47 +182,6 @@ class UserCourseProgress(SQLModel, table=True):
     )
 
 
-class CourseDeployment(SQLModel, table=True):
-    """課程實驗機部署記錄（expires_at = 對應 VMRequest 的 end_at 冗餘）"""
-
-    __tablename__ = "course_deployments"
-    __table_args__ = (
-        sa.Index("ix_course_deployments_user_expires", "user_id", "expires_at"),
-    )
-
-    id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
-    room_id: uuid.UUID = Field(
-        sa_column=Column(
-            sa.Uuid,
-            sa.ForeignKey("course_rooms.id", ondelete="CASCADE"),
-            nullable=False,
-            index=True,
-        )
-    )
-    user_id: uuid.UUID = Field(
-        sa_column=Column(
-            sa.Uuid,
-            sa.ForeignKey("user.id", ondelete="CASCADE"),
-            nullable=False,
-        )
-    )
-    vm_request_id: uuid.UUID = Field(
-        sa_column=Column(
-            sa.Uuid,
-            sa.ForeignKey("vm_requests.id", ondelete="CASCADE"),
-            nullable=False,
-            index=True,
-        )
-    )
-    created_at: datetime = Field(
-        default_factory=get_datetime_utc,
-        sa_column=Column(DateTime(timezone=True), nullable=False),
-    )
-    expires_at: datetime = Field(
-        sa_column=Column(DateTime(timezone=True), nullable=False),
-    )
-
-
 __all__ = [
     "CoursePath",
     "CoursePathStatus",
@@ -241,5 +191,4 @@ __all__ = [
     "CourseQuestion",
     "CourseQuestionType",
     "UserCourseProgress",
-    "CourseDeployment",
 ]

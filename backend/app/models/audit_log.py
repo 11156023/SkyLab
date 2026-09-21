@@ -136,6 +136,13 @@ class AuditAction(str, enum.Enum):
     ai_api_credential_delete = "ai_api_credential_delete"
     ai_api_credential_update = "ai_api_credential_update"
 
+    # 課程 / 快速練習（免審核自動開機與作答）
+    # course_lab_deploy：Course Lab 一鍵部署已於 2026-09-21 移除（與快速練習重疊）。
+    # PostgreSQL enum 標籤刪不掉，留著成員讓 model 與資料庫型別保持一致
+    course_lab_deploy = "course_lab_deploy"
+    course_answer_submit = "course_answer_submit"
+    quick_practice_machine_create = "quick_practice_machine_create"
+
 
 class AuditLog(SQLModel, table=True):
     """審計日誌表"""

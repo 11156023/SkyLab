@@ -27,6 +27,7 @@ from app.schemas.resource import (
 from app.services.proxmox import proxmox_service
 from app.services.resource import deletion_service, resource_service
 from app.services.resource.access import require_resource_management
+from app.services.template import password_policy
 
 logger = logging.getLogger(__name__)
 
@@ -311,9 +312,20 @@ def get_ssh_key(
     if db_resource.login_password_encrypted:
         login_password = decrypt_value(db_resource.login_password_encrypted)
 
+    source_template = (
+        password_policy.find_template(session, pve_vmid=db_resource.template_id)
+        if login_password is None
+        else None
+    )
     return SSHKeyResponse(
         vmid=vmid,
         ssh_public_key=db_resource.ssh_public_key,
         ssh_private_key=private_key,
         login_password=login_password,
+        login_password_pending=bool(
+            login_password is None and db_resource.login_password_pending_encrypted
+        ),
+        uses_template_credentials=password_policy.keeps_template_credentials(
+            source_template
+        ),
     )

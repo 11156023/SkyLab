@@ -1110,11 +1110,7 @@ _COURSE_CMS_ELEMENTS: tuple[ElementSpec, ...] = (
     ),
     ElementSpec(
         id="cms.new_room", role="text", label="新房間標題", section="內容編輯",
-        help="房間掛在學習路徑底下，可以綁定一個實驗模板。",
-    ),
-    ElementSpec(
-        id="cms.pure_theory", role="toggle", label="純理論", section="內容編輯",
-        help="純理論的房間不綁機器。",
+        help="房間掛在學習路徑底下，用來放這一章的任務與題目。",
     ),
     ElementSpec(
         id="cms.publish", role="button", label="發布", section="內容編輯",

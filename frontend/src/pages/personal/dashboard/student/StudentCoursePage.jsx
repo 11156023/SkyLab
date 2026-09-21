@@ -47,10 +47,9 @@ function createGuideDemoCourse(t) {
         id: "demo-room",
         title: t("StudentCoursePage.guideDemoWeekTitle"),
         progress_percent: 50,
-        has_lab: true,
       }],
     },
-    roomDetail: { title: t("StudentCoursePage.guideDemoWeekTitle"), my_deployment: null },
+    roomDetail: { title: t("StudentCoursePage.guideDemoWeekTitle") },
     aiAssignments: [{
       id: "demo-assignment",
       teaching_class_week_id: weekId,
@@ -215,12 +214,9 @@ export default function StudentCoursePage() {
 
   const nextRoom = pickInProgress(view.pathDetail?.rooms);
   const roomProgress = toPercent(nextRoom?.progress_percent);
-  const deployment = view.roomDetail?.my_deployment;
   const practiceMachines = buildPracticeMachines(
     view.practiceMachines,
     view.resources,
-    deployment,
-    view.roomDetail?.title,
   );
   const aiAssignments = assignmentsUntilToday(view.aiAssignments);
   const weekById = new Map(
@@ -436,9 +432,7 @@ export default function StudentCoursePage() {
               <div className={styles.simpleCourseHint}>
                 <MIcon name="check_circle" size={18} />
                 <span>
-                  {deployment?.status === "running" || !nextRoom?.has_lab
-                    ? t("StudentCoursePage.hintReady")
-                    : t("StudentCoursePage.hintWillPrepare")}
+                  {t("StudentCoursePage.hintReady")}
                 </span>
               </div>
             </>

@@ -23,8 +23,6 @@ from app.models import (
     TeachingClassStatus,
     TeachingClassStudent,
     User,
-    VMTemplate,
-    VMTemplateStatus,
     get_datetime_utc,
 )
 from app.schemas.course import (
@@ -88,17 +86,6 @@ def _touch_path(session: Session, path_id: uuid.UUID) -> None:
     if path is not None:
         path.updated_at = get_datetime_utc()
         session.add(path)
-
-
-def _require_ready_template(session: Session, template_id: uuid.UUID) -> VMTemplate:
-    template = session.get(VMTemplate, template_id)
-    if template is None:
-        raise BadRequestError(t("course.template_not_found"))
-    if template.status != VMTemplateStatus.ready:
-        raise BadRequestError(
-            t("course.template_not_ready", status=template.status.value)
-        )
-    return template
 
 
 # ── 路徑 CRUD ──────────────────────────────────────────────────────────────
@@ -275,10 +262,6 @@ def _task_count(session: Session, room_id: uuid.UUID) -> int:
 
 
 def _room_public(session: Session, room: CourseRoom) -> CourseRoomPublic:
-    template_name = None
-    if room.template_id is not None:
-        template = session.get(VMTemplate, room.template_id)
-        template_name = template.name if template else None
     return CourseRoomPublic(
         id=room.id,
         path_id=room.path_id,
@@ -286,8 +269,6 @@ def _room_public(session: Session, room: CourseRoom) -> CourseRoomPublic:
         description=room.description,
         difficulty=room.difficulty,
         category=room.category,
-        template_id=room.template_id,
-        template_name=template_name,
         order=room.order,
         task_count=_task_count(session, room.id),
     )
@@ -307,15 +288,12 @@ def create_room(
     session: Session, *, data: CourseRoomCreate
 ) -> CourseRoomPublic:
     get_path_or_404(session, data.path_id)
-    if data.template_id is not None:
-        _require_ready_template(session, data.template_id)
     room = CourseRoom(
         path_id=data.path_id,
         title=data.title,
         description=data.description,
         difficulty=data.difficulty,
         category=data.category,
-        template_id=data.template_id,
         order=data.order,
     )
     session.add(room)
@@ -337,11 +315,6 @@ def update_room(
         room.difficulty = data.difficulty
     if data.category is not None:
         room.category = data.category
-    if data.clear_template:
-        room.template_id = None
-    elif data.template_id is not None:
-        _require_ready_template(session, data.template_id)
-        room.template_id = data.template_id
     if data.order is not None:
         room.order = data.order
     session.add(room)
@@ -690,7 +663,6 @@ def get_path_detail(
                 description=room.description,
                 difficulty=room.difficulty,
                 category=room.category,
-                has_lab=room.template_id is not None,
                 order=room.order,
                 total_questions=total,
                 completed_questions=completed,
@@ -708,10 +680,7 @@ def get_path_detail(
 def get_room_student_detail(
     session: Session, *, user_id: uuid.UUID, room_id: uuid.UUID
 ) -> CourseRoomStudentDetail:
-    """學生房間視圖：任務 + 題目（不含 flag_hash）+ 完成標記。
-
-    my_deployment 由 route 層以 deployment_service 另行注入。
-    """
+    """學生房間視圖：任務 + 題目（不含 flag_hash）+ 完成標記。"""
     room = get_room_or_404(session, room_id)
     get_published_path_or_404(session, room.path_id)
 
@@ -756,7 +725,5 @@ def get_room_student_detail(
         description=room.description,
         difficulty=room.difficulty,
         category=room.category,
-        has_lab=room.template_id is not None,
         tasks=task_views,
-        my_deployment=None,
     )

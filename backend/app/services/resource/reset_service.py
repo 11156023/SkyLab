@@ -149,6 +149,12 @@ def _sync_lxc_platform_key_after_start(
                 node=node,
                 vmid=vmid,
             )
+            resource_service.ensure_lxc_login_password(
+                session=session,
+                node=node,
+                vmid=vmid,
+                reapply_recorded=True,
+            )
     except Exception:
         # Reset success must not be turned into a failure because a repair
         # attempt could not reach the guest or the database.

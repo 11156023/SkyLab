@@ -12,7 +12,6 @@ import {
   CourseAdminService,
   courseProgressWsUrl,
 } from "../../../services/courses";
-import { TemplatesService } from "../../../services/templates";
 import { TeachingClassesService } from "../../../services/teachingClasses";
 import { focusInvalidField } from "../../../utils/focusField";
 import styles from "./CourseCmsPage.module.scss";
@@ -187,11 +186,11 @@ function PathColumn({ paths, teachingClasses, selectedId, onSelect, onReload }) 
 }
 
 /* ══════════════ 房間欄 ══════════════ */
-function RoomColumn({ pathId, rooms, templates, selectedId, onSelect, onReload }) {
+function RoomColumn({ pathId, rooms, selectedId, onSelect, onReload }) {
   const { t } = useTranslation("teaching");
   const toast = useToast();
   const confirm = useConfirm();
-  const [form, setForm] = useState({ title: "", difficulty: "easy", template_id: "" });
+  const [form, setForm] = useState({ title: "", difficulty: "easy" });
   const [titleInvalid, setTitleInvalid] = useState(false);
   const titleInputRef = useRef(null);
 
@@ -207,10 +206,9 @@ function RoomColumn({ pathId, rooms, templates, selectedId, onSelect, onReload }
         path_id: pathId,
         title: form.title.trim(),
         difficulty: form.difficulty,
-        template_id: form.template_id || null,
         order: rooms.length,
       });
-      setForm({ title: "", difficulty: "easy", template_id: "" });
+      setForm({ title: "", difficulty: "easy" });
       onReload();
       toast.success(t("CourseCmsPage.roomCreatedToast"));
     } catch (err) {
@@ -246,10 +244,10 @@ function RoomColumn({ pathId, rooms, templates, selectedId, onSelect, onReload }
             className={`${styles.item} ${selectedId === room.id ? styles.itemActive : ""}`}
             onClick={() => onSelect(room.id)}
           >
-            <MIcon name={room.template_id ? "computer" : "menu_book"} size={15} />
+            <MIcon name="menu_book" size={15} />
             <span className={styles.itemLabel}>{room.title}</span>
             <span className={styles.itemMeta}>
-              {room.template_name ?? t("CourseCmsPage.pureTheoryLabel")} · {t("CourseCmsPage.taskCountUnit", { count: room.task_count })}
+              {t("CourseCmsPage.taskCountUnit", { count: room.task_count })}
             </span>
             <button
               type="button"
@@ -278,18 +276,6 @@ function RoomColumn({ pathId, rooms, templates, selectedId, onSelect, onReload }
         >
           {DIFFICULTIES.map((d) => (
             <option key={d.key} value={d.key}>{t(d.labelKey)}</option>
-          ))}
-        </select>
-        <select
-          className={styles.select}
-          value={form.template_id}
-          onChange={(e) => setForm((f) => ({ ...f, template_id: e.target.value }))}
-        >
-          <option value="">{t("CourseCmsPage.noTemplateOption")}</option>
-          {templates.map((tpl) => (
-            <option key={tpl.id} value={tpl.id}>
-              {t("CourseCmsPage.templateOptionLabel", { name: tpl.name, type: tpl.resource_type === "lxc" ? "LXC" : "VM" })}
-            </option>
           ))}
         </select>
         <button type="submit" className={styles.addBtn}>
@@ -694,7 +680,6 @@ export default function CourseCmsPage() {
   const [pathsLoading, setPathsLoading] = useState(true);
   const [paths, setPaths] = useState([]);
   const [rooms, setRooms] = useState([]);
-  const [templates, setTemplates] = useState([]);
   const [teachingClasses, setTeachingClasses] = useState([]);
   const [selectedPathId, setSelectedPathId] = useState(searchParams.get("pathId"));
   const [selectedRoomId, setSelectedRoomId] = useState(null);
@@ -735,9 +720,6 @@ export default function CourseCmsPage() {
   useEffect(() => {
     if (!canManage) return;
     reloadPaths();
-    TemplatesService.list()
-      .then((rows) => setTemplates(rows.filter((t) => t.status === "ready")))
-      .catch(() => {});
     TeachingClassesService.list().then(setTeachingClasses).catch(() => {});
   }, [canManage, reloadPaths]);
 
@@ -790,7 +772,6 @@ export default function CourseCmsPage() {
             <RoomColumn
               pathId={selectedPathId}
               rooms={rooms}
-              templates={templates}
               selectedId={selectedRoomId}
               onSelect={setSelectedRoomId}
               onReload={() => {

@@ -92,6 +92,8 @@ class TemplateCatalogItem(BaseModel):
     version: int
     is_windows: bool = False
     requires_gpu: bool = False
+    # False：開出來的機器沿用範本內的密碼，申請表單不必再問密碼
+    allow_password_change: bool = True
     cores: int | None = None
     memory_mb: int | None = None
     disk_gb: int | None = None
