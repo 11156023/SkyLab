@@ -51,6 +51,7 @@
   "ipManagement.gatewayVmIpLabel": "Gateway VM IP",
   "ipManagement.ipNotInSubnet": "{label} ({ip}) is not within subnet {cidr}",
   "ipManagement.gatewayIpsMustDiffer": "The gateway IP and Gateway VM IP cannot be the same",
+  "ipManagement.blockedSubnetOverlapsLab": "Extra blocked subnet {blocked} overlaps the lab subnet {cidr}. Machines are isolated by their own inbound rules; blocking this range would cut them off from the gateway and from each other",
   "ipManagement.cidrChangeBlockedByAllocations": "The CIDR cannot be changed because VMs/LXCs are already using IPs in the current subnet. Please delete all VMs/LXCs first.",
   "ipManagement.subnetConfigNotFound": "Subnet configuration does not exist",
   "ipManagement.subnetConfigDeleteBlocked": "The subnet configuration cannot be deleted because VMs/LXCs are still using IP allocations",

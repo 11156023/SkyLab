@@ -51,6 +51,7 @@
   "ipManagement.gatewayVmIpLabel": "Gateway VM IP",
   "ipManagement.ipNotInSubnet": "{label} ({ip}) 不在子網 {cidr} 範圍內",
   "ipManagement.gatewayIpsMustDiffer": "閘道 IP 與 Gateway VM IP 不可相同",
+  "ipManagement.blockedSubnetOverlapsLab": "額外封鎖網段 {blocked} 與實驗室子網 {cidr} 重疊。機器之間的隔離靠各自的入站規則，封鎖這個網段會讓機器連不到閘道與其他機器",
   "ipManagement.cidrChangeBlockedByAllocations": "已有 VM/LXC 使用目前網段的 IP，無法變更 CIDR。請先刪除所有 VM/LXC 後再變更。",
   "ipManagement.subnetConfigNotFound": "子網配置不存在",
   "ipManagement.subnetConfigDeleteBlocked": "仍有 VM/LXC 使用 IP 分配，無法刪除子網配置",

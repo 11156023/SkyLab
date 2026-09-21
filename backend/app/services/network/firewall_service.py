@@ -46,6 +46,9 @@ _CC_PREFIX = "SkyLab:"
 _GATEWAY_COMMENT = f"{_CC_PREFIX}gateway:default"
 _BLOCK_EXTRA_PREFIX = f"{_CC_PREFIX}block-extra:"
 _GATEWAY_FULL_ACCESS_COMMENT = f"{_CC_PREFIX}gateway:full-access"
+# 專案改名（campus-cloud → SkyLab）前寫進機器的封鎖規則，只在清理時認得
+_LEGACY_BLOCK_EXTRA_PREFIX = "campus-cloud:block-extra:"
+_LEGACY_BLOCK_LOCAL = "campus-cloud:block-local-subnet"
 
 
 def _from_punycode_hostname(hostname: str) -> str:
@@ -84,7 +87,8 @@ def _upsert_marker_rule(
 ) -> str:
     """冪等地建立/更新一條 out-DROP 規則，以 comment 為唯一標記。
 
-    新規則永遠插入到規則清單最後（bottom），避免覆蓋上方的 ACCEPT 規則。
+    位置由 block_rule_insert_pos 決定：一定要排在「不限目的的 out ACCEPT」
+    （gateway:default）之前，否則先匹配先贏，DROP 永遠輪不到。
 
     回傳 'created' / 'updated' / 'skipped'。
     """
@@ -103,32 +107,95 @@ def _upsert_marker_rule(
         (r for r in rules if (r.get("comment") or "").strip() == comment), None
     )
     if existing is None:
-        # 插入到最末位（pos = 目前規則數）
         _firewall_api(node, vmid, resource_type).rules.post(
             type="out", action="DROP", dest=dest, enable=1, comment=comment,
-            pos=len(rules),
+            pos=block_rule_insert_pos(rules),
         )
         return "created"
+    result = "skipped"
     if (existing.get("dest") or "") != dest:
         _firewall_api(node, vmid, resource_type).rules(existing.get("pos")).put(
             type="out", action="DROP", dest=dest, enable=1, comment=comment,
         )
-        return "updated"
-    # dest 一致，但若不是最末位，移動到底部以避免被上方規則覆蓋
+        result = "updated"
+    # 已經存在但被不限目的的 out ACCEPT 壓在下面：往上搬到它前面
     try:
         cur_pos = int(existing.get("pos"))
-        last_pos = len(rules) - 1
-        if cur_pos < last_pos:
+        target = block_rule_insert_pos(rules)
+        if cur_pos > target:
             _firewall_api(node, vmid, resource_type).rules(cur_pos).put(
-                moveto=last_pos,
+                moveto=target,
             )
-            return "updated"
+            result = "updated"
     except Exception as e:
-        logger.debug(
-            "重排 %s/%s 規則 pos 失敗 (comment=%s)，視為 skipped: %s",
+        logger.warning(
+            "重排 %s/%s 規則 pos 失敗 (comment=%s)，封鎖可能未生效: %s",
             node, vmid, comment, e,
         )
-    return "skipped"
+    return result
+
+
+def block_rule_insert_pos(rules: list[dict]) -> int:
+    """封鎖用的 out-DROP 該放在哪個 pos（純函式）。
+
+    PVE 規則先匹配先贏。gateway:default 是不限目的的 out ACCEPT，DROP 排在它
+    後面就等於沒有；所以放在第一條這種 ACCEPT 的位置（把它往下擠）。指定了
+    dest 的 out ACCEPT（拓撲連線、課程互通的白名單）不算，它們本來就該在前面。
+    沒有這種 ACCEPT 時放最後即可。
+    """
+    unrestricted = [
+        int(r["pos"])
+        for r in rules
+        if r.get("type") == "out"
+        and str(r.get("action") or "").upper() == "ACCEPT"
+        and not r.get("dest")
+        and r.get("pos") is not None
+    ]
+    return min(unrestricted) if unrestricted else len(rules)
+
+
+def enforce_block_rule_order(node: str, vmid: int, resource_type: ResourceType) -> int:
+    """把被「不限目的的 out ACCEPT」壓在下面的封鎖規則搬回前面，回傳搬了幾條。
+
+    PVE 新增規則不給 pos 會插在最上面，所以每次新增往 Internet 的出站 ACCEPT
+    之後都要呼叫一次；失敗只記錄，不擋住呼叫端原本的操作。
+    """
+    moved = 0
+    try:
+        api = _firewall_api(node, vmid, resource_type)
+        # 每搬一條 pos 都會變，重抓再找下一條；上限防止 API 行為異常時空轉
+        for _ in range(32):
+            rules = api.rules.get() or []
+            target = block_rule_insert_pos(rules)
+            misplaced = next(
+                (
+                    r for r in rules
+                    if (r.get("comment") or "").strip().startswith(_BLOCK_EXTRA_PREFIX)
+                    and int(r.get("pos") or 0) > target
+                ),
+                None,
+            )
+            if misplaced is None:
+                break
+            api.rules(misplaced["pos"]).put(moveto=target)
+            moved += 1
+    except Exception as e:
+        logger.warning("VM %s: 重排封鎖規則失敗，封鎖可能未生效: %s", vmid, e)
+    return moved
+
+
+def is_stale_block_comment(comment: str, desired: set[str]) -> bool:
+    """這條規則是不是該清掉的舊封鎖規則（純函式）。
+
+    - 現行前綴 block-extra：不在目前設定裡的就是孤兒。
+    - 專案改名前留下的 campus-cloud:block-extra:* 與 block-local-subnet：
+      現行程式不認得也不會再更新。block-local-subnet 封的是整個實驗室子網，
+      留著的話，機器一旦沒有 gateway:default 就會連不到其他機器。
+    campus-cloud:block-proxmox-host 不動：它保護的是 PVE 主機，寧可多留。
+    """
+    if comment.startswith(_BLOCK_EXTRA_PREFIX):
+        return comment not in desired
+    return comment.startswith(_LEGACY_BLOCK_EXTRA_PREFIX) or comment == _LEGACY_BLOCK_LOCAL
 
 
 def _extra_block_comment(dest: str) -> str:
@@ -153,10 +220,11 @@ def _apply_extra_block_rules(
         stats["errors"].append({"vmid": vmid, "error": f"list rules failed: {e}"})
         return stats
 
-    # 清除不在 desired 內、但帶有 block-extra 前綴的孤兒規則
-    for r in rules:
+    # 清除不在 desired 內的孤兒規則。由後往前刪：刪掉一條後面的 pos 會往前遞補，
+    # 由前往後刪會刪錯條。
+    for r in sorted(rules, key=lambda x: int(x.get("pos") or 0), reverse=True):
         comment = (r.get("comment") or "").strip()
-        if comment.startswith(_BLOCK_EXTRA_PREFIX) and comment not in desired:
+        if is_stale_block_comment(comment, set(desired)):
             try:
                 _firewall_api(node, vmid, resource_type).rules(r.get("pos")).delete()
                 stats["deleted"].append(comment)
@@ -276,8 +344,7 @@ def sync_block_local_subnet_rules() -> dict:
     with Session(engine) as s:
         subnet_config = ip_management_service.get_subnet_config(s)
         extra_blocks = ip_management_service.get_extra_blocked_subnets(subnet_config)
-    if not extra_blocks:
-        return {"noop": True, "reason": "未設定任何額外封鎖網段"}
+    # 清單是空的也要跑：管理員把網段全拿掉時，機器上的舊 DROP 得跟著清掉
 
     extra_aggregate: dict[str, list] = {
         "created": [], "updated": [], "skipped": [], "deleted": [], "errors": [],
@@ -326,7 +393,18 @@ def setup_default_rules(node: str, vmid: int, resource_type: ResourceType) -> No
         )
         logger.info(f"VM {vmid}: 設定防火牆預設策略 in=DROP, out=ACCEPT")
 
-        # 套用管理員設定的額外封鎖網段（多筆）
+        # 新增預設出站規則（作為圖形介面的「往網關」連線標記）
+        gateway_rule = {
+            "type": "out",
+            "action": "ACCEPT",
+            "enable": 1,
+            "comment": _GATEWAY_COMMENT,
+        }
+        _firewall_api(node, vmid, resource_type).rules.post(**gateway_rule)
+        logger.info(f"VM {vmid}: 已新增預設出站規則（往網關）")
+
+        # 套用管理員設定的額外封鎖網段（多筆）。一定要在 gateway:default 之後做：
+        # 那條 ACCEPT 不限目的，DROP 得排在它前面才會生效，順序反過來就白寫了。
         try:
             from app.core.db import engine  # noqa: PLC0415
             from app.services.network import ip_management_service  # noqa: PLC0415
@@ -345,16 +423,6 @@ def setup_default_rules(node: str, vmid: int, resource_type: ResourceType) -> No
             logger.warning(
                 f"VM {vmid}: 套用額外封鎖網段規則失敗 (非致命): {e}"
             )
-
-        # 新增預設出站規則（作為圖形介面的「往網關」連線標記，排在 DROP 之後）
-        gateway_rule = {
-            "type": "out",
-            "action": "ACCEPT",
-            "enable": 1,
-            "comment": _GATEWAY_COMMENT,
-        }
-        _firewall_api(node, vmid, resource_type).rules.post(**gateway_rule)
-        logger.info(f"VM {vmid}: 已新增預設出站規則（往網關）")
 
         # 新增 Gateway VM → VM 全埠 ACCEPT 規則（1-65535 TCP+UDP）
         try:
@@ -678,6 +746,8 @@ def create_connection(
                 "comment": comment,
             }
             create_rule(src_node, source_vmid, src_type, rule)
+        # 上面新增的出站 ACCEPT 都不限目的，會插在最上面蓋掉封鎖網段的 DROP
+        enforce_block_rule_order(src_node, source_vmid, src_type)
         return
 
     # ── VM → VM ─────────────────────────────────────────────────────────────
