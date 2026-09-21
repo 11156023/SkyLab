@@ -94,11 +94,18 @@
   flex-shrink: 0;
 }
 
-.brandDivider {
+/* 品牌列下方、麵包屑下方與底部區塊上方共用同一條分隔線，
+   側欄才讀得出上／中／下三段 */
+.divider {
   height: 1px;
   background: color-mix(in srgb, var(--color-text-primary) 25%, transparent);
   margin: 0 $spacing-16;
   flex-shrink: 0;
+
+  /* 放在 nav 裡時，nav 自己已有左右內距，再內縮 16px 會比品牌列那條短一截 */
+  .nav > & {
+    margin: 0;
+  }
 }
 
 /* ===== Nav ===== */
@@ -113,6 +120,31 @@
 
   &::-webkit-scrollbar {
     display: none;
+  }
+
+  /* 捲軸藏起來了，改用邊緣漸層淡出交代「這側還有沒看到的項目」：
+     沒有淡出時被裁一半的項目會直接貼上分隔線，跟底部區塊糊成一團。
+     data-scroll-edges 由 hooks/useScrollEdges 依捲動位置給值 */
+  --nav-fade-top: 0px;
+  --nav-fade-bottom: 0px;
+  $nav-fade: linear-gradient(
+    to bottom,
+    transparent 0,
+    #000 var(--nav-fade-top),
+    #000 calc(100% - var(--nav-fade-bottom)),
+    transparent 100%
+  );
+  -webkit-mask-image: $nav-fade;
+  mask-image: $nav-fade;
+
+  &[data-scroll-edges="top"],
+  &[data-scroll-edges="both"] {
+    --nav-fade-top: #{$spacing-16};
+  }
+
+  &[data-scroll-edges="bottom"],
+  &[data-scroll-edges="both"] {
+    --nav-fade-bottom: #{$spacing-24};
   }
 }
 
@@ -287,10 +319,16 @@
     opacity: 1;
   }
 
-  /* 已釘選：常駐顯示，作為狀態標記兼取消入口 */
+  /* 已釘選：常駐顯示（未 hover 也看得到），作為狀態標記兼取消入口。
+     未 hover 時不給底色，只留傾斜的釘子，避免整排出現一堆按鈕方塊；
+     旋轉套在圖示上而非按鈕本身，hover 的圓角底才不會跟著轉成菱形 */
   &.pinBtnPinned {
     opacity: 1;
     color: var(--color-text-secondary);
+
+    > span {
+      rotate: 45deg;
+    }
   }
 }
 
@@ -312,12 +350,60 @@
 }
 
 /* ===== 管理員設定核心側欄 ===== */
-.sectionTitle {
-  padding: $spacing-8 $spacing-8 2px;
+
+/* 麵包屑：交代「從哪來 / 現在在哪」，不是清單的一項。
+   只有左半的「主控台」可點，右半是目前位置的靜態標示 */
+.breadcrumb {
+  display: flex;
+  align-items: center;
+  gap: $spacing-4;
+  padding: 6px $spacing-8;
+  margin-bottom: $spacing-4;
   font-size: $font-size-12;
-  font-weight: $font-weight-500;
   color: var(--color-text-muted);
   white-space: nowrap;
+  min-width: 0;
+}
+
+.crumbLink {
+  padding: 2px 6px;
+  margin-left: -6px;
+  border-radius: $radius-8;
+  color: var(--color-text-secondary);
+  font-size: inherit;
+  cursor: pointer;
+  transition: background $transition-base, color $transition-base;
+
+  &:hover,
+  &:focus-visible {
+    background: var(--color-hover);
+    color: var(--color-text);
+  }
+}
+
+.crumbCurrent {
+  color: var(--color-text-primary);
+  font-weight: $font-weight-500;
+  @include text-truncate;
+}
+
+/* 側欄收合時放不下麵包屑，退回成純箭頭鈕 */
+.backItem {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  padding: 10px;
+  margin-bottom: $spacing-4;
+  border-radius: $radius-8;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  transition: background $transition-base, color $transition-base;
+
+  &:hover {
+    background: var(--color-hover);
+    color: var(--color-text);
+  }
 }
 
 /* ===== Popup animations ===== */
@@ -404,11 +490,13 @@
 }
 
 /* ===== Bottom ===== */
+/* 分隔線由上方的 .divider 負責（原本的 border-top 吃玻璃邊框色，
+   在淺色底上是白線，等於看不見） */
 .bottom {
   @include flex-column;
   gap: 4px;
   padding: $spacing-8 $spacing-16;
-  border-top: 1px solid var(--color-sidebar-glass-border);
+  flex-shrink: 0;
 }
 
 /* ===== User Popup ===== */
