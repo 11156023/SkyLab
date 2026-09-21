@@ -39,13 +39,18 @@ export function JobRow({ job, onClick }) {
       onClick={clickable ? () => onClick(job) : undefined}
       disabled={!clickable}
     >
-      <span className={`${styles.jobRowIcon} ${styles[meta.tone]} ${meta.spin ? styles.spin : ""}`}>
+      <span
+        className={`${styles.jobRowIcon} ${styles[meta.tone]} ${meta.spin ? styles.spin : ""}`}
+        title={t(meta.labelKey)}
+        aria-label={t(meta.labelKey)}
+      >
         <MIcon name={meta.icon} size={16} />
       </span>
       <span className={styles.jobRowBody}>
         <span className={styles.jobRowHead}>
           <span className={styles.jobKindChip}>{JOB_KIND_LABEL_KEYS[job.kind] ? t(JOB_KIND_LABEL_KEYS[job.kind]) : job.kind}</span>
           <span className={styles.jobRowTitle} title={job.title}>{job.title}</span>
+          <span className={styles.jobRowTime}>{formatShortDateTime(job.updated_at)}</span>
         </span>
         {job.message && (
           <span className={styles.jobRowMessage} title={job.message}>{job.message}</span>
@@ -58,10 +63,6 @@ export function JobRow({ job, onClick }) {
             />
           </span>
         )}
-        <span className={styles.jobRowFoot}>
-          <span>{t(meta.labelKey)}</span>
-          <span>{formatShortDateTime(job.updated_at)}</span>
-        </span>
       </span>
     </button>
   );
@@ -87,6 +88,7 @@ export function ReminderRow({ reminder, unread = false, onClick }) {
       <span className={styles.jobRowBody}>
         <span className={styles.jobRowHead}>
           <span className={styles.jobRowTitle} title={reminder.title}>{reminder.title}</span>
+          <span className={styles.jobRowTime}>{reminder.time_label}</span>
           {unread && <span className={styles.unreadDot} aria-label={t("JobRow.unread")} />}
         </span>
         {reminder.description && (
@@ -94,10 +96,6 @@ export function ReminderRow({ reminder, unread = false, onClick }) {
             {reminder.description}
           </span>
         )}
-        <span className={styles.jobRowFoot}>
-          <span>{unread ? t("JobRow.unread") : t("JobRow.read")}</span>
-          <span>{reminder.time_label}</span>
-        </span>
       </span>
     </button>
   );

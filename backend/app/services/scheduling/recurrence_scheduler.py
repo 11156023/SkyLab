@@ -476,6 +476,11 @@ def _boot_one(
                 node=spec.node,
                 vmid=spec.vmid,
             )
+            resource_service.ensure_lxc_login_password(
+                session=session,
+                node=spec.node,
+                vmid=spec.vmid,
+            )
 
     if spec.window_end is None:
         return

@@ -5,6 +5,7 @@ import { useTranslation } from "react-i18next";
 import { useAuth }  from "../../contexts/AuthContext";
 import { useUnsavedChanges } from "../../contexts/UnsavedChangesContext";
 import { SUPPORTED_LANGUAGES, setLanguage } from "../../i18n";
+import useScrollEdges from "../../hooks/useScrollEdges";
 import styles from "./Sidebar.module.scss";
 import MIcon from "../MIcon";
 import Avatar from "../Avatar/Avatar";
@@ -27,7 +28,6 @@ const navGroups = [
       { key: "my-requests",   labelKey: "Sidebar.itemMyRequests",    icon: "assignment" },
       { key: "resource-mgmt", labelKey: "Sidebar.itemResourceMgmt",    icon: "storage", adminOnly: true },
       { key: "templates",     labelKey: "Sidebar.itemTemplates",    icon: "library_books", instructorOnly: true },
-      { key: "gpu-mgmt",      labelKey: "Sidebar.itemGpuMgmt",    icon: "memory", adminOnly: true },
     ],
   },
   {
@@ -98,6 +98,7 @@ const adminSettingsItems = [
   { key: "ldap",            labelKey: "Sidebar.itemLdap",           icon: "badge" },
   { key: "nodes",           labelKey: "Sidebar.itemNodes",          icon: "lock" },
   { key: "storage",         labelKey: "Sidebar.itemStorage",        icon: "storage" },
+  { key: "gpu-mgmt",        labelKey: "Sidebar.itemGpuMgmt",        icon: "memory" },
 ];
 
 /** 釘選狀態存 localStorage，跨 session 保留（不可用時僅本次瀏覽生效） */
@@ -376,6 +377,9 @@ export default function Sidebar({ collapsed, mobileOpen, onToggle, onClose }) {
     .map((key) => visibleItems.find((item) => item.key === key))
     .filter(Boolean);
 
+  // 導覽捲到一半時，在被裁的那一側畫漸層淡出（捲軸是藏起來的）
+  const navScroll = useScrollEdges();
+
   const cls = [
     styles.sidebar,
     collapsed && styles.collapsed,
@@ -411,23 +415,38 @@ export default function Sidebar({ collapsed, mobileOpen, onToggle, onClose }) {
         )}
       </div>
 
-      <div className={styles.brandDivider} />
+      <div className={styles.divider} />
 
       {/* ===== Main nav ===== */}
       {inAdminSettings ? (
-        <nav className={styles.nav}>
-          <button
-            type="button"
-            className={styles.navItem}
-            onClick={() => handleNav("dashboard")}
-            title={collapsed ? t("Sidebar.backToConsole") : undefined}
-            aria-label={t("Sidebar.backToConsole")}
-          >
-            <MIcon name="arrow_back" size={20} />
-            {!collapsed && <span className={styles.navLabel}>{t("Sidebar.backToConsole")}</span>}
-          </button>
-          {!collapsed && (
-            <div className={styles.sectionTitle}>{t("Sidebar.adminSettings")}</div>
+        <nav className={styles.nav} ref={navScroll.ref} data-scroll-edges={navScroll.edges}>
+          {/* 麵包屑：左半的「主控台」是返回入口，右半標示目前在哪個模式。
+              收合時只剩箭頭鈕（放不下文字） */}
+          {collapsed ? (
+            <button
+              type="button"
+              className={styles.backItem}
+              onClick={() => handleNav("dashboard")}
+              title={t("Sidebar.backToConsole")}
+              aria-label={t("Sidebar.backToConsole")}
+            >
+              <MIcon name="arrow_back" size={16} />
+            </button>
+          ) : (
+            <>
+              <div className={styles.breadcrumb}>
+                <button
+                  type="button"
+                  className={styles.crumbLink}
+                  onClick={() => handleNav("dashboard")}
+                  aria-label={t("Sidebar.backToConsole")}
+                >
+                  {t("Sidebar.console")}
+                </button>
+                <MIcon name="chevron_right" size={14} />
+                <span className={styles.crumbCurrent}>{t("Sidebar.adminSettings")}</span>
+              </div>
+            </>
           )}
           {adminSettingsItems.map((item) => (
             <button
@@ -444,7 +463,7 @@ export default function Sidebar({ collapsed, mobileOpen, onToggle, onClose }) {
           ))}
         </nav>
       ) : (
-      <nav className={styles.nav}>
+      <nav className={styles.nav} ref={navScroll.ref} data-scroll-edges={navScroll.edges}>
         {topItems.map((item) => (
           <button
             key={item.key}
@@ -474,7 +493,7 @@ export default function Sidebar({ collapsed, mobileOpen, onToggle, onClose }) {
             {!collapsed && (
               <button
                 type="button"
-                className={styles.pinBtn}
+                className={`${styles.pinBtn} ${styles.pinBtnPinned}`}
                 onClick={() => togglePin(item.key)}
                 title={t("Sidebar.unpin")}
                 aria-label={t("Sidebar.unpin")}
@@ -502,6 +521,8 @@ export default function Sidebar({ collapsed, mobileOpen, onToggle, onClose }) {
       )}
 
       {/* ===== Bottom section ===== */}
+      <div className={styles.divider} />
+
       <div className={styles.bottom}>
         {/* 管理員設定：系統管理頁面的入口，進入後側欄切換成核心側欄 */}
         {isAdmin && (

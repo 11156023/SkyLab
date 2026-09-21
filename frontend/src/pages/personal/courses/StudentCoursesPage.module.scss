@@ -31,8 +31,8 @@
   font: inherit;
   text-align: left;
   cursor: pointer;
-  transition: border-color $transition-base, background $transition-base;
-  &:hover { border-color: var(--color-primary); background: var(--color-hover); }
+  transition: background $transition-base;
+  &:hover { background: var(--color-hover); }
   &:focus-visible { outline: 3px solid var(--color-primary); outline-offset: 3px; }
 }
 .cardHeader {

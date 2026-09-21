@@ -47,6 +47,7 @@ import {
   AiJudgeService,
   RUBRIC_POLISH_PROMPT,
 } from "../../../services/aiJudge";
+import i18n from "../../../i18n";
 
 const originalScrollIntoView = Element.prototype.scrollIntoView;
 
@@ -168,6 +169,62 @@ describe("ChatPanel", () => {
     expect(html).toContain('aria-label="新增附件"');
     expect(html).toContain("requirements.md");
     expect(html).toContain("已讀取");
+  });
+
+  describe("拖檔進對話區", () => {
+    const dropHint = () => i18n.t("FileDropzone.dropToAdd", { ns: "common" });
+
+    function mount(props) {
+      Element.prototype.scrollIntoView = vi.fn();
+      const container = document.createElement("div");
+      document.body.appendChild(container);
+      const root = createRoot(container);
+      act(() => {
+        root.render(<ChatPanel messages={[]} onSendMessage={() => {}} isLoading={false} {...props} />);
+      });
+      const drag = (type, files = []) => {
+        const event = new Event(type, { bubbles: true, cancelable: true });
+        Object.defineProperty(event, "dataTransfer", { value: { files, types: ["Files"] } });
+        act(() => {
+          container.firstElementChild.dispatchEvent(event);
+        });
+      };
+      const cleanup = () => {
+        act(() => root.unmount());
+        container.remove();
+      };
+      return { container, drag, cleanup };
+    }
+
+    test("拖進來時浮出放置提示，放開後交給上傳，跟＋一樣一次一個", () => {
+      const onUploadFile = vi.fn();
+      const { container, drag, cleanup } = mount({ onUploadFile });
+
+      drag("dragover");
+      expect(container.textContent).toContain(dropHint());
+
+      const first = new File(["a"], "requirements.md");
+      drag("drop", [first, new File(["b"], "notes.md")]);
+      expect(onUploadFile).toHaveBeenCalledTimes(1);
+      expect(onUploadFile).toHaveBeenCalledWith(first);
+      expect(container.textContent).not.toContain(dropHint());
+      cleanup();
+    });
+
+    test("沒有上傳入口或正在上傳時，不浮出提示也不上傳", () => {
+      const noUpload = mount({});
+      noUpload.drag("dragover");
+      expect(noUpload.container.textContent).not.toContain(dropHint());
+      noUpload.cleanup();
+
+      const onUploadFile = vi.fn();
+      const busy = mount({ onUploadFile, isUploading: true });
+      busy.drag("dragover");
+      expect(busy.container.textContent).not.toContain(dropHint());
+      busy.drag("drop", [new File(["a"], "requirements.md")]);
+      expect(onUploadFile).not.toHaveBeenCalled();
+      busy.cleanup();
+    });
   });
 
   test("沒有檢查表時仍不提供任何腳本操作入口", () => {

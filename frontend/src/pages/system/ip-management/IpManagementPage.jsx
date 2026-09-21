@@ -270,6 +270,14 @@ export default function IpManagementPage() {
         ) : (
           <div className={styles.tableWrap}>
             <table className={styles.table}>
+              {/* 分頁與搜尋都會換掉整頁的列，欄寬固定才不會每翻一頁就跳動（樣式規範表格規則二） */}
+              <colgroup>
+                <col className={styles.colIp} />
+                <col className={styles.colPurpose} />
+                <col className={styles.colVmid} />
+                <col />
+                <col className={styles.colAllocatedAt} />
+              </colgroup>
               <thead>
                 <tr>
                   {[t("IpManagementPage.colIpAddress"), t("IpManagementPage.colPurpose"), "VMID", t("IpManagementPage.colDescription"), t("IpManagementPage.colAllocatedAt")].map((col) => (
@@ -294,8 +302,8 @@ export default function IpManagementPage() {
                       <PurposeBadge purpose={a.purpose} />
                     </td>
                     <td className={styles.td}>{a.vmid ?? "—"}</td>
-                    <td className={styles.td}>{a.description ?? "—"}</td>
-                    <td className={styles.td}>{formatDateTime(a.allocated_at)}</td>
+                    <td className={`${styles.td} ${styles.tdTruncate}`} title={a.description ?? undefined}>{a.description ?? "—"}</td>
+                    <td className={`${styles.td} ${styles.tdNowrap}`}>{formatDateTime(a.allocated_at)}</td>
                   </tr>
                 ))}
               </tbody>

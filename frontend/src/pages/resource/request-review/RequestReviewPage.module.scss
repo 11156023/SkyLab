@@ -203,11 +203,7 @@
   cursor: pointer;
   transition: background $transition-base, border-color $transition-base, box-shadow $transition-base;
 
-  &:hover {
-    background:
-      linear-gradient(var(--color-hover), var(--color-hover)),
-      var(--color-surface-glass);
-  }
+  &:hover { background: var(--color-hover); }
 }
 
 .rowActive {
@@ -336,7 +332,7 @@
   padding: 10px 12px;
   border: 1px solid var(--color-border);
   border-radius: $radius-8;
-  background: var(--color-bg-base);
+  background: var(--color-surface);
 
   span {
     color: var(--color-text-muted);
@@ -357,7 +353,7 @@
   padding: $spacing-16;
   border: 1px solid var(--color-border);
   border-radius: $radius-12;
-  background: var(--color-bg-base);
+  background: var(--color-surface);
 
   span {
     color: var(--color-text-muted);
@@ -443,18 +439,23 @@
 .commentField {
   @include flex-column;
   gap: $spacing-8;
-  flex: 1 1 240px;
+  /* 直向堆疊時依內容高度（flex-basis 會變成高度），橫排時才吃掉剩餘寬度 */
+  flex: none;
   min-width: 0;
   color: var(--color-text-primary);
   font-size: $font-size-14;
   font-weight: $font-weight-500;
+
+  @include respond-to(md) {
+    flex: 1 1 240px;
+  }
 
   textarea {
     height: 72px;
     padding: 10px 12px;
     border: 1px solid var(--color-border);
     border-radius: $radius-8;
-    background: var(--color-bg-base);
+    background: var(--color-surface);
     color: var(--color-text-primary);
     font: inherit;
     font-weight: $font-weight-400;

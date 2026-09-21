@@ -10,6 +10,7 @@ import EnvironmentChoice from "../EnvironmentChoice";
 import shared from "../CourseOperations.module.scss";
 import { TeachingClassesService } from "../../../services/teachingClasses";
 import { focusInvalidField } from "../../../utils/focusField";
+import { joinList } from "../../../utils/joinList";
 import {
   BOOT_LEAD_OPTIONS,
   classSchedulePayload,
@@ -217,7 +218,7 @@ export default function ClassSetupPage() {
       const result = await TeachingClassesService.addStudents(classId, parsed);
       applyClass(result.class);
       setEmails("");
-      if (result.not_found?.length) setMessage(t("ClassSetupPage.addedStudentsMsg", { added: result.added, notFound: result.not_found.join("、") }));
+      if (result.not_found?.length) setMessage(t("ClassSetupPage.addedStudentsMsg", { added: result.added, notFound: joinList(result.not_found) }));
     }
     return true;
   }

@@ -1,7 +1,5 @@
 {
   "LoginPage.passwordPlaceholder": "Enter your password",
-  "LoginPage.passwordHide": "Hide password",
-  "LoginPage.passwordShow": "Show password",
   "LoginPage.googleSignInAriaLabel": "Sign in with Google",
   "LoginPage.googleNoCredential": "Google sign-in did not return a credential. Please try again.",
   "LoginPage.googleLoadFailed": "Couldn't load Google Sign-In. Please check your network and try again.",

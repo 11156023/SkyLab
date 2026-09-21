@@ -33,7 +33,7 @@ from app.schemas import LXCCreateRequest, VMCreateRequest
 from app.services.network import ip_management_service
 from app.services.proxmox import provisioning_service, proxmox_service
 from app.services.resource import quota_service
-from app.services.template import clone_service
+from app.services.template import clone_service, password_policy
 from app.utils.login_password import generate_login_password
 
 logger = logging.getLogger(__name__)
@@ -536,7 +536,15 @@ def _provision_one(
         )
 
     if params.get("vm_template_id"):
+        # 少了這個 key，clone worker 會當成「允許」而一律發隨機密碼，
+        # 範本不勾也被覆寫
+        source_template = password_policy.find_template(
+            session, template_id=params["vm_template_id"]
+        )
         payload = {
+            "allow_password_reset": not password_policy.keeps_template_credentials(
+                source_template
+            ),
             "template_id": str(params["vm_template_id"]),
             "user_id": str(user_id),
             "hostname": hostname,

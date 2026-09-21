@@ -339,24 +339,6 @@
   color: var(--color-text-muted);
 }
 
-/* 配額／資源排程／治理的分工互連列（#17），貼在頁首下方 */
-.relatedNav {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: $spacing-4 $spacing-16;
-  margin: -$spacing-8 0 0;
-  font-size: $font-size-12;
-  color: var(--color-text-muted);
-}
-
-/* 清單頂的一行運作說明（欄位怎麼影響放置、何時生效） */
-.listHint {
-  margin: -$spacing-8 0 0;
-  font-size: $font-size-12;
-  color: var(--color-text-muted);
-}
-
 .inlineSelect,
 .inlineInput {
   min-height: 34px;

@@ -18,10 +18,9 @@
 }
 
 .page button:focus-visible { outline: 2px solid var(--color-primary-on-surface); outline-offset: 3px; }
-.refreshControls { display: flex; align-items: center; flex-wrap: wrap; gap: $spacing-8; }
 .checkedAt { color: var(--color-text-muted); font-size: $font-size-12; }
 .checkedAt { font-variant-numeric: tabular-nums; }
-.refreshControls > button, .assistantActions button {
+.assistantActions button {
   display: inline-flex;
   min-height: 36px;
   padding: $spacing-4 $spacing-8;
@@ -36,8 +35,7 @@
   font-weight: $font-weight-500;
   cursor: pointer;
 }
-.refreshControls > button:hover:not(:disabled), .assistantActions button:hover { background: var(--color-hover); }
-.refreshControls > button:disabled { cursor: not-allowed; opacity: 0.45; }
+.assistantActions button:hover { background: var(--color-hover); }
 
 /* 數字只表達運行數量，不把關機或缺少資料誤標為故障。 */
 .statsGrid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: $spacing-16; }
@@ -49,15 +47,10 @@
   padding: $spacing-16;
   text-align: left;
   cursor: pointer;
-  transition: border-color $transition-base, background $transition-base;
+  transition: background $transition-base;
 }
-/* hover 疊色不蓋掉毛玻璃底（同申請審核列表列的疊法） */
-.statCard:hover {
-  border-color: var(--color-primary-on-surface);
-  background:
-    linear-gradient(var(--color-hover), var(--color-hover)),
-    var(--color-surface-glass);
-}
+/* hover 直接換底色才有淡入淡出（漸層疊層無法 transition）；--color-hover 不透明，觀感同疊在毛玻璃上 */
+.statCard:hover { background: var(--color-hover); }
 .statIcon {
   @include flex-center;
   width: 40px;
@@ -161,6 +154,7 @@
 
 .assistant { @include surface-card; @include flex-column; padding: $spacing-16; gap: $spacing-16; }
 .assistantFocused { min-height: 0; flex: 1; }
+/* 標頭不另鋪底色，直接透出卡片的毛玻璃（實心混色會蓋掉玻璃、顯灰），只用分隔線切開，同待辦卡標頭 */
 .assistantHead {
   display: flex;
   flex-shrink: 0;
@@ -170,9 +164,7 @@
   min-height: 64px;
   margin: (-$spacing-16) (-$spacing-16) 0;
   padding: 12px $spacing-16;
-  border-bottom: 1px solid var(--color-border);
-  border-radius: $radius-16 $radius-16 0 0;
-  background: color-mix(in srgb, var(--color-primary) 6%, var(--color-surface));
+  border-bottom: 1px solid var(--color-divider);
 }
 .assistantIdentity { display: flex; min-width: 0; align-items: center; gap: 12px; }
 .assistantIcon {
@@ -182,7 +174,7 @@
   flex-shrink: 0;
   border-radius: $radius-12;
   color: var(--color-primary-on-surface);
-  background: color-mix(in srgb, var(--color-primary) 12%, var(--color-surface));
+  background: var(--color-hover);
 }
 .assistantActions { display: flex; flex-wrap: wrap; margin-left: auto; gap: $spacing-8; }
 .assistantForm { display: grid; grid-template-columns: minmax(0, 1fr) fit-content(40%); align-items: center; min-width: 0; gap: $spacing-16; }
@@ -266,7 +258,7 @@
   /* 窄幅：輸入框獨佔一行，按鈕換行滿寬 */
   .assistantInput { grid-template-columns: minmax(0, 1fr); }
   .assistantInput button { grid-column: 1 / -1; width: 100%; }
-  .refreshControls > button, .assistantActions button, .suggestionButtons button { min-height: 44px; }
+  .assistantActions button, .suggestionButtons button { min-height: 44px; }
 }
 @media (prefers-reduced-motion: reduce) {
   .spin { animation: none; }

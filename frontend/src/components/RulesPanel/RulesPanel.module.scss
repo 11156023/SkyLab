@@ -154,7 +154,8 @@
   flex-wrap: wrap;
   padding: 6px $spacing-8;
   border-radius: $radius-8;
-  background: var(--color-hover);
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
   font-size: $font-size-12;
 
   &.disabled {
@@ -354,7 +355,8 @@
   margin-top: $spacing-8;
   padding: $spacing-8;
   border-radius: $radius-8;
-  background: var(--color-bg-base);
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
 }
 
 .exposureLabel {

@@ -196,24 +196,6 @@
 }
 
 /* ── 按鈕 ── */
-%btn-base {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 6px $spacing-16;
-  border-radius: $radius-8;
-  font-size: $font-size-14;
-  font-weight: $font-weight-500;
-  cursor: pointer;
-  white-space: nowrap;
-  transition: background $transition-base;
-
-  &:disabled {
-    opacity: 0.4;
-    cursor: not-allowed;
-  }
-}
-
 .btnPrimary {
   @include btn-primary;
 }
@@ -255,22 +237,18 @@
   to   { opacity: 1; transform: translateY(0); }
 }
 
+/* 毛玻璃卡基準（樣式規範「Dialog / Modal」）；寬度取小型單欄表單級 640 */
 .modal {
   animation: slideUp 0.18s cubic-bezier(0.25, 0.8, 0.25, 1);
   @include flex-column;
   gap: $spacing-16;
   width: 100%;
-  max-width: 480px;
+  max-width: 640px;
   max-height: 88vh;
   overflow-y: auto;
   padding: $spacing-24;
-  background: var(--color-surface);
+  @include glass-surface($shadow: var(--shadow-lg));
   border-radius: $radius-16;
-  box-shadow: var(--shadow-lg);
-}
-
-.modalWide {
-  max-width: 560px;
 }
 
 .modalTitle {
@@ -278,7 +256,7 @@
   display: inline-flex;
   align-items: center;
   gap: $spacing-8;
-  font-size: $font-size-18;
+  font-size: $font-size-16;
   font-weight: $font-weight-700;
   color: var(--color-text-primary);
 }
@@ -295,35 +273,20 @@
   gap: $spacing-8;
 }
 
-/* ── 表單 ── */
+/* ── 表單 ──
+   欄位一律走 _mixins.scss 的表單 mixin 組（樣式規範「表單」段），
+   不在頁面內另立一套字級與內距 */
 .field {
-  @include flex-column;
-  gap: $spacing-4;
+  @include form-field;
 
-  label {
-    font-size: $font-size-14;
-    font-weight: $font-weight-500;
-    color: var(--color-text);
-  }
-
-  input,
+  /* radio（可見範圍卡）與 range（規格滑桿）不是文字控制項，不吃 form-control */
+  input:not([type="radio"]):not([type="checkbox"]):not([type="range"]),
   textarea,
   select {
-    width: 100%;
-    padding: $spacing-8 $spacing-16;
-    border: 1px solid var(--color-border);
-    border-radius: $radius-8;
-    font-size: $font-size-14;
-    background: var(--color-surface);
-    color: var(--color-text);
-    transition: border-color $transition-base;
+    @include form-control;
 
     &::placeholder {
       color: var(--color-text-muted);
-    }
-
-    &:focus {
-      border-color: var(--color-primary);
     }
 
     &:disabled {
@@ -331,12 +294,6 @@
       cursor: not-allowed;
     }
   }
-
-}
-
-.fieldHint {
-  font-size: $font-size-12;
-  color: var(--color-text-muted);
 }
 
 .fieldWarn {
@@ -406,10 +363,6 @@
     font-size: $font-size-14;
   }
 
-  small {
-    color: var(--color-text-muted);
-    font-size: $font-size-12;
-  }
 }
 
 .visibilityOptionActive {
@@ -477,7 +430,8 @@
   gap: 6px;
   padding: 8px 10px;
   border-radius: 8px;
-  background: var(--color-hover);
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
   color: var(--color-text-muted);
   font-size: 13px;
 }
@@ -550,11 +504,6 @@
   input,
   textarea,
   select {
-    border-color: var(--color-danger);
-
-    &:focus {
-      border-color: var(--color-danger);
-      box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-danger) 18%, transparent);
-    }
+    @include form-control-invalid;
   }
 }

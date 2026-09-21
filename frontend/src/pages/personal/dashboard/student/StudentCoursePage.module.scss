@@ -261,10 +261,9 @@
   border-radius: $radius-8;
   color: var(--color-text-muted);
   background: var(--color-surface);
-  transition: border-color $transition-base, background $transition-base, box-shadow $transition-base, transform $transition-base;
+  transition: background $transition-base, box-shadow $transition-base, transform $transition-base;
 
   &:has(.machineLaunchButton:hover:not(:disabled)) {
-    border-color: color-mix(in srgb, var(--color-primary) 58%, var(--color-border));
     background: color-mix(in srgb, var(--color-primary) 6%, var(--color-surface));
     box-shadow: var(--shadow-sm);
     transform: translateY(-1px);

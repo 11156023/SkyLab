@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import MIcon from "../../../components/MIcon";
 import {
@@ -8,6 +8,7 @@ import {
   BACKGROUND_OPTIONS,
   THEME_DEFAULTS,
 } from "../../../contexts/ThemeContext";
+import FileDropzone from "../../../components/FileDropzone/FileDropzone";
 import { useToast } from "../../../hooks/useToast";
 import { downscaleImage } from "../../../utils/image/downscaleImage";
 import { normalizeHex } from "../../../utils/theme/derivePrimaryShades";
@@ -119,12 +120,16 @@ export default function AppearanceTab() {
     resetToDefaults,
   } = useTheme();
   const toast = useToast();
-  const bgFileRef = useRef(null);
+  // 大圖縮圖要一兩秒，期間上傳區塊顯示載入動畫
+  const [processing, setProcessing] = useState(false);
 
-  async function handleBackgroundFile(e) {
-    const file = e.target.files?.[0];
-    e.target.value = ""; // 允許重選同一個檔案
-    if (!file) return;
+  async function handleBackgroundFile(file) {
+    // 拖放不受 accept 限制，非圖片先擋下，免得縮圖時才冒出看不懂的錯誤
+    if (!file.type.startsWith("image/")) {
+      toast.error(t("common:FileDropzone.notAnImage"));
+      return;
+    }
+    setProcessing(true);
     try {
       const { dataUrl } = await downscaleImage(file, { maxSize: 1920, quality: 0.82 });
       if (dataUrl.length > BG_IMAGE_MAX_CHARS) {
@@ -136,6 +141,8 @@ export default function AppearanceTab() {
       toast.success(t("AppearanceTab.backgroundApplied"));
     } catch (err) {
       toast.error(err?.message ?? t("AppearanceTab.backgroundReadFailed"));
+    } finally {
+      setProcessing(false);
     }
   }
 
@@ -251,29 +258,21 @@ export default function AppearanceTab() {
           </div>
 
           {/* 上傳自訂背景圖（存在瀏覽器本地，重設或移除即刪掉） */}
-          <input
-            ref={bgFileRef}
-            type="file"
+          <FileDropzone
+            compact
             accept="image/*"
-            hidden
-            onChange={handleBackgroundFile}
+            uploading={processing}
+            title={t("common:FileDropzone.titleImage")}
+            onFiles={([file]) => handleBackgroundFile(file)}
           />
-          <div className={styles.formActions}>
-            <button
-              type="button"
-              className={styles.btnSecondary}
-              onClick={() => bgFileRef.current?.click()}
-            >
-              <MIcon name="upload" size={16} />
-              {t("AppearanceTab.uploadBackgroundImage")}
-            </button>
-            {backgroundImage && (
+          {backgroundImage && (
+            <div className={styles.formActions}>
               <button type="button" className={styles.btnSecondary} onClick={removeBackgroundImage}>
                 <MIcon name="delete" size={16} />
                 {t("AppearanceTab.removeBackgroundImage")}
               </button>
-            )}
-          </div>
+            </div>
+          )}
         </div>
 
         <OptionGroup label={t("AppearanceTab.colorMode")} options={translatedThemeOptions} value={mode} onSelect={setMode} />

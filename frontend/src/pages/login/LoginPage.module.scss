@@ -152,30 +152,6 @@
   }
 }
 
-.passwordWrap {
-  position: relative;
-
-  input {
-    width: 100%;
-    padding-right: 44px;
-  }
-}
-
-.eyeBtn {
-  position: absolute;
-  right: $spacing-8;
-  top: 50%;
-  transform: translateY(-50%);
-  color: var(--color-text-muted);
-  cursor: pointer;
-  @include flex-center;
-  transition: color $transition-base;
-
-  &:hover {
-    color: var(--color-text);
-  }
-}
-
 .error {
   font-size: $font-size-14;
   color: var(--color-danger);

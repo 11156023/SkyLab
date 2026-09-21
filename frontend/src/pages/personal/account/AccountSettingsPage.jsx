@@ -4,6 +4,8 @@ import { useTranslation } from "react-i18next";
 import styles from "./AccountSettingsPage.module.scss";
 import MIcon from "../../../components/MIcon";
 import Avatar from "../../../components/Avatar/Avatar";
+import PasswordInput from "../../../components/PasswordInput/PasswordInput";
+import FileDropzone from "../../../components/FileDropzone/FileDropzone";
 import { useAuth } from "../../../contexts/AuthContext";
 import { useToast } from "../../../hooks/useToast";
 import useDialogPresence from "../../../hooks/useDialogPresence";
@@ -12,12 +14,13 @@ import { focusInvalidField } from "../../../utils/focusField";
 import { downscaleImage } from "../../../utils/image/downscaleImage";
 import AppearanceTab from "./AppearanceTab";
 import PageHeader from "../../../components/PageHeader/PageHeader";
+import SegmentedControl from "../../../components/SegmentedControl/SegmentedControl";
 
+/* 密碼與刪除帳號都屬「帳號本身」的事，跟個人資料同一個分頁直向堆疊
+   （危險區域照慣例壓底），分頁只留「個人資料／外觀」兩個 */
 const TABS = [
-  { key: "profile",    labelKey: "AccountSettingsPage.tabProfile", icon: "person" },
-  { key: "password",   labelKey: "AccountSettingsPage.tabPassword", icon: "lock" },
-  { key: "appearance", labelKey: "AccountSettingsPage.tabAppearance", icon: "palette" },
-  { key: "danger",     labelKey: "AccountSettingsPage.tabDanger", icon: "warning" },
+  { key: "profile",    labelKey: "AccountSettingsPage.tabProfile" },
+  { key: "appearance", labelKey: "AccountSettingsPage.tabAppearance" },
 ];
 
 /* ── 個人資料 ───────────────────────────────────────── */
@@ -34,16 +37,17 @@ function ProfileTab() {
     avatar_url: user?.avatar_url ?? "",
   });
   const [uploading, setUploading] = useState(false);
-  const avatarFileRef = useRef(null);
 
   function set(name, value) {
     setForm((prev) => ({ ...prev, [name]: value }));
   }
 
-  async function handleAvatarFile(e) {
-    const file = e.target.files?.[0];
-    e.target.value = ""; // 允許重選同一個檔案
-    if (!file) return;
+  async function handleAvatarFile(file) {
+    // 拖放不受 accept 限制，非圖片先擋下，免得縮圖時才冒出看不懂的錯誤
+    if (!file.type.startsWith("image/")) {
+      toast.error(t("common:FileDropzone.notAnImage"));
+      return;
+    }
     setUploading(true);
     try {
       // 頭像顯示尺寸小，縮到 256px 再上傳
@@ -106,26 +110,13 @@ function ProfileTab() {
       <form className={styles.form} onSubmit={handleSubmit}>
         <div className={styles.avatarRow}>
           <Avatar user={user} src={previewAvatarUrl} size={56} />
-          <div className={styles.avatarHint}>
-            <p className={styles.rowName}>{t("ProfileTab.avatarLabel")}</p>
-            <p className={styles.rowMeta}>{t("ProfileTab.avatarHint")}</p>
-          </div>
-          <input
-            ref={avatarFileRef}
-            type="file"
+          <FileDropzone
+            compact
             accept="image/*"
-            hidden
-            onChange={handleAvatarFile}
+            uploading={uploading}
+            title={t("common:FileDropzone.titleImage")}
+            onFiles={([file]) => handleAvatarFile(file)}
           />
-          <button
-            type="button"
-            className={styles.btnSecondary}
-            onClick={() => avatarFileRef.current?.click()}
-            disabled={uploading}
-          >
-            <MIcon name="upload" size={16} />
-            {uploading ? t("ProfileTab.uploading") : t("ProfileTab.uploadImage")}
-          </button>
         </div>
 
         <label className={styles.field}>
@@ -194,7 +185,7 @@ function ProfileTab() {
 
 /* ── 密碼 ───────────────────────────────────────────── */
 
-function PasswordTab() {
+function PasswordSection() {
   const { t } = useTranslation("personal");
   const toast = useToast();
   const [form, setForm] = useState({ current: "", next: "", confirm: "" });
@@ -242,10 +233,9 @@ function PasswordTab() {
       <form className={styles.form} onSubmit={handleSubmit}>
         <label className={styles.field}>
           <span>{t("PasswordTab.currentLabel")}</span>
-          <input
+          <PasswordInput
             ref={fieldRefs.current}
             className={invalid.current ? styles.fieldInvalid : undefined}
-            type="password"
             value={form.current}
             onChange={(e) => set("current", e.target.value)}
             placeholder="••••••••"
@@ -254,10 +244,9 @@ function PasswordTab() {
 
         <label className={styles.field}>
           <span>{t("PasswordTab.newLabel")}</span>
-          <input
+          <PasswordInput
             ref={fieldRefs.next}
             className={invalid.next ? styles.fieldInvalid : undefined}
-            type="password"
             value={form.next}
             onChange={(e) => set("next", e.target.value)}
             placeholder={t("PasswordTab.newPlaceholder")}
@@ -267,10 +256,9 @@ function PasswordTab() {
 
         <label className={styles.field}>
           <span>{t("PasswordTab.confirmLabel")}</span>
-          <input
+          <PasswordInput
             ref={fieldRefs.confirm}
             className={invalid.confirm ? styles.fieldInvalid : undefined}
-            type="password"
             value={form.confirm}
             onChange={(e) => set("confirm", e.target.value)}
             placeholder={t("PasswordTab.confirmPlaceholder")}
@@ -290,7 +278,7 @@ function PasswordTab() {
 
 /* ── 危險區域 ───────────────────────────────────────── */
 
-function DangerZoneTab() {
+function DangerZoneSection() {
   const { t } = useTranslation("personal");
   const { logout } = useAuth();
   const toast = useToast();
@@ -386,25 +374,25 @@ export default function AccountSettingsPage() {
     <div className={styles.page}>
       <PageHeader title={t("AccountSettingsPage.title")} />
 
-      <div className={styles.tabs}>
-        {TABS.map((tab) => (
-          <button
-            key={tab.key}
-            type="button"
-            className={activeTab === tab.key ? styles.tabActive : styles.tab}
-            onClick={() => setActiveTab(tab.key)}
-          >
-            <MIcon name={tab.icon} size={16} />
-            {t(tab.labelKey)}
-          </button>
-        ))}
-      </div>
+      <SegmentedControl
+        className={styles.tabs}
+        options={TABS.map((tab) => ({ value: tab.key, label: t(tab.labelKey) }))}
+        value={activeTab}
+        onChange={setActiveTab}
+        ariaLabel={t("AccountSettingsPage.title")}
+      />
 
       <div className={styles.content}>
-        {activeTab === "profile" && <ProfileTab />}
-        {activeTab === "password" && <PasswordTab />}
+        {activeTab === "profile" && (
+          <div className={styles.profileGrid}>
+            <ProfileTab />
+            <div className={styles.profileSide}>
+              <PasswordSection />
+              <DangerZoneSection />
+            </div>
+          </div>
+        )}
         {activeTab === "appearance" && <AppearanceTab />}
-        {activeTab === "danger" && <DangerZoneTab />}
       </div>
     </div>
   );

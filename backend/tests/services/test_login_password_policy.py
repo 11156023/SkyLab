@@ -2,7 +2,7 @@
 
 - 系統代發的密碼一律走 ``app.utils.login_password.generate_login_password``
   （12 碼、排除 0O1lI），批次建立 / 快速練習不再用 ``secrets.token_urlsafe``
-- Course Lab 申請單不帶密碼（None），provision 不覆寫範本內烘焙的憑證
+- 申請單密碼為 None（範本不勾「允許自訂登入密碼」）時，provision 不覆寫範本內的憑證
 - provision 完成後密碼存進 ``resources.login_password_encrypted``，
   申請單上的可逆副本清空；沒真的套用（未啟動 / None）就不存
 """
@@ -26,7 +26,6 @@ from app.models import (
     VMTemplate,
 )
 from app.services import quick_practice
-from app.services.course import deployment_service
 from app.services.proxmox import provisioning_service
 from app.services.scheduling import coordinator
 from app.services.template import clone_service
@@ -99,33 +98,6 @@ def test_quick_practice_machine_gets_typeable_password() -> None:
     )
 
     assert _is_generated(request.password)
-
-
-def test_course_lab_request_carries_no_password() -> None:
-    room = CourseRoom(id=uuid.uuid4(), path_id=uuid.uuid4(), title="Lab 1")
-    template = VMTemplate(
-        pve_vmid=9000,
-        node="pve1",
-        name="ubuntu-lab",
-        resource_type="qemu",
-        default_cores=2,
-        default_memory=2048,
-        default_disk=20,
-        storage="local-lvm",
-    )
-    now = datetime.now(UTC)
-
-    request = deployment_service._build_request(
-        room=room,
-        template=template,
-        user_id=uuid.uuid4(),
-        now=now,
-        ttl_hours=4,
-    )
-
-    # None → provision 不帶 cipassword / 不跑 chpasswd，沿用範本憑證
-    assert request.password is None
-    assert request.template_id == 9000
 
 
 def test_batch_provision_generates_typeable_password_when_blank(

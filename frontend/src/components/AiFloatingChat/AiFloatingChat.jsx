@@ -17,6 +17,7 @@ import {
 } from "../../services/aiContextualHelp";
 import MIcon from "../MIcon";
 import { formatDate } from "../../utils/formatDate";
+import { joinList } from "../../utils/joinList";
 import useDialogPresence from "../../hooks/useDialogPresence";
 import useBodyScrollLock from "../../hooks/useBodyScrollLock";
 import styles from "./AiFloatingChat.module.scss";
@@ -732,7 +733,7 @@ export default function AiFloatingChat({ open = false, onOpenChange = () => {} }
 
     // The question and its choices share one source; no model can change the topic.
     const assumptions = state.assumptions?.length
-      ? t("AiFloatingChat.defaultAssumptions", { assumptions: state.assumptions.join("、") })
+      ? t("AiFloatingChat.defaultAssumptions", { assumptions: joinList(state.assumptions) })
       : "";
     const question = [assumptions, state.question.text].filter(Boolean).join("\n\n");
     taskRef.current.intakeHistory.push({ role: "assistant", content: question });

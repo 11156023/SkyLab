@@ -16,9 +16,12 @@ import { useConfirm } from "../../../components/ConfirmDialog/ConfirmProvider";
 import { CourseEnvironmentsService } from "../../../services/courseEnvironments";
 import { apiGet } from "../../../services/api";
 import { focusInvalidField } from "../../../utils/focusField";
+import { joinList } from "../../../utils/joinList";
+import { uploadSequentially } from "../../../utils/uploadSequentially";
 import { useToast } from "../../../hooks/useToast";
 import useDialogPresence from "../../../hooks/useDialogPresence";
 import EmptyState from "../../../components/EmptyState/EmptyState";
+import FileDropzone from "../../../components/FileDropzone/FileDropzone";
 import { TemplatesService } from "../../../services/templates";
 import ConnectionEdge from "../../network/firewall/edges/ConnectionEdge";
 import GatewayNode from "../../network/firewall/nodes/GatewayNode";
@@ -589,7 +592,8 @@ export default function CourseTemplateEditorPage() {
   const nameRef = useRef(null);
   /* 已發布的環境不能自動儲存，基本資訊改完要按按鈕才送出 */
   const [basicsDirty, setBasicsDirty] = useState(false);
-  const fileInputRef = useRef(null);
+  /* 說明文件上傳進度（{ current, total }），null = 沒在上傳 */
+  const [uploadProgress, setUploadProgress] = useState(null);
   async function leaveTo(path) {
     if (publishingRef.current) return;
     await autosaveRef.current?.flush();
@@ -785,20 +789,30 @@ export default function CourseTemplateEditorPage() {
   }
 
   /* 文件掛在環境身分上，上傳與刪除立即生效，不跟著基本資訊那顆儲存鈕走。
-     環境還沒建立（草稿沒有 id）時不給上傳，否則檔案會沒有歸屬。 */
-  async function uploadFile(file) {
-    if (!file || saving) return;
+     環境還沒建立（草稿沒有 id）時不給上傳，否則檔案會沒有歸屬。
+     可一次選多個：後端一次收一個檔，依序上傳，傳完一個清單就先更新 */
+  async function uploadFiles(files) {
+    if (saving) return;
     setSaving(true);
-    try {
-      const saved = await CourseEnvironmentsService.uploadFile(template.id, file);
-      templateRef.current = { ...templateRef.current, files: saved.files };
-      setTemplate(templateRef.current);
-      toast.success(t("CourseTemplateEditorPage.fileUploaded", { name: file.name }));
-    } catch (reason) {
-      toast.error(reason?.message ?? t("CourseTemplateEditorPage.fileUploadFailed"));
-    } finally {
-      setSaving(false);
-      if (fileInputRef.current) fileInputRef.current.value = "";
+    const { failed, lastError } = await uploadSequentially(
+      files,
+      async (file) => {
+        const saved = await CourseEnvironmentsService.uploadFile(template.id, file);
+        templateRef.current = { ...templateRef.current, files: saved.files };
+        setTemplate(templateRef.current);
+      },
+      setUploadProgress,
+    );
+    setUploadProgress(null);
+    setSaving(false);
+    if (failed.length === 0) {
+      toast.success(files.length === 1
+        ? t("CourseTemplateEditorPage.fileUploaded", { name: files[0].name })
+        : t("CourseTemplateEditorPage.filesUploaded", { count: files.length }));
+    } else if (files.length === 1) {
+      toast.error(lastError?.message ?? t("CourseTemplateEditorPage.fileUploadFailed"));
+    } else {
+      toast.error(t("CourseTemplateEditorPage.filesUploadPartialFail", { files: joinList(failed) }));
     }
   }
 
@@ -898,23 +912,24 @@ export default function CourseTemplateEditorPage() {
 
       {/* 說明文件是基本資訊的一個滿寬欄位：放在 formGrid 裡才吃得到卡片內距、跟上面的欄位對齊 */}
       <div className={`${styles.fileSection} ${styles.fieldFull}`}>
-        <div className={styles.fileHeading}>
-          <span>{t("CourseTemplateEditorPage.fieldFiles")}</span>
-          <button type="button" className={styles.btnSecondary} disabled={saving || !hasEnvironmentId} onClick={() => fileInputRef.current?.click()}><MIcon name="upload_file" size={16} />{t("CourseTemplateEditorPage.uploadFileBtn")}</button>
-          <input ref={fileInputRef} type="file" hidden onChange={(event) => uploadFile(event.target.files?.[0])} />
-        </div>
-        {!hasEnvironmentId
-          ? <p className={styles.fileEmpty}><MIcon name="info" size={16} />{t("CourseTemplateEditorPage.filesNeedSaveHint")}</p>
-          : (template.files ?? []).length === 0
-            ? <p className={styles.fileEmpty}><MIcon name="description" size={16} />{t("CourseTemplateEditorPage.noFilesHint")}</p>
-            : <ul className={styles.fileList}>
-                {(template.files ?? []).map((file) => <li key={file.id}>
-                  <MIcon name="description" size={16} />
-                  <a href={CourseEnvironmentsService.fileUrl(template.id, file.id)} target="_blank" rel="noreferrer">{file.filename}</a>
-                  <small>{formatFileSize(file.sizeBytes)}</small>
-                  <button type="button" className={styles.fileRemove} disabled={saving} aria-label={t("CourseTemplateEditorPage.removeFileAria", { name: file.filename })} onClick={() => removeFile(file)}><MIcon name="close" size={15} /></button>
-                </li>)}
-              </ul>}
+        <span className={styles.fileHeading}>{t("CourseTemplateEditorPage.fieldFiles")}</span>
+        {(template.files ?? []).length > 0 && <ul className={styles.fileList}>
+          {(template.files ?? []).map((file) => <li key={file.id}>
+            <MIcon name="description" size={16} />
+            <a href={CourseEnvironmentsService.fileUrl(template.id, file.id)} target="_blank" rel="noreferrer">{file.filename}</a>
+            <small>{formatFileSize(file.sizeBytes)}</small>
+            <button type="button" className={styles.fileRemove} disabled={saving} aria-label={t("CourseTemplateEditorPage.removeFileAria", { name: file.filename })} onClick={() => removeFile(file)}><MIcon name="close" size={15} /></button>
+          </li>)}
+        </ul>}
+        {/* 環境還沒建立時整塊停用，說明直接寫在上傳區塊裡 */}
+        <FileDropzone
+          multiple
+          disabled={saving || !hasEnvironmentId}
+          uploading={uploadProgress !== null}
+          progress={uploadProgress}
+          hint={hasEnvironmentId ? undefined : t("CourseTemplateEditorPage.filesNeedSaveHint")}
+          onFiles={uploadFiles}
+        />
       </div>
       {template.status !== "draft" && <p className={`${styles.inspectorHint} ${styles.fieldFull}`}>{t("CourseTemplateEditorPage.basicsEditableHint")}</p>}
       </div>

@@ -168,15 +168,6 @@ export default function ConfigCodeEditor({
         <div className={styles.tabbarActions}>
           <button
             type="button"
-            className={styles.ghostBtn}
-            onClick={onReload}
-            disabled={saving || busy}
-            title={t("ConfigCodeEditor.reloadTitle")}
-          >
-            <MIcon name="refresh" size={16} />
-          </button>
-          <button
-            type="button"
             className={styles.saveBtn}
             onClick={onSave}
             disabled={saving || !dirty || loadFailed}
