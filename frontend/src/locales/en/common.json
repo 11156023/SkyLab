@@ -26,6 +26,8 @@
   "FileDropzone.browse": "Browse files",
   "FileDropzone.uploading": "Uploading…",
   "FileDropzone.uploadingCount": "Uploading… ({{current}}/{{total}})",
+  "PasswordInput.show": "Show password",
+  "PasswordInput.hide": "Hide password",
   "ConfirmProvider.defaultTitle": "Confirm action",
   "ConfirmProvider.cancel": "Cancel",
   "ConfirmProvider.confirm": "Confirm",

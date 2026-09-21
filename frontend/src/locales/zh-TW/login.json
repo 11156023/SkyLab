@@ -1,7 +1,5 @@
 {
   "LoginPage.passwordPlaceholder": "請輸入密碼",
-  "LoginPage.passwordHide": "隱藏密碼",
-  "LoginPage.passwordShow": "顯示密碼",
   "LoginPage.googleSignInAriaLabel": "Google 登入",
   "LoginPage.googleNoCredential": "Google 登入未取得憑證，請再試一次",
   "LoginPage.googleLoadFailed": "無法載入 Google 登入，請檢查網路後再試一次",

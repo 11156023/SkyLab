@@ -26,6 +26,8 @@
   "FileDropzone.browse": "ファイルを選択",
   "FileDropzone.uploading": "アップロード中…",
   "FileDropzone.uploadingCount": "アップロード中…（{{current}}/{{total}}）",
+  "PasswordInput.show": "パスワードを表示",
+  "PasswordInput.hide": "パスワードを非表示",
   "ConfirmProvider.defaultTitle": "操作の確認",
   "ConfirmProvider.cancel": "キャンセル",
   "ConfirmProvider.confirm": "確定",

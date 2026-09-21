@@ -26,6 +26,8 @@
   "FileDropzone.browse": "瀏覽檔案",
   "FileDropzone.uploading": "上傳中…",
   "FileDropzone.uploadingCount": "上傳中…（{{current}}/{{total}}）",
+  "PasswordInput.show": "顯示密碼",
+  "PasswordInput.hide": "隱藏密碼",
   "ConfirmProvider.defaultTitle": "確認操作",
   "ConfirmProvider.cancel": "取消",
   "ConfirmProvider.confirm": "確定",

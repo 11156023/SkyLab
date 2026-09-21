@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import MIcon from "../../components/MIcon";
+import PasswordInput from "../../components/PasswordInput/PasswordInput";
 import SegmentedControl from "../../components/SegmentedControl/SegmentedControl";
 import { useAuth } from "../../contexts/AuthContext";
 import { apiPost } from "../../services/api";
@@ -86,32 +87,17 @@ function PageShell({ children }) {
 
 function PasswordField({ id, label, value, onChange, disabled, placeholder }) {
   const { t } = useTranslation("login");
-  const [show, setShow] = useState(false);
   return (
     <div className={styles.field}>
       <label htmlFor={id}>{label}</label>
-      <div className={styles.passwordWrap}>
-        <input
-          id={id}
-          type={show ? "text" : "password"}
-          placeholder={placeholder ?? t("LoginPage.passwordPlaceholder")}
-          value={value}
-          onChange={onChange}
-          disabled={disabled}
-          required
-        />
-        <button
-          type="button"
-          className={styles.eyeBtn}
-          onClick={() => setShow((v) => !v)}
-          tabIndex={-1}
-          aria-label={
-            show ? t("LoginPage.passwordHide") : t("LoginPage.passwordShow")
-          }
-        >
-          <MIcon name={show ? "visibility_off" : "visibility"} />
-        </button>
-      </div>
+      <PasswordInput
+        id={id}
+        placeholder={placeholder ?? t("LoginPage.passwordPlaceholder")}
+        value={value}
+        onChange={onChange}
+        disabled={disabled}
+        required
+      />
     </div>
   );
 }
