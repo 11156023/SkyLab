@@ -830,15 +830,18 @@ _MY_REQUESTS_ELEMENTS: tuple[ElementSpec, ...] = (
 
 # ── 帳號設定 ────────────────────────────────────────────────────────
 _ACCOUNT_ELEMENTS: tuple[ElementSpec, ...] = (
-    ElementSpec(id="account.tab_profile", role="list", label="個人資料", section="個人資料"),
-    ElementSpec(id="account.tab_password", role="list", label="密碼", section="密碼"),
+    ElementSpec(
+        id="account.tab_profile", role="list", label="個人資料", section="個人資料",
+        help="這個分頁同時包含變更密碼與刪除帳號。",
+    ),
+    ElementSpec(id="account.change_password", role="list", label="變更密碼", section="變更密碼"),
+    ElementSpec(
+        id="account.delete_account", role="list", label="刪除帳號", section="刪除帳號",
+        help="帳號與相關資料會永久刪除、無法復原；仍持有已開通的資源時系統會拒絕刪除。",
+    ),
     ElementSpec(
         id="account.tab_appearance", role="list", label="外觀", section="外觀",
         help="調整介面主題與顯示語言。",
-    ),
-    ElementSpec(
-        id="account.tab_danger", role="list", label="危險區域", section="危險區域",
-        help="不可復原的帳號操作放在這一區。",
     ),
 )
 
@@ -1188,12 +1191,8 @@ _GATEWAY_ELEMENTS: tuple[ElementSpec, ...] = (
         help="Gateway VM 重灌後 host key 變更導致連線被拒時使用。",
     ),
     ElementSpec(
-        id="gateway.reload_config", role="button", label="重新載入設定檔",
-        section="服務狀態",
-    ),
-    ElementSpec(
         id="gateway.service_logs", role="readonly", label="服務日誌",
-        section="服務狀態", help="顯示最近 100 行。",
+        section="服務狀態", help="顯示最近 100 行，每 10 秒自動更新。",
     ),
     ElementSpec(id="gateway.status_running", role="readonly", label="運行中", section="服務狀態"),
     ElementSpec(id="gateway.status_stopped", role="readonly", label="已停止", section="服務狀態"),
@@ -1504,7 +1503,7 @@ _SURFACES: tuple[SurfaceSpec, ...] = (
         path="/account",
         title="帳號設定",
         purpose="修改個人資料與密碼，調整介面外觀。",
-        sections=("個人資料", "密碼", "外觀", "危險區域"),
+        sections=("個人資料", "變更密碼", "刪除帳號", "外觀"),
         elements=_ACCOUNT_ELEMENTS,
     ),
     SurfaceSpec(
