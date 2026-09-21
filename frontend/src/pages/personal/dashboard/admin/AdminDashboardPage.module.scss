@@ -49,15 +49,10 @@
   padding: $spacing-16;
   text-align: left;
   cursor: pointer;
-  transition: border-color $transition-base, background $transition-base;
+  transition: background $transition-base;
 }
-/* hover 疊色不蓋掉毛玻璃底（同申請審核列表列的疊法） */
-.statCard:hover {
-  border-color: var(--color-primary-on-surface);
-  background:
-    linear-gradient(var(--color-hover), var(--color-hover)),
-    var(--color-surface-glass);
-}
+/* hover 直接換底色才有淡入淡出（漸層疊層無法 transition）；--color-hover 不透明，觀感同疊在毛玻璃上 */
+.statCard:hover { background: var(--color-hover); }
 .statIcon {
   @include flex-center;
   width: 40px;

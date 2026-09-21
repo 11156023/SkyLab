@@ -486,7 +486,6 @@
 }
 
 .classCard:hover {
-  border-color: color-mix(in srgb, var(--color-primary) 28%, var(--color-border));
   box-shadow: 0 7px 24px color-mix(in srgb, var(--color-text-primary) 8%, transparent);
   transform: translateY(-1px);
 }

@@ -176,11 +176,7 @@
   cursor: pointer;
   transition: background $transition-base, border-color $transition-base, box-shadow $transition-base;
 
-  &:hover {
-    background:
-      linear-gradient(var(--color-hover), var(--color-hover)),
-      var(--color-surface-glass);
-  }
+  &:hover { background: var(--color-hover); }
 }
 
 .rowActive {
