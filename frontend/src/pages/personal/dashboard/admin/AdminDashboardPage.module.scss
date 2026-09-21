@@ -18,10 +18,9 @@
 }
 
 .page button:focus-visible { outline: 2px solid var(--color-primary-on-surface); outline-offset: 3px; }
-.refreshControls { display: flex; align-items: center; flex-wrap: wrap; gap: $spacing-8; }
 .checkedAt { color: var(--color-text-muted); font-size: $font-size-12; }
 .checkedAt { font-variant-numeric: tabular-nums; }
-.refreshControls > button, .assistantActions button {
+.assistantActions button {
   display: inline-flex;
   min-height: 36px;
   padding: $spacing-4 $spacing-8;
@@ -36,8 +35,7 @@
   font-weight: $font-weight-500;
   cursor: pointer;
 }
-.refreshControls > button:hover:not(:disabled), .assistantActions button:hover { background: var(--color-hover); }
-.refreshControls > button:disabled { cursor: not-allowed; opacity: 0.45; }
+.assistantActions button:hover { background: var(--color-hover); }
 
 /* 數字只表達運行數量，不把關機或缺少資料誤標為故障。 */
 .statsGrid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: $spacing-16; }
@@ -261,7 +259,7 @@
   /* 窄幅：輸入框獨佔一行，按鈕換行滿寬 */
   .assistantInput { grid-template-columns: minmax(0, 1fr); }
   .assistantInput button { grid-column: 1 / -1; width: 100%; }
-  .refreshControls > button, .assistantActions button, .suggestionButtons button { min-height: 44px; }
+  .assistantActions button, .suggestionButtons button { min-height: 44px; }
 }
 @media (prefers-reduced-motion: reduce) {
   .spin { animation: none; }
