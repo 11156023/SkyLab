@@ -3001,8 +3001,14 @@
     display: none;
   }
 
+  /* 單欄直排：上面 lg 那組 grid-area 要全部歸位，否則被指定到第 2–4 欄的
+     元素會撐出隱含欄，主題、機器欄被擠到只剩幾十 px */
+  .weekRows article>.weekDate,
+  .weekRows article>.weekTitleInput,
+  .weekRows article>.weekMachineSelect,
+  .weekRows article>.weekPublishButton,
   .weekRows article>.weekFileList {
-    grid-column: auto;
+    grid-area: auto;
   }
 }
 
