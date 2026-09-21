@@ -311,9 +311,10 @@ export default function AiPveChat({ initialPrompt = "", compact = false, fill = 
               className={`${styles.msg} ${isUser ? styles.msg_user : styles.msg_assistant}`}
             >
               {/* 助理有頭像、回覆不加框；使用者是靠右的實心氣泡——
-                  與站上另一個對話元件 AiFloatingChat 用同一套語彙。 */}
+                  與站上另一個對話元件 AiFloatingChat 用同一套語彙。
+                  頭像圖示則跟首頁助手標頭一致（support_agent），同一位助手不換臉。 */}
               {!isUser && (
-                <span className={styles.avatar}><MIcon name="smart_toy" size={16} /></span>
+                <span className={styles.avatar}><MIcon name="support_agent" size={18} /></span>
               )}
               <div className={styles.msgBody}>
                 {isUser ? (
@@ -371,7 +372,7 @@ export default function AiPveChat({ initialPrompt = "", compact = false, fill = 
 
         {isSending && (
           <div className={`${styles.msg} ${styles.msg_assistant}`}>
-            <span className={styles.avatar}><MIcon name="smart_toy" size={16} /></span>
+            <span className={styles.avatar}><MIcon name="support_agent" size={18} /></span>
             <div className={styles.thinking}>
               <span className={styles.pulse} />
               {t("AiPveChat.thinking")}

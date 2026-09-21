@@ -154,6 +154,7 @@
 
 .assistant { @include surface-card; @include flex-column; padding: $spacing-16; gap: $spacing-16; }
 .assistantFocused { min-height: 0; flex: 1; }
+/* 標頭不另鋪底色，直接透出卡片的毛玻璃（實心混色會蓋掉玻璃、顯灰），只用分隔線切開，同待辦卡標頭 */
 .assistantHead {
   display: flex;
   flex-shrink: 0;
@@ -163,9 +164,7 @@
   min-height: 64px;
   margin: (-$spacing-16) (-$spacing-16) 0;
   padding: 12px $spacing-16;
-  border-bottom: 1px solid var(--color-border);
-  border-radius: $radius-16 $radius-16 0 0;
-  background: color-mix(in srgb, var(--color-primary) 6%, var(--color-surface));
+  border-bottom: 1px solid var(--color-divider);
 }
 .assistantIdentity { display: flex; min-width: 0; align-items: center; gap: 12px; }
 .assistantIcon {
@@ -175,7 +174,7 @@
   flex-shrink: 0;
   border-radius: $radius-12;
   color: var(--color-primary-on-surface);
-  background: color-mix(in srgb, var(--color-primary) 12%, var(--color-surface));
+  background: var(--color-hover);
 }
 .assistantActions { display: flex; flex-wrap: wrap; margin-left: auto; gap: $spacing-8; }
 .assistantForm { display: grid; grid-template-columns: minmax(0, 1fr) fit-content(40%); align-items: center; min-width: 0; gap: $spacing-16; }
