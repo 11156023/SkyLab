@@ -13,6 +13,7 @@ import { apiGet } from "../../../services/api";
 import AvailabilityPanel from "../../../components/AvailabilityPanel/AvailabilityPanel";
 import MIcon from "../../../components/MIcon";
 import PageHeader from "../../../components/PageHeader/PageHeader";
+import PasswordInput from "../../../components/PasswordInput/PasswordInput";
 import { focusInvalidField } from "../../../utils/focusField";
 import { formatShortDateTime } from "../../../utils/formatDate";
 
@@ -27,32 +28,6 @@ function normalizeHostname(value) {
 }
 
 /* ── Form field primitives ── */
-/* 密碼欄附顯示/隱藏切換（同登入頁的眼睛按鈕） */
-function PasswordInput({ value, onChange, placeholder }) {
-  const { t } = useTranslation("personal");
-  const [show, setShow] = useState(false);
-  return (
-    <div className={styles.passwordWrap}>
-      <input
-        className={styles.input}
-        type={show ? "text" : "password"}
-        placeholder={placeholder}
-        value={value}
-        onChange={onChange}
-      />
-      <button
-        type="button"
-        className={styles.eyeBtn}
-        onClick={() => setShow((v) => !v)}
-        tabIndex={-1}
-        aria-label={show ? t("RequestFormPage.hidePassword") : t("RequestFormPage.showPassword")}
-      >
-        <MIcon name={show ? "visibility_off" : "visibility"} size={18} />
-      </button>
-    </div>
-  );
-}
-
 function FieldGroup({ label, hint, required, error, children, labelRight, name }) {
   return (
     <div className={`${styles.formGroup} ${error ? styles.formGroupInvalid : ""}`} data-field={name}>
@@ -1041,10 +1016,6 @@ export default function RequestFormPage({ onBack, className, initialPrefill = nu
             {/* ── 資源設定（型別由作業系統選擇 + 規則引擎自動決定，學生免選 QEMU/LXC） ── */}
             <div className={styles.formSection} data-guide="request-resource-settings">
               <h2 className={styles.sectionTitle}>{t("RequestFormPage.resourceSettingsTitle")}</h2>
-
-              <p className={styles.adviceBox}>
-                {t("RequestFormPage.resourceSettingsHint")}
-              </p>
               {!advisorDisabled && (adviceLoading || advice) && (
                 <p className={styles.adviceBox}>
                   {adviceLoading
@@ -1158,6 +1129,7 @@ export default function RequestFormPage({ onBack, className, initialPrefill = nu
                       : undefined}
                   >
                     <PasswordInput
+                      className={styles.input}
                       placeholder={t("RequestFormPage.passwordPlaceholder")}
                       value={form.password}
                       onChange={(e) => set("password", e.target.value)}
@@ -1171,6 +1143,7 @@ export default function RequestFormPage({ onBack, className, initialPrefill = nu
                     ? t("RequestFormPage.clonedPasswordHint")
                     : t("RequestFormPage.lxcPasswordHint")}>
                   <PasswordInput
+                    className={styles.input}
                     placeholder={t("RequestFormPage.passwordPlaceholder")}
                     value={form.password}
                     onChange={(e) => set("password", e.target.value)}
