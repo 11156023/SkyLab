@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import styles from "./IpManagementPage.module.scss";
 
@@ -46,6 +46,15 @@ export default function SubnetConfigForm({
   const isEdit = Boolean(config);
   const busy = saving || deleting;
 
+  /* Esc 關閉（Dialog 標準行為）；儲存或刪除進行中不關，跟取消鈕的 disabled 一致 */
+  useEffect(() => {
+    const onKeyDown = (e) => {
+      if (e.key === "Escape" && !busy) onCancel();
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [busy, onCancel]);
+
   function handleSubmit(e) {
     e.preventDefault();
     onSubmit({
@@ -70,9 +79,6 @@ export default function SubnetConfigForm({
       <span className={styles.modalTitle}>
         {isEdit ? t("SubnetConfigForm.editTitle") : t("SubnetConfigForm.createTitle")}
       </span>
-      <p className={styles.cardDesc}>
-        {t("SubnetConfigForm.cardDesc")}
-      </p>
 
       <div className={styles.modalFormGrid}>
         <label className={styles.field}>
@@ -82,13 +88,9 @@ export default function SubnetConfigForm({
             onChange={(e) => set("cidr", e.target.value)}
             placeholder={t("SubnetConfigForm.cidrPlaceholder")}
             readOnly={cidrLocked}
+            title={cidrLocked ? t("SubnetConfigForm.cidrLockedHint") : undefined}
             required
           />
-          {cidrLocked && (
-            <span className={styles.fieldHint}>
-              {t("SubnetConfigForm.cidrLockedHint")}
-            </span>
-          )}
         </label>
 
         <label className={styles.field}>
@@ -121,7 +123,6 @@ export default function SubnetConfigForm({
             pattern={IPV4_PATTERN}
             required
           />
-          <span className={styles.fieldHint}>{t("SubnetConfigForm.gatewayVmIpHint")}</span>
         </label>
 
         <label className={styles.field}>
@@ -154,7 +155,6 @@ export default function SubnetConfigForm({
             onChange={(e) => set("forward_port_end", e.target.value)}
             required
           />
-          <span className={styles.fieldHint}>{t("SubnetConfigForm.forwardPortRangeHint")}</span>
         </label>
         <label className={styles.field}>
           <span>{t("SubnetConfigForm.forwardPublicHost")}</span>
@@ -163,7 +163,6 @@ export default function SubnetConfigForm({
             onChange={(e) => set("forward_public_host", e.target.value)}
             placeholder={t("SubnetConfigForm.forwardPublicHostPlaceholder")}
           />
-          <span className={styles.fieldHint}>{t("SubnetConfigForm.forwardPublicHostHint")}</span>
         </label>
       </div>
 
@@ -176,9 +175,6 @@ export default function SubnetConfigForm({
           placeholder={t("SubnetConfigForm.extraBlockedSubnetsPlaceholder")}
           spellCheck={false}
         />
-        <span className={styles.fieldHint}>
-          {t("SubnetConfigForm.extraBlockedSubnetsHint")}
-        </span>
       </label>
 
       <div className={styles.modalActions}>

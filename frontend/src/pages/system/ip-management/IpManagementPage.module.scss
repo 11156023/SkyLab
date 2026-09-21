@@ -19,24 +19,6 @@
   flex-shrink: 0;
 }
 
-%btn-base {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 8px $spacing-16;
-  border-radius: $radius-8;
-  font-size: $font-size-14;
-  font-weight: $font-weight-500;
-  cursor: pointer;
-  white-space: nowrap;
-  transition: background $transition-base, box-shadow $transition-base;
-
-  &:disabled {
-    opacity: 0.4;
-    cursor: not-allowed;
-  }
-}
-
 .btnPrimary {
   @include btn-primary;
 }
@@ -45,9 +27,9 @@
   @include btn-secondary;
 }
 
+/* 刪除子網設定：靠左，與右側的取消／儲存分開 */
 .btnDanger {
   @include btn-danger;
-  /* 危險操作靠左，與右側的取消／儲存分開 */
   margin-right: auto;
 }
 
@@ -186,9 +168,8 @@
   max-height: 88vh;
   overflow-y: auto;
   padding: $spacing-24;
-  background: var(--color-surface);
+  @include glass-surface($shadow: var(--shadow-lg));
   border-radius: $radius-16;
-  box-shadow: var(--shadow-lg);
 }
 
 .modalTitle {
@@ -237,7 +218,24 @@
 
 .table {
   @include table-base;
+  table-layout: fixed;
   min-width: 800px;
+}
+
+/* 欄寬集中宣告，搭配 JSX 的 <colgroup>；備註欄不給寬度，吃剩下的空間 */
+.colIp          { width: 200px; }
+.colPurpose     { width: 140px; }
+.colVmid        { width: 96px; }
+.colAllocatedAt { width: 180px; }
+
+/* 分配時間「日期 時間」不拆成兩行 */
+.tdNowrap {
+  white-space: nowrap;
+}
+
+/* 固定欄寬後，過長的備註單行截斷，完整內容放在 title */
+.tdTruncate {
+  @include text-truncate;
 }
 
 .th {
@@ -306,106 +304,28 @@
 .badge_reserved       { background: var(--color-hover); color: var(--color-text-muted); }
 .badge_unknown        { background: var(--color-hover); color: var(--color-text-muted); }
 
-.actions {
-  display: flex;
-  gap: $spacing-4;
-}
-
-.actionBtn {
-  width: 28px;
-  height: 28px;
-  border-radius: $radius-8;
-  @include flex-center;
-  color: var(--color-text-secondary);
-  transition: background $transition-base, color $transition-base;
-
-  &:hover {
-    background: var(--color-hover);
-    color: var(--color-text);
-  }
-
-  &.actionBtnDanger {
-    color: var(--color-danger);
-    &:hover:not(:disabled) { background: color-mix(in srgb, var(--color-danger) 10%, transparent); }
-  }
-}
-
 /* ── 子網設定表單 ── */
-.card {
-  @include flex-column;
-  gap: $spacing-16;
-  padding: $spacing-24;
-  @include glass-surface($shadow: var(--shadow-sm));
-  border-radius: $radius-16;
-}
-
-.cardTitle {
-  font-size: $font-size-16;
-  font-weight: $font-weight-700;
-  color: var(--color-text-primary);
-}
-
-/* 標題下的說明文字（貼近標題） */
-.cardDesc {
-  margin-top: -$spacing-8;
-  font-size: $font-size-12;
-  color: var(--color-text-muted);
-}
-
-.formGrid {
-  display: grid;
-  grid-template-columns: 1fr;
-  gap: $spacing-16;
-
-  @include respond-to(md) {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-}
-
+/* 欄位一律走 _mixins.scss 的表單 mixin 組（樣式規範「表單」段）：
+   標籤 14/500、控制項 36px；唯讀（CIDR 已被佔用時）由 form-control 內建的 [readonly] 樣式處理 */
 .field {
-  @include flex-column;
-  gap: 6px;
-  font-size: $font-size-12;
-  font-weight: $font-weight-500;
-  color: var(--color-text-secondary);
+  @include form-field;
 
   input,
   textarea {
-    min-height: 38px;
-    padding: 8px $spacing-16;
-    border: 1px solid var(--color-border);
-    border-radius: $radius-8;
-    background: var(--color-surface);
-    color: var(--color-text-primary);
-    outline: none;
-    font-size: $font-size-14;
+    @include form-control;
 
-    &:focus {
-      border-color: var(--color-primary);
-      box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-primary) 12%, transparent);
-    }
-
-    &:read-only {
-      background: var(--color-hover);
+    &::placeholder {
       color: var(--color-text-muted);
-      cursor: not-allowed;
     }
   }
 
+  input[readonly] {
+    cursor: not-allowed;
+  }
+
+  /* 封鎖網段是一行一個 CIDR，等寬字才好對齊檢查 */
   textarea {
     font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   }
 }
 
-.fieldHint {
-  font-weight: $font-weight-400;
-  color: var(--color-text-muted);
-}
-
-.cardActions {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: flex-end;
-  gap: $spacing-8;
-}
