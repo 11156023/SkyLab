@@ -13,32 +13,14 @@
 }
 
 /* ── Tabs ── */
+/* 分頁：共用 SegmentedControl；四段在窄螢幕放不下時自己橫向捲動（元件註解的建議作法） */
 .tabs {
-  display: flex;
-  gap: $spacing-4;
-  flex-wrap: wrap;
-}
+  max-width: 100%;
+  overflow-x: auto;
+  scrollbar-width: none;
 
-.tab {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 6px $spacing-16;
-  border-radius: $radius-pill;
-  font-size: $font-size-14;
-  color: var(--color-text-secondary);
-  cursor: pointer;
-  transition: background $transition-base, color $transition-base;
-
-  &:hover {
-    background: var(--color-hover);
-    color: var(--color-text);
-  }
-
-  &.tabActive {
-    background: var(--color-text);
-    color: var(--color-surface);
-    font-weight: $font-weight-500;
+  &::-webkit-scrollbar {
+    display: none;
   }
 }
 

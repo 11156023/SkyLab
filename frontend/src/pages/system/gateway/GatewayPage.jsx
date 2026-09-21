@@ -7,8 +7,31 @@ import ConfigCodeEditor from "./ConfigCodeEditor";
 import { useConfirm } from "../../../components/ConfirmDialog/ConfirmProvider";
 import EmptyState from "../../../components/EmptyState/EmptyState";
 import { useToast } from "../../../hooks/useToast";
+import useAutoRefresh from "../../../hooks/useAutoRefresh";
 import { GatewayService } from "../../../services/gateway";
 import PageHeader from "../../../components/PageHeader/PageHeader";
+import SegmentedControl from "../../../components/SegmentedControl/SegmentedControl";
+
+/* 日誌變化快，比站上預設的 30 秒更新得勤；每次重抓只是一次短暫的 SSH journalctl */
+const LOG_REFRESH_MS = 10_000;
+
+/* 服務日誌自動更新：分頁隱藏時暫停，前一次還沒回來就跳過這輪（Gateway 連不上時 SSH 不會越堆越多），
+   抓失敗就保留畫面上的內容。回傳的 refresh 供服務操作後立即重抓。 */
+function useLiveLogs(service, setLogs, enabled) {
+  const inFlightRef = useRef(false);
+  const refresh = useCallback(async () => {
+    if (inFlightRef.current) return;
+    inFlightRef.current = true;
+    try {
+      const next = await GatewayService.getServiceLogs(service, 100).catch(() => undefined);
+      if (next !== undefined) setLogs(next);
+    } finally {
+      inFlightRef.current = false;
+    }
+  }, [service, setLogs]);
+  useAutoRefresh(() => { if (enabled) refresh(); }, LOG_REFRESH_MS);
+  return refresh;
+}
 
 const SERVICE_FILES = {
   haproxy: { path: "/etc/haproxy/haproxy.cfg", language: "haproxy" },
@@ -223,7 +246,6 @@ function ConnectionTab({ config, onConfigChange }) {
 function ServiceTab({ service, gatewayReady, host, onDirtyChange }) {
   const { t } = useTranslation("system");
   const toast = useToast();
-  const confirm = useConfirm();
   const SERVICE_ACTIONS = [
     { action: "start",   label: t("GatewayPage.actionStart"),   icon: "play_arrow" },
     { action: "stop",    label: t("GatewayPage.actionStop"),    icon: "stop" },
@@ -238,7 +260,6 @@ function ServiceTab({ service, gatewayReady, host, onDirtyChange }) {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [acting, setActing] = useState(null);
-  const [loadingLogs, setLoadingLogs] = useState(false);
 
   const file = SERVICE_FILES[service];
   const dirty = configText !== savedText;
@@ -270,6 +291,8 @@ function ServiceTab({ service, gatewayReady, host, onDirtyChange }) {
     else setLoading(false);
   }, [gatewayReady, fetchAll]);
 
+  const refreshLogs = useLiveLogs(service, setLogs, gatewayReady && !loading);
+
   // 把 dirty 回報給 GatewayPage，讓分頁切換能攔截未寫入變更
   useEffect(() => {
     onDirtyChange?.(dirty);
@@ -295,6 +318,7 @@ function ServiceTab({ service, gatewayReady, host, onDirtyChange }) {
       else toast.error(res.output || t("GatewayPage.toastServiceActionFailed", { service, action }));
       const statusRes = await GatewayService.getServiceStatus(service).catch(() => null);
       setStatus(statusRes);
+      refreshLogs();
     } catch (err) {
       toast.error(err?.message ?? t("GatewayPage.toastActionFailed", { action }));
     } finally {
@@ -313,30 +337,6 @@ function ServiceTab({ service, gatewayReady, host, onDirtyChange }) {
       toast.error(err?.message ?? t("GatewayPage.toastWriteConfigFailed"));
     } finally {
       setSaving(false);
-    }
-  }
-
-  async function handleReload() {
-    if (dirty) {
-      const ok = await confirm({
-        title: t("GatewayPage.reloadConfigTitle"),
-        message: t("GatewayPage.reloadConfigMessage"),
-        confirmText: t("GatewayPage.reloadConfigConfirm"),
-        danger: true,
-      });
-      if (!ok) return;
-    }
-    fetchAll();
-  }
-
-  async function handleRefreshLogs() {
-    setLoadingLogs(true);
-    try {
-      setLogs(await GatewayService.getServiceLogs(service, 100));
-    } catch (err) {
-      toast.error(err?.message ?? t("GatewayPage.toastLoadLogsFailed"));
-    } finally {
-      setLoadingLogs(false);
     }
   }
 
@@ -401,24 +401,16 @@ function ServiceTab({ service, gatewayReady, host, onDirtyChange }) {
           loadFailed={configLoadFailed}
           host={host}
           onSave={handleSaveConfig}
-          onReload={handleReload}
+          onReload={fetchAll}
         />
       </div>
 
       <div className={`${styles.card} ${styles.areaLogs}`}>
         <div className={styles.cardHead}>
           <h2 className={styles.cardTitle}>{t("GatewayPage.serviceLogsTitle")}</h2>
-          <button type="button" className={styles.btnSecondary} onClick={handleRefreshLogs} disabled={loadingLogs}>
-            <MIcon name="refresh" size={16} />
-            {loadingLogs ? t("GatewayPage.loadingLogs") : t("GatewayPage.refresh")}
-          </button>
         </div>
         <pre className={styles.logBlock}>
-          {loadingLogs
-            ? t("GatewayPage.loadingLogs")
-            : logs === null
-              ? t("GatewayPage.logsLoadFailed")
-              : logs || t("GatewayPage.noLogOutput")}
+          {logs === null ? t("GatewayPage.logsLoadFailed") : logs || t("GatewayPage.noLogOutput")}
         </pre>
       </div>
     </div>
@@ -433,7 +425,6 @@ function WireGuardTab({ gatewayReady }) {
   const [logs, setLogs] = useState(null);
   const [loading, setLoading] = useState(true);
   const [acting, setActing] = useState(null);
-  const [loadingLogs, setLoadingLogs] = useState(false);
 
   const fetchAll = useCallback(async () => {
     setLoading(true);
@@ -454,6 +445,8 @@ function WireGuardTab({ gatewayReady }) {
     else setLoading(false);
   }, [gatewayReady, fetchAll]);
 
+  const refreshLogs = useLiveLogs("wireguard", setLogs, gatewayReady && !loading);
+
   async function handleAction(action) {
     setActing(action);
     try {
@@ -469,21 +462,11 @@ function WireGuardTab({ gatewayReady }) {
       ]);
       setOverview(nextOverview);
       setStatus(nextStatus);
+      refreshLogs();
     } catch (err) {
       toast.error(err?.message ?? t("GatewayPage.toastActionFailed", { action }));
     } finally {
       setActing(null);
-    }
-  }
-
-  async function handleRefreshLogs() {
-    setLoadingLogs(true);
-    try {
-      setLogs(await GatewayService.getServiceLogs("wireguard", 100));
-    } catch (err) {
-      toast.error(err?.message ?? t("GatewayPage.toastLoadLogsFailed"));
-    } finally {
-      setLoadingLogs(false);
     }
   }
 
@@ -619,17 +602,9 @@ function WireGuardTab({ gatewayReady }) {
       <div className={styles.card}>
         <div className={styles.cardHead}>
           <h2 className={styles.cardTitle}>{t("GatewayPage.serviceLogsTitle")}</h2>
-          <button type="button" className={styles.btnSecondary} onClick={handleRefreshLogs} disabled={loadingLogs}>
-            <MIcon name="refresh" size={16} />
-            {loadingLogs ? t("GatewayPage.loadingLogs") : t("GatewayPage.refresh")}
-          </button>
         </div>
         <pre className={styles.logBlock}>
-          {loadingLogs
-            ? t("GatewayPage.loadingLogs")
-            : logs === null
-              ? t("GatewayPage.logsLoadFailed")
-              : logs || t("GatewayPage.noLogOutput")}
+          {logs === null ? t("GatewayPage.logsLoadFailed") : logs || t("GatewayPage.noLogOutput")}
         </pre>
       </div>
     </div>
@@ -682,18 +657,14 @@ export default function GatewayPage() {
     <div className={styles.page}>
       <PageHeader title={t("GatewayPage.pageTitle")}>
 
-        <div className={styles.tabs}>
-          {TABS.map((tab) => (
-            <button
-              key={tab.key}
-              type="button"
-              className={`${styles.tab} ${activeTab === tab.key ? styles.tabActive : ""}`}
-              onClick={() => handleTabSelect(tab.key)}
-            >
-              {tab.label}
-            </button>
-          ))}
-        </div>
+        {/* 切換前若設定檔有未存修改，handleTabSelect 會先跳確認 */}
+        <SegmentedControl
+          className={styles.tabs}
+          ariaLabel={t("GatewayPage.tabsAriaLabel")}
+          value={activeTab}
+          onChange={handleTabSelect}
+          options={TABS.map((tab) => ({ value: tab.key, label: tab.label }))}
+        />
       </PageHeader>
 
       <div className={styles.content}>
