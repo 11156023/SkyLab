@@ -359,6 +359,11 @@ def _inject_lxc_platform_key(node: str, vmid: int, public_key: str) -> bool:
     return False
 
 
+def set_lxc_root_password(node: str, vmid: int, password: str) -> bool:
+    """Public wrapper used by managed LXC start / reset paths."""
+    return _set_lxc_root_password(node, vmid, password)
+
+
 def inject_lxc_platform_key(node: str, vmid: int, public_key: str) -> bool:
     """Public entry point for start paths that need to sync a guest key."""
     return _inject_lxc_platform_key(node, vmid, public_key)
@@ -534,6 +539,14 @@ def run_clone_task(task_id: uuid.UUID, payload: dict[str, Any]) -> dict[str, Any
                 login_password_encrypted=(
                     encrypt_value(login_password)
                     if password_applied and login_password is not None
+                    else None
+                ),
+                # 沒寫進機器（LXC 建立時未開機、或 chpasswd 失敗）就留作待套用，
+                # 下次受管開機由 ensure_lxc_login_password 補設；不直接當成
+                # 已生效的密碼顯示，避免給出一組登不進去的密碼
+                login_password_pending_encrypted=(
+                    encrypt_value(login_password)
+                    if not password_applied and login_password is not None
                     else None
                 ),
                 batch_job_id=batch_job_id,

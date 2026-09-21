@@ -83,6 +83,13 @@ class Resource(SQLModel, table=True):
         default=None,
         description="Encrypted per-clone login password",
     )
+    login_password_pending_encrypted: str | None = Field(
+        default=None,
+        description=(
+            "Generated login password not yet written into the guest (LXC clone "
+            "created while stopped); applied on the next managed start"
+        ),
+    )
     created_at: datetime = Field(
         sa_column=Column(DateTime(timezone=True), nullable=False),
         description="Created time",
