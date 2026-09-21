@@ -46,6 +46,7 @@ from app.schemas import (
 from app.services.proxmox import proxmox_service
 from app.services.resource import quota_service
 from app.services.scheduling import vm_request_schedule_service
+from app.services.template import password_policy
 from app.services.user import audit_service
 from app.services.vm import (
     vm_request_availability_service,
@@ -53,7 +54,6 @@ from app.services.vm import (
     workload_advisor,
 )
 from app.services.vm.placement_service import CurrentPlacementSelection
-from app.utils.login_password import generate_login_password
 
 logger = logging.getLogger(__name__)
 
@@ -479,8 +479,14 @@ def create(
         session=session,
         vm_request_in=request_in,
         user_id=user.id,
-        encrypted_password=encrypt_value(
-            request_in.password or generate_login_password()
+        encrypted_password=_encrypt_login_password(
+            password_policy.resolve_login_password(
+                template=password_policy.find_template(
+                    session, pve_vmid=request_in.template_id
+                ),
+                custom=request_in.password,
+                require_custom=True,
+            )
         ),
         auto_decision_reason=auto_decision_reason,
         commit=False,

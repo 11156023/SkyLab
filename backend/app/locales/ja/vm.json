@@ -24,6 +24,7 @@
   "vm_request.quick_template_mode_disabled": "このモードは廃止されました。クイック練習環境を利用するか、通常の申請で公開テンプレートを選択してください。",
   "vm_request.end_before_start": "終了時刻は開始時刻より後である必要があります",
   "vm_request.scheduled_requires_window": "スケジュールモードでは開始時刻と終了時刻の両方が必要です",
+  "vm_request.password_required": "ログインパスワードを入力してください（8文字以上）",
   "vm_request.not_found": "リクエストが見つかりません",
   "vm_request.window_required_for_review": "審査コンテキストにはスケジュール申請の期間が必要です",
   "vm_request.no_projected_node": "この申請期間に利用可能な予測ノードがありません",

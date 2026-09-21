@@ -32,8 +32,8 @@ from app.repositories import resource as resource_repo
 from app.schemas import VMRequestCreate
 from app.services.resource import quota_service
 from app.services.scheduling.recurrence import get_schedule_policy
+from app.services.template import password_policy
 from app.services.vm import vm_request_service
-from app.utils.login_password import generate_login_password
 
 MAX_ACTIVE_SESSIONS_PER_USER = 1
 MAX_SESSIONS_PER_24_HOURS = 3
@@ -573,8 +573,9 @@ def _machine_request(
         hostname=f"practice-{practice_session_id.hex[:6]}-{_hostname_label(node)}",
         cores=node.cpu,
         memory=node.memory_mb,
-        # 練習機的密碼會真的套用並存進 resources 憑證卡片，要給人打得出來的
-        password=generate_login_password(),
+        # 範本不勾「允許自訂登入密碼」就沿用範本內的密碼（None）；否則發隨機密碼，
+        # 會真的套用並存進 resources 憑證卡片
+        password=password_policy.resolve_login_password(template=template),
         storage=storage,
         environment_type=f"快速練習｜{environment.name}",
         os_info=node.name,
