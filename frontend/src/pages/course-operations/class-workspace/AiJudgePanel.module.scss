@@ -926,7 +926,9 @@
   border: 0;
 }
 
+/* relative：拖檔進來時的放置提示（FileDropOverlay）蓋住整個對話區 */
 .chatPanel {
+  position: relative;
   @include flex-column;
   flex: 1;
   min-height: 0;

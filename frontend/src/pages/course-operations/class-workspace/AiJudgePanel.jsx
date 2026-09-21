@@ -7,6 +7,8 @@ import MIcon from "../../../components/MIcon";
 import { useToast } from "../../../hooks/useToast";
 import useAutoRefresh from "../../../hooks/useAutoRefresh";
 import useDialogPresence from "../../../hooks/useDialogPresence";
+import useFileDrop from "../../../hooks/useFileDrop";
+import FileDropOverlay from "../../../components/FileDropzone/FileDropOverlay";
 import { downloadBlob } from "../../../services/api";
 import { focusInvalidField } from "../../../utils/focusField";
 import { formatDateTime } from "../../../utils/formatDate";
@@ -926,8 +928,13 @@ export function ChatPanel({
     if (file) onUploadFile?.(file);
   }
 
+  // 整個對話區都能把文件拖進來；跟輸入框旁的＋一樣一次加一個
+  const { dragging, dropProps } = useFileDrop(([file]) => onUploadFile?.(file), {
+    disabled: isLoading || isClearing || isUploading || disabled,
+  });
+
   return (
-    <div className={styles.chatPanel}>
+    <div className={styles.chatPanel} {...(onUploadFile ? dropProps : {})}>
       <div className={styles.chatMessages}>
         {visibleMessages.length === 0 ? (
           <div className={styles.chatEmpty}>
@@ -936,7 +943,7 @@ export function ChatPanel({
             <p className={styles.chatEmptyMeta}>
               {hasRubric
                 ? "可以詢問修改建議，或直接下達調整指令"
-                : "點擊輸入框旁的＋上傳文件，完成後即可接續討論"}
+                : "點擊輸入框旁的＋或把文件拖進來，上傳完成後即可接續討論"}
             </p>
           </div>
         ) : (
@@ -1117,6 +1124,7 @@ export function ChatPanel({
             : "提示：先用＋上傳文件；分析完成後，AI 才會提出可套用的檢查項目修改"}
         </p>
       </div>
+      {dragging && <FileDropOverlay />}
     </div>
   );
 }

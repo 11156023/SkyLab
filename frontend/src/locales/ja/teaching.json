@@ -536,8 +536,6 @@
   "ClassWorkspacePage.topicPlaceholder": "今週のテーマまたはタスクを入力",
   "ClassWorkspacePage.taskFilesLabel": "タスクファイル",
   "ClassWorkspacePage.removeFileAria": "{{filename}} を削除",
-  "ClassWorkspacePage.uploadingLabel": "アップロード中…",
-  "ClassWorkspacePage.uploadFileBtn": "ファイルをアップロード",
   "ClassWorkspacePage.savingLabel": "保存中…",
   "ClassWorkspacePage.saveWeeklyBtn": "毎週のコンテンツを保存",
   "ClassWorkspacePage.sourceCustomSpecLabel": "カスタム仕様",
@@ -969,11 +967,11 @@
   "CourseTemplateEditorPage.retryAutosave": "再試行",
   "CourseTemplateEditorPage.publishing": "公開中…",
   "CourseTemplateEditorPage.fieldFiles": "ドキュメント",
-  "CourseTemplateEditorPage.uploadFileBtn": "アップロード",
-  "CourseTemplateEditorPage.noFilesHint": "ドキュメントはまだありません。",
   "CourseTemplateEditorPage.filesNeedSaveHint": "環境を作成するとドキュメントをアップロードできます。",
   "CourseTemplateEditorPage.removeFileAria": "{{name}} を削除",
   "CourseTemplateEditorPage.fileUploaded": "{{name}} をアップロードしました",
+  "CourseTemplateEditorPage.filesUploaded": "{{count}} 件のドキュメントをアップロードしました",
+  "CourseTemplateEditorPage.filesUploadPartialFail": "次のドキュメントのアップロードに失敗しました：{{files}}",
   "CourseTemplateEditorPage.fileUploadFailed": "アップロードに失敗しました",
   "CourseTemplateEditorPage.fileDeleteFailed": "ドキュメントを削除できませんでした"
 }

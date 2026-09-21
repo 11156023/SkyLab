@@ -536,8 +536,6 @@
   "ClassWorkspacePage.topicPlaceholder": "輸入本週主題或任務",
   "ClassWorkspacePage.taskFilesLabel": "任務檔案",
   "ClassWorkspacePage.removeFileAria": "移除 {{filename}}",
-  "ClassWorkspacePage.uploadingLabel": "上傳中…",
-  "ClassWorkspacePage.uploadFileBtn": "上傳檔案",
   "ClassWorkspacePage.savingLabel": "儲存中…",
   "ClassWorkspacePage.saveWeeklyBtn": "儲存每週內容",
   "ClassWorkspacePage.sourceCustomSpecLabel": "自訂規格",
@@ -969,11 +967,11 @@
   "CourseTemplateEditorPage.retryAutosave": "重試",
   "CourseTemplateEditorPage.publishing": "發布中…",
   "CourseTemplateEditorPage.fieldFiles": "說明文件",
-  "CourseTemplateEditorPage.uploadFileBtn": "上傳文件",
-  "CourseTemplateEditorPage.noFilesHint": "尚未上傳任何文件。",
   "CourseTemplateEditorPage.filesNeedSaveHint": "環境建立後才能上傳文件。",
   "CourseTemplateEditorPage.removeFileAria": "移除 {{name}}",
   "CourseTemplateEditorPage.fileUploaded": "已上傳 {{name}}",
+  "CourseTemplateEditorPage.filesUploaded": "已上傳 {{count}} 個文件",
+  "CourseTemplateEditorPage.filesUploadPartialFail": "以下文件上傳失敗：{{files}}",
   "CourseTemplateEditorPage.fileUploadFailed": "上傳失敗",
   "CourseTemplateEditorPage.fileDeleteFailed": "刪除文件失敗"
 }
