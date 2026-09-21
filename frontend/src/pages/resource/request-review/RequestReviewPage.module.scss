@@ -439,11 +439,16 @@
 .commentField {
   @include flex-column;
   gap: $spacing-8;
-  flex: 1 1 240px;
+  /* 直向堆疊時依內容高度（flex-basis 會變成高度），橫排時才吃掉剩餘寬度 */
+  flex: none;
   min-width: 0;
   color: var(--color-text-primary);
   font-size: $font-size-14;
   font-weight: $font-weight-500;
+
+  @include respond-to(md) {
+    flex: 1 1 240px;
+  }
 
   textarea {
     height: 72px;
