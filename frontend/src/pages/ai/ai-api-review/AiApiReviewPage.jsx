@@ -27,6 +27,16 @@ function ReviewDialog({ open, onClose, request, action, onDone }) {
   // 關閉時先播放離場動畫再卸載
   const presence = useDialogPresence(open);
 
+  /* Esc 關閉（Dialog 標準行為）；送出中不關，跟取消鈕的 disabled 一致 */
+  useEffect(() => {
+    if (!open) return undefined;
+    const onKeyDown = (e) => {
+      if (e.key === "Escape" && !submitting) onClose();
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [open, submitting, onClose]);
+
   if (!presence.open || !request) return null;
 
   const isApprove = action === "approved";
@@ -57,16 +67,9 @@ function ReviewDialog({ open, onClose, request, action, onDone }) {
       onClick={onClose}
     >
       <div className={styles.dialog} onClick={(e) => e.stopPropagation()}>
-        <div className={styles.dialogHeader}>
-          <h3 className={styles.dialogTitle}>
-            {isApprove ? t("AiApiReviewPage.approveDialogTitle") : t("AiApiReviewPage.rejectDialogTitle")}
-          </h3>
-          <p className={styles.dialogDesc}>
-            {isApprove
-              ? t("AiApiReviewPage.approveDialogDesc")
-              : t("AiApiReviewPage.rejectDialogDesc")}
-          </p>
-        </div>
+        <h3 className={styles.dialogTitle}>
+          {isApprove ? t("AiApiReviewPage.approveDialogTitle") : t("AiApiReviewPage.rejectDialogTitle")}
+        </h3>
 
         <div className={styles.dialogBody}>
           <div className={styles.dialogInfo}>
@@ -85,7 +88,7 @@ function ReviewDialog({ open, onClose, request, action, onDone }) {
         </div>
 
         <div className={styles.dialogFooter}>
-          <button type="button" className={styles.btnOutline} onClick={onClose} disabled={submitting}>
+          <button type="button" className={styles.btnSecondary} onClick={onClose} disabled={submitting}>
             {t("AiApiReviewPage.cancel")}
           </button>
           <button
