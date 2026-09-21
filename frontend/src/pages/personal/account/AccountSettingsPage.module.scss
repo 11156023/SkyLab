@@ -1,12 +1,12 @@
 @use "../../../assets/styles/variables" as *;
 @use "../../../assets/styles/mixins" as *;
 
+/* 卡片吃滿工作區寬度（同其他列表頁），閱讀寬度交給雙欄格線切 */
 .page {
   @include flex-column;
   gap: $spacing-24;
   padding: $spacing-8 $spacing-16;
   flex: 1;
-  max-width: 640px;
 
   @media (min-width: $breakpoint-sidebar) {
     padding: 0;
@@ -14,44 +14,33 @@
 }
 
 /* ── Tabs ── */
+/* 共用 SegmentedControl 是 inline-flex，在直向 flex 裡會被撐滿寬，靠左收回原本寬度 */
 .tabs {
-  display: flex;
-  gap: $spacing-4;
-  flex-wrap: wrap;
-}
-
-.tab,
-.tabActive {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 6px $spacing-16;
-  border-radius: $radius-pill;
-  font-size: $font-size-14;
-  cursor: pointer;
-  transition: background $transition-base, color $transition-base;
-}
-
-.tab {
-  background: transparent;
-  color: var(--color-text-secondary);
-
-  &:hover {
-    background: var(--color-hover);
-    color: var(--color-text);
-  }
-}
-
-.tabActive {
-  background: var(--color-text);
-  color: var(--color-surface);
-  font-weight: $font-weight-500;
+  align-self: flex-start;
 }
 
 /* ── Content ── */
 .content {
   flex: 1;
   @include flex-column;
+  gap: $spacing-24;
+}
+
+/* 個人資料分頁：寬螢幕左右雙欄——個資卡在左、密碼＋危險區域堆右欄，
+   右側才不會整片留白；窄螢幕退回直向堆疊（危險區域維持壓底） */
+.profileGrid {
+  display: grid;
+  gap: $spacing-24;
+
+  @include respond-to(lg) {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    align-items: start;
+  }
+}
+
+.profileSide {
+  @include flex-column;
+  gap: $spacing-24;
 }
 
 .card {
@@ -69,10 +58,11 @@
 }
 
 /* ── Form ── */
+/* 欄位吃滿卡片寬：閱讀寬度由卡片自己控（雙欄格線／.cardNarrow），
+   表單不再另外鎖窄，否則卡片右側會空一截 */
 .form {
   @include flex-column;
   gap: $spacing-16;
-  max-width: 400px;
 }
 
 .field {
@@ -104,6 +94,8 @@
   font-size: $font-size-14;
   font-weight: $font-weight-400;
   color: var(--color-text-primary);
+  /* 頭像網址是無空白長字串，不斷行會直接衝出卡片右緣 */
+  overflow-wrap: anywhere;
 }
 
 .fieldError {
@@ -145,26 +137,7 @@
   align-items: center;
   gap: $spacing-16;
   padding: $spacing-16;
-  border: 1px solid var(--color-border);
   border-radius: $radius-12;
-
-  /* 上傳按鈕靠右，避免擠壓頭像說明 */
-  > button {
-    margin-left: auto;
-    flex-shrink: 0;
-  }
-}
-
-.avatarHint {
-  @include flex-column;
-  gap: 2px;
-  min-width: 0;
-}
-
-.rowName {
-  font-size: $font-size-14;
-  font-weight: $font-weight-500;
-  color: var(--color-text-primary);
 }
 
 .rowMeta {

@@ -362,11 +362,11 @@ function CredentialRow({ item, onRefresh }) {
                   }}
                   autoFocus
                 />
-                <button type="button" className={styles.btnIcon} onClick={doRename} disabled={busy} aria-label={t("AiApiPage.actionRename")}>
-                  <MIcon name="check" size={14} />
+                <button type="button" className={styles.iconBtn} onClick={doRename} disabled={busy} aria-label={t("AiApiPage.actionRename")}>
+                  <MIcon name="check" size={16} />
                 </button>
-                <button type="button" className={styles.btnIcon} onClick={cancelRename} aria-label={t("AiApiPage.cancel")}>
-                  <MIcon name="close" size={14} />
+                <button type="button" className={styles.iconBtn} onClick={cancelRename} aria-label={t("AiApiPage.cancel")}>
+                  <MIcon name="close" size={16} />
                 </button>
               </div>
             ) : (
@@ -397,7 +397,7 @@ function CredentialRow({ item, onRefresh }) {
         <div className={styles.rowActions} data-guide="ai-key-actions">
           <button
             type="button"
-            className={styles.rowIconBtn}
+            className={styles.iconBtn}
             onClick={() => copy("API Key", item.api_key)}
             aria-label={t("AiApiPage.actionCopyKey")}
             title={t("AiApiPage.actionCopyKey")}
@@ -406,7 +406,7 @@ function CredentialRow({ item, onRefresh }) {
           </button>
           <button
             type="button"
-            className={styles.rowIconBtn}
+            className={styles.iconBtn}
             onClick={() => setShowKey((v) => !v)}
             aria-label={showKey ? t("AiApiPage.actionHide") : t("AiApiPage.actionShow")}
             title={showKey ? t("AiApiPage.actionHide") : t("AiApiPage.actionShow")}
@@ -429,7 +429,7 @@ function CredentialRow({ item, onRefresh }) {
           <button
             ref={menuBtnRef}
             type="button"
-            className={styles.rowIconBtn}
+            className={`${styles.menuBtn} ${menuOpen ? styles.menuBtnActive : ""}`}
             onClick={() => setMenuOpen((v) => !v)}
             title={t("AiApiPage.moreActions")}
             aria-label={t("AiApiPage.moreActions")}
@@ -922,16 +922,12 @@ function MyUsageTab() {
   return (
     <div className={styles.usageTab}>
       <div className={styles.usageDateRow} data-guide="ai-usage-panel">
-        {PRESETS.map((p) => (
-          <button
-            key={p.value}
-            type="button"
-            className={`${styles.segmentBtn} ${preset === p.value ? styles.segmentActive : ""}`}
-            onClick={() => setPreset(p.value)}
-          >
-            {p.label}
-          </button>
-        ))}
+        <SegmentedControl
+          options={PRESETS}
+          value={preset}
+          onChange={setPreset}
+          ariaLabel={t("AiApiPage.usageRangeLabel")}
+        />
         <span className={styles.usageDateRange}>{start.slice(0, 10)} ~ {end.slice(0, 10)}</span>
       </div>
 

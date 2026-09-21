@@ -165,3 +165,56 @@ it("lets a published environment change its basics without a new version", async
   expect(mocks.saveBasics).toHaveBeenCalledWith("env-1", expect.objectContaining({ usageScope: "course" }));
   expect(mocks.saveDraft).not.toHaveBeenCalled();
 });
+
+/* 說明文件上傳區塊：happy-dom 的 DataTransfer 不完整，直接把 dataTransfer 掛到原生事件上 */
+const docDropzone = () => host.querySelector("input[type=file]").closest("label");
+async function dropDocs(files) {
+  const event = new Event("drop", { bubbles: true, cancelable: true });
+  Object.defineProperty(event, "dataTransfer", { value: { files, types: ["Files"] } });
+  await act(async () => {
+    docDropzone().dispatchEvent(event);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  });
+}
+const doc = (id, filename) => ({ id, filename, sizeBytes: 1 });
+
+it("uploads several documents from one drop, one at a time, updating the list as each lands", async () => {
+  mocks.uploadFile.mockReset()
+    .mockResolvedValueOnce({ files: [doc("f1", "guide.pdf")] })
+    .mockResolvedValueOnce({ files: [doc("f1", "guide.pdf"), doc("f2", "lab.md")] });
+  await renderPublished();
+  expect(docDropzone().querySelector("input").multiple).toBe(true);
+  const guide = new File(["a"], "guide.pdf");
+  const lab = new File(["b"], "lab.md");
+
+  await dropDocs([guide, lab]);
+
+  expect(mocks.uploadFile.mock.calls).toEqual([["env-1", guide], ["env-1", lab]]);
+  expect(host.textContent).toContain("guide.pdf");
+  expect(host.textContent).toContain("lab.md");
+  expect(mocks.toast.success).toHaveBeenCalledWith("CourseTemplateEditorPage.filesUploaded");
+});
+
+it("keeps the documents that made it and reports only the failed ones", async () => {
+  mocks.uploadFile.mockReset()
+    .mockResolvedValueOnce({ files: [doc("f1", "guide.pdf")] })
+    .mockRejectedValueOnce(new Error("too large"));
+  await renderPublished();
+
+  await dropDocs([new File(["a"], "guide.pdf"), new File(["b"], "huge.zip")]);
+
+  expect(host.textContent).toContain("guide.pdf");
+  expect(mocks.toast.success).not.toHaveBeenCalled();
+  expect(mocks.toast.error).toHaveBeenCalledWith("CourseTemplateEditorPage.filesUploadPartialFail");
+});
+
+it("keeps the document dropzone disabled until the environment exists", async () => {
+  mocks.uploadFile.mockReset();
+  await renderNew(initial, "basic");
+  expect(docDropzone().querySelector("input").disabled).toBe(true);
+  expect(docDropzone().textContent).toContain("CourseTemplateEditorPage.filesNeedSaveHint");
+
+  await dropDocs([new File(["a"], "guide.pdf")]);
+
+  expect(mocks.uploadFile).not.toHaveBeenCalled();
+});

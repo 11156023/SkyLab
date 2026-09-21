@@ -8,6 +8,9 @@ import { TemplatesService } from "../../../services/templates";
 import { useToast } from "../../../hooks/useToast";
 import { useConfirm } from "../../../components/ConfirmDialog/ConfirmProvider";
 import { focusInvalidField } from "../../../utils/focusField";
+import { joinList } from "../../../utils/joinList";
+import { uploadSequentially } from "../../../utils/uploadSequentially";
+import FileDropzone from "../../../components/FileDropzone/FileDropzone";
 
 const CORE_MIN = 1;
 const CORE_MAX = 8;
@@ -37,9 +40,9 @@ const formatBytes = (bytes) => {
 /**
  * 建立（從 VM 轉換）或編輯範本的 dialog。
  * template 有值 = 編輯模式。
- * 附件：編輯模式即時上傳；建立模式先暫存，create 成功後補上傳。
+ * 附件可一次選多個：編輯模式依序即時上傳；建立模式先暫存，create 成功後補上傳。
  */
-export default function TemplateFormDialog({ template, onClose, onSaved }) {
+export default function TemplateFormDialog({ template, closing = false, onClose, onSaved }) {
   const { t } = useTranslation("resource");
   const toast = useToast();
   const confirm = useConfirm();
@@ -70,9 +73,11 @@ export default function TemplateFormDialog({ template, onClose, onSaved }) {
   // 編輯模式：既有附件（即時操作）
   const [attachments, setAttachments] = useState([]);
   const [attachBusy, setAttachBusy] = useState(false);
+  // 上傳中才顯示上傳區塊的載入動畫（{ current, total }，多檔時顯示進度）；
+  // 刪除附件也會 attachBusy，但不算上傳
+  const [uploadProgress, setUploadProgress] = useState(null);
   // 建立模式：暫存檔案，create 成功後補上傳
   const [pendingAttachments, setPendingAttachments] = useState([]);
-  const attachInputRef = useRef(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -100,45 +105,76 @@ export default function TemplateFormDialog({ template, onClose, onSaved }) {
     if (!gpuSelectable && requiresGpu) setRequiresGpu(false);
   }, [gpuSelectable, requiresGpu]);
 
-  const validateAttachment = (file, currentCount) => {
-    const ext = fileExt(file.name);
-    if (!ATTACHMENT_EXTS.has(ext)) {
-      toast.error(t("TemplateFormDialog.unsupportedFileType", { ext: ext || t("TemplateFormDialog.noExtension") }));
-      return false;
+  /* Esc 關閉（Dialog 標準行為）；送出中不關，跟取消鈕的行為一致 */
+  useEffect(() => {
+    const onKeyDown = (e) => {
+      if (e.key === "Escape" && !busy) onClose();
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [busy, onClose]);
+
+  /**
+   * 逐一檢查類型、大小與剩餘名額，回傳可加入的檔案。
+   * 不合格的依原因各合併成一則提示並列出檔名，一次選很多檔也不會一檔跳一則
+   */
+  const pickValidAttachments = (files, currentCount) => {
+    const accepted = [];
+    const rejected = { type: [], size: [], limit: [] };
+    for (const file of files) {
+      if (!ATTACHMENT_EXTS.has(fileExt(file.name))) rejected.type.push(file.name);
+      else if (file.size > ATTACHMENT_MAX_BYTES) rejected.size.push(file.name);
+      else if (currentCount + accepted.length >= ATTACHMENT_MAX_COUNT) rejected.limit.push(file.name);
+      else accepted.push(file);
     }
-    if (file.size > ATTACHMENT_MAX_BYTES) {
-      toast.error(t("TemplateFormDialog.fileTooLarge"));
-      return false;
+    if (rejected.type.length > 0) {
+      toast.error(t("TemplateFormDialog.unsupportedFileType", { files: joinList(rejected.type) }));
     }
-    if (currentCount >= ATTACHMENT_MAX_COUNT) {
-      toast.error(t("TemplateFormDialog.attachmentLimitReached", { max: ATTACHMENT_MAX_COUNT }));
-      return false;
+    if (rejected.size.length > 0) {
+      toast.error(t("TemplateFormDialog.fileTooLarge", { files: joinList(rejected.size) }));
     }
-    return true;
+    if (rejected.limit.length > 0) {
+      toast.error(
+        t("TemplateFormDialog.attachmentLimitReached", {
+          max: ATTACHMENT_MAX_COUNT,
+          files: joinList(rejected.limit),
+        }),
+      );
+    }
+    return accepted;
   };
 
-  const handleAttachmentSelect = async (file) => {
+  const handleAttachmentFiles = async (files) => {
     const currentCount = isEdit ? attachments.length : pendingAttachments.length;
-    if (!file || !validateAttachment(file, currentCount)) {
-      if (attachInputRef.current) attachInputRef.current.value = "";
-      return;
-    }
+    const accepted = pickValidAttachments(files, currentCount);
+    if (accepted.length === 0) return;
     if (!isEdit) {
-      setPendingAttachments((prev) => [...prev, file]);
-      if (attachInputRef.current) attachInputRef.current.value = "";
+      setPendingAttachments((prev) => [...prev, ...accepted]);
       return;
     }
+    // 傳完一個就先加進清單，失敗的最後合併提示
     setAttachBusy(true);
-    try {
-      await TemplatesService.uploadAttachment(template.id, file);
-      const res = await TemplatesService.listAttachments(template.id);
-      setAttachments(res?.data ?? []);
-      toast.success(t("TemplateFormDialog.attachmentUploaded"));
-    } catch (e) {
-      toast.error(e?.message ?? t("TemplateFormDialog.attachmentUploadFailed"));
-    } finally {
-      setAttachBusy(false);
-      if (attachInputRef.current) attachInputRef.current.value = "";
+    const { failed, lastError } = await uploadSequentially(
+      accepted,
+      async (file) => {
+        const created = await TemplatesService.uploadAttachment(template.id, file);
+        setAttachments((prev) => [...prev, created]);
+      },
+      setUploadProgress,
+    );
+    setAttachBusy(false);
+    setUploadProgress(null);
+    if (failed.length === 0) {
+      toast.success(
+        accepted.length === 1
+          ? t("TemplateFormDialog.attachmentUploaded")
+          : t("TemplateFormDialog.attachmentUploadedMultiple", { count: accepted.length }),
+      );
+    } else if (accepted.length === 1) {
+      // 只傳一個檔時沿用後端的錯誤原因，比列檔名有用
+      toast.error(lastError?.message ?? t("TemplateFormDialog.attachmentUploadFailed"));
+    } else {
+      toast.error(t("TemplateFormDialog.attachmentUploadPartialFail", { files: joinList(failed) }));
     }
   };
 
@@ -156,17 +192,12 @@ export default function TemplateFormDialog({ template, onClose, onSaved }) {
 
   /** create 成功後補上傳暫存檔（best-effort，失敗可稍後在編輯補） */
   const uploadPendingFiles = async (templateId) => {
-    const failed = [];
-    for (const file of pendingAttachments) {
-      try {
-        await TemplatesService.uploadAttachment(templateId, file);
-      } catch {
-        failed.push(file.name);
-      }
-    }
+    const { failed } = await uploadSequentially(pendingAttachments, (file) =>
+      TemplatesService.uploadAttachment(templateId, file),
+    );
     if (failed.length > 0) {
       toast.error(
-        t("TemplateFormDialog.pendingUploadPartialFail", { files: failed.join("、") }),
+        t("TemplateFormDialog.pendingUploadPartialFail", { files: joinList(failed) }),
       );
     }
   };
@@ -238,8 +269,11 @@ export default function TemplateFormDialog({ template, onClose, onSaved }) {
       }));
 
   return (
-    <div className={styles.modalOverlay} onClick={onClose}>
-      <div className={`${styles.modal} ${styles.modalWide}`} onClick={(e) => e.stopPropagation()}>
+    <div
+      className={`${styles.modalOverlay} ${closing ? styles.modalOverlayOut : ""}`}
+      onClick={onClose}
+    >
+      <div className={styles.modal} onClick={(e) => e.stopPropagation()}>
         <span className={styles.modalTitle}>
           <MIcon name="library_books" size={20} />
           {isEdit ? t("TemplateFormDialog.editTitle") : t("TemplateFormDialog.createTitle")}
@@ -314,7 +348,6 @@ export default function TemplateFormDialog({ template, onClose, onSaved }) {
               />
               <span>
                 <strong>{t("TemplateFormDialog.visibilityPrivateTitle")}</strong>
-                <small>{t("TemplateFormDialog.visibilityPrivateDesc")}</small>
               </span>
             </label>
             <label className={`${styles.visibilityOption} ${visibility === "global" ? styles.visibilityOptionActive : ""}`}>
@@ -327,7 +360,6 @@ export default function TemplateFormDialog({ template, onClose, onSaved }) {
               />
               <span>
                 <strong>{t("TemplateFormDialog.visibilityGlobalTitle")}</strong>
-                <small>{t("TemplateFormDialog.visibilityGlobalDesc")}</small>
               </span>
             </label>
           </div>
@@ -423,16 +455,6 @@ export default function TemplateFormDialog({ template, onClose, onSaved }) {
         )}
 
         <div className={styles.field}>
-          <label>{t("TemplateFormDialog.defaultDiskLabel")}</label>
-          <div className={styles.diskFixed}>
-            <MIcon name="lock" size={15} />
-            {isEdit && template.default_disk
-              ? t("TemplateFormDialog.defaultDiskWithSize", { size: template.default_disk })
-              : t("TemplateFormDialog.defaultDiskAuto")}
-          </div>
-        </div>
-
-        <div className={styles.field}>
           <label>{t("TemplateFormDialog.attachmentsLabel")}</label>
           {shownAttachments.length > 0 && (
             <div className={styles.attachList}>
@@ -460,27 +482,15 @@ export default function TemplateFormDialog({ template, onClose, onSaved }) {
               ))}
             </div>
           )}
-          <input
-            ref={attachInputRef}
-            type="file"
-            style={{ display: "none" }}
-            onChange={(e) => handleAttachmentSelect(e.target.files?.[0])}
+          <FileDropzone
+            multiple
+            accept={[...ATTACHMENT_EXTS].join(",")}
+            disabled={attachBusy || shownAttachments.length >= ATTACHMENT_MAX_COUNT}
+            uploading={uploadProgress !== null}
+            progress={uploadProgress}
+            hint={`${t("TemplateFormDialog.attachmentHint")}${isEdit ? "" : t("TemplateFormDialog.attachmentHintCreateSuffix")}`}
+            onFiles={handleAttachmentFiles}
           />
-          <div>
-            <button
-              type="button"
-              className={styles.btnSecondary}
-              disabled={attachBusy || shownAttachments.length >= ATTACHMENT_MAX_COUNT}
-              onClick={() => attachInputRef.current?.click()}
-            >
-              <MIcon name="upload_file" size={14} />
-              {attachBusy ? t("TemplateFormDialog.processing") : t("TemplateFormDialog.uploadAttachment")}
-            </button>
-          </div>
-          <span className={styles.fieldHint}>
-            {t("TemplateFormDialog.attachmentHint")}
-            {!isEdit && t("TemplateFormDialog.attachmentHintCreateSuffix")}
-          </span>
         </div>
 
         <div className={styles.modalActions}>

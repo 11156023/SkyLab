@@ -1,8 +1,9 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import AiPveChat from "../../../../components/AiPveChat/AiPveChat";
 import MIcon from "../../../../components/MIcon";
+import useAutoRefresh from "../../../../hooks/useAutoRefresh";
 import usePveOverview from "../../../../hooks/usePveOverview";
 import { useAuth } from "../../../../contexts/AuthContext";
 import { AiApiService } from "../../../../services/aiApi";
@@ -39,20 +40,23 @@ export default function AdminDashboardPage() {
   const { t, i18n } = useTranslation("personal");
   const navigate = useNavigate();
   const { user } = useAuth();
-  const { overview, loading: overviewLoading, refreshing, error: overviewError, reload } = usePveOverview();
+  const { overview, loading: overviewLoading, error: overviewError } = usePveOverview();
   const [assistantPrompt, setAssistantPrompt] = useState("");
   const assistantInputRef = useRef(null);
   const [conversationPrompt, setConversationPrompt] = useState("");
-  /* 放大模式：對話佔滿版面，上面的待辦暫時收起來 */
+  /* 放大模式：對話佔滿版面，統計卡與待辦暫時收起來 */
   const [focusMode, setFocusMode] = useState(false);
   const [checks, setChecks] = useState({ alerts: [], failedJobs: 0, requests: 0, batches: 0, aiRequests: 0, miningIncidents: 0, unavailable: 0 });
   const [loading, setLoading] = useState(true);
-  const [checkVersion, setCheckVersion] = useState(0);
+  const checksInFlightRef = useRef(false);
 
-  useEffect(() => {
-    let active = true;
-    async function loadChecks() {
-      setLoading(true);
+  /* 待辦來源每 30 秒靜默重抓一次（同 PVE 概況，分頁隱藏時暫停）。背景更新不顯示載入中；
+     個別來源失敗時沿用上一次的數字，免得待辦列在 0 與實際值之間跳動，缺漏照樣記進 unavailable。 */
+  const loadChecks = useCallback(async (silent = false) => {
+    if (checksInFlightRef.current) return;
+    checksInFlightRef.current = true;
+    if (!silent) setLoading(true);
+    try {
       const settled = await Promise.allSettled([
         VmRequestsService.listAll("pending"),
         SpecChangeRequestsService.listAll({ status: "pending" }),
@@ -62,28 +66,34 @@ export default function AdminDashboardPage() {
         MonitoringService.listAlerts({ active: true, limit: 100 }),
         MiningIncidentsService.list({ limit: 200 }),
       ]);
-      if (!active) return;
-      const value = (index) => settled[index].status === "fulfilled" ? settled[index].value : null;
+      const ok = (index) => settled[index].status === "fulfilled";
+      const value = (index) => ok(index) ? settled[index].value : null;
       const aiPending = value(3)?.data?.filter((request) => request.status === "pending").length ?? 0;
       const alertRows = value(5);
       /* 只算還沒被管理員定奪的事件（detected 待判斷、suspended 已凍結待處置） */
       const miningRows = value(6);
       const miningActive = (Array.isArray(miningRows) ? miningRows : miningRows?.data ?? [])
         .filter((incident) => incident.status === "detected" || incident.status === "suspended").length;
-      setChecks({
-        requests: countRows(value(0)) + countRows(value(1)),
-        batches: countRows(value(2)),
-        aiRequests: aiPending,
-        failedJobs: countRows(value(4)),
-        alerts: Array.isArray(alertRows) ? alertRows : alertRows?.data ?? [],
-        miningIncidents: miningActive,
-        unavailable: settled.filter((result) => result.status === "rejected").length,
+      setChecks((prev) => {
+        const pick = (fresh, next, previous) => (silent && !fresh ? previous : next);
+        return {
+          requests: pick(ok(0) && ok(1), countRows(value(0)) + countRows(value(1)), prev.requests),
+          batches: pick(ok(2), countRows(value(2)), prev.batches),
+          aiRequests: pick(ok(3), aiPending, prev.aiRequests),
+          failedJobs: pick(ok(4), countRows(value(4)), prev.failedJobs),
+          alerts: pick(ok(5), Array.isArray(alertRows) ? alertRows : alertRows?.data ?? [], prev.alerts),
+          miningIncidents: pick(ok(6), miningActive, prev.miningIncidents),
+          unavailable: settled.filter((result) => result.status === "rejected").length,
+        };
       });
-      setLoading(false);
+    } finally {
+      checksInFlightRef.current = false;
+      if (!silent) setLoading(false);
     }
-    loadChecks();
-    return () => { active = false; };
-  }, [checkVersion]);
+  }, []);
+
+  useEffect(() => { loadChecks(); }, [loadChecks]);
+  useAutoRefresh(() => loadChecks(true));
 
   /* 即時異常與未解除告警的門檻判斷共用同一組設定，兩邊都列會讓同一台機器
      出現兩次；mergeInfraProblems 負責去重，細節見 adminAttention.js。 */
@@ -104,12 +114,6 @@ export default function AdminDashboardPage() {
   const incomplete = overviewError || !overview || overview.data_status === "stale"
     || overview.data_status === "partial" || checks.unavailable > 0;
   const name = user?.full_name?.trim() || user?.email?.split("@")[0] || t("AdminDashboardPage.defaultName");
-
-  function refreshDashboard() {
-    setLoading(true);
-    setCheckVersion((value) => value + 1);
-    reload();
-  }
 
   function resetAssistant() {
     setConversationPrompt("");
@@ -132,21 +136,14 @@ export default function AdminDashboardPage() {
 
   return <div className={`${styles.page} ${focusMode ? styles.pageFocused : ""}`}>
     <PageHeader title={t("AdminDashboardPage.greeting", { name })}>
-      {!focusMode && <div className={styles.refreshControls}>
-        <span className={styles.checkedAt}>
-          {overview
-            ? t("AdminDashboardPage.pveUpdatedAt", { time: formatCheckedAt(overview.collected_at, i18n.language) })
-            : t("AdminDashboardPage.pveNotChecked")}
-        </span>
-        <button type="button" onClick={refreshDashboard} disabled={busy || refreshing}>
-          <MIcon name="refresh" size={16} className={refreshing || loading ? styles.spin : ""} />
-          {t("AdminDashboardPage.pveRefresh")}
-        </button>
-      </div>}
+      {!focusMode && <span className={styles.checkedAt}>
+        {overview
+          ? t("AdminDashboardPage.pveUpdatedAt", { time: formatCheckedAt(overview.collected_at, i18n.language) })
+          : t("AdminDashboardPage.pveNotChecked")}
+      </span>}
     </PageHeader>
 
-    {!focusMode && <>
-    {stats.length > 0 && <section className={styles.statsGrid} aria-label={t("AdminDashboardPage.resourceOverview")}>
+    {!focusMode && stats.length > 0 && <section className={styles.statsGrid} aria-label={t("AdminDashboardPage.resourceOverview")}>
       {stats.map((stat) => <button type="button" key={stat.key} className={styles.statCard} onClick={() => navigate(stat.path)}>
         <span className={styles.statIcon}><MIcon name={stat.icon} size={21} /></span>
         <span className={styles.statContent}>
@@ -197,7 +194,7 @@ export default function AdminDashboardPage() {
         </form>}
     </section>
 
-    <section className={styles.attention} aria-label={t("AdminDashboardPage.attentionTitle")} aria-busy={busy}>
+    {!focusMode && <section className={styles.attention} aria-label={t("AdminDashboardPage.attentionTitle")} aria-busy={busy}>
       {busy ? <div className={styles.checking} role="status"><MIcon name="sync" size={18} className={styles.spin} />{t("AdminDashboardPage.checking")}</div> : <>
         <div className={styles.tiers}>
         <section className={`${styles.tier} ${urgent.length ? styles.tierNow : ""}`} aria-labelledby="admin-urgent-title">
@@ -251,7 +248,6 @@ export default function AdminDashboardPage() {
             : overviewError || overview?.data_status === "stale" ? "AdminDashboardPage.pveStaleMessage"
               : "AdminDashboardPage.issueUnavailableTitle")}</span>
       </div>}
-    </section>
-    </>}
+    </section>}
   </div>;
 }

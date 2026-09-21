@@ -60,8 +60,6 @@
   "ReverseProxyPage.delete": "刪除",
   "ReverseProxyPage.deleteDomainTitle": "刪除網址",
   "ReverseProxyPage.deleteDomainConfirm": "確定要刪除 <strong>{{domain}}</strong> 嗎？刪除後這個網址會立刻失效，相關設定也會一併清除。",
-  "ReverseProxyPage.cancel": "取消",
-  "ReverseProxyPage.deleting": "刪除中...",
   "ReverseProxyPage.loadListFailed": "載入網址清單失敗",
   "ReverseProxyPage.updateSuccess": "網址已更新，系統會自動同步相關設定",
   "ReverseProxyPage.createSuccess": "網址建立成功，系統正在自動完成設定",

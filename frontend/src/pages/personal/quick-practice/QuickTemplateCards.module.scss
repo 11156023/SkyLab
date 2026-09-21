@@ -31,9 +31,9 @@
   text-align: left;
   font: inherit;
   cursor: pointer;
-  transition: border-color $transition-base, box-shadow $transition-base;
+  transition: box-shadow $transition-base;
 
-  &:hover { border-color: var(--color-primary); box-shadow: var(--shadow-sm); }
+  &:hover { box-shadow: var(--shadow-sm); }
   &:focus-visible { outline: 3px solid var(--color-primary); outline-offset: 3px; }
 }
 .templateBadge {

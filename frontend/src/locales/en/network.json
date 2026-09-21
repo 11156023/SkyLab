@@ -60,8 +60,6 @@
   "ReverseProxyPage.delete": "Delete",
   "ReverseProxyPage.deleteDomainTitle": "Delete Domain",
   "ReverseProxyPage.deleteDomainConfirm": "Are you sure you want to delete <strong>{{domain}}</strong>? This domain will stop working immediately, and its related settings will also be removed.",
-  "ReverseProxyPage.cancel": "Cancel",
-  "ReverseProxyPage.deleting": "Deleting...",
   "ReverseProxyPage.loadListFailed": "Failed to load domain list",
   "ReverseProxyPage.updateSuccess": "Domain updated. The system will automatically sync the related settings",
   "ReverseProxyPage.createSuccess": "Domain created successfully. The system is automatically completing the setup",

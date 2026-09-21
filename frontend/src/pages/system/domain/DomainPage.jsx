@@ -9,6 +9,8 @@ import { useToast } from "../../../hooks/useToast";
 import useDialogPresence from "../../../hooks/useDialogPresence";
 import { CloudflareService } from "../../../services/cloudflare";
 import PageHeader from "../../../components/PageHeader/PageHeader";
+import SegmentedControl from "../../../components/SegmentedControl/SegmentedControl";
+import PasswordInput from "../../../components/PasswordInput/PasswordInput";
 import { ReverseProxyPanel } from "../../network/reverse-proxy/ReverseProxyPage";
 import { formatDateTime } from "../../../utils/formatDate";
 
@@ -26,6 +28,15 @@ function ConfigModal({ config, loading, closing = false, onClose, onSubmit }) {
     default_dns_target_type: config?.default_dns_target_type ?? "",
     default_dns_target_value: config?.default_dns_target_value ?? "",
   });
+
+  /* Esc 關閉（Dialog 標準行為）；儲存中不關，跟取消鈕的 disabled 一致 */
+  useEffect(() => {
+    const onKeyDown = (e) => {
+      if (e.key === "Escape" && !loading) onClose();
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [loading, onClose]);
 
   function set(name, value) {
     setForm((prev) => ({ ...prev, [name]: value }));
@@ -49,17 +60,7 @@ function ConfigModal({ config, loading, closing = false, onClose, onSubmit }) {
     >
       <form className={styles.modal} onSubmit={submit} onMouseDown={(e) => e.stopPropagation()} data-guide="domain-config-form">
         <div className={styles.modalHeader}>
-          <div>
-            <h2>{t("DomainPage.configModalTitle")}</h2>
-            <p>{t("DomainPage.configModalDesc")}</p>
-            <p className={styles.modalGuide}>
-              {t("DomainPage.tokenGuideText")}{" "}
-              <a href="https://dash.cloudflare.com/profile/api-tokens" target="_blank" rel="noreferrer">
-                {t("DomainPage.tokenGuideLink")}
-                <MIcon name="open_in_new" size={13} />
-              </a>
-            </p>
-          </div>
+          <h2>{t("DomainPage.configModalTitle")}</h2>
           <button type="button" className={styles.dialogClose} onClick={onClose} aria-label={t("DomainPage.close")} data-guide="domain-modal-close">
             <MIcon name="close" size={18} />
           </button>
@@ -75,9 +76,20 @@ function ConfigModal({ config, loading, closing = false, onClose, onSubmit }) {
         </label>
 
         <label className={styles.field}>
-          <span>API Token{config?.has_api_token ? t("DomainPage.leaveBlankUnchanged") : " *"}</span>
-          <input
-            type="password"
+          {/* 「去哪拿 Token」的連結放在欄位旁，需要時就在手邊 */}
+          <span className={styles.labelRow}>
+            <span>API Token{config?.has_api_token ? t("DomainPage.leaveBlankUnchanged") : " *"}</span>
+            <a
+              className={styles.fieldLink}
+              href="https://dash.cloudflare.com/profile/api-tokens"
+              target="_blank"
+              rel="noreferrer"
+            >
+              {t("DomainPage.tokenGuideLink")}
+              <MIcon name="open_in_new" size={13} />
+            </a>
+          </span>
+          <PasswordInput
             value={form.api_token}
             onChange={(e) => set("api_token", e.target.value)}
             placeholder={config?.has_api_token ? t("DomainPage.apiTokenSetPlaceholder") : t("DomainPage.apiTokenPastePlaceholder")}
@@ -106,7 +118,6 @@ function ConfigModal({ config, loading, closing = false, onClose, onSubmit }) {
             />
           </label>
         </div>
-        <p className={styles.fieldHint}>{t("DomainPage.dnsTargetHint")}</p>
 
         <div className={styles.modalActions}>
           <button type="button" className={styles.btnSecondary} onClick={onClose} disabled={loading}>
@@ -417,23 +428,17 @@ export default function DomainPage() {
         </div>
       )}
 
+      {/* 外層 div 承接頁面導覽的 data-guide 錨點（SegmentedControl 根節點不收額外屬性） */}
       <div className={styles.tabs} data-guide="domain-tabs">
-        <button
-          type="button"
-          className={`${styles.tab} ${activeTab === "dns" ? styles.tabActive : ""}`}
-          onClick={() => selectTab("dns")}
-        >
-          <MIcon name="dns" size={16} />
-          {t("DomainPage.tabDns")}
-        </button>
-        <button
-          type="button"
-          className={`${styles.tab} ${activeTab === "reverse-proxy" ? styles.tabActive : ""}`}
-          onClick={() => selectTab("reverse-proxy")}
-        >
-          <MIcon name="swap_horiz" size={16} />
-          {t("DomainPage.tabReverseProxy")}
-        </button>
+        <SegmentedControl
+          ariaLabel={t("DomainPage.tabsAriaLabel")}
+          value={activeTab}
+          onChange={selectTab}
+          options={[
+            { value: "dns", label: t("DomainPage.tabDns"), icon: "dns" },
+            { value: "reverse-proxy", label: t("DomainPage.tabReverseProxy"), icon: "swap_horiz" },
+          ]}
+        />
       </div>
 
       {activeTab === "reverse-proxy" ? (
@@ -514,11 +519,11 @@ export default function DomainPage() {
                       <MIcon name="dns" size={20} />
                     </div>
                     <div className={styles.rowMain}>
-                      <span className={styles.rowName}>{r.name}</span>
-                      <span className={styles.rowMeta}>
-                        {r.type} · {r.content} · TTL {r.ttl === 1 ? "Auto" : r.ttl}
-                        {r.comment ? ` · ${r.comment}` : ""}
-                      </span>
+                      <span className={styles.rowName} title={r.name}>{r.name}</span>
+                      {(() => {
+                        const meta = `${r.type} · ${r.content} · TTL ${r.ttl === 1 ? "Auto" : r.ttl}${r.comment ? ` · ${r.comment}` : ""}`;
+                        return <span className={styles.rowMeta} title={meta}>{meta}</span>;
+                      })()}
                     </div>
                     {/* 一眼分出哪些紀錄是本系統的對外網址建的、哪些是外部自己加的 */}
                     <span
@@ -548,7 +553,7 @@ export default function DomainPage() {
                       </button>
                       <button
                         type="button"
-                        className={`${styles.actionBtn} ${styles.actionBtnDanger}`}
+                        className={styles.actionBtnDanger}
                         title={t("DomainPage.delete")}
                         onClick={() => setModal({ kind: "deleteRecord", record: r })}
                       >

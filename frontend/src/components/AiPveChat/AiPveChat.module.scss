@@ -83,15 +83,16 @@
   to { opacity: 1; transform: translateY(0); }
 }
 
+/* 比照首頁助手標頭的 assistantIcon（圓角方塊、同色票）縮小版，左緣與標頭 icon 對齊 */
 .avatar {
   display: grid;
   width: 28px;
   height: 28px;
   flex: 0 0 28px;
   place-items: center;
-  border-radius: 50%;
-  color: var(--color-primary);
-  background: color-mix(in srgb, var(--color-primary) 10%, transparent);
+  border-radius: $radius-8;
+  color: var(--color-primary-on-surface);
+  background: var(--color-hover);
 }
 
 .msgBody { min-width: 0; }
@@ -155,7 +156,7 @@
     overflow-x: auto;
     border: 1px solid var(--color-border);
     border-radius: $radius-8;
-    background: var(--color-hover);
+    background: var(--color-surface);
 
     code { padding: 0; background: none; }
   }
@@ -495,7 +496,7 @@
 
 @media (max-width: $breakpoint-md) {
   .chatCard,
-  .compact { height: min(520px, calc(100vh - 220px)); min-height: 340px; padding: $spacing-16; }
+  .compact { height: min(520px, calc(100vh - 220px)); min-height: 340px; }
   .fill { height: 100%; min-height: 0; }
   .msg_user { max-width: 100%; }
   .msg_assistant, .pendingBox, .thinking { margin-right: $spacing-16; }

@@ -36,19 +36,22 @@
   padding: $spacing-8 $spacing-16;
   flex: 1;
   min-height: 0;
-  --form-header-h: 76px;
 
   @media (min-width: $breakpoint-sidebar) {
     padding: 0;
   }
 
+  /* 視口高度鎖在整頁上，第二列吃掉頁首以外的剩餘高度；左右兩欄同屬第二列
+     且預設 stretch，高度自然一致。不要讓兩欄各自用 100dvh 去減頁首高度——
+     那個 76px 是寫死的估值，與實際頁首不符時兩欄就會差一截 */
   @include respond-to(lg) {
     display: grid;
     grid-template-columns: 13fr 7fr;
-    grid-template-rows: auto 1fr;
+    grid-template-rows: auto minmax(0, 1fr);
     column-gap: $spacing-24;
     row-gap: $spacing-24;
-    align-items: start;
+    flex: none;
+    height: calc(100dvh - var(--layout-py) * 2 - var(--footer-h));
 
     /* 頁首（PageHeader）橫跨兩欄，返回鍵才會靠到頁面右緣而非左欄右緣 */
     > :first-child {
@@ -78,10 +81,7 @@
     grid-column: 2;
     grid-row: 2;
     min-width: 260px;
-    align-self: start;
-    position: sticky;
-    top: calc(var(--layout-py) + var(--form-header-h) + #{$spacing-24});
-    height: calc(100dvh - var(--layout-py) * 2 - var(--footer-h) - var(--form-header-h) - #{$spacing-24});
+    min-height: 0;
     @include flex-column;
     @include glass-surface;
     border-radius: $radius-12;
@@ -191,7 +191,7 @@
     grid-column: 1;
     grid-row: 2;
     flex: unset;
-    height: calc(100dvh - var(--layout-py) * 2 - var(--footer-h) - var(--form-header-h) - #{$spacing-24});
+    min-height: 0;
   }
 
   &::-webkit-scrollbar { width: 4px; }
@@ -344,30 +344,6 @@
 .textarea { height: 80px; }
 
 /* 密碼欄的顯示/隱藏眼睛按鈕 */
-.passwordWrap {
-  position: relative;
-
-  .input { padding-right: 40px; }
-}
-
-.eyeBtn {
-  position: absolute;
-  top: 50%;
-  right: 6px;
-  translate: 0 -50%;
-  display: inline-flex;
-  padding: 5px;
-  border-radius: $radius-8;
-  color: var(--color-text-muted);
-  cursor: pointer;
-  transition: color $transition-base, background $transition-base;
-
-  &:hover {
-    color: var(--color-text-primary);
-    background: var(--color-hover);
-  }
-}
-
 .typeToggle {
   display: flex;
   gap: $spacing-8;

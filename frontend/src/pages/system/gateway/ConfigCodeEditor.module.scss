@@ -58,27 +58,6 @@
   padding: 0 10px;
 }
 
-.ghostBtn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 28px;
-  height: 28px;
-  border-radius: 4px;
-  color: #cccccc;
-  background: transparent;
-  cursor: pointer;
-
-  &:hover:not(:disabled) {
-    background: rgba(255, 255, 255, 0.1);
-  }
-
-  &:disabled {
-    opacity: 0.4;
-    cursor: not-allowed;
-  }
-}
-
 .saveBtn {
   display: inline-flex;
   align-items: center;

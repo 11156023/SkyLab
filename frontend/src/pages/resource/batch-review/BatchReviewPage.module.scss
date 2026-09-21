@@ -130,8 +130,17 @@
   padding: $spacing-16;
   @include glass-surface($shadow: var(--shadow-sm));
   border-radius: $radius-12;
+}
+
+/* 詳情內容自成捲動區，審核列固定在外面：兩者永不重疊，
+   sticky 在捲到底時吃掉間距的問題也一併消失 */
+.detailScroll {
+  @include flex-column;
+  gap: $spacing-16;
 
   @include respond-to(lg) {
+    flex: 1;
+    min-height: 0;
     overflow-y: auto;
   }
 }
@@ -176,11 +185,7 @@
   cursor: pointer;
   transition: background $transition-base, border-color $transition-base, box-shadow $transition-base;
 
-  &:hover {
-    background:
-      linear-gradient(var(--color-hover), var(--color-hover)),
-      var(--color-surface-glass);
-  }
+  &:hover { background: var(--color-hover); }
 }
 
 .rowActive {
@@ -302,7 +307,7 @@
   padding: 10px 12px;
   border: 1px solid var(--color-border);
   border-radius: $radius-8;
-  background: var(--color-bg-base);
+  background: var(--color-surface);
 
   span {
     color: var(--color-text-muted);
@@ -323,7 +328,7 @@
   padding: $spacing-16;
   border: 1px solid var(--color-border);
   border-radius: $radius-12;
-  background: var(--color-bg-base);
+  background: var(--color-surface);
 
   span {
     color: var(--color-text-muted);
@@ -480,40 +485,67 @@
 }
 
 /* ── 審核動作 ── */
-/* 審核區釘在詳情欄底部，備註與按鈕同一排：上方資訊再長，
+/* 審核區固定在捲動區外面，貼齊詳情卡底緣：上方資訊再長，
    審核動作都不必捲動就看得到 */
 .reviewBar {
+  /* 窄螢幕直向堆疊：備註欄滿寬、按鈕列在下方滿寬 */
   display: flex;
-  align-items: flex-end;
-  gap: $spacing-16;
-  flex-wrap: wrap;
-  margin: auto (-$spacing-16) (-$spacing-16);
-  padding: $spacing-8 $spacing-16 $spacing-16;
+  flex-direction: column;
+  align-items: stretch;
+  gap: $spacing-8;
+  flex-shrink: 0;
+  margin: 0 (-$spacing-16) (-$spacing-16);
+  padding: $spacing-16;
   border-top: 1px solid var(--color-border);
   border-radius: 0 0 $radius-12 $radius-12;
   background: var(--color-surface);
 
-  @include respond-to(lg) {
-    position: sticky;
-    bottom: 0;
+  @include respond-to(md) {
+    flex-direction: row;
+    align-items: flex-end;
+    flex-wrap: wrap;
+    gap: $spacing-16;
+  }
+
+  .rowActions {
+    width: 100%;
+
+    button {
+      flex: 1;
+      padding-block: 10px;
+    }
+
+    @include respond-to(md) {
+      width: auto;
+
+      button {
+        flex: none;
+        padding-block: 6px;
+      }
+    }
   }
 }
 
 .commentField {
   @include flex-column;
   gap: $spacing-8;
-  flex: 1 1 240px;
+  /* 直向堆疊時依內容高度（flex-basis 會變成高度），橫排時才吃掉剩餘寬度 */
+  flex: none;
   min-width: 0;
   color: var(--color-text-primary);
   font-size: $font-size-14;
   font-weight: $font-weight-500;
+
+  @include respond-to(md) {
+    flex: 1 1 240px;
+  }
 
   textarea {
     min-height: 56px;
     padding: 10px 12px;
     border: 1px solid var(--color-border);
     border-radius: $radius-8;
-    background: var(--color-bg-base);
+    background: var(--color-surface);
     color: var(--color-text-primary);
     font: inherit;
     font-weight: $font-weight-400;

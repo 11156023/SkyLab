@@ -93,7 +93,8 @@
 
 /* ── Popover ── */
 
-/* portal 到 body，left / bottom 由 JS 依按鈕位置以 inline style 指定 */
+/* portal 到 body，left / bottom 由 JS 依按鈕位置以 inline style 指定；
+   毛玻璃底與側欄的使用者／外觀彈窗同一套 */
 .popover {
   position: fixed;
   z-index: 150;
@@ -102,11 +103,18 @@
   max-height: calc(100vh - #{$spacing-32});
   padding: $spacing-8;
   border-radius: $radius-12;
-  border: 1px solid var(--color-border);
-  background: var(--color-surface);
-  box-shadow: var(--shadow-lg);
+  @include glass-surface($shadow: var(--shadow-lg));
   animation: jobs-popover-in 0.13s ease;
   transition: opacity 0.13s ease, transform 0.13s ease;
+}
+
+/* 液態玻璃的折射濾鏡會讓彈窗被背後內容干擾，改用毛玻璃預設濾鏡確保可讀性
+   （同 Sidebar 的 .userPopup / .appearancePopup） */
+:global(body[data-style="liquid"]) {
+  .popover {
+    --color-surface-glass-border: rgba(255, 255, 255, 0.5);
+    --glass-backdrop-filter: blur(12px) saturate(1.4);
+  }
 }
 
 .popoverOut {
@@ -133,25 +141,41 @@
   color: var(--color-text-primary);
 }
 
-.popoverSub {
-  font-size: 11px;
-  color: var(--color-text-muted);
+/* 標題列右側的通知設定入口，展開下方設定區 */
+.settingsBtn {
+  @include btn-icon;
 }
 
-.notifyToggle {
+.settingsBtnActive {
+  background: var(--color-row-hover);
+  color: var(--color-text-primary);
+}
+
+/* 齒輪切換出的設定視圖：取代任務／提醒內容整屏顯示，不與列表擠在一起 */
+.settingsPanel {
+  @include flex-column;
+  flex-shrink: 0;
+  gap: 2px;
+  padding: $spacing-4 0;
+}
+
+/* 設定列：標題＋說明小字在左、開關靠右（同一般設定頁的列樣式） */
+.settingRow {
   display: flex;
   align-items: center;
-  flex-shrink: 0;
-  gap: $spacing-8;
-  margin: 0 $spacing-4 $spacing-4;
-  padding: 6px $spacing-8;
+  justify-content: space-between;
+  gap: $spacing-16;
+  padding: $spacing-8 10px;
   border-radius: $radius-8;
-  background: var(--color-hover);
-  font-size: 11px;
-  color: var(--color-text-muted);
   cursor: pointer;
+  transition: background $transition-base;
+
+  &:hover {
+    background: var(--color-hover);
+  }
 
   input {
+    flex-shrink: 0;
     accent-color: var(--color-primary);
     cursor: pointer;
   }
@@ -161,16 +185,60 @@
   }
 }
 
-/* 瀏覽器已封鎖通知：開關不可用，文字改成說明怎麼重新允許 */
-.notifyToggleDisabled {
+/* 瀏覽器已封鎖通知：開關不可用，說明改成怎麼重新允許 */
+.settingRowDisabled {
   cursor: default;
   opacity: 0.75;
+
+  &:hover {
+    background: transparent;
+  }
+}
+
+.settingText {
+  @include flex-column;
+  gap: 2px;
+  min-width: 0;
+
+  > span {
+    font-size: 13px;
+    font-weight: $font-weight-500;
+    color: var(--color-text-primary);
+  }
+
+  > small {
+    font-size: 11px;
+    line-height: 1.4;
+    color: var(--color-text-muted);
+  }
+}
+
+/* 任務／提醒分段切換：撐滿彈窗寬，兩段均分 */
+.popoverTabs {
+  display: flex;
+  flex-shrink: 0;
+  margin: 0 $spacing-4 $spacing-4;
+
+  > button {
+    flex: 1;
+    justify-content: center;
+  }
+}
+
+/* 列表上方的次要動作列（全部標為已讀） */
+.listActions {
+  display: flex;
+  justify-content: flex-end;
+  flex-shrink: 0;
+  padding: 0 $spacing-4;
 }
 
 /* 桌面通知開關下方的一行狀態說明（背景推播是否可用） */
 .notifyHint {
   flex-shrink: 0;
-  margin: -2px $spacing-16 $spacing-8;
+  margin: 0;
+  padding: $spacing-4 10px 0;
+  border-top: 1px solid var(--color-divider);
   font-size: 11px;
   line-height: 1.4;
   color: var(--color-text-muted);
@@ -291,16 +359,18 @@
   background: var(--color-pending);
 }
 
-.jobRowFoot {
-  @include flex-between;
-  font-size: 11px;
-  color: var(--color-text-muted);
-}
-
-/* 提醒列的未讀點（標題列右側） */
-.unreadDot {
+/* 標題列右側的時間（任務為最後更新、提醒為相對時間） */
+.jobRowTime {
   flex-shrink: 0;
   margin-left: auto;
+  font-size: 11px;
+  color: var(--color-text-muted);
+  white-space: nowrap;
+}
+
+/* 提醒列的未讀點（時間右側） */
+.unreadDot {
+  flex-shrink: 0;
   width: 7px;
   height: 7px;
   border-radius: 50%;
@@ -328,14 +398,6 @@
     cursor: not-allowed;
     opacity: .4;
   }
-}
-
-/* 任務區與提醒區之間的分隔 */
-.popoverSection {
-  flex-shrink: 0;
-  margin-top: $spacing-4;
-  padding-top: $spacing-4;
-  border-top: 1px solid var(--color-divider);
 }
 
 .jobEmpty {
@@ -464,7 +526,7 @@
   padding: $spacing-8 $spacing-16;
   border: 1px solid var(--color-border);
   border-radius: $radius-8;
-  background: var(--color-hover);
+  background: var(--color-surface);
 }
 
 .dialogFieldLabel {
@@ -485,7 +547,7 @@
   padding: $spacing-8;
   border: 1px solid var(--color-border);
   border-radius: $radius-8;
-  background: var(--color-hover);
+  background: var(--color-surface);
   font-size: $font-size-14;
   color: var(--color-text-primary);
   white-space: pre-wrap;
@@ -500,7 +562,7 @@
   padding: $spacing-8 $spacing-16;
   border: 1px solid var(--color-border);
   border-radius: $radius-8;
-  background: var(--color-hover);
+  background: var(--color-surface);
 
   @include respond-to(sm) {
     grid-template-columns: repeat(2, 1fr);

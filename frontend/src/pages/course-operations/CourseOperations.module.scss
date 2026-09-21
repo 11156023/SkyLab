@@ -320,7 +320,7 @@
   padding: 10px 14px;
   border: 1px solid var(--color-border);
   border-radius: $radius-8;
-  background: color-mix(in srgb, var(--color-hover) 22%, var(--color-surface));
+  background: var(--color-surface);
 }
 
 .memberIdentity {
@@ -486,7 +486,6 @@
 }
 
 .classCard:hover {
-  border-color: color-mix(in srgb, var(--color-primary) 28%, var(--color-border));
   box-shadow: 0 7px 24px color-mix(in srgb, var(--color-text-primary) 8%, transparent);
   transform: translateY(-1px);
 }
@@ -1821,7 +1820,7 @@
   padding: 28px;
   border: 1px dashed var(--color-border);
   border-radius: $radius-12;
-  background: color-mix(in srgb, var(--color-hover) 35%, var(--color-surface));
+  background: var(--color-surface);
 }
 
 .lockedFeature>span {
@@ -2149,7 +2148,7 @@
   overflow: hidden;
   border: 1px solid var(--color-border);
   border-radius: $radius-12;
-  background: color-mix(in srgb, var(--color-hover) 24%, var(--color-surface));
+  background: var(--color-surface);
 }
 
 .readonlyTopology :global(.react-flow) svg {
@@ -2727,34 +2726,6 @@
   background: var(--color-hover);
 }
 
-.weekUploadButton {
-  display: inline-flex;
-  width: max-content;
-  height: 32px;
-  align-items: center;
-  gap: 6px;
-  padding: 0 10px;
-  border: 1px dashed color-mix(in srgb, var(--color-primary) 45%, var(--color-border));
-  border-radius: $radius-8;
-  color: var(--color-primary);
-  font-size: $font-size-12;
-  font-weight: $font-weight-500;
-  cursor: pointer;
-}
-
-.weekUploadButton:hover {
-  background: color-mix(in srgb, var(--color-primary) 6%, var(--color-surface));
-}
-
-.weekUploadButton input {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  overflow: hidden;
-  opacity: 0;
-  pointer-events: none;
-}
-
 @include respond-below(lg) {
   .overviewDetailGrid {
     grid-template-columns: 1fr;
@@ -3030,8 +3001,14 @@
     display: none;
   }
 
+  /* 單欄直排：上面 lg 那組 grid-area 要全部歸位，否則被指定到第 2–4 欄的
+     元素會撐出隱含欄，主題、機器欄被擠到只剩幾十 px */
+  .weekRows article>.weekDate,
+  .weekRows article>.weekTitleInput,
+  .weekRows article>.weekMachineSelect,
+  .weekRows article>.weekPublishButton,
   .weekRows article>.weekFileList {
-    grid-column: auto;
+    grid-area: auto;
   }
 }
 
@@ -3375,7 +3352,8 @@
   animation: envSlideInLeft 0.22s cubic-bezier(0.25, 0.8, 0.25, 1) both;
 }
 /* ── 教學環境的說明文件 ── */
-/* 基本資訊表單裡的一個滿寬欄位：標籤字級比照 .field，上傳鈕靠右 */
+/* 基本資訊表單裡的一個滿寬欄位：標籤字級比照 .field，
+   已上傳的文件清單在上、上傳區塊（FileDropzone）在下 */
 .fileSection {
   @include flex-column;
   gap: $spacing-8;
@@ -3383,31 +3361,9 @@
 }
 
 .fileHeading {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  flex-wrap: wrap;
-  gap: $spacing-8 $spacing-16;
-
-  > span {
-    color: var(--color-text);
-    font-size: $font-size-14;
-    font-weight: $font-weight-500;
-  }
-}
-
-/* 還沒有文件時的佔位框：虛線框住，欄位才不會只剩一行小字 */
-.fileEmpty {
-  display: flex;
-  align-items: center;
-  gap: $spacing-8;
-  margin: 0;
-  padding: $spacing-16;
-  border: 1px dashed var(--color-border);
-  border-radius: $radius-8;
-  color: var(--color-text-muted);
+  color: var(--color-text);
   font-size: $font-size-14;
-  font-weight: $font-weight-400;
+  font-weight: $font-weight-500;
 }
 
 /* 還沒取名的草稿：名稱用淡色斜體，跟真的名字分得出來 */
@@ -3430,7 +3386,8 @@
     gap: $spacing-8;
     padding: $spacing-8;
     border-radius: $radius-8;
-    background: var(--color-hover);
+    border: 1px solid var(--color-border);
+    background: var(--color-surface);
 
     > a {
       @include text-truncate;
