@@ -751,7 +751,7 @@ export default function CourseCmsPage() {
 
   return (
     <div className={styles.page}>
-      <PageHeader title={t("CourseCmsPage.pageTitle")} subtitle={t("CourseCmsPage.pageSubtitle")}>
+      <PageHeader title={t("CourseCmsPage.pageTitle")}>
         <div className={styles.tabs}>
           <button
             type="button"

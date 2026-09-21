@@ -377,7 +377,6 @@
   "CourseCmsPage.noStudentRecordsText": "No student answer records yet",
   "CourseCmsPage.teacherOnlyText": "Only teachers and administrators can use course management",
   "CourseCmsPage.pageTitle": "Course Management",
-  "CourseCmsPage.pageSubtitle": "Create learning paths → rooms (bound to a lab template) → tasks and flag questions; once published, students can start learning",
   "CourseCmsPage.tabContentEditor": "Content editor",
   "CourseCmsPage.tabStudentProgress": "Student progress",
   "ClassWorkspacePage.envFactNoPublic": "None",

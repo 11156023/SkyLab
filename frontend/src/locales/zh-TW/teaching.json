@@ -377,7 +377,6 @@
   "CourseCmsPage.noStudentRecordsText": "尚無學生答題記錄",
   "CourseCmsPage.teacherOnlyText": "僅老師與管理員可使用課程管理",
   "CourseCmsPage.pageTitle": "課程管理",
-  "CourseCmsPage.pageSubtitle": "建立學習路徑 → 房間（綁定實驗模板）→ 任務與 Flag 題目，發布後學生即可學習",
   "CourseCmsPage.tabContentEditor": "內容編輯",
   "CourseCmsPage.tabStudentProgress": "學生進度",
   "ClassWorkspacePage.envFactNoPublic": "無對外服務",

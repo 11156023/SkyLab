@@ -47,7 +47,6 @@
   "ReverseProxyPage.title": "リバースプロキシ",
   "ReverseProxyPage.listTitle": "公開 URL",
   "ReverseProxyPage.listCount": "全 {{count}} 件",
-  "ReverseProxyPage.listDesc": "コースマシン上のサービス（Web アプリや DB 管理画面など）に公開 URL を割り当て、学生が VPN なしで開けるようにします。",
   "ReverseProxyPage.syncing": "同期中...",
   "ReverseProxyPage.resync": "再同期",
   "ReverseProxyPage.addDomain": "ドメインを追加",

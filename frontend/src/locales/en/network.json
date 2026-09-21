@@ -47,7 +47,6 @@
   "ReverseProxyPage.title": "Reverse Proxy",
   "ReverseProxyPage.listTitle": "Public URLs",
   "ReverseProxyPage.listCount": "{{count}} total",
-  "ReverseProxyPage.listDesc": "Give a service running on a course machine (a web app, a database admin UI) a public URL, so students can open it without a VPN.",
   "ReverseProxyPage.syncing": "Syncing...",
   "ReverseProxyPage.resync": "Resync",
   "ReverseProxyPage.addDomain": "Add Domain",

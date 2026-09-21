@@ -377,7 +377,6 @@
   "CourseCmsPage.noStudentRecordsText": "学生の回答記録はまだありません",
   "CourseCmsPage.teacherOnlyText": "教師と管理者のみコース管理を使用できます",
   "CourseCmsPage.pageTitle": "コース管理",
-  "CourseCmsPage.pageSubtitle": "学習パス → ルーム（実習テンプレートを紐付け）→ タスクとフラグ問題を作成し、公開後に学生が学習できます",
   "CourseCmsPage.tabContentEditor": "コンテンツ編集",
   "CourseCmsPage.tabStudentProgress": "学生の進捗",
   "ClassWorkspacePage.envFactNoPublic": "なし",
