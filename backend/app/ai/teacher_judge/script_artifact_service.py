@@ -404,14 +404,6 @@ def _artifact_to_public(
     )
 
 
-def _rubric_snapshot(
-    analysis: TeacherJudgeRubricAnalysis, template_key: str
-) -> dict[str, Any]:
-    snapshot = analysis.model_dump(mode="json")
-    snapshot["template_key"] = template_key
-    return snapshot
-
-
 def _template_commands_snapshot(
     commands: list[TeacherJudgeTemplateCommand] | None,
 ) -> list[TemplateCommandSnapshot]:

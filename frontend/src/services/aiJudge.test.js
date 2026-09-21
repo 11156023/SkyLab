@@ -286,23 +286,6 @@ describe("AiJudgeService persistent sessions", () => {
     expect(RUBRIC_POLISH_PROMPT).toContain("視為主要情境");
   });
 
-  test("session script endpoint 不接受 client rubric snapshot", async () => {
-    await AiJudgeService.createSessionScript("class-1", "session-1");
-
-    const [url, init] = fetchMock.mock.calls[0];
-    expect(url).toContain(
-      "/api/v1/teaching-classes/class-1/judge/sessions/session-1/scripts",
-    );
-    expect(JSON.parse(init.body)).toEqual({});
-  });
-
-  test("session script endpoint 可綁定目前檢查表 revision", async () => {
-    await AiJudgeService.createSessionScript("class-1", "session-1", 7);
-
-    const [, init] = fetchMock.mock.calls[0];
-    expect(JSON.parse(init.body)).toEqual({ analysis_revision: 7 });
-  });
-
   test("Save/Create 使用 script set endpoint 並只傳目前檢查表 revision", async () => {
     await AiJudgeService.createSessionScriptSet("class-1", "session-1", 9);
 
@@ -331,7 +314,7 @@ describe("AiJudgeService persistent sessions", () => {
         );
       }));
 
-      const pending = AiJudgeService.createSessionScript("class-1", "session-1");
+      const pending = AiJudgeService.createSessionScriptSet("class-1", "session-1");
       await vi.advanceTimersByTimeAsync(20_000);
 
       await expect(pending).resolves.toEqual({ status: "reviewed" });

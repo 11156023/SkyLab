@@ -159,18 +159,6 @@ export const AiJudgeService = {
     );
   },
 
-  createSessionScript(classId, sessionId, analysisRevision = null) {
-    const payload = {};
-    if (analysisRevision !== null && analysisRevision !== undefined) {
-      payload.analysis_revision = analysisRevision;
-    }
-    return apiPost(
-      `/api/v1/teaching-classes/${classId}/judge/sessions/${sessionId}/scripts`,
-      payload,
-      { timeoutMs: SCRIPT_GENERATION_TIMEOUT_MS },
-    );
-  },
-
   listSessionRuns(classId, sessionId) {
     return apiGet(
       `/api/v1/teaching-classes/${classId}/judge/sessions/${sessionId}/runs`,
@@ -264,29 +252,6 @@ export const AiJudgeService = {
   listScripts(classId, sessionId = null) {
     const query = sessionId ? `?session_id=${encodeURIComponent(sessionId)}` : "";
     return apiGet(`/api/v1/teaching-classes/${classId}/judge/scripts/${query}`);
-  },
-
-  /** 由檢查表快照產生受管收集腳本（後端會接著跑 policy 與 AI 審查） */
-  createScript(classId, { name, templateKey, rubricSnapshot, sourceFileId = null }) {
-    return apiPost(
-      `/api/v1/teaching-classes/${classId}/judge/scripts/`,
-      {
-        name,
-        template_key: templateKey,
-        rubric_snapshot: rubricSnapshot,
-        source_file_id: sourceFileId,
-      },
-      { timeoutMs: SCRIPT_GENERATION_TIMEOUT_MS },
-    );
-  },
-
-  /** 重新生成腳本（可帶新的 rubric 快照） */
-  regenerateScript(classId, scriptId, rubricSnapshot = null) {
-    return apiPost(
-      `/api/v1/teaching-classes/${classId}/judge/scripts/${scriptId}/regenerate`,
-      { rubric_snapshot: rubricSnapshot },
-      { timeoutMs: SCRIPT_GENERATION_TIMEOUT_MS },
-    );
   },
 
   /** 相容舊版待老師核准腳本；新流程通過靜態與 AI 檢查後會直接 approved。 */

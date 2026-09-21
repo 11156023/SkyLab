@@ -592,8 +592,7 @@ def test_session_public_many_matches_single_session_contract() -> None:
     assert batch[1].message_count == 0
 
 
-@pytest.mark.asyncio
-async def test_summary_runs_only_on_tenth_completed_turn(
+def test_summary_runs_only_on_tenth_completed_turn(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     db = make_session()
@@ -608,14 +607,14 @@ async def test_summary_runs_only_on_tenth_completed_turn(
     db.add(item)
     db.commit()
     db.refresh(item)
-    calls = 0
+    submits: list[dict[str, object]] = []
 
-    async def fake_summary(*args, **kwargs):
-        nonlocal calls
-        calls += 1
-        return "new summary", {}
+    def fake_submit(coro, **kwargs):
+        submits.append(dict(kwargs))
+        coro.close()
+        return "summary-task"
 
-    monkeypatch.setattr(session_service, "summarize_conversation", fake_summary)
+    monkeypatch.setattr(session_service, "submit", fake_submit)
 
     for index in range(9):
         db.add(
@@ -626,9 +625,10 @@ async def test_summary_runs_only_on_tenth_completed_turn(
             )
         )
     db.commit()
-    await session_service.maybe_summarize(db, item, rubric_file)
-    assert calls == 0
-    assert item.summary == "old"
+    db.refresh(item)
+    assert session_service.schedule_summary(db, item) == ""
+    assert submits == []
+    assert db.get(TeacherJudgeSession, item.id).summary == "old"
 
     db.add(
         TeacherJudgeSessionMessage(
@@ -638,42 +638,65 @@ async def test_summary_runs_only_on_tenth_completed_turn(
         )
     )
     db.commit()
-    await session_service.maybe_summarize(db, item, rubric_file)
+    db.refresh(item)
+    task_id = session_service.schedule_summary(db, item)
 
-    assert calls == 1
-    assert item.summary == "new summary"
+    assert task_id == "summary-task"
+    assert len(submits) == 1
+    assert submits[0]["name"] == "teacher-judge-summary"
+    assert str(item.id) in str(submits[0]["task_id"])
 
 
 @pytest.mark.asyncio
 async def test_summary_failure_preserves_previous_value(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    db = make_session()
-    class_id = uuid.uuid4()
-    rubric_file = make_teacher_judge_file(db, class_id)
-    item = TeacherJudgeSession(
-        teaching_class_id=class_id,
-        title="Summary failure",
-        selected_file_id=rubric_file.id,
-        summary="keep me",
-    )
-    db.add(item)
-    db.commit()
-    db.refresh(item)
-    for index in range(10):
-        db.add(
+    worker_engine = create_engine("sqlite:///:memory:")
+    SQLModel.metadata.create_all(worker_engine)
+    monkeypatch.setattr(session_service, "engine", worker_engine)
+    with Session(worker_engine) as db:
+        class_id = uuid.uuid4()
+        rubric_file = make_teacher_judge_file(db, class_id)
+        item = TeacherJudgeSession(
+            teaching_class_id=class_id,
+            title="Summary failure",
+            selected_file_id=rubric_file.id,
+            summary="keep me",
+        )
+        db.add(item)
+        db.commit()
+        db.refresh(item)
+        db.refresh(rubric_file)
+        messages = [
             TeacherJudgeSessionMessage(
                 session_id=item.id,
                 role=TeacherJudgeMessageRole.assistant,
                 content=f"assistant-{index}",
             )
-        )
-    db.commit()
+            for index in range(10)
+        ]
+        db.add_all(messages)
+        db.commit()
+        for message in messages:
+            db.refresh(message)
+        session_id = item.id
+        boundary_id = messages[-1].id
+        file_id = rubric_file.id
+        file_revision = rubric_file.analysis_revision
 
     async def fail_summary(*args, **kwargs):
         raise RuntimeError("model unavailable")
 
     monkeypatch.setattr(session_service, "summarize_conversation", fail_summary)
-    await session_service.maybe_summarize(db, item, rubric_file)
+    await session_service.run_summary_job(
+        session_id,
+        boundary_id,
+        10,
+        file_id,
+        file_revision,
+    )
 
-    assert item.summary == "keep me"
+    with Session(worker_engine) as db:
+        saved = db.get(TeacherJudgeSession, session_id)
+        assert saved is not None
+        assert saved.summary == "keep me"

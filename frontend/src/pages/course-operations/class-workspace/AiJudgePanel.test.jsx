@@ -291,7 +291,7 @@ describe("RubricsTab 儲存並製作流程", () => {
       rubric_proposal: [],
       base_revision: 3,
     });
-    const createScript = vi.spyOn(AiJudgeService, "createSessionScript").mockResolvedValue({
+    const createScript = vi.spyOn(AiJudgeService, "createSessionScriptSet").mockResolvedValue({
       status: "approved",
     });
 
@@ -409,7 +409,7 @@ describe("RubricsTab 儲存並製作流程", () => {
       }],
       base_revision: 3,
     });
-    const createScript = vi.spyOn(AiJudgeService, "createSessionScript").mockResolvedValue({
+    const createScript = vi.spyOn(AiJudgeService, "createSessionScriptSet").mockResolvedValue({
       status: "approved",
     });
 

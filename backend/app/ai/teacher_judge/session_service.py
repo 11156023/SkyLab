@@ -54,7 +54,6 @@ from app.models.teacher_judge_session import (
     TeacherJudgeSessionMessage,
     TeacherJudgeSessionStatus,
 )
-from app.models.teacher_judge_template_command import TeacherJudgeTemplateCommand
 
 logger = logging.getLogger(__name__)
 
@@ -1675,47 +1674,3 @@ def schedule_summary(
     except Exception:
         logger.exception("Unable to schedule Teacher Judge summary for %s", current.id)
         return ""
-
-
-async def maybe_summarize(
-    db: Session,
-    item: TeacherJudgeSession,
-    file: TeacherJudgeFile | None,
-    *,
-    template_commands: list[TeacherJudgeTemplateCommand] | None = None,
-) -> None:
-    """Synchronous compatibility helper for callers and legacy tests.
-
-    New request handlers use :func:`schedule_summary`; this helper keeps the
-    old awaitable API but uses the same dedicated prompt and conditional write.
-    """
-    del template_commands  # retained only for the legacy call signature
-    assistant_count = _assistant_message_count(db, item.id)
-    if not assistant_count or assistant_count % SUMMARY_TURN_INTERVAL:
-        return
-    boundary = _latest_assistant_message(db, item.id)
-    if boundary is None:
-        return
-    selected_file_id = item.selected_file_id
-    analysis_revision = file.analysis_revision if file else None
-    if selected_file_id is not None and analysis_revision is None:
-        selected_file = db.get(TeacherJudgeFile, selected_file_id)
-        analysis_revision = selected_file.analysis_revision if selected_file else None
-    snapshot = _prepare_summary_job(
-        db,
-        session_id=item.id,
-        boundary_message_id=boundary.id,
-        assistant_count=assistant_count,
-        selected_file_id=selected_file_id,
-        analysis_revision=analysis_revision,
-    )
-    if snapshot is None:
-        return
-    try:
-        reply, _ = await summarize_conversation(
-            list(snapshot.messages), snapshot.previous_summary
-        )
-    except Exception:
-        return
-    if _persist_summary_if_current(db, snapshot, reply):
-        db.refresh(item)
