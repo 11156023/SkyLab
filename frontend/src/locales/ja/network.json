@@ -60,8 +60,6 @@
   "ReverseProxyPage.delete": "削除",
   "ReverseProxyPage.deleteDomainTitle": "ドメインの削除",
   "ReverseProxyPage.deleteDomainConfirm": "<strong>{{domain}}</strong> を削除してもよろしいですか？削除するとこのドメインはすぐに無効になり、関連する設定もあわせて削除されます。",
-  "ReverseProxyPage.cancel": "キャンセル",
-  "ReverseProxyPage.deleting": "削除中...",
   "ReverseProxyPage.loadListFailed": "ドメイン一覧の読み込みに失敗しました",
   "ReverseProxyPage.updateSuccess": "ドメインを更新しました。関連設定はシステムが自動的に同期します",
   "ReverseProxyPage.createSuccess": "ドメインを作成しました。システムが自動的に設定を完了しています",

@@ -82,9 +82,6 @@
   }
 }
 
-/* 以下區塊沿用既有的 12px 間距（初版即如此覆寫，維持列表／面板／對話框的原有視覺） */
-$spacing-16: 12px;
-
 /* ── Empty state ──────────────────────────────────── */
 
 /* ── Route list ───────────────────────────────────── */
@@ -93,6 +90,8 @@ $spacing-16: 12px;
   gap: $spacing-8;
 }
 
+/* 整列不可點（動作都在右側按鈕上），所以不給 hover 陰影——
+   hover 變化是「這一列可以點」的訊號，不可點時會變成假暗示 */
 .row {
   display: flex;
   align-items: center;
@@ -100,16 +99,6 @@ $spacing-16: 12px;
   padding: $spacing-16;
   @include glass-surface($shadow: var(--shadow-sm));
   border-radius: $radius-12;
-  transition: box-shadow $transition-base;
-
-  &:hover {
-    box-shadow: var(--shadow-md);
-  }
-}
-
-.actionBtn:disabled {
-  opacity: 0.35;
-  cursor: not-allowed;
 }
 
 .rowIcon {
@@ -145,60 +134,30 @@ $spacing-16: 12px;
 }
 
 .badge {
-  display: inline-flex;
-  align-items: center;
+  @include badge-base;
   gap: 3px;
   padding: 2px 7px;
-  border-radius: $radius-pill;
   background: color-mix(in srgb, var(--color-primary) 12%, transparent);
   color: var(--color-primary);
-  font-size: 11px;
-  font-weight: $font-weight-500;
 }
 
-.rowStatus {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: $font-size-12;
-  color: var(--color-text-secondary);
-  white-space: nowrap;
-  flex-shrink: 0;
-}
-
-.statusDot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  flex-shrink: 0;
-
-  &.active  { background: var(--color-success); }
-  &.unknown { background: var(--color-text-muted); }
-}
-
+/* 列上的淡底圖示鈕之間留 8px，與 AI API、我的資源、資源管理的列動作同距 */
 .rowActions {
   display: flex;
-  gap: $spacing-4;
+  gap: $spacing-8;
   flex-shrink: 0;
 }
 
+/* 列上的圖示鈕（開啟／編輯／刪除）：各自是完整的 mixin，不要疊在同一顆按鈕上
+   （一般款的 :hover 會把刪除鈕的紅字蓋成主文字色） */
 .actionBtn {
-  width: 28px;
-  height: 28px;
-  border-radius: $radius-8;
-  @include flex-center;
-  color: var(--color-text-secondary);
-  transition: background $transition-base, color $transition-base;
+  @include btn-icon;
+  flex-shrink: 0;
+}
 
-  &:hover {
-    background: var(--color-hover);
-    color: var(--color-text);
-  }
-
-  &.actionBtnDanger {
-    color: var(--color-danger);
-    &:hover:not(:disabled) { background: color-mix(in srgb, var(--color-danger) 10%, transparent); }
-  }
+.actionBtnDanger {
+  @include btn-icon($danger: true);
+  flex-shrink: 0;
 }
 
 /* ── Admin / Traefik panel ────────────────────────── */
@@ -354,200 +313,17 @@ $spacing-16: 12px;
   @include btn-secondary;
 }
 
-.btnDanger {
-  @include btn-danger;
-}
-
-.iconBtn {
-  width: 30px;
-  height: 30px;
-  border-radius: $radius-8;
-  @include flex-center;
-  color: var(--color-text-secondary);
-  transition: background $transition-base, color $transition-base;
-
-  &:hover:not(:disabled) {
-    background: var(--color-hover);
-    color: var(--color-text-primary);
-  }
-}
-
-/* ── Modal ── */
-.modalOverlay {
-  position: fixed;
-  inset: 0;
-  z-index: 300;
-  @include flex-center;
-  padding: $spacing-16;
-  background: var(--color-overlay);
-  backdrop-filter: blur(4px);
-  animation: fadeIn 0.15s ease;
-  transition: opacity 0.15s ease;
-}
-
-.modalOverlayOut {
-  animation: none;
-  opacity: 0;
-  pointer-events: none;
-}
-
-@keyframes fadeIn {
-  from { opacity: 0; }
-  to   { opacity: 1; }
-}
-
-.modal,
-.confirm {
-  width: min(620px, 100%);
-  max-height: 88vh;
-  overflow-y: auto;
-  @include flex-column;
-  gap: $spacing-16;
-  padding: $spacing-24;
-  @include glass-surface($shadow: var(--shadow-lg));
-  border-radius: $radius-12;
-  animation: slideUp 0.18s cubic-bezier(0.25, 0.8, 0.25, 1);
-}
-
-@keyframes slideUp {
-  from { opacity: 0; transform: translateY(12px); }
-  to   { opacity: 1; transform: translateY(0); }
-}
-
-.modalHeader {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: $spacing-16;
-
-  h2 {
-    margin: 0;
-    font-size: $font-size-18;
-    color: var(--color-text-primary);
-  }
-
-  p {
-    margin: 4px 0 0;
-    font-size: $font-size-12;
-    color: var(--color-text-secondary);
-    line-height: $line-height-base;
-  }
-}
-
-.modalActions {
-  display: flex;
-  justify-content: flex-end;
-  gap: $spacing-8;
-}
-
-.confirm {
-  max-width: 480px;
-
-  h2 { margin: 0; color: var(--color-text-primary); }
-  p  { margin: 0; color: var(--color-text-secondary); }
-}
-
-.confirmIcon {
-  width: 44px;
-  height: 44px;
-  border-radius: $radius-8;
-  background: color-mix(in srgb, var(--color-danger) 12%, transparent);
-  color: var(--color-danger);
-  @include flex-center;
-}
-
-/* ── 表單 ── */
-.field {
-  @include flex-column;
-  gap: 6px;
-  font-size: $font-size-12;
-  font-weight: $font-weight-500;
-  color: var(--color-text-secondary);
-  flex: 1;
-
-  input,
-  select {
-    min-height: 38px;
-    padding: 8px $spacing-16;
-    border: 1px solid var(--color-border);
-    border-radius: $radius-8;
-    background: var(--color-surface);
-    color: var(--color-text-primary);
-    outline: none;
-    font-size: $font-size-14;
-
-    &:focus {
-      border-color: var(--color-primary);
-      box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-primary) 12%, transparent);
-    }
-  }
-}
-
-.fieldRow {
-  display: grid;
-  grid-template-columns: 1fr;
-  gap: $spacing-16;
-
-  @include respond-to(md) {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-}
-
-.fieldHint {
-  font-style: normal;
-  font-size: $font-size-12;
-  color: var(--color-danger);
-}
-
-.linkBtn {
-  align-self: flex-start;
-  font-size: $font-size-12;
-  color: var(--color-primary);
-  cursor: pointer;
-  background: transparent;
-  border: 0;
-  padding: 0;
-
-  &:hover { text-decoration: underline; }
-}
-
-.checkRow {
-  display: inline-flex;
-  align-items: center;
-  gap: $spacing-8;
-  min-height: 34px;
-  padding: 0 $spacing-16;
-  border: 1px solid var(--color-border);
-  border-radius: $radius-8;
-  color: var(--color-text-primary);
-  font-size: $font-size-14;
-  cursor: pointer;
-}
-
 /* ── 提示框 ── */
-.noticeInfo,
 .noticeDanger {
   @include flex-column;
   gap: 4px;
   padding: $spacing-8 $spacing-16;
   border-radius: $radius-8;
   font-size: $font-size-12;
-
-  p { margin: 0; }
-}
-
-.noticeInfo {
-  border: 1px solid color-mix(in srgb, var(--color-primary-on-surface) 30%, transparent);
-  background: color-mix(in srgb, var(--color-primary-on-surface) 8%, transparent);
-  color: var(--color-text-secondary);
-
-  strong { color: var(--color-primary-on-surface); }
-}
-
-.noticeDanger {
   border: 1px solid color-mix(in srgb, var(--color-danger) 30%, transparent);
   background: color-mix(in srgb, var(--color-danger) 8%, transparent);
   color: var(--color-text-secondary);
 
+  p { margin: 0; }
   strong { color: var(--color-danger); }
 }

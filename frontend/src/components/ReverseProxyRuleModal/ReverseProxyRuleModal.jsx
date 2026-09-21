@@ -73,6 +73,15 @@ export default function ReverseProxyRuleModal({
     enableHttps: rule?.enable_https ?? true,
   });
 
+  /* Esc 關閉（Dialog 標準行為）；送出中不關，跟取消鈕的行為一致 */
+  useEffect(() => {
+    const onKeyDown = (e) => {
+      if (e.key === "Escape" && !loading) onClose();
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [loading, onClose]);
+
   useEffect(() => {
     if (fixedResource) return;
     const fetcher = isAdmin ? ResourcesService.listAll() : ResourcesService.list();

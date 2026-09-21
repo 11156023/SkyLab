@@ -10,6 +10,7 @@ import { useAuth } from "../../../contexts/AuthContext";
 import { useToast } from "../../../hooks/useToast";
 import { ReverseProxyService } from "../../../services/reverseProxy";
 import ReverseProxyRuleModal from "../../../components/ReverseProxyRuleModal/ReverseProxyRuleModal";
+import { useConfirm } from "../../../components/ConfirmDialog/ConfirmProvider";
 
 function isAdminUser(user) {
   return user?.role === "admin" || user?.is_superuser === true;
@@ -129,6 +130,7 @@ export function ReverseProxyPanel() {
   const { t } = useTranslation("network");
   const { user } = useAuth();
   const toast = useToast();
+  const confirm = useConfirm();
   const isAdmin = isAdminUser(user);
 
   const [rules, setRules] = useState([]);
@@ -137,7 +139,7 @@ export function ReverseProxyPanel() {
   const [saving, setSaving] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [guideActive, setGuideActive] = useState(false);
-  const [modal, setModal] = useState(null); // { kind: "rule", rule? } | { kind: "delete", rule }
+  const [modal, setModal] = useState(null); // { kind: "rule", rule? }
   const modalPresence = useDialogPresence(modal);
 
   const fetchData = useCallback(async () => {
@@ -186,18 +188,29 @@ export function ReverseProxyPanel() {
     }
   }
 
-  async function handleDeleteRule() {
-    if (!modal?.rule) return;
-    setSaving(true);
+  /* 刪除確認走共用 useConfirm（樣式規範：勿自建本地 ConfirmModal），
+     按下確認即關閉彈窗，結果以 toast 呈現；網域用 <strong> 標出來 */
+  async function handleDeleteRule(rule) {
+    const ok = await confirm({
+      title: t("ReverseProxyPage.deleteDomainTitle"),
+      message: (
+        <Trans
+          i18nKey="ReverseProxyPage.deleteDomainConfirm"
+          ns="network"
+          values={{ domain: rule.domain }}
+          components={{ strong: <strong /> }}
+        />
+      ),
+      confirmText: t("ReverseProxyPage.delete"),
+      danger: true,
+    });
+    if (!ok) return;
     try {
-      await ReverseProxyService.deleteRule(modal.rule.id);
+      await ReverseProxyService.deleteRule(rule.id);
       toast.success(t("ReverseProxyPage.deleteSuccess"));
-      setModal(null);
       fetchData();
     } catch (err) {
       toast.error(err?.message ?? t("ReverseProxyPage.deleteFailed"));
-    } finally {
-      setSaving(false);
     }
   }
 
@@ -278,16 +291,18 @@ export function ReverseProxyPanel() {
                       )}
                     </span>
                   </div>
-                  <a
-                    className={styles.rowStatus}
-                    href={`${rule.enable_https ? "https" : "http"}://${rule.domain}`}
-                    target="_blank"
-                    rel="noreferrer"
-                  >
-                    <MIcon name="open_in_new" size={14} />
-                    {t("ReverseProxyPage.open")}
-                  </a>
+                  {/* 開啟／編輯／刪除同一組圖示鈕，與其他列表的列動作一致 */}
                   <div className={styles.rowActions}>
+                    <a
+                      className={styles.actionBtn}
+                      href={`${rule.enable_https ? "https" : "http"}://${rule.domain}`}
+                      target="_blank"
+                      rel="noreferrer"
+                      title={t("ReverseProxyPage.open")}
+                      aria-label={t("ReverseProxyPage.open")}
+                    >
+                      <MIcon name="open_in_new" size={16} />
+                    </a>
                     <button
                       type="button"
                       className={styles.actionBtn}
@@ -298,9 +313,9 @@ export function ReverseProxyPanel() {
                     </button>
                     <button
                       type="button"
-                      className={`${styles.actionBtn} ${styles.actionBtnDanger}`}
+                      className={styles.actionBtnDanger}
                       title={t("ReverseProxyPage.delete")}
-                      onClick={() => setModal({ kind: "delete", rule })}
+                      onClick={() => handleDeleteRule(rule)}
                     >
                       <MIcon name="delete" size={16} />
                     </button>
@@ -325,35 +340,6 @@ export function ReverseProxyPanel() {
           onSubmit={handleSubmitRule}
           closing={modalPresence.closing}
         />
-      )}
-      {modalPresence.item?.kind === "delete" && (
-        <div
-          className={`${styles.modalOverlay} ${modalPresence.closing ? styles.modalOverlayOut : ""}`}
-          onMouseDown={() => setModal(null)}
-        >
-          <div className={styles.confirm} onMouseDown={(e) => e.stopPropagation()}>
-            <div className={styles.confirmIcon}>
-              <MIcon name="warning" size={24} />
-            </div>
-            <h2>{t("ReverseProxyPage.deleteDomainTitle")}</h2>
-            <p>
-              <Trans
-                i18nKey="ReverseProxyPage.deleteDomainConfirm"
-                ns="network"
-                values={{ domain: modalPresence.item.rule.domain }}
-                components={{ strong: <strong /> }}
-              />
-            </p>
-            <div className={styles.modalActions}>
-              <button type="button" className={styles.btnSecondary} onClick={() => setModal(null)}>
-                {t("ReverseProxyPage.cancel")}
-              </button>
-              <button type="button" className={styles.btnDanger} disabled={saving} onClick={handleDeleteRule}>
-                {saving ? t("ReverseProxyPage.deleting") : t("ReverseProxyPage.delete")}
-              </button>
-            </div>
-          </div>
-        </div>
       )}
     </div>
   );
