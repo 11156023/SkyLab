@@ -10,6 +10,7 @@ from typing import Any, Literal
 from sqlmodel import Session, col, select
 
 from app.core.authorizers import can_bypass_resource_ownership
+from app.core.security import decrypt_value
 from app.exceptions import BadRequestError, PermissionDeniedError, ProxmoxError
 from app.models import (
     BatchProvisionJob,
@@ -121,6 +122,61 @@ def ensure_lxc_platform_key(*, session: Session, node: str, vmid: int) -> bool:
     except Exception:
         logger.warning(
             "Platform SSH key sync failed for LXC %s", vmid, exc_info=True
+        )
+        return False
+
+
+def ensure_lxc_login_password(
+    *,
+    session: Session,
+    node: str,
+    vmid: int,
+    reapply_recorded: bool = False,
+) -> bool:
+    """Write the platform-generated root password into an LXC after it starts.
+
+    An LXC cloned from a template only accepts a password through ``pct exec``
+    once it is running. Machines created while stopped (class machines with a
+    schedule) keep the password in ``login_password_pending_encrypted``; the
+    first managed start applies it and promotes it to
+    ``login_password_encrypted`` so the credentials card can show it.
+
+    ``reapply_recorded`` is for the reset path: a snapshot rollback restores the
+    guest's ``/etc/shadow``, which may predate the applied password, so the
+    recorded password is written again. Ordinary starts never re-apply — that
+    would silently undo a password the user changed inside the guest.
+
+    Best-effort like the key sync: failure is logged, the pending value is kept
+    for the next start, and a successful PVE start is never turned into an error.
+    """
+    try:
+        resource = resource_repo.get_resource_by_vmid(session=session, vmid=vmid)
+        if resource is None:
+            return False
+        pending = resource.login_password_pending_encrypted
+        encrypted = pending or (
+            resource.login_password_encrypted if reapply_recorded else None
+        )
+        if not encrypted:
+            return False
+
+        from app.services.template.clone_service import (  # noqa: PLC0415
+            set_lxc_root_password,
+        )
+
+        if not set_lxc_root_password(node, vmid, decrypt_value(encrypted)):
+            logger.warning("Login password was not applied to LXC %s", vmid)
+            return False
+        if pending:
+            resource.login_password_encrypted = pending
+            resource.login_password_pending_encrypted = None
+            session.add(resource)
+            session.commit()
+            logger.info("Applied pending login password to LXC %s", vmid)
+        return True
+    except Exception:
+        logger.warning(
+            "Login password sync failed for LXC %s", vmid, exc_info=True
         )
         return False
 
@@ -947,6 +1003,7 @@ def control(
 
         if action == "start" and resource_type == "lxc":
             ensure_lxc_platform_key(session=session, node=node, vmid=vmid)
+            ensure_lxc_login_password(session=session, node=node, vmid=vmid)
 
         # 啟動時確保防火牆仍為啟用狀態
         if action == "start":

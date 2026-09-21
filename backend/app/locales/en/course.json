@@ -3,8 +3,6 @@
   "course.room_not_found": "Course room not found",
   "course.task_not_found": "Course task not found",
   "course.question_not_found": "Course question not found",
-  "course.template_not_found": "VM template not found",
-  "course.template_not_ready": "VM template is not ready (now: {status})",
   "course.class_already_linked": "This teaching class is already linked to another path",
   "course.flag_required": "Flag question requires a flag answer",
   "course.flag_blank": "Flag cannot be blank",

@@ -23,6 +23,7 @@ def create_resource(
     ssh_private_key_encrypted: str | None = None,
     ssh_public_key: str | None = None,
     login_password_encrypted: str | None = None,
+    login_password_pending_encrypted: str | None = None,
     batch_job_id: uuid.UUID | None = None,
     request_id: uuid.UUID | None = None,
     teaching_class_id: uuid.UUID | None = None,
@@ -44,6 +45,7 @@ def create_resource(
         ssh_private_key_encrypted=ssh_private_key_encrypted,
         ssh_public_key=ssh_public_key,
         login_password_encrypted=login_password_encrypted,
+        login_password_pending_encrypted=login_password_pending_encrypted,
         batch_job_id=batch_job_id,
         created_at=datetime.now(timezone.utc),
     )

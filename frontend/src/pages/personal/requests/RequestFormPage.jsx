@@ -389,6 +389,10 @@ export default function RequestFormPage({ onBack, className, initialPrefill = nu
   )) ?? null, [catalogChoices, selectedTplId, form.template_id]);
 
   /* 範本政策 requires_gpu：學生看目錄項目、老師看完整範本清單（以 PVE VMID 對應） */
+  /* 範本不勾「允許自訂登入密碼」：機器沿用範本內的密碼，表單不問、也不送密碼 */
+  const keepsTemplatePassword =
+    (selectedCatalogItem ?? selectedTpl)?.allow_password_change === false;
+
   const selectedTemplateRequiresGpu = useMemo(() => {
     if (resourceType !== "vm" || !form.template_id) return false;
     if (selectedCatalogItem?.requires_gpu) return true;
@@ -770,8 +774,10 @@ export default function RequestFormPage({ onBack, className, initialPrefill = nu
     if (!form.hostname.trim())          errs.hostname = t(MSG.hostnameRequired);
     else if (!hostnameRegex.test(form.hostname)) errs.hostname = t(MSG.hostnameInvalid);
 
-    if (!form.password)                 errs.password = t(MSG.passwordRequired);
-    else if (form.password.length < 8)  errs.password = t(MSG.passwordMinLen);
+    if (!keepsTemplatePassword) {
+      if (!form.password)                 errs.password = t(MSG.passwordRequired);
+      else if (form.password.length < 8)  errs.password = t(MSG.passwordMinLen);
+    }
 
     if (!form.reason.trim())            errs.reason = t(MSG.reasonRequired);
     else if (form.reason.trim().length < 10) errs.reason = t(MSG.reasonMinLen);
@@ -867,7 +873,7 @@ export default function RequestFormPage({ onBack, className, initialPrefill = nu
         requested_mode: advisorDisabled ? "manual" : "auto",
         mode,
         hostname:  form.hostname,
-        password:  form.password,
+        password:  keepsTemplatePassword ? null : form.password,
         cores:     form.cores,
         memory:    form.memory,
         reason:    form.reason.trim(),
@@ -1119,6 +1125,11 @@ export default function RequestFormPage({ onBack, className, initialPrefill = nu
                       />
                     </FieldGroup>
                   )}
+                  {keepsTemplatePassword ? (
+                    <FieldGroup label={t("RequestFormPage.passwordLabel")} name="password">
+                      <p className={styles.fieldHint}>{t("RequestFormPage.templatePasswordKept")}</p>
+                    </FieldGroup>
+                  ) : (
                   <FieldGroup
                     label={t("RequestFormPage.passwordLabel")}
                     required
@@ -1135,9 +1146,15 @@ export default function RequestFormPage({ onBack, className, initialPrefill = nu
                       onChange={(e) => set("password", e.target.value)}
                     />
                   </FieldGroup>
+                  )}
                 </div>
               )}
-              {osChosen && resourceType === "lxc" && (
+              {osChosen && resourceType === "lxc" && keepsTemplatePassword && (
+                <FieldGroup label={t("RequestFormPage.passwordLabel")} name="password">
+                  <p className={styles.fieldHint}>{t("RequestFormPage.templatePasswordKept")}</p>
+                </FieldGroup>
+              )}
+              {osChosen && resourceType === "lxc" && !keepsTemplatePassword && (
                 <FieldGroup label={t("RequestFormPage.passwordLabel")} required error={errors.password} name="password"
                   hint={selectedTpl
                     ? t("RequestFormPage.clonedPasswordHint")

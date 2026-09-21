@@ -76,8 +76,14 @@ And then you can run the local development server for the backend:
 
 ```bash
 cd backend
+source ../.venv/bin/activate   # Windows PowerShell: ..\.venv\Scripts\Activate.ps1
 fastapi dev app/main.py
 ```
+
+Activate the virtual environment first. Without it the shell picks up whatever
+`fastapi` is installed globally, which starts fine but is missing project
+dependencies (for example `paramiko`), so provisioning fails at runtime with
+`SSH backend is unavailable`.
 
 ## Docker Compose in `localhost.tiangolo.com`
 

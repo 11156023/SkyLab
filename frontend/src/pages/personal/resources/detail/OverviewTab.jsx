@@ -602,11 +602,19 @@ export default function OverviewTab({ vmid }) {
                   <div className={ov.secretHead}>
                     <span className={ov.secretLabel}>{t("OverviewTab.passwordLabel")}</span>
                     <span className={`${ov.secretValue} ${ov.secretEmpty}`}>
-                      {t("OverviewTab.passwordNotRecorded")}
+                      {t(sshKey.uses_template_credentials
+                        ? "OverviewTab.passwordFromTemplate"
+                        : sshKey.login_password_pending
+                          ? "OverviewTab.passwordPending"
+                          : "OverviewTab.passwordNotRecorded")}
                     </span>
                   </div>
                   <span className={`${ov.rowNote} ${ov.secretNote}`}>
-                    {t("OverviewTab.passwordNotRecordedHint")}
+                    {t(sshKey.uses_template_credentials
+                      ? "OverviewTab.passwordFromTemplateHint"
+                      : sshKey.login_password_pending
+                        ? "OverviewTab.passwordPendingHint"
+                        : "OverviewTab.passwordNotRecordedHint")}
                   </span>
                 </div>
               )}

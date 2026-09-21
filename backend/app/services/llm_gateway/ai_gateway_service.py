@@ -83,6 +83,17 @@ def _to_request_public(req: AIAPIRequest) -> AIAPIRequestPublic:
     )
 
 
+def _public_base_url(credential: AIAPICredential) -> str:
+    """給使用者看的 AI API 位址：一律以「目前」的設定為準。
+
+    credential.base_url 是核發當下的快照，只用於顯示（proxy 轉發不看它）。
+    管理員事後修正 ``AI_API_PUBLIC_BASE_URL`` 時，舊金鑰的 Quick Start 也要
+    跟著變正確，否則使用者會照著過期的位址（例如 localhost）去接，永遠連不上。
+    設定留空才退回快照。
+    """
+    return ai_api_settings.resolved_public_base_url or credential.base_url
+
+
 def _to_credential_public(credential: AIAPICredential) -> AIAPICredentialPublic:
     try:
         api_key = decrypt_value(credential.api_key_encrypted)
@@ -92,7 +103,7 @@ def _to_credential_public(credential: AIAPICredential) -> AIAPICredentialPublic:
     return AIAPICredentialPublic(
         id=credential.id,
         request_id=credential.request_id,
-        base_url=credential.base_url,
+        base_url=_public_base_url(credential),
         api_key=api_key,
         api_key_prefix=credential.api_key_prefix,
         api_key_name=credential.api_key_name,
@@ -130,7 +141,7 @@ def _to_credential_admin_public(
         user_full_name=user.full_name,
         user_role=user.role.value if user.role else None,
         request_id=credential.request_id,
-        base_url=credential.base_url,
+        base_url=_public_base_url(credential),
         api_key_prefix=credential.api_key_prefix,
         api_key_name=credential.api_key_name,
         rate_limit=credential.rate_limit,

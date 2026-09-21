@@ -81,6 +81,11 @@ def _sync_lxc_platform_key(
         node=node,
         vmid=vmid,
     )
+    resource_service.ensure_lxc_login_password(
+        session=session,
+        node=node,
+        vmid=vmid,
+    )
 
 
 def _find_existing_resource_for_request(
@@ -119,6 +124,10 @@ def _adopt_existing_resource(
     vmid = int(existing_resource["vmid"])
     actual_node = str(existing_resource["node"])
     if not resource_repo.get_resource_by_vmid(session=session, vmid=vmid):
+        # 原本的 plan（連同密碼）已隨中斷的 worker 消失。LXC 可於開機後補設：
+        # 申請單上還留著的密碼先存成待套用，下方 _sync_lxc_platform_key 會套進去。
+        # 申請單密碼為 None ＝ 沿用範本密碼，不補。QEMU 開機後改不了 cipassword，不處理。
+        pending_password = request.password if resource_type == "lxc" else None
         resource_repo.create_resource(
             session=session,
             vmid=vmid,
@@ -127,6 +136,7 @@ def _adopt_existing_resource(
             os_info=request.os_info,
             expiry_date=request.expiry_date,
             template_id=request.template_id,
+            login_password_pending_encrypted=pending_password,
             request_id=request.id,
             commit=False,
         )
@@ -279,6 +289,9 @@ def _provision_new_resource(
             ssh_public_key=plan.get("ssh_public_key"),
             login_password_encrypted=(
                 provisioning_service.applied_login_password_encrypted(plan)
+            ),
+            login_password_pending_encrypted=(
+                provisioning_service.pending_login_password_encrypted(plan)
             ),
             request_id=req.id,
             commit=False,

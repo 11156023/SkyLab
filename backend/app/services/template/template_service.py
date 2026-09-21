@@ -232,6 +232,7 @@ def list_student_catalog(*, session: Session) -> list[TemplateCatalogItem]:
                 # 所以只對目錄裡的 VM 逐筆確認
                 is_windows=(not is_lxc) and is_windows_template(template.pve_vmid),
                 requires_gpu=bool(template.requires_gpu),
+                allow_password_change=bool(template.allow_password_change),
                 cores=template.default_cores or raw_cores,
                 memory_mb=template.default_memory or raw_memory,
                 disk_gb=template.default_disk or raw_disk,

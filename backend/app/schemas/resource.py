@@ -305,6 +305,9 @@ class SSHKeyResponse(BaseModel):
     ssh_public_key: str | None = None
     ssh_private_key: str | None = None
     login_password: str | None = None
+    # 沒有 login_password 時的原因，讓前端如實說明而不是一律顯示「未記錄」
+    login_password_pending: bool = False  # 已產生，下次開機後才會寫進機器並顯示
+    uses_template_credentials: bool = False  # 範本不勾「允許自訂」，沿用範本內的密碼
 
 
 # ===== Monitoring Schemas =====

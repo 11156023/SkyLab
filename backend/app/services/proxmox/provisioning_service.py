@@ -1217,6 +1217,17 @@ def applied_login_password_encrypted(plan: dict) -> str | None:
     return None
 
 
+def pending_login_password_encrypted(plan: dict) -> str | None:
+    """已產生但還沒寫進機器的登入密碼（加密後），供下次受管開機補設。
+
+    只有 LXC 範本克隆會落到這裡（建立時未啟動、或 pct exec 失敗）。
+    Course Lab 的 plan["password"] 為 None，維持沿用範本憑證、不補設。
+    """
+    if plan.get("password") and not plan.get("login_password_applied"):
+        return encrypt_value(str(plan["password"]))
+    return None
+
+
 def provision_from_request(
     *, session: Session, db_request
 ) -> tuple[int, str | None, str | None]:
@@ -1243,6 +1254,7 @@ def provision_from_request(
         ssh_private_key_encrypted=plan.get("ssh_private_key_encrypted"),
         ssh_public_key=plan.get("ssh_public_key"),
         login_password_encrypted=applied_login_password_encrypted(plan),
+        login_password_pending_encrypted=pending_login_password_encrypted(plan),
         request_id=getattr(db_request, "id", None),
         commit=False,
     )
