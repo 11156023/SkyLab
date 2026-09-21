@@ -42,19 +42,6 @@ describe("buildPracticeMachines", () => {
       status: "pending",
     });
   });
-
-  it("相容舊課程的單一房間部署", () => {
-    const machines = buildPracticeMachines([], [
-      { vmid: 301, name: "legacy-lab", type: "qemu", status: "running" },
-    ], { vmid: 301, status: "running" }, "Linux 權限練習");
-
-    expect(machines).toHaveLength(1);
-    expect(machines[0]).toMatchObject({
-      vmid: 301,
-      classMachineName: "Linux 權限練習",
-      classMachineRole: "本章節練習環境",
-    });
-  });
 });
 
 describe("practiceMachineActionLabel", () => {

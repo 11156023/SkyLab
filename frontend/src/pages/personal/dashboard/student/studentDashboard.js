@@ -84,9 +84,8 @@ export function normalizeSchedule(row) {
 
 /**
  * 合併「課程定義的機器」與「我的資源即時狀態」。
- * 舊課程只有單一房間部署時，退回用 deployment 補一台。
  */
-export function buildPracticeMachines(classMachines, resources, deployment, roomTitle, t = defaultT) {
+export function buildPracticeMachines(classMachines, resources) {
   const machines = (classMachines ?? []).map((machine) => {
     const resource = (resources ?? []).find(
       (item) => machine.vmid != null && Number(item.vmid) === Number(machine.vmid),
@@ -100,21 +99,6 @@ export function buildPracticeMachines(classMachines, resources, deployment, room
       name: resource?.name ?? machine.name,
     };
   });
-
-  if (machines.length === 0 && deployment?.vmid) {
-    const fallbackResource = (resources ?? []).find(
-      (resource) => Number(resource.vmid) === Number(deployment.vmid),
-    );
-    machines.push({
-      ...fallbackResource,
-      vmid: deployment.vmid,
-      status: fallbackResource?.status ?? deployment.status,
-      type: fallbackResource?.type ?? "qemu",
-      name: fallbackResource?.name ?? roomTitle ?? t("studentDashboard.defaultPracticeMachineName"),
-      classMachineName: roomTitle ?? t("studentDashboard.defaultPracticeMachineName"),
-      classMachineRole: t("studentDashboard.defaultPracticeMachineRole"),
-    });
-  }
 
   return machines;
 }
