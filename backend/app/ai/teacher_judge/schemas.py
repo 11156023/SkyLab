@@ -623,34 +623,6 @@ class TeacherJudgeSessionScriptCreateRequest(BaseModel):
     analysis_revision: int | None = Field(default=None, ge=1)
 
 
-class TeacherJudgeScriptCreateRequest(BaseModel):
-    """Create a managed script artifact from the current rubric analysis."""
-
-    name: str = Field(..., min_length=1, max_length=255)
-    template_key: str = Field(default="linux", max_length=50)
-    rubric_snapshot: TeacherJudgeRubricAnalysis
-    source_file_id: uuid.UUID | None = None
-
-    @field_validator("name")
-    @classmethod
-    def validate_name(cls, value: str) -> str:
-        name = value.strip()
-        if not name:
-            raise ValueError(t("schemas.name_blank"))
-        return name
-
-    @field_validator("template_key")
-    @classmethod
-    def normalize_template_key(cls, value: str) -> str:
-        return value.strip().lower() or "linux"
-
-
-class TeacherJudgeScriptRegenerateRequest(BaseModel):
-    """Regenerate a managed script artifact."""
-
-    rubric_snapshot: TeacherJudgeRubricAnalysis | None = None
-
-
 class TeacherJudgeScriptUpdateRequest(BaseModel):
     """Rename a managed script artifact."""
 

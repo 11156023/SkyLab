@@ -30,7 +30,6 @@ from app.ai.teacher_judge.script_policy import (
     validate_managed_script_output,
 )
 from app.ai.teacher_judge.template_command_service import GENERAL_COMMAND
-from app.api.routes.teacher_judge_scripts import _normalize_supported_template_key
 from app.models.teacher_judge_script_artifact import TeacherJudgeScriptStatus
 from app.models.teacher_judge_script_run import (
     TeacherJudgeScriptRunStatus,

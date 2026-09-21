@@ -35,7 +35,6 @@ from app.ai.teacher_judge.machine_context import (
 from app.ai.teacher_judge.schemas import (
     TeacherJudgeRubricAnalysis,
     TeacherJudgeRunBatchPublic,
-    TeacherJudgeScriptArtifactPublic,
     TeacherJudgeScriptRunCreateRequest,
     TeacherJudgeScriptRunPublic,
     TeacherJudgeScriptRunSummary,
@@ -53,7 +52,6 @@ from app.ai.teacher_judge.schemas import (
     TeacherJudgeTargetReviewUpdate,
 )
 from app.ai.teacher_judge.script_artifact_service import (
-    create_artifact,
     create_artifact_set,
     get_artifact_set,
     list_artifact_sets,
@@ -94,7 +92,6 @@ from app.ai.teacher_judge.session_service import (
     require_selected_file,
     schedule_summary,
     script_blocker_workflow_message,
-    script_review_workflow_message,
     selected_file_for_chat,
     session_public,
     session_public_many,
@@ -926,151 +923,6 @@ async def create_message(
         rubric_proposal=([] if payload.is_refine and proposal is None else proposal),
         base_revision=base_revision,
     )
-
-
-@router.post("/{session_id}/scripts", response_model=TeacherJudgeScriptArtifactPublic)
-async def create_session_script(
-    teaching_class_id: uuid.UUID,
-    session_id: uuid.UUID,
-    session: SessionDep,
-    current_user: InstructorUser,
-    payload: TeacherJudgeSessionScriptCreateRequest | None = None,
-) -> TeacherJudgeScriptArtifactPublic:
-    _access(session, teaching_class_id, current_user)
-    item = get_session(session, teaching_class_id, session_id)
-    ensure_active(item)
-    file = require_selected_file(session, item)
-    source_file_id = file.id
-    base_revision = file.analysis_revision
-    expected_revision = payload.analysis_revision if payload else None
-    if expected_revision is not None and expected_revision != file.analysis_revision:
-        conflict = HTTPException(
-            status_code=409,
-            detail={
-                "code": "teacher_judge_analysis_revision_conflict",
-                "message": t("teacherJudgeSessions.analysisRevisionConflict"),
-                "analysis_revision": file.analysis_revision,
-            },
-        )
-        failure = workflow_error_message(
-            stage="persistence",
-            status_code=409,
-            source_file_id=source_file_id,
-            analysis_revision=base_revision,
-            reason_code="analysis_revision_conflict",
-        )
-        _save_workflow_message(
-            session,
-            item,
-            content=failure["content"],
-            metadata=failure["metadata"],
-            created_by=current_user.id,
-        )
-        raise conflict
-    rubric_analysis = TeacherJudgeRubricAnalysis.model_validate(file.analysis_json)
-    if not rubric_analysis.items:
-        commands = get_enabled_template_commands(
-            session,
-            file.template_key,
-            include_cross_template=True,
-        )
-        blockers = get_script_generation_blockers(rubric_analysis, commands)
-        blocker_message = script_blocker_workflow_message(
-            blockers,
-            source_file_id=source_file_id,
-            analysis_revision=base_revision,
-        )
-        _save_workflow_message(
-            session,
-            item,
-            content=blocker_message["content"],
-            metadata=blocker_message["metadata"],
-            created_by=current_user.id,
-        )
-        raise HTTPException(
-            status_code=422,
-            detail="目前檢查表沒有檢查項目，請先新增至少一個項目。",
-        )
-    try:
-        artifact = await create_artifact(
-            session=session,
-            teaching_class_id=teaching_class_id,
-            name=item.title,
-            template_key=file.template_key,
-            rubric_analysis=rubric_analysis,
-            created_by=current_user.id,
-            source_file_id=source_file_id,
-            session_id=item.id,
-        )
-    except HTTPException as exc:
-        # ``create_artifact`` may have staged source-file changes before a model
-        # failure.  Do not commit those changes merely while recording the
-        # failure projection.
-        session.rollback()
-        detail: dict[str, Any] = exc.detail if isinstance(exc.detail, dict) else {}
-        if isinstance(detail.get("items"), list):
-            outcome = script_blocker_workflow_message(
-                detail["items"],
-                source_file_id=source_file_id,
-                analysis_revision=base_revision,
-            )
-        else:
-            outcome = workflow_error_message(
-                stage="persistence" if exc.status_code == 409 else "script_generation",
-                status_code=exc.status_code,
-                source_file_id=source_file_id,
-                analysis_revision=base_revision,
-            )
-        _save_workflow_message(
-            session,
-            item,
-            content=outcome["content"],
-            metadata=outcome["metadata"],
-            created_by=current_user.id,
-        )
-        if isinstance(detail.get("items"), list):
-            raise
-        raise HTTPException(
-            status_code=exc.status_code,
-            detail=outcome["content"],
-            headers=exc.headers,
-        ) from exc
-    except Exception:
-        session.rollback()
-        logger.exception("Teacher Judge script creation failed for session %s", item.id)
-        outcome = workflow_error_message(
-            stage="script_generation",
-            source_file_id=source_file_id,
-            analysis_revision=base_revision,
-        )
-        _save_workflow_message(
-            session,
-            item,
-            content=outcome["content"],
-            metadata=outcome["metadata"],
-            created_by=current_user.id,
-        )
-        raise
-    from app.models.base import get_datetime_utc
-
-    item.last_activity_at = get_datetime_utc()
-    item.updated_at = item.last_activity_at
-    session.add(item)
-    session.commit()
-    if artifact.status in {"approved", "review_failed"}:
-        outcome = script_review_workflow_message(
-            artifact,
-            source_file_id=source_file_id,
-            analysis_revision=base_revision,
-        )
-        _save_workflow_message(
-            session,
-            item,
-            content=outcome["content"],
-            metadata=outcome["metadata"],
-            created_by=current_user.id,
-        )
-    return artifact
 
 
 def _session_rubric_for_script_set(

@@ -8,8 +8,6 @@ from fastapi import APIRouter, HTTPException
 
 from app.ai.teacher_judge.schemas import (
     TeacherJudgeScriptArtifactPublic,
-    TeacherJudgeScriptCreateRequest,
-    TeacherJudgeScriptRegenerateRequest,
     TeacherJudgeScriptRunCreateRequest,
     TeacherJudgeScriptRunPublic,
     TeacherJudgeScriptUpdateRequest,
@@ -17,11 +15,9 @@ from app.ai.teacher_judge.schemas import (
 from app.ai.teacher_judge.script_artifact_service import (
     approve_artifact,
     archive_artifact,
-    create_artifact,
     delete_artifact,
     get_artifact_public,
     list_artifacts,
-    regenerate_artifact,
     rename_artifact,
 )
 from app.ai.teacher_judge.script_executor_service import execute_script_run
@@ -29,7 +25,6 @@ from app.ai.teacher_judge.script_run_service import (
     create_script_run,
     get_script_run_public,
 )
-from app.ai.teacher_judge.template_command_service import SUPPORTED_TEMPLATE_KEYS
 from app.api.deps import InstructorUser, SessionDep
 from app.core.authorizers import require_teaching_access
 from app.core.i18n import t
@@ -57,15 +52,6 @@ def _ensure_class_access(
     require_teaching_access(current_user, teaching_class.owner_id)
 
 
-def _normalize_supported_template_key(template_key: str) -> str:
-    normalized = template_key.strip().lower() or "linux"
-    if normalized not in SUPPORTED_TEMPLATE_KEYS:
-        raise HTTPException(
-            status_code=400, detail=t("teacherJudgeScripts.unknownTemplate")
-        )
-    return normalized
-
-
 @router.get("/", response_model=list[TeacherJudgeScriptArtifactPublic])
 def list_class_teacher_judge_scripts(
     teaching_class_id: uuid.UUID,
@@ -78,37 +64,6 @@ def list_class_teacher_judge_scripts(
     )
     return list_artifacts(
         session=session, teaching_class_id=teaching_class_id, session_id=session_id
-    )
-
-
-@router.post("/", response_model=TeacherJudgeScriptArtifactPublic)
-async def create_class_teacher_judge_script(
-    teaching_class_id: uuid.UUID,
-    payload: TeacherJudgeScriptCreateRequest,
-    session: SessionDep,
-    current_user: InstructorUser,
-) -> TeacherJudgeScriptArtifactPublic:
-    _ensure_class_access(
-        session=session, teaching_class_id=teaching_class_id, current_user=current_user
-    )
-    has_legacy_command_references = any(
-        step.template_key or step.command_key
-        for item in payload.rubric_snapshot.items
-        for step in item.check_steps
-    )
-    template_key = (
-        _normalize_supported_template_key(payload.template_key)
-        if has_legacy_command_references
-        else "linux"
-    )
-    return await create_artifact(
-        session=session,
-        teaching_class_id=teaching_class_id,
-        name=payload.name,
-        template_key=template_key,
-        rubric_analysis=payload.rubric_snapshot,
-        created_by=current_user.id,
-        source_file_id=payload.source_file_id,
     )
 
 
@@ -126,26 +81,6 @@ def get_class_teacher_judge_script(
         session=session,
         teaching_class_id=teaching_class_id,
         artifact_id=script_id,
-    )
-
-
-@router.post("/{script_id}/regenerate", response_model=TeacherJudgeScriptArtifactPublic)
-async def regenerate_class_teacher_judge_script(
-    teaching_class_id: uuid.UUID,
-    script_id: uuid.UUID,
-    payload: TeacherJudgeScriptRegenerateRequest,
-    session: SessionDep,
-    current_user: InstructorUser,
-) -> TeacherJudgeScriptArtifactPublic:
-    _ensure_class_access(
-        session=session, teaching_class_id=teaching_class_id, current_user=current_user
-    )
-    return await regenerate_artifact(
-        session=session,
-        teaching_class_id=teaching_class_id,
-        artifact_id=script_id,
-        rubric_analysis=payload.rubric_snapshot,
-        created_by=current_user.id,
     )
 
 
