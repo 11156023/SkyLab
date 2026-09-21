@@ -679,6 +679,127 @@ describe("RubricTable", () => {
     expect(html).toContain("缺少資訊");
     expect(html).not.toContain("導師檢查");
   });
+
+  test("收合時顯示 typed collector 的檢測目標，不暴露 peer key", () => {
+    const html = renderToStaticMarkup(
+      <RubricTable
+        items={[
+          {
+            id: "file-text",
+            title: "讀取程式碼",
+            detectable: "auto",
+            detection_method: "讀取 main.py",
+            check_steps: [{
+              id: "read-main",
+              title: "讀取 main.py",
+              collector: { type: "file_text", path: "/home/student/main.py", read_mode: "head", lines: 200 },
+            }],
+          },
+          {
+            id: "command",
+            title: "執行程式",
+            detectable: "auto",
+            detection_method: "執行入口程式",
+            check_steps: [{
+              id: "run-main",
+              title: "執行 main.py",
+              collector: { type: "command", argv: ["python3", "main.py"], cwd: "/home/student/project", timeout_seconds: 30 },
+            }],
+          },
+          {
+            id: "http",
+            title: "檢查服務",
+            detectable: "auto",
+            detection_method: "檢查本機服務",
+            check_steps: [{
+              id: "health",
+              title: "健康檢查",
+              collector: { type: "localhost_http", url: "http://localhost:3000/health", method: "GET", timeout_seconds: 10, max_chars: 1200 },
+            }],
+          },
+          {
+            id: "peer",
+            title: "檢查觀察節點",
+            detectable: "auto",
+            detection_method: "確認節點連通性",
+            peer_node_key: "peer-secret-key",
+            check_steps: [{
+              id: "ping",
+              title: "連通性",
+              collector: { type: "peer_ping", timeout_seconds: 10 },
+            }],
+          },
+        ]}
+        onChange={() => {}}
+        onDelete={() => {}}
+      />,
+    );
+
+    expect(html.match(/rubricTargetSummary/g)).toHaveLength(4);
+    expect(html).toContain("檔案內容");
+    expect(html).toContain("/home/student/main.py");
+    expect(html).toContain("python3 main.py");
+    expect(html).toContain("/home/student/project");
+    expect(html).toContain("http://localhost:3000/health");
+    expect(html).toContain("由執行節點觀察");
+    expect(html).not.toContain("peer-secret-key");
+  });
+
+  test("展開後顯示執行契約、判定模式與 assertion", async () => {
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    await act(async () => {
+      root.render(
+        <RubricTable
+          items={[{
+            id: "typed-command",
+            title: "執行並判定",
+            detectable: "auto",
+            judgement_mode: "ai",
+            detection_method: "執行程式並檢查回傳碼",
+            target_node_key: "n8n",
+            check_steps: [{
+              id: "run",
+              title: "執行 main.py",
+              collector: { type: "command", argv: ["python3", "main.py"], cwd: "/home/student/project", timeout_seconds: 30 },
+              assertion: { type: "returncode_equals", expected: 0 },
+            }],
+          }]}
+          onChange={() => {}}
+          onDelete={() => {}}
+          machineNodes={[{
+            node_key: "n8n",
+            name: "n8n",
+            role: "workflow",
+            resource_type: "lxc",
+            sort_order: 0,
+            template_name: "Ubuntu 24.04",
+          }]}
+        />,
+      );
+    });
+
+    const toggle = container.querySelector('button[aria-label="展開第 1 項檢查設定"]');
+    expect(toggle).toBeTruthy();
+    await act(async () => {
+      toggle.click();
+    });
+
+    expect(container.textContent).toContain("執行契約");
+    expect(container.textContent).toContain("執行節點");
+    expect(container.textContent).toContain("n8n（P1）");
+    expect(container.textContent).toContain("角色：workflow · 類型：LXC · 映像：Ubuntu 24.04");
+    expect(container.textContent).toContain("系統判定");
+    expect(container.textContent).toContain("預計檢查步驟（尚未執行）");
+    expect(container.textContent).toContain("回傳碼 = 0");
+    expect(container.textContent).toContain("30 秒");
+
+    await act(async () => {
+      root.unmount();
+    });
+    container.remove();
+  });
 });
 
 describe("getScriptCreationBlocker", () => {

@@ -267,6 +267,138 @@ function stepParameterChips(step) {
   return chips;
 }
 
+const TARGET_TYPE_INFO = {
+  file_text: { label: "檔案內容", icon: "description" },
+  file_stat: { label: "檔案", icon: "folder" },
+  command: { label: "指令", icon: "terminal" },
+  localhost_http: { label: "HTTP", icon: "language" },
+  peer_ping: { label: "觀察節點", icon: "hub" },
+};
+
+const ASSERTION_OPERATOR_LABELS = {
+  eq: "=",
+  ne: "≠",
+  gt: ">",
+  gte: "≥",
+  lt: "<",
+  lte: "≤",
+};
+
+function formatCommandArguments(argv) {
+  return argv
+    .filter((part) => typeof part === "string" && part.trim())
+    .map((part) => (/\s/.test(part) ? JSON.stringify(part) : part))
+    .join(" ");
+}
+
+function formatAssertionValue(value) {
+  if (typeof value === "string") return `「${value}」`;
+  if (value === null || value === undefined) return "未設定";
+  if (typeof value === "number" || typeof value === "boolean") return String(value);
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return "不可顯示的值";
+  }
+}
+
+function getAssertionSummary(assertion) {
+  if (!assertion || typeof assertion !== "object") return "";
+  switch (assertion.type) {
+    case "returncode_equals":
+      return `回傳碼 = ${formatAssertionValue(assertion.expected)}`;
+    case "text_equals":
+      return `文字等於 ${formatAssertionValue(assertion.expected)}`;
+    case "text_contains":
+      return `文字包含 ${formatAssertionValue(assertion.expected)}`;
+    case "number_compare":
+      return `數值 ${ASSERTION_OPERATOR_LABELS[assertion.operator] ?? assertion.operator ?? "比較"} ${formatAssertionValue(assertion.expected)}`;
+    case "json_path_equals":
+      return `${assertion.path || "JSON 路徑"} = ${formatAssertionValue(assertion.expected)}`;
+    case "exists":
+      return `存在性 = ${assertion.expected ? "是" : "否"}`;
+    default:
+      return assertion.type || "已設定判定條件";
+  }
+}
+
+function getStepTargetSummaries(step) {
+  const collector = step?.collector ?? null;
+  const parameters = collector ?? step?.parameters ?? {};
+  const targets = [];
+  const addTarget = (key, label, icon, value) => {
+    if (typeof value !== "string" || !value.trim()) return;
+    targets.push({ key: `${key}:${value.trim()}`, label, icon, value: value.trim() });
+  };
+
+  if (collector?.type === "file_text" && typeof parameters.path === "string") {
+    addTarget("file_text", TARGET_TYPE_INFO.file_text.label, TARGET_TYPE_INFO.file_text.icon, parameters.path);
+  } else if (collector?.type === "file_stat" && typeof parameters.path === "string") {
+    addTarget("file_stat", TARGET_TYPE_INFO.file_stat.label, TARGET_TYPE_INFO.file_stat.icon, parameters.path);
+  } else if (collector?.type === "command" && Array.isArray(parameters.argv)) {
+    addTarget("command", TARGET_TYPE_INFO.command.label, TARGET_TYPE_INFO.command.icon, formatCommandArguments(parameters.argv));
+  } else if (collector?.type === "localhost_http" && typeof parameters.url === "string") {
+    addTarget("localhost_http", TARGET_TYPE_INFO.localhost_http.label, TARGET_TYPE_INFO.localhost_http.icon, parameters.url);
+  } else if (collector?.type === "peer_ping") {
+    addTarget("peer_ping", TARGET_TYPE_INFO.peer_ping.label, TARGET_TYPE_INFO.peer_ping.icon, "由執行節點觀察");
+  } else {
+    if (Array.isArray(parameters.argv)) {
+      addTarget("legacy-command", TARGET_TYPE_INFO.command.label, TARGET_TYPE_INFO.command.icon, formatCommandArguments(parameters.argv));
+    }
+    if (typeof parameters.path === "string") {
+      addTarget("legacy-path", "路徑", TARGET_TYPE_INFO.file_stat.icon, parameters.path);
+    }
+    if (typeof parameters.url === "string") {
+      addTarget("legacy-url", "URL", TARGET_TYPE_INFO.localhost_http.icon, parameters.url);
+    }
+  }
+
+  if (typeof parameters.cwd === "string") {
+    addTarget("cwd", "工作目錄", "folder_open", parameters.cwd);
+  }
+  return targets;
+}
+
+function getRubricTargetSummaries(item) {
+  const seen = new Set();
+  return (Array.isArray(item?.check_steps) ? item.check_steps : [])
+    .flatMap((step) => getStepTargetSummaries(step))
+    .filter((target) => {
+      if (seen.has(target.key)) return false;
+      seen.add(target.key);
+      return true;
+    });
+}
+
+/** 以班級 API 回傳的 machine_nodes 對照 rubric 的 logical target_node_key。 */
+function getExecutionNodeSummary(item, machineNodes = []) {
+  const targetKey = String(item?.target_node_key ?? "").trim();
+  const hasExecutableSteps = Array.isArray(item?.check_steps) && item.check_steps.length > 0;
+  if (!targetKey && !hasExecutableSteps) return null;
+
+  const node = Array.isArray(machineNodes)
+    ? machineNodes.find((entry) => String(entry?.node_key ?? "").trim() === targetKey)
+    : null;
+  if (!targetKey) {
+    return { label: "尚未指定", detail: "尚未對應班級機器資訊" };
+  }
+  if (!node) {
+    return { label: "未找到對應機器", detail: "請重新確認班級機器資訊" };
+  }
+
+  const sortOrder = Number(node.sort_order);
+  const displayLabel = node.display_label
+    ?? (Number.isFinite(sortOrder) ? `P${sortOrder + 1}` : null);
+  const name = String(node.name ?? node.node_name ?? "").trim();
+  const label = [name || "未命名節點", displayLabel ? `（${displayLabel}）` : ""].join("");
+  const detail = [
+    node.role ? `角色：${node.role}` : "",
+    node.resource_type ? `類型：${String(node.resource_type).toUpperCase()}` : "",
+    node.template_name ? `映像：${node.template_name}` : "",
+  ].filter(Boolean).join(" · ");
+  return { label, detail };
+}
+
 /** 提案列的唯讀指令預覽；以分號串接多個步驟的 argv。 */
 function proposalCommandPreview(item) {
   const steps = Array.isArray(item?.check_steps) ? item.check_steps : [];
@@ -684,9 +816,11 @@ function DetectabilityBadge({ detectable, judgementMode = "ai", needsReview = fa
   );
 }
 
-function RubricTableRow({ item, index, onChange, onDelete, disabled, needsReview }) {
+function RubricTableRow({ item, index, onChange, onDelete, disabled, needsReview, machineNodes = [] }) {
   const [expanded, setExpanded] = useState(false);
   const checkSteps = item.check_steps ?? [];
+  const targetSummaries = getRubricTargetSummaries(item);
+  const executionNode = getExecutionNodeSummary(item, machineNodes);
   const detailId = `rubric-detail-${index}`;
   const missingInformation = Array.isArray(item.missing_information)
     ? item.missing_information.filter(Boolean)
@@ -729,6 +863,24 @@ function RubricTableRow({ item, index, onChange, onDelete, disabled, needsReview
             <p className={`${styles.rubricMethodText} ${!item.detection_method ? styles.rubricMethodTextEmpty : ""}`}>
               {item.detection_method || "尚未提供檢測方式"}
             </p>
+            {targetSummaries.length > 0 && (
+              <div className={styles.rubricTargetSummary} aria-label="檢測目標">
+                <span className={styles.rubricTargetLabel}>檢測目標</span>
+                <div className={styles.rubricTargetItems}>
+                  {targetSummaries.map((target) => (
+                    <span
+                      key={target.key}
+                      className={styles.rubricTargetItem}
+                      title={`${target.label}：${target.value}`}
+                    >
+                      <MIcon name={target.icon} size={14} aria-hidden="true" />
+                      <span>{target.label}</span>
+                      <code>{target.value}</code>
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
         </td>
         <td className={styles.rubricDetectabilityCell}>
@@ -784,6 +936,23 @@ function RubricTableRow({ item, index, onChange, onDelete, disabled, needsReview
                   {checkSteps.length > 0 && (
                     <div className={`${styles.detectItem} ${styles.detectItemWide}`}>
                       <span>預計檢查步驟（尚未執行）</span>
+                      <div className={styles.executionContract} aria-label="執行契約">
+                        <span className={styles.executionContractTitle}>
+                          <MIcon name="rule" size={14} aria-hidden="true" />
+                          執行契約
+                        </span>
+                        {executionNode && (
+                          <span className={styles.executionContractItem}>
+                            <span>執行節點</span>
+                            <strong>{executionNode.label}</strong>
+                            {executionNode.detail && <small>{executionNode.detail}</small>}
+                          </span>
+                        )}
+                        <span className={styles.executionContractItem}>
+                          <span>判定</span>
+                          <strong>{item.judgement_mode === "teacher" ? "導師核查" : "系統判定"}</strong>
+                        </span>
+                      </div>
                       <div className={styles.stepPlanList}>
                         {checkSteps.map((step, stepIndex) => (
                           <div
@@ -809,6 +978,12 @@ function RubricTableRow({ item, index, onChange, onDelete, disabled, needsReview
                                   : <span className={styles.chipText}>{chip.parts.join(" ")}</span>}
                               </span>
                             ))}
+                            {getAssertionSummary(step.assertion) && (
+                              <span className={styles.chip}>
+                                <span className={styles.chipLabel}>判定條件</span>
+                                <span className={styles.chipText}>{getAssertionSummary(step.assertion)}</span>
+                              </span>
+                            )}
                           </div>
                         ))}
                       </div>
@@ -824,7 +999,7 @@ function RubricTableRow({ item, index, onChange, onDelete, disabled, needsReview
   );
 }
 
-export function RubricTable({ items, onChange, onDelete, disabled, needsReviewIds }) {
+export function RubricTable({ items, onChange, onDelete, disabled, needsReviewIds, machineNodes = [] }) {
   const reviewIds = needsReviewIds instanceof Set
     ? needsReviewIds
     : new Set(Array.isArray(needsReviewIds) ? needsReviewIds : []);
@@ -854,6 +1029,7 @@ export function RubricTable({ items, onChange, onDelete, disabled, needsReviewId
               onDelete={() => onDelete(index)}
               disabled={disabled}
               needsReview={reviewIds.has(item.id)}
+              machineNodes={machineNodes}
             />
           ))}
         </tbody>
@@ -1351,7 +1527,7 @@ function RubricSourceRail({ classId, file, onClose, embedded = false }) {
 
 /* ── Tab 1：檢查表 ──────────────────────────────────────── */
 
-export function RubricsTab({ classId, judgeSession, onSessionUpdated, onScriptCreated, sidebar = null, tabsBar = null }) {
+export function RubricsTab({ classId, judgeSession, onSessionUpdated, onScriptCreated, sidebar = null, tabsBar = null, machineNodes = [] }) {
   const toast = useToast();
 
   const [files, setFiles] = useState([]);
@@ -2030,6 +2206,7 @@ export function RubricsTab({ classId, judgeSession, onSessionUpdated, onScriptCr
                     onDelete={handleItemDelete}
                     disabled={isChatting || isCreatingScript}
                     needsReviewIds={pendingReviewIds}
+                    machineNodes={machineNodes}
                   />
                 </div>
                 <SaveAndCreateAction
@@ -4052,7 +4229,7 @@ function TeacherWorkspacePanel({ classId, members, weeks = [], machineNodes = []
       {activeSession ? (
         activeTab === "rubrics" ? (
           <section className={styles.sessionMainFull} aria-label="檢查設定工作區">
-            <RubricsTab key={activeSession.id} classId={classId} judgeSession={activeSession} onSessionUpdated={updateSessionInList} sidebar={sessionSidebarInner} tabsBar={subTabsBar} onScriptCreated={(artifact) => { loadSessions(); const destination = getScriptCreationDestination(artifact); setFocusedScriptId(destination === "scripts" ? (artifact?.id ?? null) : null); setActiveTab(destination); }} />
+            <RubricsTab key={activeSession.id} classId={classId} judgeSession={activeSession} onSessionUpdated={updateSessionInList} machineNodes={machineNodes} sidebar={sessionSidebarInner} tabsBar={subTabsBar} onScriptCreated={(artifact) => { loadSessions(); const destination = getScriptCreationDestination(artifact); setFocusedScriptId(destination === "scripts" ? (artifact?.id ?? null) : null); setActiveTab(destination); }} />
           </section>
         ) : (
           <section className={styles.sessionMainFull} aria-label="檢查工作區">
