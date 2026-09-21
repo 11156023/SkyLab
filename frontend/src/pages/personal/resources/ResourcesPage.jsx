@@ -116,8 +116,9 @@ function CreatingRow({ request, onCancelled }) {
 
   const type    = TYPE_MAP[request.resource_type === "lxc" ? "lxc" : "qemu"];
   const display = getCreatingDisplay(request, t);
-  // 開通流程一旦開始跑 Proxmox clone 就無法取消
-  const canCancel = request.provisioning_status !== "running";
+  // 能不能取消交給後端判斷（clone 真的在跑時會回明確錯誤）。前端不能只看
+  // provisioning_status：後端重啟後 worker 沒了，狀態會永遠停在 running，
+  // 在這裡擋掉的話那筆申請就再也取消不了。與「我的申請」頁的規則一致。
 
   async function handleCancel() {
     const ok = await confirm({
@@ -163,7 +164,7 @@ function CreatingRow({ request, onCancelled }) {
       <td className={styles.td}>{formatDatetime(request.start_at) ?? formatDatetime(request.created_at)}</td>
       <td className={styles.td}>{request.assigned_node ?? request.desired_node ?? t("CreatingRow.notAssigned")}</td>
       <td className={styles.td}>
-        <button type="button" className={styles.cancelBtn} disabled={!canCancel || cancelling} onClick={handleCancel}>
+        <button type="button" className={styles.cancelBtn} disabled={cancelling} onClick={handleCancel}>
           <MIcon name="cancel" size={14} />{t("CreatingRow.cancelRequest")}
         </button>
       </td>
