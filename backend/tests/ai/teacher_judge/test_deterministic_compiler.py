@@ -198,6 +198,102 @@ def test_command_plan_without_cwd_renders_python_none_and_executes(
     assert "collection exception" not in check["evidence"]
 
 
+def _execute_compiled_script(script: str, tmp_path: Path) -> dict[str, object]:
+    script_path = tmp_path / "compiled_script.py"
+    script_path.write_text(script, encoding="utf-8")
+    completed = subprocess.run(
+        [sys.executable, str(script_path)],
+        capture_output=True,
+        text=True,
+        timeout=60,
+        check=False,
+    )
+    assert completed.returncode == 0
+    return json.loads(completed.stdout)
+
+
+def test_teacher_command_nonzero_is_reported_as_command_failure(tmp_path: Path) -> None:
+    failing_script = tmp_path / "fail.py"
+    failing_script.write_text(
+        "import sys\nsys.stderr.write('missing file\\n')\nsys.exit(1)\n",
+        encoding="utf-8",
+    )
+    analysis = _analysis(
+        {
+            "type": "command",
+            "argv": [sys.executable, str(failing_script)],
+            "timeout_seconds": 30,
+        },
+        None,
+        judgement_mode="teacher",
+    )
+
+    script, _, _, _ = compile_check_plan(analysis, target_node_key="web")
+    payload = _execute_compiled_script(script, tmp_path)
+    check = payload["checks"][0]
+    raw = json.loads(check["raw"])
+
+    assert check["status"] == "unknown"
+    assert "returncode 1" in check["evidence"]
+    assert raw["error_code"] == "command_failed"
+    assert raw["argv"] == [sys.executable, str(failing_script)]
+    assert raw["cwd"] is None
+    assert raw["timeout_seconds"] == 30
+    assert raw["stderr"] == "missing file\n"
+    assert payload["errors"] == ["check-1: command_failed"]
+
+
+def test_missing_command_cwd_has_actionable_error_and_keeps_raw_log(tmp_path: Path) -> None:
+    missing_cwd = tmp_path / "missing-project"
+    analysis = _analysis(
+        {
+            "type": "command",
+            "argv": [sys.executable, "main.py"],
+            "cwd": str(missing_cwd),
+            "timeout_seconds": 30,
+        },
+        None,
+        judgement_mode="teacher",
+    )
+
+    script, _, _, _ = compile_check_plan(analysis, target_node_key="web")
+    payload = _execute_compiled_script(script, tmp_path)
+    check = payload["checks"][0]
+    raw = json.loads(check["raw"])
+
+    assert check["status"] == "unknown"
+    assert check["evidence"] == f"工作目錄不存在：{missing_cwd}"
+    assert raw["error_code"] == "working_directory_not_found"
+    assert raw["argv"] == [sys.executable, "main.py"]
+    assert raw["cwd"] == str(missing_cwd)
+    assert raw["returncode"] is None
+    assert raw["stderr"]
+
+
+def test_returncode_assertion_failure_has_teacher_facing_summary(tmp_path: Path) -> None:
+    failing_script = tmp_path / "fail.py"
+    failing_script.write_text("raise SystemExit(1)\n", encoding="utf-8")
+    analysis = _analysis(
+        {
+            "type": "command",
+            "argv": [sys.executable, str(failing_script)],
+            "timeout_seconds": 30,
+        },
+        {"type": "returncode_equals", "expected": 0},
+    )
+
+    script, _, _, _ = compile_check_plan(analysis, target_node_key="web")
+    payload = _execute_compiled_script(script, tmp_path)
+    check = payload["checks"][0]
+    raw = json.loads(check["raw"])
+
+    assert check["status"] == "fail"
+    assert check["evidence"] == "指令檢查未通過：預期 returncode 0，實際為 1"
+    assert raw["error_code"] == "unexpected_returncode"
+    assert raw["argv"] == [sys.executable, str(failing_script)]
+    assert raw["returncode"] == 1
+
+
 def test_compiler_rejects_legacy_or_inconsistent_steps() -> None:
     legacy = TeacherJudgeRubricAnalysis(
         items=[

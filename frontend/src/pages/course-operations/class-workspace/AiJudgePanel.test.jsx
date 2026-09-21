@@ -8,6 +8,7 @@ import { createRoot } from "react-dom/client";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import {
   ChatPanel,
+  CommandLog,
   CreateCheckDialog,
   RubricTable,
   ProposalPanel,
@@ -36,6 +37,7 @@ import {
   getScriptCreationDestination,
   getScriptReviewAttemptIssues,
   getTargetReviewSummary,
+  getCheckResultSummary,
   getSelectableProposalIds,
   mergeNodeTeacherReview,
   mergeSessionMessages,
@@ -1280,6 +1282,50 @@ describe("script creation workflow", () => {
 });
 
 describe("teacher review summary", () => {
+  test("非零 returncode 即使沒有輸出也顯示 argv、cwd 與無輸出提示", () => {
+    const markup = renderToStaticMarkup(
+      <CommandLog
+        raw={JSON.stringify({
+          argv: ["pgrep", "-f", "n8n"],
+          cwd: "/srv/student",
+          timeout_seconds: 10,
+          stdout: "",
+          stderr: "",
+          returncode: 1,
+          error_code: "unexpected_returncode",
+        })}
+      />,
+    );
+
+    expect(markup).toContain("[&quot;pgrep&quot;,&quot;-f&quot;,&quot;n8n&quot;]");
+    expect(markup).toContain("/srv/student");
+    expect(markup).toContain("指令沒有 stdout/stderr 輸出");
+    expect(markup).toContain("returncode 1");
+  });
+
+  test("將舊版 command_exception 與非零 returncode 顯示成老師可讀摘要，並保留 raw log", () => {
+    const exceptionRaw = JSON.stringify({
+      error_code: "command_exception",
+      error: "[Errno 2] No such file or directory: 'null'",
+    });
+    const nonzeroRaw = JSON.stringify({
+      stdout: "",
+      stderr: "cat: /home/owo/main.log: No such file or directory\n",
+      returncode: 1,
+    });
+
+    expect(getCheckResultSummary({ status: "unknown", raw: exceptionRaw })).toBe(
+      "指令無法執行：[Errno 2] No such file or directory: 'null'",
+    );
+    expect(getCheckResultSummary({ status: "unknown", raw: nonzeroRaw })).toBe(
+      "指令執行失敗（returncode 1）：cat: /home/owo/main.log: No such file or directory",
+    );
+    expect(JSON.parse(nonzeroRaw)).toMatchObject({
+      stderr: "cat: /home/owo/main.log: No such file or directory\n",
+      returncode: 1,
+    });
+  });
+
   test("把 warning、unknown 與 collected 視為待導師核查", () => {
     const target = {
       status: "completed",

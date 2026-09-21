@@ -2776,6 +2776,24 @@ function parseCheckRaw(raw) {
   return null;
 }
 
+export function getCheckResultSummary(check) {
+  const parsed = parseCheckRaw(check?.raw);
+  if (!parsed) return check?.evidence || "—";
+  if (typeof parsed.error_message === "string" && parsed.error_message.trim()) {
+    return parsed.error_message.trim();
+  }
+  if (parsed.returncode !== null && parsed.returncode !== undefined && parsed.returncode !== 0) {
+    const prefix = check?.status === "fail" ? "指令檢查未通過" : "指令執行失敗";
+    const detail = String(parsed.stderr || parsed.stdout || "").trim().split(/\r?\n/, 1)[0];
+    return `${prefix}（returncode ${parsed.returncode}）${detail ? `：${detail}` : ""}`;
+  }
+  if (parsed.error_code === "command_exception") {
+    const detail = String(parsed.error || parsed.stderr || "").trim();
+    return `指令無法執行${detail ? `：${detail}` : ""}`;
+  }
+  return check?.evidence || "—";
+}
+
 function ReturnCodeBadge({ returncode }) {
   if (returncode === null || returncode === undefined) {
     return <span className={`${styles.cmdBadge} ${styles.cmdBadgeError}`}>執行例外</span>;
@@ -2799,7 +2817,7 @@ function CommandOutput({ label, text, isError = false }) {
   );
 }
 
-function CommandLog({ raw, fallbackText }) {
+export function CommandLog({ raw, fallbackText }) {
   const parsed = parseCheckRaw(raw);
   if (!parsed) {
     if (!raw && !fallbackText) return null;
@@ -2810,7 +2828,9 @@ function CommandLog({ raw, fallbackText }) {
       </div>
     );
   }
-  const empty = !parsed.stdout && !parsed.stderr && parsed.returncode == null;
+  const argvText = Array.isArray(parsed.argv) ? JSON.stringify(parsed.argv) : "";
+  const hasCommandOutput = Boolean(parsed.stdout || parsed.stderr || parsed.error);
+  const empty = !argvText && !hasCommandOutput && parsed.returncode == null;
   return (
     <div className={styles.cmdLog}>
       <div className={styles.cmdHead}>
@@ -2818,8 +2838,14 @@ function CommandLog({ raw, fallbackText }) {
         <ReturnCodeBadge returncode={parsed.returncode} />
       </div>
       {empty ? <span className={styles.cmdEmpty}>（無輸出）</span> : null}
+      <CommandOutput label="argv" text={argvText} />
+      <CommandOutput label="cwd" text={parsed.cwd} />
+      {argvText && !hasCommandOutput ? (
+        <span className={styles.cmdEmpty}>（指令沒有 stdout/stderr 輸出）</span>
+      ) : null}
       <CommandOutput label="stdout" text={parsed.stdout} />
       <CommandOutput label="stderr" text={parsed.stderr} isError />
+      <CommandOutput label="error" text={parsed.error} isError />
       {Array.isArray(parsed.errors) && parsed.errors.length > 0 && (
         <CommandOutput label="errors" text={parsed.errors.join("\n")} isError />
       )}
@@ -2857,6 +2883,7 @@ function CheckResultsTable({ checks }) {
           check?.evidence || check?.raw || (Array.isArray(check?.errors) && check.errors.length),
         );
         const isOpen = hasDetail && expanded.has(detailId);
+        const summary = getCheckResultSummary(check);
         return (
           <div key={detailId} className={styles.checkItem}>
             <button
@@ -2875,11 +2902,11 @@ function CheckResultsTable({ checks }) {
                 <MIcon name={meta.icon} size={16} />
               </span>
               <span className={styles.checkTitle}>{check?.title ?? check?.id ?? "收集項目"}</span>
-              <span className={styles.checkEvidence}>{check?.evidence || "—"}</span>
+              <span className={styles.checkEvidence}>{summary}</span>
             </button>
             {isOpen && (
               <div className={styles.checkDetail}>
-                {check?.evidence && <p>{check.evidence}</p>}
+                {summary !== "—" && <p>{summary}</p>}
                 <CommandLog
                   raw={check?.raw}
                   fallbackText={Array.isArray(check?.errors) ? check.errors.join("\n") : ""}

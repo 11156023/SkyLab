@@ -19,7 +19,7 @@ from app.ai.teacher_judge.script_policy import (
 from app.ai.teacher_judge.script_quality_validator import check_script_quality
 
 CHECK_PLAN_SCHEMA_VERSION = "teacher_judge_check_plan.v1"
-DETERMINISTIC_COMPILER_VERSION = "teacher_judge_compiler.v1"
+DETERMINISTIC_COMPILER_VERSION = "teacher_judge_compiler.v2"
 RESULT_SCHEMA_VERSION = "teacher_judge_result.v1"
 PEER_IP_TOKEN = "{{peer.ip}}"
 _ASSERTION_TYPES_BY_COLLECTOR = {
@@ -287,6 +287,7 @@ def _render_step_function(index: int, item_index: int, step_index: int, step: di
                 f"            errors.append({_json_literal(step['id'] + ': command_missing')})",
                 f"            return record_check({check_id}, {title}, 'unknown', 'command unavailable', {{'error_code': 'command_missing'}})",
                 f"        collected = run_command(argv, {_python_literal(collector.get('cwd'))}, {int(collector.get('timeout_seconds', 30))})",
+                f"        collected['raw']['argv'] = json.loads({_json_literal(collector['argv'])!r})",
             ]
         )
     elif collector_type == "file_text":
@@ -345,6 +346,7 @@ def _render_step_function(index: int, item_index: int, step_index: int, step: di
                 f"            return record_check({check_id}, {title}, 'unknown', 'ping unavailable', {{'error_code': 'command_missing'}})",
                 "        argv = ['ping', '-c', '1', ip_address]",
                 f"        collected = run_command(argv, None, {int(collector.get('timeout_seconds', 10))})",
+                "        collected['raw']['argv'] = ['ping', '-c', '1', '{{peer.ip}}']",
             ]
         )
     else:
@@ -355,9 +357,14 @@ def _render_step_function(index: int, item_index: int, step_index: int, step: di
             "        if raw.get('error_code'):",
             f"            errors.append({_json_literal(step['id'])} + ': ' + str(raw['error_code']))",
             f"        return record_check({check_id}, {title}, status, evidence, raw)",
+            "    except FileNotFoundError as exc:",
+            "        message = '找不到檔案或目錄：' + str(exc)",
+            f"        errors.append({_json_literal(step['id'])} + ': path_not_found')",
+            f"        return record_check({check_id}, {title}, 'unknown', message, {{'error_code': 'path_not_found', 'error_message': message, 'error': str(exc)}})",
             "    except Exception as exc:",
             f"        errors.append({_json_literal(step['id'])} + ': ' + str(exc))",
-            f"        return record_check({check_id}, {title}, 'unknown', 'collection exception', {{'error_code': 'runtime_exception', 'error': str(exc)}})",
+            "        message = '收集資料時發生未預期錯誤：' + str(exc)",
+            f"        return record_check({check_id}, {title}, 'unknown', message, {{'error_code': 'runtime_exception', 'error_message': message, 'error': str(exc)}})",
         ]
     )
     return "\n".join(lines)
@@ -392,13 +399,29 @@ def _render_script(plan: dict[str, Any]) -> str:
         "    import shutil\n"
         "    return bool(shutil.which(command))\n\n"
         "def run_command(argv, cwd, timeout):\n"
+        "    command_raw = {'cwd': cwd, 'timeout_seconds': timeout}\n"
         "    try:\n"
         "        completed = subprocess.run(argv, cwd=cwd, timeout=timeout, capture_output=True, text=True, check=False)\n"
-        "        return {'ok': True, 'value': completed.stdout, 'stdout': completed.stdout, 'stderr': completed.stderr, 'returncode': completed.returncode, 'raw': {'stdout': completed.stdout, 'stderr': completed.stderr, 'returncode': completed.returncode}}\n"
+        "        return {'ok': True, 'value': completed.stdout, 'stdout': completed.stdout, 'stderr': completed.stderr, 'returncode': completed.returncode, 'raw': {**command_raw, 'stdout': completed.stdout, 'stderr': completed.stderr, 'returncode': completed.returncode}}\n"
         "    except subprocess.TimeoutExpired as exc:\n"
-        "        return {'stdout': '', 'stderr': str(exc), 'returncode': None, 'error_code': 'timeout', 'raw': {'error_code': 'timeout'}}\n"
+        "        message = f'指令執行逾時（{timeout} 秒）'\n"
+        "        return {'stdout': '', 'stderr': str(exc), 'returncode': None, 'error_code': 'command_timeout', 'error_message': message, 'raw': {**command_raw, 'stdout': '', 'stderr': str(exc), 'returncode': None, 'error_code': 'command_timeout', 'error_message': message}}\n"
+        "    except OSError as exc:\n"
+        "        if cwd and (isinstance(exc, FileNotFoundError) or getattr(exc, 'winerror', None) == 267):\n"
+        "            error_code = 'working_directory_not_found'\n"
+        "            message = f'工作目錄不存在：{cwd}'\n"
+        "        else:\n"
+        "            error_code = 'command_exception'\n"
+        "            message = '指令無法執行：' + str(exc)\n"
+        "        return {'stdout': '', 'stderr': str(exc), 'returncode': None, 'error_code': error_code, 'error_message': message, 'raw': {**command_raw, 'stdout': '', 'stderr': str(exc), 'returncode': None, 'error_code': error_code, 'error_message': message, 'error': str(exc)}}\n"
         "    except Exception as exc:\n"
-        "        return {'stdout': '', 'stderr': str(exc), 'returncode': None, 'error_code': 'command_exception', 'raw': {'error_code': 'command_exception', 'error': str(exc)}}\n\n"
+        "        message = '指令無法執行：' + str(exc)\n"
+        "        return {'stdout': '', 'stderr': str(exc), 'returncode': None, 'error_code': 'command_exception', 'error_message': message, 'raw': {**command_raw, 'stdout': '', 'stderr': str(exc), 'returncode': None, 'error_code': 'command_exception', 'error_message': message, 'error': str(exc)}}\n\n"
+        "def command_failure_message(collected):\n"
+        "    returncode = collected.get('returncode')\n"
+        "    detail = str(collected.get('stderr') or collected.get('stdout') or '').strip().splitlines()\n"
+        "    message = f'指令執行失敗（returncode {returncode}）'\n"
+        "    return message + (f'：{detail[0][:300]}' if detail else '')\n\n"
         "def _json_path(value, path):\n"
         "    current = value\n"
         "    for part in path.lstrip('$.').split('.'):\n"
@@ -410,13 +433,19 @@ def _render_script(plan: dict[str, Any]) -> str:
         "    return current\n\n"
         "def judge(step, collected):\n"
         "    if not collected.get('ok'):\n"
-        "        return 'unknown', str(collected.get('error') or collected.get('error_code') or 'collection failed'), dict(collected.get('raw') or collected)\n"
-        "    if step.get('judgement_mode') == 'teacher':\n"
-        "        return 'collected', str(collected.get('value') or ''), dict(collected.get('raw') or collected)\n"
+        "        return 'unknown', str(collected.get('error_message') or collected.get('error') or collected.get('error_code') or '收集失敗'), dict(collected.get('raw') or collected)\n"
         "    assertion = step.get('assertion') or {}\n"
         "    kind = assertion.get('type')\n"
         "    actual = collected.get('value')\n"
         "    expected = assertion.get('expected')\n"
+        "    returncode = collected.get('returncode')\n"
+        "    if returncode is not None and returncode != 0 and (step.get('judgement_mode') == 'teacher' or kind != 'returncode_equals'):\n"
+        "        message = command_failure_message(collected)\n"
+        "        raw = dict(collected.get('raw') or collected)\n"
+        "        raw.update({'error_code': 'command_failed', 'error_message': message})\n"
+        "        return 'unknown', message, raw\n"
+        "    if step.get('judgement_mode') == 'teacher':\n"
+        "        return 'collected', str(collected.get('value') or ''), dict(collected.get('raw') or collected)\n"
         "    if kind == 'returncode_equals':\n"
         "        passed = collected.get('returncode') == expected\n"
         "    elif kind == 'text_equals':\n"
@@ -440,7 +469,12 @@ def _render_script(plan: dict[str, Any]) -> str:
         "        passed = _json_path(parsed, str(assertion.get('path') or '')) == expected\n"
         "    else:\n"
         "        return 'unknown', 'unsupported assertion', {'error_code': 'unsupported_assertion'}\n"
-        "    return ('pass' if passed else 'fail'), str(actual), dict(collected.get('raw') or collected)\n\n"
+        "    raw = dict(collected.get('raw') or collected)\n"
+        "    if not passed and kind == 'returncode_equals':\n"
+        "        message = f'指令檢查未通過：預期 returncode {expected}，實際為 {returncode}'\n"
+        "        raw.update({'error_code': 'unexpected_returncode', 'error_message': message})\n"
+        "        return 'fail', message, raw\n"
+        "    return ('pass' if passed else 'fail'), str(actual), raw\n\n"
         + "\n\n".join(functions)
         + "\n\ndef main():\n    checks = []\n"
         + "\n    " + "\n    ".join(calls)
