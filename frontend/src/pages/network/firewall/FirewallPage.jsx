@@ -24,12 +24,7 @@ import {
 } from "../../../services/firewall";
 import RulesPanel       from "../../../components/RulesPanel/RulesPanel";
 import ConnectionDialog from "../../../components/ConnectionDialog/ConnectionDialog";
-import {
-  canConnectNode,
-  canManageNode,
-  isPeerNode,
-  toDialogNodes,
-} from "../../../components/ConnectionDialog/topologyNodes";
+import { canManageNode, toDialogNodes } from "../../../components/ConnectionDialog/topologyNodes";
 import GatewayNode      from "./nodes/GatewayNode";
 import VMNode           from "./nodes/VMNode";
 import ConnectionEdge   from "./edges/ConnectionEdge";
@@ -244,20 +239,16 @@ export default function FirewallPage() {
   );
 
   /* ── 拉線完成：帶入來源/目標，開啟新增連線對話框 ──
-     連線會同時寫兩端的規則：來源一定要能管；目標能管或是老師開放給班級的
-     機器才行。擋在這裡，不讓人填完表單才吃 403 */
+     連線會同時寫兩端的規則，任一端是唯讀的課堂機（學生視角）就擋在這裡，
+     不讓人填完表單才吃 403 */
   const onConnect = useCallback((conn) => {
     if (!conn?.source || !conn?.target || conn.source === conn.target) return;
     const byId = new Map((topology?.nodes ?? []).map((n) => [String(n.vmid), n]));
-    const src = byId.get(conn.source);
-    const tgt = byId.get(conn.target);
-    if (src && isPeerNode(src)) {
-      toast.error(t("FirewallPage.peerSourceNotAllowed", { name: src.name }));
-      return;
-    }
-    const blocked = [src, tgt].find((n) => n && !canManageNode(n) && !canConnectNode(n));
-    if (blocked) {
-      toast.error(t("FirewallPage.readOnlyNode", { name: blocked.name }));
+    const readOnly = [conn.source, conn.target]
+      .map((id) => byId.get(id))
+      .find((n) => n && !canManageNode(n));
+    if (readOnly) {
+      toast.error(t("FirewallPage.readOnlyNode", { name: readOnly.name }));
       return;
     }
     setDialogPreset({ source: toDialogKey(conn.source), target: toDialogKey(conn.target) });
@@ -460,9 +451,6 @@ export default function FirewallPage() {
               <RulesPanel
                 node={{ vmid: Number(rulesPanel.item.id), name: rulesPanel.item.data.name }}
                 canManage={canManageNode(rulesPanel.item.data)}
-                peer={isPeerNode(rulesPanel.item.data)}
-                allowedPorts={rulesPanel.item.data.allowed_ports ?? []}
-                ownerName={rulesPanel.item.data.owner_name ?? null}
                 closing={rulesPanel.closing}
                 onClose={() => setSelectedNode(null)}
                 onChanged={() => fetchTopology(true)}

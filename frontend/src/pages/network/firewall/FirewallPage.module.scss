@@ -407,13 +407,6 @@
   transform: translateY(-50%);
 }
 
-/* 老師開放給班級的機器：可以拉線連過去，但不是自己的；
-   框色跟徽章同一套「別人的機器」群色 */
-.nodePeer {
-  border-style: dotted;
-  border-color: var(--color-kind-shared);
-}
-
 /* 唯讀的課堂機：學生看得到、不能拉線改規則 */
 .nodeReadOnly {
   border-style: dashed;

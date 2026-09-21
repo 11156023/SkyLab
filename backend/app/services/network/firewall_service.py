@@ -10,7 +10,6 @@
 
 import logging
 import re
-from dataclasses import dataclass
 from typing import Any
 
 from sqlmodel import Session, col, select
@@ -32,7 +31,6 @@ from app.schemas.firewall import (
     TopologyNode,
     TopologyResponse,
 )
-from app.services.network import class_exposure_service
 from app.services.proxmox import proxmox_service
 from app.services.resource import access as resource_access
 from app.services.resource import kind as resource_kind
@@ -1097,20 +1095,6 @@ def _describe_resource_origins(
     return class_names, owner_names
 
 
-@dataclass(frozen=True)
-class _NodeSpec:
-    """拓撲節點的權限與歸屬標示，先算好再逐台問 Proxmox。"""
-
-    vmid: int
-    can_manage: bool
-    can_connect: bool
-    allowed_ports: list[PortSpec] | None
-    owner_name: str | None
-    class_name: str | None
-    machine_kind: str = "personal"
-    class_relation: str | None = None
-
-
 def get_topology(user: User, session: Session) -> TopologyResponse:
     """取得使用者的防火牆拓撲（節點 + 連線）
 
@@ -1123,49 +1107,12 @@ def get_topology(user: User, session: Session) -> TopologyResponse:
     owned_class_ids = resource_access.list_owned_teaching_class_ids(
         session=session, user=user
     )
+    target_vmids = [r.vmid for r in reachable]
+    resource_by_vmid = {r.vmid: r for r in reachable}
     class_names, owner_names = _describe_resource_origins(
         session=session, resources=reachable, viewer_id=user.id
     )
     kinds = resource_kind.classify_many(session, reachable)
-    specs: list[_NodeSpec] = []
-    for r in reachable:
-        manageable = resource_access.can_manage_resource(
-            resource=r, user=user, owned_class_ids=owned_class_ids
-        )
-        specs.append(
-            _NodeSpec(
-                vmid=r.vmid,
-                can_manage=manageable,
-                # 連線兩端都要寫規則，管不了的機器（學生的課堂機）不能當任一端
-                can_connect=manageable,
-                allowed_ports=None,
-                owner_name=owner_names.get(r.user_id),
-                class_name=class_names.get(r.teaching_class_id),
-                machine_kind=kinds.get(r.vmid, "personal"),
-                class_relation=resource_kind.class_relation_for(
-                    r, viewer_id=user.id, owned_class_ids=owned_class_ids
-                ),
-            )
-        )
-    # 老師開放給我班級的機器：可以當連線目標，但看不到規則、不能管
-    peers = class_exposure_service.list_peer_targets(
-        session=session, user=user, exclude_vmids={s.vmid for s in specs}
-    )
-    peer_kinds = resource_kind.classify_many(session, [p.resource for p in peers])
-    for peer in peers:
-        specs.append(
-            _NodeSpec(
-                vmid=peer.resource.vmid,
-                can_manage=False,
-                can_connect=True,
-                allowed_ports=peer.allowed_ports,
-                owner_name=peer.owner_name,
-                class_name=" / ".join(peer.class_names) or None,
-                machine_kind=peer_kinds.get(peer.resource.vmid, "personal"),
-            )
-        )
-    spec_by_vmid = {s.vmid: s for s in specs}
-    target_vmids = [s.vmid for s in specs]
 
     # 取得使用者的佈局記錄
     layout_records = layout_repo.get_layout(session=session, user_id=user.id)
@@ -1226,7 +1173,7 @@ def get_topology(user: User, session: Session) -> TopologyResponse:
             px = col_x
             py = 100.0 + i * row_y_step
 
-        spec = spec_by_vmid[vmid]
+        db_resource = resource_by_vmid[vmid]
         nodes.append(
             TopologyNode(
                 vmid=vmid,
@@ -1238,19 +1185,18 @@ def get_topology(user: User, session: Session) -> TopologyResponse:
                 firewall_enabled=firewall_enabled,
                 position_x=px,
                 position_y=py,
-                can_manage=spec.can_manage,
-                can_connect=spec.can_connect,
-                allowed_ports=spec.allowed_ports,
-                owner_name=spec.owner_name,
-                teaching_class_name=spec.class_name,
-                machine_kind=spec.machine_kind,  # type: ignore[arg-type]
-                class_relation=spec.class_relation,  # type: ignore[arg-type]
+                can_manage=resource_access.can_manage_resource(
+                    resource=db_resource, user=user, owned_class_ids=owned_class_ids
+                ),
+                owner_name=owner_names.get(db_resource.user_id),
+                teaching_class_name=class_names.get(db_resource.teaching_class_id),
+                machine_kind=kinds.get(vmid, "personal"),  # type: ignore[arg-type]
+                class_relation=resource_kind.class_relation_for(  # type: ignore[arg-type]
+                    db_resource, viewer_id=user.id, owned_class_ids=owned_class_ids
+                ),
             )
         )
-        # 連線只從自己看得到規則的機器解析；老師開放的機器上還有別人的
-        # 連線，不該出現在學生的圖上（學生連過去的那條在自己機器上就讀得到）
-        if spec.allowed_ports is None:
-            valid_vmids.append(vmid)
+        valid_vmids.append(vmid)
 
     # 新增網關節點
     gw_key = "None:gateway"

@@ -21,7 +21,6 @@ from .batch_provision import (
     BatchProvisionTask,
     BatchProvisionTaskStatus,
 )
-from .class_exposure import ResourceClassExposure
 from .cloudflare_config import CloudflareConfig
 from .course import (
     CourseDifficulty,
@@ -136,7 +135,6 @@ __all__ = [
     "ResourceNetwork",
     "ResourceQuota",
     "ResourceShare",
-    "ResourceClassExposure",
     "QuotaConfig",
     # VM Request
     "VMProvisioningStatus",

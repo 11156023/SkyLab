@@ -53,7 +53,6 @@ import {
   buildOutboundPorts,
   buildPeerPortsPayload,
   buildRulePayload,
-  disallowedPeerPorts,
   isPortless,
 } from "./connectionPayload";
 import { submitRequest } from "./submitConnection";
@@ -285,19 +284,19 @@ export default function ConnectionDialog({
     return list;
   }, [nodes, fetchedNodes, fixedKey, fixedVmid, fixedName]);
 
-  const nodeOf = (key) => vmNodes.find((n) => n.key === key);
   const labelOf = (key) =>
-    key === INTERNET_KEY ? t("ConnectionDialog.gatewayLabel") : (nodeOf(key)?.name ?? key);
-  const getVmid = (key) => (key === INTERNET_KEY ? null : (nodeOf(key)?.vmid ?? null));
+    key === INTERNET_KEY
+      ? t("ConnectionDialog.gatewayLabel")
+      : (vmNodes.find((n) => n.key === key)?.name ?? key);
+  const getVmid = (key) => (key === INTERNET_KEY ? null : (vmNodes.find((n) => n.key === key)?.vmid ?? null));
 
-  /* 清單載入後修正無效的機器（拉線帶入的 key 不存在、或還沒選）。
-     老師開放的機器（peerOnly）只能當「連到哪台」，其他欄位不能選它 */
+  /* 清單載入後修正無效的機器（拉線帶入的 key 不存在、或還沒選） */
   useEffect(() => {
     if (nodesLoading) return;
-    const manageable = (k) => isVmKey(k) && vmNodes.some((n) => n.key === k && !n.peerOnly);
-    const fallback = fixedKey ?? vmNodes.find((n) => !n.peerOnly)?.key ?? "";
-    setVmKey((k) => (manageable(k) ? k : fallback));
-    setPeerSourceKey((k) => (manageable(k) ? k : fallback));
+    const known = (k) => isVmKey(k) && vmNodes.some((n) => n.key === k);
+    const fallback = fixedKey ?? vmNodes[0]?.key ?? "";
+    setVmKey((k) => (known(k) ? k : fallback));
+    setPeerSourceKey((k) => (known(k) ? k : fallback));
   }, [nodesLoading, vmNodes, fixedKey]);
 
   /* 互通的另一端必須是另一台已知的機器；來源改成跟目標同一台時目標自動讓位 */
@@ -310,13 +309,6 @@ export default function ConnectionDialog({
   }, [nodesLoading, vmNodes, peerSourceKey]);
 
   const { sourceKey, targetKey } = endsOf(intent, { vmKey, peerSourceKey, peerTargetKey });
-
-  /* 連到老師開放的機器：埠限老師允許的那幾個、方向只能單向 */
-  const peerTargetNode = nodeOf(peerTargetKey);
-  const peerLimited = Boolean(isVmToVm && peerTargetNode?.peerOnly);
-  const peerAllowedPorts = peerTargetNode?.allowedPorts ?? [];
-  const formatPorts = (ports) =>
-    ports.map((p) => (p.port === 0 ? p.protocol : `${p.port}/${p.protocol}`)).join(", ");
 
   /* ── 入站：發布方式 ── */
   const [setupContext, setSetupContext] = useState(null);
@@ -409,9 +401,6 @@ export default function ConnectionDialog({
   ]);
   const [vmRows, setVmRows] = useState(() => [newPortRow()]);
   const [direction, setDirection] = useState("one_way");
-  useEffect(() => {
-    if (peerLimited) setDirection("one_way");
-  }, [peerLimited]);
 
   /* ── 自訂規則 ── */
   const [rule, setRule] = useState({ type: "in", action: "ACCEPT", proto: "tcp", dport: "", source: "", comment: "" });
@@ -502,18 +491,6 @@ export default function ConnectionDialog({
         return;
       }
       ports = built.ports;
-      if (peerLimited) {
-        const stale = disallowedPeerPorts(ports, peerAllowedPorts);
-        if (stale.length > 0) {
-          setError(t("ConnectionDialog.peerPortNotAllowed", {
-            ports: formatPorts(stale),
-            allowed: formatPorts(peerAllowedPorts),
-          }));
-          setPortsInvalid(true);
-          focusInvalidField(form.querySelector('input[type="number"]'));
-          return;
-        }
-      }
     } else {
       return;
     }
@@ -586,11 +563,10 @@ export default function ConnectionDialog({
           ? t("ConnectionDialog.domainUnchanged", { domain: fullDomain })
           : fullDomain;
 
-  /* 機器欄位：鎖定（資源頁入口、編輯）就顯示名稱，否則下拉。
-     老師開放的機器只在「連到哪台」出現（allowPeer），其他欄位濾掉 */
-  const machineField = (id, label, value, onPick, { exclude, allowPeer = false } = {}) => {
+  /* 機器欄位：鎖定（資源頁入口、編輯）就顯示名稱，否則下拉 */
+  const machineField = (id, label, value, onPick, { exclude } = {}) => {
     const locked = editing || (fixedKey !== null && value === fixedKey);
-    const options = vmNodes.filter((n) => n.key !== exclude && (allowPeer || !n.peerOnly));
+    const options = vmNodes.filter((n) => n.key !== exclude);
     return (
       <div className={styles.field}>
         <label className={styles.fieldLabel} htmlFor={id}>{label}</label>
@@ -773,31 +749,21 @@ export default function ConnectionDialog({
             <>
               <div className={styles.formGrid}>
                 {machineField("cd-peer-source", t("ConnectionDialog.peerSource"), peerSourceKey, setPeerSourceKey)}
-                {machineField("cd-peer-target", t("ConnectionDialog.peerTarget"), peerTargetKey, setPeerTargetKey, { exclude: peerSourceKey, allowPeer: true })}
+                {machineField("cd-peer-target", t("ConnectionDialog.peerTarget"), peerTargetKey, setPeerTargetKey, { exclude: peerSourceKey })}
               </div>
               <div className={styles.field}>
                 <label className={styles.fieldLabel}>{t("ConnectionDialog.direction")}</label>
-                {/* 老師的機器只能單向連過去，雙向選項整段不顯示 */}
                 <SegmentedControl
                   className={styles.dirToggle}
                   options={[
                     { value: "one_way", label: `${labelOf(peerSourceKey)} → ${labelOf(peerTargetKey)}` },
-                    ...(peerLimited ? [] : [{ value: "bidirectional", label: t("ConnectionDialog.bidirectional") }]),
+                    { value: "bidirectional", label: t("ConnectionDialog.bidirectional") },
                   ]}
                   value={direction}
                   onChange={setDirection}
                   ariaLabel={t("ConnectionDialog.direction")}
                 />
               </div>
-              {peerLimited && (
-                <p className={styles.infoBox}>
-                  <MIcon name="school" size={16} />
-                  {t("ConnectionDialog.peerOnlyHint", {
-                    target: labelOf(peerTargetKey),
-                    ports: formatPorts(peerAllowedPorts),
-                  })}
-                </p>
-              )}
               <PortRows rows={vmRows} setRows={editRows(setVmRows)} protocols={CONNECTION_PROTOCOLS} invalid={portsInvalid} />
             </>
           )}

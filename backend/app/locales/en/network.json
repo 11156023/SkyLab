@@ -115,15 +115,5 @@
   "firewall.serviceNotFound": "No published service found for port {port}/{protocol}",
   "firewall.serviceUnpublished": "Service unpublished",
   "reverseProxy.domainConflictUnverified": "Could not confirm with Cloudflare whether {domain} is already in use; only this system's records were checked",
-  "reverseProxy.domainInUseExternally": "Domain {domain} already has a {record_type} record on Cloudflare (not created by this system); please choose another name",
-  "firewall.exposure_class_not_found": "Teaching class not found",
-  "firewall.exposure_not_class_owner": "You can only open a machine to a class you teach",
-  "firewall.exposure_ports_required": "Open at least one port",
-  "firewall.exposure_exists": "This machine is already open to that class; edit the allowed ports instead",
-  "firewall.exposure_not_found": "Class exposure not found",
-  "firewall.exposure_deleted": "Exposure closed; {count} student connection(s) removed",
-  "firewall.peer_not_allowed": "The target machine is not open to any class you belong to",
-  "firewall.peer_one_way_only": "Connections to a teacher's machine must be one-way",
-  "firewall.peer_port_not_allowed": "The teacher has not opened these ports: {ports}",
-  "firewall.connection_delete_denied": "You cannot remove this connection (you must manage at least one end)"
+  "reverseProxy.domainInUseExternally": "Domain {domain} already has a {record_type} record on Cloudflare (not created by this system); please choose another name"
 }
