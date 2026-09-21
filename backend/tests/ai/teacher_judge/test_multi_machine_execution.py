@@ -21,12 +21,17 @@ from app.ai.teacher_judge.script_artifact_service import (
 from app.ai.teacher_judge.script_policy import check_peer_runtime_policy
 from app.ai.teacher_judge.script_run_service import (
     _peer_resolution_for_target,
+    get_script_run_batch_public,
     project_run_items,
 )
 from app.models.teacher_judge_script_artifact import (
     TeacherJudgeScriptArtifact,
     TeacherJudgeScriptLanguage,
     TeacherJudgeScriptStatus,
+)
+from app.models.teacher_judge_script_run import (
+    TeacherJudgeScriptRun,
+    TeacherJudgeScriptRunStatus,
 )
 from app.models.teaching_class import TeachingClassMachineNode
 from tests.ai.teacher_judge.helpers import make_session
@@ -523,3 +528,48 @@ def test_item_projection_keeps_vmid_and_teacher_review() -> None:
     )
     assert absent["vmid"] is None
     assert absent["teacher_review"] is None
+
+
+def test_batch_student_node_projection_includes_child_run_id() -> None:
+    session = make_session()
+    class_id = uuid.uuid4()
+    batch_id = uuid.uuid4()
+    artifact = TeacherJudgeScriptArtifact(
+        teaching_class_id=class_id,
+        target_node_key="db",
+        rubric_snapshot_json={"items": []},
+        script_content="print('{}')",
+        name="db",
+        template_key="linux",
+    )
+    session.add(artifact)
+    session.commit()
+    session.refresh(artifact)
+    run = TeacherJudgeScriptRun(
+        teaching_class_id=class_id,
+        artifact_id=artifact.id,
+        run_batch_id=batch_id,
+        status=TeacherJudgeScriptRunStatus.completed,
+        progress_json={"total": 1, "done": 1},
+        target_results_json={
+            "targets": [
+                {
+                    "student_id": "student-1",
+                    "vmid": 101,
+                    "status": "completed",
+                    "parsed_result": {"checks": []},
+                }
+            ]
+        },
+    )
+    session.add(run)
+    session.commit()
+    session.refresh(run)
+
+    result = get_script_run_batch_public(
+        session=session,
+        teaching_class_id=class_id,
+        run_batch_id=batch_id,
+    )
+
+    assert result.students[0]["nodes"][0]["run_id"] == str(run.id)

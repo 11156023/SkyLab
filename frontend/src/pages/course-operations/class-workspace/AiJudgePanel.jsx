@@ -2903,9 +2903,22 @@ function reviewDraftFromTeacherReview(review) {
 }
 
 export function buildBatchReviewRows(batch, members = []) {
+  const runIdByNodeKey = new Map(
+    (Array.isArray(batch?.nodes) ? batch.nodes : []).map((node) => [
+      String(node?.target_node_key ?? node?.node_key ?? ""),
+      node?.run_id ?? null,
+    ]),
+  );
   const memberByVmidNode = new Map();
   const memberByVmid = new Map();
+  const memberByStudentNode = new Map();
   for (const member of Array.isArray(members) ? members : []) {
+    if (member?.student_id != null) {
+      memberByStudentNode.set(
+        `${String(member.student_id)}|${String(member?.node_key ?? "")}`,
+        member,
+      );
+    }
     if (member?.vmid == null) continue;
     const vmid = String(member.vmid);
     memberByVmidNode.set(`${vmid}|${String(member?.node_key ?? "")}`, member);
@@ -2917,6 +2930,7 @@ export function buildBatchReviewRows(batch, members = []) {
       const nodeKey = String(node?.node_key ?? "");
       const member = memberByVmidNode.get(`${String(node?.vmid ?? "")}|${nodeKey}`)
         ?? memberByVmid.get(String(node?.vmid ?? ""))
+        ?? memberByStudentNode.get(`${String(student?.student_id ?? "")}|${nodeKey}`)
         ?? null;
       const vmid = node?.vmid ?? member?.vmid ?? null;
       rows.push({
@@ -2924,7 +2938,7 @@ export function buildBatchReviewRows(batch, members = []) {
         member: member ?? { user_id: student?.student_id ?? null },
         target: buildBatchReviewTarget(node, member),
         node,
-        runId: node?.run_id ?? null,
+        runId: node?.run_id ?? runIdByNodeKey.get(nodeKey) ?? null,
         vmid,
         studentId: student?.student_id ?? null,
         nodeKey,
@@ -2939,27 +2953,47 @@ export function buildBatchReviewRows(batch, members = []) {
 export function buildLegacyReviewRows(run, members = []) {
   const targets = run?.target_results_json?.targets ?? [];
   const targetsByVmid = new Map(targets.map((target) => [String(target.vmid), target]));
-  const matchedVmids = new Set();
+  const targetsByStudentId = new Map(
+    targets
+      .filter((target) => target?.student_id != null)
+      .map((target) => [String(target.student_id), target]),
+  );
+  const matchedTargets = new Set();
   const memberRows = (Array.isArray(members) ? members : []).map((member) => {
-    const target = targetsByVmid.get(String(member.vmid));
-    if (target) matchedVmids.add(String(target.vmid));
+    const target = (member?.vmid != null
+      ? targetsByVmid.get(String(member.vmid))
+      : null)
+      ?? (member?.student_id != null
+        ? targetsByStudentId.get(String(member.student_id))
+        : null)
+      ?? null;
+    if (target) matchedTargets.add(target);
+    const studentId = target?.student_id ?? member?.student_id ?? null;
     return {
-      key: String(member.vmid ?? member.user_id ?? member.email),
+      key: String(member.vmid ?? studentId ?? member.user_id ?? member.email),
       member,
       target: target ?? null,
       runId: run?.id ?? null,
       vmid: member.vmid ?? target?.vmid ?? null,
+      studentId,
       items: null,
     };
   });
   const unmatched = targets
-    .filter((target) => !matchedVmids.has(String(target.vmid)))
+    .filter((target) => !matchedTargets.has(target))
     .map((target) => ({
-      key: String(target.vmid ?? target.user?.user_id ?? target.user?.email),
+      key: String(
+        target.vmid
+        ?? target.student_id
+        ?? target.user?.user_id
+        ?? target.user?.id
+        ?? target.user?.email,
+      ),
       member: target.user ?? {},
       target,
       runId: run?.id ?? null,
       vmid: target.vmid ?? null,
+      studentId: target.student_id ?? null,
       items: null,
     }));
   return [...memberRows, ...unmatched];
@@ -3135,15 +3169,31 @@ export function TeacherReviewTab({ classId, sessionId, members, machineNodes = [
     const draft = drafts[row.key] ?? reviewDraft(row.target);
     setSavingKey(row.key);
     try {
-      const updated = await AiJudgeService.updateTargetReview(
-        classId,
-        sessionId,
-        row.runId,
-        row.vmid,
-        draft,
-      );
+      if (!row.runId) throw new Error("這筆核查結果缺少執行識別碼，請重新執行檢查。");
+      if (row.vmid == null && !row.studentId) {
+        throw new Error("這筆核查結果缺少學生識別碼，無法儲存。請重新執行檢查。");
+      }
+      const updated = row.vmid == null
+        ? await AiJudgeService.updateStudentReview(
+          classId,
+          sessionId,
+          row.runId,
+          row.studentId,
+          draft,
+        )
+        : await AiJudgeService.updateTargetReview(
+          classId,
+          sessionId,
+          row.runId,
+          row.vmid,
+          draft,
+        );
       const savedTarget = (updated?.target_results_json?.targets ?? [])
-        .find((item) => String(item?.vmid) === String(row.vmid));
+        .find((item) => (
+          (row.studentId != null
+            && String(item?.student_id ?? "") === String(row.studentId))
+          || (row.vmid != null && String(item?.vmid) === String(row.vmid))
+        ));
       if (reviewState?.mode === "batch") {
         const savedReview = savedTarget?.teacher_review;
         setReviewState((current) => (

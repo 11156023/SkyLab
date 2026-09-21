@@ -1307,6 +1307,21 @@ def list_session_runs(
     ]
 
 
+def _run_to_teacher_review_public(
+    run: TeacherJudgeScriptRun,
+) -> TeacherJudgeScriptRunPublic:
+    """Expose only the VM identity needed by the authorized teacher review UI."""
+
+    public = _run_to_public(run)
+    public_targets = public.target_results_json.get("targets")
+    raw_targets = (run.target_results_json or {}).get("targets")
+    if isinstance(public_targets, list) and isinstance(raw_targets, list):
+        for public_target, raw_target in zip(public_targets, raw_targets, strict=False):
+            if isinstance(public_target, dict) and isinstance(raw_target, dict):
+                public_target["vmid"] = raw_target.get("vmid")
+    return public
+
+
 @router.get("/{session_id}/runs/{run_id}", response_model=TeacherJudgeScriptRunPublic)
 def get_session_run(
     teaching_class_id: uuid.UUID,
@@ -1330,24 +1345,20 @@ def get_session_run(
         raise HTTPException(
             status_code=404, detail=t("teacherJudgeSessions.runResultNotFound")
         )
-    return _run_to_public(run)
+    return _run_to_teacher_review_public(run)
 
 
-@router.patch(
-    "/{session_id}/runs/{run_id}/targets/{vmid}/review",
-    response_model=TeacherJudgeScriptRunPublic,
-)
-def update_target_review(
+def _update_target_review(
     teaching_class_id: uuid.UUID,
     session_id: uuid.UUID,
     run_id: uuid.UUID,
-    vmid: int,
     payload: TeacherJudgeTargetReviewUpdate,
     session: SessionDep,
     current_user: InstructorUser,
+    *,
+    vmid: int | None = None,
+    student_id: str | None = None,
 ) -> TeacherJudgeScriptRunPublic:
-    """Save the teacher's decisions and optional weekly feedback for one student."""
-
     _access(session, teaching_class_id, current_user)
     get_session(session, teaching_class_id, session_id)
     run = session.exec(
@@ -1373,7 +1384,14 @@ def update_target_review(
         (
             index
             for index, target in enumerate(targets)
-            if isinstance(target, dict) and str(target.get("vmid")) == str(vmid)
+            if isinstance(target, dict)
+            and (
+                (vmid is not None and str(target.get("vmid")) == str(vmid))
+                or (
+                    student_id is not None
+                    and str(target.get("student_id")) == student_id
+                )
+            )
         ),
         None,
     )
@@ -1415,7 +1433,59 @@ def update_target_review(
     session.add(run)
     session.commit()
     session.refresh(run)
-    return _run_to_public(run)
+    return _run_to_teacher_review_public(run)
+
+
+@router.patch(
+    "/{session_id}/runs/{run_id}/targets/{vmid}/review",
+    response_model=TeacherJudgeScriptRunPublic,
+)
+def update_target_review(
+    teaching_class_id: uuid.UUID,
+    session_id: uuid.UUID,
+    run_id: uuid.UUID,
+    vmid: int,
+    payload: TeacherJudgeTargetReviewUpdate,
+    session: SessionDep,
+    current_user: InstructorUser,
+) -> TeacherJudgeScriptRunPublic:
+    """Save a review for a target that has an assigned VM."""
+
+    return _update_target_review(
+        teaching_class_id,
+        session_id,
+        run_id,
+        payload,
+        session,
+        current_user,
+        vmid=vmid,
+    )
+
+
+@router.patch(
+    "/{session_id}/runs/{run_id}/students/{student_id}/review",
+    response_model=TeacherJudgeScriptRunPublic,
+)
+def update_student_target_review(
+    teaching_class_id: uuid.UUID,
+    session_id: uuid.UUID,
+    run_id: uuid.UUID,
+    student_id: str,
+    payload: TeacherJudgeTargetReviewUpdate,
+    session: SessionDep,
+    current_user: InstructorUser,
+) -> TeacherJudgeScriptRunPublic:
+    """Save a review when preflight failed before a VMID was available."""
+
+    return _update_target_review(
+        teaching_class_id,
+        session_id,
+        run_id,
+        payload,
+        session,
+        current_user,
+        student_id=student_id,
+    )
 
 
 @router.post(

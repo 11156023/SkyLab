@@ -190,6 +190,13 @@ export const AiJudgeService = {
     );
   },
 
+  updateStudentReview(classId, sessionId, runId, studentId, { feedback = "", decisions = {} }) {
+    return apiPatch(
+      `/api/v1/teaching-classes/${classId}/judge/sessions/${sessionId}/runs/${runId}/students/${encodeURIComponent(studentId)}/review`,
+      { feedback, decisions },
+    );
+  },
+
   /* ── 檢查點腳本集（多機器整批執行） ── */
 
   /** 列出 session 的檢查點腳本集（每個邏輯機器一份 child artifact） */
