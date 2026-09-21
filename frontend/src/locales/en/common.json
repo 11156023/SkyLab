@@ -16,6 +16,7 @@
   "ErrorBoundary.retry": "Retry",
   "ErrorBoundary.reload": "Reload page",
   "LoadingState.default": "Loading…",
+  "ListFormat.separator": ", ",
   "ConfirmProvider.defaultTitle": "Confirm action",
   "ConfirmProvider.cancel": "Cancel",
   "ConfirmProvider.confirm": "Confirm",

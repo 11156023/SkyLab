@@ -33,6 +33,7 @@ import NodeHandles from "../../network/firewall/nodes/NodeHandles";
 import ConnectionEdge from "../../network/firewall/edges/ConnectionEdge";
 import ConnectionDetailPanel from "../../network/firewall/ConnectionDetailPanel";
 import { routeEdges } from "../../network/firewall/utils/buildFlow";
+import { joinList } from "../../../utils/joinList";
 import { INTERNET_KEY } from "../../../components/ConnectionDialog/intents";
 import { ThemeContext } from "../../../contexts/ThemeContext";
 import { normalizePublication, peerDetailPort, peerEdgeLabel, publicationDetailPort, publicationLabel } from "../courseTopology";
@@ -294,8 +295,8 @@ function Students({ item, onRefresh }) {
       setEmails("");
       setShowAdd(false);
       const notices = [t("ClassWorkspacePage.addedStudentsCount", { count: result.added })];
-      if (result.not_found?.length) notices.push(t("ClassWorkspacePage.notFoundList", { list: result.not_found.join("、") }));
-      if (result.invalid_role?.length) notices.push(t("ClassWorkspacePage.invalidRoleList", { list: result.invalid_role.join("、") }));
+      if (result.not_found?.length) notices.push(t("ClassWorkspacePage.notFoundList", { list: joinList(result.not_found) }));
+      if (result.invalid_role?.length) notices.push(t("ClassWorkspacePage.invalidRoleList", { list: joinList(result.invalid_role) }));
       toast.success(`${notices.join("；")}。`);
       onRefresh(result.class);
     } catch (error) { toast.error(error?.message ?? t("ClassWorkspacePage.addStudentsFailed")); }
@@ -342,7 +343,7 @@ function Students({ item, onRefresh }) {
         const ready = student.machines.filter((machine) => machine.status === "completed").length;
         return <article className={styles.memberRow} key={student.id}>
           <div className={styles.memberIdentity}><strong>{student.full_name || student.email}</strong><span>{student.email}</span></div>
-          <span>{student.machines.length ? student.machines.map((machine) => machine.vmid ?? "—").join("、") : "—"}</span>
+          <span>{student.machines.length ? joinList(student.machines.map((machine) => machine.vmid ?? "—")) : "—"}</span>
           <span className={`${styles.memberMachineState} ${ready === item.nodes.length && item.nodes.length ? styles.memberReady : ""}`}>{item.nodes.length ? t("ClassWorkspacePage.readyCountLabel", { ready, total: item.nodes.length }) : t("ClassWorkspacePage.notBuiltLabel")}</span>
           <span>{formatDate(student.joined_at)}</span>
           {!locked ? <button type="button" className={styles.memberRemove} aria-label={t("ClassWorkspacePage.removeStudentAriaLabel")} onClick={() => remove(student.id)}><MIcon name="person_remove" size={17} /></button> : <span />}
