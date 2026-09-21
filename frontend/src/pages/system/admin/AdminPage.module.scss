@@ -117,21 +117,32 @@
   gap: $spacing-8;
 }
 
+/* 每一格都用具名區域明確擺放，不靠自動排版：
+   窄螢幕時頭像與操作鈕跨兩行置中，姓名信箱在上、角色狀態在下；
+   寬螢幕一行排完，角色／狀態／日期各自固定欄寬——每一列都是獨立的 grid，
+   只有固定寬度才能讓徽章在不同列之間對齊 */
 .row {
   display: grid;
   grid-template-columns: 40px minmax(0, 1fr) auto;
-  gap: $spacing-16;
+  grid-template-areas:
+    "avatar main actions"
+    "avatar tags actions";
+  column-gap: $spacing-16;
+  row-gap: $spacing-8;
   align-items: center;
   padding: $spacing-16;
   @include glass-surface($shadow: var(--shadow-sm));
   border-radius: $radius-8;
 
   @include respond-to(lg) {
-    grid-template-columns: 40px minmax(220px, 1fr) auto auto auto 96px auto;
+    grid-template-columns: 40px minmax(220px, 1fr) 88px 64px 96px auto;
+    grid-template-areas: "avatar main role status date actions";
+    row-gap: 0;
   }
 }
 
 .rowAvatar {
+  grid-area: avatar;
   width: 40px;
   height: 40px;
   border-radius: 50%;
@@ -143,6 +154,7 @@
 }
 
 .rowMain {
+  grid-area: main;
   @include flex-column;
   gap: 2px;
   min-width: 0;
@@ -178,6 +190,30 @@
   font-size: $font-size-12;
   color: var(--color-text-muted);
   @include text-truncate;
+}
+
+/* 角色＋狀態徽章：窄螢幕同一行排在姓名下方；
+   寬螢幕 display: contents 解開外層，兩顆徽章各自落到 role / status 欄 */
+.rowTags {
+  grid-area: tags;
+  display: flex;
+  flex-wrap: wrap;
+  gap: $spacing-8;
+  min-width: 0;
+
+  @include respond-to(lg) {
+    display: contents;
+
+    > .badge {
+      grid-area: role;
+      justify-self: start;
+    }
+
+    > .statusBadge {
+      grid-area: status;
+      justify-self: start;
+    }
+  }
 }
 
 .badge,
@@ -221,6 +257,7 @@
 }
 
 .createdAt {
+  grid-area: date;
   display: none;
   color: var(--color-text-muted);
   font-size: $font-size-12;
@@ -231,43 +268,31 @@
   }
 }
 
+/* 列上的淡底圖示鈕之間留 8px，與 AI API、我的資源、資源管理的列動作同距 */
 .rowActions {
+  grid-area: actions;
   display: flex;
-  gap: $spacing-4;
+  gap: $spacing-8;
   justify-content: flex-end;
 }
 
-.actionBtn,
-.dialogClose {
-  @include btn-dialog-close;
+/* 列上的圖示鈕：編輯是一般動作，只有刪除才是危險款。
+   兩款各自是完整的 mixin，不要疊在同一顆按鈕上——一般款的 :hover 會把
+   color 蓋成主文字色，危險款的 :hover 只換底色，疊起來刪除鈕 hover 會變藍。
+   btn-dialog-close 內建紅字，那款只給 Dialog 右上的關閉鈕 */
+.actionBtn {
+  @include btn-icon;
   flex-shrink: 0;
 }
 
-.iconBtn {
-  width: 30px;
-  height: 30px;
-  border-radius: $radius-8;
-  @include flex-center;
-  color: var(--color-text-secondary);
-  transition: background $transition-base, color $transition-base, opacity $transition-base;
-
-  &:hover:not(:disabled) {
-    background: var(--color-hover);
-    color: var(--color-text-primary);
-  }
-
-  &:disabled {
-    opacity: 0.35;
-    cursor: not-allowed;
-  }
+.actionBtnDanger {
+  @include btn-icon($danger: true);
+  flex-shrink: 0;
 }
 
-.actionBtnDanger {
-  color: var(--color-danger);
-
-  &:hover:not(:disabled) {
-    background: color-mix(in srgb, var(--color-danger) 10%, transparent);
-  }
+.dialogClose {
+  @include btn-dialog-close;
+  flex-shrink: 0;
 }
 
 .modalOverlay {
@@ -299,33 +324,27 @@
   to   { opacity: 1; transform: translateY(0); }
 }
 
-.modal,
-.confirm {
+.modal {
   animation: slideUp 0.18s cubic-bezier(0.25, 0.8, 0.25, 1);
   width: min(640px, 100%);
   @include flex-column;
   gap: $spacing-16;
   padding: $spacing-24;
   @include glass-surface($shadow: var(--shadow-lg));
-  border-radius: $radius-8;
+  border-radius: $radius-16;
 }
 
 .modalHeader {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: space-between;
   gap: $spacing-16;
 
   h2 {
     margin: 0;
-    font-size: $font-size-18;
+    font-size: $font-size-16;
+    font-weight: $font-weight-700;
     color: var(--color-text-primary);
-  }
-
-  p {
-    margin: 4px 0 0;
-    font-size: $font-size-12;
-    color: var(--color-text-secondary);
   }
 }
 
@@ -339,26 +358,23 @@
   }
 }
 
+/* 欄位一律走 _mixins.scss 的表單 mixin 組（樣式規範「表單」段）：
+   標籤 14/500、控制項 36px，不在頁面內另立一套字級與內距 */
 .field {
-  @include flex-column;
-  gap: 6px;
-  font-size: $font-size-12;
-  font-weight: $font-weight-500;
-  color: var(--color-text-secondary);
+  @include form-field;
 
   input,
   select {
-    min-height: 38px;
-    padding: 8px $spacing-16;
-    border: 1px solid var(--color-border);
-    border-radius: $radius-8;
-    background: var(--color-surface);
-    color: var(--color-text-primary);
-    outline: none;
+    @include form-control;
 
-    &:focus {
-      border-color: var(--color-primary);
-      box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-primary) 12%, transparent);
+    &::placeholder {
+      color: var(--color-text-muted);
+    }
+
+    /* LDAP 帳號的密碼歸目錄管，欄位鎖住 */
+    &:disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
     }
   }
 }
@@ -369,17 +385,23 @@
   gap: $spacing-16;
 }
 
+/* 勾選列：與其他對話框的勾選項（範本表單 .checkLine 等）同一套——
+   無外框、左緣對齊上方欄位；勾選框吃主色，不用瀏覽器預設的亮藍 */
 .checkRow {
   display: inline-flex;
   align-items: center;
   gap: $spacing-8;
-  min-height: 34px;
-  padding: 0 $spacing-16;
-  border: 1px solid var(--color-border);
-  border-radius: $radius-8;
   color: var(--color-text-primary);
   font-size: $font-size-14;
   cursor: pointer;
+
+  input[type="checkbox"] {
+    width: 16px;
+    height: 16px;
+    margin: 0;
+    accent-color: var(--color-primary);
+    cursor: pointer;
+  }
 }
 
 .modalActions {
@@ -388,27 +410,3 @@
   gap: $spacing-8;
 }
 
-.confirm {
-  max-width: 480px;
-  text-align: left;
-
-  h2 {
-    margin: 0;
-    color: var(--color-text-primary);
-  }
-
-  p {
-    margin: 0;
-    color: var(--color-text-secondary);
-    line-height: $line-height-base;
-  }
-}
-
-.confirmIcon {
-  width: 44px;
-  height: 44px;
-  border-radius: $radius-8;
-  background: color-mix(in srgb, var(--color-danger) 12%, transparent);
-  color: var(--color-danger);
-  @include flex-center;
-}
