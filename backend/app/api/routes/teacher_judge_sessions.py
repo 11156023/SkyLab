@@ -186,6 +186,45 @@ def _save_workflow_message(
     return assistant
 
 
+def _save_script_set_failure(
+    session: SessionDep,
+    item: TeacherJudgeSession,
+    *,
+    detail: Any,
+    stage: str,
+    status_code: int | None,
+    source_file_id: uuid.UUID | str | None,
+    analysis_revision: int | None,
+    created_by: uuid.UUID | None,
+) -> None:
+    """Persist a bounded script-set failure for Chat/history projection."""
+    detail_dict = detail if isinstance(detail, dict) else {}
+    if isinstance(detail_dict.get("items"), list):
+        outcome = script_blocker_workflow_message(
+            detail_dict["items"],
+            source_file_id=source_file_id,
+            analysis_revision=analysis_revision,
+        )
+    else:
+        reason_code = detail_dict.get("code")
+        if reason_code == "teacher_judge_analysis_revision_conflict":
+            reason_code = "analysis_revision_conflict"
+        outcome = workflow_error_message(
+            stage=stage,
+            status_code=status_code,
+            source_file_id=source_file_id,
+            analysis_revision=analysis_revision,
+            reason_code=reason_code if isinstance(reason_code, str) else None,
+        )
+    _save_workflow_message(
+        session,
+        item,
+        content=outcome["content"],
+        metadata=outcome["metadata"],
+        created_by=created_by,
+    )
+
+
 def _access(db: SessionDep, class_id: uuid.UUID, user: InstructorUser) -> None:
     teaching_class = db.get(TeachingClass, class_id)
     if not teaching_class:
@@ -1046,7 +1085,7 @@ def _session_rubric_for_script_set(
     ensure_active(item)
     file = require_selected_file(session, item)
     if expected_revision is not None and expected_revision != file.analysis_revision:
-        raise HTTPException(
+        conflict = HTTPException(
             status_code=409,
             detail={
                 "code": "teacher_judge_analysis_revision_conflict",
@@ -1054,6 +1093,17 @@ def _session_rubric_for_script_set(
                 "analysis_revision": file.analysis_revision,
             },
         )
+        _save_script_set_failure(
+            session,
+            item,
+            detail=conflict.detail,
+            stage="persistence",
+            status_code=conflict.status_code,
+            source_file_id=file.id,
+            analysis_revision=file.analysis_revision,
+            created_by=current_user.id,
+        )
+        raise conflict
     rubric_analysis = TeacherJudgeRubricAnalysis.model_validate(file.analysis_json)
     commands = get_enabled_template_commands(
         session,
@@ -1061,7 +1111,7 @@ def _session_rubric_for_script_set(
         include_cross_template=True,
     )
     if not rubric_analysis.items:
-        raise HTTPException(
+        not_ready = HTTPException(
             status_code=422,
             detail={
                 "code": "teacher_judge_script_not_ready",
@@ -1075,12 +1125,36 @@ def _session_rubric_for_script_set(
                 ),
             },
         )
-    ensure_script_generation_supported(
-        rubric_analysis,
-        commands,
-        require_target_node=bool(load_class_machine_nodes(session, teaching_class_id)),
-        require_typed_plan=True,
-    )
+        _save_script_set_failure(
+            session,
+            item,
+            detail=not_ready.detail,
+            stage="script_preflight",
+            status_code=not_ready.status_code,
+            source_file_id=file.id,
+            analysis_revision=file.analysis_revision,
+            created_by=current_user.id,
+        )
+        raise not_ready
+    try:
+        ensure_script_generation_supported(
+            rubric_analysis,
+            commands,
+            require_target_node=bool(load_class_machine_nodes(session, teaching_class_id)),
+            require_typed_plan=True,
+        )
+    except HTTPException as exc:
+        _save_script_set_failure(
+            session,
+            item,
+            detail=exc.detail,
+            stage="script_preflight",
+            status_code=exc.status_code,
+            source_file_id=file.id,
+            analysis_revision=file.analysis_revision,
+            created_by=current_user.id,
+        )
+        raise
     return item, file, rubric_analysis
 
 
@@ -1114,8 +1188,32 @@ async def create_session_script_set(
             created_by=current_user.id,
             source_file_id=file.id,
         )
+    except HTTPException as exc:
+        session.rollback()
+        _save_script_set_failure(
+            session,
+            item,
+            detail=exc.detail,
+            stage="script_generation",
+            status_code=exc.status_code,
+            source_file_id=file.id,
+            analysis_revision=file.analysis_revision,
+            created_by=current_user.id,
+        )
+        raise
     except Exception:
         session.rollback()
+        logger.exception("Teacher Judge script set creation failed for session %s", item.id)
+        _save_script_set_failure(
+            session,
+            item,
+            detail=None,
+            stage="script_generation",
+            status_code=None,
+            source_file_id=file.id,
+            analysis_revision=file.analysis_revision,
+            created_by=current_user.id,
+        )
         raise
     from app.models.base import get_datetime_utc
 
@@ -1192,13 +1290,24 @@ async def regenerate_session_script_set(
         session_id=session_id,
     )
     if existing.source_file_id != str(file.id):
-        raise HTTPException(
+        mismatch = HTTPException(
             status_code=409,
             detail={
                 "code": "teacher_judge_script_set_source_mismatch",
                 "message": "目前選取的檢查表不是此 script set 的來源。",
             },
         )
+        _save_script_set_failure(
+            session,
+            item,
+            detail=mismatch.detail,
+            stage="persistence",
+            status_code=mismatch.status_code,
+            source_file_id=file.id,
+            analysis_revision=file.analysis_revision,
+            created_by=current_user.id,
+        )
+        raise mismatch
     try:
         script_set = await create_artifact_set(
             session=session,
@@ -1212,8 +1321,32 @@ async def regenerate_session_script_set(
             source_file_id=file.id,
             artifact_set_id=artifact_set_id,
         )
+    except HTTPException as exc:
+        session.rollback()
+        _save_script_set_failure(
+            session,
+            item,
+            detail=exc.detail,
+            stage="script_generation",
+            status_code=exc.status_code,
+            source_file_id=file.id,
+            analysis_revision=file.analysis_revision,
+            created_by=current_user.id,
+        )
+        raise
     except Exception:
         session.rollback()
+        logger.exception("Teacher Judge script set regeneration failed for session %s", item.id)
+        _save_script_set_failure(
+            session,
+            item,
+            detail=None,
+            stage="script_generation",
+            status_code=None,
+            source_file_id=file.id,
+            analysis_revision=file.analysis_revision,
+            created_by=current_user.id,
+        )
         raise
     from app.models.base import get_datetime_utc
 

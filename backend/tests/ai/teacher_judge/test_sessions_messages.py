@@ -506,6 +506,163 @@ async def test_session_script_review_failed_saves_safe_chat_outcome(
 
 
 @pytest.mark.asyncio
+async def test_session_script_set_revision_conflict_is_saved_to_chat(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    db = make_session()
+    class_id = uuid.uuid4()
+    rubric_file = make_teacher_judge_file(db, class_id)
+    item = TeacherJudgeSession(
+        teaching_class_id=class_id,
+        title="Script set stale revision",
+        selected_file_id=rubric_file.id,
+    )
+    db.add(item)
+    db.commit()
+    db.refresh(item)
+    monkeypatch.setattr(teacher_judge_sessions, "_access", lambda *args: None)
+
+    with pytest.raises(HTTPException) as exc_info:
+        await teacher_judge_sessions.create_session_script_set(
+            class_id,
+            item.id,
+            db,
+            SimpleNamespace(id=uuid.uuid4()),
+            TeacherJudgeSessionScriptCreateRequest(analysis_revision=99),
+        )
+
+    assert exc_info.value.status_code == 409
+    assert exc_info.value.detail["code"] == "teacher_judge_analysis_revision_conflict"
+    outcome = db.exec(
+        select(TeacherJudgeSessionMessage).where(
+            TeacherJudgeSessionMessage.role == TeacherJudgeMessageRole.assistant
+        )
+    ).one()
+    assert outcome.metadata_json["stage"] == "persistence"
+    assert outcome.metadata_json["reason_code"] == "analysis_revision_conflict"
+    assert "沒有覆蓋" in outcome.content
+
+
+@pytest.mark.asyncio
+async def test_session_script_set_preflight_blocker_is_saved_to_chat(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    db = make_session()
+    class_id = uuid.uuid4()
+    rubric_file = make_teacher_judge_file(db, class_id)
+    rubric_file.analysis_json = {
+        "items": [
+            {
+                "id": "item-port",
+                "title": "確認服務 Port",
+                "checked": False,
+                "detectable": "partial",
+                "detection_method": "檢查服務",
+                "missing_information": ["服務 Port"],
+                "check_steps": [],
+                "fallback": None,
+            }
+        ]
+    }
+    db.add(rubric_file)
+    db.commit()
+    db.refresh(rubric_file)
+    item = TeacherJudgeSession(
+        teaching_class_id=class_id,
+        title="Script set preflight",
+        selected_file_id=rubric_file.id,
+    )
+    db.add(item)
+    db.commit()
+    db.refresh(item)
+    monkeypatch.setattr(teacher_judge_sessions, "_access", lambda *args: None)
+
+    with pytest.raises(HTTPException) as exc_info:
+        await teacher_judge_sessions.create_session_script_set(
+            class_id,
+            item.id,
+            db,
+            SimpleNamespace(id=uuid.uuid4()),
+            TeacherJudgeSessionScriptCreateRequest(
+                analysis_revision=rubric_file.analysis_revision
+            ),
+        )
+
+    assert exc_info.value.status_code == 422
+    outcome = db.exec(
+        select(TeacherJudgeSessionMessage).where(
+            TeacherJudgeSessionMessage.role == TeacherJudgeMessageRole.assistant
+        )
+    ).one()
+    assert outcome.metadata_json["stage"] == "script_preflight"
+    assert outcome.metadata_json["status"] == "needs_information"
+    assert outcome.metadata_json["reason_code"] == "teacher_judge_script_not_ready"
+    assert "服務 Port" in outcome.content
+
+
+@pytest.mark.asyncio
+async def test_session_script_set_compile_failure_is_saved_to_chat(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    db = make_session()
+    class_id = uuid.uuid4()
+    rubric_file = make_teacher_judge_file(db, class_id)
+    item = TeacherJudgeSession(
+        teaching_class_id=class_id,
+        title="Script set compile failure",
+        selected_file_id=rubric_file.id,
+    )
+    db.add(item)
+    db.commit()
+    db.refresh(item)
+    user = SimpleNamespace(id=uuid.uuid4())
+
+    async def failed_artifact_set(**kwargs):
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "code": "teacher_judge_check_plan_invalid",
+                "message": "完整 Check Plan 未通過契約驗證。",
+                "issues": [{"message": "assertion 不完整"}],
+            },
+        )
+
+    monkeypatch.setattr(
+        teacher_judge_sessions,
+        "_session_rubric_for_script_set",
+        lambda **kwargs: (
+            item,
+            rubric_file,
+            TeacherJudgeRubricAnalysis(items=[]),
+        ),
+    )
+    monkeypatch.setattr(
+        teacher_judge_sessions, "create_artifact_set", failed_artifact_set
+    )
+
+    with pytest.raises(HTTPException) as exc_info:
+        await teacher_judge_sessions.create_session_script_set(
+            class_id,
+            item.id,
+            db,
+            user,
+            TeacherJudgeSessionScriptCreateRequest(
+                analysis_revision=rubric_file.analysis_revision
+            ),
+        )
+
+    assert exc_info.value.status_code == 422
+    outcome = db.exec(
+        select(TeacherJudgeSessionMessage).where(
+            TeacherJudgeSessionMessage.role == TeacherJudgeMessageRole.assistant
+        )
+    ).one()
+    assert outcome.metadata_json["stage"] == "script_generation"
+    assert outcome.metadata_json["status"] == "analysis_error"
+    assert outcome.metadata_json["reason_code"] == "teacher_judge_check_plan_invalid"
+
+
+@pytest.mark.asyncio
 async def test_message_can_send_parsed_attachment_without_text(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path,
