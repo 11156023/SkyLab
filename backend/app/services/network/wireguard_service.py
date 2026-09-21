@@ -476,8 +476,6 @@ def connect(
     device_id: str,
     public_key: str,
 ) -> WireGuardConnectResponse:
-    if settings.DESKTOP_TUNNEL_MODE != "wireguard":
-        raise BadRequestError(t("wireguard.desktopConnectionsDisabled"))
     public_key = _validate_public_key(public_key)
     peer = _get_or_create_peer(
         session=session,
@@ -496,8 +494,6 @@ def connect(
 def refresh(
     *, session: Session, user_id: uuid.UUID, device_id: str
 ) -> WireGuardConnectResponse:
-    if settings.DESKTOP_TUNNEL_MODE != "wireguard":
-        raise BadRequestError(t("wireguard.desktopConnectionsDisabled"))
     peer = peer_repo.get_by_user_device(
         session=session, user_id=user_id, device_id=device_id
     )

@@ -4,7 +4,6 @@ enum ResponseCode {
   NOT_LOGGED_IN = "B1001;Not logged in.",
   LOGIN_TIMEOUT = "B1002;Login timed out.",
   NO_TUNNELS = "B1003;No tunnels available.",
-  FRPC_BINARY_MISSING = "B1004;frpc binary not found.",
   BACKEND_ERROR = "B1005;Backend request failed.",
   WIREGUARD_NOT_INSTALLED = "B1006;WireGuard is not installed.",
   WIREGUARD_KEY_STORAGE = "B1007;Secure key storage is unavailable.",

@@ -38,7 +38,6 @@ from app.api.routes import (
     teacher_judge_sessions,
     teaching_classes,
     templates,
-    tunnel,
     users,
     utils,
     vm,
@@ -86,7 +85,6 @@ api_router.include_router(teacher_judge_files.router)
 api_router.include_router(teacher_judge_scripts.router)
 api_router.include_router(teacher_judge_sessions.router)
 api_router.include_router(templates.router)
-api_router.include_router(tunnel.router)
 api_router.include_router(desktop_client.router)
 
 

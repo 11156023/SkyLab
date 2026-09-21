@@ -1,11 +1,12 @@
 ﻿#!/usr/bin/env bash
 # =============================================================================
 # SkyLab - Gateway VM 安裝腳本
-# 支援系統：Debian 12 (Bookworm)
-# 安裝服務：haproxy + Traefik + frps + frpc
+# 支援系統：Debian 12 / 13
+# 安裝服務：HAProxy + Traefik + WireGuard + nftables ACL / SNAT
 # =============================================================================
 
 set -euo pipefail
+export LC_ALL=C
 
 # ── 接受 SkyLab 公鑰參數 ────────────────────────────────────────────────
 # 用法：bash install.sh "<ssh-ed25519 AAAA...>"
@@ -14,8 +15,32 @@ skylab_PUBKEY="${1:-}"
 
 # ── 版本設定（升級時只改這裡）────────────────────────────────────────────────
 TRAEFIK_VERSION="3.3.4"
-FRP_VERSION="0.62.0"
 ARCH="amd64"
+
+# ── WireGuard 設定（可用同名環境變數覆寫）──────────────────────────────────
+WG_INTERFACE="${WG_INTERFACE:-wg0}"
+WG_ADDRESS="${WG_ADDRESS:-10.250.0.1/16}"
+WG_CLIENT_SUBNET="${WG_CLIENT_SUBNET:-10.250.0.0/16}"
+WG_VM_SUBNET="${WG_VM_SUBNET:-10.10.0.0/16}"
+WG_VM_INTERFACE="${WG_VM_INTERFACE:-eth1}"
+WG_SNAT_ADDRESS="${WG_SNAT_ADDRESS:-10.10.0.2}"
+WG_INGRESS_INTERFACE="${WG_INGRESS_INTERFACE:-eth0}"
+WG_LISTEN_PORT="${WG_LISTEN_PORT:-51821}"
+WG_ACL_TIMEOUT="${WG_ACL_TIMEOUT:-8h}"
+
+WG_DIR="/etc/wireguard"
+WG_CONFIG="${WG_DIR}/${WG_INTERFACE}.conf"
+NFT_DIR="/etc/nftables.d"
+NFT_CONFIG="${NFT_DIR}/campus-cloud-wg.nft"
+FIREWALL_UNIT="/etc/systemd/system/campus-cloud-wg-firewall.service"
+WG_OVERRIDE_DIR="/etc/systemd/system/wg-quick@${WG_INTERFACE}.service.d"
+WG_OVERRIDE="${WG_OVERRIDE_DIR}/campus-cloud.conf"
+BACKUP_ROOT="/root/campus-cloud-backups"
+MANAGED_WG_MARKER="# Campus Cloud managed WireGuard interface"
+HAPROXY_CONFIG_PREEXISTED=false
+if [[ -s /etc/haproxy/haproxy.cfg ]]; then
+    HAPROXY_CONFIG_PREEXISTED=true
+fi
 
 # ── 顏色輸出 ──────────────────────────────────────────────────────────────────
 GREEN='\033[0;32m'
@@ -34,17 +59,91 @@ section() { echo -e "\n${GREEN}══════ $* ══════${NC}"; }
 # ── 系統更新 ──────────────────────────────────────────────────────────────────
 section "系統更新"
 apt-get update -qq
-apt-get install -y -qq curl wget ca-certificates gnupg lsb-release
+export DEBIAN_FRONTEND=noninteractive
+apt-get install -y -qq \
+    curl wget ca-certificates gnupg lsb-release openssl tar iproute2
+
+for command in ip ss systemctl tar; do
+    command -v "$command" >/dev/null || error "缺少必要指令：${command}"
+done
+
+ip link show "$WG_VM_INTERFACE" >/dev/null 2>&1 \
+    || error "找不到 VM 內網介面：${WG_VM_INTERFACE}"
+ip link show "$WG_INGRESS_INTERFACE" >/dev/null 2>&1 \
+    || error "找不到 WireGuard 對外介面：${WG_INGRESS_INTERFACE}"
+ip -4 address show dev "$WG_VM_INTERFACE" | grep -Fq "${WG_SNAT_ADDRESS}/" \
+    || error "${WG_VM_INTERFACE} 未設定 SNAT 位址 ${WG_SNAT_ADDRESS}"
+
+if [[ -f "$WG_CONFIG" ]] && ! grep -Fq "$MANAGED_WG_MARKER" "$WG_CONFIG"; then
+    error "拒絕覆寫非 SkyLab 管理的 WireGuard 設定：${WG_CONFIG}"
+fi
+
+if ss -H -lun "sport = :${WG_LISTEN_PORT}" | grep -q .; then
+    current_port=""
+    if command -v wg >/dev/null 2>&1; then
+        current_port="$(wg show "$WG_INTERFACE" listen-port 2>/dev/null || true)"
+    fi
+    [[ "$current_port" == "$WG_LISTEN_PORT" ]] \
+        || error "UDP ${WG_LISTEN_PORT} 已被其他服務使用"
+fi
+
+# 修改任何 Gateway 設定前先建立可驗證備份。
+section "備份現有 Gateway 設定"
+stamp="$(date -u +%Y%m%dT%H%M%SZ)"
+backup="${BACKUP_ROOT}/gateway-${stamp}"
+install -d -m 700 "$backup"
+if command -v iptables-save >/dev/null 2>&1; then
+    iptables-save >"${backup}/iptables-save.txt"
+else
+    printf '%s\n' "iptables-save unavailable" >"${backup}/iptables-save.txt"
+fi
+ip -details address show >"${backup}/ip-address.txt"
+ip route show table all >"${backup}/ip-routes.txt"
+if command -v ufw >/dev/null 2>&1; then
+    ufw status numbered >"${backup}/ufw-status.txt"
+else
+    printf '%s\n' "ufw unavailable" >"${backup}/ufw-status.txt"
+fi
+tar_paths=()
+for path in \
+    etc/haproxy etc/traefik etc/wireguard etc/nftables.d etc/ufw \
+    etc/systemd/network etc/systemd/system etc/sysctl.d; do
+    [[ -e "/${path}" ]] && tar_paths+=("${path}")
+done
+[[ -f /etc/sysctl.conf ]] && tar_paths+=(etc/sysctl.conf)
+if ((${#tar_paths[@]})); then
+    tar -C / -czf "${backup}/gateway-config.tgz" "${tar_paths[@]}"
+else
+    tar -C / -czf "${backup}/gateway-config.tgz" --files-from /dev/null
+fi
+find "$backup" -maxdepth 1 -type f ! -name SHA256SUMS -print0 \
+    | sort -z \
+    | xargs -0 sha256sum >"${backup}/SHA256SUMS"
+sha256sum -c "${backup}/SHA256SUMS" >/dev/null
+info "備份完成：${backup}"
+
+apt-get install -y -qq haproxy wireguard-tools nftables ufw
+
+# Debian 的全域 nftables.service 可能載入含 `flush ruleset` 的規則；SkyLab
+# 使用自己的獨立 unit，避免清除 UFW、NetBird 或其他既有服務的規則。
+systemctl disable --now nftables.service >/dev/null 2>&1 || true
+
+for command in wg nft ufw; do
+    command -v "$command" >/dev/null || error "缺少必要指令：${command}"
+done
 
 # =============================================================================
 # 1. haproxy
 # =============================================================================
 section "安裝 haproxy"
 
-apt-get install -y haproxy
-
-# 初始設定
-cat > /etc/haproxy/haproxy.cfg << 'HAPROXY_EOF'
+# 初次安裝才建立基礎設定；重跑時保留 SkyLab 已動態產生的規則。
+if grep -Fq "# BEGIN_skylab_MANAGED" /etc/haproxy/haproxy.cfg 2>/dev/null; then
+    info "保留現有 SkyLab HAProxy 設定"
+elif [[ "$HAPROXY_CONFIG_PREEXISTED" == true ]]; then
+    error "偵測到既有且非 SkyLab 管理的 HAProxy 設定，已停止避免覆寫"
+else
+    cat > /etc/haproxy/haproxy.cfg << 'HAPROXY_EOF'
 global
     log /dev/log local0
     log /dev/log local1 notice
@@ -73,6 +172,7 @@ defaults
 
 # END_skylab_MANAGED
 HAPROXY_EOF
+fi
 
 systemctl enable haproxy
 systemctl restart haproxy
@@ -85,7 +185,7 @@ section "安裝 Traefik v${TRAEFIK_VERSION}"
 
 TRAEFIK_URL="https://github.com/traefik/traefik/releases/download/v${TRAEFIK_VERSION}/traefik_v${TRAEFIK_VERSION}_linux_${ARCH}.tar.gz"
 TMP_DIR=$(mktemp -d)
-curl -sL "$TRAEFIK_URL" -o "$TMP_DIR/traefik.tar.gz"
+curl -fsSL "$TRAEFIK_URL" -o "$TMP_DIR/traefik.tar.gz"
 tar xzf "$TMP_DIR/traefik.tar.gz" -C "$TMP_DIR" traefik
 mv "$TMP_DIR/traefik" /usr/local/bin/traefik
 chmod +x /usr/local/bin/traefik
@@ -96,14 +196,17 @@ mkdir -p /etc/traefik/dynamic /etc/traefik/env
 touch /etc/traefik/acme.json
 chmod 600 /etc/traefik/acme.json
 
+if [[ ! -f /etc/traefik/env/SkyLab.env ]]; then
 cat > /etc/traefik/env/SkyLab.env << 'TRAEFIK_ENV_EOF'
 # SkyLab 自動管理，供 Traefik dnsChallenge 使用
 # 實際值會在 admin/domains 設定 Cloudflare Token 後由後端覆寫
 CF_DNS_API_TOKEN=""
 TRAEFIK_ENV_EOF
+fi
 chmod 600 /etc/traefik/env/SkyLab.env
 
 # 靜態設定
+if [[ ! -s /etc/traefik/traefik.yml ]]; then
 cat > /etc/traefik/traefik.yml << 'TRAEFIK_EOF'
 # Traefik 靜態設定
 # 修改此檔案後需重啟 traefik：systemctl restart traefik
@@ -147,8 +250,12 @@ log:
 
 accessLog: {}
 TRAEFIK_EOF
+else
+    info "保留現有 Traefik 靜態設定"
+fi
 
 # 初始 dynamic config（空）
+if [[ ! -s /etc/traefik/dynamic/SkyLab.yml ]]; then
 cat > /etc/traefik/dynamic/SkyLab.yml << 'DYNAMIC_EOF'
 # SkyLab 自動管理的反向代理設定
 # 此檔案由 SkyLab 透過 SSH 自動維護，請勿手動修改
@@ -156,6 +263,9 @@ http:
   routers: {}
   services: {}
 DYNAMIC_EOF
+else
+    info "保留現有 Traefik 動態設定"
+fi
 
 # Systemd service
 cat > /etc/systemd/system/traefik.service << 'SYSTEMD_EOF'
@@ -180,128 +290,133 @@ SYSTEMD_EOF
 
 systemctl daemon-reload
 systemctl enable traefik
-systemctl start traefik
+systemctl restart traefik
 info "Traefik 安裝完成"
 
 # =============================================================================
-# 3. frp（frps + frpc）
+# 3. WireGuard + nftables ACL / SNAT
 # =============================================================================
-section "安裝 frp v${FRP_VERSION}"
+section "安裝 WireGuard 資料平面"
 
-FRP_URL="https://github.com/fatedier/frp/releases/download/v${FRP_VERSION}/frp_${FRP_VERSION}_linux_${ARCH}.tar.gz"
-FRP_TMP=$(mktemp -d)
-curl -sL "$FRP_URL" -o "$FRP_TMP/frp.tar.gz"
-tar xzf "$FRP_TMP/frp.tar.gz" -C "$FRP_TMP" --strip-components=1
-mv "$FRP_TMP/frps" /usr/local/bin/frps
-mv "$FRP_TMP/frpc" /usr/local/bin/frpc
-chmod +x /usr/local/bin/frps /usr/local/bin/frpc
-rm -rf "$FRP_TMP"
+install -d -m 700 "$WG_DIR"
+install -d -m 755 "$NFT_DIR" "$WG_OVERRIDE_DIR"
 
-mkdir -p /etc/frp
+# 重跑安裝器時沿用原有伺服器私鑰，避免所有 Desktop peer 失效。
+if [[ ! -s "${WG_DIR}/server_private.key" ]]; then
+    umask 077
+    wg genkey >"${WG_DIR}/server_private.key"
+fi
+wg pubkey <"${WG_DIR}/server_private.key" >"${WG_DIR}/server_public.key"
+private_key="$(<"${WG_DIR}/server_private.key")"
 
-# frps 設定（服務端，讓學生用戶端連入）
-cat > /etc/frp/frps.toml << 'FRPS_EOF'
-# frp Server 設定
-# 學生用戶端（exe）連線到此伺服器，建立 tunnel 存取其 VM
+umask 077
+cat >"$WG_CONFIG" <<EOF
+${MANAGED_WG_MARKER}
+[Interface]
+Address = ${WG_ADDRESS}
+ListenPort = ${WG_LISTEN_PORT}
+PrivateKey = ${private_key}
+SaveConfig = false
+EOF
+chmod 600 "$WG_CONFIG" "${WG_DIR}/server_private.key" "${WG_DIR}/server_public.key"
+unset private_key
 
-bindAddr = "0.0.0.0"
-bindPort = 7000
+cat >"$NFT_CONFIG" <<EOF
+destroy table inet campus_cloud_wg
 
-# 認證（請修改為強密碼）
-auth.method = "token"
-auth.token = "CHANGE_THIS_TOKEN"
+table inet campus_cloud_wg {
+    set allowed_tcp {
+        type ipv4_addr . ipv4_addr . inet_service
+        flags timeout
+        timeout ${WG_ACL_TIMEOUT}
+        gc-interval 5m
+        comment "Authorized WireGuard client, VM and TCP port tuples"
+    }
 
-# Web Dashboard（可選）
-webServer.addr = "127.0.0.1"
-webServer.port = 7500
-webServer.user = "admin"
-webServer.password = "CHANGE_THIS_PASSWORD"
+    chain forward_guard {
+        type filter hook forward priority -10; policy accept;
+        iifname "${WG_INTERFACE}" ip saddr ${WG_CLIENT_SUBNET} ip daddr ${WG_VM_SUBNET} ip saddr . ip daddr . tcp dport @allowed_tcp counter accept
+        iifname "${WG_INTERFACE}" counter drop
+    }
 
-# 允許用戶端使用的 port 範圍（1-65535 全開）
-allowPorts = [
-  { start = 1, end = 65535 }
-]
+    chain postrouting {
+        type nat hook postrouting priority srcnat; policy accept;
+        ip saddr ${WG_CLIENT_SUBNET} ip daddr ${WG_VM_SUBNET} oifname "${WG_VM_INTERFACE}" counter snat ip to ${WG_SNAT_ADDRESS}
+    }
+}
+EOF
+chmod 600 "$NFT_CONFIG"
+nft --check --file "$NFT_CONFIG"
 
-log.to = "/var/log/frps.log"
-log.level = "info"
-log.maxDays = 7
-FRPS_EOF
-
-# 安裝當下就換成隨機 token / dashboard 密碼：frps 會在下方 systemctl start 時
-# 對外監聽 0.0.0.0:7000，不能以預設的 CHANGE_THIS_TOKEN 上線，否則任何人
-# 都能透過這台 gateway 建立任意 tunnel。
-FRPS_TOKEN="$(openssl rand -hex 32 2>/dev/null || head -c 48 /dev/urandom | base64 | tr -dc 'A-Za-z0-9' | head -c 64)"
-FRPS_DASHBOARD_PASSWORD="$(openssl rand -hex 16 2>/dev/null || head -c 32 /dev/urandom | base64 | tr -dc 'A-Za-z0-9' | head -c 32)"
-sed -i "s|^auth.token = .*|auth.token = \"${FRPS_TOKEN}\"|" /etc/frp/frps.toml
-sed -i "s|^webServer.password = .*|webServer.password = \"${FRPS_DASHBOARD_PASSWORD}\"|" /etc/frp/frps.toml
-chmod 600 /etc/frp/frps.toml
-
-# frpc 設定（客戶端，如需連到外部 frps 時使用）
-cat > /etc/frp/frpc.toml << 'FRPC_EOF'
-# frp Client 設定（按需啟用）
-# 若此 Gateway VM 本身需要透過外部 frps 做穿透，請設定此檔
-
-serverAddr = "your-frps-server.example.com"
-serverPort = 7000
-
-auth.method = "token"
-auth.token = "CHANGE_THIS_TOKEN"
-
-log.to = "/var/log/frpc.log"
-log.level = "info"
-
-# 範例：將 Gateway VM 的 SSH 暴露到外部 frps
-# [[proxies]]
-# name = "gateway-ssh"
-# type = "tcp"
-# localIP = "127.0.0.1"
-# localPort = 22
-# remotePort = 12022
-FRPC_EOF
-
-# frps systemd service
-cat > /etc/systemd/system/frps.service << 'SYSTEMD_EOF'
+cat >"$FIREWALL_UNIT" <<EOF
 [Unit]
-Description=frp Server
-After=network-online.target
+Description=Campus Cloud WireGuard nftables policy
+After=network-online.target ufw.service
 Wants=network-online.target
 
 [Service]
-Type=simple
-User=root
-ExecStart=/usr/local/bin/frps -c /etc/frp/frps.toml
-Restart=always
-RestartSec=5
-LimitNOFILE=1048576
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/sbin/nft --file ${NFT_CONFIG}
+ExecReload=/usr/sbin/nft --file ${NFT_CONFIG}
+ExecStop=-/usr/sbin/nft destroy table inet campus_cloud_wg
 
 [Install]
 WantedBy=multi-user.target
-SYSTEMD_EOF
+EOF
 
-# frpc systemd service（預設不自啟，需要時手動啟用）
-cat > /etc/systemd/system/frpc.service << 'SYSTEMD_EOF'
+cat >"$WG_OVERRIDE" <<EOF
 [Unit]
-Description=frp Client
-After=network-online.target
-Wants=network-online.target
+Requires=campus-cloud-wg-firewall.service
+After=campus-cloud-wg-firewall.service
+BindsTo=campus-cloud-wg-firewall.service
+EOF
 
-[Service]
-Type=simple
-User=root
-ExecStart=/usr/local/bin/frpc -c /etc/frp/frpc.toml
-Restart=always
-RestartSec=5
-LimitNOFILE=1048576
+cat >/etc/sysctl.d/90-campus-cloud-wireguard.conf <<EOF
+# Campus Cloud WireGuard gateway forwarding
+net.ipv4.ip_forward = 1
+EOF
+sysctl -w net.ipv4.ip_forward=1 >/dev/null
 
-[Install]
-WantedBy=multi-user.target
-SYSTEMD_EOF
+# 既有 UFW 規則保持不動；全新主機才建立最小安全基線。
+ufw_was_active=false
+if ufw status | grep -Fq "Status: active"; then
+    ufw_was_active=true
+else
+    warn "UFW 尚未啟用，將先允許 SSH、HTTP、HTTPS 與 WireGuard 再啟用"
+    ufw default deny incoming
+    ufw default allow outgoing
+    ssh_ports="$(sshd -T 2>/dev/null | awk '$1 == "port" {print $2}' | sort -u || true)"
+    [[ -n "$ssh_ports" ]] || ssh_ports="22"
+    while read -r ssh_port; do
+        [[ -n "$ssh_port" ]] && ufw allow "${ssh_port}/tcp" comment "SSH"
+    done <<<"$ssh_ports"
+    ufw allow 80/tcp comment "HTTP"
+    ufw allow 443/tcp comment "HTTPS"
+fi
+
+if ! ufw status | grep -Fq "${WG_LISTEN_PORT}/udp on ${WG_INGRESS_INTERFACE}"; then
+    ufw allow in on "$WG_INGRESS_INTERFACE" to any port "$WG_LISTEN_PORT" \
+        proto udp comment "Campus Cloud WireGuard"
+fi
+if ! ufw status | grep -Fq "Campus Cloud WireGuard routed traffic"; then
+    ufw route allow in on "$WG_INTERFACE" out on "$WG_VM_INTERFACE" \
+        from "$WG_CLIENT_SUBNET" to "$WG_VM_SUBNET" \
+        comment "Campus Cloud WireGuard routed traffic after nft ACL"
+fi
+if [[ "$ufw_was_active" == false ]]; then
+    ufw --force enable
+fi
 
 systemctl daemon-reload
-systemctl enable frps
-systemctl start frps
-# frpc 預設不啟動，需要時手動：systemctl enable frpc && systemctl start frpc
-info "frp 安裝完成（frps 已啟動，frpc 待設定後手動啟用）"
+systemd-analyze verify campus-cloud-wg-firewall.service "wg-quick@${WG_INTERFACE}.service"
+systemctl enable --now campus-cloud-wg-firewall.service
+systemctl enable --now "wg-quick@${WG_INTERFACE}.service"
+
+systemctl is-active --quiet campus-cloud-wg-firewall.service
+systemctl is-active --quiet "wg-quick@${WG_INTERFACE}.service"
+systemctl is-active --quiet ssh
+info "WireGuard 安裝完成（${WG_INTERFACE} / UDP ${WG_LISTEN_PORT}）"
 
 # =============================================================================
 # 4. SkyLab SSH 公鑰（若有提供則自動寫入）
@@ -325,7 +440,7 @@ fi
 # =============================================================================
 section "安裝完成"
 
-cat << 'SUMMARY_EOF'
+cat <<SUMMARY_EOF
 
 ┌─────────────────────────────────────────────────────────────────┐
 │              SkyLab Gateway VM 安裝完成                    │
@@ -333,24 +448,25 @@ cat << 'SUMMARY_EOF'
 │  服務          狀態      設定檔                                  │
 │  haproxy       ✅ 運行   /etc/haproxy/haproxy.cfg               │
 │  traefik       ✅ 運行   /etc/traefik/traefik.yml               │
-│  frps          ✅ 運行   /etc/frp/frps.toml                     │
-│  frpc          ⏸ 停止   /etc/frp/frpc.toml（按需啟用）         │
+│  WireGuard     ✅ 運行   /etc/wireguard/${WG_INTERFACE}.conf                │
+│  WG ACL/SNAT   ✅ 運行   /etc/nftables.d/campus-cloud-wg.nft   │
 ├─────────────────────────────────────────────────────────────────┤
 │  後續步驟：                                                      │
-│  1. 修改 /etc/frp/frps.toml 中的 auth.token（必要）            │
-│  2. 修改 /etc/traefik/traefik.yml 中的 email（HTTPS 憑證）     │
-│  3. 回到 SkyLab 管理介面填入此 VM 的 IP                   │
+│  1. 將 UDP ${WG_LISTEN_PORT} 轉送到此 Gateway 的 ${WG_INGRESS_INTERFACE}                      │
+│  2. 在 Backend 設定 WIREGUARD_ENDPOINT_HOST                    │
+│  3. 回到 SkyLab 管理介面填入此 VM 的 IP                         │
 │  4. 點擊「測試連線」確認 SSH 連線正常                           │
 ├─────────────────────────────────────────────────────────────────┤
 │  常用指令：                                                      │
-│  systemctl status haproxy|traefik|frps|frpc                     │
-│  systemctl restart haproxy                                       │
-│  journalctl -u traefik -f                                        │
+│  systemctl status haproxy traefik wg-quick@${WG_INTERFACE}                  │
+│  systemctl status campus-cloud-wg-firewall                       │
+│  wg show ${WG_INTERFACE}                                                     │
 └─────────────────────────────────────────────────────────────────┘
 
 SUMMARY_EOF
 
-echo "  frps Token（已隨機產生，請填入 SkyLab .env 的 FRP_TOKEN；之後可用下列指令查看）："
-echo "    grep auth.token /etc/frp/frps.toml"
-grep "auth.token" /etc/frp/frps.toml | head -1
+echo "  備份：${backup}"
+echo "  WireGuard：${WG_INTERFACE} (${WG_ADDRESS})"
+echo "  監聽：${WG_INGRESS_INTERFACE}/udp/${WG_LISTEN_PORT}"
+echo "  Public key：$(<"${WG_DIR}/server_public.key")"
 echo ""

@@ -105,7 +105,6 @@ from .teaching_class import (
     TeachingClassTaskFile,
     TeachingClassWeek,
 )
-from .tunnel_proxy import TunnelProxy
 from .user import User, UserBase, UserRole
 from .vm_request import VMProvisioningStatus, VMRequest, VMRequestStatus
 from .vm_template import (
@@ -194,8 +193,6 @@ __all__ = [
     "BatchProvisionJobStatus",
     "BatchProvisionTask",
     "BatchProvisionTaskStatus",
-    # Tunnel Proxies
-    "TunnelProxy",
     # Subnet & IP Management
     "SubnetConfig",
     "IpAllocation",
