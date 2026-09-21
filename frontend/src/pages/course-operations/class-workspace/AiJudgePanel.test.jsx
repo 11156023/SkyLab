@@ -8,6 +8,7 @@ import { createRoot } from "react-dom/client";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import {
   ChatPanel,
+  CommandLog,
   CreateCheckDialog,
   RubricTable,
   ProposalPanel,
@@ -15,16 +16,20 @@ import {
   ScriptGenerationNotice,
   SessionTitle,
   TeacherReviewTab,
+  aggregateStudentCheckTotals,
   applyProposalOperations,
   buildBatchReviewRows,
   buildLegacyReviewRows,
   buildProposalDiff,
+  buildStudentOverviewRows,
   getRubricDisplayName,
   getRubricCheckTitle,
   getRubricItemsValue,
   getRubricReviewItemIds,
   getPendingRubricItemIds,
+  getStudentOverviewStatus,
   resolveDetectabilityNeedsReview,
+  sortStudentOverviewRows,
   sortTeacherReviewRows,
   getScriptCreationBlocker,
   getSessionMenuPosition,
@@ -32,6 +37,7 @@ import {
   getScriptCreationDestination,
   getScriptReviewAttemptIssues,
   getTargetReviewSummary,
+  getCheckResultSummary,
   getSelectableProposalIds,
   mergeNodeTeacherReview,
   mergeSessionMessages,
@@ -314,7 +320,7 @@ describe("RubricsTab 儲存並製作流程", () => {
       session_id: "session-1",
       role: "assistant",
       message_type: "chat",
-      content: "重新核對後，「確認服務 Port」還缺少：服務 Port。",
+      content: "重新核對後，「確認服務 Port」已確認檢查目標，但還缺少：服務 Port。",
       metadata_json: {
         status: "needs_information",
         stage: "reanalysis",
@@ -344,7 +350,7 @@ describe("RubricsTab 儲存並製作流程", () => {
       rubric_proposal: [],
       base_revision: 3,
     });
-    const createScript = vi.spyOn(AiJudgeService, "createSessionScript").mockResolvedValue({
+    const createScript = vi.spyOn(AiJudgeService, "createSessionScriptSet").mockResolvedValue({
       status: "approved",
     });
 
@@ -378,7 +384,7 @@ describe("RubricsTab 儲存並製作流程", () => {
       { isRefine: true },
     );
     expect(container.textContent).toContain("確認服務 Port");
-    expect(container.textContent).toContain("尚有項目需要補充");
+    expect(container.textContent).toContain("重新核對後，「確認服務 Port」已確認檢查目標，但還缺少：服務 Port。");
     expect(createScript).not.toHaveBeenCalled();
     await act(async () => {
       root.unmount();
@@ -421,7 +427,7 @@ describe("RubricsTab 儲存並製作流程", () => {
       session_id: "session-1",
       role: "assistant",
       message_type: "chat",
-      content: "重新核對後，「確認服務 Port」還缺少：服務 Port。",
+      content: "重新核對後，「確認服務 Port」已確認檢查目標，但還缺少：服務 Port。",
       metadata_json: {
         status: "needs_information",
         stage: "reanalysis",
@@ -462,7 +468,7 @@ describe("RubricsTab 儲存並製作流程", () => {
       }],
       base_revision: 3,
     });
-    const createScript = vi.spyOn(AiJudgeService, "createSessionScript").mockResolvedValue({
+    const createScript = vi.spyOn(AiJudgeService, "createSessionScriptSet").mockResolvedValue({
       status: "approved",
     });
 
@@ -489,8 +495,7 @@ describe("RubricsTab 儲存並製作流程", () => {
 
     expect(container.textContent).not.toContain("AI 核對提案");
     expect(container.textContent).not.toContain("同意套用");
-    expect(container.textContent).toContain("重新核對後，「確認服務 Port」還缺少：服務 Port。");
-    expect(container.textContent).toContain("尚有項目需要補充");
+    expect(container.textContent).toContain("重新核對後，「確認服務 Port」已確認檢查目標，但還缺少：服務 Port。");
     expect(createScript).not.toHaveBeenCalled();
     await act(async () => {
       root.unmount();
@@ -733,6 +738,127 @@ describe("RubricTable", () => {
     expect(html).toContain("缺少資訊");
     expect(html).not.toContain("導師檢查");
   });
+
+  test("收合時顯示 typed collector 的檢測目標，不暴露 peer key", () => {
+    const html = renderToStaticMarkup(
+      <RubricTable
+        items={[
+          {
+            id: "file-text",
+            title: "讀取程式碼",
+            detectable: "auto",
+            detection_method: "讀取 main.py",
+            check_steps: [{
+              id: "read-main",
+              title: "讀取 main.py",
+              collector: { type: "file_text", path: "/home/student/main.py", read_mode: "head", lines: 200 },
+            }],
+          },
+          {
+            id: "command",
+            title: "執行程式",
+            detectable: "auto",
+            detection_method: "執行入口程式",
+            check_steps: [{
+              id: "run-main",
+              title: "執行 main.py",
+              collector: { type: "command", argv: ["python3", "main.py"], cwd: "/home/student/project", timeout_seconds: 30 },
+            }],
+          },
+          {
+            id: "http",
+            title: "檢查服務",
+            detectable: "auto",
+            detection_method: "檢查本機服務",
+            check_steps: [{
+              id: "health",
+              title: "健康檢查",
+              collector: { type: "localhost_http", url: "http://localhost:3000/health", method: "GET", timeout_seconds: 10, max_chars: 1200 },
+            }],
+          },
+          {
+            id: "peer",
+            title: "檢查觀察節點",
+            detectable: "auto",
+            detection_method: "確認節點連通性",
+            peer_node_key: "peer-secret-key",
+            check_steps: [{
+              id: "ping",
+              title: "連通性",
+              collector: { type: "peer_ping", timeout_seconds: 10 },
+            }],
+          },
+        ]}
+        onChange={() => {}}
+        onDelete={() => {}}
+      />,
+    );
+
+    expect(html.match(/rubricTargetSummary/g)).toHaveLength(4);
+    expect(html).toContain("檔案內容");
+    expect(html).toContain("/home/student/main.py");
+    expect(html).toContain("python3 main.py");
+    expect(html).toContain("/home/student/project");
+    expect(html).toContain("http://localhost:3000/health");
+    expect(html).toContain("由執行節點觀察");
+    expect(html).not.toContain("peer-secret-key");
+  });
+
+  test("展開後顯示執行契約、判定模式與 assertion", async () => {
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    await act(async () => {
+      root.render(
+        <RubricTable
+          items={[{
+            id: "typed-command",
+            title: "執行並判定",
+            detectable: "auto",
+            judgement_mode: "ai",
+            detection_method: "執行程式並檢查回傳碼",
+            target_node_key: "n8n",
+            check_steps: [{
+              id: "run",
+              title: "執行 main.py",
+              collector: { type: "command", argv: ["python3", "main.py"], cwd: "/home/student/project", timeout_seconds: 30 },
+              assertion: { type: "returncode_equals", expected: 0 },
+            }],
+          }]}
+          onChange={() => {}}
+          onDelete={() => {}}
+          machineNodes={[{
+            node_key: "n8n",
+            name: "n8n",
+            role: "workflow",
+            resource_type: "lxc",
+            sort_order: 0,
+            template_name: "Ubuntu 24.04",
+          }]}
+        />,
+      );
+    });
+
+    const toggle = container.querySelector('button[aria-label="展開第 1 項檢查設定"]');
+    expect(toggle).toBeTruthy();
+    await act(async () => {
+      toggle.click();
+    });
+
+    expect(container.textContent).toContain("執行契約");
+    expect(container.textContent).toContain("執行節點");
+    expect(container.textContent).toContain("n8n（P1）");
+    expect(container.textContent).toContain("角色：workflow · 類型：LXC · 映像：Ubuntu 24.04");
+    expect(container.textContent).toContain("系統判定");
+    expect(container.textContent).toContain("預計檢查步驟（尚未執行）");
+    expect(container.textContent).toContain("回傳碼 = 0");
+    expect(container.textContent).toContain("30 秒");
+
+    await act(async () => {
+      root.unmount();
+    });
+    container.remove();
+  });
 });
 
 describe("getScriptCreationBlocker", () => {
@@ -771,6 +897,26 @@ describe("getScriptCreationBlocker", () => {
     };
 
     expect(getScriptCreationBlocker({ analysis: { items: [teacherReviewItem] } })).toBeNull();
+  });
+
+  test("typed auto + teacher 項目可直接製作腳本", () => {
+    const typedTeacherItem = {
+      ...completeItem,
+      judgement_mode: "teacher",
+      check_steps: [{
+        id: "read-main",
+        title: "讀取 main.py",
+        collector: {
+          type: "file_text",
+          path: "/home/student/main.py",
+          encoding: "utf-8",
+          read_mode: "head",
+          lines: 200,
+        },
+      }],
+    };
+
+    expect(getScriptCreationBlocker({ analysis: { items: [typedTeacherItem] } })).toBeNull();
   });
 
   test("缺少資訊或需要人工審核時阻擋整份腳本", () => {
@@ -946,6 +1092,32 @@ describe("detectability review state", () => {
 });
 
 describe("buildProposalDiff", () => {
+  test("機器執行與 peer 身分變更會形成可套用差異", () => {
+    const diff = buildProposalDiff(
+      [{
+        id: "network-check",
+        title: "檢查網路",
+        target_node_key: "web",
+        peer_node_key: "db",
+        detectable: "auto",
+      }],
+      [{
+        id: "network-check",
+        title: "檢查網路",
+        target_node_key: "db",
+        peer_node_key: "web",
+        detectable: "auto",
+      }],
+    );
+
+    expect(diff).toMatchObject([{
+      id: "network-check",
+      operation: "update",
+      target_node_key: "db",
+      peer_node_key: "web",
+    }]);
+  });
+
   test("將 AI 修改轉成可確認差異，且未回傳項目不會被默認刪除", () => {
     const current = [
       { id: "keep", title: "保留", detection_method: "原檢測方式", detectable: "manual" },
@@ -1110,7 +1282,51 @@ describe("script creation workflow", () => {
 });
 
 describe("teacher review summary", () => {
-  test("只把 warning 與 unknown 視為待導師核查", () => {
+  test("非零 returncode 即使沒有輸出也顯示 argv、cwd 與無輸出提示", () => {
+    const markup = renderToStaticMarkup(
+      <CommandLog
+        raw={JSON.stringify({
+          argv: ["pgrep", "-f", "n8n"],
+          cwd: "/srv/student",
+          timeout_seconds: 10,
+          stdout: "",
+          stderr: "",
+          returncode: 1,
+          error_code: "unexpected_returncode",
+        })}
+      />,
+    );
+
+    expect(markup).toContain("[&quot;pgrep&quot;,&quot;-f&quot;,&quot;n8n&quot;]");
+    expect(markup).toContain("/srv/student");
+    expect(markup).toContain("指令沒有 stdout/stderr 輸出");
+    expect(markup).toContain("returncode 1");
+  });
+
+  test("將舊版 command_exception 與非零 returncode 顯示成老師可讀摘要，並保留 raw log", () => {
+    const exceptionRaw = JSON.stringify({
+      error_code: "command_exception",
+      error: "[Errno 2] No such file or directory: 'null'",
+    });
+    const nonzeroRaw = JSON.stringify({
+      stdout: "",
+      stderr: "cat: /home/owo/main.log: No such file or directory\n",
+      returncode: 1,
+    });
+
+    expect(getCheckResultSummary({ status: "unknown", raw: exceptionRaw })).toBe(
+      "指令無法執行：[Errno 2] No such file or directory: 'null'",
+    );
+    expect(getCheckResultSummary({ status: "unknown", raw: nonzeroRaw })).toBe(
+      "指令執行失敗（returncode 1）：cat: /home/owo/main.log: No such file or directory",
+    );
+    expect(JSON.parse(nonzeroRaw)).toMatchObject({
+      stderr: "cat: /home/owo/main.log: No such file or directory\n",
+      returncode: 1,
+    });
+  });
+
+  test("把 warning、unknown 與 collected 視為待導師核查", () => {
     const target = {
       status: "completed",
       validation: { valid: true },
@@ -1119,20 +1335,21 @@ describe("teacher review summary", () => {
           { id: "auto-pass", status: "pass" },
           { id: "manual", status: "unknown" },
           { id: "risk", status: "warning" },
+          { id: "evidence", status: "collected" },
         ],
       },
     };
 
     expect(getTargetReviewSummary(target)).toMatchObject({
       kind: "pending",
-      pending: 2,
-      reviewable: 2,
+      pending: 3,
+      reviewable: 3,
     });
-    target.teacher_review = { decisions: { manual: "pass", risk: "fail" } };
+    target.teacher_review = { decisions: { manual: "pass", risk: "fail", evidence: "pass" } };
     expect(getTargetReviewSummary(target)).toMatchObject({
       kind: "reviewed",
       pending: 0,
-      reviewable: 2,
+      reviewable: 3,
     });
   });
 
@@ -1299,7 +1516,7 @@ describe("teacher review run-once（整組檢查點）", () => {
 
     expect(getBatch).toHaveBeenCalledWith("class-1", "session-1", "batch-1");
     expect(container.textContent).toContain("一次執行");
-    expect(container.textContent).toContain("機器總數");
+    expect(container.textContent).toContain("學生總數");
 
     const toggle = [...container.querySelectorAll("button")]
       .find((button) => button.textContent.includes("王小明"));
@@ -1398,6 +1615,120 @@ describe("teacher review run-once（整組檢查點）", () => {
       root.unmount();
     });
     container.remove();
+  });
+
+  test("學生總覽以學生分組並彙總跨機器通過/未通過/待確認", () => {
+    const rows = buildBatchReviewRows(
+      {
+        students: [
+          {
+            student_id: "enrollment-1",
+            nodes: [
+              {
+                node_key: "web",
+                run_id: "run-web",
+                execution_status: "completed",
+                vmid: 101,
+                teacher_review: { feedback: "", decisions: {} },
+                items: [
+                  {
+                    rubric_item_id: "item-web",
+                    title: "確認 nginx",
+                    status: "pass",
+                    checks: [{ id: "check-web", title: "nginx", status: "pass" }],
+                  },
+                ],
+                unmapped_checks: [],
+              },
+              {
+                node_key: "db",
+                run_id: "run-db",
+                execution_status: "completed",
+                vmid: 102,
+                teacher_review: { feedback: "", decisions: {} },
+                items: [
+                  {
+                    rubric_item_id: "item-db",
+                    title: "確認 PostgreSQL",
+                    status: "warning",
+                    checks: [{ id: "check-db", title: "pg_isready", status: "warning" }],
+                  },
+                  {
+                    rubric_item_id: "item-db-fail",
+                    title: "確認連線",
+                    status: "fail",
+                    checks: [{ id: "check-fail", title: "ping", status: "fail" }],
+                  },
+                ],
+                unmapped_checks: [],
+              },
+            ],
+          },
+          {
+            student_id: "enrollment-2",
+            nodes: [
+              {
+                node_key: "web",
+                run_id: "run-web",
+                execution_status: "completed",
+                vmid: 201,
+                teacher_review: { feedback: "", decisions: {} },
+                items: [
+                  {
+                    rubric_item_id: "item-web",
+                    title: "確認 nginx",
+                    status: "pass",
+                    checks: [{ id: "check-web", title: "nginx", status: "pass" }],
+                  },
+                ],
+                unmapped_checks: [],
+              },
+            ],
+          },
+        ],
+      },
+      [
+        { user_id: "user-1", full_name: "王小明", email: "s1@example.edu", vmid: 101, node_key: "web" },
+        { user_id: "user-1", full_name: "王小明", email: "s1@example.edu", vmid: 102, node_key: "db" },
+        { user_id: "user-2", full_name: "李小華", email: "s2@example.edu", vmid: 201, node_key: "web" },
+      ],
+    );
+    const students = buildStudentOverviewRows(rows);
+    expect(students).toHaveLength(2);
+    const first = students.find((item) => item.studentId === "enrollment-1");
+    expect(first.machines).toHaveLength(2);
+    expect(aggregateStudentCheckTotals(first.machines)).toMatchObject({
+      pass: 1,
+      fail: 1,
+      pending: 1,
+    });
+    expect(getStudentOverviewStatus(first.machines)).toMatchObject({
+      kind: "pending",
+      pending: 1,
+    });
+    const sorted = sortStudentOverviewRows(students, "pending");
+    expect(sorted[0].studentId).toBe("enrollment-1");
+    const byNumber = sortStudentOverviewRows(students, "student-number");
+    expect(byNumber[0].user.email).toBe("s1@example.edu");
+  });
+
+  test("已儲存的導師判定會從待確認移到通過/未通過", () => {
+    const machines = [
+      {
+        key: "enrollment-1|db|101",
+        member: { email: "s1@example.edu", full_name: "王小明" },
+        target: {
+          status: "completed",
+          teacher_review: { feedback: "", decisions: { "check-db": "pass" } },
+          parsed_result: { checks: [{ id: "check-db", status: "warning" }] },
+        },
+      },
+    ];
+    expect(aggregateStudentCheckTotals(machines)).toMatchObject({
+      pass: 1,
+      pending: 0,
+    });
+    expect(getStudentOverviewStatus(machines).kind).toBe("reviewed");
   });
 
   test("有已核准腳本集但尚未執行時，空狀態也能直接一次執行", async () => {

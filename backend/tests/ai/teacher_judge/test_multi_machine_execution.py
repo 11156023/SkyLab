@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 import uuid
-from typing import Any
 
 import pytest
 from sqlmodel import select
@@ -37,24 +36,38 @@ def _item(
     node_key: str,
     *,
     peer_node_key: str | None = None,
+    judgement_mode: str = "ai",
 ) -> TeacherJudgeRubricItem:
     return TeacherJudgeRubricItem(
         id=item_id,
         title=item_id,
         checked=False,
         detectable="auto",
-        judgement_mode="ai",
+        judgement_mode=judgement_mode,  # type: ignore[arg-type]
         detection_method="受控檢查",
         target_node_key=node_key,
         peer_node_key=peer_node_key,
         check_steps=[
             TeacherJudgeRubricCheckStep(
-                argv=(
-                    ["ping", "-c", "1", "{{peer.ip}}"]
+                id=f"{item_id}.check",
+                title=f"{item_id} check",
+                collector=(
+                    {
+                        "type": "peer_ping",
+                        "timeout_seconds": 30,
+                    }
                     if peer_node_key
-                    else ["systemctl", "is-active", "nginx"]
+                    else {
+                        "type": "command",
+                        "argv": ["systemctl", "is-active", "nginx"],
+                        "timeout_seconds": 30,
+                    }
                 ),
-                timeout_seconds=30,
+                assertion=(
+                    {"type": "returncode_equals", "expected": 0}
+                    if judgement_mode == "ai"
+                    else None
+                ),
             )
         ],
     )
@@ -134,25 +147,6 @@ async def test_create_artifact_set_writes_one_child_per_executor_node(
         lambda **_kwargs: (None, {}),
     )
 
-    async def fake_build(
-        *, rubric_snapshot: dict[str, Any], template_key: str
-    ) -> tuple[Any, ...]:
-        assert template_key == "linux"
-        assert rubric_snapshot["target_node_key"] in {"web", "db"}
-        return (
-            "print('ok')",
-            {"approved": True, "issues": []},
-            {"approved": True, "issues": []},
-            TeacherJudgeScriptStatus.reviewed,
-            [],
-        )
-
-    monkeypatch.setattr(
-        script_artifact_service,
-        "_build_reviewed_script_for_artifact",
-        fake_build,
-    )
-
     result = await script_artifact_service.create_artifact_set(
         session=session,
         teaching_class_id=class_id,
@@ -161,7 +155,7 @@ async def test_create_artifact_set_writes_one_child_per_executor_node(
         template_key="linux",
         rubric_analysis=TeacherJudgeRubricAnalysis(
             items=[
-                _item("web-health", "web"),
+                _item("web-health", "web", judgement_mode="teacher"),
                 _item("db-to-web", "db", peer_node_key="web"),
             ]
         ),
@@ -178,10 +172,21 @@ async def test_create_artifact_set_writes_one_child_per_executor_node(
     ]
     assert len({child.artifact_set_id for child in result.children}) == 1
     assert all(child.source_analysis_revision == 3 for child in result.children)
+    assert all(
+        child.policy_check_result_json.get("source") == "deterministic_compiler"
+        for child in result.children
+    )
+    assert all(
+        child.ai_review_result_json.get("mode") == "deterministic_compiler"
+        for child in result.children
+    )
     assert [
         item["id"]
         for item in result.children[1].rubric_snapshot_json["items"]
     ] == ["db-to-web"]
+    teacher_step = result.children[0].rubric_snapshot_json["items"][0]["check_steps"][0]
+    assert result.children[0].rubric_snapshot_json["items"][0]["judgement_mode"] == "teacher"
+    assert "assertion" not in teacher_step
     rows = list(session.exec(select(TeacherJudgeScriptArtifact)).all())
     assert len(rows) == 2
 
@@ -234,23 +239,6 @@ async def test_create_artifact_set_child_name_falls_back_and_truncates(
         script_artifact_service,
         "source_file_snapshot",
         lambda **_kwargs: (None, {}),
-    )
-
-    async def fake_build(
-        *, rubric_snapshot: dict[str, Any], template_key: str
-    ) -> tuple[Any, ...]:
-        return (
-            "print('ok')",
-            {"approved": True, "issues": []},
-            {"approved": True, "issues": []},
-            TeacherJudgeScriptStatus.reviewed,
-            [],
-        )
-
-    monkeypatch.setattr(
-        script_artifact_service,
-        "_build_reviewed_script_for_artifact",
-        fake_build,
     )
 
     result = await script_artifact_service.create_artifact_set(

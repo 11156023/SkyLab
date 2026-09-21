@@ -3,7 +3,10 @@ from __future__ import annotations
 import pytest
 
 from app.ai.teacher_judge import service as teacher_judge_service
-from app.ai.teacher_judge.automation_support import ensure_script_generation_supported
+from app.ai.teacher_judge.automation_support import (
+    ensure_script_generation_supported,
+    get_script_generation_blockers,
+)
 from app.ai.teacher_judge.machine_context import (
     canonicalize_machine_node_key,
     format_machine_context,
@@ -23,7 +26,7 @@ from app.ai.teacher_judge.service import _normalize_rubric_items
 from app.ai.teacher_judge.template_command_service import validate_check_steps
 
 
-def test_flat_check_step_is_the_write_contract_and_legacy_shape_stays_readable() -> None:
+def test_check_step_schema_keeps_flat_read_compatibility_and_exposes_typed_contract() -> None:
     flat = TeacherJudgeRubricCheckStep(
         argv=["curl", "--fail", "http://127.0.0.1:8080/health"],
         cwd="/workspace",
@@ -34,11 +37,11 @@ def test_flat_check_step_is_the_write_contract_and_legacy_shape_stays_readable()
         "cwd": "/workspace",
         "timeout_seconds": 20,
     }
-    assert set(TeacherJudgeRubricCheckStep.model_json_schema()["properties"]) == {
-        "argv",
-        "cwd",
-        "timeout_seconds",
-    }
+    schema = TeacherJudgeRubricCheckStep.model_json_schema()
+    assert {"argv", "cwd", "timeout_seconds"}.issubset(schema["properties"])
+    assert {"id", "title", "collector", "assertion"}.issubset(schema["properties"])
+    assert {"required": ["argv"]} in schema["anyOf"]
+    assert {"required": ["collector", "id", "title"]} in schema["anyOf"]
 
     legacy = TeacherJudgeRubricCheckStep(
         template_key="linux",
@@ -148,6 +151,100 @@ def test_proposal_tools_are_request_scoped_to_current_class_nodes() -> None:
         assert properties["target_node_key"]["enum"] == ["web", "db", None]
         assert properties["peer_node_key"]["enum"] == ["web", "db", None]
         assert "P1=web" in properties["target_node_key"]["description"]
+
+
+def test_finalizer_tools_expose_only_typed_check_steps() -> None:
+    tools = teacher_judge_service._build_proposal_tools(finalizer=True)
+
+    for tool in tools:
+        if tool["function"]["name"] not in {
+            "create_checklist_item",
+            "edit_checklist_item",
+        }:
+            continue
+        step_schema = tool["function"]["parameters"]["properties"]["check_steps"]["items"]
+        assert set(step_schema["properties"]) == {"id", "title", "collector", "assertion"}
+        assert "argv" not in step_schema["properties"]
+        assert step_schema["required"] == ["id", "title", "collector"]
+
+
+def test_finalizer_rejects_a_malformed_step_without_dropping_it() -> None:
+    error = teacher_judge_service._finalizer_check_step_error(
+        [
+            {
+                "id": "log.tail",
+                "title": "讀取日誌尾端",
+                "collector": {
+                    "type": "file_text",
+                    "path": "/var/log/app.log",
+                    "read_mode": "tail",
+                },
+            },
+        ]
+    )
+
+    assert error is not None
+    assert "typed contract 無效" in error
+
+
+def test_typed_plan_semantic_errors_block_readiness_before_script_creation() -> None:
+    analysis = TeacherJudgeRubricAnalysis(
+        items=[
+            {
+                "id": "service",
+                "title": "服務狀態",
+                "detectable": "auto",
+                "detection_method": "檢查服務狀態",
+                "check_steps": [
+                    {
+                        "id": "service.stat",
+                        "title": "取得服務狀態",
+                        "collector": {"type": "file_stat", "path": "/tmp/service"},
+                    }
+                ],
+            }
+        ]
+    )
+
+    blockers = get_script_generation_blockers(
+        analysis,
+        [],
+        require_typed_plan=True,
+    )
+
+    assert blockers[0]["reason_code"] == "check_plan_contract_invalid"
+    assert blockers[0]["status"] == "analysis_error"
+    assert "assertion" in blockers[0]["detail"]
+
+
+def test_typed_readiness_does_not_silently_compile_legacy_flat_steps() -> None:
+    analysis = TeacherJudgeRubricAnalysis(
+        items=[
+            {
+                "id": "legacy-service",
+                "title": "舊服務檢查",
+                "detectable": "auto",
+                "detection_method": "執行唯讀命令",
+                "target_node_key": "web",
+                "check_steps": [
+                    {
+                        "argv": ["systemctl", "is-active", "n8n"],
+                        "timeout_seconds": 30,
+                    }
+                ],
+            }
+        ]
+    )
+
+    blockers = get_script_generation_blockers(
+        analysis,
+        [],
+        require_typed_plan=True,
+    )
+
+    assert blockers[0]["status"] == "analysis_error"
+    assert blockers[0]["reason_code"] == "check_plan_contract_invalid"
+    assert "flat legacy" in blockers[0]["detail"]
 
 
 def test_peer_contract_requires_distinct_node_and_whole_argv_token() -> None:
