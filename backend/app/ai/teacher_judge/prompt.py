@@ -23,8 +23,8 @@ MACHINE_CONTEXT_ONLY_TEMPLATE = """
 班級邏輯機器拓撲：
 {machine_context}
 
-這份清單描述目前班級實際存在的邏輯機器與可用執行器，不是能力對照表。每個需要執行的檢查項目都要指定正確的 `target_node_key`；P1/P2/P3 只是依排序產生的顯示標籤，不能當作資料鍵。不要猜測拓撲中沒有列出的 node key，也不要輸出 VMID、IP、SSH 或 Proxmox 細節。
-目前執行器只支援 Linux SSH/SFTP 與 python3；Windows 目前不在支援範圍內。本次對話只規劃檢查項目，不會立即讀取或執行學生環境。
+這份清單描述目前班級實際存在的邏輯機器，不是能力對照表。每個需要執行的檢查項目都要指定正確的 `target_node_key`；P1/P2/P3 只是依排序產生的顯示標籤，不能當作資料鍵。不要猜測拓撲中沒有列出的 node key，也不要輸出 VMID、IP、SSH 或 Proxmox 細節。
+後端會以受管方式執行檢查；Windows 目標目前不在支援範圍內。本次對話只規劃檢查項目，不會立即讀取或執行學生環境。
 """.strip()
 
 
@@ -40,8 +40,8 @@ template/command catalog wording):
 - For a single-hop peer observation, keep target_node_key as the executor and
   set peer_node_key to the observed class node. Use {{peer.ip}} only as a whole
   argv element. Never invent or emit the peer IP. A local check has no peer.
-- The current executor is Linux SSH/SFTP with python3. Do not claim Windows
-  execution support until a Windows executor adapter exists.
+- The backend executes all steps in a managed way. Do not assume a specific
+  transport or interpreter, and do not claim Windows execution support.
 - Legacy template_key/command_key/parameters entries may be understood when
   editing old data, but must be converted to the flat contract on write.
 """.strip()

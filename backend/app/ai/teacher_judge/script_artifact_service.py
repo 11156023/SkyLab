@@ -246,7 +246,7 @@ Canonical migration boundary: new rubric steps are flat argv/cwd/timeout data;
 legacy template_key/command_key/parameters may only be read from old snapshots.
 The logical target is target_node_key. Never require or expose VMID, IP, SSH,
 or Proxmox details to the model, and do not treat a Windows prompt claim as
-executor support while the runtime remains Linux SSH/SFTP.
+supported; the backend validates executability in a managed runtime.
 
 你是 Teacher Judge managed data collection script 的安全審查員。
 只審查腳本，不執行腳本。請依 policy 判斷它是否只做 read-only inspection，或只執行 rubric 與 catalog 明確授權的受控程式入口。

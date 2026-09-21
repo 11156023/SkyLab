@@ -23,8 +23,8 @@ SCRIPT_GENERATION_CONTRACT_PROMPT = f"""
   snapshots and are read-compatible migration input.
 - target_node_key is a class-local logical identity. It is not a VMID, IP,
   SSH credential, or provider-specific node name.
-- The current executor is Linux SSH/SFTP with python3. Do not claim Windows
-  execution support without a Windows executor adapter.
+- The backend executes all steps in a managed way. Do not assume a specific
+  transport or interpreter, and do not claim Windows execution support.
 # 腳本品質契約
 - 你產生的是受管資料收集腳本，不是自由發揮的診斷腳本；可讀性、可移植性、證據品質與狀態語意都必須穩定。
 - 腳本目標是收集同學 VM/LXC 內可客觀觀察的只讀資料；rubric 與 catalog 明確引用 `system.run_command` 或其他受控執行能力時，可在指定 cwd 以有限 timeout 執行單一命令並收集 exit code/stdout/stderr。所有結果整理成單一 JSON。

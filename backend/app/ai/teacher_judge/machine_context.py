@@ -98,7 +98,6 @@ def machine_context_entries(
             "name": node.name,
             "role": node.role,
             "resource_type": node.resource_type,
-            "executor_capability": "linux_ssh_sftp_python3",
             "os": format_os_token(os_by_node.get(node.id)),
         }
         for node in nodes
@@ -121,7 +120,6 @@ def format_machine_context(entries: list[dict[str, Any]] | None) -> str:
                     f"role={entry.get('role') or ''}",
                     f"resource_type={entry.get('resource_type') or ''}",
                     f"os={entry.get('os') or 'unknown'}",
-                    f"executor={entry.get('executor_capability') or 'linux_ssh_sftp_python3'}",
                 ]
             )
             for entry in entries
