@@ -255,8 +255,6 @@ export function ReverseProxyPanel() {
           </div>
         </div>
 
-        <p className={styles.listDesc}>{t("ReverseProxyPage.listDesc")}</p>
-
         <div className={styles.listBody} data-guide="proxy-list">
           {loading ? (
             <LoadingState text={t("ReverseProxyPage.loadingList")} />

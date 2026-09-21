@@ -6,7 +6,6 @@ import { useToast } from "../../../hooks/useToast";
 import { ProxmoxConfigService } from "../../../services/proxmoxConfig";
 import { useUnsavedChangesGuard } from "../../../contexts/UnsavedChangesContext";
 import PageHeader from "../../../components/PageHeader/PageHeader";
-import RelatedSettingsNav from "./RelatedSettingsNav";
 
 /**
  * 資源排程（系統管理 → 資源排程）：跨叢集共用的放置／超配／排程開機參數，
@@ -194,8 +193,7 @@ export default function SchedulerPage() {
 
   return (
     <div className={styles.page}>
-      <PageHeader title={t("SettingsPage.schedulerTitle")} subtitle={t("SettingsPage.schedulerSubtitle")} />
-      <RelatedSettingsNav current="scheduler" />
+      <PageHeader title={t("SettingsPage.schedulerTitle")} />
       <div className={styles.content}>
         {loading ? (
           <LoadingState fullPage text={t("SettingsPage.loadingSettings")} />

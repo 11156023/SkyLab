@@ -134,7 +134,6 @@ export default function StoragePage() {
     <div className={styles.page}>
       <PageHeader title={t("SettingsPage.storageTitle")} />
       <div className={styles.content}>
-        <p className={styles.listHint}>{t("SettingsPage.storageHint")}</p>
         <StorageList />
       </div>
     </div>
