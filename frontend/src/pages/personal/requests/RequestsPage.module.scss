@@ -291,7 +291,8 @@
   margin: 0;
   padding: 12px;
   border-radius: $radius-8;
-  background: var(--color-hover);
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
   color: var(--color-text);
   font-family: ui-monospace, SFMono-Regular, Consolas, "Courier New", monospace;
   font-size: $font-size-12;

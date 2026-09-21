@@ -275,7 +275,8 @@ $spacing-16: 12px;
   @include flex-column;
   gap: $spacing-8;
   padding: $spacing-16 $spacing-16;
-  background: var(--color-hover);
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
   border-radius: $radius-8;
 }
 
