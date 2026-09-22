@@ -5,6 +5,7 @@ import { useTranslation } from "react-i18next";
 import { useAuth }  from "../../contexts/AuthContext";
 import { useUnsavedChanges } from "../../contexts/UnsavedChangesContext";
 import { SUPPORTED_LANGUAGES, setLanguage } from "../../i18n";
+import useScrollEdges from "../../hooks/useScrollEdges";
 import styles from "./Sidebar.module.scss";
 import MIcon from "../MIcon";
 import Avatar from "../Avatar/Avatar";
@@ -12,8 +13,10 @@ import JobsButton from "../Jobs/JobsButton";
 
 const topItems = [
   { key: "dashboard", labelKey: "Sidebar.topDashboard", icon: "dashboard" },
-  { key: "courses", labelKey: "Sidebar.topCourses", icon: "school", studentOnly: true },
 ];
+
+/* 確認頁沿用舊網址 /quick-template/:id，側欄仍要亮在「快速練習」 */
+const activeKeyAliases = { "quick-template": "quick-create" };
 
 const navGroups = [
   {
@@ -25,7 +28,6 @@ const navGroups = [
       { key: "my-requests",   labelKey: "Sidebar.itemMyRequests",    icon: "assignment" },
       { key: "resource-mgmt", labelKey: "Sidebar.itemResourceMgmt",    icon: "storage", adminOnly: true },
       { key: "templates",     labelKey: "Sidebar.itemTemplates",    icon: "library_books", instructorOnly: true },
-      { key: "gpu-mgmt",      labelKey: "Sidebar.itemGpuMgmt",    icon: "memory", adminOnly: true },
     ],
   },
   {
@@ -63,8 +65,11 @@ const navGroups = [
     labelKey: "Sidebar.groupTeaching",
     icon: "school",
     items: [
+      { key: "courses", labelKey: "Sidebar.topCourses", icon: "school", studentOnly: true },
       { key: "class-management", labelKey: "Sidebar.itemClassManagement", icon: "groups_2", instructorOnly: true },
       { key: "course-template-management", labelKey: "Sidebar.itemCourseTemplateManagement", icon: "view_quilt", instructorOnly: true },
+      /* 快速練習對所有登入者開放（後端 quick-practice 沒有角色限制） */
+      { key: "quick-create", labelKey: "Sidebar.itemQuickCreate", icon: "bolt" },
     ],
   },
   {
@@ -93,6 +98,7 @@ const adminSettingsItems = [
   { key: "ldap",            labelKey: "Sidebar.itemLdap",           icon: "badge" },
   { key: "nodes",           labelKey: "Sidebar.itemNodes",          icon: "lock" },
   { key: "storage",         labelKey: "Sidebar.itemStorage",        icon: "storage" },
+  { key: "gpu-mgmt",        labelKey: "Sidebar.itemGpuMgmt",        icon: "memory" },
 ];
 
 /** 釘選狀態存 localStorage，跨 session 保留（不可用時僅本次瀏覽生效） */
@@ -115,10 +121,10 @@ function savePinnedKeys(keys) {
   }
 }
 
-function NavGroup({ group, active, onSelect, collapsed, onExpand, pinnedKeys, onTogglePin }) {
+function NavGroup({ group, active, onSelect, collapsed, onExpand, pinnedKeys, onTogglePin, defaultOpen = false }) {
   const { t } = useTranslation("common");
   const [open, setOpen] = useState(
-    group.items.some((i) => i.key === active)
+    defaultOpen || group.items.some((i) => i.key === active)
   );
 
   const hasActive = group.items.some((i) => i.key === active);
@@ -335,7 +341,8 @@ export default function Sidebar({ collapsed, mobileOpen, onToggle, onClose }) {
   const { t, i18n } = useTranslation("common");
   const navigate = useNavigate();
   const location = useLocation();
-  const active   = location.pathname.split("/")[1] || "dashboard";
+  const routeKey = location.pathname.split("/")[1] || "dashboard";
+  const active   = activeKeyAliases[routeKey] ?? routeKey;
   const lang = SUPPORTED_LANGUAGES.includes(i18n.language) ? i18n.language : "zh-TW";
   const langPopup  = usePopup();
   const userPopup  = usePopup();
@@ -347,12 +354,11 @@ export default function Sidebar({ collapsed, mobileOpen, onToggle, onClose }) {
   const canTeach = isAdmin || user?.role === "teacher";
   /* 身在系統管理頁面時，整支側欄切換成「管理員設定」核心側欄 */
   const inAdminSettings = isAdmin && adminSettingsItems.some((item) => item.key === active);
-  const visibleTopItems = topItems.filter((item) => !item.studentOnly || !canTeach);
   const visibleNavGroups = navGroups
     .map((group) => ({
       ...group,
       items: group.items.filter((item) =>
-        (!item.adminOnly || isAdmin) && (!item.instructorOnly || canTeach)
+        (!item.adminOnly || isAdmin) && (!item.instructorOnly || canTeach) && (!item.studentOnly || !canTeach)
       ),
     }))
     .filter((group) => group.items.length > 0);
@@ -370,6 +376,9 @@ export default function Sidebar({ collapsed, mobileOpen, onToggle, onClose }) {
   const pinnedItems = pinnedKeys
     .map((key) => visibleItems.find((item) => item.key === key))
     .filter(Boolean);
+
+  // 導覽捲到一半時，在被裁的那一側畫漸層淡出（捲軸是藏起來的）
+  const navScroll = useScrollEdges();
 
   const cls = [
     styles.sidebar,
@@ -406,23 +415,38 @@ export default function Sidebar({ collapsed, mobileOpen, onToggle, onClose }) {
         )}
       </div>
 
-      <div className={styles.brandDivider} />
+      <div className={styles.divider} />
 
       {/* ===== Main nav ===== */}
       {inAdminSettings ? (
-        <nav className={styles.nav}>
-          <button
-            type="button"
-            className={styles.navItem}
-            onClick={() => handleNav("dashboard")}
-            title={collapsed ? t("Sidebar.backToConsole") : undefined}
-            aria-label={t("Sidebar.backToConsole")}
-          >
-            <MIcon name="arrow_back" size={20} />
-            {!collapsed && <span className={styles.navLabel}>{t("Sidebar.backToConsole")}</span>}
-          </button>
-          {!collapsed && (
-            <div className={styles.sectionTitle}>{t("Sidebar.adminSettings")}</div>
+        <nav className={styles.nav} ref={navScroll.ref} data-scroll-edges={navScroll.edges}>
+          {/* 麵包屑：左半的「主控台」是返回入口，右半標示目前在哪個模式。
+              收合時只剩箭頭鈕（放不下文字） */}
+          {collapsed ? (
+            <button
+              type="button"
+              className={styles.backItem}
+              onClick={() => handleNav("dashboard")}
+              title={t("Sidebar.backToConsole")}
+              aria-label={t("Sidebar.backToConsole")}
+            >
+              <MIcon name="arrow_back" size={16} />
+            </button>
+          ) : (
+            <>
+              <div className={styles.breadcrumb}>
+                <button
+                  type="button"
+                  className={styles.crumbLink}
+                  onClick={() => handleNav("dashboard")}
+                  aria-label={t("Sidebar.backToConsole")}
+                >
+                  {t("Sidebar.console")}
+                </button>
+                <MIcon name="chevron_right" size={14} />
+                <span className={styles.crumbCurrent}>{t("Sidebar.adminSettings")}</span>
+              </div>
+            </>
           )}
           {adminSettingsItems.map((item) => (
             <button
@@ -439,8 +463,8 @@ export default function Sidebar({ collapsed, mobileOpen, onToggle, onClose }) {
           ))}
         </nav>
       ) : (
-      <nav className={styles.nav}>
-        {visibleTopItems.map((item) => (
+      <nav className={styles.nav} ref={navScroll.ref} data-scroll-edges={navScroll.edges}>
+        {topItems.map((item) => (
           <button
             key={item.key}
             type="button"
@@ -469,7 +493,7 @@ export default function Sidebar({ collapsed, mobileOpen, onToggle, onClose }) {
             {!collapsed && (
               <button
                 type="button"
-                className={styles.pinBtn}
+                className={`${styles.pinBtn} ${styles.pinBtnPinned}`}
                 onClick={() => togglePin(item.key)}
                 title={t("Sidebar.unpin")}
                 aria-label={t("Sidebar.unpin")}
@@ -489,12 +513,16 @@ export default function Sidebar({ collapsed, mobileOpen, onToggle, onClose }) {
             onExpand={onToggle}
             pinnedKeys={pinnedKeys}
             onTogglePin={togglePin}
+            /* 學生的「課程」收在教學群組裡，預設展開才不用多點一下 */
+            defaultOpen={group.key === "teaching" && !canTeach}
           />
         ))}
       </nav>
       )}
 
       {/* ===== Bottom section ===== */}
+      <div className={styles.divider} />
+
       <div className={styles.bottom}>
         {/* 管理員設定：系統管理頁面的入口，進入後側欄切換成核心側欄 */}
         {isAdmin && (

@@ -1,4 +1,4 @@
-import { lazy } from "react";
+import { Suspense, lazy } from "react";
 import { Navigate, Route, Routes, useParams, useSearchParams } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { useAuth } from "./contexts/AuthContext";
@@ -9,6 +9,9 @@ import { LoadingSpinner } from "./components/LoadingState/LoadingState";
 import { AuthSessionStatus } from "./services/authSession";
 import styles from "./App.module.scss";
 
+// 導入介紹首頁（未登入的 /；獨立 chunk，gsap 只在這裡載入）
+const LandingPage = lazy(() => import("./pages/landing/LandingPage"));
+
 // 個人
 const AdminDashboardPage = lazy(() => import("./pages/personal/dashboard/admin/AdminDashboardPage"));
 const TeacherDashboardPage = lazy(() => import("./pages/personal/dashboard/teacher/TeacherDashboardPage"));
@@ -17,6 +20,7 @@ const StudentCoursesPage = lazy(() => import("./pages/personal/courses/StudentCo
 const StudentCoursePage = lazy(() => import("./pages/personal/dashboard/student/StudentCoursePage"));
 const StudentWeekPage = lazy(() => import("./pages/personal/courses/StudentWeekPage"));
 const QuickTemplateFormPage = lazy(() => import("./pages/personal/quick-practice/QuickTemplateFormPage"));
+const QuickCreatePage = lazy(() => import("./pages/personal/quick-practice/QuickCreatePage"));
 const ResourcesPage = lazy(() => import("./pages/personal/resources/ResourcesPage"));
 const ResourceDetailPage = lazy(() => import("./pages/personal/resources/detail/ResourceDetailPage"));
 const RequestsPage = lazy(() => import("./pages/personal/requests/RequestsPage"));
@@ -138,16 +142,39 @@ function App() {
     new URLSearchParams(window.location.search).get("device_code"),
   );
 
+  /* 導入頁是純靜態內容，不依賴 session 檢查：
+     後端連不上或 session 驗證中時，/ 照樣直接呈現，其餘路徑維持原本的啟動畫面。 */
+  const landingElement = (
+    <Suspense fallback={null}>
+      <LandingPage />
+    </Suspense>
+  );
+
   if (authStatus === AuthSessionStatus.UNAVAILABLE && !user) {
     return (
-      <AuthBootstrapState
-        unavailable
-        retrying={loading}
-        onRetry={retrySession}
-      />
+      <Routes>
+        <Route path="/" element={landingElement} />
+        <Route
+          path="*"
+          element={
+            <AuthBootstrapState
+              unavailable
+              retrying={loading}
+              onRetry={retrySession}
+            />
+          }
+        />
+      </Routes>
     );
   }
-  if (loading && !user) return <AuthBootstrapState />;
+  if (loading && !user) {
+    return (
+      <Routes>
+        <Route path="/" element={landingElement} />
+        <Route path="*" element={<AuthBootstrapState />} />
+      </Routes>
+    );
+  }
 
   return (
     <Routes>
@@ -183,6 +210,8 @@ function App() {
           <Route path="/courses/:pathId" element={!canTeach ? <StudentCoursePage /> : <Navigate to="/dashboard" replace />} />
           <Route path="/courses/:pathId/weeks/:weekId" element={!canTeach ? <StudentWeekPage /> : <Navigate to="/dashboard" replace />} />
           <Route path="/dashboard/course/:pathId" element={!canTeach ? <LegacyStudentCourseRedirect /> : <Navigate to="/dashboard" replace />} />
+          {/* 快速練習：學生、老師、管理者共用，側欄「教學」群組的入口 */}
+          <Route path="/quick-create"         element={<QuickCreatePage />} />
           <Route path="/quick-template/:id"   element={<QuickTemplateFormPage />} />
           <Route path="/my-resources"         element={<ResourcesPage />} />
           <Route path="/my-resources/:vmid"   element={<ResourceDetailPage backTo="/my-resources" />} />
@@ -274,7 +303,11 @@ function App() {
           <Route path="*" element={<Navigate to="/dashboard" replace />} />
         </Route>
       ) : (
-        <Route path="*" element={<Navigate to="/login" replace />} />
+        <>
+          {/* 未登入的 / 是導入介紹首頁,其餘路徑照舊導向登入 */}
+          <Route path="/" element={landingElement} />
+          <Route path="*" element={<Navigate to="/login" replace />} />
+        </>
       )}
     </Routes>
   );

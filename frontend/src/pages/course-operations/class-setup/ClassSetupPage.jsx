@@ -10,6 +10,7 @@ import EnvironmentChoice from "../EnvironmentChoice";
 import shared from "../CourseOperations.module.scss";
 import { TeachingClassesService } from "../../../services/teachingClasses";
 import { focusInvalidField } from "../../../utils/focusField";
+import { joinList } from "../../../utils/joinList";
 import {
   BOOT_LEAD_OPTIONS,
   classSchedulePayload,
@@ -17,6 +18,7 @@ import {
   SHUTDOWN_GRACE_OPTIONS,
 } from "../classScheduleForm";
 import styles from "./ClassSetupPage.module.scss";
+import useAiScreen from "../../../hooks/useAiScreen";
 
 const STEPS = [
   ["basic", "ClassSetupPage.stepBasicLabel"],
@@ -106,10 +108,11 @@ export default function ClassSetupPage() {
   const [params, setParams] = useSearchParams();
   const classId = params.get("classId") ?? "";
   const requestedStep = Number(params.get("step") ?? 1);
-  const step = Math.min(5, Math.max(1, requestedStep));
+  const step = Number.isFinite(requestedStep) ? Math.min(5, Math.max(1, Math.trunc(requestedStep))) : 1;
   const [form, setForm] = useState(() => createClassScheduleForm());
   const [item, setItem] = useState(null);
   const [templates, setTemplates] = useState([]);
+  const [templatesLoaded, setTemplatesLoaded] = useState(false);
   const [templateId, setTemplateId] = useState("");
   const [emails, setEmails] = useState("");
   const [weeks, setWeeks] = useState([]);
@@ -135,6 +138,14 @@ export default function ClassSetupPage() {
   const completed = [Boolean(item), studentsReady, environmentReady, weeks.some((week) => String(week.title ?? "").trim())];
   // 與班級頁的「建機準備 x/2」同一份定義，兩邊不會算出不同數字。
   const provisionReady = [studentsReady, environmentReady].filter(Boolean).length;
+  useAiScreen("class-setup", {
+    "classsetup.current_step": { value: `${step}. ${t(STEPS[step - 1][1])}` },
+    "classsetup.saved": { value: loading ? "載入中" : String(Boolean(item)) },
+    "classsetup.student_count": { value: loading ? "未知" : String(item?.students.length ?? 0) },
+    "classsetup.environment_saved": { value: loading ? "未知" : String(environmentReady) },
+    "classsetup.available_environments": { value: templatesLoaded ? String(templates.length) : "未知（尚未成功載入）" },
+    "classsetup.step_review": { disabled: busy || !capacity?.ready, disabled_reason: capacity?.issues?.join("；").slice(0, 300) || null },
+  });
 
   function applyClass(result) {
     const normalized = normalizeClass(result);
@@ -150,6 +161,7 @@ export default function ClassSetupPage() {
       .then((rows) => {
         if (!active) return;
         setTemplates(rows);
+        setTemplatesLoaded(true);
         const created = location.state?.createdTemplateId;
         if (created && rows.some((row) => String(row.id) === String(created))) {
           setTemplateId(String(rows.find((row) => String(row.id) === String(created)).versionId));
@@ -206,7 +218,7 @@ export default function ClassSetupPage() {
       const result = await TeachingClassesService.addStudents(classId, parsed);
       applyClass(result.class);
       setEmails("");
-      if (result.not_found?.length) setMessage(t("ClassSetupPage.addedStudentsMsg", { added: result.added, notFound: result.not_found.join("、") }));
+      if (result.not_found?.length) setMessage(t("ClassSetupPage.addedStudentsMsg", { added: result.added, notFound: joinList(result.not_found) }));
     }
     return true;
   }

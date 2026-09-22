@@ -47,13 +47,18 @@ def classify(
 def class_relation_for(
     db_resource: Any, *, viewer_id: uuid.UUID, owned_class_ids: set[uuid.UUID]
 ) -> ClassRelation | None:
-    """觀看者與這台班級機的關係；不是班級機回 None。"""
+    """觀看者與這台班級機的關係；不是班級機回 None。
+
+    自己的機器先於「班級擁有者」判斷：老師若擁有自己班上的機器，
+    它是「分配給我的班級機」而不是「學生機器」，否則前端會標成
+    學生機器＋老師自己的名字。
+    """
     if db_resource is None or not db_resource.teaching_class_id:
         return None
-    if db_resource.teaching_class_id in owned_class_ids:
-        return "teacher"
     if db_resource.user_id == viewer_id:
         return "student"
+    if db_resource.teaching_class_id in owned_class_ids:
+        return "teacher"
     return None
 
 

@@ -3,6 +3,7 @@ import { createPortal } from "react-dom";
 import { Link, useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import MIcon from "../MIcon";
+import SegmentedControl from "../SegmentedControl/SegmentedControl";
 import { useJobs } from "./JobsProvider";
 import { JobEmpty, JobLoading, JobRow, ReminderRow } from "./JobRow";
 import useDialogPresence from "../../hooks/useDialogPresence";
@@ -37,6 +38,8 @@ export default function JobsButton({ collapsed = false }) {
   } = useJobs();
   const navigate = useNavigate();
   const [open, setOpen] = useState(false);
+  const [tab, setTab] = useState("jobs");
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const [pos, setPos] = useState(null);
   // 關閉時先播放離場動畫再卸載
   const presence = useDialogPresence(open, 130);
@@ -101,6 +104,9 @@ export default function JobsButton({ collapsed = false }) {
       if (!v) {
         refreshReminders();
         desktopNotifications.sync();
+        // 停在比較需要注意的分頁：沒有執行中任務但有未讀提醒 → 提醒
+        setTab(hasRunning || unreadReminders.length === 0 ? "jobs" : "reminders");
+        setSettingsOpen(false);
       }
       return !v;
     });
@@ -152,96 +158,137 @@ export default function JobsButton({ collapsed = false }) {
           style={{ left: pos.left, bottom: pos.bottom }}
         >
           <div className={styles.popoverHeader}>
-            <span className={styles.popoverTitle}>{t("JobsButton.runningJobsTitle")}</span>
-            <span className={styles.popoverSub}>
-              {hasRunning ? t("JobsButton.runningCount", { count: running }) : t("JobsButton.noRunningJobs")}
+            <span className={styles.popoverTitle}>
+              {settingsOpen ? t("JobsButton.notificationSettings") : t("JobsButton.backgroundJobs")}
             </span>
-          </div>
-          {isAdmin && (
-            <label className={styles.notifyToggle}>
-              <input
-                type="checkbox"
-                checked={notifyOnlyMine}
-                onChange={(e) => setNotifyOnlyMine(e.target.checked)}
-              />
-              <span>{t("JobsButton.notifyOnlyMine")}</span>
-            </label>
-          )}
-          {desktopNotifications.supported && (
-            <label className={`${styles.notifyToggle} ${desktopBlocked ? styles.notifyToggleDisabled : ""}`}>
-              <input
-                type="checkbox"
-                checked={desktopNotifications.enabled}
-                disabled={desktopBlocked}
-                onChange={(e) => (e.target.checked ? desktopNotifications.enable() : desktopNotifications.disable())}
-              />
-              <span>
-                {desktopBlocked ? t(desktopBlockedKey) : t("JobsButton.desktopNotifications")}
-              </span>
-            </label>
-          )}
-          {desktopNotifications.enabled && pushHintKey && (
-            <p className={styles.notifyHint}>{t(pushHintKey)}</p>
-          )}
-          <div className={styles.popoverList}>
-            {items === null ? (
-              <JobLoading />
-            ) : items.length === 0 ? (
-              <JobEmpty message={t("JobsButton.noRunningJobsHint")} />
-            ) : (
-              items.map((job) => (
-                <JobRow
-                  key={job.id}
-                  job={job}
-                  onClick={(j) => {
-                    openJob(j.id);
-                    setOpen(false);
-                  }}
-                />
-              ))
+            {(isAdmin || desktopNotifications.supported) && (
+              <button
+                type="button"
+                className={`${styles.settingsBtn} ${settingsOpen ? styles.settingsBtnActive : ""}`}
+                onClick={() => setSettingsOpen((v) => !v)}
+                aria-expanded={settingsOpen}
+                aria-label={t("JobsButton.notificationSettings")}
+                title={t("JobsButton.notificationSettings")}
+              >
+                <MIcon name="settings" size={16} />
+              </button>
             )}
           </div>
-          <div className={styles.popoverSection}>
-            <div className={styles.popoverHeader}>
-              <span className={styles.popoverTitle}>{t("JobsButton.remindersTitle")}</span>
-              {unreadReminders.length > 0 ? (
-                <button
-                  type="button"
-                  className={styles.markAllBtn}
-                  onClick={markAllRemindersRead}
-                >
-                  {t("JobsButton.markAllRead")}
-                  <MIcon name="done_all" size={14} />
-                </button>
-              ) : (
-                <span className={styles.popoverSub}>
-                  {(reminders?.length ?? 0) > 0 ? t("JobsButton.allRead") : t("JobsButton.noNewReminders")}
-                </span>
+          {settingsOpen ? (
+            /* 設定視圖：整個彈窗內容切換，不跟任務列表擠在同一屏 */
+            <div className={styles.settingsPanel}>
+              {isAdmin && (
+                <label className={styles.settingRow}>
+                  <span className={styles.settingText}>
+                    <span>{t("JobsButton.notifyOnlyMineTitle")}</span>
+                    <small>{t("JobsButton.notifyOnlyMineHint")}</small>
+                  </span>
+                  <input
+                    type="checkbox"
+                    checked={notifyOnlyMine}
+                    onChange={(e) => setNotifyOnlyMine(e.target.checked)}
+                  />
+                </label>
+              )}
+              {desktopNotifications.supported && (
+                <label className={`${styles.settingRow} ${desktopBlocked ? styles.settingRowDisabled : ""}`}>
+                  <span className={styles.settingText}>
+                    <span>{t("JobsButton.desktopNotificationsTitle")}</span>
+                    <small>
+                      {desktopBlocked ? t(desktopBlockedKey) : t("JobsButton.desktopNotificationsHint")}
+                    </small>
+                  </span>
+                  <input
+                    type="checkbox"
+                    checked={desktopNotifications.enabled}
+                    disabled={desktopBlocked}
+                    onChange={(e) => (e.target.checked ? desktopNotifications.enable() : desktopNotifications.disable())}
+                  />
+                </label>
+              )}
+              {desktopNotifications.enabled && pushHintKey && (
+                <p className={styles.notifyHint}>{t(pushHintKey)}</p>
               )}
             </div>
+          ) : (
+          <>
+          <SegmentedControl
+            className={styles.popoverTabs}
+            ariaLabel={t("JobsButton.backgroundJobs")}
+            value={tab}
+            onChange={setTab}
+            options={[
+              {
+                value: "jobs",
+                label: t("JobsButton.tabJobs"),
+                badge: running > 0 ? running : undefined,
+              },
+              {
+                value: "reminders",
+                label: t("JobsButton.remindersTitle"),
+                badge: unreadReminders.length > 0 ? unreadReminders.length : undefined,
+              },
+            ]}
+          />
+          {tab === "jobs" ? (
             <div className={styles.popoverList}>
-              {reminders === null ? (
+              {items === null ? (
                 <JobLoading />
-              ) : reminders.length === 0 ? (
-                <JobEmpty message={t("JobsButton.noRemindersHint")} />
+              ) : items.length === 0 ? (
+                <JobEmpty message={t("JobsButton.noRunningJobsHint")} />
               ) : (
-                reminders.map((reminder) => (
-                  <ReminderRow
-                    key={reminder.id}
-                    reminder={reminder}
-                    unread={!readReminderIds.includes(reminder.id)}
-                    onClick={openReminder}
+                items.map((job) => (
+                  <JobRow
+                    key={job.id}
+                    job={job}
+                    onClick={(j) => {
+                      openJob(j.id);
+                      setOpen(false);
+                    }}
                   />
                 ))
               )}
             </div>
-          </div>
+          ) : (
+            <>
+              {unreadReminders.length > 0 && (
+                <div className={styles.listActions}>
+                  <button
+                    type="button"
+                    className={styles.markAllBtn}
+                    onClick={markAllRemindersRead}
+                  >
+                    {t("JobsButton.markAllRead")}
+                    <MIcon name="done_all" size={14} />
+                  </button>
+                </div>
+              )}
+              <div className={styles.popoverList}>
+                {reminders === null ? (
+                  <JobLoading />
+                ) : reminders.length === 0 ? (
+                  <JobEmpty message={t("JobsButton.noRemindersHint")} />
+                ) : (
+                  reminders.map((reminder) => (
+                    <ReminderRow
+                      key={reminder.id}
+                      reminder={reminder}
+                      unread={!readReminderIds.includes(reminder.id)}
+                      onClick={openReminder}
+                    />
+                  ))
+                )}
+              </div>
+            </>
+          )}
           <div className={styles.popoverFooter}>
             <Link to="/jobs" className={styles.popoverLink} onClick={() => setOpen(false)}>
               <span>{t("JobsButton.viewAllJobs")}</span>
               <MIcon name="chevron_right" size={16} />
             </Link>
           </div>
+          </>
+          )}
         </div>,
         document.body,
       )}

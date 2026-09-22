@@ -830,15 +830,18 @@ _MY_REQUESTS_ELEMENTS: tuple[ElementSpec, ...] = (
 
 # ── 帳號設定 ────────────────────────────────────────────────────────
 _ACCOUNT_ELEMENTS: tuple[ElementSpec, ...] = (
-    ElementSpec(id="account.tab_profile", role="list", label="個人資料", section="個人資料"),
-    ElementSpec(id="account.tab_password", role="list", label="密碼", section="密碼"),
+    ElementSpec(
+        id="account.tab_profile", role="list", label="個人資料", section="個人資料",
+        help="這個分頁同時包含變更密碼與刪除帳號。",
+    ),
+    ElementSpec(id="account.change_password", role="list", label="變更密碼", section="變更密碼"),
+    ElementSpec(
+        id="account.delete_account", role="list", label="刪除帳號", section="刪除帳號",
+        help="帳號與相關資料會永久刪除、無法復原；仍持有已開通的資源時系統會拒絕刪除。",
+    ),
     ElementSpec(
         id="account.tab_appearance", role="list", label="外觀", section="外觀",
         help="調整介面主題與顯示語言。",
-    ),
-    ElementSpec(
-        id="account.tab_danger", role="list", label="危險區域", section="危險區域",
-        help="不可復原的帳號操作放在這一區。",
     ),
 )
 
@@ -875,8 +878,9 @@ _AI_API_ELEMENTS: tuple[ElementSpec, ...] = (
              "不包含平台 Template 功能用量。",
     ),
     ElementSpec(
-        id="aiapi.docs", role="list", label="API 文件", section="API 文件",
-        help="提供 Responses API 的 POST 端點，以及 JavaScript、Python、CMD / cURL 範例。",
+        id="aiapi.docs", role="button", label="API 快速開始", section="申請",
+        help="在「新增金鑰」旁邊，點開會跳出視窗，提供 Base URL、Responses API 的 POST 端點，"
+             "以及 JavaScript、Python、CMD / cURL 範例。",
     ),
 )
 
@@ -1021,6 +1025,11 @@ _CLASS_MGMT_ELEMENTS: tuple[ElementSpec, ...] = (
 
 # ── 建立班級 ────────────────────────────────────────────────────────
 _CLASS_SETUP_ELEMENTS: tuple[ElementSpec, ...] = (
+    ElementSpec(id="classsetup.current_step", role="readonly", label="目前步驟"),
+    ElementSpec(id="classsetup.saved", role="readonly", label="班級已保存"),
+    ElementSpec(id="classsetup.student_count", role="readonly", label="已保存學生人數"),
+    ElementSpec(id="classsetup.environment_saved", role="readonly", label="已保存教學環境"),
+    ElementSpec(id="classsetup.available_environments", role="readonly", label="可選教學環境數量"),
     ElementSpec(
         id="classsetup.step_basic", role="list", label="班級與課表", section="課表",
         help="先決定何時上課；代碼、時區與提前開機可以維持預設。",
@@ -1039,7 +1048,7 @@ _CLASS_SETUP_ELEMENTS: tuple[ElementSpec, ...] = (
     ),
     ElementSpec(
         id="classsetup.step_environment", role="list", label="教學環境", section="環境",
-        help="選擇每位學生會拿到的機器。",
+        help="選用已發布且提供給正式課程的教學環境版本，定義每位學生的機器組合。可重用既有環境，或建立環境並發布後返回班級選用。機器範本是環境的來源之一，也可使用映像。",
     ),
     ElementSpec(
         id="classsetup.step_tasks", role="list", label="每週任務", section="每週任務",
@@ -1051,10 +1060,18 @@ _CLASS_SETUP_ELEMENTS: tuple[ElementSpec, ...] = (
     ),
 )
 
-# ── 學習環境 ────────────────────────────────────────────────────
+# ── 教學環境 ────────────────────────────────────────────────────
 _COURSE_TPL_ELEMENTS: tuple[ElementSpec, ...] = (
+    ElementSpec(id="coursetpl.name", role="text", label="環境名稱", section="基本資料", constraints=("必填",)),
+    ElementSpec(id="coursetpl.publish", role="button", label="發布", section="機器配置",
+                help="草稿的機器配置分頁提供發布，需確認「發布並鎖定」。發布後機器配置不可修改，基本資料仍可儲存調整。",
+                constraints=("環境名稱必填", "配置 1 至 3 台機器", "連線 Port 需有效，對外服務的網域前綴不可重複")),
+    ElementSpec(id="coursetpl.tab", role="readonly", label="目前分頁"),
+    ElementSpec(id="coursetpl.status", role="readonly", label="目前環境狀態"),
+    ElementSpec(id="coursetpl.node_count", role="readonly", label="機器數量"),
+    ElementSpec(id="coursetpl.return_to_class", role="readonly", label="發布後返回班級"),
     ElementSpec(
-        id="coursetpl.create", role="button", label="建立學習環境",
+        id="coursetpl.create", role="button", label="建立教學環境",
         section="模板清單",
     ),
     ElementSpec(id="coursetpl.status_published", role="readonly", label="已發布", section="模板清單"),
@@ -1096,11 +1113,7 @@ _COURSE_CMS_ELEMENTS: tuple[ElementSpec, ...] = (
     ),
     ElementSpec(
         id="cms.new_room", role="text", label="新房間標題", section="內容編輯",
-        help="房間掛在學習路徑底下，可以綁定一個實驗模板。",
-    ),
-    ElementSpec(
-        id="cms.pure_theory", role="toggle", label="純理論", section="內容編輯",
-        help="純理論的房間不綁機器。",
+        help="房間掛在學習路徑底下，用來放這一章的任務與題目。",
     ),
     ElementSpec(
         id="cms.publish", role="button", label="發布", section="內容編輯",
@@ -1178,12 +1191,8 @@ _GATEWAY_ELEMENTS: tuple[ElementSpec, ...] = (
         help="Gateway VM 重灌後 host key 變更導致連線被拒時使用。",
     ),
     ElementSpec(
-        id="gateway.reload_config", role="button", label="重新載入設定檔",
-        section="服務狀態",
-    ),
-    ElementSpec(
         id="gateway.service_logs", role="readonly", label="服務日誌",
-        section="服務狀態", help="顯示最近 100 行。",
+        section="服務狀態", help="顯示最近 100 行，每 10 秒自動更新。",
     ),
     ElementSpec(id="gateway.status_running", role="readonly", label="運行中", section="服務狀態"),
     ElementSpec(id="gateway.status_stopped", role="readonly", label="已停止", section="服務狀態"),
@@ -1268,6 +1277,19 @@ _FIREWALL_ELEMENTS: tuple[ElementSpec, ...] = (
 )
 
 # ── 啟動快速練習 ────────────────────────────────────────────────────
+_QUICK_CREATE_ELEMENTS: tuple[ElementSpec, ...] = (
+    ElementSpec(
+        id="quick_create.create_now", role="button", label="立即建立",
+        section="模板清單",
+        help="每張卡片是一組老師已發布的練習環境，卡片上標著會建立幾台機器；"
+             "點下去會進到啟動確認頁，還不會真的開始建立。",
+    ),
+    ElementSpec(
+        id="quick_create.no_review", role="readonly", label="免人工審核",
+        section="模板清單", help="這組環境會自動核准，不用等管理員審核。",
+    ),
+)
+
 _QUICK_TEMPLATE_ELEMENTS: tuple[ElementSpec, ...] = (
     ElementSpec(
         id="quick.rule_fixed_config", role="readonly", label="固定配置",
@@ -1456,6 +1478,17 @@ _SURFACES: tuple[SurfaceSpec, ...] = (
         elements=_REQUEST_FORM_ELEMENTS,
     ),
     SurfaceSpec(
+        id="quick-create",
+        path="/quick-create",
+        title="快速練習",
+        purpose=(
+            "列出目前可以直接啟動的練習環境模板，學生、教師與管理者都能用；"
+            "選一個模板後到確認頁啟動，免人工審核。"
+        ),
+        sections=("模板清單",),
+        elements=_QUICK_CREATE_ELEMENTS,
+    ),
+    SurfaceSpec(
         id="quick-template-form",
         path="/quick-template/:id",
         title="啟動快速練習",
@@ -1470,7 +1503,7 @@ _SURFACES: tuple[SurfaceSpec, ...] = (
         path="/account",
         title="帳號設定",
         purpose="修改個人資料與密碼，調整介面外觀。",
-        sections=("個人資料", "密碼", "外觀", "危險區域"),
+        sections=("個人資料", "變更密碼", "刪除帳號", "外觀"),
         elements=_ACCOUNT_ELEMENTS,
     ),
     SurfaceSpec(
@@ -1508,8 +1541,8 @@ _SURFACES: tuple[SurfaceSpec, ...] = (
         id="ai-api",
         path="/ai-api",
         title="AI API",
-        purpose="申請 AI API 金鑰、查詢申請紀錄、閱讀串接文件與查看個人 token 用量。",
-        sections=("申請", "API 文件", "申請紀錄", "我的用量"),
+        purpose="申請 AI API 金鑰、查詢申請紀錄、開啟 API 快速開始看串接範例，以及查看個人 token 用量。",
+        sections=("申請", "申請紀錄", "我的用量"),
         elements=_AI_API_ELEMENTS,
     ),
     # ── 教師與管理者 ──
@@ -1549,7 +1582,7 @@ _SURFACES: tuple[SurfaceSpec, ...] = (
     SurfaceSpec(
         id="course-template-management",
         path="/course-template-management",
-        title="學習環境",
+        title="教學環境",
         purpose=(
             "定義一組固定的機器配置，提供給正式課程、快速練習或兩者共用。"
             "每位學生最多三台機器。"
@@ -1557,6 +1590,24 @@ _SURFACES: tuple[SurfaceSpec, ...] = (
         sections=("模板清單", "基本資料", "機器配置"),
         access="staff",
         elements=_COURSE_TPL_ELEMENTS,
+    ),
+    SurfaceSpec(
+        id="course-template-new",
+        path="/course-template-management/new",
+        title="建立教學環境",
+        purpose="填基本資料、選套用方式並加入機器配置。草稿自動儲存；確認發布後鎖定機器配置，依套用方式提供正式課程、快速練習或兩者。",
+        sections=("基本資料", "機器配置"),
+        access="staff",
+        elements=tuple(element for element in _COURSE_TPL_ELEMENTS if element.section != "模板清單"),
+    ),
+    SurfaceSpec(
+        id="course-template-editor",
+        path="/course-template-management/:templateId",
+        title="編輯教學環境",
+        purpose="編輯既有教學環境的基本資料與機器配置。草稿自動儲存，發布後依套用方式供正式課程或快速練習使用，機器配置會鎖定。只有從班級進入才返回班級，獨立建立時留在編輯頁。",
+        sections=("基本資料", "機器配置"),
+        access="staff",
+        elements=tuple(element for element in _COURSE_TPL_ELEMENTS if element.section != "模板清單"),
     ),
     SurfaceSpec(
         id="course-cms",

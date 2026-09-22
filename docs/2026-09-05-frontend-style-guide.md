@@ -131,7 +131,7 @@ src/pages/personal/resources/
 .badge_info    { background: color-mix(in srgb, var(--color-info)    12%, transparent); color: var(--color-info); }
 .badge_pending { background: color-mix(in srgb, var(--color-pending) 12%, transparent); color: var(--color-pending); }
 .badge_danger  { background: color-mix(in srgb, var(--color-danger)  12%, transparent); color: var(--color-danger); }
-.badge_muted   { background: var(--color-hover); color: var(--color-status-neutral); }
+.badge_muted   { background: color-mix(in srgb, var(--color-status-neutral) 12%, transparent); color: var(--color-status-neutral); }
 ```
 
 > 一律用 `var(--color-*)`，不要把狀態色寫死成 HEX——深色模式的 info / pending 亮色值才吃得到。
@@ -231,16 +231,17 @@ $breakpoint-lg: 992px   $breakpoint-xl: 1200px
 
 ## Icon 使用規範
 
-**所有 Icon 一律使用 `material-icons`（filled 風格），透過 `MIcon` 元件呼叫。**
+**所有 Icon 一律透過 `MIcon` 元件呼叫，預設為 outlined 風格**；需要實心（filled）時傳 `filled` prop，不要自己換 class。
 
 ```jsx
 import MIcon from "../components/MIcon";
 
-<MIcon name="search" size={16} />
+<MIcon name="search" size={16} />          {/* material-icons-outlined（預設） */}
+<MIcon name="star" size={16} filled />     {/* material-icons（filled，特別強調時才用） */}
 ```
 
-- Icon 名稱請至 [Material Symbols](https://fonts.google.com/icons) 查詢，使用 **filled** 風格的名稱
-- 禁止直接使用 `<span className="material-icons">` 或其他 Icon 庫
+- Icon 名稱請至 [Material Symbols](https://fonts.google.com/icons) 查詢（outlined 與 filled 同名）
+- 禁止直接使用 `<span className="material-icons">`、`material-icons-outlined` 或其他 Icon 庫
 - 禁止使用 SVG inline、emoji、或其他圖示系統混搭
 
 ---
@@ -312,6 +313,10 @@ import MIcon from "../components/MIcon";
 }
 ```
 
+- 可點卡片的 hover 只給淡底（`background: var(--color-hover)`）或陰影／上浮，並保留 `transition` 淡入淡出；**不改邊框色**，藍框只留給「選中／目前」狀態（如分頁 active、流程目前步驟）
+- 淡底不要用 `linear-gradient` 疊層：漸層無法 transition，hover 會瞬間跳色
+- 玻璃卡裡的內容區塊（資訊欄位、備註框、程式碼／日誌／金鑰等 `pre`、清單列、統計格）一律 `background: var(--color-surface)`（白）＋ `1px solid var(--color-border)`；不要鋪 `--color-hover`、`--color-bg-base` 等主色系淺藍。它們跟著主色走，使用者換了背景色，疊在透出背景的玻璃上就會糊。淺藍只留給 hover／選中狀態、按鈕、徽章、提示框
+
 ### Dialog / Modal
 
 - Dialog 寬度四級：確認框／命名框 `max-width: 400px`；小型單欄表單 `max-width: 640px`；一般 `max-width: 1100px`；寬版（如 VNC）`1280px`
@@ -362,6 +367,8 @@ if (!(await confirm({ title, message, confirmText, danger: true }))) return;
 .btnGhostDanger   { @include btn-ghost($danger: true); }  // 淡紅底紅字變體（窄空間的刪除）
 .iconBtn          { @include btn-icon; }           // 32×32 圖示鈕，JSX 必帶 aria-label
 .iconBtnDanger    { @include btn-icon($danger: true); }   // 未 hover 前文字即為紅色
+.menuBtn          { @include btn-icon-secondary; } // 表格列的動作選單鈕（白底描邊），icon 一律 more_vert（⋮）
+.dialogClose      { @include btn-dialog-close; }   // Dialog 專用右上關閉鈕：同 btn-icon($danger: true)，僅未 hover 無底色
 ```
 
 - 共用基底（mixin 內建）：高 36px、圓角 `$radius-8`、字級 14／500、
@@ -397,6 +404,11 @@ if (!(await confirm({ title, message, confirmText, danger: true }))) return;
 
 > **規則三**：一組「起—迄」的值是**一個**欄位，不是兩個。用 `.timePair` 這種
 > 成對控制項，標籤寫「上課時間」，不要拆成「開始時間」「結束時間」兩個 `.field`。
+
+> **規則四**：textarea 一律**固定高**——`_reset.scss` 已全域設 `resize: none`，
+> 高度由 JSX 的 `rows` 或頁面 CSS 的 `height` / `min-height` 決定，元件內**不要再寫
+> `resize`**。特殊情況（真的需要讓使用者拖高的長文編輯區）才在該頁明確寫回
+> `resize: vertical`，讓例外看得見。
 
 ### 表格（Table）
 
@@ -571,6 +583,7 @@ function closeMenu() {
 | Portal 浮層選單 | 150 | portal 到 body 的 Dropdown（如 `components/PowerMenu`） |
 | Dialog / Modal | 300 | 全頁覆蓋 Dialog |
 | Toast / Tooltip | 400 | 通知、提示 |
+| 導覽 UserGuide | 3000–3199 | 導覽聚光層必須壓過含 Dialog 在內的一切（overlay 3100、示範視窗 3099；另有浮動求助鈕 90，介於選單與 Sticky Header 之間）。此區段保留給 UserGuide，一般元件勿用 |
 
 > ⚠️ 注意：使用 `backdrop-filter` 或 `transform` 的元素會建立新的 stacking context，子元素的 `z-index` 無法穿透至外層。若發現 Dropdown 被其他卡片遮住，請確認父元素是否有這類屬性。
 >

@@ -8,8 +8,10 @@ import { useAuth } from "../../../contexts/AuthContext";
 import { useToast } from "../../../hooks/useToast";
 import useAutoRefresh from "../../../hooks/useAutoRefresh";
 import useDialogPresence from "../../../hooks/useDialogPresence";
+import { useConfirm } from "../../../components/ConfirmDialog/ConfirmProvider";
 import { UsersService } from "../../../services/users";
 import PageHeader from "../../../components/PageHeader/PageHeader";
+import PasswordInput from "../../../components/PasswordInput/PasswordInput";
 import { formatDate } from "../../../utils/formatDate";
 
 const ROLE_ICONS = {
@@ -50,6 +52,15 @@ function UserModal({ mode, user, loading, closing = false, onClose, onSubmit }) 
   const isEdit = mode === "edit";
   /* LDAP 帳號的密碼歸目錄管：本地密碼欄位鎖住（後端也會擋），稽核 #9 */
   const isLdap = isEdit && user?.auth_source === "ldap";
+
+  /* Esc 關閉（Dialog 標準行為）；送出中不關，跟關閉鈕的行為一致 */
+  useEffect(() => {
+    const onKeyDown = (e) => {
+      if (e.key === "Escape" && !loading) onClose();
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [loading, onClose]);
   const ROLE_OPTIONS = [
     { value: "student", label: t("AdminPage.roleStudent") },
     { value: "teacher", label: t("AdminPage.roleTeacher") },
@@ -79,11 +90,8 @@ function UserModal({ mode, user, loading, closing = false, onClose, onSubmit }) 
     >
       <form className={styles.modal} onSubmit={submit} onMouseDown={(e) => e.stopPropagation()}>
         <div className={styles.modalHeader}>
-          <div>
-            <h2>{isEdit ? t("AdminPage.modalEditTitle") : t("AdminPage.modalCreateTitle")}</h2>
-            <p>{isEdit ? t("AdminPage.modalEditSubtitle") : t("AdminPage.modalCreateSubtitle")}</p>
-          </div>
-          <button type="button" className={styles.iconBtn} onClick={onClose} aria-label={t("AdminPage.close")}>
+          <h2>{isEdit ? t("AdminPage.modalEditTitle") : t("AdminPage.modalCreateTitle")}</h2>
+          <button type="button" className={styles.dialogClose} onClick={onClose} aria-label={t("AdminPage.close")}>
             <MIcon name="close" size={18} />
           </button>
         </div>
@@ -112,8 +120,7 @@ function UserModal({ mode, user, loading, closing = false, onClose, onSubmit }) 
 
           <label className={styles.field}>
             <span>{isEdit ? t("AdminPage.fieldNewPassword") : t("AdminPage.fieldPassword")}</span>
-            <input
-              type="password"
+            <PasswordInput
               value={form.password}
               onChange={(e) => setField("password", e.target.value)}
               minLength={8}
@@ -163,34 +170,6 @@ function UserModal({ mode, user, loading, closing = false, onClose, onSubmit }) 
   );
 }
 
-function ConfirmDelete({ user, loading, closing = false, onClose, onConfirm }) {
-  const { t } = useTranslation("system");
-  return (
-    <div
-      className={`${styles.modalOverlay} ${closing ? styles.modalOverlayOut : ""}`}
-      onMouseDown={onClose}
-    >
-      <div className={styles.confirm} onMouseDown={(e) => e.stopPropagation()}>
-        <div className={styles.confirmIcon}>
-          <MIcon name="warning" size={24} />
-        </div>
-        <h2>{t("AdminPage.deleteUserTitle")}</h2>
-        <p>
-          {t("AdminPage.deleteUserConfirm", { name: userDisplayName(user) })}
-        </p>
-        <div className={styles.modalActions}>
-          <button type="button" className={styles.btnSecondary} onClick={onClose}>
-            {t("AdminPage.cancel")}
-          </button>
-          <button type="button" className={styles.btnDanger} disabled={loading} onClick={onConfirm}>
-            {loading ? t("AdminPage.deleting") : t("AdminPage.delete")}
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
 function UserRow({ user, currentUserId, onEdit, onDelete }) {
   const { t } = useTranslation("system");
   const ROLE_META = {
@@ -213,13 +192,15 @@ function UserRow({ user, currentUserId, onEdit, onDelete }) {
         </span>
         <span className={styles.rowMeta}>{user.email}</span>
       </div>
-      <span className={`${styles.badge} ${styles[`badge_${user.role}`]}`}>
-        <MIcon name={role.icon} size={13} />
-        {role.label}
-      </span>
-      <span className={`${styles.statusBadge} ${user.is_active ? styles.statusActive : styles.statusInactive}`}>
-        {user.is_active ? t("AdminPage.statusActive") : t("AdminPage.statusInactive")}
-      </span>
+      <div className={styles.rowTags}>
+        <span className={`${styles.badge} ${styles[`badge_${user.role}`]}`}>
+          <MIcon name={role.icon} size={13} />
+          {role.label}
+        </span>
+        <span className={`${styles.statusBadge} ${user.is_active ? styles.statusActive : styles.statusInactive}`}>
+          {user.is_active ? t("AdminPage.statusActive") : t("AdminPage.statusInactive")}
+        </span>
+      </div>
       <span className={styles.createdAt}>{formatDate(user.created_at)}</span>
       <div className={styles.rowActions}>
         <button type="button" className={styles.actionBtn} title={t("AdminPage.editTitle")} onClick={() => onEdit(user)}>
@@ -227,7 +208,7 @@ function UserRow({ user, currentUserId, onEdit, onDelete }) {
         </button>
         <button
           type="button"
-          className={`${styles.actionBtn} ${styles.actionBtnDanger}`}
+          className={styles.actionBtnDanger}
           title={isSelf ? t("AdminPage.deleteSelfTitle") : t("AdminPage.deleteTitle")}
           disabled={isSelf}
           onClick={() => onDelete(user)}
@@ -243,16 +224,14 @@ export default function AdminPage() {
   const { t } = useTranslation("system");
   const { user: currentUser } = useAuth();
   const toast = useToast();
+  const confirm = useConfirm();
   const [users, setUsers] = useState([]);
   const [count, setCount] = useState(0);
   const [query, setQuery] = useState("");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [deleting, setDeleting] = useState(false);
   const [modal, setModal] = useState(null);
-  const [deleteTarget, setDeleteTarget] = useState(null);
   const modalPresence  = useDialogPresence(modal);
-  const deletePresence = useDialogPresence(deleteTarget);
 
   /** silent = true 時不觸發 loading 與錯誤提示，供背景自動刷新使用。
       逐頁取回全部使用者（原本寫死 limit 100，第 101 位之後在這頁根本管不到）；
@@ -323,19 +302,23 @@ export default function AdminPage() {
     }
   }
 
-  async function handleDelete() {
-    if (!deleteTarget) return;
-    setDeleting(true);
+  /* 刪除確認走共用 useConfirm（樣式規範：勿自建本地 ConfirmModal），
+     按下確認即關閉彈窗，結果以 toast 呈現 */
+  async function handleDelete(user) {
+    const ok = await confirm({
+      title: t("AdminPage.deleteUserTitle"),
+      message: t("AdminPage.deleteUserConfirm", { name: userDisplayName(user) }),
+      confirmText: t("AdminPage.delete"),
+      danger: true,
+    });
+    if (!ok) return;
     try {
-      await UsersService.delete(deleteTarget.id);
-      setUsers((prev) => prev.filter((item) => item.id !== deleteTarget.id));
+      await UsersService.delete(user.id);
+      setUsers((prev) => prev.filter((item) => item.id !== user.id));
       setCount((prev) => Math.max(prev - 1, 0));
       toast.success(t("AdminPage.toastDeleted"));
-      setDeleteTarget(null);
     } catch (err) {
       toast.error(err?.message ?? t("AdminPage.toastDeleteFailed"));
-    } finally {
-      setDeleting(false);
     }
   }
 
@@ -392,7 +375,7 @@ export default function AdminPage() {
                   user={item}
                   currentUserId={currentUser?.id}
                   onEdit={(target) => setModal({ mode: "edit", user: target })}
-                  onDelete={setDeleteTarget}
+                  onDelete={handleDelete}
                 />
               ))}
             </div>
@@ -435,16 +418,6 @@ export default function AdminPage() {
           closing={modalPresence.closing}
           onClose={() => setModal(null)}
           onSubmit={handleSubmit}
-        />
-      )}
-
-      {deletePresence.open && (
-        <ConfirmDelete
-          user={deletePresence.item}
-          loading={deleting}
-          closing={deletePresence.closing}
-          onClose={() => setDeleteTarget(null)}
-          onConfirm={handleDelete}
         />
       )}
     </div>

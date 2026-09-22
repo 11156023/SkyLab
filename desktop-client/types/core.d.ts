@@ -88,17 +88,10 @@ interface SkyLabTunnelInfo {
   vmid?: number;
   name?: string;
   vm_name?: string;
-  proxy_name?: string;
   service?: string;
-  visitor_port?: number;
   host?: string;
   port?: number;
   [key: string]: any;
-}
-
-interface SkyLabTunnelConfig {
-  frpc_config: string;
-  tunnels: SkyLabTunnelInfo[];
 }
 
 interface TunnelStatusInfo {
@@ -106,7 +99,7 @@ interface TunnelStatusInfo {
   lastStartTime: number;
   connectionError: string | null;
   tunnels: SkyLabTunnelInfo[];
-  mode?: "frp" | "wireguard";
+  mode?: "wireguard";
   interfaceName?: string | null;
   latestHandshakeAt?: number | null;
 }

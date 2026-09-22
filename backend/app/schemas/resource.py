@@ -3,7 +3,7 @@
 import unicodedata
 import uuid
 from datetime import date, datetime
-from typing import Annotated, Literal
+from typing import Annotated, Any, Literal
 
 from pydantic import AfterValidator, BaseModel, Field, model_validator
 
@@ -109,6 +109,8 @@ class VNCInfoSchema(BaseModel):
     ticket: str | None = None
     port: str | None = None
     message: str
+
+
 class TemplateSchema(BaseModel):
     """LXC OS template 資訊"""
 
@@ -217,6 +219,13 @@ class ResourcePublic(BaseModel):
     can_extend: bool = True
     environment_type: str | None = None
     os_info: str | None = None
+    guest_os: dict[str, Any] | None = Field(
+        default=None,
+        description=(
+            "結構化 Guest OS 身份（os_detection 契約：family/id/version/"
+            "pretty_name/source/confidence/detected_at）"
+        ),
+    )
     expiry_date: date | None = None
     ip_address: str | None = None
     ssh_public_key: str | None = None
@@ -296,6 +305,9 @@ class SSHKeyResponse(BaseModel):
     ssh_public_key: str | None = None
     ssh_private_key: str | None = None
     login_password: str | None = None
+    # 沒有 login_password 時的原因，讓前端如實說明而不是一律顯示「未記錄」
+    login_password_pending: bool = False  # 已產生，下次開機後才會寫進機器並顯示
+    uses_template_credentials: bool = False  # 範本不勾「允許自訂」，沿用範本內的密碼
 
 
 # ===== Monitoring Schemas =====
@@ -353,7 +365,9 @@ class SnapshotCreateRequest(BaseModel):
     """建立快照"""
 
     snapname: str = Field(..., min_length=1, max_length=40, description="Snapshot name")
-    description: str | None = Field(None, max_length=255, description="Snapshot description")
+    description: str | None = Field(
+        None, max_length=255, description="Snapshot description"
+    )
     vmstate: bool = Field(False, description="Include RAM state (VM only)")
 
 
@@ -379,7 +393,9 @@ class DirectSpecUpdateRequest(BaseModel):
     @model_validator(mode="after")
     def at_least_one_field(self):
         if self.cores is None and self.memory is None and self.disk_size is None:
-            raise ValueError("At least one of cores, memory, or disk_size must be provided")
+            raise ValueError(
+                "At least one of cores, memory, or disk_size must be provided"
+            )
         return self
 
 
@@ -389,7 +405,9 @@ class DirectSpecUpdateRequest(BaseModel):
 class BatchActionRequest(BaseModel):
     """批次操作請求"""
 
-    vmids: list[int] = Field(..., min_length=1, max_length=100, description="VM IDs to operate on")
+    vmids: list[int] = Field(
+        ..., min_length=1, max_length=100, description="VM IDs to operate on"
+    )
     action: str = Field(
         ...,
         description="Action: start, stop, shutdown, reboot, reset, delete",
@@ -399,7 +417,9 @@ class BatchActionRequest(BaseModel):
     def validate_action(self):
         valid = {"start", "stop", "shutdown", "reboot", "reset", "delete"}
         if self.action not in valid:
-            raise ValueError(f"Invalid action '{self.action}'. Must be one of: {', '.join(sorted(valid))}")
+            raise ValueError(
+                f"Invalid action '{self.action}'. Must be one of: {', '.join(sorted(valid))}"
+            )
         return self
 
 

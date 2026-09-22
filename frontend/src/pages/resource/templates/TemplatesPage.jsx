@@ -1,5 +1,7 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { createPortal } from "react-dom";
+import { computePosition, isAnchorOffscreen } from "../../../components/PowerMenu/position";
 import styles from "./TemplatesPage.module.scss";
 import MIcon from "../../../components/MIcon";
 import EmptyState from "../../../components/EmptyState/EmptyState";
@@ -47,6 +49,15 @@ function ManualDialog({ template, closing = false, onClose }) {
       cancelled = true;
     };
   }, [template.id, toast, t]);
+
+  /* Esc 關閉（Dialog 標準行為） */
+  useEffect(() => {
+    const onKeyDown = (e) => {
+      if (e.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [onClose]);
 
   const handleDownload = async (attachment) => {
     setDownloadingId(attachment.id);
@@ -104,21 +115,62 @@ function ManualDialog({ template, closing = false, onClose }) {
   );
 }
 
-/** 單列的「⋯」操作選單 */
+/** 單列的「⋯」操作選單。
+   portal 到 body 並用 fixed 定位：選單原本絕對定位在 .tableScroll 裡，
+   overflow-x: auto 會連 y 軸一起變裁切上下文，選單被切掉還撑出捲軸（同 PowerMenu 的做法） */
+const ROW_MENU_WIDTH = 200;
+
 function RowMenu({ template, cycleBusy, onClone, onEdit, onManual, onRetry, onCycle, onDelete, onClose, anchorRef, closing = false }) {
   const { t } = useTranslation("resource");
   const ref = useRef(null);
+  const [pos, setPos] = useState(null);
+  const onCloseRef = useRef(onClose);
+  useEffect(() => { onCloseRef.current = onClose; });
+
+  const reposition = useCallback(() => {
+    const anchor = anchorRef?.current;
+    const menu = ref.current;
+    if (!anchor || !menu) return;
+    const rect = anchor.getBoundingClientRect();
+    const viewport = { width: window.innerWidth, height: window.innerHeight };
+    if (isAnchorOffscreen(rect, viewport)) {
+      onCloseRef.current();
+      return;
+    }
+    setPos(computePosition(rect, menu.offsetHeight, viewport, ROW_MENU_WIDTH));
+  }, [anchorRef]);
+
+  useLayoutEffect(() => { reposition(); }, [reposition]);
+
+  useEffect(() => {
+    const opts = { passive: true, capture: true };
+    window.addEventListener("scroll", reposition, opts);
+    window.addEventListener("resize", reposition);
+    return () => {
+      window.removeEventListener("scroll", reposition, opts);
+      window.removeEventListener("resize", reposition);
+    };
+  }, [reposition]);
 
   useEffect(() => {
     const handler = (e) => {
       if (!ref.current?.contains(e.target) && !anchorRef?.current?.contains(e.target)) onClose();
     };
+    const onKey = (e) => { if (e.key === "Escape") onClose(); };
     document.addEventListener("mousedown", handler);
-    return () => document.removeEventListener("mousedown", handler);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", handler);
+      document.removeEventListener("keydown", onKey);
+    };
   }, [onClose, anchorRef]);
 
-  return (
-    <div ref={ref} className={`${styles.rowMenu} ${closing ? styles.rowMenuOut : ""}`}>
+  return createPortal(
+    <div
+      ref={ref}
+      className={`${styles.rowMenu} ${closing ? styles.rowMenuOut : ""}`}
+      style={pos ? { top: pos.top, left: pos.left } : { top: 0, left: 0, visibility: "hidden" }}
+    >
       <button
         type="button"
         className={styles.rowMenuItem}
@@ -199,7 +251,8 @@ function RowMenu({ template, cycleBusy, onClone, onEdit, onManual, onRetry, onCy
         <MIcon name="delete_outline" size={15} />
         {t("TemplatesPage.menuDelete")}
       </button>
-    </div>
+    </div>,
+    document.body,
   );
 }
 
@@ -262,8 +315,9 @@ function ManagementRow({ template, cycleBusy, onClone, onEdit, onManual, onRetry
             className={styles.menuBtn}
             onClick={() => setMenuOpen((v) => !v)}
             title={t("TemplatesPage.moreActionsTitle")}
+            aria-label={t("TemplatesPage.moreActionsTitle")}
           >
-            <MIcon name="more_horiz" size={18} />
+            <MIcon name="more_vert" size={18} />
           </button>
         </div>
       </td>
@@ -276,19 +330,15 @@ export default function TemplatesPage() {
   const toast = useToast();
   const confirm = useConfirm();
   const [templates, setTemplates] = useState(null);
-  const [refreshing, setRefreshing] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
   const [editTarget, setEditTarget] = useState(null);
   const [cloneTarget, setCloneTarget] = useState(null);
   const [manualTarget, setManualTarget] = useState(null);
-  const [deleteTarget, setDeleteTarget] = useState(null);
   const createDialog  = useDialogPresence(createOpen);
   const editDialog    = useDialogPresence(editTarget);
   const manualDialog  = useDialogPresence(manualTarget);
   const cloneDialog   = useDialogPresence(cloneTarget);
-  const deleteDialog  = useDialogPresence(deleteTarget);
   const [cycleBusy, setCycleBusy] = useState(false);
-  const [deleting, setDeleting] = useState(false);
   const timerRef = useRef(null);
 
   const load = useCallback(async () => {
@@ -320,12 +370,6 @@ export default function TemplatesPage() {
       clearTimeout(timerRef.current);
     };
   }, [load]);
-
-  const refresh = async () => {
-    setRefreshing(true);
-    await load();
-    setRefreshing(false);
-  };
 
   const handleCycle = async (templateId, action) => {
     if (action === "finish") {
@@ -377,18 +421,22 @@ export default function TemplatesPage() {
     }
   };
 
-  const handleDelete = async () => {
-    setDeleting(true);
+  /* 刪除確認走共用 useConfirm（樣式規範：勿自建本地 ConfirmModal），
+     按下確認即關閉彈窗，進度以 toast 呈現 */
+  const handleDelete = async (template) => {
+    const ok = await confirm({
+      title: t("TemplatesPage.deleteConfirmTitle", { name: template.name }),
+      message: t("TemplatesPage.deleteConfirmDesc"),
+      confirmText: t("TemplatesPage.confirmDelete"),
+      danger: true,
+    });
+    if (!ok) return;
     try {
-      await TemplatesService.remove(deleteTarget.id);
+      await TemplatesService.remove(template.id);
       toast.success(t("TemplatesPage.deleteQueuedToast"));
-      setDeleteTarget(null);
       await load();
     } catch (e) {
       toast.error(e?.message ?? t("TemplatesPage.deleteFailed"));
-      setDeleteTarget(null);
-    } finally {
-      setDeleting(false);
     }
   };
 
@@ -398,15 +446,6 @@ export default function TemplatesPage() {
     <div className={styles.page}>
       <PageHeader title={t("TemplatesPage.pageTitle")}>
         <div className={styles.pageActions}>
-          <button
-            type="button"
-            className={styles.btnSecondary}
-            onClick={refresh}
-            disabled={refreshing}
-          >
-            <MIcon name="sync" size={16} />
-            {refreshing ? t("TemplatesPage.refreshing") : t("TemplatesPage.refresh")}
-          </button>
           <button
             type="button"
             className={styles.btnPrimary}
@@ -453,7 +492,7 @@ export default function TemplatesPage() {
                   onManual={setManualTarget}
                   onRetry={handleRetry}
                   onCycle={handleCycle}
-                  onDelete={setDeleteTarget}
+                  onDelete={handleDelete}
                 />
               ))}
             </tbody>
@@ -491,37 +530,6 @@ export default function TemplatesPage() {
           closing={cloneDialog.closing}
           onClose={() => setCloneTarget(null)}
         />
-      )}
-
-      {deleteDialog.open && (
-        <div
-          className={`${styles.modalOverlay} ${deleteDialog.closing ? styles.modalOverlayOut : ""}`}
-          onClick={() => setDeleteTarget(null)}
-        >
-          <div className={styles.modal} onClick={(e) => e.stopPropagation()}>
-            <span className={styles.modalTitle}>{t("TemplatesPage.deleteConfirmTitle", { name: deleteDialog.item.name })}</span>
-            <p className={styles.modalDesc}>
-              {t("TemplatesPage.deleteConfirmDesc")}
-            </p>
-            <div className={styles.modalActions}>
-              <button
-                type="button"
-                className={styles.btnSecondary}
-                onClick={() => setDeleteTarget(null)}
-              >
-                {t("TemplatesPage.cancel")}
-              </button>
-              <button
-                type="button"
-                className={styles.btnDanger}
-                disabled={deleting}
-                onClick={handleDelete}
-              >
-                {deleting ? t("TemplatesPage.deleting") : t("TemplatesPage.confirmDelete")}
-              </button>
-            </div>
-          </div>
-        </div>
       )}
     </div>
   );

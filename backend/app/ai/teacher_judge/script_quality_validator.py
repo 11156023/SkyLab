@@ -70,12 +70,12 @@ def _call_name(node: ast.AST, aliases: dict[str, str] | None = None) -> str | No
 def _call_status_literal(node: ast.Call) -> str | None:
     for arg in node.args:
         literal = _literal_str(arg)
-        if literal in {"pass", "fail", "warning", "unknown", "skipped"}:
+        if literal in {"pass", "fail", "warning", "unknown", "collected", "skipped"}:
             return literal
     for keyword in node.keywords:
         if keyword.arg == "status":
             literal = _literal_str(keyword.value)
-            if literal in {"pass", "fail", "warning", "unknown", "skipped"}:
+            if literal in {"pass", "fail", "warning", "unknown", "collected", "skipped"}:
                 return literal
     return None
 

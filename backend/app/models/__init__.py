@@ -24,7 +24,6 @@ from .batch_provision import (
 from .class_exposure import ResourceClassExposure
 from .cloudflare_config import CloudflareConfig
 from .course import (
-    CourseDeployment,
     CourseDifficulty,
     CoursePath,
     CoursePathStatus,
@@ -106,7 +105,6 @@ from .teaching_class import (
     TeachingClassTaskFile,
     TeachingClassWeek,
 )
-from .tunnel_proxy import TunnelProxy
 from .user import User, UserBase, UserRole
 from .vm_request import VMProvisioningStatus, VMRequest, VMRequestStatus
 from .vm_template import (
@@ -195,8 +193,6 @@ __all__ = [
     "BatchProvisionJobStatus",
     "BatchProvisionTask",
     "BatchProvisionTaskStatus",
-    # Tunnel Proxies
-    "TunnelProxy",
     # Subnet & IP Management
     "SubnetConfig",
     "IpAllocation",
@@ -246,5 +242,4 @@ __all__ = [
     "CourseQuestion",
     "CourseQuestionType",
     "UserCourseProgress",
-    "CourseDeployment",
 ]

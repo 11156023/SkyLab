@@ -6,7 +6,7 @@ import {
   getToolDisplayData,
   groupToolCallsByVmid,
   validateTargets,
-} from '../../../AI_PVE_template/ui.js';
+} from './aiPveTemplateUi.js';
 
 describe('AI PVE template UI contract', () => {
   test('pending response exposes the command and VMID without changing the token', () => {

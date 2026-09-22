@@ -4,7 +4,6 @@ import styles from "./MonitoringPage.module.scss";
 import MIcon from "../../../components/MIcon";
 import LoadingState from "../../../components/LoadingState/LoadingState";
 import EmptyState from "../../../components/EmptyState/EmptyState";
-import SegmentedControl from "../../../components/SegmentedControl/SegmentedControl";
 import RrdChart from "../../../components/RrdChart/RrdChart";
 import MiningIncidentsPanel from "./MiningIncidentsPanel";
 import { MonitoringService } from "../../../services/monitoring";
@@ -93,8 +92,8 @@ function OverviewCard({ title, pct, detail }) {
   );
 }
 
-/** 節點展開後的趨勢圖（每 60 秒輪詢） */
-function NodeTrends({ node, timeframe }) {
+/** 節點展開後的趨勢圖（每 60 秒輪詢）；固定顯示最近 1 天，時間範圍切換器已移除（2026-09） */
+function NodeTrends({ node }) {
   const { t } = useTranslation("system");
   const RRD_SERIES = [
     { key: "cpu",    label: "CPU %",    color: "--color-info" },
@@ -106,7 +105,7 @@ function NodeTrends({ node, timeframe }) {
     let cancelled = false;
     const load = async () => {
       try {
-        const rrd = await MonitoringService.getNodeRrd(node, timeframe);
+        const rrd = await MonitoringService.getNodeRrd(node, "day");
         if (!cancelled) setData(mapNodeRrd(rrd));
       } catch {
         if (!cancelled) setData([]);
@@ -118,7 +117,7 @@ function NodeTrends({ node, timeframe }) {
       cancelled = true;
       clearInterval(timer);
     };
-  }, [node, timeframe]);
+  }, [node]);
 
   if (data === null) {
     return <LoadingState text={t("MonitoringPage.loadingTrends")} />;
@@ -293,12 +292,6 @@ function TopVmTable({ title, entries, metric }) {
 
 export default function MonitoringPage() {
   const { t } = useTranslation("system");
-  const TIMEFRAMES = [
-    { value: "hour", label: t("MonitoringPage.timeframeHour") },
-    { value: "day",  label: t("MonitoringPage.timeframeDay") },
-    { value: "week", label: t("MonitoringPage.timeframeWeek") },
-  ];
-  const [timeframe, setTimeframe] = useState("hour");
   const [expandedNode, setExpandedNode] = useState(null);
   const [overview, setOverview] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -460,15 +453,6 @@ export default function MonitoringPage() {
           </span>
         </button>
         {nodesOpen && (<>
-        {/* 時間範圍只影響展開列的趨勢圖，跟著本卡走、不放頁首（會被誤讀成整頁篩選器） */}
-        <div className={styles.nodeToolbar}>
-          <SegmentedControl
-            ariaLabel={t("MonitoringPage.timeframeAria")}
-            options={TIMEFRAMES}
-            value={timeframe}
-            onChange={setTimeframe}
-          />
-        </div>
         <div className={styles.tableScroll}>
         <table className={styles.table}>
           <thead>
@@ -511,7 +495,7 @@ export default function MonitoringPage() {
                     </td>
                     <td className={styles.td}>
                       <span
-                        className={`${styles.badge} ${online ? styles.badge_ok : styles.badge_err}`}
+                        className={`${styles.badge} ${online ? styles.badge_success : styles.badge_danger}`}
                       >
                         {online ? t("MonitoringPage.online") : node.status}
                       </span>
@@ -557,7 +541,7 @@ export default function MonitoringPage() {
                   {expanded && (
                     <tr className={styles.trExpand}>
                       <td colSpan={7} className={styles.tdExpand}>
-                        <NodeTrends node={node.node} timeframe={timeframe} />
+                        <NodeTrends node={node.node} />
                       </td>
                     </tr>
                   )}

@@ -116,8 +116,9 @@ function CreatingRow({ request, onCancelled }) {
 
   const type    = TYPE_MAP[request.resource_type === "lxc" ? "lxc" : "qemu"];
   const display = getCreatingDisplay(request, t);
-  // 開通流程一旦開始跑 Proxmox clone 就無法取消
-  const canCancel = request.provisioning_status !== "running";
+  // 能不能取消交給後端判斷（clone 真的在跑時會回明確錯誤）。前端不能只看
+  // provisioning_status：後端重啟後 worker 沒了，狀態會永遠停在 running，
+  // 在這裡擋掉的話那筆申請就再也取消不了。與「我的申請」頁的規則一致。
 
   async function handleCancel() {
     const ok = await confirm({
@@ -163,7 +164,7 @@ function CreatingRow({ request, onCancelled }) {
       <td className={styles.td}>{formatDatetime(request.start_at) ?? formatDatetime(request.created_at)}</td>
       <td className={styles.td}>{request.assigned_node ?? request.desired_node ?? t("CreatingRow.notAssigned")}</td>
       <td className={styles.td}>
-        <button type="button" className={styles.cancelBtn} disabled={!canCancel || cancelling} onClick={handleCancel}>
+        <button type="button" className={styles.cancelBtn} disabled={cancelling} onClick={handleCancel}>
           <MIcon name="cancel" size={14} />{t("CreatingRow.cancelRequest")}
         </button>
       </td>
@@ -245,15 +246,25 @@ function ResourceRow({ resource, onUpdated, onDeleted }) {
     }
   }
 
+  const canOpenDetail = resource.vmid > 0;
+  /* 整列可點進詳情；列內按鈕／連結／選單的點擊不觸發導頁 */
+  const openDetail = (event) => {
+    if (event.target.closest("button, a, input, select, label")) return;
+    navigate(`/my-resources/${resource.vmid}`);
+  };
+
   return <>
-    <tr className={styles.tr} data-guide="resource-card">
+    <tr
+      className={`${styles.tr} ${canOpenDetail ? styles.trClickable : ""}`}
+      onClick={canOpenDetail ? openDetail : undefined}
+      data-guide="resource-card"
+    >
       <td className={styles.td}>
         <div className={styles.nameCell}>
           <span className={styles.nameIcon}><MIcon name={type.icon} size={18} /></span>
           <div>
-            {resource.vmid > 0
-              ? <button type="button" className={styles.nameLink} onClick={() => navigate(`/my-resources/${resource.vmid}`)} data-guide="resource-open-detail">{resource.name}</button>
-              : <strong>{resource.name}</strong>}
+            {/* 導覽的 performSelector 會點這裡；點擊沿用整列點擊的 openDetail */}
+            <strong data-guide="resource-open-detail">{resource.name}</strong>
             <small>{t(type.labelKey)}{showVmid && resource.vmid > 0 ? t("ResourceRow.vmidSuffix", { vmid: resource.vmid }) : ""}</small>
           </div>
         </div>
@@ -265,7 +276,6 @@ function ResourceRow({ resource, onUpdated, onDeleted }) {
           classRelation={resource.class_relation}
           ownerName={resource.owner_name ?? resource.owner_email}
           teachingClassName={resource.teaching_class_name}
-          size="sm"
         />
       </td>
       <td className={styles.td}><div className={styles.envPrimary}>{resource.environment_type || "Custom"}</div><div className={styles.envSub}>{resource.os_info || "—"}</div></td>
@@ -293,7 +303,7 @@ function ResourceRow({ resource, onUpdated, onDeleted }) {
           {actionLoading && <MIcon name="hourglass_empty" size={16} />}
           <div className={styles.menuWrap}>
             {menuOpen && <PowerMenu resource={resource} actionLoading={actionLoading} onControl={handleControl} onDeleteClick={resource.can_delete === false ? undefined : () => { closeMenu(); handleDelete(); }} onConvertTemplate={canConvertTemplate ? () => { closeMenu(); setConvertOpen(true); } : undefined} onClose={closeMenu} anchorRef={menuBtnRef} closing={menuClosing} />}
-            <button ref={menuBtnRef} type="button" className={`${styles.menuBtn} ${menuOpen ? styles.menuBtnActive : ""}`} onClick={() => menuOpen ? closeMenu() : setMenuOpen(true)} title={t("ResourceRow.moreActions")} data-guide="resource-more-actions"><MIcon name="more_vert" size={18} /></button>
+            <button ref={menuBtnRef} type="button" className={`${styles.menuBtn} ${menuOpen ? styles.menuBtnActive : ""}`} onClick={() => menuOpen ? closeMenu() : setMenuOpen(true)} title={t("ResourceRow.moreActions")} aria-label={t("ResourceRow.moreActions")} data-guide="resource-more-actions"><MIcon name="more_vert" size={18} /></button>
           </div>
         </div> : <span className={styles.deletedNote}>{STATUS_MAP[resource.status]?.labelKey ? t(STATUS_MAP[resource.status].labelKey) : resource.status}</span>}
       </td>
@@ -350,11 +360,20 @@ function EnvironmentMachineRow({ machine, groupStatus, onUpdated }) {
     }
   }
 
+  const canOpenDetail = resource?.vmid > 0;
+  /* 整列可點進詳情；列內按鈕／連結／選單的點擊不觸發導頁 */
+  const openDetail = (event) => {
+    if (event.target.closest("button, a, input, select, label")) return;
+    navigate(`/my-resources/${resource.vmid}`);
+  };
+
   return <>
-    <tr className={`${styles.tr} ${styles.environmentMachineRow}`}>
-    <td className={styles.td}><div className={`${styles.nameCell} ${styles.environmentMachineName}`}><span className={styles.machineBranch}>└</span><div>{resource?.vmid > 0
-      ? <button type="button" className={styles.nameLink} onClick={() => navigate(`/my-resources/${resource.vmid}`)} data-guide="resource-open-detail">{machine.name}</button>
-      : <strong>{machine.name}</strong>}<small>{machine.ownerName ? <><span className={styles.machineOwner}><MIcon name="person" size={11} />{machine.ownerName}</span> · </> : null}{machine.role} · {t(type.labelKey ?? type.label)}{specLabel ? ` · ${specLabel}` : ""}</small></div></div></td>
+    <tr
+      className={`${styles.tr} ${styles.environmentMachineRow} ${canOpenDetail ? styles.trClickable : ""}`}
+      onClick={canOpenDetail ? openDetail : undefined}
+    >
+    <td className={styles.td}><div className={`${styles.nameCell} ${styles.environmentMachineName}`}><span className={styles.machineBranch}>└</span><div><strong>{machine.name}</strong><small>{machine.ownerName ? <><span className={styles.machineOwner}><MIcon name="person" size={11} />{machine.ownerName}</span> · </> : null}{machine.role} · {t(type.labelKey ?? type.label)}{specLabel ? ` · ${specLabel}` : ""}</small></div></div></td>
+    {/* 「來源」欄佔位：群組標題列已標示來源，環境內機器不重複 */}
     <td className={styles.td}><span className={styles.muted}>—</span></td>
     <td className={styles.td}><div className={styles.envPrimary}>{machine.os}</div><div className={styles.envSub}>{machine.resource ? t("EnvironmentMachineRow.resourceConnected") : t("EnvironmentMachineRow.creating")}</div></td>
     <td className={styles.td}><StatusBadge status={machine.status} /></td>
@@ -369,7 +388,7 @@ function EnvironmentMachineRow({ machine, groupStatus, onUpdated }) {
       {actionLoading && <MIcon name="hourglass_empty" size={16} />}
       {canControl && <div className={styles.menuWrap}>
         {menuOpen && <PowerMenu resource={resource} actionLoading={actionLoading} onControl={handleControl} onClose={closeMenu} anchorRef={menuBtnRef} closing={menuClosing} />}
-        <button ref={menuBtnRef} type="button" className={`${styles.menuBtn} ${menuOpen ? styles.menuBtnActive : ""}`} onClick={() => menuOpen ? closeMenu() : setMenuOpen(true)} title={t("ResourceRow.moreActions")} data-guide="resource-more-actions"><MIcon name="more_vert" size={18} /></button>
+        <button ref={menuBtnRef} type="button" className={`${styles.menuBtn} ${menuOpen ? styles.menuBtnActive : ""}`} onClick={() => menuOpen ? closeMenu() : setMenuOpen(true)} title={t("ResourceRow.moreActions")} aria-label={t("ResourceRow.moreActions")} data-guide="resource-more-actions"><MIcon name="more_vert" size={18} /></button>
       </div>}
     </div></td>
     </tr>
@@ -448,7 +467,7 @@ function EnvironmentGroupRows({ group, onUpdated, onEnded }) {
           <div><strong>{group.title}</strong><small>{t("EnvironmentGroupRows.machineCount", { count: group.machines.length })}</small></div>
         </div>
       </td>
-      <td className={styles.td}><MachineKindBadge kind={group.kind === "quick_practice" ? "quick_practice" : "teaching_class"} classRelation={group.classRelation} size="sm" /></td>
+      <td className={styles.td}><MachineKindBadge kind={group.kind === "quick_practice" ? "quick_practice" : "teaching_class"} classRelation={group.classRelation} teachingClassName={group.title} /></td>
       <td className={styles.td}><div className={styles.envPrimary}>{group.kind === "course" ? t("EnvironmentGroupRows.courseEnv") : t("EnvironmentGroupRows.quickPracticeEnv")}</div><div className={styles.envSub}>{t("EnvironmentGroupRows.groupOverview")}</div></td>
       <td className={styles.td}><StatusBadge status={group.status} /></td>
       <td className={styles.td}><span className={styles.muted}>{t("EnvironmentGroupRows.runningCount", { running: runningCount, total: group.machines.length })}</span></td>
@@ -472,7 +491,7 @@ function EnvironmentGroupRows({ group, onUpdated, onEnded }) {
             anchorRef={menuBtnRef}
             closing={menuClosing}
           />}
-          <button ref={menuBtnRef} type="button" className={`${styles.menuBtn} ${menuOpen ? styles.menuBtnActive : ""}`} onClick={() => menuOpen ? closeGroupMenu() : setMenuOpen(true)} title={t("EnvironmentGroupRows.groupPowerTitle")}><MIcon name="more_vert" size={18} /></button>
+          <button ref={menuBtnRef} type="button" className={`${styles.menuBtn} ${menuOpen ? styles.menuBtnActive : ""}`} onClick={() => menuOpen ? closeGroupMenu() : setMenuOpen(true)} title={t("EnvironmentGroupRows.groupPowerTitle")} aria-label={t("EnvironmentGroupRows.groupPowerTitle")}><MIcon name="more_vert" size={18} /></button>
         </div>}
       </div></td>
     </tr>
@@ -515,7 +534,7 @@ function ResourceGuideDemoRow() {
               <MIcon name="terminal" size={14} />{t("ResourceRow.terminal")}
             </button>
             <div className={styles.menuWrap}>
-              <button type="button" className={`${styles.menuBtn} ${menuOpen ? styles.menuBtnActive : ""}`} onClick={() => setMenuOpen((value) => !value)} data-guide="resource-more-actions" title={t("ResourceRow.moreActions")}>
+              <button type="button" className={`${styles.menuBtn} ${menuOpen ? styles.menuBtnActive : ""}`} onClick={() => setMenuOpen((value) => !value)} data-guide="resource-more-actions" title={t("ResourceRow.moreActions")} aria-label={t("ResourceRow.moreActions")}>
                 <MIcon name="more_vert" size={18} />
               </button>
               {menuOpen && (

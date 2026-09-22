@@ -38,6 +38,7 @@ import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
 import styles from "./ConnectionDialog.module.scss";
 import MIcon from "../MIcon";
+import SegmentedControl from "../SegmentedControl/SegmentedControl";
 import { focusInvalidField } from "../../utils/focusField";
 import { getTopology } from "../../services/firewall";
 import { toDialogNodes } from "./topologyNodes";
@@ -251,6 +252,15 @@ export default function ConnectionDialog({
   const isOutbound = intent === INTENT.OUTBOUND;
   const isVmToVm   = intent === INTENT.PEER;
   const isRule     = intent === INTENT.RULE;
+
+  /* Esc 關閉（Dialog 標準行為）；送出中不關，跟取消鈕的 disabled 一致 */
+  useEffect(() => {
+    const onKeyDown = (e) => {
+      if (e.key === "Escape" && !submitting) onClose();
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [onClose, submitting]);
 
   /* ── 節點清單：沒給就自己抓 ── */
   const [fetchedNodes, setFetchedNodes] = useState(null);
@@ -597,7 +607,12 @@ export default function ConnectionDialog({
             onChange={(e) => onPick(e.target.value)}
             disabled={nodesLoading}
           >
-            {options.map((n) => <option key={n.key} value={n.key}>{n.name}</option>)}
+            {/* 名稱（含擁有者）後面補機器來源，同名機器與老師開放的機器一眼可辨 */}
+            {options.map((n) => (
+              <option key={n.key} value={n.key}>
+                {n.kindLabelKey ? `${n.name} · ${t(n.kindLabelKey)}` : n.name}
+              </option>
+            ))}
           </select>
         )}
         {nodesLoading && <span className={styles.fieldHint}>{t("ConnectionDialog.loadingNodes")}</span>}
@@ -646,24 +661,17 @@ export default function ConnectionDialog({
 
               <div className={styles.field}>
                 <label className={styles.fieldLabel}>{t("ConnectionDialog.publishMethod")}</label>
-                {/* 跟「方向」同一種分段切換：只有圖示＋標題，高度一致、不會因說明長短跑版 */}
-                <div className={styles.modeToggle}>
-                  {modeCards.map((m) => {
+                {/* 跟「方向」同一顆共用 SegmentedControl：圖示＋標題等高，不因說明長短跑版 */}
+                <SegmentedControl
+                  className={styles.dirToggle}
+                  options={modeCards.map((m) => {
                     const meta = modeMeta(m);
-                    const active = mode === m;
-                    return (
-                      <button
-                        key={m}
-                        type="button"
-                        className={`${styles.modeBtn} ${active ? styles.modeBtnActive : ""}`}
-                        onClick={() => setMode(m)}
-                        aria-pressed={active}
-                      >
-                        <MIcon name={meta.icon} size={14} /> {t(meta.labelKey)}
-                      </button>
-                    );
+                    return { value: m, label: t(meta.labelKey), icon: meta.icon };
                   })}
-                </div>
+                  value={mode}
+                  onChange={setMode}
+                  ariaLabel={t("ConnectionDialog.publishMethod")}
+                />
                 {(setupContext || zonesProp) && !domainReady && (
                   <span className={styles.fieldHint}>
                     {templateMode
@@ -769,25 +777,17 @@ export default function ConnectionDialog({
               </div>
               <div className={styles.field}>
                 <label className={styles.fieldLabel}>{t("ConnectionDialog.direction")}</label>
-                <div className={styles.modeToggle}>
-                  <button
-                    type="button"
-                    className={`${styles.modeBtn} ${direction === "one_way" ? styles.modeBtnActive : ""}`}
-                    onClick={() => setDirection("one_way")}
-                  >
-                    {t("ConnectionDialog.oneWay")}
-                  </button>
-                  {/* 老師的機器只能單向連過去，雙向按鈕整顆不顯示 */}
-                  {!peerLimited && (
-                    <button
-                      type="button"
-                      className={`${styles.modeBtn} ${direction === "bidirectional" ? styles.modeBtnActive : ""}`}
-                      onClick={() => setDirection("bidirectional")}
-                    >
-                      {t("ConnectionDialog.bidirectional")}
-                    </button>
-                  )}
-                </div>
+                {/* 老師的機器只能單向連過去，雙向選項整段不顯示 */}
+                <SegmentedControl
+                  className={styles.dirToggle}
+                  options={[
+                    { value: "one_way", label: `${labelOf(peerSourceKey)} → ${labelOf(peerTargetKey)}` },
+                    ...(peerLimited ? [] : [{ value: "bidirectional", label: t("ConnectionDialog.bidirectional") }]),
+                  ]}
+                  value={direction}
+                  onChange={setDirection}
+                  ariaLabel={t("ConnectionDialog.direction")}
+                />
               </div>
               {peerLimited && (
                 <p className={styles.infoBox}>

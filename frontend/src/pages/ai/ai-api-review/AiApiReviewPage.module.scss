@@ -11,32 +11,12 @@
 }
 
 /* ── Buttons ── */
-%btn-base {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 8px $spacing-16;
-  border-radius: $radius-8;
-  font-size: $font-size-14;
-  font-weight: $font-weight-500;
-  cursor: pointer;
-  white-space: nowrap;
-  transition: background $transition-base, box-shadow $transition-base, opacity $transition-base;
-
-  &:disabled { opacity: 0.5; cursor: not-allowed; }
-}
-
 .btnPrimary {
   @include btn-primary;
 }
 
-.btnOutline {
-  @extend %btn-base;
-  background: var(--color-surface);
-  color: var(--color-text);
-  border: 1px solid var(--color-border);
-
-  &:hover:not(:disabled) { background: var(--color-hover); }
+.btnSecondary {
+  @include btn-secondary;
 }
 
 .btnDanger {
@@ -152,7 +132,7 @@
   background: color-mix(in srgb, var(--color-success) 12%, transparent);
   color: var(--color-success);
 
-  &:hover { background: color-mix(in srgb, var(--color-success) 20%, transparent); }
+  &:hover:not(:disabled) { background: color-mix(in srgb, var(--color-success) 20%, transparent); }
 }
 
 .actionBtnDanger {
@@ -202,20 +182,10 @@
   animation: slideUp 0.2s ease;
 }
 
-.dialogHeader {
-  @include flex-column;
-  gap: $spacing-4;
-}
-
 .dialogTitle {
-  font-size: $font-size-18;
-  font-weight: 600;
+  font-size: $font-size-16;
+  font-weight: $font-weight-700;
   color: var(--color-text-primary);
-}
-
-.dialogDesc {
-  font-size: $font-size-14;
-  color: var(--color-text-muted);
 }
 
 .dialogBody {
@@ -231,6 +201,8 @@
   border-radius: $radius-8;
   font-size: $font-size-14;
   color: var(--color-text-primary);
+  /* 金鑰名稱、用途常是無空白的長字串，不換行會撐破卡片 */
+  overflow-wrap: anywhere;
 }
 
 .dialogPurpose {
@@ -239,20 +211,7 @@
 }
 
 .dialogTextarea {
-  padding: $spacing-8 12px;
-  border: 1px solid var(--color-border);
-  border-radius: $radius-8;
-  background: var(--color-surface);
-  color: var(--color-text-primary);
-  font-size: $font-size-14;
-  font-family: inherit;
-  resize: vertical;
-
-  &:focus {
-    outline: none;
-    border-color: var(--color-primary);
-    box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-primary) 15%, transparent);
-  }
+  @include form-control;
 
   &::placeholder { color: var(--color-text-muted); }
 }

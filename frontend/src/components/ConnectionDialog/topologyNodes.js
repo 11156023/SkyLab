@@ -11,6 +11,8 @@
  * （web-01 × 30），沒有擁有者根本分不出來。
  */
 
+import { KIND_META, resolveKind } from "../MachineKindBadge/machineKind";
+
 export function canManageNode(node) {
   return node?.can_manage !== false;
 }
@@ -29,6 +31,15 @@ export function nodeLabel(node) {
   return node.owner_name ? `${node.name} · ${node.owner_name}` : node.name;
 }
 
+/** 機器來源的翻譯鍵：與資源列表、拓撲節點的徽章同一套判斷 */
+export function nodeKindLabelKey(node) {
+  const kind = resolveKind({
+    kind: isPeerNode(node) ? "teacher_open" : node?.machine_kind,
+    classRelation: node?.class_relation,
+  });
+  return KIND_META[kind].labelKey;
+}
+
 export function toDialogNodes(topologyNodes) {
   return (topologyNodes ?? [])
     .filter((n) => n.node_type !== "gateway" && n.vmid != null && canConnectNode(n))
@@ -36,6 +47,7 @@ export function toDialogNodes(topologyNodes) {
       key: String(n.vmid),
       vmid: n.vmid,
       name: nodeLabel(n),
+      kindLabelKey: nodeKindLabelKey(n),
       peerOnly: isPeerNode(n),
       allowedPorts: isPeerNode(n) ? (n.allowed_ports ?? []) : null,
     }));

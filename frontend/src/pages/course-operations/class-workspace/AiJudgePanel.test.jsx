@@ -8,26 +8,38 @@ import { createRoot } from "react-dom/client";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import {
   ChatPanel,
+  CommandLog,
   CreateCheckDialog,
   RubricTable,
   ProposalPanel,
   SaveAndCreateAction,
   ScriptGenerationNotice,
   SessionTitle,
+  TeacherReviewTab,
+  aggregateStudentCheckTotals,
   applyProposalOperations,
+  buildBatchReviewRows,
+  buildLegacyReviewRows,
   buildProposalDiff,
+  buildStudentOverviewRows,
   getRubricDisplayName,
   getRubricCheckTitle,
   getRubricItemsValue,
   getRubricReviewItemIds,
   getPendingRubricItemIds,
+  getStudentOverviewStatus,
   resolveDetectabilityNeedsReview,
+  sortStudentOverviewRows,
+  sortTeacherReviewRows,
   getScriptCreationBlocker,
   getSessionMenuPosition,
   getSelectedRubricSource,
   getScriptCreationDestination,
   getScriptReviewAttemptIssues,
+  getTargetReviewSummary,
+  getCheckResultSummary,
   getSelectableProposalIds,
+  mergeNodeTeacherReview,
   mergeSessionMessages,
   resolveActiveSessionId,
   proposalToolCallLines,
@@ -37,6 +49,7 @@ import {
   AiJudgeService,
   RUBRIC_POLISH_PROMPT,
 } from "../../../services/aiJudge";
+import i18n from "../../../i18n";
 
 const originalScrollIntoView = Element.prototype.scrollIntoView;
 
@@ -160,6 +173,62 @@ describe("ChatPanel", () => {
     expect(html).toContain("已讀取");
   });
 
+  describe("拖檔進對話區", () => {
+    const dropHint = () => i18n.t("FileDropzone.dropToAdd", { ns: "common" });
+
+    function mount(props) {
+      Element.prototype.scrollIntoView = vi.fn();
+      const container = document.createElement("div");
+      document.body.appendChild(container);
+      const root = createRoot(container);
+      act(() => {
+        root.render(<ChatPanel messages={[]} onSendMessage={() => {}} isLoading={false} {...props} />);
+      });
+      const drag = (type, files = []) => {
+        const event = new Event(type, { bubbles: true, cancelable: true });
+        Object.defineProperty(event, "dataTransfer", { value: { files, types: ["Files"] } });
+        act(() => {
+          container.firstElementChild.dispatchEvent(event);
+        });
+      };
+      const cleanup = () => {
+        act(() => root.unmount());
+        container.remove();
+      };
+      return { container, drag, cleanup };
+    }
+
+    test("拖進來時浮出放置提示，放開後交給上傳，跟＋一樣一次一個", () => {
+      const onUploadFile = vi.fn();
+      const { container, drag, cleanup } = mount({ onUploadFile });
+
+      drag("dragover");
+      expect(container.textContent).toContain(dropHint());
+
+      const first = new File(["a"], "requirements.md");
+      drag("drop", [first, new File(["b"], "notes.md")]);
+      expect(onUploadFile).toHaveBeenCalledTimes(1);
+      expect(onUploadFile).toHaveBeenCalledWith(first);
+      expect(container.textContent).not.toContain(dropHint());
+      cleanup();
+    });
+
+    test("沒有上傳入口或正在上傳時，不浮出提示也不上傳", () => {
+      const noUpload = mount({});
+      noUpload.drag("dragover");
+      expect(noUpload.container.textContent).not.toContain(dropHint());
+      noUpload.cleanup();
+
+      const onUploadFile = vi.fn();
+      const busy = mount({ onUploadFile, isUploading: true });
+      busy.drag("dragover");
+      expect(busy.container.textContent).not.toContain(dropHint());
+      busy.drag("drop", [new File(["a"], "requirements.md")]);
+      expect(onUploadFile).not.toHaveBeenCalled();
+      busy.cleanup();
+    });
+  });
+
   test("沒有檢查表時仍不提供任何腳本操作入口", () => {
     const html = renderToStaticMarkup(
       <ChatPanel
@@ -251,7 +320,7 @@ describe("RubricsTab 儲存並製作流程", () => {
       session_id: "session-1",
       role: "assistant",
       message_type: "chat",
-      content: "重新核對後，「確認服務 Port」還缺少：服務 Port。",
+      content: "重新核對後，「確認服務 Port」已確認檢查目標，但還缺少：服務 Port。",
       metadata_json: {
         status: "needs_information",
         stage: "reanalysis",
@@ -281,7 +350,7 @@ describe("RubricsTab 儲存並製作流程", () => {
       rubric_proposal: [],
       base_revision: 3,
     });
-    const createScript = vi.spyOn(AiJudgeService, "createSessionScript").mockResolvedValue({
+    const createScript = vi.spyOn(AiJudgeService, "createSessionScriptSet").mockResolvedValue({
       status: "approved",
     });
 
@@ -315,7 +384,7 @@ describe("RubricsTab 儲存並製作流程", () => {
       { isRefine: true },
     );
     expect(container.textContent).toContain("確認服務 Port");
-    expect(container.textContent).toContain("尚有項目需要補充");
+    expect(container.textContent).toContain("重新核對後，「確認服務 Port」已確認檢查目標，但還缺少：服務 Port。");
     expect(createScript).not.toHaveBeenCalled();
     await act(async () => {
       root.unmount();
@@ -358,7 +427,7 @@ describe("RubricsTab 儲存並製作流程", () => {
       session_id: "session-1",
       role: "assistant",
       message_type: "chat",
-      content: "重新核對後，「確認服務 Port」還缺少：服務 Port。",
+      content: "重新核對後，「確認服務 Port」已確認檢查目標，但還缺少：服務 Port。",
       metadata_json: {
         status: "needs_information",
         stage: "reanalysis",
@@ -399,7 +468,7 @@ describe("RubricsTab 儲存並製作流程", () => {
       }],
       base_revision: 3,
     });
-    const createScript = vi.spyOn(AiJudgeService, "createSessionScript").mockResolvedValue({
+    const createScript = vi.spyOn(AiJudgeService, "createSessionScriptSet").mockResolvedValue({
       status: "approved",
     });
 
@@ -426,8 +495,7 @@ describe("RubricsTab 儲存並製作流程", () => {
 
     expect(container.textContent).not.toContain("AI 核對提案");
     expect(container.textContent).not.toContain("同意套用");
-    expect(container.textContent).toContain("重新核對後，「確認服務 Port」還缺少：服務 Port。");
-    expect(container.textContent).toContain("尚有項目需要補充");
+    expect(container.textContent).toContain("重新核對後，「確認服務 Port」已確認檢查目標，但還缺少：服務 Port。");
     expect(createScript).not.toHaveBeenCalled();
     await act(async () => {
       root.unmount();
@@ -670,6 +738,127 @@ describe("RubricTable", () => {
     expect(html).toContain("缺少資訊");
     expect(html).not.toContain("導師檢查");
   });
+
+  test("收合時顯示 typed collector 的檢測目標，不暴露 peer key", () => {
+    const html = renderToStaticMarkup(
+      <RubricTable
+        items={[
+          {
+            id: "file-text",
+            title: "讀取程式碼",
+            detectable: "auto",
+            detection_method: "讀取 main.py",
+            check_steps: [{
+              id: "read-main",
+              title: "讀取 main.py",
+              collector: { type: "file_text", path: "/home/student/main.py", read_mode: "head", lines: 200 },
+            }],
+          },
+          {
+            id: "command",
+            title: "執行程式",
+            detectable: "auto",
+            detection_method: "執行入口程式",
+            check_steps: [{
+              id: "run-main",
+              title: "執行 main.py",
+              collector: { type: "command", argv: ["python3", "main.py"], cwd: "/home/student/project", timeout_seconds: 30 },
+            }],
+          },
+          {
+            id: "http",
+            title: "檢查服務",
+            detectable: "auto",
+            detection_method: "檢查本機服務",
+            check_steps: [{
+              id: "health",
+              title: "健康檢查",
+              collector: { type: "localhost_http", url: "http://localhost:3000/health", method: "GET", timeout_seconds: 10, max_chars: 1200 },
+            }],
+          },
+          {
+            id: "peer",
+            title: "檢查觀察節點",
+            detectable: "auto",
+            detection_method: "確認節點連通性",
+            peer_node_key: "peer-secret-key",
+            check_steps: [{
+              id: "ping",
+              title: "連通性",
+              collector: { type: "peer_ping", timeout_seconds: 10 },
+            }],
+          },
+        ]}
+        onChange={() => {}}
+        onDelete={() => {}}
+      />,
+    );
+
+    expect(html.match(/rubricTargetSummary/g)).toHaveLength(4);
+    expect(html).toContain("檔案內容");
+    expect(html).toContain("/home/student/main.py");
+    expect(html).toContain("python3 main.py");
+    expect(html).toContain("/home/student/project");
+    expect(html).toContain("http://localhost:3000/health");
+    expect(html).toContain("由執行節點觀察");
+    expect(html).not.toContain("peer-secret-key");
+  });
+
+  test("展開後顯示執行契約、判定模式與 assertion", async () => {
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    await act(async () => {
+      root.render(
+        <RubricTable
+          items={[{
+            id: "typed-command",
+            title: "執行並判定",
+            detectable: "auto",
+            judgement_mode: "ai",
+            detection_method: "執行程式並檢查回傳碼",
+            target_node_key: "n8n",
+            check_steps: [{
+              id: "run",
+              title: "執行 main.py",
+              collector: { type: "command", argv: ["python3", "main.py"], cwd: "/home/student/project", timeout_seconds: 30 },
+              assertion: { type: "returncode_equals", expected: 0 },
+            }],
+          }]}
+          onChange={() => {}}
+          onDelete={() => {}}
+          machineNodes={[{
+            node_key: "n8n",
+            name: "n8n",
+            role: "workflow",
+            resource_type: "lxc",
+            sort_order: 0,
+            template_name: "Ubuntu 24.04",
+          }]}
+        />,
+      );
+    });
+
+    const toggle = container.querySelector('button[aria-label="展開第 1 項檢查設定"]');
+    expect(toggle).toBeTruthy();
+    await act(async () => {
+      toggle.click();
+    });
+
+    expect(container.textContent).toContain("執行契約");
+    expect(container.textContent).toContain("執行節點");
+    expect(container.textContent).toContain("n8n（P1）");
+    expect(container.textContent).toContain("角色：workflow · 類型：LXC · 映像：Ubuntu 24.04");
+    expect(container.textContent).toContain("系統判定");
+    expect(container.textContent).toContain("預計檢查步驟（尚未執行）");
+    expect(container.textContent).toContain("回傳碼 = 0");
+    expect(container.textContent).toContain("30 秒");
+
+    await act(async () => {
+      root.unmount();
+    });
+    container.remove();
+  });
 });
 
 describe("getScriptCreationBlocker", () => {
@@ -708,6 +897,26 @@ describe("getScriptCreationBlocker", () => {
     };
 
     expect(getScriptCreationBlocker({ analysis: { items: [teacherReviewItem] } })).toBeNull();
+  });
+
+  test("typed auto + teacher 項目可直接製作腳本", () => {
+    const typedTeacherItem = {
+      ...completeItem,
+      judgement_mode: "teacher",
+      check_steps: [{
+        id: "read-main",
+        title: "讀取 main.py",
+        collector: {
+          type: "file_text",
+          path: "/home/student/main.py",
+          encoding: "utf-8",
+          read_mode: "head",
+          lines: 200,
+        },
+      }],
+    };
+
+    expect(getScriptCreationBlocker({ analysis: { items: [typedTeacherItem] } })).toBeNull();
   });
 
   test("缺少資訊或需要人工審核時阻擋整份腳本", () => {
@@ -883,6 +1092,32 @@ describe("detectability review state", () => {
 });
 
 describe("buildProposalDiff", () => {
+  test("機器執行與 peer 身分變更會形成可套用差異", () => {
+    const diff = buildProposalDiff(
+      [{
+        id: "network-check",
+        title: "檢查網路",
+        target_node_key: "web",
+        peer_node_key: "db",
+        detectable: "auto",
+      }],
+      [{
+        id: "network-check",
+        title: "檢查網路",
+        target_node_key: "db",
+        peer_node_key: "web",
+        detectable: "auto",
+      }],
+    );
+
+    expect(diff).toMatchObject([{
+      id: "network-check",
+      operation: "update",
+      target_node_key: "db",
+      peer_node_key: "web",
+    }]);
+  });
+
   test("將 AI 修改轉成可確認差異，且未回傳項目不會被默認刪除", () => {
     const current = [
       { id: "keep", title: "保留", detection_method: "原檢測方式", detectable: "manual" },
@@ -1040,8 +1275,645 @@ describe("script creation workflow", () => {
     ]);
   });
 
-  test("通過自動檢查後進入執行結果，失敗時進入腳本總覽", () => {
-    expect(getScriptCreationDestination({ status: "approved" })).toBe("execution");
+  test("通過自動檢查後進入導師核查，失敗時進入腳本總覽", () => {
+    expect(getScriptCreationDestination({ status: "approved" })).toBe("review");
     expect(getScriptCreationDestination({ status: "review_failed", id: "script-1" })).toBe("scripts");
+  });
+});
+
+describe("teacher review summary", () => {
+  test("非零 returncode 即使沒有輸出也顯示 argv、cwd 與無輸出提示", () => {
+    const markup = renderToStaticMarkup(
+      <CommandLog
+        raw={JSON.stringify({
+          argv: ["pgrep", "-f", "n8n"],
+          cwd: "/srv/student",
+          timeout_seconds: 10,
+          stdout: "",
+          stderr: "",
+          returncode: 1,
+          error_code: "unexpected_returncode",
+        })}
+      />,
+    );
+
+    expect(markup).toContain("[&quot;pgrep&quot;,&quot;-f&quot;,&quot;n8n&quot;]");
+    expect(markup).toContain("/srv/student");
+    expect(markup).toContain("指令沒有 stdout/stderr 輸出");
+    expect(markup).toContain("returncode 1");
+  });
+
+  test("將舊版 command_exception 與非零 returncode 顯示成老師可讀摘要，並保留 raw log", () => {
+    const exceptionRaw = JSON.stringify({
+      error_code: "command_exception",
+      error: "[Errno 2] No such file or directory: 'null'",
+    });
+    const nonzeroRaw = JSON.stringify({
+      stdout: "",
+      stderr: "cat: /home/owo/main.log: No such file or directory\n",
+      returncode: 1,
+    });
+
+    expect(getCheckResultSummary({ status: "unknown", raw: exceptionRaw })).toBe(
+      "指令無法執行：[Errno 2] No such file or directory: 'null'",
+    );
+    expect(getCheckResultSummary({ status: "unknown", raw: nonzeroRaw })).toBe(
+      "指令執行失敗（returncode 1）：cat: /home/owo/main.log: No such file or directory",
+    );
+    expect(JSON.parse(nonzeroRaw)).toMatchObject({
+      stderr: "cat: /home/owo/main.log: No such file or directory\n",
+      returncode: 1,
+    });
+  });
+
+  test("把 warning、unknown 與 collected 視為待導師核查", () => {
+    const target = {
+      status: "completed",
+      validation: { valid: true },
+      parsed_result: {
+        checks: [
+          { id: "auto-pass", status: "pass" },
+          { id: "manual", status: "unknown" },
+          { id: "risk", status: "warning" },
+          { id: "evidence", status: "collected" },
+        ],
+      },
+    };
+
+    expect(getTargetReviewSummary(target)).toMatchObject({
+      kind: "pending",
+      pending: 3,
+      reviewable: 3,
+    });
+    target.teacher_review = { decisions: { manual: "pass", risk: "fail", evidence: "pass" } };
+    expect(getTargetReviewSummary(target)).toMatchObject({
+      kind: "reviewed",
+      pending: 0,
+      reviewable: 3,
+    });
+  });
+
+  test("沒有結果與執行失敗會清楚分開", () => {
+    expect(getTargetReviewSummary(null).kind).toBe("missing");
+    expect(getTargetReviewSummary({ status: "failed" }).kind).toBe("failed");
+  });
+
+  test("可依待處理或學號帳號排序", () => {
+    const rows = [
+      {
+        member: { full_name: "Zoe", email: "s10@example.edu", vmid: 310 },
+        target: { vmid: 310, parsed_result: { checks: [{ id: "a", status: "pass" }] } },
+      },
+      {
+        member: { full_name: "Amy", email: "s2@example.edu", vmid: 302 },
+        target: { vmid: 302, parsed_result: { checks: [{ id: "b", status: "unknown" }] } },
+      },
+    ];
+
+    expect(sortTeacherReviewRows(rows, "pending")[0].member.email).toBe("s2@example.edu");
+    expect(sortTeacherReviewRows(rows, "student-number")[0].member.email).toBe("s2@example.edu");
+  });
+});
+
+describe("teacher review run-once（整組檢查點）", () => {
+  const batchPayload = {
+    run_batch_id: "batch-1",
+    status: "completed",
+    summary: { nodes: 1, students: 1, targets: 1, completed: 1, failed: 0 },
+    nodes: [
+      {
+        target_node_key: "db",
+        display_label: "P2",
+        artifact_id: "artifact-1",
+        run_id: "run-1",
+        status: "completed",
+        progress_json: { total: 1, done: 1 },
+        result_summary_json: {},
+      },
+    ],
+    students: [
+      {
+        student_id: "enrollment-1",
+        nodes: [
+          {
+            node_key: "db",
+            display_label: "P2",
+            run_id: "run-1",
+            execution_status: "completed",
+            vmid: 101,
+            teacher_review: { feedback: "舊留言", decisions: {} },
+            items: [
+              {
+                rubric_item_id: "item-db",
+                title: "確認 PostgreSQL",
+                status: "warning",
+                checks: [
+                  { id: "check-db", title: "pg_isready", status: "warning", evidence: "延遲偏高" },
+                ],
+              },
+            ],
+            unmapped_checks: [],
+          },
+        ],
+      },
+    ],
+  };
+  const members = [
+    { user_id: "user-1", full_name: "王小明", email: "s1@example.edu", vmid: 101, node_key: "db" },
+  ];
+
+  test("批次投影以 vmid 對應成員，並把檢查點攤平成核查列", () => {
+    const rows = buildBatchReviewRows(batchPayload, members);
+    expect(rows).toHaveLength(1);
+    const row = rows[0];
+    expect(row.key).toBe("enrollment-1|db|101");
+    expect(row.runId).toBe("run-1");
+    expect(row.vmid).toBe(101);
+    expect(row.member.full_name).toBe("王小明");
+    expect(row.target.status).toBe("completed");
+    expect(row.target.parsed_result.checks).toHaveLength(1);
+    expect(row.target.teacher_review).toMatchObject({ feedback: "舊留言" });
+    expect(getTargetReviewSummary(row.target)).toMatchObject({ kind: "pending", pending: 1 });
+  });
+
+  test("學生節點缺少 run_id 時會從批次節點摘要回補", () => {
+    const batchWithoutStudentRunId = {
+      ...batchPayload,
+      students: batchPayload.students.map((student) => ({
+        ...student,
+        nodes: student.nodes.map(({ run_id: _runId, ...node }) => node),
+      })),
+    };
+
+    const rows = buildBatchReviewRows(batchWithoutStudentRunId, members);
+
+    expect(rows[0].runId).toBe("run-1");
+  });
+
+  test("成員對映不依賴 enrollment id 等於 user id 的巧合", () => {
+    const rows = buildBatchReviewRows(batchPayload, [
+      { user_id: "user-other", full_name: "王小明", email: "s1@example.edu", vmid: 101, node_key: "db" },
+    ]);
+    expect(rows[0].member.email).toBe("s1@example.edu");
+  });
+
+  test("執行失敗的機器仍會產生核查列並標記執行失敗", () => {
+    const failed = {
+      ...batchPayload,
+      students: [{
+        student_id: "enrollment-1",
+        nodes: [{
+          node_key: "db", run_id: "run-1", execution_status: "failed",
+          reason_code: "not_running", vmid: 101, items: [],
+        }],
+      }],
+    };
+    const rows = buildBatchReviewRows(failed, []);
+    expect(getTargetReviewSummary(rows[0].target).kind).toBe("failed");
+  });
+
+  test("mergeNodeTeacherReview 只更新對應節點的導師核查", () => {
+    const merged = mergeNodeTeacherReview(
+      batchPayload,
+      { studentId: "enrollment-1", nodeKey: "db" },
+      { feedback: "新留言", decisions: { "check-db": "pass" }, updated_at: "2026-09-20T00:00:00Z" },
+    );
+    const node = merged.students[0].nodes[0];
+    expect(node.teacher_review).toMatchObject({
+      feedback: "新留言",
+      decisions: { "check-db": "pass" },
+    });
+    expect(node.items).toHaveLength(1);
+  });
+
+  test("legacy 單一 run 資料仍以既有列為準", () => {
+    const run = {
+      id: "run-legacy",
+      target_results_json: {
+        targets: [
+          {
+            vmid: 101,
+            user: { email: "s1@example.edu", full_name: "王小明" },
+            status: "completed",
+            teacher_review: { feedback: "", decisions: {} },
+            parsed_result: { checks: [{ id: "check-1", status: "pass" }] },
+          },
+        ],
+      },
+    };
+    const rows = buildLegacyReviewRows(run, members);
+    expect(rows[0].runId).toBe("run-legacy");
+    expect(getTargetReviewSummary(rows[0].target).kind).toBe("automatic");
+  });
+
+  test("legacy 公開結果沒有 vmid 時仍保留 student_id 供核查儲存", () => {
+    const run = {
+      id: "run-legacy",
+      target_results_json: {
+        targets: [{
+          student_id: "enrollment-1",
+          user: { id: "user-1", email: "s1@example.edu", full_name: "王小明" },
+          status: "failed",
+          reason_code: "not_running",
+          parsed_result: { checks: [] },
+        }],
+      },
+    };
+
+    const rows = buildLegacyReviewRows(run, []);
+
+    expect(rows).toHaveLength(1);
+    expect(rows[0].runId).toBe("run-legacy");
+    expect(rows[0].vmid).toBeNull();
+    expect(rows[0].studentId).toBe("enrollment-1");
+    expect(rows[0].member.full_name).toBe("王小明");
+  });
+
+  test("核查頁改用整批資料顯示逐機器檢查點並提供一次執行", async () => {
+    vi.spyOn(AiJudgeService, "listSessionRuns").mockResolvedValue([
+      { id: "run-1", artifact_id: "artifact-1", run_batch_id: "batch-1", status: "completed" },
+    ]);
+    vi.spyOn(AiJudgeService, "listSessionScriptSets").mockResolvedValue([
+      {
+        artifact_set_id: "set-1",
+        status: "approved",
+        source_analysis_revision: 3,
+        children: [{ id: "artifact-1", target_node_key: "db", name: "db 腳本", status: "approved" }],
+      },
+    ]);
+    const getBatch = vi.spyOn(AiJudgeService, "getSessionRunBatch").mockResolvedValue(batchPayload);
+
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    await act(async () => {
+      root.render(<TeacherReviewTab classId="class-1" sessionId="session-1" members={members} />);
+      await new Promise((resolve) => setTimeout(resolve, 30));
+    });
+
+    expect(getBatch).toHaveBeenCalledWith("class-1", "session-1", "batch-1");
+    expect(container.textContent).toContain("一次執行");
+    expect(container.textContent).toContain("學生總數");
+
+    const toggle = [...container.querySelectorAll("button")]
+      .find((button) => button.textContent.includes("王小明"));
+    expect(toggle).toBeTruthy();
+    await act(async () => {
+      toggle.click();
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    });
+    expect(container.textContent).toContain("確認 PostgreSQL");
+    expect(container.textContent).toContain("pg_isready");
+    await act(async () => {
+      root.unmount();
+    });
+    container.remove();
+  });
+
+  test("批次模式下判定會以對應 run 與 vmid 儲存", async () => {
+    vi.spyOn(AiJudgeService, "listSessionRuns").mockResolvedValue([
+      { id: "run-1", artifact_id: "artifact-1", run_batch_id: "batch-1", status: "completed" },
+    ]);
+    vi.spyOn(AiJudgeService, "listSessionScriptSets").mockResolvedValue([]);
+    vi.spyOn(AiJudgeService, "getSessionRunBatch").mockResolvedValue(batchPayload);
+    const updateReview = vi.spyOn(AiJudgeService, "updateTargetReview").mockResolvedValue({
+      id: "run-1",
+      target_results_json: {
+        targets: [{
+          vmid: 101,
+          status: "completed",
+          teacher_review: { feedback: "", decisions: { "check-db": "pass" }, updated_at: "2026-09-20T00:00:00Z" },
+          parsed_result: { checks: [{ id: "check-db", title: "pg_isready", status: "warning" }] },
+        }],
+      },
+    });
+
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    await act(async () => {
+      root.render(<TeacherReviewTab classId="class-1" sessionId="session-1" members={members} />);
+      await new Promise((resolve) => setTimeout(resolve, 30));
+    });
+
+    const toggle = [...container.querySelectorAll("button")]
+      .find((button) => button.textContent.includes("王小明"));
+    await act(async () => {
+      toggle.click();
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    });
+
+    const passButton = [...container.querySelectorAll("button")]
+      .find((button) => button.getAttribute("aria-pressed") !== null && button.textContent.includes("通過"));
+    expect(passButton).toBeTruthy();
+    await act(async () => {
+      passButton.click();
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    });
+
+    const saveButton = [...container.querySelectorAll("button")]
+      .find((button) => button.textContent.includes("儲存核查"));
+    expect(saveButton.disabled).toBe(false);
+    await act(async () => {
+      saveButton.click();
+      await new Promise((resolve) => setTimeout(resolve, 30));
+    });
+
+    expect(updateReview).toHaveBeenCalledWith(
+      "class-1",
+      "session-1",
+      "run-1",
+      101,
+      { feedback: "舊留言", decisions: { "check-db": "pass" } },
+    );
+    expect(container.textContent).toContain("上次儲存");
+    await act(async () => {
+      root.unmount();
+    });
+    container.remove();
+  });
+
+  test("前置檢查失敗且沒有 vmid 時會以學生識別碼儲存留言", async () => {
+    const failedBatch = {
+      ...batchPayload,
+      summary: { nodes: 1, students: 1, targets: 1, completed: 0, failed: 1 },
+      students: [{
+        student_id: "enrollment-1",
+        nodes: [{
+          node_key: "db",
+          display_label: "P2",
+          execution_status: "failed",
+          reason_code: "missing_vmid",
+          vmid: null,
+          items: [],
+          unmapped_checks: [],
+        }],
+      }],
+    };
+    const failedMembers = [{
+      student_id: "enrollment-1",
+      user_id: "user-1",
+      full_name: "王小明",
+      email: "s1@example.edu",
+      vmid: null,
+      node_key: "db",
+    }];
+    vi.spyOn(AiJudgeService, "listSessionRuns").mockResolvedValue([
+      { id: "run-1", artifact_id: "artifact-1", run_batch_id: "batch-1", status: "completed" },
+    ]);
+    vi.spyOn(AiJudgeService, "listSessionScriptSets").mockResolvedValue([]);
+    vi.spyOn(AiJudgeService, "getSessionRunBatch").mockResolvedValue(failedBatch);
+    const updateReview = vi.spyOn(AiJudgeService, "updateStudentReview").mockResolvedValue({
+      id: "run-1",
+      target_results_json: {
+        targets: [{
+          vmid: null,
+          student_id: "enrollment-1",
+          status: "failed",
+          reason_code: "missing_vmid",
+          teacher_review: {
+            feedback: "請先確認虛擬機配置。",
+            decisions: {},
+            updated_at: "2026-09-20T00:00:00Z",
+          },
+        }],
+      },
+    });
+
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    await act(async () => {
+      root.render(<TeacherReviewTab classId="class-1" sessionId="session-1" members={failedMembers} />);
+      await new Promise((resolve) => setTimeout(resolve, 30));
+    });
+
+    const toggle = [...container.querySelectorAll("button")]
+      .find((button) => button.textContent.includes("王小明"));
+    expect(toggle).toBeTruthy();
+    await act(async () => {
+      toggle.click();
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    });
+
+    const textarea = container.querySelector("textarea");
+    await act(async () => {
+      const setValue = Object.getOwnPropertyDescriptor(
+        HTMLTextAreaElement.prototype,
+        "value",
+      ).set;
+      setValue.call(textarea, "請先確認虛擬機配置。");
+      textarea.dispatchEvent(new Event("input", { bubbles: true }));
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    });
+    const saveButton = [...container.querySelectorAll("button")]
+      .find((button) => button.textContent.includes("儲存核查"));
+    expect(saveButton.disabled).toBe(false);
+    await act(async () => {
+      saveButton.click();
+      await new Promise((resolve) => setTimeout(resolve, 30));
+    });
+
+    expect(updateReview).toHaveBeenCalledWith(
+      "class-1",
+      "session-1",
+      "run-1",
+      "enrollment-1",
+      { feedback: "請先確認虛擬機配置。", decisions: {} },
+    );
+    expect(container.textContent).toContain("上次儲存");
+    await act(async () => {
+      root.unmount();
+    });
+    container.remove();
+  });
+
+  test("沒有已核准腳本集時，一次執行不可用且空狀態保留舊提示", async () => {
+    vi.spyOn(AiJudgeService, "listSessionRuns").mockResolvedValue([]);
+    vi.spyOn(AiJudgeService, "listSessionScriptSets").mockResolvedValue([]);
+
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    await act(async () => {
+      root.render(<TeacherReviewTab classId="class-1" sessionId="session-1" members={members} />);
+      await new Promise((resolve) => setTimeout(resolve, 30));
+    });
+
+    expect(container.textContent).toContain("還沒有可核查的結果");
+    expect(container.textContent).toContain("請先在「檢查設定」製作腳本並通過審查");
+    expect(container.textContent).not.toContain("一次執行");
+    await act(async () => {
+      root.unmount();
+    });
+    container.remove();
+  });
+
+  test("學生總覽以學生分組並彙總跨機器通過/未通過/待確認", () => {
+    const rows = buildBatchReviewRows(
+      {
+        students: [
+          {
+            student_id: "enrollment-1",
+            nodes: [
+              {
+                node_key: "web",
+                run_id: "run-web",
+                execution_status: "completed",
+                vmid: 101,
+                teacher_review: { feedback: "", decisions: {} },
+                items: [
+                  {
+                    rubric_item_id: "item-web",
+                    title: "確認 nginx",
+                    status: "pass",
+                    checks: [{ id: "check-web", title: "nginx", status: "pass" }],
+                  },
+                ],
+                unmapped_checks: [],
+              },
+              {
+                node_key: "db",
+                run_id: "run-db",
+                execution_status: "completed",
+                vmid: 102,
+                teacher_review: { feedback: "", decisions: {} },
+                items: [
+                  {
+                    rubric_item_id: "item-db",
+                    title: "確認 PostgreSQL",
+                    status: "warning",
+                    checks: [{ id: "check-db", title: "pg_isready", status: "warning" }],
+                  },
+                  {
+                    rubric_item_id: "item-db-fail",
+                    title: "確認連線",
+                    status: "fail",
+                    checks: [{ id: "check-fail", title: "ping", status: "fail" }],
+                  },
+                ],
+                unmapped_checks: [],
+              },
+            ],
+          },
+          {
+            student_id: "enrollment-2",
+            nodes: [
+              {
+                node_key: "web",
+                run_id: "run-web",
+                execution_status: "completed",
+                vmid: 201,
+                teacher_review: { feedback: "", decisions: {} },
+                items: [
+                  {
+                    rubric_item_id: "item-web",
+                    title: "確認 nginx",
+                    status: "pass",
+                    checks: [{ id: "check-web", title: "nginx", status: "pass" }],
+                  },
+                ],
+                unmapped_checks: [],
+              },
+            ],
+          },
+        ],
+      },
+      [
+        { user_id: "user-1", full_name: "王小明", email: "s1@example.edu", vmid: 101, node_key: "web" },
+        { user_id: "user-1", full_name: "王小明", email: "s1@example.edu", vmid: 102, node_key: "db" },
+        { user_id: "user-2", full_name: "李小華", email: "s2@example.edu", vmid: 201, node_key: "web" },
+      ],
+    );
+    const students = buildStudentOverviewRows(rows);
+    expect(students).toHaveLength(2);
+    const first = students.find((item) => item.studentId === "enrollment-1");
+    expect(first.machines).toHaveLength(2);
+    expect(aggregateStudentCheckTotals(first.machines)).toMatchObject({
+      pass: 1,
+      fail: 1,
+      pending: 1,
+    });
+    expect(getStudentOverviewStatus(first.machines)).toMatchObject({
+      kind: "pending",
+      pending: 1,
+    });
+    const sorted = sortStudentOverviewRows(students, "pending");
+    expect(sorted[0].studentId).toBe("enrollment-1");
+    const byNumber = sortStudentOverviewRows(students, "student-number");
+    expect(byNumber[0].user.email).toBe("s1@example.edu");
+  });
+
+  test("已儲存的導師判定會從待確認移到通過/未通過", () => {
+    const machines = [
+      {
+        key: "enrollment-1|db|101",
+        member: { email: "s1@example.edu", full_name: "王小明" },
+        target: {
+          status: "completed",
+          teacher_review: { feedback: "", decisions: { "check-db": "pass" } },
+          parsed_result: { checks: [{ id: "check-db", status: "warning" }] },
+        },
+      },
+    ];
+    expect(aggregateStudentCheckTotals(machines)).toMatchObject({
+      pass: 1,
+      pending: 0,
+    });
+    expect(getStudentOverviewStatus(machines).kind).toBe("reviewed");
+  });
+
+  test("有已核准腳本集但尚未執行時，空狀態也能直接一次執行", async () => {
+    vi.spyOn(AiJudgeService, "listSessionRuns").mockResolvedValue([]);
+    vi.spyOn(AiJudgeService, "listSessionScriptSets").mockResolvedValue([
+      {
+        artifact_set_id: "set-1",
+        status: "approved",
+        source_analysis_revision: 3,
+        children: [{ id: "artifact-1", target_node_key: "db", name: "db 腳本", status: "approved" }],
+      },
+    ]);
+    const createRun = vi.spyOn(AiJudgeService, "createSessionScriptSetRun").mockResolvedValue({
+      run_batch_id: "batch-2",
+      status: "pending",
+      summary: { nodes: 1, students: 1, targets: 1, completed: 0, failed: 0 },
+      nodes: [],
+      students: [],
+    });
+
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    await act(async () => {
+      root.render(<TeacherReviewTab classId="class-1" sessionId="session-1" members={members} />);
+      await new Promise((resolve) => setTimeout(resolve, 30));
+    });
+
+    const runOnceButton = [...container.querySelectorAll("button")]
+      .find((button) => button.textContent.includes("一次執行"));
+    expect(runOnceButton).toBeTruthy();
+    await act(async () => {
+      runOnceButton.click();
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    });
+
+    expect(container.textContent).toContain("一次執行整組檢查點");
+    const confirmButton = [...container.querySelectorAll("button")]
+      .find((button) => button.textContent.includes("確認執行"));
+    expect(confirmButton).toBeTruthy();
+    await act(async () => {
+      confirmButton.click();
+      await new Promise((resolve) => setTimeout(resolve, 30));
+    });
+
+    expect(createRun).toHaveBeenCalledWith("class-1", "session-1", "set-1");
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 200));
+    });
+    expect(container.textContent).not.toContain("確認執行");
+    await act(async () => {
+      root.unmount();
+    });
+    container.remove();
   });
 });

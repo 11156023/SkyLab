@@ -16,7 +16,7 @@ def create_vm_request(
     session: Session,
     vm_request_in: VMRequestCreate,
     user_id: uuid.UUID,
-    encrypted_password: str,
+    encrypted_password: str | None,
     auto_decision_reason: str | None = None,
     request_kind: str | None = None,
     placement_group_id: uuid.UUID | None = None,

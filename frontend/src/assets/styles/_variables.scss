@@ -36,6 +36,10 @@ $breakpoint-xl: 1200px;
 /* Sidebar 抽屜/固定模式切換點（手機 vs 桌面版面） */
 $breakpoint-sidebar: 1024px;
 
+/* ----- Form ----- */
+/* form-control 水平內距；表頭標籤要對齊控制項文字時引用同一來源 */
+$form-control-padding-x: 12px;
+
 /* ----- Layout Sizes ----- */
 $header-height: 60px;
 $sidebar-width: 260px;

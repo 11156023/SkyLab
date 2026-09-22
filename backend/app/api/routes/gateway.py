@@ -29,8 +29,8 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/gateway", tags=["gateway"])
 
-_VALID_SERVICES = {"haproxy", "traefik", "frps", "frpc", "wireguard"}
-_CONFIGURABLE_SERVICES = {"haproxy", "traefik", "frps", "frpc"}
+_VALID_SERVICES = {"haproxy", "traefik", "wireguard"}
+_CONFIGURABLE_SERVICES = {"haproxy", "traefik"}
 
 
 def _require_valid_service(service: str) -> None:

@@ -34,10 +34,14 @@ export function normalizeAiJudgeClass(item) {
 export function toAiJudgeMembers(students) {
   return (Array.isArray(students) ? students : []).flatMap((student) =>
     (student.vms ?? []).map((vm) => ({
+      student_id: student.id,
       user_id: student.user_id,
       email: student.email,
       full_name: student.full_name,
       vmid: vm.vmid,
+      node_key: vm.node_key,
+      display_label: vm.display_label,
+      node_name: vm.name,
       vm_status: vm.status,
       vm_type: vm.vm_type,
     })),
@@ -119,7 +123,7 @@ export default function AiJudgePage() {
         </div>
       </PageHeader>
       <main className={styles.workspaceContent}>
-        {item.status !== "active" ? <LockedFeature /> : membersLoading ? <LoadingState text="正在讀取班級機器…" /> : <AiJudgePanel classId={item.id} members={members} weeks={item.weeks} />}
+        {item.status !== "active" ? <LockedFeature /> : membersLoading ? <LoadingState text="正在讀取班級機器…" /> : <AiJudgePanel classId={item.id} members={members} machineNodes={item.machine_nodes ?? []} weeks={item.weeks} />}
       </main>
     </div>
   );

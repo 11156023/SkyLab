@@ -1,7 +1,5 @@
 {
   "LoginPage.passwordPlaceholder": "パスワードを入力してください",
-  "LoginPage.passwordHide": "パスワードを非表示",
-  "LoginPage.passwordShow": "パスワードを表示",
   "LoginPage.googleSignInAriaLabel": "Google でログイン",
   "LoginPage.googleNoCredential": "Google ログインの認証情報を取得できませんでした。もう一度お試しください。",
   "LoginPage.googleLoadFailed": "Google ログインを読み込めませんでした。ネットワーク接続をご確認のうえ、もう一度お試しください。",

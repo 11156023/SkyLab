@@ -57,7 +57,6 @@ class CourseRoomCreate(BaseModel):
     description: str | None = Field(default=None, max_length=2000)
     difficulty: CourseDifficulty = CourseDifficulty.easy
     category: str | None = Field(default=None, max_length=100)
-    template_id: uuid.UUID | None = None
     order: int = 0
 
 
@@ -66,8 +65,6 @@ class CourseRoomUpdate(BaseModel):
     description: str | None = Field(default=None, max_length=2000)
     difficulty: CourseDifficulty | None = None
     category: str | None = Field(default=None, max_length=100)
-    template_id: uuid.UUID | None = None
-    clear_template: bool = False
     order: int | None = None
 
 
@@ -78,8 +75,6 @@ class CourseRoomPublic(BaseModel):
     description: str | None = None
     difficulty: CourseDifficulty
     category: str | None = None
-    template_id: uuid.UUID | None = None
-    template_name: str | None = None
     order: int
     task_count: int = 0
 
@@ -191,7 +186,6 @@ class CourseRoomSummary(BaseModel):
     description: str | None = None
     difficulty: CourseDifficulty
     category: str | None = None
-    has_lab: bool
     order: int
     total_questions: int
     completed_questions: int
@@ -253,6 +247,7 @@ class CourseAICheckStudent(BaseModel):
     score: int | None = None
     max_score: int | None = None
     summary: str = ""
+    teacher_feedback: str = ""
     error: str = ""
     items: list[CourseAICheckItemStudent] = Field(default_factory=list)
 
@@ -364,20 +359,6 @@ class CoursePracticeMachineStudent(BaseModel):
     forward_endpoints: list[ForwardEndpoint] = Field(default_factory=list)
 
 
-DeploymentStatus = Literal["provisioning", "running", "failed", "expired"]
-
-
-class CourseDeploymentPublic(BaseModel):
-    id: uuid.UUID
-    room_id: uuid.UUID
-    vm_request_id: uuid.UUID
-    vmid: int | None = None
-    status: DeploymentStatus
-    error: str | None = None
-    created_at: datetime
-    expires_at: datetime
-
-
 class CourseRoomStudentDetail(BaseModel):
     id: uuid.UUID
     path_id: uuid.UUID
@@ -385,9 +366,7 @@ class CourseRoomStudentDetail(BaseModel):
     description: str | None = None
     difficulty: CourseDifficulty
     category: str | None = None
-    has_lab: bool
     tasks: list[CourseTaskStudent]
-    my_deployment: CourseDeploymentPublic | None = None
 
 
 class CourseAnswerSubmit(BaseModel):
@@ -460,12 +439,10 @@ __all__ = [
     "CourseWeeklyCheckpointStudent",
     "CourseWeeklyTaskStudent",
     "CoursePracticeMachineStudent",
-    "CourseDeploymentPublic",
     "CourseRoomStudentDetail",
     "CourseAnswerSubmit",
     "CourseAnswerResult",
     "StudentRoomProgress",
     "StudentPathProgress",
     "PathProgressReport",
-    "DeploymentStatus",
 ]

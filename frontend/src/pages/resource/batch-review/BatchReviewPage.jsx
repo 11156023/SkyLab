@@ -217,8 +217,8 @@ export default function BatchReviewPage() {
   const [error, setError] = useState("");
   const [selectedId, setSelectedId] = useState(null);
   /* 切換列時詳情欄捲回頂端，避免殘留上一筆的捲動位置 */
-  const detailPaneRef = useRef(null);
-  useEffect(() => { detailPaneRef.current?.scrollTo({ top: 0 }); }, [selectedId]);
+  const detailScrollRef = useRef(null);
+  useEffect(() => { detailScrollRef.current?.scrollTo({ top: 0 }); }, [selectedId]);
   const [comment, setComment] = useState("");
   const [reviewing, setReviewing] = useState(false);
   /** jobId → "loading" | [start, end][]，點「查看時段」才載入 */
@@ -276,6 +276,14 @@ export default function BatchReviewPage() {
     () => visibleRows.find((row) => row.id === selectedId) ?? visibleRows[0] ?? null,
     [visibleRows, selectedId],
   );
+
+  /* 分頁角標：各審核狀態筆數（total 含 cancelled 等 other，僅顯示於「全部」） */
+  const stats = useMemo(() => {
+    const pending = reviewRows.filter((row) => row.reviewStatus === "pending").length;
+    const approved = reviewRows.filter((row) => row.reviewStatus === "approved").length;
+    const rejected = reviewRows.filter((row) => row.reviewStatus === "rejected").length;
+    return { total: reviewRows.length, pending, approved, rejected };
+  }, [reviewRows]);
 
   const togglePreview = async (jobId) => {
     if (openPreviews[jobId]) {
@@ -361,7 +369,11 @@ export default function BatchReviewPage() {
       <div className={styles.tabsRow}>
         <SegmentedControl
           className={styles.tabsControl}
-          options={tabs.map(({ key, label }) => ({ value: key, label }))}
+          options={tabs.map(({ key, label }) => ({
+            value: key,
+            label,
+            badge: key === "all" ? stats.total : (stats[key] ?? 0),
+          }))}
           value={activeTab}
           onChange={setActiveTab}
           ariaLabel={t("BatchReviewPage.tabsAriaLabel")}
@@ -424,117 +436,136 @@ export default function BatchReviewPage() {
             )}
           </section>
 
-          <section className={styles.detailPane} ref={detailPaneRef}>
+          <section className={styles.detailPane}>
             {!selected ? (
               <div className={styles.stateBox}>{t("BatchReviewPage.selectABatch")}</div>
             ) : (
               <>
-                <div className={styles.detailHeader}>
-                  <h2>{selected.title}</h2>
-                  <p>{selected.applicant}</p>
-                </div>
+                <div className={styles.detailScroll} ref={detailScrollRef}>
+                  <div className={styles.detailHeader}>
+                    <h2>{selected.title}</h2>
+                    <p>{selected.applicant}</p>
+                  </div>
 
-                <div className={styles.infoGrid}>
-                  <InfoRow
-                    label={t("BatchReviewPage.infoLabelType")}
-                    value={
-                      selected.classId
-                        ? t("BatchReviewPage.typeClassBatch")
-                        : t("BatchReviewPage.typeSingleBatch")
-                    }
-                  />
-                  <InfoRow label={t("BatchReviewPage.infoLabelCourse")} value={selected.className} />
-                  <InfoRow
-                    label={t("BatchReviewPage.infoLabelResourceType")}
-                    value={selected.resourceTypeText}
-                  />
-                  <InfoRow
-                    label={t("BatchReviewPage.infoLabelVmCount")}
-                    value={String(selected.total)}
-                  />
-                  <InfoRow label={t("BatchReviewPage.infoLabelSpec")} value={selected.specText} />
-                  <InfoRow label={t("BatchReviewPage.infoLabelOs")} value={selected.osText} />
-                  <InfoRow
-                    label={t("BatchReviewPage.infoLabelSubmittedAt")}
-                    value={formatDateTime(selected.createdAt, t)}
-                  />
-                  <InfoRow
-                    label={t("BatchReviewPage.infoLabelApplicantEmail")}
-                    value={selected.applicantSubtext}
-                  />
-                </div>
+                  <div className={styles.infoGrid}>
+                    <InfoRow
+                      label={t("BatchReviewPage.infoLabelType")}
+                      value={
+                        selected.classId
+                          ? t("BatchReviewPage.typeClassBatch")
+                          : t("BatchReviewPage.typeSingleBatch")
+                      }
+                    />
+                    <InfoRow label={t("BatchReviewPage.infoLabelCourse")} value={selected.className} />
+                    <InfoRow
+                      label={t("BatchReviewPage.infoLabelResourceType")}
+                      value={selected.resourceTypeText}
+                    />
+                    <InfoRow
+                      label={t("BatchReviewPage.infoLabelVmCount")}
+                      value={String(selected.total)}
+                    />
+                    <InfoRow label={t("BatchReviewPage.infoLabelSpec")} value={selected.specText} />
+                    <InfoRow label={t("BatchReviewPage.infoLabelOs")} value={selected.osText} />
+                    <InfoRow
+                      label={t("BatchReviewPage.infoLabelSubmittedAt")}
+                      value={formatDateTime(selected.createdAt, t)}
+                    />
+                    <InfoRow
+                      label={t("BatchReviewPage.infoLabelApplicantEmail")}
+                      value={selected.applicantSubtext}
+                    />
+                  </div>
 
-                <div className={styles.reasonBox}>
-                  <span>{t("BatchReviewPage.progressLabel")}</span>
-                  <ProgressInline
-                    done={selected.done}
-                    failed={selected.failed}
-                    total={selected.total}
-                  />
-                  {selected.failed > 0 && (
-                    <p className={styles.failedNote}>
-                      {t("BatchReviewPage.failedCount", { count: selected.failed })}
-                    </p>
+                  <div className={styles.reasonBox}>
+                    <span>{t("BatchReviewPage.progressLabel")}</span>
+                    <ProgressInline
+                      done={selected.done}
+                      failed={selected.failed}
+                      total={selected.total}
+                    />
+                    {selected.failed > 0 && (
+                      <p className={styles.failedNote}>
+                        {t("BatchReviewPage.failedCount", { count: selected.failed })}
+                      </p>
+                    )}
+                  </div>
+
+                  {selected.recurrenceRule && (
+                    <div className={styles.reasonBox}>
+                      <span>{t("BatchReviewPage.recurChipLabel")}</span>
+                      <p className={styles.ruleHuman}>{describeRecurrence(selected.recurrenceRule, t) ?? selected.recurrenceRule}</p>
+                      {describeRecurrence(selected.recurrenceRule, t) && <p className={styles.ruleText}>{selected.recurrenceRule}</p>}
+                      <button
+                        type="button"
+                        className={styles.recurChip}
+                        title={t("BatchReviewPage.recurChipTitle")}
+                        onClick={() => togglePreview(selected.previewJobId)}
+                      >
+                        <MIcon name={preview === "loading" || previewOpen ? "expand_less" : "expand_more"} size={12} />
+                        {t("BatchReviewPage.recurPreviewToggle")}
+                      </button>
+                      {preview === "loading" && (
+                        <span className={styles.recurLoading}>
+                          {t("BatchReviewPage.previewLoading")}
+                        </span>
+                      )}
+                      {Array.isArray(preview) && (
+                        <div ref={recurListRef} className={`${styles.recurCollapse} ${previewOpen ? styles.recurCollapseOpen : ""}`}>
+                          <div className={styles.recurCollapseInner}>
+                            <ul className={styles.recurWindows}>
+                              {preview.length === 0 && <li>{t("BatchReviewPage.noScheduledWindows")}</li>}
+                              {preview.map(([start, end]) => (
+                                <li key={start}>
+                                  {formatDateTime(start, t)} ～ {formatDateTime(end, t)}
+                                </li>
+                              ))}
+                            </ul>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {selected.tasks.length > 0 && (
+                    <div className={styles.reasonBox}>
+                      <span>{t("BatchReviewPage.membersLabel", { count: selected.tasks.length })}</span>
+                      <ul className={styles.memberList}>
+                        {selected.tasks.map((task) => (
+                          <li key={task.id}>
+                            <span className={styles.memberName}>
+                              {task.user_name || task.user_email || t("BatchReviewPage.unknownUser")}
+                            </span>
+                            <span className={styles.memberMeta}>
+                              {task.vmid
+                                ? `VMID ${task.vmid}`
+                                : (statusMeta[task.status]?.label ?? task.status)}
+                            </span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+
+                  {!isPending && (selected.reviewComment || selected.reviewedAt) && (
+                    <div className={styles.reasonBox}>
+                      <span>
+                        {t("BatchReviewPage.commentLabel")}
+                        {selected.reviewedAt
+                          ? t("BatchReviewPage.reviewedAtSuffix", {
+                              time: formatDateTime(selected.reviewedAt, t),
+                            })
+                          : ""}
+                      </span>
+                      <p>{selected.reviewComment || t("BatchReviewPage.noReviewNote")}</p>
+                      {selected.reviewer && (
+                        <p className={styles.reviewerLine}>{selected.reviewer}</p>
+                      )}
+                    </div>
                   )}
                 </div>
 
-                {selected.recurrenceRule && (
-                  <div className={styles.reasonBox}>
-                    <span>{t("BatchReviewPage.recurChipLabel")}</span>
-                    <p className={styles.ruleHuman}>{describeRecurrence(selected.recurrenceRule, t) ?? selected.recurrenceRule}</p>
-                    {describeRecurrence(selected.recurrenceRule, t) && <p className={styles.ruleText}>{selected.recurrenceRule}</p>}
-                    <button
-                      type="button"
-                      className={styles.recurChip}
-                      title={t("BatchReviewPage.recurChipTitle")}
-                      onClick={() => togglePreview(selected.previewJobId)}
-                    >
-                      <MIcon name={preview === "loading" || previewOpen ? "expand_less" : "expand_more"} size={12} />
-                      {t("BatchReviewPage.recurPreviewToggle")}
-                    </button>
-                    {preview === "loading" && (
-                      <span className={styles.recurLoading}>
-                        {t("BatchReviewPage.previewLoading")}
-                      </span>
-                    )}
-                    {Array.isArray(preview) && (
-                      <div ref={recurListRef} className={`${styles.recurCollapse} ${previewOpen ? styles.recurCollapseOpen : ""}`}>
-                        <div className={styles.recurCollapseInner}>
-                          <ul className={styles.recurWindows}>
-                            {preview.length === 0 && <li>{t("BatchReviewPage.noScheduledWindows")}</li>}
-                            {preview.map(([start, end]) => (
-                              <li key={start}>
-                                {formatDateTime(start, t)} ～ {formatDateTime(end, t)}
-                              </li>
-                            ))}
-                          </ul>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                )}
-
-                {selected.tasks.length > 0 && (
-                  <div className={styles.reasonBox}>
-                    <span>{t("BatchReviewPage.membersLabel", { count: selected.tasks.length })}</span>
-                    <ul className={styles.memberList}>
-                      {selected.tasks.map((task) => (
-                        <li key={task.id}>
-                          <span className={styles.memberName}>
-                            {task.user_name || task.user_email || t("BatchReviewPage.unknownUser")}
-                          </span>
-                          <span className={styles.memberMeta}>
-                            {task.vmid
-                              ? `VMID ${task.vmid}`
-                              : (statusMeta[task.status]?.label ?? task.status)}
-                          </span>
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                )}
-
-                {isPending ? (
+                {isPending && (
                   <div className={styles.reviewBar}>
                     <label className={styles.commentField}>
                       <span>{t("BatchReviewPage.commentLabel")}</span>
@@ -564,23 +595,6 @@ export default function BatchReviewPage() {
                       </button>
                     </div>
                   </div>
-                ) : (
-                  (selected.reviewComment || selected.reviewedAt) && (
-                    <div className={styles.reasonBox}>
-                      <span>
-                        {t("BatchReviewPage.commentLabel")}
-                        {selected.reviewedAt
-                          ? t("BatchReviewPage.reviewedAtSuffix", {
-                              time: formatDateTime(selected.reviewedAt, t),
-                            })
-                          : ""}
-                      </span>
-                      <p>{selected.reviewComment || t("BatchReviewPage.noReviewNote")}</p>
-                      {selected.reviewer && (
-                        <p className={styles.reviewerLine}>{selected.reviewer}</p>
-                      )}
-                    </div>
-                  )
                 )}
               </>
             )}

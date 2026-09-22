@@ -45,6 +45,8 @@
   }
 }
 
+/* 整列不可點（動作都在右側按鈕上），所以不給 hover 陰影——
+   hover 變化是「這一列可以點」的訊號，不可點時會變成假暗示 */
 .row {
   display: flex;
   align-items: center;
@@ -52,11 +54,6 @@
   padding: $spacing-16;
   @include glass-surface($shadow: var(--shadow-sm));
   border-radius: $radius-12;
-  transition: box-shadow $transition-base;
-
-  &:hover {
-    box-shadow: var(--shadow-md);
-  }
 }
 
 .rowIcon {
@@ -83,40 +80,36 @@
   @include text-truncate;
 }
 
+/* 與名稱一樣單行截斷，列高才一致；完整內容放在 title */
 .rowMeta {
   font-size: $font-size-12;
   color: var(--color-text-muted);
+  @include text-truncate;
 }
 
+/* 列上的淡底圖示鈕之間留 8px，與 AI API、我的資源、資源管理的列動作同距 */
 .rowActions {
   display: flex;
-  gap: $spacing-4;
+  gap: $spacing-8;
   flex-shrink: 0;
 }
 
-.actionBtn,
-.iconBtn {
-  width: 30px;
-  height: 30px;
-  border-radius: $radius-8;
-  @include flex-center;
-  color: var(--color-text-secondary);
-  transition: background $transition-base, color $transition-base;
+/* 列上的圖示鈕：編輯是一般動作，只有刪除才是危險款。兩款各自是完整的 mixin，
+   不要疊在同一顆按鈕上（一般款的 :hover 會把刪除鈕的紅字蓋成主文字色）。
+   btn-dialog-close 內建紅字，那款只給 Dialog 右上的關閉鈕 */
+.actionBtn {
+  @include btn-icon;
+  flex-shrink: 0;
+}
 
-  &:hover:not(:disabled) {
-    background: var(--color-hover);
-    color: var(--color-text-primary);
-  }
+.actionBtnDanger {
+  @include btn-icon($danger: true);
+  flex-shrink: 0;
+}
 
-  &:disabled {
-    opacity: 0.35;
-    cursor: not-allowed;
-  }
-
-  &.actionBtnDanger {
-    color: var(--color-danger);
-    &:hover:not(:disabled) { background: color-mix(in srgb, var(--color-danger) 10%, transparent); }
-  }
+.dialogClose {
+  @include btn-dialog-close;
+  flex-shrink: 0;
 }
 
 .headerActions {
@@ -152,54 +145,22 @@
 
 /* ── Badge ── */
 .badge {
-  display: inline-flex;
-  align-items: center;
+  @include badge-base;
   gap: 4px;
   padding: 2px 10px;
-  border-radius: $radius-pill;
-  font-size: $font-size-12;
-  font-weight: $font-weight-500;
-  white-space: nowrap;
   flex-shrink: 0;
 }
 
 .badge_success { background: color-mix(in srgb, var(--color-success) 12%, transparent); color: var(--color-success); }
 .badge_info    { background: color-mix(in srgb, var(--color-info)    12%, transparent); color: var(--color-info); }
 .badge_danger  { background: color-mix(in srgb, var(--color-danger) 12%, transparent); color: var(--color-danger); }
-.badge_muted   { background: var(--color-hover); color: var(--color-status-neutral); }
+.badge_muted   { background: color-mix(in srgb, var(--color-status-neutral) 12%, transparent); color: var(--color-status-neutral); }
 
 /* ── 工作台雙欄 ── */
-/* ── Tabs（DNS 紀錄 / 對外網址） ── */
+/* ── 分頁（DNS 紀錄 / 對外網址）：共用 SegmentedControl，這裡只管外層不被 flex 壓縮 ── */
 .tabs {
   display: flex;
-  gap: $spacing-4;
-  flex-wrap: wrap;
   flex-shrink: 0;
-}
-
-.tab {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 6px $spacing-16;
-  border-radius: $radius-pill;
-  font-size: $font-size-14;
-  color: var(--color-text-secondary);
-  transition: background $transition-base, color $transition-base;
-
-  &:hover {
-    background: var(--color-hover);
-  }
-}
-
-.tabActive {
-  background: var(--color-text);
-  color: var(--color-surface);
-  font-weight: $font-weight-500;
-
-  &:hover {
-    background: var(--color-text);
-  }
 }
 
 .tabBody {
@@ -347,28 +308,30 @@
   to   { opacity: 1; transform: translateY(0); }
 }
 
+/* 毛玻璃卡基準（樣式規範「Dialog / Modal」）；寬度取小型單欄表單級 640 */
 .modal,
 .confirm {
   animation: slideUp 0.18s cubic-bezier(0.25, 0.8, 0.25, 1);
-  width: min(560px, 100%);
+  width: min(640px, 100%);
   max-height: 88vh;
   overflow-y: auto;
   @include flex-column;
   gap: $spacing-16;
   padding: $spacing-24;
   @include glass-surface($shadow: var(--shadow-lg));
-  border-radius: $radius-12;
+  border-radius: $radius-16;
 }
 
 .modalHeader {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: space-between;
   gap: $spacing-16;
 
   h2 {
     margin: 0;
-    font-size: $font-size-18;
+    font-size: $font-size-16;
+    font-weight: $font-weight-700;
     color: var(--color-text-primary);
   }
 
@@ -401,55 +364,46 @@
   @include flex-center;
 }
 
-/* Token 建立指引：說去哪裡拿、要哪些權限，附外部連結 */
-.modalGuide {
-  margin: 6px 0 0;
-  font-size: $font-size-12;
-  color: var(--color-text-muted);
+/* 欄位一律走 _mixins.scss 的表單 mixin 組（樣式規範「表單」段）：
+   標籤 14/500、控制項 36px，不在頁面內另立一套字級與內距 */
+.field {
+  @include form-field;
+  flex: 1;
 
-  a {
-    display: inline-flex;
-    align-items: center;
-    gap: 2px;
-    color: var(--color-primary);
-    text-decoration: none;
+  input:not([type="checkbox"]),
+  select {
+    @include form-control;
 
-    &:hover {
-      text-decoration: underline;
+    &::placeholder {
+      color: var(--color-text-muted);
     }
   }
 }
 
-/* 欄位群下方的一行說明（預設 DNS 目標） */
-.fieldHint {
-  margin: -$spacing-8 0 0;
-  font-size: $font-size-12;
-  color: var(--color-text-muted);
+/* 標籤列：左邊欄位名稱、右邊附屬連結（API Token 的建立頁） */
+.labelRow {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: $spacing-8;
+  min-width: 0;
 }
 
-.field {
-  @include flex-column;
-  gap: 6px;
+/* 欄位旁的外部連結：12px 主色，hover 底線（與 PveConnectionsPage 的 inlineLink 同一語言） */
+.fieldLink {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  flex-shrink: 0;
   font-size: $font-size-12;
-  font-weight: $font-weight-500;
-  color: var(--color-text-secondary);
-  flex: 1;
+  font-weight: $font-weight-400;
+  color: var(--color-primary);
+  text-decoration: none;
+  white-space: nowrap;
 
-  input,
-  select {
-    min-height: 38px;
-    padding: 8px $spacing-16;
-    border: 1px solid var(--color-border);
-    border-radius: $radius-8;
-    background: var(--color-surface);
-    color: var(--color-text-primary);
-    outline: none;
-    font-size: $font-size-14;
-
-    &:focus {
-      border-color: var(--color-primary);
-      box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-primary) 12%, transparent);
-    }
+  &:hover,
+  &:focus-visible {
+    text-decoration: underline;
   }
 }
 
@@ -463,15 +417,23 @@
   }
 }
 
+/* 勾選列：與其他對話框的勾選項（使用者管理、範本表單 .checkLine 等）同一套——
+   無外框、左緣對齊上方欄位；勾選框吃主色，不用瀏覽器預設的亮藍。
+   直接放在對話框的 flex 欄裡，align-self 讓它只包住內容，免得整列都變成點擊區 */
 .checkRow {
   display: inline-flex;
+  align-self: flex-start;
   align-items: center;
   gap: $spacing-8;
-  min-height: 34px;
-  padding: 0 $spacing-16;
-  border: 1px solid var(--color-border);
-  border-radius: $radius-8;
   color: var(--color-text-primary);
   font-size: $font-size-14;
   cursor: pointer;
+
+  input[type="checkbox"] {
+    width: 16px;
+    height: 16px;
+    margin: 0;
+    accent-color: var(--color-primary);
+    cursor: pointer;
+  }
 }

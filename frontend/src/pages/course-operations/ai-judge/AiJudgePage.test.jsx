@@ -20,8 +20,9 @@ describe("AiJudgePage data boundary", () => {
 
   test("將班級學生機器轉為執行結果需要的 member contract", () => {
     expect(toAiJudgeMembers([
-      { user_id: "u-1", email: "student@example.edu", full_name: "學生", vms: [{ vmid: 101, status: "running", vm_type: "qemu" }] },
+      { id: "enrollment-1", user_id: "u-1", email: "student@example.edu", full_name: "學生", vms: [{ vmid: 101, status: "running", vm_type: "qemu" }] },
     ])).toEqual([{
+      student_id: "enrollment-1",
       user_id: "u-1",
       email: "student@example.edu",
       full_name: "學生",

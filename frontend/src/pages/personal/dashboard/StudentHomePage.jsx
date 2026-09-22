@@ -100,7 +100,7 @@ function chooseNextRoom(rooms) {
   );
 }
 
-export function buildPracticeMachines(classMachines, resources, deployment, roomTitle, t = defaultT) {
+export function buildPracticeMachines(classMachines, resources) {
   const machines = (classMachines ?? []).map((machine) => {
     const resource = (resources ?? []).find(
       (item) => machine.vmid != null && Number(item.vmid) === Number(machine.vmid),
@@ -114,21 +114,6 @@ export function buildPracticeMachines(classMachines, resources, deployment, room
       name: resource?.name ?? machine.name,
     };
   });
-
-  if (machines.length === 0 && deployment?.vmid) {
-    const fallbackResource = (resources ?? []).find(
-      (resource) => Number(resource.vmid) === Number(deployment.vmid),
-    );
-    machines.push({
-      ...fallbackResource,
-      vmid: deployment.vmid,
-      status: fallbackResource?.status ?? deployment.status,
-      type: fallbackResource?.type ?? "qemu",
-      name: fallbackResource?.name ?? roomTitle ?? t("StudentHomePage.defaultPracticeMachineName"),
-      classMachineName: roomTitle ?? t("StudentHomePage.defaultPracticeMachineName"),
-      classMachineRole: t("StudentHomePage.defaultPracticeMachineRole"),
-    });
-  }
 
   return machines;
 }
@@ -423,12 +408,9 @@ export default function StudentHomePage({ courseView = false }) {
 
   const nextRoom = chooseNextRoom(view.pathDetail?.rooms ?? []);
   const roomProgress = toPercent(nextRoom?.progress_percent);
-  const deployment = view.roomDetail?.my_deployment;
   const practiceMachines = buildPracticeMachines(
     view.practiceMachines,
     view.resources,
-    deployment,
-    view.roomDetail?.title,
   );
   const aiAssignments = assignmentsUntilToday(view.aiAssignments);
   const weeklyAssignmentIds = new Set(
@@ -673,9 +655,7 @@ export default function StudentHomePage({ courseView = false }) {
               <div className={styles.simpleCourseHint}>
                 <MIcon name="check_circle" size={18} />
                 <span>
-                  {deployment?.status === "running" || !nextRoom?.has_lab
-                    ? t("StudentHomePage.practiceReady")
-                    : t("StudentHomePage.willPrepareOnStart")}
+                  {t("StudentHomePage.practiceReady")}
                 </span>
               </div>
             </>
@@ -782,7 +762,7 @@ export default function StudentHomePage({ courseView = false }) {
                       const resultItem = check?.items?.[0];
                       return <li className={styles.checkpointRow} key={key}>
                         <span className={styles.aiRequirementNumber}>{checkpointIndex + 1}</span>
-                        <div className={styles.checkpointContent}><small className={styles.checkpointSource}>{t("StudentHomePage.aiCheckTaskSource", { title: checkpoint.assignment_title })}</small><strong>{checkpoint.title}</strong>{checkpoint.description && <p>{checkpoint.description}</p>}{check && !running && <div className={`${styles.checkpointResult} ${styles[`checkpointResult_${check.status}`]}`}><MIcon name={check.status === "completed" ? "task_alt" : "error_outline"} size={17} /><span><b>{resultItem?.comment || check.error || check.summary || (checkMeta && t(checkMeta.labelKey))}</b>{typeof resultItem?.score === "number" && <small>{t("StudentHomePage.scoreLine", { score: resultItem.score, max: resultItem.max_score ?? 1 })}</small>}</span></div>}</div>
+                        <div className={styles.checkpointContent}><small className={styles.checkpointSource}>{t("StudentHomePage.aiCheckTaskSource", { title: checkpoint.assignment_title })}</small><strong>{checkpoint.title}</strong>{checkpoint.description && <p>{checkpoint.description}</p>}{check && !running && <div className={`${styles.checkpointResult} ${styles[`checkpointResult_${check.status}`]}`}><MIcon name={check.status === "completed" ? "task_alt" : "error_outline"} size={17} /><span><b>{check.teacher_feedback || resultItem?.comment || check.error || check.summary || (checkMeta && t(checkMeta.labelKey))}</b>{typeof resultItem?.score === "number" && <small>{t("StudentHomePage.scoreLine", { score: resultItem.score, max: resultItem.max_score ?? 1 })}</small>}</span></div>}</div>
                         <button type="button" className={styles.checkpointCheckButton} onClick={() => submitCheckpointCheck(checkpoint)} disabled={Boolean(checkingCheckpointKey) || running || !checkpoint.check_available} title={checkpoint.check_available ? "" : t("StudentHomePage.checkpointNotApproved")}><MIcon name={running ? "sync" : checkpoint.check_available && check?.status === "completed" ? "refresh" : checkpoint.check_available ? "fact_check" : "schedule"} size={17} />{running ? t("StudentHomePage.checking") : checkingCheckpointKey === key ? t("StudentHomePage.submitting") : !checkpoint.check_available ? t("StudentHomePage.waitingForTeacherEnable") : check ? t("StudentHomePage.recheck") : t("StudentHomePage.checkThisOne")}</button>
                       </li>;
                     })}
@@ -880,7 +860,7 @@ export default function StudentHomePage({ courseView = false }) {
                               </small>
                             </div>
                           </header>
-                          {(check.summary || check.error) && <p>{check.error || check.summary}</p>}
+                          {(check.teacher_feedback || check.summary || check.error) && <p>{check.teacher_feedback || check.error || check.summary}</p>}
                           {(check.items ?? []).length > 0 && (
                             <div className={styles.aiReplyItems}>
                               {check.items.map((item, itemIndex) => (

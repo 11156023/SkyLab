@@ -274,33 +274,26 @@ describe("AiJudgeService persistent sessions", () => {
     expect(RUBRIC_REASSESS_PROMPT).toContain("其他已啟用的受控能力");
   });
 
-  test("潤飾提示會保留老師目標並要求補足下一層 AI 的執行資訊", () => {
-    expect(RUBRIC_POLISH_PROMPT).toContain("下一層檢查 AI");
+  test("Finalizer 提示會保留老師目標並要求完整 typed 契約", () => {
+    expect(RUBRIC_POLISH_PROMPT).toContain("Finalizer");
     expect(RUBRIC_POLISH_PROMPT).toContain("auto、partial 或 manual");
-    expect(RUBRIC_POLISH_PROMPT).toContain("檢查目標與描述");
     expect(RUBRIC_POLISH_PROMPT).not.toContain("success_criteria");
     expect(RUBRIC_POLISH_PROMPT).toContain("fallback");
     expect(RUBRIC_POLISH_PROMPT).toContain("check_steps");
-    expect(RUBRIC_POLISH_PROMPT).toContain("完整評分項目列表");
+    expect(RUBRIC_POLISH_PROMPT).toContain("legacy flat/template");
+    expect(RUBRIC_POLISH_PROMPT).toContain("完整 typed 轉換");
     expect(RUBRIC_POLISH_PROMPT).toContain("不要猜測或改變檢查目標");
     expect(RUBRIC_POLISH_PROMPT).toContain("視為主要情境");
   });
 
-  test("session script endpoint 不接受 client rubric snapshot", async () => {
-    await AiJudgeService.createSessionScript("class-1", "session-1");
+  test("Save/Create 使用 script set endpoint 並只傳目前檢查表 revision", async () => {
+    await AiJudgeService.createSessionScriptSet("class-1", "session-1", 9);
 
     const [url, init] = fetchMock.mock.calls[0];
     expect(url).toContain(
-      "/api/v1/teaching-classes/class-1/judge/sessions/session-1/scripts",
+      "/api/v1/teaching-classes/class-1/judge/sessions/session-1/script-sets",
     );
-    expect(JSON.parse(init.body)).toEqual({});
-  });
-
-  test("session script endpoint 可綁定目前檢查表 revision", async () => {
-    await AiJudgeService.createSessionScript("class-1", "session-1", 7);
-
-    const [, init] = fetchMock.mock.calls[0];
-    expect(JSON.parse(init.body)).toEqual({ analysis_revision: 7 });
+    expect(JSON.parse(init.body)).toEqual({ analysis_revision: 9 });
   });
 
   test("腳本產生 request 可超過一般 15 秒 timeout", async () => {
@@ -321,13 +314,33 @@ describe("AiJudgeService persistent sessions", () => {
         );
       }));
 
-      const pending = AiJudgeService.createSessionScript("class-1", "session-1");
+      const pending = AiJudgeService.createSessionScriptSet("class-1", "session-1");
       await vi.advanceTimersByTimeAsync(20_000);
 
       await expect(pending).resolves.toEqual({ status: "reviewed" });
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  test("無 vmid 的核查以學生識別碼呼叫專用 endpoint", async () => {
+    await AiJudgeService.updateStudentReview(
+      "class-1",
+      "session-1",
+      "run-1",
+      "enrollment/1",
+      { feedback: "請確認配置", decisions: {} },
+    );
+
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toContain(
+      "/runs/run-1/students/enrollment%2F1/review",
+    );
+    expect(init.method).toBe("PATCH");
+    expect(JSON.parse(init.body)).toEqual({
+      feedback: "請確認配置",
+      decisions: {},
+    });
   });
 
   test("刪除 session 使用 DELETE endpoint", async () => {

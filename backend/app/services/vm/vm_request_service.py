@@ -46,6 +46,7 @@ from app.schemas import (
 from app.services.proxmox import proxmox_service
 from app.services.resource import quota_service
 from app.services.scheduling import vm_request_schedule_service
+from app.services.template import password_policy
 from app.services.user import audit_service
 from app.services.vm import (
     vm_request_availability_service,
@@ -56,6 +57,10 @@ from app.services.vm.placement_service import CurrentPlacementSelection
 
 logger = logging.getLogger(__name__)
 
+
+def _encrypt_login_password(password: str | None) -> str | None:
+    """None（範本不勾「允許自訂登入密碼」，沿用範本憑證）就不加密、直接存 None。"""
+    return encrypt_value(password) if password else None
 
 
 def _utc_now() -> datetime:
@@ -474,7 +479,15 @@ def create(
         session=session,
         vm_request_in=request_in,
         user_id=user.id,
-        encrypted_password=encrypt_value(request_in.password),
+        encrypted_password=_encrypt_login_password(
+            password_policy.resolve_login_password(
+                template=password_policy.find_template(
+                    session, pve_vmid=request_in.template_id
+                ),
+                custom=request_in.password,
+                require_custom=True,
+            )
+        ),
         auto_decision_reason=auto_decision_reason,
         commit=False,
     )
@@ -524,60 +537,6 @@ def create(
     return _to_public(db_request, user_override=user)
 
 
-def create_course_request(
-    *,
-    session: Session,
-    request_in: VMRequestCreate,
-    user,
-    placement_group_id: uuid.UUID | None = None,
-) -> VMRequest:
-    """Course Lab 內部專用：免審核建立課程實驗機申請。
-
-    僅供 ``services/course/deployment_service`` 呼叫 —— 不暴露於公開 API
-    （公開 schema 的 mode 不含 course，避免繞過房間限制直接開機）。
-    房間/單人單機/發布狀態檢查由 deployment_service 負責；本函式重用
-    配額檢查、審核核准 + 節點保留（quick_template 同款輕量路徑）與 audit。
-
-    呼叫端負責 commit 與 commit 後的背景 provision 觸發。
-    """
-    _apply_source_disk_floor(session, request_in)
-    quota_service.check_quota(
-        session,
-        user.id,
-        delta_cores=int(request_in.cores or 0),
-        delta_memory_mb=int(request_in.memory or 0),
-        delta_disk_gb=int(request_in.disk_size or request_in.rootfs_size or 0),
-        delta_instances=1,
-    )
-
-    db_request = vm_request_repo.create_vm_request(
-        session=session,
-        vm_request_in=request_in,
-        user_id=user.id,
-        encrypted_password=encrypt_value(request_in.password),
-        request_kind="course",
-        placement_group_id=placement_group_id,
-        commit=False,
-    )
-    _approve_and_place(
-        session=session,
-        db_request=db_request,
-        reviewer_id=user.id,
-    )
-    audit_service.log_action(
-        session=session,
-        user_id=user.id,
-        action="course_lab_deploy",
-        details=(
-            f"Course lab deploy: {request_in.resource_type} "
-            f"{request_in.hostname}, {request_in.cores} cores, "
-            f"{request_in.memory}MB RAM. Auto-approved."
-        ),
-        commit=False,
-    )
-    return db_request
-
-
 def create_quick_practice_request(
     *,
     session: Session,
@@ -598,7 +557,7 @@ def create_quick_practice_request(
         session=session,
         vm_request_in=request_in,
         user_id=user.id,
-        encrypted_password=encrypt_value(request_in.password),
+        encrypted_password=_encrypt_login_password(request_in.password),
         request_kind="quick_template",
         placement_group_id=placement_group_id,
         commit=False,

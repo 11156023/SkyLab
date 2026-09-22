@@ -63,7 +63,7 @@ export default function QuickTemplateFormPage() {
   }
 
   if (!template) {
-    return <div className={styles.page}><div className={styles.notFound}><MIcon name="error_outline" size={40} /><h2>{t("QuickTemplateFormPage.notFoundTitle")}</h2><p>{t("QuickTemplateFormPage.notFoundDesc")}</p><button type="button" className={styles.btnSecondary} onClick={onBack}><MIcon name="arrow_back" size={16} />{t("QuickTemplateFormPage.backHome")}</button></div></div>;
+    return <div className={styles.page}><div className={styles.notFound}><MIcon name="error_outline" size={40} /><h2>{t("QuickTemplateFormPage.notFoundTitle")}</h2><p>{t("QuickTemplateFormPage.notFoundDesc")}</p><button type="button" className={styles.btnSecondary} onClick={onBack}><MIcon name="arrow_back" size={16} />{t("QuickTemplateFormPage.back")}</button></div></div>;
   }
 
   const totalCpu = template.nodes.reduce((sum, node) => sum + Number(node.cpu || 0), 0);

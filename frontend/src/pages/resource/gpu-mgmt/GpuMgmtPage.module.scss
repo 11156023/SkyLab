@@ -43,62 +43,6 @@
   @include btn-secondary;
 }
 
-/* ── Stat cards ── */
-.statRow {
-  display: grid;
-  grid-template-columns: 1fr;
-  gap: $spacing-16;
-
-  @include respond-to(sm) {
-    grid-template-columns: repeat(3, 1fr);
-  }
-}
-
-.statCard {
-  display: flex;
-  align-items: center;
-  gap: $spacing-16;
-  padding: $spacing-16;
-  @include glass-surface($shadow: var(--shadow-sm));
-  border-radius: $radius-16;
-}
-
-.statIcon {
-  width: 40px;
-  height: 40px;
-  border-radius: $radius-8;
-  background: var(--color-hover);
-  color: var(--color-primary);
-  @include flex-center;
-  flex-shrink: 0;
-}
-
-.statIconOk {
-  background: color-mix(in srgb, var(--color-success) 12%, transparent);
-  color: var(--color-success);
-}
-
-.statIconBusy {
-  background: color-mix(in srgb, var(--color-pending) 14%, transparent);
-  color: var(--color-pending);
-}
-
-.statInfo {
-  @include flex-column;
-  gap: 2px;
-}
-
-.statLabel {
-  font-size: $font-size-12;
-  color: var(--color-text-muted);
-}
-
-.statValue {
-  font-size: $font-size-24;
-  font-weight: $font-weight-700;
-  color: var(--color-text-primary);
-}
-
 /* ── Toolbar ── */
 .toolbar {
   display: flex;

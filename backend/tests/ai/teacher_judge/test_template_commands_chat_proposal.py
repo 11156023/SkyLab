@@ -33,6 +33,54 @@ from tests.ai.teacher_judge.helpers import (
 
 
 @pytest.mark.asyncio
+async def test_proposal_canonicalizes_executor_and_peer_p_labels(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls, fake_call_vllm = scripted_vllm(
+        [
+            tool_call_message(
+                "create_checklist_item",
+                {
+                    "title": "P2 可連通 P1",
+                    "target_node_key": "P2",
+                    "peer_node_key": "P1",
+                    "detectable": "auto",
+                    "judgement_mode": "ai",
+                    "detection_method": "由 P2 執行 ping 觀察 P1。",
+                    "check_steps": [
+                        {
+                            "argv": ["ping", "-c", "4", "{{peer.ip}}"],
+                            "timeout_seconds": 30,
+                        }
+                    ],
+                },
+            ),
+            reply_message("已整理成提案。請確認後套用。", "ready"),
+        ]
+    )
+    monkeypatch.setattr(teacher_judge_service, "_call_vllm_message", fake_call_vllm)
+    patch_teacher_judge_vllm_settings(monkeypatch)
+
+    _reply, proposal, _metrics = await teacher_judge_service.chat_with_rubric(
+        messages=[SimpleNamespace(role="user", content="在 P2 ping P1")],
+        rubric_context=json.dumps({"items": []}),
+        template_key="linux",
+        template_commands=[GENERAL_COMMAND],
+        machine_entries=[
+            {"display_label": "P1", "node_key": "web"},
+            {"display_label": "P2", "node_key": "db"},
+        ],
+        rubric_available=True,
+    )
+
+    assert len(calls) == 2
+    assert proposal is not None
+    assert proposal[0]["target_node_key"] == "db"
+    assert proposal[0]["peer_node_key"] == "web"
+    assert proposal[0]["check_steps"][0]["argv"][-1] == "{{peer.ip}}"
+
+
+@pytest.mark.asyncio
 async def test_uncatalogued_tool_with_complete_argv_still_forms_proposal(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -452,12 +500,17 @@ async def test_chat_with_rubric_validates_returned_check_steps(
                     "detectable": "auto",
                     "check_steps": [
                         {
-                            "template_key": "n8n",
-                            "command_key": "n8n.http_check",
-                        },
-                        {
-                            "template_key": "n8n",
-                            "command_key": "n8n.missing",
+                            "id": "n8n.health",
+                            "title": "取得 n8n HTTP 回應",
+                            "collector": {
+                                "type": "localhost_http",
+                                "url": "http://127.0.0.1:5678",
+                                "timeout_seconds": 5,
+                            },
+                            "assertion": {
+                                "type": "text_contains",
+                                "expected": "n8n",
+                            },
                         },
                     ],
                 },
@@ -488,10 +541,20 @@ async def test_chat_with_rubric_validates_returned_check_steps(
     assert "curl -I" not in system_prompt
     assert updated_items[0]["check_steps"] == [
         {
-            "template_key": "n8n",
-            "command_key": "n8n.http_check",
-            "command_label": "n8n HTTP 檢查",
-            "parameters": {},
+            "id": "n8n.health",
+            "title": "取得 n8n HTTP 回應",
+            "collector": {
+                "type": "localhost_http",
+                "method": "GET",
+                "url": "http://127.0.0.1:5678",
+                "timeout_seconds": 5,
+                "max_chars": 12000,
+            },
+            "assertion": {
+                "type": "text_contains",
+                "expected": "n8n",
+                "normalize": "none",
+            },
         }
     ]
 

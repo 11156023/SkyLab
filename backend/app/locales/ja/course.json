@@ -3,8 +3,6 @@
   "course.room_not_found": "コースルームが見つかりません",
   "course.task_not_found": "コースタスクが見つかりません",
   "course.question_not_found": "コース問題が見つかりません",
-  "course.template_not_found": "VMテンプレートが見つかりません",
-  "course.template_not_ready": "VMテンプレートが準備できていません（現在の状態：{status}）",
   "course.class_already_linked": "このクラスはすでに別のコースパスに紐付けられています",
   "course.flag_required": "フラグ問題にはフラグの回答が必要です",
   "course.flag_blank": "フラグを空白にすることはできません",

@@ -1,0 +1,65 @@
+.templateGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 320px), 1fr));
+  gap: 12px;
+  min-width: 0;
+}
+.templateTop, .templateFooter {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+}
+.templateIcon {
+  @include flex-center;
+  flex-shrink: 0;
+  width: 30px;
+  height: 30px;
+  border-radius: $radius-12;
+  color: var(--color-primary);
+  background: color-mix(in srgb, var(--color-primary) 9%, transparent);
+}
+.templateCard {
+  @include glass-surface($shadow: none);
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 160px;
+  padding: 20px;
+  gap: 16px;
+  border-radius: $radius-12;
+  text-align: left;
+  font: inherit;
+  cursor: pointer;
+  transition: box-shadow $transition-base;
+
+  &:hover { box-shadow: var(--shadow-sm); }
+  &:focus-visible { outline: 3px solid var(--color-primary); outline-offset: 3px; }
+}
+.templateBadge {
+  padding: 4px 8px;
+  border-radius: $radius-pill;
+  font-size: $font-size-12;
+  color: var(--color-primary);
+  background: color-mix(in srgb, var(--color-primary) 9%, transparent);
+}
+.templateTop > strong { flex: 1; min-width: 0; font-size: $font-size-14; color: var(--color-text-primary); overflow-wrap: anywhere; }
+.templateFooter {
+  flex-wrap: wrap;
+  margin-top: auto;
+  color: var(--color-text-secondary);
+  font-size: $font-size-12;
+  > span:last-child { display: inline-flex; align-items: center; gap: 6px; color: var(--color-primary); font-weight: $font-weight-700; }
+}
+.emptyPanel {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 0;
+  font-size: $font-size-12;
+  color: var(--color-text-muted);
+}
+@media (max-width: $breakpoint-sm) {
+  .templateCard { min-height: 144px; padding: 16px; }
+}

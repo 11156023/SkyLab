@@ -232,6 +232,7 @@ def list_student_catalog(*, session: Session) -> list[TemplateCatalogItem]:
                 # 所以只對目錄裡的 VM 逐筆確認
                 is_windows=(not is_lxc) and is_windows_template(template.pve_vmid),
                 requires_gpu=bool(template.requires_gpu),
+                allow_password_change=bool(template.allow_password_change),
                 cores=template.default_cores or raw_cores,
                 memory_mb=template.default_memory or raw_memory,
                 disk_gb=template.default_disk or raw_disk,
@@ -675,7 +676,7 @@ def _clone_children_vmids(session: Session, pve_vmid: int) -> list[int]:
 
 
 def _environments_referencing(session: Session, template_id: uuid.UUID) -> list[str]:
-    """引用這個母範本的學習環境名稱（含草稿與已下架版本）。
+    """引用這個母範本的教學環境名稱（含草稿與已下架版本）。
 
     已發布的環境會在學生按下啟動時才用到來源範本，所以刪除前必須先盤點；
     草稿與已下架版本一樣要算，否則教師之後建立新版本會拿到空的來源。
@@ -1181,21 +1182,22 @@ def run_update_clone_task(
     resource_type = _as_resource_type(payload["resource_type"])
     node = str(payload["node"])
     try:
-        new_vmid = proxmox_ops.next_vmid()
-        report_progress(task_id, 10)
-        clone_name = f"tpl-{pve_vmid}-edit"
-        pool = get_proxmox_settings_for_node(node).pool_name
-        # 範本更新需要可獨立寫入的完整副本，一律 full clone
-        if resource_type == "lxc":
-            proxmox_ops.clone_lxc(
-                node, pve_vmid, newid=new_vmid, hostname=clone_name,
-                full=1, pool=pool,
-            )
-        else:
-            proxmox_ops.clone_vm(
-                node, pve_vmid, newid=new_vmid, name=clone_name,
-                full=1, pool=pool,
-            )
+        with proxmox_ops.vmid_allocation_lock():
+            new_vmid = proxmox_ops.next_vmid()
+            report_progress(task_id, 10)
+            clone_name = f"tpl-{pve_vmid}-edit"
+            pool = get_proxmox_settings_for_node(node).pool_name
+            # 範本更新需要可獨立寫入的完整副本，一律 full clone
+            if resource_type == "lxc":
+                proxmox_ops.clone_lxc(
+                    node, pve_vmid, newid=new_vmid, hostname=clone_name,
+                    full=1, pool=pool,
+                )
+            else:
+                proxmox_ops.clone_vm(
+                    node, pve_vmid, newid=new_vmid, name=clone_name,
+                    full=1, pool=pool,
+                )
         report_progress(task_id, 80)
     except Exception as exc:
         # 克隆失敗 → 回復 ready，讓使用者可重新發起

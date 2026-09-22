@@ -30,7 +30,6 @@ from app.ai.teacher_judge.script_policy import (
     validate_managed_script_output,
 )
 from app.ai.teacher_judge.template_command_service import GENERAL_COMMAND
-from app.api.routes.teacher_judge_scripts import _normalize_supported_template_key
 from app.models.teacher_judge_script_artifact import TeacherJudgeScriptStatus
 from app.models.teacher_judge_script_run import (
     TeacherJudgeScriptRunStatus,
@@ -760,6 +759,7 @@ def test_execute_target_script_uploads_runs_and_collects_result(
 
     cleanup_command = (
         "rm -f -- /tmp/campus-cloud-judge/run-1/101/script.py "
+        "/tmp/campus-cloud-judge/run-1/101/runtime_context.json "
         "/tmp/campus-cloud-judge/run-1/101/result.json "
         "/tmp/campus-cloud-judge/run-1/101/stderr.log && "
         "rmdir -- /tmp/campus-cloud-judge/run-1/101 2>/dev/null || true"
@@ -770,6 +770,14 @@ def test_execute_target_script_uploads_runs_and_collects_result(
         cleanup_command,
     ]
     assert fake_client.sftp.files[f"{remote_dir}/script.py"] == SAFE_SCRIPT.encode()
+    runtime_context = json.loads(
+        fake_client.sftp.files[f"{remote_dir}/runtime_context.json"]
+    )
+    assert runtime_context == {
+        "schema_version": "teacher_judge_runtime_context.v1",
+        "executor": {"node_key": None},
+        "peers": {},
+    }
     assert result.exit_code == 0
     assert validate_managed_script_output(result.result_json_text)["valid"] is True
     assert fake_client.sftp.closed is True

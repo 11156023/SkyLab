@@ -6,6 +6,7 @@ import EmptyState from "../../../components/EmptyState/EmptyState";
 import { useToast } from "../../../hooks/useToast";
 import { ProxmoxConfigService } from "../../../services/proxmoxConfig";
 import PageHeader from "../../../components/PageHeader/PageHeader";
+import { joinList } from "../../../utils/joinList";
 
 /**
  * Storage（系統管理 → Storage）：各 PVE Storage 的速度等級、使用者優先度與啟用狀態，
@@ -75,7 +76,7 @@ function StorageList() {
               {storage.is_shared ? (
                 <span
                   className={`${styles.badge} ${styles.badge_info}`}
-                  title={(storage.node_names ?? []).join("、")}
+                  title={joinList(storage.node_names ?? [])}
                 >
                   {t("SettingsPage.sharedNodeCount", { count: storage.node_names?.length ?? 1 })}
                 </span>
@@ -134,7 +135,6 @@ export default function StoragePage() {
     <div className={styles.page}>
       <PageHeader title={t("SettingsPage.storageTitle")} />
       <div className={styles.content}>
-        <p className={styles.listHint}>{t("SettingsPage.storageHint")}</p>
         <StorageList />
       </div>
     </div>

@@ -263,7 +263,7 @@
 .badge_success { background: color-mix(in srgb, var(--color-success) 12%, transparent); color: var(--color-success); }
 .badge_danger  { background: color-mix(in srgb, var(--color-danger)  12%, transparent); color: var(--color-danger); }
 .badge_info    { background: color-mix(in srgb, var(--color-info)    12%, transparent); color: var(--color-info); }
-.badge_muted   { background: var(--color-hover); color: var(--color-status-neutral); }
+.badge_muted   { background: color-mix(in srgb, var(--color-status-neutral) 12%, transparent); color: var(--color-status-neutral); }
 /* upstream 的「等待資源」狀態用 color: "warning"，但一直沒有對應樣式，這裡補上 */
 .badge_warning { background: color-mix(in srgb, var(--color-pending) 12%, transparent); color: var(--color-pending); }
 
@@ -291,7 +291,8 @@
   margin: 0;
   padding: 12px;
   border-radius: $radius-8;
-  background: var(--color-hover);
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
   color: var(--color-text);
   font-family: ui-monospace, SFMono-Regular, Consolas, "Courier New", monospace;
   font-size: $font-size-12;

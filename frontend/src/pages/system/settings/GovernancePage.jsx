@@ -6,11 +6,10 @@ import PageHeader from "../../../components/PageHeader/PageHeader";
 import { GovernanceService } from "../../../services/governance";
 import { useToast } from "../../../hooks/useToast";
 import { useUnsavedChangesGuard } from "../../../contexts/UnsavedChangesContext";
-import RelatedSettingsNav from "./RelatedSettingsNav";
 
 /**
  * 治理設定（系統管理 → 治理）：閾值警告 / TTL 回收 / 閒置偵測 / 自動判斷 /
- * 反挖礦 / 快照治理 / 克隆併發 / 課程學習環境。單一儲存鍵送出全部欄位。
+ * 反挖礦 / 快照治理 / 克隆併發 / 課程教學環境。單一儲存鍵送出全部欄位。
  * 2026-09 從「系統設定」的分頁拆成獨立頁面。
  */
 
@@ -218,8 +217,7 @@ export default function GovernancePage() {
   const { t } = useTranslation("system");
   return (
     <div className={styles.page}>
-      <PageHeader title={t("SettingsPage.governanceTitle")} subtitle={t("SettingsPage.governanceSubtitle")} />
-      <RelatedSettingsNav current="governance" />
+      <PageHeader title={t("SettingsPage.governanceTitle")} />
       <div className={styles.content}>
         <GovernanceForm />
       </div>

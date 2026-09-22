@@ -37,7 +37,7 @@ export default function CourseTemplateManagementPage() {
   }, [toast, t]);
   async function remove(template) {
     const ok = await confirm({
-      title: t("CourseTemplateManagementPage.removeConfirmTitle", { name: template.name }),
+      title: t("CourseTemplateManagementPage.removeConfirmTitle", { name: displayName(template) }),
       message: t("CourseTemplateManagementPage.removeConfirmMessage"),
       confirmText: t("CourseTemplateManagementPage.deleteLabel"),
       danger: true,
@@ -53,6 +53,9 @@ export default function CourseTemplateManagementPage() {
       setBusyId("");
     }
   }
+
+  /* 草稿可以還沒取名（後端允許空名稱），列表與確認框不能出現一片空白 */
+  const displayName = (template) => template.name?.trim() || t("CourseTemplateManagementPage.unnamedEnv");
 
   const rows = useMemo(() => templates.filter((template) => {
     const matchesQuery = `${template.name} ${template.description ?? ""}`.toLowerCase().includes(query.toLowerCase());
@@ -85,9 +88,9 @@ export default function CourseTemplateManagementPage() {
 
     <section>
       {loading ? <LoadingState /> : !rows.length ? <EmptyState icon="view_quilt" title={t("CourseTemplateManagementPage.emptyTitle")} /> : <div className={styles.envTableWrap}><table className={styles.envTable}><thead><tr><th>{t("CourseTemplateManagementPage.thName")}</th><th>{t("CourseTemplateManagementPage.thMachinesPerStudent")}</th><th>{t("CourseTemplateManagementPage.thResourceTotal")}</th><th>{t("CourseTemplateManagementPage.thVersion")}</th><th>{t("CourseTemplateManagementPage.thProvideMode")}</th><th>{t("CourseTemplateManagementPage.thUsingClasses")}</th><th>{t("CourseTemplateManagementPage.thStatus")}</th><th /></tr></thead><tbody>{rows.map((template) => <tr key={template.id} onClick={() => navigate(`/course-template-management/${template.id}`)}>
-        <td><strong>{template.name}</strong><small>{template.description}</small></td>
-        <td><strong>{t("CourseTemplateManagementPage.machinesPerStudentUnit", { count: template.nodes.length })}</strong><small>{template.nodes.map((node) => node.name).join("、")}</small></td>
-        <td>{t("CourseTemplateManagementPage.resourceSummary", { cpu: template.nodes.reduce((sum, node) => sum + node.cpu, 0), memory: template.nodes.reduce((sum, node) => sum + node.memory, 0) })}</td><td>v{template.version}</td><td><strong>{t(USAGE_LABEL_KEYS[template.usageScope] ?? USAGE_LABEL_KEYS.course)}</strong>{(template.usageScope ?? "course") === "course" && <small>{t("CourseTemplateManagementPage.notInStudentList")}</small>}</td><td>{t("CourseTemplateManagementPage.classesCount", { count: template.classes })}</td>
+        <td><strong className={template.name?.trim() ? undefined : styles.envUnnamed}>{displayName(template)}</strong></td>
+        <td><strong>{t("CourseTemplateManagementPage.machinesPerStudentUnit", { count: template.nodes.length })}</strong></td>
+        <td>{t("CourseTemplateManagementPage.resourceSummary", { cpu: template.nodes.reduce((sum, node) => sum + node.cpu, 0), memory: template.nodes.reduce((sum, node) => sum + node.memory, 0) })}</td><td>v{template.version}</td><td><strong>{t(USAGE_LABEL_KEYS[template.usageScope] ?? USAGE_LABEL_KEYS.course)}</strong></td><td>{t("CourseTemplateManagementPage.classesCount", { count: template.classes })}</td>
         <td><span className={`${styles.statusBadge} ${styles[`status_${template.status}`]}`}>{t(STATUS_LABEL_KEYS[template.status])}</span></td>
         <td onClick={(event) => event.stopPropagation()}><div className={styles.rowActions}>
           <button type="button" className={`${styles.iconBtn} ${styles.iconBtnDanger}`} title={t("CourseTemplateManagementPage.deleteLabel")} aria-label={t("CourseTemplateManagementPage.deleteLabel")} disabled={busyId === template.id} onClick={() => remove(template)}><MIcon name="delete" size={18} /></button>

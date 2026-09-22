@@ -50,6 +50,15 @@ class TeacherJudgeScriptArtifact(SQLModel, table=True):
     )
 
     id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
+    artifact_set_id: uuid.UUID | None = Field(
+        default=None,
+        sa_column=Column(sa.Uuid, nullable=True, index=True),
+    )
+    target_node_key: str | None = Field(
+        default=None,
+        sa_column=Column(sa.String(80), nullable=True, index=True),
+    )
+    source_analysis_revision: int | None = Field(default=None)
     teaching_class_id: uuid.UUID = Field(
         sa_column=Column(
             sa.Uuid,

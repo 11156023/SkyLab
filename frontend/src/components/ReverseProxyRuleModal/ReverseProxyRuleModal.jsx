@@ -73,6 +73,15 @@ export default function ReverseProxyRuleModal({
     enableHttps: rule?.enable_https ?? true,
   });
 
+  /* Esc 關閉（Dialog 標準行為）；送出中不關，跟取消鈕的行為一致 */
+  useEffect(() => {
+    const onKeyDown = (e) => {
+      if (e.key === "Escape" && !loading) onClose();
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [loading, onClose]);
+
   useEffect(() => {
     if (fixedResource) return;
     const fetcher = isAdmin ? ResourcesService.listAll() : ResourcesService.list();
@@ -130,7 +139,7 @@ export default function ReverseProxyRuleModal({
             <h2>{rule ? t("ReverseProxyRuleModal.editTitle") : t("ReverseProxyRuleModal.createTitle")}</h2>
             <p>{t("ReverseProxyRuleModal.headerDescription")}</p>
           </div>
-          <button type="button" className={styles.iconBtn} onClick={onClose} aria-label={t("ReverseProxyRuleModal.closeAriaLabel")} data-guide="proxy-rule-close">
+          <button type="button" className={styles.dialogClose} onClick={onClose} aria-label={t("ReverseProxyRuleModal.closeAriaLabel")} data-guide="proxy-rule-close">
             <MIcon name="close" size={18} />
           </button>
         </div>

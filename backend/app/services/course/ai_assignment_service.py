@@ -91,6 +91,43 @@ def _first_target(run: TeacherJudgeScriptRun) -> dict[str, Any]:
     return target if isinstance(target, dict) else {}
 
 
+def _target_for_student(
+    run: TeacherJudgeScriptRun, user_id: uuid.UUID | None
+) -> dict[str, Any]:
+    """Return only the result target owned by the requested student."""
+
+    if user_id is None:
+        return _first_target(run)
+    raw_targets = (run.target_results_json or {}).get("targets")
+    if isinstance(raw_targets, list):
+        for raw_target in raw_targets:
+            if not isinstance(raw_target, dict):
+                continue
+            user = raw_target.get("user")
+            target_user_id = user.get("user_id") if isinstance(user, dict) else None
+            if target_user_id and str(target_user_id) == str(user_id):
+                return raw_target
+    # Older student-started runs may not contain a user snapshot.
+    return _first_target(run) if run.started_by == user_id else {}
+
+
+def _teacher_review(target: dict[str, Any]) -> tuple[str, dict[str, str]]:
+    raw_review = target.get("teacher_review")
+    if not isinstance(raw_review, dict):
+        return "", {}
+    raw_decisions = raw_review.get("decisions")
+    decisions = (
+        {
+            str(check_id): str(decision)
+            for check_id, decision in raw_decisions.items()
+            if decision in {"pass", "fail"}
+        }
+        if isinstance(raw_decisions, dict)
+        else {}
+    )
+    return str(raw_review.get("feedback") or ""), decisions
+
+
 def _coverage_mappings(
     artifact: TeacherJudgeScriptArtifact | None,
 ) -> list[dict[str, Any]]:
@@ -119,6 +156,8 @@ def _script_checks(
     raw_checks = parsed_result.get("checks") if isinstance(parsed_result, dict) else None
     if not isinstance(raw_checks, list):
         return []
+
+    _, teacher_decisions = _teacher_review(target)
 
     check_by_id: dict[str, dict[str, Any]] = {}
     for raw in raw_checks:
@@ -151,11 +190,18 @@ def _script_checks(
                 if isinstance(rubric_item, dict) and str(rubric_item.get("id") or "") == item_id:
                     rubric_title = str(rubric_item.get("title") or "")
                     break
-        statuses = [str(check.get("status") or "unknown") for check in selected]
+        statuses = [
+            teacher_decisions.get(
+                str(check.get("id") or ""), str(check.get("status") or "unknown")
+            )
+            for check in selected
+        ]
         status = "fail" if "fail" in statuses else (
             "warning" if "warning" in statuses else (
                 "unknown" if "unknown" in statuses else (
-                    "skipped" if "skipped" in statuses else "pass"
+                    "skipped" if "skipped" in statuses else (
+                        "collected" if "collected" in statuses else "pass"
+                    )
                 )
             )
         )
@@ -177,7 +223,9 @@ def _script_checks(
         CourseAICheckItemStudent(
             item_id=check_id,
             title=str(check.get("title") or check_id),
-            status=str(check.get("status") or "unknown"),
+            status=teacher_decisions.get(
+                check_id, str(check.get("status") or "unknown")
+            ),
             comment=str(check.get("evidence") or ""),
         )
         for check_id, check in check_by_id.items()
@@ -218,10 +266,12 @@ def _check_to_student(
     *,
     artifact: TeacherJudgeScriptArtifact | None = None,
     item_id: str | None = None,
+    user_id: uuid.UUID | None = None,
 ) -> CourseAICheckStudent:
     """Project one run down to the feedback that belongs on a student page."""
 
-    target = _first_target(run)
+    target = _target_for_student(run, user_id)
+    teacher_feedback, _ = _teacher_review(target)
     judgement = target.get("ai_judgement") if isinstance(target, dict) else {}
     if not isinstance(judgement, dict):
         judgement = {}
@@ -269,6 +319,7 @@ def _check_to_student(
             else None
         ),
         summary=parsed_summary or str(judgement.get("summary") or ""),
+        teacher_feedback=teacher_feedback,
         error=str(judgement.get("error") or target_error or ""),
         items=items,
     )
@@ -280,16 +331,20 @@ def _latest_student_check(
     artifact_id: uuid.UUID,
     user_id: uuid.UUID,
 ) -> CourseAICheckStudent | None:
-    run = session.exec(
+    runs = session.exec(
         select(TeacherJudgeScriptRun)
         .where(
             TeacherJudgeScriptRun.artifact_id == artifact_id,
-            TeacherJudgeScriptRun.started_by == user_id,
         )
         .order_by(desc(TeacherJudgeScriptRun.created_at))
-    ).first()
+    ).all()
     artifact = session.get(TeacherJudgeScriptArtifact, artifact_id)
-    return _check_to_student(run, artifact=artifact) if run else None
+    run = next((candidate for candidate in runs if _target_for_student(candidate, user_id)), None)
+    return (
+        _check_to_student(run, artifact=artifact, user_id=user_id)
+        if run is not None
+        else None
+    )
 
 
 def _latest_student_checkpoint_checks(
@@ -306,17 +361,21 @@ def _latest_student_checkpoint_checks(
         select(TeacherJudgeScriptRun)
         .where(
             TeacherJudgeScriptRun.artifact_id == artifact_id,
-            TeacherJudgeScriptRun.started_by == user_id,
         )
         .order_by(desc(TeacherJudgeScriptRun.created_at))
     ).all()
     for run in runs:
+        if not _target_for_student(run, user_id):
+            continue
         requested = _requested_item_id(run)
         candidates = [requested] if requested else item_ids
         for checkpoint_id in candidates:
             if checkpoint_id in wanted and checkpoint_id not in checks:
                 checks[checkpoint_id] = _check_to_student(
-                    run, artifact=artifact, item_id=checkpoint_id
+                    run,
+                    artifact=artifact,
+                    item_id=checkpoint_id,
+                    user_id=user_id,
                 )
         if len(checks) == len(wanted):
             break
@@ -574,7 +633,7 @@ def get_student_ai_check(
         run is None
         or run.artifact_id != assignment.id
         or run.teaching_class_id != assignment.teaching_class_id
-        or run.started_by != user_id
+        or not _target_for_student(run, user_id)
     ):
         raise HTTPException(status_code=404, detail=t("ai_assignment.check_not_found"))
     artifact = session.get(TeacherJudgeScriptArtifact, assignment.id)
@@ -582,6 +641,7 @@ def get_student_ai_check(
         run,
         artifact=artifact,
         item_id=_requested_item_id(run),
+        user_id=user_id,
     )
 
 

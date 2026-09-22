@@ -16,9 +16,12 @@ import { useConfirm } from "../../../components/ConfirmDialog/ConfirmProvider";
 import { CourseEnvironmentsService } from "../../../services/courseEnvironments";
 import { apiGet } from "../../../services/api";
 import { focusInvalidField } from "../../../utils/focusField";
+import { joinList } from "../../../utils/joinList";
+import { uploadSequentially } from "../../../utils/uploadSequentially";
 import { useToast } from "../../../hooks/useToast";
 import useDialogPresence from "../../../hooks/useDialogPresence";
 import EmptyState from "../../../components/EmptyState/EmptyState";
+import FileDropzone from "../../../components/FileDropzone/FileDropzone";
 import { TemplatesService } from "../../../services/templates";
 import ConnectionEdge from "../../network/firewall/edges/ConnectionEdge";
 import GatewayNode from "../../network/firewall/nodes/GatewayNode";
@@ -36,6 +39,7 @@ import PageHeader from "../../../components/PageHeader/PageHeader";
 import i18n from "../../../i18n";
 import { AuthStorage } from "../../../services/auth";
 import { createEnvironmentAutosave } from "./environmentAutosave";
+import useAiScreen from "../../../hooks/useAiScreen";
 
 const TABS = [
   ["basic", "CourseTemplateEditorPage.tabBasicLabel"],
@@ -588,7 +592,8 @@ export default function CourseTemplateEditorPage() {
   const nameRef = useRef(null);
   /* 已發布的環境不能自動儲存，基本資訊改完要按按鈕才送出 */
   const [basicsDirty, setBasicsDirty] = useState(false);
-  const fileInputRef = useRef(null);
+  /* 說明文件上傳進度（{ current, total }），null = 沒在上傳 */
+  const [uploadProgress, setUploadProgress] = useState(null);
   async function leaveTo(path) {
     if (publishingRef.current) return;
     await autosaveRef.current?.flush();
@@ -612,6 +617,15 @@ export default function CourseTemplateEditorPage() {
     edge.protocol !== "any"
     && (!Number.isInteger(Number(edge.port)) || Number(edge.port) < 1 || Number(edge.port) > 65535)
   ));
+  useAiScreen(templateId ? "course-template-editor" : "course-template-new", {
+    "coursetpl.tab": { value: tab },
+    "coursetpl.status": { value: loading ? "loading" : template.status },
+    "coursetpl.name": { value: template.name.slice(0, 500), error: invalidField === "name" ? t("CourseTemplateEditorPage.nameRequiredError") : null },
+    "coursetpl.usage_scope": { value: template.usageScope ?? "course" },
+    "coursetpl.node_count": { value: String(template.nodes?.length ?? 0) },
+    "coursetpl.return_to_class": { value: String(Boolean(returnTo)) },
+    "coursetpl.publish": { disabled: saving || closing || template.status !== "draft" },
+  });
   /* 不小心跳離（點側欄、重新整理）時保留未儲存的編輯：
      每次編輯寫入 sessionStorage，進頁還原，成功儲存／發布才清除 */
   const draftKey = `courseTemplateEditorDraft:${AuthStorage.getSnapshot().sessionId ?? "anonymous"}:${templateId ?? "new"}`;
@@ -775,20 +789,30 @@ export default function CourseTemplateEditorPage() {
   }
 
   /* 文件掛在環境身分上，上傳與刪除立即生效，不跟著基本資訊那顆儲存鈕走。
-     環境還沒建立（草稿沒有 id）時不給上傳，否則檔案會沒有歸屬。 */
-  async function uploadFile(file) {
-    if (!file || saving) return;
+     環境還沒建立（草稿沒有 id）時不給上傳，否則檔案會沒有歸屬。
+     可一次選多個：後端一次收一個檔，依序上傳，傳完一個清單就先更新 */
+  async function uploadFiles(files) {
+    if (saving) return;
     setSaving(true);
-    try {
-      const saved = await CourseEnvironmentsService.uploadFile(template.id, file);
-      templateRef.current = { ...templateRef.current, files: saved.files };
-      setTemplate(templateRef.current);
-      toast.success(t("CourseTemplateEditorPage.fileUploaded", { name: file.name }));
-    } catch (reason) {
-      toast.error(reason?.message ?? t("CourseTemplateEditorPage.fileUploadFailed"));
-    } finally {
-      setSaving(false);
-      if (fileInputRef.current) fileInputRef.current.value = "";
+    const { failed, lastError } = await uploadSequentially(
+      files,
+      async (file) => {
+        const saved = await CourseEnvironmentsService.uploadFile(template.id, file);
+        templateRef.current = { ...templateRef.current, files: saved.files };
+        setTemplate(templateRef.current);
+      },
+      setUploadProgress,
+    );
+    setUploadProgress(null);
+    setSaving(false);
+    if (failed.length === 0) {
+      toast.success(files.length === 1
+        ? t("CourseTemplateEditorPage.fileUploaded", { name: files[0].name })
+        : t("CourseTemplateEditorPage.filesUploaded", { count: files.length }));
+    } else if (files.length === 1) {
+      toast.error(lastError?.message ?? t("CourseTemplateEditorPage.fileUploadFailed"));
+    } else {
+      toast.error(t("CourseTemplateEditorPage.filesUploadPartialFail", { files: joinList(failed) }));
     }
   }
 
@@ -854,7 +878,7 @@ export default function CourseTemplateEditorPage() {
   }
   if (loading) return <LoadingState fullPage text={t("CourseTemplateEditorPage.loadingTemplateText")} />;
   return <div className={`${styles.page} ${tab === "machines" ? styles.editorPageLocked : ""} ${closing ? styles.animSlideOutRight : styles.animSlideInRight}`}>
-    <PageHeader title={isNew ? t("CourseTemplateEditorPage.createTemplateTitle") : template.name} subtitle={isNew ? undefined : `v${template.version} · ${template.updatedAt}`}><div className={styles.pageActions}><button type="button" className={`${styles.btnSecondary} ${styles.backBtn}`} onClick={() => leaveTo(returnTo ?? "/course-template-management")}><MIcon name="arrow_back" size={18} />{t("CourseTemplateEditorPage.backBtn")}</button></div></PageHeader>
+    <PageHeader title={isNew ? t("CourseTemplateEditorPage.createTemplateTitle") : (template.name.trim() || t("CourseTemplateEditorPage.unnamedEnv"))} subtitle={isNew ? undefined : `v${template.version} · ${template.updatedAt}`}><div className={styles.pageActions}><button type="button" className={`${styles.btnSecondary} ${styles.backBtn}`} onClick={() => leaveTo(returnTo ?? "/course-template-management")}><MIcon name="arrow_back" size={18} />{t("CourseTemplateEditorPage.backBtn")}</button></div></PageHeader>
     {template.status === "draft" && saveState === "error" && <p className={styles.persistentFeedback} role="alert">
       <MIcon name="cloud_off" size={17} />
       <span>{t("CourseTemplateEditorPage.autosave.error")}{saveError && ` ${saveError}`}</span>
@@ -884,28 +908,32 @@ export default function CourseTemplateEditorPage() {
           );
         })}
     </nav>
-    {tab === "basic" && <section className={styles.card}><div className={styles.formGrid}><label className={styles.field}><span>{t("CourseTemplateEditorPage.fieldEnvName")}</span><input ref={nameRef} className={invalidField === "name" ? styles.fieldInvalid : undefined} aria-invalid={invalidField === "name"} aria-errormessage={invalidField === "name" ? "env-name-error" : undefined} disabled={saving} value={template.name} onChange={(event) => { updateBasics({ name: event.target.value }); if (invalidField === "name") setInvalidField(""); }} placeholder={t("CourseTemplateEditorPage.envNamePlaceholder")} />{invalidField === "name" && <em id="env-name-error" className={styles.fieldError}>{t("CourseTemplateEditorPage.nameRequiredError")}</em>}</label><label className={styles.field}><span>{t("CourseTemplateEditorPage.fieldUsageScope")}</span><select disabled={saving} value={template.usageScope ?? "course"} onChange={(event) => updateBasics({ usageScope: event.target.value })}><option value="course">{t("CourseTemplateEditorPage.usageScopeCourseOnly")}</option><option value="quick_practice">{t("CourseTemplateEditorPage.usageScopeQuickPracticeOnly")}</option><option value="both">{t("CourseTemplateEditorPage.usageScopeBoth")}</option></select></label><label className={`${styles.field} ${styles.fieldFull}`}><span>{t("CourseTemplateEditorPage.fieldEnvDescription")}</span><textarea disabled={saving} rows={3} value={template.description ?? ""} onChange={(event) => updateBasics({ description: event.target.value })} /></label></div>
+    {tab === "basic" && <section className={styles.card}><div className={styles.formGrid}><label className={styles.field}><span>{t("CourseTemplateEditorPage.fieldEnvName")}</span><input ref={nameRef} className={invalidField === "name" ? styles.fieldInvalid : undefined} aria-invalid={invalidField === "name"} aria-errormessage={invalidField === "name" ? "env-name-error" : undefined} disabled={saving} value={template.name} onChange={(event) => { updateBasics({ name: event.target.value }); if (invalidField === "name") setInvalidField(""); }} placeholder={t("CourseTemplateEditorPage.envNamePlaceholder")} />{invalidField === "name" && <em id="env-name-error" className={styles.fieldError}>{t("CourseTemplateEditorPage.nameRequiredError")}</em>}</label><label className={styles.field}><span>{t("CourseTemplateEditorPage.fieldUsageScope")}</span><select disabled={saving} value={template.usageScope ?? "course"} onChange={(event) => updateBasics({ usageScope: event.target.value })}><option value="course">{t("CourseTemplateEditorPage.usageScopeCourseOnly")}</option><option value="quick_practice">{t("CourseTemplateEditorPage.usageScopeQuickPracticeOnly")}</option><option value="both">{t("CourseTemplateEditorPage.usageScopeBoth")}</option></select></label><label className={`${styles.field} ${styles.fieldFull}`}><span>{t("CourseTemplateEditorPage.fieldEnvDescription")}</span><textarea disabled={saving} rows={3} value={template.description ?? ""} onChange={(event) => updateBasics({ description: event.target.value })} /></label>
 
-      <div className={styles.fileSection}>
-        <div className={styles.fileHeading}>
-          <span>{t("CourseTemplateEditorPage.fieldFiles")}</span>
-          <button type="button" className={styles.btnSecondary} disabled={saving || !hasEnvironmentId} onClick={() => fileInputRef.current?.click()}><MIcon name="upload_file" size={16} />{t("CourseTemplateEditorPage.uploadFileBtn")}</button>
-          <input ref={fileInputRef} type="file" hidden onChange={(event) => uploadFile(event.target.files?.[0])} />
-        </div>
-        {!hasEnvironmentId
-          ? <p className={styles.inspectorHint}>{t("CourseTemplateEditorPage.filesNeedSaveHint")}</p>
-          : (template.files ?? []).length === 0
-            ? <p className={styles.inspectorHint}>{t("CourseTemplateEditorPage.noFilesHint")}</p>
-            : <ul className={styles.fileList}>
-                {(template.files ?? []).map((file) => <li key={file.id}>
-                  <MIcon name="description" size={16} />
-                  <a href={CourseEnvironmentsService.fileUrl(template.id, file.id)} target="_blank" rel="noreferrer">{file.filename}</a>
-                  <small>{formatFileSize(file.sizeBytes)}</small>
-                  <button type="button" className={styles.fileRemove} disabled={saving} aria-label={t("CourseTemplateEditorPage.removeFileAria", { name: file.filename })} onClick={() => removeFile(file)}><MIcon name="close" size={15} /></button>
-                </li>)}
-              </ul>}
+      {/* 說明文件是基本資訊的一個滿寬欄位：放在 formGrid 裡才吃得到卡片內距、跟上面的欄位對齊 */}
+      <div className={`${styles.fileSection} ${styles.fieldFull}`}>
+        <span className={styles.fileHeading}>{t("CourseTemplateEditorPage.fieldFiles")}</span>
+        {(template.files ?? []).length > 0 && <ul className={styles.fileList}>
+          {(template.files ?? []).map((file) => <li key={file.id}>
+            <MIcon name="description" size={16} />
+            <a href={CourseEnvironmentsService.fileUrl(template.id, file.id)} target="_blank" rel="noreferrer">{file.filename}</a>
+            <small>{formatFileSize(file.sizeBytes)}</small>
+            <button type="button" className={styles.fileRemove} disabled={saving} aria-label={t("CourseTemplateEditorPage.removeFileAria", { name: file.filename })} onClick={() => removeFile(file)}><MIcon name="close" size={15} /></button>
+          </li>)}
+        </ul>}
+        {/* 環境還沒建立時整塊停用，說明直接寫在上傳區塊裡 */}
+        <FileDropzone
+          multiple
+          disabled={saving || !hasEnvironmentId}
+          uploading={uploadProgress !== null}
+          progress={uploadProgress}
+          hint={hasEnvironmentId ? undefined : t("CourseTemplateEditorPage.filesNeedSaveHint")}
+          onFiles={uploadFiles}
+        />
       </div>
-{template.status !== "draft" && <p className={styles.inspectorHint}>{t("CourseTemplateEditorPage.basicsEditableHint")}</p>}<div className={styles.actionFooter}>{template.status !== "draft" && <button type="button" className={styles.btnPrimary} disabled={saving || !basicsDirty} onClick={saveBasics}><MIcon name="save" size={16} />{t("CourseTemplateEditorPage.saveBasicsBtn")}</button>}<button type="button" className={template.status === "draft" ? styles.btnPrimary : styles.btnSecondary} onClick={() => changeTab("machines")}>{t("CourseTemplateEditorPage.viewMachineConfigBtn")}<MIcon name="arrow_forward" size={16} /></button></div></section>}
+      {template.status !== "draft" && <p className={`${styles.inspectorHint} ${styles.fieldFull}`}>{t("CourseTemplateEditorPage.basicsEditableHint")}</p>}
+      </div>
+<div className={styles.actionFooter}>{template.status !== "draft" && <button type="button" className={styles.btnPrimary} disabled={saving || !basicsDirty} onClick={saveBasics}><MIcon name="save" size={16} />{t("CourseTemplateEditorPage.saveBasicsBtn")}</button>}<button type="button" className={template.status === "draft" ? styles.btnPrimary : styles.btnSecondary} onClick={() => changeTab("machines")}>{t("CourseTemplateEditorPage.viewMachineConfigBtn")}<MIcon name="arrow_forward" size={16} /></button></div></section>}
     {tab === "machines" && <MachineEditor value={template.nodes} edges={template.edges ?? []} publications={template.publications ?? []} onChange={(nodes) => update({ nodes })} onEdgesChange={(edges) => update({ edges })} onPublicationsChange={(publications) => update({ publications })} pveTemplates={pveTemplates} vmImages={vmImages} lxcImages={lxcImages} zones={zones} sourceNotice={sourceNotice} locked={locked} actions={template.status === "draft" && <button type="button" className={styles.btnPrimary} disabled={saving || closing} onClick={publish}><MIcon name="publish" size={16} />{saving ? t("CourseTemplateEditorPage.publishing") : t("CourseTemplateEditorPage.publishLabel")}</button>} />}
   </div>;
 }

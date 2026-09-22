@@ -20,7 +20,6 @@ from app.schemas.course import (
     CourseAICompletionUpdate,
     CourseAnswerResult,
     CourseAnswerSubmit,
-    CourseDeploymentPublic,
     CoursePathDetail,
     CoursePathSummary,
     CoursePracticeMachineStudent,
@@ -32,7 +31,6 @@ from app.schemas.course import (
 from app.services.course import (
     ai_assignment_service,
     course_service,
-    deployment_service,
     progress_service,
     reminder_service,
     weekly_task_service,
@@ -280,45 +278,8 @@ def get_ai_check(
 def get_room(
     session: SessionDep, current_user: CurrentUser, room_id: uuid.UUID
 ) -> CourseRoomStudentDetail:
-    detail = course_service.get_room_student_detail(
+    return course_service.get_room_student_detail(
         session, user_id=current_user.id, room_id=room_id
-    )
-    detail.my_deployment = deployment_service.get_my_room_deployment(
-        session, user_id=current_user.id, room_id=room_id
-    )
-    return detail
-
-
-@router.post(
-    "/rooms/{room_id}/deploy",
-    response_model=CourseDeploymentPublic,
-    status_code=202,
-)
-def deploy_room(
-    session: SessionDep, current_user: CurrentUser, room_id: uuid.UUID
-) -> CourseDeploymentPublic:
-    return deployment_service.deploy(session, user=current_user, room_id=room_id)
-
-
-@router.get(
-    "/deployments/{deployment_id}", response_model=CourseDeploymentPublic
-)
-def get_deployment(
-    session: SessionDep, current_user: CurrentUser, deployment_id: uuid.UUID
-) -> CourseDeploymentPublic:
-    return deployment_service.get_deployment(
-        session, user=current_user, deployment_id=deployment_id
-    )
-
-
-@router.delete(
-    "/deployments/{deployment_id}", response_model=CourseDeploymentPublic
-)
-def terminate_deployment(
-    session: SessionDep, current_user: CurrentUser, deployment_id: uuid.UUID
-) -> CourseDeploymentPublic:
-    return deployment_service.terminate(
-        session, user=current_user, deployment_id=deployment_id
     )
 
 

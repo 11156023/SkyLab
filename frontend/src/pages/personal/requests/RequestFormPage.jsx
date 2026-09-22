@@ -13,6 +13,7 @@ import { apiGet } from "../../../services/api";
 import AvailabilityPanel from "../../../components/AvailabilityPanel/AvailabilityPanel";
 import MIcon from "../../../components/MIcon";
 import PageHeader from "../../../components/PageHeader/PageHeader";
+import PasswordInput from "../../../components/PasswordInput/PasswordInput";
 import { focusInvalidField } from "../../../utils/focusField";
 import { formatShortDateTime } from "../../../utils/formatDate";
 
@@ -27,32 +28,6 @@ function normalizeHostname(value) {
 }
 
 /* ── Form field primitives ── */
-/* 密碼欄附顯示/隱藏切換（同登入頁的眼睛按鈕） */
-function PasswordInput({ value, onChange, placeholder }) {
-  const { t } = useTranslation("personal");
-  const [show, setShow] = useState(false);
-  return (
-    <div className={styles.passwordWrap}>
-      <input
-        className={styles.input}
-        type={show ? "text" : "password"}
-        placeholder={placeholder}
-        value={value}
-        onChange={onChange}
-      />
-      <button
-        type="button"
-        className={styles.eyeBtn}
-        onClick={() => setShow((v) => !v)}
-        tabIndex={-1}
-        aria-label={show ? t("RequestFormPage.hidePassword") : t("RequestFormPage.showPassword")}
-      >
-        <MIcon name={show ? "visibility_off" : "visibility"} size={18} />
-      </button>
-    </div>
-  );
-}
-
 function FieldGroup({ label, hint, required, error, children, labelRight, name }) {
   return (
     <div className={`${styles.formGroup} ${error ? styles.formGroupInvalid : ""}`} data-field={name}>
@@ -414,6 +389,10 @@ export default function RequestFormPage({ onBack, className, initialPrefill = nu
   )) ?? null, [catalogChoices, selectedTplId, form.template_id]);
 
   /* 範本政策 requires_gpu：學生看目錄項目、老師看完整範本清單（以 PVE VMID 對應） */
+  /* 範本不勾「允許自訂登入密碼」：機器沿用範本內的密碼，表單不問、也不送密碼 */
+  const keepsTemplatePassword =
+    (selectedCatalogItem ?? selectedTpl)?.allow_password_change === false;
+
   const selectedTemplateRequiresGpu = useMemo(() => {
     if (resourceType !== "vm" || !form.template_id) return false;
     if (selectedCatalogItem?.requires_gpu) return true;
@@ -795,8 +774,10 @@ export default function RequestFormPage({ onBack, className, initialPrefill = nu
     if (!form.hostname.trim())          errs.hostname = t(MSG.hostnameRequired);
     else if (!hostnameRegex.test(form.hostname)) errs.hostname = t(MSG.hostnameInvalid);
 
-    if (!form.password)                 errs.password = t(MSG.passwordRequired);
-    else if (form.password.length < 8)  errs.password = t(MSG.passwordMinLen);
+    if (!keepsTemplatePassword) {
+      if (!form.password)                 errs.password = t(MSG.passwordRequired);
+      else if (form.password.length < 8)  errs.password = t(MSG.passwordMinLen);
+    }
 
     if (!form.reason.trim())            errs.reason = t(MSG.reasonRequired);
     else if (form.reason.trim().length < 10) errs.reason = t(MSG.reasonMinLen);
@@ -892,7 +873,7 @@ export default function RequestFormPage({ onBack, className, initialPrefill = nu
         requested_mode: advisorDisabled ? "manual" : "auto",
         mode,
         hostname:  form.hostname,
-        password:  form.password,
+        password:  keepsTemplatePassword ? null : form.password,
         cores:     form.cores,
         memory:    form.memory,
         reason:    form.reason.trim(),
@@ -1041,10 +1022,6 @@ export default function RequestFormPage({ onBack, className, initialPrefill = nu
             {/* ── 資源設定（型別由作業系統選擇 + 規則引擎自動決定，學生免選 QEMU/LXC） ── */}
             <div className={styles.formSection} data-guide="request-resource-settings">
               <h2 className={styles.sectionTitle}>{t("RequestFormPage.resourceSettingsTitle")}</h2>
-
-              <p className={styles.adviceBox}>
-                {t("RequestFormPage.resourceSettingsHint")}
-              </p>
               {!advisorDisabled && (adviceLoading || advice) && (
                 <p className={styles.adviceBox}>
                   {adviceLoading
@@ -1148,6 +1125,11 @@ export default function RequestFormPage({ onBack, className, initialPrefill = nu
                       />
                     </FieldGroup>
                   )}
+                  {keepsTemplatePassword ? (
+                    <FieldGroup label={t("RequestFormPage.passwordLabel")} name="password">
+                      <p className={styles.fieldHint}>{t("RequestFormPage.templatePasswordKept")}</p>
+                    </FieldGroup>
+                  ) : (
                   <FieldGroup
                     label={t("RequestFormPage.passwordLabel")}
                     required
@@ -1158,19 +1140,27 @@ export default function RequestFormPage({ onBack, className, initialPrefill = nu
                       : undefined}
                   >
                     <PasswordInput
+                      className={styles.input}
                       placeholder={t("RequestFormPage.passwordPlaceholder")}
                       value={form.password}
                       onChange={(e) => set("password", e.target.value)}
                     />
                   </FieldGroup>
+                  )}
                 </div>
               )}
-              {osChosen && resourceType === "lxc" && (
+              {osChosen && resourceType === "lxc" && keepsTemplatePassword && (
+                <FieldGroup label={t("RequestFormPage.passwordLabel")} name="password">
+                  <p className={styles.fieldHint}>{t("RequestFormPage.templatePasswordKept")}</p>
+                </FieldGroup>
+              )}
+              {osChosen && resourceType === "lxc" && !keepsTemplatePassword && (
                 <FieldGroup label={t("RequestFormPage.passwordLabel")} required error={errors.password} name="password"
                   hint={selectedTpl
                     ? t("RequestFormPage.clonedPasswordHint")
                     : t("RequestFormPage.lxcPasswordHint")}>
                   <PasswordInput
+                    className={styles.input}
                     placeholder={t("RequestFormPage.passwordPlaceholder")}
                     value={form.password}
                     onChange={(e) => set("password", e.target.value)}

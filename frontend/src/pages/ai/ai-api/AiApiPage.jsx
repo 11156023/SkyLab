@@ -1,9 +1,11 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
 import styles from "./AiApiPage.module.scss";
 import MIcon from "../../../components/MIcon";
 import LoadingState from "../../../components/LoadingState/LoadingState";
 import SharedEmptyState from "../../../components/EmptyState/EmptyState";
+import SegmentedControl from "../../../components/SegmentedControl/SegmentedControl";
 import { AiApiService } from "../../../services/aiApi";
 import { useConfirm } from "../../../components/ConfirmDialog/ConfirmProvider";
 import { useToast } from "../../../hooks/useToast";
@@ -12,6 +14,9 @@ import { focusInvalidField } from "../../../utils/focusField";
 import PageHeader from "../../../components/PageHeader/PageHeader";
 import RrdChart from "../../../components/RrdChart/RrdChart";
 import { formatDateTime, formatMonthDay } from "../../../utils/formatDate";
+import { computePosition, isAnchorOffscreen } from "../../../components/PowerMenu/position";
+
+const ReadOnlyCode = lazy(() => import("../../../components/ReadOnlyCode/ReadOnlyCode"));
 
 /* ── helpers ── */
 
@@ -40,12 +45,29 @@ export function buildAiProxyBaseUrl(baseUrl) {
   return `${root}/api/v1/ai-proxy`;
 }
 
-export function buildApiExample(language, baseUrl) {
+/* endpoint："responses"（預設）或 "chat"（Chat Completions）。代理兩種都支援，
+   網路上多數教學用的是 Chat Completions，所以兩種範例都給 */
+export function buildApiExample(language, baseUrl, endpoint = "responses") {
   const proxyBaseUrl = buildAiProxyBaseUrl(baseUrl) || "BASE_URL";
-  const endpoint = `${proxyBaseUrl}/responses`;
+  const chat = endpoint === "chat";
+  const url = `${proxyBaseUrl}/${chat ? "chat/completions" : "responses"}`;
 
   if (language === "python") {
-    return `from openai import OpenAI
+    return chat
+      ? `from openai import OpenAI
+
+client = OpenAI(
+    api_key="YOUR_API_KEY",
+    base_url="${proxyBaseUrl}",
+)
+
+response = client.chat.completions.create(
+    model="MODEL_NAME",
+    messages=[{"role": "user", "content": "INPUT"}],
+)
+
+print(response.choices[0].message.content)`
+      : `from openai import OpenAI
 
 client = OpenAI(
     api_key="YOUR_API_KEY",
@@ -60,14 +82,44 @@ response = client.responses.create(
 print(response.output_text)`;
   }
 
-  if (language === "cmd") {
-    return `curl -X POST "${endpoint}" ^
-  -H "Authorization: Bearer YOUR_API_KEY" ^
-  -H "Content-Type: application/json" ^
-  -d "{\"model\":\"MODEL_NAME\",\"input\":\"INPUT\"}"`;
+  if (language === "bash") {
+    const body = JSON.stringify(chat
+      ? { model: "MODEL_NAME", messages: [{ role: "user", content: "INPUT" }] }
+      : { model: "MODEL_NAME", input: "INPUT" }, null, 2);
+    return [
+      `curl "${url}" \\`,
+      '  -H "Authorization: Bearer YOUR_API_KEY" \\',
+      '  -H "Content-Type: application/json" \\',
+      `  -d '${body}'`,
+    ].join("\n");
   }
 
-  return `import OpenAI from "openai";
+  if (language === "cmd") {
+    /* CMD 的 JSON 內層引號要寫成 \"，模板字串裡就得是 \\" */
+    const body = chat
+      ? `{\\"model\\":\\"MODEL_NAME\\",\\"messages\\":[{\\"role\\":\\"user\\",\\"content\\":\\"INPUT\\"}]}`
+      : `{\\"model\\":\\"MODEL_NAME\\",\\"input\\":\\"INPUT\\"}`;
+    return `curl -X POST "${url}" ^
+  -H "Authorization: Bearer YOUR_API_KEY" ^
+  -H "Content-Type: application/json" ^
+  -d "${body}"`;
+  }
+
+  return chat
+    ? `import OpenAI from "openai";
+
+const client = new OpenAI({
+  apiKey: "YOUR_API_KEY",
+  baseURL: "${proxyBaseUrl}",
+});
+
+const response = await client.chat.completions.create({
+  model: "MODEL_NAME",
+  messages: [{ role: "user", content: "INPUT" }],
+});
+
+console.log(response.choices[0].message.content);`
+    : `import OpenAI from "openai";
 
 const client = new OpenAI({
   apiKey: "YOUR_API_KEY",
@@ -80,6 +132,12 @@ const response = await client.responses.create({
 });
 
 console.log(response.output_text);`;
+}
+
+/* 查可用模型的指令；回傳清單的 id 就是範例裡的 MODEL_NAME */
+export function buildModelsCommand(baseUrl) {
+  const proxyBaseUrl = buildAiProxyBaseUrl(baseUrl) || "BASE_URL";
+  return `curl "${proxyBaseUrl}/models" -H "Authorization: Bearer YOUR_API_KEY"`;
 }
 
 function statusStyle(status) {
@@ -97,23 +155,96 @@ function EmptyState({ icon, title, guideId }) {
   );
 }
 
-/* ── Stat card ── */
-function StatCard({ label, value, icon, iconCls }) {
-  return (
-    <div className={styles.statCard}>
-      <div className={`${styles.statIcon} ${iconCls ? styles[iconCls] : ""}`}>
-        <MIcon name={icon} size={20} />
-      </div>
-      <div className={styles.statInfo}>
-        <span className={styles.statLabel}>{label}</span>
-        <span className={styles.statValue}>{value}</span>
-      </div>
-    </div>
+
+/* ── Credential 列的「⋮」操作選單 ──
+   portal 到 body 並用 fixed 定位，做法同範本管理頁的 RowMenu */
+const KEY_MENU_WIDTH = 200;
+
+function KeyMenu({ rotateDisabled, busy, onRename, onRotate, onDelete, onClose, anchorRef, closing = false }) {
+  const { t } = useTranslation("ai");
+  const ref = useRef(null);
+  const [pos, setPos] = useState(null);
+  const onCloseRef = useRef(onClose);
+  useEffect(() => { onCloseRef.current = onClose; });
+
+  const reposition = useCallback(() => {
+    const anchor = anchorRef?.current;
+    const menu = ref.current;
+    if (!anchor || !menu) return;
+    const rect = anchor.getBoundingClientRect();
+    const viewport = { width: window.innerWidth, height: window.innerHeight };
+    if (isAnchorOffscreen(rect, viewport)) {
+      onCloseRef.current();
+      return;
+    }
+    setPos(computePosition(rect, menu.offsetHeight, viewport, KEY_MENU_WIDTH));
+  }, [anchorRef]);
+
+  useLayoutEffect(() => { reposition(); }, [reposition]);
+
+  useEffect(() => {
+    const opts = { passive: true, capture: true };
+    window.addEventListener("scroll", reposition, opts);
+    window.addEventListener("resize", reposition);
+    return () => {
+      window.removeEventListener("scroll", reposition, opts);
+      window.removeEventListener("resize", reposition);
+    };
+  }, [reposition]);
+
+  useEffect(() => {
+    const handler = (e) => {
+      if (!ref.current?.contains(e.target) && !anchorRef?.current?.contains(e.target)) onClose();
+    };
+    const onKey = (e) => { if (e.key === "Escape") onClose(); };
+    document.addEventListener("mousedown", handler);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", handler);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [onClose, anchorRef]);
+
+  return createPortal(
+    <div
+      ref={ref}
+      role="menu"
+      className={`${styles.keyMenu} ${closing ? styles.keyMenuOut : ""}`}
+      style={pos ? { top: pos.top, left: pos.left } : { top: 0, left: 0, visibility: "hidden" }}
+    >
+      <button type="button" role="menuitem" className={styles.keyMenuItem} onClick={() => { onClose(); onRename(); }}>
+        <MIcon name="edit" size={15} />
+        {t("AiApiPage.actionRename")}
+      </button>
+      <div className={styles.keyMenuDivider} />
+      {/* 重新產生金鑰是破壞性動作（舊金鑰立即失效），不叫「刷新」也不長得像刷新 */}
+      <button
+        type="button"
+        role="menuitem"
+        className={`${styles.keyMenuItem} ${styles.keyMenuItemDanger}`}
+        disabled={rotateDisabled || busy}
+        onClick={() => { onClose(); onRotate(); }}
+      >
+        <MIcon name="autorenew" size={15} />
+        {t("AiApiPage.actionRotate")}
+      </button>
+      <button
+        type="button"
+        role="menuitem"
+        className={`${styles.keyMenuItem} ${styles.keyMenuItemDanger}`}
+        disabled={busy}
+        onClick={() => { onClose(); onDelete(); }}
+      >
+        <MIcon name="delete" size={15} />
+        {t("AiApiPage.actionDelete")}
+      </button>
+    </div>,
+    document.body,
   );
 }
 
-/* ── Credential card ── */
-function CredentialCard({ item, onRefresh }) {
+/* ── Credential row：一把金鑰一列，常用的複製／顯示放圖示，其餘收進 ⋮ ── */
+function CredentialRow({ item, onRefresh }) {
   const { t } = useTranslation("ai");
   const toast = useToast();
   const confirm = useConfirm();
@@ -121,6 +252,9 @@ function CredentialCard({ item, onRefresh }) {
   const [editing, setEditing] = useState(false);
   const [nameInput, setNameInput] = useState(item.api_key_name);
   const [busy, setBusy] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const menu = useDialogPresence(menuOpen, 130);
+  const menuBtnRef = useRef(null);
 
   function fmtExpiry(value) {
     if (!value) return t("AiApiPage.durationOptionNever");
@@ -138,7 +272,6 @@ function CredentialCard({ item, onRefresh }) {
   const inactive = Boolean(item.revoked_at);
   const expired = isExpired(item.expires_at);
   const deprecated = inactive || expired;
-  const proxyBaseUrl = buildAiProxyBaseUrl(item.base_url);
 
   const copy = async (label, value) => {
     try {
@@ -204,121 +337,135 @@ function CredentialCard({ item, onRefresh }) {
     }
   };
 
+  const startRename = () => { setNameInput(item.api_key_name); setEditing(true); };
+  const cancelRename = () => { setNameInput(item.api_key_name); setEditing(false); };
+
   return (
-    <div
-      className={`${styles.credCard} ${deprecated ? styles.credCardDeprecated : ""}`}
-      data-guide="ai-keys-content"
-    >
-      {/* Top row: name + badge */}
-      <div className={styles.credHeader}>
-        <div className={styles.credNameRow}>
-          {editing ? (
-            <div className={styles.renameRow}>
-              <input
-                type="text"
-                className={styles.renameInput}
-                value={nameInput}
-                maxLength={20}
-                onChange={(e) => setNameInput(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") doRename();
-                  if (e.key === "Escape") { setNameInput(item.api_key_name); setEditing(false); }
-                }}
-                autoFocus
-              />
-              <button type="button" className={styles.btnIcon} onClick={doRename} disabled={busy}>
-                <MIcon name="check" size={14} />
-              </button>
-              <button type="button" className={styles.btnIcon} onClick={() => { setNameInput(item.api_key_name); setEditing(false); }}>
-                <MIcon name="close" size={14} />
-              </button>
-            </div>
-          ) : (
-            <div className={styles.nameWithEdit}>
-              <span className={`${styles.credName} ${deprecated ? styles.credNameDeprecated : ""}`}>
+    <tr className={`${styles.tr} ${deprecated ? styles.trDeprecated : ""}`}>
+      <td className={styles.td}>
+        <div className={styles.nameCell}>
+          <div className={styles.rowIcon}>
+            <MIcon name="vpn_key" size={20} />
+          </div>
+          <div className={styles.rowMain}>
+            {editing ? (
+              <div className={styles.renameRow}>
+                <input
+                  type="text"
+                  className={styles.renameInput}
+                  value={nameInput}
+                  maxLength={20}
+                  onChange={(e) => setNameInput(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") doRename();
+                    if (e.key === "Escape") cancelRename();
+                  }}
+                  autoFocus
+                />
+                <button type="button" className={styles.iconBtn} onClick={doRename} disabled={busy} aria-label={t("AiApiPage.actionRename")}>
+                  <MIcon name="check" size={16} />
+                </button>
+                <button type="button" className={styles.iconBtn} onClick={cancelRename} aria-label={t("AiApiPage.cancel")}>
+                  <MIcon name="close" size={16} />
+                </button>
+              </div>
+            ) : (
+              <span className={`${styles.rowName} ${deprecated ? styles.rowNameDeprecated : ""}`} title={item.api_key_name || undefined}>
                 {item.api_key_name}
               </span>
-              <button type="button" className={styles.btnIconSm} onClick={() => { setNameInput(item.api_key_name); setEditing(true); }}>
-                <MIcon name="edit" size={12} />
-              </button>
-            </div>
+            )}
+            <span className={`${styles.rowKey} ${deprecated ? styles.rowKeyDeprecated : ""}`}>
+              {showKey ? item.api_key : maskKey(item.api_key)}
+            </span>
+          </div>
+        </div>
+      </td>
+      <td className={styles.td}>
+        <span className={`${styles.badge} ${styles[`badge_${info.cls}`]}`}>
+          <span className={styles.dot} />
+          {info.label}
+        </span>
+      </td>
+      <td className={styles.td}>{formatDateTime(item.created_at)}</td>
+      <td className={styles.td}>
+        <span className={expired ? styles.textDanger : ""}>{fmtExpiry(item.expires_at)}</span>
+        {item.revoked_at && (
+          <div className={styles.cellSubline}>{t("AiApiPage.metaRevoked", { value: formatDateTime(item.revoked_at) })}</div>
+        )}
+      </td>
+      <td className={`${styles.td} ${styles.tdActions}`}>
+        <div className={styles.rowActions} data-guide="ai-key-actions">
+          <button
+            type="button"
+            className={styles.iconBtn}
+            onClick={() => copy("API Key", item.api_key)}
+            aria-label={t("AiApiPage.actionCopyKey")}
+            title={t("AiApiPage.actionCopyKey")}
+          >
+            <MIcon name="content_copy" size={16} />
+          </button>
+          <button
+            type="button"
+            className={styles.iconBtn}
+            onClick={() => setShowKey((v) => !v)}
+            aria-label={showKey ? t("AiApiPage.actionHide") : t("AiApiPage.actionShow")}
+            title={showKey ? t("AiApiPage.actionHide") : t("AiApiPage.actionShow")}
+            aria-pressed={showKey}
+          >
+            <MIcon name={showKey ? "visibility_off" : "visibility"} size={16} />
+          </button>
+          {menu.open && (
+            <KeyMenu
+              rotateDisabled={inactive}
+              busy={busy}
+              onRename={startRename}
+              onRotate={doRotate}
+              onDelete={doDelete}
+              onClose={() => setMenuOpen(false)}
+              anchorRef={menuBtnRef}
+              closing={menu.closing}
+            />
           )}
-          <span className={`${styles.badge} ${styles[`badge_${info.cls}`]}`}>
-            <span className={styles.dot} />
-            {info.label}
-          </span>
+          <button
+            ref={menuBtnRef}
+            type="button"
+            className={`${styles.menuBtn} ${menuOpen ? styles.menuBtnActive : ""}`}
+            onClick={() => setMenuOpen((v) => !v)}
+            title={t("AiApiPage.moreActions")}
+            aria-label={t("AiApiPage.moreActions")}
+            aria-haspopup="menu"
+            aria-expanded={menuOpen}
+          >
+            <MIcon name="more_vert" size={18} />
+          </button>
         </div>
-        <div className={styles.credMeta}>
-          <span>{t("AiApiPage.metaCreated", { value: formatDateTime(item.created_at) })}</span>
-          <span className={expired ? styles.textDanger : ""}>{t("AiApiPage.metaExpiry", { value: fmtExpiry(item.expires_at) })}</span>
-          {item.revoked_at && <span>{t("AiApiPage.metaRevoked", { value: formatDateTime(item.revoked_at) })}</span>}
-        </div>
-      </div>
-
-      {/* Credentials display */}
-      <div className={styles.credFields}>
-        <div className={styles.credField}>
-          <div className={styles.credFieldLabel}>
-            <MIcon name="link" size={14} /> Base URL
-          </div>
-          <div className={styles.credFieldValueRow}>
-            <div className={styles.credFieldValue} title={proxyBaseUrl}>{proxyBaseUrl}</div>
-            <button
-              type="button"
-              className={styles.credCopyButton}
-              onClick={() => copy("Base URL", proxyBaseUrl)}
-              aria-label={t("AiApiPage.copyBaseUrl")}
-              title={t("AiApiPage.copyBaseUrl")}
-            >
-              <MIcon name="content_copy" size={15} />
-            </button>
-          </div>
-        </div>
-        <div className={styles.credField}>
-          <div className={styles.credFieldLabel}>
-            <MIcon name="vpn_key" size={14} /> API Key
-          </div>
-          <div className={`${styles.credFieldValue} ${deprecated ? styles.credValueDeprecated : ""}`}>
-            {showKey ? item.api_key : maskKey(item.api_key)}
-          </div>
-        </div>
-      </div>
-
-      {/* Actions */}
-      <div className={styles.credActions} data-guide="ai-key-actions">
-        <button type="button" className={styles.btnOutline} onClick={() => setShowKey((v) => !v)}>
-          <MIcon name={showKey ? "visibility_off" : "visibility"} size={16} />
-          {showKey ? t("AiApiPage.actionHide") : t("AiApiPage.actionShow")}
-        </button>
-        <button type="button" className={styles.btnOutline} onClick={() => copy("API Key", item.api_key)}>
-          <MIcon name="content_copy" size={16} /> API Key
-        </button>
-        {/* 重新產生金鑰是破壞性動作（舊金鑰立即失效），不叫「刷新」也不長得像刷新 */}
-        <button type="button" className={`${styles.btnOutline} ${styles.btnOutlineDanger}`} onClick={doRotate} disabled={inactive || busy}>
-          <MIcon name="autorenew" size={16} /> {t("AiApiPage.actionRotate")}
-        </button>
-        <button type="button" className={`${styles.btnOutline} ${styles.btnOutlineDanger}`} onClick={doDelete} disabled={busy}>
-          <MIcon name="delete" size={16} /> {t("AiApiPage.actionDelete")}
-        </button>
-      </div>
-    </div>
+      </td>
+    </tr>
   );
 }
 
-/* ── API documentation ── */
-function ApiDocsTab({ credentials }) {
+/* ── API 快速開始的內容：對象是學生，只留「複製連線資訊 → 查模型 → 貼範例執行」三步，
+   出錯才需要的對照表收在最下面 ── */
+function ApiDocsContent({ credentials }) {
   const { t } = useTranslation("ai");
   const toast = useToast();
   const [language, setLanguage] = useState("javascript");
-  const credential = credentials.find((item) => !item.revoked_at && !isExpired(item.expires_at))
-    ?? credentials[0];
-  const baseUrl = buildAiProxyBaseUrl(credential?.base_url);
-  const endpoint = baseUrl ? `${baseUrl}/responses` : "BASE_URL/responses";
-  const code = buildApiExample(language, credential?.base_url);
+  const [endpointKind, setEndpointKind] = useState("responses");
+  const usable = credentials.filter((item) => !item.revoked_at && !isExpired(item.expires_at));
+  const [credentialId, setCredentialId] = useState(null);
+  const credential = usable.find((item) => item.id === credentialId) ?? usable[0] ?? null;
+  /* 沒有可用金鑰時仍拿得到 Base URL（舊金鑰上也帶著），範例才不會整段變成 BASE_URL */
+  const baseUrl = buildAiProxyBaseUrl((credential ?? credentials[0])?.base_url);
+  const code = buildApiExample(language, baseUrl, endpointKind);
+  const modelsCommand = buildModelsCommand(baseUrl);
   const languages = [
     { key: "javascript", label: "JavaScript" },
     { key: "python", label: "Python" },
-    { key: "cmd", label: "CMD / cURL" },
+    { key: "bash", label: "Bash" },
+  ];
+  const endpointKinds = [
+    { key: "responses", label: "Responses" },
+    { key: "chat", label: "Chat Completions" },
   ];
 
   const copy = async (label, value) => {
@@ -332,86 +479,183 @@ function ApiDocsTab({ credentials }) {
 
   return (
     <div className={styles.docsLayout}>
-      <section className={styles.docsPanel}>
-        <div className={styles.docsIntro}>
-          <span className={styles.docsEyebrow}>POST</span>
-          <div>
-            <h2 className={styles.docsTitle}>{t("AiApiPage.docsTitle")}</h2>
-            <p className={styles.docsDescription}>{t("AiApiPage.docsDescription")}</p>
-          </div>
-        </div>
-
-        <div className={styles.docsEndpointBlock}>
-          <span className={styles.docsFieldLabel}>Base URL</span>
-          <div className={styles.docsEndpointRow}>
-            <code>{baseUrl || t("AiApiPage.docsBaseUrlUnavailable")}</code>
-            <button
-              type="button"
-              className={styles.docsCopyButton}
-              onClick={() => copy("Base URL", baseUrl)}
-              disabled={!baseUrl}
-            >
-              <MIcon name="content_copy" size={16} />
-              {t("AiApiPage.copy")}
-            </button>
-          </div>
-        </div>
-
-        <div className={styles.docsRequestLine}>
-          <span>POST</span>
-          <code>{endpoint}</code>
-        </div>
-
-        <div className={styles.docsParameters}>
-          <div>
-            <code>MODEL_NAME</code>
-            <span>{t("AiApiPage.docsModelNameHelp")}</span>
-          </div>
-          <div>
-            <code>INPUT</code>
-            <span>{t("AiApiPage.docsInputHelp")}</span>
+      {/* 1. 連線資訊：呼叫 API 只需要這兩個值，寬螢幕並排 */}
+      <section className={styles.docsStep}>
+        <span className={styles.docsStepNumber}>1</span>
+        <div className={styles.docsStepBody}>
+          <h3 className={styles.docsStepTitle}>{t("AiApiPage.docsConnTitle")}</h3>
+          <div className={styles.docsConnGrid}>
+            <div className={styles.docsField}>
+              <span className={styles.docsFieldLabel}>Base URL</span>
+              <div className={styles.docsEndpointRow}>
+                <code title={baseUrl || undefined}>{baseUrl || t("AiApiPage.docsBaseUrlUnavailable")}</code>
+                <button type="button" className={styles.docsCopyButton} onClick={() => copy("Base URL", baseUrl)} disabled={!baseUrl} aria-label={t("AiApiPage.copyBaseUrl")} title={t("AiApiPage.copyBaseUrl")}>
+                  <MIcon name="content_copy" size={16} />
+                </button>
+              </div>
+            </div>
+            <div className={styles.docsField}>
+              <span className={styles.docsFieldLabel}>API Key</span>
+              {credential ? (
+                <div className={styles.docsEndpointRow}>
+                  {usable.length > 1 && (
+                    <select
+                      className={styles.docsKeySelect}
+                      value={credential.id}
+                      onChange={(event) => setCredentialId(event.target.value)}
+                      aria-label={t("AiApiPage.docsKeySelectLabel")}
+                    >
+                      {usable.map((item) => <option key={item.id} value={item.id}>{item.api_key_name}</option>)}
+                    </select>
+                  )}
+                  <code>{maskKey(credential.api_key)}</code>
+                  <button type="button" className={styles.docsCopyButton} onClick={() => copy("API Key", credential.api_key)} aria-label={t("AiApiPage.actionCopyKey")} title={t("AiApiPage.actionCopyKey")}>
+                    <MIcon name="content_copy" size={16} />
+                  </button>
+                </div>
+              ) : (
+                <p className={styles.docsNotice}>
+                  <span>{t("AiApiPage.docsNoActiveKey")}</span>
+                </p>
+              )}
+            </div>
           </div>
         </div>
       </section>
 
-      <section className={styles.codePanel}>
-        <div className={styles.codePanelHeader}>
-          <div>
-            <h3>{t("AiApiPage.docsExampleTitle")}</h3>
-            <p>{t("AiApiPage.docsExampleDescription")}</p>
+      {/* 2. 查模型：MODEL_NAME 從這裡拿 */}
+      <section className={styles.docsStep}>
+        <span className={styles.docsStepNumber}>2</span>
+        <div className={styles.docsStepBody}>
+          <h3 className={styles.docsStepTitle}>
+            {t("AiApiPage.docsModelsTitle")}
+          </h3>
+          <div className={styles.docsEndpointRow}>
+            <code title={modelsCommand}>{modelsCommand}</code>
+            <button type="button" className={styles.docsCopyButton} onClick={() => copy(t("AiApiPage.docsCommand"), modelsCommand)} aria-label={t("AiApiPage.copy")} title={t("AiApiPage.copy")}>
+              <MIcon name="content_copy" size={16} />
+            </button>
           </div>
-          <button
-            type="button"
-            className={styles.codeCopyButton}
-            onClick={() => copy(t("AiApiPage.docsCode"), code)}
-          >
-            <MIcon name="content_copy" size={16} />
-            {t("AiApiPage.copyCode")}
+        </div>
+      </section>
+
+      {/* 3. 送出第一個請求 */}
+      <section className={styles.docsStep}>
+        <span className={styles.docsStepNumber}>3</span>
+        <div className={styles.docsStepBody}>
+          <h3 className={styles.docsStepTitle}>{t("AiApiPage.docsExampleTitle")}</h3>
+          <div className={styles.codeToolbar}>
+            <div className={styles.codeTabs} role="group" aria-label={t("AiApiPage.docsEndpointKindLabel")}>
+              {endpointKinds.map((item) => (
+                <button
+                  key={item.key}
+                  type="button"
+                  aria-pressed={endpointKind === item.key}
+                  className={endpointKind === item.key ? styles.codeTabActive : styles.codeTab}
+                  onClick={() => setEndpointKind(item.key)}
+                >
+                  {item.label}
+                </button>
+              ))}
+            </div>
+            <div className={styles.codeTabs} role="group" aria-label={t("AiApiPage.docsLanguageLabel")}>
+              {languages.map((item) => (
+                <button
+                  key={item.key}
+                  type="button"
+                  aria-pressed={language === item.key}
+                  className={language === item.key ? styles.codeTabActive : styles.codeTab}
+                  onClick={() => setLanguage(item.key)}
+                >
+                  {item.label}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div className={styles.codeCard}>
+            <div className={styles.codePanelHeader}>
+              <span>{language}</span>
+              <button type="button" className={styles.codeCopyButton} onClick={() => copy(t("AiApiPage.docsCode"), code)} aria-label={t("AiApiPage.copyCode")} title={t("AiApiPage.copyCode")}>
+                <MIcon name="content_copy" size={16} />
+              </button>
+            </div>
+            <div className={styles.codeViewport}>
+              <Suspense fallback={<pre className={styles.codeBlock}><code>{code}</code></pre>}>
+                <ReadOnlyCode
+                  code={code}
+                  language={language}
+                  height="100%"
+                  label={`${t("AiApiPage.docsCode")} (${language})`}
+                  fallback={<pre className={styles.codeBlock}><code>{code}</code></pre>}
+                />
+              </Suspense>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* 出錯時才需要看，預設收合，不佔主流程的版面 */}
+      <details className={styles.docsErrors}>
+        <summary>
+          {t("AiApiPage.docsLimitsTitle")}
+          <MIcon name="expand_more" size={18} className={styles.docsErrorsChevron} />
+        </summary>
+        <div className={styles.docsErrorList}>
+          <div><span className={styles.statusCode}>401</span><span>{t("AiApiPage.docsErr401")}</span></div>
+          <div>
+            <span className={styles.statusCode}>429</span>
+            <span>
+              {credential?.rate_limit
+                ? t("AiApiPage.docsErr429WithLimit", { limit: credential.rate_limit })
+                : t("AiApiPage.docsErr429")}
+            </span>
+          </div>
+          <div><span className={styles.statusCode}>413</span><span>{t("AiApiPage.docsErr413")}</span></div>
+          <div><span className={styles.statusCode}>502</span><span>{t("AiApiPage.docsErr502")}</span></div>
+        </div>
+      </details>
+
+    </div>
+  );
+}
+
+/* ── API 快速開始彈窗 ── */
+function QuickStartModal({ closing = false, credentials, onClose }) {
+  const { t } = useTranslation("ai");
+
+  useEffect(() => {
+    const closeOnEscape = (event) => {
+      if (event.key === "Escape") onClose();
+    };
+    document.addEventListener("keydown", closeOnEscape);
+    return () => document.removeEventListener("keydown", closeOnEscape);
+  }, [onClose]);
+
+  return (
+    <div
+      className={`${styles.dialogOverlay} ${closing ? styles.dialogOverlayOut : ""}`}
+      role="presentation"
+      onMouseDown={onClose}
+    >
+      <div
+        className={`${styles.dialog} ${styles.quickStartDialog}`}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="ai-quick-start-title"
+        onMouseDown={(event) => event.stopPropagation()}
+      >
+        <div className={styles.quickStartHeader}>
+          <div className={styles.quickStartHeading}>
+            <h2 id="ai-quick-start-title" className={styles.dialogTitle}>{t("AiApiPage.quickStartButton")}</h2>
+          </div>
+          <button type="button" className={styles.dialogClose} onClick={onClose} aria-label={t("AiApiPage.close")}>
+            <MIcon name="close" size={18} />
           </button>
         </div>
-        <div className={styles.codeTabs} role="tablist" aria-label={t("AiApiPage.docsLanguageLabel")}>
-          {languages.map((item) => (
-            <button
-              key={item.key}
-              type="button"
-              role="tab"
-              aria-selected={language === item.key}
-              className={language === item.key ? styles.codeTabActive : styles.codeTab}
-              onClick={() => setLanguage(item.key)}
-            >
-              {item.label}
-            </button>
-          ))}
+        <div className={styles.quickStartBody}>
+          <ApiDocsContent credentials={credentials} />
         </div>
-        <pre className={styles.codeBlock}><code>{code}</code></pre>
-        <p className={styles.codeHint}>
-          {language === "javascript"
-            ? t("AiApiPage.docsJavascriptHint")
-            : language === "python"
-              ? t("AiApiPage.docsPythonHint")
-              : t("AiApiPage.docsCmdHint")}
-        </p>
-      </section>
+      </div>
     </div>
   );
 }
@@ -428,26 +672,38 @@ function RequestRow({ item }) {
 
   const st = statusStyle(item.status);
   return (
-    <div
-      className={`${styles.requestRow} ${styles[`requestRow_${st}`] ?? ""}`}
-      data-guide="ai-records-content"
-    >
-      <div className={styles.requestInfo}>
-        <span className={`${styles.requestName} ${styles[`requestName_${st}`] ?? ""}`}>
-          {item.api_key_name}
-        </span>
+    <tr className={styles.tr}>
+      <td className={styles.td}>
+        <div className={styles.nameCell}>
+          <div className={`${styles.rowIcon} ${styles[`rowIcon_${st}`] ?? ""}`}>
+            <MIcon name="assignment" size={20} />
+          </div>
+          <div className={styles.rowMain}>
+            <span className={styles.rowName} title={item.api_key_name || undefined}>{item.api_key_name || "—"}</span>
+          </div>
+        </div>
+      </td>
+      <td className={styles.td}>
+        <span className={`${styles.cellText} ${styles.cellTextWide}`} title={item.purpose || undefined}>{item.purpose || "—"}</span>
+      </td>
+      <td className={styles.td}>
         <span className={`${styles.badge} ${styles[`badge_${st}`]}`}>
           <span className={styles.dot} />
           {statusLabel(item.status)}
         </span>
-      </div>
-      <p className={`${styles.requestPurpose} ${styles[`requestPurpose_${st}`] ?? ""}`}>{item.purpose}</p>
-      <div className={styles.requestMeta}>
-        <span>{t("AiApiPage.requestMetaApply", { value: formatDateTime(item.created_at) })}</span>
-        <span>{t("AiApiPage.requestMetaReview", { value: formatDateTime(item.reviewed_at, t("AiApiPage.requestNotReviewed")) })}</span>
-        {item.review_comment && <span className={st === "rejected" ? styles.textDanger : ""}>{t("AiApiPage.requestMetaComment", { value: item.review_comment })}</span>}
-      </div>
-    </div>
+      </td>
+      <td className={styles.td}>{formatDateTime(item.created_at)}</td>
+      <td className={styles.td}>
+        {item.reviewed_at
+          ? formatDateTime(item.reviewed_at)
+          : <span className={styles.cellMuted}>{t("AiApiPage.requestNotReviewed")}</span>}
+      </td>
+      <td className={styles.td}>
+        {item.review_comment
+          ? <span className={`${styles.cellText} ${st === "rejected" ? styles.textDanger : ""}`} title={item.review_comment}>{item.review_comment}</span>
+          : <span className={styles.cellMuted}>—</span>}
+      </td>
+    </tr>
   );
 }
 
@@ -524,7 +780,7 @@ function UsageRecordRow({ item }) {
   const { t } = useTranslation("ai");
 
   const succeeded = ["success", "ok", "200", 200].includes(item.status);
-  const statusCls = succeeded ? "success" : "error";
+  const statusCls = succeeded ? "success" : "danger";
   const statusLabel =
     succeeded
       ? t("AiApiPage.recordStatusSuccess")
@@ -666,16 +922,12 @@ function MyUsageTab() {
   return (
     <div className={styles.usageTab}>
       <div className={styles.usageDateRow} data-guide="ai-usage-panel">
-        {PRESETS.map((p) => (
-          <button
-            key={p.value}
-            type="button"
-            className={`${styles.segmentBtn} ${preset === p.value ? styles.segmentActive : ""}`}
-            onClick={() => setPreset(p.value)}
-          >
-            {p.label}
-          </button>
-        ))}
+        <SegmentedControl
+          options={PRESETS}
+          value={preset}
+          onChange={setPreset}
+          ariaLabel={t("AiApiPage.usageRangeLabel")}
+        />
         <span className={styles.usageDateRange}>{start.slice(0, 10)} ~ {end.slice(0, 10)}</span>
       </div>
 
@@ -890,10 +1142,9 @@ export default function AiApiPage() {
   ];
 
   const TABS = [
-    { key: "keys",    label: "API Keys",                icon: "vpn_key" },
-    { key: "docs",    label: t("AiApiPage.tabDocs"),     icon: "description" },
-    { key: "records", label: t("AiApiPage.tabRecords"), icon: "history" },
-    { key: "usage",   label: t("AiApiPage.tabUsage"),   icon: "trending_up" },
+    { key: "keys",    label: "API Keys" },
+    { key: "records", label: t("AiApiPage.tabRecords") },
+    { key: "usage",   label: t("AiApiPage.tabUsage") },
   ];
 
   /* ── Form state ── */
@@ -905,6 +1156,8 @@ export default function AiApiPage() {
   const purposeInputRef = useRef(null);
   const [showApplyModal, setShowApplyModal] = useState(false);
   const applyDialog = useDialogPresence(showApplyModal);
+  const [showQuickStart, setShowQuickStart] = useState(false);
+  const quickStartDialog = useDialogPresence(showQuickStart);
 
   /* ── Data ── */
   const [credentials, setCredentials] = useState([]);
@@ -930,8 +1183,6 @@ export default function AiApiPage() {
   useEffect(() => { load(); }, [load]);
 
   const activeCredentials = credentials.filter((c) => !c.revoked_at && !isExpired(c.expires_at));
-  const expiredCredentials = credentials.filter((c) => !c.revoked_at && isExpired(c.expires_at));
-  const approvedRequests = requests.filter((r) => r.status === "approved");
 
   /* ── Submit request ── */
   const handleSubmit = async () => {
@@ -967,100 +1218,126 @@ export default function AiApiPage() {
         title="AI API"
       />
 
-      {/* ── Stat cards ── */}
-      <div className={styles.statRow} data-guide="ai-stats">
-        <StatCard label={t("AiApiPage.statLabelRequests")} value={requests.length} icon="history" />
-        <StatCard label={t("AiApiPage.statLabelActiveKeys")} value={activeCredentials.length} icon="key" iconCls="statIconOk" />
-        <StatCard label={t("AiApiPage.statLabelExpiredKeys")} value={expiredCredentials.length} icon="cancel" iconCls="statIconErr" />
-        <StatCard label={t("AiApiPage.statLabelApprovedRequests")} value={approvedRequests.length} icon="check_circle" iconCls="statIconOk" />
-      </div>
-
-      {/* ── Tabs ── */}
-      <div className={styles.tabs} data-guide="ai-tabs" role="tablist" aria-label={t("AiApiPage.tabsAriaLabel")}>
-        {TABS.map((tab) => (
+      {/* ── 控制列：左側分頁切換、右側動作（排版比照 AI 金鑰管理） ── */}
+      <div className={styles.controlsRow}>
+        <div data-guide="ai-tabs">
+          <SegmentedControl
+            className={styles.pageTabs}
+            ariaLabel={t("AiApiPage.tabsAriaLabel")}
+            value={activeTab}
+            onChange={setActiveTab}
+            options={TABS.map((tab) => ({
+              value: tab.key,
+              label: tab.label,
+              badge: tab.key === "keys" ? activeCredentials.length : tab.key === "records" ? requests.length : undefined,
+              buttonProps: {
+                "data-guide-tab": tab.key,
+                "data-guide-has-content": tab.key !== "keys" || credentials.length > 0 ? "true" : "false",
+              },
+            }))}
+          />
+        </div>
+        <div className={styles.headerActions}>
           <button
-            key={tab.key}
             type="button"
-            className={`${styles.tab} ${activeTab === tab.key ? styles.tabActive : ""}`}
-            onClick={() => setActiveTab(tab.key)}
-            data-guide-tab={tab.key}
-            data-guide-has-content={tab.key !== "keys" || credentials.length > 0 ? "true" : "false"}
-            role="tab"
-            aria-selected={activeTab === tab.key}
+            className={styles.btnQuickStart}
+            onClick={() => setShowQuickStart(true)}
+            data-guide="ai-quick-start"
           >
-            <MIcon name={tab.icon} size={16} />
-            {tab.label}
+            <MIcon name="rocket_launch" size={16} />
+            {t("AiApiPage.quickStartButton")}
           </button>
-        ))}
+          <button
+            type="button"
+            className={styles.btnAddKey}
+            onClick={() => setShowApplyModal(true)}
+            data-guide="ai-add-key"
+          >
+            <MIcon name="add" size={16} />
+            {t("AiApiPage.addKeyButton")}
+          </button>
+        </div>
       </div>
 
       {/* ── Content ── */}
       <div className={styles.content}>
         {/* ---- Tab: API Keys ---- */}
         {activeTab === "keys" && (
-          <div className={styles.panel}>
-            <div className={styles.panelHeaderRow}>
-              <div className={styles.panelHeader}>
-                <h2 className={styles.panelTitle} data-guide="ai-keys-panel">{t("AiApiPage.keysPanelTitle")}</h2>
-              </div>
-              <button
-                type="button"
-                className={styles.btnAddKey}
-                onClick={() => setShowApplyModal(true)}
-                data-guide="ai-add-key"
-              >
-                <MIcon name="add" size={16} />
-                {t("AiApiPage.addKeyButton")}
-              </button>
+          loading ? (
+            <LoadingState />
+          ) : credentials.length === 0 ? (
+            <EmptyState
+              icon="vpn_key"
+              title={t("AiApiPage.keysEmptyTitle")}
+              guideId="ai-keys-content"
+            />
+          ) : (
+            <div className={styles.tableWrap} data-guide="ai-keys-content">
+              <table className={styles.table}>
+                <thead>
+                  <tr>
+                    <th className={styles.th}>{t("AiApiPage.colKey")}</th>
+                    <th className={styles.th}>{t("AiApiPage.colStatus")}</th>
+                    <th className={styles.th}>{t("AiApiPage.colCreated")}</th>
+                    <th className={styles.th}>{t("AiApiPage.colExpiry")}</th>
+                    <th className={`${styles.th} ${styles.tdActions}`}>{t("AiApiPage.colActions")}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {credentials.map((item) => (
+                    <CredentialRow key={item.id} item={item} onRefresh={load} />
+                  ))}
+                </tbody>
+              </table>
             </div>
-            {loading ? (
-              <LoadingState />
-            ) : credentials.length === 0 ? (
-              <EmptyState
-                icon="vpn_key"
-                title={t("AiApiPage.keysEmptyTitle")}
-                guideId="ai-keys-content"
-              />
-            ) : (
-              <div className={styles.credList}>
-                {credentials.map((item) => (
-                  <CredentialCard key={item.id} item={item} onRefresh={load} />
-                ))}
-              </div>
-            )}
-          </div>
+          )
         )}
-
-        {/* ---- Tab: API 文件 ---- */}
-        {activeTab === "docs" && <ApiDocsTab credentials={credentials} />}
 
         {/* ---- Tab: 申請紀錄 ---- */}
         {activeTab === "records" && (
-          <div className={styles.panel}>
-            <div className={styles.panelHeader}>
-              <h2 className={styles.panelTitle} data-guide="ai-records-panel">{t("AiApiPage.recordsPanelTitle")}</h2>
+          loading ? (
+            <LoadingState />
+          ) : requests.length === 0 ? (
+            <EmptyState
+              icon="history"
+              title={t("AiApiPage.recordsEmptyTitle")}
+              guideId="ai-records-content"
+            />
+          ) : (
+            <div className={styles.tableWrap} data-guide="ai-records-content">
+              <table className={`${styles.table} ${styles.tableRecords}`}>
+                <thead>
+                  <tr>
+                    <th className={styles.th}>{t("AiApiPage.colKeyName")}</th>
+                    <th className={styles.th}>{t("AiApiPage.colPurpose")}</th>
+                    <th className={styles.th}>{t("AiApiPage.colStatus")}</th>
+                    <th className={styles.th}>{t("AiApiPage.colAppliedAt")}</th>
+                    <th className={styles.th}>{t("AiApiPage.colReviewedAt")}</th>
+                    <th className={styles.th}>{t("AiApiPage.colComment")}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {requests.map((item) => (
+                    <RequestRow key={item.id} item={item} />
+                  ))}
+                </tbody>
+              </table>
             </div>
-            {loading ? (
-              <LoadingState />
-            ) : requests.length === 0 ? (
-              <EmptyState
-                icon="history"
-                title={t("AiApiPage.recordsEmptyTitle")}
-                guideId="ai-records-content"
-              />
-            ) : (
-              <div className={styles.requestList}>
-                {requests.map((item) => (
-                  <RequestRow key={item.id} item={item} />
-                ))}
-              </div>
-            )}
-          </div>
+          )
         )}
 
         {/* ---- Tab: 我的用量 ---- */}
         {activeTab === "usage" && <MyUsageTab />}
       </div>
+
+      {/* ── API 快速開始彈窗（原「API 文件」分頁） ── */}
+      {quickStartDialog.open && (
+        <QuickStartModal
+          closing={quickStartDialog.closing}
+          credentials={credentials}
+          onClose={() => setShowQuickStart(false)}
+        />
+      )}
 
       {/* ── 新增金鑰彈窗 ── */}
       {applyDialog.open && (
