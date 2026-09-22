@@ -49,8 +49,9 @@ def _assert_safe_pytest_database_target() -> None:
     host = settings.POSTGRES_SERVER.strip().lower()
     db_name = settings.POSTGRES_DB.strip().lower()
 
-    # docker compose test stack host (isolated service network)
-    if host == "db":
+    # docker compose test stack hosts (isolated service network); backend
+    # containers reach Postgres through PgBouncer.
+    if host in {"db", "pgbouncer"}:
         return
 
     # local hosts are only allowed when DB name clearly indicates test usage

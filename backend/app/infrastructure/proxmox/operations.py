@@ -51,8 +51,14 @@ def vmid_allocation_lock(*, db_engine: Any | None = None) -> Iterator[None]:
 
     ``next_vmid()`` only inspects PVE and therefore must be called inside this
     context, which must remain held until the mutating PVE request returns.
-    PostgreSQL releases the advisory lock automatically if a worker dies; the
-    SQLite/no-database path retains the process lock for unit-test callers.
+
+    The lock is transaction-level (``pg_advisory_xact_lock``): SQLAlchemy opens
+    a transaction on the first execute and rolls it back when the connection
+    context exits, so the lock lives exactly as long as this context.  A
+    session-level lock would be unsafe behind PgBouncer's transaction pooling
+    (an unreleased lock would stay on the pooled server connection).  PostgreSQL
+    also releases it if the worker dies; the SQLite/no-database path retains
+    the process lock for unit-test callers.
     """
     with _vmid_allocation_thread_lock:
         if db_engine is None:
@@ -71,20 +77,17 @@ def vmid_allocation_lock(*, db_engine: Any | None = None) -> Iterator[None]:
         )
         with connection_context as connection:
             connection.execute(
-                text("SELECT pg_advisory_lock(:lock_key)"),
+                text("SELECT pg_advisory_xact_lock(:lock_key)"),
                 {"lock_key": _VMID_ALLOCATION_LOCK_KEY},
             )
             try:
                 yield
             finally:
                 try:
-                    connection.execute(
-                        text("SELECT pg_advisory_unlock(:lock_key)"),
-                        {"lock_key": _VMID_ALLOCATION_LOCK_KEY},
-                    )
+                    connection.rollback()
                 except Exception:
-                    # Closing the connection still releases a session-level
-                    # advisory lock; do not mask the provisioning exception.
+                    # Closing the connection ends the transaction and releases
+                    # the xact-level lock; do not mask the provisioning exception.
                     logger.warning(
                         "Failed to explicitly release VMID allocation lock",
                         exc_info=True,
