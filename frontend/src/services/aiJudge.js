@@ -25,7 +25,7 @@ export const TEMPLATE_OPTIONS = [
 
 /** 正式工作區與獨立編輯頁共用的整表潤飾動作。 */
 export const RUBRIC_POLISH_PROMPT =
-  "請在不改變原始評分目標的前提下潤飾目前檢查表：保留每項檢查目標與描述，補充檢測方式、missing_information、fallback、check_steps 與必要 parameters，並將自動檢測支援狀態判定為 auto、partial 或 manual，讓下一層檢查 AI 能理解。只有平台能安全取得證據且執行資訊完整時才標為 auto；缺少服務名稱、工作目錄、執行命令、Port 或資料範圍時標為 partial 並列出缺口，不要猜測或改變檢查目標。即使不需修改，也請回傳完整評分項目列表。將目前評分環境視為主要情境，個別項目仍可使用其他已啟用的受控能力。";
+  "請在不改變原始評分目標的前提下，重新核對目前完整檢查表。這次是儲存並製作腳本前的 Finalizer：只透過工具送出需要變更的項目，完整 candidate 由後端套回目前檢查表；不要在 reply 重複整份項目列表。若既有可執行項目仍是 legacy flat/template check_steps，這本身就是需要修正的契約變更，必須一併送出該項目的完整 typed 轉換；只有已是有效 typed steps 且內容未變動的項目可以省略。每個送出的 check_steps 都必須是完整 typed collector/assertion 陣列（每步含 id、title、collector；system/ai 項目要有 assertion，teacher 項目省略 assertion），不要使用 flat argv、command_key 或輸出 Python。將自動檢測支援狀態判定為 auto、partial 或 manual，只有平台能安全取得證據且執行資訊完整時才標為 auto；缺少服務名稱、工作目錄、執行命令、Port 或資料範圍時標為 partial 並列出缺口；manual 項目要填寫 fallback，不要猜測或改變檢查目標。將目前評分環境視為主要情境，個別項目仍可使用其他已啟用的受控能力。";
 
 /** 評分項目異動後，重新判斷目前環境能自動檢查到什麼程度。 */
 export const RUBRIC_REASSESS_PROMPT =
@@ -159,18 +159,6 @@ export const AiJudgeService = {
     );
   },
 
-  createSessionScript(classId, sessionId, analysisRevision = null) {
-    const payload = {};
-    if (analysisRevision !== null && analysisRevision !== undefined) {
-      payload.analysis_revision = analysisRevision;
-    }
-    return apiPost(
-      `/api/v1/teaching-classes/${classId}/judge/sessions/${sessionId}/scripts`,
-      payload,
-      { timeoutMs: SCRIPT_GENERATION_TIMEOUT_MS },
-    );
-  },
-
   listSessionRuns(classId, sessionId) {
     return apiGet(
       `/api/v1/teaching-classes/${classId}/judge/sessions/${sessionId}/runs`,
@@ -198,6 +186,19 @@ export const AiJudgeService = {
   },
 
   /* ── 檢查點腳本集（多機器整批執行） ── */
+
+  /** 以目前已確認的 rubric 建立一組 deterministic child artifacts。 */
+  createSessionScriptSet(classId, sessionId, analysisRevision = null) {
+    const payload = {};
+    if (analysisRevision !== null && analysisRevision !== undefined) {
+      payload.analysis_revision = analysisRevision;
+    }
+    return apiPost(
+      `/api/v1/teaching-classes/${classId}/judge/sessions/${sessionId}/script-sets`,
+      payload,
+      { timeoutMs: SCRIPT_GENERATION_TIMEOUT_MS },
+    );
+  },
 
   /** 列出 session 的檢查點腳本集（每個邏輯機器一份 child artifact） */
   listSessionScriptSets(classId, sessionId) {
@@ -258,29 +259,6 @@ export const AiJudgeService = {
   listScripts(classId, sessionId = null) {
     const query = sessionId ? `?session_id=${encodeURIComponent(sessionId)}` : "";
     return apiGet(`/api/v1/teaching-classes/${classId}/judge/scripts/${query}`);
-  },
-
-  /** 由檢查表快照產生受管收集腳本（後端會接著跑 policy 與 AI 審查） */
-  createScript(classId, { name, templateKey, rubricSnapshot, sourceFileId = null }) {
-    return apiPost(
-      `/api/v1/teaching-classes/${classId}/judge/scripts/`,
-      {
-        name,
-        template_key: templateKey,
-        rubric_snapshot: rubricSnapshot,
-        source_file_id: sourceFileId,
-      },
-      { timeoutMs: SCRIPT_GENERATION_TIMEOUT_MS },
-    );
-  },
-
-  /** 重新生成腳本（可帶新的 rubric 快照） */
-  regenerateScript(classId, scriptId, rubricSnapshot = null) {
-    return apiPost(
-      `/api/v1/teaching-classes/${classId}/judge/scripts/${scriptId}/regenerate`,
-      { rubric_snapshot: rubricSnapshot },
-      { timeoutMs: SCRIPT_GENERATION_TIMEOUT_MS },
-    );
   },
 
   /** 相容舊版待老師核准腳本；新流程通過靜態與 AI 檢查後會直接 approved。 */

@@ -54,6 +54,7 @@ def _completed_run():
                         "checks": [
                             {"id": "service", "status": "pass"},
                             {"id": "log", "status": "unknown"},
+                            {"id": "evidence", "status": "collected"},
                         ]
                     },
                 }
@@ -78,7 +79,7 @@ def test_teacher_can_save_optional_feedback_and_manual_decision(monkeypatch) -> 
         483,
         TeacherJudgeTargetReviewUpdate(
             feedback="  請補充錯誤處理。  ",
-            decisions={"log": "fail"},
+            decisions={"log": "fail", "evidence": "pass"},
         ),
         db,
         SimpleNamespace(id=teacher_id),
@@ -86,7 +87,7 @@ def test_teacher_can_save_optional_feedback_and_manual_decision(monkeypatch) -> 
 
     review = result.target_results_json["targets"][0]["teacher_review"]
     assert review["feedback"] == "請補充錯誤處理。"
-    assert review["decisions"] == {"log": "fail"}
+    assert review["decisions"] == {"log": "fail", "evidence": "pass"}
     assert review["reviewed_by"] == str(teacher_id)
     assert review["updated_at"]
 

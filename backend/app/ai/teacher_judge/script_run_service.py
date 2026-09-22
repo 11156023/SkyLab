@@ -996,6 +996,8 @@ def _item_result_status(checks: list[dict[str, Any]]) -> str:
         return "unknown"
     if statuses == {"skipped"}:
         return "skipped"
+    if "collected" in statuses:
+        return "collected"
     return "pass"
 
 

@@ -34,10 +34,29 @@ def test_ai_pve_is_registered_as_a_standalone_admin_tool() -> None:
 
 
 def test_teacher_judge_routes_are_owned_by_formal_classes() -> None:
-    paths = registered_paths(app.routes)
+    routes = [
+        (path, set(route.methods or set()))
+        for path, route in iter_api_routes(app.routes)
+    ]
+    paths = {path for path, _ in routes}
+    script_root = "/api/v1/teaching-classes/{teaching_class_id}/judge/scripts/"
+    session_scripts = (
+        "/api/v1/teaching-classes/{teaching_class_id}/judge/"
+        "sessions/{session_id}/scripts"
+    )
+    script_regenerate = f"{script_root}{{script_id}}/regenerate"
+    script_set_root = (
+        "/api/v1/teaching-classes/{teaching_class_id}/judge/"
+        "sessions/{session_id}/script-sets"
+    )
 
     assert "/api/v1/teaching-classes/{teaching_class_id}/judge/files/" in paths
-    assert "/api/v1/teaching-classes/{teaching_class_id}/judge/scripts/" in paths
+    assert script_root in paths
+    assert (script_root, {"GET"}) in routes
+    assert not any(path == script_root and "POST" in methods for path, methods in routes)
+    assert session_scripts not in paths
+    assert script_regenerate not in paths
+    assert (script_set_root, {"POST"}) in routes
 
 
 def test_teacher_judge_direct_rubric_mutations_are_retired() -> None:

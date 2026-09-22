@@ -33,7 +33,9 @@
 /* ── 子分頁 ── */
 .subTabs {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  // TEACHER_JUDGE_TABS 只剩 3 個頁籤（檢查設定／導師核查／腳本總覽），
+  // 執行結果頁移除後 4 欄會在右側多出一格空藍底，改回 3 欄。
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: $spacing-4;
   padding: $spacing-4;
   border-radius: $radius-8;
@@ -732,6 +734,54 @@
   color: var(--color-text-muted);
   font-style: italic;
 }
+.rubricTargetSummary {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  margin: 2px 9px 0;
+  color: var(--color-text-muted);
+  font-size: $font-size-12;
+  line-height: 1.45;
+}
+.rubricTargetLabel {
+  flex: 0 0 auto;
+  padding-top: 3px;
+  font-weight: $font-weight-500;
+  white-space: nowrap;
+}
+.rubricTargetItems {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  min-width: 0;
+}
+.rubricTargetItem {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  max-width: 100%;
+  padding: 2px 7px;
+  border: 1px solid var(--color-divider);
+  border-radius: $radius-8;
+  background: var(--color-hover);
+  color: var(--color-text-secondary);
+
+  > span:not(.material-icons):not(.material-icons-outlined) {
+    color: var(--color-text-muted);
+    white-space: nowrap;
+  }
+
+  code {
+    min-width: 0;
+    overflow: hidden;
+    color: var(--color-text-primary);
+    font-family: monospace;
+    font-size: $font-size-10;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+}
 .rubricDetailToggleCell { vertical-align: middle !important; }
 .rubricDetectabilityCell { vertical-align: middle !important; }
 .rubricActionsCell { vertical-align: middle !important; }
@@ -852,6 +902,40 @@
     white-space: pre-wrap;
     overflow-wrap: anywhere;
   }
+}
+
+.executionContract {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-top: 2px;
+  padding: 7px 9px;
+  border: 1px solid var(--color-divider);
+  border-radius: $radius-8;
+  background: var(--color-hover);
+}
+
+.executionContractTitle,
+.executionContractItem {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: $font-size-12;
+}
+
+.executionContractTitle {
+  color: var(--color-text-secondary);
+  font-weight: $font-weight-700;
+}
+
+.executionContractItem {
+  padding-left: 8px;
+  border-left: 1px solid var(--color-divider);
+
+  > span { color: var(--color-text-muted); }
+  strong { color: var(--color-text-primary); font-weight: $font-weight-500; }
+  small { color: var(--color-text-muted); font-size: $font-size-10; }
 }
 
 .chipRow {
@@ -2521,4 +2605,24 @@
   outline: 1px solid var(--color-danger);
   outline-offset: 4px;
   border-radius: $radius-8;
+}
+
+/* ── 學生總覽展開後的單台機器卡 ── */
+.reviewMachineCard {
+  display: grid;
+  gap: $spacing-8;
+  padding: $spacing-16;
+  border: 1px solid var(--color-divider);
+  border-radius: $radius-8;
+  background: var(--color-surface);
+}
+
+.reviewMachineHead {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: $spacing-8;
+
+  strong { color: var(--color-text-primary); font-size: $font-size-14; }
+  small { color: var(--color-text-muted); font-size: $font-size-12; }
 }

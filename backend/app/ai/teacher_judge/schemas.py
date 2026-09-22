@@ -8,10 +8,12 @@ for older import paths and generated-client compatibility during migration.
 from __future__ import annotations
 
 import uuid
-from typing import Any, Literal, cast
+from typing import Annotated, Any, Literal, cast
+from urllib.parse import urlparse
 
 from pydantic import (
     BaseModel,
+    ConfigDict,
     Field,
     field_validator,
     model_serializer,
@@ -49,14 +51,167 @@ def sanitize_rubric_missing_information(value: Any) -> Any:
     ]
 
 
+class TeacherJudgeCommandCollector(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    type: Literal["command"]
+    argv: list[str] = Field(..., min_length=1, max_length=32)
+    cwd: str | None = Field(default=None, max_length=1024)
+    timeout_seconds: int = Field(default=30, ge=1, le=300)
+
+    @field_validator("argv")
+    @classmethod
+    def validate_argv(cls, value: list[str]) -> list[str]:
+        if any(not isinstance(part, str) or not part.strip() for part in value):
+            raise ValueError("collector.argv 必須只包含非空字串")
+        return value
+
+
+class TeacherJudgeFileTextCollector(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    type: Literal["file_text"]
+    path: str = Field(..., min_length=1, max_length=1024)
+    encoding: Literal["utf-8"] = "utf-8"
+    read_mode: Literal["full", "head", "tail"] = "full"
+    lines: int | None = Field(default=None, ge=1, le=1000)
+    max_chars: int = Field(default=12000, ge=1, le=12000)
+
+    @model_validator(mode="after")
+    def validate_lines(self) -> TeacherJudgeFileTextCollector:
+        if self.read_mode in {"head", "tail"} and self.lines is None:
+            raise ValueError("file_text 的 head/tail 必須提供 lines")
+        if self.read_mode == "full" and self.lines is not None:
+            raise ValueError("file_text 的 full 不應提供 lines")
+        return self
+
+
+class TeacherJudgeFileStatCollector(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    type: Literal["file_stat"]
+    path: str = Field(..., min_length=1, max_length=1024)
+
+
+class TeacherJudgeLocalhostHttpCollector(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    type: Literal["localhost_http"]
+    method: Literal["GET", "HEAD"] = "GET"
+    url: str = Field(..., min_length=1, max_length=2048)
+    timeout_seconds: int = Field(default=10, ge=1, le=60)
+    max_chars: int = Field(default=12000, ge=1, le=12000)
+
+    @field_validator("url")
+    @classmethod
+    def validate_localhost_url(cls, value: str) -> str:
+        parsed = urlparse(value)
+        if (
+            parsed.scheme not in {"http", "https"}
+            or parsed.hostname not in {
+                "localhost",
+                "127.0.0.1",
+                "::1",
+            }
+            or parsed.username is not None
+            or parsed.password is not None
+        ):
+            raise ValueError("localhost_http.url 必須指向 localhost、127.0.0.1 或 ::1")
+        return value
+
+
+class TeacherJudgePeerPingCollector(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    type: Literal["peer_ping"]
+    timeout_seconds: int = Field(default=10, ge=1, le=60)
+
+
+TeacherJudgeCollector = Annotated[
+    TeacherJudgeCommandCollector
+    | TeacherJudgeFileTextCollector
+    | TeacherJudgeFileStatCollector
+    | TeacherJudgeLocalhostHttpCollector
+    | TeacherJudgePeerPingCollector,
+    Field(discriminator="type"),
+]
+
+
+class TeacherJudgeReturncodeAssertion(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    type: Literal["returncode_equals"]
+    expected: int
+
+
+class TeacherJudgeTextEqualsAssertion(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    type: Literal["text_equals"]
+    expected: str
+    normalize: Literal["strip", "none"] = "strip"
+
+
+class TeacherJudgeTextContainsAssertion(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    type: Literal["text_contains"]
+    expected: str
+    normalize: Literal["strip", "none"] = "none"
+
+
+class TeacherJudgeNumberCompareAssertion(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    type: Literal["number_compare"]
+    expected: float
+    operator: Literal["eq", "ne", "gt", "gte", "lt", "lte"]
+
+
+class TeacherJudgeJsonPathEqualsAssertion(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    type: Literal["json_path_equals"]
+    path: str = Field(..., min_length=1, max_length=255)
+    expected: Any
+
+
+class TeacherJudgeExistsAssertion(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    type: Literal["exists"]
+    expected: bool
+
+
+TeacherJudgeAssertion = Annotated[
+    TeacherJudgeReturncodeAssertion
+    | TeacherJudgeTextEqualsAssertion
+    | TeacherJudgeTextContainsAssertion
+    | TeacherJudgeNumberCompareAssertion
+    | TeacherJudgeJsonPathEqualsAssertion
+    | TeacherJudgeExistsAssertion,
+    Field(discriminator="type"),
+]
+
+
 class TeacherJudgeRubricCheckStep(BaseModel):
     """Canonical executable step with a read-compatible legacy shape.
 
-    New data uses ``argv``/``cwd``/``timeout_seconds`` directly. The old
-    template/command catalog fields remain optional so persisted rubrics can be
-    read and converted without making the retired keys part of new writes.
+    New Save/Create data uses typed ``collector``/``assertion`` fields. The
+    flat and template/command fields remain optional so persisted rubrics can
+    be read without making the retired keys part of new writes.
     """
 
+    id: str | None = Field(default=None, min_length=1, max_length=120)
+    title: str | None = Field(default=None, max_length=240)
+    collector: TeacherJudgeCollector | None = Field(
+        default=None,
+        description="Typed read-only evidence collector; required by the new Check Plan contract",
+    )
+    assertion: TeacherJudgeAssertion | None = Field(
+        default=None,
+        description="Typed deterministic assertion; omitted for teacher judgement",
+    )
     template_key: str | None = Field(
         default=None,
         description="Legacy template key; read/convert only",
@@ -95,6 +250,26 @@ class TeacherJudgeRubricCheckStep(BaseModel):
         if not isinstance(value, dict):
             return value
         data = dict(value)
+        if data.get("collector") is not None:
+            unknown = set(data) - {
+                "id",
+                "title",
+                "collector",
+                "assertion",
+                "template_key",
+                "command_key",
+                "command_label",
+                "parameters",
+                "argv",
+                "cwd",
+                "timeout_seconds",
+            }
+            if unknown:
+                raise ValueError(
+                    "typed check step contains unknown fields: "
+                    + ", ".join(sorted(unknown))
+                )
+            return data
         raw_parameters = data.get("parameters")
         parameters = dict(raw_parameters) if isinstance(raw_parameters, dict) else {}
         for key in ("argv", "cwd", "timeout_seconds"):
@@ -124,12 +299,37 @@ class TeacherJudgeRubricCheckStep(BaseModel):
 
     @model_validator(mode="after")
     def require_legacy_identity_or_flat_argv(self) -> TeacherJudgeRubricCheckStep:
+        if self.collector is not None:
+            if not self.id:
+                raise ValueError("typed check step requires id")
+            if not self.title or not self.title.strip():
+                raise ValueError("typed check step requires title")
+            if (
+                self.template_key
+                or self.command_key
+                or self.command_label
+                or self.parameters
+                or self.argv is not None
+                or self.cwd is not None
+                or self.timeout_seconds is not None
+            ):
+                raise ValueError("typed check step cannot include legacy command fields")
+            return self
         if not self.template_key and not self.command_key and self.argv is None:
             raise ValueError("flat check step requires argv")
         return self
 
     @model_serializer(mode="plain")
     def _serialize_contract(self) -> dict[str, Any]:
+        if self.collector is not None:
+            typed_result: dict[str, Any] = {
+                "id": self.id,
+                "title": self.title,
+                "collector": self.collector.model_dump(mode="json"),
+            }
+            if self.assertion is not None:
+                typed_result["assertion"] = self.assertion.model_dump(mode="json")
+            return typed_result
         if self.template_key or self.command_key:
             result: dict[str, Any] = {
                 "template_key": self.template_key,
@@ -154,7 +354,7 @@ class TeacherJudgeRubricCheckStep(BaseModel):
         core_schema: Any,
         handler: Any,
     ) -> dict[str, Any]:
-        """Expose only the flat write contract in generated API schemas."""
+        """Expose typed or flat fields without the retired command catalog."""
         schema = handler(core_schema)
         properties = schema.get("properties")
         if isinstance(properties, dict):
@@ -165,7 +365,11 @@ class TeacherJudgeRubricCheckStep(BaseModel):
                 "parameters",
             ):
                 properties.pop(legacy_key, None)
-            schema["required"] = ["argv"]
+            schema.pop("required", None)
+            schema["anyOf"] = [
+                {"required": ["argv"]},
+                {"required": ["collector", "id", "title"]},
+            ]
         return cast("dict[str, Any]", schema)
 
 
@@ -217,7 +421,7 @@ class TeacherJudgeRubricItem(BaseModel):
         return sanitize_rubric_missing_information(value)
     check_steps: list[TeacherJudgeRubricCheckStep] = Field(
         default_factory=list,
-        description="本階段只產生計劃書；新資料使用扁平 argv/cwd/timeout，不代表已執行。",
+        description="本階段只產生計劃書；新 Save/Create 使用 typed collector/assertion，不代表已執行。",
     )
 
 
@@ -417,34 +621,6 @@ class TeacherJudgeSessionScriptCreateRequest(BaseModel):
     """Create a session script only from the currently confirmed rubric revision."""
 
     analysis_revision: int | None = Field(default=None, ge=1)
-
-
-class TeacherJudgeScriptCreateRequest(BaseModel):
-    """Create a managed script artifact from the current rubric analysis."""
-
-    name: str = Field(..., min_length=1, max_length=255)
-    template_key: str = Field(default="linux", max_length=50)
-    rubric_snapshot: TeacherJudgeRubricAnalysis
-    source_file_id: uuid.UUID | None = None
-
-    @field_validator("name")
-    @classmethod
-    def validate_name(cls, value: str) -> str:
-        name = value.strip()
-        if not name:
-            raise ValueError(t("schemas.name_blank"))
-        return name
-
-    @field_validator("template_key")
-    @classmethod
-    def normalize_template_key(cls, value: str) -> str:
-        return value.strip().lower() or "linux"
-
-
-class TeacherJudgeScriptRegenerateRequest(BaseModel):
-    """Regenerate a managed script artifact."""
-
-    rubric_snapshot: TeacherJudgeRubricAnalysis | None = None
 
 
 class TeacherJudgeScriptUpdateRequest(BaseModel):

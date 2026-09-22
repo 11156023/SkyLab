@@ -14,13 +14,13 @@ from pydantic import BaseModel, Field, ValidationError, field_validator
 if TYPE_CHECKING:
     from app.ai.teacher_judge._types import CheckResult, FixHint, ScriptValidationResult
 
-ALLOWED_RESULT_STATUSES = {"pass", "fail", "warning", "unknown", "skipped"}
+ALLOWED_RESULT_STATUSES = {"pass", "fail", "warning", "unknown", "collected", "skipped"}
 
 
 class ManagedScriptCheck(BaseModel):
     id: str = Field(..., min_length=1, max_length=120)
     title: str = Field(..., min_length=1, max_length=240)
-    status: Literal["pass", "fail", "warning", "unknown", "skipped"]
+    status: Literal["pass", "fail", "warning", "unknown", "collected", "skipped"]
     evidence: str = Field(default="", max_length=4000)
     raw: str = Field(default="", max_length=4000)
 
@@ -489,6 +489,12 @@ def check_peer_runtime_policy(
             if not isinstance(step, dict):
                 continue
             argv = step.get("argv")
+            collector = step.get("collector")
+            if not isinstance(argv, list) and isinstance(collector, dict):
+                argv = collector.get("argv")
+            if not isinstance(argv, list) and isinstance(collector, dict):
+                if collector.get("type") == "peer_ping":
+                    argv = ["ping", "{{peer.ip}}"]
             if not isinstance(argv, list):
                 parameters = step.get("parameters")
                 argv = parameters.get("argv") if isinstance(parameters, dict) else None
@@ -633,6 +639,15 @@ def check_peer_runtime_policy(
                 value = assignment.value
                 if value is None:
                     continue
+                # The result of a command is not the peer IP itself.  Keep
+                # the taint on the argv flowing into ``run_command`` or
+                # ``subprocess.run`` only; otherwise the command output is
+                # incorrectly treated as peer data and later ``judge`` /
+                # ``record_check`` calls are rejected.
+                if isinstance(value, ast.Call):
+                    call_name = _call_name(value.func, aliases)
+                    if call_name in {"run_command", "subprocess.run"}:
+                        continue
                 names = {
                     child.id
                     for child in ast.walk(value)

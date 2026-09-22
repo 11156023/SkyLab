@@ -199,7 +199,9 @@ def _script_checks(
         status = "fail" if "fail" in statuses else (
             "warning" if "warning" in statuses else (
                 "unknown" if "unknown" in statuses else (
-                    "skipped" if "skipped" in statuses else "pass"
+                    "skipped" if "skipped" in statuses else (
+                        "collected" if "collected" in statuses else "pass"
+                    )
                 )
             )
         )

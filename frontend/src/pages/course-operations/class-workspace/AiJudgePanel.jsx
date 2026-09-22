@@ -239,7 +239,8 @@ function hasCompleteParameterizedStep(step) {
 
 /** 把單一 check step 的 parameters 轉成老師可讀的唯讀 chip 資料。 */
 function stepParameterChips(step) {
-  const parameters = step?.parameters ?? {};
+  const collector = step?.collector ?? null;
+  const parameters = collector ?? step?.parameters ?? {};
   const chips = [];
   const argv = Array.isArray(parameters.argv)
     ? parameters.argv.filter((part) => typeof part === "string" && part.trim())
@@ -250,20 +251,163 @@ function stepParameterChips(step) {
   if (typeof parameters.cwd === "string" && parameters.cwd.trim()) {
     chips.push({ key: "cwd", label: "工作目錄", mono: true, parts: [parameters.cwd.trim()] });
   }
+  if (typeof parameters.path === "string" && parameters.path.trim()) {
+    chips.push({ key: "path", label: "路徑", mono: true, parts: [parameters.path.trim()] });
+  }
+  if (typeof parameters.url === "string" && parameters.url.trim()) {
+    chips.push({ key: "url", label: "URL", mono: true, parts: [parameters.url.trim()] });
+  }
+  if (collector?.type === "file_text") {
+    const mode = parameters.read_mode ?? "full";
+    const lineText = Number.isInteger(parameters.lines) ? `，${parameters.lines} 行` : "";
+    chips.push({ key: "read_mode", label: "讀取", mono: false, parts: [`${mode}${lineText}`] });
+  }
   if (Number.isInteger(parameters.timeout_seconds)
-    && parameters.timeout_seconds >= 1
-    && parameters.timeout_seconds <= 300) {
+    && parameters.timeout_seconds >= 1) {
     chips.push({ key: "timeout_seconds", label: "逾時", mono: false, parts: [`${parameters.timeout_seconds} 秒`] });
   }
   return chips;
+}
+
+const TARGET_TYPE_INFO = {
+  file_text: { label: "檔案內容", icon: "description" },
+  file_stat: { label: "檔案", icon: "folder" },
+  command: { label: "指令", icon: "terminal" },
+  localhost_http: { label: "HTTP", icon: "language" },
+  peer_ping: { label: "觀察節點", icon: "hub" },
+};
+
+const ASSERTION_OPERATOR_LABELS = {
+  eq: "=",
+  ne: "≠",
+  gt: ">",
+  gte: "≥",
+  lt: "<",
+  lte: "≤",
+};
+
+function formatCommandArguments(argv) {
+  return argv
+    .filter((part) => typeof part === "string" && part.trim())
+    .map((part) => (/\s/.test(part) ? JSON.stringify(part) : part))
+    .join(" ");
+}
+
+function formatAssertionValue(value) {
+  if (typeof value === "string") return `「${value}」`;
+  if (value === null || value === undefined) return "未設定";
+  if (typeof value === "number" || typeof value === "boolean") return String(value);
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return "不可顯示的值";
+  }
+}
+
+function getAssertionSummary(assertion) {
+  if (!assertion || typeof assertion !== "object") return "";
+  switch (assertion.type) {
+    case "returncode_equals":
+      return `回傳碼 = ${formatAssertionValue(assertion.expected)}`;
+    case "text_equals":
+      return `文字等於 ${formatAssertionValue(assertion.expected)}`;
+    case "text_contains":
+      return `文字包含 ${formatAssertionValue(assertion.expected)}`;
+    case "number_compare":
+      return `數值 ${ASSERTION_OPERATOR_LABELS[assertion.operator] ?? assertion.operator ?? "比較"} ${formatAssertionValue(assertion.expected)}`;
+    case "json_path_equals":
+      return `${assertion.path || "JSON 路徑"} = ${formatAssertionValue(assertion.expected)}`;
+    case "exists":
+      return `存在性 = ${assertion.expected ? "是" : "否"}`;
+    default:
+      return assertion.type || "已設定判定條件";
+  }
+}
+
+function getStepTargetSummaries(step) {
+  const collector = step?.collector ?? null;
+  const parameters = collector ?? step?.parameters ?? {};
+  const targets = [];
+  const addTarget = (key, label, icon, value) => {
+    if (typeof value !== "string" || !value.trim()) return;
+    targets.push({ key: `${key}:${value.trim()}`, label, icon, value: value.trim() });
+  };
+
+  if (collector?.type === "file_text" && typeof parameters.path === "string") {
+    addTarget("file_text", TARGET_TYPE_INFO.file_text.label, TARGET_TYPE_INFO.file_text.icon, parameters.path);
+  } else if (collector?.type === "file_stat" && typeof parameters.path === "string") {
+    addTarget("file_stat", TARGET_TYPE_INFO.file_stat.label, TARGET_TYPE_INFO.file_stat.icon, parameters.path);
+  } else if (collector?.type === "command" && Array.isArray(parameters.argv)) {
+    addTarget("command", TARGET_TYPE_INFO.command.label, TARGET_TYPE_INFO.command.icon, formatCommandArguments(parameters.argv));
+  } else if (collector?.type === "localhost_http" && typeof parameters.url === "string") {
+    addTarget("localhost_http", TARGET_TYPE_INFO.localhost_http.label, TARGET_TYPE_INFO.localhost_http.icon, parameters.url);
+  } else if (collector?.type === "peer_ping") {
+    addTarget("peer_ping", TARGET_TYPE_INFO.peer_ping.label, TARGET_TYPE_INFO.peer_ping.icon, "由執行節點觀察");
+  } else {
+    if (Array.isArray(parameters.argv)) {
+      addTarget("legacy-command", TARGET_TYPE_INFO.command.label, TARGET_TYPE_INFO.command.icon, formatCommandArguments(parameters.argv));
+    }
+    if (typeof parameters.path === "string") {
+      addTarget("legacy-path", "路徑", TARGET_TYPE_INFO.file_stat.icon, parameters.path);
+    }
+    if (typeof parameters.url === "string") {
+      addTarget("legacy-url", "URL", TARGET_TYPE_INFO.localhost_http.icon, parameters.url);
+    }
+  }
+
+  if (typeof parameters.cwd === "string") {
+    addTarget("cwd", "工作目錄", "folder_open", parameters.cwd);
+  }
+  return targets;
+}
+
+function getRubricTargetSummaries(item) {
+  const seen = new Set();
+  return (Array.isArray(item?.check_steps) ? item.check_steps : [])
+    .flatMap((step) => getStepTargetSummaries(step))
+    .filter((target) => {
+      if (seen.has(target.key)) return false;
+      seen.add(target.key);
+      return true;
+    });
+}
+
+/** 以班級 API 回傳的 machine_nodes 對照 rubric 的 logical target_node_key。 */
+function getExecutionNodeSummary(item, machineNodes = []) {
+  const targetKey = String(item?.target_node_key ?? "").trim();
+  const hasExecutableSteps = Array.isArray(item?.check_steps) && item.check_steps.length > 0;
+  if (!targetKey && !hasExecutableSteps) return null;
+
+  const node = Array.isArray(machineNodes)
+    ? machineNodes.find((entry) => String(entry?.node_key ?? "").trim() === targetKey)
+    : null;
+  if (!targetKey) {
+    return { label: "尚未指定", detail: "尚未對應班級機器資訊" };
+  }
+  if (!node) {
+    return { label: "未找到對應機器", detail: "請重新確認班級機器資訊" };
+  }
+
+  const sortOrder = Number(node.sort_order);
+  const displayLabel = node.display_label
+    ?? (Number.isFinite(sortOrder) ? `P${sortOrder + 1}` : null);
+  const name = String(node.name ?? node.node_name ?? "").trim();
+  const label = [name || "未命名節點", displayLabel ? `（${displayLabel}）` : ""].join("");
+  const detail = [
+    node.role ? `角色：${node.role}` : "",
+    node.resource_type ? `類型：${String(node.resource_type).toUpperCase()}` : "",
+    node.template_name ? `映像：${node.template_name}` : "",
+  ].filter(Boolean).join(" · ");
+  return { label, detail };
 }
 
 /** 提案列的唯讀指令預覽；以分號串接多個步驟的 argv。 */
 function proposalCommandPreview(item) {
   const steps = Array.isArray(item?.check_steps) ? item.check_steps : [];
   return steps
-    .map((step) => (Array.isArray(step?.parameters?.argv)
-      ? step.parameters.argv.filter((part) => typeof part === "string" && part.trim()).join(" ")
+    .map((step) => (Array.isArray((step?.collector ?? step?.parameters)?.argv)
+      ? (step.collector ?? step.parameters).argv
+        .filter((part) => typeof part === "string" && part.trim()).join(" ")
       : ""))
     .filter(Boolean)
     .join("；");
@@ -384,6 +528,8 @@ function comparableItem(item) {
     checked: Boolean(item.checked),
     detectable: item.detectable ?? "manual",
     judgement_mode: item.judgement_mode ?? "ai",
+    target_node_key: item.target_node_key ?? null,
+    peer_node_key: item.peer_node_key ?? null,
     detection_method: item.detection_method ?? null,
     fallback: item.fallback ?? null,
     missing_information: item.missing_information ?? [],
@@ -672,9 +818,11 @@ function DetectabilityBadge({ detectable, judgementMode = "ai", needsReview = fa
   );
 }
 
-function RubricTableRow({ item, index, onChange, onDelete, disabled, needsReview }) {
+function RubricTableRow({ item, index, onChange, onDelete, disabled, needsReview, machineNodes = [] }) {
   const [expanded, setExpanded] = useState(false);
   const checkSteps = item.check_steps ?? [];
+  const targetSummaries = getRubricTargetSummaries(item);
+  const executionNode = getExecutionNodeSummary(item, machineNodes);
   const detailId = `rubric-detail-${index}`;
   const missingInformation = Array.isArray(item.missing_information)
     ? item.missing_information.filter(Boolean)
@@ -717,6 +865,24 @@ function RubricTableRow({ item, index, onChange, onDelete, disabled, needsReview
             <p className={`${styles.rubricMethodText} ${!item.detection_method ? styles.rubricMethodTextEmpty : ""}`}>
               {item.detection_method || "尚未提供檢測方式"}
             </p>
+            {targetSummaries.length > 0 && (
+              <div className={styles.rubricTargetSummary} aria-label="檢測目標">
+                <span className={styles.rubricTargetLabel}>檢測目標</span>
+                <div className={styles.rubricTargetItems}>
+                  {targetSummaries.map((target) => (
+                    <span
+                      key={target.key}
+                      className={styles.rubricTargetItem}
+                      title={`${target.label}：${target.value}`}
+                    >
+                      <MIcon name={target.icon} size={14} aria-hidden="true" />
+                      <span>{target.label}</span>
+                      <code>{target.value}</code>
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
         </td>
         <td className={styles.rubricDetectabilityCell}>
@@ -772,6 +938,23 @@ function RubricTableRow({ item, index, onChange, onDelete, disabled, needsReview
                   {checkSteps.length > 0 && (
                     <div className={`${styles.detectItem} ${styles.detectItemWide}`}>
                       <span>預計檢查步驟（尚未執行）</span>
+                      <div className={styles.executionContract} aria-label="執行契約">
+                        <span className={styles.executionContractTitle}>
+                          <MIcon name="rule" size={14} aria-hidden="true" />
+                          執行契約
+                        </span>
+                        {executionNode && (
+                          <span className={styles.executionContractItem}>
+                            <span>執行節點</span>
+                            <strong>{executionNode.label}</strong>
+                            {executionNode.detail && <small>{executionNode.detail}</small>}
+                          </span>
+                        )}
+                        <span className={styles.executionContractItem}>
+                          <span>判定</span>
+                          <strong>{item.judgement_mode === "teacher" ? "導師核查" : "系統判定"}</strong>
+                        </span>
+                      </div>
                       <div className={styles.stepPlanList}>
                         {checkSteps.map((step, stepIndex) => (
                           <div
@@ -779,9 +962,13 @@ function RubricTableRow({ item, index, onChange, onDelete, disabled, needsReview
                             className={styles.stepPlanRow}
                           >
                             <span className={styles.chip}>
-                              {getTemplateLabel(step.template_key)} /{" "}
-                              {step.command_label ?? step.command_key}
-                              <code>{step.command_key}</code>
+                              {step.collector
+                                ? `受控取證 / ${step.collector.type}`
+                                : <>
+                                  {getTemplateLabel(step.template_key)} /{" "}
+                                  {step.command_label ?? step.command_key}
+                                  <code>{step.command_key}</code>
+                                </>}
                             </span>
                             {stepParameterChips(step).map((chip) => (
                               <span key={chip.key} className={styles.chip}>
@@ -793,6 +980,12 @@ function RubricTableRow({ item, index, onChange, onDelete, disabled, needsReview
                                   : <span className={styles.chipText}>{chip.parts.join(" ")}</span>}
                               </span>
                             ))}
+                            {getAssertionSummary(step.assertion) && (
+                              <span className={styles.chip}>
+                                <span className={styles.chipLabel}>判定條件</span>
+                                <span className={styles.chipText}>{getAssertionSummary(step.assertion)}</span>
+                              </span>
+                            )}
                           </div>
                         ))}
                       </div>
@@ -808,7 +1001,7 @@ function RubricTableRow({ item, index, onChange, onDelete, disabled, needsReview
   );
 }
 
-export function RubricTable({ items, onChange, onDelete, disabled, needsReviewIds }) {
+export function RubricTable({ items, onChange, onDelete, disabled, needsReviewIds, machineNodes = [] }) {
   const reviewIds = needsReviewIds instanceof Set
     ? needsReviewIds
     : new Set(Array.isArray(needsReviewIds) ? needsReviewIds : []);
@@ -838,6 +1031,7 @@ export function RubricTable({ items, onChange, onDelete, disabled, needsReviewId
               onDelete={() => onDelete(index)}
               disabled={disabled}
               needsReview={reviewIds.has(item.id)}
+              machineNodes={machineNodes}
             />
           ))}
         </tbody>
@@ -1341,7 +1535,7 @@ function RubricSourceRail({ classId, file, onClose, embedded = false }) {
 
 /* ── Tab 1：檢查表 ──────────────────────────────────────── */
 
-export function RubricsTab({ classId, judgeSession, onSessionUpdated, onScriptCreated, sidebar = null, tabsBar = null }) {
+export function RubricsTab({ classId, judgeSession, onSessionUpdated, onScriptCreated, sidebar = null, tabsBar = null, machineNodes = [] }) {
   const toast = useToast();
 
   const [files, setFiles] = useState([]);
@@ -1849,17 +2043,28 @@ export function RubricsTab({ classId, judgeSession, onSessionUpdated, onScriptCr
       setPendingProposalMeta(hasSelectable ? { baseRevision } : null);
       setPendingProposalIsRefine(hasSelectable);
       if (assistantMetadata.script_ready === false) {
-        const message = assistantMetadata.status === "unsupported"
-          ? "部分項目目前無法安全取證，詳細內容已列在 AI 聊天室。"
+        const assistantSummary = typeof assistantMessage?.content === "string"
+          ? assistantMessage.content.trim()
+          : "";
+        const compactSummary = assistantSummary.length > 360
+          ? `${assistantSummary.slice(0, 357)}…`
+          : assistantSummary;
+        const message = compactSummary || (assistantMetadata.status === "unsupported"
+          ? "部分項目目前無法安全取證，請查看 AI 聊天室中的項目說明。"
           : assistantMetadata.status === "analysis_error"
-            ? "AI 重新核對未完成，檢查表尚未變更；處理階段已列在 AI 聊天室。"
-            : "尚有項目需要補充，詳細內容已列在 AI 聊天室。";
+            ? "AI 重新核對未完成，請查看 AI 聊天室中的處理階段與原因。"
+            : "尚有項目需要補充，請查看 AI 聊天室中的具體缺口。");
         setScriptGenerationNotice({ status: "error", message });
         toast.error(message);
         return;
       }
       if (assistantMetadata.script_ready !== true) {
-        const message = "AI 核對結果缺少安全狀態，尚未開始製作檢查腳本；請稍後重試。";
+        const assistantSummary = typeof assistantMessage?.content === "string"
+          ? assistantMessage.content.trim()
+          : "";
+        const message = assistantSummary.length > 360
+          ? `${assistantSummary.slice(0, 357)}…`
+          : assistantSummary || "AI 核對結果缺少安全狀態，尚未開始製作檢查腳本；請稍後重試。";
         setScriptGenerationNotice({ status: "error", message });
         toast.error(message);
         return;
@@ -1897,13 +2102,13 @@ export function RubricsTab({ classId, judgeSession, onSessionUpdated, onScriptCr
         message: "所有檢查項目皆已通過核對，正在準備建立檢查腳本。",
       });
       setScriptGenerationStatus("generating");
-      const artifact = await AiJudgeService.createSessionScript(
+      const artifact = await AiJudgeService.createSessionScriptSet(
         classId,
         judgeSession.id,
         savedRevision,
       );
       if (artifact.status === "approved") {
-        const message = "檢查腳本已通過靜態與 AI 檢查，可開始執行。";
+        const message = `檢查腳本已完成契約驗證並建立 ${artifact.children?.length ?? 0} 台機器的腳本，可開始執行。`;
         setScriptGenerationNotice({ status: "success", message });
         toast.success(message);
         onScriptCreated?.(artifact);
@@ -2009,6 +2214,7 @@ export function RubricsTab({ classId, judgeSession, onSessionUpdated, onScriptCr
                     onDelete={handleItemDelete}
                     disabled={isChatting || isCreatingScript}
                     needsReviewIds={pendingReviewIds}
+                    machineNodes={machineNodes}
                   />
                 </div>
                 <SaveAndCreateAction
@@ -2545,6 +2751,7 @@ const CHECK_STATUS_META = {
   fail: { icon: "cancel", label: "未通過", className: styles.checkIconFail },
   warning: { icon: "warning", label: "需注意", className: styles.checkIconWarn },
   unknown: { icon: "help", label: "待導師核查", className: styles.checkIconWarn },
+  collected: { icon: "visibility", label: "待導師核查", className: styles.checkIconWarn },
   skipped: { icon: "remove_circle_outline", label: "略過", className: styles.checkIconSkip },
 };
 
@@ -2567,6 +2774,24 @@ function parseCheckRaw(raw) {
     // raw 不一定是 JSON（契約允許普通字串），fallback 顯示原文
   }
   return null;
+}
+
+export function getCheckResultSummary(check) {
+  const parsed = parseCheckRaw(check?.raw);
+  if (!parsed) return check?.evidence || "—";
+  if (typeof parsed.error_message === "string" && parsed.error_message.trim()) {
+    return parsed.error_message.trim();
+  }
+  if (parsed.returncode !== null && parsed.returncode !== undefined && parsed.returncode !== 0) {
+    const prefix = check?.status === "fail" ? "指令檢查未通過" : "指令執行失敗";
+    const detail = String(parsed.stderr || parsed.stdout || "").trim().split(/\r?\n/, 1)[0];
+    return `${prefix}（returncode ${parsed.returncode}）${detail ? `：${detail}` : ""}`;
+  }
+  if (parsed.error_code === "command_exception") {
+    const detail = String(parsed.error || parsed.stderr || "").trim();
+    return `指令無法執行${detail ? `：${detail}` : ""}`;
+  }
+  return check?.evidence || "—";
 }
 
 function ReturnCodeBadge({ returncode }) {
@@ -2592,7 +2817,7 @@ function CommandOutput({ label, text, isError = false }) {
   );
 }
 
-function CommandLog({ raw, fallbackText }) {
+export function CommandLog({ raw, fallbackText }) {
   const parsed = parseCheckRaw(raw);
   if (!parsed) {
     if (!raw && !fallbackText) return null;
@@ -2603,7 +2828,9 @@ function CommandLog({ raw, fallbackText }) {
       </div>
     );
   }
-  const empty = !parsed.stdout && !parsed.stderr && parsed.returncode == null;
+  const argvText = Array.isArray(parsed.argv) ? JSON.stringify(parsed.argv) : "";
+  const hasCommandOutput = Boolean(parsed.stdout || parsed.stderr || parsed.error);
+  const empty = !argvText && !hasCommandOutput && parsed.returncode == null;
   return (
     <div className={styles.cmdLog}>
       <div className={styles.cmdHead}>
@@ -2611,8 +2838,14 @@ function CommandLog({ raw, fallbackText }) {
         <ReturnCodeBadge returncode={parsed.returncode} />
       </div>
       {empty ? <span className={styles.cmdEmpty}>（無輸出）</span> : null}
+      <CommandOutput label="argv" text={argvText} />
+      <CommandOutput label="cwd" text={parsed.cwd} />
+      {argvText && !hasCommandOutput ? (
+        <span className={styles.cmdEmpty}>（指令沒有 stdout/stderr 輸出）</span>
+      ) : null}
       <CommandOutput label="stdout" text={parsed.stdout} />
       <CommandOutput label="stderr" text={parsed.stderr} isError />
+      <CommandOutput label="error" text={parsed.error} isError />
       {Array.isArray(parsed.errors) && parsed.errors.length > 0 && (
         <CommandOutput label="errors" text={parsed.errors.join("\n")} isError />
       )}
@@ -2650,6 +2883,7 @@ function CheckResultsTable({ checks }) {
           check?.evidence || check?.raw || (Array.isArray(check?.errors) && check.errors.length),
         );
         const isOpen = hasDetail && expanded.has(detailId);
+        const summary = getCheckResultSummary(check);
         return (
           <div key={detailId} className={styles.checkItem}>
             <button
@@ -2668,11 +2902,11 @@ function CheckResultsTable({ checks }) {
                 <MIcon name={meta.icon} size={16} />
               </span>
               <span className={styles.checkTitle}>{check?.title ?? check?.id ?? "收集項目"}</span>
-              <span className={styles.checkEvidence}>{check?.evidence || "—"}</span>
+              <span className={styles.checkEvidence}>{summary}</span>
             </button>
             {isOpen && (
               <div className={styles.checkDetail}>
-                {check?.evidence && <p>{check.evidence}</p>}
+                {summary !== "—" && <p>{summary}</p>}
                 <CommandLog
                   raw={check?.raw}
                   fallbackText={Array.isArray(check?.errors) ? check.errors.join("\n") : ""}
@@ -2688,7 +2922,7 @@ function CheckResultsTable({ checks }) {
 
 /* ── Tab 2：導師核查 ────────────────────────────────────── */
 
-const TEACHER_REVIEW_STATUSES = new Set(["warning", "unknown"]);
+const TEACHER_REVIEW_STATUSES = new Set(["warning", "unknown", "collected"]);
 
 function targetChecks(target) {
   const checks = target?.parsed_result?.checks;
@@ -2799,6 +3033,117 @@ export function sortTeacherReviewRows(rows, sortMode = "pending") {
     const statusDelta = rank[getTargetReviewSummary(left.target).kind]
       - rank[getTargetReviewSummary(right.target).kind];
     return statusDelta || byAccount(left, right);
+  });
+}
+
+/* ── 以學生為單位的執行總覽（導師核查） ──
+ * v1 為純前端聚合：輸入沿用 buildBatchReviewRows / buildLegacyReviewRows
+ * 產出的 per-machine rows，按 studentId 分組；儲存仍以 machine row.key
+ *（runId + vmid / student_id|node_key|vmid）為單位，不新增後端 API。
+ */
+
+function studentGroupKey(row, index = 0) {
+  const id = row?.studentId ?? row?.member?.user_id ?? row?.member?.email ?? row?.target?.user?.id;
+  if (id !== undefined && id !== null && String(id).trim() !== "") return String(id);
+  return `__row-${index}`;
+}
+
+function studentDisplayUser(machines) {
+  for (const row of machines) {
+    const user = reviewRowUser(row);
+    if (user?.full_name || user?.email) return user;
+  }
+  return machines[0]?.member ?? {};
+}
+
+/** 學生層 check 有效計數：已存導師判定覆蓋 raw status，未判定才計待確認。 */
+export function aggregateStudentCheckTotals(machines) {
+  const totals = { pass: 0, fail: 0, pending: 0, skipped: 0, total: 0 };
+  for (const row of Array.isArray(machines) ? machines : []) {
+    const savedDecisions = targetTeacherReview(row?.target).decisions ?? {};
+    for (const check of targetChecks(row?.target)) {
+      const decision = savedDecisions[check?.id];
+      if (decision === "pass") {
+        totals.pass += 1;
+        totals.total += 1;
+        continue;
+      }
+      if (decision === "fail") {
+        totals.fail += 1;
+        totals.total += 1;
+        continue;
+      }
+      const status = check?.status;
+      if (status === "pass") totals.pass += 1;
+      else if (status === "fail") totals.fail += 1;
+      else if (TEACHER_REVIEW_STATUSES.has(status)) totals.pending += 1;
+      else if (status === "skipped") totals.skipped += 1;
+      totals.total += 1;
+    }
+  }
+  return totals;
+}
+
+/** 學生層狀態：取所屬機器中最緊急者（pending > failed > reviewed > automatic > missing）。 */
+export function getStudentOverviewStatus(machines) {
+  const list = Array.isArray(machines) ? machines : [];
+  if (list.length === 0) return { kind: "missing", label: "尚未執行", pending: 0, reviewable: 0 };
+  const summaries = list.map((row) => getTargetReviewSummary(row?.target));
+  const pending = summaries.reduce((sum, item) => sum + (item.pending || 0), 0);
+  const reviewable = summaries.reduce((sum, item) => sum + (item.reviewable || 0), 0);
+  const kinds = new Set(summaries.map((item) => item.kind));
+  if (kinds.has("pending")) return { kind: "pending", label: `待確認 ${pending} 項`, pending, reviewable };
+  if (kinds.has("failed")) return { kind: "failed", label: "部分機器執行失敗", pending: 0, reviewable };
+  if (kinds.has("reviewed") && ![...kinds].some((kind) => kind === "automatic" || kind === "missing")) {
+    return { kind: "reviewed", label: "核查完成", pending: 0, reviewable };
+  }
+  if (kinds.has("reviewed")) return { kind: "reviewed", label: "核查完成", pending: 0, reviewable };
+  if (kinds.has("automatic") && kinds.size === 1) return { kind: "automatic", label: "AI 已判定", pending: 0, reviewable };
+  if (kinds.has("missing") && kinds.size === 1) return { kind: "missing", label: "尚未執行", pending: 0, reviewable };
+  return { kind: "automatic", label: "AI 已判定", pending: 0, reviewable };
+}
+
+export function buildStudentOverviewRows(machineRows) {
+  const groups = new Map();
+  (Array.isArray(machineRows) ? machineRows : []).forEach((row, index) => {
+    const key = studentGroupKey(row, index);
+    if (!groups.has(key)) groups.set(key, { studentId: key, machines: [] });
+    groups.get(key).machines.push(row);
+  });
+  return [...groups.values()].map((group) => {
+    const user = studentDisplayUser(group.machines);
+    const totals = aggregateStudentCheckTotals(group.machines);
+    const status = getStudentOverviewStatus(group.machines);
+    return { ...group, user, totals, status };
+  });
+}
+
+function studentOverviewNumber(student) {
+  const user = student?.user ?? {};
+  const email = String(user.email ?? "");
+  return String(
+    user.student_number
+    ?? user.student_no
+    ?? user.account
+    ?? email.split("@")[0]
+    ?? student?.studentId
+    ?? "",
+  );
+}
+
+export function sortStudentOverviewRows(students, sortMode = "pending") {
+  const collator = new Intl.Collator("zh-Hant", { numeric: true, sensitivity: "base" });
+  const byAccount = (left, right) => collator.compare(
+    studentOverviewNumber(left),
+    studentOverviewNumber(right),
+  );
+  return [...students].sort((left, right) => {
+    if (sortMode === "student-number") return byAccount(left, right);
+    const rank = { pending: 0, failed: 1, reviewed: 2, automatic: 3, missing: 4 };
+    const statusDelta = (rank[left?.status?.kind] ?? 9) - (rank[right?.status?.kind] ?? 9);
+    if (statusDelta !== 0) return statusDelta;
+    const pendingDelta = (right?.status?.pending ?? 0) - (left?.status?.pending ?? 0);
+    return pendingDelta || byAccount(left, right);
   });
 }
 
@@ -2999,6 +3344,116 @@ export function buildLegacyReviewRows(run, members = []) {
   return [...memberRows, ...unmatched];
 }
 
+/* 單台機器的核查內容（檢查點 → checks、回饋、儲存）；由學生總覽展開後逐台渲染。 */
+function MachineReviewDetail({
+  row,
+  machineNodes = [],
+  draft,
+  saved,
+  isDirty,
+  saving,
+  onToggleDecision,
+  onUpdateFeedback,
+  onSave,
+}) {
+  const { target } = row;
+  const checks = targetChecks(target);
+  const nodeLabel = row.nodeKey
+    ? batchMachineDisplayName(row.nodeKey, machineNodes, row.node?.display_label) ?? row.nodeKey
+    : null;
+  if (!target) {
+    return <div className={styles.reviewNoResult}>這台機器不在最近一次執行範圍內，尚無 AI 檢查結果。</div>;
+  }
+  return (
+    <>
+      <div className={styles.reviewMachineHead}>
+        <strong>{nodeLabel ?? `VMID ${row.vmid ?? "—"}`}</strong>
+        {row.vmid ? <small>{`VMID ${row.vmid}`}</small> : null}
+        <span className={`${styles.badge} ${reviewBadgeClass(getTargetReviewSummary(target).kind)}`}>
+          {getTargetReviewSummary(target).label}
+        </span>
+      </div>
+      {row.items ? (
+        <div className={styles.reviewCheckList}>
+          {row.items.length === 0 && (
+            <p className={styles.mutedText}>此機器沒有回傳可顯示的檢查點。</p>
+          )}
+          {row.items.map((item, itemIndex) => {
+            const itemMeta = checkStatusMeta(item?.status);
+            const itemChecks = Array.isArray(item?.checks) ? item.checks : [];
+            const peerText = item?.peer_node_key
+              ? `觀察 ${item?.peer_display_label ?? item.peer_node_key}`
+              : null;
+            return (
+              <div
+                className={styles.reviewCheckGroup}
+                key={`${row.key}-item-${item?.rubric_item_id ?? itemIndex}`}
+              >
+                <div className={styles.reviewCheckGroupHead}>
+                  <span className={`${styles.reviewCheckIcon} ${itemMeta.className}`}>
+                    <MIcon name={itemMeta.icon} size={17} />
+                  </span>
+                  <div className={styles.reviewCheckGroupTitle}>
+                    <strong>{item?.title ?? item?.rubric_item_id ?? "檢查點"}</strong>
+                    <span>{itemMeta.label}{peerText ? ` · ${peerText}` : ""}</span>
+                  </div>
+                </div>
+                {itemChecks.length === 0 ? (
+                  <p className={styles.mutedText}>
+                    {item?.reason_code === "peer_unavailable"
+                      ? "對應的受控機器目前無法連線，此檢查點暫時無法自動判定。"
+                      : "此檢查點沒有回傳可顯示的結果。"}
+                  </p>
+                ) : itemChecks.map((check, checkIndex) => (
+                  <ReviewCheckRow
+                    key={`${item?.rubric_item_id ?? "item"}-${check?.id ?? "check"}-${checkIndex}`}
+                    check={check}
+                    decision={draft.decisions[check?.id]}
+                    onDecide={(value) => onToggleDecision(row.key, check?.id, value)}
+                  />
+                ))}
+              </div>
+            );
+          })}
+          {(row.unmappedChecks ?? []).length > 0 && (
+            <details className={styles.judgeDetails}>
+              <summary>未對應檢查點</summary>
+              <CheckResultsTable checks={row.unmappedChecks} />
+            </details>
+          )}
+        </div>
+      ) : (
+        <div className={styles.reviewCheckList}>
+          {checks.length === 0 ? <p className={styles.mutedText}>腳本沒有回傳可顯示的檢查項目。</p> : checks.map((check, index) => (
+            <ReviewCheckRow
+              key={`${check?.id ?? "check"}-${index}`}
+              check={check}
+              decision={draft.decisions[check?.id]}
+              onDecide={(value) => onToggleDecision(row.key, check?.id, value)}
+            />
+          ))}
+        </div>
+      )}
+
+      <label className={styles.reviewFeedbackField}>
+        <span>給學生的本週回饋 <small>選填</small></span>
+        <textarea
+          value={draft.feedback}
+          maxLength={4000}
+          rows={3}
+          placeholder="例如：服務已能啟動，接下來請補上錯誤處理並重新確認日誌。"
+          onChange={(event) => onUpdateFeedback(row.key, event.target.value)}
+        />
+        <small>{draft.feedback.length} / 4000</small>
+      </label>
+      <div className={styles.reviewSaveRow}>
+        <span>{isDirty ? "有尚未儲存的變更" : saved.feedback || Object.keys(saved.decisions).length ? `上次儲存：${target.teacher_review?.updated_at ? formatDateTime(target.teacher_review.updated_at) : "已儲存"}` : "可只判定、不留言；也可以只留言。"}</span>
+        <button type="button" className={styles.btnPrimary} disabled={!isDirty || saving} onClick={() => onSave(row)}>{saving ? <><Spinner size={15} />儲存中…</> : <><MIcon name="save" size={16} />儲存核查</>}</button>
+      </div>
+    </>
+  );
+}
+
 export function TeacherReviewTab({ classId, sessionId, members, machineNodes = [] }) {
   const toast = useToast();
   const [reviewState, setReviewState] = useState(null); // { mode: "batch", batch } | { mode: "run", run }
@@ -3131,23 +3586,27 @@ export function TeacherReviewTab({ classId, sessionId, members, machineNodes = [
   );
   const batchRunning = Boolean(activeBatch && !runIsTerminal(activeBatch.status));
 
-  const rows = useMemo(() => {
+  const machineRows = useMemo(() => {
     if (!reviewState) return [];
-    const built = reviewState.mode === "batch"
+    return reviewState.mode === "batch"
       ? buildBatchReviewRows(reviewState.batch, members)
       : buildLegacyReviewRows(reviewState.run, members);
-    return sortTeacherReviewRows(built, sortMode);
-  }, [reviewState, members, sortMode]);
+  }, [reviewState, members]);
 
-  const summary = useMemo(() => rows.reduce((counts, row) => {
-    const item = getTargetReviewSummary(row.target);
+  /* 以學生為單位的總覽：machine rows 按 studentId 分組，排序以學生狀態為準。 */
+  const studentRows = useMemo(
+    () => sortStudentOverviewRows(buildStudentOverviewRows(machineRows), sortMode),
+    [machineRows, sortMode],
+  );
+
+  const summary = useMemo(() => studentRows.reduce((counts, student) => {
     counts.total += 1;
-    if (item.kind === "pending") counts.pending += 1;
-    if (item.kind === "reviewed") counts.reviewed += 1;
-    if (item.kind === "automatic") counts.automatic += 1;
-    if (item.kind === "missing" || item.kind === "failed") counts.unavailable += 1;
+    if (student.status.kind === "pending") counts.pending += 1;
+    if (student.status.kind === "reviewed") counts.reviewed += 1;
+    if (student.status.kind === "automatic") counts.automatic += 1;
+    if (student.status.kind === "missing" || student.status.kind === "failed") counts.unavailable += 1;
     return counts;
-  }, { total: 0, pending: 0, reviewed: 0, automatic: 0, unavailable: 0 }), [rows]);
+  }, { total: 0, pending: 0, reviewed: 0, automatic: 0, unavailable: 0 }), [studentRows]);
 
   function updateDraft(key, updater) {
     setDrafts((current) => ({
@@ -3372,7 +3831,7 @@ export function TeacherReviewTab({ classId, sessionId, members, machineNodes = [
           <span><strong>{summary.pending}</strong><small>待核查</small></span>
           <span><strong>{summary.reviewed}</strong><small>已核查／留言</small></span>
           <span><strong>{summary.automatic}</strong><small>AI 已判定</small></span>
-          <span><strong>{summary.total}</strong><small>{reviewState.mode === "batch" ? "機器總數" : "學生總數"}</small></span>
+          <span><strong>{summary.total}</strong><small>學生總數</small></span>
         </div>
         {activeBatch && (
           <div className={styles.runOnceProgress} aria-live="polite">
@@ -3399,35 +3858,16 @@ export function TeacherReviewTab({ classId, sessionId, members, machineNodes = [
           </label>
         </div>
         <div className={styles.reviewStudentList}>
-          {rows.map((row) => {
-          const { member, target } = row;
-          const vmid = row.vmid ?? target?.vmid ?? member?.vmid;
-          const user = target?.user ?? member ?? {};
-          const itemSummary = getTargetReviewSummary(target);
-          const isOpen = expandedKey === row.key;
-          const checks = targetChecks(target);
-          const counts = checks.reduce((result, check) => {
-            const status = check?.status;
-            if (status === "pass") result.pass += 1;
-            else if (status === "fail") result.fail += 1;
-            else if (TEACHER_REVIEW_STATUSES.has(status)) result.review += 1;
-            return result;
-          }, { pass: 0, fail: 0, review: 0 });
-          const draft = drafts[row.key] ?? reviewDraft(target);
-          const saved = targetTeacherReview(target);
-          const isDirty = Boolean(target) && (
-            draft.feedback !== saved.feedback
-            || JSON.stringify(draft.decisions) !== JSON.stringify(saved.decisions)
-          );
-          const nodeLabel = row.nodeKey
-            ? batchMachineDisplayName(row.nodeKey, machineNodes, row.node?.display_label) ?? row.nodeKey
-            : null;
+          {studentRows.map((student) => {
+          const user = student.user ?? {};
+          const isOpen = expandedKey === student.studentId;
+          const { totals } = student;
           return (
-            <article className={`${styles.reviewStudent} ${isOpen ? styles.reviewStudentOpen : ""}`} key={row.key}>
+            <article className={`${styles.reviewStudent} ${isOpen ? styles.reviewStudentOpen : ""}`} key={student.studentId}>
               <button
                 type="button"
                 className={styles.reviewStudentToggle}
-                onClick={() => setExpandedKey(isOpen ? null : row.key)}
+                onClick={() => setExpandedKey(isOpen ? null : student.studentId)}
                 aria-expanded={isOpen}
               >
                 <span className={styles.reviewStudentIdentity}>
@@ -3435,103 +3875,43 @@ export function TeacherReviewTab({ classId, sessionId, members, machineNodes = [
                   <span>
                     <strong>{user.full_name ?? "未命名學生"}</strong>
                     <small>
-                      {user.email ?? ""}{vmid ? ` · VMID ${vmid}` : ""}
-                      {nodeLabel ? ` · ${nodeLabel}` : ""}
+                      {user.email ?? ""}
+                      {` · ${student.machines.length} 台機器`}
                     </small>
                   </span>
                 </span>
-                <span className={styles.reviewAiCounts} aria-label="AI 檢查摘要">
-                  {target && <><em className={styles.reviewCountPass}>{counts.pass} 通過</em><em className={styles.reviewCountFail}>{counts.fail} 未通過</em><em className={styles.reviewCountPending}>{counts.review} 待確認</em></>}
+                <span className={styles.reviewAiCounts} aria-label="學生執行總覽">
+                  <><em className={styles.reviewCountPass}>{totals.pass} 通過</em><em className={styles.reviewCountFail}>{totals.fail} 未通過</em><em className={styles.reviewCountPending}>{totals.pending} 待確認</em></>
                 </span>
-                <span className={`${styles.badge} ${reviewBadgeClass(itemSummary.kind)}`}>{itemSummary.label}</span>
+                <span className={`${styles.badge} ${reviewBadgeClass(student.status.kind)}`}>{student.status.label}</span>
                 <MIcon name={isOpen ? "expand_less" : "expand_more"} size={20} />
               </button>
 
               {isOpen && (
                 <div className={styles.reviewStudentBody}>
-                  {!target ? (
-                    <div className={styles.reviewNoResult}>這位學生不在最近一次執行範圍內，尚無 AI 檢查結果。</div>
-                  ) : (
-                    <>
-                      {row.items ? (
-                        <div className={styles.reviewCheckList}>
-                          {row.items.length === 0 && (
-                            <p className={styles.mutedText}>此機器沒有回傳可顯示的檢查點。</p>
-                          )}
-                          {row.items.map((item, itemIndex) => {
-                            const itemMeta = checkStatusMeta(item?.status);
-                            const itemChecks = Array.isArray(item?.checks) ? item.checks : [];
-                            const peerText = item?.peer_node_key
-                              ? `觀察 ${item?.peer_display_label ?? item.peer_node_key}`
-                              : null;
-                            return (
-                              <div
-                                className={styles.reviewCheckGroup}
-                                key={`${row.key}-item-${item?.rubric_item_id ?? itemIndex}`}
-                              >
-                                <div className={styles.reviewCheckGroupHead}>
-                                  <span className={`${styles.reviewCheckIcon} ${itemMeta.className}`}>
-                                    <MIcon name={itemMeta.icon} size={17} />
-                                  </span>
-                                  <div className={styles.reviewCheckGroupTitle}>
-                                    <strong>{item?.title ?? item?.rubric_item_id ?? "檢查點"}</strong>
-                                    <span>{itemMeta.label}{peerText ? ` · ${peerText}` : ""}</span>
-                                  </div>
-                                </div>
-                                {itemChecks.length === 0 ? (
-                                  <p className={styles.mutedText}>
-                                    {item?.reason_code === "peer_unavailable"
-                                      ? "對應的受控機器目前無法連線，此檢查點暫時無法自動判定。"
-                                      : "此檢查點沒有回傳可顯示的結果。"}
-                                  </p>
-                                ) : itemChecks.map((check, checkIndex) => (
-                                  <ReviewCheckRow
-                                    key={`${item?.rubric_item_id ?? "item"}-${check?.id ?? "check"}-${checkIndex}`}
-                                    check={check}
-                                    decision={draft.decisions[check?.id]}
-                                    onDecide={(value) => toggleDecision(row.key, check?.id, value)}
-                                  />
-                                ))}
-                              </div>
-                            );
-                          })}
-                          {(row.unmappedChecks ?? []).length > 0 && (
-                            <details className={styles.judgeDetails}>
-                              <summary>未對應檢查點</summary>
-                              <CheckResultsTable checks={row.unmappedChecks} />
-                            </details>
-                          )}
-                        </div>
-                      ) : (
-                        <div className={styles.reviewCheckList}>
-                          {checks.length === 0 ? <p className={styles.mutedText}>腳本沒有回傳可顯示的檢查項目。</p> : checks.map((check, index) => (
-                            <ReviewCheckRow
-                              key={`${check?.id ?? "check"}-${index}`}
-                              check={check}
-                              decision={draft.decisions[check?.id]}
-                              onDecide={(value) => toggleDecision(row.key, check?.id, value)}
-                            />
-                          ))}
-                        </div>
-                      )}
-
-                      <label className={styles.reviewFeedbackField}>
-                        <span>給學生的本週回饋 <small>選填</small></span>
-                        <textarea
-                          value={draft.feedback}
-                          maxLength={4000}
-                          rows={3}
-                          placeholder="例如：服務已能啟動，接下來請補上錯誤處理並重新確認日誌。"
-                          onChange={(event) => updateDraft(row.key, (current) => ({ ...current, feedback: event.target.value }))}
+                  {student.machines.map((row) => {
+                    const draft = drafts[row.key] ?? reviewDraft(row.target);
+                    const saved = targetTeacherReview(row.target);
+                    const isDirty = Boolean(row.target) && (
+                      draft.feedback !== saved.feedback
+                      || JSON.stringify(draft.decisions) !== JSON.stringify(saved.decisions)
+                    );
+                    return (
+                      <section className={styles.reviewMachineCard} key={row.key} aria-label={row.nodeKey ?? `VMID ${row.vmid ?? ""}`}>
+                        <MachineReviewDetail
+                          row={row}
+                          machineNodes={machineNodes}
+                          draft={draft}
+                          saved={saved}
+                          isDirty={isDirty}
+                          saving={savingKey === row.key}
+                          onToggleDecision={toggleDecision}
+                          onUpdateFeedback={(key, feedback) => updateDraft(key, (current) => ({ ...current, feedback }))}
+                          onSave={saveRow}
                         />
-                        <small>{draft.feedback.length} / 4000</small>
-                      </label>
-                      <div className={styles.reviewSaveRow}>
-                        <span>{isDirty ? "有尚未儲存的變更" : saved.feedback || Object.keys(saved.decisions).length ? `上次儲存：${target.teacher_review?.updated_at ? formatDateTime(target.teacher_review.updated_at) : "已儲存"}` : "可只判定、不留言；也可以只留言。"}</span>
-                        <button type="button" className={styles.btnPrimary} disabled={!isDirty || savingKey === row.key} onClick={() => saveRow(row)}>{savingKey === row.key ? <><Spinner size={15} />儲存中…</> : <><MIcon name="save" size={16} />儲存核查</>}</button>
-                      </div>
-                    </>
-                  )}
+                      </section>
+                    );
+                  })}
                 </div>
               )}
             </article>
@@ -3934,7 +4314,7 @@ function TeacherWorkspacePanel({ classId, members, weeks = [], machineNodes = []
       {activeSession ? (
         activeTab === "rubrics" ? (
           <section className={styles.sessionMainFull} aria-label="檢查設定工作區">
-            <RubricsTab key={activeSession.id} classId={classId} judgeSession={activeSession} onSessionUpdated={updateSessionInList} sidebar={sessionSidebarInner} tabsBar={subTabsBar} onScriptCreated={(artifact) => { loadSessions(); const destination = getScriptCreationDestination(artifact); setFocusedScriptId(destination === "scripts" ? (artifact?.id ?? null) : null); setActiveTab(destination); }} />
+            <RubricsTab key={activeSession.id} classId={classId} judgeSession={activeSession} onSessionUpdated={updateSessionInList} machineNodes={machineNodes} sidebar={sessionSidebarInner} tabsBar={subTabsBar} onScriptCreated={(artifact) => { loadSessions(); const destination = getScriptCreationDestination(artifact); setFocusedScriptId(destination === "scripts" ? (artifact?.id ?? null) : null); setActiveTab(destination); }} />
           </section>
         ) : (
           <section className={styles.sessionMainFull} aria-label="檢查工作區">

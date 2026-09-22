@@ -17,7 +17,6 @@ from app.ai.navigation.service import _extract_first_json_object
 from app.ai.pve_log import collector
 from app.ai.pve_log.chat import _execute_tool_sync
 from app.ai.system_config import system_ai_env
-from app.ai.teacher_judge import script_artifact_service as artifacts
 from app.ai.teacher_judge import script_executor_service as executor
 from app.ai.teacher_judge import service
 from app.ai.teacher_judge.prompt import (
@@ -44,19 +43,6 @@ def test_navigation_json_handles_braces_inside_strings(value):
     expected = {"intent": value, "action": "clarify"}
     text = "```json\n" + json.dumps(expected) + "\n```"
     assert json.loads(_extract_first_json_object(text)) == expected
-
-
-@pytest.mark.parametrize(
-    "prompt",
-    [
-        CHAT_SYSTEM_TEMPLATE,
-        artifacts.AI_REVIEWER_SYSTEM_PROMPT,
-    ],
-)
-def test_plain_prompt_json_examples_are_valid(prompt):
-    assert "\n{{\n" not in prompt
-    start = prompt.index("{\n")
-    json.JSONDecoder().raw_decode(prompt[start:])
 
 
 def test_teacher_judge_chat_prompt_is_scoped_and_clarifies_missing_information():
@@ -294,22 +280,13 @@ def test_teacher_judge_prompt_uses_goal_directed_diagnostic_principles():
 
 
 @pytest.mark.parametrize("content", ["null", "[]", '"text"'])
-async def test_non_object_chat_and_script_outputs_fail_cleanly(monkeypatch, content):
+async def test_non_object_chat_output_fails_cleanly(monkeypatch, content):
     monkeypatch.setattr(system_ai_env, "vllm_model_name", "test-model")
 
     async def fake_call(*args, **kwargs):
         return content, {}
 
     monkeypatch.setattr(service, "_call_vllm_message", fake_call)
-    monkeypatch.setattr(artifacts, "_call_vllm", fake_call)
-    with pytest.raises(HTTPException) as error:
-        await artifacts.fix_script_content(script_content="pass", fix_hints=[])
-    assert error.value.status_code == 502
-    with pytest.raises(HTTPException) as error:
-        await artifacts.generate_script_content(
-            rubric_snapshot={}, template_key="linux"
-        )
-    assert error.value.status_code == 502
     reply, proposal, _ = await service.chat_with_rubric(
         [TeacherJudgeRubricChatMessage(role="user", content="說明")], "{}"
     )
@@ -970,20 +947,6 @@ def test_collector_retries_only_transient_http_failures(
     snapshot = collector.collect_snapshot()
     assert len(calls) == expected_calls
     assert snapshot.errors
-
-
-@pytest.mark.parametrize(
-    "payload",
-    [
-        None,
-        {},
-        {"approved": True, "risk_level": "invalid", "issues": []},
-        {"approved": "true", "risk_level": "low", "issues": []},
-        {"approved": True, "risk_level": "low", "issues": ["unsafe"]},
-    ],
-)
-def test_reviewer_invalid_or_contradictory_output_never_approves(payload):
-    assert artifacts._normalize_ai_review(payload)["approved"] is False
 
 
 async def test_executor_sync_stage_does_not_block_loop(monkeypatch):

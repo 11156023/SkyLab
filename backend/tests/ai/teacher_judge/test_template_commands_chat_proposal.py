@@ -500,12 +500,17 @@ async def test_chat_with_rubric_validates_returned_check_steps(
                     "detectable": "auto",
                     "check_steps": [
                         {
-                            "template_key": "n8n",
-                            "command_key": "n8n.http_check",
-                        },
-                        {
-                            "template_key": "n8n",
-                            "command_key": "n8n.missing",
+                            "id": "n8n.health",
+                            "title": "取得 n8n HTTP 回應",
+                            "collector": {
+                                "type": "localhost_http",
+                                "url": "http://127.0.0.1:5678",
+                                "timeout_seconds": 5,
+                            },
+                            "assertion": {
+                                "type": "text_contains",
+                                "expected": "n8n",
+                            },
                         },
                     ],
                 },
@@ -536,10 +541,20 @@ async def test_chat_with_rubric_validates_returned_check_steps(
     assert "curl -I" not in system_prompt
     assert updated_items[0]["check_steps"] == [
         {
-            "template_key": "n8n",
-            "command_key": "n8n.http_check",
-            "command_label": "n8n HTTP 檢查",
-            "parameters": {},
+            "id": "n8n.health",
+            "title": "取得 n8n HTTP 回應",
+            "collector": {
+                "type": "localhost_http",
+                "method": "GET",
+                "url": "http://127.0.0.1:5678",
+                "timeout_seconds": 5,
+                "max_chars": 12000,
+            },
+            "assertion": {
+                "type": "text_contains",
+                "expected": "n8n",
+                "normalize": "none",
+            },
         }
     ]
 
