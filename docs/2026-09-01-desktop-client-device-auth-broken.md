@@ -134,31 +134,17 @@ CMD ["fastapi", "run", "--workers", "4", "app/main.py"]
 | `GET /resources/my` | 列出我的機器 |
 | `GET /resources/{vmid}/session-status` | 查練習時段剩餘時間 |
 | `POST /resources/{vmid}/extend-session` | 延長時段 |
-| `GET /tunnel/my-config` | 取得 frpc visitor 設定 |
+| `POST /desktop-client/wireguard/connect` | 建立 WireGuard 連線 |
 
-核心是最後一支。`backend/app/api/routes/tunnel.py` 的註解說明其角色：
+目前桌面端透過 WireGuard 建立到 Gateway 的加密網路，再用系統既有的 SSH 或 RDP
+工具連線到獲得授權的 VM。網路連線由
+`desktop-client/electron/service/WireGuardTunnelService.ts` 管理。
 
-> The desktop client calls this after login to know which STCP visitors to create
-> (one per VM per service).
-
-拿到設定後，`desktop-client/electron/service/FrpcProcessService.ts` 以 `spawn()`
-在使用者電腦上執行 **frpc** 子行程，建立 STCP 隧道。
-
-**結論：它不是遠端桌面軟體，而是「自動幫學生配置好 frpc 隧道」的啟動器。**
-省去學生自行安裝 frpc、撰寫 `frpc.toml`、記憶 visitor port 的麻煩。連上之後
-實際的遠端操作（SSH / RDP / VNC）仍由其他工具負責。
+它本身不是遠端桌面軟體；實際操作仍由其他 SSH／RDP 工具負責。
 
 ---
 
-## 兩個處理方向
-
-專案目前已有外部軟體支援遠端連線，因此需先確認該軟體是否自帶網路穿透：
-
-- **若學生機器本來就連得到**（校內網路直通，或外部軟體自帶穿透如
-  Tailscale / ZeroTier / TeamViewer）→ 這個桌面端是多餘的，應整包退役
-- **若外部軟體只負責畫面、穿透仍靠 frp** → 這個桌面端在解一個真實問題，應修復
-
-### 方向 A：修復
+## 後續修復方向
 
 | 工作 | 位置 | 規模 |
 |---|---|---|
@@ -167,19 +153,6 @@ CMD ["fastapi", "run", "--workers", "4", "app/main.py"]
 | 前端加上桌面端下載入口 | 前端（位置待定） | 小 |
 | 補上流程測試 | `backend/tests/`、`frontend/src/` | 中 |
 
-### 方向 B：退役
-
-需移除的範圍：
-
-- `desktop-client/`（整個目錄）
-- `backend/app/api/routes/desktop_client.py`（4 個端點）
-- `backend/app/api/routes/tunnel.py`（1 個端點）
-- `tunnel_proxies` 資料表與 `TunnelProxy` model
-- `backend/app/services/network/tunnel_proxy_service.py`
-- Gateway 的 frpc 同步邏輯
-
-注意 `tunnel_proxies` 目前有 2 筆資料，退役前需確認不影響現有使用者。
-
 ---
 
 ## 相關檔案
@@ -187,17 +160,16 @@ CMD ["fastapi", "run", "--workers", "4", "app/main.py"]
 | 檔案 | 說明 |
 |---|---|
 | `backend/app/api/routes/desktop_client.py` | 三支 auth 端點 + download，後端側完整 |
-| `backend/app/api/routes/tunnel.py` | frpc visitor 設定 |
 | `frontend/src/pages/login/LoginPage.jsx` | 缺少第三步的地方 |
 | `desktop-client/electron/service/AuthService.ts` | 桌面端登入與輪詢 |
 | `desktop-client/electron/service/SkyLabService.ts` | 桌面端 HTTP client |
-| `desktop-client/electron/service/FrpcProcessService.ts` | frpc 子行程管理 |
+| `desktop-client/electron/service/WireGuardTunnelService.ts` | WireGuard 連線管理 |
 | `backend/Dockerfile` | `--workers 4`，問題二的成因 |
 
 ---
 
 ## 待決事項
 
-1. 現有外部遠端連線軟體是哪一套？是否自帶網路穿透？
-2. 依上述答案選擇方向 A 或 B。
-3. 若選 B，需確認 `tunnel_proxies` 現有 2 筆資料的歸屬與影響。
+1. 登入頁是否已完成裝置核准流程？
+2. device code 是否已改用跨 worker 共用的儲存層？
+3. 桌面端下載入口是否已對使用者公開？

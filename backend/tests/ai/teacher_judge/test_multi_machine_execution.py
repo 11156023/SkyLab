@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 import uuid
-from typing import Any
 
 import pytest
 from sqlmodel import select
@@ -21,12 +20,17 @@ from app.ai.teacher_judge.script_artifact_service import (
 from app.ai.teacher_judge.script_policy import check_peer_runtime_policy
 from app.ai.teacher_judge.script_run_service import (
     _peer_resolution_for_target,
+    get_script_run_batch_public,
     project_run_items,
 )
 from app.models.teacher_judge_script_artifact import (
     TeacherJudgeScriptArtifact,
     TeacherJudgeScriptLanguage,
     TeacherJudgeScriptStatus,
+)
+from app.models.teacher_judge_script_run import (
+    TeacherJudgeScriptRun,
+    TeacherJudgeScriptRunStatus,
 )
 from app.models.teaching_class import TeachingClassMachineNode
 from tests.ai.teacher_judge.helpers import make_session
@@ -37,24 +41,38 @@ def _item(
     node_key: str,
     *,
     peer_node_key: str | None = None,
+    judgement_mode: str = "ai",
 ) -> TeacherJudgeRubricItem:
     return TeacherJudgeRubricItem(
         id=item_id,
         title=item_id,
         checked=False,
         detectable="auto",
-        judgement_mode="ai",
+        judgement_mode=judgement_mode,  # type: ignore[arg-type]
         detection_method="受控檢查",
         target_node_key=node_key,
         peer_node_key=peer_node_key,
         check_steps=[
             TeacherJudgeRubricCheckStep(
-                argv=(
-                    ["ping", "-c", "1", "{{peer.ip}}"]
+                id=f"{item_id}.check",
+                title=f"{item_id} check",
+                collector=(
+                    {
+                        "type": "peer_ping",
+                        "timeout_seconds": 30,
+                    }
                     if peer_node_key
-                    else ["systemctl", "is-active", "nginx"]
+                    else {
+                        "type": "command",
+                        "argv": ["systemctl", "is-active", "nginx"],
+                        "timeout_seconds": 30,
+                    }
                 ),
-                timeout_seconds=30,
+                assertion=(
+                    {"type": "returncode_equals", "expected": 0}
+                    if judgement_mode == "ai"
+                    else None
+                ),
             )
         ],
     )
@@ -134,25 +152,6 @@ async def test_create_artifact_set_writes_one_child_per_executor_node(
         lambda **_kwargs: (None, {}),
     )
 
-    async def fake_build(
-        *, rubric_snapshot: dict[str, Any], template_key: str
-    ) -> tuple[Any, ...]:
-        assert template_key == "linux"
-        assert rubric_snapshot["target_node_key"] in {"web", "db"}
-        return (
-            "print('ok')",
-            {"approved": True, "issues": []},
-            {"approved": True, "issues": []},
-            TeacherJudgeScriptStatus.reviewed,
-            [],
-        )
-
-    monkeypatch.setattr(
-        script_artifact_service,
-        "_build_reviewed_script_for_artifact",
-        fake_build,
-    )
-
     result = await script_artifact_service.create_artifact_set(
         session=session,
         teaching_class_id=class_id,
@@ -161,7 +160,7 @@ async def test_create_artifact_set_writes_one_child_per_executor_node(
         template_key="linux",
         rubric_analysis=TeacherJudgeRubricAnalysis(
             items=[
-                _item("web-health", "web"),
+                _item("web-health", "web", judgement_mode="teacher"),
                 _item("db-to-web", "db", peer_node_key="web"),
             ]
         ),
@@ -178,10 +177,21 @@ async def test_create_artifact_set_writes_one_child_per_executor_node(
     ]
     assert len({child.artifact_set_id for child in result.children}) == 1
     assert all(child.source_analysis_revision == 3 for child in result.children)
+    assert all(
+        child.policy_check_result_json.get("source") == "deterministic_compiler"
+        for child in result.children
+    )
+    assert all(
+        child.ai_review_result_json.get("mode") == "deterministic_compiler"
+        for child in result.children
+    )
     assert [
         item["id"]
         for item in result.children[1].rubric_snapshot_json["items"]
     ] == ["db-to-web"]
+    teacher_step = result.children[0].rubric_snapshot_json["items"][0]["check_steps"][0]
+    assert result.children[0].rubric_snapshot_json["items"][0]["judgement_mode"] == "teacher"
+    assert "assertion" not in teacher_step
     rows = list(session.exec(select(TeacherJudgeScriptArtifact)).all())
     assert len(rows) == 2
 
@@ -234,23 +244,6 @@ async def test_create_artifact_set_child_name_falls_back_and_truncates(
         script_artifact_service,
         "source_file_snapshot",
         lambda **_kwargs: (None, {}),
-    )
-
-    async def fake_build(
-        *, rubric_snapshot: dict[str, Any], template_key: str
-    ) -> tuple[Any, ...]:
-        return (
-            "print('ok')",
-            {"approved": True, "issues": []},
-            {"approved": True, "issues": []},
-            TeacherJudgeScriptStatus.reviewed,
-            [],
-        )
-
-    monkeypatch.setattr(
-        script_artifact_service,
-        "_build_reviewed_script_for_artifact",
-        fake_build,
     )
 
     result = await script_artifact_service.create_artifact_set(
@@ -523,3 +516,48 @@ def test_item_projection_keeps_vmid_and_teacher_review() -> None:
     )
     assert absent["vmid"] is None
     assert absent["teacher_review"] is None
+
+
+def test_batch_student_node_projection_includes_child_run_id() -> None:
+    session = make_session()
+    class_id = uuid.uuid4()
+    batch_id = uuid.uuid4()
+    artifact = TeacherJudgeScriptArtifact(
+        teaching_class_id=class_id,
+        target_node_key="db",
+        rubric_snapshot_json={"items": []},
+        script_content="print('{}')",
+        name="db",
+        template_key="linux",
+    )
+    session.add(artifact)
+    session.commit()
+    session.refresh(artifact)
+    run = TeacherJudgeScriptRun(
+        teaching_class_id=class_id,
+        artifact_id=artifact.id,
+        run_batch_id=batch_id,
+        status=TeacherJudgeScriptRunStatus.completed,
+        progress_json={"total": 1, "done": 1},
+        target_results_json={
+            "targets": [
+                {
+                    "student_id": "student-1",
+                    "vmid": 101,
+                    "status": "completed",
+                    "parsed_result": {"checks": []},
+                }
+            ]
+        },
+    )
+    session.add(run)
+    session.commit()
+    session.refresh(run)
+
+    result = get_script_run_batch_public(
+        session=session,
+        teaching_class_id=class_id,
+        run_batch_id=batch_id,
+    )
+
+    assert result.students[0]["nodes"][0]["run_id"] == str(run.id)

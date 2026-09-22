@@ -172,10 +172,26 @@ def attachment_context(attachments: list[TeacherJudgeSessionAttachment]) -> str:
     return "\n".join(chunks)
 
 
+def attachment_compact_context(attachments: list[TeacherJudgeSessionAttachment]) -> str:
+    """P3 history placeholder: keep filename/size without re-injecting full text."""
+    if not attachments:
+        return "（本次訊息沒有附件）"
+    lines = [
+        "以下是教師先前附加的參考文件（已完成解析，原文不再重複注入；以逐項結果與最新訊息為準）。"
+    ]
+    for attachment in attachments:
+        extracted_len = len(attachment.extracted_text or "")
+        lines.append(
+            f"- {attachment.original_filename}（解析文字 {extracted_len} 字，已收斂）"
+        )
+    return "\n".join(lines)
+
+
 __all__ = [
     "ALLOWED_SUFFIXES",
     "ATTACHMENT_ROOT",
     "MAX_ATTACHMENT_COUNT",
+    "attachment_compact_context",
     "attachment_context",
     "attachment_public",
     "create_attachment",

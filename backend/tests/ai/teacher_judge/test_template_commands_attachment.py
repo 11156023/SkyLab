@@ -343,3 +343,60 @@ async def test_attachment_itemwise_keeps_duplicate_titles_as_separate_items(
     duplicate_ids = [operation["id"] for operation in result.proposal]
     assert len(duplicate_ids) == 2
     assert len(set(duplicate_ids)) == 2
+
+
+def test_attachment_extraction_assigns_server_source_item_id_and_chunks() -> None:
+    """P3: extraction owns source_item_id; chunk helper batches without loss."""
+    sources, error = teacher_judge_service._parse_attachment_extraction(
+        _itemwise_extraction_payload()
+    )
+
+    assert error is None
+    assert [source["source_index"] for source in sources] == [1, 2, 3]
+    ids = [source["source_item_id"] for source in sources]
+    assert all(isinstance(value, str) and value.startswith("src-") for value in ids)
+    assert len(set(ids)) == 3
+
+    chunks = teacher_judge_service.chunk_attachment_sources(sources, chunk_size=2)
+    assert [len(chunk) for chunk in chunks] == [2, 1]
+    assert [row["source_index"] for row in chunks[0]] == [1, 2]
+    assert [row["source_index"] for row in chunks[1]] == [3]
+
+
+@pytest.mark.asyncio
+async def test_attachment_itemwise_results_carry_source_item_id(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """P3: item_results keep the server-owned id for history dedup tracking."""
+
+    async def fake_call_vllm(payload, timeout=60.0):
+        system_prompt = payload["messages"][0]["content"]
+        if "評分表拆解器" in system_prompt:
+            return (_itemwise_extraction_payload(), {"total_tokens": 1})
+        if payload["messages"][-1]["role"] == "user":
+            user_content = payload["messages"][-1]["content"]
+            for title in _ITEMWISE_TITLES:
+                if title in user_content:
+                    return (
+                        _itemwise_ready_tool_call(title),
+                        {"total_tokens": 1},
+                    )
+        return (reply_message("已整理成提案。", "ready"), {"total_tokens": 1})
+
+    monkeypatch.setattr(teacher_judge_service, "_call_vllm_message", fake_call_vllm)
+    patch_teacher_judge_vllm_settings(monkeypatch)
+
+    result = await teacher_judge_service.analyze_attachments_itemwise(
+        rubric_context=json.dumps({"items": []}),
+        template_key="linux",
+        template_commands=[GENERAL_COMMAND],
+        attachment_context=MULTI_ROW_ATTACHMENT_CONTEXT,
+        rubric_available=True,
+    )
+
+    assert result.item_results
+    for row in result.item_results:
+        assert str(row.get("source_item_id") or "").startswith("src-")
+    assert len({row["source_item_id"] for row in result.item_results}) == len(
+        result.item_results
+    )

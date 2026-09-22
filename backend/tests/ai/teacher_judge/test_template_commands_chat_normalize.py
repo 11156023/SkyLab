@@ -377,6 +377,124 @@ async def test_ready_claim_without_tool_call_is_repaired_by_forced_create(
 
 
 @pytest.mark.asyncio
+async def test_finalizer_repairs_legacy_plan_before_accepting_prose(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    legacy_item = {
+        "id": "item-legacy",
+        "title": "讀取 main.log",
+        "detectable": "auto",
+        "judgement_mode": "teacher",
+        "detection_method": "讀取 main.log 供老師檢查。",
+        "missing_information": [],
+        "check_steps": [
+            {
+                "id": "step-1",
+                "title": "讀取 main.log",
+                "argv": ["cat", "/home/student/main.log"],
+                "timeout_seconds": 30,
+            }
+        ],
+    }
+    calls, fake_call_vllm = scripted_vllm(
+        [
+            tool_call_message("list_checklist", {}),
+            tool_call_message("get_checklist_item", {"id": "item-legacy"}),
+            reply_message("我已將 legacy step 轉成 typed proposal。", "ready"),
+            tool_call_message(
+                "edit_checklist_item",
+                {
+                    "id": "item-legacy",
+                    "check_steps": [
+                        {
+                            "id": "step-1",
+                            "title": "讀取 main.log",
+                            "collector": {
+                                "type": "command",
+                                "argv": ["cat", "/home/student/main.log"],
+                                "timeout_seconds": 30,
+                            },
+                        }
+                    ],
+                },
+            ),
+            reply_message("typed proposal 已建立。", "ready"),
+        ]
+    )
+
+    monkeypatch.setattr(teacher_judge_service, "_call_vllm_message", fake_call_vllm)
+    patch_teacher_judge_vllm_settings(monkeypatch)
+
+    _reply, proposal, _metrics = await teacher_judge_service.chat_with_rubric(
+        messages=[SimpleNamespace(role="user", content="請核對完整檢查表")],
+        rubric_context=json.dumps({"items": [legacy_item]}, ensure_ascii=False),
+        is_refine=True,
+        template_commands=[],
+        rubric_available=True,
+    )
+
+    assert len(calls) == 5
+    assert calls[3]["tool_choice"] == {
+        "type": "function",
+        "function": {"name": "edit_checklist_item"},
+    }
+    repair_message = calls[3]["messages"][-1]["content"]
+    assert "item-legacy" in repair_message
+    assert "flat legacy shape" in repair_message
+    assert proposal is not None
+    assert proposal[0]["operation"] == "update"
+    assert proposal[0]["check_steps"][0]["collector"]["type"] == "command"
+
+
+@pytest.mark.asyncio
+async def test_finalizer_stops_after_same_contract_repair_fingerprint(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    legacy_item = {
+        "id": "item-legacy",
+        "title": "讀取 main.log",
+        "detectable": "auto",
+        "judgement_mode": "teacher",
+        "detection_method": "讀取 main.log 供老師檢查。",
+        "missing_information": [],
+        "check_steps": [
+            {
+                "id": "step-1",
+                "title": "讀取 main.log",
+                "argv": ["cat", "/home/student/main.log"],
+                "timeout_seconds": 30,
+            }
+        ],
+    }
+    calls, fake_call_vllm = scripted_vllm(
+        [
+            tool_call_message("list_checklist", {}),
+            tool_call_message("get_checklist_item", {"id": "item-legacy"}),
+            reply_message("已完成 typed 轉換。", "ready"),
+            reply_message("已完成 typed 轉換。", "ready"),
+        ]
+    )
+
+    monkeypatch.setattr(teacher_judge_service, "_call_vllm_message", fake_call_vllm)
+    patch_teacher_judge_vllm_settings(monkeypatch)
+
+    _reply, proposal, _metrics = await teacher_judge_service.chat_with_rubric(
+        messages=[SimpleNamespace(role="user", content="請核對完整檢查表")],
+        rubric_context=json.dumps({"items": [legacy_item]}, ensure_ascii=False),
+        is_refine=True,
+        template_commands=[],
+        rubric_available=True,
+    )
+
+    assert len(calls) == 4
+    assert calls[3]["tool_choice"] == {
+        "type": "function",
+        "function": {"name": "edit_checklist_item"},
+    }
+    assert proposal == []
+
+
+@pytest.mark.asyncio
 async def test_prose_creation_claim_without_tool_call_is_rewritten(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

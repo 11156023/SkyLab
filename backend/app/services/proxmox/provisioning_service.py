@@ -24,11 +24,7 @@ from app.schemas import (
     VMCreateResponse,
     VMTemplateSchema,
 )
-from app.services.network import (
-    firewall_service,
-    ip_management_service,
-    tunnel_proxy_service,
-)
+from app.services.network import firewall_service, ip_management_service
 from app.services.os_identity_service import (
     initial_guest_os as initial_guest_os_identity,
 )
@@ -530,19 +526,6 @@ def create_lxc(
         )
         session.commit()
 
-        # Register tunnel proxies (best-effort — don't fail provisioning)
-        try:
-            tunnel_proxy_service.register_vm(
-                session=session,
-                vmid=vmid,
-                user_id=user_id,
-                vm_type="lxc",
-            )
-        except Exception:
-            logger.warning(
-                "Failed to register tunnel proxies for LXC %s", vmid, exc_info=True
-            )
-
         logger.info(f"Created LXC container {vmid}: {lxc_data.hostname}")
         return LXCCreateResponse(
             vmid=vmid,
@@ -711,19 +694,6 @@ def create_vm(
             commit=False,
         )
         session.commit()
-
-        # Register tunnel proxies (best-effort — don't fail provisioning)
-        try:
-            tunnel_proxy_service.register_vm(
-                session=session,
-                vmid=new_vmid,
-                user_id=user_id,
-                vm_type="qemu",
-            )
-        except Exception:
-            logger.warning(
-                "Failed to register tunnel proxies for VM %d", new_vmid, exc_info=True
-            )
 
         logger.info(f"Created VM {new_vmid} from template {vm_data.template_id}")
         return VMCreateResponse(

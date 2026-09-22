@@ -996,6 +996,8 @@ def _item_result_status(checks: list[dict[str, Any]]) -> str:
         return "unknown"
     if statuses == {"skipped"}:
         return "skipped"
+    if "collected" in statuses:
+        return "collected"
     return "pass"
 
 
@@ -1190,18 +1192,21 @@ def get_script_run_batch_public(
             student_id = str(target.get("student_id") or "")
             if not student_id:
                 continue
-            student_nodes.setdefault(student_id, []).append(
-                project_run_items(
-                    artifact=artifact,
-                    target_result=target,
-                    display_labels=labels,
-                    peer_ips=peer_ips,
-                    peer_resolution=_peer_resolution_for_target(
-                        run.target_snapshot_json,
-                        target,
-                    ),
-                )
+            projected_node = project_run_items(
+                artifact=artifact,
+                target_result=target,
+                display_labels=labels,
+                peer_ips=peer_ips,
+                peer_resolution=_peer_resolution_for_target(
+                    run.target_snapshot_json,
+                    target,
+                ),
             )
+            # Teacher-review persistence is scoped by the child run and VMID.
+            # Keep the child run id on every student-node projection so clients do
+            # not have to infer it from the batch-level node summary.
+            projected_node["run_id"] = str(run.id)
+            student_nodes.setdefault(student_id, []).append(projected_node)
     first_artifact = rows[0][1]
     return TeacherJudgeRunBatchPublic(
         run_batch_id=str(run_batch_id),

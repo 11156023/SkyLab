@@ -20,7 +20,10 @@ from app.ai.teacher_judge.attachment_service import (
     delete_attachment,
     get_pending_attachments,
 )
-from app.ai.teacher_judge.automation_support import get_script_generation_blockers
+from app.ai.teacher_judge.automation_support import (
+    ensure_script_generation_supported,
+    get_script_generation_blockers,
+)
 from app.ai.teacher_judge.config import settings as teacher_judge_settings
 from app.ai.teacher_judge.file_service import create_blank_file
 from app.ai.teacher_judge.machine_context import (
@@ -32,7 +35,6 @@ from app.ai.teacher_judge.machine_context import (
 from app.ai.teacher_judge.schemas import (
     TeacherJudgeRubricAnalysis,
     TeacherJudgeRunBatchPublic,
-    TeacherJudgeScriptArtifactPublic,
     TeacherJudgeScriptRunCreateRequest,
     TeacherJudgeScriptRunPublic,
     TeacherJudgeScriptRunSummary,
@@ -50,7 +52,6 @@ from app.ai.teacher_judge.schemas import (
     TeacherJudgeTargetReviewUpdate,
 )
 from app.ai.teacher_judge.script_artifact_service import (
-    create_artifact,
     create_artifact_set,
     get_artifact_set,
     list_artifact_sets,
@@ -91,7 +92,6 @@ from app.ai.teacher_judge.session_service import (
     require_selected_file,
     schedule_summary,
     script_blocker_workflow_message,
-    script_review_workflow_message,
     selected_file_for_chat,
     session_public,
     session_public_many,
@@ -181,6 +181,45 @@ def _save_workflow_message(
             assistant.id,
         )
     return assistant
+
+
+def _save_script_set_failure(
+    session: SessionDep,
+    item: TeacherJudgeSession,
+    *,
+    detail: Any,
+    stage: str,
+    status_code: int | None,
+    source_file_id: uuid.UUID | str | None,
+    analysis_revision: int | None,
+    created_by: uuid.UUID | None,
+) -> None:
+    """Persist a bounded script-set failure for Chat/history projection."""
+    detail_dict = detail if isinstance(detail, dict) else {}
+    if isinstance(detail_dict.get("items"), list):
+        outcome = script_blocker_workflow_message(
+            detail_dict["items"],
+            source_file_id=source_file_id,
+            analysis_revision=analysis_revision,
+        )
+    else:
+        reason_code = detail_dict.get("code")
+        if reason_code == "teacher_judge_analysis_revision_conflict":
+            reason_code = "analysis_revision_conflict"
+        outcome = workflow_error_message(
+            stage=stage,
+            status_code=status_code,
+            source_file_id=source_file_id,
+            analysis_revision=analysis_revision,
+            reason_code=reason_code if isinstance(reason_code, str) else None,
+        )
+    _save_workflow_message(
+        session,
+        item,
+        content=outcome["content"],
+        metadata=outcome["metadata"],
+        created_by=created_by,
+    )
 
 
 def _access(db: SessionDep, class_id: uuid.UUID, user: InstructorUser) -> None:
@@ -628,6 +667,7 @@ async def create_message(
                     summary=item.summary,
                     source_file_id=file.id if file else None,
                     analysis_revision=base_revision,
+                    summary_through_message_id=item.summary_through_message_id,
                 ),
                 rubric_context,
                 is_refine=payload.is_refine,
@@ -722,17 +762,35 @@ async def create_message(
                 base_analysis,
                 proposal,
             )
+            readiness_nodes = load_class_machine_nodes(session, teaching_class_id)
+            blockers = get_script_generation_blockers(
+                candidate_analysis,
+                template_commands,
+                require_target_node=bool(readiness_nodes),
+                require_typed_plan=True,
+            )
+            if blockers:
+                logger.warning(
+                    "Teacher Judge script readiness blocked: session=%s source_file=%s "
+                    "revision=%s blockers=%s",
+                    item.id,
+                    file.id,
+                    base_revision,
+                    [
+                        {
+                            "item_id": blocker.get("item_id"),
+                            "status": blocker.get("status"),
+                            "reason_code": blocker.get("reason_code"),
+                        }
+                        for blocker in blockers
+                    ],
+                )
             workflow = reanalysis_workflow_message(
-                get_script_generation_blockers(
-                    candidate_analysis,
-                    template_commands,
-                    require_target_node=bool(
-                        load_class_machine_nodes(session, teaching_class_id)
-                    ),
-                ),
+                blockers,
                 source_file_id=file.id,
                 analysis_revision=base_revision,
                 proposal=proposal,
+                assistant_reply=reply,
             )
             reply = workflow["content"]
             item_results = workflow["metadata"].get("item_results")
@@ -867,151 +925,6 @@ async def create_message(
     )
 
 
-@router.post("/{session_id}/scripts", response_model=TeacherJudgeScriptArtifactPublic)
-async def create_session_script(
-    teaching_class_id: uuid.UUID,
-    session_id: uuid.UUID,
-    session: SessionDep,
-    current_user: InstructorUser,
-    payload: TeacherJudgeSessionScriptCreateRequest | None = None,
-) -> TeacherJudgeScriptArtifactPublic:
-    _access(session, teaching_class_id, current_user)
-    item = get_session(session, teaching_class_id, session_id)
-    ensure_active(item)
-    file = require_selected_file(session, item)
-    source_file_id = file.id
-    base_revision = file.analysis_revision
-    expected_revision = payload.analysis_revision if payload else None
-    if expected_revision is not None and expected_revision != file.analysis_revision:
-        conflict = HTTPException(
-            status_code=409,
-            detail={
-                "code": "teacher_judge_analysis_revision_conflict",
-                "message": t("teacherJudgeSessions.analysisRevisionConflict"),
-                "analysis_revision": file.analysis_revision,
-            },
-        )
-        failure = workflow_error_message(
-            stage="persistence",
-            status_code=409,
-            source_file_id=source_file_id,
-            analysis_revision=base_revision,
-            reason_code="analysis_revision_conflict",
-        )
-        _save_workflow_message(
-            session,
-            item,
-            content=failure["content"],
-            metadata=failure["metadata"],
-            created_by=current_user.id,
-        )
-        raise conflict
-    rubric_analysis = TeacherJudgeRubricAnalysis.model_validate(file.analysis_json)
-    if not rubric_analysis.items:
-        commands = get_enabled_template_commands(
-            session,
-            file.template_key,
-            include_cross_template=True,
-        )
-        blockers = get_script_generation_blockers(rubric_analysis, commands)
-        blocker_message = script_blocker_workflow_message(
-            blockers,
-            source_file_id=source_file_id,
-            analysis_revision=base_revision,
-        )
-        _save_workflow_message(
-            session,
-            item,
-            content=blocker_message["content"],
-            metadata=blocker_message["metadata"],
-            created_by=current_user.id,
-        )
-        raise HTTPException(
-            status_code=422,
-            detail="目前檢查表沒有檢查項目，請先新增至少一個項目。",
-        )
-    try:
-        artifact = await create_artifact(
-            session=session,
-            teaching_class_id=teaching_class_id,
-            name=item.title,
-            template_key=file.template_key,
-            rubric_analysis=rubric_analysis,
-            created_by=current_user.id,
-            source_file_id=source_file_id,
-            session_id=item.id,
-        )
-    except HTTPException as exc:
-        # ``create_artifact`` may have staged source-file changes before a model
-        # failure.  Do not commit those changes merely while recording the
-        # failure projection.
-        session.rollback()
-        detail: dict[str, Any] = exc.detail if isinstance(exc.detail, dict) else {}
-        if isinstance(detail.get("items"), list):
-            outcome = script_blocker_workflow_message(
-                detail["items"],
-                source_file_id=source_file_id,
-                analysis_revision=base_revision,
-            )
-        else:
-            outcome = workflow_error_message(
-                stage="persistence" if exc.status_code == 409 else "script_generation",
-                status_code=exc.status_code,
-                source_file_id=source_file_id,
-                analysis_revision=base_revision,
-            )
-        _save_workflow_message(
-            session,
-            item,
-            content=outcome["content"],
-            metadata=outcome["metadata"],
-            created_by=current_user.id,
-        )
-        if isinstance(detail.get("items"), list):
-            raise
-        raise HTTPException(
-            status_code=exc.status_code,
-            detail=outcome["content"],
-            headers=exc.headers,
-        ) from exc
-    except Exception:
-        session.rollback()
-        logger.exception("Teacher Judge script creation failed for session %s", item.id)
-        outcome = workflow_error_message(
-            stage="script_generation",
-            source_file_id=source_file_id,
-            analysis_revision=base_revision,
-        )
-        _save_workflow_message(
-            session,
-            item,
-            content=outcome["content"],
-            metadata=outcome["metadata"],
-            created_by=current_user.id,
-        )
-        raise
-    from app.models.base import get_datetime_utc
-
-    item.last_activity_at = get_datetime_utc()
-    item.updated_at = item.last_activity_at
-    session.add(item)
-    session.commit()
-    if artifact.status in {"approved", "review_failed"}:
-        outcome = script_review_workflow_message(
-            artifact,
-            source_file_id=source_file_id,
-            analysis_revision=base_revision,
-        )
-        _save_workflow_message(
-            session,
-            item,
-            content=outcome["content"],
-            metadata=outcome["metadata"],
-            created_by=current_user.id,
-        )
-    return artifact
-
-
 def _session_rubric_for_script_set(
     *,
     teaching_class_id: uuid.UUID,
@@ -1025,7 +938,7 @@ def _session_rubric_for_script_set(
     ensure_active(item)
     file = require_selected_file(session, item)
     if expected_revision is not None and expected_revision != file.analysis_revision:
-        raise HTTPException(
+        conflict = HTTPException(
             status_code=409,
             detail={
                 "code": "teacher_judge_analysis_revision_conflict",
@@ -1033,14 +946,25 @@ def _session_rubric_for_script_set(
                 "analysis_revision": file.analysis_revision,
             },
         )
-    rubric_analysis = TeacherJudgeRubricAnalysis.model_validate(file.analysis_json)
-    if not rubric_analysis.items:
-        commands = get_enabled_template_commands(
+        _save_script_set_failure(
             session,
-            file.template_key,
-            include_cross_template=True,
+            item,
+            detail=conflict.detail,
+            stage="persistence",
+            status_code=conflict.status_code,
+            source_file_id=file.id,
+            analysis_revision=file.analysis_revision,
+            created_by=current_user.id,
         )
-        raise HTTPException(
+        raise conflict
+    rubric_analysis = TeacherJudgeRubricAnalysis.model_validate(file.analysis_json)
+    commands = get_enabled_template_commands(
+        session,
+        file.template_key,
+        include_cross_template=True,
+    )
+    if not rubric_analysis.items:
+        not_ready = HTTPException(
             status_code=422,
             detail={
                 "code": "teacher_judge_script_not_ready",
@@ -1054,6 +978,36 @@ def _session_rubric_for_script_set(
                 ),
             },
         )
+        _save_script_set_failure(
+            session,
+            item,
+            detail=not_ready.detail,
+            stage="script_preflight",
+            status_code=not_ready.status_code,
+            source_file_id=file.id,
+            analysis_revision=file.analysis_revision,
+            created_by=current_user.id,
+        )
+        raise not_ready
+    try:
+        ensure_script_generation_supported(
+            rubric_analysis,
+            commands,
+            require_target_node=bool(load_class_machine_nodes(session, teaching_class_id)),
+            require_typed_plan=True,
+        )
+    except HTTPException as exc:
+        _save_script_set_failure(
+            session,
+            item,
+            detail=exc.detail,
+            stage="script_preflight",
+            status_code=exc.status_code,
+            source_file_id=file.id,
+            analysis_revision=file.analysis_revision,
+            created_by=current_user.id,
+        )
+        raise
     return item, file, rubric_analysis
 
 
@@ -1087,8 +1041,32 @@ async def create_session_script_set(
             created_by=current_user.id,
             source_file_id=file.id,
         )
+    except HTTPException as exc:
+        session.rollback()
+        _save_script_set_failure(
+            session,
+            item,
+            detail=exc.detail,
+            stage="script_generation",
+            status_code=exc.status_code,
+            source_file_id=file.id,
+            analysis_revision=file.analysis_revision,
+            created_by=current_user.id,
+        )
+        raise
     except Exception:
         session.rollback()
+        logger.exception("Teacher Judge script set creation failed for session %s", item.id)
+        _save_script_set_failure(
+            session,
+            item,
+            detail=None,
+            stage="script_generation",
+            status_code=None,
+            source_file_id=file.id,
+            analysis_revision=file.analysis_revision,
+            created_by=current_user.id,
+        )
         raise
     from app.models.base import get_datetime_utc
 
@@ -1165,13 +1143,24 @@ async def regenerate_session_script_set(
         session_id=session_id,
     )
     if existing.source_file_id != str(file.id):
-        raise HTTPException(
+        mismatch = HTTPException(
             status_code=409,
             detail={
                 "code": "teacher_judge_script_set_source_mismatch",
                 "message": "目前選取的檢查表不是此 script set 的來源。",
             },
         )
+        _save_script_set_failure(
+            session,
+            item,
+            detail=mismatch.detail,
+            stage="persistence",
+            status_code=mismatch.status_code,
+            source_file_id=file.id,
+            analysis_revision=file.analysis_revision,
+            created_by=current_user.id,
+        )
+        raise mismatch
     try:
         script_set = await create_artifact_set(
             session=session,
@@ -1185,8 +1174,32 @@ async def regenerate_session_script_set(
             source_file_id=file.id,
             artifact_set_id=artifact_set_id,
         )
+    except HTTPException as exc:
+        session.rollback()
+        _save_script_set_failure(
+            session,
+            item,
+            detail=exc.detail,
+            stage="script_generation",
+            status_code=exc.status_code,
+            source_file_id=file.id,
+            analysis_revision=file.analysis_revision,
+            created_by=current_user.id,
+        )
+        raise
     except Exception:
         session.rollback()
+        logger.exception("Teacher Judge script set regeneration failed for session %s", item.id)
+        _save_script_set_failure(
+            session,
+            item,
+            detail=None,
+            stage="script_generation",
+            status_code=None,
+            source_file_id=file.id,
+            analysis_revision=file.analysis_revision,
+            created_by=current_user.id,
+        )
         raise
     from app.models.base import get_datetime_utc
 
@@ -1307,6 +1320,21 @@ def list_session_runs(
     ]
 
 
+def _run_to_teacher_review_public(
+    run: TeacherJudgeScriptRun,
+) -> TeacherJudgeScriptRunPublic:
+    """Expose only the VM identity needed by the authorized teacher review UI."""
+
+    public = _run_to_public(run)
+    public_targets = public.target_results_json.get("targets")
+    raw_targets = (run.target_results_json or {}).get("targets")
+    if isinstance(public_targets, list) and isinstance(raw_targets, list):
+        for public_target, raw_target in zip(public_targets, raw_targets, strict=False):
+            if isinstance(public_target, dict) and isinstance(raw_target, dict):
+                public_target["vmid"] = raw_target.get("vmid")
+    return public
+
+
 @router.get("/{session_id}/runs/{run_id}", response_model=TeacherJudgeScriptRunPublic)
 def get_session_run(
     teaching_class_id: uuid.UUID,
@@ -1330,24 +1358,20 @@ def get_session_run(
         raise HTTPException(
             status_code=404, detail=t("teacherJudgeSessions.runResultNotFound")
         )
-    return _run_to_public(run)
+    return _run_to_teacher_review_public(run)
 
 
-@router.patch(
-    "/{session_id}/runs/{run_id}/targets/{vmid}/review",
-    response_model=TeacherJudgeScriptRunPublic,
-)
-def update_target_review(
+def _update_target_review(
     teaching_class_id: uuid.UUID,
     session_id: uuid.UUID,
     run_id: uuid.UUID,
-    vmid: int,
     payload: TeacherJudgeTargetReviewUpdate,
     session: SessionDep,
     current_user: InstructorUser,
+    *,
+    vmid: int | None = None,
+    student_id: str | None = None,
 ) -> TeacherJudgeScriptRunPublic:
-    """Save the teacher's decisions and optional weekly feedback for one student."""
-
     _access(session, teaching_class_id, current_user)
     get_session(session, teaching_class_id, session_id)
     run = session.exec(
@@ -1373,7 +1397,14 @@ def update_target_review(
         (
             index
             for index, target in enumerate(targets)
-            if isinstance(target, dict) and str(target.get("vmid")) == str(vmid)
+            if isinstance(target, dict)
+            and (
+                (vmid is not None and str(target.get("vmid")) == str(vmid))
+                or (
+                    student_id is not None
+                    and str(target.get("student_id")) == student_id
+                )
+            )
         ),
         None,
     )
@@ -1387,7 +1418,7 @@ def update_target_review(
         str(check.get("id") or "")
         for check in raw_checks
         if isinstance(check, dict)
-        and str(check.get("status") or "") in {"warning", "unknown"}
+        and str(check.get("status") or "") in {"warning", "unknown", "collected"}
     }
     invalid_ids = sorted(set(payload.decisions) - reviewable_ids)
     if invalid_ids:
@@ -1415,7 +1446,59 @@ def update_target_review(
     session.add(run)
     session.commit()
     session.refresh(run)
-    return _run_to_public(run)
+    return _run_to_teacher_review_public(run)
+
+
+@router.patch(
+    "/{session_id}/runs/{run_id}/targets/{vmid}/review",
+    response_model=TeacherJudgeScriptRunPublic,
+)
+def update_target_review(
+    teaching_class_id: uuid.UUID,
+    session_id: uuid.UUID,
+    run_id: uuid.UUID,
+    vmid: int,
+    payload: TeacherJudgeTargetReviewUpdate,
+    session: SessionDep,
+    current_user: InstructorUser,
+) -> TeacherJudgeScriptRunPublic:
+    """Save a review for a target that has an assigned VM."""
+
+    return _update_target_review(
+        teaching_class_id,
+        session_id,
+        run_id,
+        payload,
+        session,
+        current_user,
+        vmid=vmid,
+    )
+
+
+@router.patch(
+    "/{session_id}/runs/{run_id}/students/{student_id}/review",
+    response_model=TeacherJudgeScriptRunPublic,
+)
+def update_student_target_review(
+    teaching_class_id: uuid.UUID,
+    session_id: uuid.UUID,
+    run_id: uuid.UUID,
+    student_id: str,
+    payload: TeacherJudgeTargetReviewUpdate,
+    session: SessionDep,
+    current_user: InstructorUser,
+) -> TeacherJudgeScriptRunPublic:
+    """Save a review when preflight failed before a VMID was available."""
+
+    return _update_target_review(
+        teaching_class_id,
+        session_id,
+        run_id,
+        payload,
+        session,
+        current_user,
+        student_id=student_id,
+    )
 
 
 @router.post(

@@ -147,19 +147,6 @@ class SkyLabService {
     return JSON.parse(res.body) as SkyLabExtendResult;
   }
 
-  async getTunnelConfig(): Promise<SkyLabTunnelConfig> {
-    const res = await this.request("GET", "/api/v1/tunnel/my-config", {
-      auth: true
-    });
-    if (res.status === 401) {
-      throw new BusinessError(ResponseCode.NOT_LOGGED_IN);
-    }
-    if (res.status !== 200) {
-      throw new BusinessError(ResponseCode.BACKEND_ERROR, res.body);
-    }
-    return JSON.parse(res.body) as SkyLabTunnelConfig;
-  }
-
   async connectWireGuard(
     deviceId: string,
     publicKey: string

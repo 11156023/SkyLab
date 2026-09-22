@@ -65,7 +65,7 @@ backend/
 | `resource_details.py` | 規格、RRD、快照、直接規格更新 |
 | `proxmox_config.py` | Cluster 連線設定、憑證驗證、cluster 統計 |
 | `firewall.py` | 防火牆拓撲、規則、NAT、Reverse Proxy |
-| `gateway.py` | 閘道 VM SSH 隧道、HAProxy / Traefik / FRP 設定 |
+| `gateway.py` | 閘道 VM SSH、HAProxy / Traefik / WireGuard 管理 |
 | `ai_api.py` | AI API 憑證、申請審核、流量限制 |
 | `ai_proxy.py` | OpenAI 相容文字 API allowlist（`/models`、`/chat/completions`、`/completions`、`/responses`）代理至受限 LiteLLM service key |
 | `spec_change_requests.py` | VM 規格變更申請與審核 |
@@ -208,7 +208,7 @@ uv run prek run --all-files  # 手動執行
 
 - **VM 申請工作流**：可用性檢查 → 租借時段 placement 節點建議 → 審核 → 排程供應；已建立資源不再由 SkyLab 自動跨節點搬移
 - **HA failover**：cluster 設定支援多個 Proxmox host，TCP ping 偵測接管
-- **Gateway 控制**：透過 SSH 直接讀寫 HAProxy / Traefik / FRP 設定並重啟服務
+- **Gateway 控制**：透過 SSH 管理 HAProxy / Traefik / WireGuard 與連線 ACL
 - **腳本部署**：從 community-scripts/ProxmoxVE 拉取腳本並於 PVE 節點背景部署
 - **AI 代理**：以 OpenAI Chat Completion 介面連接內部 vLLM，含 Redis sliding-window 流量限制
 - **加密憑證儲存**：AI API 憑證以 Fernet 加密落地

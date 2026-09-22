@@ -14,13 +14,6 @@
     "dist",
     "dist-electron"
   ],
-  "extraResources": [
-    {
-      "from": "bin",
-      "to": "bin",
-      "filter": ["**/*"]
-    }
-  ],
   "mac": {
     "icon": "./public/logo/pack/512x512.png",
     "target": [

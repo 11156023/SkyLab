@@ -181,7 +181,7 @@
     openDataDir: "Open data directory"
   },
   logger: {
-    tab: { appLog: "App log", frpcLog: "Tunnel log" },
+    tab: { appLog: "App log" },
     message: {
       openSuccess: "Log opened",
       refreshSuccess: "Refreshed"

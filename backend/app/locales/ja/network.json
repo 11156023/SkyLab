@@ -41,7 +41,6 @@
   "wireguard.storedAclEndpointInvalid": "保存されている WireGuard ACL エンドポイントが無効です",
   "wireguard.gatewayNotConfigured": "Gateway VM が設定されていません",
   "wireguard.endpointHostNotConfigured": "WireGuard のエンドポイントホストが設定されていません",
-  "wireguard.desktopConnectionsDisabled": "WireGuard によるデスクトップ接続は無効になっています",
   "wireguard.sessionInactiveOrExpired": "WireGuard セッションが無効または期限切れです。再接続してください",
   "wireguard.syncPeerFailed": "Gateway VM 上で WireGuard ピアを同期できませんでした",
   "wireguard.revokePeerFailed": "Gateway VM 上で WireGuard ピアを削除できませんでした",

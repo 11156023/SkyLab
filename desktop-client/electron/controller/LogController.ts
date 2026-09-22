@@ -11,18 +11,6 @@ class LogController extends BaseController {
     this._logService = logService;
   }
 
-  getFrpLogContent(req: ControllerParam) {
-    this._logService
-      .getFrpLogContent()
-      .then(data => {
-        req.event.reply(req.channel, ResponseUtils.success(data));
-      })
-      .catch((err: Error) => {
-        Logger.error("LogController.getFrpLogContent", err);
-        req.event.reply(req.channel, ResponseUtils.fail(err));
-      });
-  }
-
   getAppLogContent(req: ControllerParam) {
     this._logService
       .getAppLogContent()
@@ -31,24 +19,6 @@ class LogController extends BaseController {
       })
       .catch((err: Error) => {
         Logger.error("LogController.getAppLogContent", err);
-        req.event.reply(req.channel, ResponseUtils.fail(err));
-      });
-  }
-
-  // watchFrpcLogContent(req: ControllerRequest) {
-  //   this._logService.watchFrpcLog().then(data => {
-  //     req.event.reply(req.reply, this.ResponseUtils.success(data));
-  //   });
-  // }
-
-  openFrpcLogFile(req: ControllerParam) {
-    this._logService
-      .openFrpcLogFile()
-      .then(() => {
-        req.event.reply(req.channel, ResponseUtils.success(true));
-      })
-      .catch((err: Error) => {
-        Logger.error("LogController.openFrpcLogFile", err);
         req.event.reply(req.channel, ResponseUtils.fail(err));
       });
   }

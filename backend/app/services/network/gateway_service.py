@@ -32,14 +32,10 @@ logger = logging.getLogger(__name__)
 SERVICE_CONFIG_PATHS: dict[str, str] = {
     "haproxy": "/etc/haproxy/haproxy.cfg",
     "traefik": "/etc/traefik/traefik.yml",
-    "frps": "/etc/frp/frps.toml",
-    "frpc": "/etc/frp/frpc.toml",
 }
 SERVICE_SYSTEMD_UNITS: dict[str, str] = {
     "haproxy": "haproxy",
     "traefik": "traefik",
-    "frps": "frps",
-    "frpc": "frpc",
     "wireguard": f"wg-quick@{settings.WIREGUARD_INTERFACE}",
 }
 
@@ -530,7 +526,7 @@ def get_wireguard_overview(session: object) -> GatewayWireGuardOverview:
     if ":" in endpoint_host and not endpoint_host.startswith("["):
         endpoint_host = f"[{endpoint_host}]"
     return GatewayWireGuardOverview(
-        mode=settings.DESKTOP_TUNNEL_MODE,
+        mode="wireguard",
         interface=interface,
         systemd_unit=unit,
         endpoint=f"{endpoint_host}:{settings.WIREGUARD_ENDPOINT_PORT}",
@@ -582,12 +578,8 @@ def _load_install_script_targets() -> dict[str, str]:
 
     targets: dict[str, str] = {}
     traefik_match = re.search(r'^TRAEFIK_VERSION="([^"]+)"', content, re.MULTILINE)
-    frp_match = re.search(r'^FRP_VERSION="([^"]+)"', content, re.MULTILINE)
     if traefik_match:
         targets["traefik"] = traefik_match.group(1)
-    if frp_match:
-        targets["frps"] = frp_match.group(1)
-        targets["frpc"] = frp_match.group(1)
     return targets
 
 
