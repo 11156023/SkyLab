@@ -1436,6 +1436,20 @@ describe("teacher review run-once（整組檢查點）", () => {
     expect(getTargetReviewSummary(row.target)).toMatchObject({ kind: "pending", pending: 1 });
   });
 
+  test("學生節點缺少 run_id 時會從批次節點摘要回補", () => {
+    const batchWithoutStudentRunId = {
+      ...batchPayload,
+      students: batchPayload.students.map((student) => ({
+        ...student,
+        nodes: student.nodes.map(({ run_id: _runId, ...node }) => node),
+      })),
+    };
+
+    const rows = buildBatchReviewRows(batchWithoutStudentRunId, members);
+
+    expect(rows[0].runId).toBe("run-1");
+  });
+
   test("成員對映不依賴 enrollment id 等於 user id 的巧合", () => {
     const rows = buildBatchReviewRows(batchPayload, [
       { user_id: "user-other", full_name: "王小明", email: "s1@example.edu", vmid: 101, node_key: "db" },
@@ -1490,6 +1504,29 @@ describe("teacher review run-once（整組檢查點）", () => {
     const rows = buildLegacyReviewRows(run, members);
     expect(rows[0].runId).toBe("run-legacy");
     expect(getTargetReviewSummary(rows[0].target).kind).toBe("automatic");
+  });
+
+  test("legacy 公開結果沒有 vmid 時仍保留 student_id 供核查儲存", () => {
+    const run = {
+      id: "run-legacy",
+      target_results_json: {
+        targets: [{
+          student_id: "enrollment-1",
+          user: { id: "user-1", email: "s1@example.edu", full_name: "王小明" },
+          status: "failed",
+          reason_code: "not_running",
+          parsed_result: { checks: [] },
+        }],
+      },
+    };
+
+    const rows = buildLegacyReviewRows(run, []);
+
+    expect(rows).toHaveLength(1);
+    expect(rows[0].runId).toBe("run-legacy");
+    expect(rows[0].vmid).toBeNull();
+    expect(rows[0].studentId).toBe("enrollment-1");
+    expect(rows[0].member.full_name).toBe("王小明");
   });
 
   test("核查頁改用整批資料顯示逐機器檢查點並提供一次執行", async () => {
@@ -1588,6 +1625,101 @@ describe("teacher review run-once（整組檢查點）", () => {
       "run-1",
       101,
       { feedback: "舊留言", decisions: { "check-db": "pass" } },
+    );
+    expect(container.textContent).toContain("上次儲存");
+    await act(async () => {
+      root.unmount();
+    });
+    container.remove();
+  });
+
+  test("前置檢查失敗且沒有 vmid 時會以學生識別碼儲存留言", async () => {
+    const failedBatch = {
+      ...batchPayload,
+      summary: { nodes: 1, students: 1, targets: 1, completed: 0, failed: 1 },
+      students: [{
+        student_id: "enrollment-1",
+        nodes: [{
+          node_key: "db",
+          display_label: "P2",
+          execution_status: "failed",
+          reason_code: "missing_vmid",
+          vmid: null,
+          items: [],
+          unmapped_checks: [],
+        }],
+      }],
+    };
+    const failedMembers = [{
+      student_id: "enrollment-1",
+      user_id: "user-1",
+      full_name: "王小明",
+      email: "s1@example.edu",
+      vmid: null,
+      node_key: "db",
+    }];
+    vi.spyOn(AiJudgeService, "listSessionRuns").mockResolvedValue([
+      { id: "run-1", artifact_id: "artifact-1", run_batch_id: "batch-1", status: "completed" },
+    ]);
+    vi.spyOn(AiJudgeService, "listSessionScriptSets").mockResolvedValue([]);
+    vi.spyOn(AiJudgeService, "getSessionRunBatch").mockResolvedValue(failedBatch);
+    const updateReview = vi.spyOn(AiJudgeService, "updateStudentReview").mockResolvedValue({
+      id: "run-1",
+      target_results_json: {
+        targets: [{
+          vmid: null,
+          student_id: "enrollment-1",
+          status: "failed",
+          reason_code: "missing_vmid",
+          teacher_review: {
+            feedback: "請先確認虛擬機配置。",
+            decisions: {},
+            updated_at: "2026-09-20T00:00:00Z",
+          },
+        }],
+      },
+    });
+
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    await act(async () => {
+      root.render(<TeacherReviewTab classId="class-1" sessionId="session-1" members={failedMembers} />);
+      await new Promise((resolve) => setTimeout(resolve, 30));
+    });
+
+    const toggle = [...container.querySelectorAll("button")]
+      .find((button) => button.textContent.includes("王小明"));
+    expect(toggle).toBeTruthy();
+    await act(async () => {
+      toggle.click();
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    });
+
+    const textarea = container.querySelector("textarea");
+    await act(async () => {
+      const setValue = Object.getOwnPropertyDescriptor(
+        HTMLTextAreaElement.prototype,
+        "value",
+      ).set;
+      setValue.call(textarea, "請先確認虛擬機配置。");
+      textarea.dispatchEvent(new Event("input", { bubbles: true }));
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    });
+    const saveButton = [...container.querySelectorAll("button")]
+      .find((button) => button.textContent.includes("儲存核查"));
+    expect(saveButton.disabled).toBe(false);
+    await act(async () => {
+      saveButton.click();
+      await new Promise((resolve) => setTimeout(resolve, 30));
+    });
+
+    expect(updateReview).toHaveBeenCalledWith(
+      "class-1",
+      "session-1",
+      "run-1",
+      "enrollment-1",
+      { feedback: "請先確認虛擬機配置。", decisions: {} },
     );
     expect(container.textContent).toContain("上次儲存");
     await act(async () => {

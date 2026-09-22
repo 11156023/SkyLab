@@ -20,22 +20,8 @@ class PathUtils {
     return result;
   }
 
-  public static getFrpcLogStoragePath() {
-    const result = path.join(PathUtils.getAppData(), "log");
-    FileUtils.mkdir(result);
-    return result;
-  }
-
-  public static getFrpcLogFilePath() {
-    return path.join(PathUtils.getFrpcLogStoragePath(), "frpc.log");
-  }
-
   public static getAppLogFilePath() {
     return path.join(app.getPath("logs"), "main.log");
-  }
-
-  public static getTomlConfigFilePath() {
-    return path.join(PathUtils.getConfigStoragePath(), "frpc-visitor.toml");
   }
 
   public static getWireGuardConfigFilePath() {
@@ -60,21 +46,6 @@ class PathUtils {
     return path.join(app.getAppPath(), "vendor", "wireguard", filename);
   }
 
-  public static getFrpcBinaryName() {
-    return process.platform === "win32" ? "frpc.exe" : "frpc";
-  }
-
-  /**
-   * Returns the path to the bundled frpc binary.
-   * In dev, it's at <project>/bin/<name>; in production it's shipped via
-   * electron-builder extraResources at process.resourcesPath/bin/<name>.
-   */
-  public static getBundledFrpcPath() {
-    const name = PathUtils.getFrpcBinaryName();
-    const packed = path.join(process.resourcesPath || "", "bin", name);
-    if (fs.existsSync(packed)) return packed;
-    return path.join(app.getAppPath(), "bin", name);
-  }
 }
 
 export default PathUtils;

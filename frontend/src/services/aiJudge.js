@@ -178,6 +178,13 @@ export const AiJudgeService = {
     );
   },
 
+  updateStudentReview(classId, sessionId, runId, studentId, { feedback = "", decisions = {} }) {
+    return apiPatch(
+      `/api/v1/teaching-classes/${classId}/judge/sessions/${sessionId}/runs/${runId}/students/${encodeURIComponent(studentId)}/review`,
+      { feedback, decisions },
+    );
+  },
+
   /* ── 檢查點腳本集（多機器整批執行） ── */
 
   /** 以目前已確認的 rubric 建立一組 deterministic child artifacts。 */

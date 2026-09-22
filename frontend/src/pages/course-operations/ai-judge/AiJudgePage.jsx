@@ -34,6 +34,7 @@ export function normalizeAiJudgeClass(item) {
 export function toAiJudgeMembers(students) {
   return (Array.isArray(students) ? students : []).flatMap((student) =>
     (student.vms ?? []).map((vm) => ({
+      student_id: student.id,
       user_id: student.user_id,
       email: student.email,
       full_name: student.full_name,

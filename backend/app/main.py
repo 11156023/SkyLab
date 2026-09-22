@@ -131,10 +131,7 @@ async def lifespan(app: FastAPI):
         # Web Push 走自己的短週期迴圈：任務結束後幾秒內就要推到關掉分頁的使用者，
         # 不跟 60 秒一輪的主排程綁在一起
         push_task = asyncio.create_task(web_push_service.run_push_notifier(stop_event))
-    if (
-        settings.DESKTOP_TUNNEL_MODE == "wireguard"
-        and settings.WIREGUARD_RECONCILE_ENABLED
-    ):
+    if settings.WIREGUARD_RECONCILE_ENABLED:
         wireguard_task = asyncio.create_task(
             wireguard_service.run_reconciler(stop_event)
         )

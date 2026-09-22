@@ -48,7 +48,7 @@ flowchart TB
 |---|---|---|
 | `vm_requests` | 申請當下的需求、審核狀態、排程資料 | FK 到 `user`、可回連 `resources` |
 | `resources` | 實際建立成功的 VM/LXC metadata | FK 到 `user` 與來源 `vm_requests` |
-| 網路設定表 | 實際資源的 NAT、Reverse Proxy、Tunnel、IP | 建議 FK 到 `resources` |
+| 網路設定表 | 實際資源的 NAT、Reverse Proxy、IP | 建議 FK 到 `resources` |
 | 歷史紀錄表 | 操作當下的快照、錯誤、輸出 | 可 FK，但刪除時應 `SET NULL` 或保留快照 |
 | 設定表 | Proxmox、Gateway、Cloudflare、Subnet | 通常 singleton，不需 FK |
 
@@ -63,7 +63,6 @@ erDiagram
     RESOURCE ||--o{ DELETION_REQUEST : has
     RESOURCE ||--o{ NAT_RULE : exposes
     RESOURCE ||--o{ REVERSE_PROXY_RULE : publishes
-    RESOURCE ||--o{ TUNNEL_PROXY : tunnels
     RESOURCE ||--o{ SCRIPT_DEPLOY_LOG : deploys
     RESOURCE ||--o| RESOURCE_NETWORK : networks
     USER ||--o{ AUDIT_LOG : performs
@@ -161,7 +160,6 @@ vm_requests.password_discarded_at
 | `deletion_requests` | 只有 `vmid`，無 FK | `resource_vmid` | `ON DELETE SET NULL`，保留刪除歷史 |
 | `nat_rule` | 只有 `vmid`，無 FK | `resource_vmid` | `ON DELETE CASCADE` 或 `RESTRICT` |
 | `reverse_proxy_rule` | 只有 `vmid`，無 FK | `resource_vmid` | `ON DELETE CASCADE` 或 `RESTRICT` |
-| `tunnel_proxies` | `vmid` + `user_id`，但 VM 無 FK | `resource_vmid` | `ON DELETE CASCADE` |
 | `ip_allocation` | `vmid` nullable，無 FK | `resource_vmid` nullable | `ON DELETE SET NULL` |
 | `script_deploy_logs` | `vmid` 無 FK | `resource_vmid` nullable | `ON DELETE SET NULL` |
 
@@ -240,7 +238,6 @@ spec_change_requests.resource_vmid
 deletion_requests.resource_vmid
 nat_rule.resource_vmid
 reverse_proxy_rule.resource_vmid
-tunnel_proxies.resource_vmid
 ip_allocation.resource_vmid
 script_deploy_logs.resource_vmid
 ```
@@ -268,10 +265,6 @@ ON proxmox_storages(node_name, storage);
 -- 同一 host + port + protocol 只能轉發到一個 VM
 CREATE UNIQUE INDEX uq_nat_rule_host_port_protocol
 ON nat_rule(ssh_host, external_port, protocol);
-
--- 同一 VM 同一服務只建立一組 tunnel
-CREATE UNIQUE INDEX uq_tunnel_proxies_vmid_service
-ON tunnel_proxies(vmid, service);
 
 -- 同一教師/擁有者底下不應有同名群組
 CREATE UNIQUE INDEX uq_group_owner_name
@@ -441,7 +434,6 @@ flowchart LR
 - `proxmox_nodes.name` 是否重複。
 - `proxmox_storages(node_name, storage)` 是否重複。
 - `nat_rule(ssh_host, external_port, protocol)` 是否重複。
-- `tunnel_proxies(vmid, service)` 是否重複。
 - `group(owner_id, name)` 是否重複。
 - `ai_api_credentials.api_key_prefix` 是否重複。
 
@@ -470,7 +462,6 @@ WHERE vmid IN (SELECT vmid FROM resources);
 - `spec_change_requests`
 - `deletion_requests`
 - `reverse_proxy_rule`
-- `tunnel_proxies`
 - `ip_allocation`
 - `script_deploy_logs`
 
@@ -538,7 +529,7 @@ request_id: uuid.UUID | None = Field(
 )
 ```
 
-### `NatRule` / `ReverseProxyRule` / `TunnelProxy`
+### `NatRule` / `ReverseProxyRule`
 
 建議新增：
 
@@ -579,7 +570,7 @@ resource_vmid: int | None = Field(default=None, foreign_key="resources.vmid")
 |---|---|
 | Auth | `user` |
 | Cloud | `resources`, `vm_requests`, `vm_migration_jobs`, `spec_change_requests`, `deletion_requests`, `batch_provision_jobs`, `batch_provision_tasks`, `group`, `group_member` |
-| Network | `firewall_layout`, `nat_rule`, `reverse_proxy_rule`, `tunnel_proxies`, `ip_allocation`, `subnet_config`, `gateway_config`, `cloudflare_config` |
+| Network | `firewall_layout`, `nat_rule`, `reverse_proxy_rule`, `ip_allocation`, `subnet_config`, `gateway_config`, `cloudflare_config` |
 | AI | `ai_api_requests`, `ai_api_credentials`, `ai_api_usage`, `ai_api_rate_limit`, `ai_template_call_logs` |
 | Ops | `audit_logs`, `script_deploy_logs` |
 | Infra | `proxmox_config`, `proxmox_nodes`, `proxmox_storages` |

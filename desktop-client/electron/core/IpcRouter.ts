@@ -70,17 +70,9 @@ export const ipcRouters: IpcRouters = {
       path: "log/getAppLogContent",
       controller: "logController.getAppLogContent"
     },
-    getFrpLogContent: {
-      path: "log/getFrpLogContent",
-      controller: "logController.getFrpLogContent"
-    },
     openAppLogFile: {
       path: "log/openAppLogFile",
       controller: "logController.openAppLogFile"
-    },
-    openFrpcLogFile: {
-      path: "log/openFrpcLogFile",
-      controller: "logController.openFrpcLogFile"
     }
   },
   SYSTEM: {

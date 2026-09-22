@@ -30,15 +30,9 @@ export default ts.config(
         clearInterval: "readonly",
         setTimeout: "readonly",
         clearTimeout: "readonly",
-        // Type definitions from global.d.ts
-        OpenSourceFrpcDesktopServer: "readonly",
-        FrpcVersion: "readonly",
         GitHubMirror: "readonly",
-        FrpcProxy: "readonly",
         LocalPort: "readonly",
-        FrpConfig: "readonly",
-        Proxy: "readonly",
-        FrpVersion: "readonly"
+        Proxy: "readonly"
       }
     }
   },

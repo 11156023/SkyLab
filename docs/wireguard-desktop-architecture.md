@@ -1,6 +1,6 @@
 # Desktop WireGuard 架構與部署
 
-SkyLab Connect 使用 WireGuard 建立桌面端到 Gateway VM 的加密 L3 網路。桌面端取得授權後，直接連到 VM 的實際位址與服務埠，不再配置 FRP visitor port。
+SkyLab Connect 使用 WireGuard 建立桌面端到 Gateway VM 的加密 L3 網路。桌面端取得授權後，直接連到 VM 的實際位址與服務埠。
 
 ## 連線流程
 
@@ -27,17 +27,16 @@ ACL tuple 為 `client_tunnel_ip . vm_ip . tcp_port`。LXC 僅開 SSH；QEMU VM �
 在新 Gateway 上先確認介面、位址與 UDP port 沒有衝突，再以 root 執行：
 
 ```bash
-sudo ./gateway/install-wireguard.sh
+sudo ./gateway/install.sh
 ```
 
-Installer 會先備份網路、防火牆及 systemd 設定到 `/root/campus-cloud-backups/`，不會取代 NetBird、FRP、HAProxy、Traefik 或整份 UFW ruleset。若 `/etc/wireguard/wg0.conf` 不是 Campus Cloud 管理的檔案，Installer 會拒絕覆寫。
+這是 Gateway 的唯一安裝入口，會安裝 HAProxy、Traefik、WireGuard、nftables ACL 與 SNAT。Installer 會先將網路、防火牆及服務設定備份到 `/root/campus-cloud-backups/`，不會移除既有 NetBird，也不會清空整份 UFW ruleset。若 `/etc/wireguard/wg0.conf` 不是 Campus Cloud 管理的檔案，Installer 會拒絕覆寫。
 
 Gateway 上游防火牆或 NAT 還必須將對外的 UDP `51821` 轉送到 Gateway。若 Client 與 Gateway 位於同一個可路由網路，可直接使用 Gateway 的內部位址。
 
 ## Backend 設定
 
 ```dotenv
-DESKTOP_TUNNEL_MODE=wireguard
 WIREGUARD_ENDPOINT_HOST=192.168.100.143
 WIREGUARD_ENDPOINT_PORT=51821
 WIREGUARD_INTERFACE=wg0
@@ -67,8 +66,4 @@ wg show wg0
 nft list set inet campus_cloud_wg allowed_tcp
 ```
 
-連線後應看到一個 peer，以及只屬於該使用者 VM 的限時 ACL。中斷後 peer 與對應 ACL 應立即消失。從 Client 測試時，應直接連 VM IP；`127.0.0.1` visitor port 不再屬於新流程。
-
-## 回復原有 FRP 流程
-
-Backend 將 `DESKTOP_TUNNEL_MODE` 設回 `frp` 可停止核發新的 WireGuard 設定。Gateway 的 FRP 服務未被 Installer 修改；確認沒有 WireGuard 使用者後，再分別停用 `wg-quick@wg0` 與 `campus-cloud-wg-firewall.service`。不要啟用 Debian 的全域 `nftables.service`，以免載入含 `flush ruleset` 的規則影響既有服務。
+連線後應看到一個 peer，以及只屬於該使用者 VM 的限時 ACL。中斷後 peer 與對應 ACL 應立即消失。從 Client 測試時，應直接連 VM IP。

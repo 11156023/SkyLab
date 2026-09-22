@@ -323,6 +323,26 @@ describe("AiJudgeService persistent sessions", () => {
     }
   });
 
+  test("無 vmid 的核查以學生識別碼呼叫專用 endpoint", async () => {
+    await AiJudgeService.updateStudentReview(
+      "class-1",
+      "session-1",
+      "run-1",
+      "enrollment/1",
+      { feedback: "請確認配置", decisions: {} },
+    );
+
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toContain(
+      "/runs/run-1/students/enrollment%2F1/review",
+    );
+    expect(init.method).toBe("PATCH");
+    expect(JSON.parse(init.body)).toEqual({
+      feedback: "請確認配置",
+      decisions: {},
+    });
+  });
+
   test("刪除 session 使用 DELETE endpoint", async () => {
     fetchMock.mockResolvedValue({ ok: true, status: 204 });
 

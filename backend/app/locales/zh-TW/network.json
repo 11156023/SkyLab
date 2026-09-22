@@ -41,7 +41,6 @@
   "wireguard.storedAclEndpointInvalid": "Stored WireGuard ACL endpoint is invalid",
   "wireguard.gatewayNotConfigured": "Gateway VM is not configured",
   "wireguard.endpointHostNotConfigured": "WireGuard endpoint host is not configured",
-  "wireguard.desktopConnectionsDisabled": "WireGuard desktop connections are disabled",
   "wireguard.sessionInactiveOrExpired": "WireGuard session is inactive or expired; reconnect",
   "wireguard.syncPeerFailed": "Unable to synchronize the WireGuard peer on Gateway VM",
   "wireguard.revokePeerFailed": "Unable to revoke the WireGuard peer on Gateway VM",

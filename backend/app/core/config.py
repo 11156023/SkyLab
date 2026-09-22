@@ -46,7 +46,6 @@ class Settings(BaseSettings):
     )
     # Desktop VPN control plane. The public endpoint host falls back to the
     # configured Gateway VM host when left empty.
-    DESKTOP_TUNNEL_MODE: Literal["frp", "wireguard"] = "wireguard"
     WIREGUARD_ENDPOINT_HOST: str = ""
     WIREGUARD_ENDPOINT_PORT: int = 51821
     WIREGUARD_INTERFACE: str = "wg0"
@@ -142,11 +141,6 @@ class Settings(BaseSettings):
 
     GOOGLE_CLIENT_ID: str | None = None
     GOOGLE_CLIENT_SECRET: str | None = None
-
-    # frp tunnel settings
-    FRP_SERVER_ADDR: str = ""  # public IP/domain that desktop clients connect to
-    FRP_SERVER_PORT: int = 7000
-    FRP_TOKEN: str = ""
 
     PROXMOX_HOST: str = "localhost"
     PROXMOX_USER: str = ""

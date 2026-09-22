@@ -1,9 +1,20 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
 from app.exceptions import BadRequestError
 from app.services.network import gateway_service
+
+
+def test_gateway_installer_uses_wireguard() -> None:
+    gateway_dir = Path(__file__).resolve().parents[3] / "gateway"
+    script = (gateway_dir / "install.sh").read_text(encoding="utf-8")
+
+    assert "wireguard-tools" in script
+    assert "campus-cloud-wg-firewall.service" in script
+    assert not (gateway_dir / "install-wireguard.sh").exists()
 
 
 def test_build_traefik_static_config_uses_dns_challenge() -> None:
@@ -39,8 +50,6 @@ def test_build_traefik_systemd_unit_loads_environment_file() -> None:
 def test_parse_detected_service_versions() -> None:
     install_targets = {
         "traefik": "3.3.4",
-        "frps": "0.62.0",
-        "frpc": "0.62.0",
     }
 
     traefik_info = gateway_service._build_service_version_info(

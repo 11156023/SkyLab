@@ -176,10 +176,7 @@
     openDataDir: "開啟資料目錄"
   },
   logger: {
-    tab: {
-      appLog: "應用日誌",
-      frpcLog: "連線日誌"
-    },
+    tab: { appLog: "應用日誌" },
     message: {
       openSuccess: "開啟日誌成功",
       refreshSuccess: "重新整理成功"
