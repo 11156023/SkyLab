@@ -514,6 +514,39 @@ export function getSessionMenuPosition(anchorRect, options = {}) {
   return { top: Math.round(top), left: Math.round(left) };
 }
 
+/**
+ * 初始空狀態的中央 Hero：淡漸層光暈 + 大標題 + 主 CTA。
+ * 只用於尚未選中任何檢查（!activeSession）的中間欄，不影響 sidebarEmpty。
+ * 常用檢查 chips 目前僅為引導入口，一律走 openCreateCheckDialog 建檔流程。
+ */
+export function EmptyCheckHero({ onCreateCheck }) {
+  return (
+    <div className={styles.heroEmpty} data-empty-hero="true">
+      <span className={styles.heroGlow} aria-hidden="true" />
+      <span className={styles.heroBadge}>
+        <MIcon name="auto_awesome" size={28} />
+      </span>
+      <h2 className={styles.heroTitle}>開始建立 AI 檢查</h2>
+      <p className={styles.heroDesc}>告訴 AI 你希望驗證什麼，系統會協助建立檢查項目與執行方式。</p>
+      <button type="button" className={`${styles.btnPrimary} ${styles.heroCta}`} onClick={onCreateCheck}>
+        <MIcon name="add" size={18} />建立第一個檢查
+      </button>
+      <div className={styles.heroQuick} aria-label="常用檢查">
+        <span className={styles.heroQuickLabel}>常用檢查</span>
+        <button type="button" className={styles.heroChip} onClick={onCreateCheck} title="以服務狀態為起點建立檢查">
+          <MIcon name="dns" size={15} />服務狀態
+        </button>
+        <button type="button" className={styles.heroChip} onClick={onCreateCheck} title="以設定檔為起點建立檢查">
+          <MIcon name="description" size={15} />設定檔
+        </button>
+        <button type="button" className={styles.heroChip} onClick={onCreateCheck} title="以執行結果為起點建立檢查">
+          <MIcon name="fact_check" size={15} />執行結果
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function proposalOperationLabel(item) {
   const operation = item.operation ?? item.action;
   if (operation === "delete" || operation === "remove") return "刪除";
@@ -1126,18 +1159,124 @@ export function ChatPanel({
   const { dragging, dropProps } = useFileDrop(([file]) => onUploadFile?.(file), {
     disabled: isLoading || isClearing || isUploading || disabled,
   });
+  // 空對話（無可顯示訊息且非載入中）走中央 Hero Composer：置中 ✦＋標題＋圓角輸入框；
+  // 有訊息或載入中則維持訊息串＋底部輸入的既有版面。
+  const isEmpty = visibleMessages.length === 0 && !isLoading;
+  const canInteract = !(isLoading || isClearing || isUploading || disabled);
+  const canSend = canInteract && (Boolean(input.trim()) || pendingAttachments.length > 0);
+  const heroPlaceholder = hasRubric
+    ? "輸入訊息...（Shift+Enter 換行）"
+    : "描述你希望學生完成什麼...（Shift+Enter 換行）";
 
   return (
-    <div className={styles.chatPanel} {...(onUploadFile ? dropProps : {})}>
+    <div className={`${styles.chatPanel} ${isEmpty ? styles.chatPanelEmpty : ""}`} {...(onUploadFile ? dropProps : {})}>
       <div className={styles.chatMessages}>
-        {visibleMessages.length === 0 ? (
-          <div className={styles.chatEmpty}>
-            <MIcon name="smart_toy" size={32} />
-            <p>{hasRubric ? "與 AI 對話來精煉你的檢查表" : "先和 AI 討論你的檢查需求"}</p>
-            <p className={styles.chatEmptyMeta}>
+        {isEmpty ? (
+          <div className={styles.chatHero} data-chat-empty-hero="true">
+            <span className={styles.chatHeroBadge} aria-hidden="true">
+              <MIcon name="auto_awesome" size={28} />
+            </span>
+            <h3 className={styles.chatHeroTitle}>與 AI 對話來完成檢查表</h3>
+            <p className={styles.chatHeroDesc}>
+              描述想檢查的需求，AI 會先核查必要資訊；同意提案後才會正式保存
+            </p>
+            {pendingAttachments.length > 0 && (
+              <div className={styles.chatAttachmentRail} aria-label="待送出的附件">
+                {pendingAttachments.map((attachment) => (
+                  <div key={attachment.id} className={styles.chatAttachmentChip}>
+                    <MIcon name="description" size={15} />
+                    <span title={attachment.original_filename}>{attachment.original_filename}</span>
+                    <small>{attachment.status === "ready" ? "已讀取" : "處理中"}</small>
+                    {onRemoveAttachment && <button
+                      type="button"
+                      className={styles.chatAttachmentRemove}
+                      aria-label={`移除附件 ${attachment.original_filename}`}
+                      disabled={!canInteract}
+                      onClick={() => onRemoveAttachment(attachment)}
+                    >
+                      <MIcon name="close" size={14} />
+                    </button>}
+                  </div>
+                ))}
+              </div>
+            )}
+            <form
+              className={styles.chatHeroComposer}
+              aria-label="與 AI 對話輸入區"
+              onSubmit={(e) => {
+                e.preventDefault();
+                send();
+              }}
+            >
+              <textarea
+                value={input}
+                onChange={(e) => setInput(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && !e.shiftKey) {
+                    e.preventDefault();
+                    send();
+                  }
+                }}
+                placeholder={heroPlaceholder}
+                rows={3}
+                aria-label="與 AI 對話輸入框"
+                disabled={!canInteract}
+              />
+              <div className={styles.chatHeroFooter}>
+                {onUploadFile ? (
+                  <>
+                    <input
+                      ref={fileInputRef}
+                      type="file"
+                      accept=".md,.txt,.doc,.docx,.pdf"
+                      className={styles.srOnly}
+                      tabIndex={-1}
+                      onChange={handleAttachmentInput}
+                    />
+                    <button
+                      type="button"
+                      className={`${styles.btnSecondary} ${styles.chatHeroAttach}`}
+                      disabled={!canInteract}
+                      aria-label="新增附件"
+                      title="附加檔案（.md、.txt、.doc、.docx、.pdf），也可直接把檔案拖進來"
+                      onClick={() => fileInputRef.current?.click()}
+                    >
+                      <MIcon name="add" size={16} />
+                      附加檔案
+                    </button>
+                  </>
+                ) : <span />}
+                <button
+                  type="submit"
+                  className={`${styles.btnPrimary} ${styles.chatHeroSend}`}
+                  disabled={!canSend}
+                  aria-label="送出"
+                  title="送出"
+                >
+                  <MIcon name="arrow_upward" size={18} />
+                </button>
+              </div>
+            </form>
+            {onToggleSources && <button
+              type="button"
+              className={styles.btnSecondary}
+              disabled={!canInteract}
+              onClick={onToggleSources}
+              aria-expanded={sourcesOpen}
+              aria-controls="ai-chat-data-sources"
+            >
+              <MIcon name="description" size={14} />
+              資料來源
+            </button>}
+            {sourcesOpen && sourcesContent && (
+              <div id="ai-chat-data-sources" className={styles.chatSourcesPanel}>
+                {sourcesContent}
+              </div>
+            )}
+            <p className={styles.chatHint}>
               {hasRubric
-                ? "可以詢問修改建議，或直接下達調整指令"
-                : "點擊輸入框旁的＋或把文件拖進來，上傳完成後即可接續討論"}
+                ? "提示：可直接下達調整指令，或先用＋上傳文件再討論"
+                : "提示：先用＋上傳文件或把檔案拖進來；分析完成後，AI 才會提出可套用的檢查項目修改"}
             </p>
           </div>
         ) : (
@@ -1209,6 +1348,7 @@ export function ChatPanel({
         <div ref={messagesEndRef} />
       </div>
 
+      {!isEmpty && (
       <div className={styles.chatInputArea}>
         {pendingAttachments.length > 0 && (
           <div className={styles.chatAttachmentRail} aria-label="待送出的附件">
@@ -1318,7 +1458,8 @@ export function ChatPanel({
             : "提示：先用＋上傳文件；分析完成後，AI 才會提出可套用的檢查項目修改"}
         </p>
       </div>
-      {dragging && <FileDropOverlay />}
+      )}
+      {dragging && <FileDropOverlay label="放開以加入檔案" />}
     </div>
   );
 }
@@ -4337,12 +4478,8 @@ function TeacherWorkspacePanel({ classId, members, weeks = [], machineNodes = []
         </aside>
 
         <section className={styles.sessionMain}>
-          <div className={styles.card}>
-            <div className={styles.mainEmpty}>
-              <MIcon name="checklist" size={30} />
-              <p>請從左側選擇一項檢查，或新增檢查。</p>
-              <button type="button" className={styles.btnPrimary} onClick={openCreateCheckDialog}>新增檢查</button>
-            </div>
+          <div className={`${styles.card} ${styles.heroCard}`}>
+            <EmptyCheckHero onCreateCheck={openCreateCheckDialog} />
           </div>
         </section>
       </div>
