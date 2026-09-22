@@ -31,9 +31,27 @@ logger = logging.getLogger(__name__)
 IN_FLIGHT_JOB_VALUES = {"approved", "pending", "running", "completed"}
 FAILED_JOB_VALUES = {"failed", "rejected", "cancelled"}
 
+# 已經成功套用過拓樸的班級，記著當時那組工作的樣子。
+# apply_class_topology 會對每台機器查一次防火牆規則，一個班就是上百次
+# PVE 呼叫；班級已經是「可上課」而且工作沒有任何變動時不必重跑。
+# 這份快取只是省呼叫，程序重啟後清空，最多就是多套一次（結果相同）。
+_APPLIED_TOPOLOGY: dict[uuid.UUID, tuple[tuple[str, int, int, int], ...]] = {}
+
 
 def _job_value(job: BatchProvisionJob) -> str:
     return job.status.value if hasattr(job.status, "value") else str(job.status)
+
+
+def _job_signature(
+    jobs: list[BatchProvisionJob],
+) -> tuple[tuple[str, int, int, int], ...]:
+    """工作的完成度快照：重試、換節點、補學生都會讓它改變。"""
+    return tuple(
+        sorted(
+            (str(job.id), int(job.done), int(job.total), int(job.failed_count))
+            for job in jobs
+        )
+    )
 
 
 def recompute(*, session: Session, class_id: uuid.UUID) -> TeachingClass | None:
@@ -44,6 +62,7 @@ def recompute(*, session: Session, class_id: uuid.UUID) -> TeachingClass | None:
     """
     item = session.get(TeachingClass, class_id)
     if item is None or item.status == TeachingClassStatus.archived:
+        _APPLIED_TOPOLOGY.pop(class_id, None)
         return item
 
     nodes = list(
@@ -72,11 +91,19 @@ def recompute(*, session: Session, class_id: uuid.UUID) -> TeachingClass | None:
     )
 
     if all_ready:
+        signature = _job_signature(jobs)
+        if (
+            item.status == TeachingClassStatus.active
+            and _APPLIED_TOPOLOGY.get(class_id) == signature
+        ):
+            # 已經可上課、工作也沒變 → 規則早就套好了，不必再打一輪 PVE
+            return item
         session.flush()
         topology_errors = class_network_service.apply_class_topology(
             session, class_id=class_id
         )
         if topology_errors:
+            _APPLIED_TOPOLOGY.pop(class_id, None)
             logger.warning(
                 "Class %s topology failed after provisioning: %s",
                 class_id,
@@ -84,6 +111,7 @@ def recompute(*, session: Session, class_id: uuid.UUID) -> TeachingClass | None:
             )
             item.status = TeachingClassStatus.partial_failed
         else:
+            _APPLIED_TOPOLOGY[class_id] = signature
             item.status = TeachingClassStatus.active
             course_service.ensure_class_path(
                 session,

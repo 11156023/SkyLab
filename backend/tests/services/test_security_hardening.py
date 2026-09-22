@@ -25,10 +25,15 @@ from app.core import security
 from app.core.config import settings
 from app.exceptions import AuthenticationError, BadRequestError, ProxmoxError
 from app.infrastructure.redis.token_blacklist import mark_refresh_token_used
+from app.models import User
+from app.repositories import user as user_repo
+from app.schemas import UserUpdate
 from app.schemas.firewall import PortSpec
 from app.services.network.publish_target_policy import validate_publish_target_ip
 from app.services.proxmox import gpu_service, provisioning_service
+from app.services.resource import quota_service
 from app.services.user import auth_service
+from app.services.vm import spec_change_service
 from app.utils.token import (
     decode_password_reset_token,
     generate_password_reset_token,
@@ -159,7 +164,11 @@ def test_reset_password_rejects_token_issued_before_version_bump(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     user = SimpleNamespace(
-        id=_USER_ID, email="user@example.com", token_version=4, is_active=True
+        id=_USER_ID,
+        email="user@example.com",
+        token_version=4,
+        is_active=True,
+        auth_source="local",
     )
     monkeypatch.setattr(
         auth_service.user_repo, "get_user_by_email", lambda *, session, email: user
@@ -176,14 +185,23 @@ def test_reset_password_accepts_current_version_and_bumps_it(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     user = SimpleNamespace(
-        id=_USER_ID, email="user@example.com", token_version=4, is_active=True
+        id=_USER_ID,
+        email="user@example.com",
+        token_version=4,
+        is_active=True,
+        auth_source="local",
     )
     monkeypatch.setattr(
         auth_service.user_repo, "get_user_by_email", lambda *, session, email: user
     )
-    monkeypatch.setattr(
-        auth_service.user_repo, "update_user", lambda *, session, db_user, user_in: db_user
-    )
+
+    def _fake_update_user(*, session: Any, db_user: Any, user_in: Any) -> Any:
+        # 比照 user_repo.update_user：帶密碼就把 token_version +1
+        if "password" in user_in.model_dump(exclude_unset=True):
+            db_user.token_version += 1
+        return db_user
+
+    monkeypatch.setattr(auth_service.user_repo, "update_user", _fake_update_user)
     monkeypatch.setattr(
         auth_service.audit_service, "log_action", lambda **kwargs: None
     )
@@ -291,3 +309,196 @@ def test_publish_target_enforces_vm_subnet_when_configured() -> None:
 
 def test_publish_target_allows_normal_ip_without_subnet_config() -> None:
     assert str(validate_publish_target_ip("10.10.3.7")) == "10.10.3.7"
+
+
+# ---------------------------------------------------------------------------
+# LDAP 帳號不得走本地密碼（登入 / 忘記密碼 / 重設）
+# ---------------------------------------------------------------------------
+
+
+def test_authenticate_rejects_ldap_account(monkeypatch: pytest.MonkeyPatch) -> None:
+    """LDAP 帳號就算本地雜湊恰好對得上，也不能用密碼登入。"""
+    password = "Correct-Horse-1"
+    ldap_user = SimpleNamespace(
+        id=_USER_ID,
+        email="ldap@example.com",
+        auth_source="ldap",
+        hashed_password=security.get_password_hash(password),
+    )
+    monkeypatch.setattr(
+        user_repo, "get_user_by_email", lambda *, session, email: ldap_user
+    )
+
+    assert (
+        user_repo.authenticate(
+            session=SimpleNamespace(), email=ldap_user.email, password=password
+        )
+        is None
+    )
+
+
+def test_recover_password_sends_no_email_for_ldap_account(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    sent: list[Any] = []
+    user = SimpleNamespace(
+        id=_USER_ID, email="ldap@example.com", token_version=0, auth_source="ldap"
+    )
+    monkeypatch.setattr(
+        auth_service.user_repo, "get_user_by_email", lambda *, session, email: user
+    )
+    monkeypatch.setattr(
+        auth_service.audit_service, "log_action", lambda **kwargs: None
+    )
+    monkeypatch.setattr(auth_service, "send_email", lambda **kwargs: sent.append(kwargs))
+
+    auth_service.recover_password(session=SimpleNamespace(), email=user.email)
+
+    assert sent == []
+
+
+def test_reset_password_rejects_ldap_account(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    user = SimpleNamespace(
+        id=_USER_ID,
+        email="ldap@example.com",
+        token_version=0,
+        is_active=True,
+        auth_source="ldap",
+    )
+    monkeypatch.setattr(
+        auth_service.user_repo, "get_user_by_email", lambda *, session, email: user
+    )
+    token = generate_password_reset_token(email=user.email, token_version=0)
+
+    with pytest.raises(BadRequestError):
+        auth_service.reset_password(
+            session=SimpleNamespace(), token=token, new_password="N3wPassw0rd!"
+        )
+
+
+# ---------------------------------------------------------------------------
+# 管理員改密碼 / 停用帳號要讓既有 token 失效
+# ---------------------------------------------------------------------------
+
+
+class _FlushSession:
+    def add(self, obj: Any) -> None:
+        pass
+
+    def flush(self) -> None:
+        pass
+
+
+def _local_user() -> User:
+    return User(
+        email="user@example.com",
+        hashed_password=security.get_password_hash("Old-Passw0rd"),
+        token_version=7,
+        is_active=True,
+    )
+
+
+def test_update_user_bumps_token_version_on_password_change() -> None:
+    user = _local_user()
+    user_repo.update_user(
+        session=_FlushSession(),
+        db_user=user,
+        user_in=UserUpdate(password="N3wPassw0rd!"),
+    )
+    assert user.token_version == 8
+
+
+def test_update_user_bumps_token_version_on_deactivation() -> None:
+    user = _local_user()
+    user_repo.update_user(
+        session=_FlushSession(), db_user=user, user_in=UserUpdate(is_active=False)
+    )
+    assert user.token_version == 8
+
+
+def test_update_user_keeps_token_version_on_unrelated_change() -> None:
+    user = _local_user()
+    user_repo.update_user(
+        session=_FlushSession(), db_user=user, user_in=UserUpdate(full_name="改個名字")
+    )
+    assert user.token_version == 7
+
+
+def test_update_user_keeps_token_version_when_already_inactive() -> None:
+    user = _local_user()
+    user.is_active = False
+    user_repo.update_user(
+        session=_FlushSession(), db_user=user, user_in=UserUpdate(is_active=False)
+    )
+    assert user.token_version == 7
+
+
+# ---------------------------------------------------------------------------
+# 規格調整：重複套用的 DB 鎖（background_tasks.is_active 只認本行程）
+# ---------------------------------------------------------------------------
+
+
+def _spec_request(**kwargs: Any) -> SimpleNamespace:
+    base: dict[str, Any] = {
+        "applied_at": None,
+        "apply_error": None,
+        "apply_started_at": None,
+    }
+    base.update(kwargs)
+    return SimpleNamespace(**base)
+
+
+def test_apply_recently_started_blocks_second_apply() -> None:
+    started = datetime.now(timezone.utc) - timedelta(minutes=5)
+    assert spec_change_service._apply_recently_started(
+        _spec_request(apply_started_at=started)
+    )
+
+
+def test_apply_recently_started_expires_after_lock_window() -> None:
+    started = datetime.now(timezone.utc) - timedelta(
+        minutes=spec_change_service.APPLY_LOCK_MINUTES + 1
+    )
+    assert not spec_change_service._apply_recently_started(
+        _spec_request(apply_started_at=started)
+    )
+
+
+def test_apply_recently_started_allows_retry_after_failure() -> None:
+    started = datetime.now(timezone.utc) - timedelta(minutes=1)
+    assert not spec_change_service._apply_recently_started(
+        _spec_request(apply_started_at=started, apply_error="boom")
+    )
+
+
+def test_apply_recently_started_handles_naive_timestamp() -> None:
+    """SQLite 取回的時間沒有 tzinfo，不可以因此炸掉。"""
+    started = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(minutes=5)
+    assert spec_change_service._apply_recently_started(
+        _spec_request(apply_started_at=started)
+    )
+
+
+# ---------------------------------------------------------------------------
+# 配額：尚未佈建的申請單也要佔用額度
+# ---------------------------------------------------------------------------
+
+
+def test_request_specs_uses_lxc_rootfs_size() -> None:
+    request = SimpleNamespace(
+        resource_type="lxc", cores=4, memory=8192, rootfs_size=30, disk_size=None
+    )
+    assert quota_service.request_specs(request) == (4, 8192, 30)
+
+
+def test_request_specs_falls_back_to_provisioning_defaults() -> None:
+    lxc = SimpleNamespace(
+        resource_type="lxc", cores=1, memory=512, rootfs_size=None, disk_size=None
+    )
+    vm = SimpleNamespace(
+        resource_type="qemu", cores=2, memory=2048, rootfs_size=None, disk_size=None
+    )
+    assert quota_service.request_specs(lxc) == (1, 512, 8)
+    assert quota_service.request_specs(vm) == (2, 2048, 20)

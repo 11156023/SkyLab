@@ -22,7 +22,7 @@ class AITemplateCallLog(SQLModel, table=True):
     )
 
     id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
-    user_id: uuid.UUID = Field(foreign_key="user.id", index=True)
+    user_id: uuid.UUID = Field(foreign_key="user.id", index=True, ondelete="CASCADE")
     call_type: str = Field(max_length=30)  # "chat" | "recommend"
     model_name: str = Field(max_length=255)
     preset: str | None = Field(default=None, max_length=50)

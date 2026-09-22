@@ -73,6 +73,38 @@ def _openai_error(
     )
 
 
+def _upstream_failure(
+    *,
+    request: Request,
+    upstream: httpx.Response,
+    body: bytes,
+    context: str,
+) -> JSONResponse:
+    """上游的錯誤 body 一律不轉給呼叫端。
+
+    LiteLLM 的錯誤訊息會夾帶內部模型別名、後端 URL、服務金鑰片段與 traceback；
+    對外只保留 status code 與泛用訊息，原文連同 request id 寫進 log 供追查。
+    """
+    request_id = (
+        upstream.headers.get("x-request-id")
+        or request.headers.get("x-request-id")
+        or "-"
+    )
+    logger.warning(
+        "AI API upstream error: context=%s status=%s request_id=%s body=%s",
+        context,
+        upstream.status_code,
+        request_id,
+        body[:2048].decode("utf-8", "replace"),
+    )
+    return _openai_error(
+        upstream.status_code,
+        "The model service rejected this request.",
+        error_type="api_error",
+        code="upstream_error",
+    )
+
+
 def _service_headers(request: Request) -> dict[str, str]:
     """Build the only headers allowed to cross the Campus → LiteLLM boundary."""
     headers = {
@@ -426,6 +458,13 @@ async def _relay_generation(
         record_status="success" if 200 <= upstream.status_code < 300 else "error",
         error_message=None if upstream.is_success else f"upstream_http_{upstream.status_code}",
     )
+    if not upstream.is_success:
+        return _upstream_failure(
+            request=request,
+            upstream=upstream,
+            body=content,
+            context=f"relay:{endpoint}",
+        )
     return Response(
         content=content,
         status_code=upstream.status_code,
@@ -510,11 +549,11 @@ async def list_models(request: Request, user_and_credential: AIAPIUserDep) -> Re
 
     response_headers = _response_headers(upstream.headers)
     if not upstream.is_success:
-        return Response(
-            content=upstream.content,
-            status_code=upstream.status_code,
-            headers=response_headers,
-            media_type=upstream.headers.get("content-type"),
+        return _upstream_failure(
+            request=request,
+            upstream=upstream,
+            body=upstream.content,
+            context="models",
         )
 
     try:

@@ -1,7 +1,8 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import styles from "./settings.module.scss";
 import MIcon from "../../../components/MIcon";
+import EmptyState from "../../../components/EmptyState/EmptyState";
 import LoadingState from "../../../components/LoadingState/LoadingState";
 import PageHeader from "../../../components/PageHeader/PageHeader";
 import { LdapConfigService } from "../../../services/ldapConfig";
@@ -57,23 +58,33 @@ function LdapForm() {
   const [form, setForm] = useState(null);
   const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState(false);
+  /* 載入失敗要看得見：記下錯誤訊息改渲染重試區塊，不要停在轉圈畫面 */
+  const [loadError, setLoadError] = useState(null);
+  const [reloadKey, setReloadKey] = useState(0);
   const baseline = useMemo(() => (config ? buildForm(config) : null), [config]);
   const dirty = Boolean(form && baseline && Object.keys(form).some((key) => form[key] !== baseline[key]));
   useUnsavedChangesGuard(dirty);
 
   useEffect(() => {
     let cancelled = false;
+    setLoadError(null);
     LdapConfigService.get()
       .then((cfg) => {
         if (cancelled) return;
         setConfig(cfg);
         setForm(buildForm(cfg));
       })
-      .catch((err) => toast.error(err?.message ?? t("LdapTab.toastLoadFailed")));
+      .catch((err) => {
+        if (cancelled) return;
+        setLoadError(err?.message ?? t("LdapTab.toastLoadFailed"));
+        toast.error(err?.message ?? t("LdapTab.toastLoadFailed"));
+      });
     return () => {
       cancelled = true;
     };
-  }, [toast, t]);
+  }, [toast, t, reloadKey]);
+
+  const retryLoad = useCallback(() => setReloadKey((n) => n + 1), []);
 
   const setField = (key, value) => setForm((prev) => ({ ...prev, [key]: value }));
 
@@ -105,6 +116,21 @@ function LdapForm() {
     }
   }
 
+  if (!form && loadError) {
+    return (
+      <EmptyState
+        icon="error_outline"
+        title={t("LdapTab.toastLoadFailed")}
+        description={loadError}
+        action={
+          <button type="button" className={styles.btnSecondary} onClick={retryLoad}>
+            <MIcon name="refresh" size={16} />
+            {t("LdapTab.retry")}
+          </button>
+        }
+      />
+    );
+  }
   if (!form) return <LoadingState text={t("LdapTab.loading")} />;
 
   return (

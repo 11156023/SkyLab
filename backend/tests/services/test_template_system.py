@@ -212,6 +212,64 @@ async def test_delete_template_blocked_by_clone_children(
         )
 
 
+def _patch_open_reference_guards(
+    monkeypatch: pytest.MonkeyPatch, *, requests: int = 0, batch_jobs: int = 0
+) -> None:
+    """把「未開通申請／未跑完批量工作」兩道刪除守門的查詢換成固定值。"""
+    monkeypatch.setattr(
+        template_service, "_open_request_count", lambda session, pve_vmid: requests
+    )
+    monkeypatch.setattr(
+        template_service,
+        "_open_batch_job_count",
+        lambda session, template_id: batch_jobs,
+    )
+
+
+async def test_delete_template_blocked_by_open_requests(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """還有申請單指定這個範本且尚未開通 → 不准刪（刪了申請一開通就會失敗）。"""
+    user = make_user("admin")
+    template = make_template(owner_id=user.id)
+    session = FakeSession(template, children=[])
+    _patch_open_reference_guards(monkeypatch, requests=2)
+
+    async def fail_enqueue(**kwargs: Any) -> None:
+        raise AssertionError("enqueue_task should not be called")
+
+    monkeypatch.setattr(template_service, "enqueue_task", fail_enqueue)
+
+    with pytest.raises(ConflictError, match="2"):
+        await template_service.delete_template(
+            session=session,  # type: ignore[arg-type]
+            user=user,
+            template_id=template.id,
+        )
+
+
+async def test_delete_template_blocked_by_open_batch_jobs(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """批量建立工作還引用著範本（待審／已審未跑）→ 不准刪。"""
+    user = make_user("admin")
+    template = make_template(owner_id=user.id)
+    session = FakeSession(template, children=[])
+    _patch_open_reference_guards(monkeypatch, batch_jobs=1)
+
+    async def fail_enqueue(**kwargs: Any) -> None:
+        raise AssertionError("enqueue_task should not be called")
+
+    monkeypatch.setattr(template_service, "enqueue_task", fail_enqueue)
+
+    with pytest.raises(ConflictError, match="1"):
+        await template_service.delete_template(
+            session=session,  # type: ignore[arg-type]
+            user=user,
+            template_id=template.id,
+        )
+
+
 async def test_delete_template_enqueues_without_children(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -219,6 +277,7 @@ async def test_delete_template_enqueues_without_children(
     template = make_template(owner_id=user.id)
     session = FakeSession(template, children=[])
     captured: dict[str, Any] = {}
+    _patch_open_reference_guards(monkeypatch)
 
     async def fake_enqueue(**kwargs: Any) -> str:
         captured.update(kwargs)

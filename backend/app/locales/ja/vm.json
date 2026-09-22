@@ -68,6 +68,8 @@
   "spec_change.already_applied": "この申請のスペックはすでに適用済みです",
   "spec_change.resource_gone_apply": "このマシンはすでに存在しないため、適用できません",
   "spec_change.apply_in_progress": "適用処理が進行中です。しばらくお待ちください",
+  "spec_change.apply_recently_started": "前回の適用処理がまだ終了していません。しばらく待ってから再度お試しください。中断されたことが確実な場合は、30 分後に適用してください",
+  "spec_change.partial_applied_disk_failed": "CPU・メモリは適用されました（{applied}）が、ディスクは変更されていません：{error}",
   "spec_change.runner_unavailable": "バックグラウンド実行環境が起動していないため、スペックを適用できません。しばらくしてからもう一度お試しください",
   "spec_change.apply_accepted": "新しいスペックの適用を開始しました。マシンが起動中で再起動が必要な場合は、先にシャットダウンしてから適用し、自動で再起動します",
   "spec_change.stop_timeout": "VMID {vmid} を制限時間内に停止できなかったため、スペックの適用を中止しました",

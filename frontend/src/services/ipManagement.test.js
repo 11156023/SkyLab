@@ -72,13 +72,15 @@ describe("IpManagementService", () => {
     expect(options.method).toBe("DELETE");
   });
 
-  test("listAllocations 把 skip / limit 組成 query string", async () => {
+  test("listAllocations 不帶後端不收的分頁參數", async () => {
     fetchMock.mockResolvedValueOnce(jsonRes(200, { allocations: [], total: 0 }));
 
-    await IpManagementService.listAllocations({ skip: 0, limit: 500 });
+    await IpManagementService.listAllocations();
 
     const [url, options] = fetchMock.mock.calls[0];
-    expect(url).toContain("/api/v1/ip-management/allocations?skip=0&limit=500");
+    expect(url).toContain("/api/v1/ip-management/allocations");
+    expect(url).not.toContain("skip=");
+    expect(url).not.toContain("limit=");
     expect(options.method).toBe("GET");
   });
 

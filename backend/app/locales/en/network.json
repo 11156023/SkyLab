@@ -82,6 +82,7 @@
   "firewall.setupDefaultRulesFailed": "Failed to configure default firewall rules for VM {vmid}: {error}",
   "firewall.atLeastOnePortRequired": "At least one port must be specified",
   "firewall.sourceAndTargetCannotBothBeGateway": "Source and target cannot both be the gateway",
+  "firewall.sourceAndTargetMustDiffer": "Source and target cannot be the same machine",
   "firewall.targetVmNotFound": "Target VM {vmid} does not exist",
   "firewall.dbSessionRequiredForPortForwarding": "Creating a port forwarding / reverse proxy rule requires a DB session",
   "firewall.gatewayNotConfiguredForExternalAccess": "Please configure the SSH connection and generate a key in \"Gateway VM Management\" before creating external access",
@@ -111,9 +112,12 @@
   "publish.targetIpInfrastructure": "Target IP {ip} belongs to platform infrastructure (Gateway / PVE node) and cannot be published",
   "publish.targetIpBlocked": "Target IP {ip} falls within the blocked subnet {network} and cannot be published",
   "publish.targetIpOutsideVmSubnet": "Target IP {ip} is outside the platform-assigned VM subnet, so external access cannot be created; make sure the VM uses its assigned IP",
+  "publish.targetIpNotAllocatedToVm": "Target IP {ip} is not the address the platform assigned to VM {vmid} (assigned: {allocated}), so the rule cannot be created; make sure the VM uses its assigned IP",
   "firewall.servicePortAlreadyPublished": "Port {port}/{protocol} is already published; unpublish it before setting it up again",
   "firewall.serviceNotFound": "No published service found for port {port}/{protocol}",
   "firewall.serviceUnpublished": "Service unpublished",
   "reverseProxy.domainConflictUnverified": "Could not confirm with Cloudflare whether {domain} is already in use; only this system's records were checked",
-  "reverseProxy.domainInUseExternally": "Domain {domain} already has a {record_type} record on Cloudflare (not created by this system); please choose another name"
+  "reverseProxy.domainInUseExternally": "Domain {domain} already has a {record_type} record on Cloudflare (not created by this system); please choose another name",
+  "reverseProxy.domainConflictCheckFailed": "Could not confirm with Cloudflare whether {domain} is already in use; the rule was not created so an existing record is not overwritten. Please try again later",
+  "cloudflare.identifierInvalidFormat": "{field} has an invalid format; it must be a 32-character hexadecimal string"
 }

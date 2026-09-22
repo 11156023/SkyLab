@@ -12,6 +12,9 @@ import PageHeader from "../../../components/PageHeader/PageHeader";
 import SegmentedControl from "../../../components/SegmentedControl/SegmentedControl";
 import { formatDateTime } from "../../../utils/formatDate";
 
+/** 仍視為「進行中」的狀態；需與後端 schemas/jobs.py 的 ACTIVE_JOB_STATUSES 一致 */
+const ACTIVE_STATUSES = new Set(["pending", "running", "blocked"]);
+
 function useKindLabels() {
   const { t } = useTranslation("system");
   return {
@@ -79,7 +82,6 @@ export default function JobsPage() {
     ...Object.entries(STATUS_LABELS).map(([value, label]) => ({ value, label })),
   ];
   const [jobs, setJobs] = useState([]);
-  const [activeCount, setActiveCount] = useState(0);
   const [kind, setKind] = useState("all");
   const [status, setStatus] = useState("all");
   const [loading, setLoading] = useState(true);
@@ -95,7 +97,6 @@ export default function JobsPage() {
       else if (status !== "all") params.statuses = [status];
       const res = await JobsService.list(params);
       setJobs(res?.items ?? []);
-      setActiveCount(res?.active_count ?? 0);
     } catch (e) {
       if (!silent) toast.error(e?.message ?? t("JobsPage.toastLoadFailed"));
     } finally {
@@ -106,11 +107,14 @@ export default function JobsPage() {
   useEffect(() => { load(); }, [load]);
   useAutoRefresh(() => load(true));
 
-  const stats = useMemo(() => {
-    const completed = jobs.filter((j) => j.status === "completed").length;
-    const failed = jobs.filter((j) => j.status === "failed").length;
-    return { active: activeCount, completed, failed };
-  }, [jobs, activeCount]);
+  /* 三張卡的口徑要一致：後端只回全域的 active_count，沒有全域的
+     completed／failed，所以三個數字一律用目前這份清單算，並在卡片上
+     標示「目前篩選」，免得「進行中」是全站數、另外兩個是篩選後的數。 */
+  const stats = useMemo(() => ({
+    active: jobs.filter((j) => ACTIVE_STATUSES.has(j.status)).length,
+    completed: jobs.filter((j) => j.status === "completed").length,
+    failed: jobs.filter((j) => j.status === "failed").length,
+  }), [jobs]);
 
   const visible = jobs;
 
@@ -118,6 +122,7 @@ export default function JobsPage() {
     <div className={styles.page}>
       <PageHeader title={t("JobsPage.pageTitle")} />
 
+      {/* 三個數字都是這份清單算出來的，卡片上用同一個副標說明範圍 */}
       <div className={styles.statRow}>
         <div className={styles.statCard}>
           <div className={`${styles.statIcon} ${styles.statIconBusy}`}>
@@ -126,6 +131,7 @@ export default function JobsPage() {
           <div className={styles.statInfo}>
             <span className={styles.statLabel}>{t("JobsPage.statActive")}</span>
             <span className={styles.statValue}>{stats.active}</span>
+            <span className={styles.statScope}>{t("JobsPage.statScopeCurrentFilter")}</span>
           </div>
         </div>
         <div className={styles.statCard}>
@@ -135,6 +141,7 @@ export default function JobsPage() {
           <div className={styles.statInfo}>
             <span className={styles.statLabel}>{t("JobsPage.statCompleted")}</span>
             <span className={styles.statValue}>{stats.completed}</span>
+            <span className={styles.statScope}>{t("JobsPage.statScopeCurrentFilter")}</span>
           </div>
         </div>
         <div className={styles.statCard}>
@@ -144,6 +151,7 @@ export default function JobsPage() {
           <div className={styles.statInfo}>
             <span className={styles.statLabel}>{t("JobsPage.statFailed")}</span>
             <span className={styles.statValue}>{stats.failed}</span>
+            <span className={styles.statScope}>{t("JobsPage.statScopeCurrentFilter")}</span>
           </div>
         </div>
       </div>

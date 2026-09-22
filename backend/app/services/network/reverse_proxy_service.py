@@ -11,6 +11,7 @@ import logging
 import re
 
 import yaml
+from sqlalchemy.exc import IntegrityError
 
 from app.core.i18n import t
 from app.exceptions import BadRequestError, ProxmoxError
@@ -321,7 +322,7 @@ def apply_reverse_proxy_rule(
     ensure_reverse_proxy_ready(session)
     # vm_ip 來自 guest agent 回報，VM 擁有者可偽造：必須確認它真的是
     # 平台配發的 VM 位址，而不是 Gateway / PVE 節點等內部主機
-    assert_publishable_vm_ip(session, vm_ip)
+    assert_publishable_vm_ip(session, vm_ip, vmid=vmid)
 
     if getattr(session, "get", lambda *_: None)(Resource, vmid) is None:
         raise BadRequestError(t("reverseProxy.vmidNotInResourceList", vmid=vmid))
@@ -332,25 +333,51 @@ def apply_reverse_proxy_rule(
     # 不管是本系統建的還是使用者在 Cloudflare 上自己建的，同名紀錄一律視為衝突
     assert_domain_available(session, domain, zone_id=zone_id)
 
-    record = cloudflare_service.upsert_reverse_proxy_dns_record(  # type: ignore[arg-type]
-        session=session,
-        zone_id=zone_id,
-        domain=domain,
-        vmid=vmid,
-    )
-
+    # 先寫 DB 再動 DNS：上面的檢查與建立之間有時間差，兩個人同時送同一個
+    # 網域時只有 domain 的 UNIQUE 約束擋得住。反過來先建 DNS 的話，慢的那個
+    # 會先把對方的紀錄覆蓋掉，才在寫 DB 時失敗。
     rule = ReverseProxyRule(
         vmid=vmid,
         resource_vmid=_resolve_resource_vmid(session, vmid),
         vm_ip=vm_ip,
         domain=domain,
         zone_id=zone_id,
-        cloudflare_record_id=record.id,
+        cloudflare_record_id=None,
         internal_port=internal_port,
         enable_https=enable_https,
         dns_provider="cloudflare",
     )
-    rp_repo.create_rule(session, rule)  # type: ignore[arg-type]
+    try:
+        created = rp_repo.create_rule(session, rule)  # type: ignore[arg-type]
+    except IntegrityError as exc:
+        rollback = getattr(session, "rollback", None)
+        if rollback is not None:
+            rollback()
+        raise BadRequestError(
+            t("reverseProxy.domainAlreadyTaken", domain=domain)
+        ) from exc
+
+    try:
+        record = cloudflare_service.upsert_reverse_proxy_dns_record(  # type: ignore[arg-type]
+            session=session,
+            zone_id=zone_id,
+            domain=domain,
+            vmid=vmid,
+        )
+    except Exception:
+        # DNS 建不起來就把剛剛佔位的規則收回，否則這個網域會被一條
+        # 永遠不會生效的紀錄卡住
+        try:
+            rp_repo.delete_rule(session, created)  # type: ignore[arg-type]
+        except Exception:
+            logger.exception(
+                "反向代理規則 %s 建立 DNS 失敗後的回滾刪除也失敗，DB 可能殘留無效規則",
+                created.id,
+            )
+        raise
+
+    created.cloudflare_record_id = record.id
+    rp_repo.update_rule(session, created)  # type: ignore[arg-type]
     _sync_traefik(session)
 
 
@@ -506,10 +533,19 @@ def assert_domain_available(
     zone_id: str | None = None,
     exclude_rule_id: object = None,
 ) -> None:
-    """網域被占用（不論是誰建的）就 raise BadRequestError。"""
+    """網域被占用（不論是誰建的）就 raise BadRequestError。
+
+    查不到 Cloudflare（``reason == "unverified"``）在這裡一律當作不可用：
+    表單即時提示放行沒關係，真的要建規則時放行卻可能覆蓋掉別人既有的
+    DNS 紀錄。請管理員稍後再試，比悄悄蓋掉安全。
+    """
     result = check_domain_availability(
         session, domain, zone_id=zone_id, exclude_rule_id=exclude_rule_id
     )
+    if result.reason == "unverified":
+        raise BadRequestError(
+            t("reverseProxy.domainConflictCheckFailed", domain=result.domain or domain)
+        )
     if not result.available:
         raise BadRequestError(
             result.message or t("reverseProxy.domainAlreadyTaken", domain=domain)
@@ -572,7 +608,7 @@ def update_reverse_proxy_rule(
     from app.services.network import cloudflare_service  # noqa: PLC0415
 
     ensure_reverse_proxy_ready(session)
-    assert_publishable_vm_ip(session, vm_ip)
+    assert_publishable_vm_ip(session, vm_ip, vmid=vmid)
     rule = rp_repo.get_rule(session, _uuid.UUID(rule_id))  # type: ignore[arg-type]
     if rule is None:
         raise BadRequestError(t("reverseProxy.ruleIdNotFound", ruleId=rule_id))

@@ -104,11 +104,25 @@ def _target_for_student(
             if not isinstance(raw_target, dict):
                 continue
             user = raw_target.get("user")
-            target_user_id = user.get("user_id") if isinstance(user, dict) else None
+            # 產生端（script_run_service / script_executor_service）寫的是 "id"；
+            # 相容更早期可能寫成 "user_id" 的快照
+            target_user_id = (
+                (user.get("id") or user.get("user_id")) if isinstance(user, dict) else None
+            )
             if target_user_id and str(target_user_id) == str(user_id):
                 return raw_target
-    # Older student-started runs may not contain a user snapshot.
-    return _first_target(run) if run.started_by == user_id else {}
+    # 舊資料相容：學生自己發起、只有一個 target 且沒有 user 快照的 run，
+    # 那唯一的 target 一定是本人的。多 target 的 run 不可拿 started_by 當代理，
+    # 否則 targets[0]（別的同學的結果）會回給發起者。
+    if (
+        run.started_by == user_id
+        and isinstance(raw_targets, list)
+        and len(raw_targets) == 1
+        and isinstance(raw_targets[0], dict)
+        and not isinstance(raw_targets[0].get("user"), dict)
+    ):
+        return raw_targets[0]
+    return {}
 
 
 def _teacher_review(target: dict[str, Any]) -> tuple[str, dict[str, str]]:

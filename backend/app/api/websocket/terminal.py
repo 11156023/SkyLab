@@ -27,9 +27,12 @@ async def terminal_proxy(websocket: WebSocket, vmid: int, token: str):
     try:
         check_resource_control_access(vmid, user, session)
     except Exception:
-        session.close()
         await safe_close_websocket(websocket, code=1008, reason="Permission denied")
         return
+    finally:
+        # 權限檢查之後不再需要 DB；立刻關閉，避免整個終端機生命週期
+        # 佔住一條 idle-in-transaction 連線（比照 classroom.py）。
+        session.close()
 
     await websocket.accept()
     logger.info(f"Terminal proxy connection for LXC {vmid} by user {user.email}")
@@ -181,5 +184,4 @@ async def terminal_proxy(websocket: WebSocket, vmid: int, token: str):
     finally:
         if pve_websocket:
             await pve_websocket.close()
-        session.close()
         logger.info(f"Terminal proxy disconnected for LXC {vmid}")

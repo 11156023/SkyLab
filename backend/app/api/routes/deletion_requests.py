@@ -5,6 +5,7 @@ import uuid
 from fastapi import APIRouter
 
 from app.api.deps import AdminUser, CurrentUser, SessionDep
+from app.core.authorizers import can_bypass_resource_ownership
 from app.infrastructure.worker import submit_sync
 from app.models.deletion_request import DeletionRequestStatus
 from app.schemas.deletion_request import (
@@ -69,7 +70,8 @@ def cancel_deletion_request(
         session=session,
         request_id=request_id,
         user_id=current_user.id,
-        is_admin=current_user.is_superuser,
+        # 權限一律走 permissions 判斷，不直接讀 is_superuser 欄位
+        is_admin=can_bypass_resource_ownership(current_user),
     )
     return DeletionRequestPublic(
         **deletion_service.to_public_with_user(session=session, req=req)
@@ -87,7 +89,7 @@ def retry_deletion_request(
         session=session,
         request_id=request_id,
         user_id=current_user.id,
-        is_admin=current_user.is_superuser,
+        is_admin=can_bypass_resource_ownership(current_user),
     )
     submit_sync(
         deletion_service.process_one_request,

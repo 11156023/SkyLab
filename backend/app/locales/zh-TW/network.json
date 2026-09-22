@@ -82,6 +82,7 @@
   "firewall.setupDefaultRulesFailed": "Failed to configure default firewall rules for {vmid}: {error}",
   "firewall.atLeastOnePortRequired": "至少需要指定一個端口",
   "firewall.sourceAndTargetCannotBothBeGateway": "來源和目標不能同時為網關",
+  "firewall.sourceAndTargetMustDiffer": "來源和目標不能是同一台機器",
   "firewall.targetVmNotFound": "目標 VM {vmid} 不存在",
   "firewall.dbSessionRequiredForPortForwarding": "建立 Port Forwarding / 反向代理需要 DB session",
   "firewall.gatewayNotConfiguredForExternalAccess": "請先至「Gateway VM 管理」設定 SSH 連線並生成金鑰，才能建立外部存取",
@@ -111,9 +112,12 @@
   "publish.targetIpInfrastructure": "目標 IP {ip} 屬於平台基礎設施（Gateway / PVE 節點），不可對外發布",
   "publish.targetIpBlocked": "目標 IP {ip} 落在管理員封鎖的網段 {network}，不可對外發布",
   "publish.targetIpOutsideVmSubnet": "目標 IP {ip} 不在平台配發的 VM 網段內，無法建立外部存取；請確認 VM 使用平台配發的 IP",
+  "publish.targetIpNotAllocatedToVm": "目標 IP {ip} 不是平台配發給 VM {vmid} 的位址（配發為 {allocated}），無法建立規則；請確認 VM 使用平台配發的 IP",
   "firewall.servicePortAlreadyPublished": "Port {port}/{protocol} 已經發布過了，請先撤下再重新設定",
   "firewall.serviceNotFound": "找不到 Port {port}/{protocol} 的對外服務",
   "firewall.serviceUnpublished": "對外服務已撤下",
   "reverseProxy.domainConflictUnverified": "暫時無法向 Cloudflare 確認 {domain} 是否已被使用，只檢查了本系統的紀錄",
-  "reverseProxy.domainInUseExternally": "網域 {domain} 在 Cloudflare 上已有 {record_type} 紀錄（非本系統建立），請換一個名稱"
+  "reverseProxy.domainInUseExternally": "網域 {domain} 在 Cloudflare 上已有 {record_type} 紀錄（非本系統建立），請換一個名稱",
+  "reverseProxy.domainConflictCheckFailed": "無法向 Cloudflare 確認 {domain} 是否已被使用，為避免覆蓋既有紀錄暫不建立，請稍後再試",
+  "cloudflare.identifierInvalidFormat": "{field} 格式不正確，應為 32 位十六進位字串"
 }

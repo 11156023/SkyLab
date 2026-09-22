@@ -240,12 +240,34 @@ def _execute_deletion(session: Session, req: DeletionRequest) -> None:
         session.refresh(req)
     # else: already running → retry path; reuse existing started_at
 
-    session.exec(
+    resource = session.exec(
         select(Resource).where(Resource.vmid == req.vmid)
     ).first()
     # resource may be None for admin-initiated deletion of orphan resources
     # (machines that exist in Proxmox but have no DB record). In that case
     # we still attempt the Proxmox deletion using the snapshot data.
+    if (
+        resource is not None
+        and req.resource_vmid is not None
+        and resource.user_id != req.user_id
+        and resource.created_at is not None
+        and resource.created_at > req.created_at
+    ):
+        # 這張單原本指的機器已被別的途徑刪掉、VMID 又配給了別人的新機器：
+        # 絕不能拿舊單的快照去刪現在這台
+        req.status = DeletionRequestStatus.failed
+        req.error_message = (
+            f"VMID {req.vmid} now belongs to a different resource created after this "
+            "request; refusing to delete it"
+        )
+        req.completed_at = _utc_now()
+        session.add(req)
+        session.commit()
+        logger.warning(
+            "Deletion request %s aborted: vmid=%s was reassigned to user %s",
+            req.id, req.vmid, resource.user_id,
+        )
+        return
 
     # The Resource model only stores user/business metadata (env type, owner,
     # SSH keys, etc.). Live Proxmox info (node / type / status) must come from
@@ -430,6 +452,10 @@ def retry_failed_request(
             409,
             f"Only failed deletion requests can be retried (current={req.status.value})",
         )
+    # 失敗單可能擱置很久；重排前確認 vmid 現在還是申請人的機器
+    current = session.exec(select(Resource).where(Resource.vmid == req.vmid)).first()
+    if current is not None and not is_admin and current.user_id != user_id:
+        raise AppError(403, "This VMID no longer belongs to you; cannot retry deletion")
     req.status = DeletionRequestStatus.pending
     req.error_message = None
     req.started_at = None

@@ -105,14 +105,24 @@ def require_can_broadcast_class(
 
 
 def get_class_ids_of_user(session: Session, user_id: uuid.UUID) -> set[uuid.UUID]:
-    """使用者作為學生或擁有者所屬的正式班級。"""
+    """使用者作為學生或擁有者所屬、且仍在開課中的正式班級。
+
+    準備中或已封存的班級不該再收到直播事件，也不該被算進「我的班級」：
+    課都結束了，舊班級的 session 還能推到學生畫面上就太奇怪了。
+    """
     member_ids = session.exec(
-        select(TeachingClassStudent.class_id).where(
-            TeachingClassStudent.user_id == user_id
+        select(TeachingClassStudent.class_id)
+        .join(TeachingClass, col(TeachingClassStudent.class_id) == TeachingClass.id)
+        .where(
+            TeachingClassStudent.user_id == user_id,
+            TeachingClass.status == TeachingClassStatus.active,
         )
     ).all()
     owned_ids = session.exec(
-        select(TeachingClass.id).where(TeachingClass.owner_id == user_id)
+        select(TeachingClass.id).where(
+            TeachingClass.owner_id == user_id,
+            TeachingClass.status == TeachingClassStatus.active,
+        )
     ).all()
     return set(member_ids) | set(owned_ids)
 
@@ -303,13 +313,31 @@ async def start_class_broadcast(
     return live
 
 
-async def stop_session(user: User, session_id: str) -> None:
+def _require_session_operator(
+    session: Session, user: User, live: ClassroomSession, *, detail: str
+) -> None:
+    """重新確認操作者仍有資格動這個 session。
+
+    session 可能開了一整堂課，期間老師的權限或班級擁有者是會變的；
+    開場時檢查過不代表現在還成立，每次操作都要重新問一次。
+    """
+    if live.started_by != user.id and not is_admin(user):
+        raise PermissionDeniedError(detail)
+    teaching_class = session.get(TeachingClass, live.class_id)
+    if teaching_class is None:
+        # 班級都不在了，讓發起者能把殘留的 session 收掉
+        return
+    require_teaching_access(user, teaching_class.owner_id, detail=detail)
+
+
+async def stop_session(session: Session, user: User, session_id: str) -> None:
     """發起者或 admin 可停止；live_stopped 由 on_session_end 統一推播。"""
     live = vnc_session_manager.get_session(session_id)
     if live is None:
         raise NotFoundError(t("classroom.session_not_found"))
-    if live.started_by != user.id and not is_admin(user):
-        raise PermissionDeniedError(t("classroom.stop_forbidden"))
+    _require_session_operator(
+        session, user, live, detail=t("classroom.stop_forbidden")
+    )
     await vnc_session_manager.stop_session(session_id)
 
 
@@ -322,8 +350,9 @@ async def set_control(
         raise NotFoundError(t("classroom.session_not_found"))
     if live.mode is not SessionMode.monitor:
         raise BadRequestError(t("classroom.control_monitor_only"))
-    if live.started_by != user.id and not is_admin(user):
-        raise PermissionDeniedError(t("classroom.control_forbidden"))
+    _require_session_operator(
+        session, user, live, detail=t("classroom.control_forbidden")
+    )
 
     if action == "take":
         await vnc_session_manager.set_controller(session_id, user.id)

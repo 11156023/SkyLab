@@ -601,6 +601,33 @@ def get_gpu_node_counts(mapping_id: str | None = None) -> dict[str, int]:
     return counts
 
 
+def get_gpu_used_slots_by_node(mapping_id: str | None = None) -> dict[str, int]:
+    """已被 VM 佔用的 GPU mapping 插槽數（依節點）。
+
+    PVE 沒有「這張卡還剩幾個位子」的 API，唯一可靠的來源是掃 VM config 的
+    hostpci（``_build_usage_map`` 已做並快取數秒）。DB 端拿不到完整答案 ——
+    克隆路徑掛的 GPU 不會留在任何申請單上 —— 所以一律以 PVE 現況為準。
+
+    placement 用它把 ``allocatable_gpu_slots`` 扣成真正可分配的數量，
+    否則 GPU 容量會一直顯示成全新的，直到建機當下才失敗。
+    """
+    used: dict[str, int] = {}
+    try:
+        usage = _build_usage_map()
+    except Exception as exc:
+        logger.warning("Failed to load GPU usage for placement: %s", exc)
+        return used
+    for mid, items in usage.items():
+        if mapping_id and mid != mapping_id:
+            continue
+        for item in items:
+            node = str(item.node or "").strip()
+            if not node:
+                continue
+            used[node] = used.get(node, 0) + 1
+    return used
+
+
 def get_gpu_mapping(mapping_id: str) -> GPUMappingDetail:
     """Get a single PCI mapping by ID (searched across all connections)."""
     mapping = None

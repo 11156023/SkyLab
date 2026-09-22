@@ -57,6 +57,9 @@ services:
   db:
     image: postgres:18
     restart: always
+    # 預設 100 條連線不夠：backend（單 worker，SQLAlchemy pool）、arq worker、
+    # prestart／adminer 等工具同時連線時會撞上 "too many clients"。
+    command: postgres -c max_connections=200
     ports:
       # Bind to localhost only: reachable for on-host tooling, never from the
       # public network. Inter-container access uses the `db` service DNS name.
@@ -218,7 +221,8 @@ services:
         ENABLE_SIGNUP: ${ENABLE_SIGNUP:-true}
     ports:
       # Localhost only — public traffic goes through nginx (:80).
-      - "127.0.0.1:5173:80"
+      # 容器內是非 root 的 nginx，聽 8080。
+      - "127.0.0.1:5173:8080"
     depends_on:
       backend:
         condition: service_healthy

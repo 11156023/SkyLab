@@ -5,7 +5,7 @@ import logging
 import re
 import threading
 import uuid
-from datetime import date
+from datetime import UTC, date, datetime, timedelta
 
 from sqlmodel import Session, col, select
 
@@ -25,6 +25,7 @@ from app.models.batch_provision import (
     BatchProvisionJob,
     BatchProvisionJobStatus,
     BatchProvisionTask,
+    BatchProvisionTaskStatus,
 )
 from app.repositories import batch_provision as bp_repo
 from app.repositories import resource as resource_repo
@@ -37,6 +38,9 @@ from app.services.template import clone_service, password_policy
 from app.utils.login_password import generate_login_password
 
 logger = logging.getLogger(__name__)
+
+# running 超過這個時數且毫無進度的 job 視為背景執行緒已死
+STALE_BATCH_JOB_HOURS = 2.0
 
 
 # ─── 公開 API ─────────────────────────────────────────────────────────────────
@@ -245,6 +249,9 @@ def _run_queue(job_id: uuid.UUID) -> None:
             return
         if job.status == BatchProvisionJobStatus.cancelled:
             return
+        # 部分失敗仍標 completed：週期性課程的自動開機與清單只認 completed，
+        # 一台失敗就把整個工作標 failed 會讓全班都不再自動開機。失敗台數由
+        # failed_count 呈現，前端據此顯示重試入口；全部失敗才標 failed。
         final = (
             BatchProvisionJobStatus.failed
             if job.failed_count > 0 and job.done == 0
@@ -252,11 +259,14 @@ def _run_queue(job_id: uuid.UUID) -> None:
         )
         bp_repo.update_job_status(session=session, job_id=job_id, status=final)
         teaching_class_id = job.teaching_class_id
-        logger.info(
-            "Batch provision job %s finished: done=%d failed=%d",
+        log = logger.warning if job.failed_count > 0 else logger.info
+        log(
+            "Batch provision job %s finished as %s: done=%d failed=%d total=%d",
             job_id,
+            final.value,
             job.done,
             job.failed_count,
+            job.total,
         )
 
     if teaching_class_id is not None:
@@ -346,6 +356,14 @@ def _process_task(*, job_id: uuid.UUID, task_id: uuid.UUID) -> None:
                 teaching_class_id=teaching_class_id,
             )
             if resource is None:
+                # 機器建出來了但沒有 resources 列可以掛班級：留著它只會變成
+                # 沒人管得到的孤兒，重試還會再開一台。與「班級已封存」走同
+                # 一條清理路徑（刪機、刪 DB 列、釋放 IP）後才讓 task 失敗。
+                _discard_provisioned_machine(
+                    vmid=vmid,
+                    initiated_by_id=initiated_by_id,
+                    reason=f"resource {vmid} has no database record",
+                )
                 raise RuntimeError(
                     f"Provisioned class resource {vmid} has no database record"
                 )
@@ -378,17 +396,29 @@ def _process_task(*, job_id: uuid.UUID, task_id: uuid.UUID) -> None:
         except Exception:
             logger.warning("Initial snapshot failed for class vmid=%s", vmid)
 
-        with Session(engine) as session:
-            bp_repo.update_task_done(session=session, task_id=task_id, vmid=vmid)
-            _sync_class_machine_mapping(
-                session=session,
-                job_id=job_id,
-                task_id=task_id,
-                user_id=user_id,
+        try:
+            with Session(engine) as session:
+                bp_repo.update_task_done(
+                    session=session, task_id=task_id, vmid=vmid
+                )
+                _sync_class_machine_mapping(
+                    session=session,
+                    job_id=job_id,
+                    task_id=task_id,
+                    user_id=user_id,
+                    vmid=vmid,
+                    status="completed",
+                )
+                bp_repo.increment_job_done(session=session, job_id=job_id)
+        except Exception:
+            # 授權紀錄寫不進去 = 學生拿不到這台機器；留著它，重試時又會再
+            # 開一台。同樣先清掉機器再讓 task 失敗。
+            _discard_provisioned_machine(
                 vmid=vmid,
-                status="completed",
+                initiated_by_id=initiated_by_id,
+                reason=f"failed to record class machine grant for task {task_id}",
             )
-            bp_repo.increment_job_done(session=session, job_id=job_id)
+            raise
 
         logger.info("Batch task %s done: vmid=%d user=%s", task_id, vmid, user_id)
 
@@ -409,6 +439,134 @@ def _process_task(*, job_id: uuid.UUID, task_id: uuid.UUID) -> None:
                 error=error_msg,
             )
             bp_repo.increment_job_failed(session=session, job_id=job_id)
+
+
+def _discard_provisioned_machine(
+    *, vmid: int, initiated_by_id: uuid.UUID, reason: str
+) -> None:
+    """把已經建出來、但接不上班級的機器整台收掉（best-effort）。
+
+    走 ``resource_service.delete``：刪 Proxmox 機器、刪 resources 列、釋放
+    IP 與相關規則。清不掉也不再往外丟例外 —— 呼叫端本來就要讓 task 失敗，
+    再丟一次只會蓋掉原本的失敗原因。
+    """
+    try:
+        with Session(engine) as session:
+            resource_info = proxmox_service.find_resource(vmid)
+            from app.services.resource import resource_service  # noqa: PLC0415
+
+            resource_service.delete(
+                session=session,
+                vmid=vmid,
+                resource_info=resource_info,
+                user_id=initiated_by_id,
+                purge=True,
+                force=True,
+            )
+        logger.warning(
+            "Discarded orphaned batch machine vmid=%s (%s)", vmid, reason
+        )
+    except Exception:
+        logger.exception(
+            "Failed to discard orphaned batch machine vmid=%s (%s); "
+            "manual cleanup required",
+            vmid,
+            reason,
+        )
+
+
+def _aware(value: datetime | None) -> datetime | None:
+    if value is None:
+        return None
+    return value if value.tzinfo is not None else value.replace(tzinfo=UTC)
+
+
+def _last_progress_at(
+    job: BatchProvisionJob, tasks: list[BatchProvisionTask]
+) -> datetime | None:
+    """這個 job 最後一次有動靜的時間（任一 task 開始/結束，否則審核/建立時間）。"""
+    stamps = [
+        stamp
+        for task in tasks
+        for stamp in (_aware(task.finished_at), _aware(task.started_at))
+        if stamp is not None
+    ]
+    stamps.extend(
+        stamp
+        for stamp in (_aware(job.reviewed_at), _aware(job.created_at))
+        if stamp is not None
+    )
+    return max(stamps) if stamps else None
+
+
+def reap_stale_batch_jobs(
+    *, max_running_hours: float = STALE_BATCH_JOB_HOURS
+) -> int:
+    """回收卡死的 running 批次工作（供排程器每 tick 呼叫）。回傳回收的 job 數。
+
+    批量建立跑在 in-process 背景執行緒上：後端重啟、容器被換掉、執行緒
+    自己炸掉，job 就永遠停在 running —— 班級狀態卡在「建立中」，重試入口
+    也不會出現。狀態為 ``running``、且超過 ``max_running_hours`` 沒有任何
+    task 有進度的 job，連同它尚未結束的 task 一起標成 failed。
+    """
+    reaped = 0
+    now = datetime.now(UTC)
+    cutoff = now - timedelta(hours=max_running_hours)
+    stale_class_ids: list[uuid.UUID] = []
+    try:
+        with Session(engine) as session:
+            jobs = list(
+                session.exec(
+                    select(BatchProvisionJob).where(
+                        BatchProvisionJob.status == BatchProvisionJobStatus.running
+                    )
+                ).all()
+            )
+            for job in jobs:
+                tasks = bp_repo.get_job_tasks(session=session, job_id=job.id)
+                last_progress = _last_progress_at(job, tasks)
+                if last_progress is not None and last_progress > cutoff:
+                    continue
+                for task in tasks:
+                    if task.status in (
+                        BatchProvisionTaskStatus.pending,
+                        BatchProvisionTaskStatus.running,
+                    ):
+                        task.status = BatchProvisionTaskStatus.failed
+                        task.error = (
+                            "Batch worker stopped responding; task was reaped"
+                        )
+                        task.finished_at = now
+                        session.add(task)
+                # 計數以 task 現況重算，避免與被回收的 task 對不上
+                job.done = sum(
+                    task.status == BatchProvisionTaskStatus.completed
+                    for task in tasks
+                )
+                job.failed_count = sum(
+                    task.status == BatchProvisionTaskStatus.failed for task in tasks
+                )
+                job.status = BatchProvisionJobStatus.failed
+                job.finished_at = now
+                session.add(job)
+                session.commit()
+                reaped += 1
+                stale_class_ids.append(job.teaching_class_id)
+                logger.warning(
+                    "Reaped stale batch provision job %s: done=%d failed=%d total=%d",
+                    job.id,
+                    job.done,
+                    job.failed_count,
+                    job.total,
+                )
+    except Exception:
+        logger.exception("reap_stale_batch_jobs failed")
+        return reaped
+
+    for class_id in stale_class_ids:
+        if class_id is not None:
+            _refresh_teaching_class_status(class_id)
+    return reaped
 
 
 def _class_target_node(

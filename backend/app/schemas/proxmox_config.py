@@ -148,25 +148,35 @@ class ProxmoxConnectionCreate(BaseModel):
 
 
 class ProxmoxConnectionUpdateIn(BaseModel):
-    """更新 PVE 連線的請求 schema"""
+    """更新 PVE 連線的請求 schema。
 
-    name: str = Field(min_length=1, max_length=255)
-    host: str = Field(min_length=1, max_length=255)
-    port: int = Field(default=8006, ge=1, le=65535)
-    user: str = Field(min_length=1, max_length=255)
+    PUT /connections/{id} 為**部分更新**：route 以 ``model_dump(exclude_unset=True)``
+    判斷 payload 實際帶了哪些欄位，沒出現的欄位維持 DB 現值。這樣呼叫端
+    （例如只想切換 ``enabled``）就不必回送整份連線設定，也不會把沒帶到的欄位
+    重設成 schema 預設值。
+
+    既有的空值語義保留：``password`` 帶 None 表示不更新密碼；``ca_cert`` 帶 None
+    表示不更新、帶空字串表示清除；``gateway_ip`` 等三個選填欄位帶 None 或空字串
+    表示清空。
+    """
+
+    name: str | None = Field(default=None, min_length=1, max_length=255)
+    host: str | None = Field(default=None, min_length=1, max_length=255)
+    port: int | None = Field(default=None, ge=1, le=65535)
+    user: str | None = Field(default=None, min_length=1, max_length=255)
     password: str | None = None  # None 表示不更新密碼
-    verify_ssl: bool = False
+    verify_ssl: bool | None = None
     ca_cert: str | None = None  # None 表示不更新；空字串表示清除
-    api_timeout: int = Field(default=30, ge=1, le=300)
-    pool_name: str = Field(default=DEFAULT_PROXMOX_POOL_NAME, max_length=255)
-    iso_storage: str = Field(default="local", max_length=255)
-    data_storage: str = Field(default="local-lvm", max_length=255)
-    task_check_interval: int = Field(default=2, ge=1, le=60)
+    api_timeout: int | None = Field(default=None, ge=1, le=300)
+    pool_name: str | None = Field(default=None, max_length=255)
+    iso_storage: str | None = Field(default=None, max_length=255)
+    data_storage: str | None = Field(default=None, max_length=255)
+    task_check_interval: int | None = Field(default=None, ge=1, le=60)
     gateway_ip: str | None = None
     local_subnet: str | None = None
     default_node: str | None = None
-    enabled: bool = True
-    is_default: bool = False
+    enabled: bool | None = None
+    is_default: bool | None = None
 
 
 class CertParseResult(BaseModel):

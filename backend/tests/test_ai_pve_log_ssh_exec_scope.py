@@ -44,8 +44,11 @@ async def test_confirm_exec_keeps_allowed_vm_scope(
         *,
         session=None,
         allowed_vmids=None,
+        requester_id=None,
+        confirmed=False,
     ) -> SSHExecResult:
         captured["allowed_vmids"] = allowed_vmids
+        captured["confirmed"] = confirmed
         return SSHExecResult(vmid=req.vmid, command=req.command, host="127.0.0.1")
 
     monkeypatch.setattr(ssh_exec_module, "_do_exec", _fake_do_exec)
@@ -65,3 +68,5 @@ async def test_confirm_exec_keeps_allowed_vm_scope(
 
     assert result.vmid == 157
     assert captured["allowed_vmids"] == {157}
+    # 經過 /ssh/confirm 的執行一律標成「已人工確認」，稽核才分得出兩種路徑
+    assert captured["confirmed"] is True

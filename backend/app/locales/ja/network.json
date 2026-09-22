@@ -82,6 +82,7 @@
   "firewall.setupDefaultRulesFailed": "VM {vmid} のデフォルトファイアウォールルールの設定に失敗しました: {error}",
   "firewall.atLeastOnePortRequired": "少なくとも 1 つのポートを指定してください",
   "firewall.sourceAndTargetCannotBothBeGateway": "送信元と宛先を両方ともゲートウェイにすることはできません",
+  "firewall.sourceAndTargetMustDiffer": "送信元と宛先を同じマシンにすることはできません",
   "firewall.targetVmNotFound": "宛先 VM {vmid} は存在しません",
   "firewall.dbSessionRequiredForPortForwarding": "ポートフォワーディング／リバースプロキシの作成には DB セッションが必要です",
   "firewall.gatewayNotConfiguredForExternalAccess": "外部アクセスを作成する前に、「Gateway VM 管理」で SSH 接続を設定し、鍵を生成してください",
@@ -111,9 +112,12 @@
   "publish.targetIpInfrastructure": "対象 IP {ip} はプラットフォーム基盤（Gateway / PVE ノード）に属するため、外部公開できません",
   "publish.targetIpBlocked": "対象 IP {ip} は管理者がブロックしたサブネット {network} に含まれるため、外部公開できません",
   "publish.targetIpOutsideVmSubnet": "対象 IP {ip} はプラットフォームが割り当てた VM サブネットの範囲外のため、外部アクセスを作成できません。VM が割り当て IP を使用しているか確認してください",
+  "publish.targetIpNotAllocatedToVm": "対象 IP {ip} はプラットフォームが VM {vmid} に割り当てたアドレス（割り当て: {allocated}）ではないため、ルールを作成できません。VM が割り当て IP を使用しているか確認してください",
   "firewall.servicePortAlreadyPublished": "ポート {port}/{protocol} はすでに公開されています。再設定する前に公開を解除してください",
   "firewall.serviceNotFound": "ポート {port}/{protocol} の公開サービスが見つかりません",
   "firewall.serviceUnpublished": "公開サービスを解除しました",
   "reverseProxy.domainConflictUnverified": "{domain} が使用中かどうかを Cloudflare で確認できませんでした。本システムの記録のみ確認しています",
-  "reverseProxy.domainInUseExternally": "ドメイン {domain} には Cloudflare 上にすでに {record_type} レコードがあります（本システム以外で作成）。別の名前を選んでください"
+  "reverseProxy.domainInUseExternally": "ドメイン {domain} には Cloudflare 上にすでに {record_type} レコードがあります（本システム以外で作成）。別の名前を選んでください",
+  "reverseProxy.domainConflictCheckFailed": "{domain} が使用中かどうかを Cloudflare で確認できませんでした。既存レコードを上書きしないよう作成を中止しました。しばらくしてからもう一度お試しください",
+  "cloudflare.identifierInvalidFormat": "{field} の形式が正しくありません。32 桁の十六進文字列を指定してください"
 }

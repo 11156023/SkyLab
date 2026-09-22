@@ -479,6 +479,17 @@
   line-height: $line-height-base;
 }
 
+/* 錯誤訊息裡的「重試」：行內文字按鈕，不搶版面 */
+.linkBtn {
+  border: 0;
+  padding: 0;
+  background: none;
+  font: inherit;
+  color: var(--color-primary);
+  text-decoration: underline;
+  cursor: pointer;
+}
+
 .required {
   color: var(--color-danger);
 }

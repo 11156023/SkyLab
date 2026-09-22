@@ -7,6 +7,8 @@ from fastapi import APIRouter
 from app.api.deps import AdminUser, CurrentUser, SessionDep
 from app.schemas.common import Message
 from app.schemas.ip_management import (
+    BlockSyncError,
+    BlockSyncSummary,
     IpAllocationListResponse,
     IpAllocationPublic,
     SubnetConfigCreate,
@@ -23,7 +25,26 @@ router = APIRouter(prefix="/ip-management", tags=["ip-management"])
 # ─── 子網配置 ──────────────────────────────────────────────────────────────────
 
 
-def _subnet_public(session: SessionDep, config) -> SubnetConfigPublic:
+def _block_sync_summary(stats: dict) -> BlockSyncSummary:
+    """把 firewall_service 的逐台統計整理成 API 摘要。"""
+    extra = stats.get("extra_blocks", {}) or {}
+    errors = [
+        BlockSyncError(vmid=item.get("vmid"), error=str(item.get("error", "")))
+        for item in extra.get("errors", [])
+    ]
+    return BlockSyncSummary(
+        targets=list(extra.get("targets", [])),
+        created=len(extra.get("created", [])),
+        updated=len(extra.get("updated", [])),
+        skipped=len(extra.get("skipped", [])),
+        deleted=len(extra.get("deleted", [])),
+        errors=errors,
+    )
+
+
+def _subnet_public(
+    session: SessionDep, config, block_sync: BlockSyncSummary | None = None
+) -> SubnetConfigPublic:
     stats = ip_management_service.get_ip_stats(session)
     return SubnetConfigPublic(
         cidr=config.cidr,
@@ -39,6 +60,7 @@ def _subnet_public(session: SessionDep, config) -> SubnetConfigPublic:
         total_ips=stats["total"],
         used_ips=stats["used"],
         available_ips=stats["available"],
+        block_sync=block_sync,
     )
 
 
@@ -70,13 +92,26 @@ def upsert_subnet_config(
         forward_port_end=body.forward_port_end,
         forward_public_host=body.forward_public_host,
     )
-    # 同步所有 VM/LXC 的封鎖規則 dest 為新子網與額外封鎖網段
+    # 同步所有 VM/LXC 的封鎖規則 dest 為新子網與額外封鎖網段。
+    # 設定存進 DB 不代表機器上真的套用成功，結果一律跟著回應回去，
+    # 讓管理員看得到哪幾台沒套到，而不是只留在後端 log 裡。
     try:
         from app.services.network import firewall_service  # noqa: PLC0415
-        firewall_service.sync_block_local_subnet_rules()
+        block_sync = _block_sync_summary(
+            firewall_service.sync_block_local_subnet_rules()
+        )
     except Exception as e:
-        logger.warning("同步預設封鎖防火牆規則失敗（非致命）: %s", e)
-    return _subnet_public(session, config)
+        logger.exception("同步額外封鎖網段規則失敗")
+        block_sync = BlockSyncSummary(
+            targets=body.extra_blocked_subnets,
+            errors=[BlockSyncError(vmid=None, error=str(e))],
+        )
+    if block_sync.errors:
+        logger.warning(
+            "額外封鎖網段同步有 %d 筆失敗，已隨回應回報管理員",
+            len(block_sync.errors),
+        )
+    return _subnet_public(session, config, block_sync)
 
 
 @router.delete("/subnet", response_model=Message)

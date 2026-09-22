@@ -4,6 +4,8 @@ from pathlib import Path
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from app.core.config import settings as core_settings
+
 PROJECT_ROOT = Path(__file__).resolve().parents[4]
 ENV_FILE = PROJECT_ROOT / ".env"
 
@@ -30,10 +32,17 @@ class AIAPIEnvSettings(BaseSettings):
     ai_api_rate_limit_per_minute: int = 20
     ai_api_rate_limit_window_seconds: int = 60
 
-    redis_enabled: bool = False
-    redis_url: str = "redis://localhost:6379/0"
-
     ai_api_public_base_url: str = "http://localhost:5000"
+
+    # Redis 的開關與連線字串一律以 core settings 為準（見 core/config.py）。
+    # 這裡若再讀一次 .env，兩份設定就可能不一致：限流以為關著、arq 以為開著。
+    @property
+    def redis_enabled(self) -> bool:
+        return core_settings.REDIS_ENABLED
+
+    @property
+    def redis_url(self) -> str:
+        return core_settings.REDIS_URL
 
     @property
     def resolved_public_base_url(self) -> str:

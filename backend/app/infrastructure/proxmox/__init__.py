@@ -19,7 +19,12 @@ from .settings import (
     get_proxmox_settings_for_node,
     list_enabled_connection_ids,
 )
-from .tls import _tcp_ping, _verify_server_with_ca, build_ws_ssl_context
+from .tls import (
+    _tcp_ping,
+    _verify_server_with_ca,
+    build_ws_ssl_context,
+    resolve_verify,
+)
 
 __all__ = [
     "PROXMOX_TICKET_TTL",
@@ -41,5 +46,6 @@ __all__ = [
     "get_proxmox_settings_for_node",
     "invalidate_proxmox_client",
     "list_enabled_connection_ids",
+    "resolve_verify",
     "wait_for_task_status",
 ]

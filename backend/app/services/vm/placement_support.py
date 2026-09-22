@@ -225,13 +225,21 @@ def node_can_host_request(
         or node.running_resources >= node.guest_soft_limit
     ):
         return False
-    if has_managed_storage:
-        return True
-    return node.allocatable_disk_bytes >= disk_bytes
+    # 磁碟只在有受管儲存池時才判斷（由 select_best_storage_for_request 負責）。
+    # 沒有受管儲存池時，節點的 maxdisk 是 PVE 自己的 root 檔案系統（常只有
+    # 幾十 GB），拿它當客體磁碟容量會把每個節點都判成放不下；此時寧可不判，
+    # 由 plan 的 warning 提醒管理員把儲存池納管。
+    return True
 
 
 def node_disk_bytes_for_capacity(*, disk_bytes: int, has_managed_storage: bool) -> int:
-    return 0 if has_managed_storage else disk_bytes
+    """節點層要扣掉的磁碟位元組 —— 一律 0。
+
+    有受管儲存池時磁碟記在儲存池上；沒有時節點 maxdisk 是 root fs，
+    扣它只會把 allocatable_disk_bytes 誤扣成 0（節點被判成不可用）。
+    參數保留讓呼叫端維持原本的語意表達。
+    """
+    return 0
 
 
 def group_anchor_node(
@@ -479,6 +487,11 @@ def apply_reserved_requests_to_capacities(
     by_node = {item.node: item for item in adjusted}
 
     for reserved in reserved_requests:
+        # 已經建出機器的申請不再重複扣：它的 CPU／記憶體／磁碟／GPU 佔用
+        # 已經反映在節點即時用量（baseline 由 PVE 現況算出），再扣一次
+        # 等於同一台機器被算兩份，節點會提早被判成放不下。
+        if getattr(reserved, "vmid", None) is not None:
+            continue
         reserved_start = normalize_datetime_fn(reserved.start_at)
         reserved_end = normalize_datetime_fn(reserved.end_at)
         assigned_node = str(reserved.assigned_node or "")
@@ -627,6 +640,18 @@ def build_plan(
     ]
     placement_decisions.sort(key=lambda item: (-item.instance_count, item.node))
 
+    warnings = placement_advisor._build_warnings(
+        node_capacities=node_capacities,
+        request=request,
+        effective_resource_type=effective_resource_type,
+        remaining=remaining,
+    )
+    if not has_managed_storage:
+        warnings.append(
+            "No managed storage pool is registered, so disk capacity was not "
+            "evaluated for this placement."
+        )
+
     return PlacementPlan(
         feasible=remaining == 0,
         requested_resource_type=request.resource_type,
@@ -648,12 +673,7 @@ def build_plan(
             effective_resource_type=effective_resource_type,
             node_capacities=node_capacities,
         ),
-        warnings=placement_advisor._build_warnings(
-            node_capacities=node_capacities,
-            request=request,
-            effective_resource_type=effective_resource_type,
-            remaining=remaining,
-        ),
+        warnings=warnings,
         placements=placement_decisions,
         candidate_nodes=node_capacities,
     )

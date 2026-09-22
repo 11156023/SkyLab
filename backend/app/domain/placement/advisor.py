@@ -45,6 +45,14 @@ def _disabled_node_names() -> set[str]:
         return set()
 
 
+def _gpu_used_slots() -> dict[str, int]:
+    """各節點已被 VM 佔用的 GPU 插槽數；查詢失敗回空 dict（fail-open）。"""
+    try:
+        return gpu_service.get_gpu_used_slots_by_node()
+    except Exception:
+        return {}
+
+
 def _load_cluster_state() -> tuple[list[NodeSnapshot], list[ResourceSnapshot]]:
     cached = _get_cached_cluster_state()
     if cached is not None:
@@ -100,6 +108,7 @@ def _build_node_capacities(
     running_counter = Counter(
         resource.node for resource in resources if resource.status == "running"
     )
+    gpu_used = _gpu_used_slots()
     capacities: list[NodeCapacity] = []
     for node in nodes:
         running_resources = running_counter.get(node.node, 0)
@@ -124,7 +133,9 @@ def _build_node_capacities(
                 node=node.node,
                 status=node.status,
                 gpu_count=node.gpu_count,
-                allocatable_gpu_slots=node.gpu_count,
+                allocatable_gpu_slots=max(
+                    node.gpu_count - gpu_used.get(node.node, 0), 0
+                ),
                 running_resources=running_resources,
                 guest_soft_limit=guest_soft_limit,
                 guest_pressure_ratio=guest_pressure_ratio,

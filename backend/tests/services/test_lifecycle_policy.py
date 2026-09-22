@@ -22,6 +22,7 @@ def _ttl(
     scheduled: datetime | None = None,
     running: bool = True,
     now: datetime = NOW,
+    deletion_pending: bool = False,
 ) -> TtlAction:
     return decide_ttl_action(
         expiry_date=expiry,
@@ -31,6 +32,7 @@ def _ttl(
         now=now,
         warn_days=WARN_DAYS,
         grace_delete_days=GRACE_DAYS,
+        deletion_pending=deletion_pending,
     )
 
 
@@ -76,6 +78,39 @@ class TestDecideTtlAction:
                 running=False,
             )
             is TtlAction.none
+        )
+
+    def test_scheduled_long_ago_without_pending_request_reschedules(self) -> None:
+        """排過刪除但刪除單已失敗／取消：隔 24 小時重排一次，不是永遠放著。"""
+        assert (
+            _ttl(
+                expiry=NOW.date() - timedelta(days=GRACE_DAYS + 5),
+                scheduled=NOW - timedelta(hours=25),
+                running=False,
+            )
+            is TtlAction.delete
+        )
+
+    def test_scheduled_long_ago_with_pending_request_waits(self) -> None:
+        """刪除單還在佇列裡跑就不重排（避免重複入列）。"""
+        assert (
+            _ttl(
+                expiry=NOW.date() - timedelta(days=GRACE_DAYS + 5),
+                scheduled=NOW - timedelta(hours=25),
+                running=False,
+                deletion_pending=True,
+            )
+            is TtlAction.none
+        )
+
+    def test_naive_scheduled_timestamp_is_treated_as_utc(self) -> None:
+        assert (
+            _ttl(
+                expiry=NOW.date() - timedelta(days=GRACE_DAYS + 5),
+                scheduled=(NOW - timedelta(hours=25)).replace(tzinfo=None),
+                running=False,
+            )
+            is TtlAction.delete
         )
 
     def test_grace_elapsed_still_running_deletes(self) -> None:

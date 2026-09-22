@@ -179,6 +179,17 @@ def test_shortening_the_course_drops_only_the_trailing_weeks():
     ]
 
 
+def test_a_course_longer_than_two_years_is_rejected():
+    """打錯年份不該讓單一班級生出幾萬列課次。"""
+    item = _class_with_weeks(weekday=2, end_date=date(2036, 9, 23))
+    session = _FakeWeekSession([])
+
+    with pytest.raises(BadRequestError):
+        _generate_weeks(session, item)
+
+    assert session.weeks == []
+
+
 def test_submit_batch_for_class_students_uses_formal_class(monkeypatch):
     class_id = uuid.uuid4()
     student_ids = [uuid.uuid4(), uuid.uuid4()]

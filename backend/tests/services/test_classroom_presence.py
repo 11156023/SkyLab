@@ -171,6 +171,35 @@ class TestClassroomPresenceHub:
         for task in (t1, t1b, t2):
             await eventually(task.done)
 
+    async def test_stuck_connection_does_not_hold_up_the_class(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """一條送不出去的連線只能拖自己：逾時就被淘汰，其他人照收。"""
+        from app.services.classroom import presence as presence_module
+
+        monkeypatch.setattr(presence_module, "SEND_TIMEOUT_SECONDS", 0.05)
+
+        class StuckWs(FakePresenceWs):
+            async def send_json(self, data: dict[str, Any]) -> None:
+                await asyncio.Event().wait()  # 永遠送不出去
+
+        hub = ClassroomPresenceHub()
+        stuck = StuckWs()
+        stuck_task = asyncio.create_task(
+            hub.register(user_id=U1, class_ids={C1}, websocket=stuck)
+        )
+        await eventually(lambda: U1 in hub.online_user_ids_for_class(C1))
+        healthy, healthy_task = await _register(hub, U2, {C1})
+
+        await hub.broadcast_to_class(C1, {"type": "live_started"})
+
+        assert healthy.events == [{"type": "live_started"}]
+        assert hub.online_user_ids_for_class(C1) == {U2}
+        stuck.disconnect()
+        healthy.disconnect()
+        await eventually(stuck_task.done)
+        await eventually(healthy_task.done)
+
     async def test_dead_connection_cleaned_on_broadcast(self) -> None:
         hub = ClassroomPresenceHub()
         ws1, t1 = await _register(hub, U1, {C1}, broken_send=True)

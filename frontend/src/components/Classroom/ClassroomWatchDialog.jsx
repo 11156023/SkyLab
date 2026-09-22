@@ -26,16 +26,21 @@ export default function ClassroomWatchDialog({
   const [controlling, setControlling] = useState(false);
   const [controlBusy, setControlBusy] = useState(false);
   const [closing, setClosing] = useState(false);
+  const closeTimerRef = useRef(null);
 
   useEffect(() => () => {
-    // 卸載時保險斷線
+    // 卸載時保險斷線，並清掉離場動畫的計時器
     vncRef.current?.disconnect?.();
+    window.clearTimeout(closeTimerRef.current);
   }, []);
 
-  const token = AuthStorage.getAccessToken() || "";
-  const wsUrl = sessionId
-    ? `${wsBaseUrl()}/ws/classroom/${sessionId}/watch?token=${encodeURIComponent(token)}`
-    : "";
+  /* 掛載時把連線網址定下來：token 每次 render 都重讀，
+     續期後字串一變 VncScreen 就會斷線重連，畫面會閃一下。 */
+  const [wsUrl] = useState(() => {
+    if (!sessionId) return "";
+    const token = AuthStorage.getAccessToken() || "";
+    return `${wsBaseUrl()}/ws/classroom/${sessionId}/watch?token=${encodeURIComponent(token)}`;
+  });
 
   const viewOnly = !(canControl && controlling);
 
@@ -61,7 +66,7 @@ export default function ClassroomWatchDialog({
     vncRef.current?.disconnect?.();
     // 先播放離場動畫，再通知父層卸載
     setClosing(true);
-    setTimeout(onClose, 150);
+    closeTimerRef.current = window.setTimeout(onClose, 150);
   };
 
   return (

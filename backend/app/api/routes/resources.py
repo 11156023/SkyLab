@@ -1,5 +1,6 @@
 import logging
 import uuid
+from typing import Any
 
 from fastapi import APIRouter
 
@@ -70,8 +71,7 @@ def batch_action(
         session=session,
         vmids=body.vmids,
         action=body.action,
-        user_id=current_user.id,
-        is_admin=current_user.is_superuser,
+        user=current_user,
     )
 
 
@@ -91,7 +91,10 @@ def get_resource(
 
 
 @router.get("/{vmid}/config")
-def get_resource_config(vmid: int, resource_info: ResourceInfoDep):
+def get_resource_config(
+    vmid: int, resource_info: ResourceInfoDep
+) -> dict[str, Any]:
+    """顯示用的機器設定（service 已過白名單，cloud-init 憑證不會外流）。"""
     return resource_service.get_config(vmid=vmid, resource_info=resource_info)
 
 

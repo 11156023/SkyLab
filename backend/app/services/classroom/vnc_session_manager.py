@@ -46,6 +46,9 @@ from app.services.proxmox import proxmox_service
 logger = logging.getLogger(__name__)
 
 _SERVER_FRAMEBUFFER_UPDATE = 0
+# 快取的整張畫面可以直接餵給新訂閱者；超過這個秒數才值得再向上游要一張，
+# 因為非增量更新會廣播給全班，一次進場兩百人不能變成兩百次全畫面重畫。
+_KEYFRAME_MAX_AGE_SECONDS = 5.0
 
 
 class UpstreamConnection(Protocol):
@@ -115,12 +118,37 @@ class _SessionState:
         self.subscribers: dict[int, _Subscriber] = {}
         self.pump_task: asyncio.Task[None] | None = None
         self.closed = False
+        # 上游只有一條連線：pump、訂閱者輸入、keyframe 請求都得排隊送，
+        # 併發呼叫 send() 會把訊框交錯在一起，RFB 流就毀了。
+        self.send_lock = asyncio.Lock()
+        # 最近一張完整畫面（非增量 FramebufferUpdate），給新訂閱者直接用
+        self.keyframe: bytes | None = None
+        self.keyframe_at = 0.0
+        self.keyframe_pending = False
+        # 背景關閉慢速訂閱者的 task，持有參考避免被 GC 中途回收
+        self.close_tasks: set[asyncio.Task[None]] = set()
         self._key_counter = itertools.count()
 
     def add_subscriber(self, subscriber: _Subscriber) -> int:
         key = next(self._key_counter)
         self.subscribers[key] = subscriber
         return key
+
+    def needs_fresh_keyframe(self) -> bool:
+        """已經有人在要、或快取夠新，就不要再對上游要一張全畫面。"""
+        if self.keyframe_pending:
+            return False
+        if self.keyframe is None:
+            return True
+        return (
+            asyncio.get_running_loop().time() - self.keyframe_at
+            > _KEYFRAME_MAX_AGE_SECONDS
+        )
+
+    def remember_keyframe(self, message: bytes) -> None:
+        self.keyframe = message
+        self.keyframe_at = asyncio.get_running_loop().time()
+        self.keyframe_pending = False
 
     def snapshot(self) -> ClassroomSession:
         return ClassroomSession(
@@ -132,6 +160,12 @@ class _SessionState:
             controller_user_id=self.controller_user_id,
             subscriber_count=len(self.subscribers),
         )
+
+
+async def _send_upstream(state: _SessionState, data: bytes) -> None:
+    """序列化所有送往上游的訊框。"""
+    async with state.send_lock:
+        await state.upstream.send(data)
 
 
 SessionEndCallback = Callable[[ClassroomSession, str], Awaitable[None]]
@@ -245,19 +279,28 @@ class VncSessionManager:
         if len(state.subscribers) >= settings.CLASSROOM_MAX_SUBSCRIBERS:
             raise AppError(t("vnc_session.subscriber_limit_reached"), 429)
 
-        await downstream_handshake(websocket, state.init)
-
         queue: asyncio.Queue[bytes] = asyncio.Queue(
             maxsize=settings.CLASSROOM_SUBSCRIBER_QUEUE_SIZE
         )
+        if state.keyframe is not None:
+            # 快取的整張畫面排在佇列最前面，握手一完成就先畫出來
+            queue.put_nowait(state.keyframe)
         subscriber = _Subscriber(user_id=user_id, websocket=websocket, queue=queue)
+        # 先佔名額再握手：握手不設限又不佔名額的話，卡在握手的 client
+        # 可以無限堆積，名額檢查等於沒有做
         key = state.add_subscriber(subscriber)
         try:
-            # 為新訂閱者要一張全量 keyframe（廣播給所有人，成本一次）
-            size = state.splitter.size
-            await state.upstream.send(
-                full_update_request(size.width, size.height, incremental=False)
+            await asyncio.wait_for(
+                downstream_handshake(websocket, state.init),
+                timeout=settings.CLASSROOM_HANDSHAKE_TIMEOUT_SECONDS,
             )
+            if state.needs_fresh_keyframe():
+                # 沒有快取或快取太舊才向上游要；這張會廣播給全班，成本共用一次
+                state.keyframe_pending = True
+                size = state.splitter.size
+                await _send_upstream(
+                    state, full_update_request(size.width, size.height, incremental=False)
+                )
             consumer = asyncio.create_task(self._subscriber_consumer(subscriber))
             reader = asyncio.create_task(self._subscriber_reader(state, subscriber))
             try:
@@ -297,7 +340,7 @@ class VncSessionManager:
                     and state.controller_user_id == subscriber.user_id
                 )
                 if allowed:
-                    await state.upstream.send(message)
+                    await _send_upstream(state, message)
 
     # ------------------------------------------------------------------
     # 上游 pump
@@ -306,22 +349,27 @@ class VncSessionManager:
     async def _pump(self, state: _SessionState) -> None:
         try:
             size = state.splitter.size
-            await state.upstream.send(
-                full_update_request(size.width, size.height, incremental=False)
+            state.keyframe_pending = True
+            await _send_upstream(
+                state, full_update_request(size.width, size.height, incremental=False)
             )
             while True:
                 frame = await state.upstream.recv()
                 if isinstance(frame, str):
                     continue
                 for message in state.splitter.feed(frame):
+                    if message[0] == _SERVER_FRAMEBUFFER_UPDATE and state.keyframe_pending:
+                        # 剛才要的是非增量更新 → 這張是完整畫面，留著給新訂閱者
+                        state.remember_keyframe(message)
                     self._broadcast(state, message)
                     if message[0] == _SERVER_FRAMEBUFFER_UPDATE:
                         # 收滿一張 → 立即要下一張增量更新
                         size = state.splitter.size
-                        await state.upstream.send(
+                        await _send_upstream(
+                            state,
                             full_update_request(
                                 size.width, size.height, incremental=True
-                            )
+                            ),
                         )
         except asyncio.CancelledError:
             raise
@@ -341,11 +389,14 @@ class VncSessionManager:
             except asyncio.QueueFull:
                 # 佇列滿代表訂閱者消化不了 → 直接斷開，不丟個別訊息
                 state.subscribers.pop(key, None)
-                asyncio.get_running_loop().create_task(
+                task = asyncio.get_running_loop().create_task(
                     self._close_subscriber_ws(
                         subscriber.websocket, code=1013, reason="subscriber too slow"
                     )
                 )
+                # 只有 loop 持有參考的 task 可能被 GC 掉，要自己留著
+                state.close_tasks.add(task)
+                task.add_done_callback(state.close_tasks.discard)
 
     @staticmethod
     async def _close_subscriber_ws(
@@ -416,9 +467,13 @@ class VncSessionManager:
             subprotocols=[Subprotocol("binary")],
             max_size=2**20,
             proxy=None,
+            # 節點沒回應時不要無限等：start_session 的呼叫端是 HTTP 請求
+            open_timeout=settings.CLASSROOM_UPSTREAM_TIMEOUT_SECONDS,
         )
         try:
-            init = await upstream_handshake(ws, vnc_ticket)
+            init = await upstream_handshake(
+                ws, vnc_ticket, timeout=settings.CLASSROOM_UPSTREAM_TIMEOUT_SECONDS
+            )
         except Exception:
             with contextlib.suppress(Exception):
                 await ws.close()

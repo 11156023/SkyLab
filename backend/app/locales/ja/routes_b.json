@@ -32,6 +32,7 @@
   "teachingClasses.provisionedUserNoLongerInClass": "プロビジョニング済みリソースのユーザーは、すでにクラスに在籍していません。",
   "teachingClasses.onlyFailedCanResetToEdit": "作成に失敗したクラスのみ編集モードに戻すことができます。",
   "teachingClasses.partialMachinesUseRetry": "一部のマシンはすでに作成済みです。「失敗したマシンを再試行」をご利用ください。",
+  "teachingClasses.scheduleTooLong": "授業期間は {weeks} 週を超えられません。開始日と終了日をご確認ください。",
 
   "teacherJudgeFiles.classNotFound": "クラスが見つかりません。",
   "teacherJudgeFiles.unknownTemplate": "不明な採点環境テンプレートです。",

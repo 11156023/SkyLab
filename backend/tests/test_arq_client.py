@@ -5,6 +5,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
+from app.core.config import settings as core_settings
 from app.infrastructure import worker
 from app.infrastructure.queue import arq_client, dispatch, registry
 
@@ -23,7 +24,8 @@ async def test_init_arq_pool_skips_connection_when_redis_disabled(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     create_pool = AsyncMock()
-    monkeypatch.setattr(arq_client.settings, "redis_enabled", False)
+    # redis_enabled 已改為代理 core settings 的唯讀 property
+    monkeypatch.setattr(core_settings, "REDIS_ENABLED", False)
     monkeypatch.setattr(arq_client, "create_pool", create_pool)
 
     await arq_client.init_arq_pool()
@@ -36,7 +38,8 @@ async def test_get_arq_pool_does_not_connect_when_redis_disabled(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     create_pool = AsyncMock()
-    monkeypatch.setattr(arq_client.settings, "redis_enabled", False)
+    # redis_enabled 已改為代理 core settings 的唯讀 property
+    monkeypatch.setattr(core_settings, "REDIS_ENABLED", False)
     monkeypatch.setattr(arq_client, "create_pool", create_pool)
 
     with pytest.raises(RuntimeError, match="REDIS_ENABLED=false"):
@@ -50,7 +53,7 @@ async def test_init_arq_pool_connects_when_redis_enabled(
 ) -> None:
     pool = AsyncMock()
     create_pool = AsyncMock(return_value=pool)
-    monkeypatch.setattr(arq_client.settings, "redis_enabled", True)
+    monkeypatch.setattr(core_settings, "REDIS_ENABLED", True)
     monkeypatch.setattr(arq_client, "create_pool", create_pool)
 
     await arq_client.init_arq_pool()
@@ -66,7 +69,7 @@ async def test_enqueue_uses_local_runner_when_redis_disabled(
     scheduled: list[object] = []
     executed: list[tuple[str, str, dict[str, object]]] = []
 
-    monkeypatch.setattr(dispatch.settings, "redis_enabled", False)
+    monkeypatch.setattr(core_settings, "REDIS_ENABLED", False)
     monkeypatch.setattr(
         dispatch.task_record_repo,
         "create_task_record",

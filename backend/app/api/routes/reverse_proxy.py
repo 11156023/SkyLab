@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import logging
+import threading
+import time
 import uuid
 from typing import Any
 
@@ -168,19 +170,49 @@ def _publish_domain_service(
     )
 
 
-@router.get("/runtime", response_model=ReverseProxyRuntimeSnapshot)
-def get_runtime_snapshot(session: SessionDep, current_user: CurrentUser):
+# Traefik runtime 得 SSH 進 Gateway VM 才拿得到，而這份快照對所有人都一樣
+# （可見範圍是拿到之後才濾的），拓撲頁多開幾個分頁就重複連線一次。
+# 用模組層短快取擋掉這些重複，失敗結果也一起快取，免得 Gateway 掛掉時
+# 每次請求都卡在 SSH timeout。
+_RUNTIME_CACHE_TTL_SECONDS = 15.0
+_runtime_cache: tuple[float, ReverseProxyRuntimeSnapshot] | None = None
+_runtime_cache_lock = threading.Lock()
+
+
+def _load_runtime_snapshot(session: SessionDep) -> ReverseProxyRuntimeSnapshot:
+    """取回（或沿用快取的）Traefik runtime 快照；錯誤訊息是給管理員看的詳細版。"""
+    global _runtime_cache
+
+    now = time.monotonic()
+    with _runtime_cache_lock:
+        cached = _runtime_cache
+    if cached is not None and now - cached[0] < _RUNTIME_CACHE_TTL_SECONDS:
+        return cached[1]
+
     try:
         snapshot = traefik_runtime_service.get_runtime_snapshot(session=session)
     except (BadRequestError, ProxmoxError) as exc:
         logger.warning("Unable to fetch Traefik runtime: %s", exc)
-        return ReverseProxyRuntimeSnapshot(runtime_error=str(exc))
+        snapshot = ReverseProxyRuntimeSnapshot(runtime_error=str(exc))
     except Exception:
         logger.exception("Failed to fetch Traefik runtime snapshot")
-        return ReverseProxyRuntimeSnapshot(
+        snapshot = ReverseProxyRuntimeSnapshot(
             runtime_error=t("reverseProxy.runtimeFetchFailed")
         )
 
+    with _runtime_cache_lock:
+        _runtime_cache = (time.monotonic(), snapshot)
+    return snapshot
+
+
+@router.get("/runtime", response_model=ReverseProxyRuntimeSnapshot)
+def get_runtime_snapshot(session: SessionDep, current_user: CurrentUser):
+    snapshot = _load_runtime_snapshot(session)
+    # 詳細的失敗原因會帶到 Gateway 主機與 SSH 細節，只給管理員看
+    if snapshot.runtime_error and not getattr(current_user, "is_superuser", False):
+        snapshot = snapshot.model_copy(
+            update={"runtime_error": t("reverseProxy.runtimeFetchFailed")}
+        )
     return _filter_runtime_snapshot(snapshot, session, current_user)
 
 

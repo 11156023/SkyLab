@@ -68,6 +68,8 @@
   "spec_change.already_applied": "The specs of this request have already been applied",
   "spec_change.resource_gone_apply": "This machine no longer exists; the request cannot be applied",
   "spec_change.apply_in_progress": "The apply job is already in progress; please wait",
+  "spec_change.apply_recently_started": "A previous apply attempt has not finished yet; please wait and try again. If it really was interrupted, retry after 30 minutes.",
+  "spec_change.partial_applied_disk_failed": "CPU/memory were applied ({applied}), but the disk was not resized: {error}",
   "spec_change.runner_unavailable": "The background runner is not available, so the specs cannot be applied; please try again later",
   "spec_change.apply_accepted": "Started applying the new specs: if the machine is running and needs a reboot, it will be shut down first, reconfigured, and started again automatically",
   "spec_change.stop_timeout": "VMID {vmid} could not be stopped in time; the spec change was abandoned",

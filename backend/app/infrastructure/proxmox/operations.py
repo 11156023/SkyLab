@@ -5,6 +5,7 @@ control, resize, specs, session ticket, etc.) so that callers no longer
 duplicate the same cluster.resources iteration or qemu/lxc dispatch logic.
 """
 
+import ipaddress
 import logging
 import threading
 import time
@@ -618,12 +619,24 @@ def delete_resource(
 # ---------------------------------------------------------------------------
 
 def _is_usable_ipv4(ip: str) -> bool:
-    """過濾 loopback、link-local 等不可用的 IPv4 位址"""
-    return (
-        bool(ip)
-        and not ip.startswith("127.")
-        and not ip.startswith("169.254.")
-        and ip != "0.0.0.0"
+    """過濾 loopback、link-local、multicast 等不可用的 IPv4 位址。
+
+    改用 ``ipaddress`` 實際解析：字串前綴比對擋不掉 ``0.0.0.1``、
+    ``224.x``（multicast）、``240.x``（reserved）這類位址，也會把
+    ``127.0.0.1/8`` 之外寫法不同的 loopback 漏掉。解析不了就當作不可用。
+    """
+    if not ip:
+        return False
+    try:
+        addr = ipaddress.IPv4Address(ip.strip())
+    except (ipaddress.AddressValueError, ValueError):
+        return False
+    return not (
+        addr.is_loopback
+        or addr.is_link_local
+        or addr.is_unspecified
+        or addr.is_multicast
+        or addr.is_reserved
     )
 
 

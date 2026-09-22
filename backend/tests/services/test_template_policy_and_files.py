@@ -590,6 +590,12 @@ async def test_delete_template_refuses_while_an_environment_references_it(
         template_service, "_clone_children_vmids", lambda session, pve_vmid: []
     )
     monkeypatch.setattr(
+        template_service, "_open_request_count", lambda session, pve_vmid: 0
+    )
+    monkeypatch.setattr(
+        template_service, "_open_batch_job_count", lambda session, template_id: 0
+    )
+    monkeypatch.setattr(
         template_service,
         "_environments_referencing",
         lambda session, template_id: ["Linux 三層式", "資安攻防"],

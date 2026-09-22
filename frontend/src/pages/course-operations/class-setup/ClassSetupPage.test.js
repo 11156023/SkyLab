@@ -26,6 +26,24 @@ describe("weekPayload", () => {
   });
 });
 
+describe("weekPayload files", () => {
+  it("只送已上傳檔案的 id，不帶 storage_key", () => {
+    const rows = weekPayload([
+      {
+        week_number: 1,
+        session_date: "2026-09-07",
+        title: "Linux 權限",
+        files: [
+          { id: "file-1", filename: "lab.pdf", storage_key: "hack.task", target_path: "/root/lab.pdf" },
+          { filename: "還沒上傳.pdf" },
+        ],
+      },
+    ]);
+
+    expect(rows[0].files).toEqual([{ id: "file-1", target_path: "/root/lab.pdf" }]);
+  });
+});
+
 describe("weekPayload publishing", () => {
   it("勾選發布時，有主題的週次才會變成學生看得到的狀態", () => {
     const rows = weekPayload(

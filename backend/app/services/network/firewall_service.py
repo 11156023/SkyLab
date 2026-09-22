@@ -31,6 +31,7 @@ from app.schemas.firewall import (
     TopologyNode,
     TopologyResponse,
 )
+from app.services.network.publish_target_policy import assert_publishable_vm_ip
 from app.services.proxmox import proxmox_service
 from app.services.resource import access as resource_access
 from app.services.resource import kind as resource_kind
@@ -333,7 +334,9 @@ def ensure_firewall_enabled(node: str, vmid: int, resource_type: ResourceType) -
 def sync_block_local_subnet_rules() -> dict:
     """掃描所有 pool 內 VM/LXC，同步管理員設定的額外封鎖網段規則（含孤兒清理）。
 
-    回傳 {"extra_blocks": {...}} 統計。
+    回傳 ``{"extra_blocks": {...}}`` 統計，``errors`` 逐台列出失敗原因。
+    連 PVE 機器清單都拿不到時也不拋出，而是記成一筆 ``vmid=None`` 的錯誤，
+    呼叫端（PUT /ip-management/subnet）才能把「有機器沒套到」原封不動回給管理員。
     """
     from app.core.db import engine  # noqa: PLC0415
     from app.infrastructure.proxmox.operations import (
@@ -350,7 +353,14 @@ def sync_block_local_subnet_rules() -> dict:
         "created": [], "updated": [], "skipped": [], "deleted": [], "errors": [],
     }
 
-    for r in list_all_resources():
+    try:
+        targets = list_all_resources()
+    except Exception as e:
+        logger.error(f"block-extra 同步：無法取得 PVE 機器清單: {e}")
+        targets = []
+        extra_aggregate["errors"].append({"vmid": None, "error": str(e)})
+
+    for r in targets:
         vmid = int(r["vmid"])
         node = r.get("node")
         rtype = "lxc" if r.get("type") == "lxc" else "qemu"
@@ -483,6 +493,26 @@ def _get_vm_ip(vmid: int, session: object = None) -> str | None:
     return resource_repo.sync_ip_cache(session=session, vmid=vmid, live_ip=ip)  # type: ignore[arg-type]
 
 
+def _get_publishable_vm_ip(vmid: int, session: object = None) -> str | None:
+    """拿來寫進防火牆 source/dest、haproxy、Traefik 的 VM IP。
+
+    與 ``_get_vm_ip``（顯示用）不同：平台有配發紀錄時一律以配發的 IP 為準，
+    guest agent 回報的值只在沒有配發紀錄（手動建的機器）時才採用。VM 擁有者
+    在 VM 裡把介面改成同學的位址，不能因此把規則或發布指到別台機器。
+    """
+    from app.repositories import resource as resource_repo  # noqa: PLC0415
+
+    if session is not None:
+        try:
+            allocated = resource_repo.get_allocated_ip_address(session=session, vmid=vmid)  # type: ignore[arg-type]
+        except Exception as e:  # noqa: BLE001
+            logger.debug("VM %s 讀取 IP 配發紀錄失敗: %s", vmid, e)
+            allocated = None
+        if allocated:
+            return allocated
+    return _get_vm_ip(vmid, session)
+
+
 def _parse_connection_comment(comment: str) -> dict | None:
     """解析 SkyLab 管理的規則 comment，回傳連線資訊。
     格式（有端口）:
@@ -602,6 +632,10 @@ def create_connection(
     """
     if not ports:
         raise BadRequestError(t("firewall.atLeastOnePortRequired"))
+    if source_vmid is not None and source_vmid == target_vmid:
+        # 自己連自己沒有意義，卻會在自己的規則表最前面留一條指定 dest 的
+        # out ACCEPT，可拿來繞過管理員的封鎖網段
+        raise BadRequestError(t("firewall.sourceAndTargetMustDiffer"))
 
     # ── Internet → VM（入站開放）────────────────────────────────────────────
     if source_vmid is None:
@@ -632,7 +666,7 @@ def create_connection(
 
         # 取得 VM IP（NAT / 反向代理規則需要）——在建立任何規則前先驗證
         if needs_gateway:
-            tgt_ip = _get_vm_ip(target_vmid, session)
+            tgt_ip = _get_publishable_vm_ip(target_vmid, session)
             if tgt_ip is None:
                 raise BadRequestError(
                     t("firewall.targetVmNoIpForExternalAccess", vmid=target_vmid)
@@ -751,7 +785,7 @@ def create_connection(
         return
 
     # ── VM → VM ─────────────────────────────────────────────────────────────
-    src_ip = _get_vm_ip(source_vmid, session)
+    src_ip = _get_publishable_vm_ip(source_vmid, session)
     if not src_ip:
         raise BadRequestError(
             t("firewall.sourceVmNoIp", vmid=source_vmid)
@@ -765,11 +799,22 @@ def create_connection(
     tgt_node = tgt_resource["node"]
     tgt_type = tgt_resource["type"]
 
-    tgt_ip = _get_vm_ip(target_vmid, session)
+    tgt_ip = _get_publishable_vm_ip(target_vmid, session)
     if not tgt_ip:
         raise BadRequestError(
             t("firewall.targetVmNoIp", vmid=target_vmid)
         )
+
+    # 兩端 IP 都會寫進對方的規則，和對外發布一樣要驗：不可是節點／網關，
+    # 也不可指到封鎖網段或別台機器（拓撲連線以前沒做這道檢查）
+    if session is not None:
+        assert_publishable_vm_ip(session, src_ip, vmid=source_vmid)
+        assert_publishable_vm_ip(session, tgt_ip, vmid=target_vmid)
+
+    def _out_accept_pos(node: str, vmid: int, resource_type: ResourceType) -> int:
+        # 指定 dest 的 out ACCEPT 要排在 gateway:default 之前才有效，但不能
+        # 用固定 pos 0 蓋過管理員的封鎖網段 DROP
+        return block_rule_insert_pos(get_vm_firewall_rules(node, vmid, resource_type))
 
     for port_spec in ports:
         comment_fwd = _make_connection_comment(source_vmid, target_vmid, port_spec.port, port_spec.protocol)
@@ -789,7 +834,7 @@ def create_connection(
         create_rule(src_node, source_vmid, src_type, {
             "type": "out",
             "action": "ACCEPT",
-            "pos": 0,
+            "pos": _out_accept_pos(src_node, source_vmid, src_type),
             "dest": tgt_ip,
             **rule_fields,
             "enable": 1,
@@ -813,7 +858,7 @@ def create_connection(
             create_rule(tgt_node, target_vmid, tgt_type, {
                 "type": "out",
                 "action": "ACCEPT",
-                "pos": 0,
+                "pos": _out_accept_pos(tgt_node, target_vmid, tgt_type),
                 "dest": src_ip,
                 **rule_fields,
                 "enable": 1,

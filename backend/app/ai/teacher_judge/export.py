@@ -28,6 +28,17 @@ _CHECKED_LABELS = {
     False: "⬜ 未確認",
 }
 
+# Excel 會把這些開頭的字串當公式執行；檢查項目的文字來自 AI 與教師輸入，
+# 直接寫進儲存格等於讓別人決定開檔者的試算表要跑什麼。
+_FORMULA_PREFIXES = ("=", "+", "-", "@")
+
+
+def _safe_cell(value: object) -> object:
+    """公式注入防護：會被當成公式的字串前面補一個單引號當純文字。"""
+    if isinstance(value, str) and value.startswith(_FORMULA_PREFIXES):
+        return f"'{value}"
+    return value
+
 
 def export_to_excel(items: list[TeacherJudgeRubricItem], summary: str = "") -> bytes:
     """Generate an .xlsx file from Teacher Judge rubric items."""
@@ -82,7 +93,7 @@ def export_to_excel(items: list[TeacherJudgeRubricItem], summary: str = "") -> b
             item.fallback or "",
         ]
         for col_idx, val in enumerate(values, start=1):
-            cell = ws.cell(row=row_idx, column=col_idx, value=val)
+            cell = ws.cell(row=row_idx, column=col_idx, value=_safe_cell(val))
             cell.fill = fill
             cell.alignment = Alignment(vertical="top", wrap_text=True)
         ws.row_dimensions[row_idx].height = 40
@@ -90,7 +101,7 @@ def export_to_excel(items: list[TeacherJudgeRubricItem], summary: str = "") -> b
     if summary:
         last_row = len(items) + 3
         ws.cell(row=last_row, column=1, value="備註").font = Font(bold=True)
-        summary_cell = ws.cell(row=last_row, column=2, value=summary)
+        summary_cell = ws.cell(row=last_row, column=2, value=_safe_cell(summary))
         ws.merge_cells(
             start_row=last_row,
             start_column=2,

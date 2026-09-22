@@ -19,6 +19,8 @@
   "template.hasClonedVms": "範本仍有已克隆的 VM：{vmids}，請先刪除這些機器",
   "template.referencedByEnvironments": "多機環境「{shown}」{more}正在引用這個母範本，請先把那些環境改用其他來源或下架後再刪除。",
   "template.referencedByEnvironmentsMore": "（共 {count} 個）",
+  "template.hasOpenRequests": "還有 {count} 張申請單指定這個範本且尚未開通，請先核准開通或退回這些申請再刪除。",
+  "template.referencedByBatchJobs": "還有 {count} 筆批量建立工作指定這個範本且尚未完成，請先取消或等它跑完再刪除。",
   "template.mustBeReadyForUpdate": "範本必須為就緒狀態才能開始更新循環（目前狀態：{status}）",
   "template.notInUpdateCycle": "範本目前不在更新循環中",
   "template.updateCloneNotReady": "更新循環的克隆機尚未就緒，請等待克隆任務完成",

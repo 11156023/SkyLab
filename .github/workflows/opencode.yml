@@ -19,20 +19,24 @@ jobs:
        startsWith(github.event.comment.body, '/opencode'))
        
     runs-on: ubuntu-latest
-    
+    timeout-minutes: 30
+    concurrency:
+      group: opencode-${{ github.event.issue.number || github.event.pull_request.number }}
+      cancel-in-progress: false
+
+    # 只給留言與 PR 寫入權；不需要 contents: write / id-token
     permissions:
-      id-token: write
-      contents: write
+      contents: read
       pull-requests: write
       issues: write
-      
-    steps:
-      # 🔥 修正：移除原本空白的步驟，並將版本修正為穩定的 v4
-      - name: Checkout Code
-        uses: actions/checkout@v4
 
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfb # v4.2.2
+
+      # 第三方 action 一律釘 commit SHA，不用可變 tag（@latest 等於把 repo 寫入權交給上游）
       - name: Run opencode
-        uses: anomalyco/opencode/github@latest
+        uses: anomalyco/opencode/github@fe3f3a41f79ad292cc3c7c629567385a20ec5130 # v1.18.32
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           OPENCODE_API_KEY: ${{ secrets.OPENCODE_API_KEY }} # 確保你有在 Repo 的 Settings -> Secrets 裡設定這個 Key

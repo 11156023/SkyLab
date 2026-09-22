@@ -278,7 +278,11 @@ def update_rule(
             resource_info["node"], vmid, resource_info["type"]
         )
         target_rule = next((r for r in rules if r.get("pos") == pos), None)
-        if target_rule and str(target_rule.get("comment", "")).startswith("SkyLab:"):
+        if target_rule is None:
+            # 規則位置是會變動的（刪一條後面全往前挪），對不到就別讓
+            # Proxmox 去改到別條規則
+            raise NotFoundError(t("firewall.rule_not_found_at_pos", pos=pos))
+        if str(target_rule.get("comment", "")).startswith("SkyLab:"):
             raise HTTPException(
                 status_code=400,
                 detail=t("firewall.rule_managed_no_modify"),
@@ -315,7 +319,10 @@ def delete_rule(
             resource_info["node"], vmid, resource_info["type"]
         )
         target_rule = next((r for r in rules if r.get("pos") == pos), None)
-        if target_rule and str(target_rule.get("comment", "")).startswith("SkyLab:"):
+        if target_rule is None:
+            # 對不到就直接回 404，不要往下刪到剛好遞補到這個位置的別條規則
+            raise NotFoundError(t("firewall.rule_not_found_at_pos", pos=pos))
+        if str(target_rule.get("comment", "")).startswith("SkyLab:"):
             raise HTTPException(
                 status_code=400,
                 detail=t("firewall.rule_managed_use_connection_ui"),
