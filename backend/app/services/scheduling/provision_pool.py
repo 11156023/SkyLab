@@ -5,9 +5,12 @@ clone 是 PVE 磁碟 I/O 重活 — 以獨立的 ``asyncio.Semaphore`` 限制同
 並以 ``bypass_semaphore=True`` 略過 runner 全域信號量，避免排隊等待的
 clone 任務佔滿 runner slot、餓死發信/狀態同步等輕量任務。
 
-防重複三層：runner ``task_id=provision-{request_id}`` 去重（本模組）→
+防重複三層：runner ``task_id=vm_request:{request_id}`` 去重（本模組）→
 DB ``SELECT FOR UPDATE SKIP LOCKED``（coordinator 既有）→
 ``provisioning_status``/vmid 再檢查（coordinator 既有）。
+
+task_id 必須與 ``vm_request_service`` 的 review／cancel／retry 路徑同一個命名
+空間，否則 ``cancel()`` 找不到排程 fan-out 出去的任務，取消後 clone 仍會跑完。
 """
 
 from __future__ import annotations
@@ -28,6 +31,11 @@ class _PoolState:
 
 
 _pool = _PoolState()
+
+
+def provision_task_id(request_id: uuid.UUID) -> str:
+    """單一申請單的 provision 背景任務 id；所有提交／取消路徑都用這個。"""
+    return f"vm_request:{request_id}"
 
 
 def get_provision_semaphore(size: int) -> asyncio.Semaphore:
@@ -71,6 +79,6 @@ def submit_provision(request_id: uuid.UUID, *, concurrency: int) -> str:
     return background_tasks.submit_factory(
         lambda: _provision_with_semaphore(request_id, concurrency),
         name="provision",
-        task_id=f"provision-{request_id}",
+        task_id=provision_task_id(request_id),
         bypass_semaphore=True,
     )

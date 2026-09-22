@@ -16,6 +16,7 @@ from .ai_api import (
     AIAPICredentialsAdminPublic,
     AIAPICredentialsPublic,
     AIAPICredentialUpdate,
+    AIAPICredentialWithSecret,
     AIAPIRequestCreate,
     AIAPIRequestPublic,
     AIAPIRequestReview,
@@ -207,6 +208,7 @@ __all__ = [
     "AIAPICredentialsAdminPublic",
     "AIAPICredentialsPublic",
     "AIAPICredentialUpdate",
+    "AIAPICredentialWithSecret",
     # AI Proxy
     "ChatMessage",
     "ChatCompletionRequest",

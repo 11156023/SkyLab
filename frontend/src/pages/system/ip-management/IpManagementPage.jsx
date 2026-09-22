@@ -148,8 +148,25 @@ export default function IpManagementPage() {
   async function handleSave(payload) {
     setSaving(true);
     try {
-      await IpManagementService.upsertSubnet(payload);
-      toast.success(t("IpManagementPage.toastSubnetSaved"));
+      const saved = await IpManagementService.upsertSubnet(payload);
+      /* 封鎖網段是存檔後才逐台套用到防火牆；有機器套用失敗要讓管理員看到，
+         否則會以為校內網段已封鎖、實際沒有 */
+      const syncErrors = saved?.block_sync?.errors ?? [];
+      if (syncErrors.length > 0) {
+        const vmids = syncErrors
+          .map((e) => e.vmid)
+          .filter((v) => v != null)
+          .slice(0, 10)
+          .join(", ");
+        toast.error(
+          t("IpManagementPage.toastBlockSyncPartial", {
+            count: syncErrors.length,
+            vmids: vmids || "—",
+          }),
+        );
+      } else {
+        toast.success(t("IpManagementPage.toastSubnetSaved"));
+      }
       setEditing(null);
       await load();
     } catch (e) {

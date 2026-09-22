@@ -77,19 +77,36 @@ def upsert_nodes(
     同步節點清單到資料庫（限定在 ``connection_id`` 的範圍內）。
     以 name 為 key：存在則更新 host/port/is_primary/is_online/last_checked，保留既有 priority；
     不存在則新建（priority 預設 5）。
-    刪除該連線中本次同步不再出現的舊節點。
+    刪除**本連線**中本次同步不再出現的舊節點。
 
     節點名稱為全域唯一鍵（operations/placement/storage 都以名稱定位節點），
     因此若名稱已被其他連線使用則拋 ValueError。
+
+    舊版單連線留下的未歸屬節點（``connection_id IS NULL``）不算本連線的節點：
+    只有在本次同步真的回報同名節點時才「認領」過來改歸屬，沒被認領的不會
+    因為這次同步而被刪掉（以前把它們混進本連線的範圍，第一個同步的連線
+    會順手把其他機房的舊節點刪光）。
     """
-    stmt = select(ProxmoxNode)
-    if connection_id is not None:
-        stmt = stmt.where(
-            (ProxmoxNode.connection_id == connection_id)
-            | col(ProxmoxNode.connection_id).is_(None)  # 舊資料歸屬預設連線
+    if connection_id is None:
+        # 沒有連線可歸屬時（舊版單連線相容路徑）只處理未歸屬的節點，
+        # 不去動其他連線的節點
+        owned_stmt = select(ProxmoxNode).where(
+            col(ProxmoxNode.connection_id).is_(None)
         )
-    existing_all = list(session.exec(stmt).all())
-    existing_map: dict[str, ProxmoxNode] = {n.name: n for n in existing_all}
+    else:
+        owned_stmt = select(ProxmoxNode).where(
+            ProxmoxNode.connection_id == connection_id
+        )
+    existing_map: dict[str, ProxmoxNode] = {
+        n.name: n for n in session.exec(owned_stmt).all()
+    }
+
+    orphan_map: dict[str, ProxmoxNode] = {}
+    if connection_id is not None:
+        orphan_stmt = select(ProxmoxNode).where(
+            col(ProxmoxNode.connection_id).is_(None)
+        )
+        orphan_map = {n.name: n for n in session.exec(orphan_stmt).all()}
 
     incoming_names: set[str] = set()
     result: list[ProxmoxNode] = []
@@ -98,28 +115,31 @@ def upsert_nodes(
         name = node_data["name"]
         incoming_names.add(name)
 
-        conflict = get_node_by_name(session, name)
-        if (
-            conflict is not None
-            and name not in existing_map
-            and conflict.connection_id is not None
-            and conflict.connection_id != connection_id
-        ):
-            raise ValueError(
-                f"節點名稱「{name}」已被其他連線使用；"
-                "多連線架構要求節點名稱全域唯一，請先調整 PVE 節點名稱"
-            )
+        node = existing_map.get(name)
+        if node is None:
+            conflict = get_node_by_name(session, name)
+            orphan = orphan_map.get(name)
+            if orphan is not None:
+                # 認領未歸屬節點前再確認名稱沒有被別的連線佔走
+                if (
+                    conflict is not None
+                    and conflict.id != orphan.id
+                    and conflict.connection_id != connection_id
+                ):
+                    raise ValueError(
+                        f"節點名稱「{name}」已被其他連線使用，無法認領未歸屬節點；"
+                        "多連線架構要求節點名稱全域唯一，請先調整 PVE 節點名稱"
+                    )
+                node = orphan
+            elif conflict is not None:
+                if conflict.connection_id != connection_id:
+                    raise ValueError(
+                        f"節點名稱「{name}」已被其他連線使用；"
+                        "多連線架構要求節點名稱全域唯一，請先調整 PVE 節點名稱"
+                    )
+                node = conflict
 
-        if name in existing_map:
-            node = existing_map[name]
-            node.connection_id = connection_id
-            node.host = node_data["host"]
-            node.port = node_data.get("port", 8006)
-            node.is_primary = node_data.get("is_primary", False)
-            node.is_online = True
-            node.last_checked = datetime.now(timezone.utc)
-            # 保留既有 priority，不覆寫
-        else:
+        if node is None:
             node = ProxmoxNode(
                 connection_id=connection_id,
                 name=name,
@@ -130,10 +150,18 @@ def upsert_nodes(
                 last_checked=datetime.now(timezone.utc),
                 priority=5,
             )
+        else:
+            node.connection_id = connection_id
+            node.host = node_data["host"]
+            node.port = node_data.get("port", 8006)
+            node.is_primary = node_data.get("is_primary", False)
+            node.is_online = True
+            node.last_checked = datetime.now(timezone.utc)
+            # 保留既有 priority，不覆寫
         session.add(node)
         result.append(node)
 
-    # 刪除該連線範圍內消失的節點
+    # 只刪本連線範圍內消失的節點；未歸屬節點留著等人認領
     for name, node in existing_map.items():
         if name not in incoming_names:
             session.delete(node)

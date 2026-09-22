@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime, timezone
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Query
 from fastapi.responses import StreamingResponse
 
 from app.api.deps import AdminUser, CurrentUser, ResourceInfoDep, SessionDep
@@ -92,9 +92,21 @@ def export_audit_logs(
     end_time: datetime | None = None,
     ip_address: str | None = None,
     search: str | None = None,
+    limit: int = Query(
+        10000,
+        ge=1,
+        le=audit_service.EXPORT_MAX_ROWS,
+        description="Maximum number of rows to export (newest first).",
+    ),
 ):
-    """Stream a CSV file of (filtered) audit logs."""
-    csv_text = audit_service.export_csv(
+    """Stream a CSV file of (filtered) audit logs.
+
+    The rows are written batch by batch as they come out of the database, so a
+    large export never has to sit in memory (or in one giant response body)
+    before the download starts.
+    """
+    filename = f"audit-logs-{datetime.now(timezone.utc).strftime('%Y%m%d-%H%M%S')}.csv"
+    chunks = audit_service.export_csv_chunks(
         session=session,
         vmid=vmid,
         user_id=_parse_user_id(user_id),
@@ -103,12 +115,11 @@ def export_audit_logs(
         end_time=end_time,
         ip_address=ip_address,
         search=search,
+        limit=limit,
+        with_bom=True,
     )
-    filename = f"audit-logs-{datetime.now(timezone.utc).strftime('%Y%m%d-%H%M%S')}.csv"
-    # UTF-8 BOM so Excel opens Chinese correctly.
-    body = "\ufeff" + csv_text
     return StreamingResponse(
-        iter([body]),
+        chunks,
         media_type="text/csv; charset=utf-8",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
@@ -144,6 +155,8 @@ def get_resource_audit_logs(
     skip: int = 0,
     limit: int = 100,
 ):
+    # 用 resource_vmid 而不是 vmid：VMID 會被新機器回收，只比對 vmid 會把前一任
+    # 擁有者（別的租戶）的信箱、IP、操作細節一起回給現任擁有者
     return audit_service.get_all(
-        session=session, vmid=vmid, skip=skip, limit=limit
+        session=session, resource_vmid=vmid, skip=skip, limit=limit
     )

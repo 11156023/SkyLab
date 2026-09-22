@@ -6,6 +6,7 @@ import MIcon from "../../../components/MIcon";
 import LoadingState from "../../../components/LoadingState/LoadingState";
 import EmptyState from "../../../components/EmptyState/EmptyState";
 import { useToast } from "../../../hooks/useToast";
+import { useConfirm } from "../../../components/ConfirmDialog/ConfirmProvider";
 import useDialogPresence from "../../../hooks/useDialogPresence";
 import { CloudflareService } from "../../../services/cloudflare";
 import PageHeader from "../../../components/PageHeader/PageHeader";
@@ -255,6 +256,7 @@ function RecordModal({ record, loading, closing = false, onClose, onSubmit }) {
 export default function DomainPage() {
   const { t } = useTranslation("system");
   const toast = useToast();
+  const confirm = useConfirm();
   const [config, setConfig] = useState(null);
   const [zones, setZones] = useState([]);
   const [selectedZone, setSelectedZone] = useState(null);
@@ -264,7 +266,7 @@ export default function DomainPage() {
   const [testing, setTesting] = useState(false);
   const [saving, setSaving] = useState(false);
   const [search, setSearch] = useState("");
-  const [modal, setModal] = useState(null); // { kind: "config" } | { kind: "record", record? } | { kind: "deleteRecord", record }
+  const [modal, setModal] = useState(null); // { kind: "config" } | { kind: "record", record? }
   const modalPresence = useDialogPresence(modal);
 
   // 分頁狀態放在網址 ?tab=，讓 /domain?tab=reverse-proxy 這類連結（舊反向代理頁）能直接開到指定分頁
@@ -375,13 +377,21 @@ export default function DomainPage() {
     }
   }
 
-  async function handleDeleteRecord() {
-    if (!selectedZone || !modal?.record) return;
+  /* 刪除 DNS 紀錄：共用確認框；送出中 saving 擋住重複點擊 */
+  async function handleDeleteRecord(record) {
+    if (!selectedZone || !record || saving) return;
+    const ok = await confirm({
+      title: t("DomainPage.deleteRecordTitle"),
+      message: t("DomainPage.deleteRecordConfirm", { name: record.name, type: record.type }),
+      confirmText: t("DomainPage.delete"),
+      cancelText: t("DomainPage.cancel"),
+      danger: true,
+    });
+    if (!ok) return;
     setSaving(true);
     try {
-      await CloudflareService.deleteDnsRecord(selectedZone.id, modal.record.id);
+      await CloudflareService.deleteDnsRecord(selectedZone.id, record.id);
       toast.success(t("DomainPage.toastRecordDeleted"));
-      setModal(null);
       fetchRecords(selectedZone.id, search);
     } catch (err) {
       toast.error(err?.message ?? t("DomainPage.toastDeleteFailed"));
@@ -396,10 +406,11 @@ export default function DomainPage() {
     <div className={styles.page}>
       <PageHeader title={t("DomainPage.pageTitle")}>
         <div className={styles.headerActions} data-guide="domain-connect">
+          {/* noopener,noreferrer：新分頁不能透過 window.opener 反向操作本站 */}
           <button
             type="button"
             className={styles.btnSecondary}
-            onClick={() => window.open("https://dash.cloudflare.com", "_blank")}
+            onClick={() => window.open("https://dash.cloudflare.com", "_blank", "noopener,noreferrer")}
           >
             <MIcon name="open_in_new" size={16} />
             Cloudflare Dashboard
@@ -555,7 +566,8 @@ export default function DomainPage() {
                         type="button"
                         className={styles.actionBtnDanger}
                         title={t("DomainPage.delete")}
-                        onClick={() => setModal({ kind: "deleteRecord", record: r })}
+                        disabled={saving}
+                        onClick={() => handleDeleteRecord(r)}
                       >
                         <MIcon name="delete" size={16} />
                       </button>
@@ -585,30 +597,6 @@ export default function DomainPage() {
           onClose={() => setModal(null)}
           onSubmit={handleSaveRecord}
         />
-      )}
-      {modalPresence.item?.kind === "deleteRecord" && (
-        <div
-          className={`${styles.modalOverlay} ${modalPresence.closing ? styles.modalOverlayOut : ""}`}
-          onMouseDown={() => setModal(null)}
-        >
-          <div className={styles.confirm} onMouseDown={(e) => e.stopPropagation()}>
-            <div className={styles.confirmIcon}>
-              <MIcon name="warning" size={24} />
-            </div>
-            <h2>{t("DomainPage.deleteRecordTitle")}</h2>
-            <p>
-              {t("DomainPage.deleteRecordConfirm", { name: modalPresence.item.record.name, type: modalPresence.item.record.type })}
-            </p>
-            <div className={styles.modalActions}>
-              <button type="button" className={styles.btnSecondary} onClick={() => setModal(null)}>
-                {t("DomainPage.cancel")}
-              </button>
-              <button type="button" className={styles.btnDanger} disabled={saving} onClick={handleDeleteRecord}>
-                {saving ? t("DomainPage.deleting") : t("DomainPage.delete")}
-              </button>
-            </div>
-          </div>
-        </div>
       )}
     </div>
   );

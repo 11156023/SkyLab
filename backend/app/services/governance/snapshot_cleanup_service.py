@@ -1,4 +1,4 @@
-"""快照自動清理（E8）：掃描學生 VM，刪除超過保留天數的一般快照。
+"""快照自動清理（E8）：掃描受管資源，刪除超過保留天數的一般快照。
 
 資格判定在 ``snapshot_cleanup_policy`` 純函式。每 tick 至多掃
 ``SNAPSHOT_CLEANUP_BATCH_SIZE`` 台，以 module-level vmid 游標輪替，
@@ -14,8 +14,11 @@ from typing import Any, Literal
 
 from sqlmodel import Session, select
 
-from app.models import Resource, User, UserRole
-from app.services.governance.snapshot_cleanup_policy import is_cleanup_eligible
+from app.models import MiningIncident, MiningIncidentStatus, Resource
+from app.services.governance.snapshot_cleanup_policy import (
+    PROTECTED_PREFIXES,
+    is_cleanup_eligible,
+)
 from app.services.proxmox import proxmox_service
 from app.services.user import audit_service
 from app.utils import send_email
@@ -23,6 +26,9 @@ from app.utils import send_email
 logger = logging.getLogger(__name__)
 
 SNAPSHOT_CLEANUP_BATCH_SIZE = 20
+
+# 存證快照前綴（與 mining_service 產生的 ``mining-YYYYmmddHHMM`` 同源）
+MINING_PREFIX = PROTECTED_PREFIXES[0]
 
 class _ScanCursor:
     """跨 tick 的掃描游標（集中在物件上，避免 global 重新指派）。"""
@@ -52,15 +58,54 @@ def _get_config(session: Session) -> Any:
 
 
 def _list_scan_batch(session: Session, cursor: int, limit: int) -> list[Resource]:
-    """學生擁有、vmid 大於游標的資源，一批最多 limit 台。"""
+    """vmid 大於游標的受管資源，一批最多 limit 台。
+
+    不再只掃學生：老師與管理員的機器一樣會累積快照，保留規則本來就由
+    ``snapshot_cleanup_policy`` 決定（skylab-init 與未結案的存證快照受保護）。
+    """
     stmt = (
         select(Resource)
-        .join(User, User.id == Resource.user_id)  # type: ignore[arg-type]
-        .where(User.role == UserRole.student, Resource.vmid > cursor)
+        .where(Resource.vmid > cursor)
         .order_by(Resource.vmid)  # type: ignore[arg-type]
         .limit(limit)
     )
     return list(session.exec(stmt).all())
+
+
+def _closed_mining_snapshots(session: Session, vmid: int) -> dict[str, datetime]:
+    """該 vmid 已結案事件的 {存證快照名: 結案時間}；查詢失敗回空 dict。
+
+    只在該機器真的有 ``mining-*`` 快照時才查（多數機器沒有，省掉一次查詢）。
+    """
+    try:
+        rows = session.exec(
+            select(MiningIncident).where(
+                MiningIncident.vmid == vmid,
+                MiningIncident.status.in_(  # type: ignore[attr-defined]
+                    (
+                        MiningIncidentStatus.dismissed,
+                        MiningIncidentStatus.banned,
+                    )
+                ),
+            )
+        ).all()
+    except Exception:
+        logger.warning(
+            "Failed to load mining incidents for vmid=%s; evidence snapshots kept",
+            vmid,
+        )
+        return {}
+    closed: dict[str, datetime] = {}
+    for incident in rows:
+        if not incident.snapshot_name:
+            continue
+        closed_at = incident.reviewed_at or incident.detected_at
+        if closed_at is None:
+            continue
+        if closed_at.tzinfo is None:
+            closed_at = closed_at.replace(tzinfo=timezone.utc)
+        closed[str(incident.snapshot_name)] = closed_at
+    return closed
 
 
 def _reset_cursor() -> None:
@@ -129,12 +174,20 @@ def process_snapshot_cleanup() -> int:
                     snapshots = proxmox_service.list_snapshots(
                         node, resource.vmid, rtype
                     )
+                    closed_incidents: dict[str, datetime] | None = None
                     for snap in snapshots:
+                        snap_name = str(snap.get("name") or "")
+                        if snap_name.startswith(MINING_PREFIX):
+                            if closed_incidents is None:
+                                closed_incidents = _closed_mining_snapshots(
+                                    session, resource.vmid
+                                )
                         if not is_cleanup_eligible(
                             name=snap.get("name"),
                             snaptime=snap.get("snaptime"),
                             now=now,
                             retention_days=config.snapshot_retention_days,
+                            mining_closed_at=(closed_incidents or {}).get(snap_name),
                         ):
                             continue
                         proxmox_service.delete_snapshot(

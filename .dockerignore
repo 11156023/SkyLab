@@ -1,4 +1,15 @@
+# 機密：.env 與憑證只透過 compose 的 env_file／volume 注入，絕不可烘進 image
+# （image 一旦推到 registry 就人人可讀，即使 Dockerfile 沒有 COPY 它們，
+#  build context 仍會被上傳給 daemon）
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+
 # 不要把本機安裝產物複製進 image（容器內會自行 bun install / uv sync）
+node_modules
 **/node_modules
 **/dist
 **/.venv

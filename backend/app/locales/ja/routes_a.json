@@ -28,6 +28,8 @@
   "proxmoxConfig.syncFailed": "同期に失敗しました。接続設定を確認してください。",
   "proxmoxConfig.notConfigured": "Proxmox 接続がまだ設定されていません",
   "proxmoxConfig.connectionSyncFailed": "接続「{name}」の同期に失敗しました",
+  "proxmoxConfig.connectionHasResources": "接続「{name}」にはまだ {count} 台のマシンがあります（vmid：{vmids}）。削除または移動してから接続を削除してください",
+  "proxmoxConfig.connectionResourceCheckFailed": "この Proxmox に接続できないため、マシンが残っているかを確認できません。当面は削除できませんので、しばらくしてからもう一度お試しください",
   "users.avatarUnsupportedFormat": "PNG / JPEG / WebP / GIF 画像のみ対応しています",
   "users.avatarTooLarge": "画像サイズは 2MB を超えることはできません",
   "vm.creating": "VM を作成しています。しばらくしてからリソース一覧をご確認ください。"

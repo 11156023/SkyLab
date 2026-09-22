@@ -226,12 +226,18 @@ def _subscription(**overrides: Any) -> PushSubscription:
 
 @pytest.fixture
 def fake_config(monkeypatch: pytest.MonkeyPatch) -> None:
+    # 私鑰在 DB 裡是加密的，服務層一律經 get_vapid_private_key 取明文
     monkeypatch.setattr(
         web_push_service.push_repo,
         "get_web_push_config",
         lambda *, session: SimpleNamespace(
-            vapid_private_key_pem="PEM", subject="mailto:x@y"
+            vapid_private_key_pem="ENCRYPTED", subject="mailto:x@y"
         ),
+    )
+    monkeypatch.setattr(
+        web_push_service.push_repo,
+        "get_vapid_private_key",
+        lambda *, session, config: "PEM",
     )
 
 

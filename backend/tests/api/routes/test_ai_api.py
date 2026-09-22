@@ -7,6 +7,7 @@ from sqlmodel import Session
 from app.core.config import settings
 from app.features.ai.config import settings as ai_api_settings
 from app.models import AIAPIUsage, AITemplateCallLog, get_datetime_utc
+from app.models.ai_api_credential import API_KEY_PREFIX_LENGTH
 from app.repositories import user as user_repo
 from app.schemas import UserCreate
 from tests.utils.user import user_authentication_headers
@@ -104,9 +105,11 @@ def test_ai_api_request_review_flow(
     assert latest["request_id"] == created["id"]
     assert latest["base_url"] == ai_api_settings.resolved_public_base_url
     # Per-user API keys are generated on approval (prefix "ccai_") rather than
-    # echoing the upstream shared key.
-    assert isinstance(latest["api_key"], str) and latest["api_key"].startswith("ccai_")
-    assert latest["api_key_prefix"] == latest["api_key"][:8]
+    # echoing the upstream shared key. The list endpoint only ever exposes the
+    # prefix; the plaintext is returned once, on owner-initiated rotation.
+    assert "api_key" not in latest
+    assert latest["api_key_prefix"].startswith("ccai_")
+    assert len(latest["api_key_prefix"]) == API_KEY_PREFIX_LENGTH
 
 
 def test_ai_api_proxy_usage_my_uses_jwt_auth(

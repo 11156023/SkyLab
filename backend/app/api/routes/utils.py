@@ -16,6 +16,9 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/utils", tags=["utils"])
 
 _HEALTH_CHECK_TIMEOUT_SECONDS = 3.0
+# health／readiness 是未驗證端點：例外字串可能夾帶主機名、連線字串、
+# 帳號等內部資訊，對外只回固定代碼，細節一律進 log。
+_UNAVAILABLE_DETAIL = "unavailable"
 # ─── Health / Readiness ──────────────────────────────────────────────────────
 
 
@@ -46,9 +49,9 @@ async def _check_db() -> DependencyStatus:
         )
     except asyncio.TimeoutError:
         return DependencyStatus(status="error", detail="timeout")
-    except Exception as exc:  # noqa: BLE001
-        logger.warning("Health check: DB ping failed: %s", exc)
-        return DependencyStatus(status="error", detail=str(exc)[:200])
+    except Exception:  # noqa: BLE001
+        logger.warning("Health check: DB ping failed", exc_info=True)
+        return DependencyStatus(status="error", detail=_UNAVAILABLE_DETAIL)
 
     return DependencyStatus(
         status="ok", latency_ms=round((loop.time() - start) * 1000, 2)
@@ -65,9 +68,9 @@ async def _check_redis() -> DependencyStatus:
         await asyncio.wait_for(redis.ping(), timeout=_HEALTH_CHECK_TIMEOUT_SECONDS)
     except asyncio.TimeoutError:
         return DependencyStatus(status="error", detail="timeout")
-    except Exception as exc:  # noqa: BLE001
-        logger.warning("Health check: Redis ping failed: %s", exc)
-        return DependencyStatus(status="error", detail=str(exc)[:200])
+    except Exception:  # noqa: BLE001
+        logger.warning("Health check: Redis ping failed", exc_info=True)
+        return DependencyStatus(status="error", detail=_UNAVAILABLE_DETAIL)
 
     return DependencyStatus(
         status="ok", latency_ms=round((loop.time() - start) * 1000, 2)
@@ -90,9 +93,9 @@ async def _check_proxmox() -> DependencyStatus:
         )
     except asyncio.TimeoutError:
         return DependencyStatus(status="error", detail="timeout")
-    except Exception as exc:  # noqa: BLE001
-        logger.warning("Health check: Proxmox ping failed: %s", exc)
-        return DependencyStatus(status="error", detail=str(exc)[:200])
+    except Exception:  # noqa: BLE001
+        logger.warning("Health check: Proxmox ping failed", exc_info=True)
+        return DependencyStatus(status="error", detail=_UNAVAILABLE_DETAIL)
 
     return DependencyStatus(
         status="ok",

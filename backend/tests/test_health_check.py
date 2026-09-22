@@ -62,7 +62,9 @@ async def test_check_db_failure(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(utils_route, "engine", _FakeEngine(_FailingConn()))
     status = await utils_route._check_db()
     assert status.status == "error"
-    assert status.detail and "db down" in status.detail
+    # health 是未驗證端點：對外只回固定代碼，原始例外字串只進 log
+    assert status.detail == utils_route._UNAVAILABLE_DETAIL
+    assert "db down" not in (status.detail or "")
 
 
 @pytest.mark.asyncio

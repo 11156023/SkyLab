@@ -1,6 +1,8 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import styles from "./settings.module.scss";
+import MIcon from "../../../components/MIcon";
+import EmptyState from "../../../components/EmptyState/EmptyState";
 import LoadingState from "../../../components/LoadingState/LoadingState";
 import PageHeader from "../../../components/PageHeader/PageHeader";
 import { GovernanceService } from "../../../services/governance";
@@ -117,11 +119,15 @@ function GovernanceForm() {
   const [form, setForm] = useState(null);
   const [baseline, setBaseline] = useState(null);
   const [saving, setSaving] = useState(false);
+  /* 載入失敗要看得見：記下錯誤訊息改渲染重試區塊，不要停在轉圈畫面 */
+  const [loadError, setLoadError] = useState(null);
+  const [reloadKey, setReloadKey] = useState(0);
   const dirty = Boolean(form && baseline && ALL_KEYS.some((key) => form[key] !== baseline[key]));
   useUnsavedChangesGuard(dirty);
 
   useEffect(() => {
     let cancelled = false;
+    setLoadError(null);
     GovernanceService.getConfig()
       .then((config) => {
         if (cancelled) return;
@@ -130,11 +136,17 @@ function GovernanceForm() {
         setForm(next);
         setBaseline(next);
       })
-      .catch((err) => toast.error(err?.message ?? t("GovernanceTab.toastLoadFailed")));
+      .catch((err) => {
+        if (cancelled) return;
+        setLoadError(err?.message ?? t("GovernanceTab.toastLoadFailed"));
+        toast.error(err?.message ?? t("GovernanceTab.toastLoadFailed"));
+      });
     return () => {
       cancelled = true;
     };
-  }, [toast, t, ALL_KEYS]);
+  }, [toast, t, ALL_KEYS, reloadKey]);
+
+  const retryLoad = useCallback(() => setReloadKey((n) => n + 1), []);
 
   const setField = (key, value) => setForm((prev) => ({ ...prev, [key]: value }));
 
@@ -155,6 +167,21 @@ function GovernanceForm() {
     }
   }
 
+  if (!form && loadError) {
+    return (
+      <EmptyState
+        icon="error_outline"
+        title={t("GovernanceTab.toastLoadFailed")}
+        description={loadError}
+        action={
+          <button type="button" className={styles.btnSecondary} onClick={retryLoad}>
+            <MIcon name="refresh" size={16} />
+            {t("GovernanceTab.retry")}
+          </button>
+        }
+      />
+    );
+  }
   if (!form) return <LoadingState text={t("GovernanceTab.loading")} />;
 
   return (

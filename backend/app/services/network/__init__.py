@@ -3,7 +3,6 @@ from __future__ import annotations
 from importlib import import_module
 
 __all__ = [
-    "class_exposure_service",
     "cloudflare_service",
     "firewall_service",
     "gateway_service",
@@ -14,7 +13,6 @@ __all__ = [
 ]
 
 _MODULES = {
-    "class_exposure_service": "app.services.network.class_exposure_service",
     "cloudflare_service": "app.services.network.cloudflare_service",
     "firewall_service": "app.services.network.firewall_service",
     "gateway_service": "app.services.network.gateway_service",

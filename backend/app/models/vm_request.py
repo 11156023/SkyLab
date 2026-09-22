@@ -126,6 +126,12 @@ class VMRequest(SQLModel, table=True):
         ),
     )
     provisioning_error: str | None = Field(default=None)
+    # provisioning_status 翻成 running 的時間；超過 PROVISIONING_STALE_MINUTES
+    # 仍是 running（容器重啟、寫回 DB 失敗）就視為孤兒，允許排程器接手。
+    provisioning_started_at: datetime | None = Field(
+        default=None,
+        sa_column=Column(DateTime(timezone=True), nullable=True),
+    )
     resource_warning: str | None = Field(default=None)
 
     # Recurrence schedule (RFC 5545 RRULE; e.g. FREQ=WEEKLY;BYDAY=FR;BYHOUR=13;BYMINUTE=0).

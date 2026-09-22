@@ -16,6 +16,8 @@
 const OPEN_JOB_MESSAGE = "skylab:open-job";
 const NAVIGATE_MESSAGE = "skylab:navigate";
 const PUSH_RECEIVED_MESSAGE = "skylab:push-received";
+/** 佔位通知用的固定 tag：同一則會一直被取代，不會在通知中心堆積 */
+const PLACEHOLDER_TAG = "skylab-placeholder";
 
 self.addEventListener("install", () => {
   // 新版本立刻接手，不等舊的 SW 釋放
@@ -46,15 +48,45 @@ async function broadcast(message) {
   for (const client of clients) client.postMessage(message);
 }
 
+/**
+ * 顯示一則固定 tag 的低干擾通知再立刻關掉。
+ *
+ * 瀏覽器規定 push 事件一定要顯示通知，否則會自行補上一則「此網站已在背景更新」，
+ * 連續幾次還可能撤銷推播訂閱。payload 讀不出來、或前景已經有 toast 不需要再跳
+ * 系統通知時，就用這則佔位通知滿足規定。
+ */
+async function showPlaceholderNotification() {
+  try {
+    await self.registration.showNotification("SkyLab", {
+      tag: PLACEHOLDER_TAG,
+      body: "",
+      icon: "/favicon.png",
+      badge: "/favicon.png",
+      silent: true,
+    });
+    const shown = await self.registration.getNotifications({ tag: PLACEHOLDER_TAG });
+    for (const notification of shown) notification.close();
+  } catch {
+    // 顯示或關閉失敗都不影響推播本身
+  }
+}
+
 self.addEventListener("push", (event) => {
   const payload = parsePayload(event);
-  if (!payload) return;
+  if (!payload) {
+    // 解析失敗也得交代一則通知，否則瀏覽器會自己跳「背景更新」那一則
+    event.waitUntil(showPlaceholderNotification());
+    return;
+  }
 
   event.waitUntil(
     (async () => {
       await broadcast({ type: PUSH_RECEIVED_MESSAGE, payload });
       // 使用者正看著頁面：頁面的 toast 已經足夠，不重複跳系統通知
-      if (payload.kind !== "test" && (await hasFocusedClient())) return;
+      if (payload.kind !== "test" && (await hasFocusedClient())) {
+        await showPlaceholderNotification();
+        return;
+      }
       await self.registration.showNotification(payload.title || "SkyLab", {
         body: payload.body || "",
         tag: payload.tag || undefined,
@@ -67,6 +99,20 @@ self.addEventListener("push", (event) => {
     })(),
   );
 });
+
+/**
+ * 把通知帶來的 url 收斂成同源網址。
+ * data.url 來自推播 payload，是外部輸入；直接丟給 openWindow 等於讓推播內容
+ * 決定要開哪個網站。非同源（或根本不是合法網址）一律退回首頁。
+ */
+function sameOriginUrl(raw) {
+  try {
+    const target = new URL(raw || "/", self.location.origin);
+    return target.origin === self.location.origin ? target.href : "/";
+  } catch {
+    return "/";
+  }
+}
 
 self.addEventListener("notificationclick", (event) => {
   event.notification.close();
@@ -88,7 +134,7 @@ self.addEventListener("notificationclick", (event) => {
         return;
       }
       // 沒有任何分頁：開新視窗到目標路徑（任務會帶 ?job= 讓頁面開詳情）
-      await self.clients.openWindow(url);
+      await self.clients.openWindow(sameOriginUrl(url));
     })(),
   );
 });

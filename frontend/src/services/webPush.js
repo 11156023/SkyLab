@@ -57,6 +57,19 @@ export function urlBase64ToUint8Array(base64String) {
   return out;
 }
 
+/** 既有訂閱綁的 applicationServerKey 是否就是後端目前的公鑰 */
+export function subscriptionMatchesKey(subscription, publicKey) {
+  const raw = subscription?.options?.applicationServerKey;
+  if (!raw || !publicKey) return true; // 讀不到就不判斷，維持既有行為
+  const expected = urlBase64ToUint8Array(publicKey);
+  const actual = new Uint8Array(raw);
+  if (actual.length !== expected.length) return false;
+  for (let i = 0; i < actual.length; i += 1) {
+    if (actual[i] !== expected[i]) return false;
+  }
+  return true;
+}
+
 /** 取得（必要時註冊）Service Worker；不支援時回 null */
 export async function getRegistration() {
   if (!isPushSupported()) return null;
@@ -104,6 +117,16 @@ export async function subscribePush() {
   let subscription;
   try {
     subscription = await registration.pushManager.getSubscription();
+    /* 後端換過 VAPID 金鑰時，瀏覽器手上的舊訂閱綁的是舊公鑰：推播服務會回 403、
+       後端只在 404/410 才刪訂閱，狀態卻一直顯示「已訂閱」。金鑰不同就退訂重來。 */
+    if (subscription && !subscriptionMatchesKey(subscription, vapid.public_key)) {
+      try {
+        await subscription.unsubscribe();
+      } catch {
+        // 舊訂閱退不掉也沒關係，下面重新 subscribe 會取代它
+      }
+      subscription = null;
+    }
     if (!subscription) {
       subscription = await registration.pushManager.subscribe({
         userVisibleOnly: true,

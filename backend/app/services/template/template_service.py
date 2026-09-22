@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import re
 import time
@@ -30,6 +31,8 @@ from app.infrastructure.proxmox import get_proxmox_settings_for_node
 from app.infrastructure.proxmox import operations as proxmox_ops
 from app.infrastructure.queue import enqueue_task, report_progress
 from app.models import (
+    BatchProvisionJob,
+    BatchProvisionJobStatus,
     CourseEnvironment,
     CourseEnvironmentNode,
     CourseEnvironmentVersion,
@@ -38,6 +41,8 @@ from app.models import (
     TaskRecordStatus,
     TemplateAttachment,
     User,
+    VMRequest,
+    VMRequestStatus,
     VMTemplate,
     VMTemplateStatus,
 )
@@ -675,6 +680,57 @@ def _clone_children_vmids(session: Session, pve_vmid: int) -> list[int]:
     return list(session.exec(stmt).all())
 
 
+def _open_request_count(session: Session, pve_vmid: int) -> int:
+    """指定這個範本、但還沒開出機器的申請單數（pending / approved）。
+
+    只擋未開通的：已經有 vmid 的申請單其實是「已克隆的機器」，由
+    ``_clone_children_vmids`` 負責。範本被刪掉後這些申請單一開通就會直接
+    失敗（PVE 上找不到來源），使用者只會看到莫名其妙的建立錯誤。
+    """
+    count = session.exec(
+        select(sa_func.count())
+        .select_from(VMRequest)
+        .where(
+            VMRequest.template_id == pve_vmid,
+            col(VMRequest.status).in_(
+                [VMRequestStatus.pending, VMRequestStatus.approved]
+            ),
+            col(VMRequest.vmid).is_(None),
+        )
+    ).one()
+    return int(count or 0)
+
+
+def _open_batch_job_count(session: Session, template_id: uuid.UUID) -> int:
+    """引用這個範本、且還沒跑完的批量建立工作數（待審／已審未跑／執行中）。
+
+    ``template_params`` 是 JSON 字串欄位，跨 DB 沒有可靠的 JSON 查詢，
+    所以先用狀態縮小範圍再逐筆解析（未結束的 job 數量很小）。
+    """
+    jobs = session.exec(
+        select(BatchProvisionJob).where(
+            col(BatchProvisionJob.status).in_(
+                [
+                    BatchProvisionJobStatus.pending_review,
+                    BatchProvisionJobStatus.approved,
+                    BatchProvisionJobStatus.pending,
+                    BatchProvisionJobStatus.running,
+                ]
+            )
+        )
+    ).all()
+    wanted = str(template_id)
+    count = 0
+    for job in jobs:
+        try:
+            params = json.loads(job.template_params or "{}")
+        except (TypeError, ValueError):
+            continue
+        if str(params.get("vm_template_id") or "") == wanted:
+            count += 1
+    return count
+
+
 def _environments_referencing(session: Session, template_id: uuid.UUID) -> list[str]:
     """引用這個母範本的教學環境名稱（含草稿與已下架版本）。
 
@@ -712,6 +768,18 @@ async def delete_template(
                 "template.hasClonedVms",
                 vmids=", ".join(str(v) for v in sorted(children)),
             )
+        )
+
+    open_requests = _open_request_count(session, template.pve_vmid)
+    if open_requests:
+        raise ConflictError(
+            t("template.hasOpenRequests", count=open_requests)
+        )
+
+    open_batch_jobs = _open_batch_job_count(session, template.id)
+    if open_batch_jobs:
+        raise ConflictError(
+            t("template.referencedByBatchJobs", count=open_batch_jobs)
         )
 
     environments = _environments_referencing(session, template.id)

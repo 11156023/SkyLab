@@ -11,6 +11,7 @@ from app.schemas import (
     AIAPICredentialsAdminPublic,
     AIAPICredentialsPublic,
     AIAPICredentialUpdate,
+    AIAPICredentialWithSecret,
     AIAPIRequestCreate,
     AIAPIRequestPublic,
     AIAPIRequestReview,
@@ -188,12 +189,16 @@ def list_all_ai_api_credentials(
     )
 
 
-@router.post("/credentials/{credential_id}/rotate", response_model=AIAPICredentialPublic)
+@router.post(
+    "/credentials/{credential_id}/rotate",
+    response_model=AIAPICredentialWithSecret,
+)
 def rotate_my_ai_api_credential(
     credential_id: uuid.UUID,
     session: SessionDep,
     current_user: CurrentUser,
 ) -> Any:
+    """輪替金鑰；這是明文 ``api_key`` 唯一會回傳的時機（且僅限擁有者本人）。"""
     return ai_gateway_service.rotate_credential(
         session=session, credential_id=credential_id, current_user=current_user
     )

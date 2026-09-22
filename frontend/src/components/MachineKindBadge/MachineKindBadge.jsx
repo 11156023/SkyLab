@@ -5,7 +5,7 @@
  * 顏色編碼「所有權」：藍＝我的機器、紫＝別人的機器（有擁有者名即歸紫），類別靠 icon＋文字分辨。
  *
  * props
- * - kind            後端 machine_kind（或 teacher_open）
+ * - kind            後端 machine_kind
  * - classRelation   班級機：student / teacher
  * - ownerName       不是自己的機器時的擁有者（共享、學生機器、老師開放會顯示）
  * - teachingClassName  班級名稱，只進 tooltip

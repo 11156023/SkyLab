@@ -1,6 +1,7 @@
 import csv
 import io
 import uuid
+from collections.abc import Iterator
 from datetime import datetime
 
 from sqlmodel import Session, col, select
@@ -159,6 +160,7 @@ def get_all(
     skip: int = 0,
     limit: int = 100,
     vmid: int | None = None,
+    resource_vmid: int | None = None,
     user_id: uuid.UUID | None = None,
     action: AuditAction | None = None,
     start_time: datetime | None = None,
@@ -171,6 +173,7 @@ def get_all(
         skip=skip,
         limit=limit,
         vmid=vmid,
+        resource_vmid=resource_vmid,
         user_id=user_id,
         action=action,
         start_time=start_time,
@@ -218,7 +221,23 @@ def list_audit_users(*, session: Session) -> list[AuditUserOption]:
     ]
 
 
-def export_csv(
+EXPORT_CSV_HEADER = [
+    "id",
+    "created_at",
+    "action",
+    "user_email",
+    "user_full_name",
+    "vmid",
+    "ip_address",
+    "user_agent",
+    "details",
+]
+
+#: 匯出上限的硬天花板；路由的 ``limit`` 參數不得超過這個值
+EXPORT_MAX_ROWS = 50000
+
+
+def export_csv_chunks(
     *,
     session: Session,
     vmid: int | None = None,
@@ -228,8 +247,26 @@ def export_csv(
     end_time: datetime | None = None,
     ip_address: str | None = None,
     search: str | None = None,
-) -> str:
-    logs = audit_repo.iter_audit_logs_for_export(
+    limit: int = EXPORT_MAX_ROWS,
+    with_bom: bool = False,
+) -> Iterator[str]:
+    """Yield the export CSV a row at a time, so nothing is fully buffered.
+
+    ``with_bom`` prepends a UTF-8 BOM so Excel opens Chinese text correctly.
+    """
+    buf = io.StringIO()
+    writer = csv.writer(buf)
+
+    def flush() -> str:
+        text = buf.getvalue()
+        buf.seek(0)
+        buf.truncate(0)
+        return text
+
+    writer.writerow(EXPORT_CSV_HEADER)
+    yield ("﻿" if with_bom else "") + flush()
+
+    logs = audit_repo.stream_audit_logs_for_export(
         session=session,
         vmid=vmid,
         user_id=user_id,
@@ -238,20 +275,8 @@ def export_csv(
         end_time=end_time,
         ip_address=ip_address,
         search=search,
+        max_rows=max(1, min(limit, EXPORT_MAX_ROWS)),
     )
-    buf = io.StringIO()
-    writer = csv.writer(buf)
-    writer.writerow([
-        "id",
-        "created_at",
-        "action",
-        "user_email",
-        "user_full_name",
-        "vmid",
-        "ip_address",
-        "user_agent",
-        "details",
-    ])
     for log in logs:
         writer.writerow([
             str(log.id),
@@ -264,7 +289,35 @@ def export_csv(
             log.user_agent or "",
             log.details,
         ])
-    return buf.getvalue()
+        yield flush()
+
+
+def export_csv(
+    *,
+    session: Session,
+    vmid: int | None = None,
+    user_id: uuid.UUID | None = None,
+    action: AuditAction | None = None,
+    start_time: datetime | None = None,
+    end_time: datetime | None = None,
+    ip_address: str | None = None,
+    search: str | None = None,
+    limit: int = EXPORT_MAX_ROWS,
+) -> str:
+    """Eager string form of :func:`export_csv_chunks`."""
+    return "".join(
+        export_csv_chunks(
+            session=session,
+            vmid=vmid,
+            user_id=user_id,
+            action=action,
+            start_time=start_time,
+            end_time=end_time,
+            ip_address=ip_address,
+            search=search,
+            limit=limit,
+        )
+    )
 
 
 def get_by_user(

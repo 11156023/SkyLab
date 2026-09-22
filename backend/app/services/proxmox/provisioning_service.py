@@ -751,8 +751,18 @@ def plan_provision(*, session: Session, db_request) -> dict:
 
     This reads the DB but does NOT create resources or call Proxmox mutating APIs.
     The caller should commit/close the session before executing the plan.
+    Must run inside ``proxmox_service.vmid_allocation_lock`` and the caller
+    must commit before releasing it: the IP allocation below is what other
+    planners use to see that this VMID is already taken before PVE knows.
     """
     new_vmid = proxmox_service.next_vmid()
+    # 同一批併發 plan 已在 DB 預留（IP 配發紀錄／資源列）但 PVE 上還沒建出來
+    # 的 VMID 要避開，cluster.nextid 看不到它們
+    while (
+        resource_repo.get_allocated_ip_address(session=session, vmid=new_vmid)
+        or resource_repo.get_resource_by_vmid(session=session, vmid=new_vmid)
+    ):
+        new_vmid += 1
     placement_request = vm_request_placement_service._to_placement_request(db_request)
     placement_strategy = str(
         db_request.placement_strategy_used

@@ -117,6 +117,8 @@ async def lifespan(app: FastAPI):
         log_dir=settings.LOG_DIR,
         file_enabled=settings.LOG_FILE_ENABLED,
     )
+    # 非 local 環境啟用 Redis 卻連不上時，init_redis 會丟例外讓啟動直接失敗：
+    # 限流與 JWT 撤銷名單只存在 Redis，帶著「保護已失效」的狀態上線更危險。
     await init_redis()
     await init_arq_pool()
     init_background_runner()
@@ -177,9 +179,15 @@ if settings.SENTRY_DSN:
         send_default_pii=False,
     )
 
+# 正式環境不對外掛 /docs、/redoc、openapi.json：schema 等於把所有端點、參數
+# 與權限缺口攤開給未登入的人看。nginx 不知道 ENVIRONMENT，所以在這裡關。
+_docs_enabled = settings.ENVIRONMENT != "production"
+
 app = FastAPI(
     title=settings.PROJECT_NAME,
-    openapi_url=f"{settings.API_V1_STR}/openapi.json",
+    openapi_url=f"{settings.API_V1_STR}/openapi.json" if _docs_enabled else None,
+    docs_url="/docs" if _docs_enabled else None,
+    redoc_url="/redoc" if _docs_enabled else None,
     generate_unique_id_function=custom_generate_unique_id,
     lifespan=lifespan,
 )

@@ -26,6 +26,21 @@ def list_rules_by_vmids(session: Session, vmids: list[int]) -> list[NatRule]:
     )
 
 
+def list_rules_by_vmid_and_port(
+    session: Session, vmid: int, internal_port: int, protocol: str
+) -> list[NatRule]:
+    """列出指定 VM 特定內部 port 的 NAT 規則"""
+    return list(
+        session.exec(
+            select(NatRule).where(
+                NatRule.vmid == vmid,
+                NatRule.internal_port == internal_port,
+                NatRule.protocol == protocol,
+            )
+        ).all()
+    )
+
+
 def get_rule(session: Session, rule_id: uuid.UUID) -> NatRule | None:
     return session.get(NatRule, rule_id)
 
@@ -64,48 +79,39 @@ def create_rule(session: Session, rule: NatRule) -> NatRule:
     return rule
 
 
-def delete_rule(session: Session, rule: NatRule) -> None:
+def delete_rule(session: Session, rule: NatRule, *, commit: bool = True) -> None:
+    """刪除單一規則。
+
+    ``commit=False`` 讓呼叫端自行決定何時 commit：NAT 規則刪除要等
+    haproxy 真的同步成功才能落地，否則 DB 沒了規則、Gateway 上還在轉發。
+    """
     session.delete(rule)
-    session.commit()
+    if commit:
+        session.commit()
 
 
-def delete_rules_by_vmid(session: Session, vmid: int) -> list[NatRule]:
-    """刪除指定 VM 的所有 NAT 規則，回傳被刪除的規則列表"""
-    rules = list_rules_by_vmid(session, vmid)
-    for r in rules:
-        session.delete(r)
-    session.commit()
-    return rules
-
-
-def delete_rules_by_vmid_and_port(
-    session: Session, vmid: int, internal_port: int, protocol: str
+def delete_rules(
+    session: Session, rules: list[NatRule], *, commit: bool = True
 ) -> list[NatRule]:
-    """刪除指定 VM 特定內部 port 的 NAT 規則（用於刪除連線時）"""
-    rules = list(
-        session.exec(
-            select(NatRule).where(
-                NatRule.vmid == vmid,
-                NatRule.internal_port == internal_port,
-                NatRule.protocol == protocol,
-            )
-        ).all()
-    )
+    """刪除一組指定的規則（由 service 先算好要刪哪些），回傳被刪除的列表。"""
+    if not rules:
+        return []
     for r in rules:
         session.delete(r)
-    session.commit()
+    if commit:
+        session.commit()
     return rules
 
 
 __all__ = [
     "list_rules",
     "list_rules_by_vmid",
+    "list_rules_by_vmid_and_port",
     "list_rules_by_vmids",
     "get_rule",
     "is_external_port_taken",
     "taken_external_ports",
     "create_rule",
     "delete_rule",
-    "delete_rules_by_vmid",
-    "delete_rules_by_vmid_and_port",
+    "delete_rules",
 ]

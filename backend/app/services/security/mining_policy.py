@@ -51,6 +51,23 @@ def cpu_stats(
     return avg, min(len(values) / expected_points, 1.0)
 
 
+def is_suspend_protected(
+    *,
+    allocation_scope: str | None,
+    teaching_class_id: Any,
+    gpu_mapping_id: Any,
+) -> bool:
+    """這台機器是否「只告警不暫停」。
+
+    課程機（班級共用）與 GPU 機的高 CPU 多半是正常課堂負載或訓練工作，
+    自動暫停的代價遠大於誤放：整班課停擺、訓練結果全丟。這類機器一樣建
+    事件、拍存證快照、發通知，暫停與否交給管理員判斷。
+    """
+    if str(allocation_scope or "") == "teaching_class":
+        return True
+    return bool(teaching_class_id) or bool(gpu_mapping_id)
+
+
 def decide_mining_action(
     *,
     avg_cpu: float | None,
@@ -77,4 +94,5 @@ __all__ = [
     "MiningAction",
     "cpu_stats",
     "decide_mining_action",
+    "is_suspend_protected",
 ]

@@ -9,7 +9,10 @@ from app.models import UserRole
 class Permission(str, enum.Enum):
     ADMIN_ACCESS = "admin_access"
     AI_API_REVIEW = "ai_api_review"
+    # 唯讀：看得到別人的金鑰清單（只回前綴），不得用來當寫入繞過
     AI_API_VIEW_ALL = "ai_api_view_all"
+    # 可寫：代他人輪替／改名／刪除金鑰，僅管理員擁有且一律留稽核
+    AI_API_MANAGE_ALL = "ai_api_manage_all"
     AUDIT_LOG_READ_ALL = "audit_log_read_all"
     CLASSROOM_MONITOR = "classroom_monitor"
     TEACHING_OWNERSHIP_BYPASS = "teaching_ownership_bypass"

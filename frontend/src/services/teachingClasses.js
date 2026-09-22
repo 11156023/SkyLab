@@ -77,4 +77,6 @@ export const TeachingClassesService = {
     });
   },
   provisionStatus(classId) { return apiGet(`/api/v1/teaching-classes/${classId}/provision-status`); },
+  // 把建機結果寫回班級（會呼叫 PVE），只在輪詢時低頻呼叫，不要每次都打
+  reconcile(classId) { return apiPost(`/api/v1/teaching-classes/${classId}/reconcile`, {}); },
 };

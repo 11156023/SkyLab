@@ -17,6 +17,7 @@
   "ai_gateway.request_already_reviewed": "This AI API request has already been reviewed",
   "ai_gateway.connection_incomplete": "AI API connection settings are incomplete",
   "ai_gateway.credential_already_revoked": "This AI API credential has already been revoked",
+  "ai_gateway.credential_manage_denied": "Only the owner of this AI API credential can rotate, rename or delete it",
   "monitoring.invalid_timeframe": "timeframe must be one of {allowed}",
   "monitoring.resource_not_found": "Resource {vmid} not found",
   "governance.idle_notify_after_must_precede_grace": "Idle notification delay ({notify_after} h) must be shorter than the shutdown grace period ({grace} h)",

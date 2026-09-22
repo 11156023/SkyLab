@@ -1,8 +1,9 @@
 """Web Push 訂閱 API：任何登入使用者管理自己的瀏覽器推播訂閱。"""
 
-from fastapi import APIRouter, Response, status
+from fastapi import APIRouter, Depends, Response, status
 
 from app.api.deps import CurrentUser, SessionDep
+from app.api.deps.rate_limit import rate_limit_by_user
 from app.core.i18n import get_current_language
 from app.repositories import push as push_repo
 from app.schemas.push import (
@@ -63,7 +64,14 @@ def remove_subscription(
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
-@router.post("/test", response_model=PushSendResult)
+@router.post(
+    "/test",
+    response_model=PushSendResult,
+    # 每次呼叫都會對外送出真實推播；不節流等於拿自己的訂閱當發信機器
+    dependencies=[
+        Depends(rate_limit_by_user(scope="push-test", limit=5, window_seconds=60))
+    ],
+)
 def send_test_push(session: SessionDep, current_user: CurrentUser) -> PushSendResult:
     """對目前使用者的所有訂閱發一則測試通知，驗證整條推播鏈。"""
     report = web_push_service.send_test(session=session, user=current_user)

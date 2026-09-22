@@ -31,9 +31,31 @@ def test_init_snapshot_protected() -> None:
     )
 
 
-def test_mining_evidence_protected() -> None:
+def test_mining_evidence_protected_while_case_is_open() -> None:
+    """未結案的存證快照不論多舊都不能清。"""
     assert not is_cleanup_eligible(
         name="mining-202607011200", snaptime=_ts(100), now=NOW, retention_days=7
+    )
+
+
+def test_mining_evidence_kept_within_retention_after_close() -> None:
+    assert not is_cleanup_eligible(
+        name="mining-202607011200",
+        snaptime=_ts(100),
+        now=NOW,
+        retention_days=7,
+        mining_closed_at=NOW - timedelta(days=10),
+    )
+
+
+def test_mining_evidence_cleanable_after_retention() -> None:
+    """結案滿保留天數後才輪到清理，否則誤判與停權案件的快照會永遠佔著磁碟。"""
+    assert is_cleanup_eligible(
+        name="mining-202607011200",
+        snaptime=_ts(100),
+        now=NOW,
+        retention_days=7,
+        mining_closed_at=NOW - timedelta(days=31),
     )
 
 

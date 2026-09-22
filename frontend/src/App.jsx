@@ -246,7 +246,7 @@ function App() {
           />
 
           {/* 教學 */}
-          <Route path="/course-cms"            element={<CourseCmsPage />} />
+          <Route path="/course-cms"            element={canTeach ? <CourseCmsPage /> : <Navigate to="/dashboard" replace />} />
 
           {/* 課務管理 */}
           <Route path="/course-template-management" element={canTeach ? <CourseTemplateManagementPage /> : <Navigate to="/dashboard" replace />} />

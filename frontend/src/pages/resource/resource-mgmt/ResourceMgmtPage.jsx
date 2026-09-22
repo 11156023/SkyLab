@@ -339,6 +339,22 @@ function BatchActionBar({ selectedVmids, onDone, onClear }) {
     }
   }
 
+  /* 強制停止／強制重置等同直接拔電，未存檔的資料會遺失：這兩個先確認，其餘照舊 */
+  async function runWithConfirm(action, label) {
+    if (action === "stop" || action === "reset") {
+      const ok = await confirm({
+        title: t("ResourceMgmtPage.batchForceTitle", { count, label }),
+        message: action === "stop"
+          ? t("ResourceMgmtPage.batchForceStopDesc")
+          : t("ResourceMgmtPage.batchForceResetDesc"),
+        confirmText: label,
+        danger: true,
+      });
+      if (!ok) return;
+    }
+    await run(action);
+  }
+
   async function confirmBatchDelete() {
     const ok = await confirm({
       title: t("ResourceMgmtPage.batchDeleteTitle", { count }),
@@ -361,7 +377,7 @@ function BatchActionBar({ selectedVmids, onDone, onClear }) {
           type="button"
           className={styles.btnSecondary}
           disabled={pending !== null}
-          onClick={() => run(action)}
+          onClick={() => runWithConfirm(action, label)}
         >
           <MIcon name={icon} size={14} />
           {label}

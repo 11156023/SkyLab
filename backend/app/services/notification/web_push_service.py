@@ -125,6 +125,7 @@ def send_messages(
     if not subscriptions:
         return report
     config = push_repo.get_web_push_config(session=session)
+    private_key_pem = push_repo.get_vapid_private_key(session=session, config=config)
     dead: list[uuid.UUID] = []
 
     for subscription in subscriptions:
@@ -138,7 +139,7 @@ def send_messages(
         ok, status = _send_one(
             subscription,
             message,
-            private_key_pem=config.vapid_private_key_pem,
+            private_key_pem=private_key_pem,
             subject=config.subject,
         )
         if ok:

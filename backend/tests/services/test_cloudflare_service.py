@@ -222,3 +222,24 @@ def test_update_config_requires_complete_default_dns_target(
                 default_dns_target_value=None,
             ),
         )
+
+
+def test_require_identifier_rejects_non_hex_ids() -> None:
+    """zone / record id 會直接拼進 Cloudflare API 路徑，格式不對先擋下來。"""
+    valid = "0123456789ABCDEF0123456789abcdef"
+    assert cloudflare_service._require_identifier(valid, "zone_id") == valid.lower()
+
+    for bad in ["", "   ", "zone-1", "../zones", "0123456789abcdef", valid + "0"]:
+        with pytest.raises(BadRequestError):
+            cloudflare_service._require_identifier(bad, "zone_id")
+
+
+def test_require_text_still_accepts_domains() -> None:
+    """網域不是 id，只檢查非空白。"""
+    assert (
+        cloudflare_service._require_text(" App.Example.com ", "domain")
+        == "App.Example.com"
+    )
+
+    with pytest.raises(BadRequestError):
+        cloudflare_service._require_text("  ", "domain")

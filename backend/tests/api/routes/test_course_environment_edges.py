@@ -5,8 +5,12 @@
 comment 為 key，所以重疊在防火牆層會自動收斂——這是編輯層的問題。
 """
 
+import uuid
+from types import SimpleNamespace
+
 import pytest
 
+from app.api.routes import course_environments as routes
 from app.api.routes.course_environments import (
     EnvironmentEdgeIn,
     EnvironmentNodeIn,
@@ -15,12 +19,25 @@ from app.api.routes.course_environments import (
 )
 from app.exceptions import BadRequestError
 
+LXC_IMAGE = "local:vztmpl/debian.tar.zst"
+OWNER = SimpleNamespace(id=uuid.uuid4(), is_superuser=False, role="teacher")
+
+
+@pytest.fixture(autouse=True)
+def _lxc_templates(monkeypatch):
+    """自訂 LXC 來源現在會驗映像是否存在，這裡給一份固定的節點對照表。"""
+    monkeypatch.setattr(
+        routes.proxmox_service,
+        "get_lxc_template_node_map",
+        lambda: {LXC_IMAGE: {"pve"}},
+    )
+
 
 def _node(key: str) -> EnvironmentNodeIn:
     return EnvironmentNodeIn(
         node_key=key,
         source_type="custom",
-        custom_image_ref="local:vztmpl/debian.tar.zst",
+        custom_image_ref=LXC_IMAGE,
         name=key,
         role="target",
         resource_type="lxc",
@@ -44,7 +61,7 @@ NODES = [_node("web"), _node("db")]
 
 
 def _validate(edges, publications=None):
-    _validate_configuration(None, NODES, edges, publications)
+    _validate_configuration(None, NODES, edges, publications, owner=OWNER)
 
 
 def _publication(node="web", *, port=80, hostname="{student}-web"):

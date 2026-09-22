@@ -298,17 +298,20 @@ def _set_lxc_root_password(node: str, vmid: int, password: str) -> bool:
     """開機後以 ``pct exec chpasswd`` 設定 root 密碼（容器啟動需時，重試等待）。
 
     LXC config API 不接受 password（僅限建立時），只能進容器內改。
+    密碼由 stdin 餵給 ``chpasswd``，不放進指令列 —— 指令列會出現在節點的
+    ps 與 shell 紀錄裡，同一台節點上的其他人看得到。
     回傳是否成功；失敗方（呼叫端）不得記錄未生效的密碼。
     """
     from app.infrastructure.proxmox import guest
 
-    command = f"echo {shlex.quote(f'root:{password}')} | chpasswd"
     last_error: str = ""
     for attempt in range(_LXC_PASSWORD_ATTEMPTS):
         if attempt:
             time.sleep(_LXC_PASSWORD_RETRY_SECONDS)
         try:
-            code, _out, err = guest.exec_lxc(node, vmid, command)
+            code, _out, err = guest.exec_lxc(
+                node, vmid, "chpasswd", stdin=f"root:{password}\n"
+            )
         except Exception as exc:
             last_error = str(exc)
             continue

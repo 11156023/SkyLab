@@ -32,6 +32,7 @@
   "teachingClasses.provisionedUserNoLongerInClass": "已建置資源的使用者已不在班級中",
   "teachingClasses.onlyFailedCanResetToEdit": "只有建立失敗的班級可以返回編輯",
   "teachingClasses.partialMachinesUseRetry": "已有部分機器建立完成，請使用「重試失敗機器」",
+  "teachingClasses.scheduleTooLong": "課程期間不可超過 {weeks} 週，請確認開始與結束日期",
 
   "teacherJudgeFiles.classNotFound": "找不到班級。",
   "teacherJudgeFiles.unknownTemplate": "未知的評分環境 template。",

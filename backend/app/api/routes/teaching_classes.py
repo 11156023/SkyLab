@@ -60,6 +60,8 @@ logger = logging.getLogger(__name__)
 DAY_CODE = ["MO", "TU", "WE", "TH", "FR", "SA", "SU"]
 TASK_FILE_ROOT = Path(__file__).resolve().parents[3] / "data" / "teaching-class-tasks"
 MAX_TASK_FILE_BYTES = 100 * 1024 * 1024
+# 課程期間最多兩年份的課次
+MAX_CLASS_WEEKS = 104
 PUBLIC_PROVISION_ERROR = (
     "Machine provisioning failed. Retry or contact an administrator."
 )
@@ -128,9 +130,15 @@ class CourseSelect(BaseModel):
 
 
 class WeekFileIn(BaseModel):
-    filename: str
-    storage_key: str | None = None
-    target_path: str | None = None
+    """週次教材只以既有檔案的 id 指定。
+
+    storage_key 是上傳時由伺服器產生的磁碟位置，不能讓 client 指定：
+    收下客戶端送來的值，等於任何老師都可以把別的班級的檔案（或任何
+    猜得到的儲存路徑）掛進自己的週次，再用學生端的下載端點取回。
+    """
+
+    id: uuid.UUID
+    target_path: str | None = Field(default=None, max_length=500)
 
 
 class WeekIn(BaseModel):
@@ -510,6 +518,19 @@ def _serialize_list(session: SessionDep, items: list[TeachingClass]) -> list[dic
 def _validate_schedule(item) -> None:
     if item.end_date < item.start_date or item.end_time <= item.start_time:
         raise BadRequestError(t("teachingClasses.scheduleInvalid"))
+    _validate_schedule_span(item.start_date, item.end_date)
+
+
+def _validate_schedule_span(start_date: date, end_date: date) -> None:
+    """課程期間上限兩年。
+
+    每一週都會寫一列 teaching_class_weeks，日期範圍沒有上限的話，
+    一個手滑打錯的年份就能讓單一班級生出幾萬列課次。
+    """
+    if (end_date - start_date).days > MAX_CLASS_WEEKS * 7:
+        raise BadRequestError(
+            t("teachingClasses.scheduleTooLong", weeks=MAX_CLASS_WEEKS)
+        )
 
 
 @router.post("")
@@ -609,6 +630,7 @@ def extend_class(
         raise BadRequestError(t("teachingClasses.archivedCannotExtend"))
     if body.end_date <= item.end_date:
         raise BadRequestError(t("teachingClasses.extendDateMustBeLater"))
+    _validate_schedule_span(item.start_date, body.end_date)
     item.end_date = body.end_date
     item.updated_at = get_datetime_utc()
     item.resources_reclaimed_at = None
@@ -762,6 +784,7 @@ def _generate_weeks(session, item: TeachingClass, preserve=False):
     整批位移，用日期比對會一筆都對不上，等於把老師填好的主題與上傳的教材全部
     刪掉。改用 week_number 之後，第 N 週的內容仍然留在第 N 週，只是日期跟著搬。
     """
+    _validate_schedule_span(item.start_date, item.end_date)
     existing = (
         {
             row.week_number: row
@@ -778,7 +801,7 @@ def _generate_weeks(session, item: TeachingClass, preserve=False):
         )
     current = _first_session_date(item)
     number, keep = 1, set()
-    while current <= item.end_date:
+    while current <= item.end_date and number <= MAX_CLASS_WEEKS:
         keep.add(number)
         row = existing.get(number)
         if row:
@@ -889,29 +912,77 @@ def replace_weeks(
     session: SessionDep,
     current_user: InstructorUser,
 ):
+    """逐週差異更新。
+
+    以前是整批刪掉再重建：週次的 id 每存一次就換一組（掛在週次上的檢查
+    session 會跟著斷），檔案列也跟著重建，磁碟上的舊檔沒人清。現在改成
+    就地更新，被移出清單的檔案走和單檔刪除同一段清檔邏輯。
+    """
     item = _get_class(session, current_user, class_id)
     if item.status == TeachingClassStatus.archived:
         raise BadRequestError(t("teachingClasses.archivedCannotEditWeeklyContent"))
-    expected = {
-        row.session_date
-        for row in session.exec(
+    weeks = list(
+        session.exec(
             select(TeachingClassWeek).where(TeachingClassWeek.class_id == class_id)
         ).all()
-    }
-    received = {row.session_date for row in body}
-    if expected != received:
-        raise BadRequestError(t("teachingClasses.weekDatesMustMatchSchedule"))
-    session.exec(
-        delete(TeachingClassWeek).where(TeachingClassWeek.class_id == class_id)
     )
-    session.commit()
+    if {row.session_date for row in weeks} != {row.session_date for row in body}:
+        raise BadRequestError(t("teachingClasses.weekDatesMustMatchSchedule"))
+
+    weeks_by_number = {row.week_number: row for row in weeks}
+    weeks_by_date = {row.session_date: row for row in weeks}
+    # 班級底下所有的教材檔：送進來的 id 必須落在這個範圍內，
+    # 才不會把別的班級的檔案接管過來
+    files_by_id: dict[uuid.UUID, TeachingClassTaskFile] = {}
+    if weeks:
+        files_by_id = {
+            row.id: row
+            for row in session.exec(
+                select(TeachingClassTaskFile).where(
+                    col(TeachingClassTaskFile.week_id).in_(
+                        [week.id for week in weeks]
+                    )
+                )
+            ).all()
+        }
+
+    kept_week_ids: set[uuid.UUID] = set()
+    kept_file_ids: set[uuid.UUID] = set()
     for row in body:
-        week = TeachingClassWeek(class_id=class_id, **row.model_dump(exclude={"files"}))
+        week = weeks_by_number.get(row.week_number) or weeks_by_date.get(
+            row.session_date
+        )
+        if week is None:
+            week = TeachingClassWeek(class_id=class_id, week_number=row.week_number)
+            session.add(week)
+        for key, value in row.model_dump(exclude={"files"}).items():
+            setattr(week, key, value)
         session.add(week)
         session.flush()
+        kept_week_ids.add(week.id)
         for file in row.files:
-            session.add(TeachingClassTaskFile(week_id=week.id, **file.model_dump()))
+            task_file = files_by_id.get(file.id)
+            if task_file is None:
+                raise NotFoundError(t("teachingClasses.taskFileNotFound"))
+            task_file.week_id = week.id
+            task_file.target_path = file.target_path
+            session.add(task_file)
+            kept_file_ids.add(task_file.id)
+
+    removed_storage_keys = [
+        row.storage_key
+        for row in files_by_id.values()
+        if row.id not in kept_file_ids
+    ]
+    for row in files_by_id.values():
+        if row.id not in kept_file_ids:
+            session.delete(row)
+    for week in weeks:
+        if week.id not in kept_week_ids:
+            session.delete(week)
     session.commit()
+    for storage_key in removed_storage_keys:
+        _remove_task_file_blob(storage_key)
     return _serialize(session, item)
 
 
@@ -966,6 +1037,16 @@ async def upload_week_file(
     return _serialize(session, item)
 
 
+def _remove_task_file_blob(storage_key: str | None) -> None:
+    """刪掉磁碟上的教材檔；storage_key 一律當成 TASK_FILE_ROOT 底下的相對路徑。"""
+    if not storage_key:
+        return
+    root = TASK_FILE_ROOT.resolve()
+    stored_path = (root / storage_key).resolve()
+    if stored_path.is_relative_to(root):
+        stored_path.unlink(missing_ok=True)
+
+
 @router.delete("/{class_id}/weeks/{week_id}/files/{file_id}")
 def delete_week_file(
     class_id: uuid.UUID,
@@ -990,11 +1071,7 @@ def delete_week_file(
     storage_key = task_file.storage_key
     session.delete(task_file)
     session.commit()
-    if storage_key:
-        root = TASK_FILE_ROOT.resolve()
-        stored_path = (root / storage_key).resolve()
-        if stored_path.is_relative_to(root):
-            stored_path.unlink(missing_ok=True)
+    _remove_task_file_blob(storage_key)
     return _serialize(session, item)
 
 
@@ -1429,6 +1506,24 @@ def reset_failed_class(
 def provision_status(
     class_id: uuid.UUID, session: SessionDep, current_user: InstructorUser
 ):
+    """純讀取的建機進度。
+
+    這支以前會順手把建機結果寫回班級、重算狀態、並在全部完成時套用
+    網路拓樸——而前端每三秒打一次。一個 GET 送出幾百次 PVE 呼叫，
+    而且任何人重整頁面都會觸發。改寫的部分搬到 ``/reconcile``。
+    """
+    return _serialize(session, _get_class(session, current_user, class_id))
+
+
+@router.post("/{class_id}/reconcile")
+def reconcile_class(
+    class_id: uuid.UUID, session: SessionDep, current_user: InstructorUser
+):
+    """把建機工作的結果寫回班級：學生機器對應、班級狀態、必要時套用拓樸。
+
+    建機 worker 每完成一個節點也會重算一次狀態；這支是給老師開著班級頁
+    時補齊「哪位學生拿到哪台機器」用的，前端不需要每次輪詢都呼叫。
+    """
     item = _get_class(session, current_user, class_id)
     if item.status == TeachingClassStatus.archived:
         return _serialize(session, item)

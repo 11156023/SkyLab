@@ -122,15 +122,25 @@ def exec_qemu(
 
 
 def exec_lxc(
-    node: str, vmid: int, command: str, *, timeout: float = 60.0
+    node: str,
+    vmid: int,
+    command: str,
+    *,
+    timeout: float = 60.0,
+    stdin: str | None = None,
 ) -> tuple[int, str, str]:
-    """SSH 到容器所在節點，以 ``pct exec`` 在容器內執行 shell 指令。"""
+    """SSH 到容器所在節點，以 ``pct exec`` 在容器內執行 shell 指令。
+
+    ``stdin`` 會餵進容器內的指令（``pct exec`` 會轉接標準輸入）。密碼一類
+    的機密要走這條路，不要串進 command —— 指令列在節點上是公開資訊。
+    """
     client = _node_ssh_client(node)
     try:
         return exec_command(
             client,
             f"pct exec {int(vmid)} -- /bin/sh -c {shlex.quote(command)}",
             timeout=timeout,
+            stdin=stdin,
         )
     finally:
         client.close()

@@ -18,7 +18,7 @@ class ResourceQuota(SQLModel, table=True):
     )
 
     id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
-    user_id: uuid.UUID = Field(foreign_key="user.id")
+    user_id: uuid.UUID = Field(foreign_key="user.id", ondelete="CASCADE")
     max_cpu_cores: int = Field(default=8, ge=0, le=256)
     max_memory_mb: int = Field(default=16384, ge=0, le=1048576)
     max_disk_gb: int = Field(default=100, ge=0, le=65536)

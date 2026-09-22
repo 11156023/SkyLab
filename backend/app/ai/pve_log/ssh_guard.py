@@ -28,6 +28,15 @@ _BLACKLIST_RULES: list[tuple[str, str]] = [
     (r"curl\s+.+\|\s*(ba)?sh|wget\s+.+\|\s*(ba)?sh", "下載後直接執行腳本"),
     (r"\bsystemctl\s+(stop|disable|mask)\s+(sshd|ssh|network|networking)", "停用 SSH 或網路服務"),
     (r"iptables\s+-F|ufw\s+--force\s+reset|nft\s+flush", "清空防火牆規則"),
+    # 下載到檔案再執行、寫入 authorized_keys、反向 shell：curl|sh 之外最常見的植入手法
+    (r"(curl|wget)\s+.*-[oO]\s*\S+.*(;|&&|\|\|)\s*(ba)?sh\b", "下載檔案後執行"),
+    (r">>?\s*~?/?(root|home/[^/\s]+)?/?\.ssh/authorized_keys", "寫入 SSH 授權金鑰"),
+    (r"\b(nc|ncat|netcat)\b.*\s-e\s|/dev/tcp/", "反向 shell"),
+    (r"\b(useradd|adduser|usermod)\b", "新增或修改系統帳號"),
+    (r"\bcrontab\s+-|/etc/cron", "修改排程"),
+    (r"\bchmod\s+[ug]?\+s\b|\bchmod\s+[0-9]*[4-7][0-9]{3}\b", "設定 setuid/setgid"),
+    (r"\b(base64|xxd)\s+(-d|--decode|-r)\b.*\|\s*(ba)?sh\b", "解碼後執行"),
+    (r"\$\{IFS\}|\$IFS", "利用 IFS 拆解指令"),
 ]
 
 _COMPILED: list[tuple[re.Pattern, str]] = [

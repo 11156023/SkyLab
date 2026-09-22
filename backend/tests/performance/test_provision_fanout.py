@@ -79,11 +79,18 @@ async def test_duplicate_storm_processed_once(
     runner: background_tasks.BackgroundTaskRunner,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """同一批 request 被連續多個 tick 重複提交 — 每個仍只 clone 一次。"""
+    """同一批 request 被連續多個 tick 重複提交 — 每個仍只 clone 一次。
+
+    runner 的 task_id 去重只擋「仍在進行中」的任務，所以假任務要等三個 tick
+    全部送完才放行；否則在計時器粒度較粗的平台（Windows 約 15ms）第三個 tick
+    會落在第一批任務完成之後，被視為新任務而重複執行。
+    """
     done: list[uuid.UUID] = []
+    release = asyncio.Event()
 
     async def fake_execute(request_id: uuid.UUID) -> None:
-        await asyncio.sleep(0.05)
+        await release.wait()
+        await asyncio.sleep(0.01)
         done.append(request_id)
 
     monkeypatch.setattr(provision_pool, "_execute_provision", fake_execute)
@@ -93,6 +100,7 @@ async def test_duplicate_storm_processed_once(
         for rid in ids:
             provision_pool.submit_provision(rid, concurrency=CONCURRENCY)
         await asyncio.sleep(0.02)
+    release.set()
 
     deadline = time.monotonic() + 30
     while len(done) < len(ids) and time.monotonic() < deadline:
