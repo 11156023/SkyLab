@@ -2,8 +2,13 @@
 
 ``fastapi run --workers N`` 會起 N 個行程，每個都執行 lifespan 裡的排程器；
 TTL 通知、挖礦處置、告警這些任務沒有 DB 層的去重，會被重複執行 N 次。
-這裡用 PostgreSQL session-level advisory lock：每輪 tick 用 ``pg_try_advisory_lock``
-搶一次，搶到的跑完本輪任務就釋放；行程死掉連線斷開時鎖自動回收。
+這裡用 PostgreSQL transaction-level advisory lock：每輪 tick 開一條連線、在其
+交易內用 ``pg_try_advisory_xact_lock`` 搶一次，搶到的跑完本輪任務後隨交易
+結束釋放；行程死掉連線斷開時鎖也自動回收。
+
+用 xact 版而不是 session 版，是因為連線經 PgBouncer transaction pooling：
+session-level 鎖若沒被明確釋放，會殘留在回到池裡的 server 連線上被其他
+客戶端繼承；xact 版在 rollback／commit 時必然釋放，沒有這個問題。
 非 PostgreSQL（測試用 SQLite）一律視為 leader。
 """
 
@@ -30,24 +35,22 @@ def scheduler_leader_lock() -> Iterator[bool]:
         yield True
         return
 
+    # SQLAlchemy 2 在第一次 execute 時自動開交易，離開 context 才 rollback；
+    # 鎖就跟著這個交易活到 context 結束。
     with engine.connect() as connection:
         acquired = bool(
             connection.execute(
-                text("SELECT pg_try_advisory_lock(:key)"),
+                text("SELECT pg_try_advisory_xact_lock(:key)"),
                 {"key": SCHEDULER_LEADER_LOCK_KEY},
             ).scalar()
         )
         try:
             yield acquired
         finally:
-            if acquired:
-                try:
-                    connection.execute(
-                        text("SELECT pg_advisory_unlock(:key)"),
-                        {"key": SCHEDULER_LEADER_LOCK_KEY},
-                    )
-                except Exception:
-                    # 連線關閉時 session-level advisory lock 也會釋放
-                    logger.warning(
-                        "Failed to release scheduler leader lock", exc_info=True
-                    )
+            try:
+                connection.rollback()
+            except Exception:
+                # 連線關閉時交易結束，xact-level advisory lock 一樣會釋放
+                logger.warning(
+                    "Failed to release scheduler leader lock", exc_info=True
+                )
