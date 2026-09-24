@@ -42,6 +42,7 @@ from app.schemas.proxmox_config import (
     ProxmoxStorageUpdate,
     SyncNowResult,
 )
+from app.services.proxmox import connection_sync_service
 from app.services.user import audit_service
 
 logger = logging.getLogger(__name__)
@@ -136,85 +137,6 @@ def _connection_to_public(session, conn) -> ProxmoxConnectionPublic:
         node_count=node_count,
         updated_at=conn.updated_at,
     )
-
-
-def _sync_one_connection(session, conn) -> tuple[list, int]:
-    """同步單一連線的節點與 Storage，回傳 (nodes, storage_count)。
-
-    節點名稱與其他連線衝突時拋 ValueError；連線失敗時拋原始例外。
-    """
-    from proxmoxer import ProxmoxAPI
-
-    password = proxmox_connection_repo.get_decrypted_password(conn)
-    verify_ssl = resolve_verify(conn.host, conn.verify_ssl, conn.ca_cert)
-
-    raw_nodes = fetch_cluster_nodes(
-        host=conn.host,
-        user=conn.user,
-        password=password,
-        verify_ssl=verify_ssl,
-        timeout=conn.api_timeout,
-    )
-
-    node_dicts = [
-        {
-            "name": n["name"],
-            "host": n["host"],
-            "port": n.get("port", 8006),
-            "is_primary": n.get("is_primary", False),
-        }
-        for n in raw_nodes
-    ]
-    saved_nodes = proxmox_node_repo.upsert_nodes(
-        session, node_dicts, connection_id=conn.id
-    )
-
-    client = ProxmoxAPI(
-        conn.host,
-        port=conn.port,
-        user=conn.user,
-        password=password,
-        verify_ssl=verify_ssl,
-        timeout=conn.api_timeout,
-    )
-
-    storage_dicts: list[dict] = []
-    for node in saved_nodes:
-        try:
-            raw_storages = client.nodes(node.name).storage.get()
-            for st in raw_storages:
-                # PVE 端已禁用、或在此節點不可用（node-restricted）的 storage 不同步
-                if not st.get("enabled", 1):
-                    continue
-                if not st.get("active", 1):
-                    continue
-                content = st.get("content", "")
-                total = st.get("total", 0)
-                used = st.get("used", 0)
-                avail = st.get("avail", 0)
-                storage_dicts.append({
-                    "node_name": node.name,
-                    "storage": st.get("storage", ""),
-                    "storage_type": st.get("type"),
-                    "total_gb": round(total / 1024**3, 2) if total else 0.0,
-                    "used_gb": round(used / 1024**3, 2) if used else 0.0,
-                    "avail_gb": round(avail / 1024**3, 2) if avail else 0.0,
-                    "can_vm": "images" in content,
-                    "can_lxc": "rootdir" in content,
-                    "can_iso": "iso" in content,
-                    "can_backup": "backup" in content,
-                    "is_shared": bool(st.get("shared", 0)),
-                    "active": st.get("active", 1) == 1,
-                })
-        except Exception as e:
-            logger.warning(f"Failed to fetch storage for node {node.name}: {e}")
-
-    saved_storages = proxmox_storage_repo.upsert_storages(
-        session,
-        storage_dicts,
-        scope_node_names={node.name for node in saved_nodes},
-    )
-    return saved_nodes, len(saved_storages)
 
 
 def _resource_vmids_on_nodes(session, node_names: set[str]) -> list[int]:
@@ -954,7 +876,7 @@ def sync_connection(
     if conn is None:
         raise HTTPException(status_code=404, detail="Connection not found")
     try:
-        saved_nodes, storage_count = _sync_one_connection(session, conn)
+        saved_nodes, storage_count = connection_sync_service.sync_connection_inventory(session, conn)
     except ValueError as e:
         return ConnectionSyncResult(
             success=False, connection_id=connection_id, nodes=[],
@@ -1028,7 +950,7 @@ def sync_now(
     errors: list[str] = []
     for conn in connections:
         try:
-            saved_nodes, storage_count = _sync_one_connection(session, conn)
+            saved_nodes, storage_count = connection_sync_service.sync_connection_inventory(session, conn)
             all_nodes.extend(saved_nodes)
             total_storages += storage_count
         except ValueError as e:

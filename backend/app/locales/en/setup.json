@@ -1,0 +1,6 @@
+{
+  "setup.alreadyCompleted": "The system has already been initialized. Sign in as an administrator and adjust settings from the system management pages.",
+  "setup.emailInUse": "This email address already belongs to a regular user account. Please use a different email.",
+  "setup.adminRequired": "Create the system administrator account before completing the setup.",
+  "setup.proxmoxTestFailed": "Could not connect to Proxmox. Please check the host address, credentials and certificate settings."
+}
