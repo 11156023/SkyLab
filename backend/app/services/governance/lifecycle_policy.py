@@ -33,6 +33,10 @@ def _expiry_datetime(expiry_date: date) -> datetime:
     )
 
 
+# 排過刪除卻沒成功時，隔多久才重排一次
+DELETION_RETRY_AFTER_HOURS = 24
+
+
 def decide_ttl_action(
     *,
     expiry_date: date | None,
@@ -42,7 +46,10 @@ def decide_ttl_action(
     now: datetime,
     warn_days: int,
     grace_delete_days: int,
+    deletion_pending: bool = False,
+    deletion_retry_after_hours: int = DELETION_RETRY_AFTER_HOURS,
 ) -> TtlAction:
+    """``deletion_pending``：這台機器目前有 pending/running 的刪除單。"""
     if expiry_date is None:
         return TtlAction.none
 
@@ -51,6 +58,19 @@ def decide_ttl_action(
     # 寬限期滿：進刪除佇列（優先於 stop — 即使還在跑，刪除流程會處理）
     if now >= expiry_at + timedelta(days=grace_delete_days):
         if scheduled_deletion_at is None:
+            return TtlAction.delete
+        # 排程過但刪除單已 failed/cancelled（或當時 PVE 查不到而只記了時間），
+        # 機器就這樣永遠留著 —— scheduled_deletion_at 有值會讓後續每個 tick
+        # 都判成「已處理」。隔一段時間重排一次，直到真的有刪除單在跑。
+        scheduled_at = (
+            scheduled_deletion_at
+            if scheduled_deletion_at.tzinfo is not None
+            else scheduled_deletion_at.replace(tzinfo=timezone.utc)
+        )
+        if (
+            not deletion_pending
+            and now - scheduled_at >= timedelta(hours=deletion_retry_after_hours)
+        ):
             return TtlAction.delete
         return TtlAction.none
 

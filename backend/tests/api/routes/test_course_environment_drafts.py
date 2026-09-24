@@ -11,6 +11,16 @@ from app.exceptions import BadRequestError
 from app.models import CourseEnvironment, CourseEnvironmentVersion
 
 
+@pytest.fixture(autouse=True)
+def _lxc_templates(monkeypatch):
+    """自訂 LXC 來源現在會驗映像是否存在，這裡給一份固定的節點對照表。"""
+    monkeypatch.setattr(
+        routes.proxmox_service,
+        "get_lxc_template_node_map",
+        lambda: {"local:vztmpl/debian.tar.zst": {"pve"}},
+    )
+
+
 @pytest.fixture
 def workspace(monkeypatch):
     user = SimpleNamespace(id=uuid.uuid4())

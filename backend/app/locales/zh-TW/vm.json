@@ -68,6 +68,8 @@
   "spec_change.already_applied": "此申請的規格已經套用過了",
   "spec_change.resource_gone_apply": "這台機器已經不存在，無法套用",
   "spec_change.apply_in_progress": "套用作業正在進行中，請稍候",
+  "spec_change.apply_recently_started": "上一次套用尚未結束，請稍候再試；若確定已中斷，請於 30 分鐘後再按套用",
+  "spec_change.partial_applied_disk_failed": "CPU／記憶體已套用（{applied}），但磁碟未套用：{error}",
   "spec_change.runner_unavailable": "背景執行器未啟動，無法套用規格；請稍後再試",
   "spec_change.apply_accepted": "已開始套用新規格：若機器正在執行且需要重開機，系統會先關機、套用後自動開機",
   "spec_change.stop_timeout": "VMID {vmid} 無法在時限內停止，已放棄套用規格",

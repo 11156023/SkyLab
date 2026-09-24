@@ -5,6 +5,7 @@ import styles from "./AiJudgePanel.module.scss";
 import LoadingState from "../../../components/LoadingState/LoadingState";
 import MIcon from "../../../components/MIcon";
 import { useToast } from "../../../hooks/useToast";
+import { useConfirm } from "../../../components/ConfirmDialog/ConfirmProvider";
 import useAutoRefresh from "../../../hooks/useAutoRefresh";
 import useDialogPresence from "../../../hooks/useDialogPresence";
 import useFileDrop from "../../../hooks/useFileDrop";
@@ -4075,6 +4076,7 @@ const TEACHER_JUDGE_TABS = [
 
 function TeacherWorkspacePanel({ classId, members, weeks = [], machineNodes = [] }) {
   const toast = useToast();
+  const confirm = useConfirm();
   const [searchParams] = useSearchParams();
   const requestedSessionId = searchParams.get("check");
   const [activeTab, setActiveTab] = useState("rubrics");
@@ -4348,6 +4350,15 @@ function TeacherWorkspacePanel({ classId, members, weeks = [], machineNodes = []
   }
 
   async function deleteSession(item) {
+    /* 檢查表與其所有檢查資料一併消失，無法復原：先確認 */
+    closeSessionMenu();
+    const ok = await confirm({
+      title: "刪除檢查？",
+      message: `「${item.title}」及其檢查腳本、執行結果都會一併刪除，且無法復原。`,
+      confirmText: "刪除",
+      danger: true,
+    });
+    if (!ok) return;
     const deleted = await runSessionAction(item, async (entry) => {
       await AiJudgeService.deleteSession(classId, entry.id);
       return { ...entry, status: "deleted" };

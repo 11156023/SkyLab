@@ -5,7 +5,7 @@ import logging
 from proxmoxer import ProxmoxAPI
 
 from app.infrastructure.proxmox.settings import ProxmoxSettings
-from app.infrastructure.proxmox.tls import _verify_server_with_ca
+from app.infrastructure.proxmox.tls import resolve_verify
 
 logger = logging.getLogger(__name__)
 
@@ -45,11 +45,7 @@ def update_node_online(node_id: int, is_online: bool) -> None:
 
 def try_connect(host: str, cfg: ProxmoxSettings) -> ProxmoxAPI:
     """Create and validate a proxmoxer client for the selected host."""
-    if cfg.ca_cert:
-        _verify_server_with_ca(host, cfg.ca_cert)
-        verify_ssl: bool = False
-    else:
-        verify_ssl = cfg.verify_ssl
+    verify_ssl = resolve_verify(host, cfg.verify_ssl, cfg.ca_cert)
 
     client = ProxmoxAPI(
         host,

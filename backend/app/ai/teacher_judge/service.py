@@ -2703,15 +2703,6 @@ _ITEMWISE_CONCURRENCY = 2
 _ITEMWISE_CHUNK_SIZE = 5
 
 
-def chunk_attachment_sources(
-    sources: list[dict[str, Any]],
-    chunk_size: int = _ITEMWISE_CHUNK_SIZE,
-) -> list[list[dict[str, Any]]]:
-    """Split extraction sources into fixed chunks for batched AI requests."""
-    size = max(1, int(chunk_size or _ITEMWISE_CHUNK_SIZE))
-    return [list(sources[index : index + size]) for index in range(0, len(sources), size)]
-
-
 def _parse_attachment_extraction(
     content: str,
 ) -> tuple[list[dict[str, Any]], str | None]:

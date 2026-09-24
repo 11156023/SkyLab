@@ -204,9 +204,10 @@ def test_admin_immediate_request_is_auto_approved(
         fake_approve_and_place,
     )
     monkeypatch.setattr(
-        "app.services.vm.vm_request_service.submit_sync",
-        lambda _fn, request_id, **_kwargs: calls.append(request_id),
+        "app.services.scheduling.provision_pool.submit_provision",
+        lambda _session, *, request_id, **_kwargs: calls.append(request_id),
     )
+
 
     request_in = VMRequestCreate(
         reason="Need an immediate VM for admin maintenance",

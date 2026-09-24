@@ -18,7 +18,7 @@ from sqlmodel import Session, col, select
 
 from app.exceptions import BadRequestError
 from app.models import CourseEnvironmentPublication, User
-from app.schemas.firewall import PublishedServiceCreate, PublishedServiceRef
+from app.schemas.firewall import PublishedServiceCreate
 from app.services.network import (
     cloudflare_service,
     firewall_service,
@@ -209,128 +209,6 @@ def apply_for_machines(
 
 
 # ── 一次性維護：舊的「只開防火牆」規則 ────────────────────────────────────
-
-
-def _course_machine_sets(session: Session):
-    """進行中的班級與練習，每位學生一組：(version_id, {node_key: vmid})。
-
-    只掃課程管的機器：個人機器的「僅開放防火牆」仍是拓撲頁的正式功能，不碰。
-    """
-    from app.models import (  # noqa: PLC0415  避免與 quick_practice 的循環匯入
-        QuickPracticeSession,
-        QuickPracticeSessionMachine,
-        TeachingClass,
-        TeachingClassMachineNode,
-        TeachingClassStatus,
-        TeachingClassStudent,
-        TeachingClassStudentMachine,
-        VMRequest,
-    )
-
-    live_classes = [
-        TeachingClassStatus.provisioning,
-        TeachingClassStatus.partial_failed,
-        TeachingClassStatus.active,
-    ]
-    for teaching_class in session.exec(
-        select(TeachingClass).where(col(TeachingClass.status).in_(live_classes))
-    ).all():
-        if not teaching_class.course_version_id:
-            continue
-        node_keys = {
-            row.id: row.node_key
-            for row in session.exec(
-                select(TeachingClassMachineNode).where(
-                    TeachingClassMachineNode.class_id == teaching_class.id
-                )
-            ).all()
-        }
-        for enrollment in session.exec(
-            select(TeachingClassStudent).where(
-                TeachingClassStudent.class_id == teaching_class.id
-            )
-        ).all():
-            machines = session.exec(
-                select(TeachingClassStudentMachine).where(
-                    TeachingClassStudentMachine.class_student_id == enrollment.id
-                )
-            ).all()
-            vmid_by_key = {
-                node_keys[machine.machine_node_id]: machine.vmid
-                for machine in machines
-                if machine.vmid is not None and machine.machine_node_id in node_keys
-            }
-            if vmid_by_key:
-                yield teaching_class.course_version_id, vmid_by_key
-
-    live_practice = ["creating", "partial_failed", "ready"]
-    for practice in session.exec(
-        select(QuickPracticeSession).where(col(QuickPracticeSession.status).in_(live_practice))
-    ).all():
-        rows = session.exec(
-            select(QuickPracticeSessionMachine, VMRequest)
-            .join(VMRequest, QuickPracticeSessionMachine.vm_request_id == VMRequest.id)
-            .where(QuickPracticeSessionMachine.session_id == practice.id)
-        ).all()
-        vmid_by_key = {
-            machine.node_key: request.vmid for machine, request in rows if request.vmid is not None
-        }
-        if vmid_by_key:
-            yield practice.environment_version_id, vmid_by_key
-
-
-def reconcile_legacy_open_ports(session: Session) -> dict[str, object]:
-    """把課程機器上舊的「只開防火牆」入站規則換掉；可重複執行。
-
-    firewall_only 已從課程環境移除（無 source 的 ACCEPT 等於對整個子網開洞），
-    migration 只轉了宣告，已經套在學生機器上的規則得另外掃。規則本身沒有
-    mode，「有 SkyLab 入站規則、DB 卻沒有對應的 NAT 或反向代理」就是它
-    （``list_vm_published_services`` 會標成 firewall_only）。
-
-    版本現在宣告 port_forward 的：撤下後立刻以 port_forward 重新發布，服務不
-    中斷、只是改從 Gateway 進來；版本已不再宣告的：直接撤下。
-    """
-    stats: dict[str, object] = {"scanned": 0, "replaced": [], "removed": [], "errors": []}
-    for version_id, vmid_by_key in _course_machine_sets(session):
-        declared = {
-            (item.node_key, item.port, item.protocol): item
-            for item in list_for_version(session, version_id=version_id)
-        }
-        for node_key, vmid in vmid_by_key.items():
-            stats["scanned"] += 1  # type: ignore[operator]
-            try:
-                services = firewall_service.list_vm_published_services(vmid, session)
-            except Exception:
-                logger.exception("Unable to read published services for vmid %s", vmid)
-                stats["errors"].append(f"{vmid}: published services unreadable")  # type: ignore[union-attr]
-                continue
-            for service in services:
-                if service.mode != "firewall_only":
-                    continue
-                ref = PublishedServiceRef(port=service.port, protocol=service.protocol)
-                try:
-                    firewall_service.unpublish_vm_service(vmid, ref, session)
-                    publication = declared.get((node_key, service.port, service.protocol))
-                    if publication is not None and publication.mode == "port_forward":
-                        external_port = publish_forward(session, vmid=vmid, publication=publication)
-                        stats["replaced"].append(  # type: ignore[union-attr]
-                            {"vmid": vmid, "port": service.port, "protocol": service.protocol, "external_port": external_port}
-                        )
-                    else:
-                        stats["removed"].append(  # type: ignore[union-attr]
-                            {"vmid": vmid, "port": service.port, "protocol": service.protocol}
-                        )
-                except Exception:
-                    logger.exception(
-                        "Failed to reconcile legacy open port %s/%s on vmid %s",
-                        service.port,
-                        service.protocol,
-                        vmid,
-                    )
-                    stats["errors"].append(  # type: ignore[union-attr]
-                        f"{vmid}: port {service.port}/{service.protocol} reconcile failed"
-                    )
-    return stats
 
 
 def forward_endpoints_by_vmid(

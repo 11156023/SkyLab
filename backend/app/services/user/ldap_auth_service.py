@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import secrets
 from datetime import timedelta
+from typing import Any
 
 from sqlmodel import Session
 
@@ -16,7 +17,7 @@ from app.infrastructure import ldap as ldap_client
 from app.models import AuditAction, User, UserRole
 from app.repositories import user as user_repo
 from app.repositories.ldap_config import get_ldap_config
-from app.schemas import Token
+from app.schemas import Token, UserUpdate
 from app.services.user import audit_service
 
 logger = logging.getLogger(__name__)
@@ -49,6 +50,46 @@ def _role_from_groups(
     if teacher_group_dn and teacher_group_dn.casefold() in lowered:
         return UserRole.teacher
     return UserRole.student
+
+
+def _sync_role_from_directory(
+    *, session: Session, user: User, config: Any, info: Any
+) -> None:
+    """既有 LDAP 帳號每次登入都依目錄群組重算角色。
+
+    目錄端把老師移出群組後，本地角色若不跟著降回學生，權限就會永遠留著。
+    只處理 ``auth_source == "ldap"`` 的帳號；``user_repo.update_user`` 會把
+    ``is_superuser=True`` 的帳號拉回 admin，所以手動指定的超級使用者不會被
+    目錄群組降級。
+    """
+    if user.auth_source != "ldap":
+        return
+    new_role = _role_from_groups(
+        info.groups,
+        teacher_group_dn=config.teacher_group_dn,
+        admin_group_dn=config.admin_group_dn,
+    )
+    if new_role == user.role:
+        return
+    previous_role = user.role
+    user_repo.update_user(
+        session=session, db_user=user, user_in=UserUpdate(role=new_role)
+    )
+    session.commit()
+    session.refresh(user)
+    if user.role == previous_role:
+        logger.info(
+            "LDAP role sync kept %s as %s (superuser override)",
+            user.email,
+            previous_role.value,
+        )
+    else:
+        logger.info(
+            "LDAP role sync updated %s: %s -> %s",
+            user.email,
+            previous_role.value,
+            user.role.value,
+        )
 
 
 def login_ldap(*, session: Session, username: str, password: str) -> Token:
@@ -100,17 +141,21 @@ def login_ldap(*, session: Session, username: str, password: str) -> Token:
         logger.info(
             "Auto-created LDAP user %s with role %s", info.email, role.value
         )
-    elif user.auth_source != "ldap":
-        # 標記欄位晚於帳號出現（或帳號先由管理員手動建立）：
-        # 能用 LDAP 登入成功就代表密碼歸 LDAP 目錄管，自癒標記。
-        user.auth_source = "ldap"
-        session.add(user)
-        session.commit()
-        session.refresh(user)
+    else:
+        if user.auth_source != "ldap":
+            # 標記欄位晚於帳號出現（或帳號先由管理員手動建立）：
+            # 能用 LDAP 登入成功就代表密碼歸 LDAP 目錄管，自癒標記。
+            user.auth_source = "ldap"
+            session.add(user)
+            session.commit()
+            session.refresh(user)
 
     if not user.is_active:
         _fail(f"inactive user {info.email}")
         raise BadRequestError(t("auth.inactiveUser"))
+
+    # 確定登入會成功才重算角色：被停用的帳號沒必要留下角色異動。
+    _sync_role_from_directory(session=session, user=user, config=config, info=info)
 
     audit_service.log_action(
         session=session,

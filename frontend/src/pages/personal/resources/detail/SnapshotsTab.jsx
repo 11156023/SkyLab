@@ -86,6 +86,14 @@ export default function SnapshotsTab({ vmid, toolbar }) {
     if (ok) run(() => ResourcesService.deleteSnapshot(vmid, name), t("SnapshotsTab.snapshotDeleted"));
   }
 
+  /* 取消或點背景關閉時一併清空表單，下次開啟不會殘留上一輪填到一半的內容 */
+  const closeCreate = () => {
+    setCreateOpen(false);
+    setSnapname("");
+    setDescription("");
+    setNameInvalid(false);
+  };
+
   const handleCreate = () => {
     if (!snapname.trim()) {
       setNameInvalid(true);
@@ -216,7 +224,7 @@ export default function SnapshotsTab({ vmid, toolbar }) {
       {createDialog.open && (
         <div
           className={`${styles.modalOverlay} ${createDialog.closing ? styles.modalOverlayOut : ""}`}
-          onClick={() => setCreateOpen(false)}
+          onClick={closeCreate}
         >
           <div className={styles.modal} onClick={(e) => e.stopPropagation()}>
             <span className={styles.modalTitle}>{t("SnapshotsTab.createSnapshotTitle")}</span>
@@ -247,7 +255,7 @@ export default function SnapshotsTab({ vmid, toolbar }) {
               <button
                 type="button"
                 className={styles.btnSecondary}
-                onClick={() => setCreateOpen(false)}
+                onClick={closeCreate}
               >
                 {t("SnapshotsTab.cancel")}
               </button>

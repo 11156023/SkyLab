@@ -610,58 +610,6 @@ def _binding_writes(
     return writes
 
 
-def _resolve_record_check_name(
-    call: ast.Call,
-    name: str,
-    *,
-    tree: ast.AST,
-    parents: dict[ast.AST, ast.AST],
-) -> str | None:
-    """Resolve a record-check ID through a conservative local constant binding.
-
-    Generated scripts commonly assign ``check_id = "..."`` immediately before
-    calling ``record_check``.  Accept that equivalent form while rejecting
-    dynamic values, ambiguous writes, and bindings from a different branch.
-    """
-
-    scope = _lexical_scope(call, parents)
-    current: ast.AST = call
-    while (parent := parents.get(current)) is not None:
-        if isinstance(
-            parent,
-            (ast.ListComp, ast.SetComp, ast.DictComp, ast.GeneratorExp),
-        ):
-            for generator in parent.generators:
-                if name in _assignment_target_names(generator.target):
-                    return None
-        current = parent
-    writes = _binding_writes(scope, tree, parents, name)
-    call_position = (
-        getattr(call, "lineno", -1),
-        getattr(call, "col_offset", -1),
-    )
-    preceding = [
-        (node, value)
-        for node, value in writes
-        if (
-            getattr(node, "lineno", -1),
-            getattr(node, "col_offset", -1),
-        )
-        < call_position
-    ]
-    if not preceding:
-        return None
-
-    assignment, value = preceding[-1]
-    if value is None:
-        return None
-    if not _control_context(assignment, parents).issubset(
-        _control_context(call, parents)
-    ):
-        return None
-    return value
-
-
 def _except_handler_appends_errors(handler: ast.ExceptHandler, aliases: dict[str, str]) -> bool:
     return any(
         isinstance(node, ast.Call)
@@ -1020,47 +968,3 @@ def check_script_quality(script_content: str) -> CheckResult:
         "warnings": warnings,
     }
 
-
-def collect_record_check_ids(script_content: str) -> set[str]:
-    """Collect statically provable ``record_check`` IDs.
-
-    A direct string literal and a simple local constant binding are equivalent
-    for coverage purposes.  Values that cannot be proven at the call site are
-    intentionally omitted so coverage never approves a guessed or dynamic ID.
-    """
-    try:
-        tree = ast.parse(script_content)
-    except SyntaxError:
-        return set()
-    aliases = _import_aliases(tree)
-    parents = _parent_map(tree)
-    ids: set[str] = set()
-    for node in ast.walk(tree):
-        if (
-            isinstance(node, ast.Call)
-            and _call_name(node.func, aliases) == "record_check"
-        ):
-            check_id = _record_check_literal_arg(node, 0, "check_id")
-            if check_id is None:
-                id_node: ast.AST | None = None
-                if len(node.args) > 0:
-                    id_node = node.args[0]
-                else:
-                    id_node = next(
-                        (
-                            keyword.value
-                            for keyword in node.keywords
-                            if keyword.arg == "check_id"
-                        ),
-                        None,
-                    )
-                if isinstance(id_node, ast.Name):
-                    check_id = _resolve_record_check_name(
-                        node,
-                        id_node.id,
-                        tree=tree,
-                        parents=parents,
-                    )
-            if check_id:
-                ids.add(check_id)
-    return ids

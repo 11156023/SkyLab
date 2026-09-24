@@ -14,16 +14,6 @@ def get_all_storages(session: Session) -> list[ProxmoxStorage]:
     return list(session.exec(stmt).all())
 
 
-def get_storages_by_node(session: Session, node_name: str) -> list[ProxmoxStorage]:
-    """取得特定節點的所有 Storage。"""
-    stmt = (
-        select(ProxmoxStorage)
-        .where(ProxmoxStorage.node_name == node_name)
-        .order_by(ProxmoxStorage.storage)
-    )
-    return list(session.exec(stmt).all())
-
-
 def get_storage(session: Session, storage_id: int) -> ProxmoxStorage | None:
     """依 id 取得單筆 Storage。"""
     return session.get(ProxmoxStorage, storage_id)
@@ -169,7 +159,6 @@ __all__ = [
     "get_all_storages",
     "get_shared_storage_peers",
     "get_storage",
-    "get_storages_by_node",
     "upsert_storages",
     "update_storage_settings",
 ]

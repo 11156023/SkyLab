@@ -7,7 +7,6 @@ import logging
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import Response
 
-from app.ai.teacher_judge.config import settings
 from app.ai.teacher_judge.export import export_to_excel
 from app.ai.teacher_judge.schemas import TeacherJudgeRubricExportRequest
 from app.ai.teacher_judge.service import normalize_items_for_export
@@ -46,11 +45,3 @@ async def download_excel(
         headers={"Content-Disposition": "attachment; filename=rubric.xlsx"},
     )
 
-
-@router.get("/health")
-async def health_check(_: InstructorUser) -> dict[str, object]:
-    """健康檢查端點（與其他 rubric 端點一致，僅老師/管理員可查）。"""
-    return {
-        "status": "ok",
-        "vllm_configured": bool(settings.VLLM_MODEL_NAME),
-    }

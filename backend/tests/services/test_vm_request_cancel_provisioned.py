@@ -87,20 +87,10 @@ def fake_env(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
         vm_request_service, "_to_public", lambda req, user_override=None: req
     )
 
-    # cancel() imports these lazily from app.infrastructure.worker
-    import app.infrastructure.worker as worker
-
-    worker_calls: list[str] = []
-    monkeypatch.setattr(
-        worker, "cancel", lambda task_id: worker_calls.append(task_id) or True
-    )
-    monkeypatch.setattr(worker, "is_active", lambda task_id: False)
-
     return {
         "session": FakeSession(),
         "current_user": current_user,
         "user_id": user_id,
-        "worker_calls": worker_calls,
     }
 
 
@@ -125,8 +115,6 @@ def test_pending_request_is_cancellable(
 
     assert request.status == VMRequestStatus.cancelled
     assert fake_env["session"].committed
-    # Pending requests have no provisioning task to cancel.
-    assert fake_env["worker_calls"] == []
 
 
 def test_approved_request_without_vmid_is_cancellable(
@@ -142,8 +130,51 @@ def test_approved_request_without_vmid_is_cancellable(
 
     assert request.status == VMRequestStatus.cancelled
     assert fake_env["session"].committed
-    # The pending provisioning task must be cancelled in the worker.
-    assert fake_env["worker_calls"] == [f"vm_request:{request.id}"]
+
+
+def test_approved_request_with_clone_in_flight_is_rejected(
+    monkeypatch: pytest.MonkeyPatch, fake_env: dict[str, Any]
+) -> None:
+    """worker 正在 clone（DB running 且未 stale）：取消會留孤兒，必須拒絕。"""
+    from datetime import UTC, datetime
+
+    from app.models import VMProvisioningStatus
+
+    request = _make_request(
+        status=VMRequestStatus.approved, vmid=None, user_id=fake_env["user_id"]
+    )
+    request.provisioning_status = VMProvisioningStatus.running
+    request.provisioning_started_at = datetime.now(UTC)
+    repo = FakeRepo(request)
+    monkeypatch.setattr(vm_request_service, "vm_request_repo", repo)
+
+    with pytest.raises(BadRequestError) as exc:
+        _cancel(fake_env, request)
+
+    assert exc.value.status_code == 400
+    assert request.status == VMRequestStatus.approved
+    assert repo.status_updates == []
+
+
+def test_approved_request_with_stale_clone_is_cancellable(
+    monkeypatch: pytest.MonkeyPatch, fake_env: dict[str, Any]
+) -> None:
+    """running 已超過 stale 門檻：視為 worker 已死，允許取消。"""
+    from datetime import UTC, datetime, timedelta
+
+    from app.models import VMProvisioningStatus
+
+    request = _make_request(
+        status=VMRequestStatus.approved, vmid=None, user_id=fake_env["user_id"]
+    )
+    request.provisioning_status = VMProvisioningStatus.running
+    request.provisioning_started_at = datetime.now(UTC) - timedelta(hours=2)
+    repo = FakeRepo(request)
+    monkeypatch.setattr(vm_request_service, "vm_request_repo", repo)
+
+    _cancel(fake_env, request)
+
+    assert request.status == VMRequestStatus.cancelled
 
 
 def test_approved_request_with_vmid_is_rejected(
@@ -163,4 +194,4 @@ def test_approved_request_with_vmid_is_rejected(
     assert request.status == VMRequestStatus.approved
     assert repo.status_updates == []
     assert not fake_env["session"].committed
-    assert fake_env["worker_calls"] == []
+

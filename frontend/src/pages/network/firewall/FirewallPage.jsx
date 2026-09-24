@@ -24,12 +24,7 @@ import {
 } from "../../../services/firewall";
 import RulesPanel       from "../../../components/RulesPanel/RulesPanel";
 import ConnectionDialog from "../../../components/ConnectionDialog/ConnectionDialog";
-import {
-  canConnectNode,
-  canManageNode,
-  isPeerNode,
-  toDialogNodes,
-} from "../../../components/ConnectionDialog/topologyNodes";
+import { canManageNode, toDialogNodes } from "../../../components/ConnectionDialog/topologyNodes";
 import GatewayNode      from "./nodes/GatewayNode";
 import VMNode           from "./nodes/VMNode";
 import ConnectionEdge   from "./edges/ConnectionEdge";
@@ -40,6 +35,7 @@ import useAutoRefresh from "../../../hooks/useAutoRefresh";
 import LoadingState from "../../../components/LoadingState/LoadingState";
 import useDialogPresence from "../../../hooks/useDialogPresence";
 import { useToast } from "../../../hooks/useToast";
+import { useConfirm } from "../../../components/ConfirmDialog/ConfirmProvider";
 import styles from "./FirewallPage.module.scss";
 import MIcon from "../../../components/MIcon";
 import PageHeader from "../../../components/PageHeader/PageHeader";
@@ -63,6 +59,7 @@ export default function FirewallPage() {
   const [guideActive, setGuideActive] = useState(false);
   const { theme } = useTheme();
   const toast = useToast();
+  const confirm = useConfirm();
   const [nodes, setNodes, onNodesChange] = useNodesState([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState([]);
   const [topology,     setTopology]     = useState(null);
@@ -72,7 +69,8 @@ export default function FirewallPage() {
   const [selectedEdge, setSelectedEdge] = useState(null); // { id, edge }
   const [showDialog,   setShowDialog]   = useState(false);
   const [dialogPreset, setDialogPreset] = useState(null); // 拉線帶入的來源/目標
-  const [deleteEdge,   setDeleteEdge]   = useState(null);
+  /* 刪除連線進行中：避免確認後又被按第二次而送出兩筆刪除 */
+  const deletingEdgeRef = useRef(false);
   /* 預設開啟：標籤本身就是「這條線在開什麼」的答案，不該要使用者自己去翻開 */
   const [showLabels,   setShowLabels]   = useState(true);
   const [showMiniMap,  setShowMiniMap]  = useState(true);
@@ -81,7 +79,6 @@ export default function FirewallPage() {
   const [showInternet, setShowInternet] = useState(false);
   const [connecting,   setConnecting]   = useState(false);
   const connDialog    = useDialogPresence(showDialog);
-  const deleteConfirm = useDialogPresence(deleteEdge);
   /* 關閉細項面板時先播 0.22s 滑出動畫再卸載，時長需與 SCSS 的 panelOut 一致 */
   const rulesPanel    = useDialogPresence(selectedNode, 220);
   const detailPanel   = useDialogPresence(selectedEdge, 220);
@@ -162,7 +159,6 @@ export default function FirewallPage() {
       const match = nextEdges.find((e) => e.id === prev.id);
       return match ? { id: match.id, edge: match.data.edge } : null;
     });
-    setDeleteEdge(null);
     setNodes(nextNodes);
     setEdges(nextEdges);
     window.requestAnimationFrame(() => rfInstance.current?.fitView({ padding: 0.2, duration: 250 }));
@@ -244,20 +240,16 @@ export default function FirewallPage() {
   );
 
   /* ── 拉線完成：帶入來源/目標，開啟新增連線對話框 ──
-     連線會同時寫兩端的規則：來源一定要能管；目標能管或是老師開放給班級的
-     機器才行。擋在這裡，不讓人填完表單才吃 403 */
+     連線會同時寫兩端的規則，任一端是唯讀的課堂機（學生視角）就擋在這裡，
+     不讓人填完表單才吃 403 */
   const onConnect = useCallback((conn) => {
     if (!conn?.source || !conn?.target || conn.source === conn.target) return;
     const byId = new Map((topology?.nodes ?? []).map((n) => [String(n.vmid), n]));
-    const src = byId.get(conn.source);
-    const tgt = byId.get(conn.target);
-    if (src && isPeerNode(src)) {
-      toast.error(t("FirewallPage.peerSourceNotAllowed", { name: src.name }));
-      return;
-    }
-    const blocked = [src, tgt].find((n) => n && !canManageNode(n) && !canConnectNode(n));
-    if (blocked) {
-      toast.error(t("FirewallPage.readOnlyNode", { name: blocked.name }));
+    const readOnly = [conn.source, conn.target]
+      .map((id) => byId.get(id))
+      .find((n) => n && !canManageNode(n));
+    if (readOnly) {
+      toast.error(t("FirewallPage.readOnlyNode", { name: readOnly.name }));
       return;
     }
     setDialogPreset({ source: toDialogKey(conn.source), target: toDialogKey(conn.target) });
@@ -286,20 +278,33 @@ export default function FirewallPage() {
     fetchTopology();
   };
 
-  /* ── 確認刪除邊 ── */
-  const confirmDeleteEdge = async () => {
-    if (!deleteEdge) return;
+  /* ── 刪除邊：先確認再送出；送出期間上鎖，連按兩下不會送兩筆 ── */
+  const requestDeleteEdge = async (edge) => {
+    if (!edge || deletingEdgeRef.current) return;
+    const ports = edge.ports?.length > 0 ? portLabel(edge.ports) : "";
+    const ok = await confirm({
+      title: t("FirewallPage.deleteConnectionTitle"),
+      message: ports
+        ? `${t("FirewallPage.deleteConnectionConfirm")}\n${ports}`
+        : t("FirewallPage.deleteConnectionConfirm"),
+      confirmText: t("FirewallPage.delete"),
+      cancelText: t("FirewallPage.cancel"),
+      danger: true,
+    });
+    if (!ok) return;
+    deletingEdgeRef.current = true;
     try {
       await deleteConnection({
-        source_vmid: deleteEdge.source_vmid,
-        target_vmid: deleteEdge.target_vmid,
+        source_vmid: edge.source_vmid,
+        target_vmid: edge.target_vmid,
         ports: null,
       });
-      setDeleteEdge(null);
       setSelectedEdge(null);
       fetchTopology();
     } catch (err) {
       toast.error(err?.message ?? t("FirewallPage.deleteFailed"));
+    } finally {
+      deletingEdgeRef.current = false;
     }
   };
 
@@ -332,7 +337,8 @@ export default function FirewallPage() {
           <div className={styles.centerState}>
             <MIcon name="error_outline" size={36} />
             <span>{error}</span>
-            <button type="button" className={styles.btnSecondary} onClick={fetchTopology}>
+            {/* 不能直接綁 fetchTopology：MouseEvent 會被當成 silent=true，error 永遠清不掉 */}
+            <button type="button" className={styles.btnSecondary} onClick={() => fetchTopology()}>
               {t("FirewallPage.retry")}
             </button>
           </div>
@@ -460,9 +466,6 @@ export default function FirewallPage() {
               <RulesPanel
                 node={{ vmid: Number(rulesPanel.item.id), name: rulesPanel.item.data.name }}
                 canManage={canManageNode(rulesPanel.item.data)}
-                peer={isPeerNode(rulesPanel.item.data)}
-                allowedPorts={rulesPanel.item.data.allowed_ports ?? []}
-                ownerName={rulesPanel.item.data.owner_name ?? null}
                 closing={rulesPanel.closing}
                 onClose={() => setSelectedNode(null)}
                 onChanged={() => fetchTopology(true)}
@@ -475,7 +478,7 @@ export default function FirewallPage() {
                 resolveName={resolveName}
                 closing={detailPanel.closing}
                 onClose={() => setSelectedEdge(null)}
-                onDelete={(edge) => setDeleteEdge(edge)}
+                onDelete={requestDeleteEdge}
               />
             )}
           </div>
@@ -496,27 +499,6 @@ export default function FirewallPage() {
         />
       )}
 
-      {/* ── 刪除確認 ── */}
-      {deleteConfirm.open && (
-        <div
-          className={`${styles.confirmOverlay} ${deleteConfirm.closing ? styles.confirmOverlayOut : ""}`}
-          onClick={() => setDeleteEdge(null)}
-        >
-          <div className={styles.confirmDialog} onClick={(e) => e.stopPropagation()}>
-            <h3 className={styles.confirmTitle}>{t("FirewallPage.deleteConnectionTitle")}</h3>
-            <p className={styles.confirmMsg}>
-              {t("FirewallPage.deleteConnectionConfirm")}
-              {deleteConfirm.item.ports?.length > 0 && (
-                <><br /><small>{portLabel(deleteConfirm.item.ports)}</small></>
-              )}
-            </p>
-            <div className={styles.confirmActions}>
-              <button type="button" className={styles.btnSecondary} onClick={() => setDeleteEdge(null)}>{t("FirewallPage.cancel")}</button>
-              <button type="button" className={styles.btnDanger} onClick={confirmDeleteEdge}>{t("FirewallPage.delete")}</button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }

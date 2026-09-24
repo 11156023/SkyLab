@@ -391,7 +391,8 @@ function WeeklyContent({ item, onRefresh }) {
   async function save() {
     setSaving(true);
     try {
-      const result = await TeachingClassesService.replaceWeeks(item.id, weeks.map((week) => ({ week_number: week.week, session_date: week.date, title: week.title.trim(), target_node_key: week.target || null, status: week.status, files: week.files.map((file) => ({ filename: file.filename, storage_key: file.storage_key ?? null, target_path: file.target_path ?? null })) })));
+      // 教材只送已上傳檔案的 id：storage_key 由後端自己查，不再由前端帶
+      const result = await TeachingClassesService.replaceWeeks(item.id, weeks.map((week) => ({ week_number: week.week, session_date: week.date, title: week.title.trim(), target_node_key: week.target || null, status: week.status, files: week.files.filter((file) => file.id).map((file) => ({ id: String(file.id), target_path: file.target_path ?? null })) })));
       onRefresh(result); toast.success(t("ClassWorkspacePage.weeklySavedMsg"));
     } catch (error) { toast.error(error?.message ?? t("ClassWorkspacePage.saveFailed")); }
     finally { setSaving(false); }
@@ -1003,7 +1004,16 @@ export default function ClassWorkspacePage() {
   }, [menuOpen]);
   useEffect(() => {
     if (!item || !["pending_review", "provisioning"].includes(item.status)) return undefined;
-    const timer = window.setInterval(() => TeachingClassesService.provisionStatus(item.id).then(refresh).catch(() => {}), 3000);
+    // 進度本身是純讀取；每五輪（15 秒）才請後端把建機結果寫回班級，
+    // 那一支會實際呼叫 PVE，不適合每三秒打一次。
+    let ticks = 0;
+    const timer = window.setInterval(() => {
+      ticks += 1;
+      const request = ticks % 5 === 1
+        ? TeachingClassesService.reconcile(item.id)
+        : TeachingClassesService.provisionStatus(item.id);
+      request.then(refresh).catch(() => {});
+    }, 3000);
     return () => window.clearInterval(timer);
   }, [item?.id, item?.status]);
 

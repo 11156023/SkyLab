@@ -25,7 +25,8 @@ class MiningIncident(SQLModel, table=True):
 
     id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
     vmid: int = Field(index=True)
-    user_id: uuid.UUID = Field(foreign_key="user.id", index=True)
+    # NOT NULL 無法 SET NULL；帳號刪除時連帶刪掉該使用者的事件紀錄
+    user_id: uuid.UUID = Field(foreign_key="user.id", index=True, ondelete="CASCADE")
     node: str = Field(max_length=255)
     resource_type: str = Field(max_length=8, description="qemu | lxc")
     avg_cpu: float = Field(description="偵測視窗內平均 CPU（percent）")
@@ -43,7 +44,9 @@ class MiningIncident(SQLModel, table=True):
         default=None,
         sa_column=Column(DateTime(timezone=True), nullable=True),
     )
-    reviewed_by: uuid.UUID | None = Field(default=None, foreign_key="user.id")
+    reviewed_by: uuid.UUID | None = Field(
+        default=None, foreign_key="user.id", ondelete="SET NULL"
+    )
     reviewed_at: datetime | None = Field(
         default=None,
         sa_column=Column(DateTime(timezone=True), nullable=True),

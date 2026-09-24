@@ -19,7 +19,10 @@ RUN bun run build
 
 
 # Stage 1: 用 Nginx 提供編譯後的靜態檔
-FROM nginx:1
+# 非 root 版 nginx（以 uid 101 執行、預設聽 8080）；靜態檔只需讀取權限，
+# COPY 由 builder 以 root 寫入不受 USER 影響。上游 nginx/default.conf 與
+# compose 的 port mapping 都要對到 8080。
+FROM nginxinc/nginx-unprivileged:1
 
 COPY --from=build-stage /app/frontend/dist/ /usr/share/nginx/html
 

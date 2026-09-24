@@ -15,6 +15,11 @@ CLIENT_INPUT_TYPES = frozenset({4, 5, 6})
 # QEMU Client Message（PVE 的 noVNC 會用 submessage 0 = Extended Key Event 送按鍵）
 CLIENT_QEMU_TYPE = 255
 
+# client->server 訊息的防護上限：長度欄位是 client 可控的 u32，沒有上限的話
+# 一個 ClientCutText(length=0xFFFFFFFF) 就能讓緩衝區無限成長。
+MAX_CLIENT_CUT_TEXT = 1 << 20  # 1 MiB，遠大於實務上的剪貼簿內容
+MAX_CLIENT_BUFFER = 4 << 20  # 緩衝區硬上限，超過即視為協議錯誤
+
 _HEXTILE_RAW = 0x01
 _HEXTILE_BACKGROUND = 0x02
 _HEXTILE_FOREGROUND = 0x04
@@ -178,6 +183,11 @@ class ClientMessageSplitter:
 
     def feed(self, data: bytes) -> list[tuple[int, bytes]]:
         self._buf.extend(data)
+        if len(self._buf) > MAX_CLIENT_BUFFER:
+            self._buf.clear()
+            raise RfbStreamError(
+                f"client message buffer exceeded {MAX_CLIENT_BUFFER} bytes"
+            )
         messages: list[tuple[int, bytes]] = []
         while self._buf:
             try:
@@ -203,6 +213,8 @@ class ClientMessageSplitter:
         if msg_type == 6:  # ClientCutText
             reader.take(3)  # padding
             length = reader.u32()
+            if length > MAX_CLIENT_CUT_TEXT:
+                raise RfbStreamError(f"ClientCutText length {length} exceeds limit")
             reader.take(length)
             return msg_type, reader.pos
         if msg_type == CLIENT_QEMU_TYPE:

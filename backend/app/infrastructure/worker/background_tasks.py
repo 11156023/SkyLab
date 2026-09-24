@@ -78,6 +78,10 @@ class BackgroundTaskRunner:
         """
         self._loop = loop or asyncio.get_running_loop()
 
+    def bound_loop(self) -> asyncio.AbstractEventLoop | None:
+        """lifespan 綁定的主 event loop；尚未 bind 時為 None。"""
+        return self._loop
+
     # ──────────────────────────────────────────────────────────────────
     # submit
     # ──────────────────────────────────────────────────────────────────
@@ -290,14 +294,6 @@ class BackgroundTaskRunner:
             return False
         task.cancel()
         return True
-
-    def cancel_by_name(self, name: str) -> int:
-        """Cancel all tracked tasks whose name matches; returns count cancelled."""
-        cancelled = 0
-        for tid, info in list(self._info.items()):
-            if info.name == name and self.cancel(tid):
-                cancelled += 1
-        return cancelled
 
     def is_active(self, task_id: str) -> bool:
         task = self._tasks.get(task_id)

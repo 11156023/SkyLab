@@ -13,13 +13,15 @@ export function environmentSpecs(nodes) {
   );
 }
 
-/** 課程環境的一個選項。班級頁與一鍵建立精靈共用，避免兩邊各長一套。 */
-export default function EnvironmentChoice({ candidate, selected, suggested, onSelect }) {
+/** 課程環境的一個選項。班級頁與一鍵建立精靈共用，避免兩邊各長一套。
+ *  disabled：送出中不讓人再改選，避免選到一半的環境被送出去。 */
+export default function EnvironmentChoice({ candidate, selected, suggested, onSelect, disabled = false }) {
   const { t } = useTranslation("teaching");
   const specs = environmentSpecs(candidate.nodes);
   return <button
     type="button"
     className={`${selected ? styles.envChoiceSelected : ""}${suggested ? ` ${styles.envChoiceSuggested}` : ""}`}
+    disabled={disabled}
     onClick={onSelect}
   >
     <span className={styles.envChoiceIcon}><MIcon name="account_tree" size={20} /></span>

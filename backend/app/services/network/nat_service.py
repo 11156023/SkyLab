@@ -82,15 +82,6 @@ def allocate_external_port(
     raise BadRequestError(t("nat.poolExhausted", start=start, end=end))
 
 
-def forward_endpoint(session: object, external_port: int) -> str | None:
-    """學生要連的入口：``host:port``；管理員沒填入口主機就回 None。"""
-    from app.services.network import ip_management_service  # noqa: PLC0415
-
-    config = ip_management_service.get_subnet_config(session)  # type: ignore[arg-type]
-    host = (getattr(config, "forward_public_host", None) or "").strip()
-    return f"{host}:{external_port}" if host else None
-
-
 # ─── haproxy config 產生 ───────────────────────────────────────────────────────
 
 
@@ -118,9 +109,12 @@ def _build_haproxy_managed_block(rules: list) -> str:
 # ─── haproxy 同步（核心） ──────────────────────────────────────────────────────
 
 
-def _sync_haproxy(session: object) -> None:
+def _sync_haproxy(session: object, rules: list | None = None) -> None:
     """從 DB 重建 haproxy managed section 並 reload。
-    若 Gateway VM 未設定則靜默略過（不拋錯，讓主流程繼續）。
+    Gateway VM 未設定時拋 ProxmoxError。
+
+    ``rules`` 給刪除流程用：先拿「排除待刪規則後的清單」同步上去，
+    同步成功才把 DB 的規則刪掉，避免 DB 刪了、Gateway 上還在轉發。
     """
     from app.infrastructure.ssh import create_key_client, exec_command  # noqa: PLC0415
     from app.repositories import gateway_config as gw_repo  # noqa: PLC0415
@@ -136,7 +130,8 @@ def _sync_haproxy(session: object) -> None:
     if config is None or not config.host or not config.encrypted_private_key:
         raise ProxmoxError(t("nat.gatewayNotConfiguredSyncFailed"))
 
-    rules = nat_repo.list_rules(session)  # type: ignore[arg-type]
+    if rules is None:
+        rules = nat_repo.list_rules(session)  # type: ignore[arg-type]
     private_key_pem = get_decrypted_private_key(config)  # type: ignore[arg-type]
     haproxy_path = SERVICE_CONFIG_PATHS["haproxy"]
     tmp_path = haproxy_path + ".SkyLab.tmp"
@@ -225,7 +220,7 @@ def apply_nat_rule(
     check_port_available(external_port, protocol, session)
     # vm_ip 來自 guest agent 回報，VM 擁有者可偽造：不可讓外網 port 轉到
     # Gateway / PVE 節點等內部主機
-    assert_publishable_vm_ip(session, vm_ip)
+    assert_publishable_vm_ip(session, vm_ip, vmid=vmid)
     get = getattr(session, "get", None)
     resource_vmid = None
     if get is not None:
@@ -258,27 +253,34 @@ def apply_nat_rule(
         raise
 
 
-def remove_nat_rule_by_id(session: object, rule_id: str) -> None:
-    """刪除指定 NAT 規則：從 DB 刪除後同步 haproxy。"""
-    import uuid as _uuid  # noqa: PLC0415
+def _sync_then_delete(session: object, doomed: list) -> None:
+    """先把「排除這些規則後的清單」同步到 haproxy，成功才刪 DB。
 
+    反過來做（先刪 DB 再同步）的話，同步失敗就會留下「DB 查不到、Gateway 仍在
+    轉發」的孤兒 port：既撤不掉，那個對外 port 也會被重新配給別人。
+    """
     from app.repositories import nat_rule as nat_repo  # noqa: PLC0415
 
-    rule = nat_repo.get_rule(session, _uuid.UUID(rule_id))  # type: ignore[arg-type]
-    if rule is None:
-        raise BadRequestError(t("nat.ruleNotFound", ruleId=rule_id))
-
-    nat_repo.delete_rule(session, rule)  # type: ignore[arg-type]
-    _sync_haproxy(session)
+    if not doomed:
+        return
+    doomed_ids = {r.id for r in doomed}
+    remaining = [
+        r
+        for r in nat_repo.list_rules(session)  # type: ignore[arg-type]
+        if r.id not in doomed_ids
+    ]
+    _sync_haproxy(session, remaining)
+    nat_repo.delete_rules(session, doomed)  # type: ignore[arg-type]
 
 
 def remove_nat_rules_for_vmid(session: object, vmid: int) -> None:
     """刪除指定 VM 的所有 NAT 規則（VM 刪除時使用）。"""
     from app.repositories import nat_rule as nat_repo  # noqa: PLC0415
 
-    deleted = nat_repo.delete_rules_by_vmid(session, vmid)  # type: ignore[arg-type]
-    if deleted:
-        _sync_haproxy(session)
+    _sync_then_delete(
+        session,
+        nat_repo.list_rules_by_vmid(session, vmid),  # type: ignore[arg-type]
+    )
 
 
 def remove_nat_rules_by_internal_port(
@@ -287,15 +289,10 @@ def remove_nat_rules_by_internal_port(
     """刪除指定 VM 特定內部 port 的 NAT 規則（刪除連線 edge 時使用）。"""
     from app.repositories import nat_rule as nat_repo  # noqa: PLC0415
 
-    deleted = nat_repo.delete_rules_by_vmid_and_port(  # type: ignore[arg-type]
-        session, vmid, internal_port, protocol
+    _sync_then_delete(
+        session,
+        nat_repo.list_rules_by_vmid_and_port(  # type: ignore[arg-type]
+            session, vmid, internal_port, protocol
+        ),
     )
-    if deleted:
-        _sync_haproxy(session)
 
-
-def sync_to_gateway(session: object) -> None:
-    """手動觸發 haproxy 同步（供管理員 API 使用）。
-    Gateway VM 未設定時拋錯（讓 API 回 500，給使用者明確提示）。
-    """
-    _sync_haproxy(session)

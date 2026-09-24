@@ -58,18 +58,6 @@ ResourceStatus = Literal[
 # ===== Proxmox Info Schemas =====
 
 
-class NodeSchema(BaseModel):
-    """Proxmox 節點資訊"""
-
-    node: str
-    status: str
-    cpu: float | None = None
-    maxcpu: int | None = None
-    mem: int | None = None
-    maxmem: int | None = None
-    uptime: int | None = None
-
-
 class VMSchema(BaseModel):
     """虛擬機資訊"""
 

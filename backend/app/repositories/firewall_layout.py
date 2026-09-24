@@ -36,50 +36,6 @@ def get_node(
     return session.exec(stmt).first()
 
 
-def upsert_node(
-    *,
-    session: Session,
-    user_id: uuid.UUID,
-    vmid: int | None,
-    node_type: str,
-    position_x: float,
-    position_y: float,
-) -> FirewallLayout:
-    """新增或更新節點位置"""
-    now = datetime.now(timezone.utc)
-    existing = get_node(
-        session=session, user_id=user_id, vmid=vmid, node_type=node_type
-    )
-    if existing:
-        existing.position_x = position_x
-        existing.position_y = position_y
-        existing.resource_vmid = (
-            vmid if vmid is not None and session.get(Resource, vmid) is not None else None
-        )
-        existing.updated_at = now
-        session.add(existing)
-        session.commit()
-        session.refresh(existing)
-        return existing
-
-    node = FirewallLayout(
-        user_id=user_id,
-        vmid=vmid,
-        resource_vmid=(
-            vmid if vmid is not None and session.get(Resource, vmid) is not None else None
-        ),
-        node_type=node_type,
-        position_x=position_x,
-        position_y=position_y,
-        created_at=now,
-        updated_at=now,
-    )
-    session.add(node)
-    session.commit()
-    session.refresh(node)
-    return node
-
-
 def upsert_layout_batch(
     *,
     session: Session,
@@ -126,21 +82,3 @@ def upsert_layout_batch(
 
     session.commit()
 
-
-def delete_layout_for_vm(
-    *, session: Session, user_id: uuid.UUID, vmid: int
-) -> None:
-    """當 VM 刪除時清理對應的佈局記錄"""
-    nodes = list(
-        session.exec(
-            select(FirewallLayout).where(
-                and_(
-                    FirewallLayout.user_id == user_id,
-                    FirewallLayout.vmid == vmid,
-                )
-            )
-        ).all()
-    )
-    for node in nodes:
-        session.delete(node)
-    session.commit()

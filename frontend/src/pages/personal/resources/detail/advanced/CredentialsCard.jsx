@@ -4,7 +4,7 @@
  * 新密碼與新私鑰只在產生後顯示一次；要再看請到總覽分頁。
  */
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
 import styles from "../ResourceDetailPage.module.scss";
@@ -74,6 +74,7 @@ export default function CredentialsCard({ vmid, canManage }) {
   const [secret, setSecret] = useState(null); // { kind: "password"|"key", value, message }
   const [newKey, setNewKey] = useState("");
   const [copied, setCopied] = useState(false);
+  const copiedTimerRef = useRef(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -90,11 +91,15 @@ export default function CredentialsCard({ vmid, canManage }) {
     load();
   }, [load]);
 
+  /* 卸載時清掉「已複製」的還原計時器，不讓已消失的元件被 setState */
+  useEffect(() => () => clearTimeout(copiedTimerRef.current), []);
+
   const copy = async (text) => {
     try {
       await navigator.clipboard.writeText(text);
       setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
+      clearTimeout(copiedTimerRef.current);
+      copiedTimerRef.current = setTimeout(() => setCopied(false), 2000);
     } catch {
       toast.error(t("CredentialsCard.copyFailed"));
     }

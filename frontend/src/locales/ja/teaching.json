@@ -970,5 +970,8 @@
   "CourseTemplateEditorPage.filesUploaded": "{{count}} 件のドキュメントをアップロードしました",
   "CourseTemplateEditorPage.filesUploadPartialFail": "次のドキュメントのアップロードに失敗しました：{{files}}",
   "CourseTemplateEditorPage.fileUploadFailed": "アップロードに失敗しました",
-  "CourseTemplateEditorPage.fileDeleteFailed": "ドキュメントを削除できませんでした"
+  "CourseTemplateEditorPage.fileDeleteFailed": "ドキュメントを削除できませんでした",
+  "CourseTemplateEditorPage.fileDeleteConfirmTitle": "このドキュメントを削除しますか？",
+  "CourseTemplateEditorPage.fileDeleteConfirmMessage": "「{{name}}」はこのコース環境から削除され、元に戻せません。",
+  "CourseTemplateEditorPage.fileDeleteConfirmAction": "削除"
 }

@@ -69,9 +69,12 @@ async def vnc_proxy(
     try:
         check_resource_control_access(vmid, user, session)
     except Exception:
-        session.close()
         await _safe_close_websocket(websocket, code=1008, reason="Permission denied")
         return
+    finally:
+        # 權限檢查之後不再需要 DB；立刻關閉，避免整個主控台生命週期
+        # 佔住一條 idle-in-transaction 連線（比照 classroom.py）。
+        session.close()
 
     await websocket.accept()
     logger.info(f"VNC proxy connection for VM {vmid} by user {user.email}")
@@ -243,5 +246,4 @@ async def vnc_proxy(
     finally:
         if pve_websocket:
             await pve_websocket.close()
-        session.close()
         logger.info(f"VNC proxy disconnected for VM {vmid}")

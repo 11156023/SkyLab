@@ -91,7 +91,13 @@ WebSocket 端點（`app/main.py`）：
 
 - **SecurityHeadersMiddleware**：純 ASGI，注入 X-Content-Type-Options、X-Frame-Options、CSP、HSTS
 - **CORSMiddleware**：可從環境變數設定來源，預設加入 `FRONTEND_HOST`
-- **lifespan**：啟動 Redis、啟動 / 停止 VM 申請排程器
+- **lifespan**：啟動 Redis 與 arq 連線池、啟動 / 停止三個治理迴圈（VM 申請排程器、Web Push 推播、WireGuard reconciler）；每個迴圈各持一把 PostgreSQL advisory lock，多副本時只有一個行程執行
+- **arq worker**（`worker` 容器）：範本轉換 / 克隆、VM 申請佈建（clone）、一鍵重置、班級批次佈建、資源刪除都以 TaskRecord 入列到 Redis 由 worker 執行；任務模組清單在 `infrastructure/queue/modules.py`。REDIS_ENABLED=false 時退回行程內背景執行。除了申請佈建與資源刪除（申請單、刪除單本身就各是一個 job），這些任務會出現在 Jobs 頁（kind：template / resource_reset / batch_provision）。
+VM 申請佈建以固定 job id `vm_request:<id>` 去重，並在 worker 內以 `provision_max_concurrency` 限制同時 clone 數
+
+
+- **跨行程短期狀態**：desktop device code 走 `infrastructure/redis/sync_kv.ExpiringKV`（Redis 為主、記憶體備援），多副本時發碼與核准可落在不同行程
+
 - **Exception handlers**：將 `AppError`/`ProxmoxError`/`ProvisioningError` 等映射到對應 HTTP 狀態
 
 ## 環境變數

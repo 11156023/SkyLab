@@ -13,10 +13,16 @@ import logging
 import uuid
 from collections.abc import Iterable
 from datetime import datetime, timedelta, timezone
+from typing import Any
 
 from sqlalchemy.orm import selectinload
 from sqlmodel import Session, select
 
+from app.domain.resource_markers import (
+    RESOURCE_CONVERTED_TO_TEMPLATE_MARKER,
+    RESOURCE_DELETED_BY_USER_MARKER,
+    RESOURCE_DELETED_ORPHAN_MARKER,
+)
 from app.models import (
     DeletionRequest,
     DeletionRequestStatus,
@@ -37,11 +43,6 @@ from app.schemas.jobs import (
     JobKind,
     JobsListResponse,
     JobStatus,
-)
-from app.services.resource.resource_service import (
-    RESOURCE_CONVERTED_TO_TEMPLATE_MARKER,
-    RESOURCE_DELETED_BY_USER_MARKER,
-    RESOURCE_DELETED_ORPHAN_MARKER,
 )
 
 logger = logging.getLogger(__name__)
@@ -361,6 +362,23 @@ def _parse_json(text: str | None) -> dict:
         return {}
 
 
+# 非範本的 arq 任務：task_type → Job 種類（其餘 task_type 一律視為範本任務）
+_QUEUE_TASK_KINDS: dict[str, JobKind] = {
+    "resource.reset": JobKind.resource_reset,
+    "batch_provision.run": JobKind.batch_provision,
+}
+
+
+def _queue_task_title(kind: JobKind, payload: dict[str, Any]) -> str:
+    if kind == JobKind.resource_reset:
+        vmid = payload.get("vmid")
+        return f"重置：VMID {vmid}" if vmid else "重置"
+    if kind == JobKind.batch_provision:
+        job_id = str(payload.get("job_id") or "")
+        return f"批次佈建：{job_id[:8]}" if job_id else "批次佈建"
+    return kind.value
+
+
 def _template_task_to_job(
     record: TaskRecord,
     *,
@@ -368,14 +386,18 @@ def _template_task_to_job(
     template_name: str | None = None,
 ) -> JobItem:
     payload = _parse_json(record.payload)
-    label = _TEMPLATE_TASK_TYPE_LABEL.get(record.task_type, record.task_type)
-    # 目標：克隆任務顯示新主機名，其餘顯示範本名（範本已刪除時退回 VMID）
-    target = (
-        payload.get("hostname")
-        if record.task_type == "template.clone"
-        else template_name
-    ) or (f"VMID {payload['pve_vmid']}" if payload.get("pve_vmid") else None)
-    title = f"{label}：{target}" if target else label
+    kind = _QUEUE_TASK_KINDS.get(record.task_type, JobKind.template)
+    if kind == JobKind.template:
+        label = _TEMPLATE_TASK_TYPE_LABEL.get(record.task_type, record.task_type)
+        # 目標：克隆任務顯示新主機名，其餘顯示範本名（範本已刪除時退回 VMID）
+        target = (
+            payload.get("hostname")
+            if record.task_type == "template.clone"
+            else template_name
+        ) or (f"VMID {payload['pve_vmid']}" if payload.get("pve_vmid") else None)
+        title = f"{label}：{target}" if target else label
+    else:
+        title = _queue_task_title(kind, payload)
 
     status = _TEMPLATE_TASK_STATUS_MAP.get(record.status, JobStatus.pending)
     progress = 100 if status == JobStatus.completed else record.progress
@@ -387,8 +409,8 @@ def _template_task_to_job(
         or _now()
     )
     return JobItem(
-        id=f"template:{record.id}",
-        kind=JobKind.template,
+        id=f"{kind.value}:{record.id}",
+        kind=kind,
         title=title,
         status=status,
         progress=progress,
@@ -398,7 +420,7 @@ def _template_task_to_job(
         created_at=_coerce_aware(record.created_at) or _now(),
         updated_at=updated,
         completed_at=_coerce_aware(record.finished_at),
-        detail_url=f"/jobs?focus=template:{record.id}",
+        detail_url=f"/jobs?focus={kind.value}:{record.id}",
         meta={
             "task_type": record.task_type,
             "template_id": str(record.template_id) if record.template_id else None,
@@ -419,11 +441,17 @@ def _template_name_map(
     return {t.id: t.name for t in rows}
 
 
-def _fetch_template_tasks(
-    session: Session, *, user: User, since: datetime
+def _fetch_task_records(
+    session: Session, *, user: User, since: datetime, kind: JobKind
 ) -> list[JobItem]:
+    """依 Job 種類撈 TaskRecord：template 走 ``template.%``，其餘各對應一個 task_type。"""
     is_admin = bool(user.is_superuser or getattr(user, "role", None) == "admin")
     stmt = select(TaskRecord).where(TaskRecord.created_at >= since)
+    if kind == JobKind.template:
+        stmt = stmt.where(TaskRecord.task_type.like("template.%"))  # type: ignore[union-attr]
+    else:
+        task_types = [t for t, k in _QUEUE_TASK_KINDS.items() if k == kind]
+        stmt = stmt.where(TaskRecord.task_type.in_(task_types))  # type: ignore[union-attr]
     if not is_admin:
         stmt = stmt.where(TaskRecord.user_id == user.id)
     stmt = stmt.order_by(TaskRecord.created_at.desc()).limit(_PER_SOURCE_FETCH_LIMIT)
@@ -446,11 +474,20 @@ def _fetch_template_tasks(
     ]
 
 
+def _task_record_fetcher(kind: JobKind):
+    def _fetch(session: Session, *, user: User, since: datetime) -> list[JobItem]:
+        return _fetch_task_records(session, user=user, since=since, kind=kind)
+
+    return _fetch
+
+
 _FETCHERS = {
     JobKind.vm_request: _fetch_vm_requests,
     JobKind.spec_change: _fetch_spec_changes,
     JobKind.deletion: _fetch_deletions,
-    JobKind.template: _fetch_template_tasks,
+    JobKind.template: _task_record_fetcher(JobKind.template),
+    JobKind.resource_reset: _task_record_fetcher(JobKind.resource_reset),
+    JobKind.batch_provision: _task_record_fetcher(JobKind.batch_provision),
 }
 
 
@@ -697,8 +734,12 @@ _DETAIL_FETCHERS = {
     JobKind.vm_request: _detail_vm_request,
     JobKind.spec_change: _detail_spec_change,
     JobKind.deletion: _detail_deletion,
+    # 四種 TaskRecord 來源共用同一個 detail：item 的 kind 由 task_type 決定
     JobKind.template: _detail_template_task,
+    JobKind.resource_reset: _detail_template_task,
+    JobKind.batch_provision: _detail_template_task,
 }
+
 
 
 def get_job_detail(*, session: Session, user: User, job_id: str) -> JobDetail:

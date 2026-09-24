@@ -275,15 +275,35 @@ class TestFanOut:
         await manager.stop_session(session.id)
         await asyncio.gather(t1, t2)
 
-    async def test_new_subscriber_triggers_keyframe_request(
+    async def test_subscriber_waits_for_the_in_flight_keyframe_request(
         self, manager: VncSessionManager, upstream: FakeUpstream
     ) -> None:
+        """開場就要過一張全畫面，進場的人跟著那一張，不必再要一次。"""
         session = await _start(manager)
         await eventually(lambda: upstream.sent.count(FULL_FBUR) == 1)
         ws, task = await _attach(manager, session.id, USER_A)
-        await eventually(lambda: upstream.sent.count(FULL_FBUR) == 2)
+        await asyncio.sleep(0.05)
+        assert upstream.sent.count(FULL_FBUR) == 1
         await manager.stop_session(session.id)
         await asyncio.wait_for(task, timeout=5)
+
+    async def test_new_subscriber_gets_the_cached_keyframe(
+        self, manager: VncSessionManager, upstream: FakeUpstream
+    ) -> None:
+        """已經有快取的整張畫面時，新訂閱者直接拿快取，不吵上游也不打擾全班。"""
+        session = await _start(manager)
+        await eventually(lambda: upstream.sent.count(FULL_FBUR) == 1)
+        upstream.feed_server(FB_MSG_A)
+        # pump 收滿一張後會立刻要增量更新，以此確認 keyframe 已經進快取
+        await eventually(lambda: INCREMENTAL_FBUR in upstream.sent)
+        ws1, t1 = await _attach(manager, session.id, USER_A)
+        await eventually(lambda: ws1.payload_after_handshake() == FB_MSG_A)
+
+        ws2, t2 = await _attach(manager, session.id, USER_B)
+        await eventually(lambda: ws2.payload_after_handshake() == FB_MSG_A)
+        assert upstream.sent.count(FULL_FBUR) == 1
+        await manager.stop_session(session.id)
+        await asyncio.gather(t1, t2)
 
     async def test_framebuffer_update_triggers_incremental_fbur(
         self, manager: VncSessionManager, upstream: FakeUpstream
@@ -320,6 +340,24 @@ class TestFanOut:
             lambda: manager.get_session(session.id).subscriber_count == 0  # type: ignore[union-attr]
         )
         await eventually(task.done)
+        await manager.stop_session(session.id)
+
+    async def test_handshake_timeout_releases_the_slot(
+        self,
+        manager: VncSessionManager,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """握不完手就放掉名額，否則卡住的 client 會把訂閱名額佔光。"""
+        from app.core.config import settings
+
+        monkeypatch.setattr(
+            settings, "CLASSROOM_HANDSHAKE_TIMEOUT_SECONDS", 0.05, raising=False
+        )
+        session = await _start(manager)
+        ws = FakeSubscriberWs()  # 不送任何握手訊框
+        with pytest.raises(TimeoutError):
+            await manager.attach_subscriber(session.id, user_id=USER_A, websocket=ws)
+        assert manager.get_session(session.id).subscriber_count == 0  # type: ignore[union-attr]
         await manager.stop_session(session.id)
 
     async def test_max_subscribers_limit(

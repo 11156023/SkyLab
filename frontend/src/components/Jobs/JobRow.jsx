@@ -10,6 +10,8 @@ export const JOB_KIND_LABEL_KEYS = {
   spec_change:   "JobRow.kindSpecChange",
   deletion:      "JobRow.kindDeletion",
   template:      "JobRow.kindTemplate",
+  resource_reset:  "JobRow.kindResourceReset",
+  batch_provision: "JobRow.kindBatchProvision",
 };
 
 /** 狀態顯示名稱 + MIcon 名稱 + 色調 class key */

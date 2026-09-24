@@ -41,16 +41,31 @@ class AIAPIRequestsPublic(BaseModel):
 
 
 class AIAPICredentialPublic(BaseModel):
+    """金鑰的一般呈現：只有前綴，永遠不含明文。
+
+    清單類端點（``GET /credentials/my``）一律用這個 schema——把明文金鑰放進
+    列表回應，等於每次開頁都把所有金鑰再散佈一次（瀏覽器快取、日誌、截圖）。
+    """
+
     id: uuid.UUID
     request_id: uuid.UUID
     base_url: str
-    api_key: str
     api_key_prefix: str
     api_key_name: str
     rate_limit: int | None = None
     expires_at: datetime | None = None
     revoked_at: datetime | None = None
     created_at: datetime
+
+
+class AIAPICredentialWithSecret(AIAPICredentialPublic):
+    """核發／輪替當下的一次性回應。
+
+    ``api_key`` 只在操作者本人輪替自己的金鑰時帶明文；管理員代操時留 None，
+    只回前綴——代操的目的是撤換，不是取得別人的金鑰。
+    """
+
+    api_key: str | None = None
 
 
 class AIAPICredentialsPublic(BaseModel):

@@ -7,7 +7,8 @@ from .arq_client import (
     get_redis_settings,
     init_arq_pool,
 )
-from .dispatch import enqueue_task
+from .dispatch import enqueue_task, enqueue_task_sync
+from .modules import TASK_MODULES, import_task_modules
 from .registry import (
     queue_task,
     registered_functions,
@@ -17,8 +18,11 @@ from .registry import (
 
 __all__ = [
     "QUEUE_NAME",
+    "TASK_MODULES",
     "close_arq_pool",
     "enqueue_task",
+    "enqueue_task_sync",
+    "import_task_modules",
     "get_arq_pool",
     "get_redis_settings",
     "init_arq_pool",

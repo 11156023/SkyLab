@@ -94,14 +94,43 @@ def validate_publish_target_ip(
     return addr
 
 
-def assert_publishable_vm_ip(session: object, vm_ip: str) -> None:
+def assert_publishable_vm_ip(
+    session: object, vm_ip: str, *, vmid: int | None = None
+) -> None:
     """依 SubnetConfig 與 PVE 連線設定組出白/黑名單後檢查 ``vm_ip``。
 
     ``session`` 可能是測試用的簡化物件；任何設定查詢失敗都只會縮小名單，
     不會放行格式不合法或特殊範圍的位址。
+
+    給了 ``vmid`` 時另外比對 IP 管理的配發紀錄：``vm_ip`` 是 guest agent 回報、
+    VM 擁有者可以在 VM 裡改成同學的位址；平台自己配發給這台機器的 IP 才是
+    權威資料，不相符就拒絕發布（只驗「在網段內」擋不住指到別台機器）。
     """
     allowed_cidrs: list[str] = []
     blocked_ips: list[str] = []
+
+    if vmid is not None:
+        try:
+            from app.repositories.resource import (  # noqa: PLC0415
+                get_allocated_ip_address,
+            )
+
+            allocated = get_allocated_ip_address(session=session, vmid=vmid)  # type: ignore[arg-type]
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("讀取 VMID=%s 的 IP 配發紀錄失敗: %s", vmid, exc)
+            allocated = None
+        if allocated:
+            allocated_addr = _parse_ipv4(allocated)
+            target_addr = _parse_ipv4(vm_ip)
+            if allocated_addr is None or target_addr != allocated_addr:
+                raise BadRequestError(
+                    t(
+                        "publish.targetIpNotAllocatedToVm",
+                        ip=str(vm_ip),
+                        vmid=vmid,
+                        allocated=str(allocated),
+                    )
+                )
 
     try:
         from app.services.network import ip_management_service  # noqa: PLC0415

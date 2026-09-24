@@ -23,7 +23,7 @@ class AIAPIUsage(SQLModel, table=True):
     )
 
     id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
-    user_id: uuid.UUID = Field(foreign_key="user.id", index=True)
+    user_id: uuid.UUID = Field(foreign_key="user.id", index=True, ondelete="CASCADE")
     credential_id: uuid.UUID = Field(foreign_key="ai_api_credentials.id", index=True)
     model_name: str = Field(max_length=255)
     request_type: str = Field(max_length=50)  # chat_completion, completion, etc.

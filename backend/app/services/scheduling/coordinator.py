@@ -199,16 +199,28 @@ def _provision_new_resource(
 
     # --- Phase 1: mark provisioning running + plan (short transaction) ----
     request.provisioning_status = VMProvisioningStatus.running
+    request.provisioning_started_at = _utc_now()
     request.provisioning_error = None
     session.add(request)
     session.commit()
     logger.info("Marked request %s as provisioning", request.id)
 
     try:
-        plan = provisioning_service.plan_provision(
-            session=session,
-            db_request=request,
+        # 送單時的配額檢查看不到後來一起核准的其他申請；真正要開機器前再驗
+        # 一次（這張單自己會被排除、PVE 查詢失敗 fail-open）。
+        from app.services.resource import (  # noqa: PLC0415 — 避免 import cycle
+            quota_service,
         )
+
+        quota_service.check_quota_for_provision(session, request)
+        # plan 內的 next_vmid() 與 IP 配發要在跨 worker 的 VMID 鎖內完成並
+        # commit，否則併發的 plan 會讀到同一個 cluster.nextid、兩張單撞 VMID。
+        with proxmox_service.vmid_allocation_lock(db_engine=session.get_bind()):
+            plan = provisioning_service.plan_provision(
+                session=session,
+                db_request=request,
+            )
+            session.commit()
     except Exception as plan_exc:
         # Plan failed — revert to approved so scheduler can retry.
         # IP allocated during plan_provision is already flushed to session;
@@ -276,6 +288,32 @@ def _provision_new_resource(
         if req is None:
             logger.error("Request %s vanished after provisioning VMID %s", request_id, new_vmid)
             raise NotFoundError(f"Request {request_id} no longer exists")
+
+        if req.status != VMRequestStatus.approved:
+            # clone 期間申請單被取消／駁回：不能把機器掛到非 approved 的單上
+            # （會變成沒有 auto-stop、沒有 TTL 回收的孤兒），直接收回。
+            logger.warning(
+                "Request %s is %s after provisioning VMID %s; removing the orphan",
+                request_id, req.status.value, new_vmid,
+            )
+            finish_session.commit()
+            try:
+                provisioning_service.cleanup_failed_resource(
+                    actual_node, new_vmid, plan["resource_type"]
+                )
+            except Exception:
+                logger.exception("Failed to remove orphan VMID %s", new_vmid)
+            try:
+                ip_management_service.release_ip(
+                    finish_session,
+                    new_vmid,
+                    restore_reservation=bool(plan.get("ip_reservation_key")),
+                    reservation_key=plan.get("ip_reservation_key"),
+                )
+                finish_session.commit()
+            except Exception:
+                logger.warning("Failed to release IP for orphan VMID %s", new_vmid)
+            return None
 
         resource_repo.create_resource(
             session=finish_session,
@@ -412,11 +450,19 @@ def _adopt_or_provision_due_request(
     if locked is None:
         return None
     # Re-check: another process may have set vmid or changed status.
-    if (
-        locked.vmid is not None
-        or locked.provisioning_status == VMProvisioningStatus.running
-    ):
+    if locked.vmid is not None:
         return None
+    if locked.provisioning_status == VMProvisioningStatus.running:
+        if not scheduling_policy.is_provisioning_stale(
+            locked.provisioning_started_at, now=_utc_now()
+        ):
+            return None
+        # running 超過上限：多半是 clone 中容器重啟或寫回 DB 失敗。先試著
+        # 認領 PVE 上可能已建好的機器，認不到再重新 provision。
+        logger.warning(
+            "Request %s stuck in provisioning since %s; taking over",
+            locked.id, locked.provisioning_started_at,
+        )
 
     # Try adopting an existing Proxmox resource first.
     adopted = _adopt_existing_resource(session=session, request=locked)
@@ -633,14 +679,26 @@ def process_due_request_starts() -> int:
 
         for request in active_requests:
             if request.vmid is None:
-                # 尚未 provision — fan-out 到背景並行 clone（獨立 semaphore
-                # 限流），tick 不再同步等待重 I/O。防重複由 runner task_id
+                if (
+                    request.provisioning_status == VMProvisioningStatus.running
+                    and not scheduling_policy.is_provisioning_stale(
+                        request.provisioning_started_at, now=now
+                    )
+                ):
+                    # worker 正在 clone：不用再送，job id 去重也擋得住，但這裡
+                    # 先跳過省一次 Redis 往返
+                    continue
+                # 尚未 provision — 入列到 arq worker 並行 clone（worker 內
+                # semaphore 限流），tick 不再同步等待重 I/O。防重複由 job id
                 # 去重 + DB SKIP LOCKED + provisioning_status 再檢查三層保障。
                 provision_pool.submit_provision(
-                    request.id,
+                    session,
+                    request_id=request.id,
+                    user_id=request.user_id,
                     concurrency=governance_config.provision_max_concurrency,
                 )
                 continue
+
             try:
                 started = _ensure_request_running(
                     session=session,
@@ -827,10 +885,15 @@ def process_due_request_stops() -> int:
 
 
 async def run_scheduler(stop_event: asyncio.Event) -> None:
+    from app.services.scheduling.leader import (  # noqa: PLC0415 — 避免 import cycle
+        scheduler_leader_lock,
+    )
+
     logger.info("VM request scheduler is running")
     await run_polling_scheduler(
         stop_event=stop_event,
         interval_seconds=SCHEDULER_POLL_SECONDS,
+        leader_gate=scheduler_leader_lock,
         tasks=[
             ScheduledTask(name="process_due_request_starts", handler=process_due_request_starts),
             ScheduledTask(name="process_due_request_stops", handler=process_due_request_stops),
@@ -839,6 +902,14 @@ async def run_scheduler(stop_event: asyncio.Event) -> None:
                 handler=process_expired_requests_task,
             ),
             ScheduledTask(name="process_pending_deletions", handler=process_pending_deletions_task),
+            ScheduledTask(
+                name="reap_stale_script_runs", handler=reap_stale_script_runs_task
+            ),
+            ScheduledTask(
+                name="reap_stale_task_records", handler=reap_stale_task_records_task
+            ),
+
+
             ScheduledTask(
                 name="process_recurrence_windows",
                 handler=recurrence_scheduler.process_recurrence_windows,
@@ -875,9 +946,23 @@ async def run_scheduler(stop_event: asyncio.Event) -> None:
                 name="process_snapshot_cleanup",
                 handler=process_snapshot_cleanup_task,
             ),
+            ScheduledTask(
+                name="reap_stale_batch_jobs",
+                handler=reap_stale_batch_jobs_task,
+            ),
         ],
     )
     logger.info("VM request scheduler stopped")
+
+
+def reap_stale_batch_jobs_task() -> int:
+    """Scheduler tick：批次佈建跑在 daemon thread，重啟後會永遠停在 running；
+    超過 STALE_BATCH_JOB_HOURS 沒進度的工作標 failed 讓老師能重試。"""
+    from app.services.vm import (
+        batch_provision_service,  # noqa: PLC0415 — 避免 import cycle
+    )
+
+    return batch_provision_service.reap_stale_batch_jobs()
 
 
 def process_expired_requests_task() -> int:
@@ -939,6 +1024,33 @@ def process_snapshot_cleanup_task() -> int:
     )
 
     return snapshot_cleanup_service.process_snapshot_cleanup()
+
+
+def reap_stale_task_records_task() -> int:
+    """Scheduler tick：把 worker 被硬殺後永遠停在 running／queued 的 TaskRecord 收成 failed。"""
+    from app.repositories import task_record as task_record_repo  # noqa: PLC0415
+
+    try:
+        with Session(engine) as session:
+            return task_record_repo.reap_stale_task_records(session=session)
+    except Exception:
+        logger.exception("reap_stale_task_records_task failed")
+        return 0
+
+
+def reap_stale_script_runs_task() -> int:
+    """Scheduler tick：把被硬殺的 Teacher Judge script run 從 running 收成 failed。"""
+    from app.ai.teacher_judge import (
+        script_executor_service,  # noqa: PLC0415 — 避免 import cycle
+    )
+
+    try:
+        with Session(engine) as session:
+            reaped = script_executor_service.reap_stale_script_runs(session)
+        return reaped
+    except Exception:
+        logger.exception("reap_stale_script_runs_task failed")
+        return 0
 
 
 def process_pending_deletions_task() -> int:

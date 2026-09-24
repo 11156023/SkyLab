@@ -4,7 +4,7 @@
  * 執行中每 10 秒更新即時用量）＋ 環境資訊、連線與憑證、來源範本的使用手冊。
  */
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useAuth } from "../../../../contexts/AuthContext";
 import styles from "./ResourceDetailPage.module.scss";
@@ -204,16 +204,23 @@ export default function OverviewTab({ vmid }) {
   const [resource, setResource] = useState(null);
   const [live, setLive] = useState(null);
   const [sshKey, setSshKey] = useState(null);
+  /* 憑證抓不到 ≠ 這台沒有憑證：分開記，才不會把載入失敗講成「無憑證」 */
+  const [sshKeyError, setSshKeyError] = useState(false);
   const [manual, setManual] = useState(null);
   const [copied, setCopied] = useState("");
   const [downloadingId, setDownloadingId] = useState(null);
   const [error, setError] = useState(false);
+  const copiedTimerRef = useRef(null);
+
+  /* 卸載時清掉「已複製」的還原計時器 */
+  useEffect(() => () => clearTimeout(copiedTimerRef.current), []);
 
   useEffect(() => {
     let cancelled = false;
     setResource(null);
     setLive(null);
     setSshKey(null);
+    setSshKeyError(false);
     setError(false);
     ResourcesService.get(vmid)
       .then((r) => {
@@ -222,7 +229,7 @@ export default function OverviewTab({ vmid }) {
         if (r.ssh_public_key || r.has_login_password) {
           ResourcesService.getSshKey(vmid)
             .then((k) => !cancelled && setSshKey(k))
-            .catch(() => {});
+            .catch(() => !cancelled && setSshKeyError(true));
         }
       })
       .catch(() => !cancelled && setError(true));
@@ -278,7 +285,9 @@ export default function OverviewTab({ vmid }) {
     try {
       await navigator.clipboard.writeText(text);
       setCopied(id);
-      setTimeout(() => setCopied(""), 2000);
+      /* 存下 handle：離開分頁時清掉，不讓已卸載的元件被 setState */
+      clearTimeout(copiedTimerRef.current);
+      copiedTimerRef.current = setTimeout(() => setCopied(""), 2000);
     } catch {
       toast.error(t("OverviewTab.copyFailed"));
     }
@@ -640,7 +649,9 @@ export default function OverviewTab({ vmid }) {
                   t={t}
                 />
               )}
-              {!hasCredentials && <p className={ov.emptyNote}>{t("OverviewTab.noCredentials")}</p>}
+              {sshKeyError
+                ? <p className={ov.emptyNote}>{t("OverviewTab.credentialsLoadFailed")}</p>
+                : !hasCredentials && <p className={ov.emptyNote}>{t("OverviewTab.noCredentials")}</p>}
             </div>
           </div>
         </section>

@@ -116,7 +116,8 @@ export default function DashboardLayout() {
                 </div>
               )}
               <SubnetBanner />
-              <ErrorBoundary>
+              {/* key 綁路徑：切換頁面時重建 ErrorBoundary，前一頁的錯誤不會卡住新頁面 */}
+              <ErrorBoundary key={location.pathname}>
                 <Suspense
                   fallback={
                     <div className={styles.routeLoading}>

@@ -79,6 +79,26 @@ def require_ai_api_access(
     )
 
 
+def require_ai_api_manage(
+    user: Any,
+    owner_id: uuid.UUID | None,
+    *,
+    detail: str = "Not enough privileges",
+) -> None:
+    """金鑰的寫入操作（輪替／改名／刪除）。
+
+    故意不吃 ``AI_API_VIEW_ALL``：那是「看得到別人的金鑰清單」的唯讀權限，
+    拿來當寫入繞過等於讓唯讀角色能撤銷別人的金鑰。代操一律要 ``AI_API_MANAGE_ALL``
+    （目前只有管理員有），且呼叫端必須留下稽核紀錄。
+    """
+    require_owner_or_permission(
+        user,
+        owner_id,
+        bypass_permission=Permission.AI_API_MANAGE_ALL,
+        detail=detail,
+    )
+
+
 def require_vm_request_access(
     user: Any,
     owner_id: uuid.UUID | None,

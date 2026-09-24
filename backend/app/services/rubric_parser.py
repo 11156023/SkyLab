@@ -2,17 +2,53 @@
 
 from __future__ import annotations
 
+import contextlib
 import io
+import os
 import shutil
+import signal
 import subprocess
 import tempfile
+import zipfile
 from pathlib import Path
+from typing import Any
+
+# Office 檔案就是 zip：解壓後的總大小與壓縮比都要先看過，
+# 否則一份幾百 KB 的檔案可以在解析階段吃掉數 GB 記憶體。
+MAX_ZIP_UNCOMPRESSED_BYTES = 50 * 1024 * 1024
+MAX_ZIP_COMPRESSION_RATIO = 100
+# 單份 PDF 的頁數上限：pdfplumber 逐頁抽字與表格，頁數沒有上限時
+# 一份檔案就能把 worker 佔住幾十分鐘。
+MAX_PDF_PAGES = 200
+# .doc 轉檔（LibreOffice）的逾時秒數
+DOC_CONVERT_TIMEOUT_SECONDS = 30
+
+
+def _guard_zip_document(file_bytes: bytes) -> None:
+    """解壓炸彈防護：先讀 zip 目錄的宣告大小，再決定要不要解析。"""
+    from app.core.i18n import t
+
+    try:
+        with zipfile.ZipFile(io.BytesIO(file_bytes)) as archive:
+            total = sum(int(info.file_size) for info in archive.infolist())
+    except zipfile.BadZipFile as exc:
+        raise ValueError(t("rubric_parser.corrupted_document")) from exc
+    if total > MAX_ZIP_UNCOMPRESSED_BYTES or (
+        file_bytes and total / len(file_bytes) > MAX_ZIP_COMPRESSION_RATIO
+    ):
+        raise ValueError(
+            t(
+                "rubric_parser.document_too_large",
+                limit=MAX_ZIP_UNCOMPRESSED_BYTES // (1024 * 1024),
+            )
+        )
 
 
 def parse_docx(file_bytes: bytes) -> str:
     """用 python-docx 解析 .docx，段落與表格都轉為 Markdown 文字。"""
     from docx import Document  # type: ignore
 
+    _guard_zip_document(file_bytes)
     doc = Document(io.BytesIO(file_bytes))
     lines: list[str] = []
 
@@ -56,6 +92,10 @@ def parse_pdf(file_bytes: bytes) -> str:
 
     lines: list[str] = []
     with pdfplumber.open(io.BytesIO(file_bytes)) as pdf:
+        if len(pdf.pages) > MAX_PDF_PAGES:
+            raise ValueError(
+                t("rubric_parser.pdf_too_many_pages", limit=MAX_PDF_PAGES)
+            )
         for page in pdf.pages:
             # 先偵測此頁的表格與其 bbox，避免重複提取純文字
             tables = page.find_tables()
@@ -129,18 +169,45 @@ def parse_text(file_bytes: bytes) -> str:
         raise ValueError("文字文件必須使用 UTF-8 編碼。") from exc
 
 
+def _terminate_process_tree(process: subprocess.Popen[bytes]) -> None:
+    """連同 soffice fork 出來的子行程一起殺掉。
+
+    只 kill 父行程的話，真正在轉檔的那個行程會變成孤兒繼續佔著 CPU；
+    Windows 沒有 process group 的概念，退回單純 kill。
+    """
+    killpg = getattr(os, "killpg", None)
+    getpgid = getattr(os, "getpgid", None)
+    if killpg is not None and getpgid is not None:
+        with contextlib.suppress(Exception):
+            killpg(getpgid(process.pid), signal.SIGKILL)
+            return
+    with contextlib.suppress(Exception):
+        process.kill()
+
+
 def parse_doc(file_bytes: bytes) -> str:
     """透過隔離的 LibreOffice/soffice 將舊式 .doc 轉成純文字。"""
+    from app.core.i18n import t
+
     converter = shutil.which("soffice") or shutil.which("libreoffice")
     if not converter:
-        raise ValueError("解析 .doc 需要伺服器安裝 LibreOffice。")
+        raise ValueError(t("rubric_parser.libreoffice_missing"))
 
     with tempfile.TemporaryDirectory(prefix="teacher-judge-doc-") as directory:
         input_path = Path(directory) / "source.doc"
         input_path.write_bytes(file_bytes)
-        result = subprocess.run(
+        profile_dir = Path(directory) / "profile"
+        profile_dir.mkdir()
+        popen_kwargs: dict[str, Any] = {}
+        if hasattr(os, "setsid"):
+            # 自己一組 process group，逾時才殺得乾淨
+            popen_kwargs["start_new_session"] = True
+        process = subprocess.Popen(  # noqa: S603
             [
                 converter,
+                # 每次轉檔用獨立的使用者設定目錄：共用 profile 會讓並行轉檔
+                # 互相搶鎖，也避免文件內容污染到下一次轉檔
+                f"-env:UserInstallation={profile_dir.as_uri()}",
                 "--headless",
                 "--convert-to",
                 "txt:Text",
@@ -148,13 +215,20 @@ def parse_doc(file_bytes: bytes) -> str:
                 directory,
                 str(input_path),
             ],
-            capture_output=True,
-            check=False,
-            timeout=30,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            **popen_kwargs,
         )
+        try:
+            process.communicate(timeout=DOC_CONVERT_TIMEOUT_SECONDS)
+        except subprocess.TimeoutExpired:
+            _terminate_process_tree(process)
+            with contextlib.suppress(Exception):
+                process.communicate(timeout=5)
+            raise ValueError(t("rubric_parser.doc_conversion_timeout")) from None
         output_path = Path(directory) / "source.txt"
-        if result.returncode != 0 or not output_path.exists():
-            raise ValueError("無法解析這份 .doc 文件。")
+        if process.returncode != 0 or not output_path.exists():
+            raise ValueError(t("rubric_parser.doc_conversion_failed"))
         return parse_text(output_path.read_bytes())
 
 

@@ -1,10 +1,14 @@
 import uuid
+from collections.abc import Iterator
 from datetime import datetime, timezone
 
 from sqlalchemy.orm import selectinload
-from sqlmodel import Session, func, select
+from sqlmodel import Session, and_, func, or_, select
 
 from app.models import AuditAction, AuditLog, Resource
+
+#: 匯出時一次向資料庫要幾列；整批 5 萬列一次讀進記憶體會撐爆 worker
+EXPORT_BATCH_SIZE = 500
 
 
 def create_audit_log(
@@ -45,6 +49,7 @@ def create_audit_log(
 def _build_filters(
     *,
     vmid: int | None = None,
+    resource_vmid: int | None = None,
     user_id: uuid.UUID | None = None,
     action: AuditAction | str | None = None,
     actions: list[AuditAction] | None = None,
@@ -56,6 +61,10 @@ def _build_filters(
     filters = []
     if vmid is not None:
         filters.append(AuditLog.vmid == vmid)
+    if resource_vmid is not None:
+        # 只看「現存這台資源」的紀錄：資源刪除時 resource_vmid 會 SET NULL，
+        # VMID 被新機器回收後不會把前任擁有者的紀錄帶進來
+        filters.append(AuditLog.resource_vmid == resource_vmid)
     if user_id is not None:
         filters.append(AuditLog.user_id == user_id)
     if action is not None:
@@ -82,6 +91,7 @@ def get_audit_logs(
     skip: int = 0,
     limit: int = 100,
     vmid: int | None = None,
+    resource_vmid: int | None = None,
     user_id: uuid.UUID | None = None,
     action: AuditAction | str | None = None,
     actions: list[AuditAction] | None = None,
@@ -92,6 +102,7 @@ def get_audit_logs(
 ) -> tuple[list[AuditLog], int]:
     filters = _build_filters(
         vmid=vmid,
+        resource_vmid=resource_vmid,
         user_id=user_id,
         action=action,
         actions=actions,
@@ -117,7 +128,7 @@ def get_audit_logs(
     return list(session.exec(statement).all()), count
 
 
-def iter_audit_logs_for_export(
+def stream_audit_logs_for_export(
     *,
     session: Session,
     vmid: int | None = None,
@@ -128,7 +139,14 @@ def iter_audit_logs_for_export(
     ip_address: str | None = None,
     search: str | None = None,
     max_rows: int = 50000,
-) -> list[AuditLog]:
+    batch_size: int = EXPORT_BATCH_SIZE,
+) -> Iterator[AuditLog]:
+    """Yield matching audit logs newest-first, one batch of rows at a time.
+
+    Keyset pagination on ``(created_at, id)`` rather than OFFSET: audit logs are
+    append-only, so rows inserted while the export is running would shift every
+    later OFFSET window and duplicate rows in the CSV.
+    """
     filters = _build_filters(
         vmid=vmid,
         user_id=user_id,
@@ -138,15 +156,39 @@ def iter_audit_logs_for_export(
         ip_address=ip_address,
         search=search,
     )
-    statement = (
-        select(AuditLog)
-        .options(selectinload(AuditLog.user))
-        .order_by(AuditLog.created_at.desc())
-    )
-    for f in filters:
-        statement = statement.where(f)
-    statement = statement.limit(max_rows)
-    return list(session.exec(statement).all())
+    cursor: tuple[datetime, uuid.UUID] | None = None
+    emitted = 0
+    while emitted < max_rows:
+        statement = (
+            select(AuditLog)
+            .options(selectinload(AuditLog.user))
+            .order_by(AuditLog.created_at.desc(), AuditLog.id.desc())
+        )
+        for f in filters:
+            statement = statement.where(f)
+        if cursor is not None:
+            last_created_at, last_id = cursor
+            # 平鋪成 OR 條件而不是 tuple 比較：不是每個後端都支援列值比較
+            statement = statement.where(
+                or_(
+                    AuditLog.created_at < last_created_at,
+                    and_(
+                        AuditLog.created_at == last_created_at,
+                        AuditLog.id < last_id,
+                    ),
+                )
+            )
+        statement = statement.limit(min(batch_size, max_rows - emitted))
+        rows = list(session.exec(statement).all())
+        if not rows:
+            return
+        yield from rows
+        emitted += len(rows)
+        last = rows[-1]
+        cursor = (last.created_at, last.id)
+        # 這一批沒裝滿代表已經到底，不必再問一次資料庫
+        if len(rows) < batch_size:
+            return
 
 
 def get_audit_stats(

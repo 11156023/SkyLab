@@ -32,6 +32,7 @@
   "teachingClasses.provisionedUserNoLongerInClass": "Provisioned resource user is no longer in the class.",
   "teachingClasses.onlyFailedCanResetToEdit": "Only a class that failed to be created can be reset to edit mode.",
   "teachingClasses.partialMachinesUseRetry": "Some machines have already been created; please use \"Retry Failed Machines\".",
+  "teachingClasses.scheduleTooLong": "A class may not run for more than {weeks} weeks. Please check the start and end dates.",
 
   "teacherJudgeFiles.classNotFound": "Teaching class not found.",
   "teacherJudgeFiles.unknownTemplate": "Unknown grading environment template.",

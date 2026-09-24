@@ -130,39 +130,6 @@ def get_all_vm_requests(
     return list(session.exec(statement.offset(skip).limit(limit)).all()), count
 
 
-def count_quick_template_requests_for_user(
-    *,
-    session: Session,
-    user_id: uuid.UUID,
-    since: datetime | None = None,
-    active_at: datetime | None = None,
-) -> int:
-    statement = (
-        select(func.count())
-        .select_from(VMRequest)
-        .where(
-            VMRequest.user_id == user_id,
-            VMRequest.request_kind == "quick_template",
-        )
-    )
-    if since is not None:
-        statement = statement.where(VMRequest.created_at >= since)
-    if active_at is not None:
-        statement = statement.where(
-            VMRequest.status.in_(
-                (
-                    VMRequestStatus.pending,
-                    VMRequestStatus.approved,
-                )
-            ),
-            VMRequest.provisioning_status != VMProvisioningStatus.failed,
-            VMRequest.start_at.is_not(None),
-            VMRequest.start_at <= active_at,
-            sa.or_(VMRequest.end_at.is_(None), VMRequest.end_at > active_at),
-        )
-    return int(session.exec(statement).one())
-
-
 _ACTIVE_STATUSES = (VMRequestStatus.approved,)
 
 

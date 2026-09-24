@@ -1,19 +1,13 @@
 import logging
-import uuid
 
 from fastapi import APIRouter
-from sqlmodel import Session
 
-from app.api.deps import AdminUser, ControlVmInfoDep, CurrentUser, SessionDep
+from app.api.deps import ControlVmInfoDep, CurrentUser, SessionDep
 from app.api.websocket.vnc import register_vnc_session_cookie
-from app.core.i18n import t
 from app.core.permissions import Permission, has_permission
 from app.exceptions import BadRequestError, ProxmoxError
-from app.infrastructure.worker import background_tasks
 from app.repositories import vm_template as vm_template_repo
 from app.schemas import (
-    VMCreateRequest,
-    VMCreateResponse,
     VMTemplateSchema,
     VNCInfoSchema,
 )
@@ -53,38 +47,6 @@ async def get_vm_console(vmid: int, vm_info: ControlVmInfoDep):
     except Exception as e:
         logger.error(f"Failed to get console for VM {vmid}: {e}")
         raise ProxmoxError("Failed to get VM console")
-
-
-def _run_create_vm(vm_data: VMCreateRequest, user_id: uuid.UUID) -> None:
-    """背景執行 VM clone（route session 不可跨執行緒，開獨立 session）。"""
-    from app.core.db import engine  # noqa: PLC0415 — 避免 import cycle
-
-    try:
-        with Session(engine) as task_session:
-            provisioning_service.create_vm(
-                session=task_session, vm_data=vm_data, user_id=user_id
-            )
-    except Exception:
-        logger.exception(
-            "Background VM create failed for hostname=%s", vm_data.hostname
-        )
-
-
-@router.post("/create", status_code=202, response_model=VMCreateResponse)
-def create_vm(
-    vm_data: VMCreateRequest, session: SessionDep, current_user: AdminUser
-):
-    """建立 VM（202：clone 於背景執行，前端以資源列表輪詢進度）。"""
-    task_id = background_tasks.submit_sync(
-        _run_create_vm,
-        vm_data,
-        current_user.id,
-        name="admin-create-vm",
-    )
-    return VMCreateResponse(
-        task_id=task_id or None,
-        message=t("vm.creating"),
-    )
 
 
 @router.get("/templates", response_model=list[VMTemplateSchema])
