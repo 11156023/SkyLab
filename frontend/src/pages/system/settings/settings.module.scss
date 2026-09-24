@@ -20,6 +20,55 @@
   gap: $spacing-24;
 }
 
+/* ── 篩選列（Storage）：分段切換＋搜尋框，樣式同需求審核頁 ── */
+.toolbar {
+  display: flex;
+  align-items: center;
+  gap: $spacing-16;
+  flex-wrap: wrap;
+}
+
+/* 窄螢幕放不下時切換器自己橫向捲動；高度鎖 38px 與搜尋框對齊 */
+.filterControl {
+  height: 38px;
+  max-width: 100%;
+  overflow-x: auto;
+  scrollbar-width: none;
+
+  &::-webkit-scrollbar {
+    display: none;
+  }
+}
+
+.search {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 38px;
+  padding: 0 $spacing-8 0 10px;
+  border: 1px solid var(--color-border);
+  border-radius: $radius-8;
+  background: var(--color-surface);
+  color: var(--color-text-muted);
+  flex: 0 1 280px;
+  min-width: 200px;
+  box-shadow: var(--shadow-sm);
+}
+
+.searchInput {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  outline: none;
+  background: transparent;
+  font-size: $font-size-14;
+  color: var(--color-text-primary);
+
+  &::placeholder {
+    color: var(--color-text-muted);
+  }
+}
+
 /* ── 串接後補充樣式 ────────────────────────────────── */
 
 /* 卡片之間 24、卡片內元素 16，維持外鬆內緊的層級 */
@@ -108,6 +157,16 @@
   @include btn-secondary;
 }
 
+.iconBtn {
+  @include btn-icon;
+  flex-shrink: 0;
+}
+
+.iconBtnDanger {
+  @include btn-icon($danger: true);
+  flex-shrink: 0;
+}
+
 .formGrid {
   display: grid;
   grid-template-columns: 1fr;
@@ -122,31 +181,21 @@
   }
 }
 
+/* 欄位一律走共用 form mixin（36px／14px），同 AdminPage 等對話框 */
 .field {
-  @include flex-column;
-  gap: 6px;
-  font-size: $font-size-12;
-  font-weight: $font-weight-500;
-  color: var(--color-text-secondary);
+  @include form-field;
 
   input,
   select,
   textarea {
-    min-height: 38px;
-    padding: 8px $spacing-16;
-    border: 1px solid var(--color-border);
-    border-radius: $radius-8;
-    background: var(--color-surface);
-    color: var(--color-text-primary);
-    outline: none;
-    font-size: $font-size-14;
+    @include form-control;
 
-    &:focus {
-      border-color: var(--color-primary);
-      box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-primary) 12%, transparent);
+    &::placeholder {
+      color: var(--color-text-muted);
     }
   }
 
+  /* CA 憑證 PEM 等內容維持等寬字 */
   textarea {
     font-family: monospace;
   }
@@ -159,18 +208,23 @@
   word-break: break-all;
 }
 
+/* 勾選列：同 AdminPage 等多數頁面，不包外框盒 */
 .checkRow {
   display: inline-flex;
   align-items: center;
   gap: $spacing-8;
-  min-height: 34px;
-  padding: 0 $spacing-16;
-  border: 1px solid var(--color-border);
-  border-radius: $radius-8;
   color: var(--color-text-primary);
   font-size: $font-size-14;
   cursor: pointer;
   align-self: flex-start;
+
+  input[type="checkbox"] {
+    width: 16px;
+    height: 16px;
+    margin: 0;
+    accent-color: var(--color-primary);
+    cursor: pointer;
+  }
 }
 
 /* 同一組連續開關收緊成 8（抵銷 .card 的 gap 16） */
@@ -178,10 +232,24 @@
   margin-top: -$spacing-8;
 }
 
+/* Storage 列的下拉／輸入上方有標籤，勾選列改對齊控制項那一排（貼底、給控制項高度） */
+.storageRow > .checkRow {
+  align-self: flex-end;
+  min-height: 36px;
+}
+
+/* 對話框底部的兩個開關：並排在一起、靠左，窄到放不下才換行 */
 .toggleGrid {
   display: flex;
   flex-wrap: wrap;
-  gap: $spacing-8;
+  align-items: center;
+  gap: $spacing-8 $spacing-24;
+
+  /* 並排時不套 .checkRow + .checkRow 的直向收緊（會把第二個往上拉 8px） */
+  > .checkRow {
+    align-self: center;
+    margin-top: 0;
+  }
 }
 
 /* ── Badge ── */
@@ -207,32 +275,15 @@
   gap: $spacing-8;
 }
 
-.nodeRow,
+/* Storage 列：行內有三個控制項，維持換行 flex；頭像、圓角同 .listRow */
 .storageRow {
+  display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: $spacing-16;
   padding: $spacing-16;
   @include glass-surface($shadow: var(--shadow-sm));
-  border-radius: $radius-12;
-}
-
-/* 節點／連線列用 grid：名稱欄吃剩餘寬度，尾端控件各佔一欄，
-   同構的列彼此對得齊（#22）；窄螢幕退回換行 flex */
-.nodeRow {
-  display: grid;
-  grid-template-columns: minmax(200px, 1fr);
-  grid-auto-flow: column;
-  grid-auto-columns: max-content;
-
-  @include respond-below(md) {
-    display: flex;
-    flex-wrap: wrap;
-  }
-}
-
-.storageRow {
-  display: flex;
-  flex-wrap: wrap;
+  border-radius: $radius-8;
 }
 
 /* ── Modal（節點編輯、PVE 連線表單；卡片基準比照 QuotasPage）── */
@@ -241,6 +292,7 @@
   inset: 0;
   background: var(--color-overlay);
   backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
   z-index: 300;
   @include flex-center;
   padding: $spacing-16;
@@ -264,6 +316,7 @@
   to   { opacity: 1; transform: translateY(0); }
 }
 
+/* 表單型 Dialog 規範：毛玻璃卡＋shadow-lg（同 AdminPage），不用實色 surface */
 .modal {
   animation: slideUp 0.18s cubic-bezier(0.25, 0.8, 0.25, 1);
   @include flex-column;
@@ -273,14 +326,19 @@
   max-height: 88vh;
   overflow-y: auto;
   padding: $spacing-24;
-  background: var(--color-surface);
+  @include glass-surface($shadow: var(--shadow-lg));
   border-radius: $radius-16;
-  box-shadow: var(--shadow-lg);
 }
 
-/* 小型表單款（節點編輯只有三個欄位） */
+/* 窄版（節點編輯只有三個欄位）：取規範 Dialog 寬度的 400 級 */
 .modalNarrow {
-  max-width: 420px;
+  max-width: 400px;
+}
+
+/* 標題列：標題靠左、右上關閉鈕（同網域管理的設定對話框） */
+.modalHeader {
+  @include flex-between;
+  gap: $spacing-8;
 }
 
 .modalTitle {
@@ -290,6 +348,11 @@
   font-size: $font-size-16;
   font-weight: $font-weight-700;
   color: var(--color-text-primary);
+}
+
+.dialogClose {
+  @include btn-dialog-close;
+  flex-shrink: 0;
 }
 
 .modalActions {
@@ -316,6 +379,14 @@
   min-width: 200px;
 }
 
+/* 列尾按鈕組：窄螢幕換行時整組移到名稱下方並靠右，不會只剩最後一顆單獨掉下去 */
+.rowActions {
+  display: flex;
+  align-items: center;
+  gap: $spacing-8;
+  margin-left: auto;
+}
+
 .rowName {
   display: inline-flex;
   align-items: center;
@@ -330,7 +401,104 @@
   color: var(--color-text-muted);
 }
 
-/* 節點／Storage 列的行內小欄位：可見標籤取代只有 tooltip 的裸控件（觸控裝置看不到 tooltip） */
+/* ── 清單列（PVE 連線、節點）：同使用者管理的清單列（頭像｜名稱｜狀態｜附加欄｜操作） ──
+   每一列都是獨立的 grid，狀態／附加欄給固定寬度，徽章才會在不同列之間對齊 */
+.listRow {
+  display: grid;
+  grid-template-columns: 40px minmax(0, 1fr);
+  grid-template-areas:
+    "avatar main"
+    "avatar tags"
+    "actions actions";
+  column-gap: $spacing-16;
+  row-gap: $spacing-8;
+  align-items: center;
+  padding: $spacing-16;
+  @include glass-surface($shadow: var(--shadow-sm));
+  border-radius: $radius-8;
+
+  @include respond-to(md) {
+    grid-template-columns: 40px minmax(0, 1fr) auto;
+    grid-template-areas:
+      "avatar main actions"
+      "avatar tags actions";
+  }
+
+  /* 88px 裝得下最長的譯文（ja「オフライン」徽章、en「☑ Enabled」） */
+  @include respond-to(lg) {
+    grid-template-columns: 40px minmax(220px, 1fr) 88px 88px auto;
+    grid-template-areas: "avatar main status extra actions";
+    row-gap: 0;
+  }
+
+  > .rowMain {
+    grid-area: main;
+    min-width: 0;
+  }
+
+  > .rowActions {
+    grid-area: actions;
+  }
+}
+
+/* 操作只有圖示鈕（節點）：窄螢幕也放得進右欄，不必自成一行（同使用者管理） */
+.listRowCompact {
+  @include respond-below(md) {
+    grid-template-columns: 40px minmax(0, 1fr) auto;
+    grid-template-areas:
+      "avatar main actions"
+      "avatar tags actions";
+  }
+}
+
+/* 列首圖示頭像：PVE 連線、節點、Storage 共用 */
+.listAvatar {
+  grid-area: avatar;
+  width: 40px;
+  height: 40px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  color: var(--color-text-on-primary);
+  background: var(--color-primary);
+  @include flex-center;
+}
+
+.listTags {
+  grid-area: tags;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: $spacing-8;
+  min-width: 0;
+
+  /* 勾選列預設靠上（給直向表單用），放進列裡要跟徽章垂直置中 */
+  > .checkRow {
+    align-self: center;
+  }
+
+  /* 寬螢幕拆成狀態、附加欄兩欄，跟使用者管理的角色／狀態欄同一套 */
+  @include respond-to(lg) {
+    display: contents;
+
+    > .listStatus {
+      grid-area: status;
+      justify-self: start;
+    }
+
+    > .listExtra {
+      grid-area: extra;
+      justify-self: start;
+    }
+  }
+}
+
+.listCount {
+  color: var(--color-text-muted);
+  font-size: $font-size-12;
+  white-space: nowrap;
+}
+
+/* Storage 列的行內小欄位：可見標籤取代只有 tooltip 的裸控件（觸控裝置看不到 tooltip） */
 .inlineField {
   @include flex-column;
   gap: 2px;

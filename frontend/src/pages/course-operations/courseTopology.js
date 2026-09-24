@@ -50,3 +50,68 @@ export function normalizePublication(publication, index = 0) {
     zoneId: publication.zoneId ?? publication.zone_id ?? "",
   };
 }
+
+/* 連線標籤貼在「主體」那台機器旁約 52px 處、往遠離它的方向展開，最寬 170px
+   （ConnectionEdge 的 LABEL_GAP 與 .edgeLabel 的 max-width）。左右相鄰的節點至少要隔這麼遠，
+   標籤才不會被另一台蓋住；上下相鄰時標籤在線的正下／上方，只佔一行高 */
+export const LABEL_CLEARANCE_X = 240;
+export const LABEL_CLEARANCE_Y = 90;
+
+/**
+ * 唯讀拓撲顯示用的位置：保留原本的前後順序與列／欄關係，只把同一列（或同一欄）裡
+ * 靠太近的節點推開到放得下連線標籤。推開的量一路累加到後面所有節點，
+ * 上下對齊的欄才不會被拆散。只算顯示位置，不改課程環境裡存的座標。
+ *
+ * @param {{ id: string, position: { x: number, y: number }, width: number, height: number }[]} boxes
+ * @returns {Map<string, { x: number, y: number }>} 依 id 對應推開後的位置
+ */
+export function spreadForEdgeLabels(boxes, { gapX = LABEL_CLEARANCE_X, gapY = LABEL_CLEARANCE_Y } = {}) {
+  const positions = new Map(boxes.map((box) => [box.id, { ...box.position }]));
+  const stretch = (axis, gap) => {
+    const cross = axis === "x" ? "y" : "x";
+    const size = axis === "x" ? "width" : "height";
+    const crossSize = axis === "x" ? "height" : "width";
+    const order = [...boxes].sort((a, b) => positions.get(a.id)[axis] - positions.get(b.id)[axis]);
+    const placed = [];
+    let shift = 0;
+    for (const box of order) {
+      const pos = positions.get(box.id);
+      pos[axis] += shift;
+      for (const other of placed) {
+        const otherPos = positions.get(other.id);
+        const sameLine = pos[cross] < otherPos[cross] + other[crossSize]
+          && otherPos[cross] < pos[cross] + box[crossSize];
+        const need = otherPos[axis] + other[size] + gap;
+        if (sameLine && pos[axis] < need) {
+          shift += need - pos[axis];
+          pos[axis] = need;
+        }
+      }
+      placed.push(box);
+    }
+  };
+  stretch("x", gapX);
+  stretch("y", gapY);
+  return positions;
+}
+
+/** 課程機器節點（.vmNode＋.courseMachineNode）的固定尺寸，推開節點時照這個算間距 */
+export const COURSE_MACHINE_NODE_SIZE = { width: 220, height: 68 };
+
+/**
+ * 不能拖曳的拓撲（班級上課環境的唯讀圖、已發布的教學環境）顯示用的位置：
+ * 機器照 spreadForEdgeLabels 推開，網際網路節點放在最右邊那台右側、跟第一列同高，
+ * 同樣留出放標籤的距離。只算畫面位置，不改存的座標。
+ *
+ * @param {{ id: string, position: { x: number, y: number } }[]} machines 原本（存的）位置
+ * @returns {{ positions: Map<string, { x: number, y: number }>, internet: { x: number, y: number } }}
+ */
+export function frozenTopologyLayout(machines) {
+  const positions = spreadForEdgeLabels(
+    machines.map((machine) => ({ id: machine.id, position: machine.position, ...COURSE_MACHINE_NODE_SIZE })),
+  );
+  const placed = [...positions.values()];
+  const rightEdge = Math.max(0, ...placed.map((position) => position.x + COURSE_MACHINE_NODE_SIZE.width));
+  const topRow = placed.length ? Math.min(...placed.map((position) => position.y)) : 95;
+  return { positions, internet: { x: rightEdge + LABEL_CLEARANCE_X, y: topRow } };
+}

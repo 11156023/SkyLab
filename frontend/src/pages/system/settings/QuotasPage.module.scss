@@ -66,126 +66,71 @@
   color: var(--color-text-muted);
 }
 
-/* ── 表格 ── */
+/* ── 表格：走共用 table mixin；列本身不可點，不給整列 hover ── */
+/* 表格嵌在卡片內（卡片 overflow: hidden 保圓角），橫向卷動由 .tableScroll 提供 */
+.tableScroll {
+  overflow-x: auto;
+}
+
 .table {
-  width: 100%;
-  border-collapse: collapse;
+  @include table-base;
+  min-width: 640px;
 
   th {
-    padding: $spacing-8 $spacing-16;
-    font-size: $font-size-12;
-    font-weight: $font-weight-500;
-    color: var(--color-text-muted);
-    text-align: left;
-    background: var(--color-hover);
-    border-bottom: 1px solid var(--color-border);
-    white-space: nowrap;
+    @include table-th;
   }
 
   td {
-    padding: $spacing-8 $spacing-16;
-    font-size: $font-size-14;
-    color: var(--color-text-primary);
-    vertical-align: middle;
+    @include table-td;
   }
 
   tbody tr {
-    transition: background $transition-base;
+    @include table-tr;
+  }
 
-    &:not(:last-child) {
-      border-bottom: 1px solid var(--color-divider);
-    }
+  /* 欄寬：對象與數字欄固定，剩餘寬度全給最後的操作欄（按鈕貼右緣），
+     資料欄集中在左側，不會在對象與數字之間留一大段空白 */
+  .colTarget {
+    width: 280px;
+  }
 
-    &:hover {
-      background: var(--color-hover);
-    }
+  /* 靠右的欄位要掛在 .table 底下，權重才壓得過 table-th 的 text-align: left */
+  /* 數字欄：靠右＋等寬數字，上下列位數對齊 */
+  .num {
+    width: 112px;
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+  }
+
+  .thRight,
+  .tdRight {
+    text-align: right;
   }
 }
 
-.thRight,
-.tdRight {
-  text-align: right;
-  width: 96px;
-}
-
+/* 列上的淡底圖示鈕之間留 8px，同使用者管理、PVE 連線的列動作 */
 .rowActions {
   display: flex;
   justify-content: flex-end;
-  gap: $spacing-4;
+  gap: $spacing-8;
 }
 
-/* ── 徽章 ── */
-.badge {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 2px 10px;
-  border-radius: $radius-pill;
-  font-size: $font-size-12;
-  font-weight: $font-weight-500;
-  white-space: nowrap;
-}
-
-.badge_user {
-  background: color-mix(in srgb, var(--color-danger) 12%, transparent);
-  color: var(--color-danger);
-}
-
-/* ── 按鈕 ── */
-%btn-base {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 6px $spacing-16;
-  border-radius: $radius-8;
-  font-size: $font-size-14;
-  font-weight: $font-weight-500;
-  cursor: pointer;
-  white-space: nowrap;
-  transition: background $transition-base;
-
-  &:disabled {
-    opacity: 0.4;
-    cursor: not-allowed;
-  }
-}
-
+/* ── 按鈕：一律走共用 btn-* mixin ── */
 .btnPrimary {
-  @extend %btn-base;
-  background: var(--color-primary);
-  color: var(--color-text-on-primary);
-
-  &:hover:not(:disabled) {
-    background: var(--color-primary-dark);
-  }
+  @include btn-primary;
 }
 
-.btnGhost {
-  @extend %btn-base;
-  background: var(--color-surface);
-  border: 1px solid var(--color-border);
-  color: var(--color-text);
-  box-shadow: var(--shadow-sm);
+.btnSecondary {
+  @include btn-secondary;
+}
 
-  &:hover:not(:disabled) {
-    background: var(--color-hover);
-  }
+.btnIcon {
+  @include btn-icon;
 }
 
 .btnIconDanger {
   @include btn-icon($danger: true);
-}
-
-.btnIcon {
-  @extend %btn-base;
-  padding: 4px 8px;
-  background: transparent;
-  color: var(--color-text-secondary);
-
-  &:hover:not(:disabled) {
-    background: var(--color-hover);
-    color: var(--color-text-primary);
-  }
 }
 
 /* ── Modal ── */
@@ -194,6 +139,7 @@
   inset: 0;
   background: var(--color-overlay);
   backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
   z-index: 300;
   @include flex-center;
   padding: $spacing-16;
@@ -217,27 +163,38 @@
   to   { opacity: 1; transform: translateY(0); }
 }
 
+/* 表單型 Dialog 規範（同 PVE 連線對話框）：毛玻璃卡＋shadow-lg、小型表單寬 640 */
 .modal {
   animation: slideUp 0.18s cubic-bezier(0.25, 0.8, 0.25, 1);
   @include flex-column;
   gap: $spacing-16;
   width: 100%;
-  max-width: 480px;
+  max-width: 640px;
   max-height: 88vh;
   overflow-y: auto;
   padding: $spacing-24;
-  background: var(--color-surface);
+  @include glass-surface($shadow: var(--shadow-lg));
   border-radius: $radius-16;
-  box-shadow: var(--shadow-lg);
+}
+
+/* 標題列：標題靠左、右上關閉鈕 */
+.modalHeader {
+  @include flex-between;
+  gap: $spacing-8;
 }
 
 .modalTitle {
   display: inline-flex;
   align-items: center;
   gap: $spacing-8;
-  font-size: $font-size-18;
+  font-size: $font-size-16;
   font-weight: $font-weight-700;
   color: var(--color-text-primary);
+}
+
+.dialogClose {
+  @include btn-dialog-close;
+  flex-shrink: 0;
 }
 
 .modalActions {
@@ -249,7 +206,11 @@
 .formGrid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: $spacing-16 $spacing-8;
+  gap: $spacing-16;
+
+  @include respond-below(sm) {
+    grid-template-columns: 1fr;
+  }
 }
 
 /* ── 可搜尋的使用者選擇欄位 ── */
@@ -320,56 +281,48 @@
   color: var(--color-text-muted);
 }
 
+/* 欄位一律走共用 form mixin（同 PVE 連線對話框）；只套直接的輸入框與使用者選擇欄，
+   不波及「無限制」勾選框 */
 .field {
-  @include flex-column;
-  gap: $spacing-4;
+  @include form-field;
 
-  label {
-    font-size: $font-size-14;
-    font-weight: $font-weight-500;
-    color: var(--color-text);
+  /* 標籤是 <label for>，補上 form-field 給 span 標籤的間距 */
+  > label:first-child {
+    margin-bottom: 3px;
   }
 
-  input,
-  select {
-    width: 100%;
-    padding: $spacing-8 $spacing-16;
-    border: 1px solid var(--color-border);
-    border-radius: $radius-8;
-    font-size: $font-size-14;
-    background: var(--color-surface);
-    color: var(--color-text);
-    transition: border-color $transition-base;
+  > input,
+  > select,
+  .picker > input {
+    @include form-control;
 
     &::placeholder {
       color: var(--color-text-muted);
     }
 
-    &:focus {
-      border-color: var(--color-primary);
-    }
-
     &:disabled {
-      background: var(--color-hover);
       color: var(--color-text-muted);
+      background: var(--color-hover);
       cursor: not-allowed;
     }
   }
 }
 
+/* 「無限制」勾選：同 PVE 對話框的勾選列（16px 勾選框、14px 文字），不撐滿整欄 */
 .field .unlimitedToggle {
   display: inline-flex;
+  align-self: flex-start;
   align-items: center;
-  gap: $spacing-4;
-  font-size: $font-size-12;
+  gap: $spacing-8;
+  color: var(--color-text-primary);
+  font-size: $font-size-14;
   font-weight: $font-weight-400;
-  color: var(--color-text-secondary);
   cursor: pointer;
   user-select: none;
 
   input[type="checkbox"] {
-    width: auto;
-    padding: 0;
+    width: 16px;
+    height: 16px;
     margin: 0;
     accent-color: var(--color-primary);
     cursor: pointer;

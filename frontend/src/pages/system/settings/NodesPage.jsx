@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useId, useState } from "react";
+import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
 import styles from "./settings.module.scss";
 import MIcon from "../../../components/MIcon";
@@ -17,27 +18,45 @@ import PageHeader from "../../../components/PageHeader/PageHeader";
 /* ── 編輯 Modal：改用彈窗，列本身不再變形（#22） ── */
 function NodeEditDialog({ node, saving, closing = false, onClose, onSave }) {
   const { t } = useTranslation("system");
+  const titleId = useId();
   const [form, setForm] = useState({ host: node.host, port: node.port, priority: node.priority });
+
+  useEffect(() => {
+    const onKeyDown = (e) => {
+      if (e.key === "Escape" && !saving) onClose();
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [saving, onClose]);
 
   function submit(e) {
     e.preventDefault();
     onSave(node, form);
   }
 
-  return (
+  /* 掛到 document.body：外層若加了 backdrop-filter／transform，
+     position: fixed 的遮罩會被困在那一層、蓋不滿整個畫面（同 PVE 連線對話框） */
+  return createPortal(
     <div
       className={`${styles.modalOverlay} ${closing ? styles.modalOverlayOut : ""}`}
       onMouseDown={onClose}
     >
       <form
         className={`${styles.modal} ${styles.modalNarrow}`}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
         onSubmit={submit}
         onMouseDown={(e) => e.stopPropagation()}
       >
-        <span className={styles.modalTitle}>
-          <MIcon name="dns" size={18} />
-          {t("SettingsPage.editNodeTitle", { name: node.name })}
-        </span>
+        <div className={styles.modalHeader}>
+          <h2 id={titleId} className={styles.modalTitle}>
+            {t("SettingsPage.editNodeTitle", { name: node.name })}
+          </h2>
+          <button type="button" className={styles.dialogClose} onClick={onClose} disabled={saving} aria-label={t("SettingsPage.close")}>
+            <MIcon name="close" size={18} />
+          </button>
+        </div>
 
         <label className={styles.field}>
           <span>Host</span>
@@ -77,7 +96,8 @@ function NodeEditDialog({ node, saving, closing = false, onClose, onSave }) {
           </button>
         </div>
       </form>
-    </div>
+    </div>,
+    document.body,
   );
 }
 
@@ -152,7 +172,11 @@ function NodeList() {
   return (
     <div className={styles.list}>
       {nodes.map((node) => (
-        <div key={node.id ?? node.name} className={styles.nodeRow}>
+        /* 清單列同 PVE 連線：頭像｜名稱｜在線狀態｜啟用｜編輯 */
+        <div key={node.id ?? node.name} className={`${styles.listRow} ${styles.listRowCompact}`}>
+          <span className={styles.listAvatar} aria-hidden="true">
+            <MIcon name="dns" size={20} />
+          </span>
           <div className={styles.rowMain}>
             <span className={styles.rowName}>
               {node.name}
@@ -166,22 +190,32 @@ function NodeList() {
               {node.enabled === false && ` · ${t("SettingsPage.notAcceptingNewVms")}`}
             </span>
           </div>
-          <span className={`${styles.badge} ${node.is_online ? styles.badge_success : styles.badge_danger}`}>
-            {node.is_online ? t("SettingsPage.online") : t("SettingsPage.offline")}
-          </span>
-          <label className={styles.checkRow} title={t("SettingsPage.disableNodeHint")}>
-            <input
-              type="checkbox"
-              checked={node.enabled !== false}
-              disabled={saving || node.id == null}
-              onChange={(e) => toggleEnabled(node, e.target.checked)}
-            />
-            <span>{t("SettingsPage.enable")}</span>
-          </label>
-          <button type="button" className={styles.btnSecondary} onClick={() => setEditTarget(node)} disabled={node.id == null}>
-            <MIcon name="edit" size={16} />
-            {t("SettingsPage.edit")}
-          </button>
+          <div className={styles.listTags}>
+            <span className={`${styles.badge} ${styles.listStatus} ${node.is_online ? styles.badge_success : styles.badge_danger}`}>
+              {node.is_online ? t("SettingsPage.online") : t("SettingsPage.offline")}
+            </span>
+            <label className={`${styles.checkRow} ${styles.listExtra}`} title={t("SettingsPage.disableNodeHint")}>
+              <input
+                type="checkbox"
+                checked={node.enabled !== false}
+                disabled={saving || node.id == null}
+                onChange={(e) => toggleEnabled(node, e.target.checked)}
+              />
+              <span>{t("SettingsPage.enable")}</span>
+            </label>
+          </div>
+          <div className={styles.rowActions}>
+            <button
+              type="button"
+              className={styles.iconBtn}
+              onClick={() => setEditTarget(node)}
+              disabled={node.id == null}
+              aria-label={`${t("SettingsPage.edit")} ${node.name}`}
+              title={t("SettingsPage.edit")}
+            >
+              <MIcon name="edit" size={16} />
+            </button>
+          </div>
         </div>
       ))}
 

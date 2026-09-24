@@ -113,25 +113,23 @@
   flex-shrink: 0;
 }
 
+/* 篩選鈕、撤銷彈窗的「取消」都是一般動作，直接用 btn-secondary。
+   原本借 btn-danger 再蓋掉顏色，hover 時 btn-danger 的深紅框線會漏出來 */
 .filterButton,
-.btnOutline,
-.btnDanger {
-  @include btn-danger;
+.btnSecondary {
+  @include btn-secondary;
 }
 
-.filterButton,
-.btnOutline {
-  border: 1px solid var(--color-border);
-  background: var(--color-surface);
-  color: var(--color-text-secondary);
-
-  &:hover:not(:disabled) { background: var(--color-hover); color: var(--color-text-primary); }
-}
-
+/* 已套用篩選：淡主色底＋主色框字，hover 維持同色系 */
 .filterButtonActive {
   border-color: color-mix(in srgb, var(--color-primary) 36%, var(--color-border));
   background: color-mix(in srgb, var(--color-primary) 10%, var(--color-surface));
   color: var(--color-primary);
+
+  &:hover:not(:disabled) {
+    background: color-mix(in srgb, var(--color-primary) 16%, var(--color-surface));
+    color: var(--color-primary);
+  }
 }
 
 .btnDanger {

@@ -359,8 +359,9 @@ export default function GpuMgmtPage() {
                           <div className={styles.actions}>
                             <button
                               type="button"
-                              className={`${styles.actionBtn} ${styles.actionBtnDanger}`}
+                              className={styles.actionBtnDanger}
                               title={t("GpuMgmtPage.removeMappingTitle")}
+                              aria-label={`${t("GpuMgmtPage.removeMappingTitle")} ${n.mapping}`}
                               disabled={deleting}
                               onClick={() => handleDelete(n.id)}
                             >

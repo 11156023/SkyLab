@@ -13,7 +13,7 @@ import PageHeader from "../../../components/PageHeader/PageHeader";
 import SegmentedControl from "../../../components/SegmentedControl/SegmentedControl";
 import PasswordInput from "../../../components/PasswordInput/PasswordInput";
 import { ReverseProxyPanel } from "../../network/reverse-proxy/ReverseProxyPage";
-import { formatDateTime } from "../../../utils/formatDate";
+import { formatDateTime, formatShortDateTime } from "../../../utils/formatDate";
 
 const TAB_KEYS = ["dns", "reverse-proxy"];
 
@@ -402,6 +402,17 @@ export default function DomainPage() {
   }
 
   const isConfigured = config?.is_configured;
+  const accountId = config?.account_id;
+  const verifiedAt = config?.last_verified_at;
+  /* 32 字元的 Account ID 只留頭尾，完整值與精確時間放滑過提示（連線設定裡也看得到） */
+  const statusMeta = [
+    accountId && `${t("DomainPage.accountLabel")}${accountId.length > 12 ? `${accountId.slice(0, 4)}…${accountId.slice(-4)}` : accountId}`,
+    verifiedAt && `${t("DomainPage.lastVerifiedLabel")}${formatShortDateTime(verifiedAt)}`,
+  ].filter(Boolean).join(" · ");
+  const statusTitle = [
+    accountId && `${t("DomainPage.accountLabel")}${accountId}`,
+    verifiedAt && `${t("DomainPage.lastVerifiedLabel")}${formatDateTime(verifiedAt)}`,
+  ].filter(Boolean).join("\n");
 
   return (
     <div className={styles.page}>
@@ -427,30 +438,30 @@ export default function DomainPage() {
         </div>
       </PageHeader>
 
-      {config && (
-        <div className={styles.configBar} data-guide="domain-status">
-          <span className={`${styles.badge} ${isConfigured ? styles.badge_success : styles.badge_danger}`}>
-            <MIcon name={isConfigured ? "check_circle" : "error"} size={13} />
-            {isConfigured ? t("DomainPage.connected") : t("DomainPage.notSet")}
-          </span>
-          {config.account_id && <span className={styles.configMeta}>{t("DomainPage.accountLabel")}{config.account_id}</span>}
-          {config.last_verified_at && (
-            <span className={styles.configMeta}>{t("DomainPage.lastVerifiedLabel")}{formatDateTime(config.last_verified_at)}</span>
-          )}
+      <div className={styles.tabsRow}>
+        {/* 連線狀態顯示在分頁列右側，但 DOM 排在分頁前面（order 移到右邊）：
+            導覽第 2 步的選擇器取第一個符合的元素，才會先框狀態、設定未載入時再退回分頁 */}
+        {config && (
+          <div className={styles.connStatus} title={statusTitle || undefined} data-guide="domain-status">
+            <span className={`${styles.badge} ${isConfigured ? styles.badge_success : styles.badge_danger}`}>
+              <MIcon name={isConfigured ? "check_circle" : "error"} size={13} />
+              {isConfigured ? t("DomainPage.connected") : t("DomainPage.notSet")}
+            </span>
+            {statusMeta && <span className={styles.connMeta}>{statusMeta}</span>}
+          </div>
+        )}
+        {/* 外層 div 承接頁面導覽的 data-guide 錨點（SegmentedControl 根節點不收額外屬性） */}
+        <div className={styles.tabs} data-guide="domain-tabs">
+          <SegmentedControl
+            ariaLabel={t("DomainPage.tabsAriaLabel")}
+            value={activeTab}
+            onChange={selectTab}
+            options={[
+              { value: "dns", label: t("DomainPage.tabDns"), icon: "dns" },
+              { value: "reverse-proxy", label: t("DomainPage.tabReverseProxy"), icon: "swap_horiz" },
+            ]}
+          />
         </div>
-      )}
-
-      {/* 外層 div 承接頁面導覽的 data-guide 錨點（SegmentedControl 根節點不收額外屬性） */}
-      <div className={styles.tabs} data-guide="domain-tabs">
-        <SegmentedControl
-          ariaLabel={t("DomainPage.tabsAriaLabel")}
-          value={activeTab}
-          onChange={selectTab}
-          options={[
-            { value: "dns", label: t("DomainPage.tabDns"), icon: "dns" },
-            { value: "reverse-proxy", label: t("DomainPage.tabReverseProxy"), icon: "swap_horiz" },
-          ]}
-        />
       </div>
 
       {activeTab === "reverse-proxy" ? (

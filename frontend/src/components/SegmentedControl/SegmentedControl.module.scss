@@ -23,8 +23,14 @@
   cursor: pointer;
   transition: background $transition-base, color $transition-base;
 
-  &:hover {
+  &:hover:not(:disabled) {
     color: var(--color-text);
+  }
+
+  /* 單段停用（例如條件未滿足時的「發布」）：淡化、不可點 */
+  &:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
   }
 
   &:focus-visible,
@@ -38,7 +44,9 @@
   background: var(--color-primary);
   color: var(--color-text-on-primary);
 
-  &:hover {
+  /* 選擇器要跟 .segmentBtn 的 hover（含 :not(:disabled)）一樣重，
+     否則選中段滑過時字會變回深色、跟主色底糊在一起 */
+  &:hover:not(:disabled) {
     color: var(--color-text-on-primary);
   }
 }

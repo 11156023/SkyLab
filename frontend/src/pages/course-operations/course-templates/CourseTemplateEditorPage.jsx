@@ -33,7 +33,7 @@ import { describePort, routeEdges } from "../../network/firewall/utils/buildFlow
 import ConnectionDialog, { INTERNET_KEY } from "../../../components/ConnectionDialog/ConnectionDialog";
 import { INTENT } from "../../../components/ConnectionDialog/intents";
 import { previewTemplateHostname } from "../../../components/ConnectionDialog/connectionPayload";
-import { publicationLabel } from "../courseTopology";
+import { frozenTopologyLayout, publicationLabel } from "../courseTopology";
 import styles from "../CourseOperations.module.scss";
 import PageHeader from "../../../components/PageHeader/PageHeader";
 import i18n from "../../../i18n";
@@ -53,7 +53,7 @@ function makeEmptyTemplate() {
 /* 課程環境只有「開放服務」與「互通」：上網預設全開、自己寫規則沒有可樣板化的語意 */
 const COURSE_INTENTS = [INTENT.PUBLISH, INTENT.PEER];
 /* 網際網路節點沒有存到版本裡，位置放元件內；預設在三台機器的右側 */
-const INTERNET_POSITION = { x: 60 + 3 * 260, y: 120 };
+const INTERNET_POSITION = { x: 60 + 3 * 300, y: 120 };
 
 /** 規格滑桿範圍；後端上限為 64 核 / 128 GB RAM / 2000 GB Disk，這裡取教學情境的保守值。 */
 const CPU_RANGE = [1, 32];
@@ -93,12 +93,14 @@ function stripImageExtension(name) {
 function TopologyMachineNode({ data, selected }) {
   const node = data.node;
   const exposed = data.exposedCount ?? 0;
-  return <div className={`${fwStyles.vmNode} ${selected ? fwStyles.nodeSelected : ""}`}>
+  const spec = `${node.cpu} CPU · ${node.memory} GB · ${node.disk} GB`;
+  return <div className={`${fwStyles.vmNode} ${styles.courseMachineNode} ${data.frozen ? styles.courseMachineNodeFrozen : ""} ${selected ? fwStyles.nodeSelected : ""}`}>
     <NodeHandles dragStartSide="right" />
     <div className={fwStyles.vmStatus} style={{ background: "var(--color-status-neutral)" }} />
     <div className={fwStyles.vmInfo}>
       <span className={fwStyles.vmName} title={node.name}>{node.name}</span>
-      <span className={fwStyles.vmMeta}>{node.cpu} CPU · {node.memory} GB · {node.disk} GB</span>
+      {/* 副標只寫規格；角色與完整規格放滑過提示（規格太長被截斷時也看得到） */}
+      <span className={`${fwStyles.vmMeta} ${styles.courseMachineMeta}`} title={node.role ? `${node.role} · ${spec}` : spec}>{spec}</span>
     </div>
     <MIcon name={node.type === "lxc" ? "terminal" : "dns"} size={15} />
     {exposed > 0 && <span className={fwStyles.exposedBadge}><MIcon name="public" size={11} />{exposed}</span>}
@@ -119,7 +121,8 @@ function formatFileSize(bytes) {
   return `${(size / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-function MachineEditor({ value, edges, publications, onChange, onEdgesChange, onPublicationsChange, pveTemplates, vmImages, lxcImages, zones, sourceNotice, locked = false, actions = null }) {
+/* locked：暫時不能改（含草稿儲存中）；frozen：已發布、機器設定凍結，畫布當唯讀圖顯示 */
+function MachineEditor({ value, edges, publications, onChange, onEdgesChange, onPublicationsChange, pveTemplates, vmImages, lxcImages, zones, sourceNotice, locked = false, frozen = false, actions = null }) {
   const { t } = useTranslation("teaching");
   const [sourceMode, setSourceMode] = useState("template");
   const [sourceId, setSourceId] = useState("");
@@ -352,27 +355,35 @@ function MachineEditor({ value, edges, publications, onChange, onEdgesChange, on
       for (const publication of publications) {
         exposure.set(publication.nodeKey, (exposure.get(publication.nodeKey) ?? 0) + 1);
       }
-      const machines = value.map((node, index) => ({
-        id: String(node.id),
-        type: "courseMachine",
-        position: placed.get(String(node.id)) ?? {
-          x: Number(node.positionX ?? (60 + index * 260)),
+      const machines = value.map((node, index) => {
+        const saved = {
+          x: Number(node.positionX ?? (60 + index * 300)),
           y: Number(node.positionY ?? (120 + (index % 2) * 45)),
-        },
-        data: { node, exposedCount: exposure.get(node.id) ?? 0 },
-        selected: selectedNode?.id === node.id,
-      }));
+        };
+        return {
+          id: String(node.id),
+          type: "courseMachine",
+          // 已發布的版本不能拖，一律從存的座標重算（下面再推開）；可編輯時沿用畫布上的當下位置
+          position: frozen ? saved : (placed.get(String(node.id)) ?? saved),
+          data: { node, exposedCount: exposure.get(node.id) ?? 0, frozen },
+          selected: selectedNode?.id === node.id,
+        };
+      });
+      /* 已發布的版本拖不動：機器靠太近、連線標籤被隔壁那台蓋住時，顯示時推開
+         （跟班級上課環境的唯讀圖同一套，只影響畫面，不改存的座標） */
+      const layout = frozen ? frozenTopologyLayout(machines) : null;
+      const shown = layout ? machines.map((node) => ({ ...node, position: layout.positions.get(node.id) })) : machines;
       /* 網際網路節點跟防火牆頁一樣常駐：拖線到它就是「開放服務給外部」，
          也讓拓撲圖一眼看得出哪幾台對外 */
-      return [...machines, {
+      return [...shown, {
         id: INTERNET_KEY,
         type: "gateway",
-        position: placed.get(INTERNET_KEY) ?? internetPosition,
+        position: layout ? layout.internet : (placed.get(INTERNET_KEY) ?? internetPosition),
         data: {},
         selected: false,
       }];
     });
-  }, [value, publications, selectedNode?.id, setFlowNodes, internetPosition]);
+  }, [value, publications, selectedNode?.id, setFlowNodes, internetPosition, frozen]);
 
   // 位置只在放開滑鼠時回寫，一次拖曳只產生一筆變更。
   const commitNodePositions = useCallback((_event, _node, draggedNodes) => {
@@ -407,7 +418,6 @@ function MachineEditor({ value, edges, publications, onChange, onEdgesChange, on
         onSelect: () => selectEdge(edge.id),
         onDelete: locked ? null : () => removeEdge(edge.id),
       },
-      zIndex: 5,
     }));
     /* 對外服務畫成「網際網路 → 機器」的入站線，與防火牆拓撲同一種語言 */
     const publicationEdges = publications.map((publication) => ({
@@ -423,7 +433,6 @@ function MachineEditor({ value, edges, publications, onChange, onEdgesChange, on
         onSelect: () => selectPublication(publication.id),
         onDelete: locked ? null : () => removePublication(publication.id),
       },
-      zIndex: 5,
     }));
     /* 上網線：出站綠線、不限通訊埠（標籤留空由 ConnectionEdge 補「不限通訊埠」） */
     const outboundEdges = value.map((node) => ({
@@ -439,7 +448,6 @@ function MachineEditor({ value, edges, publications, onChange, onEdgesChange, on
         selected: String(node.id) === selectedOutboundKey,
         onSelect: () => selectOutbound(String(node.id)),
       },
-      zIndex: 4,
     }));
     return routeEdges([...peerEdges, ...publicationEdges, ...outboundEdges], flowNodes);
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -458,7 +466,7 @@ function MachineEditor({ value, edges, publications, onChange, onEdgesChange, on
       {value.length ? <>
         <div className={styles.topologyWorkspace}>
           {/* 畫布外觀比照防火牆頁：點狀底、Controls、左下圖例 */}
-          <div className={`${styles.topologyCanvas} ${fwStyles.flowWrap}`}><ReactFlow
+          <div className={`${styles.topologyCanvas} ${frozen ? styles.topologyCanvasFrozen : ""} ${fwStyles.flowWrap}`}><ReactFlow
             nodes={flowNodes}
             edges={graphEdges}
             nodeTypes={TOPOLOGY_NODE_TYPES}
@@ -478,7 +486,8 @@ function MachineEditor({ value, edges, publications, onChange, onEdgesChange, on
             minZoom={0.5}
             maxZoom={1.5}
             fitView
-            fitViewOptions={{ padding: 0.2 }}
+            /* 自動置中最多放大到 1 倍：機器少時才不會被放大、卡片比其他拓撲大一圈；手動仍可拉近 */
+            fitViewOptions={{ padding: 0.2, maxZoom: 1 }}
             colorMode={theme}
             proOptions={{ hideAttribution: true }}
           >
@@ -942,6 +951,6 @@ export default function CourseTemplateEditorPage() {
       {template.status !== "draft" && <p className={`${styles.inspectorHint} ${styles.fieldFull}`}>{t("CourseTemplateEditorPage.basicsEditableHint")}</p>}
       </div>
 <div className={styles.actionFooter}>{template.status !== "draft" && <button type="button" className={styles.btnPrimary} disabled={saving || !basicsDirty} onClick={saveBasics}><MIcon name="save" size={16} />{t("CourseTemplateEditorPage.saveBasicsBtn")}</button>}<button type="button" className={template.status === "draft" ? styles.btnPrimary : styles.btnSecondary} onClick={() => changeTab("machines")}>{t("CourseTemplateEditorPage.viewMachineConfigBtn")}<MIcon name="arrow_forward" size={16} /></button></div></section>}
-    {tab === "machines" && <MachineEditor value={template.nodes} edges={template.edges ?? []} publications={template.publications ?? []} onChange={(nodes) => update({ nodes })} onEdgesChange={(edges) => update({ edges })} onPublicationsChange={(publications) => update({ publications })} pveTemplates={pveTemplates} vmImages={vmImages} lxcImages={lxcImages} zones={zones} sourceNotice={sourceNotice} locked={locked} actions={template.status === "draft" && <button type="button" className={styles.btnPrimary} disabled={saving || closing} onClick={publish}><MIcon name="publish" size={16} />{saving ? t("CourseTemplateEditorPage.publishing") : t("CourseTemplateEditorPage.publishLabel")}</button>} />}
+    {tab === "machines" && <MachineEditor value={template.nodes} edges={template.edges ?? []} publications={template.publications ?? []} onChange={(nodes) => update({ nodes })} onEdgesChange={(edges) => update({ edges })} onPublicationsChange={(publications) => update({ publications })} pveTemplates={pveTemplates} vmImages={vmImages} lxcImages={lxcImages} zones={zones} sourceNotice={sourceNotice} locked={locked} frozen={template.status !== "draft"} actions={template.status === "draft" && <button type="button" className={styles.btnPrimary} disabled={saving || closing} onClick={publish}><MIcon name="publish" size={16} />{saving ? t("CourseTemplateEditorPage.publishing") : t("CourseTemplateEditorPage.publishLabel")}</button>} />}
   </div>;
 }

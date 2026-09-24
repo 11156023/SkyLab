@@ -428,6 +428,7 @@
   padding: $spacing-16;
   background: var(--color-overlay);
   backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
   animation: jobs-fade-in 0.15s ease;
   transition: opacity 0.15s ease;
 }
@@ -459,21 +460,14 @@
   border-radius: $radius-16;
 }
 
+/* 標題列：標題靠左、右上關閉鈕，垂直置中（同其他表單型 Dialog） */
 .dialogHeader {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
+  @include flex-between;
   gap: $spacing-8;
-}
-
-.dialogTitleRow {
-  display: flex;
-  align-items: center;
-  gap: $spacing-8;
-  min-width: 0;
 }
 
 .dialogTitle {
+  min-width: 0;
   font-size: $font-size-16;
   font-weight: $font-weight-700;
   color: var(--color-text-primary);
@@ -487,7 +481,7 @@
 
 .dialogJobId {
   margin-top: 2px;
-  font-size: 11px;
+  font-size: $font-size-12;
   color: var(--color-text-muted);
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   word-break: break-all;
@@ -519,11 +513,12 @@
   color: var(--color-text-muted);
 }
 
+/* 時間與詳細兩個白底區塊同一套：標籤在上、值在下，欄距與內距一致 */
 .dialogTimes {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: $spacing-8;
-  padding: $spacing-8 $spacing-16;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: $spacing-8 $spacing-16;
+  padding: 12px $spacing-16;
   border: 1px solid var(--color-border);
   border-radius: $radius-8;
   background: var(--color-surface);
@@ -536,11 +531,12 @@
   color: var(--color-text-muted);
 }
 
-.dialogMono {
-  font-size: $font-size-12;
+/* 區塊內的值：一般字體（日期、名稱、是／否混排時等寬字反而參差），數字等寬 */
+.dialogValue {
+  font-size: $font-size-14;
   color: var(--color-text-primary);
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  word-break: break-all;
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
 }
 
 .dialogMessage {
@@ -557,28 +553,44 @@
 
 .dialogExtraGrid {
   display: grid;
-  grid-template-columns: 1fr;
-  gap: 6px $spacing-16;
-  padding: $spacing-8 $spacing-16;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px $spacing-16;
+  padding: 12px $spacing-16;
   border: 1px solid var(--color-border);
   border-radius: $radius-8;
   background: var(--color-surface);
 
+  /* 寬度夠時與上方時間區塊同為三欄，兩區塊的欄位左緣對齊 */
   @include respond-to(sm) {
-    grid-template-columns: repeat(2, 1fr);
+    grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 }
 
 .dialogExtraItem {
-  display: flex;
-  align-items: baseline;
-  gap: 6px;
-  font-size: $font-size-12;
+  @include flex-column;
+  gap: 2px;
+  min-width: 0;
+}
+
+/* JSON 物件（範本任務的 payload／result）獨占一整列 */
+.dialogExtraWide {
+  grid-column: 1 / -1;
 }
 
 .dialogExtraKey {
-  flex-shrink: 0;
+  font-size: $font-size-12;
   color: var(--color-text-muted);
+}
+
+.dialogExtraJson {
+  max-height: 200px;
+  overflow: auto;
+  margin: 0;
+  font-size: $font-size-12;
+  color: var(--color-text-primary);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 
 .dialogError {
