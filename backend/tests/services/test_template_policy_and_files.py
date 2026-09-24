@@ -54,10 +54,10 @@ def make_template(**overrides: Any) -> VMTemplate:
 def clone_target(monkeypatch: pytest.MonkeyPatch) -> VMTemplate:
     template = make_template()
     monkeypatch.setattr(
-        template_service, "_get_or_404", lambda session, template_id: template
+        template_service, "get_or_404", lambda session, template_id: template
     )
     monkeypatch.setattr(
-        template_service, "_require_view", lambda session, user, template: None
+        template_service, "require_view", lambda session, user, template: None
     )
     # 配額執法在 test_template_system 有專屬測試；這裡只驗政策與 payload。
     monkeypatch.setattr(
@@ -282,7 +282,7 @@ def test_update_template_rejects_requires_gpu_for_lxc(
 ) -> None:
     template = make_template(resource_type="lxc")
     monkeypatch.setattr(
-        template_service, "_get_or_404", lambda session, template_id: template
+        template_service, "get_or_404", lambda session, template_id: template
     )
     monkeypatch.setattr(
         template_service, "_require_owner", lambda user, template: None
@@ -333,7 +333,7 @@ def test_attachment_lifecycle_and_bulk_cleanup(attach_dir: Path) -> None:
 def owned_template(monkeypatch: pytest.MonkeyPatch) -> VMTemplate:
     template = make_template()
     monkeypatch.setattr(
-        template_service, "_get_or_404", lambda session, template_id: template
+        template_service, "get_or_404", lambda session, template_id: template
     )
     monkeypatch.setattr(
         template_service, "_require_owner", lambda user, template: None
@@ -581,7 +581,7 @@ async def test_delete_template_refuses_while_an_environment_references_it(
 ) -> None:
     template = make_template()
     monkeypatch.setattr(
-        template_service, "_get_or_404", lambda session, template_id: template
+        template_service, "get_or_404", lambda session, template_id: template
     )
     monkeypatch.setattr(
         template_service, "_require_owner", lambda user, template: None

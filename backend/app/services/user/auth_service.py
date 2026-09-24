@@ -6,7 +6,7 @@ from sqlmodel import Session
 from app.core import security
 from app.core.config import settings
 from app.core.i18n import t
-from app.exceptions import AuthenticationError, BadRequestError, NotFoundError
+from app.exceptions import AuthenticationError, BadRequestError
 from app.models import AuditAction
 from app.repositories import user as user_repo
 from app.schemas import Token, UserUpdate
@@ -241,20 +241,3 @@ def reset_password(*, session: Session, token: str, new_password: str) -> None:
     )
     session.commit()
 
-
-def get_password_recovery_html(
-    *, session: Session, email: str
-) -> tuple[str, str]:
-    """Returns (html_content, subject) for password recovery email."""
-    user = user_repo.get_user_by_email(session=session, email=email)
-    if not user:
-        raise NotFoundError(t("auth.usernameNotFound"))
-    if user.auth_source == "ldap":
-        raise BadRequestError(t("user.ldapPasswordLocked"))
-    token = generate_password_reset_token(
-        email=email, token_version=user.token_version
-    )
-    email_data = generate_reset_password_email(
-        email_to=user.email, email=email, token=token
-    )
-    return email_data.html_content, email_data.subject

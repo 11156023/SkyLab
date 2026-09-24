@@ -3,15 +3,16 @@
 import json
 import logging
 import re
-import threading
 import uuid
 from datetime import UTC, date, datetime, timedelta
+from typing import Any
 
 from sqlmodel import Session, col, select
 
 from app.core.db import engine
 from app.core.i18n import t
 from app.exceptions import BadRequestError
+from app.infrastructure.queue import enqueue_task_sync
 from app.models import (
     ClassCapacityReservation,
     TeachingClass,
@@ -39,7 +40,9 @@ from app.utils.login_password import generate_login_password
 
 logger = logging.getLogger(__name__)
 
-# running 超過這個時數且毫無進度的 job 視為背景執行緒已死
+TASK_RUN_BATCH_JOB = "batch_provision.run"
+
+# running 超過這個時數且毫無進度的 job 視為 worker 已死（例如被 OOM kill）
 STALE_BATCH_JOB_HOURS = 2.0
 
 
@@ -123,10 +126,10 @@ def approve_batch_job(
     reviewer_id: uuid.UUID,
     review_comment: str | None = None,
 ) -> None:
-    """Approve a pending batch job and spawn the background worker.
+    """Approve a pending batch job and enqueue it for the arq worker.
 
     The status transition is atomic — if two admins click "approve" at the
-    same time, only the one whose UPDATE wins races spawns a worker; the
+    same time, only the one whose UPDATE wins races enqueues the job; the
     other gets a BadRequestError.
     """
     # First fail fast if the job doesn't exist at all (gives a clearer error
@@ -148,13 +151,7 @@ def approve_batch_job(
             t("batch_provision.job_no_longer_pending")
         )
 
-    worker_thread = threading.Thread(
-        target=_run_queue,
-        args=(job_id,),
-        daemon=True,
-        name=f"batch-provision-{job_id}",
-    )
-    worker_thread.start()
+    _enqueue_job_run(session=session, job_id=job_id, reviewer_id=reviewer_id)
 
     logger.info("Batch provision job %s approved by %s", job_id, reviewer_id)
 
@@ -209,13 +206,7 @@ def review_batch_jobs(
         )
     if decision == BatchProvisionJobStatus.approved:
         for job in jobs:
-            thread = threading.Thread(
-                target=_run_queue,
-                args=(job.id,),
-                daemon=True,
-                name=f"batch-provision-{job.id}",
-            )
-            thread.start()
+            _enqueue_job_run(session=session, job_id=job.id, reviewer_id=reviewer_id)
     logger.info(
         "Teaching class batch jobs %s reviewed as %s by %s",
         ",".join(str(job.id) for job in jobs),
@@ -228,8 +219,36 @@ def review_batch_jobs(
 # ─── 背景排隊執行 ──────────────────────────────────────────────────────────────
 
 
+def _enqueue_job_run(
+    *, session: Session, job_id: uuid.UUID, reviewer_id: uuid.UUID
+) -> None:
+    """把已核准的 job 交給 arq worker 執行。
+
+    之前用 daemon thread 跑在 API 行程裡：API 重啟整批就消失，只能等
+    ``reap_stale_batch_jobs`` 兩小時後標成 failed。arq 的 job 存在 Redis，
+    worker 重啟後會續跑；``_run_queue`` 起手的 approved→running 條件式轉換
+    則擋掉重複執行。
+    """
+    enqueue_task_sync(
+        session=session,
+        task_type=TASK_RUN_BATCH_JOB,
+        user_id=reviewer_id,
+        payload={"job_id": str(job_id)},
+    )
+
+
+def run_batch_job_task(
+    task_id: uuid.UUID, payload: dict[str, Any]
+) -> dict[str, Any]:
+    """worker 端 handler：解包 payload 後跑 ``_run_queue``。"""
+    job_id = uuid.UUID(str(payload["job_id"]))
+    logger.info("Batch provision task %s started for job %s", task_id, job_id)
+    _run_queue(job_id)
+    return {"job_id": str(job_id)}
+
+
 def _run_queue(job_id: uuid.UUID) -> None:
-    """背景執行緒：逐一建立每個成員的資源。"""
+    """逐一建立每個成員的資源（在 arq worker 內執行）。"""
     with Session(engine) as session:
         if not bp_repo.transition_job_to_running(
             session=session, job_id=job_id

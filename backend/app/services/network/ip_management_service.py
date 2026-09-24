@@ -523,20 +523,6 @@ def release_ip(
     return ip
 
 
-def release_ip_by_address(session: Session, ip_address: str) -> bool:
-    """依 IP 位址釋放分配"""
-    alloc = session.exec(
-        select(IpAllocation).where(IpAllocation.ip_address == ip_address)
-    ).first()
-    if alloc is None:
-        return False
-    session.delete(alloc)
-    session.flush()
-    _forget_ssh_host_key(ip_address)
-    logger.info("已釋放 IP %s", ip_address)
-    return True
-
-
 def _forget_ssh_host_key(ip: str) -> None:
     """IP 回收後清除 pinned SSH host key，避免新主機因 key 不符被拒連。"""
     try:

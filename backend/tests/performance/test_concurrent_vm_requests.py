@@ -47,8 +47,9 @@ def _stubbed_side_effects(monkeypatch: pytest.MonkeyPatch) -> None:
     )
     monkeypatch.setattr(quota_service, "check_quota", lambda *a, **k: None)
     monkeypatch.setattr(
-        vm_request_service, "submit_sync", lambda *a, **k: ""
+        vm_request_service, "_submit_provision", lambda *a, **k: None
     )
+
     # rate limit（20/min/user）在 200 併發下必觸發 — 壓測聚焦吞吐，停用之
     app.dependency_overrides[
         vm_requests_routes._CREATE_RATE_LIMIT.dependency

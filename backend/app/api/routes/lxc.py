@@ -1,16 +1,10 @@
 import logging
-import uuid
 
 from fastapi import APIRouter
-from sqlmodel import Session
 
-from app.api.deps import AdminUser, ControlLxcInfoDep, CurrentUser, SessionDep
-from app.core.i18n import t
+from app.api.deps import ControlLxcInfoDep, CurrentUser
 from app.exceptions import ProxmoxError
-from app.infrastructure.worker import background_tasks
 from app.schemas import (
-    LXCCreateRequest,
-    LXCCreateResponse,
     TemplateSchema,
     TerminalInfoSchema,
 )
@@ -45,34 +39,3 @@ def get_lxc_terminal(vmid: int, container_info: ControlLxcInfoDep):
 def get_templates(current_user: CurrentUser):
     return provisioning_service.get_lxc_templates()
 
-
-def _run_create_lxc(lxc_data: LXCCreateRequest, user_id: uuid.UUID) -> None:
-    """背景執行 LXC 建立（route session 不可跨執行緒，開獨立 session）。"""
-    from app.core.db import engine  # noqa: PLC0415 — 避免 import cycle
-
-    try:
-        with Session(engine) as task_session:
-            provisioning_service.create_lxc(
-                session=task_session, lxc_data=lxc_data, user_id=user_id
-            )
-    except Exception:
-        logger.exception(
-            "Background LXC create failed for hostname=%s", lxc_data.hostname
-        )
-
-
-@router.post("/create", status_code=202, response_model=LXCCreateResponse)
-def create_lxc(
-    lxc_data: LXCCreateRequest, session: SessionDep, current_user: AdminUser
-):
-    """建立 LXC（202：建立於背景執行，前端以資源列表輪詢進度）。"""
-    task_id = background_tasks.submit_sync(
-        _run_create_lxc,
-        lxc_data,
-        current_user.id,
-        name="admin-create-lxc",
-    )
-    return LXCCreateResponse(
-        task_id=task_id or None,
-        message=t("lxc.creating"),
-    )

@@ -679,59 +679,6 @@ def build_plan(
     )
 
 
-def build_preview_selection_reasons(
-    *,
-    selected_node: str,
-    selected_eval,
-    candidate_evals: dict,
-    priorities: dict[str, int],
-) -> list[str]:
-    alternatives = [
-        (node, evaluation)
-        for node, evaluation in candidate_evals.items()
-        if node != selected_node and evaluation.feasible
-    ]
-    if not alternatives:
-        return [f"因為 {selected_node} 是目前這個時段唯一可行的節點。"]
-
-    runner_up_node, runner_up_eval = min(alternatives, key=lambda item: item[1].objective)
-    reasons = [
-        (
-            f"因為把本次申請放在 {selected_node}，可以讓這個時段整體 cohort "
-            "的最大節點負載分數更低。"
-        )
-    ]
-
-    if selected_eval.max_node_score + 0.01 < runner_up_eval.max_node_score:
-        bottleneck_node = max(
-            (runner_up_eval.node_scores or {}).items(),
-            key=lambda item: item[1],
-            default=(runner_up_node, runner_up_eval.max_node_score),
-        )[0]
-        reasons.append(f"因為可降低 {bottleneck_node} 的整體負載尖峰風險。")
-
-    selected_storage_penalty = (selected_eval.storage_penalties or {}).get(selected_node, 0.0)
-    runner_up_storage_penalty = (runner_up_eval.storage_penalties or {}).get(runner_up_node, 0.0)
-    if selected_storage_penalty + 0.08 < runner_up_storage_penalty:
-        reasons.append(
-            f"因為 {selected_node} 的磁碟 contention 風險較低，可避免把壓力集中到 {runner_up_node}。"
-        )
-
-    if selected_eval.reassignment_count < runner_up_eval.reassignment_count:
-        delta = runner_up_eval.reassignment_count - selected_eval.reassignment_count
-        reasons.append(f"因為不需要多搬 {delta} 台 VM。")
-
-    selected_priority = priorities.get(selected_node, 5)
-    runner_up_priority = priorities.get(runner_up_node, 5)
-    if (
-        selected_priority < runner_up_priority
-        and abs(selected_eval.total_score - runner_up_eval.total_score) <= 0.15
-    ):
-        reasons.append(f"在平衡結果接近時，{selected_node} 的節點優先級也比較高。")
-
-    return reasons[:4]
-
-
 def placement_sort_key(
     node: NodeCapacity,
     *,

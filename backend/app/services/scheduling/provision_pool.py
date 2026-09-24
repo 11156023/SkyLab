@@ -1,16 +1,18 @@
-"""克隆請求 fan-out 併發池。
+"""克隆請求 fan-out：入列到 arq worker，並在 worker 內限制同時 clone 數。
 
-clone 是 PVE 磁碟 I/O 重活 — 以獨立的 ``asyncio.Semaphore`` 限制同時
-在跑的 provision 數（``GovernanceConfig.provision_max_concurrency``），
-並以 ``bypass_semaphore=True`` 略過 runner 全域信號量，避免排隊等待的
-clone 任務佔滿 runner slot、餓死發信/狀態同步等輕量任務。
+clone 是 PVE 磁碟 I/O 重活。API 行程只負責入列（``submit_provision``），
+真正的 clone 由 worker 的 ``vm_request.provision`` 任務執行。同時 clone 數以
+``GovernanceConfig.provision_max_concurrency`` 限制：名額滿時 handler 拋
+``arq.worker.Retry`` 把 job 重排到幾十秒後，而不是在 worker 內等 semaphore
+——等待中的 job 不占 arq 的 max_jobs slot，reset／刪除／範本任務不會被
+排隊的 clone 餓死。名額是每個 worker 行程各算一份；多開 worker 上限會乘倍。
+job 存在 Redis，worker 重啟後續跑，API 重啟不再讓申請單卡到 30 分鐘的
+stale 回收才被撿起。
 
-防重複三層：runner ``task_id=vm_request:{request_id}`` 去重（本模組）→
+防重複三層：arq job id ``vm_request:{request_id}`` 去重（排隊中／執行中的
+同一單不會再入列；任務完成即釋放 id，失敗重試不受影響）→
 DB ``SELECT FOR UPDATE SKIP LOCKED``（coordinator 既有）→
 ``provisioning_status``/vmid 再檢查（coordinator 既有）。
-
-task_id 必須與 ``vm_request_service`` 的 review／cancel／retry 路徑同一個命名
-空間，否則 ``cancel()`` 找不到排程 fan-out 出去的任務，取消後 clone 仍會跑完。
 """
 
 from __future__ import annotations
@@ -18,67 +20,123 @@ from __future__ import annotations
 import asyncio
 import logging
 import uuid
+from typing import Any
 
-from app.infrastructure.worker import background_tasks
+from arq.worker import Retry
+from sqlmodel import Session
+
+from app.infrastructure.queue import enqueue_task_sync
+from app.models import TaskRecord, VMProvisioningStatus
 
 logger = logging.getLogger(__name__)
 
-class _PoolState:
-    """目前的 provision 信號量與其上限（集中在物件上，避免 global 重新指派）。"""
+TASK_PROVISION = "vm_request.provision"
+DEFAULT_PROVISION_CONCURRENCY = 2
+# 名額滿時重排的間隔；每次重排算一次 arq try，PROVISION_MAX_TRIES 要撐得過
+# 大班級同時開機時最長的等待（10000 × 15s ≈ 41 小時）
+PROVISION_RETRY_DEFER_SECONDS = 15
+PROVISION_MAX_TRIES = 10_000
 
-    semaphore: asyncio.Semaphore | None = None
-    size: int = 0
+
+class _PoolState:
+    """目前 worker 行程內正在 clone 的數量（集中在物件上，避免 global 重新指派）。"""
+
+    in_flight: int = 0
 
 
 _pool = _PoolState()
 
 
 def provision_task_id(request_id: uuid.UUID) -> str:
-    """單一申請單的 provision 背景任務 id；所有提交／取消路徑都用這個。"""
+    """單一申請單的 provision job id；所有提交路徑都用這個做去重。"""
     return f"vm_request:{request_id}"
 
 
-def get_provision_semaphore(size: int) -> asyncio.Semaphore:
-    """取得 provision 專用信號量；size 變更時重建。
+def in_flight_count() -> int:
+    """本 worker 行程內正在 clone 的數量。"""
+    return _pool.in_flight
 
-    重建後，仍在舊 semaphore 上等待的任務會以舊上限跑完；
-    新提交的任務立即採用新上限（下個 scheduler tick 生效）。
+
+def reset_in_flight() -> None:
+    """測試用：清除行程內的 clone 計數。"""
+    _pool.in_flight = 0
+
+
+def submit_provision(
+    session: Session,
+    *,
+    request_id: uuid.UUID,
+    user_id: uuid.UUID,
+    concurrency: int,
+) -> TaskRecord | None:
+    """把單一 request 的 provision 入列到 arq worker。
+
+    同一 request 已在排隊／執行中時（job id 去重）回傳 None。
     """
-    if _pool.semaphore is None or _pool.size != size:
-        _pool.semaphore = asyncio.Semaphore(size)
-        _pool.size = size
-    return _pool.semaphore
+    return enqueue_task_sync(
+        session=session,
+        task_type=TASK_PROVISION,
+        user_id=user_id,
+        payload={"request_id": str(request_id), "concurrency": int(concurrency)},
+        job_id=provision_task_id(request_id),
+    )
 
 
-def reset_provision_semaphore() -> None:
-    """測試用：清除全域信號量狀態。"""
-    _pool.semaphore = None
-    _pool.size = 0
+# ─── worker 端 ────────────────────────────────────────────────────────────────
 
 
-async def _execute_provision(request_id: uuid.UUID) -> None:
+async def _execute_provision(request_id: uuid.UUID) -> bool:
     from app.services.scheduling import (
         coordinator,  # noqa: PLC0415 — 避免 import cycle
     )
 
-    await asyncio.to_thread(coordinator.process_single_request_start, request_id)
+    return await asyncio.to_thread(coordinator.process_single_request_start, request_id)
 
 
-async def _provision_with_semaphore(
-    request_id: uuid.UUID, concurrency: int
-) -> None:
-    async with get_provision_semaphore(concurrency):
-        await _execute_provision(request_id)
+def _provisioning_failure(request_id: uuid.UUID) -> str | None:
+    """provision 後申請單若停在 failed，回傳錯誤訊息讓 TaskRecord 也標 failed。"""
+    from app.core.db import engine  # noqa: PLC0415 — 避免 import cycle
+    from app.repositories import vm_request as vm_request_repo  # noqa: PLC0415
+
+    with Session(engine) as session:
+        request = vm_request_repo.get_vm_request_by_id(
+            session=session, request_id=request_id
+        )
+        if (
+            request is not None
+            and request.vmid is None
+            and request.provisioning_status == VMProvisioningStatus.failed
+        ):
+            return request.provisioning_error or "provisioning failed"
+    return None
 
 
-def submit_provision(request_id: uuid.UUID, *, concurrency: int) -> str:
-    """把單一 request 的 provision 丟進背景並行執行。
+async def run_provision_job(
+    request_id: uuid.UUID, *, concurrency: int
+) -> dict[str, Any]:
+    """worker handler 本體：名額滿就 Retry 重排，否則執行 provision。"""
+    if _pool.in_flight >= max(1, concurrency):
+        raise Retry(defer=PROVISION_RETRY_DEFER_SECONDS)
+    _pool.in_flight += 1
+    try:
+        started = await _execute_provision(request_id)
+    finally:
+        _pool.in_flight -= 1
+    failure = await asyncio.to_thread(_provisioning_failure, request_id)
+    if failure:
+        raise RuntimeError(failure)
+    return {"request_id": str(request_id), "started": bool(started)}
 
-    同一 request 已在跑時（runner task_id 去重）為 no-op。
-    """
-    return background_tasks.submit_factory(
-        lambda: _provision_with_semaphore(request_id, concurrency),
-        name="provision",
-        task_id=provision_task_id(request_id),
-        bypass_semaphore=True,
-    )
+
+__all__ = [
+    "DEFAULT_PROVISION_CONCURRENCY",
+    "PROVISION_MAX_TRIES",
+    "PROVISION_RETRY_DEFER_SECONDS",
+    "TASK_PROVISION",
+    "in_flight_count",
+    "provision_task_id",
+    "reset_in_flight",
+    "run_provision_job",
+    "submit_provision",
+]
+

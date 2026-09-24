@@ -343,6 +343,8 @@
   "JobsPage.kindDeletion": "削除",
   "JobsPage.kindSpecChange": "スペック変更",
   "JobsPage.kindTemplate": "マシンテンプレート",
+  "JobsPage.kindResourceReset": "リセット",
+  "JobsPage.kindBatchProvision": "一括プロビジョニング",
   "JobsPage.kindVmRequest": "VM 申請",
   "JobsPage.loading": "バックグラウンドタスクを読み込み中...",
   "JobsPage.pageTitle": "バックグラウンドタスク",

@@ -28,7 +28,6 @@ from app.infrastructure.proxmox import (
     get_proxmox_settings,
     get_proxmox_settings_for_node,
     list_enabled_connection_ids,
-    wait_for_task_status,
 )
 
 logger = logging.getLogger(__name__)
@@ -166,11 +165,6 @@ def _pool_vms() -> list[dict]:
         pool = get_proxmox_settings(key).pool_name
         matched.extend(vm for vm in vms if vm.get("pool") == pool)
     return matched
-
-
-def list_all_vmids() -> set[int]:
-    """回傳所有連線上既有的 VMID 集合（不限 pool）。"""
-    return {int(r["vmid"]) for r in _raw_vms()}
 
 
 def find_resource(vmid: int) -> dict:
@@ -853,11 +847,6 @@ def get_lxc_template_node_map() -> dict[str, set[str]]:
     return {volid: set(nodes) for volid, nodes in mapping.items()}
 
 
-def get_vztmpl_nodes(volid: str) -> set[str]:
-    """看得到指定 vztmpl volid 的節點集合；模板不存在任何節點時為空集合。"""
-    return get_lxc_template_node_map().get(str(volid), set())
-
-
 # ---------------------------------------------------------------------------
 # Session ticket (for WebSocket auth — password-based, not API token)
 # ---------------------------------------------------------------------------
@@ -934,14 +923,6 @@ async def get_vnc_ticket_with_session(
         return resp.json()["data"]
 
 
-async def wait_task(task_id: str, node: str, check_interval: int | None = None) -> dict:
-    return await wait_for_task_status(
-        node_name=node,
-        task_id=task_id,
-        check_interval=check_interval,
-    )
-
-
 # ---------------------------------------------------------------------------
 # Console tickets
 # ---------------------------------------------------------------------------
@@ -951,8 +932,3 @@ def get_terminal_ticket(node: str, vmid: int) -> dict:
     proxmox = get_proxmox_api_for_node(node)
     return proxmox.nodes(node).lxc(vmid).termproxy.post()
 
-
-def get_vnc_ticket(node: str, vmid: int) -> dict:
-    """Get VNC proxy ticket for a VM (port + ticket)."""
-    proxmox = get_proxmox_api_for_node(node)
-    return proxmox.nodes(node).qemu(vmid).vncproxy.post(websocket=1)

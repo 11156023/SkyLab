@@ -343,6 +343,8 @@
   "JobsPage.kindDeletion": "刪除",
   "JobsPage.kindSpecChange": "規格變更",
   "JobsPage.kindTemplate": "機器範本",
+  "JobsPage.kindResourceReset": "重置",
+  "JobsPage.kindBatchProvision": "批次佈建",
   "JobsPage.kindVmRequest": "VM 申請",
   "JobsPage.loading": "載入背景任務...",
   "JobsPage.pageTitle": "背景任務",

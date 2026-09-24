@@ -82,15 +82,6 @@ def allocate_external_port(
     raise BadRequestError(t("nat.poolExhausted", start=start, end=end))
 
 
-def forward_endpoint(session: object, external_port: int) -> str | None:
-    """學生要連的入口：``host:port``；管理員沒填入口主機就回 None。"""
-    from app.services.network import ip_management_service  # noqa: PLC0415
-
-    config = ip_management_service.get_subnet_config(session)  # type: ignore[arg-type]
-    host = (getattr(config, "forward_public_host", None) or "").strip()
-    return f"{host}:{external_port}" if host else None
-
-
 # ─── haproxy config 產生 ───────────────────────────────────────────────────────
 
 
@@ -282,19 +273,6 @@ def _sync_then_delete(session: object, doomed: list) -> None:
     nat_repo.delete_rules(session, doomed)  # type: ignore[arg-type]
 
 
-def remove_nat_rule_by_id(session: object, rule_id: str) -> None:
-    """刪除指定 NAT 規則：haproxy 同步成功後才從 DB 刪除。"""
-    import uuid as _uuid  # noqa: PLC0415
-
-    from app.repositories import nat_rule as nat_repo  # noqa: PLC0415
-
-    rule = nat_repo.get_rule(session, _uuid.UUID(rule_id))  # type: ignore[arg-type]
-    if rule is None:
-        raise BadRequestError(t("nat.ruleNotFound", ruleId=rule_id))
-
-    _sync_then_delete(session, [rule])
-
-
 def remove_nat_rules_for_vmid(session: object, vmid: int) -> None:
     """刪除指定 VM 的所有 NAT 規則（VM 刪除時使用）。"""
     from app.repositories import nat_rule as nat_repo  # noqa: PLC0415
@@ -318,9 +296,3 @@ def remove_nat_rules_by_internal_port(
         ),
     )
 
-
-def sync_to_gateway(session: object) -> None:
-    """手動觸發 haproxy 同步（供管理員 API 使用）。
-    Gateway VM 未設定時拋錯（讓 API 回 500，給使用者明確提示）。
-    """
-    _sync_haproxy(session)

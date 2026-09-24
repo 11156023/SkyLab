@@ -99,26 +99,6 @@ def list_my_ai_api_credentials(
     )
 
 
-@router.get("/usage/proxy/my", response_model=UsageStatsResponse)
-def get_my_proxy_usage(
-    session: SessionDep,
-    current_user: CurrentUser,
-    start_date: datetime | None = None,
-    end_date: datetime | None = None,
-) -> Any:
-    if not end_date:
-        end_date = datetime.now(timezone.utc)
-    if not start_date:
-        start_date = end_date - timedelta(days=30)
-
-    return ai_gateway_service.get_user_usage_stats(
-        session=session,
-        user_id=current_user.id,
-        start_date=start_date,
-        end_date=end_date,
-    )
-
-
 @router.get("/usage/my", response_model=UsageStatsResponse)
 def get_my_usage(
     session: SessionDep,

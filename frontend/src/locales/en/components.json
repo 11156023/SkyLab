@@ -345,6 +345,8 @@
   "JobRow.kindMigration": "Migration",
   "JobRow.kindSpecChange": "Spec change",
   "JobRow.kindTemplate": "Template",
+  "JobRow.kindResourceReset": "Reset",
+  "JobRow.kindBatchProvision": "Batch provisioning",
   "JobRow.kindVmRequest": "Boot request",
   "JobRow.loading": "Loading…",
   "JobRow.noJobs": "No jobs right now",

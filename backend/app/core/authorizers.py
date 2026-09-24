@@ -79,10 +79,6 @@ def require_ai_api_access(
     )
 
 
-def can_manage_all_ai_api(user: Any) -> bool:
-    return has_permission(user, Permission.AI_API_MANAGE_ALL)
-
-
 def require_ai_api_manage(
     user: Any,
     owner_id: uuid.UUID | None,

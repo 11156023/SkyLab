@@ -5,18 +5,15 @@ import logging
 from fastapi import APIRouter, HTTPException
 
 from app.api.deps import (
-    AdminUser,
     CurrentUser,
     ResourceInfoDep,
     SessionDep,
     check_firewall_access,
 )
-from app.core.authorizers import can_bypass_resource_ownership
 from app.core.i18n import t
 from app.exceptions import BadRequestError, NotFoundError, ProxmoxError
 from app.models import AuditAction
 from app.repositories import firewall_layout as layout_repo
-from app.repositories import nat_rule as nat_repo
 from app.schemas import Message
 from app.schemas.firewall import (
     ConnectionCreate,
@@ -26,14 +23,13 @@ from app.schemas.firewall import (
     FirewallRulePublic,
     FirewallRuleUpdate,
     LayoutUpdate,
-    NATRulePublic,
     PublishedService,
     PublishedServiceCreate,
     PublishedServiceRef,
     PublishedServiceUpdate,
     TopologyResponse,
 )
-from app.services.network import firewall_service, nat_service
+from app.services.network import firewall_service
 from app.services.resource.access import require_resource_management
 from app.services.user import audit_service
 
@@ -343,113 +339,6 @@ def delete_rule(
 
 
 # ─── NAT 端口轉發管理 ──────────────────────────────────────────────────────────
-
-
-@router.get("/nat-rules", response_model=list[NATRulePublic])
-def list_nat_rules(
-    session: SessionDep,
-    current_user: CurrentUser,
-):
-    """列出 NAT 端口轉發規則。
-
-    可見範圍與拓撲一致：admin 全部；老師含自己班級的學生機器；其餘只看自己的 VM。
-    """
-    from app.services.resource import access as resource_access  # noqa: PLC0415
-
-    rules = nat_repo.list_rules(session)
-    if can_bypass_resource_ownership(current_user):
-        visible_rules = rules
-    else:
-        visible_vmids = resource_access.list_reachable_vmids(
-            session=session, user=current_user
-        )
-        visible_rules = [r for r in rules if r.vmid in visible_vmids]
-
-    return [
-        NATRulePublic(
-            id=r.id,
-            ssh_host=r.ssh_host,
-            vmid=r.vmid,
-            vm_ip=r.vm_ip,
-            external_port=r.external_port,
-            internal_port=r.internal_port,
-            protocol=r.protocol,
-            created_at=r.created_at,
-        )
-        for r in visible_rules
-    ]
-
-
-@router.delete("/nat-rules/{rule_id}", response_model=Message)
-def delete_nat_rule(
-    rule_id: str,
-    session: SessionDep,
-    current_user: CurrentUser,
-):
-    """刪除 NAT 端口轉發規則"""
-    import uuid  # noqa: PLC0415
-
-    try:
-        rule_uuid = uuid.UUID(rule_id)
-    except ValueError:
-        raise HTTPException(status_code=400, detail=t("firewall.invalid_rule_id"))
-
-    rule = nat_repo.get_rule(session, rule_uuid)
-    if rule is None:
-        raise HTTPException(status_code=404, detail=t("firewall.nat_rule_not_found"))
-
-    check_firewall_access(vmid=rule.vmid, current_user=current_user, session=session)
-
-    try:
-        nat_service.remove_nat_rule_by_id(session=session, rule_id=rule_id)
-        audit_service.log_action(
-            session=session,
-            user_id=current_user.id,
-            vmid=rule.vmid,
-            action=AuditAction.nat_rule_delete,
-            details=(
-                f"Deleted NAT rule {rule_id} (vmid={rule.vmid} "
-                f"ext={rule.external_port} → int={rule.internal_port}/{rule.protocol})"
-            ),
-        )
-        return Message(message=t("firewall.nat_rule_deleted"))
-    except ProxmoxError as e:
-        logger.error(f"Proxmox error removing NAT rule {rule_id}: {e}")
-        raise HTTPException(
-            status_code=502, detail=t("firewall.proxmox_operation_failed")
-        )
-    except Exception:
-        logger.exception(f"Failed to remove NAT rule {rule_id}")
-        raise HTTPException(
-            status_code=500, detail=t("firewall.delete_nat_rule_failed")
-        )
-
-
-@router.post("/nat-rules/sync", response_model=Message)
-def sync_nat_rules(
-    session: SessionDep,
-    current_user: AdminUser,
-):
-    """手動將 DB 中的 NAT 規則同步到 Gateway VM haproxy"""
-    try:
-        nat_service.sync_to_gateway(session=session)
-        audit_service.log_action(
-            session=session,
-            user_id=current_user.id,
-            action=AuditAction.nat_rule_sync,
-            details="Manually synced NAT rules to Gateway VM",
-        )
-        return Message(message=t("firewall.nat_rules_synced"))
-    except ProxmoxError as e:
-        logger.error(f"Proxmox error syncing NAT rules: {e}")
-        raise HTTPException(
-            status_code=502, detail=t("firewall.proxmox_operation_failed")
-        )
-    except Exception:
-        logger.exception("Failed to sync NAT rules")
-        raise HTTPException(
-            status_code=500, detail=t("firewall.sync_nat_rules_failed")
-        )
 
 
 # ─── 單台 VM：迷你拓撲與對外服務 ──────────────────────────────────────────────

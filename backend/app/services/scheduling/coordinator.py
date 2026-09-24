@@ -298,7 +298,7 @@ def _provision_new_resource(
             )
             finish_session.commit()
             try:
-                provisioning_service._cleanup_failed_resource(
+                provisioning_service.cleanup_failed_resource(
                     actual_node, new_vmid, plan["resource_type"]
                 )
             except Exception:
@@ -679,14 +679,26 @@ def process_due_request_starts() -> int:
 
         for request in active_requests:
             if request.vmid is None:
-                # 尚未 provision — fan-out 到背景並行 clone（獨立 semaphore
-                # 限流），tick 不再同步等待重 I/O。防重複由 runner task_id
+                if (
+                    request.provisioning_status == VMProvisioningStatus.running
+                    and not scheduling_policy.is_provisioning_stale(
+                        request.provisioning_started_at, now=now
+                    )
+                ):
+                    # worker 正在 clone：不用再送，job id 去重也擋得住，但這裡
+                    # 先跳過省一次 Redis 往返
+                    continue
+                # 尚未 provision — 入列到 arq worker 並行 clone（worker 內
+                # semaphore 限流），tick 不再同步等待重 I/O。防重複由 job id
                 # 去重 + DB SKIP LOCKED + provisioning_status 再檢查三層保障。
                 provision_pool.submit_provision(
-                    request.id,
+                    session,
+                    request_id=request.id,
+                    user_id=request.user_id,
                     concurrency=governance_config.provision_max_concurrency,
                 )
                 continue
+
             try:
                 started = _ensure_request_running(
                     session=session,
@@ -891,6 +903,14 @@ async def run_scheduler(stop_event: asyncio.Event) -> None:
             ),
             ScheduledTask(name="process_pending_deletions", handler=process_pending_deletions_task),
             ScheduledTask(
+                name="reap_stale_script_runs", handler=reap_stale_script_runs_task
+            ),
+            ScheduledTask(
+                name="reap_stale_task_records", handler=reap_stale_task_records_task
+            ),
+
+
+            ScheduledTask(
                 name="process_recurrence_windows",
                 handler=recurrence_scheduler.process_recurrence_windows,
             ),
@@ -1004,6 +1024,33 @@ def process_snapshot_cleanup_task() -> int:
     )
 
     return snapshot_cleanup_service.process_snapshot_cleanup()
+
+
+def reap_stale_task_records_task() -> int:
+    """Scheduler tick：把 worker 被硬殺後永遠停在 running／queued 的 TaskRecord 收成 failed。"""
+    from app.repositories import task_record as task_record_repo  # noqa: PLC0415
+
+    try:
+        with Session(engine) as session:
+            return task_record_repo.reap_stale_task_records(session=session)
+    except Exception:
+        logger.exception("reap_stale_task_records_task failed")
+        return 0
+
+
+def reap_stale_script_runs_task() -> int:
+    """Scheduler tick：把被硬殺的 Teacher Judge script run 從 running 收成 failed。"""
+    from app.ai.teacher_judge import (
+        script_executor_service,  # noqa: PLC0415 — 避免 import cycle
+    )
+
+    try:
+        with Session(engine) as session:
+            reaped = script_executor_service.reap_stale_script_runs(session)
+        return reaped
+    except Exception:
+        logger.exception("reap_stale_script_runs_task failed")
+        return 0
 
 
 def process_pending_deletions_task() -> int:

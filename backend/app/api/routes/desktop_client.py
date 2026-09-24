@@ -21,6 +21,7 @@ from app.api.deps import CurrentUser, SessionDep
 from app.api.deps.rate_limit import rate_limit_by_ip
 from app.core.config import settings
 from app.core.i18n import t
+from app.infrastructure.redis.sync_kv import ExpiringKV
 from app.schemas.wireguard import (
     WireGuardConnectRequest,
     WireGuardConnectResponse,
@@ -52,20 +53,12 @@ _DOWNLOAD_PATTERNS = (
 _DEVICE_CODE_TTL = 300  # 5 minutes
 # 未認證端點會往記憶體寫入；限制同時存在的待核准碼數量，避免被灌爆
 _DEVICE_CODE_MAX_PENDING = 1000
-_device_codes: dict[str, dict] = {}  # code -> {token, created_at}
+# code -> {token, created_at}；放 Redis（多副本時發碼與核准可能落在不同行程），
+# REDIS_ENABLED=false 或 Redis 暫時不可用時退回行程內記憶體
+_device_codes = ExpiringKV("device_code", ttl_seconds=_DEVICE_CODE_TTL)
 _DEVICE_CODE_RATE_LIMIT = Depends(
     rate_limit_by_ip(scope="device-code", limit=10, window_seconds=60)
 )
-
-
-def _cleanup_expired() -> None:
-    """Remove expired device codes."""
-    now = time.time()
-    expired = [
-        k for k, v in _device_codes.items() if now - v["created_at"] > _DEVICE_CODE_TTL
-    ]
-    for k in expired:
-        del _device_codes[k]
 
 
 class DeviceCodeResponse(BaseModel):
@@ -89,13 +82,12 @@ class DevicePollResponse(BaseModel):
 @router.post("/auth/device-code", dependencies=[_DEVICE_CODE_RATE_LIMIT])
 def create_device_code() -> DeviceCodeResponse:
     """Generate a new device code for desktop client login."""
-    _cleanup_expired()
-    if len(_device_codes) >= _DEVICE_CODE_MAX_PENDING:
+    if _device_codes.count(limit=_DEVICE_CODE_MAX_PENDING) >= _DEVICE_CODE_MAX_PENDING:
         raise HTTPException(
             status_code=429, detail=t("desktop.device_code_too_many")
         )
     code = secrets.token_urlsafe(32)
-    _device_codes[code] = {"token": None, "created_at": time.time()}
+    _device_codes.set(code, {"token": None, "created_at": time.time()})
     frontend_url = str(settings.FRONTEND_HOST).rstrip("/")
     login_url = f"{frontend_url}/login?device_code={code}"
     return DeviceCodeResponse(
@@ -119,15 +111,15 @@ def approve_device_code(
 
     from app.core.security import create_access_token  # noqa: PLC0415
 
-    _cleanup_expired()
     entry = _device_codes.get(body.device_code)
     if entry is None:
         raise HTTPException(
             status_code=404, detail=t("desktop.device_code_not_found")
         )
 
-    if time.time() - entry["created_at"] > _DEVICE_CODE_TTL:
-        del _device_codes[body.device_code]
+    remaining = _DEVICE_CODE_TTL - int(time.time() - entry["created_at"])
+    if remaining <= 0:
+        _device_codes.delete(body.device_code)
         raise HTTPException(status_code=410, detail=t("desktop.device_code_expired"))
 
     if entry["token"] is not None:
@@ -144,14 +136,16 @@ def approve_device_code(
         expires_delta=timedelta(hours=8),
         token_version=current_user.token_version,
     )
-    entry["token"] = token
+    # 保留原本的到期時間：核准不延長 code 的壽命
+    _device_codes.set(
+        body.device_code, {**entry, "token": token}, ttl_seconds=remaining
+    )
     return {"status": "approved"}
 
 
 @router.get("/auth/poll")
 def poll_device_code(code: str) -> DevicePollResponse:
     """Poll for device code approval (called by the desktop client)."""
-    _cleanup_expired()
     entry = _device_codes.get(code)
     if entry is None:
         raise HTTPException(
@@ -161,7 +155,7 @@ def poll_device_code(code: str) -> DevicePollResponse:
     if entry["token"] is not None:
         token = entry["token"]
         # One-time use: delete after retrieval
-        del _device_codes[code]
+        _device_codes.delete(code)
         return DevicePollResponse(status="approved", access_token=token)
 
     return DevicePollResponse(status="pending")

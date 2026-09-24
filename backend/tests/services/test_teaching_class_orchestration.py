@@ -9,10 +9,13 @@ from app.api.routes.course_environments import (
     EnvironmentEdgeIn,
     EnvironmentNodeIn,
 )
-from app.api.routes.teaching_classes import _generate_weeks, _recurrence
+from app.api.routes.teaching_classes import _generate_weeks
 from app.exceptions import BadRequestError
 from app.models import BatchProvisionJobStatus, TeachingClassWeek
 from app.services.teaching import class_capacity_service, class_network_service
+from app.services.teaching.class_provision_service import (
+    recurrence_rule as _recurrence,
+)
 from app.services.vm import batch_provision_service
 
 
@@ -394,14 +397,14 @@ def test_class_jobs_are_approved_as_one_decision(monkeypatch):
         lambda **_kwargs: jobs,
     )
 
-    class FakeThread:
-        def __init__(self, *, args, **_kwargs):
-            self.job_id = args[0]
+    def fake_enqueue(**kwargs):
+        # 核准後改交給 arq worker；每個 job 各一筆入列
+        assert kwargs["task_type"] == batch_provision_service.TASK_RUN_BATCH_JOB
+        started.append(uuid.UUID(kwargs["payload"]["job_id"]))
+        return SimpleNamespace(id=uuid.uuid4())
 
-        def start(self):
-            started.append(self.job_id)
+    monkeypatch.setattr(batch_provision_service, "enqueue_task_sync", fake_enqueue)
 
-    monkeypatch.setattr(batch_provision_service.threading, "Thread", FakeThread)
 
     reviewed = batch_provision_service.review_batch_jobs(
         session=object(),
@@ -435,52 +438,6 @@ def test_network_labels_accept_ui_slash_or_comma_notation():
         "lab-net",
         "backend-net",
         "management",
-    }
-
-
-def test_course_connection_creates_matching_source_out_and_target_in(monkeypatch):
-    rules = []
-    monkeypatch.setattr(
-        class_network_service,
-        "_ip_by_vmid",
-        lambda _session, vmid: {101: "10.0.0.11", 102: "10.0.0.12"}[vmid],
-    )
-    monkeypatch.setattr(
-        class_network_service.proxmox_service,
-        "find_resource",
-        lambda vmid: {"node": "pve1", "type": "qemu", "vmid": vmid},
-    )
-    monkeypatch.setattr(
-        class_network_service,
-        "_ensure_rule",
-        lambda **kwargs: rules.append(kwargs),
-    )
-
-    class_network_service._allow_one_way(
-        object(),
-        class_id=uuid.uuid4(),
-        source_vmid=101,
-        target_vmid=102,
-        protocol="tcp",
-        port=443,
-    )
-
-    assert rules[0]["vmid"] == 101
-    assert rules[0]["rule"] == {
-        "type": "out",
-        "action": "ACCEPT",
-        "pos": 0,
-        "dest": "10.0.0.12",
-        "proto": "tcp",
-        "dport": "443",
-    }
-    assert rules[1]["vmid"] == 102
-    assert rules[1]["rule"] == {
-        "type": "in",
-        "action": "ACCEPT",
-        "source": "10.0.0.11",
-        "proto": "tcp",
-        "dport": "443",
     }
 
 

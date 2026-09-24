@@ -119,49 +119,6 @@ Your primary objective is to clarify the user's deployment needs through a natur
 
     return f"{identity_and_tone}\n\n{platform_hard_rules}\n\n{current_context}"
 
-def build_intent_extraction_prompt(
-    *,
-    formatted_user_history: str,
-    formatted_history: str,
-    user_signal_flags: dict[str, bool],
-) -> str:
-    return f"""# Role
-You are an expert "Intent Extractor". Your task is to accurately extract the user's final architectural requirements from a conversation history.
-
-# Primary User Signals (Highest Priority)
-{formatted_user_history}
-
-# Full Conversation History (Reference)
-{formatted_history}
-
-# Keyword Detection Hints
-System detected the following potential keywords in the user's recent messages:
-- Needs Windows/GUI: {user_signal_flags["needs_windows"]}
-- Requires GPU: {user_signal_flags["requires_gpu"]}
-- Needs Database: {user_signal_flags["needs_database"]}
-- Needs Public Web: {user_signal_flags["needs_public_web"]}
-
-# Task
-Analyze the conversation above. If there are conflicting statements, trust the LATEST user decision.
-Prioritize "Primary User Signals" over assistant suggestions/questions.
-Consider the "Keyword Detection Hints" as potential needs, but you MUST evaluate the conversation context to determine if the user ACTUALLY still wants them. If the user used a negation or changed their mind (e.g., "I don't need X anymore"), you MUST output false for that requirement.
-Extract their requirements into a strict JSON object that matches the Output Schema.
-Do not reveal chain-of-thought, internal reasoning, scratchpad, or `<think>` content.
-
-# Output Schema constraints
-- `goal_summary`: Highly technically descriptive summary (around 50-150 words) of their finalized requirement and background. Must be in Traditional Chinese.
-- `role`: "student" or "teacher". (Default: student)
-- `course_context`: "coursework", "teaching", or "research". (Default: coursework)
-- `budget_mode`: "resource-saving", "balanced", or "performance". (Default: balanced)
-- `needs_public_web`: boolean. True if they mention needing a public IP, external domain, or web access.
-- `needs_database`: boolean. True if they mention storing data, a database, SQL, login systems, etc.
-- `requires_gpu`: boolean. True if they mention AI, training, inference, PyTorch, Stable Diffusion, LLM, etc.
-- `needs_windows`: boolean. True if they mention Remote Desktop (RDP), Windows, or strict GUI tools.
-
-# Output Format
-Output ONLY valid JSON matching the exact keys and types specified.
-"""
-
 
 def build_fast_ai_plan_prompt(
     *,

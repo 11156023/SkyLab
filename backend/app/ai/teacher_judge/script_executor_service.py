@@ -9,7 +9,7 @@ import shlex
 import uuid
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any, TypeVar
 
 from sqlmodel import Session, col, select
@@ -490,7 +490,45 @@ def _summary(results: list[dict[str, Any]]) -> dict[str, Any]:
     }
 
 
+# running／pending 超過這個時數且沒有任何進度更新的 run，視為執行器已死
+# （行程被 OOM／SIGKILL 殺掉不會走 cancel 路徑，run 會永遠停在 running）
+STALE_RUN_HOURS = 2.0
+STALE_RUN_MESSAGE = "Executor lost: run reaped after {hours:g}h without progress"
+
+
+def reap_stale_script_runs(session: Session, *, now: datetime | None = None) -> int:
+    """把長時間沒有進度的 pending／running run 標成 failed；回傳處理數。
+
+    正常路徑（完成、cancel、例外）都會收尾，只有行程被硬殺才會留下殭屍；
+    回收只看 ``updated_at``，執行中有進度回報就不會被誤殺。
+    """
+    current = now or _now()
+    cutoff = current - timedelta(hours=STALE_RUN_HOURS)
+    stale_ids = list(
+        session.exec(
+            select(TeacherJudgeScriptRun.id)
+            .where(
+                col(TeacherJudgeScriptRun.status).in_(
+                    [
+                        TeacherJudgeScriptRunStatus.pending,
+                        TeacherJudgeScriptRunStatus.running,
+                    ]
+                ),
+                TeacherJudgeScriptRun.updated_at <= cutoff,
+            )
+            .limit(20)
+        ).all()
+    )
+    for run_id in stale_ids:
+        logger.warning("Reaping stale Teacher Judge script run %s", run_id)
+        _mark_run_executor_failed(
+            run_id, STALE_RUN_MESSAGE.format(hours=STALE_RUN_HOURS)
+        )
+    return len(stale_ids)
+
+
 def _mark_run_executor_failed(run_id: uuid.UUID, message: str) -> None:
+
     with Session(engine) as session:
         run = session.get(TeacherJudgeScriptRun, run_id)
         if run is None or run.status == TeacherJudgeScriptRunStatus.completed:

@@ -345,6 +345,8 @@
   "JobRow.kindMigration": "移行",
   "JobRow.kindSpecChange": "スペック変更",
   "JobRow.kindTemplate": "テンプレート",
+  "JobRow.kindResourceReset": "リセット",
+  "JobRow.kindBatchProvision": "一括プロビジョニング",
   "JobRow.kindVmRequest": "起動申請",
   "JobRow.loading": "読み込み中…",
   "JobRow.noJobs": "現在タスクはありません",

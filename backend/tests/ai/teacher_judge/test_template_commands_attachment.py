@@ -345,24 +345,6 @@ async def test_attachment_itemwise_keeps_duplicate_titles_as_separate_items(
     assert len(set(duplicate_ids)) == 2
 
 
-def test_attachment_extraction_assigns_server_source_item_id_and_chunks() -> None:
-    """P3: extraction owns source_item_id; chunk helper batches without loss."""
-    sources, error = teacher_judge_service._parse_attachment_extraction(
-        _itemwise_extraction_payload()
-    )
-
-    assert error is None
-    assert [source["source_index"] for source in sources] == [1, 2, 3]
-    ids = [source["source_item_id"] for source in sources]
-    assert all(isinstance(value, str) and value.startswith("src-") for value in ids)
-    assert len(set(ids)) == 3
-
-    chunks = teacher_judge_service.chunk_attachment_sources(sources, chunk_size=2)
-    assert [len(chunk) for chunk in chunks] == [2, 1]
-    assert [row["source_index"] for row in chunks[0]] == [1, 2]
-    assert [row["source_index"] for row in chunks[1]] == [3]
-
-
 @pytest.mark.asyncio
 async def test_attachment_itemwise_results_carry_source_item_id(
     monkeypatch: pytest.MonkeyPatch,

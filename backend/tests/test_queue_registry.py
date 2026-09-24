@@ -93,3 +93,85 @@ async def test_wrapper_marks_failed_and_reraises(
         await runner({}, str(uuid.uuid4()), {})
 
     assert calls == [(TaskRecordStatus.failed, "PVE exploded")]
+
+
+@pytest.mark.asyncio
+async def test_wrapper_requeues_on_retry_without_marking_failed(
+    clean_registry, monkeypatch
+) -> None:
+    """handler 丟 Retry（名額滿）：TaskRecord 退回 queued，不算失敗。"""
+    from arq.worker import Retry
+
+    calls: list[tuple[str, Any]] = []
+    monkeypatch.setattr(registry, "_mark_running", lambda tid: calls.append(("running", tid)))
+    monkeypatch.setattr(registry, "_mark_requeued", lambda tid: calls.append(("requeued", tid)))
+    monkeypatch.setattr(
+        registry, "_mark_finished", lambda *a, **k: calls.append(("finished", a, k))
+    )
+
+    async def handler(task_id: uuid.UUID, payload: dict[str, Any]) -> None:
+        raise Retry(defer=15)
+
+    runner = registry._wrap("test.retry", handler)
+    task_id = uuid.uuid4()
+    with pytest.raises(Retry):
+        await runner({}, str(task_id), {})
+
+    assert calls == [("running", task_id), ("requeued", task_id)]
+
+
+@pytest.mark.asyncio
+async def test_wrapper_marks_failed_on_cancellation(clean_registry, monkeypatch) -> None:
+    """worker 關機時 arq 取消進行中的 task：TaskRecord 要標 failed，不能停在 running。"""
+    import asyncio
+
+    calls: list[Any] = []
+    monkeypatch.setattr(registry, "_mark_running", lambda tid: None)
+    monkeypatch.setattr(
+        registry,
+        "_mark_finished",
+        lambda tid, status, *, result=None, error=None: calls.append((status, error)),
+    )
+
+    async def handler(task_id: uuid.UUID, payload: dict[str, Any]) -> None:
+        raise asyncio.CancelledError()
+
+    runner = registry._wrap("test.cancel", handler)
+    with pytest.raises(asyncio.CancelledError):
+        await runner({}, str(uuid.uuid4()), {})
+
+    assert calls == [(TaskRecordStatus.failed, "CancelledError")]
+
+
+def test_queue_task_passes_max_tries_and_keep_result(clean_registry) -> None:
+    @registry.queue_task("test.opts", timeout_seconds=5, keep_result_seconds=0, max_tries=99)
+    async def handler(task_id: uuid.UUID, payload: dict[str, Any]) -> None:
+        return None
+
+    fn = next(f for f in registry.registered_functions() if f.name == "test.opts")
+    assert fn.max_tries == 99
+    assert fn.keep_result_s == 0
+
+
+@pytest.mark.asyncio
+async def test_local_runner_reruns_after_retry(clean_registry, monkeypatch) -> None:
+    """REDIS_ENABLED=false 沒有 arq 重排：本機 runner 自己等 defer 再跑一次。"""
+    from arq.worker import Retry
+
+    monkeypatch.setattr(registry, "_mark_running", lambda tid: None)
+    monkeypatch.setattr(registry, "_mark_requeued", lambda tid: None)
+    monkeypatch.setattr(registry, "_mark_finished", lambda *a, **k: None)
+    attempts: list[int] = []
+
+    @registry.queue_task("test.local_retry")
+    async def handler(task_id: uuid.UUID, payload: dict[str, Any]) -> dict[str, Any]:
+        attempts.append(1)
+        if len(attempts) < 3:
+            raise Retry(defer=0.001)
+        return {"ok": True}
+
+    await registry.run_registered_task_locally(
+        "test.local_retry", str(uuid.uuid4()), {}
+    )
+
+    assert len(attempts) == 3

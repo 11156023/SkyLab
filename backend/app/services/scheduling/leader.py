@@ -1,7 +1,8 @@
-"""排程器 leader 鎖：多 worker 部署時只讓一個行程跑治理任務。
+"""lifespan 迴圈的 leader 鎖：多 worker 部署時只讓一個行程跑治理任務。
 
-``fastapi run --workers N`` 會起 N 個行程，每個都執行 lifespan 裡的排程器；
-TTL 通知、挖礦處置、告警這些任務沒有 DB 層的去重，會被重複執行 N 次。
+``fastapi run --workers N`` 會起 N 個行程，每個都執行 lifespan 裡的排程器、
+Web Push 推播與 WireGuard reconciler；TTL 通知、挖礦處置、告警、推播、
+peer replay 這些任務沒有 DB 層的去重，會被重複執行 N 次。
 這裡用 PostgreSQL transaction-level advisory lock：每輪 tick 開一條連線、在其
 交易內用 ``pg_try_advisory_xact_lock`` 搶一次，搶到的跑完本輪任務後隨交易
 結束釋放；行程死掉連線斷開時鎖也自動回收。
@@ -24,13 +25,19 @@ from app.core.db import engine
 
 logger = logging.getLogger(__name__)
 
-# 與 operations._VMID_ALLOCATION_LOCK_KEY 等其他 advisory lock 錯開
+# 與 operations._VMID_ALLOCATION_LOCK_KEY 等其他 advisory lock 錯開。
+# 每個 lifespan 迴圈各用一把鎖：主排程一輪可能跑十幾秒，不能讓 5 秒一輪的
+# 推播或 WireGuard reconciler 排在它後面等。
 SCHEDULER_LEADER_LOCK_KEY = 0x534B_5943_4C31  # "SKYCL1"
+PUSH_NOTIFIER_LEADER_LOCK_KEY = 0x534B_5950_5348  # "SKYPSH"
+WIREGUARD_RECONCILER_LEADER_LOCK_KEY = 0x534B_5957_4752  # "SKYWGR"
 
 
 @contextmanager
-def scheduler_leader_lock() -> Iterator[bool]:
-    """本輪 tick 是否取得 leader 鎖；離開 context 即釋放。"""
+def scheduler_leader_lock(
+    key: int = SCHEDULER_LEADER_LOCK_KEY,
+) -> Iterator[bool]:
+    """本輪 tick 是否取得 ``key`` 對應的 leader 鎖；離開 context 即釋放。"""
     if engine.dialect.name != "postgresql":
         yield True
         return
@@ -41,7 +48,7 @@ def scheduler_leader_lock() -> Iterator[bool]:
         acquired = bool(
             connection.execute(
                 text("SELECT pg_try_advisory_xact_lock(:key)"),
-                {"key": SCHEDULER_LEADER_LOCK_KEY},
+                {"key": key},
             ).scalar()
         )
         try:

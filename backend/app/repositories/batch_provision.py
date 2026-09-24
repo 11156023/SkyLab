@@ -143,24 +143,6 @@ def transition_pending_reviews(
     return jobs
 
 
-def mark_reviewed(
-    *,
-    session: Session,
-    job_id: uuid.UUID,
-    reviewer_id: uuid.UUID,
-    decision: BatchProvisionJobStatus,
-    review_comment: str | None = None,
-) -> BatchProvisionJob | None:
-    """Backwards-compat wrapper that delegates to the atomic transition."""
-    return transition_pending_review(
-        session=session,
-        job_id=job_id,
-        reviewer_id=reviewer_id,
-        decision=decision,
-        review_comment=review_comment,
-    )
-
-
 def list_pending_review_jobs(*, session: Session) -> list[BatchProvisionJob]:
     stmt = (
         select(BatchProvisionJob)
@@ -181,15 +163,6 @@ def list_review_jobs(
     if status is not None:
         stmt = stmt.where(BatchProvisionJob.status == status)
     stmt = stmt.order_by(col(BatchProvisionJob.created_at).desc()).limit(limit)
-    return list(session.exec(stmt).all())
-
-
-def list_jobs_with_recurrence(*, session: Session) -> list[BatchProvisionJob]:
-    """Jobs that the scheduler must inspect for window-based start/stop."""
-    stmt = select(BatchProvisionJob).where(
-        BatchProvisionJob.recurrence_rule.isnot(None),  # type: ignore[union-attr]
-        BatchProvisionJob.status == BatchProvisionJobStatus.completed,
-    )
     return list(session.exec(stmt).all())
 
 
@@ -303,17 +276,6 @@ def transition_job_to_running(*, session: Session, job_id: uuid.UUID) -> bool:
         return False
     session.commit()
     return True
-
-
-def list_jobs_by_teaching_class(
-    *, session: Session, teaching_class_id: uuid.UUID
-) -> list[BatchProvisionJob]:
-    stmt = (
-        select(BatchProvisionJob)
-        .where(BatchProvisionJob.teaching_class_id == teaching_class_id)
-        .order_by(BatchProvisionJob.created_at.desc())
-    )
-    return list(session.exec(stmt).all())
 
 
 def clear_task_vmid_references(

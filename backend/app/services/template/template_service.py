@@ -21,6 +21,7 @@ from sqlmodel import Session, col, select
 from app.core.db import engine
 from app.core.i18n import t
 from app.core.permissions import is_admin
+from app.domain.resource_markers import RESOURCE_CONVERTED_TO_TEMPLATE_MARKER
 from app.exceptions import (
     BadRequestError,
     ConflictError,
@@ -249,8 +250,8 @@ def list_student_catalog(*, session: Session) -> list[TemplateCatalogItem]:
 def get_template_for_user(
     *, session: Session, user: User, template_id: uuid.UUID
 ) -> VMTemplatePublic:
-    template = _get_or_404(session, template_id)
-    _require_view(session, user, template)
+    template = get_or_404(session, template_id)
+    require_view(session, user, template)
     _reconcile_failed_template_tasks(session, [template])
     counts = _attachment_counts(session, [template.id])
     return _to_public(
@@ -285,7 +286,7 @@ def _reconcile_failed_template_tasks(
         session.commit()
 
 
-def _get_or_404(session: Session, template_id: uuid.UUID) -> VMTemplate:
+def get_or_404(session: Session, template_id: uuid.UUID) -> VMTemplate:
     template = template_repo.get_template(
         session=session, template_id=template_id
     )
@@ -304,7 +305,7 @@ def _can_manage(user: User) -> bool:
     return True
 
 
-def _require_view(session: Session, user: User, template: VMTemplate) -> None:
+def require_view(session: Session, user: User, template: VMTemplate) -> None:
     _ = session  # 保留服務層既有呼叫介面；私人/公開判斷已不需查詢群組。
     if is_admin(user):
         return
@@ -430,7 +431,7 @@ async def retry_template_conversion(
     user: User,
     template_id: uuid.UUID,
 ) -> tuple[VMTemplatePublic, TaskRecord]:
-    template = _get_or_404(session, template_id)
+    template = get_or_404(session, template_id)
     _require_owner(user, template)
     _reconcile_failed_template_tasks(session, [template])
     if template.status != VMTemplateStatus.failed:
@@ -506,7 +507,7 @@ def update_template(
     template_id: uuid.UUID,
     data: VMTemplateUpdate,
 ) -> VMTemplatePublic:
-    template = _get_or_404(session, template_id)
+    template = get_or_404(session, template_id)
     _require_owner(user, template)
 
     updates: dict[str, Any] = data.model_dump(exclude_unset=True)
@@ -537,8 +538,8 @@ def _template_attachments(
 def list_attachments(
     *, session: Session, user: User, template_id: uuid.UUID
 ) -> list[TemplateAttachment]:
-    template = _get_or_404(session, template_id)
-    _require_view(session, user, template)
+    template = get_or_404(session, template_id)
+    require_view(session, user, template)
     return _template_attachments(session, template.id)
 
 
@@ -589,7 +590,7 @@ def add_attachment(
     content_type: str | None,
     data: bytes,
 ) -> TemplateAttachment:
-    template = _get_or_404(session, template_id)
+    template = get_or_404(session, template_id)
     _require_owner(user, template)
 
     # 去掉路徑片段與控制字元（CR/LF 等），避免下載時的 Content-Disposition 被污染
@@ -643,8 +644,8 @@ def get_attachment_for_download(
     template_id: uuid.UUID,
     attachment_id: uuid.UUID,
 ) -> tuple[Path, TemplateAttachment]:
-    template = _get_or_404(session, template_id)
-    _require_view(session, user, template)
+    template = get_or_404(session, template_id)
+    require_view(session, user, template)
     attachment = session.get(TemplateAttachment, attachment_id)
     if attachment is None or attachment.template_id != template.id:
         raise NotFoundError(t("template.attachmentNotFound"))
@@ -661,7 +662,7 @@ def remove_attachment(
     template_id: uuid.UUID,
     attachment_id: uuid.UUID,
 ) -> None:
-    template = _get_or_404(session, template_id)
+    template = get_or_404(session, template_id)
     _require_owner(user, template)
     attachment = session.get(TemplateAttachment, attachment_id)
     if attachment is None or attachment.template_id != template.id:
@@ -756,7 +757,7 @@ def _environments_referencing(session: Session, template_id: uuid.UUID) -> list[
 async def delete_template(
     *, session: Session, user: User, template_id: uuid.UUID
 ) -> TaskRecord:
-    template = _get_or_404(session, template_id)
+    template = get_or_404(session, template_id)
     _require_owner(user, template)
     if template.status == VMTemplateStatus.updating:
         raise ConflictError(t("template.updateCycleInProgress"))
@@ -816,7 +817,7 @@ async def start_update_cycle(
     *, session: Session, user: User, template_id: uuid.UUID
 ) -> TaskRecord:
     """克隆出暫存母機供修改；成功後 template.source_vmid 指向暫存機。"""
-    template = _get_or_404(session, template_id)
+    template = get_or_404(session, template_id)
     _require_owner(user, template)
     if template.status != VMTemplateStatus.ready:
         raise ConflictError(
@@ -845,7 +846,7 @@ async def finish_update_cycle(
     *, session: Session, user: User, template_id: uuid.UUID
 ) -> TaskRecord:
     """把修改完的暫存機轉為新版範本並汰換舊版。"""
-    template = _get_or_404(session, template_id)
+    template = get_or_404(session, template_id)
     _require_owner(user, template)
     if template.status != VMTemplateStatus.updating:
         raise ConflictError(t("template.notInUpdateCycle"))
@@ -871,7 +872,7 @@ async def finish_update_cycle(
 async def cancel_update_cycle(
     *, session: Session, user: User, template_id: uuid.UUID
 ) -> TaskRecord:
-    template = _get_or_404(session, template_id)
+    template = get_or_404(session, template_id)
     _require_owner(user, template)
     if template.status != VMTemplateStatus.updating:
         raise ConflictError(t("template.notInUpdateCycle"))
@@ -1198,7 +1199,7 @@ def run_convert_task(task_id: uuid.UUID, payload: dict[str, Any]) -> dict[str, A
         resource_service.mark_linked_request_consumed(
             session=session,
             vmid=pve_vmid,
-            marker=resource_service.RESOURCE_CONVERTED_TO_TEMPLATE_MARKER,
+            marker=RESOURCE_CONVERTED_TO_TEMPLATE_MARKER,
         )
         session.commit()
     return {"vmid": pve_vmid, "cloud_init_reset": cloud_init_reset}

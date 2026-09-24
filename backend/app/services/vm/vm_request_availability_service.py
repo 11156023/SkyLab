@@ -323,7 +323,7 @@ def _build_availability_response(
                 node_names=[item.node for item in baseline_capacities],
             )
         )
-        lite_tuning = vm_request_placement_service._get_placement_tuning(
+        lite_tuning = vm_request_placement_service.get_placement_tuning(
             session=session
         )
 
@@ -951,15 +951,6 @@ def _extract_disk_gb(
     return disk_gb
 
 
-def _validate_policy_window(
-    *,
-    role: UserRole,
-    start_at: datetime,
-    end_at: datetime,
-) -> None:
-    return None
-
-
 def _load_hourly_demand_profile(*, session: Session, timezone: ZoneInfo) -> dict[int, float]:
     recent_window_start = datetime.now(UTC) - timedelta(days=30)
     rows = list(
@@ -1275,10 +1266,6 @@ def _average_share(
 
 def _policy_block_summary(*, role: UserRole, allowed_start: int, allowed_end: int) -> str:
     return "目前不限制申請時段。"
-
-
-def _policy_hint(*, role: UserRole) -> str:
-    return "此評估未套用時段限制。"
 
 
 def _summarize_day(day: date, slots: list[VMRequestAvailabilitySlot]) -> VMRequestAvailabilityDay:
