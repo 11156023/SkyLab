@@ -20,6 +20,7 @@ class UserCreate(BaseModel):
     is_superuser: bool = False
     full_name: str | None = Field(default=None, max_length=255)
     avatar_url: str | None = Field(default=None, max_length=2048)
+    totp_required: bool = False  # 強制此帳號啟用兩步驟驗證
 
 
 class UserRegister(BaseModel):
@@ -41,6 +42,7 @@ class UserUpdate(BaseModel):
     is_superuser: bool | None = None
     full_name: str | None = Field(default=None, max_length=255)
     avatar_url: str | None = Field(default=None, max_length=2048)
+    totp_required: bool | None = None  # 強制此帳號啟用兩步驟驗證
 
 
 class UserUpdateMe(BaseModel):
@@ -81,10 +83,8 @@ class UserPublic(BaseModel):
     avatar_url: str | None = None
     auth_source: str = "local"  # "local" | "ldap"（LDAP 帳號的本地密碼欄位應鎖住）
     totp_enabled: bool = False  # 已綁定兩步驟驗證（登入需輸入驗證碼）
-    # 以下兩欄只有 GET /users/me 會算（其他回傳 UserPublic 的端點維持預設 False）：
-    # totp_policy_required：管理員已開「強制全站 2FA」（已綁定者不可自行停用）
-    # totp_setup_required：強制中且本人尚未綁定，前端只能顯示綁定畫面
-    totp_policy_required: bool = False
+    totp_required: bool = False  # 管理員要求此帳號啟用兩步驟驗證（已綁定者不可自行停用）
+    # 只有 GET /users/me 會算：要求中且本人尚未綁定，前端只能顯示綁定畫面
     totp_setup_required: bool = False
     created_at: datetime | None = None
 

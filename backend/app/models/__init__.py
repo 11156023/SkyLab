@@ -18,7 +18,6 @@ from .ai_pve_template import AIPVETemplate
 from .ai_template_call_log import AITemplateCallLog
 from .alert_event import AlertEvent, AlertMetric, AlertScope
 from .audit_log import AuditAction, AuditLog
-from .auth_policy import AuthPolicy
 from .base import get_datetime_utc
 from .batch_provision import (
     BatchProvisionJob,
@@ -158,7 +157,6 @@ __all__ = [
     "MiningIncident",
     "MiningIncidentStatus",
     # LDAP
-    "AuthPolicy",
     "LdapConfig",
     # 初始化精靈
     "SystemSetup",

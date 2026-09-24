@@ -25,7 +25,7 @@
   "LoginPage.totpErrorDefault": "驗證碼錯誤，請再試一次",
   "LoginPage.totpHelp": "打開 Google Authenticator（或其他驗證 App），找到 SkyLab 的項目。若手機遺失，請聯絡管理員重設兩步驟驗證。",
   "TotpEnrollPage.title": "請先設定兩步驟驗證",
-  "TotpEnrollPage.subtitle": "系統要求所有使用者啟用兩步驟驗證（{{email}}）",
+  "TotpEnrollPage.subtitle": "管理員要求此帳號啟用兩步驟驗證（{{email}}）",
   "TotpEnrollPage.notice": "完成綁定後才能繼續使用 SkyLab。之後每次登入都需要輸入驗證 App 的 6 位數驗證碼。",
   "TotpEnrollPage.confirm": "啟用並進入系統",
   "TotpEnrollPage.enabledToast": "兩步驟驗證已啟用",

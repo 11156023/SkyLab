@@ -60,7 +60,7 @@
   "TwoFactorSection.descOff": "Google Authenticator などの認証アプリを連携して、ログイン時にコードでアカウントを保護します。",
   "TwoFactorSection.enable": "認証アプリを連携",
   "TwoFactorSection.disable": "二段階認証を無効にする",
-  "TwoFactorSection.enforcedHint": "二段階認証はシステム全体で必須のため、自分で無効化できません。リセットが必要な場合は管理者に連絡してください。",
+  "TwoFactorSection.enforcedHint": "管理者によりこのアカウントは二段階認証が必須になっているため、自分で無効化できません。リセットが必要な場合は管理者に連絡してください。",
   "TwoFactorSection.enableTitle": "Google Authenticator を連携",
   "TwoFactorSection.enabledToast": "二段階認証を有効にしました",
   "TwoFactorSection.disableTitle": "二段階認証を無効にする",

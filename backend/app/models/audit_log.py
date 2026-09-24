@@ -82,6 +82,7 @@ class AuditAction(str, enum.Enum):
     totp_enable = "totp_enable"
     totp_disable = "totp_disable"
     totp_admin_reset = "totp_admin_reset"
+    # 舊版「全站強制 2FA」開關留下的標籤；PG enum 值不能刪，改成逐帳號後不再寫入
     auth_policy_update = "auth_policy_update"
 
     # 防火牆

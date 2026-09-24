@@ -25,7 +25,7 @@
   "LoginPage.totpErrorDefault": "認証コードが正しくありません。もう一度お試しください",
   "LoginPage.totpHelp": "Google Authenticator（または他の認証アプリ）を開き、SkyLab の項目を確認してください。スマートフォンを紛失した場合は、管理者に二段階認証のリセットを依頼してください。",
   "TotpEnrollPage.title": "二段階認証を設定してください",
-  "TotpEnrollPage.subtitle": "すべてのユーザーに二段階認証が必須です（{{email}}）",
+  "TotpEnrollPage.subtitle": "このアカウントには二段階認証が必須です（{{email}}）",
   "TotpEnrollPage.notice": "設定が完了すると SkyLab を利用できます。以降のログインでは毎回、認証アプリの 6 桁のコードが必要になります。",
   "TotpEnrollPage.confirm": "有効にして続行",
   "TotpEnrollPage.enabledToast": "二段階認証を有効にしました",

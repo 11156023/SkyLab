@@ -29,6 +29,7 @@ function initialForm(user = null) {
     password: "",
     role: user?.role ?? "student",
     is_active: user?.is_active ?? true,
+    totp_required: user?.totp_required ?? false,
   };
 }
 
@@ -89,6 +90,7 @@ function UserModal({ mode, user, loading, closing = false, onClose, onSubmit, on
       full_name: form.full_name.trim() || null,
       role: form.role,
       is_active: form.is_active,
+      totp_required: form.totp_required,
     };
     if (!isLdap && form.password.trim()) payload.password = form.password;
     onSubmit(payload);
@@ -166,7 +168,18 @@ function UserModal({ mode, user, loading, closing = false, onClose, onSubmit, on
             />
             <span>{t("AdminPage.fieldActive")}</span>
           </label>
+          <label className={styles.checkRow} title={t("AdminPage.fieldTotpRequiredHint")}>
+            <input
+              type="checkbox"
+              checked={form.totp_required}
+              onChange={(e) => setField("totp_required", e.target.checked)}
+            />
+            <span>{t("AdminPage.fieldTotpRequired")}</span>
+          </label>
         </div>
+        {form.totp_required && (
+          <em className={styles.fieldHint}>{t("AdminPage.fieldTotpRequiredHint")}</em>
+        )}
 
         {isEdit && (
           <div className={styles.totpRow}>

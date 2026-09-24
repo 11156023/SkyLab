@@ -22,7 +22,6 @@ from app.core.permissions import Permission, require_permission
 from app.exceptions import AuthenticationError, PermissionDeniedError
 from app.infrastructure.redis import get_redis, is_jti_revoked
 from app.models import User
-from app.repositories import auth_policy as auth_policy_repo
 from app.schemas import TokenPayload
 
 logger = logging.getLogger(__name__)
@@ -34,14 +33,11 @@ reusable_oauth2 = OAuth2PasswordBearer(
 TokenDep = Annotated[str, Depends(reusable_oauth2)]
 
 
-# 強制 2FA 開啟時，尚未綁定的使用者仍可用的路徑前綴：看自己的資料、綁定
-# 兩步驟驗證、讀政策、登出／續期；管理員還能關掉政策（避免自己被鎖在外面）。
-# 其餘 API 一律 403，直到綁定完成。
+# 帳號被管理員要求啟用 2FA 但尚未綁定時仍可用的路徑前綴：看自己的資料、綁定
+# 兩步驟驗證、登出／續期。其餘 API 一律 403，直到綁定完成。
 _TOTP_ENROLLMENT_ALLOWED_PREFIXES = (
     f"{settings.API_V1_STR}/users/me",
     f"{settings.API_V1_STR}/login/",
-    f"{settings.API_V1_STR}/auth-policy",
-    f"{settings.API_V1_STR}/admin/auth-policy",
 )
 
 
@@ -84,14 +80,14 @@ async def get_current_user(
         raise AuthenticationError(t("auth.user_inactive"))
     if user.token_version != token_data.ver:
         raise AuthenticationError(t("auth.token_revoked"))
-    # 管理員強制全站 2FA：尚未綁定的使用者只能走綁定相關端點（403 不會觸發
-    # 前端登出流程；前端依 /users/me 的 totp_setup_required 顯示綁定畫面）。
-    if not user.totp_enabled and not _totp_enrollment_allowed(request.url.path):
-        totp_required = await run_in_threadpool(
-            auth_policy_repo.is_totp_required, session=session
-        )
-        if totp_required:
-            raise PermissionDeniedError(t("auth.totpSetupRequired"))
+    # 管理員在使用者資料勾了「強制兩步驟驗證」：尚未綁定前只能走綁定相關端點
+    # （403 不會觸發前端登出流程；前端依 /users/me 的 totp_setup_required 顯示綁定畫面）。
+    if (
+        user.totp_required
+        and not user.totp_enabled
+        and not _totp_enrollment_allowed(request.url.path)
+    ):
+        raise PermissionDeniedError(t("auth.totpSetupRequired"))
     return user
 
 

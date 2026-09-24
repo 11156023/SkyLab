@@ -60,7 +60,7 @@
   "TwoFactorSection.descOff": "綁定 Google Authenticator 等驗證 App，登入時多一道驗證碼保護帳號。",
   "TwoFactorSection.enable": "綁定驗證 App",
   "TwoFactorSection.disable": "停用兩步驟驗證",
-  "TwoFactorSection.enforcedHint": "系統已強制啟用兩步驟驗證，無法自行停用；如需重設請聯絡管理員。",
+  "TwoFactorSection.enforcedHint": "管理員已要求此帳號啟用兩步驟驗證，無法自行停用；如需重設請聯絡管理員。",
   "TwoFactorSection.enableTitle": "綁定 Google Authenticator",
   "TwoFactorSection.enabledToast": "兩步驟驗證已啟用",
   "TwoFactorSection.disableTitle": "停用兩步驟驗證",

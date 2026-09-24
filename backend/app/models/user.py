@@ -58,6 +58,9 @@ class User(UserBase, table=True):
     totp_secret_encrypted: str | None = Field(default=None, max_length=512)
     totp_enabled: bool = Field(default=False)
     totp_last_used_step: int | None = Field(default=None)
+    # 管理員在新增／編輯使用者時勾選「強制兩步驟驗證」：尚未綁定者登入後只能進
+    # 綁定畫面（見 deps/auth.get_current_user），綁定後不可自行停用，只能由管理員重設
+    totp_required: bool = Field(default=False)
     created_at: datetime | None = Field(
         default_factory=get_datetime_utc,
         sa_type=DateTime(timezone=True),

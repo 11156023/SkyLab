@@ -12,7 +12,6 @@ from app.api.deps import (
     get_current_active_superuser,
 )
 from app.core.i18n import t
-from app.repositories import auth_policy as auth_policy_repo
 from app.schemas import (
     Message,
     TotpCodeRequest,
@@ -87,9 +86,8 @@ def update_password_me(
 @router.get("/me", response_model=UserPublic)
 def read_user_me(session: SessionDep, current_user: CurrentUser) -> Any:
     me = UserPublic.model_validate(current_user)
-    # 管理員強制全站 2FA：已綁定者不可自行停用；尚未綁定者前端只顯示綁定畫面
-    me.totp_policy_required = auth_policy_repo.is_totp_required(session=session)
-    me.totp_setup_required = me.totp_policy_required and not current_user.totp_enabled
+    # 管理員要求此帳號啟用 2FA 但尚未綁定：前端只顯示綁定畫面
+    me.totp_setup_required = current_user.totp_required and not current_user.totp_enabled
     return me
 
 

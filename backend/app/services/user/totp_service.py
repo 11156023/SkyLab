@@ -27,7 +27,6 @@ from app.core.config import settings
 from app.core.i18n import t
 from app.exceptions import AuthenticationError, BadRequestError, NotFoundError
 from app.models import AuditAction, User
-from app.repositories import auth_policy as auth_policy_repo
 from app.schemas import Token, TokenPayload, TotpChallenge, TotpSetupPublic
 from app.services.user import audit_service
 from app.utils import totp as totp_util
@@ -203,8 +202,8 @@ def disable(*, session: Session, user: User, code: str) -> None:
     所以不用密碼當第二道確認）。手機遺失請管理員重設。"""
     if not user.totp_enabled:
         raise BadRequestError(t("auth.totpNotEnabled"))
-    # 管理員強制全站 2FA 時不可自行停用（只能由管理員重設）
-    if auth_policy_repo.is_totp_required(session=session):
+    # 管理員要求此帳號啟用 2FA 時不可自行停用（只能由管理員重設）
+    if user.totp_required:
         raise BadRequestError(t("auth.totpEnforced"))
     if not _consume_code(session=session, user=user, code=code):
         raise BadRequestError(t("auth.totpCodeInvalid"))

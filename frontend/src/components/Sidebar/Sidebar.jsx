@@ -97,7 +97,6 @@ const adminSettingsItems = [
   { key: "governance",      labelKey: "Sidebar.itemGovernance",     icon: "policy" },
   { key: "quotas",          labelKey: "Sidebar.itemQuotas",         icon: "data_usage" },
   { key: "ldap",            labelKey: "Sidebar.itemLdap",           icon: "badge" },
-  { key: "security",        labelKey: "Sidebar.itemSecurity",       icon: "security" },
   { key: "nodes",           labelKey: "Sidebar.itemNodes",          icon: "lock" },
   { key: "storage",         labelKey: "Sidebar.itemStorage",        icon: "storage" },
   { key: "gpu-mgmt",        labelKey: "Sidebar.itemGpuMgmt",        icon: "memory" },

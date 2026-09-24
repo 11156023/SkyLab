@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 import time
+import uuid
 from collections.abc import Iterator
 from contextlib import contextmanager
 from unittest.mock import patch
@@ -226,77 +227,102 @@ def test_admin_reset_totp_requires_superuser(
     assert r.status_code == 403
 
 
-def test_auth_policy_enforces_totp_enrollment(
+def test_user_totp_required_enforces_enrollment(
     client: TestClient, db: Session, superuser_token_headers: dict[str, str]
 ) -> None:
-    """管理員開「強制 2FA」後：未綁定者除帳號／登入端點外一律 403，綁定後恢復；
-    強制中不可自行停用。測試結尾一定把政策關回去，不影響其他測試模組。"""
-    from app.repositories import auth_policy as auth_policy_repo
-
+    """管理員在使用者資料勾「強制兩步驟驗證」後：未綁定者除帳號／登入端點外一律 403，
+    綁定後恢復；要求中不可自行停用；管理員取消要求後又可自行停用。"""
     base = time.time()
     user, password = _create_user(db)
     tokens = _login(client, user.email, password)
     headers = _bearer(tokens["access_token"])
 
-    # 預設不強制
-    r = client.get(f"{API}/auth-policy", headers=headers)
+    # 預設不要求
+    r = client.get(f"{API}/users/me", headers=headers)
     assert r.status_code == 200
     assert r.json()["totp_required"] is False
+    assert r.json()["totp_setup_required"] is False
     r = client.get(f"{API}/users/{user.id}", headers=headers)
     assert r.status_code == 200
 
-    # 一般使用者不能改政策
-    r = client.put(
-        f"{API}/admin/auth-policy", headers=headers, json={"totp_required": True}
+    # 一般使用者不能替自己或別人勾強制
+    r = client.patch(
+        f"{API}/users/{user.id}", headers=headers, json={"totp_required": True}
     )
     assert r.status_code == 403
 
-    try:
-        r = client.put(
-            f"{API}/admin/auth-policy",
-            headers=superuser_token_headers,
-            json={"totp_required": True},
-        )
-        assert r.status_code == 200, r.text
-        assert r.json()["totp_required"] is True
+    r = client.patch(
+        f"{API}/users/{user.id}",
+        headers=superuser_token_headers,
+        json={"totp_required": True},
+    )
+    assert r.status_code == 200, r.text
+    assert r.json()["totp_required"] is True
 
-        # 未綁定：/users/me 標記需要綁定；其他 API 403；綁定相關端點仍可用
-        r = client.get(f"{API}/users/me", headers=headers)
-        assert r.status_code == 200
-        assert r.json()["totp_policy_required"] is True
-        assert r.json()["totp_setup_required"] is True
-        r = client.get(f"{API}/users/{user.id}", headers=headers)
-        assert r.status_code == 403
-        r = client.get(f"{API}/auth-policy", headers=headers)
-        assert r.status_code == 200
-
-        secret = _enable_totp(client, headers, now=base)
-
-        # 綁定後恢復存取（同一顆 access token 即可，不必重新登入）
-        r = client.get(f"{API}/users/me", headers=headers)
-        assert r.json()["totp_setup_required"] is False
-        assert r.json()["totp_enabled"] is True
-        r = client.get(f"{API}/users/{user.id}", headers=headers)
-        assert r.status_code == 200
-
-        # 強制中不可自行停用（即使驗證碼正確）
-        with _totp_clock(base + 60):
-            r = client.post(
-                f"{API}/users/me/totp/disable",
-                headers=headers,
-                json={"code": _code_at(secret, base + 60)},
-            )
-        assert r.status_code == 400
-        r = client.get(f"{API}/users/me", headers=headers)
-        assert r.json()["totp_enabled"] is True
-    finally:
-        r = client.put(
-            f"{API}/admin/auth-policy",
-            headers=superuser_token_headers,
-            json={"totp_required": False},
-        )
-        assert r.status_code == 200
-        auth_policy_repo.invalidate_cache()
-
+    # 未綁定：/users/me 標記需要綁定；其他 API 403；綁定相關端點仍可用
     r = client.get(f"{API}/users/me", headers=headers)
-    assert r.json()["totp_policy_required"] is False
+    assert r.status_code == 200
+    assert r.json()["totp_required"] is True
+    assert r.json()["totp_setup_required"] is True
+    r = client.get(f"{API}/users/{user.id}", headers=headers)
+    assert r.status_code == 403
+
+    secret = _enable_totp(client, headers, now=base)
+
+    # 綁定後恢復存取（同一顆 access token 即可，不必重新登入）
+    r = client.get(f"{API}/users/me", headers=headers)
+    assert r.json()["totp_setup_required"] is False
+    assert r.json()["totp_enabled"] is True
+    r = client.get(f"{API}/users/{user.id}", headers=headers)
+    assert r.status_code == 200
+
+    # 要求中不可自行停用（即使驗證碼正確）
+    with _totp_clock(base + 60):
+        r = client.post(
+            f"{API}/users/me/totp/disable",
+            headers=headers,
+            json={"code": _code_at(secret, base + 60)},
+        )
+    assert r.status_code == 400
+    r = client.get(f"{API}/users/me", headers=headers)
+    assert r.json()["totp_enabled"] is True
+
+    # 管理員取消要求後可自行停用
+    r = client.patch(
+        f"{API}/users/{user.id}",
+        headers=superuser_token_headers,
+        json={"totp_required": False},
+    )
+    assert r.status_code == 200
+    assert r.json()["totp_required"] is False
+    with _totp_clock(base + 120):
+        r = client.post(
+            f"{API}/users/me/totp/disable",
+            headers=headers,
+            json={"code": _code_at(secret, base + 120)},
+        )
+    assert r.status_code == 200, r.text
+    assert r.json() == {"totp_enabled": False}
+
+
+def test_create_user_with_totp_required(
+    client: TestClient, db: Session, superuser_token_headers: dict[str, str]
+) -> None:
+    """新增使用者時直接勾強制：對方首次登入就只能進綁定畫面。"""
+    email = f"totp-req-{uuid.uuid4().hex[:8]}@example.com"
+    password = "Passw0rd!123"
+    r = client.post(
+        f"{API}/users/",
+        headers=superuser_token_headers,
+        json={"email": email, "password": password, "totp_required": True},
+    )
+    assert r.status_code == 200, r.text
+    assert r.json()["totp_required"] is True
+    assert r.json()["totp_enabled"] is False
+
+    tokens = _login(client, email, password)
+    headers = _bearer(tokens["access_token"])
+    r = client.get(f"{API}/users/me", headers=headers)
+    assert r.json()["totp_setup_required"] is True
+    r = client.get(f"{API}/users/{r.json()['id']}", headers=headers)
+    assert r.status_code == 403

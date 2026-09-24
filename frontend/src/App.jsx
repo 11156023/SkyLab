@@ -59,7 +59,6 @@ const SchedulerPage = lazy(() => import("./pages/system/settings/SchedulerPage")
 const GovernancePage = lazy(() => import("./pages/system/settings/GovernancePage"));
 const QuotasPage = lazy(() => import("./pages/system/settings/QuotasPage"));
 const LdapPage = lazy(() => import("./pages/system/settings/LdapPage"));
-const SecurityPage = lazy(() => import("./pages/system/settings/SecurityPage"));
 const NodesPage = lazy(() => import("./pages/system/settings/NodesPage"));
 const StoragePage = lazy(() => import("./pages/system/settings/StoragePage"));
 const MonitoringPage = lazy(() => import("./pages/system/monitoring/MonitoringPage"));
@@ -303,7 +302,6 @@ function App() {
               <Route path="/governance" element={<GovernancePage />} />
               <Route path="/quotas"    element={<QuotasPage />} />
               <Route path="/ldap"      element={<LdapPage />} />
-              <Route path="/security"  element={<SecurityPage />} />
               <Route path="/nodes"     element={<NodesPage />} />
               <Route path="/storage"   element={<StoragePage />} />
               {/* 舊的 /settings?tab=… 書籤依分頁導到對應的新頁面 */}

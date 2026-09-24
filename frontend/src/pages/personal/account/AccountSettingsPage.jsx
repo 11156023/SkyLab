@@ -284,8 +284,8 @@ function TwoFactorSection() {
   const { user, updateUser } = useAuth();
   const toast = useToast();
   const enabled = Boolean(user?.totp_enabled);
-  /* 系統強制啟用時不能自行停用（管理員在登入安全政策開的） */
-  const enforced = Boolean(user?.totp_policy_required);
+  /* 管理員在使用者資料勾了「強制兩步驟驗證」時不能自行停用 */
+  const enforced = Boolean(user?.totp_required);
   const [dialog, setDialog] = useState(null); // null | "enable" | "disable"
   const presence = useDialogPresence(dialog);
   const [code, setCode] = useState("");

@@ -60,7 +60,7 @@
   "TwoFactorSection.descOff": "Link an authenticator app such as Google Authenticator to protect your account with a code at login.",
   "TwoFactorSection.enable": "Link authenticator app",
   "TwoFactorSection.disable": "Disable two-factor authentication",
-  "TwoFactorSection.enforcedHint": "Two-factor authentication is enforced system-wide and cannot be disabled by users. Ask an administrator if you need it reset.",
+  "TwoFactorSection.enforcedHint": "An administrator requires two-factor authentication for this account, so you cannot disable it yourself. Ask an administrator if you need it reset.",
   "TwoFactorSection.enableTitle": "Link Google Authenticator",
   "TwoFactorSection.enabledToast": "Two-factor authentication enabled",
   "TwoFactorSection.disableTitle": "Disable two-factor authentication",
