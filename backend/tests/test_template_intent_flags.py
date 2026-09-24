@@ -1,10 +1,5 @@
 from __future__ import annotations
 
-import asyncio
-import json
-from types import SimpleNamespace
-
-from app.ai.template_recommendation import recommendation_service
 from app.ai.template_recommendation.recommendation_service import (
     _extract_user_signal_flags,
     infer_intent_from_chat,

@@ -19,6 +19,7 @@ from typing import Any
 
 import pytest
 
+from app.domain.resource_markers import RESOURCE_CONVERTED_TO_TEMPLATE_MARKER
 from app.models import Resource, VMTemplate, VMTemplateStatus
 from app.models.vm_request import VMProvisioningStatus
 from app.services.resource import resource_service
@@ -49,10 +50,10 @@ def test_mark_linked_request_consumed_sets_failed_and_markers(
     resource_service.mark_linked_request_consumed(
         session=session,
         vmid=102,
-        marker=resource_service.RESOURCE_CONVERTED_TO_TEMPLATE_MARKER,
+        marker=RESOURCE_CONVERTED_TO_TEMPLATE_MARKER,
     )
 
-    marker = resource_service.RESOURCE_CONVERTED_TO_TEMPLATE_MARKER
+    marker = RESOURCE_CONVERTED_TO_TEMPLATE_MARKER
     assert request.provisioning_status == VMProvisioningStatus.failed
     assert request.provisioning_error == marker
     assert request.resource_warning == marker
@@ -83,7 +84,7 @@ def test_mark_linked_request_consumed_without_linked_request_is_noop(
 def test_converted_marker_suppresses_placeholder_resurrection() -> None:
     # list_by_user 靠這個集合過濾已消耗的 approved 申請單
     assert (
-        resource_service.RESOURCE_CONVERTED_TO_TEMPLATE_MARKER
+        RESOURCE_CONVERTED_TO_TEMPLATE_MARKER
         in resource_service._RESOURCE_DELETED_MARKERS
     )
 
@@ -179,5 +180,5 @@ def test_run_convert_task_marks_linked_request_consumed(
     assert consumed[0]["vmid"] == 102
     assert (
         consumed[0]["marker"]
-        == resource_service.RESOURCE_CONVERTED_TO_TEMPLATE_MARKER
+        == RESOURCE_CONVERTED_TO_TEMPLATE_MARKER
     )

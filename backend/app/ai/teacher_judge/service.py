@@ -2697,12 +2697,6 @@ async def chat_with_rubric(
 
 _ITEMWISE_MAX_ITEMS = 50
 _ITEMWISE_CONCURRENCY = 2
-# P3: fixed chunk size for batching multiple source items into one AI request.
-# Currently used as a pure helper + contract; orchestration still runs per-item
-# to preserve isolation, chunked execution lands in P3-b.
-_ITEMWISE_CHUNK_SIZE = 5
-
-
 def _parse_attachment_extraction(
     content: str,
 ) -> tuple[list[dict[str, Any]], str | None]:

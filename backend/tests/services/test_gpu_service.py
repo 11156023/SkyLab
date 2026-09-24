@@ -496,7 +496,7 @@ class TestBuildUsageMap:
 
     @staticmethod
     def _patch(monkeypatch, vm_count: int):
-        gpu_service._usage_map_cache = None
+        gpu_service._usage_map_cache.entry = None
         tracker = _Tracker()
         configs = {
             1000 + i: {"hostpci0": "mapping=H200,mdev=nvidia-1436,pcie=1"}
@@ -514,14 +514,14 @@ class TestBuildUsageMap:
         assert len(usage["H200"]) == 8
         assert tracker.calls == 8
         assert tracker.max_inflight > 1
-        gpu_service._usage_map_cache = None
+        gpu_service._usage_map_cache.entry = None
 
     def test_repeated_calls_reuse_cached_scan(self, monkeypatch) -> None:
         tracker = self._patch(monkeypatch, 4)
         gpu_service._build_usage_map()
         gpu_service._build_usage_map()
         assert tracker.calls == 4
-        gpu_service._usage_map_cache = None
+        gpu_service._usage_map_cache.entry = None
 
     def test_cached_entries_are_not_mutated_by_callers(self, monkeypatch) -> None:
         """_resolve_vram_for_mapping 會寫入 allocated_vram_mb，不可污染快取。"""
@@ -532,4 +532,4 @@ class TestBuildUsageMap:
 
         second = gpu_service._build_usage_map()
         assert all(entry.allocated_vram_mb == 0 for entry in second["H200"])
-        gpu_service._usage_map_cache = None
+        gpu_service._usage_map_cache.entry = None

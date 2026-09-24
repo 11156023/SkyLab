@@ -98,7 +98,7 @@ async def test_worker_defers_with_retry_when_full(monkeypatch: pytest.MonkeyPatc
     assert provision_pool.in_flight_count() == 1  # 被擋下的那個沒有佔名額
 
     gate.set()
-    await running
+    _ = await running
     assert provision_pool.in_flight_count() == 0
 
 

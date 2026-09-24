@@ -251,8 +251,8 @@ export default function StudentHomePage({ courseView = false }) {
       if (activePath && courseView) {
         const [pathDetailResult, aiAssignmentsResult, weeklyTasksResult, practiceMachinesResult] = await Promise.allSettled([
           CoursesService.getPath(activePath.id),
-          courseView ? CoursesService.getAiAssignments(activePath.id) : Promise.resolve([]),
-          courseView ? CoursesService.getWeeklyTasks(activePath.id) : Promise.resolve([]),
+          CoursesService.getAiAssignments(activePath.id),
+          CoursesService.getWeeklyTasks(activePath.id),
           CoursesService.getPracticeMachines(activePath.id),
         ]);
         if (pathDetailResult.status === "fulfilled") {

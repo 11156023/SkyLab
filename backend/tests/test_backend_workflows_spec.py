@@ -5,27 +5,20 @@ Shared fixtures live in tests.ai.teacher_judge.helpers.
 
 import random
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from types import SimpleNamespace
 
 import pytest
 from pydantic import ValidationError
 from sqlmodel import Session, SQLModel, create_engine, select
 
-from app.core.security import encrypt_value
-from app.domain.placement.schemas import NodeCapacity, PlacementRequest
 from app.exceptions import (
     BadRequestError,
     ConflictError,
     PermissionDeniedError,
-    ProvisioningError,
     ProxmoxError,
 )
-from app.infrastructure.proxmox import operations as proxmox_service
 from app.models import (
-    ProxmoxConfig,
-    ProxmoxNode,
-    ProxmoxStorage,
     Resource,
     SpecChangeRequest,
     SpecChangeRequestStatus,
@@ -33,11 +26,6 @@ from app.models import (
     SubnetConfig,
     User,
     UserRole,
-    VMRequest,
-    VMRequestStatus,
-    VMTemplate,
-    VMTemplateStatus,
-    VMTemplateVisibility,
 )
 from app.repositories import spec_change_request as spec_change_request_repo
 from app.repositories import user as user_repo
@@ -46,15 +34,10 @@ from app.schemas import (
     SpecChangeRequestReview,
     UserCreate,
     VMCreateRequest,
-    VMRequestCreate,
-    VMRequestReview,
 )
-from app.services.proxmox import gpu_service, provisioning_service
-from app.services.user import user_service
+from app.services.proxmox import provisioning_service
 from app.services.vm import (
     spec_change_service,
-    vm_request_placement_service,
-    vm_request_service,
 )
 
 

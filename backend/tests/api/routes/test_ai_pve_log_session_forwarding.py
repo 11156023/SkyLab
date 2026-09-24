@@ -7,7 +7,6 @@ from app.ai.pve_log.schemas import (
     ChatRequest,
     ChatResponse,
     SSHConfirmRequest,
-    SSHExecRequest,
     SSHExecResult,
 )
 from app.api.routes import ai_pve_log as route

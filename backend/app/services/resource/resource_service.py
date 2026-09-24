@@ -12,7 +12,6 @@ from sqlmodel import Session, col, select
 from app.core.authorizers import can_bypass_resource_ownership
 from app.core.security import decrypt_value
 from app.domain.resource_markers import (  # noqa: F401 — re-export 給既有引用
-    RESOURCE_CONVERTED_TO_TEMPLATE_MARKER,
     RESOURCE_DELETED_BY_USER_MARKER,
     RESOURCE_DELETED_MARKERS,
     RESOURCE_DELETED_ORPHAN_MARKER,
@@ -293,7 +292,7 @@ def public_urls_by_vmid(
         try:
             session.rollback()
         except Exception:
-            pass
+            pass  # 連線已壞時 rollback 也會失敗；此處只是盡力清理，回空結果即可
         return {}
     urls: dict[int, list[str]] = {}
     for rule in sorted(rules, key=lambda r: (r.vmid, r.internal_port, r.domain)):

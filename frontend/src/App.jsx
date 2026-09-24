@@ -70,7 +70,6 @@ const JobsPage = lazy(() => import("./pages/system/jobs/JobsPage"));
 const FirewallPage = lazy(() => import("./pages/network/firewall/FirewallPage"));
 const DomainPage = lazy(() => import("./pages/system/domain/DomainPage"));
 const GatewayPage = lazy(() => import("./pages/system/gateway/GatewayPage"));
-const ReverseProxyPage = lazy(() => import("./pages/network/reverse-proxy/ReverseProxyPage"));
 
 function AuthBootstrapState({ unavailable = false, retrying = false, onRetry }) {
   const { t } = useTranslation("common");
