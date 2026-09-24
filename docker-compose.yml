@@ -39,7 +39,8 @@ services:
   # Nginx Reverse Proxy
   # -------------------------
   nginx:
-    image: nginx:alpine
+    # default.conf 的 upstream 用 `resolve` 動態解析容器名，需要 nginx OSS ≥ 1.27.3
+    image: nginx:1.31-alpine
     restart: unless-stopped
     ports:
       # 對外入口預設 8082：rootless Docker（例如 self-hosted runner 的部署機）
@@ -63,7 +64,21 @@ services:
     restart: always
     # backend／worker 都經 PgBouncer 連進來（server 端最多 MAX_DB_CONNECTIONS），
     # 再加 prestart、adminer 等直連工具；200 留有餘裕。
-    command: postgres -c max_connections=200
+    # 記憶體參數：官方映像預設 shared_buffers 只有 128MB，多人同時查機器列表／
+    # 稽核日誌時 cache 命中率很差。effective_cache_size 只是給 planner 的提示，
+    # 不會真的配置記憶體；work_mem 是每個排序／hash 節點各自的上限。
+    command:
+      - postgres
+      - -c
+      - max_connections=200
+      - -c
+      - shared_buffers=1GB
+      - -c
+      - effective_cache_size=3GB
+      - -c
+      - work_mem=16MB
+      - -c
+      - maintenance_work_mem=256MB
     ports:
       # Bind to localhost only: reachable for on-host tooling, never from the
       # public network. Inter-container access uses the `db` service DNS name.
@@ -161,6 +176,7 @@ services:
   # -------------------------
   mailcatcher:
     image: schickling/mailcatcher
+    restart: unless-stopped
     ports:
       # Dev-only mail sink — bind to localhost so captured mail (incl. password
       # reset links) is not readable from the public network. Replace with a
@@ -202,11 +218,10 @@ services:
     build:
       context: .
       dockerfile: backend/Dockerfile
-    command:
-      - fastapi
-      - run
-      - --reload
-      - app/main.py
+    # 不覆寫 command：沿用 Dockerfile 的 `fastapi run --workers 1`。
+    # 這個服務沒有掛程式碼 volume，先前的 --reload 只是多一個 watcher 行程
+    # 盯著映像內不會變的檔案；本機開發請直接跑 `fastapi dev app/main.py`。
+    restart: unless-stopped
     ports:
       # Localhost only: the public entry point is nginx (:80), which proxies
       # /api and /ws to this service over the internal network. Exposing 8000
@@ -267,6 +282,7 @@ services:
   # -------------------------
   frontend:
     image: '${DOCKER_IMAGE_FRONTEND:-frontend}:${TAG-latest}'
+    restart: unless-stopped
     build:
       context: .
       dockerfile: frontend/Dockerfile
