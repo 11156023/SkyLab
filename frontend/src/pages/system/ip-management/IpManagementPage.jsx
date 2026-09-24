@@ -275,12 +275,12 @@ export default function IpManagementPage() {
                 <col className={styles.colIp} />
                 <col className={styles.colPurpose} />
                 <col className={styles.colVmid} />
-                <col />
                 <col className={styles.colAllocatedAt} />
+                <col />
               </colgroup>
               <thead>
                 <tr>
-                  {[t("IpManagementPage.colIpAddress"), t("IpManagementPage.colPurpose"), "VMID", t("IpManagementPage.colDescription"), t("IpManagementPage.colAllocatedAt")].map((col) => (
+                  {[t("IpManagementPage.colIpAddress"), t("IpManagementPage.colPurpose"), "VMID", t("IpManagementPage.colAllocatedAt"), t("IpManagementPage.colDescription")].map((col) => (
                     <th key={col} className={styles.th}>{col}</th>
                   ))}
                 </tr>
@@ -302,8 +302,8 @@ export default function IpManagementPage() {
                       <PurposeBadge purpose={a.purpose} />
                     </td>
                     <td className={styles.td}>{a.vmid ?? "—"}</td>
-                    <td className={`${styles.td} ${styles.tdTruncate}`} title={a.description ?? undefined}>{a.description ?? "—"}</td>
                     <td className={`${styles.td} ${styles.tdNowrap}`}>{formatDateTime(a.allocated_at)}</td>
+                    <td className={`${styles.td} ${styles.tdTruncate}`} title={a.description ?? undefined}>{a.description ?? "—"}</td>
                   </tr>
                 ))}
               </tbody>
