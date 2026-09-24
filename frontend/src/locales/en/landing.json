@@ -51,8 +51,10 @@
   },
   "terminal": {
     "title": "Open it — it's a real machine",
-    "desc": "VNC desktops and terminals run right in the browser. Nothing to install.",
-    "cta": "Ready to move your lab to the cloud?",
+    "desc": "VNC desktops and terminals run right in the browser. Nothing to install."
+  },
+  "outro": {
+    "title": "Ready to move your lab to the cloud?",
     "loginCta": "Sign in to SkyLab",
     "docsCta": "Deployment guide"
   },

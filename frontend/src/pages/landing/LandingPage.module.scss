@@ -953,15 +953,6 @@
   background: linear-gradient(180deg, rgba(8, 12, 22, 0.5), rgba(8, 12, 22, 0.28));
 }
 
-.dim {
-  position: fixed;
-  inset: 0;
-  z-index: 2;
-  pointer-events: none;
-  opacity: 0;
-  background: #05070d;
-}
-
 /* 常駐暗角:把視線往畫面中央收,場景邊緣自然沒入夜色 */
 .vignette {
   position: fixed;
@@ -1255,15 +1246,6 @@
   flex-direction: column;
   gap: $spacing-16;
   width: min(400px, 88vw);
-}
-
-.hudColCenter {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: $spacing-16;
-  max-width: 560px;
-  text-align: center;
 }
 
 .hudCard {
@@ -1700,9 +1682,15 @@
   50% { opacity: 0; }
 }
 
-.ctaBlock {
-  margin-top: $spacing-24;
+/* ── 收尾:雲海上的 CTA(構圖比照 hero) ── */
+.outro {
+  max-width: 820px;
+  text-align: center;
 }
+
+.outro .ctaRow { margin-top: $spacing-32; }
+
+.outro .footer { text-shadow: 0 2px 12px rgba(5, 9, 18, 0.7); }
 
 .ctaRow {
   display: flex;

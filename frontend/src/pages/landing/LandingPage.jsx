@@ -226,34 +226,39 @@ function AiContent({ t, stats }) {
 
 function TerminalContent({ t }) {
   return (
-    <div className={styles.hudColCenter}>
-      <HudCard wide>
-        <h2 className={styles.sectionTitle}>{t("terminal.title")}</h2>
-        <p className={styles.sectionDesc}>{t("terminal.desc")}</p>
-        <div className={styles.terminal} aria-hidden="true">
-          <div className={styles.terminalBar}><span /><span /><span /></div>
-          <pre>
-            <span className={styles.tPrompt}>$</span> ssh student@vm-2481.skylab{"\n"}
-            Welcome to Ubuntu 24.04 LTS (GNU/Linux 6.8.0-45-generic x86_64){"\n"}
-            <span className={styles.tPrompt}>student@vm-2481:~$</span> <span className={styles.tCursor} />
-          </pre>
-        </div>
-      </HudCard>
-      <div className={styles.ctaBlock} data-hud>
-        <h2 className={styles.sectionTitle}>{t("terminal.cta")}</h2>
-        <div className={styles.ctaRow}>
-          <Link className={styles.btnPrimary} to="/login">{t("terminal.loginCta")}</Link>
-          <a
-            className={styles.btnSecondary}
-            href="https://github.com/ntubclass/SkyLab"
-            target="_blank"
-            rel="noreferrer"
-          >
-            {t("terminal.docsCta")}
-          </a>
-        </div>
+    <HudCard wide>
+      <h2 className={styles.sectionTitle}>{t("terminal.title")}</h2>
+      <p className={styles.sectionDesc}>{t("terminal.desc")}</p>
+      <div className={styles.terminal} aria-hidden="true">
+        <div className={styles.terminalBar}><span /><span /><span /></div>
+        <pre>
+          <span className={styles.tPrompt}>$</span> ssh student@vm-2481.skylab{"\n"}
+          Welcome to Ubuntu 24.04 LTS (GNU/Linux 6.8.0-45-generic x86_64){"\n"}
+          <span className={styles.tPrompt}>student@vm-2481:~$</span> <span className={styles.tCursor} />
+        </pre>
       </div>
-      <p className={styles.footer}>{t("footer")}</p>
+    </HudCard>
+  );
+}
+
+/* 收尾:雲海合攏後浮出的 CTA,構圖呼應開場 hero */
+function OutroContent({ t }) {
+  return (
+    <div className={styles.outro}>
+      <p className={styles.heroKicker} data-hud>{t("hero.tagline")}</p>
+      <h2 className={styles.outroTitle} data-hud>{t("outro.title")}</h2>
+      <div className={styles.ctaRow} data-hud>
+        <Link className={styles.btnPrimary} to="/login">{t("outro.loginCta")}</Link>
+        <a
+          className={styles.btnSecondary}
+          href="https://github.com/ntubclass/SkyLab"
+          target="_blank"
+          rel="noreferrer"
+        >
+          {t("outro.docsCta")}
+        </a>
+      </div>
+      <p className={styles.footer} data-hud>{t("footer")}</p>
     </div>
   );
 }
@@ -267,7 +272,6 @@ export default function LandingPage() {
   const worldRef = useRef(null);
   const cloudLayerRef = useRef(null);
   const hazeRef = useRef(null);
-  const dimRef = useRef(null);
   const [stats, setStats] = useState(null);
   const [viewportTick, setViewportTick] = useState(0);
   /* 日/夜模式:預設夜間(主視覺),選擇記在 localStorage */
@@ -388,9 +392,26 @@ export default function LandingPage() {
         tl.to(hazeRef.current, { opacity: 0, duration: CAMERA_DURATION }, cloudAt + 0.05);
       }
 
-      /* S7:壓暗場景讓終端與 CTA 浮出 */
-      if (dimRef.current) {
-        tl.to(dimRef.current, { opacity: 0.55, duration: 0.6 }, scrollUnits - 0.7);
+      /* 收尾(outro):鏡頭拉回全景、私有雲亮起後,雲海從兩側合攏蓋住校園——開場穿雲降落的倒帶,
+         CTA 最後浮在雲海上,演出「把實驗室搬上雲」。霧面層同時回來當文字底(日夜各有配色) */
+      const outro = SECTIONS[SECTIONS.length - 1];
+      const outroSec = rootRef.current.querySelector(`section[data-section="${outro.id}"]`);
+      const closeAt = scrollUnits - 0.55;
+      clouds.forEach((cloud) => {
+        tl.to(cloud, { xPercent: 0, yPercent: 0, opacity: 1, duration: 0.4, ease: "power2.out" }, closeAt);
+      });
+      tl.to(world, { opacity: 0.15, duration: 0.35 }, closeAt + 0.1);
+      if (hazeRef.current) {
+        tl.to(hazeRef.current, { opacity: 1, duration: 0.35 }, closeAt + 0.05);
+      }
+      const outroContent = outroSec ? outroSec.querySelectorAll("[data-hud]") : [];
+      if (outroContent.length) {
+        tl.fromTo(
+          outroContent,
+          { opacity: 0, y: 30 },
+          { opacity: 1, y: 0, duration: 0.12, stagger: 0.03, ease: "power2.out" },
+          closeAt + 0.3,
+        );
       }
 
       /* 段落連動:目前段落寫進根節點 data-active,場景樣式據此點亮
@@ -422,6 +443,7 @@ export default function LandingPage() {
 
       /* 各段 HUD 卡進場 */
       rootRef.current.querySelectorAll("section[data-section]").forEach((sec) => {
+        if (sec === outroSec) return; // 收尾由上面的 timeline 在雲海合攏後才浮出
         const cards = sec.querySelectorAll("[data-hud]");
         if (!cards.length) return;
         gsap.from(cards, {
@@ -448,6 +470,7 @@ export default function LandingPage() {
       case "network": return <NetworkContent t={t} stats={stats} />;
       case "ai": return <AiContent t={t} stats={stats} />;
       case "terminal": return <TerminalContent t={t} />;
+      case "outro": return <OutroContent t={t} />;
       default: return null;
     }
   };
@@ -476,7 +499,6 @@ export default function LandingPage() {
       </div>
       <div className={styles.vignette} aria-hidden="true" />
       <div className={styles.haze} ref={hazeRef} aria-hidden="true" />
-      <div className={styles.dim} ref={dimRef} aria-hidden="true" />
       <div className={styles.cloudLayer} ref={cloudLayerRef} aria-hidden="true">
         <div className={`${styles.cloud} ${styles.cloudA}`} />
         <div className={`${styles.cloud} ${styles.cloudB}`} />
