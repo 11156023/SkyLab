@@ -1108,7 +1108,7 @@ export default function RequestFormPage({ onBack, className, initialPrefill = nu
                 </SelectField>
                 {osSourceFailed && (
                   <p className={styles.fieldError} role="alert">
-                    {t("RequestFormPage.osSourcesLoadFailed")}
+                    {t("Error.generic", { ns: "common" })}
                     {" "}
                     <button type="button" className={styles.linkBtn} onClick={retryOsSources}>
                       {t("RequestFormPage.retry")}

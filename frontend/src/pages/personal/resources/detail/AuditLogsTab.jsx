@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next";
 import styles from "./ResourceDetailPage.module.scss";
 import LoadingState from "../../../../components/LoadingState/LoadingState";
 import EmptyState from "../../../../components/EmptyState/EmptyState";
+import ErrorState from "../../../../components/ErrorState/ErrorState";
 import { AuditLogsService } from "../../../../services/auditLogs";
 import { formatDateTime } from "../../../../utils/formatDate";
 
@@ -28,7 +29,7 @@ export default function AuditLogsTab({ vmid }) {
     };
   }, [vmid]);
 
-  if (error) return <p className={styles.stateText}>{t("AuditLogsTab.loadFailed")}</p>;
+  if (error) return <ErrorState />;
   if (!logs) return <LoadingState />;
 
   return (

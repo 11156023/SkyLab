@@ -11,6 +11,7 @@ import { useCallback, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import styles from "./ResourceDetailPage.module.scss";
 import LoadingState from "../../../../components/LoadingState/LoadingState";
+import ErrorState from "../../../../components/ErrorState/ErrorState";
 import { ResourcesService } from "../../../../services/resources";
 import LifecycleCard from "./advanced/LifecycleCard";
 import FirewallCard from "./advanced/FirewallCard";
@@ -36,7 +37,7 @@ export default function AdvancedSettingsTab({ vmid, backTo }) {
     loadResource();
   }, [loadResource]);
 
-  if (error) return <p className={styles.stateText}>{t("AdvancedSettingsTab.loadFailed")}</p>;
+  if (error) return <ErrorState onRetry={() => { setError(false); loadResource(); }} />;
   if (!resource) return <LoadingState />;
 
   const canManage = resource.can_manage !== false;

@@ -33,8 +33,8 @@ export default class ErrorBoundary extends Component {
         <span className={styles.icon}>
           <MIcon name="error_outline" size={40} />
         </span>
-        <h2 className={styles.title}>{i18n.t("ErrorBoundary.title", { ns: "common" })}</h2>
-        <p className={styles.desc}>{i18n.t("ErrorBoundary.desc", { ns: "common" })}</p>
+        <h2 className={styles.title}>{i18n.t("Error.title", { ns: "common" })}</h2>
+        <p className={styles.desc}>{i18n.t("Error.desc", { ns: "common" })}</p>
         <details className={styles.details}>
           <summary>{i18n.t("ErrorBoundary.details", { ns: "common" })}</summary>
           <pre>{error?.message ?? String(error)}</pre>
@@ -42,7 +42,7 @@ export default class ErrorBoundary extends Component {
         <div className={styles.actions}>
           <button type="button" className={styles.btnPrimary} onClick={this.reset}>
             <MIcon name="refresh" size={16} />
-            {i18n.t("ErrorBoundary.retry", { ns: "common" })}
+            {i18n.t("Error.retry", { ns: "common" })}
           </button>
           <button
             type="button"

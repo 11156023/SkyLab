@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import styles from "./settings.module.scss";
 import MIcon from "../../../components/MIcon";
-import EmptyState from "../../../components/EmptyState/EmptyState";
+import ErrorState from "../../../components/ErrorState/ErrorState";
 import LoadingState from "../../../components/LoadingState/LoadingState";
 import PageHeader from "../../../components/PageHeader/PageHeader";
 import { LdapConfigService } from "../../../services/ldapConfig";
@@ -76,8 +76,8 @@ function LdapForm() {
       })
       .catch((err) => {
         if (cancelled) return;
-        setLoadError(err?.message ?? t("LdapTab.toastLoadFailed"));
-        toast.error(err?.message ?? t("LdapTab.toastLoadFailed"));
+        setLoadError(err?.message ?? t("Error.generic", { ns: "common" }));
+        toast.error(err?.message ?? t("Error.generic", { ns: "common" }));
       });
     return () => {
       cancelled = true;
@@ -117,19 +117,7 @@ function LdapForm() {
   }
 
   if (!form && loadError) {
-    return (
-      <EmptyState
-        icon="error_outline"
-        title={t("LdapTab.toastLoadFailed")}
-        description={loadError}
-        action={
-          <button type="button" className={styles.btnSecondary} onClick={retryLoad}>
-            <MIcon name="refresh" size={16} />
-            {t("LdapTab.retry")}
-          </button>
-        }
-      />
-    );
+    return <ErrorState onRetry={retryLoad} />;
   }
   if (!form) return <LoadingState text={t("LdapTab.loading")} />;
 

@@ -11,6 +11,7 @@ import styles from "./ResourceDetailPage.module.scss";
 import ov from "./OverviewTab.module.scss";
 import MIcon from "../../../../components/MIcon";
 import LoadingState from "../../../../components/LoadingState/LoadingState";
+import ErrorState from "../../../../components/ErrorState/ErrorState";
 import useAutoRefresh from "../../../../hooks/useAutoRefresh";
 import { ResourcesService } from "../../../../services/resources";
 import { downloadBlob } from "../../../../services/api";
@@ -275,7 +276,7 @@ export default function OverviewTab({ vmid }) {
       const blob = await ResourcesService.downloadTemplateManual(vmid, attachment.id);
       downloadBlob(blob, attachment.filename);
     } catch (e) {
-      toast.error(e?.message ?? t("OverviewTab.downloadFailed"));
+      toast.error(e?.message ?? t("Error.generic", { ns: "common" }));
     } finally {
       setDownloadingId(null);
     }
@@ -293,7 +294,7 @@ export default function OverviewTab({ vmid }) {
     }
   };
 
-  if (error) return <p className={styles.stateText}>{t("OverviewTab.loadFailed")}</p>;
+  if (error) return <ErrorState />;
   if (!resource) return <LoadingState />;
 
   const statusMeta = STATUS_META[resource.status] ?? { label: String(resource.status), tone: "info" };
@@ -650,7 +651,7 @@ export default function OverviewTab({ vmid }) {
                 />
               )}
               {sshKeyError
-                ? <p className={ov.emptyNote}>{t("OverviewTab.credentialsLoadFailed")}</p>
+                ? <p className={ov.emptyNote}>{t("Error.generic", { ns: "common" })}</p>
                 : !hasCredentials && <p className={ov.emptyNote}>{t("OverviewTab.noCredentials")}</p>}
             </div>
           </div>

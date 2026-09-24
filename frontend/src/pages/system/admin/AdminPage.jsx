@@ -255,7 +255,7 @@ export default function AdminPage() {
       setUsers(data);
       setCount(data.length);
     } catch (err) {
-      if (!silent) toast.error(err?.message ?? t("AdminPage.toastLoadFailed"));
+      if (!silent) toast.error(err?.message ?? t("Error.generic", { ns: "common" }));
     } finally {
       if (!silent) setLoading(false);
     }

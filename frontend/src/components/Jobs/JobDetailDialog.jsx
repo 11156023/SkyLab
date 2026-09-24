@@ -191,7 +191,7 @@ export default function JobDetailDialog({ jobId, onClose }) {
           <div className={styles.dialogError}>
             <MIcon name="error_outline" size={16} />
             <div>
-              <div className={styles.dialogErrorTitle}>{t("JobDetailDialog.loadFailedTitle")}</div>
+              <div className={styles.dialogErrorTitle}>{t("Error.generic", { ns: "common" })}</div>
               <div>{error}</div>
             </div>
           </div>

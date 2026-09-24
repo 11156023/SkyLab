@@ -81,7 +81,7 @@ export default function CredentialsCard({ vmid, canManage }) {
     try {
       setInfo(await ResourcesService.getCredentials(vmid));
     } catch (err) {
-      toast.error(err?.message ?? t("CredentialsCard.loadFailed"));
+      toast.error(err?.message ?? t("Error.generic", { ns: "common" }));
     } finally {
       setLoading(false);
     }

@@ -139,7 +139,7 @@ function GoogleSignInButton({ onCredential, onError }) {
         });
       })
       .catch(() => {
-        if (!cancelled) onError(t("LoginPage.googleLoadFailed"));
+        if (!cancelled) onError(t("Error.generic", { ns: "common" }));
       });
 
     return () => {

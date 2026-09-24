@@ -45,7 +45,7 @@ export default function BootOptionsCard({ vmid, canManage }) {
         setSelectedIso(opts.cdrom_iso ?? "");
       }
     } catch (err) {
-      toast.error(err?.message ?? t("BootOptionsCard.loadFailed"));
+      toast.error(err?.message ?? t("Error.generic", { ns: "common" }));
     } finally {
       setLoading(false);
     }

@@ -53,7 +53,7 @@ export default function RulesPanel({ node, onClose, onChanged, closing = false, 
       setRules(r ?? []);
       setOptions(o);
     } catch (err) {
-      if (!silent) setError(err?.message ?? t("RulesPanel.loadFailed"));
+      if (!silent) setError(err?.message ?? t("Error.generic", { ns: "common" }));
     } finally {
       if (!silent) setLoading(false);
     }

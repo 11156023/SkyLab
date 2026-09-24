@@ -31,7 +31,7 @@ export default function CourseTemplateManagementPage() {
     let active = true;
     CourseEnvironmentsService.list()
       .then((rows) => active && setTemplates(rows))
-      .catch((reason) => active && toast.error(reason?.message ?? t("CourseTemplateManagementPage.loadFailed")))
+      .catch((reason) => active && toast.error(reason?.message ?? t("Error.generic", { ns: "common" })))
       .finally(() => active && setLoading(false));
     return () => { active = false; };
   }, [toast, t]);
