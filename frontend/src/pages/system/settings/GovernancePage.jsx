@@ -19,10 +19,9 @@ function useSections(t) {
   return useMemo(() => [
     {
       title: t("GovernanceTab.alertsTitle"),
-      desc: t("GovernanceTab.alertsDesc"),
       toggles: [
-        { key: "alerts_enabled", label: t("GovernanceTab.alertsEnabled"), hint: t("GovernanceTab.alertsEnabledHint") },
-        { key: "alert_email_enabled", label: t("GovernanceTab.alertEmailEnabled"), hint: t("GovernanceTab.alertEmailEnabledHint") },
+        { key: "alerts_enabled", label: t("GovernanceTab.alertsEnabled") },
+        { key: "alert_email_enabled", label: t("GovernanceTab.alertEmailEnabled") },
       ],
       fields: [
         { key: "alert_cpu_threshold", label: t("GovernanceTab.alertCpuThreshold"), min: 50, max: 100, step: 0.5 },
@@ -36,7 +35,7 @@ function useSections(t) {
       title: t("GovernanceTab.ttlTitle"),
       desc: t("GovernanceTab.ttlDesc"),
       toggles: [
-        { key: "ttl_enabled", label: t("GovernanceTab.ttlEnabled"), hint: t("GovernanceTab.ttlEnabledHint") },
+        { key: "ttl_enabled", label: t("GovernanceTab.ttlEnabled") },
       ],
       fields: [
         { key: "expiry_warn_days", label: t("GovernanceTab.expiryWarnDays"), min: 1, max: 30, hint: t("GovernanceTab.expiryWarnDaysHint") },
@@ -47,7 +46,7 @@ function useSections(t) {
       title: t("GovernanceTab.idleTitle"),
       desc: t("GovernanceTab.idleDesc"),
       toggles: [
-        { key: "idle_detection_enabled", label: t("GovernanceTab.idleDetectionEnabled"), hint: t("GovernanceTab.idleDetectionEnabledHint") },
+        { key: "idle_detection_enabled", label: t("GovernanceTab.idleDetectionEnabled") },
       ],
       fields: [
         { key: "idle_cpu_threshold_percent", label: t("GovernanceTab.idleCpuThresholdPercent"), min: 0.1, max: 20, step: 0.1 },
@@ -59,7 +58,6 @@ function useSections(t) {
     },
     {
       title: t("GovernanceTab.workloadAdvisorTitle"),
-      desc: t("GovernanceTab.workloadAdvisorDesc"),
       toggles: [
         { key: "workload_advisor_enabled", label: t("GovernanceTab.workloadAdvisorEnabled"), hint: t("GovernanceTab.workloadAdvisorEnabledHint") },
       ],
@@ -69,12 +67,12 @@ function useSections(t) {
       title: t("GovernanceTab.miningTitle"),
       desc: t("GovernanceTab.miningDesc"),
       toggles: [
-        { key: "mining_detection_enabled", label: t("GovernanceTab.miningDetectionEnabled"), hint: t("GovernanceTab.miningDetectionEnabledHint") },
+        { key: "mining_detection_enabled", label: t("GovernanceTab.miningDetectionEnabled") },
         { key: "mining_auto_suspend", label: t("GovernanceTab.miningAutoSuspend"), hint: t("GovernanceTab.miningAutoSuspendHint") },
       ],
       fields: [
         { key: "mining_cpu_threshold_percent", label: t("GovernanceTab.miningCpuThresholdPercent"), min: 50, max: 100, step: 0.5 },
-        { key: "mining_window_hours", label: t("GovernanceTab.miningWindowHours"), min: 1, max: 72, hint: t("GovernanceTab.miningWindowHoursHint") },
+        { key: "mining_window_hours", label: t("GovernanceTab.miningWindowHours"), min: 1, max: 72 },
         { key: "mining_scan_batch_size", label: t("GovernanceTab.miningScanBatchSize"), min: 1, max: 200 },
       ],
     },
@@ -82,11 +80,11 @@ function useSections(t) {
       title: t("GovernanceTab.snapshotTitle"),
       desc: t("GovernanceTab.snapshotDesc"),
       toggles: [
-        { key: "snapshot_cleanup_enabled", label: t("GovernanceTab.snapshotCleanupEnabled"), hint: t("GovernanceTab.snapshotCleanupEnabledHint") },
+        { key: "snapshot_cleanup_enabled", label: t("GovernanceTab.snapshotCleanupEnabled") },
       ],
       fields: [
         { key: "snapshot_retention_days", label: t("GovernanceTab.snapshotRetentionDays"), min: 1, max: 90 },
-        { key: "student_snapshot_max_count", label: t("GovernanceTab.studentSnapshotMaxCount"), min: 1, max: 10, hint: t("GovernanceTab.studentSnapshotMaxCountHint") },
+        { key: "student_snapshot_max_count", label: t("GovernanceTab.studentSnapshotMaxCount"), min: 1, max: 10 },
       ],
     },
     {
@@ -101,7 +99,7 @@ function useSections(t) {
       toggles: [],
       fields: [
         { key: "course_ttl_hours", label: t("GovernanceTab.courseTtlHours"), min: 1, max: 24, hint: t("GovernanceTab.courseTtlHoursHint") },
-        { key: "course_max_active_per_user", label: t("GovernanceTab.courseMaxActivePerUser"), min: 1, max: 5, hint: t("GovernanceTab.courseMaxActivePerUserHint") },
+        { key: "course_max_active_per_user", label: t("GovernanceTab.courseMaxActivePerUser"), min: 1, max: 5 },
       ],
     },
   ], [t]);
@@ -189,7 +187,7 @@ function GovernanceForm() {
       {SECTIONS.map((section) => (
         <div key={section.title} className={styles.card}>
           <h2 className={styles.cardTitle}>{section.title}</h2>
-          <p className={styles.cardDesc}>{section.desc}</p>
+          {section.desc && <p className={styles.cardDesc}>{section.desc}</p>}
 
           {section.toggles.map((toggle) => (
             <label key={toggle.key} className={styles.checkRow}>
@@ -199,7 +197,7 @@ function GovernanceForm() {
                 onChange={(e) => setField(toggle.key, e.target.checked)}
               />
               <span>{toggle.label}</span>
-              <em className={styles.fieldHint}>{toggle.hint}</em>
+              {toggle.hint && <em className={styles.fieldHint}>{toggle.hint}</em>}
             </label>
           ))}
 
