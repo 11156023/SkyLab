@@ -323,6 +323,9 @@ import MIcon from "../components/MIcon";
 - 高度：`height: 88vh`
 - 全螢幕：使用 `:fullscreen` 偽類，設 `max-width: 100%; height: 100%; border-radius: 0`
 - 遮罩：`position: fixed; inset: 0; background: var(--color-overlay); backdrop-filter: blur(4px); z-index: 300`
+- 遮罩一律 `createPortal` 到 `document.body`：祖先有 `backdrop-filter`／`transform` 時，`position: fixed` 會被困在那一層、蓋不滿整個畫面
+- 卡片陰影：確認框用 `glass-surface` 預設陰影；新增／編輯這類表單型 Dialog 可用 `glass-surface($shadow: var(--shadow-lg))`，浮在遮罩上比較突出
+- 無障礙：Dialog 容器加 `role="dialog"`、`aria-modal="true"`，`aria-labelledby` 指向標題（`useId()` 產生 id），讀屏軟體才會唸出「對話框：標題」
 
 #### 確認彈窗（全站統一）
 
