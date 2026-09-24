@@ -103,11 +103,6 @@
   }
 }
 
-.subtitle {
-  font-size: $font-size-14;
-  color: var(--color-text-secondary);
-}
-
 /* ── 步驟列 ── */
 .stepper {
   display: flex;
@@ -228,49 +223,47 @@
   }
 }
 
-.checklist {
+/* ── 歡迎畫面：選語言 ── */
+.welcome {
   @include flex-column;
-  gap: $spacing-8;
-  list-style: none;
-  margin: 0;
-  padding: 0;
+  align-items: center;
+  gap: $spacing-24;
+  padding: $spacing-24 0;
+  text-align: center;
+}
 
-  li {
-    display: flex;
-    align-items: center;
-    gap: $spacing-8;
-    padding: $spacing-8 $spacing-16;
-    border: 1px solid var(--color-border);
-    border-radius: $radius-8;
-    background: var(--color-surface);
-    font-size: $font-size-14;
-    color: var(--color-text);
+.welcomeTitle {
+  font-size: $font-size-28;
+  font-weight: $font-weight-700;
+  letter-spacing: 0.5px;
+  color: var(--color-text-primary);
 
-    > span:first-child {
-      color: var(--color-primary);
-    }
-
-    > span:nth-child(2) {
-      flex: 1;
-    }
+  @include respond-to(sm) {
+    font-size: $font-size-32;
   }
 }
 
-.chip {
-  @include badge-base;
-  display: inline-flex;
-  align-items: center;
-  gap: $spacing-4;
+.langList {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: $spacing-8;
 }
 
-.chip_done {
-  background: color-mix(in srgb, var(--color-success) 12%, transparent);
-  color: var(--color-success);
+.langBtn {
+  @include btn-secondary;
+  min-width: 120px;
 }
 
-.chip_pending {
-  background: color-mix(in srgb, var(--color-status-neutral) 12%, transparent);
-  color: var(--color-status-neutral);
+/* 選中的語言：藍框只留給「目前」狀態 */
+.langBtnActive {
+  border-color: var(--color-primary);
+  color: var(--color-primary-on-surface);
+  background: color-mix(in srgb, var(--color-primary) 10%, var(--color-surface));
+
+  &:hover:not(:disabled) {
+    background: color-mix(in srgb, var(--color-primary) 14%, var(--color-surface));
+  }
 }
 
 .notice {

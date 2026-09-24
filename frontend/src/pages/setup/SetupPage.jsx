@@ -15,15 +15,22 @@ import PasswordInput from "../../components/PasswordInput/PasswordInput";
 import { LoadingSpinner } from "../../components/LoadingState/LoadingState";
 import { useAuth } from "../../contexts/AuthContext";
 import { useToast } from "../../hooks/useToast";
+import { DEFAULT_LANGUAGE, SUPPORTED_LANGUAGES, setLanguage } from "../../i18n";
 import { SetupService } from "../../services/setup";
 import { markSetupCompleted, useSetupStatus } from "./useSetupStatus";
 import styles from "./SetupPage.module.scss";
 
-const STEP_WELCOME = 0;
-const STEP_ADMIN = 1;
-const STEP_PROXMOX = 2;
-const STEP_SUBNET = 3;
-const STEP_FINISH = 4;
+const STEP_ADMIN = 0;
+const STEP_PROXMOX = 1;
+const STEP_SUBNET = 2;
+const STEP_FINISH = 3;
+
+/* 語言用原生名稱顯示，不翻譯 */
+const LANG_OPTIONS = [
+  { key: "zh-TW", label: "繁體中文" },
+  { key: "en", label: "English" },
+  { key: "ja", label: "日本語" },
+];
 
 const IPV4_PATTERN = "^(\\d{1,3}\\.){3}\\d{1,3}$";
 const MIN_PASSWORD_LENGTH = 8;
@@ -121,15 +128,6 @@ function Stepper({ current, steps }) {
   );
 }
 
-function StatusChip({ done, t }) {
-  return (
-    <span className={`${styles.chip} ${done ? styles.chip_done : styles.chip_pending}`}>
-      <MIcon name={done ? "check_circle" : "radio_button_unchecked"} size={16} />
-      {done ? t("SetupPage.statusDone") : t("SetupPage.statusPending")}
-    </span>
-  );
-}
-
 function Notice({ icon = "info", tone = "info", children }) {
   return (
     <div className={`${styles.notice} ${styles[`notice_${tone}`]}`}>
@@ -139,44 +137,34 @@ function Notice({ icon = "info", tone = "info", children }) {
   );
 }
 
-/* ─── 步驟 0：歡迎 ───────────────────────────────────────── */
+/* ─── 歡迎：選語言 ───────────────────────────────────────── */
 
-function WelcomeStep({ steps, onStart }) {
-  const { t } = useTranslation("login");
+function LanguageWelcome({ onContinue }) {
+  const { t, i18n } = useTranslation("login");
+  const current = SUPPORTED_LANGUAGES.includes(i18n.language) ? i18n.language : DEFAULT_LANGUAGE;
   return (
-    <section className={styles.section}>
-      <h2 className={styles.sectionTitle}>{t("SetupPage.welcomeTitle")}</h2>
-      <p className={styles.sectionDesc}>{t("SetupPage.welcomeDesc")}</p>
-
-      <h3 className={styles.subTitle}>{t("SetupPage.checklistTitle")}</h3>
-      <ul className={styles.checklist}>
-        <li>
-          <MIcon name="admin_panel_settings" size={22} />
-          <span>{t("SetupPage.checkAdmin")}</span>
-          <StatusChip done={steps.admin} t={t} />
-        </li>
-        <li>
-          <MIcon name="dns" size={22} />
-          <span>{t("SetupPage.checkProxmox")}</span>
-          <StatusChip done={steps.proxmox} t={t} />
-        </li>
-        <li>
-          <MIcon name="lan" size={22} />
-          <span>{t("SetupPage.checkSubnet")}</span>
-          <StatusChip done={steps.subnet} t={t} />
-        </li>
-      </ul>
-
-      <Notice icon="lock_open" tone="info">{t("SetupPage.securityNote")}</Notice>
-
-      <div className={styles.actions}>
-        <span />
-        <button type="button" className={styles.btnPrimary} onClick={onStart}>
-          {t("SetupPage.start")}
-          <MIcon name="arrow_forward" size={18} />
-        </button>
+    <div className={styles.welcome}>
+      <h1 className={styles.welcomeTitle}>{t("SetupPage.welcomeTitle")}</h1>
+      <div className={styles.langList} role="radiogroup" aria-label={t("SetupPage.languageLabel")}>
+        {LANG_OPTIONS.map((option) => (
+          <button
+            key={option.key}
+            type="button"
+            role="radio"
+            aria-checked={current === option.key}
+            lang={option.key}
+            className={`${styles.langBtn} ${current === option.key ? styles.langBtnActive : ""}`}
+            onClick={() => setLanguage(option.key)}
+          >
+            {option.label}
+          </button>
+        ))}
       </div>
-    </section>
+      <button type="button" className={styles.btnPrimary} onClick={onContinue}>
+        {t("SetupPage.continue")}
+        <MIcon name="arrow_forward" size={18} />
+      </button>
+    </div>
   );
 }
 
@@ -911,7 +899,8 @@ export default function SetupPage() {
   const { t } = useTranslation("login");
   const { user } = useAuth();
   const { status, loading, error, refresh } = useSetupStatus();
-  const [step, setStep] = useState(STEP_WELCOME);
+  const [started, setStarted] = useState(false);
+  const [step, setStep] = useState(STEP_ADMIN);
   const [adminCreds, setAdminCreds] = useState(null);
   const [adminDone, setAdminDone] = useState(false);
   const [proxmoxResult, setProxmoxResult] = useState(null);
@@ -928,7 +917,6 @@ export default function SetupPage() {
   }), [status, adminDone, proxmoxResult, subnetResult]);
 
   const stepLabels = useMemo(() => [
-    t("SetupPage.stepWelcome"),
     t("SetupPage.stepAdmin"),
     t("SetupPage.stepProxmox"),
     t("SetupPage.stepSubnet"),
@@ -968,13 +956,12 @@ export default function SetupPage() {
         </a>
       </div>
     );
+  } else if (!started) {
+    body = <LanguageWelcome onContinue={() => setStarted(true)} />;
   } else {
     body = (
       <>
         <Stepper current={step} steps={stepLabels} />
-        {step === STEP_WELCOME && (
-          <WelcomeStep steps={steps} onStart={() => goTo(STEP_ADMIN)} />
-        )}
         {step === STEP_ADMIN && (
           <AdminStep
             alreadyDone={steps.admin}
@@ -984,7 +971,7 @@ export default function SetupPage() {
               setAdminDone(true);
               goTo(STEP_PROXMOX);
             }}
-            onBack={() => goTo(STEP_WELCOME)}
+            onBack={() => setStarted(false)}
             onNext={() => goTo(STEP_PROXMOX)}
           />
         )}
@@ -1027,10 +1014,12 @@ export default function SetupPage() {
 
   return (
     <PageShell>
-      <header className={styles.header}>
-        <h1 className={styles.title}>{t("SetupPage.title")}</h1>
-        <p className={styles.subtitle}>{t("SetupPage.subtitle")}</p>
-      </header>
+      {/* 歡迎畫面自己有大標題，其餘畫面才掛「初始設定」頁首 */}
+      {(started || !status || status.completed) && (
+        <header className={styles.header}>
+          <h1 className={styles.title}>{t("SetupPage.title")}</h1>
+        </header>
+      )}
       {body}
     </PageShell>
   );
