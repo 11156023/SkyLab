@@ -20,6 +20,55 @@
   gap: $spacing-24;
 }
 
+/* ── 篩選列（Storage）：分段切換＋搜尋框，樣式同需求審核頁 ── */
+.toolbar {
+  display: flex;
+  align-items: center;
+  gap: $spacing-16;
+  flex-wrap: wrap;
+}
+
+/* 窄螢幕放不下時切換器自己橫向捲動；高度鎖 38px 與搜尋框對齊 */
+.filterControl {
+  height: 38px;
+  max-width: 100%;
+  overflow-x: auto;
+  scrollbar-width: none;
+
+  &::-webkit-scrollbar {
+    display: none;
+  }
+}
+
+.search {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 38px;
+  padding: 0 $spacing-8 0 10px;
+  border: 1px solid var(--color-border);
+  border-radius: $radius-8;
+  background: var(--color-surface);
+  color: var(--color-text-muted);
+  flex: 0 1 280px;
+  min-width: 200px;
+  box-shadow: var(--shadow-sm);
+}
+
+.searchInput {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  outline: none;
+  background: transparent;
+  font-size: $font-size-14;
+  color: var(--color-text-primary);
+
+  &::placeholder {
+    color: var(--color-text-muted);
+  }
+}
+
 /* ── 串接後補充樣式 ────────────────────────────────── */
 
 /* 卡片之間 24、卡片內元素 16，維持外鬆內緊的層級 */
@@ -183,6 +232,13 @@
   margin-top: -$spacing-8;
 }
 
+/* Storage 列的下拉／輸入上方有標籤，勾選列改對齊控制項那一排（貼底、給控制項高度） */
+.storageRow > .checkRow {
+  align-self: flex-end;
+  min-height: 36px;
+}
+
+/* 對話框底部的兩個開關：並排在一起、靠左，窄到放不下才換行 */
 .toggleGrid {
   display: flex;
   flex-wrap: wrap;
