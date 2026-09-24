@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<!-- 外層 nginx 的 50x 靜態錯誤頁：前端容器掛掉時由反向代理直接回這頁。
+     完全自足（inline CSS、無外部資源、無 JS 依賴），文案與站內統一錯誤句一致。 -->
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>SkyLab</title>
+  <style>
+    :root {
+      --bg-top: #dfe9fb;
+      --bg-bottom: #f6f2df;
+      --surface: #ffffff;
+      --primary: #5471bf;
+      --text: #5471bf;
+      --text-secondary: #617dc8;
+      --border: #e5eaf3;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg-top: #0e1320;
+        --bg-bottom: #161b26;
+        --surface: #161b26;
+        --primary: #4361a2;
+        --text: #d4deef;
+        --text-secondary: #d9e8ff;
+        --border: #2a3142;
+      }
+    }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 12px;
+      padding: 48px 16px;
+      background: linear-gradient(180deg, var(--bg-top), var(--bg-bottom));
+      color: var(--text);
+      font-family: "Noto Sans TC", "Microsoft JhengHei", system-ui, -apple-system, sans-serif;
+      text-align: center;
+    }
+    svg { overflow: visible; }
+    .cloud { fill: var(--surface); filter: drop-shadow(0 8px 18px rgba(84, 113, 191, 0.26)); }
+    .bolt { fill: var(--primary); }
+    h1 { font-size: 20px; font-weight: 700; }
+    p { max-width: 40ch; font-size: 14px; line-height: 1.6; color: var(--text-secondary); }
+    a.retry {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      margin-top: 12px;
+      padding: 8px 20px;
+      border-radius: 8px;
+      background: var(--primary);
+      color: #fff;
+      font-size: 14px;
+      font-weight: 500;
+      text-decoration: none;
+    }
+    .brand { position: fixed; bottom: 20px; font-size: 12px; color: var(--text-secondary); opacity: 0.7; }
+  </style>
+</head>
+<body>
+  <svg width="140" height="96" viewBox="-70 -48 140 96" role="img" aria-hidden="true">
+    <g class="cloud">
+      <circle cx="-26" cy="4" r="22"/>
+      <circle cx="2" cy="-12" r="28"/>
+      <circle cx="30" cy="6" r="20"/>
+      <rect x="-40" y="6" width="84" height="20" rx="10"/>
+    </g>
+    <path class="bolt" d="M 4 2 L -8 20 L 0 20 L -4 36 L 12 16 L 3 16 Z"/>
+  </svg>
+  <h1>發生錯誤</h1>
+  <p>請再試一次，如果此錯誤持續發生請聯繫管理員。</p>
+  <a class="retry" href="/">重新整理</a>
+  <div class="brand">SkyLab</div>
+</body>
+</html>
