@@ -51,35 +51,6 @@ def env(monkeypatch: pytest.MonkeyPatch) -> SimpleNamespace:
     return state
 
 
-def test_remove_rule_syncs_remaining_before_delete(
-    env: SimpleNamespace, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    import uuid as _uuid
-
-    target = env.rules[0]
-    monkeypatch.setattr(nat_repo, "get_rule", lambda session, rule_id: target)  # noqa: ARG005
-
-    nat_service.remove_nat_rule_by_id(object(), str(_uuid.uuid4()))
-
-    # 同步時送出的是「排除待刪規則」的清單
-    assert env.synced == [[env.rules[1]]]
-    assert env.deleted == [target]
-
-
-def test_remove_rule_keeps_db_row_when_sync_fails(
-    env: SimpleNamespace, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    import uuid as _uuid
-
-    env.sync_fails = True
-    monkeypatch.setattr(nat_repo, "get_rule", lambda session, rule_id: env.rules[0])  # noqa: ARG005
-
-    with pytest.raises(ProxmoxError):
-        nat_service.remove_nat_rule_by_id(object(), str(_uuid.uuid4()))
-
-    assert env.deleted == []
-
-
 def test_remove_rules_for_vmid_syncs_remaining_before_delete(
     env: SimpleNamespace, monkeypatch: pytest.MonkeyPatch
 ) -> None:

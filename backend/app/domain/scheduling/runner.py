@@ -30,7 +30,10 @@ async def run_polling_scheduler(
     while not stop_event.is_set():
         gate = leader_gate() if leader_gate is not None else nullcontext(True)
         try:
-            with gate as is_leader:
+            # leader 鎖是同步的 DB I/O（engine.connect + advisory lock）：丟到
+            # 執行緒，DB 慢或掛掉時才不會把整個 event loop 凍住
+            is_leader = await asyncio.to_thread(gate.__enter__)
+            try:
                 if is_leader != was_leader:
                     logger.info(
                         "Scheduler leadership: %s",
@@ -58,7 +61,10 @@ async def run_polling_scheduler(
                             break
                         except Exception:
                             logger.exception("Scheduled task '%s' failed", task.name)
+            finally:
+                await asyncio.to_thread(gate.__exit__, None, None, None)
         except OperationalError as exc:
+
             if not database_unavailable:
                 logger.warning(
                     "Scheduler paused because the database is unavailable: %s", exc

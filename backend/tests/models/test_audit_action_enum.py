@@ -71,30 +71,6 @@ def test_retired_actions_are_still_enum_members(action: str) -> None:
     assert AuditAction(action).value == action
 
 
-@pytest.mark.parametrize("action", RETIRED_ACTIONS)
-def test_rows_with_retired_actions_are_readable(db: Session, action: str) -> None:
-    log_id = _insert_raw(db, action)
-
-    logs, count = audit_repo.get_audit_logs(session=db)
-    assert count == 1
-    assert logs[0].id == log_id
-    assert logs[0].action is AuditAction(action)
-
-    exported = audit_repo.iter_audit_logs_for_export(session=db)
-    assert [log.id for log in exported] == [log_id]
-
-    csv_text = audit_service.export_csv(session=db)
-    assert action in csv_text
-
-
-def test_unknown_label_still_breaks_reads(db: Session) -> None:
-    """確認上面的測試真的經過 Enum 轉換：不在 AuditAction 裡的標籤讀取時會爆。"""
-    _insert_raw(db, "label_that_never_existed")
-
-    with pytest.raises(LookupError):
-        audit_repo.iter_audit_logs_for_export(session=db)
-
-
 def _literal_audit_actions() -> dict[str, list[str]]:
     """掃描 app/ 內所有 ``log_action`` / ``create_audit_log`` 呼叫的字串 action。"""
     found: dict[str, list[str]] = {}

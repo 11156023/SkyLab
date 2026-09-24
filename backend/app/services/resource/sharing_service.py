@@ -65,14 +65,6 @@ def user_has_share(*, session: Session, vmid: int, user_id: uuid.UUID) -> bool:
     return share_repo.get_share(session=session, vmid=vmid, user_id=user_id) is not None
 
 
-def list_shared_vmids(*, session: Session, user_id: uuid.UUID) -> dict[int, Any]:
-    """被分享給這位使用者的 vmid → ResourceShare。"""
-    return {
-        share.resource_vmid: share
-        for share in share_repo.list_shares_for_user(session=session, user_id=user_id)
-    }
-
-
 def list_shares(*, session: Session, vmid: int) -> list[ResourceSharePublic]:
     shares = share_repo.list_shares_for_resource(session=session, vmid=vmid)
     return [_to_public(share, session.get(User, share.user_id)) for share in shares]
@@ -200,7 +192,6 @@ def transfer_ownership(
 
 __all__ = [
     "add_share",
-    "list_shared_vmids",
     "list_shares",
     "remove_share",
     "transfer_ownership",

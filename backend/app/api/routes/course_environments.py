@@ -11,7 +11,7 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field, ValidationError, model_validator
 from sqlmodel import col, delete, func, select
 
-from app.api.deps import AdminUser, InstructorUser, SessionDep
+from app.api.deps import InstructorUser, SessionDep
 from app.core.authorizers import require_teaching_access
 from app.core.i18n import t
 from app.core.permissions import is_admin
@@ -573,18 +573,6 @@ def list_published_environments(
         if published:
             result.append(_serialize_version(session, environment, published))
     return result
-
-
-@router.post("/reconcile-open-ports")
-def reconcile_open_ports(session: SessionDep, _: AdminUser) -> dict[str, Any]:
-    """一次性維護：把課程機器上舊的「只開防火牆」入站規則換成 port_forward。
-
-    firewall_only 已從課程環境移除，migration 只轉了宣告；這支把已經套在
-    學生機器上的規則換掉。可重複執行，回傳掃描／替換／撤下／失敗的清單。
-    """
-    from app.services.teaching import course_publication_service  # noqa: PLC0415
-
-    return course_publication_service.reconcile_legacy_open_ports(session)
 
 
 @router.post("/drafts", status_code=201)

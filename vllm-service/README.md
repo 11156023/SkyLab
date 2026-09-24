@@ -9,7 +9,7 @@
 | --- | --- | --- | --- |
 | 單一模型主服務 | `./start_single_model.sh` | 系統內部 AI、MVP、單模型除錯 | `http://<API_HOST>:<API_PORT>/v1` |
 | 多模型 vLLM cluster | `./start_multi_model_cluster.sh` | 只啟動各模型 instance，供 LiteLLM 使用 | `http://127.0.0.1:8103/8104/v1` |
-| 舊多模型 Gateway（回滾用） | `./start_multi_model_gateway.sh` | 遷移觀察期的回滾路徑 | `http://<GATEWAY_HOST>:<GATEWAY_PORT>/v1` |
+| 舊多模型 Gateway（回滾用） | `python main.py gateway` | 遷移觀察期的回滾路徑 | `http://<GATEWAY_HOST>:<GATEWAY_PORT>/v1` |
 
 ## 快速開始
 
@@ -93,8 +93,9 @@ Campus backend 未來切換時，仍透過根目錄 `.env` 的 `AI_API_BASE_URL`
 ## 舊多模型 API Gateway（僅回滾）
 
 ```bash
-bash ./start_multi_model_gateway.sh
+python main.py gateway
 ```
+
 
 此腳本會背景啟動服務，主控輸出寫入 `logs/main.log`，Gateway API 輸出寫入
 `logs/gateway.log`，各模型 instance 另寫入 `logs/<alias>.log`。launcher PID 寫入

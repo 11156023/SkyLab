@@ -36,6 +36,7 @@ from app.utils.hostname import to_punycode_hostname
 logger = logging.getLogger(__name__)
 
 
+
 def _utc_now() -> datetime:
     return datetime.now(UTC)
 
@@ -94,7 +95,7 @@ def _ensure_resource_stopped(
     raise ProxmoxError(f"{resource_type} {vmid} is still running after stop timeout")
 
 
-def _cleanup_failed_resource(node: str, vmid: int, resource_type: str) -> None:
+def cleanup_failed_resource(node: str, vmid: int, resource_type: str) -> None:
     """Best-effort cleanup for a partially provisioned resource."""
     try:
         try:
@@ -121,7 +122,7 @@ def _cleanup_failed_resource(node: str, vmid: int, resource_type: str) -> None:
 def cleanup_provisioned_resource(vmid: int) -> None:
     """Find and delete a resource created during a failed approval workflow."""
     resource = proxmox_service.find_resource(vmid)
-    _cleanup_failed_resource(resource["node"], vmid, resource["type"])
+    cleanup_failed_resource(resource["node"], vmid, resource["type"])
 
 
 # PVE mdev 型別名稱只會是 nvidia-123 / i915-GVTg_V5_4 這類 token，
@@ -371,11 +372,11 @@ def _select_request_placement(
     return selection
 
 
-def _get_lxc_target_node() -> str:
+def get_lxc_target_node() -> str:
     return proxmox_service.pick_target_node()
 
 
-def _get_vm_target_node(template_id: int) -> str:
+def get_vm_target_node(template_id: int) -> str:
     template = proxmox_service.find_vm_template(template_id)
     return template["node"]
 
@@ -430,7 +431,7 @@ def create_lxc(
     ``target_node`` 由呼叫端指定時優先採用 —— 課堂機器以此把整班鎖在同一個
     叢集內（預設的 pick_target_node 會在所有連線間自由挑選）。
     """
-    target_node = target_node or _get_lxc_target_node()
+    target_node = target_node or get_lxc_target_node()
     target_storage = _resolve_managed_storage(
         session=session,
         node=target_node,
@@ -570,7 +571,7 @@ def create_lxc(
                     vmid,
                     fw_err,
                 )
-            _cleanup_failed_resource(target_node, vmid, "lxc")
+            cleanup_failed_resource(target_node, vmid, "lxc")
         logger.error(f"Failed to create LXC container: {e}")
         raise ProxmoxError(f"Failed to create LXC container: {e}")
 
@@ -583,7 +584,7 @@ def create_vm(
     batch_job_id: uuid.UUID | None = None,
     ip_reservation_key: str | None = None,
 ) -> VMCreateResponse:
-    target_node = _get_vm_target_node(vm_data.template_id)
+    target_node = get_vm_target_node(vm_data.template_id)
     target_storage = _resolve_managed_storage(
         session=session,
         node=target_node,
@@ -741,7 +742,7 @@ def create_vm(
                     new_vmid,
                     fw_err,
                 )
-            _cleanup_failed_resource(target_node, new_vmid, "qemu")
+            cleanup_failed_resource(target_node, new_vmid, "qemu")
         logger.error(f"Failed to create VM: {e}")
         raise ProxmoxError(f"Failed to create VM: {e}")
 
@@ -1177,7 +1178,7 @@ def execute_provision(plan: dict) -> tuple[int, str]:
                 logger.debug(
                     "Firewall cleanup skipped for VMID %s: %s", new_vmid, fw_err
                 )
-            _cleanup_failed_resource(actual_node, new_vmid, resource_type)
+            cleanup_failed_resource(actual_node, new_vmid, resource_type)
         raise
 
     logger.info(

@@ -9,7 +9,6 @@ from app.api.routes import (
     course_admin,
     course_environments,
     courses,
-    deletion_requests,
     desktop_client,
     firewall,
     gateway,
@@ -55,7 +54,6 @@ api_router.include_router(resource_settings.router)
 api_router.include_router(vm.router)
 api_router.include_router(lxc.router)
 api_router.include_router(vm_requests.router)
-api_router.include_router(deletion_requests.router)
 api_router.include_router(monitoring.router)
 api_router.include_router(governance.router)
 api_router.include_router(quotas.router)

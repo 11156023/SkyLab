@@ -15,7 +15,6 @@ from app.core.i18n import t
 from app.exceptions import BadRequestError
 from app.infrastructure.proxmox import (
     DEFAULT_PROXMOX_POOL_NAME,
-    _tcp_ping,
     fetch_cluster_nodes,
     invalidate_proxmox_client,
     resolve_verify,
@@ -612,68 +611,9 @@ def preview_cluster(
         )
 
 
-@router.post("/sync-nodes", response_model=list[ProxmoxNodePublic])
-def sync_nodes(
-    session: SessionDep,
-    current_user: AdminUser,
-    nodes: list[ProxmoxNodePublic],
-) -> list[ProxmoxNodePublic]:
-    """
-    將前端確認過的節點清單寫入資料庫。
-    先清除舊節點再寫入新節點。
-    """
-    node_dicts = [
-        {
-            "name": n.name,
-            "host": n.host,
-            "port": n.port,
-            "is_primary": n.is_primary,
-        }
-        for n in nodes
-    ]
-    # 多連線下此舊端點只作用於預設連線，避免誤刪其他連線的節點
-    default_conn = proxmox_connection_repo.get_default_connection(session)
-    saved = proxmox_node_repo.upsert_nodes(
-        session,
-        node_dicts,
-        connection_id=default_conn.id if default_conn else None,
-    )
-
-    invalidate_proxmox_client()
-
-    audit_service.log_action(
-        session=session,
-        user_id=current_user.id,
-        action=AuditAction.proxmox_sync_nodes,
-        details=(
-            f"Synced {len(saved)} cluster nodes: "
-            + ", ".join(n.name for n in saved)
-        ),
-    )
-
-    return [_node_to_public(n) for n in saved]
-
-
 @router.get("/nodes", response_model=list[ProxmoxNodePublic])
 def get_nodes(session: SessionDep, current_user: AdminUser) -> list[ProxmoxNodePublic]:
     """取得所有已儲存的叢集節點清單。"""
-    nodes = proxmox_node_repo.get_all_nodes(session)
-    return [_node_to_public(n) for n in nodes]
-
-
-@router.post("/check-nodes", response_model=list[ProxmoxNodePublic])
-def check_nodes(session: SessionDep, current_user: AdminUser) -> list[ProxmoxNodePublic]:
-    """
-    對所有已儲存的節點做 TCP ping 健康檢查，更新 is_online 狀態後回傳最新清單。
-    前端開啟 Proxmox 設定頁面時呼叫。
-    """
-    nodes = proxmox_node_repo.get_all_nodes(session)
-    for node in nodes:
-        is_online = _tcp_ping(node.host, node.port)
-        if node.id is not None:
-            proxmox_node_repo.update_node_status(session, node.id, is_online)
-
-    # 重新讀取以取得更新後的 last_checked
     nodes = proxmox_node_repo.get_all_nodes(session)
     return [_node_to_public(n) for n in nodes]
 

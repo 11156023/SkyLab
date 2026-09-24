@@ -80,8 +80,8 @@ async def request_clone(
     template_id: uuid.UUID,
     data: TemplateCloneRequest,
 ) -> list[TaskRecord]:
-    template = template_service._get_or_404(session, template_id)
-    template_service._require_view(session, user, template)
+    template = template_service.get_or_404(session, template_id)
+    template_service.require_view(session, user, template)
     # 克隆開通僅限教師與管理員；學生要機器一律走申請審核流程。
     require_template_manage(user)
     if template.status != VMTemplateStatus.ready:

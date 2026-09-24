@@ -343,6 +343,8 @@
   "JobsPage.kindDeletion": "Deletion",
   "JobsPage.kindSpecChange": "Spec Change",
   "JobsPage.kindTemplate": "Template",
+  "JobsPage.kindResourceReset": "Reset",
+  "JobsPage.kindBatchProvision": "Batch provisioning",
   "JobsPage.kindVmRequest": "VM Request",
   "JobsPage.loading": "Loading background tasks...",
   "JobsPage.pageTitle": "Background Tasks",

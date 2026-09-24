@@ -263,16 +263,6 @@ def _resource_type_summary(
     return f"Placement uses {effective_type.upper()} capacity rules."
 
 
-def _resource_type_reason_from_choice(
-    *,
-    request: PlacementRequest,
-    effective_resource_type: ResourceType,
-) -> str:
-    if request.resource_type == effective_resource_type:
-        return _decide_resource_type(request)[1]
-    return f"Placement selected {effective_resource_type.upper()} capacity rules."
-
-
 def _request_label(request: PlacementRequest) -> str:
     return f"{request.resource_type.upper()} request"
 

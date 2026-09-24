@@ -70,23 +70,9 @@ def delete_share(
         session.flush()
 
 
-def delete_shares_for_resource(
-    *, session: Session, vmid: int, commit: bool = True
-) -> int:
-    shares = list_shares_for_resource(session=session, vmid=vmid)
-    for share in shares:
-        session.delete(share)
-    if commit:
-        session.commit()
-    else:
-        session.flush()
-    return len(shares)
-
-
 __all__ = [
     "create_share",
     "delete_share",
-    "delete_shares_for_resource",
     "get_share",
     "get_share_by_id",
     "list_shares_for_resource",

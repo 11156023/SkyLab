@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import time
 from typing import Any
 
 try:
@@ -19,6 +20,12 @@ _redis_client: Redis | None = None
 _redis_backend_available = ConnectionPool is not Any
 _redis_enabled: bool = settings.redis_enabled and _redis_backend_available
 
+# 請求路徑上的重連冷卻：Redis 掛掉時，若每個請求都重建連線池並 ping，
+# 每個請求先吃滿 socket_connect_timeout（5 秒）才拿到 None。冷卻期內直接
+# 回 None，讓限流／撤銷名單立刻依 scope 決定放行或拒絕。
+REINIT_COOLDOWN_SECONDS = 10.0
+_last_init_failure_at: float | None = None
+
 
 def redis_failures_are_fatal() -> bool:
     """非 local 環境把 Redis 當必要元件。
@@ -35,7 +42,7 @@ async def init_redis(*, raise_on_failure: bool = True) -> None:
     ``raise_on_failure``：lifespan 啟動時用預設值（非 local 連不上就丟例外讓啟動失敗）；
     請求路徑上的重試則傳 False，由呼叫端自行決定放行或拒絕。
     """
-    global _redis_pool, _redis_client
+    global _redis_pool, _redis_client, _last_init_failure_at
 
     fatal = raise_on_failure and redis_failures_are_fatal()
 
@@ -66,12 +73,14 @@ async def init_redis(*, raise_on_failure: bool = True) -> None:
         )
         _redis_client = Redis(connection_pool=_redis_pool)
         await _redis_client.ping()
+        _last_init_failure_at = None
         logger.info("Redis connected successfully: %s", settings.redis_url)
     except Exception as exc:
         _redis_client = None
         if _redis_pool:
             await _redis_pool.aclose()
             _redis_pool = None
+        _last_init_failure_at = time.monotonic()
         if fatal:
             raise RuntimeError(
                 f"Failed to connect to Redis ({settings.redis_url}): {exc}. "
@@ -91,6 +100,8 @@ async def get_redis() -> Redis | None:
         return None
 
     if _redis_client is None:
+        if _in_reinit_cooldown():
+            return None
         logger.warning("Redis not initialized, attempting to initialize now...")
         # 請求路徑上不丟例外：回 None 讓限流／撤銷名單依 scope 決定放行或拒絕，
         # 否則一次 Redis 抖動會讓所有端點變成 500。
@@ -99,8 +110,16 @@ async def get_redis() -> Redis | None:
     return _redis_client
 
 
+def _in_reinit_cooldown() -> bool:
+    if _last_init_failure_at is None:
+        return False
+    return (time.monotonic() - _last_init_failure_at) < REINIT_COOLDOWN_SECONDS
+
+
 async def close_redis() -> None:
-    global _redis_client, _redis_pool
+    global _redis_client, _redis_pool, _last_init_failure_at
+
+    _last_init_failure_at = None
 
     if _redis_client is not None:
         await _redis_client.aclose()

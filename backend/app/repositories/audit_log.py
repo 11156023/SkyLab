@@ -191,34 +191,6 @@ def stream_audit_logs_for_export(
             return
 
 
-def iter_audit_logs_for_export(
-    *,
-    session: Session,
-    vmid: int | None = None,
-    user_id: uuid.UUID | None = None,
-    action: AuditAction | str | None = None,
-    start_time: datetime | None = None,
-    end_time: datetime | None = None,
-    ip_address: str | None = None,
-    search: str | None = None,
-    max_rows: int = 50000,
-) -> list[AuditLog]:
-    """Eager list form of :func:`stream_audit_logs_for_export`."""
-    return list(
-        stream_audit_logs_for_export(
-            session=session,
-            vmid=vmid,
-            user_id=user_id,
-            action=action,
-            start_time=start_time,
-            end_time=end_time,
-            ip_address=ip_address,
-            search=search,
-            max_rows=max_rows,
-        )
-    )
-
-
 def get_audit_stats(
     *,
     session: Session,

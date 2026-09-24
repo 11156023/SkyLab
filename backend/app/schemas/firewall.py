@@ -299,17 +299,6 @@ class TopologyResponse(BaseModel):
 
 
 # ─── NAT 規則 ──────────────────────────────────────────────────────────────────
-class NATRulePublic(BaseModel):
-    """NAT 端口轉發規則（回應）"""
-
-    id: uuid.UUID
-    ssh_host: str
-    vmid: int
-    vm_ip: str
-    external_port: int
-    internal_port: int
-    protocol: str
-    created_at: datetime
 
 
 class ReverseProxyRulePublic(BaseModel):
@@ -339,7 +328,6 @@ __all__ = [
     "TopologyNode",
     "TopologyEdge",
     "TopologyResponse",
-    "NATRulePublic",
     "ReverseProxyRulePublic",
     "PublishMode",
     "PublishedService",

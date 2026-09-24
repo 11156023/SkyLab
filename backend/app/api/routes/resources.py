@@ -14,10 +14,9 @@ from app.api.deps import (
 from app.core.authorizers import can_bypass_resource_ownership
 from app.core.security import decrypt_value
 from app.exceptions import NotFoundError, PermissionDeniedError, ProxmoxError
-from app.infrastructure.worker import submit_sync
 from app.models import DeletionRequestStatus
 from app.repositories import resource as resource_repo
-from app.schemas import NodeSchema, ResourcePublic, SSHKeyResponse
+from app.schemas import ResourcePublic, SSHKeyResponse
 from app.schemas.deletion_request import DeletionRequestCreated
 from app.schemas.resource import (
     BatchActionRequest,
@@ -33,15 +32,6 @@ from app.services.template import password_policy
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/resources", tags=["resources"])
-
-
-@router.get("/nodes", response_model=list[NodeSchema])
-def list_nodes(current_user: AdminUser):
-    try:
-        return proxmox_service.list_nodes()
-    except Exception as e:
-        logger.error(f"Failed to get nodes: {e}")
-        raise ProxmoxError("Failed to get nodes")
 
 
 @router.get("/", response_model=list[ResourcePublic])
@@ -186,12 +176,12 @@ def delete_resource(
     purge: bool = True,
     force: bool = False,
 ):
-    """將刪除請求加入佇列，立即 202 回應，並在背景馬上開始執行。
+    """將刪除請求加入佇列，立即 202 回應，並由 arq worker 馬上開始執行。
 
-    - 主路徑：API 寫入 DeletionRequest 後，立即 fire-and-forget 一個背景 task
+    - 主路徑：API 寫入 DeletionRequest 後入列 ``resource.delete`` 任務，worker
       呼叫 ``deletion_service.process_one_request``，無需等 scheduler tick。
     - 兜底：scheduler 每隔 ``SCHEDULER_POLL_SECONDS`` 仍會掃描 pending request，
-      涵蓋 server restart / 背景任務失敗的情況。
+      涵蓋入列失敗 / worker 重啟的情況；pending→running 是條件式認領，不會重複執行。
     - 孤兒清理：若 VM 在 Proxmox 已不存在但 DB 仍有記錄，直接清理 DB 並回 202。
     """
     # Check DB ownership first (without requiring Proxmox to be available)
@@ -249,19 +239,8 @@ def delete_resource(
         purge=purge,
         force=force,
     )
-    # Only kick the background task for freshly queued requests; if an existing
-    # pending/running request was returned (deduplication), it's already being
-    # handled.
-    if req.status == DeletionRequestStatus.pending:
-        submit_sync(
-            deletion_service.process_one_request,
-            req.id,
-            name=f"delete_resource:{vmid}",
-            task_id=str(req.id),
-            # Retries are handled inside process_one_request itself; no
-            # need for the runner to retry on top of that.
-            max_retries=0,
-        )
+    # 只對剛建立的 pending 單入列；去重回傳的既有 pending/running 單已在處理中
+    deletion_service.enqueue_processing(session=session, req=req)
     return DeletionRequestCreated(
         id=req.id,
         vmid=req.vmid,

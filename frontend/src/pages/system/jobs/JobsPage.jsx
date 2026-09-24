@@ -22,6 +22,8 @@ function useKindLabels() {
     spec_change:   t("JobsPage.kindSpecChange"),
     deletion:      t("JobsPage.kindDeletion"),
     template:      t("JobsPage.kindTemplate"),
+    resource_reset:  t("JobsPage.kindResourceReset"),
+    batch_provision: t("JobsPage.kindBatchProvision"),
   };
 }
 

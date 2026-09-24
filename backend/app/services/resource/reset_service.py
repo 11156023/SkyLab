@@ -2,7 +2,8 @@
 
 - ``ensure_init_snapshot``：provision 完成點呼叫，best-effort；失敗只記
   warning（該 VM 之後「重置不可用」，可由老師/admin 補建）。
-- ``start_reset``：API 進入點，驗證前置條件後丟背景任務（202）。
+- ``start_reset``：API 進入點，驗證前置條件後入列 arq 任務（202）。
+- ``run_reset_task``：worker 端 handler 本體（見 ``resource/tasks.py``）。
 """
 
 from __future__ import annotations
@@ -16,11 +17,13 @@ from sqlmodel import Session
 
 from app.core.i18n import t
 from app.exceptions import BadRequestError, ConflictError
-from app.infrastructure.worker import background_tasks
+from app.infrastructure.queue import enqueue_task_sync
 from app.services.proxmox import proxmox_service
 from app.services.user import audit_service
 
 logger = logging.getLogger(__name__)
+
+TASK_RESET = "resource.reset"
 
 INIT_SNAPSHOT_NAME = "skylab-init"
 INIT_SNAPSHOT_DESCRIPTION = "SkyLab 初始快照（受保護）"
@@ -189,9 +192,25 @@ def _run_reset(
         raise
 
 
+def run_reset_task(task_id: uuid.UUID, payload: dict[str, Any]) -> dict[str, Any]:
+    """worker 端 handler：解包 payload 後執行重置，回傳結果寫入 TaskRecord。"""
+    vmid = int(payload["vmid"])
+    node = str(payload["node"])
+    rtype: Literal["qemu", "lxc"] = "lxc" if payload.get("rtype") == "lxc" else "qemu"
+    user_id = uuid.UUID(str(payload["user_id"]))
+    logger.info("Reset task %s started for vmid=%s", task_id, vmid)
+    _run_reset(vmid, node, rtype, user_id)
+    return {"vmid": vmid}
+
+
 def start_reset(
     session: Session, *, vmid: int, resource_info: dict[str, Any], user: Any
 ) -> str:
+    """驗證前置條件後把重置入列；回傳 TaskRecord id（同時是 arq job id）。
+
+    走 arq 而不是行程內背景任務：重置中途 API 重啟不會讓機器停在關機狀態，
+    同一台機器的重複請求也由 TaskRecord／job id 在跨行程層級去重。
+    """
     node = str(resource_info["node"])
     rtype = _rtype(resource_info)
     if not _has_init_snapshot(node, vmid, rtype):
@@ -203,13 +222,15 @@ def start_reset(
         action="snapshot_rollback",
         details="Requested reset to init snapshot",
     )
-    task_id = background_tasks.submit_sync(
-        _run_reset,
-        vmid,
-        node,
-        rtype,
-        user.id,
-        name=f"reset-vm:{vmid}",
-        task_id=f"reset-{vmid}",
+    record = enqueue_task_sync(
+        session=session,
+        task_type=TASK_RESET,
+        user_id=user.id,
+        payload={
+            "vmid": vmid,
+            "node": node,
+            "rtype": rtype,
+            "user_id": str(user.id),
+        },
     )
-    return task_id
+    return str(record.id)

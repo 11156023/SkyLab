@@ -11,6 +11,12 @@ from sqlmodel import Session, col, select
 
 from app.core.authorizers import can_bypass_resource_ownership
 from app.core.security import decrypt_value
+from app.domain.resource_markers import (  # noqa: F401 — re-export 給既有引用
+    RESOURCE_CONVERTED_TO_TEMPLATE_MARKER,
+    RESOURCE_DELETED_BY_USER_MARKER,
+    RESOURCE_DELETED_MARKERS,
+    RESOURCE_DELETED_ORPHAN_MARKER,
+)
 from app.exceptions import BadRequestError, PermissionDeniedError, ProxmoxError
 from app.models import (
     BatchProvisionJob,
@@ -635,23 +641,13 @@ def list_all(
         raise ProxmoxError(f"Failed to get resources: {e}")
 
 
-DELETED_TOMBSTONE_DAYS = 30
-
 # Marker written onto a VMRequest's resource_warning / provisioning_error /
 # review_comment when the user explicitly deletes the live resource. Used
 # by list_by_user to suppress the now-defunct approved request from being
 # resurrected as a "failed" placeholder, and by the frontend to hide the
-# consumed request from the applications list.
-RESOURCE_DELETED_BY_USER_MARKER = "Resource deleted by user"
-RESOURCE_DELETED_ORPHAN_MARKER = "Resource deleted (orphan DB cleanup)"
-RESOURCE_CONVERTED_TO_TEMPLATE_MARKER = "Resource converted to template"
-_RESOURCE_DELETED_MARKERS = frozenset(
-    {
-        RESOURCE_DELETED_BY_USER_MARKER,
-        RESOURCE_DELETED_ORPHAN_MARKER,
-        RESOURCE_CONVERTED_TO_TEMPLATE_MARKER,
-    }
-)
+# consumed request from the applications list. 定義在 domain 層，這裡只是
+# re-export 讓既有的 ``resource_service.RESOURCE_*`` 引用不用改。
+_RESOURCE_DELETED_MARKERS = RESOURCE_DELETED_MARKERS
 
 
 def mark_linked_request_consumed(
@@ -924,49 +920,6 @@ def list_by_user(
     except Exception as e:
         logger.error(f"Failed to get user resources: {e}")
         raise ProxmoxError(f"Failed to get user resources: {e}")
-
-
-def _list_user_deletion_tombstones(
-    *,
-    session: Session,
-    user_id: uuid.UUID,
-    excluded_vmids: set[int] | None = None,
-) -> list[ResourcePublic]:
-    """Build ResourcePublic tombstones for the user's recent self-initiated
-    deletions, so the resources page can render a "已刪除" badge alongside
-    live resources."""
-    from sqlmodel import col, select
-
-    from app.models.deletion_request import (
-        DeletionRequest,
-        DeletionRequestStatus,
-    )
-
-    cutoff = _utc_now() - timedelta(days=DELETED_TOMBSTONE_DAYS)
-    rows = list(
-        session.exec(
-            select(DeletionRequest)
-            .where(
-                DeletionRequest.user_id == user_id,
-                DeletionRequest.status == DeletionRequestStatus.completed,
-                col(DeletionRequest.completed_at) >= cutoff,
-            )
-            .order_by(col(DeletionRequest.completed_at).desc())
-        ).all()
-    )
-    excluded_vmids = excluded_vmids or set()
-    return [
-        ResourcePublic(
-            vmid=req.vmid,
-            name=req.name or f"vm-{req.vmid}",
-            status="deleted",
-            node=req.node or "",
-            type=req.resource_type or "",
-            can_control=False,
-        )
-        for req in rows
-        if req.vmid not in excluded_vmids
-    ]
 
 
 # Proxmox 的 config 原封不動回傳等於把 cloud-init 的 ``cipassword``（雖是
@@ -1728,8 +1681,6 @@ def batch_action(
     from app.api.deps.proxmox import (  # noqa: PLC0415 — 權限規則只維護在 deps 這一份
         check_resource_control_access,
     )
-    from app.infrastructure.worker import submit_sync  # noqa: PLC0415
-    from app.models.deletion_request import DeletionRequestStatus  # noqa: PLC0415
     from app.services.resource import deletion_service  # noqa: PLC0415
 
     results: list[BatchActionResultItem] = []
@@ -1748,15 +1699,9 @@ def batch_action(
                     purge=True,
                     force=False,
                 )
-                if req.status == DeletionRequestStatus.pending:
-                    submit_sync(
-                        deletion_service.process_one_request,
-                        req.id,
-                        name=f"delete_resource:{vmid}",
-                        task_id=str(req.id),
-                        max_retries=0,
-                    )
+                deletion_service.enqueue_processing(session=session, req=req)
                 message = f"Resource {vmid} deletion queued"
+
             else:
                 check_resource_control_access(vmid, user, session)
                 control(

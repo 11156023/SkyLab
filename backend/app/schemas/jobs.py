@@ -26,6 +26,11 @@ class JobKind(str, enum.Enum):
     spec_change = "spec_change"
     deletion = "deletion"
     template = "template"
+    # 以下兩種同樣來自 TaskRecord（arq 任務），依 task_type 分類
+
+    resource_reset = "resource_reset"
+    batch_provision = "batch_provision"
+
 
 
 class JobStatus(str, enum.Enum):

@@ -11,7 +11,6 @@ from app.ai.template_recommendation.config import settings
 from app.ai.template_recommendation.node_service import summarize_device_nodes
 from app.ai.template_recommendation.prompt import (
     build_fast_ai_plan_prompt,
-    build_intent_extraction_prompt,
 )
 from app.ai.template_recommendation.schemas import (
     ChatMessage,
@@ -229,51 +228,6 @@ def _build_submission_reason(
         memory=memory_mb,
         disk=disk_gb,
     )
-
-
-async def extract_intent_from_chat(request: ChatRequest) -> ExtractedIntent:
-    model_name = settings.VLLM_MODEL_NAME
-    if not model_name:
-        raise HTTPException(
-            status_code=503,
-            detail=t("templateRec.modelBindingMissing"),
-        )
-
-    recent_messages = request.messages[-10:]
-    user_messages: list[str] = []
-    full_chat_history: list[str] = []
-
-    for message in recent_messages:
-        normalized_role = str(message.role).strip().lower()
-        if normalized_role == "user":
-            user_messages.append(f"User: {message.content}")
-            full_chat_history.append(f"User: {message.content}")
-        elif normalized_role == "assistant":
-            full_chat_history.append(f"Assistant: {message.content}")
-
-    prompt = build_intent_extraction_prompt(
-        formatted_user_history="\n\n".join(user_messages) if user_messages else "(No user messages)",
-        formatted_history="\n\n".join(full_chat_history) if full_chat_history else "(No conversation history)",
-        user_signal_flags=_extract_user_signal_flags(recent_messages),
-    )
-    payload = apply_thinking_control(
-        {
-            "model": model_name,
-            "messages": [{"role": "user", "content": prompt}],
-            "max_tokens": 1024,
-            "temperature": 0.1,
-            "response_format": {"type": "json_object"},
-        },
-        settings.VLLM_ENABLE_THINKING,
-    )
-
-    try:
-        data = await client.create_chat_completion(payload)
-        return ExtractedIntent(**json.loads(data["choices"][0]["message"]["content"]))
-    except Exception as exc:
-        raise HTTPException(
-            status_code=502, detail=t("templateRec.extractionFailed", error=exc)
-        ) from exc
 
 
 async def generate_ai_plan(

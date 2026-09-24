@@ -292,43 +292,6 @@ def export_csv_chunks(
         yield flush()
 
 
-def export_csv(
-    *,
-    session: Session,
-    vmid: int | None = None,
-    user_id: uuid.UUID | None = None,
-    action: AuditAction | None = None,
-    start_time: datetime | None = None,
-    end_time: datetime | None = None,
-    ip_address: str | None = None,
-    search: str | None = None,
-    limit: int = EXPORT_MAX_ROWS,
-) -> str:
-    """Eager string form of :func:`export_csv_chunks`."""
-    return "".join(
-        export_csv_chunks(
-            session=session,
-            vmid=vmid,
-            user_id=user_id,
-            action=action,
-            start_time=start_time,
-            end_time=end_time,
-            ip_address=ip_address,
-            search=search,
-            limit=limit,
-        )
-    )
-
-
-def get_by_user(
-    *, session: Session, user_id: uuid.UUID, skip: int = 0, limit: int = 100
-) -> AuditLogsPublic:
-    logs, count = audit_repo.get_audit_logs_by_user(
-        session=session, user_id=user_id, skip=skip, limit=limit
-    )
-    return AuditLogsPublic(data=[_to_public(log) for log in logs], count=count)
-
-
 def get_by_vmid(
     *, session: Session, vmid: int, skip: int = 0, limit: int = 100
 ) -> AuditLogsPublic:

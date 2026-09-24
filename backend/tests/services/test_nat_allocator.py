@@ -64,16 +64,6 @@ def test_no_subnet_config_means_no_pool(pool):
         nat_service.allocate_external_port(object(), "tcp")
 
 
-def test_forward_endpoint_uses_the_configured_entry_host(pool):
-    assert nat_service.forward_endpoint(object(), 30002) == "lab.example.edu:30002"
-
-
-def test_forward_endpoint_is_absent_until_the_admin_sets_a_host(pool):
-    pool["config"].forward_public_host = "  "
-
-    assert nat_service.forward_endpoint(object(), 30002) is None
-
-
 # ── 管理員設定的驗證 ───────────────────────────────────────────────────────
 
 

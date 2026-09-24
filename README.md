@@ -64,10 +64,12 @@ docker compose watch
 | Backend API | http://localhost:8000 |
 | Swagger Docs | http://localhost:8000/docs |
 | Adminer | http://localhost:8080 |
-| MailCatcher | http://localhost:1080 |
+| MailCatcher（開發用收信匣；正式環境請設 SMTP_HOST） | http://localhost:1080 |
+
 | Traefik Dashboard | http://localhost:8090 |
 
-> vLLM 推論請優先使用 `vllm-service/`。`start_single_model.sh` 啟動單模型主服務；AI API 遷移期以 `start_multi_model_cluster.sh` 啟動多模型 vLLM，並由 LiteLLM routing。`start_multi_model_gateway.sh` 僅保留為 P5/P6 的回滾入口。
+> vLLM 推論請優先使用 `vllm-service/`。`start_single_model.sh` 啟動單模型主服務；AI API 遷移期以 `start_multi_model_cluster.sh` 啟動多模型 vLLM，並由 LiteLLM routing。舊多模型 Gateway 僅保留為 P5/P6 的回滾入口，以 `python main.py gateway` 啟動（沒有獨立腳本）。
+
 
 ## 本地開發
 
