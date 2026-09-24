@@ -52,6 +52,12 @@ class User(UserBase, table=True):
     # 舊帳號一律 local，LDAP 登入成功時自癒標記為 ldap（見 ldap_auth_service）。
     auth_source: str = Field(default="local", max_length=20)
     token_version: int = Field(default=0, description="令牌版本，修改密碼時遞增以失效舊令牌")
+    # 兩步驟驗證（TOTP，可綁定 Google Authenticator）：
+    # - secret 以 Fernet 加密存放；setup 後、confirm 前處於「待確認」狀態（enabled=False）
+    # - last_used_step 記錄最後一次成功驗證的 time step，防止 30 秒內重放同一組驗證碼
+    totp_secret_encrypted: str | None = Field(default=None, max_length=512)
+    totp_enabled: bool = Field(default=False)
+    totp_last_used_step: int | None = Field(default=None)
     created_at: datetime | None = Field(
         default_factory=get_datetime_utc,
         sa_type=DateTime(timezone=True),

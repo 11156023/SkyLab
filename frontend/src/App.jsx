@@ -4,6 +4,7 @@ import { useTranslation } from "react-i18next";
 import { useAuth } from "./contexts/AuthContext";
 import DashboardLayout from "./layout/DashboardLayout";
 import LoginPage from "./pages/login/LoginPage";
+import TotpEnrollPage from "./pages/login/TotpEnrollPage";
 import MIcon from "./components/MIcon";
 import { LoadingSpinner } from "./components/LoadingState/LoadingState";
 import { AuthSessionStatus } from "./services/authSession";
@@ -58,6 +59,7 @@ const SchedulerPage = lazy(() => import("./pages/system/settings/SchedulerPage")
 const GovernancePage = lazy(() => import("./pages/system/settings/GovernancePage"));
 const QuotasPage = lazy(() => import("./pages/system/settings/QuotasPage"));
 const LdapPage = lazy(() => import("./pages/system/settings/LdapPage"));
+const SecurityPage = lazy(() => import("./pages/system/settings/SecurityPage"));
 const NodesPage = lazy(() => import("./pages/system/settings/NodesPage"));
 const StoragePage = lazy(() => import("./pages/system/settings/StoragePage"));
 const MonitoringPage = lazy(() => import("./pages/system/monitoring/MonitoringPage"));
@@ -187,6 +189,13 @@ function App() {
     );
   }
 
+  /* 管理員強制全站 2FA 且本人尚未綁定：後端除帳號／登入端點外一律 403，
+     所以這裡不進 DashboardLayout（避免側欄／通知等請求一路噴 403），
+     只顯示綁定畫面；完成後 updateUser 清掉旗標即自動進入系統。 */
+  if (user?.totp_setup_required) {
+    return <TotpEnrollPage />;
+  }
+
   return (
     <Routes>
       <Route
@@ -294,6 +303,7 @@ function App() {
               <Route path="/governance" element={<GovernancePage />} />
               <Route path="/quotas"    element={<QuotasPage />} />
               <Route path="/ldap"      element={<LdapPage />} />
+              <Route path="/security"  element={<SecurityPage />} />
               <Route path="/nodes"     element={<NodesPage />} />
               <Route path="/storage"   element={<StoragePage />} />
               {/* 舊的 /settings?tab=… 書籤依分頁導到對應的新頁面 */}

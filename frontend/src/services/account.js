@@ -1,4 +1,4 @@
-import { apiGet, apiPatch, apiDelete, apiPostMultipart } from "./api";
+import { apiGet, apiPatch, apiDelete, apiPost, apiPostMultipart } from "./api";
 
 const BASE = "/api/v1/users/me";
 
@@ -31,5 +31,20 @@ export const AccountService = {
   /** 刪除自己的帳號（無法復原） */
   delete() {
     return apiDelete(BASE);
+  },
+
+  /** 兩步驟驗證：產生金鑰與 otpauth URI（待確認，尚未啟用） */
+  setupTotp() {
+    return apiPost(`${BASE}/totp/setup`, {});
+  },
+
+  /** 兩步驟驗證：用 Authenticator 的驗證碼確認綁定，正式啟用 */
+  confirmTotp(code) {
+    return apiPost(`${BASE}/totp/confirm`, { code });
+  },
+
+  /** 兩步驟驗證：停用（需目前有效的驗證碼） */
+  disableTotp(code) {
+    return apiPost(`${BASE}/totp/disable`, { code });
   },
 };

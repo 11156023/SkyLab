@@ -37,4 +37,9 @@ export const UsersService = {
   delete(userId) {
     return apiDelete(`${BASE}/${userId}`);
   },
+
+  /** 管理員解除某使用者的兩步驟驗證（手機遺失救援；對方需重新登入） */
+  resetTotp(userId) {
+    return apiDelete(`${BASE}/${userId}/totp`);
+  },
 };

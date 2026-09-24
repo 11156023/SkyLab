@@ -6,7 +6,7 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { useTranslation } from "react-i18next";
-import { AuthStorage, loginLdap } from "../services/auth";
+import { AuthStorage, loginLdap, loginTotp } from "../services/auth";
 import { apiPost, apiPostForm, refreshTokens } from "../services/api";
 import {
   AuthSessionStatus,
@@ -257,23 +257,45 @@ export function AuthProvider({ children }) {
     return result;
   }, [verifyStoredSession, t]);
 
+  /**
+   * 帳號已綁定兩步驟驗證時，第一階段只會拿到挑戰 token（沒有 access_token）：
+   * 回傳 { totpRequired, totpToken } 讓登入頁切到驗證碼步驟，再呼叫 totpLogin。
+   */
+  const toTotpChallenge = (tokens) =>
+    tokens?.totp_required ? { totpRequired: true, totpToken: tokens.totp_token } : null;
+
   const login = useCallback(async (username, password) => {
     const tokens = await apiPostForm("/api/v1/login/access-token", {
       username,
       password,
     });
+    const challenge = toTotpChallenge(tokens);
+    if (challenge) return challenge;
     AuthStorage.setTokens(tokens);
     await completeLogin();
+    return null;
   }, [completeLogin]);
 
   const googleLogin = useCallback(async (idToken) => {
     const tokens = await apiPost("/api/v1/login/google", { id_token: idToken });
+    const challenge = toTotpChallenge(tokens);
+    if (challenge) return challenge;
     AuthStorage.setTokens(tokens);
     await completeLogin();
+    return null;
   }, [completeLogin]);
 
   const ldapLogin = useCallback(async (username, password) => {
-    await loginLdap(username, password);
+    const tokens = await loginLdap(username, password);
+    const challenge = toTotpChallenge(tokens);
+    if (challenge) return challenge;
+    await completeLogin();
+    return null;
+  }, [completeLogin]);
+
+  /** 兩步驟驗證第二階段：驗證碼通過後才真正登入 */
+  const totpLogin = useCallback(async (totpToken, code) => {
+    await loginTotp(totpToken, code);
     await completeLogin();
   }, [completeLogin]);
 
@@ -299,6 +321,7 @@ export function AuthProvider({ children }) {
         login,
         googleLogin,
         ldapLogin,
+        totpLogin,
         logout,
         retrySession,
         updateUser,

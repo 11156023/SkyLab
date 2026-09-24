@@ -6,6 +6,7 @@ import MIcon from "../../../components/MIcon";
 import Avatar from "../../../components/Avatar/Avatar";
 import PasswordInput from "../../../components/PasswordInput/PasswordInput";
 import FileDropzone from "../../../components/FileDropzone/FileDropzone";
+import TotpEnrollment from "../../../components/TotpEnrollment/TotpEnrollment";
 import { useAuth } from "../../../contexts/AuthContext";
 import { useToast } from "../../../hooks/useToast";
 import useDialogPresence from "../../../hooks/useDialogPresence";
@@ -276,6 +277,161 @@ function PasswordSection() {
   );
 }
 
+/* ── 兩步驟驗證 ─────────────────────────────────────── */
+
+function TwoFactorSection() {
+  const { t } = useTranslation("personal");
+  const { user, updateUser } = useAuth();
+  const toast = useToast();
+  const enabled = Boolean(user?.totp_enabled);
+  /* 系統強制啟用時不能自行停用（管理員在登入安全政策開的） */
+  const enforced = Boolean(user?.totp_policy_required);
+  const [dialog, setDialog] = useState(null); // null | "enable" | "disable"
+  const presence = useDialogPresence(dialog);
+  const [code, setCode] = useState("");
+  const [disabling, setDisabling] = useState(false);
+  const codeRef = useRef(null);
+
+  function closeDialog() {
+    if (disabling) return;
+    setDialog(null);
+    setCode("");
+  }
+
+  function handleEnabled() {
+    updateUser({ totp_enabled: true, totp_setup_required: false });
+    toast.success(t("TwoFactorSection.enabledToast"));
+    setDialog(null);
+  }
+
+  async function handleDisable(e) {
+    e.preventDefault();
+    const digits = code.replace(/\D/g, "");
+    if (digits.length !== 6) {
+      codeRef.current?.focus();
+      return;
+    }
+    setDisabling(true);
+    try {
+      await AccountService.disableTotp(digits);
+      updateUser({ totp_enabled: false });
+      toast.success(t("TwoFactorSection.disabledToast"));
+      setDialog(null);
+      setCode("");
+    } catch (err) {
+      toast.error(err?.message ?? t("TwoFactorSection.codeInvalid"));
+      setCode("");
+      codeRef.current?.focus();
+    } finally {
+      setDisabling(false);
+    }
+  }
+
+  const activeDialog = presence.item;
+
+  return (
+    <>
+      <div className={styles.card}>
+        <h2 className={styles.cardTitle}>{t("TwoFactorSection.title")}</h2>
+
+        <div className={styles.twoFactorStatus}>
+          <span className={`${styles.twoFactorIcon} ${enabled ? styles.twoFactorIconOn : ""}`}>
+            <MIcon name={enabled ? "verified_user" : "shield"} size={22} />
+          </span>
+          <div className={styles.twoFactorText}>
+            <strong>
+              {enabled ? t("TwoFactorSection.statusOn") : t("TwoFactorSection.statusOff")}
+            </strong>
+            <span>
+              {enabled ? t("TwoFactorSection.descOn") : t("TwoFactorSection.descOff")}
+            </span>
+          </div>
+        </div>
+
+        <div className={styles.formActions}>
+          {enabled ? (
+            <button
+              type="button"
+              className={styles.btnSecondary}
+              onClick={() => setDialog("disable")}
+              disabled={enforced}
+              title={enforced ? t("TwoFactorSection.enforcedHint") : undefined}
+            >
+              {t("TwoFactorSection.disable")}
+            </button>
+          ) : (
+            <button type="button" className={styles.btnPrimary} onClick={() => setDialog("enable")}>
+              <MIcon name="qr_code_2" size={16} />
+              {t("TwoFactorSection.enable")}
+            </button>
+          )}
+        </div>
+        {enabled && enforced && (
+          <p className={styles.twoFactorHint}>{t("TwoFactorSection.enforcedHint")}</p>
+        )}
+      </div>
+
+      {activeDialog && createPortal(
+        /* portal 到 body：理由同 DangerZoneSection（backdrop-filter 的 containing block 陷阱） */
+        <div
+          className={`${styles.modalOverlay} ${presence.closing ? styles.modalOverlayOut : ""}`}
+          onMouseDown={closeDialog}
+        >
+          <div
+            className={`${styles.confirm} ${activeDialog === "enable" ? styles.confirmWide : ""}`}
+            onMouseDown={(e) => e.stopPropagation()}
+            role="dialog"
+            aria-modal="true"
+          >
+            {activeDialog === "enable" ? (
+              <>
+                <h2>{t("TwoFactorSection.enableTitle")}</h2>
+                <TotpEnrollment onConfirmed={handleEnabled} onCancel={closeDialog} />
+              </>
+            ) : (
+              <form onSubmit={handleDisable} className={styles.form}>
+                <h2>{t("TwoFactorSection.disableTitle")}</h2>
+                <p>{t("TwoFactorSection.disableDesc")}</p>
+                <input
+                  ref={codeRef}
+                  className={`${styles.confirmInput} ${styles.otpInput}`}
+                  type="text"
+                  inputMode="numeric"
+                  autoComplete="one-time-code"
+                  maxLength={7}
+                  placeholder="000000"
+                  value={code}
+                  onChange={(e) => setCode(e.target.value.replace(/[^\d ]/g, ""))}
+                  disabled={disabling}
+                  autoFocus
+                />
+                <div className={styles.modalActions}>
+                  <button
+                    type="button"
+                    className={styles.btnSecondary}
+                    onClick={closeDialog}
+                    disabled={disabling}
+                  >
+                    {t("TwoFactorSection.cancel")}
+                  </button>
+                  <button
+                    type="submit"
+                    className={styles.btnDanger}
+                    disabled={disabling || code.replace(/\D/g, "").length !== 6}
+                  >
+                    {disabling ? t("TwoFactorSection.disabling") : t("TwoFactorSection.confirmDisable")}
+                  </button>
+                </div>
+              </form>
+            )}
+          </div>
+        </div>,
+        document.body,
+      )}
+    </>
+  );
+}
+
 /* ── 危險區域 ───────────────────────────────────────── */
 
 function DangerZoneSection() {
@@ -395,6 +551,7 @@ export default function AccountSettingsPage() {
             <ProfileTab />
             <div className={styles.profileSide}>
               <PasswordSection />
+              <TwoFactorSection />
               <DangerZoneSection />
             </div>
           </div>

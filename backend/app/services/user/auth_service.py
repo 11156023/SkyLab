@@ -9,8 +9,8 @@ from app.core.i18n import t
 from app.exceptions import AuthenticationError, BadRequestError
 from app.models import AuditAction
 from app.repositories import user as user_repo
-from app.schemas import Token, UserUpdate
-from app.services.user import audit_service
+from app.schemas import Token, TotpChallenge, UserUpdate
+from app.services.user import audit_service, totp_service
 from app.utils import (
     decode_password_reset_token,
     generate_password_reset_token,
@@ -34,7 +34,9 @@ def create_token_pair(user) -> Token:
     return Token(access_token=access_token, refresh_token=refresh_token)
 
 
-def login(*, session: Session, email: str, password: str) -> Token:
+def login(
+    *, session: Session, email: str, password: str
+) -> Token | TotpChallenge:
     user = user_repo.authenticate(session=session, email=email, password=password)
     if not user:
         audit_service.log_action(
@@ -52,6 +54,9 @@ def login(*, session: Session, email: str, password: str) -> Token:
             details=f"Login blocked: inactive user {email}",
         )
         raise BadRequestError(t("auth.inactiveUser"))
+    # 已綁定兩步驟驗證：密碼只算第一階段，成功稽核留到驗證碼通過後再寫
+    if user.totp_enabled:
+        return totp_service.issue_challenge(user, method="password")
     audit_service.log_action(
         session=session,
         user_id=user.id,
@@ -61,7 +66,9 @@ def login(*, session: Session, email: str, password: str) -> Token:
     return create_token_pair(user)
 
 
-async def google_login(*, session: Session, id_token: str) -> Token:
+async def google_login(
+    *, session: Session, id_token: str
+) -> Token | TotpChallenge:
     def _fail(reason: str, email: str | None = None, user_id=None) -> None:
         audit_service.log_action(
             session=session,
@@ -114,6 +121,8 @@ async def google_login(*, session: Session, id_token: str) -> Token:
     if not user.is_active:
         _fail("inactive user", email, user.id)
         raise BadRequestError(t("auth.inactiveUser"))
+    if user.totp_enabled:
+        return totp_service.issue_challenge(user, method="google")
     audit_service.log_action(
         session=session,
         user_id=user.id,

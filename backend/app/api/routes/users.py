@@ -12,8 +12,12 @@ from app.api.deps import (
     get_current_active_superuser,
 )
 from app.core.i18n import t
+from app.repositories import auth_policy as auth_policy_repo
 from app.schemas import (
     Message,
+    TotpCodeRequest,
+    TotpSetupPublic,
+    TotpStatusPublic,
     UpdatePassword,
     UserCreate,
     UserPublic,
@@ -22,7 +26,7 @@ from app.schemas import (
     UserUpdate,
     UserUpdateMe,
 )
-from app.services.user import user_service
+from app.services.user import totp_service, user_service
 
 router = APIRouter(prefix="/users", tags=["users"])
 
@@ -81,8 +85,39 @@ def update_password_me(
 
 
 @router.get("/me", response_model=UserPublic)
-def read_user_me(current_user: CurrentUser) -> Any:
-    return current_user
+def read_user_me(session: SessionDep, current_user: CurrentUser) -> Any:
+    me = UserPublic.model_validate(current_user)
+    # 管理員強制全站 2FA：已綁定者不可自行停用；尚未綁定者前端只顯示綁定畫面
+    me.totp_policy_required = auth_policy_repo.is_totp_required(session=session)
+    me.totp_setup_required = me.totp_policy_required and not current_user.totp_enabled
+    return me
+
+
+# ── 兩步驟驗證（TOTP，可綁定 Google Authenticator） ──
+
+
+@router.post("/me/totp/setup", response_model=TotpSetupPublic)
+def setup_totp_me(*, session: SessionDep, current_user: CurrentUser) -> Any:
+    """產生金鑰與 otpauth URI（待確認狀態；確認前登入不會要求驗證碼）。"""
+    return totp_service.begin_setup(session=session, user=current_user)
+
+
+@router.post("/me/totp/confirm", response_model=TotpStatusPublic)
+def confirm_totp_me(
+    *, session: SessionDep, body: TotpCodeRequest, current_user: CurrentUser
+) -> Any:
+    """用 Authenticator 產生的驗證碼確認綁定，正式啟用。"""
+    totp_service.confirm_setup(session=session, user=current_user, code=body.code)
+    return TotpStatusPublic(totp_enabled=True)
+
+
+@router.post("/me/totp/disable", response_model=TotpStatusPublic)
+def disable_totp_me(
+    *, session: SessionDep, body: TotpCodeRequest, current_user: CurrentUser
+) -> Any:
+    """停用兩步驟驗證（需一組目前有效的驗證碼）。"""
+    totp_service.disable(session=session, user=current_user, code=body.code)
+    return TotpStatusPublic(totp_enabled=False)
 
 
 @router.post("/me/avatar", response_model=UserPublic)
@@ -177,3 +212,16 @@ def delete_user(
         session=session, user_id=user_id, current_user=current_user
     )
     return Message(message="User deleted successfully")
+
+
+@router.delete(
+    "/{user_id}/totp",
+    dependencies=[Depends(get_current_active_superuser)],
+    response_model=TotpStatusPublic,
+)
+def reset_user_totp(
+    session: SessionDep, current_user: CurrentUser, user_id: uuid.UUID
+) -> Any:
+    """管理員解除某使用者的兩步驟驗證（手機遺失救援；對方需重新登入）。"""
+    totp_service.admin_reset(session=session, user_id=user_id, actor=current_user)
+    return TotpStatusPublic(totp_enabled=False)

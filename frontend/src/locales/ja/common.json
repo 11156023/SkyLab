@@ -231,6 +231,7 @@
   "Sidebar.itemGovernance": "ガバナンス",
   "Sidebar.itemQuotas": "クォータ",
   "Sidebar.itemLdap": "LDAP",
+  "Sidebar.itemSecurity": "ログインセキュリティ",
   "Sidebar.itemNodes": "ノード管理",
   "Sidebar.itemStorage": "Storage",
   "Sidebar.groupMonitoring": "監視とログ",

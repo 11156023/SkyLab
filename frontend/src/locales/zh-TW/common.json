@@ -231,6 +231,7 @@
   "Sidebar.itemGovernance": "治理",
   "Sidebar.itemQuotas": "配額",
   "Sidebar.itemLdap": "LDAP",
+  "Sidebar.itemSecurity": "登入安全",
   "Sidebar.itemNodes": "節點管理",
   "Sidebar.itemStorage": "Storage",
   "Sidebar.groupMonitoring": "監控與日誌",

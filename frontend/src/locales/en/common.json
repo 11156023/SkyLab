@@ -231,6 +231,7 @@
   "Sidebar.itemGovernance": "Governance",
   "Sidebar.itemQuotas": "Quotas",
   "Sidebar.itemLdap": "LDAP",
+  "Sidebar.itemSecurity": "Login security",
   "Sidebar.itemNodes": "Node Management",
   "Sidebar.itemStorage": "Storage",
   "Sidebar.groupMonitoring": "Monitoring & Logs",

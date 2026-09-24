@@ -77,6 +77,12 @@ class AuditAction(str, enum.Enum):
     password_change = "password_change"
     password_recovery_request = "password_recovery_request"
     password_reset = "password_reset"
+    # 兩步驟驗證（TOTP）
+    login_totp_failed = "login_totp_failed"
+    totp_enable = "totp_enable"
+    totp_disable = "totp_disable"
+    totp_admin_reset = "totp_admin_reset"
+    auth_policy_update = "auth_policy_update"
 
     # 防火牆
     firewall_layout_update = "firewall_layout_update"
