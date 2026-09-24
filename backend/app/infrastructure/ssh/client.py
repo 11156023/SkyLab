@@ -171,8 +171,21 @@ def exec_command(
     *,
     timeout: int | None = None,
     decode_errors: str = "replace",
+    stdin: str | None = None,
 ) -> tuple[int, str, str]:
-    _, stdout_ch, stderr_ch = client.exec_command(command, timeout=timeout)
+    """執行遠端指令；``stdin`` 有值時寫入後關閉寫入端再讀輸出。
+
+    敏感資料（密碼等）要走 stdin：指令列會出現在遠端的 ps 與 shell 記錄裡，
+    同機的其他使用者看得到。
+    """
+    stdin_ch, stdout_ch, stderr_ch = client.exec_command(command, timeout=timeout)
+    if stdin is not None:
+        try:
+            stdin_ch.write(stdin)
+            stdin_ch.flush()
+        finally:
+            # 不關寫入端，讀取 stdin 的指令（chpasswd 等）會一直等下去
+            stdin_ch.channel.shutdown_write()
     stdout_text = stdout_ch.read().decode(errors=decode_errors)
     stderr_text = stderr_ch.read().decode(errors=decode_errors)
     exit_code = stdout_ch.channel.recv_exit_status()

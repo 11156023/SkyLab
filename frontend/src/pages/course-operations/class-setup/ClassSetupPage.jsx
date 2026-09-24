@@ -67,11 +67,13 @@ export function weekPayload(weeks, { publish = false } = {}) {
       // 精靈沒有班級頁那種逐週發布鈕；少了這個開關，老師填好的主題會全部停在
       // 草稿，班級建好、狀態變成可上課，學生端卻一週內容都看不到。
       status: publish && title && !VISIBLE_WEEK_STATUSES.includes(status) ? "published" : status,
-      files: (week.files ?? []).map((file) => ({
-        filename: file.filename,
-        storage_key: file.storage_key ?? null,
-        target_path: file.target_path ?? null,
-      })),
+      // 只送已上傳檔案的 id，storage_key 由後端依 id 查回（不接受前端指定）
+      files: (week.files ?? [])
+        .filter((file) => file.id)
+        .map((file) => ({
+          id: String(file.id),
+          target_path: file.target_path ?? null,
+        })),
     };
   });
 }
@@ -303,6 +305,7 @@ export default function ClassSetupPage() {
                   key={candidate.versionId}
                   candidate={candidate}
                   selected={String(candidate.versionId) === String(templateId)}
+                  disabled={busy}
                   onSelect={() => setTemplateId(String(candidate.versionId))}
                 />
               ))}

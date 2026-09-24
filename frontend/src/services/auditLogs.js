@@ -49,9 +49,11 @@ export const AuditLogsService = {
     return apiGet("/api/v1/audit-logs/users");
   },
 
-  /** 匯出 CSV（回傳 Blob） */
-  exportCsv(params) {
-    const qs = buildQuery(params);
+  /** 匯出 CSV（回傳 Blob）
+   *  匯出端點沒有 skip：整批從最新往回取，只有 limit 控制筆數上限。 */
+  exportCsv(params = {}) {
+    const { skip: _skip, ...exportable } = params;
+    const qs = buildQuery(exportable);
     return apiGetBlob(`/api/v1/audit-logs/export${qs ? `?${qs}` : ""}`);
   },
 };

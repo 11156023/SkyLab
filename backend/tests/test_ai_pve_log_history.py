@@ -18,7 +18,6 @@ from app.ai.pve_log.schemas import (
     SSHExecRequest,
     SSHExecResult,
 )
-from app.ai.pve_template.schemas import AIPVETemplateChatRequest
 
 _TOOLS = {"get_nodes", "ssh_exec"}
 
@@ -44,15 +43,6 @@ def test_chat_request_requires_exactly_one_non_empty_mode() -> None:
     with pytest.raises(ValueError):
         ChatRequest(
             messages=[{"role": "user", "content": str(index)} for index in range(41)]
-        )
-
-
-def test_template_request_rejects_message_and_history_together() -> None:
-    with pytest.raises(ValueError, match="只能擇一"):
-        AIPVETemplateChatRequest(
-            targets=[{"vmid": 102, "template_key": "n8n"}],
-            message="新的問題",
-            messages=[{"role": "user", "content": "舊問題"}],
         )
 
 

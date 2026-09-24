@@ -19,6 +19,8 @@
   "template.hasClonedVms": "テンプレートにはまだクローンされた VM が残っています：{vmids}。先にこれらを削除してください",
   "template.referencedByEnvironments": "マルチマシン環境「{shown}」{more}がこの親テンプレートを参照しています。先にそれらの環境を別のソースに切り替えるか、公開停止してから削除してください。",
   "template.referencedByEnvironmentsMore": "（計 {count} 件）",
+  "template.hasOpenRequests": "このテンプレートを指定した申請が {count} 件あり、まだ払い出されていません。先に承認して払い出すか、却下してから削除してください。",
+  "template.referencedByBatchJobs": "このテンプレートを使う一括作成ジョブが {count} 件あり、まだ完了していません。先に中止するか、完了を待ってから削除してください。",
   "template.mustBeReadyForUpdate": "更新サイクルを開始するにはテンプレートが準備完了状態である必要があります（現在の状態：{status}）",
   "template.notInUpdateCycle": "テンプレートは更新サイクル中ではありません",
   "template.updateCloneNotReady": "更新サイクルのクローンはまだ準備できていません。クローン作業の完了をお待ちください",

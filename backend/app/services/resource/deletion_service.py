@@ -9,20 +9,23 @@ from __future__ import annotations
 import logging
 import uuid
 from datetime import datetime, timedelta, timezone
+from typing import Any
 
+from sqlalchemy import update
 from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session, select
 
-from app.exceptions import AppError
+from app.infrastructure.queue import enqueue_task_sync
 from app.models import (
     DeletionRequest,
     DeletionRequestStatus,
     Resource,
-    User,
 )
 from app.services.resource import resource_service
 
 logger = logging.getLogger(__name__)
+
+TASK_DELETE = "resource.delete"
 
 
 def _utc_now() -> datetime:
@@ -93,78 +96,6 @@ def create_deletion_request(
     return req
 
 
-def cancel_deletion_request(
-    *,
-    session: Session,
-    request_id: uuid.UUID,
-    user_id: uuid.UUID,
-    is_admin: bool,
-) -> DeletionRequest:
-    """Cancel a pending or in-flight deletion request.
-
-    - ``pending``: simply mark cancelled.
-    - ``running``: best-effort cancel the underlying background task and
-      mark the request cancelled. Note that if the worker thread is in
-      the middle of a Proxmox API call the call will run to completion;
-      the cancel only prevents further retries / follow-up work.
-    - terminal (completed/failed/cancelled): rejected with 409.
-    """
-    from app.infrastructure.worker import cancel as _cancel_bg_task  # noqa: PLC0415
-
-    req = session.get(DeletionRequest, request_id)
-    if req is None:
-        raise AppError(404, "Deletion request not found")
-    if not is_admin and req.user_id != user_id:
-        raise AppError(403, "Not allowed to cancel this deletion request")
-    if req.status not in (DeletionRequestStatus.pending, DeletionRequestStatus.running):
-        raise AppError(
-            409,
-            f"Cannot cancel deletion request in status={req.status.value}",
-        )
-
-    was_running = req.status == DeletionRequestStatus.running
-    if was_running:
-        # Best-effort: cancel the asyncio task; effective if it's still
-        # waiting for the semaphore or sleeping between retries.
-        cancelled_in_runner = _cancel_bg_task(str(req.id))
-        logger.info(
-            "Best-effort cancel for running deletion request %s: runner_cancelled=%s",
-            req.id, cancelled_in_runner,
-        )
-
-    req.status = DeletionRequestStatus.cancelled
-    req.completed_at = _utc_now()
-    if was_running:
-        req.error_message = "Cancelled by user while running"
-    session.add(req)
-    session.commit()
-    session.refresh(req)
-    logger.info("Cancelled deletion request %s (vmid=%s)", req.id, req.vmid)
-    return req
-
-
-def list_for_user(
-    *,
-    session: Session,
-    user_id: uuid.UUID,
-    skip: int = 0,
-    limit: int = 100,
-) -> tuple[list[DeletionRequest], int]:
-    rows = session.exec(
-        select(DeletionRequest)
-        .where(DeletionRequest.user_id == user_id)
-        .order_by(DeletionRequest.created_at.desc())  # type: ignore[union-attr]
-        .offset(skip)
-        .limit(limit)
-    ).all()
-    total = len(
-        session.exec(
-            select(DeletionRequest.id).where(DeletionRequest.user_id == user_id)
-        ).all()
-    )
-    return list(rows), total
-
-
 def list_all(
     *,
     session: Session,
@@ -233,19 +164,55 @@ def _execute_deletion(session: Session, req: DeletionRequest) -> None:
         )
         return
     if req.status == DeletionRequestStatus.pending:
-        req.status = DeletionRequestStatus.running
-        req.started_at = _utc_now()
-        session.add(req)
+        # 條件式 UPDATE 認領：API 背景任務與排程 tick 可能同時拿到同一張
+        # pending 單，只有把 pending 翻成 running 的那個能繼續，另一個直接退出，
+        # 不會對同一台機器下兩次刪除。
+        claimed = session.execute(
+            update(DeletionRequest)
+            .where(
+                DeletionRequest.id == req.id,  # type: ignore[arg-type]
+                DeletionRequest.status == DeletionRequestStatus.pending,  # type: ignore[arg-type]
+            )
+            .values(status=DeletionRequestStatus.running, started_at=_utc_now())
+        )
         session.commit()
         session.refresh(req)
+        if claimed.rowcount == 0:
+            logger.info(
+                "Deletion request %s already claimed by another worker; skipping",
+                req.id,
+            )
+            return
     # else: already running → retry path; reuse existing started_at
 
-    session.exec(
+    resource = session.exec(
         select(Resource).where(Resource.vmid == req.vmid)
     ).first()
     # resource may be None for admin-initiated deletion of orphan resources
     # (machines that exist in Proxmox but have no DB record). In that case
     # we still attempt the Proxmox deletion using the snapshot data.
+    if (
+        resource is not None
+        and req.resource_vmid is not None
+        and resource.user_id != req.user_id
+        and resource.created_at is not None
+        and resource.created_at > req.created_at
+    ):
+        # 這張單原本指的機器已被別的途徑刪掉、VMID 又配給了別人的新機器：
+        # 絕不能拿舊單的快照去刪現在這台
+        req.status = DeletionRequestStatus.failed
+        req.error_message = (
+            f"VMID {req.vmid} now belongs to a different resource created after this "
+            "request; refusing to delete it"
+        )
+        req.completed_at = _utc_now()
+        session.add(req)
+        session.commit()
+        logger.warning(
+            "Deletion request %s aborted: vmid=%s was reassigned to user %s",
+            req.id, req.vmid, resource.user_id,
+        )
+        return
 
     # The Resource model only stores user/business metadata (env type, owner,
     # SSH keys, etc.). Live Proxmox info (node / type / status) must come from
@@ -268,7 +235,7 @@ def _execute_deletion(session: Session, req: DeletionRequest) -> None:
         return
 
     try:
-        from app.services.proxmox import proxmox_service  # noqa: PLC0415
+        from app.services.proxmox import proxmox_service
 
         live_status = proxmox_service.get_status(node, req.vmid, resource_type).get(
             "status", ""
@@ -325,6 +292,31 @@ def _execute_deletion(session: Session, req: DeletionRequest) -> None:
         raise
 
 
+def enqueue_processing(*, session: Session, req: DeletionRequest) -> None:
+    """把剛建立的 pending 刪除單交給 arq worker（``resource.delete``）。
+
+    只對 ``pending`` 的單入列：``create_deletion_request`` 去重回傳既有的
+    pending/running 單時，那張單已經有人在處理。入列失敗會拋出，呼叫端
+    不用補救：排程 tick 的 ``process_pending_deletions`` 會撿起 pending 單。
+    """
+    if req.status != DeletionRequestStatus.pending:
+        return
+    enqueue_task_sync(
+        session=session,
+        task_type=TASK_DELETE,
+        user_id=req.user_id,
+        payload={"request_id": str(req.id), "vmid": req.vmid},
+    )
+
+
+def run_delete_task(task_id: uuid.UUID, payload: dict[str, Any]) -> dict[str, Any]:
+    """worker 端 handler：解包 payload 後跑 ``process_one_request``。"""
+    request_id = uuid.UUID(str(payload["request_id"]))
+    logger.info("Deletion task %s started for request %s", task_id, request_id)
+    process_one_request(request_id)
+    return {"request_id": str(request_id), "vmid": payload.get("vmid")}
+
+
 def process_one_request(
     request_id: uuid.UUID,
     *,
@@ -334,15 +326,16 @@ def process_one_request(
 ) -> None:
     """Background entrypoint: process a single DeletionRequest by id.
 
+
     Opens its own DB session per attempt so it's safe to run as a
     fire-and-forget task. On failure, retries up to ``max_retries`` times
     with exponential backoff. Only after all attempts fail does the
     request transition to ``failed``. Cancelled requests are honoured
     immediately at the start of each attempt.
     """
-    import time  # noqa: PLC0415 — keep import local
+    import time
 
-    from app.core.db import engine  # noqa: PLC0415 — keep import local to avoid cycles
+    from app.core.db import engine
 
     delay = max(0.0, retry_delay)
     last_exc: Exception | None = None
@@ -405,40 +398,6 @@ def process_one_request(
             "Deletion request %s permanently failed after %d attempt(s): %s",
             request_id, max_retries + 1, last_exc,
         )
-
-
-def retry_failed_request(
-    *,
-    session: Session,
-    request_id: uuid.UUID,
-    user_id: uuid.UUID,
-    is_admin: bool,
-) -> DeletionRequest:
-    """Manually re-queue a failed DeletionRequest for another attempt.
-
-    Resets status to ``pending`` and clears ``error_message`` /
-    ``completed_at`` so the standard pipeline (background task or
-    scheduler tick) picks it up again.
-    """
-    req = session.get(DeletionRequest, request_id)
-    if req is None:
-        raise AppError(404, "Deletion request not found")
-    if not is_admin and req.user_id != user_id:
-        raise AppError(403, "Not allowed to retry this deletion request")
-    if req.status != DeletionRequestStatus.failed:
-        raise AppError(
-            409,
-            f"Only failed deletion requests can be retried (current={req.status.value})",
-        )
-    req.status = DeletionRequestStatus.pending
-    req.error_message = None
-    req.started_at = None
-    req.completed_at = None
-    session.add(req)
-    session.commit()
-    session.refresh(req)
-    logger.info("Re-queued failed deletion request %s for retry", req.id)
-    return req
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -505,27 +464,3 @@ def process_pending_deletions(session: Session) -> None:
 # Helpers for jobs/UI
 # ──────────────────────────────────────────────────────────────────────────────
 
-
-def to_public_with_user(
-    *,
-    session: Session,
-    req: DeletionRequest,
-) -> dict:
-    user = session.get(User, req.user_id)
-    return {
-        "id": req.id,
-        "user_id": req.user_id,
-        "vmid": req.vmid,
-        "name": req.name,
-        "node": req.node,
-        "resource_type": req.resource_type,
-        "purge": req.purge,
-        "force": req.force,
-        "status": req.status,
-        "error_message": req.error_message,
-        "created_at": req.created_at,
-        "started_at": req.started_at,
-        "completed_at": req.completed_at,
-        "user_email": user.email if user is not None else None,
-        "user_full_name": user.full_name if user is not None else None,
-    }

@@ -26,17 +26,35 @@ def _quota_row(**overrides: object) -> SimpleNamespace:
     return SimpleNamespace(**values)
 
 
-class _FakeSession:
-    """最小 DB session 替身：只支援 singleton 讀寫路徑。"""
+class _FakeResult:
+    def __init__(self, rows: list[object]) -> None:
+        self._rows = rows
 
-    def __init__(self, existing: object | None = None) -> None:
+    def all(self) -> list[object]:
+        return self._rows
+
+
+class _FakeSession:
+    """最小 DB session 替身：只支援 singleton 讀寫與申請單查詢路徑。"""
+
+    def __init__(
+        self,
+        existing: object | None = None,
+        requests: list[object] | None = None,
+    ) -> None:
         self.existing = existing
+        self.requests = requests or []
         self.added: list[object] = []
         self.commits = 0
 
     def get(self, model: type, pk: object) -> object | None:
         del model, pk
         return self.existing
+
+    def exec(self, statement: object) -> _FakeResult:
+        """get_usage 只用 exec 查「尚未佈建的申請單」。"""
+        del statement
+        return _FakeResult(self.requests)
 
     def add(self, obj: object) -> None:
         self.added.append(obj)
@@ -161,8 +179,50 @@ def test_get_usage_sums_cluster_specs(monkeypatch: pytest.MonkeyPatch) -> None:
         {"vmid": 102, "maxcpu": 4, "maxmem": 4 * 1024**3, "maxdisk": 30 * 1024**3},
         {"vmid": 999, "maxcpu": 64, "maxmem": 64 * 1024**3, "maxdisk": 999 * 1024**3},
     ]
-    usage = quota_service.get_usage(None, USER_ID, cluster_resources=cluster)
+    usage = quota_service.get_usage(
+        _FakeSession(), USER_ID, cluster_resources=cluster  # type: ignore[arg-type]
+    )
     assert usage == QuotaUsage(cpu_cores=6, memory_mb=6144, disk_gb=50, instances=2)
+
+
+def _pending_request(**overrides: object) -> SimpleNamespace:
+    values: dict = {
+        "id": uuid.uuid4(),
+        "user_id": USER_ID,
+        "resource_type": "qemu",
+        "cores": 2,
+        "memory": 4096,
+        "disk_size": 40,
+        "rootfs_size": None,
+    }
+    values.update(overrides)
+    return SimpleNamespace(**values)
+
+
+def test_get_usage_counts_unprovisioned_requests(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """待審核／已核准但還沒開機的申請單也要佔用額度，否則連送多張就能繞過配額。"""
+    monkeypatch.setattr(quota_service, "_owned_vmids", lambda session, user_id: [101])
+    cluster = [
+        {"vmid": 101, "maxcpu": 2, "maxmem": 2 * 1024**3, "maxdisk": 20 * 1024**3}
+    ]
+    session = _FakeSession(
+        requests=[
+            _pending_request(),
+            _pending_request(resource_type="lxc", cores=1, memory=1024,
+                             disk_size=None, rootfs_size=10),
+        ]
+    )
+
+    usage = quota_service.get_usage(
+        session, USER_ID, cluster_resources=cluster  # type: ignore[arg-type]
+    )
+
+    # 機器 2C/2048MB/20GB + 申請單 (2C/4096MB/40GB) + (1C/1024MB/10GB)
+    assert usage == QuotaUsage(
+        cpu_cores=5, memory_mb=7168, disk_gb=70, instances=1
+    )
 
 
 def test_check_quota_raises_conflict(

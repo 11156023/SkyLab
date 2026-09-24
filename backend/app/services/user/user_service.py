@@ -12,7 +12,21 @@ from app.exceptions import (
     NotFoundError,
     PermissionDeniedError,
 )
-from app.models import AuditLog, SpecChangeRequest, TeachingClass, User, VMRequest
+from app.models import (
+    AIAPICredential,
+    AIAPIRequest,
+    AIAPIUsage,
+    AITemplateCallLog,
+    AlertEvent,
+    AuditLog,
+    DeletionRequest,
+    MiningIncident,
+    ResourceQuota,
+    SpecChangeRequest,
+    TeachingClass,
+    User,
+    VMRequest,
+)
 from app.repositories import resource as resource_repo
 from app.repositories import user as user_repo
 from app.schemas import (
@@ -81,6 +95,60 @@ def _prepare_user_delete(*, session: Session, user: User) -> None:
     for log in audit_logs:
         log.user_id = None
         session.add(log)
+
+    # 以下幾張表都有指向 user.id 的外鍵，卻沒有對應的 ondelete 規則；
+    # 不先清掉，刪帳號會在 commit 時被資料庫的 FK 約束擋下（500）。
+    # 刪除順序照外鍵相依：usage → credential → request。
+    for usage in session.exec(
+        select(AIAPIUsage).where(AIAPIUsage.user_id == user.id)
+    ).all():
+        session.delete(usage)
+    for credential in session.exec(
+        select(AIAPICredential).where(AIAPICredential.user_id == user.id)
+    ).all():
+        session.delete(credential)
+    for ai_request in session.exec(
+        select(AIAPIRequest).where(AIAPIRequest.user_id == user.id)
+    ).all():
+        session.delete(ai_request)
+    # 審核過別人申請的紀錄要留著，只清掉審核人引用
+    for ai_request in session.exec(
+        select(AIAPIRequest).where(AIAPIRequest.reviewer_id == user.id)
+    ).all():
+        ai_request.reviewer_id = None
+        session.add(ai_request)
+
+    for call_log in session.exec(
+        select(AITemplateCallLog).where(AITemplateCallLog.user_id == user.id)
+    ).all():
+        session.delete(call_log)
+    for quota in session.exec(
+        select(ResourceQuota).where(ResourceQuota.user_id == user.id)
+    ).all():
+        session.delete(quota)
+    for deletion_request in session.exec(
+        select(DeletionRequest).where(DeletionRequest.user_id == user.id)
+    ).all():
+        session.delete(deletion_request)
+
+    # 告警事件本身與帳號無關，只清掉「誰確認的」
+    for alert in session.exec(
+        select(AlertEvent).where(AlertEvent.acknowledged_by == user.id)
+    ).all():
+        alert.acknowledged_by = None
+        session.add(alert)
+
+    # mining_incidents.user_id 不可為 NULL（事件本來就是綁當事人的存證），
+    # 帳號刪除時事件一併刪除；覆核者只清引用。
+    for incident in session.exec(
+        select(MiningIncident).where(MiningIncident.user_id == user.id)
+    ).all():
+        session.delete(incident)
+    for incident in session.exec(
+        select(MiningIncident).where(MiningIncident.reviewed_by == user.id)
+    ).all():
+        incident.reviewed_by = None
+        session.add(incident)
 
 
 def create_user(

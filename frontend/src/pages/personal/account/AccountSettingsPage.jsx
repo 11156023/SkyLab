@@ -288,6 +288,13 @@ function DangerZoneSection() {
   const [deleting, setDeleting] = useState(false);
   const confirmWord = t("DangerZoneTab.confirmWord");
 
+  /* 關閉一律清掉輸入：否則打完確認字再取消，下次開啟按鈕已是可按狀態 */
+  function closeConfirm() {
+    if (deleting) return;
+    setShowConfirm(false);
+    setConfirmText("");
+  }
+
   async function handleDelete() {
     setDeleting(true);
     try {
@@ -321,7 +328,7 @@ function DangerZoneSection() {
            變成只覆蓋卡片自己的範圍（CSS containing block 陷阱）。 */
         <div
           className={`${styles.modalOverlay} ${confirmDialog.closing ? styles.modalOverlayOut : ""}`}
-          onMouseDown={() => !deleting && setShowConfirm(false)}
+          onMouseDown={closeConfirm}
         >
           <div className={styles.confirm} onMouseDown={(e) => e.stopPropagation()}>
             <div className={styles.confirmIcon}>
@@ -342,7 +349,7 @@ function DangerZoneSection() {
               <button
                 type="button"
                 className={styles.btnSecondary}
-                onClick={() => setShowConfirm(false)}
+                onClick={closeConfirm}
                 disabled={deleting}
               >
                 {t("DangerZoneTab.cancel")}

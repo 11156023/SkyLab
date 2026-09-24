@@ -971,5 +971,8 @@
   "CourseTemplateEditorPage.filesUploaded": "已上傳 {{count}} 個文件",
   "CourseTemplateEditorPage.filesUploadPartialFail": "以下文件上傳失敗：{{files}}",
   "CourseTemplateEditorPage.fileUploadFailed": "上傳失敗",
-  "CourseTemplateEditorPage.fileDeleteFailed": "刪除文件失敗"
+  "CourseTemplateEditorPage.fileDeleteFailed": "刪除文件失敗",
+  "CourseTemplateEditorPage.fileDeleteConfirmTitle": "移除這份文件？",
+  "CourseTemplateEditorPage.fileDeleteConfirmMessage": "「{{name}}」會從這個課程環境移除，且無法復原。",
+  "CourseTemplateEditorPage.fileDeleteConfirmAction": "移除"
 }

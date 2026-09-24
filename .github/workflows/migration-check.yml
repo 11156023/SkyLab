@@ -1,6 +1,12 @@
 ﻿name: Migration sanity
 
 on:
+  push:
+    branches: [main]
+    paths:
+      - "backend/app/models/**"
+      - "backend/app/alembic/**"
+      - "backend/scripts/check-migrations.sh"
   pull_request:
     paths:
       - "backend/app/models/**"

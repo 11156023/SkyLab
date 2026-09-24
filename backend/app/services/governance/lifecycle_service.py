@@ -11,11 +11,11 @@ import logging
 from datetime import datetime, timedelta, timezone
 from typing import Any, Literal
 
-from sqlmodel import Session
+from sqlmodel import Session, col, select
 
 from app.core.db import engine
 from app.infrastructure.proxmox.rrd import timeframe_for_window
-from app.models import Resource
+from app.models import DeletionRequest, DeletionRequestStatus, Resource
 from app.repositories import governance as governance_repo
 from app.repositories import resource as resource_repo
 from app.services.governance.lifecycle_policy import (
@@ -36,15 +36,6 @@ IDLE_RESCAN_MINUTES = 30
 
 def _utc_now() -> datetime:
     return datetime.now(timezone.utc)
-
-
-def _pve_resource_map() -> dict[int, dict[str, Any]]:
-    """vmid → cluster/resources 條目（單次 PVE 呼叫）。"""
-    return {
-        int(r["vmid"]): r
-        for r in proxmox_service.list_all_resources()
-        if r.get("vmid") is not None
-    }
 
 
 def _owner_email(resource: Resource) -> str | None:
@@ -115,7 +106,7 @@ def _apply_ttl_delete(
     pve_info: dict[str, Any] | None,
 ) -> None:
     from app.services.resource import (
-        deletion_service,  # noqa: PLC0415 — 避免 import cycle
+        deletion_service,
     )
 
     if pve_info is None:
@@ -153,6 +144,23 @@ def _apply_ttl_delete(
     logger.warning("TTL grace elapsed: vmid=%s queued for deletion", resource.vmid)
 
 
+def _vmids_with_open_deletion(session: Session) -> set[int]:
+    """目前有 pending/running 刪除單的 vmid（單次查詢）。
+
+    刪除單失敗或被取消後，``scheduled_deletion_at`` 仍留著值，TTL 會誤以為
+    這台已經處理過而永遠不再動它；用這份清單區分「真的排在佇列裡」與
+    「排過但沒成功」。
+    """
+    rows = session.exec(
+        select(DeletionRequest.vmid).where(
+            col(DeletionRequest.status).in_(
+                [DeletionRequestStatus.pending, DeletionRequestStatus.running]
+            )
+        )
+    ).all()
+    return {int(vmid) for vmid in rows if vmid is not None}
+
+
 def process_ttl_lifecycle() -> int:
     """Scheduler tick：TTL 漸進回收（通知 → 關機 → 寬限期 → 刪除佇列）。"""
     try:
@@ -165,7 +173,8 @@ def process_ttl_lifecycle() -> int:
             resources = resource_repo.list_resources_with_expiry(session=session)
             if not resources:
                 return 0
-            pve_map = _pve_resource_map()
+            pve_map = proxmox_service.list_all_resources_by_vmid()
+            open_deletions = _vmids_with_open_deletion(session)
 
             for resource in resources:
                 pve_info = pve_map.get(resource.vmid)
@@ -181,6 +190,7 @@ def process_ttl_lifecycle() -> int:
                     now=now,
                     warn_days=config.expiry_warn_days,
                     grace_delete_days=config.expiry_grace_delete_days,
+                    deletion_pending=resource.vmid in open_deletions,
                 )
                 if action is TtlAction.none:
                     continue
@@ -315,7 +325,7 @@ def process_idle_detection() -> int:
             if not config.idle_detection_enabled:
                 return 0
 
-            pve_map = _pve_resource_map()
+            pve_map = proxmox_service.list_all_resources_by_vmid()
             running_vmids = [
                 vmid
                 for vmid, info in pve_map.items()

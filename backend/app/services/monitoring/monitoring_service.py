@@ -110,25 +110,32 @@ def _signal(
     )
 
 
+def _cpu_percent(raw: dict[str, Any], *, require_maxcpu: bool) -> float | None:
+    """PVE 的 cpu 欄位是 0–1 比率；節點另外要求 maxcpu 有值才算有效。"""
+    if raw.get("cpu") is None or (require_maxcpu and not (raw.get("maxcpu") or 0)):
+        return None
+    try:
+        return float(raw.get("cpu") or 0) * 100.0
+    except (TypeError, ValueError):
+        return None
+
+
+def _cpu_memory_signals(
+    raw: dict[str, Any], thresholds: MonitoringThresholds, cpu: float | None
+) -> list[MonitoringSignal]:
+    candidates = (
+        _signal("cpu", cpu, thresholds.cpu),
+        _signal("memory", _percent(raw.get("mem"), raw.get("maxmem")), thresholds.memory),
+    )
+    return [candidate for candidate in candidates if candidate is not None]
+
+
 def _node_signals(
     raw: dict[str, Any], thresholds: MonitoringThresholds
 ) -> list[MonitoringSignal]:
     if str(raw.get("status") or "unknown") != "online":
         return []
-    signals: list[MonitoringSignal] = []
-    cpu = None
-    if raw.get("cpu") is not None and (raw.get("maxcpu") or 0):
-        try:
-            cpu = float(raw.get("cpu") or 0) * 100.0
-        except (TypeError, ValueError):
-            cpu = None
-    for candidate in (
-        _signal("cpu", cpu, thresholds.cpu),
-        _signal("memory", _percent(raw.get("mem"), raw.get("maxmem")), thresholds.memory),
-    ):
-        if candidate is not None:
-            signals.append(candidate)
-    return signals
+    return _cpu_memory_signals(raw, thresholds, _cpu_percent(raw, require_maxcpu=True))
 
 
 def _guest_signals(
@@ -136,20 +143,7 @@ def _guest_signals(
 ) -> list[MonitoringSignal]:
     if str(raw.get("status") or "") != "running":
         return []
-    signals: list[MonitoringSignal] = []
-    cpu = None
-    if raw.get("cpu") is not None:
-        try:
-            cpu = float(raw.get("cpu") or 0) * 100.0
-        except (TypeError, ValueError):
-            cpu = None
-    for candidate in (
-        _signal("cpu", cpu, thresholds.cpu),
-        _signal("memory", _percent(raw.get("mem"), raw.get("maxmem")), thresholds.memory),
-    ):
-        if candidate is not None:
-            signals.append(candidate)
-    return signals
+    return _cpu_memory_signals(raw, thresholds, _cpu_percent(raw, require_maxcpu=False))
 
 
 def _issue_target(raw: dict[str, Any]) -> tuple[str, int | None]:

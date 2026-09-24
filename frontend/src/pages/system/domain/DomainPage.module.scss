@@ -318,8 +318,7 @@
 }
 
 /* 毛玻璃卡基準（樣式規範「Dialog / Modal」）；寬度取小型單欄表單級 640 */
-.modal,
-.confirm {
+.modal {
   animation: slideUp 0.18s cubic-bezier(0.25, 0.8, 0.25, 1);
   width: min(640px, 100%);
   max-height: 88vh;
@@ -357,21 +356,7 @@
   gap: $spacing-8;
 }
 
-.confirm {
-  max-width: 480px;
-
-  h2 { margin: 0; color: var(--color-text-primary); }
-  p  { margin: 0; color: var(--color-text-secondary); }
-}
-
-.confirmIcon {
-  width: 44px;
-  height: 44px;
-  border-radius: $radius-8;
-  background: color-mix(in srgb, var(--color-danger) 12%, transparent);
-  color: var(--color-danger);
-  @include flex-center;
-}
+/* 刪除 DNS 紀錄的確認框改用共用的 useConfirm，原本自建的 .confirm 樣式已不再需要 */
 
 /* 欄位一律走 _mixins.scss 的表單 mixin 組（樣式規範「表單」段）：
    標籤 14/500、控制項 36px，不在頁面內另立一套字級與內距 */

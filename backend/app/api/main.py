@@ -9,7 +9,6 @@ from app.api.routes import (
     course_admin,
     course_environments,
     courses,
-    deletion_requests,
     desktop_client,
     firewall,
     gateway,
@@ -32,6 +31,7 @@ from app.api.routes import (
     resources,
     reverse_proxy,
     rubric,
+    setup,
     spec_change_requests,
     teacher_judge_files,
     teacher_judge_scripts,
@@ -47,6 +47,7 @@ from app.core.config import settings
 
 api_router = APIRouter()
 api_router.include_router(login.router)
+api_router.include_router(setup.router)
 api_router.include_router(users.router)
 api_router.include_router(utils.router)
 api_router.include_router(resources.router)
@@ -55,7 +56,6 @@ api_router.include_router(resource_settings.router)
 api_router.include_router(vm.router)
 api_router.include_router(lxc.router)
 api_router.include_router(vm_requests.router)
-api_router.include_router(deletion_requests.router)
 api_router.include_router(monitoring.router)
 api_router.include_router(governance.router)
 api_router.include_router(quotas.router)

@@ -49,8 +49,53 @@ from app.core.security import decrypt_value
 from app.infrastructure.ssh import create_key_client
 from app.repositories import resource as resource_repo
 from app.services.proxmox import proxmox_service
+from app.services.user import audit_service
 
 logger = logging.getLogger(__name__)
+
+# 稽核只留指令開頭，長指令（heredoc、base64 blob）不該把整包塞進 audit_logs
+_AUDIT_COMMAND_CHARS = 200
+
+# ---------------------------------------------------------------------------
+# 稽核
+# ---------------------------------------------------------------------------
+
+
+def _log_ssh_audit(
+    *,
+    session: Session | None,
+    requester_id: uuid.UUID | None,
+    vmid: int,
+    ssh_user: str,
+    command: str,
+    blocked: bool,
+    confirmed: bool,
+    outcome: str,
+) -> None:
+    """把 AI 代打的 SSH 指令寫進稽核。
+
+    模型可以在別人的機器上跑指令，事後一定要查得到「誰、在哪台、跑了什麼、
+    有沒有經過人工確認」。HTTP 回呼路徑沒有 session（獨立子服務），只留 log。
+    稽核寫失敗不影響執行結果，但要留下痕跡。
+    """
+    if session is None:
+        return
+    details = (
+        f"vmid={vmid} ssh_user={ssh_user} confirmed={confirmed} "
+        f"outcome={outcome} command={command[:_AUDIT_COMMAND_CHARS]!r}"
+    )
+    try:
+        audit_service.log_action(
+            session=session,
+            user_id=requester_id,
+            vmid=vmid,
+            action="ai_ssh_exec_blocked" if blocked else "ai_ssh_exec",
+            details=details,
+        )
+    except Exception:
+        session.rollback()
+        logger.error("SSH 稽核寫入失敗 vmid=%s", vmid, exc_info=True)
+
 
 # ---------------------------------------------------------------------------
 # Pending token 暫存（內存，TTL 5 分鐘）
@@ -158,23 +203,6 @@ def find_completed_confirmation_by_tool_call(
         if entry.get("tool_call_id") == tool_call_id:
             return entry
     return None
-
-
-def peek_pending_scope(token: str) -> tuple[str | None, uuid.UUID | None]:
-    """Read token scope without consuming it."""
-    entry = _peek_pending(token)
-    if entry is None:
-        return None, None
-    return entry.get("scope_type"), entry.get("scope_id")
-
-
-def peek_pending_request(token: str) -> SSHExecRequest | None:
-    """Read a pending request so the caller can re-authorize its VMID."""
-    entry = _peek_pending(token)
-    if entry is None:
-        return None
-    request = entry.get("request")
-    return request if isinstance(request, SSHExecRequest) else None
 
 
 def _cleanup_expired() -> None:
@@ -544,6 +572,16 @@ async def ssh_exec(
     guard = check_command(req.command)
     if not guard.allowed:
         logger.warning("指令被黑名單攔截 vmid=%d cmd=%r reason=%s", req.vmid, req.command, guard.reason)
+        _log_ssh_audit(
+            session=session,
+            requester_id=requester_id,
+            vmid=req.vmid,
+            ssh_user=req.ssh_user,
+            command=req.command,
+            blocked=True,
+            confirmed=False,
+            outcome=f"guard:{guard.reason}",
+        )
         return SSHExecResult(
             vmid=req.vmid,
             host="",
@@ -554,6 +592,16 @@ async def ssh_exec(
         )
 
     if allowed_vmids is not None and req.vmid not in allowed_vmids:
+        _log_ssh_audit(
+            session=session,
+            requester_id=requester_id,
+            vmid=req.vmid,
+            ssh_user=req.ssh_user,
+            command=req.command,
+            blocked=True,
+            confirmed=False,
+            outcome="scope_restricted",
+        )
         return SSHExecResult(
             vmid=req.vmid,
             host="",
@@ -582,7 +630,13 @@ async def ssh_exec(
             confirm_token=token,
         )
 
-    return await _do_exec(req, session=session, allowed_vmids=allowed_vmids)
+    return await _do_exec(
+        req,
+        session=session,
+        allowed_vmids=allowed_vmids,
+        requester_id=requester_id,
+        confirmed=False,
+    )
 
 
 async def confirm_exec(
@@ -646,6 +700,16 @@ async def confirm_exec(
 
     if not confirm_req.approved:
         logger.info("使用者拒絕執行 vmid=%d cmd=%r", req.vmid, req.command)
+        _log_ssh_audit(
+            session=session,
+            requester_id=requester_id,
+            vmid=req.vmid,
+            ssh_user=req.ssh_user,
+            command=req.command,
+            blocked=True,
+            confirmed=False,
+            outcome="user_rejected",
+        )
         return _completed(SSHExecResult(
             vmid=req.vmid,
             host="",
@@ -664,6 +728,16 @@ async def confirm_exec(
                 override_command,
                 guard.reason,
             )
+            _log_ssh_audit(
+                session=session,
+                requester_id=requester_id,
+                vmid=req.vmid,
+                ssh_user=req.ssh_user,
+                command=override_command,
+                blocked=True,
+                confirmed=True,
+                outcome=f"guard:{guard.reason}",
+            )
             return _completed(SSHExecResult(
                 vmid=req.vmid,
                 host="",
@@ -674,7 +748,13 @@ async def confirm_exec(
             ))
         req = req.model_copy(update={"command": override_command})
 
-    result = await _do_exec(req, session=session, allowed_vmids=allowed_vmids)
+    result = await _do_exec(
+        req,
+        session=session,
+        allowed_vmids=allowed_vmids,
+        requester_id=requester_id,
+        confirmed=True,
+    )
     return _completed(result)
 
 
@@ -683,6 +763,8 @@ async def _do_exec(
     *,
     session: Session | None = None,
     allowed_vmids: set[int] | None = None,
+    requester_id: uuid.UUID | None = None,
+    confirmed: bool = False,
 ) -> SSHExecResult:
     """實際執行 SSH 指令（通過安全檢查後）。
 
@@ -692,8 +774,21 @@ async def _do_exec(
     timeout = settings.ssh_timeout
     host = ""
 
+    def _audit(*, blocked: bool, outcome: str) -> None:
+        _log_ssh_audit(
+            session=session,
+            requester_id=requester_id,
+            vmid=req.vmid,
+            ssh_user=req.ssh_user,
+            command=req.command,
+            blocked=blocked,
+            confirmed=confirmed,
+            outcome=outcome,
+        )
+
     try:
         if allowed_vmids is not None and req.vmid not in allowed_vmids:
+            _audit(blocked=True, outcome="scope_restricted")
             return SSHExecResult(
                 vmid=req.vmid,
                 host="",
@@ -722,6 +817,8 @@ async def _do_exec(
             timeout,
         )
 
+        _audit(blocked=False, outcome=f"host={host} exit_code={exit_code}")
+
         stdout, stdout_truncated = _redact_and_truncate(stdout)
         stderr, stderr_truncated = _redact_and_truncate(stderr)
         return SSHExecResult(
@@ -738,6 +835,7 @@ async def _do_exec(
 
     except Exception as exc:
         logger.error("SSH 執行失敗 vmid=%d host=%s: %s", req.vmid, host, exc)
+        _audit(blocked=False, outcome=f"host={host} error")
         return SSHExecResult(
             vmid=req.vmid,
             host=host,

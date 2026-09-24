@@ -5,7 +5,7 @@ import io
 import logging
 import math
 import uuid
-from datetime import UTC, date, datetime, time, timedelta
+from datetime import date, datetime, time, timedelta
 from pathlib import Path
 
 from fastapi import APIRouter, File, UploadFile
@@ -18,9 +18,7 @@ from app.core.i18n import t
 from app.exceptions import BadRequestError, NotFoundError
 from app.models import (
     BatchProvisionJob,
-    BatchProvisionJobStatus,
     BatchProvisionTask,
-    BatchProvisionTaskStatus,
     ClassCapacityReservation,
     CourseEnvironment,
     CourseEnvironmentEdge,
@@ -28,7 +26,6 @@ from app.models import (
     CourseEnvironmentPublication,
     CourseEnvironmentVersion,
     CourseEnvironmentVersionStatus,
-    Resource,
     TeachingClass,
     TeachingClassMachineNode,
     TeachingClassStatus,
@@ -45,21 +42,20 @@ from app.repositories import resource as resource_repo
 from app.repositories.user import get_user_by_email
 from app.services.course import course_service
 from app.services.proxmox import provisioning_service, proxmox_service
-from app.services.resource import resource_service
 from app.services.teaching import (
     class_capacity_service,
     class_lifecycle_service,
-    class_network_service,
+    class_provision_service,
     class_status_service,
 )
-from app.services.vm import batch_provision_service
 
 router = APIRouter(prefix="/teaching-classes", tags=["teaching-classes"])
 logger = logging.getLogger(__name__)
 
-DAY_CODE = ["MO", "TU", "WE", "TH", "FR", "SA", "SU"]
 TASK_FILE_ROOT = Path(__file__).resolve().parents[3] / "data" / "teaching-class-tasks"
 MAX_TASK_FILE_BYTES = 100 * 1024 * 1024
+# 課程期間最多兩年份的課次
+MAX_CLASS_WEEKS = 104
 PUBLIC_PROVISION_ERROR = (
     "Machine provisioning failed. Retry or contact an administrator."
 )
@@ -128,9 +124,15 @@ class CourseSelect(BaseModel):
 
 
 class WeekFileIn(BaseModel):
-    filename: str
-    storage_key: str | None = None
-    target_path: str | None = None
+    """週次教材只以既有檔案的 id 指定。
+
+    storage_key 是上傳時由伺服器產生的磁碟位置，不能讓 client 指定：
+    收下客戶端送來的值，等於任何老師都可以把別的班級的檔案（或任何
+    猜得到的儲存路徑）掛進自己的週次，再用學生端的下載端點取回。
+    """
+
+    id: uuid.UUID
+    target_path: str | None = Field(default=None, max_length=500)
 
 
 class WeekIn(BaseModel):
@@ -510,6 +512,19 @@ def _serialize_list(session: SessionDep, items: list[TeachingClass]) -> list[dic
 def _validate_schedule(item) -> None:
     if item.end_date < item.start_date or item.end_time <= item.start_time:
         raise BadRequestError(t("teachingClasses.scheduleInvalid"))
+    _validate_schedule_span(item.start_date, item.end_date)
+
+
+def _validate_schedule_span(start_date: date, end_date: date) -> None:
+    """課程期間上限兩年。
+
+    每一週都會寫一列 teaching_class_weeks，日期範圍沒有上限的話，
+    一個手滑打錯的年份就能讓單一班級生出幾萬列課次。
+    """
+    if (end_date - start_date).days > MAX_CLASS_WEEKS * 7:
+        raise BadRequestError(
+            t("teachingClasses.scheduleTooLong", weeks=MAX_CLASS_WEEKS)
+        )
 
 
 @router.post("")
@@ -609,6 +624,7 @@ def extend_class(
         raise BadRequestError(t("teachingClasses.archivedCannotExtend"))
     if body.end_date <= item.end_date:
         raise BadRequestError(t("teachingClasses.extendDateMustBeLater"))
+    _validate_schedule_span(item.start_date, body.end_date)
     item.end_date = body.end_date
     item.updated_at = get_datetime_utc()
     item.resources_reclaimed_at = None
@@ -744,15 +760,8 @@ async def import_students(
     return add_students(class_id, StudentAdd(emails=emails), session, current_user)
 
 
-def _first_session_date(item: TeachingClass) -> date:
-    """課程期間內第一個落在「每週上課日」的日期。
-
-    ``start_date`` 只是課程期間的起點，它的星期未必等於 ``weekday``（例如學期
-    從週一開始、但每週三上課），所以課次與排程都必須從這裡推算。
-    """
-    return item.start_date + timedelta(
-        days=(item.weekday - item.start_date.weekday()) % 7
-    )
+# 課次推算與排程 RRULE 共用同一個「第一次上課日」
+_first_session_date = class_provision_service.first_session_date
 
 
 def _generate_weeks(session, item: TeachingClass, preserve=False):
@@ -762,6 +771,7 @@ def _generate_weeks(session, item: TeachingClass, preserve=False):
     整批位移，用日期比對會一筆都對不上，等於把老師填好的主題與上傳的教材全部
     刪掉。改用 week_number 之後，第 N 週的內容仍然留在第 N 週，只是日期跟著搬。
     """
+    _validate_schedule_span(item.start_date, item.end_date)
     existing = (
         {
             row.week_number: row
@@ -778,7 +788,7 @@ def _generate_weeks(session, item: TeachingClass, preserve=False):
         )
     current = _first_session_date(item)
     number, keep = 1, set()
-    while current <= item.end_date:
+    while current <= item.end_date and number <= MAX_CLASS_WEEKS:
         keep.add(number)
         row = existing.get(number)
         if row:
@@ -889,29 +899,77 @@ def replace_weeks(
     session: SessionDep,
     current_user: InstructorUser,
 ):
+    """逐週差異更新。
+
+    以前是整批刪掉再重建：週次的 id 每存一次就換一組（掛在週次上的檢查
+    session 會跟著斷），檔案列也跟著重建，磁碟上的舊檔沒人清。現在改成
+    就地更新，被移出清單的檔案走和單檔刪除同一段清檔邏輯。
+    """
     item = _get_class(session, current_user, class_id)
     if item.status == TeachingClassStatus.archived:
         raise BadRequestError(t("teachingClasses.archivedCannotEditWeeklyContent"))
-    expected = {
-        row.session_date
-        for row in session.exec(
+    weeks = list(
+        session.exec(
             select(TeachingClassWeek).where(TeachingClassWeek.class_id == class_id)
         ).all()
-    }
-    received = {row.session_date for row in body}
-    if expected != received:
-        raise BadRequestError(t("teachingClasses.weekDatesMustMatchSchedule"))
-    session.exec(
-        delete(TeachingClassWeek).where(TeachingClassWeek.class_id == class_id)
     )
-    session.commit()
+    if {row.session_date for row in weeks} != {row.session_date for row in body}:
+        raise BadRequestError(t("teachingClasses.weekDatesMustMatchSchedule"))
+
+    weeks_by_number = {row.week_number: row for row in weeks}
+    weeks_by_date = {row.session_date: row for row in weeks}
+    # 班級底下所有的教材檔：送進來的 id 必須落在這個範圍內，
+    # 才不會把別的班級的檔案接管過來
+    files_by_id: dict[uuid.UUID, TeachingClassTaskFile] = {}
+    if weeks:
+        files_by_id = {
+            row.id: row
+            for row in session.exec(
+                select(TeachingClassTaskFile).where(
+                    col(TeachingClassTaskFile.week_id).in_(
+                        [week.id for week in weeks]
+                    )
+                )
+            ).all()
+        }
+
+    kept_week_ids: set[uuid.UUID] = set()
+    kept_file_ids: set[uuid.UUID] = set()
     for row in body:
-        week = TeachingClassWeek(class_id=class_id, **row.model_dump(exclude={"files"}))
+        week = weeks_by_number.get(row.week_number) or weeks_by_date.get(
+            row.session_date
+        )
+        if week is None:
+            week = TeachingClassWeek(class_id=class_id, week_number=row.week_number)
+            session.add(week)
+        for key, value in row.model_dump(exclude={"files"}).items():
+            setattr(week, key, value)
         session.add(week)
         session.flush()
+        kept_week_ids.add(week.id)
         for file in row.files:
-            session.add(TeachingClassTaskFile(week_id=week.id, **file.model_dump()))
+            task_file = files_by_id.get(file.id)
+            if task_file is None:
+                raise NotFoundError(t("teachingClasses.taskFileNotFound"))
+            task_file.week_id = week.id
+            task_file.target_path = file.target_path
+            session.add(task_file)
+            kept_file_ids.add(task_file.id)
+
+    removed_storage_keys = [
+        row.storage_key
+        for row in files_by_id.values()
+        if row.id not in kept_file_ids
+    ]
+    for row in files_by_id.values():
+        if row.id not in kept_file_ids:
+            session.delete(row)
+    for week in weeks:
+        if week.id not in kept_week_ids:
+            session.delete(week)
     session.commit()
+    for storage_key in removed_storage_keys:
+        _remove_task_file_blob(storage_key)
     return _serialize(session, item)
 
 
@@ -966,6 +1024,16 @@ async def upload_week_file(
     return _serialize(session, item)
 
 
+def _remove_task_file_blob(storage_key: str | None) -> None:
+    """刪掉磁碟上的教材檔；storage_key 一律當成 TASK_FILE_ROOT 底下的相對路徑。"""
+    if not storage_key:
+        return
+    root = TASK_FILE_ROOT.resolve()
+    stored_path = (root / storage_key).resolve()
+    if stored_path.is_relative_to(root):
+        stored_path.unlink(missing_ok=True)
+
+
 @router.delete("/{class_id}/weeks/{week_id}/files/{file_id}")
 def delete_week_file(
     class_id: uuid.UUID,
@@ -990,90 +1058,8 @@ def delete_week_file(
     storage_key = task_file.storage_key
     session.delete(task_file)
     session.commit()
-    if storage_key:
-        root = TASK_FILE_ROOT.resolve()
-        stored_path = (root / storage_key).resolve()
-        if stored_path.is_relative_to(root):
-            stored_path.unlink(missing_ok=True)
+    _remove_task_file_blob(storage_key)
     return _serialize(session, item)
-
-
-def _recurrence(item: TeachingClass):
-    first_session = _first_session_date(item)
-    start = datetime.combine(first_session, item.start_time) - timedelta(
-        minutes=item.boot_lead_minutes
-    )
-    duration = (
-        int(
-            (
-                datetime.combine(first_session, item.end_time)
-                - datetime.combine(first_session, item.start_time)
-            ).total_seconds()
-            / 60
-        )
-        + item.boot_lead_minutes
-        + int(getattr(item, "shutdown_grace_minutes", 0) or 0)
-    )
-    return (
-        f"FREQ=WEEKLY;BYDAY={DAY_CODE[start.weekday()]};BYHOUR={start.hour};BYMINUTE={start.minute}",
-        duration,
-    )
-
-
-def _node_source_params(node: TeachingClassMachineNode) -> dict:
-    if node.source_type == "template" and node.source_template_id:
-        return {"vm_template_id": str(node.source_template_id)}
-    if node.resource_type.lower() == "lxc":
-        return {
-            "ostemplate": node.custom_image_ref,
-            "storage": "local-lvm",
-            "unprivileged": node.custom_unprivileged,
-        }
-    return {
-        "template_id": int(node.custom_image_ref or "0"),
-        "storage": "local-lvm",
-        "username": node.custom_username or "student",
-    }
-
-
-def _submit_node_job(
-    session: SessionDep,
-    *,
-    item: TeachingClass,
-    node: TeachingClassMachineNode,
-    member_user_ids: list[uuid.UUID],
-    retry: bool = False,
-) -> uuid.UUID:
-    rule, duration = _recurrence(item)
-    retry_suffix = f"-r{uuid.uuid4().hex[:8]}" if retry else ""
-    return batch_provision_service.submit_batch_job_for_users(
-        session=session,
-        member_user_ids=member_user_ids,
-        teaching_class_id=item.id,
-        initiated_by_id=item.owner_id,
-        resource_type="lxc" if node.resource_type.lower() == "lxc" else "qemu",
-        hostname_prefix=(
-            f"{item.code.lower().replace('_', '-')[:35]}-"
-            f"{node.sort_order + 1}{retry_suffix}"
-        ),
-        params={
-            **_node_source_params(node),
-            "cores": node.cpu,
-            "memory": node.memory_mb,
-            "disk_size": node.disk_gb,
-            "rootfs_size": node.disk_gb,
-            "environment_type": f"{item.name}-{node.role}",
-            # 老師取的機器名：和快速練習走同一個欄位，學生在清單上才會看到
-            # 「n8n」而不是 cls-973465c8-1-1 這種產生出來的主機名
-            "os_info": node.name,
-            "expiry_date": item.end_date.isoformat(),
-            "ip_reservation_prefix": f"{item.id}:{node.node_key}",
-        },
-        recurrence_rule=rule,
-        recurrence_duration_minutes=duration,
-        schedule_timezone=item.timezone,
-        capacity_reserved=True,
-    )
 
 
 @router.get("/{class_id}/capacity-preview")
@@ -1133,7 +1119,7 @@ def provision_class(
     for node in nodes:
         if node.batch_job_id:
             continue
-        node.batch_job_id = _submit_node_job(
+        node.batch_job_id = class_provision_service.submit_node_job(
             session=session,
             item=item,
             node=node,
@@ -1155,232 +1141,8 @@ def retry_failed_class(
     current_user: InstructorUser,
 ):
     item = _get_class(session, current_user, class_id)
-    if item.status not in {
-        TeachingClassStatus.partial_failed,
-        TeachingClassStatus.provisioning,
-    }:
-        raise BadRequestError(t("teachingClasses.onlyFailedCanRetry"))
-    nodes = list(
-        session.exec(
-            select(TeachingClassMachineNode)
-            .where(TeachingClassMachineNode.class_id == class_id)
-            .order_by(TeachingClassMachineNode.sort_order)
-        ).all()
-    )
-    submitted = 0
-    recovered = 0
-    stale_before = get_datetime_utc() - timedelta(minutes=30)
-    for node in nodes:
-        job = session.get(BatchProvisionJob, node.batch_job_id) if node.batch_job_id else None
-        if not job:
-            continue
-        tasks = list(
-            session.exec(
-                select(BatchProvisionTask).where(BatchProvisionTask.job_id == job.id)
-            ).all()
-        )
-        retry_user_ids = []
-        for task in tasks:
-            started_at = task.started_at
-            if started_at and started_at.tzinfo is None:
-                started_at = started_at.replace(tzinfo=UTC)
-            stale = (
-                task.status == BatchProvisionTaskStatus.running
-                and started_at is not None
-                and started_at <= stale_before
-            )
-            terminal_job = job.status in {
-                BatchProvisionJobStatus.failed,
-                BatchProvisionJobStatus.rejected,
-                BatchProvisionJobStatus.cancelled,
-            }
-            retryable = (
-                task.status == BatchProvisionTaskStatus.failed
-                or stale
-                or (
-                    terminal_job
-                    and task.status != BatchProvisionTaskStatus.completed
-                )
-            )
-            if not retryable:
-                continue
-            if _recover_existing_task_resource(
-                session=session,
-                item=item,
-                node=node,
-                task=task,
-            ):
-                recovered += 1
-                continue
-            if stale or (
-                terminal_job
-                and task.status != BatchProvisionTaskStatus.failed
-            ):
-                task.status = BatchProvisionTaskStatus.failed
-                task.error = (
-                    "Stale provisioning task superseded by class retry"
-                    if stale
-                    else "Incomplete task superseded by class retry"
-                )
-                task.finished_at = get_datetime_utc()
-                session.add(task)
-            retry_user_ids.append(task.user_id)
-        job.done = sum(
-            task.status == BatchProvisionTaskStatus.completed for task in tasks
-        )
-        job.failed_count = sum(
-            task.status == BatchProvisionTaskStatus.failed for task in tasks
-        )
-        if job.done == job.total and job.failed_count == 0:
-            job.status = BatchProvisionJobStatus.completed
-            job.finished_at = get_datetime_utc()
-        session.add(job)
-        session.commit()
-        if not retry_user_ids:
-            continue
-        if job.status == BatchProvisionJobStatus.running:
-            job.status = BatchProvisionJobStatus.failed
-            job.finished_at = get_datetime_utc()
-            session.add(job)
-            session.commit()
-        node.batch_job_id = _submit_node_job(
-            session=session,
-            item=item,
-            node=node,
-            member_user_ids=retry_user_ids,
-            retry=True,
-        )
-        session.add(node)
-        session.commit()
-        submitted += 1
-
-    current_jobs = [
-        session.get(BatchProvisionJob, node.batch_job_id)
-        for node in nodes
-        if node.batch_job_id
-    ]
-    all_jobs_ready = (
-        len(current_jobs) == len(nodes)
-        and bool(nodes)
-        and all(
-            job is not None
-            and job.status == BatchProvisionJobStatus.completed
-            and job.done == job.total
-            and job.failed_count == 0
-            for job in current_jobs
-        )
-    )
-    if submitted:
-        item.status = TeachingClassStatus.pending_review
-    elif item.status == TeachingClassStatus.provisioning and not recovered:
-        raise BadRequestError(t("teachingClasses.noFailedOrStaleTasksToRetry"))
-    elif not all_jobs_ready:
-        item.status = TeachingClassStatus.provisioning
-    else:
-        topology_errors = class_network_service.apply_class_topology(
-            session, class_id=class_id
-        )
-        if topology_errors:
-            raise BadRequestError(
-                t(
-                    "teachingClasses.topologyRetryFailed",
-                    details="；".join(topology_errors),
-                )
-            )
-        item.status = TeachingClassStatus.active
-        course_service.ensure_class_path(
-            session,
-            teaching_class=item,
-            published=True,
-        )
-        reservation = session.exec(
-            select(ClassCapacityReservation).where(
-                ClassCapacityReservation.class_id == class_id
-            )
-        ).first()
-        if reservation:
-            reservation.status = "consumed"
-            session.add(reservation)
-    item.updated_at = get_datetime_utc()
-    session.add(item)
-    session.commit()
+    class_provision_service.retry_failed_class(session, item=item)
     return _serialize(session, item)
-
-
-def _recover_existing_task_resource(
-    *,
-    session: SessionDep,
-    item: TeachingClass,
-    node: TeachingClassMachineNode,
-    task: BatchProvisionTask,
-) -> bool:
-    """Recover a VM created before a worker crash instead of cloning twice."""
-    resource = session.exec(
-        select(Resource).where(
-            Resource.batch_job_id == task.job_id,
-            Resource.user_id == task.user_id,
-        )
-    ).first()
-    if resource is None:
-        return False
-    try:
-        proxmox_service.find_resource(resource.vmid)
-    except NotFoundError:
-        resource_service.delete_orphan_db_record(
-            session=session,
-            vmid=resource.vmid,
-            user_id=item.owner_id,
-        )
-        session.commit()
-        return False
-    except Exception:
-        logger.exception(
-            "Failed to verify existing class resource class_id=%s vmid=%s",
-            item.id,
-            resource.vmid,
-        )
-        raise BadRequestError(
-            t("teachingClasses.cannotVerifyResourceRetryLater")
-        ) from None
-
-    resource_repo.assign_to_teaching_class(
-        session=session,
-        vmid=resource.vmid,
-        teaching_class_id=item.id,
-        commit=False,
-    )
-    enrollment = session.exec(
-        select(TeachingClassStudent).where(
-            TeachingClassStudent.class_id == item.id,
-            TeachingClassStudent.user_id == task.user_id,
-        )
-    ).first()
-    if enrollment is None:
-        raise BadRequestError(t("teachingClasses.provisionedUserNoLongerInClass"))
-    mapping = session.exec(
-        select(TeachingClassStudentMachine).where(
-            TeachingClassStudentMachine.class_student_id == enrollment.id,
-            TeachingClassStudentMachine.machine_node_id == node.id,
-        )
-    ).first()
-    if mapping is None:
-        mapping = TeachingClassStudentMachine(
-            class_student_id=enrollment.id,
-            machine_node_id=node.id,
-        )
-    mapping.batch_task_id = task.id
-    mapping.vmid = resource.vmid
-    mapping.status = "completed"
-    mapping.error = None
-    task.status = BatchProvisionTaskStatus.completed
-    task.vmid = resource.vmid
-    task.resource_vmid = resource.vmid
-    task.error = None
-    task.finished_at = get_datetime_utc()
-    session.add(mapping)
-    session.add(task)
-    session.flush()
-    return True
 
 
 @router.post("/{class_id}/reset-failed")
@@ -1429,6 +1191,24 @@ def reset_failed_class(
 def provision_status(
     class_id: uuid.UUID, session: SessionDep, current_user: InstructorUser
 ):
+    """純讀取的建機進度。
+
+    這支以前會順手把建機結果寫回班級、重算狀態、並在全部完成時套用
+    網路拓樸——而前端每三秒打一次。一個 GET 送出幾百次 PVE 呼叫，
+    而且任何人重整頁面都會觸發。改寫的部分搬到 ``/reconcile``。
+    """
+    return _serialize(session, _get_class(session, current_user, class_id))
+
+
+@router.post("/{class_id}/reconcile")
+def reconcile_class(
+    class_id: uuid.UUID, session: SessionDep, current_user: InstructorUser
+):
+    """把建機工作的結果寫回班級：學生機器對應、班級狀態、必要時套用拓樸。
+
+    建機 worker 每完成一個節點也會重算一次狀態；這支是給老師開著班級頁
+    時補齊「哪位學生拿到哪台機器」用的，前端不需要每次輪詢都呼叫。
+    """
     item = _get_class(session, current_user, class_id)
     if item.status == TeachingClassStatus.archived:
         return _serialize(session, item)

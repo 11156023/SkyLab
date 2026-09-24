@@ -90,9 +90,10 @@ async def create_classroom_session(
 @router.delete("/sessions/{session_id}", response_model=Message)
 async def stop_classroom_session(
     session_id: str,
+    session: SessionDep,
     current_user: CurrentUser,
 ) -> Message:
-    await classroom_service.stop_session(current_user, session_id)
+    await classroom_service.stop_session(session, current_user, session_id)
     return Message(message="Classroom session stopped")
 
 

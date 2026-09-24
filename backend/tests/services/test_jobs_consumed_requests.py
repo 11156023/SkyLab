@@ -10,13 +10,13 @@ from __future__ import annotations
 import uuid
 from datetime import datetime, timedelta, timezone
 
-from app.models import VMProvisioningStatus, VMRequest, VMRequestStatus
-from app.schemas.jobs import JobStatus
-from app.services.jobs import jobs_service
-from app.services.resource.resource_service import (
+from app.domain.resource_markers import (
     RESOURCE_CONVERTED_TO_TEMPLATE_MARKER,
     RESOURCE_DELETED_BY_USER_MARKER,
 )
+from app.models import VMProvisioningStatus, VMRequest, VMRequestStatus
+from app.schemas.jobs import JobStatus
+from app.services.jobs import jobs_service
 
 
 def make_request(**overrides: object) -> VMRequest:

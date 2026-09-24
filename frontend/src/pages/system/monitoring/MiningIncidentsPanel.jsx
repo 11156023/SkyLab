@@ -6,6 +6,7 @@ import LoadingState from "../../../components/LoadingState/LoadingState";
 import EmptyState from "../../../components/EmptyState/EmptyState";
 import { MiningIncidentsService } from "../../../services/miningIncidents";
 import { useToast } from "../../../hooks/useToast";
+import { useConfirm } from "../../../components/ConfirmDialog/ConfirmProvider";
 import useDialogPresence from "../../../hooks/useDialogPresence";
 import { formatDateTime } from "../../../utils/formatDate";
 
@@ -17,6 +18,7 @@ function statusBadgeClass(status) {
 export default function MiningIncidentsPanel({ onCountChange }) {
   const { t } = useTranslation("system");
   const toast = useToast();
+  const confirm = useConfirm();
   const STATUS_LABELS = {
     detected: t("MiningIncidentsPanel.statusDetected"),
     suspended: t("MiningIncidentsPanel.statusSuspended"),
@@ -24,12 +26,10 @@ export default function MiningIncidentsPanel({ onCountChange }) {
     dismissed: t("MiningIncidentsPanel.statusDismissed"),
   };
   const [incidents, setIncidents] = useState(null);
-  const [banTarget, setBanTarget] = useState(null);
   const [dismissTarget, setDismissTarget] = useState(null);
   const [dismissExempt, setDismissExempt] = useState(false);
   const [dismissNote, setDismissNote] = useState("");
   const [busy, setBusy] = useState(false);
-  const banDialog     = useDialogPresence(banTarget);
   const dismissDialog = useDialogPresence(dismissTarget);
 
   const load = useCallback(async () => {
@@ -58,12 +58,21 @@ export default function MiningIncidentsPanel({ onCountChange }) {
     if (incidents !== null) onCountChange?.(open.length);
   }, [incidents, open.length, onCountChange]);
 
-  const handleBan = async () => {
+  /* 停權不需要填理由，直接用共用確認框；送出期間 busy 擋住重複點擊 */
+  const handleBan = async (incident) => {
+    if (busy) return;
+    const ok = await confirm({
+      title: t("MiningIncidentsPanel.banConfirmTitle"),
+      message: t("MiningIncidentsPanel.banConfirmMessage", { vmid: incident.vmid }),
+      confirmText: t("MiningIncidentsPanel.confirmBan"),
+      cancelText: t("MiningIncidentsPanel.cancel"),
+      danger: true,
+    });
+    if (!ok) return;
     setBusy(true);
     try {
-      await MiningIncidentsService.ban(banTarget.id);
+      await MiningIncidentsService.ban(incident.id);
       toast.success(t("MiningIncidentsPanel.toastBanSuccess"));
-      setBanTarget(null);
       await load();
     } catch (e) {
       toast.error(t("MiningIncidentsPanel.toastBanFailed", { message: e?.message ?? t("MiningIncidentsPanel.unknownError") }));
@@ -154,7 +163,8 @@ export default function MiningIncidentsPanel({ onCountChange }) {
                       <button
                         type="button"
                         className={styles.btnDangerOutline}
-                        onClick={() => setBanTarget(incident)}
+                        disabled={busy}
+                        onClick={() => handleBan(incident)}
                       >
                         <MIcon name="block" size={14} />
                         {t("MiningIncidentsPanel.ban")}
@@ -162,6 +172,7 @@ export default function MiningIncidentsPanel({ onCountChange }) {
                       <button
                         type="button"
                         className={styles.btnSecondary}
+                        disabled={busy}
                         onClick={() => setDismissTarget(incident)}
                       >
                         <MIcon name="undo" size={14} />
@@ -176,43 +187,11 @@ export default function MiningIncidentsPanel({ onCountChange }) {
         </table>
       )}
 
-      {/* 停權確認 */}
-      {banDialog.open && (
-        <div
-          className={`${styles.modalOverlay} ${banDialog.closing ? styles.modalOverlayOut : ""}`}
-          onClick={() => setBanTarget(null)}
-        >
-          <div className={styles.modal} onClick={(e) => e.stopPropagation()}>
-            <span className={styles.modalTitle}>{t("MiningIncidentsPanel.banConfirmTitle")}</span>
-            <p className={styles.modalDesc}>
-              {t("MiningIncidentsPanel.banConfirmMessage", { vmid: banDialog.item.vmid })}
-            </p>
-            <div className={styles.modalActions}>
-              <button
-                type="button"
-                className={styles.btnSecondary}
-                onClick={() => setBanTarget(null)}
-              >
-                {t("MiningIncidentsPanel.cancel")}
-              </button>
-              <button
-                type="button"
-                className={styles.btnDanger}
-                disabled={busy}
-                onClick={handleBan}
-              >
-                {busy ? t("MiningIncidentsPanel.processing") : t("MiningIncidentsPanel.confirmBan")}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* 誤判解除 */}
+      {/* 誤判解除：要勾選豁免與填備註，維持自建對話框；送出中不可關閉 */}
       {dismissDialog.open && (
         <div
           className={`${styles.modalOverlay} ${dismissDialog.closing ? styles.modalOverlayOut : ""}`}
-          onClick={closeDismiss}
+          onClick={() => { if (!busy) closeDismiss(); }}
         >
           <div className={styles.modal} onClick={(e) => e.stopPropagation()}>
             <span className={styles.modalTitle}>{t("MiningIncidentsPanel.dismissTitle")}</span>
@@ -238,7 +217,7 @@ export default function MiningIncidentsPanel({ onCountChange }) {
               />
             </div>
             <div className={styles.modalActions}>
-              <button type="button" className={styles.btnSecondary} onClick={closeDismiss}>
+              <button type="button" className={styles.btnSecondary} disabled={busy} onClick={closeDismiss}>
                 {t("MiningIncidentsPanel.cancel")}
               </button>
               <button

@@ -9,10 +9,13 @@ from app.api.routes.course_environments import (
     EnvironmentEdgeIn,
     EnvironmentNodeIn,
 )
-from app.api.routes.teaching_classes import _generate_weeks, _recurrence
+from app.api.routes.teaching_classes import _generate_weeks
 from app.exceptions import BadRequestError
 from app.models import BatchProvisionJobStatus, TeachingClassWeek
 from app.services.teaching import class_capacity_service, class_network_service
+from app.services.teaching.class_provision_service import (
+    recurrence_rule as _recurrence,
+)
 from app.services.vm import batch_provision_service
 
 
@@ -92,13 +95,12 @@ class _FakeWeekSession:
 
 def _class_with_weeks(*, weekday, end_date):
     class_id = uuid.uuid4()
-    item = SimpleNamespace(
+    return SimpleNamespace(
         id=class_id,
         start_date=date(2026, 9, 7),  # 週一開學
         end_date=end_date,
         weekday=weekday,
     )
-    return item
 
 
 def test_changing_the_class_weekday_keeps_every_week_topic():
@@ -177,6 +179,17 @@ def test_shortening_the_course_drops_only_the_trailing_weeks():
         (1, "Linux 權限"),
         (2, "SSH 金鑰"),
     ]
+
+
+def test_a_course_longer_than_two_years_is_rejected():
+    """打錯年份不該讓單一班級生出幾萬列課次。"""
+    item = _class_with_weeks(weekday=2, end_date=date(2036, 9, 23))
+    session = _FakeWeekSession([])
+
+    with pytest.raises(BadRequestError):
+        _generate_weeks(session, item)
+
+    assert session.weeks == []
 
 
 def test_submit_batch_for_class_students_uses_formal_class(monkeypatch):
@@ -383,14 +396,14 @@ def test_class_jobs_are_approved_as_one_decision(monkeypatch):
         lambda **_kwargs: jobs,
     )
 
-    class FakeThread:
-        def __init__(self, *, args, **_kwargs):
-            self.job_id = args[0]
+    def fake_enqueue(**kwargs):
+        # 核准後改交給 arq worker；每個 job 各一筆入列
+        assert kwargs["task_type"] == batch_provision_service.TASK_RUN_BATCH_JOB
+        started.append(uuid.UUID(kwargs["payload"]["job_id"]))
+        return SimpleNamespace(id=uuid.uuid4())
 
-        def start(self):
-            started.append(self.job_id)
+    monkeypatch.setattr(batch_provision_service, "enqueue_task_sync", fake_enqueue)
 
-    monkeypatch.setattr(batch_provision_service.threading, "Thread", FakeThread)
 
     reviewed = batch_provision_service.review_batch_jobs(
         session=object(),
@@ -420,56 +433,10 @@ def test_peer_policy_only_honours_an_explicit_segment_choice():
 
 
 def test_network_labels_accept_ui_slash_or_comma_notation():
-    assert class_network_service._segments("lab-net / backend-net, management") == {
+    assert class_network_service.network_segments("lab-net / backend-net, management") == {
         "lab-net",
         "backend-net",
         "management",
-    }
-
-
-def test_course_connection_creates_matching_source_out_and_target_in(monkeypatch):
-    rules = []
-    monkeypatch.setattr(
-        class_network_service,
-        "_ip_by_vmid",
-        lambda _session, vmid: {101: "10.0.0.11", 102: "10.0.0.12"}[vmid],
-    )
-    monkeypatch.setattr(
-        class_network_service.proxmox_service,
-        "find_resource",
-        lambda vmid: {"node": "pve1", "type": "qemu", "vmid": vmid},
-    )
-    monkeypatch.setattr(
-        class_network_service,
-        "_ensure_rule",
-        lambda **kwargs: rules.append(kwargs),
-    )
-
-    class_network_service._allow_one_way(
-        object(),
-        class_id=uuid.uuid4(),
-        source_vmid=101,
-        target_vmid=102,
-        protocol="tcp",
-        port=443,
-    )
-
-    assert rules[0]["vmid"] == 101
-    assert rules[0]["rule"] == {
-        "type": "out",
-        "action": "ACCEPT",
-        "pos": 0,
-        "dest": "10.0.0.12",
-        "proto": "tcp",
-        "dport": "443",
-    }
-    assert rules[1]["vmid"] == 102
-    assert rules[1]["rule"] == {
-        "type": "in",
-        "action": "ACCEPT",
-        "source": "10.0.0.11",
-        "proto": "tcp",
-        "dport": "443",
     }
 
 

@@ -40,12 +40,16 @@ def _stubbed_side_effects(monkeypatch: pytest.MonkeyPatch) -> None:
     )
     # 配額執法會在持有 DB 連線時呼叫 PVE cluster/resources —— 壓測下
     # 50 併發 × HTTP 往返會耗盡連線池，且量測的是 PVE 而非本 API。
+    # 另外配額也會把同一使用者尚未佈建的申請單算進去（2026-09-22 稽核），
+    # 同一帳號連送 200 張單必然超限；本測試量的是提交吞吐，整個停用配額。
     monkeypatch.setattr(
         quota_service.proxmox_service, "list_all_resources", lambda: []
     )
+    monkeypatch.setattr(quota_service, "check_quota", lambda *a, **k: None)
     monkeypatch.setattr(
-        vm_request_service, "submit_sync", lambda *a, **k: ""
+        vm_request_service, "_submit_provision", lambda *a, **k: None
     )
+
     # rate limit（20/min/user）在 200 併發下必觸發 — 壓測聚焦吞吐，停用之
     app.dependency_overrides[
         vm_requests_routes._CREATE_RATE_LIMIT.dependency

@@ -92,6 +92,32 @@ class SubnetConfigCreate(BaseModel):
         return normalized
 
 
+class BlockSyncError(BaseModel):
+    """單台機器套用封鎖網段規則時的失敗記錄"""
+
+    vmid: int | None = None
+    error: str
+
+
+class BlockSyncSummary(BaseModel):
+    """額外封鎖網段套用到各機器的結果摘要。
+
+    子網設定存檔後才會真的去改每台機器的防火牆，這段以前只寫 log，
+    管理員在畫面上看不出有機器沒套用到；改成隨回應帶回來。
+    """
+
+    targets: list[str] = []
+    created: int = 0
+    updated: int = 0
+    skipped: int = 0
+    deleted: int = 0
+    errors: list[BlockSyncError] = []
+
+    @property
+    def ok(self) -> bool:
+        return not self.errors
+
+
 class SubnetConfigPublic(BaseModel):
     """子網配置公開回傳格式"""
 
@@ -108,6 +134,8 @@ class SubnetConfigPublic(BaseModel):
     total_ips: int
     used_ips: int
     available_ips: int
+    # 只有 PUT /subnet 會帶：這次存檔順帶同步封鎖網段規則的結果
+    block_sync: BlockSyncSummary | None = None
 
 
 class SubnetStatusResponse(BaseModel):

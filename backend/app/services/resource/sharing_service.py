@@ -19,6 +19,7 @@ from app.models import User
 from app.models.resource_share import SHARE_PERMISSION_CONTROL
 from app.repositories import resource as resource_repo
 from app.repositories import resource_share as share_repo
+from app.repositories import spec_change_request as spec_request_repo
 from app.repositories import user as user_repo
 from app.schemas.resource_settings import (
     ResourceSharePublic,
@@ -27,6 +28,9 @@ from app.schemas.resource_settings import (
 from app.services.user import audit_service
 
 logger = logging.getLogger(__name__)
+
+# 轉移時作廢的規格調整申請，會把這句寫進 review_comment（稽核用英文，不在地化）
+TRANSFER_CANCEL_MARKER = "Cancelled: resource ownership transferred"
 
 
 def _get_personal_resource(session: Session, vmid: int):
@@ -59,14 +63,6 @@ def _to_public(share, user: User | None) -> ResourceSharePublic:
 
 def user_has_share(*, session: Session, vmid: int, user_id: uuid.UUID) -> bool:
     return share_repo.get_share(session=session, vmid=vmid, user_id=user_id) is not None
-
-
-def list_shared_vmids(*, session: Session, user_id: uuid.UUID) -> dict[int, Any]:
-    """被分享給這位使用者的 vmid → ResourceShare。"""
-    return {
-        share.resource_vmid: share
-        for share in share_repo.list_shares_for_user(session=session, user_id=user_id)
-    }
 
 
 def list_shares(*, session: Session, vmid: int) -> list[ResourceSharePublic]:
@@ -160,6 +156,18 @@ def transfer_ownership(
             commit=False,
         )
 
+    # 前擁有者送出的規格調整申請不能跟著機器走：核准／套用都會動到現在已經
+    # 屬於別人的機器，配額也還算在前擁有者頭上。轉移時一併作廢。
+    cancelled = spec_request_repo.cancel_open_spec_change_requests_for_vmid(
+        session=session, vmid=vmid, comment=TRANSFER_CANCEL_MARKER, commit=False
+    )
+    if cancelled:
+        logger.info(
+            "Cancelled %s open spec change request(s) on transfer of vmid=%s",
+            cancelled,
+            vmid,
+        )
+
     audit_service.log_action(
         session=session,
         user_id=actor.id,
@@ -184,7 +192,6 @@ def transfer_ownership(
 
 __all__ = [
     "add_share",
-    "list_shared_vmids",
     "list_shares",
     "remove_share",
     "transfer_ownership",

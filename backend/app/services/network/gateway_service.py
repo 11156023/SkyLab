@@ -69,7 +69,7 @@ def reset_host_key(session: object) -> str:
     Gateway VM 重灌或更換機器後 host key 會改變，導致 TOFU 釘選拒絕連線；
     管理員確認變更為預期後呼叫此函式，下次連線會重新記錄新的 host key。
     """
-    from app.repositories import gateway_config as gw_repo  # noqa: PLC0415
+    from app.repositories import gateway_config as gw_repo
 
     config = gw_repo.get_gateway_config(session)  # type: ignore[arg-type]
     if config is None or not config.host:
@@ -78,7 +78,7 @@ def reset_host_key(session: object) -> str:
     return config.host
 
 
-def _make_client(host: str, ssh_port: int, ssh_user: str, private_key_pem: str):
+def make_client(host: str, ssh_port: int, ssh_user: str, private_key_pem: str):
     return create_key_client(
         host,
         ssh_port,
@@ -92,7 +92,7 @@ def _exec(client, command: str) -> tuple[int, str, str]:
     return exec_command(client, command)
 
 
-def _exec_checked(client, command: str, error_message: str) -> str:
+def exec_checked(client, command: str, error_message: str) -> str:
     code, out, err = _exec(client, command)
     if code != 0:
         detail = (err or out).strip() or t("gateway.noOutput")
@@ -101,7 +101,7 @@ def _exec_checked(client, command: str, error_message: str) -> str:
 
 
 def _get_config(session: object) -> object:
-    from app.repositories import gateway_config as gw_repo  # noqa: PLC0415
+    from app.repositories import gateway_config as gw_repo
 
     config = gw_repo.get_gateway_config(session)  # type: ignore[arg-type]
     if config is None or not config.host or not config.encrypted_private_key:
@@ -215,7 +215,7 @@ def _write_remote_file(client, path: str, content: str) -> None:
         finally:
                 sftp.close()
 
-        _exec_checked(client, f"mv {tmp_path} {path}", t("gateway.writeRemoteFileFailed", path=path))
+        exec_checked(client, f"mv {tmp_path} {path}", t("gateway.writeRemoteFileFailed", path=path))
 
 
 def test_connection(
@@ -226,7 +226,7 @@ def test_connection(
 ) -> tuple[bool, str]:
     client = None
     try:
-        client = _make_client(host, ssh_port, ssh_user, private_key_pem)
+        client = make_client(host, ssh_port, ssh_user, private_key_pem)
         _, out, _ = _exec(client, "echo ok")
         if out.strip() == "ok":
             return True, "連線成功"
@@ -242,7 +242,7 @@ def test_connection(
 
 def read_service_config(session: object, service: str) -> str:
     from app.repositories.gateway_config import (
-        get_decrypted_private_key,  # noqa: PLC0415
+        get_decrypted_private_key,
     )
 
     config = _get_config(session)
@@ -252,7 +252,7 @@ def read_service_config(session: object, service: str) -> str:
     if path is None:
         raise BadRequestError(t("gateway.unknownService", service=service))
 
-    client = _make_client(config.host, config.ssh_port, config.ssh_user, private_key_pem)
+    client = make_client(config.host, config.ssh_port, config.ssh_user, private_key_pem)
     try:
         sftp = client.open_sftp()
         try:
@@ -271,7 +271,7 @@ def read_service_config(session: object, service: str) -> str:
 
 def write_service_config(session: object, service: str, content: str) -> None:
     from app.repositories.gateway_config import (
-        get_decrypted_private_key,  # noqa: PLC0415
+        get_decrypted_private_key,
     )
 
     config = _get_config(session)
@@ -281,7 +281,7 @@ def write_service_config(session: object, service: str, content: str) -> None:
     if path is None:
         raise BadRequestError(t("gateway.unknownService", service=service))
 
-    client = _make_client(config.host, config.ssh_port, config.ssh_user, private_key_pem)
+    client = make_client(config.host, config.ssh_port, config.ssh_user, private_key_pem)
     try:
         _write_remote_file(client, path, content)
     except ProxmoxError:
@@ -293,9 +293,9 @@ def write_service_config(session: object, service: str, content: str) -> None:
 
 
 def sync_traefik_dns_challenge(session: object) -> None:
-    from app.repositories import cloudflare_config as cf_repo  # noqa: PLC0415
+    from app.repositories import cloudflare_config as cf_repo
     from app.repositories.gateway_config import (
-        get_decrypted_private_key,  # noqa: PLC0415
+        get_decrypted_private_key,
     )
 
     gateway_config = _get_config(session)
@@ -304,7 +304,7 @@ def sync_traefik_dns_challenge(session: object) -> None:
         raise BadRequestError(t("gateway.cloudflareApiTokenNotConfigured"))
 
     private_key_pem = get_decrypted_private_key(gateway_config)  # type: ignore[arg-type]
-    client = _make_client(
+    client = make_client(
         gateway_config.host,
         gateway_config.ssh_port,
         gateway_config.ssh_user,
@@ -312,7 +312,7 @@ def sync_traefik_dns_challenge(session: object) -> None:
     )
 
     try:
-        _exec_checked(
+        exec_checked(
             client,
             "mkdir -p /etc/traefik/dynamic /etc/traefik/env && "
             "touch /etc/traefik/acme.json && chmod 600 /etc/traefik/acme.json",
@@ -333,12 +333,12 @@ def sync_traefik_dns_challenge(session: object) -> None:
         )
         _write_remote_file(client, TRAEFIK_SYSTEMD_PATH, build_traefik_systemd_unit())
 
-        _exec_checked(
+        exec_checked(
             client,
             f"chmod 600 {TRAEFIK_ENV_PATH}",
             t("gateway.setTraefikEnvPermissionFailed"),
         )
-        _exec_checked(
+        exec_checked(
             client,
             "systemctl daemon-reload && systemctl restart traefik",
             t("gateway.restartTraefikFailed"),
@@ -353,7 +353,7 @@ def sync_traefik_dns_challenge(session: object) -> None:
 
 def control_service(session: object, service: str, action: str) -> tuple[bool, str]:
     from app.repositories.gateway_config import (
-        get_decrypted_private_key,  # noqa: PLC0415
+        get_decrypted_private_key,
     )
 
     config = _get_config(session)
@@ -367,7 +367,7 @@ def control_service(session: object, service: str, action: str) -> tuple[bool, s
 
     client = None
     try:
-        client = _make_client(config.host, config.ssh_port, config.ssh_user, private_key_pem)
+        client = make_client(config.host, config.ssh_port, config.ssh_user, private_key_pem)
         if action == "restart":
             # Some services hang on restart; do stop+start with a kill fallback
             _exec(client, f"systemctl stop {unit} 2>&1; sleep 1; "
@@ -391,7 +391,7 @@ def control_service(session: object, service: str, action: str) -> tuple[bool, s
 def get_service_logs(session: object, service: str, lines: int = 50) -> tuple[bool, str]:
     """Read recent journalctl logs for a service on the Gateway VM."""
     from app.repositories.gateway_config import (
-        get_decrypted_private_key,  # noqa: PLC0415
+        get_decrypted_private_key,
     )
 
     config = _get_config(session)
@@ -401,7 +401,7 @@ def get_service_logs(session: object, service: str, lines: int = 50) -> tuple[bo
 
     client = None
     try:
-        client = _make_client(config.host, config.ssh_port, config.ssh_user, private_key_pem)
+        client = make_client(config.host, config.ssh_port, config.ssh_user, private_key_pem)
         _, out, err = _exec(client, f"journalctl -u {unit} --no-pager -n {lines} 2>&1")
         return True, (out + err).strip()
     finally:
@@ -411,7 +411,7 @@ def get_service_logs(session: object, service: str, lines: int = 50) -> tuple[bo
 
 def get_service_status(session: object, service: str) -> tuple[bool, str]:
     from app.repositories.gateway_config import (
-        get_decrypted_private_key,  # noqa: PLC0415
+        get_decrypted_private_key,
     )
 
     config = _get_config(session)
@@ -421,7 +421,7 @@ def get_service_status(session: object, service: str) -> tuple[bool, str]:
 
     client = None
     try:
-        client = _make_client(config.host, config.ssh_port, config.ssh_user, private_key_pem)
+        client = make_client(config.host, config.ssh_port, config.ssh_user, private_key_pem)
         code, _, _ = _exec(client, f"systemctl is-active {unit}")
         _, status_out, _ = _exec(
             client,
@@ -488,8 +488,8 @@ def _parse_wireguard_dump(
 
 def get_wireguard_overview(session: object) -> GatewayWireGuardOverview:
     """Return a secret-free WireGuard control-plane and runtime summary."""
-    from app.repositories import wireguard_peer as peer_repo  # noqa: PLC0415
-    from app.repositories.gateway_config import (  # noqa: PLC0415
+    from app.repositories import wireguard_peer as peer_repo
+    from app.repositories.gateway_config import (
         get_decrypted_private_key,
     )
 
@@ -508,7 +508,7 @@ def get_wireguard_overview(session: object) -> GatewayWireGuardOverview:
     metrics = _parse_wireguard_dump("")
     client = None
     try:
-        client = _make_client(
+        client = make_client(
             config.host, config.ssh_port, config.ssh_user, private_key_pem
         )
         code, out, _err = _exec(
@@ -630,14 +630,14 @@ def _get_haproxy_candidate_version(client) -> str | None:
 
 def get_service_versions(session: object) -> GatewayServiceVersionsResult:
     from app.repositories.gateway_config import (
-        get_decrypted_private_key,  # noqa: PLC0415
+        get_decrypted_private_key,
     )
 
     config = _get_config(session)
     private_key_pem = get_decrypted_private_key(config)  # type: ignore[arg-type]
     install_targets = _load_install_script_targets()
 
-    client = _make_client(config.host, config.ssh_port, config.ssh_user, private_key_pem)
+    client = make_client(config.host, config.ssh_port, config.ssh_user, private_key_pem)
     try:
         haproxy_candidate_version = _get_haproxy_candidate_version(client)
         items: list[GatewayServiceVersionInfo] = []

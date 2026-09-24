@@ -122,7 +122,7 @@ def test_lite_calendar_reuses_fit_results_across_slots(monkeypatch) -> None:
         svc.vm_request_placement_service, "_build_storage_pool_state", lambda **kwargs: ({}, False)
     )
     monkeypatch.setattr(
-        svc.vm_request_placement_service, "_get_placement_tuning", lambda **kwargs: None
+        svc.vm_request_placement_service, "get_placement_tuning", lambda **kwargs: None
     )
     monkeypatch.setattr(svc.placement_support, "allowed_gpu_nodes_for_request", lambda request: None)
     monkeypatch.setattr(

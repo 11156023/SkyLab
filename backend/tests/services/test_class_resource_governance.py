@@ -22,7 +22,11 @@ from app.services.scheduling.recurrence_scheduler import (
     _class_reclaim_retry_due,
     _class_schedule_enabled,
 )
-from app.services.teaching import class_capacity_service, class_lifecycle_service
+from app.services.teaching import (
+    class_capacity_service,
+    class_lifecycle_service,
+    class_provision_service,
+)
 from app.services.vm import batch_provision_service
 
 
@@ -97,7 +101,7 @@ def test_class_capacity_preview_hides_caught_exception_details(monkeypatch):
 
     monkeypatch.setattr(
         class_capacity_service.provisioning_service,
-        "_get_lxc_target_node",
+        "get_lxc_target_node",
         fail_placement,
     )
     result = class_capacity_service.preview(
@@ -343,9 +347,9 @@ def test_class_reclaim_queues_idempotent_deletion_with_retries(monkeypatch):
     )
     submitted = []
     monkeypatch.setattr(
-        class_lifecycle_service,
-        "submit_sync",
-        lambda *args, **kwargs: submitted.append((args, kwargs)),
+        class_lifecycle_service.deletion_service,
+        "enqueue_processing",
+        lambda *, session, req: submitted.append(req.id),
     )
 
     result = class_lifecycle_service.queue_reclaim(
@@ -356,7 +360,8 @@ def test_class_reclaim_queues_idempotent_deletion_with_retries(monkeypatch):
     )
 
     assert result["queued_vmids"] == [801]
-    assert submitted[0][1]["max_retries"] == 2
+    assert submitted == [request_id]
+
 
 
 def test_class_reclaim_hides_infrastructure_exception(monkeypatch):
@@ -420,12 +425,12 @@ def test_retry_recovers_existing_resource_instead_of_cloning(monkeypatch):
             return None
 
     monkeypatch.setattr(
-        teaching_classes.proxmox_service,
+        class_provision_service.proxmox_service,
         "find_resource",
         lambda _vmid: {"vmid": 901},
     )
     monkeypatch.setattr(
-        teaching_classes.resource_repo,
+        class_provision_service.resource_repo,
         "assign_to_teaching_class",
         lambda **_kwargs: resource,
     )
@@ -439,7 +444,7 @@ def test_retry_recovers_existing_resource_instead_of_cloning(monkeypatch):
         error="worker interrupted",
         finished_at=None,
     )
-    recovered = teaching_classes._recover_existing_task_resource(
+    recovered = class_provision_service.recover_existing_task_resource(
         session=_RecoverSession(),
         item=SimpleNamespace(id=class_id, owner_id=uuid.uuid4()),
         node=SimpleNamespace(id=uuid.uuid4()),

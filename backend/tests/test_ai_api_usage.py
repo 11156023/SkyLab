@@ -312,7 +312,7 @@ def main() -> int:
 
     print(f"\nSelected model: {selected_model}")
 
-    rc = run_chat_completion(
+    return run_chat_completion(
         settings=settings,
         user_api_key=user_api_key,
         model=selected_model,
@@ -320,7 +320,6 @@ def main() -> int:
         max_tokens=args.max_tokens,
     )
 
-    return rc
 
 
 if __name__ == "__main__":

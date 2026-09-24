@@ -1,28 +1,21 @@
 """防火牆管理 API 路由"""
 
 import logging
-import uuid
 
 from fastapi import APIRouter, HTTPException
 
 from app.api.deps import (
-    AdminUser,
     CurrentUser,
     ResourceInfoDep,
     SessionDep,
     check_firewall_access,
 )
-from app.core.authorizers import can_bypass_resource_ownership
 from app.core.i18n import t
 from app.exceptions import BadRequestError, NotFoundError, ProxmoxError
 from app.models import AuditAction
 from app.repositories import firewall_layout as layout_repo
-from app.repositories import nat_rule as nat_repo
 from app.schemas import Message
 from app.schemas.firewall import (
-    ClassExposureCreate,
-    ClassExposurePublic,
-    ClassExposureUpdate,
     ConnectionCreate,
     ConnectionDelete,
     FirewallOptionsPublic,
@@ -30,18 +23,13 @@ from app.schemas.firewall import (
     FirewallRulePublic,
     FirewallRuleUpdate,
     LayoutUpdate,
-    NATRulePublic,
     PublishedService,
     PublishedServiceCreate,
     PublishedServiceRef,
     PublishedServiceUpdate,
     TopologyResponse,
 )
-from app.services.network import (
-    class_exposure_service,
-    firewall_service,
-    nat_service,
-)
+from app.services.network import firewall_service
 from app.services.resource.access import require_resource_management
 from app.services.user import audit_service
 
@@ -108,37 +96,26 @@ def create_connection(
     session: SessionDep,
     current_user: CurrentUser,
 ):
-    """建立 VM 間連線（或 VM 到網關、Internet 入站）
+    """建立 VM 間連線（或 VM 到網關）
 
-    權限是非對稱的：
-    - 來源 VM 一定要有管理權（規則寫在自己的機器上）
-    - 目標 VM 有管理權直接過；沒有的話，只要它是老師開放給我所屬班級的
-      機器、埠在允許範圍內、方向單向，也放行（老師事先同意，見
-      class_exposure_service）
-    - Internet 入站（source=None）只看目標的管理權
+    - 來源 VM 必須為當前使用者有權限的機器
+    - 目標 VM（如果有）也必須在當前使用者的可見範圍內
     """
     try:
+        # 權限檢查：來源 VM（若有）
         if conn.source_vmid is not None:
             check_firewall_access(
                 vmid=conn.source_vmid,
                 current_user=current_user,
                 session=session,
             )
+        # 權限檢查：目標 VM（若有）
         if conn.target_vmid is not None:
-            if conn.source_vmid is None:
-                check_firewall_access(
-                    vmid=conn.target_vmid,
-                    current_user=current_user,
-                    session=session,
-                )
-            else:
-                class_exposure_service.require_connection_target(
-                    session=session,
-                    user=current_user,
-                    target_vmid=conn.target_vmid,
-                    ports=conn.ports,
-                    direction=conn.direction,
-                )
+            check_firewall_access(
+                vmid=conn.target_vmid,
+                current_user=current_user,
+                session=session,
+            )
 
         firewall_service.create_connection(
             source_vmid=conn.source_vmid,
@@ -170,13 +147,12 @@ def delete_connection(
     session: SessionDep,
     current_user: CurrentUser,
 ):
-    """刪除 VM 間連線
-
-    拆掉的是 ACCEPT，只會讓兩邊更嚴，所以管理任一端就可以拆：
-    老師能拆學生連進來的線，學生也能拆自己連到老師機器的線。
-    Internet 入站（source=None）看目標的管理權。
-    """
+    """刪除 VM 間連線"""
     try:
+        # 權限檢查：
+        # - 若 source_vmid 為 None（例如 Internet -> VM 入站），
+        #   則以 target_vmid 作為被變更規則的 VM 進行檢查
+        # - 否則先檢查 source_vmid，再檢查（若有的）target_vmid
         if conn.source_vmid is None:
             if conn.target_vmid is not None:
                 check_firewall_access(
@@ -184,19 +160,18 @@ def delete_connection(
                     current_user=current_user,
                     session=session,
                 )
-        elif conn.target_vmid is None:
+        else:
             check_firewall_access(
                 vmid=conn.source_vmid,
                 current_user=current_user,
                 session=session,
             )
-        else:
-            class_exposure_service.require_connection_delete(
-                session=session,
-                user=current_user,
-                source_vmid=conn.source_vmid,
-                target_vmid=conn.target_vmid,
-            )
+            if conn.target_vmid is not None:
+                check_firewall_access(
+                    vmid=conn.target_vmid,
+                    current_user=current_user,
+                    session=session,
+                )
 
         firewall_service.delete_connection(
             source_vmid=conn.source_vmid,
@@ -219,102 +194,6 @@ def delete_connection(
         raise HTTPException(status_code=400, detail=str(e))
     except ProxmoxError as e:
         raise HTTPException(status_code=500, detail=str(e))
-
-
-# ─── 開放給班級（老師機器 → 學生可連） ─────────────────────────────────────────
-
-
-@router.get("/{vmid}/class-exposures", response_model=list[ClassExposurePublic])
-def list_class_exposures(
-    vmid: int,
-    session: SessionDep,
-    current_user: CurrentUser,
-) -> list[ClassExposurePublic]:
-    """這台機器開放給哪些班級（只有能管這台機器的人看得到）"""
-    require_resource_management(session=session, user=current_user, vmid=vmid)
-    return class_exposure_service.list_exposures(session=session, vmid=vmid)
-
-
-@router.post(
-    "/{vmid}/class-exposures", response_model=ClassExposurePublic, status_code=201
-)
-def create_class_exposure(
-    vmid: int,
-    body: ClassExposureCreate,
-    session: SessionDep,
-    current_user: CurrentUser,
-) -> ClassExposurePublic:
-    """把這台機器的指定埠開放給一個自己的班級"""
-    result = class_exposure_service.create_exposure(
-        session=session,
-        user=current_user,
-        vmid=vmid,
-        class_id=body.class_id,
-        ports=body.ports,
-    )
-    audit_service.log_action(
-        session=session,
-        user_id=current_user.id,
-        vmid=vmid,
-        action=AuditAction.firewall_rule_create,
-        details=(
-            f"Class exposure: vmid={vmid} class={body.class_id} "
-            f"ports={[f'{p.port}/{p.protocol}' for p in result.ports]}"
-        ),
-    )
-    return result
-
-
-@router.put(
-    "/{vmid}/class-exposures/{exposure_id}", response_model=ClassExposurePublic
-)
-def update_class_exposure(
-    vmid: int,
-    exposure_id: uuid.UUID,
-    body: ClassExposureUpdate,
-    session: SessionDep,
-    current_user: CurrentUser,
-) -> ClassExposurePublic:
-    """改允許的埠；被拿掉的埠，學生已連上的規則一併清掉"""
-    result = class_exposure_service.update_exposure(
-        session=session,
-        user=current_user,
-        vmid=vmid,
-        exposure_id=exposure_id,
-        ports=body.ports,
-    )
-    audit_service.log_action(
-        session=session,
-        user_id=current_user.id,
-        vmid=vmid,
-        action=AuditAction.firewall_rule_update,
-        details=(
-            f"Class exposure updated: vmid={vmid} class={result.class_id} "
-            f"ports={[f'{p.port}/{p.protocol}' for p in result.ports]}"
-        ),
-    )
-    return result
-
-
-@router.delete("/{vmid}/class-exposures/{exposure_id}", response_model=Message)
-def delete_class_exposure(
-    vmid: int,
-    exposure_id: uuid.UUID,
-    session: SessionDep,
-    current_user: CurrentUser,
-) -> Message:
-    """關閉開放，並拆掉班上學生連進來的連線"""
-    removed = class_exposure_service.delete_exposure(
-        session=session, user=current_user, vmid=vmid, exposure_id=exposure_id
-    )
-    audit_service.log_action(
-        session=session,
-        user_id=current_user.id,
-        vmid=vmid,
-        action=AuditAction.firewall_rule_delete,
-        details=f"Class exposure removed: vmid={vmid} id={exposure_id} pruned={removed}",
-    )
-    return Message(message=t("firewall.exposure_deleted", count=removed))
 
 
 # ─── 單一 VM 防火牆規則 ───────────────────────────────────────────────────────
@@ -395,7 +274,11 @@ def update_rule(
             resource_info["node"], vmid, resource_info["type"]
         )
         target_rule = next((r for r in rules if r.get("pos") == pos), None)
-        if target_rule and str(target_rule.get("comment", "")).startswith("SkyLab:"):
+        if target_rule is None:
+            # 規則位置是會變動的（刪一條後面全往前挪），對不到就別讓
+            # Proxmox 去改到別條規則
+            raise NotFoundError(t("firewall.rule_not_found_at_pos", pos=pos))
+        if str(target_rule.get("comment", "")).startswith("SkyLab:"):
             raise HTTPException(
                 status_code=400,
                 detail=t("firewall.rule_managed_no_modify"),
@@ -432,7 +315,10 @@ def delete_rule(
             resource_info["node"], vmid, resource_info["type"]
         )
         target_rule = next((r for r in rules if r.get("pos") == pos), None)
-        if target_rule and str(target_rule.get("comment", "")).startswith("SkyLab:"):
+        if target_rule is None:
+            # 對不到就直接回 404，不要往下刪到剛好遞補到這個位置的別條規則
+            raise NotFoundError(t("firewall.rule_not_found_at_pos", pos=pos))
+        if str(target_rule.get("comment", "")).startswith("SkyLab:"):
             raise HTTPException(
                 status_code=400,
                 detail=t("firewall.rule_managed_use_connection_ui"),
@@ -453,113 +339,6 @@ def delete_rule(
 
 
 # ─── NAT 端口轉發管理 ──────────────────────────────────────────────────────────
-
-
-@router.get("/nat-rules", response_model=list[NATRulePublic])
-def list_nat_rules(
-    session: SessionDep,
-    current_user: CurrentUser,
-):
-    """列出 NAT 端口轉發規則。
-
-    可見範圍與拓撲一致：admin 全部；老師含自己班級的學生機器；其餘只看自己的 VM。
-    """
-    from app.services.resource import access as resource_access  # noqa: PLC0415
-
-    rules = nat_repo.list_rules(session)
-    if can_bypass_resource_ownership(current_user):
-        visible_rules = rules
-    else:
-        visible_vmids = resource_access.list_reachable_vmids(
-            session=session, user=current_user
-        )
-        visible_rules = [r for r in rules if r.vmid in visible_vmids]
-
-    return [
-        NATRulePublic(
-            id=r.id,
-            ssh_host=r.ssh_host,
-            vmid=r.vmid,
-            vm_ip=r.vm_ip,
-            external_port=r.external_port,
-            internal_port=r.internal_port,
-            protocol=r.protocol,
-            created_at=r.created_at,
-        )
-        for r in visible_rules
-    ]
-
-
-@router.delete("/nat-rules/{rule_id}", response_model=Message)
-def delete_nat_rule(
-    rule_id: str,
-    session: SessionDep,
-    current_user: CurrentUser,
-):
-    """刪除 NAT 端口轉發規則"""
-    import uuid  # noqa: PLC0415
-
-    try:
-        rule_uuid = uuid.UUID(rule_id)
-    except ValueError:
-        raise HTTPException(status_code=400, detail=t("firewall.invalid_rule_id"))
-
-    rule = nat_repo.get_rule(session, rule_uuid)
-    if rule is None:
-        raise HTTPException(status_code=404, detail=t("firewall.nat_rule_not_found"))
-
-    check_firewall_access(vmid=rule.vmid, current_user=current_user, session=session)
-
-    try:
-        nat_service.remove_nat_rule_by_id(session=session, rule_id=rule_id)
-        audit_service.log_action(
-            session=session,
-            user_id=current_user.id,
-            vmid=rule.vmid,
-            action=AuditAction.nat_rule_delete,
-            details=(
-                f"Deleted NAT rule {rule_id} (vmid={rule.vmid} "
-                f"ext={rule.external_port} → int={rule.internal_port}/{rule.protocol})"
-            ),
-        )
-        return Message(message=t("firewall.nat_rule_deleted"))
-    except ProxmoxError as e:
-        logger.error(f"Proxmox error removing NAT rule {rule_id}: {e}")
-        raise HTTPException(
-            status_code=502, detail=t("firewall.proxmox_operation_failed")
-        )
-    except Exception:
-        logger.exception(f"Failed to remove NAT rule {rule_id}")
-        raise HTTPException(
-            status_code=500, detail=t("firewall.delete_nat_rule_failed")
-        )
-
-
-@router.post("/nat-rules/sync", response_model=Message)
-def sync_nat_rules(
-    session: SessionDep,
-    current_user: AdminUser,
-):
-    """手動將 DB 中的 NAT 規則同步到 Gateway VM haproxy"""
-    try:
-        nat_service.sync_to_gateway(session=session)
-        audit_service.log_action(
-            session=session,
-            user_id=current_user.id,
-            action=AuditAction.nat_rule_sync,
-            details="Manually synced NAT rules to Gateway VM",
-        )
-        return Message(message=t("firewall.nat_rules_synced"))
-    except ProxmoxError as e:
-        logger.error(f"Proxmox error syncing NAT rules: {e}")
-        raise HTTPException(
-            status_code=502, detail=t("firewall.proxmox_operation_failed")
-        )
-    except Exception:
-        logger.exception("Failed to sync NAT rules")
-        raise HTTPException(
-            status_code=500, detail=t("firewall.sync_nat_rules_failed")
-        )
 
 
 # ─── 單台 VM：迷你拓撲與對外服務 ──────────────────────────────────────────────

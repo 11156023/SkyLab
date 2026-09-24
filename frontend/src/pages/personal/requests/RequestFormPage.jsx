@@ -273,25 +273,34 @@ export default function RequestFormPage({ onBack, className, initialPrefill = nu
   const [pendingGpu, setPendingGpu]     = useState(null);
   const [gpuLoading, setGpuLoading]     = useState(false);
   const [gpuOptionsKey, setGpuOptionsKey] = useState("");
+  /* 作業系統／範本來源清單是否有任何一支載入失敗，以及按「重試」用的重拉計數 */
+  const [osSourceFailed, setOsSourceFailed] = useState(false);
+  const [osSourceReloadKey, setOsSourceReloadKey] = useState(0);
+  const retryOsSources = () => {
+    setOsSourceFailed(false);
+    setOsSourceReloadKey((n) => n + 1);
+  };
 
-  /* ── API fetches ── */
+  /* ── API fetches ──
+     作業系統／範本來源四支清單只要有一支掛掉，下拉就會少選項而且看不出原因，
+     所以失敗一律記起來，在欄位下方顯示「載入失敗，重試」讓人自己重拉。 */
   useEffect(() => {
     if (lxcTemplates.length > 0) return;
     setLxcLoading(true);
     apiGet("/api/v1/lxc/templates")
       .then(setLxcTemplates)
-      .catch(() => {})
+      .catch(() => setOsSourceFailed(true))
       .finally(() => setLxcLoading(false));
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [osSourceReloadKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (vmTemplates.length > 0) return;
     setVmLoading(true);
     apiGet("/api/v1/vm/templates")
       .then(setVmTemplates)
-      .catch(() => {})
+      .catch(() => setOsSourceFailed(true))
       .finally(() => setVmLoading(false));
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [osSourceReloadKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     // 單機母範本只供教師／管理員組裝環境或建立管理用資源。
@@ -301,9 +310,9 @@ export default function RequestFormPage({ onBack, className, initialPrefill = nu
     setSysTplLoading(true);
     TemplatesService.list()
       .then((res) => setSysTemplates(res?.data ?? []))
-      .catch(() => {})
+      .catch(() => setOsSourceFailed(true))
       .finally(() => setSysTplLoading(false));
-  }, [isPrivileged]);
+  }, [isPrivileged, osSourceReloadKey]);
 
   useEffect(() => {
     // 學生／一般使用者：只拿教師設為「全部可見」且已就緒的範本。
@@ -331,9 +340,9 @@ export default function RequestFormPage({ onBack, className, initialPrefill = nu
             })),
         );
       })
-      .catch(() => {})
+      .catch(() => setOsSourceFailed(true))
       .finally(() => setSysTplLoading(false));
-  }, [isPrivileged]);
+  }, [isPrivileged, osSourceReloadKey]);
 
   /* 申請一律是單台；範本只是「來源」，VM 或 LXC 由範本本身決定 */
   const catalogChoices = useMemo(
@@ -1097,6 +1106,15 @@ export default function RequestFormPage({ onBack, className, initialPrefill = nu
                     </optgroup>
                   )}
                 </SelectField>
+                {osSourceFailed && (
+                  <p className={styles.fieldError} role="alert">
+                    {t("RequestFormPage.osSourcesLoadFailed")}
+                    {" "}
+                    <button type="button" className={styles.linkBtn} onClick={retryOsSources}>
+                      {t("RequestFormPage.retry")}
+                    </button>
+                  </p>
+                )}
                 {selectedCatalogItem && (
                   <p className={styles.fieldHint}>
                     {selectedCatalogItem.description

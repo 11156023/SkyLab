@@ -4,7 +4,7 @@
 firewall 規則逐台下在各自節點上。跨叢集時 L2 不通、同名 bridge 指向不同的
 實體網路，拓樸形同虛設。
 
-自訂 LXC 原本走 provisioning_service._get_lxc_target_node()（各連線
+自訂 LXC 原本走 provisioning_service.get_lxc_target_node()（各連線
 default_node → nodes[0]），可以挑到與範本機器不同的叢集 —— 這裡固定住
 「整班同叢集」的行為。
 """
@@ -205,7 +205,7 @@ class TestClassStaysInOneCluster:
         # 預設節點在另一個叢集，舊行為會選到它
         monkeypatch.setattr(
             class_capacity_service.provisioning_service,
-            "_get_lxc_target_node",
+            "get_lxc_target_node",
             lambda: "b1",
         )
         class_id = uuid.uuid4()
@@ -238,7 +238,7 @@ class TestClassStaysInOneCluster:
         )
         monkeypatch.setattr(
             class_capacity_service.provisioning_service,
-            "_get_lxc_target_node",
+            "get_lxc_target_node",
             lambda: "a2",
         )
         class_id = uuid.uuid4()
@@ -301,7 +301,7 @@ class TestProvisioningUsesTheSamePlan:
         )
         monkeypatch.setattr(
             class_capacity_service.provisioning_service,
-            "_get_lxc_target_node",
+            "get_lxc_target_node",
             lambda: "b1",
         )
         class_id = uuid.uuid4()
@@ -373,7 +373,7 @@ class TestClassPicksOneCluster:
         )
         monkeypatch.setattr(
             class_capacity_service.provisioning_service,
-            "_get_lxc_target_node",
+            "get_lxc_target_node",
             lambda: "a1",
         )
 
@@ -469,7 +469,7 @@ class TestSpreadAcrossServersInsideTheCluster:
         )
         monkeypatch.setattr(
             class_capacity_service.provisioning_service,
-            "_get_lxc_target_node",
+            "get_lxc_target_node",
             lambda: "a1",
         )
 
@@ -580,7 +580,7 @@ class TestProvisioningFollowsStoredPlacement:
         )
         monkeypatch.setattr(
             class_capacity_service.provisioning_service,
-            "_get_lxc_target_node",
+            "get_lxc_target_node",
             lambda: "a1",
         )
         class_id = uuid.uuid4()
@@ -633,7 +633,7 @@ class TestProvisioningFollowsStoredPlacement:
         )
         monkeypatch.setattr(
             class_capacity_service.provisioning_service,
-            "_get_lxc_target_node",
+            "get_lxc_target_node",
             lambda: "a1",
         )
         machine = _machine(

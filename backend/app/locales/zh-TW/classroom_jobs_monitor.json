@@ -17,6 +17,7 @@
   "ai_gateway.request_already_reviewed": "This AI API request has already been reviewed",
   "ai_gateway.connection_incomplete": "AI API connection settings are incomplete",
   "ai_gateway.credential_already_revoked": "This AI API credential has already been revoked",
+  "ai_gateway.credential_manage_denied": "只有這把 AI API 金鑰的擁有者才能輪替、改名或刪除",
   "monitoring.invalid_timeframe": "timeframe must be one of {allowed}",
   "monitoring.resource_not_found": "Resource {vmid} not found",
   "governance.idle_notify_after_must_precede_grace": "閒置通知時數（{notify_after} 小時）必須小於關機寬限期（{grace} 小時）",

@@ -971,5 +971,8 @@
   "CourseTemplateEditorPage.filesUploaded": "{{count}} documents uploaded",
   "CourseTemplateEditorPage.filesUploadPartialFail": "Failed to upload: {{files}}",
   "CourseTemplateEditorPage.fileUploadFailed": "Upload failed",
-  "CourseTemplateEditorPage.fileDeleteFailed": "Could not delete the document"
+  "CourseTemplateEditorPage.fileDeleteFailed": "Could not delete the document",
+  "CourseTemplateEditorPage.fileDeleteConfirmTitle": "Remove this document?",
+  "CourseTemplateEditorPage.fileDeleteConfirmMessage": "\"{{name}}\" will be removed from this course environment and cannot be restored.",
+  "CourseTemplateEditorPage.fileDeleteConfirmAction": "Remove"
 }

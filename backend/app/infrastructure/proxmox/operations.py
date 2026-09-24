@@ -5,6 +5,7 @@ control, resize, specs, session ticket, etc.) so that callers no longer
 duplicate the same cluster.resources iteration or qemu/lxc dispatch logic.
 """
 
+import ipaddress
 import logging
 import threading
 import time
@@ -27,7 +28,6 @@ from app.infrastructure.proxmox import (
     get_proxmox_settings,
     get_proxmox_settings_for_node,
     list_enabled_connection_ids,
-    wait_for_task_status,
 )
 
 logger = logging.getLogger(__name__)
@@ -50,8 +50,14 @@ def vmid_allocation_lock(*, db_engine: Any | None = None) -> Iterator[None]:
 
     ``next_vmid()`` only inspects PVE and therefore must be called inside this
     context, which must remain held until the mutating PVE request returns.
-    PostgreSQL releases the advisory lock automatically if a worker dies; the
-    SQLite/no-database path retains the process lock for unit-test callers.
+
+    The lock is transaction-level (``pg_advisory_xact_lock``): SQLAlchemy opens
+    a transaction on the first execute and rolls it back when the connection
+    context exits, so the lock lives exactly as long as this context.  A
+    session-level lock would be unsafe behind PgBouncer's transaction pooling
+    (an unreleased lock would stay on the pooled server connection).  PostgreSQL
+    also releases it if the worker dies; the SQLite/no-database path retains
+    the process lock for unit-test callers.
     """
     with _vmid_allocation_thread_lock:
         if db_engine is None:
@@ -70,20 +76,17 @@ def vmid_allocation_lock(*, db_engine: Any | None = None) -> Iterator[None]:
         )
         with connection_context as connection:
             connection.execute(
-                text("SELECT pg_advisory_lock(:lock_key)"),
+                text("SELECT pg_advisory_xact_lock(:lock_key)"),
                 {"lock_key": _VMID_ALLOCATION_LOCK_KEY},
             )
             try:
                 yield
             finally:
                 try:
-                    connection.execute(
-                        text("SELECT pg_advisory_unlock(:lock_key)"),
-                        {"lock_key": _VMID_ALLOCATION_LOCK_KEY},
-                    )
+                    connection.rollback()
                 except Exception:
-                    # Closing the connection still releases a session-level
-                    # advisory lock; do not mask the provisioning exception.
+                    # Closing the connection ends the transaction and releases
+                    # the xact-level lock; do not mask the provisioning exception.
                     logger.warning(
                         "Failed to explicitly release VMID allocation lock",
                         exc_info=True,
@@ -164,11 +167,6 @@ def _pool_vms() -> list[dict]:
     return matched
 
 
-def list_all_vmids() -> set[int]:
-    """回傳所有連線上既有的 VMID 集合（不限 pool）。"""
-    return {int(r["vmid"]) for r in _raw_vms()}
-
-
 def find_resource(vmid: int) -> dict:
     """Find any resource (qemu or lxc) by VMID in its connection's pool."""
     for r in _pool_vms():
@@ -188,6 +186,15 @@ def find_lxc(vmid: int) -> dict:
 def list_all_resources() -> list[dict]:
     """Return all cluster resources of type vm in each connection's pool."""
     return _pool_vms()
+
+
+def list_all_resources_by_vmid() -> dict[int, dict]:
+    """vmid → cluster/resources 條目（單次 PVE 呼叫；治理／反挖礦掃描共用）。"""
+    return {
+        int(r["vmid"]): r
+        for r in list_all_resources()
+        if r.get("vmid") is not None
+    }
 
 
 def list_nodes() -> list[dict]:
@@ -253,8 +260,11 @@ def collect_monitoring_snapshot() -> MonitoringSnapshot:
     )
 
 
-def _admin_disabled_node_names() -> set[str]:
-    """讀取被管理員停用的節點名稱；DB 讀取失敗時不過濾（fail-open）。"""
+def admin_disabled_node_names() -> set[str]:
+    """讀取被管理員停用的節點名稱；DB 讀取失敗時不過濾（fail-open）。
+
+    placement advisor 與節點挑選共用同一份判斷。
+    """
     try:
         from sqlmodel import Session
 
@@ -272,7 +282,7 @@ def get_available_nodes() -> list[dict]:
 
     管理員停用的節點一律排除（停用＝不接收新 VM）。
     """
-    disabled = _admin_disabled_node_names()
+    disabled = admin_disabled_node_names()
     nodes = [
         node for node in list_nodes()
         if str(node.get("node") or node.get("name") or "") not in disabled
@@ -618,12 +628,24 @@ def delete_resource(
 # ---------------------------------------------------------------------------
 
 def _is_usable_ipv4(ip: str) -> bool:
-    """過濾 loopback、link-local 等不可用的 IPv4 位址"""
-    return (
-        bool(ip)
-        and not ip.startswith("127.")
-        and not ip.startswith("169.254.")
-        and ip != "0.0.0.0"
+    """過濾 loopback、link-local、multicast 等不可用的 IPv4 位址。
+
+    改用 ``ipaddress`` 實際解析：字串前綴比對擋不掉 ``0.0.0.1``、
+    ``224.x``（multicast）、``240.x``（reserved）這類位址，也會把
+    ``127.0.0.1/8`` 之外寫法不同的 loopback 漏掉。解析不了就當作不可用。
+    """
+    if not ip:
+        return False
+    try:
+        addr = ipaddress.IPv4Address(ip.strip())
+    except (ipaddress.AddressValueError, ValueError):
+        return False
+    return not (
+        addr.is_loopback
+        or addr.is_link_local
+        or addr.is_unspecified
+        or addr.is_multicast
+        or addr.is_reserved
     )
 
 
@@ -837,11 +859,6 @@ def get_lxc_template_node_map() -> dict[str, set[str]]:
     return {volid: set(nodes) for volid, nodes in mapping.items()}
 
 
-def get_vztmpl_nodes(volid: str) -> set[str]:
-    """看得到指定 vztmpl volid 的節點集合；模板不存在任何節點時為空集合。"""
-    return get_lxc_template_node_map().get(str(volid), set())
-
-
 # ---------------------------------------------------------------------------
 # Session ticket (for WebSocket auth — password-based, not API token)
 # ---------------------------------------------------------------------------
@@ -918,14 +935,6 @@ async def get_vnc_ticket_with_session(
         return resp.json()["data"]
 
 
-async def wait_task(task_id: str, node: str, check_interval: int | None = None) -> dict:
-    return await wait_for_task_status(
-        node_name=node,
-        task_id=task_id,
-        check_interval=check_interval,
-    )
-
-
 # ---------------------------------------------------------------------------
 # Console tickets
 # ---------------------------------------------------------------------------
@@ -935,8 +944,3 @@ def get_terminal_ticket(node: str, vmid: int) -> dict:
     proxmox = get_proxmox_api_for_node(node)
     return proxmox.nodes(node).lxc(vmid).termproxy.post()
 
-
-def get_vnc_ticket(node: str, vmid: int) -> dict:
-    """Get VNC proxy ticket for a VM (port + ticket)."""
-    proxmox = get_proxmox_api_for_node(node)
-    return proxmox.nodes(node).qemu(vmid).vncproxy.post(websocket=1)

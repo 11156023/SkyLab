@@ -1,47 +1,14 @@
 """VM request schemas."""
 
-import unicodedata
 import uuid
 from datetime import date, datetime
-from typing import Annotated, Literal
+from typing import Literal
 
-from pydantic import AfterValidator, BaseModel, Field
+from pydantic import BaseModel, Field
 
 from app.models.user import UserRole
 from app.models.vm_request import VMProvisioningStatus, VMRequestStatus
-
-
-def _validate_unicode_hostname(v: str) -> str:
-    if not v:
-        raise ValueError("Hostname cannot be empty")
-    if v.startswith("-") or v.endswith("-"):
-        raise ValueError("Hostname cannot start or end with a hyphen")
-    for ch in v:
-        if ch == "-":
-            continue
-        cat = unicodedata.category(ch)
-        if not (cat.startswith("L") or cat.startswith("N")):
-            raise ValueError(
-                "Only Unicode letters, digits, and hyphens are allowed in hostname"
-            )
-    # 檢查 Punycode 編碼後的長度是否仍在 DNS label 限制內（≤ 63 字元）
-    try:
-        encoded = v.encode("punycode").decode("ascii")
-        if not v.isascii():
-            ace_label = f"xn--{encoded}"
-        else:
-            ace_label = v
-        if len(ace_label) > 63:
-            raise ValueError(
-                f"Hostname exceeds 63 characters after Punycode encoding "
-                f"(encoded length: {len(ace_label)})"
-            )
-    except UnicodeError as e:
-        raise ValueError(f"Hostname cannot be encoded as valid Punycode: {e}") from e
-    return v
-
-
-UnicodeHostname = Annotated[str, AfterValidator(_validate_unicode_hostname)]
+from app.utils.hostname import UnicodeHostname
 
 
 class VMRequestCreate(BaseModel):

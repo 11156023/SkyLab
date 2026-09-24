@@ -11,6 +11,12 @@ from sqlmodel import Session, col, select
 
 from app.core.authorizers import can_bypass_resource_ownership
 from app.core.security import decrypt_value
+from app.domain.resource_markers import (  # noqa: F401 — re-export 給既有引用
+    RESOURCE_CONVERTED_TO_TEMPLATE_MARKER,
+    RESOURCE_DELETED_BY_USER_MARKER,
+    RESOURCE_DELETED_MARKERS,
+    RESOURCE_DELETED_ORPHAN_MARKER,
+)
 from app.exceptions import BadRequestError, PermissionDeniedError, ProxmoxError
 from app.models import (
     BatchProvisionJob,
@@ -111,7 +117,7 @@ def ensure_lxc_platform_key(*, session: Session, node: str, vmid: int) -> bool:
             )
             return False
 
-        from app.services.template.clone_service import (  # noqa: PLC0415
+        from app.services.template.clone_service import (
             inject_lxc_platform_key,
         )
 
@@ -160,7 +166,7 @@ def ensure_lxc_login_password(
         if not encrypted:
             return False
 
-        from app.services.template.clone_service import (  # noqa: PLC0415
+        from app.services.template.clone_service import (
             set_lxc_root_password,
         )
 
@@ -635,23 +641,13 @@ def list_all(
         raise ProxmoxError(f"Failed to get resources: {e}")
 
 
-DELETED_TOMBSTONE_DAYS = 30
-
 # Marker written onto a VMRequest's resource_warning / provisioning_error /
 # review_comment when the user explicitly deletes the live resource. Used
 # by list_by_user to suppress the now-defunct approved request from being
 # resurrected as a "failed" placeholder, and by the frontend to hide the
-# consumed request from the applications list.
-RESOURCE_DELETED_BY_USER_MARKER = "Resource deleted by user"
-RESOURCE_DELETED_ORPHAN_MARKER = "Resource deleted (orphan DB cleanup)"
-RESOURCE_CONVERTED_TO_TEMPLATE_MARKER = "Resource converted to template"
-_RESOURCE_DELETED_MARKERS = frozenset(
-    {
-        RESOURCE_DELETED_BY_USER_MARKER,
-        RESOURCE_DELETED_ORPHAN_MARKER,
-        RESOURCE_CONVERTED_TO_TEMPLATE_MARKER,
-    }
-)
+# consumed request from the applications list. 定義在 domain 層，這裡只是
+# re-export 讓既有的 ``resource_service.RESOURCE_*`` 引用不用改。
+_RESOURCE_DELETED_MARKERS = RESOURCE_DELETED_MARKERS
 
 
 def mark_linked_request_consumed(
@@ -910,7 +906,7 @@ def list_by_user(
         # Proxmox as "stopped" for a while after the user hits delete;
         # without this overlay the card would reappear as 已關機.
         if shown_vmids:
-            from app.services.resource import deletion_service  # noqa: PLC0415
+            from app.services.resource import deletion_service
 
             deleting_map = deletion_service.list_active_for_vmids(
                 session=session, vmids=list(shown_vmids)
@@ -926,57 +922,71 @@ def list_by_user(
         raise ProxmoxError(f"Failed to get user resources: {e}")
 
 
-def _list_user_deletion_tombstones(
-    *,
-    session: Session,
-    user_id: uuid.UUID,
-    excluded_vmids: set[int] | None = None,
-) -> list[ResourcePublic]:
-    """Build ResourcePublic tombstones for the user's recent self-initiated
-    deletions, so the resources page can render a "已刪除" badge alongside
-    live resources."""
-    from sqlmodel import col, select
+# Proxmox 的 config 原封不動回傳等於把 cloud-init 的 ``cipassword``（雖是
+# hash）、``sshkeys``、``ciuser`` 與 ``ipconfig*`` 的內網位址全都吐給前端，
+# 連唯讀的共享對象也看得到。改成白名單：只放行「顯示規格」需要的欄位，
+# 新欄位預設不外流。
+_CONFIG_ALLOWED_KEYS = frozenset(
+    {
+        # 規格
+        "cores",
+        "sockets",
+        "cpu",
+        "memory",
+        "balloon",
+        "swap",
+        # 識別
+        "name",
+        "hostname",
+        "description",
+        "tags",
+        # 平台
+        "ostype",
+        "arch",
+        "machine",
+        "bios",
+        "boot",
+        "bootdisk",
+        "onboot",
+        "agent",
+        "vga",
+        "unprivileged",
+        "features",
+        # 磁碟
+        "rootfs",
+        "efidisk0",
+    }
+)
 
-    from app.models.deletion_request import (
-        DeletionRequest,
-        DeletionRequestStatus,
+# 具編號的裝置欄位（scsi0、virtio0、ide2、sata0、net0…）：只有儲存區／
+# 橋接器與 MAC，沒有憑證，逐一列舉沒意義，改用前綴 + 數字判斷。
+_CONFIG_ALLOWED_DEVICE_PREFIXES = ("scsi", "virtio", "ide", "sata", "net")
+
+
+def _is_allowed_device_key(key: str) -> bool:
+    return any(
+        key.startswith(prefix) and key[len(prefix) :].isdigit()
+        for prefix in _CONFIG_ALLOWED_DEVICE_PREFIXES
     )
 
-    cutoff = _utc_now() - timedelta(days=DELETED_TOMBSTONE_DAYS)
-    rows = list(
-        session.exec(
-            select(DeletionRequest)
-            .where(
-                DeletionRequest.user_id == user_id,
-                DeletionRequest.status == DeletionRequestStatus.completed,
-                col(DeletionRequest.completed_at) >= cutoff,
-            )
-            .order_by(col(DeletionRequest.completed_at).desc())
-        ).all()
-    )
-    excluded_vmids = excluded_vmids or set()
-    return [
-        ResourcePublic(
-            vmid=req.vmid,
-            name=req.name or f"vm-{req.vmid}",
-            status="deleted",
-            node=req.node or "",
-            type=req.resource_type or "",
-            can_control=False,
-        )
-        for req in rows
-        if req.vmid not in excluded_vmids
-    ]
+
+def _filter_config(raw: dict) -> dict:
+    return {
+        key: value
+        for key, value in (raw or {}).items()
+        if key in _CONFIG_ALLOWED_KEYS or _is_allowed_device_key(key)
+    }
 
 
 def get_config(*, vmid: int, resource_info: dict) -> dict:
     try:
         node = resource_info["node"]
         resource_type = resource_info["type"]
-        return proxmox_service.get_config(node, vmid, resource_type)
+        raw = proxmox_service.get_config(node, vmid, resource_type)
     except Exception as e:
         logger.error(f"Failed to get config for {vmid}: {e}")
         raise ProxmoxError(f"Failed to get config for resource {vmid}: {e}")
+    return _filter_config(raw)
 
 
 def control(
@@ -1187,7 +1197,7 @@ def delete(
 
         # Clean up reverse proxy rules and Cloudflare DNS records for this VM
         try:
-            from app.services.network import reverse_proxy_service  # noqa: PLC0415
+            from app.services.network import reverse_proxy_service
             reverse_proxy_service.remove_reverse_proxy_rules_for_vmid(session, vmid)
         except Exception as exc:
             logger.warning("Failed to clean up reverse proxy rules for VM %s: %s", vmid, exc)
@@ -1195,14 +1205,14 @@ def delete(
         # NAT 規則的 vmid 外鍵會連帶刪除 DB 紀錄，但不會重寫 Gateway 上的
         # haproxy 設定；不明確清一次，轉發會留在原地指向已釋放的 IP。
         try:
-            from app.services.network import nat_service  # noqa: PLC0415
+            from app.services.network import nat_service
             nat_service.remove_nat_rules_for_vmid(session, vmid)
         except Exception as exc:
             logger.warning("Failed to clean up NAT rules for VM %s: %s", vmid, exc)
 
         # Release IP allocation
         try:
-            from app.services.network import ip_management_service  # noqa: PLC0415
+            from app.services.network import ip_management_service
             ip_management_service.release_ip(session, vmid)
         except Exception as exc:
             logger.warning("Failed to release IP for VM %s: %s", vmid, exc)
@@ -1288,19 +1298,19 @@ def delete_orphan_db_record(
     )
 
     try:
-        from app.services.network import reverse_proxy_service  # noqa: PLC0415
+        from app.services.network import reverse_proxy_service
         reverse_proxy_service.remove_reverse_proxy_rules_for_vmid(session, vmid)
     except Exception as exc:
         logger.warning("Orphan cleanup: failed to remove reverse proxy rules for vmid=%s: %s", vmid, exc)
 
     try:
-        from app.services.network import nat_service  # noqa: PLC0415
+        from app.services.network import nat_service
         nat_service.remove_nat_rules_for_vmid(session, vmid)
     except Exception as exc:
         logger.warning("Orphan cleanup: failed to remove NAT rules for vmid=%s: %s", vmid, exc)
 
     try:
-        from app.services.network import ip_management_service  # noqa: PLC0415
+        from app.services.network import ip_management_service
         ip_management_service.release_ip(session, vmid)
     except Exception as exc:
         logger.warning("Orphan cleanup: failed to release IP for vmid=%s: %s", vmid, exc)
@@ -1657,54 +1667,59 @@ def batch_action(
     session: Session,
     vmids: list[int],
     action: str,
-    user_id: uuid.UUID,
-    is_admin: bool,
+    user: User,
 ) -> BatchActionResponse:
-    """Batch control/delete for multiple resources."""
+    """Batch control/delete for multiple resources.
+
+    每個 vmid 的授權規則與單機端點完全相同（不要在這裡另寫一份 ``user_id`` 比對：
+    課堂機的 ``user_id`` 是學生，只比對 user_id 會讓學生刪掉老師佈建的班級機）：
+    - 電源操作走使用層級 ``check_resource_control_access``（擁有者／管理員／
+      班級老師／被分享者）。
+    - 刪除走管理層級 ``require_resource_management``，並和單機刪除一樣排進
+      DeletionRequest 佇列（可取消、可稽核），不直接 purge/force。
+    """
+    from app.api.deps.proxmox import (
+        check_resource_control_access,
+    )
+    from app.services.resource import deletion_service
+
     results: list[BatchActionResultItem] = []
 
     for vmid in vmids:
         try:
             resource_info = proxmox_service.find_resource(vmid)
 
-            # Non-admin users must own the resource
-            if not is_admin:
-                db_resource = resource_repo.get_resource_by_vmid(
-                    session=session, vmid=vmid
-                )
-                if not db_resource or db_resource.user_id != user_id:
-                    results.append(
-                        BatchActionResultItem(
-                            vmid=vmid,
-                            success=False,
-                            message="Permission denied",
-                        )
-                    )
-                    continue
-
             if action == "delete":
-                delete(
+                require_resource_management(session=session, user=user, vmid=vmid)
+                req = deletion_service.create_deletion_request(
                     session=session,
+                    user_id=user.id,
                     vmid=vmid,
                     resource_info=resource_info,
-                    user_id=user_id,
                     purge=True,
-                    force=True,
+                    force=False,
                 )
+                deletion_service.enqueue_processing(session=session, req=req)
+                message = f"Resource {vmid} deletion queued"
+
             else:
+                check_resource_control_access(vmid, user, session)
                 control(
                     session=session,
                     vmid=vmid,
                     action=action,
                     resource_info=resource_info,
-                    user_id=user_id,
+                    user_id=user.id,
                 )
+                message = f"Resource {vmid} {action} succeeded"
 
             results.append(
+                BatchActionResultItem(vmid=vmid, success=True, message=message)
+            )
+        except PermissionDeniedError:
+            results.append(
                 BatchActionResultItem(
-                    vmid=vmid,
-                    success=True,
-                    message=f"Resource {vmid} {action} succeeded",
+                    vmid=vmid, success=False, message="Permission denied"
                 )
             )
         except Exception as e:

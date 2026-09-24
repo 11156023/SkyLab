@@ -232,3 +232,64 @@ def test_student_sees_broadcast_in_enrolled_class(db: Session) -> None:
     )
 
     assert found is not None and found.id == live.id
+
+
+def test_archived_class_no_longer_counts_as_mine(db: Session) -> None:
+    """課都結束了，舊班級不該再收到直播事件。"""
+    teacher = _user(db, UserRole.teacher)
+    student = _user(db, UserRole.student)
+    teaching_class = _class(db, teacher, student)
+    teaching_class.status = TeachingClassStatus.archived
+    db.add(teaching_class)
+    db.commit()
+
+    assert classroom_service.get_class_ids_of_user(db, student.id) == set()
+    assert classroom_service.get_class_ids_of_user(db, teacher.id) == set()
+
+
+def _monitor_session(class_id: uuid.UUID, started_by: uuid.UUID) -> ClassroomSession:
+    return ClassroomSession(
+        id=uuid.uuid4().hex,
+        vmid=701,
+        mode=SessionMode.monitor,
+        class_id=class_id,
+        started_by=started_by,
+        controller_user_id=None,
+        subscriber_count=0,
+    )
+
+
+class _StubSessionManager:
+    def __init__(self, live: ClassroomSession) -> None:
+        self.live = live
+        self.controllers: list[uuid.UUID | None] = []
+
+    def get_session(self, session_id: str) -> ClassroomSession | None:
+        return self.live if session_id == self.live.id else None
+
+    async def set_controller(
+        self, session_id: str, user_id: uuid.UUID | None
+    ) -> None:
+        self.controllers.append(user_id)
+
+
+async def test_control_is_refused_once_the_class_changed_hands(
+    db: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """接管權限要每次重問：session 開著時班級可能已經換人帶。"""
+    teacher = _user(db, UserRole.teacher)
+    successor = _user(db, UserRole.teacher)
+    teaching_class = _class(db, teacher)
+    live = _monitor_session(teaching_class.id, teacher.id)
+    manager = _StubSessionManager(live)
+    monkeypatch.setattr(classroom_service, "vnc_session_manager", manager)
+
+    teaching_class.owner_id = successor.id  # 班級轉給別的老師
+    db.add(teaching_class)
+    db.commit()
+
+    with pytest.raises(PermissionDeniedError):
+        await classroom_service.set_control(db, teacher, live.id, "take")
+    with pytest.raises(PermissionDeniedError):
+        await classroom_service.stop_session(db, teacher, live.id)
+    assert manager.controllers == []

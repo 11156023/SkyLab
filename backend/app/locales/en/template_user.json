@@ -19,6 +19,8 @@
   "template.hasClonedVms": "Template still has cloned VMs: {vmids}. Delete them first.",
   "template.referencedByEnvironments": "Multi-machine environments \"{shown}\"{more} still reference this parent template. Please switch those environments to another source or take them offline before deleting it.",
   "template.referencedByEnvironmentsMore": " ({count} total)",
+  "template.hasOpenRequests": "{count} request(s) still point at this template and have not been provisioned yet. Approve or reject them before deleting it.",
+  "template.referencedByBatchJobs": "{count} batch provisioning job(s) still use this template and have not finished. Cancel them or wait until they finish before deleting it.",
   "template.mustBeReadyForUpdate": "Template must be ready to start an update cycle (now: {status})",
   "template.notInUpdateCycle": "Template is not in an update cycle",
   "template.updateCloneNotReady": "Update-cycle clone is not ready yet; wait for the clone task to finish",

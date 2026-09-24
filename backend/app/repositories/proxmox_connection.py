@@ -1,6 +1,8 @@
 """Proxmox 連線（多入口）資料庫操作"""
 
+from collections.abc import Mapping
 from datetime import datetime, timezone
+from typing import Any
 
 from cryptography.fernet import InvalidToken
 from sqlmodel import Session, select
@@ -91,52 +93,75 @@ def create_connection(
     return conn
 
 
+# 可由 PUT /connections/{id} 更新的欄位；其餘欄位（id/時間戳）不接受外部指定
+_UPDATABLE_FIELDS: frozenset[str] = frozenset(
+    {
+        "name",
+        "host",
+        "port",
+        "user",
+        "password",
+        "verify_ssl",
+        "ca_cert",
+        "api_timeout",
+        "pool_name",
+        "iso_storage",
+        "data_storage",
+        "task_check_interval",
+        "gateway_ip",
+        "local_subnet",
+        "default_node",
+        "enabled",
+        "is_default",
+    }
+)
+
+# 這三個欄位允許清空：帶 None 或空字串都存成 None
+_NULLABLE_TEXT_FIELDS: frozenset[str] = frozenset(
+    {"gateway_ip", "local_subnet", "default_node"}
+)
+
+
 def update_connection(
     session: Session,
     connection_id: int,
     *,
-    name: str,
-    host: str,
-    port: int,
-    user: str,
-    password: str | None,  # None = 不更新密碼
-    verify_ssl: bool,
-    ca_cert: str | None,  # None = 不更新；空字串 = 清除
-    api_timeout: int,
-    pool_name: str,
-    iso_storage: str,
-    data_storage: str,
-    task_check_interval: int,
-    gateway_ip: str | None,
-    local_subnet: str | None,
-    default_node: str | None,
-    enabled: bool,
-    is_default: bool,
+    updates: Mapping[str, Any],
 ) -> ProxmoxConnection | None:
+    """部分更新一筆連線：只寫入 ``updates`` 真的帶到的欄位。
+
+    ``updates`` 由 route 以 ``model_dump(exclude_unset=True)`` 取得，所以
+    「沒帶這個欄位」與「帶了 None」能分開處理，呼叫端不必回送整份設定：
+    - ``password``：帶 None 表示不換密碼
+    - ``ca_cert``：帶 None 表示不動，帶空字串才是清除
+    - ``gateway_ip`` / ``local_subnet`` / ``default_node``：帶 None 或空字串是清空
+    - 其餘欄位帶 None 一律忽略（它們沒有「設為 None」的語義）
+    """
     conn = session.get(ProxmoxConnection, connection_id)
     if conn is None:
         return None
-    if is_default and not conn.is_default:
+
+    if updates.get("is_default") and not conn.is_default:
         _clear_default(session)
-    conn.name = name
-    conn.host = host
-    conn.port = port
-    conn.user = user
-    if password is not None:
-        conn.encrypted_password = encrypt_value(password)
-    conn.verify_ssl = verify_ssl
-    if ca_cert is not None:
-        conn.ca_cert = ca_cert if ca_cert else None
-    conn.api_timeout = api_timeout
-    conn.pool_name = pool_name
-    conn.iso_storage = iso_storage
-    conn.data_storage = data_storage
-    conn.task_check_interval = task_check_interval
-    conn.gateway_ip = gateway_ip or None
-    conn.local_subnet = local_subnet or None
-    conn.default_node = default_node or None
-    conn.enabled = enabled
-    conn.is_default = is_default
+
+    for field, value in updates.items():
+        if field not in _UPDATABLE_FIELDS:
+            continue
+        if field == "password":
+            if value is not None:
+                conn.encrypted_password = encrypt_value(str(value))
+            continue
+        if field == "ca_cert":
+            if value is not None:
+                conn.ca_cert = str(value) or None
+            continue
+        if field in _NULLABLE_TEXT_FIELDS:
+            setattr(conn, field, value or None)
+            continue
+        if value is None:
+            continue
+        setattr(conn, field, value)
+
     conn.updated_at = datetime.now(timezone.utc)
     session.add(conn)
     session.commit()

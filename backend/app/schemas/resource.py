@@ -1,46 +1,12 @@
 """資源與 Proxmox 相關 schemas"""
 
-import unicodedata
 import uuid
 from datetime import date, datetime
-from typing import Annotated, Any, Literal
+from typing import Any, Literal
 
-from pydantic import AfterValidator, BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, model_validator
 
-
-def _validate_unicode_hostname(v: str) -> str:
-    """驗證 hostname：允許 Unicode 字母/數字和連字符，並檢查 Punycode 編碼後長度。"""
-    if not v:
-        raise ValueError("Hostname cannot be empty")
-    if v.startswith("-") or v.endswith("-"):
-        raise ValueError("Hostname cannot start or end with a hyphen")
-    for ch in v:
-        if ch == "-":
-            continue
-        cat = unicodedata.category(ch)
-        if not (cat.startswith("L") or cat.startswith("N")):
-            raise ValueError(
-                "Only Unicode letters, digits, and hyphens are allowed in hostname"
-            )
-    # 檢查 Punycode 編碼後的長度是否仍在 DNS label 限制內（≤ 63 字元）
-    try:
-        encoded = v.encode("punycode").decode("ascii")
-        # 如果包含非 ASCII 字元，實際 DNS label 會加上 "xn--" 前綴
-        if not v.isascii():
-            ace_label = f"xn--{encoded}"
-        else:
-            ace_label = v
-        if len(ace_label) > 63:
-            raise ValueError(
-                f"Hostname exceeds 63 characters after Punycode encoding "
-                f"(encoded length: {len(ace_label)})"
-            )
-    except UnicodeError as e:
-        raise ValueError(f"Hostname cannot be encoded as valid Punycode: {e}") from e
-    return v
-
-
-UnicodeHostname = Annotated[str, AfterValidator(_validate_unicode_hostname)]
+from app.utils.hostname import UnicodeHostname
 
 ResourceStatus = Literal[
     "scheduled",
@@ -56,18 +22,6 @@ ResourceStatus = Literal[
 
 
 # ===== Proxmox Info Schemas =====
-
-
-class NodeSchema(BaseModel):
-    """Proxmox 節點資訊"""
-
-    node: str
-    status: str
-    cpu: float | None = None
-    maxcpu: int | None = None
-    mem: int | None = None
-    maxmem: int | None = None
-    uptime: int | None = None
 
 
 class VMSchema(BaseModel):

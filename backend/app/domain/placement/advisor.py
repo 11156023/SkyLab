@@ -31,18 +31,12 @@ _cluster_cache: _ClusterCacheEntry | None = None
 _cluster_cache_lock = threading.Lock()
 
 
-def _disabled_node_names() -> set[str]:
-    """讀取被管理員停用的節點名稱；DB 讀取失敗時不過濾（fail-open）。"""
+def _gpu_used_slots() -> dict[str, int]:
+    """各節點已被 VM 佔用的 GPU 插槽數；查詢失敗回空 dict（fail-open）。"""
     try:
-        from sqlmodel import Session
-
-        from app.core.db import engine
-        from app.repositories.proxmox_node import get_disabled_node_names
-
-        with Session(engine) as session:
-            return get_disabled_node_names(session)
+        return gpu_service.get_gpu_used_slots_by_node()
     except Exception:
-        return set()
+        return {}
 
 
 def _load_cluster_state() -> tuple[list[NodeSnapshot], list[ResourceSnapshot]]:
@@ -51,7 +45,7 @@ def _load_cluster_state() -> tuple[list[NodeSnapshot], list[ResourceSnapshot]]:
         return cached.nodes, cached.resources
 
     gpu_map = gpu_service.get_gpu_node_counts()
-    disabled = _disabled_node_names()
+    disabled = proxmox_service.admin_disabled_node_names()
     nodes = [
         NodeSnapshot(
             node=str(item.get("node") or "unknown"),
@@ -100,6 +94,7 @@ def _build_node_capacities(
     running_counter = Counter(
         resource.node for resource in resources if resource.status == "running"
     )
+    gpu_used = _gpu_used_slots()
     capacities: list[NodeCapacity] = []
     for node in nodes:
         running_resources = running_counter.get(node.node, 0)
@@ -124,7 +119,9 @@ def _build_node_capacities(
                 node=node.node,
                 status=node.status,
                 gpu_count=node.gpu_count,
-                allocatable_gpu_slots=node.gpu_count,
+                allocatable_gpu_slots=max(
+                    node.gpu_count - gpu_used.get(node.node, 0), 0
+                ),
                 running_resources=running_resources,
                 guest_soft_limit=guest_soft_limit,
                 guest_pressure_ratio=guest_pressure_ratio,
@@ -250,16 +247,6 @@ def _resource_type_summary(
             f"so placement uses {effective_type.upper()}."
         )
     return f"Placement uses {effective_type.upper()} capacity rules."
-
-
-def _resource_type_reason_from_choice(
-    *,
-    request: PlacementRequest,
-    effective_resource_type: ResourceType,
-) -> str:
-    if request.resource_type == effective_resource_type:
-        return _decide_resource_type(request)[1]
-    return f"Placement selected {effective_resource_type.upper()} capacity rules."
 
 
 def _request_label(request: PlacementRequest) -> str:

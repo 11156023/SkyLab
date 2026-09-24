@@ -13,7 +13,7 @@ from fastapi import HTTPException
 from sqlalchemy.pool import StaticPool
 from sqlmodel import Session, SQLModel, create_engine
 
-from app import models  # noqa: F401
+from app import models
 from app.ai.teacher_judge import (
     automation_support,
     script_artifact_service,

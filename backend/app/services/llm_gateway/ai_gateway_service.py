@@ -1,23 +1,20 @@
-import json
 import logging
 import secrets
-import time
 import uuid
-from collections.abc import AsyncGenerator
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
-import httpx
 from sqlalchemy import and_, case, distinct, func, or_
 from sqlalchemy.orm import aliased
 from sqlmodel import Session, select
 
-from app.core.authorizers import require_ai_api_access
+from app.core.authorizers import require_ai_api_access, require_ai_api_manage
 from app.core.i18n import t
-from app.core.security import decrypt_value, encrypt_value
+from app.core.security import encrypt_value
 from app.exceptions import BadRequestError, NotFoundError
 from app.features.ai.config import settings as ai_api_settings
 from app.models import (
+    API_KEY_PREFIX_LENGTH,
     AIAPICredential,
     AIAPIRequest,
     AIAPIRequestStatus,
@@ -31,6 +28,7 @@ from app.schemas import (
     AIAPICredentialPublic,
     AIAPICredentialsAdminPublic,
     AIAPICredentialsPublic,
+    AIAPICredentialWithSecret,
     AIAPIRequestCreate,
     AIAPIRequestPublic,
     AIAPIRequestReview,
@@ -51,17 +49,33 @@ def _generate_user_api_key() -> str:
 
 def _credential_prefix(api_key: str) -> str:
     api_key = api_key.strip()
-    return api_key[: min(8, len(api_key))]
+    return api_key[: min(API_KEY_PREFIX_LENGTH, len(api_key))]
 
 
-def _get_owned_credential(
+def _get_manageable_credential(
     *, session: Session, credential_id: uuid.UUID, current_user
 ) -> AIAPICredential:
+    """取出金鑰並檢查「可寫」權限（擁有者，或具 AI_API_MANAGE_ALL 的管理員）。"""
     credential = session.get(AIAPICredential, credential_id)
     if not credential:
         raise NotFoundError(t("ai_gateway.credential_not_found"))
-    require_ai_api_access(current_user, credential.user_id)
+    require_ai_api_manage(
+        current_user,
+        credential.user_id,
+        detail=t("ai_gateway.credential_manage_denied"),
+    )
     return credential
+
+
+def _acting_on_behalf(credential: AIAPICredential, current_user) -> bool:
+    """這次操作是不是管理員在動別人的金鑰（決定是否回明文、稽核怎麼寫）。"""
+    return getattr(current_user, "id", None) != credential.user_id
+
+
+def _audit_suffix(credential: AIAPICredential, current_user) -> str:
+    if not _acting_on_behalf(credential, current_user):
+        return ""
+    return f" on behalf of user {credential.user_id}"
 
 
 def _to_request_public(req: AIAPIRequest) -> AIAPIRequestPublic:
@@ -95,22 +109,27 @@ def _public_base_url(credential: AIAPICredential) -> str:
 
 
 def _to_credential_public(credential: AIAPICredential) -> AIAPICredentialPublic:
-    try:
-        api_key = decrypt_value(credential.api_key_encrypted)
-    except Exception:
-        api_key = "<無效的或已損壞的金鑰>"
-
+    """一般呈現：只帶前綴。明文金鑰不進清單，避免每次載入頁面都再散佈一次。"""
     return AIAPICredentialPublic(
         id=credential.id,
         request_id=credential.request_id,
         base_url=_public_base_url(credential),
-        api_key=api_key,
         api_key_prefix=credential.api_key_prefix,
         api_key_name=credential.api_key_name,
         rate_limit=credential.rate_limit,
         expires_at=credential.expires_at,
         revoked_at=credential.revoked_at,
         created_at=credential.created_at,
+    )
+
+
+def _to_credential_with_secret(
+    credential: AIAPICredential, *, api_key: str | None
+) -> AIAPICredentialWithSecret:
+    """輪替當下的一次性回應；``api_key`` 為 None 時只回前綴。"""
+    return AIAPICredentialWithSecret(
+        **_to_credential_public(credential).model_dump(),
+        api_key=api_key,
     )
 
 
@@ -437,8 +456,8 @@ def list_all_credentials(
 
 def rotate_credential(
     *, session: Session, credential_id: uuid.UUID, current_user
-) -> AIAPICredentialPublic:
-    credential = _get_owned_credential(
+) -> AIAPICredentialWithSecret:
+    credential = _get_manageable_credential(
         session=session, credential_id=credential_id, current_user=current_user
     )
 
@@ -462,23 +481,30 @@ def rotate_credential(
     )
     session.add(new_credential)
 
+    on_behalf = _acting_on_behalf(credential, current_user)
     audit_service.log_action(
         session=session,
         user_id=current_user.id,
         action="ai_api_credential_rotate",
-        details=f"Rotated AI API credential {credential_id}",
+        details=(
+            f"Rotated AI API credential {credential_id}"
+            f"{_audit_suffix(credential, current_user)}"
+        ),
         commit=False,
     )
 
     session.commit()
     session.refresh(new_credential)
-    return _to_credential_public(new_credential)
+    # 代操時不回明文：管理員的目的是撤換別人的金鑰，不是取得它
+    return _to_credential_with_secret(
+        new_credential, api_key=None if on_behalf else new_api_key
+    )
 
 
 def delete_credential(
     *, session: Session, credential_id: uuid.UUID, current_user
 ) -> Message:
-    credential = _get_owned_credential(
+    credential = _get_manageable_credential(
         session=session, credential_id=credential_id, current_user=current_user
     )
 
@@ -500,7 +526,10 @@ def delete_credential(
         session=session,
         user_id=current_user.id,
         action="ai_api_credential_delete",
-        details=f"{operation.title()} AI API credential {credential_id}",
+        details=(
+            f"{operation.title()} AI API credential {credential_id}"
+            f"{_audit_suffix(credential, current_user)}"
+        ),
         commit=False,
     )
     session.commit()
@@ -510,7 +539,7 @@ def delete_credential(
 def update_credential_name(
     *, session: Session, credential_id: uuid.UUID, name: str, current_user
 ) -> AIAPICredentialPublic:
-    credential = _get_owned_credential(
+    credential = _get_manageable_credential(
         session=session, credential_id=credential_id, current_user=current_user
     )
 
@@ -521,7 +550,10 @@ def update_credential_name(
         session=session,
         user_id=current_user.id,
         action="ai_api_credential_update",
-        details=f"Renamed AI API credential {credential_id} to '{name}'",
+        details=(
+            f"Renamed AI API credential {credential_id} to '{name}'"
+            f"{_audit_suffix(credential, current_user)}"
+        ),
         commit=False,
     )
 
@@ -632,124 +664,6 @@ def record_template_call(
         input_tokens,
         output_tokens,
     )
-
-
-# ===== 新增：代理到 VLLM 功能 =====
-
-
-async def proxy_to_vllm_chat_completion(
-    *,
-    user: User,
-    request_data: dict,
-) -> dict:
-    """
-    代理聊天补全請求到 VLLM Gateway（非流式）
-
-    Returns:
-        dict: VLLM 回應（附加 duration_ms 耗時資訊）
-    """
-    url = f"{ai_api_settings.resolved_vllm_base_url}/v1/chat/completions"
-    headers = {
-        "Authorization": f"Bearer {ai_api_settings.ai_api_api_key}",
-        "Content-Type": "application/json",
-    }
-
-    start_time = time.time()
-    model_name = request_data.get("model", "unknown")
-
-    try:
-        async with httpx.AsyncClient(timeout=ai_api_settings.ai_api_timeout) as client:
-            response = await client.post(url, json=request_data, headers=headers)
-            response.raise_for_status()
-            result = response.json()
-
-        duration_ms = int((time.time() - start_time) * 1000)
-        result["duration_ms"] = duration_ms  # 附加耗時到回應
-
-        usage = result.get("usage", {})
-        logger.info(
-            "User %s completed chat request: model=%s, tokens=%d, duration=%dms",
-            user.email,
-            model_name,
-            usage.get("total_tokens", 0),
-            duration_ms,
-        )
-
-        return result
-
-    except httpx.HTTPStatusError as e:
-        logger.error(
-            "VLLM request failed for user %s: %s",
-            user.email,
-            f"VLLM returned {e.response.status_code}: {e.response.text}",
-        )
-        raise
-
-    except httpx.RequestError as e:
-        logger.error("VLLM connection failed for user %s: %s", user.email, str(e))
-        raise
-
-    except Exception as e:
-        logger.error("Unexpected error for user %s: %s", user.email, str(e))
-        raise
-
-
-async def proxy_to_vllm_chat_completion_stream(
-    *,
-    user: User,
-    request_data: dict,
-) -> AsyncGenerator[str, None]:
-    """
-    代理聊天补全請求到 VLLM Gateway（流式）
-
-    流式回應的 usage 資訊已包含在 vLLM 传輸的各個 chunk 中（若模型支援）。
-    """
-    request_data["stream"] = True
-    request_data.setdefault("stream_options", {})["include_usage"] = True
-
-    url = f"{ai_api_settings.resolved_vllm_base_url}/v1/chat/completions"
-    headers = {
-        "Authorization": f"Bearer {ai_api_settings.ai_api_api_key}",
-        "Content-Type": "application/json",
-    }
-
-    start_time = time.time()
-    model_name = request_data.get("model", "unknown")
-
-    try:
-        async with httpx.AsyncClient(timeout=ai_api_settings.ai_api_timeout) as client:
-            async with client.stream(
-                "POST", url, json=request_data, headers=headers
-            ) as response:
-                response.raise_for_status()
-
-                async for line in response.aiter_lines():
-                    if not line.strip():
-                        continue
-
-                    if line.startswith("data: "):
-                        data_str = line[6:]
-
-                        if data_str == "[DONE]":
-                            duration_ms = int((time.time() - start_time) * 1000)
-                            logger.info(
-                                "User %s completed stream: model=%s, duration=%dms",
-                                user.email,
-                                model_name,
-                                duration_ms,
-                            )
-                            yield "data: [DONE]\n\n"
-                            break
-
-                        try:
-                            chunk = json.loads(data_str)
-                            yield f"data: {json.dumps(chunk)}\n\n"
-                        except json.JSONDecodeError:
-                            yield f"data: {data_str}\n\n"
-
-    except Exception as e:
-        logger.error("Stream error for user %s: %s", user.email, str(e))
-        raise
 
 
 # ===== 新增：查询使用统计 =====
@@ -887,84 +801,6 @@ def get_user_template_usage_stats(
 # ===== 統一用量（整合 Proxy / Template 兩種計算路由） =====
 
 ROUTE_MODEL = "model"
-ROUTE_SYSTEM = "system"
-
-
-def _empty_route_stats() -> dict[str, int]:
-    return {"calls": 0, "input_tokens": 0, "output_tokens": 0}
-
-
-def _accumulate_route_stats(stats: dict[str, int], record: Any) -> None:
-    stats["calls"] += 1
-    stats["input_tokens"] += record.input_tokens
-    stats["output_tokens"] += record.output_tokens
-
-
-def get_user_unified_usage_stats(
-    *,
-    session: Session,
-    user_id: uuid.UUID,
-    start_date: datetime,
-    end_date: datetime,
-) -> dict[str, Any]:
-    """
-    查詢使用者的統一 API 用量統計（AI 模型路由 + AI 系統路由）
-    """
-    proxy_records = session.exec(
-        select(AIAPIUsage)
-        .where(AIAPIUsage.user_id == user_id)
-        .where(AIAPIUsage.created_at >= start_date)
-        .where(AIAPIUsage.created_at <= end_date)
-    ).all()
-    template_records = session.exec(
-        select(AITemplateCallLog)
-        .where(AITemplateCallLog.user_id == user_id)
-        .where(AITemplateCallLog.created_at >= start_date)
-        .where(AITemplateCallLog.created_at <= end_date)
-    ).all()
-
-    routes: dict[str, dict[str, int]] = {
-        ROUTE_MODEL: _empty_route_stats(),
-        ROUTE_SYSTEM: _empty_route_stats(),
-    }
-    by_model: dict[str, dict[str, Any]] = {}
-
-    def _accumulate(record: Any, route: str) -> None:
-        _accumulate_route_stats(routes[route], record)
-        model = record.model_name
-        if model not in by_model:
-            by_model[model] = {
-                "calls": 0,
-                "input_tokens": 0,
-                "output_tokens": 0,
-                "routes": {},
-            }
-        stats = by_model[model]
-        stats["calls"] += 1
-        stats["input_tokens"] += record.input_tokens
-        stats["output_tokens"] += record.output_tokens
-        stats["routes"][route] = stats["routes"].get(route, 0) + 1
-
-    for proxy_record in proxy_records:
-        _accumulate(proxy_record, ROUTE_MODEL)
-    for template_record in template_records:
-        _accumulate(template_record, ROUTE_SYSTEM)
-
-    total_calls = sum(route["calls"] for route in routes.values())
-    return {
-        "total_calls": total_calls,
-        "total_input_tokens": sum(r["input_tokens"] for r in routes.values()),
-        "total_output_tokens": sum(r["output_tokens"] for r in routes.values()),
-        "routes": routes,
-        "by_model": by_model,
-        "daily": _daily_usage_buckets(
-            [*proxy_records, *template_records],
-            start_date=start_date,
-            end_date=end_date,
-        ),
-        "start_date": start_date,
-        "end_date": end_date,
-    }
 
 
 def list_user_usage_records(

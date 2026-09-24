@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import re
 import time
@@ -20,6 +21,7 @@ from sqlmodel import Session, col, select
 from app.core.db import engine
 from app.core.i18n import t
 from app.core.permissions import is_admin
+from app.domain.resource_markers import RESOURCE_CONVERTED_TO_TEMPLATE_MARKER
 from app.exceptions import (
     BadRequestError,
     ConflictError,
@@ -30,6 +32,8 @@ from app.infrastructure.proxmox import get_proxmox_settings_for_node
 from app.infrastructure.proxmox import operations as proxmox_ops
 from app.infrastructure.queue import enqueue_task, report_progress
 from app.models import (
+    BatchProvisionJob,
+    BatchProvisionJobStatus,
     CourseEnvironment,
     CourseEnvironmentNode,
     CourseEnvironmentVersion,
@@ -38,6 +42,8 @@ from app.models import (
     TaskRecordStatus,
     TemplateAttachment,
     User,
+    VMRequest,
+    VMRequestStatus,
     VMTemplate,
     VMTemplateStatus,
 )
@@ -127,7 +133,7 @@ def _spec_from_raw(
     """PVE 原始紀錄 → (cores, memory_mb, disk_gb)；缺值一律回 None。"""
     if not raw:
         return None, None, None
-    from app.services.proxmox.provisioning_service import (  # noqa: PLC0415
+    from app.services.proxmox.provisioning_service import (
         _template_disk_gb,
     )
 
@@ -200,7 +206,7 @@ def list_student_catalog(*, session: Session) -> list[TemplateCatalogItem]:
     with the PVE facts the request form needs (OS family and the source
     machine's own spec, which is the clone's floor).
     """
-    from app.services.proxmox.provisioning_service import (  # noqa: PLC0415
+    from app.services.proxmox.provisioning_service import (
         is_windows_template,
     )
 
@@ -244,8 +250,8 @@ def list_student_catalog(*, session: Session) -> list[TemplateCatalogItem]:
 def get_template_for_user(
     *, session: Session, user: User, template_id: uuid.UUID
 ) -> VMTemplatePublic:
-    template = _get_or_404(session, template_id)
-    _require_view(session, user, template)
+    template = get_or_404(session, template_id)
+    require_view(session, user, template)
     _reconcile_failed_template_tasks(session, [template])
     counts = _attachment_counts(session, [template.id])
     return _to_public(
@@ -280,7 +286,7 @@ def _reconcile_failed_template_tasks(
         session.commit()
 
 
-def _get_or_404(session: Session, template_id: uuid.UUID) -> VMTemplate:
+def get_or_404(session: Session, template_id: uuid.UUID) -> VMTemplate:
     template = template_repo.get_template(
         session=session, template_id=template_id
     )
@@ -299,7 +305,7 @@ def _can_manage(user: User) -> bool:
     return True
 
 
-def _require_view(session: Session, user: User, template: VMTemplate) -> None:
+def require_view(session: Session, user: User, template: VMTemplate) -> None:
     _ = session  # 保留服務層既有呼叫介面；私人/公開判斷已不需查詢群組。
     if is_admin(user):
         return
@@ -425,7 +431,7 @@ async def retry_template_conversion(
     user: User,
     template_id: uuid.UUID,
 ) -> tuple[VMTemplatePublic, TaskRecord]:
-    template = _get_or_404(session, template_id)
+    template = get_or_404(session, template_id)
     _require_owner(user, template)
     _reconcile_failed_template_tasks(session, [template])
     if template.status != VMTemplateStatus.failed:
@@ -501,7 +507,7 @@ def update_template(
     template_id: uuid.UUID,
     data: VMTemplateUpdate,
 ) -> VMTemplatePublic:
-    template = _get_or_404(session, template_id)
+    template = get_or_404(session, template_id)
     _require_owner(user, template)
 
     updates: dict[str, Any] = data.model_dump(exclude_unset=True)
@@ -532,8 +538,8 @@ def _template_attachments(
 def list_attachments(
     *, session: Session, user: User, template_id: uuid.UUID
 ) -> list[TemplateAttachment]:
-    template = _get_or_404(session, template_id)
-    _require_view(session, user, template)
+    template = get_or_404(session, template_id)
+    require_view(session, user, template)
     return _template_attachments(session, template.id)
 
 
@@ -584,7 +590,7 @@ def add_attachment(
     content_type: str | None,
     data: bytes,
 ) -> TemplateAttachment:
-    template = _get_or_404(session, template_id)
+    template = get_or_404(session, template_id)
     _require_owner(user, template)
 
     # 去掉路徑片段與控制字元（CR/LF 等），避免下載時的 Content-Disposition 被污染
@@ -638,8 +644,8 @@ def get_attachment_for_download(
     template_id: uuid.UUID,
     attachment_id: uuid.UUID,
 ) -> tuple[Path, TemplateAttachment]:
-    template = _get_or_404(session, template_id)
-    _require_view(session, user, template)
+    template = get_or_404(session, template_id)
+    require_view(session, user, template)
     attachment = session.get(TemplateAttachment, attachment_id)
     if attachment is None or attachment.template_id != template.id:
         raise NotFoundError(t("template.attachmentNotFound"))
@@ -656,7 +662,7 @@ def remove_attachment(
     template_id: uuid.UUID,
     attachment_id: uuid.UUID,
 ) -> None:
-    template = _get_or_404(session, template_id)
+    template = get_or_404(session, template_id)
     _require_owner(user, template)
     attachment = session.get(TemplateAttachment, attachment_id)
     if attachment is None or attachment.template_id != template.id:
@@ -673,6 +679,57 @@ def remove_attachment(
 def _clone_children_vmids(session: Session, pve_vmid: int) -> list[int]:
     stmt = select(Resource.vmid).where(Resource.template_id == pve_vmid)
     return list(session.exec(stmt).all())
+
+
+def _open_request_count(session: Session, pve_vmid: int) -> int:
+    """指定這個範本、但還沒開出機器的申請單數（pending / approved）。
+
+    只擋未開通的：已經有 vmid 的申請單其實是「已克隆的機器」，由
+    ``_clone_children_vmids`` 負責。範本被刪掉後這些申請單一開通就會直接
+    失敗（PVE 上找不到來源），使用者只會看到莫名其妙的建立錯誤。
+    """
+    count = session.exec(
+        select(sa_func.count())
+        .select_from(VMRequest)
+        .where(
+            VMRequest.template_id == pve_vmid,
+            col(VMRequest.status).in_(
+                [VMRequestStatus.pending, VMRequestStatus.approved]
+            ),
+            col(VMRequest.vmid).is_(None),
+        )
+    ).one()
+    return int(count or 0)
+
+
+def _open_batch_job_count(session: Session, template_id: uuid.UUID) -> int:
+    """引用這個範本、且還沒跑完的批量建立工作數（待審／已審未跑／執行中）。
+
+    ``template_params`` 是 JSON 字串欄位，跨 DB 沒有可靠的 JSON 查詢，
+    所以先用狀態縮小範圍再逐筆解析（未結束的 job 數量很小）。
+    """
+    jobs = session.exec(
+        select(BatchProvisionJob).where(
+            col(BatchProvisionJob.status).in_(
+                [
+                    BatchProvisionJobStatus.pending_review,
+                    BatchProvisionJobStatus.approved,
+                    BatchProvisionJobStatus.pending,
+                    BatchProvisionJobStatus.running,
+                ]
+            )
+        )
+    ).all()
+    wanted = str(template_id)
+    count = 0
+    for job in jobs:
+        try:
+            params = json.loads(job.template_params or "{}")
+        except (TypeError, ValueError):
+            continue
+        if str(params.get("vm_template_id") or "") == wanted:
+            count += 1
+    return count
 
 
 def _environments_referencing(session: Session, template_id: uuid.UUID) -> list[str]:
@@ -700,7 +757,7 @@ def _environments_referencing(session: Session, template_id: uuid.UUID) -> list[
 async def delete_template(
     *, session: Session, user: User, template_id: uuid.UUID
 ) -> TaskRecord:
-    template = _get_or_404(session, template_id)
+    template = get_or_404(session, template_id)
     _require_owner(user, template)
     if template.status == VMTemplateStatus.updating:
         raise ConflictError(t("template.updateCycleInProgress"))
@@ -712,6 +769,18 @@ async def delete_template(
                 "template.hasClonedVms",
                 vmids=", ".join(str(v) for v in sorted(children)),
             )
+        )
+
+    open_requests = _open_request_count(session, template.pve_vmid)
+    if open_requests:
+        raise ConflictError(
+            t("template.hasOpenRequests", count=open_requests)
+        )
+
+    open_batch_jobs = _open_batch_job_count(session, template.id)
+    if open_batch_jobs:
+        raise ConflictError(
+            t("template.referencedByBatchJobs", count=open_batch_jobs)
         )
 
     environments = _environments_referencing(session, template.id)
@@ -748,7 +817,7 @@ async def start_update_cycle(
     *, session: Session, user: User, template_id: uuid.UUID
 ) -> TaskRecord:
     """克隆出暫存母機供修改；成功後 template.source_vmid 指向暫存機。"""
-    template = _get_or_404(session, template_id)
+    template = get_or_404(session, template_id)
     _require_owner(user, template)
     if template.status != VMTemplateStatus.ready:
         raise ConflictError(
@@ -777,7 +846,7 @@ async def finish_update_cycle(
     *, session: Session, user: User, template_id: uuid.UUID
 ) -> TaskRecord:
     """把修改完的暫存機轉為新版範本並汰換舊版。"""
-    template = _get_or_404(session, template_id)
+    template = get_or_404(session, template_id)
     _require_owner(user, template)
     if template.status != VMTemplateStatus.updating:
         raise ConflictError(t("template.notInUpdateCycle"))
@@ -803,7 +872,7 @@ async def finish_update_cycle(
 async def cancel_update_cycle(
     *, session: Session, user: User, template_id: uuid.UUID
 ) -> TaskRecord:
-    template = _get_or_404(session, template_id)
+    template = get_or_404(session, template_id)
     _require_owner(user, template)
     if template.status != VMTemplateStatus.updating:
         raise ConflictError(t("template.notInUpdateCycle"))
@@ -896,7 +965,7 @@ _BOOT_AGENT_TIMEOUT_SECONDS = 120
 
 def _wait_for_guest_agent(node: str, vmid: int, timeout: float) -> bool:
     """輪詢 agent ping 直到回應或逾時（開機後 agent 起來需時）。"""
-    from app.infrastructure.proxmox import guest  # noqa: PLC0415
+    from app.infrastructure.proxmox import guest
 
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
@@ -921,7 +990,7 @@ def _reset_cloud_init_state(
     if resource_type != "qemu":
         return False
     try:
-        from app.infrastructure.proxmox import guest  # noqa: PLC0415
+        from app.infrastructure.proxmox import guest
 
         status = proxmox_ops.get_status(node, vmid, resource_type)
         if status.get("status") != "running":
@@ -1110,13 +1179,13 @@ def run_convert_task(task_id: uuid.UUID, payload: dict[str, Any]) -> dict[str, A
         # 母機網路資源一併回收：IP 若留在已配置狀態會永久佔用，gateway
         # 上殘留的 NAT 埠轉發在 IP 重配給別台 VM 後會導流到新住戶
         try:
-            from app.services.network import ip_management_service  # noqa: PLC0415
+            from app.services.network import ip_management_service
 
             ip_management_service.release_ip(session, pve_vmid)
         except Exception as exc:
             logger.warning("Failed to release IP for VM %s: %s", pve_vmid, exc)
         try:
-            from app.services.network import nat_service  # noqa: PLC0415
+            from app.services.network import nat_service
 
             nat_service.remove_nat_rules_for_vmid(session, pve_vmid)
         except Exception as exc:
@@ -1125,12 +1194,12 @@ def run_convert_task(task_id: uuid.UUID, payload: dict[str, Any]) -> dict[str, A
             )
         # 母機若來自申請單，一併標為已消耗；否則排程器會反覆嘗試
         # 啟動範本，資源頁也會把申請單復活成「建立失敗」placeholder
-        from app.services.resource import resource_service  # noqa: PLC0415
+        from app.services.resource import resource_service
 
         resource_service.mark_linked_request_consumed(
             session=session,
             vmid=pve_vmid,
-            marker=resource_service.RESOURCE_CONVERTED_TO_TEMPLATE_MARKER,
+            marker=RESOURCE_CONVERTED_TO_TEMPLATE_MARKER,
         )
         session.commit()
     return {"vmid": pve_vmid, "cloud_init_reset": cloud_init_reset}

@@ -29,7 +29,8 @@ PEER_POLICY_SEGMENT = "segment"
 logger = logging.getLogger(__name__)
 
 
-def _segments(value: str | None) -> set[str]:
+def network_segments(value: str | None) -> set[str]:
+    """把節點的 network 欄位（``lab-net / backend-net, mgmt``）拆成網段集合。"""
     return {
         item.strip()
         for item in (value or "lab-net").replace("/", ",").split(",")
@@ -192,75 +193,6 @@ def plan_one_way(
     ]
 
 
-def _ensure_rule(
-    *,
-    node: str,
-    vmid: int,
-    resource_type: ResourceType,
-    comment: str,
-    rule: dict[str, Any],
-) -> None:
-    existing = firewall_service.get_vm_firewall_rules(node, vmid, resource_type)
-    if any(row.get("comment") == comment for row in existing):
-        return
-    firewall_service.create_rule(
-        node,
-        vmid,
-        resource_type,
-        {**rule, "enable": 1, "comment": comment},
-    )
-
-
-def allow_one_way(
-    session: Session,
-    *,
-    scope_id: uuid.UUID,
-    comment_prefix: str,
-    source_vmid: int,
-    target_vmid: int,
-    protocol: str = "any",
-    port: int | None = None,
-) -> None:
-    """只建立、不清理。需要同步語意的呼叫端請改用 plan_one_way + sync_scope_rules。"""
-    for item in plan_one_way(
-        session,
-        scope_id=scope_id,
-        comment_prefix=comment_prefix,
-        source_vmid=source_vmid,
-        target_vmid=target_vmid,
-        protocol=protocol,
-        port=port,
-    ):
-        _ensure_rule(
-            node=item.node,
-            vmid=item.vmid,
-            resource_type=cast(ResourceType, item.resource_type),
-            comment=item.comment,
-            rule=item.rule,
-        )
-
-
-def _allow_one_way(
-    session: Session,
-    *,
-    class_id: uuid.UUID,
-    source_vmid: int,
-    target_vmid: int,
-    protocol: str = "any",
-    port: int | None = None,
-) -> None:
-    """Backward-compatible wrapper for class topology and existing tests."""
-    allow_one_way(
-        session,
-        scope_id=class_id,
-        comment_prefix=COMMENT_PREFIX,
-        source_vmid=source_vmid,
-        target_vmid=target_vmid,
-        protocol=protocol,
-        port=port,
-    )
-
-
 def apply_class_topology(session: Session, *, class_id: uuid.UUID) -> list[str]:
     """把版本的機器互通策略實體化成每位學生自己那組機器上的規則。
 
@@ -381,7 +313,8 @@ def apply_class_topology(session: Session, *, class_id: uuid.UUID) -> list[str]:
                     continue
                 target_node = nodes.get(target.machine_node_id)
                 if target_node is None or not (
-                    _segments(source_node.network) & _segments(target_node.network)
+                    network_segments(source_node.network)
+                    & network_segments(target_node.network)
                 ):
                     continue
                 if source.vmid is None or target.vmid is None:

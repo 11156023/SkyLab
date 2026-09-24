@@ -69,7 +69,10 @@ def test_web_push_config_is_generated_once_and_reused(db: Session) -> None:
     second = push_repo.get_web_push_config(session=db)
     assert first.id == 1
     assert first.vapid_public_key == second.vapid_public_key
-    assert first.vapid_private_key_pem.startswith("-----BEGIN PRIVATE KEY-----")
+    # 私鑰加密入庫；解密後才是 PEM
+    assert not first.vapid_private_key_pem.startswith("-----BEGIN")
+    pem = push_repo.get_vapid_private_key(session=db, config=first)
+    assert pem.startswith("-----BEGIN PRIVATE KEY-----")
     assert first.subject.startswith(("mailto:", "https://"))
 
 
@@ -86,8 +89,9 @@ def test_upsert_moves_endpoint_to_new_user_and_resets_failures(db: Session) -> N
     db.add(sub)
     db.commit()
 
-    # 同一台瀏覽器換帳號：endpoint 歸屬改到 bob，失敗計數歸零，不會多一筆
-    _subscribe(db, bob, "https://push.example/e1", language="ja", p256dh="P2")
+    # 同一台瀏覽器換帳號（p256dh/auth 相同）：endpoint 歸屬改到 bob，
+    # 失敗計數歸零，不會多一筆
+    _subscribe(db, bob, "https://push.example/e1", language="ja")
     moved = push_repo.get_subscription_by_endpoint(
         session=db, endpoint="https://push.example/e1"
     )
@@ -95,10 +99,20 @@ def test_upsert_moves_endpoint_to_new_user_and_resets_failures(db: Session) -> N
     assert moved.id == sub.id
     assert moved.user_id == bob.id
     assert moved.language == "ja"
-    assert moved.p256dh == "P2"
     assert moved.failure_count == 0
     assert push_repo.list_subscriptions_for_user(session=db, user_id=alice.id) == []
     assert push_repo.list_subscribed_user_ids(session=db) == [bob.id]
+
+    # 金鑰不同的第三者拿同一個 endpoint 來註冊：不能直接搶走（舊列刪除、另建新列）
+    carol = _create_user(db)
+    _subscribe(db, carol, "https://push.example/e1", p256dh="P2", auth="A2")
+    taken = push_repo.get_subscription_by_endpoint(
+        session=db, endpoint="https://push.example/e1"
+    )
+    assert taken is not None
+    assert taken.id != sub.id
+    assert taken.user_id == carol.id
+    assert push_repo.list_subscriptions_for_user(session=db, user_id=bob.id) == []
 
 
 def test_delete_by_ids_and_subscribed_user_ids(db: Session) -> None:

@@ -24,7 +24,12 @@ from fastapi.responses import JSONResponse, Response, StreamingResponse
 from app.api.deps import AIAPIUserDep, SessionDep
 from app.core.i18n import t
 from app.features.ai.config import settings as ai_api_settings
-from app.infrastructure.redis import check_rate_limit_sliding_window, get_redis
+from app.infrastructure.redis import (
+    ai_proxy_rate_limit_key,
+    check_rate_limit_sliding_window,
+    get_redis,
+    peek_rate_limit_by_key,
+)
 from app.schemas.ai_proxy import RateLimitStatusResponse, UsageStatsResponse
 from app.services.llm_gateway import ai_gateway_service
 
@@ -70,6 +75,38 @@ def _openai_error(
                 "code": code,
             }
         },
+    )
+
+
+def _upstream_failure(
+    *,
+    request: Request,
+    upstream: httpx.Response,
+    body: bytes,
+    context: str,
+) -> JSONResponse:
+    """上游的錯誤 body 一律不轉給呼叫端。
+
+    LiteLLM 的錯誤訊息會夾帶內部模型別名、後端 URL、服務金鑰片段與 traceback；
+    對外只保留 status code 與泛用訊息，原文連同 request id 寫進 log 供追查。
+    """
+    request_id = (
+        upstream.headers.get("x-request-id")
+        or request.headers.get("x-request-id")
+        or "-"
+    )
+    logger.warning(
+        "AI API upstream error: context=%s status=%s request_id=%s body=%s",
+        context,
+        upstream.status_code,
+        request_id,
+        body[:2048].decode("utf-8", "replace"),
+    )
+    return _openai_error(
+        upstream.status_code,
+        "The model service rejected this request.",
+        error_type="api_error",
+        code="upstream_error",
     )
 
 
@@ -314,9 +351,9 @@ async def _stream_upstream_response(
     finally:
         await upstream.aclose()
         await client.aclose()
-        from sqlmodel import Session  # noqa: PLC0415
+        from sqlmodel import Session
 
-        from app.core.db import engine  # noqa: PLC0415
+        from app.core.db import engine
 
         try:
             with Session(engine) as record_session:
@@ -426,6 +463,13 @@ async def _relay_generation(
         record_status="success" if 200 <= upstream.status_code < 300 else "error",
         error_message=None if upstream.is_success else f"upstream_http_{upstream.status_code}",
     )
+    if not upstream.is_success:
+        return _upstream_failure(
+            request=request,
+            upstream=upstream,
+            body=content,
+            context=f"relay:{endpoint}",
+        )
     return Response(
         content=content,
         status_code=upstream.status_code,
@@ -510,11 +554,11 @@ async def list_models(request: Request, user_and_credential: AIAPIUserDep) -> Re
 
     response_headers = _response_headers(upstream.headers)
     if not upstream.is_success:
-        return Response(
-            content=upstream.content,
-            status_code=upstream.status_code,
-            headers=response_headers,
-            media_type=upstream.headers.get("content-type"),
+        return _upstream_failure(
+            request=request,
+            upstream=upstream,
+            body=upstream.content,
+            context="models",
         )
 
     try:
@@ -597,24 +641,14 @@ async def get_rate_limit_status(
             disabled=True,
         )
 
-    key = f"rate_limit:user:{user.id}"
-    now_ms = int(time.time() * 1000)
     window_seconds = ai_api_settings.ai_api_rate_limit_window_seconds
-    window_start_ms = now_ms - (window_seconds * 1000)
-    try:
-        await redis.zremrangebyscore(key, "-inf", window_start_ms)
-        current_usage = await redis.zcard(key)
-        reset_at = datetime.fromtimestamp(
-            (now_ms + window_seconds * 1000) / 1000, tz=timezone.utc
-        )
-        return RateLimitStatusResponse(
-            limit_per_minute=limit,
-            current_usage=current_usage,
-            remaining=max(0, limit - current_usage),
-            reset_at=reset_at,
-        )
-    except Exception as exc:
-        logger.error("Failed to get AI API rate limit status: %s", exc)
+    now_ms = int(time.time() * 1000)
+    current_usage = await peek_rate_limit_by_key(
+        redis,
+        key=ai_proxy_rate_limit_key(str(user.id)),
+        window_seconds=window_seconds,
+    )
+    if current_usage is None:
         return RateLimitStatusResponse(
             limit_per_minute=limit,
             current_usage=0,
@@ -622,3 +656,11 @@ async def get_rate_limit_status(
             reset_at=datetime.now(tz=timezone.utc),
             error="rate_limit_status_unavailable",
         )
+    return RateLimitStatusResponse(
+        limit_per_minute=limit,
+        current_usage=current_usage,
+        remaining=max(0, limit - current_usage),
+        reset_at=datetime.fromtimestamp(
+            (now_ms + window_seconds * 1000) / 1000, tz=timezone.utc
+        ),
+    )

@@ -32,6 +32,7 @@ from app.schemas.vm_request import (
     VMRequestWindowAvailabilityResponse,
 )
 from app.services.vm import placement_support, vm_request_placement_service
+from app.utils.timeutil import normalize_datetime
 
 GIB = 1024**3
 
@@ -125,8 +126,8 @@ def validate_request_window(
     current_user,
     request_in,
 ) -> None:
-    start_at = _normalize_datetime(getattr(request_in, "start_at", None))
-    end_at = _normalize_datetime(getattr(request_in, "end_at", None))
+    start_at = normalize_datetime(getattr(request_in, "start_at", None))
+    end_at = normalize_datetime(getattr(request_in, "end_at", None))
     if not start_at or not end_at:
         raise BadRequestError(t("availability.window_required"))
     if end_at <= start_at:
@@ -174,8 +175,8 @@ def assess_request_window(
     current_user,
     request_in: VMRequestWindowAvailabilityRequest,
 ) -> VMRequestWindowAvailabilityResponse:
-    start_at = _normalize_datetime(request_in.start_at)
-    end_at = _normalize_datetime(request_in.end_at)
+    start_at = normalize_datetime(request_in.start_at)
+    end_at = normalize_datetime(request_in.end_at)
     if not start_at or not end_at:
         raise BadRequestError(t("availability.window_required_short"))
     if end_at <= start_at:
@@ -323,7 +324,7 @@ def _build_availability_response(
                 node_names=[item.node for item in baseline_capacities],
             )
         )
-        lite_tuning = vm_request_placement_service._get_placement_tuning(
+        lite_tuning = vm_request_placement_service.get_placement_tuning(
             session=session
         )
 
@@ -565,8 +566,8 @@ def _build_reserved_capacity_timeline(
 
     events: dict[int, list[tuple[str, float, int, int, int]]] = {}
     for reserved in reserved_requests:
-        reserved_start = _normalize_datetime(reserved.start_at)
-        reserved_end = _normalize_datetime(reserved.end_at)
+        reserved_start = normalize_datetime(reserved.start_at)
+        reserved_end = normalize_datetime(reserved.end_at)
         assigned_node = str(reserved.assigned_node or "")
         if not reserved_start or not reserved_end or not assigned_node:
             continue
@@ -881,14 +882,6 @@ def _lite_slot_from_capacities(
     )
 
 
-def _normalize_datetime(value: datetime | None) -> datetime | None:
-    if value is None:
-        return None
-    if value.tzinfo is None:
-        return value.replace(tzinfo=UTC)
-    return value
-
-
 def _resolve_timezone(value: str) -> ZoneInfo:
     try:
         return ZoneInfo(value or "Asia/Taipei")
@@ -949,15 +942,6 @@ def _extract_disk_gb(
     if disk_gb <= 0:
         return 20 if resource_type == "vm" else 8
     return disk_gb
-
-
-def _validate_policy_window(
-    *,
-    role: UserRole,
-    start_at: datetime,
-    end_at: datetime,
-) -> None:
-    return None
 
 
 def _load_hourly_demand_profile(*, session: Session, timezone: ZoneInfo) -> dict[int, float]:
@@ -1275,10 +1259,6 @@ def _average_share(
 
 def _policy_block_summary(*, role: UserRole, allowed_start: int, allowed_end: int) -> str:
     return "目前不限制申請時段。"
-
-
-def _policy_hint(*, role: UserRole) -> str:
-    return "此評估未套用時段限制。"
 
 
 def _summarize_day(day: date, slots: list[VMRequestAvailabilitySlot]) -> VMRequestAvailabilityDay:

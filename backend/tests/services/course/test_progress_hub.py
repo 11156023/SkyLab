@@ -62,6 +62,43 @@ def test_disconnected_socket_is_removed():
     asyncio.run(scenario())
 
 
+def test_stuck_socket_is_evicted_without_blocking_the_others():
+    """一條卡住的連線只能拖自己：逾時淘汰，同路徑的其他訂閱者照收。"""
+    async def scenario():
+        from app.services.course import progress_hub as hub_module
+
+        original_timeout = hub_module.SEND_TIMEOUT_SECONDS
+        hub_module.SEND_TIMEOUT_SECONDS = 0.05
+        try:
+            hub = hub_module.CourseProgressHub()
+            path_id = uuid.uuid4()
+
+            class StuckSocket(FakeSocket):
+                async def send_json(self, data: dict) -> None:
+                    await asyncio.Event().wait()
+
+            stuck, healthy = StuckSocket(), FakeSocket()
+            stuck_task = asyncio.create_task(
+                hub.register(path_id=path_id, websocket=stuck)
+            )
+            healthy_task = asyncio.create_task(
+                hub.register(path_id=path_id, websocket=healthy)
+            )
+            await asyncio.sleep(0)
+
+            await hub.broadcast(path_id, {"type": "progress"})
+
+            assert healthy.sent == [{"type": "progress"}]
+            assert hub.subscriber_count(path_id) == 1
+            stuck.close()
+            healthy.close()
+            await asyncio.gather(stuck_task, healthy_task)
+        finally:
+            hub_module.SEND_TIMEOUT_SECONDS = original_timeout
+
+    asyncio.run(scenario())
+
+
 def test_send_failure_evicts_dead_connection():
     async def scenario():
         hub = CourseProgressHub()

@@ -11,6 +11,7 @@ import styles from "../ResourceDetailPage.module.scss";
 import MIcon from "../../../../../components/MIcon";
 import LoadingState from "../../../../../components/LoadingState/LoadingState";
 import { useToast } from "../../../../../hooks/useToast";
+import { useConfirm } from "../../../../../components/ConfirmDialog/ConfirmProvider";
 import { ResourcesService } from "../../../../../services/resources";
 
 const KIND_ICON = { disk: "hard_drive", cdrom: "album", network: "lan", other: "memory" };
@@ -24,6 +25,7 @@ function formatSize(bytes) {
 export default function BootOptionsCard({ vmid, canManage }) {
   const { t } = useTranslation("personal");
   const toast = useToast();
+  const confirm = useConfirm();
   const [options, setOptions] = useState(null);
   const [isoImages, setIsoImages] = useState([]);
   const [order, setOrder] = useState([]);
@@ -66,6 +68,20 @@ export default function BootOptionsCard({ vmid, canManage }) {
     } finally {
       setBusy(false);
     }
+  }
+
+  /* 退出 CD-ROM 會直接動到執行中的機器（安裝到一半就斷了）：先確認 */
+  async function ejectCdrom() {
+    const ok = await confirm({
+      title: t("BootOptionsCard.ejectConfirmTitle"),
+      message: t("BootOptionsCard.ejectConfirmMessage", {
+        name: options?.cdrom_iso?.split("/").pop() ?? "",
+      }),
+      confirmText: t("BootOptionsCard.eject"),
+      danger: true,
+    });
+    if (!ok) return;
+    await save({ eject_cdrom: true }, "BootOptionsCard.isoEjected");
   }
 
   function move(index, delta) {
@@ -208,7 +224,7 @@ export default function BootOptionsCard({ vmid, canManage }) {
                         type="button"
                         className={styles.btnDangerOutline}
                         disabled={busy}
-                        onClick={() => save({ eject_cdrom: true }, "BootOptionsCard.isoEjected")}
+                        onClick={ejectCdrom}
                       >
                         <MIcon name="eject" size={16} />
                         {t("BootOptionsCard.eject")}

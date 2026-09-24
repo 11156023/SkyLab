@@ -89,12 +89,16 @@ export default function VncDialog({ resource, onClose }) {
   }, [resource?.vmid]);
 
   const [closing, setClosing] = useState(false);
+  const closeTimerRef = useRef(null);
+
+  /* 卸載時清掉離場動畫的計時器，不讓已消失的元件回頭呼叫 onClose */
+  useEffect(() => () => window.clearTimeout(closeTimerRef.current), []);
 
   function handleClose() {
     // 先播放離場動畫，再通知父層卸載
     if (closing) return;
     setClosing(true);
-    setTimeout(onClose, 150);
+    closeTimerRef.current = window.setTimeout(onClose, 150);
   }
 
   async function handleClipboard() {

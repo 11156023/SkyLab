@@ -6,12 +6,18 @@
      "session_id": ..., "vmid": ..., "class_id": ...}
 """
 
+import asyncio
 import logging
 import uuid
 from dataclasses import dataclass, field
 from typing import Any, Protocol
 
+from app.utils.websocket import close_quietly
+
 logger = logging.getLogger(__name__)
+
+# 單一連線的推播逾時：一條卡住的 TCP 連線不能讓整班的事件跟著卡住
+SEND_TIMEOUT_SECONDS = 5
 
 
 class PresenceSocket(Protocol):
@@ -77,12 +83,23 @@ class ClassroomPresenceHub:
         )
 
     async def _send_to(self, connections: list[_Connection], event: dict[str, Any]) -> None:
-        for conn in connections:
-            try:
-                await conn.websocket.send_json(event)
-            except Exception:
-                # 死連線自動清；register 端的 finally 再清一次是 no-op
-                self._connections.pop(conn.key, None)
+        """同時推給所有連線：逐一 await 會讓一條慢連線拖住整班的事件。"""
+        if not connections:
+            return
+        await asyncio.gather(
+            *(self._send_one(conn, event) for conn in connections),
+            return_exceptions=True,
+        )
+
+    async def _send_one(self, conn: _Connection, event: dict[str, Any]) -> None:
+        try:
+            await asyncio.wait_for(
+                conn.websocket.send_json(event), timeout=SEND_TIMEOUT_SECONDS
+            )
+        except Exception:
+            # 逾時或送出失敗一律當死連線清掉；register 端的 finally 再清一次是 no-op
+            self._connections.pop(conn.key, None)
+            await close_quietly(conn.websocket)
 
 
 classroom_presence_hub = ClassroomPresenceHub()

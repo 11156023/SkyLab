@@ -827,6 +827,14 @@ export default function CourseTemplateEditorPage() {
 
   async function removeFile(file) {
     if (saving) return;
+    /* 附件刪掉就救不回來（檔案本身也一併移除）：先確認 */
+    const ok = await confirm({
+      title: t("CourseTemplateEditorPage.fileDeleteConfirmTitle"),
+      message: t("CourseTemplateEditorPage.fileDeleteConfirmMessage", { name: file.filename }),
+      confirmText: t("CourseTemplateEditorPage.fileDeleteConfirmAction"),
+      danger: true,
+    });
+    if (!ok) return;
     setSaving(true);
     try {
       const saved = await CourseEnvironmentsService.removeFile(template.id, file.id);

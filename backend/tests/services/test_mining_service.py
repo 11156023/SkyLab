@@ -54,6 +54,9 @@ def _resource(**overrides: object) -> SimpleNamespace:
         "user_id": uuid.uuid4(),
         "mining_exempt": False,
         "mining_checked_at": None,
+        "allocation_scope": "personal",
+        "teaching_class_id": None,
+        "request": None,
         "user": SimpleNamespace(email="stu@campus.edu", full_name="學生"),
     }
     values.update(overrides)
@@ -177,6 +180,40 @@ def test_respond_lxc_uses_stop(pve_calls: dict) -> None:
     assert pve_calls["control"] == [("pve1", 101, "lxc", "stop")]
 
 
+def test_respond_class_machine_snapshots_but_never_suspends(
+    pve_calls: dict,
+) -> None:
+    """課程機：存證與通知照做，但不暫停（整班課會停擺）。"""
+    incident = _incident()
+    mining_service.respond_to_incident(
+        _FakeSession(),
+        incident,
+        _resource(allocation_scope="teaching_class"),
+        _config(),
+        now=NOW,
+    )
+    assert len(pve_calls["snapshot"]) == 1
+    assert pve_calls["control"] == []
+    assert incident.status is MiningIncidentStatus.detected
+    assert pve_calls["alerts"] == [101]
+    assert pve_calls["emails"] == [101]
+
+
+def test_respond_gpu_machine_never_suspends(pve_calls: dict) -> None:
+    """掛 GPU 的機器多半在跑訓練，暫停的代價遠大於誤放。"""
+    incident = _incident()
+    mining_service.respond_to_incident(
+        _FakeSession(),
+        incident,
+        _resource(request=SimpleNamespace(gpu_mapping_id="h200-vgpu")),
+        _config(),
+        now=NOW,
+    )
+    assert len(pve_calls["snapshot"]) == 1
+    assert pve_calls["control"] == []
+    assert incident.status is MiningIncidentStatus.detected
+
+
 def test_respond_auto_suspend_disabled_only_alerts(pve_calls: dict) -> None:
     incident = _incident()
     mining_service.respond_to_incident(
@@ -277,6 +314,55 @@ def test_dismiss_resumes_and_sets_exempt(
     assert "mining_dismiss" in calls["audit"]
 
 
+def test_dismiss_records_resume_failure_in_note(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """恢復失敗不擋結案，但管理員要看得到「機器其實還停著」。"""
+    incident = _incident(status=MiningIncidentStatus.suspended)
+    _patch_review_deps(monkeypatch, incident)
+    monkeypatch.setattr(
+        mining_service.proxmox_service,
+        "control",
+        lambda node, vmid, rtype, action: (_ for _ in ()).throw(
+            RuntimeError("PVE down")
+        ),
+    )
+    result = mining_service.dismiss_incident(
+        session=_FakeSession(),
+        incident_id=incident.id,
+        admin=_admin(),
+        exempt=False,
+        note="誤判",
+    )
+    assert result.status is MiningIncidentStatus.dismissed
+    assert "誤判" in (result.review_note or "")
+    assert "恢復失敗" in (result.review_note or "")
+
+
+def test_dismiss_deletes_evidence_snapshot(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """誤判的存證沒有價值，結案時順手刪掉（失敗只記錄，不擋結案）。"""
+    incident = _incident(
+        status=MiningIncidentStatus.suspended, snapshot_name="mining-202607041200"
+    )
+    _patch_review_deps(monkeypatch, incident)
+    deleted: list[tuple] = []
+    monkeypatch.setattr(
+        mining_service.proxmox_service,
+        "delete_snapshot",
+        lambda node, vmid, rtype, snapname: deleted.append((vmid, snapname)),
+    )
+    mining_service.dismiss_incident(
+        session=_FakeSession(),
+        incident_id=incident.id,
+        admin=_admin(),
+        exempt=False,
+        note=None,
+    )
+    assert deleted == [(101, "mining-202607041200")]
+
+
 def test_dismiss_lxc_uses_start(monkeypatch: pytest.MonkeyPatch) -> None:
     incident = _incident(
         status=MiningIncidentStatus.suspended, resource_type="lxc"
@@ -318,6 +404,51 @@ def test_scan_advances_cursor_even_on_rrd_failure(
         session, resource, {"node": "pve1", "type": "qemu"}, config, now=NOW
     )
     assert resource.mining_checked_at == NOW
+
+
+def test_scan_commits_incident_before_acting(
+    monkeypatch: pytest.MonkeyPatch, pve_calls: dict
+) -> None:
+    """事件必須先 commit 再動作，commit 失敗才不會讓整組處置重放。"""
+
+    class _CountingSession(_FakeSession):
+        def __init__(self) -> None:
+            super().__init__()
+            self.commits = 0
+
+        def commit(self) -> None:
+            self.commits += 1
+
+    session = _CountingSession()
+    incident = _incident()
+    commits_when_responding: list[int] = []
+
+    monkeypatch.setattr(
+        mining_service, "_fetch_cpu_stats", lambda *a, **k: (96.0, 1.0)
+    )
+    monkeypatch.setattr(
+        mining_service.mining_repo,
+        "has_open_incident",
+        lambda *, session, vmid: False,
+    )
+    monkeypatch.setattr(
+        mining_service.mining_repo,
+        "create_incident",
+        lambda **kwargs: incident,
+    )
+    monkeypatch.setattr(
+        mining_service,
+        "respond_to_incident",
+        lambda s, i, r, c, *, now: commits_when_responding.append(s.commits),
+    )
+
+    flagged = mining_service._scan_one(
+        session, _resource(), {"node": "pve1", "type": "qemu"}, _config(), now=NOW
+    )
+    assert flagged is True
+    assert commits_when_responding == [1]
+    # 動作結果（快照名／暫停狀態）再寫回去一次
+    assert session.commits == 2
 
 
 def test_scan_advances_cursor_on_no_hit(

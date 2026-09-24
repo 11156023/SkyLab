@@ -147,10 +147,16 @@ def _require_lxc_running(resource_info: dict[str, Any]) -> None:
         raise BadRequestError(t("resource_settings.lxcMustBeRunning"))
 
 
-def _lxc_exec(resource_info: dict[str, Any], vmid: int, command: str) -> str:
+def _lxc_exec(
+    resource_info: dict[str, Any],
+    vmid: int,
+    command: str,
+    *,
+    stdin: str | None = None,
+) -> str:
     try:
         code, out, err = guest.exec_lxc(
-            resource_info["node"], vmid, command, timeout=60.0
+            resource_info["node"], vmid, command, timeout=60.0, stdin=stdin
         )
     except Exception as exc:
         logger.error("CT %s exec failed: %s", vmid, exc)
@@ -261,10 +267,12 @@ def reset_password(
         )
     else:
         _require_lxc_running(resource_info)
+        # 密碼走 stdin：串進指令列會留在節點的 ps 與 shell 紀錄裡
         _lxc_exec(
             resource_info,
             vmid,
-            f"echo {shlex.quote(f'root:{new_password}')} | chpasswd",
+            "chpasswd",
+            stdin=f"root:{new_password}\n",
         )
         applied = True
         message = t("resource_settings.passwordAppliedNow")

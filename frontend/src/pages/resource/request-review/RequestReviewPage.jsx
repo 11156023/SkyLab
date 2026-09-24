@@ -249,8 +249,10 @@ export default function RequestReviewPage() {
   const [comment, setComment] = useState("");
   const [reviewing, setReviewing] = useState(false);
 
+  /* 不 fallback 到第一筆：背景自動刷新或審核後清單變動時，詳情面板悄悄換人
+     會讓審核者對沒看過的申請按下核准 */
   const selected = useMemo(
-    () => requests.find((request) => request.id === selectedId) ?? requests[0] ?? null,
+    () => requests.find((request) => request.id === selectedId) ?? null,
     [requests, selectedId],
   );
 

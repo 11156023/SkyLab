@@ -5,6 +5,8 @@ from __future__ import annotations
 import ast
 from typing import TYPE_CHECKING
 
+from app.ai.teacher_judge.ast_utils import call_name, literal_str
+
 if TYPE_CHECKING:
     from app.ai.teacher_judge._types import CheckResult, FixHint
 
@@ -28,12 +30,6 @@ UNKNOWN_ONLY_EXCEPTIONS = {
     "PermissionError",
 }
 
-def _literal_str(node: ast.AST | None) -> str | None:
-    if isinstance(node, ast.Constant) and isinstance(node.value, str):
-        return node.value
-    return None
-
-
 def _import_aliases(tree: ast.AST) -> dict[str, str]:
     aliases: dict[str, str] = {}
 
@@ -55,26 +51,14 @@ def _import_aliases(tree: ast.AST) -> dict[str, str]:
     return aliases
 
 
-def _call_name(node: ast.AST, aliases: dict[str, str] | None = None) -> str | None:
-    aliases = aliases or {}
-    if isinstance(node, ast.Name):
-        return aliases.get(node.id, node.id)
-    if isinstance(node, ast.Attribute):
-        parent = _call_name(node.value, aliases)
-        return f"{parent}.{node.attr}" if parent else node.attr
-    if isinstance(node, ast.Call):
-        return _call_name(node.func, aliases)
-    return None
-
-
 def _call_status_literal(node: ast.Call) -> str | None:
     for arg in node.args:
-        literal = _literal_str(arg)
+        literal = literal_str(arg)
         if literal in {"pass", "fail", "warning", "unknown", "collected", "skipped"}:
             return literal
     for keyword in node.keywords:
         if keyword.arg == "status":
-            literal = _literal_str(keyword.value)
+            literal = literal_str(keyword.value)
             if literal in {"pass", "fail", "warning", "unknown", "collected", "skipped"}:
                 return literal
     return None
@@ -87,10 +71,10 @@ def _call_has_pass_status(node: ast.Call) -> bool:
 def _body_marks_pass(body: list[ast.stmt], aliases: dict[str, str]) -> bool:
     for statement in body:
         for node in ast.walk(statement):
-            if isinstance(node, ast.Assign) and _literal_str(node.value) == "pass":
+            if isinstance(node, ast.Assign) and literal_str(node.value) == "pass":
                 return True
             if isinstance(node, ast.Call):
-                if _call_name(node.func, aliases) == "record_check" and _call_has_pass_status(node):
+                if call_name(node.func, aliases) == "record_check" and _call_has_pass_status(node):
                     return True
     return False
 
@@ -101,69 +85,19 @@ def _except_name(handler: ast.ExceptHandler, aliases: dict[str, str]) -> str | N
     if isinstance(handler.type, ast.Name):
         return aliases.get(handler.type.id, handler.type.id)
     if isinstance(handler.type, ast.Attribute):
-        base = _call_name(handler.type.value, aliases)
+        base = call_name(handler.type.value, aliases)
         return f"{base}.{handler.type.attr}" if base else handler.type.attr
     return None
-
-
-def _collect_commands_needing_which(tree: ast.AST, aliases: dict[str, str]) -> set[str]:
-    commands: set[str] = set()
-    for node in ast.walk(tree):
-        if not isinstance(node, ast.Call):
-            continue
-        if _call_name(node.func, aliases) != "subprocess.run" or not node.args:
-            continue
-        first_arg = node.args[0]
-        if not isinstance(first_arg, (ast.List, ast.Tuple)) or not first_arg.elts:
-            continue
-        command = _literal_str(first_arg.elts[0])
-        if command:
-            commands.add(command)
-    return commands
-
-
-def _collect_which_commands(tree: ast.AST, aliases: dict[str, str]) -> set[str]:
-    commands: set[str] = set()
-    for node in ast.walk(tree):
-        if not isinstance(node, ast.Call):
-            continue
-        if _call_name(node.func, aliases) != "shutil.which" or not node.args:
-            continue
-        command = _literal_str(node.args[0])
-        if command:
-            commands.add(command)
-    return commands
-
-
-def _calls_named_helper(
-    tree: ast.AST,
-    helper_name: str,
-    aliases: dict[str, str],
-    *,
-    skip_functions: set[str] | None = None,
-) -> bool:
-    skip_functions = skip_functions or set()
-    for node in ast.walk(tree):
-        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name in skip_functions:
-            continue
-        if isinstance(node, ast.Call) and _call_name(node.func, aliases) == helper_name:
-            return True
-    return False
 
 
 def _scan_calls_once(
     tree: ast.AST,
     aliases: dict[str, str],
 ) -> tuple[list[ast.Call], set[str], set[str], set[str]]:
-    """Collect call-derived facts in a single AST walk.
+    """Collect call-derived facts (json.dumps calls, subprocess commands,
+    shutil.which commands, helper calls) in a single AST walk.
 
-    Pure optimization: merges the five separate full-tree walks previously done
-    for json.dumps collection, _collect_commands_needing_which,
-    _collect_which_commands and _calls_named_helper (record_check / run_command
-    / command_available) into one pass. Name resolution reuses one _call_name
-    per Call node with the same aliases logic. The historical skip_functions
-    behaviour is preserved as-is (all calls are inspected, including those
-    inside helper definitions), so gate verdicts are unchanged.
+    All calls are inspected, including those inside helper definitions.
     """
     json_dumps_calls: list[ast.Call] = []
     subprocess_commands: set[str] = set()
@@ -172,19 +106,19 @@ def _scan_calls_once(
     for node in ast.walk(tree):
         if not isinstance(node, ast.Call):
             continue
-        name = _call_name(node.func, aliases)
+        name = call_name(node.func, aliases)
         if name == "json.dumps":
             json_dumps_calls.append(node)
         elif name == "subprocess.run":
             if node.args:
                 first_arg = node.args[0]
                 if isinstance(first_arg, (ast.List, ast.Tuple)) and first_arg.elts:
-                    command = _literal_str(first_arg.elts[0])
+                    command = literal_str(first_arg.elts[0])
                     if command:
                         subprocess_commands.add(command)
         elif name == "shutil.which":
             if node.args:
-                command = _literal_str(node.args[0])
+                command = literal_str(node.args[0])
                 if command:
                     which_commands.add(command)
         if name in ("record_check", "run_command", "command_available"):
@@ -208,7 +142,7 @@ def _function_uses_helper(
     aliases: dict[str, str],
 ) -> bool:
     return any(
-        isinstance(node, ast.Call) and _call_name(node.func, aliases) == helper_name
+        isinstance(node, ast.Call) and call_name(node.func, aliases) == helper_name
         for node in ast.walk(function_def)
     )
 
@@ -345,7 +279,7 @@ def _record_check_has_bounded_raw(
         value = node.value
         if not isinstance(value, ast.Call):
             continue
-        if _call_name(value.func, aliases) != "truncate_output":
+        if call_name(value.func, aliases) != "truncate_output":
             continue
         if not value.args and not any(keyword.arg == "text" for keyword in value.keywords):
             continue
@@ -360,7 +294,7 @@ def _record_check_has_bounded_raw(
         )
 
     def is_bounded_raw(node: ast.AST) -> bool:
-        if isinstance(node, ast.Call) and _call_name(node.func, aliases) == "truncate_output":
+        if isinstance(node, ast.Call) and call_name(node.func, aliases) == "truncate_output":
             if node.args:
                 return mentions_raw(node.args[0])
             return any(
@@ -400,7 +334,7 @@ def _record_check_has_bounded_raw(
         raw_values = [
             value
             for key, value in zip(mapping.keys, mapping.values, strict=True)
-            if _literal_str(key) == "raw"
+            if literal_str(key) == "raw"
         ]
         if not raw_values or any(not is_bounded_raw(value) for value in raw_values):
             return False
@@ -415,7 +349,7 @@ def _body_record_check_statuses(
     statuses: set[str] = set()
     for statement in body:
         for node in ast.walk(statement):
-            if isinstance(node, ast.Call) and _call_name(node.func, aliases) == "record_check":
+            if isinstance(node, ast.Call) and call_name(node.func, aliases) == "record_check":
                 status = _call_status_literal(node)
                 if status:
                     statuses.add(status)
@@ -425,7 +359,7 @@ def _body_record_check_statuses(
 def _condition_checks_availability(node: ast.AST, aliases: dict[str, str]) -> bool:
     return any(
         isinstance(child, ast.Call)
-        and _call_name(child.func, aliases) in {"command_available", "shutil.which"}
+        and call_name(child.func, aliases) in {"command_available", "shutil.which"}
         for child in ast.walk(node)
     )
 
@@ -447,229 +381,21 @@ def _record_check_literal_arg(
     keyword_name: str,
 ) -> str | None:
     if len(call.args) > position:
-        return _literal_str(call.args[position])
+        return literal_str(call.args[position])
     for keyword in call.keywords:
         if keyword.arg == keyword_name:
-            return _literal_str(keyword.value)
+            return literal_str(keyword.value)
     return None
-
-
-_CHECK_ID_CONTROL_NODES = (
-    ast.If,
-    ast.For,
-    ast.AsyncFor,
-    ast.While,
-    ast.Try,
-    ast.With,
-    ast.AsyncWith,
-    ast.Match,
-    ast.ExceptHandler,
-    ast.comprehension,
-)
-
-
-def _lexical_scope(node: ast.AST, parents: dict[ast.AST, ast.AST]) -> ast.AST | None:
-    """Return the nearest lexical scope containing ``node``.
-
-    Coverage collection must not resolve a local name from another function or
-    class.  ``None`` represents module scope because the module itself has no
-    parent entry in the AST parent map.
-    """
-
-    current = parents.get(node)
-    while current is not None:
-        if isinstance(
-            current,
-            (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda, ast.ClassDef),
-        ):
-            return current
-        current = parents.get(current)
-    return None
-
-
-def _control_context(
-    node: ast.AST,
-    parents: dict[ast.AST, ast.AST],
-) -> set[tuple[int, str]]:
-    """Return branch/control containers on the path from scope to ``node``.
-
-    The role (``body``, ``orelse``, ``handlers`` ...) matters: an assignment in
-    an ``if`` branch cannot be used to resolve a call after that branch, and an
-    assignment in a ``try`` body cannot resolve a call in its ``except`` block.
-    """
-
-    context: set[tuple[int, str]] = set()
-    current = node
-    if isinstance(current, _CHECK_ID_CONTROL_NODES):
-        context.add((id(current), "self"))
-    while (parent := parents.get(current)) is not None:
-        if isinstance(parent, _CHECK_ID_CONTROL_NODES):
-            role = ""
-            for field_name, value in ast.iter_fields(parent):
-                if value is current:
-                    role = field_name
-                    break
-                if isinstance(value, list) and any(item is current for item in value):
-                    role = field_name
-                    break
-            context.add((id(parent), role))
-        current = parent
-    return context
-
-
-def _assignment_target_names(target: ast.AST) -> set[str]:
-    """Return names written by a simple assignment target."""
-
-    if isinstance(target, ast.Name):
-        return {target.id}
-    if isinstance(target, (ast.Tuple, ast.List)):
-        names: set[str] = set()
-        for element in target.elts:
-            names.update(_assignment_target_names(element))
-        return names
-    return set()
-
-
-def _binding_writes(
-    scope: ast.AST | None,
-    tree: ast.AST,
-    parents: dict[ast.AST, ast.AST],
-    name: str,
-) -> list[tuple[ast.AST, str | None]]:
-    """Return writes to ``name`` in one lexical scope, in source order.
-
-    Only a direct string assignment is a usable binding.  Other writes are
-    retained as an explicit unknown write so a later call cannot accidentally
-    fall back to an older, no-longer-proven value.
-    """
-
-    writes: list[tuple[ast.AST, str | None]] = []
-    for node in ast.walk(tree):
-        if _lexical_scope(node, parents) is not scope:
-            continue
-        target_names: set[str] = set()
-        value: ast.AST | None = None
-        if isinstance(node, ast.Assign):
-            for target in node.targets:
-                target_names.update(_assignment_target_names(target))
-            if len(node.targets) == 1 and target_names == {name}:
-                value = node.value
-        elif isinstance(node, ast.AnnAssign):
-            target_names = _assignment_target_names(node.target)
-            value = node.value if target_names == {name} else None
-        elif isinstance(node, (ast.AugAssign, ast.NamedExpr)):
-            target = node.target
-            target_names = _assignment_target_names(target)
-        elif isinstance(node, (ast.Import, ast.ImportFrom)):
-            for imported in node.names:
-                imported_name = imported.asname or imported.name.split(".", 1)[0]
-                if imported_name == name:
-                    writes.append((node, None))
-            continue
-        elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
-            if node.name == name:
-                writes.append((node, None))
-            continue
-        elif isinstance(node, ast.Delete):
-            for target in node.targets:
-                target_names.update(_assignment_target_names(target))
-        elif isinstance(node, (ast.For, ast.AsyncFor)):
-            target = node.target
-            target_names = _assignment_target_names(target)
-            if name in target_names:
-                writes.append((target, None))
-                continue
-        elif isinstance(node, (ast.With, ast.AsyncWith)):
-            for item in node.items:
-                optional_target = item.optional_vars
-                if (
-                    optional_target is None
-                    or name not in _assignment_target_names(optional_target)
-                ):
-                    continue
-                writes.append((optional_target, None))
-            continue
-        elif isinstance(node, ast.ExceptHandler):
-            if node.name == name:
-                writes.append((node, None))
-            continue
-        elif isinstance(node, ast.comprehension):
-            target_names = _assignment_target_names(node.target)
-            if name in target_names:
-                writes.append((node.target, None))
-                continue
-        if name not in target_names:
-            continue
-        writes.append((node, _literal_str(value)))
-    writes.sort(
-        key=lambda entry: (
-            getattr(entry[0], "lineno", -1),
-            getattr(entry[0], "col_offset", -1),
-        )
-    )
-    return writes
-
-
-def _resolve_record_check_name(
-    call: ast.Call,
-    name: str,
-    *,
-    tree: ast.AST,
-    parents: dict[ast.AST, ast.AST],
-) -> str | None:
-    """Resolve a record-check ID through a conservative local constant binding.
-
-    Generated scripts commonly assign ``check_id = "..."`` immediately before
-    calling ``record_check``.  Accept that equivalent form while rejecting
-    dynamic values, ambiguous writes, and bindings from a different branch.
-    """
-
-    scope = _lexical_scope(call, parents)
-    current: ast.AST = call
-    while (parent := parents.get(current)) is not None:
-        if isinstance(
-            parent,
-            (ast.ListComp, ast.SetComp, ast.DictComp, ast.GeneratorExp),
-        ):
-            for generator in parent.generators:
-                if name in _assignment_target_names(generator.target):
-                    return None
-        current = parent
-    writes = _binding_writes(scope, tree, parents, name)
-    call_position = (
-        getattr(call, "lineno", -1),
-        getattr(call, "col_offset", -1),
-    )
-    preceding = [
-        (node, value)
-        for node, value in writes
-        if (
-            getattr(node, "lineno", -1),
-            getattr(node, "col_offset", -1),
-        )
-        < call_position
-    ]
-    if not preceding:
-        return None
-
-    assignment, value = preceding[-1]
-    if value is None:
-        return None
-    if not _control_context(assignment, parents).issubset(
-        _control_context(call, parents)
-    ):
-        return None
-    return value
 
 
 def _except_handler_appends_errors(handler: ast.ExceptHandler, aliases: dict[str, str]) -> bool:
     return any(
         isinstance(node, ast.Call)
         and (
-            _call_name(node.func, aliases) == "errors.append"
+            call_name(node.func, aliases) == "errors.append"
             or (
                 isinstance(node.func, ast.Attribute)
-                and _call_name(node.func.value, aliases) == "errors"
+                and call_name(node.func.value, aliases) == "errors"
             )
         )
         for node in ast.walk(handler)
@@ -700,7 +426,7 @@ def _handler_returns_structured_command_error(handler: ast.ExceptHandler) -> boo
     for node in ast.walk(handler):
         if not isinstance(node, ast.Return) or not isinstance(node.value, ast.Dict):
             continue
-        keys = {_literal_str(key) for key in node.value.keys}
+        keys = {literal_str(key) for key in node.value.keys}
         if {"stdout", "stderr", "returncode"}.issubset(keys):
             return True
     return False
@@ -812,11 +538,7 @@ def check_script_quality(script_content: str) -> CheckResult:
     parents = _parent_map(tree)
     helper_defs = _function_definitions(tree)
 
-    # Single-pass call scan (replaces five separate full-tree walks for
-    # json.dumps / subprocess commands / which commands / helper calls).
-    # Legacy collectors (_collect_commands_needing_which,
-    # _collect_which_commands, _calls_named_helper) are kept as compat
-    # wrappers and no longer used on this hot path.
+    # Single-pass call scan (json.dumps / subprocess commands / which commands / helper calls).
     json_dumps_calls, commands, which_commands, helper_calls = _scan_calls_once(
         tree, aliases
     )
@@ -938,7 +660,7 @@ def check_script_quality(script_content: str) -> CheckResult:
     # matches `ast.walk` BFS in both cases, and the first-hit `break` is kept.
     except_handlers: list[ast.ExceptHandler] = []
     for node in ast.walk(tree):
-        if isinstance(node, ast.Call) and _call_name(node.func, aliases) == "record_check":
+        if isinstance(node, ast.Call) and call_name(node.func, aliases) == "record_check":
             check_id = _record_check_literal_arg(node, 0, "check_id")
             if check_id and _is_generic_check_id(check_id):
                 # 文案類建議：不阻斷審查，僅作為非阻斷提示回傳。
@@ -1020,47 +742,3 @@ def check_script_quality(script_content: str) -> CheckResult:
         "warnings": warnings,
     }
 
-
-def collect_record_check_ids(script_content: str) -> set[str]:
-    """Collect statically provable ``record_check`` IDs.
-
-    A direct string literal and a simple local constant binding are equivalent
-    for coverage purposes.  Values that cannot be proven at the call site are
-    intentionally omitted so coverage never approves a guessed or dynamic ID.
-    """
-    try:
-        tree = ast.parse(script_content)
-    except SyntaxError:
-        return set()
-    aliases = _import_aliases(tree)
-    parents = _parent_map(tree)
-    ids: set[str] = set()
-    for node in ast.walk(tree):
-        if (
-            isinstance(node, ast.Call)
-            and _call_name(node.func, aliases) == "record_check"
-        ):
-            check_id = _record_check_literal_arg(node, 0, "check_id")
-            if check_id is None:
-                id_node: ast.AST | None = None
-                if len(node.args) > 0:
-                    id_node = node.args[0]
-                else:
-                    id_node = next(
-                        (
-                            keyword.value
-                            for keyword in node.keywords
-                            if keyword.arg == "check_id"
-                        ),
-                        None,
-                    )
-                if isinstance(id_node, ast.Name):
-                    check_id = _resolve_record_check_name(
-                        node,
-                        id_node.id,
-                        tree=tree,
-                        parents=parents,
-                    )
-            if check_id:
-                ids.add(check_id)
-    return ids

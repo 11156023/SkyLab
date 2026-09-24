@@ -11,6 +11,16 @@ from app.exceptions import BadRequestError
 from app.models import CourseEnvironment, CourseEnvironmentVersion
 
 
+@pytest.fixture(autouse=True)
+def _lxc_templates(monkeypatch):
+    """自訂 LXC 來源現在會驗映像是否存在，這裡給一份固定的節點對照表。"""
+    monkeypatch.setattr(
+        routes.proxmox_service,
+        "get_lxc_template_node_map",
+        lambda: {"local:vztmpl/debian.tar.zst": {"pve"}},
+    )
+
+
 @pytest.fixture
 def workspace(monkeypatch):
     user = SimpleNamespace(id=uuid.uuid4())
@@ -87,10 +97,16 @@ def test_publish_materializes_latest_draft_and_clears_snapshot(workspace, monkey
     monkeypatch.setattr(routes, "_replace_audience", replace_audience)
     monkeypatch.setattr(routes, "is_admin", lambda _: False)
     monkeypatch.setattr(
-        routes, "_nodes", lambda *args: [routes.EnvironmentNodeIn(**node)]
+        routes.quick_practice,
+        "nodes_for_version",
+        lambda *args, **kwargs: [routes.EnvironmentNodeIn(**node)],
     )
     monkeypatch.setattr(routes, "_edges", lambda *args: [])
-    monkeypatch.setattr(routes, "_publications", lambda *args: [])
+    monkeypatch.setattr(
+        routes.course_publication_service,
+        "list_for_version",
+        lambda *args, **kwargs: [],
+    )
     routes.publish_environment(environment.id, session, user)
     assert environment.name == "Latest"
     assert version.status == "published"
@@ -123,10 +139,16 @@ def test_publish_records_the_peer_policy_from_the_draft(workspace, monkeypatch):
     monkeypatch.setattr(routes, "_replace_audience", Mock())
     monkeypatch.setattr(routes, "is_admin", lambda _: False)
     monkeypatch.setattr(
-        routes, "_nodes", lambda *args: [routes.EnvironmentNodeIn(**node)]
+        routes.quick_practice,
+        "nodes_for_version",
+        lambda *args, **kwargs: [routes.EnvironmentNodeIn(**node)],
     )
     monkeypatch.setattr(routes, "_edges", lambda *args: [])
-    monkeypatch.setattr(routes, "_publications", lambda *args: [])
+    monkeypatch.setattr(
+        routes.course_publication_service,
+        "list_for_version",
+        lambda *args, **kwargs: [],
+    )
 
     routes.publish_environment(environment.id, session, user)
 
@@ -155,10 +177,16 @@ def test_a_draft_without_a_policy_publishes_as_explicit(workspace, monkeypatch):
     monkeypatch.setattr(routes, "_replace_audience", Mock())
     monkeypatch.setattr(routes, "is_admin", lambda _: False)
     monkeypatch.setattr(
-        routes, "_nodes", lambda *args: [routes.EnvironmentNodeIn(**node)]
+        routes.quick_practice,
+        "nodes_for_version",
+        lambda *args, **kwargs: [routes.EnvironmentNodeIn(**node)],
     )
     monkeypatch.setattr(routes, "_edges", lambda *args: [])
-    monkeypatch.setattr(routes, "_publications", lambda *args: [])
+    monkeypatch.setattr(
+        routes.course_publication_service,
+        "list_for_version",
+        lambda *args, **kwargs: [],
+    )
 
     routes.publish_environment(environment.id, session, user)
 

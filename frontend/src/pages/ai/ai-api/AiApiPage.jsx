@@ -1,4 +1,4 @@
-import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
 import styles from "./AiApiPage.module.scss";
@@ -14,7 +14,7 @@ import { focusInvalidField } from "../../../utils/focusField";
 import PageHeader from "../../../components/PageHeader/PageHeader";
 import RrdChart from "../../../components/RrdChart/RrdChart";
 import { formatDateTime, formatMonthDay } from "../../../utils/formatDate";
-import { computePosition, isAnchorOffscreen } from "../../../components/PowerMenu/position";
+import useAnchoredMenu from "../../../hooks/useAnchoredMenu";
 
 const ReadOnlyCode = lazy(() => import("../../../components/ReadOnlyCode/ReadOnlyCode"));
 
@@ -25,9 +25,10 @@ function isExpired(value) {
   return new Date(value) < new Date();
 }
 
-function maskKey(value) {
-  if (!value || value.length <= 14) return value ?? "";
-  return `${value.slice(0, 8)}••••••${value.slice(-6)}`;
+/* 後端只在重新產生金鑰的當下回傳明文，清單一律只有前綴，
+   所以平時能顯示的就只有「前綴 + 遮罩」 */
+function maskPrefix(prefix) {
+  return `${prefix ?? ""}••••••`;
 }
 
 function formatTokens(n) {
@@ -162,48 +163,7 @@ const KEY_MENU_WIDTH = 200;
 
 function KeyMenu({ rotateDisabled, busy, onRename, onRotate, onDelete, onClose, anchorRef, closing = false }) {
   const { t } = useTranslation("ai");
-  const ref = useRef(null);
-  const [pos, setPos] = useState(null);
-  const onCloseRef = useRef(onClose);
-  useEffect(() => { onCloseRef.current = onClose; });
-
-  const reposition = useCallback(() => {
-    const anchor = anchorRef?.current;
-    const menu = ref.current;
-    if (!anchor || !menu) return;
-    const rect = anchor.getBoundingClientRect();
-    const viewport = { width: window.innerWidth, height: window.innerHeight };
-    if (isAnchorOffscreen(rect, viewport)) {
-      onCloseRef.current();
-      return;
-    }
-    setPos(computePosition(rect, menu.offsetHeight, viewport, KEY_MENU_WIDTH));
-  }, [anchorRef]);
-
-  useLayoutEffect(() => { reposition(); }, [reposition]);
-
-  useEffect(() => {
-    const opts = { passive: true, capture: true };
-    window.addEventListener("scroll", reposition, opts);
-    window.addEventListener("resize", reposition);
-    return () => {
-      window.removeEventListener("scroll", reposition, opts);
-      window.removeEventListener("resize", reposition);
-    };
-  }, [reposition]);
-
-  useEffect(() => {
-    const handler = (e) => {
-      if (!ref.current?.contains(e.target) && !anchorRef?.current?.contains(e.target)) onClose();
-    };
-    const onKey = (e) => { if (e.key === "Escape") onClose(); };
-    document.addEventListener("mousedown", handler);
-    document.addEventListener("keydown", onKey);
-    return () => {
-      document.removeEventListener("mousedown", handler);
-      document.removeEventListener("keydown", onKey);
-    };
-  }, [onClose, anchorRef]);
+  const { ref, pos } = useAnchoredMenu({ anchorRef, onClose, width: KEY_MENU_WIDTH });
 
   return createPortal(
     <div
@@ -243,12 +203,70 @@ function KeyMenu({ rotateDisabled, busy, onRename, onRotate, onDelete, onClose, 
   );
 }
 
-/* ── Credential row：一把金鑰一列，常用的複製／顯示放圖示，其餘收進 ⋮ ── */
+/* ── 一次性金鑰視窗：重新產生後唯一能看到完整金鑰的地方，關掉就不再有 ── */
+function NewKeyDialog({ apiKey, onClose }) {
+  const { t } = useTranslation("ai");
+  const toast = useToast();
+
+  useEffect(() => {
+    const closeOnEscape = (event) => {
+      if (event.key === "Escape") onClose();
+    };
+    document.addEventListener("keydown", closeOnEscape);
+    return () => document.removeEventListener("keydown", closeOnEscape);
+  }, [onClose]);
+
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(apiKey);
+      toast.success(t("AiApiPage.copiedSuccess", { label: "API Key" }));
+    } catch {
+      toast.error(t("AiApiPage.copiedError", { label: "API Key" }));
+    }
+  };
+
+  return createPortal(
+    <div className={styles.dialogOverlay} role="presentation" onMouseDown={onClose}>
+      <div
+        className={styles.dialog}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="ai-new-key-title"
+        onMouseDown={(event) => event.stopPropagation()}
+      >
+        <div className={styles.dialogHeader}>
+          <h2 id="ai-new-key-title" className={styles.dialogTitle}>{t("AiApiPage.newKeyTitle")}</h2>
+          <button type="button" className={styles.dialogClose} onClick={onClose} aria-label={t("AiApiPage.close")}>
+            <MIcon name="close" size={18} />
+          </button>
+        </div>
+        <div className={styles.docsField}>
+          <p className={styles.docsNotice}>{t("AiApiPage.newKeyNotice")}</p>
+          <div className={styles.docsEndpointRow}>
+            <code>{apiKey}</code>
+            <button type="button" className={styles.docsCopyButton} onClick={copy} aria-label={t("AiApiPage.actionCopyKey")} title={t("AiApiPage.actionCopyKey")}>
+              <MIcon name="content_copy" size={16} />
+            </button>
+          </div>
+        </div>
+        <div className={styles.dialogFooter}>
+          <div className={styles.dialogActions}>
+            <button type="button" onClick={onClose}>{t("AiApiPage.newKeySaved")}</button>
+          </div>
+        </div>
+      </div>
+    </div>,
+    document.body,
+  );
+}
+
+/* ── Credential row：一把金鑰一列，常用動作放圖示，其餘收進 ⋮ ──
+   明文金鑰只在重新產生的當下出現一次（NewKeyDialog），清單只有前綴 */
 function CredentialRow({ item, onRefresh }) {
   const { t } = useTranslation("ai");
   const toast = useToast();
   const confirm = useConfirm();
-  const [showKey, setShowKey] = useState(false);
+  const [newKey, setNewKey] = useState(null);
   const [editing, setEditing] = useState(false);
   const [nameInput, setNameInput] = useState(item.api_key_name);
   const [busy, setBusy] = useState(false);
@@ -273,15 +291,6 @@ function CredentialRow({ item, onRefresh }) {
   const expired = isExpired(item.expires_at);
   const deprecated = inactive || expired;
 
-  const copy = async (label, value) => {
-    try {
-      await navigator.clipboard.writeText(value);
-      toast.success(t("AiApiPage.copiedSuccess", { label }));
-    } catch {
-      toast.error(t("AiApiPage.copiedError", { label }));
-    }
-  };
-
   const doRotate = async () => {
     const ok = await confirm({
       title: t("AiApiPage.rotateDialogTitle"),
@@ -292,8 +301,10 @@ function CredentialRow({ item, onRefresh }) {
     if (!ok) return;
     setBusy(true);
     try {
-      await AiApiService.rotateCredential(item.id);
+      const created = await AiApiService.rotateCredential(item.id);
       toast.success(t("AiApiPage.rotateSuccess"));
+      /* 後端只在這一次回明文；沒接住就再也拿不到，只能再輪替一次 */
+      if (created?.api_key) setNewKey(created.api_key);
       onRefresh();
     } catch (e) {
       toast.error(e?.message ?? t("AiApiPage.rotateError"));
@@ -374,8 +385,11 @@ function CredentialRow({ item, onRefresh }) {
                 {item.api_key_name}
               </span>
             )}
-            <span className={`${styles.rowKey} ${deprecated ? styles.rowKeyDeprecated : ""}`}>
-              {showKey ? item.api_key : maskKey(item.api_key)}
+            <span
+              className={`${styles.rowKey} ${deprecated ? styles.rowKeyDeprecated : ""}`}
+              title={t("AiApiPage.keyHiddenHint")}
+            >
+              {maskPrefix(item.api_key_prefix)}
             </span>
           </div>
         </div>
@@ -395,25 +409,7 @@ function CredentialRow({ item, onRefresh }) {
       </td>
       <td className={`${styles.td} ${styles.tdActions}`}>
         <div className={styles.rowActions} data-guide="ai-key-actions">
-          <button
-            type="button"
-            className={styles.iconBtn}
-            onClick={() => copy("API Key", item.api_key)}
-            aria-label={t("AiApiPage.actionCopyKey")}
-            title={t("AiApiPage.actionCopyKey")}
-          >
-            <MIcon name="content_copy" size={16} />
-          </button>
-          <button
-            type="button"
-            className={styles.iconBtn}
-            onClick={() => setShowKey((v) => !v)}
-            aria-label={showKey ? t("AiApiPage.actionHide") : t("AiApiPage.actionShow")}
-            title={showKey ? t("AiApiPage.actionHide") : t("AiApiPage.actionShow")}
-            aria-pressed={showKey}
-          >
-            <MIcon name={showKey ? "visibility_off" : "visibility"} size={16} />
-          </button>
+          {/* 明文金鑰不在清單裡，所以沒有「複製／顯示」——要拿完整金鑰只能重新產生 */}
           {menu.open && (
             <KeyMenu
               rotateDisabled={inactive}
@@ -438,6 +434,7 @@ function CredentialRow({ item, onRefresh }) {
           >
             <MIcon name="more_vert" size={18} />
           </button>
+          {newKey && <NewKeyDialog apiKey={newKey} onClose={() => setNewKey(null)} />}
         </div>
       </td>
     </tr>
@@ -508,10 +505,8 @@ function ApiDocsContent({ credentials }) {
                       {usable.map((item) => <option key={item.id} value={item.id}>{item.api_key_name}</option>)}
                     </select>
                   )}
-                  <code>{maskKey(credential.api_key)}</code>
-                  <button type="button" className={styles.docsCopyButton} onClick={() => copy("API Key", credential.api_key)} aria-label={t("AiApiPage.actionCopyKey")} title={t("AiApiPage.actionCopyKey")}>
-                    <MIcon name="content_copy" size={16} />
-                  </button>
+                  {/* 後端不再於清單回傳明文金鑰，這裡只認得出是哪一把 */}
+                  <code title={t("AiApiPage.keyHiddenHint")}>{maskPrefix(credential.api_key_prefix)}</code>
                 </div>
               ) : (
                 <p className={styles.docsNotice}>

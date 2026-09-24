@@ -51,7 +51,36 @@ SHUTDOWN_TIMEOUT_SECONDS = 90.0
 STOP_TIMEOUT_SECONDS = 30.0
 _POLL_INTERVAL_SECONDS = 2.0
 
+# apply_started_at 在這段時間內視為「還在跑」：background_tasks.is_active 只認
+# 本行程，服務重啟或多開 worker 時擋不住第二次套用，而磁碟 resize 是增量操作，
+# 重複執行會把磁碟擴成兩倍。
+APPLY_LOCK_MINUTES = 30
+
 ResourceType = Literal["qemu", "lxc"]
+
+
+class _PartialApplyError(Exception):
+    """combined 申請的 CPU／記憶體已寫入、磁碟 resize 卻失敗。
+
+    這種狀況不能只寫「套用失敗」：機器規格已經變了一半，申請單的「目前規格」
+    快照若不跟著更新，重試時算出來的磁碟增量會以舊值為基準。
+    """
+
+    def __init__(
+        self,
+        cause: Exception,
+        *,
+        applied: list[str],
+        actual_cpu: int | None,
+        actual_memory: int | None,
+        actual_disk: int | None,
+    ) -> None:
+        super().__init__(str(cause))
+        self.cause = cause
+        self.applied = applied
+        self.actual_cpu = actual_cpu
+        self.actual_memory = actual_memory
+        self.actual_disk = actual_disk
 
 
 # ---------------------------------------------------------------------------
@@ -61,6 +90,25 @@ ResourceType = Literal["qemu", "lxc"]
 
 def _apply_task_id(request_id: uuid.UUID) -> str:
     return f"spec-apply-{request_id}"
+
+
+def _as_utc(value: datetime | None) -> datetime | None:
+    """SQLite（測試）取回的時間沒有 tzinfo，一律補成 UTC 再比較。"""
+    if value is None or value.tzinfo is not None:
+        return value
+    return value.replace(tzinfo=timezone.utc)
+
+
+def _apply_recently_started(request: Any) -> bool:
+    """這張申請單是否有一次尚未結束、且還在鎖定期內的套用。"""
+    if request.applied_at is not None or request.apply_error:
+        return False
+    started = _as_utc(getattr(request, "apply_started_at", None))
+    if started is None:
+        return False
+    return datetime.now(timezone.utc) - started < timedelta(
+        minutes=APPLY_LOCK_MINUTES
+    )
 
 
 def _rtype(resource_info: dict[str, Any]) -> ResourceType:
@@ -82,6 +130,9 @@ def _apply_status(request: Any) -> SpecChangeApplyStatus | None:
     if request.apply_started_at is not None:
         if background_tasks.is_active(_apply_task_id(request.id)):
             return "applying"
+        # interrupted 只代表「本行程沒有這個任務」。鎖定期內重按仍會被
+        # apply() 以 409 擋下（見 _apply_recently_started），訊息會告訴
+        # 申請人要再等多久。
         return "interrupted"
     return "ready"
 
@@ -241,7 +292,7 @@ def _validate_expiry_request(
 
 def _apply_expiry_extension(session: Session, db_request: Any) -> None:
     """核准即生效：改到期日、清掉 TTL 已發出的通知與刪除排程，讓治理重新起算。"""
-    from app.models import Resource  # noqa: PLC0415
+    from app.models import Resource
 
     resource = session.get(Resource, db_request.resource_vmid)
     if resource is None:
@@ -571,8 +622,9 @@ def cancel(
     )
     if not db_request:
         raise NotFoundError(t("spec_change.not_found"))
-    require_resource_access(
-        user, db_request.user_id, detail=t("spec_change.cancel_forbidden")
+    _require_manage(
+        session=session, user=user, db_request=db_request,
+        detail=t("spec_change.cancel_forbidden"),
     )
 
     if (
@@ -616,6 +668,22 @@ def cancel(
 # ---------------------------------------------------------------------------
 
 
+def _require_manage(
+    *, session: Session, user: Any, db_request: Any, detail: str
+) -> None:
+    """套用／撤銷都看「現在」誰管這台機器，不是誰送的單。
+
+    申請送出後機器可能已轉移給別人（或改掛到別的班級）；只比對
+    ``db_request.user_id`` 會讓前擁有者還能對別人的機器動手。機器已經不在
+    DB（resource_vmid 為 None）時沒有擁有者可查，退回原本的申請人／管理員
+    判斷，否則申請人連撤銷自己的殘單都做不到。
+    """
+    if db_request.resource_vmid is None:
+        require_resource_access(user, db_request.user_id, detail=detail)
+        return
+    require_resource_management(session=session, user=user, vmid=db_request.vmid)
+
+
 def needs_power_cycle(resource_type: str, was_running: bool, request: Any) -> bool:
     """執行中的 QEMU 改 cores/memory 只會進 pending，必須關機再開才生效。
 
@@ -635,8 +703,9 @@ def apply(
     )
     if not db_request:
         raise NotFoundError(t("spec_change.not_found"))
-    require_resource_access(
-        user, db_request.user_id, detail=t("spec_change.apply_forbidden")
+    _require_manage(
+        session=session, user=user, db_request=db_request,
+        detail=t("spec_change.apply_forbidden"),
     )
     if db_request.status != SpecChangeRequestStatus.approved:
         raise BadRequestError(
@@ -652,6 +721,11 @@ def apply(
     task_id = _apply_task_id(db_request.id)
     if background_tasks.is_active(task_id):
         raise ConflictError(t("spec_change.apply_in_progress"))
+    # is_active 只看本行程：服務重啟或多開 worker 時，DB 上的 apply_started_at
+    # 才是唯一的共用證據。鎖定期內不讓第二次套用進來（磁碟 resize 是增量，
+    # 重跑會把磁碟擴成兩倍）；失敗（apply_error 有值）則不受限，可直接重試。
+    if _apply_recently_started(db_request):
+        raise ConflictError(t("spec_change.apply_recently_started"))
 
     resource_info = proxmox_service.find_resource(db_request.vmid)
     db_request = _refresh_current_specs(
@@ -773,7 +847,16 @@ def _run_apply(
             stopped_by_us = True
         changes = _apply_spec_changes(db_request=request, resource_info=resource_info)
     except Exception as exc:
-        error = str(exc)
+        partial = exc if isinstance(exc, _PartialApplyError) else None
+        if partial is not None:
+            # 「全部失敗」與「只有磁碟失敗」對使用者是完全不同的處境
+            error = t(
+                "spec_change.partial_applied_disk_failed",
+                applied="; ".join(partial.applied),
+                error=partial.cause,
+            )
+        else:
+            error = str(exc)
         if stopped_by_us:
             # 是我們把機器關掉的，套用失敗也要把機器還給使用者
             try:
@@ -783,7 +866,7 @@ def _run_apply(
                 error += t(
                     "spec_change.restart_failed_after_failure", error=start_exc
                 )
-        _finish_apply(request_id, user_id, vmid, error=error)
+        _finish_apply(request_id, user_id, vmid, error=error, partial=partial)
         raise
 
     warning: str | None = None
@@ -804,7 +887,7 @@ def _run_apply(
 
 def _open_session() -> Session:
     """背景執行緒用的獨立 DB session（測試可替換成自己的 engine）。"""
-    from app.core.db import engine  # noqa: PLC0415 — 測試環境不一定有 DB
+    from app.core.db import engine
 
     return Session(engine)
 
@@ -818,6 +901,7 @@ def _finish_apply(
     error: str | None = None,
     warning: str | None = None,
     power_cycled: bool = False,
+    partial: _PartialApplyError | None = None,
 ) -> None:
     """背景任務寫回結果（獨立 session）。DB 寫失敗只記 log：規格已在 Proxmox 生效。"""
     if error is None:
@@ -842,6 +926,17 @@ def _finish_apply(
                     commit=False,
                 )
             else:
+                if partial is not None:
+                    # 已生效的部分寫回「目前規格」快照，重試時才會以真實值
+                    # 計算磁碟增量（Proxmox 連不上時尤其重要）。
+                    spec_request_repo.update_spec_change_current_specs(
+                        session=session,
+                        request_id=request_id,
+                        current_cpu=partial.actual_cpu,
+                        current_memory=partial.actual_memory,
+                        current_disk=partial.actual_disk,
+                        commit=False,
+                    )
                 spec_request_repo.mark_spec_change_apply_failed(
                     session=session, request_id=request_id, error=error, commit=False
                 )
@@ -888,40 +983,56 @@ def _apply_spec_changes(
                 f"Memory: {db_request.current_memory} -> {db_request.requested_memory}MB"
             )
 
+        config_applied = False
         if config_params:
             proxmox_service.update_config(
                 node, db_request.vmid, resource_type, **config_params
             )
+            config_applied = True
 
         if db_request.requested_disk is not None:
-            # Proxmox resize 只接受「增量」。current_disk 解析失敗（None）時
-            # 不能把 requested 整個當增量套上去，那會把磁碟擴成
-            # current + requested；增量 <= 0（combined 類型建立時未驗證）
-            # 也必須擋下。
-            if db_request.current_disk is None:
-                raise ProxmoxError(
-                    t("spec_change.disk_current_unknown", vmid=db_request.vmid)
-                )
-            disk_increase = db_request.requested_disk - db_request.current_disk
-            if disk_increase <= 0:
-                raise ProxmoxError(
-                    t(
-                        "spec_change.disk_increase_only_detail",
-                        current=db_request.current_disk,
-                        requested=db_request.requested_disk,
+            try:
+                # Proxmox resize 只接受「增量」。current_disk 解析失敗（None）時
+                # 不能把 requested 整個當增量套上去，那會把磁碟擴成
+                # current + requested；增量 <= 0（combined 類型建立時未驗證）
+                # 也必須擋下。
+                if db_request.current_disk is None:
+                    raise ProxmoxError(
+                        t("spec_change.disk_current_unknown", vmid=db_request.vmid)
                     )
+                disk_increase = db_request.requested_disk - db_request.current_disk
+                if disk_increase <= 0:
+                    raise ProxmoxError(
+                        t(
+                            "spec_change.disk_increase_only_detail",
+                            current=db_request.current_disk,
+                            requested=db_request.requested_disk,
+                        )
+                    )
+                size_param = f"+{disk_increase}G"
+                disk_name = "scsi0" if resource_type == "qemu" else "rootfs"
+                proxmox_service.resize_disk(
+                    node, db_request.vmid, resource_type, disk_name, size_param
                 )
-            size_param = f"+{disk_increase}G"
-            disk_name = "scsi0" if resource_type == "qemu" else "rootfs"
-            proxmox_service.resize_disk(
-                node, db_request.vmid, resource_type, disk_name, size_param
-            )
+            except Exception as exc:
+                if not config_applied:
+                    raise
+                # CPU／記憶體已經寫進機器了，錯誤訊息與快照都要照實反映
+                raise _PartialApplyError(
+                    exc,
+                    applied=changes,
+                    actual_cpu=db_request.requested_cpu or db_request.current_cpu,
+                    actual_memory=(
+                        db_request.requested_memory or db_request.current_memory
+                    ),
+                    actual_disk=db_request.current_disk,
+                ) from exc
             changes.append(
                 f"Disk: {db_request.current_disk} -> {db_request.requested_disk}GB"
             )
 
         return changes
-    except (ProxmoxError, NotFoundError):
+    except (ProxmoxError, NotFoundError, _PartialApplyError):
         raise
     except Exception as e:
         logger.error(f"Failed to apply spec changes: {e}")

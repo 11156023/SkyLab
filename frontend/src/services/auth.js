@@ -4,9 +4,14 @@
  * 其他模組若需要 token，請透過這裡取得，不要直接讀 localStorage。
  *
  * 另提供登入前（無 token）的認證端點：getLoginMethods / loginLdap。
- * 這些走純 fetch 而非 api.js 的 request()——登入失敗的 401 不該觸發
- * refresh 重試與 auth:unauthorized 強制登出事件。
+ * 這些不走 api.js 的 request()——登入失敗的 401 不該觸發 refresh 重試與
+ * auth:unauthorized 強制登出事件——但仍用 fetchWithTimeout 保住逾時保護。
  */
+
+import {
+  LOGIN_REQUEST_TIMEOUT_MS,
+  fetchWithTimeout,
+} from "./fetchWithTimeout";
 
 const BASE_URL = import.meta.env.VITE_API_URL ?? "";
 
@@ -268,7 +273,12 @@ async function throwApiError(res) {
  * @returns {Promise<{password: boolean, google: boolean, ldap: boolean}>}
  */
 export async function getLoginMethods() {
-  const res = await fetch(`${BASE_URL}/api/v1/login/methods`);
+  /* 帶逾時：登入頁靠這支決定要不要顯示 LDAP 分頁，後端沒回應時不能卡住整頁 */
+  const res = await fetchWithTimeout(
+    `${BASE_URL}/api/v1/login/methods`,
+    {},
+    LOGIN_REQUEST_TIMEOUT_MS,
+  );
   if (!res.ok) await throwApiError(res);
   return res.json();
 }
@@ -278,11 +288,16 @@ export async function getLoginMethods() {
  * @throws {{ status, message }} 登入失敗時
  */
 export async function loginLdap(username, password) {
-  const res = await fetch(`${BASE_URL}/api/v1/login/ldap`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ username, password }),
-  });
+  /* 帶逾時：LDAP 伺服器沒回應時登入按鈕要收得到錯誤，不能一直轉圈 */
+  const res = await fetchWithTimeout(
+    `${BASE_URL}/api/v1/login/ldap`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ username, password }),
+    },
+    LOGIN_REQUEST_TIMEOUT_MS,
+  );
   if (!res.ok) await throwApiError(res);
 
   const tokens = await res.json();

@@ -89,8 +89,11 @@ def test_set_lxc_root_password_retries_until_success(
         (0, "", ""),
     ]
 
+    stdins: list[str | None] = []
+
     def fake_exec_lxc(node: str, vmid: int, command: str, **kw: Any) -> Any:
         attempts.append(command)
+        stdins.append(kw.get("stdin"))
         outcome = outcomes[len(attempts) - 1]
         if isinstance(outcome, Exception):
             raise outcome
@@ -100,8 +103,10 @@ def test_set_lxc_root_password_retries_until_success(
 
     assert clone_service._set_lxc_root_password("pve1", 201, "abcd2345efgh")
     assert len(attempts) == 3
-    assert "root:abcd2345efgh" in attempts[0]
     assert "chpasswd" in attempts[0]
+    # 密碼只能走 stdin，不得出現在指令列（節點上的 ps 看得到）
+    assert "abcd2345efgh" not in attempts[0]
+    assert stdins[0] == "root:abcd2345efgh\n"
 
 
 def test_set_lxc_root_password_gives_up_and_returns_false(
