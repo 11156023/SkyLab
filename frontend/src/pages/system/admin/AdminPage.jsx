@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useId, useMemo, useState } from "react";
+import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
 import styles from "./AdminPage.module.scss";
 import MIcon from "../../../components/MIcon";
@@ -52,6 +53,7 @@ function UserModal({ mode, user, loading, closing = false, onClose, onSubmit }) 
   const isEdit = mode === "edit";
   /* LDAP 帳號的密碼歸目錄管：本地密碼欄位鎖住（後端也會擋），稽核 #9 */
   const isLdap = isEdit && user?.auth_source === "ldap";
+  const titleId = useId();
 
   /* Esc 關閉（Dialog 標準行為）；送出中不關，跟關閉鈕的行為一致 */
   useEffect(() => {
@@ -83,14 +85,23 @@ function UserModal({ mode, user, loading, closing = false, onClose, onSubmit }) 
     onSubmit(payload);
   }
 
-  return (
+  /* 掛到 document.body：外層若加了 backdrop-filter／transform，
+     position: fixed 的遮罩會被困在那一層、蓋不滿整個畫面 */
+  return createPortal(
     <div
       className={`${styles.modalOverlay} ${closing ? styles.modalOverlayOut : ""}`}
       onMouseDown={onClose}
     >
-      <form className={styles.modal} onSubmit={submit} onMouseDown={(e) => e.stopPropagation()}>
+      <form
+        className={styles.modal}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
+        onSubmit={submit}
+        onMouseDown={(e) => e.stopPropagation()}
+      >
         <div className={styles.modalHeader}>
-          <h2>{isEdit ? t("AdminPage.modalEditTitle") : t("AdminPage.modalCreateTitle")}</h2>
+          <h2 id={titleId}>{isEdit ? t("AdminPage.modalEditTitle") : t("AdminPage.modalCreateTitle")}</h2>
           <button type="button" className={styles.dialogClose} onClick={onClose} aria-label={t("AdminPage.close")}>
             <MIcon name="close" size={18} />
           </button>
@@ -166,7 +177,8 @@ function UserModal({ mode, user, loading, closing = false, onClose, onSubmit }) 
           </button>
         </div>
       </form>
-    </div>
+    </div>,
+    document.body,
   );
 }
 
