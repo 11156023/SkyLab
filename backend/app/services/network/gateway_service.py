@@ -69,7 +69,7 @@ def reset_host_key(session: object) -> str:
     Gateway VM 重灌或更換機器後 host key 會改變，導致 TOFU 釘選拒絕連線；
     管理員確認變更為預期後呼叫此函式，下次連線會重新記錄新的 host key。
     """
-    from app.repositories import gateway_config as gw_repo  # noqa: PLC0415
+    from app.repositories import gateway_config as gw_repo
 
     config = gw_repo.get_gateway_config(session)  # type: ignore[arg-type]
     if config is None or not config.host:
@@ -101,7 +101,7 @@ def exec_checked(client, command: str, error_message: str) -> str:
 
 
 def _get_config(session: object) -> object:
-    from app.repositories import gateway_config as gw_repo  # noqa: PLC0415
+    from app.repositories import gateway_config as gw_repo
 
     config = gw_repo.get_gateway_config(session)  # type: ignore[arg-type]
     if config is None or not config.host or not config.encrypted_private_key:
@@ -242,7 +242,7 @@ def test_connection(
 
 def read_service_config(session: object, service: str) -> str:
     from app.repositories.gateway_config import (
-        get_decrypted_private_key,  # noqa: PLC0415
+        get_decrypted_private_key,
     )
 
     config = _get_config(session)
@@ -271,7 +271,7 @@ def read_service_config(session: object, service: str) -> str:
 
 def write_service_config(session: object, service: str, content: str) -> None:
     from app.repositories.gateway_config import (
-        get_decrypted_private_key,  # noqa: PLC0415
+        get_decrypted_private_key,
     )
 
     config = _get_config(session)
@@ -293,9 +293,9 @@ def write_service_config(session: object, service: str, content: str) -> None:
 
 
 def sync_traefik_dns_challenge(session: object) -> None:
-    from app.repositories import cloudflare_config as cf_repo  # noqa: PLC0415
+    from app.repositories import cloudflare_config as cf_repo
     from app.repositories.gateway_config import (
-        get_decrypted_private_key,  # noqa: PLC0415
+        get_decrypted_private_key,
     )
 
     gateway_config = _get_config(session)
@@ -353,7 +353,7 @@ def sync_traefik_dns_challenge(session: object) -> None:
 
 def control_service(session: object, service: str, action: str) -> tuple[bool, str]:
     from app.repositories.gateway_config import (
-        get_decrypted_private_key,  # noqa: PLC0415
+        get_decrypted_private_key,
     )
 
     config = _get_config(session)
@@ -391,7 +391,7 @@ def control_service(session: object, service: str, action: str) -> tuple[bool, s
 def get_service_logs(session: object, service: str, lines: int = 50) -> tuple[bool, str]:
     """Read recent journalctl logs for a service on the Gateway VM."""
     from app.repositories.gateway_config import (
-        get_decrypted_private_key,  # noqa: PLC0415
+        get_decrypted_private_key,
     )
 
     config = _get_config(session)
@@ -411,7 +411,7 @@ def get_service_logs(session: object, service: str, lines: int = 50) -> tuple[bo
 
 def get_service_status(session: object, service: str) -> tuple[bool, str]:
     from app.repositories.gateway_config import (
-        get_decrypted_private_key,  # noqa: PLC0415
+        get_decrypted_private_key,
     )
 
     config = _get_config(session)
@@ -488,8 +488,8 @@ def _parse_wireguard_dump(
 
 def get_wireguard_overview(session: object) -> GatewayWireGuardOverview:
     """Return a secret-free WireGuard control-plane and runtime summary."""
-    from app.repositories import wireguard_peer as peer_repo  # noqa: PLC0415
-    from app.repositories.gateway_config import (  # noqa: PLC0415
+    from app.repositories import wireguard_peer as peer_repo
+    from app.repositories.gateway_config import (
         get_decrypted_private_key,
     )
 
@@ -630,7 +630,7 @@ def _get_haproxy_candidate_version(client) -> str | None:
 
 def get_service_versions(session: object) -> GatewayServiceVersionsResult:
     from app.repositories.gateway_config import (
-        get_decrypted_private_key,  # noqa: PLC0415
+        get_decrypted_private_key,
     )
 
     config = _get_config(session)

@@ -29,7 +29,7 @@ class _FakeRedis:
         self.counts[key] = current + 1
         return [1, current + 1]
 
-    async def zremrangebyscore(self, key: str, *_args) -> int:  # noqa: ARG002
+    async def zremrangebyscore(self, key: str, *_args) -> int:
         return 0
 
     async def zcard(self, key: str) -> int:

@@ -351,9 +351,9 @@ async def _stream_upstream_response(
     finally:
         await upstream.aclose()
         await client.aclose()
-        from sqlmodel import Session  # noqa: PLC0415
+        from sqlmodel import Session
 
-        from app.core.db import engine  # noqa: PLC0415
+        from app.core.db import engine
 
         try:
             with Session(engine) as record_session:

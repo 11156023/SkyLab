@@ -298,8 +298,8 @@ def retry_failed_class(session: Session, *, item: TeachingClass) -> None:
     - 只有復原、沒有重新入列且所有 job 都完成 → 套用拓樸並轉 ``active``
     - 什麼都沒做 → 依原狀態決定：``provisioning`` 視為沒有可重試的項目（400）
     """
-    from app.services.course import course_service  # noqa: PLC0415 — 避免 import cycle
-    from app.services.teaching import (  # noqa: PLC0415 — 避免 import cycle
+    from app.services.course import course_service
+    from app.services.teaching import (
         class_network_service,
     )
 

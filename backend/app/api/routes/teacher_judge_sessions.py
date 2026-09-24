@@ -104,6 +104,7 @@ from app.core.authorizers import require_teaching_access
 from app.core.i18n import t
 from app.infrastructure.worker import submit
 from app.models import TeachingClass, TeachingClassWeek
+from app.models.base import get_datetime_utc
 from app.models.teacher_judge_attachment import TeacherJudgeSessionAttachment
 from app.models.teacher_judge_script_artifact import TeacherJudgeScriptArtifact
 from app.models.teacher_judge_script_run import (
@@ -380,8 +381,6 @@ def update_session(
                 session, item, commit=False
             )
         item.selected_file_id = payload.selected_file_id
-    from app.models.base import get_datetime_utc
-
     if payload.status is not None:
         item.status = TeacherJudgeSessionStatus(payload.status)
         if item.status == TeacherJudgeSessionStatus.archived:
@@ -909,8 +908,6 @@ async def create_message(
                 else None,
             },
         )
-    from app.models.base import get_datetime_utc
-
     item.last_activity_at = get_datetime_utc()
     item.updated_at = item.last_activity_at
     session.add_all([assistant, item])
@@ -1029,6 +1026,31 @@ async def create_session_script_set(
         current_user=current_user,
         expected_revision=payload.analysis_revision if payload else None,
     )
+    return await _generate_script_set(
+        session=session,
+        teaching_class_id=teaching_class_id,
+        session_id=session_id,
+        item=item,
+        file=file,
+        rubric_analysis=rubric_analysis,
+        current_user=current_user,
+        log_label="creation",
+    )
+
+
+async def _generate_script_set(
+    *,
+    session: SessionDep,
+    teaching_class_id: uuid.UUID,
+    session_id: uuid.UUID,
+    item: Any,
+    file: Any,
+    rubric_analysis: TeacherJudgeRubricAnalysis,
+    current_user: InstructorUser,
+    log_label: str,
+    artifact_set_id: uuid.UUID | None = None,
+) -> TeacherJudgeScriptSetPublic:
+    """產生（或重新產生）script set；失敗一律回滾並在 session 上留下失敗紀錄。"""
     try:
         script_set = await create_artifact_set(
             session=session,
@@ -1040,6 +1062,7 @@ async def create_session_script_set(
             source_analysis_revision=file.analysis_revision,
             created_by=current_user.id,
             source_file_id=file.id,
+            artifact_set_id=artifact_set_id,
         )
     except HTTPException as exc:
         session.rollback()
@@ -1056,7 +1079,9 @@ async def create_session_script_set(
         raise
     except Exception:
         session.rollback()
-        logger.exception("Teacher Judge script set creation failed for session %s", item.id)
+        logger.exception(
+            "Teacher Judge script set %s failed for session %s", log_label, item.id
+        )
         _save_script_set_failure(
             session,
             item,
@@ -1068,8 +1093,6 @@ async def create_session_script_set(
             created_by=current_user.id,
         )
         raise
-    from app.models.base import get_datetime_utc
-
     item.last_activity_at = get_datetime_utc()
     item.updated_at = item.last_activity_at
     session.add(item)
@@ -1161,53 +1184,17 @@ async def regenerate_session_script_set(
             created_by=current_user.id,
         )
         raise mismatch
-    try:
-        script_set = await create_artifact_set(
-            session=session,
-            teaching_class_id=teaching_class_id,
-            session_id=session_id,
-            name=item.title,
-            template_key=file.template_key,
-            rubric_analysis=rubric_analysis,
-            source_analysis_revision=file.analysis_revision,
-            created_by=current_user.id,
-            source_file_id=file.id,
-            artifact_set_id=artifact_set_id,
-        )
-    except HTTPException as exc:
-        session.rollback()
-        _save_script_set_failure(
-            session,
-            item,
-            detail=exc.detail,
-            stage="script_generation",
-            status_code=exc.status_code,
-            source_file_id=file.id,
-            analysis_revision=file.analysis_revision,
-            created_by=current_user.id,
-        )
-        raise
-    except Exception:
-        session.rollback()
-        logger.exception("Teacher Judge script set regeneration failed for session %s", item.id)
-        _save_script_set_failure(
-            session,
-            item,
-            detail=None,
-            stage="script_generation",
-            status_code=None,
-            source_file_id=file.id,
-            analysis_revision=file.analysis_revision,
-            created_by=current_user.id,
-        )
-        raise
-    from app.models.base import get_datetime_utc
-
-    item.last_activity_at = get_datetime_utc()
-    item.updated_at = item.last_activity_at
-    session.add(item)
-    session.commit()
-    return script_set
+    return await _generate_script_set(
+        session=session,
+        teaching_class_id=teaching_class_id,
+        session_id=session_id,
+        item=item,
+        file=file,
+        rubric_analysis=rubric_analysis,
+        current_user=current_user,
+        log_label="regeneration",
+        artifact_set_id=artifact_set_id,
+    )
 
 
 @router.post(
@@ -1240,8 +1227,6 @@ def create_session_script_set_run(
         started_by=current_user.id,
         session_id=session_id,
     )
-    from app.models.base import get_datetime_utc
-
     item.last_activity_at = get_datetime_utc()
     item.updated_at = item.last_activity_at
     session.add(item)
@@ -1427,8 +1412,6 @@ def _update_target_review(
             detail="只能人工判定待導師核查或需注意的項目：" + "、".join(invalid_ids),
         )
 
-    from app.models.base import get_datetime_utc
-
     now = get_datetime_utc()
     if payload.feedback or payload.decisions:
         target["teacher_review"] = {
@@ -1534,8 +1517,6 @@ def create_session_run(
         started_by=current_user.id,
         target_node_key=payload.target_node_key,
     )
-    from app.models.base import get_datetime_utc
-
     item.last_activity_at = get_datetime_utc()
     item.updated_at = item.last_activity_at
     session.add(item)

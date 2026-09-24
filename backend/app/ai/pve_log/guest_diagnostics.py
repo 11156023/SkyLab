@@ -186,10 +186,9 @@ def redact_sensitive_text(value: str) -> str:
     redacted = _URI_CREDENTIALS.sub(
         lambda match: f"{match.group(1)}[REDACTED]@", redacted
     )
-    redacted = _ENV_SECRET.sub(
+    return _ENV_SECRET.sub(
         lambda match: f"{match.group(1)}[REDACTED]", redacted
     )
-    return redacted
 
 
 def _truncate(value: str, limit: int) -> str:

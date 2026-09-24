@@ -40,7 +40,7 @@ class _FakeSession:
     def __init__(self, user: Any) -> None:
         self._user = user
 
-    def get(self, model: Any, key: Any) -> Any:  # noqa: ARG002
+    def get(self, model: Any, key: Any) -> Any:
         return self._user
 
 
@@ -48,7 +48,7 @@ def _patch_redis(monkeypatch: pytest.MonkeyPatch, *, revoked: bool) -> None:
     async def fake_get_redis() -> None:
         return None
 
-    async def fake_is_jti_revoked(redis: Any, jti: str) -> bool:  # noqa: ARG001
+    async def fake_is_jti_revoked(redis: Any, jti: str) -> bool:
         return revoked
 
     # auth_service imports these lazily from app.infrastructure.redis

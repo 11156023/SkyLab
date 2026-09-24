@@ -47,7 +47,7 @@ def check_port_available(external_port: int, protocol: str, session: object) -> 
         raise BadRequestError(
             t("nat.reservedPort", port=external_port)
         )
-    from app.repositories import nat_rule as nat_repo  # noqa: PLC0415
+    from app.repositories import nat_rule as nat_repo
 
     if nat_repo.is_external_port_taken(session, external_port, protocol):  # type: ignore[arg-type]
         raise BadRequestError(
@@ -65,8 +65,8 @@ def allocate_external_port(
     唯一約束把關，兩個班同時開課撞號時呼叫端重挑一次即可。``exclude`` 是
     同一輪已經挑出去、還沒寫進 DB 的 port。
     """
-    from app.repositories import nat_rule as nat_repo  # noqa: PLC0415
-    from app.services.network import ip_management_service  # noqa: PLC0415
+    from app.repositories import nat_rule as nat_repo
+    from app.services.network import ip_management_service
 
     pool = ip_management_service.get_forward_port_range(
         ip_management_service.get_subnet_config(session)  # type: ignore[arg-type]
@@ -116,14 +116,14 @@ def _sync_haproxy(session: object, rules: list | None = None) -> None:
     ``rules`` 給刪除流程用：先拿「排除待刪規則後的清單」同步上去，
     同步成功才把 DB 的規則刪掉，避免 DB 刪了、Gateway 上還在轉發。
     """
-    from app.infrastructure.ssh import create_key_client, exec_command  # noqa: PLC0415
-    from app.repositories import gateway_config as gw_repo  # noqa: PLC0415
-    from app.repositories import nat_rule as nat_repo  # noqa: PLC0415
+    from app.infrastructure.ssh import create_key_client, exec_command
+    from app.repositories import gateway_config as gw_repo
+    from app.repositories import nat_rule as nat_repo
     from app.repositories.gateway_config import (
-        get_decrypted_private_key,  # noqa: PLC0415
+        get_decrypted_private_key,
     )
     from app.services.network.gateway_service import (
-        SERVICE_CONFIG_PATHS,  # noqa: PLC0415
+        SERVICE_CONFIG_PATHS,
     )
 
     config = gw_repo.get_gateway_config(session)  # type: ignore[arg-type]
@@ -214,8 +214,8 @@ def apply_nat_rule(
     protocol: str,
 ) -> None:
     """建立 NAT 規則：寫入 DB + 同步 haproxy。"""
-    from app.models.nat_rule import NatRule  # noqa: PLC0415
-    from app.repositories import nat_rule as nat_repo  # noqa: PLC0415
+    from app.models.nat_rule import NatRule
+    from app.repositories import nat_rule as nat_repo
 
     check_port_available(external_port, protocol, session)
     # vm_ip 來自 guest agent 回報，VM 擁有者可偽造：不可讓外網 port 轉到
@@ -224,7 +224,7 @@ def apply_nat_rule(
     get = getattr(session, "get", None)
     resource_vmid = None
     if get is not None:
-        from app.models import Resource  # noqa: PLC0415
+        from app.models import Resource
 
         resource_vmid = vmid if get(Resource, vmid) is not None else None
 
@@ -259,7 +259,7 @@ def _sync_then_delete(session: object, doomed: list) -> None:
     反過來做（先刪 DB 再同步）的話，同步失敗就會留下「DB 查不到、Gateway 仍在
     轉發」的孤兒 port：既撤不掉，那個對外 port 也會被重新配給別人。
     """
-    from app.repositories import nat_rule as nat_repo  # noqa: PLC0415
+    from app.repositories import nat_rule as nat_repo
 
     if not doomed:
         return
@@ -275,7 +275,7 @@ def _sync_then_delete(session: object, doomed: list) -> None:
 
 def remove_nat_rules_for_vmid(session: object, vmid: int) -> None:
     """刪除指定 VM 的所有 NAT 規則（VM 刪除時使用）。"""
-    from app.repositories import nat_rule as nat_repo  # noqa: PLC0415
+    from app.repositories import nat_rule as nat_repo
 
     _sync_then_delete(
         session,
@@ -287,7 +287,7 @@ def remove_nat_rules_by_internal_port(
     session: object, vmid: int, internal_port: int, protocol: str
 ) -> None:
     """刪除指定 VM 特定內部 port 的 NAT 規則（刪除連線 edge 時使用）。"""
-    from app.repositories import nat_rule as nat_repo  # noqa: PLC0415
+    from app.repositories import nat_rule as nat_repo
 
     _sync_then_delete(
         session,

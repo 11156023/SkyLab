@@ -160,6 +160,27 @@ function Notice({ icon = "info", tone = "info", children }) {
   );
 }
 
+/* 該步驟已在別處完成時的替代畫面：只有說明與上一步／下一步 */
+function DoneStep({ title, notice, onBack, onNext }) {
+  const { t } = useTranslation("login");
+  return (
+    <section className={styles.section}>
+      <h2 className={styles.sectionTitle}>{title}</h2>
+      <Notice icon="check_circle" tone="success">{notice}</Notice>
+      <div className={styles.actions}>
+        <button type="button" className={styles.btnSecondary} onClick={onBack}>
+          <MIcon name="arrow_back" size={18} />
+          {t("SetupPage.back")}
+        </button>
+        <button type="button" className={styles.btnPrimary} onClick={onNext}>
+          {t("SetupPage.next")}
+          <MIcon name="arrow_forward" size={18} />
+        </button>
+      </div>
+    </section>
+  );
+}
+
 /* ─── 歡迎：選語言 ───────────────────────────────────────── */
 
 function LanguageWelcome({ onContinue }) {
@@ -432,20 +453,12 @@ function ProxmoxStep({ alreadyDone, onSaved, onSkip, onBack, onNext }) {
 
   if (alreadyDone) {
     return (
-      <section className={styles.section}>
-        <h2 className={styles.sectionTitle}>{t("SetupPage.proxmoxTitle")}</h2>
-        <Notice icon="check_circle" tone="success">{t("SetupPage.proxmoxDoneNotice")}</Notice>
-        <div className={styles.actions}>
-          <button type="button" className={styles.btnSecondary} onClick={onBack}>
-            <MIcon name="arrow_back" size={18} />
-            {t("SetupPage.back")}
-          </button>
-          <button type="button" className={styles.btnPrimary} onClick={onNext}>
-            {t("SetupPage.next")}
-            <MIcon name="arrow_forward" size={18} />
-          </button>
-        </div>
-      </section>
+      <DoneStep
+        title={t("SetupPage.proxmoxTitle")}
+        notice={t("SetupPage.proxmoxDoneNotice")}
+        onBack={onBack}
+        onNext={onNext}
+      />
     );
   }
 
@@ -699,20 +712,12 @@ function SubnetStep({ alreadyDone, onSaved, onSkip, onBack, onNext }) {
 
   if (alreadyDone) {
     return (
-      <section className={styles.section}>
-        <h2 className={styles.sectionTitle}>{t("SetupPage.subnetTitle")}</h2>
-        <Notice icon="check_circle" tone="success">{t("SetupPage.subnetDoneNotice")}</Notice>
-        <div className={styles.actions}>
-          <button type="button" className={styles.btnSecondary} onClick={onBack}>
-            <MIcon name="arrow_back" size={18} />
-            {t("SetupPage.back")}
-          </button>
-          <button type="button" className={styles.btnPrimary} onClick={onNext}>
-            {t("SetupPage.next")}
-            <MIcon name="arrow_forward" size={18} />
-          </button>
-        </div>
-      </section>
+      <DoneStep
+        title={t("SetupPage.subnetTitle")}
+        notice={t("SetupPage.subnetDoneNotice")}
+        onBack={onBack}
+        onNext={onNext}
+      />
     );
   }
 

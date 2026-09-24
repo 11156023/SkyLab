@@ -139,7 +139,7 @@ def _build_gpu_hostpci(mapping_id: str, mdev_profile: str | None) -> str:
     vGPU 卡（profiles 非空）未指定規格時，自動配「最小可建規格」——
     不帶 mdev 的裸 VF 對 NVIDIA vGPU 是不可用的，不能落回 raw passthrough。
     """
-    from app.services.proxmox import gpu_service  # noqa: PLC0415
+    from app.services.proxmox import gpu_service
 
     # hostpci 是逗號分隔的 key=value 字串：mdev 值若含 ',' 或 '=' 就能夾帶
     # romfile/rombar 等額外選項，必須先做格式白名單，再對照 PVE 回報的規格。
@@ -793,7 +793,7 @@ def plan_provision(*, session: Session, db_request) -> dict:
         # Multi-machine quick-practice reserves every IP in one launch
         # transaction. Resolve the stable key from the request-to-session map
         # so the generic VMRequest schema does not expose infrastructure data.
-        from app.models import QuickPracticeSessionMachine  # noqa: PLC0415
+        from app.models import QuickPracticeSessionMachine
 
         practice_machine = session.exec(
             select(QuickPracticeSessionMachine).where(
@@ -839,9 +839,9 @@ def plan_provision(*, session: Session, db_request) -> dict:
     if db_request.resource_type == "lxc" and getattr(db_request, "template_id", None):
         # LXC 範本克隆路徑（Course Lab）：linked clone 必須與範本同節點同 storage，
         # 直接以範本節點覆寫 placement 結果（與範本系統 2.0 clone_service 行為一致）。
-        from sqlmodel import select as _select  # noqa: PLC0415 — 避免頂層循環相依
+        from sqlmodel import select as _select
 
-        from app.models import VMTemplate  # noqa: PLC0415
+        from app.models import VMTemplate
 
         template_row = session.exec(
             _select(VMTemplate).where(VMTemplate.pve_vmid == db_request.template_id)
@@ -970,7 +970,7 @@ def execute_provision(plan: dict) -> tuple[int, str]:
                 # LXC 無 cloud-init：登入密碼須待啟動後以 pct exec 設定
                 # （_set_lxc_root_password）；plan["password"] 為 None
                 # （Course Lab）時沿用範本內烘焙的憑證。
-                from app.services.template import clone_service  # noqa: PLC0415
+                from app.services.template import clone_service
 
                 clone_service.clone_with_fallback(
                     node=plan["template_node"],
@@ -1307,7 +1307,7 @@ def clone_source_disk_gb(session: Session, node) -> int:
     """
     floor = 0
     if node.source_type == "template" and node.source_template_id:
-        from app.models import VMTemplate  # noqa: PLC0415
+        from app.models import VMTemplate
 
         template = session.get(VMTemplate, node.source_template_id)
         if template is not None:

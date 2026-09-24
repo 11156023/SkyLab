@@ -20,7 +20,6 @@ from app.ai.teacher_judge.script_quality_validator import check_script_quality
 
 CHECK_PLAN_SCHEMA_VERSION = "teacher_judge_check_plan.v1"
 DETERMINISTIC_COMPILER_VERSION = "teacher_judge_compiler.v2"
-RESULT_SCHEMA_VERSION = "teacher_judge_result.v1"
 PEER_IP_TOKEN = "{{peer.ip}}"
 _ASSERTION_TYPES_BY_COLLECTOR = {
     "command": {"returncode_equals", "text_equals", "text_contains", "number_compare", "json_path_equals"},

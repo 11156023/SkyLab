@@ -104,8 +104,7 @@ def _now() -> datetime:
 def redact_message_content(value: str) -> str:
     redacted = value
     redacted = _SENSITIVE_PATTERNS[0].sub(r"\1\2[REDACTED]", redacted)
-    redacted = _SENSITIVE_PATTERNS[1].sub("[REDACTED PRIVATE KEY]", redacted)
-    return redacted
+    return _SENSITIVE_PATTERNS[1].sub("[REDACTED PRIVATE KEY]", redacted)
 
 
 class WorkflowMessage(TypedDict):

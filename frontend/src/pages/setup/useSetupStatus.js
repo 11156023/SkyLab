@@ -41,12 +41,6 @@ export function markSetupCompleted() {
   notify();
 }
 
-/** 測試用：清掉模組層快取 */
-export function resetSetupStatusCache() {
-  cache = null;
-  inflight = null;
-}
-
 export function useSetupStatus() {
   const [status, setStatus] = useState(cache);
   const [loading, setLoading] = useState(!cache);

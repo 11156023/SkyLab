@@ -75,7 +75,7 @@ def patched(monkeypatch: pytest.MonkeyPatch) -> dict:
     )
     monkeypatch.setattr(
         ldap_auth_service,
-        "_create_token_pair",
+        "create_token_pair",
         lambda user: SimpleNamespace(access_token="a", refresh_token="r"),
     )
     return calls
@@ -152,7 +152,7 @@ def test_no_auto_create_rejects(
 def test_invalid_credentials_propagates(
     monkeypatch: pytest.MonkeyPatch, patched: dict
 ) -> None:
-    def _raise(config, username, password):  # noqa: ANN001, ANN202
+    def _raise(config, username, password):
         raise AuthenticationError("帳號或密碼錯誤")
 
     monkeypatch.setattr(
@@ -169,7 +169,7 @@ def test_invalid_credentials_propagates(
 def test_server_error_propagates(
     monkeypatch: pytest.MonkeyPatch, patched: dict
 ) -> None:
-    def _raise(config, username, password):  # noqa: ANN001, ANN202
+    def _raise(config, username, password):
         raise UpstreamServiceError("無法連線 LDAP 伺服器")
 
     monkeypatch.setattr(

@@ -376,7 +376,7 @@ def create(
             raise BadRequestError(t("vm_request.vm_requires_template"))
         # Windows 範本帳號由 cloudbase-init 設定檔固定，前端不送 username
         if not request_in.username:
-            from app.services.proxmox import provisioning_service  # noqa: PLC0415
+            from app.services.proxmox import provisioning_service
 
             if not provisioning_service.is_windows_template(request_in.template_id):
                 raise BadRequestError(t("vm_request.vm_requires_username"))
@@ -385,7 +385,7 @@ def create(
     if request_in.gpu_mdev_profile and not request_in.gpu_mapping_id:
         raise BadRequestError(t("vm_request.vgpu_requires_gpu"))
     if request_in.gpu_mapping_id and request_in.gpu_mdev_profile:
-        from app.services.proxmox import gpu_service  # noqa: PLC0415
+        from app.services.proxmox import gpu_service
 
         try:
             gpu_detail = gpu_service.get_gpu_mapping(request_in.gpu_mapping_id)
@@ -944,7 +944,7 @@ def review(
 
 def _is_provisioning_in_flight(db_request: Any) -> bool:
     """clone 是否正在 worker 上跑：running 且未超過 stale 門檻。"""
-    from app.services.scheduling import (  # noqa: PLC0415 — 避免 import cycle
+    from app.services.scheduling import (
         policy as scheduling_policy,
     )
 

@@ -117,7 +117,7 @@ def ensure_lxc_platform_key(*, session: Session, node: str, vmid: int) -> bool:
             )
             return False
 
-        from app.services.template.clone_service import (  # noqa: PLC0415
+        from app.services.template.clone_service import (
             inject_lxc_platform_key,
         )
 
@@ -166,7 +166,7 @@ def ensure_lxc_login_password(
         if not encrypted:
             return False
 
-        from app.services.template.clone_service import (  # noqa: PLC0415
+        from app.services.template.clone_service import (
             set_lxc_root_password,
         )
 
@@ -906,7 +906,7 @@ def list_by_user(
         # Proxmox as "stopped" for a while after the user hits delete;
         # without this overlay the card would reappear as 已關機.
         if shown_vmids:
-            from app.services.resource import deletion_service  # noqa: PLC0415
+            from app.services.resource import deletion_service
 
             deleting_map = deletion_service.list_active_for_vmids(
                 session=session, vmids=list(shown_vmids)
@@ -1197,7 +1197,7 @@ def delete(
 
         # Clean up reverse proxy rules and Cloudflare DNS records for this VM
         try:
-            from app.services.network import reverse_proxy_service  # noqa: PLC0415
+            from app.services.network import reverse_proxy_service
             reverse_proxy_service.remove_reverse_proxy_rules_for_vmid(session, vmid)
         except Exception as exc:
             logger.warning("Failed to clean up reverse proxy rules for VM %s: %s", vmid, exc)
@@ -1205,14 +1205,14 @@ def delete(
         # NAT 規則的 vmid 外鍵會連帶刪除 DB 紀錄，但不會重寫 Gateway 上的
         # haproxy 設定；不明確清一次，轉發會留在原地指向已釋放的 IP。
         try:
-            from app.services.network import nat_service  # noqa: PLC0415
+            from app.services.network import nat_service
             nat_service.remove_nat_rules_for_vmid(session, vmid)
         except Exception as exc:
             logger.warning("Failed to clean up NAT rules for VM %s: %s", vmid, exc)
 
         # Release IP allocation
         try:
-            from app.services.network import ip_management_service  # noqa: PLC0415
+            from app.services.network import ip_management_service
             ip_management_service.release_ip(session, vmid)
         except Exception as exc:
             logger.warning("Failed to release IP for VM %s: %s", vmid, exc)
@@ -1298,19 +1298,19 @@ def delete_orphan_db_record(
     )
 
     try:
-        from app.services.network import reverse_proxy_service  # noqa: PLC0415
+        from app.services.network import reverse_proxy_service
         reverse_proxy_service.remove_reverse_proxy_rules_for_vmid(session, vmid)
     except Exception as exc:
         logger.warning("Orphan cleanup: failed to remove reverse proxy rules for vmid=%s: %s", vmid, exc)
 
     try:
-        from app.services.network import nat_service  # noqa: PLC0415
+        from app.services.network import nat_service
         nat_service.remove_nat_rules_for_vmid(session, vmid)
     except Exception as exc:
         logger.warning("Orphan cleanup: failed to remove NAT rules for vmid=%s: %s", vmid, exc)
 
     try:
-        from app.services.network import ip_management_service  # noqa: PLC0415
+        from app.services.network import ip_management_service
         ip_management_service.release_ip(session, vmid)
     except Exception as exc:
         logger.warning("Orphan cleanup: failed to release IP for vmid=%s: %s", vmid, exc)
@@ -1678,10 +1678,10 @@ def batch_action(
     - 刪除走管理層級 ``require_resource_management``，並和單機刪除一樣排進
       DeletionRequest 佇列（可取消、可稽核），不直接 purge/force。
     """
-    from app.api.deps.proxmox import (  # noqa: PLC0415 — 權限規則只維護在 deps 這一份
+    from app.api.deps.proxmox import (
         check_resource_control_access,
     )
-    from app.services.resource import deletion_service  # noqa: PLC0415
+    from app.services.resource import deletion_service
 
     results: list[BatchActionResultItem] = []
 

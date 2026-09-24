@@ -206,8 +206,4 @@ def require_instructor_or_admin_access(
     *,
     detail: str = "The user doesn't have enough privileges",
 ) -> None:
-    require_permission(
-        user,
-        Permission.VM_REQUEST_USE_IMMEDIATE_MODE,
-        detail=detail,
-    )
+    require_immediate_vm_request_access(user, detail=detail)

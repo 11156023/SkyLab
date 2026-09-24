@@ -526,7 +526,7 @@ def release_ip(
 def _forget_ssh_host_key(ip: str) -> None:
     """IP 回收後清除 pinned SSH host key，避免新主機因 key 不符被拒連。"""
     try:
-        from app.infrastructure.ssh import forget_host_key  # noqa: PLC0415
+        from app.infrastructure.ssh import forget_host_key
 
         forget_host_key(ip)
     except Exception:

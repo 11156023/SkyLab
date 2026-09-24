@@ -107,9 +107,9 @@ def approve_device_code(
     The current user's access token is associated with the device code.
     We generate a fresh token for the desktop client using the same user identity.
     """
-    from datetime import timedelta  # noqa: PLC0415
+    from datetime import timedelta
 
-    from app.core.security import create_access_token  # noqa: PLC0415
+    from app.core.security import create_access_token
 
     entry = _device_codes.get(body.device_code)
     if entry is None:

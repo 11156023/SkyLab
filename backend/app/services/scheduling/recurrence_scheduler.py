@@ -450,7 +450,7 @@ def _filter_due_for_boot(
                     grace_minutes=get_schedule_policy(session=session).window_grace_minutes,
                 )
                 continue
-        except Exception:  # noqa: BLE001 — Proxmox transient errors are common
+        except Exception:
             pass
         due.append(req)
     return due
@@ -468,7 +468,7 @@ def _boot_one(
     logger.info("Scheduled boot triggered: vmid=%s node=%s", spec.vmid, spec.node)
 
     if spec.resource_type == "lxc":
-        from app.services.resource import resource_service  # noqa: PLC0415
+        from app.services.resource import resource_service
 
         with Session(engine) as session:
             resource_service.ensure_lxc_platform_key(

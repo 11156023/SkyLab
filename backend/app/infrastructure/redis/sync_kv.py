@@ -64,7 +64,7 @@ class ExpiringKV:
                 if raw:
                     return json.loads(raw)
                 # Redis 沒有 → 可能是 Redis 短暫故障期間寫進記憶體的，往下找
-            except Exception:  # noqa: BLE001
+            except Exception:
                 logger.warning(
                     "Redis KV get failed (namespace=%s); using in-memory fallback",
                     self._namespace, exc_info=True,
@@ -81,7 +81,7 @@ class ExpiringKV:
             try:
                 client.set(self._key(key), json.dumps(value), ex=ttl)
                 return
-            except Exception:  # noqa: BLE001
+            except Exception:
                 logger.warning(
                     "Redis KV set failed (namespace=%s); using in-memory fallback",
                     self._namespace, exc_info=True,
@@ -93,7 +93,7 @@ class ExpiringKV:
         if client is not None:
             try:
                 client.delete(self._key(key))
-            except Exception:  # noqa: BLE001
+            except Exception:
                 logger.warning(
                     "Redis KV delete failed (namespace=%s)", self._namespace, exc_info=True
                 )
@@ -111,7 +111,7 @@ class ExpiringKV:
                     if total >= limit:
                         break
                 return total
-            except Exception:  # noqa: BLE001
+            except Exception:
                 logger.warning(
                     "Redis KV count failed (namespace=%s); using in-memory fallback",
                     self._namespace, exc_info=True,

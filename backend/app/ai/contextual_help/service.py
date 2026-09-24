@@ -35,7 +35,11 @@ from app.ai.contextual_help.surfaces import (
     get_surfaces_for_user,
     match_element_by_label,
 )
-from app.ai.monitoring import CALL_AI_CONTEXTUAL_HELP, record_ai_template_call
+from app.ai.monitoring import (
+    CALL_AI_CONTEXTUAL_HELP,
+    record_ai_template_call,
+    usage_metrics,
+)
 from app.ai.system_config import system_ai_env
 from app.ai.utils import strip_think_tags
 from app.infrastructure.ai.contextual_help import client as help_client
@@ -48,22 +52,6 @@ _MAX_TOKENS = 220
 _TEMPERATURE = 0.2
 # 說明就是說明，長了沒人看。超過就截斷，不讓模型把整頁教學倒出來。
 _MAX_ANSWER_CHARS = 400
-
-
-def _usage_metrics(response_data: dict[str, Any], elapsed: float) -> dict[str, Any]:
-    usage = response_data.get("usage")
-    if not isinstance(usage, dict):
-        usage = {}
-    prompt_tokens = int(usage.get("prompt_tokens") or 0)
-    completion_tokens = int(usage.get("completion_tokens") or 0)
-    return {
-        "prompt_tokens": prompt_tokens,
-        "completion_tokens": completion_tokens,
-        "total_tokens": int(
-            usage.get("total_tokens") or prompt_tokens + completion_tokens
-        ),
-        "elapsed_seconds": round(max(elapsed, 0.0), 3),
-    }
 
 
 # ------------------------------------------------------------ 確定性答案
@@ -243,7 +231,7 @@ async def explain(
         response_data = await help_client.create_chat_completion(
             payload, timeout=_TIMEOUT_SECONDS
         )
-        metrics = _usage_metrics(response_data, perf_counter() - started)
+        metrics = usage_metrics(response_data, perf_counter() - started)
         content = str(response_data["choices"][0]["message"]["content"] or "")
         answer = strip_think_tags(content).strip()
         if not answer:

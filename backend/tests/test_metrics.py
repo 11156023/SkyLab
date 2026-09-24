@@ -39,7 +39,7 @@ def test_route_template_unknown_when_nothing_set() -> None:
 async def test_middleware_passes_through_non_http() -> None:
     called: list[str] = []
 
-    async def downstream(scope, receive, send):  # noqa: ANN001
+    async def downstream(scope, receive, send):
         called.append(scope["type"])
 
     mw = PrometheusMiddleware(downstream)
@@ -51,14 +51,14 @@ async def test_middleware_passes_through_non_http() -> None:
 async def test_middleware_invokes_app_and_records_status() -> None:
     sent: list[dict] = []
 
-    async def downstream(scope, receive, send):  # noqa: ANN001
+    async def downstream(scope, receive, send):
         await send({"type": "http.response.start", "status": 204, "headers": []})
         await send({"type": "http.response.body", "body": b""})
 
     async def receive():
         return {"type": "http.request"}
 
-    async def capture_send(msg):  # noqa: ANN001
+    async def capture_send(msg):
         sent.append(msg)
 
     mw = PrometheusMiddleware(downstream)
@@ -75,13 +75,13 @@ async def test_middleware_invokes_app_and_records_status() -> None:
 async def test_middleware_records_500_when_app_raises() -> None:
     """If the downstream app raises, status defaults to 500 (no http.response.start sent)."""
 
-    async def downstream(scope, receive, send):  # noqa: ANN001
+    async def downstream(scope, receive, send):
         raise RuntimeError("explode")
 
     async def receive():
         return {"type": "http.request"}
 
-    async def send(_):  # noqa: ANN001
+    async def send(_):
         pass
 
     mw = PrometheusMiddleware(downstream)

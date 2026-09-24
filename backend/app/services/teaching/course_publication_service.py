@@ -219,7 +219,7 @@ def forward_endpoints_by_vmid(
     host 是管理員設定的入口主機，沒設就是 None，前端只顯示 port。
     跟 ``public_urls_by_vmid`` 一樣只讀 DB，不打 Proxmox。
     """
-    from app.repositories import nat_rule as nat_repo  # noqa: PLC0415
+    from app.repositories import nat_rule as nat_repo
 
     wanted = sorted({int(vmid) for vmid in vmids if vmid is not None})
     if not wanted:
@@ -247,7 +247,7 @@ def public_urls_by_vmid(session: Session, vmids: list[int]) -> dict[int, str]:
 
     直接讀反向代理紀錄，不打 Proxmox——這是清單頁會用到的路徑。
     """
-    from app.repositories import reverse_proxy as rp_repo  # noqa: PLC0415
+    from app.repositories import reverse_proxy as rp_repo
 
     urls: dict[int, str] = {}
     for vmid in {int(vmid) for vmid in vmids if vmid is not None}:

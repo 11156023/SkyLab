@@ -717,8 +717,7 @@ class TeacherJudgeScriptRunCreateRequest(BaseModel):
     @field_validator("target_vmids")
     @classmethod
     def validate_target_vmids(cls, value: list[int]) -> list[int]:
-        unique_vmids = list(dict.fromkeys(value))
-        return unique_vmids
+        return list(dict.fromkeys(value))
 
     @model_validator(mode="after")
     def validate_target_selector(self) -> TeacherJudgeScriptRunCreateRequest:

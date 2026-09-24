@@ -56,10 +56,10 @@ class _FakeSession:
         self.committed = 0
         self.added: list[Any] = []
 
-    def exec(self, stmt: Any) -> _FakeResult:  # noqa: ARG002
+    def exec(self, stmt: Any) -> _FakeResult:
         return _FakeResult(self._results.pop(0))
 
-    def get(self, model: Any, key: Any) -> Any:  # noqa: ARG002
+    def get(self, model: Any, key: Any) -> Any:
         return self._get_map.get(key)
 
     def rollback(self) -> None:
@@ -78,7 +78,7 @@ def test_tick_failure_finalizes_request_as_failed(
     req = _request(status=DeletionRequestStatus.pending)
     session = _FakeSession(results=[[req], []], get_map={req.id: req})
 
-    def exploding_execute(s: Any, r: DeletionRequest) -> None:  # noqa: ARG001
+    def exploding_execute(s: Any, r: DeletionRequest) -> None:
         # mimic the real flow: pending → running, then the deletion blows up
         r.status = DeletionRequestStatus.running
         raise RuntimeError("proxmox down")
@@ -107,7 +107,7 @@ def test_stale_running_request_is_recovered(
     monkeypatch.setattr(
         deletion_service,
         "_execute_deletion",
-        lambda s, r: executed.append(r),  # noqa: ARG005
+        lambda s, r: executed.append(r),
     )
 
     deletion_service.process_pending_deletions(session)
@@ -122,7 +122,7 @@ def test_successful_tick_does_not_touch_status(
     session = _FakeSession(results=[[req], []], get_map={req.id: req})
 
     monkeypatch.setattr(
-        deletion_service, "_execute_deletion", lambda s, r: None  # noqa: ARG005
+        deletion_service, "_execute_deletion", lambda s, r: None
     )
 
     deletion_service.process_pending_deletions(session)

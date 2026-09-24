@@ -127,14 +127,6 @@ def nodes_for_version(
     )
 
 
-def _segments(value: str | None) -> set[str]:
-    return {
-        item.strip()
-        for item in (value or "lab-net").replace("/", ",").split(",")
-        if item.strip()
-    }
-
-
 def _session_machine_rows(
     session: Session, *, practice_id: uuid.UUID
 ) -> list[tuple[QuickPracticeSessionMachine, VMRequest]]:
@@ -153,7 +145,7 @@ def _apply_session_topology(
 ) -> list[str]:
     """Materialize one student's published topology as idempotent firewall rules."""
     # Local import avoids a module cycle with the VM scheduling coordinator.
-    from app.services.teaching import class_network_service  # noqa: PLC0415
+    from app.services.teaching import class_network_service
 
     rows = _session_machine_rows(session, practice_id=practice.id)
     machines_by_key = {
@@ -195,7 +187,8 @@ def _apply_session_topology(
                     continue
                 target_node = nodes_by_key.get(target_key)
                 if target_node is None or not (
-                    _segments(source_node.network) & _segments(target_node.network)
+                    class_network_service.network_segments(source_node.network)
+                    & class_network_service.network_segments(target_node.network)
                 ):
                     continue
                 directions.append((source, target, "any", None))
@@ -238,7 +231,7 @@ def _apply_session_topology(
     )
 
     # 「外網 → 機器」的宣告：每位學生各配一個網址，重複執行會略過已發布的
-    from app.services.teaching import course_publication_service  # noqa: PLC0415
+    from app.services.teaching import course_publication_service
 
     owner = session.get(User, practice.user_id)
     if owner is not None:
@@ -344,15 +337,15 @@ def _queue_session_reclaim(
     session: Session, *, practice: QuickPracticeSession
 ) -> int:
     """Queue all remaining resources through the normal idempotent delete path."""
-    from app.services.proxmox import proxmox_service  # noqa: PLC0415
-    from app.services.resource import (  # noqa: PLC0415
+    from app.services.proxmox import proxmox_service
+    from app.services.resource import (
         deletion_service,
         resource_service,
     )
 
     resources = _resources_for_session(session, practice_id=practice.id)
     if not resources:
-        from app.services.network import ip_management_service  # noqa: PLC0415
+        from app.services.network import ip_management_service
 
         ip_management_service.release_reservations_by_prefix(
             session,
@@ -411,7 +404,7 @@ def _queue_session_reclaim(
     refreshed = session.get(QuickPracticeSession, practice.id)
     if refreshed is not None:
         if not _resources_for_session(session, practice_id=practice.id):
-            from app.services.network import ip_management_service  # noqa: PLC0415
+            from app.services.network import ip_management_service
 
             ip_management_service.release_reservations_by_prefix(
                 session,
@@ -428,7 +421,7 @@ def _queue_session_reclaim(
 
 def process_lifecycle() -> int:
     """Reconcile topology and reclaim expired quick-practice sessions."""
-    from app.core.db import engine  # noqa: PLC0415
+    from app.core.db import engine
 
     now = _utc_now()
     with Session(engine) as session:
@@ -506,7 +499,7 @@ def process_lifecycle() -> int:
 def _node_disk_gb(session: Session, node: CourseEnvironmentNode) -> int:
     """節點磁碟的實際大小，含來源範本下限；配額與申請單共用同一個值。"""
     # 頂層 import 會與 provisioning_service 互相相依
-    from app.services.proxmox import provisioning_service  # noqa: PLC0415
+    from app.services.proxmox import provisioning_service
 
     return provisioning_service.clone_source_disk_gb(session, node)
 
@@ -700,7 +693,7 @@ def launch(
     # Reserve the entire environment's concrete IPs before creating any
     # machine request. IP shortage therefore rolls back the same launch
     # transaction instead of leaving a partial multi-machine environment.
-    from app.services.network import ip_management_service  # noqa: PLC0415
+    from app.services.network import ip_management_service
 
     ip_management_service.reserve_ips(
         session,
@@ -808,7 +801,7 @@ def serialize_session(session: Session, item: QuickPracticeSession) -> dict:
         ).all()
     )
     # 對外網址直接讀反向代理紀錄，清單頁不打 Proxmox
-    from app.services.teaching import course_publication_service  # noqa: PLC0415
+    from app.services.teaching import course_publication_service
 
     vmids = [request.vmid for _machine, request in rows if request.vmid is not None]
     public_urls = course_publication_service.public_urls_by_vmid(session, vmids)

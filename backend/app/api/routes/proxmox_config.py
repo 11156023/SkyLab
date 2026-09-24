@@ -148,7 +148,7 @@ def _resource_vmids_on_nodes(session, node_names: set[str]) -> list[int]:
     if not node_names:
         return []
 
-    from app.infrastructure.proxmox.operations import (  # noqa: PLC0415
+    from app.infrastructure.proxmox.operations import (
         list_all_resources,
     )
 

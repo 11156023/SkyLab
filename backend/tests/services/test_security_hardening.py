@@ -105,7 +105,7 @@ class _FakeSession:
     def __init__(self, user: Any) -> None:
         self._user = user
 
-    def get(self, model: Any, key: Any) -> Any:  # noqa: ARG002
+    def get(self, model: Any, key: Any) -> Any:
         return self._user
 
 

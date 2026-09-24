@@ -7,10 +7,11 @@
 """
 
 import asyncio
-import contextlib
 import uuid
 from dataclasses import dataclass, field
 from typing import Any, Protocol
+
+from app.utils.websocket import close_quietly
 
 # 與教室信令 hub 同一個約定：單一連線送不出去就淘汰，不拖住整批推播
 SEND_TIMEOUT_SECONDS = 5
@@ -75,16 +76,7 @@ class CourseProgressHub:
         except Exception:
             # 逾時或送出失敗一律當死連線清掉；register 端的 finally 再清一次是 no-op
             self._connections.pop(conn.key, None)
-            await _close_quietly(conn.websocket)
-
-
-async def _close_quietly(websocket: ProgressSocket) -> None:
-    """盡力關閉連線；對端早就斷了或物件沒有 close 都不是問題。"""
-    close = getattr(websocket, "close", None)
-    if close is None:
-        return
-    with contextlib.suppress(Exception):
-        await close()
+            await close_quietly(conn.websocket)
 
 
 course_progress_hub = CourseProgressHub()

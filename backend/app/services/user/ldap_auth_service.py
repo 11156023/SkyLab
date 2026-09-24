@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import logging
 import secrets
-from datetime import timedelta
 from typing import Any
 
 from sqlmodel import Session
@@ -19,22 +18,9 @@ from app.repositories import user as user_repo
 from app.repositories.ldap_config import get_ldap_config
 from app.schemas import Token, UserUpdate
 from app.services.user import audit_service
+from app.services.user.auth_service import create_token_pair
 
 logger = logging.getLogger(__name__)
-
-
-def _create_token_pair(user: User) -> Token:
-    access_token = security.create_access_token(
-        user.id,
-        expires_delta=timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES),
-        token_version=user.token_version,
-    )
-    refresh_token = security.create_refresh_token(
-        user.id,
-        expires_delta=timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS),
-        token_version=user.token_version,
-    )
-    return Token(access_token=access_token, refresh_token=refresh_token)
 
 
 def _role_from_groups(
@@ -163,7 +149,7 @@ def login_ldap(*, session: Session, username: str, password: str) -> Token:
         action=AuditAction.login_ldap_success,
         details=f"User {user.email} logged in via LDAP ({info.dn})",
     )
-    return _create_token_pair(user)
+    return create_token_pair(user)
 
 
 def get_login_methods(*, session: Session) -> dict[str, bool]:

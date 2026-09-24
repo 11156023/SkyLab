@@ -57,7 +57,7 @@ async def revoke_jti(redis: Redis | None, jti: str, exp_unix: int) -> bool:
     try:
         await redis.set(f"{_KEY_PREFIX}{jti}", _REVOKED_VALUE, ex=ttl)
         return True
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         logger.error("Failed to revoke jti=%s: %s", jti, exc)
         return False
 
@@ -77,7 +77,7 @@ async def is_jti_revoked(redis: Redis | None, jti: str) -> bool:
         return False
     try:
         return bool(await redis.exists(f"{_KEY_PREFIX}{jti}"))
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         if redis_failures_are_fatal():
             logger.error(
                 "Failed to check revocation for jti=%s (rejecting): %s", jti, exc
@@ -133,7 +133,7 @@ async def mark_refresh_token_used(
             return True
         used_at = int(raw.decode() if isinstance(raw, bytes) else raw)
         return (now - used_at) <= grace_seconds
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         if redis_failures_are_fatal():
             logger.error(
                 "Failed to record refresh-token use for jti=%s (rejecting): %s",

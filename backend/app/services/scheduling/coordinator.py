@@ -74,7 +74,7 @@ def _sync_lxc_platform_key(
 ) -> None:
     if resource_type != "lxc":
         return
-    from app.services.resource import resource_service  # noqa: PLC0415
+    from app.services.resource import resource_service
 
     resource_service.ensure_lxc_platform_key(
         session=session,
@@ -208,7 +208,7 @@ def _provision_new_resource(
     try:
         # 送單時的配額檢查看不到後來一起核准的其他申請；真正要開機器前再驗
         # 一次（這張單自己會被排除、PVE 查詢失敗 fail-open）。
-        from app.services.resource import (  # noqa: PLC0415 — 避免 import cycle
+        from app.services.resource import (
             quota_service,
         )
 
@@ -367,7 +367,7 @@ def _provision_new_resource(
         finish_session.commit()
 
     # E1：provision 完成即建受保護初始快照（best-effort，不阻斷）
-    from app.services.resource import reset_service  # noqa: PLC0415 — 避免 import cycle
+    from app.services.resource import reset_service
 
     reset_service.ensure_init_snapshot(new_vmid)
 
@@ -649,7 +649,7 @@ def process_single_request_start(request_id: uuid.UUID) -> bool:
             # A quick-practice environment becomes ready only after every
             # machine is provisioned and its published network topology has
             # been materialized. This callback is idempotent and row-locked.
-            from app.services import quick_practice  # noqa: PLC0415
+            from app.services import quick_practice
 
             session.expire_all()
             quick_practice.reconcile_for_request(
@@ -885,7 +885,7 @@ def process_due_request_stops() -> int:
 
 
 async def run_scheduler(stop_event: asyncio.Event) -> None:
-    from app.services.scheduling.leader import (  # noqa: PLC0415 — 避免 import cycle
+    from app.services.scheduling.leader import (
         scheduler_leader_lock,
     )
 
@@ -959,7 +959,7 @@ def reap_stale_batch_jobs_task() -> int:
     """Scheduler tick：批次佈建跑在 daemon thread，重啟後會永遠停在 running；
     超過 STALE_BATCH_JOB_HOURS 沒進度的工作標 failed 讓老師能重試。"""
     from app.services.vm import (
-        batch_provision_service,  # noqa: PLC0415 — 避免 import cycle
+        batch_provision_service,
     )
 
     return batch_provision_service.reap_stale_batch_jobs()
@@ -968,7 +968,7 @@ def reap_stale_batch_jobs_task() -> int:
 def process_expired_requests_task() -> int:
     """Scheduler tick：已過使用時段仍未審核的申請自動過期。"""
     from app.services.vm import (
-        vm_request_expiry_service,  # noqa: PLC0415 — 避免 import cycle
+        vm_request_expiry_service,
     )
 
     return vm_request_expiry_service.process_expired_requests()
@@ -976,7 +976,7 @@ def process_expired_requests_task() -> int:
 
 def process_quick_practice_lifecycle_task() -> int:
     """Finalize multi-machine topology and reclaim expired practice groups."""
-    from app.services import quick_practice  # noqa: PLC0415
+    from app.services import quick_practice
 
     return quick_practice.process_lifecycle()
 
@@ -984,7 +984,7 @@ def process_quick_practice_lifecycle_task() -> int:
 def process_resource_alerts_task() -> int:
     """Scheduler tick：資源閾值警告評估（間隔由 GovernanceConfig 控制）。"""
     from app.services.monitoring import (
-        alert_service,  # noqa: PLC0415 — 避免 import cycle
+        alert_service,
     )
 
     return alert_service.process_resource_alerts()
@@ -993,7 +993,7 @@ def process_resource_alerts_task() -> int:
 def process_ttl_lifecycle_task() -> int:
     """Scheduler tick：TTL 漸進回收（通知 → 關機 → 寬限期 → 刪除佇列）。"""
     from app.services.governance import (
-        lifecycle_service,  # noqa: PLC0415 — 避免 import cycle
+        lifecycle_service,
     )
 
     return lifecycle_service.process_ttl_lifecycle()
@@ -1002,7 +1002,7 @@ def process_ttl_lifecycle_task() -> int:
 def process_idle_detection_task() -> int:
     """Scheduler tick：閒置偵測（CPU 長期低於閾值 → 通知 → 自動關機）。"""
     from app.services.governance import (
-        lifecycle_service,  # noqa: PLC0415 — 避免 import cycle
+        lifecycle_service,
     )
 
     return lifecycle_service.process_idle_detection()
@@ -1011,7 +1011,7 @@ def process_idle_detection_task() -> int:
 def process_mining_detection_task() -> int:
     """Scheduler tick：挖礦偵測（CPU 長期滿載 → 存證 → 暫停 → 通知）。"""
     from app.services.security import (
-        mining_service,  # noqa: PLC0415 — 避免 import cycle
+        mining_service,
     )
 
     return mining_service.process_mining_detection()
@@ -1020,7 +1020,7 @@ def process_mining_detection_task() -> int:
 def process_snapshot_cleanup_task() -> int:
     """Scheduler tick：快照自動清理（超過保留天數的一般快照）。"""
     from app.services.governance import (
-        snapshot_cleanup_service,  # noqa: PLC0415 — 避免 import cycle
+        snapshot_cleanup_service,
     )
 
     return snapshot_cleanup_service.process_snapshot_cleanup()
@@ -1028,7 +1028,7 @@ def process_snapshot_cleanup_task() -> int:
 
 def reap_stale_task_records_task() -> int:
     """Scheduler tick：把 worker 被硬殺後永遠停在 running／queued 的 TaskRecord 收成 failed。"""
-    from app.repositories import task_record as task_record_repo  # noqa: PLC0415
+    from app.repositories import task_record as task_record_repo
 
     try:
         with Session(engine) as session:
@@ -1041,13 +1041,12 @@ def reap_stale_task_records_task() -> int:
 def reap_stale_script_runs_task() -> int:
     """Scheduler tick：把被硬殺的 Teacher Judge script run 從 running 收成 failed。"""
     from app.ai.teacher_judge import (
-        script_executor_service,  # noqa: PLC0415 — 避免 import cycle
+        script_executor_service,
     )
 
     try:
         with Session(engine) as session:
-            reaped = script_executor_service.reap_stale_script_runs(session)
-        return reaped
+            return script_executor_service.reap_stale_script_runs(session)
     except Exception:
         logger.exception("reap_stale_script_runs_task failed")
         return 0
@@ -1056,7 +1055,7 @@ def reap_stale_script_runs_task() -> int:
 def process_pending_deletions_task() -> int:
     """Scheduler tick：處理一筆 pending DeletionRequest（每 tick 最多一筆，避免長阻塞）。"""
     from app.services.resource import (
-        deletion_service,  # noqa: PLC0415 — 避免 import cycle
+        deletion_service,
     )
 
     try:

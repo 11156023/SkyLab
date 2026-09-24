@@ -67,13 +67,13 @@ def _resolve_resource_vmid(session: object, vmid: int) -> int | None:
     if get is None:
         return None
 
-    from app.models import Resource  # noqa: PLC0415
+    from app.models import Resource
 
     return vmid if get(Resource, vmid) is not None else None
 
 
 def _get_gateway_ready_state(session: object) -> tuple[bool, str | None]:
-    from app.repositories import gateway_config as gw_repo  # noqa: PLC0415
+    from app.repositories import gateway_config as gw_repo
 
     config = gw_repo.get_gateway_config(session)  # type: ignore[arg-type]
     if config is None or not config.host or not config.encrypted_private_key:
@@ -84,7 +84,7 @@ def _get_gateway_ready_state(session: object) -> tuple[bool, str | None]:
 def _get_cloudflare_ready_state(
     session: object,
 ) -> tuple[bool, str | None, list[ReverseProxyZoneOption], str | None, str | None]:
-    from app.services.network import cloudflare_service  # noqa: PLC0415
+    from app.services.network import cloudflare_service
 
     config = cloudflare_service.get_public_config(session)  # type: ignore[arg-type]
     if not config.is_configured:
@@ -154,28 +154,6 @@ def ensure_reverse_proxy_ready(session: object) -> None:
         raise BadRequestError("；".join(context.reasons))
 
 
-def resolve_vmid_ip(*, vmid: int, session: object | None = None) -> str | None:
-    """取得 VM 的 IP 位址，優先即時查詢，失敗時回退 DB 快取。"""
-    from app.repositories import resource as resource_repo  # noqa: PLC0415
-    from app.services.proxmox import proxmox_service  # noqa: PLC0415
-
-    ip: str | None = None
-    try:
-        resource = proxmox_service.find_resource(vmid)
-        node = resource["node"]
-        resource_type = resource["type"]
-        ip = proxmox_service.get_ip_address(node, vmid, resource_type)
-    except Exception:
-        # Fallback to DB cache if PVE API fails
-        pass
-
-    if session is None:
-        return ip
-
-    # 有即時 IP 就寫回快取；取不到就回退 DB 快取（DB 出錯會自行 rollback）
-    return resource_repo.sync_ip_cache(session=session, vmid=vmid, live_ip=ip)  # type: ignore[arg-type]
-
-
 def _build_traefik_dynamic_config(rules: list) -> str:
     """從 DB 規則列表產生 Traefik dynamic config YAML。"""
     routers: dict = {}
@@ -221,15 +199,15 @@ def _sync_traefik(session: object) -> None:
     """從 DB 重建 Traefik dynamic config 並寫入 Gateway VM。
     Traefik file provider 設定 watch: true，寫入即生效。
     """
-    from app.infrastructure.ssh import create_key_client, exec_command  # noqa: PLC0415
-    from app.repositories import gateway_config as gw_repo  # noqa: PLC0415
-    from app.repositories import reverse_proxy as rp_repo  # noqa: PLC0415
+    from app.infrastructure.ssh import create_key_client, exec_command
+    from app.repositories import gateway_config as gw_repo
+    from app.repositories import reverse_proxy as rp_repo
     from app.repositories.gateway_config import (
-        get_decrypted_private_key,  # noqa: PLC0415
+        get_decrypted_private_key,
     )
-    from app.services.network import gateway_service  # noqa: PLC0415
+    from app.services.network import gateway_service
     from app.services.network.gateway_service import (
-        TRAEFIK_DYNAMIC_PATH,  # noqa: PLC0415
+        TRAEFIK_DYNAMIC_PATH,
     )
 
     config = gw_repo.get_gateway_config(session)  # type: ignore[arg-type]
@@ -314,10 +292,10 @@ def apply_reverse_proxy_rule(
     enable_https: bool = True,
 ) -> None:
     """建立反向代理規則：寫入 DB + 同步 Traefik。"""
-    from app.models import Resource  # noqa: PLC0415
-    from app.models.reverse_proxy_rule import ReverseProxyRule  # noqa: PLC0415
-    from app.repositories import reverse_proxy as rp_repo  # noqa: PLC0415
-    from app.services.network import cloudflare_service  # noqa: PLC0415
+    from app.models import Resource
+    from app.models.reverse_proxy_rule import ReverseProxyRule
+    from app.repositories import reverse_proxy as rp_repo
+    from app.services.network import cloudflare_service
 
     ensure_reverse_proxy_ready(session)
     # vm_ip 來自 guest agent 回報，VM 擁有者可偽造：必須確認它真的是
@@ -387,7 +365,7 @@ def resolve_zone_for_domain(session: object, domain: str) -> tuple[str, str]:
     取 zone name 為網域字尾中最長的那個（例如 a.b.example.com 同時符合
     example.com 與 b.example.com 兩個 zone 時，取 b.example.com）。
     """
-    from app.services.network import cloudflare_service  # noqa: PLC0415
+    from app.services.network import cloudflare_service
 
     clean = domain.strip().lower().rstrip(".")
     if not _is_valid_hostname(clean):
@@ -431,10 +409,10 @@ def check_domain_availability(
     ``exclude_rule_id`` 用在更新既有規則：那條規則自己的網域與 DNS 紀錄不算衝突。
     ``zone_id`` 已知時略過 zone 反查。
     """
-    import uuid as _uuid  # noqa: PLC0415
+    import uuid as _uuid
 
-    from app.repositories import reverse_proxy as rp_repo  # noqa: PLC0415
-    from app.services.network import cloudflare_service  # noqa: PLC0415
+    from app.repositories import reverse_proxy as rp_repo
+    from app.services.network import cloudflare_service
 
     clean = (domain or "").strip().lower().rstrip(".")
     if not clean or not _is_valid_hostname(clean):
@@ -554,7 +532,7 @@ def assert_domain_available(
 
 def annotate_dns_records_with_system_rules(session: object, records: list) -> None:
     """把 Cloudflare DNS 紀錄標上「本系統建立」：對得上反向代理規則的 record id 或網域。"""
-    from app.repositories import reverse_proxy as rp_repo  # noqa: PLC0415
+    from app.repositories import reverse_proxy as rp_repo
 
     rules = rp_repo.list_rules(session)  # type: ignore[arg-type]
     by_record_id = {r.cloudflare_record_id: r for r in rules if r.cloudflare_record_id}
@@ -602,10 +580,10 @@ def update_reverse_proxy_rule(
     internal_port: int,
     enable_https: bool = True,
 ) -> None:
-    import uuid as _uuid  # noqa: PLC0415
+    import uuid as _uuid
 
-    from app.repositories import reverse_proxy as rp_repo  # noqa: PLC0415
-    from app.services.network import cloudflare_service  # noqa: PLC0415
+    from app.repositories import reverse_proxy as rp_repo
+    from app.services.network import cloudflare_service
 
     ensure_reverse_proxy_ready(session)
     assert_publishable_vm_ip(session, vm_ip, vmid=vmid)
@@ -642,7 +620,7 @@ def update_reverse_proxy_rule(
 
 
 def _cleanup_managed_dns_record(session: object, rule) -> None:
-    from app.services.network import cloudflare_service  # noqa: PLC0415
+    from app.services.network import cloudflare_service
 
     if not rule.zone_id or not rule.cloudflare_record_id:
         return
@@ -657,24 +635,9 @@ def _cleanup_managed_dns_record(session: object, rule) -> None:
         logger.warning("清理 Cloudflare DNS record 失敗 (%s): %s", rule.id, exc)
 
 
-def remove_reverse_proxy_rule_by_id(session: object, rule_id: str) -> None:
-    """刪除指定反向代理規則。"""
-    import uuid as _uuid  # noqa: PLC0415
-
-    from app.repositories import reverse_proxy as rp_repo  # noqa: PLC0415
-
-    rule = rp_repo.get_rule(session, _uuid.UUID(rule_id))  # type: ignore[arg-type]
-    if rule is None:
-        raise BadRequestError(t("reverseProxy.ruleIdNotFound", ruleId=rule_id))
-
-    _cleanup_managed_dns_record(session, rule)
-    rp_repo.delete_rule(session, rule)  # type: ignore[arg-type]
-    _sync_traefik(session)
-
-
 def remove_reverse_proxy_rules_for_vmid(session: object, vmid: int) -> None:
     """刪除指定 VM 的所有反向代理規則。"""
-    from app.repositories import reverse_proxy as rp_repo  # noqa: PLC0415
+    from app.repositories import reverse_proxy as rp_repo
 
     deleted = rp_repo.delete_rules_by_vmid(session, vmid)  # type: ignore[arg-type]
     if deleted:
@@ -687,7 +650,7 @@ def remove_reverse_proxy_rules_by_internal_port(
     session: object, vmid: int, internal_port: int
 ) -> None:
     """刪除指定 VM 特定內部 port 的反向代理規則。"""
-    from app.repositories import reverse_proxy as rp_repo  # noqa: PLC0415
+    from app.repositories import reverse_proxy as rp_repo
 
     deleted = rp_repo.delete_rules_by_vmid_and_port(  # type: ignore[arg-type]
         session, vmid, internal_port

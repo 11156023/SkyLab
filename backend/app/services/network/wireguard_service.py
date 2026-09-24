@@ -642,7 +642,7 @@ def reconcile_tick() -> bool:
     下 peer 指令；``_reconcile_state`` 是行程內狀態，非 leader 不更新它，
     換手後新 leader 會整批 replay 一次，屬可接受的收斂成本。
     """
-    from app.services.scheduling.leader import (  # noqa: PLC0415 — 避免 import cycle
+    from app.services.scheduling.leader import (
         WIREGUARD_RECONCILER_LEADER_LOCK_KEY,
         scheduler_leader_lock,
     )

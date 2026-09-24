@@ -134,8 +134,3 @@ export function specRequestChangeLabel(req, t) {
   }
   return parts.join(" / ") || "—";
 }
-
-/** 延長到期日的申請（核准即生效，不需要再按「套用」） */
-export function isExpirySpecRequest(req) {
-  return req?.change_type === "expiry";
-}

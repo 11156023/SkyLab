@@ -459,55 +459,63 @@ def list_gpu_mappings() -> list[GPUMappingDetail]:
     # 逐 mapping 探測 mdev 會串成一長串 HTTP，先併發預熱共用快取。
     _prefetch_mdev_types([maps for _mapping, maps in parsed])
 
-    results: list[GPUMappingDetail] = []
-    for mapping, maps in parsed:
-        mapping_id = mapping.get("id", "")
-        description = mapping.get("description", "")
-
-        used_by = usage_map.get(mapping_id, [])
-        physical_gpu_count, is_sriov = _count_physical_gpus(maps)
-        device_count = len(maps)
-        used_count = len(used_by)
-
-        # Compute VRAM totals based on the FULL usage list (so counts stay correct
-        # regardless of whether VMs are SkyLab-managed or external).
-        vram_info = _resolve_vram_for_mapping(
-            maps, physical_gpu_count, description, mapping_id, used_by,
+    return [
+        _build_mapping_detail(
+            mapping_id=mapping.get("id", ""),
+            description=mapping.get("description", ""),
+            maps=maps,
+            used_by=usage_map.get(mapping.get("id", ""), []),
+            managed_vmids=managed_vmids,
         )
-        has_mdev = vram_info.has_mdev
-        if vram_info.available_override is not None:
-            available_count = vram_info.available_override
-            capacity_count = used_count + available_count
-        else:
-            capacity_count = _effective_capacity(device_count, vram_info)
-            available_count = max(0, capacity_count - used_count)
+        for mapping, maps in parsed
+    ]
 
+
+def _build_mapping_detail(
+    *,
+    mapping_id: str,
+    description: str,
+    maps: list[GPUDeviceMap],
+    used_by: list,
+    managed_vmids: set[int],
+) -> GPUMappingDetail:
+    """把一個 PCI mapping 的原始資料算成 API 回傳的容量／VRAM 明細。"""
+    physical_gpu_count, is_sriov = _count_physical_gpus(maps)
+    device_count = len(maps)
+    used_count = len(used_by)
+
+    # Compute VRAM totals based on the FULL usage list (so counts stay correct
+    # regardless of whether VMs are SkyLab-managed or external).
+    vram_info = _resolve_vram_for_mapping(
+        maps, physical_gpu_count, description, mapping_id, used_by,
+    )
+    if vram_info.available_override is not None:
+        available_count = vram_info.available_override
+        capacity_count = used_count + available_count
+    else:
+        capacity_count = _effective_capacity(device_count, vram_info)
+        available_count = max(0, capacity_count - used_count)
+
+    return GPUMappingDetail(
+        id=mapping_id,
+        description=description,
+        maps=maps,
+        physical_gpu_count=physical_gpu_count,
+        device_count=device_count,
+        capacity_count=capacity_count,
+        used_count=used_count,
+        available_count=available_count,
+        is_sriov=is_sriov,
+        has_mdev=vram_info.has_mdev,
+        total_vram_mb=vram_info.total_vram_mb,
+        used_vram_mb=vram_info.used_vram_mb,
+        used_vram_known=vram_info.used_vram_known,
+        per_instance_vram_mb=vram_info.per_instance_vram_mb,
+        mdev_profile=vram_info.mdev_profile,
+        profiles=vram_info.profiles,
         # Only expose SkyLab-managed VMs in the UI list.
-        visible_used_by = [u for u in used_by if u.vmid in managed_vmids]
-
-        results.append(
-            GPUMappingDetail(
-                id=mapping_id,
-                description=description,
-                maps=maps,
-                physical_gpu_count=physical_gpu_count,
-                device_count=device_count,
-                capacity_count=capacity_count,
-                used_count=used_count,
-                available_count=available_count,
-                is_sriov=is_sriov,
-                has_mdev=has_mdev,
-                total_vram_mb=vram_info.total_vram_mb,
-                used_vram_mb=vram_info.used_vram_mb,
-                used_vram_known=vram_info.used_vram_known,
-                per_instance_vram_mb=vram_info.per_instance_vram_mb,
-                mdev_profile=vram_info.mdev_profile,
-                profiles=vram_info.profiles,
-                used_by=visible_used_by,
-            )
-        )
-
-    return results
+        used_by=[u for u in used_by if u.vmid in managed_vmids],
+    )
 
 
 def _effective_capacity(device_count: int, vram_info: MappingVramInfo) -> int:
@@ -649,44 +657,12 @@ def get_gpu_mapping(mapping_id: str) -> GPUMappingDetail:
         raw_maps = [raw_maps]
 
     maps = [_parse_map_entry(m) for m in raw_maps if isinstance(m, str)]
-    usage_map = _build_usage_map()
-    used_by = usage_map.get(mapping_id, [])
-    physical_gpu_count, is_sriov = _count_physical_gpus(maps)
-    device_count = len(maps)
-    used_count = len(used_by)
-
-    vram_info = _resolve_vram_for_mapping(
-        maps, physical_gpu_count, description, mapping_id, used_by,
-    )
-    has_mdev = vram_info.has_mdev
-    if vram_info.available_override is not None:
-        available_count = vram_info.available_override
-        capacity_count = used_count + available_count
-    else:
-        capacity_count = _effective_capacity(device_count, vram_info)
-        available_count = max(0, capacity_count - used_count)
-
-    managed_vmids = _get_managed_vmids()
-    visible_used_by = [u for u in used_by if u.vmid in managed_vmids]
-
-    return GPUMappingDetail(
-        id=mapping_id,
+    return _build_mapping_detail(
+        mapping_id=mapping_id,
         description=description,
         maps=maps,
-        physical_gpu_count=physical_gpu_count,
-        device_count=device_count,
-        capacity_count=capacity_count,
-        used_count=used_count,
-        available_count=available_count,
-        is_sriov=is_sriov,
-        has_mdev=has_mdev,
-        total_vram_mb=vram_info.total_vram_mb,
-        used_vram_mb=vram_info.used_vram_mb,
-        used_vram_known=vram_info.used_vram_known,
-        per_instance_vram_mb=vram_info.per_instance_vram_mb,
-        mdev_profile=vram_info.mdev_profile,
-        profiles=vram_info.profiles,
-        used_by=visible_used_by,
+        used_by=_build_usage_map().get(mapping_id, []),
+        managed_vmids=_get_managed_vmids(),
     )
 
 
