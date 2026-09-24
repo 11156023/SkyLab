@@ -425,6 +425,16 @@
 /* ── 按鈕 ── */
 .btnPrimary {
   @include btn-primary;
+
+  /* 前置條件未完成：外觀同停用，但仍可點（點了用 toast 說明原因），hover 不變深 */
+  &[aria-disabled="true"] {
+    opacity: 0.5;
+    cursor: not-allowed;
+
+    &:hover:not(:disabled) {
+      background: var(--color-primary);
+    }
+  }
 }
 
 .btnSecondary {
@@ -445,31 +455,17 @@
 }
 
 .iconBtn {
-  width: 36px;
-  height: 36px;
-  border-radius: $radius-8;
-  @include flex-center;
-  color: var(--color-text-secondary);
-  transition: background $transition-base, color $transition-base, opacity $transition-base;
-
-  &:hover:not(:disabled) {
-    background: var(--color-hover);
-    color: var(--color-text-primary);
-  }
-
-  &:disabled {
-    opacity: 0.5;
-    cursor: not-allowed;
-  }
+  @include btn-icon;
 }
 
+/* 單獨使用，不要跟 .iconBtn 疊：一般款的 hover 文字色會蓋掉紅字 */
 .iconBtnDanger {
-  color: var(--color-danger);
+  @include btn-icon($danger: true);
+}
 
-  &:hover:not(:disabled) {
-    background: color-mix(in srgb, var(--color-danger) 10%, transparent);
-    color: var(--color-danger);
-  }
+/* 列上的動作選單鈕（⋮） */
+.menuBtn {
+  @include btn-icon-secondary;
 }
 
 /* ── Spinner ── */
@@ -489,7 +485,7 @@
   @include flex-column;
   gap: $spacing-16;
   padding: $spacing-24;
-  border-radius: $radius-12;
+  border-radius: $radius-16;
 }
 
 .cardHead {
@@ -1845,7 +1841,8 @@
   @include flex-column;
   gap: $spacing-16;
   padding: $spacing-16;
-  @include glass-surface($shadow: var(--shadow-sm));
+  /* 陰影、圓角跟 .card 一致：選了檢查後清單改放在 .card 裡，兩種狀態看起來同一張卡 */
+  @include glass-surface;
   border-radius: $radius-16;
 }
 
@@ -1865,8 +1862,6 @@
 
 .newCheckButton {
   width: 100%;
-  min-height: 42px;
-  font-size: $font-size-14;
 }
 
 .sessionList {
@@ -1932,6 +1927,7 @@
   align-items: stretch;
   border: 1px solid transparent;
   border-radius: $radius-8;
+  transition: background $transition-base, border-color $transition-base;
 }
 
 .sessionRowActive {
@@ -1939,9 +1935,12 @@
   background: color-mix(in srgb, var(--color-primary) 8%, transparent);
 }
 
+/* 選中的底色、框線由整列（.sessionRowActive）負責；列內按鈕再疊一層底色，
+   標題那塊會比動作鈕那側深一階，看起來像框中框 */
 .sessionRow .sessionItem,
 .sessionRow .sessionItemActive {
   border: 0;
+  background: transparent;
   min-width: 0;
 }
 
@@ -1949,7 +1948,7 @@
   width: 100%;
   overflow: hidden;
   color: var(--color-text-muted);
-  font-size: 11px;
+  font-size: $font-size-12;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -1959,12 +1958,36 @@
 .sessionRowActions {
   display: flex;
   align-items: center;
-  gap: 2px;
-  padding-right: 4px;
+  gap: $spacing-8;
+  padding-right: $spacing-8;
 }
 
-.sessionRowActions .iconBtn { width: 36px; height: 36px; }
-.pinActive { color: var(--color-primary); }
+/* 釘選鈕（比照側邊欄導覽）：未釘選平常隱藏但仍佔位、鍵盤可聚焦，
+   滑過該列或聚焦時才浮出；已釘選常駐顯示傾斜的釘子當狀態標記兼取消入口 */
+.pinBtn {
+  @include btn-icon;
+  transition: opacity $transition-base, background $transition-base, color $transition-base;
+
+  &:not(.pinBtnPinned) {
+    opacity: 0;
+  }
+}
+
+.sessionRow:hover .pinBtn:not(:disabled),
+.pinBtn:focus-visible {
+  opacity: 1;
+}
+
+/* 未 hover 不給底色，避免每列都多一個方塊；旋轉套在圖示上，
+   hover 的圓角底才不會跟著轉成菱形 */
+.pinBtnPinned {
+  color: var(--color-primary);
+  background: transparent;
+
+  > span {
+    rotate: 45deg;
+  }
+}
 
 .sessionRowRenaming {
   border-color: var(--color-primary);
@@ -2058,9 +2081,15 @@
 .sessionMenu button:disabled { opacity: .5; cursor: not-allowed; }
 .menuDanger { color: var(--color-danger) !important; }
 .menuSeparator { display: block; height: 1px; margin: 4px 2px; background: var(--color-divider); }
-.sidebarEmpty, .mainEmpty { display: flex; flex-direction: column; align-items: center; gap: $spacing-8; padding: $spacing-16 $spacing-8; color: var(--color-text-muted); text-align: center; }
-.sidebarEmpty p, .mainEmpty p { margin: 0; font-size: $font-size-12; line-height: 1.45; }
-.mainEmpty { min-height: 240px; }.mainEmpty > .material-icons-outlined { color: var(--color-primary); }
+/* 側欄清單窄，共用 EmptyState 的上下留白收小一階（重複 class 提高權重蓋過元件預設） */
+.sidebarEmpty.sidebarEmpty {
+  padding: $spacing-24 $spacing-8;
+}
+
+.sidebarLoading {
+  @include flex-center;
+  padding: $spacing-24 0;
+}
 
 .sourceRail {
   display: flex;
@@ -2095,7 +2124,7 @@
 
 .sourceRailHead h3 { margin: 0; font-size: $font-size-16; }
 .sourceRailHead p { margin: 3px 0 0; color: var(--color-text-muted); font-size: $font-size-12; }
-.sourceRow { position: relative; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 3px; align-items: start; padding: 4px; border: 1px solid transparent; border-radius: $radius-8; }
+.sourceRow { position: relative; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 3px; align-items: start; padding: 4px; border: 1px solid transparent; border-radius: $radius-8; transition: background $transition-base, border-color $transition-base; }
 .sourceRow:hover { background: var(--color-hover); }
 .sourceRowSelected { border-color: var(--color-primary); background: color-mix(in srgb, var(--color-primary) 7%, transparent); }
 .sourceSelect { display: flex; min-width: 0; gap: $spacing-8; padding: 7px; border: 0; color: var(--color-text-primary); background: transparent; text-align: left; }
@@ -2103,7 +2132,6 @@
 .sourceText { display: flex; min-width: 0; flex-direction: column; gap: 3px; }
 .sourceText b { overflow: hidden; font-size: $font-size-14; text-overflow: ellipsis; white-space: nowrap; }
 .sourceText small { color: var(--color-text-muted); font-size: $font-size-12; line-height: 1.35; }
-.sourceRailActions .iconBtn { width: 36px; height: 36px; }
 
 .modalHeader { display: flex; align-items: flex-start; justify-content: space-between; gap: $spacing-16; margin-bottom: $spacing-16; }
 .modalHeader h2 { margin: 0; font-size: $font-size-18; }.modalHeader p { margin: 4px 0 0; color: var(--color-text-secondary); font-size: $font-size-12; }
@@ -2208,7 +2236,6 @@
 
   .newCheckButton {
     flex: 0 0 auto;
-    min-height: 44px;
   }
 
   .sessionList {

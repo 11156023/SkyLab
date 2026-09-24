@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
+import { useTranslation } from "react-i18next";
 import LoadingState from "../../../components/LoadingState/LoadingState";
 import MIcon from "../../../components/MIcon";
 import PageHeader from "../../../components/PageHeader/PageHeader";
@@ -9,7 +10,16 @@ import { useToast } from "../../../hooks/useToast";
 import AiJudgePanel from "../class-workspace/AiJudgePanel";
 import styles from "../CourseOperations.module.scss";
 
-const WEEKDAY_LABELS = ["一", "二", "三", "四", "五", "六", "日"];
+/* 頁首沿用班級工作頁的翻譯（同一個班級，兩頁標頭要一致） */
+const WEEKDAY_KEYS = [
+  "ClassWorkspacePage.weekdayShortMon",
+  "ClassWorkspacePage.weekdayShortTue",
+  "ClassWorkspacePage.weekdayShortWed",
+  "ClassWorkspacePage.weekdayShortThu",
+  "ClassWorkspacePage.weekdayShortFri",
+  "ClassWorkspacePage.weekdayShortSat",
+  "ClassWorkspacePage.weekdayShortSun",
+];
 
 export function normalizeAiJudgeClass(item) {
   const source = item ?? {};
@@ -61,6 +71,7 @@ function LockedFeature() {
 }
 
 export default function AiJudgePage() {
+  const { t } = useTranslation("teaching");
   const { classId } = useParams();
   const navigate = useNavigate();
   const toast = useToast();
@@ -108,13 +119,19 @@ export default function AiJudgePage() {
     );
   }
 
-  const weekday = WEEKDAY_LABELS[item.weekday] ?? "—";
+  const weekdayKey = WEEKDAY_KEYS[item.weekday];
   return (
     <div className={styles.page}>
       <PageHeader
-        eyebrow={`${item.code} · ${item.term}`}
+        eyebrow={item.location ? `${item.term} · ${item.location}` : item.term}
         title={item.name}
-        subtitle={`${item.students.length} 位學生 · ${item.weeks.length} 個課次 · 每週${weekday} ${item.startTime}–${item.endTime}`}
+        subtitle={t("ClassWorkspacePage.subtitleTemplate", {
+          students: item.students.length,
+          weeks: item.weeks.length,
+          weekday: weekdayKey ? t(weekdayKey) : "—",
+          start: item.startTime,
+          end: item.endTime,
+        })}
       >
         <div className={styles.pageActions}>
           <button type="button" className={`${styles.btnSecondary} ${styles.backBtn}`} onClick={() => navigate(`/class-management/${classId}`)}>
