@@ -9,6 +9,7 @@ import MIcon from "../../../components/MIcon";
 import PageHeader from "../../../components/PageHeader/PageHeader";
 import EmptyState from "../../../components/EmptyState/EmptyState";
 import FileDropzone from "../../../components/FileDropzone/FileDropzone";
+import SegmentedControl from "../../../components/SegmentedControl/SegmentedControl";
 import ClassroomWatchDialog from "../../../components/Classroom/ClassroomWatchDialog";
 import TerminalDialog from "../../personal/resources/TerminalDialog";
 import { useConfirm } from "../../../components/ConfirmDialog/ConfirmProvider";
@@ -35,6 +36,7 @@ import ConnectionEdge from "../../network/firewall/edges/ConnectionEdge";
 import ConnectionDetailPanel from "../../network/firewall/ConnectionDetailPanel";
 import { routeEdges } from "../../network/firewall/utils/buildFlow";
 import { joinList } from "../../../utils/joinList";
+import { mergeUnsavedWeekEdits } from "./weeklyEdits";
 import { INTERNET_KEY } from "../../../components/ConnectionDialog/intents";
 import { ThemeContext } from "../../../contexts/ThemeContext";
 import { normalizePublication, peerDetailPort, peerEdgeLabel, publicationDetailPort, publicationLabel } from "../courseTopology";
@@ -362,12 +364,34 @@ function WeeklyContent({ item, onRefresh }) {
   const [weeks, setWeeks] = useState(item.weeks);
   const [saving, setSaving] = useState(false);
   const [uploadingWeek, setUploadingWeek] = useState("");
+  /* 還沒填主題就按「發布」的那週：主題欄亮紅框，開始打字就解除 */
+  const [titleMissingWeek, setTitleMissingWeek] = useState("");
+  const titleInputRefs = useRef({});
   const locked = item.status === "archived";
-  useEffect(() => setWeeks(item.weeks), [item.weeks]);
-  function update(id, key, value) { setWeeks((rows) => rows.map((row) => row.id === id ? { ...row, [key]: value } : row)); }
+  /* 有還沒儲存的修改時，重抓回來的班級資料（審核／建機中每 3 秒一次）只更新檔案等
+     伺服器欄位，不蓋掉老師正在打的主題、機器與發布狀態；按儲存成功後才整份換回伺服器版本 */
+  const unsavedRef = useRef(false);
+  useEffect(() => {
+    setWeeks((current) => (unsavedRef.current ? mergeUnsavedWeekEdits(item.weeks, current) : item.weeks));
+  }, [item.weeks]);
+  function update(id, key, value) {
+    unsavedRef.current = true;
+    setWeeks((rows) => rows.map((row) => row.id === id ? { ...row, [key]: value } : row));
+  }
+  /* 沒填主題就按「發布」：不反灰擋掉（使用者會以為壞了），改成告訴他缺什麼——
+     主題欄亮紅框、游標跳進去，並跳提示 */
+  function setWeekStatus(week, published, value) {
+    if ((value === "published") === published) return;
+    if (value === "published" && !week.title.trim()) {
+      setTitleMissingWeek(week.id);
+      focusInvalidField(titleInputRefs.current[week.id]);
+      toast.info(t("ClassWorkspacePage.publishNeedsTopicHint"));
+      return;
+    }
+    update(week.id, "status", value);
+  }
   function mergeUploadedFiles(result) {
-    const serverWeeks = normalizeClass(result).weeks;
-    setWeeks((current) => serverWeeks.map((serverWeek) => ({ ...serverWeek, title: current.find((week) => week.date === serverWeek.date)?.title ?? serverWeek.title })));
+    setWeeks((current) => mergeUnsavedWeekEdits(normalizeClass(result).weeks, current));
   }
   async function upload(weekId, fileList) {
     const files = Array.from(fileList ?? []);
@@ -392,6 +416,7 @@ function WeeklyContent({ item, onRefresh }) {
     setSaving(true);
     try {
       const result = await TeachingClassesService.replaceWeeks(item.id, weeks.map((week) => ({ week_number: week.week, session_date: week.date, title: week.title.trim(), target_node_key: week.target || null, status: week.status, files: week.files.map((file) => ({ filename: file.filename, storage_key: file.storage_key ?? null, target_path: file.target_path ?? null })) })));
+      unsavedRef.current = false;
       onRefresh(result); toast.success(t("ClassWorkspacePage.weeklySavedMsg"));
     } catch (error) { toast.error(error?.message ?? t("ClassWorkspacePage.saveFailed")); }
     finally { setSaving(false); }
@@ -405,7 +430,18 @@ function WeeklyContent({ item, onRefresh }) {
           const published = ["published", "completed"].includes(week.status);
           return <article key={week.id}>
             <div className={styles.weekDate}><strong>{t("ClassWorkspacePage.weekNumberLabel", { week: week.week })}</strong><span>{week.date}</span></div>
-            <input className={styles.weekTitleInput} disabled={locked} value={week.title} onChange={(event) => update(week.id, "title", event.target.value)} placeholder={t("ClassWorkspacePage.topicPlaceholder")} />
+            <input
+              ref={(node) => { titleInputRefs.current[week.id] = node; }}
+              className={`${styles.weekTitleInput} ${titleMissingWeek === week.id ? styles.fieldInvalid : ""}`}
+              aria-invalid={titleMissingWeek === week.id}
+              disabled={locked}
+              value={week.title}
+              onChange={(event) => {
+                update(week.id, "title", event.target.value);
+                if (titleMissingWeek === week.id) setTitleMissingWeek("");
+              }}
+              placeholder={t("ClassWorkspacePage.topicPlaceholder")}
+            />
             <select className={styles.weekMachineSelect} disabled={locked} value={week.target} onChange={(event) => update(week.id, "target", event.target.value)} aria-label={t("ClassWorkspacePage.weekMachineAria", { week: week.week })}>
               <option value="">{t("ClassWorkspacePage.weekMachineAll")}</option>
               {item.nodes.map((node) => <option key={node.node_key} value={node.node_key}>{node.name}</option>)}
@@ -414,7 +450,24 @@ function WeeklyContent({ item, onRefresh }) {
               {week.files.map((file) => <span className={styles.weekFileChip} key={file.id ?? file.filename}><MIcon name="description" size={15} /><b>{file.filename}</b>{!locked && file.id && <button type="button" disabled={uploadingWeek === week.id} aria-label={t("ClassWorkspacePage.removeFileAria", { filename: file.filename })} onClick={() => removeFile(week.id, file)}><MIcon name="close" size={14} /></button>}</span>)}
               {!locked && <FileDropzone compact multiple title={t("common:FileDropzone.titleShort")} uploading={uploadingWeek === week.id} onFiles={(files) => upload(week.id, files)} />}
             </div>
-            <button type="button" disabled={locked || !week.title.trim()} title={!week.title.trim() ? t("ClassWorkspacePage.publishNeedsTopicHint") : undefined} className={`${styles.weekPublishButton} ${published ? styles.weekPublished : ""}`} onClick={() => update(week.id, "status", published ? "draft" : "published")}><MIcon name={published ? "visibility" : "visibility_off"} size={15} />{published ? t("ClassWorkspacePage.publishedShortLabel") : t("ClassWorkspacePage.draftKeepLabel")}</button>
+            {/* 草稿｜發布 二選一：兩個選項都看得到，這週目前是哪個就亮哪個。
+                沒填主題時「發布」看起來淡一點但點得下去，點了由 setWeekStatus 說明缺什麼 */}
+            <div className={styles.weekVisible}>
+              <SegmentedControl
+                className={styles.weekStatusControl}
+                ariaLabel={t("ClassWorkspacePage.weekVisibleAria", { week: week.week })}
+                value={published ? "published" : "draft"}
+                onChange={(value) => setWeekStatus(week, published, value)}
+                options={[
+                  { value: "draft", label: t("ClassWorkspacePage.weekStatusDraft"), buttonProps: { disabled: locked } },
+                  {
+                    value: "published",
+                    label: t("ClassWorkspacePage.weekStatusPublished"),
+                    buttonProps: { disabled: locked, "aria-disabled": !published && !week.title.trim() ? "true" : undefined },
+                  },
+                ]}
+              />
+            </div>
           </article>;
         })}
       </div>
