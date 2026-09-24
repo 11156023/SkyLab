@@ -1,27 +1,45 @@
-import { useEffect, useState } from "react";
+import { useEffect, useId, useState } from "react";
 import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
 import MIcon from "../MIcon";
 import { useAuth } from "../../contexts/AuthContext";
 import useDialogPresence from "../../hooks/useDialogPresence";
 import { JobsService } from "../../services/jobs";
-import { JOB_KIND_LABEL_KEYS, JOB_STATUS_META_KEYS } from "./JobRow";
+import { JOB_STATUS_META_KEYS } from "./JobRow";
 import styles from "./Jobs.module.scss";
-import { formatDateTime } from "../../utils/formatDate";
+import { formatDate, formatDateTime } from "../../utils/formatDate";
 
 const fmt = (iso) => formatDateTime(iso);
+
+/* 後端 extra 的時間欄位是 ISO 字串，顯示時轉成全站統一的日期格式 */
+const ISO_DATETIME = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/;
+const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 
 const formatExtraValue = (v, t) => {
   if (v === null || v === undefined || v === "") return "—";
   if (typeof v === "boolean") return v ? t("JobDetailDialog.boolYes") : t("JobDetailDialog.boolNo");
-  if (typeof v === "object") return JSON.stringify(v);
+  if (typeof v === "object") return JSON.stringify(v, null, 2);
+  if (typeof v === "string" && ISO_DATETIME.test(v)) return formatDateTime(v);
+  if (typeof v === "string" && ISO_DATE.test(v)) return formatDate(v);
   return String(v);
 };
+
+/* 已在上方時間區塊「完成」顯示的欄位（刪除為 completed_at、範本任務為 finished_at），詳細裡不重複列 */
+const HIDDEN_EXTRA_KEYS = new Set(["completed_at", "finished_at"]);
 
 /* extra 欄位的 key → 顯示名稱的翻譯 key（EXTRA_LABEL_KEYS 為模組層級常數，無法呼叫 hook） */
 const EXTRA_LABEL_KEYS = {
   request_id: "JobDetailDialog.extraRequestId",
   vmid: "JobDetailDialog.extraVmid",
+  resource_vmid: "JobDetailDialog.extraVmid",
+  node: "JobDetailDialog.extraNode",
+  name: "JobDetailDialog.extraName",
+  purge: "JobDetailDialog.extraPurge",
+  force: "JobDetailDialog.extraForce",
+  provisioning_status: "JobDetailDialog.extraProvisioningStatus",
+  task_type: "JobDetailDialog.extraTaskType",
+  payload: "JobDetailDialog.extraPayload",
+  result: "JobDetailDialog.extraResult",
   source_node: "JobDetailDialog.extraSourceNode",
   target_node: "JobDetailDialog.extraTargetNode",
   attempt_count: "JobDetailDialog.extraAttemptCount",
@@ -78,6 +96,7 @@ export default function JobDetailDialog({ jobId, onClose }) {
   const [data, setData] = useState(null);
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(false);
+  const titleId = useId();
 
   // 完全關閉（離場動畫結束）後才清空內容
   useEffect(() => {
@@ -133,9 +152,12 @@ export default function JobDetailDialog({ jobId, onClose }) {
     ? Object.entries(data.extra ?? {}).filter(
         ([k, v]) =>
           v !== null && v !== undefined && v !== ""
+          && !HIDDEN_EXTRA_KEYS.has(k)
           /* VMID 是系統內部編號，僅管理員／老師看得到 */
-          && (showVmid || k !== "vmid"),
+          && (showVmid || (k !== "vmid" && k !== "resource_vmid")),
       )
+      /* JSON 物件獨占整列，排到最後，一般欄位的三欄格線才不會被切斷 */
+      .sort(([, a], [, b]) => (typeof a === "object") - (typeof b === "object"))
     : [];
 
   // Portal 到 body：banner 的 backdrop-filter 會建立 stacking context，
@@ -149,20 +171,14 @@ export default function JobDetailDialog({ jobId, onClose }) {
         className={styles.dialog}
         role="dialog"
         aria-modal="true"
-        aria-label={t("JobDetailDialog.dialogAriaLabel")}
+        aria-labelledby={titleId}
         onClick={(e) => e.stopPropagation()}
       >
         <div className={styles.dialogHeader}>
-          <div className={styles.dialogTitleRow}>
-            {item ? (
-              <>
-                <span className={styles.jobKindChip}>{JOB_KIND_LABEL_KEYS[item.kind] ? t(JOB_KIND_LABEL_KEYS[item.kind]) : item.kind}</span>
-                <h2 className={styles.dialogTitle}>{item.title}</h2>
-              </>
-            ) : (
-              <h2 className={styles.dialogTitle}>{t("JobDetailDialog.dialogAriaLabel")}</h2>
-            )}
-          </div>
+          {/* 標題本身已含任務類型（「刪除 xxx」「開機申請：xxx」），不再另掛類型標籤 */}
+          <h2 id={titleId} className={styles.dialogTitle} title={item?.title}>
+            {item ? item.title : t("JobDetailDialog.dialogAriaLabel")}
+          </h2>
           <button type="button" className={styles.dialogClose} onClick={onClose} aria-label={t("JobDetailDialog.closeAriaLabel")}>
             <MIcon name="close" size={18} />
           </button>
@@ -203,17 +219,17 @@ export default function JobDetailDialog({ jobId, onClose }) {
 
             {/* 時間 */}
             <div className={styles.dialogTimes}>
-              <div>
-                <div className={styles.dialogFieldLabel}>{t("JobDetailDialog.createdAt")}</div>
-                <div className={styles.dialogMono}>{fmt(item.created_at)}</div>
+              <div className={styles.dialogExtraItem}>
+                <span className={styles.dialogExtraKey}>{t("JobDetailDialog.createdAt")}</span>
+                <span className={styles.dialogValue}>{fmt(item.created_at)}</span>
               </div>
-              <div>
-                <div className={styles.dialogFieldLabel}>{t("JobDetailDialog.updatedAt")}</div>
-                <div className={styles.dialogMono}>{fmt(item.updated_at)}</div>
+              <div className={styles.dialogExtraItem}>
+                <span className={styles.dialogExtraKey}>{t("JobDetailDialog.updatedAt")}</span>
+                <span className={styles.dialogValue}>{fmt(item.updated_at)}</span>
               </div>
-              <div>
-                <div className={styles.dialogFieldLabel}>{t("JobDetailDialog.completedAt")}</div>
-                <div className={styles.dialogMono}>{fmt(item.completed_at)}</div>
+              <div className={styles.dialogExtraItem}>
+                <span className={styles.dialogExtraKey}>{t("JobDetailDialog.completedAt")}</span>
+                <span className={styles.dialogValue}>{fmt(item.completed_at)}</span>
               </div>
             </div>
 
@@ -229,13 +245,21 @@ export default function JobDetailDialog({ jobId, onClose }) {
             {extraEntries.length > 0 && (
               <div>
                 <div className={styles.dialogFieldLabel}>{t("JobDetailDialog.detail")}</div>
+                {/* 同上方時間區塊：標籤在上、值在下，各欄左緣對齊；JSON 物件（範本任務的 payload／result）獨占一整列 */}
                 <div className={styles.dialogExtraGrid}>
-                  {extraEntries.map(([k, v]) => (
-                    <div key={k} className={styles.dialogExtraItem}>
-                      <span className={styles.dialogExtraKey}>{t("JobDetailDialog.extraKeyLine", { label: EXTRA_LABEL_KEYS[k] ? t(EXTRA_LABEL_KEYS[k]) : k })}</span>
-                      <span className={styles.dialogMono}>{formatExtraValue(v, t)}</span>
-                    </div>
-                  ))}
+                  {extraEntries.map(([k, v]) => {
+                    const isObject = typeof v === "object";
+                    return (
+                      <div key={k} className={`${styles.dialogExtraItem} ${isObject ? styles.dialogExtraWide : ""}`}>
+                        <span className={styles.dialogExtraKey}>{EXTRA_LABEL_KEYS[k] ? t(EXTRA_LABEL_KEYS[k]) : k}</span>
+                        {isObject ? (
+                          <pre className={styles.dialogExtraJson}>{formatExtraValue(v, t)}</pre>
+                        ) : (
+                          <span className={styles.dialogValue}>{formatExtraValue(v, t)}</span>
+                        )}
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
             )}
