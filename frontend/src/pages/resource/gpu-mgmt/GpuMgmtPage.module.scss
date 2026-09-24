@@ -285,27 +285,13 @@
 .badge_full      { background: color-mix(in srgb, var(--color-danger)  12%, transparent); color: var(--color-danger); }
 .badge_unknown   { background: var(--color-hover); color: var(--color-text-muted); }
 
-/* ── Row actions ── */
+/* ── Row actions：圖示鈕走共用 btn-icon（同使用者管理、配額表格的列動作） ── */
 .actions {
   display: flex;
-  gap: $spacing-4;
+  gap: $spacing-8;
 }
 
-.actionBtn {
-  width: 28px;
-  height: 28px;
-  border-radius: $radius-8;
-  @include flex-center;
-  color: var(--color-text-secondary);
-  transition: background $transition-base, color $transition-base;
-
-  &:hover {
-    background: var(--color-hover);
-    color: var(--color-text);
-  }
-
-  &.actionBtnDanger {
-    color: var(--color-danger);
-    &:hover:not(:disabled) { background: color-mix(in srgb, var(--color-danger) 10%, transparent); }
-  }
+.actionBtnDanger {
+  @include btn-icon($danger: true);
+  flex-shrink: 0;
 }
