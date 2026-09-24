@@ -38,7 +38,7 @@ class _FakeRedis:
         self._check()
         return 1 if self.data.pop(key, None) is not None else 0
 
-    def scan_iter(self, *, match: str, count: int):  # noqa: ARG002
+    def scan_iter(self, *, match: str, count: int):
         self._check()
         prefix = match[:-1]
         yield from [k for k in self.data if k.startswith(prefix)]

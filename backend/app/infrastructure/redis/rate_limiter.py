@@ -154,7 +154,7 @@ async def check_rate_limit_by_key(
                 window_seconds,
             )
         return allowed, info
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         logger.error("Redis rate limit check failed for key=%s: %s.", key, exc)
         # 連線中途壞掉跟一開始就沒有 Redis 是同一件事，套同一套政策
         _require_redis_or_fail_closed(scope)
@@ -203,7 +203,7 @@ async def peek_rate_limit_by_key(
     try:
         await redis.zremrangebyscore(redis_key, "-inf", window_start_ms)
         return int(await redis.zcard(redis_key))
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         logger.error("Redis rate limit peek failed for key=%s: %s.", key, exc)
         return None
 

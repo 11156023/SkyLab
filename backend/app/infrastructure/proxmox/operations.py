@@ -188,6 +188,15 @@ def list_all_resources() -> list[dict]:
     return _pool_vms()
 
 
+def list_all_resources_by_vmid() -> dict[int, dict]:
+    """vmid → cluster/resources 條目（單次 PVE 呼叫；治理／反挖礦掃描共用）。"""
+    return {
+        int(r["vmid"]): r
+        for r in list_all_resources()
+        if r.get("vmid") is not None
+    }
+
+
 def list_nodes() -> list[dict]:
     """Return all nodes across all connections."""
     results: list[dict] = []
@@ -251,8 +260,11 @@ def collect_monitoring_snapshot() -> MonitoringSnapshot:
     )
 
 
-def _admin_disabled_node_names() -> set[str]:
-    """讀取被管理員停用的節點名稱；DB 讀取失敗時不過濾（fail-open）。"""
+def admin_disabled_node_names() -> set[str]:
+    """讀取被管理員停用的節點名稱；DB 讀取失敗時不過濾（fail-open）。
+
+    placement advisor 與節點挑選共用同一份判斷。
+    """
     try:
         from sqlmodel import Session
 
@@ -270,7 +282,7 @@ def get_available_nodes() -> list[dict]:
 
     管理員停用的節點一律排除（停用＝不接收新 VM）。
     """
-    disabled = _admin_disabled_node_names()
+    disabled = admin_disabled_node_names()
     nodes = [
         node for node in list_nodes()
         if str(node.get("node") or node.get("name") or "") not in disabled

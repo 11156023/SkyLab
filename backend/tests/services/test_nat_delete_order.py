@@ -36,17 +36,17 @@ def env(monkeypatch: pytest.MonkeyPatch) -> SimpleNamespace:
         sync_fails=False,
     )
 
-    def fake_sync(session: Any, rules: list | None = None) -> None:  # noqa: ARG001
+    def fake_sync(session: Any, rules: list | None = None) -> None:
         if state.sync_fails:
             raise ProxmoxError("Gateway VM unreachable")
         state.synced.append(list(rules or []))
 
     monkeypatch.setattr(nat_service, "_sync_haproxy", fake_sync)
-    monkeypatch.setattr(nat_repo, "list_rules", lambda session: state.rules)  # noqa: ARG005
+    monkeypatch.setattr(nat_repo, "list_rules", lambda session: state.rules)
     monkeypatch.setattr(
         nat_repo,
         "delete_rules",
-        lambda session, rules, **_kwargs: state.deleted.extend(rules),  # noqa: ARG005
+        lambda session, rules, **_kwargs: state.deleted.extend(rules),
     )
     return state
 
@@ -55,7 +55,7 @@ def test_remove_rules_for_vmid_syncs_remaining_before_delete(
     env: SimpleNamespace, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     doomed = [env.rules[0]]
-    monkeypatch.setattr(nat_repo, "list_rules_by_vmid", lambda session, vmid: doomed)  # noqa: ARG005
+    monkeypatch.setattr(nat_repo, "list_rules_by_vmid", lambda session, vmid: doomed)
 
     nat_service.remove_nat_rules_for_vmid(object(), 150)
 
@@ -66,7 +66,7 @@ def test_remove_rules_for_vmid_syncs_remaining_before_delete(
 def test_remove_rules_for_vmid_without_rules_does_nothing(
     env: SimpleNamespace, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setattr(nat_repo, "list_rules_by_vmid", lambda session, vmid: [])  # noqa: ARG005
+    monkeypatch.setattr(nat_repo, "list_rules_by_vmid", lambda session, vmid: [])
 
     nat_service.remove_nat_rules_for_vmid(object(), 999)
 
@@ -81,7 +81,7 @@ def test_remove_rules_by_internal_port_syncs_remaining_before_delete(
     monkeypatch.setattr(
         nat_repo,
         "list_rules_by_vmid_and_port",
-        lambda session, vmid, internal_port, protocol: doomed,  # noqa: ARG005
+        lambda session, vmid, internal_port, protocol: doomed,
     )
 
     nat_service.remove_nat_rules_by_internal_port(object(), 150, 443, "tcp")

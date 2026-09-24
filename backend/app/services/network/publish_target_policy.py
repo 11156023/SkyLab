@@ -111,12 +111,12 @@ def assert_publishable_vm_ip(
 
     if vmid is not None:
         try:
-            from app.repositories.resource import (  # noqa: PLC0415
+            from app.repositories.resource import (
                 get_allocated_ip_address,
             )
 
             allocated = get_allocated_ip_address(session=session, vmid=vmid)  # type: ignore[arg-type]
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             logger.debug("讀取 VMID=%s 的 IP 配發紀錄失敗: %s", vmid, exc)
             allocated = None
         if allocated:
@@ -133,10 +133,10 @@ def assert_publishable_vm_ip(
                 )
 
     try:
-        from app.services.network import ip_management_service  # noqa: PLC0415
+        from app.services.network import ip_management_service
 
         subnet_config = ip_management_service.get_subnet_config(session)  # type: ignore[arg-type]
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         logger.debug("讀取 SubnetConfig 失敗，略過網段白名單: %s", exc)
         subnet_config = None
 
@@ -149,20 +149,20 @@ def assert_publishable_vm_ip(
                 blocked_ips.append(value)
 
     try:
-        from sqlmodel import select  # noqa: PLC0415
+        from sqlmodel import select
 
-        from app.models import ProxmoxConnection  # noqa: PLC0415
+        from app.models import ProxmoxConnection
 
         for conn in session.exec(select(ProxmoxConnection)).all():  # type: ignore[attr-defined]
             for attr in ("host", "gateway_ip"):
                 value = getattr(conn, attr, None)
                 if value:
                     blocked_ips.append(value)
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         logger.debug("讀取 PVE 連線清單失敗，略過節點黑名單: %s", exc)
 
     try:
-        from app.repositories.proxmox_config import get_proxmox_config  # noqa: PLC0415
+        from app.repositories.proxmox_config import get_proxmox_config
 
         legacy = get_proxmox_config(session)  # type: ignore[arg-type]
         if legacy is not None:
@@ -170,7 +170,7 @@ def assert_publishable_vm_ip(
                 value = getattr(legacy, attr, None)
                 if value:
                     blocked_ips.append(value)
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         logger.debug("讀取 proxmox_config 失敗，略過節點黑名單: %s", exc)
 
     validate_publish_target_ip(

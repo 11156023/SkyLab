@@ -87,7 +87,7 @@ def submit_provision(
 
 async def _execute_provision(request_id: uuid.UUID) -> bool:
     from app.services.scheduling import (
-        coordinator,  # noqa: PLC0415 — 避免 import cycle
+        coordinator,
     )
 
     return await asyncio.to_thread(coordinator.process_single_request_start, request_id)
@@ -95,8 +95,8 @@ async def _execute_provision(request_id: uuid.UUID) -> bool:
 
 def _provisioning_failure(request_id: uuid.UUID) -> str | None:
     """provision 後申請單若停在 failed，回傳錯誤訊息讓 TaskRecord 也標 failed。"""
-    from app.core.db import engine  # noqa: PLC0415 — 避免 import cycle
-    from app.repositories import vm_request as vm_request_repo  # noqa: PLC0415
+    from app.core.db import engine
+    from app.repositories import vm_request as vm_request_repo
 
     with Session(engine) as session:
         request = vm_request_repo.get_vm_request_by_id(

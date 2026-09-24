@@ -33,7 +33,9 @@ from app.models import (
 )
 from app.models.base import get_datetime_utc
 from app.repositories import vm_template as vm_template_repo
+from app.services import quick_practice
 from app.services.proxmox import proxmox_service
+from app.services.teaching import course_publication_service
 
 router = APIRouter(prefix="/course-environments", tags=["course-environments"])
 
@@ -219,28 +221,6 @@ def _versions(
             select(CourseEnvironmentVersion)
             .where(CourseEnvironmentVersion.environment_id == environment_id)
             .order_by(col(CourseEnvironmentVersion.version).desc())
-        ).all()
-    )
-
-
-def _nodes(session: SessionDep, version_id: uuid.UUID) -> list[CourseEnvironmentNode]:
-    return list(
-        session.exec(
-            select(CourseEnvironmentNode)
-            .where(CourseEnvironmentNode.version_id == version_id)
-            .order_by(col(CourseEnvironmentNode.sort_order))
-        ).all()
-    )
-
-
-def _publications(
-    session: SessionDep, version_id: uuid.UUID
-) -> list[CourseEnvironmentPublication]:
-    return list(
-        session.exec(
-            select(CourseEnvironmentPublication)
-            .where(CourseEnvironmentPublication.version_id == version_id)
-            .order_by(col(CourseEnvironmentPublication.sort_order))
         ).all()
     )
 
@@ -467,9 +447,11 @@ def _serialize_version(
     environment: CourseEnvironment,
     version: CourseEnvironmentVersion,
 ) -> dict[str, Any]:
-    nodes = _nodes(session, version.id)
+    nodes = quick_practice.nodes_for_version(session, version_id=version.id)
     edges = _edges(session, version.id)
-    publications = _publications(session, version.id)
+    publications = course_publication_service.list_for_version(
+        session, version_id=version.id
+    )
     class_count = session.exec(
         select(func.count(col(TeachingClass.id))).where(
             col(TeachingClass.course_version_id) == version.id
@@ -877,9 +859,11 @@ def publish_environment(
         version.peer_policy = body.peer_policy
         session.flush()
         version.draft_data = None
-    nodes = _nodes(session, version.id)
+    nodes = quick_practice.nodes_for_version(session, version_id=version.id)
     edges = _edges(session, version.id)
-    publications = _publications(session, version.id)
+    publications = course_publication_service.list_for_version(
+        session, version_id=version.id
+    )
     _validate_configuration(
         session,
         [EnvironmentNodeIn.model_validate(node.model_dump()) for node in nodes],

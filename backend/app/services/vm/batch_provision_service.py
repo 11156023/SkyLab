@@ -299,7 +299,7 @@ def _refresh_teaching_class_status(teaching_class_id: uuid.UUID) -> None:
     to open the class workspace, which is the only other caller that recomputes
     the status.
     """
-    from app.services.teaching import class_status_service  # noqa: PLC0415
+    from app.services.teaching import class_status_service
 
     try:
         with Session(engine) as session:
@@ -392,7 +392,7 @@ def _process_task(*, job_id: uuid.UUID, task_id: uuid.UUID) -> None:
                 or teaching_class.status == TeachingClassStatus.archived
             ):
                 resource_info = proxmox_service.find_resource(vmid)
-                from app.services.resource import resource_service  # noqa: PLC0415
+                from app.services.resource import resource_service
 
                 resource_service.delete(
                     session=session,
@@ -409,7 +409,7 @@ def _process_task(*, job_id: uuid.UUID, task_id: uuid.UUID) -> None:
         # Snapshot failure must not turn a successfully created resource into
         # a failed task, otherwise retrying can create a duplicate machine.
         try:
-            from app.services.resource import reset_service  # noqa: PLC0415
+            from app.services.resource import reset_service
 
             reset_service.ensure_init_snapshot(vmid)
         except Exception:
@@ -472,7 +472,7 @@ def _discard_provisioned_machine(
     try:
         with Session(engine) as session:
             resource_info = proxmox_service.find_resource(vmid)
-            from app.services.resource import resource_service  # noqa: PLC0415
+            from app.services.resource import resource_service
 
             resource_service.delete(
                 session=session,
@@ -602,7 +602,7 @@ def _class_target_node(
 
     解析不出來時回 None，沿用既有的預設節點行為（不讓建機因此中斷）。
     """
-    from app.services.teaching import class_capacity_service  # noqa: PLC0415
+    from app.services.teaching import class_capacity_service
 
     machine_node = session.exec(
         select(TeachingClassMachineNode).where(

@@ -32,6 +32,7 @@ from app.schemas.vm_request import (
     VMRequestWindowAvailabilityResponse,
 )
 from app.services.vm import placement_support, vm_request_placement_service
+from app.utils.timeutil import normalize_datetime
 
 GIB = 1024**3
 
@@ -125,8 +126,8 @@ def validate_request_window(
     current_user,
     request_in,
 ) -> None:
-    start_at = _normalize_datetime(getattr(request_in, "start_at", None))
-    end_at = _normalize_datetime(getattr(request_in, "end_at", None))
+    start_at = normalize_datetime(getattr(request_in, "start_at", None))
+    end_at = normalize_datetime(getattr(request_in, "end_at", None))
     if not start_at or not end_at:
         raise BadRequestError(t("availability.window_required"))
     if end_at <= start_at:
@@ -174,8 +175,8 @@ def assess_request_window(
     current_user,
     request_in: VMRequestWindowAvailabilityRequest,
 ) -> VMRequestWindowAvailabilityResponse:
-    start_at = _normalize_datetime(request_in.start_at)
-    end_at = _normalize_datetime(request_in.end_at)
+    start_at = normalize_datetime(request_in.start_at)
+    end_at = normalize_datetime(request_in.end_at)
     if not start_at or not end_at:
         raise BadRequestError(t("availability.window_required_short"))
     if end_at <= start_at:
@@ -565,8 +566,8 @@ def _build_reserved_capacity_timeline(
 
     events: dict[int, list[tuple[str, float, int, int, int]]] = {}
     for reserved in reserved_requests:
-        reserved_start = _normalize_datetime(reserved.start_at)
-        reserved_end = _normalize_datetime(reserved.end_at)
+        reserved_start = normalize_datetime(reserved.start_at)
+        reserved_end = normalize_datetime(reserved.end_at)
         assigned_node = str(reserved.assigned_node or "")
         if not reserved_start or not reserved_end or not assigned_node:
             continue
@@ -879,14 +880,6 @@ def _lite_slot_from_capacities(
         placement_strategy=placement_strategy,
         node_snapshots=[],
     )
-
-
-def _normalize_datetime(value: datetime | None) -> datetime | None:
-    if value is None:
-        return None
-    if value.tzinfo is None:
-        return value.replace(tzinfo=UTC)
-    return value
 
 
 def _resolve_timezone(value: str) -> ZoneInfo:

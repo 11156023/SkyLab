@@ -31,20 +31,6 @@ _cluster_cache: _ClusterCacheEntry | None = None
 _cluster_cache_lock = threading.Lock()
 
 
-def _disabled_node_names() -> set[str]:
-    """讀取被管理員停用的節點名稱；DB 讀取失敗時不過濾（fail-open）。"""
-    try:
-        from sqlmodel import Session
-
-        from app.core.db import engine
-        from app.repositories.proxmox_node import get_disabled_node_names
-
-        with Session(engine) as session:
-            return get_disabled_node_names(session)
-    except Exception:
-        return set()
-
-
 def _gpu_used_slots() -> dict[str, int]:
     """各節點已被 VM 佔用的 GPU 插槽數；查詢失敗回空 dict（fail-open）。"""
     try:
@@ -59,7 +45,7 @@ def _load_cluster_state() -> tuple[list[NodeSnapshot], list[ResourceSnapshot]]:
         return cached.nodes, cached.resources
 
     gpu_map = gpu_service.get_gpu_node_counts()
-    disabled = _disabled_node_names()
+    disabled = proxmox_service.admin_disabled_node_names()
     nodes = [
         NodeSnapshot(
             node=str(item.get("node") or "unknown"),

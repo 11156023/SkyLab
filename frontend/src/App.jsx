@@ -7,10 +7,13 @@ import LoginPage from "./pages/login/LoginPage";
 import MIcon from "./components/MIcon";
 import { LoadingSpinner } from "./components/LoadingState/LoadingState";
 import { AuthSessionStatus } from "./services/authSession";
+import { useSetupStatus } from "./pages/setup/useSetupStatus";
 import styles from "./App.module.scss";
 
 // 導入介紹首頁（未登入的 /；獨立 chunk，gsap 只在這裡載入）
 const LandingPage = lazy(() => import("./pages/landing/LandingPage"));
+// 首次安裝初始化精靈（免登入；後端 system_setup.completed 之前登入頁會導過來）
+const SetupPage = lazy(() => import("./pages/setup/SetupPage"));
 
 // 個人
 const AdminDashboardPage = lazy(() => import("./pages/personal/dashboard/admin/AdminDashboardPage"));
@@ -106,6 +109,14 @@ function AuthBootstrapState({ unavailable = false, retrying = false, onRetry }) 
   );
 }
 
+/** 登入頁：後端還沒初始化（沒有管理員／PVE）就先導去精靈，狀態取不到時照常顯示登入 */
+function LoginRoute() {
+  const { status, loading, setupRequired } = useSetupStatus();
+  if (loading && !status) return <AuthBootstrapState />;
+  if (setupRequired) return <Navigate to="/setup" replace />;
+  return <LoginPage />;
+}
+
 function LegacyAiJudgeEditorRedirect() {
   const { classId, sessionId } = useParams();
   const query = sessionId ? `?check=${encodeURIComponent(sessionId)}` : "";
@@ -184,8 +195,17 @@ function App() {
           user && !isDeviceApproval ? (
             <Navigate to="/dashboard" replace />
           ) : (
-            <LoginPage />
+            <LoginRoute />
           )
+        }
+      />
+      {/* 初始化精靈：登入前後都可開，完成後頁面自己會提示已初始化 */}
+      <Route
+        path="/setup"
+        element={
+          <Suspense fallback={<AuthBootstrapState />}>
+            <SetupPage />
+          </Suspense>
         }
       />
 

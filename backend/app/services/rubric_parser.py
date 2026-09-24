@@ -202,7 +202,7 @@ def parse_doc(file_bytes: bytes) -> str:
         if hasattr(os, "setsid"):
             # 自己一組 process group，逾時才殺得乾淨
             popen_kwargs["start_new_session"] = True
-        process = subprocess.Popen(  # noqa: S603
+        process = subprocess.Popen(
             [
                 converter,
                 # 每次轉檔用獨立的使用者設定目錄：共用 profile 會讓並行轉檔

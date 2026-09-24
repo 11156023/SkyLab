@@ -68,7 +68,7 @@ async def jobs_ws_proxy(websocket: WebSocket, token: str) -> None:
                     20,
                     include_reminders=include_reminders,
                 )
-            except Exception:  # noqa: BLE001 — 單次失敗不應斷線
+            except Exception:
                 logger.exception("Jobs WS snapshot fetch failed")
                 await asyncio.sleep(_SNAPSHOT_INTERVAL_SECONDS)
                 continue

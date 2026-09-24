@@ -113,7 +113,7 @@ def create_init_snapshot(
 
 def _audit_reset(vmid: int, user_id: uuid.UUID, *, ok: bool, detail: str) -> None:
     """背景任務內寫 audit（獨立 session；失敗吞掉）。"""
-    from app.core.db import engine  # noqa: PLC0415 — 測試環境不一定有 DB
+    from app.core.db import engine
 
     logger.log(
         logging.INFO if ok else logging.WARNING,
@@ -143,8 +143,8 @@ def _sync_lxc_platform_key_after_start(
         return
 
     try:
-        from app.core.db import engine  # noqa: PLC0415 — background task session
-        from app.services.resource import resource_service  # noqa: PLC0415
+        from app.core.db import engine
+        from app.services.resource import resource_service
 
         with Session(engine) as session:
             resource_service.ensure_lxc_platform_key(

@@ -292,7 +292,7 @@ def _validate_expiry_request(
 
 def _apply_expiry_extension(session: Session, db_request: Any) -> None:
     """核准即生效：改到期日、清掉 TTL 已發出的通知與刪除排程，讓治理重新起算。"""
-    from app.models import Resource  # noqa: PLC0415
+    from app.models import Resource
 
     resource = session.get(Resource, db_request.resource_vmid)
     if resource is None:
@@ -887,7 +887,7 @@ def _run_apply(
 
 def _open_session() -> Session:
     """背景執行緒用的獨立 DB session（測試可替換成自己的 engine）。"""
-    from app.core.db import engine  # noqa: PLC0415 — 測試環境不一定有 DB
+    from app.core.db import engine
 
     return Session(engine)
 

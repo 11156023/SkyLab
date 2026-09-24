@@ -99,25 +99,6 @@ ACTION_CATEGORY: dict[AuditAction, str] = {
 }
 
 
-DANGER_ACTIONS: set[AuditAction] = {
-    AuditAction.resource_delete,
-    AuditAction.resource_reset,
-    AuditAction.snapshot_delete,
-    AuditAction.snapshot_rollback,
-    AuditAction.user_delete,
-    AuditAction.firewall_rule_delete,
-    AuditAction.firewall_connection_delete,
-    AuditAction.nat_rule_delete,
-    AuditAction.reverse_proxy_rule_delete,
-    AuditAction.proxmox_config_update,
-    AuditAction.cloudflare_config_update,
-    AuditAction.cloudflare_dns_record_delete,
-    AuditAction.gateway_keypair_generate,
-    AuditAction.login_failed,
-    AuditAction.login_google_failed,
-}
-
-
 def log_action(
     *,
     session: Session,

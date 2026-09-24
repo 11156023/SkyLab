@@ -96,7 +96,7 @@ async def request_clone(
     if data.gpu_mapping_id:
         if template.resource_type == "lxc":
             raise BadRequestError(t("clone.lxcGpuUnsupported"))
-        from app.services.proxmox.provisioning_service import (  # noqa: PLC0415
+        from app.services.proxmox.provisioning_service import (
             _gpu_mapping_nodes,
         )
 
@@ -482,7 +482,7 @@ def run_clone_task(task_id: uuid.UUID, payload: dict[str, Any]) -> dict[str, Any
             password_applied = login_password is not None
             if gpu_mapping_id:
                 # 容量與 vGPU 規格以掛載當下重新驗證（與申請流程同一套檢查）
-                from app.services.proxmox.provisioning_service import (  # noqa: PLC0415
+                from app.services.proxmox.provisioning_service import (
                     _build_gpu_hostpci,
                 )
 

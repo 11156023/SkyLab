@@ -133,7 +133,7 @@ def _spec_from_raw(
     """PVE 原始紀錄 → (cores, memory_mb, disk_gb)；缺值一律回 None。"""
     if not raw:
         return None, None, None
-    from app.services.proxmox.provisioning_service import (  # noqa: PLC0415
+    from app.services.proxmox.provisioning_service import (
         _template_disk_gb,
     )
 
@@ -206,7 +206,7 @@ def list_student_catalog(*, session: Session) -> list[TemplateCatalogItem]:
     with the PVE facts the request form needs (OS family and the source
     machine's own spec, which is the clone's floor).
     """
-    from app.services.proxmox.provisioning_service import (  # noqa: PLC0415
+    from app.services.proxmox.provisioning_service import (
         is_windows_template,
     )
 
@@ -965,7 +965,7 @@ _BOOT_AGENT_TIMEOUT_SECONDS = 120
 
 def _wait_for_guest_agent(node: str, vmid: int, timeout: float) -> bool:
     """輪詢 agent ping 直到回應或逾時（開機後 agent 起來需時）。"""
-    from app.infrastructure.proxmox import guest  # noqa: PLC0415
+    from app.infrastructure.proxmox import guest
 
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
@@ -990,7 +990,7 @@ def _reset_cloud_init_state(
     if resource_type != "qemu":
         return False
     try:
-        from app.infrastructure.proxmox import guest  # noqa: PLC0415
+        from app.infrastructure.proxmox import guest
 
         status = proxmox_ops.get_status(node, vmid, resource_type)
         if status.get("status") != "running":
@@ -1179,13 +1179,13 @@ def run_convert_task(task_id: uuid.UUID, payload: dict[str, Any]) -> dict[str, A
         # 母機網路資源一併回收：IP 若留在已配置狀態會永久佔用，gateway
         # 上殘留的 NAT 埠轉發在 IP 重配給別台 VM 後會導流到新住戶
         try:
-            from app.services.network import ip_management_service  # noqa: PLC0415
+            from app.services.network import ip_management_service
 
             ip_management_service.release_ip(session, pve_vmid)
         except Exception as exc:
             logger.warning("Failed to release IP for VM %s: %s", pve_vmid, exc)
         try:
-            from app.services.network import nat_service  # noqa: PLC0415
+            from app.services.network import nat_service
 
             nat_service.remove_nat_rules_for_vmid(session, pve_vmid)
         except Exception as exc:
@@ -1194,7 +1194,7 @@ def run_convert_task(task_id: uuid.UUID, payload: dict[str, Any]) -> dict[str, A
             )
         # 母機若來自申請單，一併標為已消耗；否則排程器會反覆嘗試
         # 啟動範本，資源頁也會把申請單復活成「建立失敗」placeholder
-        from app.services.resource import resource_service  # noqa: PLC0415
+        from app.services.resource import resource_service
 
         resource_service.mark_linked_request_consumed(
             session=session,

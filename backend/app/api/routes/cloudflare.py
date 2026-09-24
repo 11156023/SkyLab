@@ -118,7 +118,7 @@ def list_dns_records(
         proxied=proxied,
     )
     # 標出哪些紀錄是本系統的對外網址建的，管理員才分得出來哪些是外部自己加的
-    from app.services.network import reverse_proxy_service  # noqa: PLC0415
+    from app.services.network import reverse_proxy_service
 
     reverse_proxy_service.annotate_dns_records_with_system_rules(session, result.items)
     return result

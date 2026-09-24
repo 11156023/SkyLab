@@ -28,8 +28,6 @@ from app.infrastructure.ssh import create_password_client, exec_command
 
 logger = logging.getLogger(__name__)
 
-MAX_CONFIG_FILE_BYTES = 1_048_576  # 1 MB
-
 
 def _ping_agent(node: str, vmid: int) -> None:
     try:

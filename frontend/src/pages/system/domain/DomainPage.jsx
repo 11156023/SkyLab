@@ -19,6 +19,21 @@ const TAB_KEYS = ["dns", "reverse-proxy"];
 
 const DNS_TYPES = ["A", "AAAA", "CNAME", "TXT", "MX", "NS", "SRV"];
 
+/* 兩個 Modal 共用的「取消／儲存」列；儲存鈕是 submit，交給外層 form 處理 */
+function ModalActions({ loading, onClose }) {
+  const { t } = useTranslation("system");
+  return (
+    <div className={styles.modalActions}>
+      <button type="button" className={styles.btnSecondary} onClick={onClose} disabled={loading}>
+        {t("DomainPage.cancel")}
+      </button>
+      <button type="submit" className={styles.btnPrimary} disabled={loading}>
+        {loading ? t("DomainPage.saving") : t("DomainPage.save")}
+      </button>
+    </div>
+  );
+}
+
 /* ── 供應商設定 Modal ───────────────────────────────────── */
 
 function ConfigModal({ config, loading, closing = false, onClose, onSubmit }) {
@@ -120,14 +135,7 @@ function ConfigModal({ config, loading, closing = false, onClose, onSubmit }) {
           </label>
         </div>
 
-        <div className={styles.modalActions}>
-          <button type="button" className={styles.btnSecondary} onClick={onClose} disabled={loading}>
-            {t("DomainPage.cancel")}
-          </button>
-          <button type="submit" className={styles.btnPrimary} disabled={loading}>
-            {loading ? t("DomainPage.saving") : t("DomainPage.save")}
-          </button>
-        </div>
+        <ModalActions loading={loading} onClose={onClose} />
       </form>
     </div>
   );
@@ -238,14 +246,7 @@ function RecordModal({ record, loading, closing = false, onClose, onSubmit }) {
           <span>{t("DomainPage.proxiedLabel")}</span>
         </label>
 
-        <div className={styles.modalActions}>
-          <button type="button" className={styles.btnSecondary} onClick={onClose} disabled={loading}>
-            {t("DomainPage.cancel")}
-          </button>
-          <button type="submit" className={styles.btnPrimary} disabled={loading}>
-            {loading ? t("DomainPage.saving") : t("DomainPage.save")}
-          </button>
-        </div>
+        <ModalActions loading={loading} onClose={onClose} />
       </form>
     </div>
   );

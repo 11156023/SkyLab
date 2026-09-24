@@ -38,15 +38,6 @@ def _utc_now() -> datetime:
     return datetime.now(timezone.utc)
 
 
-def _pve_resource_map() -> dict[int, dict[str, Any]]:
-    """vmid → cluster/resources 條目（單次 PVE 呼叫）。"""
-    return {
-        int(r["vmid"]): r
-        for r in proxmox_service.list_all_resources()
-        if r.get("vmid") is not None
-    }
-
-
 def _owner_email(resource: Resource) -> str | None:
     user = resource.user
     if user is None or not user.email:
@@ -115,7 +106,7 @@ def _apply_ttl_delete(
     pve_info: dict[str, Any] | None,
 ) -> None:
     from app.services.resource import (
-        deletion_service,  # noqa: PLC0415 — 避免 import cycle
+        deletion_service,
     )
 
     if pve_info is None:
@@ -182,7 +173,7 @@ def process_ttl_lifecycle() -> int:
             resources = resource_repo.list_resources_with_expiry(session=session)
             if not resources:
                 return 0
-            pve_map = _pve_resource_map()
+            pve_map = proxmox_service.list_all_resources_by_vmid()
             open_deletions = _vmids_with_open_deletion(session)
 
             for resource in resources:
@@ -334,7 +325,7 @@ def process_idle_detection() -> int:
             if not config.idle_detection_enabled:
                 return 0
 
-            pve_map = _pve_resource_map()
+            pve_map = proxmox_service.list_all_resources_by_vmid()
             running_vmids = [
                 vmid
                 for vmid, info in pve_map.items()

@@ -42,9 +42,9 @@ class WorkerSettings:
     health_check_interval = 60
 
     @staticmethod
-    async def on_startup(ctx: dict[str, Any]) -> None:  # noqa: ARG004
+    async def on_startup(ctx: dict[str, Any]) -> None:
         pass
 
     @staticmethod
-    async def on_shutdown(ctx: dict[str, Any]) -> None:  # noqa: ARG004
+    async def on_shutdown(ctx: dict[str, Any]) -> None:
         pass

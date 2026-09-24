@@ -95,13 +95,12 @@ class _FakeWeekSession:
 
 def _class_with_weeks(*, weekday, end_date):
     class_id = uuid.uuid4()
-    item = SimpleNamespace(
+    return SimpleNamespace(
         id=class_id,
         start_date=date(2026, 9, 7),  # 週一開學
         end_date=end_date,
         weekday=weekday,
     )
-    return item
 
 
 def test_changing_the_class_weekday_keeps_every_week_topic():
@@ -434,7 +433,7 @@ def test_peer_policy_only_honours_an_explicit_segment_choice():
 
 
 def test_network_labels_accept_ui_slash_or_comma_notation():
-    assert class_network_service._segments("lab-net / backend-net, management") == {
+    assert class_network_service.network_segments("lab-net / backend-net, management") == {
         "lab-net",
         "backend-net",
         "management",

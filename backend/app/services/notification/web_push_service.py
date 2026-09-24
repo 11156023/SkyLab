@@ -52,7 +52,7 @@ SNAPSHOT_LIMIT = 20
 def is_available() -> bool:
     """pywebpush 是否可用；缺套件時整個功能靜默關閉（前端會顯示「後端未啟用」）。"""
     try:
-        import pywebpush  # noqa: F401, PLC0415 — 只為偵測套件存在
+        import pywebpush  # noqa: F401 — 只為偵測套件存在
     except ImportError:
         return False
     return True
@@ -82,8 +82,8 @@ def _send_one(
     subject: str,
 ) -> tuple[bool, int | None]:
     """回傳 (成功?, 推播服務的 HTTP 狀態碼或 None)。不丟例外。"""
-    from py_vapid import Vapid  # noqa: PLC0415 — 缺套件時 is_available() 已擋
-    from pywebpush import WebPushException, webpush  # noqa: PLC0415
+    from py_vapid import Vapid
+    from pywebpush import WebPushException, webpush
 
     try:
         webpush(
@@ -108,7 +108,7 @@ def _send_one(
             exc,
         )
         return False, status
-    except Exception as exc:  # noqa: BLE001 — 網路／編碼問題都不該讓排程中斷
+    except Exception as exc:
         logger.warning(
             "Web Push delivery error: subscription=%s error=%s", subscription.id, exc
         )
@@ -233,9 +233,9 @@ def _process_user(
     include_reminders: bool,
 ) -> int:
     from app.services.course import (
-        reminder_service,  # noqa: PLC0415 — 避免 import cycle
+        reminder_service,
     )
-    from app.services.jobs import jobs_service  # noqa: PLC0415
+    from app.services.jobs import jobs_service
 
     sent = 0
     snapshot = jobs_service.list_recent_for_user(
@@ -297,7 +297,7 @@ def process_push_notifications() -> int:
                     state=state,
                     include_reminders=include_reminders,
                 )
-            except Exception:  # noqa: BLE001 — 單一使用者失敗不影響其他人
+            except Exception:
                 logger.exception("Web Push tick failed for user %s", user_id)
                 session.rollback()
     return sent_total
@@ -310,7 +310,7 @@ def push_notifier_leader_gate() -> Iterator[bool]:
     沒拿到鎖的那一輪順手清掉行程內的去重基準：否則這個行程之後搶回 leader
     時，會拿幾小時前的舊基準去 diff，把中間所有終態變化一次補推出去。
     """
-    from app.services.scheduling.leader import (  # noqa: PLC0415 — 避免 import cycle
+    from app.services.scheduling.leader import (
         PUSH_NOTIFIER_LEADER_LOCK_KEY,
         scheduler_leader_lock,
     )
@@ -327,8 +327,8 @@ async def run_push_notifier(stop_event: asyncio.Event) -> None:
     去重基準 ``_tick_state`` 只在行程內；leader 換手時新 leader 第一輪視為
     初始快照（不推），所以換手期間的事件最多漏一輪，但不會重複推送。
     """
-    from app.domain.scheduling.models import ScheduledTask  # noqa: PLC0415
-    from app.domain.scheduling.runner import run_polling_scheduler  # noqa: PLC0415
+    from app.domain.scheduling.models import ScheduledTask
+    from app.domain.scheduling.runner import run_polling_scheduler
 
     if not is_available():
         logger.info("pywebpush not installed; Web Push notifier disabled")

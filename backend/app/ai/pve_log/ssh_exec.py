@@ -205,23 +205,6 @@ def find_completed_confirmation_by_tool_call(
     return None
 
 
-def peek_pending_scope(token: str) -> tuple[str | None, uuid.UUID | None]:
-    """Read token scope without consuming it."""
-    entry = _peek_pending(token)
-    if entry is None:
-        return None, None
-    return entry.get("scope_type"), entry.get("scope_id")
-
-
-def peek_pending_request(token: str) -> SSHExecRequest | None:
-    """Read a pending request so the caller can re-authorize its VMID."""
-    entry = _peek_pending(token)
-    if entry is None:
-        return None
-    request = entry.get("request")
-    return request if isinstance(request, SSHExecRequest) else None
-
-
 def _cleanup_expired() -> None:
     now = time.monotonic()
     expired = [k for k, v in _pending_store.items() if now - v["created_at"] > _PENDING_TTL]

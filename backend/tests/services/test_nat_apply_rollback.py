@@ -22,21 +22,21 @@ def test_apply_nat_rule_deletes_db_rule_when_sync_fails(
     created: list[Any] = []
     deleted: list[Any] = []
 
-    def fake_create_rule(session: Any, rule: Any) -> Any:  # noqa: ARG001
+    def fake_create_rule(session: Any, rule: Any) -> Any:
         created.append(rule)
         return rule
 
-    def fake_delete_rule(session: Any, rule: Any) -> None:  # noqa: ARG001
+    def fake_delete_rule(session: Any, rule: Any) -> None:
         deleted.append(rule)
 
-    def failing_sync(session: Any) -> None:  # noqa: ARG001
+    def failing_sync(session: Any) -> None:
         raise ProxmoxError("Gateway VM unreachable")
 
     monkeypatch.setattr(nat_repo, "create_rule", fake_create_rule)
     monkeypatch.setattr(nat_repo, "delete_rule", fake_delete_rule)
     monkeypatch.setattr(nat_service, "_sync_haproxy", failing_sync)
     monkeypatch.setattr(
-        nat_service, "check_port_available", lambda *a, **k: None  # noqa: ARG005
+        nat_service, "check_port_available", lambda *a, **k: None
     )
 
     with pytest.raises(ProxmoxError):
@@ -67,7 +67,7 @@ def test_apply_nat_rule_keeps_rule_when_sync_succeeds(
     )
     monkeypatch.setattr(nat_service, "_sync_haproxy", lambda session: None)
     monkeypatch.setattr(
-        nat_service, "check_port_available", lambda *a, **k: None  # noqa: ARG005
+        nat_service, "check_port_available", lambda *a, **k: None
     )
 
     nat_service.apply_nat_rule(

@@ -44,8 +44,8 @@ def _normalize_collection(payload: Any) -> list[dict[str, Any]]:
 
 class TraefikGatewayClient:
     def __init__(self, session: object):
-        from app.repositories import gateway_config as gw_repo  # noqa: PLC0415
-        from app.repositories.gateway_config import (  # noqa: PLC0415
+        from app.repositories import gateway_config as gw_repo
+        from app.repositories.gateway_config import (
             get_decrypted_private_key,
         )
 

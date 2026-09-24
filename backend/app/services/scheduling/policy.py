@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 
 from app.models import VMRequest
+from app.utils.timeutil import normalize_datetime
 
 SCHEDULER_POLL_SECONDS = 60
 
@@ -21,14 +22,6 @@ def is_provisioning_stale(started_at: datetime | None, *, now: datetime) -> bool
     if started is None:
         return True
     return now - started > timedelta(minutes=PROVISIONING_STALE_MINUTES)
-
-
-def normalize_datetime(value: datetime | None) -> datetime | None:
-    if value is None:
-        return None
-    if value.tzinfo is None:
-        return value.replace(tzinfo=UTC)
-    return value
 
 
 def resource_type_for_request(request: VMRequest) -> str:

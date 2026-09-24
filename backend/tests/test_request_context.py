@@ -105,7 +105,7 @@ def test_default_request_context_has_none_fields() -> None:
 async def test_middleware_passes_through_non_http_scope_unchanged() -> None:
     called: list[str] = []
 
-    async def downstream(scope, receive, send):  # noqa: ANN001
+    async def downstream(scope, receive, send):
         called.append(scope["type"])
 
     mw = RequestContextMiddleware(downstream)
@@ -117,7 +117,7 @@ async def test_middleware_passes_through_non_http_scope_unchanged() -> None:
 async def test_middleware_sets_context_during_http_request() -> None:
     captured: dict[str, str | None] = {}
 
-    async def downstream(scope, receive, send):  # noqa: ANN001
+    async def downstream(scope, receive, send):
         ctx = get_request_context()
         captured["ip"] = ctx.ip_address
         captured["ua"] = ctx.user_agent
@@ -125,7 +125,7 @@ async def test_middleware_sets_context_during_http_request() -> None:
     async def receive():
         return {"type": "http.request"}
 
-    async def send(message):  # noqa: ANN001
+    async def send(message):
         pass
 
     mw = RequestContextMiddleware(downstream)
@@ -147,13 +147,13 @@ async def test_middleware_sets_context_during_http_request() -> None:
 async def test_middleware_resets_context_after_request() -> None:
     """ContextVar token must be reset so requests don't leak across each other."""
 
-    async def downstream(scope, receive, send):  # noqa: ANN001
+    async def downstream(scope, receive, send):
         pass
 
     async def receive():
         return {"type": "http.request"}
 
-    async def send(message):  # noqa: ANN001
+    async def send(message):
         pass
 
     set_request_context(RequestContext())

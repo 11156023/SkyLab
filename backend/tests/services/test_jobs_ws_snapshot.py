@@ -33,7 +33,7 @@ def test_fetch_snapshot_expires_then_rolls_back(
     session = _FakeSession()
     sentinel = object()
 
-    def fake_list_recent(*, session: Any, user: Any, limit: int) -> Any:  # noqa: ARG001
+    def fake_list_recent(*, session: Any, user: Any, limit: int) -> Any:
         session.calls.append("query")
         return sentinel
 
@@ -52,7 +52,7 @@ def test_fetch_snapshot_rolls_back_even_on_failure(
 ) -> None:
     session = _FakeSession()
 
-    def failing_list_recent(**kwargs: Any) -> Any:  # noqa: ARG001
+    def failing_list_recent(**kwargs: Any) -> Any:
         raise RuntimeError("db hiccup")
 
     monkeypatch.setattr(jobs_service, "list_recent_for_user", failing_list_recent)
@@ -76,11 +76,11 @@ def test_fetch_snapshot_attaches_reminders_when_requested(
 
     snapshot = _Snapshot()
 
-    def fake_list_recent(*, session: Any, user: Any, limit: int) -> Any:  # noqa: ARG001
+    def fake_list_recent(*, session: Any, user: Any, limit: int) -> Any:
         session.calls.append("query")
         return snapshot
 
-    def fake_reminders(session: Any, *, user_id: Any, now: Any = None) -> Any:  # noqa: ARG001
+    def fake_reminders(session: Any, *, user_id: Any, now: Any = None) -> Any:
         session.calls.append("reminders")
         return ["reminder"]
 

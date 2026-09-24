@@ -235,7 +235,7 @@ def _execute_deletion(session: Session, req: DeletionRequest) -> None:
         return
 
     try:
-        from app.services.proxmox import proxmox_service  # noqa: PLC0415
+        from app.services.proxmox import proxmox_service
 
         live_status = proxmox_service.get_status(node, req.vmid, resource_type).get(
             "status", ""
@@ -333,9 +333,9 @@ def process_one_request(
     request transition to ``failed``. Cancelled requests are honoured
     immediately at the start of each attempt.
     """
-    import time  # noqa: PLC0415 — keep import local
+    import time
 
-    from app.core.db import engine  # noqa: PLC0415 — keep import local to avoid cycles
+    from app.core.db import engine
 
     delay = max(0.0, retry_delay)
     last_exc: Exception | None = None

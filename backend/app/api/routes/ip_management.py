@@ -96,7 +96,7 @@ def upsert_subnet_config(
     # 設定存進 DB 不代表機器上真的套用成功，結果一律跟著回應回去，
     # 讓管理員看得到哪幾台沒套到，而不是只留在後端 log 裡。
     try:
-        from app.services.network import firewall_service  # noqa: PLC0415
+        from app.services.network import firewall_service
         block_sync = _block_sync_summary(
             firewall_service.sync_block_local_subnet_rules()
         )

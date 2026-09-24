@@ -59,15 +59,6 @@ def _utc_now() -> datetime:
     return datetime.now(timezone.utc)
 
 
-def _pve_resource_map() -> dict[int, dict[str, Any]]:
-    """vmid → cluster/resources 條目（單次 PVE 呼叫）。"""
-    return {
-        int(r["vmid"]): r
-        for r in proxmox_service.list_all_resources()
-        if r.get("vmid") is not None
-    }
-
-
 def _resource_type(pve_type: str) -> Literal["qemu", "lxc"]:
     return "lxc" if pve_type == "lxc" else "qemu"
 
@@ -189,7 +180,7 @@ def process_mining_detection() -> int:
             if not config.mining_detection_enabled:
                 return 0
 
-            pve_map = _pve_resource_map()
+            pve_map = proxmox_service.list_all_resources_by_vmid()
             running_vmids = [
                 vmid
                 for vmid, info in pve_map.items()
@@ -342,7 +333,7 @@ def _notify_incident(
     session: Session, incident: MiningIncident, resource: Resource
 ) -> None:
     from app.services.monitoring.alert_service import (
-        _list_admin_emails,  # noqa: PLC0415 — 複用管理員清單，避免重複實作
+        _list_admin_emails,
     )
 
     recipients = set(_list_admin_emails(session))

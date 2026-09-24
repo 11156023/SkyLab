@@ -19,8 +19,8 @@ from app.utils import (
 )
 
 
-def _create_token_pair(user) -> Token:
-    """Create access + refresh token pair for a user."""
+def create_token_pair(user) -> Token:
+    """Create access + refresh token pair for a user (shared with LDAP login)."""
     access_token = security.create_access_token(
         user.id,
         expires_delta=timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES),
@@ -58,7 +58,7 @@ def login(*, session: Session, email: str, password: str) -> Token:
         action=AuditAction.login_success,
         details=f"User {user.email} logged in via password",
     )
-    return _create_token_pair(user)
+    return create_token_pair(user)
 
 
 async def google_login(*, session: Session, id_token: str) -> Token:
@@ -120,7 +120,7 @@ async def google_login(*, session: Session, id_token: str) -> Token:
         action=AuditAction.login_google_success,
         details=f"User {user.email} logged in via Google",
     )
-    return _create_token_pair(user)
+    return create_token_pair(user)
 
 
 async def refresh_access_token(*, session: Session, refresh_token: str) -> Token:
@@ -176,7 +176,7 @@ async def refresh_access_token(*, session: Session, refresh_token: str) -> Token
         ):
             raise AuthenticationError("Token has been revoked")
 
-    return _create_token_pair(user)
+    return create_token_pair(user)
 
 
 def recover_password(*, session: Session, email: str) -> None:

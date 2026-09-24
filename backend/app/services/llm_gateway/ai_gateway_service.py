@@ -801,7 +801,6 @@ def get_user_template_usage_stats(
 # ===== 統一用量（整合 Proxy / Template 兩種計算路由） =====
 
 ROUTE_MODEL = "model"
-ROUTE_SYSTEM = "system"
 
 
 def list_user_usage_records(

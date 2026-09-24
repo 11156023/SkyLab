@@ -53,7 +53,7 @@ def fake_env(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
     auto_stops: list[dict[str, Any]] = []
 
     def fake_set_auto_stop(
-        *, session: Any, vmid: int, auto_stop_at: Any, auto_stop_reason: Any  # noqa: ARG001
+        *, session: Any, vmid: int, auto_stop_at: Any, auto_stop_reason: Any
     ) -> None:
         auto_stops.append(
             {"vmid": vmid, "at": auto_stop_at, "reason": auto_stop_reason}

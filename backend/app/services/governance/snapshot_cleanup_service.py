@@ -43,16 +43,8 @@ def _utc_now() -> datetime:
     return datetime.now(timezone.utc)
 
 
-def _pve_resource_map() -> dict[int, dict[str, Any]]:
-    return {
-        int(r["vmid"]): r
-        for r in proxmox_service.list_all_resources()
-        if r.get("vmid") is not None
-    }
-
-
 def _get_config(session: Session) -> Any:
-    from app.repositories import governance as governance_repo  # noqa: PLC0415
+    from app.repositories import governance as governance_repo
 
     return governance_repo.get_governance_config(session=session)
 
@@ -147,7 +139,7 @@ def process_snapshot_cleanup() -> int:
     try:
         deleted = 0
         now = _utc_now()
-        from app.core.db import engine  # noqa: PLC0415 — 測試環境不一定有 DB
+        from app.core.db import engine
 
         with Session(engine) as session:
             config = _get_config(session)
@@ -160,7 +152,7 @@ def process_snapshot_cleanup() -> int:
                 _reset_cursor()
                 return 0
             _cursor.vmid = int(batch[-1].vmid)
-            pve_map = _pve_resource_map()
+            pve_map = proxmox_service.list_all_resources_by_vmid()
 
             for resource in batch:
                 pve_info = pve_map.get(resource.vmid)

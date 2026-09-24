@@ -6,6 +6,7 @@ import threading
 import time
 import uuid
 from datetime import UTC, datetime, timedelta
+from typing import Any
 
 from sqlmodel import Session, select
 
@@ -36,6 +37,7 @@ from app.infrastructure.proxmox import (
 from app.models import VMRequest
 from app.repositories import proxmox_storage as proxmox_storage_repo
 from app.services.proxmox import gpu_service, proxmox_service
+from app.utils.timeutil import normalize_datetime
 
 GIB = 1024**3
 
@@ -44,14 +46,6 @@ logger = logging.getLogger(__name__)
 
 def utc_now() -> datetime:
     return datetime.now(UTC)
-
-
-def normalize_datetime(value: datetime | None) -> datetime | None:
-    if value is None:
-        return None
-    if value.tzinfo is None:
-        return value.replace(tzinfo=UTC)
-    return value
 
 
 def request_window(db_request: VMRequest) -> tuple[datetime | None, datetime | None]:
@@ -94,42 +88,34 @@ def build_storage_pool_state(
         if node_name not in node_set:
             continue
 
+        # 共享儲存在所有節點上是同一個池，扣容量時必須共用同一個物件
         if storage.is_shared:
             pool = shared_registry.get(storage.storage)
             if pool is None:
-                pool = WorkingStoragePool(
-                    storage=storage.storage,
-                    total_gb=float(storage.total_gb or 0.0),
-                    avail_gb=float(storage.avail_gb or 0.0),
-                    active=bool(storage.active),
-                    enabled=bool(storage.enabled),
-                    can_vm=bool(storage.can_vm),
-                    can_lxc=bool(storage.can_lxc),
-                    is_shared=bool(storage.is_shared),
-                    speed_tier=str(storage.speed_tier or "unknown"),
-                    user_priority=int(storage.user_priority or 5),
-                )
+                pool = _working_pool(storage)
                 shared_registry[storage.storage] = pool
             by_node[node_name].append(pool)
             continue
 
-        by_node[node_name].append(
-            WorkingStoragePool(
-                storage=storage.storage,
-                total_gb=float(storage.total_gb or 0.0),
-                avail_gb=float(storage.avail_gb or 0.0),
-                active=bool(storage.active),
-                enabled=bool(storage.enabled),
-                can_vm=bool(storage.can_vm),
-                can_lxc=bool(storage.can_lxc),
-                is_shared=bool(storage.is_shared),
-                speed_tier=str(storage.speed_tier or "unknown"),
-                user_priority=int(storage.user_priority or 5),
-            )
-        )
+        by_node[node_name].append(_working_pool(storage))
 
     has_managed_storage = any(pools for pools in by_node.values())
     return by_node, has_managed_storage
+
+
+def _working_pool(storage: Any) -> WorkingStoragePool:
+    return WorkingStoragePool(
+        storage=storage.storage,
+        total_gb=float(storage.total_gb or 0.0),
+        avail_gb=float(storage.avail_gb or 0.0),
+        active=bool(storage.active),
+        enabled=bool(storage.enabled),
+        can_vm=bool(storage.can_vm),
+        can_lxc=bool(storage.can_lxc),
+        is_shared=bool(storage.is_shared),
+        speed_tier=str(storage.speed_tier or "unknown"),
+        user_priority=int(storage.user_priority or 5),
+    )
 
 
 def provisioned_current_node(request: VMRequest) -> str | None:

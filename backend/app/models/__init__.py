@@ -73,6 +73,7 @@ from .spec_change_request import (
     SpecChangeType,
 )
 from .subnet_config import SubnetConfig
+from .system_setup import SystemSetup
 from .task_record import TaskRecord, TaskRecordStatus
 from .teacher_judge_attachment import (
     TeacherJudgeAttachmentStatus,
@@ -157,6 +158,8 @@ __all__ = [
     "MiningIncidentStatus",
     # LDAP
     "LdapConfig",
+    # 初始化精靈
+    "SystemSetup",
     # Web Push
     "PushSubscription",
     "WebPushConfig",

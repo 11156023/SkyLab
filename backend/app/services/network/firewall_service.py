@@ -201,7 +201,7 @@ def is_stale_block_comment(comment: str, desired: set[str]) -> bool:
 
 def _extra_block_comment(dest: str) -> str:
     """為單條額外封鎖規則產生穩定 comment（含 dest 雜湊）。"""
-    import hashlib  # noqa: PLC0415
+    import hashlib
     digest = hashlib.sha1(dest.encode("utf-8")).hexdigest()[:8]
     return f"{_BLOCK_EXTRA_PREFIX}{digest}"
 
@@ -338,11 +338,11 @@ def sync_block_local_subnet_rules() -> dict:
     連 PVE 機器清單都拿不到時也不拋出，而是記成一筆 ``vmid=None`` 的錯誤，
     呼叫端（PUT /ip-management/subnet）才能把「有機器沒套到」原封不動回給管理員。
     """
-    from app.core.db import engine  # noqa: PLC0415
+    from app.core.db import engine
     from app.infrastructure.proxmox.operations import (
-        list_all_resources,  # noqa: PLC0415
+        list_all_resources,
     )
-    from app.services.network import ip_management_service  # noqa: PLC0415
+    from app.services.network import ip_management_service
 
     with Session(engine) as s:
         subnet_config = ip_management_service.get_subnet_config(s)
@@ -416,8 +416,8 @@ def setup_default_rules(node: str, vmid: int, resource_type: ResourceType) -> No
         # 套用管理員設定的額外封鎖網段（多筆）。一定要在 gateway:default 之後做：
         # 那條 ACCEPT 不限目的，DROP 得排在它前面才會生效，順序反過來就白寫了。
         try:
-            from app.core.db import engine  # noqa: PLC0415
-            from app.services.network import ip_management_service  # noqa: PLC0415
+            from app.core.db import engine
+            from app.services.network import ip_management_service
 
             with Session(engine) as s:
                 subnet_config = ip_management_service.get_subnet_config(s)
@@ -436,8 +436,8 @@ def setup_default_rules(node: str, vmid: int, resource_type: ResourceType) -> No
 
         # 新增 Gateway VM → VM 全埠 ACCEPT 規則（1-65535 TCP+UDP）
         try:
-            from app.core.db import engine  # noqa: PLC0415
-            from app.services.network import ip_management_service  # noqa: PLC0415
+            from app.core.db import engine
+            from app.services.network import ip_management_service
 
             with Session(engine) as s:
                 subnet_config = ip_management_service.get_subnet_config(s)
@@ -473,7 +473,7 @@ def _get_vm_ip(vmid: int, session: object = None) -> str | None:
     優先從 Proxmox 即時查詢；若 VM 離線則回退到 DB 快取。
     查詢成功時自動更新 DB 快取。
     """
-    from app.repositories import resource as resource_repo  # noqa: PLC0415
+    from app.repositories import resource as resource_repo
 
     ip: str | None = None
     try:
@@ -500,12 +500,12 @@ def _get_publishable_vm_ip(vmid: int, session: object = None) -> str | None:
     guest agent 回報的值只在沒有配發紀錄（手動建的機器）時才採用。VM 擁有者
     在 VM 裡把介面改成同學的位址，不能因此把規則或發布指到別台機器。
     """
-    from app.repositories import resource as resource_repo  # noqa: PLC0415
+    from app.repositories import resource as resource_repo
 
     if session is not None:
         try:
             allocated = resource_repo.get_allocated_ip_address(session=session, vmid=vmid)  # type: ignore[arg-type]
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:
             logger.debug("VM %s 讀取 IP 配發紀錄失敗: %s", vmid, e)
             allocated = None
         if allocated:
@@ -657,7 +657,7 @@ def create_connection(
         if needs_gateway:
             if session is None:
                 raise BadRequestError(t("firewall.dbSessionRequiredForPortForwarding"))
-            from app.repositories import gateway_config as gw_repo  # noqa: PLC0415
+            from app.repositories import gateway_config as gw_repo
             gw_cfg = gw_repo.get_gateway_config(session)  # type: ignore[arg-type]
             if gw_cfg is None or not gw_cfg.host or not gw_cfg.encrypted_private_key:
                 raise BadRequestError(
@@ -702,7 +702,7 @@ def create_connection(
                 if domain:
                     # 🌐 反向代理（Traefik）
                     from app.services.network import (
-                        reverse_proxy_service,  # noqa: PLC0415
+                        reverse_proxy_service,
                     )
                     reverse_proxy_service.apply_reverse_proxy_rule_for_domain(
                         session=session,
@@ -714,7 +714,7 @@ def create_connection(
                     )
                 elif port_spec.external_port is not None:
                     # 🔌 Port 轉發（haproxy）
-                    from app.services.network import nat_service  # noqa: PLC0415
+                    from app.services.network import nat_service
                     nat_service.apply_nat_rule(
                         session=session,
                         vmid=target_vmid,
@@ -894,7 +894,7 @@ def delete_connection(
         )
         # 同步清理 Gateway VM 規則（haproxy + Traefik）
         if session is not None:
-            from app.services.network import (  # noqa: PLC0415
+            from app.services.network import (
                 nat_service,
                 reverse_proxy_service,
             )
@@ -1142,8 +1142,8 @@ def _enrich_edges_from_db(
     - NatRule → 填入 external_port
     - ReverseProxyRule → 填入 domain + enable_https
     """
-    from app.repositories import nat_rule as nat_repo  # noqa: PLC0415
-    from app.repositories import reverse_proxy as rp_repo  # noqa: PLC0415
+    from app.repositories import nat_rule as nat_repo
+    from app.repositories import reverse_proxy as rp_repo
 
     # 只處理 Internet→VM edges（source_vmid=None）
     inbound_edges = [e for e in edges if e.source_vmid is None and e.target_vmid is not None]
@@ -1376,8 +1376,8 @@ def list_vm_published_services(
     NAT 紀錄但 Proxmox 上找不到對應規則的（例如舊版反向代理頁直接建的網址），
     也一併列出並標記 ``firewall_rule_present=False``，讓使用者看得到、刪得掉。
     """
-    from app.repositories import nat_rule as nat_repo  # noqa: PLC0415
-    from app.repositories import reverse_proxy as rp_repo  # noqa: PLC0415
+    from app.repositories import nat_rule as nat_repo
+    from app.repositories import reverse_proxy as rp_repo
 
     edges = get_connections_from_rules([vmid])
     _enrich_edges_from_db(edges, session)
@@ -1447,7 +1447,7 @@ def publish_vm_service(
             )
         )
     if data.mode == "domain" and data.domain:
-        from app.services.network import reverse_proxy_service  # noqa: PLC0415
+        from app.services.network import reverse_proxy_service
 
         reverse_proxy_service.assert_domain_available(session, data.domain)
     spec = data.to_port_spec()
@@ -1496,8 +1496,8 @@ def replace_vm_service(
             )
         )
     if replacement.mode == "domain" and replacement.domain:
-        from app.repositories import reverse_proxy as rp_repo  # noqa: PLC0415
-        from app.services.network import reverse_proxy_service  # noqa: PLC0415
+        from app.repositories import reverse_proxy as rp_repo
+        from app.services.network import reverse_proxy_service
 
         # 同一條服務沿用原本網域時，不能把自己的紀錄算成衝突
         own_rule = next(

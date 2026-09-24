@@ -22,9 +22,8 @@ from app.services.vm import batch_provision_service
     # 名額滿時以 Retry 重排（每次都算一次 try），上限要遠大於可能的等待輪數
     max_tries=provision_pool.PROVISION_MAX_TRIES,
 )
-
 async def provision_vm_request(
-    task_id: uuid.UUID,  # noqa: ARG001 - handler 固定簽名
+    task_id: uuid.UUID,
     payload: dict[str, Any],
 ) -> dict[str, Any]:
     """VM 申請佈建：clone 一台機器並掛到申請單上（worker 內限流）。"""
@@ -37,7 +36,6 @@ async def provision_vm_request(
 
 
 @queue_task(batch_provision_service.TASK_RUN_BATCH_JOB, timeout_seconds=6 * 3600)
-
 async def run_batch_provision_job(
     task_id: uuid.UUID, payload: dict[str, Any]
 ) -> dict[str, Any]:

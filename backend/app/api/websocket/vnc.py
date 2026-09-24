@@ -8,6 +8,10 @@ from fastapi import WebSocket, WebSocketDisconnect
 
 from app.api.deps.auth import get_ws_current_user
 from app.api.deps.proxmox import check_resource_control_access
+from app.api.websocket.utils import (
+    pump_upstream_to_client,
+    run_until_first_done,
+)
 from app.api.websocket.utils import safe_close_websocket as _safe_close_websocket
 from app.exceptions import NotFoundError, ProxmoxError
 from app.infrastructure.proxmox import (
@@ -163,26 +167,6 @@ async def vnc_proxy(
 
         disconnect = asyncio.Event()
 
-        async def forward_from_proxmox():
-            try:
-                async for message in pve_websocket:
-                    if disconnect.is_set():
-                        break
-                    try:
-                        if isinstance(message, bytes):
-                            await websocket.send_bytes(message)
-                        else:
-                            await websocket.send_text(message)
-                    except Exception:
-                        break
-            except websockets.exceptions.ConnectionClosed:
-                # PVE 端正常關閉連線
-                pass
-            except Exception as e:
-                logger.error(f"Error forwarding from Proxmox: {e}")
-            finally:
-                disconnect.set()
-
         async def forward_to_proxmox():
             # 教室接管攔截：splitter 持續切框以維持訊息邊界同步；
             # 失去同步（未知訊息型別）時 fail-open 改為原樣轉發。
@@ -226,19 +210,10 @@ async def vnc_proxy(
             finally:
                 disconnect.set()
 
-        # Run both directions; cancel the other when one finishes
-        tasks = [
-            asyncio.create_task(forward_from_proxmox()),
-            asyncio.create_task(forward_to_proxmox()),
-        ]
-        _done, pending = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
-        for task in pending:
-            task.cancel()
-            try:
-                await task
-            except asyncio.CancelledError:
-                # 任務取消屬預期行為
-                pass
+        await run_until_first_done(
+            pump_upstream_to_client(pve_websocket, websocket, disconnect),
+            forward_to_proxmox(),
+        )
 
     except Exception as e:
         logger.error(f"Failed to establish WebSocket proxy: {e}", exc_info=True)
