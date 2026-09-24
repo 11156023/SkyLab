@@ -14,6 +14,7 @@ import MIcon from "../../components/MIcon";
 import PasswordInput from "../../components/PasswordInput/PasswordInput";
 import { LoadingSpinner } from "../../components/LoadingState/LoadingState";
 import { useAuth } from "../../contexts/AuthContext";
+import { useTheme } from "../../contexts/ThemeContext";
 import { useToast } from "../../hooks/useToast";
 import { DEFAULT_LANGUAGE, SUPPORTED_LANGUAGES, setLanguage } from "../../i18n";
 import { SetupService } from "../../services/setup";
@@ -97,6 +98,25 @@ function connectionPayload(form) {
 
 /* ─── 外框 ─────────────────────────────────────────────── */
 
+/* 深／淺色切換：精靈在登入前沒有側欄，這裡自己放一顆；偏好與全站共用（themePreferenceStore） */
+function ThemeToggle() {
+  const { t } = useTranslation("login");
+  const { theme, setMode } = useTheme();
+  const dark = theme === "dark";
+  const label = dark ? t("SetupPage.themeToLight") : t("SetupPage.themeToDark");
+  return (
+    <button
+      type="button"
+      className={styles.themeToggle}
+      onClick={() => setMode(dark ? "light" : "dark")}
+      aria-label={label}
+      title={label}
+    >
+      <MIcon name={dark ? "light_mode" : "dark_mode"} size={18} />
+    </button>
+  );
+}
+
 function PageShell({ children }) {
   return (
     <div className={styles.page}>
@@ -105,7 +125,10 @@ function PageShell({ children }) {
         <span />
         <span />
       </div>
-      <div className={styles.card}>{children}</div>
+      <div className={styles.card}>
+        <ThemeToggle />
+        {children}
+      </div>
     </div>
   );
 }

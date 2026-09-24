@@ -80,6 +80,8 @@
   "SetupPage.title": "Initial setup",
   "SetupPage.languageLabel": "Language",
   "SetupPage.continue": "Continue",
+  "SetupPage.themeToLight": "Switch to light theme",
+  "SetupPage.themeToDark": "Switch to dark theme",
   "SetupPage.loading": "Checking setup status…",
   "SetupPage.loadFailed": "Could not load the setup status. Make sure the backend is running and try again.",
   "SetupPage.retry": "Retry",

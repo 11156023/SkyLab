@@ -80,6 +80,8 @@
   "SetupPage.title": "初始設定",
   "SetupPage.languageLabel": "語言",
   "SetupPage.continue": "繼續",
+  "SetupPage.themeToLight": "切換為淺色主題",
+  "SetupPage.themeToDark": "切換為深色主題",
   "SetupPage.loading": "正在檢查初始化狀態…",
   "SetupPage.loadFailed": "無法取得初始化狀態，請確認後端已啟動後再試一次",
   "SetupPage.retry": "重試",

@@ -80,6 +80,8 @@
   "SetupPage.title": "初期設定",
   "SetupPage.languageLabel": "言語",
   "SetupPage.continue": "続行",
+  "SetupPage.themeToLight": "ライトテーマに切り替え",
+  "SetupPage.themeToDark": "ダークテーマに切り替え",
   "SetupPage.loading": "初期設定の状態を確認しています…",
   "SetupPage.loadFailed": "初期設定の状態を取得できません。バックエンドが起動していることを確認して、もう一度お試しください。",
   "SetupPage.retry": "再試行",

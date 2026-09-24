@@ -63,6 +63,7 @@
 }
 
 .card {
+  position: relative;
   width: 100%;
   max-width: 760px;
   @include glass-surface;
@@ -84,6 +85,14 @@
     opacity: 1;
     transform: translateY(0);
   }
+}
+
+/* 右上角的主題鈕；歡迎畫面與各步驟都在 */
+.themeToggle {
+  @include btn-icon-secondary;
+  position: absolute;
+  top: $spacing-16;
+  right: $spacing-16;
 }
 
 .header {
