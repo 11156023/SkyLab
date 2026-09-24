@@ -166,7 +166,29 @@ function ConnectionTab({ config, onConfigChange }) {
   return (
     <div className={styles.panelStack}>
       <form className={styles.card} onSubmit={handleSave}>
-        <h2 className={styles.cardTitle}>{t("GatewayPage.sshConnectionTitle")}</h2>
+        {/* 動作鈕放標題列右側，跟下方「SSH 公鑰」卡片同一套排法 */}
+        <div className={styles.cardHead}>
+          <h2 className={styles.cardTitle}>{t("GatewayPage.sshConnectionTitle")}</h2>
+          <div className={styles.cardHeadActions}>
+            <button type="button" className={styles.btnSecondary} onClick={handleTest} disabled={testing || !config?.is_configured}>
+              <MIcon name="wifi_tethering" size={16} />
+              {testing ? t("GatewayPage.testing") : t("GatewayPage.testConnection")}
+            </button>
+            <button
+              type="button"
+              className={styles.btnSecondary}
+              onClick={handleResetHostKey}
+              disabled={resetting || !config?.host}
+              title={t("GatewayPage.resetHostKeyHint")}
+            >
+              <MIcon name="key_off" size={16} />
+              {resetting ? t("GatewayPage.resetting") : t("GatewayPage.resetHostKey")}
+            </button>
+            <button type="submit" className={styles.btnPrimary} disabled={saving}>
+              {saving ? t("GatewayPage.saving") : t("GatewayPage.saveConnectionSettings")}
+            </button>
+          </div>
+        </div>
         <div className={styles.formGrid}>
           <label className={styles.field}>
             <span>Host / IP *</span>
@@ -195,25 +217,6 @@ function ConnectionTab({ config, onConfigChange }) {
               placeholder="root"
             />
           </label>
-        </div>
-        <div className={styles.cardActions}>
-          <button type="button" className={styles.btnSecondary} onClick={handleTest} disabled={testing || !config?.is_configured}>
-            <MIcon name="wifi_tethering" size={16} />
-            {testing ? t("GatewayPage.testing") : t("GatewayPage.testConnection")}
-          </button>
-          <button
-            type="button"
-            className={styles.btnSecondary}
-            onClick={handleResetHostKey}
-            disabled={resetting || !config?.host}
-            title={t("GatewayPage.resetHostKeyHint")}
-          >
-            <MIcon name="key_off" size={16} />
-            {resetting ? t("GatewayPage.resetting") : t("GatewayPage.resetHostKey")}
-          </button>
-          <button type="submit" className={styles.btnPrimary} disabled={saving}>
-            {saving ? t("GatewayPage.saving") : t("GatewayPage.saveConnectionSettings")}
-          </button>
         </div>
       </form>
 
