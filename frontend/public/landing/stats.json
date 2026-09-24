@@ -1,6 +1,5 @@
 {
   "condition": { "nodes": 3, "vms": 128, "users": 452, "courses": 24 },
-  "counters": { "instances": 128, "snapshots": 342, "pending": 7 },
   "templates": [
     { "name": "Ubuntu 24.04 LTS", "kind": "VM" },
     { "name": "Debian 13", "kind": "LXC" },

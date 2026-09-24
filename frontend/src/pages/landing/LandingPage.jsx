@@ -6,7 +6,6 @@ import { ScrollTrigger } from "gsap/ScrollTrigger";
 import CampusScene from "./CampusScene";
 import MIcon from "../../components/MIcon";
 import { CAMERA_DURATION, CAMERA_LEAD, SECTIONS, TOTAL_LENGTH, cameraState } from "./cameraScript";
-import useCountUp from "./useCountUp";
 import { SUPPORTED_LANGUAGES, setLanguage } from "../../i18n";
 import styles from "./LandingPage.module.scss";
 
@@ -24,16 +23,6 @@ function HudCard({ title, wide = false, children }) {
   );
 }
 
-function Stat({ value, label, enabled }) {
-  const [display, ref] = useCountUp(value, { enabled });
-  return (
-    <div className={styles.statCard} data-hud ref={ref}>
-      <span className={styles.statValue}>{display.toLocaleString()}</span>
-      <span className={styles.statLabel}>{label}</span>
-    </div>
-  );
-}
-
 function HeroContent({ t }) {
   return (
     <div className={styles.hero}>
@@ -48,16 +37,11 @@ function HeroContent({ t }) {
   );
 }
 
-function OverviewContent({ t, stats, motionEnabled }) {
-  const counters = stats?.counters;
+/* S1:只放一句大標,把舞台留給校園上空的私有雲與光纖 */
+function OverviewContent({ t }) {
   return (
     <div className={styles.overviewBlock}>
-      <h2 className={styles.sectionTitle} data-hud>{t("overview.title")}</h2>
-      <div className={styles.statRow}>
-        <Stat value={counters?.instances ?? 0} label={t("overview.instances")} enabled={motionEnabled} />
-        <Stat value={counters?.snapshots ?? 0} label={t("overview.snapshots")} enabled={motionEnabled} />
-        <Stat value={counters?.pending ?? 0} label={t("overview.pending")} enabled={motionEnabled} />
-      </div>
+      <h2 className={styles.overviewTitle} data-hud>{t("overview.title")}</h2>
     </div>
   );
 }
@@ -457,7 +441,7 @@ export default function LandingPage() {
   const contentFor = (id) => {
     switch (id) {
       case "hero": return <HeroContent t={t} />;
-      case "overview": return <OverviewContent t={t} stats={stats} motionEnabled={motionEnabled} />;
+      case "overview": return <OverviewContent t={t} />;
       case "lifecycle": return <LifecycleContent t={t} stats={stats} />;
       case "workflow": return <WorkflowContent t={t} stats={stats} />;
       case "classroom": return <ClassroomContent t={t} stats={stats} />;
@@ -487,7 +471,7 @@ export default function LandingPage() {
         </div>
         {/* 運鏡模式下場景先隱藏,滾動穿雲時才淡入(靜態模式直接可見) */}
         <div className={styles.sceneWorld} ref={worldRef} style={{ opacity: motionEnabled ? 0 : 1 }}>
-          <CampusScene />
+          <CampusScene stats={stats} />
         </div>
       </div>
       <div className={styles.vignette} aria-hidden="true" />
@@ -526,18 +510,6 @@ export default function LandingPage() {
           <Link className={styles.topLogin} to="/login">{t("topLogin")}</Link>
         </div>
       </header>
-
-      {stats?.condition && (
-        <aside className={styles.conditionCard}>
-          <h3>{t("condition.title")}</h3>
-          <dl>
-            <div><dt>{t("condition.nodes")}</dt><dd>{stats.condition.nodes}</dd></div>
-            <div><dt>{t("condition.vms")}</dt><dd>{stats.condition.vms}</dd></div>
-            <div><dt>{t("condition.users")}</dt><dd>{stats.condition.users}</dd></div>
-            <div><dt>{t("condition.courses")}</dt><dd>{stats.condition.courses}</dd></div>
-          </dl>
-        </aside>
-      )}
 
       <main className={styles.sections}>
         {SECTIONS.map((section) => (

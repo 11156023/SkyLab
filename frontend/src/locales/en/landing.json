@@ -8,18 +8,8 @@
     "tagline": "The campus's own private cloud",
     "sub": "One platform for every compute resource on campus — from request to running VM"
   },
-  "condition": {
-    "title": "Campus status",
-    "nodes": "Nodes",
-    "vms": "Virtual machines",
-    "users": "Users",
-    "courses": "Courses this term"
-  },
   "overview": {
-    "title": "One platform for the whole campus",
-    "instances": "VM / LXC instances",
-    "snapshots": "Snapshots",
-    "pending": "Pending requests"
+    "title": "One platform for the whole campus"
   },
   "lifecycle": {
     "title": "From template to running VM in minutes",

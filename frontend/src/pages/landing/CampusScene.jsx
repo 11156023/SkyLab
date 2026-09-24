@@ -1,5 +1,18 @@
-import { memo } from "react";
-import { project, VIEWBOX } from "./iso";
+import { memo, useMemo } from "react";
+import { project, VIEWBOX, P, linePath, isoEllipse } from "./iso";
+import { IsoBox, Shadow } from "./IsoShapes";
+import { nodeSlots, pickWinner } from "./sceneLayout";
+import {
+  AiCore,
+  AllowedPackets,
+  ClassroomRoom,
+  DataCenterInterior,
+  DataCenterNodes,
+  FirewallGate,
+  LifecycleTheater,
+  PrivateCloud,
+  WorkflowPipeline,
+} from "./StoryProps";
 import styles from "./LandingPage.module.scss";
 
 /* 夜景等距校園場景。
@@ -10,17 +23,19 @@ import styles from "./LandingPage.module.scss";
      terminal 段教學大樓窗戶轉暖（樣式都在 LandingPage.module.scss）
    - [data-seat] → S4 教室段的逐排點亮 scrub
    立體感三件套：足底投影（Shadow）、側面垂直漸層（defs 的 lp-g* 漸層）、
-   頂面背光邊（Rim）；畫序=景深,建築依足底 (x+w+y+d) 排序。 */
+   頂面背光邊（Rim）；畫序=景深,建築依足底 (x+w+y+d) 排序。
+   資料連動(stats.json):機房屋頂節點台數＝節點數、全校亮窗數＝VM 數、
+   ai 段分數柱＝放置建議分數;段落道具本身在 StoryProps.jsx。 */
 
 const BUILDINGS = [
-  { key: "admin",      x: 100,  y: 110,  w: 200, d: 150, h: 140, roof: [[30, 30, 26, 26, 14], [72, 34, 20, 20, 10]] },
+  { key: "admin",      x: 100,  y: 110,  w: 200, d: 150, h: 140, focus: true, roof: [[30, 30, 26, 26, 14], [72, 34, 20, 20, 10]] },
   { key: "library",    x: 350,  y: 190,  w: 170, d: 170, h: 100, roof: [[58, 58, 54, 54, 8]] },
   { key: "dorm1",      x: 110,  y: 380,  w: 130, d: 100, h: 80 },
   { key: "dorm2",      x: 290,  y: 420,  w: 130, d: 100, h: 80 },
   { key: "studentCenter", x: 540, y: 430, w: 90, d: 110, h: 55 },
   { key: "teaching",   x: 860,  y: 140,  w: 200, d: 170, h: 210, focus: true, roof: [[24, 24, 18, 18, 16], [150, 122, 14, 14, 34]] },
   { key: "lecture",    x: 1110, y: 240,  w: 150, d: 120, h: 70 },
-  { key: "datacenter", x: 140,  y: 860,  w: 300, d: 200, h: 70,  focus: true, slits: true, roof: [[24, 24, 40, 40, 12], [84, 24, 40, 40, 12], [144, 24, 40, 40, 12]] },
+  { key: "datacenter", x: 140,  y: 860,  w: 300, d: 200, h: 70,  focus: true, slits: true },
   { key: "classroom",  x: 880,  y: 860,  w: 300, d: 190, h: 55,  focus: true },
   { key: "labAnnex",   x: 1230, y: 880,  w: 110, d: 140, h: 85 },
   { key: "storage",    x: 910,  y: 1110, w: 100, d: 70,  h: 35 },
@@ -38,25 +53,6 @@ const LAMPS = [
   [240, 615], [1000, 785], [1240, 785],
 ];
 
-function pts(points) {
-  return points.map(([x, y]) => `${x.toFixed(1)},${y.toFixed(1)}`).join(" ");
-}
-
-/** 世界座標點列 → polygon points 字串 */
-function P(worldPoints) {
-  return pts(worldPoints.map(([x, y, z]) => project(x, y, z ?? 0)));
-}
-
-/** 世界座標點列 → path d 字串（折線） */
-function linePath(worldPoints) {
-  return worldPoints
-    .map(([x, y, z], i) => {
-      const [sx, sy] = project(x, y, z ?? 0);
-      return `${i === 0 ? "M" : "L"} ${sx.toFixed(1)} ${sy.toFixed(1)}`;
-    })
-    .join(" ");
-}
-
 /** 地面上的圓角矩形（跑道用）：Q 控制點經投影後仍是正確的貝茲曲線 */
 function roundedRectPath(x0, y0, x1, y1, r) {
   const p = (x, y) => {
@@ -73,35 +69,6 @@ function roundedRectPath(x0, y0, x1, y1, r) {
   ].join(" ");
 }
 
-/** 世界水平圓 → 螢幕橢圓參數 */
-function isoEllipse(cx, cy, r, z = 0) {
-  const [sx, sy] = project(cx, cy, z);
-  return { cx: sx, cy: sy, rx: r * 1.2247, ry: r * 0.7071 };
-}
-
-/** 等距方塊：頂面＋南面（y+d 側）＋東面（x+w 側），z0 是底部抬升 */
-function IsoBox({ x, y, w, d, h, z0 = 0, className }) {
-  const t = z0 + h;
-  return (
-    <g className={`${styles.isoBox} ${className ?? ""}`}>
-      <polygon className={styles.faceSouth} points={P([[x, y + d, t], [x + w, y + d, t], [x + w, y + d, z0], [x, y + d, z0]])} />
-      <polygon className={styles.faceEast} points={P([[x + w, y, t], [x + w, y + d, t], [x + w, y + d, z0], [x + w, y, z0]])} />
-      <polygon className={styles.faceTop} points={P([[x, y, t], [x + w, y, t], [x + w, y + d, t], [x, y + d, t]])} />
-    </g>
-  );
-}
-
-/** 足底投影：footprint 與其沿 (+x,+y) 位移的凸包（螢幕上正下方,月光感） */
-function Shadow({ x, y, w, d, h }) {
-  const k = Math.min(Math.max(h * 0.5, 20), 80);
-  return (
-    <polygon
-      className={styles.shadow}
-      points={P([[x, y], [x + w, y], [x + w + k, y + k], [x + w + k, y + d + k], [x + k, y + d + k], [x, y + d]])}
-    />
-  );
-}
-
 /** 頂面背光邊：遠離鏡頭的兩條頂邊描亮,強化量體輪廓 */
 function Rim({ x, y, w, d, h }) {
   return <path className={styles.rim} d={linePath([[x + w, y, h], [x, y, h], [x, y + d, h]])} />;
@@ -113,24 +80,44 @@ function hash(seed) {
   return s - Math.floor(s);
 }
 
-/** 一般建築的窗格：南、東兩個可見面，少數亮窗、極少數暖光 */
-function Windows({ b }) {
-  const wins = [];
+/** 一般建築的窗格幾何:南、東兩個可見面 */
+function windowQuads(b) {
+  const quads = [];
   const win = 12;
-  let i = 0;
   for (let z = 14; z <= b.h - 18; z += 24) {
     for (let u = 16; u <= b.w - 16 - win; u += 26) {
-      wins.push({ pts: P([[b.x + u, b.y + b.d, z], [b.x + u + win, b.y + b.d, z], [b.x + u + win, b.y + b.d, z + win], [b.x + u, b.y + b.d, z + win]]), seed: b.x + b.y + i++ });
+      quads.push(P([[b.x + u, b.y + b.d, z], [b.x + u + win, b.y + b.d, z], [b.x + u + win, b.y + b.d, z + win], [b.x + u, b.y + b.d, z + win]]));
     }
     for (let v = 16; v <= b.d - 16 - win; v += 26) {
-      wins.push({ pts: P([[b.x + b.w, b.y + v, z], [b.x + b.w, b.y + v + win, z], [b.x + b.w, b.y + v + win, z + win], [b.x + b.w, b.y + v, z + win]]), seed: b.x + b.y + i++ });
+      quads.push(P([[b.x + b.w, b.y + v, z], [b.x + b.w, b.y + v + win, z], [b.x + b.w, b.y + v + win, z + win], [b.x + b.w, b.y + v, z + win]]));
     }
   }
-  return wins.map((w) => {
-    const r = hash(w.seed);
-    const cls = r > 0.93 ? styles.winWarm : r > 0.7 ? styles.winLit : styles.winUnlit;
-    return <polygon key={w.seed} className={cls} points={w.pts} />;
+  return quads;
+}
+
+/* 全校窗格依決定性亂數排名:亮窗數由 VM 數決定,前 k 名亮、其中約四分之一是暖光 */
+const WINDOWS = Object.fromEntries(
+  BUILDINGS.filter((b) => !b.slits).map((b) => [b.key, windowQuads(b).map((pts, i) => ({ id: `${b.key}-${i}`, pts }))]),
+);
+const WINDOW_RANK = Object.values(WINDOWS)
+  .flat()
+  .map((w, i) => ({ id: w.id, r: hash(i + 1) }))
+  .sort((a, b) => b.r - a.r)
+  .map((w) => w.id);
+
+function windowClasses(vms) {
+  const total = WINDOW_RANK.length;
+  const lit = Math.min(Number.isFinite(vms) ? vms : Math.round(total * 0.3), Math.round(total * 0.85));
+  const warm = Math.round(lit * 0.23);
+  const map = {};
+  WINDOW_RANK.forEach((id, rank) => {
+    map[id] = rank < warm ? styles.winWarm : rank < lit ? styles.winLit : styles.winUnlit;
   });
+  return map;
+}
+
+function Windows({ b, classes }) {
+  return WINDOWS[b.key].map((w) => <polygon key={w.id} className={classes[w.id]} points={w.pts} />);
 }
 
 /** 機房的橫向通風縫（取代窗格） */
@@ -156,7 +143,7 @@ function GlowOutline({ b }) {
   );
 }
 
-function Building({ b }) {
+function Building({ b, winClasses }) {
   const ping = b.focus ? isoEllipse(b.x + b.w / 2, b.y + b.d / 2, Math.max(b.w, b.d) * 0.72) : null;
   return (
     <g data-b={b.key}>
@@ -168,8 +155,10 @@ function Building({ b }) {
         </>
       )}
       <Shadow x={b.x} y={b.y} w={b.w} d={b.d} h={b.h} />
+      {/* 機房內部先畫,lifecycle 段牆面轉玻璃時透出來 */}
+      {b.key === "datacenter" && <DataCenterInterior />}
       <IsoBox x={b.x} y={b.y} w={b.w} d={b.d} h={b.h} className={b.focus ? styles.boxKey : ""} />
-      {b.slits ? <Slits b={b} /> : <Windows b={b} />}
+      {b.slits ? <Slits b={b} /> : <Windows b={b} classes={winClasses} />}
       <Rim x={b.x} y={b.y} w={b.w} d={b.d} h={b.h} />
       {(b.roof ?? []).map(([dx, dy, w, d, h], i) => (
         <IsoBox key={i} x={b.x + dx} y={b.y + dy} w={w} d={d} h={h} z0={b.h} className={styles.roofBox} />
@@ -288,8 +277,13 @@ const SORTED_BUILDINGS = BUILDINGS.slice().sort(
   (a, b) => a.x + a.w + a.y + a.d - (b.x + b.w + b.y + b.d),
 );
 
-function CampusScene() {
+function CampusScene({ stats }) {
   const teachingBeacon = project(1017, 269, 246);
+  const vms = stats?.condition?.vms;
+  const winClasses = useMemo(() => windowClasses(vms), [vms]);
+  const slots = useMemo(() => nodeSlots(stats?.condition?.nodes), [stats?.condition?.nodes]);
+  const candidates = stats?.ai?.candidates;
+  const winner = pickWinner(candidates, slots.length);
   return (
     <svg
       className={styles.sceneSvg}
@@ -365,7 +359,7 @@ function CampusScene() {
       </g>
 
       {/* 建築群(依景深排序) */}
-      {SORTED_BUILDINGS.map((b) => <Building key={b.key} b={b} />)}
+      {SORTED_BUILDINGS.map((b) => <Building key={b.key} b={b} winClasses={winClasses} />)}
 
       {/* 機房散熱模組屬於機房的聚焦組,跟主體一起亮 */}
       <g data-b="datacenter">
@@ -374,8 +368,10 @@ function CampusScene() {
         <IsoBox x={470} y={950} w={50} d={50} h={35} className={styles.roofBox} />
         <IsoBox x={470} y={1020} w={50} d={50} h={35} className={styles.roofBox} />
       </g>
+      <DataCenterNodes slots={slots} candidates={candidates} winner={winner} />
+      <LifecycleTheater />
 
-      <SeatGridGroup />
+      <ClassroomRoom seats={stats?.classroom?.seats} online={stats?.classroom?.online} />
 
       <g className={styles.scenery}>
         {/* 空橋:教學大樓↔階梯教室、行政樓↔圖書館 */}
@@ -389,6 +385,12 @@ function CampusScene() {
         <IsoBox x={790} y={1350} w={570} d={30} h={26} className={styles.wall} />
       </g>
 
+      {/* 段落道具:防火牆閘門、申請管線、AI 核心(畫在最上層,都高過或位在沿線建築之前) */}
+      <FirewallGate />
+      <WorkflowPipeline target={slots[winner]} />
+      <AiCore />
+      <PrivateCloud />
+
       {/* 教學大樓天線的航空障礙燈 */}
       <circle className={styles.beacon} cx={teachingBeacon[0]} cy={teachingBeacon[1]} r={2.4} />
     </svg>
@@ -396,35 +398,17 @@ function CampusScene() {
 }
 
 /** 校門進出流量：沿道路的虛線光流，畫在建築之前讓它被建築正確遮擋 */
+const FLOW_IN = linePath([[685, 1560], [685, 715], [290, 715], [290, 860]]);
+const FLOW_OUT = linePath([[1030, 860], [1030, 685], [715, 685], [715, 1560]]);
+
 function FlowLinesGroup() {
   return (
     <g className={styles.flowLines}>
-      <path className={styles.flowIn} d={linePath([[685, 1560], [685, 715], [290, 715], [290, 860]])} />
-      <path className={styles.flowOut} d={linePath([[1030, 860], [1030, 685], [715, 685], [715, 1560]])} />
+      <path className={styles.flowIn} d={FLOW_IN} />
+      <path className={styles.flowOut} d={FLOW_OUT} />
+      <AllowedPackets inPath={FLOW_IN} outPath={FLOW_OUT} />
     </g>
   );
-}
-
-/** 教室屋頂座位陣列＝整班機器；S4 依 data-seat 逐排點亮。
-    掛 data-b="classroom" 讓它跟教室主體同進退(聚焦一起亮、其他段一起暗) */
-function SeatGridGroup() {
-  const seats = [];
-  for (let r = 0; r < 4; r += 1) {
-    for (let c = 0; c < 7; c += 1) {
-      const x = 910 + c * 38;
-      const y = 895 + r * 42;
-      seats.push(
-        <polygon
-          key={`${r}-${c}`}
-          className={styles.seat}
-          data-seat=""
-          data-row={r}
-          points={P([[x, y, 56], [x + 18, y, 56], [x + 18, y + 18, 56], [x, y + 18, 56]])}
-        />,
-      );
-    }
-  }
-  return <g data-b="classroom">{seats}</g>;
 }
 
 export default memo(CampusScene);

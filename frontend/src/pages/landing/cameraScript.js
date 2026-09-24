@@ -15,16 +15,18 @@ export const CAMERA_DURATION = 0.8;
  * length 單位＝100vh；zoom 是相對「全景基準倍率」的倍數（1＝剛好裝下整個校園）；
  * align / valign 決定該段 HUD 卡落在九宮格的哪一格(左中右 × 上中下),
  * 相機用反向偏置讓焦點建築讓開卡片:卡在右→建築偏左、卡在上→建築下沉。
- * 概況卡佔右上角,align=right 的段落會讓它暫時淡出(規則在 SCSS 段落連動區)。
+ * workflow 拉遠框住「宿舍 → 行政樓 → 機房」整條申請管線;ai 框住 AI 核心與機房屋頂節點
+ * (道具座標見 sceneLayout.js)。
  */
+
 export const SECTIONS = [
   { id: "hero",      length: 1.0, focus: worldPixel(700, 700, 0),   zoom: 1.5,  align: "center", valign: "center" },
   { id: "overview",  length: 1.0, focus: worldPixel(700, 700, 0),   zoom: 1.0,  align: "center", valign: "center" },
   { id: "lifecycle", length: 1.5, focus: worldPixel(300, 960, 40),  zoom: 2.8,  align: "left",   valign: "center" },
-  { id: "workflow",  length: 1.5, focus: worldPixel(960, 240, 100), zoom: 2.4,  align: "right",  valign: "center" },
+  { id: "workflow",  length: 1.5, focus: worldPixel(141, 419, 0),   zoom: 1.8,  align: "right",  valign: "center" },
   { id: "classroom", length: 1.5, focus: worldPixel(1030, 950, 60), zoom: 3.1,  align: "left",   valign: "top" },
-  { id: "network",   length: 1.5, focus: worldPixel(740, 1330, 20), zoom: 2.6,  align: "right",  valign: "bottom" },
-  { id: "ai",        length: 1.0, focus: worldPixel(700, 700, 0),   zoom: 1.15, align: "left",   valign: "bottom" },
+  { id: "network",   length: 1.5, focus: worldPixel(720, 1390, 20), zoom: 2.6,  align: "right",  valign: "bottom" },
+  { id: "ai",        length: 1.0, focus: worldPixel(237, 843, 0),   zoom: 2.4,  align: "left",   valign: "bottom" },
   { id: "terminal",  length: 1.0, focus: worldPixel(960, 200, 160), zoom: 3.4,  align: "center", valign: "center" },
 ];
 
