@@ -1176,7 +1176,7 @@ export default function ClassWorkspacePage() {
         return <button type="button" key={key} className={`${tab === key ? styles.workspaceTabActive : ""} ${done ? styles.workspaceTabDone : ""}`} onClick={() => navigate(target)}><strong><span className={styles.envStepNum}>{done ? <MIcon name="check" size={14} /> : String(index + 1).padStart(2, "0")}</span>{t(labelKey)}</strong></button>;
       })}</nav>
     </section>
-    <main className={styles.workspaceContent}>
+    <div className={styles.workspaceContent}>
       {tab === "overview" && <Overview item={item} template={template} onProvision={provision} onNavigate={(target) => navigate(`/class-management/${classId}/${target}`)} onRetry={retryFailed} onReset={resetFailed} onReclaim={reclaimClass} provisioning={provisioning} recovering={recovering} lifecycleBusy={lifecycleBusy} />}
       {tab === "students" && <Students item={item} onRefresh={refresh} />}
       {tab === "weekly" && <WeeklyContent item={item} onRefresh={refresh} />}
@@ -1184,7 +1184,7 @@ export default function ClassWorkspacePage() {
       {postUnavailable && <LockedFeature section={tab} />}
       {tab === "progress" && !postUnavailable && <StudentMachines item={item} />}
       {!TABS.some(([key]) => key === tab) && <LockedFeature section={tab} />}
-    </main>
+    </div>
     {scheduleDialog.open && <ClassCreateDialog item={item} closing={scheduleDialog.closing} onClose={() => setScheduleOpen(false)} onUpdated={(result) => { refresh(result); setScheduleOpen(false); toast.success(t("ClassWorkspacePage.scheduleUpdatedMsg")); }} />}
     {extendDialog.open && <ExtendDialog item={item} closing={extendDialog.closing} busy={lifecycleBusy} onClose={() => setExtendOpen(false)} onExtend={extendClass} />}
   </div>;
