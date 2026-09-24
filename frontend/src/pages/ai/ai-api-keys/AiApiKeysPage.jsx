@@ -138,7 +138,7 @@ function RevokeDialog({ item, closing = false, onClose, onDone }) {
           </div>
         </div>
         <div className={styles.dialogFooter}>
-          <button type="button" className={styles.btnOutline} onClick={onClose} disabled={busy}>{t("AiApiKeysPage.cancel")}</button>
+          <button type="button" className={styles.btnSecondary} onClick={onClose} disabled={busy}>{t("AiApiKeysPage.cancel")}</button>
           <button type="button" className={styles.btnDanger} onClick={handleRevoke} disabled={busy}>{busy ? t("AiApiKeysPage.revoking") : t("AiApiKeysPage.confirmRevoke")}</button>
         </div>
       </div>
@@ -328,7 +328,7 @@ export default function AiApiKeysPage() {
                 </table>
               </div>
 
-              {totalPages > 1 && <div className={styles.pagination}><span className={styles.paginationInfo}>{t("AiApiKeysPage.paginationInfo", { page: page + 1, totalPages, total })}</span><div className={styles.paginationBtns}><button type="button" className={styles.btnOutline} disabled={page === 0} onClick={() => setPage((current) => Math.max(0, current - 1))}>{t("AiApiKeysPage.prevPage")}</button><button type="button" className={styles.btnOutline} disabled={page + 1 >= totalPages} onClick={() => setPage((current) => current + 1)}>{t("AiApiKeysPage.nextPage")}</button></div></div>}
+              {totalPages > 1 && <div className={styles.pagination}><span className={styles.paginationInfo}>{t("AiApiKeysPage.paginationInfo", { page: page + 1, totalPages, total })}</span><div className={styles.paginationBtns}><button type="button" className={styles.btnSecondary} disabled={page === 0} onClick={() => setPage((current) => Math.max(0, current - 1))}>{t("AiApiKeysPage.prevPage")}</button><button type="button" className={styles.btnSecondary} disabled={page + 1 >= totalPages} onClick={() => setPage((current) => current + 1)}>{t("AiApiKeysPage.nextPage")}</button></div></div>}
             </>
           )
         )}
