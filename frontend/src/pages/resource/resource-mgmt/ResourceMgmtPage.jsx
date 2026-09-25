@@ -9,6 +9,7 @@ import PowerMenu from "../../../components/PowerMenu/PowerMenu";
 import TemplateConvertDialog from "../../../components/TemplateConvertDialog/TemplateConvertDialog";
 import useDialogPresence from "../../../hooks/useDialogPresence";
 import SharedEmptyState from "../../../components/EmptyState/EmptyState";
+import ErrorState from "../../../components/ErrorState/ErrorState";
 import { useToast } from "../../../hooks/useToast";
 import useAutoRefresh from "../../../hooks/useAutoRefresh";
 import LoadingState from "../../../components/LoadingState/LoadingState";
@@ -629,22 +630,6 @@ function ResourceRow({ resource, onUpdated, onDeleted, selected = false, onToggl
 function EmptyState() {
   const { t } = useTranslation("resource");
   return <SharedEmptyState icon="dns" title={t("ResourceMgmtPage.emptyTitle")} />;
-}
-
-function ErrorState({ onRetry }) {
-  const { t } = useTranslation("resource");
-  return (
-    <EmptyState
-      icon="error_outline"
-      title={t("ResourceMgmtPage.loadErrorTitle")}
-      action={
-        <button type="button" className={styles.btnSecondary} onClick={onRetry}>
-          <MIcon name="refresh" size={16} />
-          {t("ResourceMgmtPage.retry")}
-        </button>
-      }
-    />
-  );
 }
 
 /* ── Page ── */

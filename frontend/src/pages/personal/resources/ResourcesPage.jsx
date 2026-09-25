@@ -10,6 +10,7 @@ import PowerMenu from "../../../components/PowerMenu/PowerMenu";
 import TemplateConvertDialog from "../../../components/TemplateConvertDialog/TemplateConvertDialog";
 import useDialogPresence from "../../../hooks/useDialogPresence";
 import SharedEmptyState from "../../../components/EmptyState/EmptyState";
+import ErrorState from "../../../components/ErrorState/ErrorState";
 import LoadingState from "../../../components/LoadingState/LoadingState";
 import { ResourcesService } from "../../../services/resources";
 import {
@@ -555,22 +556,6 @@ function ResourceGuideDemoRow() {
         </td>
       </tr>
     </>
-  );
-}
-
-function ErrorState({ onRetry }) {
-  const { t } = useTranslation("personal");
-  return (
-    <EmptyState
-      icon="error_outline"
-      title={t("ResourcesPage.errorTitle")}
-      action={
-        <button type="button" className={styles.btnSecondary} onClick={onRetry}>
-          <MIcon name="refresh" size={16} />
-          {t("ResourcesPage.retry")}
-        </button>
-      }
-    />
   );
 }
 

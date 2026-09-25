@@ -225,8 +225,6 @@
   "ResourceMgmtPage.deleteResourceTitle": "このリソースを削除しますか？",
   "ResourceMgmtPage.deleteResourceDesc": "「{{name}}」(VMID {{vmid}}) は削除後に復元できません。すべてのデータが失われます。",
   "ResourceMgmtPage.emptyTitle": "仮想マシンまたはコンテナがありません",
-  "ResourceMgmtPage.loadErrorTitle": "読み込みに失敗しました",
-  "ResourceMgmtPage.retry": "再試行",
   "ResourceMgmtPage.pageTitle": "リソース管理",
   "ResourceMgmtPage.createResource": "リソースを作成",
   "ResourceMgmtPage.selectAllAria": "すべて選択",

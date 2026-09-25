@@ -225,8 +225,6 @@
   "ResourceMgmtPage.deleteResourceTitle": "確定刪除資源？",
   "ResourceMgmtPage.deleteResourceDesc": "「{{name}}」(VMID {{vmid}}) 刪除後無法復原，所有資料將會消失。",
   "ResourceMgmtPage.emptyTitle": "尚無虛擬機或容器",
-  "ResourceMgmtPage.loadErrorTitle": "載入失敗",
-  "ResourceMgmtPage.retry": "重試",
   "ResourceMgmtPage.pageTitle": "資源管理",
   "ResourceMgmtPage.createResource": "建立資源",
   "ResourceMgmtPage.selectAllAria": "全選",

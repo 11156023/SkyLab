@@ -606,7 +606,7 @@ function WireGuardTab({ gatewayReady }) {
           </div>
         </>
       ) : (
-        <ErrorState />
+        <ErrorState onRetry={fetchAll} />
       )}
 
       <ServiceLogsCard logs={logs} />

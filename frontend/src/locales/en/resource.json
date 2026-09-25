@@ -225,8 +225,6 @@
   "ResourceMgmtPage.deleteResourceTitle": "Delete this resource?",
   "ResourceMgmtPage.deleteResourceDesc": "\"{{name}}\" (VMID {{vmid}}) cannot be recovered after deletion; all data will be lost.",
   "ResourceMgmtPage.emptyTitle": "No VMs or containers yet",
-  "ResourceMgmtPage.loadErrorTitle": "Failed to load",
-  "ResourceMgmtPage.retry": "Retry",
   "ResourceMgmtPage.pageTitle": "Resource Management",
   "ResourceMgmtPage.createResource": "Create Resource",
   "ResourceMgmtPage.selectAllAria": "Select all",
