@@ -196,8 +196,9 @@ function App() {
   }
 
   /* 首次登入引導（語言／外觀／兩步驟驗證）：走完或略過前只顯示精靈，同樣不進
-     DashboardLayout；裝置授權流程（device_code）例外，不打斷授權。 */
-  if (user && !user.onboarding_completed && !isDeviceApproval) {
+     DashboardLayout；裝置授權流程（device_code）例外，不打斷授權。
+     只認後端明確回 false：舊版後端沒有這個欄位時（undefined）不能對所有人跳精靈。 */
+  if (user?.onboarding_completed === false && !isDeviceApproval) {
     return <OnboardingPage />;
   }
 
