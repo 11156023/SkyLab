@@ -21,7 +21,7 @@ function keyIdentity(key) {
   return parts.slice(0, 2).join(" ");
 }
 
-function PasswordModal({ closing, loading, onClose, onSubmit }) {
+function PasswordModal({ closing, loading, willReboot, onClose, onSubmit }) {
   const { t } = useTranslation("personal");
   const [custom, setCustom] = useState(false);
   const [password, setPassword] = useState("");
@@ -38,6 +38,12 @@ function PasswordModal({ closing, loading, onClose, onSubmit }) {
       <form className={styles.modal} onSubmit={submit} onMouseDown={(e) => e.stopPropagation()}>
         <h2 className={styles.modalTitle}>{t("CredentialsCard.resetPasswordTitle")}</h2>
         <p className={styles.modalDesc}>{t("CredentialsCard.resetPasswordDesc")}</p>
+        {willReboot && (
+          <p className={`${styles.hintLine} ${styles.hintWarn}`}>
+            <MIcon name="restart_alt" size={14} />
+            {t("CredentialsCard.rebootWarning")}
+          </p>
+        )}
         <label className={styles.checkRow}>
           <input type="checkbox" checked={custom} onChange={(e) => setCustom(e.target.checked)} />
           <span>{t("CredentialsCard.useCustomPassword")}</span>
@@ -326,6 +332,7 @@ export default function CredentialsCard({ vmid, canManage }) {
           <PasswordModal
             closing={passwordPresence.closing}
             loading={busy}
+            willReboot={info?.resource_type === "qemu" && info?.running}
             onClose={() => setShowPassword(false)}
             onSubmit={handleResetPassword}
           />,
