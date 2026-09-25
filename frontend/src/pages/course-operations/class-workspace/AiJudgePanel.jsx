@@ -1130,7 +1130,7 @@ export function ChatPanel({
       <div className={styles.chatMessages}>
         {visibleMessages.length === 0 ? (
           <div className={styles.chatEmpty}>
-            <MIcon name="smart_toy" size={32} />
+            <MIcon name="support_agent" size={32} />
             <p>{hasRubric ? "與 AI 對話來精煉你的檢查表" : "先和 AI 討論你的檢查需求"}</p>
             <p className={styles.chatEmptyMeta}>
               {hasRubric
@@ -1146,7 +1146,7 @@ export function ChatPanel({
             >
               {msg.role === "assistant" && (
                 <span className={styles.chatAvatar}>
-                  <MIcon name="smart_toy" size={16} />
+                  <MIcon name="support_agent" size={16} />
                 </span>
               )}
               <div
@@ -1192,7 +1192,7 @@ export function ChatPanel({
         {isLoading && (
           <div className={styles.chatMsgRow}>
             <span className={styles.chatAvatar}>
-              <MIcon name="smart_toy" size={16} />
+              <MIcon name="support_agent" size={16} />
             </span>
             <div className={styles.chatBubble}>
               {loadingText ? <p className={styles.chatLoadingText}>{loadingText}</p> : null}
@@ -2237,7 +2237,7 @@ export function RubricsTab({ classId, judgeSession, onSessionUpdated, onScriptCr
           <div className={sidebar ? styles.checkChatInner : `${styles.card} ${styles.chatCard}`}>
             <div className={sidebar ? styles.checkHead : undefined}>
               <h4 className={styles.cardTitle}>
-                <MIcon name="smart_toy" size={18} />
+                <MIcon name="support_agent" size={18} />
                 AI 聊天室
               </h4>
             </div>

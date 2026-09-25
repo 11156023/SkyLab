@@ -290,7 +290,7 @@ function Message({ message, currentPath, onNavigate, onRecommend, onAnswer, onPl
     <div className={`${styles.message} ${isUser ? styles.messageUser : styles.messageAssistant}`}>
       {!isUser && (
         <span className={styles.messageAvatar}>
-          <MIcon name="smart_toy" size={17} />
+          <MIcon name="support_agent" size={17} />
         </span>
       )}
       <div className={styles.messageContent}>
@@ -1002,7 +1002,7 @@ export default function AiFloatingChat({ open = false, onOpenChange = () => {} }
             )}
             {loading && (
               <div className={`${styles.message} ${styles.messageAssistant}`}>
-                <span className={styles.messageAvatar}><MIcon name="smart_toy" size={17} /></span>
+                <span className={styles.messageAvatar}><MIcon name="support_agent" size={17} /></span>
                 <TypingIndicator />
               </div>
             )}
@@ -1030,7 +1030,7 @@ export default function AiFloatingChat({ open = false, onOpenChange = () => {} }
 
       {!presence.open && (
         <button type="button" className={styles.fab} onClick={() => onOpenChange(true)} title={t("AiFloatingChat.assistantName")} aria-label={t("AiFloatingChat.openAssistantAriaLabel")} data-guide="request-ai-helper-button">
-          <MIcon name="smart_toy" size={22} />
+          <MIcon name="support_agent" size={22} />
         </button>
       )}
     </div>

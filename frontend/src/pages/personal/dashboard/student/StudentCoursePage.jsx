@@ -23,7 +23,7 @@ import styles from "./StudentCoursePage.module.scss";
 
 /** AI 任務的每個檢查項目可被自動判定的程度。 */
 const AI_DETECTABLE_META = {
-  auto: { labelKey: "StudentCoursePage.detectableAuto", icon: "smart_toy", tone: "auto" },
+  auto: { labelKey: "StudentCoursePage.detectableAuto", icon: "support_agent", tone: "auto" },
   partial: { labelKey: "StudentCoursePage.detectablePartial", icon: "rule", tone: "partial" },
   manual: { labelKey: "StudentCoursePage.detectableManual", icon: "how_to_reg", tone: "manual" },
 };

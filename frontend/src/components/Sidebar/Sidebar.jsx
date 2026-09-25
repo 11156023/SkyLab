@@ -53,7 +53,7 @@ const navGroups = [
   {
     key: "ai",
     labelKey: "Sidebar.groupAi",
-    icon: "smart_toy",
+    icon: "support_agent",
     items: [
       { key: "ai-api",        labelKey: "Sidebar.itemAiApi",   icon: "psychology" },
       { key: "ai-api-keys",   labelKey: "Sidebar.itemAiApiKeys", icon: "vpn_key", adminOnly: true },
