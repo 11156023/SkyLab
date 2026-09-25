@@ -1,9 +1,10 @@
 """FastAPI dependencies for HTTP rate limiting.
 
 Provides factories that produce dependency callables enforcing IP- or
-user-scoped sliding-window rate limits backed by Redis. When Redis is
-unavailable, requests are allowed (fail-open) — matching the existing
-behaviour of `check_rate_limit_sliding_window`.
+user-scoped sliding-window rate limits backed by Redis.
+
+Redis 不可用時的行為由 scope 決定（見 ``rate_limiter.FAIL_CLOSED_SCOPES``）：
+local 一律放行；非 local 的認證類 scope 會回 503，其餘照舊放行。
 """
 
 from __future__ import annotations
@@ -61,6 +62,7 @@ def rate_limit_by_ip(
             key=f"ip:{scope}:{ip}",
             limit=limit,
             window_seconds=window_seconds,
+            scope=scope,
         )
         if not allowed:
             retry_after = info.get("window_seconds", window_seconds)
@@ -104,6 +106,7 @@ def rate_limit_by_user(
             key=f"user:{scope}:{current_user.id}",
             limit=limit,
             window_seconds=window_seconds,
+            scope=scope,
         )
         if not allowed:
             retry_after = info.get("window_seconds", window_seconds)

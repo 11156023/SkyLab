@@ -6,7 +6,7 @@ from sqlmodel import Session
 from app.core import security
 from app.core.config import settings
 from app.core.i18n import t
-from app.exceptions import AuthenticationError, BadRequestError, NotFoundError
+from app.exceptions import AuthenticationError, BadRequestError
 from app.models import AuditAction
 from app.repositories import user as user_repo
 from app.schemas import Token, UserUpdate
@@ -19,8 +19,8 @@ from app.utils import (
 )
 
 
-def _create_token_pair(user) -> Token:
-    """Create access + refresh token pair for a user."""
+def create_token_pair(user) -> Token:
+    """Create access + refresh token pair for a user (shared with LDAP login)."""
     access_token = security.create_access_token(
         user.id,
         expires_delta=timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES),
@@ -58,7 +58,7 @@ def login(*, session: Session, email: str, password: str) -> Token:
         action=AuditAction.login_success,
         details=f"User {user.email} logged in via password",
     )
-    return _create_token_pair(user)
+    return create_token_pair(user)
 
 
 async def google_login(*, session: Session, id_token: str) -> Token:
@@ -120,7 +120,7 @@ async def google_login(*, session: Session, id_token: str) -> Token:
         action=AuditAction.login_google_success,
         details=f"User {user.email} logged in via Google",
     )
-    return _create_token_pair(user)
+    return create_token_pair(user)
 
 
 async def refresh_access_token(*, session: Session, refresh_token: str) -> Token:
@@ -176,19 +176,26 @@ async def refresh_access_token(*, session: Session, refresh_token: str) -> Token
         ):
             raise AuthenticationError("Token has been revoked")
 
-    return _create_token_pair(user)
+    return create_token_pair(user)
 
 
 def recover_password(*, session: Session, email: str) -> None:
     user = user_repo.get_user_by_email(session=session, email=email)
+    # LDAP 帳號的密碼歸目錄管：寄出重設信只會讓使用者設出一個永遠登不進來的
+    # 本地密碼。一律不寄，但回應與稽核維持相同形狀，避免變成帳號枚舉管道。
+    is_ldap = bool(user and user.auth_source == "ldap")
     audit_service.log_action(
         session=session,
         user_id=user.id if user else None,
         action=AuditAction.password_recovery_request,
         details=f"Password recovery requested for {email}"
-        + ("" if user else " (no matching account)"),
+        + (
+            " (LDAP-managed account; no email sent)"
+            if is_ldap
+            else ("" if user else " (no matching account)")
+        ),
     )
-    if user:
+    if user and not is_ldap:
         token = generate_password_reset_token(
             email=email, token_version=user.token_version
         )
@@ -212,15 +219,18 @@ def reset_password(*, session: Session, token: str, new_password: str) -> None:
         raise BadRequestError(t("auth.tokenInvalid"))
     if not user.is_active:
         raise BadRequestError(t("auth.inactiveUser"))
-    # 重設連結綁定簽發當下的 token_version；成功重設會 +1，
-    # 所以同一封信裡的連結只能用一次，之後（即使仍在 48 小時內）一律失效。
+    # LDAP 帳號不得用重設連結設本地密碼（正常流程不會寄出，但管理用的
+    # 預覽端點仍能產生 token，這裡是最後防線）。
+    if user.auth_source == "ldap":
+        raise BadRequestError(t("user.ldapPasswordLocked"))
+    # 重設連結綁定簽發當下的 token_version；成功重設會 +1（由
+    # user_repo.update_user 負責），所以同一封信裡的連結只能用一次，
+    # 之後（即使仍在 48 小時內）一律失效。
     if token_version != user.token_version:
         raise BadRequestError(t("auth.tokenInvalid"))
     user_repo.update_user(
         session=session, db_user=user, user_in=UserUpdate(password=new_password)
     )
-    # Invalidate all existing tokens by incrementing version
-    user.token_version += 1
     session.add(user)
     audit_service.log_action(
         session=session,
@@ -231,18 +241,3 @@ def reset_password(*, session: Session, token: str, new_password: str) -> None:
     )
     session.commit()
 
-
-def get_password_recovery_html(
-    *, session: Session, email: str
-) -> tuple[str, str]:
-    """Returns (html_content, subject) for password recovery email."""
-    user = user_repo.get_user_by_email(session=session, email=email)
-    if not user:
-        raise NotFoundError(t("auth.usernameNotFound"))
-    token = generate_password_reset_token(
-        email=email, token_version=user.token_version
-    )
-    email_data = generate_reset_password_email(
-        email_to=user.email, email=email, token=token
-    )
-    return email_data.html_content, email_data.subject

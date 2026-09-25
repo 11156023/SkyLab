@@ -2,7 +2,30 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from typing import Any
+
+from app.core.i18n import t
+from app.exceptions import BadRequestError
+
+# 單次對話送進模型的上限。schema 沒有限制則數與長度時，一個請求就能塞進
+# 幾 MB 的 prompt，把 GPU 佔滿並產生大量 token 費用。
+MAX_CONVERSATION_MESSAGES = 50
+MAX_CONVERSATION_CHARS = 32 * 1024
+
+
+def ensure_conversation_within_limits(
+    messages: Sequence[Any],
+    *,
+    max_messages: int = MAX_CONVERSATION_MESSAGES,
+    max_chars: int = MAX_CONVERSATION_CHARS,
+) -> None:
+    """擋掉過長的對話；超過上限一律 400，不要送進模型。"""
+    if len(messages) > max_messages:
+        raise BadRequestError(t("ai_guard.too_many_messages", limit=max_messages))
+    total_chars = sum(len(str(getattr(message, "content", "") or "")) for message in messages)
+    if total_chars > max_chars:
+        raise BadRequestError(t("ai_guard.messages_too_long", limit=max_chars))
 
 
 def strip_think_tags(text: str) -> str:

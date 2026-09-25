@@ -31,14 +31,7 @@ engine = create_engine(
 
 
 def init_db(session: Session) -> None:
-    # Tables should be created with Alembic migrations
-    # But if you don't want to use migrations, create
-    # the tables un-commenting the next lines
-    # from sqlmodel import SQLModel
-
-    # This works because the models are already imported and registered from app.models
-    # SQLModel.metadata.create_all(engine)
-
+    """建立 .env 指定的初始超級使用者（資料表由 Alembic migration 建立）。"""
     user = session.exec(
         select(User).where(User.email == settings.FIRST_SUPERUSER)
     ).first()

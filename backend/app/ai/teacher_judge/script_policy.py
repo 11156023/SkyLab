@@ -11,6 +11,9 @@ from urllib.parse import urlparse
 
 from pydantic import BaseModel, Field, ValidationError, field_validator
 
+from app.ai.teacher_judge.ast_utils import call_name as resolve_call_name
+from app.ai.teacher_judge.ast_utils import literal_str
+
 if TYPE_CHECKING:
     from app.ai.teacher_judge._types import CheckResult, FixHint, ScriptValidationResult
 
@@ -204,18 +207,6 @@ def _import_aliases(tree: ast.AST) -> dict[str, str]:
     return aliases
 
 
-def _call_name(node: ast.AST, aliases: dict[str, str] | None = None) -> str | None:
-    aliases = aliases or {}
-    if isinstance(node, ast.Name):
-        return aliases.get(node.id, node.id)
-    if isinstance(node, ast.Attribute):
-        parent = _call_name(node.value, aliases)
-        return f"{parent}.{node.attr}" if parent else node.attr
-    if isinstance(node, ast.Call):
-        return _call_name(node.func, aliases)
-    return None
-
-
 def _has_timeout_keyword(node: ast.Call) -> bool:
     return any(keyword.arg == "timeout" for keyword in node.keywords)
 
@@ -228,14 +219,8 @@ def _keyword_is_true(node: ast.Call, keyword_name: str) -> bool:
     return False
 
 
-def _literal_str(node: ast.AST | None) -> str | None:
-    if isinstance(node, ast.Constant) and isinstance(node.value, str):
-        return node.value
-    return None
-
-
 def _literal_command_text(node: ast.AST) -> str | None:
-    if literal := _literal_str(node):
+    if literal := literal_str(node):
         return literal
     if isinstance(node, (ast.List, ast.Tuple)):
         parts: list[str] = []
@@ -249,12 +234,12 @@ def _literal_command_text(node: ast.AST) -> str | None:
 
 def _open_mode(node: ast.Call, mode_arg_index: int = 1) -> str:
     if len(node.args) > mode_arg_index:
-        mode = _literal_str(node.args[mode_arg_index])
+        mode = literal_str(node.args[mode_arg_index])
         if mode:
             return mode
     for keyword in node.keywords:
         if keyword.arg == "mode":
-            mode = _literal_str(keyword.value)
+            mode = literal_str(keyword.value)
             if mode:
                 return mode
     return "r"
@@ -284,15 +269,15 @@ def _network_method_and_url(call_name: str, node: ast.Call) -> tuple[str, str | 
     elif call_name.endswith(".delete"):
         method = "DELETE"
     elif call_name.endswith(".request"):
-        method = (_literal_str(node.args[0]) or "").upper() if node.args else ""
+        method = (literal_str(node.args[0]) or "").upper() if node.args else ""
         url_arg_index = 1
 
-    url = _literal_str(node.args[url_arg_index]) if len(node.args) > url_arg_index else None
+    url = literal_str(node.args[url_arg_index]) if len(node.args) > url_arg_index else None
     for keyword in node.keywords:
         if keyword.arg == "method":
-            method = (_literal_str(keyword.value) or "").upper()
+            method = (literal_str(keyword.value) or "").upper()
         if keyword.arg == "url":
-            url = _literal_str(keyword.value)
+            url = literal_str(keyword.value)
     return method, url
 
 
@@ -402,7 +387,7 @@ def check_script_policy(script_content: str) -> CheckResult:
 
     for node in ast.walk(tree):
         if isinstance(node, ast.Call):
-            call_name = _call_name(node.func, aliases)
+            call_name = resolve_call_name(node.func, aliases)
             if call_name in DENY_AST_CALLS:
                 issues.append(DENY_AST_CALLS[call_name])
                 fix_hints.append({"type": "replace_dangerous_call", "function": call_name, "description": DENY_AST_CALLS[call_name]})
@@ -645,7 +630,7 @@ def check_peer_runtime_policy(
                 # incorrectly treated as peer data and later ``judge`` /
                 # ``record_check`` calls are rejected.
                 if isinstance(value, ast.Call):
-                    call_name = _call_name(value.func, aliases)
+                    call_name = resolve_call_name(value.func, aliases)
                     if call_name in {"run_command", "subprocess.run"}:
                         continue
                 names = {
@@ -676,7 +661,7 @@ def check_peer_runtime_policy(
         def literal_subscript_key(node: ast.AST | None) -> str | None:
             if not isinstance(node, ast.Subscript):
                 return None
-            return _literal_str(node.slice)
+            return literal_str(node.slice)
 
         def has_declared_peer_context_path(peer_key: str) -> bool:
             for candidate in ast.walk(tree):
@@ -696,7 +681,7 @@ def check_peer_runtime_policy(
                     isinstance(candidate.func, ast.Attribute)
                     and candidate.func.attr == "get"
                     and candidate.args
-                    and _literal_str(candidate.args[0]) == peer_key
+                    and literal_str(candidate.args[0]) == peer_key
                 ):
                     continue
                 parent = candidate.func.value
@@ -706,7 +691,7 @@ def check_peer_runtime_policy(
                     isinstance(parent.func, ast.Attribute)
                     and parent.func.attr == "get"
                     and parent.args
-                    and _literal_str(parent.args[0]) == "peers"
+                    and literal_str(parent.args[0]) == "peers"
                     and contains_context_name(parent.func.value)
                 ):
                     continue
@@ -743,7 +728,7 @@ def check_peer_runtime_policy(
         for node in ast.walk(tree):
             if not isinstance(node, ast.Call):
                 continue
-            call_name = _call_name(node.func, aliases)
+            call_name = resolve_call_name(node.func, aliases)
             if call_name not in {"run_command", "subprocess.run"}:
                 continue
             if not any(contains_peer_name(argument) for argument in node.args):
@@ -784,7 +769,7 @@ def check_peer_runtime_policy(
         for node in ast.walk(tree):
             if not isinstance(node, ast.Call) or not contains_peer_name(node):
                 continue
-            call_name = _call_name(node.func, aliases)
+            call_name = resolve_call_name(node.func, aliases)
             if call_name in {"run_command", "subprocess.run"}:
                 argument_nodes = list(node.args) + [
                     keyword.value for keyword in node.keywords

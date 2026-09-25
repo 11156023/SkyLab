@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 
 from app.ai.contextual_help.schemas import (
     ExplainRequest,
@@ -10,11 +10,19 @@ from app.ai.contextual_help.schemas import (
 from app.ai.contextual_help.service import explain
 from app.ai.contextual_help.surfaces import get_surfaces_for_user
 from app.api.deps import CurrentUser, SessionDep
+from app.api.deps.rate_limit import rate_limit_by_user
 
 router = APIRouter(prefix="/ai/contextual-help", tags=["ai-contextual-help"])
 
 
-@router.post("/explain", response_model=ExplainResponse)
+@router.post(
+    "/explain",
+    response_model=ExplainResponse,
+    # 解釋畫面會打模型，一個帳號連打就能把推論排隊塞滿
+    dependencies=[
+        Depends(rate_limit_by_user(scope="ai-help", limit=30, window_seconds=60))
+    ],
+)
 async def explain_screen(
     request: ExplainRequest,
     session: SessionDep,

@@ -233,15 +233,6 @@ def sync_ip_cache(*, session: Session, vmid: int, live_ip: str | None) -> str | 
         return None
 
 
-def is_ip_address_fresh(*, session: Session, vmid: int, ttl_seconds: int = 3600) -> bool:
-    network = get_resource_network_by_vmid(session=session, vmid=vmid)
-    cached_at = network.cached_at if network and network.ip_address else None
-    if cached_at is None:
-        return False
-    age = (datetime.now(timezone.utc) - cached_at).total_seconds()
-    return age <= ttl_seconds
-
-
 def delete_resource(*, session: Session, vmid: int, commit: bool = True) -> None:
     resource = get_resource_by_vmid(session=session, vmid=vmid)
     if resource:

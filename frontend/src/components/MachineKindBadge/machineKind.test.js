@@ -18,15 +18,14 @@ describe("resolveKind", () => {
     expect(resolveKind({ kind: "shared" })).toBe("shared");
     expect(resolveKind({ kind: "quick_practice" })).toBe("quick_practice");
     expect(resolveKind({ kind: "course" })).toBe("course");
-    expect(resolveKind({ kind: "teacher_open" })).toBe("teacher_open");
     expect(resolveKind({ kind: "whatever" })).toBe("personal");
     expect(resolveKind({})).toBe("personal");
     expect(resolveKind()).toBe("personal");
   });
 
-  test("只有共享、學生機器、老師開放三種會帶人名", () => {
+  test("只有共享、學生機器兩種會帶人名", () => {
     const withOwner = Object.entries(KIND_META).filter(([, m]) => m.showOwner).map(([k]) => k);
-    expect(withOwner.sort()).toEqual(["class_teacher", "shared", "teacher_open"]);
+    expect(withOwner.sort()).toEqual(["class_teacher", "shared"]);
   });
 
   test("每種徽章都有圖示、顏色變體與翻譯鍵", () => {

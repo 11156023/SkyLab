@@ -69,6 +69,13 @@ class Settings(BaseSettings):
     LOG_DIR: str = "logs"
     LOG_FILE_ENABLED: bool = True
 
+    # Redis：HTTP 限流、JWT 撤銷名單與 arq 任務佇列共用同一台。
+    # 這裡是開關與連線字串的唯一來源，`features/ai/config.py` 只是代理過來；
+    # 兩份設定各自讀 .env 時，一邊 true 一邊 false 會讓限流靜默失效。
+    # 非 local 環境啟用後連不上 Redis，lifespan 會直接讓啟動失敗（fail-closed）。
+    REDIS_ENABLED: bool = False
+    REDIS_URL: str = "redis://localhost:6379/0"
+
     # When false, the lifespan skips starting the VM request scheduler.
     # Set to false in CI/test environments that cannot reach Proxmox,
     # so scheduler ticks don't block test startup on connection timeouts.
@@ -78,6 +85,11 @@ class Settings(BaseSettings):
     CLASSROOM_MAX_SUBSCRIBERS: int = 250
     # 虛擬教室：每個訂閱者的訊息佇列深度（滿了直接斷開該訂閱者）
     CLASSROOM_SUBSCRIBER_QUEUE_SIZE: int = 256
+    # 虛擬教室：下游 RFB 握手逾時（秒）。握手不完成就一直佔著名額，
+    # 惡意或壞掉的 client 可以靠這點把整個 session 的訂閱名額耗光。
+    CLASSROOM_HANDSHAKE_TIMEOUT_SECONDS: float = 10.0
+    # 虛擬教室：上游 PVE vncwebsocket 連線與握手的逾時（秒）
+    CLASSROOM_UPSTREAM_TIMEOUT_SECONDS: float = 10.0
 
     BACKEND_CORS_ORIGINS: Annotated[
         list[AnyUrl] | str, BeforeValidator(parse_cors)

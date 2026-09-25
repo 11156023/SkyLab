@@ -20,7 +20,6 @@ from app.ai.teacher_judge.script_quality_validator import check_script_quality
 
 CHECK_PLAN_SCHEMA_VERSION = "teacher_judge_check_plan.v1"
 DETERMINISTIC_COMPILER_VERSION = "teacher_judge_compiler.v2"
-RESULT_SCHEMA_VERSION = "teacher_judge_result.v1"
 PEER_IP_TOKEN = "{{peer.ip}}"
 _ASSERTION_TYPES_BY_COLLECTOR = {
     "command": {"returncode_equals", "text_equals", "text_contains", "number_compare", "json_path_equals"},
@@ -70,37 +69,151 @@ def _is_safe_command_argv(argv: list[str]) -> bool:
     return not any(token in joined for token in ("|", ">", "<", "$(", "`", "&&", ";"))
 
 
+# command collector 的 argv[0] 白名單：腳本以 root 在每台學生機上跑，argv 又是
+# LLM 從老師上傳的文件解析出來的（文件可能由第三方提供），黑名單擋不住
+# curl -o / useradd / crontab 這類「合法但有副作用」的指令。這裡只放真正
+# 唯讀的診斷工具；需要新的收集方式時在這裡加，而不是放寬成黑名單。
+_READ_ONLY_COMMANDS = frozenset(
+    {
+        # 檔案／目錄觀察
+        "ls", "cat", "head", "tail", "stat", "file", "wc", "grep", "egrep", "fgrep",
+        "find", "du", "df", "readlink", "realpath", "basename", "dirname", "test",
+        "md5sum", "sha1sum", "sha256sum", "sha512sum", "cksum", "diff", "cmp",
+        "sort", "uniq", "cut", "tr", "awk", "sed", "jq", "yq", "xmllint", "column",
+        "strings", "od", "hexdump", "base64", "printf", "echo", "true", "false",
+        # 系統／程序狀態
+        "uname", "hostname", "hostnamectl", "uptime", "id", "whoami", "who", "w",
+        "date", "env", "printenv", "ps", "pgrep", "top", "free", "vmstat", "iostat",
+        "lscpu", "lsblk", "lsmod", "lspci", "lsusb", "dmesg", "journalctl", "last",
+        "getent", "getcap", "lsof", "nproc", "timedatectl", "loginctl",
+        # 網路觀察
+        "ss", "netstat", "ip", "ifconfig", "ping", "ping6", "traceroute", "tracepath",
+        "dig", "nslookup", "host", "curl", "wget", "nc", "ncat", "arp",
+        "route", "iptables", "nft", "ufw", "resolvectl",
+        # 服務／套件狀態（子命令另外限制）
+        "systemctl", "service", "docker", "podman", "dpkg", "dpkg-query", "apt",
+        "apt-cache", "rpm", "yum", "dnf", "pip", "pip3", "npm", "git", "snap",
+        # 直譯器：查版本，或執行學生作業檔看輸出（機器是學生自己的，執行檔案
+        # 不會擴大攻擊面；inline code／-m 仍禁止）
+        "python", "python3", "python.exe", "py", "node", "nodejs", "java", "go",
+        "ruby", "perl", "php",
+        "gcc", "g++", "make", "cmake", "rustc", "cargo", "psql", "pg_isready",
+        "mysql", "mariadb", "redis-cli", "nginx", "apache2ctl", "httpd", "sshd",
+        "openssl", "ssh-keygen",
+    }
+)
+
+# 白名單內但帶副作用的子命令／旗標
+_SYSTEMCTL_READ_SUBCOMMANDS = frozenset(
+    {"status", "is-active", "is-enabled", "is-failed", "show", "list-units",
+     "list-unit-files", "list-timers", "cat", "list-dependencies"}
+)
+_DOCKER_READ_SUBCOMMANDS = frozenset(
+    {"ps", "images", "inspect", "logs", "version", "info", "stats", "port",
+     "top", "network", "volume", "compose"}
+)
+_DOCKER_READ_THIRD = {"network": {"ls", "inspect"}, "volume": {"ls", "inspect"},
+                      "compose": {"ps", "config", "version", "ls"}}
+_PACKAGE_READ_SUBCOMMANDS = frozenset(
+    {"list", "show", "search", "policy", "info", "--version", "-V", "freeze",
+     "ls", "view", "version", "-l", "-s", "-q", "-qa", "-qi", "status", "cat"}
+)
+_GIT_READ_SUBCOMMANDS = frozenset(
+    {"status", "log", "show", "diff", "branch", "rev-parse", "remote", "config",
+     "ls-files", "describe", "tag", "--version"}
+)
+_NETWORK_FETCH_WRITE_FLAGS = frozenset(
+    {"-o", "--output", "-O", "--remote-name", "--output-document", "-T",
+     "--upload-file", "-d", "--data", "--data-binary", "--data-raw", "-F",
+     "--form", "-X", "--request", "--post-data", "--post-file"}
+)
+_NC_DENY_FLAGS = frozenset({"-e", "-c", "--exec", "--sh-exec", "-l", "--listen"})
+_IP_READ_SUBCOMMANDS = frozenset({"addr", "address", "a", "link", "l", "route", "r",
+                                  "neigh", "n", "-4", "-6", "-br", "-brief", "-o", "-s"})
+_FW_READ_FLAGS = frozenset({"-L", "--list", "-S", "--list-rules", "-n", "-v", "-t",
+                            "--line-numbers", "list", "status", "ruleset"})
+
+
 def _command_argv_issue(argv: list[str]) -> str | None:
     if not _is_safe_command_argv(argv):
         return "command collector argv 含 shell launcher 或控制字元"
     command = argv[0].replace("\\", "/").rsplit("/", 1)[-1].strip().lower()
-    if command in {"sudo", "doas", "su", "env", "xargs", "busybox"}:
-        return "command collector 不允許透過權限或命令代理繞過唯讀契約"
-    if command in {
-        "rm",
-        "rmdir",
-        "del",
-        "erase",
-        "remove-item",
-        "touch",
-        "tee",
-        "dd",
-        "mkfs",
-        "chmod",
-        "chown",
-        "kill",
-        "pkill",
-        "shutdown",
-        "reboot",
-        "mount",
-        "umount",
-    }:
-        return "command collector 只允許唯讀／診斷命令"
-    if command in {"python", "python3", "python.exe", "node", "nodejs", "perl", "ruby", "php"}:
-        if any(flag in {"-c", "--command", "-e", "--eval", "-r", "--exec"} for flag in argv[1:]):
+    args = [part.strip() for part in argv[1:]]
+    lowered = [part.lower() for part in args]
+
+    if command not in _READ_ONLY_COMMANDS:
+        return f"command collector 只允許唯讀／診斷命令（{command} 不在白名單）"
+
+    if command in {"python", "python3", "python.exe", "py", "node", "nodejs", "perl", "ruby", "php"}:
+        if any(flag in {"-c", "--command", "-e", "--eval", "-r", "--exec", "-m"} for flag in lowered):
             return "command collector 不允許 interpreter inline code 或 eval"
-    if command in {"sed", "perl"} and any(flag == "-i" or flag.startswith("-i") for flag in argv[1:]):
+    if command == "sed" and any(flag == "-i" or flag.startswith("-i") for flag in lowered):
         return "command collector 不允許原地修改檔案"
+    if command == "find" and any(flag in {"-delete", "-exec", "-execdir", "-ok", "-okdir"} for flag in lowered):
+        return "command collector 不允許 find 執行或刪除"
+    if command in {"awk"} and any("system(" in part or "getline" in part for part in lowered):
+        return "command collector 不允許 awk 執行外部程式"
+    if command in {"tee", "dd"}:
+        return "command collector 只允許唯讀／診斷命令"
+    if command in {"systemctl", "service"}:
+        sub = next((part for part in lowered if not part.startswith("-")), "")
+        if command == "service":
+            sub = lowered[1] if len(lowered) > 1 else ""
+        if sub not in _SYSTEMCTL_READ_SUBCOMMANDS:
+            return "command collector 只允許查詢服務狀態，不允許啟停或啟用服務"
+    if command in {"docker", "podman"}:
+        sub = lowered[0] if lowered else ""
+        if sub not in _DOCKER_READ_SUBCOMMANDS:
+            return "command collector 只允許唯讀的容器查詢子命令"
+        if sub in _DOCKER_READ_THIRD:
+            third = lowered[1] if len(lowered) > 1 else ""
+            if third not in _DOCKER_READ_THIRD[sub]:
+                return "command collector 只允許唯讀的容器查詢子命令"
+        if sub == "logs" and any(flag in {"-f", "--follow"} for flag in lowered):
+            return "command collector 不允許持續跟隨的 docker logs"
+    if command in {"apt", "apt-cache", "dpkg", "dpkg-query", "rpm", "yum", "dnf",
+                   "pip", "pip3", "npm", "snap"}:
+        sub = lowered[0] if lowered else ""
+        if sub not in _PACKAGE_READ_SUBCOMMANDS:
+            return "command collector 只允許查詢套件，不允許安裝或移除"
+    if command == "git":
+        sub = lowered[0] if lowered else ""
+        if sub not in _GIT_READ_SUBCOMMANDS:
+            return "command collector 只允許唯讀 Git 子命令"
+    if command in {"curl", "wget"}:
+        if any(flag in _NETWORK_FETCH_WRITE_FLAGS or flag.startswith("--output") for flag in lowered):
+            return "command collector 不允許把下載內容寫入檔案或送出資料"
+        if not any(part.startswith(("http://127.0.0.1", "http://localhost", "http://[::1]",
+                                     "https://127.0.0.1", "https://localhost")) for part in lowered):
+            return "command collector 的 HTTP 探測只允許 localhost"
+    if command in {"nc", "ncat"}:
+        if any(flag in _NC_DENY_FLAGS for flag in lowered):
+            return "command collector 不允許 nc 執行程式或監聽"
+        if not any(flag in {"-z", "-zv", "-vz"} for flag in lowered):
+            return "command collector 只允許 nc -z 做連接埠探測"
+    if command == "ip":
+        sub = next((part for part in lowered if not part.startswith("-")), "")
+        if sub not in _IP_READ_SUBCOMMANDS or any(part in {"add", "del", "set", "flush", "replace", "change"} for part in lowered):
+            return "command collector 只允許查詢網路設定"
+    if command in {"iptables", "nft", "ufw"}:
+        if not any(flag in _FW_READ_FLAGS for flag in lowered) or any(
+            part in {"-A", "-I", "-D", "-F", "-X", "-P", "add", "delete", "flush",
+                     "insert", "allow", "deny", "enable", "disable", "reset"}
+            for part in args
+        ):
+            return "command collector 只允許列出防火牆規則"
+    if command in {"psql", "mysql", "mariadb", "redis-cli"} and any(
+        flag in {"-c", "--command", "-e", "--execute", "-f", "--file"} for flag in lowered
+    ):
+        return "command collector 不允許對資料庫送出語句"
+    if command in {"nginx", "apache2ctl", "httpd", "sshd"} and not any(
+        flag in {"-t", "-T", "-v", "-V", "configtest"} for flag in args
+    ):
+        return "command collector 只允許用伺服器程式檢查設定或查版本"
+    if command == "openssl" and lowered and lowered[0] not in {"version", "x509", "s_client", "verify", "rsa", "ec"}:
+        return "command collector 只允許用 openssl 檢視憑證"
+    if command == "ssh-keygen" and not any(flag in {"-l", "-lf", "-y", "-e"} for flag in lowered):
+        return "command collector 只允許用 ssh-keygen 檢視指紋"
     return _dangerous_command_issue(" ".join(argv))
 
 

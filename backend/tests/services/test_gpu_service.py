@@ -466,9 +466,9 @@ class _FakeProxmoxVms:
         outer = self
 
         class _Cluster:
-            class resources:  # noqa: N801 - mimic proxmoxer attribute style
+            class resources:
                 @staticmethod
-                def get(type=None):  # noqa: A002 - proxmoxer kwarg name
+                def get(type=None):
                     return [
                         {"type": "qemu", "vmid": vmid, "node": "pve1",
                          "name": f"vm{vmid}", "status": "running"}

@@ -28,6 +28,8 @@
   "proxmoxConfig.syncFailed": "同步失敗，請確認連線設定",
   "proxmoxConfig.notConfigured": "尚未設定 Proxmox 連線資訊",
   "proxmoxConfig.connectionSyncFailed": "連線「{name}」同步失敗",
+  "proxmoxConfig.connectionHasResources": "連線「{name}」底下還有 {count} 台機器（vmid：{vmids}），請先刪除或搬移這些機器再刪除連線",
+  "proxmoxConfig.connectionResourceCheckFailed": "目前連不上這個 PVE，無法確認底下是否還有機器，暫時不允許刪除，請稍後再試",
   "users.avatarUnsupportedFormat": "僅支援 PNG / JPEG / WebP / GIF 圖片",
   "users.avatarTooLarge": "圖片大小不可超過 2MB",
   "vm.creating": "VM 建立中，請稍後於資源列表查看"

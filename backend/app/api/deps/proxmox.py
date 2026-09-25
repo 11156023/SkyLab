@@ -123,7 +123,7 @@ def check_resource_control_access(
         check_resource_ownership(vmid, current_user, session)
         return
     except PermissionDeniedError:
-        from app.services.resource import sharing_service  # noqa: PLC0415
+        from app.services.resource import sharing_service
 
         if sharing_service.user_has_share(
             session=session, vmid=vmid, user_id=current_user.id

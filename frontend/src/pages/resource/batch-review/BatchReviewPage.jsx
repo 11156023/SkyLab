@@ -272,8 +272,10 @@ export default function BatchReviewPage() {
     );
   }, [rows, query, statusMeta]);
 
+  /* 只顯示使用者明確點選的那筆；審核後或切分頁清單變動時不能悄悄換成第一筆，
+     否則審核者按下核准的可能是一筆自己沒看過的申請 */
   const selected = useMemo(
-    () => visibleRows.find((row) => row.id === selectedId) ?? visibleRows[0] ?? null,
+    () => visibleRows.find((row) => row.id === selectedId) ?? null,
     [visibleRows, selectedId],
   );
 
@@ -337,6 +339,7 @@ export default function BatchReviewPage() {
         approved ? t("BatchReviewPage.approvedToast") : t("BatchReviewPage.rejectedToast"),
       );
       setComment("");
+      setSelectedId(null);
       await load();
     } catch (e) {
       toast.error(e?.message ?? t("BatchReviewPage.actionFailed"));

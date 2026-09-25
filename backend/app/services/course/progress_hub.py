@@ -6,9 +6,15 @@
      "question_id": ..., "room_progress_percent": ...}
 """
 
+import asyncio
 import uuid
 from dataclasses import dataclass, field
 from typing import Any, Protocol
+
+from app.utils.websocket import close_quietly
+
+# 與教室信令 hub 同一個約定：單一連線送不出去就淘汰，不拖住整批推播
+SEND_TIMEOUT_SECONDS = 5
 
 
 class ProgressSocket(Protocol):
@@ -53,14 +59,24 @@ class CourseProgressHub:
         )
 
     async def broadcast(self, path_id: uuid.UUID, event: dict[str, Any]) -> None:
-        for conn in [
-            c for c in self._connections.values() if c.path_id == path_id
-        ]:
-            try:
-                await conn.websocket.send_json(event)
-            except Exception:
-                # 死連線自動清；register 端的 finally 再清一次是 no-op
-                self._connections.pop(conn.key, None)
+        """同時推給該路徑的所有訂閱者，避免一條慢連線拖住整批推播。"""
+        targets = [c for c in self._connections.values() if c.path_id == path_id]
+        if not targets:
+            return
+        await asyncio.gather(
+            *(self._send_one(conn, event) for conn in targets),
+            return_exceptions=True,
+        )
+
+    async def _send_one(self, conn: _Connection, event: dict[str, Any]) -> None:
+        try:
+            await asyncio.wait_for(
+                conn.websocket.send_json(event), timeout=SEND_TIMEOUT_SECONDS
+            )
+        except Exception:
+            # 逾時或送出失敗一律當死連線清掉；register 端的 finally 再清一次是 no-op
+            self._connections.pop(conn.key, None)
+            await close_quietly(conn.websocket)
 
 
 course_progress_hub = CourseProgressHub()

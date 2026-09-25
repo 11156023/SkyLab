@@ -6,6 +6,7 @@ import threading
 import time
 import uuid
 from datetime import UTC, datetime, timedelta
+from typing import Any
 
 from sqlmodel import Session, select
 
@@ -36,6 +37,7 @@ from app.infrastructure.proxmox import (
 from app.models import VMRequest
 from app.repositories import proxmox_storage as proxmox_storage_repo
 from app.services.proxmox import gpu_service, proxmox_service
+from app.utils.timeutil import normalize_datetime
 
 GIB = 1024**3
 
@@ -44,14 +46,6 @@ logger = logging.getLogger(__name__)
 
 def utc_now() -> datetime:
     return datetime.now(UTC)
-
-
-def normalize_datetime(value: datetime | None) -> datetime | None:
-    if value is None:
-        return None
-    if value.tzinfo is None:
-        return value.replace(tzinfo=UTC)
-    return value
 
 
 def request_window(db_request: VMRequest) -> tuple[datetime | None, datetime | None]:
@@ -94,42 +88,34 @@ def build_storage_pool_state(
         if node_name not in node_set:
             continue
 
+        # 共享儲存在所有節點上是同一個池，扣容量時必須共用同一個物件
         if storage.is_shared:
             pool = shared_registry.get(storage.storage)
             if pool is None:
-                pool = WorkingStoragePool(
-                    storage=storage.storage,
-                    total_gb=float(storage.total_gb or 0.0),
-                    avail_gb=float(storage.avail_gb or 0.0),
-                    active=bool(storage.active),
-                    enabled=bool(storage.enabled),
-                    can_vm=bool(storage.can_vm),
-                    can_lxc=bool(storage.can_lxc),
-                    is_shared=bool(storage.is_shared),
-                    speed_tier=str(storage.speed_tier or "unknown"),
-                    user_priority=int(storage.user_priority or 5),
-                )
+                pool = _working_pool(storage)
                 shared_registry[storage.storage] = pool
             by_node[node_name].append(pool)
             continue
 
-        by_node[node_name].append(
-            WorkingStoragePool(
-                storage=storage.storage,
-                total_gb=float(storage.total_gb or 0.0),
-                avail_gb=float(storage.avail_gb or 0.0),
-                active=bool(storage.active),
-                enabled=bool(storage.enabled),
-                can_vm=bool(storage.can_vm),
-                can_lxc=bool(storage.can_lxc),
-                is_shared=bool(storage.is_shared),
-                speed_tier=str(storage.speed_tier or "unknown"),
-                user_priority=int(storage.user_priority or 5),
-            )
-        )
+        by_node[node_name].append(_working_pool(storage))
 
     has_managed_storage = any(pools for pools in by_node.values())
     return by_node, has_managed_storage
+
+
+def _working_pool(storage: Any) -> WorkingStoragePool:
+    return WorkingStoragePool(
+        storage=storage.storage,
+        total_gb=float(storage.total_gb or 0.0),
+        avail_gb=float(storage.avail_gb or 0.0),
+        active=bool(storage.active),
+        enabled=bool(storage.enabled),
+        can_vm=bool(storage.can_vm),
+        can_lxc=bool(storage.can_lxc),
+        is_shared=bool(storage.is_shared),
+        speed_tier=str(storage.speed_tier or "unknown"),
+        user_priority=int(storage.user_priority or 5),
+    )
 
 
 def provisioned_current_node(request: VMRequest) -> str | None:
@@ -225,13 +211,21 @@ def node_can_host_request(
         or node.running_resources >= node.guest_soft_limit
     ):
         return False
-    if has_managed_storage:
-        return True
-    return node.allocatable_disk_bytes >= disk_bytes
+    # 磁碟只在有受管儲存池時才判斷（由 select_best_storage_for_request 負責）。
+    # 沒有受管儲存池時，節點的 maxdisk 是 PVE 自己的 root 檔案系統（常只有
+    # 幾十 GB），拿它當客體磁碟容量會把每個節點都判成放不下；此時寧可不判，
+    # 由 plan 的 warning 提醒管理員把儲存池納管。
+    return True
 
 
 def node_disk_bytes_for_capacity(*, disk_bytes: int, has_managed_storage: bool) -> int:
-    return 0 if has_managed_storage else disk_bytes
+    """節點層要扣掉的磁碟位元組 —— 一律 0。
+
+    有受管儲存池時磁碟記在儲存池上；沒有時節點 maxdisk 是 root fs，
+    扣它只會把 allocatable_disk_bytes 誤扣成 0（節點被判成不可用）。
+    參數保留讓呼叫端維持原本的語意表達。
+    """
+    return 0
 
 
 def group_anchor_node(
@@ -479,6 +473,11 @@ def apply_reserved_requests_to_capacities(
     by_node = {item.node: item for item in adjusted}
 
     for reserved in reserved_requests:
+        # 已經建出機器的申請不再重複扣：它的 CPU／記憶體／磁碟／GPU 佔用
+        # 已經反映在節點即時用量（baseline 由 PVE 現況算出），再扣一次
+        # 等於同一台機器被算兩份，節點會提早被判成放不下。
+        if getattr(reserved, "vmid", None) is not None:
+            continue
         reserved_start = normalize_datetime_fn(reserved.start_at)
         reserved_end = normalize_datetime_fn(reserved.end_at)
         assigned_node = str(reserved.assigned_node or "")
@@ -627,6 +626,18 @@ def build_plan(
     ]
     placement_decisions.sort(key=lambda item: (-item.instance_count, item.node))
 
+    warnings = placement_advisor._build_warnings(
+        node_capacities=node_capacities,
+        request=request,
+        effective_resource_type=effective_resource_type,
+        remaining=remaining,
+    )
+    if not has_managed_storage:
+        warnings.append(
+            "No managed storage pool is registered, so disk capacity was not "
+            "evaluated for this placement."
+        )
+
     return PlacementPlan(
         feasible=remaining == 0,
         requested_resource_type=request.resource_type,
@@ -648,68 +659,10 @@ def build_plan(
             effective_resource_type=effective_resource_type,
             node_capacities=node_capacities,
         ),
-        warnings=placement_advisor._build_warnings(
-            node_capacities=node_capacities,
-            request=request,
-            effective_resource_type=effective_resource_type,
-            remaining=remaining,
-        ),
+        warnings=warnings,
         placements=placement_decisions,
         candidate_nodes=node_capacities,
     )
-
-
-def build_preview_selection_reasons(
-    *,
-    selected_node: str,
-    selected_eval,
-    candidate_evals: dict,
-    priorities: dict[str, int],
-) -> list[str]:
-    alternatives = [
-        (node, evaluation)
-        for node, evaluation in candidate_evals.items()
-        if node != selected_node and evaluation.feasible
-    ]
-    if not alternatives:
-        return [f"因為 {selected_node} 是目前這個時段唯一可行的節點。"]
-
-    runner_up_node, runner_up_eval = min(alternatives, key=lambda item: item[1].objective)
-    reasons = [
-        (
-            f"因為把本次申請放在 {selected_node}，可以讓這個時段整體 cohort "
-            "的最大節點負載分數更低。"
-        )
-    ]
-
-    if selected_eval.max_node_score + 0.01 < runner_up_eval.max_node_score:
-        bottleneck_node = max(
-            (runner_up_eval.node_scores or {}).items(),
-            key=lambda item: item[1],
-            default=(runner_up_node, runner_up_eval.max_node_score),
-        )[0]
-        reasons.append(f"因為可降低 {bottleneck_node} 的整體負載尖峰風險。")
-
-    selected_storage_penalty = (selected_eval.storage_penalties or {}).get(selected_node, 0.0)
-    runner_up_storage_penalty = (runner_up_eval.storage_penalties or {}).get(runner_up_node, 0.0)
-    if selected_storage_penalty + 0.08 < runner_up_storage_penalty:
-        reasons.append(
-            f"因為 {selected_node} 的磁碟 contention 風險較低，可避免把壓力集中到 {runner_up_node}。"
-        )
-
-    if selected_eval.reassignment_count < runner_up_eval.reassignment_count:
-        delta = runner_up_eval.reassignment_count - selected_eval.reassignment_count
-        reasons.append(f"因為不需要多搬 {delta} 台 VM。")
-
-    selected_priority = priorities.get(selected_node, 5)
-    runner_up_priority = priorities.get(runner_up_node, 5)
-    if (
-        selected_priority < runner_up_priority
-        and abs(selected_eval.total_score - runner_up_eval.total_score) <= 0.15
-    ):
-        reasons.append(f"在平衡結果接近時，{selected_node} 的節點優先級也比較高。")
-
-    return reasons[:4]
 
 
 def placement_sort_key(

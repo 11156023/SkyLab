@@ -10,6 +10,7 @@ from app.services.security.mining_policy import (
     MiningAction,
     cpu_stats,
     decide_mining_action,
+    is_suspend_protected,
 )
 
 NOW = datetime(2026, 7, 4, 12, 0, 0, tzinfo=timezone.utc)
@@ -161,3 +162,36 @@ def test_decide_boundary_at_threshold_flags() -> None:
 
 def test_decide_boundary_coverage_two_thirds_flags() -> None:
     assert _decide(coverage=2.0 / 3.0) is MiningAction.flag
+
+
+# ── 只告警不暫停的機器 ───────────────────────────────────────────────────────
+
+
+def test_personal_machine_not_protected() -> None:
+    assert not is_suspend_protected(
+        allocation_scope="personal", teaching_class_id=None, gpu_mapping_id=None
+    )
+
+
+def test_class_scope_protected() -> None:
+    assert is_suspend_protected(
+        allocation_scope="teaching_class",
+        teaching_class_id=None,
+        gpu_mapping_id=None,
+    )
+
+
+def test_class_membership_protected() -> None:
+    assert is_suspend_protected(
+        allocation_scope="personal",
+        teaching_class_id="0f1c3f4e-0000-0000-0000-000000000000",
+        gpu_mapping_id=None,
+    )
+
+
+def test_gpu_machine_protected() -> None:
+    assert is_suspend_protected(
+        allocation_scope="personal",
+        teaching_class_id=None,
+        gpu_mapping_id="h200-vgpu",
+    )

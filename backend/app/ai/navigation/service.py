@@ -11,7 +11,11 @@ from sqlmodel import Session
 from app.ai.contextual_help.resolver import resolve_context
 from app.ai.contextual_help.schemas import ElementState
 from app.ai.contextual_help.surfaces import get_surfaces_for_user
-from app.ai.monitoring import CALL_AI_NAVIGATION, record_ai_template_call
+from app.ai.monitoring import (
+    CALL_AI_NAVIGATION,
+    record_ai_template_call,
+    usage_metrics,
+)
 from app.ai.navigation.catalog import (
     NavigationRoute,
     find_route_by_path,
@@ -316,22 +320,6 @@ def _keyword_fallback(
     )
 
 
-def _usage_metrics(response_data: dict[str, Any], elapsed: float) -> dict[str, Any]:
-    usage = response_data.get("usage")
-    if not isinstance(usage, dict):
-        usage = {}
-    prompt_tokens = int(usage.get("prompt_tokens") or 0)
-    completion_tokens = int(usage.get("completion_tokens") or 0)
-    return {
-        "prompt_tokens": prompt_tokens,
-        "completion_tokens": completion_tokens,
-        "total_tokens": int(
-            usage.get("total_tokens") or prompt_tokens + completion_tokens
-        ),
-        "elapsed_seconds": round(max(elapsed, 0.0), 3),
-    }
-
-
 def _build_response_from_payload(
     payload: dict[str, Any],
     *,
@@ -540,7 +528,7 @@ async def resolve_navigation(
             payload,
             timeout=_DEFAULT_TIMEOUT_SECONDS,
         )
-        metrics = _usage_metrics(response_data, perf_counter() - started)
+        metrics = usage_metrics(response_data, perf_counter() - started)
         if response_data["choices"][0].get("finish_reason") == "length":
             raise ValueError("Navigation model output was truncated")
         content = str(response_data["choices"][0]["message"]["content"] or "")

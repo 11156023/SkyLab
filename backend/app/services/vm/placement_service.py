@@ -65,7 +65,7 @@ def _request_capacity_tuple(db_request: VMRequest) -> tuple[float, int, int]:
     return placement_support.request_capacity_tuple(db_request)
 
 
-def _get_placement_tuning(*, session: Session) -> _PlacementTuning:
+def get_placement_tuning(*, session: Session) -> _PlacementTuning:
     return placement_policy.get_placement_tuning(session=session)
 
 
@@ -156,7 +156,7 @@ def build_plan(
         node_priorities=node_priorities,
         current_node=current_node,
         build_storage_pool_state_fn=_build_storage_pool_state,
-        get_placement_tuning_fn=_get_placement_tuning,
+        get_placement_tuning_fn=get_placement_tuning,
         get_overcommit_ratios_fn=get_overcommit_ratios,
         get_node_priorities_fn=get_node_priorities,
         placement_sort_key_fn=_placement_sort_key,
@@ -379,12 +379,12 @@ def rebuild_reserved_assignments(
     selections: dict[uuid.UUID, CurrentPlacementSelection] = {}
 
     for request in ordered_requests:
-        # 已建立的 VM/LXC 只作為租借容量占用，不再重新指派節點。
+        # 已建立的 VM/LXC 不再重新指派節點，也不進 reserved_so_far：機器已
+        # 存在，節點即時用量裡本來就含它，再當成預留扣一次會雙重計算。
         current_node = _provisioned_current_node(request)
         if request.vmid is not None and current_node:
             request.assigned_node = current_node
             request.desired_node = current_node
-            reserved_so_far.append(request)
             continue
         selection = select_reserved_target_node(
             session=session,
@@ -601,7 +601,7 @@ def get_preview_node_scores(
         at_time=start_at,
     )
     priorities = get_node_priorities(session)
-    tuning = _get_placement_tuning(session=session)
+    tuning = get_placement_tuning(session=session)
     current_node = _provisioned_current_node(db_request)
 
     breakdowns: list[NodeScoreBreakdown] = []
@@ -659,7 +659,7 @@ def select_best_storage_name(
         resource_type=resource_type,
         disk_gb=disk_gb,
         disk_overcommit_ratio=disk_overcommit_ratio,
-        tuning=_get_placement_tuning(session=session),
+        tuning=get_placement_tuning(session=session),
     )
     if selection is None:
         return None

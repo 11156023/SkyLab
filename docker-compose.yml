@@ -15,8 +15,10 @@ x-backend-env: &backend-env
   SMTP_USER: ${SMTP_USER}
   SMTP_PASSWORD: ${SMTP_PASSWORD}
   EMAILS_FROM_EMAIL: ${EMAILS_FROM_EMAIL:-noreply@example.com}
-  POSTGRES_SERVER: db
-  POSTGRES_PORT: ${POSTGRES_PORT}
+  # 應用程式一律經 PgBouncer（transaction pooling）連 DB；prestart 的 alembic
+  # 例外，直連 db（見 prestart 服務的 environment 覆寫）。
+  POSTGRES_SERVER: pgbouncer
+  POSTGRES_PORT: 5432
   POSTGRES_DB: ${POSTGRES_DB}
   POSTGRES_USER: ${POSTGRES_USER?Variable not set}
   POSTGRES_PASSWORD: ${POSTGRES_PASSWORD?Variable not set}
@@ -37,10 +39,13 @@ services:
   # Nginx Reverse Proxy
   # -------------------------
   nginx:
-    image: nginx:alpine
+    # default.conf 的 upstream 用 `resolve` 動態解析容器名，需要 nginx OSS ≥ 1.27.3
+    image: nginx:1.31-alpine
     restart: unless-stopped
     ports:
-      - "80:80"
+      # 對外入口預設 8082：rootless Docker（例如 self-hosted runner 的部署機）
+      # 綁不了 1024 以下的特權 port；需要 80 時在 .env 設 NGINX_HOST_PORT=80。
+      - "${NGINX_HOST_PORT:-8082}:80"
     volumes:
       - ./nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
     networks:
@@ -57,6 +62,23 @@ services:
   db:
     image: postgres:18
     restart: always
+    # backend／worker 都經 PgBouncer 連進來（server 端最多 MAX_DB_CONNECTIONS），
+    # 再加 prestart、adminer 等直連工具；200 留有餘裕。
+    # 記憶體參數：官方映像預設 shared_buffers 只有 128MB，多人同時查機器列表／
+    # 稽核日誌時 cache 命中率很差。effective_cache_size 只是給 planner 的提示，
+    # 不會真的配置記憶體；work_mem 是每個排序／hash 節點各自的上限。
+    command:
+      - postgres
+      - -c
+      - max_connections=200
+      - -c
+      - shared_buffers=1GB
+      - -c
+      - effective_cache_size=3GB
+      - -c
+      - work_mem=16MB
+      - -c
+      - maintenance_work_mem=256MB
     ports:
       # Bind to localhost only: reachable for on-host tooling, never from the
       # public network. Inter-container access uses the `db` service DNS name.
@@ -80,6 +102,53 @@ services:
       timeout: 5s
       retries: 10
       start_period: 10s
+
+  # -------------------------
+  # PgBouncer（連線池）
+  # -------------------------
+  # backend 的 SQLAlchemy pool 上限 50、worker 再一份，直接打 Postgres 很快就
+  # 撞 max_connections；PgBouncer 以 transaction pooling 把幾百條客戶端連線
+  # 收斂成幾十條 server 連線。程式碼層的配合：
+  #   - advisory lock 一律用 *_xact_* 版本（交易結束自動釋放，不會殘留在
+  #     回到池裡的 server 連線上）
+  #   - 不用 SET／LISTEN／temp table 等跨交易的 session 狀態
+  #   - psycopg 3 的 server-side prepared statement 由 MAX_PREPARED_STATEMENTS
+  #     承接（PgBouncer ≥ 1.21）
+  #   - alembic migration 走 prestart 直連 db
+  pgbouncer:
+    image: edoburu/pgbouncer:v1.25.2-p0
+    restart: always
+    environment:
+      DB_HOST: db
+      DB_PORT: 5432
+      DB_NAME: ${POSTGRES_DB}
+      DB_USER: ${POSTGRES_USER?Variable not set}
+      DB_PASSWORD: ${POSTGRES_PASSWORD?Variable not set}
+      # Postgres 18 預設 scram-sha-256；這個映像在 scram 模式下把明文密碼
+      # 寫進 userlist，同時用於客戶端登入與對 server 的登入。
+      AUTH_TYPE: scram-sha-256
+      POOL_MODE: transaction
+      MAX_CLIENT_CONN: 500
+      DEFAULT_POOL_SIZE: 25
+      MIN_POOL_SIZE: 5
+      RESERVE_POOL_SIZE: 10
+      RESERVE_POOL_TIMEOUT: 3
+      MAX_DB_CONNECTIONS: 150
+      MAX_PREPARED_STATEMENTS: 200
+      SERVER_IDLE_TIMEOUT: 300
+      IGNORE_STARTUP_PARAMETERS: extra_float_digits
+      LOG_CONNECTIONS: 0
+      LOG_DISCONNECTIONS: 0
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - skylab
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -p 5432 -U ${POSTGRES_USER}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
 
   # -------------------------
   # Redis
@@ -107,7 +176,12 @@ services:
   # -------------------------
   mailcatcher:
     image: schickling/mailcatcher
+    # SMTP_HOST 預設就是 mailcatcher（見 x-backend-env），所以它必須跟著起來；
+    # 正式環境在 .env 設真正的 SMTP_HOST 後，這個容器只是閒置，不對外暴露。
+    restart: unless-stopped
     ports:
+
+
       # Dev-only mail sink — bind to localhost so captured mail (incl. password
       # reset links) is not readable from the public network. Replace with a
       # real SMTP (set SMTP_HOST/SMTP_* in .env) before a real production run.
@@ -129,10 +203,11 @@ services:
       - .env
     environment:
       <<: *backend-env
+      # migration（DDL、長交易）不經連線池，直連 Postgres
+      POSTGRES_SERVER: db
+      POSTGRES_PORT: 5432
     depends_on:
       db:
-        condition: service_healthy
-      redis:
         condition: service_healthy
     networks:
       - skylab
@@ -145,11 +220,10 @@ services:
     build:
       context: .
       dockerfile: backend/Dockerfile
-    command:
-      - fastapi
-      - run
-      - --reload
-      - app/main.py
+    # 不覆寫 command：沿用 Dockerfile 的 `fastapi run --workers 1`。
+    # 這個服務沒有掛程式碼 volume，先前的 --reload 只是多一個 watcher 行程
+    # 盯著映像內不會變的檔案；本機開發請直接跑 `fastapi dev app/main.py`。
+    restart: unless-stopped
     ports:
       # Localhost only: the public entry point is nginx (:80), which proxies
       # /api and /ws to this service over the internal network. Exposing 8000
@@ -160,7 +234,7 @@ services:
     environment:
       <<: *backend-env
     depends_on:
-      db:
+      pgbouncer:
         condition: service_healthy
       redis:
         condition: service_healthy
@@ -195,7 +269,7 @@ services:
     environment:
       <<: *backend-env
     depends_on:
-      db:
+      pgbouncer:
         condition: service_healthy
       redis:
         condition: service_healthy
@@ -210,6 +284,7 @@ services:
   # -------------------------
   frontend:
     image: '${DOCKER_IMAGE_FRONTEND:-frontend}:${TAG-latest}'
+    restart: unless-stopped
     build:
       context: .
       dockerfile: frontend/Dockerfile
@@ -218,7 +293,8 @@ services:
         ENABLE_SIGNUP: ${ENABLE_SIGNUP:-true}
     ports:
       # Localhost only — public traffic goes through nginx (:80).
-      - "127.0.0.1:5173:80"
+      # 容器內是非 root 的 nginx，聽 8080。
+      - "127.0.0.1:5173:8080"
     depends_on:
       backend:
         condition: service_healthy

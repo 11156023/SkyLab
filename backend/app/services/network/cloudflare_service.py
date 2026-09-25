@@ -34,6 +34,8 @@ _PROXIABLE_RECORD_TYPES = {"A", "AAAA", "CNAME", "HTTPS", "SVCB"}
 _PRIORITY_RECORD_TYPES = {"MX", "SRV", "URI"}
 _DEFAULT_REVERSE_PROXY_TARGET_TYPES = {"A", "CNAME"}
 _HOSTNAME_LABEL_PATTERN = re.compile(r"^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$", re.IGNORECASE)
+# Cloudflare 的 zone id / record id 格式：32 位十六進位
+_CLOUDFLARE_ID_PATTERN = re.compile(r"^[0-9a-f]{32}$")
 
 
 def _to_public_config(config: CloudflareConfig | None) -> CloudflareConfigPublic:
@@ -224,7 +226,7 @@ def upsert_reverse_proxy_dns_record(
     existing_record_id: str | None = None,
 ) -> CloudflareDNSRecordPublic:
     clean_zone_id = _require_identifier(zone_id, "zone_id")
-    clean_domain = _require_identifier(domain, "domain").lower()
+    clean_domain = _require_text(domain, "domain").lower()
     client, config = _build_client_from_session(session)
     target_type, target_value = _get_default_dns_target(config)
     record_payload = CloudflareDNSRecordCreate(
@@ -488,10 +490,27 @@ def _is_valid_hostname(value: str) -> bool:
 
 
 def _require_identifier(value: str, field_name: str) -> str:
-    identifier = value.strip()
+    """Cloudflare 的 zone / record id：32 位十六進位，一律正規化成小寫。
+
+    這些值會直接拼進 Cloudflare API 的路徑，以前只檢查非空字串，
+    前端亂傳（或帶上 ``../``）就會打到非預期的端點；先擋格式再送出。
+    """
+    identifier = value.strip().lower()
     if not identifier:
         raise BadRequestError(t("cloudflare.identifierRequired", field=field_name))
+    if not _CLOUDFLARE_ID_PATTERN.fullmatch(identifier):
+        raise BadRequestError(
+            t("cloudflare.identifierInvalidFormat", field=field_name)
+        )
     return identifier
+
+
+def _require_text(value: str, field_name: str) -> str:
+    """非空白字串（網域這類不是 id 的參數用）。"""
+    text_value = value.strip()
+    if not text_value:
+        raise BadRequestError(t("cloudflare.identifierRequired", field=field_name))
+    return text_value
 
 
 def _string_or_none(value: object) -> str | None:

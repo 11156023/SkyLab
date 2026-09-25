@@ -178,6 +178,8 @@ export default function GpuMgmtPage() {
   const [rows, setRows] = useState([]);
   const [filter, setFilter] = useState("");
   const [loading, setLoading] = useState(true);
+  /* 刪除進行中：擋住重複點擊，等重新載入完成才解除 */
+  const [deleting, setDeleting] = useState(false);
   const [expandedIds, setExpandedIds] = useState(() => new Set());
 
   const toggleExpanded = (id) => {
@@ -206,6 +208,7 @@ export default function GpuMgmtPage() {
   useAutoRefresh(() => load(true));
 
   const handleDelete = async (id) => {
+    if (deleting) return;
     const ok = await confirm({
       title: t("GpuMgmtPage.deleteMappingTitle"),
       message: t("GpuMgmtPage.deleteMappingMessage", { id }),
@@ -213,12 +216,16 @@ export default function GpuMgmtPage() {
       danger: true,
     });
     if (!ok) return;
+    setDeleting(true);
     try {
       await GpuService.deleteMapping(id);
       toast.success(t("GpuMgmtPage.deletedToast"));
-      load();
+      /* 等清單重新載入完才解鎖，避免使用者對已刪掉的舊列再按一次 */
+      await load(true);
     } catch (e) {
       toast.error(e?.message ?? t("GpuMgmtPage.deleteFailed"));
+    } finally {
+      setDeleting(false);
     }
   };
 
@@ -352,8 +359,10 @@ export default function GpuMgmtPage() {
                           <div className={styles.actions}>
                             <button
                               type="button"
-                              className={`${styles.actionBtn} ${styles.actionBtnDanger}`}
+                              className={styles.actionBtnDanger}
                               title={t("GpuMgmtPage.removeMappingTitle")}
+                              aria-label={`${t("GpuMgmtPage.removeMappingTitle")} ${n.mapping}`}
+                              disabled={deleting}
                               onClick={() => handleDelete(n.id)}
                             >
                               <MIcon name="delete" size={16} />

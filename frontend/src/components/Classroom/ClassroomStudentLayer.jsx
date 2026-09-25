@@ -4,6 +4,7 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from "react";
 import { useTranslation } from "react-i18next";
@@ -73,12 +74,20 @@ export default function ClassroomStudentLayer({ children }) {
     }
   }, []);
 
-  useClassroomSocket(handleEvent);
+  const { connected } = useClassroomSocket(handleEvent);
 
   // 初次掛載時查一次是否已有進行中的直播
   useEffect(() => {
     refreshLive();
   }, [refreshLive]);
+
+  /* 斷線期間推播全部漏掉，畫面會停在斷線那一刻的狀態。
+     重新連上（false → true）時重查一次，把直播狀態補回正確值。 */
+  const wasConnectedRef = useRef(false);
+  useEffect(() => {
+    if (connected && !wasConnectedRef.current) refreshLive();
+    wasConnectedRef.current = connected;
+  }, [connected, refreshLive]);
 
   const showBanner = liveSessionId !== null && !bannerDismissed;
   const ctx = useMemo(() => ({ takenOverVmids }), [takenOverVmids]);

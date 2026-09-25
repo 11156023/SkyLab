@@ -37,8 +37,8 @@ def harness(monkeypatch: pytest.MonkeyPatch) -> dict:
         svc, "_list_scan_batch", lambda session, cursor, limit: [_resource(101)]
     )
     monkeypatch.setattr(
-        svc,
-        "_pve_resource_map",
+        svc.proxmox_service,
+        "list_all_resources_by_vmid",
         lambda: {101: {"vmid": 101, "node": "pve1", "type": "qemu"}},
     )
     monkeypatch.setattr(

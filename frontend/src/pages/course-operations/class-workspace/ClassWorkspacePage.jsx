@@ -9,6 +9,7 @@ import MIcon from "../../../components/MIcon";
 import PageHeader from "../../../components/PageHeader/PageHeader";
 import EmptyState from "../../../components/EmptyState/EmptyState";
 import FileDropzone from "../../../components/FileDropzone/FileDropzone";
+import SegmentedControl from "../../../components/SegmentedControl/SegmentedControl";
 import ClassroomWatchDialog from "../../../components/Classroom/ClassroomWatchDialog";
 import TerminalDialog from "../../personal/resources/TerminalDialog";
 import { useConfirm } from "../../../components/ConfirmDialog/ConfirmProvider";
@@ -35,9 +36,10 @@ import ConnectionEdge from "../../network/firewall/edges/ConnectionEdge";
 import ConnectionDetailPanel from "../../network/firewall/ConnectionDetailPanel";
 import { routeEdges } from "../../network/firewall/utils/buildFlow";
 import { joinList } from "../../../utils/joinList";
+import { mergeUnsavedWeekEdits } from "./weeklyEdits";
 import { INTERNET_KEY } from "../../../components/ConnectionDialog/intents";
 import { ThemeContext } from "../../../contexts/ThemeContext";
-import { normalizePublication, peerDetailPort, peerEdgeLabel, publicationDetailPort, publicationLabel } from "../courseTopology";
+import { frozenTopologyLayout, normalizePublication, peerDetailPort, peerEdgeLabel, publicationDetailPort, publicationLabel } from "../courseTopology";
 
 const POST_ACTIVE_TABS = ["progress", "ai"];
 
@@ -362,12 +364,34 @@ function WeeklyContent({ item, onRefresh }) {
   const [weeks, setWeeks] = useState(item.weeks);
   const [saving, setSaving] = useState(false);
   const [uploadingWeek, setUploadingWeek] = useState("");
+  /* 還沒填主題就按「發布」的那週：主題欄亮紅框，開始打字就解除 */
+  const [titleMissingWeek, setTitleMissingWeek] = useState("");
+  const titleInputRefs = useRef({});
   const locked = item.status === "archived";
-  useEffect(() => setWeeks(item.weeks), [item.weeks]);
-  function update(id, key, value) { setWeeks((rows) => rows.map((row) => row.id === id ? { ...row, [key]: value } : row)); }
+  /* 有還沒儲存的修改時，重抓回來的班級資料（審核／建機中每 3 秒一次）只更新檔案等
+     伺服器欄位，不蓋掉老師正在打的主題、機器與發布狀態；按儲存成功後才整份換回伺服器版本 */
+  const unsavedRef = useRef(false);
+  useEffect(() => {
+    setWeeks((current) => (unsavedRef.current ? mergeUnsavedWeekEdits(item.weeks, current) : item.weeks));
+  }, [item.weeks]);
+  function update(id, key, value) {
+    unsavedRef.current = true;
+    setWeeks((rows) => rows.map((row) => row.id === id ? { ...row, [key]: value } : row));
+  }
+  /* 沒填主題就按「發布」：不反灰擋掉（使用者會以為壞了），改成告訴他缺什麼——
+     主題欄亮紅框、游標跳進去，並跳提示 */
+  function setWeekStatus(week, published, value) {
+    if ((value === "published") === published) return;
+    if (value === "published" && !week.title.trim()) {
+      setTitleMissingWeek(week.id);
+      focusInvalidField(titleInputRefs.current[week.id]);
+      toast.info(t("ClassWorkspacePage.publishNeedsTopicHint"));
+      return;
+    }
+    update(week.id, "status", value);
+  }
   function mergeUploadedFiles(result) {
-    const serverWeeks = normalizeClass(result).weeks;
-    setWeeks((current) => serverWeeks.map((serverWeek) => ({ ...serverWeek, title: current.find((week) => week.date === serverWeek.date)?.title ?? serverWeek.title })));
+    setWeeks((current) => mergeUnsavedWeekEdits(normalizeClass(result).weeks, current));
   }
   async function upload(weekId, fileList) {
     const files = Array.from(fileList ?? []);
@@ -391,7 +415,9 @@ function WeeklyContent({ item, onRefresh }) {
   async function save() {
     setSaving(true);
     try {
-      const result = await TeachingClassesService.replaceWeeks(item.id, weeks.map((week) => ({ week_number: week.week, session_date: week.date, title: week.title.trim(), target_node_key: week.target || null, status: week.status, files: week.files.map((file) => ({ filename: file.filename, storage_key: file.storage_key ?? null, target_path: file.target_path ?? null })) })));
+      // 教材只送已上傳檔案的 id：storage_key 由後端自己查，不再由前端帶
+      const result = await TeachingClassesService.replaceWeeks(item.id, weeks.map((week) => ({ week_number: week.week, session_date: week.date, title: week.title.trim(), target_node_key: week.target || null, status: week.status, files: week.files.filter((file) => file.id).map((file) => ({ id: String(file.id), target_path: file.target_path ?? null })) })));
+      unsavedRef.current = false;
       onRefresh(result); toast.success(t("ClassWorkspacePage.weeklySavedMsg"));
     } catch (error) { toast.error(error?.message ?? t("ClassWorkspacePage.saveFailed")); }
     finally { setSaving(false); }
@@ -405,7 +431,18 @@ function WeeklyContent({ item, onRefresh }) {
           const published = ["published", "completed"].includes(week.status);
           return <article key={week.id}>
             <div className={styles.weekDate}><strong>{t("ClassWorkspacePage.weekNumberLabel", { week: week.week })}</strong><span>{week.date}</span></div>
-            <input className={styles.weekTitleInput} disabled={locked} value={week.title} onChange={(event) => update(week.id, "title", event.target.value)} placeholder={t("ClassWorkspacePage.topicPlaceholder")} />
+            <input
+              ref={(node) => { titleInputRefs.current[week.id] = node; }}
+              className={`${styles.weekTitleInput} ${titleMissingWeek === week.id ? styles.fieldInvalid : ""}`}
+              aria-invalid={titleMissingWeek === week.id}
+              disabled={locked}
+              value={week.title}
+              onChange={(event) => {
+                update(week.id, "title", event.target.value);
+                if (titleMissingWeek === week.id) setTitleMissingWeek("");
+              }}
+              placeholder={t("ClassWorkspacePage.topicPlaceholder")}
+            />
             <select className={styles.weekMachineSelect} disabled={locked} value={week.target} onChange={(event) => update(week.id, "target", event.target.value)} aria-label={t("ClassWorkspacePage.weekMachineAria", { week: week.week })}>
               <option value="">{t("ClassWorkspacePage.weekMachineAll")}</option>
               {item.nodes.map((node) => <option key={node.node_key} value={node.node_key}>{node.name}</option>)}
@@ -414,7 +451,24 @@ function WeeklyContent({ item, onRefresh }) {
               {week.files.map((file) => <span className={styles.weekFileChip} key={file.id ?? file.filename}><MIcon name="description" size={15} /><b>{file.filename}</b>{!locked && file.id && <button type="button" disabled={uploadingWeek === week.id} aria-label={t("ClassWorkspacePage.removeFileAria", { filename: file.filename })} onClick={() => removeFile(week.id, file)}><MIcon name="close" size={14} /></button>}</span>)}
               {!locked && <FileDropzone compact multiple title={t("common:FileDropzone.titleShort")} uploading={uploadingWeek === week.id} onFiles={(files) => upload(week.id, files)} />}
             </div>
-            <button type="button" disabled={locked || !week.title.trim()} title={!week.title.trim() ? t("ClassWorkspacePage.publishNeedsTopicHint") : undefined} className={`${styles.weekPublishButton} ${published ? styles.weekPublished : ""}`} onClick={() => update(week.id, "status", published ? "draft" : "published")}><MIcon name={published ? "visibility" : "visibility_off"} size={15} />{published ? t("ClassWorkspacePage.publishedShortLabel") : t("ClassWorkspacePage.draftKeepLabel")}</button>
+            {/* 草稿｜發布 二選一：兩個選項都看得到，這週目前是哪個就亮哪個。
+                沒填主題時「發布」看起來淡一點但點得下去，點了由 setWeekStatus 說明缺什麼 */}
+            <div className={styles.weekVisible}>
+              <SegmentedControl
+                className={styles.weekStatusControl}
+                ariaLabel={t("ClassWorkspacePage.weekVisibleAria", { week: week.week })}
+                value={published ? "published" : "draft"}
+                onChange={(value) => setWeekStatus(week, published, value)}
+                options={[
+                  { value: "draft", label: t("ClassWorkspacePage.weekStatusDraft"), buttonProps: { disabled: locked } },
+                  {
+                    value: "published",
+                    label: t("ClassWorkspacePage.weekStatusPublished"),
+                    buttonProps: { disabled: locked, "aria-disabled": !published && !week.title.trim() ? "true" : undefined },
+                  },
+                ]}
+              />
+            </div>
           </article>;
         })}
       </div>
@@ -429,12 +483,13 @@ function ReadonlyMachineNode({ data }) {
   const { t } = useTranslation("teaching");
   const { node, publicationCount } = data;
   const spec = `${node.cpu} CPU · ${Math.round(node.memory_mb / 1024)} GB · ${node.disk_gb} GB`;
-  return <div className={`${fwStyles.vmNode} ${styles.flowMachineNodeStatic}`}>
+  return <div className={`${fwStyles.vmNode} ${styles.courseMachineNode} ${styles.flowMachineNodeStatic}`}>
     <NodeHandles />
     <div className={fwStyles.vmStatus} style={{ background: "var(--color-status-neutral)" }} />
     <div className={fwStyles.vmInfo}>
       <span className={fwStyles.vmName} title={node.name}>{node.name}</span>
-      <span className={fwStyles.vmMeta} title={spec}>{node.role ? `${node.role} · ` : ""}{spec}</span>
+      {/* 副標只寫規格，跟教學環境編輯器一致；角色與完整規格放滑過提示 */}
+      <span className={`${fwStyles.vmMeta} ${styles.courseMachineMeta}`} title={node.role ? `${node.role} · ${spec}` : spec}>{spec}</span>
     </div>
     <MIcon name={node.resource_type === "lxc" ? "terminal" : "dns"} size={15} />
     {publicationCount > 0 && <span className={fwStyles.exposedBadge} title={t("ClassWorkspacePage.nodePublicCount", { count: publicationCount })}>
@@ -511,9 +566,11 @@ function TopologyPreview({ item }) {
         data: { node, publicationCount: publicationCounts[node.node_key] ?? 0 },
       };
     });
-    /* 網際網路節點放在最右邊那台機器的右側 */
-    const rightmost = Math.max(0, ...machines.map((node) => node.position.x));
-    return [...machines, { id: INTERNET_KEY, type: "gateway", position: { x: rightmost + 260, y: 95 }, data: {} }];
+    /* 唯讀畫布不能拖：機器靠太近、連線標籤會被隔壁那台蓋住時，顯示時把它們推開
+       （只影響這裡畫出來的位置，不改課程環境存的座標；已發布的教學環境編輯器同一套） */
+    const { positions, internet } = frozenTopologyLayout(machines);
+    const placed = machines.map((node) => ({ ...node, position: positions.get(node.id) }));
+    return [...placed, { id: INTERNET_KEY, type: "gateway", position: internet, data: {} }];
   }, [item.nodes, item.nodePositions, publicationCounts]);
 
   const edges = useMemo(() => {
@@ -532,7 +589,6 @@ function TopologyPreview({ item }) {
           selected: selectedKey === id,
           onSelect: () => setSelectedKey((current) => (current === id ? "" : id)),
         },
-        zIndex: 5,
       };
     });
     const inbound = publications.map((publication) => {
@@ -549,7 +605,6 @@ function TopologyPreview({ item }) {
           selected: selectedKey === id,
           onSelect: () => setSelectedKey((current) => (current === id ? "" : id)),
         },
-        zIndex: 5,
       };
     });
     /* 上網線是預設策略：每台都有，預設藏起來、要看再開（與防火牆頁相同） */
@@ -568,7 +623,6 @@ function TopologyPreview({ item }) {
           selected: selectedKey === id,
           onSelect: () => setSelectedKey((current) => (current === id ? "" : id)),
         },
-        zIndex: 4,
       };
     });
     return routeEdges([...peers, ...inbound, ...outbound], nodes);
@@ -598,7 +652,8 @@ function TopologyPreview({ item }) {
       onPaneClick={() => setSelectedKey("")}
       deleteKeyCode={null}
       fitView
-      fitViewOptions={{ padding: 0.2 }}
+      /* 自動置中最多放大到 1 倍：機器少時才不會被放到 1.5 倍、字比編輯器大一圈；手動仍可拉近 */
+      fitViewOptions={{ padding: 0.2, maxZoom: 1 }}
       minZoom={0.5}
       maxZoom={1.5}
       colorMode={theme}
@@ -1003,7 +1058,16 @@ export default function ClassWorkspacePage() {
   }, [menuOpen]);
   useEffect(() => {
     if (!item || !["pending_review", "provisioning"].includes(item.status)) return undefined;
-    const timer = window.setInterval(() => TeachingClassesService.provisionStatus(item.id).then(refresh).catch(() => {}), 3000);
+    // 進度本身是純讀取；每五輪（15 秒）才請後端把建機結果寫回班級，
+    // 那一支會實際呼叫 PVE，不適合每三秒打一次。
+    let ticks = 0;
+    const timer = window.setInterval(() => {
+      ticks += 1;
+      const request = ticks % 5 === 1
+        ? TeachingClassesService.reconcile(item.id)
+        : TeachingClassesService.provisionStatus(item.id);
+      request.then(refresh).catch(() => {});
+    }, 3000);
     return () => window.clearInterval(timer);
   }, [item?.id, item?.status]);
 
@@ -1122,7 +1186,7 @@ export default function ClassWorkspacePage() {
         return <button type="button" key={key} className={`${tab === key ? styles.workspaceTabActive : ""} ${done ? styles.workspaceTabDone : ""}`} onClick={() => navigate(target)}><strong><span className={styles.envStepNum}>{done ? <MIcon name="check" size={14} /> : String(index + 1).padStart(2, "0")}</span>{t(labelKey)}</strong></button>;
       })}</nav>
     </section>
-    <main className={styles.workspaceContent}>
+    <div className={styles.workspaceContent}>
       {tab === "overview" && <Overview item={item} template={template} onProvision={provision} onNavigate={(target) => navigate(`/class-management/${classId}/${target}`)} onRetry={retryFailed} onReset={resetFailed} onReclaim={reclaimClass} provisioning={provisioning} recovering={recovering} lifecycleBusy={lifecycleBusy} />}
       {tab === "students" && <Students item={item} onRefresh={refresh} />}
       {tab === "weekly" && <WeeklyContent item={item} onRefresh={refresh} />}
@@ -1130,7 +1194,7 @@ export default function ClassWorkspacePage() {
       {postUnavailable && <LockedFeature section={tab} />}
       {tab === "progress" && !postUnavailable && <StudentMachines item={item} />}
       {!TABS.some(([key]) => key === tab) && <LockedFeature section={tab} />}
-    </main>
+    </div>
     {scheduleDialog.open && <ClassCreateDialog item={item} closing={scheduleDialog.closing} onClose={() => setScheduleOpen(false)} onUpdated={(result) => { refresh(result); setScheduleOpen(false); toast.success(t("ClassWorkspacePage.scheduleUpdatedMsg")); }} />}
     {extendDialog.open && <ExtendDialog item={item} closing={extendDialog.closing} busy={lifecycleBusy} onClose={() => setExtendOpen(false)} onExtend={extendClass} />}
   </div>;

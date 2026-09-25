@@ -87,6 +87,42 @@ def _no_side_effects(monkeypatch):
     )
 
 
+def test_topology_is_not_reapplied_while_nothing_changed(monkeypatch):
+    """班級已經可上課、建機工作也沒動過時，不要再對 PVE 重下一輪規則。"""
+    applied: list[uuid.UUID] = []
+    monkeypatch.setattr(
+        class_status_service.class_network_service,
+        "apply_class_topology",
+        lambda _session, class_id: applied.append(class_id) or [],
+    )
+    session, item = _session(
+        [_job(BatchProvisionJobStatus.completed)], reservation=None
+    )
+
+    class_status_service.recompute(session=session, class_id=item.id)
+    class_status_service.recompute(session=session, class_id=item.id)
+
+    assert item.status == TeachingClassStatus.active
+    assert applied == [item.id]
+
+
+def test_topology_is_reapplied_after_a_retry_changes_the_jobs(monkeypatch):
+    applied: list[uuid.UUID] = []
+    monkeypatch.setattr(
+        class_status_service.class_network_service,
+        "apply_class_topology",
+        lambda _session, class_id: applied.append(class_id) or [],
+    )
+    job = _job(BatchProvisionJobStatus.completed)
+    session, item = _session([job])
+
+    class_status_service.recompute(session=session, class_id=item.id)
+    job.done, job.total = 3, 3  # 補了一位學生後重新跑完
+    class_status_service.recompute(session=session, class_id=item.id)
+
+    assert applied == [item.id, item.id]
+
+
 def test_all_jobs_completed_makes_the_class_teachable():
     reservation = SimpleNamespace(status="reserved")
     session, item = _session(

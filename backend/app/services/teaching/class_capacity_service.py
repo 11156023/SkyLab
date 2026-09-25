@@ -209,11 +209,11 @@ def eligible_nodes_for_machine(
         node_map = proxmox_service.get_lxc_template_node_map()
         # 整張映射為空多半是查詢失敗，沿用舊的單一節點行為而非誤判為全叢集可用
         if not node_map:
-            return {provisioning_service._get_lxc_target_node()}
+            return {provisioning_service.get_lxc_target_node()}
         return set(node_map.get(str(machine_node.custom_image_ref or ""), set()))
 
     return {
-        provisioning_service._get_vm_target_node(
+        provisioning_service.get_vm_target_node(
             int(machine_node.custom_image_ref or "0")
         )
     }
@@ -270,7 +270,7 @@ def class_eligibility(
 def _preferred_node() -> str | None:
     """沿用各連線 default_node 的既有偏好；取不到時回 None。"""
     try:
-        return provisioning_service._get_lxc_target_node()
+        return provisioning_service.get_lxc_target_node()
     except Exception:
         return None
 
@@ -710,7 +710,7 @@ def _storage_pool_issues(
         return []
 
     _cpu_ratio, disk_ratio = placement_service.get_overcommit_ratios(session)
-    tuning = placement_service._get_placement_tuning(session=session)
+    tuning = placement_service.get_placement_tuning(session=session)
     for machine_node in nodes:
         disk_gb = int(machine_node.disk_gb)
         resource_type = "lxc" if machine_node.resource_type.lower() == "lxc" else "vm"

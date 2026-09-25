@@ -2,9 +2,11 @@ import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react"
 import { createPortal } from "react-dom";
 import { useSearchParams } from "react-router-dom";
 import styles from "./AiJudgePanel.module.scss";
-import LoadingState from "../../../components/LoadingState/LoadingState";
+import LoadingState, { LoadingSpinner } from "../../../components/LoadingState/LoadingState";
+import EmptyState from "../../../components/EmptyState/EmptyState";
 import MIcon from "../../../components/MIcon";
 import { useToast } from "../../../hooks/useToast";
+import { useConfirm } from "../../../components/ConfirmDialog/ConfirmProvider";
 import useAutoRefresh from "../../../hooks/useAutoRefresh";
 import useDialogPresence from "../../../hooks/useDialogPresence";
 import useFileDrop from "../../../hooks/useFileDrop";
@@ -514,35 +516,16 @@ export function getSessionMenuPosition(anchorRect, options = {}) {
   return { top: Math.round(top), left: Math.round(left) };
 }
 
-/**
- * 初始空狀態的中央 Hero：淡漸層光暈 + 大標題 + 主 CTA。
- * 只用於尚未選中任何檢查（!activeSession）的中間欄，不影響 sidebarEmpty。
- * 常用檢查 chips 目前僅為引導入口，一律走 openCreateCheckDialog 建檔流程。
- */
-export function EmptyCheckHero({ onCreateCheck }) {
+/** 尚未選中檢查時的中央空狀態；新增入口位於檢查清單頂端。 */
+export function EmptyCheckHero() {
   return (
     <div className={styles.heroEmpty} data-empty-hero="true">
       <span className={styles.heroGlow} aria-hidden="true" />
       <span className={styles.heroBadge}>
         <MIcon name="auto_awesome" size={28} />
       </span>
-      <h2 className={styles.heroTitle}>開始建立 AI 檢查</h2>
-      <p className={styles.heroDesc}>告訴 AI 你希望驗證什麼，系統會協助建立檢查項目與執行方式。</p>
-      <button type="button" className={`${styles.btnPrimary} ${styles.heroCta}`} onClick={onCreateCheck}>
-        <MIcon name="add" size={18} />建立第一個檢查
-      </button>
-      <div className={styles.heroQuick} aria-label="常用檢查">
-        <span className={styles.heroQuickLabel}>常用檢查</span>
-        <button type="button" className={styles.heroChip} onClick={onCreateCheck} title="以服務狀態為起點建立檢查">
-          <MIcon name="dns" size={15} />服務狀態
-        </button>
-        <button type="button" className={styles.heroChip} onClick={onCreateCheck} title="以設定檔為起點建立檢查">
-          <MIcon name="description" size={15} />設定檔
-        </button>
-        <button type="button" className={styles.heroChip} onClick={onCreateCheck} title="以執行結果為起點建立檢查">
-          <MIcon name="fact_check" size={15} />執行結果
-        </button>
-      </div>
+      <h2 className={styles.heroTitle}>選擇一項檢查</h2>
+      <p className={styles.heroDesc}>從檢查清單選擇項目，或使用清單頂端的「新增檢查」開始建立。</p>
     </div>
   );
 }
@@ -929,7 +912,7 @@ function RubricTableRow({ item, index, onChange, onDelete, disabled, needsReview
           <div className={styles.tableActions}>
             <button
               type="button"
-              className={`${styles.iconBtn} ${styles.iconBtnDanger}`}
+              className={styles.iconBtnDanger}
               title="刪除項目"
               aria-label={`刪除第 ${index + 1} 項：${item.title || "未命名項目"}`}
               onClick={onDelete}
@@ -1466,6 +1449,7 @@ export function ChatPanel({
 
 export function SaveAndCreateAction({
   onClick,
+  onBlocked,
   disabled = false,
   blocker = null,
   isProcessing = false,
@@ -1480,11 +1464,14 @@ export function SaveAndCreateAction({
   return (
     <div className={styles.rubricActionBar}>
       <p>先儲存目前內容，再由 AI 核對全部項目；全綠後會直接製作腳本。</p>
+      {/* 前置條件沒完成（blocker）時不設 disabled：停用的按鈕點不到也聚焦不到，
+          使用者不知道為什麼不能按。改成外觀停用（aria-disabled），點了由 onBlocked 說明原因 */}
       <button
         type="button"
         className={`${styles.btnPrimary} ${isProcessing ? styles.btnPrimaryProcessing : ""}`}
-        disabled={disabled || isProcessing || Boolean(blocker)}
-        onClick={onClick}
+        disabled={disabled || isProcessing}
+        aria-disabled={blocker ? "true" : undefined}
+        onClick={() => (blocker ? onBlocked?.(blocker) : onClick())}
         title={blocker || undefined}
         aria-busy={isProcessing}
         data-generation-status={status || undefined}
@@ -2295,7 +2282,7 @@ export function RubricsTab({ classId, judgeSession, onSessionUpdated, onScriptCr
   const saveAndCreateBlocker = pendingProposal
     ? "請先套用或略過目前的 AI 檢查項目提案"
     : items.length === 0
-      ? "請先新增至少一個檢查項目"
+      ? "請先在聊天室請 AI 產生至少一個檢查項目"
       : null;
 
   return (
@@ -2305,13 +2292,6 @@ export function RubricsTab({ classId, judgeSession, onSessionUpdated, onScriptCr
         status={scriptGenerationStatus}
         notice={scriptGenerationNotice}
       />
-
-      {analysis && items.length === 0 && (
-        <div className={styles.noticeInfo}>
-          <p><strong>尚未新增檢查項目</strong></p>
-          <p>請在聊天室請 AI 產生至少一個檢查項目，才能製作檢查腳本。</p>
-        </div>
-      )}
 
       {analysis && items.length > 0 && scriptCreationBlocker && !pendingProposal && (
         <div className={styles.noticeInfo} role="status">
@@ -2360,6 +2340,7 @@ export function RubricsTab({ classId, judgeSession, onSessionUpdated, onScriptCr
                 </div>
                 <SaveAndCreateAction
                   onClick={handleSaveAndCreate}
+                  onBlocked={(reason) => toast.info(reason)}
                   disabled={isChatting || isClearingMessages || isUploading}
                   blocker={saveAndCreateBlocker}
                   isProcessing={isCreatingScript}
@@ -2373,10 +2354,7 @@ export function RubricsTab({ classId, judgeSession, onSessionUpdated, onScriptCr
               <div className={`${styles.cardHead} ${styles.checkHead}`}>
                 <h4 className={styles.cardTitle}>檢查項目</h4>
               </div>
-              <div className={styles.mainEmpty}>
-                <MIcon name="description" size={30} />
-                <p>尚未選擇檢查表來源，請先上傳文件或與 AI 討論。</p>
-              </div>
+              <EmptyState icon="description" title="尚未選擇檢查表來源" description="請先上傳文件或與 AI 討論。" />
             </div>
           ) : null}
         </div>
@@ -4075,6 +4053,7 @@ const TEACHER_JUDGE_TABS = [
 
 function TeacherWorkspacePanel({ classId, members, weeks = [], machineNodes = [] }) {
   const toast = useToast();
+  const confirm = useConfirm();
   const [searchParams] = useSearchParams();
   const requestedSessionId = searchParams.get("check");
   const [activeTab, setActiveTab] = useState("rubrics");
@@ -4348,6 +4327,15 @@ function TeacherWorkspacePanel({ classId, members, weeks = [], machineNodes = []
   }
 
   async function deleteSession(item) {
+    /* 檢查表與其所有檢查資料一併消失，無法復原：先確認 */
+    closeSessionMenu();
+    const ok = await confirm({
+      title: "刪除檢查？",
+      message: `「${item.title}」及其檢查腳本、執行結果都會一併刪除，且無法復原。`,
+      confirmText: "刪除",
+      danger: true,
+    });
+    if (!ok) return;
     const deleted = await runSessionAction(item, async (entry) => {
       await AiJudgeService.deleteSession(classId, entry.id);
       return { ...entry, status: "deleted" };
@@ -4396,8 +4384,13 @@ function TeacherWorkspacePanel({ classId, members, weeks = [], machineNodes = []
   const sessionSidebarInner = (
     <>
       <button type="button" className={`${styles.btnPrimary} ${styles.newCheckButton}`} onClick={openCreateCheckDialog}><MIcon name="add" size={17} />新增檢查</button>
+      {loading ? (
+        <div className={styles.sidebarLoading} role="status" aria-label="載入中…"><LoadingSpinner size={44} /></div>
+      ) : sessions.length === 0 ? (
+        <EmptyState icon="checklist" title="尚未建立檢查" className={styles.sidebarEmpty} />
+      ) : (
       <div className={styles.sessionList} role="list">
-        {loading ? <p className={styles.mutedText}>載入中…</p> : sessions.length === 0 ? <div className={styles.sidebarEmpty}><MIcon name="checklist" size={24} /><p>尚未建立檢查。新增後會開啟空白檢查表，再與 AI 討論並調整。</p></div> : sessions.map((item) => {
+        {sessions.map((item) => {
           const selected = item.id === activeSessionId;
            const busy = busySessionIds.has(item.id);
                const linkedWeek = weeks.find((week) => String(week.id) === String(item.teaching_class_week_id));
@@ -4431,14 +4424,15 @@ function TeacherWorkspacePanel({ classId, members, weeks = [], machineNodes = []
                    )}
                    <div className={styles.sessionRowActions}>
                      {renaming ? <button type="button" className={styles.iconBtn} aria-label="取消重新命名" title="取消" onClick={cancelRename}><MIcon name="close" size={17} /></button> : <>
-                       <button type="button" className={`${styles.iconBtn} ${item.pinned_at ? styles.pinActive : ""}`} aria-label={item.pinned_at ? `取消釘選「${item.title}」` : `釘選「${item.title}」`} aria-pressed={Boolean(item.pinned_at)} title={item.pinned_at ? "取消釘選" : "釘選"} disabled={busy} onClick={(event) => { event.stopPropagation(); pinSession(item); }}><MIcon name="push_pin" filled={Boolean(item.pinned_at)} size={17} /></button>
-                       <button type="button" className={styles.iconBtn} aria-label={`更多「${item.title}」功能`} title="更多功能" aria-haspopup="menu" aria-expanded={openMenuId === item.id} aria-controls={`check-menu-${item.id}`} disabled={busy} onClick={(event) => toggleSessionMenu(event, item.id)}><MIcon name="more_vert" size={18} /></button>
+                       <button type="button" className={`${styles.pinBtn} ${item.pinned_at ? styles.pinBtnPinned : ""}`} aria-label={item.pinned_at ? `取消釘選「${item.title}」` : `釘選「${item.title}」`} aria-pressed={Boolean(item.pinned_at)} title={item.pinned_at ? "取消釘選" : "釘選"} disabled={busy} onClick={(event) => { event.stopPropagation(); pinSession(item); }}><MIcon name="push_pin" filled={Boolean(item.pinned_at)} size={16} /></button>
+                       <button type="button" className={styles.menuBtn} aria-label={`更多「${item.title}」功能`} title="更多功能" aria-haspopup="menu" aria-expanded={openMenuId === item.id} aria-controls={`check-menu-${item.id}`} disabled={busy} onClick={(event) => toggleSessionMenu(event, item.id)}><MIcon name="more_vert" size={18} /></button>
                      </>}
                    </div>
                  </div>
                );
             })}
           </div>
+      )}
     </>
   );
 
@@ -4479,7 +4473,7 @@ function TeacherWorkspacePanel({ classId, members, weeks = [], machineNodes = []
 
         <section className={styles.sessionMain}>
           <div className={`${styles.card} ${styles.heroCard}`}>
-            <EmptyCheckHero onCreateCheck={openCreateCheckDialog} />
+            <EmptyCheckHero />
           </div>
         </section>
       </div>

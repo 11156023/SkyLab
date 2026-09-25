@@ -222,10 +222,11 @@
   min-width: 800px;
 }
 
-/* 欄寬集中宣告，搭配 JSX 的 <colgroup>；備註欄不給寬度，吃剩下的空間 */
+/* 欄寬集中宣告，搭配 JSX 的 <colgroup>；備註欄不給寬度，吃剩下的空間。
+   備註放最後一欄：多數備註很短，剩餘寬度落在列尾，不會在兩欄資料中間留一大段空白 */
 .colIp          { width: 200px; }
 .colPurpose     { width: 140px; }
-.colVmid        { width: 96px; }
+.colVmid        { width: 80px; }
 .colAllocatedAt { width: 180px; }
 
 /* 分配時間「日期 時間」不拆成兩行 */

@@ -9,7 +9,7 @@ from time import monotonic, perf_counter
 from typing import Any
 
 import httpx
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 
 from app.ai.template_recommendation.config import settings
 from app.ai.template_recommendation.node_service import (
@@ -31,8 +31,13 @@ from app.ai.template_recommendation.schemas import (
     ChatResponse,
     RecommendationRequest,
 )
-from app.ai.utils import apply_thinking_control, strip_think_tags
+from app.ai.utils import (
+    apply_thinking_control,
+    ensure_conversation_within_limits,
+    strip_think_tags,
+)
 from app.api.deps import CurrentUser, SessionDep
+from app.api.deps.rate_limit import rate_limit_by_user
 from app.core.i18n import t
 from app.core.permissions import Permission, has_permission
 from app.infrastructure.ai.template_recommendation import client
@@ -55,6 +60,11 @@ _application_templates_cache: dict[str, Any] = {"at": 0.0, "items": None}
 router = APIRouter(
     prefix="/ai/template-recommendation",
     tags=["ai-template-recommendation"],
+)
+
+# 這兩支會實際打模型：一個帳號沒有節流就能把 GPU 佔滿並累積 token 費用
+_MODEL_CALL_RATE_LIMIT = Depends(
+    rate_limit_by_user(scope="ai-template", limit=30, window_seconds=60)
 )
 
 
@@ -308,10 +318,15 @@ def _resolve_chat_gpu_options(request: ChatRequest, session: SessionDep) -> list
     return adjusted
 
 
-@router.post("/chat", response_model=ChatResponse)
+@router.post(
+    "/chat",
+    response_model=ChatResponse,
+    dependencies=[_MODEL_CALL_RATE_LIMIT],
+)
 async def chat(
     request: ChatRequest, current_user: CurrentUser, session: SessionDep
 ) -> ChatResponse:
+    ensure_conversation_within_limits(request.messages)
     model_name = settings.VLLM_MODEL_NAME
     if not model_name:
         raise HTTPException(
@@ -434,10 +449,15 @@ async def chat(
         raise
 
 
-@router.post("/recommend", response_model=dict[str, Any])
+@router.post(
+    "/recommend",
+    response_model=dict[str, Any],
+    dependencies=[_MODEL_CALL_RATE_LIMIT],
+)
 async def recommend(
     request: ChatRequest, current_user: CurrentUser, session: SessionDep
 ) -> dict[str, Any]:
+    ensure_conversation_within_limits(request.messages)
     model_name = settings.VLLM_MODEL_NAME or "unknown"
     started_at = perf_counter()
 

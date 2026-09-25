@@ -2,15 +2,22 @@
 AI API Key 认证依赖
 """
 
+import secrets
 from typing import Annotated
 
 from fastapi import Depends, Header, HTTPException, status
-from sqlmodel import select
+from sqlmodel import col, select
 
 from app.api.deps.database import SessionDep
 from app.core.i18n import t
 from app.core.security import decrypt_value
-from app.models import AIAPICredential, User, get_datetime_utc
+from app.models import (
+    API_KEY_PREFIX_LENGTH,
+    LEGACY_API_KEY_PREFIX_LENGTH,
+    AIAPICredential,
+    User,
+    get_datetime_utc,
+)
 
 
 def get_current_user_by_ai_api_key(
@@ -33,7 +40,9 @@ def get_current_user_by_ai_api_key(
             detail=t("ai_api_key.invalid_auth_format"),
         )
 
-    api_key = authorization.replace("Bearer ", "").strip()
+    # removeprefix 只切掉開頭那一個 "Bearer "；replace 會把金鑰內部同樣的
+    # 字串也一併刪掉，讓合法金鑰驗不過
+    api_key = authorization.removeprefix("Bearer ").strip()
 
     if not api_key:
         raise HTTPException(
@@ -41,25 +50,29 @@ def get_current_user_by_ai_api_key(
             detail=t("ai_api_key.api_key_required"),
         )
 
-    # 2. 用 prefix 縮小查詢範圍（前 8 字元）
-    api_key_prefix = api_key[: min(8, len(api_key))]
+    # 2. 用 prefix 縮小查詢範圍。新金鑰存 16 字元前綴，2026-09 之前核發的只有
+    #    8 字元，兩種長度都要查，舊金鑰才不會在換算法後突然驗不過。
+    prefix_candidates = {
+        api_key[: min(API_KEY_PREFIX_LENGTH, len(api_key))],
+        api_key[: min(LEGACY_API_KEY_PREFIX_LENGTH, len(api_key))],
+    }
 
     candidates = session.exec(
         select(AIAPICredential)
-        .where(AIAPICredential.api_key_prefix == api_key_prefix)
+        .where(col(AIAPICredential.api_key_prefix).in_(prefix_candidates))
         .where(AIAPICredential.revoked_at.is_(None))
     ).all()
 
-    # 3. 逐一解密比對，找到真正匹配的憑證
+    # 3. 逐一解密比對，找到真正匹配的憑證（用 compare_digest 避免時序側通道）
     credential = None
     for cand in candidates:
         try:
             decrypted_key = decrypt_value(cand.api_key_encrypted)
-            if decrypted_key == api_key:
-                credential = cand
-                break
         except Exception:
             continue
+        if secrets.compare_digest(decrypted_key, api_key):
+            credential = cand
+            break
 
     if not credential:
         raise HTTPException(

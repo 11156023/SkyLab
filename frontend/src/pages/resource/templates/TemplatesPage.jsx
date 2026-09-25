@@ -1,7 +1,7 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { createPortal } from "react-dom";
-import { computePosition, isAnchorOffscreen } from "../../../components/PowerMenu/position";
+import useAnchoredMenu from "../../../hooks/useAnchoredMenu";
 import styles from "./TemplatesPage.module.scss";
 import MIcon from "../../../components/MIcon";
 import EmptyState from "../../../components/EmptyState/EmptyState";
@@ -122,48 +122,7 @@ const ROW_MENU_WIDTH = 200;
 
 function RowMenu({ template, cycleBusy, onClone, onEdit, onManual, onRetry, onCycle, onDelete, onClose, anchorRef, closing = false }) {
   const { t } = useTranslation("resource");
-  const ref = useRef(null);
-  const [pos, setPos] = useState(null);
-  const onCloseRef = useRef(onClose);
-  useEffect(() => { onCloseRef.current = onClose; });
-
-  const reposition = useCallback(() => {
-    const anchor = anchorRef?.current;
-    const menu = ref.current;
-    if (!anchor || !menu) return;
-    const rect = anchor.getBoundingClientRect();
-    const viewport = { width: window.innerWidth, height: window.innerHeight };
-    if (isAnchorOffscreen(rect, viewport)) {
-      onCloseRef.current();
-      return;
-    }
-    setPos(computePosition(rect, menu.offsetHeight, viewport, ROW_MENU_WIDTH));
-  }, [anchorRef]);
-
-  useLayoutEffect(() => { reposition(); }, [reposition]);
-
-  useEffect(() => {
-    const opts = { passive: true, capture: true };
-    window.addEventListener("scroll", reposition, opts);
-    window.addEventListener("resize", reposition);
-    return () => {
-      window.removeEventListener("scroll", reposition, opts);
-      window.removeEventListener("resize", reposition);
-    };
-  }, [reposition]);
-
-  useEffect(() => {
-    const handler = (e) => {
-      if (!ref.current?.contains(e.target) && !anchorRef?.current?.contains(e.target)) onClose();
-    };
-    const onKey = (e) => { if (e.key === "Escape") onClose(); };
-    document.addEventListener("mousedown", handler);
-    document.addEventListener("keydown", onKey);
-    return () => {
-      document.removeEventListener("mousedown", handler);
-      document.removeEventListener("keydown", onKey);
-    };
-  }, [onClose, anchorRef]);
+  const { ref, pos } = useAnchoredMenu({ anchorRef, onClose, width: ROW_MENU_WIDTH });
 
   return createPortal(
     <div

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 
 from app.ai.navigation.intake import read_intake
 from app.ai.navigation.schemas import (
@@ -12,11 +12,21 @@ from app.ai.navigation.schemas import (
 )
 from app.ai.navigation.service import resolve_navigation
 from app.api.deps import CurrentUser, SessionDep
+from app.api.deps.rate_limit import rate_limit_by_user
 
 router = APIRouter(prefix="/ai/navigation", tags=["ai-navigation"])
 
+# /resolve 會打模型，/intake 不會；兩支都節流，避免單一帳號整頁連打
+_NAVIGATION_RATE_LIMIT = Depends(
+    rate_limit_by_user(scope="ai-navigation", limit=30, window_seconds=60)
+)
 
-@router.post("/resolve", response_model=NavigationResolveResponse)
+
+@router.post(
+    "/resolve",
+    response_model=NavigationResolveResponse,
+    dependencies=[_NAVIGATION_RATE_LIMIT],
+)
 async def resolve_navigation_route(
     request: NavigationResolveRequest,
     session: SessionDep,
@@ -35,7 +45,11 @@ async def resolve_navigation_route(
     )
 
 
-@router.post("/intake", response_model=IntakeState)
+@router.post(
+    "/intake",
+    response_model=IntakeState,
+    dependencies=[_NAVIGATION_RATE_LIMIT],
+)
 def navigation_intake(request: IntakeRequest, _current_user: CurrentUser) -> IntakeState:
     """配置模式的下一個問題；需求問齊了就回 ready，交給推薦規劃。
 

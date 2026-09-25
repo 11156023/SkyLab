@@ -12,10 +12,15 @@
 
 import { AuthStorage } from "./auth";
 import i18n from "../i18n";
+import {
+  BLOB_REQUEST_TIMEOUT_MS,
+  DEFAULT_REQUEST_TIMEOUT_MS,
+  LOGIN_REQUEST_TIMEOUT_MS,
+  fetchWithTimeout,
+} from "./fetchWithTimeout";
 
 const BASE_URL = import.meta.env.VITE_API_URL ?? "";
 const REFRESH_PATH = "/api/v1/login/refresh-token";
-const DEFAULT_REQUEST_TIMEOUT_MS = 15_000;
 const MAX_AUTH_RETRIES = 1;
 
 /** 進行中的 refresh 請求；同一個 refresh token 的多個 401 共用一次請求。 */
@@ -224,38 +229,6 @@ async function recoverUnauthorized({ requestSnapshot, authRetryCount, retry }) {
   };
 }
 
-async function fetchWithTimeout(url, init, timeoutMs = DEFAULT_REQUEST_TIMEOUT_MS) {
-  const controller = new AbortController();
-  const upstreamSignal = init.signal;
-  let timedOut = false;
-
-  const abortFromUpstream = () => controller.abort(upstreamSignal?.reason);
-  if (upstreamSignal?.aborted) abortFromUpstream();
-  else upstreamSignal?.addEventListener("abort", abortFromUpstream, { once: true });
-
-  const timeoutId = timeoutMs > 0
-    ? setTimeout(() => {
-        timedOut = true;
-        controller.abort();
-      }, timeoutMs)
-    : null;
-
-  try {
-    return await fetch(url, { ...init, signal: controller.signal });
-  } catch (error) {
-    if (controller.signal.aborted) {
-      if (timedOut) {
-        throw { status: 408, message: "Request timed out", timeout: true };
-      }
-      throw { status: 0, message: "Request cancelled", cancelled: true };
-    }
-    throw error;
-  } finally {
-    if (timeoutId !== null) clearTimeout(timeoutId);
-    upstreamSignal?.removeEventListener("abort", abortFromUpstream);
-  }
-}
-
 /** 統一處理 response；401 時先嘗試續期再重試一次 */
 async function request(path, init, authRetryCount = 0) {
   const { timeoutMs = DEFAULT_REQUEST_TIMEOUT_MS, ...fetchInit } = init;
@@ -310,15 +283,21 @@ export function apiGet(path, options = {}) {
 }
 
 async function requestBlob(path, init, authRetryCount = 0) {
+  const { timeoutMs = BLOB_REQUEST_TIMEOUT_MS, ...fetchInit } = init;
   const requestSnapshot = AuthStorage.getSnapshot();
-  const res = await fetch(`${BASE_URL}${path}`, {
-    ...init,
-    headers: buildHeaders(
-      init.headers,
-      init.body instanceof FormData,
-      requestSnapshot.accessToken,
-    ),
-  });
+  /* 走 fetchWithTimeout：匯出打到後端卡住時會拋 408，不會讓按鈕永遠停在「匯出中」 */
+  const res = await fetchWithTimeout(
+    `${BASE_URL}${path}`,
+    {
+      ...fetchInit,
+      headers: buildHeaders(
+        fetchInit.headers,
+        fetchInit.body instanceof FormData,
+        requestSnapshot.accessToken,
+      ),
+    },
+    timeoutMs,
+  );
   if (res.ok) {
     assertResponseSession(requestSnapshot);
     const blob = await res.blob();
@@ -376,16 +355,22 @@ export function apiPost(path, body, options = {}) {
   });
 }
 
-/** POST（form-urlencoded，登入用，不帶 Authorization 也不重試） */
-export async function apiPostForm(path, params) {
-  const res = await fetch(`${BASE_URL}${path}`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/x-www-form-urlencoded",
-      "Accept-Language": i18n.language ?? "zh-TW",
+/** POST（form-urlencoded，登入用，不帶 Authorization 也不重試）
+ *  走 fetchWithTimeout：後端沒回應時登入按鈕會收到 408，不會一直轉圈。 */
+export async function apiPostForm(path, params, options = {}) {
+  const res = await fetchWithTimeout(
+    `${BASE_URL}${path}`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/x-www-form-urlencoded",
+        "Accept-Language": i18n.language ?? "zh-TW",
+      },
+      body: new URLSearchParams(params).toString(),
+      signal: options.signal,
     },
-    body: new URLSearchParams(params).toString(),
-  });
+    options.timeoutMs ?? LOGIN_REQUEST_TIMEOUT_MS,
+  );
   if (res.ok) return res.status === 204 ? null : res.json();
 
   let message = `HTTP ${res.status}`;

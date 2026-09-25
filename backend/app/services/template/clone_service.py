@@ -80,8 +80,8 @@ async def request_clone(
     template_id: uuid.UUID,
     data: TemplateCloneRequest,
 ) -> list[TaskRecord]:
-    template = template_service._get_or_404(session, template_id)
-    template_service._require_view(session, user, template)
+    template = template_service.get_or_404(session, template_id)
+    template_service.require_view(session, user, template)
     # 克隆開通僅限教師與管理員；學生要機器一律走申請審核流程。
     require_template_manage(user)
     if template.status != VMTemplateStatus.ready:
@@ -96,7 +96,7 @@ async def request_clone(
     if data.gpu_mapping_id:
         if template.resource_type == "lxc":
             raise BadRequestError(t("clone.lxcGpuUnsupported"))
-        from app.services.proxmox.provisioning_service import (  # noqa: PLC0415
+        from app.services.proxmox.provisioning_service import (
             _gpu_mapping_nodes,
         )
 
@@ -298,17 +298,20 @@ def _set_lxc_root_password(node: str, vmid: int, password: str) -> bool:
     """開機後以 ``pct exec chpasswd`` 設定 root 密碼（容器啟動需時，重試等待）。
 
     LXC config API 不接受 password（僅限建立時），只能進容器內改。
+    密碼由 stdin 餵給 ``chpasswd``，不放進指令列 —— 指令列會出現在節點的
+    ps 與 shell 紀錄裡，同一台節點上的其他人看得到。
     回傳是否成功；失敗方（呼叫端）不得記錄未生效的密碼。
     """
     from app.infrastructure.proxmox import guest
 
-    command = f"echo {shlex.quote(f'root:{password}')} | chpasswd"
     last_error: str = ""
     for attempt in range(_LXC_PASSWORD_ATTEMPTS):
         if attempt:
             time.sleep(_LXC_PASSWORD_RETRY_SECONDS)
         try:
-            code, _out, err = guest.exec_lxc(node, vmid, command)
+            code, _out, err = guest.exec_lxc(
+                node, vmid, "chpasswd", stdin=f"root:{password}\n"
+            )
         except Exception as exc:
             last_error = str(exc)
             continue
@@ -479,7 +482,7 @@ def run_clone_task(task_id: uuid.UUID, payload: dict[str, Any]) -> dict[str, Any
             password_applied = login_password is not None
             if gpu_mapping_id:
                 # 容量與 vGPU 規格以掛載當下重新驗證（與申請流程同一套檢查）
-                from app.services.proxmox.provisioning_service import (  # noqa: PLC0415
+                from app.services.proxmox.provisioning_service import (
                     _build_gpu_hostpci,
                 )
 

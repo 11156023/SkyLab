@@ -163,7 +163,7 @@ def reset_host_key(session: SessionDep, current_user: AdminUser) -> Message:
 @router.get("/install-script")
 def download_install_script(_: AdminUser):
     """下載 Gateway VM 安裝腳本"""
-    import os  # noqa: PLC0415
+    import os
 
     script_path = os.path.join(
         os.path.dirname(__file__),

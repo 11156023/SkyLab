@@ -166,7 +166,29 @@ function ConnectionTab({ config, onConfigChange }) {
   return (
     <div className={styles.panelStack}>
       <form className={styles.card} onSubmit={handleSave}>
-        <h2 className={styles.cardTitle}>{t("GatewayPage.sshConnectionTitle")}</h2>
+        {/* 動作鈕放標題列右側，跟下方「SSH 公鑰」卡片同一套排法 */}
+        <div className={styles.cardHead}>
+          <h2 className={styles.cardTitle}>{t("GatewayPage.sshConnectionTitle")}</h2>
+          <div className={styles.cardHeadActions}>
+            <button type="button" className={styles.btnSecondary} onClick={handleTest} disabled={testing || !config?.is_configured}>
+              <MIcon name="wifi_tethering" size={16} />
+              {testing ? t("GatewayPage.testing") : t("GatewayPage.testConnection")}
+            </button>
+            <button
+              type="button"
+              className={styles.btnSecondary}
+              onClick={handleResetHostKey}
+              disabled={resetting || !config?.host}
+              title={t("GatewayPage.resetHostKeyHint")}
+            >
+              <MIcon name="key_off" size={16} />
+              {resetting ? t("GatewayPage.resetting") : t("GatewayPage.resetHostKey")}
+            </button>
+            <button type="submit" className={styles.btnPrimary} disabled={saving}>
+              {saving ? t("GatewayPage.saving") : t("GatewayPage.saveConnectionSettings")}
+            </button>
+          </div>
+        </div>
         <div className={styles.formGrid}>
           <label className={styles.field}>
             <span>Host / IP *</span>
@@ -196,25 +218,6 @@ function ConnectionTab({ config, onConfigChange }) {
             />
           </label>
         </div>
-        <div className={styles.cardActions}>
-          <button type="button" className={styles.btnSecondary} onClick={handleTest} disabled={testing || !config?.is_configured}>
-            <MIcon name="wifi_tethering" size={16} />
-            {testing ? t("GatewayPage.testing") : t("GatewayPage.testConnection")}
-          </button>
-          <button
-            type="button"
-            className={styles.btnSecondary}
-            onClick={handleResetHostKey}
-            disabled={resetting || !config?.host}
-            title={t("GatewayPage.resetHostKeyHint")}
-          >
-            <MIcon name="key_off" size={16} />
-            {resetting ? t("GatewayPage.resetting") : t("GatewayPage.resetHostKey")}
-          </button>
-          <button type="submit" className={styles.btnPrimary} disabled={saving}>
-            {saving ? t("GatewayPage.saving") : t("GatewayPage.saveConnectionSettings")}
-          </button>
-        </div>
       </form>
 
       <div className={styles.card}>
@@ -238,6 +241,41 @@ function ConnectionTab({ config, onConfigChange }) {
           {config?.public_key || t("GatewayPage.keypairNotGenerated")}
         </pre>
       </div>
+    </div>
+  );
+}
+
+/* 服務卡片右上的動作按鈕列：執行中的動作顯示「...」，同時只允許一個動作 */
+function ServiceActionButtons({ actions, acting, onAction }) {
+  return (
+    <div className={styles.cardHeadActions}>
+      {actions.map(({ action, label, icon }) => (
+        <button
+          key={action}
+          type="button"
+          className={styles.btnSecondary}
+          disabled={acting !== null}
+          onClick={() => onAction(action)}
+        >
+          <MIcon name={icon} size={16} />
+          {acting === action ? "..." : label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+/* 服務日誌卡片：logs 為 null 代表抓取失敗、空字串代表沒有輸出 */
+function ServiceLogsCard({ logs, className }) {
+  const { t } = useTranslation("system");
+  return (
+    <div className={className ? `${styles.card} ${className}` : styles.card}>
+      <div className={styles.cardHead}>
+        <h2 className={styles.cardTitle}>{t("GatewayPage.serviceLogsTitle")}</h2>
+      </div>
+      <pre className={styles.logBlock}>
+        {logs === null ? t("GatewayPage.logsLoadFailed") : logs || t("GatewayPage.noLogOutput")}
+      </pre>
     </div>
   );
 }
@@ -368,20 +406,7 @@ function ServiceTab({ service, gatewayReady, host, onDirtyChange }) {
               <span className={`${styles.badge} ${styles.badge_danger}`}>{t("GatewayPage.statusUnavailable")}</span>
             )}
           </div>
-          <div className={styles.cardHeadActions}>
-            {SERVICE_ACTIONS.map(({ action, label, icon }) => (
-              <button
-                key={action}
-                type="button"
-                className={styles.btnSecondary}
-                disabled={acting !== null}
-                onClick={() => handleAction(action)}
-              >
-                <MIcon name={icon} size={16} />
-                {acting === action ? "..." : label}
-              </button>
-            ))}
-          </div>
+          <ServiceActionButtons actions={SERVICE_ACTIONS} acting={acting} onAction={handleAction} />
         </div>
         {status?.status_text && (
           <pre className={styles.statusBlock}>{status.status_text}</pre>
@@ -405,14 +430,7 @@ function ServiceTab({ service, gatewayReady, host, onDirtyChange }) {
         />
       </div>
 
-      <div className={`${styles.card} ${styles.areaLogs}`}>
-        <div className={styles.cardHead}>
-          <h2 className={styles.cardTitle}>{t("GatewayPage.serviceLogsTitle")}</h2>
-        </div>
-        <pre className={styles.logBlock}>
-          {logs === null ? t("GatewayPage.logsLoadFailed") : logs || t("GatewayPage.noLogOutput")}
-        </pre>
-      </div>
+      <ServiceLogsCard logs={logs} className={styles.areaLogs} />
     </div>
   );
 }
@@ -516,24 +534,15 @@ function WireGuardTab({ gatewayReady }) {
             </div>
             <p className={styles.cardHint}>{t("GatewayPage.wireGuardDescription")}</p>
           </div>
-          <div className={styles.cardHeadActions}>
-            {[
+          <ServiceActionButtons
+            actions={[
               { action: "start", label: t("GatewayPage.actionStart"), icon: "play_arrow" },
               { action: "stop", label: t("GatewayPage.actionStop"), icon: "stop" },
               { action: "restart", label: t("GatewayPage.actionRestart"), icon: "restart_alt" },
-            ].map(({ action, label, icon }) => (
-              <button
-                key={action}
-                type="button"
-                className={styles.btnSecondary}
-                disabled={acting !== null}
-                onClick={() => handleAction(action)}
-              >
-                <MIcon name={icon} size={16} />
-                {acting === action ? "..." : label}
-              </button>
-            ))}
-          </div>
+            ]}
+            acting={acting}
+            onAction={handleAction}
+          />
         </div>
         {status?.status_text && <pre className={styles.statusBlock}>{status.status_text}</pre>}
       </div>
@@ -599,14 +608,7 @@ function WireGuardTab({ gatewayReady }) {
         <EmptyState icon="vpn_key_off" title={t("GatewayPage.wireGuardLoadFailed")} />
       )}
 
-      <div className={styles.card}>
-        <div className={styles.cardHead}>
-          <h2 className={styles.cardTitle}>{t("GatewayPage.serviceLogsTitle")}</h2>
-        </div>
-        <pre className={styles.logBlock}>
-          {logs === null ? t("GatewayPage.logsLoadFailed") : logs || t("GatewayPage.noLogOutput")}
-        </pre>
-      </div>
+      <ServiceLogsCard logs={logs} />
     </div>
   );
 }

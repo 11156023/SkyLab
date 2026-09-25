@@ -39,6 +39,7 @@ from app.services.security.mining_policy import (
     MiningAction,
     cpu_stats,
     decide_mining_action,
+    is_suspend_protected,
 )
 from app.services.user import audit_service
 from app.utils import send_email
@@ -56,15 +57,6 @@ _OPEN_STATUSES = (MiningIncidentStatus.detected, MiningIncidentStatus.suspended)
 
 def _utc_now() -> datetime:
     return datetime.now(timezone.utc)
-
-
-def _pve_resource_map() -> dict[int, dict[str, Any]]:
-    """vmid → cluster/resources 條目（單次 PVE 呼叫）。"""
-    return {
-        int(r["vmid"]): r
-        for r in proxmox_service.list_all_resources()
-        if r.get("vmid") is not None
-    }
 
 
 def _resource_type(pve_type: str) -> Literal["qemu", "lxc"]:
@@ -105,10 +97,16 @@ def _scan_one(
 ) -> bool:
     """掃描單台資源；命中則建事件並處置。回傳是否命中。
 
+    命中時的順序是「先 commit 事件，再動作」：快照／暫停／寄信都是不可
+    回復的外部動作，若與建立事件同在一筆交易裡，commit 失敗會讓下一輪
+    重掃時整組重放（再拍一次快照、再暫停一次、再寄一次信）。事件先落地
+    拿到 id，動作結果（快照名、暫停狀態）再寫回去 commit 一次。
+
     無論命中/未命中/失敗，一律推進 ``mining_checked_at`` —
     否則低 CPU 的 VM 會永遠佔住最舊清單，其他 VM 輪不到掃描。
     """
     flagged = False
+    checked_at_committed = False
     try:
         stats = _fetch_cpu_stats(
             resource,
@@ -148,19 +146,27 @@ def _scan_one(
                 ),
                 commit=False,
             )
-            respond_to_incident(session, incident, resource, config, now=now)
+            # 事件與游標先落地，之後的外部動作才不會因 commit 失敗而重放
+            resource.mining_checked_at = now
+            session.add(resource)
+            session.commit()
+            checked_at_committed = True
             flagged = True
             logger.warning(
                 "Mining suspected: vmid=%s avg_cpu=%.1f%% window=%dh",
                 resource.vmid, stats[0], config.mining_window_hours,
             )
+            respond_to_incident(session, incident, resource, config, now=now)
+            session.add(incident)
+            session.commit()
     except Exception:
         session.rollback()
         logger.exception("Mining scan failed for vmid=%s", resource.vmid)
     finally:
-        resource.mining_checked_at = now
-        session.add(resource)
-        session.commit()
+        if not checked_at_committed:
+            resource.mining_checked_at = now
+            session.add(resource)
+            session.commit()
     return flagged
 
 
@@ -174,7 +180,7 @@ def process_mining_detection() -> int:
             if not config.mining_detection_enabled:
                 return 0
 
-            pve_map = _pve_resource_map()
+            pve_map = proxmox_service.list_all_resources_by_vmid()
             running_vmids = [
                 vmid
                 for vmid, info in pve_map.items()
@@ -226,6 +232,68 @@ def _snapshot_evidence(incident: MiningIncident, *, now: datetime) -> str | None
         return None
 
 
+def _request_gpu_mapping_id(resource: Resource) -> str | None:
+    """這台機器掛的 GPU mapping（由開通它的申請單記錄）；查不到回 None。"""
+    request = getattr(resource, "request", None)
+    if request is None:
+        return None
+    mapping_id = getattr(request, "gpu_mapping_id", None)
+    return str(mapping_id) if mapping_id else None
+
+
+def _suspend_protected(resource: Resource) -> bool:
+    return is_suspend_protected(
+        allocation_scope=getattr(resource, "allocation_scope", None),
+        teaching_class_id=getattr(resource, "teaching_class_id", None),
+        gpu_mapping_id=_request_gpu_mapping_id(resource),
+    )
+
+
+def _delete_evidence_snapshot(
+    session: Session, incident: MiningIncident
+) -> str | None:
+    """誤判結案時刪掉存證快照（best-effort）。回傳失敗原因，成功回 None。
+
+    證據對誤判事件沒有價值，留著只會佔用儲存；刪不掉也不擋結案 ——
+    ``snapshot_cleanup`` 會在結案滿保留天數後再收一次。
+    """
+    snapname = incident.snapshot_name
+    if not snapname:
+        return None
+    try:
+        proxmox_service.delete_snapshot(
+            incident.node,
+            incident.vmid,
+            _resource_type(incident.resource_type),
+            snapname,
+        )
+    except Exception as exc:
+        logger.warning(
+            "Failed to delete mining evidence snapshot '%s' for vmid=%s: %s",
+            snapname, incident.vmid, exc,
+        )
+        return str(exc)
+    audit_service.log_action(
+        session=session,
+        user_id=None,
+        vmid=incident.vmid,
+        action="snapshot_delete",
+        details=f"Mining evidence snapshot '{snapname}' removed on dismiss",
+        commit=False,
+    )
+    logger.info(
+        "Mining evidence snapshot '%s' deleted for vmid=%s (dismissed)",
+        snapname, incident.vmid,
+    )
+    return None
+
+
+def _append_review_note(note: str | None, extra: str) -> str:
+    """把處置錯誤併進 review_note（欄位上限 1024 字）。"""
+    parts = [part for part in (note, extra) if part]
+    return " | ".join(parts)[:1024]
+
+
 def _create_alert_event(
     session: Session, incident: MiningIncident, config: Any
 ) -> None:
@@ -265,7 +333,7 @@ def _notify_incident(
     session: Session, incident: MiningIncident, resource: Resource
 ) -> None:
     from app.services.monitoring.alert_service import (
-        _list_admin_emails,  # noqa: PLC0415 — 複用管理員清單，避免重複實作
+        _list_admin_emails,
     )
 
     recipients = set(_list_admin_emails(session))
@@ -304,33 +372,41 @@ def respond_to_incident(
     """自動段處置：存證 → 暫停 → 警告 → 通知。
 
     ``mining_auto_suspend=False`` 時跳過存證與暫停（事件停留 detected，
-    仍發警告與通知，處置全人工）。
+    仍發警告與通知，處置全人工）。課程機與 GPU 機視同 auto_suspend 關閉
+    ——但仍拍存證快照，見 ``mining_policy.is_suspend_protected``。
     """
     if config.mining_auto_suspend:
         incident.snapshot_name = _snapshot_evidence(incident, now=now)
-        try:
-            action = "suspend" if incident.resource_type == "qemu" else "stop"
-            proxmox_service.control(
-                incident.node,
-                incident.vmid,
-                _resource_type(incident.resource_type),
-                action,
-            )
-            incident.status = MiningIncidentStatus.suspended
-            incident.suspended_at = now
-            audit_service.log_action(
-                session=session,
-                user_id=None,
-                vmid=incident.vmid,
-                action="mining_suspend",
-                details=f"Auto-{action} on mining suspicion",
-                commit=False,
-            )
-        except Exception:
-            logger.exception(
-                "Failed to suspend vmid=%s on mining suspicion (stays detected)",
+        if _suspend_protected(resource):
+            logger.warning(
+                "Mining suspected on protected resource vmid=%s "
+                "(class/GPU machine): evidence snapshot taken, not suspended",
                 incident.vmid,
             )
+        else:
+            try:
+                action = "suspend" if incident.resource_type == "qemu" else "stop"
+                proxmox_service.control(
+                    incident.node,
+                    incident.vmid,
+                    _resource_type(incident.resource_type),
+                    action,
+                )
+                incident.status = MiningIncidentStatus.suspended
+                incident.suspended_at = now
+                audit_service.log_action(
+                    session=session,
+                    user_id=None,
+                    vmid=incident.vmid,
+                    action="mining_suspend",
+                    details=f"Auto-{action} on mining suspicion",
+                    commit=False,
+                )
+            except Exception:
+                logger.exception(
+                    "Failed to suspend vmid=%s on mining suspicion (stays detected)",
+                    incident.vmid,
+                )
     session.add(incident)
     _create_alert_event(session, incident, config)
     _notify_incident(session, incident, resource)
@@ -386,8 +462,13 @@ def dismiss_incident(
     exempt: bool,
     note: str | None,
 ) -> MiningIncident:
-    """管理員判定誤判 → 恢復 VM（best-effort），可一併加入豁免。"""
+    """管理員判定誤判 → 恢復 VM（best-effort），可一併加入豁免。
+
+    恢復失敗不擋結案，但失敗原因會寫進 ``review_note`` —— 否則管理員只會
+    看到「已解除」，不知道機器其實還停著。
+    """
     incident = _get_open_incident_for_review(session, incident_id)
+    failures: list[str] = []
     if incident.status is MiningIncidentStatus.suspended:
         try:
             action = "resume" if incident.resource_type == "qemu" else "start"
@@ -397,12 +478,16 @@ def dismiss_incident(
                 _resource_type(incident.resource_type),
                 action,
             )
-        except Exception:
-            logger.warning(
-                "Failed to resume vmid=%s on dismiss (manual start may be needed)",
-                incident.vmid,
+        except Exception as exc:
+            logger.error(
+                "Failed to resume vmid=%s on dismiss (manual start required): %s",
+                incident.vmid, exc,
                 exc_info=True,
             )
+            failures.append(f"恢復失敗，請手動開機：{exc}")
+    snapshot_error = _delete_evidence_snapshot(session, incident)
+    if snapshot_error:
+        failures.append(f"存證快照刪除失敗：{snapshot_error}")
     if exempt:
         resource = resource_repo.get_resource_by_vmid(
             session=session, vmid=incident.vmid
@@ -413,7 +498,11 @@ def dismiss_incident(
     incident.status = MiningIncidentStatus.dismissed
     incident.reviewed_by = admin.id
     incident.reviewed_at = _utc_now()
-    incident.review_note = note
+    incident.review_note = (
+        _append_review_note(note, "；".join(failures))
+        if failures
+        else note
+    )
     session.add(incident)
     audit_service.log_action(
         session=session,

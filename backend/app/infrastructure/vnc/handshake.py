@@ -5,6 +5,7 @@
 拿到一致的資料流（fan-out 不需重新編碼）。
 """
 
+import asyncio
 import struct
 from dataclasses import dataclass
 from typing import Protocol
@@ -23,6 +24,9 @@ ENCODINGS = (5, 1, 0, -223)
 
 _SECURITY_VNC_AUTH = 2
 _SECURITY_NONE = 1
+
+# 半死的節點會讓 recv 永遠等下去，握手一定要有上限
+DEFAULT_HANDSHAKE_TIMEOUT_SECONDS = 10.0
 
 
 class UpstreamSocket(Protocol):
@@ -86,11 +90,21 @@ class _DownstreamStream:
         return out
 
 
-async def upstream_handshake(ws: UpstreamSocket, password: str) -> ServerInitInfo:
+async def upstream_handshake(
+    ws: UpstreamSocket,
+    password: str,
+    *,
+    timeout: float = DEFAULT_HANDSHAKE_TIMEOUT_SECONDS,
+) -> ServerInitInfo:
     """對 PVE vncwebsocket 執行 RFB 3.8 client 握手（VNC auth）。
 
     完成後已送出 SetPixelFormat（固定 32bpp）與 SetEncodings。
+    ``timeout`` 秒內握不完就放棄，呼叫端負責關掉連線。
     """
+    return await asyncio.wait_for(_upstream_handshake(ws, password), timeout=timeout)
+
+
+async def _upstream_handshake(ws: UpstreamSocket, password: str) -> ServerInitInfo:
     stream = ByteStream(ws)
 
     version = await stream.recv_exact(12)

@@ -625,13 +625,40 @@ describe("SaveAndCreateAction", () => {
     expect(html).toContain('data-generation-status="reviewing"');
   });
 
-  test("有待處理提案時停用並顯示原因", () => {
+  test("有待處理提案時外觀停用但仍可聚焦，滑過顯示原因", () => {
     const html = renderToStaticMarkup(
       <SaveAndCreateAction onClick={() => {}} blocker="請先套用目前提案" />,
     );
 
-    expect(html).toContain("disabled");
+    expect(html).toContain('aria-disabled="true"');
     expect(html).toContain('title="請先套用目前提案"');
+    expect(html).not.toMatch(/<button[^>]*\sdisabled=""/);
+  });
+
+  test("被擋住時點擊只回報原因、不會開始製作；條件滿足後才真的執行", () => {
+    const onClick = vi.fn();
+    const onBlocked = vi.fn();
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    const reason = "請先在聊天室請 AI 產生至少一個檢查項目";
+
+    act(() => {
+      root.render(<SaveAndCreateAction onClick={onClick} onBlocked={onBlocked} blocker={reason} />);
+    });
+    act(() => container.querySelector("button").click());
+    expect(onBlocked).toHaveBeenCalledWith(reason);
+    expect(onClick).not.toHaveBeenCalled();
+
+    act(() => {
+      root.render(<SaveAndCreateAction onClick={onClick} onBlocked={onBlocked} />);
+    });
+    act(() => container.querySelector("button").click());
+    expect(onClick).toHaveBeenCalledTimes(1);
+    expect(onBlocked).toHaveBeenCalledTimes(1);
+
+    act(() => root.unmount());
+    container.remove();
   });
 });
 

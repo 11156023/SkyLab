@@ -6,6 +6,7 @@ import { useAuth }  from "../../contexts/AuthContext";
 import { useUnsavedChanges } from "../../contexts/UnsavedChangesContext";
 import { SUPPORTED_LANGUAGES, setLanguage } from "../../i18n";
 import useScrollEdges from "../../hooks/useScrollEdges";
+import useOutsideClick from "../../hooks/useOutsideClick";
 import styles from "./Sidebar.module.scss";
 import MIcon from "../MIcon";
 import Avatar from "../Avatar/Avatar";
@@ -253,16 +254,7 @@ function usePopupPosition(triggerRef, collapsed) {
 function SelectPopup({ options, value, onSelect, onClose, triggerRef, closing, collapsed }) {
   const ref = useRef(null);
   const pos = usePopupPosition(triggerRef, collapsed);
-
-  useEffect(() => {
-    const handler = (e) => {
-      const inPopup = ref.current?.contains(e.target);
-      const inTrigger = triggerRef?.current?.contains(e.target);
-      if (!inPopup && !inTrigger) onClose();
-    };
-    document.addEventListener("mousedown", handler);
-    return () => document.removeEventListener("mousedown", handler);
-  }, [onClose, triggerRef]);
+  useOutsideClick(ref, triggerRef, onClose);
 
   if (!pos) return null;
   return createPortal(
@@ -292,16 +284,7 @@ function UserPopup({ user, onLogout, onSettings, onClose, triggerRef, closing, c
   const { t } = useTranslation("common");
   const ref = useRef(null);
   const pos = usePopupPosition(triggerRef, collapsed);
-
-  useEffect(() => {
-    const handler = (e) => {
-      const inPopup = ref.current?.contains(e.target);
-      const inTrigger = triggerRef?.current?.contains(e.target);
-      if (!inPopup && !inTrigger) onClose();
-    };
-    document.addEventListener("mousedown", handler);
-    return () => document.removeEventListener("mousedown", handler);
-  }, [onClose, triggerRef]);
+  useOutsideClick(ref, triggerRef, onClose);
 
   if (!pos) return null;
   return createPortal(

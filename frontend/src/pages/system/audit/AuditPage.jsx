@@ -5,12 +5,15 @@ import MIcon from "../../../components/MIcon";
 import LoadingState from "../../../components/LoadingState/LoadingState";
 import SharedEmptyState from "../../../components/EmptyState/EmptyState";
 import { useToast } from "../../../hooks/useToast";
+import { useConfirm } from "../../../components/ConfirmDialog/ConfirmProvider";
 import { downloadBlob } from "../../../services/api";
 import { AuditLogsService } from "../../../services/auditLogs";
 import PageHeader from "../../../components/PageHeader/PageHeader";
 import { formatDateTime } from "../../../utils/formatDate";
 
 const PAGE_SIZE = 50;
+/** 匯出一次最多幾筆；後端同樣有上限，兩邊要對齊 */
+const EXPORT_LIMIT = 10000;
 /** 搜尋框即時查詢的防抖間隔（ms）；下拉與日期改變則立即查詢 */
 const SEARCH_DEBOUNCE = 300;
 
@@ -64,6 +67,7 @@ function EmptyState({ hasFilter }) {
 export default function AuditPage() {
   const { t } = useTranslation("system");
   const toast = useToast();
+  const confirm = useConfirm();
   const [logs, setLogs] = useState([]);
   const [count, setCount] = useState(0);
   const [stats, setStats] = useState(null);
@@ -85,14 +89,16 @@ export default function AuditPage() {
   const [debouncedSearch, setDebouncedSearch] = useState("");
   /** 最新一次查詢的序號：回應順序錯亂時只採用最後一次的結果 */
   const requestSeq = useRef(0);
+  /** 目前生效的搜尋字串：用來判斷是否真的變了，不在 setState updater 裡做副作用 */
+  const debouncedSearchRef = useRef("");
 
   useEffect(() => {
     const next = filters.search.trim();
     const timer = setTimeout(() => {
-      setDebouncedSearch((prev) => {
-        if (prev !== next) setPage(0);
-        return next;
-      });
+      if (debouncedSearchRef.current === next) return;
+      debouncedSearchRef.current = next;
+      setDebouncedSearch(next);
+      setPage(0);
     }, SEARCH_DEBOUNCE);
     return () => clearTimeout(timer);
   }, [filters.search]);
@@ -136,7 +142,8 @@ export default function AuditPage() {
       endTime: toIso(filters.endDate, true) || undefined,
     })
       .then(setStats)
-      .catch(() => {});
+      /* 摘要抓不到就把卡片收掉，不要留著上一個日期區間的數字誤導人 */
+      .catch(() => setStats(null));
   }, [filters.startDate, filters.endDate]);
 
   useEffect(() => {
@@ -167,9 +174,19 @@ export default function AuditPage() {
   }
 
   async function handleExport() {
+    if (exporting) return;
+    /* 沒有任何篩選＝要把整個稽核庫拉下來，先問一次再送 */
+    if (!hasFilter) {
+      const ok = await confirm({
+        title: t("AuditPage.exportAllConfirmTitle"),
+        message: t("AuditPage.exportAllConfirmMessage", { limit: EXPORT_LIMIT }),
+        confirmText: t("AuditPage.exportCsv"),
+      });
+      if (!ok) return;
+    }
     setExporting(true);
     try {
-      const blob = await AuditLogsService.exportCsv({ ...queryParams, skip: 0, limit: 10000 });
+      const blob = await AuditLogsService.exportCsv({ ...queryParams, limit: EXPORT_LIMIT });
       downloadBlob(blob, `audit-logs-${new Date().toISOString().slice(0, 10)}.csv`);
       toast.success(t("AuditPage.toastExported"));
     } catch (err) {

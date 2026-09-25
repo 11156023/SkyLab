@@ -46,6 +46,23 @@ def get_extra_blocked_subnets(config: SubnetConfig | None) -> list[str]:
     return out
 
 
+def blocked_subnet_overlapping(
+    lab: ipaddress.IPv4Network, blocked: list[str]
+) -> str | None:
+    """第一個與實驗室子網重疊的封鎖網段；沒有就回 None（純函式）。
+
+    不是 IPv4 CIDR 的項目（PVE alias / ipset 名稱）無從比對，放行。
+    """
+    for item in blocked:
+        try:
+            net = ipaddress.IPv4Network(item.strip(), strict=False)
+        except ValueError:
+            continue
+        if net.overlaps(lab):
+            return item.strip()
+    return None
+
+
 def get_forward_port_range(config: SubnetConfig | None) -> tuple[int, int] | None:
     """對外 port 自動配號池；沒有子網設定就沒有池子。"""
     if config is None:
@@ -86,6 +103,18 @@ def upsert_subnet_config(
     # 閘道與 Gateway VM IP 不可相同
     if gateway == gateway_vm_ip:
         raise BadRequestError(t("ipManagement.gatewayIpsMustDiffer"))
+
+    # 額外封鎖網段會變成每台機器的 out-DROP，而且排在往網關的 ACCEPT 前面；
+    # 跟實驗室子網重疊的話，機器連閘道、DNS、其他機器都會被自己擋掉。
+    overlapping = blocked_subnet_overlapping(network, extra_blocked_subnets or [])
+    if overlapping is not None:
+        raise BadRequestError(
+            t(
+                "ipManagement.blockedSubnetOverlapsLab",
+                blocked=overlapping,
+                cidr=str(network),
+            )
+        )
 
     existing = get_subnet_config(session)
 
@@ -494,24 +523,10 @@ def release_ip(
     return ip
 
 
-def release_ip_by_address(session: Session, ip_address: str) -> bool:
-    """依 IP 位址釋放分配"""
-    alloc = session.exec(
-        select(IpAllocation).where(IpAllocation.ip_address == ip_address)
-    ).first()
-    if alloc is None:
-        return False
-    session.delete(alloc)
-    session.flush()
-    _forget_ssh_host_key(ip_address)
-    logger.info("已釋放 IP %s", ip_address)
-    return True
-
-
 def _forget_ssh_host_key(ip: str) -> None:
     """IP 回收後清除 pinned SSH host key，避免新主機因 key 不符被拒連。"""
     try:
-        from app.infrastructure.ssh import forget_host_key  # noqa: PLC0415
+        from app.infrastructure.ssh import forget_host_key
 
         forget_host_key(ip)
     except Exception:

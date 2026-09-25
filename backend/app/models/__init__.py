@@ -7,7 +7,11 @@ API schemas 已移至 app.schemas 模組。
 
 from sqlmodel import SQLModel
 
-from .ai_api_credential import AIAPICredential
+from .ai_api_credential import (
+    API_KEY_PREFIX_LENGTH,
+    LEGACY_API_KEY_PREFIX_LENGTH,
+    AIAPICredential,
+)
 from .ai_api_request import AIAPIRequest, AIAPIRequestStatus
 from .ai_api_usage import AIAPIUsage
 from .ai_pve_template import AIPVETemplate
@@ -21,7 +25,6 @@ from .batch_provision import (
     BatchProvisionTask,
     BatchProvisionTaskStatus,
 )
-from .class_exposure import ResourceClassExposure
 from .cloudflare_config import CloudflareConfig
 from .course import (
     CourseDifficulty,
@@ -70,6 +73,7 @@ from .spec_change_request import (
     SpecChangeType,
 )
 from .subnet_config import SubnetConfig
+from .system_setup import SystemSetup
 from .task_record import TaskRecord, TaskRecordStatus
 from .teacher_judge_attachment import (
     TeacherJudgeAttachmentStatus,
@@ -124,6 +128,8 @@ __all__ = [
     "User",
     "UserRole",
     # AI API
+    "API_KEY_PREFIX_LENGTH",
+    "LEGACY_API_KEY_PREFIX_LENGTH",
     "AIAPICredential",
     "AIAPIRequest",
     "AIAPIRequestStatus",
@@ -135,7 +141,6 @@ __all__ = [
     "ResourceNetwork",
     "ResourceQuota",
     "ResourceShare",
-    "ResourceClassExposure",
     "QuotaConfig",
     # VM Request
     "VMProvisioningStatus",
@@ -153,6 +158,8 @@ __all__ = [
     "MiningIncidentStatus",
     # LDAP
     "LdapConfig",
+    # 初始化精靈
+    "SystemSetup",
     # Web Push
     "PushSubscription",
     "WebPushConfig",

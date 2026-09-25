@@ -197,6 +197,7 @@ function ResourceRow({ resource, onUpdated, onDeleted }) {
     && !resource.is_placeholder
     && resource.vmid > 0;
   const confirm = useConfirm();
+  const toast = useToast();
   const [actionLoading, setActionLoading] = useState(null);
   const [deleting, setDeleting]            = useState(false);
   const [menuOpen, setMenuOpen]            = useState(false);
@@ -221,6 +222,8 @@ function ResourceRow({ resource, onUpdated, onDeleted }) {
     try {
       await ResourcesService[action](resource.vmid);
       onUpdated({ ...resource, status: statusAfterAction(action) });
+    } catch (err) {
+      toast.error(err?.message ?? t("ResourceRow.controlFailed"));
     } finally {
       setActionLoading(null);
     }
@@ -240,7 +243,10 @@ function ResourceRow({ resource, onUpdated, onDeleted }) {
     setDeleting(true);
     try {
       await ResourcesService.delete(resource.vmid);
+      toast.success(t("ResourceRow.deleteQueued"));
       onDeleted(resource.vmid);
+    } catch (err) {
+      toast.error(err?.message ?? t("ResourceRow.deleteFailed"));
     } finally {
       setDeleting(false);
     }

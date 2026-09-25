@@ -6,9 +6,15 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from app.infrastructure.proxmox import operations as proxmox_service
 
-__all__ = ["gpu_service", "provisioning_service", "proxmox_service"]
+__all__ = [
+    "connection_sync_service",
+    "gpu_service",
+    "provisioning_service",
+    "proxmox_service",
+]
 
 _MODULES = {
+    "connection_sync_service": "app.services.proxmox.connection_sync_service",
     "gpu_service": "app.services.proxmox.gpu_service",
     "provisioning_service": "app.services.proxmox.provisioning_service",
     "proxmox_service": "app.infrastructure.proxmox.operations",

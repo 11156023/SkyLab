@@ -33,17 +33,23 @@ function PathColumn({ paths, teachingClasses, selectedId, onSelect, onReload }) 
   const [invalid, setInvalid] = useState({});
   const classSelectRef = useRef(null);
   const titleInputRef = useRef(null);
+  /* 送出中上鎖並把按鈕 disable，連按兩次不會建出兩條路徑 */
+  const createLockRef = useRef(false);
+  const [creating, setCreating] = useState(false);
   const selectedPath = paths.find((path) => path.id === selectedId);
   const linkedClassIds = new Set(paths.map((path) => String(path.teaching_class_id ?? "")).filter(Boolean));
 
   async function handleCreate(e) {
     e.preventDefault();
+    if (createLockRef.current) return;
     const missing = { classId: !classId, title: !title.trim() };
     if (missing.classId || missing.title) {
       setInvalid(missing);
       focusInvalidField(missing.classId ? classSelectRef.current : titleInputRef.current);
       return;
     }
+    createLockRef.current = true;
+    setCreating(true);
     try {
       await CourseAdminService.createPath({
         title: title.trim(),
@@ -55,6 +61,9 @@ function PathColumn({ paths, teachingClasses, selectedId, onSelect, onReload }) 
       toast.success(t("CourseCmsPage.pathCreatedToast"));
     } catch (err) {
       toast.error(err.message ?? t("CourseCmsPage.createFailedToast"));
+    } finally {
+      createLockRef.current = false;
+      setCreating(false);
     }
   }
 
@@ -177,7 +186,7 @@ function PathColumn({ paths, teachingClasses, selectedId, onSelect, onReload }) 
           onChange={(e) => { setTitle(e.target.value); setInvalid((v) => ({ ...v, title: false })); }}
           placeholder={t("CourseCmsPage.newPathPlaceholder")}
         />
-        <button type="submit" className={styles.addBtn}>
+        <button type="submit" className={styles.addBtn} disabled={creating}>
           <MIcon name="add" size={16} />
         </button>
       </form>
@@ -193,14 +202,20 @@ function RoomColumn({ pathId, rooms, selectedId, onSelect, onReload }) {
   const [form, setForm] = useState({ title: "", difficulty: "easy" });
   const [titleInvalid, setTitleInvalid] = useState(false);
   const titleInputRef = useRef(null);
+  /* 送出中上鎖並把按鈕 disable，連按兩次不會建出兩間房間 */
+  const createLockRef = useRef(false);
+  const [creating, setCreating] = useState(false);
 
   async function handleCreate(e) {
     e.preventDefault();
+    if (createLockRef.current) return;
     if (!form.title.trim()) {
       setTitleInvalid(true);
       focusInvalidField(titleInputRef.current);
       return;
     }
+    createLockRef.current = true;
+    setCreating(true);
     try {
       await CourseAdminService.createRoom({
         path_id: pathId,
@@ -213,6 +228,9 @@ function RoomColumn({ pathId, rooms, selectedId, onSelect, onReload }) {
       toast.success(t("CourseCmsPage.roomCreatedToast"));
     } catch (err) {
       toast.error(err.message ?? t("CourseCmsPage.createFailedToast"));
+    } finally {
+      createLockRef.current = false;
+      setCreating(false);
     }
   }
 
@@ -278,7 +296,7 @@ function RoomColumn({ pathId, rooms, selectedId, onSelect, onReload }) {
             <option key={d.key} value={d.key}>{t(d.labelKey)}</option>
           ))}
         </select>
-        <button type="submit" className={styles.addBtn}>
+        <button type="submit" className={styles.addBtn} disabled={creating}>
           <MIcon name="add" size={16} />
         </button>
       </form>
@@ -296,6 +314,9 @@ function QuestionEditor({ taskId }) {
   const [invalid, setInvalid] = useState({});
   const promptInputRef = useRef(null);
   const flagInputRef = useRef(null);
+  /* 送出中上鎖並把按鈕 disable，連按兩次不會新增兩題 */
+  const createLockRef = useRef(false);
+  const [creating, setCreating] = useState(false);
 
   const reload = useCallback(() => {
     CourseAdminService.listQuestions(taskId).then(setQuestions).catch(() => {});
@@ -307,6 +328,7 @@ function QuestionEditor({ taskId }) {
 
   async function handleCreate(e) {
     e.preventDefault();
+    if (createLockRef.current) return;
     const missing = {
       prompt: !form.prompt.trim(),
       flag: form.question_type === "flag" && !form.flag.trim(),
@@ -316,6 +338,8 @@ function QuestionEditor({ taskId }) {
       focusInvalidField(missing.prompt ? promptInputRef.current : flagInputRef.current);
       return;
     }
+    createLockRef.current = true;
+    setCreating(true);
     try {
       await CourseAdminService.createQuestion({
         task_id: taskId,
@@ -330,6 +354,9 @@ function QuestionEditor({ taskId }) {
       toast.success(t("CourseCmsPage.questionAddedToast"));
     } catch (err) {
       toast.error(err.message ?? t("CourseCmsPage.addFailedToast"));
+    } finally {
+      createLockRef.current = false;
+      setCreating(false);
     }
   }
 
@@ -396,7 +423,7 @@ function QuestionEditor({ taskId }) {
           onChange={(e) => setForm((f) => ({ ...f, points: e.target.value }))}
           title={t("CourseCmsPage.pointsFieldTitle")}
         />
-        <button type="submit" className={styles.addBtn}>
+        <button type="submit" className={styles.addBtn} disabled={creating}>
           <MIcon name="add" size={16} />
         </button>
       </form>
@@ -415,6 +442,11 @@ function TaskColumn({ roomId }) {
   const [newTitle, setNewTitle] = useState("");
   const [newTitleInvalid, setNewTitleInvalid] = useState(false);
   const newTitleInputRef = useRef(null);
+  /* 送出中上鎖並把按鈕 disable，連按兩次不會建出兩個任務／存兩次 */
+  const createLockRef = useRef(false);
+  const [creating, setCreating] = useState(false);
+  const saveLockRef = useRef(false);
+  const [savingTask, setSavingTask] = useState(false);
 
   const reload = useCallback(() => {
     CourseAdminService.listTasks(roomId)
@@ -437,11 +469,14 @@ function TaskColumn({ roomId }) {
 
   async function handleCreate(e) {
     e.preventDefault();
+    if (createLockRef.current) return;
     if (!newTitle.trim()) {
       setNewTitleInvalid(true);
       focusInvalidField(newTitleInputRef.current);
       return;
     }
+    createLockRef.current = true;
+    setCreating(true);
     try {
       await CourseAdminService.createTask({
         room_id: roomId,
@@ -454,11 +489,16 @@ function TaskColumn({ roomId }) {
       toast.success(t("CourseCmsPage.taskAddedToast"));
     } catch (err) {
       toast.error(err.message ?? t("CourseCmsPage.addFailedToast"));
+    } finally {
+      createLockRef.current = false;
+      setCreating(false);
     }
   }
 
   async function handleSave() {
-    if (!selected) return;
+    if (!selected || saveLockRef.current) return;
+    saveLockRef.current = true;
+    setSavingTask(true);
     try {
       await CourseAdminService.updateTask(selected.id, {
         title: draft.title,
@@ -468,6 +508,9 @@ function TaskColumn({ roomId }) {
       toast.success(t("CourseCmsPage.taskSavedToast"));
     } catch (err) {
       toast.error(err.message ?? t("CourseCmsPage.saveFailedToast"));
+    } finally {
+      saveLockRef.current = false;
+      setSavingTask(false);
     }
   }
 
@@ -519,7 +562,7 @@ function TaskColumn({ roomId }) {
               onChange={(e) => { setNewTitle(e.target.value); setNewTitleInvalid(false); }}
               placeholder={t("CourseCmsPage.newTaskPlaceholder")}
             />
-            <button type="submit" className={styles.addBtn}>
+            <button type="submit" className={styles.addBtn} disabled={creating}>
               <MIcon name="add" size={16} />
             </button>
           </form>
@@ -540,7 +583,7 @@ function TaskColumn({ roomId }) {
               rows={10}
             />
             <div className={styles.editorActions}>
-              <button type="button" className={styles.saveBtn} onClick={handleSave}>
+              <button type="button" className={styles.saveBtn} disabled={savingTask} onClick={handleSave}>
                 <MIcon name="save" size={15} />
                 {t("CourseCmsPage.saveTaskBtn")}
               </button>
@@ -561,13 +604,20 @@ function ProgressPanel({ paths, initialPathId = "" }) {
   const [live, setLive] = useState(false);
   const wsRef = useRef(null);
   const refetchTimer = useRef(null);
+  /* 目前顯示的是哪條路徑：慢回來的舊請求不可以蓋掉新路徑的報表 */
+  const activePathIdRef = useRef("");
+  activePathIdRef.current = pathId;
 
   useEffect(() => {
     if (initialPathId) setPathId(initialPathId);
   }, [initialPathId]);
 
   const fetchReport = useCallback((id) => {
-    CourseAdminService.getPathProgress(id).then(setReport).catch(() => {});
+    CourseAdminService.getPathProgress(id)
+      .then((data) => {
+        if (activePathIdRef.current === id) setReport(data);
+      })
+      .catch(() => {});
   }, []);
 
   useEffect(() => {
@@ -575,6 +625,8 @@ function ProgressPanel({ paths, initialPathId = "" }) {
       setReport(null);
       return undefined;
     }
+    /* 先清掉上一條路徑的報表，免得新報表還沒回來前顯示的是別條路徑的進度 */
+    setReport(null);
     fetchReport(pathId);
 
     // WS 即時推播：收到事件後 debounce 重拉快照

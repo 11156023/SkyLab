@@ -19,7 +19,7 @@ def generate_password_reset_token(email: str, *, token_version: int = 0) -> str:
     now = datetime.now(timezone.utc)
     expires = now + delta
     exp = expires.timestamp()
-    encoded_jwt = jwt.encode(
+    return jwt.encode(
         {
             "exp": exp,
             "nbf": now,
@@ -30,7 +30,6 @@ def generate_password_reset_token(email: str, *, token_version: int = 0) -> str:
         settings.SECRET_KEY,
         algorithm=security.ALGORITHM,
     )
-    return encoded_jwt
 
 
 def decode_password_reset_token(token: str) -> tuple[str, int] | None:

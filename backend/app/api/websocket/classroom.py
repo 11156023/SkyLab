@@ -81,6 +81,10 @@ async def classroom_watch_proxy(
     except WebSocketDisconnect:
         # 客戶端斷線（含握手途中）屬正常結束
         pass
+    except TimeoutError:
+        # RFB 握手逾時：不是伺服器故障，名額已在 attach_subscriber 釋放
+        logger.info(f"Classroom watch handshake timed out for session {session_id}")
+        await safe_close_websocket(websocket, code=1008, reason="Handshake timeout")
     except Exception:
         logger.exception(f"Classroom watch failed for session {session_id}")
         await safe_close_websocket(websocket, code=1011, reason="Internal server error")

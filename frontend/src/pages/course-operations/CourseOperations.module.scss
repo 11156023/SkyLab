@@ -1879,8 +1879,14 @@
   border-bottom: 0;
 }
 
-.envChoices>button:hover {
+.envChoices>button:hover:not(:disabled) {
   background: color-mix(in srgb, var(--color-primary) 4%, transparent);
+}
+
+/* 送出中：整組選項不可再切換 */
+.envChoices>button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
 }
 
 .envChoiceSuggested {
@@ -2044,6 +2050,11 @@
   box-shadow: 0 4px 24px var(--color-flow-shadow);
 }
 
+/* 已發布的版本不能拉線：連接點一律不顯示（同班級上課環境的唯讀圖） */
+.topologyCanvasFrozen :global(.react-flow__handle) {
+  visibility: hidden;
+}
+
 /* 自訂節點已畫自己的選中外圈，壓掉 xyflow 預設在 wrapper 上的那層 2px 框 */
 .topologyCanvas :global(.react-flow__node.selected),
 .topologyCanvas :global(.react-flow__node:focus),
@@ -2143,12 +2154,21 @@
   font-weight: $font-weight-700;
 }
 
+/* 底色、框線、陰影跟其他拓撲畫布同一組 flow token（防火牆頁、課程環境編輯器、資源詳情），
+   不套玻璃卡內容區塊的白底規則：畫布是圖，不是資訊欄位 */
 .readonlyTopology {
   margin: 16px;
   overflow: hidden;
-  border: 1px solid var(--color-border);
+  border: 1px solid var(--color-flow-border);
   border-radius: $radius-12;
-  background: var(--color-surface);
+  background: var(--color-flow-bg);
+  box-shadow: 0 4px 24px var(--color-flow-shadow);
+}
+
+/* 唯讀不能拉線，連接點一律不顯示（共用節點樣式滑過時會把它亮出來，網際網路節點也是）。
+   用 visibility 而非 opacity：蓋得過 hover 規則，連接點仍佔位、線照樣接得上 */
+.readonlyTopology :global(.react-flow__handle) {
+  visibility: hidden;
 }
 
 .readonlyTopology :global(.react-flow) svg {
@@ -2159,6 +2179,25 @@
   stroke-opacity: 1 !important;
 }
 
+/* 課程機器節點（教學環境編輯器、班級上課環境的唯讀圖）：沿用防火牆的 .vmNode，但沒有
+   上緣的「機器來源」徽章，上下內距改成一樣，文字才會置中；加寬到 220px、規格縮到 14px，
+   「2 CPU · 4 GB · 16 GB」才放得下（更長時滑過看完整規格）。
+   重複 class 提高權重，蓋過另一個樣式檔裡的 .vmNode／.vmMeta */
+.courseMachineNode.courseMachineNode {
+  width: 220px;
+  padding-block: 12px;
+}
+
+.courseMachineMeta.courseMachineMeta {
+  font-size: $font-size-14;
+}
+
+/* 已發布的教學環境：節點拖不動，只能點選看細節，游標不要顯示抓手 */
+.courseMachineNodeFrozen.courseMachineNodeFrozen,
+.courseMachineNodeFrozen.courseMachineNodeFrozen:active {
+  cursor: pointer;
+}
+
 /* 上課環境的唯讀拓撲：外觀是防火牆頁的 .vmNode，只是不能拖曳 */
 .flowMachineNodeStatic {
   cursor: default;
@@ -2166,10 +2205,6 @@
 
 .flowMachineNodeStatic:active {
   cursor: default;
-}
-
-.flowMachineNodeStatic :global(.react-flow__handle) {
-  opacity: 0.45;
 }
 
 /* 對外服務清單（上課環境）：一行一條，與課程環境側欄的摘要同一套說法 */
@@ -2632,46 +2667,30 @@
   gap: 6px;
 }
 
-/* 學生可見與否的切換：草稿是安靜的中性色，已發布才亮起來。 */
-.weekPublishButton {
-  display: inline-flex;
-  width: 100%;
-  height: 32px;
-  align-items: center;
-  justify-content: center;
-  gap: 5px;
-  padding: 0 10px;
-  border: 1px solid var(--color-border);
-  border-radius: $radius-pill;
-  color: var(--color-text-muted);
-  background: var(--color-surface);
-  font: inherit;
-  font-size: $font-size-12;
-  font-weight: $font-weight-500;
-  white-space: nowrap;
-  cursor: pointer;
-  transition: color $transition-base, border-color $transition-base, background $transition-base;
+/* 草稿｜發布 切換：置中在「學生可見」欄。固定跟欄寬一樣、兩段平分，
+   內距收小一點，英日文的選項字才放得下；高度 36px 與同列的輸入框一致 */
+.weekVisible {
+  display: flex;
+  justify-self: center;
 }
 
-.weekPublishButton:hover:not(:disabled) {
-  color: var(--color-text-primary);
-  background: var(--color-hover);
-}
+.weekStatusControl {
+  width: 124px;
 
-.weekPublishButton:disabled {
-  opacity: .5;
-  cursor: not-allowed;
-}
+  button {
+    flex: 1;
+    justify-content: center;
+    padding-inline: $spacing-8;
+  }
 
-.weekPublished {
-  border-color: color-mix(in srgb, var(--color-success) 35%, var(--color-border));
-  color: var(--color-success);
-  background: color-mix(in srgb, var(--color-success) 9%, var(--color-surface));
-}
-
-.weekPublished:hover:not(:disabled) {
-  color: var(--color-success);
-  background: color-mix(in srgb, var(--color-success) 15%, var(--color-surface));
+  /* 還沒填主題的「發布」：看起來淡一點但點得下去（點了會提示缺什麼）；
+     權重要壓過分段切換器的 hover 變色 */
+  button[aria-disabled="true"],
+  button[aria-disabled="true"]:hover {
+    color: var(--color-text-secondary);
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
 }
 
 .weekVisibleCount {
@@ -2757,7 +2776,7 @@
     grid-area: 1 / 3;
   }
 
-  .weekRows article>.weekPublishButton {
+  .weekRows article>.weekVisible {
     grid-area: 1 / 4;
   }
 
@@ -3006,9 +3025,14 @@
   .weekRows article>.weekDate,
   .weekRows article>.weekTitleInput,
   .weekRows article>.weekMachineSelect,
-  .weekRows article>.weekPublishButton,
+  .weekRows article>.weekVisible,
   .weekRows article>.weekFileList {
     grid-area: auto;
+  }
+
+  /* 單欄直排時切換器靠左 */
+  .weekRows article>.weekVisible {
+    justify-self: start;
   }
 }
 

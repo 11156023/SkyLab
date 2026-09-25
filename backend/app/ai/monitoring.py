@@ -15,8 +15,23 @@ logger = logging.getLogger(__name__)
 
 CALL_AI_NAVIGATION = "ai_nav"
 CALL_AI_CONTEXTUAL_HELP = "ai_help"
-CALL_TJ_RUBRIC = "tj_rubric"
-CALL_TJ_CHAT = "tj_chat"
+
+
+def usage_metrics(response_data: dict[str, Any], elapsed: float) -> dict[str, Any]:
+    """從 OpenAI 相容回應的 ``usage`` 區塊整理 token 數與耗時（缺值一律視為 0）。"""
+    usage = response_data.get("usage")
+    if not isinstance(usage, dict):
+        usage = {}
+    prompt_tokens = int(usage.get("prompt_tokens") or 0)
+    completion_tokens = int(usage.get("completion_tokens") or 0)
+    return {
+        "prompt_tokens": prompt_tokens,
+        "completion_tokens": completion_tokens,
+        "total_tokens": int(
+            usage.get("total_tokens") or prompt_tokens + completion_tokens
+        ),
+        "elapsed_seconds": round(max(elapsed, 0.0), 3),
+    }
 
 
 def _token_count(metrics: Mapping[str, Any], key: str) -> int:

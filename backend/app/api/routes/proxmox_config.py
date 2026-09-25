@@ -8,18 +8,18 @@ from cryptography import x509
 from cryptography.hazmat.backends import default_backend
 from cryptography.hazmat.primitives.serialization import Encoding
 from fastapi import APIRouter, Body, HTTPException
+from sqlmodel import col, select
 
 from app.api.deps import AdminUser, SessionDep
 from app.core.i18n import t
 from app.exceptions import BadRequestError
 from app.infrastructure.proxmox import (
     DEFAULT_PROXMOX_POOL_NAME,
-    _tcp_ping,
-    _verify_server_with_ca,
     fetch_cluster_nodes,
     invalidate_proxmox_client,
+    resolve_verify,
 )
-from app.models import AuditAction
+from app.models import AuditAction, Resource
 from app.models.proxmox_storage import ProxmoxStorage
 from app.repositories import proxmox_config as proxmox_config_repo
 from app.repositories import proxmox_connection as proxmox_connection_repo
@@ -41,6 +41,7 @@ from app.schemas.proxmox_config import (
     ProxmoxStorageUpdate,
     SyncNowResult,
 )
+from app.services.proxmox import connection_sync_service
 from app.services.user import audit_service
 
 logger = logging.getLogger(__name__)
@@ -137,88 +138,38 @@ def _connection_to_public(session, conn) -> ProxmoxConnectionPublic:
     )
 
 
-def _sync_one_connection(session, conn) -> tuple[list, int]:
-    """同步單一連線的節點與 Storage，回傳 (nodes, storage_count)。
+def _resource_vmids_on_nodes(session, node_names: set[str]) -> list[int]:
+    """回傳仍掛在這些節點上、又有 SkyLab Resource 記錄的 vmid。
 
-    節點名稱與其他連線衝突時拋 ValueError；連線失敗時拋原始例外。
+    Resource 沒有節點欄位，只能問 PVE「現在哪些機器在這些節點上」，
+    再與 resources 表取交集。問不到就視為不安全（回 400），
+    以免把底下還有機器的連線刪掉、讓那些機器再也路由不到。
     """
-    from proxmoxer import ProxmoxAPI
+    if not node_names:
+        return []
 
-    password = proxmox_connection_repo.get_decrypted_password(conn)
-
-    if conn.ca_cert:
-        _verify_server_with_ca(conn.host, conn.ca_cert)
-        verify_ssl: bool = False
-    else:
-        verify_ssl = conn.verify_ssl
-
-    raw_nodes = fetch_cluster_nodes(
-        host=conn.host,
-        user=conn.user,
-        password=password,
-        verify_ssl=verify_ssl,
-        timeout=conn.api_timeout,
+    from app.infrastructure.proxmox.operations import (
+        list_all_resources,
     )
 
-    node_dicts = [
-        {
-            "name": n["name"],
-            "host": n["host"],
-            "port": n.get("port", 8006),
-            "is_primary": n.get("is_primary", False),
-        }
-        for n in raw_nodes
-    ]
-    saved_nodes = proxmox_node_repo.upsert_nodes(
-        session, node_dicts, connection_id=conn.id
-    )
+    try:
+        cluster_resources = list_all_resources()
+    except Exception as e:
+        logger.warning(f"刪除連線前無法列出 PVE 機器: {e}")
+        raise BadRequestError(t("proxmoxConfig.connectionResourceCheckFailed"))
 
-    client = ProxmoxAPI(
-        conn.host,
-        port=conn.port,
-        user=conn.user,
-        password=password,
-        verify_ssl=verify_ssl,
-        timeout=conn.api_timeout,
-    )
+    candidate_vmids = {
+        int(r["vmid"])
+        for r in cluster_resources
+        if r.get("vmid") is not None and r.get("node") in node_names
+    }
+    if not candidate_vmids:
+        return []
 
-    storage_dicts: list[dict] = []
-    for node in saved_nodes:
-        try:
-            raw_storages = client.nodes(node.name).storage.get()
-            for st in raw_storages:
-                # PVE 端已禁用、或在此節點不可用（node-restricted）的 storage 不同步
-                if not st.get("enabled", 1):
-                    continue
-                if not st.get("active", 1):
-                    continue
-                content = st.get("content", "")
-                total = st.get("total", 0)
-                used = st.get("used", 0)
-                avail = st.get("avail", 0)
-                storage_dicts.append({
-                    "node_name": node.name,
-                    "storage": st.get("storage", ""),
-                    "storage_type": st.get("type"),
-                    "total_gb": round(total / 1024**3, 2) if total else 0.0,
-                    "used_gb": round(used / 1024**3, 2) if used else 0.0,
-                    "avail_gb": round(avail / 1024**3, 2) if avail else 0.0,
-                    "can_vm": "images" in content,
-                    "can_lxc": "rootdir" in content,
-                    "can_iso": "iso" in content,
-                    "can_backup": "backup" in content,
-                    "is_shared": bool(st.get("shared", 0)),
-                    "active": st.get("active", 1) == 1,
-                })
-        except Exception as e:
-            logger.warning(f"Failed to fetch storage for node {node.name}: {e}")
-
-    saved_storages = proxmox_storage_repo.upsert_storages(
-        session,
-        storage_dicts,
-        scope_node_names={node.name for node in saved_nodes},
-    )
-    return saved_nodes, len(saved_storages)
+    rows = session.exec(
+        select(Resource.vmid).where(col(Resource.vmid).in_(candidate_vmids))
+    ).all()
+    return sorted(int(vmid) for vmid in rows)
 
 
 def _node_to_public(node) -> ProxmoxNodePublic:
@@ -543,10 +494,9 @@ def preview_cluster(
     try:
         password, ssl_param = _resolve_credentials(session, config_in)
 
-        # 若有 CA cert，先驗證再連線
+        # 若有 CA cert：pre-flight 驗證後改用 CA bundle 路徑（不再關閉 TLS 驗證）
         if isinstance(ssl_param, str):  # ca_cert PEM
-            _verify_server_with_ca(config_in.host, ssl_param)
-            verify_ssl: bool | str = False
+            verify_ssl: bool | str = resolve_verify(config_in.host, True, ssl_param)
         else:
             verify_ssl = ssl_param
 
@@ -583,68 +533,9 @@ def preview_cluster(
         )
 
 
-@router.post("/sync-nodes", response_model=list[ProxmoxNodePublic])
-def sync_nodes(
-    session: SessionDep,
-    current_user: AdminUser,
-    nodes: list[ProxmoxNodePublic],
-) -> list[ProxmoxNodePublic]:
-    """
-    將前端確認過的節點清單寫入資料庫。
-    先清除舊節點再寫入新節點。
-    """
-    node_dicts = [
-        {
-            "name": n.name,
-            "host": n.host,
-            "port": n.port,
-            "is_primary": n.is_primary,
-        }
-        for n in nodes
-    ]
-    # 多連線下此舊端點只作用於預設連線，避免誤刪其他連線的節點
-    default_conn = proxmox_connection_repo.get_default_connection(session)
-    saved = proxmox_node_repo.upsert_nodes(
-        session,
-        node_dicts,
-        connection_id=default_conn.id if default_conn else None,
-    )
-
-    invalidate_proxmox_client()
-
-    audit_service.log_action(
-        session=session,
-        user_id=current_user.id,
-        action=AuditAction.proxmox_sync_nodes,
-        details=(
-            f"Synced {len(saved)} cluster nodes: "
-            + ", ".join(n.name for n in saved)
-        ),
-    )
-
-    return [_node_to_public(n) for n in saved]
-
-
 @router.get("/nodes", response_model=list[ProxmoxNodePublic])
 def get_nodes(session: SessionDep, current_user: AdminUser) -> list[ProxmoxNodePublic]:
     """取得所有已儲存的叢集節點清單。"""
-    nodes = proxmox_node_repo.get_all_nodes(session)
-    return [_node_to_public(n) for n in nodes]
-
-
-@router.post("/check-nodes", response_model=list[ProxmoxNodePublic])
-def check_nodes(session: SessionDep, current_user: AdminUser) -> list[ProxmoxNodePublic]:
-    """
-    對所有已儲存的節點做 TCP ping 健康檢查，更新 is_online 狀態後回傳最新清單。
-    前端開啟 Proxmox 設定頁面時呼叫。
-    """
-    nodes = proxmox_node_repo.get_all_nodes(session)
-    for node in nodes:
-        is_online = _tcp_ping(node.host, node.port)
-        if node.id is not None:
-            proxmox_node_repo.update_node_status(session, node.id, is_online)
-
-    # 重新讀取以取得更新後的 last_checked
     nodes = proxmox_node_repo.get_all_nodes(session)
     return [_node_to_public(n) for n in nodes]
 
@@ -797,7 +688,7 @@ def update_connection(
     current_user: AdminUser,
     conn_in: ProxmoxConnectionUpdateIn,
 ) -> ProxmoxConnectionPublic:
-    """更新一組 PVE 連線設定。"""
+    """更新一組 PVE 連線設定（**部分更新**，payload 沒帶的欄位維持現值）。"""
     if conn_in.ca_cert:
         try:
             x509.load_pem_x509_certificate(
@@ -806,35 +697,23 @@ def update_connection(
         except Exception:
             raise BadRequestError(t("proxmoxConfig.invalidCaCert"))
 
+    updates = conn_in.model_dump(exclude_unset=True)
     conn = proxmox_connection_repo.update_connection(
-        session,
-        connection_id,
-        name=conn_in.name,
-        host=conn_in.host,
-        port=conn_in.port,
-        user=conn_in.user,
-        password=conn_in.password,
-        verify_ssl=conn_in.verify_ssl,
-        ca_cert=conn_in.ca_cert,
-        api_timeout=conn_in.api_timeout,
-        pool_name=conn_in.pool_name,
-        iso_storage=conn_in.iso_storage,
-        data_storage=conn_in.data_storage,
-        task_check_interval=conn_in.task_check_interval,
-        gateway_ip=conn_in.gateway_ip,
-        local_subnet=conn_in.local_subnet,
-        default_node=conn_in.default_node,
-        enabled=conn_in.enabled,
-        is_default=conn_in.is_default,
+        session, connection_id, updates=updates
     )
     if conn is None:
         raise HTTPException(status_code=404, detail="Connection not found")
     invalidate_proxmox_client()
+    changed_fields = sorted(f for f in updates if f != "password")
     audit_service.log_action(
         session=session,
         user_id=current_user.id,
         action=AuditAction.proxmox_config_update,
-        details=f"Updated Proxmox connection: {conn.name} ({conn.host})",
+        details=(
+            f"Updated Proxmox connection: {conn.name} ({conn.host}) "
+            f"fields: {', '.join(changed_fields) or '(none)'}"
+            + (", password" if "password" in updates and conn_in.password else "")
+        ),
     )
     return _connection_to_public(session, conn)
 
@@ -854,12 +733,26 @@ def delete_connection(
     if conn.is_default and others:
         raise BadRequestError(t("proxmoxConfig.cannotDeleteDefault"))
 
-    # 先清掉該連線的節點對應 Storage 記錄，再刪節點與連線
     node_names = {
         n.name for n in proxmox_node_repo.get_all_nodes(
             session, connection_id=connection_id
         )
     }
+    # 連線一刪，節點記錄跟著 CASCADE 消失，還掛在上面的機器就再也路由不到
+    # （get_proxmox_api_for_node 找不到節點）。先擋下來，要管理員自己決定
+    # 是先搬機器還是先刪機器。
+    in_use_vmids = _resource_vmids_on_nodes(session, node_names)
+    if in_use_vmids:
+        raise BadRequestError(
+            t(
+                "proxmoxConfig.connectionHasResources",
+                name=conn.name,
+                count=len(in_use_vmids),
+                vmids=", ".join(str(v) for v in in_use_vmids[:10]),
+            )
+        )
+
+    # 先清掉該連線的節點對應 Storage 記錄，再刪節點與連線
     if node_names:
         proxmox_storage_repo.upsert_storages(
             session, [], scope_node_names=node_names
@@ -889,11 +782,7 @@ def test_connection_by_id(
         from proxmoxer import ProxmoxAPI
 
         password = proxmox_connection_repo.get_decrypted_password(conn)
-        if conn.ca_cert:
-            _verify_server_with_ca(conn.host, conn.ca_cert)
-            verify_ssl: bool = False
-        else:
-            verify_ssl = conn.verify_ssl
+        verify_ssl = resolve_verify(conn.host, conn.verify_ssl, conn.ca_cert)
 
         client = ProxmoxAPI(
             conn.host,
@@ -927,7 +816,7 @@ def sync_connection(
     if conn is None:
         raise HTTPException(status_code=404, detail="Connection not found")
     try:
-        saved_nodes, storage_count = _sync_one_connection(session, conn)
+        saved_nodes, storage_count = connection_sync_service.sync_connection_inventory(session, conn)
     except ValueError as e:
         return ConnectionSyncResult(
             success=False, connection_id=connection_id, nodes=[],
@@ -1001,7 +890,7 @@ def sync_now(
     errors: list[str] = []
     for conn in connections:
         try:
-            saved_nodes, storage_count = _sync_one_connection(session, conn)
+            saved_nodes, storage_count = connection_sync_service.sync_connection_inventory(session, conn)
             all_nodes.extend(saved_nodes)
             total_storages += storage_count
         except ValueError as e:
@@ -1073,12 +962,7 @@ def test_proxmox_connection(
         from proxmoxer import ProxmoxAPI
 
         password = proxmox_config_repo.get_decrypted_password(config)
-
-        if config.ca_cert:
-            _verify_server_with_ca(config.host, config.ca_cert)
-            verify_ssl: bool = False
-        else:
-            verify_ssl = config.verify_ssl
+        verify_ssl = resolve_verify(config.host, config.verify_ssl, config.ca_cert)
 
         client = ProxmoxAPI(
             config.host,

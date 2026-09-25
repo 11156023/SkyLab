@@ -8,18 +8,8 @@
     "tagline": "校園裡的私有雲",
     "sub": "從申請到開機,一個平台管理整個校園的運算資源"
   },
-  "condition": {
-    "title": "校園概況",
-    "nodes": "節點",
-    "vms": "虛擬機",
-    "users": "使用者",
-    "courses": "本學期課程"
-  },
   "overview": {
-    "title": "一個平台,管理整個校園的運算資源",
-    "instances": "VM / LXC 實例",
-    "snapshots": "快照",
-    "pending": "審核中申請"
+    "title": "一個平台,管理整個校園的運算資源"
   },
   "lifecycle": {
     "title": "從範本到可用的 VM,幾分鐘內",
@@ -61,8 +51,10 @@
   },
   "terminal": {
     "title": "打開就是真的機器",
-    "desc": "VNC 桌面與終端機直接在瀏覽器裡,不用另外裝任何東西。",
-    "cta": "準備好把實驗室搬上雲了嗎?",
+    "desc": "VNC 桌面與終端機直接在瀏覽器裡,不用另外裝任何東西。"
+  },
+  "outro": {
+    "title": "準備好把實驗室搬上雲了嗎?",
     "loginCta": "登入 SkyLab",
     "docsCta": "部署指南"
   },

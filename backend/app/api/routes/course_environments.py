@@ -11,7 +11,7 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field, ValidationError, model_validator
 from sqlmodel import col, delete, func, select
 
-from app.api.deps import AdminUser, InstructorUser, SessionDep
+from app.api.deps import InstructorUser, SessionDep
 from app.core.authorizers import require_teaching_access
 from app.core.i18n import t
 from app.core.permissions import is_admin
@@ -32,6 +32,10 @@ from app.models import (
     VMTemplateStatus,
 )
 from app.models.base import get_datetime_utc
+from app.repositories import vm_template as vm_template_repo
+from app.services import quick_practice
+from app.services.proxmox import proxmox_service
+from app.services.teaching import course_publication_service
 
 router = APIRouter(prefix="/course-environments", tags=["course-environments"])
 
@@ -188,6 +192,8 @@ class EnvironmentDraftIn(BaseModel):
     # publication turns this into a validated, deployable configuration.
     configuration: dict[str, Any]
     editor: dict[str, Any]
+    # 只用來找「要續寫哪一份既有草稿」，永遠不會變成新資料列的 id：
+    # 讓 client 指定 primary key，等於可以先佔走一個還沒被用到的 id。
     draft_id: uuid.UUID | None = None
 
     @model_validator(mode="after")
@@ -219,28 +225,6 @@ def _versions(
     )
 
 
-def _nodes(session: SessionDep, version_id: uuid.UUID) -> list[CourseEnvironmentNode]:
-    return list(
-        session.exec(
-            select(CourseEnvironmentNode)
-            .where(CourseEnvironmentNode.version_id == version_id)
-            .order_by(col(CourseEnvironmentNode.sort_order))
-        ).all()
-    )
-
-
-def _publications(
-    session: SessionDep, version_id: uuid.UUID
-) -> list[CourseEnvironmentPublication]:
-    return list(
-        session.exec(
-            select(CourseEnvironmentPublication)
-            .where(CourseEnvironmentPublication.version_id == version_id)
-            .order_by(col(CourseEnvironmentPublication.sort_order))
-        ).all()
-    )
-
-
 def _edges(session: SessionDep, version_id: uuid.UUID) -> list[CourseEnvironmentEdge]:
     return list(
         session.exec(
@@ -251,16 +235,49 @@ def _edges(session: SessionDep, version_id: uuid.UUID) -> list[CourseEnvironment
     )
 
 
+def _validate_custom_source(
+    session: SessionDep, node: EnvironmentNodeIn, owner: User
+) -> None:
+    """自訂來源一樣要驗。
+
+    以前 ``source_type="custom"`` 直接跳過檢查，等於老師可以填任何一個
+    VMID 或任何一份 LXC 範本樣板，把別人的機器（含別人上傳的映像）
+    當成課程來源整班複製出去。
+    """
+    reference = (node.custom_image_ref or "").strip()
+    if node.resource_type == "qemu":
+        template = vm_template_repo.get_template_by_pve_vmid(
+            session=session, pve_vmid=int(reference)
+        )
+        if (
+            template is None
+            or template.status != VMTemplateStatus.ready
+            or not (
+                is_admin(owner)
+                or vm_template_repo.is_template_visible_to_user(
+                    template=template, user_id=owner.id
+                )
+            )
+        ):
+            raise BadRequestError(t("course_env.template_not_ready", name=node.name))
+        return
+    if reference not in proxmox_service.get_lxc_template_node_map():
+        raise BadRequestError(t("course_env.lxc_image_not_found", name=node.name))
+
+
 def _validate_configuration(
     session: SessionDep,
     nodes: list[EnvironmentNodeIn],
     edges: list[EnvironmentEdgeIn],
     publications: list[EnvironmentPublicationIn] | None = None,
+    *,
+    owner: User,
 ) -> None:
     if len({node.node_key for node in nodes}) != len(nodes):
         raise BadRequestError(t("course_env.duplicate_node_key"))
     for node in nodes:
         if node.source_type == "custom":
+            _validate_custom_source(session, node, owner)
             continue
         template = session.get(VMTemplate, node.source_template_id)
         if template is None or template.status != VMTemplateStatus.ready:
@@ -386,8 +403,10 @@ def _replace_nodes(
     nodes: list[EnvironmentNodeIn],
     edges: list[EnvironmentEdgeIn],
     publications: list[EnvironmentPublicationIn] | None = None,
+    *,
+    owner: User,
 ) -> None:
-    _validate_configuration(session, nodes, edges, publications)
+    _validate_configuration(session, nodes, edges, publications, owner=owner)
     session.exec(
         delete(CourseEnvironmentPublication).where(
             col(CourseEnvironmentPublication.version_id) == version.id
@@ -428,9 +447,11 @@ def _serialize_version(
     environment: CourseEnvironment,
     version: CourseEnvironmentVersion,
 ) -> dict[str, Any]:
-    nodes = _nodes(session, version.id)
+    nodes = quick_practice.nodes_for_version(session, version_id=version.id)
     edges = _edges(session, version.id)
-    publications = _publications(session, version.id)
+    publications = course_publication_service.list_for_version(
+        session, version_id=version.id
+    )
     class_count = session.exec(
         select(func.count(col(TeachingClass.id))).where(
             col(TeachingClass.course_version_id) == version.id
@@ -536,26 +557,18 @@ def list_published_environments(
     return result
 
 
-@router.post("/reconcile-open-ports")
-def reconcile_open_ports(session: SessionDep, _: AdminUser) -> dict[str, Any]:
-    """一次性維護：把課程機器上舊的「只開防火牆」入站規則換成 port_forward。
-
-    firewall_only 已從課程環境移除，migration 只轉了宣告；這支把已經套在
-    學生機器上的規則換掉。可重複執行，回傳掃描／替換／撤下／失敗的清單。
-    """
-    from app.services.teaching import course_publication_service  # noqa: PLC0415
-
-    return course_publication_service.reconcile_legacy_open_ports(session)
-
-
 @router.post("/drafts", status_code=201)
 def create_environment_draft(
     body: EnvironmentDraftIn, session: SessionDep, current_user: InstructorUser
 ) -> dict[str, Any]:
-    if body.draft_id and session.get(CourseEnvironment, body.draft_id) is not None:
-        return save_environment_draft(body.draft_id, body, session, current_user)
+    if body.draft_id is not None:
+        existing = session.get(CourseEnvironment, body.draft_id)
+        if existing is not None:
+            # 續寫既有草稿：權限由 save_environment_draft 的 _get_environment 把關
+            return save_environment_draft(existing.id, body, session, current_user)
+    # 新資料列的 id 一律由伺服器產生
     environment = CourseEnvironment(
-        id=body.draft_id or uuid.uuid4(), owner_id=current_user.id, name=""
+        id=uuid.uuid4(), owner_id=current_user.id, name=""
     )
     version = CourseEnvironmentVersion(
         environment_id=environment.id, version=1, draft_data=body.model_dump_json()
@@ -619,7 +632,9 @@ def create_environment(
         owner_id=None if is_admin(current_user) else current_user.id,
         class_ids=body.audience_class_ids,
     )
-    _replace_nodes(session, version, body.nodes, body.edges, body.publications)
+    _replace_nodes(
+        session, version, body.nodes, body.edges, body.publications, owner=current_user
+    )
     version.peer_policy = body.peer_policy
     session.commit()
     return _serialize_version(session, environment, version)
@@ -648,7 +663,9 @@ def update_environment(
         owner_id=None if is_admin(current_user) else environment.owner_id,
         class_ids=body.audience_class_ids,
     )
-    _replace_nodes(session, version, body.nodes, body.edges, body.publications)
+    _replace_nodes(
+        session, version, body.nodes, body.edges, body.publications, owner=current_user
+    )
     version.peer_policy = body.peer_policy
     version.draft_data = None
     session.add(version)
@@ -831,13 +848,22 @@ def publish_environment(
             owner_id=None if is_admin(current_user) else environment.owner_id,
             class_ids=body.audience_class_ids,
         )
-        _replace_nodes(session, version, body.nodes, body.edges, body.publications)
+        _replace_nodes(
+            session,
+            version,
+            body.nodes,
+            body.edges,
+            body.publications,
+            owner=current_user,
+        )
         version.peer_policy = body.peer_policy
         session.flush()
         version.draft_data = None
-    nodes = _nodes(session, version.id)
+    nodes = quick_practice.nodes_for_version(session, version_id=version.id)
     edges = _edges(session, version.id)
-    publications = _publications(session, version.id)
+    publications = course_publication_service.list_for_version(
+        session, version_id=version.id
+    )
     _validate_configuration(
         session,
         [EnvironmentNodeIn.model_validate(node.model_dump()) for node in nodes],
@@ -846,6 +872,7 @@ def publish_environment(
             EnvironmentPublicationIn.model_validate(item.model_dump())
             for item in publications
         ],
+        owner=current_user,
     )
     payload: dict[str, Any] = {
         "peer_policy": version.peer_policy,

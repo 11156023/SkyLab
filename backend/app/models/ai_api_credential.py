@@ -11,6 +11,13 @@ if TYPE_CHECKING:
     from .ai_api_request import AIAPIRequest
     from .user import User
 
+# 金鑰查詢用的前綴長度。``api_key_prefix`` 帶唯一索引，8 字元只剩 ``ccai_`` 後
+# 3 個 base64url 字元（約 26 萬種），核發幾百把就可能撞上而讓新增直接失敗；
+# 16 字元保留 11 個字元，碰撞機率可忽略。
+API_KEY_PREFIX_LENGTH = 16
+# 2026-09 之前核發的金鑰只存了 8 字元前綴，驗證時仍要能撈到這些舊資料。
+LEGACY_API_KEY_PREFIX_LENGTH = 8
+
 
 class AIAPICredential(SQLModel, table=True):
     __tablename__ = "ai_api_credentials"
@@ -21,7 +28,7 @@ class AIAPICredential(SQLModel, table=True):
     )
 
     id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
-    user_id: uuid.UUID = Field(foreign_key="user.id")
+    user_id: uuid.UUID = Field(foreign_key="user.id", ondelete="CASCADE")
     request_id: uuid.UUID = Field(foreign_key="ai_api_requests.id")
     base_url: str = Field(max_length=2048)
     api_key_encrypted: str = Field(max_length=4096)
@@ -41,4 +48,8 @@ class AIAPICredential(SQLModel, table=True):
     request: "AIAPIRequest" = Relationship(back_populates="credentials")
 
 
-__all__ = ["AIAPICredential"]
+__all__ = [
+    "API_KEY_PREFIX_LENGTH",
+    "LEGACY_API_KEY_PREFIX_LENGTH",
+    "AIAPICredential",
+]

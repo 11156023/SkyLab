@@ -29,7 +29,7 @@ class AIAPIRequest(SQLModel, table=True):
     )
 
     id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
-    user_id: uuid.UUID = Field(foreign_key="user.id")
+    user_id: uuid.UUID = Field(foreign_key="user.id", ondelete="CASCADE")
     purpose: str = Field(max_length=2000)
     api_key_name: str = Field(default="test", max_length=20)
     duration: str = Field(default="never", max_length=20)
@@ -44,7 +44,9 @@ class AIAPIRequest(SQLModel, table=True):
             default=AIAPIRequestStatus.pending,
         ),
     )
-    reviewer_id: uuid.UUID | None = Field(default=None, foreign_key="user.id")
+    reviewer_id: uuid.UUID | None = Field(
+        default=None, foreign_key="user.id", ondelete="SET NULL"
+    )
     review_comment: str | None = Field(default=None, max_length=2000)
     reviewed_at: datetime | None = Field(default=None, sa_type=sa.DateTime(timezone=True))
     created_at: datetime = Field(

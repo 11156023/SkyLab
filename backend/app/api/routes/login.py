@@ -98,7 +98,7 @@ async def logout(
                 options={"verify_exp": False},
             )
             return TokenPayload(**payload)
-        except Exception:  # noqa: BLE001
+        except Exception:
             return None
 
     targets: list[TokenPayload] = []

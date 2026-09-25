@@ -9,17 +9,17 @@ import shlex
 import uuid
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any, TypeVar
 
 from sqlmodel import Session, col, select
 
 from app.ai.teacher_judge.script_policy import validate_managed_script_output
 from app.ai.teacher_judge.target_ip_resolver import resolve_target_ip_address
+from app.ai.teacher_judge.target_os import is_windows_target, resource_os_context
 from app.core.db import engine
 from app.core.security import decrypt_value
 from app.infrastructure.proxmox import operations as proxmox_ops
-from app.infrastructure.proxmox.os_detection import is_windows_guest_identity
 from app.infrastructure.ssh import create_key_client, exec_command
 from app.models.teacher_judge_script_artifact import (
     TeacherJudgeScriptArtifact,
@@ -102,40 +102,9 @@ def _target_user(target: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _resource_os_context(resource: Any) -> str:
-    identity = getattr(resource, "guest_os", None)
-    if isinstance(identity, dict):
-        structured = (
-            str(identity.get("pretty_name") or "").strip()
-            or str(identity.get("id") or "").strip()
-        )
-        if structured:
-            return structured
-    return " ".join(
-        str(value).strip()
-        for value in (
-            getattr(resource, "os_info", None),
-            getattr(resource, "environment_type", None),
-        )
-        if value is not None and str(value).strip()
-    )
-
-
-def _is_windows_target(resource: Any) -> bool:
-    """結構化 guest_os 為準；無結構資料時退回舊的字串判斷。"""
-
-    structured = is_windows_guest_identity(getattr(resource, "guest_os", None))
-    if structured is not None:
-        return structured
-    os_context = _resource_os_context(resource)
-    normalized = os_context.casefold()
-    windows_markers = ("windows", "win32", "win64", "win10", "win11", "microsoft")
-    return any(marker in normalized for marker in windows_markers)
-
-
 def _ensure_linux_executor_capability(resource: Any, vmid: int) -> None:
-    if _is_windows_target(resource):
-        os_context = _resource_os_context(resource)
+    if is_windows_target(resource):
+        os_context = resource_os_context(resource)
         raise TargetExecutionError(
             f"VMID {vmid} 的作業系統（{os_context or 'unknown'}）不在目前 Linux SSH/python3 執行器支援範圍。",
             "unsupported_os",
@@ -490,7 +459,45 @@ def _summary(results: list[dict[str, Any]]) -> dict[str, Any]:
     }
 
 
+# running／pending 超過這個時數且沒有任何進度更新的 run，視為執行器已死
+# （行程被 OOM／SIGKILL 殺掉不會走 cancel 路徑，run 會永遠停在 running）
+STALE_RUN_HOURS = 2.0
+STALE_RUN_MESSAGE = "Executor lost: run reaped after {hours:g}h without progress"
+
+
+def reap_stale_script_runs(session: Session, *, now: datetime | None = None) -> int:
+    """把長時間沒有進度的 pending／running run 標成 failed；回傳處理數。
+
+    正常路徑（完成、cancel、例外）都會收尾，只有行程被硬殺才會留下殭屍；
+    回收只看 ``updated_at``，執行中有進度回報就不會被誤殺。
+    """
+    current = now or _now()
+    cutoff = current - timedelta(hours=STALE_RUN_HOURS)
+    stale_ids = list(
+        session.exec(
+            select(TeacherJudgeScriptRun.id)
+            .where(
+                col(TeacherJudgeScriptRun.status).in_(
+                    [
+                        TeacherJudgeScriptRunStatus.pending,
+                        TeacherJudgeScriptRunStatus.running,
+                    ]
+                ),
+                TeacherJudgeScriptRun.updated_at <= cutoff,
+            )
+            .limit(20)
+        ).all()
+    )
+    for run_id in stale_ids:
+        logger.warning("Reaping stale Teacher Judge script run %s", run_id)
+        _mark_run_executor_failed(
+            run_id, STALE_RUN_MESSAGE.format(hours=STALE_RUN_HOURS)
+        )
+    return len(stale_ids)
+
+
 def _mark_run_executor_failed(run_id: uuid.UUID, message: str) -> None:
+
     with Session(engine) as session:
         run = session.get(TeacherJudgeScriptRun, run_id)
         if run is None or run.status == TeacherJudgeScriptRunStatus.completed:

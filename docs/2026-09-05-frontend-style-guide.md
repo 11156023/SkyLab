@@ -316,6 +316,7 @@ import MIcon from "../components/MIcon";
 - 可點卡片的 hover 只給淡底（`background: var(--color-hover)`）或陰影／上浮，並保留 `transition` 淡入淡出；**不改邊框色**，藍框只留給「選中／目前」狀態（如分頁 active、流程目前步驟）
 - 淡底不要用 `linear-gradient` 疊層：漸層無法 transition，hover 會瞬間跳色
 - 玻璃卡裡的內容區塊（資訊欄位、備註框、程式碼／日誌／金鑰等 `pre`、清單列、統計格）一律 `background: var(--color-surface)`（白）＋ `1px solid var(--color-border)`；不要鋪 `--color-hover`、`--color-bg-base` 等主色系淺藍。它們跟著主色走，使用者換了背景色，疊在透出背景的玻璃上就會糊。淺藍只留給 hover／選中狀態、按鈕、徽章、提示框
+- 拓撲畫布（React Flow）不在白底規則內：底色、框線、陰影一律用畫布專用 token `background: var(--color-flow-bg)`、`1px solid var(--color-flow-border)`、`box-shadow: 0 4px 24px var(--color-flow-shadow)`，防火牆頁、課程環境編輯器、資源詳情、班級上課環境的唯讀拓撲都同一組
 
 ### Dialog / Modal
 
@@ -323,6 +324,9 @@ import MIcon from "../components/MIcon";
 - 高度：`height: 88vh`
 - 全螢幕：使用 `:fullscreen` 偽類，設 `max-width: 100%; height: 100%; border-radius: 0`
 - 遮罩：`position: fixed; inset: 0; background: var(--color-overlay); backdrop-filter: blur(4px); z-index: 300`
+- 遮罩一律 `createPortal` 到 `document.body`：祖先有 `backdrop-filter`／`transform` 時，`position: fixed` 會被困在那一層、蓋不滿整個畫面
+- 卡片陰影：確認框用 `glass-surface` 預設陰影；新增／編輯這類表單型 Dialog 可用 `glass-surface($shadow: var(--shadow-lg))`，浮在遮罩上比較突出
+- 無障礙：Dialog 容器加 `role="dialog"`、`aria-modal="true"`，`aria-labelledby` 指向標題（`useId()` 產生 id），讀屏軟體才會唸出「對話框：標題」
 
 #### 確認彈窗（全站統一）
 

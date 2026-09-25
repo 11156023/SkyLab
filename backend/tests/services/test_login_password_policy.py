@@ -207,6 +207,10 @@ class _FakeSession:
     def rollback(self) -> None:
         pass
 
+    def get_bind(self):
+        # coordinator 的 VMID 鎖會看 dialect；非 PostgreSQL 只走行程內鎖
+        return SimpleNamespace(dialect=SimpleNamespace(name="sqlite"))
+
     def __enter__(self) -> _FakeSession:
         return self
 

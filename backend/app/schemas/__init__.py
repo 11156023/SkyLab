@@ -16,6 +16,7 @@ from .ai_api import (
     AIAPICredentialsAdminPublic,
     AIAPICredentialsPublic,
     AIAPICredentialUpdate,
+    AIAPICredentialWithSecret,
     AIAPIRequestCreate,
     AIAPIRequestPublic,
     AIAPIRequestReview,
@@ -58,8 +59,6 @@ from .cloudflare import (
 from .common import Message, NewPassword, Token, TokenPayload
 from .deletion_request import (
     DeletionRequestCreated,
-    DeletionRequestPublic,
-    DeletionRequestsPublic,
 )
 from .firewall import (
     ConnectionCreate,
@@ -69,7 +68,6 @@ from .firewall import (
     FirewallRulePublic,
     FirewallRuleUpdate,
     LayoutUpdate,
-    NATRulePublic,
     PortSpec,
     TopologyEdge,
     TopologyNode,
@@ -129,7 +127,6 @@ from .resource import (
     LXCCreateRequest,
     LXCCreateResponse,
     NextVMIDSchema,
-    NodeSchema,
     ResetAcceptedResponse,
     ResourcePublic,
     ResourceStatus,
@@ -195,8 +192,6 @@ __all__ = [
     "NewPassword",
     # Deletion Request
     "DeletionRequestCreated",
-    "DeletionRequestPublic",
-    "DeletionRequestsPublic",
     # AI API
     "AIAPIRequestCreate",
     "AIAPIRequestReview",
@@ -207,6 +202,7 @@ __all__ = [
     "AIAPICredentialsAdminPublic",
     "AIAPICredentialsPublic",
     "AIAPICredentialUpdate",
+    "AIAPICredentialWithSecret",
     # AI Proxy
     "ChatMessage",
     "ChatCompletionRequest",
@@ -233,7 +229,6 @@ __all__ = [
     "BatchActionResponse",
     "BatchActionResultItem",
     # Resource / Proxmox
-    "NodeSchema",
     "VMSchema",
     "VNCInfoSchema",
     "TerminalInfoSchema",
@@ -313,7 +308,6 @@ __all__ = [
     "TopologyNode",
     "TopologyEdge",
     "TopologyResponse",
-    "NATRulePublic",
     # LDAP
     "LdapConfigPublic",
     "LdapConfigUpdate",

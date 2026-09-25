@@ -6,17 +6,33 @@ import MIcon from "../../../components/MIcon";
 import LoadingState from "../../../components/LoadingState/LoadingState";
 import EmptyState from "../../../components/EmptyState/EmptyState";
 import { useToast } from "../../../hooks/useToast";
+import { useConfirm } from "../../../components/ConfirmDialog/ConfirmProvider";
 import useDialogPresence from "../../../hooks/useDialogPresence";
 import { CloudflareService } from "../../../services/cloudflare";
 import PageHeader from "../../../components/PageHeader/PageHeader";
 import SegmentedControl from "../../../components/SegmentedControl/SegmentedControl";
 import PasswordInput from "../../../components/PasswordInput/PasswordInput";
 import { ReverseProxyPanel } from "../../network/reverse-proxy/ReverseProxyPage";
-import { formatDateTime } from "../../../utils/formatDate";
+import { formatDateTime, formatShortDateTime } from "../../../utils/formatDate";
 
 const TAB_KEYS = ["dns", "reverse-proxy"];
 
 const DNS_TYPES = ["A", "AAAA", "CNAME", "TXT", "MX", "NS", "SRV"];
+
+/* 兩個 Modal 共用的「取消／儲存」列；儲存鈕是 submit，交給外層 form 處理 */
+function ModalActions({ loading, onClose }) {
+  const { t } = useTranslation("system");
+  return (
+    <div className={styles.modalActions}>
+      <button type="button" className={styles.btnSecondary} onClick={onClose} disabled={loading}>
+        {t("DomainPage.cancel")}
+      </button>
+      <button type="submit" className={styles.btnPrimary} disabled={loading}>
+        {loading ? t("DomainPage.saving") : t("DomainPage.save")}
+      </button>
+    </div>
+  );
+}
 
 /* ── 供應商設定 Modal ───────────────────────────────────── */
 
@@ -119,14 +135,7 @@ function ConfigModal({ config, loading, closing = false, onClose, onSubmit }) {
           </label>
         </div>
 
-        <div className={styles.modalActions}>
-          <button type="button" className={styles.btnSecondary} onClick={onClose} disabled={loading}>
-            {t("DomainPage.cancel")}
-          </button>
-          <button type="submit" className={styles.btnPrimary} disabled={loading}>
-            {loading ? t("DomainPage.saving") : t("DomainPage.save")}
-          </button>
-        </div>
+        <ModalActions loading={loading} onClose={onClose} />
       </form>
     </div>
   );
@@ -237,14 +246,7 @@ function RecordModal({ record, loading, closing = false, onClose, onSubmit }) {
           <span>{t("DomainPage.proxiedLabel")}</span>
         </label>
 
-        <div className={styles.modalActions}>
-          <button type="button" className={styles.btnSecondary} onClick={onClose} disabled={loading}>
-            {t("DomainPage.cancel")}
-          </button>
-          <button type="submit" className={styles.btnPrimary} disabled={loading}>
-            {loading ? t("DomainPage.saving") : t("DomainPage.save")}
-          </button>
-        </div>
+        <ModalActions loading={loading} onClose={onClose} />
       </form>
     </div>
   );
@@ -255,6 +257,7 @@ function RecordModal({ record, loading, closing = false, onClose, onSubmit }) {
 export default function DomainPage() {
   const { t } = useTranslation("system");
   const toast = useToast();
+  const confirm = useConfirm();
   const [config, setConfig] = useState(null);
   const [zones, setZones] = useState([]);
   const [selectedZone, setSelectedZone] = useState(null);
@@ -264,7 +267,7 @@ export default function DomainPage() {
   const [testing, setTesting] = useState(false);
   const [saving, setSaving] = useState(false);
   const [search, setSearch] = useState("");
-  const [modal, setModal] = useState(null); // { kind: "config" } | { kind: "record", record? } | { kind: "deleteRecord", record }
+  const [modal, setModal] = useState(null); // { kind: "config" } | { kind: "record", record? }
   const modalPresence = useDialogPresence(modal);
 
   // 分頁狀態放在網址 ?tab=，讓 /domain?tab=reverse-proxy 這類連結（舊反向代理頁）能直接開到指定分頁
@@ -375,13 +378,21 @@ export default function DomainPage() {
     }
   }
 
-  async function handleDeleteRecord() {
-    if (!selectedZone || !modal?.record) return;
+  /* 刪除 DNS 紀錄：共用確認框；送出中 saving 擋住重複點擊 */
+  async function handleDeleteRecord(record) {
+    if (!selectedZone || !record || saving) return;
+    const ok = await confirm({
+      title: t("DomainPage.deleteRecordTitle"),
+      message: t("DomainPage.deleteRecordConfirm", { name: record.name, type: record.type }),
+      confirmText: t("DomainPage.delete"),
+      cancelText: t("DomainPage.cancel"),
+      danger: true,
+    });
+    if (!ok) return;
     setSaving(true);
     try {
-      await CloudflareService.deleteDnsRecord(selectedZone.id, modal.record.id);
+      await CloudflareService.deleteDnsRecord(selectedZone.id, record.id);
       toast.success(t("DomainPage.toastRecordDeleted"));
-      setModal(null);
       fetchRecords(selectedZone.id, search);
     } catch (err) {
       toast.error(err?.message ?? t("DomainPage.toastDeleteFailed"));
@@ -391,15 +402,27 @@ export default function DomainPage() {
   }
 
   const isConfigured = config?.is_configured;
+  const accountId = config?.account_id;
+  const verifiedAt = config?.last_verified_at;
+  /* 32 字元的 Account ID 只留頭尾，完整值與精確時間放滑過提示（連線設定裡也看得到） */
+  const statusMeta = [
+    accountId && `${t("DomainPage.accountLabel")}${accountId.length > 12 ? `${accountId.slice(0, 4)}…${accountId.slice(-4)}` : accountId}`,
+    verifiedAt && `${t("DomainPage.lastVerifiedLabel")}${formatShortDateTime(verifiedAt)}`,
+  ].filter(Boolean).join(" · ");
+  const statusTitle = [
+    accountId && `${t("DomainPage.accountLabel")}${accountId}`,
+    verifiedAt && `${t("DomainPage.lastVerifiedLabel")}${formatDateTime(verifiedAt)}`,
+  ].filter(Boolean).join("\n");
 
   return (
     <div className={styles.page}>
       <PageHeader title={t("DomainPage.pageTitle")}>
         <div className={styles.headerActions} data-guide="domain-connect">
+          {/* noopener,noreferrer：新分頁不能透過 window.opener 反向操作本站 */}
           <button
             type="button"
             className={styles.btnSecondary}
-            onClick={() => window.open("https://dash.cloudflare.com", "_blank")}
+            onClick={() => window.open("https://dash.cloudflare.com", "_blank", "noopener,noreferrer")}
           >
             <MIcon name="open_in_new" size={16} />
             Cloudflare Dashboard
@@ -415,30 +438,30 @@ export default function DomainPage() {
         </div>
       </PageHeader>
 
-      {config && (
-        <div className={styles.configBar} data-guide="domain-status">
-          <span className={`${styles.badge} ${isConfigured ? styles.badge_success : styles.badge_danger}`}>
-            <MIcon name={isConfigured ? "check_circle" : "error"} size={13} />
-            {isConfigured ? t("DomainPage.connected") : t("DomainPage.notSet")}
-          </span>
-          {config.account_id && <span className={styles.configMeta}>{t("DomainPage.accountLabel")}{config.account_id}</span>}
-          {config.last_verified_at && (
-            <span className={styles.configMeta}>{t("DomainPage.lastVerifiedLabel")}{formatDateTime(config.last_verified_at)}</span>
-          )}
+      <div className={styles.tabsRow}>
+        {/* 連線狀態顯示在分頁列右側，但 DOM 排在分頁前面（order 移到右邊）：
+            導覽第 2 步的選擇器取第一個符合的元素，才會先框狀態、設定未載入時再退回分頁 */}
+        {config && (
+          <div className={styles.connStatus} title={statusTitle || undefined} data-guide="domain-status">
+            <span className={`${styles.badge} ${isConfigured ? styles.badge_success : styles.badge_danger}`}>
+              <MIcon name={isConfigured ? "check_circle" : "error"} size={13} />
+              {isConfigured ? t("DomainPage.connected") : t("DomainPage.notSet")}
+            </span>
+            {statusMeta && <span className={styles.connMeta}>{statusMeta}</span>}
+          </div>
+        )}
+        {/* 外層 div 承接頁面導覽的 data-guide 錨點（SegmentedControl 根節點不收額外屬性） */}
+        <div className={styles.tabs} data-guide="domain-tabs">
+          <SegmentedControl
+            ariaLabel={t("DomainPage.tabsAriaLabel")}
+            value={activeTab}
+            onChange={selectTab}
+            options={[
+              { value: "dns", label: t("DomainPage.tabDns"), icon: "dns" },
+              { value: "reverse-proxy", label: t("DomainPage.tabReverseProxy"), icon: "swap_horiz" },
+            ]}
+          />
         </div>
-      )}
-
-      {/* 外層 div 承接頁面導覽的 data-guide 錨點（SegmentedControl 根節點不收額外屬性） */}
-      <div className={styles.tabs} data-guide="domain-tabs">
-        <SegmentedControl
-          ariaLabel={t("DomainPage.tabsAriaLabel")}
-          value={activeTab}
-          onChange={selectTab}
-          options={[
-            { value: "dns", label: t("DomainPage.tabDns"), icon: "dns" },
-            { value: "reverse-proxy", label: t("DomainPage.tabReverseProxy"), icon: "swap_horiz" },
-          ]}
-        />
       </div>
 
       {activeTab === "reverse-proxy" ? (
@@ -555,7 +578,8 @@ export default function DomainPage() {
                         type="button"
                         className={styles.actionBtnDanger}
                         title={t("DomainPage.delete")}
-                        onClick={() => setModal({ kind: "deleteRecord", record: r })}
+                        disabled={saving}
+                        onClick={() => handleDeleteRecord(r)}
                       >
                         <MIcon name="delete" size={16} />
                       </button>
@@ -585,30 +609,6 @@ export default function DomainPage() {
           onClose={() => setModal(null)}
           onSubmit={handleSaveRecord}
         />
-      )}
-      {modalPresence.item?.kind === "deleteRecord" && (
-        <div
-          className={`${styles.modalOverlay} ${modalPresence.closing ? styles.modalOverlayOut : ""}`}
-          onMouseDown={() => setModal(null)}
-        >
-          <div className={styles.confirm} onMouseDown={(e) => e.stopPropagation()}>
-            <div className={styles.confirmIcon}>
-              <MIcon name="warning" size={24} />
-            </div>
-            <h2>{t("DomainPage.deleteRecordTitle")}</h2>
-            <p>
-              {t("DomainPage.deleteRecordConfirm", { name: modalPresence.item.record.name, type: modalPresence.item.record.type })}
-            </p>
-            <div className={styles.modalActions}>
-              <button type="button" className={styles.btnSecondary} onClick={() => setModal(null)}>
-                {t("DomainPage.cancel")}
-              </button>
-              <button type="button" className={styles.btnDanger} disabled={saving} onClick={handleDeleteRecord}>
-                {saving ? t("DomainPage.deleting") : t("DomainPage.delete")}
-              </button>
-            </div>
-          </div>
-        </div>
       )}
     </div>
   );

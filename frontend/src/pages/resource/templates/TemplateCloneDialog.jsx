@@ -8,6 +8,14 @@ import { useToast } from "../../../hooks/useToast";
 
 const CORE_MIN = 1;
 const MEMORY_MIN = 512;
+/** 一次最多克隆幾台；與 input 的 max 及後端上限一致 */
+const CLONE_COUNT_MIN = 1;
+const CLONE_COUNT_MAX = 50;
+
+/** 把輸入框的字串夾回 1–50；空白或非數字一律當成 1 */
+export function clampCloneCount(value) {
+  return Math.min(CLONE_COUNT_MAX, Math.max(CLONE_COUNT_MIN, Number(value) || CLONE_COUNT_MIN));
+}
 
 const formatVram = (mb) =>
   mb >= 1024 ? `${Math.round(mb / 1024)}G` : `${mb}M`;
@@ -66,6 +74,21 @@ export default function TemplateCloneDialog({ template, canBatch, closing = fals
     .filter((p) => p.creatable && p.vram_mb > 0)
     .reduce((min, p) => (min && min.vram_mb <= p.vram_mb ? min : p), null);
 
+  /* 下拉預設顯示最小可建規格，但 state 是空字串，送出時會變成 null，
+     結果跟畫面上看到的不一樣。把預設值收斂成同一個來源。 */
+  const effectiveGpuProfile = gpuProfile || smallestCreatableProfile?.mdev_type || "";
+
+  /* 選項載入（或換 GPU）後把預設規格寫回 state，讓畫面與送出值一致 */
+  useEffect(() => {
+    if (!gpuProfile && smallestCreatableProfile?.mdev_type) {
+      setGpuProfile(smallestCreatableProfile.mdev_type);
+    }
+  }, [gpuProfile, smallestCreatableProfile?.mdev_type]);
+
+  /* 數量欄位可以手打或貼上，超出 1–50 時夾回範圍並在欄位下方說明 */
+  const clampedCount = clampCloneCount(count);
+  const countOutOfRange = count !== "" && String(clampedCount) !== String(count).trim();
+
   const handleSubmit = async () => {
     if (allowPassword && password && password.length < 8) {
       toast.error(t("TemplateCloneDialog.passwordTooShort"));
@@ -79,12 +102,12 @@ export default function TemplateCloneDialog({ template, canBatch, closing = fals
     try {
       const res = await TemplatesService.clone(template.id, {
         hostname: hostname.trim() || null,
-        count: canBatch ? Math.max(1, Number(count) || 1) : 1,
+        count: canBatch ? clampedCount : 1,
         cores: Number(cores),
         memory: Number(memory),
         login_password: allowPassword && password ? password : null,
         gpu_mapping_id: needsGpu ? gpuMappingId : null,
-        gpu_mdev_profile: needsGpu && gpuProfile ? gpuProfile : null,
+        gpu_mdev_profile: needsGpu && effectiveGpuProfile ? effectiveGpuProfile : null,
         start,
       });
       toast.success(
@@ -133,11 +156,21 @@ export default function TemplateCloneDialog({ template, canBatch, closing = fals
               <input
                 id="clone-count"
                 type="number"
-                min={1}
-                max={50}
+                min={CLONE_COUNT_MIN}
+                max={CLONE_COUNT_MAX}
                 value={count}
                 onChange={(e) => setCount(e.target.value)}
+                onBlur={() => setCount(String(clampCloneCount(count)))}
               />
+              {countOutOfRange && (
+                <span className={styles.fieldWarn}>
+                  {t("TemplateCloneDialog.countClamped", {
+                    min: CLONE_COUNT_MIN,
+                    max: CLONE_COUNT_MAX,
+                    count: clampedCount,
+                  })}
+                </span>
+              )}
             </div>
           )}
         </div>
@@ -259,7 +292,7 @@ export default function TemplateCloneDialog({ template, canBatch, closing = fals
                 <label htmlFor="clone-gpu-profile">{t("TemplateCloneDialog.gpuProfileLabel")}</label>
                 <select
                   id="clone-gpu-profile"
-                  value={gpuProfile || smallestCreatableProfile?.mdev_type || ""}
+                  value={effectiveGpuProfile}
                   onChange={(e) => setGpuProfile(e.target.value)}
                 >
                   {!smallestCreatableProfile && (

@@ -8,7 +8,6 @@ import uuid
 from sqlmodel import Session, select
 
 from app.exceptions import NotFoundError
-from app.infrastructure.worker import submit_sync
 from app.models import (
     BatchProvisionJob,
     BatchProvisionJobStatus,
@@ -135,14 +134,9 @@ def queue_reclaim(
             purge=True,
             force=force,
         )
-        submit_sync(
-            deletion_service.process_one_request,
-            request.id,
-            name=f"class-reclaim:{item.id}:{resource.vmid}",
-            task_id=str(request.id),
-            max_retries=2,
-        )
+        deletion_service.enqueue_processing(session=session, req=request)
         queued.append(resource.vmid)
+
 
     if not resource_repo.get_resources_by_teaching_class(
         session=session, teaching_class_id=item.id

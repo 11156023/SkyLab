@@ -10,6 +10,7 @@ import styles from "../ResourceDetailPage.module.scss";
 import MIcon from "../../../../../components/MIcon";
 import useDialogPresence from "../../../../../hooks/useDialogPresence";
 import { useToast } from "../../../../../hooks/useToast";
+import { useConfirm } from "../../../../../components/ConfirmDialog/ConfirmProvider";
 import { SpecChangeRequestsService } from "../../../../../services/specChangeRequests";
 import { focusInvalidField } from "../../../../../utils/focusField";
 
@@ -97,6 +98,7 @@ function ExtendModal({ resource, closing, loading, onClose, onSubmit }) {
 export default function LifecycleCard({ vmid, resource, canManage, onChanged }) {
   const { t, i18n } = useTranslation("personal");
   const toast = useToast();
+  const confirm = useConfirm();
   const lang = i18n.language || "zh-TW";
   const [openRequest, setOpenRequest] = useState(null);
   const [showExtend, setShowExtend] = useState(false);
@@ -140,6 +142,14 @@ export default function LifecycleCard({ vmid, resource, canManage, onChanged }) 
 
   async function handleCancel() {
     if (!openRequest) return;
+    /* 撤回後申請就沒了，要重新填寫才能再送一次：先確認 */
+    const ok = await confirm({
+      title: t("LifecycleCard.cancelConfirmTitle"),
+      message: t("LifecycleCard.cancelConfirmMessage"),
+      confirmText: t("LifecycleCard.cancelRequest"),
+      danger: true,
+    });
+    if (!ok) return;
     setBusy(true);
     try {
       await SpecChangeRequestsService.cancel(openRequest.id);
