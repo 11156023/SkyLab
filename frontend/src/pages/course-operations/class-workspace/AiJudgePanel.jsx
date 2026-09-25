@@ -58,11 +58,7 @@ export function mergeSessionMessages(current = [], incoming = []) {
 /* ── 共用小元件 ─────────────────────────────────────────── */
 
 function Spinner({ size = 16 }) {
-  return (
-    <span className={styles.spinning}>
-      <MIcon name="autorenew" size={size} />
-    </span>
-  );
+  return <MIcon name="autorenew" size={size} spin />;
 }
 
 const SCRIPT_GENERATION_PROGRESS = {

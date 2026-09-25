@@ -203,9 +203,7 @@ export default function JobDetailDialog({ jobId, onClose }) {
             <div className={styles.dialogStatusRow}>
               {statusMeta && (
                 <span className={`${styles.statusBadge} ${styles[statusMeta.tone]}`}>
-                  <span className={statusMeta.spin ? styles.spin : ""}>
-                    <MIcon name={statusMeta.icon} size={14} />
-                  </span>
+                  <MIcon name={statusMeta.icon} size={14} spin={statusMeta.spin} />
                   {t(statusMeta.labelKey)}
                 </span>
               )}
@@ -291,9 +289,7 @@ function JobDetailLoading() {
   const { t } = useTranslation("components");
   return (
     <div className={styles.jobLoading}>
-      <span className={styles.spin}>
-        <MIcon name="refresh" size={16} />
-      </span>
+      <MIcon name="refresh" size={16} spin />
       <span>{t("JobDetailDialog.loading")}</span>
     </div>
   );

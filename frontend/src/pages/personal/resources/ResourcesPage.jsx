@@ -157,7 +157,7 @@ function CreatingRow({ request, onCancelled }) {
       <td className={styles.td}><div className={styles.envPrimary}>{t("CreatingRow.resourceRequestLabel")}</div><div className={styles.envSub}>{t("CreatingRow.creating")}</div></td>
       <td className={styles.td}>
         <span className={`${styles.badge} ${styles[`badge_${display.color}`]} ${styles.creatingBadge}`}>
-          <span className={display.spin ? styles.spin : styles.badgeIcon}><MIcon name={display.spin ? "autorenew" : "error_outline"} size={12} /></span>{display.label}
+          <span className={styles.badgeIcon}><MIcon name={display.spin ? "autorenew" : "error_outline"} size={12} spin={display.spin} /></span>{display.label}
         </span>
       </td>
       <td className={styles.td}><span className={styles.muted}>N/A</span></td>
@@ -306,7 +306,7 @@ function ResourceRow({ resource, onUpdated, onDeleted }) {
           <button type="button" className={styles.terminalBtn} disabled={resource.status !== "running"} onClick={() => setConsoleOpen(true)} data-guide="resource-console">
             <MIcon name={isLxc ? "terminal" : "desktop_windows"} size={14} />{isLxc ? t("ResourceRow.terminal") : t("ResourceRow.console")}
           </button>
-          {actionLoading && <MIcon name="hourglass_empty" size={16} />}
+          {actionLoading && <MIcon name="hourglass_empty" size={16} spin />}
           <div className={styles.menuWrap}>
             {menuOpen && <PowerMenu resource={resource} actionLoading={actionLoading} onControl={handleControl} onDeleteClick={resource.can_delete === false ? undefined : () => { closeMenu(); handleDelete(); }} onConvertTemplate={canConvertTemplate ? () => { closeMenu(); setConvertOpen(true); } : undefined} onClose={closeMenu} anchorRef={menuBtnRef} closing={menuClosing} />}
             <button ref={menuBtnRef} type="button" className={`${styles.menuBtn} ${menuOpen ? styles.menuBtnActive : ""}`} onClick={() => menuOpen ? closeMenu() : setMenuOpen(true)} title={t("ResourceRow.moreActions")} aria-label={t("ResourceRow.moreActions")} data-guide="resource-more-actions"><MIcon name="more_vert" size={18} /></button>
@@ -391,7 +391,7 @@ function EnvironmentMachineRow({ machine, groupStatus, onUpdated }) {
     <td className={styles.td}>{machine.node}</td>
     <td className={styles.td}><div className={styles.rowActions}>
       <button type="button" className={styles.terminalBtn} disabled={!canOpen} title={canOpen ? (isLxc ? t("EnvironmentMachineRow.terminal") : t("EnvironmentMachineRow.console")) : t("EnvironmentMachineRow.notReadyTitle")} onClick={() => setConsoleOpen(true)} data-guide="resource-console"><MIcon name={isLxc ? "terminal" : "desktop_windows"} size={14} />{isLxc ? t("EnvironmentMachineRow.terminal") : t("EnvironmentMachineRow.console")}</button>
-      {actionLoading && <MIcon name="hourglass_empty" size={16} />}
+      {actionLoading && <MIcon name="hourglass_empty" size={16} spin />}
       {canControl && <div className={styles.menuWrap}>
         {menuOpen && <PowerMenu resource={resource} actionLoading={actionLoading} onControl={handleControl} onClose={closeMenu} anchorRef={menuBtnRef} closing={menuClosing} />}
         <button ref={menuBtnRef} type="button" className={`${styles.menuBtn} ${menuOpen ? styles.menuBtnActive : ""}`} onClick={() => menuOpen ? closeMenu() : setMenuOpen(true)} title={t("ResourceRow.moreActions")} aria-label={t("ResourceRow.moreActions")} data-guide="resource-more-actions"><MIcon name="more_vert" size={18} /></button>
@@ -480,7 +480,7 @@ function EnvironmentGroupRows({ group, onUpdated, onEnded }) {
       <td className={styles.td}><strong className={styles.environmentTiming}>{group.timingLabel}</strong></td>
       <td className={styles.td}>{group.nodeLabel}</td>
       <td className={styles.td}><div className={styles.rowActions}>
-        {(groupAction || ending) && <MIcon name="hourglass_empty" size={16} />}
+        {(groupAction || ending) && <MIcon name="hourglass_empty" size={16} spin />}
         {(controllableVmids.length > 0 || canEnd) && <div className={styles.menuWrap}>
           {menuOpen && <PowerMenu
             title={t("EnvironmentGroupRows.groupPowerTitle")}

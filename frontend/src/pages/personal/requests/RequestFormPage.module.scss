@@ -647,13 +647,3 @@
     color: var(--color-text);
   }
 }
-
-/* 送出中的沙漏轉圈（與 ResourcesPage 的 .spin 同一套）。 */
-.spin {
-  @include flex-center;
-  animation: iconSpin 1s linear infinite;
-}
-
-@keyframes iconSpin {
-  to { transform: rotate(360deg); }
-}

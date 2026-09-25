@@ -363,7 +363,7 @@ function RequestRow({ req, onUpdated }) {
             {!hasAction && <span className={styles.emptyAction}>—</span>}
             {canRetry(req) && (
               <button type="button" className={styles.retryBtn} disabled={retrying} onClick={handleRetry}>
-                <MIcon name="refresh" size={13} />
+                <MIcon name="refresh" size={13} spin={retrying} />
                 {retrying ? "…" : t("RequestRow.retry")}
               </button>
             )}

@@ -235,8 +235,6 @@
 }
 .suggestionButtons button:hover { border-color: var(--color-primary-on-surface); color: var(--color-primary-on-surface); background: var(--color-hover); }
 
-@keyframes spin { to { transform: rotate(360deg); } }
-.spin { animation: spin 1s linear infinite; }
 /* 側欄展開時也依實際內容寬度收斂，不只依整個視窗寬度。 */
 @container (max-width: 960px) {
   .assistantForm { grid-template-columns: minmax(0, 1fr); gap: $spacing-8; }
@@ -261,6 +259,5 @@
   .assistantActions button, .suggestionButtons button { min-height: 44px; }
 }
 @media (prefers-reduced-motion: reduce) {
-  .spin { animation: none; }
   .page button, .assistantInput { transition: none; }
 }

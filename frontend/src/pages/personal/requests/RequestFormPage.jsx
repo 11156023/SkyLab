@@ -1442,7 +1442,7 @@ export default function RequestFormPage({ onBack, className, initialPrefill = nu
               disabled={submitting}
             >
               {submitting
-                ? <><span className={styles.spin}><MIcon name="hourglass_empty" size={16} /></span>{t("RequestFormPage.submitting")}</>
+                ? <><MIcon name="hourglass_empty" size={16} spin />{t("RequestFormPage.submitting")}</>
                 : <><MIcon name="send" size={16} />{t("RequestFormPage.submitRequest")}</>
               }
             </button>

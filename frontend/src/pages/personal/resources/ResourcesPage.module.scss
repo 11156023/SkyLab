@@ -298,15 +298,6 @@
   @include flex-center;
 }
 
-.spin {
-  @include flex-center;
-  animation: iconSpin 1s linear infinite;
-}
-
-@keyframes iconSpin {
-  to { transform: rotate(360deg); }
-}
-
 /* ── Cancel request button ── */
 .cancelBtn {
   display: inline-flex;

@@ -540,7 +540,7 @@ export default function StudentCoursePage() {
                         disabled={isGuideDemo || reportingAssignmentId !== null}
                         aria-label={t(completionReported ? "StudentCoursePage.uncheckWeekAria" : "StudentCoursePage.checkWeekAria", { title: group.week?.title ?? firstAssignment?.title })}
                       />
-                      {reportingAssignmentId === group.id && <MIcon name="sync" size={15} />}
+                      {reportingAssignmentId === group.id && <MIcon name="sync" size={15} spin />}
                     </label> : <span className={styles.weekCompletion} aria-hidden="true" />}
                     <button
                       type="button"

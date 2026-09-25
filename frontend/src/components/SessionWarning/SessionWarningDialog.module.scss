@@ -114,12 +114,3 @@
 .btnPrimary {
   @include btn-primary;
 }
-
-.spin {
-  display: inline-flex;
-  animation: session-spin 1.2s linear infinite;
-}
-
-@keyframes session-spin {
-  to { transform: rotate(360deg); }
-}

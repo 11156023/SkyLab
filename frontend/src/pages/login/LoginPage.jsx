@@ -450,7 +450,7 @@ function DeviceApprovalView({ status, error, user, onApprove, onDecline }) {
         {t("LoginPage.deviceConnectingSubtitle")}
       </p>
       <div className={styles.deviceProgress} aria-live="polite">
-        <MIcon name="sync" size={40} className={styles.spin} />
+        <MIcon name="sync" size={40} spin />
       </div>
     </>
   );

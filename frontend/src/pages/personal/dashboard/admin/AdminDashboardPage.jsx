@@ -195,7 +195,7 @@ export default function AdminDashboardPage() {
     </section>
 
     {!focusMode && <section className={styles.attention} aria-label={t("AdminDashboardPage.attentionTitle")} aria-busy={busy}>
-      {busy ? <div className={styles.checking} role="status"><MIcon name="sync" size={18} className={styles.spin} />{t("AdminDashboardPage.checking")}</div> : <>
+      {busy ? <div className={styles.checking} role="status"><MIcon name="sync" size={18} spin />{t("AdminDashboardPage.checking")}</div> : <>
         <div className={styles.tiers}>
         <section className={`${styles.tier} ${urgent.length ? styles.tierNow : ""}`} aria-labelledby="admin-urgent-title">
           <div className={styles.tierHead}>

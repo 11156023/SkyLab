@@ -101,7 +101,7 @@ function AuthBootstrapState({ unavailable = false, retrying = false, onRetry }) 
             onClick={onRetry}
           >
             <span aria-hidden="true">
-              <MIcon name="refresh" size={18} />
+              <MIcon name="refresh" size={18} spin={retrying} />
             </span>
             {retrying ? t("App.retrying") : t("App.retryConnect")}
           </button>

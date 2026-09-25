@@ -42,11 +42,11 @@ export function JobRow({ job, onClick }) {
       disabled={!clickable}
     >
       <span
-        className={`${styles.jobRowIcon} ${styles[meta.tone]} ${meta.spin ? styles.spin : ""}`}
+        className={`${styles.jobRowIcon} ${styles[meta.tone]}`}
         title={t(meta.labelKey)}
         aria-label={t(meta.labelKey)}
       >
-        <MIcon name={meta.icon} size={16} />
+        <MIcon name={meta.icon} size={16} spin={meta.spin} />
       </span>
       <span className={styles.jobRowBody}>
         <span className={styles.jobRowHead}>
@@ -117,9 +117,7 @@ export function JobLoading() {
   const { t } = useTranslation("components");
   return (
     <div className={styles.jobLoading}>
-      <span className={styles.spin}>
-        <MIcon name="refresh" size={16} />
-      </span>
+      <MIcon name="refresh" size={16} spin />
       <span>{t("JobRow.loading")}</span>
     </div>
   );
