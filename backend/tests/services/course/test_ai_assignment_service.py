@@ -7,6 +7,7 @@ import pytest
 from fastapi import HTTPException
 from sqlmodel import Session, SQLModel, create_engine, select
 
+from app.core.i18n import t
 from app.models.course import CoursePath, CoursePathStatus
 from app.models.teacher_judge_file import TeacherJudgeFile
 from app.models.teacher_judge_script_artifact import (
@@ -560,6 +561,37 @@ def test_student_script_result_projection_uses_checks_and_coverage() -> None:
     assert check.items[0].status == "pass"
     assert check.items[0].comment == "chmod 結果符合要求。"
     assert "secret command output" not in check.items[0].comment
+
+
+def test_student_projection_hides_technical_validation_error() -> None:
+    """輸出驗證失敗的原始錯誤（pydantic validation errors）只給老師看，學生看到一句說明。"""
+    teaching_class_id = uuid.uuid4()
+    raw_error = (
+        "4 validation errors for ManagedScriptResult\n"
+        "checks.0.raw\n"
+        "  Input should be a valid string"
+    )
+    run = TeacherJudgeScriptRun(
+        teaching_class_id=teaching_class_id,
+        status=TeacherJudgeScriptRunStatus.completed,
+        target_results_json={
+            "schema_version": "teacher_judge_run_results.v2",
+            "targets": [
+                {
+                    "status": "failed",
+                    "reason_code": "invalid_json",
+                    "validation": {"valid": False, "error": raw_error},
+                    "parsed_result": None,
+                }
+            ],
+        },
+    )
+
+    check = ai_assignment_service._check_to_student(run)
+
+    assert "validation error" not in check.error
+    assert "ManagedScriptResult" not in check.error
+    assert check.error == t("course.ai_check_incomplete")
 
 
 def test_student_projection_uses_own_batch_target_and_teacher_review() -> None:

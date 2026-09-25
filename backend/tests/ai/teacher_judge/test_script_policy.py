@@ -123,3 +123,27 @@ def test_validate_managed_script_output_contract() -> None:
     assert valid["valid"] is True
     assert valid["checks_count"] == 1
     assert invalid["valid"] is False
+
+
+def test_validate_managed_script_output_coerces_structured_evidence() -> None:
+    """evidence／raw 給物件或陣列時轉成 JSON 字串，不判整份結果失敗。"""
+    result = validate_managed_script_output(
+        {
+            "schema_version": "teacher_judge_result.v1",
+            "metadata": {"timestamp": "now", "platform": "test"},
+            "checks": [
+                {
+                    "id": "sysinfo",
+                    "title": "System info",
+                    "status": "collected",
+                    "evidence": ["uname -a", "hostname"],
+                    "raw": {"kernel": "6.1", "hostname": "lab"},
+                },
+                {"id": "exit", "title": "Exit code", "status": "pass", "raw": 0, "evidence": None},
+            ],
+            "errors": [],
+        }
+    )
+
+    assert result["valid"] is True
+    assert result["checks_count"] == 2
