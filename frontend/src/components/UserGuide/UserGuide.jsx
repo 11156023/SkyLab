@@ -855,18 +855,20 @@ export default function UserGuide() {
   return (
     <>
       {showEmptySimulation && <EmptyGuideSimulation profile={guide.profile} title={displayTitle} t={t} />}
-      {(slot || document.body) && createPortal(
+      {/* 只掛在頁首標題旁的 slot；找不到（頁面還在載入、沒有頁首）就不顯示，
+          不再退回浮在右下角，免得載入中閃現、疊在 AI 助手鈕上 */}
+      {slot && createPortal(
         <button
           type="button"
           data-user-guide-trigger=""
-          className={`${styles.helpButton} ${!slot ? styles.helpButtonFloating : ""}`}
+          className={styles.helpButton}
           onClick={start}
           aria-label={t("UserGuide.openGuideAriaLabel", { title: displayTitle })}
           title={t("UserGuide.guideTitleAttr", { title: displayTitle })}
         >
           <MIcon name="help_outline" size={16} />
         </button>,
-        slot || document.body
+        slot
       )}
 
       {open && current && targetRect && panelPosition && (

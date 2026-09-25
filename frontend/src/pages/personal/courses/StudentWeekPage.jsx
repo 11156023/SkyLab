@@ -157,7 +157,11 @@ export default function StudentWeekPage() {
       <button type="button" className={styles.backButton} onClick={() => navigate(`/courses/${pathId}`)}><MIcon name="arrow_back" size={18} />{t("StudentWeekPage.back")}</button>
       <div>
         <p>{view.path?.title ?? view.week.teaching_class_name}</p>
-        <h1>{view.week.title}</h1>
+        {/* 標題旁放 UserGuide 導覽入口的 portal slot，比照 PageHeader 的標題列 */}
+        <div className={styles.titleRow}>
+          <h1>{view.week.title}</h1>
+          <span data-user-guide-slot="" />
+        </div>
         <span>{t("StudentWeekPage.weekMeta", { week: view.week.week_number, date: new Intl.DateTimeFormat(i18n.language, { dateStyle: "long" }).format(new Date(`${view.week.session_date}T00:00:00`)) })}</span>
       </div>
     </header>
