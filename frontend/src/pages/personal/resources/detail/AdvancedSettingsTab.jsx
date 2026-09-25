@@ -12,6 +12,8 @@ import { useTranslation } from "react-i18next";
 import styles from "./ResourceDetailPage.module.scss";
 import LoadingState from "../../../../components/LoadingState/LoadingState";
 import ErrorState from "../../../../components/ErrorState/ErrorState";
+import NotFoundState from "../../../../components/ErrorState/NotFoundState";
+import { isNotFound } from "../../../../services/api";
 import { ResourcesService } from "../../../../services/resources";
 import LifecycleCard from "./advanced/LifecycleCard";
 import FirewallCard from "./advanced/FirewallCard";
@@ -28,8 +30,8 @@ export default function AdvancedSettingsTab({ vmid, backTo }) {
   const loadResource = useCallback(async () => {
     try {
       setResource(await ResourcesService.get(vmid));
-    } catch {
-      setError(true);
+    } catch (e) {
+      setError(e ?? true);
     }
   }, [vmid]);
 
@@ -37,7 +39,11 @@ export default function AdvancedSettingsTab({ vmid, backTo }) {
     loadResource();
   }, [loadResource]);
 
-  if (error) return <ErrorState onRetry={() => { setError(false); loadResource(); }} />;
+  if (error) {
+    /* 資源不存在時重試沒有意義，顯示「找不到」；其餘錯誤保留重試 */
+    if (isNotFound(error)) return <NotFoundState />;
+    return <ErrorState onRetry={() => { setError(false); loadResource(); }} />;
+  }
   if (!resource) return <LoadingState />;
 
   const canManage = resource.can_manage !== false;

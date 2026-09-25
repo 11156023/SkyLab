@@ -12,9 +12,10 @@ import ov from "./OverviewTab.module.scss";
 import MIcon from "../../../../components/MIcon";
 import LoadingState from "../../../../components/LoadingState/LoadingState";
 import ErrorState from "../../../../components/ErrorState/ErrorState";
+import NotFoundState from "../../../../components/ErrorState/NotFoundState";
 import useAutoRefresh from "../../../../hooks/useAutoRefresh";
 import { ResourcesService } from "../../../../services/resources";
-import { downloadBlob } from "../../../../services/api";
+import { downloadBlob, isNotFound } from "../../../../services/api";
 import { useToast } from "../../../../hooks/useToast";
 
 const STATUS_META = {
@@ -233,7 +234,7 @@ export default function OverviewTab({ vmid }) {
             .catch(() => !cancelled && setSshKeyError(true));
         }
       })
-      .catch(() => !cancelled && setError(true));
+      .catch((e) => !cancelled && setError(e ?? true));
     // 來源範本手冊（非克隆機或無附件時 count=0，不顯示區塊）
     ResourcesService.getTemplateManual(vmid)
       .then((m) => !cancelled && setManual(m))
@@ -294,7 +295,7 @@ export default function OverviewTab({ vmid }) {
     }
   };
 
-  if (error) return <ErrorState />;
+  if (error) return isNotFound(error) ? <NotFoundState /> : <ErrorState />;
   if (!resource) return <LoadingState />;
 
   const statusMeta = STATUS_META[resource.status] ?? { label: String(resource.status), tone: "info" };
