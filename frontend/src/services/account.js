@@ -47,4 +47,9 @@ export const AccountService = {
   disableTotp(code) {
     return apiPost(`${BASE}/totp/disable`, { code });
   },
+
+  /** 首次登入引導精靈走完或略過：之後登入不再顯示，回傳更新後的使用者 */
+  completeOnboarding() {
+    return apiPost(`${BASE}/onboarding/complete`, {});
+  },
 };

@@ -107,6 +107,8 @@ def test_admin_creates_new_superuser(
     assert user.is_superuser is True
     assert user.is_active is True
     assert user.role == UserRole.admin
+    # 精靈裡已選過語言／主題，不再跑首次登入引導
+    assert user.onboarding_completed is True
     assert system_setup_repo.get_system_setup(session=db).admin_user_id == user.id
     assert _status(client)["steps"]["admin"] is True
 

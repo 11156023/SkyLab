@@ -86,6 +86,8 @@ class UserPublic(BaseModel):
     totp_required: bool = False  # 管理員要求此帳號啟用兩步驟驗證（已綁定者不可自行停用）
     # 只有 GET /users/me 會算：要求中且本人尚未綁定，前端只能顯示綁定畫面
     totp_setup_required: bool = False
+    # 首次登入引導精靈已完成／略過；False 時前端只顯示引導畫面
+    onboarding_completed: bool = False
     created_at: datetime | None = None
 
 

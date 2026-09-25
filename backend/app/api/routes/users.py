@@ -91,6 +91,12 @@ def read_user_me(session: SessionDep, current_user: CurrentUser) -> Any:
     return me
 
 
+@router.post("/me/onboarding/complete", response_model=UserPublic)
+def complete_onboarding_me(*, session: SessionDep, current_user: CurrentUser) -> Any:
+    """首次登入引導精靈走完或略過：之後登入不再顯示引導畫面。"""
+    return user_service.complete_onboarding(session=session, current_user=current_user)
+
+
 # ── 兩步驟驗證（TOTP，可綁定 Google Authenticator） ──
 
 

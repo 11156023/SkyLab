@@ -1,0 +1,97 @@
+/* 首次登入引導精靈：外框（暈染背景、毛玻璃卡、步驟列、按鈕）沿用 SetupPage.module.scss，
+   這裡只放本頁獨有的區塊：右上略過鈕、色彩模式卡片、主色列、綁定區塊 */
+
+/* 右上角的「略過」：與初始化精靈的主題鈕同一個位置 */
+.skipBtn {
+  @include btn-ghost;
+  position: absolute;
+  top: $spacing-16;
+  right: $spacing-16;
+}
+
+/* 標籤 + 控制項的直式容器；不用 SetupPage 的 .field，它的 `input` 規則會把色票撐成滿寬 */
+.fieldBlock {
+  @include form-field;
+}
+
+/* ── 色彩模式：三張並排的大卡片 ── */
+.modeGrid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: $spacing-8;
+}
+
+.modeCard {
+  @include flex-column;
+  align-items: center;
+  gap: $spacing-8;
+  padding: $spacing-16 $spacing-8;
+  border: 1px solid var(--color-border);
+  border-radius: $radius-12;
+  background: var(--color-surface);
+  color: var(--color-text-secondary);
+  font-size: $font-size-14;
+  cursor: pointer;
+  transition: background $transition-base, border-color $transition-base, color $transition-base;
+
+  &:hover:not(:disabled) {
+    background: var(--color-hover);
+    color: var(--color-text);
+  }
+}
+
+/* 選中的模式：藍框只留給「目前」狀態 */
+.modeCardActive {
+  border-color: var(--color-primary);
+  background: color-mix(in srgb, var(--color-primary) 10%, var(--color-surface));
+  color: var(--color-primary-on-surface);
+  font-weight: $font-weight-500;
+
+  &:hover:not(:disabled) {
+    background: color-mix(in srgb, var(--color-primary) 14%, var(--color-surface));
+  }
+}
+
+/* ── 主色：色票 + 色碼 + 還原 ── */
+.colorRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: $spacing-8;
+}
+
+.colorInput {
+  width: 48px;
+  height: 36px;
+  padding: 2px;
+  border: 1px solid var(--color-border);
+  border-radius: $radius-8;
+  background: var(--color-surface);
+  cursor: pointer;
+}
+
+/* 總覽列的主色小圓點 */
+.colorDot {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  margin-right: $spacing-4;
+  border-radius: 50%;
+  border: 1px solid var(--color-border);
+  vertical-align: -1px;
+}
+
+.welcomeHint {
+  font-size: $font-size-14;
+  line-height: 1.6;
+  color: var(--color-text-secondary);
+  margin-top: -$spacing-8;
+}
+
+/* 綁定流程放在白底區塊裡，與初始化精靈的表單區一致 */
+.enrollBody {
+  padding: $spacing-16;
+  border: 1px solid var(--color-border);
+  border-radius: $radius-12;
+  background: var(--color-surface);
+}

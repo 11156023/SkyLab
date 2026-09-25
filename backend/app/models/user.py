@@ -61,6 +61,9 @@ class User(UserBase, table=True):
     # 管理員在新增／編輯使用者時勾選「強制兩步驟驗證」：尚未綁定者登入後只能進
     # 綁定畫面（見 deps/auth.get_current_user），綁定後不可自行停用，只能由管理員重設
     totp_required: bool = Field(default=False)
+    # 首次登入引導精靈（語言／外觀／兩步驟驗證）是否已走完或略過：
+    # 新帳號一律 False，登入後前端只顯示引導畫面；既有帳號由 migration 標為 True
+    onboarding_completed: bool = Field(default=False)
     created_at: datetime | None = Field(
         default_factory=get_datetime_utc,
         sa_type=DateTime(timezone=True),

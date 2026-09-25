@@ -5,6 +5,7 @@ import { useAuth } from "./contexts/AuthContext";
 import DashboardLayout from "./layout/DashboardLayout";
 import LoginPage from "./pages/login/LoginPage";
 import TotpEnrollPage from "./pages/login/TotpEnrollPage";
+import OnboardingPage from "./pages/onboarding/OnboardingPage";
 import MIcon from "./components/MIcon";
 import { LoadingSpinner } from "./components/LoadingState/LoadingState";
 import { AuthSessionStatus } from "./services/authSession";
@@ -192,6 +193,12 @@ function App() {
      只顯示綁定畫面；完成後 updateUser 清掉旗標即自動進入系統。 */
   if (user?.totp_setup_required) {
     return <TotpEnrollPage />;
+  }
+
+  /* 首次登入引導（語言／外觀／兩步驟驗證）：走完或略過前只顯示精靈，同樣不進
+     DashboardLayout；裝置授權流程（device_code）例外，不打斷授權。 */
+  if (user && !user.onboarding_completed && !isDeviceApproval) {
+    return <OnboardingPage />;
   }
 
   return (
