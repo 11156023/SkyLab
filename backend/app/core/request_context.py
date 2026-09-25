@@ -7,13 +7,21 @@ attach them to audit log entries automatically.
 
 from __future__ import annotations
 
+import re
+import uuid
 from contextvars import ContextVar
 from dataclasses import dataclass
+from typing import Any
 
-from starlette.types import ASGIApp, Receive, Scope, Send
+from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 SUPPORTED_LANGUAGES = ("zh-TW", "en", "ja")
 DEFAULT_LANGUAGE = "zh-TW"
+
+REQUEST_ID_HEADER = b"x-request-id"
+# nginx 的 $request_id 是 32 位 hex；也接受一般 UUID／自訂追蹤 id。長度與字元
+# 受限，避免客戶端把換行或超長字串塞進日誌。
+_REQUEST_ID_RE = re.compile(r"^[A-Za-z0-9._:-]{8,64}$")
 
 
 def resolve_language(accept_language: str | None) -> str:
@@ -36,6 +44,14 @@ class RequestContext:
     ip_address: str | None = None
     user_agent: str | None = None
     language: str = DEFAULT_LANGUAGE
+    request_id: str | None = None
+
+
+def resolve_request_id(incoming: str | None) -> str:
+    """沿用上游（nginx）帶來的合法 X-Request-ID，否則新產生一個。"""
+    if incoming and _REQUEST_ID_RE.match(incoming):
+        return incoming
+    return uuid.uuid4().hex
 
 
 _request_context: ContextVar[RequestContext] = ContextVar(
@@ -97,27 +113,67 @@ class RequestContextMiddleware:
     """Pure-ASGI middleware that captures client IP/UA into a ContextVar.
 
     Must be added before any code that calls audit_service.log_action.
+
+    也負責 request id：沿用 nginx 帶來的 ``X-Request-ID``（或自行產生），寫進
+    ContextVar 讓 JSON 日誌帶上，並回寫到回應標頭，前端／nginx 日誌／後端
+    日誌三邊可以用同一個 id 對上。
     """
 
     def __init__(self, app: ASGIApp) -> None:
         self.app = app
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
-        if scope["type"] != "http":
+        if scope["type"] not in ("http", "websocket"):
             await self.app(scope, receive, send)
             return
 
         headers = scope.get("headers") or []
         client = scope.get("client")
         client_host = client[0] if client else None
+        request_id = resolve_request_id(
+            _extract_header(headers, REQUEST_ID_HEADER, max_len=128)
+        )
 
         ctx = RequestContext(
             ip_address=_extract_client_ip(headers, client_host),
             user_agent=_extract_user_agent(headers),
             language=resolve_language(_extract_header(headers, b"accept-language")),
+            request_id=request_id,
         )
+        _tag_sentry_scope(request_id)
         token = _request_context.set(ctx)
         try:
-            await self.app(scope, receive, send)
+            if scope["type"] == "http":
+                await self.app(scope, receive, _with_request_id_header(send, request_id))
+            else:
+                await self.app(scope, receive, send)
         finally:
             _request_context.reset(token)
+
+
+def _with_request_id_header(send: Send, request_id: str) -> Send:
+    encoded = request_id.encode("latin-1")
+
+    async def send_wrapper(message: Message) -> None:
+        if message["type"] == "http.response.start":
+            headers: list[Any] = [
+                (name, value)
+                for name, value in message.get("headers", [])
+                if name.lower() != REQUEST_ID_HEADER
+            ]
+            headers.append((REQUEST_ID_HEADER, encoded))
+            message = {**message, "headers": headers}
+        await send(message)
+
+    return send_wrapper
+
+
+def _tag_sentry_scope(request_id: str) -> None:
+    """有啟用 Sentry 時把 request id 掛成 tag，事件可以反查到日誌。"""
+    try:
+        import sentry_sdk
+
+        if sentry_sdk.get_client().is_active():
+            sentry_sdk.get_isolation_scope().set_tag("request_id", request_id)
+    except Exception:  # noqa: S110 - Sentry 是選用的，失敗不影響請求
+        pass

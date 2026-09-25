@@ -1,5 +1,6 @@
-"""資源監控 API：全域 overview、節點/VM RRD 趨勢、警告事件。"""
+"""資源監控 API：全域 overview、節點/VM RRD 趨勢、警告事件、平台健康。"""
 
+import asyncio
 import uuid
 from typing import Any
 
@@ -8,10 +9,17 @@ from fastapi import APIRouter, Query
 from app.api.deps import AdminUser, CurrentUser, SessionDep
 from app.infrastructure.redis import get_redis
 from app.repositories import governance as governance_repo
-from app.schemas.monitoring import AlertEventPublic, MonitoringOverview
-from app.services.monitoring import monitoring_service
+from app.schemas.monitoring import AlertEventPublic, MonitoringOverview, SystemHealth
+from app.services.monitoring import monitoring_service, system_health_service
 
 router = APIRouter(prefix="/monitoring", tags=["monitoring"])
+
+
+@router.get("/system-health", response_model=SystemHealth)
+async def get_system_health(_: AdminUser) -> SystemHealth:
+    """平台本身的健康：DB、Redis、worker、PVE API 連線與排程任務心跳。"""
+    data = await asyncio.to_thread(system_health_service.collect_system_health)
+    return SystemHealth.model_validate(data)
 
 
 @router.get("/overview", response_model=MonitoringOverview)

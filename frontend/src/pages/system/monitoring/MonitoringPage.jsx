@@ -6,6 +6,7 @@ import LoadingState from "../../../components/LoadingState/LoadingState";
 import EmptyState from "../../../components/EmptyState/EmptyState";
 import RrdChart from "../../../components/RrdChart/RrdChart";
 import MiningIncidentsPanel from "./MiningIncidentsPanel";
+import SystemHealthCard from "./SystemHealthCard";
 import { MonitoringService } from "../../../services/monitoring";
 import { useToast } from "../../../hooks/useToast";
 import PageHeader from "../../../components/PageHeader/PageHeader";
@@ -150,7 +151,12 @@ function AlertsCard({ onCountChange }) {
   const { t } = useTranslation("system");
   const toast = useToast();
   const METRIC_LABELS = { cpu: "CPU", memory: t("MonitoringPage.memoryLabel"), disk: t("MonitoringPage.diskLabel") };
-  const SCOPE_LABELS  = { cluster: t("MonitoringPage.scopeCluster"), node: t("MonitoringPage.scopeNode"), vm: "VM" };
+  const SCOPE_LABELS  = {
+    cluster: t("MonitoringPage.scopeCluster"),
+    node: t("MonitoringPage.scopeNode"),
+    vm: "VM",
+    system: t("MonitoringPage.scopeSystem"),
+  };
   const [alerts, setAlerts] = useState(null);
   const [ackBusy, setAckBusy] = useState(null);
 
@@ -211,12 +217,19 @@ function AlertsCard({ onCountChange }) {
                       {SCOPE_LABELS[alert.scope] ?? alert.scope}
                     </span>
                     <span className={styles.alertTarget}>{alert.target}</span>
-                    <span className={styles.alertMetric}>
-                      {METRIC_LABELS[alert.metric] ?? alert.metric} {alert.value.toFixed(0)}%
-                    </span>
-                    <span className={styles.alertThreshold}>
-                      {t("MonitoringPage.thresholdSuffix", { threshold: alert.threshold.toFixed(0) })}
-                    </span>
+                    {/* 平台健康告警的 value 不是百分比（連續失敗次數等），直接顯示後端訊息 */}
+                    {alert.scope === "system" ? (
+                      <span className={styles.alertMetric}>{alert.message}</span>
+                    ) : (
+                      <>
+                        <span className={styles.alertMetric}>
+                          {METRIC_LABELS[alert.metric] ?? alert.metric} {alert.value.toFixed(0)}%
+                        </span>
+                        <span className={styles.alertThreshold}>
+                          {t("MonitoringPage.thresholdSuffix", { threshold: alert.threshold.toFixed(0) })}
+                        </span>
+                      </>
+                    )}
                   </div>
                   <p className={styles.alertTime}>
                     {formatDateTime(alert.created_at)}
@@ -324,21 +337,6 @@ export default function MonitoringPage() {
     };
   }, [load]);
 
-  if (loading) {
-    return <LoadingState fullPage text={t("MonitoringPage.loadingOverview")} />;
-  }
-
-  if (error || !overview) {
-    return (
-      <div className={styles.page}>
-        <div className={`${styles.card} ${styles.cardEmpty}`}>
-          <MIcon name="warning" size={24} />
-          <p>{t("MonitoringPage.errorFetchOverview")}</p>
-        </div>
-      </div>
-    );
-  }
-
   function toggleNodesOpen() {
     setNodesOpen((open) => {
       saveNodesOpen(!open);
@@ -346,16 +344,29 @@ export default function MonitoringPage() {
     });
   }
 
-  const cpuPct = overview.cpu_total > 0 ? (overview.cpu_used / overview.cpu_total) * 100 : 0;
-  const memPct = overview.mem_total > 0 ? (overview.mem_used / overview.mem_total) * 100 : 0;
+  /* 系統健康卡與警告面板不依賴 PVE：概況還在載入或 PVE 連不上時照樣顯示——
+     PVE 掛掉的當下，正是最需要看平台健康與系統告警的時候 */
+  const ready = !loading && !error && overview != null;
+  const cpuPct = ready && overview.cpu_total > 0 ? (overview.cpu_used / overview.cpu_total) * 100 : 0;
+  const memPct = ready && overview.mem_total > 0 ? (overview.mem_used / overview.mem_total) * 100 : 0;
   const diskPct =
-    overview.disk_total > 0 ? (overview.disk_used / overview.disk_total) * 100 : 0;
+    ready && overview.disk_total > 0 ? (overview.disk_used / overview.disk_total) * 100 : 0;
 
   return (
     <div className={styles.page}>
       <PageHeader title={t("MonitoringPage.pageTitle")} />
 
-      {/* 叢集用量卡片 */}
+      <SystemHealthCard />
+
+      {loading ? (
+        <LoadingState text={t("MonitoringPage.loadingOverview")} />
+      ) : !ready ? (
+        <div className={`${styles.card} ${styles.cardEmpty}`}>
+          <MIcon name="warning" size={24} />
+          <p>{t("MonitoringPage.errorFetchOverview")}</p>
+        </div>
+      ) : (
+      /* 叢集用量卡片 */
       <div className={styles.statRow}>
         <OverviewCard
           title={t("MonitoringPage.cpuUsage")}
@@ -399,6 +410,7 @@ export default function MonitoringPage() {
           </div>
         </div>
       </div>
+      )}
 
       {/* 警告與挖礦事件收進分頁（#24）；兩個面板保持掛載，輪詢與角標持續更新 */}
       <div className={styles.tabbedPanels}>
@@ -432,6 +444,7 @@ export default function MonitoringPage() {
         </div>
       </div>
 
+      {ready && (<>
       {/* 節點用量：整卡收合，收起時標題列仍看得到在線摘要 */}
       <div className={styles.card}>
         <button
@@ -559,6 +572,7 @@ export default function MonitoringPage() {
         <TopVmTable title={t("MonitoringPage.topCpuTitle")} entries={overview.top_cpu} metric="cpu" />
         <TopVmTable title={t("MonitoringPage.topMemTitle")} entries={overview.top_mem} metric="mem" />
       </div>
+      </>)}
     </div>
   );
 }

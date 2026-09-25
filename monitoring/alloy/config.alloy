@@ -1,0 +1,85 @@
+// Grafana Alloy：收集本機所有 Docker 容器的 stdout/stderr 送進 Loki。
+//
+// 標籤：service（compose 服務名）、container、compose_project。
+// backend／worker 的 JSON 日誌（LOG_JSON=true）另外解析出 level 當標籤，
+// request_id／logger 放 structured metadata（可查詢但不增加 stream 數）。
+
+discovery.docker "containers" {
+  host = "unix:///var/run/docker.sock"
+}
+
+discovery.relabel "containers" {
+  targets = []
+
+  rule {
+    source_labels = ["__meta_docker_container_name"]
+    regex         = "/(.*)"
+    target_label  = "container"
+  }
+
+  rule {
+    source_labels = ["__meta_docker_container_label_com_docker_compose_service"]
+    target_label  = "service"
+  }
+
+  rule {
+    source_labels = ["__meta_docker_container_label_com_docker_compose_project"]
+    target_label  = "compose_project"
+  }
+}
+
+loki.source.docker "containers" {
+  host          = "unix:///var/run/docker.sock"
+  targets       = discovery.docker.containers.targets
+  relabel_rules = discovery.relabel.containers.rules
+  forward_to    = [loki.process.skylab.receiver]
+}
+
+loki.process "skylab" {
+  forward_to = [loki.write.local.receiver]
+
+  stage.match {
+    selector = "{service=~\"backend|worker|prestart\"}"
+
+    stage.json {
+      expressions = {
+        level      = "level",
+        logger     = "logger",
+        request_id = "request_id",
+      }
+    }
+
+    stage.labels {
+      values = {
+        level = "",
+      }
+    }
+
+    stage.structured_metadata {
+      values = {
+        logger     = "",
+        request_id = "",
+      }
+    }
+  }
+
+  stage.match {
+    selector = "{service=\"nginx\"}"
+
+    stage.regex {
+      expression = "rid=(?P<request_id>[0-9a-f]+)"
+    }
+
+    stage.structured_metadata {
+      values = {
+        request_id = "",
+      }
+    }
+  }
+}
+
+loki.write "local" {
+  endpoint {
+    url = "http://loki:3100/loki/api/v1/push"
+  }
+}

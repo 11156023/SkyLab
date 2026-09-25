@@ -12,10 +12,14 @@ from __future__ import annotations
 
 from typing import Any
 
+from app.core.sentry import init_sentry
 from app.infrastructure.queue.arq_client import QUEUE_NAME, get_redis_settings
 from app.infrastructure.queue.modules import import_task_modules
 from app.infrastructure.queue.registry import registered_functions
 
+# worker 是獨立行程，不會經過 main.py：SENTRY_DSN 有設時這裡也要初始化，
+# 背景任務（克隆、轉範本…）的例外才收得到
+init_sentry("worker")
 import_task_modules()
 
 

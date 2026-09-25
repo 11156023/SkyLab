@@ -885,6 +885,7 @@ def process_due_request_stops() -> int:
 
 
 async def run_scheduler(stop_event: asyncio.Event) -> None:
+    from app.services.monitoring.heartbeat_service import HeartbeatObserver
     from app.services.scheduling.leader import (
         scheduler_leader_lock,
     )
@@ -894,6 +895,7 @@ async def run_scheduler(stop_event: asyncio.Event) -> None:
         stop_event=stop_event,
         interval_seconds=SCHEDULER_POLL_SECONDS,
         leader_gate=scheduler_leader_lock,
+        observer=HeartbeatObserver("scheduler", interval_seconds=SCHEDULER_POLL_SECONDS),
         tasks=[
             ScheduledTask(name="process_due_request_starts", handler=process_due_request_starts),
             ScheduledTask(name="process_due_request_stops", handler=process_due_request_stops),
@@ -950,6 +952,10 @@ async def run_scheduler(stop_event: asyncio.Event) -> None:
                 name="reap_stale_batch_jobs",
                 handler=reap_stale_batch_jobs_task,
             ),
+            ScheduledTask(
+                name="process_system_health_alerts",
+                handler=process_system_health_alerts_task,
+            ),
         ],
     )
     logger.info("VM request scheduler stopped")
@@ -988,6 +994,15 @@ def process_resource_alerts_task() -> int:
     )
 
     return alert_service.process_resource_alerts()
+
+
+def process_system_health_alerts_task() -> int:
+    """Scheduler tick：平台健康告警（任務連續失敗、迴圈停擺、worker／Redis／PVE 斷線）。"""
+    from app.services.monitoring import (
+        system_health_service,
+    )
+
+    return system_health_service.process_system_health_alerts()
 
 
 def process_ttl_lifecycle_task() -> int:

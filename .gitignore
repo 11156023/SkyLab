@@ -53,3 +53,5 @@ data/template_files/
 ai-template-recommendation/
 AI_PVE_template/
 docs/chen_yang/
+# 監控 stack：Prometheus 抓 /metrics 用的 token（見 docs/monitoring.md）
+monitoring/prometheus/metrics_token

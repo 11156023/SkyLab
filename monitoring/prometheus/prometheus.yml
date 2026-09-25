@@ -1,0 +1,58 @@
+# SkyLab 監控 stack 的 Prometheus 設定（docker compose --profile monitoring）
+#
+# 只抓「平台本身」：backend 的 /metrics、PostgreSQL、Redis、容器與主機資源。
+# Proxmox 節點／VM 的用量由 PVE 內建 Metric Server 直接推到 InfluxDB，不在這裡。
+
+global:
+  scrape_interval: 15s
+  evaluation_interval: 30s
+  external_labels:
+    stack: skylab
+
+rule_files:
+  - /etc/prometheus/rules/*.yml
+
+scrape_configs:
+  - job_name: skylab-backend
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["backend:8000"]
+    # .env 設了 METRICS_TOKEN 時：把同一個 token 寫進
+    # monitoring/prometheus/metrics_token（單行、無換行），再取消下面三行註解。
+    # authorization:
+    #   type: Bearer
+    #   credentials_file: /etc/prometheus/metrics_token
+
+  - job_name: postgres
+    static_configs:
+      - targets: ["postgres-exporter:9187"]
+
+  - job_name: redis
+    static_configs:
+      - targets: ["redis-exporter:9121"]
+
+  - job_name: cadvisor
+    scrape_interval: 30s
+    static_configs:
+      - targets: ["cadvisor:8080"]
+    metric_relabel_configs:
+      # cAdvisor 的 per-cgroup 細項很多，只留儀表板用得到的
+      - source_labels: [__name__]
+        regex: "container_(cpu_usage_seconds_total|memory_working_set_bytes|memory_usage_bytes|network_receive_bytes_total|network_transmit_bytes_total|fs_reads_bytes_total|fs_writes_bytes_total|last_seen|start_time_seconds|spec_memory_limit_bytes)|machine_.*"
+        action: keep
+
+  - job_name: node
+    static_configs:
+      - targets: ["node-exporter:9100"]
+
+  - job_name: influxdb
+    static_configs:
+      - targets: ["influxdb:8086"]
+
+  - job_name: loki
+    static_configs:
+      - targets: ["loki:3100"]
+
+  - job_name: prometheus
+    static_configs:
+      - targets: ["localhost:9090"]
