@@ -114,6 +114,20 @@ export default function AdminDashboardPage() {
   const incomplete = overviewError || !overview || overview.data_status === "stale"
     || overview.data_status === "partial" || checks.unavailable > 0;
   const name = user?.full_name?.trim() || user?.email?.split("@")[0] || t("AdminDashboardPage.defaultName");
+  /* 資料不完整的原因：頁首狀態籤顯示短句，滑過看完整說明 */
+  const incompleteReason = !overview ? "noData"
+    : overview.data_status === "partial" ? "partial"
+      : overviewError || overview.data_status === "stale" ? "stale"
+        : "checks";
+  const INCOMPLETE_TEXT = {
+    noData: { chip: "AdminDashboardPage.chipNoData", full: "AdminDashboardPage.emptyUnavailable" },
+    partial: { chip: "AdminDashboardPage.chipPartial", full: "AdminDashboardPage.pvePartialMessage" },
+    stale: { chip: "AdminDashboardPage.chipStale", full: "AdminDashboardPage.pveStaleMessage" },
+    checks: { chip: "AdminDashboardPage.chipChecksUnavailable", full: "AdminDashboardPage.issueUnavailableTitle" },
+  }[incompleteReason];
+  const updatedAtText = overview
+    ? t("AdminDashboardPage.pveUpdatedAt", { time: formatCheckedAt(overview.collected_at, i18n.language) })
+    : t("AdminDashboardPage.pveNotChecked");
 
   function resetAssistant() {
     setConversationPrompt("");
@@ -136,11 +150,15 @@ export default function AdminDashboardPage() {
 
   return <div className={`${styles.page} ${focusMode ? styles.pageFocused : ""}`}>
     <PageHeader title={t("AdminDashboardPage.greeting", { name })}>
-      {!focusMode && <span className={styles.checkedAt}>
-        {overview
-          ? t("AdminDashboardPage.pveUpdatedAt", { time: formatCheckedAt(overview.collected_at, i18n.language) })
-          : t("AdminDashboardPage.pveNotChecked")}
-      </span>}
+      {/* 資料新舊與完整度集中在這裡：正常時是灰字更新時間，不完整時前面加上橘色的連線狀態、更新時間轉藍 */}
+      {!focusMode && (!busy && incomplete
+        ? <span className={styles.checkedAtWarn} role="status" title={t(INCOMPLETE_TEXT.full)}>
+          <MIcon name="sync_problem" size={15} />
+          <span>{t(INCOMPLETE_TEXT.chip)}</span>
+          {overview && <span className={styles.checkedAtTime}>{updatedAtText}</span>}
+          <span className={styles.srOnly}>{t(INCOMPLETE_TEXT.full)}</span>
+        </span>
+        : <span className={styles.checkedAt}>{updatedAtText}</span>)}
     </PageHeader>
 
     {!focusMode && stats.length > 0 && <section className={styles.statsGrid} aria-label={t("AdminDashboardPage.resourceOverview")}>
@@ -241,13 +259,6 @@ export default function AdminDashboardPage() {
         </div>
       </>}
 
-      {!busy && incomplete && <div className={styles.staleNote} role="status">
-        <MIcon name="sync_problem" size={16} />
-        <span>{t(!overview ? "AdminDashboardPage.emptyUnavailable"
-          : overview?.data_status === "partial" ? "AdminDashboardPage.pvePartialMessage"
-            : overviewError || overview?.data_status === "stale" ? "AdminDashboardPage.pveStaleMessage"
-              : "AdminDashboardPage.issueUnavailableTitle")}</span>
-      </div>}
     </section>}
   </div>;
 }

@@ -20,6 +20,28 @@
 .page button:focus-visible { outline: 2px solid var(--color-primary-on-surface); outline-offset: 3px; }
 .checkedAt { color: var(--color-text-muted); font-size: $font-size-12; }
 .checkedAt { font-variant-numeric: tabular-nums; }
+/* 資料不完整：不鋪底，連線狀態用橘色、更新時間用藍色，中間分隔點用淡字 */
+.checkedAtWarn {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px 6px;
+  color: var(--color-pending);
+  font-size: $font-size-12;
+  font-weight: $font-weight-500;
+  cursor: help;
+}
+.checkedAtTime { color: var(--color-primary); font-weight: $font-weight-400; font-variant-numeric: tabular-nums; }
+.checkedAtTime::before { content: "·"; margin-right: 6px; color: var(--color-text-muted); }
+/* 完整說明給螢幕閱讀器（視覺上靠 title 提示） */
+.srOnly {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
 .assistantActions button {
   display: inline-flex;
   min-height: 36px;
@@ -149,8 +171,6 @@
 }
 .tierLink { color: var(--color-primary-on-surface); cursor: pointer; }
 .tierLink:hover { background: var(--color-hover); }
-.staleNote { display: flex; align-items: flex-start; gap: $spacing-8; color: var(--color-danger); font-size: $font-size-12; }
-.staleNote > :global(.material-icons-outlined) { flex-shrink: 0; margin-top: 2px; }
 
 .assistant { @include surface-card; @include flex-column; padding: $spacing-16; gap: $spacing-16; }
 .assistantFocused { min-height: 0; flex: 1; }
