@@ -4,6 +4,8 @@ import { useTranslation } from "react-i18next";
 import { useAuth } from "./contexts/AuthContext";
 import DashboardLayout from "./layout/DashboardLayout";
 import LoginPage from "./pages/login/LoginPage";
+import TotpEnrollPage from "./pages/login/TotpEnrollPage";
+import OnboardingPage from "./pages/onboarding/OnboardingPage";
 import MIcon from "./components/MIcon";
 import { LoadingSpinner } from "./components/LoadingState/LoadingState";
 import { AuthSessionStatus } from "./services/authSession";
@@ -69,7 +71,6 @@ const JobsPage = lazy(() => import("./pages/system/jobs/JobsPage"));
 const FirewallPage = lazy(() => import("./pages/network/firewall/FirewallPage"));
 const DomainPage = lazy(() => import("./pages/system/domain/DomainPage"));
 const GatewayPage = lazy(() => import("./pages/system/gateway/GatewayPage"));
-const ReverseProxyPage = lazy(() => import("./pages/network/reverse-proxy/ReverseProxyPage"));
 
 function AuthBootstrapState({ unavailable = false, retrying = false, onRetry }) {
   const { t } = useTranslation("common");
@@ -185,6 +186,20 @@ function App() {
         <Route path="*" element={<AuthBootstrapState />} />
       </Routes>
     );
+  }
+
+  /* 管理員強制全站 2FA 且本人尚未綁定：後端除帳號／登入端點外一律 403，
+     所以這裡不進 DashboardLayout（避免側欄／通知等請求一路噴 403），
+     只顯示綁定畫面；完成後 updateUser 清掉旗標即自動進入系統。 */
+  if (user?.totp_setup_required) {
+    return <TotpEnrollPage />;
+  }
+
+  /* 首次登入引導（語言／外觀／兩步驟驗證）：走完或略過前只顯示精靈，同樣不進
+     DashboardLayout；裝置授權流程（device_code）例外，不打斷授權。
+     只認後端明確回 false：舊版後端沒有這個欄位時（undefined）不能對所有人跳精靈。 */
+  if (user?.onboarding_completed === false && !isDeviceApproval) {
+    return <OnboardingPage />;
   }
 
   return (

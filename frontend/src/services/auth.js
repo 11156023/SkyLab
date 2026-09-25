@@ -301,6 +301,28 @@ export async function loginLdap(username, password) {
   if (!res.ok) await throwApiError(res);
 
   const tokens = await res.json();
+  if (tokens?.totp_required) return tokens; // 第一階段通過，還要驗證碼
+  AuthStorage.setTokens(tokens);
+  return tokens;
+}
+
+/**
+ * 兩步驟驗證第二階段：以第一階段回傳的挑戰 token + Authenticator 驗證碼換取正式 tokens
+ * @throws {{ status, message }} 驗證碼錯誤／挑戰 token 逾時
+ */
+export async function loginTotp(totpToken, code) {
+  const res = await fetchWithTimeout(
+    `${BASE_URL}/api/v1/login/totp`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ totp_token: totpToken, code }),
+    },
+    LOGIN_REQUEST_TIMEOUT_MS,
+  );
+  if (!res.ok) await throwApiError(res);
+
+  const tokens = await res.json();
   AuthStorage.setTokens(tokens);
   return tokens;
 }

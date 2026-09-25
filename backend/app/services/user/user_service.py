@@ -298,6 +298,15 @@ def update_me(*, session: Session, user_in: UserUpdateMe, current_user: User) ->
     return current_user
 
 
+def complete_onboarding(*, session: Session, current_user: User) -> User:
+    """標記首次登入引導精靈已完成（略過也算完成）；重複呼叫無副作用。"""
+    if current_user.onboarding_completed:
+        return current_user
+    current_user.onboarding_completed = True
+    session.add(current_user)
+    return _commit_and_refresh(session, current_user)
+
+
 def update_password(
     *, session: Session, current_password: str, new_password: str, current_user: User
 ) -> None:

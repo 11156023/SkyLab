@@ -1,17 +1,14 @@
 from __future__ import annotations
 
-import logging
+import asyncio
 
 from fastapi import APIRouter
+from fastapi.responses import JSONResponse
 
-logger = logging.getLogger(__name__)
+from app.services.monitoring import system_health_service
 
 router = APIRouter(prefix="/utils", tags=["utils"])
 
-_HEALTH_CHECK_TIMEOUT_SECONDS = 3.0
-# health／readiness 是未驗證端點：例外字串可能夾帶主機名、連線字串、
-# 帳號等內部資訊，對外只回固定代碼，細節一律進 log。
-_UNAVAILABLE_DETAIL = "unavailable"
 # ─── Health / Readiness ──────────────────────────────────────────────────────
 
 
@@ -20,3 +17,18 @@ async def health_check() -> bool:
     """Backwards-compatible liveness probe — returns True if the process is up."""
     return True
 
+
+@router.get(
+    "/health-check/ready",
+    responses={503: {"description": "A core dependency (database or Redis) is down"}},
+)
+async def readiness_check() -> JSONResponse:
+    """Readiness probe：DB 與 Redis 都連得上才回 200，否則 503。
+
+    免登入，給 Uptime Kuma／負載平衡器用；只回每個依賴的布林值，不帶錯誤
+    細節（細節在管理員的 ``/monitoring/system-health``）。Redis 停用時該欄為
+    null、不影響結果。
+    """
+    result = await asyncio.to_thread(system_health_service.readiness)
+    status_code = 200 if result["status"] == "ok" else 503
+    return JSONResponse(result, status_code=status_code, headers={"Cache-Control": "no-store"})

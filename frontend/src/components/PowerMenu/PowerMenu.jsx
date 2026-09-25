@@ -10,7 +10,7 @@ import styles from "./PowerMenu.module.scss";
 
 const ITEMS = [
   { action: "start",    labelKey: "PowerMenu.start",    icon: "play_arrow",         needs: "stopped", tone: "ok"   },
-  { action: "stop",     labelKey: "PowerMenu.stop",     icon: "stop",               needs: "running", tone: "warn" },
+  { action: "stop",     labelKey: "PowerMenu.stop",     icon: "stop",               needs: "poweredOn", tone: "warn" },
   { action: "shutdown", labelKey: "PowerMenu.shutdown", icon: "power_settings_new", needs: "running"               },
   { action: "reset",    labelKey: "PowerMenu.reset",    icon: "restart_alt",        needs: "running", tone: "warn" },
   { action: "reboot",   labelKey: "PowerMenu.reboot",   icon: "replay",             needs: "running"               },
@@ -33,8 +33,10 @@ export default function PowerMenu({
   const { t } = useTranslation("components");
   const { ref, pos } = useAnchoredMenu({ anchorRef, onClose });
 
+  /* starting＝開機 task 還在跑：只留強制停止（開機卡住時的退路），其餘要等開完機 */
   const enabled = {
     running: resource?.status === "running",
+    poweredOn: resource?.status === "running" || resource?.status === "starting",
     stopped: resource?.status === "stopped" || resource?.status === "paused",
   };
   const entries = items ?? ITEMS.map((item) => ({

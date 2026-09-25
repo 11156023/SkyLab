@@ -52,6 +52,18 @@ class User(UserBase, table=True):
     # 舊帳號一律 local，LDAP 登入成功時自癒標記為 ldap（見 ldap_auth_service）。
     auth_source: str = Field(default="local", max_length=20)
     token_version: int = Field(default=0, description="令牌版本，修改密碼時遞增以失效舊令牌")
+    # 兩步驟驗證（TOTP，可綁定 Google Authenticator）：
+    # - secret 以 Fernet 加密存放；setup 後、confirm 前處於「待確認」狀態（enabled=False）
+    # - last_used_step 記錄最後一次成功驗證的 time step，防止 30 秒內重放同一組驗證碼
+    totp_secret_encrypted: str | None = Field(default=None, max_length=512)
+    totp_enabled: bool = Field(default=False)
+    totp_last_used_step: int | None = Field(default=None)
+    # 管理員在新增／編輯使用者時勾選「強制兩步驟驗證」：尚未綁定者登入後只能進
+    # 綁定畫面（見 deps/auth.get_current_user），綁定後不可自行停用，只能由管理員重設
+    totp_required: bool = Field(default=False)
+    # 首次登入引導精靈（語言／外觀／兩步驟驗證）是否已走完或略過：
+    # 新帳號一律 False，登入後前端只顯示引導畫面；既有帳號由 migration 標為 True
+    onboarding_completed: bool = Field(default=False)
     created_at: datetime | None = Field(
         default_factory=get_datetime_utc,
         sa_type=DateTime(timezone=True),

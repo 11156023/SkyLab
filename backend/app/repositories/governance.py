@@ -9,7 +9,7 @@ from typing import Any
 from sqlmodel import Session, select
 
 from app.exceptions import NotFoundError
-from app.models import AlertEvent, GovernanceConfig
+from app.models import AlertEvent, AlertScope, GovernanceConfig
 
 GOVERNANCE_CONFIG_ID = 1
 
@@ -45,6 +45,23 @@ def update_governance_config(
 
 def get_open_alerts(*, session: Session) -> list[AlertEvent]:
     stmt = select(AlertEvent).where(AlertEvent.resolved_at.is_(None))  # type: ignore[union-attr]
+    return list(session.exec(stmt).all())
+
+
+def get_open_system_alerts(*, session: Session) -> list[AlertEvent]:
+    stmt = select(AlertEvent).where(
+        AlertEvent.scope == AlertScope.system,
+        AlertEvent.resolved_at.is_(None),  # type: ignore[union-attr]
+    )
+    return list(session.exec(stmt).all())
+
+
+def get_system_alerts_since(*, session: Session, since: datetime) -> list[AlertEvent]:
+    """冷卻期判斷用：``since`` 之後建立的系統告警（含已恢復的）。"""
+    stmt = select(AlertEvent).where(
+        AlertEvent.scope == AlertScope.system,
+        AlertEvent.created_at >= since,
+    )
     return list(session.exec(stmt).all())
 
 

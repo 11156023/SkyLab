@@ -951,7 +951,7 @@ function MyUsageTab() {
                   entries={usageData?.by_model}
                   formatter={formatModelDisplay}
                 />
-                {!usageError && !hasAnyUsage && (
+                {!hasAnyUsage && (
                   <p className={styles.noData}>{t("AiApiPage.usageEmpty")}</p>
                 )}
               </>

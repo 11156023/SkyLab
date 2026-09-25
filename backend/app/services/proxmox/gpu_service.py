@@ -1,4 +1,4 @@
-﻿"""GPU (PCI resource mapping) service.
+"""GPU (PCI resource mapping) service.
 
 Wraps Proxmox /cluster/mapping/pci endpoints and provides GPU availability
 and usage tracking by cross-referencing VM configurations.
@@ -39,7 +39,15 @@ _gpu_node_counts_cache_lock = threading.Lock()
 # 隨叢集 VM 數線性變慢，因此併發送出並對整份掃描結果做短期快取。
 _VM_CONFIG_FETCH_WORKERS = 12
 _USAGE_MAP_CACHE_TTL_SECONDS = 15
-_usage_map_cache: tuple[float, dict[str, list[GPUUsageInfo]]] | None = None
+
+
+class _UsageMapCache:
+    """模組層快取狀態；用屬性而非 global 重新綁定，測試可直接重置 ``entry``。"""
+
+    entry: tuple[float, dict[str, list[GPUUsageInfo]]] | None = None
+
+
+_usage_map_cache = _UsageMapCache()
 _usage_map_cache_lock = threading.Lock()
 
 # mdev 探測同樣是每個 mapping 一次 HTTP；creatable 旗標會變動，只做短期快取。
@@ -867,15 +875,13 @@ def _build_usage_map() -> dict[str, list[GPUUsageInfo]]:
     一份資料（自動刷新、申請表單），因此快取數秒。回傳深拷貝，避免呼叫端
     在 ``_resolve_vram_for_mapping`` 內寫入 allocated_vram_mb 污染快取。
     """
-    global _usage_map_cache
-
     now = time.time()
     with _usage_map_cache_lock:
-        cached = _usage_map_cache
+        cached = _usage_map_cache.entry
     if cached and now - cached[0] < _USAGE_MAP_CACHE_TTL_SECONDS:
         return {mid: [u.model_copy() for u in items] for mid, items in cached[1].items()}
 
     usage = _scan_usage_map()
     with _usage_map_cache_lock:
-        _usage_map_cache = (time.time(), usage)
+        _usage_map_cache.entry = (time.time(), usage)
     return {mid: [u.model_copy() for u in items] for mid, items in usage.items()}

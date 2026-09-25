@@ -98,6 +98,59 @@ class MonitoringOverview(BaseModel):
     issues: list[MonitoringIssue] = Field(default_factory=list)
 
 
+# ─── 平台健康（DB／Redis／worker／PVE 連線／排程心跳） ─────────────────────
+
+ComponentStatus = Literal["ok", "down", "disabled", "unknown"]
+
+
+class SystemComponentHealth(BaseModel):
+    """單一依賴元件；name 為 database／redis／worker／pve:<connection_id>。"""
+
+    name: str
+    label: str
+    status: ComponentStatus
+    latency_ms: float | None = None
+    detail: str | None = None
+
+
+class SchedulerLoopHealth(BaseModel):
+    """背景迴圈（scheduler／web_push／wireguard）；時間皆為 unix 秒。"""
+
+    loop: str
+    status: Literal["ok", "stale", "pending"]
+    interval_seconds: float | None = None
+    last_tick_at: float | None = None
+    leader_last_tick_at: float | None = None
+    leader_instance: str | None = None
+
+
+class SchedulerTaskHealth(BaseModel):
+    """排程任務心跳；時間皆為 unix 秒。"""
+
+    loop: str
+    task: str
+    status: Literal["ok", "warning", "failing", "stale", "pending"]
+    interval_seconds: float | None = None
+    last_run_at: float | None = None
+    last_success_at: float | None = None
+    last_failure_at: float | None = None
+    last_duration_ms: float | None = None
+    consecutive_failures: int = 0
+    total_runs: int = 0
+    total_failures: int = 0
+    last_error: str | None = None
+
+
+class SystemHealth(BaseModel):
+    status: Literal["ok", "degraded", "down"]
+    generated_at: datetime
+    components: list[SystemComponentHealth]
+    loops: list[SchedulerLoopHealth]
+    tasks: list[SchedulerTaskHealth]
+    # 心跳資料來源：redis＝跨行程一致；memory＝Redis 不可用，只有本行程的資料
+    heartbeat_source: Literal["redis", "memory"]
+
+
 class AlertEventPublic(BaseModel):
     """警告事件（open = resolved_at 為 None）。"""
 

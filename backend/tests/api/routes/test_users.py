@@ -9,7 +9,7 @@ from app.core.security import verify_password
 from app.models import User
 from app.repositories import user as user_repo
 from app.schemas import UserCreate
-from tests.utils.user import create_random_user
+from tests.utils.user import create_random_user, user_authentication_headers
 from tests.utils.utils import random_email, random_lower_string
 
 
@@ -591,3 +591,43 @@ def test_delete_user_without_privileges(
     )
     assert r.status_code == 403
     assert r.json()["detail"] == "The user doesn't have enough privileges"
+
+
+def test_onboarding_defaults_and_complete(client: TestClient, db: Session) -> None:
+    """新帳號的引導精靈旗標預設 False；呼叫完成端點後為 True，且重複呼叫無副作用。"""
+    email = random_email()
+    password = random_lower_string()
+    user = user_repo.create_user(
+        session=db, user_create=UserCreate(email=email, password=password)
+    )
+    db.commit()
+    db.refresh(user)
+    headers = user_authentication_headers(client=client, email=email, password=password)
+
+    r = client.get(f"{settings.API_V1_STR}/users/me", headers=headers)
+    assert r.status_code == 200
+    assert r.json()["onboarding_completed"] is False
+
+    r = client.post(
+        f"{settings.API_V1_STR}/users/me/onboarding/complete", headers=headers
+    )
+    assert r.status_code == 200
+    assert r.json()["onboarding_completed"] is True
+    assert r.json()["email"] == email
+
+    db.refresh(user)
+    assert user.onboarding_completed is True
+
+    r = client.post(
+        f"{settings.API_V1_STR}/users/me/onboarding/complete", headers=headers
+    )
+    assert r.status_code == 200
+    assert r.json()["onboarding_completed"] is True
+
+    r = client.get(f"{settings.API_V1_STR}/users/me", headers=headers)
+    assert r.json()["onboarding_completed"] is True
+
+
+def test_onboarding_complete_requires_login(client: TestClient) -> None:
+    r = client.post(f"{settings.API_V1_STR}/users/me/onboarding/complete")
+    assert r.status_code == 401

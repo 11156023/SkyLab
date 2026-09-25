@@ -175,17 +175,23 @@ def _publish_domain_service(
 # 用模組層短快取擋掉這些重複，失敗結果也一起快取，免得 Gateway 掛掉時
 # 每次請求都卡在 SSH timeout。
 _RUNTIME_CACHE_TTL_SECONDS = 15.0
-_runtime_cache: tuple[float, ReverseProxyRuntimeSnapshot] | None = None
+
+
+class _RuntimeCache:
+    """模組層快取狀態；用屬性而非 global 重新綁定，測試可直接重置 ``entry``。"""
+
+    entry: tuple[float, ReverseProxyRuntimeSnapshot] | None = None
+
+
+_runtime_cache = _RuntimeCache()
 _runtime_cache_lock = threading.Lock()
 
 
 def _load_runtime_snapshot(session: SessionDep) -> ReverseProxyRuntimeSnapshot:
     """取回（或沿用快取的）Traefik runtime 快照；錯誤訊息是給管理員看的詳細版。"""
-    global _runtime_cache
-
     now = time.monotonic()
     with _runtime_cache_lock:
-        cached = _runtime_cache
+        cached = _runtime_cache.entry
     if cached is not None and now - cached[0] < _RUNTIME_CACHE_TTL_SECONDS:
         return cached[1]
 
@@ -201,7 +207,7 @@ def _load_runtime_snapshot(session: SessionDep) -> ReverseProxyRuntimeSnapshot:
         )
 
     with _runtime_cache_lock:
-        _runtime_cache = (time.monotonic(), snapshot)
+        _runtime_cache.entry = (time.monotonic(), snapshot)
     return snapshot
 
 

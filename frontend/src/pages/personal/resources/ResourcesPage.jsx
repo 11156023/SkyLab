@@ -33,6 +33,7 @@ import * as fmt from "../../../utils/formatDate";
 const STATUS_MAP = {
   scheduled:    { labelKey: "ResourcesPage.statusScheduled",     color: "info",    icon: "event"          },
   provisioning: { labelKey: "ResourcesPage.statusProvisioning",  color: "info",    icon: "settings"       },
+  starting:     { labelKey: "ResourcesPage.statusStarting",      color: "info",    icon: "hourglass_top"  },
   partial_failed:{ labelKey: "ResourcesPage.statusPartialFailed",color: "danger",  icon: "error_outline"  },
   running:      { labelKey: "ResourcesPage.statusRunning",       color: "success", icon: "play_circle"    },
   stopping:     { labelKey: "ResourcesPage.statusStopping",      color: "muted",   icon: "power_settings_new" },
@@ -63,9 +64,11 @@ function formatDatetime(isoStr) {
 }
 
 /* ── Primitive sub-components ── */
-/* reboot / reset 之後機器仍是開著的；原本一律當成 stopped 會讓列上的狀態說謊。 */
+/* reboot / reset 之後機器仍是開著的；原本一律當成 stopped 會讓列上的狀態說謊。
+   start / reboot 會重新跑開機 task，先標 starting（主控台停用），由後端輪詢確認開完機。 */
 function statusAfterAction(action) {
-  return action === "stop" || action === "shutdown" ? "stopped" : "running";
+  if (action === "stop" || action === "shutdown") return "stopped";
+  return action === "start" || action === "reboot" ? "starting" : "running";
 }
 
 function StatusBadge({ status }) {
@@ -172,7 +175,9 @@ function CreatingRow({ request, onCancelled }) {
   </>;
 }
 
-const LIVE_STATUSES = new Set(["running", "stopped", "paused"]);
+const LIVE_STATUSES = new Set(["running", "starting", "stopped", "paused"]);
+/* 有機器開機中時縮短輪詢，開完機後主控台按鈕能盡快亮起 */
+const BOOTING_POLL_INTERVAL = 5_000;
 
 function resourceRowKey(resource, index) {
   const parts = [
@@ -303,7 +308,7 @@ function ResourceRow({ resource, onUpdated, onDeleted }) {
       <td className={styles.td}>{resource.node ?? "—"}</td>
       <td className={styles.td}>
         {isLive ? <div className={styles.rowActions}>
-          <button type="button" className={styles.terminalBtn} disabled={resource.status !== "running"} onClick={() => setConsoleOpen(true)} data-guide="resource-console">
+          <button type="button" className={styles.terminalBtn} disabled={resource.status !== "running"} title={resource.status === "starting" ? t("ResourceRow.consoleBootingTitle") : undefined} onClick={() => setConsoleOpen(true)} data-guide="resource-console">
             <MIcon name={isLxc ? "terminal" : "desktop_windows"} size={14} />{isLxc ? t("ResourceRow.terminal") : t("ResourceRow.console")}
           </button>
           {actionLoading && <MIcon name="hourglass_empty" size={16} />}
@@ -390,7 +395,7 @@ function EnvironmentMachineRow({ machine, groupStatus, onUpdated }) {
     <td className={styles.td}><span className={styles.muted}>{t("EnvironmentMachineRow.managedByEnvironment")}</span></td>
     <td className={styles.td}>{machine.node}</td>
     <td className={styles.td}><div className={styles.rowActions}>
-      <button type="button" className={styles.terminalBtn} disabled={!canOpen} title={canOpen ? (isLxc ? t("EnvironmentMachineRow.terminal") : t("EnvironmentMachineRow.console")) : t("EnvironmentMachineRow.notReadyTitle")} onClick={() => setConsoleOpen(true)} data-guide="resource-console"><MIcon name={isLxc ? "terminal" : "desktop_windows"} size={14} />{isLxc ? t("EnvironmentMachineRow.terminal") : t("EnvironmentMachineRow.console")}</button>
+      <button type="button" className={styles.terminalBtn} disabled={!canOpen} title={canOpen ? (isLxc ? t("EnvironmentMachineRow.terminal") : t("EnvironmentMachineRow.console")) : resource?.status === "starting" ? t("ResourceRow.consoleBootingTitle") : t("EnvironmentMachineRow.notReadyTitle")} onClick={() => setConsoleOpen(true)} data-guide="resource-console"><MIcon name={isLxc ? "terminal" : "desktop_windows"} size={14} />{isLxc ? t("EnvironmentMachineRow.terminal") : t("EnvironmentMachineRow.console")}</button>
       {actionLoading && <MIcon name="hourglass_empty" size={16} />}
       {canControl && <div className={styles.menuWrap}>
         {menuOpen && <PowerMenu resource={resource} actionLoading={actionLoading} onControl={handleControl} onClose={closeMenu} anchorRef={menuBtnRef} closing={menuClosing} />}
@@ -633,7 +638,8 @@ export default function ResourcesPage() {
     return () => clearInterval(timer);
   }, [refreshPending]);
 
-  useAutoRefresh(() => fetchResources(true));
+  const anyBooting = resources.some((r) => r.status === "starting");
+  useAutoRefresh(() => fetchResources(true), anyBooting ? BOOTING_POLL_INTERVAL : undefined);
 
   useEffect(() => {
     const handleGuideState = (event) => {

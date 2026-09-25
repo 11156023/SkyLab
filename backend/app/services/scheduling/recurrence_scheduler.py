@@ -451,7 +451,7 @@ def _filter_due_for_boot(
                 )
                 continue
         except Exception:
-            pass
+            pass  # 查不到目前狀態就視為需要啟動，交給後續 start 流程處理
         due.append(req)
     return due
 

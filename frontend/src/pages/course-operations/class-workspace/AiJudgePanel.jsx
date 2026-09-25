@@ -1686,7 +1686,6 @@ export function RubricsTab({ classId, judgeSession, onSessionUpdated, onScriptCr
   const [pendingProposalIsRefine, setPendingProposalIsRefine] = useState(false);
   const [pendingItemResults, setPendingItemResults] = useState(null);
   const [isItemwiseAnalysis, setIsItemwiseAnalysis] = useState(false);
-  const [environmentKeys, setEnvironmentKeys] = useState([]);
   const analysisRevisionsRef = useRef(new Map());
   const lastSavedValuesRef = useRef(new Map());
   const lastSavedItemsRef = useRef(new Map());
@@ -1822,7 +1821,6 @@ export function RubricsTab({ classId, judgeSession, onSessionUpdated, onScriptCr
       setAnalysis(null);
       setScriptGenerationNotice(null);
       setSourceFileId(null);
-      setEnvironmentKeys([]);
       setPendingReviewIds(new Set());
       setPendingProposal(null);
       setSelectedProposalIds(new Set());
@@ -1845,7 +1843,6 @@ export function RubricsTab({ classId, judgeSession, onSessionUpdated, onScriptCr
     if (sourceFileId === file.id && autosaveRef.current?.isPending()) return;
     setAnalysis(file.analysis_json);
     setSourceFileId(file.id);
-    setEnvironmentKeys(file.environment_keys?.length ? file.environment_keys : [file.template_key]);
     analysisRevisionsRef.current.set(file.id, file.analysis_revision);
     lastSavedValuesRef.current.set(file.id, getRubricItemsValue(file.analysis_json));
     lastSavedItemsRef.current.set(file.id, Array.isArray(file.analysis_json.items) ? file.analysis_json.items : []);
@@ -2006,7 +2003,7 @@ export function RubricsTab({ classId, judgeSession, onSessionUpdated, onScriptCr
       setPendingProposalIsRefine(Boolean(proposal.length && isRefine));
       if (isRefine && !Array.isArray(response.rubric_proposal)) {
         toast.error("AI 未回傳完整檢查項目列表，潤飾尚未套用，請稍後再試");
-      } else if (isRefine && !proposal.length && analysis) {
+      } else if (isRefine && !proposal.length) {
         const saved = await applyAnalysis(applyItems(analysis, analysis.items ?? []), {
           persist: true,
           immediate: true,

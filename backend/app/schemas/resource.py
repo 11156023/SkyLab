@@ -11,6 +11,8 @@ from app.utils.hostname import UnicodeHostname
 ResourceStatus = Literal[
     "scheduled",
     "provisioning",
+    # PVE 已回報 running，但開機 task（qmstart 等）還在跑、主控台尚不可用
+    "starting",
     "running",
     "stopped",
     "paused",

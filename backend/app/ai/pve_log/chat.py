@@ -34,7 +34,7 @@ from typing import Any
 import httpx
 from sqlmodel import Session
 
-from app.ai.pve_log.collector import PveToolContext, collect_snapshot  # noqa: F401
+from app.ai.pve_log.collector import PveToolContext
 from app.ai.pve_log.config import settings
 from app.ai.pve_log.history import (
     PveHistoryValidationError,
@@ -969,12 +969,7 @@ def _validate_confirmation_history(
         record = find_completed_confirmation_by_tool_call(tool_call_id)
         if record is None:
             continue
-        candidate = _validate_record(
-            item,
-            content,
-            record,
-            token_present=False,
-        )
+        _validate_record(item, content, record, token_present=False)
         if not record.get("consumed"):
             token = record.get("token")
             if not isinstance(token, str):

@@ -329,6 +329,7 @@ async def run_push_notifier(stop_event: asyncio.Event) -> None:
     """
     from app.domain.scheduling.models import ScheduledTask
     from app.domain.scheduling.runner import run_polling_scheduler
+    from app.services.monitoring.heartbeat_service import HeartbeatObserver
 
     if not is_available():
         logger.info("pywebpush not installed; Web Push notifier disabled")
@@ -342,6 +343,7 @@ async def run_push_notifier(stop_event: asyncio.Event) -> None:
             )
         ],
         leader_gate=push_notifier_leader_gate,
+        observer=HeartbeatObserver("web_push", interval_seconds=PUSH_POLL_SECONDS),
     )
 
 

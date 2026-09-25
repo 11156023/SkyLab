@@ -276,14 +276,13 @@ def test_get_overview_marks_partial_pve_snapshot(monkeypatch: pytest.MonkeyPatch
         ),
     )
     monkeypatch.setattr(monitoring_service, "_connection_names", lambda session: {})
+    fake_config = type(
+        "FakeConfig", (), {"alert_cpu_threshold": 90, "alert_memory_threshold": 90}
+    )()
     monkeypatch.setattr(
         monitoring_service.governance_repo,
         "get_governance_config",
-        lambda *, session: type(
-            "FakeConfig",
-            (),
-            {"alert_cpu_threshold": 90, "alert_memory_threshold": 90},
-        )(),
+        lambda *, session: fake_config,
     )
 
     overview = monitoring_service.get_overview(session=None)  # type: ignore[arg-type]

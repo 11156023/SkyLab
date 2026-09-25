@@ -14,9 +14,16 @@ from app.api.deps import (
 from app.core import security
 from app.core.config import settings
 from app.infrastructure.redis import get_redis, revoke_jti
-from app.schemas import Message, NewPassword, Token, TokenPayload
+from app.schemas import (
+    Message,
+    NewPassword,
+    Token,
+    TokenPayload,
+    TotpChallenge,
+    TotpLoginRequest,
+)
 from app.schemas.ldap import LdapLoginRequest, LoginMethodsPublic
-from app.services.user import auth_service, ldap_auth_service
+from app.services.user import auth_service, ldap_auth_service, totp_service
 
 router = APIRouter(tags=["login"])
 
@@ -33,7 +40,9 @@ _PASSWORD_RECOVERY_RATE_LIMIT = Depends(
 @router.post("/login/access-token", dependencies=[_LOGIN_RATE_LIMIT])
 def login_access_token(
     session: SessionDep, form_data: Annotated[OAuth2PasswordRequestForm, Depends()]
-) -> Token:
+) -> Token | TotpChallenge:
+    """密碼登入。帳號已綁定兩步驟驗證時回 ``TotpChallenge``（不含 token），
+    前端須再呼叫 ``/login/totp``。"""
     return auth_service.login(
         session=session, email=form_data.username, password=form_data.password
     )
@@ -44,15 +53,25 @@ class GoogleLoginRequest(BaseModel):
 
 
 @router.post("/login/google", dependencies=[_LOGIN_RATE_LIMIT])
-async def login_google(session: SessionDep, body: GoogleLoginRequest) -> Token:
+async def login_google(
+    session: SessionDep, body: GoogleLoginRequest
+) -> Token | TotpChallenge:
     return await auth_service.google_login(session=session, id_token=body.id_token)
 
 
 @router.post("/login/ldap", dependencies=[_LOGIN_RATE_LIMIT])
-def login_ldap(session: SessionDep, body: LdapLoginRequest) -> Token:
+def login_ldap(session: SessionDep, body: LdapLoginRequest) -> Token | TotpChallenge:
     """以校園 LDAP/AD 帳號登入。"""
     return ldap_auth_service.login_ldap(
         session=session, username=body.username, password=body.password
+    )
+
+
+@router.post("/login/totp", dependencies=[_LOGIN_RATE_LIMIT])
+def login_totp(session: SessionDep, body: TotpLoginRequest) -> Token:
+    """兩步驟驗證第二階段：挑戰 token + Authenticator 驗證碼 → 正式 token。"""
+    return totp_service.complete_login(
+        session=session, totp_token=body.totp_token, code=body.code
     )
 
 

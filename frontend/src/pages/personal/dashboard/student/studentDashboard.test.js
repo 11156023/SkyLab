@@ -50,6 +50,10 @@ describe("practiceMachineActionLabel", () => {
     expect(practiceMachineActionLabel({ vmid: 218, status: "stopped" })).toBe("啟動並進入");
     expect(practiceMachineActionLabel({ vmid: null, status: "pending" })).toBe("環境配置中");
   });
+
+  it("開機 task 還在跑（starting）時顯示啟動中，不當成可進入", () => {
+    expect(practiceMachineActionLabel({ vmid: 438, status: "starting" })).toBe("正在啟動…");
+  });
 });
 
 describe("toPercent", () => {

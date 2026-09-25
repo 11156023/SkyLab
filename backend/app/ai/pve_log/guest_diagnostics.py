@@ -1,4 +1,4 @@
-﻿"""Guest 廣度診斷的固定契約層（純函式，不做網路 I/O）。
+"""Guest 廣度診斷的固定契約層（純函式，不做網路 I/O）。
 
 本模組只負責：
   1. 固定 probe 定義（server-owned，模型不可控任何 shell 內容）。
@@ -756,3 +756,47 @@ def build_guest_diagnostics_result(
         "recent_logs": dict(sections.get("recent_logs", {})),
         "warnings": ordered_warnings[:MAX_WARNINGS],
     }
+
+
+__all__ = [
+    "ERROR_CODE_COMMAND_FAILED",
+    "ERROR_CODE_CONNECTION_FAILED",
+    "ERROR_CODE_PROBE_TIMEOUT",
+    "ERROR_CODE_RESOLVE_FAILED",
+    "ERROR_CODE_SCOPE_RESTRICTED",
+    "ERROR_CODE_SYSTEMD_UNAVAILABLE",
+    "GUEST_DIAGNOSTIC_PROBES",
+    "GUEST_DIAGNOSTIC_PROBE_GROUPS",
+    "GuestProbe",
+    "GuestProbeGroup",
+    "JOURNAL_MAX_ENTRIES",
+    "JOURNAL_MINIMUM_PRIORITY",
+    "JOURNAL_WINDOW_MINUTES",
+    "JournalEntries",
+    "MAX_ARGS_CHARS",
+    "MAX_FAILED_SERVICES",
+    "MAX_MESSAGE_CHARS",
+    "MAX_PROBE_ROWS",
+    "MAX_SERVICE_DESCRIPTION_CHARS",
+    "MAX_WARNINGS",
+    "ProbeResult",
+    "ProcessList",
+    "STATUS_ERROR",
+    "STATUS_OK",
+    "STATUS_PARTIAL",
+    "STATUS_UNAVAILABLE",
+    "ServiceUnitStats",
+    "TOP_PROCESSES_LIMIT",
+    "build_guest_diagnostics_result",
+    "build_resource_section",
+    "combine_collection_status",
+    "combine_group_status",
+    "empty_guest_section",
+    "parse_failed_services",
+    "parse_guest_probe_results",
+    "parse_journal_entries",
+    "parse_process_list",
+    "parse_service_units",
+    "redact_sensitive_text",
+    "resource_detail_says_stopped",
+]
