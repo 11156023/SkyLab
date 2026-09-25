@@ -1,0 +1,129 @@
+/* 首頁卡片外殼：玻璃外框（標籤列）＋白底內頁（同「玻璃卡內容區塊一律白底」），
+   圖示磚半壓在交界右上角 */
+.card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  padding: 0 6px 6px;
+  @include glass-surface($shadow: var(--shadow-sm));
+  border-radius: $radius-16;
+  font: inherit;
+  text-align: left;
+}
+
+/* 可點卡片：hover 只加深陰影並微上浮，保留淡入淡出，不改框色 */
+.clickable {
+  cursor: pointer;
+  transition: transform $transition-base, box-shadow $transition-base;
+
+  &:hover {
+    transform: translateY(-2px);
+    box-shadow: var(--shadow-md);
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--color-primary);
+    outline-offset: 3px;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    transition: box-shadow $transition-base;
+
+    &:hover { transform: none; }
+  }
+}
+
+/* 外框上的標籤列：狀態與類型，右側留給圖示磚 */
+.band {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 10px;
+  min-height: 38px;
+  padding: 8px 60px 8px 10px;
+  font-size: $font-size-12;
+  color: var(--color-text-secondary);
+}
+
+.sheet {
+  position: relative;
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  padding: 14px 16px 16px;
+  border: 1px solid var(--color-border);
+  border-radius: $radius-12;
+  background: var(--color-surface);
+}
+
+.icon {
+  position: absolute;
+  top: -22px;
+  right: 12px;
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  border: 2px solid var(--color-surface);
+  border-radius: $radius-12;
+  background: color-mix(in srgb, var(--color-primary) 14%, var(--color-surface));
+  color: var(--color-primary);
+}
+
+/* ── 內頁的共用文字層級（機器卡、快速練習卡直接引用） ── */
+.name {
+  margin: 0;
+  padding-right: 40px;
+  font-size: $font-size-16;
+  font-weight: $font-weight-700;
+  line-height: 1.4;
+  color: var(--color-text-primary);
+  overflow-wrap: anywhere;
+}
+
+.sub {
+  margin: 2px 0 0;
+  font-size: $font-size-12;
+  color: var(--color-text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+/* 內頁底部動作列（機器卡） */
+.actions {
+  display: flex;
+  gap: $spacing-8;
+  margin-top: auto;
+  padding-top: $spacing-16;
+}
+
+/* 內頁底部的行動文字（整張可點的卡片用，不是另一顆按鈕） */
+.cta {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: auto;
+  padding-top: $spacing-16;
+  font-size: $font-size-14;
+  font-weight: $font-weight-500;
+  color: var(--color-primary-on-surface);
+}
+
+/* 標籤列上的狀態：圓點＋文字 */
+.dot {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+
+  &::before {
+    content: "";
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--color-text-muted);
+  }
+}
+
+.dotSuccess { color: var(--color-success); &::before { background: var(--color-success); } }
+.dotPending { color: var(--color-pending); &::before { background: var(--color-pending); } }
+.dotDanger { color: var(--color-danger); &::before { background: var(--color-danger); } }
