@@ -46,6 +46,13 @@ it("shows existing machines without connection history and launches the selected
   expect(defaults.onOpenMachine).toHaveBeenCalledWith(expect.objectContaining(machine));
 });
 
+it("keeps the console closed while a machine is still booting", async () => {
+  await render({ resources: [{ vmid: 438, name: "GPU lab", type: "qemu", status: "starting" }] });
+  expect(host.textContent).toContain("HomeOverview.machineStatus.starting");
+  const launch = [...host.querySelectorAll("button")].find((button) => button.textContent.includes("StudentHomePage.actionStarting"));
+  expect(launch.disabled).toBe(true);
+});
+
 it("disables unavailable machines and distinguishes failed loads from empty data", async () => {
   await render({ resources: [{ vmid: 101, name: "Expired lab", status: "expired" }], coursesError: true, templatesError: true });
   const launch = [...host.querySelectorAll("button")].find((button) => button.textContent.includes("HomeOverview.unavailable"));

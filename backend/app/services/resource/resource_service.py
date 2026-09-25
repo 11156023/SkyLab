@@ -220,6 +220,17 @@ def _normalize_live_resource_status(value: object) -> ResourceStatus:
     return "unknown"
 
 
+def _mark_booting(items: list[ResourcePublic]) -> None:
+    """PVE 說 running 但開機 task 還在跑的機器改標 ``starting``（主控台尚不可用）。"""
+    running = [item for item in items if item.status == "running" and item.vmid]
+    if not running:
+        return
+    booting = proxmox_service.list_booting_vmids(item.node for item in running)
+    for item in running:
+        if item.vmid in booting:
+            item.status = "starting"
+
+
 def _allocation_scope(value: object) -> Literal["personal", "teaching_class"]:
     return "teaching_class" if value == "teaching_class" else "personal"
 
@@ -587,10 +598,12 @@ def get_by_vmid(
         if db_resource is not None
         else {}
     )
-    return _build_resource_public(
+    public = _build_resource_public(
         resource_info, db_resource, vm_node, vm_type, session,
         display_names=display_names,
     )
+    _mark_booting([public])
+    return public
 
 
 def list_all(
@@ -634,6 +647,7 @@ def list_all(
         for public in result:
             if public.vmid in owner_ids and owner_ids[public.vmid] != viewer_id:
                 public.owner_name = names.get(owner_ids[public.vmid])
+        _mark_booting(result)
         return result
     except Exception as e:
         logger.error(f"Failed to get resources: {e}")
@@ -899,6 +913,8 @@ def list_by_user(
             )
             if req.vmid:
                 shown_vmids.add(req.vmid)
+
+        _mark_booting(result)
 
         # 3. Overlay in-progress deletions. Deletion runs from a background
         # queue (shutdown → wait → destroy), so the VM stays visible in

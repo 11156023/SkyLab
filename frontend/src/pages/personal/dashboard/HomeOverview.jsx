@@ -45,7 +45,7 @@ export default function HomeOverview({ paths, resources, resourcesError, courses
               <span className={styles.machineIcon}><MIcon name={machine.type === "lxc" ? "terminal" : "desktop_windows"} size={20} /></span>
               <h3>{machine.name}</h3>
               <span className={`${styles.machineStatus} ${machine.status === "running" ? styles.running : ""}`}>
-                {t(`HomeOverview.machineStatus.${["running", "stopped", "provisioning", "failed", "expired"].includes(machine.status) ? machine.status : "unknown"}`)}
+                {t(`HomeOverview.machineStatus.${["running", "starting", "stopped", "provisioning", "failed", "expired"].includes(machine.status) ? machine.status : "unknown"}`)}
               </span>
             </div>
             <div className={styles.machineMeta}>
@@ -54,8 +54,8 @@ export default function HomeOverview({ paths, resources, resourcesError, courses
             <div className={styles.machineActions}>
               <button type="button" className={styles.launchButton} onClick={() => onOpenMachine(machine)}
                 disabled={openingMachineId !== null || !["running", "stopped"].includes(machine.status)}>
-                <MIcon name={openingMachineId === machine.vmid ? "hourglass_top" : "play_arrow"} size={18} />
-                {t(openingMachineId === machine.vmid ? "StudentHomePage.actionStarting" : machine.status === "running" ? "StudentHomePage.actionEnter" : machine.status === "stopped" ? "StudentHomePage.actionStartAndEnter" : "HomeOverview.unavailable")}
+                <MIcon name={openingMachineId === machine.vmid || machine.status === "starting" ? "hourglass_top" : "play_arrow"} size={18} />
+                {t(openingMachineId === machine.vmid || machine.status === "starting" ? "StudentHomePage.actionStarting" : machine.status === "running" ? "StudentHomePage.actionEnter" : machine.status === "stopped" ? "StudentHomePage.actionStartAndEnter" : "HomeOverview.unavailable")}
               </button>
               <button type="button" className={styles.detailButton} onClick={() => navigate(`/my-resources/${machine.vmid}`)}
                 aria-label={t("StudentHomePage.machineInfoAria", { name: machine.name })}><MIcon name="info" size={20} /></button>

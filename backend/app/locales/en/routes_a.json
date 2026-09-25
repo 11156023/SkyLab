@@ -32,5 +32,6 @@
   "proxmoxConfig.connectionResourceCheckFailed": "This Proxmox connection is currently unreachable, so whether machines still run on it cannot be verified. Deletion is blocked for now; please try again later.",
   "users.avatarUnsupportedFormat": "Only PNG / JPEG / WebP / GIF images are supported",
   "users.avatarTooLarge": "Image size must not exceed 2MB",
-  "vm.creating": "Creating VM. Please check the resource list later."
+  "vm.creating": "Creating VM. Please check the resource list later.",
+  "vm.console_booting": "The machine is still starting up. Please wait a moment before opening the console."
 }

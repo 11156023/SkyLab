@@ -120,18 +120,20 @@ export function buildPracticeMachines(classMachines, resources) {
 
 export function practiceMachineActionLabel(machine, openingMachineId = null, t = defaultT) {
   if (machine?.vmid == null) return t("StudentHomePage.actionConfiguring");
-  if (openingMachineId === machine.vmid) return t("StudentHomePage.actionStarting");
+  if (openingMachineId === machine.vmid || machine.status === "starting") return t("StudentHomePage.actionStarting");
   if (machine.status === "running") return t("StudentHomePage.actionEnter");
   return t("StudentHomePage.actionStartAndEnter");
 }
 
-async function waitForPracticeMachine(vmid, attempts = 20) {
+/* 後端在開機 task（qmstart）跑完前回報 starting；GPU 直通機要鎖整段記憶體，
+   開機可達 40 秒以上，所以最多等約 90 秒，確定 running 才開主控台。 */
+async function waitForPracticeMachine(vmid, attempts = 45) {
   let resource = null;
   for (let attempt = 0; attempt < attempts; attempt += 1) {
     resource = await ResourcesService.get(vmid);
     if (resource.status === "running") return resource;
     if (attempt < attempts - 1) {
-      await new Promise((resolve) => window.setTimeout(resolve, 1000));
+      await new Promise((resolve) => window.setTimeout(resolve, 2000));
     }
   }
   return resource;
@@ -450,7 +452,8 @@ export default function StudentHomePage({ courseView = false }) {
         toast.info(t("StudentHomePage.machineStarting"), {
           id: `start-class-machine-${machine.vmid}`,
         });
-        await ResourcesService.start(resource.vmid);
+        /* 已在開機中就不重送開機，只等它開完 */
+        if (resource.status !== "starting") await ResourcesService.start(resource.vmid);
         resource = await waitForPracticeMachine(resource.vmid);
         if (resource?.status !== "running") {
           toast.info(t("StudentHomePage.machineStillStarting"), {

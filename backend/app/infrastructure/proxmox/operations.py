@@ -9,7 +9,7 @@ import ipaddress
 import logging
 import threading
 import time
-from collections.abc import Iterator
+from collections.abc import Iterable, Iterator
 from contextlib import contextmanager, nullcontext
 from dataclasses import dataclass
 from typing import Any, Literal
@@ -542,6 +542,38 @@ def control(
 def get_status(node: str, vmid: int, resource_type: ResourceType) -> dict:
     """GET /nodes/{node}/{type}/{vmid}/status/current"""
     return _resource_api(node, vmid, resource_type).status.current.get()
+
+
+# 開機類 task 跑完前 QEMU 的 QMP 可能還沒就緒（GPU 直通機要先配置並鎖定整段
+# 記憶體），這時開 vncproxy 會 ``set_password`` 逾時；cluster/resources 卻早已
+# 回報 running，所以要另外看節點上進行中的 task。
+BOOT_TASK_TYPES = frozenset({"qmstart", "qmreboot", "vzstart", "vzreboot"})
+
+
+def list_booting_vmids(nodes: Iterable[str]) -> set[int]:
+    """回傳指定節點上開機 task 仍在進行中的 VMID。
+
+    查的是各節點自己的 ``tasks?source=active``（權威、即時），而不是
+    ``cluster/tasks``（經 pmxcfs 同步，剛開機的前幾秒可能還沒出現）。
+    查不到的節點記 warning 後略過，視為沒有開機中的機器。
+    """
+    booting: set[int] = set()
+    for node in sorted({n for n in nodes if n}):
+        try:
+            tasks = get_proxmox_api_for_node(node).nodes(node).tasks.get(
+                source="active"
+            )
+        except Exception as exc:
+            logger.warning("Failed to list active tasks on node %s: %s", node, exc)
+            continue
+        for task in tasks or []:
+            if task.get("type") not in BOOT_TASK_TYPES:
+                continue
+            try:
+                booting.add(int(task.get("id")))
+            except (TypeError, ValueError):
+                continue
+    return booting
 
 
 # ---------------------------------------------------------------------------
