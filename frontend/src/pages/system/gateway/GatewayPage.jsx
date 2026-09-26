@@ -34,9 +34,9 @@ function useLiveLogs(service, setLogs, enabled) {
   return refresh;
 }
 
+/* nginx.conf 是主設定；SkyLab 自動重建的 /etc/nginx/skylab/http.conf、stream.conf 不開放編輯 */
 const SERVICE_FILES = {
-  haproxy: { path: "/etc/haproxy/haproxy.cfg", language: "haproxy" },
-  traefik: { path: "/etc/traefik/traefik.yml", language: "yaml" },
+  nginx: { path: "/etc/nginx/nginx.conf", language: "nginx" },
 };
 
 function formatBytes(value) {
@@ -626,8 +626,7 @@ export default function GatewayPage() {
 
   const TABS = [
     { key: "connection", label: t("GatewayPage.tabConnection") },
-    { key: "haproxy",    label: "haproxy"  },
-    { key: "traefik",    label: "Traefik"  },
+    { key: "nginx",      label: "nginx" },
     { key: "wireguard",  label: t("GatewayPage.tabWireGuard") },
   ];
 

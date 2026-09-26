@@ -24,7 +24,7 @@ SkyLab 是一個面向校園資源管理的全端 Proxmox VE（PVE）虛擬化�
 
 - **後端**：FastAPI、SQLModel、Alembic、PostgreSQL、Redis、Proxmoxer、Paramiko、PyJWT、Cryptography、httpx、websockets、Sentry
 - **前端**：React 19、TypeScript、Vite 7、TanStack Router/Query/Table、Tailwind v4、Radix UI、Biome、Playwright、react-vnc、xterm.js、@xyflow/react、Recharts、Monaco Editor、i18next（en / zh-TW / ja）
-- **基礎設施**：Docker Compose、Traefik、PostgreSQL、Adminer、MailCatcher
+- **基礎設施**：Docker Compose、nginx、PostgreSQL、Adminer、MailCatcher
 - **AI / 推論**：vLLM（OpenAI 相容 API）、自製 PVE Advisor 與 Template Recommendation 服務
 - **套件管理**：UV（Python）、Bun（前端）
 
@@ -35,7 +35,7 @@ SkyLab 是一個面向校園資源管理的全端 Proxmox VE（PVE）虛擬化�
 - VM 申請工作流：學生提交 → 審核 → 租借時段容量評估 → 自動排程供應
 - AI 放置建議（PVE Placement Advisor）與模板推薦
 - 防火牆拓撲視覺化、NAT 規則、Reverse Proxy 規則管理
-- 閘道 VM 管理：HAProxy、Traefik 與 WireGuard 設定
+- 閘道主機管理：nginx（Port 轉發／網域反向代理／Let's Encrypt）與 WireGuard 設定
 - 多重 Proxmox cluster 連線設定與 HA failover
 - 正式班級管理、固定課表、學生名單、多機環境與整班批次建置
 - 班級教室監看、教師廣播，以及班級內的 AI 評分檢查
@@ -65,8 +65,6 @@ docker compose watch
 | Swagger Docs | http://localhost:8000/docs |
 | Adminer | http://localhost:8080 |
 | MailCatcher（開發用收信匣；正式環境請設 SMTP_HOST） | http://localhost:1080 |
-
-| Traefik Dashboard | http://localhost:8090 |
 
 > vLLM 推論請優先使用 `vllm-service/`。`start_single_model.sh` 啟動單模型主服務；AI API 遷移期以 `start_multi_model_cluster.sh` 啟動多模型 vLLM，並由 LiteLLM routing。舊多模型 Gateway 僅保留為 P5/P6 的回滾入口，以 `python main.py gateway` 啟動（沒有獨立腳本）。
 

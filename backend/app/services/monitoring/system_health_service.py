@@ -1,4 +1,4 @@
-"""平台本身的健康狀態：DB、Redis、arq worker、PVE API 連線、排程心跳。
+"""平台本身的健康狀態：DB、Redis、arq worker、PVE API 連線、Gateway、排程心跳。
 
 - ``readiness()``：給 ``/utils/health-check/ready``（免登入、只回布林）
 - ``collect_system_health()``：給管理員的 ``/monitoring/system-health``
@@ -11,6 +11,10 @@
 
 PVE 這裡只檢查「後端連不連得到 PVE API」——這是 SkyLab 自己的依賴。
 節點／VM 的資源用量由 PVE 內建 Metric Server 直接推到 InfluxDB，不經後端。
+
+Gateway 用一條 SSH 指令看 nginx／WireGuard 是否在跑、nginx -t 與憑證效期；
+主機資源與 nginx 流量由 Gateway 上的 exporter 交給 Prometheus（見
+prometheus_sd_service），這裡只管「服務還在不在、要不要人處理」。
 """
 
 from __future__ import annotations
@@ -44,6 +48,9 @@ PROBE_TIMEOUT_SECONDS = 3.0
 PVE_PROBE_TIMEOUT_SECONDS = 5.0
 # PVE 探測結果快取：管理頁每 30 秒輪詢、告警每分鐘評估，不必每次都打 PVE
 PVE_CACHE_SECONDS = 20.0
+# Gateway 探測要開 SSH 連線（含金鑰交換），比 PVE API 貴，快取久一點
+GATEWAY_PROBE_TIMEOUT_SECONDS = 15.0
+GATEWAY_CACHE_SECONDS = 60.0
 # 同一個問題要連續出現幾輪評估才開告警：吸收部署時 worker 晚幾秒起來、
 # PVE 瞬斷這類抖動
 FINDING_CONFIRMATIONS = 2
@@ -218,6 +225,104 @@ def cached_pve_components() -> list[dict[str, Any]]:
         return [dict(c) for c in _PveCache.components]
 
 
+class _GatewayCache:
+    lock: ClassVar[threading.Lock] = threading.Lock()
+    expires_at: ClassVar[float] = 0.0
+    components: ClassVar[list[dict[str, Any]]] = []
+
+
+def _load_gateway_config() -> Any:
+    from app.repositories import gateway_config as gw_repo
+
+    with Session(engine) as session:
+        config = gw_repo.get_gateway_config(session)
+        if config is None or not config.host or not config.encrypted_private_key:
+            return None
+        session.expunge(config)
+        return config
+
+
+def _probe_gateway(config: Any) -> dict[str, Any]:
+    from app.core.config import settings
+    from app.infrastructure.ssh import create_key_client
+    from app.repositories.gateway_config import get_decrypted_private_key
+    from app.services.network import nginx_gateway_service
+
+    client = create_key_client(
+        config.host,
+        config.ssh_port,
+        config.ssh_user,
+        get_decrypted_private_key(config),
+        timeout=10,
+    )
+    try:
+        return nginx_gateway_service.probe_health(
+            client, wireguard_unit=f"wg-quick@{settings.WIREGUARD_INTERFACE}"
+        )
+    finally:
+        client.close()
+
+
+def check_gateway(*, use_cache: bool = True) -> list[dict[str, Any]]:
+    """Gateway 主機：nginx／WireGuard 服務、nginx -t、憑證效期（name = ``gateway``）。"""
+    now = time.monotonic()
+    with _GatewayCache.lock:
+        if use_cache and now < _GatewayCache.expires_at:
+            return [dict(c) for c in _GatewayCache.components]
+
+    label = "Gateway"
+    try:
+        config = _run_with_timeout(_load_gateway_config, PROBE_TIMEOUT_SECONDS)
+    except Exception as exc:
+        logger.debug("Loading gateway config failed", exc_info=True)
+        return [_component("gateway", label, "unknown", detail=_short_error(exc))]
+
+    if config is None:
+        component = _component("gateway", label, "disabled", detail="not configured")
+    else:
+        label = f"Gateway · {config.host}"
+        started = time.perf_counter()
+        try:
+            probe = _run_with_timeout(
+                partial(_probe_gateway, config), GATEWAY_PROBE_TIMEOUT_SECONDS
+            )
+        except Exception as exc:
+            component = _component(
+                "gateway", label, "down", detail=f"SSH 失敗：{_short_error(exc)}"
+            )
+            component["alert_message"] = f"{label} 無法以 SSH 連線：{_short_error(exc)}"
+        else:
+            status, detail, alert_message = health_policy.gateway_status(
+                probe, now=datetime.now(timezone.utc)
+            )
+            component = _component(
+                "gateway",
+                label,
+                status,
+                latency_ms=(time.perf_counter() - started) * 1000,
+                detail=detail,
+            )
+            if alert_message:
+                component["alert_message"] = alert_message
+
+    with _GatewayCache.lock:
+        _GatewayCache.components = [dict(component)]
+        _GatewayCache.expires_at = time.monotonic() + GATEWAY_CACHE_SECONDS
+    return [component]
+
+
+def cached_gateway_components() -> list[dict[str, Any]]:
+    with _GatewayCache.lock:
+        return [dict(c) for c in _GatewayCache.components]
+
+
+def reset_gateway_cache() -> None:
+    """測試用，也給 Gateway 設定變更後立刻重新探測。"""
+    with _GatewayCache.lock:
+        _GatewayCache.components = []
+        _GatewayCache.expires_at = 0.0
+
+
 # ─── 彙總 ─────────────────────────────────────────────────────────────────
 
 
@@ -260,7 +365,13 @@ def collect_components(*, use_pve_cache: bool = True) -> list[dict[str, Any]]:
     database = check_database()
     redis = check_redis()
     worker = check_worker(redis_ok=redis["status"] == "ok")
-    return [database, redis, worker, *check_pve(use_cache=use_pve_cache)]
+    return [
+        database,
+        redis,
+        worker,
+        *check_pve(use_cache=use_pve_cache),
+        *check_gateway(use_cache=use_pve_cache),
+    ]
 
 
 def collect_system_health() -> dict[str, Any]:
@@ -427,11 +538,18 @@ def collect_metrics() -> None:
     database = check_database()
     redis = check_redis()
     worker = check_worker(redis_ok=redis["status"] == "ok")
-    for component in (database, redis, worker, *cached_pve_components()):
+    for component in (
+        database,
+        redis,
+        worker,
+        *cached_pve_components(),
+        *cached_gateway_components(),
+    ):
         if component["status"] in ("disabled", "unknown"):
             continue
+        # attention（例如憑證快到期）服務仍然可用，不算 down
         metrics.DEPENDENCY_UP.labels(component=component["name"]).set(
-            1 if component["status"] == "ok" else 0
+            1 if component["status"] in ("ok", "attention") else 0
         )
         if component.get("latency_ms") is not None:
             metrics.DEPENDENCY_LATENCY.labels(component=component["name"]).set(
@@ -463,7 +581,9 @@ async def collect_metrics_hook() -> None:
 
 
 __all__ = [
+    "cached_gateway_components",
     "check_database",
+    "check_gateway",
     "check_pve",
     "check_redis",
     "check_worker",
@@ -474,4 +594,5 @@ __all__ = [
     "process_system_health_alerts",
     "readiness",
     "reset_alert_state",
+    "reset_gateway_cache",
 ]

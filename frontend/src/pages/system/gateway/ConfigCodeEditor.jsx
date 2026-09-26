@@ -42,42 +42,44 @@ if (!monaco.languages.getLanguages().some((lang) => lang.id === "toml")) {
   });
 }
 
-/* haproxy 沒有內建語言，註冊一個極簡 Monarch tokenizer */
-if (!monaco.languages.getLanguages().some((lang) => lang.id === "haproxy")) {
-  monaco.languages.register({ id: "haproxy" });
-  monaco.languages.setLanguageConfiguration("haproxy", {
+/* nginx 沒有內建語言，註冊一個極簡 Monarch tokenizer：
+   區塊名（http/server/location…）標成 type、行首指令標成 keyword、$變數獨立上色 */
+if (!monaco.languages.getLanguages().some((lang) => lang.id === "nginx")) {
+  monaco.languages.register({ id: "nginx" });
+  monaco.languages.setLanguageConfiguration("nginx", {
     comments: { lineComment: "#" },
+    brackets: [["{", "}"]],
+    autoClosingPairs: [{ open: "{", close: "}" }, { open: '"', close: '"' }, { open: "'", close: "'" }],
   });
-  monaco.languages.setMonarchTokensProvider("haproxy", {
+  monaco.languages.setMonarchTokensProvider("nginx", {
     defaultToken: "",
     tokenizer: {
       root: [
         [/#.*$/, "comment"],
         [
-          /^(?:global|defaults|frontend|backend|listen|peers|resolvers|userlist|mailers|program|ring|cache|http-errors|fcgi-app)\b/,
+          /^\s*(?:events|http|stream|server|location|upstream|map|geo|split_clients|types|limit_except|if|match)\b/,
           "type",
         ],
-        [
-          /^[ \t]+(?:bind|server|default-server|mode|balance|option|timeout|maxconn|log|retries|acl|use_backend|default_backend|http-request|http-response|tcp-request|tcp-response|redirect|stats|monitor-uri|errorfile|cookie|compression|filter|stick-table|stick|http-check|tcp-check|description|user|group|daemon|chroot|pidfile|hash-type|source|capture|nbthread|cpu-map)\b/,
-          "keyword",
-        ],
+        [/^\s*[a-z_][\w]*/, "keyword"],
+        [/\$[\w]+/, "variable"],
         [/"(?:[^"\\]|\\.)*"/, "string"],
         [/'[^']*'/, "string"],
         [/\b\d+(?:\.\d+){3}(?::\d+)?\b/, "number"],
-        [/\b\d+(?:ms|us|s|m|h|d)?\b/, "number"],
+        [/\b\d+(?:ms|s|m|h|d|k|K|M|G)?\b/, "number"],
+        [/[{};]/, "delimiter"],
       ],
     },
   });
 }
 
 const LANG_LABEL = {
-  haproxy: "HAProxy",
+  nginx: "nginx",
   yaml: "YAML",
   toml: "TOML",
 };
 
 const TAB_ICON_CLASS = {
-  haproxy: "tabIcon_haproxy",
+  nginx: "tabIcon_nginx",
   yaml: "tabIcon_yaml",
   toml: "tabIcon_toml",
 };

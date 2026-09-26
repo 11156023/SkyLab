@@ -4,7 +4,7 @@
 資源——模板上不可能填一個所有人共用的網址或 port。所以老師只宣告主機名
 樣板（含 ``{student}``）或「要一個對外 port」，這裡負責逐人組網域、逐人從
 配號池挑 port，再交給統一的發布路徑（``firewall_service.publish_vm_service``）
-建立 Traefik / haproxy、DNS 與入站規則。
+建立 nginx（反向代理／Port 轉發）、DNS 與入站規則。
 """
 
 from __future__ import annotations

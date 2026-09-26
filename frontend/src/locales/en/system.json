@@ -497,6 +497,7 @@
   "SystemHealth.status.failing": "Failing",
   "SystemHealth.status.stale": "Stalled",
   "SystemHealth.status.warning": "Intermittent failure",
+  "SystemHealth.status.attention": "Needs attention",
   "SystemHealth.status.disabled": "Disabled",
   "SystemHealth.status.unknown": "Unknown",
   "SystemHealth.status.pending": "Not run yet",

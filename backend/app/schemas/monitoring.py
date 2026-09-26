@@ -98,13 +98,14 @@ class MonitoringOverview(BaseModel):
     issues: list[MonitoringIssue] = Field(default_factory=list)
 
 
-# ─── 平台健康（DB／Redis／worker／PVE 連線／排程心跳） ─────────────────────
+# ─── 平台健康（DB／Redis／worker／PVE 連線／Gateway／排程心跳） ──────────────
 
-ComponentStatus = Literal["ok", "down", "disabled", "unknown"]
+# attention：服務還在但需要人處理（例如 Gateway 憑證快到期）
+ComponentStatus = Literal["ok", "down", "disabled", "unknown", "attention"]
 
 
 class SystemComponentHealth(BaseModel):
-    """單一依賴元件；name 為 database／redis／worker／pve:<connection_id>。"""
+    """單一依賴元件；name 為 database／redis／worker／pve:<connection_id>／gateway。"""
 
     name: str
     label: str

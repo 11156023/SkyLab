@@ -1,8 +1,9 @@
 ﻿#!/usr/bin/env bash
 # =============================================================================
-# SkyLab - Gateway VM 安裝腳本
+# SkyLab - Gateway 主機安裝腳本
 # 支援系統：Debian 12 / 13
-# 安裝服務：HAProxy + Traefik + WireGuard + nftables ACL / SNAT
+# 安裝服務：nginx（Port 轉發 stream + 網域反向代理 http）+ certbot（Let's Encrypt，
+#           Cloudflare DNS-01）+ WireGuard + nftables ACL / SNAT
 # =============================================================================
 
 set -euo pipefail
@@ -13,9 +14,22 @@ export LC_ALL=C
 # 若提供公鑰，自動寫入 /root/.ssh/authorized_keys
 skylab_PUBKEY="${1:-}"
 
-# ── 版本設定（升級時只改這裡）────────────────────────────────────────────────
-TRAEFIK_VERSION="3.3.4"
-ARCH="amd64"
+# ── Port 轉發設定（可用同名環境變數覆寫）──────────────────────────────────
+# 對外 port 自動配號池（與 SkyLab「IP 管理」子網設定的 forward_port_start/end 一致），
+# UFW 會放行這段 TCP/UDP；手動填其他 port 的轉發要自己再 ufw allow
+FORWARD_PORT_RANGE="${FORWARD_PORT_RANGE:-30000:39999}"
+
+# ── 監控設定（可用同名環境變數覆寫）──────────────────────────────────────
+# Prometheus 所在主機（通常就是跑 SkyLab docker compose 的那台）的 IP／CIDR，
+# 可用空白或逗號分隔多個；UFW 只對它們開放下面兩個 exporter port。
+# 留空就不開放，Prometheus 會抓不到 Gateway（安裝完成時會提醒）。
+MONITORING_ALLOW_FROM="${MONITORING_ALLOW_FROM:-}"
+# Debian prometheus-node-exporter／prometheus-nginx-exporter 的預設 port，
+# 與後端 GATEWAY_NODE_EXPORTER_PORT／GATEWAY_NGINX_EXPORTER_PORT 一致
+NODE_EXPORTER_PORT=9100
+NGINX_EXPORTER_PORT=9113
+# nginx stub_status 只綁 127.0.0.1，給本機的 nginx exporter 讀
+NGINX_STATUS_PORT=9180
 
 # ── WireGuard 設定（可用同名環境變數覆寫）──────────────────────────────────
 WG_INTERFACE="${WG_INTERFACE:-wg0}"
@@ -37,9 +51,13 @@ WG_OVERRIDE_DIR="/etc/systemd/system/wg-quick@${WG_INTERFACE}.service.d"
 WG_OVERRIDE="${WG_OVERRIDE_DIR}/campus-cloud.conf"
 BACKUP_ROOT="/root/campus-cloud-backups"
 MANAGED_WG_MARKER="# Campus Cloud managed WireGuard interface"
-HAPROXY_CONFIG_PREEXISTED=false
-if [[ -s /etc/haproxy/haproxy.cfg ]]; then
-    HAPROXY_CONFIG_PREEXISTED=true
+NGINX_DIR="/etc/nginx"
+NGINX_CONF="${NGINX_DIR}/nginx.conf"
+NGINX_MANAGED_DIR="${NGINX_DIR}/skylab"
+NGINX_MARKER="# SkyLab managed nginx.conf"
+NGINX_CONFIG_PREEXISTED=false
+if [[ -s "$NGINX_CONF" ]]; then
+    NGINX_CONFIG_PREEXISTED=true
 fi
 
 # ── 顏色輸出 ──────────────────────────────────────────────────────────────────
@@ -106,7 +124,8 @@ else
 fi
 tar_paths=()
 for path in \
-    etc/haproxy etc/traefik etc/wireguard etc/nftables.d etc/ufw \
+    etc/nginx etc/letsencrypt etc/haproxy etc/traefik \
+    etc/wireguard etc/nftables.d etc/ufw \
     etc/systemd/network etc/systemd/system etc/sysctl.d; do
     [[ -e "/${path}" ]] && tar_paths+=("${path}")
 done
@@ -122,176 +141,191 @@ find "$backup" -maxdepth 1 -type f ! -name SHA256SUMS -print0 \
 sha256sum -c "${backup}/SHA256SUMS" >/dev/null
 info "備份完成：${backup}"
 
-apt-get install -y -qq haproxy wireguard-tools nftables ufw
+apt-get install -y -qq \
+    nginx libnginx-mod-stream certbot python3-certbot-dns-cloudflare \
+    wireguard-tools nftables ufw
 
 # Debian 的全域 nftables.service 可能載入含 `flush ruleset` 的規則；SkyLab
 # 使用自己的獨立 unit，避免清除 UFW、NetBird 或其他既有服務的規則。
 systemctl disable --now nftables.service >/dev/null 2>&1 || true
 
-for command in wg nft ufw; do
+for command in wg nft ufw nginx certbot openssl; do
     command -v "$command" >/dev/null || error "缺少必要指令：${command}"
 done
 
 # =============================================================================
-# 1. haproxy
+# 1. nginx（Port 轉發 + 網域反向代理）+ certbot
 # =============================================================================
-section "安裝 haproxy"
+section "安裝 nginx"
 
-# 初次安裝才建立基礎設定；重跑時保留 SkyLab 已動態產生的規則。
-if grep -Fq "# BEGIN_skylab_MANAGED" /etc/haproxy/haproxy.cfg 2>/dev/null; then
-    info "保留現有 SkyLab HAProxy 設定"
-elif [[ "$HAPROXY_CONFIG_PREEXISTED" == true ]]; then
-    error "偵測到既有且非 SkyLab 管理的 HAProxy 設定，已停止避免覆寫"
+# 舊版 Gateway 裝過 haproxy / traefik：它們佔著 80/443 與轉發 port，nginx 起不來，
+# 先停掉並取消開機啟動（設定檔留在原位、已列入本次備份）。
+for legacy in haproxy traefik; do
+    if systemctl list-unit-files "${legacy}.service" 2>/dev/null | grep -q "^${legacy}.service"; then
+        warn "停用舊的 ${legacy} 服務（已被 nginx 取代）"
+        systemctl disable --now "${legacy}.service" >/dev/null 2>&1 || true
+    fi
+done
+
+nginx -V 2>&1 | grep -q -- "--with-stream" \
+    || error "這個 nginx 沒有 stream 模組，無法做 Port 轉發（需要 libnginx-mod-stream 或 nginx-full）"
+
+install -d -m 755 "$NGINX_MANAGED_DIR"
+
+# nginx.conf 由 SkyLab 持有：初次安裝寫入；重跑時保留；若是別人改過的設定則停下來。
+# Debian 剛裝好、沒動過的預設 nginx.conf 可以直接覆寫（dpkg -V 查不到修改紀錄）。
+if grep -Fq "$NGINX_MARKER" "$NGINX_CONF" 2>/dev/null; then
+    info "保留現有 SkyLab nginx.conf"
+elif [[ "$NGINX_CONFIG_PREEXISTED" == true ]] \
+    && dpkg -V nginx-common 2>/dev/null | grep -q "${NGINX_CONF}$"; then
+    error "偵測到既有且非 SkyLab 管理的 nginx.conf，已停止避免覆寫"
 else
-    cat > /etc/haproxy/haproxy.cfg << 'HAPROXY_EOF'
-global
-    log /dev/log local0
-    log /dev/log local1 notice
-    maxconn 50000
-    # Runtime API socket（SkyLab 用於動態管理）
-    stats socket /run/haproxy/admin.sock mode 660 level admin expose-fd listeners
-    stats timeout 30s
-    user haproxy
-    group haproxy
-    daemon
+    cat > "$NGINX_CONF" << 'NGINX_EOF'
+# SkyLab managed nginx.conf
+# 此檔案由 SkyLab Gateway 安裝腳本產生。可以在 SkyLab「閘道」頁面編輯，
+# 但 /etc/nginx/skylab/http.conf 與 stream.conf 由 SkyLab 後端自動重建，請勿手動修改。
 
-defaults
-    log     global
-    mode    tcp
-    option  tcplog
-    option  dontlognull
-    timeout connect 5s
-    timeout client  1m
-    timeout server  1m
+user www-data;
+worker_processes auto;
+pid /run/nginx.pid;
+error_log /var/log/nginx/error.log;
+include /etc/nginx/modules-enabled/*.conf;
 
-# ──────────────────────────────────────────────────────────────────────────────
-# 以下為 SkyLab 自動管理區域
-# 請勿手動修改 BEGIN/END 之間的內容，由 SkyLab 透過 SSH 自動維護
-# ──────────────────────────────────────────────────────────────────────────────
-# BEGIN_skylab_MANAGED
+events {
+    worker_connections 4096;
+}
 
-# END_skylab_MANAGED
-HAPROXY_EOF
+# ── 網域反向代理（domain → VM）─────────────────────────────────────────────
+http {
+    include /etc/nginx/mime.types;
+    default_type application/octet-stream;
+    sendfile on;
+    server_tokens off;
+    access_log /var/log/nginx/access.log;
+    # 上傳大小交給後面的 VM 服務自己限制
+    client_max_body_size 0;
+
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_prefer_server_ciphers off;
+    ssl_session_cache shared:SSL:10m;
+    ssl_session_timeout 1d;
+
+    # 沒對到任何已發布網域的請求一律關閉連線（443 用安裝時產生的自簽憑證完成握手）
+    server {
+        listen 80 default_server;
+        server_name _;
+        return 444;
+    }
+    server {
+        listen 443 ssl default_server;
+        server_name _;
+        ssl_certificate /etc/nginx/skylab/fallback.crt;
+        ssl_certificate_key /etc/nginx/skylab/fallback.key;
+        return 444;
+    }
+
+    # 本機 stub_status（給 prometheus-nginx-exporter；install.sh 每次重寫）
+    include /etc/nginx/skylab/status.conf;
+
+    # SkyLab 自動管理：每個對外網址一個 server 區塊
+    include /etc/nginx/skylab/http.conf;
+}
+
+# ── Port 轉發（對外 port → VM:port，TCP/UDP）──────────────────────────────
+stream {
+    log_format skylab_stream '$remote_addr [$time_local] $protocol $status '
+                             '$bytes_sent $bytes_received $session_time "$upstream_addr"';
+    access_log /var/log/nginx/stream.log skylab_stream;
+
+    # SkyLab 自動管理：每條轉發規則一個 server 區塊
+    include /etc/nginx/skylab/stream.conf;
+}
+NGINX_EOF
 fi
 
-systemctl enable haproxy
-systemctl restart haproxy
-info "haproxy 安裝完成"
+# Debian 預設站台也監聽 80，會搶走 default_server；SkyLab 不用它
+rm -f "${NGINX_DIR}/sites-enabled/default"
+
+# SkyLab 自動管理的兩份設定：初次安裝建空檔（nginx.conf 有 include，缺檔會起不來），
+# 重跑時保留後端已同步的內容
+for managed in http.conf stream.conf; do
+    if [[ ! -f "${NGINX_MANAGED_DIR}/${managed}" ]]; then
+        printf '# SkyLab 自動管理的設定，請勿手動修改\n' > "${NGINX_MANAGED_DIR}/${managed}"
+    fi
+done
+
+# stub_status 只聽 127.0.0.1，外面連不到；每次安裝都重寫（port 以本腳本為準）
+cat > "${NGINX_MANAGED_DIR}/status.conf" << STATUS_EOF
+# SkyLab：給本機 prometheus-nginx-exporter 讀的 stub_status，由 install.sh 產生
+server {
+    listen 127.0.0.1:${NGINX_STATUS_PORT};
+    server_name _;
+    access_log off;
+    location = /stub_status {
+        stub_status;
+    }
+    location / {
+        return 404;
+    }
+}
+STATUS_EOF
+if ! grep -Fq "include /etc/nginx/skylab/status.conf;" "$NGINX_CONF"; then
+    warn "nginx.conf 沒有 include /etc/nginx/skylab/status.conf，nginx exporter 會讀不到 stub_status；"
+    warn "請在 http { } 區塊裡補上這一行後執行 nginx -t && systemctl reload nginx"
+fi
+
+# 自簽備援憑證：給 443 的 default_server，以及 Let's Encrypt 還沒簽下來的網域先頂著用
+if [[ ! -s "${NGINX_MANAGED_DIR}/fallback.crt" || ! -s "${NGINX_MANAGED_DIR}/fallback.key" ]]; then
+    openssl req -x509 -nodes -newkey rsa:2048 -days 3650 \
+        -subj "/CN=skylab-gateway" \
+        -keyout "${NGINX_MANAGED_DIR}/fallback.key" \
+        -out "${NGINX_MANAGED_DIR}/fallback.crt" >/dev/null 2>&1
+    chmod 600 "${NGINX_MANAGED_DIR}/fallback.key"
+fi
+
+# certbot：Cloudflare token 由 SkyLab 後端在第一次同步 HTTPS 網域時寫入
+# /etc/letsencrypt/skylab-cloudflare.ini；Debian 的 certbot.timer 會自動續期，
+# 續期後由 deploy hook reload nginx
+install -d -m 755 /etc/letsencrypt/renewal-hooks/deploy
+cat > /etc/letsencrypt/renewal-hooks/deploy/skylab-nginx-reload << 'HOOK_EOF'
+#!/bin/sh
+# SkyLab：Let's Encrypt 憑證續期後重新載入 nginx
+systemctl reload nginx
+HOOK_EOF
+chmod 755 /etc/letsencrypt/renewal-hooks/deploy/skylab-nginx-reload
+systemctl enable certbot.timer >/dev/null 2>&1 || true
+
+nginx -t
+systemctl enable nginx
+systemctl restart nginx
+info "nginx 安裝完成（stream + http，certbot 續期 hook 已就緒）"
 
 # =============================================================================
-# 2. Traefik
+# 2. 監控 exporter（Prometheus：主機資源、網卡流量含 wg0、nginx 連線數）
 # =============================================================================
-section "安裝 Traefik v${TRAEFIK_VERSION}"
+section "安裝監控 exporter"
 
-TRAEFIK_URL="https://github.com/traefik/traefik/releases/download/v${TRAEFIK_VERSION}/traefik_v${TRAEFIK_VERSION}_linux_${ARCH}.tar.gz"
-TMP_DIR=$(mktemp -d)
-curl -fsSL "$TRAEFIK_URL" -o "$TMP_DIR/traefik.tar.gz"
-tar xzf "$TMP_DIR/traefik.tar.gz" -C "$TMP_DIR" traefik
-mv "$TMP_DIR/traefik" /usr/local/bin/traefik
-chmod +x /usr/local/bin/traefik
-rm -rf "$TMP_DIR"
-
-# 設定目錄
-mkdir -p /etc/traefik/dynamic /etc/traefik/env
-touch /etc/traefik/acme.json
-chmod 600 /etc/traefik/acme.json
-
-if [[ ! -f /etc/traefik/env/SkyLab.env ]]; then
-cat > /etc/traefik/env/SkyLab.env << 'TRAEFIK_ENV_EOF'
-# SkyLab 自動管理，供 Traefik dnsChallenge 使用
-# 實際值會在 admin/domains 設定 Cloudflare Token 後由後端覆寫
-CF_DNS_API_TOKEN=""
-TRAEFIK_ENV_EOF
-fi
-chmod 600 /etc/traefik/env/SkyLab.env
-
-# 靜態設定
-if [[ ! -s /etc/traefik/traefik.yml ]]; then
-cat > /etc/traefik/traefik.yml << 'TRAEFIK_EOF'
-# Traefik 靜態設定
-# 修改此檔案後需重啟 traefik：systemctl restart traefik
-
-entryPoints:
-  web:
-    address: ":80"
-    http:
-      redirections:
-        entryPoint:
-          to: websecure
-          scheme: https
-  websecure:
-    address: ":443"
-  traefik:
-    address: "127.0.0.1:8080"
-
-api:
-  dashboard: true
-  insecure: true
-
-providers:
-  file:
-    directory: /etc/traefik/dynamic
-    watch: true     # 動態設定變更自動生效，無需重啟
-
-certificatesResolvers:
-  letsencrypt:
-    acme:
-      # 會在 admin/domains 完成設定後由 SkyLab 後端覆寫成正式值
-      email: admin@example.com
-      storage: /etc/traefik/acme.json
-      dnsChallenge:
-        provider: cloudflare
-        resolvers:
-          - "1.1.1.1:53"
-          - "8.8.8.8:53"
-
-log:
-  level: INFO
-
-accessLog: {}
-TRAEFIK_EOF
+# 裝不起來只警告：監控是加值功能，不該讓 Gateway 的轉發／反向代理跟著裝不完
+EXPORTERS_READY=false
+if apt-get install -y -qq --no-install-recommends \
+    prometheus-node-exporter prometheus-nginx-exporter; then
+    # Debian 的 unit 從 /etc/default 讀 ARGS；新舊版 exporter 都接受 --nginx.scrape-uri
+    cat > /etc/default/prometheus-nginx-exporter << NGINX_EXPORTER_EOF
+# SkyLab：讀本機 nginx 的 stub_status（見 /etc/nginx/skylab/status.conf）
+ARGS="--nginx.scrape-uri=http://127.0.0.1:${NGINX_STATUS_PORT}/stub_status"
+NGINX_EXPORTER_EOF
+    systemctl enable prometheus-node-exporter prometheus-nginx-exporter >/dev/null 2>&1 || true
+    systemctl restart prometheus-node-exporter prometheus-nginx-exporter
+    if systemctl is-active --quiet prometheus-node-exporter \
+        && systemctl is-active --quiet prometheus-nginx-exporter; then
+        EXPORTERS_READY=true
+        info "exporter 已啟動（node :${NODE_EXPORTER_PORT}、nginx :${NGINX_EXPORTER_PORT}）"
+    else
+        warn "exporter 啟動失敗，請看 journalctl -u prometheus-node-exporter -u prometheus-nginx-exporter"
+    fi
 else
-    info "保留現有 Traefik 靜態設定"
+    warn "安裝 prometheus-node-exporter／prometheus-nginx-exporter 失敗，Grafana 將看不到 Gateway 主機指標"
 fi
-
-# 初始 dynamic config（空）
-if [[ ! -s /etc/traefik/dynamic/SkyLab.yml ]]; then
-cat > /etc/traefik/dynamic/SkyLab.yml << 'DYNAMIC_EOF'
-# SkyLab 自動管理的反向代理設定
-# 此檔案由 SkyLab 透過 SSH 自動維護，請勿手動修改
-http:
-  routers: {}
-  services: {}
-DYNAMIC_EOF
-else
-    info "保留現有 Traefik 動態設定"
-fi
-
-# Systemd service
-cat > /etc/systemd/system/traefik.service << 'SYSTEMD_EOF'
-[Unit]
-Description=Traefik Reverse Proxy
-Documentation=https://doc.traefik.io/traefik/
-After=network-online.target
-Wants=network-online.target
-
-[Service]
-Type=simple
-User=root
-EnvironmentFile=-/etc/traefik/env/SkyLab.env
-ExecStart=/usr/local/bin/traefik --configFile=/etc/traefik/traefik.yml
-Restart=always
-RestartSec=5
-LimitNOFILE=1048576
-
-[Install]
-WantedBy=multi-user.target
-SYSTEMD_EOF
-
-systemctl daemon-reload
-systemctl enable traefik
-systemctl restart traefik
-info "Traefik 安裝完成"
 
 # =============================================================================
 # 3. WireGuard + nftables ACL / SNAT
@@ -399,6 +433,18 @@ if ! ufw status | grep -Fq "${WG_LISTEN_PORT}/udp on ${WG_INGRESS_INTERFACE}"; t
     ufw allow in on "$WG_INGRESS_INTERFACE" to any port "$WG_LISTEN_PORT" \
         proto udp comment "Campus Cloud WireGuard"
 fi
+# Port 轉發配號池：nginx stream 在這段 port 監聽，外面連不進來轉發就沒用
+for proto in tcp udp; do
+    if ! ufw status | grep -Fq "${FORWARD_PORT_RANGE}/${proto}"; then
+        ufw allow "${FORWARD_PORT_RANGE}/${proto}" comment "SkyLab port forwarding"
+    fi
+done
+# 監控 exporter：只開給 Prometheus 所在主機（重複的規則 ufw 會自己略過）
+for source in ${MONITORING_ALLOW_FROM//,/ }; do
+    for port in "$NODE_EXPORTER_PORT" "$NGINX_EXPORTER_PORT"; do
+        ufw allow from "$source" to any port "$port" proto tcp comment "SkyLab monitoring"
+    done
+done
 if ! ufw status | grep -Fq "Campus Cloud WireGuard routed traffic"; then
     ufw route allow in on "$WG_INTERFACE" out on "$WG_VM_INTERFACE" \
         from "$WG_CLIENT_SUBNET" to "$WG_VM_SUBNET" \
@@ -443,22 +489,28 @@ section "安裝完成"
 cat <<SUMMARY_EOF
 
 ┌─────────────────────────────────────────────────────────────────┐
-│              SkyLab Gateway VM 安裝完成                    │
+│              SkyLab Gateway 安裝完成                       │
 ├─────────────────────────────────────────────────────────────────┤
 │  服務          狀態      設定檔                                  │
-│  haproxy       ✅ 運行   /etc/haproxy/haproxy.cfg               │
-│  traefik       ✅ 運行   /etc/traefik/traefik.yml               │
+│  nginx         ✅ 運行   /etc/nginx/nginx.conf                  │
+│    Port 轉發             /etc/nginx/skylab/stream.conf（自動）   │
+│    反向代理              /etc/nginx/skylab/http.conf（自動）     │
+│  certbot       ⏱ timer   /etc/letsencrypt（Cloudflare DNS-01）  │
+│  exporter      :${NODE_EXPORTER_PORT} node、:${NGINX_EXPORTER_PORT} nginx（Prometheus）       │
 │  WireGuard     ✅ 運行   /etc/wireguard/${WG_INTERFACE}.conf                │
 │  WG ACL/SNAT   ✅ 運行   /etc/nftables.d/campus-cloud-wg.nft   │
 ├─────────────────────────────────────────────────────────────────┤
 │  後續步驟：                                                      │
-│  1. 將 UDP ${WG_LISTEN_PORT} 轉送到此 Gateway 的 ${WG_INGRESS_INTERFACE}                      │
+│  1. 將 TCP 80/443、TCP+UDP ${FORWARD_PORT_RANGE} 與 UDP ${WG_LISTEN_PORT}      │
+│     轉送到此 Gateway 的 ${WG_INGRESS_INTERFACE}                                  │
 │  2. 在 Backend 設定 WIREGUARD_ENDPOINT_HOST                    │
-│  3. 回到 SkyLab 管理介面填入此 VM 的 IP                         │
+│  3. 回到 SkyLab 管理介面填入此主機的 IP                         │
 │  4. 點擊「測試連線」確認 SSH 連線正常                           │
 ├─────────────────────────────────────────────────────────────────┤
 │  常用指令：                                                      │
-│  systemctl status haproxy traefik wg-quick@${WG_INTERFACE}                  │
+│  systemctl status nginx wg-quick@${WG_INTERFACE}                            │
+│  nginx -t && systemctl reload nginx                              │
+│  certbot certificates                                            │
 │  systemctl status campus-cloud-wg-firewall                       │
 │  wg show ${WG_INTERFACE}                                                     │
 └─────────────────────────────────────────────────────────────────┘
@@ -469,4 +521,12 @@ echo "  備份：${backup}"
 echo "  WireGuard：${WG_INTERFACE} (${WG_ADDRESS})"
 echo "  監聽：${WG_INGRESS_INTERFACE}/udp/${WG_LISTEN_PORT}"
 echo "  Public key：$(<"${WG_DIR}/server_public.key")"
+if [[ "$EXPORTERS_READY" != true ]]; then
+    warn "監控 exporter 沒有正常啟動，Grafana 的 Gateway 儀表板會沒有資料（見上方訊息）"
+elif [[ -z "$MONITORING_ALLOW_FROM" ]]; then
+    warn "未設定 MONITORING_ALLOW_FROM：UFW 沒有放行 exporter，Prometheus 抓不到這台 Gateway。"
+    warn "  以 Prometheus 主機 IP 重跑：sudo MONITORING_ALLOW_FROM=<IP> bash install.sh"
+else
+    echo "  監控：已對 ${MONITORING_ALLOW_FROM} 開放 exporter（tcp/${NODE_EXPORTER_PORT}、tcp/${NGINX_EXPORTER_PORT}）"
+fi
 echo ""

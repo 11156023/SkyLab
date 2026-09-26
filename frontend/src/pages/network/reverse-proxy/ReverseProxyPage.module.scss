@@ -71,7 +71,7 @@
   flex-shrink: 0;
 }
 
-/* ── 收合箭頭（Traefik 面板用） ───────────────────── */
+/* ── 收合箭頭（nginx 面板用） ─────────────────────── */
 .infoChevron {
   color: var(--color-text-secondary);
   transition: transform $transition-base;
@@ -160,7 +160,7 @@
   flex-shrink: 0;
 }
 
-/* ── Admin / Traefik panel ────────────────────────── */
+/* ── Admin / nginx panel ──────────────────────────── */
 .adminCard {
   @include glass-surface($shadow: none);
   border-radius: $radius-12;
@@ -222,6 +222,9 @@
 
   &.running { background: color-mix(in srgb, var(--color-success) 15%, transparent); color: var(--color-success); }
   &.unknown { background: var(--color-hover); color: var(--color-text-muted); }
+  /* 憑證 30 天內到期／已過期或服務停止 */
+  &.expiring { background: color-mix(in srgb, var(--color-pending) 15%, transparent); color: var(--color-pending); }
+  &.expired  { background: color-mix(in srgb, var(--color-danger) 15%, transparent); color: var(--color-danger); }
 }
 
 .statsGrid {
@@ -300,6 +303,12 @@
   color: var(--color-text-primary);
   border: 1px solid var(--color-border);
   font-family: "Courier New", Courier, monospace;
+
+  /* 憑證晶片依到期狀態上色（類別與 statusPill 共用命名） */
+  &.running  { border-color: color-mix(in srgb, var(--color-success) 40%, transparent); color: var(--color-success); }
+  &.expiring { border-color: color-mix(in srgb, var(--color-pending) 40%, transparent); color: var(--color-pending); }
+  &.expired  { border-color: color-mix(in srgb, var(--color-danger) 40%, transparent); color: var(--color-danger); }
+  &.unknown  { color: var(--color-text-muted); }
 }
 
 /* ── 串接後補充樣式 ────────────────────────────────── */
