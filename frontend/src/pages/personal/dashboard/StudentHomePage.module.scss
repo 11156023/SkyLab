@@ -1099,6 +1099,7 @@
 }
 
 .pdfBackdrop {
+  @include dialog-overlay-avoid-ai;
   position: fixed;
   z-index: 1400;
   inset: 0;

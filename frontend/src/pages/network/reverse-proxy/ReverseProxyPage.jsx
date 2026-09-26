@@ -257,7 +257,7 @@ export function ReverseProxyPanel() {
           <div className={styles.headerActions}>
             {isAdmin && (
               <button type="button" className={styles.btnSecondary} onClick={handleSync} disabled={syncing}>
-                <MIcon name="sync" size={16} />
+                <MIcon name="sync" size={16} spin={syncing} />
                 {syncing ? t("ReverseProxyPage.syncing") : t("ReverseProxyPage.resync")}
               </button>
             )}

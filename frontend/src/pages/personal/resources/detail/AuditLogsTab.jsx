@@ -3,6 +3,9 @@ import { useTranslation } from "react-i18next";
 import styles from "./ResourceDetailPage.module.scss";
 import LoadingState from "../../../../components/LoadingState/LoadingState";
 import EmptyState from "../../../../components/EmptyState/EmptyState";
+import ErrorState from "../../../../components/ErrorState/ErrorState";
+import NotFoundState from "../../../../components/ErrorState/NotFoundState";
+import { isNotFound } from "../../../../services/api";
 import { AuditLogsService } from "../../../../services/auditLogs";
 import { formatDateTime } from "../../../../utils/formatDate";
 
@@ -22,13 +25,13 @@ export default function AuditLogsTab({ vmid }) {
     let cancelled = false;
     AuditLogsService.listForResource(vmid, { skip: 0, limit: 100 })
       .then((res) => !cancelled && setLogs(res))
-      .catch(() => !cancelled && setError(true));
+      .catch((e) => !cancelled && setError(e ?? true));
     return () => {
       cancelled = true;
     };
   }, [vmid]);
 
-  if (error) return <p className={styles.stateText}>{t("AuditLogsTab.loadFailed")}</p>;
+  if (error) return isNotFound(error) ? <NotFoundState /> : <ErrorState />;
   if (!logs) return <LoadingState />;
 
   return (

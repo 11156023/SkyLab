@@ -58,7 +58,7 @@ function ProfileTab() {
       setForm((prev) => ({ ...prev, avatar_url: updated?.avatar_url ?? "" }));
       toast.success(t("ProfileTab.avatarUpdated"));
     } catch (err) {
-      toast.error(err?.message ?? t("ProfileTab.avatarUploadFailed"));
+      toast.error(err?.message ?? t("Error.generic", { ns: "common" }));
     } finally {
       setUploading(false);
     }

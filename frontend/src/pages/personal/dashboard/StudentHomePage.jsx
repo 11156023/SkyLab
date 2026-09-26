@@ -28,7 +28,7 @@ const STATUS_META = {
 };
 
 const AI_DETECTABLE_META = {
-  auto: { labelKey: "StudentHomePage.detectableAuto", icon: "smart_toy", tone: "auto" },
+  auto: { labelKey: "StudentHomePage.detectableAuto", icon: "support_agent", tone: "auto" },
   partial: { labelKey: "StudentHomePage.detectablePartial", icon: "rule", tone: "partial" },
   manual: { labelKey: "StudentHomePage.detectableManual", icon: "how_to_reg", tone: "manual" },
 };
@@ -855,7 +855,7 @@ export default function StudentHomePage({ courseView = false }) {
                       {check && (
                         <section className={`${styles.aiReply} ${styles[`aiReply_${check.status}`]}`} aria-label={t("StudentHomePage.aiReplyAria")}>
                           <header>
-                            <span><MIcon name={checkRunning ? "sync" : check.status === "completed" ? "smart_toy" : "error_outline"} size={20} /></span>
+                            <span><MIcon name={checkRunning ? "sync" : check.status === "completed" ? "support_agent" : "error_outline"} size={20} /></span>
                             <div>
                               <strong>{checkRunning ? t("StudentHomePage.aiCheckingEnvironment") : t("StudentHomePage.aiCheckReply")}</strong>
                               <small>

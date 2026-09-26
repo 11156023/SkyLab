@@ -1,12 +1,13 @@
 /* 路由切換載入層：絕對定位蓋滿整個 main（含 banner、footer 與行動版頂欄），
-   loading 期間底下內容不可見也不可操作。z-index 高於 sticky header(100)、低於 Dialog(300)。 */
+   loading 期間底下內容不可操作。z-index 高於 sticky header(100)、低於 Dialog(300)。
+   不鋪底色：Suspense fallback 期間 Outlet 已卸載、底下沒有殘影，
+   鋪 --color-bg-base 反而在暈染／自訂漸層背景上露出突兀色塊 */
 .routeLoading {
   position: absolute;
   inset: 0;
   z-index: 150;
   display: grid;
   place-items: center;
-  background: var(--color-bg-base);
 }
 
 .layout {

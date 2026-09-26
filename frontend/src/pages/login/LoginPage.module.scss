@@ -276,10 +276,6 @@
   color: var(--color-primary);
 }
 
-.spin {
-  animation: device-spin 1s linear infinite;
-}
-
 .deviceHelp {
   margin: $spacing-16 0;
   color: var(--color-text-secondary);
@@ -301,12 +297,6 @@
 
   &:hover {
     background: var(--color-primary-dark);
-  }
-}
-
-@keyframes device-spin {
-  to {
-    transform: rotate(360deg);
   }
 }
 

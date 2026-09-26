@@ -21,5 +21,6 @@
   "ai_assignment.not_found": "AI課題が見つかりません",
   "ai_assignment.source_pdf_not_found": "このタスクには学生が閲覧できるPDFがありません。",
   "ai_assignment.check_not_found": "AIチェックが見つかりません",
-  "ai_assignment.task_item_not_found": "タスク項目が見つかりません"
+  "ai_assignment.task_item_not_found": "タスク項目が見つかりません",
+  "course.ai_check_incomplete": "今回のチェックは完了しませんでした。先生が結果を確認します。"
 }

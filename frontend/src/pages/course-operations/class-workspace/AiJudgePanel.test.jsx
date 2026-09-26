@@ -266,7 +266,8 @@ describe("ChatPanel", () => {
     expect(html).toContain("正在製作檢查腳本");
     expect(html).toContain('aria-busy="true"');
     expect(html).toContain('data-workflow-status="generating"');
-    expect(html).toContain("spinning");
+    // 旋轉圖示走 MIcon 的 spin prop（全站統一的 micon-spin class）
+    expect(html).toContain("micon-spin");
   });
   test("附件逐項核查期間顯示階段文案，不偽造進度百分比", () => {
     const html = renderToStaticMarkup(

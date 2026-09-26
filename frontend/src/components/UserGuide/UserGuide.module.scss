@@ -23,19 +23,6 @@
   }
 }
 
-/* 沒有頁首可以掛的時候才浮在角落；圖示鈕本身是透明的，浮起來要自帶底色 */
-.helpButtonFloating {
-  position: fixed;
-  right: $spacing-16;
-  bottom: 76px;
-  z-index: 90;
-  width: 36px;
-  height: 36px;
-  border: 1px solid var(--color-border);
-  background: var(--color-surface);
-  box-shadow: var(--shadow-sm);
-}
-
 .emptySimulation {
   position: fixed;
   top: 50%;
@@ -491,7 +478,6 @@
     }
   }
 
-  .helpButton:not(.helpButtonFloating) span { display: none; }
 
   .emptySimulationBody { grid-template-columns: 1fr; }
   .emptySimulationList { display: none; }

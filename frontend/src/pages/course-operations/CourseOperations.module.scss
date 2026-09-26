@@ -1183,6 +1183,7 @@
 }
 
 .createDialogOverlay {
+  @include dialog-overlay-avoid-ai;
   position: fixed;
   z-index: 300;
   inset: 0;

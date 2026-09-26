@@ -373,7 +373,7 @@ function ConnectionsSection({ connections, loading, onRefresh }) {
                       {rowBusy === "test" ? t("SettingsPage.testing") : t("SettingsPage.test")}
                     </button>
                     <button type="button" className={styles.btnSecondary} disabled={Boolean(rowBusy)} onClick={() => handleSync(conn)}>
-                      <MIcon name="sync" size={16} />
+                      <MIcon name="sync" size={16} spin={rowBusy === "sync"} />
                       {rowBusy === "sync" ? t("SettingsPage.syncing") : t("SettingsPage.sync")}
                     </button>
                     <button

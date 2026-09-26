@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<!-- 外層 nginx 的 50x 靜態錯誤頁：前端容器掛掉時由反向代理直接回這頁。
+     完全自足（inline CSS、無外部資源、無 JS 依賴），文案與站內統一錯誤句一致。
+     場景：伺服器塔＋捲動的心跳監測線（healthcheck 隱喻），狀態燈一顆告警；
+     reduced-motion 時全部靜止。 -->
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>SkyLab</title>
+  <style>
+    :root {
+      --bg-top: #dfe9fb;
+      --bg-bottom: #f6f2df;
+      --surface: #ffffff;
+      --primary: #5471bf;
+      --text: #5471bf;
+      --text-secondary: #617dc8;
+      --border: #e5eaf3;
+      --unit-fill: #eef2fb;
+      --danger: #e0707a;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg-top: #0e1320;
+        --bg-bottom: #161b26;
+        --surface: #2a3142;
+        --primary: #7b96d8;
+        --text: #d4deef;
+        --text-secondary: #d9e8ff;
+        --border: #3a445c;
+        --unit-fill: #1c2333;
+        --danger: #eb959d;
+      }
+    }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 12px;
+      padding: 48px 16px;
+      background: linear-gradient(180deg, var(--bg-top), var(--bg-bottom));
+      color: var(--text);
+      font-family: "Noto Sans TC", "Microsoft JhengHei", system-ui, -apple-system, sans-serif;
+      text-align: center;
+      animation: rise 0.6s ease-out both;
+    }
+    svg { overflow: visible; }
+    .tower { fill: var(--surface); filter: drop-shadow(0 8px 18px rgba(84, 113, 191, 0.26)); }
+    .unit { fill: var(--unit-fill); }
+    .vent { stroke: var(--border); stroke-width: 2; stroke-linecap: round; }
+    .ekg {
+      fill: none;
+      stroke: var(--danger);
+      stroke-width: 2.5;
+      stroke-linejoin: round;
+      stroke-linecap: round;
+    }
+    .ekgScroll { animation: ekg 4s linear infinite; }
+    .ledOk { fill: var(--primary); animation: breathe 2.6s ease-in-out infinite; }
+    .ledOk2 { fill: var(--primary); animation: breathe 2.6s ease-in-out 1.3s infinite; }
+    .ledWarn { fill: var(--danger); animation: blink 1.1s steps(1) infinite; }
+    h1 { font-size: 20px; font-weight: 700; color: var(--danger); }
+    p { max-width: 40ch; font-size: 14px; line-height: 1.6; color: var(--text-secondary); }
+    a.retry {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      margin-top: 12px;
+      padding: 8px 20px;
+      border-radius: 8px;
+      background: var(--primary);
+      color: #fff;
+      font-size: 14px;
+      font-weight: 500;
+      text-decoration: none;
+    }
+    .brand { position: fixed; bottom: 20px; font-size: 12px; color: var(--text-secondary); opacity: 0.7; }
+    @keyframes rise {
+      from { opacity: 0; transform: translateY(14px); }
+      to { opacity: 1; transform: none; }
+    }
+    /* 位移一個波形週期（130px）即無縫循環 */
+    @keyframes ekg {
+      to { transform: translateX(-130px); }
+    }
+    @keyframes breathe {
+      0%, 100% { opacity: 0.35; }
+      50% { opacity: 1; }
+    }
+    @keyframes blink {
+      0%, 100% { opacity: 1; }
+      35% { opacity: 0.15; }
+      55% { opacity: 1; }
+      70% { opacity: 0.15; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      body, .ekgScroll, .ledOk, .ledOk2, .ledWarn { animation: none; }
+    }
+  </style>
+</head>
+<body>
+  <svg width="320" height="160" viewBox="-130 -66 260 130" role="img" aria-hidden="true">
+    <!-- 心跳線：畫在伺服器後方，向左持續捲動；波形週期 130px、共三段涵蓋位移範圍 -->
+    <g clip-path="url(#ekg-window)">
+      <g class="ekgScroll">
+        <path class="ekg" d="M -130 8
+          h34 l5 -5 l5 5 h12 l6 -22 l7 30 l5 -8 h56
+          h34 l5 -5 l5 5 h12 l6 -22 l7 30 l5 -8 h56
+          h34 l5 -5 l5 5 h12 l6 -22 l7 30 l5 -8 h56"/>
+      </g>
+    </g>
+    <defs>
+      <clipPath id="ekg-window">
+        <rect x="-122" y="-40" width="244" height="80" rx="8"/>
+      </clipPath>
+    </defs>
+
+    <!-- 伺服器塔：三個機架單元，各一顆狀態燈；最下面那顆在告警 -->
+    <rect class="tower" x="-27" y="-50" width="54" height="76" rx="10"/>
+    <rect class="unit" x="-19" y="-42" width="38" height="16" rx="5"/>
+    <rect class="unit" x="-19" y="-20" width="38" height="16" rx="5"/>
+    <rect class="unit" x="-19" y="2"   width="38" height="16" rx="5"/>
+    <path class="vent" d="M -13 -36 h14 M -13 -30 h9"/>
+    <path class="vent" d="M -13 -14 h14 M -13 -8 h9"/>
+    <path class="vent" d="M -13 8   h14 M -13 14 h9"/>
+    <circle class="ledOk"   cx="13" cy="-34" r="3.2"/>
+    <circle class="ledOk2"  cx="13" cy="-12" r="3.2"/>
+    <circle class="ledWarn" cx="13" cy="10"  r="3.2"/>
+  </svg>
+  <h1>發生錯誤</h1>
+  <p>請再試一次，如果此錯誤持續發生請聯繫管理員。</p>
+  <a class="retry" href="/">重新整理</a>
+  <div class="brand">SkyLab</div>
+</body>
+</html>

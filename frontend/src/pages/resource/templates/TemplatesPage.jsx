@@ -41,7 +41,7 @@ function ManualDialog({ template, closing = false, onClose }) {
       .then((res) => !cancelled && setAttachments(res?.data ?? []))
       .catch((e) => {
         if (!cancelled) {
-          toast.error(e?.message ?? t("TemplatesPage.attachmentLoadFailed"));
+          toast.error(e?.message ?? t("Error.generic", { ns: "common" }));
           setAttachments([]);
         }
       });
@@ -65,7 +65,7 @@ function ManualDialog({ template, closing = false, onClose }) {
       const blob = await TemplatesService.downloadAttachment(template.id, attachment.id);
       downloadBlob(blob, attachment.filename);
     } catch (e) {
-      toast.error(e?.message ?? t("TemplatesPage.downloadFailed"));
+      toast.error(e?.message ?? t("Error.generic", { ns: "common" }));
     } finally {
       setDownloadingId(null);
     }
@@ -306,7 +306,7 @@ export default function TemplatesPage() {
       setTemplates(res?.data ?? []);
       return res?.data ?? [];
     } catch (e) {
-      toast.error(e?.message ?? t("TemplatesPage.loadFailed"));
+      toast.error(e?.message ?? t("Error.generic", { ns: "common" }));
       setTemplates((prev) => prev ?? []);
       return [];
     }

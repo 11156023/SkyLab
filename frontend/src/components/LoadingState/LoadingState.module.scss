@@ -20,7 +20,9 @@
 }
 
 /* ── 3D 方塊堆疊動畫（改寫自 Uiverse.io by Admin12121）──
-   顏色走主題變數：方塊用 primary、遮罩用頁面底色，亮／暗模式自動切換 */
+   顏色走主題變數：方塊與台座用 primary 系，亮／暗模式自動切換。
+   原版收尾用兩片 --color-bg-base 斜切遮罩蓋住落下的方塊，
+   但暈染／自訂背景上會露出色塊（看起來像多兩塊台子），已依需求移除 */
 .loader {
   --duration: 3s;
   width: 200px;
@@ -31,26 +33,6 @@
      ground 會往下延伸約 120px，margin 預留避免壓到文字 */
   zoom: 0.55;
   margin-bottom: 120px;
-
-  &::before,
-  &::after {
-    --r: 20.5deg;
-    content: "";
-    width: 320px;
-    height: 140px;
-    position: absolute;
-    right: 32%;
-    bottom: -11px;
-    background: var(--color-bg-base);
-    transform: translateZ(200px) rotate(var(--r));
-    animation: mask var(--duration) linear forwards infinite;
-  }
-
-  &::after {
-    --r: -20.5deg;
-    right: auto;
-    left: 32%;
-  }
 }
 
 @media (max-width: $breakpoint-sm) {
@@ -192,12 +174,19 @@ $box-layouts: (
     }
   }
 
+  /* 收尾：下墜（80→90%）的前段就縮回 0，取代原遮罩的隱藏效果。
+     消失點刻意提前到 86%——ease 緩動在段尾放慢，拖到 90% 會留一顆
+     小方塊墜到底（殘留感）；86% 收完，墜到一半即消失，
+     循環重置（scale 0 → 0）也不會跳接 */
   @keyframes box-scale-#{$i} {
     #{6 + $i * 4}% {
       transform: rotateY(-47deg) rotateX(-15deg) rotateZ(15deg) scale(0);
     }
-    #{14 + $i * 4}%, 100% {
+    #{14 + $i * 4}%, 80% {
       transform: rotateY(-47deg) rotateX(-15deg) rotateZ(15deg) scale(1);
+    }
+    86%, 100% {
+      transform: rotateY(-47deg) rotateX(-15deg) rotateZ(15deg) scale(0);
     }
   }
 }
@@ -223,15 +212,6 @@ $box-layouts: (
   }
   100% {
     opacity: 0;
-  }
-}
-
-@keyframes mask {
-  0%, 65% {
-    opacity: 0;
-  }
-  66%, 100% {
-    opacity: 1;
   }
 }
 

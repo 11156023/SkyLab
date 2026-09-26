@@ -1,0 +1,152 @@
+@use "../../assets/styles/variables" as *;
+@use "../../assets/styles/mixins" as *;
+
+.page {
+  @include flex-column;
+  flex: 1;
+  min-height: 60vh;
+  align-items: center;
+  justify-content: center;
+  padding: $spacing-48 $spacing-16;
+}
+
+.scene {
+  @include flex-column;
+  align-items: center;
+  gap: $spacing-8;
+  text-align: center;
+  animation: rise 0.6s ease-out both;
+}
+
+.sky {
+  width: min(420px, 100%);
+  height: auto;
+  overflow: visible;
+}
+
+/* ── 404 場景 ─────────────────────────────── */
+
+.digit {
+  font-family: inherit;
+  font-size: 128px;
+  font-weight: $font-weight-700;
+  fill: color-mix(in srgb, var(--color-primary) 62%, var(--color-text-secondary));
+}
+
+/* 雲朵 0：聯集輪廓用 drop-shadow 呈現（stroke 會露出內部交界線） */
+.cloudZeroWrap {
+  animation: float 5.5s ease-in-out infinite;
+}
+
+/* 混一點 text-secondary：淺色模式仍近白，深色模式才不會跟背景融成一片 */
+.cloudZero {
+  fill: color-mix(in srgb, var(--color-text-secondary) 14%, var(--color-surface));
+  filter: drop-shadow(0 8px 18px color-mix(in srgb, var(--color-primary) 26%, transparent));
+}
+
+.cloudFaint {
+  fill: color-mix(in srgb, var(--color-primary) 9%, var(--color-surface));
+  opacity: 0.8;
+}
+
+.driftSlow {
+  animation: drift 13s ease-in-out infinite alternate;
+}
+
+.driftSlower {
+  animation: drift 19s ease-in-out infinite alternate-reverse;
+}
+
+/* 航跡：dasharray 週期 = 8 + 10，offset 走滿一個週期即無縫循環 */
+.trail {
+  fill: none;
+  stroke: color-mix(in srgb, var(--color-primary) 42%, transparent);
+  stroke-width: 2.5;
+  stroke-linecap: round;
+  stroke-dasharray: 8 10;
+  animation: march 1.6s linear infinite;
+}
+
+/* 延遲 = 飛行時長：落地後才開始浮動（飛行中由 animateMotion 帶位置） */
+.planeWrap {
+  animation: float 4s ease-in-out 2.4s infinite reverse;
+}
+
+.plane {
+  fill: var(--color-primary);
+}
+
+.planeFold {
+  fill: color-mix(in srgb, var(--color-primary) 60%, var(--color-surface));
+}
+
+/* ── 文字與按鈕 ───────────────────────────── */
+
+.title {
+  margin-top: $spacing-8;
+  font-size: $font-size-18;
+  font-weight: $font-weight-700;
+  color: var(--color-text);
+}
+
+.desc {
+  max-width: 40ch;
+  font-size: $font-size-14;
+  line-height: $line-height-base;
+  color: var(--color-text-secondary);
+}
+
+.btnPrimary {
+  @include btn-primary;
+  margin-top: $spacing-16;
+}
+
+/* ── 動畫 ─────────────────────────────────── */
+
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(14px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes float {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-7px);
+  }
+}
+
+@keyframes drift {
+  from {
+    transform: translateX(-12px);
+  }
+  to {
+    transform: translateX(12px);
+  }
+}
+
+@keyframes march {
+  to {
+    stroke-dashoffset: -18;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .scene,
+  .cloudZeroWrap,
+  .cloudFaint,
+  .driftSlow,
+  .driftSlower,
+  .trail,
+  .planeWrap {
+    animation: none;
+  }
+}

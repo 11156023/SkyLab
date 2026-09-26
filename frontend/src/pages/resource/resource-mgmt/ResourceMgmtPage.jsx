@@ -9,6 +9,7 @@ import PowerMenu from "../../../components/PowerMenu/PowerMenu";
 import TemplateConvertDialog from "../../../components/TemplateConvertDialog/TemplateConvertDialog";
 import useDialogPresence from "../../../hooks/useDialogPresence";
 import SharedEmptyState from "../../../components/EmptyState/EmptyState";
+import ErrorState from "../../../components/ErrorState/ErrorState";
 import { useToast } from "../../../hooks/useToast";
 import useAutoRefresh from "../../../hooks/useAutoRefresh";
 import LoadingState from "../../../components/LoadingState/LoadingState";
@@ -202,7 +203,7 @@ function EnvironmentMachineRow({ machine, onUpdated }) {
           <MIcon name={isLxc ? "terminal" : "desktop_windows"} size={14} />
           {isLxc ? t("ResourceMgmtPage.terminalTitle") : t("ResourceMgmtPage.consoleTitle")}
         </button>
-        {actionLoading && <MIcon name="hourglass_empty" size={16} />}
+        {actionLoading && <MIcon name="hourglass_empty" size={16} spin />}
         {canControl && <div className={styles.menuWrap}>
           {menuOpen && <PowerMenu resource={resource} actionLoading={actionLoading} onControl={handleControl} onClose={closeMenu} anchorRef={menuBtnRef} closing={menuClosing} />}
           <button ref={menuBtnRef} type="button" className={`${styles.menuBtn} ${menuOpen ? styles.menuBtnActive : ""}`} onClick={() => menuOpen ? closeMenu() : setMenuOpen(true)} title={t("ResourceMgmtPage.powerControlTitle")} aria-label={t("ResourceMgmtPage.powerControlTitle")}><MIcon name="more_vert" size={18} /></button>
@@ -290,7 +291,7 @@ function EnvironmentGroupRows({ group, onUpdated, onRefresh }) {
         <td className={styles.td}>{group.nodeLabel}</td>
         <td className={styles.td}>{controllableVmids.length > 0
           ? <div className={styles.actions}>
-              {groupAction && <MIcon name="hourglass_empty" size={16} />}
+              {groupAction && <MIcon name="hourglass_empty" size={16} spin />}
               <div className={styles.menuWrap}>
                 {menuOpen && <PowerMenu
                   title={t("ResourceMgmtPage.groupPowerTitle")}
@@ -575,7 +576,7 @@ function ResourceRow({ resource, onUpdated, onDeleted, selected = false, onToggl
                 <MIcon name={isLxc ? "terminal" : "desktop_windows"} size={14} />
                 {isLxc ? t("ResourceMgmtPage.terminalTitle") : t("ResourceMgmtPage.consoleTitle")}
               </button>
-              {actionLoading && <MIcon name="hourglass_empty" size={16} />}
+              {actionLoading && <MIcon name="hourglass_empty" size={16} spin />}
               <div className={styles.menuWrap}>
                 {menuOpen && (
                   <PowerMenu
@@ -634,22 +635,6 @@ function ResourceRow({ resource, onUpdated, onDeleted, selected = false, onToggl
 function EmptyState() {
   const { t } = useTranslation("resource");
   return <SharedEmptyState icon="dns" title={t("ResourceMgmtPage.emptyTitle")} />;
-}
-
-function ErrorState({ onRetry }) {
-  const { t } = useTranslation("resource");
-  return (
-    <EmptyState
-      icon="error_outline"
-      title={t("ResourceMgmtPage.loadErrorTitle")}
-      action={
-        <button type="button" className={styles.btnSecondary} onClick={onRetry}>
-          <MIcon name="refresh" size={16} />
-          {t("ResourceMgmtPage.retry")}
-        </button>
-      }
-    />
-  );
 }
 
 /* ── Page ── */

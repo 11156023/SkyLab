@@ -150,7 +150,7 @@ export default function VncDialog({ resource, onClose }) {
 
         {!error && !wsUrl && (
           <div className={styles.statusBanner}>
-            <MIcon name="hourglass_empty" size={16} />{t("VncDialog.fetchingInfo")}
+            <MIcon name="hourglass_empty" size={16} spin />{t("VncDialog.fetchingInfo")}
           </div>
         )}
 

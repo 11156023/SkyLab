@@ -288,6 +288,7 @@
 
 /* ── Modal（節點編輯、PVE 連線表單；卡片基準比照 QuotasPage）── */
 .modalOverlay {
+  @include dialog-overlay-avoid-ai;
   position: fixed;
   inset: 0;
   background: var(--color-overlay);
