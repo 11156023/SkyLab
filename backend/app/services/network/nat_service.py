@@ -141,17 +141,9 @@ def apply_nat_rule(
     # vm_ip 來自 guest agent 回報，VM 擁有者可偽造：不可讓外網 port 轉到
     # Gateway / PVE 節點等內部主機
     assert_publishable_vm_ip(session, vm_ip, vmid=vmid)
-    get = getattr(session, "get", None)
-    resource_vmid = None
-    if get is not None:
-        from app.models import Resource
-
-        resource_vmid = vmid if get(Resource, vmid) is not None else None
-
     rule = NatRule(
         ssh_host="",  # 已改為 Gateway VM 架構，此欄位保留但不再使用
         vmid=vmid,
-        resource_vmid=resource_vmid,
         vm_ip=vm_ip,
         external_port=external_port,
         internal_port=internal_port,

@@ -440,7 +440,6 @@ def test_retry_recovers_existing_resource_instead_of_cloning(monkeypatch):
         user_id=user_id,
         status=BatchProvisionTaskStatus.failed,
         vmid=None,
-        resource_vmid=None,
         error="worker interrupted",
         finished_at=None,
     )

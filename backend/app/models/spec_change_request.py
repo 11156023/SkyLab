@@ -47,7 +47,7 @@ class SpecChangeRequest(SQLModel, table=True):
     )
 
     id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
-    vmid: int = Field(description="VM/Container ID")
+    vmid: int = Field(index=True, description="VM/Container ID（申請當時的快照）")
     resource_vmid: int | None = Field(
         default=None,
         sa_column=Column(

@@ -206,8 +206,7 @@ def update_task_done(*, session: Session, task_id: uuid.UUID, vmid: int) -> None
     task = session.get(BatchProvisionTask, task_id)
     if task:
         task.status = BatchProvisionTaskStatus.completed
-        task.vmid = vmid
-        task.resource_vmid = vmid if session.get(Resource, vmid) is not None else None
+        task.vmid = vmid if session.get(Resource, vmid) is not None else None
         task.finished_at = datetime.now(UTC)
         session.add(task)
         session.commit()
@@ -298,7 +297,6 @@ def clear_task_vmid_references(
                 job.failed_count += 1
                 session.add(job)
         task.vmid = None
-        task.resource_vmid = None
         task.status = BatchProvisionTaskStatus.failed
         task.error = "Provisioned resource was removed and requires repair"
         session.add(task)

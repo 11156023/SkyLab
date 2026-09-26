@@ -1293,9 +1293,9 @@ def delete(
         if teaching_class_id is not None:
             _mark_class_machine_reclaimed(session=session, vmid=vmid)
 
-        # Remove from database (resource record + all associated audit logs)
-        resource_repo.delete_resource(session=session, vmid=vmid)
+        # Remove from database (this resource's audit logs, then the record)
         audit_log_repo.delete_audit_logs_by_vmid(session=session, vmid=vmid)
+        resource_repo.delete_resource(session=session, vmid=vmid)
         _mark_class_reclaimed_if_empty(
             session=session, teaching_class_id=teaching_class_id
         )
@@ -1371,8 +1371,8 @@ def delete_orphan_db_record(
     _cancel_open_spec_change_requests(
         session=session, vmid=vmid, marker=RESOURCE_DELETED_ORPHAN_MARKER
     )
-    resource_repo.delete_resource(session=session, vmid=vmid)
     audit_log_repo.delete_audit_logs_by_vmid(session=session, vmid=vmid)
+    resource_repo.delete_resource(session=session, vmid=vmid)
     _mark_class_reclaimed_if_empty(
         session=session, teaching_class_id=teaching_class_id
     )

@@ -5,7 +5,8 @@ from datetime import datetime, timezone
 from sqlalchemy.orm import selectinload
 from sqlmodel import Session, and_, func, or_, select
 
-from app.models import AuditAction, AuditLog, Resource
+from app.models import AuditAction, AuditLog
+from app.repositories.resource import linked_resource_vmid
 
 #: 匯出時一次向資料庫要幾列；整批 5 萬列一次讀進記憶體會撐爆 worker
 EXPORT_BATCH_SIZE = 500
@@ -24,13 +25,10 @@ def create_audit_log(
 ) -> AuditLog:
     if isinstance(action, str):
         action = AuditAction(action)
-    resource_vmid = (
-        vmid if vmid is not None and session.get(Resource, vmid) is not None else None
-    )
     db_log = AuditLog(
         user_id=user_id,
         vmid=vmid,
-        resource_vmid=resource_vmid,
+        resource_vmid=linked_resource_vmid(session, vmid),
         action=action,
         details=details,
         ip_address=ip_address,
@@ -261,8 +259,15 @@ def get_audit_logs_by_vmid(
 
 
 def delete_audit_logs_by_vmid(*, session: Session, vmid: int) -> int:
-    """刪除指定 vmid 的所有操作紀錄，返回刪除筆數。"""
-    logs = list(session.exec(select(AuditLog).where(AuditLog.vmid == vmid)).all())
+    """刪除「目前這台」vmid 資源的操作紀錄，返回刪除筆數。
+
+    以 resource_vmid 篩選，必須在刪除 resources 列之前呼叫（刪除後 SET NULL
+    就對不上了）。只看 vmid 會連同先前用過同一個 VMID 的舊機器紀錄
+    （含它們的 resource_delete 紀錄）一起刪掉。
+    """
+    logs = list(
+        session.exec(select(AuditLog).where(AuditLog.resource_vmid == vmid)).all()
+    )
     for log in logs:
         session.delete(log)
     session.commit()

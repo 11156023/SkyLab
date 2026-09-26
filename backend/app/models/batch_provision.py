@@ -121,16 +121,17 @@ class BatchProvisionTask(SQLModel, table=True):
         )
     )
     member_index: int = Field(description="成員序號（用於 hostname suffix）")
-    vmid: int | None = Field(default=None, description="建立成功後的 VMID")
-    resource_vmid: int | None = Field(
+    vmid: int | None = Field(
         default=None,
+        # 資源被刪時清成 NULL；clear_task_vmid_references 另外負責把
+        # 已完成的 task 轉回 failed 並修正 job 計數
         sa_column=Column(
             sa.Integer,
             sa.ForeignKey("resources.vmid", ondelete="SET NULL"),
             nullable=True,
             index=True,
         ),
-        description="Linked resource VMID; vmid remains as batch result snapshot",
+        description="建立成功後的 VMID",
     )
     status: BatchProvisionTaskStatus = Field(
         default=BatchProvisionTaskStatus.pending,
