@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
@@ -8,6 +8,7 @@ import { AuthStorage } from "../../../services/auth";
 import { useAuth } from "../../../contexts/AuthContext";
 import { recordMachineUse } from "../../../services/recentMachines";
 import MIcon from "../../../components/MIcon";
+import Modal from "../../../components/Modal/Modal";
 import styles from "./ConsoleDialog.module.scss";
 
 export default function TerminalDialog({ resource, onClose }) {
@@ -29,6 +30,7 @@ export default function TerminalDialog({ resource, onClose }) {
   const wsRef       = useRef(null);
   const fitAddonRef = useRef(null);
   const dialogRef   = useRef(null);
+  const titleId     = useId();
 
   useEffect(() => {
     const handler = () => setIsFullscreen(!!document.fullscreenElement);
@@ -142,63 +144,71 @@ export default function TerminalDialog({ resource, onClose }) {
   }, [resource?.vmid]);
 
   return (
-    <div className={`${styles.overlay} ${closing ? styles.overlayOut : ""}`} onClick={handleClose}>
-      <div ref={dialogRef} className={styles.dialog} role="dialog" aria-modal="true" onClick={(e) => e.stopPropagation()}>
-        <div className={styles.header}>
-          <span className={styles.headerIcon}><MIcon name="terminal" size={18} /></span>
-          <span className={styles.headerTitleGroup}>
-            <span className={styles.headerTitle}>{t("TerminalDialog.titlePrefix", { name: resource.name })}</span>
-            <span className={`${styles.statusDot} ${styles[`dot_${status}`]}`} />
-            <span className={styles.statusText}>{t(STATUS_LABEL[status])}</span>
-          </span>
-          {status === "connected" && (
-            <>
-              <button type="button" className={`${styles.headerBtn} ${styles.headerBtnDanger}`} title={t("TerminalDialog.clear")} onClick={() => termRef.current?.clear()}>
-                <MIcon name="delete_sweep" size={16} />
-              </button>
-              <button type="button" className={`${styles.headerBtn} ${styles.headerBtnDanger}`} title={t("TerminalDialog.reset")} onClick={() => termRef.current?.reset()}>
-                <MIcon name="restart_alt" size={16} />
-              </button>
-            </>
-          )}
-          <button type="button" className={styles.headerBtn} title={isFullscreen ? t("TerminalDialog.exitFullscreen") : t("TerminalDialog.fullscreen")} onClick={toggleFullscreen}>
-            <MIcon name={isFullscreen ? "fullscreen_exit" : "fullscreen"} size={16} />
-          </button>
-          <button type="button" className={styles.closeBtn} onClick={handleClose}>
-            <MIcon name="close" size={18} />
-          </button>
-        </div>
-
-        <div className={styles.terminalArea}>
-          <div ref={terminalRef} className={styles.terminalWrap} />
-          {status !== "connected" && (
-            <div className={styles.terminalOverlay}>
-              {status === "connecting" && (
-                <>
-                  <span className={styles.terminalOverlayIcon}><MIcon name="terminal" size={40} /></span>
-                  <span className={styles.terminalOverlayTitle}>{t("TerminalDialog.connecting")}</span>
-                  <span className={styles.terminalOverlayDesc}>{t("TerminalDialog.connectingDesc", { name: resource.name })}</span>
-                </>
-              )}
-              {status === "error" && (
-                <>
-                  <span className={`${styles.terminalOverlayIcon} ${styles.terminalOverlayIconError}`}><MIcon name="error_outline" size={40} /></span>
-                  <span className={styles.terminalOverlayTitle}>{t("TerminalDialog.connectFailedTitle")}</span>
-                  <span className={styles.terminalOverlayDesc}>{error}</span>
-                </>
-              )}
-              {status === "disconnected" && (
-                <>
-                  <span className={`${styles.terminalOverlayIcon} ${styles.terminalOverlayIconMuted}`}><MIcon name="link_off" size={40} /></span>
-                  <span className={styles.terminalOverlayTitle}>{t("TerminalDialog.disconnectedTitle")}</span>
-                  <span className={styles.terminalOverlayDesc}>{error}</span>
-                </>
-              )}
-            </div>
-          )}
-        </div>
+    /* 畫面型：蓋過 AI 助手，鍵盤全部交給終端機（Tab 補全、vim 的 Esc），所以 Esc 不關 */
+    <Modal
+      ref={dialogRef}
+      bare
+      layer="screen"
+      size="lg"
+      className={styles.dialog}
+      closing={closing}
+      onClose={handleClose}
+      aria-labelledby={titleId}
+    >
+      <div className={styles.header}>
+        <span className={styles.headerIcon}><MIcon name="terminal" size={18} /></span>
+        <span className={styles.headerTitleGroup}>
+          <span id={titleId} className={styles.headerTitle}>{t("TerminalDialog.titlePrefix", { name: resource.name })}</span>
+          <span className={`${styles.statusDot} ${styles[`dot_${status}`]}`} />
+          <span className={styles.statusText}>{t(STATUS_LABEL[status])}</span>
+        </span>
+        {status === "connected" && (
+          <>
+            <button type="button" className={`${styles.headerBtn} ${styles.headerBtnDanger}`} title={t("TerminalDialog.clear")} onClick={() => termRef.current?.clear()}>
+              <MIcon name="delete_sweep" size={16} />
+            </button>
+            <button type="button" className={`${styles.headerBtn} ${styles.headerBtnDanger}`} title={t("TerminalDialog.reset")} onClick={() => termRef.current?.reset()}>
+              <MIcon name="restart_alt" size={16} />
+            </button>
+          </>
+        )}
+        <button type="button" className={styles.headerBtn} title={isFullscreen ? t("TerminalDialog.exitFullscreen") : t("TerminalDialog.fullscreen")} onClick={toggleFullscreen}>
+          <MIcon name={isFullscreen ? "fullscreen_exit" : "fullscreen"} size={16} />
+        </button>
+        <button type="button" className={styles.closeBtn} onClick={handleClose} aria-label={t("Modal.close", { ns: "common" })}>
+          <MIcon name="close" size={18} />
+        </button>
       </div>
-    </div>
+
+      <div className={styles.terminalArea}>
+        <div ref={terminalRef} className={styles.terminalWrap} />
+        {status !== "connected" && (
+          <div className={styles.terminalOverlay}>
+            {status === "connecting" && (
+              <>
+                <span className={styles.terminalOverlayIcon}><MIcon name="terminal" size={40} /></span>
+                <span className={styles.terminalOverlayTitle}>{t("TerminalDialog.connecting")}</span>
+                <span className={styles.terminalOverlayDesc}>{t("TerminalDialog.connectingDesc", { name: resource.name })}</span>
+              </>
+            )}
+            {status === "error" && (
+              <>
+                <span className={`${styles.terminalOverlayIcon} ${styles.terminalOverlayIconError}`}><MIcon name="error_outline" size={40} /></span>
+                <span className={styles.terminalOverlayTitle}>{t("TerminalDialog.connectFailedTitle")}</span>
+                <span className={styles.terminalOverlayDesc}>{error}</span>
+              </>
+            )}
+            {status === "disconnected" && (
+              <>
+                <span className={`${styles.terminalOverlayIcon} ${styles.terminalOverlayIconMuted}`}><MIcon name="link_off" size={40} /></span>
+                <span className={styles.terminalOverlayTitle}>{t("TerminalDialog.disconnectedTitle")}</span>
+                <span className={styles.terminalOverlayDesc}>{error}</span>
+              </>
+            )}
+          </div>
+        )}
+      </div>
+    </Modal>
   );
 }
 

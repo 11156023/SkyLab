@@ -126,3 +126,24 @@ test("header layout renders a close button that honours busy", async () => {
   await render(<Modal title="A" closeButton busy onClose={onClose} closeProps={{ "data-guide": "x" }} />);
   expect(document.querySelector("[data-guide='x']").disabled).toBe(true);
 });
+
+test("screen layer leaves Escape and Tab to the screen, and exposes the dialog through ref", async () => {
+  const onClose = vi.fn();
+  const ref = { current: null };
+  await render(
+    <Modal ref={ref} bare layer="screen" aria-label="終端機" onClose={onClose}>
+      <button type="button">第一</button>
+      <button type="button">最後</button>
+    </Modal>,
+  );
+  expect(ref.current).toBe(dialog());
+  expect(dialog().querySelector("h2")).toBeNull();
+
+  await act(async () => press("Escape"));
+  expect(onClose).not.toHaveBeenCalled();
+
+  const last = dialog().querySelectorAll("button")[1];
+  last.getClientRects = () => [{}];
+  last.focus();
+  expect(press("Tab").defaultPrevented).toBe(false);
+});
