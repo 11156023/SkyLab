@@ -3,6 +3,7 @@ import {
   buildAttentionItems,
   formatDuration,
   formatModelDisplay,
+  formatTokenRate,
   formatTokens,
   isOkStatus,
   mergeModelRows,
@@ -23,6 +24,8 @@ describe("AiMonitoringPage formatting", () => {
     expect(formatTokens(1200000)).toBe("1.2M");
     expect(formatDuration(1200)).toBe("1.2s");
     expect(formatDuration(null)).toBe("—");
+    expect(formatTokenRate(12.345)).toBe("12.35 tok/s");
+    expect(formatTokenRate(null)).toBe("—");
   });
 
   test("模型名稱保留公開可辨識部分", () => {

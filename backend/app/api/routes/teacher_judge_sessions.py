@@ -5,6 +5,8 @@ from __future__ import annotations
 import json
 import logging
 import uuid
+from datetime import datetime, timezone
+from time import perf_counter
 from typing import Any
 
 from fastapi import APIRouter, File, HTTPException, Query, UploadFile
@@ -12,6 +14,7 @@ from sqlalchemy import case, func
 from sqlalchemy.exc import IntegrityError
 from sqlmodel import col, desc, select
 
+from app.ai.monitoring import new_ai_request_id, record_ai_template_call, usage_metrics
 from app.ai.teacher_judge.attachment_service import (
     MAX_ATTACHMENT_COUNT,
     attachment_context,
@@ -377,9 +380,7 @@ def update_session(
                 exclude_session_id=item.id,
             )
         if payload.selected_file_id != item.selected_file_id:
-            cleared_attachments = clear_session_messages(
-                session, item, commit=False
-            )
+            cleared_attachments = clear_session_messages(session, item, commit=False)
         item.selected_file_id = payload.selected_file_id
     if payload.status is not None:
         item.status = TeacherJudgeSessionStatus(payload.status)
@@ -542,14 +543,11 @@ def list_messages(
         session, [row.id for row in rows]
     )
     return [
-        message_public(row, attachments_by_message_id.get(row.id, []))
-        for row in rows
+        message_public(row, attachments_by_message_id.get(row.id, [])) for row in rows
     ]
 
 
-@router.delete(
-    "/{session_id}/messages", response_model=TeacherJudgeSessionPublic
-)
+@router.delete("/{session_id}/messages", response_model=TeacherJudgeSessionPublic)
 def clear_messages(
     teaching_class_id: uuid.UUID,
     session_id: uuid.UUID,
@@ -606,6 +604,9 @@ async def create_message(
         session.add(attachment)
     session.commit()
     session.refresh(user_message)
+    ai_request_id = new_ai_request_id()
+    ai_started = perf_counter()
+    ai_started_at = datetime.now(timezone.utc)
     try:
         raw_analysis = file.analysis_json if file else {}
         legacy_command_context = any(
@@ -643,7 +644,9 @@ async def create_message(
                 if file
                 else "linux",
                 template_commands=template_commands,
-                environment_keys=(file.environment_keys if legacy_command_context else None)
+                environment_keys=(
+                    file.environment_keys if legacy_command_context else None
+                )
                 if file
                 else None,
                 machine_context=machine_context,
@@ -652,11 +655,17 @@ async def create_message(
                 analysis_revision=base_revision,
                 rubric_available=file is not None,
             )
-            reply, proposal, metrics = itemwise.reply, itemwise.proposal, itemwise.metrics
+            reply, proposal, metrics = (
+                itemwise.reply,
+                itemwise.proposal,
+                itemwise.metrics,
+            )
             item_results = itemwise.item_results
             itemwise_error = getattr(itemwise, "error", None)
             if itemwise_error:
-                reply = "這次無法逐項核查附件，處理階段沒有完成；請確認附件內容後再試一次。"
+                reply = (
+                    "這次無法逐項核查附件，處理階段沒有完成；請確認附件內容後再試一次。"
+                )
         else:
             chat_result = await chat_with_rubric(
                 bounded_history(
@@ -674,7 +683,9 @@ async def create_message(
                 if file
                 else "linux",
                 template_commands=template_commands,
-                environment_keys=(file.environment_keys if legacy_command_context else None)
+                environment_keys=(
+                    file.environment_keys if legacy_command_context else None
+                )
                 if file
                 else None,
                 machine_context=machine_context,
@@ -715,7 +726,11 @@ async def create_message(
                 item_issues = rubric_item_machine_issues(candidate)
                 if item_issues:
                     machine_contract_issues[
-                        str(candidate.get("id") or candidate.get("title") or "未命名項目")
+                        str(
+                            candidate.get("id")
+                            or candidate.get("title")
+                            or "未命名項目"
+                        )
                     ] = item_issues
                 if (
                     class_nodes
@@ -723,7 +738,11 @@ async def create_message(
                     and not node_key
                 ):
                     missing_target_item_ids.append(
-                        str(candidate.get("id") or candidate.get("title") or "未命名項目")
+                        str(
+                            candidate.get("id")
+                            or candidate.get("title")
+                            or "未命名項目"
+                        )
                     )
             if invalid_node_keys:
                 raise HTTPException(
@@ -756,7 +775,9 @@ async def create_message(
         if payload.is_refine and file is not None:
             # Readiness is determined from the effective server-side candidate,
             # not from model prose or a duplicated frontend approximation.
-            base_analysis = TeacherJudgeRubricAnalysis.model_validate(file.analysis_json)
+            base_analysis = TeacherJudgeRubricAnalysis.model_validate(
+                file.analysis_json
+            )
             candidate_analysis = apply_proposal_operations_to_analysis(
                 base_analysis,
                 proposal,
@@ -812,21 +833,31 @@ async def create_message(
                     }
                 ]
             message_metadata["item_results"] = item_results
-            message_metadata["conversation_focus"] = conversation_focus_from_item_results(
-                item_results,
-                source_file_id=file.id if file else None,
-                analysis_revision=base_revision,
-                turn_kind="follow_up",
+            message_metadata["conversation_focus"] = (
+                conversation_focus_from_item_results(
+                    item_results,
+                    source_file_id=file.id if file else None,
+                    analysis_revision=base_revision,
+                    turn_kind="follow_up",
+                )
             )
             message_metadata.update(
                 {
                     "status": (
                         "analysis_error"
-                        if any(row.get("status") == "analysis_error" for row in item_results)
+                        if any(
+                            row.get("status") == "analysis_error"
+                            for row in item_results
+                        )
                         else "needs_information"
-                        if any(row.get("status") == "needs_information" for row in item_results)
+                        if any(
+                            row.get("status") == "needs_information"
+                            for row in item_results
+                        )
                         else "unsupported"
-                        if any(row.get("status") == "unsupported" for row in item_results)
+                        if any(
+                            row.get("status") == "unsupported" for row in item_results
+                        )
                         else "resolved"
                     ),
                     "stage": "attachment_analysis",
@@ -865,13 +896,29 @@ async def create_message(
             metadata=failure["metadata"],
             created_by=current_user.id,
         )
+        record_ai_template_call(
+            session=session,
+            user_id=current_user.id,
+            call_type="teacher_judge_chat",
+            model_name=teacher_judge_settings.VLLM_MODEL_NAME,
+            metrics=usage_metrics(
+                {},
+                perf_counter() - ai_started,
+                request_id=ai_request_id,
+                started_at=ai_started_at,
+            ),
+            status="error",
+            error_message=f"http_{exc.status_code}",
+        )
         raise HTTPException(
             status_code=exc.status_code,
             detail=failure["content"],
             headers=exc.headers,
         ) from exc
-    except Exception:
-        logger.exception("Teacher Judge message processing failed for session %s", item.id)
+    except Exception as exc:
+        logger.exception(
+            "Teacher Judge message processing failed for session %s", item.id
+        )
         failure = workflow_error_message(
             stage="reanalysis",
             source_file_id=file.id if file else None,
@@ -884,7 +931,35 @@ async def create_message(
             metadata=failure["metadata"],
             created_by=current_user.id,
         )
+        record_ai_template_call(
+            session=session,
+            user_id=current_user.id,
+            call_type="teacher_judge_chat",
+            model_name=teacher_judge_settings.VLLM_MODEL_NAME,
+            metrics=usage_metrics(
+                {},
+                perf_counter() - ai_started,
+                request_id=ai_request_id,
+                started_at=ai_started_at,
+            ),
+            status="error",
+            error_message=str(exc),
+        )
         raise
+    record_ai_template_call(
+        session=session,
+        user_id=current_user.id,
+        call_type="teacher_judge_chat",
+        model_name=teacher_judge_settings.VLLM_MODEL_NAME,
+        metrics={
+            **metrics,
+            "request_id": ai_request_id,
+            "usage_reported": bool(metrics.get("usage_reported", False)),
+            "response_model": metrics.get("response_model"),
+            "started_at": ai_started_at,
+            "completed_at": datetime.now(timezone.utc),
+        },
+    )
     # Source changes clear the conversation while this request may still be
     # waiting on the model.  Revalidate before saving the generated answer so
     # an old response cannot be attached to the new rubric context.
@@ -894,10 +969,9 @@ async def create_message(
     if current_file is not None:
         session.refresh(current_file)
         current_file = selected_file_for_chat(session, item)
-    if (
-        (current_file.id if current_file else None) != (file.id if file else None)
-        or (current_file.analysis_revision if current_file else None) != base_revision
-    ):
+    if (current_file.id if current_file else None) != (file.id if file else None) or (
+        current_file.analysis_revision if current_file else None
+    ) != base_revision:
         raise HTTPException(
             status_code=409,
             detail={
@@ -990,7 +1064,9 @@ def _session_rubric_for_script_set(
         ensure_script_generation_supported(
             rubric_analysis,
             commands,
-            require_target_node=bool(load_class_machine_nodes(session, teaching_class_id)),
+            require_target_node=bool(
+                load_class_machine_nodes(session, teaching_class_id)
+            ),
             require_typed_plan=True,
         )
     except HTTPException as exc:
@@ -1377,7 +1453,11 @@ def _update_target_review(
 
     result_document = dict(run.target_results_json or {})
     raw_targets = result_document.get("targets")
-    targets = [dict(target) for target in raw_targets] if isinstance(raw_targets, list) else []
+    targets = (
+        [dict(target) for target in raw_targets]
+        if isinstance(raw_targets, list)
+        else []
+    )
     target_index = next(
         (
             index

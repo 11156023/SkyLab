@@ -56,6 +56,8 @@ class VLLMMetrics(TypedDict):
     total_tokens: int
     elapsed_seconds: float
     tokens_per_second: float
+    usage_reported: NotRequired[bool]
+    response_model: NotRequired[str | None]
 
 
 # ── Script Validation Output ──────────────────────────────────────────────────

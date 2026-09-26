@@ -2,7 +2,7 @@ import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Any, Literal
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Query, Response
 
 from app.api.deps import AIAPIReviewerUser, AIAPIViewAllUser, CurrentUser, SessionDep
 from app.models import AIAPIRequestStatus, UserRole
@@ -169,6 +169,20 @@ def list_all_ai_api_credentials(
     )
 
 
+@router.get("/credentials/{credential_id}", response_model=AIAPICredentialWithSecret)
+def get_my_ai_api_credential(
+    credential_id: uuid.UUID,
+    response: Response,
+    session: SessionDep,
+    current_user: CurrentUser,
+) -> Any:
+    """擁有者查看單把金鑰詳細資料；含明文回應不得快取。"""
+    response.headers["Cache-Control"] = "no-store"
+    return ai_gateway_service.get_credential(
+        session=session, credential_id=credential_id, current_user=current_user
+    )
+
+
 @router.post(
     "/credentials/{credential_id}/rotate",
     response_model=AIAPICredentialWithSecret,
@@ -178,7 +192,7 @@ def rotate_my_ai_api_credential(
     session: SessionDep,
     current_user: CurrentUser,
 ) -> Any:
-    """輪替金鑰；這是明文 ``api_key`` 唯一會回傳的時機（且僅限擁有者本人）。"""
+    """輪替金鑰；僅擁有者本人取得新金鑰明文。"""
     return ai_gateway_service.rotate_credential(
         session=session, credential_id=credential_id, current_user=current_user
     )

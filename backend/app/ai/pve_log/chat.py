@@ -34,6 +34,7 @@ from typing import Any
 import httpx
 from sqlmodel import Session
 
+from app.ai.monitoring import new_ai_request_id, record_ai_template_call, usage_metrics
 from app.ai.pve_log.collector import PveToolContext
 from app.ai.pve_log.config import settings
 from app.ai.pve_log.history import (
@@ -331,8 +332,7 @@ _ALLOWED_TOOL_NAMES = frozenset(
     if isinstance(tool.get("function"), dict)
 )
 _SCOPE_PROMPT = (
-    "本次對話僅可讀取與操作指定範圍內的 VM/LXC，"
-    "不得查詢或操作範圍外的 VMID。"
+    "本次對話僅可讀取與操作指定範圍內的 VM/LXC，不得查詢或操作範圍外的 VMID。"
 )
 
 # ---------------------------------------------------------------------------
@@ -382,23 +382,15 @@ def _snapshot_tool_data(
     elif name == "get_resources":
         resource_result = snapshot.resources
         if args.get("node"):
-            resource_result = [
-                r for r in resource_result if r.node == args["node"]
-            ]
+            resource_result = [r for r in resource_result if r.node == args["node"]]
         if args.get("resource_type"):
             resource_result = [
-                r
-                for r in resource_result
-                if r.resource_type == args["resource_type"]
+                r for r in resource_result if r.resource_type == args["resource_type"]
             ]
         if args.get("status"):
-            resource_result = [
-                r for r in resource_result if r.status == args["status"]
-            ]
+            resource_result = [r for r in resource_result if r.status == args["status"]]
         if allowed_vmids is not None:
-            resource_result = [
-                r for r in resource_result if r.vmid in allowed_vmids
-            ]
+            resource_result = [r for r in resource_result if r.vmid in allowed_vmids]
         return [r.model_dump(mode="json") for r in resource_result]
 
     elif name == "get_resource_detail":
@@ -692,8 +684,10 @@ def _next_deferred_ssh_call(
                 function = tool_call.get("function") or {}
                 if function.get("name") != "ssh_exec":
                     return None
-                return message_index, str(tool_call_id), _parse_tool_arguments(
-                    function.get("arguments") or "{}"
+                return (
+                    message_index,
+                    str(tool_call_id),
+                    _parse_tool_arguments(function.get("arguments") or "{}"),
                 )
     return None
 
@@ -766,12 +760,8 @@ def _normalize_assistant_message(message: dict[str, Any]) -> dict[str, Any]:
     cleaned = re.sub(
         r"<\|tool_call\|>.*?<\|/tool_call\|>", "", cleaned, flags=re.DOTALL
     )
-    cleaned = re.sub(
-        r"<\|tool_call>.*?<tool_call\|>", "", cleaned, flags=re.DOTALL
-    )
-    cleaned = re.sub(
-        r'```json\s*\{\s*"tool_call".*?```', "", cleaned, flags=re.DOTALL
-    )
+    cleaned = re.sub(r"<\|tool_call>.*?<tool_call\|>", "", cleaned, flags=re.DOTALL)
+    cleaned = re.sub(r'```json\s*\{\s*"tool_call".*?```', "", cleaned, flags=re.DOTALL)
     cleaned = re.sub(r"<tool_call>.*?</tool_call>", "", cleaned, flags=re.DOTALL)
     cleaned = re.sub(r"<\|[^>]*\|>", "", cleaned)
     return {**assistant_msg, "content": cleaned.strip() or None}
@@ -860,15 +850,14 @@ def _validate_confirmation_history(
         ):
             raise PveHistoryValidationError("PVE confirmation token 與目前 scope 不符")
         stored_vmids = record.get("allowed_vmids")
-        if (
-            (allowed_vmids is None) != (stored_vmids is None)
-            or (
-                allowed_vmids is not None
-                and stored_vmids is not None
-                and set(allowed_vmids) != set(stored_vmids)
-            )
+        if (allowed_vmids is None) != (stored_vmids is None) or (
+            allowed_vmids is not None
+            and stored_vmids is not None
+            and set(allowed_vmids) != set(stored_vmids)
         ):
-            raise PveHistoryValidationError("PVE confirmation token 與目前 VM scope 不符")
+            raise PveHistoryValidationError(
+                "PVE confirmation token 與目前 VM scope 不符"
+            )
         if record.get("tool_call_id") != tool_call_id:
             raise PveHistoryValidationError(
                 "PVE confirmation token 與 assistant tool-call 不符"
@@ -890,10 +879,8 @@ def _validate_confirmation_history(
         if (
             call_args.get("vmid") != request.vmid
             or call_args.get("command") != request.command
-            or call_args.get("ssh_user", "root")
-            != getattr(request, "ssh_user", "root")
-            or call_args.get("ssh_port", 22)
-            != getattr(request, "ssh_port", 22)
+            or call_args.get("ssh_user", "root") != getattr(request, "ssh_user", "root")
+            or call_args.get("ssh_port", 22) != getattr(request, "ssh_port", 22)
         ):
             raise PveHistoryValidationError(
                 "PVE confirmation result 與原始 ssh_exec 參數不符"
@@ -909,7 +896,9 @@ def _validate_confirmation_history(
         if set(candidate) - set(expected) - allowed_extra:
             raise PveHistoryValidationError("PVE confirmation result 含有未授權欄位")
         if any(candidate.get(key) != value for key, value in expected.items()):
-            raise PveHistoryValidationError("PVE confirmation result 與 server result 不符")
+            raise PveHistoryValidationError(
+                "PVE confirmation result 與 server result 不符"
+            )
 
         if (
             not token_present
@@ -930,9 +919,9 @@ def _validate_confirmation_history(
             continue
         tool_call_id = item.get("tool_call_id")
         if not isinstance(content, dict):
-            if isinstance(tool_call_id, str) and find_completed_confirmation_by_tool_call(
-                tool_call_id
-            ):
+            if isinstance(
+                tool_call_id, str
+            ) and find_completed_confirmation_by_tool_call(tool_call_id):
                 raise PveHistoryValidationError(
                     "PVE confirmation result 必須是 server 產生的 JSON object"
                 )
@@ -973,7 +962,9 @@ def _validate_confirmation_history(
         if not record.get("consumed"):
             token = record.get("token")
             if not isinstance(token, str):
-                raise PveHistoryValidationError("PVE confirmation server state 缺少 token")
+                raise PveHistoryValidationError(
+                    "PVE confirmation server state 缺少 token"
+                )
             tokens.append(token)
 
     for token in tokens:
@@ -1193,12 +1184,30 @@ async def chat(
             "temperature": 0.1,
             "max_tokens": 4096,
         }
+        request_id = new_ai_request_id()
+        started = time.perf_counter()
+        started_at = datetime.now(timezone.utc)
         try:
             data = await vllm_client.create_chat_completion(
                 payload,
                 timeout=float(settings.VLLM_TIMEOUT),
+                request_id=request_id,
             )
         except httpx.HTTPStatusError as exc:
+            record_ai_template_call(
+                session=session,
+                user_id=requester_id,
+                call_type="pve_chat",
+                model_name=settings.VLLM_MODEL_NAME,
+                metrics=usage_metrics(
+                    {},
+                    time.perf_counter() - started,
+                    request_id=request_id,
+                    started_at=started_at,
+                ),
+                status="error",
+                error_message=f"upstream_http_{exc.response.status_code}",
+            )
             logger.error(
                 "vLLM 請求失敗（%d）：%s", exc.response.status_code, exc.response.text
             )
@@ -1209,6 +1218,20 @@ async def chat(
                 error=t("pveLog.llmHttpError", status=exc.response.status_code),
             )
         except Exception as exc:
+            record_ai_template_call(
+                session=session,
+                user_id=requester_id,
+                call_type="pve_chat",
+                model_name=settings.VLLM_MODEL_NAME,
+                metrics=usage_metrics(
+                    {},
+                    time.perf_counter() - started,
+                    request_id=request_id,
+                    started_at=started_at,
+                ),
+                status="error",
+                error_message=str(exc),
+            )
             logger.error("vLLM 連線失敗：%s", exc)
             return ChatResponse(
                 reply="",
@@ -1219,6 +1242,20 @@ async def chat(
 
         choices = data.get("choices") or []
         if not choices:
+            record_ai_template_call(
+                session=session,
+                user_id=requester_id,
+                call_type="pve_chat",
+                model_name=settings.VLLM_MODEL_NAME,
+                metrics=usage_metrics(
+                    data,
+                    time.perf_counter() - started,
+                    request_id=request_id,
+                    started_at=started_at,
+                ),
+                status="error",
+                error_message="empty_choices",
+            )
             logger.error("vLLM agent step %d 回應 choices 為空：%s", tool_round, data)
             return ChatResponse(
                 reply="",
@@ -1227,9 +1264,20 @@ async def chat(
                 error=t("pveLog.llmEmptyResponse"),
             )
 
-        assistant_msg = _normalize_assistant_message(
-            choices[0].get("message") or {}
+        record_ai_template_call(
+            session=session,
+            user_id=requester_id,
+            call_type="pve_chat",
+            model_name=settings.VLLM_MODEL_NAME,
+            metrics=usage_metrics(
+                data,
+                time.perf_counter() - started,
+                request_id=request_id,
+                started_at=started_at,
+            ),
         )
+
+        assistant_msg = _normalize_assistant_message(choices[0].get("message") or {})
         single_template_key = template_key
         if (
             not single_template_key
@@ -1284,7 +1332,9 @@ async def chat(
             (
                 tc,
                 str((tc.get("function") or {}).get("name") or ""),
-                _parse_tool_arguments((tc.get("function") or {}).get("arguments") or "{}"),
+                _parse_tool_arguments(
+                    (tc.get("function") or {}).get("arguments") or "{}"
+                ),
             )
             for tc in tool_calls
         ]
@@ -1382,8 +1432,8 @@ async def chat(
                         allowed_vmids=allowed_vmids,
                     )
                 result_dict = result if isinstance(result, dict) else {}
-                needs_confirmation = (
-                    needs_confirmation or bool(result_dict.get("pending"))
+                needs_confirmation = needs_confirmation or bool(
+                    result_dict.get("pending")
                 )
                 pending_issued = pending_issued or bool(result_dict.get("pending"))
                 tool_content = json.dumps(result, ensure_ascii=False, default=str)

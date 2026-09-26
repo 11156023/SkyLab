@@ -142,8 +142,9 @@ def test_history_rejects_final_assistant_replay_and_deferred_without_server_resu
 async def test_chat_history_only_sends_rebuilt_transcript(monkeypatch: pytest.MonkeyPatch) -> None:
     payloads: list[dict] = []
 
-    async def fake_completion(payload, *, timeout):
+    async def fake_completion(payload, *, timeout, request_id=None):
         del timeout
+        assert request_id
         payloads.append(copy.deepcopy(payload))
         return {"choices": [{"message": {"role": "assistant", "content": "新回覆"}}]}
 

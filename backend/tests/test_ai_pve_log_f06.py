@@ -257,8 +257,9 @@ async def test_chat_does_not_collect_full_snapshot_for_storage_tool(monkeypatch)
         {"choices": [{"message": {"role": "assistant", "content": "完成"}}]},
     ]
 
-    async def fake_completion(_payload, *, timeout):
+    async def fake_completion(_payload, *, timeout, request_id=None):
         del timeout
+        assert request_id
         return responses.pop(0)
 
     monkeypatch.setattr(collector, "get_proxmox_api", lambda: proxmox)
