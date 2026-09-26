@@ -269,6 +269,19 @@ class CourseEnvironmentPublication(SQLModel, table=True):
             "protocol",
             name="uq_course_environment_publication",
         ),
+        # 延遲到 commit 才檢查：_replace_nodes 在同一個 flush 新增節點與發布，
+        # 沒有 relationship() 時 SQLAlchemy 不保證先 INSERT 節點
+        sa.ForeignKeyConstraint(
+            ["version_id", "node_key"],
+            [
+                "course_environment_nodes.version_id",
+                "course_environment_nodes.node_key",
+            ],
+            name="fk_course_environment_publications_node",
+            ondelete="CASCADE",
+            deferrable=True,
+            initially="DEFERRED",
+        ),
     )
 
     id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
@@ -313,6 +326,29 @@ class CourseEnvironmentEdge(SQLModel, table=True):
         CheckConstraint(
             "source_node_key <> target_node_key",
             name="ck_course_environment_edge_distinct_nodes",
+        ),
+        # 延遲檢查的理由同 CourseEnvironmentPublication
+        sa.ForeignKeyConstraint(
+            ["version_id", "source_node_key"],
+            [
+                "course_environment_nodes.version_id",
+                "course_environment_nodes.node_key",
+            ],
+            name="fk_course_environment_edges_source_node",
+            ondelete="CASCADE",
+            deferrable=True,
+            initially="DEFERRED",
+        ),
+        sa.ForeignKeyConstraint(
+            ["version_id", "target_node_key"],
+            [
+                "course_environment_nodes.version_id",
+                "course_environment_nodes.node_key",
+            ],
+            name="fk_course_environment_edges_target_node",
+            ondelete="CASCADE",
+            deferrable=True,
+            initially="DEFERRED",
         ),
     )
 
