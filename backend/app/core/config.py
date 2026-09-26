@@ -112,6 +112,10 @@ class Settings(BaseSettings):
     # /metrics 的 Bearer token。留空＝不驗證（/metrics 只綁在內網與 127.0.0.1，
     # nginx 不轉發）；有設時 Prometheus 要帶同一個 token 才抓得到。
     METRICS_TOKEN: str | None = None
+    # Gateway 上的 exporter port（install.sh 裝的 prometheus-node-exporter／
+    # prometheus-nginx-exporter 預設值）；Prometheus 經 /metrics/gateway-targets 取得
+    GATEWAY_NODE_EXPORTER_PORT: int = 9100
+    GATEWAY_NGINX_EXPORTER_PORT: int = 9113
     POSTGRES_SERVER: str
     POSTGRES_PORT: int = 5432
     POSTGRES_USER: str

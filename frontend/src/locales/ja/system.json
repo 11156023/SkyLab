@@ -502,6 +502,7 @@
   "SystemHealth.status.failing": "連続失敗",
   "SystemHealth.status.stale": "停滞",
   "SystemHealth.status.warning": "一時的な失敗",
+  "SystemHealth.status.attention": "対応が必要",
   "SystemHealth.status.disabled": "無効",
   "SystemHealth.status.unknown": "判定不可",
   "SystemHealth.status.pending": "未実行",

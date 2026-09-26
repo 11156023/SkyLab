@@ -4,8 +4,8 @@ SkyLab 的監控分成兩層：
 
 | 層 | 看什麼 | 在哪裡 | 需要額外容器？ |
 |---|---|---|---|
-| **內建** | 平台健康（DB、Redis、worker、PVE API 連線、排程任務心跳）、系統告警＋Email | 管理員「資源監控」頁的「系統健康」卡、活動警告 | 否 |
-| **監控 stack**（選用） | API 流量／延遲／錯誤率、排程與佇列指標、容器與主機資源、PostgreSQL／Redis、集中日誌、Proxmox 節點／VM 用量、外部探測與推播 | Grafana、Prometheus、Uptime Kuma | `docker compose --profile monitoring` |
+| **內建** | 平台健康（DB、Redis、worker、PVE API 連線、Gateway、排程任務心跳）、系統告警＋Email | 管理員「資源監控」頁的「系統健康」卡、活動警告 | 否 |
+| **監控 stack**（選用） | API 流量／延遲／錯誤率、排程與佇列指標、容器與主機資源、PostgreSQL／Redis、集中日誌、Proxmox 節點／VM 用量、Gateway 主機與 nginx、外部探測與推播 | Grafana、Prometheus、Uptime Kuma | `docker compose --profile monitoring` |
 
 Proxmox 節點／VM 的資源用量**不經過 SkyLab 後端**：由 PVE 內建的 Metric Server 直接推到監控 stack 的 InfluxDB。後端只檢查「自己連不連得到 PVE API」。
 
@@ -21,6 +21,7 @@ Proxmox 節點／VM 的資源用量**不經過 SkyLab 後端**：由 PVE 內建�
 | `GET /api/v1/utils/health-check/ready` | Readiness：DB 與 Redis 都通才 200，否則 **503**。回傳 `{"status":"ok","checks":{"database":true,"redis":true}}`，不帶錯誤細節 | 免登入 |
 | `GET /api/v1/monitoring/system-health` | 完整報告：各元件狀態與延遲、背景迴圈與每個排程任務的心跳 | 管理員 |
 | `GET /metrics` | Prometheus 格式指標（只在內網 `backend:8000`，nginx 不轉發） | 內網；可設 `METRICS_TOKEN` |
+| `GET /metrics/gateway-targets?exporter=node\|nginx` | Prometheus `http_sd`：回傳 Gateway exporter 的位址（取自「閘道 VM」頁的連線設定，未設定回 `[]`） | 同 `/metrics` |
 
 ### 排程任務心跳
 
@@ -42,6 +43,9 @@ Proxmox 節點／VM 的資源用量**不經過 SkyLab 後端**：由 PVE 內建�
 - 排程任務連續失敗 ≥ 3 次，或停擺
 - 背景迴圈停擺（沒有任何行程拿到 leader）
 - worker 沒有心跳、Redis 連不上、某個 PVE 連線連不上
+- Gateway：SSH 連不上、nginx 或 WireGuard 沒在跑、`nginx -t` 失敗（狀態「無法連線」）；Let's Encrypt 憑證剩不到 14 天或已過期（狀態「需要處理」——certbot 會在剩 30 天時自動續期，還剩 14 天代表續期一直失敗）
+
+Gateway 的檢查是後端用 SSH 在 Gateway 上跑一條指令（`systemctl is-active`、`nginx -t`、讀 `/etc/letsencrypt/live/*` 到期日），結果快取 60 秒；Gateway 沒設定時卡片顯示「停用」。
 
 同一個問題要**連續兩輪**都出現才開告警（吸收部署時 worker 晚起、PVE 瞬斷）；問題消失就自動解除；冷卻時間沿用資源告警的設定。
 
@@ -97,9 +101,10 @@ docker compose --profile monitoring up -d
 ### Grafana 儀表板（已自動匯入，資料夾「SkyLab」）
 
 - **SkyLab 平台**（首頁）：backend 狀態、請求量、5xx 比例、p95 延遲、WebSocket 連線、佇列積壓、最慢／錯誤最多的路由、排程任務狀態表、任務失敗與耗時、背景任務紀錄、依賴元件狀態與延遲
-- **SkyLab 基礎設施**：各容器 CPU／記憶體／網路、PostgreSQL（連線、交易、cache 命中率、deadlock、大小）、Redis、主機 CPU／記憶體／磁碟
+- **SkyLab 基礎設施**：各容器 CPU／記憶體／網路、PostgreSQL（連線、交易、cache 命中率、deadlock、大小）、Redis、SkyLab 主機 CPU／記憶體／磁碟（只看 `job="node"`，不含 Gateway）
 - **SkyLab 日誌**：依服務與關鍵字篩選、錯誤日誌、以 Request ID 追蹤
-- **Proxmox VE（Metric Server）**：節點 CPU／記憶體／IO wait／load、CPU 與記憶體最高的 VM／LXC、各儲存使用率
+- **Proxmox VE（Metric Server）**：節點 CPU／記憶體／IO wait／load、CPU 與記憶體最高的 VM／LXC、各儲存使用率；最下方「Gateway VM（PVE 回報）」一列看 Gateway 這台 VM 的 CPU、記憶體、網路與磁碟 IO（上方「Gateway VM」選單選擇，名稱含 gateway 的會自動排第一個）
+- **SkyLab Gateway**：Gateway 主機上 exporter 的資料——SkyLab 健康探測／exporter／nginx 狀態、nginx 活躍連線、開機時間、CPU／記憶體／磁碟、各網卡流量（`wg0` 是 WireGuard）、TCP 連線數、nginx 連線狀態與請求速率（見下方「Gateway 監控」）
 
 首次登入 `admin`／`GRAFANA_ADMIN_PASSWORD`。對外網址不是 `http://localhost` 時，設 `GRAFANA_ROOT_URL=https://你的網域/grafana/`。
 
@@ -131,6 +136,27 @@ docker compose --profile monitoring up -d
 5. 設定是整個叢集共用；多個 PVE 連線（多個叢集）就在每個叢集各設一次。約 10 秒後 Grafana 的 Proxmox 儀表板就有資料。
 
 有多組 SkyLab 或想用社群版儀表板時，也可以在 Grafana 匯入 ID `15356`（Proxmox [Flux]），資料來源選「InfluxDB (Proxmox)」。
+
+### Gateway 監控
+
+Gateway 主機由 `gateway/install.sh` 安裝兩個 exporter（Debian 套件），Prometheus 透過 backend 的 `/metrics/gateway-targets`（http_sd）自動找到 Gateway 的位址，不必手動改 `prometheus.yml`：
+
+| exporter | port | 內容 |
+|---|---|---|
+| `prometheus-node-exporter` | 9100 | CPU、記憶體、磁碟、各網卡流量（含 `wg0`）、TCP 連線數 |
+| `prometheus-nginx-exporter` | 9113 | nginx 的 `stub_status`（活躍連線、請求數）；stub_status 只綁 `127.0.0.1:9180` |
+
+安裝時要用 `MONITORING_ALLOW_FROM` 指定 Prometheus 所在主機（通常就是跑 SkyLab 的那台）的 IP，UFW 只對它開放這兩個 port：
+
+```bash
+sudo MONITORING_ALLOW_FROM=192.168.100.20 bash install.sh
+```
+
+沒設的話 exporter 照樣會裝，但 Prometheus 連不進來，`gateway-node`／`gateway-nginx` 兩個 job 會一直 down（觸發 `GatewayExporterDown`）。已經裝好的 Gateway 帶這個變數重跑 `install.sh` 即可補上。
+
+`stub_status` 只涵蓋 http（對外網址）；Port 轉發（nginx stream）沒有對應的連線統計，請看「SkyLab Gateway」儀表板的 TCP 連線數與網卡流量。
+
+Prometheus 規則（`skylab-gateway` 群組）：`GatewayExporterDown`（抓不到 exporter 5 分鐘）、`GatewayNginxDown`（nginx 不回應 2 分鐘）、`GatewayHighCpu`（CPU 超過 90% 10 分鐘）；主機磁碟／記憶體規則也會套用到 Gateway。另外 `SkyLabDependencyDown` 會涵蓋內建健康檢查回報的 `skylab_dependency_up{component="gateway"}`。
 
 ### Uptime Kuma（建議設定的監看與通知）
 

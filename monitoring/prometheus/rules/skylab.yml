@@ -110,6 +110,7 @@ groups:
         annotations:
           summary: "最近 24 小時背景任務失敗 {{ $value }} 筆"
 
+  # SkyLab 主機（job=node）與 Gateway（job=gateway-node）共用；instance 看得出是哪台
   - name: skylab-host
     rules:
       - alert: HostDiskAlmostFull
@@ -120,7 +121,7 @@ groups:
         labels:
           severity: warning
         annotations:
-          summary: "主機磁碟 {{ $labels.mountpoint }} 剩餘不到 10%"
+          summary: "{{ $labels.job }} 主機 {{ $labels.instance }} 磁碟 {{ $labels.mountpoint }} 剩餘不到 10%"
 
       - alert: HostHighMemory
         expr: (1 - node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes) > 0.9
@@ -128,4 +129,34 @@ groups:
         labels:
           severity: warning
         annotations:
-          summary: "主機記憶體使用超過 90%"
+          summary: "{{ $labels.job }} 主機 {{ $labels.instance }} 記憶體使用超過 90%"
+
+  - name: skylab-gateway
+    rules:
+      - alert: GatewayExporterDown
+        expr: up{job=~"gateway-node|gateway-nginx"} == 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "抓不到 Gateway 的 {{ $labels.exporter }} exporter（{{ $labels.instance }}）"
+          description: "Gateway 關機、exporter 沒在跑，或 Gateway 的 UFW 沒有放行 Prometheus（install.sh 的 MONITORING_ALLOW_FROM）。"
+
+      - alert: GatewayNginxDown
+        expr: nginx_up{job="gateway-nginx"} == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Gateway 上的 nginx 沒有回應 stub_status"
+          description: "Port 轉發與對外網址可能全部中斷；到「閘道 VM → nginx」查看服務狀態與日誌。"
+
+      - alert: GatewayHighCpu
+        expr: |
+          1 - avg by (instance) (rate(node_cpu_seconds_total{job="gateway-node",mode="idle"}[5m])) > 0.9
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Gateway CPU 使用超過 90%"
+          description: "所有 Port 轉發與對外網址都經過 Gateway，CPU 滿載會拖慢全部連線。"

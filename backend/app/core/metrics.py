@@ -255,7 +255,8 @@ async def _run_collect_hooks() -> None:
             logger.warning("metrics collect hook %s failed", getattr(hook, "__name__", hook), exc_info=True)
 
 
-def _authorized(request: Request) -> bool:
+def is_authorized(request: Request) -> bool:
+    """``/metrics`` 系列端點共用的 Bearer token 驗證（METRICS_TOKEN 留空時不驗證）。"""
     expected = settings.METRICS_TOKEN
     if not expected:
         return True
@@ -271,7 +272,7 @@ async def metrics_endpoint(request: Request) -> Response:
         return PlainTextResponse(
             "prometheus_client not installed", status_code=503
         )
-    if not _authorized(request):
+    if not is_authorized(request):
         return PlainTextResponse(
             "unauthorized", status_code=401, headers={"WWW-Authenticate": "Bearer"}
         )

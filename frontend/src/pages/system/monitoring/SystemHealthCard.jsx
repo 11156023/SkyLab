@@ -33,6 +33,7 @@ const STATUS_BADGE = {
   failing: "badge_danger",
   stale: "badge_danger",
   warning: "badge_danger",
+  attention: "badge_danger",
   disabled: "badge_muted",
   unknown: "badge_muted",
   pending: "badge_muted",
@@ -42,7 +43,13 @@ const COMPONENT_ICONS = {
   database: "storage",
   redis: "memory",
   worker: "engineering",
+  gateway: "router",
 };
+
+/* 這些元件的名稱帶有部署資訊（PVE 連線名稱、Gateway 位址），直接用後端給的 label */
+function usesBackendLabel(name) {
+  return name.includes(":") || name === "gateway";
+}
 
 function componentIcon(name) {
   if (name.startsWith("pve")) return "dns";
@@ -151,15 +158,15 @@ export default function SystemHealthCard() {
         </span>
       </button>
 
-      {/* 依賴元件：永遠顯示，一眼看出 DB／Redis／worker／PVE 誰掛了 */}
+      {/* 依賴元件：永遠顯示，一眼看出 DB／Redis／worker／PVE／Gateway 誰掛了 */}
       <div className={styles.healthComponents}>
         {health.components.map((component) => (
           <div key={component.name} className={styles.healthComponent}>
             <MIcon name={componentIcon(component.name)} size={18} />
             <div className={styles.healthComponentText}>
               <span className={styles.healthComponentName}>
-                {/* pve:<id> 直接用後端給的連線名稱；「:」在 i18next 是命名空間分隔符 */}
-                {component.name.includes(":")
+                {/* pve:<id>／gateway 直接用後端給的名稱；「:」在 i18next 是命名空間分隔符 */}
+                {usesBackendLabel(component.name)
                   ? component.label
                   : t(`SystemHealth.component.${component.name}`, {
                       defaultValue: component.label,

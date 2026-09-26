@@ -19,6 +19,18 @@ skylab_PUBKEY="${1:-}"
 # UFW 會放行這段 TCP/UDP；手動填其他 port 的轉發要自己再 ufw allow
 FORWARD_PORT_RANGE="${FORWARD_PORT_RANGE:-30000:39999}"
 
+# ── 監控設定（可用同名環境變數覆寫）──────────────────────────────────────
+# Prometheus 所在主機（通常就是跑 SkyLab docker compose 的那台）的 IP／CIDR，
+# 可用空白或逗號分隔多個；UFW 只對它們開放下面兩個 exporter port。
+# 留空就不開放，Prometheus 會抓不到 Gateway（安裝完成時會提醒）。
+MONITORING_ALLOW_FROM="${MONITORING_ALLOW_FROM:-}"
+# Debian prometheus-node-exporter／prometheus-nginx-exporter 的預設 port，
+# 與後端 GATEWAY_NODE_EXPORTER_PORT／GATEWAY_NGINX_EXPORTER_PORT 一致
+NODE_EXPORTER_PORT=9100
+NGINX_EXPORTER_PORT=9113
+# nginx stub_status 只綁 127.0.0.1，給本機的 nginx exporter 讀
+NGINX_STATUS_PORT=9180
+
 # ── WireGuard 設定（可用同名環境變數覆寫）──────────────────────────────────
 WG_INTERFACE="${WG_INTERFACE:-wg0}"
 WG_ADDRESS="${WG_ADDRESS:-10.250.0.1/16}"
@@ -212,6 +224,9 @@ http {
         return 444;
     }
 
+    # 本機 stub_status（給 prometheus-nginx-exporter；install.sh 每次重寫）
+    include /etc/nginx/skylab/status.conf;
+
     # SkyLab 自動管理：每個對外網址一個 server 區塊
     include /etc/nginx/skylab/http.conf;
 }
@@ -238,6 +253,26 @@ for managed in http.conf stream.conf; do
         printf '# SkyLab 自動管理的設定，請勿手動修改\n' > "${NGINX_MANAGED_DIR}/${managed}"
     fi
 done
+
+# stub_status 只聽 127.0.0.1，外面連不到；每次安裝都重寫（port 以本腳本為準）
+cat > "${NGINX_MANAGED_DIR}/status.conf" << STATUS_EOF
+# SkyLab：給本機 prometheus-nginx-exporter 讀的 stub_status，由 install.sh 產生
+server {
+    listen 127.0.0.1:${NGINX_STATUS_PORT};
+    server_name _;
+    access_log off;
+    location = /stub_status {
+        stub_status;
+    }
+    location / {
+        return 404;
+    }
+}
+STATUS_EOF
+if ! grep -Fq "include /etc/nginx/skylab/status.conf;" "$NGINX_CONF"; then
+    warn "nginx.conf 沒有 include /etc/nginx/skylab/status.conf，nginx exporter 會讀不到 stub_status；"
+    warn "請在 http { } 區塊裡補上這一行後執行 nginx -t && systemctl reload nginx"
+fi
 
 # 自簽備援憑證：給 443 的 default_server，以及 Let's Encrypt 還沒簽下來的網域先頂著用
 if [[ ! -s "${NGINX_MANAGED_DIR}/fallback.crt" || ! -s "${NGINX_MANAGED_DIR}/fallback.key" ]]; then
@@ -266,7 +301,34 @@ systemctl restart nginx
 info "nginx 安裝完成（stream + http，certbot 續期 hook 已就緒）"
 
 # =============================================================================
-# 2. WireGuard + nftables ACL / SNAT
+# 2. 監控 exporter（Prometheus：主機資源、網卡流量含 wg0、nginx 連線數）
+# =============================================================================
+section "安裝監控 exporter"
+
+# 裝不起來只警告：監控是加值功能，不該讓 Gateway 的轉發／反向代理跟著裝不完
+EXPORTERS_READY=false
+if apt-get install -y -qq --no-install-recommends \
+    prometheus-node-exporter prometheus-nginx-exporter; then
+    # Debian 的 unit 從 /etc/default 讀 ARGS；新舊版 exporter 都接受 --nginx.scrape-uri
+    cat > /etc/default/prometheus-nginx-exporter << NGINX_EXPORTER_EOF
+# SkyLab：讀本機 nginx 的 stub_status（見 /etc/nginx/skylab/status.conf）
+ARGS="--nginx.scrape-uri=http://127.0.0.1:${NGINX_STATUS_PORT}/stub_status"
+NGINX_EXPORTER_EOF
+    systemctl enable prometheus-node-exporter prometheus-nginx-exporter >/dev/null 2>&1 || true
+    systemctl restart prometheus-node-exporter prometheus-nginx-exporter
+    if systemctl is-active --quiet prometheus-node-exporter \
+        && systemctl is-active --quiet prometheus-nginx-exporter; then
+        EXPORTERS_READY=true
+        info "exporter 已啟動（node :${NODE_EXPORTER_PORT}、nginx :${NGINX_EXPORTER_PORT}）"
+    else
+        warn "exporter 啟動失敗，請看 journalctl -u prometheus-node-exporter -u prometheus-nginx-exporter"
+    fi
+else
+    warn "安裝 prometheus-node-exporter／prometheus-nginx-exporter 失敗，Grafana 將看不到 Gateway 主機指標"
+fi
+
+# =============================================================================
+# 3. WireGuard + nftables ACL / SNAT
 # =============================================================================
 section "安裝 WireGuard 資料平面"
 
@@ -377,6 +439,12 @@ for proto in tcp udp; do
         ufw allow "${FORWARD_PORT_RANGE}/${proto}" comment "SkyLab port forwarding"
     fi
 done
+# 監控 exporter：只開給 Prometheus 所在主機（重複的規則 ufw 會自己略過）
+for source in ${MONITORING_ALLOW_FROM//,/ }; do
+    for port in "$NODE_EXPORTER_PORT" "$NGINX_EXPORTER_PORT"; do
+        ufw allow from "$source" to any port "$port" proto tcp comment "SkyLab monitoring"
+    done
+done
 if ! ufw status | grep -Fq "Campus Cloud WireGuard routed traffic"; then
     ufw route allow in on "$WG_INTERFACE" out on "$WG_VM_INTERFACE" \
         from "$WG_CLIENT_SUBNET" to "$WG_VM_SUBNET" \
@@ -397,7 +465,7 @@ systemctl is-active --quiet ssh
 info "WireGuard 安裝完成（${WG_INTERFACE} / UDP ${WG_LISTEN_PORT}）"
 
 # =============================================================================
-# 3. SkyLab SSH 公鑰（若有提供則自動寫入）
+# 4. SkyLab SSH 公鑰（若有提供則自動寫入）
 # =============================================================================
 if [[ -n "$skylab_PUBKEY" ]]; then
     section "設定 SkyLab SSH 公鑰"
@@ -428,6 +496,7 @@ cat <<SUMMARY_EOF
 │    Port 轉發             /etc/nginx/skylab/stream.conf（自動）   │
 │    反向代理              /etc/nginx/skylab/http.conf（自動）     │
 │  certbot       ⏱ timer   /etc/letsencrypt（Cloudflare DNS-01）  │
+│  exporter      :${NODE_EXPORTER_PORT} node、:${NGINX_EXPORTER_PORT} nginx（Prometheus）       │
 │  WireGuard     ✅ 運行   /etc/wireguard/${WG_INTERFACE}.conf                │
 │  WG ACL/SNAT   ✅ 運行   /etc/nftables.d/campus-cloud-wg.nft   │
 ├─────────────────────────────────────────────────────────────────┤
@@ -452,4 +521,12 @@ echo "  備份：${backup}"
 echo "  WireGuard：${WG_INTERFACE} (${WG_ADDRESS})"
 echo "  監聽：${WG_INGRESS_INTERFACE}/udp/${WG_LISTEN_PORT}"
 echo "  Public key：$(<"${WG_DIR}/server_public.key")"
+if [[ "$EXPORTERS_READY" != true ]]; then
+    warn "監控 exporter 沒有正常啟動，Grafana 的 Gateway 儀表板會沒有資料（見上方訊息）"
+elif [[ -z "$MONITORING_ALLOW_FROM" ]]; then
+    warn "未設定 MONITORING_ALLOW_FROM：UFW 沒有放行 exporter，Prometheus 抓不到這台 Gateway。"
+    warn "  以 Prometheus 主機 IP 重跑：sudo MONITORING_ALLOW_FROM=<IP> bash install.sh"
+else
+    echo "  監控：已對 ${MONITORING_ALLOW_FROM} 開放 exporter（tcp/${NODE_EXPORTER_PORT}、tcp/${NGINX_EXPORTER_PORT}）"
+fi
 echo ""

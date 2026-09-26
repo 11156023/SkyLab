@@ -422,6 +422,49 @@ _CERT_LISTING_COMMAND = (
 )
 
 
+def build_health_command(wireguard_unit: str) -> str:
+    """健康探測只開一條 SSH 指令：服務狀態、nginx -t 與憑證到期日一次印完。
+
+    輸出是 ``key=value`` 逐行，憑證行是 ``cert=<名稱>\\t<到期日>``。
+    """
+    return (
+        'printf "nginx=%s\\n" "$(systemctl is-active nginx 2>/dev/null)"; '
+        f'printf "wireguard=%s\\n" "$(systemctl is-active {shlex.quote(wireguard_unit)} 2>/dev/null)"; '
+        'if nginx -t >/dev/null 2>&1; then echo "config=ok"; else echo "config=fail"; fi; '
+        f"{_CERT_LISTING_COMMAND} | sed 's/^/cert=/'"
+    )
+
+
+def parse_health_output(output: str) -> dict[str, Any]:
+    """把 ``build_health_command`` 的輸出轉成 ``health_policy.gateway_status`` 吃的結構。"""
+    result: dict[str, Any] = {
+        "nginx": None,
+        "wireguard": None,
+        "config_valid": None,
+        "certificates": [],
+    }
+    cert_lines: list[str] = []
+    for raw_line in output.splitlines():
+        key, sep, value = raw_line.strip().partition("=")
+        if not sep:
+            continue
+        if key == "nginx":
+            result["nginx"] = value.strip() or "unknown"
+        elif key == "wireguard":
+            result["wireguard"] = value.strip() or "unknown"
+        elif key == "config":
+            result["config_valid"] = value.strip() == "ok"
+        elif key == "cert":
+            cert_lines.append(value)
+    result["certificates"] = parse_certificate_listing("\n".join(cert_lines))
+    return result
+
+
+def probe_health(client: Any, *, wireguard_unit: str) -> dict[str, Any]:
+    _, out, _ = _exec(client, build_health_command(wireguard_unit))
+    return parse_health_output(out)
+
+
 def collect_runtime(client: Any) -> dict[str, Any]:
     """一條 SSH 連線抓齊快照需要的東西：版本、狀態、設定是否合法、兩份設定檔、憑證。"""
     _, version_out, version_err = _exec(client, "nginx -v 2>&1")
@@ -451,6 +494,7 @@ __all__ = [
     "NGINX_HTTP_CONF_PATH",
     "NGINX_MANAGED_DIR",
     "NGINX_STREAM_CONF_PATH",
+    "build_health_command",
     "build_http_config",
     "build_stream_config",
     "certificate_exists",
@@ -460,10 +504,12 @@ __all__ = [
     "http_server_name",
     "issue_certificate",
     "parse_certificate_listing",
+    "parse_health_output",
     "parse_http_servers",
     "parse_stream_servers",
     "parse_version",
     "plan_certificate",
+    "probe_health",
     "renew_certificates",
     "stream_server_name",
     "write_certbot_credentials",

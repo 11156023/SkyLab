@@ -28,6 +28,21 @@ def test_gateway_installer_installs_nginx_stream_and_certbot() -> None:
     assert "BEGIN_skylab_MANAGED" not in script
 
 
+def test_gateway_installer_sets_up_exporters_matching_backend_ports() -> None:
+    """install.sh 裝的 exporter port 要和後端 http_sd 回報給 Prometheus 的一致。"""
+    gateway_dir = Path(__file__).resolve().parents[3] / "gateway"
+    script = (gateway_dir / "install.sh").read_text(encoding="utf-8")
+    settings = gateway_service.settings
+
+    assert "prometheus-node-exporter prometheus-nginx-exporter" in script
+    assert f"NODE_EXPORTER_PORT={settings.GATEWAY_NODE_EXPORTER_PORT}" in script
+    assert f"NGINX_EXPORTER_PORT={settings.GATEWAY_NGINX_EXPORTER_PORT}" in script
+    assert "include /etc/nginx/skylab/status.conf;" in script
+    # stub_status 只能綁本機，exporter 只對 MONITORING_ALLOW_FROM 開放
+    assert "listen 127.0.0.1:${NGINX_STATUS_PORT};" in script
+    assert 'ufw allow from "$source" to any port "$port" proto tcp' in script
+
+
 def test_only_nginx_config_is_exposed_for_editing() -> None:
     assert gateway_service.SERVICE_CONFIG_PATHS == {"nginx": "/etc/nginx/nginx.conf"}
     assert gateway_service._systemd_unit("nginx") == "nginx"
