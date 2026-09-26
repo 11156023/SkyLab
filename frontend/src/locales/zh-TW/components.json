@@ -434,7 +434,6 @@
   "ReverseProxyRuleModal.backToCommonPorts": "← 選擇常見 Port",
   "ReverseProxyRuleModal.boundVm": "綁定的 VM",
   "ReverseProxyRuleModal.cancel": "取消",
-  "ReverseProxyRuleModal.closeAriaLabel": "關閉",
   "ReverseProxyRuleModal.createTitle": "新增網址",
   "ReverseProxyRuleModal.createUrl": "建立網址",
   "ReverseProxyRuleModal.customPortPlaceholder": "輸入 Port 號碼（1-65535）",

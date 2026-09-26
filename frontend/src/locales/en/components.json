@@ -434,7 +434,6 @@
   "ReverseProxyRuleModal.backToCommonPorts": "← Choose a common port",
   "ReverseProxyRuleModal.boundVm": "Bound VM",
   "ReverseProxyRuleModal.cancel": "Cancel",
-  "ReverseProxyRuleModal.closeAriaLabel": "Close",
   "ReverseProxyRuleModal.createTitle": "New URL",
   "ReverseProxyRuleModal.createUrl": "Create URL",
   "ReverseProxyRuleModal.customPortPlaceholder": "Enter a port number (1-65535)",

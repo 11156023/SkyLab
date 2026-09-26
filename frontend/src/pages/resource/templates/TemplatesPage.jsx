@@ -4,6 +4,7 @@ import { createPortal } from "react-dom";
 import useAnchoredMenu from "../../../hooks/useAnchoredMenu";
 import styles from "./TemplatesPage.module.scss";
 import MIcon from "../../../components/MIcon";
+import Modal from "../../../components/Modal/Modal";
 import EmptyState from "../../../components/EmptyState/EmptyState";
 import { TemplatesService } from "../../../services/templates";
 import { downloadBlob } from "../../../services/api";
@@ -50,15 +51,6 @@ function ManualDialog({ template, closing = false, onClose }) {
     };
   }, [template.id, toast, t]);
 
-  /* Esc 關閉（Dialog 標準行為） */
-  useEffect(() => {
-    const onKeyDown = (e) => {
-      if (e.key === "Escape") onClose();
-    };
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [onClose]);
-
   const handleDownload = async (attachment) => {
     setDownloadingId(attachment.id);
     try {
@@ -72,46 +64,43 @@ function ManualDialog({ template, closing = false, onClose }) {
   };
 
   return (
-    <div
-      className={`${styles.modalOverlay} ${closing ? styles.modalOverlayOut : ""}`}
-      onClick={onClose}
+    <Modal
+      closing={closing}
+      onClose={onClose}
+      size="md"
+      icon={<MIcon name="description" size={20} />}
+      title={t("TemplatesPage.manualTitle", { name: template.name })}
+      actions={
+        <button type="button" className={styles.btnSecondary} onClick={onClose}>
+          {t("TemplatesPage.close")}
+        </button>
+      }
     >
-      <div className={styles.modal} role="dialog" aria-modal="true" onClick={(e) => e.stopPropagation()}>
-        <span className={styles.modalTitle}>
-          <MIcon name="description" size={20} />
-          {t("TemplatesPage.manualTitle", { name: template.name })}
-        </span>
-        {attachments === null ? (
-          <LoadingState text={t("TemplatesPage.loadingAttachments")} />
-        ) : attachments.length === 0 ? (
-          <p className={styles.stateText}>{t("TemplatesPage.noAttachments")}</p>
-        ) : (
-          <div className={styles.attachList}>
-            {attachments.map((a) => (
-              <div key={a.id} className={styles.attachItem}>
-                <MIcon name="description" size={15} />
-                <span className={styles.attachName}>{a.filename}</span>
-                <span className={styles.attachSize}>{formatBytes(a.size_bytes)}</span>
-                <button
-                  type="button"
-                  className={styles.attachBtn}
-                  disabled={downloadingId === a.id}
-                  onClick={() => handleDownload(a)}
-                >
-                  <MIcon name="download" size={15} />
-                  {downloadingId === a.id ? t("TemplatesPage.downloading") : t("TemplatesPage.download")}
-                </button>
-              </div>
-            ))}
-          </div>
-        )}
-        <div className={styles.modalActions}>
-          <button type="button" className={styles.btnSecondary} onClick={onClose}>
-            {t("TemplatesPage.close")}
-          </button>
+      {attachments === null ? (
+        <LoadingState text={t("TemplatesPage.loadingAttachments")} />
+      ) : attachments.length === 0 ? (
+        <p className={styles.stateText}>{t("TemplatesPage.noAttachments")}</p>
+      ) : (
+        <div className={styles.attachList}>
+          {attachments.map((a) => (
+            <div key={a.id} className={styles.attachItem}>
+              <MIcon name="description" size={15} />
+              <span className={styles.attachName}>{a.filename}</span>
+              <span className={styles.attachSize}>{formatBytes(a.size_bytes)}</span>
+              <button
+                type="button"
+                className={styles.attachBtn}
+                disabled={downloadingId === a.id}
+                onClick={() => handleDownload(a)}
+              >
+                <MIcon name="download" size={15} />
+                {downloadingId === a.id ? t("TemplatesPage.downloading") : t("TemplatesPage.download")}
+              </button>
+            </div>
+          ))}
         </div>
-      </div>
-    </div>
+      )}
+    </Modal>
   );
 }
 

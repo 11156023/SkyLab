@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import styles from "./TemplatesPage.module.scss";
 import MIcon from "../../../components/MIcon";
+import Modal from "../../../components/Modal/Modal";
 import { useAuth } from "../../../contexts/AuthContext";
 import { ResourcesService } from "../../../services/resources";
 import { TemplatesService } from "../../../services/templates";
@@ -104,15 +105,6 @@ export default function TemplateFormDialog({ template, closing = false, onClose,
   useEffect(() => {
     if (!gpuSelectable && requiresGpu) setRequiresGpu(false);
   }, [gpuSelectable, requiresGpu]);
-
-  /* Esc 關閉（Dialog 標準行為）；送出中不關，跟取消鈕的行為一致 */
-  useEffect(() => {
-    const onKeyDown = (e) => {
-      if (e.key === "Escape" && !busy) onClose();
-    };
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [busy, onClose]);
 
   /**
    * 逐一檢查類型、大小與剩餘名額，回傳可加入的檔案。
@@ -268,232 +260,19 @@ export default function TemplateFormDialog({ template, closing = false, onClose,
         pendingIndex: idx,
       }));
 
+  /* 外框（遮罩、標題列、Esc、焦點、捲動鎖）交給共用 Modal；送出中 Esc／點遮罩／× 都不關 */
   return (
-    <div
-      className={`${styles.modalOverlay} ${closing ? styles.modalOverlayOut : ""}`}
-      onClick={onClose}
-    >
-      <div className={styles.modal} role="dialog" aria-modal="true" onClick={(e) => e.stopPropagation()}>
-        <span className={styles.modalTitle}>
-          <MIcon name="library_books" size={20} />
-          {isEdit ? t("TemplateFormDialog.editTitle") : t("TemplateFormDialog.createTitle")}
-        </span>
-        <p className={styles.modalDesc}>
-          {isEdit
-            ? t("TemplateFormDialog.editDescription")
-            : t("TemplateFormDialog.createDescription")}
-        </p>
-
-        {!isEdit && (
-          <div className={`${styles.field} ${invalid === "source" ? styles.fieldInvalid : ""}`}>
-            <label htmlFor="tpl-source">{t("TemplateFormDialog.sourceLabel")}</label>
-            <select
-              id="tpl-source"
-              ref={sourceRef}
-              value={sourceVmid}
-              aria-invalid={invalid === "source"}
-              onChange={(e) => { setSourceVmid(e.target.value); setInvalid(""); }}
-            >
-              <option value="">{t("TemplateFormDialog.sourceDefaultOption")}</option>
-              {resources
-                .filter((r) => r.vmid != null && r.vmid > 0 && !r.is_placeholder)
-                .map((r) => (
-                  <option key={r.vmid} value={String(r.vmid)}>
-                    {t("TemplateFormDialog.sourceOptionLabel", { name: r.name, vmid: r.vmid, type: r.type })}
-                  </option>
-                ))}
-            </select>
-            {!resourcesLoading && resources.length === 0 && (
-              <span className={styles.fieldWarn}>{t("TemplateFormDialog.sourceNoneWarning")}</span>
-            )}
-          </div>
-        )}
-
-        <div className={`${styles.field} ${invalid === "name" ? styles.fieldInvalid : ""}`}>
-          <label htmlFor="tpl-name">{t("TemplateFormDialog.nameLabel")}</label>
-          <input
-            id="tpl-name"
-            ref={nameRef}
-            type="text"
-            maxLength={255}
-            placeholder={t("TemplateFormDialog.namePlaceholder")}
-            aria-invalid={invalid === "name"}
-            value={name}
-            onChange={(e) => { setName(e.target.value); setInvalid(""); }}
-          />
-        </div>
-
-        <div className={styles.field}>
-          <label htmlFor="tpl-desc">{t("TemplateFormDialog.descriptionLabel")}</label>
-          <textarea
-            id="tpl-desc"
-            rows={3}
-            maxLength={1000}
-            placeholder={t("TemplateFormDialog.descriptionPlaceholder")}
-            value={description}
-            onChange={(e) => setDescription(e.target.value)}
-          />
-        </div>
-
-        <div className={styles.field}>
-          <label>{t("TemplateFormDialog.visibilityLabel")}</label>
-          <div className={styles.visibilityOptions}>
-            <label className={`${styles.visibilityOption} ${visibility !== "global" ? styles.visibilityOptionActive : ""}`}>
-              <input
-                type="radio"
-                name="template-visibility"
-                value="private"
-                checked={visibility !== "global"}
-                onChange={() => setVisibility("private")}
-              />
-              <span>
-                <strong>{t("TemplateFormDialog.visibilityPrivateTitle")}</strong>
-              </span>
-            </label>
-            <label className={`${styles.visibilityOption} ${visibility === "global" ? styles.visibilityOptionActive : ""}`}>
-              <input
-                type="radio"
-                name="template-visibility"
-                value="global"
-                checked={visibility === "global"}
-                onChange={() => setVisibility("global")}
-              />
-              <span>
-                <strong>{t("TemplateFormDialog.visibilityGlobalTitle")}</strong>
-              </span>
-            </label>
-          </div>
-        </div>
-
-        <label className={styles.checkLine}>
-          <input
-            type="checkbox"
-            checked={allowPasswordChange}
-            onChange={(e) => setAllowPasswordChange(e.target.checked)}
-          />
-          <span className={styles.checkText}>
-            <span>{t("TemplateFormDialog.allowPasswordChangeLabel")}</span>
-            <small>{t("TemplateFormDialog.allowPasswordChangeHint")}</small>
-          </span>
-        </label>
-
-        <label className={styles.checkLine} title={gpuSelectable ? undefined : t("TemplateFormDialog.gpuNotSupportedTitle")}>
-          <input
-            type="checkbox"
-            checked={requiresGpu}
-            disabled={!gpuSelectable}
-            onChange={(e) => setRequiresGpu(e.target.checked)}
-          />
-          <span className={styles.checkText}>
-            <span>{t("TemplateFormDialog.requiresGpuLabel")}</span>
-            <small>{t("TemplateFormDialog.requiresGpuHint")}</small>
-          </span>
-        </label>
-
-        <label className={styles.checkLine}>
-          <input
-            type="checkbox"
-            checked={useCustomSpec}
-            onChange={(e) => setUseCustomSpec(e.target.checked)}
-          />
-          <span className={styles.checkText}>
-            <span>{t("TemplateFormDialog.customSpecLabel")}</span>
-            <small>{t("TemplateFormDialog.customSpecHint")}</small>
-          </span>
-        </label>
-
-        {useCustomSpec && (
-          <>
-            <div className={styles.field}>
-              <div className={styles.sliderLabelRow}>
-                <label htmlFor="tpl-cores">{t("TemplateFormDialog.defaultCoresLabel")}</label>
-                <span className={styles.sliderValue}>{t("TemplateFormDialog.coresValue", { cores: defaultCores })}</span>
-              </div>
-              <input
-                id="tpl-cores"
-                type="range"
-                min={CORE_MIN}
-                max={CORE_MAX}
-                step={1}
-                className={styles.slider}
-                value={defaultCores}
-                onChange={(e) => setDefaultCores(Number(e.target.value))}
-              />
-              <div className={styles.sliderTicks}>
-                {[1, 2, 4, 6, 8].map((v) => (
-                  <span key={v} style={{ left: `${((v - CORE_MIN) / (CORE_MAX - CORE_MIN)) * 100}%` }}>
-                    {v}
-                  </span>
-                ))}
-              </div>
-            </div>
-
-            <div className={styles.field}>
-              <div className={styles.sliderLabelRow}>
-                <label htmlFor="tpl-memory">{t("TemplateFormDialog.defaultMemoryLabel")}</label>
-                <span className={styles.sliderValue}>{(defaultMemory / 1024).toFixed(1)} GB</span>
-              </div>
-              <input
-                id="tpl-memory"
-                type="range"
-                min={MEMORY_MIN}
-                max={MEMORY_MAX}
-                step={512}
-                className={styles.slider}
-                value={defaultMemory}
-                onChange={(e) => setDefaultMemory(Number(e.target.value))}
-              />
-              <div className={styles.sliderTicks}>
-                {[[1024, "1GB"], [8192, "8GB"], [16384, "16GB"], [24576, "24GB"], [32768, "32GB"]].map(([v, label]) => (
-                  <span key={label} style={{ left: `${((v - MEMORY_MIN) / (MEMORY_MAX - MEMORY_MIN)) * 100}%` }}>
-                    {label}
-                  </span>
-                ))}
-              </div>
-            </div>
-          </>
-        )}
-
-        <div className={styles.field}>
-          <label>{t("TemplateFormDialog.attachmentsLabel")}</label>
-          {shownAttachments.length > 0 && (
-            <div className={styles.attachList}>
-              {shownAttachments.map((a) => (
-                <div key={a.id} className={styles.attachItem}>
-                  <MIcon name="description" size={15} />
-                  <span className={styles.attachName}>{a.filename}</span>
-                  <span className={styles.attachSize}>{formatBytes(a.size_bytes)}</span>
-                  <button
-                    type="button"
-                    className={`${styles.attachBtn} ${styles.attachBtnDanger}`}
-                    disabled={attachBusy}
-                    onClick={() =>
-                      isEdit
-                        ? handleAttachmentRemove(a.id)
-                        : setPendingAttachments((prev) =>
-                            prev.filter((_, idx) => idx !== a.pendingIndex),
-                          )
-                    }
-                    title={t("TemplateFormDialog.removeAttachmentTitle")}
-                  >
-                    <MIcon name="delete_outline" size={15} />
-                  </button>
-                </div>
-              ))}
-            </div>
-          )}
-          <FileDropzone
-            multiple
-            accept={[...ATTACHMENT_EXTS].join(",")}
-            disabled={attachBusy || shownAttachments.length >= ATTACHMENT_MAX_COUNT}
-            uploading={uploadProgress !== null}
-            progress={uploadProgress}
-            hint={`${t("TemplateFormDialog.attachmentHint")}${isEdit ? "" : t("TemplateFormDialog.attachmentHintCreateSuffix")}`}
-            onFiles={handleAttachmentFiles}
-          />
-        </div>
-
-        <div className={styles.modalActions}>
+    <Modal
+      closing={closing}
+      onClose={onClose}
+      busy={busy}
+      closeButton
+      size="md"
+      icon={<MIcon name="library_books" size={20} />}
+      title={isEdit ? t("TemplateFormDialog.editTitle") : t("TemplateFormDialog.createTitle")}
+      description={isEdit ? t("TemplateFormDialog.editDescription") : t("TemplateFormDialog.createDescription")}
+      actions={
+        <>
           <button type="button" className={styles.btnSecondary} onClick={onClose}>
             {t("TemplateFormDialog.cancel")}
           </button>
@@ -505,8 +284,217 @@ export default function TemplateFormDialog({ template, closing = false, onClose,
           >
             {busy ? t("TemplateFormDialog.processing") : isEdit ? t("TemplateFormDialog.saveChanges") : t("TemplateFormDialog.startConvert")}
           </button>
+        </>
+      }
+    >
+      {!isEdit && (
+        <div className={`${styles.field} ${invalid === "source" ? styles.fieldInvalid : ""}`}>
+          <label htmlFor="tpl-source">{t("TemplateFormDialog.sourceLabel")}</label>
+          <select
+            id="tpl-source"
+            ref={sourceRef}
+            value={sourceVmid}
+            aria-invalid={invalid === "source"}
+            onChange={(e) => { setSourceVmid(e.target.value); setInvalid(""); }}
+          >
+            <option value="">{t("TemplateFormDialog.sourceDefaultOption")}</option>
+            {resources
+              .filter((r) => r.vmid != null && r.vmid > 0 && !r.is_placeholder)
+              .map((r) => (
+                <option key={r.vmid} value={String(r.vmid)}>
+                  {t("TemplateFormDialog.sourceOptionLabel", { name: r.name, vmid: r.vmid, type: r.type })}
+                </option>
+              ))}
+          </select>
+          {!resourcesLoading && resources.length === 0 && (
+            <span className={styles.fieldWarn}>{t("TemplateFormDialog.sourceNoneWarning")}</span>
+          )}
+        </div>
+      )}
+
+      <div className={`${styles.field} ${invalid === "name" ? styles.fieldInvalid : ""}`}>
+        <label htmlFor="tpl-name">{t("TemplateFormDialog.nameLabel")}</label>
+        <input
+          id="tpl-name"
+          ref={nameRef}
+          type="text"
+          maxLength={255}
+          placeholder={t("TemplateFormDialog.namePlaceholder")}
+          aria-invalid={invalid === "name"}
+          value={name}
+          onChange={(e) => { setName(e.target.value); setInvalid(""); }}
+        />
+      </div>
+
+      <div className={styles.field}>
+        <label htmlFor="tpl-desc">{t("TemplateFormDialog.descriptionLabel")}</label>
+        <textarea
+          id="tpl-desc"
+          rows={3}
+          maxLength={1000}
+          placeholder={t("TemplateFormDialog.descriptionPlaceholder")}
+          value={description}
+          onChange={(e) => setDescription(e.target.value)}
+        />
+      </div>
+
+      <div className={styles.field}>
+        <label>{t("TemplateFormDialog.visibilityLabel")}</label>
+        <div className={styles.visibilityOptions}>
+          <label className={`${styles.visibilityOption} ${visibility !== "global" ? styles.visibilityOptionActive : ""}`}>
+            <input
+              type="radio"
+              name="template-visibility"
+              value="private"
+              checked={visibility !== "global"}
+              onChange={() => setVisibility("private")}
+            />
+            <span>
+              <strong>{t("TemplateFormDialog.visibilityPrivateTitle")}</strong>
+            </span>
+          </label>
+          <label className={`${styles.visibilityOption} ${visibility === "global" ? styles.visibilityOptionActive : ""}`}>
+            <input
+              type="radio"
+              name="template-visibility"
+              value="global"
+              checked={visibility === "global"}
+              onChange={() => setVisibility("global")}
+            />
+            <span>
+              <strong>{t("TemplateFormDialog.visibilityGlobalTitle")}</strong>
+            </span>
+          </label>
         </div>
       </div>
-    </div>
+
+      <label className={styles.checkLine}>
+        <input
+          type="checkbox"
+          checked={allowPasswordChange}
+          onChange={(e) => setAllowPasswordChange(e.target.checked)}
+        />
+        <span className={styles.checkText}>
+          <span>{t("TemplateFormDialog.allowPasswordChangeLabel")}</span>
+          <small>{t("TemplateFormDialog.allowPasswordChangeHint")}</small>
+        </span>
+      </label>
+
+      <label className={styles.checkLine} title={gpuSelectable ? undefined : t("TemplateFormDialog.gpuNotSupportedTitle")}>
+        <input
+          type="checkbox"
+          checked={requiresGpu}
+          disabled={!gpuSelectable}
+          onChange={(e) => setRequiresGpu(e.target.checked)}
+        />
+        <span className={styles.checkText}>
+          <span>{t("TemplateFormDialog.requiresGpuLabel")}</span>
+          <small>{t("TemplateFormDialog.requiresGpuHint")}</small>
+        </span>
+      </label>
+
+      <label className={styles.checkLine}>
+        <input
+          type="checkbox"
+          checked={useCustomSpec}
+          onChange={(e) => setUseCustomSpec(e.target.checked)}
+        />
+        <span className={styles.checkText}>
+          <span>{t("TemplateFormDialog.customSpecLabel")}</span>
+          <small>{t("TemplateFormDialog.customSpecHint")}</small>
+        </span>
+      </label>
+
+      {useCustomSpec && (
+        <>
+          <div className={styles.field}>
+            <div className={styles.sliderLabelRow}>
+              <label htmlFor="tpl-cores">{t("TemplateFormDialog.defaultCoresLabel")}</label>
+              <span className={styles.sliderValue}>{t("TemplateFormDialog.coresValue", { cores: defaultCores })}</span>
+            </div>
+            <input
+              id="tpl-cores"
+              type="range"
+              min={CORE_MIN}
+              max={CORE_MAX}
+              step={1}
+              className={styles.slider}
+              value={defaultCores}
+              onChange={(e) => setDefaultCores(Number(e.target.value))}
+            />
+            <div className={styles.sliderTicks}>
+              {[1, 2, 4, 6, 8].map((v) => (
+                <span key={v} style={{ left: `${((v - CORE_MIN) / (CORE_MAX - CORE_MIN)) * 100}%` }}>
+                  {v}
+                </span>
+              ))}
+            </div>
+          </div>
+
+          <div className={styles.field}>
+            <div className={styles.sliderLabelRow}>
+              <label htmlFor="tpl-memory">{t("TemplateFormDialog.defaultMemoryLabel")}</label>
+              <span className={styles.sliderValue}>{(defaultMemory / 1024).toFixed(1)} GB</span>
+            </div>
+            <input
+              id="tpl-memory"
+              type="range"
+              min={MEMORY_MIN}
+              max={MEMORY_MAX}
+              step={512}
+              className={styles.slider}
+              value={defaultMemory}
+              onChange={(e) => setDefaultMemory(Number(e.target.value))}
+            />
+            <div className={styles.sliderTicks}>
+              {[[1024, "1GB"], [8192, "8GB"], [16384, "16GB"], [24576, "24GB"], [32768, "32GB"]].map(([v, label]) => (
+                <span key={label} style={{ left: `${((v - MEMORY_MIN) / (MEMORY_MAX - MEMORY_MIN)) * 100}%` }}>
+                  {label}
+                </span>
+              ))}
+            </div>
+          </div>
+        </>
+      )}
+
+      <div className={styles.field}>
+        <label>{t("TemplateFormDialog.attachmentsLabel")}</label>
+        {shownAttachments.length > 0 && (
+          <div className={styles.attachList}>
+            {shownAttachments.map((a) => (
+              <div key={a.id} className={styles.attachItem}>
+                <MIcon name="description" size={15} />
+                <span className={styles.attachName}>{a.filename}</span>
+                <span className={styles.attachSize}>{formatBytes(a.size_bytes)}</span>
+                <button
+                  type="button"
+                  className={`${styles.attachBtn} ${styles.attachBtnDanger}`}
+                  disabled={attachBusy}
+                  onClick={() =>
+                    isEdit
+                      ? handleAttachmentRemove(a.id)
+                      : setPendingAttachments((prev) =>
+                          prev.filter((_, idx) => idx !== a.pendingIndex),
+                        )
+                  }
+                  title={t("TemplateFormDialog.removeAttachmentTitle")}
+                >
+                  <MIcon name="delete_outline" size={15} />
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+        <FileDropzone
+          multiple
+          accept={[...ATTACHMENT_EXTS].join(",")}
+          disabled={attachBusy || shownAttachments.length >= ATTACHMENT_MAX_COUNT}
+          uploading={uploadProgress !== null}
+          progress={uploadProgress}
+          hint={`${t("TemplateFormDialog.attachmentHint")}${isEdit ? "" : t("TemplateFormDialog.attachmentHintCreateSuffix")}`}
+          onFiles={handleAttachmentFiles}
+        />
+      </div>
+    </Modal>
   );
 }

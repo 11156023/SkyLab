@@ -113,6 +113,8 @@
   align-items: center;
   gap: $spacing-8;
   min-width: 0;
+  /* 標題前的圖示預設跟標題同色；確認框這類要換色的自己包一層 span 上色 */
+  color: var(--color-text-primary);
 }
 
 .title {

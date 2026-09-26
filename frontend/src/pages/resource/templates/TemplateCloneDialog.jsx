@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import styles from "./TemplatesPage.module.scss";
 import MIcon from "../../../components/MIcon";
+import Modal from "../../../components/Modal/Modal";
 import { TemplatesService } from "../../../services/templates";
 import { GpuService } from "../../../services/gpu";
 import { useToast } from "../../../hooks/useToast";
@@ -124,202 +125,18 @@ export default function TemplateCloneDialog({ template, canBatch, closing = fals
     }
   };
 
+  /* 外框（遮罩、標題列、Esc、焦點、捲動鎖）交給共用 Modal；欄位多，內容區自己捲、按鈕列固定在底部 */
   return (
-    <div
-      className={`${styles.modalOverlay} ${closing ? styles.modalOverlayOut : ""}`}
-      onClick={onClose}
-    >
-      <div className={styles.modal} role="dialog" aria-modal="true" onClick={(e) => e.stopPropagation()}>
-        <span className={styles.modalTitle}>
-          <MIcon name="content_copy" size={20} />
-          {t("TemplateCloneDialog.title", { name: template.name })}
-        </span>
-        <p className={styles.modalDesc}>
-          {t("TemplateCloneDialog.description")}
-        </p>
-
-        <div className={styles.cloneGrid}>
-          <div className={styles.field}>
-            <label htmlFor="clone-hostname">{t("TemplateCloneDialog.hostnameLabel")}</label>
-            <input
-              id="clone-hostname"
-              type="text"
-              maxLength={63}
-              placeholder={t("TemplateCloneDialog.hostnamePlaceholder")}
-              value={hostname}
-              onChange={(e) => setHostname(e.target.value)}
-            />
-          </div>
-          {canBatch && (
-            <div className={styles.field}>
-              <label htmlFor="clone-count">{t("TemplateCloneDialog.countLabel")}</label>
-              <input
-                id="clone-count"
-                type="number"
-                min={CLONE_COUNT_MIN}
-                max={CLONE_COUNT_MAX}
-                value={count}
-                onChange={(e) => setCount(e.target.value)}
-                onBlur={() => setCount(String(clampCloneCount(count)))}
-              />
-              {countOutOfRange && (
-                <span className={styles.fieldWarn}>
-                  {t("TemplateCloneDialog.countClamped", {
-                    min: CLONE_COUNT_MIN,
-                    max: CLONE_COUNT_MAX,
-                    count: clampedCount,
-                  })}
-                </span>
-              )}
-            </div>
-          )}
-        </div>
-
-        <div className={styles.field}>
-          <div className={styles.sliderLabelRow}>
-            <label htmlFor="clone-cores">{t("TemplateCloneDialog.coresLabel")}</label>
-            <span className={styles.sliderValue}>{t("TemplateCloneDialog.coresValue", { cores })}</span>
-          </div>
-          <input
-            id="clone-cores"
-            type="range"
-            min={CORE_MIN}
-            max={coresMax}
-            step={1}
-            className={styles.slider}
-            value={cores}
-            onChange={(e) => setCores(Number(e.target.value))}
-          />
-          <div className={styles.sliderTicks}>
-            {coreTicks.map((v) => (
-              <span key={v} style={{ left: `${((v - CORE_MIN) / (coresMax - CORE_MIN)) * 100}%` }}>
-                {v}
-              </span>
-            ))}
-          </div>
-        </div>
-
-        <div className={styles.field}>
-          <div className={styles.sliderLabelRow}>
-            <label htmlFor="clone-memory">{t("TemplateCloneDialog.memoryLabel")}</label>
-            <span className={styles.sliderValue}>{(memory / 1024).toFixed(1)} GB</span>
-          </div>
-          <input
-            id="clone-memory"
-            type="range"
-            min={MEMORY_MIN}
-            max={memoryMax}
-            step={512}
-            className={styles.slider}
-            value={memory}
-            onChange={(e) => setMemory(Number(e.target.value))}
-          />
-          <div className={styles.sliderTicks}>
-            {memoryTicks.map((v) => (
-              <span
-                key={v}
-                style={{ left: `${((v - MEMORY_MIN) / (memoryMax - MEMORY_MIN)) * 100}%` }}
-              >
-                {v >= 1024 ? `${Math.round(v / 1024)}GB` : `${v}MB`}
-              </span>
-            ))}
-          </div>
-        </div>
-
-        <div className={styles.field}>
-          <label>{t("TemplateCloneDialog.diskLabel")}</label>
-          <div className={styles.diskFixed}>
-            <MIcon name="lock" size={15} />
-            {template.default_disk
-              ? t("TemplateCloneDialog.diskFixedWithSize", { size: template.default_disk })
-              : t("TemplateCloneDialog.diskFixedDefault")}
-          </div>
-        </div>
-
-        {allowPassword ? (
-          <div className={styles.field}>
-            <label htmlFor="clone-password">{t("TemplateCloneDialog.passwordLabel")}</label>
-            <input
-              id="clone-password"
-              type="password"
-              maxLength={64}
-              placeholder={t("TemplateCloneDialog.passwordPlaceholder")}
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-            />
-          </div>
-        ) : (
-          <div className={styles.policyNote}>
-            <MIcon name="lock" size={15} />
-            {t("TemplateCloneDialog.passwordLockedNote")}
-          </div>
-        )}
-
-        {needsGpu && (
-          <>
-            <div className={styles.field}>
-              <label htmlFor="clone-gpu">{t("TemplateCloneDialog.gpuLabel")}</label>
-              <select
-                id="clone-gpu"
-                value={gpuMappingId}
-                disabled={gpuLoading}
-                onChange={(e) => {
-                  setGpuMappingId(e.target.value);
-                  setGpuProfile("");
-                }}
-              >
-                <option value="">
-                  {gpuLoading ? t("TemplateCloneDialog.gpuLoadingOption") : t("TemplateCloneDialog.gpuSelectOption")}
-                </option>
-                {gpuOptions.map((gpu) => (
-                  <option
-                    key={gpu.mapping_id}
-                    value={gpu.mapping_id}
-                    disabled={gpu.available_count <= 0}
-                  >
-                    {gpuLabel(gpu, t)}
-                  </option>
-                ))}
-              </select>
-              {!gpuLoading && gpuOptions.length === 0 && (
-                <span className={styles.fieldWarn}>
-                  {t("TemplateCloneDialog.gpuNoneWarning")}
-                </span>
-              )}
-            </div>
-            {gpuProfiles.length > 0 && (
-              <div className={styles.field}>
-                <label htmlFor="clone-gpu-profile">{t("TemplateCloneDialog.gpuProfileLabel")}</label>
-                <select
-                  id="clone-gpu-profile"
-                  value={effectiveGpuProfile}
-                  onChange={(e) => setGpuProfile(e.target.value)}
-                >
-                  {!smallestCreatableProfile && (
-                    <option value="" disabled>{t("TemplateCloneDialog.gpuProfileNoneOption")}</option>
-                  )}
-                  {gpuProfiles.map((p) => (
-                    <option key={p.mdev_type} value={p.mdev_type} disabled={!p.creatable}>
-                      {`${p.name || p.mdev_type} — ${formatVram(p.vram_mb)}`}
-                      {p.creatable ? "" : t("TemplateCloneDialog.gpuProfileInsufficientSuffix")}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            )}
-          </>
-        )}
-
-        <label className={styles.checkLine}>
-          <input
-            type="checkbox"
-            checked={start}
-            onChange={(e) => setStart(e.target.checked)}
-          />
-          {t("TemplateCloneDialog.autoStartLabel")}
-        </label>
-
-        <div className={styles.modalActions}>
+    <Modal
+      closing={closing}
+      onClose={onClose}
+      closeButton
+      size="md"
+      icon={<MIcon name="content_copy" size={20} />}
+      title={t("TemplateCloneDialog.title", { name: template.name })}
+      description={t("TemplateCloneDialog.description")}
+      actions={
+        <>
           <button type="button" className={styles.btnSecondary} onClick={onClose}>
             {t("TemplateCloneDialog.cancel")}
           </button>
@@ -332,8 +149,189 @@ export default function TemplateCloneDialog({ template, canBatch, closing = fals
             <MIcon name="content_copy" size={14} />
             {busy ? t("TemplateCloneDialog.submitting") : t("TemplateCloneDialog.submit")}
           </button>
+        </>
+      }
+    >
+      <div className={styles.cloneGrid}>
+        <div className={styles.field}>
+          <label htmlFor="clone-hostname">{t("TemplateCloneDialog.hostnameLabel")}</label>
+          <input
+            id="clone-hostname"
+            type="text"
+            maxLength={63}
+            placeholder={t("TemplateCloneDialog.hostnamePlaceholder")}
+            value={hostname}
+            onChange={(e) => setHostname(e.target.value)}
+          />
+        </div>
+        {canBatch && (
+          <div className={styles.field}>
+            <label htmlFor="clone-count">{t("TemplateCloneDialog.countLabel")}</label>
+            <input
+              id="clone-count"
+              type="number"
+              min={CLONE_COUNT_MIN}
+              max={CLONE_COUNT_MAX}
+              value={count}
+              onChange={(e) => setCount(e.target.value)}
+              onBlur={() => setCount(String(clampCloneCount(count)))}
+            />
+            {countOutOfRange && (
+              <span className={styles.fieldWarn}>
+                {t("TemplateCloneDialog.countClamped", {
+                  min: CLONE_COUNT_MIN,
+                  max: CLONE_COUNT_MAX,
+                  count: clampedCount,
+                })}
+              </span>
+            )}
+          </div>
+        )}
+      </div>
+
+      <div className={styles.field}>
+        <div className={styles.sliderLabelRow}>
+          <label htmlFor="clone-cores">{t("TemplateCloneDialog.coresLabel")}</label>
+          <span className={styles.sliderValue}>{t("TemplateCloneDialog.coresValue", { cores })}</span>
+        </div>
+        <input
+          id="clone-cores"
+          type="range"
+          min={CORE_MIN}
+          max={coresMax}
+          step={1}
+          className={styles.slider}
+          value={cores}
+          onChange={(e) => setCores(Number(e.target.value))}
+        />
+        <div className={styles.sliderTicks}>
+          {coreTicks.map((v) => (
+            <span key={v} style={{ left: `${((v - CORE_MIN) / (coresMax - CORE_MIN)) * 100}%` }}>
+              {v}
+            </span>
+          ))}
         </div>
       </div>
-    </div>
+
+      <div className={styles.field}>
+        <div className={styles.sliderLabelRow}>
+          <label htmlFor="clone-memory">{t("TemplateCloneDialog.memoryLabel")}</label>
+          <span className={styles.sliderValue}>{(memory / 1024).toFixed(1)} GB</span>
+        </div>
+        <input
+          id="clone-memory"
+          type="range"
+          min={MEMORY_MIN}
+          max={memoryMax}
+          step={512}
+          className={styles.slider}
+          value={memory}
+          onChange={(e) => setMemory(Number(e.target.value))}
+        />
+        <div className={styles.sliderTicks}>
+          {memoryTicks.map((v) => (
+            <span
+              key={v}
+              style={{ left: `${((v - MEMORY_MIN) / (memoryMax - MEMORY_MIN)) * 100}%` }}
+            >
+              {v >= 1024 ? `${Math.round(v / 1024)}GB` : `${v}MB`}
+            </span>
+          ))}
+        </div>
+      </div>
+
+      <div className={styles.field}>
+        <label>{t("TemplateCloneDialog.diskLabel")}</label>
+        <div className={styles.diskFixed}>
+          <MIcon name="lock" size={15} />
+          {template.default_disk
+            ? t("TemplateCloneDialog.diskFixedWithSize", { size: template.default_disk })
+            : t("TemplateCloneDialog.diskFixedDefault")}
+        </div>
+      </div>
+
+      {allowPassword ? (
+        <div className={styles.field}>
+          <label htmlFor="clone-password">{t("TemplateCloneDialog.passwordLabel")}</label>
+          <input
+            id="clone-password"
+            type="password"
+            maxLength={64}
+            placeholder={t("TemplateCloneDialog.passwordPlaceholder")}
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+          />
+        </div>
+      ) : (
+        <div className={styles.policyNote}>
+          <MIcon name="lock" size={15} />
+          {t("TemplateCloneDialog.passwordLockedNote")}
+        </div>
+      )}
+
+      {needsGpu && (
+        <>
+          <div className={styles.field}>
+            <label htmlFor="clone-gpu">{t("TemplateCloneDialog.gpuLabel")}</label>
+            <select
+              id="clone-gpu"
+              value={gpuMappingId}
+              disabled={gpuLoading}
+              onChange={(e) => {
+                setGpuMappingId(e.target.value);
+                setGpuProfile("");
+              }}
+            >
+              <option value="">
+                {gpuLoading ? t("TemplateCloneDialog.gpuLoadingOption") : t("TemplateCloneDialog.gpuSelectOption")}
+              </option>
+              {gpuOptions.map((gpu) => (
+                <option
+                  key={gpu.mapping_id}
+                  value={gpu.mapping_id}
+                  disabled={gpu.available_count <= 0}
+                >
+                  {gpuLabel(gpu, t)}
+                </option>
+              ))}
+            </select>
+            {!gpuLoading && gpuOptions.length === 0 && (
+              <span className={styles.fieldWarn}>
+                {t("TemplateCloneDialog.gpuNoneWarning")}
+              </span>
+            )}
+          </div>
+          {gpuProfiles.length > 0 && (
+            <div className={styles.field}>
+              <label htmlFor="clone-gpu-profile">{t("TemplateCloneDialog.gpuProfileLabel")}</label>
+              <select
+                id="clone-gpu-profile"
+                value={effectiveGpuProfile}
+                onChange={(e) => setGpuProfile(e.target.value)}
+              >
+                {!smallestCreatableProfile && (
+                  <option value="" disabled>{t("TemplateCloneDialog.gpuProfileNoneOption")}</option>
+                )}
+                {gpuProfiles.map((p) => (
+                  <option key={p.mdev_type} value={p.mdev_type} disabled={!p.creatable}>
+                    {`${p.name || p.mdev_type} — ${formatVram(p.vram_mb)}`}
+                    {p.creatable ? "" : t("TemplateCloneDialog.gpuProfileInsufficientSuffix")}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+        </>
+      )}
+
+      <label className={styles.checkLine}>
+        <input
+          type="checkbox"
+          checked={start}
+          onChange={(e) => setStart(e.target.checked)}
+        />
+        {t("TemplateCloneDialog.autoStartLabel")}
+      </label>
+    </Modal>
   );
 }

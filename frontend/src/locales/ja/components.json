@@ -434,7 +434,6 @@
   "ReverseProxyRuleModal.backToCommonPorts": "← よく使うポートを選択",
   "ReverseProxyRuleModal.boundVm": "紐付けられたVM",
   "ReverseProxyRuleModal.cancel": "キャンセル",
-  "ReverseProxyRuleModal.closeAriaLabel": "閉じる",
   "ReverseProxyRuleModal.createTitle": "URLを追加",
   "ReverseProxyRuleModal.createUrl": "URLを作成",
   "ReverseProxyRuleModal.customPortPlaceholder": "ポート番号を入力（1〜65535）",
