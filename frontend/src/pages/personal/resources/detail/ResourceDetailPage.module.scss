@@ -286,6 +286,69 @@
   @include text-truncate;
 }
 
+/* 卡片內容只剩一句摘要時（生命週期全為空值等）用的內文字級 */
+.summaryLine {
+  font-size: $font-size-14;
+  color: var(--color-text-secondary);
+}
+
+/* 登入憑證的帳號與密碼並排：兩者同字級，密碼常是說明文字（「沿用映像內建密碼」），不用大粗字 */
+.credentialValue {
+  font-size: $font-size-16;
+  font-weight: $font-weight-500;
+}
+
+/* 共享：輸入列＋欄位提示一組，組內間距小於卡片區塊間距 */
+.shareForm {
+  @include flex-column;
+  gap: 6px;
+}
+
+/* 卡片底部的轉移擁有者列：玻璃卡內區塊一律白底細框；說明在左、按鈕在右 */
+.transferRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: $spacing-16;
+  flex-wrap: wrap;
+  padding: $spacing-8 $spacing-16;
+  border: 1px solid var(--color-border);
+  border-radius: $radius-12;
+  background: var(--color-surface);
+}
+
+.transferRowText {
+  @include flex-column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.transferRowTitle {
+  font-size: $font-size-14;
+  font-weight: $font-weight-500;
+  color: var(--color-text-primary);
+}
+
+/* 行內文字連結（跳到其他分頁等），外觀是連結、語意是按鈕 */
+.textLink {
+  align-self: flex-start;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--color-primary);
+  font: inherit;
+  font-size: $font-size-12;
+  cursor: pointer;
+
+  &:hover { text-decoration: underline; }
+
+  &:focus-visible {
+    outline: 2px solid var(--color-primary);
+    outline-offset: 2px;
+    border-radius: 2px;
+  }
+}
+
 .monoText {
   font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
 }
@@ -905,6 +968,12 @@
   :global(.react-flow__attribution) { display: none; }
 }
 
+/* 拓撲圖＋圖例一組：組內間距小於卡片內各區塊的 16px，圖例才看得出是在說明上面的圖 */
+.topologyBlock {
+  @include flex-column;
+  gap: $spacing-8;
+}
+
 /* 與防火牆頁的畫布圖例同款：淡抹 surface 底、邊框、blur(4px)（Dialog 遮罩標準濾鏡值） */
 .flowLegend {
   display: flex;
@@ -941,10 +1010,6 @@
   border: 1px solid color-mix(in srgb, var(--color-pending) 40%, transparent);
   border-radius: $radius-12;
   background: color-mix(in srgb, var(--color-pending) 8%, transparent);
-}
-
-.dangerZone {
-  border-color: color-mix(in srgb, var(--color-danger) 35%, transparent);
 }
 
 .rowStack {

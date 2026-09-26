@@ -163,7 +163,21 @@ export default function LifecycleCard({ vmid, resource, canManage, onChanged }) 
     }
   }
 
-  const canExtend = canManage && resource?.can_extend !== false && resource?.allocation_scope !== "teaching_class";
+  /* 不限期的機器沒有到期日可延長 */
+  const canExtend = canManage
+    && Boolean(resource?.expiry_date)
+    && resource?.can_extend !== false
+    && resource?.allocation_scope !== "teaching_class";
+  /* 閒置偵測只對開著的機器有意義；關機後留下的舊時間點會和「自動關機：無」互相矛盾 */
+  const showIdle = resource?.status === "running";
+  const idleHours = resource?.idle_since
+    ? Math.max(0, Math.floor((Date.now() - new Date(resource.idle_since).getTime()) / 3_600_000))
+    : null;
+  /* 每一格都是空值（不限期、無自動關機、無預定刪除、也不顯示閒置）時，四格「無」改成一句話 */
+  const nothingScheduled = !resource?.expiry_date
+    && !resource?.auto_stop_at
+    && !resource?.scheduled_deletion_at
+    && !showIdle;
   const reasonKey = resource?.auto_stop_reason ? AUTO_STOP_REASON_KEYS[resource.auto_stop_reason] : null;
 
   return (
@@ -211,6 +225,9 @@ export default function LifecycleCard({ vmid, resource, canManage, onChanged }) 
           </div>
         )}
 
+        {nothingScheduled ? (
+          <p className={styles.summaryLine}>{t("LifecycleCard.nothingScheduled")}</p>
+        ) : (
         <div className={styles.factGrid}>
           <div className={styles.fact}>
             <span className={styles.factLabel}>{t("LifecycleCard.expiryLabel")}</span>
@@ -226,13 +243,23 @@ export default function LifecycleCard({ vmid, resource, canManage, onChanged }) 
             </span>
             {reasonKey && <span className={styles.mutedText}>{t(reasonKey)}</span>}
           </div>
-          <div className={styles.fact}>
-            <span className={styles.factLabel}>{t("LifecycleCard.idleLabel")}</span>
-            <span className={styles.factValue}>
-              {formatDateTime(resource?.idle_since, lang) ?? t("LifecycleCard.notIdle")}
-            </span>
-            {resource?.idle_since && <span className={styles.mutedText}>{t("LifecycleCard.idleHint")}</span>}
-          </div>
+          {showIdle && (
+            <div className={styles.fact}>
+              <span className={styles.factLabel}>{t("LifecycleCard.idleLabel")}</span>
+              <span className={styles.factValue}>
+                {idleHours == null
+                  ? t("LifecycleCard.notIdle")
+                  : idleHours >= 24
+                    ? t("LifecycleCard.idleForDays", { count: Math.floor(idleHours / 24) })
+                    : t("LifecycleCard.idleForHours", { count: idleHours })}
+              </span>
+              {idleHours != null && (
+                <span className={styles.mutedText}>
+                  {t("LifecycleCard.idleHint", { since: formatDateTime(resource.idle_since, lang) })}
+                </span>
+              )}
+            </div>
+          )}
           <div className={styles.fact}>
             <span className={styles.factLabel}>{t("LifecycleCard.deletionLabel")}</span>
             <span className={styles.factValue}>
@@ -241,10 +268,7 @@ export default function LifecycleCard({ vmid, resource, canManage, onChanged }) 
             {resource?.scheduled_deletion_at && <span className={styles.mutedText}>{t("LifecycleCard.deletionHint")}</span>}
           </div>
         </div>
-        <p className={styles.hintLine}>
-          <MIcon name="info" size={14} />
-          {t("LifecycleCard.policyNote")}
-        </p>
+        )}
       </div>
 
       {/* 卡片有 overflow:hidden + backdrop-filter，會把 position:fixed 的 modal 困在卡片裡，

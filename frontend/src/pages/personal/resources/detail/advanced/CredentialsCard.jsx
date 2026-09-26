@@ -63,7 +63,7 @@ function PasswordModal({ closing, loading, willReboot, onClose, onSubmit }) {
   );
 }
 
-export default function CredentialsCard({ vmid, canManage }) {
+export default function CredentialsCard({ vmid, canManage, onShowOverview }) {
   const { t } = useTranslation("personal");
   const toast = useToast();
   const confirm = useConfirm();
@@ -179,6 +179,11 @@ export default function CredentialsCard({ vmid, canManage }) {
 
   const platformIdentity = info?.platform_public_key ? keyIdentity(info.platform_public_key) : null;
   const requiresRunning = info?.requires_running && !info?.running;
+  const overviewLinkKey = info?.has_login_password
+    ? "CredentialsCard.passwordWhere"
+    : info?.platform_public_key
+      ? "CredentialsCard.privateKeyWhere"
+      : null;
 
   return (
     <div className={styles.card}>
@@ -217,16 +222,21 @@ export default function CredentialsCard({ vmid, canManage }) {
             <div className={styles.factGrid}>
               <div className={styles.fact}>
                 <span className={styles.factLabel}>{t("CredentialsCard.usernameLabel")}</span>
-                <span className={`${styles.factValue} ${styles.monoText}`}>
+                <span className={`${styles.factValue} ${styles.credentialValue} ${styles.monoText}`}>
                   {info.username ?? t("CredentialsCard.usernameDefault")}
                 </span>
               </div>
               <div className={styles.fact}>
                 <span className={styles.factLabel}>{t("CredentialsCard.passwordLabel")}</span>
-                <span className={styles.factValue}>
+                <span className={`${styles.factValue} ${styles.credentialValue}`}>
                   {info.has_login_password ? t("CredentialsCard.passwordStored") : t("CredentialsCard.passwordUnknown")}
                 </span>
-                <span className={styles.mutedText}>{t("CredentialsCard.passwordWhere")}</span>
+                {/* 連結只承諾總覽真的查得到的東西：沒保管密碼就只提私鑰，兩者都沒有就不顯示 */}
+                {onShowOverview && overviewLinkKey && (
+                  <button type="button" className={styles.textLink} onClick={onShowOverview}>
+                    {t(overviewLinkKey)}
+                  </button>
+                )}
               </div>
             </div>
 
@@ -261,12 +271,12 @@ export default function CredentialsCard({ vmid, canManage }) {
               </div>
             )}
 
+            {/* 機器停止時讀不到公鑰、也不能新增：整區收起，上方的「請先開機」提示已說明原因 */}
+            {!requiresRunning && (
             <div className={styles.rowStack}>
               <span className={styles.factLabel}>{t("CredentialsCard.authorizedKeysLabel")}</span>
               {info.authorized_keys.length === 0 ? (
-                <p className={styles.mutedText}>
-                  {requiresRunning ? t("CredentialsCard.keysUnavailableStopped") : t("CredentialsCard.noKeys")}
-                </p>
+                <p className={styles.mutedText}>{t("CredentialsCard.noKeys")}</p>
               ) : (
                 <div className={styles.keyList}>
                   {info.authorized_keys.map((key) => {
@@ -302,15 +312,16 @@ export default function CredentialsCard({ vmid, canManage }) {
                     value={newKey}
                     onChange={(e) => setNewKey(e.target.value)}
                     placeholder={t("CredentialsCard.addKeyPlaceholder")}
-                    disabled={busy || requiresRunning}
+                    disabled={busy}
                   />
-                  <button type="submit" className={styles.btnSecondary} disabled={busy || requiresRunning || !newKey.trim()}>
+                  <button type="submit" className={styles.btnSecondary} disabled={busy || !newKey.trim()}>
                     <MIcon name="add" size={16} />
                     {t("CredentialsCard.addKey")}
                   </button>
                 </form>
               )}
             </div>
+            )}
           </>
         )}
       </div>

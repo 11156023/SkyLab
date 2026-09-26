@@ -233,10 +233,6 @@ export default function BootOptionsCard({ vmid, canManage }) {
                 </span>
               </div>
             )}
-
-            {!options.supports_boot_order && (
-              <p className={styles.mutedText}>{t("BootOptionsCard.lxcNote")}</p>
-            )}
           </>
         )}
       </div>

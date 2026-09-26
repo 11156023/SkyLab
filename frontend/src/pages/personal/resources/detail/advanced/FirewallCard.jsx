@@ -23,6 +23,30 @@ import {
 } from "../../../../../services/firewall";
 import MiniTopology from "./MiniTopology";
 
+const POLICY_LABEL_KEYS = {
+  ACCEPT: "FirewallCard.policyAccept",
+  DROP: "FirewallCard.policyDrop",
+  REJECT: "FirewallCard.policyReject",
+};
+
+/** Proxmox 的策略／動作（ACCEPT、DROP…）換成使用者看得懂的字；不認得的值原樣顯示 */
+function policyLabel(value, t) {
+  const key = POLICY_LABEL_KEYS[String(value ?? "").toUpperCase()];
+  return key ? t(key) : value;
+}
+
+/** Proxmox 的 port 寫法（80,443、1000:2000、1:65535）轉成一般寫法；涵蓋全部 port 等同「任意」 */
+function formatPorts(dport, t) {
+  if (!dport) return t("FirewallCard.any");
+  const parts = String(dport).split(",").map((part) => {
+    const [from, to] = part.split(":");
+    if (to === undefined) return from;
+    if (Number(from) <= 1 && Number(to) >= 65535) return null;
+    return `${from}–${to}`;
+  });
+  return parts.includes(null) ? t("FirewallCard.any") : parts.join(", ");
+}
+
 /**
  * @param {string[]} publicUrls 這台機器的對外網址（來自 ResourcePublic.public_urls），唯讀顯示；
  *   要改網址從「新增規則 › 連線」或拓撲頁做。
@@ -87,7 +111,7 @@ export default function FirewallCard({ vmid, canManage, publicUrls = [], onChang
   async function handleDelete(rule) {
     const ok = await confirm({
       title: t("FirewallCard.deleteRuleTitle"),
-      message: t("FirewallCard.deleteRuleMessage", { pos: rule.pos }),
+      message: t("FirewallCard.deleteRuleMessage", { pos: rule.pos + 1 }),
       danger: true,
     });
     if (!ok) return;
@@ -102,6 +126,9 @@ export default function FirewallCard({ vmid, canManage, publicUrls = [], onChang
       setBusy(false);
     }
   }
+
+  /* 全部規則都是服務管理的鎖定規則時，操作欄整欄是空的，不顯示 */
+  const showActionsCol = canManage && rules.some((rule) => !rule.is_managed);
 
   return (
     <div className={styles.card}>
@@ -118,8 +145,11 @@ export default function FirewallCard({ vmid, canManage, publicUrls = [], onChang
               <span className={`${styles.badge} ${options.enable ? styles.badge_success : styles.badge_muted}`}>
                 {options.enable ? t("FirewallCard.enabled") : t("FirewallCard.disabled")}
               </span>
-              <span className={`${styles.badge} ${styles.badge_muted}`} title={t("FirewallCard.policyHint")}>
-                IN {options.policy_in} · OUT {options.policy_out}
+              <span className={`${styles.badge} ${styles.badge_muted}`}>
+                {t("FirewallCard.policySummary", {
+                  in: policyLabel(options.policy_in, t),
+                  out: policyLabel(options.policy_out, t),
+                })}
               </span>
             </>
           )}
@@ -152,15 +182,16 @@ export default function FirewallCard({ vmid, canManage, publicUrls = [], onChang
           <LoadingState text={t("FirewallCard.loading")} />
         ) : (
           <>
+            {/* 拓撲圖與圖例包成一組、組內間距較小：圖例緊貼著圖，不會被讀成下方規則表的說明 */}
             {topology && (
-              <>
+              <div className={styles.topologyBlock}>
                 <MiniTopology topology={topology} />
                 <div className={styles.flowLegend}>
                   <span><i className={`${styles.legendDot} ${styles.legendIn}`} />{t("FirewallCard.legendInbound")}</span>
                   <span><i className={`${styles.legendDot} ${styles.legendOut}`} />{t("FirewallCard.legendOutbound")}</span>
                   <span><i className={`${styles.legendDot} ${styles.legendPeer}`} />{t("FirewallCard.legendPeer")}</span>
                 </div>
-              </>
+              </div>
             )}
 
             {rules.length === 0 ? (
@@ -177,26 +208,27 @@ export default function FirewallCard({ vmid, canManage, publicUrls = [], onChang
                       <th className={styles.th}>{t("FirewallCard.sourceCol")}</th>
                       <th className={styles.th}>{t("FirewallCard.action")}</th>
                       <th className={styles.th}>{t("FirewallCard.noteCol")}</th>
-                      {canManage && <th className={styles.th}>{t("FirewallCard.actionsCol")}</th>}
+                      {showActionsCol && <th className={styles.th}>{t("FirewallCard.actionsCol")}</th>}
                     </tr>
                   </thead>
                   <tbody>
                     {rules.map((rule) => (
                       <tr key={rule.pos} className={`${styles.tr} ${rule.is_managed ? styles.lockedRow : ""}`}>
-                        <td className={`${styles.td} ${styles.mutedCell}`}>{rule.pos}</td>
+                        {/* rule.pos 是 Proxmox 的 0 起算位置，顯示給人看從 1 開始 */}
+                        <td className={`${styles.td} ${styles.mutedCell}`}>{rule.pos + 1}</td>
                         <td className={styles.td}>
                           <span className={`${styles.badge} ${rule.type === "in" ? styles.badge_info : styles.badge_muted}`}>
                             {rule.type === "in" ? t("FirewallCard.directionIn") : t("FirewallCard.directionOut")}
                           </span>
                         </td>
                         <td className={`${styles.td} ${styles.nowrapCell}`}>{rule.proto ? rule.proto.toUpperCase() : t("FirewallCard.any")}</td>
-                        <td className={`${styles.td} ${styles.nowrapCell}`}>{rule.dport ?? t("FirewallCard.any")}</td>
+                        <td className={`${styles.td} ${styles.nowrapCell}`}>{formatPorts(rule.dport, t)}</td>
                         <td className={`${styles.td} ${styles.monoText}`}>
-                          {rule.type === "in" ? (rule.source ?? t("FirewallCard.anySource")) : (rule.dest ?? t("FirewallCard.anySource"))}
+                          {(rule.type === "in" ? rule.source : rule.dest) ?? t("FirewallCard.any")}
                         </td>
                         <td className={styles.td}>
                           <span className={`${styles.badge} ${rule.action === "ACCEPT" ? styles.badge_success : styles.badge_danger}`}>
-                            {rule.action}
+                            {policyLabel(rule.action, t)}
                           </span>
                           {rule.enable === 0 && (
                             <span className={`${styles.badge} ${styles.badge_muted}`}>{t("FirewallCard.ruleDisabled")}</span>
@@ -212,11 +244,10 @@ export default function FirewallCard({ vmid, canManage, publicUrls = [], onChang
                             rule.comment ?? "—"
                           )}
                         </td>
-                        {canManage && (
+                        {showActionsCol && (
                           <td className={`${styles.td} ${styles.tdActions}`}>
-                            {rule.is_managed ? (
-                              <span className={styles.mutedText}>{t("FirewallCard.locked")}</span>
-                            ) : (
+                            {/* 鎖定規則的備註欄已標「由連線管理」，操作欄留空不再重複 */}
+                            {rule.is_managed ? null : (
                               <>
                                 <button
                                   type="button"

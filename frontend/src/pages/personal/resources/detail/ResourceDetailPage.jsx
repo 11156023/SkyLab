@@ -130,7 +130,16 @@ export default function ResourceDetailPage({ backTo = "/my-resources" }) {
             {tab === "specifications" && <SpecificationsTab vmid={vmid} />}
             {tab === "snapshots"      && <SnapshotsTab vmid={vmid} toolbar={tabToolbar} />}
             {tab === "auditLogs"      && <AuditLogsTab vmid={vmid} />}
-            {tab === "advanced"       && <AdvancedSettingsTab vmid={vmid} backTo={backTo} />}
+            {tab === "advanced"       && (
+              <AdvancedSettingsTab
+                vmid={vmid}
+                backTo={backTo}
+                onShowOverview={() => {
+                  setTab("overview");
+                  window.scrollTo({ top: 0, behavior: "smooth" });
+                }}
+              />
+            )}
           </>
         )}
       </div>

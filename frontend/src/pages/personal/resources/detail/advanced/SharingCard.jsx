@@ -147,14 +147,6 @@ export default function SharingCard({ vmid, resource, canManage, backTo }) {
           {/* 卡片層級的說明放在大標下方（cardDesc），不在內文自成一行 */}
           {!classGoverned && canManage && <p className={styles.cardDesc}>{t("SharingCard.scopeNote")}</p>}
         </div>
-        {canManage && !classGoverned && (
-          <div className={styles.headerActions}>
-            <button type="button" className={styles.btnDangerOutline} disabled={busy} onClick={() => setShowTransfer(true)}>
-              <MIcon name="swap_horiz" size={16} />
-              {t("SharingCard.transfer")}
-            </button>
-          </div>
-        )}
       </div>
       <div className={styles.cardBody}>
         {classGoverned ? (
@@ -163,9 +155,31 @@ export default function SharingCard({ vmid, resource, canManage, backTo }) {
           <LoadingState text={t("SharingCard.loading")} />
         ) : (
           <>
+            {canManage && (
+              <div className={styles.shareForm}>
+                <form className={styles.inlineForm} onSubmit={handleAdd}>
+                  <input
+                    type="email"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    placeholder={t("SharingCard.emailPlaceholder")}
+                    aria-label={t("SharingCard.emailPlaceholder")}
+                    disabled={busy}
+                  />
+                  <button type="submit" className={styles.btnSecondary} disabled={busy || !email.trim()}>
+                    <MIcon name="person_add" size={16} />
+                    {t("SharingCard.share")}
+                  </button>
+                </form>
+              </div>
+            )}
+
+            {/* 還沒共享時，上方的輸入框本身就說明了狀態，不另寫「還沒有共享給任何人」 */}
             {shares.length === 0 ? (
-              <p className={styles.mutedText}>{t("SharingCard.noShares")}</p>
+              !canManage && <p className={styles.mutedText}>{t("SharingCard.noShares")}</p>
             ) : (
+              <div className={styles.rowStack}>
+                <span className={styles.factLabel}>{t("SharingCard.sharedWith", { count: shares.length })}</span>
               <div className={styles.keyList}>
                 {shares.map((share) => (
                   <div key={share.id} className={styles.keyItem}>
@@ -191,21 +205,21 @@ export default function SharingCard({ vmid, resource, canManage, backTo }) {
                   </div>
                 ))}
               </div>
+              </div>
             )}
+
+            {/* 轉移是不可逆的危險操作：不放標題列跟一般操作搶位置，收在卡片底部的白底列 */}
             {canManage && (
-              <form className={styles.inlineForm} onSubmit={handleAdd}>
-                <input
-                  type="email"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  placeholder={t("SharingCard.emailPlaceholder")}
-                  disabled={busy}
-                />
-                <button type="submit" className={styles.btnSecondary} disabled={busy || !email.trim()}>
-                  <MIcon name="person_add" size={16} />
-                  {t("SharingCard.share")}
+              <div className={styles.transferRow}>
+                <div className={styles.transferRowText}>
+                  <span className={styles.transferRowTitle}>{t("SharingCard.transferTitle")}</span>
+                  <span className={styles.mutedText}>{t("SharingCard.transferZoneDesc")}</span>
+                </div>
+                <button type="button" className={styles.btnDangerOutline} disabled={busy} onClick={() => setShowTransfer(true)}>
+                  <MIcon name="swap_horiz" size={16} />
+                  {t("SharingCard.transferButton")}
                 </button>
-              </form>
+              </div>
             )}
           </>
         )}
