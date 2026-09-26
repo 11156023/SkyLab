@@ -17,6 +17,7 @@ import pytest
 from app.infrastructure.proxmox import guest
 from app.models import Resource, VMTemplate, VMTemplateStatus
 from app.services.template import clone_service, template_service
+from app.utils.login_password import PASSWORD_ALPHABET, PASSWORD_LENGTH
 
 # ---------------------------------------------------------------------------
 # generate_login_password
@@ -26,8 +27,8 @@ from app.services.template import clone_service, template_service
 def test_generate_login_password_charset_and_length() -> None:
     for _ in range(50):
         password = clone_service.generate_login_password()
-        assert len(password) == clone_service._PASSWORD_LENGTH
-        assert all(ch in clone_service._PASSWORD_ALPHABET for ch in password)
+        assert len(password) == PASSWORD_LENGTH
+        assert all(ch in PASSWORD_ALPHABET for ch in password)
         # 易混淆字元必須排除在字母表外
         assert not set("0O1lI") & set(password)
 

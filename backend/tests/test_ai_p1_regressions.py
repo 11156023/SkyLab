@@ -978,7 +978,7 @@ async def test_executor_sync_stage_does_not_block_loop(monkeypatch):
         assert worker_threads[0] != loop_thread
     finally:
         released.set()
-        await task
+        _ = await task
 
 
 @pytest.mark.parametrize("stage", ["execute", "save"])
@@ -1024,7 +1024,7 @@ async def test_executor_cancellation_drains_worker_before_recording_failure(
     finally:
         released.set()
         with pytest.raises(asyncio.CancelledError):
-            await task
+            _ = await task
     assert events == ["worker_finished", "failed"]
 
 
@@ -1097,7 +1097,7 @@ async def test_executor_sessions_and_ssh_wait_stay_off_loop(monkeypatch, tmp_pat
         assert not task.done()
     finally:
         released.set()
-        await task
+        _ = await task
     assert session_threads and loop_thread not in session_threads
     with Session(db_engine) as session:
         stored = session.get(TeacherJudgeScriptRun, run_id)

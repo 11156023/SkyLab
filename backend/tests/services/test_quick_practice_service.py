@@ -10,7 +10,6 @@ from sqlmodel import Session, SQLModel, create_engine
 from app.exceptions import BadRequestError, NotFoundError
 from app.models import (
     CourseEnvironment,
-    CourseEnvironmentAudience,
     CourseEnvironmentEdge,
     CourseEnvironmentNode,
     CourseEnvironmentVersion,

@@ -32,5 +32,6 @@
   "proxmoxConfig.connectionResourceCheckFailed": "目前連不上這個 PVE，無法確認底下是否還有機器，暫時不允許刪除，請稍後再試",
   "users.avatarUnsupportedFormat": "僅支援 PNG / JPEG / WebP / GIF 圖片",
   "users.avatarTooLarge": "圖片大小不可超過 2MB",
-  "vm.creating": "VM 建立中，請稍後於資源列表查看"
+  "vm.creating": "VM 建立中，請稍後於資源列表查看",
+  "vm.console_booting": "機器仍在開機中，請稍候再開啟控制台"
 }

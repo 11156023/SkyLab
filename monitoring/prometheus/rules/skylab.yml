@@ -1,0 +1,131 @@
+# SkyLab 平台告警規則。Prometheus UI 的 Alerts 頁與 Grafana 看得到觸發狀態；
+# 要推播到 Email／Discord／LINE 等，請用 Uptime Kuma 監看 /utils/health-check/ready，
+# 或另外接 Alertmanager（見 docs/monitoring.md）。
+
+groups:
+  - name: skylab-availability
+    rules:
+      - alert: SkyLabBackendDown
+        expr: up{job="skylab-backend"} == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "SkyLab backend 無法抓取 /metrics"
+          description: "Prometheus 已 2 分鐘抓不到 backend:8000/metrics，backend 可能當掉或重啟中。"
+
+      - alert: SkyLabDependencyDown
+        expr: skylab_dependency_up == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "SkyLab 依賴元件 {{ $labels.component }} 無法連線"
+          description: "backend 對 {{ $labels.component }} 的健康探測已連續失敗 2 分鐘。"
+
+      - alert: PostgresDown
+        expr: pg_up == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "PostgreSQL 無法連線"
+
+      - alert: RedisDown
+        expr: redis_up == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Redis 無法連線"
+
+  - name: skylab-api
+    rules:
+      - alert: SkyLabHigh5xxRate
+        expr: |
+          sum(rate(http_requests_total{job="skylab-backend",status=~"5.."}[5m]))
+            / clamp_min(sum(rate(http_requests_total{job="skylab-backend"}[5m])), 1e-9)
+          > 0.05
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "API 5xx 比例超過 5%"
+          description: "最近 5 分鐘 5xx 比例 {{ $value | humanizePercentage }}。"
+
+      - alert: SkyLabSlowApi
+        expr: |
+          histogram_quantile(0.95,
+            sum by (le) (rate(http_request_duration_seconds_bucket{job="skylab-backend",path!="<unmatched>"}[5m]))
+          ) > 2
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "API p95 延遲超過 2 秒"
+          description: "最近 10 分鐘 p95 = {{ $value | humanizeDuration }}。"
+
+  - name: skylab-scheduler
+    rules:
+      - alert: SkyLabScheduledTaskFailing
+        expr: skylab_scheduler_task_consecutive_failures >= 3
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: "排程任務 {{ $labels.loop }}/{{ $labels.task }} 連續失敗"
+          description: "已連續失敗 {{ $value }} 次，詳見後端日誌或「系統監控 → 系統健康」。"
+
+      - alert: SkyLabSchedulerNoLeader
+        expr: max by (loop) (skylab_scheduler_loop_is_leader) == 0
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "背景迴圈 {{ $labels.loop }} 沒有任何行程取得 leader"
+          description: "排程任務已 10 分鐘沒有執行（DB advisory lock 取不到或 DB 異常）。"
+
+      - alert: SkyLabSchedulerLoopStalled
+        expr: time() - max by (loop) (skylab_scheduler_loop_last_tick_timestamp_seconds) > 600
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: "背景迴圈 {{ $labels.loop }} 超過 10 分鐘沒有 tick"
+
+      - alert: SkyLabQueueBacklog
+        expr: skylab_queue_jobs > 50
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "arq 佇列積壓 {{ $value }} 筆"
+          description: "worker 可能停擺或處理不過來（克隆、轉範本等背景任務）。"
+
+      - alert: SkyLabTaskFailuresSpike
+        expr: skylab_task_records{status="failed_24h"} > 20
+        for: 5m
+        labels:
+          severity: info
+        annotations:
+          summary: "最近 24 小時背景任務失敗 {{ $value }} 筆"
+
+  - name: skylab-host
+    rules:
+      - alert: HostDiskAlmostFull
+        expr: |
+          node_filesystem_avail_bytes{fstype!~"tmpfs|overlay|squashfs"}
+            / node_filesystem_size_bytes{fstype!~"tmpfs|overlay|squashfs"} < 0.10
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "主機磁碟 {{ $labels.mountpoint }} 剩餘不到 10%"
+
+      - alert: HostHighMemory
+        expr: (1 - node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes) > 0.9
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "主機記憶體使用超過 90%"

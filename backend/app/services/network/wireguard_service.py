@@ -13,6 +13,7 @@ import binascii
 import ipaddress
 import logging
 import shlex
+import time
 import uuid
 from datetime import UTC, datetime, timedelta
 
@@ -654,9 +655,16 @@ def reconcile_tick() -> bool:
 
 
 async def run_reconciler(stop_event: asyncio.Event) -> None:
+    from app.services.monitoring.heartbeat_service import HeartbeatObserver
+
     interval = max(10, settings.WIREGUARD_RECONCILE_INTERVAL_SECONDS)
+    # reconcile_tick 自己處理 leader 鎖，拿不到鎖時回 False；心跳只在真的
+    # 跑了 reconcile 的那台記一次任務結果
+    observer = HeartbeatObserver("wireguard", interval_seconds=interval)
+    await observer.on_start(["reconcile"])
     was_leader: bool | None = None
     while not stop_event.is_set():
+        started = time.perf_counter()
         try:
             is_leader = await asyncio.to_thread(reconcile_tick)
             if is_leader != was_leader:
@@ -665,10 +673,28 @@ async def run_reconciler(stop_event: asyncio.Event) -> None:
                     "acquired" if is_leader else "held by another worker",
                 )
                 was_leader = is_leader
+            await observer.on_tick(is_leader=bool(is_leader))
+            if is_leader:
+                await observer.on_task(
+                    "reconcile",
+                    ok=True,
+                    duration_seconds=time.perf_counter() - started,
+                    error=None,
+                )
         except asyncio.CancelledError:
             raise
-        except Exception:
+        except Exception as exc:
             logger.exception("WireGuard reconciliation tick failed")
+            try:
+                await observer.on_tick(is_leader=True)
+                await observer.on_task(
+                    "reconcile",
+                    ok=False,
+                    duration_seconds=time.perf_counter() - started,
+                    error=exc,
+                )
+            except Exception:
+                logger.warning("WireGuard heartbeat update failed", exc_info=True)
         try:
             await asyncio.wait_for(stop_event.wait(), timeout=interval)
         except TimeoutError:

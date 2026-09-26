@@ -176,11 +176,91 @@ function formatGoogleLoginError(err, t) {
 
 /* ─── 登入 ──────────────────────────────────────────────── */
 
+/* 兩步驟驗證：第一階段（密碼／Google／LDAP）通過後輸入 Authenticator 驗證碼 */
+function TotpStepView({ totpToken, onSubmit, onBack }) {
+  const { t } = useTranslation("login");
+  const [code, setCode] = useState("");
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
+  const inputRef = useRef(null);
+
+  useEffect(() => {
+    inputRef.current?.focus();
+  }, []);
+
+  const digits = code.replace(/\D/g, "");
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    if (digits.length !== 6) {
+      setError(t("LoginPage.totpCodeLength"));
+      return;
+    }
+    setError("");
+    setLoading(true);
+    try {
+      await onSubmit(totpToken, digits);
+    } catch (err) {
+      // 挑戰 token 逾時（401）：回到登入表單重新輸入帳密
+      if (err?.status === 401) {
+        onBack();
+        return;
+      }
+      setError(err?.message ?? t("LoginPage.totpErrorDefault"));
+      setCode("");
+      inputRef.current?.focus();
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <>
+      <button type="button" className={styles.backBtn} onClick={onBack} disabled={loading}>
+        <MIcon name="arrow_back" size={18} />
+        {t("LoginPage.backToLogin")}
+      </button>
+      <h1 className={styles.title}>{t("LoginPage.totpTitle")}</h1>
+      <p className={styles.subtitle}>{t("LoginPage.totpSubtitle")}</p>
+
+      <form className={styles.form} onSubmit={handleSubmit}>
+        <div className={styles.field}>
+          <label htmlFor="totp-code">{t("LoginPage.totpCodeLabel")}</label>
+          <input
+            ref={inputRef}
+            id="totp-code"
+            className={styles.codeInput}
+            type="text"
+            inputMode="numeric"
+            autoComplete="one-time-code"
+            pattern="[0-9 ]*"
+            maxLength={7}
+            placeholder="000000"
+            value={code}
+            onChange={(e) => setCode(e.target.value.replace(/[^\d ]/g, ""))}
+            disabled={loading}
+            required
+          />
+        </div>
+
+        {error && <p className={styles.error}>{error}</p>}
+
+        <button type="submit" className={styles.btn} disabled={loading || digits.length !== 6}>
+          {loading ? t("LoginPage.totpVerifying") : t("LoginPage.totpVerify")}
+        </button>
+      </form>
+      <p className={styles.deviceHelp}>{t("LoginPage.totpHelp")}</p>
+    </>
+  );
+}
+
 function LoginView({ onForgot, onRegister, deviceApproval = false }) {
   const { t } = useTranslation("login");
-  const { login, googleLogin, ldapLogin } = useAuth();
+  const { login, googleLogin, ldapLogin, totpLogin } = useAuth();
   const [mode, setMode] = useState("password"); // "password" | "ldap"
   const [ldapEnabled, setLdapEnabled] = useState(false);
+  // 帳號已綁定兩步驟驗證：第一階段通過後拿到挑戰 token，切到驗證碼步驟
+  const [totpChallenge, setTotpChallenge] = useState(null); // { totpToken } | null
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [ldapUsername, setLdapUsername] = useState("");
@@ -212,7 +292,8 @@ function LoginView({ onForgot, onRegister, deviceApproval = false }) {
     setError("");
     setLoading(true);
     try {
-      await login(username, password);
+      const challenge = await login(username, password);
+      if (challenge?.totpRequired) setTotpChallenge(challenge);
     } catch (err) {
       setError(err?.message ?? t("LoginPage.loginErrorDefault"));
     } finally {
@@ -225,7 +306,8 @@ function LoginView({ onForgot, onRegister, deviceApproval = false }) {
     setError("");
     setLoading(true);
     try {
-      await ldapLogin(ldapUsername, ldapPassword);
+      const challenge = await ldapLogin(ldapUsername, ldapPassword);
+      if (challenge?.totpRequired) setTotpChallenge(challenge);
     } catch (err) {
       setError(err?.message ?? t("LoginPage.ldapLoginErrorDefault"));
     } finally {
@@ -238,7 +320,8 @@ function LoginView({ onForgot, onRegister, deviceApproval = false }) {
       setError("");
       setGoogleLoading(true);
       try {
-        await googleLogin(credential);
+        const challenge = await googleLogin(credential);
+        if (challenge?.totpRequired) setTotpChallenge(challenge);
       } catch (err) {
         setError(formatGoogleLoginError(err, t));
       } finally {
@@ -251,6 +334,19 @@ function LoginView({ onForgot, onRegister, deviceApproval = false }) {
   const handleGoogleError = useCallback((message) => {
     setError(message);
   }, []);
+
+  if (totpChallenge) {
+    return (
+      <TotpStepView
+        totpToken={totpChallenge.totpToken}
+        onSubmit={totpLogin}
+        onBack={() => {
+          setTotpChallenge(null);
+          setError("");
+        }}
+      />
+    );
+  }
 
   const passwordForm = (
     <form className={styles.form} onSubmit={handleSubmit}>

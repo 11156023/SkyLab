@@ -5,31 +5,20 @@ from __future__ import annotations
 import json
 import uuid
 from datetime import datetime, timezone
-from textwrap import dedent
-from types import SimpleNamespace
 
 import pytest
 from fastapi import HTTPException
-from sqlalchemy.pool import StaticPool
-from sqlmodel import Session, SQLModel, create_engine
+from sqlmodel import Session
 
 from app import models
 from app.ai.teacher_judge import (
-    automation_support,
-    script_artifact_service,
     script_executor_service,
     script_run_service,
     target_ip_resolver,
 )
-from app.ai.teacher_judge.schemas import (
-    TeacherJudgeRubricAnalysis,
-    TeacherJudgeRubricItem,
-)
 from app.ai.teacher_judge.script_policy import (
-    check_script_policy,
     validate_managed_script_output,
 )
-from app.ai.teacher_judge.template_command_service import GENERAL_COMMAND
 from app.models.teacher_judge_script_artifact import TeacherJudgeScriptStatus
 from app.models.teacher_judge_script_run import (
     TeacherJudgeScriptRunStatus,
@@ -38,12 +27,6 @@ from app.models.teacher_judge_script_run import (
 from app.repositories import resource as resource_repo
 from tests.ai.teacher_judge.helpers import (
     make_session,
-    make_teacher_judge_file,
-    patch_teacher_judge_vllm_settings,
-    reply_message,
-    requirement_focus,
-    scripted_vllm,
-    tool_call_message,
 )
 
 SAFE_SCRIPT = """

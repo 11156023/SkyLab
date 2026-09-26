@@ -40,19 +40,12 @@ from app.services.resource import quota_service
 from app.services.template import template_service
 from app.utils.hostname import to_punycode_hostname
 from app.utils.login_password import (
-    PASSWORD_ALPHABET,
-    PASSWORD_LENGTH,
     generate_login_password,
 )
 
 logger = logging.getLogger(__name__)
 
 TASK_CLONE = "template.clone"
-
-# 產生器搬到 app.utils.login_password（批次 / 快速練習 / 重設密碼共用），
-# 這裡保留別名讓既有測試與呼叫端不用改
-_PASSWORD_ALPHABET = PASSWORD_ALPHABET
-_PASSWORD_LENGTH = PASSWORD_LENGTH
 
 _LXC_PASSWORD_ATTEMPTS = 6
 _LXC_PASSWORD_RETRY_SECONDS = 5.0
@@ -421,7 +414,6 @@ def run_clone_task(task_id: uuid.UUID, payload: dict[str, Any]) -> dict[str, Any
     new_vmid: int | None = None
     allocated_ip: str | None = None
     created = False
-    clone_mode = "linked"
     try:
         # ``next_vmid`` 只是讀取 PVE 的 nextid；把鎖一路持有到 clone
         # 完成，才能避免不同 backend worker 在 PVE 尚未反映新 CT 前拿到

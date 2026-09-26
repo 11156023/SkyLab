@@ -56,6 +56,11 @@ class _FakeSession:
         self.closed = True
 
 
+def _fake_request(path: str = "/api/v1/users/me") -> Any:
+    """get_current_user 只讀 request.url.path（強制 2FA 的端點白名單）"""
+    return SimpleNamespace(url=SimpleNamespace(path=path))
+
+
 def _patch_redis(monkeypatch: pytest.MonkeyPatch, *, revoked: bool) -> None:
     async def fake_get_redis() -> None:
         return None
@@ -156,4 +161,8 @@ async def test_http_get_current_user_rejects_non_access_tokens(
         _make_token(token_type=None),
     ):
         with pytest.raises(AuthenticationError):
-            await auth_module.get_current_user(session=None, token=bad)
+            # token type 檢查在任何 DB／request 存取之前就會拒絕，
+            # request 只需要有 get_current_user 會讀的 url.path
+            await auth_module.get_current_user(
+                session=None, token=bad, request=_fake_request()
+            )

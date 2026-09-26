@@ -18,7 +18,6 @@ DB ``SELECT FOR UPDATE SKIP LOCKED``（coordinator 既有）→
 from __future__ import annotations
 
 import asyncio
-import logging
 import uuid
 from typing import Any
 
@@ -27,8 +26,6 @@ from sqlmodel import Session
 
 from app.infrastructure.queue import enqueue_task_sync
 from app.models import TaskRecord, VMProvisioningStatus
-
-logger = logging.getLogger(__name__)
 
 TASK_PROVISION = "vm_request.provision"
 DEFAULT_PROVISION_CONCURRENCY = 2

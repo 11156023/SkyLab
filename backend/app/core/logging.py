@@ -55,6 +55,8 @@ class JsonFormatter(logging.Formatter):
             payload["ip_address"] = ctx.ip_address
         if ctx.user_agent:
             payload["user_agent"] = ctx.user_agent
+        if ctx.request_id:
+            payload["request_id"] = ctx.request_id
 
         for key, value in record.__dict__.items():
             if key in _RESERVED or key.startswith("_"):

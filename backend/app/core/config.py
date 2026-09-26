@@ -107,6 +107,11 @@ class Settings(BaseSettings):
     # Fraction of transactions sampled for Sentry performance tracing.
     # 1.0 (100%) is only sensible for low-traffic staging; keep low in prod.
     SENTRY_TRACES_SAMPLE_RATE: float = 0.1
+    # 版本標記（例如 git commit），Sentry 用來區分哪一版開始出錯；留空不送。
+    SENTRY_RELEASE: str | None = None
+    # /metrics 的 Bearer token。留空＝不驗證（/metrics 只綁在內網與 127.0.0.1，
+    # nginx 不轉發）；有設時 Prometheus 要帶同一個 token 才抓得到。
+    METRICS_TOKEN: str | None = None
     POSTGRES_SERVER: str
     POSTGRES_PORT: int = 5432
     POSTGRES_USER: str

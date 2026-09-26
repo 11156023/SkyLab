@@ -147,8 +147,11 @@ def test_get_topology_survives_poisoned_ip_cache_write(
             SimpleNamespace(vmid=151, user_id="u1", teaching_class_id=None),
         ],
     )
+    def _no_owned_class_ids(*, session, user):
+        return set()
+
     monkeypatch.setattr(
-        fw.resource_access, "list_owned_teaching_class_ids", lambda *, session, user: set()
+        fw.resource_access, "list_owned_teaching_class_ids", _no_owned_class_ids
     )
     monkeypatch.setattr(
         fw.resource_access,

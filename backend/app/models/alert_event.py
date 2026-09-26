@@ -12,12 +12,16 @@ class AlertScope(str, enum.Enum):
     cluster = "cluster"
     node = "node"
     vm = "vm"
+    # 平台本身（排程任務、背景迴圈、worker、Redis、PVE 連線）的健康告警
+    system = "system"
 
 
 class AlertMetric(str, enum.Enum):
     cpu = "cpu"
     memory = "memory"
     disk = "disk"
+    # system scope 專用：value／threshold 不是百分比（見 health_policy.build_findings）
+    health = "health"
 
 
 class AlertEvent(SQLModel, table=True):

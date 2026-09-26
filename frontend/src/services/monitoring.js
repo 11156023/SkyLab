@@ -30,4 +30,9 @@ export const MonitoringService = {
   ackAlert(alertId) {
     return apiPost(`/api/v1/monitoring/alerts/${alertId}/ack`, {});
   },
+
+  /** 平台健康：DB、Redis、worker、PVE 連線與排程任務心跳（管理員） */
+  getSystemHealth(options) {
+    return apiGet("/api/v1/monitoring/system-health", options);
+  },
 };

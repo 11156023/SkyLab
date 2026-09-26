@@ -258,6 +258,66 @@
   box-shadow: var(--shadow-sm);
 }
 
+/* ── 兩步驟驗證 ── */
+.twoFactorStatus {
+  display: flex;
+  align-items: center;
+  gap: $spacing-16;
+}
+
+.twoFactorIcon {
+  flex: none;
+  width: 44px;
+  height: 44px;
+  border-radius: $radius-8;
+  background: color-mix(in srgb, var(--color-status-neutral) 12%, transparent);
+  color: var(--color-status-neutral);
+  @include flex-center;
+}
+
+.twoFactorIconOn {
+  background: color-mix(in srgb, var(--color-success) 12%, transparent);
+  color: var(--color-success);
+}
+
+.twoFactorText {
+  @include flex-column;
+  gap: 2px;
+  min-width: 0;
+
+  strong {
+    font-size: $font-size-14;
+    color: var(--color-text-primary);
+  }
+
+  span {
+    font-size: $font-size-12;
+    color: var(--color-text-secondary);
+    line-height: $line-height-base;
+  }
+}
+
+.twoFactorHint {
+  margin: 0;
+  font-size: $font-size-12;
+  color: var(--color-text-secondary);
+}
+
+/* 綁定對話框要放得下 QR code 與步驟說明 */
+.confirmWide {
+  width: min(520px, 100%);
+  max-height: calc(100vh - #{$spacing-32});
+  overflow-y: auto;
+}
+
+/* 停用對話框的驗證碼欄：數字置中拉字距（沿用 .confirmInput 的框線／聚焦色） */
+.otpInput.otpInput {
+  text-align: center;
+  font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  font-size: 22px;
+  letter-spacing: 0.35em;
+}
+
 /* ── 危險區域 ── */
 .dangerCard {
   border-color: color-mix(in srgb, var(--color-danger) 30%, var(--color-surface-glass-border));

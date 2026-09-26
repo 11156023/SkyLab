@@ -9,7 +9,6 @@ from typing import Any
 import pytest
 
 from app.models import DeletionRequest, DeletionRequestStatus
-from app.services.proxmox import provisioning_service
 from app.services.resource import deletion_service, reset_service
 from app.services.vm import batch_provision_service
 

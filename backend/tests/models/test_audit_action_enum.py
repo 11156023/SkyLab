@@ -18,8 +18,6 @@ import sqlalchemy as sa
 from sqlmodel import Session, SQLModel, create_engine
 
 from app.models import AuditAction, AuditLog
-from app.repositories import audit_log as audit_repo
-from app.services.user import audit_service
 
 # 已下線功能留下的 action；共用資料庫的 audit_logs 仍有這些紀錄
 RETIRED_ACTIONS = (

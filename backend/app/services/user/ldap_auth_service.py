@@ -16,8 +16,8 @@ from app.infrastructure import ldap as ldap_client
 from app.models import AuditAction, User, UserRole
 from app.repositories import user as user_repo
 from app.repositories.ldap_config import get_ldap_config
-from app.schemas import Token, UserUpdate
-from app.services.user import audit_service
+from app.schemas import Token, TotpChallenge, UserUpdate
+from app.services.user import audit_service, totp_service
 from app.services.user.auth_service import create_token_pair
 
 logger = logging.getLogger(__name__)
@@ -78,7 +78,9 @@ def _sync_role_from_directory(
         )
 
 
-def login_ldap(*, session: Session, username: str, password: str) -> Token:
+def login_ldap(
+    *, session: Session, username: str, password: str
+) -> Token | TotpChallenge:
     config = get_ldap_config(session=session)
     if not config.enabled:
         raise BadRequestError(t("ldapAuth.notEnabled"))
@@ -142,6 +144,10 @@ def login_ldap(*, session: Session, username: str, password: str) -> Token:
 
     # 確定登入會成功才重算角色：被停用的帳號沒必要留下角色異動。
     _sync_role_from_directory(session=session, user=user, config=config, info=info)
+
+    # 已綁定兩步驟驗證：目錄密碼只算第一階段
+    if user.totp_enabled:
+        return totp_service.issue_challenge(user, method="ldap")
 
     audit_service.log_action(
         session=session,

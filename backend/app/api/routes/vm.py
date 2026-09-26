@@ -1,11 +1,13 @@
+import asyncio
 import logging
 
 from fastapi import APIRouter
 
 from app.api.deps import ControlVmInfoDep, CurrentUser, SessionDep
 from app.api.websocket.vnc import register_vnc_session_cookie
+from app.core.i18n import t
 from app.core.permissions import Permission, has_permission
-from app.exceptions import BadRequestError, ProxmoxError
+from app.exceptions import BadRequestError, ConflictError, ProxmoxError
 from app.repositories import vm_template as vm_template_repo
 from app.schemas import (
     VMTemplateSchema,
@@ -26,6 +28,10 @@ async def get_vm_console(vmid: int, vm_info: ControlVmInfoDep):
             raise BadRequestError(f"Resource {vmid} is not a QEMU VM")
 
         node = vm_info["node"]
+        # 開機 task 還在跑時 QMP 未就緒，vncproxy 必定 set_password 逾時
+        booting = await asyncio.to_thread(proxmox_service.list_booting_vmids, [node])
+        if vmid in booting:
+            raise ConflictError(t("vm.console_booting"))
         pve_auth_cookie, csrf_token = await proxmox_service.get_session_ticket(node)
         console_data = await proxmox_service.get_vnc_ticket_with_session(
             node,
@@ -42,7 +48,7 @@ async def get_vm_console(vmid: int, vm_info: ControlVmInfoDep):
             "port": str(console_data["port"]),
             "message": "Connect to this WebSocket URL to access the VM console",
         }
-    except (BadRequestError, ProxmoxError):
+    except (BadRequestError, ConflictError, ProxmoxError):
         raise
     except Exception as e:
         logger.error(f"Failed to get console for VM {vmid}: {e}")
