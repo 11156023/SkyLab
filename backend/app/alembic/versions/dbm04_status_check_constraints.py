@@ -2,7 +2,8 @@
 
 這些欄位存成 VARCHAR，程式寫入的值是封閉集合，但資料庫完全不擋，
 打錯字或舊資料只會在讀取端變成「看不懂的狀態」。只挑值域確定封閉的欄位；
-自由文字（environment_type、placement_strategy_used、call_type 等）不加。
+自由文字（environment_type、placement_strategy_used、call_type 等）不加；
+ai_template_call_logs.preset 舊資料曾存 Teacher Judge 的範本 key（linux／n8n…），也不加。
 
 先以 NOT VALID 加上（只約束新寫入、不長時間鎖表），再檢查既有資料：
 沒有違規列才 VALIDATE；有的話保留 NOT VALID 並印出違規值，由維運清理後
@@ -69,11 +70,6 @@ _CHECKS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     ("user", "auth_source", ("local", "ldap")),
     ("ai_api_usage", "status", ("success", "error", "cancelled")),
     ("ai_template_call_logs", "status", ("success", "error")),
-    (
-        "ai_template_call_logs",
-        "preset",
-        ("student_individual", "student_team_project", "teaching_class_service"),
-    ),
     ("proxmox_storages", "speed_tier", ("nvme", "ssd", "hdd", "unknown")),
     ("batch_provision_jobs", "resource_type", ("lxc", "qemu")),
     ("teacher_judge_files", "source_type", ("created", "uploaded")),

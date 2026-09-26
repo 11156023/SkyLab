@@ -16,7 +16,7 @@ from sqlmodel import (
     UniqueConstraint,
 )
 
-from .base import JSONDocument, get_datetime_utc
+from .base import get_datetime_utc
 
 
 class CourseEnvironmentVersionStatus(str, enum.Enum):
@@ -196,7 +196,7 @@ class CourseEnvironmentVersion(SQLModel, table=True):
     peer_policy: str = Field(default="explicit", max_length=16)
     # Unfinished editor content is kept apart from deployable configuration.
     draft_data: dict[str, Any] | None = Field(
-        default=None, sa_column=Column(JSONDocument, nullable=True)
+        default=None, sa_column=Column(sa.JSON, nullable=True)
     )
     created_at: datetime = Field(
         default_factory=get_datetime_utc,
@@ -441,7 +441,7 @@ class ClassCapacityReservation(SQLModel, table=True):
     network_count: int = Field(ge=1)
     placement_plan: dict[str, Any] = Field(
         default_factory=dict,
-        sa_column=Column(JSONDocument, nullable=False),
+        sa_column=Column(sa.JSON, nullable=False),
     )
     # {machine_node_id: {user_id: 節點名}} —— 整班固定在同一個叢集，但叢集內
     # 依容量把學生分散到不同節點（同一個叢集不代表同一台 server）。預留時
@@ -449,7 +449,7 @@ class ClassCapacityReservation(SQLModel, table=True):
     student_placements: dict[str, dict[str, str]] = Field(
         default_factory=dict,
         sa_column=Column(
-            JSONDocument, nullable=False, server_default=sa.text("'{}'")
+            sa.JSON, nullable=False, server_default=sa.text("'{}'")
         ),
     )
     status: str = Field(default="reserved", max_length=24)

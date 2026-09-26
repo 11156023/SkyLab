@@ -8,8 +8,6 @@ from typing import Any
 import sqlalchemy as sa
 from sqlmodel import Column, DateTime, Enum, Field, SQLModel, UniqueConstraint
 
-from .base import JSONDocument
-
 
 class BatchProvisionJobStatus(str, enum.Enum):
     pending_review = "pending_review"
@@ -60,7 +58,7 @@ class BatchProvisionJob(SQLModel, table=True):
     # JSON-encoded 建立參數（不含 hostname，由 service 自動組合）
     # 建立時的規格快照（cores/memory/範本/IP 預留前綴…）
     template_params: dict[str, Any] = Field(
-        default_factory=dict, sa_column=Column(JSONDocument, nullable=False)
+        default_factory=dict, sa_column=Column(sa.JSON, nullable=False)
     )
     status: BatchProvisionJobStatus = Field(
         default=BatchProvisionJobStatus.pending,

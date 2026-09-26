@@ -20,10 +20,6 @@ class AITemplateCallLog(SQLModel, table=True):
             "status IN ('success', 'error')",
             name="ck_ai_template_call_logs_status",
         ),
-        sa.CheckConstraint(
-            "preset IN ('student_individual', 'student_team_project', 'teaching_class_service')",
-            name="ck_ai_template_call_logs_preset",
-        ),
         sa.Index("ix_ai_template_call_logs_user_created", "user_id", "created_at"),
         sa.Index("ix_ai_template_call_logs_status_created", "status", "created_at"),
         sa.Index(

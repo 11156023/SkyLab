@@ -10,7 +10,7 @@ from typing import Any
 import sqlalchemy as sa
 from sqlmodel import Column, Field, SQLModel
 
-from .base import JSONDocument, get_datetime_utc
+from .base import get_datetime_utc
 
 
 class TeacherJudgeSessionStatus(str, enum.Enum):
@@ -161,7 +161,7 @@ class TeacherJudgeSessionMessage(SQLModel, table=True):
         sa_column=Column(sa.Enum(TeacherJudgeMessageType), nullable=False),
     )
     metadata_json: dict[str, Any] = Field(
-        default_factory=dict, sa_column=Column(JSONDocument, nullable=False)
+        default_factory=dict, sa_column=Column(sa.JSON, nullable=False)
     )
     created_by: uuid.UUID | None = Field(
         default=None,

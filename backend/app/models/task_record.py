@@ -8,7 +8,7 @@ from typing import Any
 import sqlalchemy as sa
 from sqlmodel import Column, DateTime, Enum, Field, SQLModel
 
-from .base import JSONDocument, get_datetime_utc
+from .base import get_datetime_utc
 
 
 class TaskRecordStatus(str, enum.Enum):
@@ -47,7 +47,7 @@ class TaskRecord(SQLModel, table=True):
     )
     payload: dict[str, Any] = Field(
         default_factory=dict,
-        sa_column=Column(JSONDocument, nullable=False),
+        sa_column=Column(sa.JSON, nullable=False),
         description="任務參數",
     )
     status: TaskRecordStatus = Field(
@@ -61,7 +61,7 @@ class TaskRecord(SQLModel, table=True):
     progress: int = Field(default=0, description="0-100")
     result: dict[str, Any] | None = Field(
         default=None,
-        sa_column=Column(JSONDocument, nullable=True),
+        sa_column=Column(sa.JSON, nullable=True),
         description="任務結果",
     )
     error: str | None = Field(default=None, max_length=1000)

@@ -6,7 +6,7 @@ from datetime import datetime
 import sqlalchemy as sa
 from sqlmodel import Column, DateTime, Field, SQLModel
 
-from .base import JSONDocument, get_datetime_utc
+from .base import get_datetime_utc
 
 
 class WireGuardPeer(SQLModel, table=True):
@@ -36,7 +36,7 @@ class WireGuardPeer(SQLModel, table=True):
     tunnel_ip: str = Field(max_length=45)
     allowed_endpoints: list[dict[str, object]] = Field(
         default_factory=list,
-        sa_column=Column(JSONDocument, nullable=False, default=list),
+        sa_column=Column(sa.JSON, nullable=False, default=list),
     )
     active: bool = Field(default=False)
     created_at: datetime = Field(
