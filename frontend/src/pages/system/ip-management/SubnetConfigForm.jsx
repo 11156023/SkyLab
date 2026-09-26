@@ -75,7 +75,7 @@ export default function SubnetConfigForm({
       className={`${styles.modalOverlay} ${closing ? styles.modalOverlayOut : ""}`}
       onMouseDown={onCancel}
     >
-    <form className={styles.modal} onSubmit={handleSubmit} onMouseDown={(e) => e.stopPropagation()}>
+    <form className={styles.modal} role="dialog" aria-modal="true" onSubmit={handleSubmit} onMouseDown={(e) => e.stopPropagation()}>
       <span className={styles.modalTitle}>
         {isEdit ? t("SubnetConfigForm.editTitle") : t("SubnetConfigForm.createTitle")}
       </span>

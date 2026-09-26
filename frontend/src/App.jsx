@@ -10,6 +10,7 @@ import MIcon from "./components/MIcon";
 import { LoadingSpinner } from "./components/LoadingState/LoadingState";
 import { AuthSessionStatus } from "./services/authSession";
 import { useSetupStatus } from "./pages/setup/useSetupStatus";
+import { useModalScrollLock } from "./hooks/useBodyScrollLock";
 import styles from "./App.module.scss";
 
 // 導入介紹首頁（未登入的 /；獨立 chunk，gsap 只在這裡載入）
@@ -150,6 +151,7 @@ function LegacySettingsRedirect() {
 
 function App() {
   const { user, loading, authStatus, retrySession } = useAuth();
+  useModalScrollLock();
   const isAdmin = Boolean(user?.is_superuser || user?.role === "admin");
   const canTeach = isAdmin || user?.role === "teacher";
   const isDeviceApproval = Boolean(

@@ -193,7 +193,7 @@ export default function MiningIncidentsPanel({ onCountChange }) {
           className={`${styles.modalOverlay} ${dismissDialog.closing ? styles.modalOverlayOut : ""}`}
           onClick={() => { if (!busy) closeDismiss(); }}
         >
-          <div className={styles.modal} onClick={(e) => e.stopPropagation()}>
+          <div className={styles.modal} role="dialog" aria-modal="true" onClick={(e) => e.stopPropagation()}>
             <span className={styles.modalTitle}>{t("MiningIncidentsPanel.dismissTitle")}</span>
             <p className={styles.modalDesc}>
               {t("MiningIncidentsPanel.dismissMessage", { vmid: dismissDialog.item.vmid })}

@@ -143,7 +143,7 @@ export default function TerminalDialog({ resource, onClose }) {
 
   return (
     <div className={`${styles.overlay} ${closing ? styles.overlayOut : ""}`} onClick={handleClose}>
-      <div ref={dialogRef} className={styles.dialog} onClick={(e) => e.stopPropagation()}>
+      <div ref={dialogRef} className={styles.dialog} role="dialog" aria-modal="true" onClick={(e) => e.stopPropagation()}>
         <div className={styles.header}>
           <span className={styles.headerIcon}><MIcon name="terminal" size={18} /></span>
           <span className={styles.headerTitleGroup}>

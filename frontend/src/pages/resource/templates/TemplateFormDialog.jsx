@@ -273,7 +273,7 @@ export default function TemplateFormDialog({ template, closing = false, onClose,
       className={`${styles.modalOverlay} ${closing ? styles.modalOverlayOut : ""}`}
       onClick={onClose}
     >
-      <div className={styles.modal} onClick={(e) => e.stopPropagation()}>
+      <div className={styles.modal} role="dialog" aria-modal="true" onClick={(e) => e.stopPropagation()}>
         <span className={styles.modalTitle}>
           <MIcon name="library_books" size={20} />
           {isEdit ? t("TemplateFormDialog.editTitle") : t("TemplateFormDialog.createTitle")}

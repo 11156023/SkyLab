@@ -66,7 +66,7 @@ function ReviewDialog({ open, onClose, request, action, onDone }) {
       className={`${styles.dialogOverlay} ${presence.closing ? styles.dialogOverlayOut : ""}`}
       onClick={onClose}
     >
-      <div className={styles.dialog} onClick={(e) => e.stopPropagation()}>
+      <div className={styles.dialog} role="dialog" aria-modal="true" onClick={(e) => e.stopPropagation()}>
         <h3 className={styles.dialogTitle}>
           {isApprove ? t("AiApiReviewPage.approveDialogTitle") : t("AiApiReviewPage.rejectDialogTitle")}
         </h3>

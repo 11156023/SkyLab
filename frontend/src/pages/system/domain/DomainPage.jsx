@@ -74,7 +74,7 @@ function ConfigModal({ config, loading, closing = false, onClose, onSubmit }) {
       className={`${styles.modalOverlay} ${closing ? styles.modalOverlayOut : ""}`}
       onMouseDown={onClose}
     >
-      <form className={styles.modal} onSubmit={submit} onMouseDown={(e) => e.stopPropagation()} data-guide="domain-config-form">
+      <form className={styles.modal} role="dialog" aria-modal="true" onSubmit={submit} onMouseDown={(e) => e.stopPropagation()} data-guide="domain-config-form">
         <div className={styles.modalHeader}>
           <h2>{t("DomainPage.configModalTitle")}</h2>
           <button type="button" className={styles.dialogClose} onClick={onClose} aria-label={t("DomainPage.close")} data-guide="domain-modal-close">
@@ -177,7 +177,7 @@ function RecordModal({ record, loading, closing = false, onClose, onSubmit }) {
       className={`${styles.modalOverlay} ${closing ? styles.modalOverlayOut : ""}`}
       onMouseDown={onClose}
     >
-      <form className={styles.modal} onSubmit={submit} onMouseDown={(e) => e.stopPropagation()} data-guide="domain-record-form">
+      <form className={styles.modal} role="dialog" aria-modal="true" onSubmit={submit} onMouseDown={(e) => e.stopPropagation()} data-guide="domain-record-form">
         <div className={styles.modalHeader}>
           <div>
             <h2>{isEdit ? t("DomainPage.recordModalEditTitle") : t("DomainPage.recordModalCreateTitle")}</h2>

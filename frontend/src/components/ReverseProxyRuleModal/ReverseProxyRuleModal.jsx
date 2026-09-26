@@ -133,7 +133,7 @@ export default function ReverseProxyRuleModal({
       className={`${styles.modalOverlay} ${closing ? styles.modalOverlayOut : ""}`}
       onMouseDown={onClose}
     >
-      <form className={styles.modal} onSubmit={submit} onMouseDown={(e) => e.stopPropagation()} data-guide="proxy-rule-form">
+      <form className={styles.modal} role="dialog" aria-modal="true" onSubmit={submit} onMouseDown={(e) => e.stopPropagation()} data-guide="proxy-rule-form">
         <div className={styles.modalHeader}>
           <div>
             <h2>{rule ? t("ReverseProxyRuleModal.editTitle") : t("ReverseProxyRuleModal.createTitle")}</h2>

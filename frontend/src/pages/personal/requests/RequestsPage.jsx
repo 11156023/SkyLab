@@ -207,7 +207,7 @@ function ErrorLogModal({ req, onClose }) {
       onClick={close}
       onAnimationEnd={handleAnimationEnd}
     >
-      <div className={`${styles.modal} ${styles.logModal}`} onClick={(e) => e.stopPropagation()}>
+      <div className={`${styles.modal} ${styles.logModal}`} role="dialog" aria-modal="true" onClick={(e) => e.stopPropagation()}>
         <span className={styles.modalTitle}>{t("ErrorLogModal.title", { hostname: req.hostname })}</span>
         {isProvisionedButFailed(req) && (
           <p className={styles.modalDesc}>{t("ErrorLogModal.machineFailDesc")}</p>

@@ -49,7 +49,7 @@ export default function TemplateConvertDialog({ resource, closing = false, onClo
 
   return (
     <div className={`${styles.modalOverlay} ${closing ? styles.modalOverlayOut : ""}`} onMouseDown={onClose}>
-      <form className={styles.modal} onSubmit={submit} onMouseDown={(e) => e.stopPropagation()}>
+      <form className={styles.modal} role="dialog" aria-modal="true" onSubmit={submit} onMouseDown={(e) => e.stopPropagation()}>
         <div className={styles.modalHeader}>
           <div>
             <h2>{t("TemplateConvertDialog.title")}</h2>

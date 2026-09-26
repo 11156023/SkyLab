@@ -1487,7 +1487,7 @@ function ConfirmModal({ title, description, actions, closing = false, onClose })
       className={`${styles.modalOverlay} ${closing ? styles.modalOverlayOut : ""}`}
       onMouseDown={onClose}
     >
-      <div className={styles.confirm} onMouseDown={(e) => e.stopPropagation()}>
+      <div className={styles.confirm} role="alertdialog" aria-modal="true" onMouseDown={(e) => e.stopPropagation()}>
         <div className={styles.confirmIcon}>
           <MIcon name="warning" size={24} />
         </div>
@@ -3817,7 +3817,7 @@ export function TeacherReviewTab({ classId, sessionId, members, machineNodes = [
         className={`${styles.modalOverlay} ${runOnceDialog.closing ? styles.modalOverlayOut : ""}`}
         onMouseDown={() => setRunOnceOpen(false)}
       >
-        <div className={styles.modal} onMouseDown={(event) => event.stopPropagation()}>
+        <div className={styles.modal} role="dialog" aria-modal="true" onMouseDown={(event) => event.stopPropagation()}>
           <div className={styles.modalHeader}>
             <div>
               <h2>一次執行整組檢查點</h2>
@@ -4485,7 +4485,7 @@ function TeacherWorkspacePanel({ classId, members, weeks = [], machineNodes = []
       )}
       {typeof document !== "undefined" && moveWeekTarget && createPortal(
         <div className={styles.modalOverlay} role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setMoveWeekTarget(null); }}>
-          <form className={styles.modal} onSubmit={moveSessionToWeek}>
+          <form className={styles.modal} role="dialog" aria-modal="true" onSubmit={moveSessionToWeek}>
             <div className={styles.modalHeader}>
               <div>
                 <h2>調整檢查週次</h2>
