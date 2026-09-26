@@ -3,6 +3,7 @@
 import enum
 import uuid
 from datetime import datetime
+from typing import Any
 
 import sqlalchemy as sa
 from sqlmodel import (
@@ -15,7 +16,7 @@ from sqlmodel import (
     UniqueConstraint,
 )
 
-from .base import get_datetime_utc
+from .base import JSONDocument, get_datetime_utc
 
 
 class CourseEnvironmentVersionStatus(str, enum.Enum):
@@ -194,8 +195,8 @@ class CourseEnvironmentVersion(SQLModel, table=True):
     # 實際上是全開；改成顯式欄位讓兩種意圖分開表達。
     peer_policy: str = Field(default="explicit", max_length=16)
     # Unfinished editor content is kept apart from deployable configuration.
-    draft_data: str | None = Field(
-        default=None, sa_column=Column(sa.Text, nullable=True)
+    draft_data: dict[str, Any] | None = Field(
+        default=None, sa_column=Column(JSONDocument, nullable=True)
     )
     created_at: datetime = Field(
         default_factory=get_datetime_utc,
@@ -438,16 +439,18 @@ class ClassCapacityReservation(SQLModel, table=True):
     disk_gb: int = Field(ge=1)
     ip_count: int = Field(ge=1)
     network_count: int = Field(ge=1)
-    placement_plan: str = Field(
-        default="{}",
-        sa_column=Column(sa.Text, nullable=False),
+    placement_plan: dict[str, Any] = Field(
+        default_factory=dict,
+        sa_column=Column(JSONDocument, nullable=False),
     )
     # {machine_node_id: {user_id: 節點名}} —— 整班固定在同一個叢集，但叢集內
     # 依容量把學生分散到不同節點（同一個叢集不代表同一台 server）。預留時
     # 定案並存下，建機時查表，避免兩個時間點各自重算而與預留不一致。
-    student_placements: str = Field(
-        default="{}",
-        sa_column=Column(sa.Text, nullable=False, server_default="{}"),
+    student_placements: dict[str, dict[str, str]] = Field(
+        default_factory=dict,
+        sa_column=Column(
+            JSONDocument, nullable=False, server_default=sa.text("'{}'")
+        ),
     )
     status: str = Field(default="reserved", max_length=24)
     created_at: datetime = Field(

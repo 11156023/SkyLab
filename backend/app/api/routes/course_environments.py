@@ -1,5 +1,6 @@
 """Teacher-managed, versioned per-student course environments."""
 
+import copy
 import hashlib
 import json
 import uuid
@@ -36,6 +37,7 @@ from app.repositories import vm_template as vm_template_repo
 from app.services import quick_practice
 from app.services.proxmox import proxmox_service
 from app.services.teaching import course_publication_service
+from app.services.teaching.class_network_service import network_segments
 
 router = APIRouter(prefix="/course-environments", tags=["course-environments"])
 
@@ -479,7 +481,7 @@ def _serialize_version(
         "version": version.version,
         "status": version.status,
         "configuration_hash": version.configuration_hash,
-        "draft_data": json.loads(version.draft_data) if version.draft_data else None,
+        "draft_data": version.draft_data or None,
         "created_at": environment.created_at,
         "updated_at": environment.updated_at,
         "published_at": version.published_at,
@@ -494,13 +496,9 @@ def _serialize_version(
             "memory_mb": sum(node.memory_mb for node in nodes),
             "disk_gb": sum(node.disk_gb for node in nodes),
             "ip_count": len(nodes),
+            # 與班級容量計算同一套拆法（逗號與 / 都算分隔）
             "network_count": len(
-                {
-                    name.strip()
-                    for node in nodes
-                    for name in node.network.split(",")
-                    if name.strip()
-                }
+                {name for node in nodes for name in network_segments(node.network)}
             ),
         },
     }
@@ -571,7 +569,7 @@ def create_environment_draft(
         id=uuid.uuid4(), owner_id=current_user.id, name=""
     )
     version = CourseEnvironmentVersion(
-        environment_id=environment.id, version=1, draft_data=body.model_dump_json()
+        environment_id=environment.id, version=1, draft_data=body.model_dump(mode="json")
     )
     session.add(environment)
     session.add(version)
@@ -590,7 +588,7 @@ def save_environment_draft(
     version = _latest(session, environment)
     if version.status != CourseEnvironmentVersionStatus.draft:
         raise BadRequestError(t("course_env.published_immutable"))
-    version.draft_data = body.model_dump_json()
+    version.draft_data = body.model_dump(mode="json")
     environment.updated_at = get_datetime_utc()
     session.add(version)
     session.add(environment)
@@ -693,7 +691,8 @@ def update_environment_basics(
     environment.usage_scope = body.usage_scope
     version = _latest(session, environment)
     if version.draft_data:
-        draft = json.loads(version.draft_data)
+        # 複製一份再改：JSON 欄位就地修改不會被 ORM 偵測到，不會寫回
+        draft = copy.deepcopy(version.draft_data)
         fields = {
             "name": environment.name,
             "description": environment.description,
@@ -709,7 +708,7 @@ def update_environment_basics(
                     "usageScope": body.usage_scope,
                 }
             )
-        version.draft_data = json.dumps(draft)
+        version.draft_data = draft
         session.add(version)
     environment.updated_at = get_datetime_utc()
     session.add(environment)
@@ -830,7 +829,7 @@ def publish_environment(
     if version.status != CourseEnvironmentVersionStatus.draft:
         raise BadRequestError(t("course_env.only_draft_publishable"))
     if version.draft_data:
-        draft = EnvironmentDraftIn.model_validate_json(version.draft_data)
+        draft = EnvironmentDraftIn.model_validate(version.draft_data)
         try:
             body = EnvironmentCreate.model_validate(draft.configuration)
             if not body.name.strip():

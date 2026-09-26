@@ -6,7 +6,7 @@ from datetime import datetime
 import sqlalchemy as sa
 from sqlmodel import Column, Field, SQLModel
 
-from .base import get_datetime_utc
+from .base import JSONDocument, get_datetime_utc
 
 
 class TeacherJudgeStudentSubmission(SQLModel, table=True):
@@ -54,7 +54,7 @@ class TeacherJudgeStudentSubmission(SQLModel, table=True):
     )
     completed_item_ids: list[str] = Field(
         default_factory=list,
-        sa_column=Column(sa.JSON, nullable=False),
+        sa_column=Column(JSONDocument, nullable=False),
     )
     is_ready: bool = Field(default=False, nullable=False)
     ready_at: datetime | None = Field(

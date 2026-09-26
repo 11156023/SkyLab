@@ -6,7 +6,6 @@
 
 from __future__ import annotations
 
-import json
 import logging
 import re
 import time
@@ -50,6 +49,7 @@ from app.models import (
     VMTemplate,
     VMTemplateStatus,
 )
+from app.repositories import batch_provision as batch_provision_repo
 from app.repositories import task_record as task_record_repo
 from app.repositories import vm_template as template_repo
 from app.schemas.template import (
@@ -691,8 +691,7 @@ def _open_request_count(session: Session, pve_vmid: int) -> int:
 def _open_batch_job_count(session: Session, template_id: uuid.UUID) -> int:
     """引用這個範本、且還沒跑完的批量建立工作數（待審／已審未跑／執行中）。
 
-    ``template_params`` 是 JSON 字串欄位，跨 DB 沒有可靠的 JSON 查詢，
-    所以先用狀態縮小範圍再逐筆解析（未結束的 job 數量很小）。
+    先用狀態縮小範圍再逐筆比對（未結束的 job 數量很小）。
     """
     jobs = session.exec(
         select(BatchProvisionJob).where(
@@ -709,10 +708,7 @@ def _open_batch_job_count(session: Session, template_id: uuid.UUID) -> int:
     wanted = str(template_id)
     count = 0
     for job in jobs:
-        try:
-            params = json.loads(job.template_params or "{}")
-        except (TypeError, ValueError):
-            continue
+        params = batch_provision_repo.job_params(job)
         if str(params.get("vm_template_id") or "") == wanted:
             count += 1
     return count

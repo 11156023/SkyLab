@@ -7,6 +7,8 @@ from typing import TYPE_CHECKING, Any, Optional
 import sqlalchemy as sa
 from sqlmodel import Column, DateTime, Field, Relationship, SQLModel
 
+from .base import JSONDocument
+
 if TYPE_CHECKING:
     from .user import User
     from .vm_request import VMRequest
@@ -76,7 +78,7 @@ class Resource(SQLModel, table=True):
     os_info: str | None = Field(default=None, description="Operating system info")
     guest_os: dict[str, Any] | None = Field(
         default=None,
-        sa_column=Column(sa.JSON, nullable=True),
+        sa_column=Column(JSONDocument, nullable=True),
         description=(
             "結構化 Guest OS 身份（os_detection 契約：family/id/version/"
             "pretty_name/source/confidence/detected_at）；偵測一次後保存，"

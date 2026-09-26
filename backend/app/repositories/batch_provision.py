@@ -1,7 +1,9 @@
 """批量建立資源 repository"""
 
+import json
 import uuid
 from datetime import UTC, datetime
+from typing import Any
 
 from sqlmodel import Session, col, select
 
@@ -14,6 +16,18 @@ from app.models.batch_provision import (
 from app.models.resource import Resource
 
 
+def job_params(job: Any) -> dict[str, Any]:
+    """批量工作的 template_params；相容遷移前以 JSON 字串存放的舊值。"""
+    value = getattr(job, "template_params", None)
+    if isinstance(value, dict):
+        return value
+    try:
+        data = json.loads(value or "{}")
+    except (TypeError, ValueError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
 def create_job(
     *,
     session: Session,
@@ -21,7 +35,7 @@ def create_job(
     initiated_by: uuid.UUID,
     resource_type: str,
     hostname_prefix: str,
-    template_params: str,
+    template_params: dict[str, Any],
     member_user_ids: list[uuid.UUID],
     initial_status: BatchProvisionJobStatus = BatchProvisionJobStatus.pending_review,
     recurrence_rule: str | None = None,

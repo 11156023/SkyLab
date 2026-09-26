@@ -603,10 +603,10 @@ class TestProvisioningFollowsStoredPlacement:
                 disk_gb=40,
                 ip_count=2,
                 network_count=1,
-                placement_plan="{}",
-                student_placements=json.dumps(
-                    {str(machine.id): {str(alice): "a1", str(bob): "a2"}}
-                ),
+                placement_plan={},
+                student_placements={
+                    str(machine.id): {str(alice): "a1", str(bob): "a2"}
+                },
             )
         )
         session.flush()

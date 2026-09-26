@@ -10,7 +10,7 @@ from typing import Any
 import sqlalchemy as sa
 from sqlmodel import Column, Field, SQLModel
 
-from .base import get_datetime_utc
+from .base import JSONDocument, get_datetime_utc
 
 
 class TeacherJudgeFileStatus(str, enum.Enum):
@@ -72,12 +72,12 @@ class TeacherJudgeFile(SQLModel, table=True):
     display_name: str = Field(default="檢查表", max_length=255)
     environment_keys: list[str] = Field(
         default_factory=list,
-        sa_column=Column(sa.JSON, nullable=False),
+        sa_column=Column(JSONDocument, nullable=False),
     )
     analysis_revision: int = Field(default=1, nullable=False)
     analysis_json: dict[str, Any] = Field(
         default_factory=dict,
-        sa_column=Column(sa.JSON, nullable=False),
+        sa_column=Column(JSONDocument, nullable=False),
     )
     status: TeacherJudgeFileStatus = Field(
         default=TeacherJudgeFileStatus.active,

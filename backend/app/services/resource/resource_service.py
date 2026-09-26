@@ -1,4 +1,3 @@
-import json
 import logging
 import math
 import time
@@ -391,10 +390,7 @@ def _teaching_display_names(
                 col(BatchProvisionJob.id).in_(jobs_needed)
             )
         ).all():
-            try:
-                params = json.loads(job.template_params)
-            except (TypeError, ValueError):
-                continue
+            params = batch_provision_repo.job_params(job)
             prefix = params.get("ip_reservation_prefix")
             if isinstance(prefix, str) and ":" in prefix:
                 params_by_job[job.id] = params

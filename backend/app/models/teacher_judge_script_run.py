@@ -8,7 +8,7 @@ from typing import Any
 import sqlalchemy as sa
 from sqlmodel import Column, Field, SQLModel
 
-from .base import get_datetime_utc
+from .base import JSONDocument, get_datetime_utc
 
 
 class TeacherJudgeScriptRunTargetScope(str, enum.Enum):
@@ -74,7 +74,7 @@ class TeacherJudgeScriptRun(SQLModel, table=True):
     )
     target_snapshot_json: dict[str, Any] = Field(
         default_factory=dict,
-        sa_column=Column(sa.JSON, nullable=False),
+        sa_column=Column(JSONDocument, nullable=False),
     )
     status: TeacherJudgeScriptRunStatus = Field(
         default=TeacherJudgeScriptRunStatus.pending,
@@ -87,15 +87,15 @@ class TeacherJudgeScriptRun(SQLModel, table=True):
     )
     progress_json: dict[str, Any] = Field(
         default_factory=dict,
-        sa_column=Column(sa.JSON, nullable=False),
+        sa_column=Column(JSONDocument, nullable=False),
     )
     result_summary_json: dict[str, Any] = Field(
         default_factory=dict,
-        sa_column=Column(sa.JSON, nullable=False),
+        sa_column=Column(JSONDocument, nullable=False),
     )
     target_results_json: dict[str, Any] = Field(
         default_factory=dict,
-        sa_column=Column(sa.JSON, nullable=False),
+        sa_column=Column(JSONDocument, nullable=False),
     )
     started_by: uuid.UUID | None = Field(
         default=None,

@@ -10,7 +10,7 @@ from typing import Any
 import sqlalchemy as sa
 from sqlmodel import Column, Field, SQLModel
 
-from .base import get_datetime_utc
+from .base import JSONDocument, get_datetime_utc
 
 
 class TeacherJudgeScriptStatus(str, enum.Enum):
@@ -80,7 +80,7 @@ class TeacherJudgeScriptArtifact(SQLModel, table=True):
     template_key: str = Field(max_length=50, index=True)
     rubric_snapshot_json: dict[str, Any] = Field(
         default_factory=dict,
-        sa_column=Column(sa.JSON, nullable=False),
+        sa_column=Column(JSONDocument, nullable=False),
     )
     source_file_id: uuid.UUID | None = Field(
         default=None,
@@ -93,7 +93,7 @@ class TeacherJudgeScriptArtifact(SQLModel, table=True):
     )
     source_file_snapshot_json: dict[str, Any] = Field(
         default_factory=dict,
-        sa_column=Column(sa.JSON, nullable=False),
+        sa_column=Column(JSONDocument, nullable=False),
     )
     script_language: TeacherJudgeScriptLanguage = Field(
         default=TeacherJudgeScriptLanguage.python,
@@ -124,11 +124,11 @@ class TeacherJudgeScriptArtifact(SQLModel, table=True):
     )
     policy_check_result_json: dict[str, Any] = Field(
         default_factory=dict,
-        sa_column=Column(sa.JSON, nullable=False),
+        sa_column=Column(JSONDocument, nullable=False),
     )
     ai_review_result_json: dict[str, Any] = Field(
         default_factory=dict,
-        sa_column=Column(sa.JSON, nullable=False),
+        sa_column=Column(JSONDocument, nullable=False),
     )
     created_by: uuid.UUID | None = Field(
         default=None,

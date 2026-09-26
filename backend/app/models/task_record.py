@@ -3,11 +3,12 @@
 import enum
 import uuid
 from datetime import datetime
+from typing import Any
 
 import sqlalchemy as sa
 from sqlmodel import Column, DateTime, Enum, Field, SQLModel
 
-from .base import get_datetime_utc
+from .base import JSONDocument, get_datetime_utc
 
 
 class TaskRecordStatus(str, enum.Enum):
@@ -44,9 +45,10 @@ class TaskRecord(SQLModel, table=True):
             index=True,
         ),
     )
-    payload: str = Field(
-        sa_column=Column(sa.Text, nullable=False),
-        description="JSON-encoded 任務參數",
+    payload: dict[str, Any] = Field(
+        default_factory=dict,
+        sa_column=Column(JSONDocument, nullable=False),
+        description="任務參數",
     )
     status: TaskRecordStatus = Field(
         default=TaskRecordStatus.queued,
@@ -57,10 +59,10 @@ class TaskRecord(SQLModel, table=True):
         ),
     )
     progress: int = Field(default=0, description="0-100")
-    result: str | None = Field(
+    result: dict[str, Any] | None = Field(
         default=None,
-        sa_column=Column(sa.Text, nullable=True),
-        description="JSON-encoded 任務結果",
+        sa_column=Column(JSONDocument, nullable=True),
+        description="任務結果",
     )
     error: str | None = Field(default=None, max_length=1000)
     resource_vmid: int | None = Field(

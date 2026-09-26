@@ -3,9 +3,12 @@
 import enum
 import uuid
 from datetime import datetime
+from typing import Any
 
 import sqlalchemy as sa
 from sqlmodel import Column, DateTime, Enum, Field, SQLModel, UniqueConstraint
+
+from .base import JSONDocument
 
 
 class BatchProvisionJobStatus(str, enum.Enum):
@@ -55,7 +58,10 @@ class BatchProvisionJob(SQLModel, table=True):
     resource_type: str = Field(max_length=10)  # "lxc" or "qemu"
     hostname_prefix: str = Field(max_length=63)
     # JSON-encoded 建立參數（不含 hostname，由 service 自動組合）
-    template_params: str = Field(sa_column=Column(sa.Text, nullable=False))
+    # 建立時的規格快照（cores/memory/範本/IP 預留前綴…）
+    template_params: dict[str, Any] = Field(
+        default_factory=dict, sa_column=Column(JSONDocument, nullable=False)
+    )
     status: BatchProvisionJobStatus = Field(
         default=BatchProvisionJobStatus.pending,
         sa_column=Column(
