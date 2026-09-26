@@ -204,7 +204,9 @@ def test_check_gateway_uses_policy_and_caches(monkeypatch: pytest.MonkeyPatch) -
     [component] = system_health_service.check_gateway()
     assert component["status"] == "attention"
     assert component["latency_ms"] is not None
-    assert "soon.example.com" in component["alert_message"]
+    # 比對第一個 token 而非子字串（CodeQL py/incomplete-url-substring-sanitization 會誤判）
+    assert component["detail"].split(" ", 1)[0] == "soon.example.com"
+    assert component["alert_message"].endswith(component["detail"])
 
     # 快取期間不再開 SSH；/metrics 讀的也是同一份
     system_health_service.check_gateway()
