@@ -72,49 +72,48 @@ export default function QuickTemplateFormPage() {
 
   return <div className={styles.page}>
     <PageHeader title={t("QuickTemplateFormPage.title")}>
-      <button type="button" className={styles.backBtn} onClick={onBack}><MIcon name="arrow_back" size={18} />{t("QuickTemplateFormPage.back")}</button>
+      <button type="button" className={styles.backBtn} onClick={onBack}><MIcon name="arrow_back" size={16} />{t("QuickTemplateFormPage.back")}</button>
     </PageHeader>
 
-    <div className={styles.body}>
-      <div className={styles.formScroll}>
-        <div className={styles.form}>
-          <section className={styles.templateHeader}>
-            <div className={styles.templateLogo}><MIcon name="account_tree" size={28} /></div>
-            <div className={styles.templateMeta}>
-              <div className={styles.templateTitleRow}><h2 className={styles.templateName}>{template.name}</h2></div>
-              {template.description && <p className={styles.templateDesc}>{template.description}</p>}
-              <div className={styles.templateChips}><span className={styles.portChip}><MIcon name="dns" size={12} />{t("QuickTemplateFormPage.machineCount", { count: template.nodes.length })}</span><span className={styles.portChip}><MIcon name="schedule" size={12} />{t("QuickTemplateFormPage.durationHours", { count: template.duration_hours })}</span><span className={styles.portChip}>v{template.version}</span></div>
-              <p className={styles.templateStatus}><MIcon name="bolt" size={13} />{t("QuickTemplateFormPage.autoApproveNote")}</p>
-            </div>
-          </section>
-
-          <section className={`${styles.section} ${styles.sectionPadded}`}>
-            <h3 className={styles.sectionTitle}>{t("QuickTemplateFormPage.machinesToCreate")}</h3>
-            <div className={styles.machineList}>
-              {template.nodes.map((node, index) => <article key={node.id}>
-                <span className={styles.machineIndex}>{index + 1}</span>
-                <span className={styles.machineIcon}><MIcon name={node.type === "lxc" ? "terminal" : "desktop_windows"} size={19} /></span>
-                <div><strong>{node.name}</strong><small>{node.role} · {String(node.type).toUpperCase()}</small></div>
-                <span className={styles.machineSpec}>{t("QuickTemplateFormPage.machineSpec", { cpu: node.cpu, memory: node.memory, disk: node.disk })}</span>
-              </article>)}
-            </div>
-            <div className={styles.environmentTotal}><span>{t("QuickTemplateFormPage.environmentTotal")}</span><strong>{t("QuickTemplateFormPage.environmentTotalSpec", { cpu: totalCpu, memory: totalMemory, disk: totalDisk })}</strong></div>
-          </section>
-
-          <section className={`${styles.section} ${styles.sectionPadded}`}>
-            <h3 className={styles.sectionTitle}>{t("QuickTemplateFormPage.usageRules")}</h3>
-            <div className={styles.ruleList}>
-              <p><MIcon name="verified" size={17} /><span><strong>{t("QuickTemplateFormPage.ruleNoReviewTitle")}</strong></span></p>
-              <p><MIcon name="tune" size={17} /><span><strong>{t("QuickTemplateFormPage.ruleFixedConfigTitle")}</strong></span></p>
-              <p><MIcon name="timer" size={17} /><span><strong>{t("QuickTemplateFormPage.ruleDurationTitle", { hours: template.duration_hours })}</strong></span></p>
-            </div>
-          </section>
+    <div className={styles.form}>
+      <section className={styles.templateHeader}>
+        <div className={styles.templateLogo}><MIcon name="account_tree" size={28} /></div>
+        <div className={styles.templateMeta}>
+          {/* 說明一律緊貼在大標下方，不在晶片後面自成一行 */}
+          <div className={styles.templateTitleBlock}>
+            <h2 className={styles.templateName}>{template.name}</h2>
+            <p className={styles.templateStatus}>{t("QuickTemplateFormPage.autoApproveNote")}</p>
+          </div>
+          {template.description && <p className={styles.templateDesc}>{template.description}</p>}
+          <div className={styles.templateChips}><span className={styles.portChip}><MIcon name="dns" size={12} />{t("QuickTemplateFormPage.machineCount", { count: template.nodes.length })}</span><span className={styles.portChip}><MIcon name="schedule" size={12} />{t("QuickTemplateFormPage.durationHours", { count: template.duration_hours })}</span><span className={styles.portChip}>v{template.version}</span></div>
         </div>
+      </section>
 
-        <div className={styles.actions}>
-          <button type="button" className={styles.btnSecondary} onClick={onBack}>{t("QuickTemplateFormPage.cancel")}</button>
-          <button type="button" className={styles.btnPrimary} disabled={submitting} onClick={launch}><MIcon name={submitting ? "hourglass_empty" : "bolt"} size={16} />{submitting ? t("QuickTemplateFormPage.launching") : t("QuickTemplateFormPage.launchButton", { count: template.nodes.length })}</button>
+      <section className={styles.section}>
+        <h3 className={styles.sectionTitle}>{t("QuickTemplateFormPage.machinesToCreate")}</h3>
+        <div className={styles.machineList}>
+          {template.nodes.map((node, index) => <article key={node.id}>
+            <span className={styles.machineIndex}>{index + 1}</span>
+            <span className={styles.machineIcon}><MIcon name={node.type === "lxc" ? "terminal" : "desktop_windows"} size={18} /></span>
+            <div><strong>{node.name}</strong><small>{node.role} · {String(node.type).toUpperCase()}</small></div>
+            <span className={styles.machineSpec}>{t("QuickTemplateFormPage.machineSpec", { cpu: node.cpu, memory: node.memory, disk: node.disk })}</span>
+          </article>)}
         </div>
+        <div className={styles.environmentTotal}><span>{t("QuickTemplateFormPage.environmentTotal")}</span><strong>{t("QuickTemplateFormPage.environmentTotalSpec", { cpu: totalCpu, memory: totalMemory, disk: totalDisk })}</strong></div>
+      </section>
+
+      <section className={styles.section}>
+        <h3 className={styles.sectionTitle}>{t("QuickTemplateFormPage.usageRules")}</h3>
+        <div className={styles.ruleList}>
+          <p><MIcon name="verified" size={18} /><strong>{t("QuickTemplateFormPage.ruleNoReviewTitle")}</strong></p>
+          <p><MIcon name="tune" size={18} /><strong>{t("QuickTemplateFormPage.ruleFixedConfigTitle")}</strong></p>
+          <p><MIcon name="timer" size={18} /><strong>{t("QuickTemplateFormPage.ruleDurationTitle", { hours: template.duration_hours })}</strong></p>
+        </div>
+      </section>
+
+      <div className={styles.actions}>
+        <button type="button" className={styles.btnSecondary} onClick={onBack}>{t("QuickTemplateFormPage.cancel")}</button>
+        <button type="button" className={styles.btnPrimary} disabled={submitting} onClick={launch}><MIcon name={submitting ? "hourglass_top" : "bolt"} size={16} spin={submitting} />{submitting ? t("QuickTemplateFormPage.launching") : t("QuickTemplateFormPage.launchButton", { count: template.nodes.length })}</button>
       </div>
     </div>
   </div>;
