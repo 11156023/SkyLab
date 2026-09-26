@@ -10,7 +10,7 @@ from sqlmodel import Session, select
 
 from app.core.authorizers import require_ai_api_access, require_ai_api_manage
 from app.core.i18n import t
-from app.core.security import encrypt_value
+from app.core.security import decrypt_value, encrypt_value
 from app.exceptions import BadRequestError, NotFoundError
 from app.features.ai.config import settings as ai_api_settings
 from app.models import (
@@ -126,10 +126,22 @@ def _to_credential_public(credential: AIAPICredential) -> AIAPICredentialPublic:
 def _to_credential_with_secret(
     credential: AIAPICredential, *, api_key: str | None
 ) -> AIAPICredentialWithSecret:
-    """輪替當下的一次性回應；``api_key`` 為 None 時只回前綴。"""
+    """擁有者詳細資料／輪替回應；代操輪替時只回前綴。"""
     return AIAPICredentialWithSecret(
         **_to_credential_public(credential).model_dump(),
         api_key=api_key,
+    )
+
+
+def get_credential(
+    *, session: Session, credential_id: uuid.UUID, current_user
+) -> AIAPICredentialWithSecret:
+    """只有擁有者本人可以讀取完整金鑰，管理權限不授予明文讀取權限。"""
+    credential = session.get(AIAPICredential, credential_id)
+    if not credential or _acting_on_behalf(credential, current_user):
+        raise NotFoundError(t("ai_gateway.credential_not_found"))
+    return _to_credential_with_secret(
+        credential, api_key=decrypt_value(credential.api_key_encrypted)
     )
 
 

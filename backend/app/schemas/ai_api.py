@@ -59,9 +59,9 @@ class AIAPICredentialPublic(BaseModel):
 
 
 class AIAPICredentialWithSecret(AIAPICredentialPublic):
-    """核發／輪替當下的一次性回應。
+    """擁有者的單把金鑰詳細資料及輪替回應。
 
-    ``api_key`` 只在操作者本人輪替自己的金鑰時帶明文；管理員代操時留 None，
+    ``api_key`` 只對擁有者本人提供明文；管理員代操輪替時留 None，
     只回前綴——代操的目的是撤換，不是取得別人的金鑰。
     """
 
