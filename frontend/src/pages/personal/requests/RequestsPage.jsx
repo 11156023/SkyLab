@@ -116,6 +116,7 @@ const SPEC_COLUMN_KEYS = [
   "RequestsPage.specColChange",
   "RequestsPage.colReason",
   "RequestsPage.colRequestedAt",
+  "RequestsPage.specColAppliedAt",
   "RequestsPage.colStatus",
   "RequestsPage.colActions",
 ];
@@ -155,19 +156,6 @@ function StatusBadge({ req }) {
     <span className={`${styles.badge} ${styles[`badge_${s.color}`]}`}>
       {s.label}
     </span>
-  );
-}
-
-function InfoRow({ icon, label, value }) {
-  if (!value) return null;
-  return (
-    <div className={styles.infoRow}>
-      <span className={styles.infoLabel}>
-        <MIcon name={icon} size={12} />
-        {label}
-      </span>
-      <span className={styles.infoValue}>{value}</span>
-    </div>
   );
 }
 
@@ -384,7 +372,6 @@ function SpecRequestRow({ req, onUpdated }) {
   const { user } = useAuth();
   const showVmid = user?.is_superuser || user?.role === "admin" || user?.role === "teacher";
   const confirm = useConfirm();
-  const [expanded, setExpanded]           = useState(false);
   const [busy, setBusy]                   = useState(false);
 
   const display     = specRequestDisplayStatus(req);
@@ -399,8 +386,6 @@ function SpecRequestRow({ req, onUpdated }) {
       ? req.review_comment
       : null;
   const applyNote = req.apply_error || null;
-  const appliedAt = formatDatetime(req.applied_at);
-  const hasDetail = Boolean(reviewNote || applyNote || deletedByMachine || appliedAt);
 
   async function handleApply() {
     const ok = await confirm({
@@ -444,101 +429,72 @@ function SpecRequestRow({ req, onUpdated }) {
   const machineName = req.resource_name || t("SpecRequestRow.machineFallback", { vmid: req.vmid });
 
   return (
-    <>
-      <tr
-        className={`${styles.tr} ${hasDetail ? styles.trClickable : ""} ${expanded ? styles.trExpanded : ""}`}
-        onClick={hasDetail ? (event) => {
-          if (event.target.closest("button")) return;
-          setExpanded((v) => !v);
-        } : undefined}
-      >
-        <td className={styles.td}>
-          <div className={styles.nameCell}>
-            {hasDetail ? (
-              <button
-                type="button"
-                className={styles.expandBtn}
-                aria-expanded={expanded}
-                aria-label={expanded ? t("RequestRow.collapseDetails") : t("RequestRow.expandDetails")}
-                onClick={() => setExpanded((v) => !v)}
-              >
-                <MIcon name={expanded ? "expand_more" : "chevron_right"} size={16} />
-              </button>
-            ) : (
-              <span className={styles.expandPlaceholder} aria-hidden="true" />
-            )}
-            <div className={styles.nameIcon}>
-              <MIcon name="tune" size={18} />
-            </div>
-            <div className={styles.nameMeta}>
-              <span className={styles.namePrimary} title={machineName}>{machineName}</span>
-              <span className={styles.nameSub}>
-                {t("SpecRequestRow.kindLabel")}
-                {showVmid && t("RequestRow.numberSuffix", { vmid: req.vmid })}
-              </span>
-            </div>
+    <tr className={styles.tr}>
+      <td className={styles.td}>
+        <div className={styles.nameCell}>
+          <div className={styles.nameIcon}>
+            <MIcon name="tune" size={18} />
           </div>
-        </td>
-        <td className={styles.td}>
-          <span className={styles.specCell}>{specRequestChangeLabel(req, t)}</span>
-        </td>
-        <td className={styles.td}>
-          <span className={styles.reasonCell} title={req.reason || undefined}>
-            {req.reason || "—"}
-          </span>
-        </td>
-        <td className={styles.td}>{formatDate(req.created_at)}</td>
-        <td className={styles.td}>
+          <div className={styles.nameMeta}>
+            <span className={styles.namePrimary} title={machineName}>{machineName}</span>
+            <span className={styles.nameSub}>
+              {t("SpecRequestRow.kindLabel")}
+              {showVmid && t("RequestRow.numberSuffix", { vmid: req.vmid })}
+            </span>
+          </div>
+        </div>
+      </td>
+      <td className={styles.td}>
+        <span className={styles.specCell}>{specRequestChangeLabel(req, t)}</span>
+      </td>
+      <td className={styles.td}>
+        <span className={styles.reasonCell} title={req.reason || undefined}>
+          {req.reason || "—"}
+        </span>
+      </td>
+      <td className={styles.td}>{formatDate(req.created_at)}</td>
+      <td className={styles.td}>
+        <span className={styles.dateTimeCell}>{formatDatetime(req.applied_at) ?? "—"}</span>
+      </td>
+      <td className={styles.td}>
+        <div className={styles.statusCell}>
           <span className={`${styles.badge} ${styles[`badge_${display.color}`]}`}>{statusLabel}</span>
-        </td>
-        <td className={styles.td}>
-          <div className={styles.rowActions}>
-            {!hasAction && <span className={styles.emptyAction}>—</span>}
-            {showApply && (
-              <button type="button" className={styles.applyBtn} disabled={busy} onClick={handleApply}>
-                <MIcon name="play_arrow" size={13} />
-                {display.key === "ready" ? t("SpecRequestRow.apply") : t("SpecRequestRow.reapply")}
-              </button>
-            )}
-            {showCancel && (
-              <button type="button" className={styles.cancelBtn} disabled={busy} onClick={handleCancel}>
-                <MIcon name="close" size={13} />
-                {t("SpecRequestRow.cancel")}
-              </button>
-            )}
-          </div>
-        </td>
-      </tr>
-
-      {expanded && (
-        <tr className={styles.detailTr}>
-          <td className={styles.detailTd} colSpan={SPEC_COLUMN_KEYS.length}>
-            <div className={styles.detailBody}>
-              <InfoRow icon="event_available" label={t("SpecRequestRow.appliedAtLabel")} value={appliedAt} />
-              {reviewNote && (
-                <div className={styles.reviewComment}>
-                  <MIcon name="comment" size={13} />
-                  <span>{reviewNote}</span>
-                </div>
-              )}
-              {deletedByMachine && (
-                <div className={styles.reviewComment}>
-                  <MIcon name="info" size={13} />
-                  <span>{t("SpecRequestRow.deletedNote")}</span>
-                </div>
-              )}
-              {applyNote && (
-                <div className={styles.reviewComment}>
-                  <MIcon name={req.applied_at ? "warning" : "error_outline"} size={13} />
-                  <span>{applyNote}</span>
-                </div>
-              )}
-            </div>
-          </td>
-        </tr>
-      )}
-
-    </>
+          {/* 展開明細已移除（比照上方申請表）：審核備註／機器已刪除／套用失敗訊息改掛在小圖示的 tooltip */}
+          {reviewNote && (
+            <span className={styles.statusNote} title={reviewNote}>
+              <MIcon name="comment" size={14} />
+            </span>
+          )}
+          {deletedByMachine && (
+            <span className={styles.statusNote} title={t("SpecRequestRow.deletedNote")}>
+              <MIcon name="info" size={14} />
+            </span>
+          )}
+          {applyNote && (
+            <span className={styles.statusNote} title={applyNote}>
+              <MIcon name={req.applied_at ? "warning" : "error_outline"} size={14} />
+            </span>
+          )}
+        </div>
+      </td>
+      <td className={styles.td}>
+        <div className={styles.rowActions}>
+          {!hasAction && <span className={styles.emptyAction}>—</span>}
+          {showApply && (
+            <button type="button" className={styles.applyBtn} disabled={busy} onClick={handleApply}>
+              <MIcon name="play_arrow" size={13} />
+              {display.key === "ready" ? t("SpecRequestRow.apply") : t("SpecRequestRow.reapply")}
+            </button>
+          )}
+          {showCancel && (
+            <button type="button" className={styles.cancelBtn} disabled={busy} onClick={handleCancel}>
+              <MIcon name="close" size={13} />
+              {t("SpecRequestRow.cancel")}
+            </button>
+          )}
+        </div>
+      </td>
+    </tr>
   );
 }
 
@@ -685,8 +641,8 @@ export default function RequestsPage() {
                   <table className={styles.table}>
                     <thead>
                       <tr>
-                        {SPEC_COLUMN_KEYS.map((columnKey, idx) => (
-                          <th key={columnKey} className={idx === 0 ? `${styles.th} ${styles.thName}` : styles.th}>{t(columnKey)}</th>
+                        {SPEC_COLUMN_KEYS.map((columnKey) => (
+                          <th key={columnKey} className={styles.th}>{t(columnKey)}</th>
                         ))}
                       </tr>
                     </thead>
