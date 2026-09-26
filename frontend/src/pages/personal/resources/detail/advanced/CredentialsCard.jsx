@@ -38,12 +38,7 @@ function PasswordModal({ closing, loading, willReboot, onClose, onSubmit }) {
       <form className={styles.modal} onSubmit={submit} onMouseDown={(e) => e.stopPropagation()}>
         <h2 className={styles.modalTitle}>{t("CredentialsCard.resetPasswordTitle")}</h2>
         <p className={styles.modalDesc}>{t("CredentialsCard.resetPasswordDesc")}</p>
-        {willReboot && (
-          <p className={`${styles.hintLine} ${styles.hintWarn}`}>
-            <MIcon name="restart_alt" size={14} />
-            {t("CredentialsCard.rebootWarning")}
-          </p>
-        )}
+        {willReboot && <p className={`${styles.modalDesc} ${styles.hintWarn}`}>{t("CredentialsCard.rebootWarning")}</p>}
         <label className={styles.checkRow}>
           <input type="checkbox" checked={custom} onChange={(e) => setCustom(e.target.checked)} />
           <span>{t("CredentialsCard.useCustomPassword")}</span>
@@ -193,6 +188,13 @@ export default function CredentialsCard({ vmid, canManage }) {
             <MIcon name="key" size={18} />
             {t("CredentialsCard.title")}
           </h2>
+          {/* 卡片層級的說明一律放在大標下方（cardDesc），不在內文自成一行 */}
+          {requiresRunning && (
+            <p className={`${styles.cardDesc} ${styles.hintWarn}`}>{t("CredentialsCard.requiresRunning")}</p>
+          )}
+          {info?.resource_type === "qemu" && (
+            <p className={styles.cardDesc}>{t("CredentialsCard.cloudInitNote")}</p>
+          )}
         </div>
         {canManage && info && (
           <div className={styles.headerActions}>
@@ -212,19 +214,6 @@ export default function CredentialsCard({ vmid, canManage }) {
           <LoadingState text={t("CredentialsCard.loading")} />
         ) : (
           <>
-            {requiresRunning && (
-              <p className={`${styles.hintLine} ${styles.hintWarn}`}>
-                <MIcon name="info" size={14} />
-                {t("CredentialsCard.requiresRunning")}
-              </p>
-            )}
-            {info.resource_type === "qemu" && (
-              <p className={styles.hintLine}>
-                <MIcon name="info" size={14} />
-                {t("CredentialsCard.cloudInitNote")}
-              </p>
-            )}
-
             <div className={styles.factGrid}>
               <div className={styles.fact}>
                 <span className={styles.factLabel}>{t("CredentialsCard.usernameLabel")}</span>

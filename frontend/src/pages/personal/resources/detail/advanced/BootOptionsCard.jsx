@@ -114,6 +114,8 @@ export default function BootOptionsCard({ vmid, canManage }) {
             <MIcon name="power_settings_new" size={18} />
             {t("BootOptionsCard.title")}
           </h2>
+          {/* 主機開機時自動啟動：系統自動管理，說明放在大標下方 */}
+          <p className={styles.cardDesc}>{t("BootOptionsCard.onbootAutoNote")}</p>
         </div>
       </div>
       <div className={styles.cardBody}>
@@ -121,12 +123,6 @@ export default function BootOptionsCard({ vmid, canManage }) {
           <LoadingState text={t("BootOptionsCard.loading")} />
         ) : (
           <>
-            {/* 主機開機時自動啟動：系統自動管理，僅說明 */}
-            <p className={styles.hintLine}>
-              <MIcon name="restart_alt" size={14} />
-              {t("BootOptionsCard.onbootAutoNote")}
-            </p>
-
             {/* 開機順序 */}
             {options.supports_boot_order && (
               <div className={styles.rowStack}>

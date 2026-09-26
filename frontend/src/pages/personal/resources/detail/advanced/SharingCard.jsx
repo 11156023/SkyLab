@@ -144,6 +144,8 @@ export default function SharingCard({ vmid, resource, canManage, backTo }) {
             <MIcon name="group" size={18} />
             {t("SharingCard.title")}
           </h2>
+          {/* 卡片層級的說明放在大標下方（cardDesc），不在內文自成一行 */}
+          {!classGoverned && canManage && <p className={styles.cardDesc}>{t("SharingCard.scopeNote")}</p>}
         </div>
         {canManage && !classGoverned && (
           <div className={styles.headerActions}>
@@ -205,10 +207,6 @@ export default function SharingCard({ vmid, resource, canManage, backTo }) {
                 </button>
               </form>
             )}
-            <p className={styles.hintLine}>
-              <MIcon name="info" size={14} />
-              {t("SharingCard.scopeNote")}
-            </p>
           </>
         )}
       </div>

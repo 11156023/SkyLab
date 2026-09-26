@@ -642,14 +642,11 @@
   @include btn-icon;
 }
 
-/* 修飾類：未 hover 前文字即為紅色 */
+/* 刪除類圖示鈕：直接用 btn-icon 的危險款（紅字淡紅底）。
+   不再疊在一般款上只改字色——一般款的淺藍底會留著，紅字配藍底（見 hover:not(:disabled) 權重陷阱）。
+   JSX 仍與 .rpIconBtn 並用，這條排在後面、同權重，整組蓋過一般款 */
 .rpIconBtnDanger {
-  color: var(--color-danger);
-
-  &:hover:not(:disabled) {
-    color: var(--color-danger);
-    background: color-mix(in srgb, var(--color-danger) 9%, transparent);
-  }
+  @include btn-icon($danger: true);
 }
 
 /* ── 未填欄位：紅框（fieldInvalid 標在 .field 容器上） ── */
@@ -661,10 +658,11 @@
 }
 
 /* ── 進階設定：共用元素 ── */
+/* 輸入框＋按鈕同一列：按鈕對齊輸入框的垂直中線（兩行的公鑰 textarea 也置中） */
 .inlineForm {
   display: flex;
   gap: $spacing-8;
-  align-items: flex-start;
+  align-items: center;
   flex-wrap: wrap;
 
   input,
@@ -860,13 +858,17 @@
   gap: $spacing-8;
 }
 
+/* 公鑰列：玻璃卡內的內容區塊一律白底細框；固定最低高度，
+   有刪除鈕（32px）與只有「平台金鑰」標籤的列才會一樣高 */
 .keyItem {
   display: flex;
   align-items: center;
   gap: $spacing-8;
-  padding: $spacing-8 $spacing-16;
+  min-height: 46px; /* 32px 刪除鈕＋上下 6px＋框線 */
+  padding: 6px $spacing-16;
   border: 1px solid var(--color-border);
   border-radius: $radius-8;
+  background: var(--color-surface);
 }
 
 .keyText {
