@@ -9,8 +9,17 @@ from fastapi import APIRouter, Query
 from app.api.deps import AdminUser, CurrentUser, SessionDep
 from app.infrastructure.redis import get_redis
 from app.repositories import governance as governance_repo
-from app.schemas.monitoring import AlertEventPublic, MonitoringOverview, SystemHealth
-from app.services.monitoring import monitoring_service, system_health_service
+from app.schemas.monitoring import (
+    AlertEventPublic,
+    GrafanaLink,
+    MonitoringOverview,
+    SystemHealth,
+)
+from app.services.monitoring import (
+    grafana_service,
+    monitoring_service,
+    system_health_service,
+)
 
 router = APIRouter(prefix="/monitoring", tags=["monitoring"])
 
@@ -20,6 +29,12 @@ async def get_system_health(_: AdminUser) -> SystemHealth:
     """平台本身的健康：DB、Redis、worker、PVE API 連線與排程任務心跳。"""
     data = await asyncio.to_thread(system_health_service.collect_system_health)
     return SystemHealth.model_validate(data)
+
+
+@router.get("/grafana", response_model=GrafanaLink)
+async def get_grafana_link(_: AdminUser) -> GrafanaLink:
+    """監控 stack 的 Grafana 是否啟用（連得到才回網址），供資源監控頁顯示連結。"""
+    return GrafanaLink.model_validate(await grafana_service.get_grafana_link())
 
 
 @router.get("/overview", response_model=MonitoringOverview)

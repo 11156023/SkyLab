@@ -458,6 +458,7 @@
   "MonitoringPage.nodesOnline": "Nodes Online",
   "MonitoringPage.online": "Online",
   "MonitoringPage.pageTitle": "Resource Monitoring",
+  "MonitoringPage.openGrafana": "View details in Grafana",
   "MonitoringPage.scopeCluster": "Cluster",
   "MonitoringPage.scopeNode": "Node",
   "MonitoringPage.thresholdSuffix": " (threshold {{threshold}}%)",

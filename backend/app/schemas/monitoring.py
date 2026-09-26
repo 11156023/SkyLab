@@ -152,6 +152,13 @@ class SystemHealth(BaseModel):
     heartbeat_source: Literal["redis", "memory"]
 
 
+class GrafanaLink(BaseModel):
+    """監控 stack 的 Grafana 是否啟用；enabled 為 False 時 url 為 None。"""
+
+    enabled: bool
+    url: str | None = None
+
+
 class AlertEventPublic(BaseModel):
     """警告事件（open = resolved_at 為 None）。"""
 

@@ -315,6 +315,8 @@ export default function MonitoringPage() {
   const [miningCount, setMiningCount] = useState(null);
   /* 節點用量整卡收合：預設收起省版面，標題列保留在線摘要 */
   const [nodesOpen, setNodesOpen] = useState(loadNodesOpen);
+  /* 監控 stack 有啟用（後端連得到 Grafana）才顯示連結；查詢失敗就當沒啟用 */
+  const [grafanaUrl, setGrafanaUrl] = useState(null);
 
   const load = useCallback(async (signal) => {
     try {
@@ -337,6 +339,14 @@ export default function MonitoringPage() {
     };
   }, [load]);
 
+  useEffect(() => {
+    const controller = new AbortController();
+    MonitoringService.getGrafanaLink({ signal: controller.signal })
+      .then((link) => setGrafanaUrl(link?.enabled ? link.url : null))
+      .catch(() => {});
+    return () => controller.abort();
+  }, []);
+
   function toggleNodesOpen() {
     setNodesOpen((open) => {
       saveNodesOpen(!open);
@@ -354,7 +364,19 @@ export default function MonitoringPage() {
 
   return (
     <div className={styles.page}>
-      <PageHeader title={t("MonitoringPage.pageTitle")} />
+      <PageHeader title={t("MonitoringPage.pageTitle")}>
+        {grafanaUrl && (
+          <a
+            className={styles.linkBtn}
+            href={grafanaUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            <MIcon name="open_in_new" size={16} />
+            {t("MonitoringPage.openGrafana")}
+          </a>
+        )}
+      </PageHeader>
 
       <SystemHealthCard />
 

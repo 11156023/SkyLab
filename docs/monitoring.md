@@ -114,6 +114,8 @@ node-exporter 在 rootless 下照樣讀得到主機的 CPU、記憶體與磁碟�
 | InfluxDB 2 | Proxmox Metric Server 推送目的地 | `:8086`（見下方設定） |
 | postgres-exporter／redis-exporter／cAdvisor／node-exporter | 資料庫、快取、容器、主機指標 | Prometheus 內部抓取 |
 
+SkyLab「資源監控」頁右上角的「在 Grafana 查看詳細」按鈕只在監控 stack 有啟用時出現：後端（`GET /api/v1/monitoring/grafana`）探測 `GRAFANA_INTERNAL_URL`（預設 `http://grafana:3000/grafana`）的 `/api/health`，連得到才顯示，結果快取一分鐘；按鈕連到 `.env` 的 `GRAFANA_ROOT_URL`，沒設時連同網域的 `/grafana/`。
+
 監控 stack 只負責**收集與呈現**，不發告警通知（沒有 Prometheus 告警規則、Alertmanager 或 Grafana alerting）。平台本身的異常由內建的「系統告警」處理（見上方，出現在「活動警告」並依「告警 Email」開關寄信）。
 
 ### Grafana 儀表板（已自動匯入，資料夾「SkyLab」）

@@ -35,4 +35,9 @@ export const MonitoringService = {
   getSystemHealth(options) {
     return apiGet("/api/v1/monitoring/system-health", options);
   },
+
+  /** 監控 stack 的 Grafana 是否啟用：{ enabled, url }（未啟用時 url 為 null；管理員） */
+  getGrafanaLink(options) {
+    return apiGet("/api/v1/monitoring/grafana", options);
+  },
 };

@@ -63,4 +63,16 @@ describe("MonitoringService", () => {
     expect(init?.method ?? "GET").toBe("GET");
     expect(result).toEqual(body);
   });
+
+  test("getGrafanaLink 呼叫 Grafana 連結端點並回傳內容", async () => {
+    const body = { enabled: true, url: "/grafana/" };
+    fetchMock.mockResolvedValueOnce(jsonRes(200, body));
+
+    const result = await MonitoringService.getGrafanaLink();
+
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toContain("/api/v1/monitoring/grafana");
+    expect(init?.method ?? "GET").toBe("GET");
+    expect(result).toEqual(body);
+  });
 });
