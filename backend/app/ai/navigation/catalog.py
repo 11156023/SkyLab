@@ -83,7 +83,7 @@ _ROUTES: tuple[NavigationRoute, ...] = (
         path="/reverse-proxy",
         title="反向代理",
         summary="把機器上的服務對外公開成網址。",
-        keywords=("反向代理", "reverse proxy", "對外網址", "公開網站", "traefik", "https"),
+        keywords=("反向代理", "reverse proxy", "對外網址", "公開網站", "nginx", "https"),
     ),
     NavigationRoute(
         path="/ai-api",

@@ -1,16 +1,16 @@
 # SkyLab 監控 stack 的 Prometheus 設定（docker compose --profile monitoring）
 #
-# 只抓「平台本身」：backend 的 /metrics、PostgreSQL、Redis、容器與主機資源。
+# 抓「平台本身」：backend 的 /metrics、PostgreSQL、Redis、容器與主機資源，
+# 以及 Gateway 主機上的 node／nginx exporter（位址由 backend 的 http_sd 提供）。
 # Proxmox 節點／VM 的用量由 PVE 內建 Metric Server 直接推到 InfluxDB，不在這裡。
+#
+# 只負責收集給 Grafana 畫圖，不設告警規則；平台異常的通知由 SkyLab 內建的
+# 系統告警處理（見 docs/monitoring.md）。
 
 global:
   scrape_interval: 15s
-  evaluation_interval: 30s
   external_labels:
     stack: skylab
-
-rule_files:
-  - /etc/prometheus/rules/*.yml
 
 scrape_configs:
   - job_name: skylab-backend
@@ -44,6 +44,21 @@ scrape_configs:
   - job_name: node
     static_configs:
       - targets: ["node-exporter:9100"]
+
+  # ── Gateway 主機（gateway/install.sh 安裝的 exporter）──────────────────────
+  # 位址由 backend 依「閘道 VM」頁的連線設定回傳；Gateway 未設定時回空清單、不抓。
+  # Gateway 的 UFW 只放行 install.sh 的 MONITORING_ALLOW_FROM，要填 Prometheus
+  # 所在主機的 IP，否則這兩個 job 會一直 down。
+  # 有設 METRICS_TOKEN 時，兩個 http_sd_configs 也要加上 authorization 區塊（同 skylab-backend）。
+  - job_name: gateway-node
+    http_sd_configs:
+      - url: http://backend:8000/metrics/gateway-targets?exporter=node
+        refresh_interval: 60s
+
+  - job_name: gateway-nginx
+    http_sd_configs:
+      - url: http://backend:8000/metrics/gateway-targets?exporter=nginx
+        refresh_interval: 60s
 
   - job_name: influxdb
     static_configs:

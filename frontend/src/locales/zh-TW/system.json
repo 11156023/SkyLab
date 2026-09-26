@@ -491,6 +491,7 @@
   "SystemHealth.status.failing": "連續失敗",
   "SystemHealth.status.stale": "停擺",
   "SystemHealth.status.warning": "偶發失敗",
+  "SystemHealth.status.attention": "需要處理",
   "SystemHealth.status.disabled": "未啟用",
   "SystemHealth.status.unknown": "無法判斷",
   "SystemHealth.status.pending": "尚未執行",

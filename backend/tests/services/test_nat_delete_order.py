@@ -1,4 +1,4 @@
-"""NAT 規則刪除順序：haproxy 同步成功才刪 DB。
+"""NAT 規則刪除順序：nginx 同步成功才刪 DB。
 
 反過來做的話，同步失敗就會留下「DB 查不到、Gateway 還在轉發」的孤兒 port，
 既撤不掉，那個對外 port 還會被重新配給別人。
@@ -41,7 +41,7 @@ def env(monkeypatch: pytest.MonkeyPatch) -> SimpleNamespace:
             raise ProxmoxError("Gateway VM unreachable")
         state.synced.append(list(rules or []))
 
-    monkeypatch.setattr(nat_service, "_sync_haproxy", fake_sync)
+    monkeypatch.setattr(nat_service, "_sync_nginx_stream", fake_sync)
     monkeypatch.setattr(nat_repo, "list_rules", lambda session: state.rules)
     monkeypatch.setattr(
         nat_repo,
@@ -61,6 +61,24 @@ def test_remove_rules_for_vmid_syncs_remaining_before_delete(
 
     assert env.synced == [[env.rules[1]]]
     assert env.deleted == doomed
+
+
+def test_sync_to_gateway_rebuilds_all_rules_from_db(
+    env: SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Gateway 重灌後 stream.conf 是空的：手動同步要讓 _sync_nginx_stream 自己讀 DB 全部規則，
+    # 不能傳入篩過的清單
+    calls: list[Any] = []
+    monkeypatch.setattr(
+        nat_service,
+        "_sync_nginx_stream",
+        lambda session, rules=None: calls.append(rules),
+    )
+
+    nat_service.sync_to_gateway(object())
+
+    assert calls == [None]
+    assert env.deleted == []
 
 
 def test_remove_rules_for_vmid_without_rules_does_nothing(

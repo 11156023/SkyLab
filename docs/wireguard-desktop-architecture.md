@@ -30,7 +30,7 @@ ACL tuple 為 `client_tunnel_ip . vm_ip . tcp_port`。LXC 僅開 SSH；QEMU VM �
 sudo ./gateway/install.sh
 ```
 
-這是 Gateway 的唯一安裝入口，會安裝 HAProxy、Traefik、WireGuard、nftables ACL 與 SNAT。Installer 會先將網路、防火牆及服務設定備份到 `/root/campus-cloud-backups/`，不會移除既有 NetBird，也不會清空整份 UFW ruleset。若 `/etc/wireguard/wg0.conf` 不是 Campus Cloud 管理的檔案，Installer 會拒絕覆寫。
+這是 Gateway 的唯一安裝入口，會安裝 nginx（Port 轉發與網域反向代理）、certbot、WireGuard、nftables ACL 與 SNAT。Installer 會先將網路、防火牆及服務設定備份到 `/root/campus-cloud-backups/`，不會移除既有 NetBird，也不會清空整份 UFW ruleset。若 `/etc/wireguard/wg0.conf` 不是 Campus Cloud 管理的檔案，Installer 會拒絕覆寫。
 
 Gateway 上游防火牆或 NAT 還必須將對外的 UDP `51821` 轉送到 Gateway。若 Client 與 Gateway 位於同一個可路由網路，可直接使用 Gateway 的內部位址。
 
