@@ -279,11 +279,8 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
-    # The included LiteLLM gateway uses host networking so it
-    # can reach vLLM instances bound to 127.0.0.1:8103/8104.  Keep this host
-    # gateway mapping for the AI_API_BASE_URL connection.
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
+    # The included LiteLLM gateway shares the skylab network:
+    # AI_API_BASE_URL / LITELLM_RUNTIME_BASE_URL use http://litellm:4000.
     networks:
       - skylab
 
@@ -324,8 +321,6 @@ services:
       timeout: 10s
       retries: 3
       start_period: 90s
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
     networks:
       - skylab
 

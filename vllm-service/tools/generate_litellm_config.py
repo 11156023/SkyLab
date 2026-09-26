@@ -25,6 +25,8 @@ from model_deployment import ENV_REFERENCE, deployment_kind, upstream_connection
 DEFAULT_MODELS = PROJECT_ROOT / "models.json"
 DEFAULT_TEMPLATE = PROJECT_ROOT / "litellm" / "config.template.yaml"
 DEFAULT_OUTPUT = PROJECT_ROOT / "litellm" / "config.yaml"
+# Matches extra_hosts in litellm/docker-compose.yml.
+LOCAL_ENGINE_HOST_FROM_GATEWAY = "host.docker.internal"
 
 
 def _path(value: str) -> Path:
@@ -150,7 +152,19 @@ def load_template(path: Path) -> dict[str, Any]:
     return data
 
 
-def _deployment(model: dict[str, Any], public_name: str) -> dict[str, Any]:
+def gateway_api_base(model: dict[str, Any], mode: str) -> str:
+    """Return the upstream URL as seen by the gateway process.
+
+    ``api_base`` is the host view (local engines on 127.0.0.1).  The production
+    gateway runs in a bridge-network container where loopback is the container
+    itself, so local engines are reached through the Docker host mapping.
+    """
+    if mode == "production" and model["deployment"] == "local":
+        return model["api_base"].replace("127.0.0.1", LOCAL_ENGINE_HOST_FROM_GATEWAY, 1)
+    return model["api_base"]
+
+
+def _deployment(model: dict[str, Any], public_name: str, mode: str) -> dict[str, Any]:
     return {
         "model_name": public_name,
         "litellm_params": {
@@ -158,7 +172,7 @@ def _deployment(model: dict[str, Any], public_name: str) -> dict[str, Any]:
             # The current hosted_vllm provider appends its OpenAI endpoint
             # path directly to api_base. vLLM itself serves those routes below
             # /v1, so the version prefix must be part of the generated base.
-            "api_base": model["api_base"],
+            "api_base": gateway_api_base(model, mode),
             "api_key": f"os.environ/{model['api_key_env']}",
             "timeout": 300,
             "rpm": model["litellm"]["rpm"],
@@ -180,7 +194,7 @@ def render_config(
         general_settings["database_url"] = "os.environ/DATABASE_URL"
     config["general_settings"] = general_settings
     config["model_list"] = [
-        _deployment(model, public_name)
+        _deployment(model, public_name, mode)
         for model in models
         for public_name in [model["alias"], *model["_legacy_alias_names"]]
     ]
