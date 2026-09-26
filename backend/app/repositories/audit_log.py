@@ -23,8 +23,8 @@ def create_audit_log(
     user_agent: str | None = None,
     commit: bool = True,
 ) -> AuditLog:
-    if isinstance(action, str):
-        action = AuditAction(action)
+    # 以 enum 驗證（拼錯的 action 直接報錯），存字串值
+    action = AuditAction(action).value
     db_log = AuditLog(
         user_id=user_id,
         vmid=vmid,
@@ -66,11 +66,9 @@ def _build_filters(
     if user_id is not None:
         filters.append(AuditLog.user_id == user_id)
     if action is not None:
-        if isinstance(action, str):
-            action = AuditAction(action)
-        filters.append(AuditLog.action == action)
+        filters.append(AuditLog.action == AuditAction(action).value)
     if actions:
-        filters.append(AuditLog.action.in_(actions))
+        filters.append(AuditLog.action.in_([AuditAction(a).value for a in actions]))
     if start_time is not None:
         filters.append(AuditLog.created_at >= start_time)
     if end_time is not None:
@@ -205,10 +203,10 @@ def get_audit_stats(
     total = session.exec(base).one()
 
     danger_actions = [
-        AuditAction.resource_delete,
-        AuditAction.resource_reset,
-        AuditAction.snapshot_delete,
-        AuditAction.user_delete,
+        AuditAction.resource_delete.value,
+        AuditAction.resource_reset.value,
+        AuditAction.snapshot_delete.value,
+        AuditAction.user_delete.value,
     ]
     danger_stmt = (
         select(func.count())
@@ -220,7 +218,7 @@ def get_audit_stats(
         .select_from(AuditLog)
         .where(
             AuditLog.action.in_(
-                [AuditAction.login_failed, AuditAction.login_google_failed]
+                [AuditAction.login_failed.value, AuditAction.login_google_failed.value]
             )
         )
     )

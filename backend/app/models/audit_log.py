@@ -6,7 +6,7 @@ from datetime import datetime
 from typing import TYPE_CHECKING, Optional
 
 import sqlalchemy as sa
-from sqlmodel import Column, DateTime, Enum, Field, Relationship, SQLModel
+from sqlmodel import Column, DateTime, Field, Relationship, SQLModel
 
 if TYPE_CHECKING:
     from .user import User
@@ -117,9 +117,8 @@ class AuditAction(str, enum.Enum):
     proxmox_sync_nodes = "proxmox_sync_nodes"
     proxmox_sync_now = "proxmox_sync_now"
 
-    # Historical values retained so archived audit rows remain readable.
-    # 注意：PostgreSQL enum 標籤無法刪除，audit_logs 也仍有這些 action 的紀錄；
-    # 從這裡拿掉任何一個值，稽核清單／CSV 匯出讀到該筆時會整批 LookupError。
+    # 已下線功能的歷史值：audit_logs 仍有這些紀錄，保留在這裡讓前端篩選
+    # 與分類（ACTION_CATEGORY）認得它們。欄位已改為字串，拿掉也不會讀取失敗。
     migration_job_retry = "migration_job_retry"
     migration_job_cancel = "migration_job_cancel"
     # 群組功能已於 2026-07-30（677ffcad）改為正式班級，舊紀錄仍在
@@ -186,8 +185,11 @@ class AuditLog(SQLModel, table=True):
         ),
         description="Linked resource VMID; vmid remains as audit snapshot",
     )
-    action: AuditAction = Field(
-        sa_column=Column(Enum(AuditAction), nullable=False), description="操作類型"
+    # 以字串存放：寫入時由 AuditAction 驗證（repositories/audit_log），
+    # 讀取不綁 enum，舊版遺留或已下線的 action 不會讓整批查詢 LookupError，
+    # 新增 action 也不必再 ALTER TYPE
+    action: str = Field(
+        sa_column=Column(sa.String(64), nullable=False), description="操作類型"
     )
     details: str = Field(description="操作詳情")
     ip_address: str | None = Field(default=None, description="操作來源IP")
