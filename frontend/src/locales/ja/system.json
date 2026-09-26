@@ -458,6 +458,7 @@
   "MonitoringPage.nodesOnline": "オンラインノード",
   "MonitoringPage.online": "オンライン",
   "MonitoringPage.pageTitle": "リソース監視",
+  "MonitoringPage.openGrafana": "Grafana で詳細を見る",
   "MonitoringPage.scopeCluster": "クラスタ",
   "MonitoringPage.scopeNode": "ノード",
   "MonitoringPage.thresholdSuffix": "（しきい値 {{threshold}}%）",

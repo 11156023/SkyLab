@@ -1,7 +1,7 @@
 from typing import Annotated
 
 import jwt
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Response
 from fastapi.security import OAuth2PasswordRequestForm
 from pydantic import BaseModel
 
@@ -23,6 +23,7 @@ from app.schemas import (
     TotpLoginRequest,
 )
 from app.schemas.ldap import LdapLoginRequest, LoginMethodsPublic
+from app.services.monitoring import grafana_service
 from app.services.user import auth_service, ldap_auth_service, totp_service
 
 router = APIRouter(tags=["login"])
@@ -97,6 +98,7 @@ async def refresh_token(session: SessionDep, body: RefreshTokenRequest) -> Token
 async def logout(
     token: TokenDep,
     current_user: CurrentUser,
+    response: Response,
     body: RefreshTokenRequest | None = None,
 ) -> Message:
     """Revoke the current access token (and optional refresh token) by JTI.
@@ -104,6 +106,11 @@ async def logout(
     The blacklist entry expires automatically once the token would have
     expired, so revocation incurs zero ongoing storage cost.
     """
+    # 資源監控頁發的 Grafana 免密碼 cookie 只在 /grafana/ 送出，這裡收不到值，
+    # 但同路徑的過期 Set-Cookie 仍能讓瀏覽器刪掉它
+    response.delete_cookie(
+        grafana_service.SESSION_COOKIE, path=grafana_service.SESSION_COOKIE_PATH
+    )
     redis = await get_redis()
 
     def _decode(raw: str) -> TokenPayload | None:

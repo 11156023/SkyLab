@@ -114,6 +114,8 @@ node-exporter 在 rootless 下照樣讀得到主機的 CPU、記憶體與磁碟�
 | InfluxDB 2 | Proxmox Metric Server 推送目的地 | `:8086`（見下方設定） |
 | postgres-exporter／redis-exporter／cAdvisor／node-exporter | 資料庫、快取、容器、主機指標 | Prometheus 內部抓取 |
 
+SkyLab「資源監控」頁右上角的「在 Grafana 查看詳細」按鈕只在監控 stack 有啟用時出現：後端（`POST /api/v1/monitoring/grafana/session`）探測 `GRAFANA_INTERNAL_URL`（預設 `http://grafana:3000/grafana`）的 `/api/health`，連得到才顯示，結果快取一分鐘；按鈕連到 `.env` 的 `GRAFANA_ROOT_URL`，沒設時連同網域的 `/grafana/`。
+
 監控 stack 只負責**收集與呈現**，不發告警通知（沒有 Prometheus 告警規則、Alertmanager 或 Grafana alerting）。平台本身的異常由內建的「系統告警」處理（見上方，出現在「活動警告」並依「告警 Email」開關寄信）。
 
 ### Grafana 儀表板（已自動匯入，資料夾「SkyLab」）
@@ -124,7 +126,20 @@ node-exporter 在 rootless 下照樣讀得到主機的 CPU、記憶體與磁碟�
 - **Proxmox VE（Metric Server）**：節點 CPU／記憶體／IO wait／load、CPU 與記憶體最高的 VM／LXC、各儲存使用率；最下方「Gateway VM（PVE 回報）」一列看 Gateway 這台 VM 的 CPU、記憶體、網路與磁碟 IO（上方「Gateway VM」選單選擇，名稱含 gateway 的會自動排第一個）
 - **SkyLab Gateway**：Gateway 主機上 exporter 的資料——SkyLab 健康探測／exporter／nginx 狀態、nginx 活躍連線、開機時間、CPU／記憶體／磁碟、各網卡流量（`wg0` 是 WireGuard）、TCP 連線數、nginx 連線狀態與請求速率（見下方「Gateway 監控」）
 
-首次登入 `admin`／`GRAFANA_ADMIN_PASSWORD`。對外網址不是 `http://localhost` 時，設 `GRAFANA_ROOT_URL=https://你的網域/grafana/`。
+對外網址不是 `http://localhost` 時，設 `GRAFANA_ROOT_URL=https://你的網域/grafana/`。
+
+### 登入 Grafana
+
+**SkyLab 管理員免密碼登入**：開過「資源監控」頁之後，點「在 Grafana 查看詳細」（或直接開 `/grafana/`）就會以自己的 SkyLab 帳號登入，Grafana 裡的角色是 Admin，帳號第一次進來時自動建立（登入名稱＝SkyLab email）。
+
+1. 資源監控頁呼叫 `POST /monitoring/grafana/session`，後端發 `skylab_grafana` cookie：httponly、只在 `/grafana/` 路徑送出、效期 `GRAFANA_SESSION_EXPIRE_MINUTES`（預設 480 分鐘），頁面開著時每 30 分鐘續期；HTTPS 下加 Secure。
+2. nginx 對 `/grafana/` 的每個請求先 `auth_request` 到後端 `/monitoring/grafana/auth`（只給 nginx 內部呼叫，對外入口回 404）。後端驗 cookie 並重新檢查帳號：停用、改密碼／強制登出（`token_version`）、失去管理員權限、被要求綁定兩步驟驗證但還沒綁，都會在 10 秒內失效。通過時回 `X-WEBAUTH-USER`／`EMAIL`／`NAME`／`ROLE`（quoted-printable，中文姓名才放得進 HTTP 標頭）。
+3. nginx 一律以後端的回覆覆寫這四個標頭（瀏覽器自己帶的會被丟掉），Grafana `auth.proxy` 只信任 nginx 在 `grafana-authproxy` 網路上的固定 IP（`GF_AUTH_PROXY_WHITELIST`）。Grafana 不另外發 session，每個請求都重新驗證。
+4. 登出 SkyLab 時一併刪掉這個 cookie。
+
+**備用入口**：沒有 cookie（例如沒先開資源監控頁、cookie 過期）或後端掛掉時，`/grafana/` 顯示 Grafana 原本的登入頁，用 `admin`／`GRAFANA_ADMIN_PASSWORD` 登入。注意 Grafana 只在第一次啟動時寫入這個密碼，之後改 `.env` 不會生效，要用 `docker exec $(docker ps -qf name=grafana) grafana cli admin reset-admin-password '新密碼'` 重設。
+
+**網段設定**：`grafana-authproxy` 是只有 nginx 與 Grafana 的 docker 網路，預設 `172.30.253.0/28`、nginx 固定 `172.30.253.2`（放在動態分配範圍 `172.30.253.8/29` 之外）。與主機或其他網路衝突時，在 `.env` 一起改 `GRAFANA_AUTHPROXY_SUBNET`、`GRAFANA_AUTHPROXY_IP_RANGE`、`GRAFANA_AUTHPROXY_NGINX_IP`。不想要免密碼登入時設 `GRAFANA_AUTH_PROXY_ENABLED=false`。
 
 ### Proxmox VE Metric Server 設定
 
