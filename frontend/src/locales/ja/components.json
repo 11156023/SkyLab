@@ -493,6 +493,8 @@
   "TakeoverOverlay.description": "キーボードとマウスの操作は一時的に無効になっています",
   "TakeoverOverlay.title": "先生がこの画面を引き継いでいます",
   "PowerMenu.convertTemplate": "テンプレートに変換",
+  "PowerMenu.windowEnded": "利用期間が終了したため起動できません。引き続き使う場合は再申請してください。",
+  "PowerMenu.windowNotStarted": "利用期間はまだ始まっていません。開始後に起動できます。",
   "TemplateConvertDialog.title": "テンプレートに変換",
   "TemplateConvertDialog.desc": "調整済みのマシンをテンプレートにして、学生が申請時に選べるようにします。この操作は取り消せません。",
   "TemplateConvertDialog.close": "閉じる",

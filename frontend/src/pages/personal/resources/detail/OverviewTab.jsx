@@ -327,6 +327,16 @@ export default function OverviewTab({ vmid, access = null }) {
     return t("OverviewTab.expiryDaysLeft", { count: daysLeft });
   })();
 
+  /* 個人申請的核准使用時段（後端 start_window_state）：沒有到期日的機器改用時段交代期限 */
+  const windowBlocked = resource.start_blocked_reason ?? null;
+  const windowStateKey = windowBlocked === "window_ended"
+    ? "OverviewTab.windowEnded"
+    : windowBlocked === "window_not_started" ? "OverviewTab.windowNotStarted" : null;
+  const windowRange = resource.window_start_at && resource.window_end_at
+    ? `${formatDateTime(resource.window_start_at, lang)} – ${formatDateTime(resource.window_end_at, lang)}`
+    : null;
+  const showWindowInHero = Boolean(windowRange) && !resource.expiry_date;
+
   const reasonKey = resource.auto_stop_reason ? AUTO_STOP_REASON_KEYS[resource.auto_stop_reason] : null;
   const roleKey = ROLE_KEYS[resource.access_role] ?? ROLE_KEYS.owner;
   const hasCredentials = Boolean(sshKey?.login_password || resource.ssh_public_key);
@@ -377,12 +387,20 @@ export default function OverviewTab({ vmid, access = null }) {
               <span className={`${ov.statusDot} ${isRunning ? ov.statusDot_live : ""}`} aria-hidden="true" />
               {statusMeta.labelKey ? t(statusMeta.labelKey) : statusMeta.label}
             </span>
-            <span className={`${ov.expiry} ${expiryDanger ? ov.expiry_danger : ""}`}>
-              <MIcon name="event" size={14} />
-              {resource.expiry_date
-                ? `${formatDate(resource.expiry_date, lang)} · ${expiryText}`
-                : expiryText}
-            </span>
+            {showWindowInHero ? (
+              <span className={`${ov.expiry} ${windowBlocked ? ov.expiry_danger : ""}`}>
+                <MIcon name={windowBlocked ? "event_busy" : "event"} size={14} />
+                {t("OverviewTab.windowUntil", { date: formatDateTime(resource.window_end_at, lang) })}
+                {windowStateKey && ` · ${t(windowStateKey)}`}
+              </span>
+            ) : (
+              <span className={`${ov.expiry} ${expiryDanger ? ov.expiry_danger : ""}`}>
+                <MIcon name="event" size={14} />
+                {resource.expiry_date
+                  ? `${formatDate(resource.expiry_date, lang)} · ${expiryText}`
+                  : expiryText}
+              </span>
+            )}
           </div>
         </div>
 
@@ -532,16 +550,28 @@ export default function OverviewTab({ vmid, access = null }) {
               <InfoRow label={t("OverviewTab.osLabel")}>
                 {resource.os_info ?? <span className={ov.muted}>{t("OverviewTab.notSet")}</span>}
               </InfoRow>
-              <InfoRow label={t("OverviewTab.expiryLabel")}>
-                {resource.expiry_date ? (
-                  <>
-                    {formatDate(resource.expiry_date, lang)}
-                    <span className={`${ov.pill} ${expiryDanger ? ov.pill_danger : ""}`}>{expiryText}</span>
-                  </>
-                ) : (
-                  <span className={ov.muted}>{expiryText}</span>
-                )}
-              </InfoRow>
+              {/* 沒有到期日、期限由使用時段決定時，不再寫「無期限」跟下一列打架 */}
+              {!showWindowInHero && (
+                <InfoRow label={t("OverviewTab.expiryLabel")}>
+                  {resource.expiry_date ? (
+                    <>
+                      {formatDate(resource.expiry_date, lang)}
+                      <span className={`${ov.pill} ${expiryDanger ? ov.pill_danger : ""}`}>{expiryText}</span>
+                    </>
+                  ) : (
+                    <span className={ov.muted}>{expiryText}</span>
+                  )}
+                </InfoRow>
+              )}
+              {windowRange && (
+                <InfoRow
+                  label={t("OverviewTab.windowLabel")}
+                  note={windowBlocked === "window_ended" ? t("OverviewTab.windowEndedNote") : null}
+                >
+                  {windowRange}
+                  {windowStateKey && <span className={`${ov.pill} ${ov.pill_danger}`}>{t(windowStateKey)}</span>}
+                </InfoRow>
+              )}
               {resource.auto_stop_at && (
                 <InfoRow label={t("OverviewTab.autoStopLabel")} note={reasonKey ? t(reasonKey) : null}>
                   {formatDateTime(resource.auto_stop_at, lang)}

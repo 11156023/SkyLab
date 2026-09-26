@@ -42,6 +42,7 @@ from app.schemas.resource import (
     ResourceStatus,
     SessionStatusResponse,
 )
+from app.core.i18n import t
 from app.services.network import firewall_service
 from app.services.proxmox import proxmox_service
 from app.services.resource import kind as resource_kind
@@ -76,25 +77,46 @@ def _enforce_start_window(*, session: Session, vmid: int) -> None:
         # applies the normal practice-session auto-stop policy below.
         return
 
+    reason, _start_at, _end_at = start_window_state(
+        session=session, vmid=vmid, db_resource=resource,
+    )
+    if reason == "window_not_started":
+        raise BadRequestError(t("resource.start_window_not_started"))
+    if reason == "window_ended":
+        raise BadRequestError(t("resource.start_window_ended"))
+
+
+StartBlockReason = Literal["window_not_started", "window_ended"]
+
+
+def start_window_state(
+    *, session: Session, vmid: int, db_resource: Any | None = None,
+) -> tuple[StartBlockReason | None, datetime | None, datetime | None]:
+    """個人申請機器的核准使用時段：回傳（不能開機的原因, 時段起, 時段迄）。
+
+    開機檢查（_enforce_start_window）與機器資料（ResourcePublic.start_blocked_reason）
+    共用這一份判斷，卡片上「能不能開」才會跟實際按下去的結果一致。
+    課堂機器不受申請時段限制（上課時段只管自動開關機），一律回 (None, None, None)。
+    """
+    if db_resource is None:
+        db_resource = resource_repo.get_resource_by_vmid(session=session, vmid=vmid)
+    if db_resource is not None and getattr(db_resource, "teaching_class_id", None):
+        return None, None, None
     request = vm_request_repo.get_latest_approved_vm_request_by_vmid(
         session=session,
         vmid=vmid,
     )
     if not request or not request.start_at or not request.end_at:
-        return
+        return None, None, None
 
+    start_at = _ensure_utc(request.start_at)
+    end_at = _ensure_utc(request.end_at)
     now = _utc_now()
-    start_at = request.start_at
-    end_at = request.end_at
-    if start_at.tzinfo is None:
-        start_at = start_at.replace(tzinfo=UTC)
-    if end_at.tzinfo is None:
-        end_at = end_at.replace(tzinfo=UTC)
-
     if now < start_at:
-        raise BadRequestError("This resource can only be started when its approved time window begins.")
+        return "window_not_started", start_at, end_at
     if now >= end_at:
-        raise BadRequestError("This resource can no longer be started because its approved time window has ended.")
+        return "window_ended", start_at, end_at
+    return None, start_at, end_at
 
 
 def ensure_lxc_platform_key(*, session: Session, node: str, vmid: int) -> bool:
@@ -466,6 +488,11 @@ def _build_resource_public(
         ip_address = resource_repo.sync_ip_cache(
             session=session, vmid=vmid, live_ip=ip_address
         )
+    start_blocked_reason, window_start_at, window_end_at = (None, None, None)
+    if session is not None and vmid is not None:
+        start_blocked_reason, window_start_at, window_end_at = start_window_state(
+            session=session, vmid=vmid, db_resource=db_resource,
+        )
     quick_practice_limited = False
     source_kind: str | None = None
     if session is not None and db_resource and db_resource.request_id:
@@ -526,6 +553,9 @@ def _build_resource_public(
         ),
         teaching_class_name=teaching_class_name,
         public_urls=list((public_urls or {}).get(vmid, [])) if vmid is not None else [],
+        start_blocked_reason=start_blocked_reason,
+        window_start_at=window_start_at,
+        window_end_at=window_end_at,
     )
 
 

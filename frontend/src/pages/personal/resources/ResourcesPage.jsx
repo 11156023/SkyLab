@@ -353,7 +353,16 @@ function ResourceRow({ resource, onUpdated, onDeleted, onRefresh }) {
           </div>
         )}
       </td>
-      <td className={styles.td}>{resource.expiry_date ? formatDate(resource.expiry_date) : <span className={styles.cardPeriodUnlimited}>{t("ResourceRow.unlimited")}</span>}</td>
+      {/* 期限：有到期日照舊；沒有到期日但有申請的使用時段，顯示時段結束日（已結束標紅），不再誤寫「無期限」 */}
+      <td className={styles.td}>
+        {resource.expiry_date ? formatDate(resource.expiry_date)
+          : resource.window_end_at ? (
+            <span className={resource.start_blocked_reason === "window_ended" ? styles.periodEnded : undefined}>
+              {formatDate(resource.window_end_at)}
+              {resource.start_blocked_reason === "window_ended" && <small>{t("ResourceRow.windowEnded")}</small>}
+            </span>
+          ) : <span className={styles.cardPeriodUnlimited}>{t("ResourceRow.unlimited")}</span>}
+      </td>
       <td className={styles.td}>{resource.node ?? "—"}</td>
       <td className={styles.td}>
         {isLive ? <div className={styles.rowActions}>

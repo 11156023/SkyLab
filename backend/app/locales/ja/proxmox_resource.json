@@ -41,5 +41,7 @@
   "resource_settings.alreadyShared": "すでに {email} に共有されています",
   "resource_settings.shareNotFound": "共有が見つかりません",
   "resource_settings.alreadyOwner": "{email} はすでにこのマシンの所有者です",
-  "resource_settings.transferred": "マシンを {email} に譲渡しました"
+  "resource_settings.transferred": "マシンを {email} に譲渡しました",
+  "resource.start_window_not_started": "このマシンの利用期間はまだ始まっていません。承認された期間が始まってから起動してください。",
+  "resource.start_window_ended": "このマシンの利用期間は終了したため起動できません。引き続き使う場合は再申請してください。"
 }

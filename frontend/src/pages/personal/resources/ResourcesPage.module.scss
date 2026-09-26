@@ -405,6 +405,17 @@
   font-weight: $font-weight-500;
 }
 
+/* 申請的使用時段已結束：日期與「時段已結束」都用危險色，小字另起一行 */
+.periodEnded {
+  display: inline-flex;
+  flex-direction: column;
+  color: var(--color-danger);
+
+  small {
+    font-size: $font-size-12;
+  }
+}
+
 /* ── Card footer ── */
 .cardFooter {
   @include flex-between;

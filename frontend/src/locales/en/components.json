@@ -493,6 +493,8 @@
   "TakeoverOverlay.description": "Your keyboard and mouse input is temporarily disabled",
   "TakeoverOverlay.title": "The teacher is taking over this screen",
   "PowerMenu.convertTemplate": "Convert to template",
+  "PowerMenu.windowEnded": "The time window has ended, so it can’t be started. Submit a new request to keep using it.",
+  "PowerMenu.windowNotStarted": "The time window hasn’t started yet. You can start it once it begins.",
   "TemplateConvertDialog.title": "Convert to template",
   "TemplateConvertDialog.desc": "Turn this tuned machine into a template that students can pick when requesting resources. This cannot be undone.",
   "TemplateConvertDialog.close": "Close",

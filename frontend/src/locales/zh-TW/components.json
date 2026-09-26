@@ -493,6 +493,8 @@
   "TakeoverOverlay.description": "你的鍵盤與滑鼠操作暫時停用",
   "TakeoverOverlay.title": "老師正在接管此畫面",
   "PowerMenu.convertTemplate": "轉成範本",
+  "PowerMenu.windowEnded": "使用時段已結束，無法開機；如需繼續使用請重新申請。",
+  "PowerMenu.windowNotStarted": "使用時段尚未開始，時段開始後才能開機。",
   "TemplateConvertDialog.title": "轉成範本",
   "TemplateConvertDialog.desc": "把調好的機器變成範本，讓學生在申請時直接選用。這個動作無法復原。",
   "TemplateConvertDialog.close": "關閉",

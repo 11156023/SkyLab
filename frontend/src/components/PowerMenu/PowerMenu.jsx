@@ -39,9 +39,11 @@ export default function PowerMenu({
     poweredOn: resource?.status === "running" || resource?.status === "starting",
     stopped: resource?.status === "stopped" || resource?.status === "paused",
   };
+  /* 個人申請的使用時段沒開始／已結束：後端一定擋開機，選單先把開機停用並講原因 */
+  const windowBlocked = resource?.status !== "running" ? resource?.start_blocked_reason ?? null : null;
   const entries = items ?? ITEMS.map((item) => ({
     ...item,
-    disabled: !enabled[item.needs],
+    disabled: !enabled[item.needs] || (item.action === "start" && Boolean(windowBlocked)),
   }));
 
   const className = [
@@ -58,6 +60,12 @@ export default function PowerMenu({
       style={pos ? { top: pos.top, left: pos.left } : { top: 0, left: 0, visibility: "hidden" }}
     >
       <div className={styles.powerMenuTitle}>{title ?? t("PowerMenu.title")}</div>
+      {!items && windowBlocked && (
+        <div className={styles.powerMenuNote}>
+          <MIcon name="event_busy" size={14} />
+          {t(windowBlocked === "window_ended" ? "PowerMenu.windowEnded" : "PowerMenu.windowNotStarted")}
+        </div>
+      )}
       <div className={styles.powerMenuGrid}>
         {entries.map(({ action, label, labelKey, icon, tone, disabled }) => (
           <button

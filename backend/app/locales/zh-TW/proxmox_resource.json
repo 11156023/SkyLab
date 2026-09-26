@@ -41,5 +41,7 @@
   "resource_settings.alreadyShared": "已經共享給 {email} 了",
   "resource_settings.shareNotFound": "找不到這筆共享",
   "resource_settings.alreadyOwner": "{email} 已經是這台機器的擁有者",
-  "resource_settings.transferred": "機器已轉移給 {email}"
+  "resource_settings.transferred": "機器已轉移給 {email}",
+  "resource.start_window_not_started": "這台機器的使用時段還沒開始，請等核准的時段開始後再開機。",
+  "resource.start_window_ended": "這台機器的使用時段已結束，無法再開機；如需繼續使用，請重新申請。"
 }

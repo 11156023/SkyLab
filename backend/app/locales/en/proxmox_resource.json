@@ -41,5 +41,7 @@
   "resource_settings.alreadyShared": "Already shared with {email}",
   "resource_settings.shareNotFound": "Share not found",
   "resource_settings.alreadyOwner": "{email} already owns this machine",
-  "resource_settings.transferred": "Machine transferred to {email}"
+  "resource_settings.transferred": "Machine transferred to {email}",
+  "resource.start_window_not_started": "This machine’s approved time window has not started yet. Start it once the window begins.",
+  "resource.start_window_ended": "This machine’s approved time window has ended, so it can no longer be started. Submit a new request to keep using it."
 }
