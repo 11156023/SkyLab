@@ -148,7 +148,7 @@ def build_findings(
     - 背景迴圈（推播、WireGuard…）leader 停擺
     - 非核心元件掛掉（worker、PVE 連線、Gateway）；Redis 掛掉也發（排程還跑得動時）
     - 元件需要處理（attention，例如 Gateway 憑證快到期）
-    DB 掛掉時告警本身寫不進 DB，交給外部探測（Uptime Kuma／Prometheus）。
+    DB 掛掉時告警本身寫不進 DB，只能從系統健康卡／Grafana 看到。
 
     元件可帶 ``alert_message`` 自訂告警文字；沒帶就用「<名稱> 無法連線」。
     """

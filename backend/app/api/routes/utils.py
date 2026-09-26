@@ -25,7 +25,7 @@ async def health_check() -> bool:
 async def readiness_check() -> JSONResponse:
     """Readiness probe：DB 與 Redis 都連得上才回 200，否則 503。
 
-    免登入，給 Uptime Kuma／負載平衡器用；只回每個依賴的布林值，不帶錯誤
+    免登入，給負載平衡器／外部探測用；只回每個依賴的布林值，不帶錯誤
     細節（細節在管理員的 ``/monitoring/system-health``）。Redis 停用時該欄為
     null、不影響結果。
     """

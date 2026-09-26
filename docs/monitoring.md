@@ -5,7 +5,7 @@ SkyLab 的監控分成兩層：
 | 層 | 看什麼 | 在哪裡 | 需要額外容器？ |
 |---|---|---|---|
 | **內建** | 平台健康（DB、Redis、worker、PVE API 連線、Gateway、排程任務心跳）、系統告警＋Email | 管理員「資源監控」頁的「系統健康」卡、活動警告 | 否 |
-| **監控 stack**（選用） | API 流量／延遲／錯誤率、排程與佇列指標、容器與主機資源、PostgreSQL／Redis、集中日誌、Proxmox 節點／VM 用量、Gateway 主機與 nginx、外部探測與推播 | Grafana、Prometheus、Uptime Kuma | `docker compose --profile monitoring` |
+| **監控 stack**（選用） | API 流量／延遲／錯誤率、排程與佇列指標、容器與主機資源、PostgreSQL／Redis、集中日誌、Proxmox 節點／VM 用量、Gateway 主機與 nginx | Grafana、Prometheus | `docker compose --profile monitoring` |
 
 Proxmox 節點／VM 的資源用量**不經過 SkyLab 後端**：由 PVE 內建的 Metric Server 直接推到監控 stack 的 InfluxDB。後端只檢查「自己連不連得到 PVE API」。
 
@@ -49,7 +49,7 @@ Gateway 的檢查是後端用 SSH 在 Gateway 上跑一條指令（`systemctl is
 
 同一個問題要**連續兩輪**都出現才開告警（吸收部署時 worker 晚起、PVE 瞬斷）；問題消失就自動解除；冷卻時間沿用資源告警的設定。
 
-**資料庫掛掉、或整個 backend 掛掉時，告警本身寫不進去也寄不出去**。這兩種情況要靠外部探測（下面的 Uptime Kuma）。
+**資料庫掛掉、或整個 backend 掛掉時，告警本身寫不進去也寄不出去**；這兩種情況在「系統健康」卡與 Grafana 的「SkyLab 平台」儀表板看得到，但不會主動通知。需要時可以在另一台機器用任何外部探測服務監看 `/api/v1/utils/health-check/ready`（非 200 即異常）。
 
 ### Request ID
 
@@ -73,7 +73,7 @@ db、pgbouncer、redis、backend 原本就有；新增：
 - **nginx**：`/nginx-health`
 - **frontend**：首頁 200
 
-`docker compose ps` 會顯示 `(healthy)`／`(unhealthy)`。注意 Docker Compose 本身**不會**自動重啟 unhealthy 的容器，需要搭配下面的 Uptime Kuma 通知。
+`docker compose ps` 會顯示 `(healthy)`／`(unhealthy)`。注意 Docker Compose 本身**不會**自動重啟 unhealthy 的容器（程序直接結束時才會依 `restart` 政策重啟）。
 
 ---
 
@@ -109,11 +109,12 @@ node-exporter 在 rootless 下照樣讀得到主機的 CPU、記憶體與磁碟�
 | 服務 | 用途 | 入口 |
 |---|---|---|
 | Grafana | 儀表板 | `http://<SkyLab>/grafana/`（經 nginx）；本機也可 `http://127.0.0.1:3000/grafana/` |
-| Prometheus | 指標與告警規則 | `http://127.0.0.1:9090`（只綁本機，SSH tunnel 使用） |
+| Prometheus | 指標收集（不設告警規則） | `http://127.0.0.1:9090`（只綁本機，SSH tunnel 使用） |
 | Loki + Alloy | 所有容器日誌，保留 14 天 | 在 Grafana 查 |
 | InfluxDB 2 | Proxmox Metric Server 推送目的地 | `:8086`（見下方設定） |
 | postgres-exporter／redis-exporter／cAdvisor／node-exporter | 資料庫、快取、容器、主機指標 | Prometheus 內部抓取 |
-| Uptime Kuma | 外部探測＋推播通知 | `http://127.0.0.1:3001` |
+
+監控 stack 只負責**收集與呈現**，不發告警通知（沒有 Prometheus 告警規則、Alertmanager 或 Grafana alerting）。平台本身的異常由內建的「系統告警」處理（見上方，出現在「活動警告」並依「告警 Email」開關寄信）。
 
 ### Grafana 儀表板（已自動匯入，資料夾「SkyLab」）
 
@@ -169,24 +170,11 @@ Gateway 主機由 `gateway/install.sh` 安裝兩個 exporter（Debian 套件）�
 sudo MONITORING_ALLOW_FROM=192.168.100.20 bash install.sh
 ```
 
-沒設的話 exporter 照樣會裝，但 Prometheus 連不進來，`gateway-node`／`gateway-nginx` 兩個 job 會一直 down（觸發 `GatewayExporterDown`）。已經裝好的 Gateway 帶這個變數重跑 `install.sh` 即可補上。
+沒設的話 exporter 照樣會裝，但 Prometheus 連不進來，`gateway-node`／`gateway-nginx` 兩個 job 會一直 down（「SkyLab Gateway」儀表板的 exporter 狀態顯示 DOWN）。已經裝好的 Gateway 帶這個變數重跑 `install.sh` 即可補上。
 
 `stub_status` 只涵蓋 http（對外網址）；Port 轉發（nginx stream）沒有對應的連線統計，請看「SkyLab Gateway」儀表板的 TCP 連線數與網卡流量。
 
-Prometheus 規則（`skylab-gateway` 群組）：`GatewayExporterDown`（抓不到 exporter 5 分鐘）、`GatewayNginxDown`（nginx 不回應 2 分鐘）、`GatewayHighCpu`（CPU 超過 90% 10 分鐘）；主機磁碟／記憶體規則也會套用到 Gateway。另外 `SkyLabDependencyDown` 會涵蓋內建健康檢查回報的 `skylab_dependency_up{component="gateway"}`。
-
-### Uptime Kuma（建議設定的監看與通知）
-
-Prometheus 規則（`monitoring/prometheus/rules/skylab.yml`）的觸發狀態可以在 Prometheus／Grafana 看到，但**推播通知交給 Uptime Kuma**（不需要另外架 Alertmanager）。首次開啟 `http://127.0.0.1:3001` 建立管理帳號後，新增：
-
-| 類型 | 目標 | 用意 |
-|---|---|---|
-| HTTP(s) | `http://nginx/api/v1/utils/health-check/ready`（期望 200） | 整體服務、DB、Redis |
-| HTTP(s) | `http://nginx/`（對外入口） | 前端／nginx |
-| HTTP(s) - Keyword | `http://prometheus:9090/api/v1/alerts`，關鍵字 `"state":"firing"`，**Invert Keyword** | 任一 Prometheus 告警觸發就通知 |
-| TCP Port | 各 PVE 節點 `:8006` | PVE 本身 |
-
-Uptime Kuma 跑在同一個 compose 網路裡，所以可以直接用服務名稱（`nginx`、`prometheus`）。通知管道（Email、Discord、LINE Notify 替代方案、Telegram…）在 Settings → Notifications 設定。**同一台主機整個掛掉時 Uptime Kuma 也會一起掛**：重要環境建議在另一台機器再放一個 Uptime Kuma 監看對外網址。
+Gateway 服務異常、憑證快到期的通知由內建的系統告警負責（`component:gateway`），監控 stack 這邊只看圖。
 
 ### /metrics 驗證（選用）
 
