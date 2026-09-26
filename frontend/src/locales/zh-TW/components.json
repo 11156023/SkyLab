@@ -13,8 +13,6 @@
   "TotpEnrollment.confirm": "啟用兩步驟驗證",
   "TotpEnrollment.confirming": "驗證中…",
   "TotpEnrollment.cancel": "取消",
-  "TotpEnrollment.loadFailed": "無法產生兩步驟驗證金鑰",
-  "TotpEnrollment.retry": "重試",
   "AiFloatingChat.screenChanged": "畫面或資料已變更，請重新提問。流程已保留。",
   "AiFloatingChat.multipleFlowsIntro": "請選擇要處理的流程。",
   "AiFloatingChat.savedFlows": "已保留的流程",

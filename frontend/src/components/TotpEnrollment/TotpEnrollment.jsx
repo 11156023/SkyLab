@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import QRCode from "qrcode";
 import MIcon from "../MIcon";
+import ErrorState from "../ErrorState/ErrorState";
 import { AccountService } from "../../services/account";
 import styles from "./TotpEnrollment.module.scss";
 
@@ -20,7 +21,7 @@ export default function TotpEnrollment({ onConfirmed, onCancel, confirmLabel }) 
   const { t } = useTranslation("components");
   const [setup, setSetup] = useState(null); // { secret, otpauth_uri, account, issuer }
   const [qrDataUrl, setQrDataUrl] = useState("");
-  const [loadError, setLoadError] = useState("");
+  const [loadError, setLoadError] = useState(false);
   const [reloadKey, setReloadKey] = useState(0);
   const [code, setCode] = useState("");
   const [error, setError] = useState("");
@@ -32,7 +33,7 @@ export default function TotpEnrollment({ onConfirmed, onCancel, confirmLabel }) 
     let cancelled = false;
     setSetup(null);
     setQrDataUrl("");
-    setLoadError("");
+    setLoadError(false);
     AccountService.setupTotp()
       .then(async (data) => {
         if (cancelled) return;
@@ -46,13 +47,15 @@ export default function TotpEnrollment({ onConfirmed, onCancel, confirmLabel }) 
         setSetup(data);
         setQrDataUrl(url);
       })
-      .catch((err) => {
-        if (!cancelled) setLoadError(err?.message ?? t("TotpEnrollment.loadFailed"));
+      /* 不顯示 err.message：API 層至少會給「HTTP 500」這類原始字串，
+         失敗一律交給 ErrorState 的統一錯誤句 */
+      .catch(() => {
+        if (!cancelled) setLoadError(true);
       });
     return () => {
       cancelled = true;
     };
-  }, [reloadKey, t]);
+  }, [reloadKey]);
 
   useEffect(() => {
     if (setup) inputRef.current?.focus();
@@ -96,17 +99,16 @@ export default function TotpEnrollment({ onConfirmed, onCancel, confirmLabel }) 
 
   if (loadError) {
     return (
-      <div className={styles.loadError}>
-        <MIcon name="error_outline" size={20} />
-        <span>{loadError}</span>
-        <button
-          type="button"
-          className={styles.btnSecondary}
-          onClick={() => setReloadKey((n) => n + 1)}
-        >
-          <MIcon name="refresh" size={16} />
-          {t("TotpEnrollment.retry")}
-        </button>
+      <div className={styles.root}>
+        <ErrorState onRetry={() => setReloadKey((n) => n + 1)} />
+        {/* 失敗時也要能離開：與正常狀態同一顆取消鈕 */}
+        {onCancel && (
+          <div className={styles.actions}>
+            <button type="button" className={styles.btnSecondary} onClick={onCancel}>
+              {t("TotpEnrollment.cancel")}
+            </button>
+          </div>
+        )}
       </div>
     );
   }

@@ -13,8 +13,6 @@
   "TotpEnrollment.confirm": "二段階認証を有効にする",
   "TotpEnrollment.confirming": "認証中…",
   "TotpEnrollment.cancel": "キャンセル",
-  "TotpEnrollment.loadFailed": "二段階認証のキーを生成できませんでした",
-  "TotpEnrollment.retry": "再試行",
   "AiFloatingChat.screenChanged": "回答を待つ間に画面やデータが変わりました。現在の画面についてもう一度質問してください。手順は保存されています。",
   "AiFloatingChat.multipleFlowsIntro": "各手順を保存しました。進める項目を選択するか、途中でも質問できます。",
   "AiFloatingChat.savedFlows": "保存した手順",

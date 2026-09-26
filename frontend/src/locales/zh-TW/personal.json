@@ -70,6 +70,7 @@
   "TwoFactorSection.disabledToast": "兩步驟驗證已停用",
   "TwoFactorSection.codeInvalid": "驗證碼錯誤",
   "TwoFactorSection.cancel": "取消",
+  "TwoFactorSection.close": "關閉",
   "DangerZoneTab.title": "刪除帳號",
   "DangerZoneTab.descPart1": "你的帳號與所有相關資料將被",
   "DangerZoneTab.descBold": "永久刪除",
