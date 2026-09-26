@@ -13,6 +13,7 @@ import SharedEmptyState from "../../../components/EmptyState/EmptyState";
 import ErrorState from "../../../components/ErrorState/ErrorState";
 import LoadingState from "../../../components/LoadingState/LoadingState";
 import { ResourcesService } from "../../../services/resources";
+import { VmRequestsService } from "../../../services/vmRequests";
 import {
   PENDING_POLL_INTERVAL,
   cancelVmRequest,
@@ -43,6 +44,8 @@ const STATUS_MAP = {
   paused:       { labelKey: "ResourcesPage.statusPaused",        color: "muted",   icon: "pause_circle"   },
   deleting:     { labelKey: "ResourcesPage.statusDeleting",      color: "danger",  icon: "hourglass_empty"},
   failed:       { labelKey: "ResourcesPage.statusFailed",        color: "danger",  icon: "error_outline"  },
+  /* 前端衍生：failed 佔位列已有 vmid ＝ 機器建好了、是之後開機失敗 */
+  start_failed: { labelKey: "ResourcesPage.statusStartFailed",   color: "danger",  icon: "error_outline"  },
   deleted:      { labelKey: "ResourcesPage.statusDeleted",       color: "danger",  icon: "delete_forever" },
   unknown:      { labelKey: "ResourcesPage.statusUnknown",       color: "muted",   icon: "help_outline"   },
 };
@@ -190,7 +193,7 @@ function resourceRowKey(resource, index) {
 }
 
 /* ── Resource row ── */
-function ResourceRow({ resource, onUpdated, onDeleted }) {
+function ResourceRow({ resource, onUpdated, onDeleted, onRefresh }) {
   const { t } = useTranslation("personal");
   const navigate = useNavigate();
   const { user } = useAuth();
@@ -258,6 +261,51 @@ function ResourceRow({ resource, onUpdated, onDeleted }) {
     }
   }
 
+  /* 失敗的佔位列（已核准但 Proxmox 上看不到機器）：可重試或刪除。
+     沒有 vmid＝clone 失敗，重試會重新建立；有 vmid＝機器建好了、之後開機失敗，重試只會重新開機。
+     操作完重新抓列表，不能用 vmid 比對更新（會連帶命中其他 vmid 為 null 的列） */
+  const isFailedPlaceholder = Boolean(
+    resource.is_placeholder && resource.status === "failed" && resource.request_id,
+  );
+  const isStartFailure = isFailedPlaceholder && Boolean(resource.vmid);
+  const displayStatus = isStartFailure ? "start_failed" : resource.status;
+  const [failedAction, setFailedAction] = useState(null);
+
+  async function handleRebuild() {
+    setFailedAction("rebuild");
+    try {
+      await VmRequestsService.retry(resource.request_id);
+      toast.success(t(isStartFailure ? "ResourceRow.restartQueued" : "ResourceRow.rebuildQueued", { name: resource.name }));
+      onRefresh();
+    } catch (err) {
+      toast.error(err?.message ?? t("Error.generic", { ns: "common" }));
+    } finally {
+      setFailedAction(null);
+    }
+  }
+
+  async function handleDiscardFailed() {
+    const ok = await confirm({
+      title: t("ResourceRow.confirmDeleteTitle"),
+      message: t("ResourceRow.confirmDeleteFailedDesc", { name: resource.name }),
+      confirmText: t("ResourceRow.confirmDeleteLabel"),
+      danger: true,
+    });
+    if (!ok) return;
+    setFailedAction("delete");
+    try {
+      /* 沒有 vmid：取消這張申請即可；少數已分到 vmid 的走資源刪除（後端會清掉 Proxmox 上不存在的孤兒紀錄） */
+      if (resource.vmid) await ResourcesService.delete(resource.vmid);
+      else await cancelVmRequest(resource.request_id);
+      toast.success(t("ResourceRow.failedDeleted", { name: resource.name }));
+      onRefresh();
+    } catch (err) {
+      toast.error(err?.message ?? t("ResourceRow.deleteFailed"));
+    } finally {
+      setFailedAction(null);
+    }
+  }
+
   const canOpenDetail = resource.vmid > 0;
   /* 整列可點進詳情；列內按鈕／連結／選單的點擊不觸發導頁 */
   const openDetail = (event) => {
@@ -291,7 +339,7 @@ function ResourceRow({ resource, onUpdated, onDeleted }) {
         />
       </td>
       <td className={styles.td}><div className={styles.envPrimary}>{resource.environment_type || "Custom"}</div><div className={styles.envSub}>{resource.os_info || "—"}</div></td>
-      <td className={styles.td}><StatusBadge status={resource.status} /></td>
+      <td className={styles.td}><StatusBadge status={displayStatus} /></td>
       <td className={styles.td}>
         <span className={styles.mono}>{resource.ip_address ?? "N/A"}</span>
         {/* 反向代理發布的對外網址：和環境機器列一樣直接可點，不必進詳情頁 */}
@@ -316,6 +364,27 @@ function ResourceRow({ resource, onUpdated, onDeleted }) {
           <div className={styles.menuWrap}>
             {menuOpen && <PowerMenu resource={resource} actionLoading={actionLoading} onControl={handleControl} onDeleteClick={resource.can_delete === false ? undefined : () => { closeMenu(); handleDelete(); }} onConvertTemplate={canConvertTemplate ? () => { closeMenu(); setConvertOpen(true); } : undefined} onClose={closeMenu} anchorRef={menuBtnRef} closing={menuClosing} />}
             <button ref={menuBtnRef} type="button" className={`${styles.menuBtn} ${menuOpen ? styles.menuBtnActive : ""}`} onClick={() => menuOpen ? closeMenu() : setMenuOpen(true)} title={t("ResourceRow.moreActions")} aria-label={t("ResourceRow.moreActions")} data-guide="resource-more-actions"><MIcon name="more_vert" size={18} /></button>
+          </div>
+        </div> : isFailedPlaceholder ? <div className={styles.rowActions}>
+          {/* 動作欄只有 160px，兩顆文字按鈕會擠出欄外：收進與一般列同位置的 ⋮ 選單 */}
+          {failedAction && <MIcon name="hourglass_empty" size={16} spin />}
+          <div className={styles.menuWrap}>
+            {menuOpen && <PowerMenu
+              title={t("ResourceRow.moreActions")}
+              items={[{
+                action: "retry",
+                label: t(isStartFailure ? "ResourceRow.restart" : "ResourceRow.rebuild"),
+                icon: isStartFailure ? "power_settings_new" : "autorenew",
+                tone: "ok",
+              }]}
+              actionLoading={failedAction}
+              onControl={handleRebuild}
+              onDeleteClick={resource.can_delete === false ? undefined : () => { closeMenu(); handleDiscardFailed(); }}
+              onClose={closeMenu}
+              anchorRef={menuBtnRef}
+              closing={menuClosing}
+            />}
+            <button ref={menuBtnRef} type="button" className={`${styles.menuBtn} ${menuOpen ? styles.menuBtnActive : ""}`} disabled={failedAction !== null} onClick={() => menuOpen ? closeMenu() : setMenuOpen(true)} title={t("ResourceRow.moreActions")} aria-label={t("ResourceRow.moreActions")}><MIcon name="more_vert" size={18} /></button>
           </div>
         </div> : <span className={styles.deletedNote}>{STATUS_MAP[resource.status]?.labelKey ? t(STATUS_MAP[resource.status].labelKey) : resource.status}</span>}
       </td>
@@ -642,6 +711,12 @@ export default function ResourcesPage() {
     setResources((prev) => prev.filter((r) => r.vmid !== vmid));
   }
 
+  /* 建立失敗的列重建／刪除後：兩份清單都可能變（重建會回到建立中），直接重抓 */
+  function refreshAfterFailedAction() {
+    fetchResources(true);
+    refreshPending();
+  }
+
   // 建立中申請會同時出現在 pending 與資源 API；先移除 placeholder，避免重複列。
   const pendingRequestIds = new Set(pending.map((request) => String(request.id)));
   const resourcesForDisplay = resources.filter((resource) => !(
@@ -727,7 +802,7 @@ export default function ResourcesPage() {
               <tbody>
                 {environmentGroups.map((group) => <EnvironmentGroupRows key={group.id} group={group} onUpdated={handleUpdated} onEnded={() => fetchResources(true)} />)}
                 {visiblePending.map((req) => <CreatingRow key={`creating:${req.id}`} request={req} onCancelled={refreshPending} />)}
-                {visibleResources.map((r, index) => <ResourceRow key={resourceRowKey(r, index)} resource={r} onUpdated={handleUpdated} onDeleted={handleDeleted} />)}
+                {visibleResources.map((r, index) => <ResourceRow key={resourceRowKey(r, index)} resource={r} onUpdated={handleUpdated} onDeleted={handleDeleted} onRefresh={refreshAfterFailedAction} />)}
               </tbody>
             </table>
           </div>
