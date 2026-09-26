@@ -1,9 +1,10 @@
 """登入憑證管理：重設密碼、重新產生平台金鑰、匯入／移除自己的公鑰。
 
 QEMU 走 cloud-init（``cipassword`` / ``sshkeys``），設定寫進 Proxmox 後要
-重新開機才會套進 guest；執行中且 guest agent 有回應時，密碼會順便用
-``chpasswd`` 直接改掉。LXC 沒有 cloud-init，一律用 ``pct exec`` 進容器改，
-所以容器必須在執行中。
+重新開機才會套進 guest。重設密碼時若 VM 執行中，寫完 ``cipassword`` 會
+直接透過 PVE 重新開機（PVE 的 reboot＝關機再開機，會重新產生 cloud-init
+碟，新密碼隨之生效）；關機中的 VM 不動電源，下次開機時生效。
+LXC 沒有 cloud-init，一律用 ``pct exec`` 進容器改，所以容器必須在執行中。
 """
 
 from __future__ import annotations
@@ -113,30 +114,18 @@ def _qemu_write_keys(resource_info: dict[str, Any], vmid: int, keys: list[str]) 
         )
 
 
-def _qemu_try_chpasswd(
-    resource_info: dict[str, Any], vmid: int, username: str, password: str
-) -> bool:
-    """執行中且 agent 有回應時直接改密碼；任何失敗都只回 False（重開機後仍會生效）。"""
-    if not _is_running(resource_info):
-        return False
+def _qemu_reboot_to_apply(resource_info: dict[str, Any], vmid: int) -> str | None:
+    """執行中的 VM 送出 PVE reboot 讓 cloud-init 套用新設定。
+
+    回傳 None 表示已送出；失敗回傳錯誤字串（設定已寫入，呼叫端提示手動重開，
+    不讓整個重設失敗）。
+    """
     try:
-        code, _out, err = guest.exec_qemu(
-            resource_info["node"],
-            vmid,
-            [
-                "/bin/sh",
-                "-c",
-                f"echo {shlex.quote(f'{username}:{password}')} | chpasswd",
-            ],
-            timeout=30.0,
-        )
+        proxmox_service.control(resource_info["node"], vmid, "qemu", "reboot")
     except Exception as exc:
-        logger.info("VM %s: immediate chpasswd skipped: %s", vmid, exc)
-        return False
-    if code != 0:
-        logger.info("VM %s: immediate chpasswd failed: %s", vmid, (err or "")[:200])
-        return False
-    return True
+        logger.warning("VM %s: reboot after password reset failed: %s", vmid, exc)
+        return str(exc)
+    return None
 
 
 # ─── LXC（pct exec） ───────────────────────────────────────────────────────────
@@ -246,8 +235,8 @@ def reset_password(
     rtype = _rtype(resource_info)
     new_password = password or generate_login_password()
 
+    rebooting = False
     if rtype == "qemu":
-        config = _qemu_config(resource_info, vmid)
         node = resource_info["node"]
         try:
             proxmox_service.update_config(node, vmid, "qemu", cipassword=new_password)
@@ -256,15 +245,17 @@ def reset_password(
             raise ProxmoxError(
                 t("resource_settings.updateConfigFailed", vmid=vmid, error=exc)
             )
-        username = str(config.get("ciuser") or "").strip()
-        applied = bool(username) and _qemu_try_chpasswd(
-            resource_info, vmid, username, new_password
-        )
-        message = (
-            t("resource_settings.passwordAppliedNow")
-            if applied
-            else t("resource_settings.passwordAppliedOnReboot")
-        )
+        applied = False
+        if _is_running(resource_info):
+            reboot_error = _qemu_reboot_to_apply(resource_info, vmid)
+            rebooting = reboot_error is None
+            message = (
+                t("resource_settings.passwordRebooting")
+                if rebooting
+                else t("resource_settings.passwordRebootFailed", error=reboot_error)
+            )
+        else:
+            message = t("resource_settings.passwordAppliedOnNextBoot")
     else:
         _require_lxc_running(resource_info)
         # 密碼走 stdin：串進指令列會留在節點的 ps 與 shell 紀錄裡
@@ -284,11 +275,18 @@ def reset_password(
         user_id=user_id,
         vmid=vmid,
         action="credential_update",
-        details=f"Login password reset on {rtype} {vmid} (applied_immediately={applied})",
+        details=(
+            f"Login password reset on {rtype} {vmid} "
+            f"(applied_immediately={applied}, rebooting={rebooting})"
+        ),
     )
     session.commit()
     return PasswordResetResponse(
-        vmid=vmid, password=new_password, applied_immediately=applied, message=message
+        vmid=vmid,
+        password=new_password,
+        applied_immediately=applied,
+        rebooting=rebooting,
+        message=message,
     )
 
 

@@ -17,6 +17,12 @@ from sqlmodel import Session, select
 collect_ignore = ["test_ai_api.py"]
 
 from app.core.config import settings
+
+# 本機 .env 可能填了正式的 SENTRY_DSN：測試會刻意製造例外（排程任務失敗、
+# PVE 連不上…），不能送進真的 Sentry 專案。必須在 import app.main（會呼叫
+# init_sentry）之前關掉；env_ignore_empty=True 讓空字串環境變數蓋不掉 .env。
+settings.SENTRY_DSN = None
+
 from app.core.db import engine, init_db
 from app.main import app
 from app.models import (

@@ -266,7 +266,8 @@ export default function StudentCoursePage() {
       let resource = await ResourcesService.get(machine.vmid);
       if (resource.status !== "running") {
         toast.info(t("StudentCoursePage.startingMachine"), { id: toastId });
-        await ResourcesService.start(resource.vmid);
+        /* 已在開機中就不重送開機，只等它開完 */
+        if (resource.status !== "starting") await ResourcesService.start(resource.vmid);
         resource = await waitForPracticeMachine(resource.vmid);
         if (resource?.status !== "running") {
           toast.info(t("StudentCoursePage.machineStillStarting"), { id: toastId });

@@ -1,0 +1,37 @@
+apiVersion: 1
+
+# uid 固定，儀表板 JSON 直接以 uid 引用
+datasources:
+  - name: Prometheus
+    uid: skylab-prometheus
+    type: prometheus
+    access: proxy
+    url: http://prometheus:9090
+    isDefault: true
+    editable: false
+    jsonData:
+      timeInterval: 15s
+
+  - name: Loki
+    uid: skylab-loki
+    type: loki
+    access: proxy
+    url: http://loki:3100
+    editable: false
+    jsonData:
+      maxLines: 1000
+
+  # Proxmox VE 內建 Metric Server 推進來的節點／VM／儲存用量（Flux 查詢）
+  - name: InfluxDB (Proxmox)
+    uid: skylab-influxdb
+    type: influxdb
+    access: proxy
+    url: http://influxdb:8086
+    editable: false
+    jsonData:
+      version: Flux
+      organization: ${INFLUXDB_ORG}
+      defaultBucket: ${INFLUXDB_BUCKET}
+      tlsSkipVerify: true
+    secureJsonData:
+      token: ${INFLUXDB_ADMIN_TOKEN}

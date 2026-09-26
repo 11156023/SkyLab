@@ -67,7 +67,7 @@ async def run_until_first_done(*coroutines: Coroutine[Any, Any, None]) -> None:
         try:
             await task
         except asyncio.CancelledError:
-            pass
+            pass  # 取消是預期結果，不需記錄
 
 
 async def safe_close_websocket(

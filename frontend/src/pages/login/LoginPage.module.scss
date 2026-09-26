@@ -160,6 +160,29 @@
   padding: $spacing-8 $spacing-16;
 }
 
+/* 強制綁定兩步驟驗證頁：卡片放寬到放得下 QR code 與步驟說明 */
+.cardWide {
+  max-width: 520px;
+}
+
+.enrollBody {
+  text-align: left;
+  margin-top: $spacing-16;
+}
+
+/* 兩步驟驗證碼：6 位數字置中、拉開字距，方便對照 Authenticator 上的數字 */
+.codeInput.codeInput {
+  text-align: center;
+  font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  font-size: 22px;
+  letter-spacing: 0.35em;
+
+  &::placeholder {
+    letter-spacing: 0.35em;
+    opacity: 0.35;
+  }
+}
+
 /* 返回按鈕（忘記密碼 / 註冊頁頂部）：靠左，不吃卡片的置中 */
 .backBtn {
   display: flex;

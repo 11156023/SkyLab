@@ -30,6 +30,7 @@ function initialForm(user = null) {
     password: "",
     role: user?.role ?? "student",
     is_active: user?.is_active ?? true,
+    totp_required: user?.totp_required ?? false,
   };
 }
 
@@ -47,10 +48,21 @@ function EmptyState({ hasQuery }) {
   );
 }
 
-function UserModal({ mode, user, loading, closing = false, onClose, onSubmit }) {
+function UserModal({ mode, user, loading, closing = false, onClose, onSubmit, onResetTotp }) {
   const { t } = useTranslation("system");
   const [form, setForm] = useState(() => initialForm(user));
   const isEdit = mode === "edit";
+  const [resettingTotp, setResettingTotp] = useState(false);
+
+  /* 手機遺失救援：解除對方的兩步驟驗證，對方既有登入全部失效、下次登入只需密碼 */
+  async function handleResetTotp() {
+    setResettingTotp(true);
+    try {
+      await onResetTotp(user);
+    } finally {
+      setResettingTotp(false);
+    }
+  }
   /* LDAP 帳號的密碼歸目錄管：本地密碼欄位鎖住（後端也會擋），稽核 #9 */
   const isLdap = isEdit && user?.auth_source === "ldap";
   const titleId = useId();
@@ -80,6 +92,7 @@ function UserModal({ mode, user, loading, closing = false, onClose, onSubmit }) 
       full_name: form.full_name.trim() || null,
       role: form.role,
       is_active: form.is_active,
+      totp_required: form.totp_required,
     };
     if (!isLdap && form.password.trim()) payload.password = form.password;
     onSubmit(payload);
@@ -166,7 +179,40 @@ function UserModal({ mode, user, loading, closing = false, onClose, onSubmit }) 
             />
             <span>{t("AdminPage.fieldActive")}</span>
           </label>
+          <label className={styles.checkRow} title={t("AdminPage.fieldTotpRequiredHint")}>
+            <input
+              type="checkbox"
+              checked={form.totp_required}
+              onChange={(e) => setField("totp_required", e.target.checked)}
+            />
+            <span>{t("AdminPage.fieldTotpRequired")}</span>
+          </label>
         </div>
+        {form.totp_required && (
+          <em className={styles.fieldHint}>{t("AdminPage.fieldTotpRequiredHint")}</em>
+        )}
+
+        {isEdit && (
+          <div className={styles.totpRow}>
+            <div className={styles.totpRowText}>
+              <strong>{t("AdminPage.totpLabel")}</strong>
+              <span>
+                {user?.totp_enabled ? t("AdminPage.totpStatusOn") : t("AdminPage.totpStatusOff")}
+              </span>
+            </div>
+            {user?.totp_enabled && (
+              <button
+                type="button"
+                className={styles.btnSecondary}
+                onClick={handleResetTotp}
+                disabled={loading || resettingTotp}
+              >
+                <MIcon name="phonelink_erase" size={16} />
+                {resettingTotp ? t("AdminPage.totpResetting") : t("AdminPage.totpReset")}
+              </button>
+            )}
+          </div>
+        )}
 
         <div className={styles.modalActions}>
           <button type="button" className={styles.btnSecondary} onClick={onClose}>
@@ -200,6 +246,9 @@ function UserRow({ user, currentUserId, onEdit, onDelete }) {
           {userDisplayName(user)}
           {user.auth_source === "ldap" && (
             <span className={styles.ldapTag} title={t("AdminPage.ldapManagedHint")}>LDAP</span>
+          )}
+          {user.totp_enabled && (
+            <span className={styles.ldapTag} title={t("AdminPage.totpEnabledHint")}>2FA</span>
           )}
         </span>
         <span className={styles.rowMeta}>{user.email}</span>
@@ -334,6 +383,29 @@ export default function AdminPage() {
     }
   }
 
+  /* 重設兩步驟驗證：對方會被登出、下次登入不再要求驗證碼（走共用 useConfirm 確認） */
+  async function handleResetTotp(user) {
+    const ok = await confirm({
+      title: t("AdminPage.totpResetTitle"),
+      message: t("AdminPage.totpResetConfirm", { name: userDisplayName(user) }),
+      confirmText: t("AdminPage.totpReset"),
+      danger: true,
+    });
+    if (!ok) return;
+    try {
+      await UsersService.resetTotp(user.id);
+      setUsers((prev) =>
+        prev.map((item) => (item.id === user.id ? { ...item, totp_enabled: false } : item)),
+      );
+      setModal((prev) =>
+        prev?.user?.id === user.id ? { ...prev, user: { ...prev.user, totp_enabled: false } } : prev,
+      );
+      toast.success(t("AdminPage.toastTotpReset"));
+    } catch (err) {
+      toast.error(err?.message ?? t("AdminPage.toastTotpResetFailed"));
+    }
+  }
+
   return (
     <div className={styles.page}>
       <PageHeader title={t("AdminPage.pageTitle")}>
@@ -430,6 +502,7 @@ export default function AdminPage() {
           closing={modalPresence.closing}
           onClose={() => setModal(null)}
           onSubmit={handleSubmit}
+          onResetTotp={handleResetTotp}
         />
       )}
     </div>

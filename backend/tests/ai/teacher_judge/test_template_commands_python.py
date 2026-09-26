@@ -6,30 +6,20 @@ Shared fixtures live in tests.ai.teacher_judge.helpers.
 from __future__ import annotations
 
 import json
-import uuid
 from types import SimpleNamespace
 
 import pytest
-from fastapi import HTTPException
-from sqlmodel import Session, SQLModel, create_engine
 
 from app.ai.teacher_judge import service as teacher_judge_service
-from app.ai.teacher_judge.schemas import TeacherJudgeRubricItem
 from app.ai.teacher_judge.template_command_service import (
     DEFAULT_SYSTEM_COMMAND_TIMEOUT_SECONDS,
     GENERAL_COMMAND,
-    format_template_commands_for_prompt,
-    get_enabled_template_commands,
     validate_check_steps,
-    validate_check_steps_with_issues,
 )
 from app.models.teacher_judge_template_command import TeacherJudgeTemplateCommand
 from tests.ai.teacher_judge.helpers import (
-    make_session,
-    make_teacher_judge_file,
     patch_teacher_judge_vllm_settings,
     reply_message,
-    requirement_focus,
     scripted_vllm,
     tool_call_message,
 )

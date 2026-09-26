@@ -17,7 +17,6 @@ if sys.platform == "win32":
     _uvicorn_asyncio_loop.asyncio_loop_factory = _win_selector_factory
     asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
-import sentry_sdk
 from fastapi import FastAPI, Request, WebSocket
 from fastapi.responses import JSONResponse
 from fastapi.routing import APIRoute
@@ -37,13 +36,20 @@ from app.api.websocket.terminal import terminal_proxy
 from app.core.config import settings
 from app.core.i18n import resolve_language, t, translate
 from app.core.logging import configure_logging
-from app.core.metrics import PrometheusMiddleware, metrics_endpoint
+from app.core.metrics import (
+    PrometheusMiddleware,
+    metrics_endpoint,
+    register_collect_hook,
+    track_websocket,
+)
 from app.core.request_context import RequestContextMiddleware
+from app.core.sentry import init_sentry
 from app.exceptions import AppError
 from app.infrastructure.ai import close_ai_clients
 from app.infrastructure.queue import close_arq_pool, init_arq_pool
 from app.infrastructure.redis import close_redis, init_redis
 from app.infrastructure.worker import init_background_runner, shutdown_background_runner
+from app.services.monitoring import system_health_service
 from app.services.network import wireguard_service
 from app.services.notification import web_push_service
 from app.services.scheduling import vm_request_schedule_service
@@ -174,12 +180,7 @@ def custom_generate_unique_id(route: APIRoute) -> str:
     return f"{route.tags[0]}-{route.name}"
 
 
-if settings.SENTRY_DSN:
-    sentry_sdk.init(
-        dsn=str(settings.SENTRY_DSN),
-        traces_sample_rate=settings.SENTRY_TRACES_SAMPLE_RATE,
-        send_default_pii=False,
-    )
+init_sentry("backend")
 
 # 正式環境不對外掛 /docs、/redoc、openapi.json：schema 等於把所有端點、參數
 # 與權限缺口攤開給未登入的人看。nginx 不知道 ENVIRONMENT，所以在這裡關。
@@ -210,6 +211,8 @@ if settings.all_cors_origins:
 
 app.include_router(api_router, prefix=settings.API_V1_STR)
 app.add_route("/metrics", metrics_endpoint, methods=["GET"])
+# 抓取當下才更新的 gauge：DB／Redis 是否可用、arq 佇列長度、任務紀錄統計
+register_collect_hook(system_health_service.collect_metrics_hook)
 
 
 @app.exception_handler(AppError)
@@ -255,35 +258,41 @@ async def websocket_vnc_proxy(
     vnc_ticket: str = "",
     vnc_port: str = "",
 ):
-    await vnc_proxy(
-        websocket, vmid, token=token, vnc_ticket=vnc_ticket, vnc_port=vnc_port
-    )
+    with track_websocket("vnc"):
+        await vnc_proxy(
+            websocket, vmid, token=token, vnc_ticket=vnc_ticket, vnc_port=vnc_port
+        )
 
 
 @app.websocket("/ws/terminal/{vmid}")
 async def websocket_terminal_proxy(websocket: WebSocket, vmid: int, token: str = ""):
-    await terminal_proxy(websocket, vmid, token=token)
+    with track_websocket("terminal"):
+        await terminal_proxy(websocket, vmid, token=token)
 
 
 @app.websocket("/ws/jobs")
 async def websocket_jobs_proxy(websocket: WebSocket, token: str = ""):
-    await jobs_ws_proxy(websocket, token=token)
+    with track_websocket("jobs"):
+        await jobs_ws_proxy(websocket, token=token)
 
 
 @app.websocket("/ws/classroom")
 async def websocket_classroom_presence(websocket: WebSocket, token: str = ""):
-    await classroom_presence_proxy(websocket, token=token)
+    with track_websocket("classroom"):
+        await classroom_presence_proxy(websocket, token=token)
 
 
 @app.websocket("/ws/classroom/{session_id}/watch")
 async def websocket_classroom_watch(
     websocket: WebSocket, session_id: str, token: str = ""
 ):
-    await classroom_watch_proxy(websocket, session_id, token=token)
+    with track_websocket("classroom_watch"):
+        await classroom_watch_proxy(websocket, session_id, token=token)
 
 
 @app.websocket("/ws/courses/paths/{path_id}/progress")
 async def websocket_course_progress(
     websocket: WebSocket, path_id: str, token: str = ""
 ):
-    await course_progress_proxy(websocket, path_id, token=token)
+    with track_websocket("course_progress"):
+        await course_progress_proxy(websocket, path_id, token=token)

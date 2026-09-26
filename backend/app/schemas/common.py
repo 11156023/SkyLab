@@ -25,6 +25,25 @@ class TokenPayload(BaseModel):
     ver: int = 0
     jti: str | None = None
     exp: int | None = None
+    # 只有 type="totp" 的挑戰 token 會帶：第一階段用的登入方式（password|google|ldap）
+    method: str | None = None
+
+
+class TotpChallenge(BaseModel):
+    """第一階段（密碼／Google／LDAP）通過但帳號已綁定兩步驟驗證：
+
+    不發正式 token，改回短效挑戰 token，前端拿驗證碼呼叫 ``/login/totp`` 換取。
+    """
+
+    totp_required: bool = True
+    totp_token: str
+
+
+class TotpLoginRequest(BaseModel):
+    """第二階段：挑戰 token + Authenticator 驗證碼"""
+
+    totp_token: str
+    code: str = Field(min_length=6, max_length=16)
 
 
 class NewPassword(BaseModel):

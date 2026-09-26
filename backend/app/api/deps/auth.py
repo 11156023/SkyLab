@@ -2,7 +2,7 @@ import logging
 from typing import Annotated
 
 import jwt
-from fastapi import Depends, Query, WebSocket, WebSocketException, status
+from fastapi import Depends, Query, Request, WebSocket, WebSocketException, status
 from fastapi.concurrency import run_in_threadpool
 from fastapi.security import OAuth2PasswordBearer
 from jwt.exceptions import InvalidTokenError
@@ -19,7 +19,7 @@ from app.core.config import settings
 from app.core.db import engine
 from app.core.i18n import t
 from app.core.permissions import Permission, require_permission
-from app.exceptions import AuthenticationError
+from app.exceptions import AuthenticationError, PermissionDeniedError
 from app.infrastructure.redis import get_redis, is_jti_revoked
 from app.models import User
 from app.schemas import TokenPayload
@@ -33,7 +33,21 @@ reusable_oauth2 = OAuth2PasswordBearer(
 TokenDep = Annotated[str, Depends(reusable_oauth2)]
 
 
-async def get_current_user(session: SessionDep, token: TokenDep) -> User:
+# 帳號被管理員要求啟用 2FA 但尚未綁定時仍可用的路徑前綴：看自己的資料、綁定
+# 兩步驟驗證、登出／續期。其餘 API 一律 403，直到綁定完成。
+_TOTP_ENROLLMENT_ALLOWED_PREFIXES = (
+    f"{settings.API_V1_STR}/users/me",
+    f"{settings.API_V1_STR}/login/",
+)
+
+
+def _totp_enrollment_allowed(path: str) -> bool:
+    return path.startswith(_TOTP_ENROLLMENT_ALLOWED_PREFIXES)
+
+
+async def get_current_user(
+    session: SessionDep, token: TokenDep, request: Request
+) -> User:
     # All failures here are authentication problems (bad/expired/revoked token,
     # missing or inactive user), so they must return 401 to trigger the
     # frontend refresh-token flow. Never raise 403 from this function — that
@@ -66,6 +80,14 @@ async def get_current_user(session: SessionDep, token: TokenDep) -> User:
         raise AuthenticationError(t("auth.user_inactive"))
     if user.token_version != token_data.ver:
         raise AuthenticationError(t("auth.token_revoked"))
+    # 管理員在使用者資料勾了「強制兩步驟驗證」：尚未綁定前只能走綁定相關端點
+    # （403 不會觸發前端登出流程；前端依 /users/me 的 totp_setup_required 顯示綁定畫面）。
+    if (
+        user.totp_required
+        and not user.totp_enabled
+        and not _totp_enrollment_allowed(request.url.path)
+    ):
+        raise PermissionDeniedError(t("auth.totpSetupRequired"))
     return user
 
 

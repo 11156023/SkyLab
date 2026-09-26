@@ -5,19 +5,24 @@ from __future__ import annotations
 import pytest
 from starlette.requests import Request
 
+from app.core import metrics as metrics_module
 from app.core.metrics import (
     _AVAILABLE,
+    UNMATCHED_PATH,
     PrometheusMiddleware,
     _route_template,
     metrics_endpoint,
+    register_collect_hook,
+    track_websocket,
 )
 
 # ─── _route_template helper ──────────────────────────────────────────────────
 
 
-def test_route_template_returns_path_when_no_route() -> None:
-    scope = {"type": "http", "path": "/api/v1/things"}
-    assert _route_template(scope) == "/api/v1/things"
+def test_route_template_collapses_unmatched_paths() -> None:
+    # 沒對到路由的原始路徑不能當 label，否則掃描器亂打會讓時間序列爆量
+    scope = {"type": "http", "path": "/wp-admin/../../etc/passwd"}
+    assert _route_template(scope) == UNMATCHED_PATH
 
 
 def test_route_template_returns_route_path_when_present() -> None:
@@ -28,8 +33,8 @@ def test_route_template_returns_route_path_when_present() -> None:
     assert _route_template(scope) == "/resources/{vmid}"
 
 
-def test_route_template_unknown_when_nothing_set() -> None:
-    assert _route_template({"type": "http"}) == "unknown"
+def test_route_template_unmatched_when_nothing_set() -> None:
+    assert _route_template({"type": "http"}) == UNMATCHED_PATH
 
 
 # ─── PrometheusMiddleware ────────────────────────────────────────────────────
@@ -92,12 +97,12 @@ async def test_middleware_records_500_when_app_raises() -> None:
 # ─── metrics_endpoint ────────────────────────────────────────────────────────
 
 
-def _fake_request() -> Request:
+def _fake_request(headers: list[tuple[bytes, bytes]] | None = None) -> Request:
     scope = {
         "type": "http",
         "method": "GET",
         "path": "/metrics",
-        "headers": [],
+        "headers": headers or [],
     }
     return Request(scope)  # type: ignore[arg-type]
 
@@ -114,3 +119,53 @@ async def test_metrics_endpoint_returns_payload_or_503() -> None:
     else:
         assert response.status_code == 503
         assert b"prometheus_client" in response.body
+
+
+@pytest.mark.asyncio
+@pytest.mark.skipif(not _AVAILABLE, reason="prometheus_client not installed")
+async def test_metrics_endpoint_requires_token_when_configured(monkeypatch) -> None:
+    monkeypatch.setattr(metrics_module.settings, "METRICS_TOKEN", "s3cret-token")
+
+    denied = await metrics_endpoint(_fake_request())
+    assert denied.status_code == 401
+
+    wrong = await metrics_endpoint(_fake_request([(b"authorization", b"Bearer nope")]))
+    assert wrong.status_code == 401
+
+    ok = await metrics_endpoint(
+        _fake_request([(b"authorization", b"Bearer s3cret-token")])
+    )
+    assert ok.status_code == 200
+
+
+@pytest.mark.asyncio
+@pytest.mark.skipif(not _AVAILABLE, reason="prometheus_client not installed")
+async def test_metrics_endpoint_runs_collect_hooks_and_survives_failures(
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(metrics_module, "_collect_hooks", [])
+    monkeypatch.setattr(metrics_module, "_collect_state", {"last": 0.0})
+    calls: list[str] = []
+
+    async def broken() -> None:
+        calls.append("broken")
+        raise RuntimeError("redis down")
+
+    async def healthy() -> None:
+        calls.append("healthy")
+
+    register_collect_hook(broken)
+    register_collect_hook(healthy)
+    response = await metrics_endpoint(_fake_request())
+
+    assert response.status_code == 200
+    assert calls == ["broken", "healthy"]
+
+
+@pytest.mark.skipif(not _AVAILABLE, reason="prometheus_client not installed")
+def test_track_websocket_counts_open_connections() -> None:
+    gauge = metrics_module.WEBSOCKET_CONNECTIONS.labels(kind="pytest")
+    before = gauge._value.get()
+    with track_websocket("pytest"):
+        assert gauge._value.get() == before + 1
+    assert gauge._value.get() == before

@@ -12,6 +12,10 @@ import ErrorBoundary from "./components/ErrorBoundary/ErrorBoundary";
 import AppToaster from "./components/AppToaster";
 import "./assets/styles/global.scss";
 import "./i18n";
+import { initSentry } from "./utils/sentry";
+
+// 建置時有 VITE_SENTRY_DSN 才會載入 SDK（動態 import，不影響首屏）
+initSentry();
 
 ReactDOM.createRoot(document.getElementById("root")).render(
   <ThemeProvider>

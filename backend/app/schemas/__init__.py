@@ -56,7 +56,14 @@ from .cloudflare import (
     CloudflareZonePublic,
     CloudflareZonesPublic,
 )
-from .common import Message, NewPassword, Token, TokenPayload
+from .common import (
+    Message,
+    NewPassword,
+    Token,
+    TokenPayload,
+    TotpChallenge,
+    TotpLoginRequest,
+)
 from .deletion_request import (
     DeletionRequestCreated,
 )
@@ -152,6 +159,9 @@ from .spec_change_request import (
     SpecChangeRequestsPublic,
 )
 from .user import (
+    TotpCodeRequest,
+    TotpSetupPublic,
+    TotpStatusPublic,
     UpdatePassword,
     UserCreate,
     UserPublic,
@@ -189,6 +199,8 @@ __all__ = [
     "Message",
     "Token",
     "TokenPayload",
+    "TotpChallenge",
+    "TotpLoginRequest",
     "NewPassword",
     # Deletion Request
     "DeletionRequestCreated",
@@ -224,6 +236,9 @@ __all__ = [
     "UpdatePassword",
     "UserPublic",
     "UsersPublic",
+    "TotpCodeRequest",
+    "TotpSetupPublic",
+    "TotpStatusPublic",
     # Batch Operations
     "BatchActionRequest",
     "BatchActionResponse",

@@ -125,6 +125,9 @@ def configure_admin(*, session: Session, data: SetupAdminCreate) -> SetupAdminRe
             session=session, db_user=existing, user_in=user_in
         )
         created = False
+    # 精靈裡已經選過語言與主題，登入後不再跑一次首次登入引導
+    user.onboarding_completed = True
+    session.add(user)
     session.commit()
     session.refresh(user)
 

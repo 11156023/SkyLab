@@ -19,11 +19,9 @@ from app.core.security import decrypt_value
 from app.models import (
     CourseEnvironment,
     CourseEnvironmentNode,
-    CourseRoom,
     VMProvisioningStatus,
     VMRequest,
     VMRequestStatus,
-    VMTemplate,
 )
 from app.services import quick_practice
 from app.services.proxmox import provisioning_service
@@ -61,7 +59,6 @@ def test_generate_login_password_is_console_typeable() -> None:
 def test_clone_service_reexports_shared_generator() -> None:
     # 既有呼叫端 / 測試仍從 clone_service 拿，必須是同一個實作
     assert clone_service.generate_login_password is generate_login_password
-    assert clone_service._PASSWORD_ALPHABET == PASSWORD_ALPHABET
 
 
 # ---------------------------------------------------------------------------

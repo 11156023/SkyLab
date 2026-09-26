@@ -106,19 +106,20 @@ export function buildPracticeMachines(classMachines, resources) {
 /** 課堂機器按鈕的文字；學生只看到狀態，不提供手動開關機。 */
 export function practiceMachineActionLabel(machine, openingMachineId = null, t = defaultT) {
   if (machine?.vmid == null) return t("studentDashboard.actionConfiguring");
-  if (openingMachineId === machine.vmid) return t("studentDashboard.actionStarting");
+  if (openingMachineId === machine.vmid || machine.status === "starting") return t("studentDashboard.actionStarting");
   if (machine.status === "running") return t("studentDashboard.actionEnter");
   return t("studentDashboard.actionStartAndEnter");
 }
 
-/** 送出開機後輪詢資源狀態，直到 running 或次數用盡（約 20 秒）。 */
-export async function waitForPracticeMachine(vmid, attempts = 20) {
+/** 送出開機後輪詢資源狀態，直到 running 或次數用盡（約 90 秒）。
+    後端在開機 task 跑完前回報 starting；GPU 直通機開機可達 40 秒以上。 */
+export async function waitForPracticeMachine(vmid, attempts = 45) {
   let resource = null;
   for (let attempt = 0; attempt < attempts; attempt += 1) {
     resource = await ResourcesService.get(vmid);
     if (resource.status === "running") return resource;
     if (attempt < attempts - 1) {
-      await new Promise((resolve) => window.setTimeout(resolve, 1000));
+      await new Promise((resolve) => window.setTimeout(resolve, 2000));
     }
   }
   return resource;

@@ -167,7 +167,7 @@ export const ResourcesService = {
     return apiGet(`/api/v1/resources/${vmid}/credentials`);
   },
 
-  /** 重設登入密碼（password 留空由系統產生）→ { password, applied_immediately, message } */
+  /** 重設登入密碼（password 留空由系統產生）→ { password, applied_immediately, rebooting, message }；執行中的 VM 會自動重新開機套用 */
   resetPassword(vmid, password) {
     return apiPost(`/api/v1/resources/${vmid}/credentials/reset-password`, {
       password: password || null,

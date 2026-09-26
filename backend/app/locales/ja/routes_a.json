@@ -32,5 +32,6 @@
   "proxmoxConfig.connectionResourceCheckFailed": "この Proxmox に接続できないため、マシンが残っているかを確認できません。当面は削除できませんので、しばらくしてからもう一度お試しください",
   "users.avatarUnsupportedFormat": "PNG / JPEG / WebP / GIF 画像のみ対応しています",
   "users.avatarTooLarge": "画像サイズは 2MB を超えることはできません",
-  "vm.creating": "VM を作成しています。しばらくしてからリソース一覧をご確認ください。"
+  "vm.creating": "VM を作成しています。しばらくしてからリソース一覧をご確認ください。",
+  "vm.console_booting": "マシンはまだ起動中です。しばらく待ってからコンソールを開いてください。"
 }

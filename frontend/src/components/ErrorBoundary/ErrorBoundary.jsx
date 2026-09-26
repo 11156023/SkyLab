@@ -2,6 +2,7 @@ import { Component } from "react";
 import styles from "./ErrorBoundary.module.scss";
 import MIcon from "../MIcon";
 import i18n from "../../i18n";
+import { reportError } from "../../utils/sentry";
 
 /**
  * React error boundary：攔截子樹 render / lifecycle 錯誤，
@@ -18,6 +19,7 @@ export default class ErrorBoundary extends Component {
 
   componentDidCatch(error, info) {
     console.error("[ErrorBoundary] Uncaught error:", error, info);
+    reportError(error, { componentStack: info?.componentStack });
   }
 
   reset = () => {

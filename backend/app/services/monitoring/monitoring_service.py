@@ -443,8 +443,6 @@ def _set_local_refreshing(value: bool) -> None:
 
 def _get_or_collect_local_overview() -> MonitoringOverview:
     """Redis 不可用時的每 worker fallback，並在同一 worker 內合併併發 miss。"""
-    global _local_overview_refreshing
-
     cached = _read_local_overview(fresh_only=True)
     if cached is not None:
         return cached
@@ -462,7 +460,8 @@ def _get_or_collect_local_overview() -> MonitoringOverview:
         cached = _read_local_overview(fresh_only=True)
         if cached is not None:
             return cached
-        _local_overview_refreshing = True
+        # Condition 內建 RLock，可在已持鎖的區塊內重入
+        _set_local_refreshing(True)
 
     try:
         overview = _collect_overview_with_worker_session()

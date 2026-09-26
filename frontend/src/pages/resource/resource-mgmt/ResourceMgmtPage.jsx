@@ -28,6 +28,7 @@ function useStatusMap() {
   return {
     scheduled:    { label: t("ResourceMgmtPage.statusScheduled"),    color: "info"    },
     provisioning: { label: t("ResourceMgmtPage.statusProvisioning"), color: "info"    },
+    starting:     { label: t("ResourceMgmtPage.statusStarting"),     color: "info"    },
     running:      { label: t("ResourceMgmtPage.statusRunning"),      color: "success" },
     stopped:      { label: t("ResourceMgmtPage.statusStopped"),      color: "muted"   },
     paused:       { label: t("ResourceMgmtPage.statusPaused"),       color: "muted"   },
@@ -81,7 +82,9 @@ function useBatchActions() {
   ];
 }
 
-const LIVE_STATUSES = new Set(["running", "stopped", "paused"]);
+const LIVE_STATUSES = new Set(["running", "starting", "stopped", "paused"]);
+/* 有機器開機中時縮短輪詢，開完機後主控台按鈕能盡快亮起 */
+const BOOTING_POLL_INTERVAL = 5_000;
 
 /* ── Helpers ── */
 function resourceRowKey(resource, index) {
@@ -93,9 +96,11 @@ function resourceRowKey(resource, index) {
   return `${parts.join(":")}:${index}`;
 }
 
-/** 電源操作後的樂觀狀態：start/reboot/reset 後仍為執行中，stop/shutdown 後為已關機 */
+/** 電源操作後的樂觀狀態：stop/shutdown 後為已關機；start/reboot 會重跑開機 task，
+    先標開機中（主控台停用）待輪詢確認；reset 後仍為執行中 */
 function statusAfterAction(action) {
-  return action === "stop" || action === "shutdown" ? "stopped" : "running";
+  if (action === "stop" || action === "shutdown") return "stopped";
+  return action === "start" || action === "reboot" ? "starting" : "running";
 }
 
 function machineSpecLabel(machine) {
@@ -194,7 +199,7 @@ function EnvironmentMachineRow({ machine, onUpdated }) {
       <td className={styles.td}><span className={styles.noAction}>{t("ResourceMgmtPage.unifiedManagement")}</span></td>
       <td className={styles.td}>{machine.node}</td>
       <td className={styles.td}><div className={styles.actions}>
-        <button type="button" className={styles.consoleBtn} disabled={!canOpen} title={canOpen ? (isLxc ? t("ResourceMgmtPage.terminalTitle") : t("ResourceMgmtPage.consoleTitle")) : t("ResourceMgmtPage.machineNotReadyTitle")} onClick={() => setConsoleOpen(true)}>
+        <button type="button" className={styles.consoleBtn} disabled={!canOpen} title={canOpen ? (isLxc ? t("ResourceMgmtPage.terminalTitle") : t("ResourceMgmtPage.consoleTitle")) : resource?.status === "starting" ? t("ResourceMgmtPage.consoleBootingTitle") : t("ResourceMgmtPage.machineNotReadyTitle")} onClick={() => setConsoleOpen(true)}>
           <MIcon name={isLxc ? "terminal" : "desktop_windows"} size={14} />
           {isLxc ? t("ResourceMgmtPage.terminalTitle") : t("ResourceMgmtPage.consoleTitle")}
         </button>
@@ -564,7 +569,7 @@ function ResourceRow({ resource, onUpdated, onDeleted, selected = false, onToggl
               <button
                 type="button"
                 className={styles.consoleBtn}
-                title={isLxc ? t("ResourceMgmtPage.terminalTitle") : t("ResourceMgmtPage.consoleTitle")}
+                title={resource.status === "starting" ? t("ResourceMgmtPage.consoleBootingTitle") : isLxc ? t("ResourceMgmtPage.terminalTitle") : t("ResourceMgmtPage.consoleTitle")}
                 disabled={resource.status !== "running"}
                 onClick={() => setConsoleOpen(true)}
               >
@@ -691,7 +696,8 @@ export default function ResourceMgmtPage() {
     fetchResources(false, controller.signal);
     return () => controller.abort();
   }, [fetchResources]);
-  useAutoRefresh(() => fetchResources(true));
+  const anyBooting = resources.some((r) => r.status === "starting");
+  useAutoRefresh(() => fetchResources(true), anyBooting ? BOOTING_POLL_INTERVAL : undefined);
 
   function handleUpdated(updated) {
     setResources((prev) => prev.map((r) => r.vmid === updated.vmid ? updated : r));
