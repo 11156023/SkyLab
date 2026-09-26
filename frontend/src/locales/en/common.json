@@ -82,7 +82,7 @@
   "UserGuide.courses.step1.title": "Choose a course from your course list",
   "UserGuide.courses.step1.text": "All courses currently available to you appear here. During the tour, a dashed safe-demo course is added so you can practice opening one without changing real data.",
   "UserGuide.courses.step2.title": "This is the tour's simulated course",
-  "UserGuide.courses.step2.text": "The card shows its title, chapter count, and current progress just like a real course. The dashed border and Safe demo label mean nothing is saved.",
+  "UserGuide.courses.step2.text": "The ticket shows the title and class time and place, and the barcode on the stub is your practice progress, just like a real course. The dashed border and Safe demo label mean nothing is saved.",
   "UserGuide.courses.step3.title": "Open the course to see machines and weekly content",
   "UserGuide.courses.step3.text": "Next opens this simulated course and continues the tour through its classroom machine, learning progress, and weekly tasks.",
   "UserGuide.studentCourse.step1.title": "The overview tells you what to work on now",

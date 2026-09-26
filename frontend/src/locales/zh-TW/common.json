@@ -82,7 +82,7 @@
   "UserGuide.courses.step1.title": "先從課程列表選擇要學習的課程",
   "UserGuide.courses.step1.text": "這裡會列出你目前可以進入的所有課程。導覽期間會加入一張虛線框的安全模擬課程，讓你實際練習點進去，不會變更真實資料。",
   "UserGuide.courses.step2.title": "這張是導覽專用的模擬課程",
-  "UserGuide.courses.step2.text": "卡片會顯示課程名稱、章節數與目前進度，操作方式和真實課程相同。虛線外框與「安全模擬」標籤表示內容不會被儲存。",
+  "UserGuide.courses.step2.text": "票券會顯示課程名稱、上課時間地點，票根的條碼是練習進度，操作方式和真實課程相同。虛線外框與「安全模擬」標籤表示內容不會被儲存。",
   "UserGuide.courses.step3.title": "點進課程查看機器與每週內容",
   "UserGuide.courses.step3.text": "按下一步後，導覽會進入這門模擬課程，接著示範課堂機器、學習進度與每週任務的位置。",
   "UserGuide.studentCourse.step1.title": "課程總覽先告訴你現在要做什麼",

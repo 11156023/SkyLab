@@ -6,9 +6,11 @@ import LoadingState from "../../../components/LoadingState/LoadingState";
 import MIcon from "../../../components/MIcon";
 import PageHeader from "../../../components/PageHeader/PageHeader";
 import { CoursesService } from "../../../services/courses";
-import CourseCard from "./CourseCard";
-import { normalizeSchedule } from "../dashboard/student/studentDashboard";
+import CourseTicket from "../dashboard/CourseTicket";
 import styles from "./StudentCoursesPage.module.scss";
+
+/* 票券要的時間地點欄位只在課表裡；題數等進度沿用課程目錄的值 */
+const SCHEDULE_FIELDS = ["state", "session_date", "start_at", "end_at", "location", "teacher"];
 
 export default function StudentCoursesPage() {
   const { t } = useTranslation("personal");
@@ -30,19 +32,20 @@ export default function StudentCoursesPage() {
         ? pathsResult.value
         : [];
       const schedules = scheduleResult.status === "fulfilled" && Array.isArray(scheduleResult.value)
-        ? scheduleResult.value.map(normalizeSchedule)
+        ? scheduleResult.value
         : [];
-      const scheduleByPathId = new Map(
-        schedules.map((schedule) => [String(schedule.id), schedule.schedule]),
-      );
+      const scheduleByPathId = new Map(schedules.map((row) => [String(row.id), row]));
 
       setView({
         loading: false,
         hasError: pathsResult.status === "rejected",
-        paths: paths.map((path) => ({
-          ...path,
-          schedule: scheduleByPathId.get(String(path.id)) ?? null,
-        })),
+        paths: paths.map((path) => {
+          const row = scheduleByPathId.get(String(path.id));
+          const scheduleFields = row
+            ? Object.fromEntries(SCHEDULE_FIELDS.map((key) => [key, row[key]]))
+            : { state: "unscheduled" };
+          return { ...path, ...scheduleFields };
+        }),
       });
     }
 
@@ -81,14 +84,14 @@ export default function StudentCoursesPage() {
       {view.paths.length > 0 || guideDemo ? (
         <section className={styles.courseGrid} aria-label={t("StudentCoursesPage.listAria")}>
           {guideDemo && (
-            <CourseCard demo path={{
+            <CourseTicket demo guide="course-demo-card" openGuide="course-demo-open" path={{
+              id: "demo",
               title: t("StudentCoursesPage.guideDemoTitle"),
-              description: t("StudentCoursesPage.guideDemoDescription"),
-              room_count: 8, progress_percent: 50, completed_questions: 4, total_questions: 8,
+              completed_questions: 4, total_questions: 8,
             }} onOpen={() => navigate("/courses/demo", { state: { from: "/courses" } })} />
           )}
           {view.paths.map((path) => (
-            <CourseCard key={path.id} path={path}
+            <CourseTicket key={path.id} path={path} guide="course-card"
               onOpen={() => navigate(`/courses/${path.id}`, { state: { from: "/courses" } })} />
           ))}
         </section>

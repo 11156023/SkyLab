@@ -82,7 +82,7 @@
   "UserGuide.courses.step1.title": "コース一覧から学習するコースを選びます",
   "UserGuide.courses.step1.text": "現在利用できるすべてのコースがここに表示されます。ツアー中は破線枠の安全なデモコースが追加され、実データを変更せずに開く操作を練習できます。",
   "UserGuide.courses.step2.title": "これはツアー専用のデモコースです",
-  "UserGuide.courses.step2.text": "実際のコースと同様に、コース名、章数、進捗を表示します。破線枠と「安全なデモ」ラベルは、内容が保存されないことを示します。",
+  "UserGuide.courses.step2.text": "実際のコースと同様に、コース名と授業の日時・教室を表示し、半券のバーコードが練習の進捗を示します。破線枠と「安全なデモ」ラベルは、内容が保存されないことを示します。",
   "UserGuide.courses.step3.title": "コースを開いてマシンと週ごとの内容を確認します",
   "UserGuide.courses.step3.text": "次へ進むとこのデモコースを開き、クラスマシン、学習進捗、週ごとのタスクを続けて案内します。",
   "UserGuide.studentCourse.step1.title": "コース概要で今やることを確認します",
