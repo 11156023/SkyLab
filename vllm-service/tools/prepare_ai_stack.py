@@ -22,10 +22,13 @@ from dotenv import dotenv_values
 
 from generate_litellm_config import (
     DEFAULT_MODELS, DEFAULT_OUTPUT, DEFAULT_TEMPLATE, PROJECT_ROOT,
-    assert_secret_free, load_models, load_template, render_config,
+    assert_secret_free, load_models, load_template, render_config, vllm_scrape_targets,
 )
 
 REPO_ROOT = PROJECT_ROOT.parent
+# Prometheus (monitoring profile) file_sd for vLLM /metrics; read-only mount of
+# monitoring/prometheus, matched by a glob so a missing file means no targets.
+VLLM_TARGETS_FILE = REPO_ROOT / "monitoring/prometheus/targets/vllm.json"
 PRIVILEGED_KEYS = {"LITELLM_MASTER_KEY", "LITELLM_SALT_KEY", "DATABASE_URL", "VLLM_UPSTREAM_API_KEY"}
 PLACEHOLDER_PREFIXES = ("replace-with-", "ai-api-secret-")
 LOOPBACK_HOSTS = {"localhost", "127.0.0.1", "::1", "0.0.0.0", "::"}
@@ -126,6 +129,16 @@ def check_upstreams(models: list[dict], gateway_env: dict) -> None:
         if model["served_model_name"] not in ids:
             raise ValueError(f"上游 {model['alias']} 未提供指定的 served_model_name")
         print(f"上游就緒：{model['alias']}")
+
+
+def write_vllm_targets(models: list[dict]) -> None:
+    """Refresh the Prometheus vLLM targets; Prometheus picks up the change by itself."""
+    VLLM_TARGETS_FILE.parent.mkdir(parents=True, exist_ok=True)
+    VLLM_TARGETS_FILE.write_text(
+        json.dumps(vllm_scrape_targets(models), ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    print(f"已更新 Prometheus vLLM 抓取目標：monitoring/prometheus/targets/vllm.json（{len(models)} 個模型）")
 
 
 # ---------------------------------------------------------------------------
@@ -361,6 +374,7 @@ def main() -> int:
         else:
             DEFAULT_OUTPUT.write_text(yaml.safe_dump(config, sort_keys=False), encoding="utf-8")
             print("已產生 production 設定：vllm-service/litellm/config.yaml（只含金鑰 reference）")
+            write_vllm_targets(models)
         print(f"主 Compose 與金鑰邊界檢查通過；本機 {sum(m['deployment'] == 'local' for m in models)} 個、遠端 {sum(m['deployment'] == 'remote' for m in models)} 個模型")
 
         ownership = subprocess.run(

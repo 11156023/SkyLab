@@ -3,6 +3,7 @@
 狀態值：
 - 元件：ok／down／disabled（功能關閉）／unknown（查不到，例如 Redis 掛了看不到 worker）
          ／attention（還在服務但需要處理，例如 Gateway 憑證快到期）
+         ／pending（還沒有結果，例如 LiteLLM 背景健康檢查尚未跑完；不影響整體）
 - 任務：ok／warning（剛失敗 1–2 次）／failing（連續失敗 ≥ FAILING_THRESHOLD）
          ／stale（太久沒跑）／pending（這次啟動後還沒跑過）
 - 迴圈：ok／stale（leader 太久沒有 tick）／pending
@@ -103,6 +104,85 @@ def gateway_status(
             f"Gateway 憑證需要處理（certbot 續期可能一直失敗）：{detail}",
         )
     return "ok", None, None
+
+
+AI_GATEWAY_COMPONENT = "ai_gateway"
+AI_GATEWAY_LABEL = "AI Gateway (LiteLLM)"
+AI_MODEL_PREFIX = "ai_model:"
+
+
+def ai_components(probe: Mapping[str, Any]) -> list[dict[str, Any]]:
+    """LiteLLM 探測結果 → 元件清單：gateway 一個，加上每個公開模型一個。
+
+    ``probe``（由 system_health_service 組出來）：
+    - ``reachable``：``/health/liveliness`` 有回應；``error``：連不到時的原因
+    - ``db``：``/health/readiness`` 的 ``db`` 欄位（``connected`` 才正常）
+    - ``models``：``/model/info`` 查到的公開 alias（``None`` = 查不到）
+    - ``deployments``：alias → ``{"healthy": n, "unhealthy": n}``，來自 LiteLLM
+      背景健康檢查（``None`` = ``/health`` 查不到）
+
+    連不到或資料庫斷線算 down（金鑰驗證、用量紀錄都會失敗）。模型的所有部署都
+    不健康算 down，只有部分不健康算 attention；背景健康檢查還沒跑出結果算
+    pending（不拉低整體狀態、不發告警）。
+    """
+    if not probe.get("reachable"):
+        detail = probe.get("error") or "無法連線"
+        return [
+            {
+                "name": AI_GATEWAY_COMPONENT,
+                "label": AI_GATEWAY_LABEL,
+                "status": "down",
+                "detail": detail,
+                "alert_message": f"AI Gateway（LiteLLM）無法連線，AI API 與內建 AI 功能都無法使用：{detail}",
+            }
+        ]
+
+    components: list[dict[str, Any]] = []
+    db = probe.get("db")
+    if db != "connected":
+        detail = f"資料庫未連線（{db or 'unknown'}）"
+        components.append(
+            {
+                "name": AI_GATEWAY_COMPONENT,
+                "label": AI_GATEWAY_LABEL,
+                "status": "down",
+                "detail": detail,
+                "alert_message": f"AI Gateway（LiteLLM）{detail}，API 金鑰驗證與用量紀錄會失敗",
+            }
+        )
+    else:
+        components.append(
+            {"name": AI_GATEWAY_COMPONENT, "label": AI_GATEWAY_LABEL, "status": "ok", "detail": None}
+        )
+
+    deployments = probe.get("deployments")
+    names = set(probe.get("models") or []) | set(deployments or {})
+    for alias in sorted(names):
+        counts = (deployments or {}).get(alias) or {}
+        healthy = int(counts.get("healthy") or 0)
+        unhealthy = int(counts.get("unhealthy") or 0)
+        component: dict[str, Any] = {
+            "name": f"{AI_MODEL_PREFIX}{alias}",
+            "label": f"LLM · {alias}",
+            "status": "ok",
+            "detail": None,
+        }
+        if healthy + unhealthy == 0:
+            component.update(status="pending", detail="等待 LiteLLM 健康檢查")
+        elif unhealthy and healthy:
+            component.update(
+                status="attention",
+                detail=f"{unhealthy}/{healthy + unhealthy} 個部署異常",
+                alert_message=f"AI 模型 {alias} 有部分部署異常（{unhealthy}/{healthy + unhealthy}）",
+            )
+        elif unhealthy:
+            component.update(
+                status="down",
+                detail="上游推論服務無回應",
+                alert_message=f"AI 模型 {alias} 無法使用：LiteLLM 健康檢查連不到上游推論服務",
+            )
+        components.append(component)
+    return components
 
 
 def overall_status(
@@ -243,11 +323,14 @@ def evaluate_system_alerts(
 
 
 __all__ = [
+    "AI_GATEWAY_COMPONENT",
+    "AI_MODEL_PREFIX",
     "CRITICAL_COMPONENTS",
     "FAILING_THRESHOLD",
     "GATEWAY_CERT_WARN_DAYS",
     "SystemAlertDecision",
     "SystemFinding",
+    "ai_components",
     "build_findings",
     "evaluate_system_alerts",
     "gateway_status",

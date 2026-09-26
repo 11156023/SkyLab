@@ -298,6 +298,7 @@
   "AiMonitoringPage.emptyCallsTitle": "呼び出し記録はまだありません",
   "AiMonitoringPage.loadError": "AIモニタリングデータの読み込みに失敗しました",
   "AiMonitoringPage.rangeLabel": "監視期間",
+  "AiMonitoringPage.openGrafana": "Grafana で詳細を見る",
   "AiMonitoringPage.lastUpdated": "最終更新 {{time}}",
   "AiMonitoringPage.waitingForData": "データを待機中",
   "AiMonitoringPage.summaryTitle": "AI監視サマリー",

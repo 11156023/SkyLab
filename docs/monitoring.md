@@ -4,8 +4,8 @@ SkyLab 的監控分成兩層：
 
 | 層 | 看什麼 | 在哪裡 | 需要額外容器？ |
 |---|---|---|---|
-| **內建** | 平台健康（DB、Redis、worker、PVE API 連線、Gateway、排程任務心跳）、系統告警＋Email | 管理員「資源監控」頁的「系統健康」卡、活動警告 | 否 |
-| **監控 stack**（選用） | API 流量／延遲／錯誤率、排程與佇列指標、容器與主機資源、PostgreSQL／Redis、集中日誌、Proxmox 節點／VM 用量、Gateway 主機與 nginx | Grafana、Prometheus | `docker compose --profile monitoring` |
+| **內建** | 平台健康（DB、Redis、worker、PVE API 連線、Gateway、AI Gateway 與各模型、排程任務心跳）、系統告警＋Email | 管理員「資源監控」頁的「系統健康」卡、活動警告 | 否 |
+| **監控 stack**（選用） | API 流量／延遲／錯誤率、排程與佇列指標、容器與主機資源、PostgreSQL／Redis、集中日誌、Proxmox 節點／VM 用量、Gateway 主機與 nginx、AI 請求與 LiteLLM／vLLM 推論引擎 | Grafana、Prometheus | `docker compose --profile monitoring` |
 
 Proxmox 節點／VM 的資源用量**不經過 SkyLab 後端**：由 PVE 內建的 Metric Server 直接推到監控 stack 的 InfluxDB。後端只檢查「自己連不連得到 PVE API」。
 
@@ -45,7 +45,11 @@ Proxmox 節點／VM 的資源用量**不經過 SkyLab 後端**：由 PVE 內建�
 - worker 沒有心跳、Redis 連不上、某個 PVE 連線連不上
 - Gateway：SSH 連不上、nginx 或 WireGuard 沒在跑、`nginx -t` 失敗（狀態「無法連線」）；Let's Encrypt 憑證剩不到 14 天或已過期（狀態「需要處理」——certbot 會在剩 30 天時自動續期，還剩 14 天代表續期一直失敗）
 
+- AI：LiteLLM 連不上或它的資料庫斷線（`component:ai_gateway`，使用者 API 與內建 AI 功能都會失敗）；某個模型的上游推論服務（例如 DGX 上的 vLLM）健康檢查失敗（`component:ai_model:<alias>`，全部部署異常為「無法連線」、部分異常為「需要處理」）
+
 Gateway 的檢查是後端用 SSH 在 Gateway 上跑一條指令（`systemctl is-active`、`nginx -t`、讀 `/etc/letsencrypt/live/*` 到期日），結果快取 60 秒；Gateway 沒設定時卡片顯示「停用」。
+
+AI 的檢查是後端用受限的 runtime key（`LITELLM_RUNTIME_API_KEY`，不需要 master key）問 LiteLLM：`/health/liveliness`、`/health/readiness`（DB 是否連線）、`/model/info`（公開模型名稱）與 `/health`（LiteLLM 每 60 秒背景健康檢查的結果，讀快取、不會為了探測去打推論服務），結果快取 60 秒。沒設 runtime key 時卡片顯示「停用」；LiteLLM 剛啟動、背景檢查還沒跑完的模型顯示「尚未執行」，不影響整體狀態也不發告警。
 
 同一個問題要**連續兩輪**都出現才開告警（吸收部署時 worker 晚起、PVE 瞬斷）；問題消失就自動解除；冷卻時間沿用資源告警的設定。
 
@@ -125,6 +129,7 @@ SkyLab「資源監控」頁右上角的「在 Grafana 查看詳細」按鈕只�
 - **SkyLab 日誌**：依服務與關鍵字篩選、錯誤日誌、以 Request ID 追蹤
 - **Proxmox VE（Metric Server）**：節點 CPU／記憶體／IO wait／load、CPU 與記憶體最高的 VM／LXC、各儲存使用率；最下方「Gateway VM（PVE 回報）」一列看 Gateway 這台 VM 的 CPU、記憶體、網路與磁碟 IO（上方「Gateway VM」選單選擇，名稱含 gateway 的會自動排第一個）
 - **SkyLab Gateway**：Gateway 主機上 exporter 的資料——SkyLab 健康探測／exporter／nginx 狀態、nginx 活躍連線、開機時間、CPU／記憶體／磁碟、各網卡流量（`wg0` 是 WireGuard）、TCP 連線數、nginx 連線狀態與請求速率（見下方「Gateway 監控」）
+- **SkyLab AI**：AI Gateway／LiteLLM／推論引擎狀態、可用模型數、每分鐘請求與平台錯誤率；Campus 端（使用者 API 金鑰與內建 AI 功能）依模型的請求量、結果類別、端到端與首字延遲、token 吞吐、來源；vLLM 的執行中／排隊請求、KV cache 使用率、prefill／decode 吞吐、TTFT、token 間延遲、端到端延遲、結束原因、搶占次數；LiteLLM 的狀態碼、上游部署成功／失敗、上游與 gateway 自身延遲、部署狀態（見下方「AI 模組監控」）。「AI 用量監控」頁右上角的「在 Grafana 查看詳細」直接開這個儀表板（只有管理員、且監控 stack 啟用時顯示）
 
 對外網址不是 `http://localhost` 時，設 `GRAFANA_ROOT_URL=https://你的網域/grafana/`。
 
@@ -191,6 +196,23 @@ sudo MONITORING_ALLOW_FROM=192.168.100.20 bash install.sh
 
 Gateway 服務異常、憑證快到期的通知由內建的系統告警負責（`component:gateway`），監控 stack 這邊只看圖。
 
+### AI 模組監控
+
+AI 的資料來自三個地方，Prometheus 都自動抓，不必手動改 `prometheus.yml`：
+
+| job | 來源 | 內容 |
+|---|---|---|
+| `skylab-backend` | backend `/metrics` 的 `skylab_ai_*` | Campus 這一側：每次使用者 API 金鑰（`source=api_key`）與內建 AI 功能（`source=platform`）呼叫的結果、延遲、首字延遲、token |
+| `litellm` | `litellm:4000/metrics`（Compose 內網） | LiteLLM 的 prometheus callback：請求與狀態碼、上游部署成功／失敗、上游延遲、gateway 自身開銷、部署狀態 |
+| `vllm` | 每台 vLLM 的 `/metrics` | 引擎本身：執行中／排隊請求、KV cache、prefill／decode 吞吐、TTFT、token 間延遲、搶占 |
+
+- **vLLM 目標**由 `bash scripts/prepare-ai-stack.sh` 依 `vllm-service/models.json` 寫進 `monitoring/prometheus/targets/vllm.json`（Git 忽略），同一台上游只抓一次；改模型或 IP 後重新部署，Prometheus 一分鐘內自動換目標。local 模型經 `host.docker.internal` 連主機（與 LiteLLM 相同）。
+- **遠端推論主機（DGX 等）的防火牆**要放行 Prometheus 所在主機（通常就是 SkyLab 部署機）連推論埠；和 LiteLLM 需要的是同一條規則。vLLM 的 `/metrics` 不需要 API key（它只保護 `/v1`）。「SkyLab AI」儀表板的「推論引擎」顯示 DOWN 時，先在部署機 `curl http://<DGX_IP>:8103/metrics` 確認。
+- **LiteLLM `/metrics` 免驗證**：`config.template.yaml` 設了 `require_auth_for_metrics_endpoint: false`，否則只有 master key 讀得到（不能把 master key 放進 Prometheus）。LiteLLM 只在 Compose 內網與主機 `127.0.0.1:4000`，nginx 不轉發，所以不會對外公開。`litellm` job 會丟掉 `requested_model`、`client_ip`、`user_agent`、金鑰雜湊等無上限的 label，分模型改看部署層的 `litellm_model_name`／`model`。
+- **GPU 本身**（溫度、顯存、使用率）不在這裡；需要時在 DGX 上另外跑 NVIDIA DCGM exporter，再照 Gateway 的方式加一個 Prometheus job。
+
+模型不健康、LiteLLM 或它的資料庫掛掉的通知由內建的系統告警負責（`component:ai_gateway`、`component:ai_model:<alias>`），監控 stack 這邊只看圖。
+
 ### /metrics 驗證（選用）
 
 `/metrics` 只在 compose 內網與 `127.0.0.1:8000` 開放，nginx 對 `/metrics` 回 404。若主機上還有其他不信任的程式，可以加上 token：
@@ -209,11 +231,16 @@ Gateway 服務異常、憑證快到期的通知由內建的系統告警負責（
 | `skylab_scheduler_task_runs_total{loop,task,result}`、`skylab_scheduler_task_duration_seconds` | 排程任務執行次數與耗時 |
 | `skylab_scheduler_task_last_success_timestamp_seconds`、`skylab_scheduler_task_consecutive_failures` | 心跳 |
 | `skylab_scheduler_loop_last_tick_timestamp_seconds`、`skylab_scheduler_loop_is_leader` | 迴圈是否在跑、這個行程是不是 leader |
-| `skylab_dependency_up{component}`、`skylab_dependency_latency_seconds` | database／redis／worker／pve:&lt;id&gt; |
+| `skylab_dependency_up{component}`、`skylab_dependency_latency_seconds` | database／redis／worker／pve:&lt;id&gt;／gateway／ai_gateway／ai_model:&lt;alias&gt; |
 | `skylab_queue_jobs{queue}` | arq 佇列等待中的任務數 |
 | `skylab_task_records{status}` | queued／running（當下）、failed_24h／succeeded_24h |
+| `skylab_ai_requests_total{source,model,request_type,outcome}` | AI 呼叫次數；`outcome`＝success／client_error／rate_limited／unavailable／upstream_error／stream_error／cancelled／error |
+| `skylab_ai_request_duration_seconds{source,model,stream}`、`skylab_ai_time_to_first_token_seconds{source,model}` | 端到端延遲、串流首字延遲 |
+| `skylab_ai_tokens_total{source,model,direction}` | 模型回報的 input／output token |
 
-依賴元件與佇列指標在 Prometheus 抓取時才更新（最多每 5 秒一次）；PVE 連線狀態沿用最近一次系統健康檢查的結果，不會因為 Prometheus 抓取而去打 PVE。
+依賴元件與佇列指標在 Prometheus 抓取時才更新（最多每 5 秒一次）；PVE 連線、Gateway 與 AI 狀態沿用最近一次系統健康檢查的結果，不會因為 Prometheus 抓取而去打 PVE／SSH／LiteLLM。
+
+`skylab_ai_*` 的 `model` 只保留 LiteLLM 成功服務過、或健康檢查查到的模型名稱（上限 100 個），呼叫端亂填的名稱一律歸為 `other`，時間序列數量才有上限。
 
 ### 資源與保留期
 

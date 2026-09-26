@@ -377,6 +377,9 @@ services:
     volumes:
       - ./monitoring/prometheus:/etc/prometheus:ro
       - prometheus-data:/prometheus
+    # models.json deployment=local 的 vLLM 跑在主機上（與 LiteLLM 同一個對應）
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     ports:
       - "127.0.0.1:${PROMETHEUS_HOST_PORT:-9090}:9090"
     networks:

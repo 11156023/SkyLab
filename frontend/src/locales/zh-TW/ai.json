@@ -298,6 +298,7 @@
   "AiMonitoringPage.emptyCallsTitle": "尚無呼叫紀錄",
   "AiMonitoringPage.loadError": "載入 AI 監控資料失敗",
   "AiMonitoringPage.rangeLabel": "監控時間範圍",
+  "AiMonitoringPage.openGrafana": "在 Grafana 查看詳細",
   "AiMonitoringPage.lastUpdated": "最後更新 {{time}}",
   "AiMonitoringPage.waitingForData": "等待資料",
   "AiMonitoringPage.summaryTitle": "AI 監控摘要",

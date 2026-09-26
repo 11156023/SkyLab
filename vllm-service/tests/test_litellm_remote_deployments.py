@@ -191,6 +191,7 @@ def _start_workspace(tmp_path, monkeypatch):
     monkeypatch.setattr(prepare_ai_stack, "DEFAULT_MODELS", models_path)
     monkeypatch.setattr(prepare_ai_stack, "DEFAULT_TEMPLATE", template_path)
     monkeypatch.setattr(prepare_ai_stack, "DEFAULT_OUTPUT", gateway_root / "config.yaml")
+    monkeypatch.setattr(prepare_ai_stack, "VLLM_TARGETS_FILE", tmp_path / "monitoring/prometheus/targets/vllm.json")
     monkeypatch.setattr(prepare_ai_stack, "check_upstreams", lambda *args: None)
     monkeypatch.setattr(sys, "argv", ["prepare_ai_stack.py", "--start"])
     return prepare_ai_stack, services
@@ -242,6 +243,8 @@ def test_start_bootstraps_database_and_service_key_before_the_application(tmp_pa
         lambda base, master, key, models: events.append(f"key {base} {master} {key} {models}"),
     )
     assert prepare_ai_stack.main() == 0
+    targets = json.loads((tmp_path / "monitoring/prometheus/targets/vllm.json").read_text())
+    assert targets[0]["targets"] == ["host.docker.internal:8103"]
     assert events == [
         "docker compose up -d --wait db",
         "db tcp ready",
@@ -267,6 +270,30 @@ def test_production_config_reaches_local_engines_through_docker_host():
     assert gateway_api_base(local, "production") == "http://host.docker.internal:8103/v1"
     assert gateway_api_base(local, "integration") == "http://127.0.0.1:8103/v1"
     assert gateway_api_base(remote, "production") == "http://127.0.0.1:8103/v1"
+
+
+def test_vllm_scrape_targets_follow_the_gateway_view_and_dedupe_upstreams():
+    from generate_litellm_config import vllm_scrape_targets
+    models = [
+        {"alias": "local-a", "deployment": "local", "api_base": "http://127.0.0.1:8103/v1"},
+        {"alias": "dgx-a", "deployment": "remote", "api_base": "http://192.0.2.20:8103/v1"},
+        {"alias": "dgx-b", "deployment": "remote", "api_base": "http://192.0.2.20:8103/v1"},
+        {"alias": "proxied", "deployment": "remote", "api_base": "https://llm.example.edu/lab/v1"},
+    ]
+    groups = {tuple(g["targets"]): g["labels"] for g in vllm_scrape_targets(models)}
+    assert groups[("host.docker.internal:8103",)] == {
+        "__scheme__": "http", "__metrics_path__": "/metrics", "deployment": "local", "skylab_models": "local-a",
+    }
+    assert groups[("192.0.2.20:8103",)]["skylab_models"] == "dgx-a,dgx-b"
+    assert groups[("llm.example.edu",)]["__scheme__"] == "https"
+    assert groups[("llm.example.edu",)]["__metrics_path__"] == "/lab/metrics"
+    assert len(groups) == 3
+
+
+def test_models_json_with_a_bom_is_accepted(tmp_path):
+    path = tmp_path / "models.json"
+    path.write_bytes(b"\xef\xbb\xbf" + json.dumps([remote_model()]).encode())
+    assert load_models(path)[0]["alias"] == "remote"
 
 
 def test_init_env_fills_placeholders_without_touching_real_values(tmp_path):

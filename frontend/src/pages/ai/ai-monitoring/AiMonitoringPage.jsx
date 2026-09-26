@@ -17,6 +17,7 @@ import i18n from "../../../i18n";
 import LoadingState from "../../../components/LoadingState/LoadingState";
 import SharedEmptyState from "../../../components/EmptyState/EmptyState";
 import { AiMonitoringService } from "../../../services/aiMonitoring";
+import { MonitoringService } from "../../../services/monitoring";
 import { useToast } from "../../../hooks/useToast";
 import useAutoRefresh from "../../../hooks/useAutoRefresh";
 import PageHeader from "../../../components/PageHeader/PageHeader";
@@ -474,6 +475,9 @@ export default function AiMonitoringPage() {
   const [runtimeError, setRuntimeError] = useState(false);
   const [lastUpdated, setLastUpdated] = useState(null);
   const [detailFocusRequest, setDetailFocusRequest] = useState(0);
+  /* 監控 stack 有啟用且目前是管理員才顯示「SkyLab AI」儀表板連結（查詢失敗或 403 就不顯示）；
+     同一支 API 會設定 Grafana 免密碼登入的 cookie，頁面開著時定期續期 */
+  const [grafanaUrl, setGrafanaUrl] = useState(null);
   const detailSectionRef = useRef(null);
   const modelRows = useMemo(
     () => mergeModelRows(overview?.model_breakdown, runtime?.models),
@@ -568,6 +572,22 @@ export default function AiMonitoringPage() {
   }, [preset, t, toast]);
 
   useEffect(() => { load(); }, [load]);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    const refresh = () =>
+      MonitoringService.createGrafanaSession({ signal: controller.signal })
+        .then((link) =>
+          setGrafanaUrl(link?.enabled && link.url ? `${link.url.replace(/\/+$/, "")}/d/skylab-ai` : null),
+        )
+        .catch(() => {});
+    refresh();
+    const timer = setInterval(refresh, 30 * 60_000);
+    return () => {
+      controller.abort();
+      clearInterval(timer);
+    };
+  }, []);
   useAutoRefresh(() => load(true));
 
   useEffect(() => {
@@ -625,6 +645,12 @@ export default function AiMonitoringPage() {
             onChange={setPreset}
             ariaLabel={t("AiMonitoringPage.rangeLabel")}
           />
+          {grafanaUrl && (
+            <a className={styles.linkBtn} href={grafanaUrl} target="_blank" rel="noopener noreferrer">
+              <MIcon name="open_in_new" size={16} />
+              {t("AiMonitoringPage.openGrafana")}
+            </a>
+          )}
         </div>
       </PageHeader>
 

@@ -14,6 +14,7 @@ import sys
 from datetime import date, timedelta
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
 
 import yaml
 
@@ -88,7 +89,8 @@ def _validate_legacy_aliases(
 
 def load_models(path: Path) -> list[dict[str, Any]]:
     try:
-        raw = json.loads(path.read_text(encoding="utf-8"))
+        # utf-8-sig: tolerate the BOM Windows editors add to hand-written files.
+        raw = json.loads(path.read_text(encoding="utf-8-sig"))
     except json.JSONDecodeError as exc:
         raise ValueError(f"models.json 不是有效 JSON: {path}") from exc
     if not isinstance(raw, list) or not raw:
@@ -162,6 +164,35 @@ def gateway_api_base(model: dict[str, Any], mode: str) -> str:
     if mode == "production" and model["deployment"] == "local":
         return model["api_base"].replace("127.0.0.1", LOCAL_ENGINE_HOST_FROM_GATEWAY, 1)
     return model["api_base"]
+
+
+def vllm_scrape_targets(models: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Prometheus ``file_sd`` target groups for each distinct vLLM upstream.
+
+    Prometheus runs in the same bridge network as the gateway, so it uses the
+    gateway's view of each upstream.  vLLM serves ``/metrics`` next to ``/v1``
+    without the API key; a path prefix before ``/v1`` (reverse proxy) is kept.
+    """
+    groups: dict[tuple[str, str, str], dict[str, Any]] = {}
+    for model in models:
+        url = urlsplit(gateway_api_base(model, "production"))
+        prefix = url.path.rstrip("/").removesuffix("/v1")
+        key = (url.scheme, url.netloc, f"{prefix}/metrics")
+        group = groups.setdefault(
+            key,
+            {
+                "targets": [url.netloc],
+                "labels": {
+                    "__scheme__": url.scheme,
+                    "__metrics_path__": f"{prefix}/metrics",
+                    "deployment": model["deployment"],
+                    "skylab_models": "",
+                },
+            },
+        )
+        aliases = [a for a in group["labels"]["skylab_models"].split(",") if a]
+        group["labels"]["skylab_models"] = ",".join([*aliases, model["alias"]])
+    return list(groups.values())
 
 
 def _deployment(model: dict[str, Any], public_name: str, mode: str) -> dict[str, Any]:

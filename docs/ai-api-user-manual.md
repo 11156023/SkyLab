@@ -263,6 +263,12 @@ alias 清單，不必另外呼叫 `/key/update`。只用 `docker compose up -d -
 | 重建 gateway | `docker compose up -d --force-recreate litellm` |
 | 停止主 Docker stack | `docker compose down`，包含已接管的 LiteLLM |
 
+**監控**：「資源監控 → 系統健康」會列出 AI Gateway（LiteLLM）與每個模型的狀態，模型的上游推論服務
+（例如 DGX）連不到時發系統告警並寄信給管理員。有啟用監控 stack 時，Grafana「SkyLab AI」儀表板顯示
+Campus 請求量／錯誤／延遲、LiteLLM 與 vLLM 引擎指標；vLLM 的抓取目標由 `--start` 依 `models.json`
+自動產生，遠端主機防火牆要放行部署機連推論埠（與 LiteLLM 同一條規則）。細節見
+[系統監控](monitoring.md#ai-模組監控)。
+
 `down` 不停止主機 vLLM 程序，也不刪除外部 LiteLLM DB。不要使用 `down -v` 作為日常停止指令。
 缺少 config 時 Compose 的 bind mount 會直接失敗，不會誤建 `config.yaml/` 目錄。
 

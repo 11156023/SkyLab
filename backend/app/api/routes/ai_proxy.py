@@ -33,6 +33,7 @@ from app.infrastructure.redis import (
 )
 from app.schemas.ai_proxy import RateLimitStatusResponse, UsageStatsResponse
 from app.services.llm_gateway import ai_gateway_service
+from app.services.monitoring import ai_metrics
 
 logger = logging.getLogger(__name__)
 
@@ -346,6 +347,18 @@ def _record_usage_safely(
     started_at: datetime | None = None,
     completed_at: datetime | None = None,
 ) -> None:
+    ai_metrics.observe_call(
+        source="api_key",
+        model=model_name,
+        request_type=request_type,
+        record_status=record_status,
+        error_message=error_message,
+        duration_ms=duration_ms,
+        first_token_ms=first_token_ms,
+        input_tokens=input_tokens,
+        output_tokens=output_tokens,
+        stream=stream,
+    )
     try:
         ai_gateway_service.record_usage(
             session=session,
