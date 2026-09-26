@@ -10,6 +10,7 @@ from typing import Any, Literal
 from sqlmodel import Session, col, select
 
 from app.core.authorizers import can_bypass_resource_ownership
+from app.core.i18n import t
 from app.core.security import decrypt_value
 from app.domain.resource_markers import (  # noqa: F401 — re-export 給既有引用
     RESOURCE_DELETED_BY_USER_MARKER,
@@ -42,7 +43,6 @@ from app.schemas.resource import (
     ResourceStatus,
     SessionStatusResponse,
 )
-from app.core.i18n import t
 from app.services.network import firewall_service
 from app.services.proxmox import proxmox_service
 from app.services.resource import kind as resource_kind
