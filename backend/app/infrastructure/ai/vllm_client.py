@@ -39,11 +39,14 @@ class VLLMClient:
         payload: dict[str, Any],
         *,
         timeout: float | None = None,
+        request_id: str | None = None,
     ) -> dict[str, Any]:
         headers = {
             "Authorization": f"Bearer {self._api_key}",
             "Content-Type": "application/json",
         }
+        if request_id:
+            headers["X-Request-ID"] = request_id[:255]
         effective_timeout = timeout if timeout is not None else self._default_timeout
         http_client = await self._get_http_client()
         response = await http_client.post(

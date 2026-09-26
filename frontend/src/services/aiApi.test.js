@@ -11,6 +11,14 @@ vi.mock("./api", () => ({
 
 import { AiApiService } from "./aiApi";
 
+test("getCredential 讀取單把金鑰詳細資料並支援取消請求", async () => {
+  const controller = new AbortController();
+  await AiApiService.getCredential("key-id", { signal: controller.signal });
+  expect(apiGetMock).toHaveBeenCalledWith(
+    "/api/v1/ai-api/credentials/key-id", { signal: controller.signal },
+  );
+});
+
 describe("AiApiService.listAllCredentials", () => {
   beforeEach(() => {
     apiGetMock.mockReset();

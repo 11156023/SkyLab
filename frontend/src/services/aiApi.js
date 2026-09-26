@@ -13,6 +13,9 @@ export const AiApiService = {
   listMyCredentials() {
     return apiGet(`${BASE}/credentials/my`);
   },
+  getCredential(credentialId, options = {}) {
+    return apiGet(`${BASE}/credentials/${credentialId}`, options);
+  },
 
   /* ── Admin: 審核申請 ── */
   listAllRequests() {

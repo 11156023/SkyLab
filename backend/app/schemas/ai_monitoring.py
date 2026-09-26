@@ -97,11 +97,20 @@ class AIProxyCallRecord(BaseModel):
     credential_id: uuid.UUID
     model_name: str
     request_type: str
+    request_id: str | None = None
+    upstream_request_id: str | None = None
     input_tokens: int
     output_tokens: int
     request_duration_ms: int | None = None
+    first_token_ms: int | None = None
+    stream: bool = False
+    usage_reported: bool = False
+    response_model: str | None = None
+    e2e_output_tokens_per_second: float | None = None
     status: str
     error_message: str | None = None
+    started_at: datetime | None = None
+    completed_at: datetime | None = None
     created_at: datetime
 
 
@@ -123,11 +132,20 @@ class AITemplateCallRecord(BaseModel):
     call_type: str
     model_name: str
     preset: str | None = None
+    request_id: str | None = None
+    upstream_request_id: str | None = None
     input_tokens: int
     output_tokens: int
     request_duration_ms: int | None = None
+    first_token_ms: int | None = None
+    stream: bool = False
+    usage_reported: bool = False
+    response_model: str | None = None
+    e2e_output_tokens_per_second: float | None = None
     status: str
     error_message: str | None = None
+    started_at: datetime | None = None
+    completed_at: datetime | None = None
     created_at: datetime
 
 
