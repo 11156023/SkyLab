@@ -11,6 +11,8 @@ import styles from "./ResourceDetailPage.module.scss";
 import ov from "./OverviewTab.module.scss";
 import MIcon from "../../../../components/MIcon";
 import MachineKindBadge from "../../../../components/MachineKindBadge/MachineKindBadge";
+import KpiCard from "./KpiCard";
+import { coreSegments, gbSegments } from "./kpiBar";
 import LoadingState from "../../../../components/LoadingState/LoadingState";
 import ErrorState from "../../../../components/ErrorState/ErrorState";
 import NotFoundState from "../../../../components/ErrorState/NotFoundState";
@@ -105,33 +107,6 @@ function formatDateTime(value, lang) {
 }
 
 /* ── sub-components ── */
-
-function Kpi({ icon, label, value, unit, caption, pct, text = false }) {
-  const showBar = typeof pct === "number" && Number.isFinite(pct);
-  return (
-    <div className={ov.kpi}>
-      <div className={ov.kpiHead}>
-        <span className={ov.kpiLabel}>{label}</span>
-        <span className={ov.kpiIcon}>
-          <MIcon name={icon} size={18} />
-        </span>
-      </div>
-      <div className={`${ov.kpiValue} ${text ? ov.kpiValue_text : ""}`}>
-        {value}
-        {unit && <span className={ov.kpiUnit}>{unit}</span>}
-      </div>
-      {caption && <span className={ov.kpiCaption}>{caption}</span>}
-      {showBar && (
-        <div className={ov.bar} role="progressbar" aria-valuenow={pct} aria-valuemin={0} aria-valuemax={100}>
-          <div
-            className={`${ov.barFill} ${pct >= 90 ? ov.barFill_danger : ""}`}
-            style={{ width: `${Math.min(pct, 100)}%` }}
-          />
-        </div>
-      )}
-    </div>
-  );
-}
 
 function InfoRow({ label, note, children }) {
   return (
@@ -317,6 +292,8 @@ export default function OverviewTab({ vmid, access = null }) {
   const bootedAt = uptimeSec ? formatDateTime(new Date(Date.now() - uptimeSec * 1000), lang) : null;
   const mem = splitBytes(memMax);
   const disk = splitBytes(diskMax);
+  /* 每 10 秒抓回來的即時讀數都是新物件，指標卡拿它判斷「剛到一筆」而閃綠點 */
+  const liveSample = isRunning ? live : null;
 
   const daysLeft = resource.expiry_date ? daysUntil(resource.expiry_date) : null;
   const expiryDanger = daysLeft != null && daysLeft <= 7;
@@ -450,25 +427,33 @@ export default function OverviewTab({ vmid, access = null }) {
         </div>
       </section>
 
-      {/* 資源指標 */}
+      {/* 資源指標：用量條依核心／GB 切格；CPU、記憶體記峰值；有即時讀數的格子每 10 秒閃一下綠點 */}
       <div className={ov.kpiGrid}>
-        <Kpi
+        <KpiCard
           icon="memory"
           label="CPU"
           value={resource.maxcpu ?? "—"}
           unit={t("OverviewTab.coresUnit")}
           caption={cpuPct != null ? t("OverviewTab.liveUsage", { pct: cpuPct }) : t("OverviewTab.allocated")}
           pct={cpuPct}
+          segments={coreSegments(resource.maxcpu)}
+          trackPeak
+          live={cpuPct != null}
+          sample={liveSample}
         />
-        <Kpi
+        <KpiCard
           icon="sd_card"
           label={t("MonitoringTab.memory")}
           value={mem.value}
           unit={mem.unit}
           caption={memPct != null ? t("OverviewTab.liveUsage", { pct: memPct }) : t("OverviewTab.allocated")}
           pct={memPct}
+          segments={gbSegments(memMax)}
+          trackPeak
+          live={memPct != null}
+          sample={liveSample}
         />
-        <Kpi
+        <KpiCard
           icon="storage"
           label={t("MonitoringTab.disk")}
           value={disk.value}
@@ -479,13 +464,18 @@ export default function OverviewTab({ vmid, access = null }) {
               : (diskMax ? t("OverviewTab.allocated") : t("OverviewTab.noDiskData"))
           }
           pct={diskPct}
+          segments={gbSegments(diskMax)}
+          live={diskPct != null}
+          sample={liveSample}
         />
-        <Kpi
+        <KpiCard
           icon="schedule"
           label={t("OverviewTab.uptimeLabel")}
           value={uptimeText ?? "—"}
           text
           caption={uptimeText ? t("OverviewTab.uptimeSince", { time: bootedAt }) : t("OverviewTab.notRunning")}
+          live={Boolean(uptimeText)}
+          sample={liveSample}
         />
       </div>
 

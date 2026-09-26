@@ -149,7 +149,7 @@
   @extend %mono;
 }
 
-/* ── 指標格 ── */
+/* ── 指標格（卡片本身見 KpiCard.module.scss）── */
 .kpiGrid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -158,88 +158,6 @@
   @include respond-to(lg) {
     grid-template-columns: repeat(4, minmax(0, 1fr));
   }
-}
-
-.kpi {
-  @include flex-column;
-  gap: $spacing-8;
-  min-width: 0;
-  padding: $spacing-16;
-  @include glass-surface($shadow: var(--shadow-sm));
-  border-radius: $radius-16;
-}
-
-.kpiHead {
-  @include flex-between;
-  gap: $spacing-8;
-}
-
-.kpiLabel {
-  font-size: $font-size-12;
-  font-weight: $font-weight-500;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  color: var(--color-text-muted);
-}
-
-.kpiIcon {
-  @include flex-center;
-  width: 32px;
-  height: 32px;
-  flex-shrink: 0;
-  border-radius: $radius-8;
-  background: color-mix(in srgb, var(--color-primary) 10%, transparent);
-  color: var(--color-primary-on-surface);
-}
-
-.kpiValue {
-  display: flex;
-  align-items: baseline;
-  gap: 4px;
-  min-width: 0;
-  font-size: $font-size-28;
-  font-weight: $font-weight-700;
-  line-height: 1.1;
-  color: var(--color-text-primary);
-  font-variant-numeric: tabular-nums;
-}
-
-/* 文字型的值（運行時間）字級收小，避免一串中文撐爆格子 */
-.kpiValue_text {
-  font-size: $font-size-18;
-  line-height: 1.3;
-}
-
-.kpiUnit {
-  font-size: $font-size-14;
-  font-weight: $font-weight-500;
-  color: var(--color-text-muted);
-}
-
-.kpiCaption {
-  font-size: $font-size-12;
-  color: var(--color-text-muted);
-  @include text-truncate;
-}
-
-.bar {
-  width: 100%;
-  height: 6px;
-  margin-top: auto;
-  border-radius: $radius-pill;
-  background: var(--color-hover);
-  overflow: hidden;
-}
-
-.barFill {
-  height: 100%;
-  border-radius: $radius-pill;
-  background: var(--color-primary);
-  transition: width $transition-slow;
-}
-
-.barFill_danger {
-  background: var(--color-danger);
 }
 
 /* ── 兩欄資訊卡 ── */

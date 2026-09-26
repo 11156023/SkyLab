@@ -945,6 +945,7 @@
   "OverviewTab.coresUnit": "核心",
   "OverviewTab.allocated": "已配置",
   "OverviewTab.liveUsage": "目前使用 {{pct}}%",
+  "OverviewTab.peak": "最高 {{pct}}%",
   "OverviewTab.diskUsage": "已用 {{used}}（{{pct}}%）",
   "OverviewTab.noDiskData": "未回報用量",
   "OverviewTab.uptimeLabel": "運行時間",

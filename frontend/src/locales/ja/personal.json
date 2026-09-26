@@ -945,6 +945,7 @@
   "OverviewTab.coresUnit": "コア",
   "OverviewTab.allocated": "割り当て済み",
   "OverviewTab.liveUsage": "使用率 {{pct}}%",
+  "OverviewTab.peak": "最大 {{pct}}%",
   "OverviewTab.diskUsage": "使用中 {{used}}（{{pct}}%）",
   "OverviewTab.noDiskData": "使用量は未報告",
   "OverviewTab.uptimeLabel": "稼働時間",

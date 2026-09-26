@@ -945,6 +945,7 @@
   "OverviewTab.coresUnit": "cores",
   "OverviewTab.allocated": "Allocated",
   "OverviewTab.liveUsage": "{{pct}}% in use",
+  "OverviewTab.peak": "Peak {{pct}}%",
   "OverviewTab.diskUsage": "{{used}} used ({{pct}}%)",
   "OverviewTab.noDiskData": "Usage not reported",
   "OverviewTab.uptimeLabel": "Uptime",
