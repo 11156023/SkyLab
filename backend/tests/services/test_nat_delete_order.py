@@ -1,4 +1,4 @@
-"""NAT 規則刪除順序：haproxy 同步成功才刪 DB。
+"""NAT 規則刪除順序：nginx 同步成功才刪 DB。
 
 反過來做的話，同步失敗就會留下「DB 查不到、Gateway 還在轉發」的孤兒 port，
 既撤不掉，那個對外 port 還會被重新配給別人。
@@ -41,7 +41,7 @@ def env(monkeypatch: pytest.MonkeyPatch) -> SimpleNamespace:
             raise ProxmoxError("Gateway VM unreachable")
         state.synced.append(list(rules or []))
 
-    monkeypatch.setattr(nat_service, "_sync_haproxy", fake_sync)
+    monkeypatch.setattr(nat_service, "_sync_nginx_stream", fake_sync)
     monkeypatch.setattr(nat_repo, "list_rules", lambda session: state.rules)
     monkeypatch.setattr(
         nat_repo,

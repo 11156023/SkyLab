@@ -1,5 +1,5 @@
 {
-  "reverseProxy.runtimeFetchFailed": "無法取得 Traefik runtime 狀態",
+  "reverseProxy.runtimeFetchFailed": "無法取得 nginx 執行狀態",
   "reverseProxy.vmIpUnavailable": "無法取得 VM IP，請確認 VM 已開機且已取得網路位址",
   "reverseProxy.ruleCreated": "反向代理規則已建立",
   "reverseProxy.createFailed": "建立反向代理規則失敗",

@@ -1,5 +1,5 @@
 {
-  "reverseProxy.runtimeFetchFailed": "Unable to fetch Traefik runtime status",
+  "reverseProxy.runtimeFetchFailed": "Unable to fetch the nginx runtime status",
   "reverseProxy.vmIpUnavailable": "Unable to get the VM IP. Please make sure the VM is powered on and has obtained a network address.",
   "reverseProxy.ruleCreated": "Reverse proxy rule created",
   "reverseProxy.createFailed": "Failed to create reverse proxy rule",

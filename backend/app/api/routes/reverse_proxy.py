@@ -6,7 +6,6 @@ import logging
 import threading
 import time
 import uuid
-from typing import Any
 
 from fastapi import APIRouter, HTTPException
 
@@ -32,8 +31,8 @@ from app.schemas.reverse_proxy import (
 from app.services.network import (
     cloudflare_service,
     firewall_service,
+    nginx_runtime_service,
     reverse_proxy_service,
-    traefik_runtime_service,
 )
 from app.services.resource import access as resource_access
 from app.services.user import audit_service
@@ -69,73 +68,31 @@ def _serialize_rule(rule) -> ReverseProxyRulePublic:
     )
 
 
-def _extract_string_list(payload: Any) -> list[str]:
-    if isinstance(payload, list):
-        return [str(item) for item in payload if isinstance(item, str)]
-    return []
-
-
 def _filter_runtime_snapshot(
     snapshot: ReverseProxyRuntimeSnapshot,
     session: SessionDep,
     current_user: CurrentUser,
 ) -> ReverseProxyRuntimeSnapshot:
+    """非管理員只看得到自己可見機器的網域區塊；Port 轉發與憑證清單只給管理員。"""
     if can_bypass_resource_ownership(current_user):
         return snapshot
 
     visible_rules = _get_visible_rules(session, current_user)
-    router_names = {
+    server_names = {
         reverse_proxy_service.build_runtime_name(rule.vmid, rule.domain)
         for rule in visible_rules
     }
-    service_names = {f"{router_name}-svc" for router_name in router_names}
-
-    filtered_http_routers = [
-        router
-        for router in snapshot.http.routers
-        if str(router.get("name", "")) in router_names
-    ]
-    filtered_http_services = [
-        service
-        for service in snapshot.http.services
-        if str(service.get("name", "")) in service_names
-    ]
-
-    referenced_entrypoints: set[str] = set()
-    referenced_middlewares: set[str] = set()
-    for router in filtered_http_routers:
-        referenced_entrypoints.update(
-            _extract_string_list(
-                router.get("entryPoints") or router.get("entrypoints") or []
-            )
-        )
-        referenced_middlewares.update(
-            _extract_string_list(router.get("middlewares") or [])
-        )
-
-    filtered_entrypoints = [
-        entrypoint
-        for entrypoint in snapshot.entrypoints
-        if str(entrypoint.get("name", "")) in referenced_entrypoints
-    ]
-    filtered_http_middlewares = [
-        middleware
-        for middleware in snapshot.http.middlewares
-        if str(middleware.get("name", "")) in referenced_middlewares
-    ]
 
     return ReverseProxyRuntimeSnapshot(
         runtime_error=snapshot.runtime_error,
         version=snapshot.version,
-        overview=None,
-        entrypoints=filtered_entrypoints,
-        http={
-            "routers": filtered_http_routers,
-            "services": filtered_http_services,
-            "middlewares": filtered_http_middlewares,
-        },
-        tcp={"routers": [], "services": [], "middlewares": []},
-        udp={"routers": [], "services": [], "middlewares": []},
+        active=snapshot.active,
+        config_valid=snapshot.config_valid,
+        http_servers=[
+            server for server in snapshot.http_servers if server.name in server_names
+        ],
+        stream_servers=[],
+        certificates=[],
     )
 
 
@@ -151,9 +108,9 @@ def _full_domain(session: SessionDep, *, zone_id: str, hostname_prefix: str) -> 
 def _publish_domain_service(
     session: SessionDep, *, vmid: int, domain: str, internal_port: int, enable_https: bool
 ) -> None:
-    """對外網址一律走 publish_vm_service：Traefik、DNS 與防火牆入站規則一起建立。
+    """對外網址一律走 publish_vm_service：nginx、DNS 與防火牆入站規則一起建立。
 
-    這個路由早期直接寫 Traefik 與 Cloudflare，機器上卻沒有對應的入站規則，
+    這個路由早期直接寫反向代理與 Cloudflare，機器上卻沒有對應的入站規則，
     造成「DB 有紀錄、Proxmox 沒有」的半套狀態（list_vm_published_services
     至今仍要標記 firewall_rule_present=False 來容忍這批資料）。
     """
@@ -170,7 +127,7 @@ def _publish_domain_service(
     )
 
 
-# Traefik runtime 得 SSH 進 Gateway VM 才拿得到，而這份快照對所有人都一樣
+# nginx 的執行期狀態得 SSH 進 Gateway 才拿得到，而這份快照對所有人都一樣
 # （可見範圍是拿到之後才濾的），拓撲頁多開幾個分頁就重複連線一次。
 # 用模組層短快取擋掉這些重複，失敗結果也一起快取，免得 Gateway 掛掉時
 # 每次請求都卡在 SSH timeout。
@@ -188,7 +145,7 @@ _runtime_cache_lock = threading.Lock()
 
 
 def _load_runtime_snapshot(session: SessionDep) -> ReverseProxyRuntimeSnapshot:
-    """取回（或沿用快取的）Traefik runtime 快照；錯誤訊息是給管理員看的詳細版。"""
+    """取回（或沿用快取的）nginx 執行期快照；錯誤訊息是給管理員看的詳細版。"""
     now = time.monotonic()
     with _runtime_cache_lock:
         cached = _runtime_cache.entry
@@ -196,12 +153,12 @@ def _load_runtime_snapshot(session: SessionDep) -> ReverseProxyRuntimeSnapshot:
         return cached[1]
 
     try:
-        snapshot = traefik_runtime_service.get_runtime_snapshot(session=session)
+        snapshot = nginx_runtime_service.get_runtime_snapshot(session=session)
     except (BadRequestError, ProxmoxError) as exc:
-        logger.warning("Unable to fetch Traefik runtime: %s", exc)
+        logger.warning("Unable to fetch nginx runtime: %s", exc)
         snapshot = ReverseProxyRuntimeSnapshot(runtime_error=str(exc))
     except Exception:
-        logger.exception("Failed to fetch Traefik runtime snapshot")
+        logger.exception("Failed to fetch nginx runtime snapshot")
         snapshot = ReverseProxyRuntimeSnapshot(
             runtime_error=t("reverseProxy.runtimeFetchFailed")
         )

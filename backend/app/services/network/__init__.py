@@ -7,9 +7,10 @@ __all__ = [
     "firewall_service",
     "gateway_service",
     "nat_service",
+    "nginx_gateway_service",
+    "nginx_runtime_service",
     "reverse_proxy_service",
     "snapshot_service",
-    "traefik_runtime_service",
 ]
 
 _MODULES = {
@@ -17,9 +18,10 @@ _MODULES = {
     "firewall_service": "app.services.network.firewall_service",
     "gateway_service": "app.services.network.gateway_service",
     "nat_service": "app.services.network.nat_service",
+    "nginx_gateway_service": "app.services.network.nginx_gateway_service",
+    "nginx_runtime_service": "app.services.network.nginx_runtime_service",
     "reverse_proxy_service": "app.services.network.reverse_proxy_service",
     "snapshot_service": "app.services.network.snapshot_service",
-    "traefik_runtime_service": "app.services.network.traefik_runtime_service",
 }
 
 

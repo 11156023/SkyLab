@@ -9,7 +9,7 @@ SkyLab 是 Proxmox VE 管理平台，提供：VM/LXC 生命週期、VNC/Terminal
 
 - **Backend**: FastAPI + SQLModel + PostgreSQL + Redis + Proxmox API + SSH (paramiko) — `uv` 套件管理
 - **Frontend**: React 19 + TypeScript + Vite + TanStack Router/Query/Table + Tailwind 4 + shadcn/ui + i18next — `bun` 套件管理
-- **Infra**: Docker Compose + Traefik
+- **Infra**: Docker Compose + nginx
 
 ## 必要指令
 

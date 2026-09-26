@@ -26,12 +26,12 @@ export const GatewayService = {
     return apiPost("/api/v1/gateway/reset-host-key");
   },
 
-  /** 套用 Cloudflare DNS Challenge 到 Traefik */
-  syncTraefikDnsChallenge() {
-    return apiPost("/api/v1/gateway/traefik/dns-challenge/sync");
+  /** 用 certbot（Cloudflare DNS-01）補簽／續期 Let's Encrypt 憑證並重新載入 nginx */
+  syncNginxCertificates() {
+    return apiPost("/api/v1/gateway/nginx/certificates/sync");
   },
 
-  /** 讀取可安全編輯的服務設定檔（haproxy / traefik） */
+  /** 讀取可安全編輯的服務設定檔（nginx） */
   readServiceConfig(service) {
     return apiGet(`/api/v1/gateway/services/${service}/config`);
   },

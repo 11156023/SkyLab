@@ -66,7 +66,20 @@
   "ReverseProxyPage.deleteFailed": "刪除失敗",
   "ReverseProxyPage.syncSuccess": "已重新同步路由",
   "ReverseProxyPage.syncFailed": "同步失敗",
-  "ReverseProxyPage.traefik.toggle": "管理員工具 — Traefik Runtime",
-  "ReverseProxyPage.traefik.connectFailed": "無法連線 Traefik API",
-  "ReverseProxyPage.traefik.loading": "載入 Traefik 狀態..."
+  "ReverseProxyPage.nginx.toggle": "管理員工具 — Gateway nginx 狀態",
+  "ReverseProxyPage.nginx.connectFailed": "無法讀取 Gateway 上的 nginx 狀態",
+  "ReverseProxyPage.nginx.loading": "載入 nginx 狀態...",
+  "ReverseProxyPage.nginx.running": "執行中",
+  "ReverseProxyPage.nginx.stopped": "已停止",
+  "ReverseProxyPage.nginx.configValid": "設定檔驗證通過",
+  "ReverseProxyPage.nginx.configInvalid": "設定檔驗證失敗",
+  "ReverseProxyPage.nginx.pendingCertificates": "{{count}} 個網域憑證尚未簽發，暫用自簽憑證",
+  "ReverseProxyPage.nginx.httpServers": "網域反向代理",
+  "ReverseProxyPage.nginx.tcpForwards": "TCP Port 轉發",
+  "ReverseProxyPage.nginx.udpForwards": "UDP Port 轉發",
+  "ReverseProxyPage.nginx.serverBlocks": "server 區塊",
+  "ReverseProxyPage.nginx.certificates": "Let's Encrypt 憑證",
+  "ReverseProxyPage.nginx.noCertificates": "尚未簽發任何憑證",
+  "ReverseProxyPage.nginx.expires": "到期 {{date}}",
+  "ReverseProxyPage.nginx.expiryUnknown": "到期日未知"
 }

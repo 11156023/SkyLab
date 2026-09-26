@@ -1,5 +1,5 @@
 {
-  "reverseProxy.runtimeFetchFailed": "Traefik ランタイムの状態を取得できません",
+  "reverseProxy.runtimeFetchFailed": "nginx の実行状態を取得できません",
   "reverseProxy.vmIpUnavailable": "VM の IP を取得できません。VM が起動済みでネットワークアドレスを取得していることを確認してください。",
   "reverseProxy.ruleCreated": "リバースプロキシルールを作成しました",
   "reverseProxy.createFailed": "リバースプロキシルールの作成に失敗しました",

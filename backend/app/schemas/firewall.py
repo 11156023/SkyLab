@@ -13,13 +13,13 @@ class PortSpec(BaseModel):
     """端口規格（port=0 表示無端口協定，如 icmp/esp 等）
 
     三種入站存取模式：
-    - domain 有值 → 反向代理（Traefik）
-    - external_port 有值 → Port 轉發（haproxy）
+    - domain 有值 → 反向代理（nginx http）
+    - external_port 有值 → Port 轉發（nginx stream）
     - 兩者皆無 → 僅開放防火牆
     """
 
     port: int = Field(ge=0, le=65535, description="端口號；0 表示無端口協定")
-    # 協定名稱會被寫進 PVE 防火牆規則與 haproxy 設定檔（frontend/backend 名稱），
+    # 協定名稱會被寫進 PVE 防火牆規則與 nginx 設定檔（server 區塊註解與 listen），
     # 只允許小寫英數與連字號，避免換行等字元污染產生的設定
     protocol: str = Field(
         default="tcp",

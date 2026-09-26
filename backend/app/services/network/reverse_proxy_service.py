@@ -1,16 +1,16 @@
-﻿"""反向代理服務 — 透過 Gateway VM 的 Traefik 管理 domain → VM 映射。
+﻿"""反向代理服務 — 透過 Gateway 主機上的 nginx 管理 domain → VM 映射。
 
 設計原則：
 - DB 為 source of truth
-- 每次新增 / 刪除後，從 DB 完整重建 Traefik dynamic config（YAML）
-- Traefik 的 file provider 設定 watch: true，寫入後自動生效，無需 reload
+- 每次新增 / 刪除後，從 DB 完整重建 ``/etc/nginx/skylab/http.conf``、驗證並 reload
+- HTTPS 憑證由 certbot 以 Cloudflare DNS-01 簽發（同一 zone 共用萬用憑證），
+  簽不下來時先掛自簽憑證讓站台可用，下次同步再補簽
 - dns_provider 欄位預留給 Cloudflare 等 DNS API 對接
 """
 
 import logging
 import re
 
-import yaml
 from sqlalchemy.exc import IntegrityError
 
 from app.core.i18n import t
@@ -29,11 +29,14 @@ _HOSTNAME_LABEL_PATTERN = re.compile(
 )
 
 
-# ─── Traefik dynamic config 產生 ───────────────────────────────────────────────
+# ─── 名稱與網域 ──────────────────────────────────────────────────────────────
 
 
 def build_runtime_name(vmid: int, domain: str) -> str:
-    return f"cc-{vmid}-{domain.replace('.', '-')}"
+    """nginx http.conf 裡每個網域區塊的識別名（與執行期快照對得上）。"""
+    from app.services.network import nginx_gateway_service as nginx
+
+    return nginx.http_server_name(vmid, domain)
 
 
 def build_full_domain(*, zone_name: str, hostname_prefix: str) -> str:
@@ -154,79 +157,71 @@ def ensure_reverse_proxy_ready(session: object) -> None:
         raise BadRequestError("；".join(context.reasons))
 
 
-def _build_traefik_dynamic_config(rules: list) -> str:
-    """從 DB 規則列表產生 Traefik dynamic config YAML。"""
-    routers: dict = {}
-    services: dict = {}
-
-    for r in rules:
-        safe_name = build_runtime_name(r.vmid, r.domain)
-
-        router: dict = {
-            "rule": f"Host(`{r.domain}`)",
-            "service": f"{safe_name}-svc",
-            "entryPoints": ["websecure"] if r.enable_https else ["web"],
-        }
-        if r.enable_https:
-            router["tls"] = {"certResolver": "letsencrypt"}
-
-        routers[safe_name] = router
-
-        services[f"{safe_name}-svc"] = {
-            "loadBalancer": {
-                "servers": [{"url": f"http://{r.vm_ip}:{r.internal_port}"}],
-            }
-        }
-
-    config: dict = {
-        "http": {
-            "routers": routers if routers else {},
-            "services": services if services else {},
-        }
-    }
-
-    header = (
-        "# SkyLab 自動管理的反向代理設定\n"
-        "# 此檔案由 SkyLab 自動維護，請勿手動修改\n\n"
-    )
-    return header + yaml.dump(config, default_flow_style=False, allow_unicode=True)
+# ─── nginx 同步（核心）────────────────────────────────────────────────────────
 
 
-# ─── Traefik 同步（核心）──────────────────────────────────────────────────────
+def _zone_names_by_id(session: object) -> dict[str, str]:
+    """zone_id → zone 名稱，用來決定哪些網域能共用同一張萬用憑證。
 
-
-def _sync_traefik(session: object) -> None:
-    """從 DB 重建 Traefik dynamic config 並寫入 Gateway VM。
-    Traefik file provider 設定 watch: true，寫入即生效。
+    查不到（Cloudflare 暫時連不上）不擋同步，只是退回逐網域簽發。
     """
-    from app.infrastructure.ssh import create_key_client, exec_command
+    from app.services.network import cloudflare_service
+
+    try:
+        zones = cloudflare_service.list_zones(  # type: ignore[arg-type]
+            session=session,
+            page=1,
+            per_page=100,
+            status="active",
+        ).items
+    except Exception as exc:
+        logger.warning("查詢 Cloudflare zone 失敗，憑證改逐網域簽發: %s", exc)
+        return {}
+    return {zone.id: zone.name for zone in zones}
+
+
+def _sync_nginx(session: object, *, renew: bool = False) -> None:
+    """從 DB 重建 nginx 的 http.conf、補簽缺的憑證、驗證並 reload。
+
+    ``renew=True`` 給管理員手動同步憑證用：多跑一次 ``certbot renew``。
+    """
+    from app.infrastructure.ssh import create_key_client
+    from app.repositories import cloudflare_config as cf_repo
     from app.repositories import gateway_config as gw_repo
     from app.repositories import reverse_proxy as rp_repo
     from app.repositories.gateway_config import (
         get_decrypted_private_key,
     )
-    from app.services.network import gateway_service
-    from app.services.network.gateway_service import (
-        TRAEFIK_DYNAMIC_PATH,
-    )
+    from app.services.network import nginx_gateway_service as nginx
 
     config = gw_repo.get_gateway_config(session)  # type: ignore[arg-type]
     if config is None or not config.host or not config.encrypted_private_key:
         raise ProxmoxError(t("reverseProxy.gatewayNotConfiguredSyncFailed"))
 
     rules = rp_repo.list_rules(session)  # type: ignore[arg-type]
+    https_rules = [rule for rule in rules if rule.enable_https]
+
+    # 有 HTTPS 規則才需要 Cloudflare token（DNS-01 驗證）與憑證規劃
+    cloudflare_token: str | None = None
+    plans: dict[str, list[str]] = {}
+    cert_name_by_domain: dict[str, str] = {}
+    if https_rules:
+        cloudflare_config = cf_repo.get_cloudflare_config(session)  # type: ignore[arg-type]
+        if cloudflare_config is None or not cloudflare_config.encrypted_api_token:
+            raise BadRequestError(t("gateway.cloudflareApiTokenNotConfigured"))
+        cloudflare_token = cf_repo.get_decrypted_api_token(cloudflare_config)
+        zone_names = _zone_names_by_id(session)
+        for rule in https_rules:
+            cert_name, domains = nginx.plan_certificate(
+                rule.domain, zone_names.get(rule.zone_id or "")
+            )
+            plans.setdefault(cert_name, domains)
+            cert_name_by_domain[rule.domain] = cert_name
+
     private_key_pem = get_decrypted_private_key(config)  # type: ignore[arg-type]
-
-    if any(rule.enable_https for rule in rules):
-        gateway_service.sync_traefik_dns_challenge(session)
-
-    new_cfg = _build_traefik_dynamic_config(rules)
-    tmp_path = TRAEFIK_DYNAMIC_PATH + ".tmp"
-
     logger.info(
         f"[ReverseProxy] 準備同步 {len(rules)} 條規則到 {config.host}:{config.ssh_port}"
     )
-    logger.debug(f"[ReverseProxy] 生成的 Traefik config:\n{new_cfg}")
 
     client = create_key_client(
         config.host,
@@ -235,46 +230,35 @@ def _sync_traefik(session: object) -> None:
         private_key_pem,
     )
     try:
-        # 確保目錄存在
-        code, out, err = exec_command(
-            client, f"mkdir -p $(dirname {TRAEFIK_DYNAMIC_PATH})"
-        )
-        if code != 0:
-            raise ProxmoxError(t("reverseProxy.createDirFailed", out=out, err=err))
-
-        # 原子性寫入
-        content_bytes = new_cfg.encode("utf-8")
-        sftp = client.open_sftp()
-        try:
-            with sftp.open(tmp_path, "wb") as f:
-                f.write(content_bytes)
-        finally:
-            sftp.close()
-
-        code, out, err = exec_command(client, f"mv {tmp_path} {TRAEFIK_DYNAMIC_PATH}")
-        if code != 0:
-            raise ProxmoxError(t("reverseProxy.writeConfigFailed", out=out, err=err))
-
-        # 驗證寫入結果
-        code, verify_out, _ = exec_command(
-            client, f"wc -c < {TRAEFIK_DYNAMIC_PATH}"
-        )
-        written_size = verify_out.strip() if code == 0 else "unknown"
-        logger.info(
-            f"[ReverseProxy] Traefik 已同步 {len(rules)} 條 domain 規則 "
-            f"(檔案大小: {written_size} bytes, 預期: {len(content_bytes)} bytes)"
-        )
-
-        # 檢查 Traefik 服務狀態
-        code, _, _ = exec_command(client, "systemctl is-active traefik")
-        if code != 0:
-            logger.warning(
-                "[ReverseProxy] Traefik 服務未在運行，設定已寫入但可能不會立即生效"
+        ready: set[str] = set()
+        if https_rules and cloudflare_token is not None:
+            nginx.write_certbot_credentials(client, cloudflare_token)
+            if renew:
+                nginx.renew_certificates(client)
+            ready = nginx.ensure_certificates(
+                client, plans, acme_email=nginx.get_acme_email()
             )
-    except ProxmoxError:
+
+        cert_names = {
+            domain: (name if name in ready else None)
+            for domain, name in cert_name_by_domain.items()
+        }
+        nginx.write_validated_config(
+            client, nginx.NGINX_HTTP_CONF_PATH, nginx.build_http_config(rules, cert_names)
+        )
+
+        missing = sorted(set(plans) - ready)
+        if missing:
+            logger.warning(
+                "[ReverseProxy] 有 %d 張憑證尚未簽發（%s），對應網域暫用自簽憑證",
+                len(missing),
+                ", ".join(missing),
+            )
+        logger.info(f"[ReverseProxy] nginx 已同步 {len(rules)} 條 domain 規則並 reload")
+    except (ProxmoxError, BadRequestError):
         raise
     except Exception as e:
-        raise ProxmoxError(t("reverseProxy.traefikSyncFailed", error=e))
+        raise ProxmoxError(t("reverseProxy.nginxSyncFailed", error=e))
     finally:
         client.close()
 
@@ -291,7 +275,7 @@ def apply_reverse_proxy_rule(
     internal_port: int,
     enable_https: bool = True,
 ) -> None:
-    """建立反向代理規則：寫入 DB + 同步 Traefik。"""
+    """建立反向代理規則：寫入 DB + 同步 nginx。"""
     from app.models import Resource
     from app.models.reverse_proxy_rule import ReverseProxyRule
     from app.repositories import reverse_proxy as rp_repo
@@ -356,7 +340,7 @@ def apply_reverse_proxy_rule(
 
     created.cloudflare_record_id = record.id
     rp_repo.update_rule(session, created)  # type: ignore[arg-type]
-    _sync_traefik(session)
+    _sync_nginx(session)
 
 
 def resolve_zone_for_domain(session: object, domain: str) -> tuple[str, str]:
@@ -616,7 +600,7 @@ def update_reverse_proxy_rule(
     rule.enable_https = enable_https
     rule.dns_provider = "cloudflare"
     rp_repo.update_rule(session, rule)  # type: ignore[arg-type]
-    _sync_traefik(session)
+    _sync_nginx(session)
 
 
 def _cleanup_managed_dns_record(session: object, rule) -> None:
@@ -643,7 +627,7 @@ def remove_reverse_proxy_rules_for_vmid(session: object, vmid: int) -> None:
     if deleted:
         for rule in deleted:
             _cleanup_managed_dns_record(session, rule)
-        _sync_traefik(session)
+        _sync_nginx(session)
 
 
 def remove_reverse_proxy_rules_by_internal_port(
@@ -658,9 +642,14 @@ def remove_reverse_proxy_rules_by_internal_port(
     if deleted:
         for rule in deleted:
             _cleanup_managed_dns_record(session, rule)
-        _sync_traefik(session)
+        _sync_nginx(session)
 
 
 def sync_to_gateway(session: object) -> None:
-    """手動觸發 Traefik 同步。"""
-    _sync_traefik(session)
+    """手動觸發 nginx 同步（會補簽缺的憑證）。"""
+    _sync_nginx(session)
+
+
+def sync_certificates(session: object) -> None:
+    """管理員手動同步憑證：續期快到期的、補簽缺的，再重寫設定並 reload。"""
+    _sync_nginx(session, renew=True)

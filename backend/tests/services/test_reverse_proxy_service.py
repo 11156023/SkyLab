@@ -46,7 +46,7 @@ def _patch_apply_dependencies(
 ) -> None:
     """把 apply_reverse_proxy_rule 會碰到的外部依賴都換成假的。"""
     monkeypatch.setattr(rp_repo, "is_domain_taken", lambda *_args, **_kwargs: False)
-    monkeypatch.setattr(reverse_proxy_service, "_sync_traefik", lambda _session: None)
+    monkeypatch.setattr(reverse_proxy_service, "_sync_nginx", lambda _session: None)
     monkeypatch.setattr(
         reverse_proxy_service,
         "ensure_reverse_proxy_ready",

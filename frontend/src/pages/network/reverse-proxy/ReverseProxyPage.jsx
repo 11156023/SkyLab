@@ -16,8 +16,17 @@ function isAdminUser(user) {
   return user?.role === "admin" || user?.is_superuser === true;
 }
 
-/* ── Traefik Runtime（Admin） ───────────────────────── */
-function TraefikPanel() {
+/* 憑證到期日：只顯示日期，過期／30 天內到期各給不同顏色 */
+function certificateTone(expiresAt) {
+  if (!expiresAt) return styles.unknown;
+  const daysLeft = (new Date(expiresAt).getTime() - Date.now()) / 86_400_000;
+  if (daysLeft < 0) return styles.expired;
+  if (daysLeft < 30) return styles.expiring;
+  return styles.running;
+}
+
+/* ── nginx Runtime（Admin）：SSH 讀回 Gateway 上 nginx 的版本、狀態與 SkyLab 產生的設定 ── */
+function NginxPanel() {
   const { t } = useTranslation("network");
   const [open, setOpen] = useState(false);
   const [snapshot, setSnapshot] = useState(null);
@@ -28,15 +37,22 @@ function TraefikPanel() {
     setLoading(true);
     ReverseProxyService.runtime()
       .then(setSnapshot)
-      .catch(() => setSnapshot({ runtime_error: t("ReverseProxyPage.traefik.connectFailed") }))
+      .catch(() => setSnapshot({ runtime_error: t("ReverseProxyPage.nginx.connectFailed") }))
       .finally(() => setLoading(false));
   }, [open, snapshot, t]);
 
-  const sections = snapshot
+  const httpServers = snapshot?.http_servers ?? [];
+  const streamServers = snapshot?.stream_servers ?? [];
+  const certificates = snapshot?.certificates ?? [];
+  const tcpForwards = streamServers.filter((s) => s.protocol !== "udp");
+  const udpForwards = streamServers.filter((s) => s.protocol === "udp");
+  const pendingCerts = httpServers.filter((s) => s.https && s.certificate_ready === false);
+
+  const stats = snapshot
     ? [
-        { label: "HTTP", data: snapshot.http },
-        { label: "TCP", data: snapshot.tcp },
-        { label: "UDP", data: snapshot.udp },
+        { label: t("ReverseProxyPage.nginx.httpServers"), value: httpServers.length },
+        { label: t("ReverseProxyPage.nginx.tcpForwards"), value: tcpForwards.length },
+        { label: t("ReverseProxyPage.nginx.udpForwards"), value: udpForwards.length },
       ]
     : [];
 
@@ -50,7 +66,7 @@ function TraefikPanel() {
       >
         <span className={styles.adminToggleLeft}>
           <MIcon name="security" size={16} />
-          {t("ReverseProxyPage.traefik.toggle")}
+          {t("ReverseProxyPage.nginx.toggle")}
           <span className={styles.adminBadge}>Admin</span>
         </span>
         <span className={`${styles.infoChevron} ${open ? styles.open : ""}`}>
@@ -61,7 +77,7 @@ function TraefikPanel() {
       {open && (
         <div className={styles.adminBody}>
           {loading ? (
-            <LoadingState text={t("ReverseProxyPage.traefik.loading")} />
+            <LoadingState text={t("ReverseProxyPage.nginx.loading")} />
           ) : snapshot?.runtime_error ? (
             <div className={styles.adminMeta}>
               <span className={`${styles.statusPill} ${styles.unknown}`}>
@@ -71,36 +87,33 @@ function TraefikPanel() {
           ) : snapshot ? (
             <>
               <div className={styles.adminMeta}>
-                <span className={`${styles.statusPill} ${styles.running}`}>
-                  Traefik {snapshot.version?.Version ?? "running"}
+                <span className={`${styles.statusPill} ${snapshot.active ? styles.running : styles.expired}`}>
+                  nginx {snapshot.version ?? "?"}
+                  {" · "}
+                  {snapshot.active ? t("ReverseProxyPage.nginx.running") : t("ReverseProxyPage.nginx.stopped")}
                 </span>
-                <span className={styles.statusPill}>
-                  {(snapshot.entrypoints ?? []).length} entrypoints
-                </span>
+                {snapshot.config_valid != null && (
+                  <span className={`${styles.statusPill} ${snapshot.config_valid ? styles.running : styles.expired}`}>
+                    {snapshot.config_valid
+                      ? t("ReverseProxyPage.nginx.configValid")
+                      : t("ReverseProxyPage.nginx.configInvalid")}
+                  </span>
+                )}
+                {pendingCerts.length > 0 && (
+                  <span className={`${styles.statusPill} ${styles.expiring}`}>
+                    {t("ReverseProxyPage.nginx.pendingCertificates", { count: pendingCerts.length })}
+                  </span>
+                )}
               </div>
 
               <div className={styles.statsGrid}>
-                {sections.map(({ label, data }) => (
+                {stats.map(({ label, value }) => (
                   <div key={label} className={styles.statCard}>
                     <span className={styles.statLabel}>{label}</span>
                     <dl className={styles.statList}>
                       <div>
-                        <dt>Routers</dt>
-                        <dd className={data?.routers?.length ? styles.numActive : styles.numZero}>
-                          {data?.routers?.length ?? 0}
-                        </dd>
-                      </div>
-                      <div>
-                        <dt>Services</dt>
-                        <dd className={data?.services?.length ? styles.numActive : styles.numZero}>
-                          {data?.services?.length ?? 0}
-                        </dd>
-                      </div>
-                      <div>
-                        <dt>Middlewares</dt>
-                        <dd className={data?.middlewares?.length ? styles.numActive : styles.numZero}>
-                          {data?.middlewares?.length ?? 0}
-                        </dd>
+                        <dt>{t("ReverseProxyPage.nginx.serverBlocks")}</dt>
+                        <dd className={value ? styles.numActive : styles.numZero}>{value}</dd>
                       </div>
                     </dl>
                   </div>
@@ -108,13 +121,23 @@ function TraefikPanel() {
               </div>
 
               <div className={styles.entrySection}>
-                <span className={styles.entrySectionLabel}>Entrypoints</span>
+                <span className={styles.entrySectionLabel}>{t("ReverseProxyPage.nginx.certificates")}</span>
                 <div className={styles.entryList}>
-                  {(snapshot.entrypoints ?? []).map((ep) => (
-                    <code key={ep.name ?? JSON.stringify(ep)} className={styles.entryChip}>
-                      {ep.name} ({ep.address ?? ep.addr ?? "?"})
-                    </code>
-                  ))}
+                  {certificates.length === 0 ? (
+                    <span className={`${styles.statusPill} ${styles.unknown}`}>
+                      {t("ReverseProxyPage.nginx.noCertificates")}
+                    </span>
+                  ) : (
+                    certificates.map((cert) => (
+                      <code key={cert.name} className={`${styles.entryChip} ${certificateTone(cert.expires_at)}`}>
+                        {cert.name}
+                        {" · "}
+                        {cert.expires_at
+                          ? t("ReverseProxyPage.nginx.expires", { date: new Date(cert.expires_at).toLocaleDateString() })
+                          : t("ReverseProxyPage.nginx.expiryUnknown")}
+                      </code>
+                    ))
+                  )}
                 </div>
               </div>
             </>
@@ -327,8 +350,8 @@ export function ReverseProxyPanel() {
         </div>
       </section>
 
-      {/* Admin: Traefik */}
-      {isAdmin && <TraefikPanel />}
+      {/* Admin: Gateway nginx 狀態 */}
+      {isAdmin && <NginxPanel />}
 
       {modalPresence.item?.kind === "rule" && (
         <ReverseProxyRuleModal

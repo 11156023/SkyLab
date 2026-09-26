@@ -10,7 +10,7 @@ from .base import get_datetime_utc
 
 
 class ReverseProxyRule(SQLModel, table=True):
-    """Domain-to-VM reverse proxy rule for Traefik/Cloudflare integration."""
+    """Domain-to-VM reverse proxy rule for the gateway nginx / Cloudflare integration."""
 
     __tablename__ = "reverse_proxy_rule"
 

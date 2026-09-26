@@ -494,7 +494,7 @@ def _get_vm_ip(vmid: int, session: object = None) -> str | None:
 
 
 def _get_publishable_vm_ip(vmid: int, session: object = None) -> str | None:
-    """拿來寫進防火牆 source/dest、haproxy、Traefik 的 VM IP。
+    """拿來寫進防火牆 source/dest 與 Gateway nginx 設定的 VM IP。
 
     與 ``_get_vm_ip``（顯示用）不同：平台有配發紀錄時一律以配發的 IP 為準，
     guest agent 回報的值只在沒有配發紀錄（手動建的機器）時才採用。VM 擁有者
@@ -700,7 +700,7 @@ def create_connection(
                 enable_https = getattr(port_spec, "enable_https", True)
 
                 if domain:
-                    # 🌐 反向代理（Traefik）
+                    # 🌐 反向代理（nginx http）
                     from app.services.network import (
                         reverse_proxy_service,
                     )
@@ -713,7 +713,7 @@ def create_connection(
                         enable_https=enable_https,
                     )
                 elif port_spec.external_port is not None:
-                    # 🔌 Port 轉發（haproxy）
+                    # 🔌 Port 轉發（nginx stream）
                     from app.services.network import nat_service
                     nat_service.apply_nat_rule(
                         session=session,
@@ -874,7 +874,7 @@ def delete_connection(
 ) -> None:
     """刪除 VM 間連線（透過 comment 前綴識別 SkyLab 管理的規則）。
     從最高 pos 開始刪除，避免 pos 位移問題。
-    Internet→VM 時同步清理 NAT DB 記錄並更新 Gateway VM haproxy。
+    Internet→VM 時同步清理 NAT DB 記錄並更新 Gateway 上的 nginx 設定。
     """
     # ── Internet → VM 入站規則刪除 ─────────────────────────────────────────
     if source_vmid is None:
@@ -892,7 +892,7 @@ def delete_connection(
             target_vmid=target_vmid,
             ports=ports,
         )
-        # 同步清理 Gateway VM 規則（haproxy + Traefik）
+        # 同步清理 Gateway 規則（nginx stream + http）
         if session is not None:
             from app.services.network import (
                 nat_service,

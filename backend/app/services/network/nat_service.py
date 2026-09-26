@@ -1,10 +1,10 @@
-"""NAT 端口轉發服務 — 透過 Gateway VM 的 haproxy 管理 TCP/UDP 轉發規則。
+"""NAT 端口轉發服務 — 透過 Gateway 主機上的 nginx stream 模組管理 TCP/UDP 轉發規則。
 
 設計原則：
 - DB 為 source of truth，儲存所有 external_port → vm_ip:internal_port 映射
-- 每次新增 / 刪除後，從 DB 完整重建 haproxy managed section 並 reload
-- haproxy.cfg 以 BEGIN/END 標記區隔手動設定與自動管理部分
-- 若 Gateway VM 尚未設定，只寫 DB、跳過 haproxy 同步（不中斷主流程）
+- 每次新增 / 刪除後，從 DB 完整重建 ``/etc/nginx/skylab/stream.conf``、驗證並 reload
+- 該檔案由 SkyLab 完整持有（nginx.conf 以 include 載入），不與手動設定混放
+- Gateway 尚未設定時同步會失敗，呼叫端負責回滾 DB（見 apply_nat_rule）
 """
 
 import logging
@@ -32,11 +32,6 @@ RESERVED_PORTS: frozenset[int] = frozenset(
         111,   # rpcbind
     ]
 )
-
-# haproxy.cfg 自動管理區段標記（與 install.sh 保持一致）
-_HAPROXY_BEGIN = "# BEGIN_skylab_MANAGED"
-_HAPROXY_END = "# END_skylab_MANAGED"
-
 
 # ─── 檢查 port 可用性 ──────────────────────────────────────────────────────────
 
@@ -82,49 +77,23 @@ def allocate_external_port(
     raise BadRequestError(t("nat.poolExhausted", start=start, end=end))
 
 
-# ─── haproxy config 產生 ───────────────────────────────────────────────────────
+# ─── nginx 同步（核心） ───────────────────────────────────────────────────────
 
 
-def _build_haproxy_managed_block(rules: list) -> str:
-    """從 DB 規則列表產生 haproxy frontend/backend 設定文字"""
-    if not rules:
-        return ""
-    lines: list[str] = []
-    for r in rules:
-        name = f"cc-{r.vmid}-{r.external_port}-{r.protocol}"
-        lines += [
-            f"frontend {name}",
-            f"    bind *:{r.external_port}",
-            "    mode tcp",
-            f"    default_backend {name}-back",
-            "",
-            f"backend {name}-back",
-            "    mode tcp",
-            f"    server vm{r.vmid} {r.vm_ip}:{r.internal_port} check inter 10s",
-            "",
-        ]
-    return "\n".join(lines)
-
-
-# ─── haproxy 同步（核心） ──────────────────────────────────────────────────────
-
-
-def _sync_haproxy(session: object, rules: list | None = None) -> None:
-    """從 DB 重建 haproxy managed section 並 reload。
-    Gateway VM 未設定時拋 ProxmoxError。
+def _sync_nginx_stream(session: object, rules: list | None = None) -> None:
+    """從 DB 重建 nginx 的 stream.conf、驗證並 reload。
+    Gateway 未設定時拋 ProxmoxError。
 
     ``rules`` 給刪除流程用：先拿「排除待刪規則後的清單」同步上去，
     同步成功才把 DB 的規則刪掉，避免 DB 刪了、Gateway 上還在轉發。
     """
-    from app.infrastructure.ssh import create_key_client, exec_command
+    from app.infrastructure.ssh import create_key_client
     from app.repositories import gateway_config as gw_repo
     from app.repositories import nat_rule as nat_repo
     from app.repositories.gateway_config import (
         get_decrypted_private_key,
     )
-    from app.services.network.gateway_service import (
-        SERVICE_CONFIG_PATHS,
-    )
+    from app.services.network import nginx_gateway_service as nginx
 
     config = gw_repo.get_gateway_config(session)  # type: ignore[arg-type]
     if config is None or not config.host or not config.encrypted_private_key:
@@ -133,8 +102,6 @@ def _sync_haproxy(session: object, rules: list | None = None) -> None:
     if rules is None:
         rules = nat_repo.list_rules(session)  # type: ignore[arg-type]
     private_key_pem = get_decrypted_private_key(config)  # type: ignore[arg-type]
-    haproxy_path = SERVICE_CONFIG_PATHS["haproxy"]
-    tmp_path = haproxy_path + ".SkyLab.tmp"
 
     client = create_key_client(
         config.host,
@@ -143,61 +110,14 @@ def _sync_haproxy(session: object, rules: list | None = None) -> None:
         private_key_pem,
     )
     try:
-        # 讀取現有 haproxy.cfg
-        sftp = client.open_sftp()
-        try:
-            try:
-                with sftp.open(haproxy_path, "r") as f:
-                    current_cfg = f.read().decode()
-            except OSError:
-                current_cfg = ""
-        finally:
-            sftp.close()
-
-        # 重建 managed section
-        new_block = _build_haproxy_managed_block(rules)
-        begin_idx = current_cfg.find(_HAPROXY_BEGIN)
-        end_idx = current_cfg.find(_HAPROXY_END)
-
-        if begin_idx != -1 and end_idx != -1:
-            new_cfg = (
-                current_cfg[:begin_idx]
-                + _HAPROXY_BEGIN + "\n"
-                + new_block
-                + _HAPROXY_END + "\n"
-                + current_cfg[end_idx + len(_HAPROXY_END):].lstrip("\n")
-            )
-        else:
-            # 標記不存在時附加在末尾
-            new_cfg = (
-                current_cfg.rstrip()
-                + f"\n\n{_HAPROXY_BEGIN}\n{new_block}{_HAPROXY_END}\n"
-            )
-
-        # 原子性寫入 + 驗證 + reload
-        sftp = client.open_sftp()
-        try:
-            with sftp.open(tmp_path, "w") as f:
-                f.write(new_cfg.encode())
-        finally:
-            sftp.close()
-
-        code, out, err = exec_command(
-            client,
-            f"haproxy -c -f {tmp_path} 2>&1 "
-            f"&& mv {tmp_path} {haproxy_path} "
-            f"&& systemctl reload haproxy 2>&1",
+        nginx.write_validated_config(
+            client, nginx.NGINX_STREAM_CONF_PATH, nginx.build_stream_config(rules)
         )
-        if code != 0:
-            exec_command(client, f"rm -f {tmp_path}")
-            raise ProxmoxError(t("nat.haproxySyncCommandFailed", out=out, err=err))
-
-        logger.info(f"[NAT] haproxy 已同步 {len(rules)} 條轉發規則並 reload")
-
+        logger.info(f"[NAT] nginx 已同步 {len(rules)} 條轉發規則並 reload")
     except ProxmoxError:
         raise
     except Exception as e:
-        raise ProxmoxError(t("nat.haproxySyncFailed", error=e))
+        raise ProxmoxError(t("nat.nginxSyncFailed", error=e))
     finally:
         client.close()
 
@@ -213,7 +133,7 @@ def apply_nat_rule(
     internal_port: int,
     protocol: str,
 ) -> None:
-    """建立 NAT 規則：寫入 DB + 同步 haproxy。"""
+    """建立 NAT 規則：寫入 DB + 同步 nginx。"""
     from app.models.nat_rule import NatRule
     from app.repositories import nat_rule as nat_repo
 
@@ -239,7 +159,7 @@ def apply_nat_rule(
     )
     created = nat_repo.create_rule(session, rule)  # type: ignore[arg-type]
     try:
-        _sync_haproxy(session)
+        _sync_nginx_stream(session)
     except Exception:
         # 同步失敗時補償刪除剛建立的規則：否則規則留在 DB（實際未生效）
         # 會永久佔住該外網 port，使用者重試會收到「Port 已被佔用」。
@@ -254,7 +174,7 @@ def apply_nat_rule(
 
 
 def _sync_then_delete(session: object, doomed: list) -> None:
-    """先把「排除這些規則後的清單」同步到 haproxy，成功才刪 DB。
+    """先把「排除這些規則後的清單」同步到 nginx，成功才刪 DB。
 
     反過來做（先刪 DB 再同步）的話，同步失敗就會留下「DB 查不到、Gateway 仍在
     轉發」的孤兒 port：既撤不掉，那個對外 port 也會被重新配給別人。
@@ -269,7 +189,7 @@ def _sync_then_delete(session: object, doomed: list) -> None:
         for r in nat_repo.list_rules(session)  # type: ignore[arg-type]
         if r.id not in doomed_ids
     ]
-    _sync_haproxy(session, remaining)
+    _sync_nginx_stream(session, remaining)
     nat_repo.delete_rules(session, doomed)  # type: ignore[arg-type]
 
 

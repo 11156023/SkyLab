@@ -1,7 +1,7 @@
 import { apiGet, apiPost, apiPut, apiDelete } from "./api";
 
 export const ReverseProxyService = {
-  /** Admin: Traefik runtime 快照（entrypoints / routers / services） */
+  /** Admin: Gateway nginx 執行期快照（版本／狀態／網域區塊／Port 轉發／憑證） */
   runtime() {
     return apiGet("/api/v1/reverse-proxy/runtime");
   },
