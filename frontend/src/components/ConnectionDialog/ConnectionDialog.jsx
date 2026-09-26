@@ -44,10 +44,10 @@ import { getTopology } from "../../services/firewall";
 import { toDialogNodes } from "./topologyNodes";
 import { ReverseProxyService } from "../../services/reverseProxy";
 import {
-  COMMON_PORTS,
   extractHostnamePrefix,
   findZoneByDomain,
 } from "../ReverseProxyRuleModal/ReverseProxyRuleModal";
+import PortInput from "./PortInput";
 import {
   buildInboundPayload,
   buildOutboundPorts,
@@ -69,7 +69,6 @@ const CONNECTION_PROTOCOLS = ["tcp", "udp", "icmp", "icmpv6", "sctp"];
 const FORWARD_PROTOCOLS = ["tcp", "udp"];
 const RULE_PROTOCOLS = ["tcp", "udp", "icmp"];
 const AVAILABILITY_DEBOUNCE_MS = 500;
-const COMMON_PORTS_LIST_ID = "connection-dialog-common-ports";
 const EMPTY = [];
 
 let _uid = 0;
@@ -98,17 +97,12 @@ function PortRows({ rows, setRows, protocols, invalid, single }) {
         const missing = invalid && !portless && !row.port;
         return (
           <div key={row.id} className={styles.portRow}>
-            <input
-              type="number"
-              min="1"
-              max="65535"
-              list={COMMON_PORTS_LIST_ID}
+            <PortInput
               placeholder={portless ? t("ConnectionDialog.portlessPlaceholder") : t("ConnectionDialog.portPlaceholder")}
               value={portless ? "" : row.port}
               disabled={portless}
-              onChange={(e) => update(row.id, "port", e.target.value)}
-              aria-invalid={missing}
-              className={`${styles.portInput} ${missing ? styles.portInputInvalid : ""}`}
+              onChange={(v) => update(row.id, "port", v)}
+              invalid={missing}
             />
             <select
               value={row.protocol}
@@ -159,22 +153,19 @@ function ForwardRows({ rows, setRows, invalid, single }) {
       </div>
       {rows.map((row) => (
         <div key={row.id} className={styles.forwardRow}>
-          <input
-            type="number" min="1" max="65535"
+          {/* 對外 port 是自己挑的號碼，不給常用 port 建議；內部 port 才是服務在聽的 port */}
+          <PortInput
+            suggestions={false}
             placeholder={t("ConnectionDialog.externalPlaceholder")}
             value={row.externalPort}
-            onChange={(e) => update(row.id, "externalPort", e.target.value)}
-            aria-invalid={Boolean(invalid && !row.externalPort)}
-            className={`${styles.portInput} ${invalid && !row.externalPort ? styles.portInputInvalid : ""}`}
+            onChange={(v) => update(row.id, "externalPort", v)}
+            invalid={Boolean(invalid && !row.externalPort)}
           />
-          <input
-            type="number" min="1" max="65535"
-            list={COMMON_PORTS_LIST_ID}
+          <PortInput
             placeholder={t("ConnectionDialog.internalPlaceholder")}
             value={row.internalPort}
-            onChange={(e) => update(row.id, "internalPort", e.target.value)}
-            aria-invalid={Boolean(invalid && !row.internalPort)}
-            className={`${styles.portInput} ${invalid && !row.internalPort ? styles.portInputInvalid : ""}`}
+            onChange={(v) => update(row.id, "internalPort", v)}
+            invalid={Boolean(invalid && !row.internalPort)}
           />
           <select
             value={row.protocol}
@@ -338,7 +329,7 @@ export default function ConnectionDialog({
   const modeCards = (templateMode ? TEMPLATE_INBOUND_MODES : INBOUND_MODES)
     .filter((m) => m !== "domain" || domainReady || service?.mode === "domain");
 
-  /* 網址模式：port 直接輸入，常用埠由 datalist 提示 */
+  /* 網址模式：port 直接輸入，或從 PortInput 的常用 port 選單挑 */
   const [domainPort, setDomainPort] = useState(editing ? String(service.port) : "80");
   const [zoneId, setZoneId] = useState(templateMode ? (service?.zone_id ?? "") : "");
   /* 模板模式的「開頭」是主機名樣板（含 {student}），不是實際網址 */
@@ -465,7 +456,7 @@ export default function ConnectionDialog({
         setError(describeError(built.error));
         if (built.invalid) {
           setPortsInvalid(true);
-          focusInvalidField(form.querySelector('input[type="number"]'));
+          focusInvalidField(form.querySelector("[data-port-input]"));
         }
         return;
       }
@@ -487,7 +478,7 @@ export default function ConnectionDialog({
       if (built.error) {
         setError(describeError(built.error));
         setPortsInvalid(true);
-        focusInvalidField(form.querySelector('input[type="number"]'));
+        focusInvalidField(form.querySelector("[data-port-input]"));
         return;
       }
       ports = built.ports;
@@ -613,10 +604,6 @@ export default function ConnectionDialog({
         </div>
 
         <form className={styles.dialogBody} onSubmit={handleSubmit}>
-          <datalist id={COMMON_PORTS_LIST_ID}>
-            {COMMON_PORTS.map((p) => <option key={p.value} value={p.value}>{t(p.labelKey)}</option>)}
-          </datalist>
-
           <IntentPicker value={intent} onChange={setIntent} locked={editing} intents={intents} />
 
           {/* 讓機器能上網：選好機器就能送 */}
@@ -663,13 +650,10 @@ export default function ConnectionDialog({
                     {/* port 佔滿第一欄，與下一列「網址開頭」同寬同欄線；HTTPS 勾選對齊第二欄 */}
                     <div className={styles.field}>
                       <label className={styles.fieldLabel} htmlFor="cd-domain-port">{t("ConnectionDialog.portLabel")}</label>
-                      <input
+                      <PortInput
                         id="cd-domain-port"
-                        type="number" min="1" max="65535"
-                        list={COMMON_PORTS_LIST_ID}
-                        className={styles.textInput}
                         value={domainPort}
-                        onChange={(e) => { setError(""); setDomainPort(e.target.value); }}
+                        onChange={(v) => { setError(""); setDomainPort(v); }}
                         placeholder="80"
                       />
                     </div>

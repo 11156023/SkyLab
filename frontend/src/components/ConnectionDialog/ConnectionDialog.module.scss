@@ -185,9 +185,12 @@
   @include form-field;
 }
 
-/* 沒有標題的欄位（例如與 port 並排的 HTTPS 勾選框）貼齊底部，和旁邊的輸入框對齊 */
+/* 沒有標題的欄位（例如與 port 並排的 HTTPS 勾選框）貼齊底部，和旁邊的輸入框對齊；
+   勾選列撐到與輸入框同高（36px），勾選框才會對齊輸入框的垂直中心而不是貼底 */
 .fieldAlignEnd {
   justify-content: flex-end;
+
+  .checkRow { min-height: 36px; }
 }
 
 /* 字級／字重／顏色由 .field 的 form-field mixin 繼承；只補 mixin 給 > span 的標籤節奏 */
@@ -249,13 +252,13 @@
   display: flex;
   width: 100%;
 
+  /* 維持 SegmentedControl 的 inline-flex（圖示垂直置中＋間距），只改成平分寬度、內容置中；
+     改成 display: block 會讓圖示偏上且黏著文字 */
   button {
     flex: 1 1 0;
     min-width: 0;
-    display: block;
+    justify-content: center;
     overflow: hidden;
-    text-overflow: ellipsis;
-    text-align: center;
   }
 }
 
@@ -299,17 +302,73 @@
   &::placeholder { color: var(--color-text-muted); }
 }
 
-/* type=number 疊 datalist 會同時出現捲軸鈕與下拉箭頭；
-   port 是編號不是數量，藏掉捲軸鈕、留 datalist 的建議下拉 */
-.textInput,
-.portInput {
-  appearance: textfield;
+/* ── Port 輸入框＋常用 port 下拉（PortInput）── */
+.portCombo {
+  position: relative;
+  min-width: 0;
 
-  &::-webkit-inner-spin-button,
-  &::-webkit-outer-spin-button {
-    appearance: none;
-    margin: 0;
+  .portInput { width: 100%; }
+}
+
+/* 右側留位置給展開鈕 */
+.portInputWithToggle {
+  padding-right: 36px;
+}
+
+.portToggle {
+  position: absolute;
+  top: 50%;
+  right: 4px;
+  transform: translateY(-50%);
+  @include flex-center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: $radius-8;
+  background: transparent;
+  color: var(--color-text-muted);
+  cursor: pointer;
+
+  &:hover:not(:disabled) {
+    background: var(--color-hover);
+    color: var(--color-text);
   }
+
+  &:disabled { cursor: not-allowed; }
+}
+
+/* portal 到 body 的 fixed 選單：層級要高於對話框遮罩（300） */
+.portMenu {
+  position: fixed;
+  z-index: 320;
+  max-height: 280px;
+  overflow-y: auto;
+  margin: 0;
+  padding: $spacing-4;
+  list-style: none;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: $radius-12;
+  box-shadow: var(--shadow-lg);
+}
+
+.portMenuItem {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: $spacing-8;
+  padding: 7px $spacing-8;
+  border-radius: $radius-8;
+  font-size: $font-size-14;
+  color: var(--color-text);
+  cursor: pointer;
+
+  :global(.material-icons-outlined) { color: var(--color-primary); }
+}
+
+.portMenuItemActive {
+  background: var(--color-hover);
 }
 
 /* 疊兩次類名壓過 form-control 的 focus 樣式（同 style guide 的 .fieldInvalid 寫法） */

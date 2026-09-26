@@ -6,9 +6,10 @@ import useOutsideClick from "./useOutsideClick";
  * portal 到 body、position: fixed 的錨定選單共用邏輯：
  * 依錨點定位、捲動／縮放時重算、錨點捲出視窗就關閉、外點與 Esc 關閉。
  * 回傳 { ref, pos }：ref 掛在選單元素上，pos 為 null 時表示還沒量到高度、先保持隱形。
- * width 對應 computePosition 的選單寬度（不傳就用 position.js 的預設值）。
+ * width 對應 computePosition 的選單寬度（不傳就用 position.js 的預設值）；
+ * align 為 "left" 時選單左緣對齊錨點（輸入框的建議選單），預設右緣對齊（按鈕選單）。
  */
-export default function useAnchoredMenu({ anchorRef, onClose, width }) {
+export default function useAnchoredMenu({ anchorRef, onClose, width, align = "right" }) {
   const ref = useRef(null);
   const [pos, setPos] = useState(null);
 
@@ -29,8 +30,8 @@ export default function useAnchoredMenu({ anchorRef, onClose, width }) {
       onCloseRef.current();
       return;
     }
-    setPos(computePosition(rect, menu.offsetHeight, viewport, width));
-  }, [anchorRef, width]);
+    setPos(computePosition(rect, menu.offsetHeight, viewport, width, align));
+  }, [anchorRef, width, align]);
 
   // 要先量到選單實際高度才知道往上或往下翻，定位完成前保持隱形
   useLayoutEffect(() => { reposition(); }, [reposition]);

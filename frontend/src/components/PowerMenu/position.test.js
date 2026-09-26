@@ -32,6 +32,20 @@ describe("computePosition", () => {
     expect(pos.top).toBe(rect.top - ANCHOR_GAP - MENU_HEIGHT);
   });
 
+  test("align 為 left 時左緣對齊錨點（輸入框的建議選單）", () => {
+    const rect = { top: 200, bottom: 236, left: 300, right: 430 };
+    const pos = computePosition(rect, MENU_HEIGHT, VIEWPORT, 280, "left");
+
+    expect(pos.left).toBe(300);
+  });
+
+  test("align 為 left 且右側放不下時夾回視窗內", () => {
+    const rect = { top: 200, bottom: 236, left: 1100, right: 1230 };
+    const pos = computePosition(rect, MENU_HEIGHT, VIEWPORT, 280, "left");
+
+    expect(pos.left).toBe(VIEWPORT.width - 280 - EDGE_MARGIN);
+  });
+
   test("右緣對齊錨點按鈕", () => {
     const pos = computePosition(anchorAt(200, 900), MENU_HEIGHT, VIEWPORT);
 

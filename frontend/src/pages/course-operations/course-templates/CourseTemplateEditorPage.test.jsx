@@ -114,7 +114,7 @@ it("draws a connection between two machines through the shared connection dialog
     expect(intents.some((text) => text.includes("ConnectionDialog.intentRule"))).toBe(false);
     const peer = [...document.querySelectorAll("[data-guide='connection-dialog-endpoints'] button")].find((button) => button.textContent.includes("ConnectionDialog.intentPeer"));
     await act(async () => peer.click());
-    const port = document.querySelector("[data-guide='connection-dialog'] input[type='number']");
+    const port = document.querySelector("[data-guide='connection-dialog'] [data-port-input]");
     await act(async () => {
       Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set.call(port, "3306");
       port.dispatchEvent(new Event("input", { bubbles: true }));
