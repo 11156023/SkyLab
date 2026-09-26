@@ -29,10 +29,12 @@ def create_resource(
     teaching_class_id: uuid.UUID | None = None,
     allocation_scope: str = "personal",
     control_policy: str = "owner",
+    connection_id: int | None = None,
     commit: bool = True,
 ) -> Resource:
     db_resource = Resource(
         vmid=vmid,
+        connection_id=connection_id,
         request_id=request_id,
         user_id=user_id,
         teaching_class_id=teaching_class_id,

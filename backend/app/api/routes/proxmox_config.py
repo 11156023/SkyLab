@@ -138,13 +138,28 @@ def _connection_to_public(session, conn) -> ProxmoxConnectionPublic:
     )
 
 
-def _resource_vmids_on_nodes(session, node_names: set[str]) -> list[int]:
-    """回傳仍掛在這些節點上、又有 SkyLab Resource 記錄的 vmid。
+def _resource_vmids_on_connection(
+    session, connection_id: int, node_names: set[str]
+) -> list[int]:
+    """回傳仍屬於這個連線的 SkyLab Resource vmid。
 
-    Resource 沒有節點欄位，只能問 PVE「現在哪些機器在這些節點上」，
-    再與 resources 表取交集。問不到就視為不安全（回 400），
-    以免把底下還有機器的連線刪掉、讓那些機器再也路由不到。
+    新資源建立時會記下 connection_id，直接查 DB；舊資料沒有這個欄位，
+    仍要問 PVE「現在哪些機器在這些節點上」再與 resources 表取交集。
+    問不到就視為不安全（回 400），以免把底下還有機器的連線刪掉、
+    讓那些機器再也路由不到。
     """
+    recorded = set(
+        session.exec(
+            select(Resource.vmid).where(Resource.connection_id == connection_id)
+        ).all()
+    )
+    return sorted(
+        {int(v) for v in recorded} | set(_resource_vmids_on_nodes(session, node_names))
+    )
+
+
+def _resource_vmids_on_nodes(session, node_names: set[str]) -> list[int]:
+    """回傳仍掛在這些節點上、又有 SkyLab Resource 記錄的 vmid（問 PVE）。"""
     if not node_names:
         return []
 
@@ -741,7 +756,7 @@ def delete_connection(
     # 連線一刪，節點記錄跟著 CASCADE 消失，還掛在上面的機器就再也路由不到
     # （get_proxmox_api_for_node 找不到節點）。先擋下來，要管理員自己決定
     # 是先搬機器還是先刪機器。
-    in_use_vmids = _resource_vmids_on_nodes(session, node_names)
+    in_use_vmids = _resource_vmids_on_connection(session, connection_id, node_names)
     if in_use_vmids:
         raise BadRequestError(
             t(

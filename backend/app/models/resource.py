@@ -107,6 +107,19 @@ class Resource(SQLModel, table=True):
         ),
     )
 
+    # 建立時所在的 PVE 連線（叢集）。vmid 是 PVE 的 VMID，多連線下只有
+    # 搭配 connection 才能確定是哪台；舊資料或無法判定時為 NULL。
+    # RESTRICT：還有資源掛著的連線不可刪除。
+    connection_id: int | None = Field(
+        default=None,
+        sa_column=Column(
+            sa.Integer,
+            sa.ForeignKey("proxmox_connections.id", ondelete="RESTRICT"),
+            nullable=True,
+            index=True,
+        ),
+    )
+
     auto_stop_at: datetime | None = Field(
         default=None,
         sa_column=Column(DateTime(timezone=True), nullable=True),

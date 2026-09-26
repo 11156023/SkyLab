@@ -28,7 +28,10 @@ from app.exceptions import (
     NotFoundError,
     PermissionDeniedError,
 )
-from app.infrastructure.proxmox import get_proxmox_settings_for_node
+from app.infrastructure.proxmox import (
+    get_connection_id_for_node,
+    get_proxmox_settings_for_node,
+)
 from app.infrastructure.proxmox import operations as proxmox_ops
 from app.infrastructure.queue import enqueue_task, report_progress
 from app.models import (
@@ -1268,6 +1271,7 @@ def run_update_clone_task(
                 session.add(
                     Resource(
                         vmid=new_vmid,
+                        connection_id=get_connection_id_for_node(node),
                         user_id=template.owner_id,
                         environment_type="範本更新母機",
                         created_at=datetime.now(timezone.utc),
