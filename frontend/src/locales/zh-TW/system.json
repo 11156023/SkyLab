@@ -311,6 +311,8 @@
   "IpManagementPage.pageTitle": "IP 管理",
   "IpManagementPage.purposeGateway": "閘道",
   "IpManagementPage.purposeReserved": "保留",
+  "IpManagementPage.purposeClassReserved": "班級預留",
+  "IpManagementPage.purposeQuickPracticeReserved": "快速練習預留",
   "IpManagementPage.searchPlaceholder": "搜尋 IP、VMID 或備註",
   "IpManagementPage.statAllocated": "已分配",
   "IpManagementPage.statAvailable": "可用",

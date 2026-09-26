@@ -50,10 +50,12 @@ function PurposeBadge({ purpose }) {
     gateway_vm: "Gateway VM",
     subnet_gateway: t("IpManagementPage.purposeGateway"),
     reserved: t("IpManagementPage.purposeReserved"),
+    class_reserved: t("IpManagementPage.purposeClassReserved"),
+    quick_practice_reserved: t("IpManagementPage.purposeQuickPracticeReserved"),
   };
   const label = PURPOSE_LABELS[purpose] ?? purpose ?? "—";
   return (
-    <span className={`${styles.badge} ${styles[`badge_${purpose ?? "unknown"}`]}`}>
+    <span className={`${styles.badge} ${styles[`badge_${purpose}`] ?? styles.badge_unknown}`}>
       {label}
     </span>
   );

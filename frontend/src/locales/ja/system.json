@@ -311,6 +311,8 @@
   "IpManagementPage.pageTitle": "IP 管理",
   "IpManagementPage.purposeGateway": "ゲートウェイ",
   "IpManagementPage.purposeReserved": "予約済み",
+  "IpManagementPage.purposeClassReserved": "クラス予約",
+  "IpManagementPage.purposeQuickPracticeReserved": "クイック練習予約",
   "IpManagementPage.searchPlaceholder": "IP、VMID、備考で検索",
   "IpManagementPage.statAllocated": "割り当て済み",
   "IpManagementPage.statAvailable": "利用可能",

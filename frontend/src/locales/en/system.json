@@ -311,6 +311,8 @@
   "IpManagementPage.pageTitle": "IP Management",
   "IpManagementPage.purposeGateway": "Gateway",
   "IpManagementPage.purposeReserved": "Reserved",
+  "IpManagementPage.purposeClassReserved": "Class reserved",
+  "IpManagementPage.purposeQuickPracticeReserved": "Quick practice reserved",
   "IpManagementPage.searchPlaceholder": "Search by IP, VMID, or description",
   "IpManagementPage.statAllocated": "Allocated",
   "IpManagementPage.statAvailable": "Available",
