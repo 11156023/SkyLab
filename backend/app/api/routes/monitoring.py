@@ -2,9 +2,9 @@
 
 import asyncio
 import uuid
-from typing import Any
+from typing import Annotated, Any
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Cookie, Query, Request, Response
 
 from app.api.deps import AdminUser, CurrentUser, SessionDep
 from app.infrastructure.redis import get_redis
@@ -31,10 +31,42 @@ async def get_system_health(_: AdminUser) -> SystemHealth:
     return SystemHealth.model_validate(data)
 
 
-@router.get("/grafana", response_model=GrafanaLink)
-async def get_grafana_link(_: AdminUser) -> GrafanaLink:
-    """監控 stack 的 Grafana 是否啟用（連得到才回網址），供資源監控頁顯示連結。"""
-    return GrafanaLink.model_validate(await grafana_service.get_grafana_link())
+@router.post("/grafana/session", response_model=GrafanaLink)
+async def create_grafana_session(
+    current_user: AdminUser, request: Request, response: Response
+) -> GrafanaLink:
+    """監控 stack 的 Grafana 是否啟用（連得到才回網址）；啟用時一併發免密碼登入的 cookie。"""
+    link = GrafanaLink.model_validate(await grafana_service.get_grafana_link())
+    if link.enabled:
+        secure = request.headers.get("x-forwarded-proto") == "https" or (
+            link.url or ""
+        ).startswith("https://")
+        response.set_cookie(
+            grafana_service.SESSION_COOKIE,
+            grafana_service.create_session_token(current_user),
+            max_age=grafana_service.session_max_age_seconds(),
+            path=grafana_service.SESSION_COOKIE_PATH,
+            httponly=True,
+            samesite="lax",
+            secure=secure,
+        )
+    return link
+
+
+@router.get("/grafana/auth", include_in_schema=False, status_code=204)
+async def grafana_auth(
+    session: SessionDep,
+    token: Annotated[
+        str | None, Cookie(alias=grafana_service.SESSION_COOKIE)
+    ] = None,
+) -> Response:
+    """nginx auth_request 專用：cookie 換成 Grafana auth.proxy 的身分標頭。
+
+    一律回 204：cookie 無效時不帶標頭，Grafana 就顯示原本的登入頁；
+    回 401 的話 nginx 會把整個 /grafana/ 擋掉，連備用的帳密登入都用不了。
+    """
+    headers = await grafana_service.resolve_proxy_headers(session, token)
+    return Response(status_code=204, headers=headers)
 
 
 @router.get("/overview", response_model=MonitoringOverview)

@@ -121,6 +121,9 @@ class Settings(BaseSettings):
     # （與 compose 帶給 Grafana 的同一個值），未設定時用同網域的 /grafana/。
     GRAFANA_INTERNAL_URL: str = "http://grafana:3000/grafana"
     GRAFANA_ROOT_URL: str | None = None
+    # 管理員免密碼進 Grafana：資源監控頁發一個只在 /grafana/ 有效的 httponly cookie，
+    # nginx auth_request 以它向後端換身分標頭交給 Grafana auth.proxy。這是它的效期。
+    GRAFANA_SESSION_EXPIRE_MINUTES: int = 480
     POSTGRES_SERVER: str
     POSTGRES_PORT: int = 5432
     POSTGRES_USER: str

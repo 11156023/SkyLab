@@ -36,8 +36,11 @@ export const MonitoringService = {
     return apiGet("/api/v1/monitoring/system-health", options);
   },
 
-  /** 監控 stack 的 Grafana 是否啟用：{ enabled, url }（未啟用時 url 為 null；管理員） */
-  getGrafanaLink(options) {
-    return apiGet("/api/v1/monitoring/grafana", options);
+  /**
+   * 監控 stack 的 Grafana 是否啟用：{ enabled, url }（未啟用時 url 為 null；管理員）。
+   * 啟用時後端同時設定只在 /grafana/ 送出的 httponly cookie，點連結即免密碼登入。
+   */
+  createGrafanaSession(options) {
+    return apiPost("/api/v1/monitoring/grafana/session", {}, options);
   },
 };

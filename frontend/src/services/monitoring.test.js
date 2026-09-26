@@ -64,15 +64,15 @@ describe("MonitoringService", () => {
     expect(result).toEqual(body);
   });
 
-  test("getGrafanaLink 呼叫 Grafana 連結端點並回傳內容", async () => {
+  test("createGrafanaSession 以 POST 呼叫 Grafana session 端點並回傳內容", async () => {
     const body = { enabled: true, url: "/grafana/" };
     fetchMock.mockResolvedValueOnce(jsonRes(200, body));
 
-    const result = await MonitoringService.getGrafanaLink();
+    const result = await MonitoringService.createGrafanaSession();
 
     const [url, init] = fetchMock.mock.calls[0];
-    expect(url).toContain("/api/v1/monitoring/grafana");
-    expect(init?.method ?? "GET").toBe("GET");
+    expect(url).toContain("/api/v1/monitoring/grafana/session");
+    expect(init?.method).toBe("POST");
     expect(result).toEqual(body);
   });
 });

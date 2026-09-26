@@ -315,7 +315,8 @@ export default function MonitoringPage() {
   const [miningCount, setMiningCount] = useState(null);
   /* 節點用量整卡收合：預設收起省版面，標題列保留在線摘要 */
   const [nodesOpen, setNodesOpen] = useState(loadNodesOpen);
-  /* 監控 stack 有啟用（後端連得到 Grafana）才顯示連結；查詢失敗就當沒啟用 */
+  /* 監控 stack 有啟用（後端連得到 Grafana）才顯示連結；查詢失敗就當沒啟用。
+     同一支 API 會設定 Grafana 免密碼登入的 cookie（效期數小時），頁面開著時定期續期 */
   const [grafanaUrl, setGrafanaUrl] = useState(null);
 
   const load = useCallback(async (signal) => {
@@ -341,10 +342,16 @@ export default function MonitoringPage() {
 
   useEffect(() => {
     const controller = new AbortController();
-    MonitoringService.getGrafanaLink({ signal: controller.signal })
-      .then((link) => setGrafanaUrl(link?.enabled ? link.url : null))
-      .catch(() => {});
-    return () => controller.abort();
+    const refresh = () =>
+      MonitoringService.createGrafanaSession({ signal: controller.signal })
+        .then((link) => setGrafanaUrl(link?.enabled ? link.url : null))
+        .catch(() => {});
+    refresh();
+    const timer = setInterval(refresh, 30 * 60_000);
+    return () => {
+      controller.abort();
+      clearInterval(timer);
+    };
   }, []);
 
   function toggleNodesOpen() {
