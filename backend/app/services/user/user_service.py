@@ -16,7 +16,6 @@ from app.models import (
     AIAPICredential,
     AIAPIRequest,
     AIAPIUsage,
-    AITemplateCallLog,
     AlertEvent,
     AuditLog,
     DeletionRequest,
@@ -118,10 +117,6 @@ def _prepare_user_delete(*, session: Session, user: User) -> None:
         ai_request.reviewer_id = None
         session.add(ai_request)
 
-    for call_log in session.exec(
-        select(AITemplateCallLog).where(AITemplateCallLog.user_id == user.id)
-    ).all():
-        session.delete(call_log)
     for quota in session.exec(
         select(ResourceQuota).where(ResourceQuota.user_id == user.id)
     ).all():
