@@ -287,7 +287,7 @@
   "AiMonitoringPage.callTypeTjResultAi": "Teacher Judge Result Analysis",
   "AiMonitoringPage.statusSuccess": "Success",
   "AiMonitoringPage.statusFail": "Failed",
-  "AiMonitoringPage.pageTitle": "Usage Monitoring",
+  "AiMonitoringPage.pageTitle": "AI Usage Monitoring",
   "AiMonitoringPage.statCallCount": "Call Count",
   "AiMonitoringPage.statTokensTotal": "Total Tokens",
   "AiMonitoringPage.statSuccessRate": "Success Rate",
