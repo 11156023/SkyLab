@@ -1,5 +1,6 @@
 /* ── Overlay ── */
 .overlay {
+  @include dialog-overlay-avoid-ai;
   position: fixed;
   inset: 0;
   background: var(--color-overlay);

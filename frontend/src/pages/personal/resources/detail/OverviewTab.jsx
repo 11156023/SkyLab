@@ -11,9 +11,11 @@ import styles from "./ResourceDetailPage.module.scss";
 import ov from "./OverviewTab.module.scss";
 import MIcon from "../../../../components/MIcon";
 import LoadingState from "../../../../components/LoadingState/LoadingState";
+import ErrorState from "../../../../components/ErrorState/ErrorState";
+import NotFoundState from "../../../../components/ErrorState/NotFoundState";
 import useAutoRefresh from "../../../../hooks/useAutoRefresh";
 import { ResourcesService } from "../../../../services/resources";
-import { downloadBlob } from "../../../../services/api";
+import { downloadBlob, isNotFound } from "../../../../services/api";
 import { useToast } from "../../../../hooks/useToast";
 
 const STATUS_META = {
@@ -232,7 +234,7 @@ export default function OverviewTab({ vmid }) {
             .catch(() => !cancelled && setSshKeyError(true));
         }
       })
-      .catch(() => !cancelled && setError(true));
+      .catch((e) => !cancelled && setError(e ?? true));
     // 來源範本手冊（非克隆機或無附件時 count=0，不顯示區塊）
     ResourcesService.getTemplateManual(vmid)
       .then((m) => !cancelled && setManual(m))
@@ -275,7 +277,7 @@ export default function OverviewTab({ vmid }) {
       const blob = await ResourcesService.downloadTemplateManual(vmid, attachment.id);
       downloadBlob(blob, attachment.filename);
     } catch (e) {
-      toast.error(e?.message ?? t("OverviewTab.downloadFailed"));
+      toast.error(e?.message ?? t("Error.generic", { ns: "common" }));
     } finally {
       setDownloadingId(null);
     }
@@ -293,7 +295,7 @@ export default function OverviewTab({ vmid }) {
     }
   };
 
-  if (error) return <p className={styles.stateText}>{t("OverviewTab.loadFailed")}</p>;
+  if (error) return isNotFound(error) ? <NotFoundState /> : <ErrorState />;
   if (!resource) return <LoadingState />;
 
   const statusMeta = STATUS_META[resource.status] ?? { label: String(resource.status), tone: "info" };
@@ -650,7 +652,7 @@ export default function OverviewTab({ vmid }) {
                 />
               )}
               {sshKeyError
-                ? <p className={ov.emptyNote}>{t("OverviewTab.credentialsLoadFailed")}</p>
+                ? <p className={ov.emptyNote}>{t("Error.generic", { ns: "common" })}</p>
                 : !hasCredentials && <p className={ov.emptyNote}>{t("OverviewTab.noCredentials")}</p>}
             </div>
           </div>

@@ -469,16 +469,6 @@
 }
 
 /* ── Spinner ── */
-@keyframes rotate {
-  from { transform: rotate(0deg); }
-  to { transform: rotate(360deg); }
-}
-
-.spinning {
-  display: inline-flex;
-  animation: rotate 1s linear infinite;
-}
-
 /* ── 卡片 ── */
 .card {
   @include glass-surface;
@@ -1904,6 +1894,7 @@
 
 /* ── Modal ── */
 .modalOverlay {
+  @include dialog-overlay-avoid-ai;
   position: fixed;
   inset: 0;
   z-index: 300;
@@ -2775,11 +2766,6 @@
   }
 
   .noticeProgress {
-    animation: none;
-  }
-
-  .btnPrimaryProcessing .spinning,
-  .noticeProgress .spinning {
     animation: none;
   }
 

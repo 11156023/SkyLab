@@ -36,6 +36,13 @@ $breakpoint-xl: 1200px;
 /* Sidebar 抽屜/固定模式切換點（手機 vs 桌面版面） */
 $breakpoint-sidebar: 1024px;
 
+/* ----- Z-index（浮層） ----- */
+/* AI 助手高於所有一般對話框／彈窗（遮罩 300、PDF 預覽 1400），開著時仍浮在上面可用；
+   AI 讀不到內容的畫面型對話框（VNC、終端機、課堂觀看）再高一層，直接蓋過助手；
+   兩者都低於導覽教學層（3000／3099） */
+$z-ai-assistant: 2000;
+$z-screen-dialog: 2100;
+
 /* ----- Form ----- */
 /* form-control 水平內距；表頭標籤要對齊控制項文字時引用同一來源 */
 $form-control-padding-x: 12px;

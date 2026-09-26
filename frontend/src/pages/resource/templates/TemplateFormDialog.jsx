@@ -172,7 +172,7 @@ export default function TemplateFormDialog({ template, closing = false, onClose,
       );
     } else if (accepted.length === 1) {
       // 只傳一個檔時沿用後端的錯誤原因，比列檔名有用
-      toast.error(lastError?.message ?? t("TemplateFormDialog.attachmentUploadFailed"));
+      toast.error(lastError?.message ?? t("Error.generic", { ns: "common" }));
     } else {
       toast.error(t("TemplateFormDialog.attachmentUploadPartialFail", { files: joinList(failed) }));
     }

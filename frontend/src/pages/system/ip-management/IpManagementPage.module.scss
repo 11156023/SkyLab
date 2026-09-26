@@ -132,6 +132,7 @@
 
 /* ── 子網設定 Modal（基準比照 QuotasPage）── */
 .modalOverlay {
+  @include dialog-overlay-avoid-ai;
   position: fixed;
   inset: 0;
   background: var(--color-overlay);

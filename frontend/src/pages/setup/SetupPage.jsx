@@ -555,7 +555,7 @@ function ProxmoxStep({ alreadyDone, onSaved, onSkip, onBack, onNext }) {
           onClick={handleTest}
           disabled={busy || !form.host.trim() || !form.user.trim() || !form.password}
         >
-          <MIcon name={testing ? "sync" : "network_check"} size={18} className={testing ? styles.spin : undefined} />
+          <MIcon name={testing ? "sync" : "network_check"} size={18} spin={testing} />
           {testing ? t("SetupPage.testing") : t("SetupPage.testConnection")}
         </button>
         {stale && <span className={styles.hintWarn}>{t("SetupPage.retestHint")}</span>}
@@ -965,7 +965,7 @@ export default function SetupPage() {
     body = (
       <div className={styles.center}>
         <MIcon name="cloud_off" size={40} />
-        <p className={styles.sectionDesc}>{error?.message || t("SetupPage.loadFailed")}</p>
+        <p className={styles.sectionDesc}>{error?.message || t("Error.generic", { ns: "common" })}</p>
         <button type="button" className={styles.btnPrimary} onClick={refresh}>
           <MIcon name="refresh" size={18} />
           {t("SetupPage.retry")}

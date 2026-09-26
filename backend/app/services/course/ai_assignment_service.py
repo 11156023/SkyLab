@@ -305,15 +305,21 @@ def _check_to_student(
         else []
     )
     target_validation = target.get("validation")
-    target_error = (
-        str(
-            (target_validation.get("error") if isinstance(target_validation, dict) else "")
-            or target.get("error")
-            or ""
-        )
+    # 輸出驗證失敗、執行器錯誤、AI 判讀錯誤都是給老師除錯的技術訊息
+    # （例如 pydantic 的「N validation errors for ManagedScriptResult」），
+    # 學生頁只給一句說明；完整原因仍留在老師端 AI 評分面板
+    has_internal_error = bool(
+        (target_validation.get("error") if isinstance(target_validation, dict) else "")
+        or target.get("error")
+        or judgement.get("error")
     )
-    if not target_error and isinstance(parsed_errors, list):
-        target_error = "; ".join(str(error) for error in parsed_errors if error)
+    # 腳本自己在 errors 回報的訊息屬於輸出契約的一部分，照舊顯示
+    script_errors = (
+        "; ".join(str(error) for error in parsed_errors if error)
+        if isinstance(parsed_errors, list)
+        else ""
+    )
+    student_error = t("course.ai_check_incomplete") if has_internal_error else script_errors
     item_score = items[0].score if item_id and items else None
     item_max_score = items[0].max_score if item_id and items else None
     has_script_result = isinstance(parsed_result, dict)
@@ -334,7 +340,7 @@ def _check_to_student(
         ),
         summary=parsed_summary or str(judgement.get("summary") or ""),
         teacher_feedback=teacher_feedback,
-        error=str(judgement.get("error") or target_error or ""),
+        error=student_error,
         items=items,
     )
 

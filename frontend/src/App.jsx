@@ -16,6 +16,8 @@ import styles from "./App.module.scss";
 const LandingPage = lazy(() => import("./pages/landing/LandingPage"));
 // 首次安裝初始化精靈（免登入；後端 system_setup.completed 之前登入頁會導過來）
 const SetupPage = lazy(() => import("./pages/setup/SetupPage"));
+// 404：登入後開到不存在的路徑
+const NotFoundPage = lazy(() => import("./pages/not-found/NotFoundPage"));
 
 // 個人
 const AdminDashboardPage = lazy(() => import("./pages/personal/dashboard/admin/AdminDashboardPage"));
@@ -100,7 +102,7 @@ function AuthBootstrapState({ unavailable = false, retrying = false, onRetry }) 
             onClick={onRetry}
           >
             <span aria-hidden="true">
-              <MIcon name="refresh" size={18} />
+              <MIcon name="refresh" size={18} spin={retrying} />
             </span>
             {retrying ? t("App.retrying") : t("App.retryConnect")}
           </button>
@@ -334,8 +336,8 @@ function App() {
             element={<Navigate to={isAdmin ? "/domain?tab=reverse-proxy" : "/my-resources"} replace />}
           />
 
-          {/* fallback */}
-          <Route path="*" element={<Navigate to="/dashboard" replace />} />
+          {/* 404：不明路徑顯示找不到頁面，不再靜默導回儀表板 */}
+          <Route path="*" element={<NotFoundPage />} />
         </Route>
       ) : (
         <>

@@ -63,3 +63,11 @@
 @media (max-width: $breakpoint-sm) {
   .templateCard { min-height: 144px; padding: 16px; }
 }
+
+/* ── variant="home"（學生首頁）：卡片外殼在 HomeCard，這裡只管排列，欄寬同首頁機器卡 ── */
+.homeGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 240px), 1fr));
+  gap: $spacing-16;
+  min-width: 0;
+}

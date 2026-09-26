@@ -290,7 +290,7 @@ function Message({ message, currentPath, onNavigate, onRecommend, onAnswer, onPl
     <div className={`${styles.message} ${isUser ? styles.messageUser : styles.messageAssistant}`}>
       {!isUser && (
         <span className={styles.messageAvatar}>
-          <MIcon name="smart_toy" size={17} />
+          <MIcon name="support_agent" size={17} />
         </span>
       )}
       <div className={styles.messageContent}>
@@ -348,6 +348,10 @@ function Message({ message, currentPath, onNavigate, onRecommend, onAnswer, onPl
   );
 }
 
+/* 面板左側剩下的寬度低於這個值（手機全螢幕抽屜、窄視窗）就不讓位：
+   對話框擠不進去，寧可讓面板蓋著 */
+const MIN_DIALOG_AREA_PX = 480;
+
 export default function AiFloatingChat({ open = false, onOpenChange = () => {} }) {
   // 關閉時先播放離場動畫再卸載面板
   const presence = useDialogPresence(open, 180);
@@ -363,6 +367,33 @@ export default function AiFloatingChat({ open = false, onOpenChange = () => {} }
     return () => mq.removeEventListener("change", onChange);
   }, []);
   useBodyScrollLock(presence.open && overlayMode);
+  /* 面板佔掉的右側寬度寫進 --ai-panel-inset，對話框遮罩（dialog-overlay-avoid-ai）
+     據此改在左側剩餘空間置中。量 root 而非 panel：panel 有 translateX 進場動畫，
+     root 則有寬度轉場，轉場每一格都會觸發 ResizeObserver，對話框跟著平滑讓位 */
+  const rootRef = useRef(null);
+  const panelOpen = presence.open && !presence.closing;
+  useEffect(() => {
+    const docEl = document.documentElement;
+    const el = rootRef.current;
+    if (!panelOpen || !el) {
+      docEl.style.removeProperty("--ai-panel-inset");
+      return undefined;
+    }
+    const update = () => {
+      const left = el.getBoundingClientRect().left;
+      const inset = left >= MIN_DIALOG_AREA_PX ? Math.max(0, docEl.clientWidth - left) : 0;
+      docEl.style.setProperty("--ai-panel-inset", `${Math.round(inset)}px`);
+    };
+    update();
+    const ro = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(update);
+    ro?.observe(el);
+    window.addEventListener("resize", update);
+    return () => {
+      ro?.disconnect();
+      window.removeEventListener("resize", update);
+      docEl.style.removeProperty("--ai-panel-inset");
+    };
+  }, [panelOpen]);
   const location = useLocation();
   const navigate = useNavigate();
   const { user } = useAuth();
@@ -911,7 +942,13 @@ export default function AiFloatingChat({ open = false, onOpenChange = () => {} }
   }
 
   return (
-    <div className={`${styles.root} ${presence.open ? styles.rootOpen : ""}`}>
+    <div
+      ref={rootRef}
+      className={`${styles.root} ${presence.open ? styles.rootOpen : ""}`}
+      /* 助手浮在對話框之上時，在這裡按的鍵（Esc、Enter…）只屬於助手：
+         對話框的 Esc 關閉監聽掛在 window/document，不擋會把底下的對話框一起關掉 */
+      onKeyDown={(e) => e.stopPropagation()}
+    >
       {presence.open && (
         <button
           type="button"
@@ -1002,7 +1039,7 @@ export default function AiFloatingChat({ open = false, onOpenChange = () => {} }
             )}
             {loading && (
               <div className={`${styles.message} ${styles.messageAssistant}`}>
-                <span className={styles.messageAvatar}><MIcon name="smart_toy" size={17} /></span>
+                <span className={styles.messageAvatar}><MIcon name="support_agent" size={17} /></span>
                 <TypingIndicator />
               </div>
             )}
@@ -1030,7 +1067,7 @@ export default function AiFloatingChat({ open = false, onOpenChange = () => {} }
 
       {!presence.open && (
         <button type="button" className={styles.fab} onClick={() => onOpenChange(true)} title={t("AiFloatingChat.assistantName")} aria-label={t("AiFloatingChat.openAssistantAriaLabel")} data-guide="request-ai-helper-button">
-          <MIcon name="smart_toy" size={22} />
+          <MIcon name="support_agent" size={22} />
         </button>
       )}
     </div>

@@ -452,6 +452,25 @@
   &:disabled { opacity: 0.6; cursor: not-allowed; }
 }
 
+/* 載入中的下拉：左側疊轉圈圖示，文字右移讓位（原生 option 放不了圖示） */
+.selectWrap {
+  position: relative;
+}
+
+.select.selectLoading {
+  padding-left: 36px;
+  cursor: progress;
+}
+
+.selectSpinner {
+  position: absolute;
+  left: 12px;
+  top: 50%;
+  margin-top: -8px;
+  color: var(--color-primary);
+  pointer-events: none;
+}
+
 /* ── 未填欄位：紅框 ── */
 .formGroupInvalid {
   .input,
@@ -471,6 +490,13 @@
   font-size: $font-size-12;
   color: var(--color-text-muted);
   line-height: $line-height-base;
+}
+
+/* 帶轉圈圖示的載入提示（GPU 可用性重算中） */
+.fieldHintLoading {
+  display: inline-flex;
+  align-items: center;
+  gap: $spacing-4;
 }
 
 .fieldError {
@@ -646,14 +672,4 @@
     background: var(--color-hover);
     color: var(--color-text);
   }
-}
-
-/* 送出中的沙漏轉圈（與 ResourcesPage 的 .spin 同一套）。 */
-.spin {
-  @include flex-center;
-  animation: iconSpin 1s linear infinite;
-}
-
-@keyframes iconSpin {
-  to { transform: rotate(360deg); }
 }

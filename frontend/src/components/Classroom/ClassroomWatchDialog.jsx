@@ -106,7 +106,7 @@ export default function ClassroomWatchDialog({
         <div className={styles.vncWrap}>
           {!connected && wsUrl && (
             <div className={styles.vncLoading}>
-              <MIcon name="hourglass_empty" size={28} />
+              <MIcon name="hourglass_empty" size={28} spin />
               {t("ClassroomWatchDialog.connecting")}
             </div>
           )}

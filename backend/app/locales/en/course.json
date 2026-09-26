@@ -21,5 +21,6 @@
   "ai_assignment.not_found": "AI assignment not found",
   "ai_assignment.source_pdf_not_found": "This task has no PDF available for students to view.",
   "ai_assignment.check_not_found": "AI check not found",
-  "ai_assignment.task_item_not_found": "Task item not found"
+  "ai_assignment.task_item_not_found": "Task item not found",
+  "course.ai_check_incomplete": "This check did not finish. Your teacher will review the result."
 }

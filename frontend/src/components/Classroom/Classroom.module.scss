@@ -6,7 +6,8 @@
   background: var(--color-overlay);
   backdrop-filter: blur(4px);
   -webkit-backdrop-filter: blur(4px);
-  z-index: 300;
+  /* 學生畫面 AI 讀不到，直接蓋過 AI 助手 */
+  z-index: $z-screen-dialog;
   @include flex-center;
   padding: $spacing-16;
   animation: fadeIn 0.15s ease;

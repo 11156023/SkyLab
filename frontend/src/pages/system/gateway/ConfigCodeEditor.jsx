@@ -227,7 +227,7 @@ export default function ConfigCodeEditor({
         {loadFailed ? (
           <span className={`${styles.statusItem} ${styles.statusAlert}`}>
             <MIcon name="error_outline" size={13} />
-            {t("ConfigCodeEditor.loadFailed")}
+            {t("Error.title", { ns: "common" })}
           </span>
         ) : (
           <span className={styles.statusItem}>{dirty ? t("ConfigCodeEditor.unwritten") : t("ConfigCodeEditor.synced")}</span>
