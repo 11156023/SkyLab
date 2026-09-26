@@ -40,7 +40,6 @@ def init_db(session: Session) -> None:
             email=settings.FIRST_SUPERUSER,
             password=settings.FIRST_SUPERUSER_PASSWORD,
             role="admin",
-            is_superuser=True,
         )
         user_repo.create_user(session=session, user_create=user_in)
         session.commit()

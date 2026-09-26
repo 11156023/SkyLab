@@ -106,7 +106,6 @@ def configure_admin(*, session: Session, data: SetupAdminCreate) -> SetupAdminRe
                 password=data.password,
                 full_name=data.full_name,
                 role=UserRole.admin,
-                is_superuser=True,
                 is_active=True,
             ),
         )
@@ -116,7 +115,6 @@ def configure_admin(*, session: Session, data: SetupAdminCreate) -> SetupAdminRe
         user_in = UserUpdate(
             password=data.password,
             role=UserRole.admin,
-            is_superuser=True,
             is_active=True,
         )
         if data.full_name is not None:

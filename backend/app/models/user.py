@@ -36,8 +36,6 @@ class UserBase(SQLModel):
         default=UserRole.student,
         sa_column=Column(Enum(UserRole), nullable=False, default=UserRole.student),
     )
-    is_superuser: bool = False
-    is_instructor: bool = False
     full_name: str | None = Field(default=None, max_length=255)
     avatar_url: str | None = Field(default=None, max_length=2048)
 
@@ -87,6 +85,11 @@ class User(UserBase, table=True):
         back_populates="user"
     )
     audit_logs: list["AuditLog"] = Relationship(back_populates="user")
+
+    @property
+    def is_superuser(self) -> bool:
+        """唯讀：由 role 推導（原 is_superuser 欄位已移除，避免與 role 不一致）。"""
+        return self.role == UserRole.admin
 
 
 __all__ = [

@@ -54,7 +54,6 @@ def _create_user(
             email=f"{'admin' if is_superuser else 'user'}-{datetime.now(timezone.utc).timestamp()}@example.com",
             password="strongpass123",
             role=role or (UserRole.admin if is_superuser else UserRole.student),
-            is_superuser=is_superuser,
         ),
     )
     session.commit()

@@ -202,8 +202,6 @@ class GovernanceConfigPublic(BaseModel):
     snapshot_cleanup_enabled: bool
     snapshot_retention_days: int
     student_snapshot_max_count: int
-    course_ttl_hours: int
-    course_max_active_per_user: int
     updated_at: datetime
 
 
@@ -236,5 +234,3 @@ class GovernanceConfigUpdate(BaseModel):
     snapshot_cleanup_enabled: bool | None = None
     snapshot_retention_days: int | None = Field(default=None, ge=1, le=90)
     student_snapshot_max_count: int | None = Field(default=None, ge=1, le=10)
-    course_ttl_hours: int | None = Field(default=None, ge=1, le=24)
-    course_max_active_per_user: int | None = Field(default=None, ge=1, le=5)

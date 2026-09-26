@@ -44,11 +44,10 @@ def _sync_role_from_directory(
     """既有 LDAP 帳號每次登入都依目錄群組重算角色。
 
     目錄端把老師移出群組後，本地角色若不跟著降回學生，權限就會永遠留著。
-    只處理 ``auth_source == "ldap"`` 的帳號；``user_repo.update_user`` 會把
-    ``is_superuser=True`` 的帳號拉回 admin，所以手動指定的超級使用者不會被
-    目錄群組降級。
+    只處理 ``auth_source == "ldap"`` 的帳號；已是 admin 的帳號不會被目錄群組
+    降級（管理員可能是手動指定的）。
     """
-    if user.auth_source != "ldap":
+    if user.auth_source != "ldap" or user.role == UserRole.admin:
         return
     new_role = _role_from_groups(
         info.groups,
@@ -63,19 +62,12 @@ def _sync_role_from_directory(
     )
     session.commit()
     session.refresh(user)
-    if user.role == previous_role:
-        logger.info(
-            "LDAP role sync kept %s as %s (superuser override)",
-            user.email,
-            previous_role.value,
-        )
-    else:
-        logger.info(
-            "LDAP role sync updated %s: %s -> %s",
-            user.email,
-            previous_role.value,
-            user.role.value,
-        )
+    logger.info(
+        "LDAP role sync updated %s: %s -> %s",
+        user.email,
+        previous_role.value,
+        user.role.value,
+    )
 
 
 def login_ldap(
