@@ -10,6 +10,33 @@ from app.models import AIAPIUsage, AITemplateCallLog
 from app.services.llm_gateway import ai_gateway_service
 
 
+def test_e2e_output_rate_requires_explicit_usage_evidence() -> None:
+    assert (
+        ai_gateway_service._e2e_output_tokens_per_second(
+            output_tokens=20,
+            duration_ms=500,
+            usage_reported=True,
+        )
+        == 40.0
+    )
+    assert (
+        ai_gateway_service._e2e_output_tokens_per_second(
+            output_tokens=0,
+            duration_ms=500,
+            usage_reported=True,
+        )
+        == 0.0
+    )
+    assert (
+        ai_gateway_service._e2e_output_tokens_per_second(
+            output_tokens=0,
+            duration_ms=500,
+            usage_reported=False,
+        )
+        is None
+    )
+
+
 def test_monitoring_summary_does_not_treat_empty_range_as_success() -> None:
     summary = ai_gateway_service._monitoring_summary(
         {

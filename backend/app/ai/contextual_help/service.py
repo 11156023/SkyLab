@@ -11,6 +11,7 @@
 from __future__ import annotations
 
 import logging
+from datetime import datetime, timezone
 from time import perf_counter
 from typing import Any
 
@@ -37,6 +38,7 @@ from app.ai.contextual_help.surfaces import (
 )
 from app.ai.monitoring import (
     CALL_AI_CONTEXTUAL_HELP,
+    new_ai_request_id,
     record_ai_template_call,
     usage_metrics,
 )
@@ -226,12 +228,19 @@ async def explain(
         "top_p": 0.9,
     }
 
+    request_id = new_ai_request_id()
+    started = perf_counter()
+    started_at = datetime.now(timezone.utc)
     try:
-        started = perf_counter()
         response_data = await help_client.create_chat_completion(
-            payload, timeout=_TIMEOUT_SECONDS
+            payload, timeout=_TIMEOUT_SECONDS, request_id=request_id
         )
-        metrics = usage_metrics(response_data, perf_counter() - started)
+        metrics = usage_metrics(
+            response_data,
+            perf_counter() - started,
+            request_id=request_id,
+            started_at=started_at,
+        )
         content = str(response_data["choices"][0]["message"]["content"] or "")
         answer = strip_think_tags(content).strip()
         if not answer:
@@ -254,7 +263,16 @@ async def explain(
         )
     except Exception as exc:  # pragma: no cover - defensive fallback
         logger.exception("Contextual help failed, using deterministic answer: %s", exc)
-        _log(status="error", error_message=str(exc))
+        _log(
+            usage_metrics(
+                {},
+                perf_counter() - started,
+                request_id=request_id,
+                started_at=started_at,
+            ),
+            status="error",
+            error_message=str(exc),
+        )
         return ExplainResponse(
             intent=intent,
             answer=_fallback_answer(

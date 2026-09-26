@@ -43,6 +43,15 @@ DEFAULT_REQUEST_RATE_LIMIT = 20
 MONITORING_SUCCESS_STATUSES = ("success", "ok", "200")
 
 
+def _e2e_output_tokens_per_second(
+    *, output_tokens: int, duration_ms: int | None, usage_reported: bool
+) -> float | None:
+    """Return end-to-end throughput only when the upstream supplied usage."""
+    if not usage_reported or duration_ms is None or duration_ms <= 0:
+        return None
+    return round(output_tokens * 1000 / duration_ms, 2)
+
+
 def _generate_user_api_key() -> str:
     return f"ccai_{secrets.token_urlsafe(24)}"
 
@@ -584,11 +593,19 @@ def record_usage(
     credential_id: uuid.UUID,
     model_name: str,
     request_type: str,
+    request_id: str | None = None,
+    upstream_request_id: str | None = None,
     input_tokens: int = 0,
     output_tokens: int = 0,
     request_duration_ms: int | None = None,
+    first_token_ms: int | None = None,
+    stream: bool = False,
+    usage_reported: bool = False,
+    response_model: str | None = None,
     status: str = "success",
     error_message: str | None = None,
+    started_at: datetime | None = None,
+    completed_at: datetime | None = None,
 ) -> None:
     """
     記錄 AI API Proxy 使用量
@@ -610,11 +627,19 @@ def record_usage(
         credential_id=credential_id,
         model_name=model_name,
         request_type=request_type,
+        request_id=request_id,
+        upstream_request_id=upstream_request_id,
         input_tokens=input_tokens,
         output_tokens=output_tokens,
         request_duration_ms=request_duration_ms,
+        first_token_ms=first_token_ms,
+        stream=stream,
+        usage_reported=usage_reported,
+        response_model=response_model,
         status=status,
         error_message=error_message,
+        started_at=started_at,
+        completed_at=completed_at,
     )
     session.add(usage)
     session.commit()
@@ -634,11 +659,19 @@ def record_template_call(
     call_type: str,
     model_name: str,
     preset: str | None = None,
+    request_id: str | None = None,
+    upstream_request_id: str | None = None,
     input_tokens: int = 0,
     output_tokens: int = 0,
     request_duration_ms: int | None = None,
+    first_token_ms: int | None = None,
+    stream: bool = False,
+    usage_reported: bool = False,
+    response_model: str | None = None,
     status: str = "success",
     error_message: str | None = None,
+    started_at: datetime | None = None,
+    completed_at: datetime | None = None,
 ) -> None:
     """
     記錄 AI Template 呼叫（chat / recommend）
@@ -660,11 +693,19 @@ def record_template_call(
         call_type=call_type,
         model_name=model_name,
         preset=preset,
+        request_id=request_id,
+        upstream_request_id=upstream_request_id,
         input_tokens=input_tokens,
         output_tokens=output_tokens,
         request_duration_ms=request_duration_ms,
+        first_token_ms=first_token_ms,
+        stream=stream,
+        usage_reported=usage_reported,
+        response_model=response_model,
         status=status,
         error_message=error_message,
+        started_at=started_at,
+        completed_at=completed_at,
     )
     session.add(log)
     session.commit()
@@ -831,9 +872,7 @@ def list_user_usage_records(
         AIAPIUsage.created_at <= end_date,
     )
     count = int(
-        session.exec(
-            select(func.count()).select_from(AIAPIUsage).where(*filters)
-        ).one()
+        session.exec(select(func.count()).select_from(AIAPIUsage).where(*filters)).one()
         or 0
     )
     rows = session.exec(
@@ -856,12 +895,25 @@ def list_user_usage_records(
                 "model_name": usage.model_name,
                 "call_type": usage.request_type,
                 "preset": None,
+                "request_id": usage.request_id,
+                "upstream_request_id": usage.upstream_request_id,
                 "input_tokens": usage.input_tokens,
                 "output_tokens": usage.output_tokens,
                 "total_tokens": usage.input_tokens + usage.output_tokens,
                 "request_duration_ms": usage.request_duration_ms,
+                "first_token_ms": usage.first_token_ms,
+                "stream": usage.stream,
+                "usage_reported": usage.usage_reported,
+                "response_model": usage.response_model,
+                "e2e_output_tokens_per_second": _e2e_output_tokens_per_second(
+                    output_tokens=usage.output_tokens,
+                    duration_ms=usage.request_duration_ms,
+                    usage_reported=usage.usage_reported,
+                ),
                 "status": usage.status,
                 "error_message": usage.error_message,
+                "started_at": usage.started_at,
+                "completed_at": usage.completed_at,
                 "created_at": usage.created_at,
             }
             for usage, credential in rows
@@ -1356,11 +1408,24 @@ def list_proxy_calls(
                 "credential_id": usage.credential_id,
                 "model_name": usage.model_name,
                 "request_type": usage.request_type,
+                "request_id": usage.request_id,
+                "upstream_request_id": usage.upstream_request_id,
                 "input_tokens": usage.input_tokens,
                 "output_tokens": usage.output_tokens,
                 "request_duration_ms": usage.request_duration_ms,
+                "first_token_ms": usage.first_token_ms,
+                "stream": usage.stream,
+                "usage_reported": usage.usage_reported,
+                "response_model": usage.response_model,
+                "e2e_output_tokens_per_second": _e2e_output_tokens_per_second(
+                    output_tokens=usage.output_tokens,
+                    duration_ms=usage.request_duration_ms,
+                    usage_reported=usage.usage_reported,
+                ),
                 "status": usage.status,
                 "error_message": usage.error_message,
+                "started_at": usage.started_at,
+                "completed_at": usage.completed_at,
                 "created_at": usage.created_at,
             }
         )
@@ -1424,11 +1489,24 @@ def list_template_calls(
                 "call_type": log.call_type,
                 "model_name": log.model_name,
                 "preset": log.preset,
+                "request_id": log.request_id,
+                "upstream_request_id": log.upstream_request_id,
                 "input_tokens": log.input_tokens,
                 "output_tokens": log.output_tokens,
                 "request_duration_ms": log.request_duration_ms,
+                "first_token_ms": log.first_token_ms,
+                "stream": log.stream,
+                "usage_reported": log.usage_reported,
+                "response_model": log.response_model,
+                "e2e_output_tokens_per_second": _e2e_output_tokens_per_second(
+                    output_tokens=log.output_tokens,
+                    duration_ms=log.request_duration_ms,
+                    usage_reported=log.usage_reported,
+                ),
                 "status": log.status,
                 "error_message": log.error_message,
+                "started_at": log.started_at,
+                "completed_at": log.completed_at,
                 "created_at": log.created_at,
             }
         )

@@ -11,6 +11,7 @@ from typing import Any
 import httpx
 from fastapi import APIRouter, Depends, HTTPException
 
+from app.ai.monitoring import new_ai_request_id
 from app.ai.template_recommendation.config import settings
 from app.ai.template_recommendation.node_service import (
     build_resource_option_bundle,
@@ -68,9 +69,6 @@ _MODEL_CALL_RATE_LIMIT = Depends(
 )
 
 
-
-
-
 def _latest_user_text(request: ChatRequest) -> str:
     for message in reversed(request.messages):
         if str(message.role).strip().lower() == "user":
@@ -110,7 +108,9 @@ def _get_base_gpu_options_cached() -> list[dict[str, Any]]:
     if cached_items and (now - cached_at) <= _GPU_OPTIONS_CACHE_TTL_SECONDS:
         return [dict(item) for item in cached_items]
 
-    fresh_items = [item.model_dump(mode="json") for item in gpu_service.list_gpu_options()]
+    fresh_items = [
+        item.model_dump(mode="json") for item in gpu_service.list_gpu_options()
+    ]
     _gpu_options_cache["at"] = now
     _gpu_options_cache["items"] = fresh_items
     return [dict(item) for item in fresh_items]
@@ -141,7 +141,10 @@ def _get_base_resource_options_cached() -> dict[str, Any]:
     now = monotonic()
     cached_at = float(_base_resource_options_cache.get("at") or 0.0)
     cached_items = _base_resource_options_cache.get("items")
-    if cached_items is not None and (now - cached_at) <= _RESOURCE_OPTIONS_CACHE_TTL_SECONDS:
+    if (
+        cached_items is not None
+        and (now - cached_at) <= _RESOURCE_OPTIONS_CACHE_TTL_SECONDS
+    ):
         return deepcopy(cached_items)
 
     fresh_items = build_resource_option_bundle(gpu_options=[])
@@ -151,7 +154,9 @@ def _get_base_resource_options_cached() -> dict[str, Any]:
     return deepcopy(fresh_items)
 
 
-def _build_resource_options_with_gpu(gpu_options: list[dict[str, Any]]) -> dict[str, Any]:
+def _build_resource_options_with_gpu(
+    gpu_options: list[dict[str, Any]],
+) -> dict[str, Any]:
     resource_options = _get_base_resource_options_cached()
     resource_options["gpu_options"] = [dict(item) for item in gpu_options]
     return resource_options
@@ -167,7 +172,10 @@ def _get_application_templates_cached(session: SessionDep) -> list[dict[str, Any
     now = monotonic()
     cached_at = float(_application_templates_cache.get("at") or 0.0)
     cached_items = _application_templates_cache.get("items")
-    if cached_items is not None and (now - cached_at) <= _RESOURCE_OPTIONS_CACHE_TTL_SECONDS:
+    if (
+        cached_items is not None
+        and (now - cached_at) <= _RESOURCE_OPTIONS_CACHE_TTL_SECONDS
+    ):
         return deepcopy(cached_items)
     try:
         catalog = template_service.list_student_catalog(session=session)
@@ -229,9 +237,7 @@ def _resolve_resource_options(
         client_vm_options = [
             item.model_dump(mode="json") for item in form_context.vm_os_options
         ]
-        allowed_vm_ids = _allowed_vm_template_ids(
-            session, user, application_templates
-        )
+        allowed_vm_ids = _allowed_vm_template_ids(session, user, application_templates)
         if allowed_vm_ids:
             client_vm_options = [
                 item
@@ -258,7 +264,9 @@ def _resolve_resource_options(
     return resource_options
 
 
-def _resolve_recommend_gpu_options(request: ChatRequest, *, requires_gpu: bool) -> list[dict[str, Any]]:
+def _resolve_recommend_gpu_options(
+    request: ChatRequest, *, requires_gpu: bool
+) -> list[dict[str, Any]]:
     form_context = request.form_context
     if form_context and form_context.gpu_options:
         return [item.model_dump(mode="json") for item in form_context.gpu_options]
@@ -272,7 +280,9 @@ def _resolve_recommend_gpu_options(request: ChatRequest, *, requires_gpu: bool) 
     return _get_base_gpu_options_cached()
 
 
-def _resolve_chat_gpu_options(request: ChatRequest, session: SessionDep) -> list[dict[str, Any]]:
+def _resolve_chat_gpu_options(
+    request: ChatRequest, session: SessionDep
+) -> list[dict[str, Any]]:
     if not _should_include_gpu_runtime_context(request):
         return []
 
@@ -386,11 +396,16 @@ async def chat(
         settings.VLLM_ENABLE_THINKING,
     )
 
+    request_id = new_ai_request_id()
+    started_at = perf_counter()
+    started_at_utc = datetime.now(timezone.utc)
     try:
-        started_at = perf_counter()
-        data = await client.create_chat_completion(payload)
+        data = await client.create_chat_completion(payload, request_id=request_id)
         elapsed_seconds = max(perf_counter() - started_at, 0.0)
-        usage = data.get("usage") or {}
+        completed_at = datetime.now(timezone.utc)
+        raw_usage = data.get("usage")
+        usage_reported = isinstance(raw_usage, dict)
+        usage: dict[str, Any] = raw_usage if isinstance(raw_usage, dict) else {}
         input_tokens = int(usage.get("prompt_tokens") or 0)
         output_tokens = int(usage.get("completion_tokens") or 0)
         total_tokens = int(usage.get("total_tokens") or (input_tokens + output_tokens))
@@ -408,10 +423,15 @@ async def chat(
                 user_id=current_user.id,
                 call_type="chat",
                 model_name=model_name,
+                request_id=request_id,
                 input_tokens=input_tokens,
                 output_tokens=output_tokens,
                 request_duration_ms=duration_ms,
+                usage_reported=usage_reported,
+                response_model=str(data.get("model") or "")[:255] or None,
                 status="success",
+                started_at=started_at_utc,
+                completed_at=completed_at,
             )
         except Exception as rec_err:
             logger.error("Failed to record template chat usage: %s", rec_err)
@@ -434,8 +454,12 @@ async def chat(
                 user_id=current_user.id,
                 call_type="chat",
                 model_name=model_name,
+                request_id=request_id,
+                request_duration_ms=int((perf_counter() - started_at) * 1000),
                 status="error",
                 error_message=str(exc)[:500],
+                started_at=started_at_utc,
+                completed_at=datetime.now(timezone.utc),
             )
         except Exception:
             # 記錄失敗 log 時出錯不得掩蓋原始錯誤
@@ -460,6 +484,8 @@ async def recommend(
     ensure_conversation_within_limits(request.messages)
     model_name = settings.VLLM_MODEL_NAME or "unknown"
     started_at = perf_counter()
+    started_at_utc = datetime.now(timezone.utc)
+    request_id = new_ai_request_id()
 
     # Keep recommendation to one model round-trip. The planner receives recent
     # conversation verbatim and resolves final intent there.
@@ -493,6 +519,7 @@ async def recommend(
             merged_request,
             request.messages,
             resource_options=resource_options,
+            request_id=request_id,
         )
         try:
             live_nodes = await asyncio.wait_for(
@@ -523,10 +550,16 @@ async def recommend(
                 call_type="recommend",
                 model_name=model_name,
                 preset=merged_request.preset,
+                request_id=request_id,
                 input_tokens=int(ai_metrics.get("prompt_tokens") or 0),
                 output_tokens=int(ai_metrics.get("completion_tokens") or 0),
                 request_duration_ms=int((perf_counter() - started_at) * 1000),
+                usage_reported=bool(ai_metrics.get("usage_reported", False)),
+                response_model=str(ai_metrics.get("response_model") or "")[:255]
+                or None,
                 status="success",
+                started_at=started_at_utc,
+                completed_at=datetime.now(timezone.utc),
             )
         except Exception as rec_err:
             logger.error("Failed to record template recommend usage: %s", rec_err)
@@ -540,9 +573,12 @@ async def recommend(
                 user_id=current_user.id,
                 call_type="recommend",
                 model_name=model_name,
+                request_id=request_id,
                 request_duration_ms=int(elapsed_seconds * 1000),
                 status="error",
                 error_message=str(exc)[:500],
+                started_at=started_at_utc,
+                completed_at=datetime.now(timezone.utc),
             )
         except Exception:
             # 記錄失敗 log 時出錯不得掩蓋原始錯誤
