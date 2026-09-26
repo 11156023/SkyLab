@@ -8,7 +8,8 @@
   /* workspace 是 align-items: flex-start，需自行撐滿高度，panel 的 sticky 才有滑動範圍 */
   align-self: stretch;
   position: relative;
-  z-index: 60;
+  /* root 自成堆疊環境，按鈕與面板的層級都被它封頂，所以層級要設在 root 上 */
+  z-index: $z-ai-assistant;
   transition: width 180ms ease, flex-basis 180ms ease;
 }
 
@@ -588,7 +589,6 @@
     inset: 0 0 0 auto;
     width: min(460px, 100vw);
     margin-left: 0;
-    z-index: 120;
   }
 
   .panel {
