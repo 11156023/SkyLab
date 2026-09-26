@@ -771,7 +771,13 @@ export default function UserGuide() {
         return;
       }
       target ??= activate;
-      if (!target) return;
+      if (!target) {
+        /* 目標始終沒出現（例如容器沒有「開機選項」卡片）：沒有 targetRect 面板就不會顯示，
+           導覽會卡在看不見的一步，直接跳到下一步 */
+        if (step + 1 < availableSteps.length) setStep(step + 1);
+        else complete();
+        return;
+      }
       target.scrollIntoView({ behavior: "smooth", block: "center", inline: "nearest" });
       frame = window.requestAnimationFrame(update);
       settleTimer = window.setTimeout(update, 360);
