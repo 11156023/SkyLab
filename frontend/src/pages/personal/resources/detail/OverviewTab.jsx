@@ -10,6 +10,7 @@ import { useAuth } from "../../../../contexts/AuthContext";
 import styles from "./ResourceDetailPage.module.scss";
 import ov from "./OverviewTab.module.scss";
 import MIcon from "../../../../components/MIcon";
+import MachineKindBadge from "../../../../components/MachineKindBadge/MachineKindBadge";
 import LoadingState from "../../../../components/LoadingState/LoadingState";
 import ErrorState from "../../../../components/ErrorState/ErrorState";
 import NotFoundState from "../../../../components/ErrorState/NotFoundState";
@@ -195,7 +196,7 @@ function SecretRow({ label, value, secret = false, note, copyId, copied, onCopy,
 
 /* ── main ── */
 
-export default function OverviewTab({ vmid }) {
+export default function OverviewTab({ vmid, access = null }) {
   const { t, i18n } = useTranslation("personal");
   const lang = i18n.language || "zh-TW";
   const toast = useToast();
@@ -352,6 +353,19 @@ export default function OverviewTab({ vmid }) {
                   <>
                     <span className={ov.sep} aria-hidden="true" />
                     <span className={ov.mono}>VMID {resource.vmid}</span>
+                  </>
+                )}
+                {/* 機器來源（班級機器、共享給我…）：原本在頁首標題旁，併進這行說明 */}
+                {access && (
+                  <>
+                    <span className={ov.sep} aria-hidden="true" />
+                    <MachineKindBadge
+                      plain
+                      kind={access.machine_kind}
+                      classRelation={access.class_relation}
+                      ownerName={access.owner_name ?? access.owner_email}
+                      teachingClassName={access.teaching_class_name}
+                    />
                   </>
                 )}
               </div>

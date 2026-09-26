@@ -3,7 +3,6 @@ import { useNavigate, useParams } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import styles from "./ResourceDetailPage.module.scss";
 import MIcon from "../../../../components/MIcon";
-import MachineKindBadge from "../../../../components/MachineKindBadge/MachineKindBadge";
 import { ResourcesService } from "../../../../services/resources";
 import { AuditLogsService } from "../../../../services/auditLogs";
 import OverviewTab from "./OverviewTab";
@@ -80,15 +79,6 @@ export default function ResourceDetailPage({ backTo = "/my-resources" }) {
       <PageHeader
         title={<>
           {t("ResourceDetailPage.title")} <span className={styles.vmidText}>#{isGuideDemo ? "DEMO" : vmid}</span>
-          {access && (
-            <MachineKindBadge
-              kind={access.machine_kind}
-              classRelation={access.class_relation}
-              ownerName={access.owner_name ?? access.owner_email}
-              teachingClassName={access.teaching_class_name}
-              className={styles.titleKind}
-            />
-          )}
         </>}
       >
         <button
@@ -135,7 +125,7 @@ export default function ResourceDetailPage({ backTo = "/my-resources" }) {
       <div className={styles.content} data-guide={`resource-detail-${tab}`}>
         {isGuideDemo ? <ResourceDetailGuideDemo tab={tab} /> : (
           <>
-            {tab === "overview"       && <OverviewTab vmid={vmid} />}
+            {tab === "overview"       && <OverviewTab vmid={vmid} access={access} />}
             {tab === "monitoring"     && <MonitoringTab vmid={vmid} toolbar={tabToolbar} />}
             {tab === "specifications" && <SpecificationsTab vmid={vmid} />}
             {tab === "snapshots"      && <SnapshotsTab vmid={vmid} toolbar={tabToolbar} />}

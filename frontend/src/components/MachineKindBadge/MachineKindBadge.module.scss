@@ -36,6 +36,13 @@
   opacity: 0.8;
 }
 
+/* 行內版：嵌在一行說明文字裡，拿掉膠囊底與內距、字級跟著外層走，只留群色文字 */
+.plain {
+  padding: 0;
+  background: none;
+  font-size: inherit;
+}
+
 /* 拓撲節點版：群色深底＋透明度打淡（80%），文字用 surface——
    深色模式群色轉亮時自動翻成深字，兩種主題對比都成立 */
 .solid {

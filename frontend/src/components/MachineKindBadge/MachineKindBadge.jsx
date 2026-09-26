@@ -10,6 +10,7 @@
  * - ownerName       不是自己的機器時的擁有者（共享、學生機器、老師開放會顯示）
  * - teachingClassName  班級名稱，只進 tooltip
  * - solid           實心版（拓撲節點掛在畫布上要夠醒目）
+ * - plain           行內版：無底色無內距，放進一行說明文字裡（資源詳情的名稱下方）
  * - readOnly        另掛鎖頭，表示看得到但不能改
  * - showOwner       強制顯示擁有者（管理員清單每台都標）
  * - title           覆寫 tooltip
@@ -26,6 +27,7 @@ export default function MachineKindBadge({
   ownerName = null,
   teachingClassName = null,
   solid = false,
+  plain = false,
   readOnly = false,
   showOwner,
   title,
@@ -47,12 +49,13 @@ export default function MachineKindBadge({
     styles.badge,
     styles[variant],
     solid ? styles.solid : "",
+    plain ? styles.plain : "",
     className,
   ].filter(Boolean).join(" ");
 
   return (
     <span className={classes} title={hint}>
-      <MIcon name={meta.icon} size={12} />
+      <MIcon name={meta.icon} size={plain ? 14 : 12} />
       <span className={styles.label}>{t(meta.labelKey)}</span>
       {owner && <span className={styles.owner}>· {owner}</span>}
       {readOnly && <MIcon name="lock" size={11} className={styles.lock} />}

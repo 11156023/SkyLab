@@ -19,12 +19,6 @@
   color: var(--color-primary);
 }
 
-/* 標題旁的機器來源徽章 */
-.titleKind {
-  margin-left: $spacing-8;
-  vertical-align: middle;
-}
-
 /* ── Tabs（共用 SegmentedControl）──
    左側分頁切換器＋右側工具槽同列；分頁元件把自己的控制項 portal 進工具槽 */
 .tabsRow {
