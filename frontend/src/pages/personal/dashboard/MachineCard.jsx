@@ -4,8 +4,8 @@ import HomeCard from "./HomeCard";
 import card from "./HomeCard.module.scss";
 import styles from "./MachineCard.module.scss";
 
-const KNOWN_STATUSES = ["running", "stopped", "provisioning", "failed", "expired"];
-const STATUS_DOT = { running: card.dotSuccess, provisioning: card.dotPending, failed: card.dotDanger };
+const KNOWN_STATUSES = ["running", "starting", "stopped", "provisioning", "failed", "expired"];
+const STATUS_DOT = { running: card.dotSuccess, starting: card.dotPending, provisioning: card.dotPending, failed: card.dotDanger };
 
 /**
  * 首頁「最近使用機器」卡：標籤列放狀態與類型，內頁放名稱、VMID 與進入動作。
@@ -14,7 +14,8 @@ export default function MachineCard({ machine, openingMachineId, onOpen, onInfo 
   const { t } = useTranslation("personal");
   const isLxc = machine.type === "lxc";
   const status = KNOWN_STATUSES.includes(machine.status) ? machine.status : "unknown";
-  const opening = openingMachineId === machine.vmid;
+  /* 開機 task 還沒跑完（starting）時跟「剛按下開機」一樣顯示開機中，按鈕保持停用 */
+  const opening = openingMachineId === machine.vmid || machine.status === "starting";
   const launchable = ["running", "stopped"].includes(machine.status);
   const actionKey = opening
     ? "StudentHomePage.actionStarting"
