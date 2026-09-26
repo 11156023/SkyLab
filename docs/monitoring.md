@@ -89,6 +89,23 @@ docker compose --profile monitoring up -d
 
 之後每次 `docker compose up -d` 都要帶 `--profile monitoring`（或在 `.env` 設 `COMPOSE_PROFILES=monitoring`），否則監控容器不會一起起來。
 
+**用 CI 部署（`Deploy to PVE Test` workflow）時**：workflow 只執行 `docker compose up -d`，並把部署機的 `/opt/skylab/.env` 複製進來，所以要在那份 `.env` 加上 `COMPOSE_PROFILES=monitoring`（連同上面的密碼／token），重新跑一次部署監控才會起來。
+
+### rootless Docker
+
+先用 `docker info --format '{{.SecurityOptions}}'` 確認：輸出有 `name=rootless` 就是 rootless（self-hosted runner 的部署機是）。rootless 的 Docker socket 與資料目錄都在使用者自己的路徑下，要在 `.env` 補三行，否則 Alloy 收不到任何容器日誌、cAdvisor 抓不到容器：
+
+```bash
+# <uid> 用 `id -u` 查；Docker Root Dir 用 `docker info --format '{{.DockerRootDir}}'` 查
+DOCKER_SOCKET=/run/user/<uid>/docker.sock
+CONTAINERD_SOCKET=/run/user/<uid>/docker/containerd/containerd.sock
+DOCKER_DATA_ROOT=/home/<user>/.local/share/docker
+```
+
+cAdvisor 要看到逐一容器的 CPU／記憶體，還需要 cgroup v2 的委派：`docker info --format '{{.CgroupDriver}} {{.CgroupVersion}}'` 應為 `systemd 2`。若是 `none`／`cgroupfs`，其他監控照常運作，只有「SkyLab 基礎設施」的容器面板會是空的；啟用方式見 Docker 官方 rootless 文件的 “Limiting resources”（`/etc/systemd/system/user@.service.d/delegate.conf` 設 `Delegate=cpu cpuset io memory pids` 後重新登入）。
+
+node-exporter 在 rootless 下照樣讀得到主機的 CPU、記憶體與磁碟（rootlesskit 預設不建立 pid namespace）；網卡流量看到的是容器自己的網路。部署機若是 PVE 上的 VM，主機網卡流量可以看 Proxmox 儀表板裡該 VM 的網路（PVE Metric Server 回報）。
+
 | 服務 | 用途 | 入口 |
 |---|---|---|
 | Grafana | 儀表板 | `http://<SkyLab>/grafana/`（經 nginx）；本機也可 `http://127.0.0.1:3000/grafana/` |

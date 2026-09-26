@@ -453,7 +453,9 @@ services:
       - /etc/alloy/config.alloy
     volumes:
       - ./monitoring/alloy/config.alloy:/etc/alloy/config.alloy:ro
-      - /var/run/docker.sock:/var/run/docker.sock:ro
+      # rootless Docker 的 socket 不在 /var/run（在 /run/user/<uid>/docker.sock），
+      # 路徑不對時 Docker 會默默建一個空目錄掛進來、Alloy 收不到任何日誌
+      - ${DOCKER_SOCKET:-/var/run/docker.sock}:/var/run/docker.sock:ro
       - alloy-data:/var/lib/alloy/data
     depends_on:
       - loki
@@ -548,9 +550,15 @@ services:
       - /dev/kmsg
     volumes:
       - /:/rootfs:ro
-      - /var/run:/var/run:ro
+      # 只掛 Docker socket，不掛整個 /var/run：rootless 主機的 /var/run 裡沒有
+      # docker.sock，把 socket 疊進唯讀的 /var/run 會建立掛載點失敗
+      - ${DOCKER_SOCKET:-/var/run/docker.sock}:/var/run/docker.sock:ro
+      # Docker 29 的 containerd image store 下，cAdvisor 的 docker factory 要透過
+      # containerd 找容器的讀寫層；rootless 在 /run/user/<uid>/docker/containerd/
+      - ${CONTAINERD_SOCKET:-/run/containerd/containerd.sock}:/run/containerd/containerd.sock:ro
       - /sys:/sys:ro
-      - /var/lib/docker/:/var/lib/docker:ro
+      # rootless 的 data-root 在 ~/.local/share/docker（docker info 的 Docker Root Dir）
+      - ${DOCKER_DATA_ROOT:-/var/lib/docker}:/var/lib/docker:ro
     networks:
       - skylab
 
