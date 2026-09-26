@@ -1248,7 +1248,7 @@ def delete(
             logger.warning("Failed to clean up reverse proxy rules for VM %s: %s", vmid, exc)
 
         # NAT 規則的 vmid 外鍵會連帶刪除 DB 紀錄，但不會重寫 Gateway 上的
-        # haproxy 設定；不明確清一次，轉發會留在原地指向已釋放的 IP。
+        # nginx 設定；不明確清一次，轉發會留在原地指向已釋放的 IP。
         try:
             from app.services.network import nat_service
             nat_service.remove_nat_rules_for_vmid(session, vmid)

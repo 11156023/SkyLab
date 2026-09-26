@@ -27,11 +27,25 @@ class AIAPIUsage(SQLModel, table=True):
     credential_id: uuid.UUID = Field(foreign_key="ai_api_credentials.id", index=True)
     model_name: str = Field(max_length=255)
     request_type: str = Field(max_length=50)  # chat_completion, completion, etc.
+    request_id: str | None = Field(default=None, max_length=255, index=True)
+    upstream_request_id: str | None = Field(default=None, max_length=255)
     input_tokens: int = Field(default=0)
     output_tokens: int = Field(default=0)
     request_duration_ms: int | None = Field(default=None)
+    first_token_ms: int | None = Field(default=None)
+    stream: bool = Field(default=False)
+    usage_reported: bool = Field(default=False)
+    response_model: str | None = Field(default=None, max_length=255)
     status: str = Field(max_length=50)  # success, error
     error_message: str | None = Field(default=None)
+    started_at: datetime | None = Field(
+        default=None,
+        sa_type=sa.DateTime(timezone=True),
+    )
+    completed_at: datetime | None = Field(
+        default=None,
+        sa_type=sa.DateTime(timezone=True),
+    )
     created_at: datetime = Field(
         default_factory=get_datetime_utc,
         sa_type=sa.DateTime(timezone=True),

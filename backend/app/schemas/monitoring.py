@@ -98,13 +98,14 @@ class MonitoringOverview(BaseModel):
     issues: list[MonitoringIssue] = Field(default_factory=list)
 
 
-# ─── 平台健康（DB／Redis／worker／PVE 連線／排程心跳） ─────────────────────
+# ─── 平台健康（DB／Redis／worker／PVE 連線／Gateway／排程心跳） ──────────────
 
-ComponentStatus = Literal["ok", "down", "disabled", "unknown"]
+# attention：服務還在但需要人處理（例如 Gateway 憑證快到期）
+ComponentStatus = Literal["ok", "down", "disabled", "unknown", "attention"]
 
 
 class SystemComponentHealth(BaseModel):
-    """單一依賴元件；name 為 database／redis／worker／pve:<connection_id>。"""
+    """單一依賴元件；name 為 database／redis／worker／pve:<connection_id>／gateway。"""
 
     name: str
     label: str
@@ -149,6 +150,13 @@ class SystemHealth(BaseModel):
     tasks: list[SchedulerTaskHealth]
     # 心跳資料來源：redis＝跨行程一致；memory＝Redis 不可用，只有本行程的資料
     heartbeat_source: Literal["redis", "memory"]
+
+
+class GrafanaLink(BaseModel):
+    """監控 stack 的 Grafana 是否啟用；enabled 為 False 時 url 為 None。"""
+
+    enabled: bool
+    url: str | None = None
 
 
 class AlertEventPublic(BaseModel):

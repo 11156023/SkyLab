@@ -121,7 +121,8 @@ def _conversation_focus_from_content(
                     "ready"
                     if proposal and raw.get("status") == "ready"
                     else "needs_information"
-                    if isinstance(missing, list) and any(str(value).strip() for value in missing)
+                    if isinstance(missing, list)
+                    and any(str(value).strip() for value in missing)
                     else "unsupported"
                     if raw.get("status") == "unsupported"
                     else "none"
@@ -166,7 +167,9 @@ def _structured_requirement_needs_candidate(content: str) -> bool:
     return any(
         isinstance(item, dict)
         and item.get("status") not in {"needs_information", "unsupported"}
-        and not any(str(value).strip() for value in item.get("missing_information") or [])
+        and not any(
+            str(value).strip() for value in item.get("missing_information") or []
+        )
         for item in requirements
     )
 
@@ -304,7 +307,10 @@ _TYPED_ASSERTION_SCHEMA: dict[str, Any] = {
     "anyOf": [
         {
             "type": "object",
-            "properties": {"type": {"const": "returncode_equals"}, "expected": {"type": "integer"}},
+            "properties": {
+                "type": {"const": "returncode_equals"},
+                "expected": {"type": "integer"},
+            },
             "required": ["type", "expected"],
             "additionalProperties": False,
         },
@@ -340,13 +346,20 @@ _TYPED_ASSERTION_SCHEMA: dict[str, Any] = {
         },
         {
             "type": "object",
-            "properties": {"type": {"const": "json_path_equals"}, "path": {"type": "string"}, "expected": {}},
+            "properties": {
+                "type": {"const": "json_path_equals"},
+                "path": {"type": "string"},
+                "expected": {},
+            },
             "required": ["type", "path", "expected"],
             "additionalProperties": False,
         },
         {
             "type": "object",
-            "properties": {"type": {"const": "exists"}, "expected": {"type": "boolean"}},
+            "properties": {
+                "type": {"const": "exists"},
+                "expected": {"type": "boolean"},
+            },
             "required": ["type", "expected"],
             "additionalProperties": False,
         },
@@ -572,6 +585,7 @@ def _build_proposal_tools(
                     field["description"] = f"{field.get('description', '')}；{aliases}"
     return tools
 
+
 _READY_REMINDER_INSTRUCTION = (
     "你在上一則回覆宣稱 Ready 或已建立提案，但沒有成功呼叫任何提案工具。"
     "若需求資料完整，請立即呼叫 create_checklist_item（新增）或 "
@@ -742,7 +756,9 @@ def _normalize_check_steps(
             continue
 
         command_key = str(raw_step.get("command_key") or "").strip()
-        step_template_key = str(raw_step.get("template_key") or template_key or "").strip()
+        step_template_key = str(
+            raw_step.get("template_key") or template_key or ""
+        ).strip()
         raw_parameters = raw_step.get("parameters")
         parameters = dict(raw_parameters) if isinstance(raw_parameters, dict) else {}
         for key in ("argv", "cwd", "timeout_seconds"):
@@ -768,9 +784,7 @@ def _normalize_check_steps(
                         and parameters.get("cwd").strip()
                         else None
                     ),
-                    timeout_seconds=(
-                        timeout or DEFAULT_SYSTEM_COMMAND_TIMEOUT_SECONDS
-                    ),
+                    timeout_seconds=(timeout or DEFAULT_SYSTEM_COMMAND_TIMEOUT_SECONDS),
                 )
             )
             continue
@@ -912,9 +926,7 @@ def _normalize_rubric_items(
             if missing_information:
                 detectable = "partial"
         if detectable == "partial" and not missing_information:
-            missing_information.append(
-                "完整的服務名稱、程式位置、連接埠或取證範圍"
-            )
+            missing_information.append("完整的服務名稱、程式位置、連接埠或取證範圍")
         missing_information = list(dict.fromkeys(missing_information))
         if strip_auto_fallback and detectable == "auto":
             fallback = None
@@ -931,12 +943,8 @@ def _normalize_rubric_items(
                 else None,
                 fallback=str(fallback) if fallback is not None else None,
                 missing_information=missing_information,
-                target_node_key=(
-                    str(raw.get("target_node_key") or "").strip() or None
-                ),
-                peer_node_key=(
-                    str(raw.get("peer_node_key") or "").strip() or None
-                ),
+                target_node_key=(str(raw.get("target_node_key") or "").strip() or None),
+                peer_node_key=(str(raw.get("peer_node_key") or "").strip() or None),
                 check_steps=check_steps,
             )
         )
@@ -1051,14 +1059,17 @@ def _duplicate_title_owner(
 def _allowed_command_text(
     template_commands: list[TeacherJudgeTemplateCommand] | None,
 ) -> str:
-    return "、".join(
-        sorted(
-            {
-                f"{command.template_key}/{command.command_key}"
-                for command in template_commands or []
-            }
+    return (
+        "、".join(
+            sorted(
+                {
+                    f"{command.template_key}/{command.command_key}"
+                    for command in template_commands or []
+                }
+            )
         )
-    ) or "（目前沒有可用 command）"
+        or "（目前沒有可用 command）"
+    )
 
 
 _PARAMETER_GAP_FIELD_HINTS: dict[str, str] = {
@@ -1100,11 +1111,8 @@ def _proposal_candidate_rejection(
             "這份清單不是提案限制；若要使用其他唯讀診斷工具，請改用"
             " system.run_command，提供單一非空 argv list，並補齊必要執行參數。"
         )
-    if (
-        capability_declared
-        and _manual_candidates_needing_capability_review(
-            [normalized], [raw], template_commands
-        )
+    if capability_declared and _manual_candidates_needing_capability_review(
+        [normalized], [raw], template_commands
     ):
         return (
             f"「{normalized.title}」被標成 manual 且沒有列出缺口，"
@@ -1166,9 +1174,7 @@ def _invalid_auto_item_titles(
     """Return model-declared auto items rejected by command/schema validation."""
     raw_detectability_by_id = (
         {
-            str(raw.get("id") or f"item-{index + 1}"): str(
-                raw.get("detectable") or ""
-            )
+            str(raw.get("id") or f"item-{index + 1}"): str(raw.get("detectable") or "")
             .strip()
             .lower()
             for index, raw in enumerate(raw_items)
@@ -1211,9 +1217,7 @@ def _manual_candidates_needing_capability_review(
         if item.detectable == "manual"
         and not item.check_steps
         and not item.missing_information
-        and str(raw_by_id.get(item.id, {}).get("detectable") or "")
-        .strip()
-        .lower()
+        and str(raw_by_id.get(item.id, {}).get("detectable") or "").strip().lower()
         == "manual"
     ]
 
@@ -1436,20 +1440,24 @@ def _proposal_unavailable_reply(
                     str(raw_step.get("command_key") or "").strip(),
                 )
                 if reference not in valid_command_keys:
-                    invalid_references.append("/".join(value or "未提供" for value in reference))
+                    invalid_references.append(
+                        "/".join(value or "未提供" for value in reference)
+                    )
         invalid_details = "、".join(f"「{title}」" for title in invalid_auto_items)
         reason = "AI 沒有提供可轉成單一受控指令的完整執行參數"
         if invalid_references:
-            reason += "（原始工具名稱：" + "、".join(
-                dict.fromkeys(invalid_references)
-            ) + "）"
+            reason += (
+                "（原始工具名稱：" + "、".join(dict.fromkeys(invalid_references)) + "）"
+            )
         return (
             f"這次未建立提案：{invalid_details}缺少可執行的檢查內容；{reason}。"
             "已確認工具清單只是優先建議，不會限制提案；這次是 AI 沒有提供完整 argv，"
             "不是老師需要補充答案。請重新產生；若持續發生，請由管理員檢查 AI 輸出。"
         )
 
-    unsupported = [item.title for item in normalized_items if item.detectable == "manual"]
+    unsupported = [
+        item.title for item in normalized_items if item.detectable == "manual"
+    ]
     if unsupported:
         return (
             "這次仍未建立提案：AI 重新核查後，仍未替"
@@ -1597,6 +1605,9 @@ def _merge_vllm_metrics(first: VLLMMetrics, second: VLLMMetrics) -> VLLMMetrics:
         "tokens_per_second": completion_tokens / elapsed_seconds
         if elapsed_seconds > 0
         else 0.0,
+        "usage_reported": bool(first.get("usage_reported", True))
+        and bool(second.get("usage_reported", False)),
+        "response_model": second.get("response_model") or first.get("response_model"),
     }
 
 
@@ -1616,7 +1627,9 @@ async def _call_vllm_message(
         )
 
         elapsed = max(perf_counter() - started, 0.0)
-        usage = data.get("usage") or {}
+        raw_usage = data.get("usage")
+        usage_reported = isinstance(raw_usage, dict)
+        usage: dict[str, Any] = raw_usage if isinstance(raw_usage, dict) else {}
         prompt_tokens = int(usage.get("prompt_tokens") or 0)
         completion_tokens = int(usage.get("completion_tokens") or 0)
         total_tokens = int(
@@ -1647,13 +1660,13 @@ async def _call_vllm_message(
             "total_tokens": total_tokens,
             "elapsed_seconds": round(elapsed, 3),
             "tokens_per_second": round(tps, 2),
+            "usage_reported": usage_reported,
+            "response_model": str(data.get("model") or "")[:255] or None,
         }
         return message, cast("VLLMMetrics", metrics)
     except httpx.TimeoutException as exc:
         logger.error(f"vLLM API timeout after {timeout}s")
-        raise HTTPException(
-            status_code=504, detail=t("service.vllm_timeout")
-        ) from exc
+        raise HTTPException(status_code=504, detail=t("service.vllm_timeout")) from exc
     except httpx.HTTPStatusError as exc:
         status = exc.response.status_code
         logger.error(f"vLLM API returned status {status}")
@@ -2104,11 +2117,9 @@ def _execute_checklist_tool(
             template_commands=template_commands,
             strip_auto_fallback=False,
         )
-        if (
-            current_normalized
-            and _proposal_item_value(current_normalized[0].model_dump())
-            == _proposal_item_value(candidate.model_dump())
-        ):
+        if current_normalized and _proposal_item_value(
+            current_normalized[0].model_dump()
+        ) == _proposal_item_value(candidate.model_dump()):
             tool_calls.append(
                 {
                     "tool": name,
@@ -2227,6 +2238,8 @@ async def _run_proposal_tool_loop(
         "total_tokens": 0,
         "elapsed_seconds": 0.0,
         "tokens_per_second": 0.0,
+        "usage_reported": True,
+        "response_model": None,
     }
 
     max_rounds = max(int(settings.VLLM_CHAT_MAX_TOOL_ROUNDS), 1)
@@ -2469,9 +2482,7 @@ async def summarize_conversation(
         },
         settings.VLLM_ENABLE_THINKING,
     )
-    content, metrics = await _call_vllm(
-        payload, timeout=float(settings.VLLM_TIMEOUT)
-    )
+    content, metrics = await _call_vllm(payload, timeout=float(settings.VLLM_TIMEOUT))
     return content.strip(), metrics
 
 
@@ -2625,9 +2636,7 @@ async def chat_with_rubric(
     )
     if not is_refine and updated_items is not None and recovered_titles:
         titles = "、".join(f"「{title}」" for title in recovered_titles)
-        reply_text = (
-            f"我已把{titles}整理成提案。請先查看提案內容，確認後再套用。"
-        )
+        reply_text = f"我已把{titles}整理成提案。請先查看提案內容，確認後再套用。"
 
     # Partial success: when some proposals staged but others were rejected,
     # the teacher must see why; the model's own reply often claims full success.
@@ -2665,9 +2674,7 @@ async def chat_with_rubric(
             logger.warning(
                 "Teacher Judge rejected %s proposal candidates after validation: %s",
                 len(rejected_ops),
-                "; ".join(
-                    f"{entry[0].title}: {entry[2]}" for entry in rejected_ops
-                ),
+                "; ".join(f"{entry[0].title}: {entry[2]}" for entry in rejected_ops),
             )
             reply_text = _proposal_unavailable_reply(
                 [entry[0] for entry in rejected_ops],
@@ -2697,6 +2704,8 @@ async def chat_with_rubric(
 
 _ITEMWISE_MAX_ITEMS = 50
 _ITEMWISE_CONCURRENCY = 2
+
+
 def _parse_attachment_extraction(
     content: str,
 ) -> tuple[list[dict[str, Any]], str | None]:
@@ -2791,7 +2800,9 @@ async def analyze_requirement_item(
     rubric_available: bool = False,
 ) -> TeacherJudgeChatResult:
     """Phase B core: reuse the single-requirement chat check for one source item."""
-    parts = [f"請核查以下單一檢查需求：{str(source.get('title') or '未命名項目').strip()}"]
+    parts = [
+        f"請核查以下單一檢查需求：{str(source.get('title') or '未命名項目').strip()}"
+    ]
     if str(source.get("description") or "").strip():
         parts.append(f"說明：{str(source['description']).strip()}")
     if str(source.get("evidence_hint") or "").strip():
@@ -2906,7 +2917,9 @@ def _itemwise_reply(item_results: list[dict[str, Any]], total: int) -> str:
             lines.append(f"{label}會收集檢查結果供你自行判斷，請在提案清單確認後套用。")
         elif status == "needs_information":
             missing = result["missing_information"]
-            gap = "、".join(missing) if missing else (result["detail"] or "缺少必要資訊")
+            gap = (
+                "、".join(missing) if missing else (result["detail"] or "缺少必要資訊")
+            )
             lines.append(f"{label}還缺少資訊：{gap}")
         elif status == "unsupported":
             lines.append(

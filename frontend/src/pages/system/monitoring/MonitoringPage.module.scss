@@ -329,6 +329,12 @@
   @include btn-secondary;
 }
 
+/* 頁首「在 Grafana 查看詳細」：<a> 外觀同次要按鈕 */
+.linkBtn {
+  @include btn-secondary;
+  text-decoration: none;
+}
+
 /* ── 表格 ── */
 /* 節點用量整卡收合：標題列即開關，收起時右側保留在線摘要 */
 .cardHeaderToggle {

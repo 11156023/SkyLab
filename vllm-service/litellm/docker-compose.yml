@@ -1,16 +1,22 @@
 name: campus-litellm
 
-# This Compose project is intentionally independent from the Campus application
-# Compose project.  It uses host networking to reach local vLLM instances that
-# listen only on 127.0.0.1:8103/8104; do not add it to the Campus `skylab`
-# network or expose the vLLM ports.
+# Included by the root Compose for normal deployment; also usable standalone.
+# Run only one project at a time: both use the same host port 4000.
+# Host networking reaches local vLLM instances bound to 127.0.0.1:8103/8104.
 services:
   litellm:
-    image: litellm/litellm:latest
+    image: ${LITELLM_IMAGE:-litellm/litellm:latest}
     restart: unless-stopped
     network_mode: host
+    env_file:
+      - .env
     volumes:
-      - ./config.yaml:/app/config.yaml:ro
+      - type: bind
+        source: ./config.yaml
+        target: /app/config.yaml
+        read_only: true
+        bind:
+          create_host_path: false
     environment:
       LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY:?set in vllm-service/litellm/.env}
       VLLM_UPSTREAM_API_KEY: ${VLLM_UPSTREAM_API_KEY:?set in vllm-service/litellm/.env}

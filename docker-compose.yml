@@ -1,5 +1,11 @@
 ﻿# SkyLab — Docker Compose
 
+# Keep the service definition and its secrets in the original directory.
+# Requires Docker Compose >= 2.20; included relative paths resolve there.
+include:
+  - path: ./vllm-service/litellm/docker-compose.yml
+    env_file: ./vllm-service/litellm/.env
+
 x-backend-env: &backend-env
   DOMAIN: ${DOMAIN}
   FRONTEND_HOST: ${FRONTEND_HOST?Variable not set}
@@ -63,7 +69,10 @@ services:
       # 50x 靜態錯誤頁：前端容器掛掉時由反向代理直接回應（見 default.conf 的 error_page）
       - ./nginx/50x.html:/usr/share/nginx/html/50x.html:ro
     networks:
-      - skylab
+      skylab: {}
+      # Grafana auth.proxy 只信任這個固定 IP 送來的身分標頭（見 grafana 的 GF_AUTH_PROXY_WHITELIST）
+      grafana-authproxy:
+        ipv4_address: ${GRAFANA_AUTHPROXY_NGINX_IP:-172.30.253.2}
     depends_on:
       backend:
         condition: service_healthy
@@ -181,7 +190,7 @@ services:
     command: ["redis-server", "--appendonly", "yes"]
     ports:
       # Localhost only — Redis has no auth; must never be exposed externally.
-      - "127.0.0.1:6379:6379"
+      - "127.0.0.1:${REDIS_HOST_PORT:-6379}:6379"
     volumes:
       - app-redis-data:/data
     networks:
@@ -253,7 +262,7 @@ services:
       # Localhost only: the public entry point is nginx (:80), which proxies
       # /api and /ws to this service over the internal network. Exposing 8000
       # externally would let callers bypass nginx and forge X-Forwarded-For.
-      - "127.0.0.1:8000:8000"
+      - "127.0.0.1:${BACKEND_HOST_PORT:-8000}:8000"
     env_file:
       - .env
     environment:
@@ -270,9 +279,9 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
-    # The independently deployed LiteLLM gateway uses host networking so it
+    # The included LiteLLM gateway uses host networking so it
     # can reach vLLM instances bound to 127.0.0.1:8103/8104.  Keep this host
-    # gateway mapping for the future AI_API_BASE_URL connection.
+    # gateway mapping for the AI_API_BASE_URL connection.
     extra_hosts:
       - "host.docker.internal:host-gateway"
     networks:
@@ -315,6 +324,8 @@ services:
       timeout: 10s
       retries: 3
       start_period: 90s
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     networks:
       - skylab
 
@@ -353,7 +364,7 @@ services:
   # =========================================================================
   # 監控 stack（選用）：docker compose --profile monitoring up -d
   # 說明與首次設定步驟見 docs/monitoring.md。預設所有 UI 只綁 127.0.0.1，
-  # Grafana 經 nginx 的 /grafana/ 對外（Grafana 自己有登入）。
+  # Grafana 經 nginx 的 /grafana/ 對外（SkyLab 管理員免密碼登入，另保留 Grafana 自己的 admin 登入）。
   # =========================================================================
 
   # -------------------------
@@ -400,6 +411,16 @@ services:
       GF_ANALYTICS_REPORTING_ENABLED: "false"
       GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
       GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /var/lib/grafana/dashboards/skylab-platform.json
+      # SkyLab 管理員免密碼登入：nginx 以 auth_request 向後端換身分標頭（quoted-printable，
+      # 中文姓名才放得進去），Grafana 只接受 nginx 固定 IP 送來的標頭；沒有標頭時照常顯示
+      # 上面 admin 帳號的登入頁。不需要時設 GRAFANA_AUTH_PROXY_ENABLED=false。
+      GF_AUTH_PROXY_ENABLED: ${GRAFANA_AUTH_PROXY_ENABLED:-true}
+      GF_AUTH_PROXY_HEADER_NAME: X-WEBAUTH-USER
+      GF_AUTH_PROXY_HEADER_PROPERTY: username
+      GF_AUTH_PROXY_AUTO_SIGN_UP: "true"
+      GF_AUTH_PROXY_HEADERS: "Email:X-WEBAUTH-EMAIL Name:X-WEBAUTH-NAME Role:X-WEBAUTH-ROLE"
+      GF_AUTH_PROXY_HEADERS_ENCODED: "true"
+      GF_AUTH_PROXY_WHITELIST: ${GRAFANA_AUTHPROXY_NGINX_IP:-172.30.253.2}
       # datasources.yml 以環境變數帶入 InfluxDB 連線資訊
       INFLUXDB_ORG: ${INFLUXDB_ORG:-skylab}
       INFLUXDB_BUCKET: ${INFLUXDB_BUCKET:-proxmox}
@@ -415,7 +436,11 @@ services:
       - loki
       - influxdb
     networks:
-      - skylab
+      skylab: {}
+      # nginx 經這個網路的別名連進來，來源才會是 nginx 的固定 IP
+      grafana-authproxy:
+        aliases:
+          - grafana-authproxy
     healthcheck:
       test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:3000/api/health"]
       interval: 30s
@@ -455,7 +480,9 @@ services:
       - /etc/alloy/config.alloy
     volumes:
       - ./monitoring/alloy/config.alloy:/etc/alloy/config.alloy:ro
-      - /var/run/docker.sock:/var/run/docker.sock:ro
+      # rootless Docker 的 socket 不在 /var/run（在 /run/user/<uid>/docker.sock），
+      # 路徑不對時 Docker 會默默建一個空目錄掛進來、Alloy 收不到任何日誌
+      - ${DOCKER_SOCKET:-/var/run/docker.sock}:/var/run/docker.sock:ro
       - alloy-data:/var/lib/alloy/data
     depends_on:
       - loki
@@ -550,9 +577,15 @@ services:
       - /dev/kmsg
     volumes:
       - /:/rootfs:ro
-      - /var/run:/var/run:ro
+      # 只掛 Docker socket，不掛整個 /var/run：rootless 主機的 /var/run 裡沒有
+      # docker.sock，把 socket 疊進唯讀的 /var/run 會建立掛載點失敗
+      - ${DOCKER_SOCKET:-/var/run/docker.sock}:/var/run/docker.sock:ro
+      # Docker 29 的 containerd image store 下，cAdvisor 的 docker factory 要透過
+      # containerd 找容器的讀寫層；rootless 在 /run/user/<uid>/docker/containerd/
+      - ${CONTAINERD_SOCKET:-/run/containerd/containerd.sock}:/run/containerd/containerd.sock:ro
       - /sys:/sys:ro
-      - /var/lib/docker/:/var/lib/docker:ro
+      # rootless 的 data-root 在 ~/.local/share/docker（docker info 的 Docker Root Dir）
+      - ${DOCKER_DATA_ROOT:-/var/lib/docker}:/var/lib/docker:ro
     networks:
       - skylab
 
@@ -570,22 +603,6 @@ services:
     networks:
       - skylab
 
-  # -------------------------
-  # Uptime Kuma：外部探測 + 推播（Email／Discord／LINE／Telegram…）
-  # 建議監看 nginx 入口與 /api/v1/utils/health-check/ready，見 docs/monitoring.md
-  # -------------------------
-  uptime-kuma:
-    image: louislam/uptime-kuma:1
-    logging: *default-logging
-    profiles: ["monitoring"]
-    restart: unless-stopped
-    volumes:
-      - uptime-kuma-data:/app/data
-    ports:
-      - "${UPTIME_KUMA_BIND_ADDRESS:-127.0.0.1}:${UPTIME_KUMA_HOST_PORT:-3001}:3001"
-    networks:
-      - skylab
-
 # -------------------------
 # Volumes
 # -------------------------
@@ -598,7 +615,6 @@ volumes:
   alloy-data:
   influxdb-data:
   influxdb-config:
-  uptime-kuma-data:
 
 # -------------------------
 # Networks (核心修正點)
@@ -606,3 +622,11 @@ volumes:
 networks:
   skylab:
     driver: bridge
+  # 只有 nginx 與 Grafana：nginx 固定 IP 放在 ip_range（動態分配範圍）之外，
+  # 不會被先起來的容器搶走。與主機或其他網路衝突時在 .env 改這三個值。
+  grafana-authproxy:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: ${GRAFANA_AUTHPROXY_SUBNET:-172.30.253.0/28}
+          ip_range: ${GRAFANA_AUTHPROXY_IP_RANGE:-172.30.253.8/29}

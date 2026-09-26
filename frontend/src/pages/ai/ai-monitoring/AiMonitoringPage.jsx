@@ -47,6 +47,13 @@ export function formatDuration(ms) {
   return `${ms}ms`;
 }
 
+export function formatTokenRate(value) {
+  if (value == null) return "—";
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) return "—";
+  return `${numeric.toLocaleString(undefined, { maximumFractionDigits: 2 })} tok/s`;
+}
+
 export function formatModelDisplay(modelName) {
   if (!modelName) return "—";
   const trimmed = modelName.trim();
@@ -383,8 +390,9 @@ function DetailTable({ tab, calls, users, models, runtimeModels, query, statusFi
             <th className={styles.th}>{t("AiMonitoringPage.colFailRate")}</th>
           </tr></thead>
           <tbody>{visibleUsers.map((user) => {
-            const totalCalls = user.proxy_calls ?? 0;
-            const totalTokens = (user.proxy_input_tokens ?? 0) + (user.proxy_output_tokens ?? 0);
+            const totalCalls = (user.proxy_calls ?? 0) + (user.template_calls ?? 0);
+            const totalTokens = (user.proxy_input_tokens ?? 0) + (user.proxy_output_tokens ?? 0)
+              + (user.template_input_tokens ?? 0) + (user.template_output_tokens ?? 0);
             return <tr key={user.user_id} className={styles.tr}>
               <td className={styles.td}><UserCell email={user.user_email} fullName={user.user_full_name} fallback={user.user_id} /></td>
               <td className={`${styles.td} ${styles.numericCell}`}>{formatNumber(totalCalls)}</td>
@@ -405,7 +413,8 @@ function DetailTable({ tab, calls, users, models, runtimeModels, query, statusFi
     return (call.user_email ?? "").toLowerCase().includes(q)
       || (call.user_full_name ?? "").toLowerCase().includes(q)
       || (call.model_name ?? "").toLowerCase().includes(q)
-      || (call.request_type ?? "").toLowerCase().includes(q);
+      || (call.request_type ?? call.call_type ?? "").toLowerCase().includes(q)
+      || (call.request_id ?? "").toLowerCase().includes(q);
   });
 
   if (!visibleCalls.length) return <EmptyState icon="analytics" title={t("AiMonitoringPage.emptyCallsTitle")} />;
@@ -420,16 +429,22 @@ function DetailTable({ tab, calls, users, models, runtimeModels, query, statusFi
           <th className={styles.th}>{t("AiMonitoringPage.colInput")}</th>
           <th className={styles.th}>{t("AiMonitoringPage.colOutput")}</th>
           <th className={styles.th}>{t("AiMonitoringPage.colDuration")}</th>
+          <th className={styles.th}>{t("AiMonitoringPage.colFirstToken")}</th>
+          <th className={styles.th}>{t("AiMonitoringPage.colOutputRate")}</th>
+          <th className={styles.th}>{t("AiMonitoringPage.colUsageEvidence")}</th>
           <th className={styles.th}>{t("AiMonitoringPage.colStatus")}</th>
         </tr></thead>
         <tbody>{visibleCalls.map((call) => <tr key={call.id} className={styles.tr}>
-          <td className={styles.td}>{formatDateTime(call.created_at)}</td>
+          <td className={styles.td}>{formatDateTime(call.created_at)}{call.request_id ? <small className={styles.monoCell} title={[call.request_id, call.upstream_request_id].filter(Boolean).join(" / ")}>{call.request_id.slice(0, 8)}</small> : null}</td>
           <td className={styles.td}><UserCell email={call.user_email} fullName={call.user_full_name} fallback={call.user_id} /></td>
-          <td className={`${styles.td} ${styles.monoCell}`} title={call.model_name}>{formatModelDisplay(call.model_name)}</td>
-          <td className={styles.td}>{call.request_type ?? "—"}</td>
+          <td className={`${styles.td} ${styles.monoCell}`} title={[call.model_name, call.response_model].filter(Boolean).join(" → ")}>{call.response_model && call.response_model !== call.model_name ? `${formatModelDisplay(call.model_name)} → ${formatModelDisplay(call.response_model)}` : formatModelDisplay(call.model_name)}</td>
+          <td className={styles.td}>{call.request_type ?? call.call_type ?? "—"}</td>
           <td className={`${styles.td} ${styles.numericCell}`}>{formatTokens(call.input_tokens ?? 0)}</td>
           <td className={`${styles.td} ${styles.numericCell}`}>{formatTokens(call.output_tokens ?? 0)}</td>
           <td className={`${styles.td} ${styles.numericCell}`}>{formatDuration(call.request_duration_ms)}</td>
+          <td className={`${styles.td} ${styles.numericCell}`}>{formatDuration(call.first_token_ms)}</td>
+          <td className={`${styles.td} ${styles.numericCell}`}>{formatTokenRate(call.e2e_output_tokens_per_second)}</td>
+          <td className={styles.td}>{t(call.usage_reported ? "AiMonitoringPage.usageReported" : "AiMonitoringPage.usageMissing")}</td>
           <td className={styles.td}><StatusBadge status={call.status} /></td>
         </tr>)}</tbody>
       </table>
@@ -449,8 +464,9 @@ export default function AiMonitoringPage() {
   const [overview, setOverview] = useState(null);
   const [runtime, setRuntime] = useState(null);
   const [proxyCalls, setProxyCalls] = useState([]);
+  const [templateCalls, setTemplateCalls] = useState([]);
   const [users, setUsers] = useState([]);
-  const [counts, setCounts] = useState({ proxy: 0, users: 0 });
+  const [counts, setCounts] = useState({ proxy: 0, template: 0, users: 0 });
   const [overviewLoading, setOverviewLoading] = useState(true);
   const [runtimeLoading, setRuntimeLoading] = useState(true);
   const [detailLoading, setDetailLoading] = useState(true);
@@ -472,6 +488,7 @@ export default function AiMonitoringPage() {
   const DETAIL_TABS = [
     { key: "models", label: t("AiMonitoringPage.tabModels"), icon: "model_training", count: modelRows.length },
     { key: "proxy", label: t("AiMonitoringPage.tabProxy"), icon: "swap_horiz", count: counts.proxy },
+    { key: "template", label: t("AiMonitoringPage.tabTemplate"), icon: "smart_toy", count: counts.template },
     { key: "users", label: t("AiMonitoringPage.tabUsers"), icon: "groups", count: counts.users },
   ];
   const STATUS_FILTERS = [
@@ -503,7 +520,7 @@ export default function AiMonitoringPage() {
       ...range,
       bucket: presetToBucket(preset),
       compare: true,
-      source: "api_key",
+      source: "all",
     })
       .then((value) => {
         setOverview(value);
@@ -527,11 +544,16 @@ export default function AiMonitoringPage() {
 
     const detailRequest = Promise.allSettled([
       AiMonitoringService.listProxyCalls(shared),
-      AiMonitoringService.listUsersUsage({ ...shared, source: "api_key" }),
-    ]).then(([proxyResult, usersResult]) => {
+      AiMonitoringService.listTemplateCalls(shared),
+      AiMonitoringService.listUsersUsage({ ...shared, source: "all" }),
+    ]).then(([proxyResult, templateResult, usersResult]) => {
       if (proxyResult.status === "fulfilled") {
         setProxyCalls(proxyResult.value?.data ?? []);
         setCounts((current) => ({ ...current, proxy: proxyResult.value?.count ?? proxyResult.value?.data?.length ?? 0 }));
+      }
+      if (templateResult.status === "fulfilled") {
+        setTemplateCalls(templateResult.value?.data ?? []);
+        setCounts((current) => ({ ...current, template: templateResult.value?.count ?? templateResult.value?.data?.length ?? 0 }));
       }
       if (usersResult.status === "fulfilled") {
         setUsers(usersResult.value?.data ?? []);
@@ -688,7 +710,7 @@ export default function AiMonitoringPage() {
           ))}
         </div>
         <div className={styles.detailContent}>
-          {detailLoading ? <LoadingState /> : <DetailTable tab={detailTab} calls={proxyCalls} users={users} models={overview?.model_breakdown} runtimeModels={runtime?.models} query={detailQuery} statusFilter={statusFilter} onModelSelect={selectModel} t={t} />}
+          {detailLoading ? <LoadingState /> : <DetailTable tab={detailTab} calls={detailTab === "template" ? templateCalls : proxyCalls} users={users} models={overview?.model_breakdown} runtimeModels={runtime?.models} query={detailQuery} statusFilter={statusFilter} onModelSelect={selectModel} t={t} />}
         </div>
       </section>
     </div>

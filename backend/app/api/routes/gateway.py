@@ -29,8 +29,8 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/gateway", tags=["gateway"])
 
-_VALID_SERVICES = {"haproxy", "traefik", "wireguard"}
-_CONFIGURABLE_SERVICES = {"haproxy", "traefik"}
+_VALID_SERVICES = {"nginx", "wireguard"}
+_CONFIGURABLE_SERVICES = {"nginx"}
 
 
 def _require_valid_service(service: str) -> None:
@@ -219,27 +219,29 @@ def write_config(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.post("/traefik/dns-challenge/sync", response_model=Message)
-def sync_traefik_dns_challenge(session: SessionDep, current_user: AdminUser):
-    """套用 Cloudflare DNS Challenge 設定到 Gateway VM 的 Traefik"""
+@router.post("/nginx/certificates/sync", response_model=Message)
+def sync_nginx_certificates(session: SessionDep, current_user: AdminUser):
+    """用 Cloudflare DNS-01 補簽／續期 Let's Encrypt 憑證，再重寫 nginx 設定並 reload"""
+    from app.services.network import reverse_proxy_service
+
     try:
-        gateway_service.sync_traefik_dns_challenge(session=session)
+        reverse_proxy_service.sync_certificates(session=session)
         audit_service.log_action(
             session=session,
             user_id=current_user.id,
             action=AuditAction.gateway_config_write,
-            details="Synced Traefik dnsChallenge config from Cloudflare settings",
+            details="Synced nginx certificates via certbot (Cloudflare DNS-01)",
         )
-        return Message(message=t("gateway.traefik_dns_synced"))
+        return Message(message=t("gateway.certificates_synced"))
     except BadRequestError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
     except ProxmoxError as exc:
-        logger.error("Failed to sync Traefik dnsChallenge config: %s", exc)
+        logger.error("Failed to sync nginx certificates: %s", exc)
         raise HTTPException(status_code=502, detail=t("gateway.proxmox_failed"))
     except Exception:
-        logger.exception("Unexpected error syncing Traefik dnsChallenge config")
+        logger.exception("Unexpected error syncing nginx certificates")
         raise HTTPException(
-            status_code=500, detail=t("gateway.traefik_sync_failed")
+            status_code=500, detail=t("gateway.certificate_sync_failed")
         )
 
 

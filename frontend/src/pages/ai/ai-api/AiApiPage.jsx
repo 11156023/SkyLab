@@ -18,6 +18,7 @@ import { formatDateTime, formatMonthDay } from "../../../utils/formatDate";
 import useAnchoredMenu from "../../../hooks/useAnchoredMenu";
 
 const ReadOnlyCode = lazy(() => import("../../../components/ReadOnlyCode/ReadOnlyCode"));
+const AiApiChatTab = lazy(() => import("./AiApiChatTab"));
 
 /* ── helpers ── */
 
@@ -26,8 +27,7 @@ function isExpired(value) {
   return new Date(value) < new Date();
 }
 
-/* 後端只在重新產生金鑰的當下回傳明文，清單一律只有前綴，
-   所以平時能顯示的就只有「前綴 + 遮罩」 */
+/* 清單只顯示前綴；完整金鑰在開啟詳細視窗後取得。 */
 function maskPrefix(prefix) {
   return `${prefix ?? ""}••••••`;
 }
@@ -204,17 +204,50 @@ function KeyMenu({ rotateDisabled, busy, onRename, onRotate, onDelete, onClose, 
   );
 }
 
-/* ── 一次性金鑰視窗：重新產生後唯一能看到完整金鑰的地方，關掉就不再有 ── */
-function NewKeyDialog({ apiKey, onClose }) {
+/* 完整金鑰只留在開啟中的詳細視窗，清單維持前綴。
+   外框交給共用 Modal（Esc、焦點、Tab 鎖定、捲動鎖都由它處理） */
+function KeyDetailDialog({ credential, apiKey, onClose }) {
   const { t } = useTranslation("ai");
   const toast = useToast();
+  const [loadedKey, setLoadedKey] = useState(apiKey || "");
+  const [keyLoading, setKeyLoading] = useState(!apiKey);
+  const [keyError, setKeyError] = useState(false);
+  const displayApiKey = apiKey || loadedKey;
+  const baseUrl = buildAiProxyBaseUrl(credential.base_url);
+  const status = credential.revoked_at
+    ? t("AiApiPage.credStatusReplaced")
+    : isExpired(credential.expires_at)
+      ? t("AiApiPage.credStatusExpired")
+      : t("AiApiPage.credStatusActive");
 
-  const copy = async () => {
+  useEffect(() => {
+    if (apiKey) return;
+    const controller = new AbortController();
+    let active = true;
+    const loadKey = async () => {
+      try {
+        const detail = await AiApiService.getCredential(credential.id, { signal: controller.signal });
+        if (!detail?.api_key) throw new Error("Missing API key");
+        if (active) setLoadedKey(detail.api_key);
+      } catch {
+        if (active) setKeyError(true);
+      } finally {
+        if (active) setKeyLoading(false);
+      }
+    };
+    loadKey();
+    return () => {
+      active = false;
+      controller.abort();
+    };
+  }, [credential.id, apiKey]);
+
+  const copy = async (label, value) => {
     try {
-      await navigator.clipboard.writeText(apiKey);
-      toast.success(t("AiApiPage.copiedSuccess", { label: "API Key" }));
+      await navigator.clipboard.writeText(value);
+      toast.success(t("AiApiPage.copiedSuccess", { label }));
     } catch {
-      toast.error(t("AiApiPage.copiedError", { label: "API Key" }));
+      toast.error(t("AiApiPage.copiedError", { label }));
     }
   };
 
@@ -223,31 +256,52 @@ function NewKeyDialog({ apiKey, onClose }) {
       onClose={onClose}
       closeButton
       size="md"
-      title={t("AiApiPage.newKeyTitle")}
-      actions={
-        <button type="button" className={styles.btnPrimary} onClick={onClose}>{t("AiApiPage.newKeySaved")}</button>
-      }
+      title={t("AiApiPage.keyDetailTitle")}
+      actions={<>
+        {baseUrl && <button type="button" className={styles.btnOutline} disabled={!displayApiKey} onClick={() => copy(t("AiApiPage.copyCurlQuickstart"), buildModelsCommand(baseUrl).replace("YOUR_API_KEY", displayApiKey))}>{t("AiApiPage.copyCurlQuickstart")}</button>}
+        <button type="button" className={styles.btnPrimary} disabled={!displayApiKey} onClick={() => copy("API Key", displayApiKey)}>{t("AiApiPage.actionCopyKey")}</button>
+      </>}
     >
-      <div className={styles.docsField}>
-        <p className={styles.docsNotice}>{t("AiApiPage.newKeyNotice")}</p>
-        <div className={styles.docsEndpointRow}>
-          <code>{apiKey}</code>
-          <button type="button" className={styles.docsCopyButton} onClick={copy} aria-label={t("AiApiPage.actionCopyKey")} title={t("AiApiPage.actionCopyKey")}>
-            <MIcon name="content_copy" size={16} />
-          </button>
+      <dl className={styles.keyDetailList}>
+        <div className={styles.keyDetailField}>
+          <dt>API Key</dt>
+          <dd className={styles.keyDetailValue}>
+            <code aria-live="polite">{keyLoading ? t("AiApiPage.keyDetailLoading") : displayApiKey || "—"}</code>
+            <button type="button" className={styles.docsCopyButton} disabled={!displayApiKey} onClick={() => copy("API Key", displayApiKey)} aria-label={t("AiApiPage.actionCopyKey")} title={t("AiApiPage.actionCopyKey")}><MIcon name="content_copy" size={16} /></button>
+          </dd>
+          {keyError && <dd role="alert" className={styles.keyDetailHint}>{t("AiApiPage.keyDetailLoadError")}</dd>}
         </div>
-      </div>
+        <div className={styles.keyDetailField}>
+          <dt>{t("AiApiPage.colKeyName")}</dt>
+          <dd className={styles.keyDetailValue}>
+            <span>{credential.api_key_name}</span>
+            <button type="button" className={styles.docsCopyButton} onClick={() => copy(t("AiApiPage.colKeyName"), credential.api_key_name)} aria-label={t("AiApiPage.copyKeyName")} title={t("AiApiPage.copyKeyName")}><MIcon name="content_copy" size={16} /></button>
+          </dd>
+        </div>
+        <div className={styles.keyDetailField}>
+          <dt>Base URL</dt>
+          <dd className={styles.keyDetailValue}>
+            <code>{baseUrl || "—"}</code>
+            {baseUrl && <button type="button" className={styles.docsCopyButton} onClick={() => copy("Base URL", baseUrl)} aria-label={t("AiApiPage.copyBaseUrl")} title={t("AiApiPage.copyBaseUrl")}><MIcon name="content_copy" size={16} /></button>}
+          </dd>
+        </div>
+        <div className={styles.keyDetailMeta}>
+          <div><dt>{t("AiApiPage.colStatus")}</dt><dd>{status}</dd></div>
+          <div><dt>{t("AiApiPage.colCreated")}</dt><dd>{formatDateTime(credential.created_at)}</dd></div>
+          <div><dt>{t("AiApiPage.colExpiry")}</dt><dd>{credential.expires_at ? formatDateTime(credential.expires_at) : t("AiApiPage.durationOptionNever")}</dd></div>
+          <div><dt>{t("AiApiPage.keyDetailRateLimit")}</dt><dd>{credential.rate_limit == null ? "—" : t("AiApiPage.keyDetailRateValue", { count: credential.rate_limit })}</dd></div>
+          {credential.revoked_at && <div><dt>{t("AiApiPage.keyDetailRevoked")}</dt><dd>{formatDateTime(credential.revoked_at)}</dd></div>}
+        </div>
+      </dl>
     </Modal>
   );
 }
 
-/* ── Credential row：一把金鑰一列，常用動作放圖示，其餘收進 ⋮ ──
-   明文金鑰只在重新產生的當下出現一次（NewKeyDialog），清單只有前綴 */
-function CredentialRow({ item, onRefresh }) {
+/* ── Credential row：一把金鑰一列，常用動作放圖示，其餘收進 ⋮ ── */
+function CredentialRow({ item, onRefresh, onShowDetails, onRotated }) {
   const { t } = useTranslation("ai");
   const toast = useToast();
   const confirm = useConfirm();
-  const [newKey, setNewKey] = useState(null);
   const [editing, setEditing] = useState(false);
   const [nameInput, setNameInput] = useState(item.api_key_name);
   const [busy, setBusy] = useState(false);
@@ -284,8 +338,8 @@ function CredentialRow({ item, onRefresh }) {
     try {
       const created = await AiApiService.rotateCredential(item.id);
       toast.success(t("AiApiPage.rotateSuccess"));
-      /* 後端只在這一次回明文；沒接住就再也拿不到，只能再輪替一次 */
-      if (created?.api_key) setNewKey(created.api_key);
+      /* 頁面層保留新金鑰，列表重新載入時視窗仍會持續顯示。 */
+      if (created?.id) onRotated(created);
       onRefresh();
     } catch (e) {
       toast.error(e?.message ?? t("AiApiPage.rotateError"));
@@ -362,9 +416,13 @@ function CredentialRow({ item, onRefresh }) {
                 </button>
               </div>
             ) : (
-              <span className={`${styles.rowName} ${deprecated ? styles.rowNameDeprecated : ""}`} title={item.api_key_name || undefined}>
-                {item.api_key_name}
-              </span>
+              <button
+                type="button"
+                className={`${styles.rowName} ${styles.keyDetailLink} ${deprecated ? styles.rowNameDeprecated : ""}`}
+                onClick={() => onShowDetails(item)}
+                title={t("AiApiPage.openKeyDetails", { name: item.api_key_name })}
+                aria-label={t("AiApiPage.openKeyDetails", { name: item.api_key_name })}
+              >{item.api_key_name}</button>
             )}
             <span
               className={`${styles.rowKey} ${deprecated ? styles.rowKeyDeprecated : ""}`}
@@ -390,7 +448,7 @@ function CredentialRow({ item, onRefresh }) {
       </td>
       <td className={`${styles.td} ${styles.tdActions}`}>
         <div className={styles.rowActions} data-guide="ai-key-actions">
-          {/* 明文金鑰不在清單裡，所以沒有「複製／顯示」——要拿完整金鑰只能重新產生 */}
+          {/* 詳細視窗提供完整金鑰；清單操作集中在選單。 */}
           {menu.open && (
             <KeyMenu
               rotateDisabled={inactive}
@@ -415,7 +473,6 @@ function CredentialRow({ item, onRefresh }) {
           >
             <MIcon name="more_vert" size={18} />
           </button>
-          {newKey && <NewKeyDialog apiKey={newKey} onClose={() => setNewKey(null)} />}
         </div>
       </td>
     </tr>
@@ -725,6 +782,7 @@ function formatModelDisplay(modelName) {
 /* ── Usage record row ── */
 function UsageRecordRow({ item }) {
   const { t } = useTranslation("ai");
+  const [expanded, setExpanded] = useState(false);
 
   const succeeded = ["success", "ok", "200", 200].includes(item.status);
   const statusCls = succeeded ? "success" : "danger";
@@ -739,53 +797,85 @@ function UsageRecordRow({ item }) {
     chat_completion: "AiApiPage.callTypeChatCompletion",
   };
   const callTypeKey = callTypeLabels[item.call_type];
+  const model = formatModelDisplay(item.model_name);
+  const createdAt = formatDateTime(item.created_at);
+  const detailId = `usage-record-${String(item.id).replace(/[^a-zA-Z0-9_-]/g, "-")}`;
+  const totalTokens = item.total_tokens ?? ((item.input_tokens ?? 0) + (item.output_tokens ?? 0));
 
   return (
-    <div className={styles.usageRecordRow}>
-      <div className={styles.usageRecordTop}>
-        <div className={styles.usageRecordHeading}>
-          <span className={styles.usageRecordTime}>{formatDateTime(item.created_at)}</span>
-          <span className={styles.usageRecordId}>ID {item.id}</span>
-        </div>
-        <span className={`${styles.badge} ${styles[`badge_${statusCls}`]}`}>
-          <span className={styles.dot} />
-          {statusLabel}
+    <div className={`${styles.usageRecordRow} ${expanded ? styles.usageRecordRowExpanded : ""}`}>
+      <button
+        type="button"
+        className={styles.usageRecordSummary}
+        aria-expanded={expanded}
+        aria-controls={detailId}
+        aria-label={t(expanded ? "AiApiPage.recordCollapseAria" : "AiApiPage.recordExpandAria", {
+          date: createdAt,
+          model,
+        })}
+        onClick={() => setExpanded((value) => !value)}
+      >
+        <span className={`${styles.usageRecordCell} ${styles.usageRecordDateCell}`}>
+          <span className={styles.usageRecordCellLabel}>{t("AiApiPage.recordDate")}</span>
+          <span className={styles.usageRecordPrimary}>{createdAt}</span>
         </span>
-      </div>
-      <div className={styles.usageRecordDetails}>
-        <div>
-          <span>{t("AiApiPage.recordKey")}</span>
-          <strong>{item.api_key_name} <small>{item.api_key_prefix}…</small></strong>
-        </div>
-        <div>
-          <span>{t("AiApiPage.recordModel")}</span>
-          <strong className={styles.usageRecordModel}>{formatModelDisplay(item.model_name)}</strong>
-        </div>
-        <div>
-          <span>{t("AiApiPage.recordRequestType")}</span>
-          <strong className={styles.usageRecordType}>{callTypeKey ? t(callTypeKey) : item.call_type || "—"}</strong>
-        </div>
-        <div>
-          <span>{t("AiApiPage.recordInputTokens")}</span>
-          <strong>{formatTokens(item.input_tokens)}</strong>
-        </div>
-        <div>
-          <span>{t("AiApiPage.recordOutputTokens")}</span>
-          <strong>{formatTokens(item.output_tokens)}</strong>
-        </div>
-        <div>
-          <span>{t("AiApiPage.recordTotalTokens")}</span>
-          <strong>{formatTokens(item.total_tokens ?? ((item.input_tokens ?? 0) + (item.output_tokens ?? 0)))}</strong>
-        </div>
-        <div>
-          <span>{t("AiApiPage.recordLatency")}</span>
-          <strong>{item.request_duration_ms == null ? "—" : t("AiApiPage.recordDuration", { seconds: (item.request_duration_ms / 1000).toFixed(1) })}</strong>
-        </div>
-      </div>
-      {item.error_message && (
-        <div className={styles.usageRecordError}>
-          <MIcon name="error_outline" size={15} />
-          <span>{item.error_message}</span>
+        <span className={`${styles.usageRecordCell} ${styles.usageRecordModelCell}`}>
+          <span className={styles.usageRecordCellLabel}>{t("AiApiPage.recordModel")}</span>
+          <span className={`${styles.usageRecordPrimary} ${styles.usageRecordModel}`} title={model}>{model}</span>
+        </span>
+        <span className={`${styles.usageRecordCell} ${styles.usageRecordKeyCell}`}>
+          <span className={styles.usageRecordCellLabel}>{t("AiApiPage.recordKey")}</span>
+          <span className={styles.usageRecordPrimary} title={item.api_key_name || undefined}>{item.api_key_name || "—"}</span>
+          {item.api_key_prefix && <span className={styles.usageRecordMeta}>{item.api_key_prefix}…</span>}
+        </span>
+        <span className={`${styles.usageRecordCell} ${styles.usageRecordInputCell}`}>
+          <span className={styles.usageRecordCellLabel}>{t("AiApiPage.recordInputTokens")}</span>
+          <span className={styles.usageRecordToken}>{formatTokens(item.input_tokens)}</span>
+        </span>
+        <span className={`${styles.usageRecordCell} ${styles.usageRecordOutputCell}`}>
+          <span className={styles.usageRecordCellLabel}>{t("AiApiPage.recordOutputTokens")}</span>
+          <span className={styles.usageRecordToken}>{formatTokens(item.output_tokens)}</span>
+        </span>
+        <span className={`${styles.usageRecordCell} ${styles.usageRecordStatusCell}`}>
+          <span className={styles.usageRecordCellLabel}>{t("AiApiPage.recordStatus")}</span>
+          <span className={`${styles.badge} ${styles[`badge_${statusCls}`]}`}>
+            <span className={styles.dot} />
+            {statusLabel}
+          </span>
+        </span>
+        <MIcon
+          name="expand_more"
+          size={20}
+          className={styles.usageRecordChevron}
+          aria-hidden="true"
+        />
+      </button>
+      {expanded && (
+        <div id={detailId} className={styles.usageRecordExpanded}>
+          <dl className={styles.usageRecordDetails}>
+            <div>
+              <dt>{t("AiApiPage.recordRequestId")}</dt>
+              <dd className={styles.usageRecordId}>{item.id}</dd>
+            </div>
+            <div>
+              <dt>{t("AiApiPage.recordRequestType")}</dt>
+              <dd>{callTypeKey ? t(callTypeKey) : item.call_type || "—"}</dd>
+            </div>
+            <div>
+              <dt>{t("AiApiPage.recordTotalTokens")}</dt>
+              <dd>{formatTokens(totalTokens)}</dd>
+            </div>
+            <div>
+              <dt>{t("AiApiPage.recordLatency")}</dt>
+              <dd>{item.request_duration_ms == null ? "—" : t("AiApiPage.recordDuration", { seconds: (item.request_duration_ms / 1000).toFixed(1) })}</dd>
+            </div>
+          </dl>
+          {item.error_message && (
+            <div className={styles.usageRecordError} role="alert">
+              <MIcon name="error_outline" size={15} />
+              <span>{item.error_message}</span>
+            </div>
+          )}
         </div>
       )}
     </div>
@@ -922,6 +1012,15 @@ function MyUsageTab() {
             ) : (
               <>
                 <div className={styles.usageRecordList}>
+                  <div className={styles.usageRecordHeader} aria-hidden="true">
+                    <span>{t("AiApiPage.recordDate")}</span>
+                    <span>{t("AiApiPage.recordModel")}</span>
+                    <span>{t("AiApiPage.recordKey")}</span>
+                    <span>{t("AiApiPage.recordInputTokens")}</span>
+                    <span>{t("AiApiPage.recordOutputTokens")}</span>
+                    <span>{t("AiApiPage.recordStatus")}</span>
+                    <span />
+                  </div>
                   {records.map((item) => (
                     <UsageRecordRow key={`${item.route}-${item.id}`} item={item} />
                   ))}
@@ -1063,6 +1162,7 @@ export default function AiApiPage() {
 
   const TABS = [
     { key: "keys",    label: "API Keys" },
+    { key: "chat",    label: t("AiApiPage.tabChat") },
     { key: "records", label: t("AiApiPage.tabRecords") },
     { key: "usage",   label: t("AiApiPage.tabUsage") },
   ];
@@ -1081,6 +1181,8 @@ export default function AiApiPage() {
 
   /* ── Data ── */
   const [credentials, setCredentials] = useState([]);
+  const [keyDetail, setKeyDetail] = useState(null);
+  const closeKeyDetail = useCallback(() => setKeyDetail(null), []);
   const [requests, setRequests] = useState([]);
   const [loading, setLoading] = useState(true);
 
@@ -1205,7 +1307,13 @@ export default function AiApiPage() {
                 </thead>
                 <tbody>
                   {credentials.map((item) => (
-                    <CredentialRow key={item.id} item={item} onRefresh={load} />
+                    <CredentialRow
+                      key={item.id}
+                      item={item}
+                      onRefresh={load}
+                      onShowDetails={(credential) => setKeyDetail({ credential, apiKey: null })}
+                      onRotated={(credential) => setKeyDetail({ credential, apiKey: credential.api_key || null })}
+                    />
                   ))}
                 </tbody>
               </table>
@@ -1248,7 +1356,19 @@ export default function AiApiPage() {
 
         {/* ---- Tab: 我的用量 ---- */}
         {activeTab === "usage" && <MyUsageTab />}
+        {activeTab === "chat" && <Suspense fallback={<LoadingState />}><AiApiChatTab /></Suspense>}
       </div>
+
+      {keyDetail && (
+        <KeyDetailDialog
+          key={keyDetail.credential.id}
+          credential={keyDetail.apiKey
+            ? keyDetail.credential
+            : credentials.find((item) => item.id === keyDetail.credential.id) ?? keyDetail.credential}
+          apiKey={keyDetail.apiKey}
+          onClose={closeKeyDetail}
+        />
+      )}
 
       {/* ── API 快速開始彈窗（原「API 文件」分頁） ── */}
       {quickStartDialog.open && (

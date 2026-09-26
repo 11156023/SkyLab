@@ -25,6 +25,7 @@ from starlette.middleware.cors import CORSMiddleware
 from starlette.types import ASGIApp, Receive, Scope, Send
 
 from app.api.main import api_router
+from app.api.prometheus_sd import gateway_targets_endpoint
 from app.api.websocket import vnc_proxy
 from app.api.websocket.classroom import (
     classroom_presence_proxy,
@@ -211,6 +212,8 @@ if settings.all_cors_origins:
 
 app.include_router(api_router, prefix=settings.API_V1_STR)
 app.add_route("/metrics", metrics_endpoint, methods=["GET"])
+# Prometheus http_sd：Gateway 上 node／nginx exporter 的位址（依閘道頁的連線設定）
+app.add_route("/metrics/gateway-targets", gateway_targets_endpoint, methods=["GET"])
 # 抓取當下才更新的 gauge：DB／Redis 是否可用、arq 佇列長度、任務紀錄統計
 register_collect_hook(system_health_service.collect_metrics_hook)
 

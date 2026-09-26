@@ -42,6 +42,27 @@ describe("GatewayService host key", () => {
   });
 });
 
+describe("GatewayService nginx", () => {
+  test("syncNginxCertificates 以 POST 打 /gateway/nginx/certificates/sync", async () => {
+    fetchMock.mockResolvedValueOnce(jsonRes(200, { message: "ok" }));
+
+    await GatewayService.syncNginxCertificates();
+
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toContain("/api/v1/gateway/nginx/certificates/sync");
+    expect(init.method).toBe("POST");
+  });
+
+  test("readServiceConfig 讀 nginx 的設定檔端點", async () => {
+    fetchMock.mockResolvedValueOnce(jsonRes(200, { service: "nginx", content: "" }));
+
+    await GatewayService.readServiceConfig("nginx");
+
+    const [url] = fetchMock.mock.calls[0];
+    expect(url).toContain("/api/v1/gateway/services/nginx/config");
+  });
+});
+
 describe("GatewayService 連線設定", () => {
   test("generateKeypair 以 POST 打 /gateway/generate-keypair", async () => {
     fetchMock.mockResolvedValueOnce(jsonRes(200, {}));

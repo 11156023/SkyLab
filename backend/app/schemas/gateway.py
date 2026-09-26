@@ -5,7 +5,7 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
-GatewayService = Literal["haproxy", "traefik", "wireguard"]
+GatewayService = Literal["nginx", "wireguard"]
 ServiceAction = Literal["start", "stop", "restart", "reload"]
 
 

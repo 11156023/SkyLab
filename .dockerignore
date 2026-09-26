@@ -4,9 +4,16 @@
 .env
 .env.*
 !.env.example
+**/.env
+**/.env.*
+!**/.env.example
 *.pem
 *.key
 *.p12
+
+# 推論服務、模型權重與 LiteLLM runtime 設定由主機／volume 管理。
+# Campus build 不使用此目錄，避免上傳 GPU 權重與部署機密。
+vllm-service/
 
 # 不要把本機安裝產物複製進 image（容器內會自行 bun install / uv sync）
 node_modules

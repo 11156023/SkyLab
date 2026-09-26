@@ -54,6 +54,23 @@ async def test_vllm_client_reuses_async_client(monkeypatch: pytest.MonkeyPatch) 
 
 
 @pytest.mark.asyncio
+async def test_vllm_client_forwards_request_id(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(httpx, "AsyncClient", _FakeAsyncClient)
+    client = VLLMClient(
+        base_url="http://vllm.example/v1",
+        api_key="secret",
+        default_timeout=10.0,
+    )
+
+    await client.create_chat_completion(
+        {"model": "test"}, request_id="campus-request-123"
+    )
+
+    request = _FakeAsyncClient.instances[0].posts[0]
+    assert request["headers"]["X-Request-ID"] == "campus-request-123"
+
+
+@pytest.mark.asyncio
 async def test_vllm_client_recreates_after_close(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(httpx, "AsyncClient", _FakeAsyncClient)
     client = VLLMClient(

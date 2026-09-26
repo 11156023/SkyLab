@@ -13,6 +13,7 @@ import codecs
 import json
 import logging
 import time
+import uuid
 from collections.abc import AsyncGenerator
 from datetime import datetime, timedelta, timezone
 from typing import Any
@@ -110,7 +111,9 @@ def _upstream_failure(
     )
 
 
-def _service_headers(request: Request) -> dict[str, str]:
+def _service_headers(
+    request: Request, *, request_id: str | None = None
+) -> dict[str, str]:
     """Build the only headers allowed to cross the Campus → LiteLLM boundary."""
     headers = {
         "Authorization": f"Bearer {ai_api_settings.ai_api_upstream_api_key}",
@@ -120,6 +123,8 @@ def _service_headers(request: Request) -> dict[str, str]:
         value = request.headers.get(name)
         if value:
             headers[name] = value
+    if request_id:
+        headers["x-request-id"] = request_id
     return headers
 
 
@@ -142,35 +147,87 @@ def _upstream_url(endpoint: str, query: str) -> str:
     return f"{url}?{query}" if query else url
 
 
-def _usage_tokens(payload: Any) -> tuple[int, int]:
+def _usage_details(payload: Any) -> tuple[int, int, bool, str | None]:
     """Extract token counts from chat/completions/responses response shapes."""
     if not isinstance(payload, dict):
-        return 0, 0
+        return 0, 0, False, None
+    response = payload.get("response")
+    if isinstance(response, dict):
+        payload = response
     usage = payload.get("usage")
     if not isinstance(usage, dict):
-        return 0, 0
+        model = payload.get("model")
+        return 0, 0, False, str(model)[:255] if model else None
     input_tokens = usage.get("prompt_tokens", usage.get("input_tokens", 0))
     output_tokens = usage.get("completion_tokens", usage.get("output_tokens", 0))
+    model = payload.get("model")
     try:
-        return int(input_tokens or 0), int(output_tokens or 0)
+        return (
+            int(input_tokens or 0),
+            int(output_tokens or 0),
+            True,
+            str(model)[:255] if model else None,
+        )
     except (TypeError, ValueError):
-        return 0, 0
+        return 0, 0, True, str(model)[:255] if model else None
 
 
-def _update_stream_usage(line: str, usage: dict[str, int]) -> None:
+def _usage_tokens(payload: Any) -> tuple[int, int]:
+    input_tokens, output_tokens, _reported, _model = _usage_details(payload)
+    return input_tokens, output_tokens
+
+
+def _update_stream_usage(
+    line: str, usage: dict[str, Any], *, started_at: float | None = None
+) -> None:
     """Update usage from one SSE data line, preserving the bytes sent to clients."""
-    if not line.startswith("data: "):
+    if not line.startswith("data:"):
         return
-    data = line[6:].strip()
+    data = line[5:].strip()
     if not data or data == "[DONE]":
         return
     try:
-        input_tokens, output_tokens = _usage_tokens(json.loads(data))
+        payload = json.loads(data)
+        input_tokens, output_tokens, reported, response_model = _usage_details(payload)
     except json.JSONDecodeError:
         return
-    if input_tokens or output_tokens:
+    if reported:
         usage["input_tokens"] = input_tokens
         usage["output_tokens"] = output_tokens
+        usage["usage_reported"] = True
+    if response_model:
+        usage["response_model"] = response_model
+    if usage.get("first_token_ms") is None and _stream_event_has_output(payload):
+        if started_at is not None:
+            usage["first_token_ms"] = int((time.monotonic() - started_at) * 1000)
+
+
+def _stream_event_has_output(payload: Any) -> bool:
+    if not isinstance(payload, dict):
+        return False
+    event_type = str(payload.get("type") or "")
+    if event_type.endswith(".delta") and payload.get("delta") not in (None, "", []):
+        return True
+    choices = payload.get("choices")
+    if not isinstance(choices, list):
+        return False
+    for choice in choices:
+        if not isinstance(choice, dict):
+            continue
+        delta = choice.get("delta")
+        if isinstance(delta, dict) and any(
+            delta.get(key) not in (None, "", [])
+            for key in ("content", "tool_calls", "function_call")
+        ):
+            return True
+        if choice.get("text") not in (None, ""):
+            return True
+    return False
+
+
+def _request_id(request: Request) -> str:
+    supplied = (request.headers.get("x-request-id") or "").strip()
+    return supplied[:255] if supplied else str(uuid.uuid4())
 
 
 async def _enforce_rate_limit(*, user: Any, credential: Any) -> None:
@@ -216,7 +273,9 @@ async def _json_payload(request: Request) -> dict[str, Any] | JSONResponse:
     declared_length = request.headers.get("content-length")
     if declared_length:
         try:
-            too_large = int(declared_length) > ai_api_settings.ai_api_max_request_body_bytes
+            too_large = (
+                int(declared_length) > ai_api_settings.ai_api_max_request_body_bytes
+            )
         except ValueError:
             too_large = False
         if too_large:
@@ -273,11 +332,19 @@ def _record_usage_safely(
     credential: Any,
     model_name: str,
     request_type: str,
+    request_id: str | None = None,
+    upstream_request_id: str | None = None,
     input_tokens: int = 0,
     output_tokens: int = 0,
     duration_ms: int | None = None,
+    first_token_ms: int | None = None,
+    stream: bool = False,
+    usage_reported: bool = False,
+    response_model: str | None = None,
     record_status: str = "success",
     error_message: str | None = None,
+    started_at: datetime | None = None,
+    completed_at: datetime | None = None,
 ) -> None:
     try:
         ai_gateway_service.record_usage(
@@ -286,11 +353,19 @@ def _record_usage_safely(
             credential_id=credential.id,
             model_name=model_name,
             request_type=request_type,
+            request_id=request_id,
+            upstream_request_id=upstream_request_id,
             input_tokens=input_tokens,
             output_tokens=output_tokens,
             request_duration_ms=duration_ms,
+            first_token_ms=first_token_ms,
+            stream=stream,
+            usage_reported=usage_reported,
+            response_model=response_model,
             status=record_status,
             error_message=error_message,
+            started_at=started_at,
+            completed_at=completed_at,
         )
     except Exception:
         # Accounting must not turn a completed model response into an error.
@@ -320,10 +395,19 @@ async def _stream_upstream_response(
     credential: Any,
     model_name: str,
     request_type: str,
+    request_id: str,
+    upstream_request_id: str | None,
     started_at: float,
+    started_at_utc: datetime,
 ) -> AsyncGenerator[bytes, None]:
     """Pass through SSE bytes while recording final usage after the stream ends."""
-    usage = {"input_tokens": 0, "output_tokens": 0}
+    usage: dict[str, Any] = {
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "usage_reported": False,
+        "response_model": None,
+        "first_token_ms": None,
+    }
     record_status = "success"
     error_message: str | None = None
     decoder = codecs.getincrementaldecoder("utf-8")("replace")
@@ -334,11 +418,11 @@ async def _stream_upstream_response(
             line_buffer += decoded
             while "\n" in line_buffer:
                 line, line_buffer = line_buffer.split("\n", 1)
-                _update_stream_usage(line.rstrip("\r"), usage)
+                _update_stream_usage(line.rstrip("\r"), usage, started_at=started_at)
             yield chunk
         line_buffer += decoder.decode(b"", final=True)
         if line_buffer:
-            _update_stream_usage(line_buffer.rstrip("\r"), usage)
+            _update_stream_usage(line_buffer.rstrip("\r"), usage, started_at=started_at)
     except asyncio.CancelledError:
         record_status = "cancelled"
         error_message = "client_disconnected"
@@ -363,11 +447,19 @@ async def _stream_upstream_response(
                     credential=credential,
                     model_name=model_name,
                     request_type=request_type,
+                    request_id=request_id,
+                    upstream_request_id=upstream_request_id,
                     input_tokens=usage["input_tokens"],
                     output_tokens=usage["output_tokens"],
                     duration_ms=int((time.monotonic() - started_at) * 1000),
+                    first_token_ms=usage["first_token_ms"],
+                    stream=True,
+                    usage_reported=usage["usage_reported"],
+                    response_model=usage["response_model"],
                     record_status=record_status,
                     error_message=error_message,
+                    started_at=started_at_utc,
+                    completed_at=datetime.now(timezone.utc),
                 )
         except Exception:
             logger.exception("Failed to create AI API stream usage session")
@@ -392,8 +484,10 @@ async def _relay_generation(
 
     request_type = _GENERATION_ENDPOINTS[endpoint]
     upstream_url = _upstream_url(endpoint, request.url.query)
-    headers = _service_headers(request)
+    request_id = _request_id(request)
+    headers = _service_headers(request, request_id=request_id)
     started_at = time.monotonic()
+    started_at_utc = datetime.now(timezone.utc)
     is_stream = payload.get("stream") is True
     if is_stream:
         payload = _stream_payload(payload, endpoint)
@@ -412,9 +506,13 @@ async def _relay_generation(
             credential=credential,
             model_name=model_name,
             request_type=request_type,
+            request_id=request_id,
             duration_ms=int((time.monotonic() - started_at) * 1000),
+            stream=is_stream,
             record_status="error",
             error_message="upstream_unavailable",
+            started_at=started_at_utc,
+            completed_at=datetime.now(timezone.utc),
         )
         logger.warning("AI API upstream unavailable for model=%s", model_name)
         return _openai_error(
@@ -425,6 +523,8 @@ async def _relay_generation(
         )
 
     response_headers = _response_headers(upstream.headers)
+    response_headers.setdefault("x-request-id", request_id)
+    upstream_request_id = upstream.headers.get("x-request-id")
     if is_stream and upstream.is_success:
         return StreamingResponse(
             _stream_upstream_response(
@@ -434,7 +534,10 @@ async def _relay_generation(
                 credential=credential,
                 model_name=model_name,
                 request_type=request_type,
+                request_id=request_id,
+                upstream_request_id=upstream_request_id,
                 started_at=started_at,
+                started_at_utc=started_at_utc,
             ),
             status_code=upstream.status_code,
             media_type=upstream.headers.get("content-type", "text/event-stream"),
@@ -450,18 +553,27 @@ async def _relay_generation(
         await upstream.aclose()
         await client.aclose()
 
-    input_tokens, output_tokens = _usage_tokens(result)
+    input_tokens, output_tokens, usage_reported, response_model = _usage_details(result)
     _record_usage_safely(
         session=session,
         user=user,
         credential=credential,
         model_name=model_name,
         request_type=request_type,
+        request_id=request_id,
+        upstream_request_id=upstream_request_id,
         input_tokens=input_tokens,
         output_tokens=output_tokens,
         duration_ms=int((time.monotonic() - started_at) * 1000),
+        stream=False,
+        usage_reported=usage_reported,
+        response_model=response_model,
         record_status="success" if 200 <= upstream.status_code < 300 else "error",
-        error_message=None if upstream.is_success else f"upstream_http_{upstream.status_code}",
+        error_message=None
+        if upstream.is_success
+        else f"upstream_http_{upstream.status_code}",
+        started_at=started_at_utc,
+        completed_at=datetime.now(timezone.utc),
     )
     if not upstream.is_success:
         return _upstream_failure(

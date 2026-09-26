@@ -2,11 +2,11 @@
 
 > **本專案部署現況（SkyLab）**
 >
-> 已精簡為**單一 `docker-compose.yml` + 單一根目錄 `.env`**：
+> 以根目錄 `docker-compose.yml` 為統一入口，透過 `include` 引用 LiteLLM 原 Compose；Campus 與 LiteLLM 各自保留 `.env`：
 >
-> - **啟動：** `cp .env.example .env`（改好密鑰）後 `docker compose up -d --build`，會自動載入 `docker-compose.yml`，不需要 `-f`。
-> - **對外路由：** 由內建的 `nginx` 服務（單一入口 :80，設定見 `nginx/default.conf`）做同源反向代理：`/api`、`/ws` → backend，其餘 → frontend。已不使用 Traefik / cloudflared。
-> - **自動部署：** push（或 merge PR）到 `main` 觸發 [`.github/workflows/deploy-pve-test.yml`](.github/workflows/deploy-pve-test.yml)，在 self-hosted runner 上 `docker compose up -d`。
+> - **啟動：** 完成模型、資料庫與金鑰設定後執行 `bash scripts/prepare-ai-stack.sh --start`。首次部署、獨立 LiteLLM 接管與 API 操作見 [AI API 使用手冊](ai-api-user-manual.md)。
+> - **對外路由：** 由內建 `nginx`（預設 :8082，可設 `NGINX_HOST_PORT`，設定見 `nginx/default.conf`）做同源反向代理：`/api`、`/ws` → backend，其餘 → frontend。已不使用 Traefik / cloudflared。
+> - **部署 workflow：** 在 Actions 手動觸發 [`.github/workflows/deploy-pve-test.yml`](../.github/workflows/deploy-pve-test.yml)，經 `pve-test` environment 審核後在 self-hosted runner 執行預檢查與主 Compose 啟動。runner 設定檔位置見 AI API 手冊；push 到 `main` 不會自動部署。
 > - 已移除上游 template 的 `compose.yml`、`compose.override.yml`、`compose.traefik.yml`。
 >
 > 以下章節為上游 FastAPI template 的通用部署參考；其中「外部 Traefik」「staging/production」「release 觸發」等**不適用**於本專案，僅供日後自建獨立生產環境時參考。

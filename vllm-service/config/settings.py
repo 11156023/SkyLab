@@ -85,6 +85,10 @@ class Settings(BaseSettings):
     disable_custom_all_reduce: bool = Field(default=False, description="停用自定義 all-reduce (提高穩定性)")
     quantization: str = Field(default="", description="量化方法 (awq, gptq, fp8 等)")
     kv_cache_dtype: str = Field(default="", description="KV Cache 資料型別 (fp8, auto 等)")
+    mamba_ssm_cache_dtype: str = Field(
+        default="",
+        description="Mamba SSM cache 資料型別（Nemotron 建議 float32）",
+    )
     speculative_config: str = Field(
         default="",
         description="Speculative decoding 設定 (JSON 字串)，對應 --speculative-config",
@@ -386,6 +390,8 @@ class Settings(BaseSettings):
             args.extend(["--quantization", self.quantization])
         if self.kv_cache_dtype:
             args.extend(["--kv-cache-dtype", self.kv_cache_dtype])
+        if self.mamba_ssm_cache_dtype:
+            args.extend(["--mamba-ssm-cache-dtype", self.mamba_ssm_cache_dtype])
         if self.speculative_config:
             args.extend(["--speculative-config", self.speculative_config])
         if self.allowed_local_media_path:

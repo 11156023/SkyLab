@@ -2,9 +2,6 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import pytest
-
-from app.exceptions import BadRequestError
 from app.services.network import gateway_service
 
 
@@ -17,60 +14,60 @@ def test_gateway_installer_uses_wireguard() -> None:
     assert not (gateway_dir / "install-wireguard.sh").exists()
 
 
-def test_build_traefik_static_config_uses_dns_challenge() -> None:
-    config = gateway_service.build_traefik_static_config(
-        acme_email="ops@example.com"
-    )
+def test_gateway_installer_installs_nginx_stream_and_certbot() -> None:
+    """Gateway 改由 nginx 一手包辦 Port 轉發與反向代理，Traefik 不再下載。"""
+    gateway_dir = Path(__file__).resolve().parents[3] / "gateway"
+    script = (gateway_dir / "install.sh").read_text(encoding="utf-8")
 
-    assert "dnsChallenge:" in config
-    assert "provider: cloudflare" in config
-    assert "httpChallenge" not in config
-    assert 'address: "127.0.0.1:8080"' in config
-    assert "dashboard: true" in config
-
-
-def test_build_traefik_env_file_rejects_multiline_token() -> None:
-    with pytest.raises(BadRequestError, match="Cloudflare API Token 格式不正確"):
-        gateway_service.build_traefik_env_file("line1\nline2")
+    assert "libnginx-mod-stream" in script
+    assert "python3-certbot-dns-cloudflare" in script
+    assert "include /etc/nginx/skylab/http.conf;" in script
+    assert "include /etc/nginx/skylab/stream.conf;" in script
+    assert "renewal-hooks/deploy/skylab-nginx-reload" in script
+    assert "TRAEFIK_VERSION" not in script
+    assert "BEGIN_skylab_MANAGED" not in script
 
 
-def test_build_traefik_env_file_quotes_cloudflare_token() -> None:
-    env_file = gateway_service.build_traefik_env_file('cf-token"with$chars')
+def test_gateway_installer_sets_up_exporters_matching_backend_ports() -> None:
+    """install.sh 裝的 exporter port 要和後端 http_sd 回報給 Prometheus 的一致。"""
+    gateway_dir = Path(__file__).resolve().parents[3] / "gateway"
+    script = (gateway_dir / "install.sh").read_text(encoding="utf-8")
+    settings = gateway_service.settings
 
-    assert 'CF_DNS_API_TOKEN="cf-token\\"with\\$chars"' in env_file
+    assert "prometheus-node-exporter prometheus-nginx-exporter" in script
+    assert f"NODE_EXPORTER_PORT={settings.GATEWAY_NODE_EXPORTER_PORT}" in script
+    assert f"NGINX_EXPORTER_PORT={settings.GATEWAY_NGINX_EXPORTER_PORT}" in script
+    assert "include /etc/nginx/skylab/status.conf;" in script
+    # stub_status 只能綁本機，exporter 只對 MONITORING_ALLOW_FROM 開放
+    assert "listen 127.0.0.1:${NGINX_STATUS_PORT};" in script
+    assert 'ufw allow from "$source" to any port "$port" proto tcp' in script
 
 
-def test_build_traefik_systemd_unit_loads_environment_file() -> None:
-    unit = gateway_service.build_traefik_systemd_unit()
-
-    assert f"EnvironmentFile=-{gateway_service.TRAEFIK_ENV_PATH}" in unit
-    assert "ExecStart=/usr/local/bin/traefik --configFile=/etc/traefik/traefik.yml" in unit
+def test_only_nginx_config_is_exposed_for_editing() -> None:
+    assert gateway_service.SERVICE_CONFIG_PATHS == {"nginx": "/etc/nginx/nginx.conf"}
+    assert gateway_service._systemd_unit("nginx") == "nginx"
 
 
 def test_parse_detected_service_versions() -> None:
-    install_targets = {
-        "traefik": "3.3.4",
-    }
-
-    traefik_info = gateway_service._build_service_version_info(
-        service="traefik",
-        version_output="Version:      3.3.4\nCodename:     ramequin",
-        install_targets=install_targets,
+    nginx_info = gateway_service._build_service_version_info(
+        service="nginx",
+        version_output="nginx version: nginx/1.26.3",
+        candidate_version="1.26.3-3+deb13u1",
+    )
+    wireguard_info = gateway_service._build_service_version_info(
+        service="wireguard",
+        version_output="wireguard-tools v1.0.20210914 - https://git.zx2c4.com/wireguard-tools/",
         candidate_version=None,
     )
-    haproxy_info = gateway_service._build_service_version_info(
-        service="haproxy",
-        version_output="HAProxy version 2.6.12-1+deb12u2 2024/10/01 - https://haproxy.org/",
-        install_targets=install_targets,
-        candidate_version="2.8.10-1~deb12u1",
-    )
 
-    assert traefik_info.current_version == "3.3.4"
-    assert traefik_info.target_version == "3.3.4"
-    assert traefik_info.update_available is False
-    assert haproxy_info.current_version == "2.6.12-1+deb12u2"
-    assert haproxy_info.target_version == "2.8.10-1~deb12u1"
-    assert haproxy_info.update_available is True
+    assert nginx_info.current_version == "1.26.3"
+    assert nginx_info.target_version == "1.26.3-3+deb13u1"
+    assert nginx_info.update_available is True
+    assert nginx_info.source == "apt candidate"
+    assert wireguard_info.current_version == "1.0.20210914"
+    assert wireguard_info.target_version is None
+    assert wireguard_info.update_available is None
+    assert wireguard_info.source == "detected only"
 
 
 def test_wireguard_uses_wg_quick_systemd_unit_without_exposing_raw_config() -> None:
