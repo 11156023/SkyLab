@@ -151,44 +151,7 @@
   white-space: nowrap;
 }
 
-/* ── Dialog ── */
-.dialogOverlay {
-  @include dialog-overlay-avoid-ai;
-  position: fixed;
-  inset: 0;
-  background: var(--color-overlay);
-  backdrop-filter: blur(4px);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 300;
-  animation: fadeIn 0.15s ease;
-  transition: opacity 0.15s ease;
-}
-
-.dialogOverlayOut {
-  animation: none;
-  opacity: 0;
-  pointer-events: none;
-}
-
-.dialog {
-  width: 90%;
-  max-width: 640px;
-  @include glass-surface($shadow: var(--shadow-lg));
-  border-radius: $radius-16;
-  @include flex-column;
-  gap: $spacing-16;
-  padding: $spacing-24;
-  animation: slideUp 0.2s ease;
-}
-
-.dialogTitle {
-  font-size: $font-size-16;
-  font-weight: $font-weight-700;
-  color: var(--color-text-primary);
-}
-
+/* ── 審核對話框的內容（外框由共用 Modal 提供）── */
 .dialogBody {
   @include flex-column;
   gap: $spacing-16;
@@ -217,19 +180,4 @@
   &::placeholder { color: var(--color-text-muted); }
 }
 
-.dialogFooter {
-  display: flex;
-  justify-content: flex-end;
-  gap: $spacing-8;
-}
-
 /* ── Animations ── */
-@keyframes fadeIn {
-  from { opacity: 0; }
-  to { opacity: 1; }
-}
-
-@keyframes slideUp {
-  from { opacity: 0; transform: translateY(16px); }
-  to { opacity: 1; transform: translateY(0); }
-}

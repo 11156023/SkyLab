@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
 import styles from "./AiApiReviewPage.module.scss";
 import MIcon from "../../../components/MIcon";
+import Modal from "../../../components/Modal/Modal";
 import LoadingState from "../../../components/LoadingState/LoadingState";
 import SharedEmptyState from "../../../components/EmptyState/EmptyState";
 import { AiApiService } from "../../../services/aiApi";
@@ -27,16 +27,6 @@ function ReviewDialog({ open, onClose, request, action, onDone }) {
   // 關閉時先播放離場動畫再卸載
   const presence = useDialogPresence(open);
 
-  /* Esc 關閉（Dialog 標準行為）；送出中不關，跟取消鈕的 disabled 一致 */
-  useEffect(() => {
-    if (!open) return undefined;
-    const onKeyDown = (e) => {
-      if (e.key === "Escape" && !submitting) onClose();
-    };
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [open, submitting, onClose]);
-
   if (!presence.open || !request) return null;
 
   const isApprove = action === "approved";
@@ -59,35 +49,16 @@ function ReviewDialog({ open, onClose, request, action, onDone }) {
     }
   };
 
-  // Portal 到 body：此 Dialog 由表格列觸發，若直接掛在 .tableWrap（backdrop-filter）
-  // 底下，position: fixed 會以卡片為 containing block，遮罩蓋不滿整個視窗
-  return createPortal(
-    <div
-      className={`${styles.dialogOverlay} ${presence.closing ? styles.dialogOverlayOut : ""}`}
-      onClick={onClose}
-    >
-      <div className={styles.dialog} role="dialog" aria-modal="true" onClick={(e) => e.stopPropagation()}>
-        <h3 className={styles.dialogTitle}>
-          {isApprove ? t("AiApiReviewPage.approveDialogTitle") : t("AiApiReviewPage.rejectDialogTitle")}
-        </h3>
-
-        <div className={styles.dialogBody}>
-          <div className={styles.dialogInfo}>
-            <div>{t("AiApiReviewPage.dialogApplicant", { value: request.user_full_name || request.user_email })}</div>
-            <div>{t("AiApiReviewPage.dialogKeyName", { value: request.api_key_name })}</div>
-            <div>{t("AiApiReviewPage.dialogAppliedAt", { value: formatDateTime(request.created_at, t("AiApiReviewPage.notReviewed")) })}</div>
-            <div className={styles.dialogPurpose}>{t("AiApiReviewPage.dialogPurpose", { value: request.purpose })}</div>
-          </div>
-          <textarea
-            className={styles.dialogTextarea}
-            value={comment}
-            onChange={(e) => setComment(e.target.value)}
-            placeholder={t("AiApiReviewPage.commentPlaceholder")}
-            rows={4}
-          />
-        </div>
-
-        <div className={styles.dialogFooter}>
+  /* 外框（遮罩、Esc、焦點、捲動鎖）交給共用 Modal；送出中 Esc／點遮罩都不關 */
+  return (
+    <Modal
+      closing={presence.closing}
+      onClose={onClose}
+      busy={submitting}
+      size="md"
+      title={isApprove ? t("AiApiReviewPage.approveDialogTitle") : t("AiApiReviewPage.rejectDialogTitle")}
+      actions={
+        <>
           <button type="button" className={styles.btnSecondary} onClick={onClose} disabled={submitting}>
             {t("AiApiReviewPage.cancel")}
           </button>
@@ -99,10 +70,25 @@ function ReviewDialog({ open, onClose, request, action, onDone }) {
           >
             {submitting ? t("AiApiReviewPage.processing") : isApprove ? t("AiApiReviewPage.confirmApprove") : t("AiApiReviewPage.confirmReject")}
           </button>
+        </>
+      }
+    >
+      <div className={styles.dialogBody}>
+        <div className={styles.dialogInfo}>
+          <div>{t("AiApiReviewPage.dialogApplicant", { value: request.user_full_name || request.user_email })}</div>
+          <div>{t("AiApiReviewPage.dialogKeyName", { value: request.api_key_name })}</div>
+          <div>{t("AiApiReviewPage.dialogAppliedAt", { value: formatDateTime(request.created_at, t("AiApiReviewPage.notReviewed")) })}</div>
+          <div className={styles.dialogPurpose}>{t("AiApiReviewPage.dialogPurpose", { value: request.purpose })}</div>
         </div>
+        <textarea
+          className={styles.dialogTextarea}
+          value={comment}
+          onChange={(e) => setComment(e.target.value)}
+          placeholder={t("AiApiReviewPage.commentPlaceholder")}
+          rows={4}
+        />
       </div>
-    </div>,
-    document.body,
+    </Modal>
   );
 }
 

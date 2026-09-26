@@ -343,7 +343,7 @@ const presence = useDialogPresence(show);
 - 精簡卡（預設）：確認框、命名框、小表單；`closeButton` 版：欄位多的表單（如連線對話框）；`bare`：只給外框，標題列與內容自己排
 - 終端機、VNC 這類 AI 讀不到的畫面用 `layer="screen"`（通常搭 `bare`）：蓋過 AI 助手、不讓位；鍵盤全部交給畫面，Esc 不關、Tab 不鎖（Tab 補全、vim 的 Esc 才能用）。全螢幕要的對話框本體用 `ref` 拿
 - 導覽用的 `data-guide` 等屬性直接傳給 `Modal`（掛在對話框本體），×、按鈕列分別用 `closeProps`、`actionsProps`
-- 2026-09-26 起逐批換上：資源詳情頁的對話框、`useConfirm`、`ConnectionDialog`、終端機／VNC、轉成範本、申請錯誤記錄、工作階段提醒、背景任務詳情、系統管理端（使用者、節點、PVE 連線、配額、網域、子網路、挖礦事件）、範本管理（建立／編輯、克隆、使用手冊）、反向代理規則、課堂觀看已換；其餘仍是舊寫法的對話框，改到時順手換
+- 2026-09-26 起逐批換上：資源詳情頁的對話框、`useConfirm`、`ConnectionDialog`、終端機／VNC、轉成範本、申請錯誤記錄、工作階段提醒、背景任務詳情、系統管理端（使用者、節點、PVE 連線、配額、網域、子網路、挖礦事件）、範本管理（建立／編輯、克隆、使用手冊）、反向代理規則、課堂觀看、AI 服務（一次性金鑰、快速開始、申請金鑰、停用金鑰、申請審核）已換；其餘仍是舊寫法的對話框，改到時順手換
 - Dialog 寬度四級：確認框／命名框 `max-width: 400px`；小型單欄表單 `max-width: 640px`；一般 `max-width: 1100px`；寬版（如 VNC）`1280px`
 - 高度：`height: 88vh`
 - 全螢幕：使用 `:fullscreen` 偽類，設 `max-width: 100%; height: 100%; border-radius: 0`

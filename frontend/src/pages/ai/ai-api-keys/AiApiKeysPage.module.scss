@@ -333,39 +333,10 @@
 .paginationInfo { color: var(--color-text-muted); font-size: $font-size-14; }
 .paginationBtns { display: flex; gap: $spacing-8; }
 
-.dialogOverlay {
-  @include dialog-overlay-avoid-ai;
-  position: fixed;
-  inset: 0;
-  display: flex;
-  z-index: 300;
-  background: var(--color-overlay);
-  animation: fadeIn 0.15s ease;
-  transition: opacity 0.15s ease;
-}
+/* 撤銷確認（共用 Modal）標題前的警示圖示：比照 useConfirm 的危險款 */
+.revokeIcon { display: inline-flex; color: var(--color-danger); }
 
-.dialogOverlayOut { opacity: 0; pointer-events: none; }
-
-.dialogOverlay { align-items: center; justify-content: center; padding: $spacing-16; }
-.dialog {
-  width: min(440px, 100%);
-  padding: $spacing-24;
-  border: 1px solid var(--color-surface-glass-border);
-  border-radius: $radius-12;
-  background: var(--color-surface);
-  box-shadow: var(--shadow-lg);
-  animation: slideUp 0.18s ease-out;
-}
-
-.dialogHeader { display: flex; gap: 12px; align-items: flex-start; }
-.dialogIcon { display: inline-flex; align-items: center; justify-content: center; width: 36px; height: 36px; flex-shrink: 0; border-radius: 50%; background: color-mix(in srgb, var(--color-danger) 12%, transparent); color: var(--color-danger); }
-.dialogTitle { color: var(--color-text-primary); font-size: $font-size-18; font-weight: $font-weight-700; }
-.dialogDesc { margin-top: $spacing-8; color: var(--color-text-secondary); font-size: $font-size-14; line-height: 1.6; }
-.dialogFooter { display: flex; justify-content: flex-end; gap: $spacing-8; margin-top: $spacing-24; }
-
-@keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
 @keyframes popIn { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: translateY(0); } }
-@keyframes slideUp { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: translateY(0); } }
 
 @media (max-width: $breakpoint-sm - 0.02px) {
   .toolbar { align-items: stretch; }
@@ -376,5 +347,5 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .filterPopover, .dialog, .dialogOverlay { animation: none; transition: none; }
+  .filterPopover { animation: none; transition: none; }
 }

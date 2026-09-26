@@ -139,3 +139,11 @@
   justify-content: flex-end;
   gap: $spacing-8;
 }
+
+@media (prefers-reduced-motion: reduce) {
+  .overlay,
+  .dialog {
+    animation: none;
+    transition: none;
+  }
+}
