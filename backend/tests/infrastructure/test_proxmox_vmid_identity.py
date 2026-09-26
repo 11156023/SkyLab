@@ -55,8 +55,22 @@ def test_next_vmid_skips_db_claimed_single_connection(
 ) -> None:
     monkeypatch.setattr(operations, "_connection_keys", lambda: [None])
     monkeypatch.setattr(operations, "get_proxmox_api", lambda _key: _fake_api(200))
+    monkeypatch.setattr(operations, "_raw_vms", lambda: [])
     monkeypatch.setattr(operations, "_db_claimed_vmids", lambda: {200, 201})
     assert operations.next_vmid() == 202
+
+
+def test_next_vmid_single_connection_does_not_step_onto_pve_vmid(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """nextid 回空號 102（DB 還殘留 102 的資源列），往上遞增不可踩到 PVE 的 103。"""
+    monkeypatch.setattr(operations, "_connection_keys", lambda: [None])
+    monkeypatch.setattr(operations, "get_proxmox_api", lambda _key: _fake_api(102))
+    monkeypatch.setattr(
+        operations, "_raw_vms", lambda: [_vm(100, "a"), _vm(101, "a"), _vm(103, "a")]
+    )
+    monkeypatch.setattr(operations, "_db_claimed_vmids", lambda: {102})
+    assert operations.next_vmid() == 104
 
 
 def test_next_vmid_skips_pve_and_db_claimed_multi_connection(

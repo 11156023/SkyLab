@@ -379,6 +379,7 @@ def list_all_credentials(
             AIAPIUsage.credential_id,
             func.max(AIAPIUsage.created_at).label("last_used_at"),
         )
+        .where(AIAPIUsage.source == USAGE_SOURCE_API_KEY)
         .group_by(AIAPIUsage.credential_id)
         .subquery("credential_last_usage")
     )

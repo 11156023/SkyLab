@@ -65,7 +65,9 @@ class CourseEnvironment(SQLModel, table=True):
     )
     updated_at: datetime = Field(
         default_factory=get_datetime_utc,
-        sa_column=Column(DateTime(timezone=True), nullable=False, onupdate=get_datetime_utc),
+        sa_column=Column(
+            DateTime(timezone=True), nullable=False, onupdate=get_datetime_utc
+        ),
     )
 
 
@@ -148,7 +150,9 @@ class CourseEnvironmentVersion(SQLModel, table=True):
     peer_policy: str = Field(default="explicit", max_length=16)
     # Unfinished editor content is kept apart from deployable configuration.
     draft_data: dict[str, Any] | None = Field(
-        default=None, sa_column=Column(sa.JSON, nullable=True)
+        # none_as_null：None 存成 SQL NULL，不是 JSON 'null'
+        default=None,
+        sa_column=Column(sa.JSON(none_as_null=True), nullable=True),
     )
     created_at: datetime = Field(
         default_factory=get_datetime_utc,
@@ -400,9 +404,7 @@ class ClassCapacityReservation(SQLModel, table=True):
     # 定案並存下，建機時查表，避免兩個時間點各自重算而與預留不一致。
     student_placements: dict[str, dict[str, str]] = Field(
         default_factory=dict,
-        sa_column=Column(
-            sa.JSON, nullable=False, server_default=sa.text("'{}'")
-        ),
+        sa_column=Column(sa.JSON, nullable=False, server_default=sa.text("'{}'")),
     )
     status: str = Field(default="reserved", max_length=24)
     created_at: datetime = Field(

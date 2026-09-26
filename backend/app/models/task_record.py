@@ -61,7 +61,7 @@ class TaskRecord(SQLModel, table=True):
     progress: int = Field(default=0, description="0-100")
     result: dict[str, Any] | None = Field(
         default=None,
-        sa_column=Column(sa.JSON, nullable=True),
+        sa_column=Column(sa.JSON(none_as_null=True), nullable=True),
         description="任務結果",
     )
     error: str | None = Field(default=None, max_length=1000)

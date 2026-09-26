@@ -52,8 +52,11 @@ def upgrade() -> None:
 def downgrade() -> None:
     inspector = sa.inspect(op.get_bind())
     if "connection_id" in {c["name"] for c in inspector.get_columns("resources")}:
-        op.drop_index("ix_resources_connection_id", table_name="resources")
-        op.drop_constraint(
-            "fk_resources_connection_id", "resources", type_="foreignkey"
-        )
+        # 名稱以 DB 實際狀態為準（create_all 建出的庫會是 resources_connection_id_fkey）
+        for fk in inspector.get_foreign_keys("resources"):
+            if fk.get("constrained_columns") == ["connection_id"] and fk.get("name"):
+                op.drop_constraint(fk["name"], "resources", type_="foreignkey")
+        for index in inspector.get_indexes("resources"):
+            if index.get("column_names") == ["connection_id"] and index.get("name"):
+                op.drop_index(index["name"], table_name="resources")
         op.drop_column("resources", "connection_id")

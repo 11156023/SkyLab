@@ -44,10 +44,13 @@ def _sync_role_from_directory(
     """既有 LDAP 帳號每次登入都依目錄群組重算角色。
 
     目錄端把老師移出群組後，本地角色若不跟著降回學生，權限就會永遠留著。
-    只處理 ``auth_source == "ldap"`` 的帳號；已是 admin 的帳號不會被目錄群組
-    降級（管理員可能是手動指定的）。
+    只處理 ``auth_source == "ldap"`` 的帳號。有設定 admin 群組時角色完全以目錄
+    為準（移出 admin 群組就降級，撤權才會生效）；沒設定 admin 群組時目錄無法
+    表達「管理員」，已是 admin 的帳號（手動指定）不動。
     """
-    if user.auth_source != "ldap" or user.role == UserRole.admin:
+    if user.auth_source != "ldap":
+        return
+    if user.role == UserRole.admin and not config.admin_group_dn:
         return
     new_role = _role_from_groups(
         info.groups,

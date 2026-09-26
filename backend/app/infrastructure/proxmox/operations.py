@@ -835,14 +835,6 @@ def next_vmid() -> int:
     因此取所有連線 nextid 的最大值，再對彙總的既有 VMID 遞增避讓。
     """
     keys = _connection_keys()
-    if len(keys) == 1:
-        proxmox = get_proxmox_api(keys[0])
-        candidate = int(proxmox.cluster.nextid.get())
-        claimed = _db_claimed_vmids()
-        while candidate in claimed:
-            candidate += 1
-        return candidate
-
     candidates: list[int] = []
     for key in keys:
         try:
@@ -855,6 +847,8 @@ def next_vmid() -> int:
     if not candidates:
         raise ProxmoxError("All Proxmox connections are unavailable.")
 
+    # nextid 回的是最小空號；被 DB 擋下往上遞增時可能踩到 PVE 已用的 VMID，
+    # 所以單連線也要一併避開 PVE 現有機器
     used = {int(r["vmid"]) for r in _raw_vms()} | _db_claimed_vmids()
     candidate = max(candidates)
     while candidate in used:

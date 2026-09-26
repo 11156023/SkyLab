@@ -5,7 +5,7 @@
 自由文字（environment_type、placement_strategy_used、call_type 等）不加；
 ai_template_call_logs.preset 舊資料曾存 Teacher Judge 的範本 key（linux／n8n…），也不加。
 
-先以 NOT VALID 加上（只約束新寫入、不長時間鎖表），再檢查既有資料：
+先以 NOT VALID 加上（只約束新寫入），再檢查既有資料：
 沒有違規列才 VALIDATE；有的話保留 NOT VALID 並印出違規值，由維運清理後
 再手動 ``ALTER TABLE ... VALIDATE CONSTRAINT``。NULL 不受 IN 限制。
 

@@ -3,6 +3,7 @@ import math
 import time
 import uuid
 from collections.abc import Iterable
+from contextlib import nullcontext
 from datetime import UTC, datetime, timedelta
 from typing import Any, Literal
 
@@ -24,6 +25,7 @@ from app.models import (
     TeachingClassStatus,
     User,
     VMTemplate,
+    VMTemplateStatus,
 )
 from app.models.quick_practice import QuickPracticeSessionMachine
 from app.models.vm_request import VMProvisioningStatus, VMRequest, VMRequestStatus
@@ -429,7 +431,11 @@ def _teaching_display_names(
             tpl_name_by_id[template.id] = template.name
     if pve_vmids:
         for template in session.exec(
-            select(VMTemplate).where(col(VMTemplate.pve_vmid).in_(pve_vmids))
+            select(VMTemplate).where(
+                col(VMTemplate.pve_vmid).in_(pve_vmids),
+                # 同一 VMID 可能有已刪除的舊範本列（partial unique），只取現役的
+                VMTemplate.status != VMTemplateStatus.deleted,
+            )
         ).all():
             tpl_name_by_pve[template.pve_vmid] = template.name
 
@@ -722,20 +728,28 @@ def mark_linked_request_consumed(
     return snapshot
 
 
+def _savepoint(session: Session):
+    """刪除流程的 best-effort 清理步驟各自包一層 savepoint：一步失敗只回滾自己，
+    不會用 session.rollback() 把前面已 flush 的 IP 釋放、NAT 清理一起撤銷。
+    （測試用的假 session 沒有 begin_nested 時退回無交易的 context。）"""
+    begin_nested = getattr(session, "begin_nested", None)
+    return begin_nested() if begin_nested is not None else nullcontext()
+
+
 def _cancel_open_spec_change_requests(
     *, session: Session, vmid: int, marker: str
 ) -> None:
     """機器刪除時作廢該 vmid 處理中的規格調整申請；失敗不阻斷刪除。"""
     try:
-        cancelled = spec_request_repo.cancel_open_spec_change_requests_for_vmid(
-            session=session, vmid=vmid, comment=marker, commit=False
-        )
+        with _savepoint(session):
+            cancelled = spec_request_repo.cancel_open_spec_change_requests_for_vmid(
+                session=session, vmid=vmid, comment=marker, commit=False
+            )
         if cancelled:
             logger.info(
                 "Cancelled %s open spec change request(s) for vmid=%s", cancelled, vmid
             )
     except Exception as exc:
-        session.rollback()
         logger.warning(
             "Failed to cancel spec change requests for vmid=%s: %s", vmid, exc
         )
@@ -1255,7 +1269,7 @@ def delete(
         # 否則資源刪掉了 IP 卻一直佔著）
         try:
             from app.services.network import ip_management_service
-            with session.begin_nested():
+            with _savepoint(session):
                 ip_management_service.release_ip(session, vmid)
         except Exception as exc:
             logger.warning("Failed to release IP for VM %s: %s", vmid, exc)
@@ -1263,7 +1277,7 @@ def delete(
         # Unlink deleted VMID from historical batch tasks so class job status won't
         # accidentally match a future resource that reuses the same VMID.
         try:
-            with session.begin_nested():
+            with _savepoint(session):
                 cleared_count = batch_provision_repo.clear_task_vmid_references(
                     session=session,
                     vmid=vmid,
@@ -1356,14 +1370,14 @@ def delete_orphan_db_record(
 
     try:
         from app.services.network import ip_management_service
-        with session.begin_nested():
+        with _savepoint(session):
             ip_management_service.release_ip(session, vmid)
     except Exception as exc:
         logger.warning("Orphan cleanup: failed to release IP for vmid=%s: %s", vmid, exc)
 
     try:
         # savepoint：失敗只回滾這一步，不撤銷前面的 IP 釋放
-        with session.begin_nested():
+        with _savepoint(session):
             batch_provision_repo.clear_task_vmid_references(
                 session=session, vmid=vmid, commit=False
             )
