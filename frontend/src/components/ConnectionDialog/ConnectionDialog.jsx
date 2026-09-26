@@ -660,7 +660,8 @@ export default function ConnectionDialog({
               {mode === "domain" && (
                 <>
                   <div className={styles.formGrid}>
-                    <div className={`${styles.field} ${styles.fieldNarrow}`}>
+                    {/* port 佔滿第一欄，與下一列「網址開頭」同寬同欄線；HTTPS 勾選對齊第二欄 */}
+                    <div className={styles.field}>
                       <label className={styles.fieldLabel} htmlFor="cd-domain-port">{t("ConnectionDialog.portLabel")}</label>
                       <input
                         id="cd-domain-port"
@@ -705,7 +706,8 @@ export default function ConnectionDialog({
                     </span>
                   ) : fullDomain && (
                     <span className={`${styles.hintLine} ${availabilityTone}`}>
-                      <MIcon name={availabilityIcon} size={14} />
+                      {/* 確認網址可用性時沙漏轉圈（全站處理中圖示統一 MIcon spin） */}
+                      <MIcon name={availabilityIcon} size={14} spin={Boolean(availability?.checking)} />
                       {availabilityText}
                     </span>
                   )}

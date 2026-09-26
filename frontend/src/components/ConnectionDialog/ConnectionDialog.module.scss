@@ -388,16 +388,13 @@
   @include btn-primary;
 }
 
-/* ── port 欄位不需要整列寬：固定寬度、靠左排 ── */
+/* ── port 列：輸入框撐滿、協定 112px（放得下 icmpv6＋下拉箭頭）、移除鈕 32px（= btn-icon）──
+   固定窄寬靠左會在右側空出一大片，也跟對話框其他整列欄位對不齊 */
 .portRow {
-  grid-template-columns: 128px 104px 28px;
+  grid-template-columns: minmax(0, 1fr) 112px 32px;
 }
 
 .forwardRowHeader,
 .forwardRow {
-  grid-template-columns: 128px 128px 104px 28px;
-}
-
-.fieldNarrow {
-  max-width: 160px;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 112px 32px;
 }
