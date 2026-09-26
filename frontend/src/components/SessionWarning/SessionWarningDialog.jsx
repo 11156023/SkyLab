@@ -86,7 +86,8 @@ export default function SessionWarningDialog({ status, onClose, onDismissPermane
             checked={doNotShow}
             onChange={(e) => setDoNotShow(e.target.checked)}
           />
-          <span>{t("SessionWarningDialog.doNotShowAgain")}</span>
+          {/* 「不再顯示」只記住這一次的關機／到期時間（見 useSessionWarning），文案要講清楚範圍 */}
+          <span>{t(isExpiry ? "SessionWarningDialog.doNotShowUntilExpiry" : "SessionWarningDialog.doNotShowUntilStop")}</span>
         </label>
 
         <div className={styles.actions}>
