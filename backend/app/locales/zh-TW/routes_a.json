@@ -10,7 +10,7 @@
   "reverseProxy.ruleDeleted": "反向代理規則已刪除",
   "reverseProxy.proxmoxOperationFailed": "Proxmox 操作失敗",
   "reverseProxy.deleteFailed": "刪除反向代理規則失敗",
-  "reverseProxy.rulesSynced": "反向代理規則已同步到 Gateway VM",
+  "reverseProxy.rulesSynced": "反向代理與 Port 轉發規則已同步到 Gateway 的 nginx",
   "reverseProxy.syncFailed": "同步反向代理規則失敗",
   "rubric.unsupportedFormat": "不支援的格式 '{suffix}'，目前接受：{allowed}",
   "rubric.unknownTemplate": "未知的評分環境 template。",

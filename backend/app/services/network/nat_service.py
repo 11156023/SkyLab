@@ -193,6 +193,15 @@ def _sync_then_delete(session: object, doomed: list) -> None:
     nat_repo.delete_rules(session, doomed)  # type: ignore[arg-type]
 
 
+def sync_to_gateway(session: object) -> None:
+    """依 DB 把全部轉發規則重建到 Gateway 的 stream.conf。
+
+    給管理員「重新同步」用：Gateway 重灌或剛從 haproxy 換成 nginx 時，
+    stream.conf 是空的，平常只有規則異動才會重建，不手動同步就一直沒有轉發。
+    """
+    _sync_nginx_stream(session)
+
+
 def remove_nat_rules_for_vmid(session: object, vmid: int) -> None:
     """刪除指定 VM 的所有 NAT 規則（VM 刪除時使用）。"""
     from app.repositories import nat_rule as nat_repo

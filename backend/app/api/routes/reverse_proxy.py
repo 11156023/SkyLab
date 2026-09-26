@@ -31,6 +31,7 @@ from app.schemas.reverse_proxy import (
 from app.services.network import (
     cloudflare_service,
     firewall_service,
+    nat_service,
     nginx_runtime_service,
     reverse_proxy_service,
 )
@@ -333,13 +334,15 @@ def delete_reverse_proxy_rule(
 
 @router.post("/rules/sync", response_model=Message)
 def sync_reverse_proxy_rules(session: SessionDep, current_user: AdminUser):
+    """把 Gateway nginx 的兩份自動設定都依 DB 重建：網域反向代理與 Port 轉發。"""
     try:
         reverse_proxy_service.sync_to_gateway(session=session)
+        nat_service.sync_to_gateway(session=session)
         audit_service.log_action(
             session=session,
             user_id=current_user.id,
             action=AuditAction.reverse_proxy_rule_sync,
-            details="Manually synced reverse proxy rules to Gateway VM",
+            details="Manually synced reverse proxy and port forwarding rules to the gateway nginx",
         )
         return Message(message=t("reverseProxy.rulesSynced"))
     except ProxmoxError as exc:

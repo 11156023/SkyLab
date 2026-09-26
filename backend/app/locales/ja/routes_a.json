@@ -10,7 +10,7 @@
   "reverseProxy.ruleDeleted": "リバースプロキシルールを削除しました",
   "reverseProxy.proxmoxOperationFailed": "Proxmox の操作に失敗しました",
   "reverseProxy.deleteFailed": "リバースプロキシルールの削除に失敗しました",
-  "reverseProxy.rulesSynced": "リバースプロキシルールを Gateway VM に同期しました",
+  "reverseProxy.rulesSynced": "リバースプロキシとポート転送のルールを Gateway の nginx に同期しました",
   "reverseProxy.syncFailed": "リバースプロキシルールの同期に失敗しました",
   "rubric.unsupportedFormat": "サポートされていない形式 '{suffix}' です。対応形式：{allowed}",
   "rubric.unknownTemplate": "不明な採点環境テンプレートです。",

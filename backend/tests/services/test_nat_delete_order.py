@@ -63,6 +63,24 @@ def test_remove_rules_for_vmid_syncs_remaining_before_delete(
     assert env.deleted == doomed
 
 
+def test_sync_to_gateway_rebuilds_all_rules_from_db(
+    env: SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Gateway 重灌後 stream.conf 是空的：手動同步要讓 _sync_nginx_stream 自己讀 DB 全部規則，
+    # 不能傳入篩過的清單
+    calls: list[Any] = []
+    monkeypatch.setattr(
+        nat_service,
+        "_sync_nginx_stream",
+        lambda session, rules=None: calls.append(rules),
+    )
+
+    nat_service.sync_to_gateway(object())
+
+    assert calls == [None]
+    assert env.deleted == []
+
+
 def test_remove_rules_for_vmid_without_rules_does_nothing(
     env: SimpleNamespace, monkeypatch: pytest.MonkeyPatch
 ) -> None:

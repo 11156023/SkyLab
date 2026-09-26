@@ -10,7 +10,7 @@
   "reverseProxy.ruleDeleted": "Reverse proxy rule deleted",
   "reverseProxy.proxmoxOperationFailed": "Proxmox operation failed",
   "reverseProxy.deleteFailed": "Failed to delete reverse proxy rule",
-  "reverseProxy.rulesSynced": "Reverse proxy rules synced to the Gateway VM",
+  "reverseProxy.rulesSynced": "Reverse proxy and port forwarding rules synced to the gateway nginx",
   "reverseProxy.syncFailed": "Failed to sync reverse proxy rules",
   "rubric.unsupportedFormat": "Unsupported format '{suffix}'. Accepted formats: {allowed}",
   "rubric.unknownTemplate": "Unknown grading environment template.",
