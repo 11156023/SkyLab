@@ -1,14 +1,173 @@
-/* 機器卡的按鈕：進入走 btn-secondary、詳情走 btn-icon（放大到 36 與進入鈕同高） */
+/* ── 卡片：單層玻璃卡，頭（狀態＋名稱｜類型圖示）→ 終端 → 動作列 ── */
+.card {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+  padding: 16px;
+  @include glass-surface($shadow: var(--shadow-sm));
+  border-radius: $radius-16;
+}
+
+.head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: $spacing-16;
+}
+
+.headText {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  /* 狀態點（HomeCard 的 .dot）原本吃標籤列的 12px，搬到這裡要自己給 */
+  font-size: $font-size-12;
+}
+
+.name {
+  margin: 0;
+  font-size: $font-size-16;
+  font-weight: $font-weight-700;
+  line-height: 1.35;
+  color: var(--color-text-primary);
+  overflow-wrap: anywhere;
+}
+
+.typeIcon {
+  display: grid;
+  flex-shrink: 0;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  border-radius: $radius-8;
+  background: var(--color-hover);
+  color: var(--color-primary);
+}
+
+/* 按鈕：進入走 btn-secondary、關機／詳情走 btn-icon（放大到 36 與進入鈕同高） */
+.actions {
+  display: flex;
+  gap: $spacing-8;
+  margin-top: auto;
+}
+
 .launchButton {
   @include btn-secondary;
   flex: 1;
   min-width: 0;
 }
 
-.infoButton {
+.iconButton {
   @include btn-icon;
   width: 36px;
   height: 36px;
   min-height: 36px;
   flex-shrink: 0;
+}
+
+/* 關機是破壞性動作：紅字淡紅底（btn-icon 危險款） */
+.iconButtonDanger {
+  @include btn-icon($danger: true);
+  width: 36px;
+  height: 36px;
+  min-height: 36px;
+  flex-shrink: 0;
+}
+
+/* ── 終端：零散資訊印成終端輸出 ──
+   固定七行高，卡片並排時一樣高；12px 在最窄卡（280px）放得下最長的用量列 */
+$terminal-line: 19px;
+
+.terminal {
+  display: flex;
+  flex-direction: column;
+  height: calc(7 * #{$terminal-line} + 24px);
+  padding: 12px 14px;
+  overflow: hidden;
+  border-radius: $radius-12;
+  background: var(--color-terminal-bg);
+  font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  font-size: 12px;
+  line-height: $terminal-line;
+  color: var(--color-terminal-text);
+  transition: background-color $transition-slow, color $transition-slow;
+}
+
+.off {
+  background: var(--color-terminal-bg-off);
+  color: var(--color-terminal-text-off);
+}
+
+.row {
+  overflow: hidden;
+  white-space: pre;
+  text-overflow: ellipsis;
+}
+
+.key { color: var(--color-terminal-key); }
+.dim { color: var(--color-terminal-dim); }
+.ok { color: var(--color-terminal-ok); }
+.warn { color: var(--color-terminal-warn); }
+.danger { color: var(--color-terminal-danger); }
+
+/* 貼底的一行：關機標記、游標、建立中的掃描條 */
+.foot { margin-top: auto; }
+
+/* 剛連線過：「last」那行亮一下 */
+.fresh { animation: terminalFresh 1.8s ease-out; }
+
+@keyframes terminalFresh {
+  from { background: color-mix(in srgb, var(--color-terminal-ok) 28%, transparent); }
+  to { background: transparent; }
+}
+
+/* 十格文字模式用量條：一格 1ch，跟前後的字對齊 */
+.bar {
+  display: inline-flex;
+  vertical-align: -1px;
+
+  i {
+    width: 0.78ch;
+    height: 10px;
+    margin-right: 0.22ch;
+    border-radius: 1.5px;
+    background: var(--color-terminal-cell);
+  }
+
+  .on { background: currentColor; }
+}
+
+.barHigh .on { background: var(--color-terminal-warn); }
+
+/* 建立中沒有進度可讀：亮點來回掃 */
+.barSweep i {
+  animation: terminalSweep 1.4s ease-in-out infinite;
+  animation-delay: calc(var(--i) * 0.09s);
+}
+
+@keyframes terminalSweep {
+  0%, 60%, 100% { background: var(--color-terminal-cell); }
+  20% { background: currentColor; }
+}
+
+.cursor {
+  display: inline-block;
+  width: 0.62em;
+  height: 1.1em;
+  vertical-align: -0.22em;
+  background: currentColor;
+  animation: terminalBlink 1.05s steps(1) infinite;
+}
+
+@keyframes terminalBlink {
+  50% { opacity: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .terminal { transition: none; }
+
+  .fresh,
+  .barSweep i,
+  .cursor { animation: none; }
 }

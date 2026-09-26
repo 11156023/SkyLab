@@ -3,6 +3,8 @@ import { useLocation, useNavigate, useParams } from "react-router-dom";
 import { toast } from "sonner";
 import { useTranslation } from "react-i18next";
 import MIcon from "../../../components/MIcon";
+import { useAuth } from "../../../contexts/AuthContext";
+import { useConfirm } from "../../../components/ConfirmDialog/ConfirmProvider";
 import TerminalDialog from "../resources/TerminalDialog";
 import VncDialog from "../resources/VncDialog";
 import { CoursesService } from "../../../services/courses";
@@ -182,6 +184,9 @@ export default function StudentHomePage({ courseView = false }) {
   const location = useLocation();
   const { pathId } = useParams();
   const { t } = useTranslation("personal");
+  const { user } = useAuth();
+  const confirm = useConfirm();
+  const [shuttingDownId, setShuttingDownId] = useState(null);
   const [view, setView] = useState({
     loading: true,
     hasError: false,
@@ -475,6 +480,27 @@ export default function StudentHomePage({ courseView = false }) {
     }
   };
 
+  /* 首頁機器卡的關機鈕：先確認，送出正常關機後先把卡片標成已關機（同我的資源頁的樂觀更新） */
+  const shutdownPracticeMachine = async (machine) => {
+    const ok = await confirm({
+      title: t("HomeOverview.confirmShutdownTitle", { name: machine.name }),
+      message: t("HomeOverview.confirmShutdownMessage"),
+      confirmText: t("HomeOverview.shutdown"),
+    });
+    if (!ok) return;
+    setShuttingDownId(machine.vmid);
+    try {
+      await ResourcesService.shutdown(machine.vmid);
+      toast.success(t("EnvironmentMachineRow.shutdownCommandSent"));
+      setView((current) => ({ ...current, resources: current.resources.map((item) =>
+        Number(item.vmid) === Number(machine.vmid) ? { ...item, status: "stopped" } : item) }));
+    } catch (error) {
+      toast.error(error?.message ?? t("EnvironmentMachineRow.controlFailed"));
+    } finally {
+      setShuttingDownId(null);
+    }
+  };
+
   const openMachineInformation = (machine) => {
     if (!machine?.vmid) {
       toast.info(t("StudentHomePage.machineNotReadyPeriod"));
@@ -615,7 +641,9 @@ export default function StudentHomePage({ courseView = false }) {
       {!courseView && <HomeOverview paths={view.paths} resources={view.resources}
         resourcesError={view.resourcesError} coursesError={view.hasError}
         templates={quickTemplates} templatesLoading={templatesLoading} templatesError={templatesError}
-        openingMachineId={openingMachineId} onOpenMachine={openPracticeMachine} todayLabel={todayLabel} />}
+        openingMachineId={openingMachineId} onOpenMachine={openPracticeMachine} todayLabel={todayLabel}
+        shuttingDownId={shuttingDownId} onShutdownMachine={shutdownPracticeMachine}
+        userId={user?.id} />}
 
       {courseView && (
         <>

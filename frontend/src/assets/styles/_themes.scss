@@ -59,6 +59,30 @@
   --color-kind-shared:   #7c5cbf;
   --color-status-neutral: #6b7280;
 
+  /* ----- Machine terminal（首頁機器卡的終端輸出，MachineTerminal）-----
+     亮暗兩個主題都是深色螢幕（底色取深色主題的藍），所以不在 body.dark 覆寫；
+     關機時換成較灰的底。小字都對底色達 AA（dim 4.5:1 起） */
+  --color-terminal-bg:       #1a2a48;
+  --color-terminal-bg-off:   #262e40;
+  --color-terminal-text:     #d9e8ff;
+  --color-terminal-text-off: #b4bdd0;
+  --color-terminal-key:      #89a5e0;
+  --color-terminal-dim:      #8196c4;
+  --color-terminal-cell:     rgba(137, 165, 224, 0.26);
+  --color-terminal-ok:       #3ecf6a;
+  --color-terminal-warn:     #f5a524;
+  --color-terminal-danger:   #ff7a7a;
+
+  /* ----- Quick-practice folder（快速練習資料夾，QuickTemplateFolder）-----
+     前蓋上的小字是白字，淺端 #5a74bf 對白字約 4.5:1 */
+  --color-folder-back-top:    #34549f;
+  --color-folder-back-bottom: #22407f;
+  --color-folder-front-light: #5a74bf;
+  --color-folder-front-dark:  #3b58a4;
+  --color-folder-paper:       #ffffff;
+  --color-folder-ink:         #2b4d98;
+  --color-folder-shadow:      rgba(20, 38, 84, 0.3);
+
   /* ----- Glass backdrop filters -----
      所有玻璃表面的 backdrop-filter 集中在此，風格變體（液態玻璃）
      可整體換濾鏡；sidebar 霧度較重、獨立一組 */
@@ -130,6 +154,15 @@ body.dark {
 
   /* ----- Machine kind：深色底用較亮的值 ----- */
   --color-kind-shared:   #b39ce8;
+
+  /* ----- Quick-practice folder：資料夾壓暗，紙張不用純白以免刺眼 ----- */
+  --color-folder-back-top:    #2a4585;
+  --color-folder-back-bottom: #1b2f5e;
+  --color-folder-front-light: #5270bb;
+  --color-folder-front-dark:  #334f96;
+  --color-folder-paper:       #dfe6f4;
+  --color-folder-ink:         #253f7c;
+  --color-folder-shadow:      rgba(0, 0, 0, 0.55);
 
   /* ----- Shadows ----- */
   --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.3);
