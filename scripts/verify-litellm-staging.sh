@@ -1,8 +1,12 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 base_url="${LITELLM_BASE_URL:-http://127.0.0.1:4000}"
-: "${LITELLM_MASTER_KEY:?export the isolated staging LITELLM_MASTER_KEY before running this check}"
+: "${LITELLM_MASTER_KEY:?export the deployment LITELLM_MASTER_KEY before running this check}"
+
+expected_models="$(jq -ce '[.[] | .alias, (.legacy_aliases[]?.name)] | sort' "$repo_root/vllm-service/models.json")"
+deployment_count="$(jq 'length' <<<"$expected_models")"
 
 curl_json() {
   curl --fail --silent --show-error "$@"
@@ -21,18 +25,20 @@ curl_json "$base_url/health/readiness" | jq -e '.status == "healthy"' >/dev/null
 
 printf 'Checking the public model allowlist...\n'
 curl_auth "$base_url/v1/models" \
-  | jq -e '
-      [.data[].id] | sort == ["Qwen/Qwen3-14B-FP8", "gpt-oss-20B"]
+  | jq -e --argjson expected "$expected_models" '
+      [.data[].id] | sort == $expected
     ' >/dev/null
 
-printf 'Checking both hosted vLLM deployments...\n'
+printf 'Checking hosted vLLM deployments...\n'
 curl_auth "$base_url/health" \
-  | jq -e '.healthy_count == 2 and .unhealthy_count == 0' >/dev/null
+  | jq -e --argjson count "$deployment_count" '.healthy_count == $count and .unhealthy_count == 0' >/dev/null
 
 printf 'Checking backend-to-host gateway reachability...\n'
+cd "$repo_root"
 docker compose exec -T backend python -c '
-import urllib.request
-urllib.request.urlopen("http://host.docker.internal:4000/health/liveliness", timeout=5).read()
+import os, urllib.request
+base = os.environ["AI_API_BASE_URL"].rstrip("/")
+urllib.request.urlopen(base + "/health/liveliness", timeout=5).read()
 ' >/dev/null
 
-printf 'LiteLLM staging verification passed.\n'
+printf 'LiteLLM operational verification passed.\n'

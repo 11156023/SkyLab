@@ -32,21 +32,30 @@ jobs:
     steps:
       - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5.0.1
 
-      - name: Load deployment .env
-        # 機密不進 repo，固定放在 runner VM 的 /opt/skylab/.env
-        run: cp /opt/skylab/.env .env
+      - name: Load deployment configuration
+        # 機密與模型路由放在 runner VM 的 /opt/skylab，不進 repo。
+        run: |
+          install -m 600 /opt/skylab/.env .env
+          install -m 600 /opt/skylab/vllm-service/litellm/.env vllm-service/litellm/.env
+          install -m 600 /opt/skylab/vllm-service/models.json vllm-service/models.json
+          if [ -f /opt/skylab/vllm-service/.env.API ]; then
+            install -m 600 /opt/skylab/vllm-service/.env.API vllm-service/.env.API
+          fi
 
-      - name: Build images
-        run: docker compose build
+      - name: Install configuration preflight dependencies
+        run: |
+          python3 -m venv vllm-service/.runtime/deploy-venv
+          vllm-service/.runtime/deploy-venv/bin/pip install 'PyYAML>=6.0' 'python-dotenv>=1.2.2'
 
       - name: Deploy
-        run: docker compose up -d --remove-orphans
+        # Refuse to compete with an existing standalone gateway; start no GPU engine.
+        run: AI_STACK_PYTHON="$PWD/vllm-service/.runtime/deploy-venv/bin/python" bash scripts/prepare-ai-stack.sh --start
 
       - name: Smoke test
         run: |
           for i in {1..30}; do
-            if curl -fsS http://localhost:8000/api/v1/utils/health-check/; then
-              echo "Backend healthy"
+            if docker compose exec -T backend curl -fsS http://localhost:8000/api/v1/utils/health-check/ && curl -fsS http://localhost:4000/health/readiness; then
+              echo "Backend and LiteLLM healthy"
               exit 0
             fi
             sleep 2

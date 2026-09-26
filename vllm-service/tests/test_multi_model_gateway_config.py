@@ -41,6 +41,7 @@ def test_build_gateway_routes_loads_admission_and_capabilities(tmp_path: Path) -
                     "api_port": 8104,
                     "max_num_seqs": 24,
                     "scheduling_policy": "priority",
+                    "mamba_ssm_cache_dtype": "float32",
                     "enable_chunked_prefill": True,
                     "long_prefill_token_threshold": 4096,
                     "gateway_max_inflight": 6,
@@ -70,6 +71,7 @@ def test_build_gateway_routes_loads_admission_and_capabilities(tmp_path: Path) -
     assert args[args.index("--served-model-name") + 1] == "Qwen/Qwen3-14B-FP8"
     assert "--enable-chunked-prefill" in args
     assert "--long-prefill-token-threshold" in args
+    assert args[args.index("--mamba-ssm-cache-dtype") + 1] == "float32"
     assert "--max-num-partial-prefills" not in args
     assert "--max-long-partial-prefills" not in args
 
@@ -197,7 +199,7 @@ def test_cluster_without_gateway_does_not_load_legacy_gateway_config(monkeypatch
         def stop_all(self):
             self.stopped = True
 
-    monkeypatch.setattr(launcher_main, "load_model_instances", lambda **kwargs: [])
+    monkeypatch.setattr(launcher_main, "load_model_instances", lambda **kwargs: [object()])
     monkeypatch.setattr(launcher_main, "validate_cluster_resources", lambda instances: None)
     monkeypatch.setattr(launcher_main, "load_gateway_config", lambda **kwargs: pytest.fail("legacy config loaded"))
     monkeypatch.setattr(launcher_main, "MultiModelEngineManager", FakeManager)

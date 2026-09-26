@@ -1,5 +1,11 @@
 ﻿# SkyLab — Docker Compose
 
+# Keep the service definition and its secrets in the original directory.
+# Requires Docker Compose >= 2.20; included relative paths resolve there.
+include:
+  - path: ./vllm-service/litellm/docker-compose.yml
+    env_file: ./vllm-service/litellm/.env
+
 x-backend-env: &backend-env
   DOMAIN: ${DOMAIN}
   FRONTEND_HOST: ${FRONTEND_HOST?Variable not set}
@@ -184,7 +190,7 @@ services:
     command: ["redis-server", "--appendonly", "yes"]
     ports:
       # Localhost only — Redis has no auth; must never be exposed externally.
-      - "127.0.0.1:6379:6379"
+      - "127.0.0.1:${REDIS_HOST_PORT:-6379}:6379"
     volumes:
       - app-redis-data:/data
     networks:
@@ -256,7 +262,7 @@ services:
       # Localhost only: the public entry point is nginx (:80), which proxies
       # /api and /ws to this service over the internal network. Exposing 8000
       # externally would let callers bypass nginx and forge X-Forwarded-For.
-      - "127.0.0.1:8000:8000"
+      - "127.0.0.1:${BACKEND_HOST_PORT:-8000}:8000"
     env_file:
       - .env
     environment:
@@ -273,9 +279,9 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
-    # The independently deployed LiteLLM gateway uses host networking so it
+    # The included LiteLLM gateway uses host networking so it
     # can reach vLLM instances bound to 127.0.0.1:8103/8104.  Keep this host
-    # gateway mapping for the future AI_API_BASE_URL connection.
+    # gateway mapping for the AI_API_BASE_URL connection.
     extra_hosts:
       - "host.docker.internal:host-gateway"
     networks:
@@ -318,6 +324,8 @@ services:
       timeout: 10s
       retries: 3
       start_period: 90s
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     networks:
       - skylab
 

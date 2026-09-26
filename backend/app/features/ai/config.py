@@ -18,14 +18,13 @@ class AIAPIEnvSettings(BaseSettings):
         extra="ignore",
     )
 
-    ai_api_base_url: str = "http://localhost:3000"
+    ai_api_base_url: str = "http://host.docker.internal:4000"
     ai_api_api_key: str = "ai-api-secret-key-change-me"
     ai_api_timeout: int = 120
     ai_api_max_request_body_bytes: int = 1_048_576
 
-    # Phase 2 only: this is an admin-only runtime-observation connection to
-    # LiteLLM, separate from the legacy AI API upstream until Phase 5 switches
-    # traffic. Leave the key unset to disable the snapshot endpoint safely.
+    # Admin-only runtime observation uses the same restricted Campus service
+    # identity. Leave the key unset to disable the snapshot endpoint.
     litellm_runtime_base_url: str = "http://host.docker.internal:4000"
     litellm_runtime_api_key: str | None = None
 

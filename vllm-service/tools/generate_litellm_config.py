@@ -19,14 +19,12 @@ import yaml
 
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(PROJECT_ROOT))
+from model_deployment import ENV_REFERENCE, deployment_kind, upstream_connection  # noqa: E402
+
 DEFAULT_MODELS = PROJECT_ROOT / "models.json"
 DEFAULT_TEMPLATE = PROJECT_ROOT / "litellm" / "config.template.yaml"
 DEFAULT_OUTPUT = PROJECT_ROOT / "litellm" / "config.yaml"
-SECRET_ENV_REFS = {
-    "os.environ/LITELLM_MASTER_KEY",
-    "os.environ/VLLM_UPSTREAM_API_KEY",
-    "os.environ/DATABASE_URL",
-}
 
 
 def _path(value: str) -> Path:
@@ -103,19 +101,20 @@ def load_models(path: Path) -> list[dict[str, Any]]:
             raise ValueError(f"模型配置 #{index} 必須為物件")
         alias = _require_str(item, "alias", index)
         served_model_name = _require_str(item, "served_model_name", index)
-        _require_str(item, "model_name", index)
-        port = item.get("api_port")
-        if isinstance(port, bool) or not isinstance(port, int) or not 1 <= port <= 65535:
-            raise ValueError(f"模型配置 #{index} 的 api_port 必須介於 1 和 65535")
+        kind = deployment_kind(item)
+        api_base, key_name = upstream_connection(item)
         if alias in aliases:
             raise ValueError(f"公開 alias 重複: {alias}")
-        if served_model_name in served_names:
-            raise ValueError(f"served_model_name 重複: {served_model_name}")
-        if port in ports:
-            raise ValueError(f"api_port 重複: {port}")
+        if kind == "local":
+            _require_str(item, "model_name", index)
+            port = item["api_port"]
+            if served_model_name in served_names:
+                raise ValueError(f"served_model_name 重複: {served_model_name}")
+            if port in ports:
+                raise ValueError(f"api_port 重複: {port}")
+            served_names.add(served_model_name)
+            ports.add(port)
         aliases.add(alias)
-        served_names.add(served_model_name)
-        ports.add(port)
 
         metadata = item.get("litellm", {})
         if not isinstance(metadata, dict):
@@ -130,7 +129,9 @@ def load_models(path: Path) -> list[dict[str, Any]]:
         model = dict(item)
         model["alias"] = alias
         model["served_model_name"] = served_model_name
-        model["api_port"] = port
+        model["deployment"] = kind
+        model["api_base"] = api_base
+        model["api_key_env"] = key_name
         model["litellm"] = {"rpm": rpm}
         model["capabilities"] = capabilities
         model["_legacy_alias_names"] = _validate_legacy_aliases(
@@ -157,8 +158,8 @@ def _deployment(model: dict[str, Any], public_name: str) -> dict[str, Any]:
             # The current hosted_vllm provider appends its OpenAI endpoint
             # path directly to api_base. vLLM itself serves those routes below
             # /v1, so the version prefix must be part of the generated base.
-            "api_base": f"http://127.0.0.1:{model['api_port']}/v1",
-            "api_key": "os.environ/VLLM_UPSTREAM_API_KEY",
+            "api_base": model["api_base"],
+            "api_key": f"os.environ/{model['api_key_env']}",
             "timeout": 300,
             "rpm": model["litellm"]["rpm"],
         },
@@ -187,13 +188,21 @@ def render_config(
 
 
 def assert_secret_free(config: dict[str, Any]) -> None:
-    serialized = yaml.safe_dump(config, sort_keys=True)
-    if "api_key:" not in serialized or "master_key:" not in serialized:
+    if not config.get("model_list") or not config.get("general_settings", {}).get("master_key"):
         raise ValueError("產生設定缺少必要的環境變數 reference")
-    for line in serialized.splitlines():
-        if any(key in line for key in ("api_key:", "master_key:", "database_url:")):
-            if not any(reference in line for reference in SECRET_ENV_REFS):
-                raise ValueError("產生設定不得包含明文 secret")
+
+    def check(value: Any) -> None:
+        if isinstance(value, dict):
+            for key, child in value.items():
+                if key in {"api_key", "master_key", "database_url", "salt_key"}:
+                    if not isinstance(child, str) or not ENV_REFERENCE.fullmatch(child):
+                        raise ValueError("產生設定不得包含明文 secret")
+                check(child)
+        elif isinstance(value, list):
+            for child in value:
+                check(child)
+
+    check(config)
 
 
 def main() -> int:
@@ -202,9 +211,12 @@ def main() -> int:
     parser.add_argument("--template", default=str(DEFAULT_TEMPLATE))
     parser.add_argument("--output", default=str(DEFAULT_OUTPUT))
     parser.add_argument("--mode", choices=("integration", "production"), default="integration")
+    parser.add_argument("--bootstrap", action="store_true", help="首次建立 gateway、尚未核發 service key 時只產生 production 設定")
     args = parser.parse_args()
 
-    if args.mode == "production" and not os.getenv("LITELLM_SERVICE_API_KEY"):
+    if args.bootstrap and args.mode != "production":
+        parser.error("--bootstrap requires --mode production")
+    if args.mode == "production" and not args.bootstrap and not os.getenv("LITELLM_SERVICE_API_KEY"):
         parser.error("production mode requires LITELLM_SERVICE_API_KEY to be injected")
 
     try:

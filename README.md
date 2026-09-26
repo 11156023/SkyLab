@@ -49,24 +49,27 @@ SkyLab 是一個面向校園資源管理的全端 Proxmox VE（PVE）虛擬化�
 
 ## 快速開始（Docker Compose）
 
-複製範例環境變數並啟動整個 stack：
+主 Compose 已整合 LiteLLM；先依 [AI API 使用手冊](docs/ai-api-user-manual.md) 填好資料庫、金鑰與模型路由，再啟動整個 stack：
 
 ```bash
-cp .env.example .env       # 視需要修改 PROXMOX_*、SECRET_KEY、SMTP 等
-docker compose watch
+cp -n .env.example .env
+cp -n vllm-service/litellm/.env.example vllm-service/litellm/.env
+# 填好兩份 .env；本機模型需先啟動 vllm-service/start_multi_model_cluster.sh
+bash scripts/prepare-ai-stack.sh --start
 ```
 
 預設服務位址：
 
 | 服務 | URL |
 | --- | --- |
+| Campus 對外入口（nginx） | http://localhost:8082 |
 | Frontend | http://localhost:5173 |
 | Backend API | http://localhost:8000 |
 | Swagger Docs | http://localhost:8000/docs |
 | Adminer | http://localhost:8080 |
 | MailCatcher（開發用收信匣；正式環境請設 SMTP_HOST） | http://localhost:1080 |
 
-> vLLM 推論請優先使用 `vllm-service/`。`start_single_model.sh` 啟動單模型主服務；AI API 遷移期以 `start_multi_model_cluster.sh` 啟動多模型 vLLM，並由 LiteLLM routing。舊多模型 Gateway 僅保留為 P5/P6 的回滾入口，以 `python main.py gateway` 啟動（沒有獨立腳本）。
+> vLLM 推論請優先使用 `vllm-service/`。`start_single_model.sh` 啟動單模型主服務；`start_multi_model_cluster.sh` 啟動 `models.json` 的本機模型，遠端模型由各主機管理。主 Compose 引用原 [LiteLLM Compose](vllm-service/litellm/docker-compose.yml)，共用 `litellm/config.yaml` 與獨立 `.env`；原檔仍可供獨立部署，但兩種模式不可同時執行。完整操作見 [AI API 使用手冊](docs/ai-api-user-manual.md)。舊 Gateway 保留為備援入口，以 `python main.py gateway` 啟動。
 
 
 ## 本地開發

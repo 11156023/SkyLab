@@ -9,7 +9,7 @@
 | --- | --- | --- | --- |
 | 單一模型主服務 | `./start_single_model.sh` | 系統內部 AI、MVP、單模型除錯 | `http://<API_HOST>:<API_PORT>/v1` |
 | 多模型 vLLM cluster | `./start_multi_model_cluster.sh` | 只啟動各模型 instance，供 LiteLLM 使用 | `http://127.0.0.1:8103/8104/v1` |
-| 舊多模型 Gateway（回滾用） | `python main.py gateway` | 遷移觀察期的回滾路徑 | `http://<GATEWAY_HOST>:<GATEWAY_PORT>/v1` |
+| 舊多模型 Gateway（備援用） | `python main.py gateway` | 主要 LiteLLM gateway 的備援路徑 | `http://<GATEWAY_HOST>:<GATEWAY_PORT>/v1` |
 
 ## 快速開始
 
@@ -30,6 +30,11 @@ pip install vllm
 - 單模型模式讀取 `.env.interface`，主要看 `MODEL_NAME`、`API_PORT`、`API_KEY` 與單模型 vLLM 容量參數。
 - Gateway 模式讀取 `.env.API`，主要看 `GATEWAY_*`、共用部署值與 `models.json`。
 - `models.json` 管理多模型各自的 `model_name`、`api_port`、engine/parser 參數。
+- 目前第二個 instance 使用 `AImodels/NVIDIA-Nemotron-Nano-9B-v2-FP8`；Nemotron
+  的 Mamba SSM cache 會以 `float32` 啟動，並以 32K context / 16 路併發作為多模型
+  初始部署基線；另外關閉 Nemotron 的實驗性 prefix cache。
+- `.env.API` 將 `MAX_JOBS` / `NINJAFLAGS` 限制為單工，避免第二個模型首次做
+  FlashInfer CUDA JIT 時耗盡主機記憶體。
 - 影片、文件、溫度、Top-P/K、重複懲罰等不常改的推論預設值集中在 `config/settings.py`。
 - `API_KEY` 是 vLLM 各 instance 的 Bearer key。LiteLLM 以
   `VLLM_UPSTREAM_API_KEY` 取得同一個值，轉發到本機 vLLM `/v1`；變數名稱分開只是
@@ -59,38 +64,51 @@ VLLM_API_KEY=vllm-secret-key-change-me
 VLLM_MODEL_NAME=<MODEL_NAME>
 ```
 
-## 啟動多模型 vLLM cluster（LiteLLM 遷移路徑）
+## 啟動多模型 vLLM cluster（主要 AI API 服務）
 
 ```bash
 bash ./start_multi_model_cluster.sh
-python ./tools/generate_litellm_config.py --mode integration
+LITELLM_SERVICE_API_KEY=<campus-service-key-from-secret-manager> \
+  python ./tools/generate_litellm_config.py --mode production
 ```
 
 cluster 腳本等同 `python main.py cluster --no-gateway --base-env .env.API`。它只管理
 vLLM instance 的啟動、ready check 與優雅關閉；模型 alias／路由由 LiteLLM 的產生設定管理。
-每個 `models.json` entry 必須有唯一的 `alias`、`served_model_name` 與 `api_port`。
+每個 `models.json` entry 必須有唯一的 `alias`；本機模型的 `served_model_name` 與 `api_port` 也必須唯一。
 `served_model_name` 會傳入 vLLM 的 `--served-model-name`，所以各 instance 的
 `/v1/models` 不會暴露主機模型路徑。
+
+若需重新下載 Nemotron 模型，可使用固定 revision，避免模型檔案更新造成不可重現的部署：
+
+```bash
+./.venv/bin/python -c "from huggingface_hub import snapshot_download; snapshot_download(repo_id='nvidia/NVIDIA-Nemotron-Nano-9B-v2-FP8', revision='8bc5eece2eb5514c4bca7f2ec655b91eb554f4c0', local_dir='AImodels/NVIDIA-Nemotron-Nano-9B-v2-FP8', max_workers=4)"
+```
 
 `generate_litellm_config.py` 讀取 `models.json` 與 `litellm/config.template.yaml`，產出
 `litellm/config.yaml`。產物已由 Git 忽略，且只含 `os.environ/...` secret reference，不含任何明文 key。
 `integration` 模式不含資料庫設定；`production` 模式要求部署程序先注入
 `LITELLM_SERVICE_API_KEY`，並產生 `DATABASE_URL` reference。
 
-LiteLLM 與 Campus 主 Compose 是兩個獨立專案。先建立 `litellm/.env`（可由
-`litellm/.env.example` 複製），再從該目錄啟動：
+LiteLLM 已由 Campus 主 Compose `include` 引用，原獨立 Compose 仍保留。
+先建立 `litellm/.env`（可由 `litellm/.env.example` 複製），再從專案根目錄啟動：
 
 ```bash
-cd litellm
-docker compose up -d
+cd ..
+bash scripts/prepare-ai-stack.sh --start
 ```
 
-Campus backend 未來切換時，仍透過根目錄 `.env` 的 `AI_API_BASE_URL`、
-`AI_API_API_KEY` 與 `LITELLM_RUNTIME_*` 連往獨立 gateway；同機 host-network
-部署使用 `http://host.docker.internal:4000`。根目錄 `docker-compose.yml` 不會啟動、
-停止或掛載 LiteLLM。
+Campus backend 透過根目錄 `.env` 的 `AI_API_BASE_URL`、
+`AI_API_API_KEY` 與 `LITELLM_RUNTIME_*` 連往 gateway；同機 host-network
+部署的 Compose backend 使用 `http://host.docker.internal:4000`，主機程序執行的
+backend 使用 `http://127.0.0.1:4000`。根目錄 `docker compose up/down` 現在會管理
+LiteLLM，但不管理主機上的 vLLM 程序。
 
-## 舊多模型 API Gateway（僅回滾）
+跨主機模型請在 `models.json` 設定 `deployment: "remote"`、`api_base`（含 `/v1`）
+及 `api_key_env`，金鑰值放在 `litellm/.env`。本機啟動器略過這些項目；產生器將它們
+整合至相同的 LiteLLM 路由。完整範例、既有獨立容器接管和使用者 API 操作見
+[AI API 使用手冊](../docs/ai-api-user-manual.md)。
+
+## 舊多模型 API Gateway（備援）
 
 ```bash
 python main.py gateway
@@ -114,7 +132,7 @@ python main.py gateway --base-env .env.API
 3. 依序啟動每個 vLLM instance。
 4. 啟動 FastAPI Gateway，提供 `/v1/models`、`/v1/chat/completions`、`/v1/completions`。
 
-在 LiteLLM 切換前，主 backend 的對外 AI API proxy 仍可用：
+需要使用舊 Gateway 備援時，主 backend 的對外 AI API proxy 可改用：
 
 ```env
 AI_API_BASE_URL=http://localhost:3000
@@ -137,7 +155,7 @@ AI_API_API_KEY=vllm-secret-key-change-me
 
 ## 前端狀態
 
-`vllm-service` 只提供推論服務與遷移期間的舊 Gateway，不再維護 React/Vite 前端。
+`vllm-service` 只提供推論服務、主要 LiteLLM gateway 與舊 Gateway 備援，不再維護 React/Vite 前端。
 若需要互動介面，請由 SkyLab 主 frontend 或外部 OpenAI-compatible client 呼叫 Campus backend。
 
 ## 舊目錄狀態

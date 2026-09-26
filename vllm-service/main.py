@@ -459,7 +459,7 @@ def quick_start_cluster(
     reasoning_parser: str = "",
     kv_cache_dtype: str = "",
 ) -> ClusterRuntime | None:
-    """一次啟動三模型集群。
+    """一次啟動所有本機模型；遠端路由交由 LiteLLM。
     
     Args:
         wait_ready: 是否等待所有模型就緒
@@ -493,6 +493,9 @@ def quick_start_cluster(
             models_json_file=models_json,
             cli_overrides=cli_overrides,
         )
+        if not instances:
+            logger.error("沒有本機模型可啟動；全遠端部署請直接啟動 LiteLLM Compose")
+            return None
         validate_cluster_resources(instances)
         gateway_config = None
         routes = {}
