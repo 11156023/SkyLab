@@ -320,6 +320,29 @@ import MIcon from "../components/MIcon";
 
 ### Dialog / Modal
 
+新對話框**一律用共用的 `<Modal>`**（`components/Modal/Modal`），不要再手寫遮罩與卡片。它統一處理
+portal 到 body、遮罩與進出場動畫、`role`／`aria-modal`／`aria-labelledby`、Esc 與點遮罩關閉（`busy` 時不關；疊兩層只關最上層）、
+開啟時焦點移進對話框並在關閉後還原、Tab 鎖在對話框內、鎖住底下頁面捲動：
+
+```jsx
+const presence = useDialogPresence(show);
+{presence.open && (
+  <Modal
+    as="form" onSubmit={submit}          // 表單型才傳
+    closing={presence.closing} onClose={() => setShow(false)} busy={saving}
+    title="重設密碼" description="新密碼只會顯示一次"
+    size="sm"                            // sm 400／md 640／lg 1100／xl 1280
+    closeButton                          // 欄位多的表單：標題列帶 ×、內容區自己捲、按鈕列固定在底部
+    actions={<><button …>取消</button><button type="submit" …>送出</button></>}
+  >
+    …欄位…
+  </Modal>
+)}
+```
+
+- 精簡卡（預設）：確認框、命名框、小表單；`closeButton` 版：欄位多的表單（如連線對話框）
+- 導覽用的 `data-guide` 等屬性直接傳給 `Modal`（掛在對話框本體），×、按鈕列分別用 `closeProps`、`actionsProps`
+- 2026-09-26 起逐批換上：資源詳情頁的對話框、`useConfirm`、`ConnectionDialog` 已換；其餘仍是舊寫法的對話框，改到時順手換
 - Dialog 寬度四級：確認框／命名框 `max-width: 400px`；小型單欄表單 `max-width: 640px`；一般 `max-width: 1100px`；寬版（如 VNC）`1280px`
 - 高度：`height: 88vh`
 - 全螢幕：使用 `:fullscreen` 偽類，設 `max-width: 100%; height: 100%; border-radius: 0`

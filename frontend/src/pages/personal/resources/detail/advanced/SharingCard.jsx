@@ -4,11 +4,11 @@
  */
 
 import { useCallback, useEffect, useState } from "react";
-import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router-dom";
 import styles from "../ResourceDetailPage.module.scss";
 import MIcon from "../../../../../components/MIcon";
+import Modal from "../../../../../components/Modal/Modal";
 import LoadingState from "../../../../../components/LoadingState/LoadingState";
 import useDialogPresence from "../../../../../hooks/useDialogPresence";
 import { useToast } from "../../../../../hooks/useToast";
@@ -29,32 +29,38 @@ function TransferModal({ resource, closing, loading, onClose, onSubmit }) {
   }
 
   return (
-    <div className={`${styles.modalOverlay} ${closing ? styles.modalOverlayOut : ""}`} onMouseDown={onClose}>
-      <form className={styles.modal} onSubmit={submit} onMouseDown={(e) => e.stopPropagation()}>
-        <h2 className={styles.modalTitle}>{t("SharingCard.transferTitle")}</h2>
-        <p className={styles.modalDesc}>{t("SharingCard.transferDesc")}</p>
-        <div className={styles.field}>
-          <label htmlFor="xfer-email">{t("SharingCard.transferEmailLabel")}</label>
-          <input id="xfer-email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder={t("SharingCard.emailPlaceholder")} required />
-        </div>
-        <label className={styles.checkRow}>
-          <input type="checkbox" checked={keepAccess} onChange={(e) => setKeepAccess(e.target.checked)} />
-          <span>{t("SharingCard.keepAccess")}</span>
-        </label>
-        <div className={styles.field}>
-          <label htmlFor="xfer-confirm">{t("SharingCard.transferConfirmLabel", { name: resource?.name })}</label>
-          <input id="xfer-confirm" value={confirmName} onChange={(e) => setConfirmName(e.target.value)} placeholder={resource?.name} />
-        </div>
-        <div className={styles.modalActions}>
+    <Modal
+      as="form"
+      onSubmit={submit}
+      closing={closing}
+      onClose={onClose}
+      busy={loading}
+      title={t("SharingCard.transferTitle")}
+      description={t("SharingCard.transferDesc")}
+      actions={
+        <>
           <button type="button" className={styles.btnSecondary} onClick={onClose} disabled={loading}>
             {t("SharingCard.cancel")}
           </button>
           <button type="submit" className={styles.btnDanger} disabled={loading || !ready}>
             {loading ? t("SharingCard.processing") : t("SharingCard.transfer")}
           </button>
-        </div>
-      </form>
-    </div>
+        </>
+      }
+    >
+      <div className={styles.field}>
+        <label htmlFor="xfer-email">{t("SharingCard.transferEmailLabel")}</label>
+        <input id="xfer-email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder={t("SharingCard.emailPlaceholder")} required />
+      </div>
+      <label className={styles.checkRow}>
+        <input type="checkbox" checked={keepAccess} onChange={(e) => setKeepAccess(e.target.checked)} />
+        <span>{t("SharingCard.keepAccess")}</span>
+      </label>
+      <div className={styles.field}>
+        <label htmlFor="xfer-confirm">{t("SharingCard.transferConfirmLabel", { name: resource?.name })}</label>
+        <input id="xfer-confirm" value={confirmName} onChange={(e) => setConfirmName(e.target.value)} placeholder={resource?.name} />
+      </div>
+    </Modal>
   );
 }
 
@@ -225,18 +231,15 @@ export default function SharingCard({ vmid, resource, canManage, backTo }) {
         )}
       </div>
 
-      {/* portal 到 body：卡片的 overflow:hidden + backdrop-filter 會把 fixed modal 困在卡片裡 */}
-      {transferPresence.open &&
-        createPortal(
-          <TransferModal
-            resource={resource}
-            closing={transferPresence.closing}
-            loading={busy}
-            onClose={() => setShowTransfer(false)}
-            onSubmit={handleTransfer}
-          />,
-          document.body,
-        )}
+      {transferPresence.open && (
+        <TransferModal
+          resource={resource}
+          closing={transferPresence.closing}
+          loading={busy}
+          onClose={() => setShowTransfer(false)}
+          onSubmit={handleTransfer}
+        />
+      )}
     </div>
   );
 }

@@ -5,10 +5,10 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
 import styles from "../ResourceDetailPage.module.scss";
 import MIcon from "../../../../../components/MIcon";
+import Modal from "../../../../../components/Modal/Modal";
 import LoadingState from "../../../../../components/LoadingState/LoadingState";
 import useDialogPresence from "../../../../../hooks/useDialogPresence";
 import { useToast } from "../../../../../hooks/useToast";
@@ -34,32 +34,38 @@ function PasswordModal({ closing, loading, willReboot, onClose, onSubmit }) {
   }
 
   return (
-    <div className={`${styles.modalOverlay} ${closing ? styles.modalOverlayOut : ""}`} onMouseDown={onClose}>
-      <form className={styles.modal} onSubmit={submit} onMouseDown={(e) => e.stopPropagation()}>
-        <h2 className={styles.modalTitle}>{t("CredentialsCard.resetPasswordTitle")}</h2>
-        <p className={styles.modalDesc}>{t("CredentialsCard.resetPasswordDesc")}</p>
-        {willReboot && <p className={`${styles.modalDesc} ${styles.hintWarn}`}>{t("CredentialsCard.rebootWarning")}</p>}
-        <label className={styles.checkRow}>
-          <input type="checkbox" checked={custom} onChange={(e) => setCustom(e.target.checked)} />
-          <span>{t("CredentialsCard.useCustomPassword")}</span>
-        </label>
-        {custom && (
-          <div className={`${styles.field} ${invalid && password ? styles.fieldInvalid : ""}`}>
-            <label htmlFor="cred-pw">{t("CredentialsCard.newPasswordLabel")}</label>
-            <input id="cred-pw" type="text" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="off" />
-            <span className={styles.fieldHint}>{t("CredentialsCard.newPasswordHint")}</span>
-          </div>
-        )}
-        <div className={styles.modalActions}>
+    <Modal
+      as="form"
+      onSubmit={submit}
+      closing={closing}
+      onClose={onClose}
+      busy={loading}
+      title={t("CredentialsCard.resetPasswordTitle")}
+      description={t("CredentialsCard.resetPasswordDesc")}
+      actions={
+        <>
           <button type="button" className={styles.btnSecondary} onClick={onClose} disabled={loading}>
             {t("CredentialsCard.cancel")}
           </button>
           <button type="submit" className={styles.btnPrimary} disabled={loading || invalid}>
             {loading ? t("CredentialsCard.processing") : t("CredentialsCard.resetPassword")}
           </button>
+        </>
+      }
+    >
+      {willReboot && <p className={styles.dialogWarn}>{t("CredentialsCard.rebootWarning")}</p>}
+      <label className={styles.checkRow}>
+        <input type="checkbox" checked={custom} onChange={(e) => setCustom(e.target.checked)} />
+        <span>{t("CredentialsCard.useCustomPassword")}</span>
+      </label>
+      {custom && (
+        <div className={`${styles.field} ${invalid && password ? styles.fieldInvalid : ""}`}>
+          <label htmlFor="cred-pw">{t("CredentialsCard.newPasswordLabel")}</label>
+          <input id="cred-pw" type="text" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="off" />
+          <span className={styles.fieldHint}>{t("CredentialsCard.newPasswordHint")}</span>
         </div>
-      </form>
-    </div>
+      )}
+    </Modal>
   );
 }
 
@@ -326,18 +332,15 @@ export default function CredentialsCard({ vmid, canManage, onShowOverview }) {
         )}
       </div>
 
-      {/* portal 到 body：卡片的 overflow:hidden + backdrop-filter 會把 fixed modal 困在卡片裡 */}
-      {passwordPresence.open &&
-        createPortal(
-          <PasswordModal
-            closing={passwordPresence.closing}
-            loading={busy}
-            willReboot={info?.resource_type === "qemu" && info?.running}
-            onClose={() => setShowPassword(false)}
-            onSubmit={handleResetPassword}
-          />,
-          document.body,
-        )}
+      {passwordPresence.open && (
+        <PasswordModal
+          closing={passwordPresence.closing}
+          loading={busy}
+          willReboot={info?.resource_type === "qemu" && info?.running}
+          onClose={() => setShowPassword(false)}
+          onSubmit={handleResetPassword}
+        />
+      )}
     </div>
   );
 }

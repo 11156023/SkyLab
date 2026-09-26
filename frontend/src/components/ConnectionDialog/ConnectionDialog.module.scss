@@ -1,64 +1,3 @@
-/* ── Overlay ── */
-.overlay {
-  @include dialog-overlay-avoid-ai;
-  position: fixed;
-  inset: 0;
-  background: var(--color-overlay);
-  @include flex-center;
-  z-index: 300;
-  padding: $spacing-16;
-  backdrop-filter: blur(4px);
-  animation: fadeIn 0.15s ease;
-  transition: opacity 0.15s ease;
-}
-
-.overlayOut {
-  animation: none;
-  opacity: 0;
-  pointer-events: none;
-}
-
-@keyframes fadeIn {
-  from { opacity: 0; }
-  to   { opacity: 1; }
-}
-
-.dialog {
-  @include glass-surface($shadow: var(--shadow-lg));
-  border-radius: $radius-16;
-  width: 100%;
-  max-width: 640px; /* 規範 Dialog 寬度級距：小型單欄表單款 */
-  @include flex-column;
-  max-height: 90vh;
-  overflow: hidden;
-  animation: slideUp 0.18s cubic-bezier(0.25, 0.8, 0.25, 1);
-}
-
-@keyframes slideUp {
-  from { opacity: 0; transform: translateY(12px); }
-  to   { opacity: 1; transform: translateY(0); }
-}
-
-/* ── Header ── */
-.dialogHeader {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: $spacing-16 $spacing-24;
-  border-bottom: 1px solid var(--color-border);
-  flex-shrink: 0;
-}
-
-.dialogTitle {
-  font-size: $font-size-16;
-  font-weight: $font-weight-700;
-  color: var(--color-text-primary);
-}
-
-.closeBtn {
-  @include btn-dialog-close;
-}
-
 /* ── 分頁：連線 / 自訂規則 ── */
 /* ── 意圖：第一步四張卡，選定後收合成一行 ── */
 .intentGrid {
@@ -135,14 +74,6 @@
   font-size: $font-size-12;
   color: var(--color-primary-on-surface);
   white-space: nowrap;
-}
-
-/* ── Body ── */
-.dialogBody {
-  @include flex-column;
-  gap: $spacing-16;
-  padding: $spacing-24;
-  overflow-y: auto;
 }
 
 /* ── 鎖定的機器（資源頁入口、編輯既有發布）：顯示名稱，不放只有一個選項的下拉 ── */
@@ -429,16 +360,7 @@
   padding: $spacing-8 $spacing-16;
 }
 
-/* ── Actions ── */
-.actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: $spacing-8;
-  padding-top: $spacing-8;
-  border-top: 1px solid var(--color-border);
-}
-
-/* 取消／確認：與全站確認彈窗（ConfirmDialog 基準）同款 */
+/* 取消／確認：放進共用 Modal 的按鈕列，與全站確認彈窗同款 */
 .cancelBtn {
   @include btn-secondary;
 }

@@ -3,6 +3,7 @@ import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
 import styles from "./ResourceDetailPage.module.scss";
 import MIcon from "../../../../components/MIcon";
+import Modal from "../../../../components/Modal/Modal";
 import LoadingState from "../../../../components/LoadingState/LoadingState";
 import EmptyState from "../../../../components/EmptyState/EmptyState";
 import { ResourcesService } from "../../../../services/resources";
@@ -222,54 +223,47 @@ export default function SnapshotsTab({ vmid, toolbar }) {
       </div>
 
       {createDialog.open && (
-        <div
-          className={`${styles.modalOverlay} ${createDialog.closing ? styles.modalOverlayOut : ""}`}
-          onClick={closeCreate}
-        >
-          <div className={styles.modal} onClick={(e) => e.stopPropagation()}>
-            <span className={styles.modalTitle}>{t("SnapshotsTab.createSnapshotTitle")}</span>
-            <p className={styles.modalDesc}>{t("SnapshotsTab.createSnapshotDesc")}</p>
-            <div className={`${styles.field} ${nameInvalid ? styles.fieldInvalid : ""}`}>
-              <label htmlFor="snap-name">{t("SnapshotsTab.nameLabel")}</label>
-              <input
-                id="snap-name"
-                ref={snapnameRef}
-                type="text"
-                placeholder="snap-2026-07-04"
-                aria-invalid={nameInvalid}
-                value={snapname}
-                onChange={(e) => { setSnapname(e.target.value); setNameInvalid(false); }}
-              />
-            </div>
-            <div className={styles.field}>
-              <label htmlFor="snap-desc">{t("SnapshotsTab.descLabel")}</label>
-              <textarea
-                id="snap-desc"
-                rows={3}
-                placeholder={t("SnapshotsTab.descPlaceholder")}
-                value={description}
-                onChange={(e) => setDescription(e.target.value)}
-              />
-            </div>
-            <div className={styles.modalActions}>
-              <button
-                type="button"
-                className={styles.btnSecondary}
-                onClick={closeCreate}
-              >
+        <Modal
+          as="form"
+          onSubmit={(e) => { e.preventDefault(); handleCreate(); }}
+          closing={createDialog.closing}
+          onClose={closeCreate}
+          title={t("SnapshotsTab.createSnapshotTitle")}
+          description={t("SnapshotsTab.createSnapshotDesc")}
+          actions={
+            <>
+              <button type="button" className={styles.btnSecondary} onClick={closeCreate}>
                 {t("SnapshotsTab.cancel")}
               </button>
-              <button
-                type="button"
-                className={styles.btnPrimary}
-                disabled={busy}
-                onClick={handleCreate}
-              >
+              <button type="submit" className={styles.btnPrimary} disabled={busy}>
                 {busy ? t("SnapshotsTab.creating") : t("SnapshotsTab.create")}
               </button>
-            </div>
+            </>
+          }
+        >
+          <div className={`${styles.field} ${nameInvalid ? styles.fieldInvalid : ""}`}>
+            <label htmlFor="snap-name">{t("SnapshotsTab.nameLabel")}</label>
+            <input
+              id="snap-name"
+              ref={snapnameRef}
+              type="text"
+              placeholder="snap-2026-07-04"
+              aria-invalid={nameInvalid}
+              value={snapname}
+              onChange={(e) => { setSnapname(e.target.value); setNameInvalid(false); }}
+            />
           </div>
-        </div>
+          <div className={styles.field}>
+            <label htmlFor="snap-desc">{t("SnapshotsTab.descLabel")}</label>
+            <textarea
+              id="snap-desc"
+              rows={3}
+              placeholder={t("SnapshotsTab.descPlaceholder")}
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+            />
+          </div>
+        </Modal>
       )}
 
     </div>

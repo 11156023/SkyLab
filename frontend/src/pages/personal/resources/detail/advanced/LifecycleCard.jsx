@@ -4,10 +4,10 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
 import styles from "../ResourceDetailPage.module.scss";
 import MIcon from "../../../../../components/MIcon";
+import Modal from "../../../../../components/Modal/Modal";
 import useDialogPresence from "../../../../../hooks/useDialogPresence";
 import { useToast } from "../../../../../hooks/useToast";
 import { useConfirm } from "../../../../../components/ConfirmDialog/ConfirmProvider";
@@ -60,38 +60,44 @@ function ExtendModal({ resource, closing, loading, onClose, onSubmit }) {
   }
 
   return (
-    <div className={`${styles.modalOverlay} ${closing ? styles.modalOverlayOut : ""}`} onMouseDown={onClose}>
-      <form className={styles.modal} onSubmit={submit} onMouseDown={(e) => e.stopPropagation()}>
-        <h2 className={styles.modalTitle}>{t("LifecycleCard.extendTitle")}</h2>
-        <p className={styles.modalDesc}>{t("LifecycleCard.extendDesc")}</p>
-        <div className={styles.field}>
-          <label htmlFor="ext-date">{t("LifecycleCard.newExpiryLabel")}</label>
-          <input id="ext-date" type="date" min={minDate} value={date} onChange={(e) => setDate(e.target.value)} required />
-          <span className={styles.fieldHint}>{t("LifecycleCard.newExpiryHint")}</span>
-        </div>
-        <div className={`${styles.field} ${reasonInvalid ? styles.fieldInvalid : ""}`}>
-          <label htmlFor="ext-reason">{t("LifecycleCard.reasonLabel")}</label>
-          <textarea
-            id="ext-reason"
-            ref={reasonRef}
-            rows={4}
-            value={reason}
-            aria-invalid={reasonInvalid}
-            placeholder={t("LifecycleCard.reasonPlaceholder")}
-            onChange={(e) => { setReason(e.target.value); setReasonInvalid(false); }}
-          />
-          <span className={styles.fieldHint}>{t("LifecycleCard.reasonHint")}</span>
-        </div>
-        <div className={styles.modalActions}>
+    <Modal
+      as="form"
+      onSubmit={submit}
+      closing={closing}
+      onClose={onClose}
+      busy={loading}
+      title={t("LifecycleCard.extendTitle")}
+      description={t("LifecycleCard.extendDesc")}
+      actions={
+        <>
           <button type="button" className={styles.btnSecondary} onClick={onClose} disabled={loading}>
             {t("LifecycleCard.cancel")}
           </button>
           <button type="submit" className={styles.btnPrimary} disabled={loading}>
             {loading ? t("LifecycleCard.submitting") : t("LifecycleCard.submitRequest")}
           </button>
-        </div>
-      </form>
-    </div>
+        </>
+      }
+    >
+      <div className={styles.field}>
+        <label htmlFor="ext-date">{t("LifecycleCard.newExpiryLabel")}</label>
+        <input id="ext-date" type="date" min={minDate} value={date} onChange={(e) => setDate(e.target.value)} required />
+        <span className={styles.fieldHint}>{t("LifecycleCard.newExpiryHint")}</span>
+      </div>
+      <div className={`${styles.field} ${reasonInvalid ? styles.fieldInvalid : ""}`}>
+        <label htmlFor="ext-reason">{t("LifecycleCard.reasonLabel")}</label>
+        <textarea
+          id="ext-reason"
+          ref={reasonRef}
+          rows={4}
+          value={reason}
+          aria-invalid={reasonInvalid}
+          placeholder={t("LifecycleCard.reasonPlaceholder")}
+          onChange={(e) => { setReason(e.target.value); setReasonInvalid(false); }}
+        />
+        <span className={styles.fieldHint}>{t("LifecycleCard.reasonHint")}</span>
+      </div>
+    </Modal>
   );
 }
 
@@ -271,19 +277,15 @@ export default function LifecycleCard({ vmid, resource, canManage, onChanged }) 
         )}
       </div>
 
-      {/* 卡片有 overflow:hidden + backdrop-filter，會把 position:fixed 的 modal 困在卡片裡，
-          所以 portal 到 body 讓它覆蓋整個頁面。 */}
-      {presence.open &&
-        createPortal(
-          <ExtendModal
-            resource={resource ?? {}}
-            closing={presence.closing}
-            loading={busy}
-            onClose={() => setShowExtend(false)}
-            onSubmit={handleSubmit}
-          />,
-          document.body,
-        )}
+      {presence.open && (
+        <ExtendModal
+          resource={resource ?? {}}
+          closing={presence.closing}
+          loading={busy}
+          onClose={() => setShowExtend(false)}
+          onSubmit={handleSubmit}
+        />
+      )}
     </div>
   );
 }

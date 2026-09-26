@@ -38,6 +38,7 @@
   "ConfirmProvider.defaultTitle": "操作の確認",
   "ConfirmProvider.cancel": "キャンセル",
   "ConfirmProvider.confirm": "確定",
+  "Modal.close": "閉じる",
   "UnsavedGuard.title": "未保存の変更",
   "UnsavedGuard.message": "このページには未保存の変更があります。移動すると変更は失われます。",
   "UnsavedGuard.leave": "破棄して移動",

@@ -34,10 +34,10 @@
  */
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
 import styles from "./ConnectionDialog.module.scss";
 import MIcon from "../MIcon";
+import Modal from "../Modal/Modal";
 import SegmentedControl from "../SegmentedControl/SegmentedControl";
 import { focusInvalidField } from "../../utils/focusField";
 import { getTopology } from "../../services/firewall";
@@ -242,15 +242,6 @@ export default function ConnectionDialog({
   const isOutbound = intent === INTENT.OUTBOUND;
   const isVmToVm   = intent === INTENT.PEER;
   const isRule     = intent === INTENT.RULE;
-
-  /* Esc 關閉（Dialog 標準行為）；送出中不關，跟取消鈕的 disabled 一致 */
-  useEffect(() => {
-    const onKeyDown = (e) => {
-      if (e.key === "Escape" && !submitting) onClose();
-    };
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [onClose, submitting]);
 
   /* ── 節點清單：沒給就自己抓 ── */
   const [fetchedNodes, setFetchedNodes] = useState(null);
@@ -590,267 +581,266 @@ export default function ConnectionDialog({
     );
   };
 
-  return createPortal(
-    <div
-      className={`${styles.overlay} ${closing ? styles.overlayOut : ""}`}
-      onMouseDown={(e) => e.target === e.currentTarget && onClose()}
-    >
-      <div className={styles.dialog} role="dialog" aria-modal="true" aria-label={title} data-guide="connection-dialog">
-        <div className={styles.dialogHeader}>
-          <h2 className={styles.dialogTitle}>{title}</h2>
-          <button type="button" className={styles.closeBtn} onClick={onClose} aria-label={t("ConnectionDialog.cancel")} data-guide="connection-dialog-close">
-            <MIcon name="close" size={20} />
+  /* 外框（遮罩、標題列、Esc、焦點、捲動鎖）交給共用 Modal；送出中 busy，Esc／點遮罩／× 都不關 */
+  return (
+    <Modal
+      as="form"
+      onSubmit={handleSubmit}
+      closing={closing}
+      onClose={onClose}
+      busy={submitting}
+      closeButton
+      size="md"
+      title={title}
+      data-guide="connection-dialog"
+      closeProps={{ "data-guide": "connection-dialog-close" }}
+      actionsProps={{ "data-guide": "connection-dialog-actions" }}
+      actions={
+        <>
+          <button type="button" className={styles.cancelBtn} onClick={onClose} disabled={submitting}>
+            {t("ConnectionDialog.cancel")}
           </button>
-        </div>
+          <button type="submit" className={styles.confirmBtn} disabled={submitDisabled}>
+            {submitLabel}
+          </button>
+        </>
+      }
+    >
+      <IntentPicker value={intent} onChange={setIntent} locked={editing} intents={intents} />
 
-        <form className={styles.dialogBody} onSubmit={handleSubmit}>
-          <IntentPicker value={intent} onChange={setIntent} locked={editing} intents={intents} />
+      {/* 讓機器能上網：選好機器就能送 */}
+      {isOutbound && (
+        <>
+          {machineField("cd-vm", t("ConnectionDialog.machine"), vmKey, setVmKey)}
+          <p className={styles.infoBox}>
+            <MIcon name="info" size={16} />
+            {t("ConnectionDialog.outboundMessage", { source: labelOf(vmKey) })}
+          </p>
+        </>
+      )}
 
-          {/* 讓機器能上網：選好機器就能送 */}
-          {isOutbound && (
-            <>
-              {machineField("cd-vm", t("ConnectionDialog.machine"), vmKey, setVmKey)}
-              <p className={styles.infoBox}>
-                <MIcon name="info" size={16} />
-                {t("ConnectionDialog.outboundMessage", { source: labelOf(vmKey) })}
-              </p>
-            </>
-          )}
+      {/* 開放服務給外部 */}
+      {isInbound && (
+        <>
+          {machineField("cd-vm", t("ConnectionDialog.machine"), vmKey, setVmKey)}
 
-          {/* 開放服務給外部 */}
-          {isInbound && (
-            <>
-              {machineField("cd-vm", t("ConnectionDialog.machine"), vmKey, setVmKey)}
-
-              <div className={styles.field}>
-                <label className={styles.fieldLabel}>{t("ConnectionDialog.publishMethod")}</label>
-                {/* 跟「方向」同一顆共用 SegmentedControl：圖示＋標題等高，不因說明長短跑版 */}
-                <SegmentedControl
-                  className={styles.dirToggle}
-                  options={modeCards.map((m) => {
-                    const meta = modeMeta(m);
-                    return { value: m, label: t(meta.labelKey), icon: meta.icon };
-                  })}
-                  value={mode}
-                  onChange={setMode}
-                  ariaLabel={t("ConnectionDialog.publishMethod")}
-                />
-                {(setupContext || zonesProp) && !domainReady && (
-                  <span className={styles.fieldHint}>
-                    {templateMode
-                      ? t("ConnectionDialog.templateNoZoneHint")
-                      : (setupContext?.reasons?.[0] ?? t("ConnectionDialog.domainUnavailable"))}
-                  </span>
-                )}
-              </div>
-
-              {mode === "domain" && (
-                <>
-                  <div className={styles.formGrid}>
-                    {/* port 佔滿第一欄，與下一列「網址開頭」同寬同欄線；HTTPS 勾選對齊第二欄 */}
-                    <div className={styles.field}>
-                      <label className={styles.fieldLabel} htmlFor="cd-domain-port">{t("ConnectionDialog.portLabel")}</label>
-                      <PortInput
-                        id="cd-domain-port"
-                        value={domainPort}
-                        onChange={(v) => { setError(""); setDomainPort(v); }}
-                        placeholder="80"
-                      />
-                    </div>
-                    <div className={`${styles.field} ${styles.fieldAlignEnd}`}>
-                      <label className={styles.checkRow}>
-                        <input type="checkbox" checked={enableHttps} onChange={(e) => setEnableHttps(e.target.checked)} />
-                        <span>{t("ConnectionDialog.enableHttps")}</span>
-                      </label>
-                    </div>
-                  </div>
-                  <div className={styles.formGrid}>
-                    <div className={styles.field}>
-                      <label className={styles.fieldLabel} htmlFor="cd-prefix">
-                        {templateMode ? t("ConnectionDialog.templateHostnameLabel") : t("ConnectionDialog.prefixLabel")}
-                      </label>
-                      <input
-                        id="cd-prefix"
-                        className={styles.textInput}
-                        value={prefix}
-                        onChange={(e) => { setError(""); setPrefix(e.target.value); }}
-                        placeholder={templateMode ? t("ConnectionDialog.templateHostnamePlaceholder") : t("ConnectionDialog.prefixPlaceholder")}
-                      />
-                    </div>
-                    <div className={styles.field}>
-                      <label className={styles.fieldLabel} htmlFor="cd-zone">{t("ConnectionDialog.zoneLabel")}</label>
-                      <select id="cd-zone" className={styles.select} value={zoneId} onChange={(e) => setZoneId(e.target.value)}>
-                        {zones.map((z) => <option key={z.id} value={z.id}>.{z.name}</option>)}
-                      </select>
-                    </div>
-                  </div>
-                  {templateMode ? (
-                    <span className={styles.fieldHint}>
-                      {t("ConnectionDialog.templateHostnameHint", { example: fullDomain || previewTemplateHostname("{class}-{student}-app", selectedZone?.name) })}
-                    </span>
-                  ) : fullDomain && (
-                    <span className={`${styles.hintLine} ${availabilityTone}`}>
-                      {/* 確認網址可用性時沙漏轉圈（全站處理中圖示統一 MIcon spin） */}
-                      <MIcon name={availabilityIcon} size={14} spin={Boolean(availability?.checking)} />
-                      {availabilityText}
-                    </span>
-                  )}
-                </>
-              )}
-
-              {mode === "port_forward" && templateMode && (
-                <>
-                  <p className={styles.fieldHint}>{t("ConnectionDialog.templateForwardHint")}</p>
-                  <PortRows
-                    rows={tplFwdRows}
-                    setRows={editRows(setTplFwdRows)}
-                    protocols={FORWARD_PROTOCOLS}
-                    invalid={portsInvalid}
-                    single={editing}
-                  />
-                </>
-              )}
-
-              {mode === "port_forward" && !templateMode && (
-                <ForwardRows rows={fwdRows} setRows={editRows(setFwdRows)} invalid={portsInvalid} single={editing} />
-              )}
-
-              {mode === "firewall_only" && (
-                <>
-                  <p className={styles.fieldHint}>{t("ConnectionDialog.firewallOnlyHint")}</p>
-                  <PortRows
-                    rows={fwRows}
-                    setRows={editRows(setFwRows)}
-                    protocols={editing ? FORWARD_PROTOCOLS : CONNECTION_PROTOCOLS}
-                    invalid={portsInvalid}
-                    single={editing}
-                  />
-                </>
-              )}
-            </>
-          )}
-
-          {/* 兩台機器互通 */}
-          {isVmToVm && (
-            <>
-              <div className={styles.formGrid}>
-                {machineField("cd-peer-source", t("ConnectionDialog.peerSource"), peerSourceKey, setPeerSourceKey)}
-                {machineField("cd-peer-target", t("ConnectionDialog.peerTarget"), peerTargetKey, setPeerTargetKey, { exclude: peerSourceKey })}
-              </div>
-              <div className={styles.field}>
-                <label className={styles.fieldLabel}>{t("ConnectionDialog.direction")}</label>
-                <SegmentedControl
-                  className={styles.dirToggle}
-                  options={[
-                    { value: "one_way", label: `${labelOf(peerSourceKey)} → ${labelOf(peerTargetKey)}` },
-                    { value: "bidirectional", label: t("ConnectionDialog.bidirectional") },
-                  ]}
-                  value={direction}
-                  onChange={setDirection}
-                  ariaLabel={t("ConnectionDialog.direction")}
-                />
-              </div>
-              <PortRows rows={vmRows} setRows={editRows(setVmRows)} protocols={CONNECTION_PROTOCOLS} invalid={portsInvalid} />
-            </>
-          )}
-
-          {/* 自己寫規則 */}
-          {isRule && (
-            <>
-              {machineField("cd-vm", t("ConnectionDialog.machine"), vmKey, setVmKey)}
-
-              <div className={styles.formGrid}>
-                <div className={styles.field}>
-                  <label className={styles.fieldLabel} htmlFor="cd-rule-type">{t("ConnectionDialog.ruleDirection")}</label>
-                  <select id="cd-rule-type" className={styles.select} value={rule.type} onChange={(e) => setRuleField("type", e.target.value)}>
-                    <option value="in">{t("ConnectionDialog.ruleIn")}</option>
-                    <option value="out">{t("ConnectionDialog.ruleOut")}</option>
-                  </select>
-                </div>
-                <div className={styles.field}>
-                  <label className={styles.fieldLabel} htmlFor="cd-rule-action">{t("ConnectionDialog.ruleAction")}</label>
-                  <select id="cd-rule-action" className={styles.select} value={rule.action} onChange={(e) => setRuleField("action", e.target.value)}>
-                    <option value="ACCEPT">{t("ConnectionDialog.actionAccept")}</option>
-                    <option value="DROP">{t("ConnectionDialog.actionDrop")}</option>
-                    <option value="REJECT">{t("ConnectionDialog.actionReject")}</option>
-                  </select>
-                </div>
-                <div className={styles.field}>
-                  <label className={styles.fieldLabel} htmlFor="cd-rule-proto">{t("ConnectionDialog.protocol")}</label>
-                  <select id="cd-rule-proto" className={styles.select} value={rule.proto} onChange={(e) => setRuleField("proto", e.target.value)}>
-                    <option value="">{t("ConnectionDialog.anyProtocol")}</option>
-                    {RULE_PROTOCOLS.map((p) => <option key={p} value={p}>{p}</option>)}
-                  </select>
-                </div>
-                <div className={styles.field}>
-                  <label className={styles.fieldLabel} htmlFor="cd-rule-dport">{t("ConnectionDialog.rulePort")}</label>
-                  <input
-                    id="cd-rule-dport"
-                    className={styles.textInput}
-                    value={rulePortDisabled ? "" : rule.dport}
-                    disabled={rulePortDisabled}
-                    onChange={(e) => { setError(""); setRuleField("dport", e.target.value); }}
-                    placeholder={rulePortDisabled ? t("ConnectionDialog.portlessPlaceholder") : t("ConnectionDialog.rulePortPlaceholder")}
-                  />
-                </div>
-              </div>
-
-              <div className={styles.field}>
-                <label className={styles.fieldLabel} htmlFor="cd-rule-addr">
-                  {rule.type === "in" ? t("ConnectionDialog.ruleSource") : t("ConnectionDialog.ruleDest")}
-                </label>
-                <input
-                  id="cd-rule-addr"
-                  className={styles.textInput}
-                  value={rule.source}
-                  onChange={(e) => setRuleField("source", e.target.value)}
-                  placeholder={t("ConnectionDialog.ruleSourcePlaceholder")}
-                />
-                <span className={styles.fieldHint}>{t("ConnectionDialog.ruleSourceHint")}</span>
-              </div>
-
-              <div className={styles.field}>
-                <label className={styles.fieldLabel} htmlFor="cd-rule-comment">{t("ConnectionDialog.ruleComment")}</label>
-                <input
-                  id="cd-rule-comment"
-                  className={styles.textInput}
-                  value={rule.comment}
-                  onChange={(e) => setRuleField("comment", e.target.value)}
-                  placeholder={t("ConnectionDialog.ruleCommentPlaceholder")}
-                />
-              </div>
-
-              {ruleOverlapsPublish && (
-                <p className={styles.infoBox}>
-                  <MIcon name="lightbulb" size={16} />
-                  <span>
-                    {t("ConnectionDialog.ruleOverlapHint")}{" "}
-                    <button
-                      type="button"
-                      className={styles.linkBtn}
-                      onClick={() => { setIntent(INTENT.PUBLISH); setMode("firewall_only"); }}
-                    >
-                      {t("ConnectionDialog.ruleOverlapAction")}
-                    </button>
-                  </span>
-                </p>
-              )}
-            </>
-          )}
-
-          {error && <p className={styles.errorMsg}>{error}</p>}
-
-          <div className={styles.actions} data-guide="connection-dialog-actions">
-            <button type="button" className={styles.cancelBtn} onClick={onClose} disabled={submitting}>
-              {t("ConnectionDialog.cancel")}
-            </button>
-            <button type="submit" className={styles.confirmBtn} disabled={submitDisabled}>
-              {submitLabel}
-            </button>
+          <div className={styles.field}>
+            <label className={styles.fieldLabel}>{t("ConnectionDialog.publishMethod")}</label>
+            {/* 跟「方向」同一顆共用 SegmentedControl：圖示＋標題等高，不因說明長短跑版 */}
+            <SegmentedControl
+              className={styles.dirToggle}
+              options={modeCards.map((m) => {
+                const meta = modeMeta(m);
+                return { value: m, label: t(meta.labelKey), icon: meta.icon };
+              })}
+              value={mode}
+              onChange={setMode}
+              ariaLabel={t("ConnectionDialog.publishMethod")}
+            />
+            {(setupContext || zonesProp) && !domainReady && (
+              <span className={styles.fieldHint}>
+                {templateMode
+                  ? t("ConnectionDialog.templateNoZoneHint")
+                  : (setupContext?.reasons?.[0] ?? t("ConnectionDialog.domainUnavailable"))}
+              </span>
+            )}
           </div>
-        </form>
-      </div>
-    </div>,
-    document.body,
+
+          {mode === "domain" && (
+            <>
+              <div className={styles.formGrid}>
+                {/* port 佔滿第一欄，與下一列「網址開頭」同寬同欄線；HTTPS 勾選對齊第二欄 */}
+                <div className={styles.field}>
+                  <label className={styles.fieldLabel} htmlFor="cd-domain-port">{t("ConnectionDialog.portLabel")}</label>
+                  <PortInput
+                    id="cd-domain-port"
+                    value={domainPort}
+                    onChange={(v) => { setError(""); setDomainPort(v); }}
+                    placeholder="80"
+                  />
+                </div>
+                <div className={`${styles.field} ${styles.fieldAlignEnd}`}>
+                  <label className={styles.checkRow}>
+                    <input type="checkbox" checked={enableHttps} onChange={(e) => setEnableHttps(e.target.checked)} />
+                    <span>{t("ConnectionDialog.enableHttps")}</span>
+                  </label>
+                </div>
+              </div>
+              <div className={styles.formGrid}>
+                <div className={styles.field}>
+                  <label className={styles.fieldLabel} htmlFor="cd-prefix">
+                    {templateMode ? t("ConnectionDialog.templateHostnameLabel") : t("ConnectionDialog.prefixLabel")}
+                  </label>
+                  <input
+                    id="cd-prefix"
+                    className={styles.textInput}
+                    value={prefix}
+                    onChange={(e) => { setError(""); setPrefix(e.target.value); }}
+                    placeholder={templateMode ? t("ConnectionDialog.templateHostnamePlaceholder") : t("ConnectionDialog.prefixPlaceholder")}
+                  />
+                </div>
+                <div className={styles.field}>
+                  <label className={styles.fieldLabel} htmlFor="cd-zone">{t("ConnectionDialog.zoneLabel")}</label>
+                  <select id="cd-zone" className={styles.select} value={zoneId} onChange={(e) => setZoneId(e.target.value)}>
+                    {zones.map((z) => <option key={z.id} value={z.id}>.{z.name}</option>)}
+                  </select>
+                </div>
+              </div>
+              {templateMode ? (
+                <span className={styles.fieldHint}>
+                  {t("ConnectionDialog.templateHostnameHint", { example: fullDomain || previewTemplateHostname("{class}-{student}-app", selectedZone?.name) })}
+                </span>
+              ) : fullDomain && (
+                <span className={`${styles.hintLine} ${availabilityTone}`}>
+                  {/* 確認網址可用性時沙漏轉圈（全站處理中圖示統一 MIcon spin） */}
+                  <MIcon name={availabilityIcon} size={14} spin={Boolean(availability?.checking)} />
+                  {availabilityText}
+                </span>
+              )}
+            </>
+          )}
+
+          {mode === "port_forward" && templateMode && (
+            <>
+              <p className={styles.fieldHint}>{t("ConnectionDialog.templateForwardHint")}</p>
+              <PortRows
+                rows={tplFwdRows}
+                setRows={editRows(setTplFwdRows)}
+                protocols={FORWARD_PROTOCOLS}
+                invalid={portsInvalid}
+                single={editing}
+              />
+            </>
+          )}
+
+          {mode === "port_forward" && !templateMode && (
+            <ForwardRows rows={fwdRows} setRows={editRows(setFwdRows)} invalid={portsInvalid} single={editing} />
+          )}
+
+          {mode === "firewall_only" && (
+            <>
+              <p className={styles.fieldHint}>{t("ConnectionDialog.firewallOnlyHint")}</p>
+              <PortRows
+                rows={fwRows}
+                setRows={editRows(setFwRows)}
+                protocols={editing ? FORWARD_PROTOCOLS : CONNECTION_PROTOCOLS}
+                invalid={portsInvalid}
+                single={editing}
+              />
+            </>
+          )}
+        </>
+      )}
+
+      {/* 兩台機器互通 */}
+      {isVmToVm && (
+        <>
+          <div className={styles.formGrid}>
+            {machineField("cd-peer-source", t("ConnectionDialog.peerSource"), peerSourceKey, setPeerSourceKey)}
+            {machineField("cd-peer-target", t("ConnectionDialog.peerTarget"), peerTargetKey, setPeerTargetKey, { exclude: peerSourceKey })}
+          </div>
+          <div className={styles.field}>
+            <label className={styles.fieldLabel}>{t("ConnectionDialog.direction")}</label>
+            <SegmentedControl
+              className={styles.dirToggle}
+              options={[
+                { value: "one_way", label: `${labelOf(peerSourceKey)} → ${labelOf(peerTargetKey)}` },
+                { value: "bidirectional", label: t("ConnectionDialog.bidirectional") },
+              ]}
+              value={direction}
+              onChange={setDirection}
+              ariaLabel={t("ConnectionDialog.direction")}
+            />
+          </div>
+          <PortRows rows={vmRows} setRows={editRows(setVmRows)} protocols={CONNECTION_PROTOCOLS} invalid={portsInvalid} />
+        </>
+      )}
+
+      {/* 自己寫規則 */}
+      {isRule && (
+        <>
+          {machineField("cd-vm", t("ConnectionDialog.machine"), vmKey, setVmKey)}
+
+          <div className={styles.formGrid}>
+            <div className={styles.field}>
+              <label className={styles.fieldLabel} htmlFor="cd-rule-type">{t("ConnectionDialog.ruleDirection")}</label>
+              <select id="cd-rule-type" className={styles.select} value={rule.type} onChange={(e) => setRuleField("type", e.target.value)}>
+                <option value="in">{t("ConnectionDialog.ruleIn")}</option>
+                <option value="out">{t("ConnectionDialog.ruleOut")}</option>
+              </select>
+            </div>
+            <div className={styles.field}>
+              <label className={styles.fieldLabel} htmlFor="cd-rule-action">{t("ConnectionDialog.ruleAction")}</label>
+              <select id="cd-rule-action" className={styles.select} value={rule.action} onChange={(e) => setRuleField("action", e.target.value)}>
+                <option value="ACCEPT">{t("ConnectionDialog.actionAccept")}</option>
+                <option value="DROP">{t("ConnectionDialog.actionDrop")}</option>
+                <option value="REJECT">{t("ConnectionDialog.actionReject")}</option>
+              </select>
+            </div>
+            <div className={styles.field}>
+              <label className={styles.fieldLabel} htmlFor="cd-rule-proto">{t("ConnectionDialog.protocol")}</label>
+              <select id="cd-rule-proto" className={styles.select} value={rule.proto} onChange={(e) => setRuleField("proto", e.target.value)}>
+                <option value="">{t("ConnectionDialog.anyProtocol")}</option>
+                {RULE_PROTOCOLS.map((p) => <option key={p} value={p}>{p}</option>)}
+              </select>
+            </div>
+            <div className={styles.field}>
+              <label className={styles.fieldLabel} htmlFor="cd-rule-dport">{t("ConnectionDialog.rulePort")}</label>
+              <input
+                id="cd-rule-dport"
+                className={styles.textInput}
+                value={rulePortDisabled ? "" : rule.dport}
+                disabled={rulePortDisabled}
+                onChange={(e) => { setError(""); setRuleField("dport", e.target.value); }}
+                placeholder={rulePortDisabled ? t("ConnectionDialog.portlessPlaceholder") : t("ConnectionDialog.rulePortPlaceholder")}
+              />
+            </div>
+          </div>
+
+          <div className={styles.field}>
+            <label className={styles.fieldLabel} htmlFor="cd-rule-addr">
+              {rule.type === "in" ? t("ConnectionDialog.ruleSource") : t("ConnectionDialog.ruleDest")}
+            </label>
+            <input
+              id="cd-rule-addr"
+              className={styles.textInput}
+              value={rule.source}
+              onChange={(e) => setRuleField("source", e.target.value)}
+              placeholder={t("ConnectionDialog.ruleSourcePlaceholder")}
+            />
+            <span className={styles.fieldHint}>{t("ConnectionDialog.ruleSourceHint")}</span>
+          </div>
+
+          <div className={styles.field}>
+            <label className={styles.fieldLabel} htmlFor="cd-rule-comment">{t("ConnectionDialog.ruleComment")}</label>
+            <input
+              id="cd-rule-comment"
+              className={styles.textInput}
+              value={rule.comment}
+              onChange={(e) => setRuleField("comment", e.target.value)}
+              placeholder={t("ConnectionDialog.ruleCommentPlaceholder")}
+            />
+          </div>
+
+          {ruleOverlapsPublish && (
+            <p className={styles.infoBox}>
+              <MIcon name="lightbulb" size={16} />
+              <span>
+                {t("ConnectionDialog.ruleOverlapHint")}{" "}
+                <button
+                  type="button"
+                  className={styles.linkBtn}
+                  onClick={() => { setIntent(INTENT.PUBLISH); setMode("firewall_only"); }}
+                >
+                  {t("ConnectionDialog.ruleOverlapAction")}
+                </button>
+              </span>
+            </p>
+          )}
+        </>
+      )}
+
+      {error && <p className={styles.errorMsg}>{error}</p>}
+    </Modal>
   );
 }

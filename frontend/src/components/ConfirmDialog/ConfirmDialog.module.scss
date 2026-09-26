@@ -1,56 +1,7 @@
 @use "../../assets/styles/variables" as *;
 @use "../../assets/styles/mixins" as *;
 
-.overlay {
-  @include dialog-overlay-avoid-ai;
-  position: fixed;
-  inset: 0;
-  z-index: 300;
-  @include flex-center;
-  padding: $spacing-16;
-  background: var(--color-overlay);
-  backdrop-filter: blur(4px);
-  animation: fadeIn 0.15s ease;
-  transition: opacity 0.15s ease;
-}
-
-.overlayOut {
-  animation: none;
-  opacity: 0;
-  pointer-events: none;
-}
-
-@keyframes fadeIn {
-  from { opacity: 0; }
-  to   { opacity: 1; }
-}
-
-/* 卡片底色與排版以「我的申請」錯誤記錄 modal 為基準：
-   毛玻璃表面、flex-column gap 16 的節奏 */
-.dialog {
-  width: 100%;
-  max-width: 400px;
-  @include glass-surface;
-  border-radius: $radius-16;
-  padding: $spacing-24;
-  @include flex-column;
-  gap: $spacing-16;
-  animation: slideUp 0.18s cubic-bezier(0.25, 0.8, 0.25, 1);
-}
-
-@keyframes slideUp {
-  from { opacity: 0; transform: translateY(12px); }
-  to   { opacity: 1; transform: translateY(0); }
-}
-
-.title {
-  display: flex;
-  align-items: center;
-  gap: $spacing-8;
-  font-size: $font-size-16;
-  font-weight: $font-weight-700;
-  color: var(--color-text-primary);
-}
+/* 外框（遮罩、毛玻璃卡、標題、說明、按鈕列）由共用 Modal 提供，這裡只放確認框自己的圖示與按鈕 */
 
 .iconWarn {
   @include flex-center;
@@ -60,34 +11,6 @@
 .iconDanger {
   @include flex-center;
   color: var(--color-danger);
-}
-
-.message {
-  margin: 0;
-  font-size: $font-size-14;
-  line-height: $line-height-base;
-  color: var(--color-text-secondary);
-  white-space: pre-line;
-  /* 內文常插入主機名稱等連續長字串，強制可斷行以免撐破彈窗 */
-  overflow-wrap: anywhere;
-}
-
-.actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: $spacing-8;
-}
-
-%btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 8px $spacing-16;
-  border-radius: $radius-8;
-  font-size: $font-size-14;
-  font-weight: $font-weight-500;
-  cursor: pointer;
-  transition: background $transition-base;
 }
 
 .btnSecondary {

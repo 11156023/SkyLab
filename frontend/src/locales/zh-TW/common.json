@@ -38,6 +38,7 @@
   "ConfirmProvider.defaultTitle": "確認操作",
   "ConfirmProvider.cancel": "取消",
   "ConfirmProvider.confirm": "確定",
+  "Modal.close": "關閉",
   "UnsavedGuard.title": "尚未儲存的變更",
   "UnsavedGuard.message": "這一頁還有尚未儲存的變更，離開後修改將會遺失。",
   "UnsavedGuard.leave": "捨棄變更並離開",
