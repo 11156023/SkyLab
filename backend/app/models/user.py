@@ -5,6 +5,7 @@ import uuid
 from datetime import datetime
 from typing import TYPE_CHECKING
 
+import sqlalchemy as sa
 from pydantic import EmailStr
 from sqlalchemy import DateTime
 from sqlmodel import Column, Enum, Field, Relationship, SQLModel
@@ -43,6 +44,13 @@ class UserBase(SQLModel):
 # Database model, database table inferred from class name
 class User(UserBase, table=True):
     """使用者資料庫模型"""
+
+    __table_args__ = (
+        sa.CheckConstraint(
+            "auth_source IN ('local', 'ldap')",
+            name="ck_user_auth_source",
+        ),
+    )
 
     id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
     hashed_password: str

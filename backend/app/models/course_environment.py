@@ -28,6 +28,16 @@ class CourseEnvironment(SQLModel, table=True):
     """Stable identity for a reusable course environment."""
 
     __tablename__ = "course_environments"
+    __table_args__ = (
+        sa.CheckConstraint(
+            "usage_scope IN ('course', 'quick_practice', 'both')",
+            name="ck_course_environments_usage_scope",
+        ),
+        sa.CheckConstraint(
+            "audience IN ('owner', 'class', 'campus')",
+            name="ck_course_environments_audience",
+        ),
+    )
 
     id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
     owner_id: uuid.UUID = Field(
@@ -146,6 +156,10 @@ class CourseEnvironmentVersion(SQLModel, table=True):
 
     __tablename__ = "course_environment_versions"
     __table_args__ = (
+        sa.CheckConstraint(
+            "peer_policy IN ('explicit', 'segment')",
+            name="ck_course_environment_versions_peer_policy",
+        ),
         UniqueConstraint(
             "environment_id",
             "version",
@@ -198,6 +212,10 @@ class CourseEnvironmentNode(SQLModel, table=True):
 
     __tablename__ = "course_environment_nodes"
     __table_args__ = (
+        sa.CheckConstraint(
+            "resource_type IN ('qemu', 'lxc')",
+            name="ck_course_environment_nodes_resource_type",
+        ),
         UniqueConstraint(
             "version_id",
             "node_key",
@@ -262,6 +280,14 @@ class CourseEnvironmentPublication(SQLModel, table=True):
 
     __tablename__ = "course_environment_publications"
     __table_args__ = (
+        sa.CheckConstraint(
+            "mode IN ('domain', 'port_forward')",
+            name="ck_course_environment_publications_mode",
+        ),
+        sa.CheckConstraint(
+            "protocol IN ('tcp', 'udp')",
+            name="ck_course_environment_publications_protocol",
+        ),
         UniqueConstraint(
             "version_id",
             "node_key",
@@ -314,6 +340,14 @@ class CourseEnvironmentEdge(SQLModel, table=True):
 
     __tablename__ = "course_environment_edges"
     __table_args__ = (
+        sa.CheckConstraint(
+            "direction IN ('one_way', 'bidirectional')",
+            name="ck_course_environment_edges_direction",
+        ),
+        sa.CheckConstraint(
+            "protocol IN ('any', 'tcp', 'udp', 'icmp', 'icmpv6', 'sctp')",
+            name="ck_course_environment_edges_protocol",
+        ),
         UniqueConstraint(
             "version_id",
             "source_node_key",
@@ -372,6 +406,12 @@ class ClassCapacityReservation(SQLModel, table=True):
     """Atomic whole-class capacity snapshot created before batch jobs."""
 
     __tablename__ = "class_capacity_reservations"
+    __table_args__ = (
+        sa.CheckConstraint(
+            "status IN ('reserved', 'consumed', 'released')",
+            name="ck_class_capacity_reservations_status",
+        ),
+    )
 
     id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
     class_id: uuid.UUID = Field(

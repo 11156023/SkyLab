@@ -17,6 +17,18 @@ class Resource(SQLModel, table=True):
 
     __tablename__ = "resources"
     __table_args__ = (
+        sa.CheckConstraint(
+            "allocation_scope IN ('personal', 'teaching_class')",
+            name="ck_resources_allocation_scope",
+        ),
+        sa.CheckConstraint(
+            "control_policy IN ('owner', 'class_member')",
+            name="ck_resources_control_policy",
+        ),
+        sa.CheckConstraint(
+            "auto_stop_reason IN ('ttl_expired', 'idle', 'window_grace', 'practice_quota')",
+            name="ck_resources_auto_stop_reason",
+        ),
         sa.Index("ix_resources_user_id", "user_id"),
         sa.Index("ix_resources_user_created", "user_id", "created_at"),
         sa.Index("ix_resources_auto_stop_at", "auto_stop_at"),

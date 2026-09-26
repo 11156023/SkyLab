@@ -30,6 +30,12 @@ class BatchProvisionJob(SQLModel, table=True):
     """正式班級的批量建立工作。"""
 
     __tablename__ = "batch_provision_jobs"
+    __table_args__ = (
+        sa.CheckConstraint(
+            "resource_type IN ('lxc', 'qemu')",
+            name="ck_batch_provision_jobs_resource_type",
+        ),
+    )
 
     id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
     teaching_class_id: uuid.UUID = Field(

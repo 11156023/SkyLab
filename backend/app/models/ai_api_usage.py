@@ -17,6 +17,10 @@ class AIAPIUsage(SQLModel, table=True):
 
     __tablename__ = "ai_api_usage"
     __table_args__ = (
+        sa.CheckConstraint(
+            "status IN ('success', 'error', 'cancelled')",
+            name="ck_ai_api_usage_status",
+        ),
         sa.Index("ix_ai_usage_user_created", "user_id", "created_at"),
         sa.Index("ix_ai_usage_model_created", "model_name", "created_at"),
         sa.Index("ix_ai_usage_status_created", "status", "created_at"),

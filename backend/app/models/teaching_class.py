@@ -84,6 +84,10 @@ class TeachingClass(SQLModel, table=True):
 class TeachingClassMachineNode(SQLModel, table=True):
     __tablename__ = "teaching_class_machine_nodes"
     __table_args__ = (
+        sa.CheckConstraint(
+            "source_type IN ('template', 'custom')",
+            name="ck_teaching_class_machine_nodes_source_type",
+        ),
         UniqueConstraint("class_id", "node_key", name="uq_teaching_class_machine_node"),
     )
 
@@ -128,6 +132,10 @@ class TeachingClassMachineNode(SQLModel, table=True):
 class TeachingClassWeek(SQLModel, table=True):
     __tablename__ = "teaching_class_weeks"
     __table_args__ = (
+        sa.CheckConstraint(
+            "status IN ('draft', 'published', 'completed')",
+            name="ck_teaching_class_weeks_status",
+        ),
         UniqueConstraint("class_id", "week_number", name="uq_teaching_class_week"),
     )
 
@@ -191,6 +199,10 @@ class TeachingClassStudent(SQLModel, table=True):
 class TeachingClassStudentMachine(SQLModel, table=True):
     __tablename__ = "teaching_class_student_machines"
     __table_args__ = (
+        sa.CheckConstraint(
+            "status IN ('pending', 'running', 'completed', 'failed', 'reclaimed')",
+            name="ck_teaching_class_student_machines_status",
+        ),
         UniqueConstraint(
             "class_student_id",
             "machine_node_id",

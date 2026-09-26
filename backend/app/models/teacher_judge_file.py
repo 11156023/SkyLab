@@ -23,6 +23,10 @@ class TeacherJudgeFile(SQLModel, table=True):
 
     __tablename__ = "teacher_judge_files"
     __table_args__ = (
+        sa.CheckConstraint(
+            "source_type IN ('created', 'uploaded')",
+            name="ck_teacher_judge_files_source_type",
+        ),
         sa.Index(
             "ix_teacher_judge_files_class_filename",
             "teaching_class_id",
