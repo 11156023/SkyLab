@@ -25,7 +25,7 @@ ReactDOM.createRoot(document.getElementById("root")).render(
           <UnsavedChangesProvider>
             {/* 根層 boundary：保住 DashboardLayout 以外的頁面（登入、導入、setup），
                 避免整頁白畫面；頁面內容另有 DashboardLayout 的 ErrorBoundary 先攔 */}
-            <ErrorBoundary>
+            <ErrorBoundary fullPage>
               <App />
             </ErrorBoundary>
           </UnsavedChangesProvider>
