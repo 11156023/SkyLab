@@ -5,8 +5,7 @@
 storage、gateway、預設節點）都存在該筆連線上；跨叢集共用的放置與排程
 策略（placement、scheduler）仍來自 proxmox_config singleton。
 
-尚未建立任何連線資料時，整體退回 proxmox_config 既有欄位
-（舊版單連線資料相容）。
+尚未建立任何連線時視為 Proxmox 尚未設定。
 """
 
 from __future__ import annotations
@@ -44,18 +43,12 @@ def get_proxmox_settings(connection_id: int | None = None) -> ProxmoxSettings:
 
     ``connection_id`` 為 None 時使用預設連線。
     """
-    from cryptography.fernet import InvalidToken
     from sqlmodel import Session
 
     from app.core.db import engine
     from app.repositories import proxmox_connection as connection_repo
-    from app.repositories.proxmox_config import (
-        get_decrypted_password,
-        get_proxmox_config,
-    )
 
     with Session(engine) as session:
-        config = get_proxmox_config(session)
         if connection_id is not None:
             connection = connection_repo.get_connection(session, connection_id)
             if connection is None:
@@ -72,67 +65,27 @@ def get_proxmox_settings(connection_id: int | None = None) -> ProxmoxSettings:
                     "SECRET_KEY 可能已變更。請至管理員介面重新儲存該連線設定。"
                 ) from exc
 
-    if config is None and connection is None:
-        raise RuntimeError(
-            "Proxmox 尚未設定，請至管理員介面完成 Proxmox 連線設定。"
-        )
+    if connection is None:
+        raise RuntimeError("Proxmox 尚未設定，請至管理員介面完成 Proxmox 連線設定。")
 
-    if connection is not None:
-        # 有連線資料時，資源設定一律以該連線（叢集）自身的值為準
-        return ProxmoxSettings(
-            host=connection.host,
-            user=connection.user,
-            password=conn_password,
-            verify_ssl=connection.verify_ssl,
-            iso_storage=connection.iso_storage,
-            data_storage=connection.data_storage,
-            api_timeout=connection.api_timeout,
-            task_check_interval=connection.task_check_interval,
-            pool_name=connection.pool_name,
-            ca_cert=connection.ca_cert,
-            gateway_ip=connection.gateway_ip,
-            local_subnet=connection.local_subnet,
-            default_node=connection.default_node,
-            connection_id=connection.id,
-            connection_name=connection.name,
-            port=connection.port,
-        )
-
-    # 舊版相容路徑的行為設定：無 proxmox_config 時採用預設值
-    iso_storage = config.iso_storage if config else "local"
-    data_storage = config.data_storage if config else "local-lvm"
-    task_check_interval = config.task_check_interval if config else 2
-    pool_name = config.pool_name if config else DEFAULT_PROXMOX_POOL_NAME
-    gateway_ip = config.gateway_ip if config else None
-    local_subnet = config.local_subnet if config else None
-    default_node = config.default_node if config else None
-
-    # 舊版相容：尚未建立連線資料，使用 proxmox_config 的連線欄位
-    assert config is not None
-    try:
-        password = get_decrypted_password(config)
-    except InvalidToken as exc:
-        raise RuntimeError(
-            "Proxmox 密碼解密失敗，SECRET_KEY 可能已變更。"
-            " 請至管理員介面重新儲存 Proxmox 連線設定以更新加密密碼。"
-        ) from exc
-
+    # 資源設定一律以該連線（叢集）自身的值為準
     return ProxmoxSettings(
-        host=config.host,
-        user=config.user,
-        password=password,
-        verify_ssl=config.verify_ssl,
-        iso_storage=iso_storage,
-        data_storage=data_storage,
-        api_timeout=config.api_timeout,
-        task_check_interval=task_check_interval,
-        pool_name=pool_name,
-        ca_cert=config.ca_cert,
-        gateway_ip=gateway_ip,
-        local_subnet=local_subnet,
-        default_node=default_node,
-        connection_id=None,
-        connection_name=None,
+        host=connection.host,
+        user=connection.user,
+        password=conn_password,
+        verify_ssl=connection.verify_ssl,
+        iso_storage=connection.iso_storage,
+        data_storage=connection.data_storage,
+        api_timeout=connection.api_timeout,
+        task_check_interval=connection.task_check_interval,
+        pool_name=connection.pool_name,
+        ca_cert=connection.ca_cert,
+        gateway_ip=connection.gateway_ip,
+        local_subnet=connection.local_subnet,
+        default_node=connection.default_node,
+        connection_id=connection.id,
+        connection_name=connection.name,
+        port=connection.port,
     )
 
 
@@ -153,7 +106,7 @@ def get_proxmox_settings_for_node(node_name: str | None) -> ProxmoxSettings:
 def list_enabled_connection_ids() -> list[int]:
     """回傳所有啟用連線的 id（依預設優先排序）。
 
-    尚未建立連線資料時回傳空清單（呼叫端應退回單連線行為）。
+    尚未建立連線資料時回傳空清單。
     """
     from sqlmodel import Session
 

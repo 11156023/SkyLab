@@ -8,19 +8,8 @@ from app.infrastructure.proxmox import DEFAULT_PROXMOX_POOL_NAME
 
 
 class ProxmoxConfigPublic(BaseModel):
-    """回傳給前端的 Proxmox 設定（不含密碼與憑證原文）"""
+    """放置／排程策略（PVE 連線本身見 ProxmoxConnectionPublic）"""
 
-    host: str
-    user: str
-    verify_ssl: bool
-    iso_storage: str
-    data_storage: str
-    api_timeout: int
-    task_check_interval: int
-    pool_name: str
-    gateway_ip: str | None = None  # 可能尚未設定（舊資料相容）
-    local_subnet: str | None = None
-    default_node: str | None = None
     cpu_overcommit_ratio: float = 2.0
     disk_overcommit_ratio: float = 1.0
     placement_reassignment_cost: float = 0.15
@@ -48,32 +37,16 @@ class ProxmoxConfigPublic(BaseModel):
     expiry_warning_hours: int = 24
     updated_at: datetime | None = None
     is_configured: bool
-    has_ca_cert: bool
-    ca_fingerprint: str | None = None  # SHA-256 指紋，供前端顯示確認
 
 
 class ProxmoxConfigUpdate(BaseModel):
-    """更新 Proxmox 設定的請求 schema。
+    """更新放置／排程策略。
 
     PUT / 為**部分更新**：route 以 ``model_dump(exclude_unset=True)`` 判斷
-    payload 實際帶了哪些欄位，沒出現的欄位維持 DB 現值（尚無設定列時
-    退回此 schema 的預設值）。呼叫端只需送自己管的欄位——資源排程頁
-    因此不必回送連線欄位。欄位預設值僅在「初次建立且未帶該欄位」時生效。
+    payload 實際帶了哪些欄位，沒出現的欄位維持 DB 現值。欄位預設值僅在
+    「初次建立且未帶該欄位」時生效。
     """
 
-    host: str = ""
-    user: str = ""
-    password: str | None = None  # None 表示不更新密碼
-    verify_ssl: bool = False
-    iso_storage: str = "local"
-    data_storage: str = "local-lvm"
-    api_timeout: int = Field(default=30, ge=1, le=300)
-    task_check_interval: int = Field(default=2, ge=1, le=60)
-    pool_name: str = DEFAULT_PROXMOX_POOL_NAME
-    ca_cert: str | None = None  # None 表示不更新；空字串表示清除
-    gateway_ip: str | None = None
-    local_subnet: str | None = None
-    default_node: str | None = None
     cpu_overcommit_ratio: float = Field(default=2.0, ge=1.0, le=8.0)
     disk_overcommit_ratio: float = Field(default=1.0, ge=1.0, le=5.0)
     placement_reassignment_cost: float = Field(default=0.15, ge=0.0, le=5.0)
@@ -231,15 +204,6 @@ class ConnectionSyncResult(BaseModel):
     error: str | None = None
 
 
-class ClusterPreviewResult(BaseModel):
-    """偵測叢集節點的預覽結果（不儲存）"""
-
-    success: bool
-    is_cluster: bool          # True 代表有多個節點
-    nodes: list[ProxmoxNodePublic]
-    error: str | None = None
-
-
 class ProxmoxStoragePublic(BaseModel):
     """回傳給前端的 Storage 資訊。
 
@@ -295,7 +259,6 @@ __all__ = [
     "ProxmoxConnectionUpdateIn",
     "CertParseResult",
     "ProxmoxNodePublic",
-    "ClusterPreviewResult",
     "ProxmoxNodeUpdate",
     "ProxmoxStoragePublic",
     "ProxmoxStorageUpdate",

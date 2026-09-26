@@ -72,7 +72,6 @@ class EncryptedColumn:
 
 # Every column written through app.core.security.encrypt_value.
 ENCRYPTED_COLUMNS: tuple[EncryptedColumn, ...] = (
-    EncryptedColumn("proxmox_config", "id", "encrypted_password"),
     EncryptedColumn("proxmox_connections", "id", "encrypted_password"),
     EncryptedColumn("ldap_config", "id", "encrypted_bind_password"),
     EncryptedColumn("gateway_config", "id", "encrypted_private_key"),

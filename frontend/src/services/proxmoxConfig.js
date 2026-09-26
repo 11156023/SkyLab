@@ -37,19 +37,14 @@ export const ProxmoxConfigService = {
     return apiPost(`/api/v1/proxmox-config/connections/${connectionId}/sync`);
   },
 
-  /** 取得放置與排程設定（連線欄位已移至 connections，僅作相容退路） */
+  /** 取得放置與排程策略（PVE 連線本身見 connections） */
   getConfig() {
     return apiGet("/api/v1/proxmox-config/");
   },
 
-  /** 更新放置與排程設定（需傳完整 ProxmoxConfigUpdate；password / ca_cert 選填） */
+  /** 更新放置與排程策略（部分更新，只送要改的欄位） */
   updateConfig(body) {
     return apiPut("/api/v1/proxmox-config/", body);
-  },
-
-  /** 以暫存設定預覽叢集節點 */
-  previewCluster(body) {
-    return apiPost("/api/v1/proxmox-config/preview", body);
   },
 
   /** 節點列表 */
@@ -65,11 +60,6 @@ export const ProxmoxConfigService = {
   /** 立即同步節點與 Storage */
   syncNow() {
     return apiPost("/api/v1/proxmox-config/sync-now");
-  },
-
-  /** 測試 PVE 連線 */
-  testConnection() {
-    return apiPost("/api/v1/proxmox-config/test");
   },
 
   /** 解析 CA 憑證 PEM */

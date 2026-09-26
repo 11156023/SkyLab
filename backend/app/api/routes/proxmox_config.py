@@ -1,4 +1,4 @@
-"""Proxmox 連線設定管理 API（僅管理員）"""
+"""Proxmox 連線、節點、Storage 與放置／排程策略管理 API（僅管理員）"""
 
 import hashlib
 import logging
@@ -14,8 +14,6 @@ from app.api.deps import AdminUser, SessionDep
 from app.core.i18n import t
 from app.exceptions import BadRequestError
 from app.infrastructure.proxmox import (
-    DEFAULT_PROXMOX_POOL_NAME,
-    fetch_cluster_nodes,
     invalidate_proxmox_client,
     resolve_verify,
 )
@@ -27,7 +25,6 @@ from app.repositories import proxmox_node as proxmox_node_repo
 from app.repositories import proxmox_storage as proxmox_storage_repo
 from app.schemas.proxmox_config import (
     CertParseResult,
-    ClusterPreviewResult,
     ConnectionSyncResult,
     ProxmoxConfigPublic,
     ProxmoxConfigUpdate,
@@ -52,63 +49,13 @@ router = APIRouter(prefix="/proxmox-config", tags=["proxmox-config"])
 # ── 內部工具 ────────────────────────────────────────────────────────────────
 
 
-def _cert_fingerprint(pem: str) -> str:
-    """計算 PEM 憑證的 SHA-256 指紋（格式：AA:BB:CC:...）"""
-    cert = x509.load_pem_x509_certificate(pem.encode(), default_backend())
-    digest = hashlib.sha256(cert.public_bytes(encoding=Encoding.DER)).digest()
-    return ":".join(f"{b:02X}" for b in digest)
-
-
 def _to_public(config, *, is_configured: bool) -> ProxmoxConfigPublic:
-    fingerprint = None
-    if config.ca_cert:
-        try:
-            fingerprint = _cert_fingerprint(config.ca_cert)
-        except Exception:
-            # 憑證指紋計算失敗時以 None 呈現
-            pass
-    return ProxmoxConfigPublic(
-        host=config.host,
-        user=config.user,
-        verify_ssl=config.verify_ssl,
-        iso_storage=config.iso_storage,
-        data_storage=config.data_storage,
-        api_timeout=config.api_timeout,
-        task_check_interval=config.task_check_interval,
-        pool_name=config.pool_name,
-        gateway_ip=config.gateway_ip,
-        local_subnet=config.local_subnet,
-        default_node=config.default_node,
-        cpu_overcommit_ratio=config.cpu_overcommit_ratio,
-        disk_overcommit_ratio=config.disk_overcommit_ratio,
-        placement_reassignment_cost=config.placement_reassignment_cost,
-        placement_peak_cpu_margin=config.placement_peak_cpu_margin,
-        placement_peak_memory_margin=config.placement_peak_memory_margin,
-        placement_loadavg_warn_per_core=config.placement_loadavg_warn_per_core,
-        placement_loadavg_max_per_core=config.placement_loadavg_max_per_core,
-        placement_loadavg_penalty_weight=config.placement_loadavg_penalty_weight,
-        placement_disk_contention_warn_share=config.placement_disk_contention_warn_share,
-        placement_disk_contention_high_share=config.placement_disk_contention_high_share,
-        placement_disk_penalty_weight=config.placement_disk_penalty_weight,
-        placement_cpu_peak_warn_share=config.placement_cpu_peak_warn_share,
-        placement_cpu_peak_high_share=config.placement_cpu_peak_high_share,
-        placement_memory_peak_warn_share=config.placement_memory_peak_warn_share,
-        placement_memory_peak_high_share=config.placement_memory_peak_high_share,
-        placement_resource_weight_cpu=config.placement_resource_weight_cpu,
-        placement_resource_weight_memory=config.placement_resource_weight_memory,
-        placement_resource_weight_disk=config.placement_resource_weight_disk,
-        scheduled_boot_batch_size=config.scheduled_boot_batch_size,
-        scheduled_boot_batch_interval_seconds=config.scheduled_boot_batch_interval_seconds,
-        scheduled_boot_lead_time_minutes=config.scheduled_boot_lead_time_minutes,
-        window_grace_period_minutes=config.window_grace_period_minutes,
-        practice_session_hours=config.practice_session_hours,
-        practice_warning_minutes=config.practice_warning_minutes,
-        expiry_warning_hours=config.expiry_warning_hours,
-        updated_at=config.updated_at,
-        is_configured=is_configured,
-        has_ca_cert=bool(config.ca_cert),
-        ca_fingerprint=fingerprint,
-    )
+    fields = {
+        name: getattr(config, name)
+        for name in ProxmoxConfigPublic.model_fields
+        if name != "is_configured"
+    }
+    return ProxmoxConfigPublic(**fields, is_configured=is_configured)
 
 
 def _connection_to_public(session, conn) -> ProxmoxConnectionPublic:
@@ -291,7 +238,7 @@ def _validate_threshold_ordering(
 ) -> None:
     """成對的警戒／上限閾值必須嚴格遞增。
 
-    /preview 與 PUT / 都要檢查：評分函式雖然會用 max(high, warn + 0.01) 兜底，
+    PUT / 要檢查：評分函式雖然會用 max(high, warn + 0.01) 兜底，
     但存進 DB 的順序若顛倒，管理員看到的數字就與實際生效的不一致。
     PUT 是部分更新，呼叫端要傳入「合併後」的生效值再驗，
     只送一半的成對欄位也擋得住順序顛倒。
@@ -306,87 +253,15 @@ def _validate_threshold_ordering(
         )
 
 
-def _resolve_credentials(
-    session,
-    config_in: ProxmoxConfigUpdate,
-) -> tuple[str, str | bool]:
-    """
-    解析連線所需的 password 與 verify_ssl/ca_cert。
-    password：用請求提供的；若無則從 DB 取。
-    ca_cert：用請求提供的；若無則從 DB 取。
-    回傳 (password, verify_ssl_or_ca_cert_pem)。
-    """
-    _validate_threshold_ordering(
-        loadavg_warn=config_in.placement_loadavg_warn_per_core,
-        loadavg_max=config_in.placement_loadavg_max_per_core,
-        disk_warn=config_in.placement_disk_contention_warn_share,
-        disk_high=config_in.placement_disk_contention_high_share,
-    )
-
-    existing = proxmox_config_repo.get_proxmox_config(session)
-
-    # 決定密碼
-    if config_in.password:
-        password = config_in.password
-    elif existing:
-        password = proxmox_config_repo.get_decrypted_password(existing)
-    else:
-        raise BadRequestError(t("proxmoxConfig.passwordRequired"))
-
-    # 決定 CA cert / verify_ssl
-    ca_cert = config_in.ca_cert
-    if ca_cert is None and existing:
-        ca_cert = existing.ca_cert
-
-    if ca_cert:
-        return password, ca_cert  # ca_cert PEM string
-    else:
-        return password, config_in.verify_ssl  # bool
-
-
 # ── Endpoints ────────────────────────────────────────────────────────────────
 
 
 @router.get("/", response_model=ProxmoxConfigPublic)
 def get_proxmox_config(session: SessionDep, current_user: AdminUser) -> Any:
-    """取得目前的 Proxmox 連線設定（密碼不回傳）"""
+    """取得放置／排程策略（PVE 連線本身見 /connections）"""
     config = proxmox_config_repo.get_proxmox_config(session)
     if config is None:
-        return ProxmoxConfigPublic(
-            host="",
-            user="",
-            verify_ssl=False,
-            iso_storage="local",
-            data_storage="local-lvm",
-            api_timeout=30,
-            task_check_interval=2,
-            pool_name=DEFAULT_PROXMOX_POOL_NAME,
-            gateway_ip=None,
-            local_subnet=None,
-            default_node=None,
-            cpu_overcommit_ratio=2.0,
-            disk_overcommit_ratio=1.0,
-            placement_reassignment_cost=0.15,
-            placement_peak_cpu_margin=1.1,
-            placement_peak_memory_margin=1.05,
-            placement_loadavg_warn_per_core=0.8,
-            placement_loadavg_max_per_core=1.5,
-            placement_loadavg_penalty_weight=0.9,
-            placement_disk_contention_warn_share=0.7,
-            placement_disk_contention_high_share=0.9,
-            placement_disk_penalty_weight=0.75,
-            placement_cpu_peak_warn_share=0.7,
-            placement_cpu_peak_high_share=1.2,
-            placement_memory_peak_warn_share=0.8,
-            placement_memory_peak_high_share=0.85,
-            placement_resource_weight_cpu=1.0,
-            placement_resource_weight_memory=1.0,
-            placement_resource_weight_disk=1.0,
-            updated_at=None,
-            is_configured=False,
-            has_ca_cert=False,
-            ca_fingerprint=None,
-        )
+        return ProxmoxConfigPublic(is_configured=False)
     return _to_public(config, is_configured=True)
 
 
@@ -394,11 +269,9 @@ def get_proxmox_config(session: SessionDep, current_user: AdminUser) -> Any:
 def update_proxmox_config(
     session: SessionDep, current_user: AdminUser, config_in: ProxmoxConfigUpdate
 ) -> Any:
-    """新增或更新 Proxmox 設定。
+    """新增或更新放置／排程策略。
 
-    **部分更新**：payload 沒帶的欄位維持 DB 現值，呼叫端只需送自己管的
-    欄位（資源排程頁不必回送連線欄位）。尚無設定列時，未帶欄位退回
-    schema 預設值。
+    **部分更新**：payload 沒帶的欄位維持 DB 現值；尚無設定列時以預設值建立。
     """
     provided = config_in.model_dump(exclude_unset=True)
     existing = proxmox_config_repo.get_proxmox_config(session)
@@ -418,68 +291,7 @@ def update_proxmox_config(
         disk_high=merged("placement_disk_contention_high_share"),
     )
 
-    password = config_in.password  # None = 不更新，repo 原生支援
-    if existing is None and password is None:
-        # 連線帳密已改由 proxmox_connections 管理，此 singleton 只承載放置與
-        # 排程參數；已經有連線時不必再要一次密碼。
-        if proxmox_connection_repo.get_all_connections(session):
-            password = ""
-        else:
-            raise BadRequestError(t("proxmoxConfig.passwordRequired"))
-
-    if config_in.ca_cert:
-        try:
-            x509.load_pem_x509_certificate(
-                config_in.ca_cert.encode(), default_backend()
-            )
-        except Exception:
-            raise BadRequestError(t("proxmoxConfig.invalidCaCert"))
-
-    config = proxmox_config_repo.upsert_proxmox_config(
-        session=session,
-        host=merged("host"),
-        user=merged("user"),
-        password=password,
-        verify_ssl=merged("verify_ssl"),
-        iso_storage=merged("iso_storage"),
-        data_storage=merged("data_storage"),
-        api_timeout=merged("api_timeout"),
-        task_check_interval=merged("task_check_interval"),
-        pool_name=merged("pool_name"),
-        ca_cert=config_in.ca_cert,  # None = 不更新，repo 原生支援
-        gateway_ip=merged("gateway_ip"),
-        local_subnet=merged("local_subnet"),
-        default_node=merged("default_node"),
-        cpu_overcommit_ratio=merged("cpu_overcommit_ratio"),
-        disk_overcommit_ratio=merged("disk_overcommit_ratio"),
-        placement_reassignment_cost=merged("placement_reassignment_cost"),
-        placement_peak_cpu_margin=merged("placement_peak_cpu_margin"),
-        placement_peak_memory_margin=merged("placement_peak_memory_margin"),
-        placement_loadavg_warn_per_core=merged("placement_loadavg_warn_per_core"),
-        placement_loadavg_max_per_core=merged("placement_loadavg_max_per_core"),
-        placement_loadavg_penalty_weight=merged("placement_loadavg_penalty_weight"),
-        placement_disk_contention_warn_share=merged("placement_disk_contention_warn_share"),
-        placement_disk_contention_high_share=merged("placement_disk_contention_high_share"),
-        placement_disk_penalty_weight=merged("placement_disk_penalty_weight"),
-        placement_cpu_peak_warn_share=merged("placement_cpu_peak_warn_share"),
-        placement_cpu_peak_high_share=merged("placement_cpu_peak_high_share"),
-        placement_memory_peak_warn_share=merged("placement_memory_peak_warn_share"),
-        placement_memory_peak_high_share=merged("placement_memory_peak_high_share"),
-        placement_resource_weight_cpu=merged("placement_resource_weight_cpu"),
-        placement_resource_weight_memory=merged("placement_resource_weight_memory"),
-        placement_resource_weight_disk=merged("placement_resource_weight_disk"),
-        scheduled_boot_batch_size=merged("scheduled_boot_batch_size"),
-        scheduled_boot_batch_interval_seconds=merged("scheduled_boot_batch_interval_seconds"),
-        scheduled_boot_lead_time_minutes=merged("scheduled_boot_lead_time_minutes"),
-        window_grace_period_minutes=merged("window_grace_period_minutes"),
-        practice_session_hours=merged("practice_session_hours"),
-        practice_warning_minutes=merged("practice_warning_minutes"),
-        expiry_warning_hours=merged("expiry_warning_hours"),
-    )
-
-    # 連線欄位與 pool / storage / gateway 的唯一真相來源是 proxmox_connections，
-    # 這裡不再回寫預設連線；此 singleton 僅在尚無任何連線時作為相容退路。
-    invalidate_proxmox_client()
+    config = proxmox_config_repo.upsert_proxmox_config(session, **provided)
 
     audit_service.log_action(
         session=session,
@@ -489,63 +301,6 @@ def update_proxmox_config(
     )
 
     return _to_public(config, is_configured=True)
-
-
-@router.post("/preview", response_model=ClusterPreviewResult)
-def preview_cluster(
-    session: SessionDep,
-    current_user: AdminUser,
-    config_in: ProxmoxConfigUpdate,
-) -> ClusterPreviewResult:
-    """
-    用表單內容臨時連線，偵測叢集節點。不儲存任何資料。
-    前端在儲存前呼叫此 endpoint，根據回傳決定是否顯示確認 popup。
-    """
-    # schema 已改為部分更新用（host/user 可缺省），preview 要實際連線必須有值
-    if not config_in.host or not config_in.user:
-        raise HTTPException(
-            status_code=400, detail="host and user are required for preview"
-        )
-    try:
-        password, ssl_param = _resolve_credentials(session, config_in)
-
-        # 若有 CA cert：pre-flight 驗證後改用 CA bundle 路徑（不再關閉 TLS 驗證）
-        if isinstance(ssl_param, str):  # ca_cert PEM
-            verify_ssl: bool | str = resolve_verify(config_in.host, True, ssl_param)
-        else:
-            verify_ssl = ssl_param
-
-        raw_nodes = fetch_cluster_nodes(
-            host=config_in.host,
-            user=config_in.user,
-            password=password,
-            verify_ssl=verify_ssl,
-            timeout=config_in.api_timeout,
-        )
-
-        nodes = [
-            ProxmoxNodePublic(
-                name=n["name"],
-                host=n["host"],
-                port=n.get("port", 8006),
-                is_primary=n.get("is_primary", False),
-                is_online=True,
-            )
-            for n in raw_nodes
-        ]
-        return ClusterPreviewResult(
-            success=True,
-            is_cluster=len(nodes) > 1,
-            nodes=nodes,
-        )
-    except Exception as e:
-        logger.warning(f"Cluster preview failed: {e}")
-        return ClusterPreviewResult(
-            success=False,
-            is_cluster=False,
-            nodes=[],
-            error="Cluster preview failed",
-        )
 
 
 @router.get("/nodes", response_model=list[ProxmoxNodePublic])
@@ -870,35 +625,16 @@ def sync_now(
     同步所有啟用連線的節點與各節點的 Storage 到資料庫。
     節點既有的 priority 設定會被保留。
     Storage 既有的 enabled/speed_tier/user_priority 設定會被保留。
-    尚未建立任何連線資料時，退回 proxmox_config 單連線行為。
     """
     connections = proxmox_connection_repo.get_all_connections(
         session, enabled_only=True
     )
 
     if not connections:
-        # 舊版單連線相容：以 proxmox_config 建立暫時性的連線物件同步
-        config = proxmox_config_repo.get_proxmox_config(session)
-        if config is None:
-            return SyncNowResult(
-                success=False, nodes=[], storage_count=0,
-                error=t("proxmoxConfig.notConfigured"),
-            )
-        from app.models.proxmox_connection import ProxmoxConnection
-
-        connections = [
-            ProxmoxConnection(
-                id=None,
-                name=config.host,
-                host=config.host,
-                port=8006,
-                user=config.user,
-                encrypted_password=config.encrypted_password,
-                verify_ssl=config.verify_ssl,
-                ca_cert=config.ca_cert,
-                api_timeout=config.api_timeout,
-            )
-        ]
+        return SyncNowResult(
+            success=False, nodes=[], storage_count=0,
+            error=t("proxmoxConfig.notConfigured"),
+        )
 
     all_nodes: list = []
     total_storages = 0
@@ -960,40 +696,3 @@ def parse_cert(
     except Exception as e:
         logger.warning(f"Certificate parse failed: {e}")
         return CertParseResult(valid=False, error="Invalid certificate")
-
-
-@router.post("/test", response_model=ProxmoxConnectionTestResult)
-def test_proxmox_connection(
-    session: SessionDep, current_user: AdminUser
-) -> ProxmoxConnectionTestResult:
-    """測試目前設定的 Proxmox 連線"""
-    config = proxmox_config_repo.get_proxmox_config(session)
-    if config is None:
-        return ProxmoxConnectionTestResult(
-            success=False, message=t("proxmoxConfig.notConfigured")
-        )
-
-    try:
-        from proxmoxer import ProxmoxAPI
-
-        password = proxmox_config_repo.get_decrypted_password(config)
-        verify_ssl = resolve_verify(config.host, config.verify_ssl, config.ca_cert)
-
-        client = ProxmoxAPI(
-            config.host,
-            user=config.user,
-            password=password,
-            verify_ssl=verify_ssl,
-            timeout=config.api_timeout,
-        )
-        nodes = client.nodes.get()
-        node_names = [n.get("node", "") for n in nodes]
-        return ProxmoxConnectionTestResult(
-            success=True,
-            message=t("proxmoxConfig.connectionSuccess", nodes=", ".join(node_names)),
-        )
-    except Exception as e:
-        logger.warning(f"Proxmox connection test failed: {e}")
-        return ProxmoxConnectionTestResult(
-            success=False, message=t("proxmoxConfig.connectionFailed")
-        )
