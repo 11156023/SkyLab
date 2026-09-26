@@ -1,8 +1,8 @@
-import { useCallback, useEffect, useId, useState } from "react";
-import { createPortal } from "react-dom";
+import { useCallback, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import styles from "./settings.module.scss";
 import MIcon from "../../../components/MIcon";
+import Modal from "../../../components/Modal/Modal";
 import LoadingState from "../../../components/LoadingState/LoadingState";
 import EmptyState from "../../../components/EmptyState/EmptyState";
 import { useToast } from "../../../hooks/useToast";
@@ -18,86 +18,64 @@ import PageHeader from "../../../components/PageHeader/PageHeader";
 /* ── 編輯 Modal：改用彈窗，列本身不再變形（#22） ── */
 function NodeEditDialog({ node, saving, closing = false, onClose, onSave }) {
   const { t } = useTranslation("system");
-  const titleId = useId();
   const [form, setForm] = useState({ host: node.host, port: node.port, priority: node.priority });
-
-  useEffect(() => {
-    const onKeyDown = (e) => {
-      if (e.key === "Escape" && !saving) onClose();
-    };
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [saving, onClose]);
 
   function submit(e) {
     e.preventDefault();
     onSave(node, form);
   }
 
-  /* 掛到 document.body：外層若加了 backdrop-filter／transform，
-     position: fixed 的遮罩會被困在那一層、蓋不滿整個畫面（同 PVE 連線對話框） */
-  return createPortal(
-    <div
-      className={`${styles.modalOverlay} ${closing ? styles.modalOverlayOut : ""}`}
-      onMouseDown={onClose}
-    >
-      <form
-        className={`${styles.modal} ${styles.modalNarrow}`}
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby={titleId}
-        onSubmit={submit}
-        onMouseDown={(e) => e.stopPropagation()}
-      >
-        <div className={styles.modalHeader}>
-          <h2 id={titleId} className={styles.modalTitle}>
-            {t("SettingsPage.editNodeTitle", { name: node.name })}
-          </h2>
-          <button type="button" className={styles.dialogClose} onClick={onClose} disabled={saving} aria-label={t("SettingsPage.close")}>
-            <MIcon name="close" size={18} />
-          </button>
-        </div>
-
-        <label className={styles.field}>
-          <span>Host</span>
-          <input
-            value={form.host}
-            onChange={(e) => setForm((p) => ({ ...p, host: e.target.value }))}
-            required
-          />
-        </label>
-        <label className={styles.field}>
-          <span>Port</span>
-          <input
-            type="number"
-            min={1}
-            max={65535}
-            value={form.port}
-            onChange={(e) => setForm((p) => ({ ...p, port: e.target.value }))}
-          />
-          <em className={styles.fieldHint}>{t("SettingsPage.nodeHostHint")}</em>
-        </label>
-        <label className={styles.field}>
-          <span>{t("SettingsPage.nodePriorityLabel")}</span>
-          <input
-            type="number"
-            value={form.priority}
-            onChange={(e) => setForm((p) => ({ ...p, priority: e.target.value }))}
-          />
-          <em className={styles.fieldHint}>{t("SettingsPage.nodePriorityHint")}</em>
-        </label>
-
-        <div className={styles.modalActions}>
+  /* 外框（遮罩、標題列、Esc、焦點、捲動鎖）交給共用 Modal；儲存中 Esc／點遮罩／× 都不關 */
+  return (
+    <Modal
+      as="form"
+      onSubmit={submit}
+      closing={closing}
+      onClose={onClose}
+      busy={saving}
+      closeButton
+      size="sm"
+      title={t("SettingsPage.editNodeTitle", { name: node.name })}
+      actions={
+        <>
           <button type="button" className={styles.btnSecondary} onClick={onClose} disabled={saving}>
             {t("SettingsPage.cancel")}
           </button>
           <button type="submit" className={styles.btnPrimary} disabled={saving}>
             {saving ? t("SettingsPage.saving") : t("SettingsPage.save")}
           </button>
-        </div>
-      </form>
-    </div>,
-    document.body,
+        </>
+      }
+    >
+      <label className={styles.field}>
+        <span>Host</span>
+        <input
+          value={form.host}
+          onChange={(e) => setForm((p) => ({ ...p, host: e.target.value }))}
+          required
+        />
+      </label>
+      <label className={styles.field}>
+        <span>Port</span>
+        <input
+          type="number"
+          min={1}
+          max={65535}
+          value={form.port}
+          onChange={(e) => setForm((p) => ({ ...p, port: e.target.value }))}
+        />
+        <em className={styles.fieldHint}>{t("SettingsPage.nodeHostHint")}</em>
+      </label>
+      <label className={styles.field}>
+        <span>{t("SettingsPage.nodePriorityLabel")}</span>
+        <input
+          type="number"
+          value={form.priority}
+          onChange={(e) => setForm((p) => ({ ...p, priority: e.target.value }))}
+        />
+        <em className={styles.fieldHint}>{t("SettingsPage.nodePriorityHint")}</em>
+      </label>
+    </Modal>
   );
 }
 

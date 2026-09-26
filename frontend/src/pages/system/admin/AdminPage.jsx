@@ -1,8 +1,8 @@
-import { useCallback, useEffect, useId, useMemo, useState } from "react";
-import { createPortal } from "react-dom";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import styles from "./AdminPage.module.scss";
 import MIcon from "../../../components/MIcon";
+import Modal from "../../../components/Modal/Modal";
 import LoadingState from "../../../components/LoadingState/LoadingState";
 import SharedEmptyState from "../../../components/EmptyState/EmptyState";
 import { useAuth } from "../../../contexts/AuthContext";
@@ -65,16 +65,6 @@ function UserModal({ mode, user, loading, closing = false, onClose, onSubmit, on
   }
   /* LDAP 帳號的密碼歸目錄管：本地密碼欄位鎖住（後端也會擋），稽核 #9 */
   const isLdap = isEdit && user?.auth_source === "ldap";
-  const titleId = useId();
-
-  /* Esc 關閉（Dialog 標準行為）；送出中不關，跟關閉鈕的行為一致 */
-  useEffect(() => {
-    const onKeyDown = (e) => {
-      if (e.key === "Escape" && !loading) onClose();
-    };
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [loading, onClose]);
   const ROLE_OPTIONS = [
     { value: "student", label: t("AdminPage.roleStudent") },
     { value: "teacher", label: t("AdminPage.roleTeacher") },
@@ -98,133 +88,122 @@ function UserModal({ mode, user, loading, closing = false, onClose, onSubmit, on
     onSubmit(payload);
   }
 
-  /* 掛到 document.body：外層若加了 backdrop-filter／transform，
-     position: fixed 的遮罩會被困在那一層、蓋不滿整個畫面 */
-  return createPortal(
-    <div
-      className={`${styles.modalOverlay} ${closing ? styles.modalOverlayOut : ""}`}
-      onMouseDown={onClose}
-    >
-      <form
-        className={styles.modal}
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby={titleId}
-        onSubmit={submit}
-        onMouseDown={(e) => e.stopPropagation()}
-      >
-        <div className={styles.modalHeader}>
-          <h2 id={titleId}>{isEdit ? t("AdminPage.modalEditTitle") : t("AdminPage.modalCreateTitle")}</h2>
-          <button type="button" className={styles.dialogClose} onClick={onClose} aria-label={t("AdminPage.close")}>
-            <MIcon name="close" size={18} />
-          </button>
-        </div>
-
-        <div className={styles.formGrid}>
-          <label className={styles.field}>
-            <span>Email</span>
-            <input
-              type="email"
-              value={form.email}
-              onChange={(e) => setField("email", e.target.value)}
-              required
-              maxLength={255}
-            />
-          </label>
-
-          <label className={styles.field}>
-            <span>{t("AdminPage.fieldName")}</span>
-            <input
-              value={form.full_name}
-              onChange={(e) => setField("full_name", e.target.value)}
-              maxLength={255}
-              placeholder={t("AdminPage.fieldNameOptional")}
-            />
-          </label>
-
-          <label className={styles.field}>
-            <span>{isEdit ? t("AdminPage.fieldNewPassword") : t("AdminPage.fieldPassword")}</span>
-            <PasswordInput
-              value={form.password}
-              onChange={(e) => setField("password", e.target.value)}
-              minLength={8}
-              maxLength={128}
-              required={!isEdit}
-              disabled={isLdap}
-              placeholder={
-                isLdap
-                  ? t("AdminPage.ldapManagedPlaceholder")
-                  : isEdit ? t("AdminPage.passwordUnchangedHint") : t("AdminPage.passwordMinHint")
-              }
-            />
-            {isLdap && <em className={styles.fieldHint}>{t("AdminPage.ldapManagedHint")}</em>}
-          </label>
-
-          <label className={styles.field}>
-            <span>{t("AdminPage.fieldRole")}</span>
-            <select value={form.role} onChange={(e) => setField("role", e.target.value)}>
-              {ROLE_OPTIONS.map((role) => (
-                <option key={role.value} value={role.value}>{role.label}</option>
-              ))}
-            </select>
-          </label>
-        </div>
-
-        <div className={styles.toggleGrid}>
-          <label className={styles.checkRow}>
-            <input
-              type="checkbox"
-              checked={form.is_active}
-              onChange={(e) => setField("is_active", e.target.checked)}
-            />
-            <span>{t("AdminPage.fieldActive")}</span>
-          </label>
-          <label className={styles.checkRow} title={t("AdminPage.fieldTotpRequiredHint")}>
-            <input
-              type="checkbox"
-              checked={form.totp_required}
-              onChange={(e) => setField("totp_required", e.target.checked)}
-            />
-            <span>{t("AdminPage.fieldTotpRequired")}</span>
-          </label>
-        </div>
-        {form.totp_required && (
-          <em className={styles.fieldHint}>{t("AdminPage.fieldTotpRequiredHint")}</em>
-        )}
-
-        {isEdit && (
-          <div className={styles.totpRow}>
-            <div className={styles.totpRowText}>
-              <strong>{t("AdminPage.totpLabel")}</strong>
-              <span>
-                {user?.totp_enabled ? t("AdminPage.totpStatusOn") : t("AdminPage.totpStatusOff")}
-              </span>
-            </div>
-            {user?.totp_enabled && (
-              <button
-                type="button"
-                className={styles.btnSecondary}
-                onClick={handleResetTotp}
-                disabled={loading || resettingTotp}
-              >
-                <MIcon name="phonelink_erase" size={16} />
-                {resettingTotp ? t("AdminPage.totpResetting") : t("AdminPage.totpReset")}
-              </button>
-            )}
-          </div>
-        )}
-
-        <div className={styles.modalActions}>
+  /* 外框（遮罩、標題列、Esc、焦點、捲動鎖）交給共用 Modal；送出中 Esc／點遮罩／× 都不關 */
+  return (
+    <Modal
+      as="form"
+      onSubmit={submit}
+      closing={closing}
+      onClose={onClose}
+      busy={loading}
+      closeButton
+      size="md"
+      title={isEdit ? t("AdminPage.modalEditTitle") : t("AdminPage.modalCreateTitle")}
+      actions={
+        <>
           <button type="button" className={styles.btnSecondary} onClick={onClose}>
             {t("AdminPage.cancel")}
           </button>
           <button type="submit" className={styles.btnPrimary} disabled={loading}>
             {loading ? t("AdminPage.saving") : t("AdminPage.save")}
           </button>
+        </>
+      }
+    >
+      <div className={styles.formGrid}>
+        <label className={styles.field}>
+          <span>Email</span>
+          <input
+            type="email"
+            value={form.email}
+            onChange={(e) => setField("email", e.target.value)}
+            required
+            maxLength={255}
+          />
+        </label>
+
+        <label className={styles.field}>
+          <span>{t("AdminPage.fieldName")}</span>
+          <input
+            value={form.full_name}
+            onChange={(e) => setField("full_name", e.target.value)}
+            maxLength={255}
+            placeholder={t("AdminPage.fieldNameOptional")}
+          />
+        </label>
+
+        <label className={styles.field}>
+          <span>{isEdit ? t("AdminPage.fieldNewPassword") : t("AdminPage.fieldPassword")}</span>
+          <PasswordInput
+            value={form.password}
+            onChange={(e) => setField("password", e.target.value)}
+            minLength={8}
+            maxLength={128}
+            required={!isEdit}
+            disabled={isLdap}
+            placeholder={
+              isLdap
+                ? t("AdminPage.ldapManagedPlaceholder")
+                : isEdit ? t("AdminPage.passwordUnchangedHint") : t("AdminPage.passwordMinHint")
+            }
+          />
+          {isLdap && <em className={styles.fieldHint}>{t("AdminPage.ldapManagedHint")}</em>}
+        </label>
+
+        <label className={styles.field}>
+          <span>{t("AdminPage.fieldRole")}</span>
+          <select value={form.role} onChange={(e) => setField("role", e.target.value)}>
+            {ROLE_OPTIONS.map((role) => (
+              <option key={role.value} value={role.value}>{role.label}</option>
+            ))}
+          </select>
+        </label>
+      </div>
+
+      <div className={styles.toggleGrid}>
+        <label className={styles.checkRow}>
+          <input
+            type="checkbox"
+            checked={form.is_active}
+            onChange={(e) => setField("is_active", e.target.checked)}
+          />
+          <span>{t("AdminPage.fieldActive")}</span>
+        </label>
+        <label className={styles.checkRow} title={t("AdminPage.fieldTotpRequiredHint")}>
+          <input
+            type="checkbox"
+            checked={form.totp_required}
+            onChange={(e) => setField("totp_required", e.target.checked)}
+          />
+          <span>{t("AdminPage.fieldTotpRequired")}</span>
+        </label>
+      </div>
+      {form.totp_required && (
+        <em className={styles.fieldHint}>{t("AdminPage.fieldTotpRequiredHint")}</em>
+      )}
+
+      {isEdit && (
+        <div className={styles.totpRow}>
+          <div className={styles.totpRowText}>
+            <strong>{t("AdminPage.totpLabel")}</strong>
+            <span>
+              {user?.totp_enabled ? t("AdminPage.totpStatusOn") : t("AdminPage.totpStatusOff")}
+            </span>
+          </div>
+          {user?.totp_enabled && (
+            <button
+              type="button"
+              className={styles.btnSecondary}
+              onClick={handleResetTotp}
+              disabled={loading || resettingTotp}
+            >
+              <MIcon name="phonelink_erase" size={16} />
+              {resettingTotp ? t("AdminPage.totpResetting") : t("AdminPage.totpReset")}
+            </button>
+          )}
         </div>
-      </form>
-    </div>,
-    document.body,
+      )}
+    </Modal>
   );
 }
 

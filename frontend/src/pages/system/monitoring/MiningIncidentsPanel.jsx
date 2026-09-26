@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import styles from "./MonitoringPage.module.scss";
 import MIcon from "../../../components/MIcon";
+import Modal from "../../../components/Modal/Modal";
 import LoadingState from "../../../components/LoadingState/LoadingState";
 import EmptyState from "../../../components/EmptyState/EmptyState";
 import { MiningIncidentsService } from "../../../services/miningIncidents";
@@ -187,36 +188,16 @@ export default function MiningIncidentsPanel({ onCountChange }) {
         </table>
       )}
 
-      {/* 誤判解除：要勾選豁免與填備註，維持自建對話框；送出中不可關閉 */}
+      {/* 誤判解除：要勾選豁免與填備註，不能用 useConfirm；送出中 Esc／點遮罩都不關 */}
       {dismissDialog.open && (
-        <div
-          className={`${styles.modalOverlay} ${dismissDialog.closing ? styles.modalOverlayOut : ""}`}
-          onClick={() => { if (!busy) closeDismiss(); }}
-        >
-          <div className={styles.modal} role="dialog" aria-modal="true" onClick={(e) => e.stopPropagation()}>
-            <span className={styles.modalTitle}>{t("MiningIncidentsPanel.dismissTitle")}</span>
-            <p className={styles.modalDesc}>
-              {t("MiningIncidentsPanel.dismissMessage", { vmid: dismissDialog.item.vmid })}
-            </p>
-            <label className={styles.checkLine}>
-              <input
-                type="checkbox"
-                checked={dismissExempt}
-                onChange={(e) => setDismissExempt(e.target.checked)}
-              />
-              {t("MiningIncidentsPanel.exemptLabel")}
-            </label>
-            <div className={styles.field}>
-              <label htmlFor="mining-note">{t("MiningIncidentsPanel.noteLabel")}</label>
-              <textarea
-                id="mining-note"
-                rows={3}
-                placeholder={t("MiningIncidentsPanel.notePlaceholder")}
-                value={dismissNote}
-                onChange={(e) => setDismissNote(e.target.value)}
-              />
-            </div>
-            <div className={styles.modalActions}>
+        <Modal
+          closing={dismissDialog.closing}
+          onClose={closeDismiss}
+          busy={busy}
+          title={t("MiningIncidentsPanel.dismissTitle")}
+          description={t("MiningIncidentsPanel.dismissMessage", { vmid: dismissDialog.item.vmid })}
+          actions={
+            <>
               <button type="button" className={styles.btnSecondary} disabled={busy} onClick={closeDismiss}>
                 {t("MiningIncidentsPanel.cancel")}
               </button>
@@ -228,9 +209,28 @@ export default function MiningIncidentsPanel({ onCountChange }) {
               >
                 {busy ? t("MiningIncidentsPanel.processing") : t("MiningIncidentsPanel.confirmDismiss")}
               </button>
-            </div>
+            </>
+          }
+        >
+          <label className={styles.checkLine}>
+            <input
+              type="checkbox"
+              checked={dismissExempt}
+              onChange={(e) => setDismissExempt(e.target.checked)}
+            />
+            {t("MiningIncidentsPanel.exemptLabel")}
+          </label>
+          <div className={styles.field}>
+            <label htmlFor="mining-note">{t("MiningIncidentsPanel.noteLabel")}</label>
+            <textarea
+              id="mining-note"
+              rows={3}
+              placeholder={t("MiningIncidentsPanel.notePlaceholder")}
+              value={dismissNote}
+              onChange={(e) => setDismissNote(e.target.value)}
+            />
           </div>
-        </div>
+        </Modal>
       )}
     </div>
   );

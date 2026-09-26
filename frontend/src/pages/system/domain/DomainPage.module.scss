@@ -107,11 +107,6 @@
   flex-shrink: 0;
 }
 
-.dialogClose {
-  @include btn-dialog-close;
-  flex-shrink: 0;
-}
-
 .headerActions {
   display: flex;
   flex-wrap: wrap;
@@ -286,75 +281,6 @@
     color: var(--color-text-primary);
     font-size: $font-size-14;
   }
-}
-
-/* ── Modal ── */
-.modalOverlay {
-  @include dialog-overlay-avoid-ai;
-  position: fixed;
-  inset: 0;
-  z-index: 300;
-  @include flex-center;
-  padding: $spacing-16;
-  background: var(--color-overlay);
-  backdrop-filter: blur(4px);
-  animation: fadeIn 0.15s ease;
-  transition: opacity 0.15s ease;
-}
-
-.modalOverlayOut {
-  animation: none;
-  opacity: 0;
-  pointer-events: none;
-}
-
-@keyframes fadeIn {
-  from { opacity: 0; }
-  to   { opacity: 1; }
-}
-
-@keyframes slideUp {
-  from { opacity: 0; transform: translateY(12px); }
-  to   { opacity: 1; transform: translateY(0); }
-}
-
-/* 毛玻璃卡基準（樣式規範「Dialog / Modal」）；寬度取小型單欄表單級 640 */
-.modal {
-  animation: slideUp 0.18s cubic-bezier(0.25, 0.8, 0.25, 1);
-  width: min(640px, 100%);
-  max-height: 88vh;
-  overflow-y: auto;
-  @include flex-column;
-  gap: $spacing-16;
-  padding: $spacing-24;
-  @include glass-surface($shadow: var(--shadow-lg));
-  border-radius: $radius-16;
-}
-
-.modalHeader {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: $spacing-16;
-
-  h2 {
-    margin: 0;
-    font-size: $font-size-16;
-    font-weight: $font-weight-700;
-    color: var(--color-text-primary);
-  }
-
-  p {
-    margin: 4px 0 0;
-    font-size: $font-size-12;
-    color: var(--color-text-secondary);
-  }
-}
-
-.modalActions {
-  display: flex;
-  justify-content: flex-end;
-  gap: $spacing-8;
 }
 
 /* 刪除 DNS 紀錄的確認框改用共用的 useConfirm，原本自建的 .confirm 樣式已不再需要 */

@@ -1,6 +1,7 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import styles from "./IpManagementPage.module.scss";
+import Modal from "../../../components/Modal/Modal";
 
 const IPV4_PATTERN = "^(\\d{1,3}\\.){3}\\d{1,3}$";
 
@@ -46,15 +47,6 @@ export default function SubnetConfigForm({
   const isEdit = Boolean(config);
   const busy = saving || deleting;
 
-  /* Esc 關閉（Dialog 標準行為）；儲存或刪除進行中不關，跟取消鈕的 disabled 一致 */
-  useEffect(() => {
-    const onKeyDown = (e) => {
-      if (e.key === "Escape" && !busy) onCancel();
-    };
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [busy, onCancel]);
-
   function handleSubmit(e) {
     e.preventDefault();
     onSubmit({
@@ -70,15 +62,43 @@ export default function SubnetConfigForm({
     });
   }
 
+  /* 外框（遮罩、標題列、Esc、焦點、捲動鎖）交給共用 Modal；儲存或刪除中 Esc／點遮罩／× 都不關 */
   return (
-    <div
-      className={`${styles.modalOverlay} ${closing ? styles.modalOverlayOut : ""}`}
-      onMouseDown={onCancel}
+    <Modal
+      as="form"
+      onSubmit={handleSubmit}
+      closing={closing}
+      onClose={onCancel}
+      busy={busy}
+      closeButton
+      size="md"
+      title={isEdit ? t("SubnetConfigForm.editTitle") : t("SubnetConfigForm.createTitle")}
+      actions={
+        <>
+          {isEdit && (
+            <button
+              type="button"
+              className={styles.btnDanger}
+              onClick={onDelete}
+              disabled={busy}
+            >
+              {deleting ? t("SubnetConfigForm.deleting") : t("SubnetConfigForm.deleteConfig")}
+            </button>
+          )}
+          <button
+            type="button"
+            className={styles.btnSecondary}
+            onClick={onCancel}
+            disabled={busy}
+          >
+            {t("SubnetConfigForm.cancel")}
+          </button>
+          <button type="submit" className={styles.btnPrimary} disabled={busy}>
+            {saving ? t("SubnetConfigForm.saving") : isEdit ? t("SubnetConfigForm.updateConfig") : t("SubnetConfigForm.createConfig")}
+          </button>
+        </>
+      }
     >
-    <form className={styles.modal} role="dialog" aria-modal="true" onSubmit={handleSubmit} onMouseDown={(e) => e.stopPropagation()}>
-      <span className={styles.modalTitle}>
-        {isEdit ? t("SubnetConfigForm.editTitle") : t("SubnetConfigForm.createTitle")}
-      </span>
 
       <div className={styles.modalFormGrid}>
         <label className={styles.field}>
@@ -176,31 +196,6 @@ export default function SubnetConfigForm({
           spellCheck={false}
         />
       </label>
-
-      <div className={styles.modalActions}>
-        {isEdit && (
-          <button
-            type="button"
-            className={styles.btnDanger}
-            onClick={onDelete}
-            disabled={busy}
-          >
-            {deleting ? t("SubnetConfigForm.deleting") : t("SubnetConfigForm.deleteConfig")}
-          </button>
-        )}
-        <button
-          type="button"
-          className={styles.btnSecondary}
-          onClick={onCancel}
-          disabled={busy}
-        >
-          {t("SubnetConfigForm.cancel")}
-        </button>
-        <button type="submit" className={styles.btnPrimary} disabled={busy}>
-          {saving ? t("SubnetConfigForm.saving") : isEdit ? t("SubnetConfigForm.updateConfig") : t("SubnetConfigForm.createConfig")}
-        </button>
-      </div>
-    </form>
-    </div>
+    </Modal>
   );
 }

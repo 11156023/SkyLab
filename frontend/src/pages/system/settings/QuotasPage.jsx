@@ -1,9 +1,9 @@
-import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
-import { createPortal } from "react-dom";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import styles from "./QuotasPage.module.scss";
 import pageStyles from "./settings.module.scss";
 import MIcon from "../../../components/MIcon";
+import Modal from "../../../components/Modal/Modal";
 import LoadingState from "../../../components/LoadingState/LoadingState";
 import EmptyState from "../../../components/EmptyState/EmptyState";
 import PageHeader from "../../../components/PageHeader/PageHeader";
@@ -194,17 +194,8 @@ function QuotaDialog({ mode, quota, candidates, loadingUsers, defaults, closing 
   const [userId, setUserId] = useState("");
   const [form, setForm] = useState(baseline);
   const [saving, setSaving] = useState(false);
-  const titleId = useId();
 
   const setField = (key, value) => setForm((prev) => ({ ...prev, [key]: value }));
-
-  useEffect(() => {
-    const onKeyDown = (e) => {
-      if (e.key === "Escape" && !saving) onClose();
-    };
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [saving, onClose]);
 
   const handleSave = async () => {
     setSaving(true);
@@ -232,62 +223,17 @@ function QuotaDialog({ mode, quota, candidates, loadingUsers, defaults, closing 
     }
   };
 
-  /* 掛到 document.body：外層若加了 backdrop-filter／transform，
-     position: fixed 的遮罩會被困在那一層、蓋不滿整個畫面（同 PVE 連線對話框） */
-  return createPortal(
-    <div
-      className={`${styles.modalOverlay} ${closing ? styles.modalOverlayOut : ""}`}
-      onClick={onClose}
-    >
-      <div
-        className={styles.modal}
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby={titleId}
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className={styles.modalHeader}>
-          <h2 id={titleId} className={styles.modalTitle}>
-            {isEdit ? t("QuotasTab.editQuota") : t("QuotasTab.addQuota")}
-          </h2>
-          <button type="button" className={styles.dialogClose} onClick={onClose} aria-label={t("QuotasTab.close")}>
-            <MIcon name="close" size={18} />
-          </button>
-        </div>
-
-        {isEdit ? (
-          <div className={styles.field}>
-            <label htmlFor="quota-target">{t("QuotasTab.userLabel")}</label>
-            <input id="quota-target" value={quota.user_email ?? quota.user_id} disabled />
-          </div>
-        ) : (
-          <UserPicker
-            users={candidates}
-            loading={loadingUsers}
-            value={userId}
-            onChange={setUserId}
-          />
-        )}
-
-        <div className={styles.formGrid}>
-          {NUMBER_FIELDS.map((field) => (
-            <LimitField
-              key={field.key}
-              idPrefix="quota"
-              field={field}
-              value={form[field.key]}
-              onChange={(value) => setField(field.key, value)}
-            />
-          ))}
-        </div>
-
-        {!isEdit && (
-          <p className={styles.hint}>
-            {t("QuotasTab.createHint")}
-          </p>
-        )}
-
-        <div className={styles.modalActions}>
+  /* 外框（遮罩、標題列、Esc、焦點、捲動鎖）交給共用 Modal；儲存中 Esc／點遮罩／× 都不關 */
+  return (
+    <Modal
+      closing={closing}
+      onClose={onClose}
+      busy={saving}
+      closeButton
+      size="md"
+      title={isEdit ? t("QuotasTab.editQuota") : t("QuotasTab.addQuota")}
+      actions={
+        <>
           <button type="button" className={styles.btnSecondary} onClick={onClose}>
             {t("QuotasTab.cancel")}
           </button>
@@ -299,10 +245,41 @@ function QuotaDialog({ mode, quota, candidates, loadingUsers, defaults, closing 
           >
             {saving ? t("QuotasTab.saving") : isEdit ? t("QuotasTab.save") : t("QuotasTab.create")}
           </button>
+        </>
+      }
+    >
+      {isEdit ? (
+        <div className={styles.field}>
+          <label htmlFor="quota-target">{t("QuotasTab.userLabel")}</label>
+          <input id="quota-target" value={quota.user_email ?? quota.user_id} disabled />
         </div>
+      ) : (
+        <UserPicker
+          users={candidates}
+          loading={loadingUsers}
+          value={userId}
+          onChange={setUserId}
+        />
+      )}
+
+      <div className={styles.formGrid}>
+        {NUMBER_FIELDS.map((field) => (
+          <LimitField
+            key={field.key}
+            idPrefix="quota"
+            field={field}
+            value={form[field.key]}
+            onChange={(value) => setField(field.key, value)}
+          />
+        ))}
       </div>
-    </div>,
-    document.body,
+
+      {!isEdit && (
+        <p className={styles.hint}>
+          {t("QuotasTab.createHint")}
+        </p>
+      )}
+    </Modal>
   );
 }
 
