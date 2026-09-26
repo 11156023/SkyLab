@@ -81,14 +81,11 @@
   flex-shrink: 0;
 }
 
+/* 狀態標籤：同全站狀態 badge（badge-base、內距 4px 10px、12px 字），前面一顆靜態狀態點（同首頁機器卡） */
 .status {
-  display: inline-flex;
-  align-items: center;
-  gap: $spacing-8;
-  padding: 6px 14px;
-  border-radius: $radius-pill;
-  font-size: $font-size-14;
-  font-weight: $font-weight-500;
+  @include badge-base;
+  gap: 6px;
+  padding: 4px 10px;
 }
 
 .status_success { background: color-mix(in srgb, var(--color-success) 12%, transparent); color: var(--color-success); }
@@ -97,32 +94,11 @@
 .status_muted   { background: color-mix(in srgb, var(--color-status-neutral) 12%, transparent); color: var(--color-status-neutral); }
 
 .statusDot {
-  position: relative;
-  width: 8px;
-  height: 8px;
+  width: 6px;
+  height: 6px;
+  flex-shrink: 0;
   border-radius: 50%;
   background: currentColor;
-}
-
-/* 執行中：往外擴散的光圈，提示這是即時狀態 */
-.statusDot_live::after {
-  content: "";
-  position: absolute;
-  inset: -3px;
-  border: 2px solid currentColor;
-  border-radius: 50%;
-  animation: statusPulse 1.8s ease-out infinite;
-}
-
-@keyframes statusPulse {
-  0%   { transform: scale(0.6); opacity: 0.8; }
-  100% { transform: scale(1.7); opacity: 0; }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .statusDot_live::after {
-    display: none;
-  }
 }
 
 .expiry {

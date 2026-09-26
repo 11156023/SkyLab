@@ -384,7 +384,7 @@ export default function OverviewTab({ vmid, access = null }) {
 
           <div className={ov.heroSide}>
             <span className={`${ov.status} ${ov[`status_${statusMeta.tone}`]}`}>
-              <span className={`${ov.statusDot} ${isRunning ? ov.statusDot_live : ""}`} aria-hidden="true" />
+              <span className={ov.statusDot} aria-hidden="true" />
               {statusMeta.labelKey ? t(statusMeta.labelKey) : statusMeta.label}
             </span>
             {showWindowInHero ? (
