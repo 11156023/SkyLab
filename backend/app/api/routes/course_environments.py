@@ -19,7 +19,6 @@ from app.core.permissions import is_admin
 from app.exceptions import BadRequestError, NotFoundError
 from app.models import (
     CourseEnvironment,
-    CourseEnvironmentAudience,
     CourseEnvironmentEdge,
     CourseEnvironmentFile,
     CourseEnvironmentNode,
@@ -139,10 +138,10 @@ class EnvironmentPublicationIn(BaseModel):
 class EnvironmentCreate(BaseModel):
     name: str = Field(min_length=1, max_length=255)
     description: str | None = Field(default=None, max_length=2000)
+    # 快速練習開放給所有登入者（開放對象的設定已移除；舊前端仍送 audience /
+    # audience_class_ids，未宣告的欄位會被忽略）
     usage_scope: Literal["course", "quick_practice", "both"] = "course"
-    audience: Literal["owner", "class", "campus"] = "class"
     max_concurrent_sessions: int | None = Field(default=None, ge=1, le=500)
-    audience_class_ids: list[uuid.UUID] = Field(default_factory=list, max_length=50)
     nodes: list[EnvironmentNodeIn] = Field(min_length=1, max_length=3)
     edges: list[EnvironmentEdgeIn] = Field(default_factory=list, max_length=6)
     publications: list[EnvironmentPublicationIn] = Field(
@@ -151,24 +150,6 @@ class EnvironmentCreate(BaseModel):
     # explicit：只開畫出的連線，沒畫就隔離；segment：同網段全部互通（舊行為）
     peer_policy: Literal["explicit", "segment"] = "explicit"
 
-    @model_validator(mode="after")
-    def validate_audience(self) -> "EnvironmentCreate":
-        """Audience only gates the student quick-practice list.
-
-        A course-only environment never reaches that list, so an empty class
-        allow-list is fine there; once the environment is offered as practice
-        the teacher must say which classes may see it.
-        """
-        if self.audience != "class":
-            self.audience_class_ids = []
-            return self
-        self.audience_class_ids = list(dict.fromkeys(self.audience_class_ids))
-        if not self.audience_class_ids and self.usage_scope in {
-            "quick_practice",
-            "both",
-        }:
-            raise ValueError(t("course_env.audience_class_required"))
-        return self
 
 
 class EnvironmentUpdate(EnvironmentCreate):
@@ -356,49 +337,6 @@ def _files(session: SessionDep, environment_id: uuid.UUID) -> list[CourseEnviron
     )
 
 
-def _audience_class_ids(
-    session: SessionDep, environment_id: uuid.UUID
-) -> list[uuid.UUID]:
-    return list(
-        session.exec(
-            select(CourseEnvironmentAudience.class_id).where(
-                CourseEnvironmentAudience.environment_id == environment_id
-            )
-        ).all()
-    )
-
-
-def _replace_audience(
-    session: SessionDep,
-    *,
-    environment: CourseEnvironment,
-    owner_id: uuid.UUID | None,
-    class_ids: list[uuid.UUID],
-) -> None:
-    """Rewrite the class allow-list.
-
-    A teacher may only open an environment to their own classes; ``owner_id``
-    is None for admins, who curate other people's environments too.
-    """
-    for class_id in class_ids:
-        teaching_class = session.get(TeachingClass, class_id)
-        if teaching_class is None:
-            raise BadRequestError(t("course_env.class_not_found"))
-        if owner_id is not None and teaching_class.owner_id != owner_id:
-            raise BadRequestError(
-                t("course_env.class_not_owned", name=teaching_class.name)
-            )
-    session.exec(
-        delete(CourseEnvironmentAudience).where(
-            col(CourseEnvironmentAudience.environment_id) == environment.id
-        )
-    )
-    for class_id in class_ids:
-        session.add(
-            CourseEnvironmentAudience(environment_id=environment.id, class_id=class_id)
-        )
-
-
 def _replace_nodes(
     session: SessionDep,
     version: CourseEnvironmentVersion,
@@ -466,9 +404,7 @@ def _serialize_version(
         "name": environment.name,
         "description": environment.description,
         "usage_scope": environment.usage_scope,
-        "audience": environment.audience,
         "max_concurrent_sessions": environment.max_concurrent_sessions,
-        "audience_class_ids": _audience_class_ids(session, environment.id),
         "files": [
             {
                 "id": item.id,
@@ -617,19 +553,12 @@ def create_environment(
         name=body.name.strip(),
         description=body.description,
         usage_scope=body.usage_scope,
-        audience=body.audience,
         max_concurrent_sessions=body.max_concurrent_sessions,
     )
     version = CourseEnvironmentVersion(environment_id=environment.id, version=1)
     session.add(environment)
     session.add(version)
     session.flush()
-    _replace_audience(
-        session,
-        environment=environment,
-        owner_id=None if is_admin(current_user) else current_user.id,
-        class_ids=body.audience_class_ids,
-    )
     _replace_nodes(
         session, version, body.nodes, body.edges, body.publications, owner=current_user
     )
@@ -652,15 +581,8 @@ def update_environment(
     environment.name = body.name.strip()
     environment.description = body.description
     environment.usage_scope = body.usage_scope
-    environment.audience = body.audience
     environment.max_concurrent_sessions = body.max_concurrent_sessions
     environment.updated_at = get_datetime_utc()
-    _replace_audience(
-        session,
-        environment=environment,
-        owner_id=None if is_admin(current_user) else environment.owner_id,
-        class_ids=body.audience_class_ids,
-    )
     _replace_nodes(
         session, version, body.nodes, body.edges, body.publications, owner=current_user
     )
@@ -839,14 +761,7 @@ def publish_environment(
         environment.name = body.name.strip()
         environment.description = body.description
         environment.usage_scope = body.usage_scope
-        environment.audience = body.audience
         environment.max_concurrent_sessions = body.max_concurrent_sessions
-        _replace_audience(
-            session,
-            environment=environment,
-            owner_id=None if is_admin(current_user) else environment.owner_id,
-            class_ids=body.audience_class_ids,
-        )
         _replace_nodes(
             session,
             version,
@@ -972,11 +887,6 @@ def delete_environment(
                 col(CourseEnvironmentVersion.id).in_(version_ids)
             )
         )
-    session.exec(
-        delete(CourseEnvironmentAudience).where(
-            col(CourseEnvironmentAudience.environment_id) == environment.id
-        )
-    )
     session.delete(environment)
     session.commit()
     return {"status": "deleted"}

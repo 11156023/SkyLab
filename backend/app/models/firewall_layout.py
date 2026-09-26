@@ -6,6 +6,8 @@ from datetime import datetime
 import sqlalchemy as sa
 from sqlmodel import Column, DateTime, Field, SQLModel, UniqueConstraint
 
+from .base import get_datetime_utc
+
 
 class FirewallLayout(SQLModel, table=True):
     """儲存防火牆圖形介面中每位使用者的節點位置。
@@ -59,7 +61,7 @@ class FirewallLayout(SQLModel, table=True):
         sa_column=Column(DateTime(timezone=True), nullable=False),
     )
     updated_at: datetime = Field(
-        sa_column=Column(DateTime(timezone=True), nullable=False),
+        sa_column=Column(DateTime(timezone=True), nullable=False, onupdate=get_datetime_utc),
     )
 
 

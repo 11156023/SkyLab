@@ -45,7 +45,6 @@ _CHECKS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     ),
     ("teaching_class_weeks", "status", ("draft", "published", "completed")),
     ("course_environments", "usage_scope", ("course", "quick_practice", "both")),
-    ("course_environments", "audience", ("owner", "class", "campus")),
     ("course_environment_versions", "peer_policy", ("explicit", "segment")),
     ("course_environment_nodes", "resource_type", ("qemu", "lxc")),
     ("course_environment_publications", "mode", ("domain", "port_forward")),

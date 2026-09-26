@@ -92,9 +92,7 @@ def test_publish_materializes_latest_draft_and_clears_snapshot(workspace, monkey
         configuration={"name": "Latest", "nodes": [node]}, editor={}
     ).model_dump(mode="json")
     replace_nodes = Mock()
-    replace_audience = Mock()
     monkeypatch.setattr(routes, "_replace_nodes", replace_nodes)
-    monkeypatch.setattr(routes, "_replace_audience", replace_audience)
     monkeypatch.setattr(routes, "is_admin", lambda _: False)
     monkeypatch.setattr(
         routes.quick_practice,
@@ -113,7 +111,6 @@ def test_publish_materializes_latest_draft_and_clears_snapshot(workspace, monkey
     assert version.draft_data is None
     assert version.configuration_hash
     replace_nodes.assert_called_once()
-    assert replace_audience.call_args.kwargs["owner_id"] == user.id
     session.commit.assert_called_once()
 
 
@@ -136,7 +133,6 @@ def test_publish_records_the_peer_policy_from_the_draft(workspace, monkeypatch):
         editor={},
     ).model_dump(mode="json")
     monkeypatch.setattr(routes, "_replace_nodes", Mock())
-    monkeypatch.setattr(routes, "_replace_audience", Mock())
     monkeypatch.setattr(routes, "is_admin", lambda _: False)
     monkeypatch.setattr(
         routes.quick_practice,
@@ -174,7 +170,6 @@ def test_a_draft_without_a_policy_publishes_as_explicit(workspace, monkeypatch):
         configuration={"name": "Old", "nodes": [node]}, editor={}
     ).model_dump(mode="json")
     monkeypatch.setattr(routes, "_replace_nodes", Mock())
-    monkeypatch.setattr(routes, "_replace_audience", Mock())
     monkeypatch.setattr(routes, "is_admin", lambda _: False)
     monkeypatch.setattr(
         routes.quick_practice,

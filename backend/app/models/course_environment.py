@@ -34,10 +34,6 @@ class CourseEnvironment(SQLModel, table=True):
             "usage_scope IN ('course', 'quick_practice', 'both')",
             name="ck_course_environments_usage_scope",
         ),
-        sa.CheckConstraint(
-            "audience IN ('owner', 'class', 'campus')",
-            name="ck_course_environments_audience",
-        ),
     )
 
     id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
@@ -63,57 +59,13 @@ class CourseEnvironment(SQLModel, table=True):
             "all students; None means only the per-student limits apply"
         ),
     )
-    audience: str = Field(
-        default="class",
-        max_length=24,
-        description=(
-            "Who may see this environment in the student quick-practice list: "
-            "owner (nobody but the teacher), class (the linked classes' "
-            "students), or campus (every signed-in user)"
-        ),
-    )
     created_at: datetime = Field(
         default_factory=get_datetime_utc,
         sa_column=Column(DateTime(timezone=True), nullable=False),
     )
     updated_at: datetime = Field(
         default_factory=get_datetime_utc,
-        sa_column=Column(DateTime(timezone=True), nullable=False),
-    )
-
-
-class CourseEnvironmentAudience(SQLModel, table=True):
-    """Classes whose students may see an ``audience="class"`` environment."""
-
-    __tablename__ = "course_environment_audiences"
-    __table_args__ = (
-        UniqueConstraint(
-            "environment_id",
-            "class_id",
-            name="uq_course_environment_audience",
-        ),
-    )
-
-    id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
-    environment_id: uuid.UUID = Field(
-        sa_column=Column(
-            sa.Uuid,
-            sa.ForeignKey("course_environments.id", ondelete="CASCADE"),
-            nullable=False,
-            index=True,
-        )
-    )
-    class_id: uuid.UUID = Field(
-        sa_column=Column(
-            sa.Uuid,
-            sa.ForeignKey("teaching_classes.id", ondelete="CASCADE"),
-            nullable=False,
-            index=True,
-        )
-    )
-    created_at: datetime = Field(
-        default_factory=get_datetime_utc,
-        sa_column=Column(DateTime(timezone=True), nullable=False),
+        sa_column=Column(DateTime(timezone=True), nullable=False, onupdate=get_datetime_utc),
     )
 
 

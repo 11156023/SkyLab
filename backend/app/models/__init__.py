@@ -38,7 +38,6 @@ from .course import (
 from .course_environment import (
     ClassCapacityReservation,
     CourseEnvironment,
-    CourseEnvironmentAudience,
     CourseEnvironmentEdge,
     CourseEnvironmentFile,
     CourseEnvironmentNode,
@@ -181,7 +180,6 @@ __all__ = [
     # Cloudflare Config
     "CloudflareConfig",
     "CourseEnvironment",
-    "CourseEnvironmentAudience",
     "CourseEnvironmentEdge",
     "CourseEnvironmentFile",
     "CourseEnvironmentPublication",

@@ -53,13 +53,6 @@ class AuditAction(str, enum.Enum):
     user_update = "user_update"
     user_delete = "user_delete"
 
-    # 群組管理
-    batch_provision_vm = "batch_provision_vm"
-    batch_provision_lxc = "batch_provision_lxc"
-
-    # 腳本部署（功能已移除；保留枚舉值以讀取歷史稽核紀錄）
-    script_deploy = "script_deploy"
-
     # 反挖礦（模組D）
     mining_detected = "mining_detected"
     mining_suspend = "mining_suspend"
@@ -82,8 +75,6 @@ class AuditAction(str, enum.Enum):
     totp_enable = "totp_enable"
     totp_disable = "totp_disable"
     totp_admin_reset = "totp_admin_reset"
-    # 舊版「全站強制 2FA」開關留下的標籤；PG enum 值不能刪，改成逐帳號後不再寫入
-    auth_policy_update = "auth_policy_update"
 
     # 防火牆
     firewall_layout_update = "firewall_layout_update"
@@ -92,8 +83,6 @@ class AuditAction(str, enum.Enum):
     firewall_rule_create = "firewall_rule_create"
     firewall_rule_update = "firewall_rule_update"
     firewall_rule_delete = "firewall_rule_delete"
-    nat_rule_delete = "nat_rule_delete"
-    nat_rule_sync = "nat_rule_sync"
     reverse_proxy_rule_delete = "reverse_proxy_rule_delete"
     reverse_proxy_rule_sync = "reverse_proxy_rule_sync"
 
@@ -117,17 +106,8 @@ class AuditAction(str, enum.Enum):
     proxmox_sync_nodes = "proxmox_sync_nodes"
     proxmox_sync_now = "proxmox_sync_now"
 
-    # 已下線功能的歷史值：audit_logs 仍有這些紀錄，保留在這裡讓前端篩選
-    # 與分類（ACTION_CATEGORY）認得它們。欄位已改為字串，拿掉也不會讀取失敗。
-    migration_job_retry = "migration_job_retry"
-    migration_job_cancel = "migration_job_cancel"
-    # 群組功能已於 2026-07-30（677ffcad）改為正式班級，舊紀錄仍在
-    group_create = "group_create"
-    group_delete = "group_delete"
-    group_member_add = "group_member_add"
-    group_member_remove = "group_member_remove"
-    # 其他分支曾寫入共用資料庫的標籤
-    cloudflare_zone_activation_check = "cloudflare_zone_activation_check"
+    # 已下線功能的 action（group_*、migration_job_*、script_deploy…）已移除：
+    # audit_logs.action 是字串欄位，舊紀錄照樣能讀，只是不再出現在篩選選單。
 
     # 規格直改
     spec_direct_update = "spec_direct_update"
@@ -147,9 +127,6 @@ class AuditAction(str, enum.Enum):
     ai_ssh_exec_blocked = "ai_ssh_exec_blocked"
 
     # 課程 / 快速練習（免審核自動開機與作答）
-    # course_lab_deploy：Course Lab 一鍵部署已於 2026-09-21 移除（與快速練習重疊）。
-    # PostgreSQL enum 標籤刪不掉，留著成員讓 model 與資料庫型別保持一致
-    course_lab_deploy = "course_lab_deploy"
     course_answer_submit = "course_answer_submit"
     quick_practice_machine_create = "quick_practice_machine_create"
 

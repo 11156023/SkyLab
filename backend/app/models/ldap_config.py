@@ -32,7 +32,7 @@ class LdapConfig(SQLModel, table=True):
     connect_timeout_seconds: int = Field(default=5, ge=1, le=60)
     updated_at: datetime = Field(
         default_factory=get_datetime_utc,
-        sa_column=Column(DateTime(timezone=True), nullable=False),
+        sa_column=Column(DateTime(timezone=True), nullable=False, onupdate=get_datetime_utc),
     )
 
 

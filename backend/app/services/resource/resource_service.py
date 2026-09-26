@@ -1251,21 +1251,24 @@ def delete(
         except Exception as exc:
             logger.warning("Failed to clean up NAT rules for VM %s: %s", vmid, exc)
 
-        # Release IP allocation
+        # Release IP allocation（savepoint：後面的清理步驟失敗時不能把這步一起回滾，
+        # 否則資源刪掉了 IP 卻一直佔著）
         try:
             from app.services.network import ip_management_service
-            ip_management_service.release_ip(session, vmid)
+            with session.begin_nested():
+                ip_management_service.release_ip(session, vmid)
         except Exception as exc:
             logger.warning("Failed to release IP for VM %s: %s", vmid, exc)
 
         # Unlink deleted VMID from historical batch tasks so class job status won't
         # accidentally match a future resource that reuses the same VMID.
         try:
-            cleared_count = batch_provision_repo.clear_task_vmid_references(
-                session=session,
-                vmid=vmid,
-                commit=False,
-            )
+            with session.begin_nested():
+                cleared_count = batch_provision_repo.clear_task_vmid_references(
+                    session=session,
+                    vmid=vmid,
+                    commit=False,
+                )
             if cleared_count:
                 logger.info(
                     "Cleared VMID %s from %s batch task(s)",
@@ -1273,7 +1276,8 @@ def delete(
                     cleared_count,
                 )
         except Exception as exc:
-            session.rollback()
+            # 只回滾這一步的 savepoint；整個 session.rollback() 會把前面已 flush
+            # 的 NAT 清理與 IP 釋放一起撤銷
             logger.warning(
                 "Failed to clear batch task VMID references for VM %s: %s",
                 vmid,
@@ -1352,14 +1356,18 @@ def delete_orphan_db_record(
 
     try:
         from app.services.network import ip_management_service
-        ip_management_service.release_ip(session, vmid)
+        with session.begin_nested():
+            ip_management_service.release_ip(session, vmid)
     except Exception as exc:
         logger.warning("Orphan cleanup: failed to release IP for vmid=%s: %s", vmid, exc)
 
     try:
-        batch_provision_repo.clear_task_vmid_references(session=session, vmid=vmid, commit=False)
+        # savepoint：失敗只回滾這一步，不撤銷前面的 IP 釋放
+        with session.begin_nested():
+            batch_provision_repo.clear_task_vmid_references(
+                session=session, vmid=vmid, commit=False
+            )
     except Exception as exc:
-        session.rollback()
         logger.warning("Orphan cleanup: failed to clear batch task refs for vmid=%s: %s", vmid, exc)
 
     if teaching_class_id is not None:

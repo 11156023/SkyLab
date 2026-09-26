@@ -70,9 +70,10 @@ class User(UserBase, table=True):
     # 首次登入引導精靈（語言／外觀／兩步驟驗證）是否已走完或略過：
     # 新帳號一律 False，登入後前端只顯示引導畫面；既有帳號由 migration 標為 True
     onboarding_completed: bool = Field(default=False)
-    created_at: datetime | None = Field(
+    created_at: datetime = Field(
         default_factory=get_datetime_utc,
         sa_type=DateTime(timezone=True),
+        nullable=False,
     )
 
     # Relationships

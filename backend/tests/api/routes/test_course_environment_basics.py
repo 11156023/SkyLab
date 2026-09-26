@@ -15,7 +15,7 @@ from app.models import CourseEnvironment, CourseEnvironmentVersion
 def workspace(monkeypatch):
     user = SimpleNamespace(id=uuid.uuid4(), role="teacher", is_superuser=False)
     environment = CourseEnvironment(
-        owner_id=user.id, name="lab", usage_scope="course", audience="campus"
+        owner_id=user.id, name="lab", usage_scope="course"
     )
     version = CourseEnvironmentVersion(
         environment_id=environment.id, version=1, status="published"

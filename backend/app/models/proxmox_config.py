@@ -56,6 +56,7 @@ class ProxmoxConfig(SQLModel, table=True):
     updated_at: datetime = Field(
         default_factory=get_datetime_utc,
         sa_type=sa.DateTime(timezone=True),
+        sa_column_kwargs={"onupdate": get_datetime_utc},
     )
 
 

@@ -46,7 +46,9 @@ class BatchProvisionJob(SQLModel, table=True):
             index=True,
         ),
     )
-    initiated_by: uuid.UUID = Field(
+    # 發起人帳號刪除時 SET NULL，所以可為 None
+    initiated_by: uuid.UUID | None = Field(
+        default=None,
         sa_column=Column(
             sa.ForeignKey("user.id", ondelete="SET NULL"),
             nullable=True,
