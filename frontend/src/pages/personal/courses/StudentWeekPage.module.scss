@@ -4,7 +4,8 @@
 .page { @include flex-column; width: 100%; min-width: 0; gap: $spacing-24; padding: 0 0 $spacing-32; }
 .header { @include glass-surface($shadow: none); display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: $spacing-16; padding: $spacing-24; border-radius: $radius-16; }
 .header p { margin: 0 0 3px; color: var(--color-primary); font-size: $font-size-12; font-weight: $font-weight-700; }
-.header h1 { margin: 0 0 4px; color: var(--color-text-primary); font-size: $font-size-24; }
+.header h1 { margin: 0; color: var(--color-text-primary); font-size: $font-size-24; }
+.titleRow { display: flex; align-items: center; gap: $spacing-8; margin-bottom: 4px; }
 .header div > span { color: var(--color-text-secondary); font-size: $font-size-14; }
 .backButton { display: inline-flex; min-height: 40px; align-items: center; gap: 7px; padding: 8px 12px; border: 1px solid var(--color-border); border-radius: $radius-8; color: var(--color-text-primary); background: var(--color-hover); font: inherit; font-size: $font-size-14; font-weight: $font-weight-700; cursor: pointer; }
 .guideDemoNotice { display: flex; align-items: center; gap: $spacing-8; padding: 10px 12px; border: 1px dashed color-mix(in srgb, var(--color-primary) 55%, var(--color-border)); border-radius: $radius-12; background: color-mix(in srgb, var(--color-primary) 6%, var(--color-surface)); color: var(--color-primary-on-surface); font-size: $font-size-12; }

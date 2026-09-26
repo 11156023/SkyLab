@@ -74,7 +74,7 @@ export default function StudentCoursesPage() {
       {view.hasError && (
         <div className={styles.notice} role="alert">
           <MIcon name="cloud_off" size={20} />
-          <span>{t("StudentCoursesPage.loadFailed")}</span>
+          <span>{t("Error.generic", { ns: "common" })}</span>
         </div>
       )}
 

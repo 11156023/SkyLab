@@ -1,0 +1,14 @@
+/* 機器卡的按鈕：進入走 btn-secondary、詳情走 btn-icon（放大到 36 與進入鈕同高） */
+.launchButton {
+  @include btn-secondary;
+  flex: 1;
+  min-width: 0;
+}
+
+.infoButton {
+  @include btn-icon;
+  width: 36px;
+  height: 36px;
+  min-height: 36px;
+  flex-shrink: 0;
+}

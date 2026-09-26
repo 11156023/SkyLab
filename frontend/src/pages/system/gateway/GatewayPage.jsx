@@ -6,6 +6,7 @@ import LoadingState from "../../../components/LoadingState/LoadingState";
 import ConfigCodeEditor from "./ConfigCodeEditor";
 import { useConfirm } from "../../../components/ConfirmDialog/ConfirmProvider";
 import EmptyState from "../../../components/EmptyState/EmptyState";
+import ErrorState from "../../../components/ErrorState/ErrorState";
 import { useToast } from "../../../hooks/useToast";
 import useAutoRefresh from "../../../hooks/useAutoRefresh";
 import { GatewayService } from "../../../services/gateway";
@@ -274,7 +275,7 @@ function ServiceLogsCard({ logs, className }) {
         <h2 className={styles.cardTitle}>{t("GatewayPage.serviceLogsTitle")}</h2>
       </div>
       <pre className={styles.logBlock}>
-        {logs === null ? t("GatewayPage.logsLoadFailed") : logs || t("GatewayPage.noLogOutput")}
+        {logs === null ? t("Error.generic", { ns: "common" }) : logs || t("GatewayPage.noLogOutput")}
       </pre>
     </div>
   );
@@ -454,7 +455,7 @@ function WireGuardTab({ gatewayReady }) {
     setOverview(overviewRes);
     setStatus(statusRes);
     setLogs(logsRes);
-    if (!overviewRes) toast.error(t("GatewayPage.wireGuardLoadFailed"));
+    if (!overviewRes) toast.error(t("Error.generic", { ns: "common" }));
     setLoading(false);
   }, [t, toast]);
 
@@ -605,7 +606,7 @@ function WireGuardTab({ gatewayReady }) {
           </div>
         </>
       ) : (
-        <EmptyState icon="vpn_key_off" title={t("GatewayPage.wireGuardLoadFailed")} />
+        <ErrorState onRetry={fetchAll} />
       )}
 
       <ServiceLogsCard logs={logs} />

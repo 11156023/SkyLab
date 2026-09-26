@@ -238,7 +238,7 @@ export default function BatchReviewPage() {
     } catch (e) {
       if (!silent) {
         setBatches([]);
-        setError(e?.message ?? t("BatchReviewPage.loadFailed"));
+        setError(e?.message ?? t("Error.generic", { ns: "common" }));
       }
     } finally {
       if (!silent) setLoading(false);
@@ -304,7 +304,7 @@ export default function BatchReviewPage() {
       window.requestAnimationFrame(() => setOpenPreviews((p) => ({ ...p, [jobId]: true })));
     } catch (e) {
       setPreviews((p) => { const n = { ...p }; delete n[jobId]; return n; });
-      toast.error(e?.message ?? t("BatchReviewPage.previewLoadFailed"));
+      toast.error(e?.message ?? t("Error.generic", { ns: "common" }));
     }
   };
 

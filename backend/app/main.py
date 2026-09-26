@@ -20,6 +20,7 @@ if sys.platform == "win32":
 from fastapi import FastAPI, Request, WebSocket
 from fastapi.responses import JSONResponse
 from fastapi.routing import APIRoute
+from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.middleware.cors import CORSMiddleware
 from starlette.types import ASGIApp, Receive, Scope, Send
 
@@ -34,6 +35,7 @@ from app.api.websocket.course_progress import course_progress_proxy
 from app.api.websocket.jobs import jobs_ws_proxy
 from app.api.websocket.terminal import terminal_proxy
 from app.core.config import settings
+from app.core.i18n import resolve_language, t, translate
 from app.core.logging import configure_logging
 from app.core.metrics import (
     PrometheusMiddleware,
@@ -221,6 +223,33 @@ async def app_error_handler(request: Request, exc: AppError):
     return JSONResponse(
         status_code=exc.status_code,
         content={"detail": exc.message},
+    )
+
+
+@app.exception_handler(StarletteHTTPException)
+async def http_exception_handler(request: Request, exc: StarletteHTTPException):
+    """未知路徑等框架自己丟的 404 預設 detail 是英文 "Not Found"，換成多語統一訊息；
+    各路由自帶 detail 的 HTTPException 照原樣回傳。"""
+    detail = exc.detail
+    if exc.status_code == 404 and detail == "Not Found":
+        detail = t("error.not_found")
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={"detail": detail},
+        headers=getattr(exc, "headers", None),
+    )
+
+
+@app.exception_handler(Exception)
+async def unhandled_exception_handler(request: Request, exc: Exception):
+    """未捕捉例外不再回 FastAPI 預設的純文字 "Internal Server Error"，統一為
+    JSON＋統一錯誤句。這一層在 RequestContextMiddleware 之外（ContextVar 已
+    reset），語言直接從 Accept-Language 解析。Starlette 送出回應後仍會
+    re-raise，server log 與 Sentry 照常收到 traceback。"""
+    lang = resolve_language(request.headers.get("accept-language"))
+    return JSONResponse(
+        status_code=500,
+        content={"detail": translate("error.internal", lang)},
     )
 
 

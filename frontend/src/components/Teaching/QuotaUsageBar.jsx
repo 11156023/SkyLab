@@ -62,7 +62,7 @@ export default function QuotaUsageBar() {
       </div>
       {failed ? (
         /* 載入失敗顯示佔位而非整條消失，使用者才知道有配額這回事 */
-        <p className={styles.loadFailed}>{t("QuotaUsageBar.loadFailed")}</p>
+        <p className={styles.loadFailed}>{t("Error.generic", { ns: "common" })}</p>
       ) : (
         <>
           <div className={styles.meterGrid}>

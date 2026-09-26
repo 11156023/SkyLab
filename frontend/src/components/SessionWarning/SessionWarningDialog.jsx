@@ -100,9 +100,7 @@ export default function SessionWarningDialog({ status, onClose, onDismissPermane
               disabled={!shown.can_extend || extending}
               onClick={handleExtend}
             >
-              <span className={extending ? styles.spin : ""}>
-                <MIcon name="autorenew" size={16} />
-              </span>
+              <MIcon name="autorenew" size={16} spin={extending} />
               {t("SessionWarningDialog.extendUsageTime")}
             </button>
           )}

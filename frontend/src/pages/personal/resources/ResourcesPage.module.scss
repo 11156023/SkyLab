@@ -298,15 +298,6 @@
   @include flex-center;
 }
 
-.spin {
-  @include flex-center;
-  animation: iconSpin 1s linear infinite;
-}
-
-@keyframes iconSpin {
-  to { transform: rotate(360deg); }
-}
-
 /* ── Cancel request button ── */
 .cancelBtn {
   display: inline-flex;
@@ -424,7 +415,11 @@
 }
 
 /* ── Deleted note ── */
+/* 動作欄的純文字狀態（建立失敗等）：欄位本身為了 ⋮ 靠右設了 text-align: right，
+   這裡改回靠左，與「動作」表頭對齊 */
 .deletedNote {
+  display: block;
+  text-align: left;
   font-size: $font-size-12;
   color: var(--color-text-muted);
 }
@@ -553,6 +548,7 @@
 
 /* ── Modal ── */
 .modalOverlay {
+  @include dialog-overlay-avoid-ai;
   position: fixed;
   inset: 0;
   background: var(--color-overlay);

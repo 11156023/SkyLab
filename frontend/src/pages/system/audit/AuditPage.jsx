@@ -123,7 +123,7 @@ export default function AuditPage() {
       setCount(res?.count ?? 0);
     } catch (err) {
       if (seq !== requestSeq.current) return;
-      toast.error(err?.message ?? t("AuditPage.toastLoadFailed"));
+      toast.error(err?.message ?? t("Error.generic", { ns: "common" }));
     } finally {
       if (seq === requestSeq.current) {
         setLoading(false);

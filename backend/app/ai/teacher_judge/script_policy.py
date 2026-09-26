@@ -27,6 +27,19 @@ class ManagedScriptCheck(BaseModel):
     evidence: str = Field(default="", max_length=4000)
     raw: str = Field(default="", max_length=4000)
 
+    @field_validator("evidence", "raw", mode="before")
+    @classmethod
+    def coerce_text(cls, value: Any) -> Any:
+        """AI 產生的腳本常把 evidence／raw 輸出成物件或陣列；轉成 JSON 字串收下，
+        不讓這種小格式偏差把整次檢查判成失敗（超出上限的部分截斷）。"""
+        if value is None:
+            return ""
+        if isinstance(value, (dict, list)):
+            return json.dumps(value, ensure_ascii=False)[:4000]
+        if isinstance(value, (int, float, bool)):
+            return str(value)
+        return value
+
     @field_validator("status")
     @classmethod
     def validate_status(cls, value: str) -> str:

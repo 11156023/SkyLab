@@ -402,7 +402,7 @@ function WeeklyContent({ item, onRefresh }) {
       for (const file of files) result = await TeachingClassesService.uploadWeekFile(item.id, weekId, file);
       if (result) mergeUploadedFiles(result);
       toast.success(t("ClassWorkspacePage.uploadedFilesCount", { count: files.length }));
-    } catch (error) { toast.error(error?.message ?? t("ClassWorkspacePage.uploadFailed")); }
+    } catch (error) { toast.error(error?.message ?? t("Error.generic", { ns: "common" })); }
     finally { setUploadingWeek(""); }
   }
   async function removeFile(weekId, file) {

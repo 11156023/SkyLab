@@ -72,6 +72,22 @@
   }
 }
 
+/* ===== MIcon 旋轉（spin prop）=====
+   處理中狀態的 sync／refresh／hourglass 圖示統一轉速；
+   icon 字元是 inline，旋轉需要 inline-block 才有作用 */
+.micon-spin {
+  display: inline-block;
+  animation: micon-spin 1s linear infinite;
+}
+
+@keyframes micon-spin {
+  to { transform: rotate(360deg); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .micon-spin { animation: none; }
+}
+
 /* ===== 全頁背景層 =====
    預設畫三色暈染，掛上 data-style / data-bg 後
    由 _backgrounds.scss 的花色覆寫 background */

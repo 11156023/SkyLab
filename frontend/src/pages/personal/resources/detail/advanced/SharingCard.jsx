@@ -75,7 +75,7 @@ export default function SharingCard({ vmid, resource, canManage, backTo }) {
     try {
       setShares((await ResourcesService.listShares(vmid)) ?? []);
     } catch (err) {
-      toast.error(err?.message ?? t("SharingCard.loadFailed"));
+      toast.error(err?.message ?? t("Error.generic", { ns: "common" }));
     } finally {
       setLoading(false);
     }

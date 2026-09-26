@@ -3,6 +3,9 @@ import { useTranslation } from "react-i18next";
 import styles from "./ResourceDetailPage.module.scss";
 import sl from "./SpecificationsTab.module.scss";
 import LoadingState from "../../../../components/LoadingState/LoadingState";
+import ErrorState from "../../../../components/ErrorState/ErrorState";
+import NotFoundState from "../../../../components/ErrorState/NotFoundState";
+import { isNotFound } from "../../../../services/api";
 import MIcon from "../../../../components/MIcon";
 import { useConfirm } from "../../../../components/ConfirmDialog/ConfirmProvider";
 import { useAuth } from "../../../../contexts/AuthContext";
@@ -235,8 +238,8 @@ export default function SpecificationsTab({ vmid }) {
       setCores(c.cpu_cores || 1);
       setMemory(c.memory_mb || 512);
       setDisk(c.disk_gb || 0);
-    } catch {
-      setError(true);
+    } catch (e) {
+      setError(e ?? true);
       return;
     }
     try {
@@ -382,7 +385,7 @@ export default function SpecificationsTab({ vmid }) {
     }
   };
 
-  if (error) return <p className={styles.stateText}>{t("SpecificationsTab.loadFailed")}</p>;
+  if (error) return isNotFound(error) ? <NotFoundState /> : <ErrorState />;
   if (!config) return <LoadingState />;
 
   /* 一張處理中就不能再送（後端也擋），表單只留給管理員或沒有申請時 */

@@ -383,6 +383,9 @@ export async function apiPostForm(path, params, options = {}) {
   throw { status: res.status, message };
 }
 
+/** API 錯誤是否為 404（資源不存在）：頁面據此顯示「找不到」而非一般錯誤 */
+export const isNotFound = (err) => err?.status === 404;
+
 /** POST（multipart/form-data，檔案上傳用；formData 為 FormData 實例） */
 export function apiPostMultipart(path, formData, options = {}) {
   return request(path, {

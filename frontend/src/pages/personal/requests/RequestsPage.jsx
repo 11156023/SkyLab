@@ -19,6 +19,7 @@ import useAutoRefresh from "../../../hooks/useAutoRefresh";
 import RequestFormPage from "./RequestFormPage";
 import MIcon from "../../../components/MIcon";
 import SharedEmptyState from "../../../components/EmptyState/EmptyState";
+import ErrorState from "../../../components/ErrorState/ErrorState";
 import LoadingState from "../../../components/LoadingState/LoadingState";
 import PageHeader from "../../../components/PageHeader/PageHeader";
 import { useConfirm } from "../../../components/ConfirmDialog/ConfirmProvider";
@@ -363,7 +364,7 @@ function RequestRow({ req, onUpdated }) {
             {!hasAction && <span className={styles.emptyAction}>—</span>}
             {canRetry(req) && (
               <button type="button" className={styles.retryBtn} disabled={retrying} onClick={handleRetry}>
-                <MIcon name="refresh" size={13} />
+                <MIcon name="refresh" size={13} spin={retrying} />
                 {retrying ? "…" : t("RequestRow.retry")}
               </button>
             )}
@@ -564,22 +565,6 @@ function EmptyState({ onCreateClick }) {
         <button type="button" className={styles.btnPrimary} onClick={onCreateClick}>
           <MIcon name="add" size={16} />
           {t("RequestsPage.createNow")}
-        </button>
-      }
-    />
-  );
-}
-
-function ErrorState({ onRetry }) {
-  const { t } = useTranslation("personal");
-  return (
-    <EmptyState
-      icon="error_outline"
-      title={t("RequestsPage.errorTitle")}
-      action={
-        <button type="button" className={styles.btnSecondary} onClick={onRetry}>
-          <MIcon name="refresh" size={16} />
-          {t("RequestsPage.retry")}
         </button>
       }
     />

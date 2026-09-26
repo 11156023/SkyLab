@@ -1,6 +1,7 @@
 /* 轉成範本 Dialog（共用元件）— 樣式比照 ReverseProxyRuleModal */
 
 .modalOverlay {
+  @include dialog-overlay-avoid-ai;
   position: fixed;
   inset: 0;
   z-index: 300;

@@ -92,7 +92,7 @@ export default function IpManagementPage() {
       setSubnet(subnetRes ?? null);
       setStatus(statusRes ?? null);
     } catch (e) {
-      if (!silent) toast.error(e?.message ?? t("IpManagementPage.toastLoadFailed"));
+      if (!silent) toast.error(e?.message ?? t("Error.generic", { ns: "common" }));
     } finally {
       if (!silent) setLoading(false);
     }

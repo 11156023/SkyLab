@@ -411,7 +411,7 @@ function QuotasSection() {
       setQuotas(list);
       setGlobalQuota(config);
     } catch (e) {
-      toast.error(e?.message ?? t("QuotasTab.toastLoadFailed"));
+      toast.error(e?.message ?? t("Error.generic", { ns: "common" }));
       setQuotas((prev) => prev ?? []);
     }
   }, [toast, t]);
