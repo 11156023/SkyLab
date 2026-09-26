@@ -1,7 +1,7 @@
-import { useEffect, useId, useState } from "react";
-import { createPortal } from "react-dom";
+import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import MIcon from "../MIcon";
+import Modal from "../Modal/Modal";
 import { useAuth } from "../../contexts/AuthContext";
 import useDialogPresence from "../../hooks/useDialogPresence";
 import { JobsService } from "../../services/jobs";
@@ -96,7 +96,6 @@ export default function JobDetailDialog({ jobId, onClose }) {
   const [data, setData] = useState(null);
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(false);
-  const titleId = useId();
 
   // 完全關閉（離場動畫結束）後才清空內容
   useEffect(() => {
@@ -135,15 +134,6 @@ export default function JobDetailDialog({ jobId, onClose }) {
     };
   }, [open, jobId]);
 
-  useEffect(() => {
-    if (!open) return;
-    const onKey = (e) => {
-      if (e.key === "Escape") onClose();
-    };
-    document.addEventListener("keydown", onKey);
-    return () => document.removeEventListener("keydown", onKey);
-  }, [open, onClose]);
-
   if (!presence.open) return null;
 
   const item = data?.item;
@@ -160,128 +150,113 @@ export default function JobDetailDialog({ jobId, onClose }) {
       .sort(([, a], [, b]) => (typeof a === "object") - (typeof b === "object"))
     : [];
 
-  // Portal 到 body：banner 的 backdrop-filter 會建立 stacking context，
-  // 直接 render 會讓 fixed overlay 被限制在 banner 內
-  return createPortal(
-    <div
-      className={`${styles.dialogOverlay} ${presence.closing ? styles.dialogOverlayOut : ""}`}
-      onClick={onClose}
+  /* 外框（遮罩、標題列、Esc、焦點、捲動鎖）交給共用 Modal；
+     標題本身已含任務類型（「刪除 xxx」「開機申請：xxx」），不再另掛類型標籤 */
+  return (
+    <Modal
+      closing={presence.closing}
+      onClose={onClose}
+      closeButton
+      size="md"
+      title={item ? item.title : t("JobDetailDialog.dialogAriaLabel")}
     >
-      <div
-        className={styles.dialog}
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby={titleId}
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className={styles.dialogHeader}>
-          {/* 標題本身已含任務類型（「刪除 xxx」「開機申請：xxx」），不再另掛類型標籤 */}
-          <h2 id={titleId} className={styles.dialogTitle} title={item?.title}>
-            {item ? item.title : t("JobDetailDialog.dialogAriaLabel")}
-          </h2>
-          <button type="button" className={styles.dialogClose} onClick={onClose} aria-label={t("JobDetailDialog.closeAriaLabel")}>
-            <MIcon name="close" size={18} />
-          </button>
+      <div className={styles.dialogJobId}>{presence.item}</div>
+
+      {loading && !data && <JobDetailLoading />}
+
+      {error && (
+        <div className={styles.dialogError}>
+          <MIcon name="error_outline" size={16} />
+          <div>
+            <div className={styles.dialogErrorTitle}>{t("Error.generic", { ns: "common" })}</div>
+            <div>{error}</div>
+          </div>
         </div>
-        <div className={styles.dialogJobId}>{jobId}</div>
+      )}
 
-        {loading && !data && <JobDetailLoading />}
+      {item && (
+        <div className={styles.dialogBody}>
+          {/* 狀態列 */}
+          <div className={styles.dialogStatusRow}>
+            {statusMeta && (
+              <span className={`${styles.statusBadge} ${styles[statusMeta.tone]}`}>
+                <MIcon name={statusMeta.icon} size={14} spin={statusMeta.spin} />
+                {t(statusMeta.labelKey)}
+              </span>
+            )}
+            {typeof item.progress === "number" && (
+              <span className={styles.statusBadge}>{item.progress}%</span>
+            )}
+            {item.user_email && (
+              <span className={styles.dialogInitiator}>{t("JobDetailDialog.initiator", { email: item.user_email })}</span>
+            )}
+          </div>
 
-        {error && (
-          <div className={styles.dialogError}>
-            <MIcon name="error_outline" size={16} />
+          {/* 時間 */}
+          <div className={styles.dialogTimes}>
+            <div className={styles.dialogExtraItem}>
+              <span className={styles.dialogExtraKey}>{t("JobDetailDialog.createdAt")}</span>
+              <span className={styles.dialogValue}>{fmt(item.created_at)}</span>
+            </div>
+            <div className={styles.dialogExtraItem}>
+              <span className={styles.dialogExtraKey}>{t("JobDetailDialog.updatedAt")}</span>
+              <span className={styles.dialogValue}>{fmt(item.updated_at)}</span>
+            </div>
+            <div className={styles.dialogExtraItem}>
+              <span className={styles.dialogExtraKey}>{t("JobDetailDialog.completedAt")}</span>
+              <span className={styles.dialogValue}>{fmt(item.completed_at)}</span>
+            </div>
+          </div>
+
+          {/* 訊息 */}
+          {item.message && (
             <div>
-              <div className={styles.dialogErrorTitle}>{t("Error.generic", { ns: "common" })}</div>
-              <div>{error}</div>
+              <div className={styles.dialogFieldLabel}>{t("JobDetailDialog.message")}</div>
+              <div className={styles.dialogMessage}>{item.message}</div>
             </div>
-          </div>
-        )}
+          )}
 
-        {item && (
-          <div className={styles.dialogBody}>
-            {/* 狀態列 */}
-            <div className={styles.dialogStatusRow}>
-              {statusMeta && (
-                <span className={`${styles.statusBadge} ${styles[statusMeta.tone]}`}>
-                  <MIcon name={statusMeta.icon} size={14} spin={statusMeta.spin} />
-                  {t(statusMeta.labelKey)}
-                </span>
-              )}
-              {typeof item.progress === "number" && (
-                <span className={styles.statusBadge}>{item.progress}%</span>
-              )}
-              {item.user_email && (
-                <span className={styles.dialogInitiator}>{t("JobDetailDialog.initiator", { email: item.user_email })}</span>
-              )}
-            </div>
-
-            {/* 時間 */}
-            <div className={styles.dialogTimes}>
-              <div className={styles.dialogExtraItem}>
-                <span className={styles.dialogExtraKey}>{t("JobDetailDialog.createdAt")}</span>
-                <span className={styles.dialogValue}>{fmt(item.created_at)}</span>
-              </div>
-              <div className={styles.dialogExtraItem}>
-                <span className={styles.dialogExtraKey}>{t("JobDetailDialog.updatedAt")}</span>
-                <span className={styles.dialogValue}>{fmt(item.updated_at)}</span>
-              </div>
-              <div className={styles.dialogExtraItem}>
-                <span className={styles.dialogExtraKey}>{t("JobDetailDialog.completedAt")}</span>
-                <span className={styles.dialogValue}>{fmt(item.completed_at)}</span>
+          {/* 詳細欄位 */}
+          {extraEntries.length > 0 && (
+            <div>
+              <div className={styles.dialogFieldLabel}>{t("JobDetailDialog.detail")}</div>
+              {/* 同上方時間區塊：標籤在上、值在下，各欄左緣對齊；JSON 物件（範本任務的 payload／result）獨占一整列 */}
+              <div className={styles.dialogExtraGrid}>
+                {extraEntries.map(([k, v]) => {
+                  const isObject = typeof v === "object";
+                  return (
+                    <div key={k} className={`${styles.dialogExtraItem} ${isObject ? styles.dialogExtraWide : ""}`}>
+                      <span className={styles.dialogExtraKey}>{EXTRA_LABEL_KEYS[k] ? t(EXTRA_LABEL_KEYS[k]) : k}</span>
+                      {isObject ? (
+                        <pre className={styles.dialogExtraJson}>{formatExtraValue(v, t)}</pre>
+                      ) : (
+                        <span className={styles.dialogValue}>{formatExtraValue(v, t)}</span>
+                      )}
+                    </div>
+                  );
+                })}
               </div>
             </div>
+          )}
 
-            {/* 訊息 */}
-            {item.message && (
-              <div>
-                <div className={styles.dialogFieldLabel}>{t("JobDetailDialog.message")}</div>
-                <div className={styles.dialogMessage}>{item.message}</div>
-              </div>
-            )}
+          {/* 錯誤 */}
+          {data.error && (
+            <div>
+              <div className={`${styles.dialogFieldLabel} ${styles.toneDanger}`}>{t("JobDetailDialog.error")}</div>
+              <pre className={styles.dialogErrorOutput}>{data.error}</pre>
+            </div>
+          )}
 
-            {/* 詳細欄位 */}
-            {extraEntries.length > 0 && (
-              <div>
-                <div className={styles.dialogFieldLabel}>{t("JobDetailDialog.detail")}</div>
-                {/* 同上方時間區塊：標籤在上、值在下，各欄左緣對齊；JSON 物件（範本任務的 payload／result）獨占一整列 */}
-                <div className={styles.dialogExtraGrid}>
-                  {extraEntries.map(([k, v]) => {
-                    const isObject = typeof v === "object";
-                    return (
-                      <div key={k} className={`${styles.dialogExtraItem} ${isObject ? styles.dialogExtraWide : ""}`}>
-                        <span className={styles.dialogExtraKey}>{EXTRA_LABEL_KEYS[k] ? t(EXTRA_LABEL_KEYS[k]) : k}</span>
-                        {isObject ? (
-                          <pre className={styles.dialogExtraJson}>{formatExtraValue(v, t)}</pre>
-                        ) : (
-                          <span className={styles.dialogValue}>{formatExtraValue(v, t)}</span>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            )}
-
-            {/* 錯誤 */}
-            {data.error && (
-              <div>
-                <div className={`${styles.dialogFieldLabel} ${styles.toneDanger}`}>{t("JobDetailDialog.error")}</div>
-                <pre className={styles.dialogErrorOutput}>{data.error}</pre>
-              </div>
-            )}
-
-            {/* 輸出 */}
-            {data.output && (
-              <div>
-                <div className={styles.dialogFieldLabel}>{t("JobDetailDialog.output")}</div>
-                <pre className={styles.dialogOutput}>{data.output}</pre>
-              </div>
-            )}
-          </div>
-        )}
-      </div>
-    </div>,
-    document.body,
+          {/* 輸出 */}
+          {data.output && (
+            <div>
+              <div className={styles.dialogFieldLabel}>{t("JobDetailDialog.output")}</div>
+              <pre className={styles.dialogOutput}>{data.output}</pre>
+            </div>
+          )}
+        </div>
+      )}
+    </Modal>
   );
 }
 

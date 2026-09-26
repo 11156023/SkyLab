@@ -1,55 +1,7 @@
 @use "../../assets/styles/variables" as *;
 @use "../../assets/styles/mixins" as *;
 
-.overlay {
-  @include dialog-overlay-avoid-ai;
-  position: fixed;
-  inset: 0;
-  z-index: 300;
-  @include flex-center;
-  padding: $spacing-16;
-  background: var(--color-overlay);
-  backdrop-filter: blur(4px);
-  animation: session-fade-in 0.15s ease;
-  transition: opacity 0.15s ease;
-}
-
-.overlayOut {
-  animation: none;
-  opacity: 0;
-  pointer-events: none;
-}
-
-@keyframes session-fade-in {
-  from { opacity: 0; }
-  to   { opacity: 1; }
-}
-
-@keyframes session-slide-up {
-  from { opacity: 0; transform: translateY(12px); }
-  to   { opacity: 1; transform: translateY(0); }
-}
-
-/* 卡片比照共用確認彈窗（ConfirmDialog）：毛玻璃表面、max-width 400、flex-column gap 16 */
-.dialog {
-  animation: session-slide-up 0.18s cubic-bezier(0.25, 0.8, 0.25, 1);
-  width: 100%;
-  max-width: 400px;
-  @include glass-surface;
-  border-radius: $radius-16;
-  padding: $spacing-24;
-  @include flex-column;
-  gap: $spacing-16;
-}
-
-.title {
-  display: flex;
-  align-items: center;
-  gap: $spacing-8;
-  font-size: $font-size-16;
-  font-weight: $font-weight-700;
-  color: var(--color-text-primary);
-}
+/* 外框（遮罩、毛玻璃卡、標題、說明、按鈕列）由共用 Modal 提供，這裡只放提醒自己的圖示、強調字與勾選列 */
 
 .iconAutoStop {
   @include flex-center;
@@ -61,15 +13,9 @@
   color: var(--color-danger);
 }
 
-.desc {
-  margin: 0;
-  font-size: $font-size-14;
-  line-height: $line-height-base;
-  color: var(--color-text-secondary);
-
-  strong {
-    color: var(--color-text-primary);
-  }
+/* 說明裡的剩餘時間 */
+.emphasis {
+  color: var(--color-text-primary);
 }
 
 .doNotShow {
@@ -84,12 +30,6 @@
     accent-color: var(--color-primary);
     cursor: pointer;
   }
-}
-
-.actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: $spacing-8;
 }
 
 %btn {

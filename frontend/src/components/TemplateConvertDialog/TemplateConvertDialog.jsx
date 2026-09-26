@@ -9,6 +9,7 @@ import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router-dom";
 import styles from "./TemplateConvertDialog.module.scss";
 import MIcon from "../MIcon";
+import Modal from "../Modal/Modal";
 import { useToast } from "../../hooks/useToast";
 import { TemplatesService } from "../../services/templates";
 
@@ -48,49 +49,18 @@ export default function TemplateConvertDialog({ resource, closing = false, onClo
   }
 
   return (
-    <div className={`${styles.modalOverlay} ${closing ? styles.modalOverlayOut : ""}`} onMouseDown={onClose}>
-      <form className={styles.modal} role="dialog" aria-modal="true" onSubmit={submit} onMouseDown={(e) => e.stopPropagation()}>
-        <div className={styles.modalHeader}>
-          <div>
-            <h2>{t("TemplateConvertDialog.title")}</h2>
-            <p>{t("TemplateConvertDialog.desc")}</p>
-          </div>
-          <button type="button" className={styles.dialogClose} onClick={onClose} aria-label={t("TemplateConvertDialog.close")}>
-            <MIcon name="close" size={18} />
-          </button>
-        </div>
-
-        <ol className={styles.stepList}>
-          <li>{t("TemplateConvertDialog.step1")}</li>
-          <li>{t("TemplateConvertDialog.step2")}</li>
-          <li>{t("TemplateConvertDialog.step3")}</li>
-        </ol>
-
-        <label className={styles.field}>
-          <span>{t("TemplateConvertDialog.nameLabel")}</span>
-          <input value={name} maxLength={255} onChange={(e) => setName(e.target.value)} required />
-        </label>
-        <label className={styles.field}>
-          <span>{t("TemplateConvertDialog.descriptionLabel")}</span>
-          <textarea rows={3} maxLength={1000} value={description} onChange={(e) => setDescription(e.target.value)} placeholder={t("TemplateConvertDialog.descriptionPlaceholder")} />
-        </label>
-        <label className={styles.field}>
-          <span>{t("TemplateConvertDialog.visibilityLabel")}</span>
-          <select value={visibility} onChange={(e) => setVisibility(e.target.value)}>
-            <option value="private">{t("TemplateConvertDialog.visibilityPrivate")}</option>
-            <option value="global">{t("TemplateConvertDialog.visibilityGlobal")}</option>
-          </select>
-        </label>
-        <label className={styles.checkRow}>
-          <input type="checkbox" checked={allowPasswordChange} onChange={(e) => setAllowPasswordChange(e.target.checked)} />
-          <span>{t("TemplateConvertDialog.allowPasswordChange")}</span>
-        </label>
-        <label className={styles.field}>
-          <span>{t("TemplateConvertDialog.confirmLabel", { name: resource?.name })}</span>
-          <input value={confirmName} onChange={(e) => setConfirmName(e.target.value)} placeholder={resource?.name} />
-        </label>
-
-        <div className={styles.modalActions}>
+    <Modal
+      as="form"
+      onSubmit={submit}
+      closing={closing}
+      onClose={onClose}
+      busy={busy}
+      closeButton
+      size="md"
+      title={t("TemplateConvertDialog.title")}
+      description={t("TemplateConvertDialog.desc")}
+      actions={
+        <>
           <button type="button" className={styles.btnSecondary} onClick={onClose} disabled={busy}>
             {t("TemplateConvertDialog.cancel")}
           </button>
@@ -98,8 +68,38 @@ export default function TemplateConvertDialog({ resource, closing = false, onClo
             <MIcon name="library_add" size={16} />
             {busy ? t("TemplateConvertDialog.converting") : t("TemplateConvertDialog.convert")}
           </button>
-        </div>
-      </form>
-    </div>
+        </>
+      }
+    >
+      <ol className={styles.stepList}>
+        <li>{t("TemplateConvertDialog.step1")}</li>
+        <li>{t("TemplateConvertDialog.step2")}</li>
+        <li>{t("TemplateConvertDialog.step3")}</li>
+      </ol>
+
+      <label className={styles.field}>
+        <span>{t("TemplateConvertDialog.nameLabel")}</span>
+        <input value={name} maxLength={255} onChange={(e) => setName(e.target.value)} required />
+      </label>
+      <label className={styles.field}>
+        <span>{t("TemplateConvertDialog.descriptionLabel")}</span>
+        <textarea rows={3} maxLength={1000} value={description} onChange={(e) => setDescription(e.target.value)} placeholder={t("TemplateConvertDialog.descriptionPlaceholder")} />
+      </label>
+      <label className={styles.field}>
+        <span>{t("TemplateConvertDialog.visibilityLabel")}</span>
+        <select value={visibility} onChange={(e) => setVisibility(e.target.value)}>
+          <option value="private">{t("TemplateConvertDialog.visibilityPrivate")}</option>
+          <option value="global">{t("TemplateConvertDialog.visibilityGlobal")}</option>
+        </select>
+      </label>
+      <label className={styles.checkRow}>
+        <input type="checkbox" checked={allowPasswordChange} onChange={(e) => setAllowPasswordChange(e.target.checked)} />
+        <span>{t("TemplateConvertDialog.allowPasswordChange")}</span>
+      </label>
+      <label className={styles.field}>
+        <span>{t("TemplateConvertDialog.confirmLabel", { name: resource?.name })}</span>
+        <input value={confirmName} onChange={(e) => setConfirmName(e.target.value)} placeholder={resource?.name} />
+      </label>
+    </Modal>
   );
 }

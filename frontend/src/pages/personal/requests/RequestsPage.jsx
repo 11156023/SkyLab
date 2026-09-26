@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useState } from "react";
-import { createPortal } from "react-dom";
 import { useLocation, useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { useAuth } from "../../../contexts/AuthContext";
@@ -16,8 +15,10 @@ import {
 } from "../../../services/specChangeRequests";
 import { useToast } from "../../../hooks/useToast";
 import useAutoRefresh from "../../../hooks/useAutoRefresh";
+import useDialogPresence from "../../../hooks/useDialogPresence";
 import RequestFormPage from "./RequestFormPage";
 import MIcon from "../../../components/MIcon";
+import Modal from "../../../components/Modal/Modal";
 import SharedEmptyState from "../../../components/EmptyState/EmptyState";
 import ErrorState from "../../../components/ErrorState/ErrorState";
 import LoadingState from "../../../components/LoadingState/LoadingState";
@@ -177,19 +178,9 @@ function getSpecDisplay(req, t = defaultT) {
 
 /* ── Error Log Modal ── */
 /* 管理員限定：原始開通錯誤 log 太長，不進表格也不進展開列，點狀態旁圖示開窗看 */
-function ErrorLogModal({ req, onClose }) {
+function ErrorLogModal({ req, closing, onClose }) {
   const { t } = useTranslation("personal");
   const toast = useToast();
-  const [closing, setClosing] = useState(false);
-
-  function close() {
-    if (closing) return;
-    setClosing(true);
-  }
-
-  function handleAnimationEnd() {
-    if (closing) onClose();
-  }
 
   async function handleCopy() {
     try {
@@ -200,31 +191,27 @@ function ErrorLogModal({ req, onClose }) {
     }
   }
 
-  /* 同 ConfirmModal：portal 到 body 逃離 .tableWrap 的 backdrop-filter containing block */
-  return createPortal(
-    <div
-      className={`${styles.modalOverlay} ${closing ? styles.modalOverlayOut : ""}`}
-      onClick={close}
-      onAnimationEnd={handleAnimationEnd}
-    >
-      <div className={`${styles.modal} ${styles.logModal}`} role="dialog" aria-modal="true" onClick={(e) => e.stopPropagation()}>
-        <span className={styles.modalTitle}>{t("ErrorLogModal.title", { hostname: req.hostname })}</span>
-        {isProvisionedButFailed(req) && (
-          <p className={styles.modalDesc}>{t("ErrorLogModal.machineFailDesc")}</p>
-        )}
-        <pre className={styles.logText}>{req.provisioning_error}</pre>
-        <div className={styles.modalActions}>
+  return (
+    <Modal
+      size="log"
+      closing={closing}
+      onClose={onClose}
+      title={t("ErrorLogModal.title", { hostname: req.hostname })}
+      description={isProvisionedButFailed(req) ? t("ErrorLogModal.machineFailDesc") : undefined}
+      actions={
+        <>
           <button type="button" className={styles.btnSecondary} onClick={handleCopy}>
             <MIcon name="content_copy" size={14} />
             {t("ErrorLogModal.copy")}
           </button>
-          <button type="button" className={styles.btnPrimary} onClick={close}>
+          <button type="button" className={styles.btnPrimary} onClick={onClose}>
             {t("ErrorLogModal.close")}
           </button>
-        </div>
-      </div>
-    </div>,
-    document.body
+        </>
+      }
+    >
+      <pre className={styles.logText}>{req.provisioning_error}</pre>
+    </Modal>
   );
 }
 
@@ -242,6 +229,7 @@ function RequestRow({ req, onUpdated }) {
   const [cancelling, setCancelling]       = useState(false);
   const [retrying, setRetrying]           = useState(false);
   const [logOpen, setLogOpen]             = useState(false);
+  const logPresence = useDialogPresence(logOpen);
 
   const type      = RESOURCE_TYPE_MAP[req.resource_type] ?? { label: req.resource_type, icon: "computer" };
   const osDisplay = getOsDisplay(req);
@@ -384,7 +372,7 @@ function RequestRow({ req, onUpdated }) {
         </td>
       </tr>
 
-      {logOpen && <ErrorLogModal req={req} onClose={() => setLogOpen(false)} />}
+      {logPresence.open && <ErrorLogModal req={req} closing={logPresence.closing} onClose={() => setLogOpen(false)} />}
     </>
   );
 }
