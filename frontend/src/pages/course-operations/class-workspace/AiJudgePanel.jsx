@@ -5,6 +5,7 @@ import styles from "./AiJudgePanel.module.scss";
 import LoadingState, { LoadingSpinner } from "../../../components/LoadingState/LoadingState";
 import EmptyState from "../../../components/EmptyState/EmptyState";
 import MIcon from "../../../components/MIcon";
+import Modal from "../../../components/Modal/Modal";
 import { useToast } from "../../../hooks/useToast";
 import { useConfirm } from "../../../components/ConfirmDialog/ConfirmProvider";
 import useAutoRefresh from "../../../hooks/useAutoRefresh";
@@ -1483,19 +1484,15 @@ export function SaveAndCreateAction({
 
 function ConfirmModal({ title, description, actions, closing = false, onClose }) {
   return (
-    <div
-      className={`${styles.modalOverlay} ${closing ? styles.modalOverlayOut : ""}`}
-      onMouseDown={onClose}
-    >
-      <div className={styles.confirm} role="alertdialog" aria-modal="true" onMouseDown={(e) => e.stopPropagation()}>
-        <div className={styles.confirmIcon}>
-          <MIcon name="warning" size={24} />
-        </div>
-        <h2>{title}</h2>
-        <p>{description}</p>
-        <div className={styles.modalActions}>{actions}</div>
-      </div>
-    </div>
+    <Modal
+      role="alertdialog"
+      closing={closing}
+      onClose={onClose}
+      icon={<span className={styles.confirmIcon}><MIcon name="warning" size={20} /></span>}
+      title={title}
+      description={description}
+      actions={actions}
+    />
   );
 }
 
@@ -1516,17 +1513,6 @@ export function CreateCheckDialog({
     if (!busy && !closing) inputRef.current?.focus();
   }, [busy, closing]);
 
-  useEffect(() => {
-    function closeOnEscape(event) {
-      if (event.key === "Escape" && !busy && !closing) {
-        event.preventDefault();
-        onClose();
-      }
-    }
-    document.addEventListener("keydown", closeOnEscape);
-    return () => document.removeEventListener("keydown", closeOnEscape);
-  }, [busy, closing, onClose]);
-
   function submit(event) {
     event.preventDefault();
     const nextTitle = title.trim();
@@ -1539,73 +1525,51 @@ export function CreateCheckDialog({
   }
 
   return (
-    <div
-      className={`${styles.modalOverlay} ${closing ? styles.modalOverlayOut : ""}`}
-      role="presentation"
-      onMouseDown={(event) => {
-        if (event.target === event.currentTarget && !busy) onClose();
-      }}
-    >
-      <section
-        className={`${styles.modal} ${styles.createCheckNameDialog}`}
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="create-check-name-title"
-        aria-describedby="create-check-name-description"
-        aria-busy={busy || undefined}
-      >
-        <div className={styles.modalHeader}>
-          <div>
-            <h2 id="create-check-name-title">新增檢查</h2>
-            <p id="create-check-name-description">輸入名稱後，會直接建立一份空白檢查表。</p>
-          </div>
-          <button
-            type="button"
-            className={styles.dialogClose}
-            aria-label="關閉"
-            disabled={busy}
-            onClick={onClose}
-          >
-            <MIcon name="close" size={18} />
+    <Modal
+      as="form"
+      onSubmit={submit}
+      closing={closing}
+      onClose={onClose}
+      busy={busy}
+      title="新增檢查"
+      description="輸入名稱後，會直接建立一份空白檢查表。"
+      aria-busy={busy || undefined}
+      actions={
+        <>
+          <button type="button" className={styles.btnSecondary} disabled={busy} onClick={onClose}>
+            取消
           </button>
-        </div>
-
-        <form onSubmit={submit}>
-          <label className={styles.dialogField} htmlFor="create-check-name-input">
-            <span>檢查名稱</span>
-            <input
-              id="create-check-name-input"
-              ref={inputRef}
-              className={`${styles.createCheckNameInput} ${invalid ? styles.fieldInvalid : ""}`}
-              value={title}
-              maxLength={255}
-              placeholder="例如：期中 Python 環境檢查"
-              disabled={busy}
-              aria-invalid={invalid}
-              aria-describedby={invalid ? "create-check-name-error" : undefined}
-              onChange={(event) => {
-                setTitle(event.target.value);
-                setInvalid(false);
-              }}
-            />
-          </label>
-          {invalid && (
-            <p id="create-check-name-error" className={styles.dialogError} role="alert">
-              請輸入檢查名稱。
-            </p>
-          )}
-          {error && <p className={styles.dialogError} role="alert">{error}</p>}
-          <div className={styles.modalActions}>
-            <button type="button" className={styles.btnSecondary} disabled={busy} onClick={onClose}>
-              取消
-            </button>
-            <button type="submit" className={styles.btnPrimary} disabled={busy}>
-              {busy ? <><Spinner size={15} />建立中…</> : "建立空白檢查"}
-            </button>
-          </div>
-        </form>
-      </section>
-    </div>
+          <button type="submit" className={styles.btnPrimary} disabled={busy}>
+            {busy ? <><Spinner size={15} />建立中…</> : "建立空白檢查"}
+          </button>
+        </>
+      }
+    >
+      <label className={styles.dialogField} htmlFor="create-check-name-input">
+        <span>檢查名稱</span>
+        <input
+          id="create-check-name-input"
+          ref={inputRef}
+          className={`${styles.createCheckNameInput} ${invalid ? styles.fieldInvalid : ""}`}
+          value={title}
+          maxLength={255}
+          placeholder="例如：期中 Python 環境檢查"
+          disabled={busy}
+          aria-invalid={invalid}
+          aria-describedby={invalid ? "create-check-name-error" : undefined}
+          onChange={(event) => {
+            setTitle(event.target.value);
+            setInvalid(false);
+          }}
+        />
+      </label>
+      {invalid && (
+        <p id="create-check-name-error" className={styles.dialogError} role="alert">
+          請輸入檢查名稱。
+        </p>
+      )}
+      {error && <p className={styles.dialogError} role="alert">{error}</p>}
+    </Modal>
   );
 }
 
@@ -3813,54 +3777,16 @@ export function TeacherReviewTab({ classId, sessionId, members, machineNodes = [
     if (!runOnceDialog.open) return null;
     const children = Array.isArray(selectedSet?.children) ? selectedSet.children : [];
     return (
-      <div
-        className={`${styles.modalOverlay} ${runOnceDialog.closing ? styles.modalOverlayOut : ""}`}
-        onMouseDown={() => setRunOnceOpen(false)}
-      >
-        <div className={styles.modal} role="dialog" aria-modal="true" onMouseDown={(event) => event.stopPropagation()}>
-          <div className={styles.modalHeader}>
-            <div>
-              <h2>一次執行整組檢查點</h2>
-              <p>後端會把每個檢查點腳本送到每位學生對應的邏輯機器；目標機器必須正在運行且已登記 SSH 金鑰。</p>
-            </div>
-            <button
-              type="button"
-              className={styles.dialogClose}
-              onClick={() => setRunOnceOpen(false)}
-              aria-label="關閉"
-            >
-              <MIcon name="close" size={18} />
-            </button>
-          </div>
-
-          {approvedSets.length > 1 && (
-            <label className={styles.field}>
-              <span>選擇腳本集</span>
-              <select
-                value={selectedSet?.artifact_set_id ?? ""}
-                onChange={(event) => setSelectedSetId(event.target.value)}
-              >
-                {approvedSets.map((set) => (
-                  <option key={set.artifact_set_id} value={set.artifact_set_id}>
-                    revision {set.source_analysis_revision ?? "—"} · {set.children?.length ?? 0} 台機器
-                  </option>
-                ))}
-              </select>
-            </label>
-          )}
-
-          <div className={styles.vmidBox}>
-            <span className={styles.fieldLabel}>執行範圍（{children.length} 個邏輯機器）</span>
-            <div className={styles.chipRow}>
-              {children.map((child) => (
-                <span key={child.id} className={styles.chip}>
-                  {batchMachineDisplayName(child.target_node_key, machineNodes, child.name) ?? "未指定節點"}
-                </span>
-              ))}
-            </div>
-          </div>
-
-          <div className={styles.modalActions}>
+      <Modal
+        closing={runOnceDialog.closing}
+        onClose={() => setRunOnceOpen(false)}
+        busy={creatingBatch}
+        closeButton
+        size="md"
+        title="一次執行整組檢查點"
+        description="後端會把每個檢查點腳本送到每位學生對應的邏輯機器；目標機器必須正在運行且已登記 SSH 金鑰。"
+        actions={
+          <>
             <button
               type="button"
               className={styles.btnSecondary}
@@ -3877,9 +3803,36 @@ export function TeacherReviewTab({ classId, sessionId, members, machineNodes = [
             >
               {creatingBatch ? "建立中..." : "確認執行"}
             </button>
+          </>
+        }
+      >
+        {approvedSets.length > 1 && (
+          <label className={styles.field}>
+            <span>選擇腳本集</span>
+            <select
+              value={selectedSet?.artifact_set_id ?? ""}
+              onChange={(event) => setSelectedSetId(event.target.value)}
+            >
+              {approvedSets.map((set) => (
+                <option key={set.artifact_set_id} value={set.artifact_set_id}>
+                  revision {set.source_analysis_revision ?? "—"} · {set.children?.length ?? 0} 台機器
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
+
+        <div className={styles.vmidBox}>
+          <span className={styles.fieldLabel}>執行範圍（{children.length} 個邏輯機器）</span>
+          <div className={styles.chipRow}>
+            {children.map((child) => (
+              <span key={child.id} className={styles.chip}>
+                {batchMachineDisplayName(child.target_node_key, machineNodes, child.name) ?? "未指定節點"}
+              </span>
+            ))}
           </div>
         </div>
-      </div>
+      </Modal>
     );
   }
 
@@ -4483,30 +4436,28 @@ function TeacherWorkspacePanel({ classId, members, weeks = [], machineNodes = []
           onSubmit={handleCreateCheck}
         />
       )}
-      {typeof document !== "undefined" && moveWeekTarget && createPortal(
-        <div className={styles.modalOverlay} role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setMoveWeekTarget(null); }}>
-          <form className={styles.modal} role="dialog" aria-modal="true" onSubmit={moveSessionToWeek}>
-            <div className={styles.modalHeader}>
-              <div>
-                <h2>調整檢查週次</h2>
-                <p>「{moveWeekTarget.title}」只會出現在所選週次，學生端不會再混到其他週。</p>
-              </div>
-              <button type="button" className={styles.dialogClose} aria-label="關閉" onClick={() => setMoveWeekTarget(null)}><MIcon name="close" size={18} /></button>
-            </div>
-            <label className={styles.dialogField}>
-              <span>所屬週任務</span>
-              <select value={moveWeekId} onChange={(event) => setMoveWeekId(event.target.value)} autoFocus>
-                <option value="" disabled>請選擇週任務</option>
-                {weeks.filter((week) => week.title?.trim()).map((week) => <option key={week.id} value={week.id}>第 {week.week ?? week.week_number} 週 · {week.title}</option>)}
-              </select>
-            </label>
-            <div className={styles.modalActions}>
+      {moveWeekTarget && (
+        <Modal
+          as="form"
+          onSubmit={moveSessionToWeek}
+          onClose={() => setMoveWeekTarget(null)}
+          title="調整檢查週次"
+          description={`「${moveWeekTarget.title}」只會出現在所選週次，學生端不會再混到其他週。`}
+          actions={
+            <>
               <button type="button" className={styles.btnSecondary} onClick={() => setMoveWeekTarget(null)}>取消</button>
               <button type="submit" className={styles.btnPrimary} disabled={!moveWeekId || busySessionIds.has(moveWeekTarget.id)}>儲存週次</button>
-            </div>
-          </form>
-        </div>,
-        document.body,
+            </>
+          }
+        >
+          <label className={styles.dialogField}>
+            <span>所屬週任務</span>
+            <select value={moveWeekId} onChange={(event) => setMoveWeekId(event.target.value)} autoFocus>
+              <option value="" disabled>請選擇週任務</option>
+              {weeks.filter((week) => week.title?.trim()).map((week) => <option key={week.id} value={week.id}>第 {week.week ?? week.week_number} 週 · {week.title}</option>)}
+            </select>
+          </label>
+        </Modal>
       )}
 
     </div>
