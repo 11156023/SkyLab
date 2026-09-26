@@ -8,6 +8,7 @@ import { ThemeProvider } from "./contexts/ThemeContext";
 import { AuthProvider }  from "./contexts/AuthContext";
 import { ConfirmProvider } from "./components/ConfirmDialog/ConfirmProvider";
 import { UnsavedChangesProvider } from "./contexts/UnsavedChangesContext";
+import ErrorBoundary from "./components/ErrorBoundary/ErrorBoundary";
 import AppToaster from "./components/AppToaster";
 import "./assets/styles/global.scss";
 import "./i18n";
@@ -22,7 +23,11 @@ ReactDOM.createRoot(document.getElementById("root")).render(
       <ConfirmProvider>
         <BrowserRouter>
           <UnsavedChangesProvider>
-            <App />
+            {/* 根層 boundary：保住 DashboardLayout 以外的頁面（登入、導入、setup），
+                避免整頁白畫面；頁面內容另有 DashboardLayout 的 ErrorBoundary 先攔 */}
+            <ErrorBoundary>
+              <App />
+            </ErrorBoundary>
           </UnsavedChangesProvider>
           <AppToaster />
         </BrowserRouter>

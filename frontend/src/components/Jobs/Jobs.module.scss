@@ -3,15 +3,6 @@
 
 /* ── 共用 ── */
 
-.spin {
-  display: inline-flex;
-  animation: jobs-spin 1.2s linear infinite;
-}
-
-@keyframes jobs-spin {
-  to { transform: rotate(360deg); }
-}
-
 .toneMuted   { color: var(--color-text-muted); }
 .toneInfo    { color: var(--color-info); }
 .toneSuccess { color: var(--color-success); }
@@ -421,6 +412,7 @@
 /* ── JobDetailDialog ── */
 
 .dialogOverlay {
+  @include dialog-overlay-avoid-ai;
   position: fixed;
   inset: 0;
   z-index: 300;

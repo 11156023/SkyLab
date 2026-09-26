@@ -1,0 +1,4 @@
+{
+  "error.not_found": "The requested resource was not found",
+  "error.internal": "An error occurred. Please try again — if this error persists, contact your administrator."
+}

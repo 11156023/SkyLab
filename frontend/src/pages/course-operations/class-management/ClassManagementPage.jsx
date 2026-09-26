@@ -116,7 +116,7 @@ export default function ClassManagementPage() {
     let active = true;
     TeachingClassesService.list()
       .then((rows) => active && setClasses((rows?.data ?? rows ?? []).map(normalizeClass)))
-      .catch((reason) => active && toast.error(reason?.message ?? t("ClassManagementPage.loadFailed")))
+      .catch((reason) => active && toast.error(reason?.message ?? t("Error.generic", { ns: "common" })))
       .finally(() => active && setLoading(false));
     return () => { active = false; };
   }, [toast, t]);

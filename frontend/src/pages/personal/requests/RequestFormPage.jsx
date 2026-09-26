@@ -46,17 +46,26 @@ function FieldGroup({ label, hint, required, error, children, labelRight, name }
   );
 }
 
-function SelectField({ value, onChange, disabled, children, placeholder }) {
-  return (
+function SelectField({ value, onChange, disabled, children, placeholder, loading = false }) {
+  const select = (
     <select
-      className={styles.select}
+      className={`${styles.select} ${loading ? styles.selectLoading : ""}`}
       value={value}
       onChange={(e) => onChange(e.target.value)}
-      disabled={disabled}
+      disabled={disabled || loading}
+      aria-busy={loading || undefined}
     >
       {placeholder && <option value="" disabled>{placeholder}</option>}
       {children}
     </select>
+  );
+  if (!loading) return select;
+  /* 原生 option 放不了圖示，轉圈圖示疊在 select 左側 */
+  return (
+    <div className={styles.selectWrap}>
+      {select}
+      <MIcon name="autorenew" size={16} spin className={styles.selectSpinner} />
+    </div>
   );
 }
 
@@ -226,8 +235,6 @@ export default function RequestFormPage({ onBack, className, initialPrefill = nu
 
   /* Form state */
   const [resourceType, setResourceType] = useState("lxc");
-  const [advice, setAdvice]                   = useState(null);
-  const [adviceLoading, setAdviceLoading]     = useState(false);
   const [advisorDisabled, setAdvisorDisabled] = useState(false);
   /* 自動模式的統一作業系統選擇；選了 OS 即決定型別（advise 退為提示） */
   const [autoOsChoice, setAutoOsChoice]       = useState("");
@@ -515,17 +522,13 @@ export default function RequestFormPage({ onBack, className, initialPrefill = nu
     gpuOptionsRequestKey,
   ]);
 
-  /* ── 自動判斷：依申請原因/規格即時呼叫 advise，自動切換建議型別 ── */
+  /* ── 自動判斷：依申請原因/規格即時呼叫 advise，靜默切換建議型別（不顯示提示框） ── */
   useEffect(() => {
     if (advisorDisabled) return undefined;
     const reasonText = form.reason.trim();
-    if (!reasonText && !form.gpu_mapping_id) {
-      setAdvice(null);
-      return undefined;
-    }
+    if (!reasonText && !form.gpu_mapping_id) return undefined;
     let cancelled = false;
     const timeoutId = window.setTimeout(() => {
-      setAdviceLoading(true);
       VmRequestsService.advise({
         reason: reasonText || null,
         cores: Number(form.cores) || null,
@@ -534,20 +537,13 @@ export default function RequestFormPage({ onBack, className, initialPrefill = nu
       })
         .then((res) => {
           if (cancelled) return;
-          setAdvice(res);
-          /* 已選作業系統時型別由 OS 決定，advise 僅作提示 */
+          /* 已選作業系統時型別由 OS 決定，advise 結果不套用 */
           if (!autoOsChoice) setResourceType(res.resource_type);
         })
         .catch((err) => {
           if (cancelled) return;
-          /* 管理員停用 advisor 時後端回 400：隱藏自動選項並退回手動 */
-          if (err?.status === 400) {
-            setAdvisorDisabled(true);
-            setAdvice(null);
-          }
-        })
-        .finally(() => {
-          if (!cancelled) setAdviceLoading(false);
+          /* 管理員停用 advisor 時後端回 400：退回手動 */
+          if (err?.status === 400) setAdvisorDisabled(true);
         });
     }, ADVISE_DEBOUNCE_MS);
     return () => {
@@ -1031,20 +1027,6 @@ export default function RequestFormPage({ onBack, className, initialPrefill = nu
             {/* ── 資源設定（型別由作業系統選擇 + 規則引擎自動決定，學生免選 QEMU/LXC） ── */}
             <div className={styles.formSection} data-guide="request-resource-settings">
               <h2 className={styles.sectionTitle}>{t("RequestFormPage.resourceSettingsTitle")}</h2>
-              {!advisorDisabled && (adviceLoading || advice) && (
-                <p className={styles.adviceBox}>
-                  {adviceLoading
-                    ? t("RequestFormPage.adviceLoading")
-                    : (() => {
-                        const typeLabel = (rt) => (rt === "vm" ? t("RequestFormPage.typeVm") : t("RequestFormPage.typeLxcContainer"));
-                        const text = t("RequestFormPage.adviceSuggested", { type: typeLabel(advice.resource_type), reasons: advice.reasons.join("；") });
-                        return osChosen && advice.resource_type !== resourceType
-                          ? t("RequestFormPage.adviceOverriddenByOs", { text, currentType: typeLabel(resourceType) })
-                          : text;
-                      })()}
-                </p>
-              )}
-
               <FieldGroup label={t("RequestFormPage.resourceNameLabel")} required error={errors.hostname} name="hostname">
                 <input
                   className={styles.input}
@@ -1063,7 +1045,7 @@ export default function RequestFormPage({ onBack, className, initialPrefill = nu
                 <SelectField
                   value={autoOsChoice}
                   onChange={handleAutoOsSelect}
-                  disabled={vmLoading || lxcLoading || sysTplLoading}
+                  loading={vmLoading || lxcLoading || sysTplLoading}
                   placeholder={(vmLoading || lxcLoading || sysTplLoading) ? t("RequestFormPage.loading") : t("RequestFormPage.selectOs")}
                 >
                   {catalogChoices.length > 0 && (
@@ -1108,7 +1090,7 @@ export default function RequestFormPage({ onBack, className, initialPrefill = nu
                 </SelectField>
                 {osSourceFailed && (
                   <p className={styles.fieldError} role="alert">
-                    {t("RequestFormPage.osSourcesLoadFailed")}
+                    {t("Error.generic", { ns: "common" })}
                     {" "}
                     <button type="button" className={styles.linkBtn} onClick={retryOsSources}>
                       {t("RequestFormPage.retry")}
@@ -1267,6 +1249,12 @@ export default function RequestFormPage({ onBack, className, initialPrefill = nu
 
                 {!canLoadGpu && mode === "scheduled" && (
                   <p className={styles.fieldHint}>{t("RequestFormPage.selectScheduleFirstHint")}</p>
+                )}
+                {gpuLoading && (
+                  <p className={`${styles.fieldHint} ${styles.fieldHintLoading}`} role="status">
+                    <MIcon name="autorenew" size={14} spin />
+                    {t("RequestFormPage.gpuRecalculatingHint")}
+                  </p>
                 )}
                 {!gpuLoading && gpuOptions.length === 0 && (
                   <p className={styles.fieldHint}>{t("RequestFormPage.noGpuAvailableHint")}</p>
@@ -1442,7 +1430,7 @@ export default function RequestFormPage({ onBack, className, initialPrefill = nu
               disabled={submitting}
             >
               {submitting
-                ? <><span className={styles.spin}><MIcon name="hourglass_empty" size={16} /></span>{t("RequestFormPage.submitting")}</>
+                ? <><MIcon name="hourglass_empty" size={16} spin />{t("RequestFormPage.submitting")}</>
                 : <><MIcon name="send" size={16} />{t("RequestFormPage.submitRequest")}</>
               }
             </button>

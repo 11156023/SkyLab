@@ -819,7 +819,7 @@ export default function CourseTemplateEditorPage() {
         ? t("CourseTemplateEditorPage.fileUploaded", { name: files[0].name })
         : t("CourseTemplateEditorPage.filesUploaded", { count: files.length }));
     } else if (files.length === 1) {
-      toast.error(lastError?.message ?? t("CourseTemplateEditorPage.fileUploadFailed"));
+      toast.error(lastError?.message ?? t("Error.generic", { ns: "common" }));
     } else {
       toast.error(t("CourseTemplateEditorPage.filesUploadPartialFail", { files: joinList(failed) }));
     }

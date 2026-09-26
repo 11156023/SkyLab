@@ -349,6 +349,16 @@
   background: transparent;
 }
 
+/* 對話框遮罩避開 AI 助手面板：面板開著時 AiFloatingChat 會把面板佔的寬度寫進
+   --ai-panel-inset，透明右框吃掉這段寬度，對話框改在左側剩餘空間置中；
+   遮罩底色與 backdrop 濾鏡畫到 border-box，暗色照樣鋪滿整個畫面。
+   VNC／終端機／課堂觀看這類 AI 讀不到的畫面不套，直接蓋過助手（見 $z-screen-dialog）。
+   不設 transition：遮罩多半已有 transition: opacity（淡出用），寫了會蓋掉；
+   面板展開過程中變數會逐格更新，對話框自然跟著滑動 */
+@mixin dialog-overlay-avoid-ai {
+  border-right: var(--ai-panel-inset, 0px) solid transparent;
+}
+
 /* 玻璃表面基本組：背景塗層＋backdrop 濾鏡＋亮邊框＋陰影。
    - 未帶 $blur 時濾鏡吃 --glass-backdrop-filter，跟隨風格切換
      （液態玻璃等），有特殊需求才傳 $blur / $saturate 固定值

@@ -31,7 +31,7 @@ export default function SnapshotsTab({ vmid, toolbar }) {
     try {
       setSnapshots(await ResourcesService.listSnapshots(vmid));
     } catch (e) {
-      toast.error(e?.message ?? t("SnapshotsTab.loadFailed"));
+      toast.error(e?.message ?? t("Error.generic", { ns: "common" }));
       setSnapshots((prev) => prev ?? []);
     }
   }, [vmid, toast, t]);

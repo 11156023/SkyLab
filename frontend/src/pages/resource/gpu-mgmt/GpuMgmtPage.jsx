@@ -198,7 +198,7 @@ export default function GpuMgmtPage() {
       const res = await GpuService.listMappings();
       setRows(flattenMappings(res?.data ?? []));
     } catch (e) {
-      if (!silent) toast.error(e?.message ?? t("GpuMgmtPage.loadFailed"));
+      if (!silent) toast.error(e?.message ?? t("Error.generic", { ns: "common" }));
     } finally {
       if (!silent) setLoading(false);
     }

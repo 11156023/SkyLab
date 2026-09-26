@@ -23,7 +23,7 @@ import styles from "./StudentCoursePage.module.scss";
 
 /** AI 任務的每個檢查項目可被自動判定的程度。 */
 const AI_DETECTABLE_META = {
-  auto: { labelKey: "StudentCoursePage.detectableAuto", icon: "smart_toy", tone: "auto" },
+  auto: { labelKey: "StudentCoursePage.detectableAuto", icon: "support_agent", tone: "auto" },
   partial: { labelKey: "StudentCoursePage.detectablePartial", icon: "rule", tone: "partial" },
   manual: { labelKey: "StudentCoursePage.detectableManual", icon: "how_to_reg", tone: "manual" },
 };
@@ -541,7 +541,7 @@ export default function StudentCoursePage() {
                         disabled={isGuideDemo || reportingAssignmentId !== null}
                         aria-label={t(completionReported ? "StudentCoursePage.uncheckWeekAria" : "StudentCoursePage.checkWeekAria", { title: group.week?.title ?? firstAssignment?.title })}
                       />
-                      {reportingAssignmentId === group.id && <MIcon name="sync" size={15} />}
+                      {reportingAssignmentId === group.id && <MIcon name="sync" size={15} spin />}
                     </label> : <span className={styles.weekCompletion} aria-hidden="true" />}
                     <button
                       type="button"

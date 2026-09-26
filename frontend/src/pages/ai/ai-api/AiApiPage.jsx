@@ -1094,7 +1094,7 @@ function MyUsageTab() {
                     <button type="button" className={styles.btnOutline} onClick={loadMore} disabled={loadingMore}>
                       {loadingMore ? (
                         <>
-                          <MIcon name="hourglass_empty" size={16} />
+                          <MIcon name="hourglass_empty" size={16} spin />
                           {t("AiApiPage.recordsLoadingMore")}
                         </>
                       ) : (

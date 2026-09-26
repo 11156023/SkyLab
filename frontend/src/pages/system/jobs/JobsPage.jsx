@@ -100,7 +100,7 @@ export default function JobsPage() {
       const res = await JobsService.list(params);
       setJobs(res?.items ?? []);
     } catch (e) {
-      if (!silent) toast.error(e?.message ?? t("JobsPage.toastLoadFailed"));
+      if (!silent) toast.error(e?.message ?? t("Error.generic", { ns: "common" }));
     } finally {
       if (!silent) setLoading(false);
     }

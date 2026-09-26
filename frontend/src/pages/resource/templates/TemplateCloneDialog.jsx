@@ -61,7 +61,7 @@ export default function TemplateCloneDialog({ template, canBatch, closing = fals
     /* GPU 不可跨 PVE 連線：只列出與範本同叢集的 GPU */
     GpuService.listOptions(template?.node ? { node: template.node } : undefined)
       .then((res) => !cancelled && setGpuOptions(res ?? []))
-      .catch(() => !cancelled && toast.error(t("TemplateCloneDialog.gpuListLoadFailed")))
+      .catch(() => !cancelled && toast.error(t("Error.generic", { ns: "common" })))
       .finally(() => !cancelled && setGpuLoading(false));
     return () => {
       cancelled = true;

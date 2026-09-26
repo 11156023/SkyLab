@@ -1131,6 +1131,7 @@
 
 /* ── 新增金鑰彈窗 ── */
 .dialogOverlay {
+  @include dialog-overlay-avoid-ai;
   position: fixed;
   inset: 0;
   z-index: 300;

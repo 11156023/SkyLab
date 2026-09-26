@@ -1,96 +1,75 @@
+/* 學生首頁：區塊標題只留文字，視覺交給卡片 */
 .section {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: $spacing-16;
   min-width: 0;
-
 }
 
-.sectionHeading, .headingCopy, .machineTop,
-.machineActions, .researchLink, .researchLink > div {
+.sectionHeading {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 12px;
-}
-.sectionHeading, .machineTop, .researchLink { justify-content: space-between; }
-.sectionHeading { flex-wrap: wrap; }
-.headingCopy {
-  min-width: 0;
-  h2 { margin: 0; color: var(--color-text-primary); font-size: $font-size-16; line-height: 1.5; }
+  justify-content: space-between;
+  gap: $spacing-8;
 
+  h2 {
+    margin: 0;
+    font-size: $font-size-16;
+    font-weight: $font-weight-700;
+    line-height: 1.5;
+    color: var(--color-text-primary);
+  }
 }
-.sectionIcon, .machineIcon {
-  @include flex-center;
-  flex-shrink: 0;
-  width: 30px;
-  height: 30px;
-  border-radius: $radius-12;
-  color: var(--color-primary);
-  background: color-mix(in srgb, var(--color-primary) 9%, transparent);
-}
-.sectionIcon { width: 24px; height: 24px; background: transparent; }
 
-.textButton, .headerButton, .launchButton, .detailButton {
-  display: inline-flex;
-  justify-content: center;
-  align-items: center;
-  gap: 6px;
-  min-height: 34px;
-  padding: 6px 10px;
-  border: 1px solid transparent;
-  border-radius: $radius-8;
-  background: transparent;
-  color: var(--color-primary);
-  font: inherit;
+/* 區塊標題旁的「查看全部」類低強調動作 */
+.textButton {
+  @include btn-ghost;
+  min-height: 32px;
+  padding: 5px 10px;
   font-size: $font-size-12;
-  font-weight: $font-weight-700;
-  cursor: pointer;
-  &:hover:not(:disabled) { background: var(--color-hover); }
-  &:focus-visible { outline: 3px solid var(--color-primary); outline-offset: 3px; }
-  &:disabled { opacity: 0.55; cursor: not-allowed; }
 }
-.headerButton { border-color: var(--color-border); background: var(--color-surface); font-size: $font-size-14; }
-.machineGrid, .courseGrid { display: grid; gap: 12px; min-width: 0; }
-.machineGrid { grid-template-columns: repeat(auto-fill, minmax(min(100%, 300px), 1fr)); }
-.courseGrid { grid-template-columns: repeat(auto-fill, minmax(min(100%, 320px), 1fr)); }
 
-.machineCard {
-  @include glass-surface($shadow: none);
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-  padding: 12px 14px;
-  gap: 10px;
-  border-radius: $radius-12;
-  h3 { margin: 0; flex: 1; min-width: 0; font-size: $font-size-16; color: var(--color-text-primary); overflow-wrap: anywhere; }
+/* 頁首動作鈕走共用 btn-secondary（同教師首頁等頁首按鈕：36px、14/500） */
+.headerButton { @include btn-secondary; }
+
+/* 機器卡、快速練習卡同一組欄寬，兩區塊上下對齊 */
+.machineGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 240px), 1fr));
+  gap: $spacing-16;
 }
-.machineStatus {
-  padding: 4px 8px;
-  border-radius: $radius-pill;
-  font-size: $font-size-12;
-  color: var(--color-text-secondary);
-  background: var(--color-hover);
+
+/* 欄寬同機器卡；資料夾上緣的標籤頁佔在資料夾自己的 margin-top 裡 */
+.folderGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 240px), 1fr));
+  gap: $spacing-16;
 }
-.running { color: var(--color-success); background: color-mix(in srgb, var(--color-success) 10%, transparent); }
-.machineMeta { display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: $font-size-12; color: var(--color-text-secondary); line-height: 1.6; }
-.machineActions { margin-top: auto;  gap: 8px; }
-.launchButton { flex: 1; background: color-mix(in srgb, var(--color-primary) 9%, transparent); }
-.detailButton { padding: 8px; color: var(--color-text-secondary); }
 
 .emptyPanel {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 8px;
-  padding: 8px 0;
+  gap: $spacing-8;
+  padding: $spacing-8 0;
   font-size: $font-size-12;
   color: var(--color-text-muted);
-
 }
-.researchLink { flex-wrap: wrap; padding: 0 8px; color: var(--color-text-secondary); font-size: $font-size-14; }
-@media (max-width: $breakpoint-sm) {
-  .sectionHeading { gap: 8px; }
-  .headingCopy { align-items: flex-start; gap: 8px; }
-  .sectionIcon { width: 28px; }
-  .machineCard { padding: 12px; }
+
+.researchLink {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: $spacing-8 $spacing-16;
+  padding: 0 $spacing-8;
+  color: var(--color-text-secondary);
+  font-size: $font-size-14;
+
+  > div {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
 }

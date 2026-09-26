@@ -58,11 +58,7 @@ export function mergeSessionMessages(current = [], incoming = []) {
 /* ── 共用小元件 ─────────────────────────────────────────── */
 
 function Spinner({ size = 16 }) {
-  return (
-    <span className={styles.spinning}>
-      <MIcon name="autorenew" size={size} />
-    </span>
-  );
+  return <MIcon name="autorenew" size={size} spin />;
 }
 
 const SCRIPT_GENERATION_PROGRESS = {
@@ -1270,7 +1266,7 @@ export function ChatPanel({
             >
               {msg.role === "assistant" && (
                 <span className={styles.chatAvatar}>
-                  <MIcon name="smart_toy" size={16} />
+                  <MIcon name="support_agent" size={16} />
                 </span>
               )}
               <div
@@ -1316,7 +1312,7 @@ export function ChatPanel({
         {isLoading && (
           <div className={styles.chatMsgRow}>
             <span className={styles.chatAvatar}>
-              <MIcon name="smart_toy" size={16} />
+              <MIcon name="support_agent" size={16} />
             </span>
             <div className={styles.chatBubble}>
               {loadingText ? <p className={styles.chatLoadingText}>{loadingText}</p> : null}
@@ -2360,7 +2356,7 @@ export function RubricsTab({ classId, judgeSession, onSessionUpdated, onScriptCr
           <div className={sidebar ? styles.checkChatInner : `${styles.card} ${styles.chatCard}`}>
             <div className={sidebar ? styles.checkHead : undefined}>
               <h4 className={styles.cardTitle}>
-                <MIcon name="smart_toy" size={18} />
+                <MIcon name="support_agent" size={18} />
                 AI 聊天室
               </h4>
             </div>

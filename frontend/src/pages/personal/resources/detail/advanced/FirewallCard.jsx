@@ -52,7 +52,7 @@ export default function FirewallCard({ vmid, canManage, publicUrls = [], onChang
       setRules(ruleList ?? []);
       setOptions(opts);
     } catch (err) {
-      toast.error(err?.message ?? t("FirewallCard.loadFailed"));
+      toast.error(err?.message ?? t("Error.generic", { ns: "common" }));
     } finally {
       setLoading(false);
     }
