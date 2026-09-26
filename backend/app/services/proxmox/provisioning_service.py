@@ -841,10 +841,13 @@ def plan_provision(*, session: Session, db_request) -> dict:
         # 直接以範本節點覆寫 placement 結果（與範本系統 2.0 clone_service 行為一致）。
         from sqlmodel import select as _select
 
-        from app.models import VMTemplate
+        from app.models import VMTemplate, VMTemplateStatus
 
         template_row = session.exec(
-            _select(VMTemplate).where(VMTemplate.pve_vmid == db_request.template_id)
+            _select(VMTemplate).where(
+                VMTemplate.pve_vmid == db_request.template_id,
+                VMTemplate.status != VMTemplateStatus.deleted,
+            )
         ).first()
         if template_row is None:
             raise ProxmoxError(

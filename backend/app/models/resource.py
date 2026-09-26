@@ -35,7 +35,9 @@ class Resource(SQLModel, table=True):
         description="VM request that provisioned this resource",
     )
     user_id: uuid.UUID = Field(
+        # 仍持有資源的帳號不可刪除（user_service 也會先擋並回友善訊息）
         foreign_key="user.id",
+        ondelete="RESTRICT",
         description="Assigned user ID; ownership is governed by allocation_scope",
     )
     teaching_class_id: uuid.UUID | None = Field(
@@ -101,6 +103,7 @@ class Resource(SQLModel, table=True):
             sa.Uuid,
             sa.ForeignKey("batch_provision_jobs.id", ondelete="SET NULL"),
             nullable=True,
+            index=True,
         ),
     )
 

@@ -48,6 +48,7 @@ class ResourceShare(SQLModel, table=True):
             sa.Uuid,
             sa.ForeignKey("user.id", ondelete="SET NULL"),
             nullable=True,
+            index=True,
         ),
         description="授權者（通常是擁有者）",
     )

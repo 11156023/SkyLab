@@ -71,11 +71,17 @@ class User(UserBase, table=True):
     resources: list["Resource"] = Relationship(back_populates="user")
     vm_requests: list["VMRequest"] = Relationship(
         back_populates="user",
-        sa_relationship_kwargs={"foreign_keys": "[VMRequest.user_id]"},
+        sa_relationship_kwargs={
+            "foreign_keys": "[VMRequest.user_id]",
+            "passive_deletes": True,
+        },
     )
     spec_change_requests: list["SpecChangeRequest"] = Relationship(
         back_populates="user",
-        sa_relationship_kwargs={"foreign_keys": "[SpecChangeRequest.user_id]"},
+        sa_relationship_kwargs={
+            "foreign_keys": "[SpecChangeRequest.user_id]",
+            "passive_deletes": True,
+        },
     )
     ai_api_requests: list["AIAPIRequest"] = Relationship(
         back_populates="user",

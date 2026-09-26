@@ -55,7 +55,7 @@ class VMRequest(SQLModel, table=True):
     )
 
     id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
-    user_id: uuid.UUID = Field(foreign_key="user.id")
+    user_id: uuid.UUID = Field(foreign_key="user.id", ondelete="CASCADE")
 
     reason: str
     resource_type: str
@@ -105,7 +105,9 @@ class VMRequest(SQLModel, table=True):
             default=VMRequestStatus.pending,
         ),
     )
-    reviewer_id: uuid.UUID | None = Field(default=None, foreign_key="user.id")
+    reviewer_id: uuid.UUID | None = Field(
+        default=None, foreign_key="user.id", ondelete="SET NULL", index=True
+    )
     review_comment: str | None = Field(default=None)
     reviewed_at: datetime | None = Field(
         default=None,
@@ -152,6 +154,7 @@ class VMRequest(SQLModel, table=True):
         sa_column=Column(
             sa.ForeignKey("batch_provision_jobs.id", ondelete="SET NULL"),
             nullable=True,
+            index=True,
         ),
     )
 

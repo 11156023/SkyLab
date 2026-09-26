@@ -145,6 +145,7 @@ class TeacherJudgeScriptArtifact(SQLModel, table=True):
             sa.Uuid,
             sa.ForeignKey("user.id", ondelete="SET NULL"),
             nullable=True,
+            index=True,
         ),
     )
     created_at: datetime = Field(

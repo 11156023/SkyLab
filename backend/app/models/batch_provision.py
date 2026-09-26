@@ -43,6 +43,7 @@ class BatchProvisionJob(SQLModel, table=True):
         sa_column=Column(
             sa.ForeignKey("user.id", ondelete="SET NULL"),
             nullable=True,
+            index=True,
         )
     )
     resource_type: str = Field(max_length=10)  # "lxc" or "qemu"
@@ -73,6 +74,7 @@ class BatchProvisionJob(SQLModel, table=True):
         sa_column=Column(
             sa.ForeignKey("user.id", ondelete="SET NULL"),
             nullable=True,
+            index=True,
         ),
     )
     reviewed_at: datetime | None = Field(
@@ -115,6 +117,7 @@ class BatchProvisionTask(SQLModel, table=True):
         sa_column=Column(
             sa.ForeignKey("user.id", ondelete="CASCADE"),
             nullable=False,
+            index=True,
         )
     )
     member_index: int = Field(description="成員序號（用於 hostname suffix）")

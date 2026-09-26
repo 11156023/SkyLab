@@ -333,12 +333,12 @@ async def create_template(
 
     require_template_manage(user)
 
-    # 含軟刪除一起查：活躍紀錄擋重複，deleted 紀錄稍後復用
-    # （pve_vmid 有 unique 約束，PVE 回收 VMID 後不能另建新列）
+    # 只有未刪除的範本會擋重複；PVE 回收 VMID 後一律建新列，
+    # 已刪除的舊列保留給歷史引用（課程版本、任務紀錄）
     existing = template_repo.get_template_by_pve_vmid(
-        session=session, pve_vmid=data.source_vmid, include_deleted=True
+        session=session, pve_vmid=data.source_vmid
     )
-    if existing is not None and existing.status != VMTemplateStatus.deleted:
+    if existing is not None:
         raise ConflictError(
             t("template.vmidAlreadyRegistered", vmid=data.source_vmid)
         )
@@ -372,38 +372,21 @@ async def create_template(
             t("template.sourceVmBelongsToOther", vmid=data.source_vmid)
         )
 
-    if existing is not None:
-        template = template_repo.revive_deleted_template(
-            session=session,
-            template=existing,
-            name=data.name,
-            description=data.description,
-            owner_id=user.id,
-            node=node,
-            resource_type=resource_type,
-            visibility=data.visibility,
-            default_cores=data.default_cores,
-            default_memory=data.default_memory,
-            allow_password_change=data.allow_password_change,
-            requires_gpu=data.requires_gpu,
-            source_vmid=data.source_vmid,
-        )
-    else:
-        template = template_repo.create_template(
-            session=session,
-            pve_vmid=data.source_vmid,
-            name=data.name,
-            description=data.description,
-            owner_id=user.id,
-            node=node,
-            resource_type=resource_type,
-            visibility=data.visibility,
-            default_cores=data.default_cores,
-            default_memory=data.default_memory,
-            allow_password_change=data.allow_password_change,
-            requires_gpu=data.requires_gpu,
-            source_vmid=data.source_vmid,
-        )
+    template = template_repo.create_template(
+        session=session,
+        pve_vmid=data.source_vmid,
+        name=data.name,
+        description=data.description,
+        owner_id=user.id,
+        node=node,
+        resource_type=resource_type,
+        visibility=data.visibility,
+        default_cores=data.default_cores,
+        default_memory=data.default_memory,
+        allow_password_change=data.allow_password_change,
+        requires_gpu=data.requires_gpu,
+        source_vmid=data.source_vmid,
+    )
     try:
         record = await enqueue_task(
             session=session,

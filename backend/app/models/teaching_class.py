@@ -100,7 +100,7 @@ class TeachingClassMachineNode(SQLModel, table=True):
     source_template_id: uuid.UUID | None = Field(
         default=None,
         sa_column=Column(
-            sa.ForeignKey("vm_templates.id", ondelete="RESTRICT"), nullable=True
+            sa.ForeignKey("vm_templates.id", ondelete="RESTRICT"), nullable=True, index=True
         ),
     )
     custom_image_ref: str | None = Field(default=None, max_length=500)
@@ -210,6 +210,7 @@ class TeachingClassStudentMachine(SQLModel, table=True):
         sa_column=Column(
             sa.ForeignKey("teaching_class_machine_nodes.id", ondelete="CASCADE"),
             nullable=False,
+            index=True,
         )
     )
     batch_task_id: uuid.UUID | None = Field(
@@ -217,6 +218,7 @@ class TeachingClassStudentMachine(SQLModel, table=True):
         sa_column=Column(
             sa.ForeignKey("batch_provision_tasks.id", ondelete="SET NULL"),
             nullable=True,
+            index=True,
         ),
     )
     vmid: int | None = Field(default=None)

@@ -132,6 +132,7 @@ class CourseEnvironmentFile(SQLModel, table=True):
             sa.Uuid,
             sa.ForeignKey("user.id", ondelete="SET NULL"),
             nullable=True,
+            index=True,
         ),
     )
     created_at: datetime = Field(
@@ -231,6 +232,7 @@ class CourseEnvironmentNode(SQLModel, table=True):
             sa.Uuid,
             sa.ForeignKey("vm_templates.id", ondelete="RESTRICT"),
             nullable=True,
+            index=True,
         ),
     )
     custom_image_ref: str | None = Field(default=None, max_length=500)
@@ -350,6 +352,7 @@ class ClassCapacityReservation(SQLModel, table=True):
             sa.Uuid,
             sa.ForeignKey("course_environment_versions.id", ondelete="RESTRICT"),
             nullable=False,
+            index=True,
         )
     )
     student_count: int = Field(ge=1)

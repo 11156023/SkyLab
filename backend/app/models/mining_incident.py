@@ -45,7 +45,7 @@ class MiningIncident(SQLModel, table=True):
         sa_column=Column(DateTime(timezone=True), nullable=True),
     )
     reviewed_by: uuid.UUID | None = Field(
-        default=None, foreign_key="user.id", ondelete="SET NULL"
+        default=None, foreign_key="user.id", ondelete="SET NULL", index=True
     )
     reviewed_at: datetime | None = Field(
         default=None,
