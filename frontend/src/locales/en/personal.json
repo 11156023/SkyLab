@@ -96,7 +96,6 @@
   "TwoFactorSection.disabledToast": "Two-factor authentication disabled",
   "TwoFactorSection.codeInvalid": "Incorrect verification code",
   "TwoFactorSection.cancel": "Cancel",
-  "TwoFactorSection.close": "Close",
   "DangerZoneTab.title": "Delete Account",
   "DangerZoneTab.descPart1": "Your account and all related data will be ",
   "DangerZoneTab.descBold": "permanently deleted",

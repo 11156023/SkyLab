@@ -96,7 +96,6 @@
   "TwoFactorSection.disabledToast": "二段階認証を無効にしました",
   "TwoFactorSection.codeInvalid": "認証コードが正しくありません",
   "TwoFactorSection.cancel": "キャンセル",
-  "TwoFactorSection.close": "閉じる",
   "DangerZoneTab.title": "アカウントを削除",
   "DangerZoneTab.descPart1": "あなたのアカウントと関連するすべてのデータが",
   "DangerZoneTab.descBold": "完全に削除",

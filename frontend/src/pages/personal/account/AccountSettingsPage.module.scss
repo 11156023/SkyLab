@@ -288,17 +288,6 @@
   color: var(--color-text-secondary);
 }
 
-/* 對話框標題列：標題＋右上關閉鈕（任何狀態都能離開，含 TOTP 載入失敗） */
-.dialogHeader {
-  @include flex-between;
-  gap: $spacing-8;
-}
-
-.dialogClose {
-  @include btn-dialog-close;
-  flex-shrink: 0;
-}
-
 
 /* 停用對話框的驗證碼欄：數字置中拉字距（沿用 .confirmInput 的框線／聚焦色） */
 .otpInput.otpInput {
@@ -384,16 +373,6 @@
       font-weight: $font-weight-700;
     }
   }
-}
-
-/* 綁定兩步驟驗證：放得下 QR code 與步驟說明（小型單欄表單款）。
-   要寫在 .confirm 之後，同權重才蓋得過它的 width */
-.confirmWide {
-  width: min(640px, 100%);
-  /* 綁定是表單型 Dialog，照規範用大陰影浮在遮罩上 */
-  box-shadow: var(--shadow-lg);
-  max-height: calc(100vh - #{$spacing-32});
-  overflow-y: auto;
 }
 
 /* 危險確認的標題：前面帶紅色 warning 圖示（同共用確認框） */
