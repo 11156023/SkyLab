@@ -55,7 +55,7 @@ export default function CourseTicket({ path, onOpen, now = Date.now(), demo = fa
       : t("CourseTicket.teacher", { name: path.teacher });
   const fields = [
     day && { key: "date", label: t("CourseTicket.date"), value: day },
-    start && end && { key: "time", label: t("CourseTicket.time"), value: `${start}–${end}`, strong: true },
+    start && end && { key: "time", label: t("CourseTicket.time"), value: `${start}–${end}` },
     path.location && { key: "room", label: t("CourseTicket.room"), value: path.location },
   ].filter(Boolean);
   const total = Math.max(0, Number(path.total_questions) || 0);
@@ -73,7 +73,7 @@ export default function CourseTicket({ path, onOpen, now = Date.now(), demo = fa
           {fields.length > 0 && (
             <span className={styles.fields}>
               {fields.map((field) => (
-                <span key={field.key} className={`${styles.field} ${field.strong ? styles.fieldStrong : ""}`}>
+                <span key={field.key} className={styles.field}>
                   <span className={styles.fieldLabel}>{field.label}</span>
                   <span className={styles.fieldValue}>{field.value}</span>
                 </span>
