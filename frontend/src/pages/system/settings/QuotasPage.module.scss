@@ -88,31 +88,23 @@
     @include table-tr;
   }
 
-  /* 欄寬：對象與數字欄固定，剩餘寬度全給最後的操作欄（按鈕貼右緣），
+  /* 欄寬：對象與數字欄固定，剩餘寬度全給最後的操作欄，
      資料欄集中在左側，不會在對象與數字之間留一大段空白 */
   .colTarget {
     width: 280px;
   }
 
-  /* 靠右的欄位要掛在 .table 底下，權重才壓得過 table-th 的 text-align: left */
-  /* 數字欄：靠右＋等寬數字，上下列位數對齊 */
+  /* 數字欄：等寬數字；與表頭一樣靠左（全站表格表頭與內容一律靠左對齊） */
   .num {
     width: 112px;
-    text-align: right;
     font-variant-numeric: tabular-nums;
     white-space: nowrap;
-  }
-
-  .thRight,
-  .tdRight {
-    text-align: right;
   }
 }
 
 /* 列上的淡底圖示鈕之間留 8px，同使用者管理、PVE 連線的列動作 */
 .rowActions {
   display: flex;
-  justify-content: flex-end;
   gap: $spacing-8;
 }
 

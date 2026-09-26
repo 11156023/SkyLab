@@ -392,10 +392,6 @@
   width: 20%;
 }
 
-.thRight {
-  text-align: right;
-}
-
 .tr {
   @include table-tr;
 }
@@ -452,7 +448,6 @@
 }
 
 .numericCell {
-  text-align: right;
   white-space: nowrap;
 }
 
@@ -477,8 +472,7 @@
 .badge_success { background: color-mix(in srgb, var(--color-success) 12%, transparent); color: var(--color-success); }
 .badge_danger { background: color-mix(in srgb, var(--color-danger)  12%, transparent); color: var(--color-danger); }
 
-.tdRight {
-  text-align: right;
+.tdActions {
   white-space: nowrap;
 
   button + button {

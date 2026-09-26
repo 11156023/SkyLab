@@ -126,7 +126,7 @@ export default function MiningIncidentsPanel({ onCountChange }) {
               <th className={styles.th}>{t("MiningIncidentsPanel.colSnapshot")}</th>
               <th className={styles.th}>{t("MiningIncidentsPanel.colStatus")}</th>
               <th className={styles.th}>{t("MiningIncidentsPanel.colDetectedAt")}</th>
-              <th className={`${styles.th} ${styles.thRight}`}>{t("MiningIncidentsPanel.colActions")}</th>
+              <th className={styles.th}>{t("MiningIncidentsPanel.colActions")}</th>
             </tr>
           </thead>
           <tbody>
@@ -157,7 +157,7 @@ export default function MiningIncidentsPanel({ onCountChange }) {
                 <td className={`${styles.td} ${styles.mutedCell}`}>
                   {formatDateTime(incident.detected_at)}
                 </td>
-                <td className={`${styles.td} ${styles.tdRight}`}>
+                <td className={`${styles.td} ${styles.tdActions}`}>
                   {(incident.status === "detected" || incident.status === "suspended") && (
                     <>
                       <button

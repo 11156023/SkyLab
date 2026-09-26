@@ -303,7 +303,9 @@
 .badge_lxc            { background: color-mix(in srgb, var(--color-primary) 12%, transparent); color: var(--color-primary); }
 .badge_gateway_vm     { background: color-mix(in srgb, var(--color-success) 12%, transparent); color: var(--color-success); }
 .badge_subnet_gateway { background: color-mix(in srgb, var(--color-pending) 14%, transparent); color: var(--color-pending); }
-.badge_reserved       { background: var(--color-hover); color: var(--color-text-muted); }
+.badge_reserved,
+.badge_class_reserved,
+.badge_quick_practice_reserved { background: var(--color-hover); color: var(--color-text-muted); }
 .badge_unknown        { background: var(--color-hover); color: var(--color-text-muted); }
 
 /* ── 子網設定表單 ── */

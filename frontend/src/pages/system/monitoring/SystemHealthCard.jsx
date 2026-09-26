@@ -219,8 +219,8 @@ export default function SystemHealthCard() {
                   <th className={styles.th}>{t("MonitoringPage.colStatus")}</th>
                   <th className={styles.th}>{t("SystemHealth.colLastRun")}</th>
                   <th className={styles.th}>{t("SystemHealth.colLastSuccess")}</th>
-                  <th className={`${styles.th} ${styles.thRight}`}>{t("SystemHealth.colFailures")}</th>
-                  <th className={`${styles.th} ${styles.thRight}`}>{t("SystemHealth.colDuration")}</th>
+                  <th className={styles.th}>{t("SystemHealth.colFailures")}</th>
+                  <th className={styles.th}>{t("SystemHealth.colDuration")}</th>
                   <th className={styles.th}>{t("SystemHealth.colLastError")}</th>
                 </tr>
               </thead>

@@ -226,6 +226,15 @@
   background: var(--color-surface);
 }
 
+/* 分頁頂層、與 .card 並排的提示（規格分頁的待套用申請等）：外觀比照卡片；
+   卡片「內」的提示仍用白底 .noteBox（玻璃卡內區塊一律白底） */
+.noteCard {
+  @include glass-surface($shadow: var(--shadow-sm));
+  border-radius: $radius-16;
+  padding: $spacing-16;
+  gap: $spacing-8;
+}
+
 .noteBoxTitle {
   display: inline-flex;
   align-items: center;
@@ -470,10 +479,6 @@
   @include table-th;
 }
 
-.thRight {
-  text-align: right;
-}
-
 .tr {
   @include table-tr;
 }
@@ -482,8 +487,7 @@
   @include table-td;
 }
 
-.tdRight {
-  text-align: right;
+.tdActions {
   white-space: nowrap;
 
   button + button {

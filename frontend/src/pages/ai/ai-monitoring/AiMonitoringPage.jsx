@@ -360,7 +360,7 @@ function DetailTable({ tab, calls, users, models, runtimeModels, query, statusFi
     ));
     if (!visibleModels.length) return <EmptyState icon="model_training" title={t("AiMonitoringPage.emptyModelBreakdown")} />;
     return <div className={styles.tableWrap}><table className={styles.table}>
-      <thead><tr><th className={styles.th}>{t("AiMonitoringPage.colModel")}</th><th className={styles.th}>{t("AiMonitoringPage.colRuntimeStatus")}</th><th className={styles.th}>{t("AiMonitoringPage.colDeployments")}</th><th className={`${styles.th} ${styles.thRight}`}>{t("AiMonitoringPage.colCallCount")}</th><th className={`${styles.th} ${styles.thRight}`}>{t("AiMonitoringPage.colTokensTotal")}</th><th className={`${styles.th} ${styles.thRight}`}>{t("AiMonitoringPage.colFailRate")}</th><th className={`${styles.th} ${styles.thRight}`}>{t("AiMonitoringPage.colAvgLatency")}</th></tr></thead>
+      <thead><tr><th className={styles.th}>{t("AiMonitoringPage.colModel")}</th><th className={styles.th}>{t("AiMonitoringPage.colRuntimeStatus")}</th><th className={styles.th}>{t("AiMonitoringPage.colDeployments")}</th><th className={styles.th}>{t("AiMonitoringPage.colCallCount")}</th><th className={styles.th}>{t("AiMonitoringPage.colTokensTotal")}</th><th className={styles.th}>{t("AiMonitoringPage.colFailRate")}</th><th className={styles.th}>{t("AiMonitoringPage.colAvgLatency")}</th></tr></thead>
       <tbody>{visibleModels.map((model) => <tr key={`${model.model_name}:${model.runtime_name ?? "usage"}`} className={styles.tr}><td className={`${styles.td} ${styles.monoCell}`}>{model.total_calls > 0 ? <button type="button" className={styles.modelDrilldown} onClick={() => onModelSelect(model.model_name)} title={t("AiMonitoringPage.viewModelCalls", { model: formatModelDisplay(model.model_name) })}><span>{formatModelDisplay(model.model_name)}</span><MIcon name="arrow_forward" size={15} /></button> : <span>{formatModelDisplay(model.model_name)}</span>}</td><td className={styles.td}><ModelRuntimeBadge status={model.runtime_status} t={t} /></td><td className={styles.td}>{model.runtime_status ? t("AiMonitoringPage.deploymentCount", { healthy: model.healthy_deployments, unhealthy: model.unhealthy_deployments }) : "—"}</td><td className={`${styles.td} ${styles.numericCell}`}>{formatNumber(model.total_calls)}</td><td className={`${styles.td} ${styles.numericCell}`}>{formatTokens(model.total_tokens)}</td><td className={`${styles.td} ${styles.numericCell}`}>{formatPercent(model.error_rate)}</td><td className={`${styles.td} ${styles.numericCell}`}>{formatDuration(model.avg_latency_ms)}</td></tr>)}</tbody>
     </table></div>;
   }
@@ -377,10 +377,10 @@ function DetailTable({ tab, calls, users, models, runtimeModels, query, statusFi
         <table className={styles.table}>
           <thead><tr>
             <th className={styles.th}>{t("AiMonitoringPage.colUser")}</th>
-            <th className={`${styles.th} ${styles.thRight}`}>{t("AiMonitoringPage.colCallCount")}</th>
-            <th className={`${styles.th} ${styles.thRight}`}>{t("AiMonitoringPage.colTokensTotal")}</th>
-            <th className={`${styles.th} ${styles.thRight}`}>{t("AiMonitoringPage.colAvgLatency")}</th>
-            <th className={`${styles.th} ${styles.thRight}`}>{t("AiMonitoringPage.colFailRate")}</th>
+            <th className={styles.th}>{t("AiMonitoringPage.colCallCount")}</th>
+            <th className={styles.th}>{t("AiMonitoringPage.colTokensTotal")}</th>
+            <th className={styles.th}>{t("AiMonitoringPage.colAvgLatency")}</th>
+            <th className={styles.th}>{t("AiMonitoringPage.colFailRate")}</th>
           </tr></thead>
           <tbody>{visibleUsers.map((user) => {
             const totalCalls = user.proxy_calls ?? 0;
@@ -417,9 +417,9 @@ function DetailTable({ tab, calls, users, models, runtimeModels, query, statusFi
           <th className={styles.th}>{t("AiMonitoringPage.colUser")}</th>
           <th className={styles.th}>{t("AiMonitoringPage.colModel")}</th>
           <th className={styles.th}>{t("AiMonitoringPage.colType")}</th>
-          <th className={`${styles.th} ${styles.thRight}`}>{t("AiMonitoringPage.colInput")}</th>
-          <th className={`${styles.th} ${styles.thRight}`}>{t("AiMonitoringPage.colOutput")}</th>
-          <th className={`${styles.th} ${styles.thRight}`}>{t("AiMonitoringPage.colDuration")}</th>
+          <th className={styles.th}>{t("AiMonitoringPage.colInput")}</th>
+          <th className={styles.th}>{t("AiMonitoringPage.colOutput")}</th>
+          <th className={styles.th}>{t("AiMonitoringPage.colDuration")}</th>
           <th className={styles.th}>{t("AiMonitoringPage.colStatus")}</th>
         </tr></thead>
         <tbody>{visibleCalls.map((call) => <tr key={call.id} className={styles.tr}>

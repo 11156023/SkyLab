@@ -450,8 +450,6 @@
 
 .th { @include table-th; }
 
-.thRight { text-align: right; }
-
 .tr {
   transition: background $transition-base;
 
@@ -464,7 +462,6 @@
 }
 
 .numericCell {
-  text-align: right;
   white-space: nowrap;
 }
 

@@ -168,7 +168,7 @@ export default function SnapshotsTab({ vmid, toolbar }) {
                 <th className={styles.th}>{t("SnapshotsTab.colName")}</th>
                 <th className={styles.th}>{t("SnapshotsTab.colDesc")}</th>
                 <th className={styles.th}>{t("SnapshotsTab.colCreatedAt")}</th>
-                <th className={`${styles.th} ${styles.thRight}`}>{t("SnapshotsTab.colActions")}</th>
+                <th className={styles.th}>{t("SnapshotsTab.colActions")}</th>
               </tr>
             </thead>
             <tbody>
@@ -191,7 +191,7 @@ export default function SnapshotsTab({ vmid, toolbar }) {
                   <td className={`${styles.td} ${styles.mutedCell}`}>
                     {snap.snaptime ? formatDateTime(snap.snaptime * 1000) : "—"}
                   </td>
-                  <td className={`${styles.td} ${styles.tdRight}`}>
+                  <td className={`${styles.td} ${styles.tdActions}`}>
                     <button
                       type="button"
                       className={styles.btnSecondary}

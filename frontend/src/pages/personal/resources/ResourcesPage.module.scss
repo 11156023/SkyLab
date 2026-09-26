@@ -163,13 +163,11 @@
 /* 一台機器可能有多個對外網址，直向排在 IP 底下 */
 .publicUrlList { display: flex; flex-direction: column; align-items: flex-start; }
 /* 動作欄寬度固定，按鈕不換行也不壓縮，避免內容多寡影響版面。 */
-.rowActions { display: flex; align-items: center; justify-content: flex-end; gap: $spacing-8; flex-wrap: nowrap; > * { flex-shrink: 0; } }
+.rowActions { display: flex; align-items: center; gap: $spacing-8; flex-wrap: nowrap; > * { flex-shrink: 0; } }
 
-/* 只有動作欄的內容靠右（讓 ⋮ 對齊），表頭位置維持不動；
-   右側留白比其他欄多一階，⋮ 才不會貼著表格邊緣 */
+/* 動作欄右側留白比其他欄多一階，內容不會貼著表格邊緣 */
 .td:last-child {
   padding-right: $spacing-24;
-  text-align: right;
 }
 .pendingRow { background: color-mix(in srgb, var(--color-info) 4%, var(--color-surface)); }
 
@@ -415,11 +413,7 @@
 }
 
 /* ── Deleted note ── */
-/* 動作欄的純文字狀態（建立失敗等）：欄位本身為了 ⋮ 靠右設了 text-align: right，
-   這裡改回靠左，與「動作」表頭對齊 */
 .deletedNote {
-  display: block;
-  text-align: left;
   font-size: $font-size-12;
   color: var(--color-text-muted);
 }

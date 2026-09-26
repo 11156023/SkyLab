@@ -498,7 +498,7 @@ function QuotasSection() {
                   <th className={styles.num}>{t("QuotasTab.fieldMemoryMb")}</th>
                   <th className={styles.num}>{t("QuotasTab.fieldDiskGb")}</th>
                   <th className={styles.num}>{t("QuotasTab.colInstanceCount")}</th>
-                  <th className={styles.thRight}>{t("QuotasTab.colActions")}</th>
+                  <th>{t("QuotasTab.colActions")}</th>
                 </tr>
               </thead>
               <tbody>
@@ -509,7 +509,7 @@ function QuotasSection() {
                     <td className={styles.num}>{fmtLimit(q.max_memory_mb, t)}</td>
                     <td className={styles.num}>{fmtLimit(q.max_disk_gb, t)}</td>
                     <td className={styles.num}>{fmtLimit(q.max_instances, t)}</td>
-                    <td className={styles.tdRight}>
+                    <td>
                       <div className={styles.rowActions}>
                         <button
                           type="button"

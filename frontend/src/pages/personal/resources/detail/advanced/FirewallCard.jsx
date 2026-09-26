@@ -177,7 +177,7 @@ export default function FirewallCard({ vmid, canManage, publicUrls = [], onChang
                       <th className={styles.th}>{t("FirewallCard.sourceCol")}</th>
                       <th className={styles.th}>{t("FirewallCard.action")}</th>
                       <th className={styles.th}>{t("FirewallCard.noteCol")}</th>
-                      {canManage && <th className={`${styles.th} ${styles.thRight}`}>{t("FirewallCard.actionsCol")}</th>}
+                      {canManage && <th className={styles.th}>{t("FirewallCard.actionsCol")}</th>}
                     </tr>
                   </thead>
                   <tbody>
@@ -213,7 +213,7 @@ export default function FirewallCard({ vmid, canManage, publicUrls = [], onChang
                           )}
                         </td>
                         {canManage && (
-                          <td className={`${styles.td} ${styles.tdRight}`}>
+                          <td className={`${styles.td} ${styles.tdActions}`}>
                             {rule.is_managed ? (
                               <span className={styles.mutedText}>{t("FirewallCard.locked")}</span>
                             ) : (

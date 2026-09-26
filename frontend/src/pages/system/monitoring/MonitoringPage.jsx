@@ -274,7 +274,7 @@ function TopVmTable({ title, entries, metric }) {
               <th className={styles.th}>{t("MonitoringPage.colName")}</th>
               <th className={styles.th}>{t("MonitoringPage.colNode")}</th>
               <th className={styles.th}>{t("MonitoringPage.colType")}</th>
-              <th className={`${styles.th} ${styles.thRight}`}>
+              <th className={styles.th}>
                 {metric === "cpu" ? "CPU" : t("MonitoringPage.memoryLabel")}
               </th>
             </tr>
@@ -475,7 +475,7 @@ export default function MonitoringPage() {
               <th className={`${styles.th} ${styles.thWide}`}>CPU</th>
               <th className={`${styles.th} ${styles.thWide}`}>{t("MonitoringPage.memoryLabel")}</th>
               <th className={`${styles.th} ${styles.thWide}`}>{t("MonitoringPage.diskLabel")}</th>
-              <th className={`${styles.th} ${styles.thRight}`}>VM / LXC</th>
+              <th className={styles.th}>VM / LXC</th>
               <th className={styles.th}>{t("MonitoringPage.colUptime")}</th>
             </tr>
           </thead>
