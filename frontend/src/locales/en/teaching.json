@@ -224,6 +224,7 @@
   "CourseTemplateManagementPage.classesCount": "{{count}} classes",
   "CourseTemplateManagementPage.openTemplateAria": "Open template",
   "CourseTemplateManagementPage.emptyTitle": "No teaching environments match the criteria.",
+  "CourseTemplateEditorPage.stepperAriaLabel": "Environment setup steps",
   "CourseTemplateEditorPage.tabBasicLabel": "Basic Info",
   "CourseTemplateEditorPage.tabMachinesLabel": "Machine Configuration",
   "CourseTemplateEditorPage.notSavedYet": "Not saved yet",

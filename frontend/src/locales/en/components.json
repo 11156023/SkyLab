@@ -537,5 +537,6 @@
   "MachineKind.quickPractice": "Quick practice",
   "MachineKind.quickPracticeHint": "A quick-practice machine, reclaimed automatically when it expires",
   "MachineKind.course": "Course lab",
-  "MachineKind.courseHint": "A machine from a course lab environment"
+  "MachineKind.courseHint": "A machine from a course lab environment",
+  "Stepper.doneSuffix": " (completed)"
 }

@@ -537,5 +537,6 @@
   "MachineKind.quickPractice": "快速練習",
   "MachineKind.quickPracticeHint": "快速練習環境的機器，到期自動回收",
   "MachineKind.course": "課程實驗",
-  "MachineKind.courseHint": "課程實驗環境的機器"
+  "MachineKind.courseHint": "課程實驗環境的機器",
+  "Stepper.doneSuffix": "（已完成）"
 }

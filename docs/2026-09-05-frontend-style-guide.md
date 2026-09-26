@@ -497,6 +497,29 @@ if (!(await confirm({ title, message, confirmText, danger: true }))) return;
 - 父元素需有 `position: relative`
 - 關閉動畫用 `setTimeout`（130ms）+ CSS `transition`，不用 `onAnimationEnd`
 
+### 步驟列（Stepper）
+
+流程分頁／設定步驟**一律用共用的 `Stepper`**（`components/Stepper/Stepper`），不要再手刻箭頭分段（chevron）或自己畫圓點。
+目前用在班級工作區、教學環境編輯頁、一鍵建立班級（`ClassSetupPage`）。
+
+```jsx
+<Stepper
+  ariaLabel={t("...")}
+  steps={[{ key, label, done, disabled }]} // 圓點依序顯示 1、2、3…，done 時換成 ✓；disabled＝精靈還不能跳過去的步驟
+  extras={[{ key, label, icon }]}         // 選填：不算步驟的分頁，接在分隔線後面
+  activeKey={tab}
+  onSelect={(key) => ...}
+/>
+```
+
+- 外觀是直接放在頁面上的一排「圓點＋標籤」（不鋪底色、不包卡片），步與步之間以連線相接；第一顆圓點貼齊頁面內容左緣
+- 狀態只靠圓點表達：未完成＝白底淡藍框編號、已完成＝白底主色框 ✓、目前＝主色實心加光暈；標籤只分目前（粗、深）與其他
+- 連線兩端都「走到了」（已完成或目前）才上主色，其餘用淡主色
+- 步驟列直接壓在漸層背景上，**不要用 `--color-border` 淺灰或淡色實心底**：跟背景糊在一起看不到，一律用白底＋藍色系框線
+- 精靈式流程（只能往回跳）把還沒走到的步驟設 `disabled`：只擋點擊、不淡化，不要做成點了沒反應的按鈕
+- 不算步驟的分頁（班級啟用後的上課進度、AI）放 `extras`：圓點改放圖示、不連線，不要硬塞成第 5、6 步
+- 手機只留目前步驟的標籤，其他步驟剩圓點（標籤仍留給螢幕閱讀器）；還放不下時橫向捲動
+
 ---
 
 ## 動畫規範

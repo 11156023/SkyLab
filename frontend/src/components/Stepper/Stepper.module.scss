@@ -1,0 +1,177 @@
+@use "../../assets/styles/variables" as *;
+@use "../../assets/styles/mixins" as *;
+
+/* 步驟列：直接放在頁面上（不鋪底色、不包卡片）的一排「圓點＋標籤」，步與步之間以連線相接。
+   狀態全靠圓點表達——未完成＝淡藍框編號、已完成＝主色框 ✓、目前＝主色實心加光暈；
+   標籤只分目前（粗、深）與其他，不另外上色 */
+.stepper {
+  flex: none;
+  min-width: 0;
+}
+
+/* 窄螢幕放不下時橫向捲動（留細捲軸當提示）；留 4px 內距，焦點框與目前步驟的光暈才不會被捲動容器裁掉。
+   左右負邊距＝內距＋按鈕左內距，讓第一顆圓點貼齊頁面內容左緣（跟大標對齊） */
+.track {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  margin: 0 -8px;
+  padding: $spacing-4;
+  overflow-x: auto;
+  list-style: none;
+  scrollbar-width: thin;
+
+  @include respond-to(md) {
+    margin: 0 -10px;
+  }
+}
+
+.item {
+  position: relative;
+  display: flex;
+  flex: none;
+}
+
+.step {
+  display: inline-flex;
+  align-items: center;
+  gap: $spacing-8;
+  padding: $spacing-4;
+  border: 0;
+  border-radius: $radius-pill;
+  color: var(--color-text-secondary);
+  background: transparent;
+  font: inherit;
+  cursor: pointer;
+  transition: background $transition-base, color $transition-base;
+
+  &:hover:not(:disabled) {
+    color: var(--color-text-primary);
+    background: var(--color-hover);
+  }
+
+  /* 還不能跳過去的步驟：只擋點擊、不淡化——步驟列壓在漸層背景上，再淡就看不清楚 */
+  &:disabled {
+    cursor: not-allowed;
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--color-primary);
+    outline-offset: 2px;
+  }
+
+  @include respond-to(md) {
+    padding: 6px 14px 6px 6px;
+  }
+}
+
+.dot {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: 1.5px solid color-mix(in srgb, var(--color-primary-light) 55%, transparent);
+  border-radius: 50%;
+  color: var(--color-text-secondary);
+  background: var(--color-surface);
+  font-size: $font-size-12;
+  font-weight: $font-weight-700;
+  font-variant-numeric: tabular-nums;
+  transition: background $transition-base, border-color $transition-base, color $transition-base, box-shadow $transition-base;
+}
+
+/* 步驟列直接放在漸層頁面上，淡灰／淡藍實心底會跟背景糊在一起；
+   已完成改白底＋主色框線，換什麼背景色都看得清楚 */
+.stepDone .dot {
+  border-color: var(--color-primary);
+  color: var(--color-primary-on-surface);
+}
+
+/* 目前步驟：放在 stepDone 後面，已完成又是目前的那一步也是實心 */
+.stepActive .dot {
+  border-color: var(--color-primary);
+  color: var(--color-text-on-primary);
+  background: var(--color-primary);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--color-primary) 18%, transparent);
+}
+
+.label {
+  font-size: $font-size-14;
+  font-weight: $font-weight-500;
+  white-space: nowrap;
+}
+
+.stepActive {
+  color: var(--color-text-primary);
+
+  .label {
+    font-weight: $font-weight-700;
+  }
+}
+
+.connector {
+  flex: 1 1 32px;
+  min-width: 10px;
+  height: 2px;
+  margin: 0 2px;
+  border-radius: 1px;
+  /* 未走到的連線用淡主色，不用 --color-border（淺灰在頁面背景上幾乎看不到） */
+  background: color-mix(in srgb, var(--color-primary-light) 45%, transparent);
+  transition: background $transition-base;
+
+  @include respond-to(md) {
+    min-width: 16px;
+    margin: 0 $spacing-4;
+  }
+}
+
+.connectorReached {
+  background: var(--color-primary);
+}
+
+/* 步驟與額外分頁之間的分隔線 */
+.divider {
+  flex: none;
+  width: 1px;
+  height: 24px;
+  margin: 0 $spacing-4;
+  background: color-mix(in srgb, var(--color-primary-light) 45%, transparent);
+
+  @include respond-to(md) {
+    margin: 0 $spacing-8;
+  }
+}
+
+.srOnly {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+/* 手機只留目前步驟的標籤，其他步驟只剩圓點（標籤仍留給螢幕閱讀器） */
+.step:not(.stepActive) .label {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+
+  @include respond-to(md) {
+    position: static;
+    width: auto;
+    height: auto;
+    overflow: visible;
+    clip-path: none;
+  }
+}
+
+.stepActive {
+  @include respond-below(md) {
+    padding-right: 12px;
+  }
+}
