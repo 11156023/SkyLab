@@ -210,6 +210,8 @@
   "SetupPage.gatewayPlaceholder": "e.g. 10.10.0.1",
   "SetupPage.bridgeLabel": "PVE bridge name",
   "SetupPage.bridgePlaceholder": "e.g. vmbr1",
+  "SetupPage.vlanLabel": "VLAN ID",
+  "SetupPage.vlanPlaceholder": "Optional, 1–4094; leave blank for no VLAN",
   "SetupPage.gatewayVmIpLabel": "Gateway VM IP",
   "SetupPage.gatewayVmIpPlaceholder": "e.g. 10.10.0.2",
   "SetupPage.dnsLabel": "DNS servers",

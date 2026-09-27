@@ -38,7 +38,7 @@ from app.infrastructure.ssh.client import generate_ed25519_keypair
 from app.models import TaskRecord, User, VMTemplate, VMTemplateStatus
 from app.repositories import resource as resource_repo
 from app.schemas.template import TemplateCloneRequest
-from app.services.network import firewall_service, ip_management_service
+from app.services.network import firewall_service, ip_management_service, nic_config
 from app.services.resource import quota_service
 from app.services.template import template_service
 from app.utils.hostname import to_punycode_hostname
@@ -240,7 +240,7 @@ def _reconfigure_qemu(
         "name": hostname,
         "sshkeys": quote(public_key, safe=""),
         "ciupgrade": 0,
-        "net0": f"virtio,bridge={net_cfg['bridge_name']},firewall=1",
+        "net0": nic_config.qemu_net0(net_cfg),
         "ipconfig0": (
             f"ip={allocated_ip}/{net_cfg['prefix_len']},gw={net_cfg['gateway']}"
         ),
@@ -275,11 +275,7 @@ def _reconfigure_lxc(
     # 於開機後以 pct exec 寫入 authorized_keys（見 inject_lxc_platform_key）。
     config_updates: dict[str, Any] = {
         "hostname": hostname,
-        "net0": (
-            f"name=eth0,bridge={net_cfg['bridge_name']},"
-            f"ip={allocated_ip}/{net_cfg['prefix_len']},"
-            f"gw={net_cfg['gateway']},firewall=1"
-        ),
+        "net0": nic_config.lxc_net0(net_cfg, allocated_ip),
     }
     if cores:
         config_updates["cores"] = cores
