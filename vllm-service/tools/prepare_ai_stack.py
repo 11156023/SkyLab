@@ -362,7 +362,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--check-only", action="store_true", help="驗證既有 config.yaml，不改寫檔案")
     parser.add_argument("--check-upstreams", action="store_true", help="逐一查詢上游 /v1/models（不產生推論）")
-    parser.add_argument("--start", action="store_true", help="預檢查後建立 LiteLLM 資料庫、核發 service key 並啟動主 Compose；不會停止獨立 gateway")
+    parser.add_argument("--start", action="store_true", help="驗證設定後建立 LiteLLM 資料庫、核發 service key 並啟動主 Compose；不會停止獨立 gateway")
     parser.add_argument("--init-env", action="store_true", help="補齊兩份 .env 中缺少或仍為範例值的金鑰與位址後結束（不覆寫既有真實值）")
     parser.add_argument("--root-env", type=Path, default=REPO_ROOT / ".env", help="--init-env 的主 .env 路徑")
     parser.add_argument("--gateway-env", type=Path, default=PROJECT_ROOT / "litellm/.env", help="--init-env 的 LiteLLM .env 路徑")
@@ -393,7 +393,7 @@ def main() -> int:
         services = compose["services"]
         engine_env = {**dotenv_values(PROJECT_ROOT / ".env.API"), **os.environ}
         validate_environment(dotenv_values(REPO_ROOT / ".env"), services, models, engine_env)
-        if args.check_upstreams or args.start:
+        if args.check_upstreams:
             check_upstreams(models, services["litellm"]["environment"])
         if DEFAULT_OUTPUT.exists() and not DEFAULT_OUTPUT.is_file():
             raise ValueError("litellm/config.yaml 必須為檔案，請先移除誤建的空目錄")

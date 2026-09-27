@@ -189,7 +189,7 @@ bash scripts/prepare-ai-stack.sh --start
 `--start` 依序執行：
 
 1. 核對 root／gateway 金鑰隔離、service key 一致性、local upstream key 與 `.env.API`
-   一致性、DB 名稱／帳號隔離、必要遠端 key，並查詢每個上游的 `/v1/models`（不產生推論）；
+   一致性、DB 名稱／帳號隔離、必要遠端 key（不查詢上游；需要時另跑 `--check-only --check-upstreams`）；
 2. 產生 production `config.yaml`；
 3. `DATABASE_URL` 主機為 `db` 時，啟動主 Compose PostgreSQL，等它接受 TCP 連線後
    建立（或對齊密碼）專用角色與資料庫；

@@ -14,6 +14,8 @@ class SubnetConfigCreate(BaseModel):
     cidr: str
     gateway: str
     bridge_name: str
+    # 選填 802.1Q VLAN ID；None 表示網卡不帶 tag
+    vlan_tag: int | None = None
     gateway_vm_ip: str
     dns_servers: str | None = None
     extra_blocked_subnets: list[str] = []
@@ -31,6 +33,21 @@ class SubnetConfigCreate(BaseModel):
         if len(cleaned) > 255:
             raise ValueError(t("ip.forward_public_host_too_long"))
         return cleaned or None
+
+    @field_validator("vlan_tag", mode="before")
+    @classmethod
+    def normalize_vlan_tag(cls, v):
+        if v is None or (isinstance(v, str) and not v.strip()):
+            return None
+        return v
+
+    @field_validator("vlan_tag")
+    @classmethod
+    def validate_vlan_tag(cls, v: int | None) -> int | None:
+        # 0 與 4095 是 802.1Q 保留值，PVE 的 tag 也只收 1–4094
+        if v is not None and not (1 <= v <= 4094):
+            raise ValueError(t("ip.invalid_vlan_tag"))
+        return v
 
     @model_validator(mode="after")
     def validate_forward_port_range(self) -> "SubnetConfigCreate":
@@ -124,6 +141,7 @@ class SubnetConfigPublic(BaseModel):
     cidr: str
     gateway: str
     bridge_name: str
+    vlan_tag: int | None = None
     gateway_vm_ip: str
     dns_servers: str | None
     extra_blocked_subnets: list[str] = []
@@ -144,6 +162,7 @@ class SubnetStatusResponse(BaseModel):
     configured: bool
     cidr: str | None = None
     bridge_name: str | None = None
+    vlan_tag: int | None = None
     total_ips: int = 0
     used_ips: int = 0
     available_ips: int = 0

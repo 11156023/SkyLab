@@ -83,10 +83,12 @@ def upsert_subnet_config(
     forward_port_start: int | None = None,
     forward_port_end: int | None = None,
     forward_public_host: str | None = None,
+    vlan_tag: int | None = None,
 ) -> SubnetConfig:
     """設定或更新子網配置，並保留系統 IP。
 
     若已有 VM/LXC 類型的 IP 分配且 CIDR 改變，則拒絕操作。
+    VLAN 只在建立機器時寫進網卡，改了不會回頭改既有機器。
     """
     network = ipaddress.IPv4Network(cidr, strict=False)
 
@@ -136,6 +138,7 @@ def upsert_subnet_config(
         existing.cidr = str(network)
         existing.gateway = gateway
         existing.bridge_name = bridge_name
+        existing.vlan_tag = vlan_tag
         existing.gateway_vm_ip = gateway_vm_ip
         existing.dns_servers = dns_servers
         if extra_blocked_subnets is not None:
@@ -156,6 +159,7 @@ def upsert_subnet_config(
             cidr=str(network),
             gateway=gateway,
             bridge_name=bridge_name,
+            vlan_tag=vlan_tag,
             gateway_vm_ip=gateway_vm_ip,
             dns_servers=dns_servers,
             extra_blocked_subnets=(
@@ -575,12 +579,14 @@ def ensure_subnet_configured(session: Session) -> SubnetConfig:
 def get_network_config_for_vm(session: Session) -> dict:
     """取得 VM/LXC 建立時所需的網路配置資訊。
 
-    回傳 dict 含: bridge_name, prefix_len, gateway, dns_servers
+    回傳 dict 含: bridge_name, vlan_tag, prefix_len, gateway, dns_servers
+    （組 net0 字串用 nic_config.qemu_net0／lxc_net0）
     """
     config = ensure_subnet_configured(session)
     network = ipaddress.IPv4Network(config.cidr, strict=False)
     result = {
         "bridge_name": config.bridge_name,
+        "vlan_tag": config.vlan_tag,
         "prefix_len": network.prefixlen,
         "gateway": config.gateway,
         "gateway_vm_ip": config.gateway_vm_ip,
