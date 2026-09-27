@@ -42,7 +42,7 @@ def test_device_code_roundtrip(monkeypatch: pytest.MonkeyPatch) -> None:
 
     user = _user()
     assert routes.approve_device_code(
-        routes.DeviceApproveRequest(device_code=created.device_code), user, object()
+        routes.DeviceApproveRequest(device_code=created.device_code), user
     ) == {"status": "approved"}
 
     polled = routes.poll_device_code(created.device_code)
@@ -60,10 +60,10 @@ def test_device_code_cannot_be_approved_twice(monkeypatch: pytest.MonkeyPatch) -
     monkeypatch.setattr(security, "create_access_token", lambda **_: "tok")
     created = routes.create_device_code()
     body = routes.DeviceApproveRequest(device_code=created.device_code)
-    routes.approve_device_code(body, _user(), object())
+    routes.approve_device_code(body, _user())
 
     with pytest.raises(HTTPException) as excinfo:
-        routes.approve_device_code(body, _user(), object())
+        routes.approve_device_code(body, _user())
     assert excinfo.value.status_code == 409
 
 

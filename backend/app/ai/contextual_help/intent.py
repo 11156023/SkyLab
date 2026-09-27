@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 from app.ai.contextual_help.schemas import HelpIntent
+from app.ai.utils import mentions
 
 # 「為什麼不能送」這類問題。放在最前面比對：它同時會命中欄位關鍵字
 # （「這個欄位為什麼是紅的」），但使用者要的是被擋的原因，不是欄位定義。
@@ -29,11 +30,6 @@ _PAGE_KEYWORDS = (
 )
 
 
-def _mentions(text: str, keywords: tuple[str, ...]) -> bool:
-    lowered = text.casefold()
-    return any(keyword.casefold() in lowered for keyword in keywords)
-
-
 def classify(question: str, *, has_active_target: bool, has_blocked: bool) -> HelpIntent:
     """依問題文字與畫面現況決定 intent。
 
@@ -44,11 +40,11 @@ def classify(question: str, *, has_active_target: bool, has_blocked: bool) -> He
     if not text:
         return "page_overview"
 
-    if _mentions(text, _VALIDATION_KEYWORDS):
+    if mentions(text, _VALIDATION_KEYWORDS):
         return "validation_help"
-    if _mentions(text, _PAGE_KEYWORDS):
+    if mentions(text, _PAGE_KEYWORDS):
         return "page_overview"
-    if _mentions(text, _FIELD_KEYWORDS):
+    if mentions(text, _FIELD_KEYWORDS):
         return "field_help" if has_active_target else "page_overview"
 
     # 指代詞（「這個」「它」）沒有明講要問什麼，靠畫面現況決定：

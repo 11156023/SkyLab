@@ -16,7 +16,7 @@ from typing import Any
 from sqlmodel import Session, col, select
 
 from app.core.i18n import t
-from app.exceptions import AppError, ConflictError
+from app.exceptions import ConflictError
 from app.models import (
     QuotaConfig,
     Resource,
@@ -126,11 +126,12 @@ def _reserved_by_requests(
     user_id: uuid.UUID,
     *,
     exclude_request_id: uuid.UUID | None = None,
-) -> tuple[int, int, int]:
-    """尚未佈建的申請單已經預約掉的資源。
+) -> tuple[int, int, int, int]:
+    """尚未佈建的申請單已預約的資源，回傳 (cores, memory_mb, disk_gb, 張數)。
 
     待審核／已核准但還沒拿到 vmid 的申請單，在 PVE 上還看不到，但核准之後
-    一定會變成機器。不計入的話，使用者可以一次送十張單把配額整個繞過去。
+    一定會變成機器。不計入的話，使用者可以一次送十張單把配額整個繞過去；
+    台數（max_instances）同理，每張單都預約一台，並行克隆中的單彼此也要互相計入。
     """
     statement = select(VMRequest).where(
         VMRequest.user_id == user_id,
@@ -141,13 +142,14 @@ def _reserved_by_requests(
     )
     if exclude_request_id is not None:
         statement = statement.where(VMRequest.id != exclude_request_id)
-    cores = memory_mb = disk_gb = 0
+    cores = memory_mb = disk_gb = count = 0
     for request in session.exec(statement).all():
         req_cores, req_memory, req_disk = request_specs(request)
         cores += req_cores
         memory_mb += req_memory
         disk_gb += req_disk
-    return cores, memory_mb, disk_gb
+        count += 1
+    return cores, memory_mb, disk_gb, count
 
 
 def get_usage(
@@ -175,14 +177,14 @@ def get_usage(
         cores += int(item.get("maxcpu") or 0)
         memory_mb += int(item.get("maxmem") or 0) // _MIB
         disk_gb += int(item.get("maxdisk") or 0) // _GIB
-    reserved_cores, reserved_memory, reserved_disk = _reserved_by_requests(
-        session, user_id, exclude_request_id=exclude_request_id
+    reserved_cores, reserved_memory, reserved_disk, reserved_count = (
+        _reserved_by_requests(session, user_id, exclude_request_id=exclude_request_id)
     )
     return QuotaUsage(
         cpu_cores=cores + reserved_cores,
         memory_mb=memory_mb + reserved_memory,
         disk_gb=disk_gb + reserved_disk,
-        instances=len(vmids),
+        instances=len(vmids) + reserved_count,
     )
 
 
@@ -218,6 +220,24 @@ def check_quota(
         raise ConflictError(t("quota.exceeded", violations="；".join(violations)))
 
 
+def check_quota_for_existing_resource(
+    session: Session, user_id: uuid.UUID, resource_info: dict[str, Any]
+) -> None:
+    """把一台已存在的機器算到 ``user_id`` 名下前的配額檢查（例如轉移擁有權）。
+
+    ``resource_info`` 是 PVE cluster/resources 的單筆（maxcpu / maxmem /
+    maxdisk 為 bytes）；缺值時規格增量當 0，但台數仍會 +1。
+    """
+    check_quota(
+        session,
+        user_id,
+        delta_cores=int(resource_info.get("maxcpu") or 0),
+        delta_memory_mb=int(resource_info.get("maxmem") or 0) // _MIB,
+        delta_disk_gb=int(resource_info.get("maxdisk") or 0) // _GIB,
+        delta_instances=1,
+    )
+
+
 def check_quota_for_provision(session: Session, request: Any) -> None:
     """真正要開機器前的配額檢查（排程器 provisioning 路徑用）。
 
@@ -249,8 +269,8 @@ def check_quota_for_provision(session: Session, request: Any) -> None:
 
 
 __all__ = [
-    "AppError",
     "check_quota",
+    "check_quota_for_existing_resource",
     "check_quota_for_provision",
     "get_effective_quota",
     "get_global_quota",

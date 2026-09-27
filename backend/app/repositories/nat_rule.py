@@ -1,7 +1,5 @@
 """NAT 規則資料庫操作"""
 
-import uuid
-
 from sqlmodel import Session, col, select
 
 from app.models.nat_rule import NatRule
@@ -39,10 +37,6 @@ def list_rules_by_vmid_and_port(
             )
         ).all()
     )
-
-
-def get_rule(session: Session, rule_id: uuid.UUID) -> NatRule | None:
-    return session.get(NatRule, rule_id)
 
 
 def is_external_port_taken(
@@ -108,7 +102,6 @@ __all__ = [
     "list_rules_by_vmid",
     "list_rules_by_vmid_and_port",
     "list_rules_by_vmids",
-    "get_rule",
     "is_external_port_taken",
     "taken_external_ports",
     "create_rule",

@@ -81,13 +81,6 @@ class GPUMappingCreate(BaseModel):
     )
 
 
-class GPUMappingUpdate(BaseModel):
-    """Update an existing PCI resource mapping."""
-
-    description: str | None = None
-    map: list[str] | None = None
-
-
 class GPUSummary(BaseModel):
     """A simplified GPU option for the application form selector."""
 

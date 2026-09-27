@@ -71,7 +71,8 @@ async def vnc_proxy(
     # Authenticate user and check ownership before accepting
     user, session = await get_ws_current_user(websocket, token=token)
     try:
-        check_resource_control_access(vmid, user, session)
+        # 同步 DB 查詢丟到 worker thread，連線池耗盡時才不會凍住 event loop
+        await asyncio.to_thread(check_resource_control_access, vmid, user, session)
     except Exception:
         await _safe_close_websocket(websocket, code=1008, reason="Permission denied")
         return
@@ -97,19 +98,19 @@ async def vnc_proxy(
 
         node = vm_info["node"]
 
-        pve_auth_cookie = _get_cached_vnc_session_cookie(vmid, vnc_ticket) if vnc_ticket else None
-        if pve_auth_cookie is None:
-            try:
-                pve_auth_cookie, _ = await proxmox_service.get_session_ticket(node)
-            except ProxmoxError:
-                logger.error("Proxmox session authentication failed")
-                await _safe_close_websocket(websocket, code=1008, reason="Authentication failed")
-                return
-
         # Re-use the ticket/port from the REST endpoint when available,
-        # so the noVNC client authenticates with the same ticket.
-        if not (vnc_ticket and vnc_port):
-            csrf_token = ""
+        # so the noVNC client authenticates with the same ticket. Either path
+        # authenticates to PVE at most once.
+        if vnc_ticket and vnc_port:
+            pve_auth_cookie = _get_cached_vnc_session_cookie(vmid, vnc_ticket)
+            if pve_auth_cookie is None:
+                try:
+                    pve_auth_cookie, _ = await proxmox_service.get_session_ticket(node)
+                except ProxmoxError:
+                    logger.error("Proxmox session authentication failed")
+                    await _safe_close_websocket(websocket, code=1008, reason="Authentication failed")
+                    return
+        else:
             try:
                 pve_auth_cookie, csrf_token = await proxmox_service.get_session_ticket(node)
             except ProxmoxError:

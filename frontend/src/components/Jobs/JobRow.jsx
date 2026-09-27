@@ -103,22 +103,23 @@ export function ReminderRow({ reminder, unread = false, onClick }) {
   );
 }
 
+/** 空清單提示；文案由呼叫端決定（任務與提醒分頁各自不同） */
 export function JobEmpty({ message }) {
-  const { t } = useTranslation("components");
   return (
     <div className={styles.jobEmpty}>
       <MIcon name="auto_awesome" size={24} />
-      <span>{message ?? t("JobRow.noJobs")}</span>
+      <span>{message}</span>
     </div>
   );
 }
 
-export function JobLoading() {
+/** 載入中列；message 省略時用通用的「載入中」（任務詳情對話框另帶自己的文案） */
+export function JobLoading({ message }) {
   const { t } = useTranslation("components");
   return (
     <div className={styles.jobLoading}>
       <MIcon name="refresh" size={16} spin />
-      <span>{t("JobRow.loading")}</span>
+      <span>{message ?? t("JobRow.loading")}</span>
     </div>
   );
 }

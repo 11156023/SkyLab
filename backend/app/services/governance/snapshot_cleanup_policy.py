@@ -11,7 +11,9 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 
 PROTECTED_NAMES = ("skylab-init", "current")
-PROTECTED_PREFIXES = ("mining-",)
+# 反挖礦存證快照的名稱前綴：mining_service 以此產生 ``mining-YYYYmmddHHMM``
+MINING_SNAPSHOT_PREFIX = "mining-"
+PROTECTED_PREFIXES = (MINING_SNAPSHOT_PREFIX,)
 
 # 存證快照在案件結案後仍保留的天數（申訴與稽核窗口）
 MINING_EVIDENCE_RETENTION_DAYS = 30

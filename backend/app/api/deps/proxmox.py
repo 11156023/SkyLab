@@ -70,32 +70,6 @@ def check_resource_ownership(
         raise
 
 
-def get_vm_info(
-    vmid: int,
-    current_user: CurrentUser,
-    session: SessionDep,
-) -> dict:
-    """Get VM info with permission check (requires ownership or admin)."""
-    check_resource_ownership(vmid, current_user, session)
-    return proxmox_service.find_resource(vmid)
-
-
-VmInfoDep = Annotated[dict, Depends(get_vm_info)]
-
-
-def get_lxc_info(
-    vmid: int,
-    current_user: CurrentUser,
-    session: SessionDep,
-) -> dict:
-    """Get LXC info with permission check (requires ownership or admin)."""
-    check_resource_ownership(vmid, current_user, session)
-    return proxmox_service.find_lxc(vmid)
-
-
-LxcInfoDep = Annotated[dict, Depends(get_lxc_info)]
-
-
 def get_resource_info(
     vmid: int,
     current_user: CurrentUser,
@@ -144,18 +118,8 @@ def get_resource_info_controllable(
 
 ControlResourceInfoDep = Annotated[dict, Depends(get_resource_info_controllable)]
 
-
-def get_vm_info_controllable(
-    vmid: int,
-    current_user: CurrentUser,
-    session: SessionDep,
-) -> dict:
-    """VM info for console access (owner, admin, or shared user)."""
-    check_resource_control_access(vmid, current_user, session)
-    return proxmox_service.find_resource(vmid)
-
-
-ControlVmInfoDep = Annotated[dict, Depends(get_vm_info_controllable)]
+# VM 主控台用的名稱；與 ControlResourceInfoDep 是同一個 dependency。
+ControlVmInfoDep = ControlResourceInfoDep
 
 
 def get_lxc_info_controllable(

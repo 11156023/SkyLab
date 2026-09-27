@@ -71,7 +71,6 @@ def normalize_language(value: str | None) -> str:
 class SendReport:
     sent: int = 0
     removed: int = 0
-    failed_ids: list[uuid.UUID] = field(default_factory=list)
 
 
 def _send_one(
@@ -150,7 +149,6 @@ def send_messages(
                 subscription.failure_count = 0
                 session.add(subscription)
             continue
-        report.failed_ids.append(subscription.id)
         # 404／410：推播服務說這個訂閱已經不存在（使用者退訂、清了瀏覽器資料）
         if status in (404, 410):
             dead.append(subscription.id)
@@ -238,8 +236,10 @@ def _process_user(
     from app.services.jobs import jobs_service
 
     sent = 0
+    # own_only：管理員也只在 SQL 層取本人任務，否則全站任務先截到 SNAPSHOT_LIMIT，
+    # 管理員自己剛結束的任務會被擠掉而漏推
     snapshot = jobs_service.list_recent_for_user(
-        session=session, user=user, limit=SNAPSHOT_LIMIT
+        session=session, user=user, limit=SNAPSHOT_LIMIT, own_only=True
     )
     own_jobs = [job for job in snapshot.items if job.user_id == user.id]
     transitions, state.jobs = push_policy.diff_job_snapshot(own_jobs, state.jobs)

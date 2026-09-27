@@ -9,6 +9,7 @@ import { useConfirm } from "../../../components/ConfirmDialog/ConfirmProvider";
 import { downloadBlob } from "../../../services/api";
 import { AuditLogsService } from "../../../services/auditLogs";
 import PageHeader from "../../../components/PageHeader/PageHeader";
+import Pagination from "../shared/Pagination";
 import { formatDateTime } from "../../../utils/formatDate";
 
 const PAGE_SIZE = 50;
@@ -332,31 +333,14 @@ export default function AuditPage() {
               </table>
             </div>
 
-            <div className={styles.pagination}>
-              <span className={styles.paginationInfo}>
-                {t("AuditPage.paginationInfo", { count, page: page + 1, totalPages })}
-              </span>
-              <div className={styles.paginationBtns}>
-                <button
-                  type="button"
-                  className={styles.btnSecondary}
-                  disabled={page === 0}
-                  onClick={() => setPage((p) => Math.max(p - 1, 0))}
-                >
-                  <MIcon name="chevron_left" size={16} />
-                  {t("AuditPage.prevPage")}
-                </button>
-                <button
-                  type="button"
-                  className={styles.btnSecondary}
-                  disabled={page + 1 >= totalPages}
-                  onClick={() => setPage((p) => p + 1)}
-                >
-                  {t("AuditPage.nextPage")}
-                  <MIcon name="chevron_right" size={16} />
-                </button>
-              </div>
-            </div>
+            <Pagination
+              page={page}
+              totalPages={totalPages}
+              info={t("AuditPage.paginationInfo", { count, page: page + 1, totalPages })}
+              prevLabel={t("AuditPage.prevPage")}
+              nextLabel={t("AuditPage.nextPage")}
+              onChange={setPage}
+            />
           </>
         )}
       </div>

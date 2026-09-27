@@ -212,10 +212,6 @@
   user-select: text;
 }
 
-.btnDanger {
-  @include btn-danger;
-}
-
 /* ── Row action buttons ── */
 %rowBtn {
   display: inline-flex;
@@ -290,23 +286,11 @@
   to   { opacity: 1; transform: translateX(0);    }
 }
 
-@keyframes slideOutRight {
-  from { opacity: 1; transform: translateX(0);    }
-  to   { opacity: 0; transform: translateX(40px); }
-}
-
 @keyframes slideInLeft {
   from { opacity: 0; transform: translateX(-40px); }
   to   { opacity: 1; transform: translateX(0);     }
 }
 
-@keyframes slideOutLeft {
-  from { opacity: 1; transform: translateX(0);     }
-  to   { opacity: 0; transform: translateX(-40px); }
-}
-
 .animSlideInRight  { animation: slideInRight  0.22s cubic-bezier(0.25, 0.8, 0.25, 1) both; }
-.animSlideOutRight { animation: slideOutRight 0.18s ease both; }
 .animSlideInLeft   { animation: slideInLeft   0.22s cubic-bezier(0.25, 0.8, 0.25, 1) both; }
-.animSlideOutLeft  { animation: slideOutLeft  0.18s ease both; }
 

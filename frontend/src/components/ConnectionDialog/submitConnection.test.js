@@ -10,15 +10,9 @@ vi.mock("../../services/firewall", () => ({
   createConnection: vi.fn(),
   createVmRule: vi.fn(),
   publishService: vi.fn(),
-  replacePublishedService: vi.fn(),
 }));
 
-import {
-  createConnection,
-  createVmRule,
-  publishService,
-  replacePublishedService,
-} from "../../services/firewall";
+import { createConnection, createVmRule, publishService } from "../../services/firewall";
 import { submitEdge, submitInbound, submitRequest, submitRule } from "./submitConnection";
 
 beforeEach(() => {
@@ -26,7 +20,6 @@ beforeEach(() => {
   createConnection.mockResolvedValue({});
   createVmRule.mockResolvedValue({});
   publishService.mockResolvedValue({});
-  replacePublishedService.mockResolvedValue({});
 });
 
 describe("submitRule", () => {
@@ -110,25 +103,6 @@ describe("submitInbound：新增發布", () => {
     expect(res.ok).toBe(false);
     expect(res.partialDone).toBe(2);
     expect(res.error.text).toBe("conn failed");
-  });
-});
-
-describe("submitInbound：編輯既有發布", () => {
-  const service = { port: 8080, protocol: "tcp" };
-  const next = { port: 9090, protocol: "tcp", mode: "port_forward", external_port: 19090 };
-
-  test("走替換而不是新增", async () => {
-    const res = await submitInbound({ vmid: 101, publish: [next], raw: [], service });
-    expect(replacePublishedService).toHaveBeenCalledWith(101, { port: 8080, protocol: "tcp" }, next);
-    expect(publishService).not.toHaveBeenCalled();
-    expect(res).toEqual({ ok: true, result: { kind: "replace", vmid: 101 } });
-  });
-
-  test("替換失敗時帶出後端訊息", async () => {
-    replacePublishedService.mockRejectedValue(new Error("replace failed"));
-    const res = await submitInbound({ vmid: 101, publish: [next], raw: [], service });
-    expect(res.ok).toBe(false);
-    expect(res.error.text).toBe("replace failed");
   });
 });
 

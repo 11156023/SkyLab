@@ -47,11 +47,6 @@ export const ProxmoxConfigService = {
     return apiPut("/api/v1/proxmox-config/", body);
   },
 
-  /** 以暫存設定預覽叢集節點 */
-  previewCluster(body) {
-    return apiPost("/api/v1/proxmox-config/preview", body);
-  },
-
   /** 節點列表 */
   getNodes() {
     return apiGet("/api/v1/proxmox-config/nodes");
@@ -60,21 +55,6 @@ export const ProxmoxConfigService = {
   /** 更新節點（host / port / priority） */
   updateNode(nodeId, body) {
     return apiPut(`/api/v1/proxmox-config/nodes/${nodeId}`, body);
-  },
-
-  /** 立即同步節點與 Storage */
-  syncNow() {
-    return apiPost("/api/v1/proxmox-config/sync-now");
-  },
-
-  /** 測試 PVE 連線 */
-  testConnection() {
-    return apiPost("/api/v1/proxmox-config/test");
-  },
-
-  /** 解析 CA 憑證 PEM */
-  parseCert(pem) {
-    return apiPost("/api/v1/proxmox-config/parse-cert", { pem });
   },
 
   /**

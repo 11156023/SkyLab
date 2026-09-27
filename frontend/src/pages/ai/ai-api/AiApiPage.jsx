@@ -16,6 +16,7 @@ import PageHeader from "../../../components/PageHeader/PageHeader";
 import RrdChart from "../../../components/RrdChart/RrdChart";
 import { formatDateTime, formatMonthDay } from "../../../utils/formatDate";
 import useAnchoredMenu from "../../../hooks/useAnchoredMenu";
+import { formatModelDisplay, formatTokens, isOkStatus, presetToRange } from "../aiFormat";
 
 const ReadOnlyCode = lazy(() => import("../../../components/ReadOnlyCode/ReadOnlyCode"));
 const AiApiChatTab = lazy(() => import("./AiApiChatTab"));
@@ -32,11 +33,25 @@ function maskPrefix(prefix) {
   return `${prefix ?? ""}••••••`;
 }
 
-function formatTokens(n) {
-  if (n == null) return "—";
-  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
-  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`;
-  return String(n);
+/* 金鑰狀態：已被換掉（撤銷）> 已過期 > 使用中；cls 對應清單的狀態樣式 */
+function credentialStatus(credential, t) {
+  if (credential.revoked_at) return { label: t("AiApiPage.credStatusReplaced"), cls: "inactive" };
+  if (isExpired(credential.expires_at)) return { label: t("AiApiPage.credStatusExpired"), cls: "expired" };
+  return { label: t("AiApiPage.credStatusActive"), cls: "active" };
+}
+
+/* 複製到剪貼簿並以 toast 回報結果；label 是訊息裡顯示的項目名稱 */
+function useCopyToClipboard() {
+  const { t } = useTranslation("ai");
+  const toast = useToast();
+  return useCallback(async (label, value) => {
+    try {
+      await navigator.clipboard.writeText(value);
+      toast.success(t("AiApiPage.copiedSuccess", { label }));
+    } catch {
+      toast.error(t("AiApiPage.copiedError", { label }));
+    }
+  }, [t, toast]);
 }
 
 export function buildAiProxyBaseUrl(baseUrl) {
@@ -94,17 +109,6 @@ print(response.output_text)`;
       '  -H "Content-Type: application/json" \\',
       `  -d '${body}'`,
     ].join("\n");
-  }
-
-  if (language === "cmd") {
-    /* CMD 的 JSON 內層引號要寫成 \"，模板字串裡就得是 \\" */
-    const body = chat
-      ? `{\\"model\\":\\"MODEL_NAME\\",\\"messages\\":[{\\"role\\":\\"user\\",\\"content\\":\\"INPUT\\"}]}`
-      : `{\\"model\\":\\"MODEL_NAME\\",\\"input\\":\\"INPUT\\"}`;
-    return `curl -X POST "${url}" ^
-  -H "Authorization: Bearer YOUR_API_KEY" ^
-  -H "Content-Type: application/json" ^
-  -d "${body}"`;
   }
 
   return chat
@@ -208,17 +212,13 @@ function KeyMenu({ rotateDisabled, busy, onRename, onRotate, onDelete, onClose, 
    外框交給共用 Modal（Esc、焦點、Tab 鎖定、捲動鎖都由它處理） */
 function KeyDetailDialog({ credential, apiKey, onClose }) {
   const { t } = useTranslation("ai");
-  const toast = useToast();
+  const copy = useCopyToClipboard();
   const [loadedKey, setLoadedKey] = useState(apiKey || "");
   const [keyLoading, setKeyLoading] = useState(!apiKey);
   const [keyError, setKeyError] = useState(false);
   const displayApiKey = apiKey || loadedKey;
   const baseUrl = buildAiProxyBaseUrl(credential.base_url);
-  const status = credential.revoked_at
-    ? t("AiApiPage.credStatusReplaced")
-    : isExpired(credential.expires_at)
-      ? t("AiApiPage.credStatusExpired")
-      : t("AiApiPage.credStatusActive");
+  const status = credentialStatus(credential, t).label;
 
   useEffect(() => {
     if (apiKey) return;
@@ -241,15 +241,6 @@ function KeyDetailDialog({ credential, apiKey, onClose }) {
       controller.abort();
     };
   }, [credential.id, apiKey]);
-
-  const copy = async (label, value) => {
-    try {
-      await navigator.clipboard.writeText(value);
-      toast.success(t("AiApiPage.copiedSuccess", { label }));
-    } catch {
-      toast.error(t("AiApiPage.copiedError", { label }));
-    }
-  };
 
   return (
     <Modal
@@ -315,13 +306,7 @@ function CredentialRow({ item, onRefresh, onShowDetails, onRotated }) {
     return isExpired(value) ? t("AiApiPage.expiredFormat", { date: label }) : label;
   }
 
-  function credStatusInfo(it) {
-    if (it.revoked_at) return { label: t("AiApiPage.credStatusReplaced"), cls: "inactive" };
-    if (isExpired(it.expires_at)) return { label: t("AiApiPage.credStatusExpired"), cls: "expired" };
-    return { label: t("AiApiPage.credStatusActive"), cls: "active" };
-  }
-
-  const info = credStatusInfo(item);
+  const info = credentialStatus(item, t);
   const inactive = Boolean(item.revoked_at);
   const expired = isExpired(item.expires_at);
   const deprecated = inactive || expired;
@@ -483,7 +468,7 @@ function CredentialRow({ item, onRefresh, onShowDetails, onRotated }) {
    出錯才需要的對照表收在最下面 ── */
 function ApiDocsContent({ credentials }) {
   const { t } = useTranslation("ai");
-  const toast = useToast();
+  const copy = useCopyToClipboard();
   const [language, setLanguage] = useState("javascript");
   const [endpointKind, setEndpointKind] = useState("responses");
   const usable = credentials.filter((item) => !item.revoked_at && !isExpired(item.expires_at));
@@ -502,15 +487,6 @@ function ApiDocsContent({ credentials }) {
     { key: "responses", label: "Responses" },
     { key: "chat", label: "Chat Completions" },
   ];
-
-  const copy = async (label, value) => {
-    try {
-      await navigator.clipboard.writeText(value);
-      toast.success(t("AiApiPage.copiedSuccess", { label }));
-    } catch {
-      toast.error(t("AiApiPage.copiedError", { label }));
-    }
-  };
 
   return (
     <div className={styles.docsLayout}>
@@ -760,7 +736,7 @@ function UsageBreakdown({ icon, title, entries, formatter }) {
         {Object.entries(entries).map(([key, stats]) => (
           <div key={key} className={styles.usageBreakdownRow}>
             <span className={styles.usageBreakdownKey}>{formatter ? formatter(key) : key}</span>
-            <span>{t("AiApiPage.callCount", { count: stats.calls ?? stats.requests ?? 0 })}</span>
+            <span>{t("AiApiPage.callCount", { count: stats.requests ?? 0 })}</span>
             <span>↑ {formatTokens(stats.input_tokens)}</span>
             <span>↓ {formatTokens(stats.output_tokens)}</span>
           </div>
@@ -770,33 +746,26 @@ function UsageBreakdown({ icon, title, entries, formatter }) {
   );
 }
 
-function formatModelDisplay(modelName) {
-  if (!modelName) return "-";
-  const trimmed = modelName.trim();
-  if (!trimmed) return "-";
-  const match = trimmed.match(/models--([^/]+)--([^/]+)/);
-  if (!match) return trimmed;
-  return `${match[1]}/${match[2]}`;
-}
+/* call_type 來自 AI 代理記錄的 request_type（backend ai_proxy._GENERATION_ENDPOINTS）；
+   沒列到的型別（completion、response…）直接顯示原字串。只放 locale 裡
+   確實存在的 key，否則畫面會露出 key 字串本身。 */
+const CALL_TYPE_LABELS = {
+  chat_completion: "AiApiPage.callTypeChatCompletion",
+};
 
 /* ── Usage record row ── */
 function UsageRecordRow({ item }) {
   const { t } = useTranslation("ai");
   const [expanded, setExpanded] = useState(false);
 
-  const succeeded = ["success", "ok", "200", 200].includes(item.status);
+  const succeeded = isOkStatus(item.status);
   const statusCls = succeeded ? "success" : "danger";
   const statusLabel =
     succeeded
       ? t("AiApiPage.recordStatusSuccess")
       : t("AiApiPage.recordStatusError");
 
-  const callTypeLabels = {
-    chat: "AiApiPage.callTypeChat",
-    recommend: "AiApiPage.callTypeRecommend",
-    chat_completion: "AiApiPage.callTypeChatCompletion",
-  };
-  const callTypeKey = callTypeLabels[item.call_type];
+  const callTypeKey = CALL_TYPE_LABELS[item.call_type];
   const model = formatModelDisplay(item.model_name);
   const createdAt = formatDateTime(item.created_at);
   const detailId = `usage-record-${String(item.id).replace(/[^a-zA-Z0-9_-]/g, "-")}`;
@@ -896,16 +865,14 @@ function MyUsageTab() {
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
 
-  const { start, end } = useMemo(() => {
-    const now = new Date();
-    const s = new Date(now);
-    if (preset === "7d") s.setDate(s.getDate() - 7);
-    else if (preset === "30d") s.setDate(s.getDate() - 30);
-    else s.setDate(s.getDate() - 90);
-    return { start: s.toISOString(), end: now.toISOString() };
-  }, [preset]);
+  const { startDate: start, endDate: end } = useMemo(() => presetToRange(preset), [preset]);
+
+  /* 快速切換區間時只採用最後一次 load 的結果；進行中的「載入更多」
+     在區間改變後也要丟掉，不能把舊區間的紀錄接到新清單後面 */
+  const loadSeqRef = useRef(0);
 
   const load = useCallback(async () => {
+    const seq = ++loadSeqRef.current;
     setLoading(true);
     setUsageError(false);
     setRecordsError(false);
@@ -913,6 +880,7 @@ function MyUsageTab() {
       AiApiService.getMyUsage({ start_date: start, end_date: end }),
       AiApiService.getMyUsageRecords({ start_date: start, end_date: end, limit: USAGE_RECORD_PAGE_SIZE }),
     ]);
+    if (seq !== loadSeqRef.current) return;
     if (usageRes.status === "fulfilled") setUsageData(usageRes.value);
     else setUsageError(true);
     if (recRes.status === "fulfilled") {
@@ -931,6 +899,7 @@ function MyUsageTab() {
   const hasMoreRecords = !recordsError && records.length > 0 && records.length < recordsCount;
 
   const loadMore = async () => {
+    const seq = loadSeqRef.current;
     setLoadingMore(true);
     try {
       const res = await AiApiService.getMyUsageRecords({
@@ -939,6 +908,7 @@ function MyUsageTab() {
         skip: records.length,
         limit: USAGE_RECORD_PAGE_SIZE,
       });
+      if (seq !== loadSeqRef.current) return;
       setRecords((prev) => [...prev, ...(res?.data ?? [])]);
       setRecordsCount(res?.count ?? 0);
     } catch {
@@ -1356,7 +1326,7 @@ export default function AiApiPage() {
 
         {/* ---- Tab: 我的用量 ---- */}
         {activeTab === "usage" && <MyUsageTab />}
-        {activeTab === "chat" && <Suspense fallback={<LoadingState />}><AiApiChatTab /></Suspense>}
+        {activeTab === "chat" && <Suspense fallback={<LoadingState />}><AiApiChatTab credentials={activeCredentials} credentialsLoading={loading} /></Suspense>}
       </div>
 
       {keyDetail && (

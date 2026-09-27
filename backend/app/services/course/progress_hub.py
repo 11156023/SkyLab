@@ -1,82 +1,45 @@
 """課程進度推播 hub：老師端訂閱單一學習路徑的即時進度事件。
 
-比照 classroom presence hub 的 in-memory 模式：register 常駐讀取直到斷線，
-發送失敗即淘汰死連線。事件 payload 形如：
+連線登記、斷線偵測與並行推播跟教室信令 hub 共用 ``JsonBroadcastHub``；
+這裡只決定事件要推給訂閱哪條路徑的連線。事件 payload 形如：
     {"type": "progress", "user_id": ..., "room_id": ..., "task_id": ...,
      "question_id": ..., "room_progress_percent": ...}
 """
 
-import asyncio
 import uuid
 from dataclasses import dataclass, field
-from typing import Any, Protocol
+from typing import Any
 
-from app.utils.websocket import close_quietly
+from app.services.classroom.broadcast_hub import JsonBroadcastHub, JsonSocket
 
 # 與教室信令 hub 同一個約定：單一連線送不出去就淘汰，不拖住整批推播
 SEND_TIMEOUT_SECONDS = 5
 
 
-class ProgressSocket(Protocol):
-    """已 accept 的 FastAPI WebSocket 需要的最小介面。"""
-
-    async def receive_text(self) -> str:
-        """讀取下一則文字訊息（斷線時拋出）。"""
-
-    async def send_json(self, data: dict[str, Any]) -> None:
-        """推送一則 JSON 事件。"""
-
-
 @dataclass
 class _Connection:
     path_id: uuid.UUID
-    websocket: ProgressSocket
+    websocket: JsonSocket
     # 以物件身分區分連線：同一位老師開多分頁各是一條
     key: object = field(default_factory=object)
 
 
-class CourseProgressHub:
-    def __init__(self) -> None:
-        self._connections: dict[object, _Connection] = {}
+class CourseProgressHub(JsonBroadcastHub[_Connection]):
+    def _send_timeout(self) -> float:
+        return SEND_TIMEOUT_SECONDS
 
-    async def register(
-        self, *, path_id: uuid.UUID, websocket: ProgressSocket
-    ) -> None:
+    async def register(self, *, path_id: uuid.UUID, websocket: JsonSocket) -> None:
         """註冊訂閱並常駐讀取直到斷線（訊息內容忽略，僅偵測斷線）。"""
-        conn = _Connection(path_id=path_id, websocket=websocket)
-        self._connections[conn.key] = conn
-        try:
-            while True:
-                await websocket.receive_text()
-        except Exception:
-            pass  # 斷線屬正常結束
-        finally:
-            self._connections.pop(conn.key, None)
+        await self._hold(_Connection(path_id=path_id, websocket=websocket))
 
     def subscriber_count(self, path_id: uuid.UUID) -> int:
-        return sum(
-            1 for c in self._connections.values() if c.path_id == path_id
-        )
+        return sum(1 for c in self._connections.values() if c.path_id == path_id)
 
     async def broadcast(self, path_id: uuid.UUID, event: dict[str, Any]) -> None:
         """同時推給該路徑的所有訂閱者，避免一條慢連線拖住整批推播。"""
-        targets = [c for c in self._connections.values() if c.path_id == path_id]
-        if not targets:
-            return
-        await asyncio.gather(
-            *(self._send_one(conn, event) for conn in targets),
-            return_exceptions=True,
+        await self._send_to(
+            [c for c in self._connections.values() if c.path_id == path_id], event
         )
-
-    async def _send_one(self, conn: _Connection, event: dict[str, Any]) -> None:
-        try:
-            await asyncio.wait_for(
-                conn.websocket.send_json(event), timeout=SEND_TIMEOUT_SECONDS
-            )
-        except Exception:
-            # 逾時或送出失敗一律當死連線清掉；register 端的 finally 再清一次是 no-op
-            self._connections.pop(conn.key, None)
-            await close_quietly(conn.websocket)
 
 
 course_progress_hub = CourseProgressHub()

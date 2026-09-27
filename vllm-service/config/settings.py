@@ -17,7 +17,6 @@ from utils.model_utils import is_vision_model
 # 專案根目錄
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_ENV_FILE = PROJECT_ROOT / ".env"
-ENV_FILE = DEFAULT_ENV_FILE
 SERVICE_ENV_FILE_VAR = "VLLM_SERVICE_ENV_FILE"
 
 
@@ -143,7 +142,6 @@ class Settings(BaseSettings):
     )
 
     # ---- 併發與效能 ----
-    uvicorn_workers: int = Field(default=1, description="Uvicorn worker 數", ge=1)
     request_timeout: int = Field(default=300, description="請求逾時秒數", ge=10)
 
     # ---- Benchmark 設定 ----
@@ -170,8 +168,11 @@ class Settings(BaseSettings):
     max_image_size: int = Field(default=2048, description="最大圖片尺寸 (px)", ge=256)
     enable_image_resize: bool = Field(default=True, description="自動調整圖片大小")
     allowed_local_media_path: str = Field(
-        default="/",
-        description="允許 vLLM 讀取本機媒體檔的目錄。預設 '/' 表示允許任意路徑（對應 --allowed-local-media-path）",
+        default="",
+        description=(
+            "允許 vLLM 以 file:// 讀取本機媒體檔的目錄（對應 --allowed-local-media-path）。"
+            "預設留空＝不開放；只能指定專用媒體目錄，不可設為根目錄 '/'"
+        ),
     )
 
     # ---- 影片模型設定 ----
@@ -256,28 +257,34 @@ class Settings(BaseSettings):
         mode="before",
     )
     @classmethod
-    def empty_str_to_none(cls, v: str) -> str:
-        """空字串視為無量化"""
+    def strip_optional_str(cls, v: str) -> str:
+        """去除選用字串 CLI 參數的前後空白；未設定（None／空值）一律視為空字串＝不帶該參數。"""
         return v.strip() if v else ""
-    
-    @field_validator("gpu_memory_utilization")
-    @classmethod
-    def validate_gpu_memory(cls, v: float) -> float:
-        """驗證 GPU 記憶體使用率"""
-        if v < 0.1 or v > 1.0:
-            raise ValueError(f"gpu_memory_utilization 必須在 0.1 到 1.0 之間，當前值: {v}")
-        return v
-    
+
     @field_validator("max_model_len")
     @classmethod
-    def validate_max_model_len(cls, v: int) -> int:
-        """驗證最大上下文長度"""
-        if v < 128:
-            raise ValueError(f"max_model_len 必須至少為 128，當前值: {v}")
+    def warn_large_max_model_len(cls, v: int) -> int:
+        """上下文長度過大時提醒可能 OOM（下限 128 由 Field(ge=128) 檢查）。"""
         if v > 128000:
             import warnings
             warnings.warn(f"max_model_len={v} 過大，可能導致 OOM")
         return v
+
+    @field_validator("allowed_local_media_path", mode="before")
+    @classmethod
+    def validate_allowed_local_media_path(cls, v: str | None) -> str:
+        """拒絕把整個檔案系統開放給 file:// 媒體 URL。
+
+        vLLM 開了 --allowed-local-media-path 後，任何能打到 API 的呼叫者
+        （含經 LiteLLM 轉發的校園使用者）都能以 file:// 讀取該目錄下的檔案。
+        """
+        value = (v or "").strip()
+        if value and not value.strip("/\\"):
+            raise ValueError(
+                "ALLOWED_LOCAL_MEDIA_PATH 不可設為根目錄 '/'：這會讓 API 呼叫者以 file:// "
+                "讀取主機任意檔案；請留空，或改指定專用的媒體目錄"
+            )
+        return value
 
     @field_validator("scheduling_policy")
     @classmethod

@@ -21,6 +21,7 @@ from app.exceptions import BadRequestError, ConflictError, PermissionDeniedError
 from app.infrastructure.proxmox import (
     fetch_cluster_nodes,
     invalidate_proxmox_client,
+    list_node_storages,
     resolve_verify,
 )
 from app.models import (
@@ -185,7 +186,7 @@ def _collect_storages(client: Any, node_names: list[str]) -> list[SetupStoragePu
     merged: OrderedDict[str, SetupStoragePublic] = OrderedDict()
     for node_name in node_names:
         try:
-            raw_storages = client.nodes(node_name).storage.get()
+            raw_storages = list_node_storages(client, node_name)
         except Exception as e:
             logger.warning(f"Setup: failed to fetch storage for node {node_name}: {e}")
             continue

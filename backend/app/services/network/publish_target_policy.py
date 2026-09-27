@@ -180,4 +180,22 @@ def assert_publishable_vm_ip(
     )
 
 
-__all__ = ["assert_publishable_vm_ip", "validate_publish_target_ip"]
+def resolve_resource_vmid(session: object, vmid: int) -> int | None:
+    """發布規則的 ``resource_vmid``：``vmid`` 在 resources 表裡才回傳它，否則 None。
+
+    ``session`` 可能是測試用的簡化物件（沒有 ``get``），此時一律回 None。
+    """
+    get = getattr(session, "get", None)
+    if get is None:
+        return None
+
+    from app.models import Resource
+
+    return vmid if get(Resource, vmid) is not None else None
+
+
+__all__ = [
+    "assert_publishable_vm_ip",
+    "resolve_resource_vmid",
+    "validate_publish_target_ip",
+]

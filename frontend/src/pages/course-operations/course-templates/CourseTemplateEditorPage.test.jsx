@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import React, { act } from "react";
+import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
@@ -14,7 +14,6 @@ vi.mock("../../../services/courseEnvironments", () => ({
   courseNodeHasUsableSource: () => true,
   CourseEnvironmentsService: { saveDraft: mocks.saveDraft, publish: mocks.publish, get: mocks.get, saveBasics: mocks.saveBasics, uploadFile: mocks.uploadFile, removeFile: mocks.removeFile, fileUrl: () => "#" },
 }));
-vi.mock("../../../services/teachingClasses", () => ({ TeachingClassesService: { list: async () => [] } }));
 vi.mock("../../../services/templates", () => ({ TemplatesService: { list: async () => [] } }));
 vi.mock("../../../services/api", () => ({ apiGet: async () => [] }));
 vi.mock("../../../services/reverseProxy", () => ({ ReverseProxyService: { setupContext: async () => ({ enabled: false, zones: [] }), checkDomainAvailability: async () => ({ available: true }) } }));

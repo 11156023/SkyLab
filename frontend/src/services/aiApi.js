@@ -21,9 +21,6 @@ export const AiApiService = {
   listAllRequests() {
     return apiGet(`${BASE}/requests`);
   },
-  getRequest(requestId) {
-    return apiGet(`${BASE}/requests/${requestId}`);
-  },
   reviewRequest(requestId, body) {
     return apiPost(`${BASE}/requests/${requestId}/review`, body);
   },

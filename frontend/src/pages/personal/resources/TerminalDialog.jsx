@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useId, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
@@ -7,6 +7,7 @@ import "@xterm/xterm/css/xterm.css";
 import { AuthStorage } from "../../../services/auth";
 import { useAuth } from "../../../contexts/AuthContext";
 import { recordMachineUse } from "../../../services/recentMachines";
+import { wsBaseUrl } from "../../../utils/wsUrl";
 import MIcon from "../../../components/MIcon";
 import Modal from "../../../components/Modal/Modal";
 import styles from "./ConsoleDialog.module.scss";
@@ -27,8 +28,6 @@ export default function TerminalDialog({ resource, onClose }) {
   }
   const termDivRef  = useRef(null);
   const termRef     = useRef(null);
-  const wsRef       = useRef(null);
-  const fitAddonRef = useRef(null);
   const dialogRef   = useRef(null);
   const titleId     = useId();
 
@@ -42,10 +41,6 @@ export default function TerminalDialog({ resource, onClose }) {
     if (!document.fullscreenElement) dialogRef.current?.requestFullscreen?.();
     else document.exitFullscreen?.();
   }
-
-  const terminalRef = useCallback((node) => {
-    termDivRef.current = node;
-  }, []);
 
   useEffect(() => {
     const el = termDivRef.current;
@@ -69,17 +64,13 @@ export default function TerminalDialog({ resource, onClose }) {
     term.loadAddon(new WebLinksAddon());
     term.open(el);
 
-    termRef.current     = term;
-    fitAddonRef.current = fitAddon;
+    termRef.current = term;
 
     setTimeout(() => { try { fitAddon.fit(); } catch {} }, 100);
 
-    const apiUrl  = new URL(import.meta.env.VITE_API_URL || `${window.location.protocol}//${window.location.host}`);
-    const proto   = apiUrl.protocol === "https:" ? "wss:" : "ws:";
     const token   = AuthStorage.getAccessToken() ?? "";
-    const ws      = new WebSocket(`${proto}//${apiUrl.host}/ws/terminal/${resource.vmid}?token=${encodeURIComponent(token)}`);
+    const ws      = new WebSocket(`${wsBaseUrl()}/ws/terminal/${resource.vmid}?token=${encodeURIComponent(token)}`);
     ws.binaryType = "arraybuffer";
-    wsRef.current = ws;
 
     ws.onopen = () => {
       pingInterval = setInterval(() => {
@@ -96,7 +87,7 @@ export default function TerminalDialog({ resource, onClose }) {
         isReady = true;
         setStatus("connected");
         recordMachineUse(user?.id, resource.vmid);
-        const rest = typeof data === "string" ? data.slice(2) : data.slice(2);
+        const rest = data.slice(2);
         if (rest.length) term.write(rest);
         requestAnimationFrame(() => requestAnimationFrame(() => {
           term.focus();
@@ -181,7 +172,7 @@ export default function TerminalDialog({ resource, onClose }) {
       </div>
 
       <div className={styles.terminalArea}>
-        <div ref={terminalRef} className={styles.terminalWrap} />
+        <div ref={termDivRef} className={styles.terminalWrap} />
         {status !== "connected" && (
           <div className={styles.terminalOverlay}>
             {status === "connecting" && (

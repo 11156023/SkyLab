@@ -10,6 +10,7 @@ import PageHeader from "../../../../components/PageHeader/PageHeader";
 import EmptyState from "../../../../components/EmptyState/EmptyState";
 import LoadingState from "../../../../components/LoadingState/LoadingState";
 import { formatMonthDay } from "../../../../utils/formatDate";
+import { taipeiDateKey } from "../taipeiDate";
 
 const CLASS_STATUS_KEYS = {
   planning: "TeacherDashboardPage.statusPlanning",
@@ -24,12 +25,6 @@ const DEMO_STUDENT_NAMES = [
   "王小明", "陳怡君", "林志豪", "張雅婷", "劉冠廷", "黃郁雯", "郭家豪", "李欣儒",
   "周柏翰", "吳思妤", "許庭瑋", "鄭凱文", "蔡佳蓉", "楊承恩", "謝宜庭", "何俊傑",
 ];
-
-function dateKey(date) {
-  return new Intl.DateTimeFormat("en-CA", {
-    timeZone: "Asia/Taipei", year: "numeric", month: "2-digit", day: "2-digit",
-  }).format(date);
-}
 
 function weekdayFromDateKey(value) {
   const [year, month, day] = value.split("-").map(Number);
@@ -66,7 +61,7 @@ function demoStudents(prefix, count, totalQuestions, fullyCompleted, inProgress)
 }
 
 export function buildTeacherDashboardDemo(now = new Date()) {
-  const today = dateKey(now);
+  const today = taipeiDateKey(now);
   const endDate = addDaysToDateKey(today, 120);
   const classRows = [
     {
@@ -141,7 +136,7 @@ export function nextClassSession(item, now = new Date()) {
   const end = new Date(`${item.end_date}T23:59:59+08:00`);
   if (now > end) return null;
   const targetWeekday = Number(item.weekday ?? 0);
-  const baseDate = now < start ? item.start_date : dateKey(now);
+  const baseDate = now < start ? item.start_date : taipeiDateKey(now);
   const daysUntilTarget = (targetWeekday - weekdayFromDateKey(baseDate) + 7) % 7;
   let sessionDate = addDaysToDateKey(baseDate, daysUntilTarget);
   let session = taipeiDateTime(sessionDate, String(item.start_time ?? "00:00"));
@@ -182,9 +177,7 @@ function normalizeClass(item) {
 function CheckpointRow({ item, onOpen }) {
   const { t } = useTranslation("personal");
   const students = item.report?.students ?? [];
-  const completed = students.reduce((sum, student) => sum + Number(student.completed_questions ?? 0), 0);
-  const possible = students.reduce((sum, student) => sum + Number(student.total_questions ?? 0), 0);
-  const percent = possible ? Math.round(completed / possible * 100) : 0;
+  const { completed, possible, percent } = summarizeCheckpointReports([item]);
   const fullyCompleted = students.filter((student) => Number(student.progress_percent) >= 100).length;
   return <button type="button" className={styles.checkpointRow} onClick={onOpen}>
     <span className={styles.courseIcon}><MIcon name="checklist" size={19} /></span>
@@ -195,6 +188,12 @@ function CheckpointRow({ item, onOpen }) {
     <span className={styles.checkpointMetric}><strong>{percent}%</strong><small>{completed}/{possible || item.report?.total_questions || 0}</small></span>
     <MIcon name="chevron_right" size={19} />
   </button>;
+}
+
+/** 問候語用的稱呼：姓名第一段 → email 帳號 → 預設稱呼。
+ *  用 || 而非 ??：全空白的 full_name trim 後是空字串，不能拿來當名字。 */
+export function teacherDisplayName(user, fallback) {
+  return user?.full_name?.trim().split(/\s+/)[0] || user?.email?.split("@")[0] || fallback;
 }
 
 export default function TeacherDashboardPage() {
@@ -253,7 +252,7 @@ export default function TeacherDashboardPage() {
     .map((student) => ({ ...student, pathTitle: path.title, pathId: path.id })))
     .sort((a, b) => Number(a.progress_percent) - Number(b.progress_percent))
     .slice(0, 5), [reports]);
-  const firstName = user?.full_name?.trim()?.split(/\s+/)[0] ?? user?.email?.split("@")[0] ?? t("TeacherDashboardPage.defaultTeacherName");
+  const firstName = teacherDisplayName(user, t("TeacherDashboardPage.defaultTeacherName"));
 
   return <div className={styles.page}>
     <PageHeader title={t("TeacherDashboardPage.greeting", { name: firstName })}>

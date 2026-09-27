@@ -6,10 +6,12 @@ import SegmentedControl from "../../components/SegmentedControl/SegmentedControl
 import { useAuth } from "../../contexts/AuthContext";
 import { apiPost } from "../../services/api";
 import { getLoginMethods } from "../../services/auth";
+import PageShell from "./PageShell";
 import styles from "./LoginPage.module.scss";
 
 const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID ?? "";
 const ENABLE_SIGNUP = import.meta.env.ENABLE_SIGNUP !== "false";
+const MIN_PASSWORD_LENGTH = 8;
 let googleIdentityScriptPromise;
 
 function loadGoogleIdentityScript() {
@@ -58,7 +60,8 @@ function clearResetTokenFromUrl() {
   if (typeof window === "undefined") return;
   const url = new URL(window.location.href);
   url.searchParams.delete("token");
-  url.pathname = "/";
+  // 留在登入頁：改成 "/" 的話重新整理會跑到導入首頁
+  url.pathname = "/login";
   window.history.replaceState(null, "", url.toString());
 }
 
@@ -69,21 +72,14 @@ function clearDeviceCodeFromUrl() {
   window.history.replaceState(null, "", url.toString());
 }
 
-/* ─── 共用元件 ─────────────────────────────────────────── */
-
-/* 頁面外框：三色暈染上的光暈層 + 毛玻璃卡片，各 view 共用 */
-function PageShell({ children }) {
-  return (
-    <div className={styles.page}>
-      <div className={styles.glow} aria-hidden="true">
-        <span />
-        <span />
-        <span />
-      </div>
-      <div className={styles.card}>{children}</div>
-    </div>
-  );
+/* 新密碼的前端檢查（重設密碼與註冊共用）：回傳錯誤訊息，通過則回傳空字串 */
+function newPasswordError(password, confirm, t) {
+  if (password.length < MIN_PASSWORD_LENGTH) return t("LoginPage.passwordMinLength");
+  if (password !== confirm) return t("LoginPage.passwordMismatch");
+  return "";
 }
+
+/* ─── 共用元件 ─────────────────────────────────────────── */
 
 function PasswordField({ id, label, value, onChange, disabled, placeholder }) {
   const { t } = useTranslation("login");
@@ -635,12 +631,9 @@ function ResetView({ token, onDone }) {
     e.preventDefault();
     setError("");
 
-    if (password.length < 8) {
-      setError(t("LoginPage.passwordMinLength"));
-      return;
-    }
-    if (password !== confirm) {
-      setError(t("LoginPage.passwordMismatch"));
+    const passwordError = newPasswordError(password, confirm, t);
+    if (passwordError) {
+      setError(passwordError);
       return;
     }
 
@@ -722,12 +715,9 @@ function RegisterView({ onBack }) {
     e.preventDefault();
     setError("");
 
-    if (password.length < 8) {
-      setError(t("LoginPage.passwordMinLength"));
-      return;
-    }
-    if (password !== confirm) {
-      setError(t("LoginPage.passwordMismatch"));
+    const passwordError = newPasswordError(password, confirm, t);
+    if (passwordError) {
+      setError(passwordError);
       return;
     }
 
@@ -891,8 +881,6 @@ export default function LoginPage() {
     setView("login");
   };
 
-  const showRegister = ENABLE_SIGNUP && view === "register";
-
   if (deviceCode && user) {
     return (
       <PageShell>
@@ -917,15 +905,8 @@ export default function LoginPage() {
         />
       )}
       {view === "forgot" && <ForgotView onBack={() => setView("login")} />}
-      {showRegister && <RegisterView onBack={() => setView("login")} />}
+      {view === "register" && <RegisterView onBack={() => setView("login")} />}
       {view === "reset" && <ResetView token={resetToken} onDone={goLogin} />}
-      {view === "register" && !ENABLE_SIGNUP && (
-        <LoginView
-          deviceApproval={Boolean(deviceCode)}
-          onForgot={() => setView("forgot")}
-          onRegister={() => setView("login")}
-        />
-      )}
     </PageShell>
   );
 }

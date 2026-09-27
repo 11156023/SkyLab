@@ -99,7 +99,6 @@ def create_device_code() -> DeviceCodeResponse:
 def approve_device_code(
     body: DeviceApproveRequest,
     current_user: CurrentUser,
-    session: SessionDep,
 ) -> dict:
     """Approve a device code (called by the frontend after the user explicitly
     confirms the "authorize this device" prompt).

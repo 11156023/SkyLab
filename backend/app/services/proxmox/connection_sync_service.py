@@ -10,7 +10,12 @@ import logging
 
 from sqlmodel import Session
 
-from app.infrastructure.proxmox import fetch_cluster_nodes, resolve_verify
+from app.infrastructure.proxmox import (
+    fetch_cluster_nodes,
+    list_node_storages,
+    open_client,
+    resolve_verify,
+)
 from app.models import ProxmoxConnection, ProxmoxNode
 from app.repositories import proxmox_connection as proxmox_connection_repo
 from app.repositories import proxmox_node as proxmox_node_repo
@@ -53,10 +58,10 @@ def sync_connection_inventory(
 
     節點名稱與其他連線衝突時拋 ValueError；連線失敗時拋原始例外。
     """
-    from proxmoxer import ProxmoxAPI
-
     password = proxmox_connection_repo.get_decrypted_password(conn)
-    verify_ssl = resolve_verify(conn.host, conn.verify_ssl, conn.ca_cert)
+    verify_ssl = resolve_verify(
+        conn.host, conn.verify_ssl, conn.ca_cert, port=conn.port
+    )
 
     raw_nodes = fetch_cluster_nodes(
         host=conn.host,
@@ -64,13 +69,14 @@ def sync_connection_inventory(
         password=password,
         verify_ssl=verify_ssl,
         timeout=conn.api_timeout,
+        port=conn.port,
     )
 
     node_dicts = [
         {
             "name": n["name"],
             "host": n["host"],
-            "port": n.get("port", 8006),
+            "port": n.get("port", conn.port),
             "is_primary": n.get("is_primary", False),
         }
         for n in raw_nodes
@@ -79,7 +85,7 @@ def sync_connection_inventory(
         session, node_dicts, connection_id=conn.id
     )
 
-    client = ProxmoxAPI(
+    client = open_client(
         conn.host,
         port=conn.port,
         user=conn.user,
@@ -91,7 +97,7 @@ def sync_connection_inventory(
     storage_dicts: list[dict] = []
     for node in saved_nodes:
         try:
-            raw_storages = client.nodes(node.name).storage.get()
+            raw_storages = list_node_storages(client, node.name)
             storage_dicts.extend(
                 storage_row_from_pve(node.name, st)
                 for st in raw_storages

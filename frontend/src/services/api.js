@@ -18,6 +18,7 @@ import {
   LOGIN_REQUEST_TIMEOUT_MS,
   fetchWithTimeout,
 } from "./fetchWithTimeout";
+import { readResponseMessage } from "./responseMessage";
 
 const BASE_URL = import.meta.env.VITE_API_URL ?? "";
 const REFRESH_PATH = "/api/v1/login/refresh-token";
@@ -137,22 +138,6 @@ function buildHeaders(extra = {}, isFormData = false, accessToken = AuthStorage.
   return headers;
 }
 
-async function readResponseMessage(res) {
-  let message = `HTTP ${res.status}`;
-  try {
-    const body = await res.json();
-    const rawMessage = body?.detail ?? body?.message;
-    if (typeof rawMessage === "string") {
-      message = rawMessage;
-    } else if (rawMessage && typeof rawMessage.message === "string") {
-      message = rawMessage.message;
-    }
-  } catch {
-    // 若 body 不是 JSON 就用預設訊息
-  }
-  return message;
-}
-
 function invalidateCurrentSession(snapshot) {
   if (!snapshot?.accessToken && !snapshot?.refreshToken) return false;
   if (!AuthStorage.clearTokensIfCurrent(snapshot)) return false;
@@ -185,41 +170,29 @@ function assertResponseSession(snapshot) {
 }
 
 async function recoverUnauthorized({ requestSnapshot, authRetryCount, retry }) {
+  // 只有發出請求的 session 仍登入時才重試；session generation 不同代表已登出
+  // 或切換帳號，不可重播舊 POST/DELETE。
+  const retryIfSameSession = async () => (
+    AuthStorage.isSameSession(requestSnapshot) && AuthStorage.isLoggedIn()
+      ? { recovered: true, value: await retry() }
+      : { recovered: false, authExpired: false }
+  );
+
   if (!AuthStorage.matchesSnapshot(requestSnapshot)) {
     // 同一 session 的另一請求可能剛完成 token 輪替；可安全用新 token 重試。
-    if (
-      authRetryCount < MAX_AUTH_RETRIES
-      && AuthStorage.isSameSession(requestSnapshot)
-      && AuthStorage.isLoggedIn()
-    ) {
-      return { recovered: true, value: await retry() };
-    }
-    // session generation 不同代表已登出或切換帳號，不可重播舊 POST/DELETE。
+    if (authRetryCount < MAX_AUTH_RETRIES) return retryIfSameSession();
     return { recovered: false, authExpired: false };
   }
 
   if (authRetryCount < MAX_AUTH_RETRIES) {
     const outcome = await refreshTokens();
-    if (outcome.kind === "refreshed") {
-      if (AuthStorage.isSameSession(requestSnapshot) && AuthStorage.isLoggedIn()) {
-        return { recovered: true, value: await retry() };
-      }
-      return { recovered: false, authExpired: false };
-    }
-    if (outcome.kind === "superseded") {
-      if (AuthStorage.isSameSession(requestSnapshot) && AuthStorage.isLoggedIn()) {
-        return { recovered: true, value: await retry() };
-      }
-      return { recovered: false, authExpired: false };
+    if (outcome.kind === "refreshed" || outcome.kind === "superseded") {
+      return retryIfSameSession();
     }
     if (outcome.kind === "unavailable") throw authRecoveryError(outcome);
 
-    if (!invalidateCurrentSession(outcome.snapshot)) {
-      if (AuthStorage.isSameSession(requestSnapshot) && AuthStorage.isLoggedIn()) {
-        return { recovered: true, value: await retry() };
-      }
-      return { recovered: false, authExpired: false };
-    }
+    // invalid：清掉失效的 token；沒清到代表別處已換上新 token，照樣可以重試。
+    if (!invalidateCurrentSession(outcome.snapshot)) return retryIfSameSession();
     return { recovered: false, authExpired: true };
   }
 
@@ -229,9 +202,24 @@ async function recoverUnauthorized({ requestSnapshot, authRetryCount, retry }) {
   };
 }
 
-/** 統一處理 response；401 時先嘗試續期再重試一次 */
-async function request(path, init, authRetryCount = 0) {
-  const { timeoutMs = DEFAULT_REQUEST_TIMEOUT_MS, ...fetchInit } = init;
+/** 一般 JSON 回應（204 No Content 不會有 body） */
+const JSON_RESPONSE = {
+  defaultTimeoutMs: DEFAULT_REQUEST_TIMEOUT_MS,
+  readBody: (res) => (res.status === 204 ? null : res.json()),
+};
+
+/** 檔案下載：回傳 Blob，逾時放寬（匯出卡住時仍會拋 408，按鈕不會永遠停在「匯出中」） */
+const BLOB_RESPONSE = {
+  defaultTimeoutMs: BLOB_REQUEST_TIMEOUT_MS,
+  readBody: (res) => res.blob(),
+};
+
+/**
+ * 統一處理 response；401 時先嘗試續期再重試一次。
+ * responseKind 決定預設逾時與成功時怎麼讀 body（JSON_RESPONSE／BLOB_RESPONSE）。
+ */
+async function send(path, init, responseKind, authRetryCount = 0) {
+  const { timeoutMs = responseKind.defaultTimeoutMs, ...fetchInit } = init;
   const requestSnapshot = AuthStorage.getSnapshot();
   const res = await fetchWithTimeout(
     `${BASE_URL}${path}`,
@@ -248,9 +236,7 @@ async function request(path, init, authRetryCount = 0) {
 
   if (res.ok) {
     assertResponseSession(requestSnapshot);
-    // 204 No Content 不會有 body
-    if (res.status === 204) return null;
-    const body = await res.json();
+    const body = await responseKind.readBody(res);
     assertResponseSession(requestSnapshot);
     return body;
   }
@@ -260,7 +246,7 @@ async function request(path, init, authRetryCount = 0) {
     const recovery = await recoverUnauthorized({
       requestSnapshot,
       authRetryCount,
-      retry: () => request(path, init, authRetryCount + 1),
+      retry: () => send(path, init, responseKind, authRetryCount + 1),
     });
     if (recovery.recovered) return recovery.value;
     authExpired = recovery.authExpired;
@@ -271,6 +257,14 @@ async function request(path, init, authRetryCount = 0) {
     message: await readResponseMessage(res),
     ...(authExpired ? { authExpired: true } : {}),
   };
+}
+
+function request(path, init) {
+  return send(path, init, JSON_RESPONSE);
+}
+
+function requestBlob(path, init) {
+  return send(path, init, BLOB_RESPONSE);
 }
 
 /** GET */
@@ -282,55 +276,9 @@ export function apiGet(path, options = {}) {
   });
 }
 
-async function requestBlob(path, init, authRetryCount = 0) {
-  const { timeoutMs = BLOB_REQUEST_TIMEOUT_MS, ...fetchInit } = init;
-  const requestSnapshot = AuthStorage.getSnapshot();
-  /* 走 fetchWithTimeout：匯出打到後端卡住時會拋 408，不會讓按鈕永遠停在「匯出中」 */
-  const res = await fetchWithTimeout(
-    `${BASE_URL}${path}`,
-    {
-      ...fetchInit,
-      headers: buildHeaders(
-        fetchInit.headers,
-        fetchInit.body instanceof FormData,
-        requestSnapshot.accessToken,
-      ),
-    },
-    timeoutMs,
-  );
-  if (res.ok) {
-    assertResponseSession(requestSnapshot);
-    const blob = await res.blob();
-    assertResponseSession(requestSnapshot);
-    return blob;
-  }
-
-  let authExpired = false;
-  if (res.status === 401) {
-    const recovery = await recoverUnauthorized({
-      requestSnapshot,
-      authRetryCount,
-      retry: () => requestBlob(path, init, authRetryCount + 1),
-    });
-    if (recovery.recovered) return recovery.value;
-    authExpired = recovery.authExpired;
-  }
-
-  throw {
-    status: res.status,
-    message: await readResponseMessage(res),
-    ...(authExpired ? { authExpired: true } : {}),
-  };
-}
-
 /** GET（回傳 Blob，檔案下載用；同樣支援 401 續期重試） */
 export function apiGetBlob(path) {
   return requestBlob(path, { method: "GET" });
-}
-
-/** POST（JSON body，回傳 Blob，報表匯出用；同樣支援 401 續期重試） */
-export function apiPostBlob(path, body) {
-  return requestBlob(path, { method: "POST", body: JSON.stringify(body) });
 }
 
 /** 觸發瀏覽器下載 Blob */
@@ -372,15 +320,7 @@ export async function apiPostForm(path, params, options = {}) {
     options.timeoutMs ?? LOGIN_REQUEST_TIMEOUT_MS,
   );
   if (res.ok) return res.status === 204 ? null : res.json();
-
-  let message = `HTTP ${res.status}`;
-  try {
-    const body = await res.json();
-    message = body?.detail ?? body?.message ?? message;
-  } catch {
-    // 若 body 不是 JSON 就用預設訊息
-  }
-  throw { status: res.status, message };
+  throw { status: res.status, message: await readResponseMessage(res) };
 }
 
 /** API 錯誤是否為 404（資源不存在）：頁面據此顯示「找不到」而非一般錯誤 */

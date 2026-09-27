@@ -4,7 +4,6 @@ import { useTranslation } from "react-i18next";
 import LoadingState from "../../../components/LoadingState/LoadingState";
 import EmptyState from "../../../components/EmptyState/EmptyState";
 import MIcon from "../../../components/MIcon";
-import { useAuth } from "../../../contexts/AuthContext";
 import { useConfirm } from "../../../components/ConfirmDialog/ConfirmProvider";
 import { useToast } from "../../../hooks/useToast";
 import { AuthStorage } from "../../../services/auth";
@@ -15,6 +14,7 @@ import {
 import { TeachingClassesService } from "../../../services/teachingClasses";
 import { focusInvalidField } from "../../../utils/focusField";
 import styles from "./CourseCmsPage.module.scss";
+import { pruneSelection } from "./courseCmsSelection";
 import PageHeader from "../../../components/PageHeader/PageHeader";
 
 const DIFFICULTIES = [
@@ -102,6 +102,8 @@ function PathColumn({ paths, teachingClasses, selectedId, onSelect, onReload }) 
     if (!ok) return;
     try {
       await CourseAdminService.deletePath(path.id);
+      // 刪掉的是目前選取的路徑：一併收起它的關卡／任務欄，避免在已刪除的路徑上操作
+      if (path.id === selectedId) onSelect(null);
       onReload();
       toast.success(t("CourseCmsPage.deletedToast"));
     } catch (err) {
@@ -448,9 +450,15 @@ function TaskColumn({ roomId }) {
   const saveLockRef = useRef(false);
   const [savingTask, setSavingTask] = useState(false);
 
+  /* 只套用目前關卡的回應：切換關卡時較慢回來的舊請求不可蓋掉新清單 */
+  const activeRoomIdRef = useRef(roomId);
+  activeRoomIdRef.current = roomId;
+
   const reload = useCallback(() => {
-    CourseAdminService.listTasks(roomId)
+    const requestedRoomId = roomId;
+    CourseAdminService.listTasks(requestedRoomId)
       .then((rows) => {
+        if (activeRoomIdRef.current !== requestedRoomId) return;
         setTasks(rows);
         setSelectedId((cur) => (rows.some((t) => t.id === cur) ? cur : rows[0]?.id ?? null));
       })
@@ -602,7 +610,6 @@ function ProgressPanel({ paths, initialPathId = "" }) {
   const [pathId, setPathId] = useState(initialPathId);
   const [report, setReport] = useState(null);
   const [live, setLive] = useState(false);
-  const wsRef = useRef(null);
   const refetchTimer = useRef(null);
   /* 目前顯示的是哪條路徑：慢回來的舊請求不可以蓋掉新路徑的報表 */
   const activePathIdRef = useRef("");
@@ -632,7 +639,6 @@ function ProgressPanel({ paths, initialPathId = "" }) {
     // WS 即時推播：收到事件後 debounce 重拉快照
     const token = AuthStorage.getAccessToken() ?? "";
     const ws = new WebSocket(courseProgressWsUrl(pathId, token));
-    wsRef.current = ws;
     ws.onopen = () => setLive(true);
     ws.onmessage = () => {
       clearTimeout(refetchTimer.current);
@@ -644,7 +650,6 @@ function ProgressPanel({ paths, initialPathId = "" }) {
     return () => {
       clearTimeout(refetchTimer.current);
       ws.close();
-      wsRef.current = null;
     };
   }, [pathId, fetchReport]);
 
@@ -726,7 +731,6 @@ function ProgressPanel({ paths, initialPathId = "" }) {
 /* ══════════════ 主頁 ══════════════ */
 export default function CourseCmsPage() {
   const { t } = useTranslation("teaching");
-  const { user } = useAuth();
   const [searchParams, setSearchParams] = useSearchParams();
   const [tab, setTab] = useState(searchParams.get("tab") === "progress" ? "progress" : "editor");
   const [pathsLoading, setPathsLoading] = useState(true);
@@ -736,12 +740,16 @@ export default function CourseCmsPage() {
   const [selectedPathId, setSelectedPathId] = useState(searchParams.get("pathId"));
   const [selectedRoomId, setSelectedRoomId] = useState(null);
 
-  const canManage =
-    user?.role === "admin" || user?.role === "teacher" || user?.is_superuser === true;
+  /* 只套用目前選取路徑的關卡清單：快速切換路徑時，較慢回來的舊回應不可蓋掉新選取 */
+  const activePathIdRef = useRef(selectedPathId);
+  activePathIdRef.current = selectedPathId;
 
   const reloadPaths = useCallback(() => {
     CourseAdminService.listPaths()
-      .then(setPaths)
+      .then((rows) => {
+        setPaths(rows);
+        setSelectedPathId((cur) => pruneSelection(rows, cur));
+      })
       .catch(() => {})
       .finally(() => setPathsLoading(false));
   }, []);
@@ -757,31 +765,27 @@ export default function CourseCmsPage() {
   const reloadRooms = useCallback(() => {
     if (!selectedPathId) {
       setRooms([]);
+      setSelectedRoomId(null);
       return;
     }
-    CourseAdminService.listRooms(selectedPathId)
+    const requestedPathId = selectedPathId;
+    CourseAdminService.listRooms(requestedPathId)
       .then((rows) => {
+        if (activePathIdRef.current !== requestedPathId) return;
         setRooms(rows);
-        setSelectedRoomId((cur) =>
-          rows.some((r) => r.id === cur) ? cur : null
-        );
+        setSelectedRoomId((cur) => pruneSelection(rows, cur));
       })
       .catch(() => {});
   }, [selectedPathId]);
 
   useEffect(() => {
-    if (!canManage) return;
     reloadPaths();
     TeachingClassesService.list().then(setTeachingClasses).catch(() => {});
-  }, [canManage, reloadPaths]);
+  }, [reloadPaths]);
 
   useEffect(() => {
     reloadRooms();
   }, [reloadRooms]);
-
-  if (!canManage) {
-    return <div className={styles.stateText}>{t("CourseCmsPage.teacherOnlyText")}</div>;
-  }
 
   return (
     <div className={styles.page}>
@@ -832,7 +836,7 @@ export default function CourseCmsPage() {
               }}
             />
           )}
-          {selectedRoomId && <TaskColumn roomId={selectedRoomId} />}
+          {selectedRoomId && <TaskColumn key={selectedRoomId} roomId={selectedRoomId} />}
         </div>
       ) : (
         <ProgressPanel paths={paths} initialPathId={searchParams.get("pathId") ?? ""} />

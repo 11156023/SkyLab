@@ -4,9 +4,12 @@ import { useTranslation } from "react-i18next";
 import styles from "./ResourceDetailPage.module.scss";
 import MIcon from "../../../../components/MIcon";
 import LoadingState from "../../../../components/LoadingState/LoadingState";
+import ErrorState from "../../../../components/ErrorState/ErrorState";
+import NotFoundState from "../../../../components/ErrorState/NotFoundState";
 import RrdChart from "../../../../components/RrdChart/RrdChart";
 import SegmentedControl from "../../../../components/SegmentedControl/SegmentedControl";
 import { ResourcesService } from "../../../../services/resources";
+import { isNotFound } from "../../../../services/api";
 import { formatTime } from "../../../../utils/formatDate";
 
 const TIMEFRAMES = [
@@ -63,6 +66,9 @@ export default function MonitoringTab({ vmid, toolbar }) {
   const [timeframe, setTimeframe] = useState("hour");
   const [chartTab, setChartTab] = useState("cpu");
   const [current, setCurrent] = useState(null);
+  /* 還沒拿到任何即時資料就失敗：改顯示錯誤狀態；輪詢照常進行，之後成功會自動恢復 */
+  const [currentError, setCurrentError] = useState(null);
+  const [retryKey, setRetryKey] = useState(0);
   const [rrd, setRrd] = useState(null);
 
   /* 即時狀態：每 5 秒輪詢 */
@@ -71,9 +77,12 @@ export default function MonitoringTab({ vmid, toolbar }) {
     const load = async () => {
       try {
         const stats = await ResourcesService.getCurrentStats(vmid);
-        if (!cancelled) setCurrent(stats);
-      } catch {
-        /* 下一輪再試 */
+        if (cancelled) return;
+        setCurrent(stats);
+        setCurrentError(null);
+      } catch (err) {
+        /* 下一輪再試；已經有資料時保留畫面，只有第一次就失敗才會顯示錯誤 */
+        if (!cancelled) setCurrentError(err ?? true);
       }
     };
     load();
@@ -82,7 +91,7 @@ export default function MonitoringTab({ vmid, toolbar }) {
       cancelled = true;
       clearInterval(timer);
     };
-  }, [vmid]);
+  }, [vmid, retryKey]);
 
   /* RRD 趨勢：每 30 秒輪詢 */
   useEffect(() => {
@@ -103,7 +112,13 @@ export default function MonitoringTab({ vmid, toolbar }) {
     };
   }, [vmid, timeframe]);
 
-  if (!current) return <LoadingState text={t("MonitoringTab.loadingData")} />;
+  if (!current) {
+    if (currentError) {
+      if (isNotFound(currentError)) return <NotFoundState />;
+      return <ErrorState onRetry={() => { setCurrentError(null); setRetryKey((key) => key + 1); }} />;
+    }
+    return <LoadingState text={t("MonitoringTab.loadingData")} />;
+  }
 
   const cpuPct = current.cpu ? (current.cpu * 100).toFixed(2) : "0.00";
   const memPct =

@@ -25,11 +25,6 @@
   }
 }
 
-.panelDesc {
-  font-size: $font-size-14;
-  color: var(--color-text-secondary);
-}
-
 /* ── 子分頁 ── */
 .subTabs {
   display: grid;
@@ -408,14 +403,6 @@
   .reviewSaveRow button { justify-content: center; width: 100%; }
 }
 
-.tabToolbar {
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  flex-wrap: wrap;
-  gap: $spacing-8;
-}
-
 .sectionActions {
   display: flex;
   flex-wrap: wrap;
@@ -443,10 +430,6 @@
 
 .btnDanger {
   @include btn-danger;
-}
-
-.btnBlock {
-  width: 100%;
 }
 
 .iconBtn {
@@ -1175,21 +1158,6 @@
   padding: $spacing-8 0;
 }
 
-.chatEmpty {
-  flex: 1;
-  @include flex-column;
-  align-items: center;
-  justify-content: center;
-  gap: $spacing-8;
-  color: var(--color-text-muted);
-  text-align: center;
-  font-size: $font-size-14;
-}
-
-.chatEmptyMeta {
-  font-size: $font-size-12;
-}
-
 .chatMsgRow {
   display: flex;
   gap: $spacing-8;
@@ -1581,82 +1549,6 @@
   white-space: pre;
 }
 
-/* ── 腳本執行 ── */
-.execToolbar {
-  @include flex-between;
-  flex-wrap: wrap;
-  gap: $spacing-8;
-  padding: $spacing-8 $spacing-16;
-  border: 1px solid var(--color-border);
-  border-radius: $radius-8;
-  background: var(--color-hover);
-}
-
-.tableWrap {
-  overflow-x: auto;
-  border: 1px solid var(--color-border);
-  border-radius: $radius-8;
-}
-
-.table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: $font-size-14;
-  color: var(--color-text);
-
-  th {
-    padding: $spacing-8 $spacing-16;
-    text-align: left;
-    font-size: $font-size-12;
-    font-weight: $font-weight-500;
-    color: var(--color-text-muted);
-    border-bottom: 1px solid var(--color-border);
-    white-space: nowrap;
-  }
-
-  td {
-    padding: $spacing-8 $spacing-16;
-    border-bottom: 1px solid var(--color-divider);
-    vertical-align: top;
-  }
-
-  tbody tr:last-child td {
-    border-bottom: none;
-  }
-
-  tbody tr:hover {
-    background: var(--color-row-hover);
-  }
-}
-
-.checkCol {
-  width: 40px;
-}
-
-.checkbox {
-  width: 16px;
-  height: 16px;
-  accent-color: var(--color-primary);
-  cursor: pointer;
-}
-
-.tableEmpty {
-  padding: $spacing-32 $spacing-16;
-  text-align: center;
-  color: var(--color-text-muted);
-}
-
-.monoCell {
-  font-family: monospace;
-  font-size: $font-size-14;
-}
-
-.typeCell {
-  text-transform: uppercase;
-  font-size: $font-size-12;
-  color: var(--color-text-muted);
-}
-
 .judgeDetails {
   margin-top: $spacing-8;
   font-size: $font-size-12;
@@ -1670,26 +1562,6 @@
     margin: $spacing-8 0 0;
     font-size: $font-size-12;
   }
-}
-
-.judgeItem {
-  margin-top: $spacing-8;
-  padding: $spacing-8 $spacing-16;
-  border-radius: $radius-8;
-  border: 1px solid var(--color-border);
-  background: var(--color-surface);
-
-  p {
-    margin: 4px 0 0;
-    color: var(--color-text-secondary);
-  }
-}
-
-.judgeItemHead {
-  @include flex-between;
-  gap: $spacing-8;
-  font-weight: $font-weight-500;
-  color: var(--color-text-primary);
 }
 
 /* ── 檢查項目表格（執行結果） ── */
@@ -1909,20 +1781,6 @@
   /* 陰影、圓角跟 .card 一致：選了檢查後清單改放在 .card 裡，兩種狀態看起來同一張卡 */
   @include glass-surface;
   border-radius: $radius-16;
-}
-
-.sessionCreate {
-  @include flex-column;
-  gap: $spacing-8;
-
-  input {
-    min-width: 0;
-    padding: 9px 10px;
-    border: 1px solid var(--color-border);
-    border-radius: $radius-8;
-    background: var(--color-surface);
-    color: var(--color-text-primary);
-  }
 }
 
 .newCheckButton {
@@ -2711,13 +2569,6 @@
     border-color: var(--color-danger);
     box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-danger) 12%, transparent);
   }
-}
-
-/* 群組型欄位（模式選擇、環境 chips、既有檔案清單）沒有自己的邊框，用外框標紅 */
-.groupInvalid.groupInvalid {
-  outline: 1px solid var(--color-danger);
-  outline-offset: 4px;
-  border-radius: $radius-8;
 }
 
 /* ── 學生總覽展開後的單台機器卡 ── */

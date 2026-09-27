@@ -38,6 +38,7 @@ from sqlmodel import Session, select
 
 from app.core import metrics
 from app.core.db import engine
+from app.infrastructure.queue.arq_client import QUEUE_NAME
 from app.infrastructure.redis.sync_client import get_sync_redis
 from app.models import AlertEvent, AlertMetric, AlertScope, TaskRecord, TaskRecordStatus
 from app.repositories import governance as governance_repo
@@ -63,16 +64,33 @@ AI_CACHE_SECONDS = 60.0
 FINDING_CONFIRMATIONS = 2
 MIN_ALERT_INTERVAL_SECONDS = 60.0
 
-# arq 的 health check key 與佇列 key（QUEUE_NAME = "skylab:tasks"）
-_ARQ_QUEUE = "skylab:tasks"
-_ARQ_HEALTH_KEY = f"{_ARQ_QUEUE}:health-check"
+# arq 的 health check key（arq 預設為「佇列名:health-check」）
+_ARQ_HEALTH_KEY = f"{QUEUE_NAME}:health-check"
 
-# 探測專用的執行緒池：DB／Redis 卡住時 future 逾時就放棄等待
+# Gateway 探測的 SSH 指令讀取逾時：連上之後 Gateway 不回應時，讀取不能無限等
+GATEWAY_EXEC_TIMEOUT_SECONDS = 10
+
+# 探測專用的執行緒池：卡住的探測 future 逾時就放棄等待。
+# 外部依賴（PVE、Gateway、AI）與核心依賴（DB、Redis）分開兩個池：
+# 外部探測卡死佔滿執行緒時，/ready 與 DB／Redis 檢查仍然有執行緒可用
 _probe_pool = ThreadPoolExecutor(max_workers=8, thread_name_prefix="health-probe")
+_core_probe_pool = ThreadPoolExecutor(max_workers=4, thread_name_prefix="health-core")
 
 
-def _run_with_timeout(fn: Callable[[], T], timeout: float) -> T:
-    return _probe_pool.submit(fn).result(timeout=timeout)
+def _run_with_timeout(
+    fn: Callable[[], T], timeout: float, *, pool: ThreadPoolExecutor | None = None
+) -> T:
+    future = (pool or _probe_pool).submit(fn)
+    try:
+        return future.result(timeout=timeout)
+    except FutureTimeout:
+        # 還在排隊的直接取消，不要讓放棄等待的探測在池裡越堆越多
+        future.cancel()
+        raise
+
+
+def _run_core(fn: Callable[[], T], timeout: float) -> T:
+    return _run_with_timeout(fn, timeout, pool=_core_probe_pool)
 
 
 def _component(
@@ -108,7 +126,7 @@ def check_database() -> dict[str, Any]:
 
     started = time.perf_counter()
     try:
-        _run_with_timeout(probe, PROBE_TIMEOUT_SECONDS)
+        _run_core(probe, PROBE_TIMEOUT_SECONDS)
     except Exception as exc:
         return _component("database", "PostgreSQL", "down", detail=_short_error(exc))
     return _component(
@@ -122,7 +140,7 @@ def check_redis() -> dict[str, Any]:
         return _component("redis", "Redis", "disabled")
     started = time.perf_counter()
     try:
-        _run_with_timeout(client.ping, PROBE_TIMEOUT_SECONDS)
+        _run_core(client.ping, PROBE_TIMEOUT_SECONDS)
     except Exception as exc:
         return _component("redis", "Redis", "down", detail=_short_error(exc))
     return _component(
@@ -144,12 +162,12 @@ def check_worker(*, redis_ok: bool) -> dict[str, Any]:
     def probe() -> tuple[str | None, int]:
         pipe = client.pipeline(transaction=False)
         pipe.get(_ARQ_HEALTH_KEY)
-        pipe.zcard(_ARQ_QUEUE)
+        pipe.zcard(QUEUE_NAME)
         health, queued = pipe.execute()
         return health, int(queued or 0)
 
     try:
-        health, queued = _run_with_timeout(probe, PROBE_TIMEOUT_SECONDS)
+        health, queued = _run_core(probe, PROBE_TIMEOUT_SECONDS)
     except Exception as exc:
         return _component("worker", "Worker", "unknown", detail=_short_error(exc))
     if not health:
@@ -249,22 +267,46 @@ def _load_gateway_config() -> Any:
         return config
 
 
-def _probe_gateway(config: Any) -> dict[str, Any]:
-    from app.core.config import settings
-    from app.infrastructure.ssh import create_key_client
-    from app.repositories.gateway_config import get_decrypted_private_key
-    from app.services.network import nginx_gateway_service
+class _ExecTimeoutClient:
+    """SSH client 包裝：沒指定逾時的 ``exec_command`` 一律套上讀取逾時。
 
-    client = create_key_client(
+    paramiko 預設 ``timeout=None``，連上之後遠端不回應時通道讀取會無限阻塞，
+    探測執行緒就永遠卡在池裡（``_run_with_timeout`` 只能放棄等待，停不掉執行緒）。
+    有了通道逾時，讀取會丟 ``socket.timeout``，``finally`` 才關得掉連線。
+    """
+
+    def __init__(self, client: Any, timeout: float) -> None:
+        self._client = client
+        self._timeout = timeout
+
+    def exec_command(
+        self, command: str, *args: Any, timeout: float | None = None, **kwargs: Any
+    ) -> Any:
+        return self._client.exec_command(
+            command,
+            *args,
+            timeout=self._timeout if timeout is None else timeout,
+            **kwargs,
+        )
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._client, name)
+
+
+def _probe_gateway(config: Any) -> dict[str, Any]:
+    from app.repositories.gateway_config import get_decrypted_private_key
+    from app.services.network import gateway_service, nginx_gateway_service
+
+    client = gateway_service.make_client(
         config.host,
         config.ssh_port,
         config.ssh_user,
         get_decrypted_private_key(config),
-        timeout=10,
     )
     try:
         return nginx_gateway_service.probe_health(
-            client, wireguard_unit=f"wg-quick@{settings.WIREGUARD_INTERFACE}"
+            _ExecTimeoutClient(client, GATEWAY_EXEC_TIMEOUT_SECONDS),
+            wireguard_unit=gateway_service.SERVICE_SYSTEMD_UNITS["wireguard"],
         )
     finally:
         client.close()
@@ -324,7 +366,7 @@ def cached_gateway_components() -> list[dict[str, Any]]:
 
 
 def reset_gateway_cache() -> None:
-    """測試用，也給 Gateway 設定變更後立刻重新探測。"""
+    """測試用。"""
     with _GatewayCache.lock:
         _GatewayCache.components = []
         _GatewayCache.expires_at = 0.0
@@ -500,7 +542,7 @@ def readiness() -> dict[str, Any]:
     return {"status": "ok" if ready else "fail", "checks": checks}
 
 
-def collect_components(*, use_pve_cache: bool = True) -> list[dict[str, Any]]:
+def collect_components() -> list[dict[str, Any]]:
     database = check_database()
     redis = check_redis()
     worker = check_worker(redis_ok=redis["status"] == "ok")
@@ -508,9 +550,9 @@ def collect_components(*, use_pve_cache: bool = True) -> list[dict[str, Any]]:
         database,
         redis,
         worker,
-        *check_pve(use_cache=use_pve_cache),
-        *check_gateway(use_cache=use_pve_cache),
-        *check_ai(use_cache=use_pve_cache),
+        *check_pve(),
+        *check_gateway(),
+        *check_ai(),
     ]
 
 
@@ -557,10 +599,10 @@ def _confirmed(findings: list[health_policy.SystemFinding]) -> list[health_polic
 
 
 def _notify_admins(session: Session, created: list[AlertEvent]) -> None:
-    from app.services.monitoring.alert_service import _list_admin_emails
+    from app.services.monitoring.alert_service import list_active_admin_emails
     from app.utils import send_email
 
-    emails = _list_admin_emails(session)
+    emails = list_active_admin_emails(session)
     for alert in created:
         subject = f"[SkyLab 系統告警] {alert.target}"
         html = (
@@ -593,7 +635,10 @@ def process_system_health_alerts() -> int:
         now_ts = time.time()
         components = collect_components()
         loops, tasks, _source = _heartbeat_view(now_ts)
-        findings = _confirmed(health_policy.build_findings(components, loops, tasks))
+        raw_findings = health_policy.build_findings(components, loops, tasks)
+        # 連續出現確認只用來「開」告警；收告警看這一輪實際有沒有問題，
+        # 否則重啟後計數歸零的第一輪會把仍在發生的告警全部收掉
+        findings = _confirmed(raw_findings)
 
         now = datetime.now(timezone.utc)
         cooldown = timedelta(minutes=int(config.alert_cooldown_minutes))
@@ -611,6 +656,7 @@ def process_system_health_alerts() -> int:
             last_created=last_created,
             cooldown_seconds=cooldown.total_seconds(),
             now=now.timestamp(),
+            current_targets=[finding.target[:255] for finding in raw_findings],
         )
 
         created: list[AlertEvent] = []
@@ -700,14 +746,14 @@ def collect_metrics() -> None:
     client = get_sync_redis()
     if redis["status"] == "ok" and client is not None:
         try:
-            queued = _run_with_timeout(partial(client.zcard, _ARQ_QUEUE), PROBE_TIMEOUT_SECONDS)
-            metrics.QUEUE_JOBS.labels(queue=_ARQ_QUEUE).set(int(queued or 0))
+            queued = _run_core(partial(client.zcard, QUEUE_NAME), PROBE_TIMEOUT_SECONDS)
+            metrics.QUEUE_JOBS.labels(queue=QUEUE_NAME).set(int(queued or 0))
         except Exception:
             logger.debug("Queue length probe failed", exc_info=True)
 
     if database["status"] == "ok":
         try:
-            counts = _run_with_timeout(_task_record_counts, PROBE_TIMEOUT_SECONDS)
+            counts = _run_core(_task_record_counts, PROBE_TIMEOUT_SECONDS)
         except Exception:
             logger.debug("Task record count failed", exc_info=True)
         else:

@@ -56,7 +56,9 @@ class GovernanceConfig(SQLModel, table=True):
     snapshot_retention_days: int = Field(default=7, ge=1, le=90)
     student_snapshot_max_count: int = Field(default=3, ge=1, le=10)
 
-    # ── 課程實驗室（Course Lab）──────────────────────────────────────────
+    # ── 課程實驗室（Course Lab，已停用）────────────────────────────────────
+    # Course Lab 一鍵部署已於 2026-09-21 移除，後端不再讀取這兩個欄位；
+    # 欄位與 API schema 保留只為相容既有資料與前端，改了也不會生效。
     course_ttl_hours: int = Field(default=3, ge=1, le=24)
     course_max_active_per_user: int = Field(default=1, ge=1, le=5)
 

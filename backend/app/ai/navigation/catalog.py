@@ -4,6 +4,7 @@ from collections.abc import Iterable
 from dataclasses import dataclass
 from typing import Literal
 
+from app.core.permissions import get_user_role, is_admin
 from app.models import User
 from app.models.user import UserRole
 
@@ -281,15 +282,8 @@ _ROUTES: tuple[NavigationRoute, ...] = (
 
 
 def resolve_user_role(user: User) -> UserRole:
-    if bool(getattr(user, "is_superuser", False)):
-        return UserRole.admin
-    role = getattr(user, "role", UserRole.student)
-    if isinstance(role, UserRole):
-        return role
-    try:
-        return UserRole(str(role))
-    except ValueError:
-        return UserRole.student
+    """助手用來判斷可見範圍的角色；超級使用者一律視為 admin（與 isAdmin 守衛一致）。"""
+    return UserRole.admin if is_admin(user) else get_user_role(user)
 
 
 def can_access(access: RouteAccess, role: UserRole) -> bool:

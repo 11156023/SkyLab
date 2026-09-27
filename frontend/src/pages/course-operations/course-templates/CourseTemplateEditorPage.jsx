@@ -15,6 +15,7 @@ import MIcon from "../../../components/MIcon";
 import { useConfirm } from "../../../components/ConfirmDialog/ConfirmProvider";
 import { CourseEnvironmentsService } from "../../../services/courseEnvironments";
 import { apiGet } from "../../../services/api";
+import { ReverseProxyService } from "../../../services/reverseProxy";
 import { focusInvalidField } from "../../../utils/focusField";
 import { joinList } from "../../../utils/joinList";
 import { uploadSequentially } from "../../../utils/uploadSequentially";
@@ -29,11 +30,10 @@ import ConnectionDetailPanel from "../../network/firewall/ConnectionDetailPanel"
 import fwStyles from "../../network/firewall/FirewallPage.module.scss";
 import { ThemeContext } from "../../../contexts/ThemeContext";
 import NodeHandles from "../../network/firewall/nodes/NodeHandles";
-import { describePort, routeEdges } from "../../network/firewall/utils/buildFlow";
+import { routeEdges } from "../../network/firewall/utils/buildFlow";
 import ConnectionDialog, { INTERNET_KEY } from "../../../components/ConnectionDialog/ConnectionDialog";
 import { INTENT } from "../../../components/ConnectionDialog/intents";
-import { previewTemplateHostname } from "../../../components/ConnectionDialog/connectionPayload";
-import { frozenTopologyLayout, publicationLabel } from "../courseTopology";
+import { frozenTopologyLayout, peerDetailPort, peerEdgeLabel, publicationDetailPort, publicationLabel } from "../courseTopology";
 import styles from "../CourseOperations.module.scss";
 import PageHeader from "../../../components/PageHeader/PageHeader";
 import Stepper from "../../../components/Stepper/Stepper";
@@ -292,22 +292,19 @@ function MachineEditor({ value, edges, publications, onChange, onEdgesChange, on
           source_vmid: String(selectedEdge.source),
           target_vmid: String(selectedEdge.target),
           direction: selectedEdge.direction,
-          ports: [{ port: selectedEdge.protocol === "any" ? 0 : Number(selectedEdge.port), protocol: selectedEdge.protocol }],
+          ports: [peerDetailPort(selectedEdge)],
         },
         remove: () => removeEdge(selectedEdge.id),
       };
     }
     if (selectedPublication) {
-      const zone = zones.find((item) => item.id === selectedPublication.zoneId);
       return {
         id: `publication-${selectedPublication.id}`,
         edge: {
           source_vmid: null,
           target_vmid: String(selectedPublication.nodeKey),
           direction: "one_way",
-          ports: [selectedPublication.mode === "domain"
-            ? { port: selectedPublication.port, protocol: "tcp", mode: "domain", domain: previewTemplateHostname(selectedPublication.hostnamePrefix, zone?.name) }
-            : { port: selectedPublication.port, protocol: selectedPublication.protocol, mode: "port_forward" }],
+          ports: [publicationDetailPort(selectedPublication, zones)],
         },
         remove: () => removePublication(selectedPublication.id),
       };
@@ -413,7 +410,7 @@ function MachineEditor({ value, edges, publications, onChange, onEdgesChange, on
           target_vmid: String(edge.target),
           direction: edge.direction,
         },
-        label: `${edge.direction === "bidirectional" ? t("CourseTemplateEditorPage.directionBidirectional") : t("CourseTemplateEditorPage.directionOneWay")} · ${describePort({ port: edge.port, protocol: edge.protocol })}`,
+        label: peerEdgeLabel(edge.direction === "bidirectional" ? t("CourseTemplateEditorPage.directionBidirectional") : t("CourseTemplateEditorPage.directionOneWay"), edge),
         showLabel: true,
         selected: edge.id === selectedEdgeId,
         onSelect: () => selectEdge(edge.id),
@@ -732,7 +729,7 @@ export default function CourseTemplateEditorPage() {
   useEffect(() => {
     let active = true;
     // 反向代理沒設定好時回空陣列，發布方式只留「僅開防火牆」
-    apiGet("/api/v1/reverse-proxy/setup-context")
+    ReverseProxyService.setupContext()
       .then((context) => { if (active) setZones(context?.enabled ? (context.zones ?? []) : []); })
       .catch(() => { if (active) setZones([]); });
     return () => { active = false; };

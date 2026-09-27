@@ -483,8 +483,6 @@ def test_sync_scope_rules_removes_stale_rules_from_a_previous_vmid(monkeypatch):
         planned=[
             class_network_service.PlannedRule(
                 vmid=101,
-                node="pve1",
-                resource_type="qemu",
                 comment=f"{prefix}abc12345:101>102:any",
                 rule={"type": "out", "action": "ACCEPT"},
             )

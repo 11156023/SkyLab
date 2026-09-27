@@ -10,7 +10,6 @@ from jinja2 import Template
 
 from app.core.config import settings
 
-logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
@@ -56,17 +55,6 @@ def send_email(
     logger.info(f"send email result: {response}")
 
 
-def generate_test_email(email_to: str) -> EmailData:
-    """產生測試 Email"""
-    project_name = settings.PROJECT_NAME
-    subject = f"{project_name} - Test email"
-    html_content = render_email_template(
-        template_name="test_email.html",
-        context={"project_name": settings.PROJECT_NAME, "email": email_to},
-    )
-    return EmailData(html_content=html_content, subject=subject)
-
-
 def generate_reset_password_email(email_to: str, email: str, token: str) -> EmailData:
     """產生密碼重設 Email"""
     project_name = settings.PROJECT_NAME
@@ -108,7 +96,6 @@ __all__ = [
     "EmailData",
     "render_email_template",
     "send_email",
-    "generate_test_email",
     "generate_reset_password_email",
     "generate_new_account_email",
 ]

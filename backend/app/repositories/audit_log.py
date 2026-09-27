@@ -248,22 +248,7 @@ def get_audit_stats(
     }
 
 
-def get_audit_logs_by_user(
-    *, session: Session, user_id: uuid.UUID, skip: int = 0, limit: int = 100
-) -> tuple[list[AuditLog], int]:
-    return get_audit_logs(session=session, user_id=user_id, skip=skip, limit=limit)
-
-
 def get_audit_logs_by_vmid(
     *, session: Session, vmid: int, skip: int = 0, limit: int = 100
 ) -> tuple[list[AuditLog], int]:
     return get_audit_logs(session=session, vmid=vmid, skip=skip, limit=limit)
-
-
-def delete_audit_logs_by_vmid(*, session: Session, vmid: int) -> int:
-    """刪除指定 vmid 的所有操作紀錄，返回刪除筆數。"""
-    logs = list(session.exec(select(AuditLog).where(AuditLog.vmid == vmid)).all())
-    for log in logs:
-        session.delete(log)
-    session.commit()
-    return len(logs)

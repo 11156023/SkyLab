@@ -7,7 +7,6 @@ Let's Encrypt 憑證與到期日。
 
 from __future__ import annotations
 
-from app.exceptions import BadRequestError
 from app.schemas.reverse_proxy import (
     ReverseProxyCertificate,
     ReverseProxyHttpServer,
@@ -17,27 +16,12 @@ from app.schemas.reverse_proxy import (
 
 
 def get_runtime_snapshot(*, session: object) -> ReverseProxyRuntimeSnapshot:
-    from app.infrastructure.ssh import create_key_client
-    from app.repositories import gateway_config as gw_repo
-    from app.repositories.gateway_config import get_decrypted_private_key
+    """SSH 到 Gateway 收集 nginx 執行期資訊；Gateway 未設定時 raise BadRequestError。"""
+    from app.services.network import gateway_service
     from app.services.network import nginx_gateway_service as nginx
 
-    config = gw_repo.get_gateway_config(session)  # type: ignore[arg-type]
-    if config is None or not config.host or not config.encrypted_private_key:
-        raise BadRequestError("Gateway 尚未設定，無法讀取 nginx 狀態")
-
-    private_key_pem = get_decrypted_private_key(config)
-    client = create_key_client(
-        config.host,
-        config.ssh_port,
-        config.ssh_user,
-        private_key_pem,
-        timeout=10,
-    )
-    try:
+    with gateway_service.gateway_client(session) as client:
         runtime = nginx.collect_runtime(client)
-    finally:
-        client.close()
 
     return ReverseProxyRuntimeSnapshot(
         version=runtime["version"],

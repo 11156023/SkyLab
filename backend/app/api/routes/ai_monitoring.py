@@ -180,37 +180,33 @@ async def get_litellm_runtime_snapshot(_current_user: AIAPIViewAllUser):
 
     base_url = ai_api_settings.litellm_runtime_base_url.rstrip("/")
     headers = {"Authorization": f"Bearer {api_key}"}
-    try:
-        async with httpx.AsyncClient(timeout=5.0) as client:
+    async with httpx.AsyncClient(timeout=5.0) as client:
 
-            async def _get_probe(
-                path: str, *, authenticated: bool = False
-            ) -> httpx.Response | None:
-                try:
-                    request_kwargs = {"headers": headers} if authenticated else {}
-                    return await client.get(f"{base_url}{path}", **request_kwargs)
-                except httpx.RequestError:
-                    return None
+        async def _get_probe(
+            path: str, *, authenticated: bool = False
+        ) -> httpx.Response | None:
+            # 連線錯誤一律回 None，由下方統一轉成 503
+            try:
+                return await client.get(
+                    f"{base_url}{path}", headers=headers if authenticated else None
+                )
+            except httpx.RequestError:
+                return None
 
-            # All runtime probes are independent.  Keep model discovery from
-            # adding a second network round-trip after the health probes.
-            liveliness, readiness, deployments, models_response = await asyncio.gather(
-                _get_probe("/health/liveliness"),
-                _get_probe("/health/readiness"),
-                _get_probe("/health", authenticated=True),
-                _get_probe("/v1/models", authenticated=True),
-            )
-    except httpx.RequestError:
-        logger.warning("LiteLLM runtime snapshot request failed")
-        raise HTTPException(
-            status_code=503, detail=t("aiMonitoring.runtimeUnavailable")
-        ) from None
+        # All runtime probes are independent.  Keep model discovery from
+        # adding a second network round-trip after the health probes.
+        liveliness, readiness, deployments, models_response = await asyncio.gather(
+            _get_probe("/health/liveliness"),
+            _get_probe("/health/readiness"),
+            _get_probe("/health", authenticated=True),
+            _get_probe("/v1/models", authenticated=True),
+        )
 
     if liveliness is None or readiness is None or deployments is None:
         logger.warning("LiteLLM runtime health request failed")
         raise HTTPException(
             status_code=503, detail=t("aiMonitoring.runtimeUnavailable")
-        ) from None
+        )
 
     try:
         deployment_health = deployments.json() if deployments.is_success else {}
@@ -340,9 +336,7 @@ async def get_litellm_runtime_snapshot(_current_user: AIAPIViewAllUser):
         "summary": model_summary,
         "models": models,
         "model_discovery": "available" if discovered_names else "unavailable",
-        "healthy_deployment_count": len(healthy) if isinstance(healthy, list) else 0,
-        "unhealthy_deployment_count": len(unhealthy)
-        if isinstance(unhealthy, list)
-        else 0,
+        "healthy_deployment_count": len(healthy),
+        "unhealthy_deployment_count": len(unhealthy),
         "deployment_status_code": deployments.status_code,
     }

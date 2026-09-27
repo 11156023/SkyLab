@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import asyncio
 import logging
 import threading
 import time
@@ -58,17 +57,11 @@ def _get_state(key: _ClientKey) -> _ProxmoxClientState:
         return state
 
 
-def invalidate_proxmox_client(connection_id: _ClientKey = None, *, all_connections: bool = True) -> None:
-    """清除連線快取。預設清除全部（設定變更後所有連線都可能失效）。
-
-    ``all_connections=False`` 時只清除指定的 ``connection_id``。
-    """
+def invalidate_proxmox_client() -> None:
+    """清除所有連線的 client 快取與節點映射（設定變更後所有連線都可能失效）。"""
     global _node_connection_map_at
     with _states_lock:
-        if all_connections:
-            _states.clear()
-        else:
-            _states.pop(connection_id, None)
+        _states.clear()
     with _node_connection_map_lock:
         _node_connection_map.clear()
         _node_connection_map_at = 0.0
@@ -113,7 +106,7 @@ def get_connection_id_for_node(node_name: str) -> int | None:
 def get_node_host(node_name: str) -> str | None:
     """查出節點自身的 host（IP/hostname）；查不到時回 None。
 
-    SSH（pct push/exec）必須直接連到節點本身，不能靠 API 入口轉發。
+    SSH（pct exec）必須直接連到節點本身，不能靠 API 入口轉發。
     """
     entry = _node_map_entry(node_name)
     return entry[1] if entry is not None else None
@@ -389,20 +382,3 @@ def basic_blocking_task_status(
             raise ProxmoxError(error_msg)
 
         time.sleep(check_interval)
-
-
-async def wait_for_task_status(
-    node_name: str,
-    task_id: str,
-    check_interval: int | None = None,
-    progress_callback: Callable[[dict], None] | None = None,
-    task_log_tail_lines: int = 8,
-) -> dict:
-    return await asyncio.to_thread(
-        basic_blocking_task_status,
-        node_name,
-        task_id,
-        check_interval,
-        progress_callback,
-        task_log_tail_lines,
-    )

@@ -9,11 +9,12 @@ from app.core.permissions import is_admin as _is_admin
 from app.exceptions import BadRequestError, ConflictError, PermissionDeniedError
 from app.repositories import governance as governance_repo
 from app.services.proxmox import proxmox_service
+
+# 受保護的初始快照名稱由 reset_service（負責建立／還原它）統一定義
+from app.services.resource.reset_service import INIT_SNAPSHOT_NAME
 from app.services.user import audit_service
 
 logger = logging.getLogger(__name__)
-
-INIT_SNAPSHOT_NAME = "skylab-init"
 
 
 def _snapshot_max_count(session: Session) -> int:

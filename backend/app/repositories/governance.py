@@ -65,16 +65,6 @@ def get_system_alerts_since(*, session: Session, since: datetime) -> list[AlertE
     return list(session.exec(stmt).all())
 
 
-def get_latest_alerts_by_key(*, session: Session) -> list[AlertEvent]:
-    """回傳所有警告（供冷卻期判斷用最近事件）。量大時以 limit 控制。"""
-    stmt = (
-        select(AlertEvent)
-        .order_by(AlertEvent.created_at.desc())  # type: ignore[attr-defined]
-        .limit(1000)
-    )
-    return list(session.exec(stmt).all())
-
-
 def list_alerts(
     *, session: Session, active_only: bool = False, limit: int = 200
 ) -> list[AlertEvent]:

@@ -31,6 +31,17 @@ function saveDismissed(store) {
   }
 }
 
+/**
+ * /resources/my 也會列出老師所帶班級的學生機器（class_teacher）與別人分享的機器
+ * （shared）；那些不是使用者自己在跑的，不該輪詢也不該跳「你的機器快關了」。
+ * 後端對自己的機器 access_role 預設為 owner。
+ */
+const OWN_ACCESS_ROLES = new Set(["owner", "class_member"]);
+
+function isOwnMachine(resource) {
+  return OWN_ACCESS_ROLES.has(resource.access_role ?? "owner");
+}
+
 function warningKey(status) {
   return status.auto_stop_at ?? status.expiry_at ?? "";
 }
@@ -53,7 +64,7 @@ export default function useSessionWarning() {
         if (round % 4 === 0) {
           const resources = await ResourcesService.list();
           vmidsRef.current = (resources ?? [])
-            .filter((r) => r.status === "running" && r.vmid != null)
+            .filter((r) => r.status === "running" && r.vmid != null && isOwnMachine(r))
             .map((r) => r.vmid);
         }
         round += 1;

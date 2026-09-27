@@ -81,9 +81,9 @@ def test_json_payload_rejects_non_json_and_large_bodies(monkeypatch) -> None:
 def test_model_is_forwarded_without_a_campus_allowlist() -> None:
     assert ai_proxy._request_model({"model": "gpt-oss-20B"}) == "gpt-oss-20B"
     assert ai_proxy._request_model({"model": "not-public"}) == "not-public"
-    assert ai_proxy._usage_tokens(
+    assert ai_proxy._usage_details(
         {"usage": {"input_tokens": 11, "output_tokens": 7}}
-    ) == (11, 7)
+    )[:2] == (11, 7)
 
 
 def test_usage_recording_failure_does_not_replace_model_response(monkeypatch) -> None:

@@ -20,7 +20,6 @@ from app.models import (
     BatchProvisionJobStatus,
     BatchProvisionTask,
     BatchProvisionTaskStatus,
-    ClassCapacityReservation,
     Resource,
     TeachingClass,
     TeachingClassMachineNode,
@@ -298,10 +297,7 @@ def retry_failed_class(session: Session, *, item: TeachingClass) -> None:
     - 只有復原、沒有重新入列且所有 job 都完成 → 套用拓樸並轉 ``active``
     - 什麼都沒做 → 依原狀態決定：``provisioning`` 視為沒有可重試的項目（400）
     """
-    from app.services.course import course_service
-    from app.services.teaching import (
-        class_network_service,
-    )
+    from app.services.teaching import class_status_service
 
     if item.status not in {
         TeachingClassStatus.partial_failed,
@@ -326,30 +322,20 @@ def retry_failed_class(session: Session, *, item: TeachingClass) -> None:
         recovered += node_recovered
 
     current_jobs = [
-        session.get(BatchProvisionJob, node.batch_job_id)
+        job
         for node in nodes
         if node.batch_job_id
+        and (job := session.get(BatchProvisionJob, node.batch_job_id)) is not None
     ]
-    all_jobs_ready = (
-        len(current_jobs) == len(nodes)
-        and bool(nodes)
-        and all(
-            job is not None
-            and job.status == BatchProvisionJobStatus.completed
-            and job.done == job.total
-            and job.failed_count == 0
-            for job in current_jobs
-        )
-    )
     if submitted:
         item.status = TeachingClassStatus.pending_review
     elif item.status == TeachingClassStatus.provisioning and not recovered:
         raise BadRequestError(t("teachingClasses.noFailedOrStaleTasksToRetry"))
-    elif not all_jobs_ready:
+    elif not class_status_service.jobs_all_ready(nodes, current_jobs):
         item.status = TeachingClassStatus.provisioning
     else:
-        topology_errors = class_network_service.apply_class_topology(
-            session, class_id=item.id
+        topology_errors = class_status_service.activate_class(
+            session, item, current_jobs
         )
         if topology_errors:
             raise BadRequestError(
@@ -358,20 +344,6 @@ def retry_failed_class(session: Session, *, item: TeachingClass) -> None:
                     details="；".join(topology_errors),
                 )
             )
-        item.status = TeachingClassStatus.active
-        course_service.ensure_class_path(
-            session,
-            teaching_class=item,
-            published=True,
-        )
-        reservation = session.exec(
-            select(ClassCapacityReservation).where(
-                ClassCapacityReservation.class_id == item.id
-            )
-        ).first()
-        if reservation:
-            reservation.status = "consumed"
-            session.add(reservation)
     item.updated_at = get_datetime_utc()
     session.add(item)
     session.commit()

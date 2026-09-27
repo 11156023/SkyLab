@@ -3,7 +3,24 @@ import {
   buildTeacherDashboardDemo,
   nextClassSession,
   summarizeCheckpointReports,
+  teacherDisplayName,
 } from "./TeacherDashboardPage";
+
+describe("teacherDisplayName", () => {
+  it("uses the first part of the full name", () => {
+    expect(teacherDisplayName({ full_name: "  Amy Chen ", email: "amy@x.edu" }, "Teacher")).toBe("Amy");
+  });
+
+  it("falls back to the email account when the full name is blank or whitespace", () => {
+    expect(teacherDisplayName({ full_name: "   ", email: "amy@x.edu" }, "Teacher")).toBe("amy");
+    expect(teacherDisplayName({ full_name: "", email: "bob@x.edu" }, "Teacher")).toBe("bob");
+  });
+
+  it("falls back to the default label when nothing usable is set", () => {
+    expect(teacherDisplayName({ full_name: "", email: null }, "Teacher")).toBe("Teacher");
+    expect(teacherDisplayName(null, "Teacher")).toBe("Teacher");
+  });
+});
 
 describe("teacher dashboard checkpoint summary", () => {
   it("aggregates completed checkpoints and students", () => {

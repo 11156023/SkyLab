@@ -30,7 +30,8 @@ async def terminal_proxy(websocket: WebSocket, vmid: int, token: str):
     # Authenticate user and check ownership before accepting
     user, session = await get_ws_current_user(websocket, token=token)
     try:
-        check_resource_control_access(vmid, user, session)
+        # 同步 DB 查詢丟到 worker thread，連線池耗盡時才不會凍住 event loop
+        await asyncio.to_thread(check_resource_control_access, vmid, user, session)
     except Exception:
         await safe_close_websocket(websocket, code=1008, reason="Permission denied")
         return

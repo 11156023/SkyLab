@@ -4,7 +4,9 @@ SECRET_KEY does double duty in this project.  It signs JWTs -- rotating it just
 forces everyone to log in again -- but ``app.core.security._get_fernet`` also
 derives a Fernet key from it via PBKDF2, and that key encrypts credentials at
 rest: Proxmox and LDAP passwords, the gateway SSH private key, the Cloudflare
-API token, AI API credentials, and per-resource SSH keys and login passwords.
+API token, AI API credentials, per-resource SSH keys and login passwords, TOTP
+secrets, the Web Push VAPID private key, pending VM request passwords and the
+login passwords queued in clone task payloads.
 
 Changing SECRET_KEY on its own therefore makes every one of those values
 permanently undecryptable.  Losing the Proxmox passwords alone stops the
@@ -40,7 +42,7 @@ token stops validating, so all users must log in again.
 from __future__ import annotations
 
 import argparse
-import base64
+import json
 import logging
 import re
 import secrets
@@ -49,18 +51,13 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from cryptography.fernet import Fernet, InvalidToken
-from cryptography.hazmat.primitives import hashes
-from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 from sqlalchemy import inspect, text
 
 from app.core.config import settings
 from app.core.db import engine
+from app.core.security import derive_fernet
 
 logger = logging.getLogger("rotate_secret_key")
-
-# Must stay in step with app.core.security._get_fernet.
-_FERNET_SALT = b"SkyLab-fernet-v1"
-_FERNET_ITERATIONS = 480_000
 
 
 @dataclass(frozen=True)
@@ -68,9 +65,14 @@ class EncryptedColumn:
     table: str
     pk: str
     column: str
+    # The column may still hold a legacy unencrypted PEM (web_push_config
+    # stored the VAPID key in plaintext before it was encrypted at rest).
+    legacy_plaintext_pem: bool = False
 
 
 # Every column written through app.core.security.encrypt_value.
+# tests/scripts/test_b16_rotate_secret_key.py guards that new encrypted model
+# columns get added here.
 ENCRYPTED_COLUMNS: tuple[EncryptedColumn, ...] = (
     EncryptedColumn("proxmox_config", "id", "encrypted_password"),
     EncryptedColumn("proxmox_connections", "id", "encrypted_password"),
@@ -80,17 +82,58 @@ ENCRYPTED_COLUMNS: tuple[EncryptedColumn, ...] = (
     EncryptedColumn("ai_api_credentials", "id", "api_key_encrypted"),
     EncryptedColumn("resources", "vmid", "ssh_private_key_encrypted"),
     EncryptedColumn("resources", "vmid", "login_password_encrypted"),
+    EncryptedColumn("resources", "vmid", "login_password_pending_encrypted"),
+    EncryptedColumn("user", "id", "totp_secret_encrypted"),
+    EncryptedColumn(
+        "web_push_config", "id", "vapid_private_key_pem", legacy_plaintext_pem=True
+    ),
+    EncryptedColumn("vm_requests", "id", "password"),
 )
 
+# Fernet ciphertext embedded in a JSON-encoded text column:
+# TaskRecord.payload["login_password_enc"] (services/template/clone_service).
+ENCRYPTED_JSON_FIELDS: tuple[EncryptedColumn, ...] = (
+    EncryptedColumn("task_records", "id", "payload"),
+)
+_JSON_FIELD_KEY = "login_password_enc"
 
-def build_fernet(secret_key: str) -> Fernet:
-    kdf = PBKDF2HMAC(
-        algorithm=hashes.SHA256(),
-        length=32,
-        salt=_FERNET_SALT,
-        iterations=_FERNET_ITERATIONS,
-    )
-    return Fernet(base64.urlsafe_b64encode(kdf.derive(secret_key.encode())))
+# In a column flagged legacy_plaintext_pem, a value neither key can decrypt but
+# that looks like a PEM is legacy plaintext; encrypt it under the new key
+# instead of treating it as lost.
+_PLAINTEXT_PEM_MARKER = "-----BEGIN"
+
+
+def _quote(identifier: str) -> str:
+    # ``user`` is a reserved word in PostgreSQL, so every identifier is quoted.
+    return '"' + identifier.replace('"', '""') + '"'
+
+
+def rotate_value(
+    value: str,
+    *,
+    old_fernet: Fernet,
+    new_fernet: Fernet,
+    legacy_plaintext_pem: bool = False,
+) -> tuple[str, str | None]:
+    """Re-encrypt one stored value.
+
+    Returns ``(outcome, new_value)`` where outcome is ``"rotated"`` (new_value
+    holds the new ciphertext), ``"skipped"`` (already under the new key) or
+    ``"failed"`` (neither key decrypts it; leave it untouched).
+    """
+    try:
+        plain = old_fernet.decrypt(value.encode())
+    except (InvalidToken, ValueError):
+        # Already rotated, or written under a different key. Leave it alone --
+        # overwriting would destroy the only copy.
+        try:
+            new_fernet.decrypt(value.encode())
+        except (InvalidToken, ValueError):
+            if legacy_plaintext_pem and value.startswith(_PLAINTEXT_PEM_MARKER):
+                return "rotated", new_fernet.encrypt(value.encode()).decode()
+            return "failed", None
+        return "skipped", None
+    return "rotated", new_fernet.encrypt(plain).decode()
 
 
 def find_env_file() -> Path:
@@ -115,67 +158,112 @@ def write_secret_key(env_path: Path, new_key: str) -> None:
 
 
 def rotate(*, new_key: str, apply: bool, skip_undecryptable: bool) -> int:
-    old_fernet = build_fernet(settings.SECRET_KEY)
-    new_fernet = build_fernet(new_key)
+    old_fernet = derive_fernet(settings.SECRET_KEY)
+    new_fernet = derive_fernet(new_key)
     inspector = inspect(engine)
     existing_tables = set(inspector.get_table_names())
 
     rotated = skipped = failed = 0
+
+    def column_exists(spec: EncryptedColumn) -> bool:
+        if spec.table not in existing_tables:
+            logger.info("略過 %s.%s（資料表不存在）", spec.table, spec.column)
+            return False
+        columns = {c["name"] for c in inspector.get_columns(spec.table)}
+        if spec.column not in columns:
+            logger.info("略過 %s.%s（欄位不存在）", spec.table, spec.column)
+            return False
+        return True
+
+    def tally(outcome: str, spec: EncryptedColumn, pk: object) -> None:
+        nonlocal rotated, skipped, failed
+        if outcome == "rotated":
+            rotated += 1
+        elif outcome == "skipped":
+            skipped += 1
+            logger.info(
+                "已是新金鑰加密，略過：%s.%s pk=%s", spec.table, spec.column, pk
+            )
+        else:
+            failed += 1
+            logger.error(
+                "無法用舊金鑰解密：%s.%s pk=%s（已略過，未修改）",
+                spec.table, spec.column, pk,
+            )
 
     # An explicit transaction so a preview writes nothing and a real run is
     # all-or-nothing: a partially rotated table would be unrecoverable.
     with engine.connect() as conn:
         transaction = conn.begin()
         for spec in ENCRYPTED_COLUMNS:
-            if spec.table not in existing_tables:
-                logger.info("略過 %s.%s（資料表不存在）", spec.table, spec.column)
+            if not column_exists(spec):
                 continue
-            columns = {c["name"] for c in inspector.get_columns(spec.table)}
-            if spec.column not in columns:
-                logger.info("略過 %s.%s（欄位不存在）", spec.table, spec.column)
-                continue
-
+            table, pk_col, col = (
+                _quote(spec.table), _quote(spec.pk), _quote(spec.column)
+            )
             rows = conn.execute(
                 text(
-                    f"SELECT {spec.pk} AS pk, {spec.column} AS value "
-                    f"FROM {spec.table} "
-                    f"WHERE {spec.column} IS NOT NULL AND {spec.column} <> ''"
+                    f"SELECT {pk_col} AS pk, {col} AS value FROM {table} "
+                    f"WHERE {col} IS NOT NULL AND {col} <> ''"
                 )
             ).all()
 
             for row in rows:
-                try:
-                    plain = old_fernet.decrypt(row.value.encode())
-                except (InvalidToken, ValueError):
-                    # Already rotated, or written under a different key. Leave
-                    # it alone -- overwriting would destroy the only copy.
-                    try:
-                        new_fernet.decrypt(row.value.encode())
-                    except (InvalidToken, ValueError):
-                        failed += 1
-                        logger.error(
-                            "無法用舊金鑰解密：%s.%s pk=%s（已略過，未修改）",
-                            spec.table, spec.column, row.pk,
-                        )
-                    else:
-                        skipped += 1
-                        logger.info(
-                            "已是新金鑰加密，略過：%s.%s pk=%s",
-                            spec.table, spec.column, row.pk,
-                        )
-                    continue
-
-                rotated += 1
-                if apply:
+                outcome, new_value = rotate_value(
+                    row.value,
+                    old_fernet=old_fernet,
+                    new_fernet=new_fernet,
+                    legacy_plaintext_pem=spec.legacy_plaintext_pem,
+                )
+                tally(outcome, spec, row.pk)
+                if apply and new_value is not None:
                     conn.execute(
-                        text(
-                            f"UPDATE {spec.table} SET {spec.column} = :value "
-                            f"WHERE {spec.pk} = :pk"
-                        ),
-                        {"value": new_fernet.encrypt(plain).decode(), "pk": row.pk},
+                        text(f"UPDATE {table} SET {col} = :value WHERE {pk_col} = :pk"),
+                        {"value": new_value, "pk": row.pk},
                     )
 
             logger.info("%s.%s：%d 筆", spec.table, spec.column, len(rows))
+
+        for spec in ENCRYPTED_JSON_FIELDS:
+            if not column_exists(spec):
+                continue
+            table, pk_col, col = (
+                _quote(spec.table), _quote(spec.pk), _quote(spec.column)
+            )
+            rows = conn.execute(
+                text(
+                    f"SELECT {pk_col} AS pk, {col} AS value FROM {table} "
+                    f"WHERE {col} LIKE :needle"
+                ),
+                {"needle": f'%"{_JSON_FIELD_KEY}"%'},
+            ).all()
+
+            count = 0
+            for row in rows:
+                try:
+                    payload = json.loads(row.value)
+                except ValueError:
+                    continue
+                if not isinstance(payload, dict):
+                    continue
+                enc = payload.get(_JSON_FIELD_KEY)
+                if not isinstance(enc, str) or not enc:
+                    continue
+                count += 1
+                outcome, new_value = rotate_value(
+                    enc, old_fernet=old_fernet, new_fernet=new_fernet
+                )
+                tally(outcome, spec, row.pk)
+                if apply and new_value is not None:
+                    payload[_JSON_FIELD_KEY] = new_value
+                    conn.execute(
+                        text(f"UPDATE {table} SET {col} = :value WHERE {pk_col} = :pk"),
+                        {"value": json.dumps(payload), "pk": row.pk},
+                    )
+
+            logger.info(
+                "%s.%s[%s]：%d 筆", spec.table, spec.column, _JSON_FIELD_KEY, count
+            )
 
         if apply and (not failed or skip_undecryptable):
             transaction.commit()

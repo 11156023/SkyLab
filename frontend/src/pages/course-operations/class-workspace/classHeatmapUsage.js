@@ -3,10 +3,6 @@ export const RESOURCE_METRICS = {
   ram: { label: "RAM", icon: "storage", field: "ram_usage_pct" },
 };
 
-export function resourceUsageByVmid(items = []) {
-  return Object.fromEntries(items.map((item) => [String(item.vmid), item]));
-}
-
 const USAGE_FIELDS = [
   "status",
   "cpu_usage_pct",

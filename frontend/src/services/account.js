@@ -1,13 +1,8 @@
-import { apiGet, apiPatch, apiDelete, apiPost, apiPostMultipart } from "./api";
+import { apiPatch, apiDelete, apiPost, apiPostMultipart } from "./api";
 
 const BASE = "/api/v1/users/me";
 
 export const AccountService = {
-  /** 取得目前登入使用者資料 */
-  get() {
-    return apiGet(BASE);
-  },
-
   /** 更新個人資料（full_name / email / avatar_url，皆選填，只送有變更的欄位） */
   update(payload) {
     return apiPatch(BASE, payload);

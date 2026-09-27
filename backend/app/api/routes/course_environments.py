@@ -12,7 +12,10 @@ from pydantic import BaseModel, Field, ValidationError, model_validator
 from sqlmodel import col, delete, func, select
 
 from app.api.deps import InstructorUser, SessionDep
-from app.core.authorizers import require_teaching_access
+from app.core.authorizers import (
+    can_bypass_teaching_ownership,
+    require_teaching_access,
+)
 from app.core.i18n import t
 from app.core.permissions import is_admin
 from app.exceptions import BadRequestError, NotFoundError
@@ -34,6 +37,7 @@ from app.models import (
 from app.models.base import get_datetime_utc
 from app.repositories import vm_template as vm_template_repo
 from app.services import quick_practice
+from app.services.course_environment import upload_store
 from app.services.proxmox import proxmox_service
 from app.services.teaching import course_publication_service
 
@@ -213,6 +217,24 @@ def _get_environment(
     return item
 
 
+def _environment_owner(
+    session: SessionDep, environment: CourseEnvironment, current_user: User
+) -> User:
+    """來源可見性一律以環境擁有者判斷。
+
+    管理員代為編輯或發布別人的環境時，不能放進擁有者自己看不到的範本；
+    否則擁有者之後開課時就能整班複製一份原本無權使用的範本。
+    """
+    if environment.owner_id == current_user.id:
+        return current_user
+    return session.get(User, environment.owner_id) or current_user
+
+
+def _remove_environment_file_blob(storage_key: str | None) -> None:
+    """刪掉磁碟上的環境文件；storage_key 一律當成 ENVIRONMENT_FILE_ROOT 底下的相對路徑。"""
+    upload_store.remove_blob(ENVIRONMENT_FILE_ROOT, storage_key)
+
+
 def _versions(
     session: SessionDep, environment_id: uuid.UUID
 ) -> list[CourseEnvironmentVersion]:
@@ -280,7 +302,18 @@ def _validate_configuration(
             _validate_custom_source(session, node, owner)
             continue
         template = session.get(VMTemplate, node.source_template_id)
-        if template is None or template.status != VMTemplateStatus.ready:
+        # 範本 UUID 不是秘密（快速練習清單就看得到），所以和自訂來源一樣要
+        # 確認擁有者看得到這份範本；訊息不區分「不存在」與「看不到」。
+        if (
+            template is None
+            or template.status != VMTemplateStatus.ready
+            or not (
+                is_admin(owner)
+                or vm_template_repo.is_template_visible_to_user(
+                    template=template, user_id=owner.id
+                )
+            )
+        ):
             raise BadRequestError(t("course_env.template_not_ready", name=node.name))
         expected = "lxc" if template.resource_type.lower() == "lxc" else "qemu"
         if node.resource_type != expected:
@@ -442,6 +475,53 @@ def _replace_nodes(
         )
 
 
+def _assign_environment_fields(
+    environment: CourseEnvironment, body: EnvironmentCreate
+) -> None:
+    """把表單的名稱、用途與提供方式寫到環境列上。"""
+    environment.name = body.name.strip()
+    environment.description = body.description
+    environment.usage_scope = body.usage_scope
+    environment.audience = body.audience
+    environment.max_concurrent_sessions = body.max_concurrent_sessions
+
+
+def _replace_configuration(
+    session: SessionDep,
+    environment: CourseEnvironment,
+    version: CourseEnvironmentVersion,
+    body: EnvironmentCreate,
+    *,
+    current_user: User,
+    audience_owner_id: uuid.UUID,
+    owner: User,
+) -> None:
+    """依表單改寫班級名單、機器／連線／對外服務與互通政策；不 flush、不 commit。
+
+    ``audience_owner_id``：名單裡的班級必須屬於這位老師（管理員不受限）。
+    ``owner``：來源範本的可見性以這位使用者判斷。
+    """
+    _replace_audience(
+        session,
+        environment=environment,
+        owner_id=None if is_admin(current_user) else audience_owner_id,
+        class_ids=body.audience_class_ids,
+    )
+    _replace_nodes(
+        session, version, body.nodes, body.edges, body.publications, owner=owner
+    )
+    version.peer_policy = body.peer_policy
+
+
+def _config_row(model: Any) -> dict[str, Any]:
+    """發布雜湊用：去掉資料列自己的 id 與所屬版本，只留設定內容。"""
+    return {
+        key: value
+        for key, value in model.model_dump().items()
+        if key not in {"id", "version_id"}
+    }
+
+
 def _serialize_version(
     session: SessionDep,
     environment: CourseEnvironment,
@@ -520,7 +600,7 @@ def list_environments(
     session: SessionDep, current_user: InstructorUser
 ) -> list[dict[str, Any]]:
     query = select(CourseEnvironment).order_by(col(CourseEnvironment.updated_at).desc())
-    if not current_user.is_superuser and current_user.role != "admin":
+    if not can_bypass_teaching_ownership(current_user):
         query = query.where(CourseEnvironment.owner_id == current_user.id)
     result = []
     for environment in session.exec(query).all():
@@ -540,7 +620,7 @@ def list_published_environments(
         .where(CourseEnvironment.usage_scope.in_(["course", "both"]))
         .order_by(col(CourseEnvironment.updated_at).desc())
     )
-    if not current_user.is_superuser and current_user.role != "admin":
+    if not can_bypass_teaching_ownership(current_user):
         query = query.where(CourseEnvironment.owner_id == current_user.id)
     for environment in session.exec(query).all():
         versions = _versions(session, environment.id)
@@ -626,16 +706,15 @@ def create_environment(
     session.add(environment)
     session.add(version)
     session.flush()
-    _replace_audience(
+    _replace_configuration(
         session,
-        environment=environment,
-        owner_id=None if is_admin(current_user) else current_user.id,
-        class_ids=body.audience_class_ids,
+        environment,
+        version,
+        body,
+        current_user=current_user,
+        audience_owner_id=current_user.id,
+        owner=current_user,
     )
-    _replace_nodes(
-        session, version, body.nodes, body.edges, body.publications, owner=current_user
-    )
-    version.peer_policy = body.peer_policy
     session.commit()
     return _serialize_version(session, environment, version)
 
@@ -651,22 +730,17 @@ def update_environment(
     version = _latest(session, environment)
     if version.status != CourseEnvironmentVersionStatus.draft:
         raise BadRequestError(t("course_env.published_immutable"))
-    environment.name = body.name.strip()
-    environment.description = body.description
-    environment.usage_scope = body.usage_scope
-    environment.audience = body.audience
-    environment.max_concurrent_sessions = body.max_concurrent_sessions
+    _assign_environment_fields(environment, body)
     environment.updated_at = get_datetime_utc()
-    _replace_audience(
+    _replace_configuration(
         session,
-        environment=environment,
-        owner_id=None if is_admin(current_user) else environment.owner_id,
-        class_ids=body.audience_class_ids,
+        environment,
+        version,
+        body,
+        current_user=current_user,
+        audience_owner_id=environment.owner_id,
+        owner=_environment_owner(session, environment, current_user),
     )
-    _replace_nodes(
-        session, version, body.nodes, body.edges, body.publications, owner=current_user
-    )
-    version.peer_policy = body.peer_policy
     version.draft_data = None
     session.add(version)
     session.add(environment)
@@ -726,29 +800,19 @@ async def upload_environment_file(
 ) -> dict[str, Any]:
     """文件掛在環境身分上，換版本不會讓講義跟著消失。"""
     environment = _get_environment(session, current_user, environment_id)
-    filename = (file.filename or "file").replace("\\", "/").split("/")[-1].strip()
-    if not filename or filename in {".", ".."}:
-        raise BadRequestError(t("course_env.file_name_invalid"))
-    if len(filename) > 255:
-        raise BadRequestError(t("course_env.file_name_too_long"))
-
-    file_id = uuid.uuid4()
-    storage_key = f"{file_id.hex}.bin"
-    destination = ENVIRONMENT_FILE_ROOT / storage_key
-    destination.parent.mkdir(parents=True, exist_ok=True)
-    written = 0
-    try:
-        with destination.open("wb") as output:
-            while chunk := await file.read(1024 * 1024):
-                written += len(chunk)
-                if written > MAX_ENVIRONMENT_FILE_BYTES:
-                    raise BadRequestError(t("course_env.file_too_large"))
-                output.write(chunk)
-    except Exception:
-        destination.unlink(missing_ok=True)
-        raise
-    finally:
-        await file.close()
+    filename = upload_store.sanitize_upload_filename(
+        file.filename,
+        default="file",
+        invalid_message=t("course_env.file_name_invalid"),
+        too_long_message=t("course_env.file_name_too_long"),
+    )
+    file_id, storage_key, written = await upload_store.save_upload(
+        file,
+        root=ENVIRONMENT_FILE_ROOT,
+        suffix=".bin",
+        max_bytes=MAX_ENVIRONMENT_FILE_BYTES,
+        too_large_message=t("course_env.file_too_large"),
+    )
 
     session.add(
         CourseEnvironmentFile(
@@ -812,10 +876,7 @@ def delete_environment_file(
     environment.updated_at = get_datetime_utc()
     session.add(environment)
     session.commit()
-    root = ENVIRONMENT_FILE_ROOT.resolve()
-    stored = (root / storage_key).resolve()
-    if stored.is_relative_to(root):
-        stored.unlink(missing_ok=True)
+    _remove_environment_file_blob(storage_key)
     return _serialize_version(session, environment, _latest(session, environment))
 
 
@@ -826,6 +887,7 @@ def publish_environment(
     current_user: InstructorUser,
 ) -> dict[str, Any]:
     environment = _get_environment(session, current_user, environment_id)
+    owner = _environment_owner(session, environment, current_user)
     version = _latest(session, environment)
     if version.status != CourseEnvironmentVersionStatus.draft:
         raise BadRequestError(t("course_env.only_draft_publishable"))
@@ -837,26 +899,16 @@ def publish_environment(
                 raise ValueError("Environment name is required")
         except (ValidationError, ValueError) as exc:
             raise BadRequestError(str(exc)) from exc
-        environment.name = body.name.strip()
-        environment.description = body.description
-        environment.usage_scope = body.usage_scope
-        environment.audience = body.audience
-        environment.max_concurrent_sessions = body.max_concurrent_sessions
-        _replace_audience(
+        _assign_environment_fields(environment, body)
+        _replace_configuration(
             session,
-            environment=environment,
-            owner_id=None if is_admin(current_user) else environment.owner_id,
-            class_ids=body.audience_class_ids,
-        )
-        _replace_nodes(
-            session,
+            environment,
             version,
-            body.nodes,
-            body.edges,
-            body.publications,
-            owner=current_user,
+            body,
+            current_user=current_user,
+            audience_owner_id=environment.owner_id,
+            owner=owner,
         )
-        version.peer_policy = body.peer_policy
         session.flush()
         version.draft_data = None
     nodes = quick_practice.nodes_for_version(session, version_id=version.id)
@@ -872,34 +924,13 @@ def publish_environment(
             EnvironmentPublicationIn.model_validate(item.model_dump())
             for item in publications
         ],
-        owner=current_user,
+        owner=owner,
     )
     payload: dict[str, Any] = {
         "peer_policy": version.peer_policy,
-        "nodes": [
-            {
-                key: value
-                for key, value in node.model_dump().items()
-                if key not in {"id", "version_id"}
-            }
-            for node in nodes
-        ],
-        "edges": [
-            {
-                key: value
-                for key, value in edge.model_dump().items()
-                if key not in {"id", "version_id"}
-            }
-            for edge in edges
-        ],
-        "publications": [
-            {
-                key: value
-                for key, value in item.model_dump().items()
-                if key not in {"id", "version_id"}
-            }
-            for item in publications
-        ],
+        "nodes": [_config_row(node) for node in nodes],
+        "edges": [_config_row(edge) for edge in edges],
+        "publications": [_config_row(item) for item in publications],
     }
     version.configuration_hash = hashlib.sha256(
         json.dumps(payload, sort_keys=True, default=str).encode()
@@ -951,6 +982,10 @@ def delete_environment(
         raise BadRequestError(
             t("course_env.delete_blocked", reasons="、".join(reasons))
         )
+    # 文件列會跟著 FK CASCADE 消失，磁碟上的檔案要在 commit 後自己收
+    removed_storage_keys = [
+        item.storage_key for item in _files(session, environment.id)
+    ]
     version_ids = [version.id for version in _versions(session, environment.id)]
     if version_ids:
         session.exec(
@@ -980,4 +1015,6 @@ def delete_environment(
     )
     session.delete(environment)
     session.commit()
+    for storage_key in removed_storage_keys:
+        _remove_environment_file_blob(storage_key)
     return {"status": "deleted"}

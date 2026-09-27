@@ -55,7 +55,8 @@ def summarize_device_nodes(nodes: list[DeviceNode]) -> dict[str, Any]:
     }
 
 
-def build_resource_option_bundle(*, gpu_options: list[dict[str, Any]] | None = None) -> dict[str, Any]:
+def build_resource_option_bundle() -> dict[str, Any]:
+    """LXC／VM 範本清單；GPU 選項依使用者權限另外填入，這裡一律給空清單。"""
     lxc_os_images = [
         {
             "value": template.volid,
@@ -74,5 +75,5 @@ def build_resource_option_bundle(*, gpu_options: list[dict[str, Any]] | None = N
     return {
         "lxc_os_images": lxc_os_images,
         "vm_operating_systems": vm_operating_systems,
-        "gpu_options": list(gpu_options or []),
+        "gpu_options": [],
     }

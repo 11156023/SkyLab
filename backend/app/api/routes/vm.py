@@ -61,7 +61,7 @@ def get_vm_templates(session: SessionDep, current_user: CurrentUser):
 
     平台已註冊的單機母範本也是 PVE template，但它們的可見範圍由範本系統治理，
     不能從這裡外洩：非教師只拿得到未註冊的基礎映像，母範本另由
-    ``/templates/catalog`` 依「開放學生申請」旗標提供。
+    ``/templates/catalog`` 依可見範圍提供（只列全部可見且已就緒的範本）。
     """
     templates = provisioning_service.get_vm_templates()
     if has_permission(current_user, Permission.TEMPLATE_MANAGE):

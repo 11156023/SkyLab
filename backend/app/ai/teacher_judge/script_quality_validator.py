@@ -6,6 +6,7 @@ import ast
 from typing import TYPE_CHECKING
 
 from app.ai.teacher_judge.ast_utils import call_name, literal_str
+from app.ai.teacher_judge.script_policy import ALLOWED_RESULT_STATUSES
 
 if TYPE_CHECKING:
     from app.ai.teacher_judge._types import CheckResult, FixHint
@@ -54,12 +55,12 @@ def _import_aliases(tree: ast.AST) -> dict[str, str]:
 def _call_status_literal(node: ast.Call) -> str | None:
     for arg in node.args:
         literal = literal_str(arg)
-        if literal in {"pass", "fail", "warning", "unknown", "collected", "skipped"}:
+        if literal in ALLOWED_RESULT_STATUSES:
             return literal
     for keyword in node.keywords:
         if keyword.arg == "status":
             literal = literal_str(keyword.value)
-            if literal in {"pass", "fail", "warning", "unknown", "collected", "skipped"}:
+            if literal in ALLOWED_RESULT_STATUSES:
                 return literal
     return None
 
@@ -80,13 +81,10 @@ def _body_marks_pass(body: list[ast.stmt], aliases: dict[str, str]) -> bool:
 
 
 def _except_name(handler: ast.ExceptHandler, aliases: dict[str, str]) -> str | None:
-    if handler.type is None:
-        return None
-    if isinstance(handler.type, ast.Name):
-        return aliases.get(handler.type.id, handler.type.id)
-    if isinstance(handler.type, ast.Attribute):
-        base = call_name(handler.type.value, aliases)
-        return f"{base}.{handler.type.attr}" if base else handler.type.attr
+    # Only a plain or dotted name identifies one exception type; a tuple or a
+    # call (``except make_exc():``) is treated like a generic except.
+    if isinstance(handler.type, (ast.Name, ast.Attribute)):
+        return call_name(handler.type, aliases)
     return None
 
 
@@ -158,10 +156,10 @@ def _function_mentions_returncode(
     return False
 
 
-def _record_check_raw_parameter_names(
+def _record_check_has_raw_parameter(
     function_def: ast.FunctionDef | ast.AsyncFunctionDef,
-) -> list[str]:
-    """Return the canonical raw evidence parameter, if present.
+) -> bool:
+    """Return whether ``record_check`` takes the canonical ``raw`` parameter.
 
     ``record_check`` has one stable contract.  Supporting split payload
     parameters here made the repair hint ambiguous and allowed a helper that
@@ -176,7 +174,7 @@ def _record_check_raw_parameter_names(
             *function_def.args.kwonlyargs,
         )
     ]
-    return ["raw"] if "raw" in parameters else []
+    return "raw" in parameters
 
 
 def _record_check_has_result_return(
@@ -241,11 +239,10 @@ def _record_check_has_bounded_raw(
     value, but the returned mapping must be statically visible.
     """
 
-    raw_parameter_names = set(_record_check_raw_parameter_names(function_def))
-    if not raw_parameter_names:
+    if not _record_check_has_raw_parameter(function_def):
         return False
 
-    derived_raw_names = set(raw_parameter_names)
+    derived_raw_names = {"raw"}
 
     def mentions_raw(node: ast.AST) -> bool:
         return any(
@@ -560,7 +557,7 @@ def check_script_quality(script_content: str) -> CheckResult:
         lineno = getattr(record_check_def, "lineno", None)
         end_lineno = getattr(record_check_def, "end_lineno", None)
         snippet = _line_span_snippet(script_lines, record_check_def)
-        if not _record_check_has_result_return(record_check_def) or not _record_check_raw_parameter_names(record_check_def):
+        if not _record_check_has_result_return(record_check_def) or not _record_check_has_raw_parameter(record_check_def):
             issues.append(
                 "record_check 必須使用單一 raw 參數回傳結果物件；呼叫端以 checks.append(record_check(...)) 收集"
             )
@@ -714,12 +711,12 @@ def check_script_quality(script_content: str) -> CheckResult:
             and not _allows_helper_scoped_generic_except(handler, parents)
         ):
             issues.append("bare except / except Exception 後未將錯誤記錄到 errors")
+            function_name = _enclosing_function_name(handler, parents)
             target = (
                 "helper_exception_handler"
-                if _enclosing_function_name(handler, parents)
+                if function_name
                 else "collection_exception_handler"
             )
-            function_name = _enclosing_function_name(handler, parents)
             fix_hints.append(
                 _exception_fix_hint(
                     handler,

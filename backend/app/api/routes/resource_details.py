@@ -1,4 +1,3 @@
-import logging
 import uuid
 
 from fastapi import APIRouter
@@ -32,8 +31,6 @@ from app.services.network import snapshot_service
 from app.services.resource import reset_service, resource_service
 from app.services.resource.access import require_resource_management
 from app.services.template import template_service
-
-logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/resources", tags=["resource-details"])
 

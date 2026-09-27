@@ -59,12 +59,13 @@ export function toAiJudgeMembers(students) {
 }
 
 function LockedFeature() {
+  const { t } = useTranslation("teaching");
   return (
     <section className={styles.lockedFeature}>
       <span><MIcon name="lock" size={22} /></span>
       <div>
-        <h2>AI 檢查尚未開放</h2>
-        <p>班級必須通過審核，且每位學生的所有節點都建立成功後才會正式啟用。</p>
+        <h2>{t("ClassWorkspacePage.notYetAvailableTitle", { label: t("ClassWorkspacePage.tabAiLabel") })}</h2>
+        <p>{t("ClassWorkspacePage.lockedFeatureDesc")}</p>
       </div>
     </section>
   );
@@ -86,10 +87,10 @@ export default function AiJudgePage() {
     setLoading(true);
     TeachingClassesService.get(classId)
       .then((result) => active && setItem(normalizeAiJudgeClass(result)))
-      .catch((reason) => active && toast.error(reason?.message ?? "無法讀取班級"))
+      .catch((reason) => active && toast.error(reason?.message ?? t("ClassWorkspacePage.loadClassFailed")))
       .finally(() => active && setLoading(false));
     return () => { active = false; };
-  }, [classId, toast]);
+  }, [classId, toast, t]);
 
   useEffect(() => {
     let active = true;
@@ -107,14 +108,14 @@ export default function AiJudgePage() {
     return () => { active = false; };
   }, [item?.id, item?.status]);
 
-  if (loading) return <LoadingState fullPage text="正在讀取班級…" />;
+  if (loading) return <LoadingState fullPage text={t("ClassWorkspacePage.loadingClassText")} />;
   if (!item) {
     return (
       <div className={styles.page}>
         <button type="button" className={styles.backLink} onClick={() => navigate("/class-management")}>
-          <MIcon name="arrow_back" size={18} />返回班級管理
+          <MIcon name="arrow_back" size={18} />{t("ClassWorkspacePage.backToClassManagementBtn")}
         </button>
-        <p className={styles.errorMessage}>找不到班級</p>
+        <p className={styles.errorMessage}>{t("ClassWorkspacePage.classNotFoundText")}</p>
       </div>
     );
   }
@@ -135,12 +136,12 @@ export default function AiJudgePage() {
       >
         <div className={styles.pageActions}>
           <button type="button" className={`${styles.btnSecondary} ${styles.backBtn}`} onClick={() => navigate(`/class-management/${classId}`)}>
-            <MIcon name="arrow_back" size={18} />返回班級工作頁
+            <MIcon name="arrow_back" size={18} />{t("AiJudgePage.backToWorkspaceBtn", { defaultValue: "返回班級工作頁" })}
           </button>
         </div>
       </PageHeader>
       <div className={styles.workspaceContent}>
-        {item.status !== "active" ? <LockedFeature /> : membersLoading ? <LoadingState text="正在讀取班級機器…" /> : <AiJudgePanel classId={item.id} members={members} machineNodes={item.machine_nodes ?? []} weeks={item.weeks} />}
+        {item.status !== "active" ? <LockedFeature /> : membersLoading ? <LoadingState text={t("AiJudgePage.loadingMachinesText", { defaultValue: "正在讀取班級機器…" })} /> : <AiJudgePanel classId={item.id} members={members} machineNodes={item.machine_nodes ?? []} weeks={item.weeks} />}
       </div>
     </div>
   );

@@ -14,7 +14,7 @@ const CLONE_COUNT_MIN = 1;
 const CLONE_COUNT_MAX = 50;
 
 /** 把輸入框的字串夾回 1–50；空白或非數字一律當成 1 */
-export function clampCloneCount(value) {
+function clampCloneCount(value) {
   return Math.min(CLONE_COUNT_MAX, Math.max(CLONE_COUNT_MIN, Number(value) || CLONE_COUNT_MIN));
 }
 
@@ -30,8 +30,8 @@ const gpuLabel = (gpu, t) => {
   return `${gpu.description || gpu.mapping_id}${vram} ${t("TemplateCloneDialog.availableCount", { available: gpu.available_count, capacity })}${gpu.available_count <= 0 ? t("TemplateCloneDialog.fullSuffix") : ""}`;
 };
 
-/** 從範本克隆開通（teacher/admin 可批量，student 固定單台） */
-export default function TemplateCloneDialog({ template, canBatch, closing = false, onClose, onCloned }) {
+/** 從範本克隆開通（可一次多台，1–50；/templates 僅老師與管理員可進） */
+export default function TemplateCloneDialog({ template, closing = false, onClose }) {
   const { t } = useTranslation("resource");
   const toast = useToast();
   const [hostname, setHostname] = useState("");
@@ -103,7 +103,7 @@ export default function TemplateCloneDialog({ template, canBatch, closing = fals
     try {
       const res = await TemplatesService.clone(template.id, {
         hostname: hostname.trim() || null,
-        count: canBatch ? clampedCount : 1,
+        count: clampedCount,
         cores: Number(cores),
         memory: Number(memory),
         login_password: allowPassword && password ? password : null,
@@ -116,7 +116,6 @@ export default function TemplateCloneDialog({ template, canBatch, closing = fals
           ? t("TemplateCloneDialog.cloneQueuedMultiple", { count: res.tasks.length })
           : t("TemplateCloneDialog.cloneQueuedSingle"),
       );
-      onCloned?.();
       onClose();
     } catch (e) {
       toast.error(e?.message ?? t("TemplateCloneDialog.cloneFailed"));
@@ -164,29 +163,27 @@ export default function TemplateCloneDialog({ template, canBatch, closing = fals
             onChange={(e) => setHostname(e.target.value)}
           />
         </div>
-        {canBatch && (
-          <div className={styles.field}>
-            <label htmlFor="clone-count">{t("TemplateCloneDialog.countLabel")}</label>
-            <input
-              id="clone-count"
-              type="number"
-              min={CLONE_COUNT_MIN}
-              max={CLONE_COUNT_MAX}
-              value={count}
-              onChange={(e) => setCount(e.target.value)}
-              onBlur={() => setCount(String(clampCloneCount(count)))}
-            />
-            {countOutOfRange && (
-              <span className={styles.fieldWarn}>
-                {t("TemplateCloneDialog.countClamped", {
-                  min: CLONE_COUNT_MIN,
-                  max: CLONE_COUNT_MAX,
-                  count: clampedCount,
-                })}
-              </span>
-            )}
-          </div>
-        )}
+        <div className={styles.field}>
+          <label htmlFor="clone-count">{t("TemplateCloneDialog.countLabel")}</label>
+          <input
+            id="clone-count"
+            type="number"
+            min={CLONE_COUNT_MIN}
+            max={CLONE_COUNT_MAX}
+            value={count}
+            onChange={(e) => setCount(e.target.value)}
+            onBlur={() => setCount(String(clampCloneCount(count)))}
+          />
+          {countOutOfRange && (
+            <span className={styles.fieldWarn}>
+              {t("TemplateCloneDialog.countClamped", {
+                min: CLONE_COUNT_MIN,
+                max: CLONE_COUNT_MAX,
+                count: clampedCount,
+              })}
+            </span>
+          )}
+        </div>
       </div>
 
       <div className={styles.field}>

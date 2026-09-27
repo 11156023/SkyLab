@@ -70,6 +70,18 @@ def get_forward_port_range(config: SubnetConfig | None) -> tuple[int, int] | Non
     return int(config.forward_port_start), int(config.forward_port_end)
 
 
+def _has_vm_allocations(session: Session) -> bool:
+    """是否已有任何 VM/LXC 的 IP 分配（有的話不能改 CIDR 或刪除子網設定）。"""
+    return (
+        session.exec(
+            select(IpAllocation).where(
+                IpAllocation.purpose.in_(["vm", "lxc"])  # type: ignore[union-attr]
+            )
+        ).first()
+        is not None
+    )
+
+
 def upsert_subnet_config(
     session: Session,
     *,
@@ -122,12 +134,7 @@ def upsert_subnet_config(
         old_network = ipaddress.IPv4Network(existing.cidr, strict=False)
         if old_network != network:
             # CIDR 改變 → 檢查是否有 VM/LXC 分配
-            vm_count = session.exec(
-                select(IpAllocation).where(
-                    IpAllocation.purpose.in_(["vm", "lxc"])  # type: ignore[union-attr]
-                )
-            ).first()
-            if vm_count is not None:
+            if _has_vm_allocations(session):
                 raise ConflictError(
                     t("ipManagement.cidrChangeBlockedByAllocations")
                 )
@@ -185,12 +192,7 @@ def delete_subnet_config(session: Session) -> None:
     if config is None:
         raise BadRequestError(t("ipManagement.subnetConfigNotFound"))
 
-    vm_alloc = session.exec(
-        select(IpAllocation).where(
-            IpAllocation.purpose.in_(["vm", "lxc"])  # type: ignore[union-attr]
-        )
-    ).first()
-    if vm_alloc is not None:
+    if _has_vm_allocations(session):
         raise ConflictError(t("ipManagement.subnetConfigDeleteBlocked"))
 
     # 刪除所有 IP 分配（含系統保留）
@@ -396,6 +398,18 @@ def allocate_ip(
     raise ConflictError(t("ipManagement.ipPoolExhausted"))
 
 
+def _restore_reservation(alloc: IpAllocation) -> None:
+    """把分配列還原成未使用的預留（purpose／說明的規則與 reserve_ips 相同）。"""
+    alloc.vmid = None
+    alloc.resource_vmid = None
+    if alloc.teaching_class_id is not None:
+        alloc.purpose = "class_reserved"
+        alloc.description = f"班級預留 {alloc.reservation_key}"
+    else:
+        alloc.purpose = "quick_practice_reserved"
+        alloc.description = f"快速練習預留 {alloc.reservation_key}"
+
+
 def _reclaim_stale_class_reservation(
     session: Session, reserved: IpAllocation
 ) -> bool:
@@ -454,10 +468,7 @@ def _reclaim_stale_class_reservation(
         # not stale even if the batch job itself was retried.
         return False
 
-    reserved.vmid = None
-    reserved.resource_vmid = None
-    reserved.purpose = "class_reserved"
-    reserved.description = f"班級預留 {reserved.reservation_key}"
+    _restore_reservation(reserved)
     session.add(reserved)
     session.flush()
     logger.warning(
@@ -510,10 +521,7 @@ def release_ip(
 
     ip = alloc.ip_address
     if restore_reservation and alloc.reservation_key:
-        alloc.vmid = None
-        alloc.resource_vmid = None
-        alloc.purpose = "class_reserved"
-        alloc.description = f"班級預留 {alloc.reservation_key}"
+        _restore_reservation(alloc)
         session.add(alloc)
     else:
         session.delete(alloc)
@@ -576,7 +584,8 @@ def ensure_subnet_configured(session: Session) -> SubnetConfig:
 def get_network_config_for_vm(session: Session) -> dict:
     """取得 VM/LXC 建立時所需的網路配置資訊。
 
-    回傳 dict 含: bridge_name, prefix_len, gateway, dns_servers
+    回傳 dict 含: bridge_name, prefix_len, gateway, gateway_vm_ip，
+    有設定 DNS 時另含 dns_servers
     """
     config = ensure_subnet_configured(session)
     network = ipaddress.IPv4Network(config.cidr, strict=False)

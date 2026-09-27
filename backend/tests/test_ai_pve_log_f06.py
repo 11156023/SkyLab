@@ -280,14 +280,6 @@ async def test_chat_does_not_collect_full_snapshot_for_storage_tool(monkeypatch)
         "create_chat_completion",
         fake_completion,
     )
-    # chat 已改用 request-local 的 PveToolContext，不再匯入 collect_snapshot；
-    # 直接守在來源模組上，任何路徑抓完整快照都會被抓到
-    monkeypatch.setattr(
-        collector,
-        "collect_snapshot",
-        lambda: (_ for _ in ()).throw(AssertionError("full snapshot is not allowed")),
-    )
-
     result = await pve_chat_module.chat(message="查 pve-a 儲存空間")
 
     assert result.reply == "完成"

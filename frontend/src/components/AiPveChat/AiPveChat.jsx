@@ -9,11 +9,50 @@ import { AiPveLogService } from "../../services/aiPveLog";
 import { AI_PVE_MARKDOWN_COMPONENTS } from "./aiPveRichText";
 import styles from "./AiPveChat.module.scss";
 
+/** 從 openIndex（必須是 "{"）起找出對應的 "}" 位置；會略過 JSON 字串內的括號。
+ *  找不到（呼叫被截斷）時回傳 -1。 */
+function findBalancedBraceEnd(text, openIndex) {
+  let depth = 0;
+  let inString = false;
+  for (let i = openIndex; i < text.length; i += 1) {
+    const ch = text[i];
+    if (inString) {
+      if (ch === "\\") i += 1;
+      else if (ch === "\"") inString = false;
+      continue;
+    }
+    if (ch === "\"") inString = true;
+    else if (ch === "{") depth += 1;
+    else if (ch === "}") {
+      depth -= 1;
+      if (depth === 0) return i;
+    }
+  }
+  return -1;
+}
+
+/** 移除沒有結尾標記的 `<|tool_call>call:name{...}`：只切掉緊接著的那一個
+ *  平衡 JSON 物件，後面的正文（例如另一段 JSON 範例）不受影響。 */
+function stripUnpairedToolCalls(text) {
+  const marker = /<\|?tool_call\|?>\s*call:[a-zA-Z0-9_]+\s*\{/g;
+  let out = "";
+  let last = 0;
+  let match;
+  while ((match = marker.exec(text))) {
+    const end = findBalancedBraceEnd(text, marker.lastIndex - 1);
+    out += text.slice(last, match.index);
+    // 被截斷、沒有收尾的呼叫：其後都是呼叫參數，整段去掉。
+    last = end < 0 ? text.length : end + 1;
+    marker.lastIndex = last;
+  }
+  return out + text.slice(last);
+}
+
 /** 清除模型殘留的 tool call 與思考標記，避免原始標記顯示在對話框中。 */
 export function sanitizeAiPveContent(value) {
-  return String(value ?? "")
-    .replace(/<\|?tool_call\|?>[\s\S]*?<\|?\/?tool_call\|?>/g, "")
-    .replace(/<\|?tool_call\|?>\s*call:[a-zA-Z0-9_]+\s*\{[\s\S]+\}/g, "")
+  const withoutPaired = String(value ?? "")
+    .replace(/<\|?tool_call\|?>[\s\S]*?<\|?\/?tool_call\|?>/g, "");
+  return stripUnpairedToolCalls(withoutPaired)
     .replace(/<think>[\s\S]*?<\/think>/g, "")
     .replace(/<\|[^>]*\|>/g, "")
     .trim();
@@ -260,7 +299,6 @@ export default function AiPveChat({ initialPrompt = "", compact = false, fill = 
           ...previous,
           { role: "assistant", content: t("AiPveChat.commandCancelled") },
         ]);
-        setIsSending(false);
         return;
       }
 

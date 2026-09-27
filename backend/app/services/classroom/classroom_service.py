@@ -289,6 +289,16 @@ async def start_class_watch(
     session: Session, user: User, vmid: int, class_id: uuid.UUID
 ) -> ClassroomSession:
     require_can_watch_class(session, user, class_id, vmid)
+    existing = vnc_session_manager.get_session_for_vmid(vmid)
+    if (
+        existing is not None
+        and existing.mode is SessionMode.monitor
+        and existing.class_id == class_id
+        and (existing.started_by == user.id or is_admin(user))
+    ):
+        # 重新整理或離開頁面後再點同一位學生：沿用還沒收掉的觀看 session，
+        # 不要回 409 讓老師卡在一個看不到、也停不掉的 session 上
+        return existing
     return await vnc_session_manager.start_session(
         vmid=vmid,
         mode=SessionMode.monitor,
@@ -407,4 +417,17 @@ async def _on_session_end(session: ClassroomSession, _reason: str) -> None:
         logger.exception("Classroom session end event push failed")
 
 
+async def _on_controller_released(session: ClassroomSession) -> None:
+    """控制者離線被自動收回控制權 → 解除學生端的「老師接管中」覆蓋。"""
+    try:
+        owner_id = _lookup_resource_owner(session.vmid)
+        if owner_id is not None:
+            await classroom_presence_hub.send_to_user(
+                owner_id, _event("takeover_stopped", session)
+            )
+    except Exception:
+        logger.exception("Classroom controller release event push failed")
+
+
 vnc_session_manager.on_session_end(_on_session_end)
+vnc_session_manager.on_controller_released(_on_controller_released)

@@ -9,7 +9,6 @@ const ROUTE_GUIDES = [
   { match: /^\/courses$/, id: "courses", icon: "school", profile: "explore" },
   { match: /^\/courses\/[^/]+$/, id: "course", icon: "menu_book", profile: "learning" },
   { match: /^\/courses\/[^/]+\/weeks\/[^/]+$/, id: "course-week", icon: "event_note", profile: "learning" },
-  { match: /^\/dashboard\/course\/[^/]+$/, id: "student-course", icon: "menu_book", profile: "learning" },
   { match: /^\/quick-create$/, id: "quick-create", icon: "bolt", profile: "explore" },
   { match: /^\/quick-template\/[^/]+$/, id: "quick-practice", icon: "bolt", profile: "configure" },
   { match: /^\/my-resources$/, id: "my-resources", icon: "computer", profile: "resource" },
@@ -53,7 +52,8 @@ const ROUTE_GUIDES = [
   { match: /^\/firewall$/, id: "firewall", icon: "security", profile: "workflow" },
   { match: /^\/domain$/, id: "domain", icon: "domain", profile: "configure" },
   { match: /^\/gateway$/, id: "gateway", icon: "dns", profile: "configure" },
-  { match: /^\/reverse-proxy$/, id: "reverse-proxy", icon: "swap_horiz", profile: "workflow" },
+  /* /reverse-proxy、/dashboard/course/:id 只是轉址（見 App.jsx），不會停在那個路徑上；
+     反向代理導覽掛在 /domain?tab=reverse-proxy（UserGuide.getDetailedGuide） */
 ];
 
 export const GENERIC_TOUR_STEPS = [

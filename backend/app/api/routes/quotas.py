@@ -1,6 +1,5 @@
 """資源配額 API：admin 管理個人配額；所有登入者查自己用量。"""
 
-import logging
 import uuid
 
 from fastapi import APIRouter
@@ -22,8 +21,6 @@ from app.schemas import (
 from app.schemas.common import Message
 from app.services.resource import quota_service
 from app.services.user import audit_service
-
-logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/quotas", tags=["quotas"])
 
@@ -133,7 +130,7 @@ def update_quota(
     quota = session.get(ResourceQuota, quota_id)
     if quota is None:
         raise NotFoundError("Quota not found")
-    for field, value in body.model_dump(exclude_unset=True).items():
+    for field, value in body.model_dump(exclude_unset=True, exclude_none=True).items():
         setattr(quota, field, value)
     session.add(quota)
     audit_service.log_action(

@@ -4,32 +4,49 @@
  * 管理員附「前往設定」連結。已配置或尚未取得狀態時不顯示。
  */
 import { useEffect, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useLocation } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import MIcon from "../MIcon";
 import { useAuth } from "../../contexts/AuthContext";
 import { IpManagementService } from "../../services/ipManagement";
+import { isAdminUser } from "../../utils/roles";
 import styles from "./SubnetBanner.module.scss";
+
+/** 子網設定存檔／刪除成功後廣播的視窗事件，橫幅收到就立即重查狀態。
+ *  字串必須與寫入端（services/ipManagement.js 的 upsertSubnet／deleteSubnet）發出的一致。 */
+export const SUBNET_CHANGED_EVENT = "skylab:subnet-changed";
 
 export default function SubnetBanner() {
   const { t } = useTranslation("common");
   const { user } = useAuth();
+  const { pathname } = useLocation();
   const [status, setStatus] = useState(null);
-  const isAdmin = Boolean(user?.is_superuser || user?.role === "admin");
+  const isAdmin = isAdminUser(user);
 
+  /* 橫幅掛在 DashboardLayout、跨頁不重掛；只在掛載時查一次的話，
+     管理員設定或刪除子網後要整頁重新整理才會更新。
+     因此每次換頁都重查一次（其他人改了子網也跟得上），
+     另外收到 SUBNET_CHANGED_EVENT 時立即重查（管理員在設定頁存檔／刪除當下）。 */
   useEffect(() => {
     let cancelled = false;
-    IpManagementService.getStatus()
-      .then((res) => {
-        if (!cancelled) setStatus(res);
-      })
-      .catch(() => {
-        // 取不到狀態就不顯示，避免誤報
-      });
+    let seq = 0;
+    const refresh = () => {
+      const current = ++seq;
+      IpManagementService.getStatus()
+        .then((res) => {
+          if (!cancelled && current === seq) setStatus(res);
+        })
+        .catch(() => {
+          // 取不到狀態就不顯示，避免誤報
+        });
+    };
+    refresh();
+    window.addEventListener(SUBNET_CHANGED_EVENT, refresh);
     return () => {
       cancelled = true;
+      window.removeEventListener(SUBNET_CHANGED_EVENT, refresh);
     };
-  }, []);
+  }, [pathname]);
 
   if (!status || status.configured) return null;
 

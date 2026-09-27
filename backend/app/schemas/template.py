@@ -5,7 +5,7 @@ import uuid
 from datetime import datetime
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from app.models import (
     TaskRecord,
@@ -13,6 +13,7 @@ from app.models import (
     VMTemplateStatus,
     VMTemplateVisibility,
 )
+from app.utils.hostname import validate_unicode_hostname
 
 # ===== Request Schemas =====
 
@@ -180,6 +181,18 @@ class TemplateCloneRequest(BaseModel):
         default=None, description="vGPU 規格；未填時自動配最小可用規格"
     )
     start: bool = True
+
+    @field_validator("hostname")
+    @classmethod
+    def _check_hostname(cls, value: str | None) -> str | None:
+        # 與其他開通 schema 一樣走 UnicodeHostname 的規則，但逐段檢查以保留
+        # 「web.lab」這種帶點的名稱；空段（a..b、結尾的點）、空白與符號在這裡就
+        # 回 422，不要等到 to_punycode_hostname 丟 ValueError 變成 500。
+        if value is None:
+            return None
+        for label in value.split("."):
+            validate_unicode_hostname(label)
+        return value
 
 
 class TemplateCloneResponse(BaseModel):

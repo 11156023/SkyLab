@@ -1,12 +1,23 @@
 """防火牆相關 API schemas"""
 
-import uuid
-from datetime import datetime
 from typing import Literal
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
+# 相容匯出：ReverseProxyRulePublic 已搬到 app.schemas.reverse_proxy
+from app.schemas.reverse_proxy import ReverseProxyRulePublic
+
 # ─── 基礎型別 ──────────────────────────────────────────────────────────────────
+
+# 協定名稱會被寫進 PVE 防火牆規則與 nginx 設定檔（server 區塊註解與 listen），
+# 只允許小寫英數與連字號，避免換行等字元污染產生的設定
+_PROTOCOL_PATTERN = r"^[a-z0-9-]{1,16}$"
+
+
+def _normalize_protocol_value(value: object) -> object:
+    if isinstance(value, str):
+        return value.strip().lower()
+    return value
 
 
 class PortSpec(BaseModel):
@@ -19,11 +30,9 @@ class PortSpec(BaseModel):
     """
 
     port: int = Field(ge=0, le=65535, description="端口號；0 表示無端口協定")
-    # 協定名稱會被寫進 PVE 防火牆規則與 nginx 設定檔（server 區塊註解與 listen），
-    # 只允許小寫英數與連字號，避免換行等字元污染產生的設定
     protocol: str = Field(
         default="tcp",
-        pattern=r"^[a-z0-9-]{1,16}$",
+        pattern=_PROTOCOL_PATTERN,
         description="協定 (tcp/udp/icmp/esp/ah/...)",
     )
     external_port: int | None = Field(
@@ -45,9 +54,7 @@ class PortSpec(BaseModel):
     @field_validator("protocol", mode="before")
     @classmethod
     def _normalize_protocol(cls, value: object) -> object:
-        if isinstance(value, str):
-            return value.strip().lower()
-        return value
+        return _normalize_protocol_value(value)
 
 
 # ─── 連線管理 ──────────────────────────────────────────────────────────────────
@@ -84,17 +91,11 @@ class ConnectionDelete(BaseModel):
 PublishMode = Literal["domain", "port_forward", "firewall_only"]
 
 
-def _normalize_protocol_value(value: object) -> object:
-    if isinstance(value, str):
-        return value.strip().lower()
-    return value
-
-
 class PublishedServiceRef(BaseModel):
     """用內部 port + 協定指認一條已發布的服務"""
 
     port: int = Field(ge=0, le=65535, description="VM 內部 port；0 代表無端口協定")
-    protocol: str = Field(default="tcp", pattern=r"^[a-z0-9-]{1,16}$")
+    protocol: str = Field(default="tcp", pattern=_PROTOCOL_PATTERN)
 
     @field_validator("protocol", mode="before")
     @classmethod
@@ -106,7 +107,7 @@ class PublishedServiceCreate(BaseModel):
     """發布一條對外服務：三種模式對應 PortSpec 的 domain / external_port / 皆無"""
 
     port: int = Field(ge=1, le=65535, description="VM 內部 port")
-    protocol: str = Field(default="tcp", pattern=r"^[a-z0-9-]{1,16}$")
+    protocol: str = Field(default="tcp", pattern=_PROTOCOL_PATTERN)
     mode: PublishMode = Field(default="firewall_only")
     domain: str | None = Field(default=None, max_length=255, description="完整網域（mode=domain）")
     enable_https: bool = Field(default=True)
@@ -177,7 +178,6 @@ class PublishedService(BaseModel):
     )
 
 
-# ─── 防火牆規則 CRUD ───────────────────────────────────────────────────────────
 # ─── 佈局管理 ──────────────────────────────────────────────────────────────────
 
 
@@ -196,7 +196,7 @@ class LayoutUpdate(BaseModel):
     nodes: list[LayoutNodeUpdate]
 
 
-# ─── 回應 schemas ──────────────────────────────────────────────────────────────
+# ─── 防火牆規則 ────────────────────────────────────────────────────────────────
 
 
 class FirewallRuleCreate(BaseModel):
@@ -224,6 +224,9 @@ class FirewallRuleUpdate(BaseModel):
     sport: str | None = None
     enable: int | None = None
     comment: str | None = None
+
+
+# ─── 回應 schemas ──────────────────────────────────────────────────────────────
 
 
 class FirewallRulePublic(BaseModel):
@@ -298,23 +301,6 @@ class TopologyResponse(BaseModel):
     edges: list[TopologyEdge]
 
 
-# ─── NAT 規則 ──────────────────────────────────────────────────────────────────
-
-
-class ReverseProxyRulePublic(BaseModel):
-    """反向代理規則（回應）"""
-
-    id: uuid.UUID
-    vmid: int
-    vm_ip: str
-    domain: str
-    zone_id: str | None = None
-    internal_port: int
-    enable_https: bool
-    dns_provider: str
-    created_at: datetime
-
-
 __all__ = [
     "PortSpec",
     "ConnectionCreate",
@@ -328,7 +314,7 @@ __all__ = [
     "TopologyNode",
     "TopologyEdge",
     "TopologyResponse",
-    "ReverseProxyRulePublic",
+    "ReverseProxyRulePublic",  # 相容匯出，新程式請從 reverse_proxy 匯入
     "PublishMode",
     "PublishedService",
     "PublishedServiceCreate",

@@ -1,6 +1,6 @@
 /**
  * RrdChart.jsx
- * recharts AreaChart 包裝，供資源監控頁、資源詳情監控分頁、教學熱圖共用。
+ * recharts AreaChart 包裝，供資源監控頁、資源詳情監控分頁、AI API 用量頁共用。
  *
  * Props:
  *   - data:   [{ time: "14:05", <seriesKey>: number|null, ... }]

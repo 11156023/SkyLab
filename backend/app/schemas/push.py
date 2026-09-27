@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 import ipaddress
+import re
 import uuid
 from urllib.parse import urlsplit
 
 from pydantic import BaseModel, Field, field_validator
+
+_NUMERIC_IPV4_LABEL = re.compile(r"[0-9]+|0x[0-9a-f]*")
 
 
 def _validate_push_endpoint(value: str) -> str:
@@ -20,15 +23,24 @@ def _validate_push_endpoint(value: str) -> str:
     parts = urlsplit(value)
     if parts.scheme != "https":
         raise ValueError("push endpoint must use https")
-    host = (parts.hostname or "").lower()
-    if not host or host == "localhost" or host.endswith(".local"):
+    # 結尾的點（FQDN 寫法）不影響解析，先拿掉再判斷，免得 "localhost." 繞過
+    host = (parts.hostname or "").lower().rstrip(".")
+    if not host or host == "localhost" or host.endswith((".localhost", ".local")):
         raise ValueError("push endpoint host is not allowed")
     if parts.port not in (None, 443):
         raise ValueError("push endpoint must use port 443")
     try:
         addr = ipaddress.ip_address(host)
     except ValueError:
+        # 最後一段是純數字或 0x 十六進位時，瀏覽器與 getaddrinfo 都把整個主機
+        # 當 IPv4 解析（127.1、2130706433、0x7f.1 都是 127.0.0.1），但 ipaddress
+        # 只認標準四段十進位；這類非標準寫法一律拒絕，不讓它繞過私有位址檢查。
+        last_label = host.rsplit(".", 1)[-1]
+        if _NUMERIC_IPV4_LABEL.fullmatch(last_label):
+            raise ValueError("push endpoint host is not allowed") from None
         return value
+    if isinstance(addr, ipaddress.IPv6Address) and addr.ipv4_mapped is not None:
+        addr = addr.ipv4_mapped  # ::ffff:127.0.0.1 依內嵌的 IPv4 判斷
     if (
         addr.is_private
         or addr.is_loopback

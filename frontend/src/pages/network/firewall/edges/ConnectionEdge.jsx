@@ -49,9 +49,9 @@ function spreadPath([x0, y0, x1, y1, x2, y2, x3, y3], { nx, ny }, offset) {
  * 改成緊貼「這條規則的主體」那一端，標籤就散到各自的機器旁邊。
  */
 function labelPointOnPath(d, nearTarget) {
-  const nums = d.match(/-?\d+(?:\.\d+)?/g);
-  if (!nums || nums.length < 8) return null;
-  const [x0, y0, x1, y1, x2, y2, x3, y3] = nums.map(Number);
+  const parsed = parsePath(d);
+  if (!parsed) return null;
+  const [x0, y0, x1, y1, x2, y2, x3, y3] = parsed;
 
   const at = (t) => {
     const u = 1 - t;

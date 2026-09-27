@@ -12,6 +12,7 @@ import { focusInvalidField } from "../../../utils/focusField";
 import { joinList } from "../../../utils/joinList";
 import { uploadSequentially } from "../../../utils/uploadSequentially";
 import FileDropzone from "../../../components/FileDropzone/FileDropzone";
+import { formatBytes } from "./templateFormat";
 
 const CORE_MIN = 1;
 const CORE_MAX = 8;
@@ -30,12 +31,6 @@ const ATTACHMENT_EXTS = new Set([
 const fileExt = (name) => {
   const idx = String(name || "").lastIndexOf(".");
   return idx >= 0 ? String(name).slice(idx).toLowerCase() : "";
-};
-
-const formatBytes = (bytes) => {
-  if (bytes >= 1024 * 1024) return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
-  if (bytes >= 1024) return `${Math.round(bytes / 1024)} KB`;
-  return `${bytes} B`;
 };
 
 /**

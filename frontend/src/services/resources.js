@@ -23,11 +23,6 @@ export const ResourcesService = {
     return apiGet(`/api/v1/resources/${vmid}`);
   },
 
-  /** 取得資源目前配置（cpu_cores / memory_mb） */
-  getConfig(vmid) {
-    return apiGet(`/api/v1/resources/${vmid}/config`);
-  },
-
   /** 取得所有資源列表（管理員） */
   listAll(options) {
     return apiGet("/api/v1/resources/", options);

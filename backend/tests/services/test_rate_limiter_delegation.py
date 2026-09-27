@@ -35,9 +35,6 @@ class _FakeRedis:
     async def zcard(self, key: str) -> int:
         return self.counts.get(key, 0)
 
-    async def delete(self, key: str) -> int:
-        return 1 if self.counts.pop(key, None) is not None else 0
-
 
 async def test_ai_proxy_limit_delegates_to_generic_key_limiter() -> None:
     redis = _FakeRedis()
@@ -49,7 +46,7 @@ async def test_ai_proxy_limit_delegates_to_generic_key_limiter() -> None:
     assert allowed is True
     assert info["current"] == 1
     assert info["remaining"] == 1
-    # key 命名與舊實作相容：狀態端點與 clear_user_rate_limit 都靠這個 key
+    # key 命名與舊實作相容：額度查詢端點也靠這個 key
     assert redis.eval_calls == [("rate_limit:user:user-1", 2, 120)]
 
 
@@ -99,11 +96,3 @@ async def test_ai_proxy_limit_fails_open_without_redis_in_local(
 
     assert allowed is True
     assert info["disabled"] is True
-
-
-async def test_clear_user_rate_limit_targets_same_key() -> None:
-    redis = _FakeRedis()
-    await rate_limiter.check_rate_limit_sliding_window(redis, "user-5")
-
-    assert await rate_limiter.clear_user_rate_limit(redis, "user-5") is True
-    assert "rate_limit:user:user-5" not in redis.counts

@@ -380,9 +380,11 @@ class ClassCapacityReservation(SQLModel, table=True):
 __all__ = [
     "ClassCapacityReservation",
     "CourseEnvironment",
+    "CourseEnvironmentAudience",
     "CourseEnvironmentEdge",
     "CourseEnvironmentFile",
     "CourseEnvironmentNode",
+    "CourseEnvironmentPublication",
     "CourseEnvironmentVersion",
     "CourseEnvironmentVersionStatus",
 ]

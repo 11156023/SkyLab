@@ -47,6 +47,14 @@ function loadReadReminderIds(user) {
   }
 }
 
+function saveReadReminderIds(user, ids) {
+  try {
+    window.localStorage.setItem(reminderStorageKey(user), JSON.stringify(ids));
+  } catch {
+    // localStorage 不可用時，已讀狀態僅本次瀏覽生效
+  }
+}
+
 /**
  * 終態任務的通知內容；哪些任務算「剛轉成終態」由 jobSnapshotDiff 決定，
  * 這裡只負責把狀態翻成文案。不認得的狀態回 null。
@@ -74,7 +82,8 @@ function describeJobTransition(job, t) {
 const SW_OPEN_JOB_MESSAGE = "skylab:open-job";
 const SW_NAVIGATE_MESSAGE = "skylab:navigate";
 
-/** 推播訂閱狀態：unknown（尚未查）| subscribed | unsubscribed | unsupported | disabled | error */
+/** 把 subscribePush 的結果對應成 pushState（subscribed | unsubscribed | unsupported | disabled）；
+ *  "error" 等其他結果一律當成未訂閱 */
 function describePushResult(result) {
   switch (result) {
     case "subscribed":
@@ -167,7 +176,8 @@ export default function JobsProvider({ children }) {
   const readReminderIdsRef = useRef(readReminderIds);
   readReminderIdsRef.current = readReminderIds;
 
-  /* Web Push（分頁關掉也能收到）：訂閱狀態；WS callback 用 ref 讀，決定要不要自己發背景通知 */
+  /* Web Push（分頁關掉也能收到）：訂閱狀態 unknown（尚未查）| subscribed | unsubscribed | unsupported | disabled；
+     WS callback 用 ref 讀，決定要不要自己發背景通知 */
   const [pushState, setPushState] = useState(() => (isPushSupported() ? "unknown" : "unsupported"));
   const pushSubscribedRef = useRef(false);
   pushSubscribedRef.current = pushState === "subscribed";
@@ -307,22 +317,15 @@ export default function JobsProvider({ children }) {
 
   const persistReadReminderIds = useCallback((ids) => {
     setReadReminderIds(ids);
-    try {
-      window.localStorage.setItem(reminderStorageKey(user), JSON.stringify(ids));
-    } catch {
-      // localStorage 不可用時，已讀狀態僅本次瀏覽生效
-    }
+    saveReadReminderIds(user, ids);
   }, [user]);
 
+  /* 用函式型 updater：連點好幾則提醒時，每次都接在最新的已讀清單後面，不會互相蓋掉 */
   const markReminderRead = useCallback((id) => {
     setReadReminderIds((current) => {
       if (current.includes(id)) return current;
       const next = [...current, id];
-      try {
-        window.localStorage.setItem(reminderStorageKey(user), JSON.stringify(next));
-      } catch {
-        // 同上，靜默降級
-      }
+      saveReadReminderIds(user, next);
       return next;
     });
   }, [user]);

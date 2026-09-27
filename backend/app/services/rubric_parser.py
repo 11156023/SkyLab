@@ -58,22 +58,30 @@ def parse_docx(file_bytes: bytes) -> str:
             if text:
                 lines.append(text)
         elif block["type"] == "table":
-            table = block["table"]
-            # 收集所有格子文字
-            rows = []
-            for row in table.rows:
-                cells = [cell.text.strip().replace("\n", " ") for cell in row.cells]
-                rows.append(cells)
-            if not rows:
-                continue
-            # Markdown 表格
-            header = rows[0]
-            lines.append("| " + " | ".join(header) + " |")
-            lines.append("| " + " | ".join(["---"] * len(header)) + " |")
-            for row in rows[1:]:
-                lines.append("| " + " | ".join(row) + " |")
+            rows = [
+                [_clean_cell(cell.text) for cell in row.cells]
+                for row in block["table"].rows
+            ]
+            lines.extend(_markdown_table(rows))
 
     return "\n".join(lines)
+
+
+def _clean_cell(value: object) -> str:
+    """表格儲存格轉成單行文字：None 視為空字串，去頭尾空白、換行改空格。"""
+    return str(value or "").strip().replace("\n", " ")
+
+
+def _markdown_table(rows: list[list[str]]) -> list[str]:
+    """把已清理過的儲存格轉成 Markdown 表格行；第一列當表頭，沒有列就回空。"""
+    if not rows:
+        return []
+    header = rows[0]
+    return [
+        "| " + " | ".join(header) + " |",
+        "| " + " | ".join(["---"] * len(header)) + " |",
+        *("| " + " | ".join(row) + " |" for row in rows[1:]),
+    ]
 
 
 def parse_pdf(file_bytes: bytes) -> str:
@@ -105,12 +113,11 @@ def parse_pdf(file_bytes: bytes) -> str:
                 if not data:
                     continue
                 table_bboxes.append(table.bbox)
-                header = [str(cell or "").strip() for cell in data[0]]
-                lines.append("| " + " | ".join(header) + " |")
-                lines.append("| " + " | ".join(["---"] * len(header)) + " |")
-                for row in data[1:]:
-                    cells = [str(cell or "").strip().replace("\n", " ") for cell in row]
-                    lines.append("| " + " | ".join(cells) + " |")
+                lines.extend(
+                    _markdown_table(
+                        [[_clean_cell(cell) for cell in row] for row in data]
+                    )
+                )
 
             # 純文字（排除表格區域）：只保留不在任何表格 bbox 內的文字
             words = page.extract_words() or []

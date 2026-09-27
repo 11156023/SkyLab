@@ -1,6 +1,5 @@
 """GPU (PCI resource mapping) management routes."""
 
-import logging
 from collections import Counter
 from datetime import datetime
 
@@ -15,8 +14,6 @@ from app.schemas.gpu import (
     GPUSummary,
 )
 from app.services.proxmox import gpu_service
-
-logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/gpu", tags=["gpu"])
 

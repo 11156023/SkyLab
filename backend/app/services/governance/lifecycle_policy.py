@@ -85,12 +85,49 @@ def decide_ttl_action(
     return TtlAction.none
 
 
-def average_cpu_percent(
-    rrd: list[dict[str, Any]], *, window_hours: int, now: datetime
-) -> float | None:
-    """RRD（PVE rrddata 格式）在時間視窗內的平均 CPU（percent）。
+def _as_utc(value: datetime) -> datetime:
+    return value if value.tzinfo is not None else value.replace(tzinfo=timezone.utc)
 
-    無有效資料點回傳 None（不可據此判斷閒置）。
+
+def ttl_stop_email_due(
+    *, expiry_date: date | None, expiry_notified_at: datetime | None
+) -> bool:
+    """這次到期的「已到期，將自動關機」信是否還沒寄過。
+
+    寄出時把 ``expiry_notified_at`` 蓋成寄信時間（必然晚於到期時刻），之後
+    VM 沒關成（guest 不理 ACPI）而每 tick 重排關機時，就不會每分鐘再寄一封。
+    延期會把 ``expiry_notified_at`` 清成 None，新的到期日照常通知。
+    """
+    if expiry_date is None or expiry_notified_at is None:
+        return True
+    return _as_utc(expiry_notified_at) < _expiry_datetime(expiry_date)
+
+
+def idle_stop_email_due(
+    *,
+    idle_since: datetime | None,
+    idle_notified_at: datetime | None,
+    grace_hours: int,
+) -> bool:
+    """這段閒置（同一個 ``idle_since``）的「將自動關機」信是否還沒寄過。
+
+    排程閒置關機時把 ``idle_notified_at`` 蓋成當下（必然不早於
+    ``idle_since + grace_hours``）；通知階段的時間戳一定早於寬限期滿，
+    兩者因此分得開。VM 沒關成而每次重掃又判 stop 時，只重排關機、不再寄信。
+    """
+    if idle_since is None or idle_notified_at is None:
+        return True
+    return _as_utc(idle_notified_at) < _as_utc(idle_since) + timedelta(
+        hours=grace_hours
+    )
+
+
+def window_cpu_percentages(
+    rrd: list[dict[str, Any]], *, window_hours: int, now: datetime
+) -> list[float]:
+    """RRD（PVE rrddata 格式）在 ``now`` 往回 ``window_hours`` 視窗內的 CPU（percent）。
+
+    缺 ``time`` 或 ``cpu`` 的點略過。閒置偵測與反挖礦共用這份取樣。
     """
     window_start = (now - timedelta(hours=window_hours)).timestamp()
     values: list[float] = []
@@ -101,6 +138,17 @@ def average_cpu_percent(
             continue
         if float(ts) >= window_start:
             values.append(float(cpu) * 100.0)
+    return values
+
+
+def average_cpu_percent(
+    rrd: list[dict[str, Any]], *, window_hours: int, now: datetime
+) -> float | None:
+    """RRD（PVE rrddata 格式）在時間視窗內的平均 CPU（percent）。
+
+    無有效資料點回傳 None（不可據此判斷閒置）。
+    """
+    values = window_cpu_percentages(rrd, window_hours=window_hours, now=now)
     if not values:
         return None
     return sum(values) / len(values)

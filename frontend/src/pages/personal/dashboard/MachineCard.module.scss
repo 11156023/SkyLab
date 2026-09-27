@@ -21,9 +21,28 @@
   flex-direction: column;
   gap: 2px;
   min-width: 0;
-  /* 狀態點（HomeCard 的 .dot）原本吃標籤列的 12px，搬到這裡要自己給 */
+  /* 狀態點（.dot）的字級 */
   font-size: $font-size-12;
 }
+
+/* 標題上方的狀態：圓點＋文字 */
+.dot {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+
+  &::before {
+    content: "";
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--color-text-muted);
+  }
+}
+
+.dotSuccess { color: var(--color-success); &::before { background: var(--color-success); } }
+.dotPending { color: var(--color-pending); &::before { background: var(--color-pending); } }
+.dotDanger { color: var(--color-danger); &::before { background: var(--color-danger); } }
 
 .name {
   margin: 0;

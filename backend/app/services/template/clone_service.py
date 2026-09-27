@@ -254,7 +254,29 @@ def _reconfigure_qemu(
         config_updates["nameserver"] = net_cfg["dns_servers"]
     proxmox_ops.update_config(node, vmid, "qemu", **config_updates)
     if disk:
-        proxmox_ops.resize_disk(node, vmid, "qemu", "scsi0", f"{disk}G")
+        _grow_qemu_boot_disk(node=node, vmid=vmid, disk_gb=disk)
+
+
+def _grow_qemu_boot_disk(*, node: str, vmid: int, disk_gb: int) -> None:
+    """把克隆機的開機磁碟放大到 disk_gb；已經夠大就不動。
+
+    開機磁碟不一定是 scsi0（virtio0／sata0／ide0 的範本也存在），寫死
+    scsi0 會讓 PVE 找不到磁碟而整台回滾；PVE 也不接受縮小磁碟，要求的
+    大小不大於現況時直接略過。
+    """
+    config = proxmox_ops.get_config(node, vmid, "qemu")
+    boot_disk = template_service.qemu_boot_disk(config)
+    if boot_disk is None:
+        logger.warning(
+            "Clone %s has no recognizable boot disk; skipping resize to %sG",
+            vmid, disk_gb,
+        )
+        return
+    disk_key, raw = boot_disk
+    current_gb = template_service._parse_disk_size_gb(raw)
+    if current_gb is not None and disk_gb <= current_gb:
+        return
+    proxmox_ops.resize_disk(node, vmid, "qemu", disk_key, f"{disk_gb}G")
 
 
 def _reconfigure_lxc(
@@ -295,25 +317,44 @@ def _set_lxc_root_password(node: str, vmid: int, password: str) -> bool:
     ps 與 shell 紀錄裡，同一台節點上的其他人看得到。
     回傳是否成功；失敗方（呼叫端）不得記錄未生效的密碼。
     """
+    return _exec_lxc_with_retry(
+        node,
+        vmid,
+        "chpasswd",
+        stdin=f"root:{password}\n",
+        what="set root password",
+    )
+
+
+def _exec_lxc_with_retry(
+    node: str,
+    vmid: int,
+    command: str,
+    *,
+    stdin: str | None = None,
+    what: str,
+) -> bool:
+    """以 ``pct exec`` 在剛開機的容器內執行指令，容器還沒起來就重試等待。
+
+    最多試 ``_LXC_PASSWORD_ATTEMPTS`` 次、每次間隔 ``_LXC_PASSWORD_RETRY_SECONDS``；
+    全部失敗時以 ``what`` 描述記 warning 並回 False。
+    """
     from app.infrastructure.proxmox import guest
 
+    exec_kwargs: dict[str, Any] = {} if stdin is None else {"stdin": stdin}
     last_error: str = ""
     for attempt in range(_LXC_PASSWORD_ATTEMPTS):
         if attempt:
             time.sleep(_LXC_PASSWORD_RETRY_SECONDS)
         try:
-            code, _out, err = guest.exec_lxc(
-                node, vmid, "chpasswd", stdin=f"root:{password}\n"
-            )
+            code, _out, err = guest.exec_lxc(node, vmid, command, **exec_kwargs)
         except Exception as exc:
             last_error = str(exc)
             continue
         if code == 0:
             return True
         last_error = (err or "").strip()
-    logger.warning(
-        "Failed to set root password for CT %d: %s", vmid, last_error[:300]
-    )
+    logger.warning("Failed to %s for CT %d: %s", what, vmid, last_error[:300])
     return False
 
 
@@ -325,8 +366,6 @@ def _inject_lxc_platform_key(node: str, vmid: int, public_key: str) -> bool:
     已存在則不重複追加；回傳是否成功，失敗由呼叫端記 warning（DB 仍落庫，
     管理員可用 regenerate-ssh-key 補救）。
     """
-    from app.infrastructure.proxmox import guest
-
     key = public_key.strip()
     if not key:
         return False
@@ -337,22 +376,9 @@ def _inject_lxc_platform_key(node: str, vmid: int, public_key: str) -> bool:
         f"printf %s {shlex.quote(key + chr(10))} >> /root/.ssh/authorized_keys; "
         "chmod 600 /root/.ssh/authorized_keys"
     )
-    last_error: str = ""
-    for attempt in range(_LXC_PASSWORD_ATTEMPTS):
-        if attempt:
-            time.sleep(_LXC_PASSWORD_RETRY_SECONDS)
-        try:
-            code, _out, err = guest.exec_lxc(node, vmid, script)
-        except Exception as exc:
-            last_error = str(exc)
-            continue
-        if code == 0:
-            return True
-        last_error = (err or "").strip()
-    logger.warning(
-        "Failed to inject platform SSH key for CT %d: %s", vmid, last_error[:300]
+    return _exec_lxc_with_retry(
+        node, vmid, script, what="inject platform SSH key"
     )
-    return False
 
 
 def set_lxc_root_password(node: str, vmid: int, password: str) -> bool:

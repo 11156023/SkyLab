@@ -2,18 +2,20 @@
 
 import csv
 import io
-import logging
 import math
 import uuid
 from datetime import date, datetime, time, timedelta
-from pathlib import Path
+from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, File, UploadFile
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from sqlmodel import col, delete, func, select
 
 from app.api.deps import InstructorUser, SessionDep
-from app.core.authorizers import require_teaching_access
+from app.core.authorizers import (
+    can_bypass_teaching_ownership,
+    require_teaching_access,
+)
 from app.core.i18n import t
 from app.exceptions import BadRequestError, NotFoundError
 from app.models import (
@@ -36,11 +38,13 @@ from app.models import (
     User,
     UserRole,
     VMTemplate,
+    VMTemplateStatus,
 )
 from app.models.base import get_datetime_utc
 from app.repositories import resource as resource_repo
 from app.repositories.user import get_user_by_email
-from app.services.course import course_service
+from app.services.course import course_service, weekly_task_service
+from app.services.course_environment import upload_store
 from app.services.proxmox import provisioning_service, proxmox_service
 from app.services.teaching import (
     class_capacity_service,
@@ -50,15 +54,35 @@ from app.services.teaching import (
 )
 
 router = APIRouter(prefix="/teaching-classes", tags=["teaching-classes"])
-logger = logging.getLogger(__name__)
 
-TASK_FILE_ROOT = Path(__file__).resolve().parents[3] / "data" / "teaching-class-tasks"
+# 教材檔的根目錄只定義在 weekly_task_service.TASK_FILE_ROOT（學生下載也讀它）；
+# 這裡一律在呼叫當下讀該模組屬性，換掉它就同時涵蓋上傳、刪除與下載。
 MAX_TASK_FILE_BYTES = 100 * 1024 * 1024
+# 學生名單 CSV：一行一個帳號，1 MB 已足夠放上萬筆
+MAX_STUDENT_CSV_BYTES = 1024 * 1024
 # 課程期間最多兩年份的課次
 MAX_CLASS_WEEKS = 104
 PUBLIC_PROVISION_ERROR = (
     "Machine provisioning failed. Retry or contact an administrator."
 )
+
+
+def _require_known_timezone(value: str | None) -> str | None:
+    """時區必須是 IANA 名稱。
+
+    排程器每一輪都會對每個班級做 ``ZoneInfo(teaching_class.timezone)``；
+    存進一個 "Taipei" 或 "UTC+8" 這種值，整輪的到期回收與週期開機視窗
+    都會跟著中斷，影響的是所有班級，不只這一班。
+    """
+    if value is None:
+        return value
+    try:
+        ZoneInfo(value)
+    except (KeyError, ValueError, OSError) as exc:
+        # ZoneInfoNotFoundError 是 KeyError；空字串、路徑字元是 ValueError；
+        # 部分平台對目錄名稱（例如 "America"）會丟 OSError
+        raise ValueError(t("availability.invalid_timezone")) from exc
+    return value
 
 
 class ClassCreate(BaseModel):
@@ -70,23 +94,27 @@ class ClassCreate(BaseModel):
     weekday: int = Field(ge=0, le=6)
     start_time: time
     end_time: time
-    timezone: str = "Asia/Taipei"
+    timezone: str = Field(default="Asia/Taipei", min_length=1, max_length=64)
     boot_lead_minutes: int = Field(default=10, ge=0, le=120)
     shutdown_grace_minutes: int = Field(default=30, ge=0, le=240)
 
+    check_timezone = field_validator("timezone")(_require_known_timezone)
+
 
 class ClassPatch(BaseModel):
-    name: str | None = None
-    term: str | None = None
+    name: str | None = Field(default=None, min_length=1, max_length=255)
+    term: str | None = Field(default=None, min_length=1, max_length=80)
     location: str | None = Field(default=None, max_length=255)
     start_date: date | None = None
     end_date: date | None = None
     weekday: int | None = Field(default=None, ge=0, le=6)
     start_time: time | None = None
     end_time: time | None = None
-    timezone: str | None = None
+    timezone: str | None = Field(default=None, min_length=1, max_length=64)
     boot_lead_minutes: int | None = Field(default=None, ge=0, le=120)
     shutdown_grace_minutes: int | None = Field(default=None, ge=0, le=240)
+
+    check_timezone = field_validator("timezone")(_require_known_timezone)
 
 
 class ClassExtend(BaseModel):
@@ -174,6 +202,46 @@ def _students(session: SessionDep, class_id: uuid.UUID) -> list[TeachingClassStu
             .order_by(TeachingClassStudent.joined_at)
         ).all()
     )
+
+
+def _class_nodes(
+    session: SessionDep, class_id: uuid.UUID
+) -> list[TeachingClassMachineNode]:
+    """班級的機器節點，依編輯器排序。"""
+    return list(
+        session.exec(
+            select(TeachingClassMachineNode)
+            .where(TeachingClassMachineNode.class_id == class_id)
+            .order_by(col(TeachingClassMachineNode.sort_order))
+        ).all()
+    )
+
+
+def _class_machine_rows(
+    session: SessionDep, enrollment_ids: list[uuid.UUID]
+) -> list[TeachingClassStudentMachine]:
+    """這些選課紀錄對應到的學生機器；沒有選課紀錄就不查。"""
+    if not enrollment_ids:
+        return []
+    return list(
+        session.exec(
+            select(TeachingClassStudentMachine).where(
+                col(TeachingClassStudentMachine.class_student_id).in_(enrollment_ids)
+            )
+        ).all()
+    )
+
+
+def _course_environment_summary(
+    environment: CourseEnvironment, version: CourseEnvironmentVersion
+) -> dict[str, object]:
+    return {
+        "id": environment.id,
+        "version_id": version.id,
+        "name": environment.name,
+        "version": version.version,
+        "status": version.status,
+    }
 
 
 def _public_machine_dump(row: TeachingClassStudentMachine) -> dict:
@@ -265,13 +333,7 @@ def _class_resource_usage_items(
 
 
 def _serialize(session: SessionDep, item: TeachingClass) -> dict:
-    nodes = list(
-        session.exec(
-            select(TeachingClassMachineNode)
-            .where(TeachingClassMachineNode.class_id == item.id)
-            .order_by(TeachingClassMachineNode.sort_order)
-        ).all()
-    )
+    nodes = _class_nodes(session, item.id)
     weeks = list(
         session.exec(
             select(TeachingClassWeek)
@@ -301,17 +363,7 @@ def _serialize(session: SessionDep, item: TeachingClass) -> dict:
         if user_ids
         else {}
     )
-    machine_rows = (
-        list(
-            session.exec(
-                select(TeachingClassStudentMachine).where(
-                    TeachingClassStudentMachine.class_student_id.in_(enrollment_ids)
-                )
-            ).all()
-        )
-        if enrollment_ids
-        else []
-    )
+    machine_rows = _class_machine_rows(session, enrollment_ids)
     machines_by_student: dict[uuid.UUID, list[dict]] = {}
     for row in machine_rows:
         machines_by_student.setdefault(row.class_student_id, []).append(
@@ -373,13 +425,7 @@ def _serialize(session: SessionDep, item: TeachingClass) -> dict:
                     .order_by(CourseEnvironmentPublication.sort_order)
                 ).all()
             ]
-            course_environment = {
-                "id": environment.id,
-                "version_id": version.id,
-                "name": environment.name,
-                "version": version.version,
-                "status": version.status,
-            }
+            course_environment = _course_environment_summary(environment, version)
     capacity = class_capacity_service.preview(
         session, nodes=nodes, students=enrollments
     )
@@ -479,13 +525,9 @@ def _serialize_list(session: SessionDep, items: list[TeachingClass]) -> list[dic
             )
             .where(col(CourseEnvironmentVersion.id).in_(version_ids))
         ).all():
-            environment_by_version[version.id] = {
-                "id": environment.id,
-                "version_id": version.id,
-                "name": environment.name,
-                "version": version.version,
-                "status": version.status,
-            }
+            environment_by_version[version.id] = _course_environment_summary(
+                environment, version
+            )
 
     rows = []
     for item in items:
@@ -552,7 +594,7 @@ def create_class(body: ClassCreate, session: SessionDep, current_user: Instructo
 @router.get("")
 def list_classes(session: SessionDep, current_user: InstructorUser):
     query = select(TeachingClass).order_by(TeachingClass.updated_at.desc())
-    if not current_user.is_superuser and current_user.role != "admin":
+    if not can_bypass_teaching_ownership(current_user):
         query = query.where(TeachingClass.owner_id == current_user.id)
     return _serialize_list(session, list(session.exec(query).all()))
 
@@ -573,17 +615,7 @@ def get_class_resource_usage(
 ) -> ClassResourceUsageResponse:
     item = _get_class(session, current_user, class_id)
     enrollment_ids = [row.id for row in _students(session, item.id)]
-    machine_rows = (
-        list(
-            session.exec(
-                select(TeachingClassStudentMachine).where(
-                    TeachingClassStudentMachine.class_student_id.in_(enrollment_ids)
-                )
-            ).all()
-        )
-        if enrollment_ids
-        else []
-    )
+    machine_rows = _class_machine_rows(session, enrollment_ids)
     vmids = [row.vmid for row in machine_rows if row.vmid is not None]
     resources = proxmox_service.list_all_resources() if vmids else []
     return ClassResourceUsageResponse(
@@ -738,9 +770,23 @@ async def import_students(
     item = _get_class(session, current_user, class_id)
     if item.status != TeachingClassStatus.planning:
         raise BadRequestError(t("teachingClasses.studentsLocked"))
-    raw = await file.read()
+    try:
+        raw = await file.read(MAX_STUDENT_CSV_BYTES + 1)
+    finally:
+        await file.close()
+    if len(raw) > MAX_STUDENT_CSV_BYTES:
+        raise BadRequestError(
+            t(
+                "teachingClasses.csvTooLarge",
+                size=MAX_STUDENT_CSV_BYTES // (1024 * 1024),
+            )
+        )
     content = None
-    for encoding in ("cp950", "utf-8-sig", "utf-8"):
+    # UTF-8 要先試：Excel「CSV UTF-8」開頭的 BOM 加一個英文字母剛好是兩個
+    # 合法的 Big5 字，先用 cp950 解不會報錯，第一格就被解成亂碼（標題列
+    # 沒被跳過、或第一位學生被默默漏掉）。真正的 Big5 位元組幾乎一定不是
+    # 合法的 UTF-8，所以舊的 cp950 檔案仍會落到第二順位解出來。
+    for encoding in ("utf-8-sig", "cp950"):
         try:
             content = raw.decode(encoding)
             break
@@ -752,7 +798,7 @@ async def import_students(
     for index, row in enumerate(csv.reader(io.StringIO(content))):
         if not row:
             continue
-        value = row[0].strip()
+        value = row[0].strip().lstrip("\ufeff").strip()
         if index == 0 and value.lower() in {"email", "學號", "帳號"}:
             continue
         if value:
@@ -802,11 +848,27 @@ def _generate_weeks(session, item: TeachingClass, preserve=False):
             )
         current += timedelta(days=7)
         number += 1
+    removed_storage_keys: list[str] = []
     if preserve:
-        for week_number, row in existing.items():
-            if week_number not in keep:
-                session.delete(row)
+        dropped = [row for number, row in existing.items() if number not in keep]
+        if dropped:
+            # 週次被刪時教材檔列會跟著 FK CASCADE 消失，磁碟上的檔案要自己收
+            removed_storage_keys = [
+                key
+                for key in session.exec(
+                    select(TeachingClassTaskFile.storage_key).where(
+                        col(TeachingClassTaskFile.week_id).in_(
+                            [row.id for row in dropped]
+                        )
+                    )
+                ).all()
+                if isinstance(key, str)
+            ]
+        for row in dropped:
+            session.delete(row)
     session.commit()
+    for storage_key in removed_storage_keys:
+        _remove_task_file_blob(storage_key)
 
 
 @router.post("/{class_id}/generate-weeks")
@@ -988,29 +1050,19 @@ async def upload_week_file(
     if not week or week.class_id != class_id:
         raise NotFoundError(t("teachingClasses.weekNotFound"))
 
-    filename = (file.filename or "task-file").replace("\\", "/").split("/")[-1].strip()
-    if not filename or filename in {".", ".."}:
-        raise BadRequestError(t("teachingClasses.invalidFileName"))
-    if len(filename) > 255:
-        raise BadRequestError(t("teachingClasses.taskFileNameTooLong"))
-
-    file_id = uuid.uuid4()
-    storage_key = f"{file_id.hex}.task"
-    destination = TASK_FILE_ROOT / storage_key
-    destination.parent.mkdir(parents=True, exist_ok=True)
-    written = 0
-    try:
-        with destination.open("wb") as output:
-            while chunk := await file.read(1024 * 1024):
-                written += len(chunk)
-                if written > MAX_TASK_FILE_BYTES:
-                    raise BadRequestError(t("teachingClasses.taskFileTooLarge"))
-                output.write(chunk)
-    except Exception:
-        destination.unlink(missing_ok=True)
-        raise
-    finally:
-        await file.close()
+    filename = upload_store.sanitize_upload_filename(
+        file.filename,
+        default="task-file",
+        invalid_message=t("teachingClasses.invalidFileName"),
+        too_long_message=t("teachingClasses.taskFileNameTooLong"),
+    )
+    file_id, storage_key, _written = await upload_store.save_upload(
+        file,
+        root=weekly_task_service.TASK_FILE_ROOT,
+        suffix=".task",
+        max_bytes=MAX_TASK_FILE_BYTES,
+        too_large_message=t("teachingClasses.taskFileTooLarge"),
+    )
 
     session.add(
         TeachingClassTaskFile(
@@ -1025,13 +1077,8 @@ async def upload_week_file(
 
 
 def _remove_task_file_blob(storage_key: str | None) -> None:
-    """刪掉磁碟上的教材檔；storage_key 一律當成 TASK_FILE_ROOT 底下的相對路徑。"""
-    if not storage_key:
-        return
-    root = TASK_FILE_ROOT.resolve()
-    stored_path = (root / storage_key).resolve()
-    if stored_path.is_relative_to(root):
-        stored_path.unlink(missing_ok=True)
+    """刪掉磁碟上的教材檔；storage_key 一律當成教材根目錄底下的相對路徑。"""
+    upload_store.remove_blob(weekly_task_service.TASK_FILE_ROOT, storage_key)
 
 
 @router.delete("/{class_id}/weeks/{week_id}/files/{file_id}")
@@ -1071,13 +1118,7 @@ def capacity_preview(
     item = _get_class(session, current_user, class_id)
     if item.status != TeachingClassStatus.planning:
         raise BadRequestError(t("teachingClasses.onlyPlanningCanRecheckCapacity"))
-    nodes = list(
-        session.exec(
-            select(TeachingClassMachineNode)
-            .where(TeachingClassMachineNode.class_id == class_id)
-            .order_by(TeachingClassMachineNode.sort_order)
-        ).all()
-    )
+    nodes = _class_nodes(session, class_id)
     students = _students(session, class_id)
     return class_capacity_service.preview(
         session,
@@ -1087,18 +1128,44 @@ def capacity_preview(
     )
 
 
+def _require_node_templates_ready(
+    session: SessionDep, nodes: list[TeachingClassMachineNode]
+) -> None:
+    for node in nodes:
+        if node.source_type != "template" or not node.source_template_id:
+            continue
+        template = session.get(VMTemplate, node.source_template_id)
+        if template is None or template.status != VMTemplateStatus.ready:
+            raise BadRequestError(t("course_env.template_not_ready", name=node.name))
+
+
+def _recover_failed_provision_submit(session: SessionDep, item: TeachingClass) -> None:
+    """送出批次 job 中途失敗時，讓班級回到還能處理的狀態。
+
+    鎖與容量保留在送 job 前就 commit 了；若就此放著，班級會卡在
+    「planning + locked_at」：/provision 因鎖拒絕、reset/retry 要求
+    partial_failed、審核又找不到 pending job，只剩封存一途。
+    - 一個 job 都沒建成：放掉容量與 IP、解鎖，回到可以重送的 planning。
+    - 已經建了部分 job：轉成 pending_review，交給既有的審核／退回流程
+      （退回會放掉容量並解鎖）收尾。
+    """
+    session.rollback()
+    if any(node.batch_job_id for node in _class_nodes(session, item.id)):
+        item.status = TeachingClassStatus.pending_review
+    else:
+        class_capacity_service.release(session, class_id=item.id)
+        item.locked_at = None
+    item.updated_at = get_datetime_utc()
+    session.add(item)
+    session.commit()
+
+
 @router.post("/{class_id}/provision")
 def provision_class(
     class_id: uuid.UUID, session: SessionDep, current_user: InstructorUser
 ):
     item = _get_class(session, current_user, class_id)
-    nodes = list(
-        session.exec(
-            select(TeachingClassMachineNode)
-            .where(TeachingClassMachineNode.class_id == class_id)
-            .order_by(TeachingClassMachineNode.sort_order)
-        ).all()
-    )
+    nodes = _class_nodes(session, class_id)
     students = _students(session, class_id)
     if not nodes or not students:
         raise BadRequestError(t("teachingClasses.studentsAndMachinesRequired"))
@@ -1106,6 +1173,9 @@ def provision_class(
         raise BadRequestError(t("teachingClasses.classLockedOrSubmitted"))
     if item.course_version_id is None:
         raise BadRequestError(t("teachingClasses.selectPublishedCourseFirst"))
+    # 送 job 時才會發現範本不是 ready（例如範本正在更新），那時容量與鎖
+    # 都已經 commit 了；先在沒有任何副作用前擋下來。
+    _require_node_templates_ready(session, nodes)
     class_capacity_service.reserve(
         session,
         class_id=item.id,
@@ -1116,17 +1186,22 @@ def provision_class(
     item.locked_at = get_datetime_utc()
     session.add(item)
     session.commit()
-    for node in nodes:
-        if node.batch_job_id:
-            continue
-        node.batch_job_id = class_provision_service.submit_node_job(
-            session=session,
-            item=item,
-            node=node,
-            member_user_ids=[row.user_id for row in students],
-        )
-        session.add(node)
-        session.commit()
+    member_user_ids = [row.user_id for row in students]
+    try:
+        for node in nodes:
+            if node.batch_job_id:
+                continue
+            node.batch_job_id = class_provision_service.submit_node_job(
+                session=session,
+                item=item,
+                node=node,
+                member_user_ids=member_user_ids,
+            )
+            session.add(node)
+            session.commit()
+    except Exception:
+        _recover_failed_provision_submit(session, item)
+        raise
     item.status = TeachingClassStatus.pending_review
     item.updated_at = get_datetime_utc()
     session.add(item)
@@ -1155,27 +1230,12 @@ def reset_failed_class(
     if item.status != TeachingClassStatus.partial_failed:
         raise BadRequestError(t("teachingClasses.onlyFailedCanResetToEdit"))
     enrollment_ids = [row.id for row in _students(session, class_id)]
-    machine_rows = (
-        list(
-            session.exec(
-                select(TeachingClassStudentMachine).where(
-                    TeachingClassStudentMachine.class_student_id.in_(enrollment_ids)
-                )
-            ).all()
-        )
-        if enrollment_ids
-        else []
-    )
+    machine_rows = _class_machine_rows(session, enrollment_ids)
     if any(row.vmid is not None for row in machine_rows):
         raise BadRequestError(t("teachingClasses.partialMachinesUseRetry"))
     for row in machine_rows:
         session.delete(row)
-    nodes = session.exec(
-        select(TeachingClassMachineNode).where(
-            TeachingClassMachineNode.class_id == class_id
-        )
-    ).all()
-    for node in nodes:
+    for node in _class_nodes(session, class_id):
         node.batch_job_id = None
         session.add(node)
     class_capacity_service.release(session, class_id=class_id)
@@ -1212,13 +1272,7 @@ def reconcile_class(
     item = _get_class(session, current_user, class_id)
     if item.status == TeachingClassStatus.archived:
         return _serialize(session, item)
-    nodes = list(
-        session.exec(
-            select(TeachingClassMachineNode).where(
-                TeachingClassMachineNode.class_id == class_id
-            )
-        ).all()
-    )
+    nodes = _class_nodes(session, class_id)
     students = _students(session, class_id)
     enrollment_by_user = {row.user_id: row for row in students}
     for node in nodes:

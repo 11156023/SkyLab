@@ -20,6 +20,7 @@ from app.models import (
     AlertEvent,
     AuditLog,
     DeletionRequest,
+    FirewallLayout,
     MiningIncident,
     ResourceQuota,
     SpecChangeRequest,
@@ -130,6 +131,13 @@ def _prepare_user_delete(*, session: Session, user: User) -> None:
         select(DeletionRequest).where(DeletionRequest.user_id == user.id)
     ).all():
         session.delete(deletion_request)
+    # 防火牆拓樸的節點位置是個人版面設定；Internet（gateway）節點與
+    # 當時找不到 Resource 的節點 resource_vmid 為 NULL，不會被資源的
+    # CASCADE 帶走，要在這裡整批清掉。
+    for layout in session.exec(
+        select(FirewallLayout).where(FirewallLayout.user_id == user.id)
+    ).all():
+        session.delete(layout)
 
     # 告警事件本身與帳號無關，只清掉「誰確認的」
     for alert in session.exec(

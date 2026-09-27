@@ -37,6 +37,7 @@ from app.services.proxmox import provisioning_service, proxmox_service
 from app.services.resource import quota_service
 from app.services.template import clone_service, password_policy
 from app.utils.login_password import generate_login_password
+from app.utils.timeutil import normalize_datetime
 
 logger = logging.getLogger(__name__)
 
@@ -391,16 +392,10 @@ def _process_task(*, job_id: uuid.UUID, task_id: uuid.UUID) -> None:
                 teaching_class is None
                 or teaching_class.status == TeachingClassStatus.archived
             ):
-                resource_info = proxmox_service.find_resource(vmid)
-                from app.services.resource import resource_service
-
-                resource_service.delete(
-                    session=session,
+                _discard_provisioned_machine(
                     vmid=vmid,
-                    resource_info=resource_info,
-                    user_id=initiated_by_id,
-                    purge=True,
-                    force=True,
+                    initiated_by_id=initiated_by_id,
+                    reason="teaching class archived during provisioning",
                 )
                 raise RuntimeError(
                     "Teaching class was archived while resource was provisioning"
@@ -494,12 +489,6 @@ def _discard_provisioned_machine(
         )
 
 
-def _aware(value: datetime | None) -> datetime | None:
-    if value is None:
-        return None
-    return value if value.tzinfo is not None else value.replace(tzinfo=UTC)
-
-
 def _last_progress_at(
     job: BatchProvisionJob, tasks: list[BatchProvisionTask]
 ) -> datetime | None:
@@ -507,12 +496,18 @@ def _last_progress_at(
     stamps = [
         stamp
         for task in tasks
-        for stamp in (_aware(task.finished_at), _aware(task.started_at))
+        for stamp in (
+            normalize_datetime(task.finished_at),
+            normalize_datetime(task.started_at),
+        )
         if stamp is not None
     ]
     stamps.extend(
         stamp
-        for stamp in (_aware(job.reviewed_at), _aware(job.created_at))
+        for stamp in (
+            normalize_datetime(job.reviewed_at),
+            normalize_datetime(job.created_at),
+        )
         if stamp is not None
     )
     return max(stamps) if stamps else None
@@ -523,8 +518,8 @@ def reap_stale_batch_jobs(
 ) -> int:
     """回收卡死的 running 批次工作（供排程器每 tick 呼叫）。回傳回收的 job 數。
 
-    批量建立跑在 in-process 背景執行緒上：後端重啟、容器被換掉、執行緒
-    自己炸掉，job 就永遠停在 running —— 班級狀態卡在「建立中」，重試入口
+    批量建立在 arq worker 裡執行：worker 在 job 跑到一半時被砍掉、OOM 或
+    崩潰，job 就會永遠停在 running —— 班級狀態卡在「建立中」，重試入口
     也不會出現。狀態為 ``running``、且超過 ``max_running_hours`` 沒有任何
     task 有進度的 job，連同它尚未結束的 task 一起標成 failed。
     """
@@ -712,6 +707,12 @@ def _provision_one(
             delta_instances=1,
         )
 
+    reservation_key = (
+        f"{params['ip_reservation_prefix']}:{user_id}"
+        if params.get("ip_reservation_prefix")
+        else None
+    )
+
     if params.get("vm_template_id"):
         # 少了這個 key，clone worker 會當成「允許」而一律發隨機密碼，
         # 範本不勾也被覆寫
@@ -732,23 +733,14 @@ def _provision_one(
             "batch_job_id": str(batch_job_id) if batch_job_id else None,
             "environment_type": params.get("environment_type", "批量建立"),
             "expiry_date": params.get("expiry_date"),
-            "ip_reservation_key": (
-                f"{params['ip_reservation_prefix']}:{user_id}"
-                if params.get("ip_reservation_prefix")
-                else None
-            ),
+            "ip_reservation_key": reservation_key,
         }
-        # 同步執行（batch 已在背景執行緒）；task_id 無對應 TaskRecord，
+        # 同步執行（本身已在 arq worker 的批次 job 裡）；task_id 無對應 TaskRecord，
         # report_progress 會自動 no-op
         clone_result = clone_service.run_clone_task(uuid.uuid4(), payload)
         return int(clone_result["vmid"])
 
     if resource_type == "lxc":
-        reservation_key = (
-            f"{params['ip_reservation_prefix']}:{user_id}"
-            if params.get("ip_reservation_prefix")
-            else None
-        )
         req = LXCCreateRequest(
             hostname=hostname,
             ostemplate=params["ostemplate"],
@@ -772,11 +764,6 @@ def _provision_one(
             target_node=target_node,
         )
     else:
-        reservation_key = (
-            f"{params['ip_reservation_prefix']}:{user_id}"
-            if params.get("ip_reservation_prefix")
-            else None
-        )
         req = VMCreateRequest(
             hostname=hostname,
             template_id=params["template_id"],

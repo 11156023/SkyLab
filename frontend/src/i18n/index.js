@@ -130,7 +130,15 @@ i18n.use(initReactI18next).init({
   returnEmptyString: false,
 });
 
-/** 切換語系並持久化到 localStorage（Sidebar 語言選單使用） */
+/**
+ * 把語系代碼收斂到支援清單內；不支援（或尚未初始化）時退回預設語言。
+ * 元件內請傳 useTranslation() 拿到的 i18n.language，切換語言時才會跟著重新 render。
+ */
+export function currentLanguage(lang = i18n.language) {
+  return SUPPORTED_LANGUAGES.includes(lang) ? lang : DEFAULT_LANGUAGE;
+}
+
+/** 切換語系並持久化到 localStorage（各處語言選單使用） */
 export function setLanguage(lang) {
   if (!SUPPORTED_LANGUAGES.includes(lang)) return;
   i18n.changeLanguage(lang);

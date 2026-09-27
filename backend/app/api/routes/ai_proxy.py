@@ -173,11 +173,6 @@ def _usage_details(payload: Any) -> tuple[int, int, bool, str | None]:
         return 0, 0, True, str(model)[:255] if model else None
 
 
-def _usage_tokens(payload: Any) -> tuple[int, int]:
-    input_tokens, output_tokens, _reported, _model = _usage_details(payload)
-    return input_tokens, output_tokens
-
-
 def _update_stream_usage(
     line: str, usage: dict[str, Any], *, started_at: float | None = None
 ) -> None:
@@ -231,12 +226,18 @@ def _request_id(request: Request) -> str:
     return supplied[:255] if supplied else str(uuid.uuid4())
 
 
-async def _enforce_rate_limit(*, user: Any, credential: Any) -> None:
-    limit = (
+def _credential_rate_limit(credential: Any) -> int:
+    """每分鐘上限：金鑰自己的 rate_limit 優先，否則用全站預設（限流與狀態端點共用）。"""
+    limit: int = (
         credential.rate_limit
         if credential.rate_limit is not None
         else ai_api_settings.ai_api_rate_limit_per_minute
     )
+    return limit
+
+
+async def _enforce_rate_limit(*, user: Any, credential: Any) -> None:
+    limit = _credential_rate_limit(credential)
     redis = await get_redis()
     allowed, rate_info = await check_rate_limit_sliding_window(
         redis=redis,
@@ -297,7 +298,9 @@ async def _json_payload(request: Request) -> dict[str, Any] | JSONResponse:
         )
     try:
         payload = json.loads(body)
-    except json.JSONDecodeError:
+    # JSONDecodeError 之外，非 UTF-8（UnicodeDecodeError）、超長整數（ValueError）
+    # 與過深巢狀（RecursionError）也都是格式錯誤，一律回 invalid_json 400。
+    except (ValueError, RecursionError):
         return _openai_error(
             status.HTTP_400_BAD_REQUEST,
             "Request body must be valid JSON.",
@@ -748,14 +751,9 @@ async def get_my_usage_stats(
 )
 async def get_rate_limit_status(
     user_and_credential: AIAPIUserDep,
-    session: SessionDep,
-):
+) -> RateLimitStatusResponse:
     user, credential = user_and_credential
-    limit = (
-        credential.rate_limit
-        if credential.rate_limit is not None
-        else ai_api_settings.ai_api_rate_limit_per_minute
-    )
+    limit = _credential_rate_limit(credential)
     redis = await get_redis()
     if redis is None:
         return RateLimitStatusResponse(

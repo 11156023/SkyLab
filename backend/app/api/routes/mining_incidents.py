@@ -6,7 +6,7 @@ from fastapi import APIRouter, Query
 
 from app.api.deps import AdminUser, SessionDep
 from app.exceptions import NotFoundError
-from app.models import MiningIncidentStatus
+from app.models import AuditAction, MiningIncidentStatus
 from app.repositories import mining as mining_repo
 from app.repositories import resource as resource_repo
 from app.schemas.mining import (
@@ -86,7 +86,7 @@ def set_exemption(
         session=session,
         user_id=current_user.id,
         vmid=vmid,
-        action="mining_exempt_change",
+        action=AuditAction.mining_exempt_change,
         details=(
             f"Mining exemption {'granted' if body.exempt else 'revoked'} "
             f"for vmid={vmid}"

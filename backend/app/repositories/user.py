@@ -26,8 +26,6 @@ def _resolve_role_fields(
 
     if role == UserRole.admin:
         return role, True, False
-    if role == UserRole.teacher:
-        return role, False, False
     return role, False, False
 
 
@@ -62,13 +60,24 @@ def update_user(*, session: Session, db_user: User, user_in: UserUpdate) -> Any:
     # 否則被停權的人只要不登出就能繼續用到 token 自然過期為止。
     # （使用者自行改密碼走 user_service.update_password，那裡已經 +1。）
     deactivating = user_data.get("is_active") is False and db_user.is_active
-    if "password" in user_data or deactivating:
-        extra_data["token_version"] = db_user.token_version + 1
+    # 呼叫端明確給了 role 卻沒給 is_superuser 時（管理頁改角色就是這樣送），
+    # is_superuser 要跟著新角色走；沿用 DB 裡的 True 會被 _resolve_role_fields
+    # 強制拉回 admin，管理員永遠降不了級。
+    requested_superuser = user_data.get("is_superuser")
+    if requested_superuser is None:
+        if user_data.get("role") is not None:
+            requested_superuser = user_data["role"] == UserRole.admin
+        else:
+            requested_superuser = db_user.is_superuser
     role, is_superuser, is_instructor = _resolve_role_fields(
         role=user_data.get("role", db_user.role),
-        is_superuser=user_data.get("is_superuser", db_user.is_superuser),
+        is_superuser=requested_superuser,
         is_instructor=db_user.is_instructor,
     )
+    # 降掉管理員權限後，帶著舊權限簽出的 token 也要一起作廢。
+    demoted_from_admin = db_user.is_superuser and not is_superuser
+    if "password" in user_data or deactivating or demoted_from_admin:
+        extra_data["token_version"] = db_user.token_version + 1
     extra_data["role"] = role
     extra_data["is_superuser"] = is_superuser
     extra_data["is_instructor"] = is_instructor

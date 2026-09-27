@@ -10,6 +10,7 @@ from typing import Any
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException
+from sqlmodel import Session
 
 from app.ai.monitoring import new_ai_request_id
 from app.ai.template_recommendation.config import settings
@@ -42,6 +43,7 @@ from app.api.deps.rate_limit import rate_limit_by_user
 from app.core.i18n import t
 from app.core.permissions import Permission, has_permission
 from app.infrastructure.ai.template_recommendation import client
+from app.models import User
 from app.repositories import vm_request as vm_request_repo
 from app.repositories import vm_template as vm_template_repo
 from app.services.llm_gateway import ai_gateway_service
@@ -53,6 +55,8 @@ logger = logging.getLogger(__name__)
 _GPU_OPTIONS_CACHE_TTL_SECONDS = 20.0
 _LIVE_NODES_CACHE_TTL_SECONDS = 15.0
 _RESOURCE_OPTIONS_CACHE_TTL_SECONDS = 300.0
+# 應用範本目錄讀取失敗（PVE 掛掉）時也短暫快取空清單，避免每個請求都重打 PVE
+_APPLICATION_TEMPLATES_FAILURE_TTL_SECONDS = 30.0
 _gpu_options_cache: dict[str, Any] = {"at": 0.0, "items": []}
 _live_nodes_cache: dict[str, Any] = {"at": 0.0, "items": []}
 _base_resource_options_cache: dict[str, Any] = {"at": 0.0, "items": None}
@@ -162,7 +166,7 @@ def _build_resource_options_with_gpu(
     return resource_options
 
 
-def _get_application_templates_cached(session: SessionDep) -> list[dict[str, Any]]:
+def _get_application_templates_cached(session: Session) -> list[dict[str, Any]]:
     """已開放的應用範本目錄。
 
     目錄與使用者無關（開放與否是範本自己的旗標），所以整個程序共用一份快取；
@@ -172,15 +176,18 @@ def _get_application_templates_cached(session: SessionDep) -> list[dict[str, Any
     now = monotonic()
     cached_at = float(_application_templates_cache.get("at") or 0.0)
     cached_items = _application_templates_cache.get("items")
-    if (
-        cached_items is not None
-        and (now - cached_at) <= _RESOURCE_OPTIONS_CACHE_TTL_SECONDS
-    ):
+    cached_ttl = float(
+        _application_templates_cache.get("ttl") or _RESOURCE_OPTIONS_CACHE_TTL_SECONDS
+    )
+    if cached_items is not None and (now - cached_at) <= cached_ttl:
         return deepcopy(cached_items)
     try:
         catalog = template_service.list_student_catalog(session=session)
-    except Exception as exc:  # pragma: no cover - PVE 失敗不該擋住建議
+    except Exception as exc:  # PVE 失敗不該擋住建議
         logger.warning("Unable to load the application template catalog: %s", exc)
+        _application_templates_cache["at"] = now
+        _application_templates_cache["items"] = []
+        _application_templates_cache["ttl"] = _APPLICATION_TEMPLATES_FAILURE_TTL_SECONDS
         return []
     items = [
         {
@@ -196,12 +203,13 @@ def _get_application_templates_cached(session: SessionDep) -> list[dict[str, Any
     ]
     _application_templates_cache["at"] = now
     _application_templates_cache["items"] = items
+    _application_templates_cache["ttl"] = _RESOURCE_OPTIONS_CACHE_TTL_SECONDS
     return deepcopy(items)
 
 
 def _allowed_vm_template_ids(
-    session: SessionDep,
-    user: CurrentUser,
+    session: Session,
+    user: User,
     application_templates: list[dict[str, Any]],
 ) -> set[int]:
     """使用者實際可以拿來申請的 VM 來源 id（PVE 讀不到時回空集合）。"""
@@ -222,8 +230,8 @@ def _allowed_vm_template_ids(
 def _resolve_resource_options(
     request: ChatRequest,
     gpu_options: list[dict[str, Any]],
-    session: SessionDep,
-    user: CurrentUser,
+    session: Session,
+    user: User,
 ) -> dict[str, Any]:
     """候選清單必須跟使用者實際能選的一致。
 
@@ -281,7 +289,7 @@ def _resolve_recommend_gpu_options(
 
 
 def _resolve_chat_gpu_options(
-    request: ChatRequest, session: SessionDep
+    request: ChatRequest, session: Session
 ) -> list[dict[str, Any]]:
     if not _should_include_gpu_runtime_context(request):
         return []
@@ -328,6 +336,46 @@ def _resolve_chat_gpu_options(
     return adjusted
 
 
+async def _record_failed_template_call(
+    session: Session,
+    *,
+    user_id: Any,
+    call_type: str,
+    model_name: str,
+    request_id: str,
+    started_at: float,
+    started_at_utc: datetime,
+    exc: Exception,
+) -> None:
+    """記錄失敗的 template 呼叫（chat／recommend 共用）；記錄本身出錯不得掩蓋原始錯誤。"""
+    try:
+        await asyncio.to_thread(
+            ai_gateway_service.record_template_call,
+            session=session,
+            user_id=user_id,
+            call_type=call_type,
+            model_name=model_name,
+            request_id=request_id,
+            request_duration_ms=int(max(perf_counter() - started_at, 0.0) * 1000),
+            status="error",
+            error_message=str(exc)[:500],
+            started_at=started_at_utc,
+            completed_at=datetime.now(timezone.utc),
+        )
+    except Exception:
+        pass
+
+
+def _raise_if_upstream_error(exc: Exception) -> None:
+    """模型上游（vLLM）的 HTTP 錯誤一律轉成 502；其他例外交回呼叫端原樣拋出。"""
+    if isinstance(exc, httpx.HTTPError):
+        logger.error("vLLM upstream error: %s", exc)
+        raise HTTPException(
+            status_code=502,
+            detail=t("aiTemplateRecommendation.upstreamError"),
+        ) from exc
+
+
 @router.post(
     "/chat",
     response_model=ChatResponse,
@@ -346,7 +394,10 @@ async def chat(
 
     is_first_turn = len(request.messages) <= 1
     form_context = request.form_context
-    gpu_options = _resolve_chat_gpu_options(request, session)
+    # 同步的 PVE／DB 呼叫一律丟到 worker thread：async 路由直接呼叫會在 PVE 慢或
+    # 連線池耗盡時凍住整個 event loop（VNC／終端機／教室 WS 一起卡住）。
+    # session 同一時間只交給一個 thread 依序使用，是安全的。
+    gpu_options = await asyncio.to_thread(_resolve_chat_gpu_options, request, session)
     runtime_context = (
         build_chat_runtime_context(
             resource_type=(form_context.resource_type if form_context else None),
@@ -418,7 +469,8 @@ async def chat(
 
         # 記錄 template chat 呼叫
         try:
-            ai_gateway_service.record_template_call(
+            await asyncio.to_thread(
+                ai_gateway_service.record_template_call,
                 session=session,
                 user_id=current_user.id,
                 call_type="chat",
@@ -447,29 +499,17 @@ async def chat(
     except HTTPException:
         raise
     except Exception as exc:
-        # 記錄失敗
-        try:
-            ai_gateway_service.record_template_call(
-                session=session,
-                user_id=current_user.id,
-                call_type="chat",
-                model_name=model_name,
-                request_id=request_id,
-                request_duration_ms=int((perf_counter() - started_at) * 1000),
-                status="error",
-                error_message=str(exc)[:500],
-                started_at=started_at_utc,
-                completed_at=datetime.now(timezone.utc),
-            )
-        except Exception:
-            # 記錄失敗 log 時出錯不得掩蓋原始錯誤
-            pass
-        if isinstance(exc, httpx.HTTPError):
-            logger.error("vLLM upstream error: %s", exc)
-            raise HTTPException(
-                status_code=502,
-                detail=t("aiTemplateRecommendation.upstreamError"),
-            ) from exc
+        await _record_failed_template_call(
+            session,
+            user_id=current_user.id,
+            call_type="chat",
+            model_name=model_name,
+            request_id=request_id,
+            started_at=started_at,
+            started_at_utc=started_at_utc,
+            exc=exc,
+        )
+        _raise_if_upstream_error(exc)
         raise
 
 
@@ -492,7 +532,9 @@ async def recommend(
     extracted_intent = infer_intent_from_chat(request)
     live_nodes_task = asyncio.create_task(_get_live_device_nodes_safely())
     form_context = request.form_context
-    gpu_options = _resolve_recommend_gpu_options(
+    # 同步 PVE／DB 呼叫丟到 worker thread，理由同 chat
+    gpu_options = await asyncio.to_thread(
+        _resolve_recommend_gpu_options,
         request,
         requires_gpu=extracted_intent.requires_gpu,
     )
@@ -507,11 +549,10 @@ async def recommend(
         needs_windows=extracted_intent.needs_windows,
         device_nodes=request.device_nodes,
         form_context=form_context,
-        top_k=request.top_k,
     )
 
-    resource_options = _resolve_resource_options(
-        request, gpu_options, session, current_user
+    resource_options = await asyncio.to_thread(
+        _resolve_resource_options, request, gpu_options, session, current_user
     )
 
     try:
@@ -544,7 +585,8 @@ async def recommend(
 
         # 記錄 template recommend 呼叫
         try:
-            ai_gateway_service.record_template_call(
+            await asyncio.to_thread(
+                ai_gateway_service.record_template_call,
                 session=session,
                 user_id=current_user.id,
                 call_type="recommend",
@@ -566,29 +608,17 @@ async def recommend(
 
         return result
     except Exception as exc:
-        elapsed_seconds = max(perf_counter() - started_at, 0.0)
-        try:
-            ai_gateway_service.record_template_call(
-                session=session,
-                user_id=current_user.id,
-                call_type="recommend",
-                model_name=model_name,
-                request_id=request_id,
-                request_duration_ms=int(elapsed_seconds * 1000),
-                status="error",
-                error_message=str(exc)[:500],
-                started_at=started_at_utc,
-                completed_at=datetime.now(timezone.utc),
-            )
-        except Exception:
-            # 記錄失敗 log 時出錯不得掩蓋原始錯誤
-            pass
-        if isinstance(exc, httpx.HTTPError):
-            logger.error("vLLM upstream error: %s", exc)
-            raise HTTPException(
-                status_code=502,
-                detail=t("aiTemplateRecommendation.upstreamError"),
-            ) from exc
+        await _record_failed_template_call(
+            session,
+            user_id=current_user.id,
+            call_type="recommend",
+            model_name=model_name,
+            request_id=request_id,
+            started_at=started_at,
+            started_at_utc=started_at_utc,
+            exc=exc,
+        )
+        _raise_if_upstream_error(exc)
         raise
 
 

@@ -23,17 +23,14 @@ import {
   buildProposalDiff,
   buildStudentOverviewRows,
   getRubricDisplayName,
-  getRubricCheckTitle,
   getRubricItemsValue,
   getRubricReviewItemIds,
   getPendingRubricItemIds,
   getStudentOverviewStatus,
   resolveDetectabilityNeedsReview,
   sortStudentOverviewRows,
-  sortTeacherReviewRows,
   getScriptCreationBlocker,
   getSessionMenuPosition,
-  getSelectedRubricSource,
   getScriptCreationDestination,
   getScriptReviewAttemptIssues,
   getTargetReviewSummary,
@@ -1233,13 +1230,9 @@ describe("proposalToolCallLines", () => {
 });
 
 describe("uploaded rubric naming", () => {
-  test("匯入檔名移除副檔名，且檢查名稱保留檔名主體並限制長度", () => {
+  test("匯入檔名移除副檔名", () => {
     expect(getRubricDisplayName({ name: "AI檢查表審核系統_Python服務Running狀態檢測_簡短版.docx" }))
       .toBe("AI檢查表審核系統_Python服務Running狀態檢測_簡短版");
-    expect(getRubricCheckTitle({ original_filename: "保存的檢查表.docx" })).toBe("保存的檢查表");
-    expect(getRubricCheckTitle({ display_name: "自訂檢查表", original_filename: "保存的檢查表.docx" })).toBe("自訂檢查表");
-    expect(getRubricCheckTitle({ name: "  " })).toBe("未命名檢查");
-    expect(getRubricCheckTitle({ name: "a".repeat(300) })).toHaveLength(255);
   });
 });
 
@@ -1264,24 +1257,6 @@ describe("SessionTitle", () => {
 
     expect(html).toContain('title="這是一個很長的 AI 檢查 session 名稱"');
     expect(html).toContain(title);
-  });
-});
-
-describe("getSelectedRubricSource", () => {
-  const files = [
-    { id: "file-other", status: "active", display_name: "其他檢查" },
-    { id: "file-selected", status: "active", display_name: "目前檢查" },
-    { id: "file-replaced", status: "replaced", display_name: "已取代來源" },
-  ];
-
-  test("只回傳目前檢查選用的 active 來源", () => {
-    expect(getSelectedRubricSource(files, "file-selected")).toEqual(files[1]);
-    expect(getSelectedRubricSource(files, "file-other")).toEqual(files[0]);
-  });
-
-  test("沒有選用來源或來源已失效時不回傳其他班級來源", () => {
-    expect(getSelectedRubricSource(files, null)).toBeNull();
-    expect(getSelectedRubricSource(files, "file-replaced")).toBeNull();
   });
 });
 
@@ -1391,22 +1366,6 @@ describe("teacher review summary", () => {
   test("沒有結果與執行失敗會清楚分開", () => {
     expect(getTargetReviewSummary(null).kind).toBe("missing");
     expect(getTargetReviewSummary({ status: "failed" }).kind).toBe("failed");
-  });
-
-  test("可依待處理或學號帳號排序", () => {
-    const rows = [
-      {
-        member: { full_name: "Zoe", email: "s10@example.edu", vmid: 310 },
-        target: { vmid: 310, parsed_result: { checks: [{ id: "a", status: "pass" }] } },
-      },
-      {
-        member: { full_name: "Amy", email: "s2@example.edu", vmid: 302 },
-        target: { vmid: 302, parsed_result: { checks: [{ id: "b", status: "unknown" }] } },
-      },
-    ];
-
-    expect(sortTeacherReviewRows(rows, "pending")[0].member.email).toBe("s2@example.edu");
-    expect(sortTeacherReviewRows(rows, "student-number")[0].member.email).toBe("s2@example.edu");
   });
 });
 

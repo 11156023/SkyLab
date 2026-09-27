@@ -22,6 +22,7 @@ from app.models import (
 )
 from app.services.network import ip_management_service
 from app.services.proxmox import provisioning_service, proxmox_service
+from app.services.teaching import class_network_service
 from app.services.vm import placement_service, placement_support
 
 GIB = 1024**3
@@ -34,12 +35,9 @@ def calculate(
     students: list[TeachingClassStudent],
 ) -> dict[str, int]:
     student_count = len(students)
-    per_student_networks = {
-        name.strip()
-        for node in nodes
-        for name in (node.network or "lab-net").replace("/", ",").split(",")
-        if name.strip()
-    }
+    per_student_networks: set[str] = set().union(
+        *(class_network_service.network_segments(node.network) for node in nodes)
+    )
     return {
         "student_count": student_count,
         "machines_per_student": len(nodes),
@@ -65,8 +63,11 @@ def preview(
         []
         if ip_stats["available"] >= totals["ip_count"]
         else [
-            f"IP 不足：需要 {totals['ip_count']} 個，"
-            f"目前只剩 {ip_stats['available']} 個"
+            t(
+                "class_capacity.ip_insufficient",
+                required=totals["ip_count"],
+                available=ip_stats["available"],
+            )
         ]
     )
     placement_plan: dict[str, dict[str, int]] = {}

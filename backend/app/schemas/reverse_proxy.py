@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import uuid
 from datetime import datetime
 from typing import Literal
 
@@ -16,6 +17,20 @@ class ReverseProxyRuleCreate(BaseModel):
 
 class ReverseProxyRuleUpdate(ReverseProxyRuleCreate):
     pass
+
+
+class ReverseProxyRulePublic(BaseModel):
+    """反向代理規則（回應）"""
+
+    id: uuid.UUID
+    vmid: int
+    vm_ip: str
+    domain: str
+    zone_id: str | None = None
+    internal_port: int
+    enable_https: bool
+    dns_provider: str
+    created_at: datetime
 
 
 class ReverseProxyZoneOption(BaseModel):
@@ -91,6 +106,7 @@ class ReverseProxyRuntimeSnapshot(BaseModel):
 __all__ = [
     "ReverseProxyRuleCreate",
     "ReverseProxyRuleUpdate",
+    "ReverseProxyRulePublic",
     "ReverseProxyZoneOption",
     "ReverseProxySetupContext",
     "ReverseProxyHttpServer",

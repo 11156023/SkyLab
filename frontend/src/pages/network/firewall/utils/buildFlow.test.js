@@ -58,3 +58,19 @@ describe("buildFlow 上網線開關", () => {
     expect(web.data.exposed_count).toBe(1);
   });
 });
+
+describe("buildFlow 邊 id", () => {
+  it("前面的連線被移除時，未變動連線的 id 不變（連線面板不會被關掉）", () => {
+    const before = buildFlow(topology);
+    const after = buildFlow({ ...topology, edges: [topology.edges[2]] });
+    const idOf = (flow) =>
+      flow.edges.find((e) => e.source === "101" && e.target === "102").id;
+    expect(idOf(after)).toBe(idOf(before));
+  });
+
+  it("同一組來源→目標重複出現時 id 仍唯一", () => {
+    const dup = topology.edges[2];
+    const { edges } = buildFlow({ ...topology, edges: [dup, { ...dup }] });
+    expect(new Set(edges.map((e) => e.id)).size).toBe(2);
+  });
+});

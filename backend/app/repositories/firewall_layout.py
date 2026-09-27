@@ -53,25 +53,22 @@ def upsert_layout_batch(
         existing = get_node(
             session=session, user_id=user_id, vmid=vmid, node_type=node_type
         )
+        resource_vmid = (
+            vmid
+            if vmid is not None and session.get(Resource, vmid) is not None
+            else None
+        )
         if existing:
             existing.position_x = position_x
             existing.position_y = position_y
-            existing.resource_vmid = (
-                vmid
-                if vmid is not None and session.get(Resource, vmid) is not None
-                else None
-            )
+            existing.resource_vmid = resource_vmid
             existing.updated_at = now
             session.add(existing)
         else:
             node = FirewallLayout(
                 user_id=user_id,
                 vmid=vmid,
-                resource_vmid=(
-                    vmid
-                    if vmid is not None and session.get(Resource, vmid) is not None
-                    else None
-                ),
+                resource_vmid=resource_vmid,
                 node_type=node_type,
                 position_x=position_x,
                 position_y=position_y,

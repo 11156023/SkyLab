@@ -13,11 +13,6 @@ export const MonitoringService = {
     );
   },
 
-  /** VM/LXC RRD 趨勢（擁有者或管理員） */
-  getVmRrd(vmid, timeframe = "hour") {
-    return apiGet(`/api/v1/monitoring/vms/${vmid}/rrd?timeframe=${timeframe}`);
-  },
-
   /** 警告事件列表（active=true 只列未解除的） */
   listAlerts({ active = false, limit = 200 } = {}) {
     const q = new URLSearchParams();

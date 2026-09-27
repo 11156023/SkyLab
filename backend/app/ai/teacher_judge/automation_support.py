@@ -130,7 +130,7 @@ def missing_step_information(
                 _gap_text(
                     parameters,
                     "argv",
-                    "瑕佹鏌ョ殑妾旀銆佹湇鍕欐垨瑷橀寗绡勫湇",
+                    "要檢查的檔案、服務或記錄範圍",
                     "argv 必須是非空的字串陣列",
                 )
             )
@@ -144,7 +144,7 @@ def missing_step_information(
                 _gap_text(
                     parameters,
                     "timeout_seconds",
-                    "鍛戒护閫炬檪绉掓暩",
+                    "命令逾時秒數",
                     "timeout_seconds 必須是 1-300 的整數",
                 )
             )

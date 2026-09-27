@@ -1,7 +1,9 @@
 """Resource deletion request service.
 
-提供「將刪除請求加入佇列」、「取消佇列中的刪除」、「scheduler 處理 pending」三組能力。
+提供「將刪除請求加入佇列並交給 arq worker」、「worker 端執行（含重試）」、
+「scheduler tick 安全網（撿回 pending 與殭屍 running）」三組能力。
 實際刪除邏輯仍委派給 `resource_service.delete`，本 service 只負責生命週期管理與 audit。
+進度與結果由 Jobs 顯示；``cancelled`` 狀態已無寫入端，只保留讀取端的判斷。
 """
 
 from __future__ import annotations
@@ -27,9 +29,21 @@ logger = logging.getLogger(__name__)
 
 TASK_DELETE = "resource.delete"
 
+# 仍在處理中的刪除單；同一 vmid 同時只能有一張（partial unique index 把關）
+_ACTIVE_STATUSES = (DeletionRequestStatus.pending, DeletionRequestStatus.running)
+
 
 def _utc_now() -> datetime:
     return datetime.now(timezone.utc)
+
+
+def _find_active(session: Session, vmid: int) -> DeletionRequest | None:
+    return session.exec(
+        select(DeletionRequest).where(
+            DeletionRequest.vmid == vmid,
+            DeletionRequest.status.in_(_ACTIVE_STATUSES),  # type: ignore[union-attr]
+        )
+    ).first()
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -50,14 +64,7 @@ def create_deletion_request(
 
     若該 vmid 已有 pending/running 的請求，直接回傳該請求避免重複佇列。
     """
-    existing = session.exec(
-        select(DeletionRequest).where(
-            DeletionRequest.vmid == vmid,
-            DeletionRequest.status.in_(  # type: ignore[union-attr]
-                [DeletionRequestStatus.pending, DeletionRequestStatus.running]
-            ),
-        )
-    ).first()
+    existing = _find_active(session, vmid)
     if existing is not None:
         return existing
 
@@ -80,40 +87,13 @@ def create_deletion_request(
         # Another scheduler/API replica may have queued the same VM between
         # our read and insert. The partial unique index is the final arbiter.
         session.rollback()
-        existing = session.exec(
-            select(DeletionRequest).where(
-                DeletionRequest.vmid == vmid,
-                DeletionRequest.status.in_(  # type: ignore[union-attr]
-                    [DeletionRequestStatus.pending, DeletionRequestStatus.running]
-                ),
-            )
-        ).first()
+        existing = _find_active(session, vmid)
         if existing is not None:
             return existing
         raise
     session.refresh(req)
     logger.info("Queued deletion request %s for vmid=%s", req.id, vmid)
     return req
-
-
-def list_all(
-    *,
-    session: Session,
-    status: DeletionRequestStatus | None = None,
-    skip: int = 0,
-    limit: int = 100,
-) -> tuple[list[DeletionRequest], int]:
-    stmt = select(DeletionRequest)
-    if status is not None:
-        stmt = stmt.where(DeletionRequest.status == status)
-    stmt = stmt.order_by(DeletionRequest.created_at.desc()).offset(skip).limit(limit)  # type: ignore[union-attr]
-    rows = session.exec(stmt).all()
-
-    count_stmt = select(DeletionRequest.id)
-    if status is not None:
-        count_stmt = count_stmt.where(DeletionRequest.status == status)
-    total = len(session.exec(count_stmt).all())
-    return list(rows), total
 
 
 def list_active_for_vmids(
@@ -127,9 +107,7 @@ def list_active_for_vmids(
     rows = session.exec(
         select(DeletionRequest).where(
             DeletionRequest.vmid.in_(vmids),  # type: ignore[union-attr]
-            DeletionRequest.status.in_(  # type: ignore[union-attr]
-                [DeletionRequestStatus.pending, DeletionRequestStatus.running]
-            ),
+            DeletionRequest.status.in_(_ACTIVE_STATUSES),  # type: ignore[union-attr]
         )
     ).all()
     return {r.vmid: r for r in rows}
@@ -444,7 +422,7 @@ def process_pending_deletions(session: Session) -> None:
                 "process_pending_deletions: unhandled error for request %s", req.id
             )
             # 安全網路徑沒有重試 wrapper：若不收尾，請求會永遠卡在 running
-            # （之後的 tick 只撈 pending）。標記 failed，留給使用者手動 retry。
+            # （之後的 tick 只撈 pending）。標記 failed，使用者可再送一次刪除（failed 不算進行中）。
             try:
                 session.rollback()
                 fresh = session.get(DeletionRequest, req.id)
@@ -458,9 +436,4 @@ def process_pending_deletions(session: Session) -> None:
                 logger.exception(
                     "process_pending_deletions: failed to finalize request %s", req.id
                 )
-
-
-# ──────────────────────────────────────────────────────────────────────────────
-# Helpers for jobs/UI
-# ──────────────────────────────────────────────────────────────────────────────
 

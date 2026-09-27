@@ -17,7 +17,7 @@ from typing import Any
 
 from sqlmodel import Session
 
-from app.features.ai.config import settings
+from app.core.config import settings
 from app.models import TaskRecord, TaskRecordStatus
 from app.repositories import task_record as task_record_repo
 
@@ -171,13 +171,13 @@ async def _run_then_close_pool(coro: Any) -> Any:
     try:
         return await coro
     finally:
-        if settings.redis_enabled:
+        if settings.REDIS_ENABLED:
             await close_arq_pool()
 
 
 async def _job_exists(job_id: str) -> bool:
     """同 job id 的任務是否已在排隊／執行中（arq 或本機 runner）。"""
-    if not settings.redis_enabled:
+    if not settings.REDIS_ENABLED:
         from app.infrastructure.worker import is_active
 
         return is_active(job_id)
@@ -200,7 +200,7 @@ async def _dispatch(
 
     只做入列，不碰 DB；被 ``job_id`` 去重擋下時拋 ``DuplicateJobError``。
     """
-    if not settings.redis_enabled:
+    if not settings.REDIS_ENABLED:
         # Import task modules lazily so their decorators populate the
         # registry without creating an import cycle during app startup.
         from app.infrastructure.worker import is_active, submit

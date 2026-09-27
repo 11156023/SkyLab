@@ -30,20 +30,17 @@ from app.schemas.resource_settings import (
     SshKeyRegenerateResponse,
 )
 from app.services.proxmox import proxmox_service
+from app.services.resource._guest_helpers import (
+    is_running,
+    read_config,
+    resource_type,
+)
 from app.services.user import audit_service
 from app.utils.login_password import generate_login_password
 
 logger = logging.getLogger(__name__)
 
 _LXC_AUTHORIZED_KEYS = "/root/.ssh/authorized_keys"
-
-
-def _rtype(resource_info: dict[str, Any]) -> str:
-    return "lxc" if str(resource_info.get("type") or "") == "lxc" else "qemu"
-
-
-def _is_running(resource_info: dict[str, Any]) -> bool:
-    return str(resource_info.get("status") or "") == "running"
 
 
 def _key_identity(key: str) -> str:
@@ -84,11 +81,7 @@ def _get_db_resource(session: Session, vmid: int):
 
 
 def _qemu_config(resource_info: dict[str, Any], vmid: int) -> dict[str, Any]:
-    try:
-        return proxmox_service.get_config(resource_info["node"], vmid, "qemu")
-    except Exception as exc:
-        logger.error("Failed to read config for %s: %s", vmid, exc)
-        raise ProxmoxError(t("resource_settings.readConfigFailed", vmid=vmid))
+    return read_config(resource_info, vmid, "qemu")
 
 
 def _qemu_authorized_keys(config: dict[str, Any]) -> list[str]:
@@ -132,7 +125,7 @@ def _qemu_reboot_to_apply(resource_info: dict[str, Any], vmid: int) -> str | Non
 
 
 def _require_lxc_running(resource_info: dict[str, Any]) -> None:
-    if not _is_running(resource_info):
+    if not is_running(resource_info):
         raise BadRequestError(t("resource_settings.lxcMustBeRunning"))
 
 
@@ -161,8 +154,16 @@ def _lxc_exec(
     return out
 
 
-def _lxc_authorized_keys(resource_info: dict[str, Any], vmid: int) -> list[str]:
-    if not _is_running(resource_info):
+def _lxc_authorized_keys(
+    resource_info: dict[str, Any], vmid: int, *, strict: bool = False
+) -> list[str]:
+    """讀 LXC 的 authorized_keys；檔案不存在時回空清單。
+
+    ``strict=False`` 只給唯讀顯示（get_credentials）用，exec 失敗也回空清單。
+    會接著覆寫檔案的路徑必須 ``strict=True``：讀取失敗若當成「沒有任何金鑰」，
+    後面的寫入會把使用者原有的金鑰全部洗掉。
+    """
+    if not is_running(resource_info):
         return []
     try:
         out = _lxc_exec(
@@ -171,6 +172,8 @@ def _lxc_authorized_keys(resource_info: dict[str, Any], vmid: int) -> list[str]:
             f"cat {_LXC_AUTHORIZED_KEYS} 2>/dev/null || true",
         )
     except ProxmoxError:
+        if strict:
+            raise
         return []
     return _split_keys(out)
 
@@ -192,8 +195,8 @@ def get_credentials(
     *, session: Session, vmid: int, resource_info: dict[str, Any]
 ) -> CredentialsPublic:
     db_resource = _get_db_resource(session, vmid)
-    rtype = _rtype(resource_info)
-    running = _is_running(resource_info)
+    rtype = resource_type(resource_info)
+    running = is_running(resource_info)
     if rtype == "qemu":
         config = _qemu_config(resource_info, vmid)
         ciuser = config.get("ciuser")
@@ -232,7 +235,7 @@ def reset_password(
     password: str | None,
 ) -> PasswordResetResponse:
     db_resource = _get_db_resource(session, vmid)
-    rtype = _rtype(resource_info)
+    rtype = resource_type(resource_info)
     new_password = password or generate_login_password()
 
     rebooting = False
@@ -246,7 +249,7 @@ def reset_password(
                 t("resource_settings.updateConfigFailed", vmid=vmid, error=exc)
             )
         applied = False
-        if _is_running(resource_info):
+        if is_running(resource_info):
             reboot_error = _qemu_reboot_to_apply(resource_info, vmid)
             rebooting = reboot_error is None
             message = (
@@ -298,34 +301,18 @@ def regenerate_ssh_key(
     user_id: uuid.UUID,
 ) -> SshKeyRegenerateResponse:
     db_resource = _get_db_resource(session, vmid)
-    rtype = _rtype(resource_info)
+    rtype = resource_type(resource_info)
     old_public = db_resource.ssh_public_key
     private_pem, public_key = generate_ed25519_keypair(comment=f"SkyLab-vm{vmid}")
 
-    if rtype == "qemu":
-        config = _qemu_config(resource_info, vmid)
-        keys = _qemu_authorized_keys(config)
-        keys = [
-            k
-            for k in keys
-            if not old_public or _key_identity(k) != _key_identity(old_public)
-        ]
-        keys.append(public_key)
-        _qemu_write_keys(resource_info, vmid, _dedupe(keys))
-        applied = False
-        message = t("resource_settings.sshKeyAppliedOnReboot")
-    else:
-        _require_lxc_running(resource_info)
-        keys = _lxc_authorized_keys(resource_info, vmid)
-        keys = [
-            k
-            for k in keys
-            if not old_public or _key_identity(k) != _key_identity(old_public)
-        ]
-        keys.append(public_key)
-        _lxc_write_keys(resource_info, vmid, _dedupe(keys))
-        applied = True
-        message = t("resource_settings.sshKeyAppliedNow")
+    # 換掉舊的平台公鑰、保留使用者自己加的；LXC 讀取失敗會直接拋錯，不會覆寫
+    keys = [
+        k
+        for k in _current_keys(resource_info, vmid, rtype)
+        if not old_public or _key_identity(k) != _key_identity(old_public)
+    ]
+    keys.append(public_key)
+    applied = _write_keys(resource_info, vmid, rtype, _dedupe(keys))
 
     db_resource.ssh_public_key = public_key
     db_resource.ssh_private_key_encrypted = encrypt_value(private_pem)
@@ -343,7 +330,7 @@ def regenerate_ssh_key(
         ssh_public_key=public_key,
         ssh_private_key=private_pem,
         applied_immediately=applied,
-        message=message,
+        message=_keys_message(applied),
     )
 
 
@@ -351,7 +338,7 @@ def _current_keys(resource_info: dict[str, Any], vmid: int, rtype: str) -> list[
     if rtype == "qemu":
         return _qemu_authorized_keys(_qemu_config(resource_info, vmid))
     _require_lxc_running(resource_info)
-    return _lxc_authorized_keys(resource_info, vmid)
+    return _lxc_authorized_keys(resource_info, vmid, strict=True)
 
 
 def _write_keys(
@@ -365,6 +352,15 @@ def _write_keys(
     return True
 
 
+def _keys_message(applied: bool) -> str:
+    """金鑰寫入後給使用者的提示：LXC 立即生效，QEMU（cloud-init）要重開機。"""
+    return (
+        t("resource_settings.sshKeyAppliedNow")
+        if applied
+        else t("resource_settings.sshKeyAppliedOnReboot")
+    )
+
+
 def add_authorized_key(
     *,
     session: Session,
@@ -374,7 +370,7 @@ def add_authorized_key(
     public_key: str,
 ) -> AuthorizedKeysResponse:
     _get_db_resource(session, vmid)
-    rtype = _rtype(resource_info)
+    rtype = resource_type(resource_info)
     keys = _current_keys(resource_info, vmid, rtype)
     if any(_key_identity(k) == _key_identity(public_key) for k in keys):
         raise BadRequestError(t("resource_settings.keyAlreadyAuthorized"))
@@ -391,11 +387,7 @@ def add_authorized_key(
         vmid=vmid,
         authorized_keys=_dedupe(keys),
         applied_immediately=applied,
-        message=(
-            t("resource_settings.sshKeyAppliedNow")
-            if applied
-            else t("resource_settings.sshKeyAppliedOnReboot")
-        ),
+        message=_keys_message(applied),
     )
 
 
@@ -408,7 +400,7 @@ def remove_authorized_key(
     public_key: str,
 ) -> AuthorizedKeysResponse:
     db_resource = _get_db_resource(session, vmid)
-    rtype = _rtype(resource_info)
+    rtype = resource_type(resource_info)
     ident = _key_identity(public_key)
     if (
         db_resource.ssh_public_key
@@ -431,11 +423,7 @@ def remove_authorized_key(
         vmid=vmid,
         authorized_keys=remaining,
         applied_immediately=applied,
-        message=(
-            t("resource_settings.sshKeyAppliedNow")
-            if applied
-            else t("resource_settings.sshKeyAppliedOnReboot")
-        ),
+        message=_keys_message(applied),
     )
 
 

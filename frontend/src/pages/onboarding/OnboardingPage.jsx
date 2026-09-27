@@ -15,21 +15,14 @@ import TotpEnrollment from "../../components/TotpEnrollment/TotpEnrollment";
 import { useAuth } from "../../contexts/AuthContext";
 import { THEME_DEFAULTS, useTheme } from "../../contexts/ThemeContext";
 import { useToast } from "../../hooks/useToast";
-import { DEFAULT_LANGUAGE, SUPPORTED_LANGUAGES, setLanguage } from "../../i18n";
 import { AccountService } from "../../services/account";
 import shell from "../setup/SetupPage.module.scss";
+import { LANG_OPTIONS, LanguagePicker, Notice, Stepper, useCurrentLanguage } from "../setup/wizardParts";
 import styles from "./OnboardingPage.module.scss";
 
 const STEP_APPEARANCE = 0;
 const STEP_TOTP = 1;
 const STEP_FINISH = 2;
-
-/* 語言用原生名稱顯示，不翻譯 */
-const LANG_OPTIONS = [
-  { key: "zh-TW", label: "繁體中文" },
-  { key: "en", label: "English" },
-  { key: "ja", label: "日本語" },
-];
 
 const MODE_OPTIONS = [
   { key: "light", icon: "light_mode", labelKey: "OnboardingPage.modeLight" },
@@ -37,68 +30,15 @@ const MODE_OPTIONS = [
   { key: "system", icon: "monitor", labelKey: "OnboardingPage.modeSystem" },
 ];
 
-function useCurrentLanguage() {
-  const { i18n } = useTranslation();
-  return SUPPORTED_LANGUAGES.includes(i18n.language) ? i18n.language : DEFAULT_LANGUAGE;
-}
-
-/* ─── 外框（與初始化精靈同一套樣式） ─────────────────────── */
-
-function Stepper({ current, steps }) {
-  return (
-    <ol className={shell.stepper} aria-label="steps">
-      {steps.map((label, index) => {
-        const state = index < current ? "done" : index === current ? "active" : "todo";
-        return (
-          <li
-            key={label}
-            className={`${shell.step} ${shell[`step_${state}`]}`}
-            aria-current={state === "active" ? "step" : undefined}
-          >
-            <span className={shell.stepIndex}>
-              {state === "done" ? <MIcon name="check" size={16} /> : index + 1}
-            </span>
-            <span className={shell.stepLabel}>{label}</span>
-          </li>
-        );
-      })}
-    </ol>
-  );
-}
-
-function Notice({ icon = "info", tone = "info", children }) {
-  return (
-    <div className={`${shell.notice} ${shell[`notice_${tone}`]}`}>
-      <MIcon name={icon} size={20} />
-      <div>{children}</div>
-    </div>
-  );
-}
-
 /* ─── 歡迎：選語言 ───────────────────────────────────────── */
 
 function LanguageWelcome({ onContinue }) {
   const { t } = useTranslation("login");
-  const current = useCurrentLanguage();
   return (
     <div className={shell.welcome}>
       <h1 className={shell.welcomeTitle}>{t("OnboardingPage.welcomeTitle")}</h1>
       <p className={styles.welcomeHint}>{t("OnboardingPage.welcomeHint")}</p>
-      <div className={shell.langList} role="radiogroup" aria-label={t("OnboardingPage.languageLabel")}>
-        {LANG_OPTIONS.map((option) => (
-          <button
-            key={option.key}
-            type="button"
-            role="radio"
-            aria-checked={current === option.key}
-            lang={option.key}
-            className={`${shell.langBtn} ${current === option.key ? shell.langBtnActive : ""}`}
-            onClick={() => setLanguage(option.key)}
-          >
-            {option.label}
-          </button>
-        ))}
-      </div>
+      <LanguagePicker ariaLabel={t("OnboardingPage.languageLabel")} />
       <button type="button" className={shell.btnPrimary} onClick={onContinue}>
         {t("OnboardingPage.continue")}
         <MIcon name="arrow_forward" size={18} />

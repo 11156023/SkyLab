@@ -1,7 +1,7 @@
 @use "../../../../assets/styles/variables" as *;
 @use "../../../../assets/styles/mixins" as *;
 
-/* 學生首頁與課程總覽共用的版面外殼；兩個 module 都 @use 這支。 */
+/* 學生課程頁（StudentCoursePage）的版面外殼與資料載入失敗橫幅；只有 StudentCoursePage.module.scss @use 這支。 */
 
 .page {
   // Chromium 會把 backdrop-filter（液態玻璃模式還包含 SVG 位移濾鏡）
@@ -40,39 +40,4 @@
     color: var(--color-text-secondary);
     font-size: $font-size-12;
   }
-}
-
-.sectionHeading {
-  display: flex;
-  align-items: flex-end;
-  justify-content: space-between;
-  gap: $spacing-16;
-
-  h2 {
-    margin-top: 3px;
-    color: var(--color-text-primary);
-    font-size: $font-size-18;
-  }
-
-  > span {
-    color: var(--color-text-muted);
-    font-size: $font-size-12;
-  }
-}
-
-/* 兩個頁面的行動按鈕共用的基底樣式（外觀由各自的 .primaryButton / .secondaryButton 決定）。 */
-@mixin student-action-button {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  border: none;
-  font: inherit;
-  font-size: $font-size-14;
-  font-weight: $font-weight-700;
-  cursor: pointer;
-  transition: transform $transition-base, background $transition-base, color $transition-base;
-
-  &:hover:not(:disabled) { transform: translateY(-1px); }
-  &:disabled { cursor: not-allowed; opacity: .4; }
 }

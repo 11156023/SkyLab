@@ -1,7 +1,6 @@
 """Batch provisioning APIs for formal teaching classes."""
 
 import json
-import logging
 import uuid
 from datetime import UTC, datetime
 
@@ -24,8 +23,6 @@ from app.models.base import get_datetime_utc
 from app.repositories import batch_provision as bp_repo
 from app.services.teaching import class_capacity_service
 from app.services.vm import batch_provision_service
-
-logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/batch-provision", tags=["batch-provision"])
 
@@ -205,9 +202,8 @@ def get_batch_status(
 @router.get("/pending", response_model=list[BatchProvisionJobPublic])
 def list_pending_review(
     session: SessionDep,
-    current_user: AdminUser,
+    _: AdminUser,
 ) -> list[BatchProvisionJobPublic]:
-    _ = current_user  # admin guard via dependency
     jobs = bp_repo.list_pending_review_jobs(session=session)
     return [_build_job_public(session, job) for job in jobs]
 
@@ -215,12 +211,11 @@ def list_pending_review(
 @router.get("/", response_model=list[BatchProvisionJobPublic])
 def list_review_jobs(
     session: SessionDep,
-    current_user: AdminUser,
+    _: AdminUser,
     status: BatchProvisionJobStatus | None = None,
     limit: int = Query(default=100, ge=1, le=200),
 ) -> list[BatchProvisionJobPublic]:
     """審核頁的完整列表：待審核之外也要看得到已核准 / 已駁回的批次。"""
-    _ = current_user  # admin guard via dependency
     jobs = bp_repo.list_review_jobs(session=session, status=status, limit=limit)
     return [_build_job_public(session, job) for job in jobs]
 
@@ -236,10 +231,9 @@ class RecurrencePreview(BaseModel):
 def get_recurrence_preview(
     job_id: uuid.UUID,
     session: SessionDep,
-    current_user: AdminUser,
-    count: int = 5,
+    _: AdminUser,
+    count: int = Query(default=5, ge=1, le=50),
 ) -> RecurrencePreview:
-    _ = current_user
     job = bp_repo.get_job(session=session, job_id=job_id)
     if not job:
         raise NotFoundError(t("batchProvision.jobNotFound"))
@@ -251,7 +245,7 @@ def get_recurrence_preview(
 
     windows: list[tuple[datetime, datetime]] = []
     after = datetime.now(UTC)
-    for _i in range(max(count, 0)):
+    for _i in range(count):
         result = compute_next_window(
             rule=job.recurrence_rule,
             duration_minutes=job.recurrence_duration_minutes,

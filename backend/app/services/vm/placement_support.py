@@ -52,16 +52,28 @@ def request_window(db_request: VMRequest) -> tuple[datetime | None, datetime | N
     return normalize_datetime(db_request.start_at), normalize_datetime(db_request.end_at)
 
 
+def request_disk_gb(
+    *,
+    resource_type: str | None,
+    disk_size: int | None,
+    rootfs_size: int | None,
+) -> int:
+    """申請的磁碟 GB：VM 看 disk_size、LXC 看 rootfs_size，未填時 VM 20／LXC 8。"""
+    is_vm = resource_type == "vm"
+    disk_gb = int(disk_size or 0) if is_vm else int(rootfs_size or 0)
+    if disk_gb <= 0:
+        return 20 if is_vm else 8
+    return disk_gb
+
+
 def request_capacity_tuple(db_request: VMRequest) -> tuple[float, int, int]:
     cpu_cores = float(db_request.cores or 1)
     memory_bytes = int(db_request.memory or 512) * 1024 * 1024
-    disk_gb = (
-        int(db_request.disk_size or 0)
-        if db_request.resource_type == "vm"
-        else int(db_request.rootfs_size or 0)
+    disk_gb = request_disk_gb(
+        resource_type=db_request.resource_type,
+        disk_size=db_request.disk_size,
+        rootfs_size=db_request.rootfs_size,
     )
-    if disk_gb <= 0:
-        disk_gb = 20 if db_request.resource_type == "vm" else 8
     return cpu_cores, memory_bytes, disk_gb * GIB
 
 
@@ -448,17 +460,48 @@ def reserve_request_on_capacities(
     refresh_node_candidate_fn(node)
 
 
-def hour_window_iter(start_at: datetime, end_at: datetime) -> list[datetime]:
+def window_checkpoints(
+    *,
+    start_at: datetime,
+    end_at: datetime,
+    reserved_requests: list[VMRequest],
+    normalize_datetime_fn,
+) -> list[datetime]:
+    """時段內需要檢查容量的時間點：start_at 加上「預約組合可能改變」的整點。
+
+    語意等同逐小時掃描（start_at 之後每個整點直到 end_at）：某個整點的容量
+    只取決於當下生效的預約（reserved_start <= t < reserved_end），而生效集合
+    只會在每筆預約開始／結束後的第一個整點改變，其餘整點的結果必然與前一個
+    相同。只評估這些點，成本只跟預約筆數有關、不再跟時段長度成正比 ——
+    逐小時全掃時，一個跨數百年的時段就能把單一 worker 的 CPU／記憶體吃光。
+    """
     if end_at <= start_at:
         return [start_at]
-    cursor = start_at.replace(minute=0, second=0, microsecond=0)
-    if cursor < start_at:
-        cursor += timedelta(hours=1)
-    checkpoints: list[datetime] = []
-    while cursor < end_at:
-        checkpoints.append(cursor)
-        cursor += timedelta(hours=1)
-    return checkpoints or [start_at]
+    hour = timedelta(hours=1)
+    first = start_at.replace(minute=0, second=0, microsecond=0)
+    if first < start_at:
+        first += hour
+    if first >= end_at:
+        return [start_at]
+
+    def first_hour_at_or_after(moment: datetime) -> datetime:
+        if moment <= first:
+            return first
+        steps = -(-(moment - first) // hour)
+        return first + steps * hour
+
+    points = {first}
+    for reserved in reserved_requests:
+        for boundary in (
+            normalize_datetime_fn(getattr(reserved, "start_at", None)),
+            normalize_datetime_fn(getattr(reserved, "end_at", None)),
+        ):
+            if boundary is None:
+                continue
+            candidate = first_hour_at_or_after(boundary)
+            if candidate < end_at:
+                points.add(candidate)
+    return [start_at] + sorted(point for point in points if point != start_at)
 
 
 def apply_reserved_requests_to_capacities(
@@ -768,13 +811,11 @@ def placement_sort_key(
 
 
 def to_placement_request(db_request: VMRequest) -> PlacementRequest:
-    disk_gb = (
-        int(db_request.disk_size or 0)
-        if db_request.resource_type == "vm"
-        else int(db_request.rootfs_size or 0)
+    disk_gb = request_disk_gb(
+        resource_type=db_request.resource_type,
+        disk_size=db_request.disk_size,
+        rootfs_size=db_request.rootfs_size,
     )
-    if disk_gb <= 0:
-        disk_gb = 20 if db_request.resource_type == "vm" else 8
     # LXC 帶 template_id 時走克隆路徑：不帶 ostemplate 約束，改以 template_vmid
     # 表示「必須落在範本所在節點」（linked clone 不能離開它，建機端也會強制
     # 覆寫成範本節點）。不帶這個約束的話，placement 會選出一個之後被覆寫掉的

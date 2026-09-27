@@ -106,12 +106,6 @@
 
 .success { color: var(--color-success); }
 
-.info { color: var(--color-info); }
-
-.warning { color: var(--color-danger); }
-
-.danger { color: var(--color-danger); }
-
 .muted { color: var(--color-text-muted); }
 
 /* ── 課堂狀態 ── */
@@ -400,26 +394,14 @@
   white-space: nowrap;
 }
 
-.assignmentStatus_ready,
-.assignmentStatus_pending,
-.assignmentStatus_cancelled {
+.assignmentStatus_ready {
   background: var(--color-hover);
   color: var(--color-text-muted);
-}
-
-.assignmentStatus_running {
-  background: color-mix(in srgb, var(--color-info) 10%, transparent);
-  color: var(--color-info);
 }
 
 .assignmentStatus_completed {
   background: color-mix(in srgb, var(--color-success) 11%, transparent);
   color: var(--color-success);
-}
-
-.assignmentStatus_failed {
-  background: color-mix(in srgb, var(--color-danger) 10%, transparent);
-  color: var(--color-danger);
 }
 
 .assignmentDetail {
@@ -436,7 +418,7 @@
   to { opacity: 1; transform: translateY(0); }
 }
 
-/* ── 任務展開後的內容與 AI 回覆 ── */
+/* ── 任務展開後的內容 ── */
 
 .aiBrief {
   display: flex;
@@ -534,113 +516,6 @@
   &.manual {
     background: color-mix(in srgb, var(--color-danger) 10%, transparent);
     color: var(--color-danger);
-  }
-}
-
-.aiReply {
-  display: grid;
-  gap: 10px;
-  padding: 12px;
-  border: 1px solid color-mix(in srgb, var(--color-info) 25%, var(--color-border));
-  border-radius: $radius-12;
-  background: color-mix(in srgb, var(--color-info) 6%, var(--color-surface));
-
-  > header {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-  }
-
-  > header > span {
-    @include flex-center;
-    width: 36px;
-    height: 36px;
-    flex: 0 0 auto;
-    border-radius: $radius-8;
-    background: color-mix(in srgb, var(--color-info) 11%, transparent);
-    color: var(--color-info);
-  }
-
-  > header > div {
-    @include flex-column;
-    gap: 2px;
-  }
-
-  > header strong {
-    color: var(--color-text-primary);
-    font-size: $font-size-14;
-  }
-
-  > header small {
-    color: var(--color-text-muted);
-    font-size: $font-size-12;
-  }
-
-  > p {
-    margin: 0;
-    color: var(--color-text-secondary);
-    font-size: $font-size-12;
-    line-height: 1.6;
-  }
-}
-
-.aiReply_completed {
-  border-color: color-mix(in srgb, var(--color-success) 28%, var(--color-border));
-  background: color-mix(in srgb, var(--color-success) 6%, var(--color-surface));
-
-  > header > span {
-    background: color-mix(in srgb, var(--color-success) 11%, transparent);
-    color: var(--color-success);
-  }
-}
-
-.aiReply_failed,
-.aiReply_cancelled {
-  border-color: color-mix(in srgb, var(--color-danger) 28%, var(--color-border));
-  background: color-mix(in srgb, var(--color-danger) 5%, var(--color-surface));
-
-  > header > span {
-    background: color-mix(in srgb, var(--color-danger) 10%, transparent);
-    color: var(--color-danger);
-  }
-}
-
-.aiReplyItems {
-  display: grid;
-  gap: 6px;
-
-  > div {
-    display: grid;
-    padding: 9px 10px;
-    grid-template-columns: 20px minmax(0, 1fr) auto;
-    align-items: start;
-    gap: 8px;
-    border-radius: $radius-8;
-    background: var(--color-surface);
-    color: var(--color-success);
-  }
-
-  span {
-    @include flex-column;
-    gap: 2px;
-  }
-
-  strong {
-    color: var(--color-text-primary);
-    font-size: $font-size-12;
-  }
-
-  small {
-    color: var(--color-text-secondary);
-    font-size: 11px;
-    line-height: 1.45;
-  }
-
-  em {
-    color: var(--color-text-muted);
-    font-size: $font-size-12;
-    font-style: normal;
-    font-weight: $font-weight-700;
   }
 }
 

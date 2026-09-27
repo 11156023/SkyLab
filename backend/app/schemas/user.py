@@ -56,7 +56,8 @@ class UserUpdateMe(BaseModel):
 class UpdatePassword(BaseModel):
     """更新密碼"""
 
-    current_password: str = Field(min_length=8, max_length=128)
+    # 只拿來比對既有雜湊，不套新密碼的長度規則（.env 預設管理員的密碼可能不足 8 碼）
+    current_password: str = Field(min_length=1, max_length=128)
     new_password: str = Field(min_length=8, max_length=128)
 
 
@@ -75,7 +76,8 @@ class UserPublic(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: uuid.UUID
-    email: EmailStr
+    # 回應不重驗信箱格式：LDAP 帶進來的 alice@school.local 會被 EmailStr 拒絕而整支 500
+    email: str
     is_active: bool
     role: UserRole
     is_superuser: bool

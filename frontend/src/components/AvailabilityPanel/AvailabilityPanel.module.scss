@@ -178,11 +178,6 @@
   color: var(--color-pending);
 }
 
-.calendarDayNone .dayInner {
-  background: color-mix(in srgb, var(--color-danger) 14%, transparent);
-  color: var(--color-danger-dark);
-}
-
 /* ── Range selection ── */
 
 /* Start / End: solid circle on .dayInner */
@@ -241,52 +236,6 @@
   opacity: 0.25;
   cursor: not-allowed;
   &:hover .dayInner { transform: none; }
-}
-
-/* ── Time pickers ── */
-.timeRow {
-  display: flex;
-  gap: 10px;
-}
-
-.timeGroup {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  min-width: 0;
-}
-
-.timeLabel {
-  font-size: 0.7rem;
-  font-weight: 600;
-  color: var(--color-text-secondary);
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-}
-
-.timeDate {
-  font-size: 0.8125rem;
-  font-weight: 500;
-  color: var(--color-text-primary);
-  font-variant-numeric: tabular-nums;
-}
-
-.timeSelect {
-  width: 100%;
-  padding: 6px 8px;
-  border: 1px solid var(--color-border);
-  border-radius: $radius-8;
-  font-size: 0.8125rem;
-  font-family: inherit;
-  color: var(--color-text);
-  background: var(--color-surface);
-  cursor: pointer;
-  outline: none;
-  transition: border-color $transition-base;
-
-  &:focus { border-color: var(--color-primary); }
-  &:disabled { opacity: 0.4; cursor: not-allowed; }
 }
 
 /* ── Legend ── */

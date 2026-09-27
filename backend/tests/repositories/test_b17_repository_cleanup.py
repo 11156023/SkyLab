@@ -1,0 +1,103 @@
+"""B17 整理回歸：角色欄位解析、防火牆版面 resource_vmid、套件匯出面。"""
+
+from __future__ import annotations
+
+import uuid
+from typing import Any
+
+import pytest
+
+from app.models import FirewallLayout, Resource, UserRole
+from app.repositories import firewall_layout as firewall_layout_repo
+from app.repositories import user as user_repo
+
+
+@pytest.fixture(scope="session")
+def _seed_first_superuser() -> None:
+    """純單元測試，不需要測試資料庫。"""
+
+
+@pytest.mark.parametrize(
+    ("role", "is_superuser", "is_instructor", "expected"),
+    [
+        (UserRole.teacher, False, False, (UserRole.teacher, False, False)),
+        (UserRole.student, False, False, (UserRole.student, False, False)),
+        (UserRole.admin, False, False, (UserRole.admin, True, False)),
+        (UserRole.teacher, True, False, (UserRole.admin, True, False)),
+        (None, False, True, (UserRole.teacher, False, False)),
+        (None, False, False, (UserRole.student, False, False)),
+        (None, True, False, (UserRole.admin, True, False)),
+    ],
+)
+def test_resolve_role_fields(
+    role: UserRole | None,
+    is_superuser: bool,
+    is_instructor: bool,
+    expected: tuple[UserRole, bool, bool],
+) -> None:
+    assert (
+        user_repo._resolve_role_fields(
+            role=role, is_superuser=is_superuser, is_instructor=is_instructor
+        )
+        == expected
+    )
+
+
+class _LayoutSession:
+    def __init__(self, existing_vmids: set[int]) -> None:
+        self.existing_vmids = existing_vmids
+        self.added: list[Any] = []
+        self.get_calls: list[int] = []
+        self.committed = False
+
+    def get(self, model: type, key: int) -> Any:
+        assert model is Resource
+        self.get_calls.append(key)
+        return object() if key in self.existing_vmids else None
+
+    def add(self, obj: Any) -> None:
+        self.added.append(obj)
+
+    def commit(self) -> None:
+        self.committed = True
+
+
+def test_upsert_layout_batch_links_resource_only_when_it_exists(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    user_id = uuid.uuid4()
+    existing = FirewallLayout(
+        user_id=user_id, vmid=101, node_type="vm", position_x=0, position_y=0
+    )
+    lookup = {(101, "vm"): existing}
+    monkeypatch.setattr(
+        firewall_layout_repo,
+        "get_node",
+        lambda *, session, user_id, vmid, node_type: lookup.get((vmid, node_type)),
+    )
+    session = _LayoutSession(existing_vmids={101})
+
+    firewall_layout_repo.upsert_layout_batch(
+        session=session,  # type: ignore[arg-type]
+        user_id=user_id,
+        nodes=[
+            {"vmid": 101, "node_type": "vm", "position_x": 1.5, "position_y": 2.5},
+            {"vmid": 202, "node_type": "vm", "position_x": 3, "position_y": 4},
+            {"vmid": None, "node_type": "gateway", "position_x": 5, "position_y": 6},
+        ],
+    )
+
+    assert session.committed
+    assert existing.resource_vmid == 101
+    assert (existing.position_x, existing.position_y) == (1.5, 2.5)
+    inserted = [obj for obj in session.added if obj is not existing]
+    assert [(n.vmid, n.resource_vmid) for n in inserted] == [(202, None), (None, None)]
+    # 每個有 vmid 的節點只查一次 Resource
+    assert session.get_calls == [101, 202]
+
+
+def test_repositories_package_has_no_reexports() -> None:
+    import app.repositories as repositories
+
+    assert not hasattr(repositories, "update_resource")
+    assert not hasattr(repositories, "get_audit_logs_by_user")

@@ -1,5 +1,3 @@
-from datetime import timedelta
-
 import httpx
 from sqlmodel import Session
 
@@ -11,27 +9,13 @@ from app.models import AuditAction
 from app.repositories import user as user_repo
 from app.schemas import Token, TotpChallenge, UserUpdate
 from app.services.user import audit_service, totp_service
+from app.services.user.tokens import create_token_pair
 from app.utils import (
     decode_password_reset_token,
     generate_password_reset_token,
     generate_reset_password_email,
     send_email,
 )
-
-
-def create_token_pair(user) -> Token:
-    """Create access + refresh token pair for a user (shared with LDAP login)."""
-    access_token = security.create_access_token(
-        user.id,
-        expires_delta=timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES),
-        token_version=user.token_version,
-    )
-    refresh_token = security.create_refresh_token(
-        user.id,
-        expires_delta=timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS),
-        token_version=user.token_version,
-    )
-    return Token(access_token=access_token, refresh_token=refresh_token)
 
 
 def login(
@@ -82,7 +66,7 @@ async def google_login(
     # 否則使用者交給其他 OAuth 應用的 ID token 也能登入本系統。
     if not settings.GOOGLE_CLIENT_ID:
         _fail("google login not configured")
-        raise BadRequestError("Google login is not configured")
+        raise BadRequestError(t("auth.googleNotConfigured"))
 
     try:
         async with httpx.AsyncClient(timeout=5.0) as client:
@@ -183,7 +167,7 @@ async def refresh_access_token(*, session: Session, refresh_token: str) -> Token
         if not await mark_refresh_token_used(
             redis, token_data.jti, token_data.exp
         ):
-            raise AuthenticationError("Token has been revoked")
+            raise AuthenticationError(t("auth.tokenRevoked"))
 
     return create_token_pair(user)
 

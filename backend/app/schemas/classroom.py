@@ -3,7 +3,7 @@
 import uuid
 from typing import Literal
 
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, Field
 
 # ===== Request Schemas =====
 
@@ -40,7 +40,7 @@ class ClassroomStudent(BaseModel):
     """教室學生卡片資料"""
 
     user_id: uuid.UUID
-    email: EmailStr
+    email: str  # 回應不重驗格式（LDAP 信箱可能是 *.local）
     full_name: str | None = None
     vms: list[ClassroomVm] = Field(default_factory=list)
     online: bool = False

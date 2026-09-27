@@ -24,8 +24,8 @@
  * - fixedVmid        鎖定機器為這台 VM（資源詳情頁用）；fixedName 為顯示名稱備援
  * - initialSource / initialTarget  拉線帶入的兩端（"internet" 或 vmid 字串），能推導出意圖就直接跳過選意圖
  * - initialTab       "rule" 時預選「自己寫規則」（仍可更改）
- * - initialMode      入站預設發布方式 "domain" | "port_forward" | "firewall_only"（網址不可用時退回對外 port）
- * - service          編輯既有對外服務時傳入（鎖定意圖與機器、單一 port，改走 replacePublishedService）
+ * - service          只給 templateMode 用：編輯模板裡既有的一條發布（鎖定意圖與機器、單一 port），
+ *                    結果照樣交給 onSubmit；目前 CourseTemplateEditorPage 尚未帶入，保留作為編輯入口
  * - onDone(result)   全部成功後回呼（呼叫端負責關閉與重新載入）
  * - onChanged()      可選；多筆發布途中失敗時，已成功的部分會先通知一次
  * - onClose / closing
@@ -43,10 +43,6 @@ import { focusInvalidField } from "../../utils/focusField";
 import { getTopology } from "../../services/firewall";
 import { toDialogNodes } from "./topologyNodes";
 import { ReverseProxyService } from "../../services/reverseProxy";
-import {
-  extractHostnamePrefix,
-  findZoneByDomain,
-} from "../ReverseProxyRuleModal/ReverseProxyRuleModal";
 import PortInput from "./PortInput";
 import {
   buildInboundPayload,
@@ -54,11 +50,12 @@ import {
   buildPeerPortsPayload,
   buildRulePayload,
   isPortless,
+  previewTemplateHostname,
+  removePublishedRows,
 } from "./connectionPayload";
 import { submitRequest } from "./submitConnection";
 import { INTENT, INTENT_ORDER, INTERNET_KEY, deriveInitialState, endsOf, isVmKey } from "./intents";
 import IntentPicker from "./IntentPicker";
-import { previewTemplateHostname } from "./connectionPayload";
 
 export { INTERNET_KEY };
 
@@ -136,7 +133,7 @@ function PortRows({ rows, setRows, protocols, invalid, single }) {
 }
 
 /* ── 一列一組對外 port → 內部 port ── */
-function ForwardRows({ rows, setRows, invalid, single }) {
+function ForwardRows({ rows, setRows, invalid }) {
   const { t } = useTranslation("components");
   const add = () => setRows((r) => [...r, newForwardRow()]);
   const remove = (id) => setRows((r) => (r.length > 1 ? r.filter((x) => x.id !== id) : r));
@@ -174,25 +171,21 @@ function ForwardRows({ rows, setRows, invalid, single }) {
           >
             {FORWARD_PROTOCOLS.map((p) => <option key={p} value={p}>{p}</option>)}
           </select>
-          {!single && (
-            <button
-              type="button"
-              className={styles.removeBtn}
-              onClick={() => remove(row.id)}
-              disabled={rows.length === 1}
-              aria-label={t("ConnectionDialog.removeRow")}
-            >
-              <MIcon name="close" size={16} />
-            </button>
-          )}
+          <button
+            type="button"
+            className={styles.removeBtn}
+            onClick={() => remove(row.id)}
+            disabled={rows.length === 1}
+            aria-label={t("ConnectionDialog.removeRow")}
+          >
+            <MIcon name="close" size={16} />
+          </button>
         </div>
       ))}
-      {!single && (
-        <button type="button" className={styles.addBtn} onClick={add}>
-          <MIcon name="add" size={16} />
-          {t("ConnectionDialog.addMapping")}
-        </button>
-      )}
+      <button type="button" className={styles.addBtn} onClick={add}>
+        <MIcon name="add" size={16} />
+        {t("ConnectionDialog.addMapping")}
+      </button>
       <p className={styles.fieldHint}>{t("ConnectionDialog.portForwardHint")}</p>
     </div>
   );
@@ -206,7 +199,6 @@ export default function ConnectionDialog({
   initialSource,
   initialTarget,
   initialTab = "connection",
-  initialMode,
   service,
   onDone,
   onChanged,
@@ -308,10 +300,10 @@ export default function ConnectionDialog({
     ? zones.length > 0
     : Boolean(setupContext) && setupContext.enabled !== false && zones.length > 0;
 
-  const [mode, setModeState] = useState(service?.mode ?? initialMode ?? "port_forward");
-  const modeTouched = useRef(editing || Boolean(initialMode));
+  const [mode, setModeState] = useState(service?.mode ?? "port_forward");
+  const modeTouched = useRef(editing);
   const setMode = (m) => { modeTouched.current = true; setModeState(m); };
-  /* 網址可用時預設用網址（使用者或呼叫端還沒指定過才改）；呼叫端指定網址但環境不支援就退回對外 port */
+  /* 網址可用時預設用網址（使用者還沒選過、也不是編輯既有發布才改）；網址不可用時退回對外 port */
   useEffect(() => {
     if (!setupContext && !zonesProp) return;
     if (domainReady && !modeTouched.current) setModeState("domain");
@@ -322,37 +314,28 @@ export default function ConnectionDialog({
 
   /* 網址模式：port 直接輸入，或從 PortInput 的常用 port 選單挑 */
   const [domainPort, setDomainPort] = useState(editing ? String(service.port) : "80");
-  const [zoneId, setZoneId] = useState(templateMode ? (service?.zone_id ?? "") : "");
-  /* 模板模式的「開頭」是主機名樣板（含 {student}），不是實際網址 */
-  const [prefix, setPrefix] = useState(templateMode ? (service?.hostname_prefix ?? "") : (service?.domain ?? ""));
+  /* 只有模板編輯會帶 service：zone 與「開頭」（主機名樣板，含 {student}）直接從那條發布還原 */
+  const [zoneId, setZoneId] = useState(service?.zone_id ?? "");
+  const [prefix, setPrefix] = useState(service?.hostname_prefix ?? "");
   const [enableHttps, setEnableHttps] = useState(service?.enable_https ?? true);
   const [availability, setAvailability] = useState(null); // { available, reason, message, checking }
 
-  /* zones 抓回來後：編輯時還原 zone + 開頭，新增時預設第一個 zone */
+  /* zones 抓回來後：目前的 zone 不在清單裡（或還沒選）就預設第一個 */
   useEffect(() => {
     if (!zones.length) return;
-    if (!templateMode && service?.domain) {
-      const z = findZoneByDomain(service.domain, zones);
-      if (z) {
-        setZoneId(z.id);
-        setPrefix(extractHostnamePrefix(service.domain, z.name));
-        return;
-      }
-    }
     setZoneId((cur) => (cur && zones.some((z) => z.id === cur) ? cur : zones[0].id));
-  }, [zones, service?.domain, templateMode]);
+  }, [zones]);
 
   const selectedZone = zones.find((z) => z.id === zoneId);
   const cleanPrefix = prefix.trim().toLowerCase().replace(/^\.+|\.+$/g, "");
   const fullDomain = templateMode
     ? (selectedZone && cleanPrefix ? previewTemplateHostname(cleanPrefix, selectedZone.name) : "")
     : selectedZone ? (cleanPrefix ? `${cleanPrefix}.${selectedZone.name}` : selectedZone.name) : "";
-  const domainUnchanged = !templateMode && Boolean(service?.domain) && fullDomain === service.domain;
 
   /* 網域即時檢查：本系統建的或 Cloudflare 上原本就有的，撞名都提醒。
      模板模式的網址是樣板，開課時才逐人組出來，這裡沒有東西可查 */
   useEffect(() => {
-    if (templateMode || !isInbound || mode !== "domain" || !fullDomain || domainUnchanged) {
+    if (templateMode || !isInbound || mode !== "domain" || !fullDomain) {
       setAvailability(null);
       return undefined;
     }
@@ -364,7 +347,7 @@ export default function ConnectionDialog({
         .catch(() => !cancelled && setAvailability(null));
     }, AVAILABILITY_DEBOUNCE_MS);
     return () => { cancelled = true; clearTimeout(timer); };
-  }, [templateMode, isInbound, mode, fullDomain, domainUnchanged]);
+  }, [templateMode, isInbound, mode, fullDomain]);
 
   /* port 列 */
   /* 模板模式的對外 port 只填內部 port 與協定：對外 port 開課時逐位學生配號 */
@@ -373,14 +356,8 @@ export default function ConnectionDialog({
       ? { port: String(service.port), protocol: service.protocol }
       : {}),
   ]);
-  const [fwdRows, setFwdRows] = useState(() => [
-    newForwardRow(service?.mode === "port_forward"
-      ? { externalPort: String(service.external_port ?? ""), internalPort: String(service.port), protocol: service.protocol }
-      : {}),
-  ]);
-  const [fwRows, setFwRows] = useState(() => [
-    newPortRow(service?.mode === "firewall_only" ? { port: String(service.port), protocol: service.protocol } : {}),
-  ]);
+  const [fwdRows, setFwdRows] = useState(() => [newForwardRow()]);
+  const [fwRows, setFwRows] = useState(() => [newPortRow()]);
   const [vmRows, setVmRows] = useState(() => [newPortRow()]);
   const [direction, setDirection] = useState("one_way");
 
@@ -455,8 +432,22 @@ export default function ConnectionDialog({
       const res = await submit({ kind: "inbound", vmKey, vmid, publish: built.publish, raw: built.raw, service });
       setSubmitting(false);
       if (res.ok) { onDone?.(res.result); return; }
-      /* 已經成功的那幾條要先讓呼叫端刷新，否則畫面上看不到它們 */
+      /* 已經成功的那幾條要先讓呼叫端刷新，否則畫面上看不到它們；
+         同時從表單拿掉，重送才不會先撞上「此 port 已發布」 */
       if (res.partialDone > 0) onChanged?.();
+      if (res.published?.length && !templateMode) {
+        if (mode === "port_forward") {
+          setFwdRows((rows) => {
+            const left = removePublishedRows(rows, res.published, "internalPort");
+            return left.length ? left : [newForwardRow()];
+          });
+        } else if (mode === "firewall_only") {
+          setFwRows((rows) => {
+            const left = removePublishedRows(rows, res.published, "port");
+            return left.length ? left : [newPortRow()];
+          });
+        }
+      }
       setError(describeError(res.error));
       return;
     }
@@ -541,9 +532,7 @@ export default function ConnectionDialog({
       ? availability.message
       : availability?.available
         ? t("ConnectionDialog.domainAvailable", { domain: fullDomain })
-        : domainUnchanged
-          ? t("ConnectionDialog.domainUnchanged", { domain: fullDomain })
-          : fullDomain;
+        : fullDomain;
 
   /* 機器欄位：鎖定（資源頁入口、編輯）就顯示名稱，否則下拉 */
   const machineField = (id, label, value, onPick, { exclude } = {}) => {
@@ -714,7 +703,7 @@ export default function ConnectionDialog({
           )}
 
           {mode === "port_forward" && !templateMode && (
-            <ForwardRows rows={fwdRows} setRows={editRows(setFwdRows)} invalid={portsInvalid} single={editing} />
+            <ForwardRows rows={fwdRows} setRows={editRows(setFwdRows)} invalid={portsInvalid} />
           )}
 
           {mode === "firewall_only" && (
@@ -723,9 +712,8 @@ export default function ConnectionDialog({
               <PortRows
                 rows={fwRows}
                 setRows={editRows(setFwRows)}
-                protocols={editing ? FORWARD_PROTOCOLS : CONNECTION_PROTOCOLS}
+                protocols={CONNECTION_PROTOCOLS}
                 invalid={portsInvalid}
-                single={editing}
               />
             </>
           )}

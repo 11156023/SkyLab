@@ -118,8 +118,6 @@ export default function JobsPage() {
     failed: jobs.filter((j) => j.status === "failed").length,
   }), [jobs]);
 
-  const visible = jobs;
-
   return (
     <div className={styles.page}>
       <PageHeader title={t("JobsPage.pageTitle")} />
@@ -182,7 +180,7 @@ export default function JobsPage() {
       <div className={styles.content}>
         {loading ? (
           <LoadingState fullPage text={t("JobsPage.loading")} />
-        ) : visible.length === 0 ? (
+        ) : jobs.length === 0 ? (
           <EmptyState />
         ) : (
           <div className={styles.tableWrap}>
@@ -195,7 +193,7 @@ export default function JobsPage() {
                 </tr>
               </thead>
               <tbody>
-                {visible.map((j) => (
+                {jobs.map((j) => (
                   <tr
                     key={j.id}
                     className={styles.tr}

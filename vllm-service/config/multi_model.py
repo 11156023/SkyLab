@@ -14,6 +14,20 @@ from model_deployment import deployment_kind, upstream_connection
 GATEWAY_ENV_FILE_VAR = "VLLM_SERVICE_GATEWAY_ENV_FILE"
 DEFAULT_BASE_ENV = ".env.API"
 DEFAULT_MODELS_JSON = "models.json"
+WILDCARD_HOSTS = frozenset({"0.0.0.0", "::"})
+
+
+def probe_host(host: str) -> str:
+    """把監聽位址轉成可放進本機 URL 的主機部分。
+
+    0.0.0.0／:: 是綁定用的萬用位址，探測時改連 127.0.0.1；
+    其他 IPv6 位址必須加上方括號，否則 ``http://fd00::1:8000`` 不是合法 URL。
+    """
+    if host in WILDCARD_HOSTS:
+        return "127.0.0.1"
+    if ":" in host and not host.startswith("["):
+        return f"[{host}]"
+    return host
 
 
 @dataclass(frozen=True)
@@ -27,9 +41,7 @@ class ModelInstanceConfig:
 
     @property
     def upstream_host(self) -> str:
-        if self.settings.api_host in {"0.0.0.0", "::"}:
-            return "127.0.0.1"
-        return self.settings.api_host
+        return probe_host(self.settings.api_host)
 
     @property
     def upstream_base_url(self) -> str:

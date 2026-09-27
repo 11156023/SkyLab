@@ -1,7 +1,7 @@
 # vLLM Service
 
-`vllm-service/` 是 SkyLab 的 canonical vLLM 推論服務目錄，收斂原本的
-`vllm-inference/` 單模型部署與 `vllm-API/` 多模型 Gateway。
+`vllm-service/` 是 SkyLab 的 canonical vLLM 推論服務目錄，已收斂早期的
+`vllm-inference/` 單模型部署與 `vllm-API/` 多模型 Gateway（這兩個舊目錄不在 repo 內，見文末）。
 
 ## 服務模式
 
@@ -40,6 +40,15 @@ pip install vllm
   `VLLM_UPSTREAM_API_KEY` 取得同一個值，轉發到本機 vLLM `/v1`；變數名稱分開只是
   Docker 容器注入邊界，並非第二組權限。舊 Gateway 回滾路徑才使用 backend 的
   `AI_API_API_KEY`。
+
+### 升級注意：`ALLOWED_LOCAL_MEDIA_PATH`
+
+`ALLOWED_LOCAL_MEDIA_PATH` 現在預設為空（關閉 `file://` 本機媒體讀取），且設為 `/`
+時啟動會直接失敗（設定驗證錯誤）。舊版 `.env.example` 內建 `ALLOWED_LOCAL_MEDIA_PATH=/`，
+從舊範本複製出來的 `.env.API`、`.env.interface`，以及在 `models.json` entry 設定
+`allowed_local_media_path: "/"` 的部署，重啟前必須先清空該值，或改指向專用的媒體目錄
+（任何能呼叫 API 的使用者都能讀到該目錄下的檔案）。這會影響 `main.py single`／`cluster`、
+`gateway/main.py` 與 `tools/` 內會載入設定的工具，因為它們都經 `get_settings` 讀設定。
 
 ## 啟動單一模型主服務
 
@@ -117,10 +126,9 @@ LiteLLM，但不管理主機上的 vLLM 程序。
 python main.py gateway
 ```
 
-
-此腳本會背景啟動服務，主控輸出寫入 `logs/main.log`，Gateway API 輸出寫入
-`logs/gateway.log`，各模型 instance 另寫入 `logs/<alias>.log`。launcher PID 寫入
-`.runtime/multi-model-gateway.pid`。若 PID 仍在執行，再次啟動會直接提示既有進程。
+此指令在前景執行（沒有對應的背景腳本），以 Ctrl+C 停止；Gateway API 輸出寫入
+`logs/gateway.log`，各模型 instance 另寫入 `logs/<alias>.log`。`gateway` 與未加
+`--no-gateway` 的 `cluster` 行為相同，模式名只為舊版相容保留。
 
 等同：
 
@@ -153,7 +161,7 @@ AI_API_API_KEY=vllm-secret-key-change-me
 | `config/multi_model.py` | `models.json` 載入、Gateway route 建立 |
 | `litellm/` | Git-managed LiteLLM 靜態 routing policy template |
 | `gateway/main.py` | 純 FastAPI Gateway/API service；不提供前端 |
-| `tools/` | 單模型呼叫工具與 SkyLab AI 整合測試 |
+| `tools/` | 單模型呼叫工具、SkyLab AI 整合測試，以及 LiteLLM 部署工具（`generate_litellm_config.py` 產生 LiteLLM 設定、`prepare_ai_stack.py` 檢查金鑰邊界並準備／啟動 AI stack） |
 | `benchmark/` | async / ShareGPT benchmark |
 
 ## 前端狀態
@@ -163,5 +171,5 @@ AI_API_API_KEY=vllm-secret-key-change-me
 
 ## 舊目錄狀態
 
-`vllm-API/` 與 `vllm-inference/` 暫時保留作為遷移參考。新的維護入口應優先使用
-`vllm-service/`。
+`vllm-API/` 與 `vllm-inference/` 已不在 repo 內（兩者皆由 `.gitignore` 忽略），只可能以
+未追蹤的本機副本留在既有部署主機上供遷移對照，且不再維護。所有維護一律在 `vllm-service/` 進行。

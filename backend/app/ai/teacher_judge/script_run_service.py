@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import logging
 import uuid
-from datetime import datetime, timezone
 from typing import Any, Literal, cast
 
 from fastapi import HTTPException
@@ -22,11 +21,16 @@ from app.ai.teacher_judge.schemas import (
     TeacherJudgeRunBatchPublic,
     TeacherJudgeScriptRunPublic,
 )
-from app.ai.teacher_judge.script_artifact_service import get_artifact
+from app.ai.teacher_judge.script_artifact_service import (
+    get_artifact,
+    latest_set_children,
+)
+from app.ai.teacher_judge.script_executor_service import preflight_progress
 from app.ai.teacher_judge.target_ip_resolver import resolve_target_ip_address
 from app.ai.teacher_judge.target_os import is_windows_target, resource_os_context
 from app.core.i18n import t
 from app.infrastructure.proxmox import operations as proxmox_ops
+from app.models.base import get_datetime_utc as _now
 from app.models.teacher_judge_script_artifact import (
     TeacherJudgeScriptArtifact,
     TeacherJudgeScriptStatus,
@@ -46,10 +50,6 @@ from app.repositories import resource as resource_repo
 from app.services import os_identity_service
 
 logger = logging.getLogger(__name__)
-
-
-def _now() -> datetime:
-    return datetime.now(timezone.utc)
 
 
 _INTERNAL_TARGET_KEYS = frozenset(
@@ -313,25 +313,13 @@ def _class_member_by_vmid(
 
 def _running_resources_by_vmid() -> dict[int, dict[str, Any]]:
     try:
-        resources = proxmox_ops.list_all_resources()
+        return proxmox_ops.list_all_resources_by_vmid()
     except Exception as exc:
         logger.warning("Teacher Judge run target status lookup failed", exc_info=True)
         raise HTTPException(
             status_code=503,
             detail=t("run.status_lookup_failed"),
         ) from exc
-
-    result: dict[int, dict[str, Any]] = {}
-    for resource in resources:
-        try:
-            raw_vmid = resource.get("vmid")
-            if raw_vmid is None:
-                continue
-            vmid = int(raw_vmid)
-        except (TypeError, ValueError):
-            continue
-        result[vmid] = dict(resource)
-    return result
 
 
 def _ensure_linux_executor_capability(resource: Any, vmid: int) -> None:
@@ -597,10 +585,13 @@ def _resolve_node_targets(
             },
         )
 
-    member_by_vmid = _class_member_by_vmid(
-        session=session,
-        teaching_class_id=teaching_class_id,
-    )
+    # The node's members already carry every field _resolve_running_targets
+    # reads, so re-key them instead of reloading the class roster by VMID.
+    member_by_vmid = {
+        int(member["vmid"]): member
+        for member in members
+        if member.get("vmid") is not None
+    }
     live_by_vmid = (
         _running_resources_by_vmid()
         if any(member.get("vmid") is not None for member in members)
@@ -736,6 +727,34 @@ def _attach_peer_runtime_contexts(
         }
 
 
+def _ensure_targets_on_node(
+    targets: list[dict[str, Any]],
+    artifact_node_key: str | None,
+    message: str,
+) -> None:
+    """Reject VMID-selected targets that are not on the script's target node."""
+
+    if not artifact_node_key:
+        return
+    mismatched_targets = sorted(
+        {
+            str(target.get("node_key") or "")
+            for target in targets
+            if target.get("node_key") != artifact_node_key
+        }
+    )
+    if mismatched_targets:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "code": "teacher_judge_target_node_mismatch",
+                "message": message,
+                "artifact_target_node_key": artifact_node_key,
+                "mismatched_node_keys": mismatched_targets,
+            },
+        )
+
+
 def create_script_run(
     *,
     session: Session,
@@ -792,24 +811,11 @@ def create_script_run(
             teaching_class_id=teaching_class_id,
             target_vmids=target_vmids or [],
         )
-        if artifact_node_key:
-            mismatched_targets = sorted(
-                {
-                    str(target.get("node_key") or "")
-                    for target in targets
-                    if target.get("node_key") != artifact_node_key
-                }
-            )
-            if mismatched_targets:
-                raise HTTPException(
-                    status_code=400,
-                    detail={
-                        "code": "teacher_judge_target_node_mismatch",
-                        "message": "手動執行目標不屬於腳本指定的 target_node_key。",
-                        "artifact_target_node_key": artifact_node_key,
-                        "mismatched_node_keys": mismatched_targets,
-                    },
-                )
+        _ensure_targets_on_node(
+            targets,
+            artifact_node_key,
+            "手動執行目標不屬於腳本指定的 target_node_key。",
+        )
     elif effective_node_key and not target_vmids:
         targets, preflight_results = _resolve_node_targets(
             session=session,
@@ -823,24 +829,11 @@ def create_script_run(
             teaching_class_id=teaching_class_id,
             target_vmids=target_vmids,
         )
-        if artifact_node_key:
-            mismatched_targets = sorted(
-                {
-                    str(target.get("node_key") or "")
-                    for target in targets
-                    if target.get("node_key") != artifact_node_key
-                }
-            )
-            if mismatched_targets:
-                raise HTTPException(
-                    status_code=400,
-                    detail={
-                        "code": "teacher_judge_target_node_mismatch",
-                        "message": "舊式 VMID 執行目標不屬於腳本指定的 target_node_key。",
-                        "artifact_target_node_key": artifact_node_key,
-                        "mismatched_node_keys": mismatched_targets,
-                    },
-                )
+        _ensure_targets_on_node(
+            targets,
+            artifact_node_key,
+            "舊式 VMID 執行目標不屬於腳本指定的 target_node_key。",
+        )
     else:
         raise HTTPException(
             status_code=400,
@@ -875,22 +868,7 @@ def create_script_run(
         }
         for target in targets
     ]
-    progress_targets.extend(
-        {
-            "vmid": result.get("vmid"),
-            "name": result.get("name"),
-            "student_id": result.get("student_id"),
-            "node_key": result.get("node_key"),
-            "node_name": result.get("node_name"),
-            "display_label": result.get("display_label"),
-            "proxmox_node": result.get("proxmox_node"),
-            "resource_type": result.get("resource_type"),
-            "user": result.get("user"),
-            "status": result.get("status", "failed"),
-            "reason_code": result.get("reason_code"),
-        }
-        for result in preflight_results
-    )
+    progress_targets.extend(preflight_progress(preflight_results))
 
     run = TeacherJudgeScriptRun(
         run_batch_id=run_batch_id,
@@ -1220,21 +1198,10 @@ def create_script_run_batch(
         rows = [row for row in rows if row.session_id == session_id]
     if not rows:
         raise HTTPException(status_code=404, detail="Script set not found")
-    latest: dict[str, TeacherJudgeScriptArtifact] = {}
-    for row in rows:
-        if row.status == TeacherJudgeScriptStatus.archived:
-            continue
-        node_key = str(row.target_node_key or "")
-        if node_key not in latest or row.version > latest[node_key].version:
-            latest[node_key] = row
     nodes = load_class_machine_nodes(session, teaching_class_id)
-    node_order = {node.node_key: node.sort_order for node in nodes}
-    children = sorted(
-        latest.values(),
-        key=lambda row: (
-            node_order.get(str(row.target_node_key or ""), 10**9),
-            str(row.target_node_key or ""),
-        ),
+    children = latest_set_children(
+        rows,
+        node_order={node.node_key: node.sort_order for node in nodes},
     )
     if any(child.status != TeacherJudgeScriptStatus.approved for child in children):
         raise HTTPException(

@@ -1,5 +1,16 @@
 import { apiPost } from "./api";
 
+/** 只送使用者與助理的訊息，保留最後 12 則、每則截到 2000 字，控制請求大小。 */
+function normalizeHistory(history) {
+  return history
+    .filter((message) => message?.role === "user" || message?.role === "assistant")
+    .slice(-12)
+    .map((message) => ({
+      role: message.role,
+      content: String(message.content ?? "").slice(0, 2000),
+    }));
+}
+
 export const AiNavigationService = {
   /**
    * 以自然語言解析導航意圖。
@@ -17,13 +28,7 @@ export const AiNavigationService = {
   resolve(query, { history = [], currentPath = null, surfaceId, screenState, activeFlowId, pendingFlowIds } = {}) {
     return apiPost("/api/v1/ai/navigation/resolve", {
       query,
-      history: history
-        .filter((message) => message?.role === "user" || message?.role === "assistant")
-        .slice(-12)
-        .map((message) => ({
-          role: message.role,
-          content: String(message.content ?? "").slice(0, 2000),
-        })),
+      history: normalizeHistory(history),
       current_path: currentPath,
       ...(surfaceId ? { surface_id: surfaceId, screen_state: screenState ?? {} } : {}),
       ...(activeFlowId ? { active_flow_id: activeFlowId } : {}),
@@ -44,13 +49,7 @@ export const AiNavigationService = {
    */
   intake(history = [], { facts = {}, pendingKey = null, goal = null } = {}) {
     return apiPost("/api/v1/ai/navigation/intake", {
-      history: history
-        .filter((message) => message?.role === "user" || message?.role === "assistant")
-        .slice(-12)
-        .map((message) => ({
-          role: message.role,
-          content: String(message.content ?? "").slice(0, 2000),
-        })),
+      history: normalizeHistory(history),
       facts,
       pending_key: pendingKey,
       goal,

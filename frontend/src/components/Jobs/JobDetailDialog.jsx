@@ -5,7 +5,7 @@ import Modal from "../Modal/Modal";
 import { useAuth } from "../../contexts/AuthContext";
 import useDialogPresence from "../../hooks/useDialogPresence";
 import { JobsService } from "../../services/jobs";
-import { JOB_STATUS_META_KEYS } from "./JobRow";
+import { JOB_STATUS_META_KEYS, JobLoading } from "./JobRow";
 import styles from "./Jobs.module.scss";
 import { formatDate, formatDateTime } from "../../utils/formatDate";
 
@@ -107,6 +107,9 @@ export default function JobDetailDialog({ jobId, onClose }) {
 
   useEffect(() => {
     if (!open) return;
+    // 換成另一筆任務（對話框開著時又 openJob 別筆）時，不能把上一筆的內容掛在新 id 底下
+    setData(null);
+    setError(null);
     let cancelled = false;
     let timer = null;
 
@@ -121,7 +124,10 @@ export default function JobDetailDialog({ jobId, onClose }) {
           timer = setTimeout(() => load(true), 3000);
         }
       } catch (e) {
-        if (!cancelled) setError(e?.message ?? t("JobDetailDialog.unknownError"));
+        if (cancelled) return;
+        setError(e?.message ?? t("JobDetailDialog.unknownError"));
+        // 背景刷新偶發失敗（後端重啟、502）不停止輪詢，放慢間隔再試，恢復後錯誤自動消失
+        if (silent) timer = setTimeout(() => load(true), 6000);
       } finally {
         if (!cancelled && !silent) setLoading(false);
       }
@@ -162,7 +168,7 @@ export default function JobDetailDialog({ jobId, onClose }) {
     >
       <div className={styles.dialogJobId}>{presence.item}</div>
 
-      {loading && !data && <JobDetailLoading />}
+      {loading && !data && <JobLoading message={t("JobDetailDialog.loading")} />}
 
       {error && (
         <div className={styles.dialogError}>
@@ -257,15 +263,5 @@ export default function JobDetailDialog({ jobId, onClose }) {
         </div>
       )}
     </Modal>
-  );
-}
-
-function JobDetailLoading() {
-  const { t } = useTranslation("components");
-  return (
-    <div className={styles.jobLoading}>
-      <MIcon name="refresh" size={16} spin />
-      <span>{t("JobDetailDialog.loading")}</span>
-    </div>
   );
 }

@@ -98,16 +98,8 @@ def get_proxmox_settings(connection_id: int | None = None) -> ProxmoxSettings:
             port=connection.port,
         )
 
-    # 舊版相容路徑的行為設定：無 proxmox_config 時採用預設值
-    iso_storage = config.iso_storage if config else "local"
-    data_storage = config.data_storage if config else "local-lvm"
-    task_check_interval = config.task_check_interval if config else 2
-    pool_name = config.pool_name if config else DEFAULT_PROXMOX_POOL_NAME
-    gateway_ip = config.gateway_ip if config else None
-    local_subnet = config.local_subnet if config else None
-    default_node = config.default_node if config else None
-
-    # 舊版相容：尚未建立連線資料，使用 proxmox_config 的連線欄位
+    # 舊版相容：尚未建立連線資料，連線與資源設定都取自 proxmox_config
+    # （兩者皆無時上面已拋錯，這裡 config 必定存在）
     assert config is not None
     try:
         password = get_decrypted_password(config)
@@ -122,15 +114,15 @@ def get_proxmox_settings(connection_id: int | None = None) -> ProxmoxSettings:
         user=config.user,
         password=password,
         verify_ssl=config.verify_ssl,
-        iso_storage=iso_storage,
-        data_storage=data_storage,
+        iso_storage=config.iso_storage,
+        data_storage=config.data_storage,
         api_timeout=config.api_timeout,
-        task_check_interval=task_check_interval,
-        pool_name=pool_name,
+        task_check_interval=config.task_check_interval,
+        pool_name=config.pool_name,
         ca_cert=config.ca_cert,
-        gateway_ip=gateway_ip,
-        local_subnet=local_subnet,
-        default_node=default_node,
+        gateway_ip=config.gateway_ip,
+        local_subnet=config.local_subnet,
+        default_node=config.default_node,
         connection_id=None,
         connection_name=None,
     )

@@ -251,7 +251,7 @@ function usePopupPosition(triggerRef, collapsed) {
   return pos;
 }
 
-/** 通用彈出選單，供外觀與語言共用 */
+/** 側欄的語言選單（options 每項 { key, label, flag }）；外觀設定已移到帳號設定頁 */
 function SelectPopup({ options, value, onSelect, onClose, triggerRef, closing, collapsed }) {
   const ref = useRef(null);
   const pos = usePopupPosition(triggerRef, collapsed);
@@ -264,16 +264,11 @@ function SelectPopup({ options, value, onSelect, onClose, triggerRef, closing, c
         <button
           key={opt.key}
           type="button"
-          className={`${styles.appearanceOption} ${value === opt.key ? styles.appearanceOptionActive : ""} ${opt.disabled ? styles.appearanceOptionDisabled : ""}`}
-          disabled={opt.disabled}
+          className={`${styles.appearanceOption} ${value === opt.key ? styles.appearanceOptionActive : ""}`}
           onClick={() => { onSelect(opt.key); onClose(); }}
         >
-          {opt.flag
-            ? <span className={styles.optionFlag}>{opt.flag}</span>
-            : <MIcon name={opt.icon} size={18} />
-          }
+          <span className={styles.optionFlag}>{opt.flag}</span>
           <span>{opt.label}</span>
-          {opt.hint && <span className={styles.optionHint}>{opt.hint}</span>}
         </button>
       ))}
     </div>,
@@ -558,7 +553,10 @@ export default function Sidebar({ collapsed, mobileOpen, onToggle, onClose }) {
           {userPopup.open && (
             <UserPopup
               user={user}
-              onLogout={logout}
+              onLogout={async () => {
+                /* 登出會被路由守衛直接導到登入頁，不觸發 beforeunload，要先確認未儲存的表單 */
+                if (await confirmLeave()) logout();
+              }}
               onSettings={() => handleNav("account")}
               onClose={userPopup.close}
               triggerRef={userBtnRef}

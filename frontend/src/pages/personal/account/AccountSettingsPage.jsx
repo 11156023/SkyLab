@@ -1,8 +1,8 @@
-import { useEffect, useId, useRef, useState } from "react";
-import { createPortal } from "react-dom";
+import { useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import styles from "./AccountSettingsPage.module.scss";
 import MIcon from "../../../components/MIcon";
+import Modal from "../../../components/Modal/Modal";
 import Avatar from "../../../components/Avatar/Avatar";
 import PasswordInput from "../../../components/PasswordInput/PasswordInput";
 import FileDropzone from "../../../components/FileDropzone/FileDropzone";
@@ -291,24 +291,12 @@ function TwoFactorSection() {
   const [code, setCode] = useState("");
   const [disabling, setDisabling] = useState(false);
   const codeRef = useRef(null);
-  const titleId = useId();
 
   function closeDialog() {
     if (disabling) return;
     setDialog(null);
     setCode("");
   }
-
-  const closeDialogRef = useRef(closeDialog);
-  closeDialogRef.current = closeDialog;
-  useEffect(() => {
-    if (!dialog) return undefined;
-    const onKeyDown = (e) => {
-      if (e.key === "Escape") closeDialogRef.current();
-    };
-    document.addEventListener("keydown", onKeyDown);
-    return () => document.removeEventListener("keydown", onKeyDown);
-  }, [dialog]);
 
   function handleEnabled() {
     updateUser({ totp_enabled: true, totp_setup_required: false });
@@ -379,76 +367,62 @@ function TwoFactorSection() {
         )}
       </div>
 
-      {activeDialog && createPortal(
-        /* portal 到 body：理由同 DangerZoneSection（backdrop-filter 的 containing block 陷阱） */
-        <div
-          className={`${styles.modalOverlay} ${presence.closing ? styles.modalOverlayOut : ""}`}
-          onMouseDown={closeDialog}
+      {activeDialog === "enable" && (
+        <Modal
+          size="md"
+          closeButton
+          closing={presence.closing}
+          onClose={closeDialog}
+          title={t("TwoFactorSection.enableTitle")}
+          closeProps={{ "aria-label": t("TwoFactorSection.close") }}
         >
-          <div
-            className={`${styles.confirm} ${activeDialog === "enable" ? styles.confirmWide : ""}`}
-            onMouseDown={(e) => e.stopPropagation()}
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby={titleId}
-          >
-            {activeDialog === "enable" ? (
-              <>
-                <div className={styles.dialogHeader}>
-                  <h2 id={titleId}>{t("TwoFactorSection.enableTitle")}</h2>
-                  <button
-                    type="button"
-                    className={styles.dialogClose}
-                    onClick={closeDialog}
-                    aria-label={t("TwoFactorSection.close")}
-                  >
-                    <MIcon name="close" size={18} />
-                  </button>
-                </div>
-                <TotpEnrollment onConfirmed={handleEnabled} onCancel={closeDialog} />
-              </>
-            ) : (
-              <form onSubmit={handleDisable} className={styles.form}>
-                <h2 id={titleId} className={styles.confirmTitle}>
-                  <span className={styles.confirmTitleIcon}><MIcon name="warning" size={20} /></span>
-                  {t("TwoFactorSection.disableTitle")}
-                </h2>
-                <p>{t("TwoFactorSection.disableDesc")}</p>
-                <input
-                  ref={codeRef}
-                  className={`${styles.confirmInput} ${styles.otpInput}`}
-                  type="text"
-                  inputMode="numeric"
-                  autoComplete="one-time-code"
-                  maxLength={7}
-                  placeholder="000000"
-                  value={code}
-                  onChange={(e) => setCode(e.target.value.replace(/[^\d ]/g, ""))}
-                  disabled={disabling}
-                  autoFocus
-                />
-                <div className={styles.modalActions}>
-                  <button
-                    type="button"
-                    className={styles.btnSecondary}
-                    onClick={closeDialog}
-                    disabled={disabling}
-                  >
-                    {t("TwoFactorSection.cancel")}
-                  </button>
-                  <button
-                    type="submit"
-                    className={styles.btnDanger}
-                    disabled={disabling || code.replace(/\D/g, "").length !== 6}
-                  >
-                    {disabling ? t("TwoFactorSection.disabling") : t("TwoFactorSection.confirmDisable")}
-                  </button>
-                </div>
-              </form>
-            )}
-          </div>
-        </div>,
-        document.body,
+          <TotpEnrollment onConfirmed={handleEnabled} onCancel={closeDialog} />
+        </Modal>
+      )}
+      {activeDialog === "disable" && (
+        <Modal
+          as="form"
+          onSubmit={handleDisable}
+          closing={presence.closing}
+          onClose={closeDialog}
+          busy={disabling}
+          icon={<span className={styles.confirmTitleIcon}><MIcon name="warning" size={20} /></span>}
+          title={t("TwoFactorSection.disableTitle")}
+          description={t("TwoFactorSection.disableDesc")}
+          actions={
+            <>
+              <button
+                type="button"
+                className={styles.btnSecondary}
+                onClick={closeDialog}
+                disabled={disabling}
+              >
+                {t("TwoFactorSection.cancel")}
+              </button>
+              <button
+                type="submit"
+                className={styles.btnDanger}
+                disabled={disabling || code.replace(/\D/g, "").length !== 6}
+              >
+                {disabling ? t("TwoFactorSection.disabling") : t("TwoFactorSection.confirmDisable")}
+              </button>
+            </>
+          }
+        >
+          <input
+            ref={codeRef}
+            className={`${styles.confirmInput} ${styles.otpInput}`}
+            type="text"
+            inputMode="numeric"
+            autoComplete="one-time-code"
+            maxLength={7}
+            placeholder="000000"
+            value={code}
+            onChange={(e) => setCode(e.target.value.replace(/[^\d ]/g, ""))}
+            disabled={disabling}
+            autoFocus
+          />
+        </Modal>
       )}
     </>
   );
@@ -465,7 +439,6 @@ function DangerZoneSection() {
   const [confirmText, setConfirmText] = useState("");
   const [deleting, setDeleting] = useState(false);
   const confirmWord = t("DangerZoneTab.confirmWord");
-  const confirmTitleId = useId();
 
   /* 關閉一律清掉輸入：否則打完確認字再取消，下次開啟按鈕已是可按狀態 */
   function closeConfirm() {
@@ -473,17 +446,6 @@ function DangerZoneSection() {
     setShowConfirm(false);
     setConfirmText("");
   }
-
-  const closeConfirmRef = useRef(closeConfirm);
-  closeConfirmRef.current = closeConfirm;
-  useEffect(() => {
-    if (!showConfirm) return undefined;
-    const onKeyDown = (e) => {
-      if (e.key === "Escape") closeConfirmRef.current();
-    };
-    document.addEventListener("keydown", onKeyDown);
-    return () => document.removeEventListener("keydown", onKeyDown);
-  }, [showConfirm]);
 
   async function handleDelete() {
     setDeleting(true);
@@ -511,38 +473,21 @@ function DangerZoneSection() {
         </div>
       </div>
 
-      {confirmDialog.open && createPortal(
-        /* 用 portal 掛到 document.body：避免 Modal 巢狀在有 backdrop-filter 的 .dangerCard
-           底下 —— backdrop-filter 會讓後代的 position:fixed 失去「相對整個視窗定位」的能力，
-           變成只覆蓋卡片自己的範圍（CSS containing block 陷阱）。 */
-        <div
-          className={`${styles.modalOverlay} ${confirmDialog.closing ? styles.modalOverlayOut : ""}`}
-          onMouseDown={closeConfirm}
-        >
-          <div
-            className={styles.confirm}
-            onMouseDown={(e) => e.stopPropagation()}
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby={confirmTitleId}
-          >
-            {/* 同共用確認框：紅色 warning 圖示放在標題前，不另佔一行 */}
-            <h2 id={confirmTitleId} className={styles.confirmTitle}>
-              <span className={styles.confirmTitleIcon}><MIcon name="warning" size={20} /></span>
-              {t("DangerZoneTab.confirmTitle")}
-            </h2>
-            <p>
-              {t("DangerZoneTab.confirmDescPart1")}<strong>{t("DangerZoneTab.confirmDescBold")}</strong>{t("DangerZoneTab.confirmDescPart2")} <code>{confirmWord}</code> {t("DangerZoneTab.confirmDescPart3")}
-            </p>
-            <input
-              className={styles.confirmInput}
-              value={confirmText}
-              onChange={(e) => setConfirmText(e.target.value)}
-              placeholder={t("DangerZoneTab.confirmPlaceholder", { word: confirmWord })}
-              disabled={deleting}
-              autoFocus
-            />
-            <div className={styles.modalActions}>
+      {confirmDialog.open && (
+        /* 共用 Modal 會 portal 到 body，不受 .dangerCard 的 backdrop-filter 影響 */
+        <Modal
+          closing={confirmDialog.closing}
+          onClose={closeConfirm}
+          busy={deleting}
+          icon={<span className={styles.confirmTitleIcon}><MIcon name="warning" size={20} /></span>}
+          title={t("DangerZoneTab.confirmTitle")}
+          description={
+            <>
+              {t("DangerZoneTab.confirmDescPart1")}<strong>{t("DangerZoneTab.confirmDescBold")}</strong>{t("DangerZoneTab.confirmDescPart2")} <code className={styles.confirmWord}>{confirmWord}</code> {t("DangerZoneTab.confirmDescPart3")}
+            </>
+          }
+          actions={
+            <>
               <button
                 type="button"
                 className={styles.btnSecondary}
@@ -559,10 +504,18 @@ function DangerZoneSection() {
               >
                 {deleting ? t("DangerZoneTab.deleting") : t("DangerZoneTab.confirmDelete")}
               </button>
-            </div>
-          </div>
-        </div>,
-        document.body,
+            </>
+          }
+        >
+          <input
+            className={styles.confirmInput}
+            value={confirmText}
+            onChange={(e) => setConfirmText(e.target.value)}
+            placeholder={t("DangerZoneTab.confirmPlaceholder", { word: confirmWord })}
+            disabled={deleting}
+            autoFocus
+          />
+        </Modal>
       )}
     </>
   );

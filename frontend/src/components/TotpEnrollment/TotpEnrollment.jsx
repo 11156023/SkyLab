@@ -28,6 +28,7 @@ export default function TotpEnrollment({ onConfirmed, onCancel, confirmLabel }) 
   const [busy, setBusy] = useState(false);
   const [copied, setCopied] = useState(false);
   const inputRef = useRef(null);
+  const refocusRef = useRef(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -91,11 +92,19 @@ export default function TotpEnrollment({ onConfirmed, onCancel, confirmLabel }) 
     } catch (err) {
       setError(err?.message ?? t("TotpEnrollment.codeInvalid"));
       setCode("");
-      inputRef.current?.focus();
+      // 此刻輸入框仍是 disabled（busy），focus 無效；等 busy 解除後再聚焦
+      refocusRef.current = true;
     } finally {
       setBusy(false);
     }
   }
+
+  useEffect(() => {
+    if (!busy && refocusRef.current) {
+      refocusRef.current = false;
+      inputRef.current?.focus();
+    }
+  }, [busy]);
 
   if (loadError) {
     return (

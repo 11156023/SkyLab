@@ -18,7 +18,7 @@ from app.repositories import user as user_repo
 from app.repositories.ldap_config import get_ldap_config
 from app.schemas import Token, TotpChallenge, UserUpdate
 from app.services.user import audit_service, totp_service
-from app.services.user.auth_service import create_token_pair
+from app.services.user.tokens import create_token_pair
 
 logger = logging.getLogger(__name__)
 

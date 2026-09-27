@@ -1,4 +1,5 @@
 import { apiDelete, apiGet, apiGetBlob, apiPost, apiPut } from "./api";
+import { wsBaseUrl } from "../utils/wsUrl";
 
 /**
  * 課程服務：
@@ -99,9 +100,6 @@ export const CourseAdminService = {
   createRoom(body) {
     return apiPost("/api/v1/admin/courses/rooms", body);
   },
-  updateRoom(roomId, body) {
-    return apiPut(`/api/v1/admin/courses/rooms/${roomId}`, body);
-  },
   deleteRoom(roomId) {
     return apiDelete(`/api/v1/admin/courses/rooms/${roomId}`);
   },
@@ -127,9 +125,6 @@ export const CourseAdminService = {
   createQuestion(body) {
     return apiPost("/api/v1/admin/courses/questions", body);
   },
-  updateQuestion(questionId, body) {
-    return apiPut(`/api/v1/admin/courses/questions/${questionId}`, body);
-  },
   deleteQuestion(questionId) {
     return apiDelete(`/api/v1/admin/courses/questions/${questionId}`);
   },
@@ -137,10 +132,5 @@ export const CourseAdminService = {
 
 /** 老師端進度即時推播 WebSocket URL（token 由呼叫端帶入） */
 export function courseProgressWsUrl(pathId, token) {
-  const apiUrl = new URL(
-    import.meta.env.VITE_API_URL ||
-      `${window.location.protocol}//${window.location.host}`
-  );
-  const proto = apiUrl.protocol === "https:" ? "wss:" : "ws:";
-  return `${proto}//${apiUrl.host}/ws/courses/paths/${pathId}/progress?token=${encodeURIComponent(token)}`;
+  return `${wsBaseUrl()}/ws/courses/paths/${pathId}/progress?token=${encodeURIComponent(token)}`;
 }

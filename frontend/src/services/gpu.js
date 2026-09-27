@@ -1,4 +1,4 @@
-import { apiDelete, apiGet, apiPost } from "./api";
+import { apiDelete, apiGet } from "./api";
 
 export const GpuService = {
   /** 取得可用 GPU 選項（node = 範本所在節點，只回同一 PVE 叢集的 GPU） */
@@ -14,16 +14,6 @@ export const GpuService = {
   /** 取得所有 GPU mapping (含使用狀態) */
   listMappings() {
     return apiGet("/api/v1/gpu/mappings");
-  },
-
-  /** 取得單一 GPU mapping 詳情 */
-  getMapping(mappingId) {
-    return apiGet(`/api/v1/gpu/mappings/${encodeURIComponent(mappingId)}`);
-  },
-
-  /** 新增 mapping */
-  createMapping(body) {
-    return apiPost("/api/v1/gpu/mappings", body);
   },
 
   /** 刪除 mapping */

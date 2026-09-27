@@ -44,6 +44,18 @@ describe("CourseEnvironmentsService", () => {
     expect(JSON.parse(fetchMock.mock.calls[0][1].body).draft_id).toBe("request-1");
   });
 
+  test("附件下載走 api.js 的 Blob 請求（帶 token），不是裸網址", async () => {
+    const blob = new Blob(["hello"]);
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 200, blob: async () => blob });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await CourseEnvironmentsService.downloadFile("env-1", "file-9");
+
+    expect(fetchMock.mock.calls[0][0]).toContain("/api/v1/course-environments/env-1/files/file-9");
+    expect(fetchMock.mock.calls[0][1].method).toBe("GET");
+    expect(result).toBe(blob);
+  });
+
   test("published list uses the classroom selection endpoint", async () => {
     const fetchMock = vi.fn().mockResolvedValue(jsonRes([]));
     vi.stubGlobal("fetch", fetchMock);

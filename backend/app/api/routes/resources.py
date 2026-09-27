@@ -3,6 +3,7 @@ import uuid
 from typing import Any
 
 from fastapi import APIRouter
+from sqlmodel import Session
 
 from app.api.deps import (
     AdminUser,
@@ -12,9 +13,17 @@ from app.api.deps import (
     SessionDep,
 )
 from app.core.authorizers import can_bypass_resource_ownership
+from app.core.i18n import t
 from app.core.security import decrypt_value
-from app.exceptions import NotFoundError, PermissionDeniedError, ProxmoxError
+from app.exceptions import (
+    ConflictError,
+    NotFoundError,
+    PermissionDeniedError,
+    ProxmoxError,
+)
+from app.infrastructure.proxmox import get_proxmox_api
 from app.models import DeletionRequestStatus
+from app.repositories import proxmox_connection as proxmox_connection_repo
 from app.repositories import resource as resource_repo
 from app.schemas import ResourcePublic, SSHKeyResponse
 from app.schemas.deletion_request import DeletionRequestCreated
@@ -32,6 +41,47 @@ from app.services.template import password_policy
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/resources", tags=["resources"])
+
+
+def _ensure_vm_absent_everywhere(session: Session, vmid: int) -> None:
+    """確認 VM 真的已經不在任何 PVE 上，才允許清掉孤兒 DB 記錄。
+
+    ``find_resource`` 只看啟用中的連線、只看各連線自己的 pool，且只要還有
+    一個連線答得出來就會默默略過連不上的連線；拿它的 NotFound 當「機器已不
+    存在」會在連線停用／斷線時把活著的機器的 DB 記錄、IP 與稽核紀錄一併刪掉。
+    這裡改為逐一詢問所有連線（含停用中的）、不套 pool 篩選：任何一個連線
+    列不出清單就丟 ProxmoxError（502，不動 DB）；在 pool 外找到同一個 vmid
+    就回 409，交給管理員處理。
+    """
+    connection_ids: list[int | None] = [
+        conn.id
+        for conn in proxmox_connection_repo.get_all_connections(session)
+        if conn.id is not None
+    ] or [None]
+    for connection_id in connection_ids:
+        try:
+            vms = list(
+                get_proxmox_api(connection_id).cluster.resources.get(type="vm")
+            )
+        except Exception as exc:
+            logger.warning(
+                "Cannot confirm resource %s is gone: Proxmox connection %s "
+                "could not be listed: %s",
+                vmid, connection_id, exc,
+            )
+            raise ProxmoxError(t("resource.delete_presence_unverified")) from exc
+        for vm in vms:
+            try:
+                found = int(vm.get("vmid")) == vmid
+            except (TypeError, ValueError):
+                continue
+            if found:
+                logger.warning(
+                    "Resource %s is outside its pool or on a disabled "
+                    "connection (%s); refusing orphan cleanup",
+                    vmid, connection_id,
+                )
+                raise ConflictError(t("resource.delete_outside_pool"))
 
 
 @router.get("/", response_model=list[ResourcePublic])
@@ -216,6 +266,8 @@ def delete_resource(
         resource_info = proxmox_service.find_resource(vmid)
     except NotFoundError:
         if db_resource is not None:
+            # find_resource 的 NotFound 不夠嚴格（見 helper 說明），清 DB 前再確認一次
+            _ensure_vm_absent_everywhere(session, vmid)
             logger.warning(
                 "Resource %s not found in Proxmox; cleaning up orphan DB record", vmid
             )

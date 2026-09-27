@@ -1,5 +1,6 @@
 import uuid
 from datetime import datetime, timezone
+from typing import Annotated
 
 from fastapi import APIRouter, Query
 from fastapi.responses import StreamingResponse
@@ -18,6 +19,10 @@ from app.services.user import audit_service
 
 router = APIRouter(prefix="/audit-logs", tags=["audit-logs"])
 
+# 分頁參數上下限：負值會讓 PostgreSQL OFFSET/LIMIT 報錯（500），無上限則可一次撈整表
+SkipParam = Annotated[int, Query(ge=0)]
+LimitParam = Annotated[int, Query(ge=1, le=500)]
+
 
 def _parse_user_id(user_id: str | None) -> uuid.UUID | None:
     if not user_id:
@@ -32,8 +37,8 @@ def _parse_user_id(user_id: str | None) -> uuid.UUID | None:
 def get_all_audit_logs(
     session: SessionDep,
     current_user: AdminUser,
-    skip: int = 0,
-    limit: int = 100,
+    skip: SkipParam = 0,
+    limit: LimitParam = 100,
     vmid: int | None = None,
     user_id: str | None = None,
     action: AuditAction | None = None,
@@ -129,8 +134,8 @@ def export_audit_logs(
 def get_my_audit_logs(
     session: SessionDep,
     current_user: CurrentUser,
-    skip: int = 0,
-    limit: int = 100,
+    skip: SkipParam = 0,
+    limit: LimitParam = 100,
     action: AuditAction | None = None,
     start_time: datetime | None = None,
     end_time: datetime | None = None,
@@ -152,8 +157,8 @@ def get_resource_audit_logs(
     session: SessionDep,
     current_user: CurrentUser,
     resource_info: ResourceInfoDep,
-    skip: int = 0,
-    limit: int = 100,
+    skip: SkipParam = 0,
+    limit: LimitParam = 100,
 ):
     # 用 resource_vmid 而不是 vmid：VMID 會被新機器回收，只比對 vmid 會把前一任
     # 擁有者（別的租戶）的信箱、IP、操作細節一起回給現任擁有者

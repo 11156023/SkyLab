@@ -8,7 +8,6 @@ import shutil
 import uuid
 from copy import deepcopy
 from dataclasses import dataclass
-from datetime import datetime
 from pathlib import Path
 from typing import Any, cast
 
@@ -17,6 +16,7 @@ from sqlmodel import Session, desc, select
 
 from app.ai.teacher_judge.machine_context import (
     load_class_machine_nodes,
+    peer_node_keys_from_snapshot,
     rubric_item_machine_issues,
     target_node_keys_from_snapshot,
 )
@@ -27,6 +27,7 @@ from app.ai.teacher_judge.schemas import (
 )
 from app.ai.teacher_judge.template_command_service import SUPPORTED_TEMPLATE_KEYS
 from app.core.i18n import t
+from app.models.base import get_datetime_utc as _now
 from app.models.teacher_judge_file import TeacherJudgeFile, TeacherJudgeFileStatus
 from app.models.teacher_judge_script_artifact import TeacherJudgeScriptArtifact
 from app.models.teacher_judge_session import TeacherJudgeSession
@@ -41,12 +42,6 @@ class FileDeleteStage:
 
     path: Path | None
     deleted_path: Path | None
-
-
-def _now() -> datetime:
-    from app.models.base import get_datetime_utc
-
-    return get_datetime_utc()
 
 
 def _suffix(filename: str) -> str:
@@ -197,11 +192,7 @@ def update_file_analysis(
     class_nodes = load_class_machine_nodes(session, teaching_class_id)
     target_node_keys = target_node_keys_from_snapshot(analysis_dump)
     valid_node_keys = {node.node_key for node in class_nodes}
-    peer_node_keys = {
-        str(item.get("peer_node_key") or "").strip()
-        for item in analysis_dump.get("items", [])
-        if isinstance(item, dict) and str(item.get("peer_node_key") or "").strip()
-    }
+    peer_node_keys = peer_node_keys_from_snapshot(analysis_dump)
     invalid_node_keys = sorted(
         (target_node_keys | peer_node_keys) - valid_node_keys
     )

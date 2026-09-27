@@ -27,6 +27,11 @@ from app.schemas.resource_settings import (
     ResourceSpecsPublic,
 )
 from app.services.proxmox import proxmox_service
+from app.services.resource._guest_helpers import (
+    is_running,
+    read_config,
+    resource_type,
+)
 from app.services.user import audit_service
 
 logger = logging.getLogger(__name__)
@@ -37,19 +42,11 @@ _NET_KEY_RE = re.compile(r"^net\d{1,2}$")
 _CDROM_SLOT_CANDIDATES = ("ide2", "ide0", "ide1", "ide3")
 
 
-def _rtype(resource_info: dict[str, Any]) -> str:
-    return "lxc" if str(resource_info.get("type") or "") == "lxc" else "qemu"
-
-
-def _is_running(resource_info: dict[str, Any]) -> bool:
-    return str(resource_info.get("status") or "") == "running"
-
-
 # ─── 規格摘要 ─────────────────────────────────────────────────────────────────
 
 
 def get_specs(*, vmid: int, resource_info: dict[str, Any]) -> ResourceSpecsPublic:
-    rtype = _rtype(resource_info)
+    rtype = resource_type(resource_info)
     try:
         specs = proxmox_service.get_current_specs(resource_info["node"], vmid, rtype)
     except Exception as exc:
@@ -136,13 +133,9 @@ def _collect_devices(
 def get_boot_options(
     *, vmid: int, resource_info: dict[str, Any]
 ) -> BootOptionsPublic:
-    rtype = _rtype(resource_info)
+    rtype = resource_type(resource_info)
     node = resource_info["node"]
-    try:
-        config = proxmox_service.get_config(node, vmid, rtype)
-    except Exception as exc:
-        logger.error("Failed to read config for %s: %s", vmid, exc)
-        raise ProxmoxError(t("resource_settings.readConfigFailed", vmid=vmid))
+    config = read_config(resource_info, vmid, rtype)
 
     if rtype == "lxc":
         return BootOptionsPublic(
@@ -150,7 +143,7 @@ def get_boot_options(
             resource_type="lxc",
             supports_boot_order=False,
             supports_cdrom=False,
-            running=_is_running(resource_info),
+            running=is_running(resource_info),
         )
 
     devices, cdrom_slot = _collect_devices(config)
@@ -169,7 +162,7 @@ def get_boot_options(
         cdrom_slot=cdrom_slot,
         cdrom_iso=cdrom_iso,
         iso_storage=iso_storage,
-        running=_is_running(resource_info),
+        running=is_running(resource_info),
     )
 
 
@@ -213,7 +206,7 @@ def update_boot_options(
     user_id: uuid.UUID,
     data: BootOptionsUpdate,
 ) -> BootOptionsPublic:
-    rtype = _rtype(resource_info)
+    rtype = resource_type(resource_info)
     node = resource_info["node"]
 
     if rtype == "lxc" and (
@@ -221,11 +214,7 @@ def update_boot_options(
     ):
         raise BadRequestError(t("resource_settings.lxcNoBootOrder"))
 
-    try:
-        config = proxmox_service.get_config(node, vmid, rtype)
-    except Exception as exc:
-        logger.error("Failed to read config for %s: %s", vmid, exc)
-        raise ProxmoxError(t("resource_settings.readConfigFailed", vmid=vmid))
+    config = read_config(resource_info, vmid, rtype)
 
     params: dict[str, Any] = {}
     to_delete: list[str] = []

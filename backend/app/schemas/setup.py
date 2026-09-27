@@ -39,7 +39,7 @@ class SetupAdminCreate(BaseModel):
 
 
 class SetupAdminResult(BaseModel):
-    email: EmailStr
+    email: str
     full_name: str | None
     created: bool  # False 表示接管了既有的超級使用者（例如 .env 預設帳號）
     default_admin_disabled: bool

@@ -6,7 +6,6 @@ from typing import Literal
 from pydantic import BaseModel, Field
 
 GatewayService = Literal["nginx", "wireguard"]
-ServiceAction = Literal["start", "stop", "restart", "reload"]
 
 
 class GatewayConfigPublic(BaseModel):
@@ -86,7 +85,6 @@ class GatewayWireGuardOverview(BaseModel):
 
 __all__ = [
     "GatewayService",
-    "ServiceAction",
     "GatewayConfigPublic",
     "GatewayConfigUpdate",
     "GatewayConnectionTestResult",

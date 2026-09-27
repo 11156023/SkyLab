@@ -18,9 +18,11 @@ from datetime import datetime, timedelta, timezone
 from uuid import uuid4
 
 import jwt
+import sqlalchemy as sa
 from jwt.exceptions import InvalidTokenError
 from pydantic import ValidationError
-from sqlmodel import Session
+from sqlalchemy.orm.attributes import set_committed_value
+from sqlmodel import Session, col
 
 from app.core import security
 from app.core.config import settings
@@ -29,6 +31,7 @@ from app.exceptions import AuthenticationError, BadRequestError, NotFoundError
 from app.models import AuditAction, User
 from app.schemas import Token, TokenPayload, TotpChallenge, TotpSetupPublic
 from app.services.user import audit_service
+from app.services.user.tokens import create_token_pair
 from app.utils import totp as totp_util
 
 # 第一階段通過後給使用者輸入驗證碼的時間；過期就得重新登入。
@@ -40,20 +43,6 @@ _SUCCESS_ACTIONS: dict[str, tuple[AuditAction, str]] = {
     "google": (AuditAction.login_google_success, "Google"),
     "ldap": (AuditAction.login_ldap_success, "LDAP"),
 }
-
-
-def _create_token_pair(user: User) -> Token:
-    access_token = security.create_access_token(
-        user.id,
-        expires_delta=timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES),
-        token_version=user.token_version,
-    )
-    refresh_token = security.create_refresh_token(
-        user.id,
-        expires_delta=timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS),
-        token_version=user.token_version,
-    )
-    return Token(access_token=access_token, refresh_token=refresh_token)
 
 
 def _decrypt_secret(user: User) -> str | None:
@@ -129,7 +118,7 @@ def complete_login(*, session: Session, totp_token: str, code: str) -> Token:
         action=action,
         details=f"User {user.email} logged in via {label} + two-factor code",
     )
-    return _create_token_pair(user)
+    return create_token_pair(user)
 
 
 def _consume_code(*, session: Session, user: User, code: str) -> bool:
@@ -142,8 +131,24 @@ def _consume_code(*, session: Session, user: User, code: str) -> bool:
     )
     if matched is None:
         return False
-    user.totp_last_used_step = matched
-    session.add(user)
+    # 條件式 UPDATE 原子地「搶」這個 step：兩個併發請求帶同一組驗證碼時，
+    # 後到的會等前者 commit 後重新評估 WHERE 而更新 0 列，視同重放。
+    # （手上的 user 可能是較早載入的舊值，不能只靠它判斷。）
+    result = session.execute(
+        sa.update(User)
+        .where(
+            col(User.id) == user.id,
+            sa.or_(
+                col(User.totp_last_used_step).is_(None),
+                col(User.totp_last_used_step) < matched,
+            ),
+        )
+        .values(totp_last_used_step=matched)
+        .execution_options(synchronize_session=False)
+    )
+    if result.rowcount != 1:  # type: ignore[attr-defined]
+        return False
+    set_committed_value(user, "totp_last_used_step", matched)
     session.commit()
     return True
 

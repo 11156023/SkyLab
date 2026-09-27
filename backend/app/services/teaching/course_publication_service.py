@@ -208,7 +208,7 @@ def apply_for_machines(
     return errors
 
 
-# ── 一次性維護：舊的「只開防火牆」規則 ────────────────────────────────────
+# ── 清單頁用的唯讀查詢：對外網址與 port 轉發 ──────────────────────────────
 
 
 def forward_endpoints_by_vmid(
@@ -246,12 +246,14 @@ def public_urls_by_vmid(session: Session, vmids: list[int]) -> dict[int, str]:
     """每台機器的對外網址（沒有就不會出現在結果裡）。
 
     直接讀反向代理紀錄，不打 Proxmox——這是清單頁會用到的路徑。
+    一台機器有多個網域時取 ``resource_service.public_urls_by_vmid`` 排序後的
+    第一個（依內部 port、網域排序，結果固定）。
     """
-    from app.repositories import reverse_proxy as rp_repo
+    # 函式內 import：resource_service 牽動排程／防火牆等模組，不要變成模組層依賴
+    from app.services.resource import resource_service
 
-    urls: dict[int, str] = {}
-    for vmid in {int(vmid) for vmid in vmids if vmid is not None}:
-        for rule in rp_repo.list_rules_by_vmid(session, vmid):
-            scheme = "https" if rule.enable_https else "http"
-            urls.setdefault(vmid, f"{scheme}://{rule.domain}")
-    return urls
+    return {
+        vmid: urls[0]
+        for vmid, urls in resource_service.public_urls_by_vmid(session, vmids).items()
+        if urls
+    }

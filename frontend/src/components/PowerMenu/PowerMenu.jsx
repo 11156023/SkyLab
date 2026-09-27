@@ -81,12 +81,13 @@ export default function PowerMenu({
             {label ?? t(labelKey)}
           </button>
         ))}
-        {/* 老師／管理員把調好的機器轉成範本；沒有 onConvertTemplate 就不顯示 */}
+        {/* 老師／管理員把調好的機器轉成範本；沒有 onConvertTemplate 就不顯示。
+            轉範本與刪除這兩個額外動作由呼叫端自己關選單（callback 內先 closeMenu），這裡不再呼叫 onClose */}
         {onConvertTemplate && <button
           type="button"
           className={styles.powerMenuItem}
           disabled={!!actionLoading}
-          onClick={() => { onClose(); onConvertTemplate(); }}
+          onClick={() => onConvertTemplate()}
         >
           <span className={styles.powerMenuIcon}><MIcon name="library_add" size={15} /></span>
           {t("PowerMenu.convertTemplate")}
