@@ -343,6 +343,39 @@ def test_init_env_moves_former_host_port_database_to_compose_network_and_reports
     assert "VLLM_UPSTREAM_API_KEY" in out and "p%40ss" not in out and "sk-master" not in out
 
 
+@pytest.mark.parametrize("legacy_key", ["engine-secret", "sk-master"])
+def test_init_env_replaces_a_legacy_service_key_that_collides_with_gateway_keys(tmp_path, capsys, legacy_key):
+    import prepare_ai_stack
+    root_path = tmp_path / ".env"
+    # Pre-LiteLLM deployments pointed the backend at vLLM with its API_KEY.
+    root_path.write_text(
+        f"AI_API_BASE_URL=http://litellm:4000\nLITELLM_RUNTIME_BASE_URL=http://litellm:4000\n"
+        f"AI_API_API_KEY={legacy_key}\nLITELLM_RUNTIME_API_KEY={legacy_key}\nLITELLM_SERVICE_API_KEY={legacy_key}\n"
+    )
+    gateway_path = tmp_path / "gateway.env"
+    gateway_path.write_text(
+        "LITELLM_MASTER_KEY=sk-master\nLITELLM_SALT_KEY=salt\n"
+        "DATABASE_URL=postgresql://litellm:pw@db:5432/litellm\n"
+        "VLLM_UPSTREAM_API_KEY=replace-with-the-vllm-api-key-from-.env.API\n"
+    )
+    engine_path = tmp_path / ".env.API"
+    engine_path.write_text("API_KEY=engine-secret\n")
+
+    assert prepare_ai_stack.init_env(root_path, gateway_path, engine_path) == 0
+    from dotenv import dotenv_values
+    root, gateway = dotenv_values(root_path), dotenv_values(gateway_path)
+    service_key = root["AI_API_API_KEY"]
+    assert service_key.startswith("sk-") and service_key not in {"engine-secret", "sk-master"}
+    assert root["LITELLM_RUNTIME_API_KEY"] == root["LITELLM_SERVICE_API_KEY"] == service_key
+    assert gateway["VLLM_UPSTREAM_API_KEY"] == "engine-secret"
+    out = capsys.readouterr().out
+    assert "舊部署殘留" in out and legacy_key not in out and service_key not in out
+
+    before = (root_path.read_bytes(), gateway_path.read_bytes())
+    assert prepare_ai_stack.init_env(root_path, gateway_path, engine_path) == 0
+    assert (root_path.read_bytes(), gateway_path.read_bytes()) == before
+
+
 def test_init_env_names_the_unwritable_file_and_writes_nothing(tmp_path, monkeypatch, capsys):
     import prepare_ai_stack
     root_path = tmp_path / ".env"
