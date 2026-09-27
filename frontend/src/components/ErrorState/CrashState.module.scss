@@ -1,0 +1,257 @@
+/* 畫面當掉的狀態畫面：比照 404 頁的插圖語言（淡主色的場景、只在出事的地方點一點紅） */
+
+.page {
+  @include flex-column;
+  flex: 1;
+  min-height: 60vh;
+  align-items: center;
+  justify-content: center;
+  padding: $spacing-48 $spacing-16;
+}
+
+/* 根層 boundary：沒有側邊欄等外框，撐滿整個視窗 */
+.fullPage {
+  min-height: 100vh;
+  min-height: 100dvh;
+}
+
+.scene {
+  @include flex-column;
+  align-items: center;
+  gap: $spacing-8;
+  width: min(480px, 100%);
+  text-align: center;
+  animation: rise 0.6s ease-out both;
+}
+
+.art {
+  width: min(340px, 100%);
+  height: auto;
+  margin-bottom: $spacing-8;
+  overflow: visible;
+}
+
+/* ── 插圖：視窗與正常的區塊 ──
+   視窗固定純白，裡面的區塊一律跟 #fff 混色（不跟 --color-surface），
+   深色模式下插圖才維持同一張圖，不會在白視窗裡冒出深色方塊 */
+
+/* 視窗一律純白、不隨主題切換（同 404 頁的雲，style guide 顏色系統的明列例外）：
+   亮色模式靠 drop-shadow 描出輪廓，深色模式白視窗本身就跳得出來 */
+.window {
+  fill: #fff;
+  filter: drop-shadow(0 10px 22px color-mix(in srgb, var(--color-primary) 20%, transparent));
+}
+
+.titleRule {
+  stroke: color-mix(in srgb, var(--color-primary) 14%, #fff);
+  stroke-width: 1.5;
+}
+
+.dot {
+  fill: color-mix(in srgb, var(--color-primary) 22%, #fff);
+}
+
+.block {
+  fill: color-mix(in srgb, var(--color-primary) 10%, #fff);
+}
+
+.line {
+  fill: color-mix(in srgb, var(--color-primary) 24%, #fff);
+}
+
+.bar {
+  fill: color-mix(in srgb, var(--color-primary) 38%, #fff);
+}
+
+/* ── 插圖：脫落的區塊（6 秒一輪：斷開、掉下晃動、彈回原位） ── */
+
+.slot {
+  fill: color-mix(in srgb, var(--color-danger) 5%, transparent);
+  stroke: color-mix(in srgb, var(--color-danger) 50%, transparent);
+  stroke-width: 1.5;
+  stroke-dasharray: 5 5;
+  opacity: 0;
+  animation: show-while-broken 6s ease-in-out infinite;
+}
+
+/* 以區塊左上角為支點轉動（SVG 的 transform-origin 預設以整張 viewBox 為基準） */
+.broken {
+  transform-origin: 220px 80px;
+  animation: break-and-snap 6s ease-in-out infinite;
+}
+
+.brokenCard {
+  fill: color-mix(in srgb, var(--color-primary) 10%, #fff);
+  stroke: transparent;
+  stroke-width: 1.5;
+  animation: tint-while-broken 6s ease-in-out infinite;
+}
+
+.crack {
+  fill: none;
+  stroke: color-mix(in srgb, var(--color-danger) 65%, #fff);
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  opacity: 0;
+  animation: show-while-broken 6s ease-in-out infinite;
+}
+
+.sparks {
+  stroke: color-mix(in srgb, var(--color-danger) 55%, transparent);
+  stroke-width: 2.5;
+  stroke-linecap: round;
+  opacity: 0;
+  animation: spark 6s ease-out infinite;
+}
+
+@keyframes break-and-snap {
+  0%, 12% { transform: none; }
+  22% { transform: translate(4px, 30px) rotate(18deg); }
+  30% { transform: translate(4px, 27px) rotate(14deg); }
+  40% { transform: translate(4px, 30px) rotate(17deg); }
+  52% { transform: translate(4px, 29px) rotate(15deg); }
+  64% { transform: translate(4px, 30px) rotate(17deg); }
+  74% { transform: translate(0, -3px) rotate(-1deg); }
+  80%, 100% { transform: none; }
+}
+
+@keyframes show-while-broken {
+  0%, 14% { opacity: 0; }
+  20%, 70% { opacity: 1; }
+  78%, 100% { opacity: 0; }
+}
+
+@keyframes tint-while-broken {
+  0%, 12% {
+    fill: color-mix(in srgb, var(--color-primary) 10%, #fff);
+    stroke: transparent;
+  }
+  18%, 70% {
+    fill: color-mix(in srgb, var(--color-danger) 10%, #fff);
+    stroke: color-mix(in srgb, var(--color-danger) 30%, transparent);
+  }
+  78%, 100% {
+    fill: color-mix(in srgb, var(--color-primary) 10%, #fff);
+    stroke: transparent;
+  }
+}
+
+@keyframes spark {
+  0%, 13% { opacity: 0; }
+  16% { opacity: 1; }
+  26%, 100% { opacity: 0; }
+}
+
+/* 減少動態：停在脫落的樣子（故事一眼看得懂，只是不動） */
+@media (prefers-reduced-motion: reduce) {
+  .scene { animation: none; }
+
+  .broken {
+    animation: none;
+    transform: translate(4px, 30px) rotate(17deg);
+  }
+
+  .brokenCard {
+    animation: none;
+    fill: color-mix(in srgb, var(--color-danger) 10%, #fff);
+    stroke: color-mix(in srgb, var(--color-danger) 30%, transparent);
+  }
+
+  .slot,
+  .crack,
+  .sparks {
+    animation: none;
+    opacity: 1;
+  }
+}
+
+@keyframes rise {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* ── 文字與動作 ── */
+
+.title {
+  font-size: $font-size-18;
+  font-weight: $font-weight-700;
+  color: var(--color-text-primary);
+}
+
+.desc {
+  max-width: 44ch;
+  font-size: $font-size-14;
+  line-height: $line-height-base;
+  color: var(--color-text-secondary);
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: $spacing-8;
+  margin-top: $spacing-8;
+}
+
+.btnPrimary {
+  @include btn-primary;
+}
+
+.btnSecondary {
+  @include btn-secondary;
+}
+
+/* 錯誤資訊：預設收合，給要回報問題的人看 */
+.details {
+  width: 100%;
+  margin-top: $spacing-16;
+  text-align: left;
+  font-size: $font-size-12;
+  color: var(--color-text-muted);
+
+  summary {
+    width: fit-content;
+    margin: 0 auto;
+    cursor: pointer;
+  }
+}
+
+/* 錯誤訊息＋複製鈕排成一列：白底細框（玻璃卡內容區塊規範），
+   訊息單行截斷，完整內容放在 title 與複製結果裡 */
+.detailsRow {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: $spacing-8;
+  margin-top: $spacing-8;
+  padding: $spacing-4 $spacing-4 $spacing-4 12px;
+  border: 1px solid var(--color-border);
+  border-radius: $radius-8;
+  background: var(--color-surface);
+
+  pre {
+    flex: 1;
+    min-width: 0;
+    margin: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--color-text-secondary);
+    font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
+  }
+}
+
+.copyBtn {
+  @include btn-icon;
+  flex-shrink: 0;
+}
+
+.srOnly {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
