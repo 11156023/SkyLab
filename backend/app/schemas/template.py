@@ -1,6 +1,5 @@
 """範本系統 2.0 schemas"""
 
-import json
 import uuid
 from datetime import datetime
 from typing import Any
@@ -127,14 +126,7 @@ class TaskRecordPublic(BaseModel):
 
     @classmethod
     def from_record(cls, record: TaskRecord) -> "TaskRecordPublic":
-        parsed_result: dict[str, Any] | None = None
-        if record.result:
-            try:
-                loaded = json.loads(record.result)
-                if isinstance(loaded, dict):
-                    parsed_result = loaded
-            except ValueError:
-                parsed_result = None
+        parsed_result = record.result if isinstance(record.result, dict) else None
         return cls(
             id=record.id,
             task_type=record.task_type,

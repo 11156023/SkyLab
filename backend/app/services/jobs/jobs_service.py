@@ -365,13 +365,16 @@ def _fetch_deletions(
     ]
 
 
-def _parse_json(text: str | None) -> dict:
-    if not text:
+def _parse_json(value: dict | str | None) -> dict:
+    """task_records.payload/result 已是 JSON 欄位；仍接受舊的字串形式。"""
+    if not value:
         return {}
+    if isinstance(value, dict):
+        return value
     try:
-        data = json.loads(text)
+        data = json.loads(value)
         return data if isinstance(data, dict) else {}
-    except ValueError:
+    except (TypeError, ValueError):
         return {}
 
 

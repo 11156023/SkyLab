@@ -1,9 +1,8 @@
 """AuditAction 與資料庫既有紀錄的相容性檢查。
 
-``audit_logs.action`` 是 PostgreSQL enum，標籤加了就拿不掉；只要 Python 的
-``AuditAction`` 少了任何一個資料表裡出現過的值，SQLAlchemy 讀到那筆時就會丟
-``LookupError``，稽核清單與 CSV 匯出會整批失敗（2026-09-07 的
-``group_member_remove`` 事故）。
+``audit_logs.action`` 原本是 PostgreSQL enum：Python 少了資料表裡出現過的值，
+讀取就會 ``LookupError``（2026-09-07 的 ``group_member_remove`` 事故）。
+dbm04b 起改為字串欄位，已下線的 action 從 enum 移除後，舊紀錄仍須讀得到。
 """
 
 import ast
@@ -19,13 +18,22 @@ from sqlmodel import Session, SQLModel, create_engine
 
 from app.models import AuditAction, AuditLog
 
-# 已下線功能留下的 action；共用資料庫的 audit_logs 仍有這些紀錄
+# 已下線功能留下的 action：已從 AuditAction 移除，但 audit_logs 仍有這些紀錄
 RETIRED_ACTIONS = (
+    "batch_provision_vm",
+    "batch_provision_lxc",
+    "script_deploy",
+    "auth_policy_update",
+    "nat_rule_delete",
+    "nat_rule_sync",
+    "migration_job_retry",
+    "migration_job_cancel",
     "group_create",
     "group_delete",
     "group_member_add",
     "group_member_remove",
     "cloudflare_zone_activation_check",
+    "course_lab_deploy",
 )
 
 _MIGRATION = (
@@ -65,8 +73,14 @@ def _insert_raw(session: Session, action: str) -> uuid.UUID:
 
 
 @pytest.mark.parametrize("action", RETIRED_ACTIONS)
-def test_retired_actions_are_still_enum_members(action: str) -> None:
-    assert AuditAction(action).value == action
+def test_retired_action_rows_are_still_readable(db: Session, action: str) -> None:
+    from app.schemas.audit_log import AuditLogPublic
+
+    assert action not in {a.value for a in AuditAction}
+    log_id = _insert_raw(db, action)
+    row = db.get(AuditLog, log_id)
+    assert row is not None and row.action == action
+    assert AuditLogPublic.model_validate(row, from_attributes=True).action == action
 
 
 def _literal_audit_actions() -> dict[str, list[str]]:
@@ -115,7 +129,8 @@ def test_course_practice_migration_matches_the_model() -> None:
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
 
-    assert set(module.VALUES) <= {action.value for action in AuditAction}
+    known = {action.value for action in AuditAction} | set(RETIRED_ACTIONS)
+    assert set(module.VALUES) <= known
     assert "quick_practice_machine_create" in module.VALUES
 
 
@@ -125,6 +140,5 @@ def test_migration_only_adds_labels_known_to_the_model() -> None:
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
 
-    known = {action.value for action in AuditAction}
+    known = {action.value for action in AuditAction} | set(RETIRED_ACTIONS)
     assert set(module.VALUES) <= known
-    assert set(RETIRED_ACTIONS) <= set(module.VALUES)

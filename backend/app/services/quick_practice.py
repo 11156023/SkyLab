@@ -89,9 +89,7 @@ def get_published_template(
 ) -> tuple[CourseEnvironment, CourseEnvironmentVersion]:
     """提供為快速練習就代表任何登入者都拿得到。
 
-    開放對象的介面已經移除，``audience`` 與 ``course_environment_audiences``
-    只剩舊資料；再拿它們判斷，停在沒掛班級的 ``class`` 會變成誰都看不到，而
-    且沒有介面能改回來。
+    開放對象（audience 與班級白名單）已整個移除，快速練習不分對象。
     """
     environment = session.get(CourseEnvironment, environment_id)
     if environment is None or environment.usage_scope not in QUICK_PRACTICE_SCOPES:

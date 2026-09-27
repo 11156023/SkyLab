@@ -81,8 +81,6 @@ export function environmentPayload(item) {
     usage_scope: item.usageScope ?? "course",
     /* 沒有「學生可見對象」這個欄位了：提供為快速練習就代表全校學生都拿得到，
        名額仍由每人同時一組與 24 小時上限擋著。 */
-    audience: "campus",
-    audience_class_ids: [],
     max_concurrent_sessions: null,
     peer_policy: item.peerPolicy === "segment" ? "segment" : "explicit",
     nodes: item.nodes.map((node, index) => ({

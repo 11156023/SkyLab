@@ -12,6 +12,7 @@ from app.core.db import engine
 from app.domain.scheduling.models import ScheduledTask
 from app.domain.scheduling.runner import run_polling_scheduler
 from app.exceptions import NotFoundError, ProxmoxError
+from app.infrastructure.proxmox import get_connection_id_for_node
 from app.models import (
     VMProvisioningStatus,
     VMRequest,
@@ -112,6 +113,7 @@ def _adopt_existing_resource(
         resource_repo.create_resource(
             session=session,
             vmid=vmid,
+            connection_id=get_connection_id_for_node(actual_node),
             user_id=request.user_id,
             environment_type=request.environment_type,
             os_info=request.os_info,
@@ -304,6 +306,7 @@ def _provision_new_resource(
         resource_repo.create_resource(
             session=finish_session,
             vmid=new_vmid,
+            connection_id=get_connection_id_for_node(actual_node),
             user_id=request_user_id,
             environment_type=request_env_type,
             os_info=request_os_info,

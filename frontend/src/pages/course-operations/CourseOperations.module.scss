@@ -294,13 +294,13 @@
 }
 
 .memberPanelHead strong {
-  font-size: $font-size-14;
+  font-size: $font-size-16;
   font-weight: $font-weight-700;
 }
 
 .memberPanelHead span {
   color: var(--color-text-muted);
-  font-size: $font-size-10;
+  font-size: $font-size-12;
   font-variant-numeric: tabular-nums;
 }
 
@@ -309,6 +309,17 @@
   flex-direction: column;
   gap: 8px;
   padding: 12px 20px 18px;
+}
+
+/* 欄位標題：跟每列同一組欄寬；左右內距 = 列的內距 14 + 邊框 1，字才對得齊 */
+.memberColumns {
+  display: grid;
+  grid-template-columns: minmax(220px, 1.5fr) minmax(120px, .8fr) 110px 110px 34px;
+  gap: 16px;
+  padding: 0 15px;
+  color: var(--color-text-muted);
+  font-size: $font-size-12;
+  font-weight: $font-weight-500;
 }
 
 .memberRow {
@@ -342,21 +353,23 @@
 .memberRow>span {
   overflow: hidden;
   color: var(--color-text-muted);
-  font-size: $font-size-10;
+  font-size: $font-size-12;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.memberMachineState {
+/* 機器狀態：全站 badge 尺寸；選擇器帶上 .memberRow>span 才壓得過上面的灰字規則，不必 !important */
+.memberRow>span.memberMachineState {
+  @include badge-base;
   justify-self: start;
-  padding: 4px 8px;
-  border-radius: $radius-pill;
-  background: var(--color-hover);
+  padding: 2px 10px;
+  color: var(--color-status-neutral);
+  background: color-mix(in srgb, var(--color-status-neutral) 12%, transparent);
 }
 
-.memberReady {
-  color: var(--color-success) !important;
-  background: color-mix(in srgb, var(--color-success) 8%, var(--color-surface));
+.memberRow>span.memberReady {
+  color: var(--color-success);
+  background: color-mix(in srgb, var(--color-success) 12%, transparent);
 }
 
 .memberRemove {
@@ -468,242 +481,12 @@
   background: var(--color-surface);
 }
 
+/* 班級票券：寬度比照學生端的課程票券格線（最窄 280） */
 .classCardGrid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(330px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 280px), 1fr));
   gap: 16px;
   align-items: stretch;
-}
-
-.classCard {
-  display: flex;
-  min-width: 0;
-  flex-direction: column;
-  overflow: hidden;
-  @include glass-surface($shadow: var(--shadow-sm));
-  border-radius: $radius-16;
-  transition: border-color $transition-base, box-shadow $transition-base, transform $transition-base;
-}
-
-.classCard:hover {
-  box-shadow: 0 7px 24px color-mix(in srgb, var(--color-text-primary) 8%, transparent);
-  transform: translateY(-1px);
-}
-
-.classCardAlert {
-  border-color: color-mix(in srgb, var(--color-danger) 30%, var(--color-border));
-}
-
-.classCardAlert:hover {
-  border-color: color-mix(in srgb, var(--color-danger) 45%, var(--color-border));
-}
-
-.classCardMain {
-  display: flex;
-  flex: 1;
-  width: 100%;
-  flex-direction: column;
-  gap: 14px;
-  padding: 18px 18px 16px;
-  border: 0;
-  color: inherit;
-  text-align: left;
-  background: transparent;
-  font: inherit;
-  cursor: pointer;
-}
-
-.classCardTop {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 12px;
-}
-
-.classCardTop>div {
-  min-width: 0;
-}
-
-.classCardTop>div>span {
-  color: var(--color-text-muted);
-  font-size: $font-size-12;
-  font-weight: $font-weight-500;
-  letter-spacing: .04em;
-}
-
-.classCardTop h2 {
-  overflow: hidden;
-  margin: 4px 0 0;
-  font-size: $font-size-18;
-  font-weight: $font-weight-700;
-  letter-spacing: -.015em;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.classMeta {
-  display: flex;
-  flex-direction: column;
-  gap: 7px;
-}
-
-.classMeta>strong,
-.classMeta>span {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  min-width: 0;
-  white-space: nowrap;
-}
-
-.classMeta>strong {
-  color: var(--color-text-primary);
-  font-size: $font-size-14;
-  font-weight: $font-weight-500;
-}
-
-.classMeta>span {
-  overflow: hidden;
-  color: var(--color-text-secondary);
-  font-size: $font-size-12;
-  text-overflow: ellipsis;
-}
-
-.classMeta>strong>span:first-child {
-  color: var(--color-primary);
-}
-
-.classMeta>span>span:first-child {
-  color: var(--color-text-muted);
-}
-
-.classProgress {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  margin-top: auto;
-}
-
-.classProgress>div {
-  display: flex;
-  justify-content: space-between;
-  color: var(--color-text-secondary);
-  font-size: $font-size-12;
-}
-
-.classProgress>div strong {
-  color: var(--color-text-primary);
-  font-weight: $font-weight-500;
-  font-variant-numeric: tabular-nums;
-}
-
-.classProgress>i {
-  height: 5px;
-  overflow: hidden;
-  border-radius: $radius-pill;
-  background: var(--color-hover);
-}
-
-.classProgress>i>b {
-  display: block;
-  height: 100%;
-  border-radius: inherit;
-  background: var(--color-primary);
-  transition: width $transition-slow;
-}
-
-.classCardAlert .classProgress>i>b {
-  background: var(--color-danger);
-}
-
-.classStats {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  border-top: 1px solid var(--color-divider);
-}
-
-.classStats>div {
-  display: flex;
-  align-items: baseline;
-  justify-content: center;
-  gap: 5px;
-  min-height: 42px;
-  padding: 9px 6px;
-}
-
-.classStats>div+div {
-  border-left: 1px solid var(--color-divider);
-}
-
-.classStats strong {
-  color: var(--color-text-primary);
-  font-size: $font-size-16;
-  font-weight: $font-weight-700;
-  font-variant-numeric: tabular-nums;
-}
-
-.classStats span {
-  color: var(--color-text-muted);
-  font-size: $font-size-12;
-  white-space: nowrap;
-}
-
-.classCardAction {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  min-height: 52px;
-  gap: 12px;
-  padding: 8px 10px 8px 18px;
-  border-top: 1px solid var(--color-border);
-  background: color-mix(in srgb, var(--color-hover) 35%, var(--color-surface));
-}
-
-.classCardAction>span {
-  overflow: hidden;
-  color: var(--color-text-muted);
-  font-size: $font-size-12;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.classCardAction button {
-  display: inline-flex;
-  flex: 0 0 auto;
-  align-items: center;
-  gap: 5px;
-  min-height: 34px;
-  padding: 0 12px;
-  border: 0;
-  border-radius: $radius-8;
-  color: var(--color-primary);
-  background: color-mix(in srgb, var(--color-primary) 9%, transparent);
-  font: inherit;
-  font-size: $font-size-12;
-  font-weight: $font-weight-500;
-  cursor: pointer;
-  transition: background $transition-base;
-}
-
-.classCardAction button:hover {
-  background: color-mix(in srgb, var(--color-primary) 16%, transparent);
-}
-
-.classCardAlert .classCardAction {
-  background: color-mix(in srgb, var(--color-danger) 5%, var(--color-surface));
-}
-
-.classCardAlert .classCardAction>span {
-  color: var(--color-danger);
-}
-
-.classCardAlert .classCardAction button {
-  color: var(--color-danger);
-  background: color-mix(in srgb, var(--color-danger) 9%, transparent);
-}
-
-.classCardAlert .classCardAction button:hover {
-  background: color-mix(in srgb, var(--color-danger) 16%, transparent);
 }
 
 .heatmapCard {
@@ -715,28 +498,21 @@
   align-items: flex-start;
   justify-content: space-between;
   gap: 20px;
-  padding: 22px 22px 18px;
+  padding: 16px 20px;
 }
 
 .heatmapHeader h2 {
-  margin: 3px 0 0;
+  margin: 0;
   color: var(--color-text-primary);
-  font-size: $font-size-18;
-  letter-spacing: -.02em;
+  font-size: $font-size-16;
+  font-weight: $font-weight-700;
 }
 
 .heatmapHeader p {
-  margin: 6px 0 0;
+  margin: 4px 0 0;
   color: var(--color-text-secondary);
-  font-size: $font-size-14;
+  font-size: $font-size-12;
   line-height: 1.5;
-}
-
-.heatmapEyebrow {
-  color: var(--color-primary);
-  font-size: $font-size-10;
-  font-weight: $font-weight-700;
-  letter-spacing: .12em;
 }
 
 .prototypeBadge {
@@ -773,7 +549,7 @@
   justify-content: space-between;
   gap: 12px 16px;
   flex-wrap: wrap;
-  padding: 0 22px 18px;
+  padding: 0 20px 16px;
   border-bottom: 1px solid var(--color-border);
 }
 
@@ -832,9 +608,7 @@
 
 .machineTabs small {
   color: var(--color-text-muted);
-  font-size: $font-size-10;
-  letter-spacing: .06em;
-  text-transform: uppercase;
+  font-size: $font-size-12;
 }
 
 .machineTabs strong {
@@ -856,35 +630,10 @@
   background: color-mix(in srgb, var(--color-primary) 13%, var(--color-surface));
 }
 
-.metricTabs {
-  display: flex;
+/* CPU／RAM 切換（共用 SegmentedControl）：靠右 */
+.metricSwitch {
   flex: 0 0 auto;
-  gap: 3px;
   margin-left: auto;
-  padding: 3px;
-  border: 1px solid var(--color-border);
-  border-radius: $radius-8;
-  background: var(--color-hover);
-}
-
-.metricTabs button {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  min-height: 32px;
-  padding: 0 13px;
-  border: 0;
-  border-radius: $radius-8;
-  color: var(--color-text-secondary);
-  background: transparent;
-  font-size: $font-size-12;
-  font-weight: $font-weight-500;
-}
-
-.metricTabs button.metricTabActive {
-  color: var(--color-text-primary);
-  background: var(--color-surface);
-  box-shadow: 0 1px 3px color-mix(in srgb, var(--color-text-primary) 12%, transparent);
 }
 
 .heatmapSummary {
@@ -893,7 +642,7 @@
   justify-content: space-between;
   gap: 14px 20px;
   flex-wrap: wrap;
-  padding: 16px 22px;
+  padding: 16px 20px;
 }
 
 .heatmapSummary>div:first-child {
@@ -923,7 +672,7 @@
 .heatmapSummary small {
   overflow: hidden;
   color: var(--color-text-muted);
-  font-size: $font-size-10;
+  font-size: $font-size-12;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -954,7 +703,7 @@
 
 .heatmapSummary dt {
   color: var(--color-text-muted);
-  font-size: $font-size-10;
+  font-size: $font-size-12;
 }
 
 .heatmapSummary dd {
@@ -973,7 +722,7 @@
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(126px, 1fr));
   gap: 7px;
-  padding: 0 22px 18px;
+  padding: 0 20px 18px;
 }
 
 .heatCell {
@@ -1125,7 +874,7 @@
   align-items: center;
   justify-content: flex-end;
   gap: 13px;
-  padding: 12px 22px 16px;
+  padding: 12px 20px 16px;
   border-top: 1px solid var(--color-divider);
   color: var(--color-text-muted);
   font-size: $font-size-10;
@@ -1389,8 +1138,8 @@
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  min-height: 56px;
-  padding: 14px 18px;
+  min-height: 52px;
+  padding: 12px 18px;
   border: 0;
   color: inherit;
   background: transparent;
@@ -1406,7 +1155,7 @@
   gap: 9px;
   overflow: hidden;
   color: var(--color-text-primary);
-  font-size: $font-size-12;
+  font-size: $font-size-14;
   font-weight: $font-weight-500;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1437,18 +1186,18 @@
   display: flex;
   align-items: center;
   gap: 12px;
-  min-height: 56px;
-  padding: 14px 18px;
+  min-height: 52px;
+  padding: 12px 18px;
   list-style: none;
   cursor: pointer;
 }
 
+/* 跟「目前週次」同一種卡片標題（16/700），不再是灰色小字 */
 .classInfoFold>summary>b {
   flex: 0 0 auto;
-  color: var(--color-text-muted);
-  font-size: $font-size-10;
+  color: var(--color-text-primary);
+  font-size: $font-size-16;
   font-weight: $font-weight-700;
-  letter-spacing: .04em;
 }
 
 .classInfoFold>summary::-webkit-details-marker {
@@ -1569,14 +1318,14 @@
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  min-height: 48px;
-  padding: 10px 18px;
+  min-height: 52px;
+  padding: 12px 18px;
   border-bottom: 1px solid var(--color-border);
 }
 
 .overviewCardHeader h2 {
   margin: 0;
-  font-size: $font-size-14;
+  font-size: $font-size-16;
   font-weight: $font-weight-700;
 }
 
@@ -1618,12 +1367,12 @@
 
 .classFacts span {
   color: var(--color-text-muted);
-  font-size: $font-size-10;
+  font-size: $font-size-12;
 }
 
 .classFacts strong {
   overflow: hidden;
-  font-size: $font-size-12;
+  font-size: $font-size-14;
   font-weight: $font-weight-500;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1673,7 +1422,7 @@
   border-radius: $radius-8;
   color: var(--color-text-secondary);
   background: var(--color-hover);
-  font-size: $font-size-10;
+  font-size: $font-size-12;
   white-space: nowrap;
 }
 
@@ -2485,11 +2234,14 @@
     grid-area: 2 / 2 / auto / -1;
   }
 
-  .memberRow {
+  .memberRow,
+  .memberColumns {
     grid-template-columns: minmax(200px, 1.3fr) minmax(100px, .7fr) 100px 34px;
   }
 
-  .memberRow>span:nth-of-type(3) {
+  /* 加入日期收起：列裡是第 3 個 span，欄位標題裡是第 4 個 */
+  .memberRow>span:nth-of-type(3),
+  .memberColumns>span:nth-of-type(4) {
     display: none;
   }
 }
@@ -2556,7 +2308,7 @@
     min-width: 0;
   }
 
-  .metricTabs {
+  .metricSwitch {
     align-self: flex-start;
   }
 
@@ -2588,6 +2340,11 @@
     padding: 10px 12px 14px;
   }
 
+  /* 手機版每列改成上下疊排，欄位對不起來，標題列收起 */
+  .memberColumns {
+    display: none;
+  }
+
   .memberRow {
     grid-template-columns: minmax(0, 1fr) auto 30px;
     gap: 8px 12px;
@@ -2614,22 +2371,6 @@
   .classToolbar .searchInput {
     flex-basis: auto;
     width: 100%;
-  }
-
-  .classCardGrid {
-    grid-template-columns: 1fr;
-  }
-
-  .classCardTop h2 {
-    white-space: normal;
-  }
-
-  .classCardMain {
-    padding: 16px 16px 14px;
-  }
-
-  .classCardAction {
-    padding-left: 16px;
   }
 
   .classFacts {

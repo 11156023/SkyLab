@@ -21,6 +21,8 @@ class SubnetConfig(SQLModel, table=True):
     cidr: str = Field(max_length=50)
     gateway: str = Field(max_length=50)
     bridge_name: str = Field(max_length=50)
+    # 選填：實驗室網段走 802.1Q VLAN 時，VM/LXC 網卡帶 tag=N；None＝untagged
+    vlan_tag: int | None = Field(default=None)
     gateway_vm_ip: str = Field(max_length=50)
     dns_servers: str | None = Field(default=None, max_length=255)
     extra_blocked_subnets: str | None = Field(default=None, sa_type=sa.Text())
@@ -33,6 +35,7 @@ class SubnetConfig(SQLModel, table=True):
     updated_at: datetime = Field(
         default_factory=get_datetime_utc,
         sa_type=sa.DateTime(timezone=True),
+        sa_column_kwargs={"onupdate": get_datetime_utc},
     )
 
 

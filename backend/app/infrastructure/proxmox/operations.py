@@ -182,20 +182,33 @@ def _pool_vms() -> list[dict]:
     return matched
 
 
+def _single_match(matches: list[dict], vmid: int) -> dict | None:
+    """多連線下同一 VMID 出現在多個叢集時不能猜：回第一筆可能操作到別人的機器。"""
+    if len(matches) > 1:
+        nodes = ", ".join(str(r.get("node")) for r in matches)
+        raise ProxmoxError(
+            f"VMID {vmid} exists on multiple Proxmox connections ({nodes}); "
+            "refusing to guess which one is meant."
+        )
+    return matches[0] if matches else None
+
+
 def find_resource(vmid: int) -> dict:
     """Find any resource (qemu or lxc) by VMID in its connection's pool."""
-    for r in _pool_vms():
-        if r["vmid"] == vmid:
-            return r
-    raise NotFoundError(f"Resource {vmid} not found")
+    found = _single_match([r for r in _pool_vms() if r["vmid"] == vmid], vmid)
+    if found is None:
+        raise NotFoundError(f"Resource {vmid} not found")
+    return found
 
 
 def find_lxc(vmid: int) -> dict:
     """Find an LXC container by VMID in its connection's pool."""
-    for r in _pool_vms():
-        if r["vmid"] == vmid and r["type"] == "lxc":
-            return r
-    raise NotFoundError(f"LXC container {vmid} not found")
+    found = _single_match(
+        [r for r in _pool_vms() if r["vmid"] == vmid and r["type"] == "lxc"], vmid
+    )
+    if found is None:
+        raise NotFoundError(f"LXC container {vmid} not found")
+    return found
 
 
 def list_all_resources() -> list[dict]:
@@ -810,17 +823,35 @@ def convert_to_template(
     _resource_api(node, vmid, resource_type).template.post()
 
 
+def _db_claimed_vmids() -> set[int]:
+    """DB 已登記但 PVE 可能看不到的 VMID（資源列、IP 預留）。
+
+    PVE 端機器被直接刪掉後 resources 列可能還在；併發 plan 也會先在
+    ip_allocation 預留 VMID 才去 PVE 建機。nextid 看不到這些，撞到就會在
+    PVE 建好機器之後才因主鍵衝突失敗。
+    """
+    from sqlmodel import Session, select
+
+    from app.core.db import engine
+    from app.models import IpAllocation, Resource
+
+    with Session(engine) as session:
+        claimed = set(session.exec(select(Resource.vmid)).all())
+        claimed.update(
+            vmid
+            for vmid in session.exec(select(IpAllocation.vmid)).all()
+            if vmid is not None
+        )
+    return {int(vmid) for vmid in claimed}
+
+
 def next_vmid() -> int:
-    """回傳一個在所有連線上都未使用的 VMID。
+    """回傳一個在所有連線上、以及 DB 登記中都未使用的 VMID。
 
     多連線架構下各入口的 ``cluster.nextid`` 彼此獨立，可能互相碰撞，
     因此取所有連線 nextid 的最大值，再對彙總的既有 VMID 遞增避讓。
     """
     keys = _connection_keys()
-    if len(keys) == 1:
-        proxmox = get_proxmox_api(keys[0])
-        return int(proxmox.cluster.nextid.get())
-
     candidates: list[int] = []
     for key in keys:
         try:
@@ -833,7 +864,9 @@ def next_vmid() -> int:
     if not candidates:
         raise ProxmoxError("All Proxmox connections are unavailable.")
 
-    used = {int(r["vmid"]) for r in _raw_vms()}
+    # nextid 回的是最小空號；被 DB 擋下往上遞增時可能踩到 PVE 已用的 VMID，
+    # 所以單連線也要一併避開 PVE 現有機器
+    used = {int(r["vmid"]) for r in _raw_vms()} | _db_claimed_vmids()
     candidate = max(candidates)
     while candidate in used:
         candidate += 1

@@ -20,7 +20,6 @@
   "rubric.noItemsToExport": "沒有可匯出的評分項目。",
   "quotas.alreadyExists": "此對象已有配額設定，請改用更新",
   "lxc.creating": "LXC 建立中，請稍後於資源列表查看",
-  "proxmoxConfig.passwordRequired": "初次設定必須提供密碼",
   "proxmoxConfig.invalidCaCert": "CA 憑證格式無效，請貼上正確的 PEM 格式內容",
   "proxmoxConfig.cannotDeleteDefault": "此連線為預設連線，請先將其他連線設為預設再刪除",
   "proxmoxConfig.connectionSuccess": "連線成功，偵測到節點：{nodes}",

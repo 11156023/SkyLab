@@ -24,10 +24,7 @@ from app.services.network.cloudflare_service import (
     HOSTNAME_LABEL_PATTERN,
     is_valid_hostname,
 )
-from app.services.network.publish_target_policy import (
-    assert_publishable_vm_ip,
-    resolve_resource_vmid,
-)
+from app.services.network.publish_target_policy import assert_publishable_vm_ip
 
 logger = logging.getLogger(__name__)
 
@@ -285,7 +282,6 @@ def apply_reverse_proxy_rule(
     # 會先把對方的紀錄覆蓋掉，才在寫 DB 時失敗。
     rule = ReverseProxyRule(
         vmid=vmid,
-        resource_vmid=resolve_resource_vmid(session, vmid),
         vm_ip=vm_ip,
         domain=domain,
         zone_id=zone_id,

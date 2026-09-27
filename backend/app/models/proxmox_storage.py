@@ -9,6 +9,10 @@ class ProxmoxStorage(SQLModel, table=True):
 
     __tablename__ = "proxmox_storages"
     __table_args__ = (
+        sa.CheckConstraint(
+            "speed_tier IN ('nvme', 'ssd', 'hdd', 'unknown')",
+            name="ck_proxmox_storages_speed_tier",
+        ),
         UniqueConstraint("node_name", "storage", name="uq_proxmox_storages_node_storage"),
     )
 

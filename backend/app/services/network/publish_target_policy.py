@@ -161,18 +161,6 @@ def assert_publishable_vm_ip(
     except Exception as exc:
         logger.debug("讀取 PVE 連線清單失敗，略過節點黑名單: %s", exc)
 
-    try:
-        from app.repositories.proxmox_config import get_proxmox_config
-
-        legacy = get_proxmox_config(session)  # type: ignore[arg-type]
-        if legacy is not None:
-            for attr in ("host", "gateway_ip"):
-                value = getattr(legacy, attr, None)
-                if value:
-                    blocked_ips.append(value)
-    except Exception as exc:
-        logger.debug("讀取 proxmox_config 失敗，略過節點黑名單: %s", exc)
-
     validate_publish_target_ip(
         vm_ip,
         allowed_cidrs=allowed_cidrs,

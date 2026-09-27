@@ -100,6 +100,7 @@ class SetupSubnetResult(BaseModel):
     cidr: str
     gateway: str
     bridge_name: str
+    vlan_tag: int | None = None
     gateway_vm_ip: str
     dns_servers: str | None = None
     total_ips: int

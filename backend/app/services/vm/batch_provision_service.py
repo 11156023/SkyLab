@@ -1,6 +1,5 @@
 """批量建立資源服務 — 包含逐一排隊邏輯"""
 
-import json
 import logging
 import re
 import uuid
@@ -102,7 +101,7 @@ def submit_batch_job_for_users(
         initiated_by=initiated_by_id,
         resource_type=resource_type,
         hostname_prefix=hostname_prefix,
-        template_params=json.dumps(params),
+        template_params=params,
         member_user_ids=member_user_ids,
         initial_status=BatchProvisionJobStatus.pending_review,
         recurrence_rule=recurrence_rule,
@@ -324,7 +323,7 @@ def _process_task(*, job_id: uuid.UUID, task_id: uuid.UUID) -> None:
         job = bp_repo.get_job(session=session, job_id=job_id)
         if job is None:
             return
-        params = json.loads(job.template_params)
+        params = bp_repo.job_params(job)
         member_index = task.member_index
         user_id = task.user_id
         resource_type = job.resource_type

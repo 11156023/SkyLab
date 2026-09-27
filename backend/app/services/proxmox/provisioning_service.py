@@ -12,7 +12,10 @@ from app.core.i18n import t
 from app.core.security import decrypt_value, encrypt_value
 from app.domain.placement import advisor as placement_advisor
 from app.exceptions import ProxmoxError
-from app.infrastructure.proxmox import get_proxmox_settings_for_node
+from app.infrastructure.proxmox import (
+    get_connection_id_for_node,
+    get_proxmox_settings_for_node,
+)
 from app.infrastructure.ssh.client import generate_ed25519_keypair
 from app.repositories import resource as resource_repo
 from app.repositories import vm_request as vm_request_repo
@@ -24,7 +27,7 @@ from app.schemas import (
     VMCreateResponse,
     VMTemplateSchema,
 )
-from app.services.network import firewall_service, ip_management_service
+from app.services.network import firewall_service, ip_management_service, nic_config
 from app.services.os_identity_service import (
     initial_guest_os as initial_guest_os_identity,
 )
@@ -172,18 +175,14 @@ def _release_ip_after_failure(
 
 
 def _lxc_net0(net_cfg: dict, ip: str) -> str:
-    """LXC 的 net0：固定 IP、閘道並開啟防火牆。"""
-    return (
-        f"name=eth0,bridge={net_cfg['bridge_name']},"
-        f"ip={ip}/{net_cfg['prefix_len']},"
-        f"gw={net_cfg['gateway']},firewall=1"
-    )
+    """LXC 的 net0：固定 IP、閘道並開啟防火牆（子網設了 VLAN 時帶 tag）。"""
+    return nic_config.lxc_net0(net_cfg, ip)
 
 
 def _vm_net_config(net_cfg: dict, ip: str) -> dict[str, str]:
     """VM 的 net0／ipconfig0（cloud-init 固定 IP），有設定 DNS 時一併帶 nameserver。"""
     config = {
-        "net0": f"virtio,bridge={net_cfg['bridge_name']},firewall=1",
+        "net0": nic_config.qemu_net0(net_cfg),
         "ipconfig0": f"ip={ip}/{net_cfg['prefix_len']},gw={net_cfg['gateway']}",
     }
     if net_cfg.get("dns_servers"):
@@ -578,6 +577,7 @@ def create_lxc(
         db_lxc_resource = resource_repo.create_resource(
             session=session,
             vmid=vmid,
+            connection_id=get_connection_id_for_node(target_node),
             user_id=user_id,
             environment_type=lxc_data.environment_type,
             os_info=lxc_data.os_info,
@@ -710,6 +710,7 @@ def create_vm(
         db_vm_resource = resource_repo.create_resource(
             session=session,
             vmid=new_vmid,
+            connection_id=get_connection_id_for_node(target_node),
             user_id=user_id,
             environment_type=vm_data.environment_type,
             os_info=vm_data.os_info,
@@ -850,10 +851,13 @@ def plan_provision(*, session: Session, db_request) -> dict:
     if db_request.resource_type == "lxc" and getattr(db_request, "template_id", None):
         # LXC 範本克隆路徑（Course Lab）：linked clone 必須與範本同節點同 storage，
         # 直接以範本節點覆寫 placement 結果（與範本系統 2.0 clone_service 行為一致）。
-        from app.models import VMTemplate
+        from app.models import VMTemplate, VMTemplateStatus
 
         template_row = session.exec(
-            select(VMTemplate).where(VMTemplate.pve_vmid == db_request.template_id)
+            select(VMTemplate).where(
+                VMTemplate.pve_vmid == db_request.template_id,
+                VMTemplate.status != VMTemplateStatus.deleted,
+            )
         ).first()
         if template_row is None:
             raise ProxmoxError(

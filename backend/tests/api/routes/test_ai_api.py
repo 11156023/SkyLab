@@ -6,7 +6,7 @@ from sqlmodel import Session
 
 from app.core.config import settings
 from app.features.ai.config import settings as ai_api_settings
-from app.models import AIAPIUsage, AITemplateCallLog, get_datetime_utc
+from app.models import USAGE_SOURCE_PLATFORM, AIAPIUsage, get_datetime_utc
 from app.models.ai_api_credential import API_KEY_PREFIX_LENGTH
 from app.repositories import user as user_repo
 from app.schemas import UserCreate
@@ -151,7 +151,7 @@ def test_ai_api_my_usage_and_records_only_include_key_calls(
             user_id=user.id,
             credential_id=credential_id,
             model_name="Qwen/Qwen3-14B-FP8",
-            request_type="chat_completion",
+            call_type="chat_completion",
             input_tokens=100,
             output_tokens=50,
             request_duration_ms=800,
@@ -160,8 +160,9 @@ def test_ai_api_my_usage_and_records_only_include_key_calls(
         )
     )
     db.add(
-        AITemplateCallLog(
+        AIAPIUsage(
             user_id=user.id,
+            source=USAGE_SOURCE_PLATFORM,
             call_type="recommend",
             model_name="Qwen/Qwen3-14B-FP8",
             preset="pve-ai",
@@ -173,8 +174,9 @@ def test_ai_api_my_usage_and_records_only_include_key_calls(
         )
     )
     db.add(
-        AITemplateCallLog(
+        AIAPIUsage(
             user_id=user.id,
+            source=USAGE_SOURCE_PLATFORM,
             call_type="chat",
             model_name="openai/gpt-oss-20B",
             input_tokens=10,

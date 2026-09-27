@@ -3,6 +3,7 @@
 import enum
 import uuid
 from datetime import datetime
+from typing import Any
 
 import sqlalchemy as sa
 from sqlmodel import (
@@ -28,6 +29,12 @@ class CourseEnvironment(SQLModel, table=True):
     """Stable identity for a reusable course environment."""
 
     __tablename__ = "course_environments"
+    __table_args__ = (
+        sa.CheckConstraint(
+            "usage_scope IN ('course', 'quick_practice', 'both')",
+            name="ck_course_environments_usage_scope",
+        ),
+    )
 
     id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
     owner_id: uuid.UUID = Field(
@@ -52,57 +59,15 @@ class CourseEnvironment(SQLModel, table=True):
             "all students; None means only the per-student limits apply"
         ),
     )
-    audience: str = Field(
-        default="class",
-        max_length=24,
-        description=(
-            "Who may see this environment in the student quick-practice list: "
-            "owner (nobody but the teacher), class (the linked classes' "
-            "students), or campus (every signed-in user)"
-        ),
-    )
     created_at: datetime = Field(
         default_factory=get_datetime_utc,
         sa_column=Column(DateTime(timezone=True), nullable=False),
     )
     updated_at: datetime = Field(
         default_factory=get_datetime_utc,
-        sa_column=Column(DateTime(timezone=True), nullable=False),
-    )
-
-
-class CourseEnvironmentAudience(SQLModel, table=True):
-    """Classes whose students may see an ``audience="class"`` environment."""
-
-    __tablename__ = "course_environment_audiences"
-    __table_args__ = (
-        UniqueConstraint(
-            "environment_id",
-            "class_id",
-            name="uq_course_environment_audience",
+        sa_column=Column(
+            DateTime(timezone=True), nullable=False, onupdate=get_datetime_utc
         ),
-    )
-
-    id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
-    environment_id: uuid.UUID = Field(
-        sa_column=Column(
-            sa.Uuid,
-            sa.ForeignKey("course_environments.id", ondelete="CASCADE"),
-            nullable=False,
-            index=True,
-        )
-    )
-    class_id: uuid.UUID = Field(
-        sa_column=Column(
-            sa.Uuid,
-            sa.ForeignKey("teaching_classes.id", ondelete="CASCADE"),
-            nullable=False,
-            index=True,
-        )
-    )
-    created_at: datetime = Field(
-        default_factory=get_datetime_utc,
-        sa_column=Column(DateTime(timezone=True), nullable=False),
     )
 
 
@@ -132,6 +97,7 @@ class CourseEnvironmentFile(SQLModel, table=True):
             sa.Uuid,
             sa.ForeignKey("user.id", ondelete="SET NULL"),
             nullable=True,
+            index=True,
         ),
     )
     created_at: datetime = Field(
@@ -145,6 +111,10 @@ class CourseEnvironmentVersion(SQLModel, table=True):
 
     __tablename__ = "course_environment_versions"
     __table_args__ = (
+        sa.CheckConstraint(
+            "peer_policy IN ('explicit', 'segment')",
+            name="ck_course_environment_versions_peer_policy",
+        ),
         UniqueConstraint(
             "environment_id",
             "version",
@@ -179,8 +149,10 @@ class CourseEnvironmentVersion(SQLModel, table=True):
     # 實際上是全開；改成顯式欄位讓兩種意圖分開表達。
     peer_policy: str = Field(default="explicit", max_length=16)
     # Unfinished editor content is kept apart from deployable configuration.
-    draft_data: str | None = Field(
-        default=None, sa_column=Column(sa.Text, nullable=True)
+    draft_data: dict[str, Any] | None = Field(
+        # none_as_null：None 存成 SQL NULL，不是 JSON 'null'
+        default=None,
+        sa_column=Column(sa.JSON(none_as_null=True), nullable=True),
     )
     created_at: datetime = Field(
         default_factory=get_datetime_utc,
@@ -197,6 +169,10 @@ class CourseEnvironmentNode(SQLModel, table=True):
 
     __tablename__ = "course_environment_nodes"
     __table_args__ = (
+        sa.CheckConstraint(
+            "resource_type IN ('qemu', 'lxc')",
+            name="ck_course_environment_nodes_resource_type",
+        ),
         UniqueConstraint(
             "version_id",
             "node_key",
@@ -231,6 +207,7 @@ class CourseEnvironmentNode(SQLModel, table=True):
             sa.Uuid,
             sa.ForeignKey("vm_templates.id", ondelete="RESTRICT"),
             nullable=True,
+            index=True,
         ),
     )
     custom_image_ref: str | None = Field(default=None, max_length=500)
@@ -260,12 +237,33 @@ class CourseEnvironmentPublication(SQLModel, table=True):
 
     __tablename__ = "course_environment_publications"
     __table_args__ = (
+        sa.CheckConstraint(
+            "mode IN ('domain', 'port_forward')",
+            name="ck_course_environment_publications_mode",
+        ),
+        sa.CheckConstraint(
+            "protocol IN ('tcp', 'udp')",
+            name="ck_course_environment_publications_protocol",
+        ),
         UniqueConstraint(
             "version_id",
             "node_key",
             "port",
             "protocol",
             name="uq_course_environment_publication",
+        ),
+        # 延遲到 commit 才檢查：_replace_nodes 在同一個 flush 新增節點與發布，
+        # 沒有 relationship() 時 SQLAlchemy 不保證先 INSERT 節點
+        sa.ForeignKeyConstraint(
+            ["version_id", "node_key"],
+            [
+                "course_environment_nodes.version_id",
+                "course_environment_nodes.node_key",
+            ],
+            name="fk_course_environment_publications_node",
+            ondelete="CASCADE",
+            deferrable=True,
+            initially="DEFERRED",
         ),
     )
 
@@ -299,6 +297,14 @@ class CourseEnvironmentEdge(SQLModel, table=True):
 
     __tablename__ = "course_environment_edges"
     __table_args__ = (
+        sa.CheckConstraint(
+            "direction IN ('one_way', 'bidirectional')",
+            name="ck_course_environment_edges_direction",
+        ),
+        sa.CheckConstraint(
+            "protocol IN ('any', 'tcp', 'udp', 'icmp', 'icmpv6', 'sctp')",
+            name="ck_course_environment_edges_protocol",
+        ),
         UniqueConstraint(
             "version_id",
             "source_node_key",
@@ -311,6 +317,29 @@ class CourseEnvironmentEdge(SQLModel, table=True):
         CheckConstraint(
             "source_node_key <> target_node_key",
             name="ck_course_environment_edge_distinct_nodes",
+        ),
+        # 延遲檢查的理由同 CourseEnvironmentPublication
+        sa.ForeignKeyConstraint(
+            ["version_id", "source_node_key"],
+            [
+                "course_environment_nodes.version_id",
+                "course_environment_nodes.node_key",
+            ],
+            name="fk_course_environment_edges_source_node",
+            ondelete="CASCADE",
+            deferrable=True,
+            initially="DEFERRED",
+        ),
+        sa.ForeignKeyConstraint(
+            ["version_id", "target_node_key"],
+            [
+                "course_environment_nodes.version_id",
+                "course_environment_nodes.node_key",
+            ],
+            name="fk_course_environment_edges_target_node",
+            ondelete="CASCADE",
+            deferrable=True,
+            initially="DEFERRED",
         ),
     )
 
@@ -334,6 +363,12 @@ class ClassCapacityReservation(SQLModel, table=True):
     """Atomic whole-class capacity snapshot created before batch jobs."""
 
     __tablename__ = "class_capacity_reservations"
+    __table_args__ = (
+        sa.CheckConstraint(
+            "status IN ('reserved', 'consumed', 'released')",
+            name="ck_class_capacity_reservations_status",
+        ),
+    )
 
     id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
     class_id: uuid.UUID = Field(
@@ -350,6 +385,7 @@ class ClassCapacityReservation(SQLModel, table=True):
             sa.Uuid,
             sa.ForeignKey("course_environment_versions.id", ondelete="RESTRICT"),
             nullable=False,
+            index=True,
         )
     )
     student_count: int = Field(ge=1)
@@ -359,16 +395,16 @@ class ClassCapacityReservation(SQLModel, table=True):
     disk_gb: int = Field(ge=1)
     ip_count: int = Field(ge=1)
     network_count: int = Field(ge=1)
-    placement_plan: str = Field(
-        default="{}",
-        sa_column=Column(sa.Text, nullable=False),
+    placement_plan: dict[str, Any] = Field(
+        default_factory=dict,
+        sa_column=Column(sa.JSON, nullable=False),
     )
     # {machine_node_id: {user_id: 節點名}} —— 整班固定在同一個叢集，但叢集內
     # 依容量把學生分散到不同節點（同一個叢集不代表同一台 server）。預留時
     # 定案並存下，建機時查表，避免兩個時間點各自重算而與預留不一致。
-    student_placements: str = Field(
-        default="{}",
-        sa_column=Column(sa.Text, nullable=False, server_default="{}"),
+    student_placements: dict[str, dict[str, str]] = Field(
+        default_factory=dict,
+        sa_column=Column(sa.JSON, nullable=False, server_default=sa.text("'{}'")),
     )
     status: str = Field(default="reserved", max_length=24)
     created_at: datetime = Field(

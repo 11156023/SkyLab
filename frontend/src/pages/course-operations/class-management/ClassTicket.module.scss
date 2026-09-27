@@ -1,0 +1,235 @@
+/* 班級票券：比照課程票券（dashboard/CourseTicket）——整張票是一顆按鈕；紙面用 surface、兩側各咬掉一個半圓缺口；
+   外框與陰影用 drop-shadow，才會沿著缺口走（box-shadow 會被遮罩切掉） */
+.ticket {
+  --tone: var(--color-status-neutral);
+  --edge: color-mix(in srgb, var(--color-text-primary) 16%, transparent);
+  --stub: 64px;
+  --notch: 9px;
+
+  display: block;
+  width: 100%;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  color: var(--color-text-primary);
+  text-align: left;
+  cursor: pointer;
+  filter: drop-shadow(0 0 0.5px var(--edge)) drop-shadow(var(--shadow-sm));
+  transition: transform $transition-base, filter $transition-base;
+
+  &:hover {
+    transform: translateY(-2px);
+    filter: drop-shadow(0 0 0.5px var(--edge)) drop-shadow(var(--shadow-md));
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--color-primary);
+    outline-offset: 4px;
+    border-radius: $radius-8;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    transition: filter $transition-base;
+
+    &:hover { transform: none; }
+  }
+}
+
+/* 狀態色：狀態點、條碼已完成的條都跟著走 */
+.ticket[data-status="pending_review"] { --tone: var(--color-pending); }
+.ticket[data-status="provisioning"] { --tone: var(--color-info); }
+.ticket[data-status="active"] { --tone: var(--color-success); }
+.ticket[data-status="archived"] { --tone: var(--color-text-muted); }
+
+/* 需要處理：外框帶紅，一眼從一排票裡挑得出來 */
+.ticket[data-status="partial_failed"] {
+  --tone: var(--color-danger);
+  --edge: color-mix(in srgb, var(--color-danger) 55%, transparent);
+}
+
+.paper {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  border-radius: $radius-8;
+  background: var(--color-surface);
+  /* 左右兩半各畫一個缺口，51% 讓兩半在中間重疊、不留縫 */
+  --cut-left: radial-gradient(circle var(--notch) at 0 calc(100% - var(--stub)), transparent calc(var(--notch) - 0.5px), #000 var(--notch));
+  --cut-right: radial-gradient(circle var(--notch) at 100% calc(100% - var(--stub)), transparent calc(var(--notch) - 0.5px), #000 var(--notch));
+  -webkit-mask: var(--cut-left) left / 51% 100% no-repeat, var(--cut-right) right / 51% 100% no-repeat;
+  mask: var(--cut-left) left / 51% 100% no-repeat, var(--cut-right) right / 51% 100% no-repeat;
+}
+
+/* ── 票面 ── */
+.main {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  padding: $spacing-16 20px;
+}
+
+.top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: $spacing-8;
+}
+
+.status {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-size: $font-size-12;
+  font-weight: $font-weight-500;
+  color: var(--tone);
+
+  &::before {
+    content: "";
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: currentColor;
+  }
+}
+
+/* 正在建立機器：圓點呼吸 */
+.ticket[data-status="provisioning"] .status::before {
+  animation: class-ticket-live 1.8s ease-in-out infinite;
+
+  @media (prefers-reduced-motion: reduce) { animation: none; }
+}
+
+@keyframes class-ticket-live {
+  50% { opacity: 0.3; }
+}
+
+.term {
+  font-size: $font-size-12;
+  color: var(--color-text-muted);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.title {
+  display: -webkit-box;
+  margin-top: 6px;
+  overflow: hidden;
+  font-size: $font-size-18;
+  font-weight: $font-weight-700;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.hint {
+  margin-top: 2px;
+  overflow: hidden;
+  font-size: $font-size-12;
+  color: var(--color-text-muted);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+/* 票面欄位：上課時間、學期期間上下排，票券才能跟課程票券一樣窄 */
+.fields {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: auto;
+  padding-top: $spacing-16;
+}
+
+.field {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+  line-height: 1.3;
+}
+
+.fieldLabel {
+  font-size: $font-size-12;
+  color: var(--color-text-muted);
+}
+
+.fieldValue {
+  font-size: $font-size-14;
+  font-weight: $font-weight-500;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+/* 欄位的補充說明：接在標籤後面、用點隔開（「上課時間 · 提前 10 分鐘開機」） */
+.fieldNote {
+  white-space: nowrap;
+
+  &::before {
+    content: "·";
+    margin: 0 6px;
+  }
+}
+
+/* ── 票根：撕線以下，進度條碼 ── */
+.stub {
+  position: relative;
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 14px;
+  height: var(--stub);
+  padding: 0 20px;
+
+  /* 撕線：兩端讓開缺口 */
+  &::before {
+    content: "";
+    position: absolute;
+    top: 0;
+    right: calc(var(--notch) + 6px);
+    left: calc(var(--notch) + 6px);
+    height: 1.5px;
+    background: linear-gradient(90deg, var(--color-border) 55%, transparent 0) 0 0 / 7px 100% repeat-x;
+  }
+}
+
+.barcode {
+  display: flex;
+  flex: 1;
+  min-width: 48px;
+  height: 28px;
+
+  > span { flex-basis: 0; }
+}
+
+.bar,
+.barDone {
+  border-radius: 1px;
+}
+
+.bar { background: color-mix(in srgb, var(--color-primary) 20%, var(--color-surface)); }
+.barDone { background: var(--color-text-primary); }
+
+/* 需要處理：已建好的條改紅，跟外框同一個訊號 */
+.ticket[data-status="partial_failed"] .barDone { background: var(--color-danger); }
+
+/* 深色底上 20% 太淡，未完成的條會跟紙面糊在一起 */
+:global(body.dark) .bar { background: color-mix(in srgb, var(--color-primary) 34%, var(--color-surface)); }
+
+.count {
+  display: grid;
+  justify-items: end;
+  line-height: 1.25;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+
+  strong {
+    font-size: $font-size-16;
+    font-weight: $font-weight-700;
+  }
+
+  small {
+    font-size: $font-size-12;
+    color: var(--color-text-muted);
+  }
+}

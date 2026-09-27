@@ -29,11 +29,20 @@ class VMTemplate(SQLModel, table=True):
     __tablename__ = "vm_templates"
     __table_args__ = (
         sa.Index("ix_vm_templates_status_visibility", "status", "visibility"),
+        # PVE 會回收 VMID：只有未刪除的範本需要唯一；刪除的舊列保留原 id，
+        # 避免課程版本等歷史引用被新範本「接手」
+        sa.Index(
+            "uq_vm_templates_pve_vmid_active",
+            "pve_vmid",
+            unique=True,
+            postgresql_where=sa.text("status <> 'deleted'"),
+            sqlite_where=sa.text("status <> 'deleted'"),
+        ),
     )
 
     id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
     pve_vmid: int = Field(
-        sa_column=Column(sa.Integer, nullable=False, unique=True, index=True),
+        sa_column=Column(sa.Integer, nullable=False),
         description="PVE 端範本 VMID",
     )
     name: str = Field(max_length=255)
@@ -110,7 +119,7 @@ class VMTemplate(SQLModel, table=True):
     )
     updated_at: datetime = Field(
         default_factory=get_datetime_utc,
-        sa_column=Column(DateTime(timezone=True), nullable=False),
+        sa_column=Column(DateTime(timezone=True), nullable=False, onupdate=get_datetime_utc),
     )
 
 

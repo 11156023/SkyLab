@@ -28,10 +28,12 @@ def create_resource(
     teaching_class_id: uuid.UUID | None = None,
     allocation_scope: str = "personal",
     control_policy: str = "owner",
+    connection_id: int | None = None,
     commit: bool = True,
 ) -> Resource:
     db_resource = Resource(
         vmid=vmid,
+        connection_id=connection_id,
         request_id=request_id,
         user_id=user_id,
         teaching_class_id=teaching_class_id,
@@ -55,6 +57,18 @@ def create_resource(
         session.flush()
     session.refresh(db_resource)
     return db_resource
+
+
+def linked_resource_vmid(session: Session, vmid: int | None) -> int | None:
+    """回傳可寫進 ``resource_vmid`` 外鍵的值：資源存在才連結，否則 None。
+
+    audit_logs / spec_change_requests / deletion_requests / ip_allocation 都用
+    「vmid 快照 + resource_vmid 外鍵（SET NULL）」：PVE 會回收 VMID，
+    resource_vmid 標記的是「當時那台機器」，不是之後拿到同一個 VMID 的新機器。
+    """
+    if vmid is None or session.get(Resource, vmid) is None:
+        return None
+    return vmid
 
 
 def get_resource_by_vmid(*, session: Session, vmid: int) -> Resource | None:

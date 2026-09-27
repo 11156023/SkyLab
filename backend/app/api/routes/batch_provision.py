@@ -1,6 +1,5 @@
 """Batch provisioning APIs for formal teaching classes."""
 
-import json
 import uuid
 from datetime import UTC, datetime
 
@@ -114,10 +113,7 @@ def _build_job_public(session: SessionDep, job) -> BatchProvisionJobPublic:
     )
 
     # Parse the JSON-encoded spec snapshot.
-    try:
-        params = json.loads(job.template_params or "{}")
-    except (TypeError, ValueError):
-        params = {}
+    params = bp_repo.job_params(job)
     spec = BatchProvisionJobSpec(
         cores=params.get("cores"),
         memory=params.get("memory"),

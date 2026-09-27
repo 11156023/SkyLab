@@ -23,6 +23,29 @@ const REFRESH_MARGIN_MS = 60 * 1000;
 const REFRESH_RETRY_MS = 30 * 1000;
 const REFRESH_WARNING_ID = "auth-refresh-unavailable";
 
+/**
+ * 登入後的服務檢查畫面：每次「登入」才跑一次（重新整理、其他分頁同步不算）。
+ * 旗標放 sessionStorage，學生卡在「請通知管理員」時重新整理也不會直接略過。
+ */
+const LOGIN_PREFLIGHT_KEY = "skylab:login-preflight";
+
+function readLoginPreflightFlag() {
+  try {
+    return sessionStorage.getItem(LOGIN_PREFLIGHT_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
+function writeLoginPreflightFlag(pending) {
+  try {
+    if (pending) sessionStorage.setItem(LOGIN_PREFLIGHT_KEY, "1");
+    else sessionStorage.removeItem(LOGIN_PREFLIGHT_KEY);
+  } catch {
+    // 無法存取 sessionStorage（隱私模式等）：只靠記憶體狀態
+  }
+}
+
 const INITIAL_SESSION = {
   status: AuthSessionStatus.CHECKING,
   sessionId: null,
@@ -33,6 +56,7 @@ const INITIAL_SESSION = {
 export function AuthProvider({ children }) {
   const { t } = useTranslation("common");
   const [session, setSession] = useState(INITIAL_SESSION);
+  const [loginPreflightPending, setLoginPreflightPending] = useState(readLoginPreflightFlag);
   const expiryTimerRef = useRef(null);
   const refreshGenerationRef = useRef(0);
   const sessionAbortRef = useRef(null);
@@ -59,6 +83,17 @@ export function AuthProvider({ children }) {
     sessionAbortRef.current = null;
   }, []);
 
+  const setLoginPreflight = useCallback((pending) => {
+    writeLoginPreflightFlag(pending);
+    setLoginPreflightPending(pending);
+  }, []);
+
+  /** 服務檢查通過（或管理員略過）：進入系統。 */
+  const finishLoginPreflight = useCallback(
+    () => setLoginPreflight(false),
+    [setLoginPreflight],
+  );
+
   /** 使用者主動登出。 */
   const logout = useCallback(() => {
     cancelSessionCheck();
@@ -81,13 +116,14 @@ export function AuthProvider({ children }) {
 
     AuthStorage.clearTokens();
     syncIdentityCaches(null);
+    setLoginPreflight(false);
     setSession({
       status: AuthSessionStatus.ANONYMOUS,
       sessionId: null,
       user: null,
       error: null,
     });
-  }, [cancelSessionCheck, clearExpiryTimer, syncIdentityCaches]);
+  }, [cancelSessionCheck, clearExpiryTimer, setLoginPreflight, syncIdentityCaches]);
 
   /** API 已確認 token 失效；token 已由發出事件的請求條件式清除。 */
   const finishExpiredSession = useCallback(() => {
@@ -95,6 +131,7 @@ export function AuthProvider({ children }) {
     clearExpiryTimer();
     toast.dismiss(REFRESH_WARNING_ID);
     syncIdentityCaches(null);
+    setLoginPreflight(false);
     setSession({
       status: AuthSessionStatus.ANONYMOUS,
       sessionId: null,
@@ -102,7 +139,7 @@ export function AuthProvider({ children }) {
       error: null,
     });
     toast.error(t("AuthContext.sessionExpired"));
-  }, [cancelSessionCheck, clearExpiryTimer, syncIdentityCaches, t]);
+  }, [cancelSessionCheck, clearExpiryTimer, setLoginPreflight, syncIdentityCaches, t]);
 
   /**
    * 依 access token 的 exp 排程 refresh。
@@ -265,12 +302,17 @@ export function AuthProvider({ children }) {
   }, [cancelSessionCheck, clearExpiryTimer]);
 
   const completeLogin = useCallback(async () => {
+    // 先立旗標再載入使用者：畫面從登入頁直接切到服務檢查，不會閃過首頁。
+    // 裝置授權（device_code）是替桌面端核准登入，不跑檢查。
+    const isDeviceApproval = new URLSearchParams(window.location.search).has("device_code");
+    if (!isDeviceApproval) setLoginPreflight(true);
     const result = await verifyStoredSession({ showChecking: false });
     if (result?.status === AuthSessionStatus.ANONYMOUS) {
+      setLoginPreflight(false);
       throw { status: 401, message: t("AuthContext.loginVerificationFailed") };
     }
     return result;
-  }, [verifyStoredSession, t]);
+  }, [verifyStoredSession, setLoginPreflight, t]);
 
   /**
    * 帳號已綁定兩步驟驗證時，第一階段只會拿到挑戰 token（沒有 access_token）：
@@ -339,6 +381,8 @@ export function AuthProvider({ children }) {
         logout,
         retrySession,
         updateUser,
+        loginPreflightPending,
+        finishLoginPreflight,
       }}
     >
       {children}

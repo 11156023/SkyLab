@@ -13,17 +13,10 @@
   }
 }
 .panelHeader p {
-  margin: 0;
+  margin: 4px 0 0;
   color: var(--color-text-secondary);
   font-size: $font-size-12;
   line-height: 1.6;
-}
-.eyebrow {
-  color: var(--color-primary);
-  font-size: 11px;
-  font-weight: $font-weight-700;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
 }
 .btnPrimary {
   @include btn-primary;
@@ -54,54 +47,78 @@
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: $spacing-16;
 }
-.metricGrid article {
+/* 統計卡比照管理員儀表板的 statCard：玻璃卡 radius-16、40px 圖示方塊、標籤／數字／補充三層字級；
+   整張可點，hover 直接換底色才有淡入淡出 */
+.metricCard {
   @include glass-surface($shadow: var(--shadow-sm));
   display: grid;
-  grid-template-columns: 42px minmax(0, 1fr);
-  gap: 12px;
+  grid-template-columns: 40px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: $spacing-16;
+  width: 100%;
   padding: $spacing-16;
-  border-radius: $radius-12;
+  border-radius: $radius-16;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: background $transition-base;
+
+  &:hover {
+    background: var(--color-hover);
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--color-primary-on-surface);
+    outline-offset: 3px;
+  }
+}
+.metricArrow {
+  color: var(--color-text-muted);
 }
 .metricIcon {
-  display: grid;
-  width: 42px;
-  height: 42px;
-  place-items: center;
-  border-radius: 10px;
+  @include flex-center;
+  width: 40px;
+  height: 40px;
+  border-radius: $radius-8;
   color: var(--color-primary);
-  background: color-mix(in srgb, var(--color-primary) 9%, var(--color-surface));
+  background: var(--color-hover);
 }
-.metricGrid article div {
+.metricContent {
   display: flex;
   min-width: 0;
   flex-direction: column;
   gap: 2px;
 }
 .metricGrid small {
-  color: var(--color-text-muted);
-  font-size: $font-size-10;
+  color: var(--color-text-secondary);
+  font-size: $font-size-12;
+  font-weight: $font-weight-500;
 }
 .metricGrid strong {
   color: var(--color-text-primary);
   font-size: $font-size-24;
-  line-height: 1.15;
+  font-weight: $font-weight-700;
+  line-height: 1.2;
+  font-variant-numeric: tabular-nums;
 }
-.metricGrid p {
+.metricDetail {
   @include text-truncate;
-  margin: 2px 0 0;
-  color: var(--color-text-secondary);
+  color: var(--color-text-muted);
   font-size: $font-size-12;
-  line-height: 1.45;
 }
 
+/* 兩欄面板等高（比照管理員儀表板的待辦卡），清單吃滿剩餘高度，空狀態才會垂直置中 */
 .mainGrid {
   display: grid;
   grid-template-columns: minmax(0, 1.35fr) minmax(300px, 0.65fr);
   gap: $spacing-24;
-  align-items: start;
+  align-items: stretch;
 }
 .panel {
-  @include glass-surface;
+  @include glass-surface($shadow: var(--shadow-sm));
+  @include flex-column;
+  min-width: 0;
   overflow: hidden;
   border-radius: $radius-16;
 }
@@ -112,15 +129,29 @@
   border-bottom: 1px solid var(--color-divider);
 }
 .panelHeader h2 {
-  margin: 3px 0 4px;
+  margin: 0;
   color: var(--color-text-primary);
   font-size: $font-size-18;
+  font-weight: $font-weight-700;
 }
 .checkpointList,
 .studentList,
 .classList {
   display: flex;
+  flex: 1;
   flex-direction: column;
+}
+
+/* 可點列：hover 淡底要有淡入淡出；面板 overflow: hidden 會裁掉外側焦點框，改畫在內側 */
+.checkpointRow,
+.studentList button,
+.classRow {
+  transition: background $transition-base;
+
+  &:focus-visible {
+    outline: 2px solid var(--color-primary-on-surface);
+    outline-offset: -2px;
+  }
 }
 .checkpointRow {
   display: grid;
@@ -143,13 +174,12 @@
   background: var(--color-hover);
 }
 .courseIcon {
-  display: grid;
+  @include flex-center;
   width: 38px;
   height: 38px;
-  place-items: center;
-  border-radius: 10px;
+  border-radius: $radius-8;
   color: var(--color-primary);
-  background: color-mix(in srgb, var(--color-primary) 9%, var(--color-surface));
+  background: var(--color-hover);
 }
 .checkpointMain {
   display: flex;
@@ -165,12 +195,15 @@
 }
 .checkpointMain strong {
   @include text-truncate;
+  color: var(--color-text-primary);
   font-size: $font-size-14;
+  font-weight: $font-weight-500;
 }
 .checkpointMain small,
 .checkpointMetric small {
   color: var(--color-text-muted);
-  font-size: $font-size-10;
+  font-size: $font-size-12;
+  font-variant-numeric: tabular-nums;
 }
 .progressTrack {
   height: 6px;
@@ -193,6 +226,8 @@
 .checkpointMetric strong {
   color: var(--color-primary);
   font-size: $font-size-18;
+  font-weight: $font-weight-700;
+  font-variant-numeric: tabular-nums;
 }
 
 .studentList button {
@@ -212,13 +247,12 @@
   background: var(--color-hover);
 }
 .studentAvatar {
-  display: grid;
+  @include flex-center;
   width: 36px;
   height: 36px;
-  place-items: center;
   border-radius: 50%;
   color: var(--color-primary);
-  background: color-mix(in srgb, var(--color-primary) 8%, var(--color-surface));
+  background: var(--color-hover);
   font-size: $font-size-12;
   font-weight: $font-weight-700;
 }
@@ -230,18 +264,21 @@
 }
 .studentList strong {
   @include text-truncate;
-  font-size: $font-size-12;
+  color: var(--color-text-primary);
+  font-size: $font-size-14;
+  font-weight: $font-weight-500;
 }
 .studentList small {
   @include text-truncate;
   color: var(--color-text-muted);
-  font-size: $font-size-10;
+  font-size: $font-size-12;
 }
 .studentList em {
   color: var(--color-primary);
-  font-size: $font-size-12;
+  font-size: $font-size-14;
   font-style: normal;
   font-weight: $font-weight-700;
+  font-variant-numeric: tabular-nums;
 }
 
 .classRow {
@@ -278,37 +315,45 @@
 .classDate strong {
   color: var(--color-primary);
   font-size: $font-size-14;
+  font-weight: $font-weight-700;
+  font-variant-numeric: tabular-nums;
 }
 .classDate small,
 .classMain small,
 .classState small {
   color: var(--color-text-muted);
-  font-size: $font-size-10;
+  font-size: $font-size-12;
+}
+.classDate small {
+  font-variant-numeric: tabular-nums;
 }
 .classMain strong {
   @include text-truncate;
+  color: var(--color-text-primary);
   font-size: $font-size-14;
+  font-weight: $font-weight-500;
 }
 .classState {
   align-items: flex-end;
 }
+/* 狀態標籤：全站 badge 尺寸，狀態色與班級管理頁（CourseOperations 的 status_*）同一組 */
 .classState em {
-  padding: 4px 7px;
-  border-radius: $radius-pill;
-  font-size: $font-size-10;
+  @include badge-base;
+  padding: 2px 10px;
   font-style: normal;
-  font-weight: $font-weight-700;
 }
 .status_active {
   color: var(--color-success);
   background: color-mix(in srgb, var(--color-success) 12%, transparent);
 }
-.status_planning,
-.status_archived {
-  color: var(--color-text-muted);
-  background: var(--color-hover);
+.status_planning {
+  color: var(--color-status-neutral);
+  background: color-mix(in srgb, var(--color-status-neutral) 12%, transparent);
 }
-.status_pending_review,
+.status_pending_review {
+  color: var(--color-pending);
+  background: color-mix(in srgb, var(--color-pending) 12%, transparent);
+}
 .status_provisioning {
   color: var(--color-info);
   background: color-mix(in srgb, var(--color-info) 12%, transparent);
@@ -317,8 +362,12 @@
   color: var(--color-danger);
   background: color-mix(in srgb, var(--color-danger) 12%, transparent);
 }
+.status_archived {
+  color: var(--color-text-muted);
+  background: var(--color-hover);
+}
 
-@media (max-width: $breakpoint-xl) {
+@include respond-below(xl) {
   .metricGrid {
     grid-template-columns: repeat(2, 1fr);
   }
@@ -326,19 +375,30 @@
     grid-template-columns: 1fr;
   }
 }
-@media (max-width: $breakpoint-md) {
+@include respond-below(md) {
   .page {
     gap: $spacing-16;
   }
-  .header {
-    align-items: stretch;
-    flex-direction: column;
-  }
-  .header .btnPrimary {
-    width: 100%;
-  }
+  /* 比照管理員儀表板手機版：兩欄小卡、圖示疊在文字上方 */
   .metricGrid {
-    grid-template-columns: 1fr;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: $spacing-8;
+  }
+  .metricCard {
+    grid-template-columns: minmax(0, 1fr);
+    align-items: start;
+    gap: $spacing-8;
+    padding: 12px;
+  }
+  .metricIcon {
+    width: 32px;
+    height: 32px;
+  }
+  .metricGrid strong {
+    font-size: $font-size-18;
+  }
+  .metricArrow {
+    display: none;
   }
   .panelHeader {
     align-items: flex-start;

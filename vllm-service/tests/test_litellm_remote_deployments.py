@@ -343,6 +343,79 @@ def test_init_env_moves_former_host_port_database_to_compose_network_and_reports
     assert "VLLM_UPSTREAM_API_KEY" in out and "p%40ss" not in out and "sk-master" not in out
 
 
+@pytest.mark.parametrize("legacy_key", ["engine-secret", "sk-master"])
+def test_init_env_replaces_a_legacy_service_key_that_collides_with_gateway_keys(tmp_path, capsys, legacy_key):
+    import prepare_ai_stack
+    root_path = tmp_path / ".env"
+    # Pre-LiteLLM deployments pointed the backend at vLLM with its API_KEY.
+    root_path.write_text(
+        f"AI_API_BASE_URL=http://litellm:4000\nLITELLM_RUNTIME_BASE_URL=http://litellm:4000\n"
+        f"AI_API_API_KEY={legacy_key}\nLITELLM_RUNTIME_API_KEY={legacy_key}\nLITELLM_SERVICE_API_KEY={legacy_key}\n"
+    )
+    gateway_path = tmp_path / "gateway.env"
+    gateway_path.write_text(
+        "LITELLM_MASTER_KEY=sk-master\nLITELLM_SALT_KEY=salt\n"
+        "DATABASE_URL=postgresql://litellm:pw@db:5432/litellm\n"
+        "VLLM_UPSTREAM_API_KEY=replace-with-the-vllm-api-key-from-.env.API\n"
+    )
+    engine_path = tmp_path / ".env.API"
+    engine_path.write_text("API_KEY=engine-secret\n")
+
+    assert prepare_ai_stack.init_env(root_path, gateway_path, engine_path) == 0
+    from dotenv import dotenv_values
+    root, gateway = dotenv_values(root_path), dotenv_values(gateway_path)
+    service_key = root["AI_API_API_KEY"]
+    assert service_key.startswith("sk-") and service_key not in {"engine-secret", "sk-master"}
+    assert root["LITELLM_RUNTIME_API_KEY"] == root["LITELLM_SERVICE_API_KEY"] == service_key
+    assert gateway["VLLM_UPSTREAM_API_KEY"] == "engine-secret"
+    out = capsys.readouterr().out
+    assert "舊部署殘留" in out and legacy_key not in out and service_key not in out
+
+    before = (root_path.read_bytes(), gateway_path.read_bytes())
+    assert prepare_ai_stack.init_env(root_path, gateway_path, engine_path) == 0
+    assert (root_path.read_bytes(), gateway_path.read_bytes()) == before
+
+
+def test_init_env_names_the_unwritable_file_and_writes_nothing(tmp_path, monkeypatch, capsys):
+    import prepare_ai_stack
+    root_path = tmp_path / ".env"
+    root_path.write_text("SECRET_KEY=keep-me\n")
+    gateway_path = tmp_path / "gateway.env"
+    gateway_path.write_text("LITELLM_MASTER_KEY=replace-with-master\n")
+    before = (root_path.read_bytes(), gateway_path.read_bytes())
+    # The runner can read /opt/skylab but only the gateway file is writable.
+    monkeypatch.setattr(prepare_ai_stack.os, "access", lambda path, mode: Path(path) != root_path)
+    monkeypatch.setattr(sys, "argv", [
+        "prepare_ai_stack.py", "--init-env", "--root-env", str(root_path),
+        "--gateway-env", str(gateway_path), "--engine-env", str(tmp_path / "missing.env"),
+    ])
+    assert prepare_ai_stack.main() == 1
+    assert (root_path.read_bytes(), gateway_path.read_bytes()) == before
+    err = capsys.readouterr().err
+    assert str(root_path) in err and "無法寫入" in err and "keep-me" not in err
+
+
+@pytest.mark.parametrize(
+    ("error", "expected"),
+    [
+        (PermissionError(13, "Permission denied", "/opt/skylab/.env"), "沒有權限存取 /opt/skylab/.env"),
+        (FileNotFoundError(2, "No such file or directory", "/opt/x"), "無法存取 /opt/x：No such file or directory"),
+        (UnicodeDecodeError("utf-8", b"\xff secret", 0, 1, "invalid start byte"), "不是 UTF-8 編碼"),
+    ],
+)
+def test_os_level_failures_explain_the_cause_without_file_contents(monkeypatch, capsys, error, expected):
+    import prepare_ai_stack
+
+    def fail(*args):
+        raise error
+
+    monkeypatch.setattr(prepare_ai_stack, "init_env", fail)
+    monkeypatch.setattr(sys, "argv", ["prepare_ai_stack.py", "--init-env"])
+    assert prepare_ai_stack.main() == 1
+    err = capsys.readouterr().err
+    assert expected in err and "secret" not in err
+
+
 @pytest.mark.parametrize("update_status, expected", [(200, ["/key/update"]), (404, ["/key/update", "/key/generate"])])
 def test_service_key_is_synced_or_created(monkeypatch, update_status, expected):
     import prepare_ai_stack

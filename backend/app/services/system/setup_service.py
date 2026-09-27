@@ -107,7 +107,6 @@ def configure_admin(*, session: Session, data: SetupAdminCreate) -> SetupAdminRe
                 password=data.password,
                 full_name=data.full_name,
                 role=UserRole.admin,
-                is_superuser=True,
                 is_active=True,
             ),
         )
@@ -117,7 +116,6 @@ def configure_admin(*, session: Session, data: SetupAdminCreate) -> SetupAdminRe
         user_in = UserUpdate(
             password=data.password,
             role=UserRole.admin,
-            is_superuser=True,
             is_active=True,
         )
         if data.full_name is not None:
@@ -126,8 +124,6 @@ def configure_admin(*, session: Session, data: SetupAdminCreate) -> SetupAdminRe
             session=session, db_user=existing, user_in=user_in
         )
         created = False
-    # 精靈裡已經選過語言與主題，登入後不再跑一次首次登入引導
-    user.onboarding_completed = True
     session.add(user)
     session.commit()
     session.refresh(user)
@@ -356,6 +352,7 @@ def configure_subnet(*, session: Session, data: SubnetConfigCreate) -> SetupSubn
         cidr=data.cidr,
         gateway=data.gateway,
         bridge_name=data.bridge_name,
+        vlan_tag=data.vlan_tag,
         gateway_vm_ip=data.gateway_vm_ip,
         dns_servers=data.dns_servers,
         extra_blocked_subnets=data.extra_blocked_subnets,
@@ -374,6 +371,7 @@ def configure_subnet(*, session: Session, data: SubnetConfigCreate) -> SetupSubn
         cidr=config.cidr,
         gateway=config.gateway,
         bridge_name=config.bridge_name,
+        vlan_tag=config.vlan_tag,
         gateway_vm_ip=config.gateway_vm_ip,
         dns_servers=config.dns_servers,
         total_ips=stats["total"],

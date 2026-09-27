@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import getpass
 import json
 import os
 import re
@@ -69,7 +70,10 @@ def validate_environment(root_env: dict, services: dict, models: list[dict], eng
             raise ValueError(f"{service_name} 不可注入 LiteLLM 管理或上游金鑰")
         service_key = require_secret(env, "AI_API_API_KEY")
         if service_key in {master, gateway["VLLM_UPSTREAM_API_KEY"]}:
-            raise ValueError("Campus service key 必須與 LiteLLM master / vLLM upstream key 分開")
+            raise ValueError(
+                "Campus service key 必須與 LiteLLM master / vLLM upstream key 分開；"
+                "舊部署的 AI_API_API_KEY 若沿用 vLLM API_KEY，執行 prepare-ai-stack.sh --init-env 會換成新的受限 key"
+            )
         if not service_key.startswith("sk-"):
             raise ValueError("AI_API_API_KEY 必須是 LiteLLM virtual key 格式（sk- 開頭）；可用 --init-env 產生")
         if env.get("LITELLM_SERVICE_API_KEY") and env["LITELLM_SERVICE_API_KEY"] != service_key:
@@ -194,12 +198,17 @@ def plan_env_updates(root_env: dict, gateway_env: dict, engine_env: dict) -> tup
             manual.append("VLLM_UPSTREAM_API_KEY（DGX／推論主機 vLLM 的 API_KEY）")
 
     service_key = root_env.get("AI_API_API_KEY")
-    if is_placeholder(service_key):
+    # Before LiteLLM the backend called vLLM directly with its API_KEY. Such a
+    # leftover is not a restricted virtual key and collides with the upstream
+    # key, so it is replaced like a placeholder; --start registers the new one.
+    reserved = {value for value in (*{**gateway_env, **gateway}.values(), engine_env.get("API_KEY")) if value}
+    if is_placeholder(service_key) or not service_key.startswith("sk-") or service_key in reserved:
         service_key = "sk-" + secrets.token_urlsafe(32)
         root["AI_API_API_KEY"] = service_key
-    if is_placeholder(root_env.get("LITELLM_RUNTIME_API_KEY")):
+    # Both must be the same restricted key as AI_API_API_KEY (see validate_environment).
+    if root_env.get("LITELLM_RUNTIME_API_KEY") != service_key:
         root["LITELLM_RUNTIME_API_KEY"] = service_key
-    if "LITELLM_SERVICE_API_KEY" in root_env and is_placeholder(root_env["LITELLM_SERVICE_API_KEY"]):
+    if "LITELLM_SERVICE_API_KEY" in root_env and root_env["LITELLM_SERVICE_API_KEY"] != service_key:
         root["LITELLM_SERVICE_API_KEY"] = service_key
     for field in ("AI_API_BASE_URL", "LITELLM_RUNTIME_BASE_URL"):
         hostname = urlsplit(root_env.get(field) or "").hostname
@@ -208,18 +217,38 @@ def plan_env_updates(root_env: dict, gateway_env: dict, engine_env: dict) -> tup
     return root, gateway, manual
 
 
+def _require_writable(path: Path) -> None:
+    """Fail before touching anything, naming the path and the account that lacks access."""
+    target = path
+    while not target.exists() and target.parent != target:
+        target = target.parent
+    if os.access(target, os.W_OK | (os.X_OK if target.is_dir() else 0)):
+        return
+    user = getpass.getuser()
+    raise ValueError(
+        f"目前執行身分 {user} 無法寫入 {target}（--init-env 需要把補齊的金鑰寫回 {path}）；"
+        f"請在該主機以 sudo chown {user} {target} 或調整權限後重試"
+    )
+
+
 def init_env(root_path: Path, gateway_path: Path, engine_path: Path) -> int:
     if not root_path.is_file():
         raise ValueError(f"缺少主設定 {root_path}，請先由 .env.example 建立並填入 Campus 必要參數")
     if not gateway_path.is_file():
+        _require_writable(gateway_path)
         gateway_path.parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(PROJECT_ROOT / "litellm/.env.example", gateway_path)
         os.chmod(gateway_path, 0o600)
         print(f"已由範本建立 {gateway_path}")
     engine_env = dotenv_values(engine_path) if engine_path.is_file() else {}
-    root, gateway, manual = plan_env_updates(
-        dotenv_values(root_path), dotenv_values(gateway_path), engine_env,
-    )
+    root_env = dotenv_values(root_path)
+    root, gateway, manual = plan_env_updates(root_env, dotenv_values(gateway_path), engine_env)
+    if "AI_API_API_KEY" in root and not is_placeholder(root_env.get("AI_API_API_KEY")):
+        print("原 AI_API_API_KEY 不是 sk- virtual key 或與 LiteLLM／vLLM 金鑰相同（舊部署殘留），將換成新的受限 service key")
+    # Check both files first so a permission problem never leaves only one updated.
+    for path, updates in ((root_path, root), (gateway_path, gateway)):
+        if updates:
+            _require_writable(path)
     for path, updates in ((root_path, root), (gateway_path, gateway)):
         if updates:
             _write_env_values(path, updates)
@@ -333,7 +362,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--check-only", action="store_true", help="驗證既有 config.yaml，不改寫檔案")
     parser.add_argument("--check-upstreams", action="store_true", help="逐一查詢上游 /v1/models（不產生推論）")
-    parser.add_argument("--start", action="store_true", help="預檢查後建立 LiteLLM 資料庫、核發 service key 並啟動主 Compose；不會停止獨立 gateway")
+    parser.add_argument("--start", action="store_true", help="驗證設定後建立 LiteLLM 資料庫、核發 service key 並啟動主 Compose；不會停止獨立 gateway")
     parser.add_argument("--init-env", action="store_true", help="補齊兩份 .env 中缺少或仍為範例值的金鑰與位址後結束（不覆寫既有真實值）")
     parser.add_argument("--root-env", type=Path, default=REPO_ROOT / ".env", help="--init-env 的主 .env 路徑")
     parser.add_argument("--gateway-env", type=Path, default=PROJECT_ROOT / "litellm/.env", help="--init-env 的 LiteLLM .env 路徑")
@@ -364,7 +393,7 @@ def main() -> int:
         services = compose["services"]
         engine_env = {**dotenv_values(PROJECT_ROOT / ".env.API"), **os.environ}
         validate_environment(dotenv_values(REPO_ROOT / ".env"), services, models, engine_env)
-        if args.check_upstreams or args.start:
+        if args.check_upstreams:
             check_upstreams(models, services["litellm"]["environment"])
         if DEFAULT_OUTPUT.exists() and not DEFAULT_OUTPUT.is_file():
             raise ValueError("litellm/config.yaml 必須為檔案，請先移除誤建的空目錄")
@@ -410,8 +439,18 @@ def main() -> int:
         return 0
     except (OSError, ValueError, KeyError, yaml.YAMLError, subprocess.TimeoutExpired):
         # Errors from parsers may embed source text; only our ValueErrors are safe.
+        # Paths and OS error text are safe to show; file contents never are.
         exc = sys.exc_info()[1]
-        message = str(exc) if type(exc) is ValueError else "設定讀取失敗，請核對檔案格式、Python 相依套件與 Docker 可用性"
+        if type(exc) is ValueError:
+            message = str(exc)
+        elif isinstance(exc, PermissionError):
+            message = f"執行身分 {getpass.getuser()} 沒有權限存取 {exc.filename or '設定檔'}，請核對擁有者與權限"
+        elif isinstance(exc, OSError) and exc.filename:
+            message = f"無法存取 {exc.filename}：{exc.strerror or type(exc).__name__}"
+        elif isinstance(exc, UnicodeDecodeError):
+            message = "設定檔不是 UTF-8 編碼，請轉存為 UTF-8 後重試"
+        else:
+            message = f"設定讀取失敗（{type(exc).__name__}），請核對檔案格式、Python 相依套件與 Docker 可用性"
         print(f"預檢查失敗：{message}", file=sys.stderr)
         return 1
 

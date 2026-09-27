@@ -10,7 +10,7 @@ from .base import get_datetime_utc
 
 
 class ResourceNetwork(SQLModel, table=True):
-    """IP/MAC/bridge metadata linked to a managed VM/LXC resource."""
+    """IP metadata linked to a managed VM/LXC resource."""
 
     __tablename__ = "resource_networks"
     __table_args__ = (
@@ -29,8 +29,6 @@ class ResourceNetwork(SQLModel, table=True):
         )
     )
     ip_address: str | None = Field(default=None, max_length=64, unique=True, index=True)
-    mac_address: str | None = Field(default=None, max_length=64)
-    bridge_name: str | None = Field(default=None, max_length=64)
     source: str | None = Field(default=None, max_length=32)
     cached_at: datetime | None = Field(default=None, sa_type=sa.DateTime(timezone=True))
     created_at: datetime = Field(
@@ -40,6 +38,7 @@ class ResourceNetwork(SQLModel, table=True):
     updated_at: datetime = Field(
         default_factory=get_datetime_utc,
         sa_type=sa.DateTime(timezone=True),
+        sa_column_kwargs={"onupdate": get_datetime_utc},
     )
 
 

@@ -5,6 +5,7 @@ import io
 import math
 import uuid
 from datetime import date, datetime, time, timedelta
+from typing import Literal
 from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, File, UploadFile
@@ -167,9 +168,16 @@ class WeekIn(BaseModel):
     week_number: int
     session_date: date
     title: str = ""
+    # None = 全部機器；否則必須是班級機器節點的 node_key（replace_weeks 檢查）
     target_node_key: str | None = None
-    status: str = "draft"
+    status: Literal["draft", "published", "completed"] = "draft"
     files: list[WeekFileIn] = Field(default_factory=list)
+
+    @field_validator("target_node_key")
+    @classmethod
+    def _blank_target_is_all_machines(cls, value: str | None) -> str | None:
+        value = (value or "").strip()
+        return value or None
 
 
 class ClassResourceUsageItem(BaseModel):
@@ -947,6 +955,18 @@ def select_course(
                 sort_order=node.sort_order,
             )
         )
+    # 換課程版本後機器節點整批重建：新版本沒有的節點，週次指向它就會讓
+    # 學生端看不到任何機器，改回「全部機器」
+    new_keys = {node.node_key for node in source_nodes}
+    for week in session.exec(
+        select(TeachingClassWeek).where(
+            TeachingClassWeek.class_id == class_id,
+            col(TeachingClassWeek.target_node_key).is_not(None),
+        )
+    ).all():
+        if week.target_node_key not in new_keys:
+            week.target_node_key = None
+            session.add(week)
     item.course_version_id = version.id
     item.updated_at = get_datetime_utc()
     session.add(item)
@@ -977,6 +997,27 @@ def replace_weeks(
     )
     if {row.session_date for row in weeks} != {row.session_date for row in body}:
         raise BadRequestError(t("teachingClasses.weekDatesMustMatchSchedule"))
+
+    targets = {row.target_node_key for row in body if row.target_node_key is not None}
+    node_keys = (
+        set(
+            session.exec(
+                select(TeachingClassMachineNode.node_key).where(
+                    TeachingClassMachineNode.class_id == class_id
+                )
+            ).all()
+        )
+        if targets
+        else set()
+    )
+    unknown_targets = targets - node_keys
+    if unknown_targets:
+        raise BadRequestError(
+            t(
+                "teachingClasses.weekTargetNodeUnknown",
+                keys=", ".join(sorted(unknown_targets)),
+            )
+        )
 
     weeks_by_number = {row.week_number: row for row in weeks}
     weeks_by_date = {row.session_date: row for row in weeks}

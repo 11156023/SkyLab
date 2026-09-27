@@ -5,8 +5,6 @@ from datetime import datetime
 
 from pydantic import BaseModel
 
-from app.models.audit_log import AuditAction
-
 
 class AuditLogPublic(BaseModel):
     """公開的審計日誌"""
@@ -17,7 +15,7 @@ class AuditLogPublic(BaseModel):
     user_full_name: str | None = None
     vmid: int | None
     resource_vmid: int | None = None
-    action: AuditAction
+    action: str  # AuditAction 的值；舊紀錄可能是已下線的 action
     details: str
     ip_address: str | None
     user_agent: str | None

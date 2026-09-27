@@ -11,10 +11,7 @@ import logging
 
 from app.core.i18n import t
 from app.exceptions import BadRequestError, ProxmoxError
-from app.services.network.publish_target_policy import (
-    assert_publishable_vm_ip,
-    resolve_resource_vmid,
-)
+from app.services.network.publish_target_policy import assert_publishable_vm_ip
 
 logger = logging.getLogger(__name__)
 
@@ -188,7 +185,6 @@ def apply_nat_rule(
     rule = NatRule(
         ssh_host="",  # 已改為 Gateway VM 架構，此欄位保留但不再使用
         vmid=vmid,
-        resource_vmid=resolve_resource_vmid(session, vmid),
         vm_ip=vm_ip,
         external_port=external_port,
         internal_port=internal_port,

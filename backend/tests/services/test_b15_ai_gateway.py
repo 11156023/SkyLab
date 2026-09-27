@@ -9,11 +9,11 @@ from sqlmodel import Session, select
 from app.core.config import settings
 from app.exceptions import BadRequestError
 from app.models import (
+    USAGE_SOURCE_PLATFORM,
     AIAPICredential,
     AIAPIRequest,
     AIAPIRequestStatus,
     AIAPIUsage,
-    AITemplateCallLog,
     User,
 )
 from app.repositories import user as user_repo
@@ -217,7 +217,7 @@ def _usage(
         user_id=user.id,
         credential_id=credential_id,
         model_name=model,
-        request_type="chat_completion",
+        call_type="chat_completion",
         input_tokens=tokens,
         output_tokens=tokens // 2,
         status="success",
@@ -295,7 +295,8 @@ def test_template_usage_stats_use_the_same_aggregation(db: Session) -> None:
     at = datetime(2026, 9, 9, 23, 30, tzinfo=UTC)
     db.add_all(
         [
-            AITemplateCallLog(
+            AIAPIUsage(
+                source=USAGE_SOURCE_PLATFORM,
                 user_id=user.id,
                 call_type="chat",
                 model_name="m",
@@ -304,7 +305,8 @@ def test_template_usage_stats_use_the_same_aggregation(db: Session) -> None:
                 status="success",
                 created_at=at,
             ),
-            AITemplateCallLog(
+            AIAPIUsage(
+                source=USAGE_SOURCE_PLATFORM,
                 user_id=user.id,
                 call_type="recommend",
                 model_name="m",
@@ -349,7 +351,8 @@ def test_sqlite_fallback_buckets_by_viewer_offset() -> None:
     at = datetime(2026, 9, 9, 23, 30, tzinfo=UTC)
     with Session(engine) as session:
         session.add(
-            AITemplateCallLog(
+            AIAPIUsage(
+                source=USAGE_SOURCE_PLATFORM,
                 user_id=user_id,
                 call_type="chat",
                 model_name="m",

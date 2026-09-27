@@ -1,4 +1,4 @@
-﻿#!/usr/bin/env bash
+#!/usr/bin/env bash
 # =============================================================================
 # SkyLab - Gateway 主機安裝腳本
 # 支援系統：Debian 12 / 13
@@ -455,7 +455,8 @@ if [[ "$ufw_was_active" == false ]]; then
 fi
 
 systemctl daemon-reload
-systemd-analyze verify campus-cloud-wg-firewall.service "wg-quick@${WG_INTERFACE}.service"
+# --man=no：精簡映像（雲端映像、容器）沒裝 man，預設會因 Documentation=man: 查不到而失敗
+systemd-analyze verify --man=no campus-cloud-wg-firewall.service "wg-quick@${WG_INTERFACE}.service"
 systemctl enable --now campus-cloud-wg-firewall.service
 systemctl enable --now "wg-quick@${WG_INTERFACE}.service"
 

@@ -368,17 +368,24 @@ function TwoFactorSection() {
       </div>
 
       {activeDialog === "enable" && (
-        <Modal
-          size="md"
-          closeButton
-          closing={presence.closing}
-          onClose={closeDialog}
-          title={t("TwoFactorSection.enableTitle")}
-          closeProps={{ "aria-label": t("TwoFactorSection.close") }}
-        >
-          <TotpEnrollment onConfirmed={handleEnabled} onCancel={closeDialog} />
-        </Modal>
+        <TotpEnrollment onConfirmed={handleEnabled} onCancel={closeDialog}>
+          {({ content, actions, busy }) => (
+            <Modal
+              closing={presence.closing}
+              onClose={closeDialog}
+              busy={busy}
+              closeButton
+              size="md"
+              title={t("TwoFactorSection.enableTitle")}
+              closeProps={{ "aria-label": t("TwoFactorSection.close") }}
+              actions={actions}
+            >
+              {content}
+            </Modal>
+          )}
+        </TotpEnrollment>
       )}
+
       {activeDialog === "disable" && (
         <Modal
           as="form"
@@ -386,6 +393,8 @@ function TwoFactorSection() {
           closing={presence.closing}
           onClose={closeDialog}
           busy={disabling}
+          closeButton
+          role="alertdialog"
           icon={<span className={styles.confirmTitleIcon}><MIcon name="warning" size={20} /></span>}
           title={t("TwoFactorSection.disableTitle")}
           description={t("TwoFactorSection.disableDesc")}
@@ -479,6 +488,7 @@ function DangerZoneSection() {
           closing={confirmDialog.closing}
           onClose={closeConfirm}
           busy={deleting}
+          role="alertdialog"
           icon={<span className={styles.confirmTitleIcon}><MIcon name="warning" size={20} /></span>}
           title={t("DangerZoneTab.confirmTitle")}
           description={

@@ -57,6 +57,7 @@ const EMPTY_SUBNET_FORM = {
   cidr: "",
   gateway: "",
   bridge_name: "vmbr1",
+  vlan_tag: "",
   gateway_vm_ip: "",
   dns_servers: "",
   forward_port_start: "30000",
@@ -646,6 +647,7 @@ function SubnetStep({ alreadyDone, onSaved, onSkip, onBack, onNext }) {
         cidr: form.cidr.trim(),
         gateway: form.gateway.trim(),
         bridge_name: form.bridge_name.trim(),
+        vlan_tag: form.vlan_tag.trim() ? Number(form.vlan_tag) : null,
         gateway_vm_ip: form.gateway_vm_ip.trim(),
         dns_servers: form.dns_servers.trim() || null,
         extra_blocked_subnets: [],
@@ -721,7 +723,17 @@ function SubnetStep({ alreadyDone, onSaved, onSkip, onBack, onNext }) {
             required
           />
         </label>
-        <label className={`${styles.field} ${styles.fieldWide}`}>
+        <label className={styles.field}>
+          <span>{t("SetupPage.vlanLabel")}</span>
+          <input
+            type="number" min="1" max="4094" step="1"
+            value={form.vlan_tag}
+            onChange={(e) => set("vlan_tag", e.target.value)}
+            placeholder={t("SetupPage.vlanPlaceholder")}
+            disabled={saving}
+          />
+        </label>
+        <label className={styles.field}>
           <span>{t("SetupPage.dnsLabel")}</span>
           <input
             value={form.dns_servers}
@@ -834,7 +846,11 @@ function FinishStep({ steps, adminCreds, proxmoxResult, subnetResult, onBack }) 
     })
     : steps.proxmox ? t("SetupPage.summaryConfigured") : t("SetupPage.summarySkipped");
   const subnetText = subnetResult
-    ? `${subnetResult.cidr} · ${subnetResult.bridge_name}`
+    ? [
+        subnetResult.cidr,
+        subnetResult.bridge_name,
+        subnetResult.vlan_tag != null ? `VLAN ${subnetResult.vlan_tag}` : null,
+      ].filter(Boolean).join(" · ")
     : steps.subnet ? t("SetupPage.summaryConfigured") : t("SetupPage.summarySkipped");
 
   return (

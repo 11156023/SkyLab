@@ -33,8 +33,6 @@ def _admin() -> User:
         email="admin@example.com",
         hashed_password="x",
         role=UserRole.admin,
-        is_superuser=True,
-        is_instructor=False,
         token_version=3,
     )
 
@@ -72,13 +70,13 @@ def test_update_user_without_role_keeps_admin() -> None:
     assert user.full_name == "x"
 
 
-def test_update_user_explicit_superuser_still_overrides_role() -> None:
+def test_update_user_explicit_null_role_keeps_admin() -> None:
     user = _admin()
 
     user_repo.update_user(
         session=_FlushSession(),  # type: ignore[arg-type]
         db_user=user,
-        user_in=UserUpdate(role=UserRole.student, is_superuser=True),
+        user_in=UserUpdate(role=None),
     )
 
     assert user.role == UserRole.admin
@@ -89,7 +87,7 @@ def test_update_user_explicit_superuser_still_overrides_role() -> None:
 def test_update_user_promote_to_admin_sets_superuser() -> None:
     user = User(
         email="t@example.com", hashed_password="x", role=UserRole.teacher,
-        is_superuser=False, token_version=0,
+        token_version=0,
     )
 
     user_repo.update_user(

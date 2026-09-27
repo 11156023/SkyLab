@@ -8,17 +8,13 @@ import {
 
 describe("teacherDisplayName", () => {
   it("uses the first part of the full name", () => {
-    expect(teacherDisplayName({ full_name: "  Amy Chen ", email: "amy@x.edu" }, "Teacher")).toBe("Amy");
+    expect(teacherDisplayName({ full_name: "  Amy Chen ", email: "amy@x.edu" })).toBe("Amy");
   });
 
-  it("falls back to the email account when the full name is blank or whitespace", () => {
-    expect(teacherDisplayName({ full_name: "   ", email: "amy@x.edu" }, "Teacher")).toBe("amy");
-    expect(teacherDisplayName({ full_name: "", email: "bob@x.edu" }, "Teacher")).toBe("bob");
-  });
-
-  it("falls back to the default label when nothing usable is set", () => {
-    expect(teacherDisplayName({ full_name: "", email: null }, "Teacher")).toBe("Teacher");
-    expect(teacherDisplayName(null, "Teacher")).toBe("Teacher");
+  it("returns null (no email fallback) when the full name is blank or whitespace", () => {
+    expect(teacherDisplayName({ full_name: "   ", email: "amy@x.edu" })).toBeNull();
+    expect(teacherDisplayName({ full_name: "", email: "bob@x.edu" })).toBeNull();
+    expect(teacherDisplayName(null)).toBeNull();
   });
 });
 
@@ -40,6 +36,17 @@ describe("teacher dashboard checkpoint summary", () => {
     expect(result.possible).toBe(8);
     expect(result.percent).toBe(50);
     expect(result.students).toBe(2);
+  });
+
+  it("counts a student once even when they appear in several paths", () => {
+    const student = { user_id: "s1", completed_questions: 1, total_questions: 2, progress_percent: 50 };
+    const result = summarizeCheckpointReports([
+      { path: { id: "a", title: "A" }, report: { students: [student] } },
+      { path: { id: "b", title: "B" }, report: { students: [student, { ...student, user_id: "s2" }] } },
+    ]);
+
+    expect(result.students).toBe(2);
+    expect(result.possible).toBe(6);
   });
 });
 

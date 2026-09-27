@@ -1,9 +1,9 @@
-import json
 import logging
 import math
 import time
 import uuid
 from collections.abc import Iterable
+from contextlib import nullcontext
 from datetime import UTC, datetime, timedelta
 from typing import Any, Literal
 
@@ -27,6 +27,7 @@ from app.models import (
     TeachingClassStudentMachine,
     User,
     VMTemplate,
+    VMTemplateStatus,
 )
 from app.models.quick_practice import QuickPracticeSessionMachine
 from app.models.vm_request import VMProvisioningStatus, VMRequest, VMRequestStatus
@@ -389,10 +390,7 @@ def _teaching_display_names(
                 col(BatchProvisionJob.id).in_(jobs_needed)
             )
         ).all():
-            try:
-                params = json.loads(job.template_params)
-            except (TypeError, ValueError):
-                continue
+            params = batch_provision_repo.job_params(job)
             prefix = params.get("ip_reservation_prefix")
             if isinstance(prefix, str) and ":" in prefix:
                 params_by_job[job.id] = params
@@ -431,7 +429,11 @@ def _teaching_display_names(
             tpl_name_by_id[template.id] = template.name
     if pve_vmids:
         for template in session.exec(
-            select(VMTemplate).where(col(VMTemplate.pve_vmid).in_(pve_vmids))
+            select(VMTemplate).where(
+                col(VMTemplate.pve_vmid).in_(pve_vmids),
+                # 同一 VMID 可能有已刪除的舊範本列（partial unique），只取現役的
+                VMTemplate.status != VMTemplateStatus.deleted,
+            )
         ).all():
             tpl_name_by_pve[template.pve_vmid] = template.name
 
@@ -719,20 +721,28 @@ def mark_linked_request_consumed(
     return snapshot
 
 
+def _savepoint(session: Session):
+    """刪除流程的 best-effort 清理步驟各自包一層 savepoint：一步失敗只回滾自己，
+    不會用 session.rollback() 把前面已 flush 的 IP 釋放、NAT 清理一起撤銷。
+    （測試用的假 session 沒有 begin_nested 時退回無交易的 context。）"""
+    begin_nested = getattr(session, "begin_nested", None)
+    return begin_nested() if begin_nested is not None else nullcontext()
+
+
 def _cancel_open_spec_change_requests(
     *, session: Session, vmid: int, marker: str
 ) -> None:
     """機器刪除時作廢該 vmid 處理中的規格調整申請；失敗不阻斷刪除。"""
     try:
-        cancelled = spec_request_repo.cancel_open_spec_change_requests_for_vmid(
-            session=session, vmid=vmid, comment=marker, commit=False
-        )
+        with _savepoint(session):
+            cancelled = spec_request_repo.cancel_open_spec_change_requests_for_vmid(
+                session=session, vmid=vmid, comment=marker, commit=False
+            )
         if cancelled:
             logger.info(
                 "Cancelled %s open spec change request(s) for vmid=%s", cancelled, vmid
             )
     except Exception as exc:
-        session.rollback()
         logger.warning(
             "Failed to cancel spec change requests for vmid=%s: %s", vmid, exc
         )
@@ -1348,27 +1358,31 @@ def _cleanup_after_resource_removed(
             "%sFailed to clean up NAT rules for VM %s: %s", log_prefix, vmid, exc
         )
 
-    # Release IP allocation
+    # Release IP allocation（savepoint：後面的清理步驟失敗時不能把這步一起回滾，
+    # 否則資源刪掉了 IP 卻一直佔著）
     try:
         from app.services.network import ip_management_service
-        ip_management_service.release_ip(session, vmid)
+        with _savepoint(session):
+            ip_management_service.release_ip(session, vmid)
     except Exception as exc:
         logger.warning("%sFailed to release IP for VM %s: %s", log_prefix, vmid, exc)
 
     # Unlink deleted VMID from historical batch tasks so class job status won't
     # accidentally match a future resource that reuses the same VMID.
     try:
-        cleared_count = batch_provision_repo.clear_task_vmid_references(
-            session=session,
-            vmid=vmid,
-            commit=False,
-        )
+        with _savepoint(session):
+            cleared_count = batch_provision_repo.clear_task_vmid_references(
+                session=session,
+                vmid=vmid,
+                commit=False,
+            )
         if cleared_count:
             logger.info(
                 "Cleared VMID %s from %s batch task(s)", vmid, cleared_count
             )
     except Exception as exc:
-        session.rollback()
+        # 只回滾這一步的 savepoint；整個 session.rollback() 會把前面已 flush
+        # 的 NAT 清理與 IP 釋放一起撤銷
         logger.warning(
             "%sFailed to clear batch task VMID references for VM %s: %s",
             log_prefix, vmid, exc,
@@ -1376,16 +1390,15 @@ def _cleanup_after_resource_removed(
 
     # 規格調整申請也要跟著作廢：VMID 會被新機器回收，留著會核准／套用到
     # 別人的機器上。resource_vmid 的 SET NULL 只擋審核，這裡把狀態收掉。
-    # 必須排在 _mark_class_machine_reclaimed 之前：作廢失敗時會 rollback，
-    # 排在後面會把已 flush 的班級對應變更一起丟掉。
+    # 作廢失敗只回滾它自己的 savepoint，不會丟掉已 flush 的其他收尾。
     _cancel_open_spec_change_requests(session=session, vmid=vmid, marker=marker)
 
     if teaching_class_id is not None:
         _mark_class_machine_reclaimed(session=session, vmid=vmid)
 
-    # Remove from database (resource record + all associated audit logs)
-    resource_repo.delete_resource(session=session, vmid=vmid)
+    # Remove from database (this resource's audit logs, then the record)
     audit_log_repo.delete_audit_logs_by_vmid(session=session, vmid=vmid)
+    resource_repo.delete_resource(session=session, vmid=vmid)
     _mark_class_reclaimed_if_empty(
         session=session, teaching_class_id=teaching_class_id
     )

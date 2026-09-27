@@ -1,4 +1,4 @@
-"""B17 整理回歸：角色欄位解析、防火牆版面 resource_vmid、套件匯出面。"""
+"""B17 整理回歸：防火牆版面 resource_vmid、套件匯出面。"""
 
 from __future__ import annotations
 
@@ -7,40 +7,13 @@ from typing import Any
 
 import pytest
 
-from app.models import FirewallLayout, Resource, UserRole
+from app.models import FirewallLayout, Resource
 from app.repositories import firewall_layout as firewall_layout_repo
-from app.repositories import user as user_repo
 
 
 @pytest.fixture(scope="session")
 def _seed_first_superuser() -> None:
     """純單元測試，不需要測試資料庫。"""
-
-
-@pytest.mark.parametrize(
-    ("role", "is_superuser", "is_instructor", "expected"),
-    [
-        (UserRole.teacher, False, False, (UserRole.teacher, False, False)),
-        (UserRole.student, False, False, (UserRole.student, False, False)),
-        (UserRole.admin, False, False, (UserRole.admin, True, False)),
-        (UserRole.teacher, True, False, (UserRole.admin, True, False)),
-        (None, False, True, (UserRole.teacher, False, False)),
-        (None, False, False, (UserRole.student, False, False)),
-        (None, True, False, (UserRole.admin, True, False)),
-    ],
-)
-def test_resolve_role_fields(
-    role: UserRole | None,
-    is_superuser: bool,
-    is_instructor: bool,
-    expected: tuple[UserRole, bool, bool],
-) -> None:
-    assert (
-        user_repo._resolve_role_fields(
-            role=role, is_superuser=is_superuser, is_instructor=is_instructor
-        )
-        == expected
-    )
 
 
 class _LayoutSession:

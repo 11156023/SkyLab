@@ -9,6 +9,7 @@ import { useToast } from "../../../hooks/useToast";
 import styles from "../CourseOperations.module.scss";
 import PageHeader from "../../../components/PageHeader/PageHeader";
 import SegmentedControl from "../../../components/SegmentedControl/SegmentedControl";
+import ClassTicket from "./ClassTicket";
 
 const STATUS_KEYS = {
   planning: "ClassManagementPage.statusPlanning",
@@ -42,14 +43,6 @@ const WEEKDAY_KEYS = [
   "ClassManagementPage.weekdaySun",
 ];
 
-const STATUS_HINT_KEYS = {
-  planning: "ClassManagementPage.hintPlanning",
-  pending_review: "ClassManagementPage.hintPendingReview",
-  provisioning: "ClassManagementPage.hintProvisioning",
-  partial_failed: "ClassManagementPage.hintPartialFailed",
-  active: "ClassManagementPage.hintActive",
-  archived: "ClassManagementPage.hintArchived",
-};
 
 function normalizeClass(item) {
   return {
@@ -84,21 +77,10 @@ export function classSetupResumeStep(item) {
   return 5;
 }
 
-function nextAction(item, t) {
-  if (item.status === "planning") {
-    const step = classSetupResumeStep(item);
-    const labels = {
-      2: t("ClassManagementPage.actionContinueStudents"),
-      3: t("ClassManagementPage.actionContinueEnv"),
-      4: t("ClassManagementPage.actionContinueTasks"),
-      5: t("ClassManagementPage.actionConfirmSubmit"),
-    };
-    return [labels[step], `/class-setup?classId=${item.id}&step=${step}`];
-  }
-  if (item.status === "partial_failed") return [t("ClassManagementPage.actionViewFailed"), `/class-management/${item.id}`];
-  if (item.status === "active") return [t("ClassManagementPage.actionEnterClass"), `/class-management/${item.id}`];
-  if (item.status === "archived") return [t("ClassManagementPage.actionViewClass"), `/class-management/${item.id}`];
-  return [t("ClassManagementPage.actionViewProgress"), `/class-management/${item.id}`];
+/* 點票券去的地方：準備中的班級回到下一個還沒完成的設定步驟，其餘進入班級 */
+function ticketTarget(item) {
+  if (item.status === "planning") return `/class-setup?classId=${item.id}&step=${classSetupResumeStep(item)}`;
+  return `/class-management/${item.id}`;
 }
 
 export default function ClassManagementPage() {
@@ -183,28 +165,29 @@ export default function ClassManagementPage() {
     {loading ? <LoadingState fullPage text={t("ClassManagementPage.loadingText")} /> : rows.length ? <section className={styles.classCardGrid}>
       {rows.map((item) => {
         const setupReady = setupChecklist(item).filter(Boolean).length;
-        const progress = item.status === "planning" ? setupReady / SETUP_STEP_COUNT * 100 : item.totalMachines ? item.readyMachines / item.totalMachines * 100 : 0;
-        const [action, target] = nextAction(item, t);
-        return <article className={`${styles.classCard}${item.status === "partial_failed" ? ` ${styles.classCardAlert}` : ""}`} key={item.id}>
-          <button type="button" className={styles.classCardMain} onClick={() => navigate(`/class-management/${item.id}`)}>
-            <div className={styles.classCardTop}>
-              <div><span>{item.term}</span><h2>{item.name}</h2></div>
-              <span className={`${styles.statusBadge} ${styles[`status_${item.status}`]}`}>{STATUS_KEYS[item.status] ? t(STATUS_KEYS[item.status]) : item.status}</span>
-            </div>
-            <div className={styles.classMeta}>
-              <strong><MIcon name="schedule" size={16} />{t("ClassManagementPage.weeklyPrefix")}{t(WEEKDAY_KEYS[item.weekday])} {item.startTime}–{item.endTime}</strong>
-              <span><MIcon name="calendar_today" size={15} />{item.startDate} {t("ClassManagementPage.dateTo")} {item.endDate}</span>
-              <span><MIcon name="power_settings_new" size={15} />{t("ClassManagementPage.bootLeadLabel", { minutes: item.bootLeadMinutes })}</span>
-            </div>
-            <div className={styles.classProgress}><div><span>{item.status === "planning" ? t("ClassManagementPage.progressSetup") : t("ClassManagementPage.progressBuild")}</span><strong>{item.status === "planning" ? `${setupReady}/${SETUP_STEP_COUNT}` : `${item.readyMachines}/${item.totalMachines}`}</strong></div><i><b style={{ width: `${progress}%` }} /></i></div>
-          </button>
-          <div className={styles.classStats}>
-            <div><strong>{item.students}</strong><span>{t("ClassManagementPage.unitStudents")}</span></div>
-            <div><strong>{item.weeks.length}</strong><span>{t("ClassManagementPage.unitSessions")}</span></div>
-            <div><strong>{item.nodes.length}</strong><span>{t("ClassManagementPage.unitMachinesPerPerson")}</span></div>
-          </div>
-          <div className={styles.classCardAction}><span>{STATUS_HINT_KEYS[item.status] ? t(STATUS_HINT_KEYS[item.status]) : ""}</span><button type="button" onClick={() => navigate(target)}>{action}<MIcon name="arrow_forward" size={16} /></button></div>
-        </article>;
+        return <ClassTicket
+          key={item.id}
+          id={item.id}
+          status={item.status}
+          statusLabel={STATUS_KEYS[item.status] ? t(STATUS_KEYS[item.status]) : item.status}
+          term={item.term}
+          title={item.name}
+          /* 其他狀態的說明只是把狀態換句話說（進度也已在票根），只有「需要處理」要講出原因 */
+          hint={item.status === "partial_failed" ? t("ClassManagementPage.hintPartialFailed") : ""}
+          fields={[
+            {
+              key: "schedule",
+              label: t("ClassManagementPage.fieldSchedule"),
+              value: `${t("ClassManagementPage.weeklyPrefix")}${t(WEEKDAY_KEYS[item.weekday])} ${item.startTime}–${item.endTime}`,
+              note: t("ClassManagementPage.bootLeadNote", { minutes: item.bootLeadMinutes }),
+            },
+            { key: "period", label: t("ClassManagementPage.fieldPeriod"), value: `${item.startDate} ${t("ClassManagementPage.dateTo")} ${item.endDate}` },
+          ]}
+          progress={item.status === "planning"
+            ? { label: t("ClassManagementPage.progressSetup"), done: setupReady, total: SETUP_STEP_COUNT }
+            : { label: t("ClassManagementPage.progressBuild"), done: item.readyMachines, total: item.totalMachines }}
+          onOpen={() => navigate(ticketTarget(item))}
+        />;
       })}
     </section> : <EmptyState
       icon="school"

@@ -1,5 +1,5 @@
 /* 首次登入引導精靈：外框（暈染背景、毛玻璃卡、步驟列、按鈕）沿用 SetupPage.module.scss，
-   這裡只放本頁獨有的區塊：右上略過鈕、色彩模式卡片、主色列、綁定區塊 */
+   這裡只放本頁獨有的區塊：右上略過鈕、頭像列、色彩模式卡片、主色列、綁定區塊 */
 
 /* 右上角的「略過」：與初始化精靈的主題鈕同一個位置 */
 .skipBtn {
@@ -12,6 +12,25 @@
 /* 標籤 + 控制項的直式容器；不用 SetupPage 的 .field，它的 `input` 規則會把色票撐成滿寬 */
 .fieldBlock {
   @include form-field;
+}
+
+/* ── 個人資料：頭像預覽 + 單行上傳區 ── */
+.avatarRow {
+  display: flex;
+  align-items: center;
+  gap: $spacing-16;
+}
+
+.avatarDrop {
+  flex: 1;
+  min-width: 0;
+}
+
+/* 總覽列：小頭像 + 姓名 */
+.summaryProfile {
+  display: flex;
+  align-items: center;
+  gap: $spacing-8;
 }
 
 /* ── 色彩模式：三張並排的大卡片 ── */

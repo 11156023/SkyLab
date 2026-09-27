@@ -191,11 +191,11 @@ def test_reap_stale_task_records_marks_lost_tasks_failed() -> None:
 
     now = datetime(2026, 9, 24, 12, 0, tzinfo=timezone.utc)
     lost_running = TaskRecord(
-        task_type="resource.reset", user_id=uuid.uuid4(), payload="{}",
+        task_type="resource.reset", user_id=uuid.uuid4(), payload={},
         status=TaskRecordStatus.running, started_at=now - timedelta(hours=3),
     )
     lost_queued = TaskRecord(
-        task_type="template.clone", user_id=uuid.uuid4(), payload="{}",
+        task_type="template.clone", user_id=uuid.uuid4(), payload={},
         status=TaskRecordStatus.queued, created_at=now - timedelta(days=2),
     )
 

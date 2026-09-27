@@ -38,14 +38,15 @@
   animation: float 5.5s ease-in-out infinite;
 }
 
-/* 混一點 text-secondary：淺色模式仍近白，深色模式才不會跟背景融成一片 */
+/* 雲朵一律純白、不隨主題切換（style guide 顏色系統的明列例外）：
+   亮色模式靠 drop-shadow 描出輪廓，深色模式白雲本身就跳得出來 */
 .cloudZero {
-  fill: color-mix(in srgb, var(--color-text-secondary) 14%, var(--color-surface));
+  fill: #fff;
   filter: drop-shadow(0 8px 18px color-mix(in srgb, var(--color-primary) 26%, transparent));
 }
 
 .cloudFaint {
-  fill: color-mix(in srgb, var(--color-primary) 9%, var(--color-surface));
+  fill: #fff;
   opacity: 0.8;
 }
 
@@ -86,11 +87,11 @@
   margin-top: $spacing-8;
   font-size: $font-size-18;
   font-weight: $font-weight-700;
-  color: var(--color-text);
+  color: var(--color-text-primary);
 }
 
 .desc {
-  max-width: 40ch;
+  max-width: 44ch;
   font-size: $font-size-14;
   line-height: $line-height-base;
   color: var(--color-text-secondary);
@@ -98,7 +99,7 @@
 
 .btnPrimary {
   @include btn-primary;
-  margin-top: $spacing-16;
+  margin-top: $spacing-8;
 }
 
 /* ── 動畫 ─────────────────────────────────── */

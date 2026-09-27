@@ -14,7 +14,6 @@ from app.infrastructure.vnc.messages import (
     ClientMessageSplitter,
     RfbStreamError,
 )
-from app.repositories import proxmox_config
 from app.repositories import resource as resource_repo
 from app.schemas.push import PushSubscriptionCreate
 from app.services.course import ai_assignment_service
@@ -190,7 +189,6 @@ def publish_env(monkeypatch: pytest.MonkeyPatch) -> dict[int, str]:
         "get_subnet_config",
         lambda _: SimpleNamespace(cidr="10.10.0.0/16", gateway="10.10.0.1", gateway_vm_ip="10.10.0.2"),
     )
-    monkeypatch.setattr(proxmox_config, "get_proxmox_config", lambda _: None)
     allocations = {101: "10.10.1.101", 102: "10.10.1.102"}
     monkeypatch.setattr(
         resource_repo,

@@ -393,12 +393,12 @@ def _batch_boot_specs(*, session: Session, now: datetime) -> list[_BootSpec]:
                 select(BatchProvisionTask).where(
                     BatchProvisionTask.job_id == job.id,
                     BatchProvisionTask.status == BatchProvisionTaskStatus.completed,
-                    BatchProvisionTask.resource_vmid.isnot(None),  # type: ignore[union-attr]
+                    BatchProvisionTask.vmid.isnot(None),  # type: ignore[union-attr]
                 )
             ).all()
         )
         for task in tasks:
-            vmid = task.resource_vmid
+            vmid = task.vmid
             if vmid is None:
                 continue
             resource = resource_repo.get_resource_by_vmid(session=session, vmid=vmid)
