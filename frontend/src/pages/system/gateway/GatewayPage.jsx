@@ -4,6 +4,7 @@ import styles from "./GatewayPage.module.scss";
 import MIcon from "../../../components/MIcon";
 import LoadingState from "../../../components/LoadingState/LoadingState";
 import ConfigCodeEditor from "./ConfigCodeEditor";
+import GatewayInstallTab from "./GatewayInstallTab";
 import { useConfirm } from "../../../components/ConfirmDialog/ConfirmProvider";
 import EmptyState from "../../../components/EmptyState/EmptyState";
 import ErrorState from "../../../components/ErrorState/ErrorState";
@@ -626,6 +627,7 @@ export default function GatewayPage() {
 
   const TABS = [
     { key: "connection", label: t("GatewayPage.tabConnection") },
+    { key: "install",    label: t("GatewayPage.tabInstall") },
     { key: "nginx",      label: "nginx" },
     { key: "wireguard",  label: t("GatewayPage.tabWireGuard") },
   ];
@@ -674,6 +676,8 @@ export default function GatewayPage() {
           <LoadingState fullPage text={t("GatewayPage.loadingConfig")} />
         ) : activeTab === "connection" ? (
           <ConnectionTab config={config} onConfigChange={setConfig} />
+        ) : activeTab === "install" ? (
+          <GatewayInstallTab gatewayReady={Boolean(config?.is_configured)} />
         ) : activeTab === "wireguard" ? (
           <WireGuardTab gatewayReady={Boolean(config?.is_configured)} />
         ) : (

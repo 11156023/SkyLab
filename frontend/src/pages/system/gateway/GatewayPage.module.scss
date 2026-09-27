@@ -244,7 +244,8 @@
   font-weight: $font-weight-500;
   color: var(--color-text-secondary);
 
-  input {
+  input,
+  select {
     min-height: 38px;
     padding: 8px $spacing-16;
     border: 1px solid var(--color-border);
@@ -258,7 +259,57 @@
       border-color: var(--color-primary);
       box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-primary) 12%, transparent);
     }
+
+    &:disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
+    }
   }
+}
+
+/* ── 安裝服務 Tab ── */
+.installGrid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: $spacing-16;
+
+  @include respond-to(md) {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  @include respond-to(lg) {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+.fieldWide {
+  grid-column: 1 / -1;
+}
+
+.componentRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: $spacing-8;
+}
+
+.noteText {
+  @include flex-column;
+  gap: 2px;
+
+  strong {
+    color: var(--color-text-primary);
+    font-size: $font-size-14;
+  }
+
+  span {
+    color: var(--color-text-secondary);
+    font-size: $font-size-12;
+    overflow-wrap: anywhere;
+  }
+}
+
+.installLog {
+  max-height: 480px;
 }
 
 .badge {
@@ -275,6 +326,8 @@
 .badge_success { background: color-mix(in srgb, var(--color-success) 12%, transparent); color: var(--color-success); }
 .badge_danger  { background: color-mix(in srgb, var(--color-danger) 12%, transparent); color: var(--color-danger); }
 .badge_muted   { background: color-mix(in srgb, var(--color-status-neutral) 12%, transparent); color: var(--color-status-neutral); }
+.badge_info    { background: color-mix(in srgb, var(--color-info) 12%, transparent); color: var(--color-info); }
+.badge_warning { background: color-mix(in srgb, var(--color-pending) 12%, transparent); color: var(--color-pending); }
 
 .keyBlock,
 .statusBlock,
