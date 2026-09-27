@@ -66,6 +66,10 @@
   "auth.usernameNotFound": "The user with this username does not exist in the system.",
   "ldapAuth.notEnabled": "LDAP login is not enabled",
   "ldapAuth.accountNotRegistered": "Account is not registered",
+  "ldapAuth.invalidEmailAttribute": "The email returned by LDAP is not valid. Ask an administrator to check the email attribute in the LDAP settings.",
   "auth.googleNotConfigured": "Google login is not configured",
-  "template.sourceVmNotRegistered": "VM {vmid} is not registered on the platform and cannot be converted to a template"
+  "auth.totpTooManyAttempts": "Too many incorrect verification codes. Please try again in {minutes} minutes.",
+  "template.sourceVmNotRegistered": "VM {vmid} is not registered on the platform and cannot be converted to a template",
+  "template.fieldCannotBeNull": "Field {field} cannot be set to null",
+  "template.updateCloneMismatch": "VMID {vmid} is no longer the staging VM for this update cycle; cancel the update and start again"
 }

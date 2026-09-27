@@ -1199,6 +1199,7 @@
   "AdminDashboardPage.tierTodayTitle": "本日中に対応",
   "AdminDashboardPage.infraAlertDetail": "{{metric}} {{value}}%（しきい値 {{threshold}}%）",
   "AdminDashboardPage.pveMetricdisk": "ディスク",
+  "AdminDashboardPage.systemHealthAlert": "プラットフォームのコンポーネントに異常があります",
   "RequestsPage.colGpu": "GPU",
   "ResourcesPage.guideDemoTitle": "ガイド用シミュレーション",
   "ResourcesPage.guideDemoDesc": "現在リソースがないため、実際のマシンを作成・操作せずにサンプル画面を表示しています。",

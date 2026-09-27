@@ -148,6 +148,9 @@
   "ClassSetupPage.selectTemplateHint": "Select a class template to continue",
   "ClassSetupPage.savingBtn": "Saving…",
   "ClassSetupPage.saveAndNextBtn": "Save and continue",
+  "ClassSetupPage.invalidRoleMsg": "Not added because these are not student accounts: {{list}}",
+  "ClassSetupPage.capacityNeedsStudents": "This class has no students yet. Go back to Student List and add at least one.",
+  "ClassSetupPage.capacityNeedsEnvironment": "No teaching environment is selected yet. Go back to Teaching Environment and choose one.",
   "ClassCreateDialog.weekdayMon": "Monday",
   "ClassCreateDialog.weekdayTue": "Tuesday",
   "ClassCreateDialog.weekdayWed": "Wednesday",
@@ -385,7 +388,6 @@
   "CourseCmsPage.thStudent": "Student",
   "CourseCmsPage.thTotalProgress": "Overall progress",
   "CourseCmsPage.noStudentRecordsText": "No submissions yet",
-  "CourseCmsPage.teacherOnlyText": "Only teachers and administrators can use course management",
   "CourseCmsPage.pageTitle": "Course Management",
   "CourseCmsPage.tabContentEditor": "Content editor",
   "CourseCmsPage.tabStudentProgress": "Student progress",
@@ -657,6 +659,8 @@
   "ClassWorkspacePage.subtitleTemplate": "{{students}} students · {{weeks}} sessions · Every {{weekday}} {{start}}–{{end}}",
   "ClassWorkspacePage.workflowAriaLabel": "Class management workflow",
   "ClassWorkspacePage.scheduleUpdatedMsg": "Class and fixed schedule have been updated.",
+  "ClassWorkspacePage.filesUploadFailed": "These task files failed to upload: {{files}}",
+  "ClassWorkspacePage.filesUploadPartialFail": "Uploaded {{done}} task file(s), but these failed: {{files}}",
   "AiJudgePanel.aboutToUseLabel": "About to use: {{name}} v{{version}} ({{template}})",
   "AiJudgePanel.addCheckTitle": "New Check",
   "AiJudgePanel.addItemBtn": "Add item",
@@ -987,5 +991,8 @@
   "CourseTemplateEditorPage.fileDeleteFailed": "Could not delete the document",
   "CourseTemplateEditorPage.fileDeleteConfirmTitle": "Remove this document?",
   "CourseTemplateEditorPage.fileDeleteConfirmMessage": "\"{{name}}\" will be removed from this course environment and cannot be restored.",
-  "CourseTemplateEditorPage.fileDeleteConfirmAction": "Remove"
+  "CourseTemplateEditorPage.fileDeleteConfirmAction": "Remove",
+  "CourseTemplateEditorPage.fileDownloadFailed": "Couldn't download the file.",
+  "AiJudgePage.backToWorkspaceBtn": "Back to class workspace",
+  "AiJudgePage.loadingMachinesText": "Loading class machines…"
 }

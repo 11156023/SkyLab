@@ -66,6 +66,10 @@
   "auth.usernameNotFound": "系統中不存在此使用者名稱的帳號。",
   "ldapAuth.notEnabled": "尚未啟用 LDAP 登入",
   "ldapAuth.accountNotRegistered": "此帳號尚未註冊",
+  "ldapAuth.invalidEmailAttribute": "LDAP 回傳的電子郵件格式不正確，請管理員檢查 LDAP 設定中的信箱屬性",
   "auth.googleNotConfigured": "尚未設定 Google 登入",
-  "template.sourceVmNotRegistered": "VM {vmid} 未登記在平台，無法轉換為範本"
+  "auth.totpTooManyAttempts": "驗證碼錯誤次數過多，請 {minutes} 分鐘後再試",
+  "template.sourceVmNotRegistered": "VM {vmid} 未登記在平台，無法轉換為範本",
+  "template.fieldCannotBeNull": "欄位 {field} 不可設為空值",
+  "template.updateCloneMismatch": "VMID {vmid} 已不是這次更新循環的暫存母機，請取消更新後重新開始"
 }

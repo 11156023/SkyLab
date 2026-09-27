@@ -56,6 +56,7 @@
   "AdminPage.toastDeleted": "User deleted",
   "AdminPage.toastSaveFailed": "Save failed",
   "AdminPage.toastUpdated": "User updated",
+  "AdminPage.selfEditLockedHint": "You can't change your own role or deactivate your own account",
   "AuditPage.allActions": "All Actions",
   "AuditPage.allUsers": "All Users",
   "AuditPage.clear": "Clear",
@@ -477,6 +478,7 @@
   "MiningIncidentsPanel.toastDismissed": "Incident dismissed",
   "MiningIncidentsPanel.toastDismissedAndRecovered": "Incident dismissed and VM resume attempted",
   "MiningIncidentsPanel.unknownError": "Unknown error",
+  "MiningIncidentsPanel.toastDismissedWithWarnings": "Incident dismissed, but some actions failed: {{message}}",
   "MonitoringPage.acknowledge": "Acknowledge",
   "MonitoringPage.acknowledged": "Acknowledged",
   "MonitoringPage.activeAlertsDesc": "Alerts for resource usage over thresholds and platform health problems (updated every 30 seconds)",
@@ -733,6 +735,9 @@
   "SettingsPage.userPriorityTitle": "User priority",
   "SettingsPage.verifySslCert": "Verify SSL certificate",
   "SettingsPage.windowGracePeriodMinutes": "Window Grace Period (minutes)",
+  "SettingsPage.forceDeleteConnectionTitle": "Force Delete PVE Connection",
+  "SettingsPage.forceDeleteConnectionMessage": "{{reason}}\n\nIf you are sure the Proxmox behind \"{{name}}\" has been retired for good and no machines remain on it, you can skip the check and force the deletion. Any SkyLab-managed machines still on it will no longer be reachable from SkyLab. This action is recorded in the audit log.",
+  "SettingsPage.forceDeleteConnectionConfirm": "Force Delete",
   "SubnetConfigForm.bridgeName": "Bridge Name *",
   "SubnetConfigForm.bridgeNamePlaceholder": "e.g. vmbr1",
   "SubnetConfigForm.cancel": "Cancel",
@@ -766,5 +771,6 @@
   "DomainPage.managedBySystem": "This system · VM {{vmid}}",
   "DomainPage.managedBySystemHint": "Created by this system's published URL feature (VM {{vmid}})",
   "DomainPage.externalRecord": "External",
-  "DomainPage.externalRecordHint": "Not created by this system (added manually on Cloudflare or elsewhere)"
+  "DomainPage.externalRecordHint": "Not created by this system (added manually on Cloudflare or elsewhere)",
+  "DomainPage.recordPriority": "Priority"
 }

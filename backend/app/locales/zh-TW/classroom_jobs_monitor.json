@@ -12,12 +12,15 @@
   "classroom.stop_forbidden": "Only the session starter or an admin can stop it",
   "classroom.control_monitor_only": "Control is only available for monitor sessions",
   "classroom.control_forbidden": "Only the session starter or an admin can take control",
+  "classroom.monitor_forbidden": "只有老師與管理員可以使用上課監看",
   "ai_gateway.credential_not_found": "AI API credential not found",
   "ai_gateway.request_not_found": "AI API request not found",
   "ai_gateway.request_already_reviewed": "This AI API request has already been reviewed",
   "ai_gateway.connection_incomplete": "AI API connection settings are incomplete",
   "ai_gateway.credential_already_revoked": "This AI API credential has already been revoked",
   "ai_gateway.credential_manage_denied": "只有這把 AI API 金鑰的擁有者才能輪替、改名或刪除",
+  "ai_gateway.invalid_duration": "金鑰效期不是可選的選項（1 小時、1 天、7 天、30 天或永不過期），無法換算到期時間。請駁回這筆申請，再請申請人重新送出。",
+  "ai_gateway.invalid_review_status": "審核結果只能是「核准」或「駁回」",
   "monitoring.invalid_timeframe": "timeframe must be one of {allowed}",
   "monitoring.resource_not_found": "Resource {vmid} not found",
   "governance.idle_notify_after_must_precede_grace": "閒置通知時數（{notify_after} 小時）必須小於關機寬限期（{grace} 小時）",
@@ -31,5 +34,6 @@
   "push.job_blocked": "{kind}受阻",
   "push.job_cancelled": "{kind}已取消",
   "push.test_title": "已開啟桌面通知",
-  "push.test_body": "之後即使分頁關掉，任務完成或有新提醒時也會像這樣以系統通知提醒你"
+  "push.test_body": "之後即使分頁關掉，任務完成或有新提醒時也會像這樣以系統通知提醒你",
+  "push.endpoint_not_allowed": "這個推播訂閱位址不被允許，無法開啟桌面通知"
 }

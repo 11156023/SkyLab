@@ -1204,6 +1204,7 @@
   "AdminDashboardPage.tierTodayTitle": "Sometime today",
   "AdminDashboardPage.infraAlertDetail": "{{metric}} {{value}}% (threshold {{threshold}}%)",
   "AdminDashboardPage.pveMetricdisk": "Disk",
+  "AdminDashboardPage.systemHealthAlert": "A platform component is not working properly",
   "RequestsPage.colGpu": "GPU",
   "ResourcesPage.guideDemoTitle": "Guided simulation",
   "ResourcesPage.guideDemoDesc": "You currently have no resources. This sample demonstrates the interface without creating or controlling a real machine.",

@@ -1199,6 +1199,7 @@
   "AdminDashboardPage.tierTodayTitle": "排進今天",
   "AdminDashboardPage.infraAlertDetail": "{{metric}} {{value}}%（門檻 {{threshold}}%）",
   "AdminDashboardPage.pveMetricdisk": "磁碟",
+  "AdminDashboardPage.systemHealthAlert": "平台元件運作異常",
   "RequestsPage.colGpu": "GPU",
   "ResourcesPage.guideDemoTitle": "導覽模擬介面",
   "ResourcesPage.guideDemoDesc": "目前沒有資源，以下資料只用來示範，不會建立或操作真實機器。",

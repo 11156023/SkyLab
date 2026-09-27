@@ -73,6 +73,7 @@
   "rate_limit.backend_unavailable": "レート制限サービスが利用できないため、安全のためこのリクエストを拒否しました。しばらくしてから再試行してください。",
   "ai_guard.too_many_messages": "会話のメッセージ数が多すぎます。1 回につき最大 {limit} 件までです。",
   "ai_guard.messages_too_long": "会話の内容が長すぎます。1 回につき最大 {limit} 文字までです。",
+  "ai_guard.form_context_too_long": "フォームの内容が大きすぎます。1 回につき最大 {limit} 文字までです。",
   "ai_api_key.invalid_auth_format": "Authorization ヘッダーの形式が無効です。Bearer <api_key> の形式で指定してください",
   "ai_api_key.api_key_required": "API key が必要です",
   "ai_api_key.invalid_or_revoked": "API key が無効か、失効しています",

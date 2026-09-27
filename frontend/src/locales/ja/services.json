@@ -1,7 +1,10 @@
 {
   "api.authRecoveryMessage": "ログイン認証サービスに一時的に接続できません。しばらくしてから再試行してください",
   "api.sessionChangedIgnored": "ログイン状態が変更されたため、古いセッションからの応答は無視されました",
+  "api.requestTimeout": "リクエストがタイムアウトしました。しばらくしてから再度お試しください。",
   "aiJudge.linuxTemplateLabel": "汎用 Linux/LXC",
   "aiJudge.defaultBlankSessionTitle": "無題のチェック",
-  "aiJudge.defaultBlankRubricName": "空白の評価表"
+  "aiJudge.defaultBlankRubricName": "空白の評価表",
+  "image.readFailed": "画像ファイルを読み込めませんでした",
+  "image.convertFailed": "画像の変換に失敗しました"
 }
