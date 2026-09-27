@@ -27,7 +27,7 @@ from app.schemas import (
     VMCreateResponse,
     VMTemplateSchema,
 )
-from app.services.network import firewall_service, ip_management_service
+from app.services.network import firewall_service, ip_management_service, nic_config
 from app.services.os_identity_service import (
     initial_guest_os as initial_guest_os_identity,
 )
@@ -462,11 +462,7 @@ def create_lxc(
             # Generate SSH key pair for platform access
             private_key_pem, public_key = generate_ed25519_keypair()
 
-            net0_parts = (
-                f"name=eth0,bridge={net_cfg['bridge_name']},"
-                f"ip={allocated_ip}/{net_cfg['prefix_len']},"
-                f"gw={net_cfg['gateway']},firewall=1"
-            )
+            net0_parts = nic_config.lxc_net0(net_cfg, allocated_ip)
             config = {
                 "vmid": vmid,
                 "hostname": to_punycode_hostname(lxc_data.hostname),
@@ -634,7 +630,7 @@ def create_vm(
             "cipassword": vm_data.password,
             "sshkeys": quote(public_key, safe=""),
             "ciupgrade": 0,
-            "net0": f"virtio,bridge={net_cfg['bridge_name']},firewall=1",
+            "net0": nic_config.qemu_net0(net_cfg),
             "ipconfig0": f"ip={allocated_ip}/{net_cfg['prefix_len']},gw={net_cfg['gateway']}",
         }
         # Windows 範本不帶 username（帳號由 cloudbase-init 設定檔固定）
@@ -967,11 +963,7 @@ def execute_provision(plan: dict) -> tuple[int, str]:
                         net_cfg=repr(net_cfg),
                     )
                 )
-            net0_parts = (
-                f"name=eth0,bridge={net_cfg['bridge_name']},"
-                f"ip={allocated_ip}/{net_cfg['prefix_len']},"
-                f"gw={net_cfg['gateway']},firewall=1"
-            )
+            net0_parts = nic_config.lxc_net0(net_cfg, allocated_ip)
 
             if plan.get("lxc_clone"):
                 # LXC 範本克隆（linked 優先退 full），克隆後重配置。
@@ -1133,9 +1125,7 @@ def execute_provision(plan: dict) -> tuple[int, str]:
             if plan.get("username"):
                 config_updates["ciuser"] = plan["username"]
             if allocated_ip and net_cfg and net_cfg.get("bridge_name"):
-                config_updates["net0"] = (
-                    f"virtio,bridge={net_cfg['bridge_name']},firewall=1"
-                )
+                config_updates["net0"] = nic_config.qemu_net0(net_cfg)
                 config_updates["ipconfig0"] = (
                     f"ip={allocated_ip}/{net_cfg['prefix_len']},gw={net_cfg['gateway']}"
                 )

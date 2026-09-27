@@ -5,6 +5,7 @@
   "ip.invalid_blocked_subnet": "Invalid blocked subnet/IP '{item}': {error}",
   "ip.forward_port_range_invalid": "The external port pool must lie within 1024–65535 and start must not exceed end",
   "ip.forward_public_host_too_long": "Entry host is too long (255 characters max)",
+  "ip.invalid_vlan_tag": "VLAN ID must be between 1 and 4094; leave it blank if you don't use a VLAN",
   "cloudflare.decrypt_token_failed": "Failed to decrypt the stored Cloudflare API Token: the encryption key has changed, please re-save the Cloudflare settings",
   "gateway.decrypt_private_key_failed": "Failed to decrypt the stored SSH private key: the encryption key has changed, please regenerate and save the Gateway SSH key pair",
   "proxmox.connection_decrypt_password_failed": "Failed to decrypt the Proxmox password for connection \"{name}\": the encryption key has changed, please re-save this connection's settings"

@@ -7,6 +7,7 @@ import Avatar from "../../../components/Avatar/Avatar";
 import PasswordInput from "../../../components/PasswordInput/PasswordInput";
 import FileDropzone from "../../../components/FileDropzone/FileDropzone";
 import TotpEnrollment from "../../../components/TotpEnrollment/TotpEnrollment";
+import Modal from "../../../components/Modal/Modal";
 import { useAuth } from "../../../contexts/AuthContext";
 import { useToast } from "../../../hooks/useToast";
 import useDialogPresence from "../../../hooks/useDialogPresence";
@@ -291,24 +292,12 @@ function TwoFactorSection() {
   const [code, setCode] = useState("");
   const [disabling, setDisabling] = useState(false);
   const codeRef = useRef(null);
-  const titleId = useId();
 
   function closeDialog() {
     if (disabling) return;
     setDialog(null);
     setCode("");
   }
-
-  const closeDialogRef = useRef(closeDialog);
-  closeDialogRef.current = closeDialog;
-  useEffect(() => {
-    if (!dialog) return undefined;
-    const onKeyDown = (e) => {
-      if (e.key === "Escape") closeDialogRef.current();
-    };
-    document.addEventListener("keydown", onKeyDown);
-    return () => document.removeEventListener("keydown", onKeyDown);
-  }, [dialog]);
 
   function handleEnabled() {
     updateUser({ totp_enabled: true, totp_setup_required: false });
@@ -379,76 +368,70 @@ function TwoFactorSection() {
         )}
       </div>
 
-      {activeDialog && createPortal(
-        /* portal 到 body：理由同 DangerZoneSection（backdrop-filter 的 containing block 陷阱） */
-        <div
-          className={`${styles.modalOverlay} ${presence.closing ? styles.modalOverlayOut : ""}`}
-          onMouseDown={closeDialog}
+      {activeDialog === "enable" && (
+        <TotpEnrollment onConfirmed={handleEnabled} onCancel={closeDialog}>
+          {({ content, actions, busy }) => (
+            <Modal
+              closing={presence.closing}
+              onClose={closeDialog}
+              busy={busy}
+              closeButton
+              size="md"
+              title={t("TwoFactorSection.enableTitle")}
+              actions={actions}
+            >
+              {content}
+            </Modal>
+          )}
+        </TotpEnrollment>
+      )}
+
+      {activeDialog === "disable" && (
+        <Modal
+          as="form"
+          onSubmit={handleDisable}
+          closing={presence.closing}
+          onClose={closeDialog}
+          busy={disabling}
+          closeButton
+          role="alertdialog"
+          icon={<span className={styles.confirmTitleIcon}><MIcon name="warning" size={20} /></span>}
+          title={t("TwoFactorSection.disableTitle")}
+          description={t("TwoFactorSection.disableDesc")}
+          actions={
+            <>
+              <button
+                type="button"
+                className={styles.btnSecondary}
+                onClick={closeDialog}
+                disabled={disabling}
+              >
+                {t("TwoFactorSection.cancel")}
+              </button>
+              <button
+                type="submit"
+                className={styles.btnDanger}
+                disabled={disabling || code.replace(/\D/g, "").length !== 6}
+              >
+                {disabling ? t("TwoFactorSection.disabling") : t("TwoFactorSection.confirmDisable")}
+              </button>
+            </>
+          }
         >
-          <div
-            className={`${styles.confirm} ${activeDialog === "enable" ? styles.confirmWide : ""}`}
-            onMouseDown={(e) => e.stopPropagation()}
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby={titleId}
-          >
-            {activeDialog === "enable" ? (
-              <>
-                <div className={styles.dialogHeader}>
-                  <h2 id={titleId}>{t("TwoFactorSection.enableTitle")}</h2>
-                  <button
-                    type="button"
-                    className={styles.dialogClose}
-                    onClick={closeDialog}
-                    aria-label={t("TwoFactorSection.close")}
-                  >
-                    <MIcon name="close" size={18} />
-                  </button>
-                </div>
-                <TotpEnrollment onConfirmed={handleEnabled} onCancel={closeDialog} />
-              </>
-            ) : (
-              <form onSubmit={handleDisable} className={styles.form}>
-                <h2 id={titleId} className={styles.confirmTitle}>
-                  <span className={styles.confirmTitleIcon}><MIcon name="warning" size={20} /></span>
-                  {t("TwoFactorSection.disableTitle")}
-                </h2>
-                <p>{t("TwoFactorSection.disableDesc")}</p>
-                <input
-                  ref={codeRef}
-                  className={`${styles.confirmInput} ${styles.otpInput}`}
-                  type="text"
-                  inputMode="numeric"
-                  autoComplete="one-time-code"
-                  maxLength={7}
-                  placeholder="000000"
-                  value={code}
-                  onChange={(e) => setCode(e.target.value.replace(/[^\d ]/g, ""))}
-                  disabled={disabling}
-                  autoFocus
-                />
-                <div className={styles.modalActions}>
-                  <button
-                    type="button"
-                    className={styles.btnSecondary}
-                    onClick={closeDialog}
-                    disabled={disabling}
-                  >
-                    {t("TwoFactorSection.cancel")}
-                  </button>
-                  <button
-                    type="submit"
-                    className={styles.btnDanger}
-                    disabled={disabling || code.replace(/\D/g, "").length !== 6}
-                  >
-                    {disabling ? t("TwoFactorSection.disabling") : t("TwoFactorSection.confirmDisable")}
-                  </button>
-                </div>
-              </form>
-            )}
-          </div>
-        </div>,
-        document.body,
+          <input
+            ref={codeRef}
+            className={`${styles.confirmInput} ${styles.otpInput}`}
+            type="text"
+            inputMode="numeric"
+            autoComplete="one-time-code"
+            maxLength={7}
+            placeholder="000000"
+            value={code}
+            onChange={(e) => setCode(e.target.value.replace(/[^\d ]/g, ""))}
+            disabled={disabling}
+            autoFocus
+          />
+        </Modal>
       )}
     </>
   );

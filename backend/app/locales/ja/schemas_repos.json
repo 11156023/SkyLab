@@ -5,6 +5,7 @@
   "ip.invalid_blocked_subnet": "無効なブロック対象のサブネット/IP '{item}': {error}",
   "ip.forward_port_range_invalid": "外部ポートのプールは 1024–65535 の範囲内で、開始は終了以下である必要があります",
   "ip.forward_public_host_too_long": "入口ホスト名が長すぎます（最大 255 文字）",
+  "ip.invalid_vlan_tag": "VLAN ID は 1–4094 の範囲で指定してください。VLAN を使わない場合は空欄のままにしてください",
   "cloudflare.decrypt_token_failed": "保存された Cloudflare API トークンを復号できませんでした。暗号化キーが変更されています。Cloudflare 設定を再保存してください",
   "gateway.decrypt_private_key_failed": "保存された SSH 秘密鍵を復号できませんでした。暗号化キーが変更されています。Gateway SSH 鍵ペアを再生成して保存してください",
   "proxmox.connection_decrypt_password_failed": "接続「{name}」の Proxmox パスワードを復号できませんでした。暗号化キーが変更されています。この接続設定を再保存してください"

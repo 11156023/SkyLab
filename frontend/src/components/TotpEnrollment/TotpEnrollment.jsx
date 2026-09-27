@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import QRCode from "qrcode";
 import MIcon from "../MIcon";
@@ -16,9 +16,13 @@ import styles from "./TotpEnrollment.module.scss";
  * @param {() => void} onConfirmed  驗證碼確認成功（後端已啟用）
  * @param {() => void} [onCancel]   取消按鈕（不傳就不顯示）
  * @param {string} [confirmLabel]   確認按鈕文字（預設「啟用兩步驟驗證」）
+ * @param {({ content, actions, busy }) => node} [children]
+ *   選填的版面 render prop：拿到內容與按鈕後自行擺放（例如按鈕交給 Modal 的固定按鈕列、
+ *   busy 交給 Modal 擋 Esc／×）；不傳時按鈕接在內容下方
  */
-export default function TotpEnrollment({ onConfirmed, onCancel, confirmLabel }) {
+export default function TotpEnrollment({ onConfirmed, onCancel, confirmLabel, children }) {
   const { t } = useTranslation("components");
+  const formId = useId();
   const [setup, setSetup] = useState(null); // { secret, otpauth_uri, account, issuer }
   const [qrDataUrl, setQrDataUrl] = useState("");
   const [loadError, setLoadError] = useState(false);
@@ -97,24 +101,42 @@ export default function TotpEnrollment({ onConfirmed, onCancel, confirmLabel }) 
     }
   }
 
+  const cancelButton = onCancel && (
+    <button type="button" className={styles.btnSecondary} onClick={onCancel} disabled={busy}>
+      {t("TotpEnrollment.cancel")}
+    </button>
+  );
+
   if (loadError) {
+    const content = <ErrorState onRetry={() => setReloadKey((n) => n + 1)} />;
+    /* 失敗時也要能離開：與正常狀態同一顆取消鈕 */
+    const actions = cancelButton || null;
+    if (typeof children === "function") return children({ content, actions, busy });
     return (
       <div className={styles.root}>
-        <ErrorState onRetry={() => setReloadKey((n) => n + 1)} />
-        {/* 失敗時也要能離開：與正常狀態同一顆取消鈕 */}
-        {onCancel && (
-          <div className={styles.actions}>
-            <button type="button" className={styles.btnSecondary} onClick={onCancel}>
-              {t("TotpEnrollment.cancel")}
-            </button>
-          </div>
-        )}
+        {content}
+        {actions && <div className={styles.actions}>{actions}</div>}
       </div>
     );
   }
 
-  return (
-    <form className={styles.root} onSubmit={handleSubmit}>
+  /* 送出鈕以 form 屬性綁回表單：交給對話框放進固定的按鈕列時，人在 <form> 外面也送得出去 */
+  const actions = (
+    <>
+      {cancelButton}
+      <button
+        type="submit"
+        form={formId}
+        className={styles.btnPrimary}
+        disabled={!setup || busy || digits.length !== 6}
+      >
+        {busy ? t("TotpEnrollment.confirming") : confirmLabel ?? t("TotpEnrollment.confirm")}
+      </button>
+    </>
+  );
+
+  const renderForm = (inlineActions) => (
+    <form id={formId} className={styles.root} onSubmit={handleSubmit}>
       <ol className={styles.steps}>
         <li>{t("TotpEnrollment.step1")}</li>
         <li>{t("TotpEnrollment.step2")}</li>
@@ -180,20 +202,10 @@ export default function TotpEnrollment({ onConfirmed, onCancel, confirmLabel }) 
         {error && <em className={styles.error}>{error}</em>}
       </label>
 
-      <div className={styles.actions}>
-        {onCancel && (
-          <button type="button" className={styles.btnSecondary} onClick={onCancel} disabled={busy}>
-            {t("TotpEnrollment.cancel")}
-          </button>
-        )}
-        <button
-          type="submit"
-          className={styles.btnPrimary}
-          disabled={!setup || busy || digits.length !== 6}
-        >
-          {busy ? t("TotpEnrollment.confirming") : confirmLabel ?? t("TotpEnrollment.confirm")}
-        </button>
-      </div>
+      {inlineActions && <div className={styles.actions}>{actions}</div>}
     </form>
   );
+
+  if (typeof children === "function") return children({ content: renderForm(false), actions, busy });
+  return renderForm(true);
 }

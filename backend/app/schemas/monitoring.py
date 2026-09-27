@@ -116,6 +116,36 @@ class SystemComponentHealth(BaseModel):
     detail: str | None = None
 
 
+# ─── 登入檢查（每次登入後的服務檢查畫面） ─────────────────────────────────
+
+
+class LoginPreflightComponent(BaseModel):
+    """管理員才看得到：這一項底下的實際元件（例如每個 PVE 連線一筆）。"""
+
+    label: str
+    status: ComponentStatus
+    latency_ms: float | None = None
+    detail: str | None = None
+
+
+class LoginPreflightCheck(BaseModel):
+    key: Literal["database", "redis", "worker", "pve", "gateway", "ai"]
+    # skipped：沒設定（Gateway／AI 未啟用），不擋登入
+    status: Literal["ok", "fail", "skipped"]
+    components: list[LoginPreflightComponent] | None = None
+
+
+class LoginPreflight(BaseModel):
+    """ok 為 False 時學生／老師停在「請通知管理員」，管理員可以略過繼續。
+
+    detailed 為 False（非管理員）時 checks 只有 key／status，不含元件名稱與錯誤細節。
+    """
+
+    ok: bool
+    detailed: bool
+    checks: list[LoginPreflightCheck]
+
+
 class SchedulerLoopHealth(BaseModel):
     """背景迴圈（scheduler／web_push／wireguard）；時間皆為 unix 秒。"""
 

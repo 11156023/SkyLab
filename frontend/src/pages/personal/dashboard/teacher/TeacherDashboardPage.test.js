@@ -24,6 +24,17 @@ describe("teacher dashboard checkpoint summary", () => {
     expect(result.percent).toBe(50);
     expect(result.students).toBe(2);
   });
+
+  it("counts a student once even when they appear in several paths", () => {
+    const student = { user_id: "s1", completed_questions: 1, total_questions: 2, progress_percent: 50 };
+    const result = summarizeCheckpointReports([
+      { path: { id: "a", title: "A" }, report: { students: [student] } },
+      { path: { id: "b", title: "B" }, report: { students: [student, { ...student, user_id: "s2" }] } },
+    ]);
+
+    expect(result.students).toBe(2);
+    expect(result.possible).toBe(6);
+  });
 });
 
 describe("nextClassSession", () => {
