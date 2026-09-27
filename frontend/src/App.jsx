@@ -5,6 +5,7 @@ import { useAuth } from "./contexts/AuthContext";
 import DashboardLayout from "./layout/DashboardLayout";
 import LoginPage from "./pages/login/LoginPage";
 import TotpEnrollPage from "./pages/login/TotpEnrollPage";
+import LoginPreflightPage from "./pages/login/LoginPreflightPage";
 import OnboardingPage from "./pages/onboarding/OnboardingPage";
 import MIcon from "./components/MIcon";
 import { LoadingSpinner } from "./components/LoadingState/LoadingState";
@@ -150,7 +151,7 @@ function LegacySettingsRedirect() {
 }
 
 function App() {
-  const { user, loading, authStatus, retrySession } = useAuth();
+  const { user, loading, authStatus, retrySession, loginPreflightPending } = useAuth();
   useModalScrollLock();
   const isAdmin = Boolean(user?.is_superuser || user?.role === "admin");
   const canTeach = isAdmin || user?.role === "teacher";
@@ -190,6 +191,13 @@ function App() {
         <Route path="*" element={<AuthBootstrapState />} />
       </Routes>
     );
+  }
+
+  /* 每次登入後先跑服務檢查（DB／Redis／worker／PVE／Gateway／AI）：學生與老師檢查沒過就停在
+     「請通知管理員」，管理員可以略過。放在其他閘門之前，端點在 /users/me 底下，
+     強制綁定 2FA 的帳號也叫得到。裝置授權流程不跑（completeLogin 也不會立旗標）。 */
+  if (user && loginPreflightPending && !isDeviceApproval) {
+    return <LoginPreflightPage />;
   }
 
   /* 管理員強制全站 2FA 且本人尚未綁定：後端除帳號／登入端點外一律 403，
