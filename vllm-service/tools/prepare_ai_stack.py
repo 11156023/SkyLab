@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import getpass
 import json
 import os
 import re
@@ -208,10 +209,25 @@ def plan_env_updates(root_env: dict, gateway_env: dict, engine_env: dict) -> tup
     return root, gateway, manual
 
 
+def _require_writable(path: Path) -> None:
+    """Fail before touching anything, naming the path and the account that lacks access."""
+    target = path
+    while not target.exists() and target.parent != target:
+        target = target.parent
+    if os.access(target, os.W_OK | (os.X_OK if target.is_dir() else 0)):
+        return
+    user = getpass.getuser()
+    raise ValueError(
+        f"目前執行身分 {user} 無法寫入 {target}（--init-env 需要把補齊的金鑰寫回 {path}）；"
+        f"請在該主機以 sudo chown {user} {target} 或調整權限後重試"
+    )
+
+
 def init_env(root_path: Path, gateway_path: Path, engine_path: Path) -> int:
     if not root_path.is_file():
         raise ValueError(f"缺少主設定 {root_path}，請先由 .env.example 建立並填入 Campus 必要參數")
     if not gateway_path.is_file():
+        _require_writable(gateway_path)
         gateway_path.parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(PROJECT_ROOT / "litellm/.env.example", gateway_path)
         os.chmod(gateway_path, 0o600)
@@ -220,6 +236,10 @@ def init_env(root_path: Path, gateway_path: Path, engine_path: Path) -> int:
     root, gateway, manual = plan_env_updates(
         dotenv_values(root_path), dotenv_values(gateway_path), engine_env,
     )
+    # Check both files first so a permission problem never leaves only one updated.
+    for path, updates in ((root_path, root), (gateway_path, gateway)):
+        if updates:
+            _require_writable(path)
     for path, updates in ((root_path, root), (gateway_path, gateway)):
         if updates:
             _write_env_values(path, updates)
@@ -410,8 +430,18 @@ def main() -> int:
         return 0
     except (OSError, ValueError, KeyError, yaml.YAMLError, subprocess.TimeoutExpired):
         # Errors from parsers may embed source text; only our ValueErrors are safe.
+        # Paths and OS error text are safe to show; file contents never are.
         exc = sys.exc_info()[1]
-        message = str(exc) if type(exc) is ValueError else "設定讀取失敗，請核對檔案格式、Python 相依套件與 Docker 可用性"
+        if type(exc) is ValueError:
+            message = str(exc)
+        elif isinstance(exc, PermissionError):
+            message = f"執行身分 {getpass.getuser()} 沒有權限存取 {exc.filename or '設定檔'}，請核對擁有者與權限"
+        elif isinstance(exc, OSError) and exc.filename:
+            message = f"無法存取 {exc.filename}：{exc.strerror or type(exc).__name__}"
+        elif isinstance(exc, UnicodeDecodeError):
+            message = "設定檔不是 UTF-8 編碼，請轉存為 UTF-8 後重試"
+        else:
+            message = f"設定讀取失敗（{type(exc).__name__}），請核對檔案格式、Python 相依套件與 Docker 可用性"
         print(f"預檢查失敗：{message}", file=sys.stderr)
         return 1
 

@@ -343,6 +343,46 @@ def test_init_env_moves_former_host_port_database_to_compose_network_and_reports
     assert "VLLM_UPSTREAM_API_KEY" in out and "p%40ss" not in out and "sk-master" not in out
 
 
+def test_init_env_names_the_unwritable_file_and_writes_nothing(tmp_path, monkeypatch, capsys):
+    import prepare_ai_stack
+    root_path = tmp_path / ".env"
+    root_path.write_text("SECRET_KEY=keep-me\n")
+    gateway_path = tmp_path / "gateway.env"
+    gateway_path.write_text("LITELLM_MASTER_KEY=replace-with-master\n")
+    before = (root_path.read_bytes(), gateway_path.read_bytes())
+    # The runner can read /opt/skylab but only the gateway file is writable.
+    monkeypatch.setattr(prepare_ai_stack.os, "access", lambda path, mode: Path(path) != root_path)
+    monkeypatch.setattr(sys, "argv", [
+        "prepare_ai_stack.py", "--init-env", "--root-env", str(root_path),
+        "--gateway-env", str(gateway_path), "--engine-env", str(tmp_path / "missing.env"),
+    ])
+    assert prepare_ai_stack.main() == 1
+    assert (root_path.read_bytes(), gateway_path.read_bytes()) == before
+    err = capsys.readouterr().err
+    assert str(root_path) in err and "無法寫入" in err and "keep-me" not in err
+
+
+@pytest.mark.parametrize(
+    ("error", "expected"),
+    [
+        (PermissionError(13, "Permission denied", "/opt/skylab/.env"), "沒有權限存取 /opt/skylab/.env"),
+        (FileNotFoundError(2, "No such file or directory", "/opt/x"), "無法存取 /opt/x：No such file or directory"),
+        (UnicodeDecodeError("utf-8", b"\xff secret", 0, 1, "invalid start byte"), "不是 UTF-8 編碼"),
+    ],
+)
+def test_os_level_failures_explain_the_cause_without_file_contents(monkeypatch, capsys, error, expected):
+    import prepare_ai_stack
+
+    def fail(*args):
+        raise error
+
+    monkeypatch.setattr(prepare_ai_stack, "init_env", fail)
+    monkeypatch.setattr(sys, "argv", ["prepare_ai_stack.py", "--init-env"])
+    assert prepare_ai_stack.main() == 1
+    err = capsys.readouterr().err
+    assert expected in err and "secret" not in err
+
+
 @pytest.mark.parametrize("update_status, expected", [(200, ["/key/update"]), (404, ["/key/update", "/key/generate"])])
 def test_service_key_is_synced_or_created(monkeypatch, update_status, expected):
     import prepare_ai_stack
