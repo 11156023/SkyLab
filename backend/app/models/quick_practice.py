@@ -11,6 +11,12 @@ from .base import get_datetime_utc
 
 class QuickPracticeSession(SQLModel, table=True):
     __tablename__ = "quick_practice_sessions"
+    __table_args__ = (
+        sa.CheckConstraint(
+            "status IN ('creating', 'ready', 'partial_failed', 'stopping', 'reclaiming', 'reclaimed')",
+            name="ck_quick_practice_sessions_status",
+        ),
+    )
 
     id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
     user_id: uuid.UUID = Field(
@@ -55,6 +61,10 @@ class QuickPracticeSession(SQLModel, table=True):
 class QuickPracticeSessionMachine(SQLModel, table=True):
     __tablename__ = "quick_practice_session_machines"
     __table_args__ = (
+        sa.CheckConstraint(
+            "resource_type IN ('qemu', 'lxc')",
+            name="ck_quick_practice_session_machines_resource_type",
+        ),
         UniqueConstraint(
             "session_id",
             "node_key",

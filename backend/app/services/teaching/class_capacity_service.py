@@ -22,10 +22,22 @@ from app.models import (
 )
 from app.services.network import ip_management_service
 from app.services.proxmox import provisioning_service, proxmox_service
+from app.services.teaching.class_network_service import network_segments
 from app.services.vm import placement_service, placement_support
 
 GIB = 1024**3
 logger = logging.getLogger(__name__)
+
+
+def _json_dict(value: object) -> dict:
+    """預留的 JSON 欄位；相容遷移前以字串存放的舊值。"""
+    if isinstance(value, dict):
+        return value
+    try:
+        data = json.loads(value or "{}")  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return {}
+    return data if isinstance(data, dict) else {}
 
 
 def calculate(
@@ -35,10 +47,7 @@ def calculate(
 ) -> dict[str, int]:
     student_count = len(students)
     per_student_networks = {
-        name.strip()
-        for node in nodes
-        for name in (node.network or "lab-net").replace("/", ",").split(",")
-        if name.strip()
+        name for node in nodes for name in network_segments(node.network)
     }
     return {
         "student_count": student_count,
@@ -136,16 +145,13 @@ def reserve(
         disk_gb=totals["disk_gb"],
         ip_count=totals["ip_count"],
         network_count=totals["network_count"],
-        placement_plan=json.dumps(placement_plan, sort_keys=True),
-        student_placements=json.dumps(
-            {
-                str(machine_node_id): {
-                    str(user_id): node for user_id, node in per_student.items()
-                }
-                for machine_node_id, per_student in student_placements.items()
-            },
-            sort_keys=True,
-        ),
+        placement_plan=placement_plan,
+        student_placements={
+            str(machine_node_id): {
+                str(user_id): node for user_id, node in per_student.items()
+            }
+            for machine_node_id, per_student in student_placements.items()
+        },
     )
     session.add(reservation)
     session.flush()
@@ -513,10 +519,7 @@ def _reserved_placement(
     ).first()
     if reservation is None:
         return None
-    try:
-        mapping = json.loads(reservation.student_placements or "{}")
-    except (TypeError, ValueError):
-        return None
+    mapping = _json_dict(reservation.student_placements)
     node = mapping.get(str(machine_node_id), {}).get(str(user_id))
     return str(node) if node else None
 
@@ -600,10 +603,7 @@ def _evaluate_cluster_capacity(
             ClassCapacityReservation.status == "reserved"
         )
     ).all():
-        try:
-            pending = json.loads(reservation.placement_plan or "{}")
-        except (TypeError, ValueError):
-            continue
+        pending = _json_dict(reservation.placement_plan)
         for node_name, values in pending.items():
             capacity = capacities.get(node_name)
             if capacity is None:

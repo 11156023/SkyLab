@@ -56,13 +56,9 @@ class GovernanceConfig(SQLModel, table=True):
     snapshot_retention_days: int = Field(default=7, ge=1, le=90)
     student_snapshot_max_count: int = Field(default=3, ge=1, le=10)
 
-    # ── 課程實驗室（Course Lab）──────────────────────────────────────────
-    course_ttl_hours: int = Field(default=3, ge=1, le=24)
-    course_max_active_per_user: int = Field(default=1, ge=1, le=5)
-
     updated_at: datetime = Field(
         default_factory=get_datetime_utc,
-        sa_column=Column(DateTime(timezone=True), nullable=False),
+        sa_column=Column(DateTime(timezone=True), nullable=False, onupdate=get_datetime_utc),
     )
 
 

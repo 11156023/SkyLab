@@ -21,6 +21,7 @@ from app.models import (
     DeletionRequestStatus,
     Resource,
 )
+from app.repositories import resource as resource_repo
 from app.services.resource import resource_service
 
 logger = logging.getLogger(__name__)
@@ -64,7 +65,7 @@ def create_deletion_request(
     req = DeletionRequest(
         user_id=user_id,
         vmid=vmid,
-        resource_vmid=vmid if session.get(Resource, vmid) is not None else None,
+        resource_vmid=resource_repo.linked_resource_vmid(session, vmid),
         name=resource_info.get("name"),
         node=resource_info.get("node"),
         resource_type=resource_info.get("type"),
@@ -193,13 +194,14 @@ def _execute_deletion(session: Session, req: DeletionRequest) -> None:
     # we still attempt the Proxmox deletion using the snapshot data.
     if (
         resource is not None
-        and req.resource_vmid is not None
-        and resource.user_id != req.user_id
+        and req.resource_vmid is None
         and resource.created_at is not None
         and resource.created_at > req.created_at
     ):
-        # 這張單原本指的機器已被別的途徑刪掉、VMID 又配給了別人的新機器：
-        # 絕不能拿舊單的快照去刪現在這台
+        # 這張單原本指的機器已被別的途徑刪掉（resource_vmid 已被 SET NULL）、
+        # VMID 又配給了新機器：絕不能拿舊單的快照去刪現在這台。
+        # 原本的條件要求 resource_vmid 不為 NULL，但那代表原資源列還在，
+        # created_at 不可能晚於申請，這道防線從來不會觸發。
         req.status = DeletionRequestStatus.failed
         req.error_message = (
             f"VMID {req.vmid} now belongs to a different resource created after this "

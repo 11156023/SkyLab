@@ -35,6 +35,7 @@ from app.infrastructure.proxmox import (
     get_nodes_for_connection,
 )
 from app.models import VMRequest
+from app.repositories import proxmox_node as proxmox_node_repo
 from app.repositories import proxmox_storage as proxmox_storage_repo
 from app.services.proxmox import gpu_service, proxmox_service
 from app.utils.timeutil import normalize_datetime
@@ -79,7 +80,15 @@ def build_storage_pool_state(
     if not storages:
         return {node_name: [] for node_name in node_names}, False
 
-    shared_registry: dict[str, WorkingStoragePool] = {}
+    # 共享儲存以「連線（叢集）+ storage 名稱」為單位：不同叢集各有一個叫
+    # ceph 的共享儲存時是兩份實體儲存，容量不能合併
+    node_connection = {
+        name: conn_id
+        for name, (conn_id, _conn_name) in proxmox_node_repo.get_node_connection_map(
+            session
+        ).items()
+    }
+    shared_registry: dict[tuple[int | None, str], WorkingStoragePool] = {}
     by_node: dict[str, list[WorkingStoragePool]] = {node_name: [] for node_name in node_names}
     node_set = set(node_names)
 
@@ -90,10 +99,11 @@ def build_storage_pool_state(
 
         # 共享儲存在所有節點上是同一個池，扣容量時必須共用同一個物件
         if storage.is_shared:
-            pool = shared_registry.get(storage.storage)
+            key = (node_connection.get(node_name), storage.storage)
+            pool = shared_registry.get(key)
             if pool is None:
                 pool = _working_pool(storage)
-                shared_registry[storage.storage] = pool
+                shared_registry[key] = pool
             by_node[node_name].append(pool)
             continue
 

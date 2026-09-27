@@ -38,6 +38,18 @@ class VMProvisioningStatus(str, enum.Enum):
 class VMRequest(SQLModel, table=True):
     __tablename__ = "vm_requests"
     __table_args__ = (
+        sa.CheckConstraint(
+            "resource_type IN ('vm', 'lxc')",
+            name="ck_vm_requests_resource_type",
+        ),
+        sa.CheckConstraint(
+            "requested_mode IN ('manual', 'auto')",
+            name="ck_vm_requests_requested_mode",
+        ),
+        sa.CheckConstraint(
+            "request_kind IN ('research', 'quick_template', 'course')",
+            name="ck_vm_requests_request_kind",
+        ),
         sa.Index("ix_vm_requests_next_window_end", "next_window_end"),
         sa.Index("ix_vm_requests_next_window_start", "next_window_start"),
         sa.Index("ix_vm_requests_user_id", "user_id"),
@@ -55,7 +67,7 @@ class VMRequest(SQLModel, table=True):
     )
 
     id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
-    user_id: uuid.UUID = Field(foreign_key="user.id")
+    user_id: uuid.UUID = Field(foreign_key="user.id", ondelete="CASCADE")
 
     reason: str
     resource_type: str
@@ -105,7 +117,9 @@ class VMRequest(SQLModel, table=True):
             default=VMRequestStatus.pending,
         ),
     )
-    reviewer_id: uuid.UUID | None = Field(default=None, foreign_key="user.id")
+    reviewer_id: uuid.UUID | None = Field(
+        default=None, foreign_key="user.id", ondelete="SET NULL", index=True
+    )
     review_comment: str | None = Field(default=None)
     reviewed_at: datetime | None = Field(
         default=None,
@@ -152,6 +166,7 @@ class VMRequest(SQLModel, table=True):
         sa_column=Column(
             sa.ForeignKey("batch_provision_jobs.id", ondelete="SET NULL"),
             nullable=True,
+            index=True,
         ),
     )
 

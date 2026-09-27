@@ -78,7 +78,6 @@ def test_reset_password(client: TestClient, db: Session) -> None:
         full_name="Test User",
         password=password,
         is_active=True,
-        is_superuser=False,
     )
     user = create_user(session=db, user_create=user_create)
     db.commit()
@@ -223,7 +222,6 @@ def test_google_login_is_case_insensitive_for_existing_user(
         full_name="Google User",
         password=random_lower_string(),
         is_active=True,
-        is_superuser=False,
     )
     create_user(session=db, user_create=user_create)
     db.commit()

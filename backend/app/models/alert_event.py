@@ -52,7 +52,7 @@ class AlertEvent(SQLModel, table=True):
         sa_column=Column(DateTime(timezone=True), nullable=True),
     )
     acknowledged_by: uuid.UUID | None = Field(
-        default=None, foreign_key="user.id", ondelete="SET NULL"
+        default=None, foreign_key="user.id", ondelete="SET NULL", index=True
     )
     acknowledged_at: datetime | None = Field(
         default=None,

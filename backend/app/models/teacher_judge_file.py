@@ -23,6 +23,10 @@ class TeacherJudgeFile(SQLModel, table=True):
 
     __tablename__ = "teacher_judge_files"
     __table_args__ = (
+        sa.CheckConstraint(
+            "source_type IN ('created', 'uploaded')",
+            name="ck_teacher_judge_files_source_type",
+        ),
         sa.Index(
             "ix_teacher_judge_files_class_filename",
             "teaching_class_id",
@@ -90,7 +94,7 @@ class TeacherJudgeFile(SQLModel, table=True):
     )
     updated_at: datetime = Field(
         default_factory=get_datetime_utc,
-        sa_column=Column(sa.DateTime(timezone=True), nullable=False),
+        sa_column=Column(sa.DateTime(timezone=True), nullable=False, onupdate=get_datetime_utc),
     )
 
 

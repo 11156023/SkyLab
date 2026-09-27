@@ -15,6 +15,7 @@
   "teachingClasses.environmentNotForFormalCourse": "This environment is for quick practice only and cannot be applied to a formal course.",
   "teachingClasses.courseVersionNoMachines": "The course version has no machines to assign.",
   "teachingClasses.archivedCannotEditWeeklyContent": "Weekly content cannot be modified for a class that has ended.",
+  "teachingClasses.weekTargetNodeUnknown": "Weekly target machine does not exist in this class: {keys}",
   "teachingClasses.weekDatesMustMatchSchedule": "Weekly dates must be generated from the class's fixed schedule and cannot be added or removed manually.",
   "teachingClasses.weekNotFound": "The specified week was not found.",
   "teachingClasses.invalidFileName": "Invalid file name.",

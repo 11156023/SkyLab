@@ -54,7 +54,6 @@ def _create_user(
             email=f"{'admin' if is_superuser else 'user'}-{datetime.now(timezone.utc).timestamp()}@example.com",
             password="strongpass123",
             role=role or (UserRole.admin if is_superuser else UserRole.student),
-            is_superuser=is_superuser,
         ),
     )
     session.commit()
@@ -320,14 +319,6 @@ def test_reserved_target_node_prefers_admin_storage_profile(
     db.add(
         ProxmoxConfig(
             id=1,
-            host="pve.local",
-            user="root@pam",
-            encrypted_password="encrypted",
-            verify_ssl=False,
-            iso_storage="local",
-            data_storage="local-lvm",
-            pool_name="SkyLab",
-            placement_strategy="priority_dominant_share",
             cpu_overcommit_ratio=2.0,
             disk_overcommit_ratio=1.0,
         )
@@ -436,14 +427,6 @@ def test_reserved_target_node_uses_managed_storage_instead_of_node_root_disk(
     db.add(
         ProxmoxConfig(
             id=1,
-            host="pve.local",
-            user="root@pam",
-            encrypted_password="encrypted",
-            verify_ssl=False,
-            iso_storage="local",
-            data_storage="local-lvm",
-            pool_name="SkyLab",
-            placement_strategy="priority_dominant_share",
         )
     )
     _seed_managed_storage(
@@ -657,14 +640,6 @@ def test_build_plan_avoids_high_loadavg_and_peak_risk_node(
     db.add(
         ProxmoxConfig(
             id=1,
-            host="pve.local",
-            user="root@pam",
-            encrypted_password="encrypted",
-            verify_ssl=False,
-            iso_storage="local",
-            data_storage="local-lvm",
-            pool_name="SkyLab",
-            placement_strategy="priority_dominant_share",
             placement_peak_cpu_margin=2.0,
             placement_peak_memory_margin=1.05,
             placement_loadavg_warn_per_core=0.5,
@@ -724,14 +699,6 @@ def test_build_plan_prefers_balance_before_node_priority(
     db.add(
         ProxmoxConfig(
             id=1,
-            host="pve.local",
-            user="root@pam",
-            encrypted_password="encrypted",
-            verify_ssl=False,
-            iso_storage="local",
-            data_storage="local-lvm",
-            pool_name="SkyLab",
-            placement_strategy="priority_dominant_share",
         )
     )
     db.commit()

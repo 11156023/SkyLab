@@ -34,16 +34,6 @@ class NatRule(SQLModel, table=True):
         ),
         description="Target VM ID",
     )
-    resource_vmid: int | None = Field(
-        default=None,
-        sa_column=sa.Column(
-            sa.Integer,
-            sa.ForeignKey("resources.vmid", ondelete="CASCADE"),
-            nullable=True,
-            index=True,
-        ),
-        description="Linked resource VMID",
-    )
     vm_ip: str = Field(max_length=64, description="Target VM internal IP")
 
     external_port: int = Field(ge=1, le=65535, description="External port")

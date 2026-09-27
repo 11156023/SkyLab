@@ -6,7 +6,7 @@ import pytest
 from fastapi import HTTPException
 
 from app.api.routes import ai_monitoring
-from app.models import AIAPIUsage, AITemplateCallLog
+from app.models import USAGE_SOURCE_API_KEY, USAGE_SOURCE_PLATFORM
 from app.services.llm_gateway import ai_gateway_service
 
 
@@ -84,9 +84,9 @@ def test_monitoring_overview_aggregates_total_tokens_per_model(
     )
 
     def model_rows(**kwargs):
-        if kwargs["model"] is AIAPIUsage:
+        if kwargs["source"] == USAGE_SOURCE_API_KEY:
             return [("shared-model", 2, 2, 10, 20, 2, 200)]
-        assert kwargs["model"] is AITemplateCallLog
+        assert kwargs["source"] == USAGE_SOURCE_PLATFORM
         return [("shared-model", 3, 3, 30, 40, 3, 300)]
 
     monkeypatch.setattr(ai_gateway_service, "_monitoring_model_rows", model_rows)
@@ -126,9 +126,9 @@ def test_monitoring_overview_aggregates_total_tokens_per_bucket(
     )
 
     def bucket_rows(**kwargs):
-        if kwargs["model"] is AIAPIUsage:
+        if kwargs["source"] == USAGE_SOURCE_API_KEY:
             return [(bucket_start, 2, 1, 10, 20, 2, 200)]
-        assert kwargs["model"] is AITemplateCallLog
+        assert kwargs["source"] == USAGE_SOURCE_PLATFORM
         return [(bucket_start, 1, 1, 30, 40, 1, 100)]
 
     monkeypatch.setattr(ai_gateway_service, "_monitoring_bucket_rows", bucket_rows)
@@ -164,11 +164,11 @@ def test_monitoring_overview_can_exclude_template_usage(
     )
 
     def bucket_rows(**kwargs):
-        assert kwargs["model"] is AIAPIUsage
+        assert kwargs["source"] == USAGE_SOURCE_API_KEY
         return [("2026-09-11 10:00:00", 2, 2, 10, 20, 2, 200)]
 
     def model_rows(**kwargs):
-        assert kwargs["model"] is AIAPIUsage
+        assert kwargs["source"] == USAGE_SOURCE_API_KEY
         return [("key-model", 2, 2, 10, 20, 2, 200)]
 
     monkeypatch.setattr(ai_gateway_service, "_monitoring_bucket_rows", bucket_rows)

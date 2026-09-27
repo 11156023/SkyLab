@@ -5,7 +5,6 @@ from types import SimpleNamespace
 import pytest
 
 from app.exceptions import BadRequestError
-from app.repositories import proxmox_config
 from app.services.network import ip_management_service
 from app.services.network.publish_target_policy import assert_publishable_vm_ip
 
@@ -19,16 +18,14 @@ def publish_config(monkeypatch: pytest.MonkeyPatch) -> SimpleNamespace:
         extra_blocked_subnets="10.10.0.0/16",
     )
     monkeypatch.setattr(ip_management_service, "get_subnet_config", lambda _: config)
-    monkeypatch.setattr(
-        proxmox_config,
-        "get_proxmox_config",
-        lambda _: SimpleNamespace(host="10.10.0.5", gateway_ip="10.10.0.6"),
-    )
     return config
 
 
 def _session() -> SimpleNamespace:
-    connections = [SimpleNamespace(host="10.10.0.3", gateway_ip="10.10.0.4")]
+    connections = [
+        SimpleNamespace(host="10.10.0.3", gateway_ip="10.10.0.4"),
+        SimpleNamespace(host="10.10.0.5", gateway_ip="10.10.0.6"),
+    ]
     return SimpleNamespace(exec=lambda _: SimpleNamespace(all=lambda: connections))
 
 
