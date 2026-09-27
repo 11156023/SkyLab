@@ -204,6 +204,60 @@ def overall_status(
     return "degraded" if degraded else "ok"
 
 
+# ─── 登入檢查（每次登入後的服務檢查畫面） ─────────────────────────────────
+
+# 畫面上固定這幾項、依這個順序；學生／老師看到的是包裝過的文案，管理員看到真名
+PREFLIGHT_CHECKS = ("database", "redis", "worker", "pve", "gateway", "ai")
+# 憑證快到期這類 attention 仍在服務，不擋登入
+_PREFLIGHT_PASS_STATUSES = frozenset({"ok", "attention"})
+
+
+def _preflight_key(name: str) -> str | None:
+    if name in ("database", "redis", "worker", "gateway"):
+        return name
+    if name == "pve" or name.startswith("pve:"):
+        return "pve"
+    if name == AI_GATEWAY_COMPONENT:
+        return "ai"
+    # 個別 AI 模型不列入：單一模型掛掉不該擋住所有人登入
+    return None
+
+
+def preflight_checks(components: Iterable[Mapping[str, Any]]) -> list[dict[str, Any]]:
+    """系統健康元件 → 登入檢查的固定幾項，每項 ok／fail／skipped。
+
+    同一項有多個元件（多個 PVE 連線）時任一失敗就算失敗；全部 disabled（沒設定
+    Gateway、AI）或沒有對應元件算 skipped，不擋登入。unknown 算失敗——它只會在
+    DB／Redis 自己掛掉、查不到其他元件時出現。
+    """
+    grouped: dict[str, list[dict[str, Any]]] = {key: [] for key in PREFLIGHT_CHECKS}
+    for component in components:
+        key = _preflight_key(str(component.get("name") or ""))
+        if key is None:
+            continue
+        grouped[key].append(
+            {
+                "label": str(component.get("label") or component.get("name")),
+                "status": str(component.get("status") or "unknown"),
+                "detail": component.get("detail"),
+                "latency_ms": component.get("latency_ms"),
+            }
+        )
+
+    checks: list[dict[str, Any]] = []
+    for key in PREFLIGHT_CHECKS:
+        items = grouped[key]
+        active = [item for item in items if item["status"] != "disabled"]
+        if not active:
+            status = "skipped"
+        elif all(item["status"] in _PREFLIGHT_PASS_STATUSES for item in active):
+            status = "ok"
+        else:
+            status = "fail"
+        checks.append({"key": key, "status": status, "components": items})
+    return checks
+
+
 # ─── 系統告警（AlertEvent scope=system）判定 ───────────────────────────────
 
 
@@ -328,6 +382,7 @@ __all__ = [
     "CRITICAL_COMPONENTS",
     "FAILING_THRESHOLD",
     "GATEWAY_CERT_WARN_DAYS",
+    "PREFLIGHT_CHECKS",
     "SystemAlertDecision",
     "SystemFinding",
     "ai_components",
@@ -336,6 +391,7 @@ __all__ = [
     "gateway_status",
     "loop_status",
     "overall_status",
+    "preflight_checks",
     "stale_after_seconds",
     "task_status",
 ]
