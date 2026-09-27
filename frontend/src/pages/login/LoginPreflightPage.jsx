@@ -3,7 +3,8 @@
  *
  * 登入成功時 AuthContext 立起 loginPreflightPending，App 在所有其他閘門之前只渲染這一頁。
  * 底層打 GET /users/me/preflight，真的檢查 DB、Redis、worker、PVE、Gateway、AI：
- * - 學生／老師：看到包裝過的冒險文案；有任何一項失敗就停在「請通知管理員」，只能重新檢查或登出
+ * - 學生／老師：看到包裝過的冒險文案；有任何一項失敗就警告「部分功能可能無法正常使用」，
+ *   可以重新檢查、登出，或仍要繼續進入（並請他們通知管理員）
  * - 管理員：看到真實服務名稱與錯誤細節，失敗時可以略過繼續，或直接前往資源監控
  * 全部通過就自動進入系統。
  */
@@ -229,7 +230,7 @@ export default function LoginPreflightPage() {
 
         {failed && (
           <div className={`${shell.notice} ${styles.notice_fail}`} role="alert">
-            <MIcon name={admin ? "info" : "support_agent"} size={20} />
+            <MIcon name={admin ? "info" : "warning"} size={20} />
             <span>
               {admin
                 ? state.phase === "error"
@@ -251,24 +252,23 @@ export default function LoginPreflightPage() {
             <div className={shell.actionGroup}>
               <button
                 type="button"
-                className={admin ? shell.btnSecondary : shell.btnPrimary}
+                className={shell.btnSecondary}
                 onClick={() => run({ refresh: admin })}
               >
                 <MIcon name="refresh" size={18} />
                 {t("LoginPreflight.retry")}
               </button>
               {admin && (
-                <>
-                  <button type="button" className={shell.btnSecondary} onClick={openMonitoring}>
-                    <MIcon name="monitor_heart" size={18} />
-                    {t("LoginPreflight.admin.openMonitoring")}
-                  </button>
-                  <button type="button" className={shell.btnPrimary} onClick={skip}>
-                    {t("LoginPreflight.admin.skip")}
-                    <MIcon name="arrow_forward" size={18} />
-                  </button>
-                </>
+                <button type="button" className={shell.btnSecondary} onClick={openMonitoring}>
+                  <MIcon name="monitor_heart" size={18} />
+                  {t("LoginPreflight.admin.openMonitoring")}
+                </button>
               )}
+              {/* 學生／老師也能帶著警告繼續；壞掉的功能在各頁面自己會報錯 */}
+              <button type="button" className={shell.btnPrimary} onClick={skip}>
+                {t(`LoginPreflight.${role}.skip`)}
+                <MIcon name="arrow_forward" size={18} />
+              </button>
             </div>
           </div>
         )}
