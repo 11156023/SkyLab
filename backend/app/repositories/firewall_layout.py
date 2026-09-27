@@ -42,11 +42,19 @@ def upsert_layout_batch(
     user_id: uuid.UUID,
     nodes: list[dict],
 ) -> None:
-    """批次更新節點位置"""
+    """批次更新節點位置。
+
+    gateway 節點一律不帶 vmid；VM 節點必須對應現存資源（vmid 是 FK），
+    前端送來已不存在的機器座標直接略過。
+    """
     now = datetime.now(timezone.utc)
     for node_data in nodes:
-        vmid = node_data.get("vmid")
         node_type = node_data["node_type"]
+        vmid = None if node_type == "gateway" else node_data.get("vmid")
+        if node_type != "gateway" and (
+            vmid is None or session.get(Resource, vmid) is None
+        ):
+            continue
         position_x = node_data["position_x"]
         position_y = node_data["position_y"]
 
@@ -56,22 +64,12 @@ def upsert_layout_batch(
         if existing:
             existing.position_x = position_x
             existing.position_y = position_y
-            existing.resource_vmid = (
-                vmid
-                if vmid is not None and session.get(Resource, vmid) is not None
-                else None
-            )
             existing.updated_at = now
             session.add(existing)
         else:
             node = FirewallLayout(
                 user_id=user_id,
                 vmid=vmid,
-                resource_vmid=(
-                    vmid
-                    if vmid is not None and session.get(Resource, vmid) is not None
-                    else None
-                ),
                 node_type=node_type,
                 position_x=position_x,
                 position_y=position_y,

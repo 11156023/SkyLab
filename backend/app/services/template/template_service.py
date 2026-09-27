@@ -6,7 +6,6 @@
 
 from __future__ import annotations
 
-import json
 import logging
 import re
 import time
@@ -28,7 +27,10 @@ from app.exceptions import (
     NotFoundError,
     PermissionDeniedError,
 )
-from app.infrastructure.proxmox import get_proxmox_settings_for_node
+from app.infrastructure.proxmox import (
+    get_connection_id_for_node,
+    get_proxmox_settings_for_node,
+)
 from app.infrastructure.proxmox import operations as proxmox_ops
 from app.infrastructure.queue import enqueue_task, report_progress
 from app.models import (
@@ -47,6 +49,7 @@ from app.models import (
     VMTemplate,
     VMTemplateStatus,
 )
+from app.repositories import batch_provision as batch_provision_repo
 from app.repositories import task_record as task_record_repo
 from app.repositories import vm_template as template_repo
 from app.schemas.template import (
@@ -333,12 +336,12 @@ async def create_template(
 
     require_template_manage(user)
 
-    # 含軟刪除一起查：活躍紀錄擋重複，deleted 紀錄稍後復用
-    # （pve_vmid 有 unique 約束，PVE 回收 VMID 後不能另建新列）
+    # 只有未刪除的範本會擋重複；PVE 回收 VMID 後一律建新列，
+    # 已刪除的舊列保留給歷史引用（課程版本、任務紀錄）
     existing = template_repo.get_template_by_pve_vmid(
-        session=session, pve_vmid=data.source_vmid, include_deleted=True
+        session=session, pve_vmid=data.source_vmid
     )
-    if existing is not None and existing.status != VMTemplateStatus.deleted:
+    if existing is not None:
         raise ConflictError(
             t("template.vmidAlreadyRegistered", vmid=data.source_vmid)
         )
@@ -372,38 +375,21 @@ async def create_template(
             t("template.sourceVmBelongsToOther", vmid=data.source_vmid)
         )
 
-    if existing is not None:
-        template = template_repo.revive_deleted_template(
-            session=session,
-            template=existing,
-            name=data.name,
-            description=data.description,
-            owner_id=user.id,
-            node=node,
-            resource_type=resource_type,
-            visibility=data.visibility,
-            default_cores=data.default_cores,
-            default_memory=data.default_memory,
-            allow_password_change=data.allow_password_change,
-            requires_gpu=data.requires_gpu,
-            source_vmid=data.source_vmid,
-        )
-    else:
-        template = template_repo.create_template(
-            session=session,
-            pve_vmid=data.source_vmid,
-            name=data.name,
-            description=data.description,
-            owner_id=user.id,
-            node=node,
-            resource_type=resource_type,
-            visibility=data.visibility,
-            default_cores=data.default_cores,
-            default_memory=data.default_memory,
-            allow_password_change=data.allow_password_change,
-            requires_gpu=data.requires_gpu,
-            source_vmid=data.source_vmid,
-        )
+    template = template_repo.create_template(
+        session=session,
+        pve_vmid=data.source_vmid,
+        name=data.name,
+        description=data.description,
+        owner_id=user.id,
+        node=node,
+        resource_type=resource_type,
+        visibility=data.visibility,
+        default_cores=data.default_cores,
+        default_memory=data.default_memory,
+        allow_password_change=data.allow_password_change,
+        requires_gpu=data.requires_gpu,
+        source_vmid=data.source_vmid,
+    )
     try:
         record = await enqueue_task(
             session=session,
@@ -705,8 +691,7 @@ def _open_request_count(session: Session, pve_vmid: int) -> int:
 def _open_batch_job_count(session: Session, template_id: uuid.UUID) -> int:
     """引用這個範本、且還沒跑完的批量建立工作數（待審／已審未跑／執行中）。
 
-    ``template_params`` 是 JSON 字串欄位，跨 DB 沒有可靠的 JSON 查詢，
-    所以先用狀態縮小範圍再逐筆解析（未結束的 job 數量很小）。
+    先用狀態縮小範圍再逐筆比對（未結束的 job 數量很小）。
     """
     jobs = session.exec(
         select(BatchProvisionJob).where(
@@ -723,10 +708,7 @@ def _open_batch_job_count(session: Session, template_id: uuid.UUID) -> int:
     wanted = str(template_id)
     count = 0
     for job in jobs:
-        try:
-            params = json.loads(job.template_params or "{}")
-        except (TypeError, ValueError):
-            continue
+        params = batch_provision_repo.job_params(job)
         if str(params.get("vm_template_id") or "") == wanted:
             count += 1
     return count
@@ -1285,6 +1267,7 @@ def run_update_clone_task(
                 session.add(
                     Resource(
                         vmid=new_vmid,
+                        connection_id=get_connection_id_for_node(node),
                         user_id=template.owner_id,
                         environment_type="範本更新母機",
                         created_at=datetime.now(timezone.utc),

@@ -65,16 +65,6 @@ def _is_valid_hostname(value: str) -> bool:
     return all(_HOSTNAME_LABEL_PATTERN.fullmatch(label) for label in labels)
 
 
-def _resolve_resource_vmid(session: object, vmid: int) -> int | None:
-    get = getattr(session, "get", None)
-    if get is None:
-        return None
-
-    from app.models import Resource
-
-    return vmid if get(Resource, vmid) is not None else None
-
-
 def _get_gateway_ready_state(session: object) -> tuple[bool, str | None]:
     from app.repositories import gateway_config as gw_repo
 
@@ -300,7 +290,6 @@ def apply_reverse_proxy_rule(
     # 會先把對方的紀錄覆蓋掉，才在寫 DB 時失敗。
     rule = ReverseProxyRule(
         vmid=vmid,
-        resource_vmid=_resolve_resource_vmid(session, vmid),
         vm_ip=vm_ip,
         domain=domain,
         zone_id=zone_id,
@@ -591,7 +580,6 @@ def update_reverse_proxy_rule(
     )
 
     rule.vmid = vmid
-    rule.resource_vmid = _resolve_resource_vmid(session, vmid)
     rule.vm_ip = vm_ip
     rule.domain = domain
     rule.zone_id = zone_id

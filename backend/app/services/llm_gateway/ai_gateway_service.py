@@ -15,11 +15,12 @@ from app.exceptions import BadRequestError, NotFoundError
 from app.features.ai.config import settings as ai_api_settings
 from app.models import (
     API_KEY_PREFIX_LENGTH,
+    USAGE_SOURCE_API_KEY,
+    USAGE_SOURCE_PLATFORM,
     AIAPICredential,
     AIAPIRequest,
     AIAPIRequestStatus,
     AIAPIUsage,
-    AITemplateCallLog,
     User,
     get_datetime_utc,
 )
@@ -378,6 +379,7 @@ def list_all_credentials(
             AIAPIUsage.credential_id,
             func.max(AIAPIUsage.created_at).label("last_used_at"),
         )
+        .where(AIAPIUsage.source == USAGE_SOURCE_API_KEY)
         .group_by(AIAPIUsage.credential_id)
         .subquery("credential_last_usage")
     )
@@ -624,9 +626,10 @@ def record_usage(
     """
     usage = AIAPIUsage(
         user_id=user_id,
+        source=USAGE_SOURCE_API_KEY,
         credential_id=credential_id,
         model_name=model_name,
-        request_type=request_type,
+        call_type=request_type,
         request_id=request_id,
         upstream_request_id=upstream_request_id,
         input_tokens=input_tokens,
@@ -688,8 +691,10 @@ def record_template_call(
         status: 狀態（success, error）
         error_message: 錯誤訊息
     """
-    log = AITemplateCallLog(
+    log = AIAPIUsage(
         user_id=user_id,
+        source=USAGE_SOURCE_PLATFORM,
+        credential_id=None,
         call_type=call_type,
         model_name=model_name,
         preset=preset,
@@ -769,6 +774,7 @@ def get_user_usage_stats(
     records = session.exec(
         select(AIAPIUsage)
         .where(AIAPIUsage.user_id == user_id)
+        .where(AIAPIUsage.source == USAGE_SOURCE_API_KEY)
         .where(AIAPIUsage.created_at >= start_date)
         .where(AIAPIUsage.created_at <= end_date)
     ).all()
@@ -815,10 +821,11 @@ def get_user_template_usage_stats(
     查詢使用者的 Template 呼叫統計
     """
     records = session.exec(
-        select(AITemplateCallLog)
-        .where(AITemplateCallLog.user_id == user_id)
-        .where(AITemplateCallLog.created_at >= start_date)
-        .where(AITemplateCallLog.created_at <= end_date)
+        select(AIAPIUsage)
+        .where(AIAPIUsage.user_id == user_id)
+        .where(AIAPIUsage.source == USAGE_SOURCE_PLATFORM)
+        .where(AIAPIUsage.created_at >= start_date)
+        .where(AIAPIUsage.created_at <= end_date)
     ).all()
 
     total_calls = len(records)
@@ -868,6 +875,7 @@ def list_user_usage_records(
     """查詢使用者透過申請金鑰發出的逐筆 API 呼叫紀錄。"""
     filters = (
         AIAPIUsage.user_id == user_id,
+        AIAPIUsage.source == USAGE_SOURCE_API_KEY,
         AIAPIUsage.created_at >= start_date,
         AIAPIUsage.created_at <= end_date,
     )
@@ -893,7 +901,7 @@ def list_user_usage_records(
                 "api_key_name": credential.api_key_name,
                 "api_key_prefix": credential.api_key_prefix,
                 "model_name": usage.model_name,
-                "call_type": usage.request_type,
+                "call_type": usage.call_type,
                 "preset": None,
                 "request_id": usage.request_id,
                 "upstream_request_id": usage.upstream_request_id,
@@ -925,19 +933,21 @@ def list_user_usage_records(
 # ===== Admin 監控功能 =====
 
 
-def _monitoring_filters(model, start_date: datetime | None, end_date: datetime | None):
-    filters = []
+def _monitoring_filters(
+    source: str, start_date: datetime | None, end_date: datetime | None
+):
+    filters = [AIAPIUsage.source == source]
     if start_date:
-        filters.append(model.created_at >= start_date)
+        filters.append(AIAPIUsage.created_at >= start_date)
     if end_date:
-        filters.append(model.created_at <= end_date)
+        filters.append(AIAPIUsage.created_at <= end_date)
     return filters
 
 
 def _monitoring_bucket_rows(
     *,
     session: Session,
-    model,
+    source: str,
     bucket: str,
     start_date: datetime | None,
     end_date: datetime | None,
@@ -946,23 +956,23 @@ def _monitoring_bucket_rows(
     dialect_name = session.get_bind().dialect.name
     if dialect_name == "sqlite":
         sqlite_format = "%Y-%m-%d %H:00:00" if bucket == "hour" else "%Y-%m-%d 00:00:00"
-        bucket_expr = func.strftime(sqlite_format, model.created_at).label(
+        bucket_expr = func.strftime(sqlite_format, AIAPIUsage.created_at).label(
             "bucket_start"
         )
     else:
-        bucket_expr = func.date_trunc(bucket, model.created_at).label("bucket_start")
+        bucket_expr = func.date_trunc(bucket, AIAPIUsage.created_at).label("bucket_start")
     statement = select(
         bucket_expr,
-        func.count(model.id).label("total_calls"),
+        func.count(AIAPIUsage.id).label("total_calls"),
         func.coalesce(
-            func.sum(case((model.status.in_(MONITORING_SUCCESS_STATUSES), 1), else_=0)),
+            func.sum(case((AIAPIUsage.status.in_(MONITORING_SUCCESS_STATUSES), 1), else_=0)),
             0,
         ).label("successful_calls"),
-        func.coalesce(func.sum(model.input_tokens), 0).label("input_tokens"),
-        func.coalesce(func.sum(model.output_tokens), 0).label("output_tokens"),
-        func.count(model.request_duration_ms).label("duration_count"),
-        func.coalesce(func.sum(model.request_duration_ms), 0).label("duration_sum"),
-    ).where(*_monitoring_filters(model, start_date, end_date))
+        func.coalesce(func.sum(AIAPIUsage.input_tokens), 0).label("input_tokens"),
+        func.coalesce(func.sum(AIAPIUsage.output_tokens), 0).label("output_tokens"),
+        func.count(AIAPIUsage.request_duration_ms).label("duration_count"),
+        func.coalesce(func.sum(AIAPIUsage.request_duration_ms), 0).label("duration_sum"),
+    ).where(*_monitoring_filters(source, start_date, end_date))
     statement = statement.group_by(bucket_expr).order_by(bucket_expr)
     return session.exec(statement).all()
 
@@ -982,23 +992,23 @@ def _monitoring_bucket_datetime(value: object) -> datetime | None:
 def _monitoring_model_rows(
     *,
     session: Session,
-    model,
+    source: str,
     start_date: datetime | None,
     end_date: datetime | None,
 ):
     statement = select(
-        model.model_name,
-        func.count(model.id).label("total_calls"),
+        AIAPIUsage.model_name,
+        func.count(AIAPIUsage.id).label("total_calls"),
         func.coalesce(
-            func.sum(case((model.status.in_(MONITORING_SUCCESS_STATUSES), 1), else_=0)),
+            func.sum(case((AIAPIUsage.status.in_(MONITORING_SUCCESS_STATUSES), 1), else_=0)),
             0,
         ).label("successful_calls"),
-        func.coalesce(func.sum(model.input_tokens), 0).label("input_tokens"),
-        func.coalesce(func.sum(model.output_tokens), 0).label("output_tokens"),
-        func.count(model.request_duration_ms).label("duration_count"),
-        func.coalesce(func.sum(model.request_duration_ms), 0).label("duration_sum"),
-    ).where(*_monitoring_filters(model, start_date, end_date))
-    statement = statement.group_by(model.model_name)
+        func.coalesce(func.sum(AIAPIUsage.input_tokens), 0).label("input_tokens"),
+        func.coalesce(func.sum(AIAPIUsage.output_tokens), 0).label("output_tokens"),
+        func.count(AIAPIUsage.request_duration_ms).label("duration_count"),
+        func.coalesce(func.sum(AIAPIUsage.request_duration_ms), 0).label("duration_sum"),
+    ).where(*_monitoring_filters(source, start_date, end_date))
+    statement = statement.group_by(AIAPIUsage.model_name)
     return session.exec(statement).all()
 
 
@@ -1108,13 +1118,13 @@ def get_monitoring_overview(
         }
 
     series_by_bucket = {}
-    source_models = [(AIAPIUsage, "proxy_calls")]
+    source_models = [(USAGE_SOURCE_API_KEY, "proxy_calls")]
     if include_template:
-        source_models.append((AITemplateCallLog, "template_calls"))
-    for model, source_key in source_models:
+        source_models.append((USAGE_SOURCE_PLATFORM, "template_calls"))
+    for source, source_key in source_models:
         for row in _monitoring_bucket_rows(
             session=session,
-            model=model,
+            source=source,
             bucket=bucket,
             start_date=start_date,
             end_date=end_date,
@@ -1175,13 +1185,13 @@ def get_monitoring_overview(
         )
 
     model_totals = {}
-    models = [AIAPIUsage]
+    sources = [USAGE_SOURCE_API_KEY]
     if include_template:
-        models.append(AITemplateCallLog)
-    for model in models:
+        sources.append(USAGE_SOURCE_PLATFORM)
+    for source in sources:
         for row in _monitoring_model_rows(
             session=session,
-            model=model,
+            source=source,
             start_date=start_date,
             end_date=end_date,
         ):
@@ -1263,30 +1273,32 @@ def get_monitoring_stats(
         func.coalesce(func.sum(AIAPIUsage.request_duration_ms), 0),
     )
     template_query = select(
-        func.count(AITemplateCallLog.id),
-        func.coalesce(func.sum(AITemplateCallLog.input_tokens), 0),
-        func.coalesce(func.sum(AITemplateCallLog.output_tokens), 0),
+        func.count(AIAPIUsage.id),
+        func.coalesce(func.sum(AIAPIUsage.input_tokens), 0),
+        func.coalesce(func.sum(AIAPIUsage.output_tokens), 0),
         func.coalesce(
             func.sum(
                 case(
-                    (AITemplateCallLog.status.in_(MONITORING_SUCCESS_STATUSES), 1),
+                    (AIAPIUsage.status.in_(MONITORING_SUCCESS_STATUSES), 1),
                     else_=0,
                 )
             ),
             0,
         ),
-        func.count(AITemplateCallLog.request_duration_ms),
-        func.coalesce(func.sum(AITemplateCallLog.request_duration_ms), 0),
+        func.count(AIAPIUsage.request_duration_ms),
+        func.coalesce(func.sum(AIAPIUsage.request_duration_ms), 0),
     )
 
+    proxy_query = proxy_query.where(AIAPIUsage.source == USAGE_SOURCE_API_KEY)
+    template_query = template_query.where(AIAPIUsage.source == USAGE_SOURCE_PLATFORM)
     if start_date:
         proxy_query = proxy_query.where(AIAPIUsage.created_at >= start_date)
         template_query = template_query.where(
-            AITemplateCallLog.created_at >= start_date
+            AIAPIUsage.created_at >= start_date
         )
     if end_date:
         proxy_query = proxy_query.where(AIAPIUsage.created_at <= end_date)
-        template_query = template_query.where(AITemplateCallLog.created_at <= end_date)
+        template_query = template_query.where(AIAPIUsage.created_at <= end_date)
 
     proxy_row = session.exec(proxy_query).one()
     template_row = (
@@ -1301,17 +1313,21 @@ def get_monitoring_stats(
     duration_sum = int(proxy_row[5] or 0) + int(template_row[5] or 0)
 
     # 活躍使用者（proxy + template 的 distinct user_id 合集）
-    proxy_users_q = select(distinct(AIAPIUsage.user_id))
-    template_users_q = select(distinct(AITemplateCallLog.user_id))
+    proxy_users_q = select(distinct(AIAPIUsage.user_id)).where(
+        AIAPIUsage.source == USAGE_SOURCE_API_KEY
+    )
+    template_users_q = select(distinct(AIAPIUsage.user_id)).where(
+        AIAPIUsage.source == USAGE_SOURCE_PLATFORM
+    )
     if start_date:
         proxy_users_q = proxy_users_q.where(AIAPIUsage.created_at >= start_date)
         template_users_q = template_users_q.where(
-            AITemplateCallLog.created_at >= start_date
+            AIAPIUsage.created_at >= start_date
         )
     if end_date:
         proxy_users_q = proxy_users_q.where(AIAPIUsage.created_at <= end_date)
         template_users_q = template_users_q.where(
-            AITemplateCallLog.created_at <= end_date
+            AIAPIUsage.created_at <= end_date
         )
 
     proxy_user_ids = set(session.exec(proxy_users_q).all())
@@ -1321,17 +1337,21 @@ def get_monitoring_stats(
     active_users = len(proxy_user_ids | template_user_ids)
 
     # 使用的模型列表
-    proxy_models_q = select(distinct(AIAPIUsage.model_name))
-    template_models_q = select(distinct(AITemplateCallLog.model_name))
+    proxy_models_q = select(distinct(AIAPIUsage.model_name)).where(
+        AIAPIUsage.source == USAGE_SOURCE_API_KEY
+    )
+    template_models_q = select(distinct(AIAPIUsage.model_name)).where(
+        AIAPIUsage.source == USAGE_SOURCE_PLATFORM
+    )
     if start_date:
         proxy_models_q = proxy_models_q.where(AIAPIUsage.created_at >= start_date)
         template_models_q = template_models_q.where(
-            AITemplateCallLog.created_at >= start_date
+            AIAPIUsage.created_at >= start_date
         )
     if end_date:
         proxy_models_q = proxy_models_q.where(AIAPIUsage.created_at <= end_date)
         template_models_q = template_models_q.where(
-            AITemplateCallLog.created_at <= end_date
+            AIAPIUsage.created_at <= end_date
         )
 
     template_models = (
@@ -1374,7 +1394,7 @@ def list_proxy_calls(
     count_query = select(func.count()).select_from(AIAPIUsage)
     data_query = select(AIAPIUsage, User).join(User, User.id == AIAPIUsage.user_id)
 
-    filters = []
+    filters = [AIAPIUsage.source == USAGE_SOURCE_API_KEY]
     if user_id:
         filters.append(AIAPIUsage.user_id == user_id)
     if model_name:
@@ -1407,7 +1427,7 @@ def list_proxy_calls(
                 "user_full_name": user.full_name,
                 "credential_id": usage.credential_id,
                 "model_name": usage.model_name,
-                "request_type": usage.request_type,
+                "request_type": usage.call_type,
                 "request_id": usage.request_id,
                 "upstream_request_id": usage.upstream_request_id,
                 "input_tokens": usage.input_tokens,
@@ -1446,31 +1466,31 @@ def list_template_calls(
     limit: int = 50,
 ) -> dict:
     """Admin: 列出 Template 呼叫紀錄"""
-    count_query = select(func.count()).select_from(AITemplateCallLog)
-    data_query = select(AITemplateCallLog, User).join(
-        User, User.id == AITemplateCallLog.user_id
+    count_query = select(func.count()).select_from(AIAPIUsage)
+    data_query = select(AIAPIUsage, User).join(
+        User, User.id == AIAPIUsage.user_id
     )
 
-    filters = []
+    filters = [AIAPIUsage.source == USAGE_SOURCE_PLATFORM]
     if user_id:
-        filters.append(AITemplateCallLog.user_id == user_id)
+        filters.append(AIAPIUsage.user_id == user_id)
     if call_type:
-        filters.append(AITemplateCallLog.call_type == call_type)
+        filters.append(AIAPIUsage.call_type == call_type)
     if preset:
-        filters.append(AITemplateCallLog.preset == preset)
+        filters.append(AIAPIUsage.preset == preset)
     if call_status:
-        filters.append(AITemplateCallLog.status == call_status)
+        filters.append(AIAPIUsage.status == call_status)
     if start_date:
-        filters.append(AITemplateCallLog.created_at >= start_date)
+        filters.append(AIAPIUsage.created_at >= start_date)
     if end_date:
-        filters.append(AITemplateCallLog.created_at <= end_date)
+        filters.append(AIAPIUsage.created_at <= end_date)
 
     for f in filters:
         count_query = count_query.where(f)
         data_query = data_query.where(f)
 
     data_query = (
-        data_query.order_by(AITemplateCallLog.created_at.desc())
+        data_query.order_by(AIAPIUsage.created_at.desc())
         .offset(skip)
         .limit(limit)
     )
@@ -1543,6 +1563,7 @@ def list_users_usage(
             "proxy_duration_sum"
         ),
     )
+    proxy_sub = proxy_sub.where(AIAPIUsage.source == USAGE_SOURCE_API_KEY)
     if start_date:
         proxy_sub = proxy_sub.where(AIAPIUsage.created_at >= start_date)
     if end_date:
@@ -1606,31 +1627,32 @@ def list_users_usage(
 
     # Template 用量 per user
     tmpl_sub = select(
-        AITemplateCallLog.user_id,
-        func.count(AITemplateCallLog.id).label("tmpl_calls"),
-        func.coalesce(func.sum(AITemplateCallLog.input_tokens), 0).label("tmpl_input"),
-        func.coalesce(func.sum(AITemplateCallLog.output_tokens), 0).label(
+        AIAPIUsage.user_id,
+        func.count(AIAPIUsage.id).label("tmpl_calls"),
+        func.coalesce(func.sum(AIAPIUsage.input_tokens), 0).label("tmpl_input"),
+        func.coalesce(func.sum(AIAPIUsage.output_tokens), 0).label(
             "tmpl_output"
         ),
         func.coalesce(
             func.sum(
                 case(
-                    (AITemplateCallLog.status.in_(MONITORING_SUCCESS_STATUSES), 1),
+                    (AIAPIUsage.status.in_(MONITORING_SUCCESS_STATUSES), 1),
                     else_=0,
                 )
             ),
             0,
         ).label("tmpl_success"),
-        func.count(AITemplateCallLog.request_duration_ms).label("tmpl_duration_count"),
-        func.coalesce(func.sum(AITemplateCallLog.request_duration_ms), 0).label(
+        func.count(AIAPIUsage.request_duration_ms).label("tmpl_duration_count"),
+        func.coalesce(func.sum(AIAPIUsage.request_duration_ms), 0).label(
             "tmpl_duration_sum"
         ),
     )
+    tmpl_sub = tmpl_sub.where(AIAPIUsage.source == USAGE_SOURCE_PLATFORM)
     if start_date:
-        tmpl_sub = tmpl_sub.where(AITemplateCallLog.created_at >= start_date)
+        tmpl_sub = tmpl_sub.where(AIAPIUsage.created_at >= start_date)
     if end_date:
-        tmpl_sub = tmpl_sub.where(AITemplateCallLog.created_at <= end_date)
-    tmpl_sub = tmpl_sub.group_by(AITemplateCallLog.user_id).subquery("template_usage")
+        tmpl_sub = tmpl_sub.where(AIAPIUsage.created_at <= end_date)
+    tmpl_sub = tmpl_sub.group_by(AIAPIUsage.user_id).subquery("template_usage")
 
     proxy_calls = func.coalesce(proxy_sub.c.proxy_calls, 0)
     proxy_input = func.coalesce(proxy_sub.c.proxy_input, 0)

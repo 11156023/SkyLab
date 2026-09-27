@@ -28,7 +28,10 @@ from app.core.db import engine
 from app.core.i18n import t
 from app.core.security import decrypt_value, encrypt_value
 from app.exceptions import BadRequestError, ConflictError, NotFoundError
-from app.infrastructure.proxmox import get_proxmox_settings_for_node
+from app.infrastructure.proxmox import (
+    get_connection_id_for_node,
+    get_proxmox_settings_for_node,
+)
 from app.infrastructure.proxmox import operations as proxmox_ops
 from app.infrastructure.queue import enqueue_task, report_progress
 from app.infrastructure.ssh.client import generate_ed25519_keypair
@@ -525,6 +528,7 @@ def run_clone_task(task_id: uuid.UUID, payload: dict[str, Any]) -> dict[str, Any
             resource_repo.create_resource(
                 session=session,
                 vmid=new_vmid,
+                connection_id=get_connection_id_for_node(node),
                 user_id=user_id,
                 environment_type=environment_type or f"範本 {template_name}",
                 expiry_date=expiry_date,

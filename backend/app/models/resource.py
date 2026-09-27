@@ -17,6 +17,18 @@ class Resource(SQLModel, table=True):
 
     __tablename__ = "resources"
     __table_args__ = (
+        sa.CheckConstraint(
+            "allocation_scope IN ('personal', 'teaching_class')",
+            name="ck_resources_allocation_scope",
+        ),
+        sa.CheckConstraint(
+            "control_policy IN ('owner', 'class_member')",
+            name="ck_resources_control_policy",
+        ),
+        sa.CheckConstraint(
+            "auto_stop_reason IN ('ttl_expired', 'idle', 'window_grace', 'practice_quota')",
+            name="ck_resources_auto_stop_reason",
+        ),
         sa.Index("ix_resources_user_id", "user_id"),
         sa.Index("ix_resources_user_created", "user_id", "created_at"),
         sa.Index("ix_resources_auto_stop_at", "auto_stop_at"),
@@ -35,7 +47,9 @@ class Resource(SQLModel, table=True):
         description="VM request that provisioned this resource",
     )
     user_id: uuid.UUID = Field(
+        # 仍持有資源的帳號不可刪除（user_service 也會先擋並回友善訊息）
         foreign_key="user.id",
+        ondelete="RESTRICT",
         description="Assigned user ID; ownership is governed by allocation_scope",
     )
     teaching_class_id: uuid.UUID | None = Field(
@@ -101,6 +115,20 @@ class Resource(SQLModel, table=True):
             sa.Uuid,
             sa.ForeignKey("batch_provision_jobs.id", ondelete="SET NULL"),
             nullable=True,
+            index=True,
+        ),
+    )
+
+    # 建立時所在的 PVE 連線（叢集）。vmid 是 PVE 的 VMID，多連線下只有
+    # 搭配 connection 才能確定是哪台；舊資料或無法判定時為 NULL。
+    # RESTRICT：還有資源掛著的連線不可刪除。
+    connection_id: int | None = Field(
+        default=None,
+        sa_column=Column(
+            sa.Integer,
+            sa.ForeignKey("proxmox_connections.id", ondelete="RESTRICT"),
+            nullable=True,
+            index=True,
         ),
     )
 

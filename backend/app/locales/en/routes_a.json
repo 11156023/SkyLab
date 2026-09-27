@@ -20,7 +20,6 @@
   "rubric.noItemsToExport": "No rubric items to export.",
   "quotas.alreadyExists": "This target already has a quota configured. Please update it instead.",
   "lxc.creating": "Creating LXC. Please check the resource list later.",
-  "proxmoxConfig.passwordRequired": "A password is required for initial setup",
   "proxmoxConfig.invalidCaCert": "Invalid CA certificate format. Please paste a valid PEM-formatted certificate.",
   "proxmoxConfig.cannotDeleteDefault": "This is the default connection. Please set another connection as default before deleting it.",
   "proxmoxConfig.connectionSuccess": "Connection succeeded. Detected nodes: {nodes}",

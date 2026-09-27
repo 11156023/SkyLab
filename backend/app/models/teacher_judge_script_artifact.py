@@ -145,6 +145,7 @@ class TeacherJudgeScriptArtifact(SQLModel, table=True):
             sa.Uuid,
             sa.ForeignKey("user.id", ondelete="SET NULL"),
             nullable=True,
+            index=True,
         ),
     )
     created_at: datetime = Field(
@@ -153,7 +154,7 @@ class TeacherJudgeScriptArtifact(SQLModel, table=True):
     )
     updated_at: datetime = Field(
         default_factory=get_datetime_utc,
-        sa_column=Column(sa.DateTime(timezone=True), nullable=False),
+        sa_column=Column(sa.DateTime(timezone=True), nullable=False, onupdate=get_datetime_utc),
     )
     approved_at: datetime | None = Field(
         default=None,

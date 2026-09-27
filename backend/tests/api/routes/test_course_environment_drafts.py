@@ -42,7 +42,7 @@ def test_incomplete_draft_is_saved_without_touching_deployable_configuration(wor
     )
     routes.save_environment_draft(environment.id, body, session, user)
     assert (
-        routes.EnvironmentDraftIn.model_validate_json(version.draft_data).configuration
+        routes.EnvironmentDraftIn.model_validate(version.draft_data).configuration
         == body.configuration
     )
     assert environment.name == "previous"
@@ -53,7 +53,7 @@ def test_incomplete_draft_cannot_publish_and_is_retained(workspace):
     user, environment, version, session = workspace
     version.draft_data = routes.EnvironmentDraftIn(
         configuration={"name": "", "nodes": []}, editor={}
-    ).model_dump_json()
+    ).model_dump(mode="json")
     original = version.draft_data
     with pytest.raises(BadRequestError):
         routes.publish_environment(environment.id, session, user)
@@ -90,11 +90,9 @@ def test_publish_materializes_latest_draft_and_clears_snapshot(workspace, monkey
     )
     version.draft_data = routes.EnvironmentDraftIn(
         configuration={"name": "Latest", "nodes": [node]}, editor={}
-    ).model_dump_json()
+    ).model_dump(mode="json")
     replace_nodes = Mock()
-    replace_audience = Mock()
     monkeypatch.setattr(routes, "_replace_nodes", replace_nodes)
-    monkeypatch.setattr(routes, "_replace_audience", replace_audience)
     monkeypatch.setattr(routes, "is_admin", lambda _: False)
     monkeypatch.setattr(
         routes.quick_practice,
@@ -113,7 +111,6 @@ def test_publish_materializes_latest_draft_and_clears_snapshot(workspace, monkey
     assert version.draft_data is None
     assert version.configuration_hash
     replace_nodes.assert_called_once()
-    assert replace_audience.call_args.kwargs["owner_id"] == user.id
     session.commit.assert_called_once()
 
 
@@ -134,9 +131,8 @@ def test_publish_records_the_peer_policy_from_the_draft(workspace, monkeypatch):
     version.draft_data = routes.EnvironmentDraftIn(
         configuration={"name": "Mesh", "nodes": [node], "peer_policy": "segment"},
         editor={},
-    ).model_dump_json()
+    ).model_dump(mode="json")
     monkeypatch.setattr(routes, "_replace_nodes", Mock())
-    monkeypatch.setattr(routes, "_replace_audience", Mock())
     monkeypatch.setattr(routes, "is_admin", lambda _: False)
     monkeypatch.setattr(
         routes.quick_practice,
@@ -172,9 +168,8 @@ def test_a_draft_without_a_policy_publishes_as_explicit(workspace, monkeypatch):
     version.peer_policy = "segment"
     version.draft_data = routes.EnvironmentDraftIn(
         configuration={"name": "Old", "nodes": [node]}, editor={}
-    ).model_dump_json()
+    ).model_dump(mode="json")
     monkeypatch.setattr(routes, "_replace_nodes", Mock())
-    monkeypatch.setattr(routes, "_replace_audience", Mock())
     monkeypatch.setattr(routes, "is_admin", lambda _: False)
     monkeypatch.setattr(
         routes.quick_practice,

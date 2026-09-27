@@ -40,6 +40,7 @@
   "user.notFound": "ユーザーが見つかりません",
   "user.idNotFound": "この ID のユーザーはシステムに存在しません",
   "user.ldapPasswordLocked": "このアカウントは LDAP で管理されています。ローカルパスワードは使用されません。パスワードは LDAP ディレクトリで変更してください。",
+  "user.selfRoleChangeForbidden": "管理者は自分自身のロールを変更できません",
   "user.selfDeleteForbidden": "管理者は自分自身のアカウントを削除できません",
   "user.incorrectPassword": "パスワードが正しくありません",
   "user.samePassword": "新しいパスワードは現在のパスワードと同じにできません",

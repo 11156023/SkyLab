@@ -1,5 +1,7 @@
 """Regression checks for the formal-class cutover."""
 
+import pytest
+
 from app.main import app
 from app.models import AuditAction, SQLModel
 from tests.utils.routes import iter_api_routes, registered_paths
@@ -75,15 +77,17 @@ def test_teacher_judge_direct_rubric_mutations_are_retired() -> None:
     assert any(path == "/api/v1/rubric/download-excel" for path, _ in routes)
 
 
-def test_retired_group_audit_actions_stay_readable() -> None:
-    """群組下線時 audit_logs 仍留有這些 action；enum 值刪掉會讓稽核頁整批讀不出來。"""
+def test_retired_group_audit_actions_are_no_longer_writable() -> None:
+    """audit_logs.action 已是字串欄位（dbm04b）：群組 action 從 enum 移除後
+    舊紀錄照樣讀得到（見 tests/models/test_audit_action_enum.py），但不能再寫入。"""
     for value in (
         "group_create",
         "group_delete",
         "group_member_add",
         "group_member_remove",
     ):
-        assert AuditAction(value).value == value
+        with pytest.raises(ValueError):
+            AuditAction(value)
 
 
 def test_group_tables_and_foreign_keys_are_absent_from_current_metadata() -> None:

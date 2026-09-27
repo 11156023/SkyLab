@@ -484,7 +484,7 @@ def test_quick_practice_ip_reservation_is_atomic_and_idempotent(
     assert released == 2
 
 
-def _audience_fixture(db: Session, audience: str) -> tuple[CourseEnvironment, User, User]:
+def _practice_fixture(db: Session) -> tuple[CourseEnvironment, User, User]:
     teacher = User(
         email=f"teacher-{uuid.uuid4()}@example.edu",
         hashed_password="hash",
@@ -501,7 +501,6 @@ def _audience_fixture(db: Session, audience: str) -> tuple[CourseEnvironment, Us
         owner_id=teacher.id,
         name="防火牆練習",
         usage_scope="quick_practice",
-        audience=audience,
     )
     db.add(environment)
     db.flush()
@@ -545,7 +544,7 @@ def _publish(db: Session, environment: CourseEnvironment) -> None:
 
 def test_a_practice_environment_reaches_every_signed_in_user(quick_db: Session) -> None:
     # 開放對象已經沒有介面，套用方式是唯一的閘門：提供為快速練習就是誰都看得到。
-    environment, _teacher, _student = _audience_fixture(quick_db, "class")
+    environment, _teacher, _student = _practice_fixture(quick_db)
     _publish(quick_db, environment)
 
     listed = quick_practice.list_published_templates(quick_db)
@@ -556,7 +555,7 @@ def test_a_practice_environment_reaches_every_signed_in_user(quick_db: Session) 
 def test_a_course_only_environment_never_reaches_the_practice_list(
     quick_db: Session,
 ) -> None:
-    environment, _teacher, _student = _audience_fixture(quick_db, "campus")
+    environment, _teacher, _student = _practice_fixture(quick_db)
     environment.usage_scope = "course"
     _publish(quick_db, environment)
 
@@ -570,7 +569,7 @@ def test_a_course_only_environment_never_reaches_the_practice_list(
 def test_environment_cap_blocks_a_launch_when_it_is_full(
     quick_db: Session, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    environment, _teacher, student = _audience_fixture(quick_db, "campus")
+    environment, _teacher, student = _practice_fixture(quick_db)
     environment.max_concurrent_sessions = 1
     version = CourseEnvironmentVersion(
         environment_id=environment.id,
@@ -621,7 +620,7 @@ def test_environment_cap_blocks_a_launch_when_it_is_full(
 
 
 def test_ending_a_session_early_reclaims_it(quick_db: Session) -> None:
-    environment, _teacher, student = _audience_fixture(quick_db, "campus")
+    environment, _teacher, student = _practice_fixture(quick_db)
     version = CourseEnvironmentVersion(
         environment_id=environment.id,
         version=1,
@@ -676,7 +675,7 @@ def test_lifecycle_finishes_an_early_ended_session_before_it_expires(
 
 
 def test_another_student_cannot_end_someone_elses_session(quick_db: Session) -> None:
-    environment, _teacher, student = _audience_fixture(quick_db, "campus")
+    environment, _teacher, student = _practice_fixture(quick_db)
     version = CourseEnvironmentVersion(
         environment_id=environment.id,
         version=1,

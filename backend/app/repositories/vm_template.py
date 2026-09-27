@@ -69,56 +69,6 @@ def get_template_by_pve_vmid(
     return session.exec(stmt).first()
 
 
-def revive_deleted_template(
-    *,
-    session: Session,
-    template: VMTemplate,
-    name: str,
-    owner_id: uuid.UUID,
-    node: str,
-    resource_type: str,
-    description: str | None = None,
-    visibility: VMTemplateVisibility = VMTemplateVisibility.private,
-    default_cores: int | None = None,
-    default_memory: int | None = None,
-    allow_password_change: bool = True,
-    requires_gpu: bool = False,
-    source_vmid: int | None = None,
-    commit: bool = True,
-) -> VMTemplate:
-    """復用軟刪除紀錄重新開始範本生命週期。
-
-    pve_vmid 有 unique 約束、刪除又是軟刪除，PVE 回收重用 VMID 後
-    只能覆寫原紀錄，否則該 VMID 永遠無法再註冊成範本。
-    """
-    now = datetime.now(timezone.utc)
-    template.name = name
-    template.description = description
-    template.owner_id = owner_id
-    template.node = node
-    template.storage = None
-    template.resource_type = resource_type
-    template.status = VMTemplateStatus.creating
-    template.visibility = visibility
-    template.default_cores = default_cores
-    template.default_memory = default_memory
-    template.default_disk = None
-    template.allow_password_change = allow_password_change
-    template.requires_gpu = requires_gpu
-    template.source_vmid = source_vmid
-    template.version = 1
-    template.error_message = None
-    template.created_at = now
-    template.updated_at = now
-    session.add(template)
-    if commit:
-        session.commit()
-    else:
-        session.flush()
-    session.refresh(template)
-    return template
-
-
 def list_all_templates(
     *, session: Session, include_deleted: bool = False
 ) -> list[VMTemplate]:

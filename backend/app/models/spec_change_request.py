@@ -35,9 +35,19 @@ class SpecChangeRequest(SQLModel, table=True):
     """規格調整申請表"""
 
     __tablename__ = "spec_change_requests"
+    __table_args__ = (
+        # 申請人列表（user_id + status，依 created_at 排序）與審核佇列（status）
+        sa.Index(
+            "ix_spec_change_requests_user_status_created",
+            "user_id",
+            "status",
+            "created_at",
+        ),
+        sa.Index("ix_spec_change_requests_status_created", "status", "created_at"),
+    )
 
     id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
-    vmid: int = Field(description="VM/Container ID")
+    vmid: int = Field(index=True, description="VM/Container ID（申請當時的快照）")
     resource_vmid: int | None = Field(
         default=None,
         sa_column=Column(
@@ -48,7 +58,9 @@ class SpecChangeRequest(SQLModel, table=True):
         ),
         description="Linked resource VMID; vmid is kept as request-time snapshot",
     )
-    user_id: uuid.UUID = Field(foreign_key="user.id", description="申請者ID")
+    user_id: uuid.UUID = Field(
+        foreign_key="user.id", ondelete="CASCADE", description="申請者ID"
+    )
 
     # 調整類型與原因
     change_type: SpecChangeType = Field(
@@ -83,7 +95,7 @@ class SpecChangeRequest(SQLModel, table=True):
         description="審核狀態",
     )
     reviewer_id: uuid.UUID | None = Field(
-        default=None, foreign_key="user.id", description="審核者ID"
+        default=None, foreign_key="user.id", ondelete="SET NULL", index=True, description="審核者ID"
     )
     review_comment: str | None = Field(default=None, description="審核備註")
     reviewed_at: datetime | None = Field(

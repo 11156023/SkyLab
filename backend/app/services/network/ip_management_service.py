@@ -19,6 +19,7 @@ from app.models import Resource
 from app.models.base import get_datetime_utc
 from app.models.ip_allocation import IpAllocation
 from app.models.subnet_config import SubnetConfig
+from app.repositories import resource as resource_repo
 
 logger = logging.getLogger(__name__)
 
@@ -361,9 +362,7 @@ def allocate_ip(
             if not _reclaim_stale_class_reservation(session, reserved):
                 raise ConflictError(t("ipManagement.reservedIpAlreadyUsed"))
         reserved.vmid = vmid
-        reserved.resource_vmid = (
-            vmid if session.get(Resource, vmid) is not None else None
-        )
+        reserved.resource_vmid = resource_repo.linked_resource_vmid(session, vmid)
         reserved.purpose = purpose
         reserved.description = f"VMID {vmid}（課程預留）"
         session.add(reserved)
@@ -385,7 +384,7 @@ def allocate_ip(
                 ip_address=ip_str,
                 purpose=purpose,
                 vmid=vmid,
-                resource_vmid=vmid if session.get(Resource, vmid) is not None else None,
+                resource_vmid=resource_repo.linked_resource_vmid(session, vmid),
                 description=f"VMID {vmid}",
             )
             session.add(alloc)

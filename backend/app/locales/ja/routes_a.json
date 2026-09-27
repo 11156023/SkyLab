@@ -20,7 +20,6 @@
   "rubric.noItemsToExport": "エクスポートできる採点項目がありません。",
   "quotas.alreadyExists": "この対象には既にクォータが設定されています。更新をご利用ください。",
   "lxc.creating": "LXC を作成しています。しばらくしてからリソース一覧をご確認ください。",
-  "proxmoxConfig.passwordRequired": "初回設定にはパスワードの入力が必要です",
   "proxmoxConfig.invalidCaCert": "CA 証明書の形式が無効です。正しい PEM 形式の証明書を貼り付けてください。",
   "proxmoxConfig.cannotDeleteDefault": "この接続はデフォルト接続です。削除する前に別の接続をデフォルトに設定してください。",
   "proxmoxConfig.connectionSuccess": "接続に成功しました。検出されたノード：{nodes}",

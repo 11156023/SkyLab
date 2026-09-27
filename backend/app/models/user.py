@@ -5,6 +5,7 @@ import uuid
 from datetime import datetime
 from typing import TYPE_CHECKING
 
+import sqlalchemy as sa
 from pydantic import EmailStr
 from sqlalchemy import DateTime
 from sqlmodel import Column, Enum, Field, Relationship, SQLModel
@@ -36,8 +37,6 @@ class UserBase(SQLModel):
         default=UserRole.student,
         sa_column=Column(Enum(UserRole), nullable=False, default=UserRole.student),
     )
-    is_superuser: bool = False
-    is_instructor: bool = False
     full_name: str | None = Field(default=None, max_length=255)
     avatar_url: str | None = Field(default=None, max_length=2048)
 
@@ -45,6 +44,13 @@ class UserBase(SQLModel):
 # Database model, database table inferred from class name
 class User(UserBase, table=True):
     """使用者資料庫模型"""
+
+    __table_args__ = (
+        sa.CheckConstraint(
+            "auth_source IN ('local', 'ldap')",
+            name="ck_user_auth_source",
+        ),
+    )
 
     id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
     hashed_password: str
@@ -64,20 +70,27 @@ class User(UserBase, table=True):
     # 首次登入引導精靈（語言／外觀／兩步驟驗證）是否已走完或略過：
     # 新帳號一律 False，登入後前端只顯示引導畫面；既有帳號由 migration 標為 True
     onboarding_completed: bool = Field(default=False)
-    created_at: datetime | None = Field(
+    created_at: datetime = Field(
         default_factory=get_datetime_utc,
         sa_type=DateTime(timezone=True),
+        nullable=False,
     )
 
     # Relationships
     resources: list["Resource"] = Relationship(back_populates="user")
     vm_requests: list["VMRequest"] = Relationship(
         back_populates="user",
-        sa_relationship_kwargs={"foreign_keys": "[VMRequest.user_id]"},
+        sa_relationship_kwargs={
+            "foreign_keys": "[VMRequest.user_id]",
+            "passive_deletes": True,
+        },
     )
     spec_change_requests: list["SpecChangeRequest"] = Relationship(
         back_populates="user",
-        sa_relationship_kwargs={"foreign_keys": "[SpecChangeRequest.user_id]"},
+        sa_relationship_kwargs={
+            "foreign_keys": "[SpecChangeRequest.user_id]",
+            "passive_deletes": True,
+        },
     )
     ai_api_requests: list["AIAPIRequest"] = Relationship(
         back_populates="user",
@@ -87,6 +100,11 @@ class User(UserBase, table=True):
         back_populates="user"
     )
     audit_logs: list["AuditLog"] = Relationship(back_populates="user")
+
+    @property
+    def is_superuser(self) -> bool:
+        """唯讀：由 role 推導（原 is_superuser 欄位已移除，避免與 role 不一致）。"""
+        return self.role == UserRole.admin
 
 
 __all__ = [

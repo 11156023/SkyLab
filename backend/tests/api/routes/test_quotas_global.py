@@ -17,7 +17,7 @@ from app.api.deps.auth import get_current_active_superuser
 from app.api.deps.database import get_db
 from app.core.config import settings
 from app.main import app
-from app.models import QuotaConfig, User
+from app.models import QuotaConfig, User, UserRole
 from app.services.resource import quota_service
 from app.services.user import audit_service
 
@@ -36,7 +36,7 @@ def as_admin() -> Iterator[None]:
         id=uuid.uuid4(),
         email="admin-quota-test@example.com",
         hashed_password="x",
-        is_superuser=True,
+        role=UserRole.admin,
     )
     app.dependency_overrides[get_current_active_superuser] = lambda: admin
     app.dependency_overrides[get_db] = lambda: None

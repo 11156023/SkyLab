@@ -200,7 +200,6 @@ def recover_existing_task_resource(
     mapping.error = None
     task.status = BatchProvisionTaskStatus.completed
     task.vmid = resource.vmid
-    task.resource_vmid = resource.vmid
     task.error = None
     task.finished_at = get_datetime_utc()
     session.add(mapping)

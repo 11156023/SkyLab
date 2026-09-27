@@ -7,6 +7,5 @@
   "ip.forward_public_host_too_long": "Entry host is too long (255 characters max)",
   "cloudflare.decrypt_token_failed": "Failed to decrypt the stored Cloudflare API Token: the encryption key has changed, please re-save the Cloudflare settings",
   "gateway.decrypt_private_key_failed": "Failed to decrypt the stored SSH private key: the encryption key has changed, please regenerate and save the Gateway SSH key pair",
-  "proxmox.decrypt_password_failed": "Failed to decrypt the stored Proxmox password: the encryption key has changed, please re-save the Proxmox settings",
   "proxmox.connection_decrypt_password_failed": "Failed to decrypt the Proxmox password for connection \"{name}\": the encryption key has changed, please re-save this connection's settings"
 }

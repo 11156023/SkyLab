@@ -46,7 +46,6 @@ def _create_user(
             email=f"{'admin' if is_superuser else 'user'}-{datetime.now(timezone.utc).timestamp()}@example.com",
             password="strongpass123",
             role=role or (UserRole.admin if is_superuser else UserRole.student),
-            is_superuser=is_superuser,
         ),
     )
     session.commit()
@@ -59,7 +58,6 @@ def test_user_role_teacher_is_treated_as_regular_user(db: Session) -> None:
 
     assert teacher.role == UserRole.teacher
     assert teacher.is_superuser is False
-    assert teacher.is_instructor is False
 
 
 def test_delete_user_rejects_owned_resources(db: Session) -> None:

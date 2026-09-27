@@ -123,8 +123,8 @@ describe("CourseEnvironmentsService", () => {
 
     // 套用方式是唯一的閘門，所以不再有班級白名單或同時上限要送。
     expect(payload.usage_scope).toBe("quick_practice");
-    expect(payload.audience).toBe("campus");
-    expect(payload.audience_class_ids).toEqual([]);
+    expect(payload).not.toHaveProperty("audience");
+    expect(payload).not.toHaveProperty("audience_class_ids");
     expect(payload.max_concurrent_sessions).toBeNull();
   });
 
