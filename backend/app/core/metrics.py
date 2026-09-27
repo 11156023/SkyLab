@@ -177,6 +177,37 @@ TASK_RECORDS = Gauge(
     registry=REGISTRY,
 )
 
+# ─── AI（使用者 API 金鑰與內建 AI 功能經 LiteLLM 的呼叫）────────────────────
+# model 標籤由 services/monitoring/ai_metrics 限縮成 LiteLLM 認得的模型，
+# 其餘一律 "other"，避免使用者亂填 model 造成時間序列爆量。
+
+AI_REQUESTS = Counter(
+    "skylab_ai_requests_total",
+    "AI model calls relayed to LiteLLM by source (api_key/platform), model and outcome",
+    labelnames=("source", "model", "request_type", "outcome"),
+    registry=REGISTRY,
+)
+AI_REQUEST_DURATION = Histogram(
+    "skylab_ai_request_duration_seconds",
+    "End-to-end duration of AI model calls as seen by SkyLab",
+    labelnames=("source", "model", "stream"),
+    registry=REGISTRY,
+    buckets=(0.25, 0.5, 1.0, 2.5, 5.0, 10.0, 20.0, 30.0, 60.0, 120.0, 300.0),
+)
+AI_TIME_TO_FIRST_TOKEN = Histogram(
+    "skylab_ai_time_to_first_token_seconds",
+    "Time until the first streamed output token of AI model calls",
+    labelnames=("source", "model"),
+    registry=REGISTRY,
+    buckets=(0.05, 0.1, 0.25, 0.5, 1.0, 2.0, 5.0, 10.0, 30.0),
+)
+AI_TOKENS = Counter(
+    "skylab_ai_tokens_total",
+    "Tokens reported by the model for AI calls (direction = input/output)",
+    labelnames=("source", "model", "direction"),
+    registry=REGISTRY,
+)
+
 
 @contextmanager
 def track_websocket(kind: str) -> Iterator[None]:

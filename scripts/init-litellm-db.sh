@@ -15,7 +15,8 @@ Options:
   -h, --help        Show this help
 
 The role password must be supplied through LITELLM_DB_PASSWORD. It is never
-printed. The script connects as the Compose PostgreSQL administrator inside
+printed; an existing role is realigned to it so DATABASE_URL stays the source
+of truth. prepare-ai-stack.sh --start runs this automatically for db:5432. The script connects as the Compose PostgreSQL administrator inside
 the db container; it never invokes Campus Alembic or connects to the Campus
 application database for writes.
 EOF
@@ -75,10 +76,11 @@ fi
 
 compose=(docker compose --env-file "$env_file")
 
+# psql interpolates :'var' only in statements read from stdin/files, never in -c.
 db_owner="$("${compose[@]}" exec -T -e LITELLM_TARGET_DB="$database" db sh -ec '
-  psql -X --set=ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d postgres \
-    -At -v db_name="$LITELLM_TARGET_DB" \
-    -c "SELECT pg_get_userbyid(datdba) FROM pg_database WHERE datname = :'\''db_name'\'';"
+  printf "%s\n" "SELECT pg_get_userbyid(datdba) FROM pg_database WHERE datname = :'\''db_name'\'';" |
+    psql -X --set=ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d postgres \
+      -At -v db_name="$LITELLM_TARGET_DB"
 ')"
 if [[ -n "$db_owner" && "$db_owner" != "$role" ]]; then
   printf 'Refusing to use existing database %s: owner is %s, expected %s.\n' \
@@ -96,12 +98,18 @@ if [[ "$verify_only" == false ]]; then
         -v db_name="$LITELLM_TARGET_DB" \
         -v role_name="$LITELLM_TARGET_ROLE" \
         -v role_password="$LITELLM_TARGET_PASSWORD" <<'\''SQL'\''
-SELECT format(
-  '\''CREATE ROLE %I LOGIN NOINHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION PASSWORD %L'\'',
-  :'\''role_name'\'',
-  :'\''role_password'\''
-)
-WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = :'\''role_name'\'')
+SELECT CASE
+  WHEN EXISTS (SELECT 1 FROM pg_roles WHERE rolname = :'\''role_name'\'') THEN format(
+    '\''ALTER ROLE %I WITH LOGIN PASSWORD %L'\'',
+    :'\''role_name'\'',
+    :'\''role_password'\''
+  )
+  ELSE format(
+    '\''CREATE ROLE %I LOGIN NOINHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION PASSWORD %L'\'',
+    :'\''role_name'\'',
+    :'\''role_password'\''
+  )
+END
 \gexec
 
 SELECT format('\''CREATE DATABASE %I OWNER %I'\'', :'\''db_name'\'', :'\''role_name'\'')
@@ -116,20 +124,24 @@ SQL
     '
 fi
 
-printf '%s\n' "$LITELLM_DB_PASSWORD" | "${compose[@]}" exec -T \
+if ! printf '%s\n' "$LITELLM_DB_PASSWORD" | "${compose[@]}" exec -T \
   -e LITELLM_TARGET_DB="$database" \
   -e LITELLM_TARGET_ROLE="$role" \
   db sh -ec '
     IFS= read -r PGPASSWORD
     export PGPASSWORD
-    psql -X --set=ON_ERROR_STOP=1 -U "$LITELLM_TARGET_ROLE" -d "$LITELLM_TARGET_DB" \
-      -At -c "SELECT current_database() || '\'':\'' || current_user;"
-  ' | grep -Fxq "${database}:${role}"
+    # TCP, not the trust-authenticated socket, so the password is really checked.
+    psql -X --set=ON_ERROR_STOP=1 -h 127.0.0.1 -U "$LITELLM_TARGET_ROLE" -d "$LITELLM_TARGET_DB" \
+      -At -c "SELECT current_database() || '\'':'\'' || current_user;"
+  ' | grep -Fxq "${database}:${role}"; then
+  printf 'LiteLLM role %s cannot log in to %s over TCP with the supplied password.\n' "$role" "$database" >&2
+  exit 1
+fi
 
 campus_schema_create="$("${compose[@]}" exec -T -e LITELLM_TARGET_ROLE="$role" db sh -ec '
-  psql -X --set=ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB" \
-    -At -v role_name="$LITELLM_TARGET_ROLE" \
-    -c "SELECT has_schema_privilege(:'\''role_name'\'', '\''public'\'', '\''CREATE'\'')::text;"
+  printf "%s\n" "SELECT has_schema_privilege(:'\''role_name'\'', '\''public'\'', '\''CREATE'\'')::text;" |
+    psql -X --set=ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB" \
+      -At -v role_name="$LITELLM_TARGET_ROLE"
 ')"
 if [[ "$campus_schema_create" != "false" ]]; then
   printf 'LiteLLM role unexpectedly has CREATE on the Campus public schema.\n' >&2
@@ -137,4 +149,4 @@ if [[ "$campus_schema_create" != "false" ]]; then
 fi
 
 printf 'LiteLLM database isolation verified: database=%s role=%s\n' "$database" "$role"
-printf 'Next: run LiteLLM migrations with the pinned image, then create and verify the restricted Campus service Virtual Key.\n'
+printf 'LiteLLM runs its own migrations on start; prepare-ai-stack.sh --start then provisions the Campus service Virtual Key.\n'

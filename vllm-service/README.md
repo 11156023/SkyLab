@@ -90,17 +90,20 @@ vLLM instance 的啟動、ready check 與優雅關閉；模型 alias／路由由
 `LITELLM_SERVICE_API_KEY`，並產生 `DATABASE_URL` reference。
 
 LiteLLM 已由 Campus 主 Compose `include` 引用，原獨立 Compose 仍保留。
-先建立 `litellm/.env`（可由 `litellm/.env.example` 複製），再從專案根目錄啟動：
+從專案根目錄先補齊金鑰（缺 `litellm/.env` 時由範本建立），再啟動：
 
 ```bash
 cd ..
+bash scripts/prepare-ai-stack.sh --init-env
 bash scripts/prepare-ai-stack.sh --start
 ```
 
-Campus backend 透過根目錄 `.env` 的 `AI_API_BASE_URL`、
-`AI_API_API_KEY` 與 `LITELLM_RUNTIME_*` 連往 gateway；同機 host-network
-部署的 Compose backend 使用 `http://host.docker.internal:4000`，主機程序執行的
-backend 使用 `http://127.0.0.1:4000`。根目錄 `docker compose up/down` 現在會管理
+`--start` 會自動建立 LiteLLM 專用資料庫（`db:5432`，不經 PgBouncer）並核發／同步
+Campus service key。Campus backend 透過根目錄 `.env` 的 `AI_API_BASE_URL`、
+`AI_API_API_KEY` 與 `LITELLM_RUNTIME_*` 連往 gateway；Compose backend 在同一內網使用
+`http://litellm:4000`，主機程序執行的 backend 使用 `http://127.0.0.1:4000`。
+LiteLLM 容器經 `host.docker.internal` 連本機 vLLM，所以 `.env.API` 的 `API_HOST`
+須為 `0.0.0.0`（以防火牆限制引擎埠）。根目錄 `docker compose up/down` 會管理
 LiteLLM，但不管理主機上的 vLLM 程序。
 
 跨主機模型請在 `models.json` 設定 `deployment: "remote"`、`api_base`（含 `/v1`）

@@ -497,6 +497,7 @@
   "SystemHealth.component.redis": "Redis",
   "SystemHealth.component.worker": "バックグラウンドワーカー",
   "SystemHealth.component.pve": "Proxmox VE",
+  "SystemHealth.component.ai_gateway": "AI ゲートウェイ（LiteLLM）",
   "SystemHealth.loop.scheduler": "メインスケジューラー",
   "SystemHealth.loop.web_push": "Web Push 通知",
   "SystemHealth.loop.wireguard": "WireGuard 同期",

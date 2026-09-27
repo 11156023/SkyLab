@@ -126,7 +126,7 @@ def load_model_instances(
         raise FileNotFoundError(f"模型配置檔不存在: {models_json_path}")
     
     # 載入 models.json
-    with open(models_json_path, "r", encoding="utf-8") as f:
+    with open(models_json_path, "r", encoding="utf-8-sig") as f:
         models_config = json.load(f)
     
     if not isinstance(models_config, list):

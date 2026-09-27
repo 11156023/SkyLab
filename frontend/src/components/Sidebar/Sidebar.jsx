@@ -57,7 +57,7 @@ const navGroups = [
     items: [
       { key: "ai-api",        labelKey: "Sidebar.itemAiApi",   icon: "psychology" },
       { key: "ai-api-keys",   labelKey: "Sidebar.itemAiApiKeys", icon: "vpn_key", adminOnly: true },
-      { key: "ai-monitoring", labelKey: "Sidebar.itemAiMonitoring", icon: "monitor_heart", adminOnly: true },
+      /* AI 用量監控已移到「監控與日誌」 */
       /* PVE 維運助手不放側欄：管理者首頁就是它的入口，那裡同時看得到待處理的問題 */
     ],
   },
@@ -79,6 +79,7 @@ const navGroups = [
     icon: "insights",
     items: [
       { key: "monitoring",    labelKey: "Sidebar.itemMonitoring",       icon: "monitor_heart", adminOnly: true },
+      { key: "ai-monitoring", labelKey: "Sidebar.itemAiMonitoring", icon: "query_stats", adminOnly: true },
       { key: "jobs",          labelKey: "Sidebar.itemJobs",       icon: "task_alt" },
       { key: "audit",         labelKey: "Sidebar.itemAudit",     icon: "receipt_long", adminOnly: true },
     ],

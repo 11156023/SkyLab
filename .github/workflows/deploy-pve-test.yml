@@ -32,6 +32,21 @@ jobs:
     steps:
       - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5.0.1
 
+      - name: Install configuration preflight dependencies
+        run: |
+          python3 -m venv vllm-service/.runtime/deploy-venv
+          vllm-service/.runtime/deploy-venv/bin/pip install 'PyYAML>=6.0' 'python-dotenv>=1.2.2'
+
+      - name: Fill missing AI gateway secrets
+        # 只補 /opt/skylab 兩份 .env 中缺少或仍為範例值的 LiteLLM master／salt／DB
+        # 密碼與 Campus service key（寫回 /opt/skylab 才能跨次部署保留）；既有真實值
+        # 一律不動，什麼都不缺時不寫檔。上游 vLLM 金鑰無法產生，缺少時在此失敗。
+        run: |
+          AI_STACK_PYTHON="$PWD/vllm-service/.runtime/deploy-venv/bin/python" bash scripts/prepare-ai-stack.sh --init-env \
+            --root-env /opt/skylab/.env \
+            --gateway-env /opt/skylab/vllm-service/litellm/.env \
+            --engine-env /opt/skylab/vllm-service/.env.API
+
       - name: Load deployment configuration
         # 機密與模型路由放在 runner VM 的 /opt/skylab，不進 repo。
         run: |
@@ -42,13 +57,10 @@ jobs:
             install -m 600 /opt/skylab/vllm-service/.env.API vllm-service/.env.API
           fi
 
-      - name: Install configuration preflight dependencies
-        run: |
-          python3 -m venv vllm-service/.runtime/deploy-venv
-          vllm-service/.runtime/deploy-venv/bin/pip install 'PyYAML>=6.0' 'python-dotenv>=1.2.2'
-
       - name: Deploy
-        # Refuse to compete with an existing standalone gateway; start no GPU engine.
+        # 建立 LiteLLM 專用 DB（db:5432）、啟動 gateway、核發／同步 Campus service key，
+        # 再啟動主 Compose。Refuse to compete with an existing standalone gateway;
+        # start no GPU engine.
         run: AI_STACK_PYTHON="$PWD/vllm-service/.runtime/deploy-venv/bin/python" bash scripts/prepare-ai-stack.sh --start
 
       - name: Smoke test
