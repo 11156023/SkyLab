@@ -70,7 +70,10 @@ def validate_environment(root_env: dict, services: dict, models: list[dict], eng
             raise ValueError(f"{service_name} 不可注入 LiteLLM 管理或上游金鑰")
         service_key = require_secret(env, "AI_API_API_KEY")
         if service_key in {master, gateway["VLLM_UPSTREAM_API_KEY"]}:
-            raise ValueError("Campus service key 必須與 LiteLLM master / vLLM upstream key 分開")
+            raise ValueError(
+                "Campus service key 必須與 LiteLLM master / vLLM upstream key 分開；"
+                "舊部署的 AI_API_API_KEY 若沿用 vLLM API_KEY，執行 prepare-ai-stack.sh --init-env 會換成新的受限 key"
+            )
         if not service_key.startswith("sk-"):
             raise ValueError("AI_API_API_KEY 必須是 LiteLLM virtual key 格式（sk- 開頭）；可用 --init-env 產生")
         if env.get("LITELLM_SERVICE_API_KEY") and env["LITELLM_SERVICE_API_KEY"] != service_key:
@@ -195,12 +198,17 @@ def plan_env_updates(root_env: dict, gateway_env: dict, engine_env: dict) -> tup
             manual.append("VLLM_UPSTREAM_API_KEY（DGX／推論主機 vLLM 的 API_KEY）")
 
     service_key = root_env.get("AI_API_API_KEY")
-    if is_placeholder(service_key):
+    # Before LiteLLM the backend called vLLM directly with its API_KEY. Such a
+    # leftover is not a restricted virtual key and collides with the upstream
+    # key, so it is replaced like a placeholder; --start registers the new one.
+    reserved = {value for value in (*{**gateway_env, **gateway}.values(), engine_env.get("API_KEY")) if value}
+    if is_placeholder(service_key) or not service_key.startswith("sk-") or service_key in reserved:
         service_key = "sk-" + secrets.token_urlsafe(32)
         root["AI_API_API_KEY"] = service_key
-    if is_placeholder(root_env.get("LITELLM_RUNTIME_API_KEY")):
+    # Both must be the same restricted key as AI_API_API_KEY (see validate_environment).
+    if root_env.get("LITELLM_RUNTIME_API_KEY") != service_key:
         root["LITELLM_RUNTIME_API_KEY"] = service_key
-    if "LITELLM_SERVICE_API_KEY" in root_env and is_placeholder(root_env["LITELLM_SERVICE_API_KEY"]):
+    if "LITELLM_SERVICE_API_KEY" in root_env and root_env["LITELLM_SERVICE_API_KEY"] != service_key:
         root["LITELLM_SERVICE_API_KEY"] = service_key
     for field in ("AI_API_BASE_URL", "LITELLM_RUNTIME_BASE_URL"):
         hostname = urlsplit(root_env.get(field) or "").hostname
@@ -233,9 +241,10 @@ def init_env(root_path: Path, gateway_path: Path, engine_path: Path) -> int:
         os.chmod(gateway_path, 0o600)
         print(f"已由範本建立 {gateway_path}")
     engine_env = dotenv_values(engine_path) if engine_path.is_file() else {}
-    root, gateway, manual = plan_env_updates(
-        dotenv_values(root_path), dotenv_values(gateway_path), engine_env,
-    )
+    root_env = dotenv_values(root_path)
+    root, gateway, manual = plan_env_updates(root_env, dotenv_values(gateway_path), engine_env)
+    if "AI_API_API_KEY" in root and not is_placeholder(root_env.get("AI_API_API_KEY")):
+        print("原 AI_API_API_KEY 不是 sk- virtual key 或與 LiteLLM／vLLM 金鑰相同（舊部署殘留），將換成新的受限 service key")
     # Check both files first so a permission problem never leaves only one updated.
     for path, updates in ((root_path, root), (gateway_path, gateway)):
         if updates:
