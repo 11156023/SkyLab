@@ -1103,13 +1103,16 @@ _COURSE_TPL_ELEMENTS: tuple[ElementSpec, ...] = (
 # ── 課程管理 ────────────────────────────────────────────────────────
 _COURSE_CMS_ELEMENTS: tuple[ElementSpec, ...] = (
     ElementSpec(
-        id="cms.class_link", role="select", label="這份內容屬於哪個班級",
+        id="cms.class_link", role="select", label="所屬班級",
         section="內容編輯",
         help="連結後，學生首頁、課堂機器與 AI 任務才會對應到同一班。",
     ),
     ElementSpec(
-        id="cms.new_path", role="text", label="新路徑標題", section="內容編輯",
-        help="學習路徑是最外層的分組。",
+        id="cms.new_path", role="text", label="路徑名稱", section="內容編輯",
+        help=(
+            "學習路徑是最外層的分組。在左邊樹狀導覽按「新增學習路徑」開對話框，"
+            "填路徑名稱並選所屬班級。"
+        ),
     ),
     ElementSpec(
         id="cms.new_room", role="text", label="新房間標題", section="內容編輯",
