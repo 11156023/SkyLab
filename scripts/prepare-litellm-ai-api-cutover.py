@@ -30,7 +30,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--endpoint",
         required=True,
-        help="LiteLLM internal endpoint, e.g. http://host.docker.internal:4000",
+        help="LiteLLM internal endpoint, e.g. http://litellm:4000",
     )
     parser.add_argument(
         "--service-key-env",
@@ -62,7 +62,7 @@ def validate_endpoint(value: str, *, allow_hostname: bool) -> str:
     try:
         address = ipaddress.ip_address(parsed.hostname)
     except ValueError:
-        safe_hostnames = {"host.docker.internal"}
+        safe_hostnames = {"litellm", "host.docker.internal"}
         if parsed.hostname not in safe_hostnames and not allow_hostname:
             raise ValueError(
                 "non-local hostname requires --allow-hostname after verifying its private/TLS network boundary"

@@ -3,14 +3,21 @@
   gap: $spacing-16;
 }
 
+/* 三個步驟有先後順序：補回被全域 reset 關掉的編號（否則只剩一截縮排） */
 .steps {
   margin: 0;
   padding-left: 20px;
+  list-style: decimal;
   @include flex-column;
   gap: $spacing-4;
   font-size: $font-size-14;
   color: var(--color-text-secondary);
   line-height: $line-height-base;
+
+  li::marker {
+    color: var(--color-primary);
+    font-weight: $font-weight-700;
+  }
 }
 
 /* QR 底一律白：深色主題下 QR 的黑白對比才不會被主題色吃掉，掃描器也才讀得到 */
@@ -61,8 +68,10 @@
   flex: 1;
   min-width: 0;
   padding: 8px 12px;
+  /* 玻璃卡內的內容區塊一律白底細框，不鋪主色淺藍（換背景色後會糊） */
+  border: 1px solid var(--color-border);
   border-radius: $radius-8;
-  background: var(--color-hover);
+  background: var(--color-surface);
   color: var(--color-text-primary);
   font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
   font-size: $font-size-14;
@@ -115,15 +124,4 @@
 
 .btnSecondary {
   @include btn-secondary;
-}
-
-.loadError {
-  @include flex-column;
-  align-items: flex-start;
-  gap: $spacing-8;
-  padding: $spacing-16;
-  border-radius: $radius-8;
-  background: color-mix(in srgb, var(--color-danger) 8%, transparent);
-  color: var(--color-danger);
-  font-size: $font-size-14;
 }

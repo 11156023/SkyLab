@@ -46,26 +46,8 @@
   padding-inline: 12px;
 }
 
-/* 表頭文字對齊列內圖示的左緣：欄位 padding 12 + 展開鈕 26 + gap 8 */
-.thName {
-  padding-left: 12px + 26px + 8px;
-}
-
 .tr {
   @include table-tr;
-}
-
-/* 有詳細資訊的列整列可展開。 */
-.trClickable {
-  @include table-tr-clickable;
-}
-
-.trExpanded {
-  background: color-mix(in srgb, var(--color-primary) 6%, transparent);
-
-  &:not(:last-child) {
-    border-bottom: none;
-  }
 }
 
 .td {
@@ -73,7 +55,7 @@
   padding-inline: 12px;
 }
 
-/* 狀態旁的補充說明圖示（退件備註／等待資源），全文放 tooltip */
+/* 狀態旁的補充說明圖示（退件備註／等待資源／規格調整的審核備註與套用失敗），全文放 tooltip */
 .statusNote {
   display: inline-flex;
   color: var(--color-text-muted);
@@ -151,6 +133,13 @@
   white-space: nowrap;
 }
 
+/* 規格調整的套用時間：完整日期時間單行不換行 */
+.dateTimeCell {
+  font-size: $font-size-12;
+  color: var(--color-text);
+  white-space: nowrap;
+}
+
 /* ── Row actions ── */
 /* 沒有可用操作時的空值符號，與系統欄的「—」同一套慣例。 */
 .emptyAction {
@@ -166,68 +155,6 @@
   flex-wrap: nowrap;
 
   > * { flex-shrink: 0; }
-}
-
-.expandBtn {
-  width: 26px;
-  height: 26px;
-  border-radius: $radius-8;
-  color: var(--color-text-muted);
-  cursor: pointer;
-  flex-shrink: 0;
-  @include flex-center;
-  transition: background $transition-base;
-
-  &:hover { background: var(--color-hover); }
-}
-
-/* 沒有詳細資訊的列用同寬佔位，讓名稱欄整欄對齊。 */
-.expandPlaceholder {
-  width: 26px;
-  flex-shrink: 0;
-}
-
-/* ── Expanded detail row ── */
-.detailTr {
-  &:not(:last-child) {
-    border-bottom: 1px solid var(--color-divider);
-  }
-}
-
-.detailTd {
-  padding: $spacing-8 $spacing-16 $spacing-16;
-  background: var(--color-surface);
-}
-
-/* 帳號、申請原因、預約期間橫向排成一列，空間不足才換行。 */
-.detailBody {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  gap: 6px $spacing-24;
-}
-
-.infoRow {
-  display: flex;
-  align-items: baseline;
-  gap: 6px;
-  min-width: 0;
-}
-
-.infoLabel {
-  display: inline-flex;
-  align-items: center;
-  gap: 3px;
-  font-size: $font-size-12;
-  color: var(--color-text-muted);
-  flex-shrink: 0;
-}
-
-.infoValue {
-  font-size: $font-size-12;
-  color: var(--color-text);
-  min-width: 0;
-  @include text-truncate;
 }
 
 /* ── Status badge ── */
@@ -267,26 +194,7 @@
 /* upstream 的「等待資源」狀態用 color: "warning"，但一直沒有對應樣式，這裡補上 */
 .badge_warning { background: color-mix(in srgb, var(--color-pending) 12%, transparent); color: var(--color-pending); }
 
-/* ── Review comment ── */
-/* 駁回原因與失敗訊息是整段文字，在 .detailBody 的橫排裡各自獨佔一行。 */
-.reviewComment {
-  display: flex;
-  align-items: flex-start;
-  flex-basis: 100%;
-  gap: 5px;
-  padding: 8px 12px;
-  border-radius: $radius-8;
-  background: color-mix(in srgb, var(--color-danger) 8%, transparent);
-  color: var(--color-danger);
-  font-size: $font-size-12;
-  line-height: $line-height-base;
-}
-
-/* ── Error log modal ── */
-.logModal {
-  max-width: 560px;
-}
-
+/* ── Error log modal：外框由共用 Modal（size="log"）提供 ── */
 .logText {
   margin: 0;
   padding: 12px;
@@ -302,62 +210,6 @@
   max-height: 300px;
   overflow-y: auto;
   user-select: text;
-}
-
-/* ── Confirm Modal ── */
-.modalOverlay {
-  @include dialog-overlay-avoid-ai;
-  position: fixed;
-  inset: 0;
-  background: var(--color-overlay);
-  z-index: 300;
-  @include flex-center;
-  padding: $spacing-16;
-  backdrop-filter: blur(4px);
-  -webkit-backdrop-filter: blur(4px);
-  animation: fadeIn 0.15s ease;
-}
-
-@keyframes fadeIn  { from { opacity: 0; } to   { opacity: 1; } }
-@keyframes fadeOut { from { opacity: 1; } to   { opacity: 0; } }
-
-.modalOverlayOut { animation: fadeOut 0.15s ease forwards; }
-
-.modal {
-  width: 100%;
-  max-width: 400px;
-  @include glass-surface;
-  border-radius: $radius-16;
-  padding: $spacing-24;
-  @include flex-column;
-  gap: $spacing-16;
-  animation: slideUp 0.18s cubic-bezier(0.25, 0.8, 0.25, 1);
-}
-
-@keyframes slideUp {
-  from { opacity: 0; transform: translateY(12px); }
-  to   { opacity: 1; transform: translateY(0);    }
-}
-
-.modalTitle {
-  font-size: $font-size-16;
-  font-weight: $font-weight-700;
-  color: var(--color-text-primary);
-  overflow-wrap: anywhere;
-}
-
-/* 內文常插入主機名稱等連續長字串，強制可斷行以免撐破彈窗 */
-.modalDesc {
-  font-size: $font-size-14;
-  color: var(--color-text-secondary);
-  line-height: $line-height-base;
-  overflow-wrap: anywhere;
-}
-
-.modalActions {
-  display: flex;
-  justify-content: flex-end;
-  gap: $spacing-8;
 }
 
 .btnDanger {

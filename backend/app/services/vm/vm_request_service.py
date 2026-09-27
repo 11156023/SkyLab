@@ -15,6 +15,7 @@ from app.core.authorizers import (
 from app.core.i18n import t
 from app.core.permissions import Permission, has_permission, is_admin
 from app.core.security import encrypt_value
+from app.domain.resource_markers import RESOURCE_DELETED_MARKERS
 from app.exceptions import (
     BadRequestError,
     NotFoundError,
@@ -1071,14 +1072,21 @@ def retry(
         raise BadRequestError(
             t("vm_request.retry_requires_approved", status=db_request.status.value)
         )
-    if db_request.vmid is not None:
-        raise BadRequestError(
-            t("vm_request.retry_already_provisioned")
-        )
     if db_request.provisioning_status != VMProvisioningStatus.failed:
         raise BadRequestError(
             t("vm_request.retry_requires_failed")
         )
+    if db_request.vmid is not None:
+        # 機器已建好、是之後開機失敗：failed 會讓排程當成「使用者已刪機」而跳過，
+        # 永遠不再自動開機，所以要重設狀態讓 worker 與排程重新接手（只會開機，不會再 clone）。
+        # 使用者刪機留下的已消耗申請不能被重試復活。
+        if db_request.resource_warning in RESOURCE_DELETED_MARKERS:
+            raise BadRequestError(t("vm_request.retry_already_provisioned"))
+        db_request.provisioning_status = VMProvisioningStatus.pending
+        db_request.provisioning_error = None
+        session.add(db_request)
+        session.commit()
+        session.refresh(db_request)
 
     _submit_provision(session, db_request)
     return _to_public(db_request)

@@ -15,6 +15,7 @@
   "teachingClasses.environmentNotForFormalCourse": "此環境僅供快速練習，不能套用到正式課程",
   "teachingClasses.courseVersionNoMachines": "課程版本沒有可派發的機器",
   "teachingClasses.archivedCannotEditWeeklyContent": "已結束的班級不可修改每週內容",
+  "teachingClasses.weekTargetNodeUnknown": "週次指定的機器不在此班級中：{keys}",
   "teachingClasses.weekDatesMustMatchSchedule": "週次日期必須由班級固定課表產生，不可手動新增或刪除",
   "teachingClasses.weekNotFound": "找不到指定週次",
   "teachingClasses.invalidFileName": "檔案名稱無效",

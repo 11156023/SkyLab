@@ -118,6 +118,11 @@
   color: var(--color-text-muted);
 }
 
+/* 申請金鑰對話框：按鈕列左側的提示，把按鈕推到右邊 */
+.footerHint {
+  margin-right: auto;
+}
+
 /* ── Buttons ── */
 %btn-base {
   display: inline-flex;
@@ -1129,47 +1134,7 @@
   text-align: center;
 }
 
-/* ── 新增金鑰彈窗 ── */
-.dialogOverlay {
-  @include dialog-overlay-avoid-ai;
-  position: fixed;
-  inset: 0;
-  z-index: 300;
-  @include flex-center;
-  padding: $spacing-16;
-  background: var(--color-overlay);
-  backdrop-filter: blur(4px);
-  animation: fadeIn 0.15s ease;
-  transition: opacity 0.15s ease;
-}
-
-.dialogOverlayOut {
-  animation: none;
-  opacity: 0;
-  pointer-events: none;
-}
-
-@keyframes fadeIn {
-  from { opacity: 0; }
-  to   { opacity: 1; }
-}
-
-.dialog {
-  width: min(520px, 100%);
-  max-height: 88vh;
-  overflow-y: auto;
-  @include flex-column;
-  gap: $spacing-16;
-  padding: $spacing-24;
-  @include glass-surface($shadow: var(--shadow-lg));
-  border-radius: $radius-12;
-  animation: slideUp 0.18s cubic-bezier(0.25, 0.8, 0.25, 1);
-}
-
-.keyDetailDialog {
-  width: min(640px, 100%);
-}
-
+/* ── 金鑰詳細視窗（外框是共用 Modal，這裡只排內容） ── */
 .keyDetailList {
   display: flex;
   flex-direction: column;
@@ -1227,82 +1192,7 @@
   }
 }
 
-.keyDetailActions {
-  display: flex;
-  justify-content: flex-end;
-  flex-wrap: wrap;
-  gap: $spacing-8;
-}
-
-/* API 快速開始：標題列固定、內容區往下捲；單欄長條，寬度以程式碼一行放得下為準 */
-.quickStartDialog {
-  width: min(960px, 100%);
-  padding: 0;
-  gap: 0;
-  overflow: hidden;
-}
-
-.quickStartHeader {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: $spacing-24 $spacing-24 $spacing-16;
-  border-bottom: 1px solid var(--color-divider);
-}
-
-.quickStartHeading {
-  flex: 1;
-  min-width: 0;
-}
-
-.quickStartBody {
-  min-height: 0;
-  padding: $spacing-24;
-  overflow-y: auto;
-}
-
-@keyframes slideUp {
-  from { opacity: 0; transform: translateY(12px); }
-  to   { opacity: 1; transform: translateY(0); }
-}
-
-.dialogHeader {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: $spacing-16;
-}
-
-.dialogTitle {
-  margin: 0;
-  font-size: $font-size-18;
-  font-weight: $font-weight-700;
-  color: var(--color-text-primary);
-}
-
-.dialogClose {
-  @include btn-dialog-close;
-  flex-shrink: 0;
-}
-
-.dialogFooter {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  flex-wrap: wrap;
-  gap: $spacing-8;
-}
-
-.dialogActions {
-  display: flex;
-  justify-content: flex-end;
-  gap: $spacing-8;
-  margin-left: auto;
-}
-
 @media (prefers-reduced-motion: reduce) {
-  .dialog,
-  .dialogOverlay,
   .usageRecordSummary,
   .usageRecordChevron {
     animation: none;

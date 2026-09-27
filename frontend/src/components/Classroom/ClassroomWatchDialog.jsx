@@ -1,8 +1,9 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { VncScreen } from "react-vnc";
 import { useTranslation } from "react-i18next";
 import styles from "./Classroom.module.scss";
 import MIcon from "../MIcon";
+import Modal from "../Modal/Modal";
 import { AuthStorage } from "../../services/auth";
 import { ClassroomService } from "../../services/classroom";
 import { wsBaseUrl } from "../../hooks/useClassroomSocket";
@@ -26,6 +27,7 @@ export default function ClassroomWatchDialog({
   const [controlling, setControlling] = useState(false);
   const [controlBusy, setControlBusy] = useState(false);
   const [closing, setClosing] = useState(false);
+  const titleId = useId();
   const closeTimerRef = useRef(null);
 
   useEffect(() => () => {
@@ -69,60 +71,67 @@ export default function ClassroomWatchDialog({
     closeTimerRef.current = window.setTimeout(onClose, 150);
   };
 
+  /* 畫面型：蓋過 AI 助手；接管控制時鍵盤要全部交給學生畫面，所以 Esc 不關 */
   return (
-    <div className={`${styles.overlay} ${closing ? styles.overlayOut : ""}`} onClick={handleClose}>
-      <div className={styles.dialog} onClick={(e) => e.stopPropagation()}>
-        <div className={styles.header}>
-          <span className={styles.headerIcon}>
-            <MIcon name="cast" size={16} />
+    <Modal
+      bare
+      layer="screen"
+      size="xl"
+      className={styles.dialog}
+      closing={closing}
+      onClose={handleClose}
+      aria-labelledby={titleId}
+    >
+      <div className={styles.header}>
+        <span className={styles.headerIcon}>
+          <MIcon name="cast" size={16} />
+        </span>
+        <span className={styles.headerTitleGroup}>
+          <span id={titleId} className={styles.headerTitle}>{title || t("ClassroomWatchDialog.defaultTitle")}</span>
+          <span
+            className={`${styles.statusDot} ${connected ? styles.dot_connected : styles.dot_connecting}`}
+          />
+          <span className={styles.statusText}>
+            {connected ? t("ClassroomWatchDialog.statusConnected") : t("ClassroomWatchDialog.statusConnecting")}
+            {!viewOnly && t("ClassroomWatchDialog.statusTakenOverSuffix")}
           </span>
-          <span className={styles.headerTitleGroup}>
-            <span className={styles.headerTitle}>{title || t("ClassroomWatchDialog.defaultTitle")}</span>
-            <span
-              className={`${styles.statusDot} ${connected ? styles.dot_connected : styles.dot_connecting}`}
-            />
-            <span className={styles.statusText}>
-              {connected ? t("ClassroomWatchDialog.statusConnected") : t("ClassroomWatchDialog.statusConnecting")}
-              {!viewOnly && t("ClassroomWatchDialog.statusTakenOverSuffix")}
-            </span>
-          </span>
+        </span>
 
-          {canControl && (
-            <button
-              type="button"
-              className={`${styles.headerBtn} ${controlling ? styles.headerBtnActive : ""}`}
-              disabled={!connected || controlBusy}
-              onClick={handleControl}
-            >
-              <MIcon name="back_hand" size={14} />
-              {controlling ? t("ClassroomWatchDialog.releaseControl") : t("ClassroomWatchDialog.takeControl")}
-            </button>
-          )}
-          <button type="button" className={styles.closeBtn} onClick={handleClose} title={t("ClassroomWatchDialog.closeTitle")}>
-            <MIcon name="close" size={18} />
+        {canControl && (
+          <button
+            type="button"
+            className={`${styles.headerBtn} ${controlling ? styles.headerBtnActive : ""}`}
+            disabled={!connected || controlBusy}
+            onClick={handleControl}
+          >
+            <MIcon name="back_hand" size={14} />
+            {controlling ? t("ClassroomWatchDialog.releaseControl") : t("ClassroomWatchDialog.takeControl")}
           </button>
-        </div>
-
-        <div className={styles.vncWrap}>
-          {!connected && wsUrl && (
-            <div className={styles.vncLoading}>
-              <MIcon name="hourglass_empty" size={28} spin />
-              {t("ClassroomWatchDialog.connecting")}
-            </div>
-          )}
-          {wsUrl && (
-            <VncScreen
-              ref={vncRef}
-              url={wsUrl}
-              scaleViewport
-              viewOnly={viewOnly}
-              onConnect={() => setConnected(true)}
-              onDisconnect={() => setConnected(false)}
-              style={{ width: "100%", height: "100%", background: "#000" }}
-            />
-          )}
-        </div>
+        )}
+        <button type="button" className={styles.closeBtn} onClick={handleClose} title={t("ClassroomWatchDialog.closeTitle")} aria-label={t("ClassroomWatchDialog.closeTitle")}>
+          <MIcon name="close" size={18} />
+        </button>
       </div>
-    </div>
+
+      <div className={styles.vncWrap}>
+        {!connected && wsUrl && (
+          <div className={styles.vncLoading}>
+            <MIcon name="hourglass_empty" size={28} spin />
+            {t("ClassroomWatchDialog.connecting")}
+          </div>
+        )}
+        {wsUrl && (
+          <VncScreen
+            ref={vncRef}
+            url={wsUrl}
+            scaleViewport
+            viewOnly={viewOnly}
+            onConnect={() => setConnected(true)}
+            onDisconnect={() => setConnected(false)}
+            style={{ width: "100%", height: "100%", background: "#000" }}
+          />
+        )}
+      </div>
+    </Modal>
   );
 }

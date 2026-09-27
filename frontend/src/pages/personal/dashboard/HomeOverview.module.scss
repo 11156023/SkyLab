@@ -10,8 +10,9 @@
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  justify-content: space-between;
-  gap: $spacing-8;
+  /* 動作鈕貼著標題，寬螢幕上不會漂到最右端、與卡片脫節 */
+  justify-content: flex-start;
+  gap: $spacing-8 $spacing-16;
 
   h2 {
     margin: 0;
@@ -22,7 +23,10 @@
   }
 }
 
-/* 區塊標題旁的「查看全部」類低強調動作 */
+/* 區塊標題旁的「查看全部」：白底細框，在漸層背景上才看得見 */
+.headingAction { @include btn-secondary; }
+
+/* 空狀態裡的低強調動作 */
 .textButton {
   @include btn-ghost;
   min-height: 32px;
@@ -33,17 +37,17 @@
 /* 頁首動作鈕走共用 btn-secondary（同教師首頁等頁首按鈕：36px、14/500） */
 .headerButton { @include btn-secondary; }
 
-/* 機器卡、快速練習卡同一組欄寬，兩區塊上下對齊 */
+/* 機器卡的欄寬；課程票券、快速練習資料夾用同一組，各區塊上下對齊 */
 .machineGrid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(min(100%, 240px), 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 280px), 1fr));
   gap: $spacing-16;
 }
 
-/* 欄寬同機器卡；資料夾上緣的標籤頁佔在資料夾自己的 margin-top 裡 */
-.folderGrid {
+/* 課程票券：欄寬同機器卡 */
+.courseGrid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(min(100%, 240px), 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 280px), 1fr));
   gap: $spacing-16;
 }
 
@@ -57,19 +61,63 @@
   color: var(--color-text-muted);
 }
 
+/* 「以上都不符合」的出口：整條可點的淡卡片，比一行字更像入口 */
 .researchLink {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
   gap: $spacing-8 $spacing-16;
-  padding: 0 $spacing-8;
+  width: 100%;
+  padding: 14px $spacing-16;
+  @include glass-surface($shadow: var(--shadow-sm));
+  border-radius: $radius-12;
   color: var(--color-text-secondary);
+  font: inherit;
   font-size: $font-size-14;
+  text-align: left;
+  cursor: pointer;
+  /* 可點卡片：hover 只加深陰影並微上浮，不改框色（同 HomeCard .clickable） */
+  transition: transform $transition-base, box-shadow $transition-base;
 
-  > div {
-    display: flex;
-    align-items: center;
-    gap: 12px;
+  &:hover {
+    transform: translateY(-2px);
+    box-shadow: var(--shadow-md);
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--color-primary);
+    outline-offset: 3px;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    transition: box-shadow $transition-base;
+
+    &:hover { transform: none; }
+  }
+}
+
+.researchLabel {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  color: var(--color-text-primary);
+
+  > span:first-child { color: var(--color-primary-on-surface); }
+}
+
+.researchGo {
+  display: inline-flex;
+  align-items: center;
+  gap: $spacing-4;
+  color: var(--color-primary-on-surface);
+  font-weight: $font-weight-500;
+
+  > span { transition: transform $transition-base; }
+
+  .researchLink:hover & > span { transform: translateX(3px); }
+
+  @media (prefers-reduced-motion: reduce) {
+    .researchLink:hover & > span { transform: none; }
   }
 }

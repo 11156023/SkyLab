@@ -17,7 +17,6 @@ class UserCreate(BaseModel):
     password: str = Field(min_length=8, max_length=128)
     is_active: bool = True
     role: UserRole = UserRole.student
-    is_superuser: bool = False
     full_name: str | None = Field(default=None, max_length=255)
     avatar_url: str | None = Field(default=None, max_length=2048)
     totp_required: bool = False  # 強制此帳號啟用兩步驟驗證
@@ -39,7 +38,6 @@ class UserUpdate(BaseModel):
     password: str | None = Field(default=None, min_length=8, max_length=128)
     is_active: bool | None = None
     role: UserRole | None = None
-    is_superuser: bool | None = None
     full_name: str | None = Field(default=None, max_length=255)
     avatar_url: str | None = Field(default=None, max_length=2048)
     totp_required: bool | None = None  # 強制此帳號啟用兩步驟驗證
@@ -78,7 +76,7 @@ class UserPublic(BaseModel):
     email: EmailStr
     is_active: bool
     role: UserRole
-    is_superuser: bool
+    is_superuser: bool  # 由 role 推導，保留給前端相容
     full_name: str | None = None
     avatar_url: str | None = None
     auth_source: str = "local"  # "local" | "ldap"（LDAP 帳號的本地密碼欄位應鎖住）

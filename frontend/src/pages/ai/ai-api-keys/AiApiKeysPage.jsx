@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import styles from "./AiApiKeysPage.module.scss";
 import MIcon from "../../../components/MIcon";
+import Modal from "../../../components/Modal/Modal";
 import LoadingState from "../../../components/LoadingState/LoadingState";
 import SharedEmptyState from "../../../components/EmptyState/EmptyState";
 import { AiApiService } from "../../../services/aiApi";
@@ -128,21 +129,21 @@ function RevokeDialog({ item, closing = false, onClose, onDone }) {
   };
 
   return (
-    <div className={`${styles.dialogOverlay} ${closing ? styles.dialogOverlayOut : ""}`} role="presentation" onMouseDown={() => { if (!busy) onClose(); }}>
-      <div className={styles.dialog} role="dialog" aria-modal="true" aria-labelledby="ai-api-key-revoke-title" onMouseDown={(event) => event.stopPropagation()}>
-        <div className={styles.dialogHeader}>
-          <div className={styles.dialogIcon}><MIcon name="warning" size={20} /></div>
-          <div>
-            <h2 id="ai-api-key-revoke-title" className={styles.dialogTitle}>{t("AiApiKeysPage.revokeConfirmTitle")}</h2>
-            <p className={styles.dialogDesc}>{t("AiApiKeysPage.revokeConfirmDesc", { name: item.api_key_name })}</p>
-          </div>
-        </div>
-        <div className={styles.dialogFooter}>
+    <Modal
+      role="alertdialog"
+      closing={closing}
+      onClose={onClose}
+      busy={busy}
+      icon={<span className={styles.revokeIcon}><MIcon name="warning" size={20} /></span>}
+      title={t("AiApiKeysPage.revokeConfirmTitle")}
+      description={t("AiApiKeysPage.revokeConfirmDesc", { name: item.api_key_name })}
+      actions={
+        <>
           <button type="button" className={styles.btnSecondary} onClick={onClose} disabled={busy}>{t("AiApiKeysPage.cancel")}</button>
           <button type="button" className={styles.btnDanger} onClick={handleRevoke} disabled={busy}>{busy ? t("AiApiKeysPage.revoking") : t("AiApiKeysPage.confirmRevoke")}</button>
-        </div>
-      </div>
-    </div>
+        </>
+      }
+    />
   );
 }
 

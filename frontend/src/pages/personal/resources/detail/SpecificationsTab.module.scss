@@ -37,6 +37,12 @@
   opacity: 0.55;
 }
 
+/* 整欄已經淡化，裡面的控制項不再疊 form-control 的 disabled 透明度（不然會淡兩次）；
+   雙類名壓過 .field textarea:disabled 這類巢狀選擇器 */
+.fieldDisabled.fieldDisabled :disabled {
+  opacity: 1;
+}
+
 .labelRow {
   @include flex-between;
   gap: $spacing-16;

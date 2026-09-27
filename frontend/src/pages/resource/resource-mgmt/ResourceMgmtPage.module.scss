@@ -88,7 +88,6 @@
 /* ── 勾選欄 ── */
 .checkCell {
   width: 36px;
-  text-align: center;
 }
 
 .checkbox {
@@ -319,18 +318,15 @@
 .actions {
   display: flex;
   align-items: center;
-  justify-content: flex-end;
   gap: $spacing-8;
   flex-wrap: nowrap;
 
   > * { flex-shrink: 0; }
 }
 
-/* 只有動作欄的內容靠右（讓 ⋮ 對齊），表頭位置維持不動；
-   右側留白比其他欄多一階，⋮ 才不會貼著表格邊緣 */
+/* 動作欄右側留白比其他欄多一階，內容不會貼著表格邊緣 */
 .td:last-child {
   padding-right: $spacing-24;
-  text-align: right;
 }
 
 /* ── Console button ── */

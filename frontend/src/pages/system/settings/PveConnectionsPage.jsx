@@ -1,9 +1,9 @@
-import { useCallback, useEffect, useId, useState } from "react";
-import { createPortal } from "react-dom";
+import { useCallback, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import styles from "./settings.module.scss";
 import MIcon from "../../../components/MIcon";
+import Modal from "../../../components/Modal/Modal";
 import LoadingState from "../../../components/LoadingState/LoadingState";
 import EmptyState from "../../../components/EmptyState/EmptyState";
 import { useConfirm } from "../../../components/ConfirmDialog/ConfirmProvider";
@@ -63,17 +63,8 @@ function connectionToForm(conn) {
 
 function ConnectionForm({ initial, isEdit, saving, closing = false, onSubmit, onCancel }) {
   const { t } = useTranslation("system");
-  const titleId = useId();
   const [form, setForm] = useState(initial);
   const set = (name, value) => setForm((prev) => ({ ...prev, [name]: value }));
-
-  useEffect(() => {
-    const onKeyDown = (e) => {
-      if (e.key === "Escape" && !saving) onCancel();
-    };
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [saving, onCancel]);
 
   function handleSubmit(e) {
     e.preventDefault();
@@ -104,29 +95,26 @@ function ConnectionForm({ initial, isEdit, saving, closing = false, onSubmit, on
     onSubmit(payload);
   }
 
-  /* 掛到 document.body：外層若加了 backdrop-filter／transform，
-     position: fixed 的遮罩會被困在那一層、蓋不滿整個畫面（同 AdminPage） */
-  return createPortal(
-    <div
-      className={`${styles.modalOverlay} ${closing ? styles.modalOverlayOut : ""}`}
-      onMouseDown={onCancel}
-    >
-    <form
-      className={styles.modal}
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby={titleId}
+  /* 外框（遮罩、標題列、Esc、焦點、捲動鎖）交給共用 Modal；儲存中 Esc／點遮罩／× 都不關 */
+  return (
+    <Modal
+      as="form"
       onSubmit={handleSubmit}
-      onMouseDown={(e) => e.stopPropagation()}
+      closing={closing}
+      onClose={onCancel}
+      busy={saving}
+      closeButton
+      size="md"
+      title={isEdit ? t("SettingsPage.editConnection") : t("SettingsPage.addConnection")}
+      actions={
+        <>
+          <button type="button" className={styles.btnSecondary} onClick={onCancel}>{t("SettingsPage.cancel")}</button>
+          <button type="submit" className={styles.btnPrimary} disabled={saving}>
+            {saving ? t("SettingsPage.saving") : t("SettingsPage.saveConnection")}
+          </button>
+        </>
+      }
     >
-      <div className={styles.modalHeader}>
-        <h2 id={titleId} className={styles.modalTitle}>
-          {isEdit ? t("SettingsPage.editConnection") : t("SettingsPage.addConnection")}
-        </h2>
-        <button type="button" className={styles.dialogClose} onClick={onCancel} aria-label={t("SettingsPage.close")}>
-          <MIcon name="close" size={18} />
-        </button>
-      </div>
       <h3 className={styles.sectionTitle}>{t("SettingsPage.connectionSettingsTitle")}</h3>
       <div className={styles.modalFormGrid}>
         <label className={styles.field}>
@@ -228,15 +216,7 @@ function ConnectionForm({ initial, isEdit, saving, closing = false, onSubmit, on
           <span>{t("SettingsPage.setAsDefaultConnection")}</span>
         </label>
       </div>
-      <div className={styles.modalActions}>
-        <button type="button" className={styles.btnSecondary} onClick={onCancel}>{t("SettingsPage.cancel")}</button>
-        <button type="submit" className={styles.btnPrimary} disabled={saving}>
-          {saving ? t("SettingsPage.saving") : t("SettingsPage.saveConnection")}
-        </button>
-      </div>
-    </form>
-    </div>,
-    document.body,
+    </Modal>
   );
 }
 

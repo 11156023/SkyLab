@@ -121,6 +121,12 @@
     color: var(--color-text-muted);
     background: var(--color-hover);
   }
+
+  /* 與按鈕的 disabled 一致；少了這條，同一張卡片停用時按鈕變淡、輸入框卻全亮，看起來還能填 */
+  &:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
 }
 
 @mixin form-control-invalid {

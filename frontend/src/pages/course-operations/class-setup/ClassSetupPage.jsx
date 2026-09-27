@@ -3,6 +3,7 @@ import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import MIcon from "../../../components/MIcon";
 import PageHeader from "../../../components/PageHeader/PageHeader";
+import Stepper from "../../../components/Stepper/Stepper";
 import EmptyState from "../../../components/EmptyState/EmptyState";
 import LoadingState from "../../../components/LoadingState/LoadingState";
 import { CourseEnvironmentsService } from "../../../services/courseEnvironments";
@@ -265,11 +266,17 @@ export default function ClassSetupPage() {
     </PageHeader>
 
     <section className={styles.stepperBar}>
-      <nav className={styles.stepper} aria-label={t("ClassSetupPage.stepperAriaLabel")}>{STEPS.map(([key, labelKey], index) => {
-        const number = index + 1;
-        const done = number < step || (number <= 4 && completed[index]);
-        return <button type="button" key={key} disabled={!classId && number > 1} className={`${step === number ? styles.stepActive : ""} ${done ? styles.stepDone : ""}`} onClick={() => number <= step && go(number)}><span>{done ? <MIcon name="check" size={13} /> : number}</span><strong>{t(labelKey)}</strong></button>;
-      })}</nav>
+      {/* 精靈只能往回跳：還沒走到的步驟停用；班級還沒建立前只能停在第一步 */}
+      <Stepper
+        className={styles.stepperMain}
+        ariaLabel={t("ClassSetupPage.stepperAriaLabel")}
+        steps={STEPS.map(([key, labelKey], index) => {
+          const number = index + 1;
+          return { key, label: t(labelKey), done: number < step || (number <= 4 && completed[index]), disabled: number > step || (!classId && number > 1) };
+        })}
+        activeKey={STEPS[step - 1]?.[0]}
+        onSelect={(key) => go(STEPS.findIndex(([k]) => k === key) + 1)}
+      />
       <div className={styles.stepperProgress}><span>{t("ClassSetupPage.progressLabel")}</span><strong>{t("ClassSetupPage.progressCount", { count: provisionReady })}</strong></div>
     </section>
 

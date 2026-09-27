@@ -88,31 +88,23 @@
     @include table-tr;
   }
 
-  /* 欄寬：對象與數字欄固定，剩餘寬度全給最後的操作欄（按鈕貼右緣），
+  /* 欄寬：對象與數字欄固定，剩餘寬度全給最後的操作欄，
      資料欄集中在左側，不會在對象與數字之間留一大段空白 */
   .colTarget {
     width: 280px;
   }
 
-  /* 靠右的欄位要掛在 .table 底下，權重才壓得過 table-th 的 text-align: left */
-  /* 數字欄：靠右＋等寬數字，上下列位數對齊 */
+  /* 數字欄：等寬數字；與表頭一樣靠左（全站表格表頭與內容一律靠左對齊） */
   .num {
     width: 112px;
-    text-align: right;
     font-variant-numeric: tabular-nums;
     white-space: nowrap;
-  }
-
-  .thRight,
-  .tdRight {
-    text-align: right;
   }
 }
 
 /* 列上的淡底圖示鈕之間留 8px，同使用者管理、PVE 連線的列動作 */
 .rowActions {
   display: flex;
-  justify-content: flex-end;
   gap: $spacing-8;
 }
 
@@ -131,77 +123,6 @@
 
 .btnIconDanger {
   @include btn-icon($danger: true);
-}
-
-/* ── Modal ── */
-.modalOverlay {
-  @include dialog-overlay-avoid-ai;
-  position: fixed;
-  inset: 0;
-  background: var(--color-overlay);
-  backdrop-filter: blur(4px);
-  -webkit-backdrop-filter: blur(4px);
-  z-index: 300;
-  @include flex-center;
-  padding: $spacing-16;
-  animation: fadeIn 0.15s ease;
-  transition: opacity 0.15s ease;
-}
-
-.modalOverlayOut {
-  animation: none;
-  opacity: 0;
-  pointer-events: none;
-}
-
-@keyframes fadeIn {
-  from { opacity: 0; }
-  to   { opacity: 1; }
-}
-
-@keyframes slideUp {
-  from { opacity: 0; transform: translateY(12px); }
-  to   { opacity: 1; transform: translateY(0); }
-}
-
-/* 表單型 Dialog 規範（同 PVE 連線對話框）：毛玻璃卡＋shadow-lg、小型表單寬 640 */
-.modal {
-  animation: slideUp 0.18s cubic-bezier(0.25, 0.8, 0.25, 1);
-  @include flex-column;
-  gap: $spacing-16;
-  width: 100%;
-  max-width: 640px;
-  max-height: 88vh;
-  overflow-y: auto;
-  padding: $spacing-24;
-  @include glass-surface($shadow: var(--shadow-lg));
-  border-radius: $radius-16;
-}
-
-/* 標題列：標題靠左、右上關閉鈕 */
-.modalHeader {
-  @include flex-between;
-  gap: $spacing-8;
-}
-
-.modalTitle {
-  display: inline-flex;
-  align-items: center;
-  gap: $spacing-8;
-  font-size: $font-size-16;
-  font-weight: $font-weight-700;
-  color: var(--color-text-primary);
-}
-
-.dialogClose {
-  @include btn-dialog-close;
-  flex-shrink: 0;
-}
-
-.modalActions {
-  display: flex;
-  justify-content: flex-end;
-  gap: $spacing-8;
 }
 
 .formGrid {

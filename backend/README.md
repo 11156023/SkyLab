@@ -63,7 +63,7 @@ backend/
 | `migration_jobs.py` | VM 遷移工作追蹤 |
 | `resources.py` | 節點 / VM / LXC 列表、使用者資源 |
 | `resource_details.py` | 規格、RRD、快照、直接規格更新 |
-| `proxmox_config.py` | Cluster 連線設定、憑證驗證、cluster 統計 |
+| `proxmox_config.py` | PVE 連線（多叢集）、節點、Storage、放置／排程策略 |
 | `firewall.py` | 防火牆拓撲、規則、NAT、Reverse Proxy |
 | `gateway.py` | 閘道主機 SSH、nginx / WireGuard 管理與憑證同步 |
 | `ai_api.py` | AI API 憑證、申請審核、流量限制 |

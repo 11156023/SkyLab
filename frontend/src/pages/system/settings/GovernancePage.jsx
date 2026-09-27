@@ -92,15 +92,6 @@ function useSections(t) {
       toggles: [],
       fields: [{ key: "provision_max_concurrency", label: t("GovernanceTab.provisionMaxConcurrency"), min: 1, max: 16 }],
     },
-    {
-      title: t("GovernanceTab.courseLabTitle"),
-      desc: t("GovernanceTab.courseLabDesc"),
-      toggles: [],
-      fields: [
-        { key: "course_ttl_hours", label: t("GovernanceTab.courseTtlHours"), min: 1, max: 24, hint: t("GovernanceTab.courseTtlHoursHint") },
-        { key: "course_max_active_per_user", label: t("GovernanceTab.courseMaxActivePerUser"), min: 1, max: 5 },
-      ],
-    },
   ], [t]);
 }
 

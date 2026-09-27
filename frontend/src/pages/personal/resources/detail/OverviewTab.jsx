@@ -10,6 +10,9 @@ import { useAuth } from "../../../../contexts/AuthContext";
 import styles from "./ResourceDetailPage.module.scss";
 import ov from "./OverviewTab.module.scss";
 import MIcon from "../../../../components/MIcon";
+import MachineKindBadge from "../../../../components/MachineKindBadge/MachineKindBadge";
+import KpiCard from "./KpiCard";
+import { coreSegments, gbSegments } from "./kpiBar";
 import LoadingState from "../../../../components/LoadingState/LoadingState";
 import ErrorState from "../../../../components/ErrorState/ErrorState";
 import NotFoundState from "../../../../components/ErrorState/NotFoundState";
@@ -105,33 +108,6 @@ function formatDateTime(value, lang) {
 
 /* ── sub-components ── */
 
-function Kpi({ icon, label, value, unit, caption, pct, text = false }) {
-  const showBar = typeof pct === "number" && Number.isFinite(pct);
-  return (
-    <div className={ov.kpi}>
-      <div className={ov.kpiHead}>
-        <span className={ov.kpiLabel}>{label}</span>
-        <span className={ov.kpiIcon}>
-          <MIcon name={icon} size={18} />
-        </span>
-      </div>
-      <div className={`${ov.kpiValue} ${text ? ov.kpiValue_text : ""}`}>
-        {value}
-        {unit && <span className={ov.kpiUnit}>{unit}</span>}
-      </div>
-      {caption && <span className={ov.kpiCaption}>{caption}</span>}
-      {showBar && (
-        <div className={ov.bar} role="progressbar" aria-valuenow={pct} aria-valuemin={0} aria-valuemax={100}>
-          <div
-            className={`${ov.barFill} ${pct >= 90 ? ov.barFill_danger : ""}`}
-            style={{ width: `${Math.min(pct, 100)}%` }}
-          />
-        </div>
-      )}
-    </div>
-  );
-}
-
 function InfoRow({ label, note, children }) {
   return (
     <div className={ov.row}>
@@ -195,7 +171,7 @@ function SecretRow({ label, value, secret = false, note, copyId, copied, onCopy,
 
 /* ── main ── */
 
-export default function OverviewTab({ vmid }) {
+export default function OverviewTab({ vmid, access = null }) {
   const { t, i18n } = useTranslation("personal");
   const lang = i18n.language || "zh-TW";
   const toast = useToast();
@@ -316,6 +292,8 @@ export default function OverviewTab({ vmid }) {
   const bootedAt = uptimeSec ? formatDateTime(new Date(Date.now() - uptimeSec * 1000), lang) : null;
   const mem = splitBytes(memMax);
   const disk = splitBytes(diskMax);
+  /* 每 10 秒抓回來的即時讀數都是新物件，指標卡拿它判斷「剛到一筆」而閃綠點 */
+  const liveSample = isRunning ? live : null;
 
   const daysLeft = resource.expiry_date ? daysUntil(resource.expiry_date) : null;
   const expiryDanger = daysLeft != null && daysLeft <= 7;
@@ -325,6 +303,16 @@ export default function OverviewTab({ vmid }) {
     if (daysLeft < 0) return t("OverviewTab.expiryExpired", { count: -daysLeft });
     return t("OverviewTab.expiryDaysLeft", { count: daysLeft });
   })();
+
+  /* 個人申請的核准使用時段（後端 start_window_state）：沒有到期日的機器改用時段交代期限 */
+  const windowBlocked = resource.start_blocked_reason ?? null;
+  const windowStateKey = windowBlocked === "window_ended"
+    ? "OverviewTab.windowEnded"
+    : windowBlocked === "window_not_started" ? "OverviewTab.windowNotStarted" : null;
+  const windowRange = resource.window_start_at && resource.window_end_at
+    ? `${formatDateTime(resource.window_start_at, lang)} – ${formatDateTime(resource.window_end_at, lang)}`
+    : null;
+  const showWindowInHero = Boolean(windowRange) && !resource.expiry_date;
 
   const reasonKey = resource.auto_stop_reason ? AUTO_STOP_REASON_KEYS[resource.auto_stop_reason] : null;
   const roleKey = ROLE_KEYS[resource.access_role] ?? ROLE_KEYS.owner;
@@ -354,21 +342,42 @@ export default function OverviewTab({ vmid }) {
                     <span className={ov.mono}>VMID {resource.vmid}</span>
                   </>
                 )}
+                {/* 機器來源（班級機器、共享給我…）：原本在頁首標題旁，併進這行說明 */}
+                {access && (
+                  <>
+                    <span className={ov.sep} aria-hidden="true" />
+                    <MachineKindBadge
+                      plain
+                      kind={access.machine_kind}
+                      classRelation={access.class_relation}
+                      ownerName={access.owner_name ?? access.owner_email}
+                      teachingClassName={access.teaching_class_name}
+                    />
+                  </>
+                )}
               </div>
             </div>
           </div>
 
           <div className={ov.heroSide}>
             <span className={`${ov.status} ${ov[`status_${statusMeta.tone}`]}`}>
-              <span className={`${ov.statusDot} ${isRunning ? ov.statusDot_live : ""}`} aria-hidden="true" />
+              <span className={ov.statusDot} aria-hidden="true" />
               {statusMeta.labelKey ? t(statusMeta.labelKey) : statusMeta.label}
             </span>
-            <span className={`${ov.expiry} ${expiryDanger ? ov.expiry_danger : ""}`}>
-              <MIcon name="event" size={14} />
-              {resource.expiry_date
-                ? `${formatDate(resource.expiry_date, lang)} · ${expiryText}`
-                : expiryText}
-            </span>
+            {showWindowInHero ? (
+              <span className={`${ov.expiry} ${windowBlocked ? ov.expiry_danger : ""}`}>
+                <MIcon name={windowBlocked ? "event_busy" : "event"} size={14} />
+                {t("OverviewTab.windowUntil", { date: formatDateTime(resource.window_end_at, lang) })}
+                {windowStateKey && ` · ${t(windowStateKey)}`}
+              </span>
+            ) : (
+              <span className={`${ov.expiry} ${expiryDanger ? ov.expiry_danger : ""}`}>
+                <MIcon name="event" size={14} />
+                {resource.expiry_date
+                  ? `${formatDate(resource.expiry_date, lang)} · ${expiryText}`
+                  : expiryText}
+              </span>
+            )}
           </div>
         </div>
 
@@ -418,25 +427,33 @@ export default function OverviewTab({ vmid }) {
         </div>
       </section>
 
-      {/* 資源指標 */}
+      {/* 資源指標：用量條依核心／GB 切格；CPU、記憶體記峰值；有即時讀數的格子每 10 秒閃一下綠點 */}
       <div className={ov.kpiGrid}>
-        <Kpi
+        <KpiCard
           icon="memory"
           label="CPU"
           value={resource.maxcpu ?? "—"}
           unit={t("OverviewTab.coresUnit")}
           caption={cpuPct != null ? t("OverviewTab.liveUsage", { pct: cpuPct }) : t("OverviewTab.allocated")}
           pct={cpuPct}
+          segments={coreSegments(resource.maxcpu)}
+          trackPeak
+          live={cpuPct != null}
+          sample={liveSample}
         />
-        <Kpi
+        <KpiCard
           icon="sd_card"
           label={t("MonitoringTab.memory")}
           value={mem.value}
           unit={mem.unit}
           caption={memPct != null ? t("OverviewTab.liveUsage", { pct: memPct }) : t("OverviewTab.allocated")}
           pct={memPct}
+          segments={gbSegments(memMax)}
+          trackPeak
+          live={memPct != null}
+          sample={liveSample}
         />
-        <Kpi
+        <KpiCard
           icon="storage"
           label={t("MonitoringTab.disk")}
           value={disk.value}
@@ -447,13 +464,18 @@ export default function OverviewTab({ vmid }) {
               : (diskMax ? t("OverviewTab.allocated") : t("OverviewTab.noDiskData"))
           }
           pct={diskPct}
+          segments={gbSegments(diskMax)}
+          live={diskPct != null}
+          sample={liveSample}
         />
-        <Kpi
+        <KpiCard
           icon="schedule"
           label={t("OverviewTab.uptimeLabel")}
           value={uptimeText ?? "—"}
           text
           caption={uptimeText ? t("OverviewTab.uptimeSince", { time: bootedAt }) : t("OverviewTab.notRunning")}
+          live={Boolean(uptimeText)}
+          sample={liveSample}
         />
       </div>
 
@@ -518,16 +540,28 @@ export default function OverviewTab({ vmid }) {
               <InfoRow label={t("OverviewTab.osLabel")}>
                 {resource.os_info ?? <span className={ov.muted}>{t("OverviewTab.notSet")}</span>}
               </InfoRow>
-              <InfoRow label={t("OverviewTab.expiryLabel")}>
-                {resource.expiry_date ? (
-                  <>
-                    {formatDate(resource.expiry_date, lang)}
-                    <span className={`${ov.pill} ${expiryDanger ? ov.pill_danger : ""}`}>{expiryText}</span>
-                  </>
-                ) : (
-                  <span className={ov.muted}>{expiryText}</span>
-                )}
-              </InfoRow>
+              {/* 沒有到期日、期限由使用時段決定時，不再寫「無期限」跟下一列打架 */}
+              {!showWindowInHero && (
+                <InfoRow label={t("OverviewTab.expiryLabel")}>
+                  {resource.expiry_date ? (
+                    <>
+                      {formatDate(resource.expiry_date, lang)}
+                      <span className={`${ov.pill} ${expiryDanger ? ov.pill_danger : ""}`}>{expiryText}</span>
+                    </>
+                  ) : (
+                    <span className={ov.muted}>{expiryText}</span>
+                  )}
+                </InfoRow>
+              )}
+              {windowRange && (
+                <InfoRow
+                  label={t("OverviewTab.windowLabel")}
+                  note={windowBlocked === "window_ended" ? t("OverviewTab.windowEndedNote") : null}
+                >
+                  {windowRange}
+                  {windowStateKey && <span className={`${ov.pill} ${ov.pill_danger}`}>{t(windowStateKey)}</span>}
+                </InfoRow>
+              )}
               {resource.auto_stop_at && (
                 <InfoRow label={t("OverviewTab.autoStopLabel")} note={reasonKey ? t(reasonKey) : null}>
                   {formatDateTime(resource.auto_stop_at, lang)}

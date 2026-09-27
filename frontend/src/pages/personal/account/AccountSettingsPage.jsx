@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
 import styles from "./AccountSettingsPage.module.scss";
@@ -291,12 +291,24 @@ function TwoFactorSection() {
   const [code, setCode] = useState("");
   const [disabling, setDisabling] = useState(false);
   const codeRef = useRef(null);
+  const titleId = useId();
 
   function closeDialog() {
     if (disabling) return;
     setDialog(null);
     setCode("");
   }
+
+  const closeDialogRef = useRef(closeDialog);
+  closeDialogRef.current = closeDialog;
+  useEffect(() => {
+    if (!dialog) return undefined;
+    const onKeyDown = (e) => {
+      if (e.key === "Escape") closeDialogRef.current();
+    };
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, [dialog]);
 
   function handleEnabled() {
     updateUser({ totp_enabled: true, totp_setup_required: false });
@@ -335,9 +347,6 @@ function TwoFactorSection() {
         <h2 className={styles.cardTitle}>{t("TwoFactorSection.title")}</h2>
 
         <div className={styles.twoFactorStatus}>
-          <span className={`${styles.twoFactorIcon} ${enabled ? styles.twoFactorIconOn : ""}`}>
-            <MIcon name={enabled ? "verified_user" : "shield"} size={22} />
-          </span>
           <div className={styles.twoFactorText}>
             <strong>
               {enabled ? t("TwoFactorSection.statusOn") : t("TwoFactorSection.statusOff")}
@@ -361,7 +370,6 @@ function TwoFactorSection() {
             </button>
           ) : (
             <button type="button" className={styles.btnPrimary} onClick={() => setDialog("enable")}>
-              <MIcon name="qr_code_2" size={16} />
               {t("TwoFactorSection.enable")}
             </button>
           )}
@@ -382,15 +390,29 @@ function TwoFactorSection() {
             onMouseDown={(e) => e.stopPropagation()}
             role="dialog"
             aria-modal="true"
+            aria-labelledby={titleId}
           >
             {activeDialog === "enable" ? (
               <>
-                <h2>{t("TwoFactorSection.enableTitle")}</h2>
+                <div className={styles.dialogHeader}>
+                  <h2 id={titleId}>{t("TwoFactorSection.enableTitle")}</h2>
+                  <button
+                    type="button"
+                    className={styles.dialogClose}
+                    onClick={closeDialog}
+                    aria-label={t("TwoFactorSection.close")}
+                  >
+                    <MIcon name="close" size={18} />
+                  </button>
+                </div>
                 <TotpEnrollment onConfirmed={handleEnabled} onCancel={closeDialog} />
               </>
             ) : (
               <form onSubmit={handleDisable} className={styles.form}>
-                <h2>{t("TwoFactorSection.disableTitle")}</h2>
+                <h2 id={titleId} className={styles.confirmTitle}>
+                  <span className={styles.confirmTitleIcon}><MIcon name="warning" size={20} /></span>
+                  {t("TwoFactorSection.disableTitle")}
+                </h2>
                 <p>{t("TwoFactorSection.disableDesc")}</p>
                 <input
                   ref={codeRef}
@@ -443,6 +465,7 @@ function DangerZoneSection() {
   const [confirmText, setConfirmText] = useState("");
   const [deleting, setDeleting] = useState(false);
   const confirmWord = t("DangerZoneTab.confirmWord");
+  const confirmTitleId = useId();
 
   /* 關閉一律清掉輸入：否則打完確認字再取消，下次開啟按鈕已是可按狀態 */
   function closeConfirm() {
@@ -450,6 +473,17 @@ function DangerZoneSection() {
     setShowConfirm(false);
     setConfirmText("");
   }
+
+  const closeConfirmRef = useRef(closeConfirm);
+  closeConfirmRef.current = closeConfirm;
+  useEffect(() => {
+    if (!showConfirm) return undefined;
+    const onKeyDown = (e) => {
+      if (e.key === "Escape") closeConfirmRef.current();
+    };
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, [showConfirm]);
 
   async function handleDelete() {
     setDeleting(true);
@@ -472,7 +506,6 @@ function DangerZoneSection() {
         </p>
         <div className={styles.formActions}>
           <button type="button" className={styles.btnDanger} onClick={() => setShowConfirm(true)}>
-            <MIcon name="delete_forever" size={16} />
             {t("DangerZoneTab.deleteAccount")}
           </button>
         </div>
@@ -486,11 +519,18 @@ function DangerZoneSection() {
           className={`${styles.modalOverlay} ${confirmDialog.closing ? styles.modalOverlayOut : ""}`}
           onMouseDown={closeConfirm}
         >
-          <div className={styles.confirm} onMouseDown={(e) => e.stopPropagation()}>
-            <div className={styles.confirmIcon}>
-              <MIcon name="warning" size={24} />
-            </div>
-            <h2>{t("DangerZoneTab.confirmTitle")}</h2>
+          <div
+            className={styles.confirm}
+            onMouseDown={(e) => e.stopPropagation()}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby={confirmTitleId}
+          >
+            {/* 同共用確認框：紅色 warning 圖示放在標題前，不另佔一行 */}
+            <h2 id={confirmTitleId} className={styles.confirmTitle}>
+              <span className={styles.confirmTitleIcon}><MIcon name="warning" size={20} /></span>
+              {t("DangerZoneTab.confirmTitle")}
+            </h2>
             <p>
               {t("DangerZoneTab.confirmDescPart1")}<strong>{t("DangerZoneTab.confirmDescBold")}</strong>{t("DangerZoneTab.confirmDescPart2")} <code>{confirmWord}</code> {t("DangerZoneTab.confirmDescPart3")}
             </p>
@@ -500,6 +540,7 @@ function DangerZoneSection() {
               onChange={(e) => setConfirmText(e.target.value)}
               placeholder={t("DangerZoneTab.confirmPlaceholder", { word: confirmWord })}
               disabled={deleting}
+              autoFocus
             />
             <div className={styles.modalActions}>
               <button

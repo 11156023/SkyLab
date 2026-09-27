@@ -65,9 +65,9 @@ async function render(template) {
   });
 }
 
-const dropzone = () => host.querySelector("input[type=file]").closest("label");
+const dropzone = () => document.body.querySelector("input[type=file]").closest("label");
 const attachmentCount = () =>
-  host.querySelectorAll(`button[title="${dict["TemplateFormDialog.removeAttachmentTitle"]}"]`).length;
+  document.body.querySelectorAll(`button[title="${dict["TemplateFormDialog.removeAttachmentTitle"]}"]`).length;
 
 function file(name, size) {
   const f = new File(["x"], name);
@@ -104,8 +104,8 @@ describe("TemplateFormDialog 附件一次多檔", () => {
 
     expect(mocks.uploadAttachment).not.toHaveBeenCalled();
     expect(attachmentCount()).toBe(2);
-    expect(host.textContent).toContain("a.pdf");
-    expect(host.textContent).toContain("b.png");
+    expect(document.body.textContent).toContain("a.pdf");
+    expect(document.body.textContent).toContain("b.png");
     expect(mocks.toast.error).toHaveBeenCalledTimes(2);
     expect(mocks.toast.error).toHaveBeenCalledWith(
       translate("TemplateFormDialog.unsupportedFileType", { files: "c.exe、d.sh" }),
@@ -183,7 +183,7 @@ describe("TemplateFormDialog 附件一次多檔", () => {
     await drop([file("a.pdf"), file("b.pdf")]);
 
     expect(attachmentCount()).toBe(1);
-    expect(host.textContent).toContain("a.pdf");
+    expect(document.body.textContent).toContain("a.pdf");
     expect(mocks.toast.success).not.toHaveBeenCalled();
     expect(mocks.toast.error).toHaveBeenCalledWith(
       translate("TemplateFormDialog.attachmentUploadPartialFail", { files: "b.pdf" }),

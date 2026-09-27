@@ -409,70 +409,9 @@
   color: var(--color-text-muted);
 }
 
-/* ── JobDetailDialog ── */
-
-.dialogOverlay {
-  @include dialog-overlay-avoid-ai;
-  position: fixed;
-  inset: 0;
-  z-index: 300;
-  @include flex-center;
-  padding: $spacing-16;
-  background: var(--color-overlay);
-  backdrop-filter: blur(4px);
-  -webkit-backdrop-filter: blur(4px);
-  animation: jobs-fade-in 0.15s ease;
-  transition: opacity 0.15s ease;
-}
-
-.dialogOverlayOut {
-  animation: none;
-  opacity: 0;
-  pointer-events: none;
-}
-
-@keyframes jobs-fade-in {
-  from { opacity: 0; }
-  to   { opacity: 1; }
-}
-
-@keyframes jobs-slide-up {
-  from { opacity: 0; transform: translateY(12px); }
-  to   { opacity: 1; transform: translateY(0); }
-}
-
-/* Dialog 基準對齊樣式規範：毛玻璃卡，不用實色 surface + 邊框 */
-.dialog {
-  animation: jobs-slide-up 0.18s cubic-bezier(0.25, 0.8, 0.25, 1);
-  width: min(640px, 100%);
-  max-height: 88vh;
-  overflow-y: auto;
-  padding: $spacing-24;
-  @include glass-surface($shadow: var(--shadow-lg));
-  border-radius: $radius-16;
-}
-
-/* 標題列：標題靠左、右上關閉鈕，垂直置中（同其他表單型 Dialog） */
-.dialogHeader {
-  @include flex-between;
-  gap: $spacing-8;
-}
-
-.dialogTitle {
-  min-width: 0;
-  font-size: $font-size-16;
-  font-weight: $font-weight-700;
-  color: var(--color-text-primary);
-  @include text-truncate;
-}
-
-.dialogClose {
-  @include btn-dialog-close;
-  flex-shrink: 0;
-}
+/* ── JobDetailDialog：外框（遮罩、標題列、捲動）由共用 Modal 提供，這裡只放內容 ── */
 
 .dialogJobId {
-  margin-top: 2px;
   font-size: $font-size-12;
   color: var(--color-text-muted);
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
@@ -482,7 +421,6 @@
 .dialogBody {
   @include flex-column;
   gap: $spacing-16;
-  margin-top: $spacing-16;
 }
 
 .dialogStatusRow {

@@ -1,64 +1,3 @@
-/* ── Overlay ── */
-.overlay {
-  @include dialog-overlay-avoid-ai;
-  position: fixed;
-  inset: 0;
-  background: var(--color-overlay);
-  @include flex-center;
-  z-index: 300;
-  padding: $spacing-16;
-  backdrop-filter: blur(4px);
-  animation: fadeIn 0.15s ease;
-  transition: opacity 0.15s ease;
-}
-
-.overlayOut {
-  animation: none;
-  opacity: 0;
-  pointer-events: none;
-}
-
-@keyframes fadeIn {
-  from { opacity: 0; }
-  to   { opacity: 1; }
-}
-
-.dialog {
-  @include glass-surface($shadow: var(--shadow-lg));
-  border-radius: $radius-16;
-  width: 100%;
-  max-width: 640px; /* 規範 Dialog 寬度級距：小型單欄表單款 */
-  @include flex-column;
-  max-height: 90vh;
-  overflow: hidden;
-  animation: slideUp 0.18s cubic-bezier(0.25, 0.8, 0.25, 1);
-}
-
-@keyframes slideUp {
-  from { opacity: 0; transform: translateY(12px); }
-  to   { opacity: 1; transform: translateY(0); }
-}
-
-/* ── Header ── */
-.dialogHeader {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: $spacing-16 $spacing-24;
-  border-bottom: 1px solid var(--color-border);
-  flex-shrink: 0;
-}
-
-.dialogTitle {
-  font-size: $font-size-16;
-  font-weight: $font-weight-700;
-  color: var(--color-text-primary);
-}
-
-.closeBtn {
-  @include btn-dialog-close;
-}
-
 /* ── 分頁：連線 / 自訂規則 ── */
 /* ── 意圖：第一步四張卡，選定後收合成一行 ── */
 .intentGrid {
@@ -137,14 +76,6 @@
   white-space: nowrap;
 }
 
-/* ── Body ── */
-.dialogBody {
-  @include flex-column;
-  gap: $spacing-16;
-  padding: $spacing-24;
-  overflow-y: auto;
-}
-
 /* ── 鎖定的機器（資源頁入口、編輯既有發布）：顯示名稱，不放只有一個選項的下拉 ── */
 .lockedMachine {
   display: flex;
@@ -185,9 +116,12 @@
   @include form-field;
 }
 
-/* 沒有標題的欄位（例如與 port 並排的 HTTPS 勾選框）貼齊底部，和旁邊的輸入框對齊 */
+/* 沒有標題的欄位（例如與 port 並排的 HTTPS 勾選框）貼齊底部，和旁邊的輸入框對齊；
+   勾選列撐到與輸入框同高（36px），勾選框才會對齊輸入框的垂直中心而不是貼底 */
 .fieldAlignEnd {
   justify-content: flex-end;
+
+  .checkRow { min-height: 36px; }
 }
 
 /* 字級／字重／顏色由 .field 的 form-field mixin 繼承；只補 mixin 給 > span 的標籤節奏 */
@@ -249,13 +183,13 @@
   display: flex;
   width: 100%;
 
+  /* 維持 SegmentedControl 的 inline-flex（圖示垂直置中＋間距），只改成平分寬度、內容置中；
+     改成 display: block 會讓圖示偏上且黏著文字 */
   button {
     flex: 1 1 0;
     min-width: 0;
-    display: block;
+    justify-content: center;
     overflow: hidden;
-    text-overflow: ellipsis;
-    text-align: center;
   }
 }
 
@@ -299,17 +233,73 @@
   &::placeholder { color: var(--color-text-muted); }
 }
 
-/* type=number 疊 datalist 會同時出現捲軸鈕與下拉箭頭；
-   port 是編號不是數量，藏掉捲軸鈕、留 datalist 的建議下拉 */
-.textInput,
-.portInput {
-  appearance: textfield;
+/* ── Port 輸入框＋常用 port 下拉（PortInput）── */
+.portCombo {
+  position: relative;
+  min-width: 0;
 
-  &::-webkit-inner-spin-button,
-  &::-webkit-outer-spin-button {
-    appearance: none;
-    margin: 0;
+  .portInput { width: 100%; }
+}
+
+/* 右側留位置給展開鈕 */
+.portInputWithToggle {
+  padding-right: 36px;
+}
+
+.portToggle {
+  position: absolute;
+  top: 50%;
+  right: 4px;
+  transform: translateY(-50%);
+  @include flex-center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: $radius-8;
+  background: transparent;
+  color: var(--color-text-muted);
+  cursor: pointer;
+
+  &:hover:not(:disabled) {
+    background: var(--color-hover);
+    color: var(--color-text);
   }
+
+  &:disabled { cursor: not-allowed; }
+}
+
+/* portal 到 body 的 fixed 選單：層級要高於對話框遮罩（300） */
+.portMenu {
+  position: fixed;
+  z-index: 320;
+  max-height: 280px;
+  overflow-y: auto;
+  margin: 0;
+  padding: $spacing-4;
+  list-style: none;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: $radius-12;
+  box-shadow: var(--shadow-lg);
+}
+
+.portMenuItem {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: $spacing-8;
+  padding: 7px $spacing-8;
+  border-radius: $radius-8;
+  font-size: $font-size-14;
+  color: var(--color-text);
+  cursor: pointer;
+
+  :global(.material-icons-outlined) { color: var(--color-primary); }
+}
+
+.portMenuItemActive {
+  background: var(--color-hover);
 }
 
 /* 疊兩次類名壓過 form-control 的 focus 樣式（同 style guide 的 .fieldInvalid 寫法） */
@@ -370,16 +360,7 @@
   padding: $spacing-8 $spacing-16;
 }
 
-/* ── Actions ── */
-.actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: $spacing-8;
-  padding-top: $spacing-8;
-  border-top: 1px solid var(--color-border);
-}
-
-/* 取消／確認：與全站確認彈窗（ConfirmDialog 基準）同款 */
+/* 取消／確認：放進共用 Modal 的按鈕列，與全站確認彈窗同款 */
 .cancelBtn {
   @include btn-secondary;
 }
@@ -388,16 +369,13 @@
   @include btn-primary;
 }
 
-/* ── port 欄位不需要整列寬：固定寬度、靠左排 ── */
+/* ── port 列：輸入框撐滿、協定 112px（放得下 icmpv6＋下拉箭頭）、移除鈕 32px（= btn-icon）──
+   固定窄寬靠左會在右側空出一大片，也跟對話框其他整列欄位對不齊 */
 .portRow {
-  grid-template-columns: 128px 104px 28px;
+  grid-template-columns: minmax(0, 1fr) 112px 32px;
 }
 
 .forwardRowHeader,
 .forwardRow {
-  grid-template-columns: 128px 128px 104px 28px;
-}
-
-.fieldNarrow {
-  max-width: 160px;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 112px 32px;
 }

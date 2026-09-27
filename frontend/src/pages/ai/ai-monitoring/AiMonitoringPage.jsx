@@ -17,6 +17,7 @@ import i18n from "../../../i18n";
 import LoadingState from "../../../components/LoadingState/LoadingState";
 import SharedEmptyState from "../../../components/EmptyState/EmptyState";
 import { AiMonitoringService } from "../../../services/aiMonitoring";
+import { MonitoringService } from "../../../services/monitoring";
 import { useToast } from "../../../hooks/useToast";
 import useAutoRefresh from "../../../hooks/useAutoRefresh";
 import PageHeader from "../../../components/PageHeader/PageHeader";
@@ -367,7 +368,7 @@ function DetailTable({ tab, calls, users, models, runtimeModels, query, statusFi
     ));
     if (!visibleModels.length) return <EmptyState icon="model_training" title={t("AiMonitoringPage.emptyModelBreakdown")} />;
     return <div className={styles.tableWrap}><table className={styles.table}>
-      <thead><tr><th className={styles.th}>{t("AiMonitoringPage.colModel")}</th><th className={styles.th}>{t("AiMonitoringPage.colRuntimeStatus")}</th><th className={styles.th}>{t("AiMonitoringPage.colDeployments")}</th><th className={`${styles.th} ${styles.thRight}`}>{t("AiMonitoringPage.colCallCount")}</th><th className={`${styles.th} ${styles.thRight}`}>{t("AiMonitoringPage.colTokensTotal")}</th><th className={`${styles.th} ${styles.thRight}`}>{t("AiMonitoringPage.colFailRate")}</th><th className={`${styles.th} ${styles.thRight}`}>{t("AiMonitoringPage.colAvgLatency")}</th></tr></thead>
+      <thead><tr><th className={styles.th}>{t("AiMonitoringPage.colModel")}</th><th className={styles.th}>{t("AiMonitoringPage.colRuntimeStatus")}</th><th className={styles.th}>{t("AiMonitoringPage.colDeployments")}</th><th className={styles.th}>{t("AiMonitoringPage.colCallCount")}</th><th className={styles.th}>{t("AiMonitoringPage.colTokensTotal")}</th><th className={styles.th}>{t("AiMonitoringPage.colFailRate")}</th><th className={styles.th}>{t("AiMonitoringPage.colAvgLatency")}</th></tr></thead>
       <tbody>{visibleModels.map((model) => <tr key={`${model.model_name}:${model.runtime_name ?? "usage"}`} className={styles.tr}><td className={`${styles.td} ${styles.monoCell}`}>{model.total_calls > 0 ? <button type="button" className={styles.modelDrilldown} onClick={() => onModelSelect(model.model_name)} title={t("AiMonitoringPage.viewModelCalls", { model: formatModelDisplay(model.model_name) })}><span>{formatModelDisplay(model.model_name)}</span><MIcon name="arrow_forward" size={15} /></button> : <span>{formatModelDisplay(model.model_name)}</span>}</td><td className={styles.td}><ModelRuntimeBadge status={model.runtime_status} t={t} /></td><td className={styles.td}>{model.runtime_status ? t("AiMonitoringPage.deploymentCount", { healthy: model.healthy_deployments, unhealthy: model.unhealthy_deployments }) : "—"}</td><td className={`${styles.td} ${styles.numericCell}`}>{formatNumber(model.total_calls)}</td><td className={`${styles.td} ${styles.numericCell}`}>{formatTokens(model.total_tokens)}</td><td className={`${styles.td} ${styles.numericCell}`}>{formatPercent(model.error_rate)}</td><td className={`${styles.td} ${styles.numericCell}`}>{formatDuration(model.avg_latency_ms)}</td></tr>)}</tbody>
     </table></div>;
   }
@@ -384,10 +385,10 @@ function DetailTable({ tab, calls, users, models, runtimeModels, query, statusFi
         <table className={styles.table}>
           <thead><tr>
             <th className={styles.th}>{t("AiMonitoringPage.colUser")}</th>
-            <th className={`${styles.th} ${styles.thRight}`}>{t("AiMonitoringPage.colCallCount")}</th>
-            <th className={`${styles.th} ${styles.thRight}`}>{t("AiMonitoringPage.colTokensTotal")}</th>
-            <th className={`${styles.th} ${styles.thRight}`}>{t("AiMonitoringPage.colAvgLatency")}</th>
-            <th className={`${styles.th} ${styles.thRight}`}>{t("AiMonitoringPage.colFailRate")}</th>
+            <th className={styles.th}>{t("AiMonitoringPage.colCallCount")}</th>
+            <th className={styles.th}>{t("AiMonitoringPage.colTokensTotal")}</th>
+            <th className={styles.th}>{t("AiMonitoringPage.colAvgLatency")}</th>
+            <th className={styles.th}>{t("AiMonitoringPage.colFailRate")}</th>
           </tr></thead>
           <tbody>{visibleUsers.map((user) => {
             const totalCalls = (user.proxy_calls ?? 0) + (user.template_calls ?? 0);
@@ -426,11 +427,11 @@ function DetailTable({ tab, calls, users, models, runtimeModels, query, statusFi
           <th className={styles.th}>{t("AiMonitoringPage.colUser")}</th>
           <th className={styles.th}>{t("AiMonitoringPage.colModel")}</th>
           <th className={styles.th}>{t("AiMonitoringPage.colType")}</th>
-          <th className={`${styles.th} ${styles.thRight}`}>{t("AiMonitoringPage.colInput")}</th>
-          <th className={`${styles.th} ${styles.thRight}`}>{t("AiMonitoringPage.colOutput")}</th>
-          <th className={`${styles.th} ${styles.thRight}`}>{t("AiMonitoringPage.colDuration")}</th>
-          <th className={`${styles.th} ${styles.thRight}`}>{t("AiMonitoringPage.colFirstToken")}</th>
-          <th className={`${styles.th} ${styles.thRight}`}>{t("AiMonitoringPage.colOutputRate")}</th>
+          <th className={styles.th}>{t("AiMonitoringPage.colInput")}</th>
+          <th className={styles.th}>{t("AiMonitoringPage.colOutput")}</th>
+          <th className={styles.th}>{t("AiMonitoringPage.colDuration")}</th>
+          <th className={styles.th}>{t("AiMonitoringPage.colFirstToken")}</th>
+          <th className={styles.th}>{t("AiMonitoringPage.colOutputRate")}</th>
           <th className={styles.th}>{t("AiMonitoringPage.colUsageEvidence")}</th>
           <th className={styles.th}>{t("AiMonitoringPage.colStatus")}</th>
         </tr></thead>
@@ -474,6 +475,9 @@ export default function AiMonitoringPage() {
   const [runtimeError, setRuntimeError] = useState(false);
   const [lastUpdated, setLastUpdated] = useState(null);
   const [detailFocusRequest, setDetailFocusRequest] = useState(0);
+  /* 監控 stack 有啟用且目前是管理員才顯示「SkyLab AI」儀表板連結（查詢失敗或 403 就不顯示）；
+     同一支 API 會設定 Grafana 免密碼登入的 cookie，頁面開著時定期續期 */
+  const [grafanaUrl, setGrafanaUrl] = useState(null);
   const detailSectionRef = useRef(null);
   const modelRows = useMemo(
     () => mergeModelRows(overview?.model_breakdown, runtime?.models),
@@ -568,6 +572,22 @@ export default function AiMonitoringPage() {
   }, [preset, t, toast]);
 
   useEffect(() => { load(); }, [load]);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    const refresh = () =>
+      MonitoringService.createGrafanaSession({ signal: controller.signal })
+        .then((link) =>
+          setGrafanaUrl(link?.enabled && link.url ? `${link.url.replace(/\/+$/, "")}/d/skylab-ai` : null),
+        )
+        .catch(() => {});
+    refresh();
+    const timer = setInterval(refresh, 30 * 60_000);
+    return () => {
+      controller.abort();
+      clearInterval(timer);
+    };
+  }, []);
   useAutoRefresh(() => load(true));
 
   useEffect(() => {
@@ -625,6 +645,12 @@ export default function AiMonitoringPage() {
             onChange={setPreset}
             ariaLabel={t("AiMonitoringPage.rangeLabel")}
           />
+          {grafanaUrl && (
+            <a className={styles.linkBtn} href={grafanaUrl} target="_blank" rel="noopener noreferrer">
+              <MIcon name="open_in_new" size={16} />
+              {t("AiMonitoringPage.openGrafana")}
+            </a>
+          )}
         </div>
       </PageHeader>
 

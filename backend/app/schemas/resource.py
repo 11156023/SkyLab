@@ -212,6 +212,13 @@ class ResourcePublic(BaseModel):
         default="personal",
         description="個人申請／共享給我／班級機器／快速練習／課程實驗",
     )
+    # ── 個人申請的核准使用時段（課堂機器不受限，一律為 None）──
+    start_blocked_reason: Literal["window_not_started", "window_ended"] | None = Field(
+        default=None,
+        description="目前不能開機的原因：時段尚未開始／時段已結束；可以開機為 None",
+    )
+    window_start_at: datetime | None = Field(default=None, description="核准使用時段起")
+    window_end_at: datetime | None = Field(default=None, description="核准使用時段迄")
     class_relation: Literal["student", "teacher"] | None = Field(
         default=None,
         description="班級機：我是這班的學生（機器分給我）或這班的老師（機器是學生的）",

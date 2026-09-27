@@ -2,57 +2,12 @@
 @use "../../../../assets/styles/mixins" as *;
 @use "./studentShared" as *;
 
-/* ── 頁首 ── */
+/* ── 頁首：共用 PageHeader，返回鍵放右側動作區（同班級工作區、資源詳情） ── */
 
-.coursePageHeader {
-  @include glass-surface($shadow: none);
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
-  align-items: center;
-  gap: $spacing-16;
-  padding: $spacing-16;
-  border-radius: $radius-16;
-}
-
-.courseBackButton {
-  display: inline-flex;
-  align-items: center;
-  gap: $spacing-8;
-  min-height: 40px;
-  padding: 8px 12px;
-  border: 1px solid var(--color-border);
-  border-radius: $radius-8;
-  background: var(--color-hover);
-  color: var(--color-text-primary);
-  font: inherit;
-  font-size: 13px;
-  font-weight: $font-weight-700;
-  cursor: pointer;
-}
-
-.coursePageTitle {
-  min-width: 0;
-
-  h1 {
-    @include text-truncate;
-    margin: 2px 0 3px;
-    color: var(--color-text-primary);
-    font-size: $font-size-24;
-  }
-
-  > p:last-child {
-    @include text-truncate;
-    color: var(--color-text-secondary);
-    font-size: 13px;
-  }
-}
-
-.eyebrow {
-  margin: 0;
-  color: var(--color-primary);
-  font-size: $font-size-12;
-  font-weight: $font-weight-700;
-  letter-spacing: 0.04em;
+.backBtn {
+  @include btn-secondary;
+  box-shadow: var(--shadow-sm);
+  white-space: nowrap;
 }
 
 .guideDemoNotice {
@@ -64,64 +19,78 @@
   border-radius: $radius-12;
   background: color-mix(in srgb, var(--color-primary) 6%, var(--color-surface));
   color: var(--color-primary-on-surface);
-  font-size: 13px;
+  font-size: $font-size-12;
 
   span { display: flex; flex-wrap: wrap; gap: 4px; }
 }
 
-/* ── 課堂卡片 ── */
+/* ── 版面：同週任務頁（左欄主要內容、右欄狀態與機器） ── */
 
-.mainGrid {
-  display: block;
+.layout {
+  display: grid;
+  /* 右欄放機器名稱（映像檔名常很長），比週任務頁寬一些 */
+  grid-template-columns: minmax(0, 1.25fr) minmax(360px, 1fr);
+  align-items: start;
+  gap: $spacing-16;
+
+  @include respond-below(lg) {
+    grid-template-columns: minmax(0, 1fr);
+
+    /* 單欄時先看到課堂狀態與開機入口，任務排在後面 */
+    .side { order: -1; }
+  }
 }
 
-.classCard {
-  @include glass-surface;
-  border-radius: $radius-16;
-  @include flex-column;
+.side {
+  display: grid;
   gap: $spacing-16;
+  min-width: 0;
+}
+
+.panel {
+  @include glass-surface;
+  display: grid;
+  gap: $spacing-16;
+  min-width: 0;
   padding: $spacing-16;
-  overflow: hidden;
-  position: relative;
+  border-radius: $radius-16;
 
   @include respond-to(sm) { padding: $spacing-24; }
-
-  &::after {
-    content: "";
-    position: absolute;
-    top: -90px;
-    right: -80px;
-    width: 230px;
-    height: 230px;
-    border-radius: 50%;
-    background: color-mix(in srgb, var(--color-primary) 9%, transparent);
-    pointer-events: none;
-  }
 }
 
-.classCardTop {
+/* 面板標題：圖示磚＋標題＋說明，右側可接狀態徽章（同週任務頁 .panelHeading） */
+.panelHeading {
   display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: $spacing-16;
-  position: relative;
-  z-index: 1;
+  align-items: center;
+  gap: 11px;
 
-  > div { min-width: 0; }
+  > span:first-child {
+    @include flex-center;
+    width: 38px;
+    height: 38px;
+    flex: 0 0 auto;
+    border-radius: $radius-8;
+    color: var(--color-primary);
+    background: color-mix(in srgb, var(--color-primary) 11%, var(--color-surface));
+  }
+
+  > div {
+    flex: 1;
+    min-width: 0;
+  }
 
   h2 {
-    margin: 5px 0 6px;
+    margin: 0;
     color: var(--color-text-primary);
-    font-size: $font-size-24;
-    line-height: 1.35;
+    font-size: $font-size-18;
   }
-}
 
-.classDescription {
-  max-width: 680px;
-  color: var(--color-text-secondary);
-  font-size: $font-size-14;
-  line-height: $line-height-base;
+  p {
+    margin: 3px 0 0;
+    color: var(--color-text-muted);
+    font-size: $font-size-12;
+    line-height: 1.5;
+  }
 }
 
 .statusBadge {
@@ -131,6 +100,7 @@
   gap: 5px;
   padding: 5px 9px;
   flex-shrink: 0;
+  align-self: flex-start;
   background: color-mix(in srgb, currentColor 10%, transparent);
 }
 
@@ -144,11 +114,13 @@
 
 .muted { color: var(--color-text-muted); }
 
+/* ── 課堂狀態 ── */
+
 .courseContext {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
-  gap: $spacing-16;
+  gap: $spacing-8 $spacing-16;
   color: var(--color-text-secondary);
   font-size: $font-size-12;
 
@@ -157,6 +129,17 @@
     align-items: center;
     gap: 5px;
   }
+}
+
+.progress {
+  display: grid;
+  gap: 6px;
+}
+
+.progressLabel {
+  color: var(--color-text-secondary);
+  font-size: $font-size-12;
+  font-weight: $font-weight-500;
 }
 
 .progressTrack {
@@ -174,136 +157,67 @@
   }
 }
 
-.simpleCourseHint {
-  display: inline-flex;
+.hint {
+  display: flex;
   align-items: center;
-  gap: $spacing-8;
-  align-self: flex-start;
-  padding: 8px 10px;
-  border-radius: $radius-8;
-  background: color-mix(in srgb, var(--color-success) 8%, transparent);
-  color: var(--color-success);
+  gap: 6px;
+  margin: 0;
+  color: var(--color-text-secondary);
   font-size: $font-size-12;
 
-  span {
-    color: var(--color-text-secondary);
-  }
+  > span:first-child { color: var(--color-success); }
 }
 
-/* ── 課堂機器 ── */
+/* ── 課堂機器：白底細框的列，整列可點進入，右側資訊鈕 ── */
 
-.machinePicker {
-  position: relative;
-  z-index: 1;
-  display: grid;
-  gap: 10px;
-  padding: 12px;
-  border: 1px solid color-mix(in srgb, var(--color-primary) 28%, var(--color-border));
-  border-radius: $radius-12;
-  background: var(--color-surface);
-  box-shadow: var(--shadow-sm);
-  animation: fadeIn .15s ease;
-
-  > header {
-    display: flex;
-    align-items: flex-start;
-    justify-content: space-between;
-    gap: 12px;
-  }
-
-  > header > div {
-    @include flex-column;
-    gap: 2px;
-  }
-
-  > header strong {
-    color: var(--color-text-primary);
-    font-size: $font-size-14;
-  }
-
-  > header span {
-    color: var(--color-text-secondary);
-    font-size: $font-size-12;
-  }
-
-  > header button {
-    @include flex-center;
-    width: 30px;
-    height: 30px;
-    flex: 0 0 auto;
-    border: 0;
-    border-radius: $radius-8;
-    color: var(--color-text-muted);
-    background: transparent;
-    cursor: pointer;
-
-    &:hover:not(:disabled) { background: var(--color-hover); }
-    &:disabled { cursor: not-allowed; opacity: .4; }
-  }
-}
-
-.machineGrid {
+.machineList {
   display: grid;
   gap: $spacing-8;
-
-  @include respond-to(md) { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 
-.machineOption {
+.machineRow {
   display: grid;
-  min-width: 0;
-  min-height: 66px;
-  padding: 5px;
-  grid-template-columns: minmax(0, 1fr) 38px;
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
-  gap: 5px;
+  gap: $spacing-4;
+  min-width: 0;
+  padding: 6px 8px 6px 6px;
   border: 1px solid var(--color-border);
-  border-radius: $radius-8;
-  color: var(--color-text-muted);
+  border-radius: $radius-12;
   background: var(--color-surface);
-  transition: background $transition-base, box-shadow $transition-base, transform $transition-base;
+  transition: background $transition-base;
 
-  &:has(.machineLaunchButton:hover:not(:disabled)) {
-    background: color-mix(in srgb, var(--color-primary) 6%, var(--color-surface));
-    box-shadow: var(--shadow-sm);
-    transform: translateY(-1px);
-  }
-
-  &:only-child { grid-column: 1 / -1; }
+  /* 可點列：hover 只給淡底、保留淡入淡出，不改框色 */
+  &:has(.machineLaunch:hover:not(:disabled)) { background: var(--color-hover); }
 }
 
-.machineLaunchButton {
+.machineLaunch {
   display: grid;
-  min-width: 0;
-  min-height: 54px;
-  padding: 5px 7px;
-  grid-template-columns: 38px minmax(0, 1fr) auto 18px;
+  grid-template-columns: 36px minmax(0, 1fr) auto;
   align-items: center;
   gap: 10px;
+  min-width: 0;
+  padding: 4px;
   border: 0;
   border-radius: $radius-8;
   color: inherit;
   background: transparent;
+  font: inherit;
   text-align: left;
   cursor: pointer;
 
-  &:hover:not(:disabled) {
-    .machineCopy strong,
-    .machineArrow { color: var(--color-primary); }
-  }
-
   &:focus-visible {
-    outline: 2px solid color-mix(in srgb, var(--color-primary) 55%, transparent);
-    outline-offset: 1px;
+    outline: 2px solid var(--color-primary);
+    outline-offset: 2px;
   }
 
-  &:disabled { cursor: not-allowed; opacity: .4; }
+  &:disabled { cursor: not-allowed; opacity: 0.5; }
 }
 
 .machineIcon {
   @include flex-center;
-  width: 38px;
-  height: 38px;
+  width: 36px;
+  height: 36px;
   border-radius: $radius-8;
   color: var(--color-primary);
   background: color-mix(in srgb, var(--color-primary) 10%, transparent);
@@ -312,79 +226,48 @@
 .machineCopy {
   @include flex-column;
   min-width: 0;
-  gap: 3px;
+  gap: 2px;
 
-  strong,
   small { @include text-truncate; }
 
+  /* 名稱常是完整映像檔名，換行而不截斷 */
   strong {
     color: var(--color-text-primary);
-    font-size: $font-size-12;
+    font-size: $font-size-14;
+    overflow-wrap: anywhere;
   }
 
   small {
     color: var(--color-text-muted);
-    font-size: 11px;
+    font-size: $font-size-12;
   }
 }
 
 .machineState {
   @include badge-base;
-  padding: 4px 7px;
-  color: var(--color-text-muted);
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px;
+  color: var(--color-text-secondary);
   background: var(--color-hover);
   white-space: nowrap;
+
+  > span { transition: transform $transition-base; }
 }
+
+.machineLaunch:hover:not(:disabled) .machineState > span { transform: translateX(2px); }
 
 .machineStateReady {
   color: var(--color-success);
   background: color-mix(in srgb, var(--color-success) 10%, transparent);
 }
 
-.machineArrow {
-  @include flex-center;
-  color: var(--color-text-muted);
-  transition: color $transition-base, transform $transition-base;
-}
+.iconBtn { @include btn-icon; }
 
-.machineLaunchButton:hover:not(:disabled) .machineArrow { transform: translateX(2px); }
+/* ── 任務清單 ── */
 
-.machineInfoButton {
-  @include flex-center;
-  width: 36px;
-  height: 36px;
-  border: 1px solid color-mix(in srgb, var(--color-primary) 22%, var(--color-border));
-  border-radius: 50%;
-  color: var(--color-primary);
-  background: color-mix(in srgb, var(--color-primary) 7%, var(--color-surface));
-  cursor: pointer;
-  transition: background $transition-base, border-color $transition-base, transform $transition-base;
-
-  &:hover:not(:disabled) {
-    border-color: var(--color-primary);
-    background: color-mix(in srgb, var(--color-primary) 14%, var(--color-surface));
-    transform: translateY(-1px);
-  }
-
-  &:focus-visible {
-    outline: 2px solid color-mix(in srgb, var(--color-primary) 55%, transparent);
-    outline-offset: 2px;
-  }
-
-  &:disabled { cursor: not-allowed; opacity: .35; }
-}
-
-/* ── AI 任務列表 ── */
-
-.taskSection {
-  @include glass-surface;
-  border-radius: $radius-16;
-  @include flex-column;
-  gap: $spacing-16;
-  padding: $spacing-16;
-
-  @include respond-to(sm) { padding: $spacing-24; }
-}
+.tasksPanel { align-content: start; }
 
 .taskNumber {
   @include flex-center;
@@ -773,6 +656,14 @@
 /* ── 手機版 ── */
 
 @media (max-width: $breakpoint-sm) {
+  /* 窄螢幕讓機器名稱獨佔一行，進入標籤排到下方 */
+  .machineLaunch { grid-template-columns: 36px minmax(0, 1fr); }
+
+  .machineState {
+    grid-column: 2;
+    justify-self: start;
+  }
+
   .assignmentToggle {
     grid-template-columns: 30px minmax(0, 1fr) 22px;
   }

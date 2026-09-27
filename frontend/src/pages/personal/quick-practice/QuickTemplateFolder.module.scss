@@ -1,0 +1,214 @@
+/* 快速練習資料夾：後板 → 紙（機器）→ 前蓋落影 → 前蓋，依 DOM 順序疊上去。
+   高度固定，紙從前蓋上緣往上一張張疊；顏色見 _themes.scss 的 --color-folder-* */
+.folder {
+  --h: 232px;     /* 整個資料夾 */
+  --flap: 120px;  /* 前蓋 */
+  --band: 22px;   /* 每張紙比前一張多露出的高度 */
+  --lead: 28px;   /* 最前面那張紙露在前蓋上方的高度 */
+  --inset: 16px;  /* 紙在後板裡左右內縮 */
+  --ease: cubic-bezier(0.22, 1, 0.36, 1);
+
+  position: relative;
+  display: block;
+  width: 100%;
+  height: var(--h);
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  perspective: 900px;
+  /* drop-shadow 沿著資料夾輪廓走，box-shadow 只會是方框 */
+  filter: drop-shadow(0 4px 10px color-mix(in srgb, var(--color-primary-dark) 16%, transparent));
+  -webkit-tap-highlight-color: transparent;
+
+  &:focus-visible {
+    outline: 2px solid var(--color-primary);
+    outline-offset: 6px;
+    border-radius: 20px;
+  }
+
+  svg {
+    position: absolute;
+    display: block;
+    overflow: visible;
+  }
+}
+
+.back {
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+/* ── 紙：越靠後越高，每張往下錯開一條 ── */
+.sheet {
+  position: absolute;
+  top: calc(var(--h) - var(--flap) - var(--lead) - var(--depth) * var(--band));
+  right: var(--inset);
+  bottom: 24px;
+  left: var(--inset);
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+  padding: 3px 12px 0;
+  border-radius: $radius-12;
+  /* 越後面的紙帶一點資料夾的藍，疊層才分得開 */
+  background: color-mix(in srgb, var(--color-primary) calc(var(--depth) * 6%), var(--color-folder-paper));
+  box-shadow:
+    0 0 0 0.5px color-mix(in srgb, var(--color-folder-ink) 14%, transparent),
+    0 -1px 6px -2px var(--color-folder-shadow);
+  font-size: $font-size-12;
+  font-weight: $font-weight-500;
+  line-height: 16px;
+  color: var(--color-folder-ink);
+  white-space: nowrap;
+  transition: transform 0.42s var(--ease);
+  transition-delay: calc(var(--depth) * 30ms);
+
+  > :global(.material-icons-outlined) {
+    flex: none;
+    margin-top: 1px;
+    opacity: 0.8;
+  }
+}
+
+.sheetName {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.sheetRole {
+  flex: none;
+  max-width: 45%;
+  overflow: hidden;
+  font-weight: $font-weight-400;
+  opacity: 0.7;
+  text-overflow: ellipsis;
+}
+
+.sheetMore {
+  justify-content: center;
+  font-weight: $font-weight-400;
+  color: color-mix(in srgb, var(--color-folder-ink) 70%, var(--color-folder-paper));
+}
+
+/* 前蓋落在紙上的影子，貼著前蓋上緣 */
+.shade {
+  position: absolute;
+  top: calc(var(--h) - var(--flap) - 24px);
+  right: var(--inset);
+  left: var(--inset);
+  height: 26px;
+  background: linear-gradient(
+    transparent,
+    color-mix(in srgb, var(--color-folder-shadow) 35%, transparent) 75%,
+    color-mix(in srgb, var(--color-folder-shadow) 60%, transparent)
+  );
+  pointer-events: none;
+  transition: transform 0.5s var(--ease);
+}
+
+/* ── 前蓋 ── */
+.front {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  height: var(--flap);
+  transform-origin: 50% 100%;
+  transition: transform 0.5s var(--ease);
+
+  svg {
+    inset: 0;
+    width: 100%;
+    height: 100%;
+  }
+}
+
+.glint {
+  opacity: 0;
+  transition: opacity 0.5s var(--ease);
+}
+
+.label {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  padding: 17px 22px 13px;
+  color: #fff;
+}
+
+.name {
+  font-size: $font-size-18;
+  font-weight: $font-weight-700;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+  text-shadow: 0 1px 1px rgba(20, 38, 84, 0.25);
+}
+
+.description {
+  display: -webkit-box;
+  margin-top: 2px;
+  overflow: hidden;
+  font-size: $font-size-12;
+  line-height: 1.5;
+  color: rgba(255, 255, 255, 0.92);
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  margin-top: auto;
+  padding-top: 6px;
+  font-size: $font-size-12;
+  line-height: 18px;
+  color: rgba(255, 255, 255, 0.92);
+  font-variant-numeric: tabular-nums;
+
+  > span {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    white-space: nowrap;
+  }
+
+  :global(.material-icons-outlined) { opacity: 0.75; }
+}
+
+/* ── 滑入：前蓋往前微傾、紙往上探——只是預覽，點擊才進確認頁 ── */
+@media (hover: hover) {
+  .folder:hover {
+    .front { transform: rotateX(-11deg); }
+    .glint { opacity: 1; }
+    .sheet { transform: translateY(-6px); }
+    .shade { transform: translateY(3px); }
+  }
+}
+
+.folder:focus-visible {
+  .front { transform: rotateX(-11deg); }
+  .sheet { transform: translateY(-6px); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sheet,
+  .shade,
+  .front,
+  .glint { transition: none; }
+
+  .folder:hover,
+  .folder:focus-visible {
+    .front,
+    .sheet,
+    .shade { transform: none; }
+  }
+}

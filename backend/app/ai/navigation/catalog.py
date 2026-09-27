@@ -272,9 +272,9 @@ _ROUTES: tuple[NavigationRoute, ...] = (
     ),
     NavigationRoute(
         path="/ai-monitoring",
-        title="AI 使用監控",
-        summary="查看全站 AI 用量與成本。",
-        keywords=("ai 監控", "ai 用量", "ai monitoring"),
+        title="AI 用量監控",
+        summary="查看全站 AI 用量與成本（位於「監控與日誌」）。",
+        keywords=("ai 用量監控", "ai 監控", "ai 用量", "使用監控", "ai monitoring"),
         access="admin",
     ),
 )

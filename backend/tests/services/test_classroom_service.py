@@ -39,12 +39,11 @@ def db():
         yield session
 
 
-def _user(db: Session, role: UserRole, *, superuser: bool = False) -> User:
+def _user(db: Session, role: UserRole) -> User:
     user = User(
         email=f"{uuid.uuid4().hex[:12]}@example.com",
         hashed_password="x",
         role=role,
-        is_superuser=superuser,
     )
     db.add(user)
     db.commit()

@@ -6,10 +6,10 @@
  * - expiry：VM 即將到期停用。無法自助延長，須向管理員申請。
  */
 import { useState } from "react";
-import { createPortal } from "react-dom";
 import { toast } from "sonner";
 import { useTranslation } from "react-i18next";
 import MIcon from "../MIcon";
+import Modal from "../Modal/Modal";
 import { ResourcesService } from "../../services/resources";
 import useDialogPresence from "../../hooks/useDialogPresence";
 import styles from "./SessionWarningDialog.module.scss";
@@ -45,51 +45,35 @@ export default function SessionWarningDialog({ status, onClose, onDismissPermane
     }
   };
 
-  return createPortal(
-    <div
-      className={`${styles.overlay} ${presence.closing ? styles.overlayOut : ""}`}
-      onClick={handleClose}
-    >
-      <div
-        className={styles.dialog}
-        role="alertdialog"
-        aria-modal="true"
-        aria-label={isExpiry ? t("SessionWarningDialog.expiryTitle") : t("SessionWarningDialog.autoStopTitle")}
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className={styles.title}>
-          <span className={isExpiry ? styles.iconExpiry : styles.iconAutoStop}>
-            <MIcon name={isExpiry ? "event_busy" : "schedule"} size={20} />
-          </span>
-          {isExpiry ? t("SessionWarningDialog.expiryTitle") : t("SessionWarningDialog.autoStopTitle")}
-        </div>
-
-        <p className={styles.desc}>
-          {isExpiry ? (
-            <>
-              {t("SessionWarningDialog.expiryPrefix", { vmid: shown.vmid })}
-              <strong>{t("SessionWarningDialog.expiryHours", { hours: shown.hours_until_expiry ?? "?" })}</strong>
-              {t("SessionWarningDialog.expirySuffix")}
-            </>
-          ) : (
-            <>
-              {t("SessionWarningDialog.autoStopPrefix", { vmid: shown.vmid })}
-              <strong>{t("SessionWarningDialog.autoStopMinutes", { minutes: shown.minutes_until_stop ?? "?" })}</strong>
-              {t("SessionWarningDialog.autoStopSuffix")}
-            </>
-          )}
-        </p>
-
-        <label className={styles.doNotShow}>
-          <input
-            type="checkbox"
-            checked={doNotShow}
-            onChange={(e) => setDoNotShow(e.target.checked)}
-          />
-          <span>{t("SessionWarningDialog.doNotShowAgain")}</span>
-        </label>
-
-        <div className={styles.actions}>
+  /* Esc、點遮罩等同「稍後再說／知道了」，勾了「不再提醒」一樣會記住 */
+  return (
+    <Modal
+      role="alertdialog"
+      closing={presence.closing}
+      onClose={handleClose}
+      icon={
+        <span className={isExpiry ? styles.iconExpiry : styles.iconAutoStop}>
+          <MIcon name={isExpiry ? "event_busy" : "schedule"} size={20} />
+        </span>
+      }
+      title={isExpiry ? t("SessionWarningDialog.expiryTitle") : t("SessionWarningDialog.autoStopTitle")}
+      description={
+        isExpiry ? (
+          <>
+            {t("SessionWarningDialog.expiryPrefix", { vmid: shown.vmid })}
+            <strong className={styles.emphasis}>{t("SessionWarningDialog.expiryHours", { hours: shown.hours_until_expiry ?? "?" })}</strong>
+            {t("SessionWarningDialog.expirySuffix")}
+          </>
+        ) : (
+          <>
+            {t("SessionWarningDialog.autoStopPrefix", { vmid: shown.vmid })}
+            <strong className={styles.emphasis}>{t("SessionWarningDialog.autoStopMinutes", { minutes: shown.minutes_until_stop ?? "?" })}</strong>
+            {t("SessionWarningDialog.autoStopSuffix")}
+          </>
+        )
+      }
+      actions={
+        <>
           <button type="button" className={styles.btnSecondary} onClick={handleClose}>
             {isExpiry ? t("SessionWarningDialog.gotIt") : t("SessionWarningDialog.later")}
           </button>
@@ -104,9 +88,18 @@ export default function SessionWarningDialog({ status, onClose, onDismissPermane
               {t("SessionWarningDialog.extendUsageTime")}
             </button>
           )}
-        </div>
-      </div>
-    </div>,
-    document.body,
+        </>
+      }
+    >
+      <label className={styles.doNotShow}>
+        <input
+          type="checkbox"
+          checked={doNotShow}
+          onChange={(e) => setDoNotShow(e.target.checked)}
+        />
+        {/* 「不再顯示」只記住這一次的關機／到期時間（見 useSessionWarning），文案要講清楚範圍 */}
+        <span>{t(isExpiry ? "SessionWarningDialog.doNotShowUntilExpiry" : "SessionWarningDialog.doNotShowUntilStop")}</span>
+      </label>
+    </Modal>
   );
 }

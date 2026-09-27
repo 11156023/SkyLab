@@ -4,6 +4,7 @@ from importlib import import_module
 from types import ModuleType
 
 __all__ = [
+    "ai_metrics",
     "alert_service",
     "health_policy",
     "heartbeat_service",
@@ -12,6 +13,7 @@ __all__ = [
 ]
 
 _MODULES = {
+    "ai_metrics": "app.services.monitoring.ai_metrics",
     "monitoring_service": "app.services.monitoring.monitoring_service",
     "alert_service": "app.services.monitoring.alert_service",
     "health_policy": "app.services.monitoring.health_policy",

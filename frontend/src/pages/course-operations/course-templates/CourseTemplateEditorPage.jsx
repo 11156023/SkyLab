@@ -36,6 +36,7 @@ import { previewTemplateHostname } from "../../../components/ConnectionDialog/co
 import { frozenTopologyLayout, publicationLabel } from "../courseTopology";
 import styles from "../CourseOperations.module.scss";
 import PageHeader from "../../../components/PageHeader/PageHeader";
+import Stepper from "../../../components/Stepper/Stepper";
 import i18n from "../../../i18n";
 import { AuthStorage } from "../../../services/auth";
 import { createEnvironmentAutosave } from "./environmentAutosave";
@@ -902,29 +903,12 @@ export default function CourseTemplateEditorPage() {
       <button type="button" className={styles.btnSecondary} disabled={saving} onClick={() => autosaveRef.current?.flush()}>{t("CourseTemplateEditorPage.retryAutosave")}</button>
     </p>}
     {returnTo && <p className={styles.persistentFeedback}><MIcon name="bookmark_added" size={17} /><span><strong>{t("CourseTemplateEditorPage.classDraftSavedTitle")}</strong>{t("CourseTemplateEditorPage.classDraftSavedDesc")}</span></p>}
-    <nav className={styles.envStepper}>
-        {TABS.map(([key, labelKey], index) => {
-          const activeIndex = TABS.findIndex(([k]) => k === tab);
-          const done = index < activeIndex;
-          const isActive = key === tab;
-          return (
-            <button
-              type="button"
-              key={key}
-              className={`${styles.envStep} ${isActive ? styles.envStepActive : ""} ${done ? styles.envStepDone : ""}`}
-              aria-current={isActive ? "step" : undefined}
-              onClick={() => changeTab(key)}
-            >
-              <span className={styles.envStepText}>
-                <strong>
-                  <span className={styles.envStepNum}>{done ? <MIcon name="check" size={14} /> : String(index + 1).padStart(2, "0")}</span>
-                  {t(labelKey)}
-                </strong>
-              </span>
-            </button>
-          );
-        })}
-    </nav>
+    <Stepper
+      ariaLabel={t("CourseTemplateEditorPage.stepperAriaLabel")}
+      steps={TABS.map(([key, labelKey], index) => ({ key, label: t(labelKey), done: index < TABS.findIndex(([k]) => k === tab) }))}
+      activeKey={tab}
+      onSelect={changeTab}
+    />
     {tab === "basic" && <section className={styles.card}><div className={styles.formGrid}><label className={styles.field}><span>{t("CourseTemplateEditorPage.fieldEnvName")}</span><input ref={nameRef} className={invalidField === "name" ? styles.fieldInvalid : undefined} aria-invalid={invalidField === "name"} aria-errormessage={invalidField === "name" ? "env-name-error" : undefined} disabled={saving} value={template.name} onChange={(event) => { updateBasics({ name: event.target.value }); if (invalidField === "name") setInvalidField(""); }} placeholder={t("CourseTemplateEditorPage.envNamePlaceholder")} />{invalidField === "name" && <em id="env-name-error" className={styles.fieldError}>{t("CourseTemplateEditorPage.nameRequiredError")}</em>}</label><label className={styles.field}><span>{t("CourseTemplateEditorPage.fieldUsageScope")}</span><select disabled={saving} value={template.usageScope ?? "course"} onChange={(event) => updateBasics({ usageScope: event.target.value })}><option value="course">{t("CourseTemplateEditorPage.usageScopeCourseOnly")}</option><option value="quick_practice">{t("CourseTemplateEditorPage.usageScopeQuickPracticeOnly")}</option><option value="both">{t("CourseTemplateEditorPage.usageScopeBoth")}</option></select></label><label className={`${styles.field} ${styles.fieldFull}`}><span>{t("CourseTemplateEditorPage.fieldEnvDescription")}</span><textarea disabled={saving} rows={3} value={template.description ?? ""} onChange={(event) => updateBasics({ description: event.target.value })} /></label>
 
       {/* 說明文件是基本資訊的一個滿寬欄位：放在 formGrid 裡才吃得到卡片內距、跟上面的欄位對齊 */}

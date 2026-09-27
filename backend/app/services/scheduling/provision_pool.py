@@ -24,6 +24,7 @@ from typing import Any
 from arq.worker import Retry
 from sqlmodel import Session
 
+from app.domain.resource_markers import RESOURCE_DELETED_MARKERS
 from app.infrastructure.queue import enqueue_task_sync
 from app.models import TaskRecord, VMProvisioningStatus
 
@@ -99,10 +100,15 @@ def _provisioning_failure(request_id: uuid.UUID) -> str | None:
         request = vm_request_repo.get_vm_request_by_id(
             session=session, request_id=request_id
         )
+        # 已有 vmid 的 failed 是「重試開機又失敗」（見 vm_request_service.retry）；
+        # 使用者刪機標成已消耗的 failed 不算，那不是這次任務的失敗
         if (
             request is not None
-            and request.vmid is None
             and request.provisioning_status == VMProvisioningStatus.failed
+            and (
+                request.vmid is None
+                or request.resource_warning not in RESOURCE_DELETED_MARKERS
+            )
         ):
             return request.provisioning_error or "provisioning failed"
     return None

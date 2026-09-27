@@ -3,7 +3,7 @@ from pwdlib.hashers.bcrypt import BcryptHasher
 from sqlmodel import Session
 
 from app.core.security import verify_password
-from app.models import User
+from app.models import User, UserRole
 from app.repositories import user as user_repo
 from app.schemas import UserCreate, UserUpdate
 from tests.utils.utils import random_email, random_lower_string
@@ -54,7 +54,7 @@ def test_check_if_user_is_active_inactive(db: Session) -> None:
 def test_check_if_user_is_superuser(db: Session) -> None:
     email = random_email()
     password = random_lower_string()
-    user_in = UserCreate(email=email, password=password, is_superuser=True)
+    user_in = UserCreate(email=email, password=password, role=UserRole.admin)
     user = user_repo.create_user(session=db, user_create=user_in)
     assert user.is_superuser is True
 
@@ -70,7 +70,7 @@ def test_check_if_user_is_superuser_normal_user(db: Session) -> None:
 def test_get_user(db: Session) -> None:
     password = random_lower_string()
     username = random_email()
-    user_in = UserCreate(email=username, password=password, is_superuser=True)
+    user_in = UserCreate(email=username, password=password, role=UserRole.admin)
     user = user_repo.create_user(session=db, user_create=user_in)
     user_2 = db.get(User, user.id)
     assert user_2
@@ -81,10 +81,10 @@ def test_get_user(db: Session) -> None:
 def test_update_user(db: Session) -> None:
     password = random_lower_string()
     email = random_email()
-    user_in = UserCreate(email=email, password=password, is_superuser=True)
+    user_in = UserCreate(email=email, password=password, role=UserRole.admin)
     user = user_repo.create_user(session=db, user_create=user_in)
     new_password = random_lower_string()
-    user_in_update = UserUpdate(password=new_password, is_superuser=True)
+    user_in_update = UserUpdate(password=new_password)
     if user.id is not None:
         user_repo.update_user(session=db, db_user=user, user_in=user_in_update)
     user_2 = db.get(User, user.id)

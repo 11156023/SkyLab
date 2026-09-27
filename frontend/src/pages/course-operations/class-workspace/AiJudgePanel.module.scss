@@ -449,11 +449,6 @@
   width: 100%;
 }
 
-.dialogClose {
-  @include btn-dialog-close;
-  flex-shrink: 0;
-}
-
 .iconBtn {
   @include btn-icon;
 }
@@ -642,7 +637,6 @@
 .rubricTable th:nth-child(2),
 .rubricNumberCell {
   width: 52px;
-  text-align: center;
 }
 
 .rubricTable th:nth-child(3) { width: 25%; }
@@ -1892,98 +1886,10 @@
 .badge_danger { background: color-mix(in srgb, var(--color-danger) 12%, transparent); color: var(--color-danger); }
 .badge_muted { background: color-mix(in srgb, var(--color-status-neutral) 12%, transparent); color: var(--color-status-neutral); }
 
-/* ── Modal ── */
-.modalOverlay {
-  @include dialog-overlay-avoid-ai;
-  position: fixed;
-  inset: 0;
-  z-index: 300;
-  @include flex-center;
-  padding: $spacing-16;
-  background: var(--color-overlay);
-  backdrop-filter: blur(4px);
-  animation: modalFadeIn 0.15s ease;
-  transition: opacity 0.15s ease;
-}
-
-.modalOverlayOut {
-  animation: none;
-  opacity: 0;
-  pointer-events: none;
-}
-
-@keyframes modalFadeIn {
-  from { opacity: 0; }
-  to   { opacity: 1; }
-}
-
-@keyframes modalSlideUp {
-  from { opacity: 0; transform: translateY(12px); }
-  to   { opacity: 1; transform: translateY(0); }
-}
-
-.modal,
-.confirm {
-  animation: modalSlideUp 0.18s cubic-bezier(0.25, 0.8, 0.25, 1);
-  width: min(640px, 100%);
-  max-height: 88vh;
-  overflow-y: auto;
-  @include flex-column;
-  gap: $spacing-16;
-  padding: $spacing-24;
-  @include glass-surface($shadow: var(--shadow-lg));
-  border-radius: $radius-12;
-}
-
-.modalHeader {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: $spacing-16;
-
-  h2 {
-    margin: 0;
-    font-size: $font-size-18;
-    color: var(--color-text-primary);
-  }
-
-  p {
-    margin: 4px 0 0;
-    font-size: $font-size-12;
-    color: var(--color-text-secondary);
-  }
-}
-
-.modalActions {
-  display: flex;
-  justify-content: flex-end;
-  flex-wrap: wrap;
-  gap: $spacing-8;
-}
-
-.confirm {
-  max-width: 480px;
-
-  h2 {
-    margin: 0;
-    color: var(--color-text-primary);
-  }
-
-  p {
-    margin: 0;
-    font-size: $font-size-14;
-    color: var(--color-text-secondary);
-    line-height: $line-height-base;
-  }
-}
-
+/* 確認框（共用 Modal）標題前的警示圖示：比照 useConfirm 的危險款 */
 .confirmIcon {
-  width: 44px;
-  height: 44px;
-  border-radius: $radius-8;
-  background: color-mix(in srgb, var(--color-danger) 12%, transparent);
+  display: inline-flex;
   color: var(--color-danger);
-  @include flex-center;
 }
 
 /* ── Teacher workspace ── */
@@ -2335,24 +2241,6 @@
 .sourceText { display: flex; min-width: 0; flex-direction: column; gap: 3px; }
 .sourceText b { overflow: hidden; font-size: $font-size-14; text-overflow: ellipsis; white-space: nowrap; }
 .sourceText small { color: var(--color-text-muted); font-size: $font-size-12; line-height: 1.35; }
-
-.modalHeader { display: flex; align-items: flex-start; justify-content: space-between; gap: $spacing-16; margin-bottom: $spacing-16; }
-.modalHeader h2 { margin: 0; font-size: $font-size-18; }.modalHeader p { margin: 4px 0 0; color: var(--color-text-secondary); font-size: $font-size-12; }
-.createCheckNameDialog {
-  width: min(460px, calc(100vw - 28px));
-}
-
-.createCheckNameDialog form {
-  display: flex;
-  flex-direction: column;
-  gap: $spacing-16;
-}
-
-.createCheckBody {
-  display: flex;
-  flex-direction: column;
-  gap: $spacing-16;
-}
 
 .dialogField {
   display: flex;

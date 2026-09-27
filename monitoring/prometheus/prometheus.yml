@@ -1,7 +1,8 @@
 # SkyLab 監控 stack 的 Prometheus 設定（docker compose --profile monitoring）
 #
 # 抓「平台本身」：backend 的 /metrics、PostgreSQL、Redis、容器與主機資源，
-# 以及 Gateway 主機上的 node／nginx exporter（位址由 backend 的 http_sd 提供）。
+# Gateway 主機上的 node／nginx exporter（位址由 backend 的 http_sd 提供），
+# 以及 AI 模組的 LiteLLM 與 vLLM 推論引擎（目標由 prepare-ai-stack.sh 產生）。
 # Proxmox 節點／VM 的用量由 PVE 內建 Metric Server 直接推到 InfluxDB，不在這裡。
 #
 # 只負責收集給 Grafana 畫圖，不設告警規則；平台異常的通知由 SkyLab 內建的
@@ -58,6 +59,28 @@ scrape_configs:
   - job_name: gateway-nginx
     http_sd_configs:
       - url: http://backend:8000/metrics/gateway-targets?exporter=nginx
+        refresh_interval: 60s
+
+  # ── AI 模組 ─────────────────────────────────────────────────────────────
+  # LiteLLM gateway 與 Prometheus 同在 Compose 內網；config 開了 prometheus
+  # callback 且 /metrics 免驗證（只有內網與主機 127.0.0.1 連得到）。
+  - job_name: litellm
+    static_configs:
+      - targets: ["litellm:4000"]
+    metric_relabel_configs:
+      # requested_model 是呼叫端亂填也會記的字串，client_ip／user_agent／金鑰雜湊
+      # 等也是無上限的 label；分模型改看 litellm_model_name／model（部署層，有上限）
+      - regex: "requested_model|client_ip|user_agent|hashed_api_key|api_key_alias|end_user|user|user_email|team|team_alias|org_id|org_alias"
+        action: labeldrop
+
+  # vLLM 推論引擎（本機或 DGX 等遠端主機）的 /metrics。目標由
+  # scripts/prepare-ai-stack.sh 依 vllm-service/models.json 寫進 targets/vllm.json，
+  # 改模型或 IP 重新部署後自動生效；還沒產生時沒有目標、不報錯。
+  # 遠端主機的防火牆要放行 Prometheus 所在主機連推論埠（與 LiteLLM 同一條規則）。
+  - job_name: vllm
+    scrape_interval: 15s
+    file_sd_configs:
+      - files: ["/etc/prometheus/targets/vllm*.json"]
         refresh_interval: 60s
 
   - job_name: influxdb

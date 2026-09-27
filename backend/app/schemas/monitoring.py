@@ -98,14 +98,16 @@ class MonitoringOverview(BaseModel):
     issues: list[MonitoringIssue] = Field(default_factory=list)
 
 
-# ─── 平台健康（DB／Redis／worker／PVE 連線／Gateway／排程心跳） ──────────────
+# ─── 平台健康（DB／Redis／worker／PVE 連線／Gateway／AI／排程心跳） ──────────
 
 # attention：服務還在但需要人處理（例如 Gateway 憑證快到期）
-ComponentStatus = Literal["ok", "down", "disabled", "unknown", "attention"]
+# pending：還沒有結果（例如 LiteLLM 背景健康檢查尚未跑完），不影響整體
+ComponentStatus = Literal["ok", "down", "disabled", "unknown", "attention", "pending"]
 
 
 class SystemComponentHealth(BaseModel):
-    """單一依賴元件；name 為 database／redis／worker／pve:<connection_id>／gateway。"""
+    """單一依賴元件；name 為 database／redis／worker／pve:<connection_id>／gateway
+    ／ai_gateway／ai_model:<alias>。"""
 
     name: str
     label: str
@@ -202,8 +204,6 @@ class GovernanceConfigPublic(BaseModel):
     snapshot_cleanup_enabled: bool
     snapshot_retention_days: int
     student_snapshot_max_count: int
-    course_ttl_hours: int
-    course_max_active_per_user: int
     updated_at: datetime
 
 
@@ -236,5 +236,3 @@ class GovernanceConfigUpdate(BaseModel):
     snapshot_cleanup_enabled: bool | None = None
     snapshot_retention_days: int | None = Field(default=None, ge=1, le=90)
     student_snapshot_max_count: int | None = Field(default=None, ge=1, le=10)
-    course_ttl_hours: int | None = Field(default=None, ge=1, le=24)
-    course_max_active_per_user: int | None = Field(default=None, ge=1, le=5)

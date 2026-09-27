@@ -144,7 +144,7 @@ describe("AI API 金鑰詳細資料", () => {
     const dialog = document.querySelector('[role="dialog"]');
     expect(dialog.querySelector('[aria-label="AiApiPage.actionCopyKey"]').disabled).toBe(true);
     const { signal } = mocks.getCredential.mock.calls[0][1];
-    await act(async () => dialog.querySelector('[aria-label="AiApiPage.close"]').click());
+    await act(async () => dialog.querySelector('[aria-label="Modal.close"]').click());
     expect(signal.aborted).toBe(true);
     await act(async () => resolveKey({ api_key: "ccai_old_example_secret" }));
     expect(document.querySelector('[role="dialog"]')).toBeNull();
@@ -156,12 +156,20 @@ describe("AI API 金鑰詳細資料", () => {
     const entry = document.querySelector('[aria-label="AiApiPage.openKeyDetails"]');
     entry.focus();
     await act(async () => entry.click());
-    const buttons = document.querySelector('[role="dialog"]').querySelectorAll("button");
-    expect(document.activeElement).toBe(buttons[0]);
+    /* 外框是共用 Modal：開啟時焦點移進對話框，Tab 在對話框內循環 */
+    const dialog = document.querySelector('[role="dialog"]');
+    expect(dialog.contains(document.activeElement)).toBe(true);
+    const buttons = [...dialog.querySelectorAll("button:not(:disabled)")];
+    /* happy-dom 沒有版面，getClientRects 一律為空；測試裡當成都看得到 */
+    for (const button of buttons) button.getClientRects = () => [{}];
+    const press = (options) => document.activeElement.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "Tab", bubbles: true, cancelable: true, ...options }),
+    );
 
-    document.dispatchEvent(new KeyboardEvent("keydown", { key: "Tab", shiftKey: true, bubbles: true, cancelable: true }));
+    buttons[0].focus();
+    press({ shiftKey: true });
     expect(document.activeElement).toBe(buttons[buttons.length - 1]);
-    document.dispatchEvent(new KeyboardEvent("keydown", { key: "Tab", bubbles: true, cancelable: true }));
+    press();
     expect(document.activeElement).toBe(buttons[0]);
 
     await act(async () => document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })));
@@ -196,7 +204,7 @@ describe("AI API 金鑰詳細資料", () => {
       'curl "https://api.example.edu/api/v1/ai-proxy/models" -H "Authorization: Bearer ccai_new_example_secret"',
     );
 
-    await act(async () => dialog.querySelector('[aria-label="AiApiPage.close"]').click());
+    await act(async () => dialog.querySelector('[aria-label="Modal.close"]').click());
     await act(async () => [...host.querySelectorAll('[aria-label="AiApiPage.openKeyDetails"]')]
       .find((button) => button.textContent === "專案金鑰").click());
     dialog = document.querySelector('[role="dialog"]');

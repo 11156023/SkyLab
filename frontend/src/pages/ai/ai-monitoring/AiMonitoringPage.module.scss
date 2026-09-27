@@ -22,6 +22,12 @@
   flex-shrink: 0;
 }
 
+/* 管理員且監控 stack 啟用時，開 Grafana「SkyLab AI」儀表板 */
+.linkBtn {
+  @include btn-secondary;
+  text-decoration: none;
+}
+
 .refreshMeta {
   display: inline-flex;
   align-items: center;
@@ -450,8 +456,6 @@
 
 .th { @include table-th; }
 
-.thRight { text-align: right; }
-
 .tr {
   transition: background $transition-base;
 
@@ -464,7 +468,6 @@
 }
 
 .numericCell {
-  text-align: right;
   white-space: nowrap;
 }
 

@@ -224,6 +224,7 @@
   "CourseTemplateManagementPage.classesCount": "{{count}} クラス",
   "CourseTemplateManagementPage.openTemplateAria": "テンプレートを開く",
   "CourseTemplateManagementPage.emptyTitle": "条件に一致する受講環境はありません。",
+  "CourseTemplateEditorPage.stepperAriaLabel": "教学環境の設定手順",
   "CourseTemplateEditorPage.tabBasicLabel": "基本情報",
   "CourseTemplateEditorPage.tabMachinesLabel": "マシン構成",
   "CourseTemplateEditorPage.notSavedYet": "まだ保存されていません",

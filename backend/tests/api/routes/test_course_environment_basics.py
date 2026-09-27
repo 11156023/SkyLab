@@ -15,7 +15,7 @@ from app.models import CourseEnvironment, CourseEnvironmentVersion
 def workspace(monkeypatch):
     user = SimpleNamespace(id=uuid.uuid4(), role="teacher", is_superuser=False)
     environment = CourseEnvironment(
-        owner_id=user.id, name="lab", usage_scope="course", audience="campus"
+        owner_id=user.id, name="lab", usage_scope="course"
     )
     version = CourseEnvironmentVersion(
         environment_id=environment.id, version=1, status="published"
@@ -60,16 +60,20 @@ def test_environment_can_be_taken_out_of_the_student_list(workspace):
 def test_draft_snapshot_follows_so_publishing_does_not_revert_the_change(workspace):
     user, environment, version, session = workspace
     version.status = "draft"
-    version.draft_data = json.dumps(
-        {"configuration": {"usage_scope": "course"}, "editor": {"usageScope": "course"}}
-    )
+    version.draft_data = {
+        "configuration": {"usage_scope": "course"},
+        "editor": {"usageScope": "course"},
+    }
+    original = version.draft_data
     routes.update_environment_basics(
         environment.id,
         routes.EnvironmentBasicsIn(name="lab", usage_scope="quick_practice"),
         session,
         user,
     )
-    draft = json.loads(version.draft_data)
+    draft = version.draft_data
+    # 必須是新物件：就地修改同一個 dict，ORM 不會把 JSON 欄位寫回資料庫
+    assert draft is not original
     assert draft["configuration"]["usage_scope"] == "quick_practice"
     assert draft["editor"]["usageScope"] == "quick_practice"
 

@@ -12,6 +12,7 @@ from app.core.db import engine
 from app.domain.scheduling.models import ScheduledTask
 from app.domain.scheduling.runner import run_polling_scheduler
 from app.exceptions import NotFoundError, ProxmoxError
+from app.infrastructure.proxmox import get_connection_id_for_node
 from app.models import (
     VMProvisioningStatus,
     VMRequest,
@@ -131,6 +132,7 @@ def _adopt_existing_resource(
         resource_repo.create_resource(
             session=session,
             vmid=vmid,
+            connection_id=get_connection_id_for_node(actual_node),
             user_id=request.user_id,
             environment_type=request.environment_type,
             os_info=request.os_info,
@@ -318,6 +320,7 @@ def _provision_new_resource(
         resource_repo.create_resource(
             session=finish_session,
             vmid=new_vmid,
+            connection_id=get_connection_id_for_node(actual_node),
             user_id=request_user_id,
             environment_type=request_env_type,
             os_info=request_os_info,
@@ -640,6 +643,7 @@ def process_single_request_start(request_id: uuid.UUID) -> bool:
         )
         if not request or request.status != VMRequestStatus.approved:
             return False
+        restarting_existing_vm = request.vmid is not None
         try:
             started = _ensure_request_running(
                 session=session,
@@ -658,11 +662,20 @@ def process_single_request_start(request_id: uuid.UUID) -> bool:
             )
             session.commit()
             return started
-        except Exception:
+        except Exception as exc:
             session.rollback()
             logger.exception(
                 "Failed to immediately provision request %s", request_id
             )
+            # 重試已建好機器的開機（見 vm_request_service.retry）失敗要寫回 failed，
+            # 資源頁才會再顯示失敗與錯誤原因，否則會一直停在建立中。
+            # 機器已不存在（NotFoundError）不標：留給排程 tick 的 stale-VMID 復原重新 clone。
+            if restarting_existing_vm and not isinstance(exc, NotFoundError):
+                _mark_request_runtime_error(
+                    session=session,
+                    request_id=request_id,
+                    message=str(exc),
+                )
             return False
 
 

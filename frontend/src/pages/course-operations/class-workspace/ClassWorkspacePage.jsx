@@ -10,6 +10,7 @@ import PageHeader from "../../../components/PageHeader/PageHeader";
 import EmptyState from "../../../components/EmptyState/EmptyState";
 import FileDropzone from "../../../components/FileDropzone/FileDropzone";
 import SegmentedControl from "../../../components/SegmentedControl/SegmentedControl";
+import Stepper from "../../../components/Stepper/Stepper";
 import ClassroomWatchDialog from "../../../components/Classroom/ClassroomWatchDialog";
 import TerminalDialog from "../../personal/resources/TerminalDialog";
 import { useConfirm } from "../../../components/ConfirmDialog/ConfirmProvider";
@@ -1155,7 +1156,9 @@ export default function ClassWorkspacePage() {
   if (loading) return <LoadingState fullPage text={t("ClassWorkspacePage.loadingClassText")} />;
   if (!item) return <div className={styles.page}><button type="button" className={styles.backLink} onClick={() => navigate("/class-management")}><MIcon name="arrow_back" size={18} />{t("ClassWorkspacePage.backToClassManagementBtn")}</button><p className={styles.errorMessage}>{t("ClassWorkspacePage.classNotFoundText")}</p></div>;
   const postUnavailable = POST_ACTIVE_TABS.includes(tab) && item.status !== "active";
-  const visibleTabs = TABS.filter(([key]) => !POST_ACTIVE_TABS.includes(key) || item.status === "active");
+  // 設定步驟走圓點連線；上課進度、AI 不算步驟，班級啟用後才接在分隔線後面
+  const setupTabs = TABS.filter(([key]) => !POST_ACTIVE_TABS.includes(key));
+  const postActiveTabs = item.status === "active" ? TABS.filter(([key]) => POST_ACTIVE_TABS.includes(key)) : [];
   // 已封存的班級沒有任何可用選項，就不要留一顆會打開空選單的按鈕；
   // 「重試回收」已經是狀態面板的行動。
   const canEditSchedule = item.status === "planning";
@@ -1179,13 +1182,13 @@ export default function ClassWorkspacePage() {
         </div>}
       </div>
     </PageHeader>
-    <section className={styles.workflowTabsBar} aria-label={t("ClassWorkspacePage.workflowAriaLabel")}>
-      <nav className={styles.workspaceTabs}>{visibleTabs.map(([key, , labelKey], index) => {
-        const done = key === "students" ? item.students.length > 0 : key === "weekly" ? item.weeks.some((week) => week.title.trim()) : key === "machines" ? Boolean(item.course_environment) && item.nodes.length > 0 : false;
-        const target = key === "overview" ? `/class-management/${classId}` : key === "ai" ? `/class-management/${classId}/ai` : `/class-management/${classId}/${key}`;
-        return <button type="button" key={key} className={`${tab === key ? styles.workspaceTabActive : ""} ${done ? styles.workspaceTabDone : ""}`} onClick={() => navigate(target)}><strong><span className={styles.envStepNum}>{done ? <MIcon name="check" size={14} /> : String(index + 1).padStart(2, "0")}</span>{t(labelKey)}</strong></button>;
-      })}</nav>
-    </section>
+    <Stepper
+      ariaLabel={t("ClassWorkspacePage.workflowAriaLabel")}
+      steps={setupTabs.map(([key, , labelKey]) => ({ key, label: t(labelKey), done: key === "students" ? item.students.length > 0 : key === "weekly" ? item.weeks.some((week) => week.title.trim()) : key === "machines" ? Boolean(item.course_environment) && item.nodes.length > 0 : false }))}
+      extras={postActiveTabs.map(([key, icon, labelKey]) => ({ key, icon, label: t(labelKey) }))}
+      activeKey={tab}
+      onSelect={(key) => navigate(key === "overview" ? `/class-management/${classId}` : `/class-management/${classId}/${key}`)}
+    />
     <div className={styles.workspaceContent}>
       {tab === "overview" && <Overview item={item} template={template} onProvision={provision} onNavigate={(target) => navigate(`/class-management/${classId}/${target}`)} onRetry={retryFailed} onReset={resetFailed} onReclaim={reclaimClass} provisioning={provisioning} recovering={recovering} lifecycleBusy={lifecycleBusy} />}
       {tab === "students" && <Students item={item} onRefresh={refresh} />}

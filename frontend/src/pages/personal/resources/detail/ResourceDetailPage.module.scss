@@ -19,12 +19,6 @@
   color: var(--color-primary);
 }
 
-/* 標題旁的機器來源徽章 */
-.titleKind {
-  margin-left: $spacing-8;
-  vertical-align: middle;
-}
-
 /* ── Tabs（共用 SegmentedControl）──
    左側分頁切換器＋右側工具槽同列；分頁元件把自己的控制項 portal 進工具槽 */
 .tabsRow {
@@ -226,6 +220,15 @@
   background: var(--color-surface);
 }
 
+/* 分頁頂層、與 .card 並排的提示（規格分頁的待套用申請等）：外觀比照卡片；
+   卡片「內」的提示仍用白底 .noteBox（玻璃卡內區塊一律白底） */
+.noteCard {
+  @include glass-surface($shadow: var(--shadow-sm));
+  border-radius: $radius-16;
+  padding: $spacing-16;
+  gap: $spacing-8;
+}
+
 .noteBoxTitle {
   display: inline-flex;
   align-items: center;
@@ -281,6 +284,69 @@
   font-weight: $font-weight-700;
   color: var(--color-text-primary);
   @include text-truncate;
+}
+
+/* 卡片內容只剩一句摘要時（生命週期全為空值等）用的內文字級 */
+.summaryLine {
+  font-size: $font-size-14;
+  color: var(--color-text-secondary);
+}
+
+/* 登入憑證的帳號與密碼並排：兩者同字級，密碼常是說明文字（「沿用映像內建密碼」），不用大粗字 */
+.credentialValue {
+  font-size: $font-size-16;
+  font-weight: $font-weight-500;
+}
+
+/* 共享：輸入列＋欄位提示一組，組內間距小於卡片區塊間距 */
+.shareForm {
+  @include flex-column;
+  gap: 6px;
+}
+
+/* 卡片底部的轉移擁有者列：玻璃卡內區塊一律白底細框；說明在左、按鈕在右 */
+.transferRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: $spacing-16;
+  flex-wrap: wrap;
+  padding: $spacing-8 $spacing-16;
+  border: 1px solid var(--color-border);
+  border-radius: $radius-12;
+  background: var(--color-surface);
+}
+
+.transferRowText {
+  @include flex-column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.transferRowTitle {
+  font-size: $font-size-14;
+  font-weight: $font-weight-500;
+  color: var(--color-text-primary);
+}
+
+/* 行內文字連結（跳到其他分頁等），外觀是連結、語意是按鈕 */
+.textLink {
+  align-self: flex-start;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--color-primary);
+  font: inherit;
+  font-size: $font-size-12;
+  cursor: pointer;
+
+  &:hover { text-decoration: underline; }
+
+  &:focus-visible {
+    outline: 2px solid var(--color-primary);
+    outline-offset: 2px;
+    border-radius: 2px;
+  }
 }
 
 .monoText {
@@ -470,10 +536,6 @@
   @include table-th;
 }
 
-.thRight {
-  text-align: right;
-}
-
 .tr {
   @include table-tr;
 }
@@ -482,8 +544,7 @@
   @include table-td;
 }
 
-.tdRight {
-  text-align: right;
+.tdActions {
   white-space: nowrap;
 
   button + button {
@@ -543,65 +604,11 @@
 .badge_info    { background: color-mix(in srgb, var(--color-info)    12%, transparent); color: var(--color-info); }
 .badge_muted   { background: color-mix(in srgb, var(--color-status-neutral) 12%, transparent); color: var(--color-status-neutral); }
 
-/* ── Modal ── */
-.modalOverlay {
-  @include dialog-overlay-avoid-ai;
-  position: fixed;
-  inset: 0;
-  background: var(--color-overlay);
-  backdrop-filter: blur(4px);
-  z-index: 300;
-  @include flex-center;
-  padding: $spacing-16;
-  animation: fadeIn 0.15s ease;
-  transition: opacity 0.15s ease;
-}
-
-.modalOverlayOut {
-  animation: none;
-  opacity: 0;
-  pointer-events: none;
-}
-
-@keyframes fadeIn {
-  from { opacity: 0; }
-  to   { opacity: 1; }
-}
-
-/* 表單型 modal 與全站確認彈窗同基準：毛玻璃卡、四級寬度制的 400px 檔 */
-.modal {
-  @include flex-column;
-  gap: $spacing-16;
-  width: 100%;
-  max-width: 400px;
-  padding: $spacing-24;
-  @include glass-surface;
-  border-radius: $radius-16;
-  animation: slideUp 0.18s cubic-bezier(0.25, 0.8, 0.25, 1);
-}
-
-@keyframes slideUp {
-  from { opacity: 0; transform: translateY(12px); }
-  to   { opacity: 1; transform: translateY(0); }
-}
-
-.modalTitle {
-  overflow-wrap: anywhere;
-  font-size: $font-size-16;
-  font-weight: $font-weight-700;
-  color: var(--color-text-primary);
-}
-
-.modalDesc {
-  overflow-wrap: anywhere;
+/* 對話框（共用 Modal）裡的警示句：跟說明同字級，改用待處理色 */
+.dialogWarn {
   font-size: $font-size-14;
-  color: var(--color-text-secondary);
-}
-
-.modalActions {
-  display: flex;
-  justify-content: flex-end;
-  gap: $spacing-8;
+  color: var(--color-pending);
+  overflow-wrap: anywhere;
 }
 
 /* ── 進階設定卡片共用的列表小元件（rp 前綴是歷史遺留，對外服務卡片已移除） ── */
@@ -644,14 +651,11 @@
   @include btn-icon;
 }
 
-/* 修飾類：未 hover 前文字即為紅色 */
+/* 刪除類圖示鈕：直接用 btn-icon 的危險款（紅字淡紅底）。
+   不再疊在一般款上只改字色——一般款的淺藍底會留著，紅字配藍底（見 hover:not(:disabled) 權重陷阱）。
+   JSX 仍與 .rpIconBtn 並用，這條排在後面、同權重，整組蓋過一般款 */
 .rpIconBtnDanger {
-  color: var(--color-danger);
-
-  &:hover:not(:disabled) {
-    color: var(--color-danger);
-    background: color-mix(in srgb, var(--color-danger) 9%, transparent);
-  }
+  @include btn-icon($danger: true);
 }
 
 /* ── 未填欄位：紅框（fieldInvalid 標在 .field 容器上） ── */
@@ -663,10 +667,11 @@
 }
 
 /* ── 進階設定：共用元素 ── */
+/* 輸入框＋按鈕同一列：按鈕對齊輸入框的垂直中線（兩行的公鑰 textarea 也置中） */
 .inlineForm {
   display: flex;
   gap: $spacing-8;
-  align-items: flex-start;
+  align-items: center;
   flex-wrap: wrap;
 
   input,
@@ -862,13 +867,17 @@
   gap: $spacing-8;
 }
 
+/* 公鑰列：玻璃卡內的內容區塊一律白底細框；固定最低高度，
+   有刪除鈕（32px）與只有「平台金鑰」標籤的列才會一樣高 */
 .keyItem {
   display: flex;
   align-items: center;
   gap: $spacing-8;
-  padding: $spacing-8 $spacing-16;
+  min-height: 46px; /* 32px 刪除鈕＋上下 6px＋框線 */
+  padding: 6px $spacing-16;
   border: 1px solid var(--color-border);
   border-radius: $radius-8;
+  background: var(--color-surface);
 }
 
 .keyText {
@@ -903,6 +912,12 @@
   :global(.react-flow__background) { background: transparent; }
   :global(.react-flow__edge path) { stroke-opacity: 1 !important; }
   :global(.react-flow__attribution) { display: none; }
+}
+
+/* 拓撲圖＋圖例一組：組內間距小於卡片內各區塊的 16px，圖例才看得出是在說明上面的圖 */
+.topologyBlock {
+  @include flex-column;
+  gap: $spacing-8;
 }
 
 /* 與防火牆頁的畫布圖例同款：淡抹 surface 底、邊框、blur(4px)（Dialog 遮罩標準濾鏡值） */
@@ -941,10 +956,6 @@
   border: 1px solid color-mix(in srgb, var(--color-pending) 40%, transparent);
   border-radius: $radius-12;
   background: color-mix(in srgb, var(--color-pending) 8%, transparent);
-}
-
-.dangerZone {
-  border-color: color-mix(in srgb, var(--color-danger) 35%, transparent);
 }
 
 .rowStack {

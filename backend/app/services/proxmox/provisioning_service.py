@@ -12,7 +12,10 @@ from app.core.i18n import t
 from app.core.security import decrypt_value, encrypt_value
 from app.domain.placement import advisor as placement_advisor
 from app.exceptions import ProxmoxError
-from app.infrastructure.proxmox import get_proxmox_settings_for_node
+from app.infrastructure.proxmox import (
+    get_connection_id_for_node,
+    get_proxmox_settings_for_node,
+)
 from app.infrastructure.ssh.client import generate_ed25519_keypair
 from app.repositories import resource as resource_repo
 from app.repositories import vm_request as vm_request_repo
@@ -491,6 +494,7 @@ def create_lxc(
         db_lxc_resource = resource_repo.create_resource(
             session=session,
             vmid=vmid,
+            connection_id=get_connection_id_for_node(target_node),
             user_id=user_id,
             environment_type=lxc_data.environment_type,
             os_info=lxc_data.os_info,
@@ -658,6 +662,7 @@ def create_vm(
         db_vm_resource = resource_repo.create_resource(
             session=session,
             vmid=new_vmid,
+            connection_id=get_connection_id_for_node(target_node),
             user_id=user_id,
             environment_type=vm_data.environment_type,
             os_info=vm_data.os_info,
@@ -841,10 +846,13 @@ def plan_provision(*, session: Session, db_request) -> dict:
         # 直接以範本節點覆寫 placement 結果（與範本系統 2.0 clone_service 行為一致）。
         from sqlmodel import select as _select
 
-        from app.models import VMTemplate
+        from app.models import VMTemplate, VMTemplateStatus
 
         template_row = session.exec(
-            _select(VMTemplate).where(VMTemplate.pve_vmid == db_request.template_id)
+            _select(VMTemplate).where(
+                VMTemplate.pve_vmid == db_request.template_id,
+                VMTemplate.status != VMTemplateStatus.deleted,
+            )
         ).first()
         if template_row is None:
             raise ProxmoxError(
@@ -1227,6 +1235,7 @@ def provision_from_request(
     resource_repo.create_resource(
         session=session,
         vmid=new_vmid,
+        connection_id=get_connection_id_for_node(actual_node),
         user_id=db_request.user_id,
         environment_type=db_request.environment_type,
         os_info=db_request.os_info,

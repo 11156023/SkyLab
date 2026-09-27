@@ -1,6 +1,5 @@
 """TaskRecord CRUD helpers."""
 
-import json
 import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Any
@@ -23,7 +22,7 @@ def create_task_record(
         task_type=task_type,
         user_id=user_id,
         template_id=template_id,
-        payload=json.dumps(payload, ensure_ascii=False),
+        payload=payload,
     )
     session.add(record)
     if commit:
@@ -73,7 +72,7 @@ def mark_task_finished(
     if status == TaskRecordStatus.succeeded:
         record.progress = 100
     if result is not None:
-        record.result = json.dumps(result, ensure_ascii=False)
+        record.result = result
     if error is not None:
         record.error = error[:1000]
     if resource_vmid is not None:

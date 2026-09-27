@@ -14,6 +14,7 @@ import sys
 from datetime import date, timedelta
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
 
 import yaml
 
@@ -25,6 +26,8 @@ from model_deployment import ENV_REFERENCE, deployment_kind, upstream_connection
 DEFAULT_MODELS = PROJECT_ROOT / "models.json"
 DEFAULT_TEMPLATE = PROJECT_ROOT / "litellm" / "config.template.yaml"
 DEFAULT_OUTPUT = PROJECT_ROOT / "litellm" / "config.yaml"
+# Matches extra_hosts in litellm/docker-compose.yml.
+LOCAL_ENGINE_HOST_FROM_GATEWAY = "host.docker.internal"
 
 
 def _path(value: str) -> Path:
@@ -86,7 +89,8 @@ def _validate_legacy_aliases(
 
 def load_models(path: Path) -> list[dict[str, Any]]:
     try:
-        raw = json.loads(path.read_text(encoding="utf-8"))
+        # utf-8-sig: tolerate the BOM Windows editors add to hand-written files.
+        raw = json.loads(path.read_text(encoding="utf-8-sig"))
     except json.JSONDecodeError as exc:
         raise ValueError(f"models.json 不是有效 JSON: {path}") from exc
     if not isinstance(raw, list) or not raw:
@@ -150,7 +154,48 @@ def load_template(path: Path) -> dict[str, Any]:
     return data
 
 
-def _deployment(model: dict[str, Any], public_name: str) -> dict[str, Any]:
+def gateway_api_base(model: dict[str, Any], mode: str) -> str:
+    """Return the upstream URL as seen by the gateway process.
+
+    ``api_base`` is the host view (local engines on 127.0.0.1).  The production
+    gateway runs in a bridge-network container where loopback is the container
+    itself, so local engines are reached through the Docker host mapping.
+    """
+    if mode == "production" and model["deployment"] == "local":
+        return model["api_base"].replace("127.0.0.1", LOCAL_ENGINE_HOST_FROM_GATEWAY, 1)
+    return model["api_base"]
+
+
+def vllm_scrape_targets(models: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Prometheus ``file_sd`` target groups for each distinct vLLM upstream.
+
+    Prometheus runs in the same bridge network as the gateway, so it uses the
+    gateway's view of each upstream.  vLLM serves ``/metrics`` next to ``/v1``
+    without the API key; a path prefix before ``/v1`` (reverse proxy) is kept.
+    """
+    groups: dict[tuple[str, str, str], dict[str, Any]] = {}
+    for model in models:
+        url = urlsplit(gateway_api_base(model, "production"))
+        prefix = url.path.rstrip("/").removesuffix("/v1")
+        key = (url.scheme, url.netloc, f"{prefix}/metrics")
+        group = groups.setdefault(
+            key,
+            {
+                "targets": [url.netloc],
+                "labels": {
+                    "__scheme__": url.scheme,
+                    "__metrics_path__": f"{prefix}/metrics",
+                    "deployment": model["deployment"],
+                    "skylab_models": "",
+                },
+            },
+        )
+        aliases = [a for a in group["labels"]["skylab_models"].split(",") if a]
+        group["labels"]["skylab_models"] = ",".join([*aliases, model["alias"]])
+    return list(groups.values())
+
+
+def _deployment(model: dict[str, Any], public_name: str, mode: str) -> dict[str, Any]:
     return {
         "model_name": public_name,
         "litellm_params": {
@@ -158,7 +203,7 @@ def _deployment(model: dict[str, Any], public_name: str) -> dict[str, Any]:
             # The current hosted_vllm provider appends its OpenAI endpoint
             # path directly to api_base. vLLM itself serves those routes below
             # /v1, so the version prefix must be part of the generated base.
-            "api_base": model["api_base"],
+            "api_base": gateway_api_base(model, mode),
             "api_key": f"os.environ/{model['api_key_env']}",
             "timeout": 300,
             "rpm": model["litellm"]["rpm"],
@@ -180,7 +225,7 @@ def render_config(
         general_settings["database_url"] = "os.environ/DATABASE_URL"
     config["general_settings"] = general_settings
     config["model_list"] = [
-        _deployment(model, public_name)
+        _deployment(model, public_name, mode)
         for model in models
         for public_name in [model["alias"], *model["_legacy_alias_names"]]
     ]

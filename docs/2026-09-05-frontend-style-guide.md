@@ -320,6 +320,30 @@ import MIcon from "../components/MIcon";
 
 ### Dialog / Modal
 
+新對話框**一律用共用的 `<Modal>`**（`components/Modal/Modal`），不要再手寫遮罩與卡片。它統一處理
+portal 到 body、遮罩與進出場動畫、`role`／`aria-modal`／`aria-labelledby`、Esc 與點遮罩關閉（`busy` 時不關；疊兩層只關最上層）、
+開啟時焦點移進對話框並在關閉後還原、Tab 鎖在對話框內、鎖住底下頁面捲動：
+
+```jsx
+const presence = useDialogPresence(show);
+{presence.open && (
+  <Modal
+    as="form" onSubmit={submit}          // 表單型才傳
+    closing={presence.closing} onClose={() => setShow(false)} busy={saving}
+    title="重設密碼" description="新密碼只會顯示一次"
+    size="sm"                            // sm 400／md 640／lg 1100／xl 1280；錯誤 log 等寬內容用 log（560）
+    closeButton                          // 欄位多的表單：標題列帶 ×、內容區自己捲、按鈕列固定在底部
+    actions={<><button …>取消</button><button type="submit" …>送出</button></>}
+  >
+    …欄位…
+  </Modal>
+)}
+```
+
+- 精簡卡（預設）：確認框、命名框、小表單；`closeButton` 版：欄位多的表單（如連線對話框）；`bare`：只給外框，標題列與內容自己排
+- 終端機、VNC 這類 AI 讀不到的畫面用 `layer="screen"`（通常搭 `bare`）：蓋過 AI 助手、不讓位；鍵盤全部交給畫面，Esc 不關、Tab 不鎖（Tab 補全、vim 的 Esc 才能用）。全螢幕要的對話框本體用 `ref` 拿
+- 導覽用的 `data-guide` 等屬性直接傳給 `Modal`（掛在對話框本體），×、按鈕列分別用 `closeProps`、`actionsProps`
+- 2026-09-26 起逐批換上：資源詳情頁的對話框、`useConfirm`、`ConnectionDialog`、終端機／VNC、轉成範本、申請錯誤記錄、工作階段提醒、背景任務詳情、系統管理端（使用者、節點、PVE 連線、配額、網域、子網路、挖礦事件）、範本管理（建立／編輯、克隆、使用手冊）、反向代理規則、課堂觀看、AI 服務（一次性金鑰、快速開始、申請金鑰、停用金鑰、申請審核）、AI 檢查（刪除腳本、新增檢查、一次執行、調整週次）、編輯課表已換；其餘仍是舊寫法的對話框，改到時順手換
 - Dialog 寬度四級：確認框／命名框 `max-width: 400px`；小型單欄表單 `max-width: 640px`；一般 `max-width: 1100px`；寬版（如 VNC）`1280px`
 - 高度：`height: 88vh`
 - 全螢幕：使用 `:fullscreen` 偽類，設 `max-width: 100%; height: 100%; border-radius: 0`
@@ -472,6 +496,29 @@ if (!(await confirm({ title, message, confirmText, danger: true }))) return;
 - `position: absolute; bottom: calc(100% + 6px); right: 0`（向上展開）
 - 父元素需有 `position: relative`
 - 關閉動畫用 `setTimeout`（130ms）+ CSS `transition`，不用 `onAnimationEnd`
+
+### 步驟列（Stepper）
+
+流程分頁／設定步驟**一律用共用的 `Stepper`**（`components/Stepper/Stepper`），不要再手刻箭頭分段（chevron）或自己畫圓點。
+目前用在班級工作區、教學環境編輯頁、一鍵建立班級（`ClassSetupPage`）。
+
+```jsx
+<Stepper
+  ariaLabel={t("...")}
+  steps={[{ key, label, done, disabled }]} // 圓點依序顯示 1、2、3…，done 時換成 ✓；disabled＝精靈還不能跳過去的步驟
+  extras={[{ key, label, icon }]}         // 選填：不算步驟的分頁，接在分隔線後面
+  activeKey={tab}
+  onSelect={(key) => ...}
+/>
+```
+
+- 外觀是直接放在頁面上的一排「圓點＋標籤」（不鋪底色、不包卡片），步與步之間以連線相接；第一顆圓點貼齊頁面內容左緣
+- 狀態只靠圓點表達：未完成＝白底淡藍框編號、已完成＝白底主色框 ✓、目前＝主色實心加光暈；標籤只分目前（粗、深）與其他
+- 連線兩端都「走到了」（已完成或目前）才上主色，其餘用淡主色
+- 步驟列直接壓在漸層背景上，**不要用 `--color-border` 淺灰或淡色實心底**：跟背景糊在一起看不到，一律用白底＋藍色系框線
+- 精靈式流程（只能往回跳）把還沒走到的步驟設 `disabled`：只擋點擊、不淡化，不要做成點了沒反應的按鈕
+- 不算步驟的分頁（班級啟用後的上課進度、AI）放 `extras`：圓點改放圖示、不連線，不要硬塞成第 5、6 步
+- 手機只留目前步驟的標籤，其他步驟剩圓點（標籤仍留給螢幕閱讀器）；還放不下時橫向捲動
 
 ---
 

@@ -1,8 +1,9 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import styles from "./Teaching.module.scss";
 import { QuotasService } from "../../services/quotas";
+import useAutoRefresh from "../../hooks/useAutoRefresh";
 
 function Meter({ label, used, max, unit }) {
   const { t } = useTranslation("components");
@@ -41,16 +42,38 @@ export default function QuotaUsageBar() {
   const { t } = useTranslation("components");
   const [data, setData] = useState(null);
   const [failed, setFailed] = useState(false);
+  const controllerRef = useRef(null);
+
+  /* 開通、刪機、規格調整後用量會變：跟下方機器列表一樣靜默自動刷新。
+     上一次還沒回來就跳過這輪；已有數字時刷新失敗保留舊數字，不閃成錯誤 */
+  const load = useCallback(() => {
+    if (controllerRef.current) return;
+    const controller = new AbortController();
+    controllerRef.current = controller;
+    QuotasService.getMyUsage({ signal: controller.signal })
+      .then((res) => {
+        setData(res);
+        setFailed(false);
+      })
+      .catch((err) => {
+        if (err?.name !== "AbortError") setFailed((prev) => prev || !data);
+      })
+      .finally(() => {
+        if (controllerRef.current === controller) controllerRef.current = null;
+      });
+  }, [data]);
 
   useEffect(() => {
-    const controller = new AbortController();
-    QuotasService.getMyUsage({ signal: controller.signal })
-      .then((res) => setData(res))
-      .catch((err) => {
-        if (err?.name !== "AbortError") setFailed(true);
-      });
-    return () => controller.abort();
+    load();
+    return () => {
+      controllerRef.current?.abort();
+      controllerRef.current = null;
+    };
+    // 只在掛上時載入一次，之後交給 useAutoRefresh
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  useAutoRefresh(load);
 
   if (!data && !failed) return null;
 

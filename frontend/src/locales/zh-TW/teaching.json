@@ -224,6 +224,7 @@
   "CourseTemplateManagementPage.classesCount": "{{count}} 個班級",
   "CourseTemplateManagementPage.openTemplateAria": "開啟模板",
   "CourseTemplateManagementPage.emptyTitle": "沒有符合條件的教學環境。",
+  "CourseTemplateEditorPage.stepperAriaLabel": "教學環境設定流程",
   "CourseTemplateEditorPage.tabBasicLabel": "基本資料",
   "CourseTemplateEditorPage.tabMachinesLabel": "機器配置",
   "CourseTemplateEditorPage.notSavedYet": "尚未儲存",

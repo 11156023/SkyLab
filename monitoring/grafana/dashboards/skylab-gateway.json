@@ -46,17 +46,19 @@
     },
     {
       "id": 2,
-      "type": "row",
+      "type": "stat",
       "title": "SkyLab 健康探測",
-      "collapsed": false,
+      "description": "後端每分鐘以 SSH 檢查 nginx／WireGuard／nginx -t（與「系統監控 → 系統健康」同一份結果）",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "skylab-prometheus"
+      },
       "gridPos": {
         "x": 0,
         "y": 1,
         "w": 4,
         "h": 4
       },
-      "panels": [],
-      "description": "後端每分鐘以 SSH 檢查 nginx／WireGuard／nginx -t（與「系統監控 → 系統健康」同一份結果）",
       "targets": [
         {
           "datasource": {
@@ -67,21 +69,78 @@
           "legendFormat": "",
           "refId": "A"
         }
-      ]
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "0": {
+                  "text": "DOWN",
+                  "color": "red",
+                  "index": 0
+                },
+                "1": {
+                  "text": "UP",
+                  "color": "green",
+                  "index": 1
+                }
+              }
+            }
+          ],
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "green",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "textMode": "auto",
+        "orientation": "auto",
+        "showPercentChange": false,
+        "wideLayout": true
+      }
     },
     {
       "id": 3,
-      "type": "row",
+      "type": "stat",
       "title": "node exporter",
-      "collapsed": false,
+      "description": "Prometheus 抓得到 Gateway 的 node exporter",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "skylab-prometheus"
+      },
       "gridPos": {
         "x": 4,
         "y": 1,
         "w": 4,
         "h": 4
       },
-      "panels": [],
-      "description": "Prometheus 抓得到 Gateway 的 node exporter",
       "targets": [
         {
           "datasource": {
@@ -92,21 +151,78 @@
           "legendFormat": "",
           "refId": "A"
         }
-      ]
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "0": {
+                  "text": "DOWN",
+                  "color": "red",
+                  "index": 0
+                },
+                "1": {
+                  "text": "UP",
+                  "color": "green",
+                  "index": 1
+                }
+              }
+            }
+          ],
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "green",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "textMode": "auto",
+        "orientation": "auto",
+        "showPercentChange": false,
+        "wideLayout": true
+      }
     },
     {
       "id": 4,
-      "type": "row",
+      "type": "stat",
       "title": "nginx exporter",
-      "collapsed": false,
+      "description": "Prometheus 抓得到 Gateway 的 nginx exporter",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "skylab-prometheus"
+      },
       "gridPos": {
         "x": 8,
         "y": 1,
         "w": 4,
         "h": 4
       },
-      "panels": [],
-      "description": "Prometheus 抓得到 Gateway 的 nginx exporter",
       "targets": [
         {
           "datasource": {
@@ -117,21 +233,78 @@
           "legendFormat": "",
           "refId": "A"
         }
-      ]
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "0": {
+                  "text": "DOWN",
+                  "color": "red",
+                  "index": 0
+                },
+                "1": {
+                  "text": "UP",
+                  "color": "green",
+                  "index": 1
+                }
+              }
+            }
+          ],
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "green",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "textMode": "auto",
+        "orientation": "auto",
+        "showPercentChange": false,
+        "wideLayout": true
+      }
     },
     {
       "id": 5,
-      "type": "row",
+      "type": "stat",
       "title": "nginx",
-      "collapsed": false,
+      "description": "nginx 是否回應 stub_status",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "skylab-prometheus"
+      },
       "gridPos": {
         "x": 12,
         "y": 1,
         "w": 4,
         "h": 4
       },
-      "panels": [],
-      "description": "nginx 是否回應 stub_status",
       "targets": [
         {
           "datasource": {
@@ -142,7 +315,62 @@
           "legendFormat": "",
           "refId": "A"
         }
-      ]
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "0": {
+                  "text": "DOWN",
+                  "color": "red",
+                  "index": 0
+                },
+                "1": {
+                  "text": "UP",
+                  "color": "green",
+                  "index": 1
+                }
+              }
+            }
+          ],
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "green",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "textMode": "auto",
+        "orientation": "auto",
+        "showPercentChange": false,
+        "wideLayout": true
+      }
     },
     {
       "id": 6,

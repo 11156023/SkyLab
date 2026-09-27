@@ -13,121 +13,49 @@
   }
 }
 
+/* 共用 Stepper＋右側「建機準備」進度，都直接放在頁面上（不包卡片、不鋪底色）；
+   手機時進度改成步驟列下方的一行字 */
 .stepperBar {
   display: flex;
-  align-items: stretch;
+  flex-direction: column;
+  gap: $spacing-8;
   min-width: 0;
-  overflow: hidden;
-  @include glass-surface($shadow: var(--shadow-sm));
-  border-radius: $radius-12;
+
+  @include respond-to(md) {
+    flex-direction: row;
+    align-items: center;
+    gap: $spacing-24;
+  }
 }
 
-.stepper {
-  display: flex;
-  flex: 1;
-  min-width: 0;
-  overflow-x: auto;
-  padding: 5px;
-  scrollbar-width: thin;
-}
-
-.stepper button {
-  position: relative;
-  display: grid;
-  flex: 1 0 max-content;
-  min-width: 120px;
-  grid-template-columns: 24px minmax(0, 1fr);
-  align-items: center;
-  gap: 8px;
-  height: 44px;
-  padding: 0 14px;
-  border: 0;
-  border-radius: $radius-8;
-  color: var(--color-text-secondary);
-  background: transparent;
-  text-align: left;
-  cursor: pointer;
-}
-
-.stepper button::after {
-  position: absolute;
-  right: 0;
-  bottom: -5px;
-  left: 0;
-  height: 2px;
-  border-radius: 2px 2px 0 0;
-  background: transparent;
-  content: "";
-}
-
-.stepper button:hover:not(:disabled) {
-  color: var(--color-text-primary);
-  background: var(--color-hover);
-}
-
-.stepper button:disabled {
-  cursor: not-allowed;
-  opacity: .5;
-}
-
-.stepper button>span {
-  display: grid;
-  width: 24px;
-  height: 24px;
-  place-items: center;
-  border: 1px solid var(--color-border);
-  border-radius: 50%;
-  font-size: $font-size-10;
-  font-weight: $font-weight-700;
-}
-
-.stepper strong {
-  @include text-truncate;
-  color: inherit;
-  font-size: $font-size-14;
-  font-weight: $font-weight-500;
-}
-
-.stepper .stepActive {
-  color: var(--color-primary);
-  background: color-mix(in srgb, var(--color-primary) 8%, var(--color-surface));
-}
-
-.stepper .stepActive::after {
-  background: var(--color-primary);
-}
-
-.stepper .stepActive>span {
-  border-color: var(--color-primary);
-  color: var(--color-text-on-primary);
-  background: var(--color-primary);
-}
-
-.stepper .stepDone>span {
-  border-color: color-mix(in srgb, var(--color-success) 30%, var(--color-border));
-  color: var(--color-success);
-  background: color-mix(in srgb, var(--color-success) 10%, transparent);
+.stepperBar > .stepperMain {
+  flex: 1 1 auto;
 }
 
 .stepperProgress {
   display: flex;
-  flex: 0 0 auto;
-  min-width: 120px;
-  flex-direction: column;
-  justify-content: center;
-  gap: 2px;
-  padding: 0 18px;
-  border-left: 1px solid var(--color-border);
-  background: color-mix(in srgb, var(--color-hover) 34%, var(--color-surface));
+  flex: none;
+  align-items: baseline;
+  gap: $spacing-8;
+
+  @include respond-to(md) {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 2px;
+    padding-left: $spacing-24;
+    /* 分隔線同 Stepper 的淡主色，--color-border 淺灰壓在漸層背景上看不到 */
+    border-left: 1px solid color-mix(in srgb, var(--color-primary-light) 45%, transparent);
+  }
 }
 
 .stepperProgress span {
-  color: var(--color-text-muted);
-  font-size: $font-size-10;
+  color: var(--color-text-secondary);
+  font-size: $font-size-12;
 }
 
 .stepperProgress strong {
-  font-size: $font-size-12;
+  color: var(--color-text-primary);
+  font-size: $font-size-14;
   font-weight: $font-weight-500;
   white-space: nowrap;
 }

@@ -1806,7 +1806,7 @@ _SURFACES: tuple[SurfaceSpec, ...] = (
     SurfaceSpec(
         id="ai-monitoring",
         path="/ai-monitoring",
-        title="AI 使用監控",
+        title="AI 用量監控",
         purpose="檢視申請金鑰產生的 API 呼叫、Token 用量與錯誤狀況。",
         sections=("模型", "金鑰 API 呼叫", "使用者用量"),
         access="admin",

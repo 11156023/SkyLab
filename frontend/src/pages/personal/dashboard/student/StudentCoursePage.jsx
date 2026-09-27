@@ -5,6 +5,7 @@ import { useTranslation } from "react-i18next";
 import MIcon from "../../../../components/MIcon";
 import EmptyState from "../../../../components/EmptyState/EmptyState";
 import LoadingState from "../../../../components/LoadingState/LoadingState";
+import PageHeader from "../../../../components/PageHeader/PageHeader";
 import TerminalDialog from "../../resources/TerminalDialog";
 import VncDialog from "../../resources/VncDialog";
 import { CoursesService } from "../../../../services/courses";
@@ -347,25 +348,16 @@ export default function StudentCoursePage() {
 
   return (
     <div className={styles.page}>
-      <header className={styles.coursePageHeader}>
+      <PageHeader title={view.activePath?.title ?? t("StudentCoursePage.defaultCourseTitle")}>
         <button
           type="button"
-          className={styles.courseBackButton}
+          className={styles.backBtn}
           onClick={() => navigate(location.state?.from ?? "/courses")}
         >
           <MIcon name="arrow_back" size={18} />
           {t("StudentCoursePage.backToCourses")}
         </button>
-        <div className={styles.coursePageTitle}>
-          <p className={styles.eyebrow}>{t("StudentCoursePage.eyebrowCourseOverview")}</p>
-          <h1>{view.activePath?.title ?? t("StudentCoursePage.defaultCourseTitle")}</h1>
-          <p>
-            {/* UserGuide 導覽入口的 portal slot，比照 PageHeader 副標前的位置 */}
-            <span data-user-guide-slot="" />
-            {view.activePath?.description ?? t("StudentCoursePage.defaultCourseDesc")}
-          </p>
-        </div>
-      </header>
+      </PageHeader>
 
       {isGuideDemo && (
         <div className={styles.guideDemoNotice}>
@@ -384,76 +376,195 @@ export default function StudentCoursePage() {
         </div>
       )}
 
-      <main className={styles.mainGrid}>
-        <section
-          className={styles.classCard}
-          aria-labelledby="today-class-title"
-          data-guide="home-current-course"
-        >
-          <div className={styles.classCardTop}>
+      {/* 版面同週任務頁：左欄任務，右欄課堂狀態與機器；窄螢幕右欄排到前面 */}
+      <div className={styles.layout}>
+        <section className={`${styles.panel} ${styles.tasksPanel}`} aria-labelledby="task-title" data-guide="home-tasks">
+          <div className={styles.panelHeading}>
+            <span><MIcon name="checklist" size={20} /></span>
             <div>
-              <p className={styles.eyebrow}>
-                {currentSchedule?.state === "now" ? t("StudentCoursePage.eyebrowNow") : t("StudentCoursePage.eyebrowUpcoming")}
-              </p>
-              <h2 id="today-class-title">
-                {view.activePath?.title ?? t("StudentCoursePage.noCourseAvailable")}
-              </h2>
-              <p className={styles.classDescription}>
-                {nextRoom
-                  ? t("StudentCoursePage.classTaskDesc", { title: nextRoom.title })
-                  : view.activePath?.description
-                    ?? t("StudentCoursePage.classNoContentYet")}
-              </p>
+              <h2 id="task-title">{t("StudentCoursePage.tasksTitle")}</h2>
+              {weeklyAssignmentGroups.length > 0 && (
+                <p>{t("StudentCoursePage.weeksSummary", { count: weeklyAssignmentGroups.length })}</p>
+              )}
             </div>
-            <StatusBadge meta={heroStatusMeta} />
           </div>
 
-          {view.activePath ? (
-            <>
-              <div className={styles.courseContext}>
-                {currentSchedule ? (
-                  <>
-                    <span><MIcon name="schedule" size={18} />{currentSchedule.time}</span>
-                    <span><MIcon name="person" size={18} />{currentSchedule.teacher}</span>
-                    <span><MIcon name="location_on" size={18} />{currentSchedule.place}</span>
-                  </>
-                ) : (
-                  <span><MIcon name="task_alt" size={18} />{t("StudentCoursePage.taskProgress", { percent: roomProgress })}</span>
-                )}
-              </div>
+          {weeklyAssignmentGroups.length > 0 ? (
+            <div className={styles.assignmentList}>
+              {weeklyAssignmentGroups.map((group, index) => {
+                const firstAssignment = group.assignments[0];
+                const expanded = expandedAssignmentId === group.id;
+                const completionReported = group.assignments.length > 0 && group.assignments.every((assignment) => (
+                  Boolean(assignment.completion?.completed)
+                ));
+                const itemCount = group.assignments.reduce(
+                  (count, assignment) => count + (assignment.items?.length ?? 0),
+                  0,
+                );
+                return (
+                  <article
+                    key={group.id}
+                    id={`weekly-task-${group.id}`}
+                    className={`${styles.assignmentRow} ${expanded ? styles.assignmentRowOpen : ""}`}
+                  >
+                    <div className={styles.assignmentHeader}>
+                      {group.assignments.length > 0 ? <label className={styles.weekCompletion}>
+                        <input
+                          type="checkbox"
+                          checked={completionReported}
+                          onChange={() => updateCompletion(group)}
+                          disabled={isGuideDemo || reportingAssignmentId !== null}
+                          aria-label={t(completionReported ? "StudentCoursePage.uncheckWeekAria" : "StudentCoursePage.checkWeekAria", { title: group.week?.title ?? firstAssignment?.title })}
+                        />
+                        {reportingAssignmentId === group.id && <MIcon name="sync" size={15} spin />}
+                      </label> : <span className={styles.weekCompletion} aria-hidden="true" />}
+                      <button
+                        type="button"
+                        className={styles.assignmentToggle}
+                        onClick={() => group.week
+                          ? navigate(`/courses/${pathId}/weeks/${group.week.id}`)
+                          : toggleAssignment(group.id)}
+                        aria-expanded={expanded}
+                        aria-controls={`assignment-detail-${group.id}`}
+                        data-guide={group.week ? "course-week-open" : undefined}
+                      >
+                        <span className={styles.taskNumber}>{group.week?.week_number ?? index + 1}</span>
+                        <span className={styles.assignmentTitle}>
+                          <strong>{group.week?.title ?? firstAssignment?.title}</strong>
+                          <small>
+                            {group.week ? t("StudentCoursePage.weekMeta", { week: group.week.week_number, date: group.week.session_date }) : formatAssignmentDate(firstAssignment.approved_at)}
+                            {" · "}{t("StudentCoursePage.itemsCount", { count: itemCount })}
+                          </small>
+                        </span>
+                        <span className={`${styles.assignmentStatus} ${completionReported ? styles.assignmentStatus_completed : styles.assignmentStatus_ready}`}>
+                          <MIcon name={completionReported ? "check_circle" : "pending_actions"} size={16} />
+                          {t(completionReported ? "StudentCoursePage.weekCompleted" : "StudentCoursePage.weekPending")}
+                        </span>
+                        <MIcon name={group.week ? "arrow_forward" : (expanded ? "expand_less" : "expand_more")} size={21} />
+                      </button>
+                    </div>
 
-              <div
-                className={styles.progressTrack}
-                aria-label={t("StudentCoursePage.chapterProgressAria", { percent: roomProgress })}
-                data-guide="home-progress"
-              >
-                <span style={{ width: `${roomProgress}%` }} />
-              </div>
+                    {expanded && (
+                      <div className={styles.assignmentDetail} id={`assignment-detail-${group.id}`}>
+                        {group.assignments.map((assignment) => (
+                          <div className={styles.assignmentDetailBlock} key={assignment.id}>
+                            <div className={styles.aiBrief}>
+                              <span><MIcon name="auto_awesome" size={19} /></span>
+                              <div>
+                                <strong>{group.assignments.length > 1 ? assignment.title : t("StudentCoursePage.aiSummaryTitle")}</strong>
+                                <p>{assignment.summary || t("StudentCoursePage.aiSummaryFallback")}</p>
+                              </div>
+                            </div>
 
-              <div className={styles.simpleCourseHint}>
-                <MIcon name="check_circle" size={18} />
-                <span>
-                  {t("StudentCoursePage.hintReady")}
-                </span>
-              </div>
-            </>
+                            <ol className={styles.aiRequirementList}>
+                              {(assignment.items ?? []).map((item, itemIndex) => {
+                                const detectableMeta = AI_DETECTABLE_META[item.detectable]
+                                  ?? AI_DETECTABLE_META.manual;
+                                return (
+                                  <li
+                                    className={styles.aiRequirementItem}
+                                    key={`${assignment.id}:${item.id}`}
+                                  >
+                                    <span className={styles.aiRequirementNumber}>{itemIndex + 1}</span>
+                                    <div className={styles.aiRequirementContent}>
+                                      <strong>{item.title}</strong>
+                                      {item.description && <p>{item.description}</p>}
+                                    </div>
+                                    <span className={`${styles.aiCheckBadge} ${styles[detectableMeta.tone]}`}>
+                                      <MIcon name={detectableMeta.icon} size={15} />
+                                      {t(detectableMeta.labelKey)}
+                                    </span>
+                                  </li>
+                                );
+                              })}
+                            </ol>
+                          </div>
+                        ))}
+
+                        <p className={styles.assignmentNote}>
+                          <MIcon name="info" size={16} />
+                          {t("StudentCoursePage.completionNote")}
+                        </p>
+                      </div>
+                    )}
+                  </article>
+                );
+              })}
+            </div>
           ) : (
             <EmptyState
-              icon="event_available"
-              title={t("StudentCoursePage.emptyNoCourseTitle")}
-              description={t("StudentCoursePage.emptyNoCourseDesc")}
+              icon="checklist"
+              title={t("StudentCoursePage.emptyNoTasksTitle")}
+              description={t("StudentCoursePage.emptyNoTasksDesc")}
             />
           )}
+        </section>
+
+        <aside className={styles.side}>
+          <section className={styles.panel} aria-labelledby="today-class-title" data-guide="home-current-course">
+            <div className={styles.panelHeading}>
+              <span><MIcon name="school" size={20} /></span>
+              <div>
+                <h2 id="today-class-title">
+                  {currentSchedule?.state === "now" ? t("StudentCoursePage.eyebrowNow") : t("StudentCoursePage.eyebrowUpcoming")}
+                </h2>
+                <p>
+                  {nextRoom
+                    ? t("StudentCoursePage.classTaskDesc", { title: nextRoom.title })
+                    : t("StudentCoursePage.classNoContentYet")}
+                </p>
+              </div>
+              <StatusBadge meta={heroStatusMeta} />
+            </div>
+
+            {view.activePath ? (
+              <>
+                {currentSchedule && (
+                  <div className={styles.courseContext}>
+                    <span><MIcon name="schedule" size={18} />{currentSchedule.time}</span>
+                    {currentSchedule.teacher && <span><MIcon name="person" size={18} />{currentSchedule.teacher}</span>}
+                    {currentSchedule.place && <span><MIcon name="location_on" size={18} />{currentSchedule.place}</span>}
+                  </div>
+                )}
+
+                <div className={styles.progress} data-guide="home-progress">
+                  <span className={styles.progressLabel}>{t("StudentCoursePage.taskProgress", { percent: roomProgress })}</span>
+                  <div
+                    className={styles.progressTrack}
+                    role="progressbar"
+                    aria-valuenow={roomProgress}
+                    aria-valuemin={0}
+                    aria-valuemax={100}
+                    aria-label={t("StudentCoursePage.chapterProgressAria", { percent: roomProgress })}
+                  >
+                    <span style={{ width: `${roomProgress}%` }} />
+                  </div>
+                </div>
+
+                <p className={styles.hint}>
+                  <MIcon name="check_circle" size={16} />
+                  {t("StudentCoursePage.hintReady")}
+                </p>
+              </>
+            ) : (
+              <EmptyState
+                icon="event_available"
+                title={t("StudentCoursePage.emptyNoCourseTitle")}
+                description={t("StudentCoursePage.emptyNoCourseDesc")}
+              />
+            )}
+          </section>
 
           {practiceMachines.length > 0 && (
-            <section className={styles.machinePicker} aria-label={t("StudentCoursePage.classMachinesAriaLabel")} data-guide="home-start">
-              <header>
+            <section className={styles.panel} aria-labelledby="class-machines-title" data-guide="home-start">
+              <div className={styles.panelHeading}>
+                <span><MIcon name="dns" size={20} /></span>
                 <div>
-                  <strong>{t("StudentCoursePage.yourClassMachines")}</strong>
-                  <span>{t("StudentCoursePage.machineHint")}</span>
+                  <h2 id="class-machines-title">{t("StudentCoursePage.yourClassMachines")}</h2>
+                  <p>{t("StudentCoursePage.machineHint")}</p>
                 </div>
-              </header>
-              <div className={styles.machineGrid}>
+              </div>
+              <div className={styles.machineList}>
                 {practiceMachines.map((machine) => {
                   const machineName = machine.classMachineName ?? machine.name;
                   const actionLabel = practiceMachineActionLabel(machine, openingMachineId);
@@ -461,17 +572,17 @@ export default function StudentCoursePage() {
                     <div
                       key={machine.machine_node_id
                         ?? `${machine.teaching_class_id ?? "course"}-${machine.vmid}`}
-                      className={styles.machineOption}
+                      className={styles.machineRow}
                     >
                       <button
                         type="button"
-                        className={styles.machineLaunchButton}
+                        className={styles.machineLaunch}
                         onClick={() => openPracticeMachine(machine)}
                         disabled={isGuideDemo || openingMachineId !== null || machine.vmid == null}
                         aria-label={t("StudentCoursePage.machineLaunchAria", { action: actionLabel, name: machineName })}
                       >
                         <span className={styles.machineIcon}>
-                          <MIcon name={machine.type === "lxc" ? "terminal" : "desktop_windows"} size={22} />
+                          <MIcon name={machine.type === "lxc" ? "terminal" : "desktop_windows"} size={20} />
                         </span>
                         <span className={styles.machineCopy}>
                           <strong>{machineName}</strong>
@@ -482,18 +593,18 @@ export default function StudentCoursePage() {
                         </span>
                         <span className={`${styles.machineState} ${machine.status === "running" ? styles.machineStateReady : ""}`}>
                           {actionLabel}
+                          <MIcon name="arrow_forward" size={16} />
                         </span>
-                        <span className={styles.machineArrow}><MIcon name="arrow_forward" size={20} /></span>
                       </button>
                       <button
                         type="button"
-                        className={styles.machineInfoButton}
+                        className={styles.iconBtn}
                         onClick={() => openMachineInformation(machine)}
                         disabled={isGuideDemo || machine.vmid == null}
                         aria-label={t("StudentCoursePage.viewFullInfoAria", { name: machineName })}
                         title={t("StudentCoursePage.viewFullSettingsTitle")}
                       >
-                        <MIcon name="info" size={20} />
+                        <MIcon name="info" size={18} />
                       </button>
                     </div>
                   );
@@ -501,129 +612,8 @@ export default function StudentCoursePage() {
               </div>
             </section>
           )}
-        </section>
-      </main>
-
-      <section className={styles.taskSection} aria-labelledby="task-title" data-guide="home-tasks">
-        <div className={styles.sectionHeading}>
-          <div>
-            <h2 id="task-title">{t("StudentCoursePage.tasksTitle")}</h2>
-          </div>
-          {weeklyAssignmentGroups.length > 0 && (
-            <span>{t("StudentCoursePage.weeksSummary", { count: weeklyAssignmentGroups.length })}</span>
-          )}
-        </div>
-
-        {weeklyAssignmentGroups.length > 0 ? (
-          <div className={styles.assignmentList}>
-            {weeklyAssignmentGroups.map((group, index) => {
-              const firstAssignment = group.assignments[0];
-              const expanded = expandedAssignmentId === group.id;
-              const completionReported = group.assignments.length > 0 && group.assignments.every((assignment) => (
-                Boolean(assignment.completion?.completed)
-              ));
-              const itemCount = group.assignments.reduce(
-                (count, assignment) => count + (assignment.items?.length ?? 0),
-                0,
-              );
-              return (
-                <article
-                  key={group.id}
-                  id={`weekly-task-${group.id}`}
-                  className={`${styles.assignmentRow} ${expanded ? styles.assignmentRowOpen : ""}`}
-                >
-                  <div className={styles.assignmentHeader}>
-                    {group.assignments.length > 0 ? <label className={styles.weekCompletion}>
-                      <input
-                        type="checkbox"
-                        checked={completionReported}
-                        onChange={() => updateCompletion(group)}
-                        disabled={isGuideDemo || reportingAssignmentId !== null}
-                        aria-label={t(completionReported ? "StudentCoursePage.uncheckWeekAria" : "StudentCoursePage.checkWeekAria", { title: group.week?.title ?? firstAssignment?.title })}
-                      />
-                      {reportingAssignmentId === group.id && <MIcon name="sync" size={15} spin />}
-                    </label> : <span className={styles.weekCompletion} aria-hidden="true" />}
-                    <button
-                      type="button"
-                      className={styles.assignmentToggle}
-                      onClick={() => group.week
-                        ? navigate(`/courses/${pathId}/weeks/${group.week.id}`)
-                        : toggleAssignment(group.id)}
-                      aria-expanded={expanded}
-                      aria-controls={`assignment-detail-${group.id}`}
-                      data-guide={group.week ? "course-week-open" : undefined}
-                    >
-                      <span className={styles.taskNumber}>{group.week?.week_number ?? index + 1}</span>
-                      <span className={styles.assignmentTitle}>
-                        <strong>{group.week?.title ?? firstAssignment?.title}</strong>
-                        <small>
-                          {group.week ? t("StudentCoursePage.weekMeta", { week: group.week.week_number, date: group.week.session_date }) : formatAssignmentDate(firstAssignment.approved_at)}
-                          {" · "}{t("StudentCoursePage.itemsCount", { count: itemCount })}
-                        </small>
-                      </span>
-                      <span className={`${styles.assignmentStatus} ${completionReported ? styles.assignmentStatus_completed : styles.assignmentStatus_ready}`}>
-                        <MIcon name={completionReported ? "check_circle" : "pending_actions"} size={16} />
-                        {t(completionReported ? "StudentCoursePage.weekCompleted" : "StudentCoursePage.weekPending")}
-                      </span>
-                      <MIcon name={group.week ? "arrow_forward" : (expanded ? "expand_less" : "expand_more")} size={21} />
-                    </button>
-                  </div>
-
-                  {expanded && (
-                    <div className={styles.assignmentDetail} id={`assignment-detail-${group.id}`}>
-                      {group.assignments.map((assignment) => (
-                        <div className={styles.assignmentDetailBlock} key={assignment.id}>
-                          <div className={styles.aiBrief}>
-                            <span><MIcon name="auto_awesome" size={19} /></span>
-                            <div>
-                              <strong>{group.assignments.length > 1 ? assignment.title : t("StudentCoursePage.aiSummaryTitle")}</strong>
-                              <p>{assignment.summary || t("StudentCoursePage.aiSummaryFallback")}</p>
-                            </div>
-                          </div>
-
-                          <ol className={styles.aiRequirementList}>
-                            {(assignment.items ?? []).map((item, itemIndex) => {
-                              const detectableMeta = AI_DETECTABLE_META[item.detectable]
-                                ?? AI_DETECTABLE_META.manual;
-                              return (
-                                <li
-                                  className={styles.aiRequirementItem}
-                                  key={`${assignment.id}:${item.id}`}
-                                >
-                                  <span className={styles.aiRequirementNumber}>{itemIndex + 1}</span>
-                                  <div className={styles.aiRequirementContent}>
-                                    <strong>{item.title}</strong>
-                                    {item.description && <p>{item.description}</p>}
-                                  </div>
-                                  <span className={`${styles.aiCheckBadge} ${styles[detectableMeta.tone]}`}>
-                                    <MIcon name={detectableMeta.icon} size={15} />
-                                    {t(detectableMeta.labelKey)}
-                                  </span>
-                                </li>
-                              );
-                            })}
-                          </ol>
-                        </div>
-                      ))}
-
-                      <p className={styles.assignmentNote}>
-                        <MIcon name="info" size={16} />
-                        {t("StudentCoursePage.completionNote")}
-                      </p>
-                    </div>
-                  )}
-                </article>
-              );
-            })}
-          </div>
-        ) : (
-          <EmptyState
-            icon="checklist"
-            title={t("StudentCoursePage.emptyNoTasksTitle")}
-            description={t("StudentCoursePage.emptyNoTasksDesc")}
-          />
-        )}
-      </section>
+        </aside>
+      </div>
       {activePracticeResource?.type === "lxc" && (
         <TerminalDialog
           resource={activePracticeResource}

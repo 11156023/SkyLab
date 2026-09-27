@@ -265,21 +265,6 @@
   gap: $spacing-16;
 }
 
-.twoFactorIcon {
-  flex: none;
-  width: 44px;
-  height: 44px;
-  border-radius: $radius-8;
-  background: color-mix(in srgb, var(--color-status-neutral) 12%, transparent);
-  color: var(--color-status-neutral);
-  @include flex-center;
-}
-
-.twoFactorIconOn {
-  background: color-mix(in srgb, var(--color-success) 12%, transparent);
-  color: var(--color-success);
-}
-
 .twoFactorText {
   @include flex-column;
   gap: 2px;
@@ -303,12 +288,17 @@
   color: var(--color-text-secondary);
 }
 
-/* 綁定對話框要放得下 QR code 與步驟說明 */
-.confirmWide {
-  width: min(520px, 100%);
-  max-height: calc(100vh - #{$spacing-32});
-  overflow-y: auto;
+/* 對話框標題列：標題＋右上關閉鈕（任何狀態都能離開，含 TOTP 載入失敗） */
+.dialogHeader {
+  @include flex-between;
+  gap: $spacing-8;
 }
+
+.dialogClose {
+  @include btn-dialog-close;
+  flex-shrink: 0;
+}
+
 
 /* 停用對話框的驗證碼欄：數字置中拉字距（沿用 .confirmInput 的框線／聚焦色） */
 .otpInput.otpInput {
@@ -332,8 +322,8 @@
 
 /* ── Modal ── */
 @keyframes confirmIn {
-  from { opacity: 0; transform: translateY(8px) scale(0.98); }
-  to   { opacity: 1; transform: translateY(0)   scale(1); }
+  from { opacity: 0; transform: translateY(12px); }
+  to   { opacity: 1; transform: translateY(0); }
 }
 
 .modalOverlay {
@@ -343,11 +333,10 @@
   z-index: 300;
   @include flex-center;
   padding: $spacing-16;
-  /* 淺色背景下 --color-overlay 對深色元件（如選中的 tab）幾乎沒有壓暗效果，
-     這裡疊一層額外的暗化，並加大模糊半徑，確保 popup 後方完全看不清內容 */
-  background: color-mix(in srgb, var(--color-overlay) 70%, rgba(10, 14, 28, 0.45));
-  backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
+  /* 遮罩同共用確認框（ConfirmDialog）與樣式規範 */
+  background: var(--color-overlay);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
   animation: fadeIn 0.15s ease;
   transition: opacity 0.15s ease;
 }
@@ -363,42 +352,60 @@
   to   { opacity: 1; }
 }
 
+/* 確認框比照共用 ConfirmDialog：寬 400、毛玻璃預設陰影、圓角 16、標題 16/700、內文 14 */
 .confirm {
-  width: min(420px, 100%);
+  width: min(400px, 100%);
   @include flex-column;
   gap: $spacing-16;
   padding: $spacing-24;
-  @include glass-surface($shadow: var(--shadow-lg));
-  border-radius: $radius-12;
+  @include glass-surface;
+  border-radius: $radius-16;
   animation: confirmIn 0.18s cubic-bezier(0.25, 0.8, 0.25, 1);
 
   h2 {
     margin: 0;
+    font-size: $font-size-16;
+    font-weight: $font-weight-700;
     color: var(--color-text-primary);
   }
 
   p {
     margin: 0;
+    font-size: $font-size-14;
     color: var(--color-text-secondary);
     line-height: $line-height-base;
+    /* 內文可能插入 email 等連續長字串，強制可斷行 */
+    overflow-wrap: anywhere;
 
+    /* 要輸入的確認字：紅字粗體就夠醒目，不鋪底色 */
     code {
-      padding: 1px 6px;
-      border-radius: $radius-8;
-      background: var(--color-hover);
       color: var(--color-danger);
+      font-family: inherit;
       font-weight: $font-weight-700;
     }
   }
 }
 
-.confirmIcon {
-  width: 44px;
-  height: 44px;
-  border-radius: $radius-8;
-  background: color-mix(in srgb, var(--color-danger) 12%, transparent);
-  color: var(--color-danger);
+/* 綁定兩步驟驗證：放得下 QR code 與步驟說明（小型單欄表單款）。
+   要寫在 .confirm 之後，同權重才蓋得過它的 width */
+.confirmWide {
+  width: min(640px, 100%);
+  /* 綁定是表單型 Dialog，照規範用大陰影浮在遮罩上 */
+  box-shadow: var(--shadow-lg);
+  max-height: calc(100vh - #{$spacing-32});
+  overflow-y: auto;
+}
+
+/* 危險確認的標題：前面帶紅色 warning 圖示（同共用確認框） */
+.confirmTitle {
+  display: flex;
+  align-items: center;
+  gap: $spacing-8;
+}
+
+.confirmTitleIcon {
   @include flex-center;
+  color: var(--color-danger);
 }
 
 .confirmInput {

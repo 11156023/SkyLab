@@ -6,10 +6,10 @@
  *   if (!(await confirm({ title: "刪除連線", message: "…", danger: true }))) return;
  * 也接受字串簡寫：await confirm("確定刪除？")
  */
-import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
-import { createPortal } from "react-dom";
+import { createContext, useCallback, useContext, useState } from "react";
 import { useTranslation } from "react-i18next";
 import MIcon from "../MIcon";
+import Modal from "../Modal/Modal";
 import useDialogPresence from "../../hooks/useDialogPresence";
 import styles from "./ConfirmDialog.module.scss";
 
@@ -24,7 +24,6 @@ export function useConfirm() {
 export function ConfirmProvider({ children }) {
   const { t } = useTranslation("common");
   const [pending, setPending] = useState(null); // { options, resolve }
-  const confirmBtnRef = useRef(null);
 
   const confirm = useCallback((options) => {
     const opts = typeof options === "string" ? { message: options } : (options ?? {});
@@ -43,16 +42,6 @@ export function ConfirmProvider({ children }) {
     });
   }, []);
 
-  useEffect(() => {
-    if (!pending) return;
-    confirmBtnRef.current?.focus();
-    const onKeyDown = (e) => {
-      if (e.key === "Escape") close(false);
-    };
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [pending, close]);
-
   // 關閉時保留最後一筆資料，先播放離場動畫再卸載
   const presence = useDialogPresence(pending);
   const opts = presence.item?.options;
@@ -60,43 +49,36 @@ export function ConfirmProvider({ children }) {
   return (
     <ConfirmContext.Provider value={confirm}>
       {children}
-      {presence.open &&
-        createPortal(
-          <div
-            className={`${styles.overlay} ${presence.closing ? styles.overlayOut : ""}`}
-            onClick={() => close(false)}
-          >
-            <div
-              className={styles.dialog}
-              role="alertdialog"
-              aria-modal="true"
-              aria-label={opts.title ?? t("ConfirmProvider.defaultTitle")}
-              onClick={(e) => e.stopPropagation()}
-            >
-              <div className={styles.title}>
-                <span className={opts.danger ? styles.iconDanger : styles.iconWarn}>
-                  <MIcon name={opts.danger ? "warning" : "help"} size={20} />
-                </span>
-                {opts.title ?? t("ConfirmProvider.defaultTitle")}
-              </div>
-              <p className={styles.message}>{opts.message}</p>
-              <div className={styles.actions}>
-                <button type="button" className={styles.btnSecondary} onClick={() => close(false)}>
-                  {opts.cancelText ?? t("ConfirmProvider.cancel")}
-                </button>
-                <button
-                  type="button"
-                  ref={confirmBtnRef}
-                  className={opts.danger ? styles.btnDanger : styles.btnPrimary}
-                  onClick={() => close(true)}
-                >
-                  {opts.confirmText ?? t("ConfirmProvider.confirm")}
-                </button>
-              </div>
-            </div>
-          </div>,
-          document.body,
-        )}
+      {presence.open && (
+        <Modal
+          role="alertdialog"
+          closing={presence.closing}
+          onClose={() => close(false)}
+          icon={
+            <span className={opts.danger ? styles.iconDanger : styles.iconWarn}>
+              <MIcon name={opts.danger ? "warning" : "help"} size={20} />
+            </span>
+          }
+          title={opts.title ?? t("ConfirmProvider.defaultTitle")}
+          description={opts.message}
+          actions={
+            <>
+              <button type="button" className={styles.btnSecondary} onClick={() => close(false)}>
+                {opts.cancelText ?? t("ConfirmProvider.cancel")}
+              </button>
+              {/* 焦點預設落在確認鈕：鍵盤使用者 Enter 確認、Esc 取消 */}
+              <button
+                type="button"
+                autoFocus
+                className={opts.danger ? styles.btnDanger : styles.btnPrimary}
+                onClick={() => close(true)}
+              >
+                {opts.confirmText ?? t("ConfirmProvider.confirm")}
+              </button>
+            </>
+          }
+        />
+      )}
     </ConfirmContext.Provider>
   );
 }

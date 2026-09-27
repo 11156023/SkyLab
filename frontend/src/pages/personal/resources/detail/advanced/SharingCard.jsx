@@ -4,11 +4,11 @@
  */
 
 import { useCallback, useEffect, useState } from "react";
-import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router-dom";
 import styles from "../ResourceDetailPage.module.scss";
 import MIcon from "../../../../../components/MIcon";
+import Modal from "../../../../../components/Modal/Modal";
 import LoadingState from "../../../../../components/LoadingState/LoadingState";
 import useDialogPresence from "../../../../../hooks/useDialogPresence";
 import { useToast } from "../../../../../hooks/useToast";
@@ -29,32 +29,38 @@ function TransferModal({ resource, closing, loading, onClose, onSubmit }) {
   }
 
   return (
-    <div className={`${styles.modalOverlay} ${closing ? styles.modalOverlayOut : ""}`} onMouseDown={onClose}>
-      <form className={styles.modal} onSubmit={submit} onMouseDown={(e) => e.stopPropagation()}>
-        <h2 className={styles.modalTitle}>{t("SharingCard.transferTitle")}</h2>
-        <p className={styles.modalDesc}>{t("SharingCard.transferDesc")}</p>
-        <div className={styles.field}>
-          <label htmlFor="xfer-email">{t("SharingCard.transferEmailLabel")}</label>
-          <input id="xfer-email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder={t("SharingCard.emailPlaceholder")} required />
-        </div>
-        <label className={styles.checkRow}>
-          <input type="checkbox" checked={keepAccess} onChange={(e) => setKeepAccess(e.target.checked)} />
-          <span>{t("SharingCard.keepAccess")}</span>
-        </label>
-        <div className={styles.field}>
-          <label htmlFor="xfer-confirm">{t("SharingCard.transferConfirmLabel", { name: resource?.name })}</label>
-          <input id="xfer-confirm" value={confirmName} onChange={(e) => setConfirmName(e.target.value)} placeholder={resource?.name} />
-        </div>
-        <div className={styles.modalActions}>
+    <Modal
+      as="form"
+      onSubmit={submit}
+      closing={closing}
+      onClose={onClose}
+      busy={loading}
+      title={t("SharingCard.transferTitle")}
+      description={t("SharingCard.transferDesc")}
+      actions={
+        <>
           <button type="button" className={styles.btnSecondary} onClick={onClose} disabled={loading}>
             {t("SharingCard.cancel")}
           </button>
           <button type="submit" className={styles.btnDanger} disabled={loading || !ready}>
             {loading ? t("SharingCard.processing") : t("SharingCard.transfer")}
           </button>
-        </div>
-      </form>
-    </div>
+        </>
+      }
+    >
+      <div className={styles.field}>
+        <label htmlFor="xfer-email">{t("SharingCard.transferEmailLabel")}</label>
+        <input id="xfer-email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder={t("SharingCard.emailPlaceholder")} required />
+      </div>
+      <label className={styles.checkRow}>
+        <input type="checkbox" checked={keepAccess} onChange={(e) => setKeepAccess(e.target.checked)} />
+        <span>{t("SharingCard.keepAccess")}</span>
+      </label>
+      <div className={styles.field}>
+        <label htmlFor="xfer-confirm">{t("SharingCard.transferConfirmLabel", { name: resource?.name })}</label>
+        <input id="xfer-confirm" value={confirmName} onChange={(e) => setConfirmName(e.target.value)} placeholder={resource?.name} />
+      </div>
+    </Modal>
   );
 }
 
@@ -144,15 +150,9 @@ export default function SharingCard({ vmid, resource, canManage, backTo }) {
             <MIcon name="group" size={18} />
             {t("SharingCard.title")}
           </h2>
+          {/* 卡片層級的說明放在大標下方（cardDesc），不在內文自成一行 */}
+          {!classGoverned && canManage && <p className={styles.cardDesc}>{t("SharingCard.scopeNote")}</p>}
         </div>
-        {canManage && !classGoverned && (
-          <div className={styles.headerActions}>
-            <button type="button" className={styles.btnDangerOutline} disabled={busy} onClick={() => setShowTransfer(true)}>
-              <MIcon name="swap_horiz" size={16} />
-              {t("SharingCard.transfer")}
-            </button>
-          </div>
-        )}
       </div>
       <div className={styles.cardBody}>
         {classGoverned ? (
@@ -161,9 +161,31 @@ export default function SharingCard({ vmid, resource, canManage, backTo }) {
           <LoadingState text={t("SharingCard.loading")} />
         ) : (
           <>
+            {canManage && (
+              <div className={styles.shareForm}>
+                <form className={styles.inlineForm} onSubmit={handleAdd}>
+                  <input
+                    type="email"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    placeholder={t("SharingCard.emailPlaceholder")}
+                    aria-label={t("SharingCard.emailPlaceholder")}
+                    disabled={busy}
+                  />
+                  <button type="submit" className={styles.btnSecondary} disabled={busy || !email.trim()}>
+                    <MIcon name="person_add" size={16} />
+                    {t("SharingCard.share")}
+                  </button>
+                </form>
+              </div>
+            )}
+
+            {/* 還沒共享時，上方的輸入框本身就說明了狀態，不另寫「還沒有共享給任何人」 */}
             {shares.length === 0 ? (
-              <p className={styles.mutedText}>{t("SharingCard.noShares")}</p>
+              !canManage && <p className={styles.mutedText}>{t("SharingCard.noShares")}</p>
             ) : (
+              <div className={styles.rowStack}>
+                <span className={styles.factLabel}>{t("SharingCard.sharedWith", { count: shares.length })}</span>
               <div className={styles.keyList}>
                 {shares.map((share) => (
                   <div key={share.id} className={styles.keyItem}>
@@ -189,42 +211,35 @@ export default function SharingCard({ vmid, resource, canManage, backTo }) {
                   </div>
                 ))}
               </div>
+              </div>
             )}
+
+            {/* 轉移是不可逆的危險操作：不放標題列跟一般操作搶位置，收在卡片底部的白底列 */}
             {canManage && (
-              <form className={styles.inlineForm} onSubmit={handleAdd}>
-                <input
-                  type="email"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  placeholder={t("SharingCard.emailPlaceholder")}
-                  disabled={busy}
-                />
-                <button type="submit" className={styles.btnSecondary} disabled={busy || !email.trim()}>
-                  <MIcon name="person_add" size={16} />
-                  {t("SharingCard.share")}
+              <div className={styles.transferRow}>
+                <div className={styles.transferRowText}>
+                  <span className={styles.transferRowTitle}>{t("SharingCard.transferTitle")}</span>
+                  <span className={styles.mutedText}>{t("SharingCard.transferZoneDesc")}</span>
+                </div>
+                <button type="button" className={styles.btnDangerOutline} disabled={busy} onClick={() => setShowTransfer(true)}>
+                  <MIcon name="swap_horiz" size={16} />
+                  {t("SharingCard.transferButton")}
                 </button>
-              </form>
+              </div>
             )}
-            <p className={styles.hintLine}>
-              <MIcon name="info" size={14} />
-              {t("SharingCard.scopeNote")}
-            </p>
           </>
         )}
       </div>
 
-      {/* portal 到 body：卡片的 overflow:hidden + backdrop-filter 會把 fixed modal 困在卡片裡 */}
-      {transferPresence.open &&
-        createPortal(
-          <TransferModal
-            resource={resource}
-            closing={transferPresence.closing}
-            loading={busy}
-            onClose={() => setShowTransfer(false)}
-            onSubmit={handleTransfer}
-          />,
-          document.body,
-        )}
+      {transferPresence.open && (
+        <TransferModal
+          resource={resource}
+          closing={transferPresence.closing}
+          loading={busy}
+          onClose={() => setShowTransfer(false)}
+          onSubmit={handleTransfer}
+        />
+      )}
     </div>
   );
 }

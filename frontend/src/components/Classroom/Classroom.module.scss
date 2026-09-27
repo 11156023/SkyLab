@@ -1,41 +1,10 @@
 /* 教室觀看 dialog / 直播橫幅 / 接管覆蓋 共用樣式 */
 
-.overlay {
-  position: fixed;
-  inset: 0;
-  background: var(--color-overlay);
-  backdrop-filter: blur(4px);
-  -webkit-backdrop-filter: blur(4px);
-  /* 學生畫面 AI 讀不到，直接蓋過 AI 助手 */
-  z-index: $z-screen-dialog;
-  @include flex-center;
-  padding: $spacing-16;
-  animation: fadeIn 0.15s ease;
-  transition: opacity 0.15s ease;
-}
-
-.overlayOut {
-  animation: none;
-  opacity: 0;
-  pointer-events: none;
-}
-
 @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
 
+/* 遮罩、毛玻璃外框、畫面型層級（蓋過 AI 助手）由共用 Modal（layer="screen"、bare）提供；這裡只留觀看畫面的高度 */
 .dialog {
-  width: 100%;
-  max-width: 1280px;
   height: 88vh;
-  @include glass-surface;
-  border-radius: $radius-16;
-  @include flex-column;
-  overflow: hidden;
-  animation: slideUp 0.18s cubic-bezier(0.25, 0.8, 0.25, 1);
-}
-
-@keyframes slideUp {
-  from { opacity: 0; transform: translateY(16px); }
-  to   { opacity: 1; transform: translateY(0); }
 }
 
 /* ── Header ── */

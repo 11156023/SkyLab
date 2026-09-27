@@ -3,6 +3,7 @@ import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
 import styles from "./AiApiPage.module.scss";
 import MIcon from "../../../components/MIcon";
+import Modal from "../../../components/Modal/Modal";
 import LoadingState from "../../../components/LoadingState/LoadingState";
 import SharedEmptyState from "../../../components/EmptyState/EmptyState";
 import SegmentedControl from "../../../components/SegmentedControl/SegmentedControl";
@@ -203,12 +204,11 @@ function KeyMenu({ rotateDisabled, busy, onRename, onRotate, onDelete, onClose, 
   );
 }
 
-/* 完整金鑰只留在開啟中的詳細視窗，清單維持前綴。 */
+/* 完整金鑰只留在開啟中的詳細視窗，清單維持前綴。
+   外框交給共用 Modal（Esc、焦點、Tab 鎖定、捲動鎖都由它處理） */
 function KeyDetailDialog({ credential, apiKey, onClose }) {
   const { t } = useTranslation("ai");
   const toast = useToast();
-  const dialogRef = useRef(null);
-  const closeRef = useRef(null);
   const [loadedKey, setLoadedKey] = useState(apiKey || "");
   const [keyLoading, setKeyLoading] = useState(!apiKey);
   const [keyError, setKeyError] = useState(false);
@@ -242,30 +242,6 @@ function KeyDetailDialog({ credential, apiKey, onClose }) {
     };
   }, [credential.id, apiKey]);
 
-  useEffect(() => {
-    const previousFocus = document.activeElement;
-    closeRef.current?.focus();
-    const closeOnEscape = (event) => {
-      if (event.key === "Escape") onClose();
-      if (event.key !== "Tab") return;
-      const buttons = dialogRef.current?.querySelectorAll("button:not(:disabled)");
-      const first = buttons?.[0];
-      const last = buttons?.[buttons.length - 1];
-      if (event.shiftKey && document.activeElement === first) {
-        event.preventDefault();
-        last?.focus();
-      } else if (!event.shiftKey && document.activeElement === last) {
-        event.preventDefault();
-        first?.focus();
-      }
-    };
-    document.addEventListener("keydown", closeOnEscape);
-    return () => {
-      document.removeEventListener("keydown", closeOnEscape);
-      if (previousFocus?.isConnected) previousFocus.focus();
-    };
-  }, [onClose]);
-
   const copy = async (label, value) => {
     try {
       await navigator.clipboard.writeText(value);
@@ -275,60 +251,49 @@ function KeyDetailDialog({ credential, apiKey, onClose }) {
     }
   };
 
-  return createPortal(
-    <div className={styles.dialogOverlay} role="presentation" onMouseDown={onClose}>
-      <div
-        ref={dialogRef}
-        className={`${styles.dialog} ${styles.keyDetailDialog}`}
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="ai-key-detail-title"
-        onMouseDown={(event) => event.stopPropagation()}
-      >
-        <div className={styles.dialogHeader}>
-          <h2 id="ai-key-detail-title" className={styles.dialogTitle}>{t("AiApiPage.keyDetailTitle")}</h2>
-          <button ref={closeRef} type="button" className={styles.dialogClose} onClick={onClose} aria-label={t("AiApiPage.close")}>
-            <MIcon name="close" size={18} />
-          </button>
+  return (
+    <Modal
+      onClose={onClose}
+      closeButton
+      size="md"
+      title={t("AiApiPage.keyDetailTitle")}
+      actions={<>
+        {baseUrl && <button type="button" className={styles.btnOutline} disabled={!displayApiKey} onClick={() => copy(t("AiApiPage.copyCurlQuickstart"), buildModelsCommand(baseUrl).replace("YOUR_API_KEY", displayApiKey))}>{t("AiApiPage.copyCurlQuickstart")}</button>}
+        <button type="button" className={styles.btnPrimary} disabled={!displayApiKey} onClick={() => copy("API Key", displayApiKey)}>{t("AiApiPage.actionCopyKey")}</button>
+      </>}
+    >
+      <dl className={styles.keyDetailList}>
+        <div className={styles.keyDetailField}>
+          <dt>API Key</dt>
+          <dd className={styles.keyDetailValue}>
+            <code aria-live="polite">{keyLoading ? t("AiApiPage.keyDetailLoading") : displayApiKey || "—"}</code>
+            <button type="button" className={styles.docsCopyButton} disabled={!displayApiKey} onClick={() => copy("API Key", displayApiKey)} aria-label={t("AiApiPage.actionCopyKey")} title={t("AiApiPage.actionCopyKey")}><MIcon name="content_copy" size={16} /></button>
+          </dd>
+          {keyError && <dd role="alert" className={styles.keyDetailHint}>{t("AiApiPage.keyDetailLoadError")}</dd>}
         </div>
-        <dl className={styles.keyDetailList}>
-          <div className={styles.keyDetailField}>
-            <dt>API Key</dt>
-            <dd className={styles.keyDetailValue}>
-              <code aria-live="polite">{keyLoading ? t("AiApiPage.keyDetailLoading") : displayApiKey || "—"}</code>
-              <button type="button" className={styles.docsCopyButton} disabled={!displayApiKey} onClick={() => copy("API Key", displayApiKey)} aria-label={t("AiApiPage.actionCopyKey")} title={t("AiApiPage.actionCopyKey")}><MIcon name="content_copy" size={16} /></button>
-            </dd>
-            {keyError && <dd role="alert" className={styles.keyDetailHint}>{t("AiApiPage.keyDetailLoadError")}</dd>}
-          </div>
-          <div className={styles.keyDetailField}>
-            <dt>{t("AiApiPage.colKeyName")}</dt>
-            <dd className={styles.keyDetailValue}>
-              <span>{credential.api_key_name}</span>
-              <button type="button" className={styles.docsCopyButton} onClick={() => copy(t("AiApiPage.colKeyName"), credential.api_key_name)} aria-label={t("AiApiPage.copyKeyName")} title={t("AiApiPage.copyKeyName")}><MIcon name="content_copy" size={16} /></button>
-            </dd>
-          </div>
-          <div className={styles.keyDetailField}>
-            <dt>Base URL</dt>
-            <dd className={styles.keyDetailValue}>
-              <code>{baseUrl || "—"}</code>
-              {baseUrl && <button type="button" className={styles.docsCopyButton} onClick={() => copy("Base URL", baseUrl)} aria-label={t("AiApiPage.copyBaseUrl")} title={t("AiApiPage.copyBaseUrl")}><MIcon name="content_copy" size={16} /></button>}
-            </dd>
-          </div>
-          <div className={styles.keyDetailMeta}>
-            <div><dt>{t("AiApiPage.colStatus")}</dt><dd>{status}</dd></div>
-            <div><dt>{t("AiApiPage.colCreated")}</dt><dd>{formatDateTime(credential.created_at)}</dd></div>
-            <div><dt>{t("AiApiPage.colExpiry")}</dt><dd>{credential.expires_at ? formatDateTime(credential.expires_at) : t("AiApiPage.durationOptionNever")}</dd></div>
-            <div><dt>{t("AiApiPage.keyDetailRateLimit")}</dt><dd>{credential.rate_limit == null ? "—" : t("AiApiPage.keyDetailRateValue", { count: credential.rate_limit })}</dd></div>
-            {credential.revoked_at && <div><dt>{t("AiApiPage.keyDetailRevoked")}</dt><dd>{formatDateTime(credential.revoked_at)}</dd></div>}
-          </div>
-        </dl>
-        <div className={styles.keyDetailActions}>
-          {baseUrl && <button type="button" className={styles.btnOutline} disabled={!displayApiKey} onClick={() => copy(t("AiApiPage.copyCurlQuickstart"), buildModelsCommand(baseUrl).replace("YOUR_API_KEY", displayApiKey))}>{t("AiApiPage.copyCurlQuickstart")}</button>}
-          <button type="button" className={styles.btnPrimary} disabled={!displayApiKey} onClick={() => copy("API Key", displayApiKey)}>{t("AiApiPage.actionCopyKey")}</button>
+        <div className={styles.keyDetailField}>
+          <dt>{t("AiApiPage.colKeyName")}</dt>
+          <dd className={styles.keyDetailValue}>
+            <span>{credential.api_key_name}</span>
+            <button type="button" className={styles.docsCopyButton} onClick={() => copy(t("AiApiPage.colKeyName"), credential.api_key_name)} aria-label={t("AiApiPage.copyKeyName")} title={t("AiApiPage.copyKeyName")}><MIcon name="content_copy" size={16} /></button>
+          </dd>
         </div>
-      </div>
-    </div>,
-    document.body,
+        <div className={styles.keyDetailField}>
+          <dt>Base URL</dt>
+          <dd className={styles.keyDetailValue}>
+            <code>{baseUrl || "—"}</code>
+            {baseUrl && <button type="button" className={styles.docsCopyButton} onClick={() => copy("Base URL", baseUrl)} aria-label={t("AiApiPage.copyBaseUrl")} title={t("AiApiPage.copyBaseUrl")}><MIcon name="content_copy" size={16} /></button>}
+          </dd>
+        </div>
+        <div className={styles.keyDetailMeta}>
+          <div><dt>{t("AiApiPage.colStatus")}</dt><dd>{status}</dd></div>
+          <div><dt>{t("AiApiPage.colCreated")}</dt><dd>{formatDateTime(credential.created_at)}</dd></div>
+          <div><dt>{t("AiApiPage.colExpiry")}</dt><dd>{credential.expires_at ? formatDateTime(credential.expires_at) : t("AiApiPage.durationOptionNever")}</dd></div>
+          <div><dt>{t("AiApiPage.keyDetailRateLimit")}</dt><dd>{credential.rate_limit == null ? "—" : t("AiApiPage.keyDetailRateValue", { count: credential.rate_limit })}</dd></div>
+          {credential.revoked_at && <div><dt>{t("AiApiPage.keyDetailRevoked")}</dt><dd>{formatDateTime(credential.revoked_at)}</dd></div>}
+        </div>
+      </dl>
+    </Modal>
   );
 }
 
@@ -691,40 +656,11 @@ function ApiDocsContent({ credentials }) {
 function QuickStartModal({ closing = false, credentials, onClose }) {
   const { t } = useTranslation("ai");
 
-  useEffect(() => {
-    const closeOnEscape = (event) => {
-      if (event.key === "Escape") onClose();
-    };
-    document.addEventListener("keydown", closeOnEscape);
-    return () => document.removeEventListener("keydown", closeOnEscape);
-  }, [onClose]);
-
+  /* 標題列固定、文件內容自己捲；寬度用規範的一般級（程式碼一行放得下） */
   return (
-    <div
-      className={`${styles.dialogOverlay} ${closing ? styles.dialogOverlayOut : ""}`}
-      role="presentation"
-      onMouseDown={onClose}
-    >
-      <div
-        className={`${styles.dialog} ${styles.quickStartDialog}`}
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="ai-quick-start-title"
-        onMouseDown={(event) => event.stopPropagation()}
-      >
-        <div className={styles.quickStartHeader}>
-          <div className={styles.quickStartHeading}>
-            <h2 id="ai-quick-start-title" className={styles.dialogTitle}>{t("AiApiPage.quickStartButton")}</h2>
-          </div>
-          <button type="button" className={styles.dialogClose} onClick={onClose} aria-label={t("AiApiPage.close")}>
-            <MIcon name="close" size={18} />
-          </button>
-        </div>
-        <div className={styles.quickStartBody}>
-          <ApiDocsContent credentials={credentials} />
-        </div>
-      </div>
-    </div>
+    <Modal closing={closing} onClose={onClose} closeButton size="lg" title={t("AiApiPage.quickStartButton")}>
+      <ApiDocsContent credentials={credentials} />
+    </Modal>
   );
 }
 
@@ -1139,100 +1075,73 @@ function ApplyKeyModal({
 }) {
   const { t } = useTranslation("ai");
 
-  useEffect(() => {
-    const closeOnEscape = (event) => {
-      if (event.key === "Escape" && !busy) onClose();
-    };
-    document.addEventListener("keydown", closeOnEscape);
-    return () => document.removeEventListener("keydown", closeOnEscape);
-  }, [busy, onClose]);
-
+  /* 外框（遮罩、標題列、Esc、焦點、捲動鎖）交給共用 Modal；送出中 Esc／點遮罩／× 都不關 */
   return (
-    <div
-      className={`${styles.dialogOverlay} ${closing ? styles.dialogOverlayOut : ""}`}
-      role="presentation"
-      onMouseDown={() => { if (!busy) onClose(); }}
-    >
-      <div
-        className={styles.dialog}
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="ai-apply-dialog-title"
-        onMouseDown={(event) => event.stopPropagation()}
-      >
-        <div className={styles.dialogHeader}>
-          <div>
-            <h2 id="ai-apply-dialog-title" className={styles.dialogTitle} data-guide="ai-form">{t("AiApiPage.applyPanelTitle")}</h2>
-          </div>
-          <button
-            type="button"
-            className={styles.dialogClose}
-            onClick={onClose}
-            disabled={busy}
-            aria-label={t("AiApiPage.close")}
-            data-guide="ai-apply-close"
-          >
-            <MIcon name="close" size={18} />
+    <Modal
+      closing={closing}
+      onClose={onClose}
+      busy={busy}
+      closeButton
+      size="md"
+      title={t("AiApiPage.applyPanelTitle")}
+      data-guide="ai-form"
+      closeProps={{ "data-guide": "ai-apply-close" }}
+      actions={
+        <>
+          <span className={`${styles.formHint} ${styles.footerHint}`}>{t("AiApiPage.formHintPurpose")}</span>
+          <button type="button" className={styles.btnOutline} onClick={onClose} disabled={busy}>
+            {t("AiApiPage.cancel")}
           </button>
-        </div>
-
-        <div className={styles.formGroup}>
-          <label className={styles.formLabel} htmlFor="ai-key-name">{t("AiApiPage.formLabelKeyName")}</label>
-          <input
-            id="ai-key-name"
-            type="text"
-            className={styles.formInput}
-            value={apiKeyName}
-            onChange={(e) => onApiKeyNameChange(e.target.value)}
-            placeholder={t("AiApiPage.formPlaceholderKeyName")}
-            maxLength={20}
-            data-guide="ai-apply-name"
-          />
-        </div>
-
-        <div className={styles.formGroup}>
-          <label className={styles.formLabel} htmlFor="ai-purpose">{t("AiApiPage.formLabelPurpose")}</label>
-          <textarea
-            id="ai-purpose"
-            ref={purposeInputRef}
-            className={`${styles.formTextarea} ${purposeInvalid ? styles.fieldInvalid : ""}`}
-            value={purpose}
-            onChange={(e) => onPurposeChange(e.target.value)}
-            placeholder={t("AiApiPage.formPlaceholderPurpose")}
-            rows={5}
-            data-guide="ai-apply-purpose"
-          />
-        </div>
-
-        <div className={styles.formGroup}>
-          <label className={styles.formLabel} htmlFor="ai-duration">{t("AiApiPage.formLabelDuration")}</label>
-          <select
-            id="ai-duration"
-            className={styles.formSelect}
-            value={duration}
-            onChange={(e) => onDurationChange(e.target.value)}
-            data-guide="ai-apply-duration"
-          >
-            {durationOptions.map((opt) => (
-              <option key={opt.value} value={opt.value}>{opt.label}</option>
-            ))}
-          </select>
-        </div>
-
-        <div className={styles.dialogFooter}>
-          <span className={styles.formHint}>{t("AiApiPage.formHintPurpose")}</span>
-          <div className={styles.dialogActions}>
-            <button type="button" className={styles.btnOutline} onClick={onClose} disabled={busy}>
-              {t("AiApiPage.cancel")}
-            </button>
-            <button type="button" className={styles.btnPrimary} onClick={onSubmit} disabled={busy} data-guide="ai-submit">
-              <MIcon name="send" size={16} />
-              {busy ? t("AiApiPage.submitButtonSubmitting") : t("AiApiPage.submitButton")}
-            </button>
-          </div>
-        </div>
+          <button type="button" className={styles.btnPrimary} onClick={onSubmit} disabled={busy} data-guide="ai-submit">
+            <MIcon name="send" size={16} />
+            {busy ? t("AiApiPage.submitButtonSubmitting") : t("AiApiPage.submitButton")}
+          </button>
+        </>
+      }
+    >
+      <div className={styles.formGroup}>
+        <label className={styles.formLabel} htmlFor="ai-key-name">{t("AiApiPage.formLabelKeyName")}</label>
+        <input
+          id="ai-key-name"
+          type="text"
+          className={styles.formInput}
+          value={apiKeyName}
+          onChange={(e) => onApiKeyNameChange(e.target.value)}
+          placeholder={t("AiApiPage.formPlaceholderKeyName")}
+          maxLength={20}
+          data-guide="ai-apply-name"
+        />
       </div>
-    </div>
+
+      <div className={styles.formGroup}>
+        <label className={styles.formLabel} htmlFor="ai-purpose">{t("AiApiPage.formLabelPurpose")}</label>
+        <textarea
+          id="ai-purpose"
+          ref={purposeInputRef}
+          className={`${styles.formTextarea} ${purposeInvalid ? styles.fieldInvalid : ""}`}
+          value={purpose}
+          onChange={(e) => onPurposeChange(e.target.value)}
+          placeholder={t("AiApiPage.formPlaceholderPurpose")}
+          rows={5}
+          data-guide="ai-apply-purpose"
+        />
+      </div>
+
+      <div className={styles.formGroup}>
+        <label className={styles.formLabel} htmlFor="ai-duration">{t("AiApiPage.formLabelDuration")}</label>
+        <select
+          id="ai-duration"
+          className={styles.formSelect}
+          value={duration}
+          onChange={(e) => onDurationChange(e.target.value)}
+          data-guide="ai-apply-duration"
+        >
+          {durationOptions.map((opt) => (
+            <option key={opt.value} value={opt.value}>{opt.label}</option>
+          ))}
+        </select>
+      </div>
+    </Modal>
   );
 }
 

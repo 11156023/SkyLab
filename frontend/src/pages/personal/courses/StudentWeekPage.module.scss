@@ -2,12 +2,9 @@
 @use "../../../assets/styles/mixins" as *;
 
 .page { @include flex-column; width: 100%; min-width: 0; gap: $spacing-24; padding: 0 0 $spacing-32; }
-.header { @include glass-surface($shadow: none); display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: $spacing-16; padding: $spacing-24; border-radius: $radius-16; }
-.header p { margin: 0 0 3px; color: var(--color-primary); font-size: $font-size-12; font-weight: $font-weight-700; }
-.header h1 { margin: 0; color: var(--color-text-primary); font-size: $font-size-24; }
-.titleRow { display: flex; align-items: center; gap: $spacing-8; margin-bottom: 4px; }
-.header div > span { color: var(--color-text-secondary); font-size: $font-size-14; }
-.backButton { display: inline-flex; min-height: 40px; align-items: center; gap: 7px; padding: 8px 12px; border: 1px solid var(--color-border); border-radius: $radius-8; color: var(--color-text-primary); background: var(--color-hover); font: inherit; font-size: $font-size-14; font-weight: $font-weight-700; cursor: pointer; }
+/* 頁首走共用 PageHeader；返回鍵同課程總覽、班級工作區的 btn-secondary */
+.backBtn { @include btn-secondary; box-shadow: var(--shadow-sm); white-space: nowrap; }
+.backBtnAlone { align-self: flex-start; }
 .guideDemoNotice { display: flex; align-items: center; gap: $spacing-8; padding: 10px 12px; border: 1px dashed color-mix(in srgb, var(--color-primary) 55%, var(--color-border)); border-radius: $radius-12; background: color-mix(in srgb, var(--color-primary) 6%, var(--color-surface)); color: var(--color-primary-on-surface); font-size: $font-size-12; }
 .guideDemoNotice span { display: flex; flex-wrap: wrap; gap: 4px; }
 .grid { display: grid; grid-template-columns: minmax(0, 1.45fr) minmax(300px, .75fr); align-items: start; gap: $spacing-16; }
@@ -44,4 +41,4 @@
 .fileList button > :first-child, .fileList button > :last-child { color: var(--color-primary); }
 
 @include respond-below(lg) { .grid { grid-template-columns: 1fr; } }
-@include respond-below(sm) { .page { padding-inline: $spacing-16; } .header { align-items: start; grid-template-columns: 1fr; } .backButton { width: max-content; } .panel { padding: $spacing-16; } .feedbackTop { grid-template-columns: 28px minmax(0, 1fr); } .feedbackStatus { grid-column: 2; } .feedbackBody { padding-left: 51px; } }
+@include respond-below(sm) { .page { padding-inline: $spacing-16; } .panel { padding: $spacing-16; } .feedbackTop { grid-template-columns: 28px minmax(0, 1fr); } .feedbackStatus { grid-column: 2; } .feedbackBody { padding-left: 51px; } }

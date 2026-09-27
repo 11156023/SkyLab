@@ -15,6 +15,7 @@
   "teachingClasses.environmentNotForFormalCourse": "この環境はクイック練習専用であり、正式なコースには適用できません。",
   "teachingClasses.courseVersionNoMachines": "このコースバージョンには割り当て可能なマシンがありません。",
   "teachingClasses.archivedCannotEditWeeklyContent": "終了したクラスの週次内容は変更できません。",
+  "teachingClasses.weekTargetNodeUnknown": "週の対象マシンがこのクラスに存在しません：{keys}",
   "teachingClasses.weekDatesMustMatchSchedule": "週の日付はクラスの固定時間割から生成される必要があり、手動での追加・削除はできません。",
   "teachingClasses.weekNotFound": "指定された週が見つかりません。",
   "teachingClasses.invalidFileName": "ファイル名が無効です。",

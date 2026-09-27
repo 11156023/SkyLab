@@ -1,0 +1,149 @@
+/* ── 遮罩 ── */
+.overlay {
+  @include dialog-overlay-avoid-ai;
+  position: fixed;
+  inset: 0;
+  z-index: 300;
+  @include flex-center;
+  padding: $spacing-16;
+  background: var(--color-overlay);
+  backdrop-filter: blur(4px);
+  animation: fadeIn 0.15s ease;
+  transition: opacity 0.15s ease;
+}
+
+/* 畫面型（終端機、VNC）：AI 讀不到內容，直接蓋過 AI 助手，也不讓位給它 */
+.overlayScreen {
+  z-index: $z-screen-dialog;
+  border-right: 0;
+}
+
+.overlayOut {
+  animation: none;
+  opacity: 0;
+  pointer-events: none;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+/* ── 卡片：全站確認彈窗基準的毛玻璃卡 ── */
+.dialog {
+  @include flex-column;
+  width: 100%;
+  max-height: 90vh;
+  border-radius: $radius-16;
+  animation: slideUp 0.18s cubic-bezier(0.25, 0.8, 0.25, 1);
+
+  /* 開啟時焦點落在卡片本身，只是讓鍵盤操作從這裡開始，不畫外框 */
+  &:focus {
+    outline: none;
+  }
+}
+
+@keyframes slideUp {
+  from { opacity: 0; transform: translateY(12px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* 寬度四級（見樣式規範 Dialog 小節） */
+.sizeSm { max-width: 400px; }
+.sizeLog { max-width: 560px; } /* 錯誤 log 等寬內容款：400 太窄，規範允許放寬到 560 */
+.sizeMd { max-width: 640px; }
+.sizeLg { max-width: 1100px; }
+.sizeXl { max-width: 1280px; }
+
+/* 精簡卡：整張卡一欄，內容太長時整張捲 */
+.compact {
+  @include glass-surface;
+  gap: $spacing-16;
+  padding: $spacing-24;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+/* 自訂版型：只給毛玻璃外框，內容自己排 */
+.bare {
+  @include glass-surface;
+  overflow: hidden;
+}
+
+/* 標題列版：標題列與按鈕列固定，中間內容區自己捲 */
+.withHeader {
+  @include glass-surface($shadow: var(--shadow-lg));
+  overflow: hidden;
+
+  .actions {
+    flex-shrink: 0;
+    padding: $spacing-16 $spacing-24;
+    border-top: 1px solid var(--color-border);
+  }
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: $spacing-8;
+  flex-shrink: 0;
+  padding: $spacing-16 $spacing-24;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.closeBtn {
+  @include btn-dialog-close;
+  flex-shrink: 0;
+}
+
+.body {
+  @include flex-column;
+  flex: 1 1 auto;
+  min-height: 0;
+  gap: $spacing-16;
+  padding: $spacing-24;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+/* ── 內容 ── */
+.titleRow {
+  display: flex;
+  align-items: center;
+  gap: $spacing-8;
+  min-width: 0;
+  /* 標題前的圖示預設跟標題同色；確認框這類要換色的自己包一層 span 上色 */
+  color: var(--color-text-primary);
+}
+
+.title {
+  min-width: 0;
+  font-size: $font-size-16;
+  font-weight: $font-weight-700;
+  color: var(--color-text-primary);
+  /* 標題常帶主機名稱等連續長字串，強制可斷行以免撐破彈窗 */
+  overflow-wrap: anywhere;
+}
+
+.description {
+  font-size: $font-size-14;
+  line-height: $line-height-base;
+  color: var(--color-text-secondary);
+  white-space: pre-line;
+  overflow-wrap: anywhere;
+}
+
+.actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: $spacing-8;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .overlay,
+  .dialog {
+    animation: none;
+    transition: none;
+  }
+}

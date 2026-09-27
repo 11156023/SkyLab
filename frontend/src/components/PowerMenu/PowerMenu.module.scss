@@ -49,6 +49,25 @@
   padding: 2px $spacing-16 $spacing-8;
 }
 
+/* 開機被使用時段擋住時的原因說明（標題下、選項上） */
+.powerMenuNote {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  margin: 0 $spacing-8 $spacing-8;
+  padding: 6px 8px;
+  border-radius: $radius-8;
+  background: color-mix(in srgb, var(--color-danger) 8%, transparent);
+  color: var(--color-danger);
+  font-size: $font-size-12;
+  line-height: 1.5;
+
+  > :global(.material-icons-outlined) {
+    flex-shrink: 0;
+    margin-top: 2px;
+  }
+}
+
 .powerMenuGrid {
   display: grid;
   grid-template-columns: 1fr 1fr;

@@ -217,3 +217,38 @@ def test_role_from_groups_case_insensitive() -> None:
         _role_from_groups([], teacher_group_dn=TEACHER_DN, admin_group_dn=ADMIN_DN)
         == UserRole.student
     )
+
+
+def _ldap_user(role: UserRole) -> SimpleNamespace:
+    return SimpleNamespace(
+        id=uuid.uuid4(), email="u@campus.edu", auth_source="ldap", role=role
+    )
+
+
+def _sync(monkeypatch: pytest.MonkeyPatch, user, *, groups, config) -> None:
+    def _update(*, session, db_user, user_in):
+        db_user.role = user_in.role
+        return db_user
+
+    monkeypatch.setattr(ldap_auth_service.user_repo, "update_user", _update)
+    ldap_auth_service._sync_role_from_directory(
+        session=_FakeSession(), user=user, config=config, info=_info(groups=groups)
+    )
+
+
+def test_admin_removed_from_admin_group_is_demoted(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """有設定 admin 群組時角色以目錄為準：移出群組就撤權。"""
+    user = _ldap_user(UserRole.admin)
+    _sync(monkeypatch, user, groups=[TEACHER_DN], config=_config())
+    assert user.role == UserRole.teacher
+
+
+def test_admin_kept_when_no_admin_group_configured(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """沒有 admin 群組時目錄無法表達管理員，手動指定的 admin 不被降級。"""
+    user = _ldap_user(UserRole.admin)
+    _sync(monkeypatch, user, groups=[], config=_config(admin_group_dn=None))
+    assert user.role == UserRole.admin

@@ -11,17 +11,18 @@ export const EDGE_MARGIN = 8;
  * 依錨點按鈕的視窗座標算出選單的 fixed 位置。
  * 下方放不下且上方較寬裕時往上翻，最後再夾進視窗範圍避免溢出。
  *
- * @param {{top: number, bottom: number, right: number}} rect 錨點的 getBoundingClientRect()
+ * @param {{top: number, bottom: number, left: number, right: number}} rect 錨點的 getBoundingClientRect()
  * @param {number} menuHeight 選單實際高度
  * @param {{width: number, height: number}} viewport 視窗尺寸
+ * @param {"right"|"left"} align 選單與錨點對齊哪一側：按鈕選單右緣對齊，輸入框的建議選單左緣對齊
  */
-export function computePosition(rect, menuHeight, viewport, menuWidth = MENU_WIDTH) {
+export function computePosition(rect, menuHeight, viewport, menuWidth = MENU_WIDTH, align = "right") {
   const spaceBelow = viewport.height - rect.bottom - EDGE_MARGIN;
   const spaceAbove = rect.top - EDGE_MARGIN;
   const openUp = spaceBelow < menuHeight + ANCHOR_GAP && spaceAbove > spaceBelow;
 
   const rawTop  = openUp ? rect.top - ANCHOR_GAP - menuHeight : rect.bottom + ANCHOR_GAP;
-  const rawLeft = rect.right - menuWidth; // 右緣對齊按鈕
+  const rawLeft = align === "left" ? rect.left : rect.right - menuWidth;
   const maxTop  = viewport.height - menuHeight - EDGE_MARGIN;
   const maxLeft = viewport.width - menuWidth - EDGE_MARGIN;
 

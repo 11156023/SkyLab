@@ -111,7 +111,7 @@ function OpenRequestNotice({ request, busy, onApply, onCancel }) {
   }
 
   return (
-    <div className={styles.noteBox}>
+    <div className={`${styles.noteBox} ${styles.noteCard}`}>
       <span className={styles.noteBoxTitle}>
         <MIcon name={display.key === "applying" ? "hourglass_top" : "tune"} size={14} />
         {t("SpecificationsTab.noticeTitle", { status: statusLabel })}
@@ -405,7 +405,7 @@ export default function SpecificationsTab({ vmid }) {
   return (
     <div className={styles.tabStack}>
       {!isAdmin && appliedWarning && !openRequest && (
-        <div className={styles.noteBox}>
+        <div className={`${styles.noteBox} ${styles.noteCard}`}>
           <span className={styles.noteBoxTitle}>
             <MIcon name="warning" size={14} />
             {t("SpecificationsTab.appliedWarningTitle")}
@@ -506,7 +506,7 @@ export default function SpecificationsTab({ vmid }) {
           </div>
 
           {!isAdmin && !specFixed && (
-            <div className={`${styles.field} ${reasonInvalid ? styles.fieldInvalid : ""}`}>
+            <div className={`${styles.field} ${formLocked ? sl.fieldDisabled : ""} ${reasonInvalid ? styles.fieldInvalid : ""}`}>
               <label htmlFor="spec-reason">{t("SpecificationsTab.reasonLabel")}</label>
               <textarea
                 id="spec-reason"

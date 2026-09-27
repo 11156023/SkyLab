@@ -43,7 +43,6 @@ ACTION_CATEGORY: dict[AuditAction, str] = {
     AuditAction.spec_change_apply: "resource",
     AuditAction.spec_direct_update: "resource",
     AuditAction.config_update: "resource",
-    AuditAction.script_deploy: "resource",
     # 申請
     AuditAction.vm_request_submit: "request",
     AuditAction.vm_request_submit_auto_approved: "request",
@@ -51,18 +50,11 @@ ACTION_CATEGORY: dict[AuditAction, str] = {
     AuditAction.vm_request_expired: "request",
     AuditAction.ai_api_request_submit: "request",
     AuditAction.ai_api_request_review: "request",
-    AuditAction.course_lab_deploy: "request",
     AuditAction.quick_practice_machine_create: "request",
     # 使用者 / 群組
     AuditAction.user_create: "user",
     AuditAction.user_update: "user",
     AuditAction.user_delete: "user",
-    AuditAction.batch_provision_vm: "user",
-    AuditAction.batch_provision_lxc: "user",
-    AuditAction.group_create: "user",
-    AuditAction.group_delete: "user",
-    AuditAction.group_member_add: "user",
-    AuditAction.group_member_remove: "user",
     # 防火牆
     AuditAction.firewall_layout_update: "firewall",
     AuditAction.firewall_connection_create: "firewall",
@@ -70,8 +62,6 @@ ACTION_CATEGORY: dict[AuditAction, str] = {
     AuditAction.firewall_rule_create: "firewall",
     AuditAction.firewall_rule_update: "firewall",
     AuditAction.firewall_rule_delete: "firewall",
-    AuditAction.nat_rule_delete: "firewall",
-    AuditAction.nat_rule_sync: "firewall",
     AuditAction.reverse_proxy_rule_delete: "firewall",
     AuditAction.reverse_proxy_rule_sync: "firewall",
     # Gateway
@@ -85,7 +75,6 @@ ACTION_CATEGORY: dict[AuditAction, str] = {
     AuditAction.cloudflare_dns_record_create: "system",
     AuditAction.cloudflare_dns_record_update: "system",
     AuditAction.cloudflare_dns_record_delete: "system",
-    AuditAction.cloudflare_zone_activation_check: "system",
     # Proxmox
     AuditAction.proxmox_config_update: "system",
     AuditAction.proxmox_node_update: "system",

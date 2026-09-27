@@ -21,7 +21,7 @@ import BootOptionsCard from "./advanced/BootOptionsCard";
 import CredentialsCard from "./advanced/CredentialsCard";
 import SharingCard from "./advanced/SharingCard";
 
-export default function AdvancedSettingsTab({ vmid, backTo }) {
+export default function AdvancedSettingsTab({ vmid, backTo, onShowOverview }) {
   const { t } = useTranslation("personal");
 
   const [resource, setResource] = useState(null);
@@ -62,9 +62,10 @@ export default function AdvancedSettingsTab({ vmid, backTo }) {
         />
       </div>
 
-      {!isShared && <div data-guide="resource-setting-boot"><BootOptionsCard vmid={vmid} canManage={canManage} /></div>}
+      {/* 容器沒有開機順序與 ISO 掛載可設定，整張卡片只剩說明，不顯示 */}
+      {!isShared && resource.type !== "lxc" && <div data-guide="resource-setting-boot"><BootOptionsCard vmid={vmid} canManage={canManage} /></div>}
 
-      {canManage && <div data-guide="resource-setting-credentials"><CredentialsCard vmid={vmid} canManage={canManage} /></div>}
+      {canManage && <div data-guide="resource-setting-credentials"><CredentialsCard vmid={vmid} canManage={canManage} onShowOverview={onShowOverview} /></div>}
 
       {canManage && resource.allocation_scope !== "teaching_class" && (
         <div data-guide="resource-setting-sharing"><SharingCard vmid={vmid} resource={resource} canManage={canManage} backTo={backTo} /></div>

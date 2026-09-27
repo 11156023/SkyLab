@@ -506,10 +506,17 @@ describe("RubricsTab 儲存並製作流程", () => {
 });
 
 describe("CreateCheckDialog", () => {
-  test("新增檢查直接詢問名稱並說明會建立空白檢查表", () => {
-    const html = renderToStaticMarkup(
-      <CreateCheckDialog onClose={() => {}} onSubmit={() => {}} />,
-    );
+  test("新增檢查直接詢問名稱並說明會建立空白檢查表", async () => {
+    /* 對話框 portal 到 body，伺服器端渲染不支援 portal，改在 DOM 裡渲染再讀 body */
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    await act(async () => {
+      root.render(<CreateCheckDialog onClose={() => {}} onSubmit={() => {}} />);
+    });
+    const html = document.body.innerHTML;
+    await act(async () => root.unmount());
+    container.remove();
 
     expect(html).toContain('role="dialog"');
     expect(html).toContain('aria-modal="true"');
@@ -1925,8 +1932,9 @@ describe("teacher review run-once（整組檢查點）", () => {
       await new Promise((resolve) => setTimeout(resolve, 10));
     });
 
-    expect(container.textContent).toContain("一次執行整組檢查點");
-    const confirmButton = [...container.querySelectorAll("button")]
+    /* 對話框 portal 到 body，不在 container 裡 */
+    expect(document.body.textContent).toContain("一次執行整組檢查點");
+    const confirmButton = [...document.body.querySelectorAll("button")]
       .find((button) => button.textContent.includes("確認執行"));
     expect(confirmButton).toBeTruthy();
     await act(async () => {

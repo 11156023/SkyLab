@@ -3,6 +3,7 @@ import { useSearchParams } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import styles from "./DomainPage.module.scss";
 import MIcon from "../../../components/MIcon";
+import Modal from "../../../components/Modal/Modal";
 import LoadingState from "../../../components/LoadingState/LoadingState";
 import EmptyState from "../../../components/EmptyState/EmptyState";
 import { useToast } from "../../../hooks/useToast";
@@ -23,14 +24,14 @@ const DNS_TYPES = ["A", "AAAA", "CNAME", "TXT", "MX", "NS", "SRV"];
 function ModalActions({ loading, onClose }) {
   const { t } = useTranslation("system");
   return (
-    <div className={styles.modalActions}>
+    <>
       <button type="button" className={styles.btnSecondary} onClick={onClose} disabled={loading}>
         {t("DomainPage.cancel")}
       </button>
       <button type="submit" className={styles.btnPrimary} disabled={loading}>
         {loading ? t("DomainPage.saving") : t("DomainPage.save")}
       </button>
-    </div>
+    </>
   );
 }
 
@@ -44,15 +45,6 @@ function ConfigModal({ config, loading, closing = false, onClose, onSubmit }) {
     default_dns_target_type: config?.default_dns_target_type ?? "",
     default_dns_target_value: config?.default_dns_target_value ?? "",
   });
-
-  /* Esc 關閉（Dialog 標準行為）；儲存中不關，跟取消鈕的 disabled 一致 */
-  useEffect(() => {
-    const onKeyDown = (e) => {
-      if (e.key === "Escape" && !loading) onClose();
-    };
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [loading, onClose]);
 
   function set(name, value) {
     setForm((prev) => ({ ...prev, [name]: value }));
@@ -69,75 +61,74 @@ function ConfigModal({ config, loading, closing = false, onClose, onSubmit }) {
     onSubmit(body);
   }
 
+  /* 外框（遮罩、標題列、Esc、焦點、捲動鎖）交給共用 Modal；儲存中 Esc／點遮罩／× 都不關 */
   return (
-    <div
-      className={`${styles.modalOverlay} ${closing ? styles.modalOverlayOut : ""}`}
-      onMouseDown={onClose}
+    <Modal
+      as="form"
+      onSubmit={submit}
+      closing={closing}
+      onClose={onClose}
+      busy={loading}
+      closeButton
+      size="md"
+      title={t("DomainPage.configModalTitle")}
+      data-guide="domain-config-form"
+      closeProps={{ "data-guide": "domain-modal-close" }}
+      actions={<ModalActions loading={loading} onClose={onClose} />}
     >
-      <form className={styles.modal} onSubmit={submit} onMouseDown={(e) => e.stopPropagation()} data-guide="domain-config-form">
-        <div className={styles.modalHeader}>
-          <h2>{t("DomainPage.configModalTitle")}</h2>
-          <button type="button" className={styles.dialogClose} onClick={onClose} aria-label={t("DomainPage.close")} data-guide="domain-modal-close">
-            <MIcon name="close" size={18} />
-          </button>
-        </div>
+      <label className={styles.field} data-guide="domain-config-credentials">
+        <span>Account ID</span>
+        <input
+          value={form.account_id}
+          onChange={(e) => set("account_id", e.target.value)}
+          placeholder="Cloudflare Account ID"
+        />
+      </label>
 
-        <label className={styles.field} data-guide="domain-config-credentials">
-          <span>Account ID</span>
-          <input
-            value={form.account_id}
-            onChange={(e) => set("account_id", e.target.value)}
-            placeholder="Cloudflare Account ID"
-          />
-        </label>
+      <label className={styles.field}>
+        {/* 「去哪拿 Token」的連結放在欄位旁，需要時就在手邊 */}
+        <span className={styles.labelRow}>
+          <span>API Token{config?.has_api_token ? t("DomainPage.leaveBlankUnchanged") : " *"}</span>
+          <a
+            className={styles.fieldLink}
+            href="https://dash.cloudflare.com/profile/api-tokens"
+            target="_blank"
+            rel="noreferrer"
+          >
+            {t("DomainPage.tokenGuideLink")}
+            <MIcon name="open_in_new" size={13} />
+          </a>
+        </span>
+        <PasswordInput
+          value={form.api_token}
+          onChange={(e) => set("api_token", e.target.value)}
+          placeholder={config?.has_api_token ? t("DomainPage.apiTokenSetPlaceholder") : t("DomainPage.apiTokenPastePlaceholder")}
+          required={!config?.has_api_token}
+        />
+      </label>
 
+      <div className={styles.fieldRow}>
         <label className={styles.field}>
-          {/* 「去哪拿 Token」的連結放在欄位旁，需要時就在手邊 */}
-          <span className={styles.labelRow}>
-            <span>API Token{config?.has_api_token ? t("DomainPage.leaveBlankUnchanged") : " *"}</span>
-            <a
-              className={styles.fieldLink}
-              href="https://dash.cloudflare.com/profile/api-tokens"
-              target="_blank"
-              rel="noreferrer"
-            >
-              {t("DomainPage.tokenGuideLink")}
-              <MIcon name="open_in_new" size={13} />
-            </a>
-          </span>
-          <PasswordInput
-            value={form.api_token}
-            onChange={(e) => set("api_token", e.target.value)}
-            placeholder={config?.has_api_token ? t("DomainPage.apiTokenSetPlaceholder") : t("DomainPage.apiTokenPastePlaceholder")}
-            required={!config?.has_api_token}
+          <span>{t("DomainPage.defaultDnsTargetType")}</span>
+          <select
+            value={form.default_dns_target_type}
+            onChange={(e) => set("default_dns_target_type", e.target.value)}
+          >
+            <option value="">{t("DomainPage.notSet")}</option>
+            <option value="A">{t("DomainPage.dnsTypeA")}</option>
+            <option value="CNAME">{t("DomainPage.dnsTypeCname")}</option>
+          </select>
+        </label>
+        <label className={styles.field}>
+          <span>{t("DomainPage.defaultDnsTargetValue")}</span>
+          <input
+            value={form.default_dns_target_value}
+            onChange={(e) => set("default_dns_target_value", e.target.value)}
+            placeholder={t("DomainPage.dnsTargetValuePlaceholder")}
           />
         </label>
-
-        <div className={styles.fieldRow}>
-          <label className={styles.field}>
-            <span>{t("DomainPage.defaultDnsTargetType")}</span>
-            <select
-              value={form.default_dns_target_type}
-              onChange={(e) => set("default_dns_target_type", e.target.value)}
-            >
-              <option value="">{t("DomainPage.notSet")}</option>
-              <option value="A">{t("DomainPage.dnsTypeA")}</option>
-              <option value="CNAME">{t("DomainPage.dnsTypeCname")}</option>
-            </select>
-          </label>
-          <label className={styles.field}>
-            <span>{t("DomainPage.defaultDnsTargetValue")}</span>
-            <input
-              value={form.default_dns_target_value}
-              onChange={(e) => set("default_dns_target_value", e.target.value)}
-              placeholder={t("DomainPage.dnsTargetValuePlaceholder")}
-            />
-          </label>
-        </div>
-
-        <ModalActions loading={loading} onClose={onClose} />
-      </form>
-    </div>
+      </div>
+    </Modal>
   );
 }
 
@@ -173,82 +164,78 @@ function RecordModal({ record, loading, closing = false, onClose, onSubmit }) {
   }
 
   return (
-    <div
-      className={`${styles.modalOverlay} ${closing ? styles.modalOverlayOut : ""}`}
-      onMouseDown={onClose}
+    <Modal
+      as="form"
+      onSubmit={submit}
+      closing={closing}
+      onClose={onClose}
+      busy={loading}
+      closeButton
+      size="md"
+      title={isEdit ? t("DomainPage.recordModalEditTitle") : t("DomainPage.recordModalCreateTitle")}
+      description={t("DomainPage.ttlHint")}
+      data-guide="domain-record-form"
+      closeProps={{ "data-guide": "domain-modal-close" }}
+      actions={<ModalActions loading={loading} onClose={onClose} />}
     >
-      <form className={styles.modal} onSubmit={submit} onMouseDown={(e) => e.stopPropagation()} data-guide="domain-record-form">
-        <div className={styles.modalHeader}>
-          <div>
-            <h2>{isEdit ? t("DomainPage.recordModalEditTitle") : t("DomainPage.recordModalCreateTitle")}</h2>
-            <p>{t("DomainPage.ttlHint")}</p>
-          </div>
-          <button type="button" className={styles.dialogClose} onClick={onClose} aria-label={t("DomainPage.close")} data-guide="domain-modal-close">
-            <MIcon name="close" size={18} />
-          </button>
-        </div>
-
-        <div className={styles.fieldRow}>
-          <label className={styles.field}>
-            <span>{t("DomainPage.recordType")}</span>
-            <select value={form.type} onChange={(e) => set("type", e.target.value)}>
-              {DNS_TYPES.map((type) => (
-                <option key={type} value={type}>{type}</option>
-              ))}
-            </select>
-          </label>
-          <label className={styles.field}>
-            <span>TTL</span>
-            <input
-              type="number"
-              min={1}
-              value={form.ttl}
-              onChange={(e) => set("ttl", e.target.value)}
-            />
-          </label>
-        </div>
-
+      <div className={styles.fieldRow}>
         <label className={styles.field}>
-          <span>{t("DomainPage.recordName")}</span>
-          <input
-            value={form.name}
-            onChange={(e) => set("name", e.target.value)}
-            placeholder={t("DomainPage.recordNamePlaceholder")}
-            required
-          />
+          <span>{t("DomainPage.recordType")}</span>
+          <select value={form.type} onChange={(e) => set("type", e.target.value)}>
+            {DNS_TYPES.map((type) => (
+              <option key={type} value={type}>{type}</option>
+            ))}
+          </select>
         </label>
-
         <label className={styles.field}>
-          <span>{t("DomainPage.recordContent")}</span>
+          <span>TTL</span>
           <input
-            value={form.content}
-            onChange={(e) => set("content", e.target.value)}
-            placeholder={t("DomainPage.recordContentPlaceholder")}
-            required
+            type="number"
+            min={1}
+            value={form.ttl}
+            onChange={(e) => set("ttl", e.target.value)}
           />
         </label>
+      </div>
 
-        <label className={styles.field}>
-          <span>{t("DomainPage.recordComment")}</span>
-          <input
-            value={form.comment}
-            onChange={(e) => set("comment", e.target.value)}
-            placeholder={t("DomainPage.optional")}
-          />
-        </label>
+      <label className={styles.field}>
+        <span>{t("DomainPage.recordName")}</span>
+        <input
+          value={form.name}
+          onChange={(e) => set("name", e.target.value)}
+          placeholder={t("DomainPage.recordNamePlaceholder")}
+          required
+        />
+      </label>
 
-        <label className={styles.checkRow}>
-          <input
-            type="checkbox"
-            checked={form.proxied}
-            onChange={(e) => set("proxied", e.target.checked)}
-          />
-          <span>{t("DomainPage.proxiedLabel")}</span>
-        </label>
+      <label className={styles.field}>
+        <span>{t("DomainPage.recordContent")}</span>
+        <input
+          value={form.content}
+          onChange={(e) => set("content", e.target.value)}
+          placeholder={t("DomainPage.recordContentPlaceholder")}
+          required
+        />
+      </label>
 
-        <ModalActions loading={loading} onClose={onClose} />
-      </form>
-    </div>
+      <label className={styles.field}>
+        <span>{t("DomainPage.recordComment")}</span>
+        <input
+          value={form.comment}
+          onChange={(e) => set("comment", e.target.value)}
+          placeholder={t("DomainPage.optional")}
+        />
+      </label>
+
+      <label className={styles.checkRow}>
+        <input
+          type="checkbox"
+          checked={form.proxied}
+          onChange={(e) => set("proxied", e.target.checked)}
+        />
+        <span>{t("DomainPage.proxiedLabel")}</span>
+      </label>
+    </Modal>
   );
 }
 
